@@ -209,6 +209,8 @@ def _detail(
                     product_type=item.product_type,
                     product_name=item.product_name,
                     product_spec_text=item.product_spec_text,
+                    dien_giai=item.dien_giai,
+                    nhom=item.nhom,   # nhãn gộp dòng khi in cho khách
                     quantity=item.quantity,
                     unit=item.unit,
                     total_cost_snapshot=float(item.total_cost_snapshot),

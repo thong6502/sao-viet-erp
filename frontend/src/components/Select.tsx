@@ -27,6 +27,12 @@ interface SelectProps<T extends SelectValue> {
   portal?: boolean;
   id?: string;
   ariaLabel?: string;
+  /** Hiện ô tìm ngay trong popover — dùng khi danh sách dài (vd chọn vật tư trong kho). */
+  searchable?: boolean;
+  /** Chỉ có nghĩa với `searchable`: đẩy chuỗi tìm ra ngoài để gọi API. Có handler này thì
+   *  KHÔNG lọc cục bộ nữa (server đã lọc, lọc thêm sẽ giấu mất kết quả vừa tải về). */
+  onSearch?: (query: string) => void;
+  searchPlaceholder?: string;
 }
 
 export function Select<T extends SelectValue>({
@@ -38,16 +44,28 @@ export function Select<T extends SelectValue>({
   portal = false,
   id,
   ariaLabel,
+  searchable = false,
+  onSearch,
+  searchPlaceholder = "Tìm…",
 }: SelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const [query, setQuery] = useState("");
   const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const listId = useId();
 
   const selected = options.find((o) => o.value === value) ?? null;
+  // Lọc cục bộ CHỈ khi không có `onSearch` (nguồn tĩnh). Có `onSearch` = server lọc rồi.
+  const shown =
+    searchable && !onSearch && query.trim()
+      ? options.filter((o) =>
+          `${o.label} ${o.hint ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()),
+        )
+      : options;
 
   // Portal mode: pin the popover to the trigger's current viewport rect.
   function reposition() {
@@ -86,16 +104,22 @@ export function Select<T extends SelectValue>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, portal]);
 
-  // Highlight the current value each time the list opens.
+  // Highlight the current value each time the list opens. Ô tìm (nếu có) reset + nhận focus.
   useEffect(() => {
     if (!open) return;
-    const i = options.findIndex((o) => o.value === value);
+    const i = shown.findIndex((o) => o.value === value);
     setActive(i >= 0 ? i : 0);
+    if (searchable) {
+      setQuery("");
+      // Focus sau khi popover đã gắn vào DOM (portal render ở tick sau).
+      const t = setTimeout(() => searchRef.current?.focus(), 0);
+      return () => clearTimeout(t);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   function choose(i: number) {
-    const opt = options[i];
+    const opt = shown[i];
     if (!opt) return;
     onChange(opt.value);
     setOpen(false);
@@ -115,7 +139,7 @@ export function Select<T extends SelectValue>({
       setOpen(false);
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActive((a) => Math.min(a + 1, options.length - 1));
+      setActive((a) => Math.min(a + 1, shown.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActive((a) => Math.max(a - 1, 0));
@@ -139,7 +163,34 @@ export function Select<T extends SelectValue>({
           : undefined
       }
     >
-      {options.map((opt, i) => (
+      {searchable && (
+        <li className="sel__search" role="presentation">
+          <input
+            ref={searchRef}
+            className="sel__searchinput"
+            type="text"
+            value={query}
+            placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setActive(0);
+              onSearch?.(e.target.value);
+            }}
+            // Space phải gõ được thành ký tự → chỉ chuyển tiếp phím ĐIỀU HƯỚNG cho listbox.
+            onKeyDown={(e) => {
+              if (["Escape", "ArrowDown", "ArrowUp", "Enter", "Tab"].includes(e.key)) onKeyDown(e);
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          />
+        </li>
+      )}
+      {searchable && shown.length === 0 && (
+        <li className="sel__empty" role="presentation">
+          Không tìm thấy.
+        </li>
+      )}
+      {shown.map((opt, i) => (
         <li
           key={i}
           id={`${listId}-${i}`}

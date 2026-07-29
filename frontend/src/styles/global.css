@@ -409,6 +409,7 @@ body {
 .badge-sem--amber { background: var(--amber-soft); color: var(--amber-deep); }
 .badge-sem--signal { background: var(--signal-soft); color: var(--signal); }
 .badge-sem--muted { background: var(--rule-soft); color: var(--ash); }
+.badge-sem--steel { background: var(--steel-soft); color: var(--steel); }
 
 /* Chip điểm số (uy tín…) theo ngưỡng — page tự chọn variant theo giá trị. */
 .score-chip {

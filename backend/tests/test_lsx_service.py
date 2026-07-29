@@ -334,6 +334,9 @@ def test_dong_khong_co_phieu_tinh_gia_van_tao_duoc_lenh_o_cho_bo_sung(
 
     pv = next(l for l in lsx_svc.preview(d.id)["lines"] if l["order_line_id"] == ol.id)
     assert "khong_co_ptg" in pv["thieu"] and pv["routing"] == []
+    # Chưa có bài tính giá → số dẫn xuất là "chưa tính được" = None (UI hiện "—"), KHÔNG bày 0/1 giả.
+    assert pv["bu_hao_to"] is None and pv["so_to_ke_hoach"] is None and pv["so_to_nguyen"] is None
+    assert pv["so_con"] is None and pv["so_kem"] is None and pv["so_luot"] is None
     [lsx] = lsx_svc.tao(order_id=d.id, order_line_ids=[ol.id], actor=admin)
     assert lsx.trang_thai == TT_CHO_BO_SUNG and lsx.so_luong_dat == ol.qty
     assert lsx.cong_doans == []

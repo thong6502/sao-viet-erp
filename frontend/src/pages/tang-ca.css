@@ -56,3 +56,19 @@
   color: #6b7280;
   font-size: 12px;
 }
+
+/* Sửa "header 1 bên, dữ liệu 1 bên": <th> mặc định canh GIỮA còn <td> canh TRÁI → ép cả hai
+   canh TRÁI cho thẳng hàng. Căn giữa theo chiều dọc để badge + 2 dòng phụ không đội hàng lệch. */
+.tc-table th,
+.tc-table td {
+  text-align: left;
+  vertical-align: middle;
+}
+/* Cột thao tác (Duyệt/Từ chối/Sửa/Hủy): dồn nút về phải, không rớt dòng lẻ. */
+.tc-col-act {
+  width: 1%;
+  white-space: nowrap;
+}
+.tc-table .cc-rowact {
+  justify-content: flex-end;
+}

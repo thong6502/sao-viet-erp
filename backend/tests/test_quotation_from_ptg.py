@@ -444,3 +444,67 @@ def test_accept_empty_selection_rejected(client):
     r = client.post(f"/api/quotations/{q['id']}/transition",
                     json={"to_status": "accepted", "accepted_item_ids": []}, headers=_h(token))
     assert r.status_code == 422
+
+
+def _seed_ptg_nhom(nhan: str = "Sách hướng dẫn A5") -> int:
+    """PTG kiểu SÁCH: ruột + bìa cùng nhãn nhóm, SL bằng nhau (số cuốn)."""
+    db = SessionLocal()
+    try:
+        n = db.query(PhieuTinhGia).count() + 1
+        p = PhieuTinhGia(
+            ma=f"PTG-NHOM-{n:04d}", ten_san_pham="Sách hướng dẫn A5", so_luong=1_200,
+            tong_gia_von=20_000_000, gia_von_don=0, ktv="KTV Test",
+        )
+        db.add(p)
+        db.flush()
+        for i, (ten, von) in enumerate([("Ruột 200 trang", 14_000_000), ("Bìa", 6_000_000)]):
+            db.add(PhieuThanhPhan(
+                phieu_id=p.id, thu_tu=i, ten=ten, so_luong=1_200, gia_von_tp=von,
+                loai_thanh_phan="to_roi", nhom_bao_gia=nhan,
+            ))
+        db.commit()
+        return p.id
+    finally:
+        db.close()
+
+
+def test_nhom_bao_gia_chay_suot_ptg_bao_gia_don_khong_gop_du_lieu(client):
+    """Nhãn nhóm là lớp TRÌNH BÀY: chảy PTG → báo giá → đơn, nhưng KHÔNG gộp dòng dữ liệu.
+
+    Gộp ở tầng dữ liệu là mất mạch xuống sản xuất — `lsx_service` sinh 1 lệnh cho MỖI dòng đơn,
+    nên ruột/bìa phải giữ 2 dòng suốt cả chuỗi thì mới ra 2 lệnh.
+    """
+    token = _token(client)
+    cid = _seed_customer_full()
+    nhan = "Sách hướng dẫn A5"
+    pid = _seed_ptg_nhom(nhan)
+
+    q = client.post("/api/quotations",
+                    json={"phieu_tinh_gia_id": pid, "customer_id": cid}, headers=_h(token))
+    assert q.status_code == 201, q.text
+    items = q.json()["items"]
+    assert len(items) == 2                                   # KHÔNG gộp ở tầng dữ liệu
+    assert {it["nhom"] for it in items} == {nhan}            # nhãn đông cứng sang cả 2 dòng
+
+    r = client.post(f"/api/quotations/{q.json()['id']}/transition",
+                    json={"to_status": "accepted"}, headers=_h(token))
+    assert r.status_code == 200, r.text
+
+    order = client.post("/api/orders",
+                        json={"source_type": "bao_gia", "quotation_id": q.json()["id"]},
+                        headers=_h(token))
+    assert order.status_code == 201, order.text
+    lines = order.json()["lines"]
+    assert len(lines) == 2                                   # đơn vẫn 2 dòng → 2 lệnh sản xuất
+    assert {ln["nhom"] for ln in lines} == {nhan}
+    # Mạch truy vết về ấn phẩm không đứt (lsx đọc cột này để lấy số tờ/kẽm của TỪNG dòng).
+    assert all(ln["phieu_thanh_phan_id"] for ln in lines)
+
+
+def test_nhom_bao_gia_trong_thi_khong_gan_nhan(client):
+    """Không gõ nhóm → `nhom` để None, dòng báo giá đứng riêng như trước (không đổi hành vi cũ)."""
+    token = _token(client)
+    pid = _seed_ptg(products=[("Tờ rơi A5", 30_000, 2_000_000)])
+    q = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token))
+    assert q.status_code == 201, q.text
+    assert q.json()["items"][0]["nhom"] is None

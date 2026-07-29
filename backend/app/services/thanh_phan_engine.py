@@ -175,22 +175,48 @@ def _fit(outer_d: float, outer_r: float, inner_d: float, inner_r: float) -> int:
     return max(straight, rotated)
 
 
+def _suc_chua(usable: float, canh: float, khe: float) -> int:
+    """Số ô xếp trên 1 chiều: k×cạnh + (k−1)×khe ≤ usable ⟺ k ≤ (usable+khe)/(cạnh+khe). >= 0."""
+    buoc = canh + khe
+    if buoc <= 0 or usable <= 0:
+        return 0
+    return max(floor((usable + khe) / buoc), 0)
+
+
 def binh_bai_layout(*, kho_in_dai: float, kho_in_rong: float, dai_tp: float, rong_tp: float,
-                    chua_mm: float = 0.0) -> dict:
+                    chua_mm: float = 0.0, chua_dai_mm: float | None = None,
+                    chua_rong_mm: float | None = None,
+                    bleed_mm: float = 0.0, khe_cat_mm: float = 0.0) -> dict:
     """Bình bài ③ lên ② (trừ chừa) — trả LAYOUT đầy đủ để FE vẽ sơ đồ ĐÚNG engine.
 
-    Trả {con, cols, rows, rotated, usable_dai, usable_rong, kho_in_dai, kho_in_rong, dai_tp, rong_tp}.
-    `rotated`: True nếu hướng xoay 90° cho nhiều con hơn. cols = theo chiều RỘNG, rows = theo chiều DÀI.
+    CHỪA TÁCH THEO CHIỀU: `chua_dai_mm` (nhíp giấy + đuôi/thanh màu — cạnh nạp, ăn chiều DÀI) và
+    `chua_rong_mm` (lề hông 2 bên — ăn chiều RỘNG). Bỏ trống CẢ HAI thì lùi về `chua_mm` trừ đều
+    mỗi chiều như bản cũ — caller cũ giữ nguyên hành vi.
+
+    Con để bình = ③ + 2×`bleed_mm` mỗi chiều (tràn lề); giữa 2 con kề nhau chừa `khe_cat_mm`
+    (n con chỉ có n−1 khe, không phải n).
+
+    Trả {con, cols, rows, rotated, usable_dai, usable_rong, chua_dai, chua_rong, piece_dai,
+    piece_rong, kho_in_dai, kho_in_rong, dai_tp, rong_tp}. cols = theo chiều RỘNG, rows = chiều DÀI.
     """
-    usable_d = max(kho_in_dai - chua_mm, 0.0)
-    usable_r = max(kho_in_rong - chua_mm, 0.0)
+    chua_d = _f(chua_mm) if chua_dai_mm is None else _f(chua_dai_mm)
+    chua_r = _f(chua_mm) if chua_rong_mm is None else _f(chua_rong_mm)
+    bleed, khe = max(_f(bleed_mm), 0.0), max(_f(khe_cat_mm), 0.0)
+    piece_d = dai_tp + 2 * bleed if dai_tp > 0 else dai_tp
+    piece_r = rong_tp + 2 * bleed if rong_tp > 0 else rong_tp
+    usable_d = max(kho_in_dai - chua_d, 0.0)
+    usable_r = max(kho_in_rong - chua_r, 0.0)
     base = {"kho_in_dai": kho_in_dai, "kho_in_rong": kho_in_rong,
             "dai_tp": dai_tp, "rong_tp": rong_tp,
-            "usable_dai": usable_d, "usable_rong": usable_r}
-    if dai_tp <= 0 or rong_tp <= 0 or usable_d <= 0 or usable_r <= 0:
+            "usable_dai": usable_d, "usable_rong": usable_r,
+            "chua_dai": chua_d, "chua_rong": chua_r,
+            "piece_dai": piece_d, "piece_rong": piece_r}
+    if piece_d <= 0 or piece_r <= 0 or usable_d <= 0 or usable_r <= 0:
         return {**base, "con": 0, "cols": 0, "rows": 0, "rotated": False}
-    s_rows, s_cols = floor(usable_d / dai_tp), floor(usable_r / rong_tp)   # thẳng
-    r_rows, r_cols = floor(usable_d / rong_tp), floor(usable_r / dai_tp)   # xoay 90°
+    s_rows = _suc_chua(usable_d, piece_d, khe)      # thẳng
+    s_cols = _suc_chua(usable_r, piece_r, khe)
+    r_rows = _suc_chua(usable_d, piece_r, khe)      # xoay 90°
+    r_cols = _suc_chua(usable_r, piece_d, khe)
     if r_rows * r_cols > s_rows * s_cols:
         rows, cols, rot = r_rows, r_cols, True
     else:
@@ -202,63 +228,14 @@ def binh_bai_layout(*, kho_in_dai: float, kho_in_rong: float, dai_tp: float, ron
 
 
 def binh_bai_con(*, kho_in_dai: float, kho_in_rong: float, dai_tp: float, rong_tp: float,
-                 chua_mm: float = 0.0) -> int:
-    """Số con/tờ in (chỉ số) — bọc `binh_bai_layout`. mm; chua_mm trừ mỗi chiều. >= 0."""
+                 chua_mm: float = 0.0, chua_dai_mm: float | None = None,
+                 chua_rong_mm: float | None = None,
+                 bleed_mm: float = 0.0, khe_cat_mm: float = 0.0) -> int:
+    """Số con/tờ in (chỉ số) — bọc `binh_bai_layout`. mm. >= 0."""
     return binh_bai_layout(kho_in_dai=kho_in_dai, kho_in_rong=kho_in_rong,
-                           dai_tp=dai_tp, rong_tp=rong_tp, chua_mm=chua_mm)["con"]
-
-
-def binh_bai_nghich(*, con: int, dai_tp: float, rong_tp: float, chua_mm: float,
-                    kho_nguyen_dai: float, kho_nguyen_rong: float,
-                    kho_may_dai: float = 0.0, kho_may_rong: float = 0.0) -> dict:
-    """Bình bài NGHỊCH: cho số con ĐÚNG N → khổ tờ in ÍT PHẾ nhất khi xả từ tờ giấy nguyên.
-
-    Duyệt mọi phân rã hàng×cột với hàng×cột = N (đúng N) × 2 hướng xoay SP. Khổ tờ in cần:
-    Dài = hàng×(cạnh SP dọc theo chiều dài) + chừa; Rộng = cột×(cạnh SP theo chiều rộng) + chừa
-    — khớp `binh_bai_layout` (usable = khổ − chừa), nên nạp khổ này trả lại đúng N con.
-    Loại khổ vượt tờ giấy nguyên (và vùng in máy nếu có). Chấm ÍT PHẾ = (số tờ in xả được từ
-    nguyên × N × dt·rt) / (nguyên_dài·nguyên_rộng); chọn max, hòa → khổ nhỏ hơn.
-
-    Trả {con, kho_in_dai, kho_in_rong, rows, cols, rotated, so_to_in, hieu_suat, util_pct}.
-    con=0 khi KHÔNG cách nào đúng N mà lọt nguyên (FE báo đỏ, giữ nguyên khổ). Yêu cầu khổ
-    nguyên > 0 — caller PHẢI bỏ qua (không gọi) khi chưa nhập nguyên.
-    """
-    N = int(con)
-    dt, rt, ch = _f(dai_tp), _f(rong_tp), max(_f(chua_mm), 0.0)
-    KND, KNR = _f(kho_nguyen_dai), _f(kho_nguyen_rong)
-    none = {"con": 0, "kho_in_dai": 0.0, "kho_in_rong": 0.0, "rows": 0, "cols": 0,
-            "rotated": False, "so_to_in": 0, "hieu_suat": 0.0, "util_pct": 0.0}
-    if N < 1 or dt <= 0 or rt <= 0 or KND <= 0 or KNR <= 0:
-        return none
-    # Ràng buộc trên: tờ giấy nguyên, và vùng in máy nếu có (lấy min).
-    max_d = min(KND, _f(kho_may_dai)) if _f(kho_may_dai) > 0 else KND
-    max_r = min(KNR, _f(kho_may_rong)) if _f(kho_may_rong) > 0 else KNR
-    dt_tp, dt_ng = dt * rt, KND * KNR
-    best = None
-    for rows in range(1, N + 1):
-        if N % rows:                       # chỉ phân rã ĐÚNG N (hàng×cột = N)
-            continue
-        cols = N // rows
-        for pd, pr, rot in ((dt, rt, False), (rt, dt, True)):   # 2 hướng xoay sản phẩm
-            D = rows * pd + ch
-            R = cols * pr + ch
-            if D > max_d + 1e-6 or R > max_r + 1e-6:
-                continue
-            sheets = max(floor(KND / D) * floor(KNR / R),       # xả tờ in từ nguyên (± xoay tờ in)
-                         floor(KND / R) * floor(KNR / D))
-            if sheets < 1:
-                continue
-            util = sheets * N * dt_tp / dt_ng
-            key = (round(util, 6), -round(D * R, 3))            # max phế↓; hòa → khổ nhỏ hơn
-            if best is None or key > best[0]:
-                best = (key, D, R, rows, cols, rot, sheets, util)
-    if best is None:
-        return none
-    _, D, R, rows, cols, rot, sheets, util = best
-    hieu_suat = round(N * dt_tp / (D * R) * 100, 1) if D * R > 0 else 0.0
-    return {"con": N, "kho_in_dai": round(D, 1), "kho_in_rong": round(R, 1),
-            "rows": rows, "cols": cols, "rotated": rot, "so_to_in": sheets,
-            "hieu_suat": hieu_suat, "util_pct": round(util * 100, 1)}
+                           dai_tp=dai_tp, rong_tp=rong_tp, chua_mm=chua_mm,
+                           chua_dai_mm=chua_dai_mm, chua_rong_mm=chua_rong_mm,
+                           bleed_mm=bleed_mm, khe_cat_mm=khe_cat_mm)["con"]
 
 
 def _vi(n) -> str:
@@ -297,7 +274,9 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     """Tính chi phí 1 SẢN PHẨM → 2 nhóm (nvl · cong_doan). Trả {name, rows, total, meta}."""
     name = tp.get("ten") or ""
     sl = _i(tp.get("so_luong")) or _i(so_luong_mac_dinh)   # SL của sản phẩm này; 0 → SL mặc định phiếu
-    so_to_per_sp = max(_i(tp.get("so_to_per_sp"), 1), 1)   # số tờ (tay) trên 1 sản phẩm
+    # Số BÀI IN (khuôn) khác nhau của 1 sản phẩm — KHÔNG phải số tờ giấy trong sản phẩm.
+    # Nhân cả số tờ in LẪN số bộ kẽm: sách 100 trang bình 16 trang/tay = 7 bài, mỗi bài 1 bộ kẽm.
+    so_to_per_sp = max(_i(tp.get("so_to_per_sp"), 1), 1)
     qc = tp.get("quy_cach_in", "mot_mat")
     passes = 1 if qc == "mot_mat" else 2                    # số mặt qua máy (2 mặt / tự trở = 2)
 
@@ -327,15 +306,41 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         )
     dai_tp = _f(tp.get("dai_thanh_pham"))    # thành phẩm ③
     rong_tp = _f(tp.get("rong_thanh_pham"))
-    chua_mm = (_f(tp.get("chua_xen")) + _f(tp.get("chua_tay_ke")) + _f(tp.get("chua_nhip"))
-               + _f(tp.get("chua_duoi")) + _f(tp.get("chua_ca_gay")))
+    # CHỪA TÁCH THEO CHIỀU (không gộp 1 số trừ cả 2 chiều như bản cũ — nhíp không ăn chiều rộng):
+    #  · DÀI  ← nhíp GIẤY (cạnh nạp, 1 đầu) + đuôi/thanh màu. Nhíp ưu tiên `chua_nhip` của phiếu,
+    #           trống thì lấy `nhip_giay_mm` của máy (KHÁC `gripper_mm` = nhíp kẽm, đừng lẫn).
+    #  · RỘNG ← lề hông ×2 (hai bên).
+    #  · xén / cả gáy: chưa có căn cứ gán chiều (và chưa có ô nhập) → giữ cách cũ, cộng đều 2 chiều.
+    nhip = _f(tp.get("chua_nhip")) or _f(tp.get("nhip_giay_mm"))
+    duoi = _f(tp.get("chua_duoi")) or _f(tp.get("duoi_thang_mau_mm"))
+    le_hong = _f(tp.get("chua_tay_ke")) or _f(tp.get("le_hong_mm"))
+    chua_deu = _f(tp.get("chua_xen")) + _f(tp.get("chua_ca_gay"))
+    chua_dai = nhip + duoi + chua_deu
+    chua_rong = le_hong * 2 + chua_deu
+    bleed = _f(tp.get("bleed_mm"))
+    khe_cat = _f(tp.get("khe_cat_mm"))
 
     # --- ④ con/tờ: auto bình bài, override được ---
     con_auto = tp.get("con_auto", True)
     con = 0
     if con_auto and dai_tp > 0 and rong_tp > 0 and kho_in_d > 0 and kho_in_r > 0:
-        con = binh_bai_con(kho_in_dai=kho_in_d, kho_in_rong=kho_in_r,
-                           dai_tp=dai_tp, rong_tp=rong_tp, chua_mm=chua_mm)
+        lay = binh_bai_layout(kho_in_dai=kho_in_d, kho_in_rong=kho_in_r,
+                              dai_tp=dai_tp, rong_tp=rong_tp,
+                              chua_dai_mm=chua_dai, chua_rong_mm=chua_rong,
+                              bleed_mm=bleed, khe_cat_mm=khe_cat)
+        con = lay["con"]
+        # Bài (phần đặt con, chưa kể chừa) phải lọt VÙNG IN máy — chỉ nhắc, KHÔNG chặn/tự sửa.
+        vung_d, vung_r = _f(tp.get("vung_in_dai")), _f(tp.get("vung_in_rong"))
+        if con > 0 and vung_d > 0 and vung_r > 0:
+            bai_d = lay["rows"] * (lay["piece_rong"] if lay["rotated"] else lay["piece_dai"])
+            bai_r = lay["cols"] * (lay["piece_dai"] if lay["rotated"] else lay["piece_rong"])
+            bai_d += max(lay["rows"] - 1, 0) * khe_cat
+            bai_r += max(lay["cols"] - 1, 0) * khe_cat
+            if bai_d > vung_d + 1e-6 or bai_r > vung_r + 1e-6:
+                warnings.append(
+                    f"Thành phần '{name}': bài bình {bai_d:g}×{bai_r:g} vượt vùng in máy "
+                    f"{vung_d:g}×{vung_r:g} — máy không in hết bài."
+                )
         if con < 1:
             warnings.append(f"Thành phần '{name}': khổ thành phẩm lớn hơn khổ tờ in — bình bài = 0, tạm 1 con/tờ.")
             con = 1
@@ -365,9 +370,12 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     to_sau_in = max(to_dau_vao - hao, 0.0)
     to_nguyen = ceil(to_dau_vao / xa) if to_dau_vao > 0 else 0
 
-    so_mau_a = _i(tp.get("so_mau_a"))
-    so_mau_b = _i(tp.get("so_mau_b"))
-    so_mau = so_mau_a + so_mau_b
+    so_mau_a = _i(tp.get("so_mau_a"))     # màu PROCESS mặt A (CMYK…)
+    so_mau_b = _i(tp.get("so_mau_b"))     # màu PROCESS mặt B
+    # Màu pha (Pantone) CỘNG THÊM — mỗi màu mực chạy 1 đơn vị máy là 1 bản kẽm, màu pha cũng vậy.
+    # 4 màu CMYK + 1 Pantone = 5 kẽm. Ô "Số màu mặt A/B" là màu process, KHÔNG gồm màu pha.
+    so_mau_pha = max(_i(tp.get("so_mau_pha")), 0)
+    so_mau = so_mau_a + so_mau_b + so_mau_pha
     co_in = bool(tp.get("co_in", True))
 
     # --- Biến đổi đơn vị cho biến công thức (mm -> m) ---
@@ -382,6 +390,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     # --- Số kẽm ---
     # 1 bộ kẽm mang cả 2 mặt (mot_mat / tự trở / trở nhíp) → chỉ màu A; AB (hai_mat) = 2 bộ riêng A+B.
     kem_mau = so_mau_a if qc in ("mot_mat", "tu_tro", "tro_nhip") else (so_mau_a + so_mau_b)
+    kem_mau += so_mau_pha        # màu pha = mực riêng, chạy đơn vị riêng → bản kẽm riêng
     so_kem = kem_mau * so_to_per_sp
     so_luot = to_dau_vao * passes
 
@@ -396,6 +405,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         "so_luong": sl,
         "so_tp": con,
         "so_mau": so_mau,
+        "so_mau_pha": so_mau_pha,
         "so_mat": passes,
         "so_kem": so_kem,
         "to_dau_vao": to_dau_vao,
@@ -481,56 +491,13 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             "cong_thuc": dan_vt,
         })
 
-    # --- Công đoạn trong chuỗi thuộc print/prepress → In/Kẽm ĐÃ là CÔNG ĐOẠN (không hard-code nữa) ---
+    # Chuỗi công đoạn là NGUỒN DUY NHẤT: In / Chế bản phải nằm trong routing như mọi công đoạn
+    # khác. KHÔNG tự đẻ dòng thay thế khi chuỗi thiếu — chỉ NHẮC để người dùng tự thêm.
     chain_nhoms = {((r.get("cong_doan") or {}).get("nhom")) for r in (tp.get("thanh_phams") or [])}
-    has_print_cd = "print" in chain_nhoms
-    has_prepress_cd = "prepress" in chain_nhoms
-
-    # --- Công in (FALLBACK field cứng — chỉ khi chuỗi CHƯA có công đoạn 'print') ---
-    if co_in and not has_print_cd:
-        dg_in = _f(tp.get("don_gia_cong_in"))
-        formula = "to_dau_vao * so_mat * don_gia_luot"
-        
-        eval_ctx = dict(ctx_vars)
-        eval_ctx["don_gia"] = dg_in
-        eval_ctx["don_gia_luot"] = dg_in
-
-        try:
-            tien_in = safe_eval(formula, eval_ctx)
-        except Exception as e:
-            warnings.append(f"Thành phần '{name}': lỗi công thức công in ({e}) — tính 0đ.")
-            tien_in = 0.0
-
-        rows["cong_doan"].append({
-            "ten": _pre(name, "Công in"),
-            "thanh_tien": _r(tien_in),
-            "gia_don_sp": _r(tien_in / sl) if sl > 0 else 0.0,
-            "cong_thuc": format_substituted_formula(formula, eval_ctx),
-            "ghi_chu": f"{so_luot} lượt ({to_dau_vao} tờ × {passes} mặt)"
-        })
-
-    # --- Chế bản/kẽm (FALLBACK field cứng — chỉ khi chuỗi CHƯA có công đoạn 'prepress') ---
-    if co_in and so_kem > 0 and not has_prepress_cd:
-        che_ban_dg = _f(tp.get("che_ban_don_gia"))
-        formula = "so_kem * don_gia_kem"
-        
-        eval_ctx = dict(ctx_vars)
-        eval_ctx["don_gia"] = che_ban_dg
-        eval_ctx["don_gia_kem"] = che_ban_dg
-
-        try:
-            tien_che_ban = safe_eval(formula, eval_ctx)
-        except Exception as e:
-            warnings.append(f"Thành phần '{name}': lỗi công thức chế bản ({e}) — tính 0đ.")
-            tien_che_ban = 0.0
-
-        rows["cong_doan"].append({
-            "ten": _pre(name, "Chế bản / kẽm"),
-            "thanh_tien": _r(tien_che_ban),
-            "gia_don_sp": _r(tien_che_ban / sl) if sl > 0 else 0.0,
-            "cong_thuc": format_substituted_formula(formula, eval_ctx),
-            "ghi_chu": "",
-        })
+    if co_in and "print" not in chain_nhoms:
+        warnings.append(f"Thành phần '{name}': chuỗi chưa có công đoạn IN — chưa tính tiền in.")
+    if co_in and so_kem > 0 and "prepress" not in chain_nhoms:
+        warnings.append(f"Thành phần '{name}': chuỗi chưa có công đoạn CHẾ BẢN/KẼM — chưa tính tiền kẽm.")
 
     # --- Công đoạn trong chuỗi (chế bản/in/gia công) theo thứ tự routing ---
     ctx_base = {
@@ -616,6 +583,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             "cong_thuc": cong_thuc,
             "ghi_chu": ghi_chu,
         })
+
 
     total = sum(_f(r.get("thanh_tien")) for grp in rows.values() for r in grp)
     return {

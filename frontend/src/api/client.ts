@@ -198,6 +198,21 @@ export type QuoteEvent =
   // duyệt/từ chối → 'ot_decision' đẩy riêng cho nhân viên nộp phiếu.
   | { type: "ot_pending_changed"; code?: string }
   | { type: "ot_decision"; code?: string; decision: "approved" | "rejected" }
+  // Phiếu đi muộn / về sớm / nghỉ nửa buổi: cùng luồng với tăng ca (tổ trưởng duyệt), bảng riêng.
+  | { type: "el_pending_changed"; code?: string }
+  | { type: "el_decision"; code?: string; decision: "approved" | "rejected" }
+  // Quản lý đổi ca của một người → đẩy RIÊNG cho chính người đó (5 đường: lưới phân ca, panel
+  // Gán ca, gán hàng loạt, sửa hồ sơ, gỡ mốc). `count` = số thay đổi trong lần lưu đó.
+  | { type: "shift_changed"; count?: number }
+  // Sản xuất (Lát 1) dùng CHUNG kênh hub — tín hiệu NHẸ để hộp việc tổ refetch + "ting". Số chính
+  // xác lấy qua to-badges/inbox (đã lọc scope server-side). `lenh_sx_routing` = có lệnh mới PHÁT
+  // vào các tổ `to_ids`; `lenh_sx_assigned` = 1 thợ được gán (đích danh tới user).
+  | { type: "lenh_sx_routing"; form_id?: number; lenh_ids?: number[]; to_ids: number[] }
+  | { type: "lenh_sx_assigned"; lenh_id: number; to_id: number | null }
+  | { type: "lenh_sx_phat"; form_id: number; lenh_ids: number[] }
+  | { type: "lenh_sx_duyet_mau"; lenh_id: number }
+  | { type: "lenh_sx_ban_giao"; lenh_id: number; ban_giao_id: number; to_nhan_id: number | null }
+  | { type: "lenh_sx_qc_loi"; lenh_id: number; qc_id: number; to_bi_quy_id: number | null }
   // Handoff Đơn → bàn Kế hoạch SX: đơn chốt 'bắn xuống' hàng chờ; Sale đổi gấp/lưu ý SAU chốt →
   // bàn kế hoạch "ting" (badge nhảy). Nội dung chính xác FE refetch hàng chờ / detail.
   | { type: "order_ordered"; code?: string; order_id: number }
@@ -209,7 +224,11 @@ export type QuoteEvent =
   // Xếp lịch: đưa vào/gỡ kế hoạch · gán máy-ca-giờ · khóa → bàn Xếp lịch + badge cập nhật ngay.
   | { type: "xep_lich_changed" }
   // Chốt (thông tin) → báo KẾ TOÁN "đơn chờ ghi cọc" (popup module Phiếu thu). amount = cần thu.
-  | { type: "order_deposit_needed"; code?: string; order_id: number; amount: number };
+  | { type: "order_deposit_needed"; code?: string; order_id: number; amount: number }
+  // Kho (spec-kho-de-nghi §10): `stock_request` = tin đích danh có sẵn câu chữ để toast;
+  // `stock_request_pending_changed` = tín hiệu NHẸ (danh sách chờ đổi) → chỉ refetch badge.
+  | { type: "stock_request"; code?: string; message: string }
+  | { type: "stock_request_pending_changed"; code?: string };
 
 // --- Lệnh sản xuất (LSX) — bàn Kế hoạch sản xuất ------------------------------
 // Job (đơn) → Part (lệnh) → Operation (công đoạn). Mỗi DÒNG ĐƠN = 1 lệnh, ngang hàng.
@@ -609,12 +628,15 @@ export interface LsxPreviewLine {
   don_vi_tinh: string;
   phieu_thanh_phan_id: number | null;
   ptg_ma: string | null;
-  bu_hao_to: number;
-  so_to_ke_hoach: number;
-  so_to_nguyen: number;
-  so_con: number;
-  so_kem: number;
-  so_luot: number;
+  /** Nhãn nhóm — chỉ gom hiển thị; sản xuất vẫn 1 lệnh cho mỗi dòng đơn. */
+  nhom: string | null;
+  // null = chưa tính được (dòng chưa có bài tính giá) → hiện "—", không phải số 0 thật.
+  bu_hao_to: number | null;
+  so_to_ke_hoach: number | null;
+  so_to_nguyen: number | null;
+  so_con: number | null;
+  so_kem: number | null;
+  so_luot: number | null;
   routing: LsxPreviewRouting[];
   quy_cach: Record<string, unknown> | null;
   thieu: string[];
@@ -707,6 +729,8 @@ export interface LsxBuocMacDinh {
 }
 export interface LsxListItem {
   id: number; ma: string; loai: string; ten: string; trang_thai: LsxTrangThai;
+  /** Nhãn nhóm của dòng đơn — cho biết lệnh "Bìa" thuộc "Catalogue A4 - 32 trang". */
+  nhom: string | null;
   order_id: number; order_no: string | null; customer_name: string | null;
   so_luong_dat: number; don_vi_tinh: string; so_to_ke_hoach: number;
   han_giao_khach: string | null; han_hoan_thanh_sx: string | null;
@@ -715,6 +739,8 @@ export interface LsxListItem {
 export interface LsxListOut { items: LsxListItem[]; total: number }
 export interface LsxDetail {
   id: number; ma: string; loai: string; lsx_goc_id: number | null; ten: string;
+  /** Nhãn nhóm đọc sống từ dòng đơn — luôn đúng hiện tại, khác `quy_cach_json` là ảnh chụp. */
+  nhom: string | null;
   trang_thai: LsxTrangThai;
   order_id: number; order_line_id: number; order_no: string | null;
   customer_name: string | null; customer_po_no: string | null; sale_name: string | null;
@@ -937,6 +963,10 @@ export interface ModuleCapability {
   can_toggle_active: boolean;
   can_reparent: boolean;
   can_view_salary: boolean;
+  /** nhan_su — SỬA được nhóm field lương/BHXH của hồ sơ (STK · số sổ BHXH · MST · nhóm lương ·
+   *  `pit_mode`). Thiếu quyền: backend LẶNG LẼ bỏ các field đó khỏi bản ghi, KHÔNG 403 ⇒ UI
+   *  phải đọc lại kết quả rồi mới dám báo "đã đổi". */
+  can_edit_salary: boolean;
   can_adjust: boolean;
   /** A2: don_hang_ban — GĐ duyệt "đơn đặc thù" (chỉ Giám đốc). */
   can_approve_exception: boolean;
@@ -946,6 +976,12 @@ export interface ModuleCapability {
   can_assign_work: boolean;
   can_record_output: boolean;
   can_handover: boolean;
+  /** kho — quyền chi tiết module Kho (spec-kho-de-nghi §9.1) + ghi sổ (SoD). */
+  can_request: boolean;
+  can_view_stock: boolean;
+  can_view_cost: boolean;
+  can_set_threshold: boolean;
+  can_post: boolean;
 }
 
 /** A live login session (active refresh token) for the admin user-detail view (spec-08). */
@@ -997,6 +1033,12 @@ export interface PermissionRow {
   can_assign_work: boolean;
   can_record_output: boolean;
   can_handover: boolean;
+  /** kho — quyền chi tiết module Kho (spec-kho-de-nghi §9.1) + ghi sổ (SoD). */
+  can_request: boolean;
+  can_view_stock: boolean;
+  can_view_cost: boolean;
+  can_set_threshold: boolean;
+  can_post: boolean;
 }
 
 // --- Khách hàng (CRM), spec-06 v2 -------------------------------------------
@@ -1419,7 +1461,13 @@ export interface BinhBaiIn {
   kho_in_rong: number;
   dai_thanh_pham: number;
   rong_thanh_pham: number;
-  chua_mm: number;
+  /** Chừa GỘP — trừ đều mỗi chiều. Dùng khi KHÔNG tách chiều (đường cũ). */
+  chua_mm?: number;
+  /** Chừa TÁCH CHIỀU (ưu tiên hơn `chua_mm`): dài ← nhíp giấy + đuôi; rộng ← lề hông ×2. */
+  chua_dai_mm?: number;
+  chua_rong_mm?: number;
+  bleed_mm?: number;
+  khe_cat_mm?: number;
 }
 export interface BinhBaiOut {
   con: number;
@@ -1428,35 +1476,17 @@ export interface BinhBaiOut {
   rotated: boolean;
   usable_dai: number;
   usable_rong: number;
+  /** Chừa engine ĐÃ trừ, theo từng chiều — FE vẽ sơ đồ theo số này, đừng tự tính lại. */
+  chua_dai: number;
+  chua_rong: number;
+  /** Kích thước 1 con ĐÃ cộng bleed (= thành phẩm + 2×bleed). */
+  piece_dai: number;
+  piece_rong: number;
   kho_in_dai: number;
   kho_in_rong: number;
   dai_tp: number;
   rong_tp: number;
   hieu_suat: number;
-}
-
-/** Bình bài NGHỊCH (POST /api/tinh-gia/binh-bai-nghich) — số con ĐÚNG N → khổ tờ in ít phế nhất.
- *  Yêu cầu khổ giấy nguyên > 0 (caller KHÔNG gọi khi nguyên trống). con=0 = không xếp được đúng N. */
-export interface BinhBaiNghichIn {
-  con: number;
-  dai_thanh_pham: number;
-  rong_thanh_pham: number;
-  chua_mm: number;
-  kho_nguyen_dai: number;
-  kho_nguyen_rong: number;
-  kho_may_dai?: number;
-  kho_may_rong?: number;
-}
-export interface BinhBaiNghichOut {
-  con: number;          // 0 = không xếp được đúng N mà lọt tờ nguyên
-  kho_in_dai: number;
-  kho_in_rong: number;
-  rows: number;
-  cols: number;
-  rotated: boolean;
-  so_to_in: number;     // số tờ in xả được từ 1 tờ giấy nguyên
-  hieu_suat: number;
-  util_pct: number;     // % diện tích tờ nguyên thành thành phẩm
 }
 
 // --- Phiếu tính giá (PERSISTED costing tickets) — master/detail của "Tính giá" ---
@@ -1509,6 +1539,8 @@ export interface ThanhPhanOut {
   rong_thanh_pham: number; // ③
   kho_mo_rong: string | null;
   tay_gap: string | null;
+  /** Nhãn gộp dòng khi báo giá (ruột + bìa 1 cuốn gõ giống nhau). Không vào công thức giá. */
+  nhom_bao_gia: string | null;
   so_to_per_sp: number;
   so_luong: number; // SL đặt của sản phẩm này (0 = lấy SL mặc định phiếu)
   don_vi_tinh: string; // ĐVT sản phẩm (text tự do, mặc định "cái") → chảy sang Báo giá
@@ -1529,6 +1561,10 @@ export interface ThanhPhanOut {
   chua_nhip: number;
   chua_duoi: number;
   chua_ca_gay: number;
+  /** Tràn lề MỖI CẠNH con (0 = không tràn lề) — con để bình = thành phẩm + 2×bleed. */
+  bleed_mm: number;
+  /** Khe giữa 2 con kề nhau (0 = bình sát, cắt chung nhát). n con chỉ có n−1 khe. */
+  khe_cat_mm: number;
   // Kỹ thuật in
   co_in: boolean;
   che_ban_loai: string | null;
@@ -1543,6 +1579,8 @@ export interface ThanhPhanOut {
   // Màu in (gộp — chỉ số màu mỗi mặt)
   so_mau_a: number;
   so_mau_b: number;
+  /** Màu pha Pantone — NẰM TRONG tổng số màu trên, không cộng thêm kẽm. */
+  so_mau_pha: number;
   ghi_chu_ky_thuat: string | null; // note KỸ THUẬT/SX theo sản phẩm → drawer lệnh
   gia_von_tp: number;
   thanh_phams: ThanhPhamOut[];
@@ -1610,6 +1648,7 @@ export interface ThanhPhanIn {
   rong_thanh_pham?: number;
   kho_mo_rong?: string | null;
   tay_gap?: string | null;
+  nhom_bao_gia?: string | null;
   so_to_per_sp?: number;
   so_luong?: number; // SL đặt của sản phẩm này (0 = SL mặc định phiếu)
   don_vi_tinh?: string | null; // ĐVT sản phẩm (text tự do)
@@ -1629,6 +1668,8 @@ export interface ThanhPhanIn {
   chua_nhip?: number;
   chua_duoi?: number;
   chua_ca_gay?: number;
+  bleed_mm?: number;
+  khe_cat_mm?: number;
   co_in?: boolean;
   che_ban_loai?: string | null;
   che_ban_don_gia?: number;
@@ -1641,6 +1682,7 @@ export interface ThanhPhanIn {
   don_gia_cong_in?: number;
   so_mau_a?: number;
   so_mau_b?: number;
+  so_mau_pha?: number;
   ghi_chu_ky_thuat?: string | null; // note KỸ THUẬT/SX theo sản phẩm → drawer lệnh
   thanh_phams?: ThanhPhamIn[];
   vat_tus?: VatTuLineIn[];
@@ -1749,6 +1791,10 @@ export interface QuoteItemDetail {
   product_type: string;
   product_name: string;
   product_spec_text: string | null;
+  /** Diễn giải quy cách in dưới tên SP — mỗi dòng = 1 gạch đầu dòng. Bung từ tính giá, sửa được. */
+  dien_giai: string | null;
+  /** Nhãn nhóm gộp KHI IN: các dòng cùng nhãn (ruột + bìa 1 cuốn) in ra khách thành 1 dòng. */
+  nhom: string | null;
   quantity: number;
   unit: string;
   total_cost_snapshot: number;
@@ -1844,6 +1890,8 @@ export interface QuoteItemUpdateInput {
   vat_percent?: number;
   rounding?: string;
   note?: string | null;
+  /** Diễn giải quy cách in dưới tên SP. BE dump đủ field → không gửi = XOÁ; luôn echo giá trị cũ. */
+  dien_giai?: string | null;
 }
 
 export interface QuotationUpdateInput {
@@ -1873,6 +1921,41 @@ export interface QuotationListParams {
 
 export type EmployeeStatus = "probation" | "active" | "on_leave" | "suspended" | "resigned";
 
+/** Cách tính thuế TNCN của MỘT người (chốt chủ 27/07/2026 — `employees.pit_mode`).
+ *  Ba trạng thái nên dùng chuỗi, không nhồi 2 cờ Boolean (nhồi là mở chỗ để lệch). */
+export type PitMode = "luy_tien" | "khau_tru_10" | "cam_ket_08";
+/** Nhãn + giải thích ngắn cho dropdown "Cách tính thuế TNCN". `warn` = câu cảnh báo hiện
+ *  trong ConfirmDialog TRƯỚC khi lưu (đổi nhánh là đổi TIỀN THUẾ của người đó). */
+export const PIT_MODE_META: Record<PitMode, { label: string; hint: string }> = {
+  luy_tien: {
+    label: "Luỹ tiến từng phần",
+    hint: "HĐ từ 3 tháng trở lên: tính theo bảng thuế luỹ tiến + giảm trừ gia cảnh.",
+  },
+  khau_tru_10: {
+    label: "Khấu trừ 10% tại nguồn",
+    hint: "HĐ dưới 3 tháng / thời vụ / thực tập: KHÔNG áp giảm trừ gia cảnh.",
+  },
+  cam_ket_08: {
+    label: "Có cam kết 08/CK-TNCN",
+    hint: "Cả năm chưa tới ngưỡng chịu thuế ⇒ không khấu trừ thuế TNCN.",
+  },
+};
+export const PIT_MODE_ORDER: PitMode[] = ["luy_tien", "khau_tru_10", "cam_ket_08"];
+
+/** Nhóm lương (`employees.payroll_group`) — trục tra bảng thang bậc (`salary_rate_rules`).
+ *  KHÔNG quyết định mức lương của người: mức lương khai ở Lương → Lương nhân viên, và khoản
+ *  thu nhập gán theo TỪNG NGƯỜI (không có mức mặc định theo nhóm — chốt chủ 27/07/2026). */
+export const PAYROLL_GROUPS: { key: string; label: string }[] = [
+  { key: "van_phong", label: "Khối văn phòng" },
+  { key: "to_in", label: "Tổ In (theo bậc thợ)" },
+  { key: "san_xuat", label: "Tổ sản xuất (dán · bồi · bế · thành phẩm…)" },
+];
+/** Nhóm lạ (dữ liệu cũ / nhóm tự khai) vẫn phải đọc được — không nuốt thành "—". */
+export function payrollGroupLabel(key: string | null | undefined): string {
+  if (!key) return "— chưa gán —";
+  return PAYROLL_GROUPS.find((g) => g.key === key)?.label ?? key;
+}
+
 export interface EmployeeRow {
   id: number;
   code: string;
@@ -1880,7 +1963,12 @@ export interface EmployeeRow {
   department_id: number | null;
   department_name: string | null;
   position: string | null;
+  /** Bậc tay nghề kiểu CŨ (chữ tự gõ). Chỉ còn là đường ĐỌC dữ liệu cũ — hồ sơ mới khai qua
+   *  `job_grade_id`; đổi bậc thì đi qua transition chứ không ghi thẳng field này nữa. */
   job_grade: string | null;
+  /** Bậc tay nghề theo DANH MỤC (`job_grades`) — nguồn sự thật hiện tại. */
+  job_grade_id: number | null;
+  job_grade_name: string | null;
   status: string;
   hire_date: string | null;
   probation_end_date: string | null;
@@ -1917,6 +2005,9 @@ export interface EmployeeDetail extends EmployeeRow {
   social_insurance_no: string | null;
   pit_tax_code: string | null;
   dependents_count: number;
+  /** Cách tính thuế TNCN. `null` = người xem KHÔNG có `nhan_su:view_salary` (backend che
+   *  cùng nhóm field lương/BHXH) — KHÔNG phải "chưa khai", đừng gửi lại null (422). */
+  pit_mode: PitMode | null;
   bank_account: string | null;
   bank_name: string | null;
   default_shift_id: number | null;
@@ -1994,8 +2085,20 @@ export interface EmployeeActivityRow {
   created_at: string;
 }
 
+/** Một bậc tay nghề trong danh mục (`job_grades`). Bậc chỉ để KHAI — không mang tiền, không
+ *  hệ số; `seq` nhỏ = bậc cao (Bậc 1 cao nhất). */
+export interface JobGrade {
+  id: number;
+  code: string;
+  name: string;
+  seq: number;
+  is_active: boolean;
+  note: string | null;
+}
+
 export interface EmployeeMeta {
-  departments: { id: number; name: string }[];
+  /** `la_san_xuat` là cờ HIỆU LỰC — backend đã leo cây cha-con, FE không phải tự suy. */
+  departments: { id: number; name: string; la_san_xuat: boolean }[];
   unlinked_users: { id: number; username: string; name: string }[];
   /** Vai trò để gán cho tài khoản. Role thuộc ĐÚNG 1 phòng ban → lọc theo phòng của hồ sơ. */
   roles: { id: number; name: string; department_id: number }[];
@@ -2013,6 +2116,8 @@ export interface EmployeeInitialSalaryInput {
   /** Lương cơ bản (đóng BH) — mức đóng BHXH/BHYT/BHTN bám số này. */
   luong_vi_tri: number;
   luong_trach_nhiem?: number;
+  /** "Lương trả 1 lần" (đợt 1) — mức điền sẵn khi lập phiếu thanh toán lương đợt 1. */
+  luong_dot_1?: number;
   allowance?: number;
   phu_cap_ca?: number;
   phu_cap_tham_nien?: number;
@@ -2021,6 +2126,9 @@ export interface EmployeeInitialSalaryInput {
   insurance_elsewhere?: boolean;
   /** Đoàn viên công đoàn → mới bị trừ đoàn phí công đoàn. */
   union_member?: boolean;
+  /** % hoa hồng của NV kinh doanh — PHÂN SỐ (0.05 = 5%), backend chặn `le=1`. CHỈ ĐỂ KHAI:
+   *  engine lương KHÔNG tự cộng số này vào bảng lương. */
+  commission_pct?: number;
   note?: string | null;
 }
 
@@ -2028,7 +2136,9 @@ export interface EmployeeInput {
   full_name: string;
   department_id: number | null;
   position?: string | null;
-  job_grade?: string | null;
+  /** Bậc tay nghề — CHỈ gửi được lúc TẠO hồ sơ. `PUT /api/employees/{id}` cố tình bỏ qua field
+   *  này; đổi bậc sau đó phải đi qua `transition` để còn sinh mốc quá trình công tác. */
+  job_grade_id?: number | null;
   status?: string;
   hire_date?: string | null;
   probation_end_date?: string | null;
@@ -2046,6 +2156,9 @@ export interface EmployeeInput {
   social_insurance_no?: string | null;
   pit_tax_code?: string | null;
   dependents_count?: number;
+  /** Cách tính thuế TNCN — chỉ ghi được khi actor có `nhan_su:edit_salary`; thiếu quyền thì
+   *  backend BỎ QUA field này (không 403). Gửi null = 422 (schema có pattern). */
+  pit_mode?: PitMode;
   bank_account?: string | null;
   bank_name?: string | null;
   default_shift_id?: number | null;
@@ -2064,6 +2177,9 @@ export interface EmployeeTransitionInput {
   note?: string | null;
   new_department_id?: number | null;
   new_job_grade?: string | null;
+  /** Bậc tay nghề mới theo danh mục. ⚠ Với `kind: "transfer"` backend XOÁ bậc khi field này
+   *  vắng mặt (bậc tổ cũ không mang sang tổ mới) — muốn giữ thì phải gửi id. */
+  new_job_grade_id?: number | null;
   new_position?: string | null;
   resign_reason?: string | null;
 }
@@ -2154,6 +2270,7 @@ export interface CheckResult {
   success: boolean;
   within_range: boolean;
   check_type: string | null;
+  ot_mode?: boolean;           // lượt vừa chấm thuộc phiên TĂNG CA
   distance_m: number | null;
   nearest_location: NearestLocation | null;
   message: string;
@@ -2168,6 +2285,7 @@ export interface AttendancePreview {
   nearest_name: string | null;
   radius_m: number | null;
   next_action: string | null;  // "in" | "out"
+  ot_mode?: boolean;           // lượt kế tiếp thuộc phiên TĂNG CA
   message: string;
 }
 
@@ -2193,6 +2311,7 @@ export interface AttendanceStatus {
   has_employee: boolean;
   employee_name: string | null;
   next_action: string | null;
+  ot_mode?: boolean;             // lượt kế tiếp thuộc phiên TĂNG CA → đổi nhãn nút
   can_check: boolean;
   check_block_reason: string | null;
   last_check: AttendanceLog | null;
@@ -2246,6 +2365,7 @@ export interface TimesheetDay {
   leave: string | null;  // tên loại nghỉ (nếu ngày nghỉ đã duyệt) HOẶC tên ngày lễ
   leave_paid: boolean;   // nghỉ có lương (P) hay không (KL)
   holiday?: boolean;     // ngày nghỉ lễ hưởng lương (cộng 1 công tự động)
+  planned_off?: boolean; // ngày nghỉ theo lịch phân ca (dấu kế hoạch, không sinh hệ số)
 }
 
 export interface TimesheetRow {
@@ -2259,8 +2379,109 @@ export interface TimesheetRow {
   days: Record<string, TimesheetDay>;
   total_days: number;
   total_leave: number;
+  /** TRONG ĐÓ `total_leave`: số ngày nghỉ CÓ lương (trả theo lương vị trí) — đừng cộng thêm. */
+  paid_leave_days?: number;
+  /** Công THIẾU nhưng có đơn nghỉ theo giờ đã duyệt — KHÔNG nằm trong `total_cong`
+   *  (tiền công vẫn trừ), chỉ để Lương giữ nguyên phụ cấp chuyên cần. */
+  excused_cong?: number;
   total_hours: number;
   total_cong: number | null;
+}
+
+// --- Lưới phân ca tháng (shift plan) ----------------------------------------
+// Ô trống = KẾ THỪA ca mặc định; lưới chỉ dùng để ĐÈ ngày khác thường.
+// `source` cho biết ca đến từ đâu: day = khai tay trên lưới · assign = mốc ca mặc định ·
+// default = cache `default_shift_id` · none = chưa có ca.
+export interface ShiftPlanCell {
+  shift_id: number | null;
+  source: "day" | "assign" | "default" | "none";
+  is_off: boolean;
+}
+
+export interface ShiftPlanDay {
+  day: number;
+  date: string;                       // YYYY-MM-DD
+  weekday: number;                    // Mon=0 … Sun=6
+  is_working: boolean;
+  special_kind: "off" | "work" | "off1x" | null;
+  name: string | null;
+}
+
+export interface ShiftPlanRow {
+  employee_id: number;
+  employee_code: string | null;
+  employee_name: string;
+  department_id: number | null;
+  no_default: boolean;                // cả tháng không có ca nào → UI cảnh báo
+  days: Record<string, ShiftPlanCell>;
+}
+
+export interface ShiftPlanMonth {
+  year: number;
+  month: number;
+  days_in_month: number;
+  locked: boolean;                    // kỳ công đã chốt → lưới read-only
+  calendar: ShiftPlanDay[];
+  shifts: WorkShift[];
+  rows: ShiftPlanRow[];
+}
+
+export interface ShiftPlanPatchItem {
+  employee_id: number;
+  work_date: string;                  // YYYY-MM-DD
+  action: "set" | "off" | "inherit";  // set = gán ca · off = nghỉ · inherit = xoá ô
+  shift_id?: number | null;           // bắt buộc khi action="set"
+}
+
+export interface ShiftPlanReject {
+  employee_id: number | null;
+  date: string;
+  reason: string;
+}
+
+export interface ShiftPlanSaveOut {
+  saved: number;
+  cleared: number;
+  rejected: ShiftPlanReject[];
+  /** Số ô THỰC SỰ đổi (lưu lại y nguyên không tính) — nuôi banner sau khi Lưu. */
+  changed: number;
+  notified: number;
+  /** NV chưa có tài khoản đăng nhập ⇒ không có chỗ nhận thông báo. Nói thẳng, đừng nuốt. */
+  not_notified: number;
+}
+
+// --- Lịch sử thay đổi ca (chủ 28/07/2026) ---
+/** `day` = tô đè MỘT ngày trên lưới · `base` = ca nền, áp từ ngày hiệu lực TRỞ VỀ SAU. */
+export type ShiftChangeKind = "day" | "base";
+/** Thao tác đến từ màn nào — dùng để hiện chip "Gỡ mốc" tách khỏi "Ca nền". */
+export type ShiftChangeOrigin = "grid" | "base_panel" | "base_bulk" | "profile" | "base_remove";
+export interface ShiftChange {
+  id: number;
+  employee_id: number;
+  employee_name: string | null;
+  employee_code: string | null;
+  kind: ShiftChangeKind;
+  origin: ShiftChangeOrigin;
+  action: "set" | "off" | "inherit" | "remove";
+  /** `day` → ngày công bị đổi. `base` → ngày BẮT ĐẦU HIỆU LỰC. Đừng đọc lẫn hai nghĩa này. */
+  apply_date: string;
+  shift_id_before: number | null;
+  shift_name_before: string | null;
+  shift_id_after: number | null;
+  shift_name_after: string | null;
+  is_off_before: boolean;
+  is_off_after: boolean;
+  /** `day`: trước đó ô đang KẾ THỪA ca nền (chưa ai khai tay ngày này). */
+  inherited_before: boolean;
+  actor_user_id: number | null;
+  actor_name: string | null;
+  created_at: string;
+  /** false = NV không có tài khoản ⇒ chưa báo được cho ai. */
+  notified: boolean;
+  seen: boolean;
+}
+export interface AttendanceNotify {
+  unseen_shift_changes: number;
 }
 
 // --- Nghỉ phép (leave) ---
@@ -2294,6 +2515,7 @@ export interface OvertimeRequest {
   minutes: number;
   reason: string | null;
   status: string;
+  decided_by_name: string | null;
   decided_at: string | null;
   decision_note: string | null;
   created_at: string | null;
@@ -2319,6 +2541,62 @@ export interface OvertimeSummary {
 export interface OvertimeBulkResult {
   done: number[];
   skipped: number[];
+}
+
+// --- Đi muộn / về sớm / nghỉ nửa buổi (module `di_muon`) ---------------------
+// Phiếu CHẤM CÔNG ngoại lệ, KHÔNG phải đơn nghỉ phép: 1 phiếu/ngày, tổ trưởng duyệt, khai
+// khoảng VẮNG MẶT (`from_minute`→`to_minute`, phút từ 00:00 ngày công, KHÔNG qua nửa đêm).
+// `leave_type_id` khác null = người tạo tick "trừ vào phép năm" ⇒ tiêu `leave_cong` ngày phép
+// (làm tròn lên 0,5) và phần vắng VẪN được trả lương. Null = mất công phần vắng, quỹ phép nguyên.
+export interface LateEarlyRequest {
+  id: number;
+  employee_id: number;
+  employee_name: string | null;
+  work_date: string;
+  from_minute: number;
+  to_minute: number;
+  minutes: number;
+  leave_type_id: number | null;
+  leave_type_name: string | null;
+  leave_cong: number;
+  reason: string | null;
+  status: string;
+  decided_by_name: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  created_at: string | null;
+}
+export interface LateEarlyInput {
+  work_date: string;
+  from_minute: number;
+  to_minute: number;
+  reason?: string | null;
+  /** Tick "trừ vào phép năm" → id loại nghỉ; bỏ tick → null. */
+  leave_type_id?: number | null;
+}
+export interface LateEarlyForInput extends LateEarlyInput {
+  employee_id: number;
+}
+export interface MyLateEarly {
+  has_employee: boolean;
+  employee_name: string | null;
+  items: LateEarlyRequest[];
+}
+export interface LateEarlySummary {
+  pending_in_scope: number | null;
+  my_decided_unseen: number;
+}
+export interface LateEarlyBulkResult {
+  done: number[];
+  skipped: number[];
+}
+/** Thợ trong tầm + danh mục ca, gác bằng `di_muon:approve`. Tồn tại vì vai "Tổ trưởng SX"
+ *  KHÔNG có module `nhan_su` ⇒ `/api/employees` và `/api/attendance/shifts` đều 403 với họ. */
+export interface LateEarlyRoster {
+  employees: { id: number; code: string | null; full_name: string;
+               department: string | null; default_shift_id: number | null }[];
+  shifts: { id: number; name: string; start_minute: number; end_minute: number;
+            is_overnight: boolean }[];
 }
 
 export interface LeaveRequest {
@@ -2388,6 +2666,13 @@ export interface PayrollParams {
   tnld_bnn_rate: number;
   deduction_self: number;
   deduction_dependent: number;
+  /** Nhánh `khau_tru_10`: thuế = tỷ lệ này × thu nhập chịu thuế (mẫu 0.10 = 10%), chỉ khấu
+   *  trừ khi thu nhập ≥ `pit_flat_threshold`. Hai số đổi theo luật ⇒ ĐỪNG viết cứng vào UI. */
+  pit_flat_rate: number;
+  pit_flat_threshold: number;
+  /** Trần khấu trừ kỷ luật (Điều 102 BLLĐ) — mức LUẬT, mặc định 0.30.
+   *  `0` = TẮT trần: ghi phạt bao nhiêu trừ bấy nhiêu (thực nhận vẫn có sàn 0). */
+  phat_cap_pct: number;
   chuyen_can_default: number;
   standard_hours_per_day: number;
   ot_multiplier: number;
@@ -2400,16 +2685,10 @@ export interface PayrollParams {
   ot_night_extra_pct: number;
   bh_base_cap: number;
   bhtn_base_cap: number;
-  /** Trần tạm ứng/tháng: tổng tạm ứng ≤ tỷ lệ này × (lương vị trí + trách nhiệm). 0 = không giới hạn. */
+  /** DORMANT — trần tạm ứng đã gỡ (2026-07-24). Backend vẫn trả field; FE không còn dùng. */
   advance_max_pct: number;
-}
-/** Hạn mức tạm ứng còn lại của NV trong 1 kỳ. `limit`/`remaining` = null ⇒ không giới hạn. */
-export interface AdvanceQuota {
-  monthly: number;
-  pct: number;
-  limit: number | null;
-  used: number;
-  remaining: number | null;
+  /** Số NGÀY CÔNG tối đa 1 NV được tự xin chỉnh công trong 1 tháng. 0 = không giới hạn. */
+  adjust_max_per_month: number;
 }
 export interface SalaryRule {
   id: number;
@@ -2445,6 +2724,8 @@ export interface EmployeeSalary {
   /** Mức HỢP ĐỒNG riêng của NV — mức nền = vị trí + trách nhiệm. */
   luong_vi_tri: number;
   luong_trach_nhiem: number;
+  /** Lương trả 1 lần (đợt 1) — số điền sẵn khi tạo phiếu "thanh toán lương đợt 1". */
+  luong_dot_1?: number;
   /** Mức đóng BH khai riêng (dormant — engine bám luong_vi_tri). */
   insurance_base: number | null;
   /** 3 khoản PHỤ CẤP KHAI TAY — số cố định, engine cộng phẳng, KHÔNG tự tính gì. */
@@ -2456,6 +2737,11 @@ export interface EmployeeSalary {
   insurance_elsewhere?: boolean;
   /** Đoàn viên công đoàn → mới bị trừ đoàn phí (prefill checkbox Sửa lương). */
   union_member?: boolean;
+  /** Có áp giảm trừ bản thân khi tính TNCN không. Mặc định BẬT; tắt khi người này đã đăng ký
+   *  giảm trừ bản thân ở nơi làm việc khác (luật cho đăng ký ở ĐÚNG MỘT nơi). */
+  apply_self_deduction?: boolean;
+  /** % hoa hồng NV kinh doanh — PHÂN SỐ (0.05 = 5%). Chỉ để khai, engine không tự cộng. */
+  commission_pct?: number;
   note: string | null;
   created_at: string;
   created_by?: number | null;
@@ -2469,6 +2755,8 @@ export interface EmployeeSalaryInput {
   /** Gõ riêng 2 ô mức hợp đồng của chính NV — khai thì amount_mode tự thành 'manual'. */
   luong_vi_tri?: number;
   luong_trach_nhiem?: number;
+  /** Lương trả 1 lần (đợt 1) — mức trả trong 1 lần, dùng để điền sẵn phiếu đợt 1. */
+  luong_dot_1?: number;
   /** 3 khoản phụ cấp KHAI TAY của riêng NV — gõ một lần, tháng nào cũng cộng đúng số này. */
   allowance?: number; // phụ cấp KHÁC (gộp)
   phu_cap_ca?: number;
@@ -2479,6 +2767,11 @@ export interface EmployeeSalaryInput {
   insurance_elsewhere?: boolean;
   /** Đoàn viên công đoàn → mới bị trừ đoàn phí công đoàn. */
   union_member?: boolean;
+  /** Áp giảm trừ bản thân khi tính TNCN (mặc định true). Bỏ tích khi người này đã đăng ký
+   *  giảm trừ bản thân ở nơi làm việc khác. */
+  apply_self_deduction?: boolean;
+  /** % hoa hồng NV kinh doanh — PHÂN SỐ (0.05 = 5%), backend chặn `le=1`. */
+  commission_pct?: number;
   note?: string | null;
 }
 export interface EmployeeSalaries {
@@ -2511,6 +2804,8 @@ export interface SalaryAdvance {
   advance_date: string;
   amount: number;
   reason: string | null;
+  /** tam_ung (mặc định) | luong_dot_1 (thanh toán lương đợt 1). */
+  kind: string;
   status: string;
   decision_note: string | null;
   created_at: string;
@@ -2522,6 +2817,8 @@ export interface MyAdvanceInput {
   advance_date: string;
   amount: number;
   reason?: string | null;
+  /** tam_ung (mặc định) | luong_dot_1 (tự xin phiếu thanh toán lương đợt 1). */
+  kind?: string;
 }
 export interface SalaryAdvanceInput {
   employee_id: number;
@@ -2530,10 +2827,14 @@ export interface SalaryAdvanceInput {
   advance_date: string;
   amount: number;
   reason?: string | null;
+  /** tam_ung (mặc định) | luong_dot_1 (phiếu thanh toán lương đợt 1). */
+  kind?: string;
 }
 export interface MyAdvances {
   has_employee: boolean;
   items: SalaryAdvance[];
+  /** Mức "Lương trả 1 lần" hiện hành — điền sẵn khi NV tự xin phiếu đợt 1 (0 = chưa khai). */
+  luong_dot_1: number;
 }
 export interface PayrollPeriod {
   id: number;
@@ -2559,6 +2860,14 @@ export interface PayrollLine {
   standard_cong: number;
   monthly_salary: number;
   luong_cong: number;
+  /** TRONG ĐÓ `luong_cong`: phần trả cho NGÀY NGHỈ PHÉP (chỉ tính lương vị trí, không có
+   *  lương trách nhiệm). TUYỆT ĐỐI KHÔNG cộng lại vào tổng thu — cùng idiom với
+   *  `phu_cap_tham_nien ⊂ allowance`. Cộng nhầm là SAI TIỀN LƯƠNG. */
+  luong_ngay_phep?: number;
+  /** Số công phép CÓ lương đã được trả trong `luong_ngay_phep`. */
+  paid_leave_cong?: number;
+  /** Công thiếu nhưng có đơn nghỉ theo giờ đã duyệt (được miễn phạt, giữ chuyên cần). */
+  excused_cong?: number;
   chuyen_can: number;
   /** TỔNG phụ cấp tháng — ĐÃ GỒM 3 dòng dưới. Render 3 dòng thì ĐỪNG cộng thêm số này.
    *  Phụ cấp CA (`ca_pay`/`night_pay`) là khoản RIÊNG, KHÔNG nằm trong `allowance`. */
@@ -2579,6 +2888,13 @@ export interface PayrollLine {
   kpi_percent: number;
   kpi_bonus: number;
   vi_pham: number;
+  /**
+   * Khoản DANH MỤC của dòng lương (snapshot Tầng 3) — phiếu lương in TỪNG DÒNG từ đây.
+   * ⚠️ `source: "employee"` ĐÃ nằm trong `allowance`; tách thành dòng riêng thì phải trừ khỏi
+   * "Phụ cấp khác". `source: "line"` nằm NGOÀI `allowance`, cộng thẳng.
+   */
+  components?: LineComponent[];
+  /** 6 cột dưới đây NGỪNG GHI từ 28/07/2026 (thưởng khai qua `components`). Kỳ cũ vẫn có số. */
   other_bonus: number;
   thuong_5s: number;
   thuong_doanh_so: number;
@@ -2601,14 +2917,23 @@ export interface PayrollLine {
   cong_doan: number;
   pit: number;
   pit_manual: boolean;
+  /** Thu nhập TÍNH thuế của kỳ (đã trừ bảo hiểm + giảm trừ gia cảnh) — số thuế bấm trên số này.
+   *  KHÔNG phải "tổng thu nhập chịu thuế"; backend không snapshot số đó (PRD §3.3). */
   pit_taxable: number;
+  /** Tổng phần thu nhập ĐƯỢC MIỄN thuế của kỳ = tăng ca + ca đêm + Σ khoản danh mục
+   *  `is_taxable = false`. Snapshot lúc tính lương — đổi cờ hôm nay không làm lệch kỳ cũ. */
+  thu_nhap_mien_thue: number;
   advance_total: number;
+  /** Tổng "thanh toán lương đợt 1" đã duyệt của kỳ — dòng RIÊNG, KHÔNG gộp vào advance_total. */
+  luong_dot_1_total: number;
   net_pay: number;
   note: string | null;
 }
 export interface PayrollLineInput {
+  // ⚠️ CỐ Ý KHÔNG CÓ 6 ô thưởng cũ (`thuong_5s`, `other_bonus`…): từ 28/07/2026 thưởng khai qua
+  // danh mục (`addLineComponent`) để cờ "Chịu thuế" là quy tắc chung. Backend cũng đã bỏ chúng
+  // khỏi `LineUpdateIn` — thêm lại ở đây chỉ tạo field gửi đi rồi bị bỏ qua trong im lặng.
   vi_pham?: number | null;
-  other_bonus?: number | null;
   pit?: number | null;
   pit_manual?: boolean | null;
   /** False = đưa phạt trễ VỀ TỰ ĐỘNG (tính lại từ chấm công); None = giữ nguyên. */
@@ -2617,11 +2942,6 @@ export interface PayrollLineInput {
   note?: string | null;
   /** % đạt KPI → tiền = % × mức trần KPI của bộ phận (Cấu hình lương, Tab 2). */
   kpi_percent?: number | null;
-  thuong_5s?: number | null;
-  thuong_doanh_so?: number | null;
-  thuong_thanh_tich?: number | null;
-  phep_nam?: number | null;
-  tra_dong_phuc?: number | null;
   dieu_chinh_luong?: number | null;   // cho phép ±
   di_tre?: number | null;
   dt_vuot_troi?: number | null;
@@ -2683,6 +3003,125 @@ export interface DeptComponents {
   items: DeptComponent[];
 }
 
+// --- Danh mục khoản thu nhập & thu nhập chịu thuế TNCN (chốt chủ 2026-07-27) ---
+// Trước đây mọi phụ cấp gộp vào MỘT ô `allowance` nên engine không biết khoản nào miễn thuế →
+// thu thừa TNCN. Giờ mỗi khoản một dòng danh mục, có cờ `is_taxable` bật/tắt tại chỗ.
+export type ComponentKind = "thu" | "tru";
+export interface PayrollComponent {
+  id: number;
+  code: string;
+  name: string;
+  /** `thu` = cộng vào tổng lương · `tru` = khấu trừ. */
+  kind: ComponentKind;
+  /** Ô tích "Chịu thuế" — false = KHÔNG tính vào thu nhập chịu thuế TNCN. */
+  is_taxable: boolean;
+  in_insurance_base: boolean;
+  sort_order: number;
+  is_active: boolean;
+  note: string | null;
+  /** Số NHÂN VIÊN đang được gán khoản này (hồ sơ — Tầng 2). */
+  employee_count: number;
+  /** Số KỲ LƯƠNG đã có khoản này (Tầng 3). Đếm KỲ chứ không đếm dòng: 100 dòng cùng một
+   *  tháng vẫn là MỘT kỳ. Một trong hai số > 0 ⇒ xoá cứng bị chặn, chỉ ngừng áp dụng được. */
+  period_count: number;
+}
+export interface PayrollComponentInput {
+  name: string;
+  kind?: ComponentKind;
+  is_taxable?: boolean;
+  in_insurance_base?: boolean;
+  sort_order?: number;
+  note?: string | null;
+}
+/** Sửa TỪNG PHẦN — field nào bỏ qua thì backend giữ nguyên. */
+export interface PayrollComponentPatch {
+  name?: string;
+  kind?: ComponentKind;
+  is_taxable?: boolean;
+  in_insurance_base?: boolean;
+  sort_order?: number;
+  is_active?: boolean;
+  note?: string | null;
+}
+/** Kết quả DELETE — nói rõ việc VỪA XẢY RA. `deactivated` = chỉ ngừng áp dụng, KHÔNG xoá:
+ *  báo "đã xoá" trong trường hợp này là nói sai việc vừa làm. */
+export interface PayrollComponentDeleteResult {
+  deleted: boolean;
+  deactivated: boolean;
+  employee_count: number;
+  period_count: number;
+  /** Câu backend đã viết sẵn — màn hình hiện NGUYÊN VĂN, không tự chế lại. */
+  message: string;
+}
+/** NV còn được gán một khoản ĐÃ NGỪNG ÁP DỤNG — lương vẫn trả đủ, danh sách này chỉ để HCNS
+ *  chủ động gỡ. Backend trả rỗng khi khoản còn đang bật. */
+export interface ComponentHolders {
+  component_id: number;
+  component_name: string;
+  items: { employee_id: number; code: string; full_name: string }[];
+}
+/** Gán MỘT khoản cho NHIỀU người trong một thao tác (chủ 28/07/2026). */
+export interface BulkAssignInput {
+  amount: number;
+  note?: string | null;
+  /** Chọn cụ thể. Bỏ trống + `all_active: true` = tất cả NV ĐANG LÀM VIỆC trong phạm vi. */
+  employee_ids?: number[];
+  all_active?: boolean;
+  /** ⚠️ Bật = ĐÈ mức riêng đã khai cho từng người, KHÔNG hoàn tác được. Mặc định tắt. */
+  overwrite?: boolean;
+}
+export interface BulkAssignResult {
+  assigned: number;            // thêm mới
+  overwritten: number;         // đã ĐÈ mức riêng — hiện riêng, đừng gộp vào `assigned`
+  skipped_existing: number;    // đã có mức riêng, không đè
+  skipped_out_of_scope: number;
+  total: number;
+}
+
+/** Khoản ĐANG GÁN cho một NV (Tầng 2). Chỉ trả khoản CÓ TIỀN — không phải cả danh mục. */
+export interface ComponentValue {
+  component_id: number;
+  code: string;
+  name: string;
+  kind: ComponentKind;
+  /** Kế thừa từ danh mục gốc (Tầng 1) — CHỈ ĐỌC, không sửa được ở tầng này. */
+  is_taxable: boolean;
+  amount: number;
+  note: string | null;
+  /** false = danh mục đã NGỪNG ÁP DỤNG nhưng người này còn giữ ⇒ bật cảnh báo đỏ.
+   *  Tiền VẪN được trả (chốt của chủ) — không tự cắt lương ai. */
+  is_active: boolean;
+}
+export interface ComponentValueInput {
+  component_id: number;
+  /** null = GỠ khoản khỏi người này (kỳ sau không trả nữa). */
+  amount: number | null;
+  note?: string | null;
+}
+
+/** Tầng 3 — khoản trên MỘT dòng bảng lương. `source`: `employee` = chép từ hồ sơ (sửa ở
+ *  Lương → Lương nhân viên) · `line` = thêm tay, CHỈ có ở kỳ này, không lặp sang tháng sau. */
+export interface LineComponent {
+  id: number;
+  component_id: number;
+  code: string;
+  name: string;
+  kind: ComponentKind;
+  is_taxable: boolean;
+  amount: number;
+  note: string | null;
+  source: "employee" | "line";
+}
+export interface LineComponentInput {
+  component_id: number;
+  amount: number;
+  note?: string | null;
+}
+export interface LineComponentPatch {
+  amount?: number;
+  note?: string | null;
+}
+
 export interface PayrollTable {
   period: PayrollPeriod | null;
   lines: PayrollLine[];
@@ -2706,6 +3145,29 @@ export interface PieceRate {
   note: string | null;
   is_active: boolean;
 }
+/** Một bậc thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi của tổ (chủ 29/07/2026).
+ *
+ *  Tra: bậc ĐẦU TIÊN có `tỷ lệ lỗi ≤ up_to_defect_pct` thắng; `null` = bậc "trở lên" (∞), đúng
+ *  MỘT bậc và phải nằm cuối. `rate_pct` DƯƠNG = thưởng · ÂM = phạt, tính trên TỔNG TIỀN KHOÁN
+ *  của tổ. ⚠️ Engine CHƯA áp — tổng khoán hiện luôn = 0 vì chưa có nguồn sản lượng. */
+export interface LeaderBracket {
+  id: number;
+  department_id: number;
+  seq: number;
+  up_to_defect_pct: number | null;
+  rate_pct: number;
+  note: string | null;
+}
+export interface LeaderBracketInput {
+  up_to_defect_pct: number | null;
+  rate_pct: number;
+  note?: string | null;
+}
+export interface LeaderBracketsOut {
+  department_id: number;
+  items: LeaderBracket[];
+}
+
 export interface PieceRateInput {
   group_name: string;
   department_id?: number | null;
@@ -2721,6 +3183,8 @@ export interface CongDoanLite {
   ma: string;
   ten: string;
   khoan_ghi_theo: string;
+  /** Máy mặc định trong danh mục — lệnh SX dùng để đẩy máy đúng lên đầu dropdown. */
+  may_id?: number | null;
 }
 
 // Phiếu sản lượng công đoạn (Pha 5b)
@@ -2797,6 +3261,9 @@ export interface AttendancePeriod {
   employee_count: number;
   hanging_days: number;      // ngày treo (thiếu chấm RA) — xử trước khi Chốt
   pending_leaves: number;    // đơn nghỉ phép chưa duyệt của tháng
+  /** Phiếu đi muộn/về sớm chưa duyệt — CHẶN chốt công y như đơn nghỉ: snapshot đóng băng lúc
+   *  chốt, phiếu duyệt sau đó không vào được nữa ⇒ NLĐ vẫn ăn phạt dù đã xin phép đúng luật. */
+  pending_late_early: number;
   pending_adjusts: number;   // yêu cầu chỉnh công chưa duyệt
   payroll_locked: boolean;   // kỳ lương tháng này đã chốt → không mở lại kỳ công
 }
@@ -2823,14 +3290,14 @@ export type WorkCalendarConfigInput = Partial<Omit<WorkCalendarConfig, "updated_
 export interface SpecialDay {
   id: number;
   day: string;      // ISO date
-  kind: "off" | "work";
+  kind: "off" | "work" | "off1x";   // off1x = nghỉ, đi làm chỉ lương chính 1× (không hệ số)
   name: string;
   is_paid: boolean;
   note: string | null;
 }
 export interface SpecialDayInput {
   day: string;
-  kind: "off" | "work";
+  kind: "off" | "work" | "off1x";
   name: string;
   is_paid?: boolean;
   note?: string | null;
@@ -2875,6 +3342,8 @@ export interface DayDetail {
   shift_name: string | null;
   cong: number | null;
   reason: string | null;
+  /** Có khi NV có phiếu TC đã duyệt (trong ngày) nhưng chưa có cặp chấm tăng ca → FE nhắc + nút 1 chạm. */
+  ot_suggestion?: { from_time: string; to_time: string } | null;
   punches: DayPunch[];
 }
 
@@ -2892,6 +3361,21 @@ export interface TodayKpi {
   missing_out: number;
   late_today: number;
   pending_requests: number;
+}
+
+/** Hạn mức chỉnh công THÁNG HIỆN TẠI. `limit = 0` ⇒ không giới hạn (`remaining` là null).
+ *  `days` = các ngày công ĐÃ tính lượt — gửi thêm đơn cho chính ngày đó KHÔNG tốn lượt mới. */
+export interface AdjustQuota {
+  year: number;
+  month: number;
+  limit: number;
+  used: number;
+  remaining: number | null;
+  days: string[];
+}
+export interface MyAdjustRequests {
+  items: AdjustRequest[];
+  quota: AdjustQuota | null;
 }
 
 export interface AdjustRequest {
@@ -3415,6 +3899,8 @@ export interface OrderLineOut {
   line_total: number | null;
   cost_snapshot: number | null;
   phieu_thanh_phan_id: number | null;
+  /** Nhãn nhóm gộp KHI IN xác nhận đơn — copy từ dòng báo giá, khớp bản khách đã nhận. */
+  nhom: string | null;
 }
 export interface AttachmentOut {
   id: number;
@@ -3634,6 +4120,419 @@ export interface KhuonBeRow {
   so_ke: string | null;
   tinh_trang: string;
   active: boolean;
+}
+
+// ④ 1 lệnh trong bảng lịch chạy (Máy × Ngày)
+export interface LichChayRow {
+  lenh_id: number;
+  ma: string;
+  trang_thai: string;   // gate resize hạn nội bộ trên Gantt (sau phát khóa hạn)
+  order_no: string | null;
+  khach: string | null;
+  giay_label: string | null;
+  spec_tom_tat: string;
+  may_id: number | null;
+  ngay_chay: string | null;
+  thu_tu_chay: number | null;
+  thoi_luong_phut: number | null;
+  han_giao_khach: string | null;
+  han_giao_noi_bo: string | null;
+  can_khuon: boolean;
+  khuon_be_id: number | null;
+}
+// 1 công đoạn routing GỐC của ấn phẩm (đọc từ Tính giá) — KHÔNG có đơn giá (cô lập thương mại).
+export interface RoutingGocRow {
+  thu_tu: number;
+  cong_doan_id: number | null;
+  ten: string;
+  nha_cung_cap: string | null;
+  ghi_chu: string | null;
+}
+// 1 vật tư thêm của ấn phẩm (vecni bóng/mờ · cán màng…) — tên + ghi chú, không giá.
+export interface VatTuGocRow {
+  ten: string;
+  ghi_chu: string | null;
+}
+// Chi tiết ĐẦY ĐỦ ấn phẩm cho DRAWER (mirror phiếu công đoạn) — CHỈ KỸ THUẬT (đã lọc sạch giá).
+// Giá trị HIỆU LỰC = báo giá + override tại lệnh. editable = mở từ lệnh NHÁP (được sửa quy cách).
+export interface AnPhamChiTiet {
+  phieu_thanh_phan_id: number;
+  lenh_item_id: number | null;
+  editable: boolean;
+  overridden: string[]; // các field đã override so với báo giá
+  // nhận dạng / thành phẩm
+  ten: string;
+  loai_thanh_phan: string;
+  kho_thanh_pham: string | null;
+  dai_thanh_pham: number;
+  rong_thanh_pham: number;
+  kho_mo_rong: string | null;
+  tay_gap: string | null;
+  so_to_per_sp: number;
+  so_luong: number;
+  don_vi_tinh: string;
+  // giấy (đã resolve tên + chủng loại)
+  giay_id: number | null;
+  giay_ten: string | null;
+  chung_loai_ten: string | null;
+  gsm: number | null;
+  kho_nguyen: string | null;
+  kho_nguyen_dai: number;
+  kho_nguyen_rong: number;
+  nguon_giay: string;
+  // in & màu
+  co_in: boolean;
+  che_ban_loai: string | null;
+  quy_cach_in: string;
+  kho_in_dai: number;
+  kho_in_rong: number;
+  so_con: number;
+  con_auto: boolean;
+  may_id: number | null;
+  so_mau_a: number;
+  so_mau_b: number;
+  so_kem: number;
+  // số lượng (engine snapshot — null nếu phiếu chưa tính)
+  so_luong_can: number | null;
+  so_to_thuc_te: number | null;
+  so_to_sau_in: number | null;
+  so_to_nguyen: number | null;
+  con_tren_to: number | null;
+  bu_hao_auto: number | null;
+  bu_hao_so_to: number;
+  hao_so_to: number;
+  tinh_bu_hao_cd: boolean;
+  // note kỹ thuật theo sản phẩm + vật tư + routing
+  ghi_chu_ky_thuat: string | null;
+  vat_tu: VatTuGocRow[];
+  routing: RoutingGocRow[];
+}
+// Handoff (§5.1): đơn đã chốt CHỜ lên kế hoạch — kèm ngữ cảnh để kế hoạch cấu hình.
+export interface HangChoAnPham {
+  phieu_thanh_phan_id: number | null;
+  description: string;
+  qty: number;
+  don_vi_tinh: string;
+  spec_tom_tat: string; // quy cách rút gọn (khổ TP · số màu · giấy) — kỹ thuật, không giá
+}
+export interface HangChoDon {
+  order_id: number;
+  order_no: string;
+  khach: string | null;
+  is_rush: boolean;
+  delivery_committed_date: string | null;
+  production_note: string | null;
+  an_pham: HangChoAnPham[];
+}
+export interface LenhSXListParams {
+  order_id?: number;
+  trang_thai?: string;
+  page?: number;
+  size?: number;
+}
+/** 1 dòng xếp bài khi tạo tờ (ghép) — số con NHẬP TAY (máy chỉ ghi). */
+export interface GhepPlacementInput {
+  lenh_sx_id: number;
+  so_con: number;
+}
+/** Tạo 1 TỜ IN + xếp bài. Giấy/khổ/màu là ẢNH CHỤP (người kế hoạch tự nhìn PTG rồi nhập). */
+export interface GhepInput {
+  giay_id?: number | null;
+  giay_label?: string | null;
+  kho_in_dai?: number;
+  kho_in_rong?: number;
+  so_mau?: number;
+  may_id?: number | null;
+  so_to_chay?: number;
+  so_kem?: number;
+  placements: GhepPlacementInput[];
+}
+
+// --- Kho: đề nghị · phiếu · lô · ngưỡng tồn (spec-kho-de-nghi) ---------------
+// Mọi trường TIỀN (`don_gia`, `thanh_tien`, `gia_von`, `don_gia_nhap`) và `ton_kha_dung`
+// là `null` khi người gọi thiếu quyền — backend XÓA số khỏi response chứ không chỉ ẩn cột,
+// nên UI chỉ cần dò null để quyết định ẩn ô/cột.
+
+export type StockRequestKind = "NHAP" | "XUAT";
+
+export type StockRequestStatus =
+  | "draft"
+  | "pending"
+  | "approved"
+  | "received"
+  | "preparing"
+  | "partial"
+  | "done"
+  | "rejected"
+  | "cancelled";
+
+export type StockPriority = "binh_thuong" | "gap";
+
+/** Đèn tín hiệu 4 mức (bỏ "sắp hết/cận tồn") — KHÔNG kèm con số nên ai cũng nhận được. */
+export type StockLevel = "du_ton" | "du" | "can_mua" | "het";
+
+export type StockVoucherStatus = "draft" | "posted" | "cancelled";
+
+export interface StockRequestLine {
+  id: number;
+  /** null = hàng mới chưa gắn mã; xem `ten_tu_do`. Kho gắn/tạo mã ở bước phiếu. */
+  material_id: number | null;
+  material_code: string | null;
+  material_name: string | null;
+  /** Tên hàng mới do người đề nghị gõ tự do (khi chưa có mã). */
+  ten_tu_do: string | null;
+  dvt: string;
+  /** Quy đổi KHO của mặt hàng (1 don_vi_phu = he_so_quy_doi × dvt tồn). null = không quy đổi. */
+  don_vi_phu: string | null;
+  he_so_quy_doi: number | null;
+  sl_de_nghi: number;
+  sl_duyet: number;
+  sl_da_ung: number;
+  sl_con_lai: number;
+  /** Đơn giá NHẬP người đề nghị khai — phiếu kế thừa (kho chỉ đọc). Null với đề nghị XUẤT. */
+  don_gia: number | null;
+  /** Kho phản hồi: lý do kho cấp/nhập thiếu so với còn phải cấp (nếu có). */
+  ly_do_thieu: string | null;
+  ghi_chu: string | null;
+  muc_ton: StockLevel | null;
+  /** CHỈ có khi `can_view_stock`; thiếu quyền → null. */
+  ton_kha_dung: number | null;
+}
+
+export interface StockRequest {
+  id: number;
+  ma: string;
+  loai: StockRequestKind;
+  nguoi_tao_id: number;
+  nguoi_tao_ten: string | null;
+  bo_phan_id: number | null;
+  bo_phan_ten: string | null;
+  kho_id: number | null;
+  kho_ten: string | null;
+  ngay_can: string | null;
+  uu_tien: StockPriority;
+  ghi_chu: string | null;
+  trang_thai: StockRequestStatus;
+  nguoi_duyet_id: number | null;
+  nguoi_duyet_ten: string | null;
+  duyet_luc: string | null;
+  ly_do_tu_choi: string | null;
+  // Id phiếu ĐANG CHỜ GHI SỔ (nếu có) → đổi nút "Lập phiếu" thành "Xem phiếu", chống tạo trùng.
+  open_voucher_id: number | null;
+  created_at: string;
+  lines: StockRequestLine[];
+}
+
+export interface StockRequestPage {
+  items: StockRequest[];
+  total: number;
+}
+
+export interface StockRequestListParams {
+  q?: string | null;
+  loai?: StockRequestKind | null;
+  trang_thai?: StockRequestStatus[];
+  kho_id?: number | null;
+  page?: number;
+  size?: number;
+}
+
+export interface StockRequestLineInput {
+  // Hàng đã có mã → material_id. Hàng MỚI (gõ tên tự do) → bỏ material_id, gửi ten_tu_do.
+  material_id?: number | null;
+  ten_tu_do?: string | null;
+  dvt: string;
+  sl_de_nghi: number;
+  /** Đơn giá NHẬP người đề nghị khai (chỉ đề nghị NHẬP). Phiếu kế thừa; kho không sửa. */
+  don_gia?: number | null;
+  /** Quy đổi đơn vị người đề nghị khai (1 don_vi_phu = he_so_quy_doi × dvt tồn). */
+  don_vi_phu?: string | null;
+  he_so_quy_doi?: number | null;
+  ghi_chu?: string | null;
+}
+
+export interface StockRequestInput {
+  loai: StockRequestKind;
+  /** Kho KHÔNG chọn ở đề nghị nữa — quyết ở bước lập phiếu. Giữ optional cho tương thích. */
+  kho_id?: number | null;
+  /** Số đề nghị tự nhập; bỏ trống → hệ thống tự sinh. */
+  ma?: string | null;
+  ngay_can?: string | null;
+  uu_tien?: StockPriority;
+  ghi_chu?: string | null;
+  lines: StockRequestLineInput[];
+}
+
+export interface StockRequestUpdateInput {
+  ngay_can?: string | null;
+  uu_tien?: StockPriority;
+  ghi_chu?: string | null;
+  lines?: StockRequestLineInput[];
+}
+
+/** Ô chọn vật tư khi lập đề nghị — 4 trường tối thiểu, KHÔNG có giá. */
+export interface StockMaterialOption {
+  id: number;
+  code: string | null;
+  name: string | null;
+  unit: string | null;
+  don_vi_phu?: string | null;
+  he_so_quy_doi?: number | null;
+}
+
+export interface StockVoucherLine {
+  id: number;
+  request_line_id: number;
+  material_id: number;
+  material_code: string | null;
+  material_name: string | null;
+  dvt: string | null;
+  lot_id: number | null;
+  ma_lo: string | null;
+  so_luong: number;
+  ghi_chu: string | null;
+  don_gia: number | null;
+  thanh_tien: number | null;
+}
+
+export interface StockVoucher {
+  id: number;
+  ma: string;
+  loai: StockRequestKind;
+  request_id: number;
+  request_ma: string | null;
+  kho_id: number;
+  kho_ten: string | null;
+  ngay: string;
+  nguoi_lap_id: number;
+  nguoi_lap_ten: string | null;
+  /** Chuỗi trách nhiệm từ đề nghị gốc: ai đề nghị · ai duyệt. */
+  nguoi_de_nghi_ten: string | null;
+  nguoi_duyet_ten: string | null;
+  /** Người GHI SỔ (duyệt/chốt phiếu) — chỉ có sau khi đã ghi sổ. */
+  nguoi_ghi_so_ten: string | null;
+  nguoi_giao_nhan: string | null;
+  ghi_chu: string | null;
+  trang_thai: StockVoucherStatus;
+  ghi_so_luc: string | null;
+  created_at: string;
+  lines: StockVoucherLine[];
+  /** Tổng giá vốn — chỉ có khi `can_view_cost`. */
+  gia_von: number | null;
+}
+
+export interface StockVoucherPage {
+  items: StockVoucher[];
+  total: number;
+}
+
+export interface StockVoucherAttachment {
+  id: number;
+  stock_voucher_id: number;
+  file_name: string;
+  /** Đường dẫn tải (mount /static). Tải xuống = origin + file_url. */
+  file_url: string;
+  file_type: string | null;
+  uploaded_by: number | null;
+  uploaded_at: string;
+}
+
+export interface StockVoucherListParams {
+  q?: string | null;
+  loai?: StockRequestKind | null;
+  trang_thai?: StockVoucherStatus | null;
+  request_id?: number | null;
+  kho_id?: number | null;
+  page?: number;
+  size?: number;
+}
+
+export interface StockVoucherLineInput {
+  request_line_id: number;
+  /** Hàng mới: CHỌN mã có sẵn → material_id; hoặc TẠO MỚI → bỏ material_id, khai new_* (backend
+   *  tạo mã khi lưu/ghi sổ, không tạo eager). */
+  material_id?: number | null;
+  new_name?: string | null;
+  new_unit?: string | null;
+  new_don_vi_phu?: string | null;
+  new_he_so_quy_doi?: number | null;
+  so_luong: number;
+  /** Phiếu NHẬP: giá của lô sắp tạo. Phiếu XUẤT: bỏ qua (giá lấy đích danh từ lô). */
+  don_gia?: number | null;
+  /** Phiếu XUẤT: bắt buộc. Phiếu NHẬP: bỏ qua (lô sinh ra lúc ghi sổ). */
+  lot_id?: number | null;
+  /** Lý do cấp/nhập THIẾU (khi SL < còn phải cấp) — bắt buộc nếu thiếu; ghi vào đề nghị. */
+  ly_do?: string | null;
+  ghi_chu?: string | null;
+}
+
+export interface StockVoucherInput {
+  request_id: number;
+  kho_id: number;
+  /** Số phiếu tự nhập; bỏ trống → hệ thống tự sinh. */
+  ma?: string | null;
+  ngay?: string | null;
+  nguoi_giao_nhan?: string | null;
+  ghi_chu?: string | null;
+  lines: StockVoucherLineInput[];
+}
+
+export interface StockLot {
+  id: number;
+  ma_lo: string;
+  material_id: number;
+  material_code: string | null;
+  material_name: string | null;
+  /** Đơn vị tính của mã hàng (để tạo dòng Yêu cầu mua có sẵn ĐVT). */
+  dvt: string | null;
+  kho_id: number;
+  vi_tri: string | null;
+  ngay_nhap: string;
+  ncc: string | null;
+  sl_ban_dau: number;
+  sl_con_lai: number;
+  hsd: string | null;
+  trang_thai: string;
+  /** Phiếu NHẬP đã tạo ra lô (để link mã lô → phiếu). Null với tồn đầu kỳ. */
+  voucher_id: number | null;
+  /** Chỉ có khi `can_view_cost` — thủ kho chọn lô mà không thấy giá. */
+  don_gia_nhap: number | null;
+}
+
+export interface StockAllocationLine {
+  lot_id: number;
+  ma_lo: string;
+  ngay_nhap: string;
+  hsd: string | null;
+  sl_con_lai: number;
+  so_luong: number;
+  don_gia_nhap: number | null;
+}
+
+export interface StockAllocation {
+  lines: StockAllocationLine[];
+  /** > 0 = kho không đủ hàng cho số cần cấp. */
+  thieu: number;
+}
+
+export interface StockThreshold {
+  id: number;
+  material_id: number;
+  kho_id: number;
+  nguong_ton: number;
+  nguong_can_ton: number | null;
+  nguong_toi_da: number | null;
+  canh_bao: boolean;
+}
+
+export interface StockThresholdInput {
+  material_id: number;
+  kho_id: number;
+  nguong_ton: number;
+  /** Bỏ trống → backend tự suy ra = nguong_ton × 1.3. */
+  nguong_can_ton?: number | null;
+  nguong_toi_da?: number | null;
+  canh_bao?: boolean;
 }
 
 export const api = {
@@ -4282,6 +5181,20 @@ export const api = {
     meta(token: string): Promise<EmployeeMeta> {
       return authed<EmployeeMeta>("/api/employees/meta", token);
     },
+    /** Danh mục bậc tay nghề. Mặc định chỉ lấy bậc ĐANG BẬT — form khai chỉ được chọn bậc
+     *  còn dùng; muốn xem cả bậc đã tắt thì `active_only: false`. */
+    jobGrades(token: string, params: { active_only?: boolean } = {}): Promise<{ items: JobGrade[] }> {
+      const qs = params.active_only === false ? "?active_only=false" : "?active_only=true";
+      return authed<{ items: JobGrade[] }>(`/api/employees/bac-tay-nghe${qs}`, token);
+    },
+    /** Thêm bậc ngay trong form khai (khỏi bắt sang màn khác rồi quay lại mất dữ liệu đang gõ).
+     *  Trùng tên → 400 kèm câu tiếng Việt của backend, hiện thẳng dưới ô nhập. */
+    createJobGrade(token: string, input: { name: string }): Promise<JobGrade> {
+      return authed<JobGrade>("/api/employees/bac-tay-nghe", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
     get(token: string, id: number): Promise<EmployeeDetail> {
       return authed<EmployeeDetail>(`/api/employees/${id}`, token);
     },
@@ -4304,8 +5217,22 @@ export const api = {
         body: JSON.stringify({ default_shift_id: shiftId, effective_from: effectiveFrom }),
       });
     },
+    /** Đặt CA NỀN cho nhiều NV trong MỘT request (nút "Đặt ca nền" ở màn Phân ca tháng).
+     *  Ca nền áp dụng từ `effectiveFrom` trở về sau cho MỌI tháng — khác với tô ca trên
+     *  lưới (chỉ đúng ngày đã tô). */
+    setShiftBulk(token: string, employeeIds: number[], shiftId: number | null, effectiveFrom: string):
+      Promise<{ updated: number; adjusted: number; failed: { employee_id: number; reason: string }[] }> {
+      return authed("/api/employees/shift/bulk", token, {
+        method: "PUT",
+        body: JSON.stringify({ employee_ids: employeeIds, default_shift_id: shiftId, effective_from: effectiveFrom }),
+      });
+    },
     shiftHistory(token: string, id: number): Promise<{ employee_id: number; items: EmployeeShiftAssignment[] }> {
       return authed<{ employee_id: number; items: EmployeeShiftAssignment[] }>(`/api/employees/${id}/shift-history`, token);
+    },
+    /** Gỡ một mốc ca nền gán nhầm — không có đường này thì mốc sai là vĩnh viễn. */
+    deleteShiftAssignment(token: string, id: number, assignmentId: number): Promise<void> {
+      return authed<void>(`/api/employees/${id}/shift-history/${assignmentId}`, token, { method: "DELETE" });
     },
     transition(token: string, id: number, input: EmployeeTransitionInput): Promise<EmployeeDetail> {
       return authed<EmployeeDetail>(`/api/employees/${id}/transitions`, token, {
@@ -4459,8 +5386,8 @@ export const api = {
         method: "POST", body: JSON.stringify(input),
       });
     },
-    myAdjustRequests(token: string): Promise<{ items: AdjustRequest[] }> {
-      return authed<{ items: AdjustRequest[] }>("/api/attendance/me/adjust-requests", token);
+    myAdjustRequests(token: string): Promise<MyAdjustRequests> {
+      return authed<MyAdjustRequests>("/api/attendance/me/adjust-requests", token);
     },
     cancelAdjustRequest(token: string, id: number): Promise<AdjustRequest> {
       return authed<AdjustRequest>(`/api/attendance/me/adjust-requests/${id}/cancel`, token, { method: "POST" });
@@ -4517,6 +5444,42 @@ export const api = {
     deleteShift(token: string, id: number): Promise<void> {
       return authed<void>(`/api/attendance/shifts/${id}`, token, { method: "DELETE" });
     },
+    // --- Lưới phân ca tháng (shift plan) ---
+    shiftPlan(token: string, year: number, month: number, departmentId?: number | null): Promise<ShiftPlanMonth> {
+      const qs = new URLSearchParams({ year: String(year), month: String(month) });
+      if (departmentId != null) qs.set("department_id", String(departmentId));
+      return authed<ShiftPlanMonth>(`/api/attendance/shift-plan?${qs.toString()}`, token);
+    },
+    /** Lưu hàng loạt (tối đa 2000 ô/request) — ô sai trả về trong `rejected`, KHÔNG bị nuốt. */
+    saveShiftPlan(token: string, year: number, month: number, items: ShiftPlanPatchItem[]): Promise<ShiftPlanSaveOut> {
+      return authed<ShiftPlanSaveOut>("/api/attendance/shift-plan", token,
+        { method: "PUT", body: JSON.stringify({ year, month, cells: items }) });
+    },
+    // --- Lịch sử thay đổi ca + hộp thư của NV (chủ 28/07/2026) ---
+    /** Lịch sử đổi ca cho HCNS — CẢ ô lưới (`kind=day`) lẫn ca nền (`kind=base`).
+     *  Bỏ `kind` = xem cả hai. Lọc theo scope người gọi ở backend. */
+    shiftChanges(token: string, opts: { year?: number; month?: number; employeeId?: number; kind?: ShiftChangeKind } = {}): Promise<{ items: ShiftChange[] }> {
+      const qs = new URLSearchParams();
+      if (opts.year) qs.set("year", String(opts.year));
+      if (opts.month) qs.set("month", String(opts.month));
+      if (opts.employeeId != null) qs.set("employee_id", String(opts.employeeId));
+      if (opts.kind) qs.set("kind", opts.kind);
+      return authed<{ items: ShiftChange[] }>(`/api/attendance/shift-changes?${qs.toString()}`, token);
+    },
+    /** Hộp thư "ca của tôi vừa bị đổi" — mọi NV có tài khoản đều gọi được.
+     *  `unseen: true` = chỉ tin CHƯA ĐỌC (khối báo ở màn Công của tôi; lấy cả tin đã đọc thì
+     *  khối đó bám đầu màn vĩnh viễn). */
+    myShiftChanges(token: string, opts: { unseen?: boolean } = {}): Promise<{ items: ShiftChange[] }> {
+      const qs = opts.unseen ? "?unseen=true" : "";
+      return authed<{ items: ShiftChange[] }>(`/api/attendance/my-shift-changes${qs}`, token);
+    },
+    markShiftChangesSeen(token: string): Promise<AttendanceNotify> {
+      return authed<AttendanceNotify>("/api/attendance/my-shift-changes/seen", token, { method: "POST" });
+    },
+    /** Số nuôi badge — SSE đẩy `shift_changed` thì gọi lại hàm này. */
+    notifySummary(token: string): Promise<AttendanceNotify> {
+      return authed<AttendanceNotify>("/api/attendance/notify-summary", token);
+    },
     // --- Chốt công tháng (kỳ công) ---
     period(token: string, year: number, month: number): Promise<AttendancePeriod> {
       return authed<AttendancePeriod>(`/api/attendance/period?year=${year}&month=${month}`, token);
@@ -4539,6 +5502,10 @@ export const api = {
     createMine(token: string, input: OvertimeInput): Promise<OvertimeRequest> {
       return authed<OvertimeRequest>("/api/overtime/me", token,
         { method: "POST", body: JSON.stringify(input) });
+    },
+    updateMine(token: string, id: number, input: OvertimeInput): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>(`/api/overtime/${id}`, token,
+        { method: "PUT", body: JSON.stringify(input) });
     },
     createFor(token: string, input: OvertimeForInput): Promise<OvertimeRequest> {
       return authed<OvertimeRequest>("/api/overtime", token,
@@ -4572,6 +5539,59 @@ export const api = {
     },
     markSeen(token: string): Promise<void> {
       return authed<void>("/api/overtime/mark-seen", token, { method: "POST" });
+    },
+  },
+
+  // --- Đi muộn / về sớm / nghỉ nửa buổi (di_muon) ---------------------------
+  // Cùng khuôn với `overtime` (tổ trưởng duyệt) nhưng BẢNG RIÊNG: phiếu này không bao giờ
+  // lẫn vào Nghỉ phép, và không sinh tiền tăng ca.
+  lateEarly: {
+    mine(token: string): Promise<MyLateEarly> {
+      return authed<MyLateEarly>("/api/late-early/me", token);
+    },
+    createMine(token: string, input: LateEarlyInput): Promise<LateEarlyRequest> {
+      return authed<LateEarlyRequest>("/api/late-early/me", token,
+        { method: "POST", body: JSON.stringify(input) });
+    },
+    updateMine(token: string, id: number, input: LateEarlyInput): Promise<LateEarlyRequest> {
+      return authed<LateEarlyRequest>(`/api/late-early/${id}`, token,
+        { method: "PUT", body: JSON.stringify(input) });
+    },
+    createFor(token: string, input: LateEarlyForInput): Promise<LateEarlyRequest> {
+      return authed<LateEarlyRequest>("/api/late-early", token,
+        { method: "POST", body: JSON.stringify(input) });
+    },
+    list(token: string, statusFilter?: string): Promise<{ items: LateEarlyRequest[] }> {
+      const q = statusFilter ? `?status_filter=${encodeURIComponent(statusFilter)}` : "";
+      return authed<{ items: LateEarlyRequest[] }>(`/api/late-early${q}`, token);
+    },
+    approve(token: string, id: number, note?: string): Promise<LateEarlyRequest> {
+      return authed<LateEarlyRequest>(`/api/late-early/${id}/approve`, token,
+        { method: "POST", body: JSON.stringify({ note: note ?? null }) });
+    },
+    reject(token: string, id: number, note: string): Promise<LateEarlyRequest> {
+      return authed<LateEarlyRequest>(`/api/late-early/${id}/reject`, token,
+        { method: "POST", body: JSON.stringify({ note }) });
+    },
+    cancel(token: string, id: number): Promise<LateEarlyRequest> {
+      return authed<LateEarlyRequest>(`/api/late-early/${id}/cancel`, token, { method: "POST" });
+    },
+    bulkApprove(token: string, ids: number[]): Promise<LateEarlyBulkResult> {
+      return authed<LateEarlyBulkResult>("/api/late-early/bulk-approve", token,
+        { method: "POST", body: JSON.stringify({ ids }) });
+    },
+    bulkReject(token: string, ids: number[], note: string): Promise<LateEarlyBulkResult> {
+      return authed<LateEarlyBulkResult>("/api/late-early/bulk-reject", token,
+        { method: "POST", body: JSON.stringify({ ids, note }) });
+    },
+    roster(token: string): Promise<LateEarlyRoster> {
+      return authed<LateEarlyRoster>("/api/late-early/roster", token);
+    },
+    summary(token: string): Promise<LateEarlySummary> {
+      return authed<LateEarlySummary>("/api/late-early/summary", token);
+    },
+    markSeen(token: string): Promise<void> {
+      return authed<void>("/api/late-early/mark-seen", token, { method: "POST" });
     },
   },
 
@@ -4706,9 +5726,6 @@ export const api = {
     createMyAdvance(token: string, input: MyAdvanceInput): Promise<SalaryAdvance> {
       return authed<SalaryAdvance>("/api/luong/advances/me", token, { method: "POST", body: JSON.stringify(input) });
     },
-    advanceQuota(token: string, year: number, month: number): Promise<AdvanceQuota> {
-      return authed<AdvanceQuota>(`/api/luong/advances/quota?year=${year}&month=${month}`, token);
-    },
     advanceNotifySummary(token: string): Promise<AdvanceNotifySummary> {
       return authed<AdvanceNotifySummary>("/api/luong/advances/notify-summary", token);
     },
@@ -4723,6 +5740,22 @@ export const api = {
     },
     updateLine(token: string, id: number, input: PayrollLineInput): Promise<PayrollLine> {
       return authed<PayrollLine>(`/api/luong/lines/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    // --- Tầng 3: khoản PHÁT SINH trên một dòng lương (thưởng nóng) ---
+    // Khoản gán ở HỒ SƠ được trả LẶP LẠI mọi tháng; khoản ở đây CHỈ có ở kỳ này. Mỗi thao tác
+    // backend tính lại NGAY dòng lương đó ⇒ số tổng của dòng đổi sau mỗi lệnh.
+    lineComponents(token: string, lineId: number): Promise<{ items: LineComponent[] }> {
+      return authed<{ items: LineComponent[] }>(`/api/luong/lines/${lineId}/components`, token);
+    },
+    addLineComponent(token: string, lineId: number, input: LineComponentInput): Promise<LineComponent> {
+      return authed<LineComponent>(`/api/luong/lines/${lineId}/components`, token, { method: "POST", body: JSON.stringify(input) });
+    },
+    /** Chỉ sửa được dòng `source: "line"` — dòng chép từ hồ sơ backend chặn (nói rõ chỗ sửa). */
+    updateLineComponent(token: string, rowId: number, patch: LineComponentPatch): Promise<LineComponent> {
+      return authed<LineComponent>(`/api/luong/lines/components/${rowId}`, token, { method: "PUT", body: JSON.stringify(patch) });
+    },
+    deleteLineComponent(token: string, rowId: number): Promise<void> {
+      return authed<void>(`/api/luong/lines/components/${rowId}`, token, { method: "DELETE" });
     },
     pitBrackets(token: string): Promise<{ items: PitBracket[] }> {
       return authed<{ items: PitBracket[] }>("/api/luong/pit-brackets", token);
@@ -4755,6 +5788,50 @@ export const api = {
     },
     setDeptComponents(token: string, deptId: number, items: DeptComponentInput[]): Promise<DeptComponents> {
       return authed<DeptComponents>(`/api/luong/dept-components/${deptId}`, token, { method: "PUT", body: JSON.stringify({ items }) });
+    },
+    // --- Danh mục khoản thu nhập (Cấu hình lương, tab "Danh mục khoản thu nhập") ---
+    components: {
+      /** Cả khoản ĐÃ NGƯNG DÙNG cũng trả — màn cấu hình cần hiện để bật lại được. */
+      list(token: string): Promise<{ items: PayrollComponent[] }> {
+        return authed<{ items: PayrollComponent[] }>("/api/luong/components", token);
+      },
+      create(token: string, input: PayrollComponentInput): Promise<PayrollComponent> {
+        return authed<PayrollComponent>("/api/luong/components", token, { method: "POST", body: JSON.stringify(input) });
+      },
+      update(token: string, id: number, patch: PayrollComponentPatch): Promise<PayrollComponent> {
+        return authed<PayrollComponent>(`/api/luong/components/${id}`, token, { method: "PUT", body: JSON.stringify(patch) });
+      },
+      /** Chưa có số liệu ⇒ xoá hẳn. Đã dùng ⇒ chỉ NGỪNG ÁP DỤNG — ĐỌC `message` rồi hiện
+       *  NGUYÊN VĂN, đừng tự chế câu báo. */
+      remove(token: string, id: number): Promise<PayrollComponentDeleteResult> {
+        return authed<PayrollComponentDeleteResult>(`/api/luong/components/${id}`, token, { method: "DELETE" });
+      },
+      /** NV còn giữ khoản này khi khoản ĐÃ ngừng áp dụng — nuôi cảnh báo "còn N người đang gán". */
+      holders(token: string, id: number): Promise<ComponentHolders> {
+        return authed<ComponentHolders>(`/api/luong/components/${id}/holders`, token);
+      },
+      /** Khoản ĐANG GÁN của 1 NV — CHỈ trả khoản có tiền khác 0, không phải cả danh mục.
+       *  Muốn dựng dropdown "thêm khoản" thì lấy `components.list` rồi trừ đi tập này. */
+      employeeValues(token: string, employeeId: number): Promise<{ items: ComponentValue[] }> {
+        return authed<{ items: ComponentValue[] }>(`/api/luong/components/employee/${employeeId}`, token);
+      },
+      /** `amount: null` ⇒ GỠ khoản khỏi người này. Chỉ nhận `component_id` CÓ SẴN trong danh
+       *  mục — không có đường đẻ khoản mới từ hồ sơ nhân viên (quy trình 2 bước). */
+      setEmployeeValues(token: string, employeeId: number, items: ComponentValueInput[]): Promise<{ items: ComponentValue[] }> {
+        return authed<{ items: ComponentValue[] }>(`/api/luong/components/employee/${employeeId}`, token, { method: "PUT", body: JSON.stringify({ items }) });
+      },
+      /** Ai đang được gán khoản này + mức bao nhiêu — cho modal gán hàng loạt XEM TRƯỚC ai bị
+       *  bỏ qua / ai bị đổi từ bao nhiêu sang bao nhiêu. Khác `holders` (chỉ khoản đã tắt). */
+      employeeAmounts(token: string, id: number): Promise<{ component_id: number; items: { employee_id: number; amount: number; note: string | null }[] }> {
+        return authed<{ component_id: number; items: { employee_id: number; amount: number; note: string | null }[] }>(`/api/luong/components/${id}/employee-amounts`, token);
+      },
+      /** Rải MỘT khoản cho NHIỀU người trong một thao tác.
+       *
+       *  ⚠️ `overwrite` MẶC ĐỊNH FALSE và phải giữ vậy: bật lên là xoá mức riêng đã khai cho
+       *  từng người, không có đường hoàn tác. Chỉ gửi `true` khi người dùng CHỦ ĐỘNG tích ô. */
+      bulkAssign(token: string, id: number, input: BulkAssignInput): Promise<BulkAssignResult> {
+        return authed<BulkAssignResult>(`/api/luong/components/${id}/bulk-assign`, token, { method: "POST", body: JSON.stringify(input) });
+      },
     },
     lock(token: string, year: number, month: number): Promise<PayrollPeriod> {
       return authed<PayrollPeriod>("/api/luong/lock", token, { method: "POST", body: JSON.stringify({ year, month }) });
@@ -4791,6 +5868,22 @@ export const api = {
       const q = departmentId != null ? `?department_id=${departmentId}` : "";
       return authed<{ items: PieceRate[] }>(`/api/luong/khoan/rates${q}`, token);
     },
+    /** Gợi ý cho ô "Đơn vị" = mồi mặc định ∪ đơn vị nhà máy ĐÃ dùng.
+     *  ⚠️ KHÔNG phải whitelist — gõ đơn vị ngoài danh sách này vẫn lưu bình thường. */
+    khoanUnits(token: string): Promise<{ items: string[] }> {
+      return authed<{ items: string[] }>("/api/luong/khoan/units", token);
+    },
+    /** Bậc thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi — mỗi tổ một bộ riêng. */
+    leaderBrackets(token: string, departmentId: number): Promise<LeaderBracketsOut> {
+      return authed<LeaderBracketsOut>(`/api/luong/khoan/leader-brackets?department_id=${departmentId}`, token);
+    },
+    /** Thay CẢ BỘ mốc của một tổ. Mảng rỗng = tổ này không áp thưởng/phạt tổ trưởng. */
+    setLeaderBrackets(token: string, departmentId: number, items: LeaderBracketInput[]): Promise<LeaderBracketsOut> {
+      return authed<LeaderBracketsOut>("/api/luong/khoan/leader-brackets", token, {
+        method: "PUT",
+        body: JSON.stringify({ department_id: departmentId, items }),
+      });
+    },
     createKhoanRate(token: string, input: PieceRateInput): Promise<PieceRate> {
       return authed<PieceRate>("/api/luong/khoan/rates", token, { method: "POST", body: JSON.stringify(input) });
     },
@@ -4806,13 +5899,6 @@ export const api = {
   tinhGia: {
     binhBai(token: string, body: BinhBaiIn): Promise<BinhBaiOut> {
       return authed<BinhBaiOut>("/api/tinh-gia/binh-bai", token, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-    },
-    /** Bình bài NGHỊCH: số con ĐÚNG N → khổ tờ in ít phế nhất (xả từ tờ giấy nguyên). */
-    binhBaiNghich(token: string, body: BinhBaiNghichIn): Promise<BinhBaiNghichOut> {
-      return authed<BinhBaiNghichOut>("/api/tinh-gia/binh-bai-nghich", token, {
         method: "POST",
         body: JSON.stringify(body),
       });
@@ -5737,6 +6823,191 @@ export const api = {
     // size ≤ 200 — router chặn `le=200`, gửi 500 là 422 (đừng nâng lại).
     list(token: string): Promise<{ items: CongDoanLite[] }> {
       return authed<{ items: CongDoanLite[] }>("/api/cong-doan?size=200", token);
+    },
+  },
+
+  // --- Kho: đề nghị · phiếu nhập/xuất · ngưỡng tồn (spec-kho-de-nghi) -------
+  // Gom 3 prefix `/api/kho/de-nghi`, `/api/kho/phieu`, `/api/kho/nguong-ton` vào một
+  // namespace vì chúng là MỘT luồng (đề nghị → phiếu → lô). Khai báo kho (`/api/kho`) vẫn
+  // đi qua `crud()` của rebuildCatalog — đó là danh mục, không phải chứng từ.
+  kho: {
+    deNghi: {
+      list(token: string, params: StockRequestListParams = {}): Promise<StockRequestPage> {
+        const qs = new URLSearchParams();
+        if (params.q) qs.set("q", params.q);
+        if (params.loai) qs.set("loai", params.loai);
+        // `trang_thai` là list ở backend → lặp param, KHÔNG nối bằng dấu phẩy.
+        for (const s of params.trang_thai ?? []) qs.append("trang_thai", s);
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        if (params.page) qs.set("page", String(params.page));
+        if (params.size) qs.set("size", String(params.size));
+        const suffix = qs.toString() ? `?${qs.toString()}` : "";
+        return authed<StockRequestPage>(`/api/kho/de-nghi${suffix}`, token);
+      },
+      get(token: string, id: number, khoId?: number | null): Promise<StockRequest> {
+        const suffix = khoId != null ? `?kho_id=${khoId}` : "";
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}${suffix}`, token);
+      },
+      create(token: string, body: StockRequestInput): Promise<StockRequest> {
+        return authed<StockRequest>("/api/kho/de-nghi", token, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      },
+      update(token: string, id: number, body: StockRequestUpdateInput): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}`, token, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+      },
+      submit(token: string, id: number): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}/trinh-duyet`, token, { method: "POST" });
+      },
+      /** `approved_qty`: line_id → SL duyệt. Gửi cho MỌI dòng (0 = không duyệt dòng đó). */
+      approve(token: string, id: number, approvedQty: Record<number, number>): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}/duyet`, token, {
+          method: "POST",
+          body: JSON.stringify({ approved_qty: approvedQty }),
+        });
+      },
+      reject(token: string, id: number, lyDo: string): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}/tu-choi`, token, {
+          method: "POST",
+          body: JSON.stringify({ ly_do: lyDo }),
+        });
+      },
+      cancel(token: string, id: number): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}/huy`, token, { method: "POST" });
+      },
+      /** Kho bấm "Tiếp nhận" (gác bằng `create`, không phải `approve` — kho không duyệt). */
+      receive(token: string, id: number): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}/tiep-nhan`, token, { method: "POST" });
+      },
+      prepare(token: string, id: number): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}/chuan-bi`, token, { method: "POST" });
+      },
+      /** Tìm vật tư cho ô chọn dòng đề nghị — gác `kho:read`, chỉ trả 4 trường (không giá). */
+      vatTu(token: string, q?: string | null, size = 30): Promise<StockMaterialOption[]> {
+        const qs = new URLSearchParams({ size: String(size) });
+        if (q) qs.set("q", q);
+        return authed<StockMaterialOption[]>(`/api/kho/de-nghi/vat-tu?${qs.toString()}`, token);
+      },
+      /** Thêm nhanh mặt hàng ngay ở đề nghị (tên + ĐVT + mã + quy đổi tuỳ chọn). 409 nếu trùng. */
+      taoVatTu(
+        token: string,
+        body: {
+          name: string;
+          unit: string;
+          code?: string | null;
+          don_vi_phu?: string | null;
+          he_so_quy_doi?: number | null;
+        },
+      ): Promise<StockMaterialOption> {
+        return authed<StockMaterialOption>("/api/kho/de-nghi/vat-tu", token, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      },
+      /** Khai/sửa quy đổi cho hàng đã có (nút 'Quy đổi' trên dòng phiếu). Cả hai null = bỏ quy đổi. */
+      quyDoi(
+        token: string,
+        materialId: number,
+        body: { don_vi_phu: string | null; he_so_quy_doi: number | null },
+      ): Promise<StockMaterialOption> {
+        return authed<StockMaterialOption>(`/api/kho/de-nghi/vat-tu/${materialId}/quy-doi`, token, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+      },
+      /** Gợi ý SL từ lịch sử đề nghị của bộ phận; `so_luong === null` = chưa đủ dữ liệu. */
+      goiYSoLuong(token: string, materialId: number): Promise<{ so_luong: number | null }> {
+        return authed<{ so_luong: number | null }>(
+          `/api/kho/de-nghi/goi-y/so-luong?material_id=${materialId}`,
+          token,
+        );
+      },
+    },
+
+    phieu: {
+      list(token: string, params: StockVoucherListParams = {}): Promise<StockVoucherPage> {
+        const qs = new URLSearchParams();
+        if (params.q) qs.set("q", params.q);
+        if (params.loai) qs.set("loai", params.loai);
+        if (params.trang_thai) qs.set("trang_thai", params.trang_thai);
+        if (params.request_id != null) qs.set("request_id", String(params.request_id));
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        if (params.page) qs.set("page", String(params.page));
+        if (params.size) qs.set("size", String(params.size));
+        const suffix = qs.toString() ? `?${qs.toString()}` : "";
+        return authed<StockVoucherPage>(`/api/kho/phieu${suffix}`, token);
+      },
+      get(token: string, id: number): Promise<StockVoucher> {
+        return authed<StockVoucher>(`/api/kho/phieu/${id}`, token);
+      },
+      create(token: string, body: StockVoucherInput): Promise<StockVoucher> {
+        return authed<StockVoucher>("/api/kho/phieu", token, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      },
+      /** Ghi sổ — điểm DUY NHẤT tồn kho thay đổi; sau đó phiếu không sửa được nữa. */
+      ghiSo(token: string, id: number): Promise<StockVoucher> {
+        return authed<StockVoucher>(`/api/kho/phieu/${id}/ghi-so`, token, { method: "POST" });
+      },
+      huy(token: string, id: number): Promise<StockVoucher> {
+        return authed<StockVoucher>(`/api/kho/phieu/${id}/huy`, token, { method: "POST" });
+      },
+      /** Gợi ý lấy hàng từ lô nào (FEFO → FIFO). `thieu` > 0 = kho không đủ hàng. */
+      goiYLo(
+        token: string,
+        params: { material_id: number; kho_id: number; so_luong: number },
+      ): Promise<StockAllocation> {
+        const qs = new URLSearchParams({
+          material_id: String(params.material_id),
+          kho_id: String(params.kho_id),
+          so_luong: String(params.so_luong),
+        });
+        return authed<StockAllocation>(`/api/kho/phieu/lo/goi-y?${qs.toString()}`, token);
+      },
+      danhSachLo(
+        token: string,
+        params: { material_id?: number | null; kho_id?: number | null; con_hang?: boolean },
+      ): Promise<StockLot[]> {
+        const qs = new URLSearchParams();
+        if (params.material_id != null) qs.set("material_id", String(params.material_id));
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        qs.set("con_hang", String(params.con_hang ?? true));
+        return authed<StockLot[]>(`/api/kho/phieu/lo/danh-sach?${qs.toString()}`, token);
+      },
+      // --- Đính kèm hóa đơn/chứng từ gốc (ảnh hoặc PDF, ≤10MB) ---
+      attachments(token: string, id: number): Promise<{ items: StockVoucherAttachment[] }> {
+        return authed<{ items: StockVoucherAttachment[] }>(`/api/kho/phieu/${id}/attachments`, token);
+      },
+      uploadAttachment(token: string, id: number, file: File): Promise<StockVoucherAttachment> {
+        const form = new FormData();
+        form.append("file", file);
+        return authed<StockVoucherAttachment>(`/api/kho/phieu/${id}/attachments`, token, {
+          method: "POST",
+          body: form,
+        });
+      },
+      deleteAttachment(token: string, id: number, attachmentId: number): Promise<void> {
+        return authed<void>(`/api/kho/phieu/${id}/attachments/${attachmentId}`, token, {
+          method: "DELETE",
+        });
+      },
+    },
+
+    nguongTon: {
+      list(token: string): Promise<StockThreshold[]> {
+        return authed<StockThreshold[]>("/api/kho/nguong-ton", token);
+      },
+      upsert(token: string, body: StockThresholdInput): Promise<StockThreshold> {
+        return authed<StockThreshold>("/api/kho/nguong-ton", token, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+      },
     },
   },
 

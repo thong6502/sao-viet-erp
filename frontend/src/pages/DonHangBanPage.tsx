@@ -19,6 +19,7 @@ import {
   type OrderStatsOut,
 } from "../api/client";
 import { OrderConfirmPrint } from "./OrderConfirmPrint";
+import { gopTheoNhom } from "../utils/gop-nhom";
 import "./don-hang-ban.css";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
@@ -786,15 +787,50 @@ function OrderDrawer({
                     </tr>
                   </thead>
                   <tbody>
-                    {order.lines.map((l) => (
-                      <tr key={l.id}>
-                        <td>{l.description}</td>
-                        <td className="dhb__mono dhb__text-right">{l.qty.toLocaleString("vi-VN")}{l.don_vi_tinh ? ` ${l.don_vi_tinh}` : ""}</td>
-                        <td className="dhb__mono dhb__text-right">{vnd(l.unit_price_snapshot)}</td>
-                        <td className="dhb__mono dhb__text-right">{l.vat_pct_estimate}%</td>
-                        <td className="dhb__mono dhb__text-right">{vnd(l.line_total)}</td>
-                      </tr>
-                    ))}
+                    {/* Khối THƯƠNG MẠI = mặt đối ngoại của đơn → gộp theo nhãn nhóm y như báo giá
+                        khách đã nhận (ruột + bìa = 1 quyển). Dòng thật vẫn nguyên ở dưới DB để
+                        sản xuất sinh lệnh riêng cho từng phần. */}
+                    {gopTheoNhom(order.lines, (l) => ({
+                      nhom: l.nhom,
+                      ten: l.description,
+                      soLuong: l.qty,
+                      donViTinh: l.don_vi_tinh || "",
+                      thanhTien: l.line_total ?? 0,
+                      tienVat: 0,
+                      vatPct: l.vat_pct_estimate,
+                    })).flatMap((g) => {
+                      const dongLe = g.goc.length === 1;
+                      return [
+                        <tr key={g.key} className={dongLe ? undefined : "dhb__comm-nhom"}>
+                          <td>
+                            {g.ten}
+                            {!dongLe && (
+                              <span className="dhb__comm-nhomSub">{g.goc.length} phần</span>
+                            )}
+                          </td>
+                          <td className="dhb__mono dhb__text-right">{g.soLuong.toLocaleString("vi-VN")}{g.donViTinh ? ` ${g.donViTinh}` : ""}</td>
+                          <td className="dhb__mono dhb__text-right">{vnd(g.donGia)}</td>
+                          <td className="dhb__mono dhb__text-right">{g.vatPct === null ? "—" : `${g.vatPct}%`}</td>
+                          <td className="dhb__mono dhb__text-right">{vnd(g.thanhTien)}</td>
+                        </tr>,
+                        // Nhóm thì SỔ ra từng phần (ruột, bìa) — người trong nhà cần thấy đủ,
+                        // khách chỉ thấy dòng gộp trên bản in.
+                        ...(dongLe
+                          ? []
+                          : g.goc.map((l, k) => (
+                              <tr
+                                key={`${g.key}-${l.id}`}
+                                className={`dhb__comm-con${k === g.goc.length - 1 ? " dhb__comm-conCuoi" : ""}`}
+                              >
+                                <td>{l.description}</td>
+                                <td className="dhb__mono dhb__text-right">{l.qty.toLocaleString("vi-VN")}{l.don_vi_tinh ? ` ${l.don_vi_tinh}` : ""}</td>
+                                <td className="dhb__mono dhb__text-right">{vnd(l.unit_price_snapshot)}</td>
+                                <td className="dhb__mono dhb__text-right">{l.vat_pct_estimate}%</td>
+                                <td className="dhb__mono dhb__text-right">{vnd(l.line_total)}</td>
+                              </tr>
+                            ))),
+                      ];
+                    })}
                   </tbody>
                 </table>
                 <div className="dhb__summary-box">
@@ -1124,30 +1160,49 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
       <Field label="Số PO khách"><input value={po} onChange={(e) => setPo(e.target.value)} className="dhb__input" /></Field>
       <Field label="% cọc"><input type="number" min={0} max={100} value={depositPct} onChange={(e) => setDepositPct(e.target.value)} placeholder="vd 30" className="dhb__input" /></Field>
       <Field label="Ngày giao cam kết"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="dhb__input" /></Field>
-      {addresses.length > 0 && (
-        <Field label="Chọn điểm giao của khách">
-          <select value={pickedAddrId} onChange={(e) => pickAddress(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
-            <option value="">— Chọn điểm giao —</option>
-            {addresses.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.label}{a.address ? ` · ${a.address}` : ""}{a.is_default ? " (mặc định)" : ""}
-              </option>
-            ))}
-          </select>
-        </Field>
-      )}
-      {contacts.length > 0 && (
-        <Field label="Chọn người nhận từ danh bạ khách">
-          <select value={pickedContactId} onChange={(e) => pickContact(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
-            <option value="">— Chọn liên hệ —</option>
-            {contacts.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}{c.phone ? ` · ${c.phone}` : ""}{c.is_primary ? " (liên hệ chính)" : ""}
-              </option>
-            ))}
-          </select>
-        </Field>
-      )}
+      {/* Địa chỉ giao + người nhận LUÔN hiện, và LẤY TỪ HỒ SƠ KHÁCH — không gõ tay ở đơn (gõ tay
+          là đẻ dữ liệu khách nằm rải rác ngoài hồ sơ). Khách chưa khai thì dropdown vẫn hiện,
+          sổ xuống rỗng kèm lời nhắc sang màn Khách hàng khai trước. */}
+      <Field label="Địa chỉ giao">
+        <select
+          value={pickedAddrId}
+          onChange={(e) => pickAddress(e.target.value)}
+          className="dhb__select"
+          style={{ width: "100%" }}
+        >
+          <option value="">
+            {addresses.length > 0 ? "— Chọn điểm giao —" : "— Khách chưa khai điểm giao —"}
+          </option>
+          {addresses.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.label}{a.address ? ` · ${a.address}` : ""}{a.is_default ? " (mặc định)" : ""}
+            </option>
+          ))}
+        </select>
+        {addr && <div className="dhb__pick-echo">{addr}</div>}
+      </Field>
+      <Field label="Người nhận">
+        <select
+          value={pickedContactId}
+          onChange={(e) => pickContact(e.target.value)}
+          className="dhb__select"
+          style={{ width: "100%" }}
+        >
+          <option value="">
+            {contacts.length > 0 ? "— Chọn liên hệ —" : "— Khách chưa có danh bạ liên hệ —"}
+          </option>
+          {contacts.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}{c.phone ? ` · ${c.phone}` : ""}{c.is_primary ? " (liên hệ chính)" : ""}
+            </option>
+          ))}
+        </select>
+        {(contactName || contactPhone) && (
+          <div className="dhb__pick-echo">
+            {[contactName, contactPhone].filter(Boolean).join(" · ")}
+          </div>
+        )}
+      </Field>
       <Field label="Lưu ý giao hàng"><textarea value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} placeholder="Dặn tài xế / khâu giao (giờ giao, tầng, gọi trước…)" className="dhb__input" style={{ minHeight: 56, resize: "vertical" }} /></Field>
       <Field label="Lưu ý sản xuất"><textarea value={productionNote} onChange={(e) => setProductionNote(e.target.value)} placeholder="Dặn tổ in / xưởng (canh màu, cấn bế, gia công…)" className="dhb__input" style={{ minHeight: 56, resize: "vertical" }} /></Field>
       <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, cursor: "pointer", userSelect: "none" }}>

@@ -1,5 +1,10 @@
-# Auto-HTTPS cho subdomain. Caddy tự xin & gia hạn chứng chỉ Let's Encrypt,
-# tự chuyển http → https. Domain lấy từ biến SITE_DOMAIN trong .env.
+# Auto-HTTPS. Caddy này giữ 80/443 nên nó là NƠI DUY NHẤT trên máy xin được chứng chỉ
+# Let's Encrypt — ACME chỉ xác thực qua đúng hai cổng đó. Vì vậy staging KHÔNG chạy Caddy riêng
+# (Caddy thứ hai ở cổng lệch sẽ không bao giờ lấy được chứng chỉ) mà đi nhờ qua đây.
+#
+# Một Caddy phục vụ được nhiều tên miền: nó đọc tên miền trong request rồi mới quyết đẩy đi đâu.
+
+# --- Production: `web` cùng project Compose nên gọi thẳng theo tên service ---
 {$SITE_DOMAIN} {
 	# SSE real-time luồng gửi duyệt: đẩy tức thì (flush_interval -1) + KHÔNG gzip (tránh đệm/vỡ
 	# stream). handle riêng, khớp trước phần còn lại.
@@ -13,5 +18,22 @@
 	handle {
 		encode gzip
 		reverse_proxy web:80
+	}
+}
+
+# --- Staging: stack `erp-svn-stg` là project Compose KHÁC nên KHÔNG chung mạng Docker, không
+# gọi được theo tên service. Đi qua cổng loopback mà `web` của nó publish — xem STG_UPSTREAM.
+# STG_DOMAIN mặc định `stg.localhost` để máy dev không vỡ: Caddy cấp chứng chỉ NỘI BỘ cho tên
+# `.localhost`, không gọi Let's Encrypt. Khi staging chưa dựng thì khối này chỉ trả 502, vô hại.
+{$STG_DOMAIN} {
+	@sse path /api/quotations/events*
+	handle @sse {
+		reverse_proxy {$STG_UPSTREAM} {
+			flush_interval -1
+		}
+	}
+	handle {
+		encode gzip
+		reverse_proxy {$STG_UPSTREAM}
 	}
 }

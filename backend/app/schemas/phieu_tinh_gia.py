@@ -83,6 +83,8 @@ class ThanhPhanIn(BaseModel):
     so_to_per_sp: int | None = Field(default=None, ge=1)
     so_luong: int | None = Field(default=None, ge=0)   # SL của sản phẩm này
     don_vi_tinh: str | None = Field(default=None, max_length=30)   # ĐVT sản phẩm (text tự do)
+    # Nhãn gộp dòng KHI IN báo giá (ruột + bìa 1 cuốn gõ giống nhau). Không vào công thức giá.
+    nhom_bao_gia: str | None = Field(default=None, max_length=120)
     loai_san_pham_id: int | None = None
     # Giấy
     giay_id: int | None = None
@@ -100,6 +102,8 @@ class ThanhPhanIn(BaseModel):
     chua_nhip: float | None = None
     chua_duoi: float | None = None
     chua_ca_gay: float | None = None
+    bleed_mm: float | None = None
+    khe_cat_mm: float | None = None
     # In
     co_in: bool | None = None
     che_ban_loai: str | None = None
@@ -114,6 +118,7 @@ class ThanhPhanIn(BaseModel):
     # Màu (gộp — chỉ số màu mỗi mặt)
     so_mau_a: int | None = None
     so_mau_b: int | None = None
+    so_mau_pha: int | None = Field(default=None, ge=0)   # màu pha NẰM TRONG tổng số màu trên
     ghi_chu_ky_thuat: str | None = None   # note KỸ THUẬT/SX theo sản phẩm (canh màu/kẽm cũ/bù hao) → drawer lệnh
     thanh_phams: list[ThanhPhamIn] | None = None
     vat_tus: list[VatTuLineIn] | None = None
@@ -135,6 +140,7 @@ class ThanhPhanOut(BaseModel):
     so_to_per_sp: int
     so_luong: int
     don_vi_tinh: str = "cái"
+    nhom_bao_gia: str | None = None
     loai_san_pham_id: int | None = None
     # Giấy
     giay_id: int | None = None
@@ -152,6 +158,8 @@ class ThanhPhanOut(BaseModel):
     chua_nhip: float
     chua_duoi: float
     chua_ca_gay: float
+    bleed_mm: float = 0
+    khe_cat_mm: float = 0
     # In
     co_in: bool
     che_ban_loai: str | None = None
@@ -166,6 +174,7 @@ class ThanhPhanOut(BaseModel):
     # Màu (gộp)
     so_mau_a: int
     so_mau_b: int
+    so_mau_pha: int = 0
     ghi_chu_ky_thuat: str | None = None   # note KỸ THUẬT/SX theo sản phẩm → drawer lệnh
     gia_von_tp: float
     thanh_phams: list[ThanhPhamOut] = Field(default_factory=list)

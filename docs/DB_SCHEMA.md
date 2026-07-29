@@ -174,6 +174,11 @@ gets on that module.
 | `can_assign_work` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (san_xuat) — tổ trưởng **GÁN thợ** vào công đoạn (`routing_step`) của lệnh đã phát. Người được gán mới hứng việc; chỉ vai có cờ này (hoặc scope department/all, hoặc trưởng tổ) mới thấy TOÀN BỘ lệnh của tổ + nút gán. Thêm qua migration 0081. |
 | `can_record_output` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (san_xuat, Lát 2) — tổ trưởng **GHI SẢN LƯỢNG** đạt/hỏng cho bước của tổ (bảng `san_luong`, record-only, cộng dồn). Thêm qua migration 0087. |
 | `can_handover` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (san_xuat, Lát 2) — tổ trưởng **BÀN GIAO** số sang tổ kế + **XÁC NHẬN NHẬN** (bảng `ban_giao`, 2 con dấu, lệch được). Thêm qua migration 0087. |
+| `can_request` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (kho) — **TẠO ĐỀ NGHỊ** nhập/xuất. Tách khỏi `can_create` (= lập PHIẾU): người đề nghị không lập phiếu, thủ kho lập phiếu nhưng không tự đề nghị cho mình. Thêm qua migration 0092. |
+| `can_view_stock` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (kho) — **XEM SỐ TỒN**. Thiếu quyền chỉ thấy đèn tín hiệu 4 màu, không thấy con số: người đề nghị biết "sắp hết" mà không lộ số liệu tồn. Thêm qua migration 0092. |
+| `can_view_cost` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (kho) — **XEM GIÁ VỐN** và giá trị tồn. Tồn ai cũng xem được, giá vốn chỉ Kế toán + BGĐ. Thiếu quyền → API ẩn đơn giá/thành tiền và bản in cũng bỏ 2 cột đó. Thêm qua migration 0092. |
+| `can_set_threshold` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (kho) — **KHAI NGƯỠNG** tồn / tối đa (`stock_thresholds`). Tách khỏi `can_update` vì đổi ngưỡng là đổi toàn bộ hệ cảnh báo mua hàng, không phải sửa dữ liệu thường. Thêm qua migration 0092. |
+| `can_post` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (kho) — **GHI SỔ** phiếu (chốt tồn). Tách khỏi `can_create` (= lập phiếu nháp) để giữ SoD: thủ kho lập nháp, Kế toán kho ghi sổ — người ghi sổ khác người cầm hàng. Thêm qua migration 0098. |
 
 **Keys & indexes**
 
@@ -614,12 +619,14 @@ pick** (logic chốt: báo giá không soạn tay, chỉ pick từ phiếu tính
 | `quote_version_id` | `Integer` | **FK→quote_versions.id** (CASCADE), **IX** | no | — | Version cha. |
 | `estimate_id` | `Integer` | **FK→estimates.id** (SET NULL), **IX** | yes | — | Phiếu tính giá gốc của DÒNG NÀY (đa phiếu/1 báo giá — hệ cũ, gỡ ở BG-4). |
 | `phieu_thanh_phan_id` | `Integer` → `INTEGER` | (soft) | yes | — | **BG-1**: dòng báo giá nguồn từ 1 "sản phẩm" (`PhieuThanhPhan`) của PTG. Soft ref. Migration 0051. |
+| `nhom` | `String(120)` → `VARCHAR(120)` | — | yes | — | Nhãn NHÓM GỘP KHI IN (migration 0111) — đông cứng từ `phieu_thanh_phan.nhom_bao_gia` lúc tạo dòng. Bản in gửi khách gom các dòng cùng nhãn thành 1 dòng (ruột + bìa → "quyển sách"); dữ liệu vẫn 1 dòng/thành phần. |
 | `estimate_option_id` | `Integer` | — | yes | — | Mức số lượng (option) đã pick trong phiếu. |
 | `line_no` | `Integer` | — | no | — | Thứ tự dòng. |
 | `po_code` | `String(60)` | — | yes | — | Mã PO của khách cho dòng (cột "MÃ PO" mẫu báo giá thật). Migration 0052. |
 | `product_type` | `String(50)` | — | no | — | Loại SP (snapshot từ phiếu). |
 | `product_name` | `String(255)` | — | no | — | Tên SP (snapshot). |
 | `product_spec_text` | `String(1000)` | — | yes | — | Spec đọc được ("21×29,7 cm · 4 màu/2 mặt"). |
+| `dien_giai` | `Text` | — | yes | — | Diễn giải quy cách IN RA báo giá dưới tên SP — mỗi dòng = 1 gạch đầu dòng (khổ · giấy · in · gia công). Máy bung từ `PhieuThanhPhan` lúc TẠO dòng rồi ĐÔNG CỨNG (sửa PTG về sau không đổi bản đã gửi; đồng bộ lại → version mới bung lại). Người soạn sửa/bổ sung được (bồi sóng, đục lỗ… máy không suy ra nổi). Migration 0106. |
 | `product_spec_snapshot_json` | `JSON` | — | yes | — | Spec đầy đủ copy-on-write. |
 | `quantity` | `Integer` | — | no | — | Số lượng của mức đã pick. |
 | `unit` | `String(16)` | — | no | `cái` | Đơn vị bán. |
@@ -777,6 +784,7 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 | `description`         | `String(500)` → `VARCHAR(500)`        | —                        | no   | `''`           | Mô tả SP thương mại (đối ngoại). NEVER số màu/kẽm/khổ/imposition/PrintForm.           |
 | `qty`                 | `Integer` → `INTEGER`                 | —                        | no   | `1`            | Số lượng dòng đơn.                                                                    |
 | `don_vi_tinh`         | `String(30)` → `VARCHAR(30)`          | —                        | no   | `'cái'`        | ĐVT dòng (migration 0076) — kéo từ báo giá (`quote_items.unit`) / gõ tay đơn nhập tay. |
+| `nhom`                | `String(120)` → `VARCHAR(120)`        | —                        | yes  | —              | Nhãn NHÓM GỘP KHI IN (migration 0112) — copy từ `quote_items.nhom`. Bản in xác nhận đơn gom dòng cùng nhãn thành 1 dòng, khớp bản báo giá. KHÔNG ảnh hưởng sản xuất (1 dòng đơn = 1 lệnh). |
 | `unit_price_snapshot` | `Integer` → `INTEGER`                 | —                        | yes  | —              | **P0 copy-on-write**: frozen unit price (VND) từ báo giá. NO live FK.                 |
 | `norm_snapshot`       | `JSON` → `JSON`                       | —                        | yes  | —              | **P0 copy-on-write**: frozen norm/định mức snapshot (ngang hàng unit_price_snapshot). |
 | `vat_pct_estimate`    | `Integer` → `INTEGER`                 | —                        | no   | `0`            | VAT DỰ KIẾN (%) cho dòng — chân lý ở InvoiceLine (⑬).                                 |
@@ -1219,6 +1227,8 @@ client's httpOnly cookie.
 | `ink_color_system`  | `String(32)` → `VARCHAR(32)`                           | —             | yes  | —              | Hệ màu mực (nhóm ink).                                                                                         |
 | `ink_color_code`    | `String(32)` → `VARCHAR(32)`                           | —             | yes  | —              | Mã màu mực (nhóm ink).                                                                                         |
 | `film_type`         | `String(32)` → `VARCHAR(32)`                           | —             | yes  | —              | Loại film (nhóm film).                                                                                         |
+| `don_vi_phu`        | `String(16)` → `VARCHAR(16)`                           | —             | yes  | —              | **Quy đổi đơn vị KHO** — đơn vị phụ khi nhập (ream/kg…), trong khi lô vẫn lưu theo `unit` (đơn vị tồn). Bỏ trống = không quy đổi, chỉ nhập theo đơn vị tồn. TÁCH khỏi `purchase_uom`/`conversion_*` của engine giá — hai hệ khác nhau, đừng dùng lẫn. |
+| `he_so_quy_doi`     | `Numeric(14,4)` → `NUMERIC(14,4)`                      | —             | yes  | —              | Hệ số cố định đi kèm `don_vi_phu`: 1 `don_vi_phu` = `he_so_quy_doi` × `unit`. Người ĐỀ NGHỊ khai (hàng mới) hoặc prefill từ mặt hàng; kho không khai lại ở phiếu.                                    |
 | `version`           | `Integer` → `INTEGER`                                  | —             | no   | `1`            | Số phiên bản bản ghi (optimistic lock).                                                                        |
 | `is_active`         | `Boolean` → `BOOLEAN`                                  | —             | no   | `true`         | Active status in selection pickers.                                                                            |
 | `created_at`        | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —             | no   | now (UTC)      | When the material was created.                                                                                 |
@@ -1597,7 +1607,8 @@ SEAM-19 (`drivers.employee_id` back-fill khi Tài xế build). Portable across S
 | `department_id`           | `Integer` → `INTEGER`                                  | **FK→departments.id**, **IX**  | yes  | —              | Phòng/tổ; trục RBAC data-scope. Null tới khi gán.                                                                   |
 | `user_id`                 | `Integer` → `INTEGER`                                  | **FK→users.id**, **U**, **IX** | yes  | —              | Tài khoản login nối 1–1 (UNIQUE); null = chưa nối.                                                                  |
 | `position`                | `String(255)` → `VARCHAR(255)`                         | —                              | yes  | —              | Chức danh.                                                                                                          |
-| `job_grade`               | `String(50)` → `VARCHAR(50)`                           | —                              | yes  | —              | Bậc thợ (vd "3/7"); đầu vào lương khoán.                                                                            |
+| `job_grade_id`            | `Integer` → `INTEGER`                                  | **FK→job_grades.id**, **IX**   | yes  | —              | **BẬC TAY NGHỀ — nguồn sự thật DUY NHẤT** từ 2026-07-29. Trỏ danh mục `job_grades`. Chỉ đổi qua TRANSITION (`promote`/`transfer`), KHÔNG qua sửa hồ sơ thường, nên mọi lần đổi bậc đều có dòng "Quá trình công tác". Thêm qua migration 0127. |
+| `job_grade`               | `String(50)` → `VARCHAR(50)`                           | —                              | yes  | —              | ⚠️ **DORMANT** từ 2026-07-29 — bậc thợ chữ tự do (vd "3/7"). Migration 0127 đã chuyển sang `job_grade_id`; cột giữ lại cho dữ liệu cũ, NGỪNG GHI, chỉ đọc khi `job_grade_id` rỗng.                    |
 | `prior_seniority_months`  | `Integer` → `INTEGER`                                  | —                              | no   | `0`            | Thâm niên đã có TRƯỚC khi vào làm (tháng); tổng thâm niên = số này + thời gian từ `hire_date`. Đợt 1 chỉ lưu/hiển thị. Thêm qua migration 0093. |
 | `status`                  | `String(16)` → `VARCHAR(16)`                           | —                              | no   | `probation`    | probation/active/on_leave/suspended/resigned.                                                                       |
 | `hire_date`               | `Date` → `DATE`                                        | —                              | yes  | —              | Ngày vào làm.                                                                                                       |
@@ -1618,6 +1629,7 @@ SEAM-19 (`drivers.employee_id` back-fill khi Tài xế build). Portable across S
 | `social_insurance_no`     | `String(20)` → `VARCHAR(20)`                           | **IX**                         | yes  | —              | Số sổ BHXH; indexed check-trùng mềm, KHÔNG unique.                                                                  |
 | `pit_tax_code`            | `String(20)` → `VARCHAR(20)`                           | —                              | yes  | —              | MST cá nhân (TNCN).                                                                                                 |
 | `dependents_count`        | `Integer` → `INTEGER`                                  | —                              | no   | `0`            | Số người phụ thuộc (giảm trừ gia cảnh).                                                                             |
+| `pit_mode`                | `String(16)` → `VARCHAR(16)`                           | —                              | no   | `luy_tien`     | **Cách tính TNCN của NGƯỜI này** — MỘT ô 3 giá trị thay vì 2 cờ (2 cờ = 4 tổ hợp, có 1 tổ hợp vô nghĩa = chỗ để dữ liệu lệch). `luy_tien` HĐ từ 3 tháng: bảng luỹ tiến + giảm trừ gia cảnh (mặc định) · `khau_tru_10` HĐ dưới 3 tháng/thời vụ/thực tập: khấu trừ 10% tại nguồn, KHÔNG luỹ tiến, KHÔNG giảm trừ · `cam_ket_08` đã làm cam kết 08/CK-TNCN ⇒ không khấu trừ. Thêm qua migration 0120. |
 | `bank_account`            | `String(30)` → `VARCHAR(30)`                           | —                              | yes  | —              | Số tài khoản ngân hàng (chi lương).                                                                                 |
 | `bank_name`               | `String(100)` → `VARCHAR(100)`                         | —                              | yes  | —              | Ngân hàng.                                                                                                          |
 | `default_shift_id`        | `Integer` → `INTEGER`                                  | **IX**                         | yes  | —              | Ca làm việc mặc định (logical link → `work_shifts.id`, không FK cứng). Null = chưa gán ca. Thêm qua migration 0011. |
@@ -1662,6 +1674,33 @@ ca = thêm mốc mới; khoảng kết thúc của mốc suy ra bằng ngày li�
 **Keys & indexes**
 
 - Primary key: `id`. Unique: `(employee_id, effective_from)` — `uq_employee_shift_effective`.
+
+---
+
+### `employee_shift_days`
+
+**Purpose:** ca của nhân viên tại MỘT NGÀY cụ thể — lớp **đè** lên ca mặc định theo mốc
+(`employee_shift_assignments`). Dùng cho xoay ca linh hoạt (hôm nay ca khuya, mai ca ngày), khai
+bằng lưới NV × ngày ở tab "Khai ca". Mỗi ngày công vẫn **chỉ 1 ca** — `(employee_id, work_date)`
+UNIQUE là hàng rào cứng; làm ngoài khung ca là TĂNG CA (module riêng), không phải ca thứ hai.
+Ba trạng thái một ô lưới: **không có dòng** = kế thừa ca mặc định · **có `shift_id`** = ca cụ thể ·
+**`is_off=True`** = nghỉ theo lịch. `is_off` chỉ là dấu KẾ HOẠCH: KHÔNG chặn chấm công và KHÔNG
+sinh hệ số lương (đi làm ngày nghỉ riêng vẫn hưởng 1× như ngày thường; chủ nhật vẫn theo luật nghỉ
+tuần chung), nên `shift_id_on()` cố ý bỏ qua dòng `is_off` và rơi xuống ca nền. Bảng do `create_all` tạo.
+
+| Column        | Type (SQLAlchemy → SQLite / Postgres)                  | Key                         | Null | Default        | Meaning                                              |
+| ------------- | ------------------------------------------------------ | --------------------------- | ---- | -------------- | ---------------------------------------------------- |
+| `id`          | `Integer` → `INTEGER` / `SERIAL`                       | **PK**                      | no   | auto-increment | Surrogate primary key.                               |
+| `employee_id` | `Integer` → `INTEGER`                                  | **FK→employees.id**, **IX** | no   | —              | Nhân viên chủ; `ON DELETE CASCADE`.                  |
+| `work_date`   | `Date` → `DATE`                                        | **IX**                      | no   | —              | NGÀY CÔNG (cùng trục `work_day_of`), không phải ngày lịch của lượt bấm. |
+| `shift_id`    | `Integer` → `INTEGER`                                  | **IX**                      | yes  | —              | Soft-ref `work_shifts.id`; NULL đi kèm `is_off` = nghỉ theo lịch. |
+| `is_off`      | `Boolean` → `BOOLEAN`                                  | —                           | no   | `false`        | Nghỉ luân phiên theo lịch — dấu kế hoạch, không ra tiền. |
+| `created_by`  | `Integer` → `INTEGER`                                  | **FK→users.id**             | yes  | —              | Người khai ca.                                       |
+| `created_at`  | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                           | no   | now (UTC)      | Khi ghi máy.                                         |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique: `(employee_id, work_date)` — `uq_employee_shift_day`.
 
 ---
 
@@ -1815,6 +1854,35 @@ Phiếu tăng ca (module `tang_ca`): NV tự gửi → tổ trưởng duyệt, H
 
 ---
 
+### `late_early_requests`
+
+Phiếu xin **ĐI MUỘN / VỀ SỚM / NGHỈ NỬA BUỔI** (module `di_muon`): NV tự gửi → **tổ trưởng duyệt**, HOẶC tổ trưởng khai hộ (duyệt luôn) — cùng luồng phiếu tăng ca. Cố ý KHÔNG dùng chung `leave_requests`: đây là **phiếu chấm công ngoại lệ**, người duyệt khác (tổ trưởng vs HCNS), và gộp chung thì phải nhớ lọc nó ra ở 7 chỗ đọc đơn nghỉ (badge, chuông, lịch nghỉ, 2 danh sách, chặn chốt công, quota). **Hai nhánh tiền** phân biệt bằng `leave_type_id`: NULL = mất công phần vắng, không đụng quỹ phép; khác NULL = tiêu `leave_cong` ngày phép và phần vắng vẫn được trả theo **lương vị trí**. Cả hai nhánh đều được **miễn phạt** đi muộn/về sớm đúng số phút đã xin. Bảng mới do `create_all` tạo (không migration).
+
+| Column | Type (Py → SQL) | Key | Null | Default | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` | **PK** | no | auto | Khóa chính. |
+| `employee_id` | `Integer` → `INTEGER` | **FK→employees.id, IX** | no | — | NV xin vắng (ON DELETE CASCADE). |
+| `work_date` | `Date` → `DATE` | **IX** | no | — | NGÀY CÔNG của ca gốc (ngày VÀO ca). |
+| `from_minute` | `Integer` → `INTEGER` | — | no | — | Phút bắt đầu VẮNG MẶT, tính từ 00:00 của `work_date`. |
+| `to_minute` | `Integer` → `INTEGER` | — | no | — | Phút kết thúc vắng mặt. Engine chỉ dùng ĐỘ DÀI `to − from`. |
+| `leave_type_id` | `Integer` → `INTEGER` | **IX** | yes | — | Soft-ref `leave_types.id` (KHÔNG FK cứng). NULL = **không** trừ quỹ phép. |
+| `leave_cong` | `Numeric(4,2)` → `NUMERIC` | — | no | `0` | Số ngày phép bị trừ, **đã làm tròn 0,5** (vắng ≤ nửa ca → 0,5; vượt → 1,0). |
+| `reason` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lý do xin vắng. |
+| `status` | `String(16)` → `VARCHAR(16)` | **IX** | no | `pending` | pending/approved/rejected/cancelled. |
+| `decided_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người duyệt/từ chối. |
+| `decided_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm quyết. |
+| `decision_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú / lý do từ chối (từ chối bắt buộc ghi). |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | User tạo phiếu (NV tự gửi hoặc tổ trưởng khai hộ). |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo. |
+| `seen_by_employee_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | NV đã xem kết quả chưa (chuông Topbar). Timestamp, KHÔNG Boolean. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes: `employee_id`, `work_date`, `status`, `leave_type_id`.
+
+---
+
 ### `attendance_adjust_requests`
 
 Yêu cầu chỉnh công: NV tự gửi (giải trình 1 ngày công) → HCNS duyệt/từ chối. Duyệt ⇒ sinh 1 punch điều chỉnh tay (`attendance_logs.is_manual`) → công tự tính lại. Bảng mới do `create_all` tạo (không migration).
@@ -1885,7 +1953,7 @@ từ đây khi kỳ đã `locked`. Xóa + ghi lại mỗi lần Chốt / Mở l�
 | `total_cong` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | Số công thực (đã gồm công lễ + nghỉ phép có lương). |
 | `total_days` | `Integer` → `INTEGER` | — | no | `0` | Số ngày có chấm công. |
 | `total_leave` | `Integer` → `INTEGER` | — | no | `0` | Tổng ngày nghỉ phép đã duyệt. |
-| `paid_leave_days` | `Integer` → `INTEGER` | — | no | `0` | Nghỉ phép CÓ lương. |
+| `paid_leave_days` | `Numeric(6,2)` → `NUMERIC(6, 2)` | — | no | `0` | Nghỉ phép CÓ lương. Số LẺ được (phiếu nghỉ nửa buổi có trừ phép = 0,5 ngày). |
 | `unpaid_leave_days` | `Integer` → `INTEGER` | — | no | `0` | Nghỉ KHÔNG lương. |
 | `holiday_days` | `Integer` → `INTEGER` | — | no | `0` | Ngày nghỉ lễ hưởng công. |
 | `total_hours` | `Numeric(7,2)` → `NUMERIC` | — | no | `0` | Tổng giờ có mặt. |
@@ -1893,6 +1961,8 @@ từ đây khi kỳ đã `locked`. Xóa + ghi lại mỗi lần Chốt / Mở l�
 | `night_days` | `Integer` → `INTEGER` | — | no | `0` | Số ngày làm ca đêm. |
 | `holiday_cong` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | Công LÀM ngày lễ (Đ98 → Lương trả premium). Thêm qua migration 0065. |
 | `restday_cong` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | Công LÀM ngày nghỉ tuần (Đ98 → premium). Thêm qua migration 0065. |
+| `plain_cong` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | Công LÀM ngày nghỉ `off1x` — Lương trả 1× (KHÔNG hệ số), uncapped. Thêm qua migration 0109. |
+| `excused_cong` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | Công THIẾU nhưng CÓ ĐƠN nghỉ theo giờ đã duyệt (đi muộn/về sớm/nửa ngày). **KHÔNG** cộng vào `total_cong` — tiền công vẫn trừ; chỉ để Lương giữ nguyên phụ cấp chuyên cần. Thêm qua migration 0111. |
 | `ot_holiday_minutes` | `Integer` → `INTEGER` | — | no | `0` | Phút OT ngày lễ. Thêm qua migration 0065. |
 | `ot_restday_minutes` | `Integer` → `INTEGER` | — | no | `0` | Phút OT ngày nghỉ tuần. Thêm qua migration 0065. |
 | `late_off_days_json` | `Text` → `TEXT` | — | yes | — | JSON list SỐ PHÚT vi phạm (trễ+sớm, không phép) MỖI NGÀY — đóng băng để Lương áp bảng phạt trễ/sớm tự động (mỗi phần tử = 1 lần). Thêm qua migration 0098. |
@@ -2350,9 +2420,13 @@ công tháng (có lương = 1 công "P"; không lương = 0 công "KL").
 
 ### `leave_requests`
 
-**Purpose:** đơn xin nghỉ của một NV (Nghỉ phép — module `nhan_su`). Nguyên ngày, từ
-`start_date` đến `end_date` bao gồm. Workflow `pending → approved / rejected / cancelled`.
-Đơn `approved` được Bảng công tháng đọc (đánh dấu P/KL các ngày trong khoảng).
+**Purpose:** đơn xin nghỉ NGUYÊN NGÀY của một NV (Nghỉ phép — module `nhan_su`), từ `start_date`
+đến `end_date` bao gồm 2 đầu. Workflow `pending → approved / rejected / cancelled`. Đơn `approved`
+được Bảng công tháng đọc để đánh dấu P/KL.
+
+⚠️ Nghỉ theo GIỜ (đi muộn / về sớm / nửa buổi) **KHÔNG** nằm ở bảng này — xem `late_early_requests`
+(bảng riêng, tổ trưởng duyệt). Từng gộp chung rồi tách ra vì có 7 nơi đọc đơn nghỉ, sót một chỗ lọc
+là phiếu 2 tiếng lại chặn chốt công / vẽ thành nghỉ trọn ngày.
 
 | Column                | Type (SQLAlchemy → SQLite / Postgres)                  | Key                           | Null | Default        | Meaning                                                                                                                                            |
 | --------------------- | ------------------------------------------------------ | ----------------------------- | ---- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2361,7 +2435,7 @@ công tháng (có lương = 1 công "P"; không lương = 0 công "KL").
 | `leave_type_id`       | `Integer` → `INTEGER`                                  | **FK→leave_types.id**, **IX** | yes  | —              | Loại nghỉ; `ON DELETE SET NULL`.                                                                                                                   |
 | `start_date`          | `Date` → `DATE`                                        | **IX**                        | no   | —              | Từ ngày (bao gồm).                                                                                                                                 |
 | `end_date`            | `Date` → `DATE`                                        | —                             | no   | —              | Đến ngày (bao gồm).                                                                                                                                |
-| `days`                | `Integer` → `INTEGER`                                  | —                             | no   | `1`            | Số ngày nghỉ = số ngày lịch bao gồm 2 đầu.                                                                                                         |
+| `days`                | `Integer` → `INTEGER`                                  | —                             | no   | `1`            | Số ngày nghỉ = số ngày lịch bao gồm 2 đầu. Đơn theo GIỜ luôn = 1.                                                                                   |
 | `reason`              | `String(500)` → `VARCHAR(500)`                         | —                             | yes  | —              | Lý do nghỉ.                                                                                                                                        |
 | `status`              | `String(16)` → `VARCHAR(16)`                           | **IX**                        | no   | `pending`      | pending/approved/rejected/cancelled.                                                                                                               |
 | `decided_by`          | `Integer` → `INTEGER`                                  | **FK→users.id**               | yes  | —              | Người duyệt/từ chối.                                                                                                                               |
@@ -2418,7 +2492,7 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 |---|---|---|---|---|---|
 | `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
 | `day` | `Date` → `DATE` | **UQ**, **IX** | no | — | Ngày dương cụ thể (1 ngày 1 bản ghi). |
-| `kind` | `String(8)` → `VARCHAR(8)` | — | no | `off` | `off` = nghỉ lễ; `work` = làm bù. |
+| `kind` | `String(8)` → `VARCHAR(8)` | — | no | `off` | `off` = nghỉ lễ; `work` = làm bù; `off1x` = nghỉ, đi làm chỉ 1× (không hệ số). |
 | `name` | `String(200)` → `VARCHAR(200)` | — | no | — | Tên ngày (vd "Quốc khánh"). |
 | `is_paid` | `Boolean` → `BOOLEAN` | — | no | `true` | Lễ hưởng lương (chỉ có nghĩa với `off`). |
 | `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú (vd "mùng 1 Tết ÂL"). |
@@ -2462,6 +2536,10 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 | `bh_base_cap` | `Numeric(14,2)` | no | `50600000` | Trần đóng BHXH+BHYT = 20× mức tham chiếu; 0 = không trần (Pha 4a). |
 | `bhtn_base_cap` | `Numeric(14,2)` | no | `106200000` | Trần đóng BHTN = 20× lương tối thiểu vùng; 0 = không trần (Pha 4a). |
 | `advance_max_pct` | `Numeric(6,4)` | no | `0.1` | TRẦN TẠM ỨNG/tháng: tổng tạm ứng 1 tháng của 1 NV ≤ tỷ lệ này × (lương vị trí + trách nhiệm). Đơn CHỜ DUYỆT cũng chiếm chỗ. `0` = không giới hạn. Thêm qua migration 0105. |
+| `adjust_max_per_month` | `Integer` | no | `5` | HẠN MỨC CHỈNH CÔNG/tháng: mỗi NV tự gửi "Yêu cầu chỉnh công" cho tối đa ngần này **NGÀY CÔNG** (đếm `work_date` phân biệt, KHÔNG đếm số đơn — quên cả vào lẫn ra 1 ngày vẫn là 1 lượt). Đơn CHỜ DUYỆT cũng chiếm chỗ; bị từ chối/hủy thì trả lại. HCNS chấm bù TRỰC TIẾP không bị giới hạn. `0` = không giới hạn. Thêm qua migration 0114. |
+| `pit_flat_rate` | `Numeric(6,4)` | no | `0.1` | Tỷ lệ **KHẤU TRỪ TẠI NGUỒN** cho HĐ dưới 3 tháng / thời vụ (`employees.pit_mode = khau_tru_10`). PHÂN SỐ: `0.10` = 10%. Khai được vì đây là số theo LUẬT, đổi theo luật — đừng viết cứng trong code. Thêm qua migration 0120. |
+| `pit_flat_threshold` | `Numeric(14,2)` | no | `2000000` | Ngưỡng thu nhập MỖI LẦN TRẢ mới phải khấu trừ tại nguồn (hiện 2.000.000đ). Đi cặp với `pit_flat_rate`. Thêm qua migration 0120. |
+| `phat_cap_pct` | `Numeric(6,4)` | no | `0.3` | **TRẦN KHẤU TRỪ KỶ LUẬT** — PHÂN SỐ (`0.30` = 30%). ⚠️ Đây là MỨC LUẬT, không phải chính sách công ty: Điều 102 BLLĐ 2019 giới hạn khấu trừ mỗi tháng không quá 30% lương còn lại sau khi trừ BHXH và TNCN. Trước viết cứng `0.30` trong `_capped_penalty`. `0` = TẮT TRẦN (ghi phạt bao nhiêu trừ bấy nhiêu; thực nhận vẫn có sàn 0, không âm) — màn Cấu hình lương cảnh báo khi đặt 0 hoặc > 30%. Thêm qua migration 0126. |
 | `updated_at` | `DateTime(tz)` | no | now | Lần cập nhật. |
 
 ---
@@ -2527,6 +2605,7 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `source_salary_row_id` | `Integer` | —                           | yes  | —       | LEGACY soft-ref `department_salary_rows` khi amount_mode=dept_row (đọc sống) — vừa là bậc vừa là nguồn tiền; PRD v2 tách 2 vai. |
 | `luong_vi_tri`   | `Numeric(14,2)` | —                           | no   | `0`     | **Mức hợp đồng RIÊNG của NV — lương vị trí** (PRD v2 C2). Mức nền = vị trí + trách nhiệm (gốc prorate theo công + gốc tính tăng ca). Thêm qua migration 0088 (backfill từ dòng bậc → lương KHÔNG đổi). |
 | `luong_trach_nhiem` | `Numeric(14,2)` | —                        | no   | `0`     | **Mức hợp đồng RIÊNG của NV — lương trách nhiệm**. Thêm qua migration 0088. |
+| `luong_dot_1` | `Numeric(14,2)` | — | no | `0` | "Lương trả 1 lần" — số cố định điền sẵn khi tạo phiếu thanh toán lương đợt 1. Migration 0106. |
 | `insurance_base` | `Numeric(14,2)` | —                           | yes  | —       | Mức đóng BH (NULL = mức lương).      |
 | `allowance`      | `Numeric(14,2)` | —                           | no   | `0`     | **Phụ cấp KHÁC** của riêng NV (xăng/điện thoại/kiêm nhiệm…) — KHAI TAY, cộng phẳng (không prorate theo công, không vào gốc tính tăng ca). |
 | `phu_cap_ca`     | `Numeric(14,2)` | —                           | no   | `0`     | **Phụ cấp CA** (ca đêm/ca tới sáng/cơm ca…) — KHAI TAY một số cố định dùng mọi tháng; hệ thống KHÔNG tự tính. Vào dòng lương ở `payroll_lines.night_pay`. Thêm qua migration 0090. |
@@ -2534,6 +2613,8 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `chuyen_can`     | `Numeric(14,2)` | —                           | no   | `0`     | Chuyên cần của riêng NV (all-or-nothing, chỉ khi đủ công). |
 | `insurance_elsewhere` | `Boolean`  | —                           | no   | `false` | Cờ **"BH đóng ở nơi khác"** — NV được nơi khác đóng BHXH/BHYT/BHTN → công ty KHÔNG trừ 3 khoản này của NV, chỉ chịu TNLĐ-BNN (`payroll_params.tnld_bnn_rate`). Đoàn phí CĐ theo `union_member`. Thêm qua migration 0096. |
 | `union_member` | `Boolean` | —                           | no   | `false` | Cờ **"đoàn viên công đoàn"** — CHỈ đoàn viên mới bị trừ đoàn phí công đoàn (`payroll_params.cong_doan_rate`). Mặc định false = opt-in. Thêm qua migration 0097. |
+| `apply_self_deduction` | `Boolean` | —                  | no   | `true`  | Có áp **GIẢM TRỪ BẢN THÂN** khi tính TNCN không. Người làm 2 nơi chỉ được đăng ký giảm trừ bản thân ở MỘT nơi — bỏ tích ở nơi còn lại. Mặc định BẬT (đại đa số chỉ làm một nơi; tắt là ngoại lệ). Giảm trừ NGƯỜI PHỤ THUỘC không đụng cờ này (theo `employees.dependents_count`). Thêm qua migration 0119. |
+| `commission_pct` | `Numeric(6,4)` | —                  | no   | `0`     | **% HOA HỒNG** của nhân viên kinh doanh. PHÂN SỐ: `0.05` = 5%, đúng quy ước `cong_doan_rate`/`phat_cap_pct`. `0` = không hưởng (mặc định). Để ở bảng NÀY chứ không ở `employees` là có chủ đích: bảng này versioned theo `effective_from` ⇒ đổi % từ tháng sau thì kỳ tháng trước tính lại vẫn ra số cũ. ⚠️ **ĐỢT NÀY CHỈ KHAI** — `_compute` KHÔNG đọc cột này, khai bao nhiêu cũng không đổi một đồng; ra tiền cần `orders.commission_pct` + Σ phiếu thu theo đơn. Thêm qua migration 0128. |
 | `note`           | `String(255)`   | —                           | yes  | —       | Ghi chú.                             |
 | `created_by`     | `Integer`       | **FK→users.id**             | yes  | —       | Người khai/điều chỉnh.               |
 | `created_at`     | `DateTime(tz)`  | —                           | no   | now     | Khi tạo.                             |
@@ -2554,6 +2635,7 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `advance_date`  | `Date`          | —                           | no   | —         | Ngày ứng.                            |
 | `amount`        | `Numeric(14,2)` | —                           | no   | —         | Số tiền ứng.                         |
 | `reason`        | `String(255)`   | —                           | yes  | —         | Lý do.                               |
+| `kind`          | `String(16)`    | —                           | no   | `tam_ung` | Loại phiếu: `tam_ung` (ad-hoc) \| `luong_dot_1` (thanh toán lương đợt 1). Migration 0107. |
 | `status`        | `String(12)`    | **IX**                      | no   | `pending` | pending/approved/rejected/cancelled. |
 | `decided_by`    | `Integer`       | **FK→users.id**             | yes  | —         | Người duyệt.                         |
 | `decided_at`    | `DateTime(tz)`  | —                           | yes  | —         | Thời điểm duyệt.                     |
@@ -2596,7 +2678,10 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `actual_cong` | `Numeric(6,2)` | — | no | `0` | Số công thực (từ Chấm công). |
 | `standard_cong` | `Numeric(6,2)` | — | no | `26` | Công chuẩn kỳ. |
 | `monthly_salary` | `Numeric(14,2)` | — | no | `0` | Mức lương tháng (đã giải). |
-| `luong_cong` | `Numeric(14,2)` | — | no | `0` | Lương theo công. |
+| `luong_cong` | `Numeric(14,2)` | — | no | `0` | Lương theo công (đã gồm phần ngày phép ở dòng dưới). |
+| `luong_ngay_phep` | `Numeric(14,2)` | — | no | `0` | **TRONG ĐÓ** của `luong_cong`: tiền những ngày nghỉ phép, trả theo **lương vị trí** (không lương trách nhiệm). ĐỪNG cộng lại vào gross. Khác cột tay `phep_nam`. Thêm qua migration 0112. |
+| `paid_leave_cong` | `Numeric(6,2)` | — | no | `0` | Số công phép CÓ LƯƠNG thực được trả (sau khi kẹp trần công chuẩn). Thêm qua migration 0112. |
+| `excused_cong` | `Numeric(6,2)` | — | no | `0` | Công thiếu ĐƯỢC PHÉP (đơn nghỉ theo giờ đã duyệt) — chỉ để giải trình vì sao công thiếu mà chuyên cần vẫn đủ. Thêm qua migration 0112. |
 | `chuyen_can` | `Numeric(14,2)` | — | no | `0` | Thưởng chuyên cần. |
 | `allowance` | `Numeric(14,2)` | — | no | `0` | TỔNG phụ cấp tháng = phụ cấp KHÁC + trách nhiệm + thâm niên (2 cột dưới). Phụ cấp CA đi riêng ở `night_pay`. |
 | `phu_cap_tham_nien` | `Numeric(14,2)` | — | no | `0` | **TRONG ĐÓ** của `allowance` — chép từ `employee_salaries.phu_cap_tham_nien`. Như trên: không cộng thêm vào gross. Thêm qua migration 0089. |
@@ -2627,8 +2712,11 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `cong_doan` | `Numeric(14,2)` | — | no | `0` | Đoàn phí công đoàn = insurance_base×cong_doan_rate (tự tính, thử việc=0). Thêm qua migration 0074. |
 | `pit` | `Numeric(14,2)` | — | no | `0` | Thuế TNCN (tự tính, có thể ghi đè tay). |
 | `pit_manual` | `Boolean` | — | no | `false` | TNCN do HCNS ghi đè tay (không auto ghi đè). Thêm qua migration 0044. |
-| `pit_taxable` | `Numeric(14,2)` | — | no | `0` | Thu nhập tính thuế đã dùng để tính TNCN. Thêm qua migration 0044. |
-| `advance_total` | `Numeric(14,2)` | — | no | `0` | Tổng tạm ứng đã duyệt. |
+| `pit_taxable` | `Numeric(14,2)` | — | no | `0` | Thu nhập **TÍNH** thuế đã dùng để tính TNCN (đã trừ BHXH + giảm trừ gia cảnh). Thêm qua migration 0044. ⚠️ KHÔNG phải `thu_nhap_chiu_thue` — hai số cách nhau ~15,5tr, dùng lẫn là sai thuế. |
+| `thu_nhap_chiu_thue` | `Numeric(14,2)` | — | no | `0` | Thu nhập **CHỊU** thuế của kỳ = tổng lương − các khoản miễn, TRƯỚC mọi giảm trừ. Số DẪN XUẤT, không cộng vào gross lần nữa. Thêm qua migration 0118. |
+| `thu_nhap_mien_thue` | `Numeric(14,2)` | — | no | `0` | Thu nhập **MIỄN** thuế của kỳ = tăng ca + ca đêm + các khoản trong `payroll_components` có `is_taxable = false`. Số DẪN XUẤT, không cộng vào gross lần nữa. Thêm qua migration 0115. |
+| `advance_total` | `Numeric(14,2)` | — | no | `0` | Tổng tạm ứng đã duyệt (kind=tam_ung). |
+| `luong_dot_1_total` | `Numeric(14,2)` | — | no | `0` | Tổng "thanh toán lương đợt 1" đã duyệt (kind=luong_dot_1) của kỳ. Migration 0108. |
 | `net_pay` | `Numeric(14,2)` | — | no | `0` | Thực lĩnh. |
 | `note` | `String(255)` | — | yes | — | Ghi chú. |
 | `updated_at` | `DateTime(tz)` | — | no | now | Lần cập nhật. |
@@ -2727,7 +2815,7 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 | BHR (`von_dau_tu` `nam_khau_hao` `gio_lam_nam` `availability_pct` `productivity_pct` …) |                | công thức đơn giá giờ máy (spec §4).                                          |
 | `fields_theo_loai`                                                                      | `JSON`         | field đặc thù theo `loai_may`.                                                |
 
-**Tất cả cột:** `id`, `ma`, `ten`, `loai_may`, `finishing_subtype`, `nhom_cost_center`, `phong_ban_id`, `dia_diem`, `hang_san_xuat`, `model`, `so_seri`, `trang_thai`, `ghi_chu`, `ghi_chu_2`, `ma_tai_san`, `ma_TK_cost_center`, `nha_cung_cap`, `ngay_dua_vao_su_dung`, `het_han_bao_hanh`, `phuong_phap_khau_hao`, `nguon_bhr`, `don_gia_gio_BHR`, `von_dau_tu`, `gia_tri_thu_hoi`, `nam_khau_hao`, `lai_von_pct`, `gio_lam_nam`, `availability_pct`, `productivity_pct`, `efficiency_pct`, `so_nhan_cong`, `luong_gio`, `luong_burden_pct`, `cong_suat_kW`, `he_so_tai_dien`, `don_gia_dien`, `bao_hiem_nam`, `dien_tich_san_m2`, `don_gia_thue_m2_nam`, `bao_tri_gio`, `overhead_gio`, `markup_pct`, `ngay_cap_nhat_bhr`, `toc_do`, `don_vi_toc_do`, `makeready_time_default`, `thoi_gian_rua_muc`, `min_stock_gsm`, `max_stock_gsm`, `vat_lieu_ho_tro_class`, `so_may_song_song`, `so_ca`, `chi_so_dem_luot`, `ngay_bao_tri_gan_nhat`, `chu_ky_bao_tri`, `chu_ky_bao_tri_don_vi`, `ngay_bao_tri_ke_tiep`, `kho_max_dai`, `kho_max_rong`, `kho_min_dai`, `kho_min_rong`, `kho_kem_dai`, `kho_kem_rong`, `vung_in_dai`, `vung_in_rong`, `gripper_mm`, `le_hong_mm`, `duoi_thang_mau_mm`, `so_units`, `units_truoc`, `units_sau`, `khoa_class`, `co_tro_mat`, `cho_phep_tu_tro`, `cho_phep_tro_dau_duoi`, `bu_hao_canh_may_per_mau`, `bu_hao_chay_pct`, `ho_tro_cip3`, `fields_theo_loai`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `loai_may`, `finishing_subtype`, `nhom_cost_center`, `phong_ban_id`, `dia_diem`, `hang_san_xuat`, `model`, `so_seri`, `trang_thai`, `ghi_chu`, `ghi_chu_2`, `ma_tai_san`, `ma_TK_cost_center`, `nha_cung_cap`, `ngay_dua_vao_su_dung`, `het_han_bao_hanh`, `phuong_phap_khau_hao`, `nguon_bhr`, `don_gia_gio_BHR`, `von_dau_tu`, `gia_tri_thu_hoi`, `nam_khau_hao`, `lai_von_pct`, `gio_lam_nam`, `availability_pct`, `productivity_pct`, `efficiency_pct`, `so_nhan_cong`, `luong_gio`, `luong_burden_pct`, `cong_suat_kW`, `he_so_tai_dien`, `don_gia_dien`, `bao_hiem_nam`, `dien_tich_san_m2`, `don_gia_thue_m2_nam`, `bao_tri_gio`, `overhead_gio`, `markup_pct`, `ngay_cap_nhat_bhr`, `toc_do`, `don_vi_toc_do`, `makeready_time_default`, `thoi_gian_rua_muc`, `min_stock_gsm`, `max_stock_gsm`, `vat_lieu_ho_tro_class`, `so_may_song_song`, `so_ca`, `chi_so_dem_luot`, `ngay_bao_tri_gan_nhat`, `chu_ky_bao_tri`, `chu_ky_bao_tri_don_vi`, `ngay_bao_tri_ke_tiep`, `kho_max_dai`, `kho_max_rong`, `kho_min_dai`, `kho_min_rong`, `kho_kem_dai`, `kho_kem_rong`, `vung_in_dai`, `vung_in_rong`, `gripper_mm`, `nhip_giay_mm`, `le_hong_mm`, `duoi_thang_mau_mm`, `so_units`, `units_truoc`, `units_sau`, `khoa_class`, `co_tro_mat`, `cho_phep_tu_tro`, `cho_phep_tro_dau_duoi`, `bu_hao_canh_may_per_mau`, `bu_hao_chay_pct`, `ho_tro_cip3`, `fields_theo_loai`, `created_at`, `updated_at`. **Hai loại nhíp — ĐỪNG LẪN:** `gripper_mm` = mép nhíp trên BẢN KẼM (~44mm, nhãn UI "Nhíp kẽm"); `nhip_giay_mm` (INTEGER nullable, migration 0107) = cạnh máy KẸP TỜ GIẤY (~8–12mm) → bình bài trừ vào chiều DÀI tờ in. `le_hong_mm` trừ MỖI BÊN chiều rộng, `duoi_thang_mau_mm` trừ chiều dài; cả hai đã có cột từ trước nhưng tới migration 0107 mới có ô nhập trên UI.
 
 ### `chung_loai_giay`
 
@@ -2807,7 +2895,7 @@ Ba cột nuôi thẳng routing của Lệnh SX (giá trị MẶC ĐỊNH, kế h
 
 **Purpose:** Thành phần (1 tờ giấy) của 1 phiếu tính giá — con của `phieu_tinh_gia` (`phieu_id` FK thật, cascade xoá). Gom cấu hình GIẤY (khổ nguyên, khổ thành phẩm ③ dạng số `dai/rong_thanh_pham`, đơn giá theo tờ|tấn, nguồn công ty|khách, bù hao số tờ, các loại tờ chừa) + KỸ THUẬT IN (chế bản/kẽm, quy cách 1 mặt|2 mặt|tự trở, khổ tờ in ② `kho_in_dai/rong`, số con ④ `so_con` + cờ `con_auto` tự bình bài, máy, đơn giá công in gộp mực) + MÀU (đã gộp: chỉ `so_mau_a`/`so_mau_b` — KHÔNG hệ số, KHÔNG tách SEL/Pantone/Nền). `giay_id`/`may_id` soft FK. `gia_von_tp` = ảnh chụp giá vốn thành phần (Σ 4 nhóm A/B/C/D). Mỗi thành phần có nhiều dòng gia công sau in (`phieu_thanh_pham`). Tính giá vốn KHÔNG dùng hệ số (mọi hệ số = 1 → đã gỡ khỏi model).
 
-**Tất cả cột:** `id`, `phieu_id`, `thu_tu`, `loai_thanh_phan`, `ten`, `kho_thanh_pham`, `dai_thanh_pham`, `rong_thanh_pham`, `kho_mo_rong`, `tay_gap`, `so_to_per_sp`, `so_luong`, `don_vi_tinh`, `loai_san_pham_id`, `giay_id`, `kho_nguyen`, `kho_nguyen_dai`, `kho_nguyen_rong`, `don_gia_giay`, `don_gia_don_vi`, `nguon_giay`, `bu_hao_so_to`, `hao_so_to`, `tinh_bu_hao_cd`, `chua_xen`, `chua_tay_ke`, `chua_nhip`, `chua_duoi`, `chua_ca_gay`, `co_in`, `che_ban_loai`, `che_ban_don_gia`, `quy_cach_in`, `kho_in_dai`, `kho_in_rong`, `so_con`, `con_auto`, `may_id`, `don_gia_cong_in`, `so_mau_a`, `so_mau_b`, `ghi_chu_ky_thuat`, `gia_von_tp`, `created_at`, `updated_at`. `ghi_chu_ky_thuat` (TEXT nullable, migration 0079) = ghi chú KỸ THUẬT/SX theo SẢN PHẨM (canh màu như mẫu · kẽm cũ · bù hao) — gõ ở Tính giá, xuống drawer lệnh SX; kỹ thuật, KHÔNG giá; khác `orders.production_note` (cấp đơn). `don_vi_tinh` (VARCHAR, migration 0074, default `'cái'`) = ĐVT sản phẩm (text tự do) → chảy sang Báo giá (`quote_items.unit`, thay `'cái'` hardcode). `kho_nguyen_dai`/`kho_nguyen_rong` (mm, migration 0063) = khổ giấy nguyên ① nhập trên phiếu, ĐÈ khổ danh mục Giấy khi > 0 (đặt hàng xả khổ khác); 0 = lấy theo danh mục. `kho_nguyen` giữ làm nhãn hiển thị / `giay_ten` fallback.
+**Tất cả cột:** `id`, `phieu_id`, `thu_tu`, `loai_thanh_phan`, `ten`, `kho_thanh_pham`, `dai_thanh_pham`, `rong_thanh_pham`, `kho_mo_rong`, `tay_gap`, `so_to_per_sp`, `so_luong`, `don_vi_tinh`, `nhom_bao_gia`, `loai_san_pham_id`, `giay_id`, `kho_nguyen`, `kho_nguyen_dai`, `kho_nguyen_rong`, `don_gia_giay`, `don_gia_don_vi`, `nguon_giay`, `bu_hao_so_to`, `hao_so_to`, `tinh_bu_hao_cd`, `chua_xen`, `chua_tay_ke`, `chua_nhip`, `chua_duoi`, `chua_ca_gay`, `bleed_mm`, `khe_cat_mm`, `co_in`, `che_ban_loai`, `che_ban_don_gia`, `quy_cach_in`, `kho_in_dai`, `kho_in_rong`, `so_con`, `con_auto`, `may_id`, `don_gia_cong_in`, `so_mau_a`, `so_mau_b`, `so_mau_pha`, `ghi_chu_ky_thuat`, `gia_von_tp`, `created_at`, `updated_at`. `ghi_chu_ky_thuat` (TEXT nullable, migration 0079) = ghi chú KỸ THUẬT/SX theo SẢN PHẨM (canh màu như mẫu · kẽm cũ · bù hao) — gõ ở Tính giá, xuống drawer lệnh SX; kỹ thuật, KHÔNG giá; khác `orders.production_note` (cấp đơn). `don_vi_tinh` (VARCHAR, migration 0074, default `'cái'`) = ĐVT sản phẩm (text tự do) → chảy sang Báo giá (`quote_items.unit`, thay `'cái'` hardcode). `kho_nguyen_dai`/`kho_nguyen_rong` (mm, migration 0063) = khổ giấy nguyên ① nhập trên phiếu, ĐÈ khổ danh mục Giấy khi > 0 (đặt hàng xả khổ khác); 0 = lấy theo danh mục. `kho_nguyen` giữ làm nhãn hiển thị / `giay_ten` fallback. `bleed_mm`/`khe_cat_mm` (mm, migration 0108) = tràn lề MỖI CẠNH con và khe giữa 2 con kề nhau, sale nhập trên phiếu; 0 = không tràn lề / bình sát cắt chung nhát. **Chừa trừ theo CHIỀU, không gộp:** chiều DÀI ← `chua_nhip` (trống thì lấy `may_thiet_bi.nhip_giay_mm`) + `chua_duoi` (trống → `duoi_thang_mau_mm`); chiều RỘNG ← `chua_tay_ke` ×2 (trống → `le_hong_mm`); `chua_xen`/`chua_ca_gay` cộng đều cả hai chiều. `so_to_per_sp` = số **BÀI IN (khuôn)** khác nhau của 1 sản phẩm, KHÔNG phải số tờ giấy trong sản phẩm: nhân cả `to_net` lẫn `so_kem` (sách 100 trang bình 16 trang/tay = 7 bài → 7 bộ kẽm). `so_mau_pha` (migration 0109) = số màu PHA (Pantone), **CỘNG THÊM** vào `so_mau_a`/`so_mau_b` (là màu PROCESS). Mỗi màu mực chạy 1 đơn vị máy = 1 bản kẽm nên màu pha có kẽm riêng: 4 CMYK + 1 Pantone = 5 kẽm; `so_kem = (màu process theo quy cách + so_mau_pha) × so_to_per_sp`. Biến `so_mau_pha` cũng phơi cho công thức (vd tiền mực pha qua dòng vật tư).
 
 ---
 
@@ -3196,6 +3284,479 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 - Không FK cấu trúc. `issue_key` liên kết logic tới các đối tượng lịch (`xep_lich_cong_doan` / `lsx` / `may_thiet_bi`) qua vân tay, nhưng vấn đề tính lúc đọc nên không neo FK cứng.
 
 **Tất cả cột:** `id`, `issue_key`, `trang_thai`, `assigned_to`, `note`, `exception_ly_do`, `exception_by`, `exception_expires_at`, `tai_phat`, `resolved_at`, `created_by`, `created_at`, `updated_at`.
+
+---
+
+## Nhân sự & Lương — bậc tay nghề · danh mục khoản · lịch sử ca
+
+### `job_grades`
+
+**Purpose:** danh mục BẬC TAY NGHỀ (Bậc 1…Bậc 5). 1 dòng = 1 bậc.
+
+> 🚫 **KHAI BẬC THÔI — KHÔNG tiền, KHÔNG hệ số** (chủ 2026-07-29). Gán bậc cho một người
+> KHÔNG làm đổi một đồng nào trên bảng lương; có test chốt việc đó. Khi nào cần chia sản
+> lượng khoán theo bậc thì treo thêm cột vào ĐÂY, không phải đi sửa hồ sơ từng người —
+> đó là lý do bậc là một BẢNG có id, không phải ô chữ.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `code` | `String(20)` → `VARCHAR(20)` | **U**, **IX** | no | — | Mã ổn định: `bac_1`…`bac_5`. Bộ `pay_grade_key` CŨ (`tho_*`/`phu_*`) được migration 0127 ánh xạ sang đây khi backfill, nên hồ sơ khai bằng mã cũ vẫn về đúng bậc. |
+| `name` | `String(60)` → `VARCHAR(60)` | — | no | — | Tên bậc hiển thị. |
+| `seq` | `Integer` → `INTEGER` | — | no | `0` | Thứ tự hiển thị. Số NHỎ = bậc CAO (Bậc 1 đứng đầu) — theo cách chủ liệt kê. |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Tắt thay vì xoá khi một bậc thôi dùng: hồ sơ cũ đang trỏ vào vẫn đọc được tên bậc. |
+| `note` | `String(255)` → `VARCHAR(255)` | — | yes | — | Ghi chú tự do. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo bậc. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique index trên `code`.
+
+**Relationships**
+
+- `employees.job_grade_id FK→job_grades.id` — nguồn sự thật duy nhất về bậc của một người.
+
+**Tất cả cột:** `id`, `code`, `name`, `seq`, `is_active`, `note`, `created_at`.
+
+---
+
+### `employee_shift_change_logs`
+
+**Purpose:** nhật ký ĐỔI CA của nhân viên — 1 dòng = 1 lần ca bị đổi, kèm trước/sau và ai đổi.
+
+> Luật xuyên suốt: **trước == sau thì KHÔNG ghi.** Lưới phân ca hay được bấm Lưu cả tháng
+> một lần; không lọc thì mỗi lần lưu đẻ vài chục dòng rỗng + ngần ấy thông báo rác, chuông
+> mất giá trị sau đúng một ngày. `create_employee` CỐ Ý KHÔNG ghi (chốt chủ 28/07/2026):
+> gán ca lần đầu chưa có ca cũ nào để so.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `employee_id` | `Integer` → `INTEGER` | **FK→employees.id** (CASCADE), **IX** | no | — | Nhân viên bị đổi ca. |
+| `kind` | `String(8)` → `VARCHAR(8)` | — | no | — | `day` = đổi NGÀY CÔNG cụ thể · `base` = đổi mốc CA NỀN. |
+| `origin` | `String(16)` → `VARCHAR(16)` | — | no | — | Đường ghi nào tạo ra dòng này (lưới phân ca, panel ca nền, gán hàng loạt, sửa hồ sơ…). |
+| `action` | `String(8)` → `VARCHAR(8)` | — | no | — | Hành động (đặt / gỡ / đổi). |
+| `apply_date` | `Date` → `DATE` | **IX** | no | — | `kind=day` → ngày công bị đổi. `kind=base` → `effective_from` của mốc: ca áp từ ngày này TRỞ VỀ SAU, không riêng ngày đó. |
+| `shift_id_before` | `Integer` → `INTEGER` | — | yes | — | Ca TRƯỚC. Liên kết logic → `work_shifts.id`, KHÔNG FK cứng (giống 2 bảng ca kia). NULL = không có ca. |
+| `shift_id_after` | `Integer` → `INTEGER` | — | yes | — | Ca SAU. Cùng quy ước với cột trên. |
+| `is_off_before` | `Boolean` → `BOOLEAN` | — | no | `false` | Ô "Nghỉ theo lịch" TRƯỚC. Chỉ có nghĩa với `kind=day`. |
+| `is_off_after` | `Boolean` → `BOOLEAN` | — | no | `false` | Ô "Nghỉ theo lịch" SAU. Chỉ có nghĩa với `kind=day`. |
+| `inherited_before` | `Boolean` → `BOOLEAN` | — | no | `false` | `kind=day`: TRƯỚC đó ô đang KẾ THỪA ca nền (chưa ai khai tay ngày này). Đây là chỗ trả lời "ca này do nền hay do người sửa" mà giao diện cần để hiện icon cây bút. |
+| `actor_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Ai thực hiện việc đổi. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | **IX** | no | now (UTC) | Thời điểm đổi. |
+| `notified_user_id` | `Integer` → `INTEGER` | **IX** | yes | — | Tài khoản ĐÃ đẩy thông báo tới. NULL = NV không có tài khoản đăng nhập (công nhân xưởng) ⇒ không báo được cho ai; màn khai ca đếm số này ra dòng "N người chưa báo được". |
+| `seen_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Người nhận đã đọc lúc nào. NULL = chưa đọc ⇒ nuôi badge. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Indexes: `employee_id`, `apply_date`, `created_at`, `actor_user_id`, `notified_user_id`.
+- Foreign keys: `employee_id FK→employees.id` (ON DELETE CASCADE), `actor_user_id FK→users.id`.
+
+**Relationships**
+
+- Nhiều dòng log thuộc một `employees`. `shift_id_before`/`shift_id_after`/`notified_user_id` là liên kết MỀM (không FK cấu trúc).
+
+**Tất cả cột:** `id`, `employee_id`, `kind`, `origin`, `action`, `apply_date`, `shift_id_before`, `shift_id_after`, `is_off_before`, `is_off_after`, `inherited_before`, `actor_user_id`, `created_at`, `notified_user_id`, `seen_at`.
+
+---
+
+### `payroll_components`
+
+**Purpose:** danh mục KHOẢN thu nhập / khấu trừ của lương. 1 dòng = 1 khoản (Tầng 1).
+
+> Trước đây mọi phụ cấp bị gộp vào `employee_salaries.allowance` nên engine thuế chỉ miễn
+> được tăng ca + ca đêm, mọi phụ cấp khác **bị tính thuế oan**. Tách thành danh mục để
+> `is_taxable` khai được tới từng khoản.
+>
+> ⛔ **XOÁ:** khoản đã dùng ở kỳ lương nào rồi thì KHÔNG xoá cứng, chỉ `is_active = false`.
+> Xoá cứng là phiếu lương kỳ cũ mất dòng, tổng không còn khớp chữ ký người nhận.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `code` | `String(40)` → `VARCHAR(40)` | **U**, **IX** | no | — | Mã ổn định của khoản; `payroll_line_components.code` chép lại giá trị này khi tính. |
+| `name` | `String(120)` → `VARCHAR(120)` | — | no | — | Tên khoản hiển thị trên phiếu lương. |
+| `kind` | `String(8)` → `VARCHAR(8)` | — | no | `thu` | `thu` = thu nhập (cộng) · `tru` = khấu trừ (trừ). |
+| `is_taxable` | `Boolean` → `BOOLEAN` | — | no | `true` | ⭐ Ô tích "Chịu thuế" của chủ: `true` = cộng vào thu nhập chịu thuế TNCN; `false` = miễn. Đổi cờ chỉ ảnh hưởng kỳ tính TỪ ĐÓ VỀ SAU (kỳ cũ đã snapshot). |
+| `in_insurance_base` | `Boolean` → `BOOLEAN` | — | no | `false` | Có cộng vào GỐC ĐÓNG BẢO HIỂM không. Mặc định KHÔNG — gốc đóng BH là `luong_vi_tri` (chủ chốt 2026-07-20), phụ cấp không đụng vào. |
+| `sort_order` | `Integer` → `INTEGER` | — | no | `0` | Thứ tự hiển thị trong danh mục và trên phiếu lương. |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Tắt thay cho xoá (xem cảnh báo trên). |
+| `note` | `String(255)` → `VARCHAR(255)` | — | yes | — | Ghi chú tự do. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo khoản. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique index trên `code`.
+
+**Relationships**
+
+- Được `employee_salary_components.component_id` (mức cố định của từng người) và
+  `payroll_line_components.component_id` (snapshot trên dòng lương) tham chiếu.
+
+**Tất cả cột:** `id`, `code`, `name`, `kind`, `is_taxable`, `in_insurance_base`, `sort_order`, `is_active`, `note`, `created_at`.
+
+---
+
+### `employee_salary_components`
+
+**Purpose:** khoản thu nhập/khấu trừ **CỐ ĐỊNH HÀNG THÁNG** của một người (Tầng 2). 1 dòng = 1 (người × khoản).
+
+> Cố ý KHÔNG version theo `effective_from` như `employee_salaries`: kỳ lương đã chốt vốn đã
+> đóng băng ở `payroll_lines`, nên sửa mức hôm nay không đụng được số cũ; thêm một trục
+> version nữa chỉ tạo chỗ để lệch.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `employee_id` | `Integer` → `INTEGER` | **FK→employees.id** (CASCADE), **IX** | no | — | Người hưởng/bị trừ khoản này. |
+| `component_id` | `Integer` → `INTEGER` | **FK→payroll_components.id** (CASCADE), **IX** | no | — | Khoản trong danh mục. |
+| `amount` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | Số tiền cố định mỗi tháng. |
+| `note` | `String(255)` → `VARCHAR(255)` | — | yes | — | Ghi chú tự do — cho khoản "mở" như "Thu nhập khác (chịu thuế)" lưu vết vì sao có khoản này (vd "Phụ cấp tiếng Nhật theo dự án X"). Chép sang snapshot dòng lương khi tính. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi gán khoản cho người này. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique constraint `uq_employee_component` trên (`employee_id`, `component_id`) — mỗi người mỗi khoản đúng 1 dòng.
+- Foreign keys: `employee_id FK→employees.id` (CASCADE), `component_id FK→payroll_components.id` (CASCADE).
+
+**Relationships**
+
+- Bảng nối nhiều-nhiều giữa `employees` và `payroll_components`, có mang giá trị `amount`.
+
+**Tất cả cột:** `id`, `employee_id`, `component_id`, `amount`, `note`, `created_at`.
+
+---
+
+### `payroll_line_components`
+
+**Purpose:** **SNAPSHOT** từng khoản trên MỘT dòng lương (Tầng 3) — phiếu lương hiện được từng khoản, và kỳ đã chốt giữ nguyên số cũ.
+
+> Chép cả `code`/`name`/`kind`/`is_taxable` tại thời điểm tính, KHÔNG chỉ trỏ
+> `component_id`: sau này chủ đổi tên khoản hay bỏ tích "Chịu thuế" thì phiếu lương các kỳ
+> CŨ vẫn in ra đúng y như lúc trả tiền.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `line_id` | `Integer` → `INTEGER` | **FK→payroll_lines.id** (CASCADE), **IX** | no | — | Dòng lương chứa khoản này. |
+| `component_id` | `Integer` → `INTEGER` | **IX** | no | — | **Soft-ref** tới `payroll_components.id` — KHÔNG FK cứng: khoản có thể bị xoá khỏi danh mục sau này, snapshot vẫn đứng vững nhờ 4 cột chép bên dưới. |
+| `code` | `String(40)` → `VARCHAR(40)` | — | no | — | Bản chép `payroll_components.code` lúc tính. |
+| `name` | `String(120)` → `VARCHAR(120)` | — | no | — | Bản chép tên khoản lúc tính. |
+| `kind` | `String(8)` → `VARCHAR(8)` | — | no | — | Bản chép `thu`/`tru` lúc tính. |
+| `is_taxable` | `Boolean` → `BOOLEAN` | — | no | `true` | Bản chép cờ chịu thuế lúc tính — lý do đổi cờ chỉ ảnh hưởng kỳ từ đó về sau. |
+| `amount` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | Số tiền của khoản trên dòng lương này. |
+| `source` | `String(8)` → `VARCHAR(8)` | — | no | `employee` | **NGUỒN của dòng — quyết định số phận khi bấm "Tính lại".** `employee` = chép từ hồ sơ NV ⇒ bị GHI ĐÈ mỗi lần tính lại (đúng, vì hồ sơ là nguồn thật). `line` = HCNS thêm tay cho RIÊNG kỳ này (thưởng nóng) ⇒ PHẢI GIỮ NGUYÊN qua mọi lần tính lại và KHÔNG lặp sang kỳ sau. Không có cột này thì "Tính lại" xoá sạch thưởng nóng — mất tiền, không báo lỗi. Thêm qua migration 0121. |
+| `note` | `String(255)` → `VARCHAR(255)` | — | yes | — | Ghi chú chép từ `employee_salary_components.note` hoặc HCNS gõ khi thêm tay. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique constraint `uq_line_component` trên (`line_id`, `component_id`).
+- Foreign keys: `line_id FK→payroll_lines.id` (CASCADE). `component_id` là soft-ref, KHÔNG FK.
+
+**Relationships**
+
+- Nhiều snapshot khoản thuộc một `payroll_lines`. Tổng các dòng `kind=thu` trừ `kind=tru` phải khớp số trên phiếu lương.
+
+**Tất cả cột:** `id`, `line_id`, `component_id`, `code`, `name`, `kind`, `is_taxable`, `amount`, `source`, `note`.
+
+---
+
+### `piece_leader_bonus_brackets`
+
+**Purpose:** mốc thưởng/phạt tổ trưởng theo **% HÀNG LỖI** của tổ. 1 dòng = 1 bậc.
+
+> ⚠️ **ENGINE CHƯA ÁP BẢNG NÀY.** Tiền thưởng/phạt tính trên TỔNG TIỀN KHOÁN của tổ, mà
+> tổng khoán hiện **luôn = 0**: `PieceWorkService.khoan_map` đọc từ `self.outputs`, nhưng
+> `ProductionOutputRepository` KHÔNG TỒN TẠI trong code và `deps.py` truyền `outputs=None`.
+> Khai mốc ở đây là chuẩn bị sẵn; nối vào lương cùng lúc dựng lại nguồn sản lượng. Màn khai
+> có banner nói thẳng điều này — đừng gỡ.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `department_id` | `Integer` → `INTEGER` | **IX** | no | — | Tổ sở hữu bộ mốc. **Soft-ref** `departments.id` (không FK cứng, giống `piece_rates`). |
+| `seq` | `Integer` → `INTEGER` | — | no | — | Thứ tự bậc 1..N. |
+| `up_to_defect_pct` | `Numeric(6,2)` → `NUMERIC(6,2)` | — | yes | — | Trần % hàng lỗi của bậc. NULL = bậc cao nhất (∞) — đúng MỘT bậc và phải ở cuối. |
+| `rate_pct` | `Numeric(6,2)` → `NUMERIC(6,2)` | — | no | — | % trên TỔNG TIỀN KHOÁN của tổ. **DƯƠNG = thưởng · ÂM = phạt.** Gõ nhầm dấu là đảo ngược ý nghĩa. |
+| `note` | `String(255)` → `VARCHAR(255)` | — | yes | — | Ghi chú tự do. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi khai mốc. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index trên `department_id`. Không FK cấu trúc.
+
+**Relationships**
+
+- Nhiều mốc thuộc một tổ (`departments`, liên kết mềm). Cùng họ với `piece_rates`.
+
+**Tất cả cột:** `id`, `department_id`, `seq`, `up_to_defect_pct`, `rate_pct`, `note`, `created_at`.
+
+---
+
+## Kho — đề nghị · phiếu · lô · ngưỡng
+
+> Hai luật xương sống lấy từ BRD Module Kho:
+>
+> - **Kho KHÔNG duyệt.** Duyệt là việc của tổ trưởng/quản lý bộ phận ĐỀ NGHỊ. Kho chỉ lập
+>   phiếu nhập/xuất ứng theo đề nghị đã duyệt.
+> - **Đã duyệt là khoá.** Phiếu đã duyệt không sửa trực tiếp; muốn đổi thì hủy và tạo lại.
+>
+> Và một luật về tồn: **mỗi lần nhập = MỘT lô riêng, id riêng, giá riêng.** Không gộp lô kể
+> cả trùng mã hàng, trùng giá — gộp là mất tính đích danh, mà BRD chốt phương pháp giá xuất
+> là ĐÍCH DANH theo lô nhập. Hệ quả: **tồn của một mã hàng = tổng `sl_con_lai` của các lô**,
+> không có cột "tồn" nào lưu rời, nên tồn không bao giờ lệch với lịch sử nhập/xuất.
+
+### `stock_requests`
+
+**Purpose:** header ĐỀ NGHỊ kho (nhập / xuất). 1 dòng = 1 chứng từ do người NGOÀI kho lập (tổ SX, mua hàng, bảo trì…).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `ma` | `String(30)` → `VARCHAR(30)` | **U**, **IX** | no | — | Số đề nghị in trên chứng từ (`DNN0001` / `DNX0001`) — sinh qua `document_sequences`. |
+| `loai` | `String(8)` → `VARCHAR(8)` | **IX** | no | — | `NHAP` / `XUAT`. Có CHECK constraint. |
+| `nguoi_tao_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | no | — | Người lập đề nghị. |
+| `bo_phan_id` | `Integer` → `INTEGER` | **FK→departments.id**, **IX** | yes | — | Bộ phận đề nghị — dùng cho scope `department` và cho ô "Bộ phận" trên bản in. |
+| `kho_id` | `Integer` → `INTEGER` | **FK→kho_hang.id**, **IX** | yes | — | Kho đích: XUẤT = lĩnh từ kho nào, NHẬP = nhập về kho nào. Đèn tồn tính theo kho này; phiếu kế thừa kho này (khoá). Nullable ở DB cho hàng cũ, nhưng API create BẮT BUỘC. |
+| `ngay_can` | `Date` → `DATE` | — | yes | — | Ngày cần hàng. |
+| `uu_tien` | `String(12)` → `VARCHAR(12)` | — | no | `binh_thuong` | `binh_thuong` / `gap`. |
+| `ghi_chu` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Đặc thù nghiệp vụ (nhập mua / xuất cấp bù / xuất bảo trì…) ghi ở đây — giai đoạn 1 chưa tách loại phiếu riêng nên đây là chỗ DUY NHẤT giữ ngữ cảnh. |
+| `trang_thai` | `String(16)` → `VARCHAR(16)` | **IX** | no | `draft` | Vòng đời: `draft` → `pending` → `approved` → `received` → `preparing` → `partial` → `done`; nhánh `rejected` / `cancelled`. `partial`/`done` do hệ thống tự set khi phiếu ứng số lượng. Người tạo chỉ sửa/hủy được ở `draft`/`pending`; kho chỉ lập phiếu ứng ở `approved`/`received`/`preparing`/`partial`. |
+| `nguoi_duyet_id` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Ai duyệt (tổ trưởng/quản lý bộ phận đề nghị — KHÔNG phải kho). |
+| `duyet_luc` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm duyệt. |
+| `ly_do_tu_choi` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lý do khi `rejected`. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now/onupdate | Sửa lần cuối. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique index trên `ma`. Indexes: `loai`, `trang_thai`, `nguoi_tao_id`, `bo_phan_id`, `kho_id`.
+- CHECK `chk_stock_requests_loai`: `loai IN ('NHAP','XUAT')`.
+- Foreign keys: `nguoi_tao_id`/`nguoi_duyet_id FK→users.id`, `bo_phan_id FK→departments.id`, `kho_id FK→kho_hang.id`.
+
+**Relationships**
+
+- Một đề nghị có nhiều `stock_request_lines` (cascade delete-orphan) và được nhiều `stock_vouchers` ứng vào.
+
+**Tất cả cột:** `id`, `ma`, `loai`, `nguoi_tao_id`, `bo_phan_id`, `kho_id`, `ngay_can`, `uu_tien`, `ghi_chu`, `trang_thai`, `nguoi_duyet_id`, `duyet_luc`, `ly_do_tu_choi`, `created_at`, `updated_at`.
+
+---
+
+### `stock_request_lines`
+
+**Purpose:** 1 dòng vật tư của đề nghị.
+
+> Bốn con số chạy theo thứ tự `sl_de_nghi → sl_duyet → sl_da_ung`; **"còn lại" =
+> `sl_duyet − sl_da_ung`, TÍNH chứ không lưu** — lưu thành cột thứ 4 là mời sai lệch.
+> Service chặn cứng không cho ứng vượt `sl_duyet`.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `request_id` | `Integer` → `INTEGER` | **FK→stock_requests.id** (CASCADE), **IX** | no | — | Đề nghị chứa dòng này. |
+| `material_id` | `Integer` → `INTEGER` | **FK→materials.id**, **IX** | yes | — | Hàng ĐÃ có mã. Hàng MỚI để rỗng và khai `ten_tu_do`; kho gắn/tạo mã ở bước lập phiếu (BRD: chỉ kho khai mã). **Đúng 1 trong 2 phải có.** |
+| `ten_tu_do` | `String(255)` → `VARCHAR(255)` | — | yes | — | Tên hàng gõ tay khi chưa có mã. Thêm qua migration 0096; `material_id` được nới NULL ở 0097. |
+| `dvt` | `String(16)` → `VARCHAR(16)` | — | no | — | Đơn vị tính của dòng. |
+| `sl_de_nghi` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | — | Số người đề nghị xin. CHECK `> 0`. |
+| `sl_duyet` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | Số người duyệt CHO. CHECK `>= 0`. |
+| `sl_da_ung` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | Số kho ĐÃ cấp/nhập qua các phiếu. CHECK `>= 0`; service chặn vượt `sl_duyet`. |
+| `don_gia` | `Integer` → `INTEGER` | — | yes | — | Đơn giá NHẬP do NGƯỜI ĐỀ NGHỊ khai (chỉ đề nghị NHẬP — họ biết giá NCC). Phiếu KẾ THỪA giá này khi ghi sổ; **kho KHÔNG sửa**. Null với đề nghị XUẤT (giá = giá vốn đích danh của lô). |
+| `don_vi_phu` | `String(16)` → `VARCHAR(16)` | — | yes | — | Quy đổi đơn vị do NGƯỜI ĐỀ NGHỊ khai (1 `don_vi_phu` = `he_so_quy_doi` × dvt tồn). Hàng mới → kho tạo mã kèm quy đổi này; hàng có mã → prefill từ mặt hàng. Kho KHÔNG khai lại ở phiếu. |
+| `he_so_quy_doi` | `Numeric(14,4)` → `NUMERIC(14,4)` | — | yes | — | Hệ số đi kèm `don_vi_phu`. |
+| `ly_do_thieu` | `String(500)` → `VARCHAR(500)` | — | yes | — | **KHO PHẢN HỒI:** lý do kho cấp/nhập ÍT HƠN số còn phải cấp (vd NCC giao thiếu). Kho khai lúc lập phiếu khi SL < còn phải cấp; hiện ở mục "Kho phản hồi" của đề nghị. |
+| `ghi_chu` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú riêng của dòng. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Indexes: `request_id`, `material_id`.
+- CHECK: `sl_de_nghi > 0`, `sl_duyet >= 0`, `sl_da_ung >= 0`.
+- Foreign keys: `request_id FK→stock_requests.id` (ON DELETE CASCADE), `material_id FK→materials.id`.
+
+**Relationships**
+
+- Nhiều dòng thuộc một `stock_requests`; được `stock_voucher_lines.request_line_id` trỏ vào để chặn ứng vượt.
+
+**Tất cả cột:** `id`, `request_id`, `material_id`, `ten_tu_do`, `dvt`, `sl_de_nghi`, `sl_duyet`, `sl_da_ung`, `don_gia`, `don_vi_phu`, `he_so_quy_doi`, `ly_do_thieu`, `ghi_chu`.
+
+---
+
+### `stock_vouchers`
+
+**Purpose:** header PHIẾU nhập / xuất kho — in ra theo mẫu 01-VT / 02-VT (TT200).
+
+> **Mọi phiếu bắt buộc ứng theo một đề nghị đã duyệt** (`request_id` NOT NULL): mỗi nghiệp
+> vụ kho đều có chứng từ đề nghị đứng trước. Ba miễn trừ của BRD (tồn đầu kỳ, điều chỉnh
+> sau kiểm kê, hủy/thanh lý) đều NGOÀI phạm vi giai đoạn 1 nên chưa cần cửa thoát.
+>
+> Phiếu `draft` **chưa đụng tồn**; `posted` mới ghi sổ (tạo lô nếu nhập, trừ `sl_con_lai`
+> nếu xuất) và cộng `sl_da_ung` về dòng đề nghị.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `ma` | `String(30)` → `VARCHAR(30)` | **U**, **IX** | no | — | Số phiếu in trên chứng từ (`PNK0001` / `PXK0001`) — sinh qua `document_sequences`. |
+| `loai` | `String(8)` → `VARCHAR(8)` | **IX** | no | — | `NHAP` / `XUAT`. Có CHECK constraint. |
+| `request_id` | `Integer` → `INTEGER` | **FK→stock_requests.id**, **IX** | no | — | **BẮT BUỘC** — không có đề nghị thì không có phiếu. |
+| `kho_id` | `Integer` → `INTEGER` | **FK→kho_hang.id**, **IX** | no | — | Kho thao tác (kế thừa từ đề nghị, khoá). |
+| `ngay` | `Date` → `DATE` | — | no | — | Ngày chứng từ. |
+| `nguoi_lap_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | no | — | Người LẬP phiếu (thủ kho). |
+| `nguoi_giao_nhan` | `String(150)` → `VARCHAR(150)` | — | yes | — | Ô "Họ tên người giao hàng" (01-VT) / "người nhận hàng" (02-VT) trên bản in. Text tự do vì người giao có thể là tài xế NCC — không phải user của hệ thống. |
+| `ghi_chu` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Ghi chú phiếu. |
+| `trang_thai` | `String(16)` → `VARCHAR(16)` | **IX** | no | `draft` | `draft` chưa ghi sổ (chưa đụng tồn) · `posted` đã ghi sổ (tồn đã đổi) · `cancelled` hủy khi còn nháp. |
+| `ghi_so_luc` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm ghi sổ. |
+| `nguoi_ghi_so_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Ai GHI SỔ — người có `role_permissions.can_post` (Kế toán kho / QL kho). Null khi chưa ghi sổ. **Tách khỏi `nguoi_lap_id` theo SoD.** Thêm qua migration 0099. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now/onupdate | Sửa lần cuối. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique index trên `ma`. Indexes: `loai`, `trang_thai`, `request_id`, `kho_id`, `nguoi_lap_id`, `nguoi_ghi_so_id`.
+- CHECK `chk_stock_vouchers_loai`: `loai IN ('NHAP','XUAT')`.
+- Foreign keys: `request_id FK→stock_requests.id`, `kho_id FK→kho_hang.id`, `nguoi_lap_id`/`nguoi_ghi_so_id FK→users.id`.
+
+**Relationships**
+
+- Một phiếu có nhiều `stock_voucher_lines` và nhiều `stock_voucher_attachments` (cả hai cascade delete-orphan). Phiếu NHẬP khi ghi sổ sinh ra `stock_lots`.
+
+**Tất cả cột:** `id`, `ma`, `loai`, `request_id`, `kho_id`, `ngay`, `nguoi_lap_id`, `nguoi_giao_nhan`, `ghi_chu`, `trang_thai`, `ghi_so_luc`, `nguoi_ghi_so_id`, `created_at`, `updated_at`.
+
+---
+
+### `stock_voucher_lines`
+
+**Purpose:** 1 dòng phiếu = 1 lần đụng vào MỘT lô.
+
+> Phiếu xuất ăn nhiều lô thì tách thành nhiều dòng phân bổ (10 từ lô 1 + 5 từ lô 2 = 2
+> dòng), vì mỗi lô một giá vốn — gộp lại thì không truy được giá đích danh.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `voucher_id` | `Integer` → `INTEGER` | **FK→stock_vouchers.id** (CASCADE), **IX** | no | — | Phiếu chứa dòng này. |
+| `request_line_id` | `Integer` → `INTEGER` | **FK→stock_request_lines.id**, **IX** | no | — | Dòng đề nghị mà dòng phiếu này ứng vào — nền cho chặn "ứng vượt SL duyệt". |
+| `material_id` | `Integer` → `INTEGER` | **FK→materials.id**, **IX** | no | — | Mặt hàng. |
+| `lot_id` | `Integer` → `INTEGER` | **FK→stock_lots.id**, **IX** | yes | — | Phiếu XUẤT: bắt buộc, trỏ vào lô bị trừ. Phiếu NHẬP: null lúc nháp, được gán khi ghi sổ (lúc đó lô mới được sinh ra). |
+| `so_luong` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | — | Số lượng của dòng. CHECK `> 0`. |
+| `don_gia` | `BigInteger` → `BIGINT` | — | yes | — | Chỉ phiếu NHẬP: giá của lô sắp tạo. Phiếu xuất lấy giá từ lô nên để trống. CHECK `IS NULL OR >= 0`. |
+| `ghi_chu` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú riêng cho DÒNG (mặt hàng) — vd tình trạng bao gói, lô hàng lỗi lẻ. Thêm qua migration 0094. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Indexes: `voucher_id`, `request_line_id`, `material_id`, `lot_id`.
+- CHECK: `so_luong > 0`, `don_gia IS NULL OR don_gia >= 0`.
+- Foreign keys: `voucher_id FK→stock_vouchers.id` (ON DELETE CASCADE), `request_line_id FK→stock_request_lines.id`, `material_id FK→materials.id`, `lot_id FK→stock_lots.id`.
+
+**Relationships**
+
+- Nhiều dòng thuộc một `stock_vouchers`; mỗi dòng trỏ đúng 1 dòng đề nghị và (sau khi ghi sổ) đúng 1 lô.
+
+**Tất cả cột:** `id`, `voucher_id`, `request_line_id`, `material_id`, `lot_id`, `so_luong`, `don_gia`, `ghi_chu`.
+
+---
+
+### `stock_voucher_attachments`
+
+**Purpose:** hóa đơn / chứng từ gốc scan đính kèm phiếu nhập-xuất (hóa đơn NCC, biên bản giao nhận…).
+
+> DB chỉ lưu **metadata + đường dẫn**, bytes nằm ngoài DB (mirror
+> `payment_voucher_attachments`). Cho đính THÊM cả khi phiếu đã `posted` (hóa đơn về sau);
+> chỉ chặn `cancelled`.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `stock_voucher_id` | `Integer` → `INTEGER` | **FK→stock_vouchers.id** (CASCADE), **IX** | no | — | Phiếu được đính kèm. |
+| `file_name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên file gốc người dùng tải lên. |
+| `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | Đường dẫn phục vụ file. |
+| `file_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | MIME type. |
+| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** (SET NULL) | yes | — | Ai tải lên. |
+| `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tải lên. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index trên `stock_voucher_id`.
+- Foreign keys: `stock_voucher_id FK→stock_vouchers.id` (ON DELETE CASCADE), `uploaded_by FK→users.id` (ON DELETE SET NULL).
+
+**Relationships**
+
+- Nhiều file đính kèm thuộc một `stock_vouchers`.
+
+**Tất cả cột:** `id`, `stock_voucher_id`, `file_name`, `file_url`, `file_type`, `uploaded_by`, `uploaded_at`.
+
+---
+
+### `stock_lots`
+
+**Purpose:** 1 dòng = 1 LÔ nhập kho, mang GIÁ riêng của lần nhập đó.
+
+> Ví dụ: SP A nhập đợt 1 giá 100k → lô 1; đợt 2 giá 200k → lô 2. Xuất 15 cái = 10 từ lô 1 +
+> 5 từ lô 2 → giá vốn 10×100k + 5×200k.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `ma_lo` | `String(60)` → `VARCHAR(60)` | **U**, **IX** | no | — | Mã lô người dùng đọc được: `LOT-<mã hàng>-<yymmdd>-<seq>`. |
+| `material_id` | `Integer` → `INTEGER` | **FK→materials.id**, **IX** | no | — | Mặt hàng của lô. |
+| `voucher_id` | `Integer` → `INTEGER` | **FK→stock_vouchers.id**, **IX** | yes | — | Phiếu nhập sinh ra lô. Nullable vì tồn đầu kỳ (giai đoạn sau) không có phiếu. |
+| `kho_id` | `Integer` → `INTEGER` | **FK→kho_hang.id**, **IX** | no | — | Kho chứa lô. |
+| `vi_tri` | `String(100)` → `VARCHAR(100)` | — | yes | — | Vị trí trong kho (kệ/ô). |
+| `ngay_nhap` | `Date` → `DATE` | — | no | — | Ngày nhập lô. |
+| `ncc` | `String(150)` → `VARCHAR(150)` | — | yes | — | Nhà cung cấp (text tự do). |
+| `don_gia_nhap` | `BigInteger` → `BIGINT` | — | no | `0` | **Giá vốn của RIÊNG lô này** (VND/đvt). Chỉ vai có `role_permissions.can_view_cost` được xem — router ẩn trường này, kể cả trên bản in. CHECK `>= 0`. |
+| `sl_ban_dau` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | — | Số lượng lúc nhập. CHECK `> 0`. |
+| `sl_con_lai` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | — | Số còn lại của lô. CHECK `>= 0` và `<= sl_ban_dau`. **Tồn của một mã hàng = tổng cột này qua các lô.** |
+| `hsd` | `Date` → `DATE` | — | yes | — | Hạn sử dụng / date in bao bì — nền cho gợi ý FEFO khi xuất. |
+| `trang_thai` | `String(16)` → `VARCHAR(16)` | **IX** | no | `available` | `available` (chỉ trạng thái này tính vào TỒN KHẢ DỤNG và được chọn khi xuất) · `hold` giữ chỗ cho đơn/LSX · `qc_wait` chờ KCS · `defect` hàng lỗi · `empty` đã xuất hết. Hàng chờ KCS / lỗi vẫn nằm trong kho (tồn thực tế) nhưng không được xuất. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo lô. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now/onupdate | Sửa lần cuối. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique index trên `ma_lo`. Indexes: `material_id`, `voucher_id`, `kho_id`, `trang_thai`.
+- CHECK: `don_gia_nhap >= 0`, `sl_ban_dau > 0`, `sl_con_lai >= 0`, `chk_stock_lots_con_lai` (`sl_con_lai <= sl_ban_dau`).
+- Foreign keys: `material_id FK→materials.id`, `voucher_id FK→stock_vouchers.id`, `kho_id FK→kho_hang.id`.
+
+**Relationships**
+
+- Nhiều lô thuộc một `materials` và một `kho_hang`. Sinh ra từ `stock_vouchers` (phiếu nhập); bị `stock_voucher_lines.lot_id` trỏ vào khi xuất.
+
+**Tất cả cột:** `id`, `ma_lo`, `material_id`, `voucher_id`, `kho_id`, `vi_tri`, `ngay_nhap`, `ncc`, `don_gia_nhap`, `sl_ban_dau`, `sl_con_lai`, `hsd`, `trang_thai`, `created_at`, `updated_at`.
+
+---
+
+### `stock_thresholds`
+
+**Purpose:** ngưỡng tồn theo cặp (mã hàng × kho). 1 dòng = 1 cặp.
+
+> So sánh chạy trên **TỒN KHẢ DỤNG** (chỉ lô `available`), không phải tồn thực tế: hàng chờ
+> KCS / hàng lỗi nằm trong kho nhưng không dùng được nên không được tính.
+>
+> Đèn tín hiệu 4 mức: 🔵 `du_ton` (> ngưỡng tối đa) · 🟢 `du` · 🟠 `can_mua` (≤ ngưỡng tồn)
+> · 🔴 `het` (= 0). Hai mức cuối kích hoạt đẩy nhắc realtime cho người có quyền đề nghị.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `material_id` | `Integer` → `INTEGER` | **FK→materials.id** (CASCADE), **IX** | no | — | Mặt hàng. |
+| `kho_id` | `Integer` → `INTEGER` | **FK→kho_hang.id** (CASCADE), **IX** | no | — | Kho áp ngưỡng. |
+| `nguong_ton` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | — | Dưới mức này = 🟠 phải mua ngay. CHECK `>= 0`. |
+| `nguong_can_ton` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | yes | — | ⚠️ **ĐÃ BỎ** mức "cận tồn/sắp hết" (2026-07-29). Cột giữ lại và LUÔN NULL để tránh migration phá DB; không còn dùng khi tính mức tồn. FE không khai nữa; endpoint vẫn nhận optional cho tương thích. CHECK `>= 0`. |
+| `nguong_toi_da` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | yes | — | Trần 🔵 — cảnh báo mua dư, hàng dễ quá date. CHECK `>= 0`. |
+| `canh_bao` | `Boolean` → `BOOLEAN` | — | no | `true` | Có bật cảnh báo đẩy cho cặp này không. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi khai ngưỡng. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now/onupdate | Sửa lần cuối. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique constraint `uq_stock_thresholds_material_kho` trên (`material_id`, `kho_id`).
+- CHECK: `nguong_ton >= 0`, `nguong_can_ton >= 0`, `nguong_toi_da >= 0`.
+- Foreign keys: `material_id FK→materials.id` (CASCADE), `kho_id FK→kho_hang.id` (CASCADE).
+
+**Relationships**
+
+- Bảng nối (`materials` × `kho_hang`) mang ngưỡng. Chỉ vai có `role_permissions.can_set_threshold` mới sửa được.
+
+**Tất cả cột:** `id`, `material_id`, `kho_id`, `nguong_ton`, `nguong_can_ton`, `nguong_toi_da`, `canh_bao`, `created_at`, `updated_at`.
 
 ---
 

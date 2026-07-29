@@ -10,9 +10,18 @@ from .audit import AuditLog
 from .costing import Costing, CostingOperation, CostingPaperOption
 from .customer import Customer
 from .department import Department
-from .employee import Employee, EmployeeAttachment, EmployeeEvent, EmployeeShiftAssignment
+from .employee import (
+    Employee,
+    EmployeeAttachment,
+    EmployeeEvent,
+    EmployeeShiftAssignment,
+    EmployeeShiftChangeLog,
+    EmployeeShiftDay,
+    JobGrade,
+)
 from .profile_request import ProfileUpdateRequest
 from .leave import LeaveRequest, LeaveType
+from .late_early import LateEarlyRequest
 from .overtime import OvertimeRequest
 from .work_calendar import SpecialDay, WorkCalendarConfig
 from .material import Material, MaterialCost
@@ -27,15 +36,18 @@ from .order import (
 )
 from .payroll import (
     EmployeeSalary,
+    EmployeeSalaryComponent,
     LatePenaltyBracket,
+    PayrollComponent,
     PayrollLine,
+    PayrollLineComponent,
     PayrollParams,
     PayrollPeriod,
     PitTaxBracket,
     SalaryAdvance,
     SalaryRateRule,
 )
-from .piece_work import PieceRate
+from .piece_work import PieceLeaderBonusBracket, PieceRate
 from .product import Product, ProductComponent
 from .product_type_catalog import ProductTypeCatalog
 from .purchase import (
@@ -73,6 +85,9 @@ from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
 from .cong_doan import CongDoan
 from .bu_hao import BuHao
 from .kho_hang import KhoHang
+from .stock_request import StockRequest, StockRequestLine
+from .stock_lot import StockLot, StockThreshold
+from .stock_voucher import StockVoucher, StockVoucherAttachment, StockVoucherLine
 from .khuon_be import KhuonBe
 from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
@@ -95,8 +110,11 @@ __all__ = [
     "UnitLevel",
     "Employee",
     "EmployeeShiftAssignment",
+    "EmployeeShiftChangeLog",
+    "EmployeeShiftDay",
     "EmployeeEvent",
     "EmployeeAttachment",
+    "JobGrade",
     "ProfileUpdateRequest",
     "WorkLocation",
     "WorkShift",
@@ -106,6 +124,7 @@ __all__ = [
     "LeaveType",
     "LeaveRequest",
     "OvertimeRequest",
+    "LateEarlyRequest",
     "WorkCalendarConfig",
     "SpecialDay",
     "Customer",
@@ -149,8 +168,12 @@ __all__ = [
     "SalaryAdvance",
     "PayrollPeriod",
     "PayrollLine",
+    "PayrollComponent",
+    "EmployeeSalaryComponent",
+    "PayrollLineComponent",
     "PitTaxBracket",
     "LatePenaltyBracket",
+    "PieceLeaderBonusBracket",
     "PieceRate",
     "PlateDieRate",
     "Norm",
@@ -162,6 +185,13 @@ __all__ = [
     "PhieuThanhPhan",
     "PhieuThanhPham",
     "KhoHang",
+    "StockRequest",
+    "StockRequestLine",
+    "StockVoucher",
+    "StockVoucherAttachment",
+    "StockVoucherLine",
+    "StockLot",
+    "StockThreshold",
     "KhuonBe",
     "Lsx",
     "LsxCongDoan",

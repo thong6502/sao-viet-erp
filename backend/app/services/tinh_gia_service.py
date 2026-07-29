@@ -59,9 +59,10 @@ _TP_SCALAR_FIELDS = (
     "giay_id", "kho_nguyen", "kho_nguyen_dai", "kho_nguyen_rong", "don_gia_giay",
     "don_gia_don_vi", "nguon_giay", "bu_hao_so_to", "hao_so_to", "tinh_bu_hao_cd",
     "chua_xen", "chua_tay_ke", "chua_nhip",
-    "chua_duoi", "chua_ca_gay", "co_in", "che_ban_loai", "che_ban_don_gia", "quy_cach_in",
+    "chua_duoi", "chua_ca_gay", "bleed_mm", "khe_cat_mm",
+    "co_in", "che_ban_loai", "che_ban_don_gia", "quy_cach_in",
     "kho_in_dai", "kho_in_rong", "so_con", "con_auto", "may_id", "don_gia_cong_in",
-    "so_mau_a", "so_mau_b",
+    "so_mau_a", "so_mau_b", "so_mau_pha",
 )
 _ROW_SCALAR_FIELDS = (
     "thu_tu", "cong_doan_id", "ten", "don_gia", "so_luong", "bu_hao",
@@ -96,10 +97,13 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
     if _f(d.get("kho_nguyen_rong")):
         d["kho_rong"] = _f(d.get("kho_nguyen_rong"))
 
-    # Máy: bơm 2 khổ KHÁC nhau (đừng gộp):
+    # Máy: bơm 3 nhóm KHÁC nhau (đừng gộp):
     #  · kho_may_*  = khổ giấy CHẠY máy (kho_max) → dùng XẢ GIẤY (cắt tờ in từ giấy nguyên). Luôn lấy.
-    #  · kho_in_*   = khổ tờ in ② cho bình bài con + tính m²: ưu tiên VÙNG IN (đã trừ nhíp/lề); chỉ đổ
-    #                 khi thành phần chưa set. Máy chưa khai vùng in → fallback khổ giấy max.
+    #  · kho_in_*   = khổ tờ in ② = khổ giấy in THẬT, CHƯA trừ gì. Engine tự trừ chừa khi bình bài.
+    #                 KHÔNG đổ vùng in vào đây nữa: vùng in đã trừ sẵn nhíp/lề, đổ vào rồi trừ chừa
+    #                 lần nữa là TRỪ HAI LẦN (hụt 14-19% số con). Thiếu → fallback khổ giấy máy.
+    #  · chừa + vùng in = thông số kỹ thuật để engine trừ đúng chiều / cảnh báo. Phiếu để trống thì
+    #                 lấy theo máy (xem `_compute_one`). `gripper_mm` là nhíp KẼM — KHÔNG dùng ở đây.
     if tp.may_id is not None:
         may = db.get(MayThietBi, tp.may_id)
         if may is not None:
@@ -108,9 +112,14 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
             if may.kho_max_rong:
                 d["kho_may_rong"] = may.kho_max_rong
             if not _f(d.get("kho_in_dai")):
-                d["kho_in_dai"] = may.vung_in_dai or may.kho_max_dai or 0
+                d["kho_in_dai"] = may.kho_max_dai or 0
             if not _f(d.get("kho_in_rong")):
-                d["kho_in_rong"] = may.vung_in_rong or may.kho_max_rong or 0
+                d["kho_in_rong"] = may.kho_max_rong or 0
+            d["nhip_giay_mm"] = may.nhip_giay_mm or 0
+            d["le_hong_mm"] = may.le_hong_mm or 0
+            d["duoi_thang_mau_mm"] = may.duoi_thang_mau_mm or 0
+            d["vung_in_dai"] = may.vung_in_dai or 0
+            d["vung_in_rong"] = may.vung_in_rong or 0
 
     # Dòng gia công sau in: bơm cấu hình công đoạn khi dòng KHÔNG có đơn giá phẳng.
     rows: list[dict] = []

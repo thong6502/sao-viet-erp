@@ -35,6 +35,10 @@ import {
 export interface RefRow {
   id: number;
   ten: string;
+  /** Máy: `loai_may` — để gom nhóm dropdown thay vì đổ 24 dòng phẳng. */
+  nhom?: string | null;
+  /** Công đoạn: máy mặc định trong danh mục — drawer đẩy máy đó lên đầu danh sách. */
+  mayId?: number | null;
 }
 
 /** Lỗi/nghi vấn của RIÊNG 1 dòng — chỉ tô màu, không chặn lưu. */

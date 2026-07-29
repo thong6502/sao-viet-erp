@@ -1,10 +1,1679 @@
-/* Redesign màn Phòng ban — MASTER (cây tổ chức) + DETAIL (drawer 4 tab).
-   Hệ màu paper/ink/rust (tokens.css). Prefix .rdx-dept / .rdx-tree / .rdx-drawer / .rdx-ov …
-   để KHÔNG rò rỉ sang màn khác. Chỉ đổi TRÌNH BÀY — logic/RBAC giữ nguyên ở .tsx. */
+/* Redesign màn Phòng ban — High-Contrast Modern SaaS Visual System */
 
 .rdx-dept {
-  max-width: 1480px;
+  max-width: 1540px;
+  margin: 0 auto;
+  /* Local design system overrides to eliminate dull/muddy beige colors */
+  --rdx-slate-bg: #f8fafc;
+  --rdx-card: #ffffff;
+  --rdx-border-soft: #e2e8f0;
+  --rdx-border-strong: #cbd5e1;
+  --rdx-text-dark: #0f172a;
+  --rdx-text-slate: #475569;
+  --rdx-text-light: #94a3b8;
+  --rdx-primary: #c5400a;
+  --rdx-primary-soft: #fff5f0;
 }
+
+.rdx-dept__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--rdx-border-soft);
+  flex-wrap: wrap;
+}
+
+.rdx-dept__head-main {
+  min-width: 0;
+}
+
+/* ── SLEEK HIGH-CONTRAST METRIC STRIP ─────────────────────────────────── */
+.rdx-compact-kpi {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid var(--rdx-border-soft);
+  border-radius: 99px;
+  padding: 5px 16px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+}
+
+.rdx-ckpi-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rdx-ckpi-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  flex-shrink: 0;
+}
+
+.rdx-ckpi-icon--primary {
+  color: var(--rdx-primary);
+  background: var(--rdx-primary-soft);
+}
+
+.rdx-ckpi-icon--moss {
+  color: #059669;
+  background: #ecfdf5;
+}
+
+.rdx-ckpi-icon--amber {
+  color: #d97706;
+  background: #fffbeb;
+}
+
+.rdx-ckpi-icon--plum {
+  color: #4f46e5;
+  background: #eef2ff;
+}
+
+.rdx-ckpi-body {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  line-height: 1;
+}
+
+.rdx-ckpi-val {
+  font-family: var(--ff-mono);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--rdx-text-dark);
+}
+
+.rdx-ckpi-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rdx-text-slate);
+  white-space: nowrap;
+}
+
+.rdx-ckpi-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--rdx-border-soft);
+}
+
+/* Bố cục 2 cột: Cột trái 380px, Cột phải co giãn */
+.rdx-dept__body {
+  display: grid;
+  grid-template-columns: 380px minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+  height: calc(100dvh - 160px);
+  min-height: 520px;
+}
+
+/* ── CỘT TRÁI: Cây tổ chức Sidebar ─────────────────────────────────────── */
+.rdx-dept__master {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 14px;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.04);
+}
+
+.rdx-tree__search {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.rdx-tree__search-icon {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #64748b;
+  pointer-events: none;
+}
+.rdx-tree__search-input {
+  width: 100%;
+  font: inherit;
+  font-size: 13.5px;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 7.5px 12px 7.5px 34px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: all 0.15s ease-in-out;
+}
+.rdx-tree__search-input::placeholder {
+  color: #64748b;
+}
+.rdx-tree__search-input:focus {
+  outline: none;
+  border-color: var(--rdx-primary);
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.18);
+}
+
+/* Chip lọc phân loại phòng */
+.rdx-tree__chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+.rdx-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 99px;
+  padding: 4px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease-in-out;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+.rdx-chip:hover {
+  border-color: var(--rdx-primary);
+  color: var(--rdx-primary);
+  background: var(--rdx-primary-soft);
+}
+.rdx-chip.is-active {
+  color: #ffffff;
+  background: #0f172a;
+  border-color: #0f172a;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
+}
+.rdx-chip__n {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: inherit;
+  opacity: 0.9;
+}
+
+/* Danh sách cây dạng Crisp Cards */
+.rdx-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  padding: 2px 2px 2px 0;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.rdx-tree::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Crisp Modern Org Tree Card Item */
+.rdx-tree__tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 2px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease-in-out;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.rdx-tree__tile:hover {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  transform: translateX(3px);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.rdx-tree__tile.is-active {
+  background: #fff5f0;
+  border-color: var(--rdx-primary);
+  box-shadow: 0 0 0 1px var(--rdx-primary), 0 4px 14px rgba(197, 64, 10, 0.15);
+}
+
+.rdx-tree__tile::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.rdx-tree__tile.is-active::before {
+  background: var(--rdx-primary);
+}
+
+.rdx-tree__tile.is-sx::before {
+  background: #f59e0b;
+}
+
+.rdx-tree__tile.is-active.is-sx::before {
+  background: var(--rdx-primary);
+}
+
+.rdx-tree__tile-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.rdx-tree__tile-icon-bg {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: var(--rdx-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.rdx-tree__tile.is-sx .rdx-tree__tile-icon-bg {
+  color: #d97706;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.rdx-tree__tile-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rdx-tree__line1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rdx-tree__name {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--rdx-text-dark);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rdx-tree__code {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--rdx-primary);
+  background: var(--rdx-primary-soft);
+  padding: 1px 6px;
+  border-radius: 99px;
+}
+
+.rdx-tree__pill {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+  background: #d97706;
+  border-radius: 99px;
+  padding: 1px 6px;
+}
+
+.rdx-tree__line2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.rdx-tree__staff {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rdx-text-slate);
+}
+
+.rdx-tree__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.rdx-tree__dot--warn {
+  background: #d97706;
+}
+
+.rdx-tree__dot--ok {
+  background: #10b981;
+}
+
+.rdx-tree__warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 99px;
+  padding: 1px 7px;
+}
+
+.rdx-tree__head-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #047857;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 99px;
+  padding: 1px 7px;
+}
+
+.rdx-tree__subcount {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  color: var(--ash-2);
+}
+
+.rdx-tree__add-sub {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--rule);
+  background: var(--canvas);
+  color: var(--ash);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--duration-fast);
+  flex-shrink: 0;
+}
+
+.rdx-tree__tile:hover .rdx-tree__add-sub {
+  opacity: 1;
+}
+
+.rdx-tree__add-sub:hover {
+  background: var(--rust);
+  color: #fff;
+  border-color: var(--rust);
+}
+
+.rdx-tree__caret {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--r-2);
+  color: var(--ash);
+  cursor: pointer;
+  padding: 0;
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+
+.rdx-tree__caret.is-open {
+  transform: rotate(90deg);
+}
+
+.rdx-tree__caret:hover {
+  color: var(--rust-deep);
+}
+
+.rdx-tree__caret--leaf {
+  cursor: default;
+  transform: none;
+}
+.rdx-tree__empty {
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-5);
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+  background: #ffffff;
+}
+.rdx-tree__empty-title {
+  font-weight: var(--fw-medium);
+  margin: 0 0 var(--sp-1);
+}
+.rdx-tree__none {
+  padding: var(--sp-5) var(--sp-2);
+  text-align: center;
+}
+
+/* ── CỘT PHẢI: drawer chi tiết ─────────────────────────────────────────── */
+.rdx-dept__detail {
+  min-width: 0;
+  height: 100%;
+}
+
+.rdx-drawer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
+}
+
+.rdx-drawer__head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  color: #0f172a;
+  position: relative;
+  z-index: 2;
+}
+.rdx-drawer__id {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.rdx-drawer__avatar {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--rdx-primary);
+  background: var(--rdx-primary-soft);
+  border: 1px solid rgba(197, 64, 10, 0.15);
+}
+.rdx-drawer__idmain {
+  min-width: 0;
+}
+.rdx-drawer__crumbs {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rdx-drawer__nameline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  min-width: 0;
+}
+.rdx-drawer__name {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rdx-drawer__code {
+  flex: 0 0 auto;
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--rdx-primary);
+  background: var(--rdx-primary-soft);
+  border: none;
+  border-radius: 99px;
+  padding: 2px 8px;
+}
+.rdx-drawer__pill {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+  background: #d97706;
+  border-radius: 99px;
+  padding: 2px 8px;
+}
+.rdx-drawer__headact {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.rdx-drawer__ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #334155;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+.rdx-drawer__ghost:hover {
+  border-color: var(--rdx-primary);
+  color: var(--rdx-primary);
+  background: var(--rdx-primary-soft);
+}
+.rdx-drawer__close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+.rdx-drawer__close:hover {
+  color: #0f172a;
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+/* Thanh tab — active gạch chân rust */
+.rdx-drawer__tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  padding: 0 20px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.rdx-drawer__tabs::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.rdx-drawer__tab {
+  position: relative;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #64748b;
+  background: transparent;
+  border: none;
+  padding: 12px 14px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  border-bottom: 2.5px solid transparent;
+  margin-bottom: -1px;
+  transition: all 0.15s ease-in-out;
+}
+.rdx-drawer__tab:hover {
+  color: #0f172a;
+}
+.rdx-drawer__tab.is-active {
+  color: var(--rdx-primary);
+  border-bottom-color: var(--rdx-primary);
+  font-weight: 700;
+}
+
+.rdx-drawer__panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px;
+  background: #ffffff;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.rdx-drawer__panel::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* ── TAB Tổng quan Overview Grid Tiles ──────────────────────────────────── */
+.rdx-ov {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.rdx-ov__desc {
+  margin: 0;
+  font-size: 13.5px;
+  color: #475569;
+  line-height: 1.5;
+}
+.rdx-ov__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.rdx-ov__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  transition: all 0.15s ease-in-out;
+}
+.rdx-ov__item:hover {
+  border-color: #cbd5e1;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+}
+.rdx-ov__item--wide {
+  grid-column: 1 / -1;
+}
+.rdx-ov__k {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+.rdx-ov__v {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+}
+.rdx-ov__v--num {
+  font-family: var(--ff-mono);
+  font-size: 18px;
+  color: var(--rdx-primary);
+}
+.rdx-ov__note {
+  font-family: var(--ff-sans);
+  font-size: 11.5px;
+  font-weight: var(--fw-regular);
+  color: var(--ash-2);
+}
+.rdx-ov__branch {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--rust-deep);
+  font-weight: var(--fw-medium);
+}
+.rdx-ov__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--rule-soft);
+  padding-top: 14px;
+}
+
+/* ── TAB Vai trò & Quyền ───────────────────────────────────────────────── */
+.rdx-roles__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.rdx-rolechip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  background: #ffffff;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
+}
+.rdx-rolechip:hover {
+  border-color: var(--rust);
+  color: var(--rust-deep);
+}
+.rdx-rolechip:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+.rdx-rolechip.is-active {
+  color: var(--on-charcoal);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+.rdx-rolechip--static {
+  cursor: default;
+}
+.rdx-rolechip--static:hover {
+  border-color: var(--rule);
+  color: var(--ink);
+}
+.rdx-rolechip__name {
+  white-space: nowrap;
+}
+.rdx-rolechip__n {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  border-radius: var(--r-pill);
+  padding: 0 6px;
+}
+.rdx-rolechip.is-active .rdx-rolechip__n {
+  color: var(--ink);
+  background: var(--on-charcoal);
+}
+.rdx-rolechip--add {
+  color: var(--ash);
+  background: transparent;
+  border-style: dashed;
+}
+.rdx-rolechip--add:hover {
+  color: var(--rust-deep);
+  border-color: var(--rust);
+}
+
+/* Panel quyền của vai trò đang chọn. */
+.rdx-rolepanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  background: #ffffff;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: var(--sp-4);
+}
+.rdx-rolepanel__head {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-3);
+}
+.rdx-rolepanel__namefield {
+  flex: 1 1 auto;
+  margin: 0;
+}
+.rdx-rolepanel__head .rdx-drawer__close {
+  color: var(--ash);
+  flex: 0 0 auto;
+  margin-bottom: 2px;
+}
+.rdx-rolepanel__head .rdx-drawer__close:hover {
+  color: var(--ink);
+  background: var(--rule-hair);
+}
+.rdx-rolepanel .depts__matrix-label {
+  margin: var(--sp-1) 0 0;
+}
+.rdx-rolepanel__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  border-top: 1px solid var(--rule-hair);
+  padding-top: var(--sp-3);
+}
+.rdx-rolepanel__danger {
+  flex: 1 1 auto;
+}
+
+/* ── Placeholder khi chưa chọn phòng ───────────────────────────────────── */
+.rdx-dept__placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  text-align: center;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #ffffff;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-6);
+  padding: var(--sp-8);
+  box-shadow: 0 4px 16px rgba(20, 19, 15, 0.03);
+}
+.rdx-dept__placeholder-icon {
+  color: var(--ash-2);
+  margin-bottom: var(--sp-2);
+}
+.rdx-dept__placeholder-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .rdx-dept__body {
+    grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+  }
+  .rdx-dept__master {
+    height: auto;
+    max-height: 60vh;
+  }
+  .rdx-dept__detail {
+    height: auto;
+  }
+  .rdx-drawer,
+  .rdx-dept__placeholder {
+    min-height: 420px;
+  }
+  .rdx-drawer__panel {
+    overflow: visible;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rdx-dept * {
+    transition: none !important;
+  }
+}
+
+/* ── Visual Org Chart Canvas & Node Cards ────────────────────────────── */
+.rdx-org-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+}
+
+.rdx-org-toolbar {
+  background: transparent;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+}
+
+.rdx-org-toolbar__row1 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.rdx-org-toolbar__left,
+.rdx-org-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rdx-org-toolbar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  background: #ffffff;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  cursor: pointer;
+  transition: all var(--duration-fast);
+  box-shadow: 0 1px 2px rgba(20, 19, 15, 0.02);
+}
+
+.rdx-org-toolbar__btn:hover {
+  border-color: var(--rust);
+  color: var(--rust);
+  background: var(--canvas);
+}
+
+.rdx-org-canvas-container {
+  position: relative;
+  width: 100%;
+  height: calc(100dvh - 165px);
+  min-height: 520px;
+  background-color: #fcfbfa;
+  background-image: radial-gradient(var(--rule) 1.2px, transparent 1.2px);
+  background-size: 22px 22px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  overflow: auto;
+  padding: 0;
+  box-shadow: 0 4px 16px rgba(20, 19, 15, 0.04);
+  cursor: grab;
+  user-select: none;
+}
+
+.rdx-org-canvas-container.is-dragging {
+  cursor: grabbing;
+}
+
+/* Thanh cuộn mảnh theo tông màn — thanh mặc định của Windows quá dày, chiếm mất canvas. */
+.rdx-org-canvas-container {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule) transparent;
+}
+.rdx-org-canvas-container::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.rdx-org-canvas-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+.rdx-org-canvas-container::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--r-pill);
+}
+.rdx-org-canvas-container::-webkit-scrollbar-thumb:hover {
+  background: var(--ash-2);
+  background-clip: content-box;
+}
+
+/* BẪY: `width: 100%` + `justify-content: center` làm cây rộng hơn khung tràn ra CẢ HAI phía,
+   mà phần tràn bên trái nằm ở scrollLeft < 0 — không tài nào cuộn tới.
+   `width: max-content` + `min-width: 100%` giữ được căn giữa khi cây hẹp, và khi cây rộng
+   thì khối này rộng đúng bằng nội dung nên cuộn tới được trọn hai bên. */
+.rdx-org-canvas-inner {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+  padding: 48px 80px 120px 80px;
+}
+
+.rdx-org-tree-root {
+  display: flex;
+  gap: 48px;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.rdx-org-branch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+.rdx-org-branch__children {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+  position: relative;
+  margin-top: 32px;
+}
+
+/* Connecting tree lines */
+.rdx-org-branch__children::before {
+  content: "";
+  position: absolute;
+  top: -16px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--rule);
+}
+
+.rdx-org-branch__children > .rdx-org-branch::before {
+  content: "";
+  position: absolute;
+  top: -16px;
+  left: 50%;
+  height: 16px;
+  width: 1px;
+  background: var(--rule);
+}
+
+/* Cuống nối xuống nhánh con — CHỈ vẽ khi nhánh đang mở, không thì mọi thẻ lá đều
+   thò một gạch dọc lơ lửng chẳng nối vào đâu. */
+.rdx-org-branch--open > .rdx-org-branch__parent::after {
+  content: "";
+  display: block;
+  width: 1px;
+  height: 16px;
+  margin: 0 auto;
+  background: var(--rule);
+}
+
+/* Org Node Card Tile */
+.rdx-org-node {
+  width: 220px;
+  background: #ffffff;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  padding: 10px 12px;
+  box-shadow: 0 2px 8px rgba(20, 19, 15, 0.04);
+  cursor: pointer;
+  position: relative;
+  transition: all var(--duration-fast);
+}
+
+.rdx-org-node:hover {
+  border-color: var(--rust);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(20, 19, 15, 0.08);
+}
+
+.rdx-org-node.is-selected {
+  border-color: var(--rust);
+  box-shadow: 0 0 0 2px rgba(197, 64, 10, 0.16), 0 4px 12px rgba(20, 19, 15, 0.06);
+  background: #fffbf9;
+}
+
+.rdx-org-node__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.rdx-org-node__icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  color: var(--rust);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.rdx-org-node.is-sx .rdx-org-node__icon {
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+  border-color: rgba(156, 119, 20, 0.2);
+}
+
+.rdx-org-node__title-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.rdx-org-node__name {
+  font-weight: var(--fw-bold);
+  font-size: 13px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rdx-org-node__code {
+  font-family: var(--ff-mono);
+  font-size: 9.5px;
+  font-weight: var(--fw-bold);
+  color: var(--rust);
+  background: var(--rust-soft);
+  padding: 1px 5px;
+  border-radius: var(--r-pill);
+}
+
+.rdx-org-node__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.rdx-org-node__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+}
+
+.rdx-org-node__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  font-weight: var(--fw-bold);
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+}
+
+/* "Đã có trưởng phòng" = trạng thái BÌNH THƯỜNG → xám trung tính, không tô màu.
+   Màu để dành cho thứ cần người xử lý. Tên dài thì cắt bằng ellipsis, tên đầy đủ ở title. */
+.rdx-org-node__status--ok {
+  max-width: 118px;
+  color: var(--ash);
+  background: transparent;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: var(--fw-medium);
+}
+
+.rdx-org-node__status--ok svg {
+  flex: 0 0 auto;
+  color: var(--moss);
+}
+
+.rdx-org-node__status--warn {
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+  border: 1px solid rgba(156, 119, 20, 0.28);
+}
+
+.rdx-org-node__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+.rdx-org-node__dot--ok { background: #16a34a; }
+.rdx-org-node__dot--warn { background: #d97706; }
+
+.rdx-org-node__actions {
+  position: absolute;
+  top: -10px;
+  right: -6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+
+.rdx-org-node:hover .rdx-org-node__actions {
+  opacity: 1;
+}
+
+.rdx-org-node__act-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--rule);
+  background: #ffffff;
+  color: var(--ash);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: all var(--duration-fast);
+}
+
+.rdx-org-node__act-btn:hover {
+  background: var(--rust);
+  color: #fff;
+  border-color: var(--rust);
+}
+
+/* Nút gập/mở nhánh — ngồi đè lên cuống nối, ngay đáy thẻ. Gập rồi thì hiện số
+   phòng còn nằm bên dưới, để người xem biết mình đang giấu bao nhiêu. */
+.rdx-org-node__toggle {
+  position: absolute;
+  bottom: -11px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  background: #ffffff;
+  color: var(--ash);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.1);
+  transition: background var(--duration-fast), color var(--duration-fast),
+    border-color var(--duration-fast);
+}
+
+.rdx-org-node__toggle:hover {
+  background: var(--rust);
+  border-color: var(--rust);
+  color: #ffffff;
+}
+
+.rdx-org-node__toggle:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+/* Đang gập = còn thứ chưa xem → tô rust nhạt cho nổi, khác hẳn nút mở (xám trung tính). */
+.rdx-org-node__toggle.is-collapsed {
+  background: var(--rust-soft);
+  border-color: rgba(197, 64, 10, 0.28);
+  color: var(--rust-deep);
+}
+
+.rdx-org-node__toggle-n {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: var(--fw-bold);
+  line-height: 1;
+}
+
+/* Gợi ý kéo — góc dưới trái, mờ, tự biến mất sau lần kéo đầu. */
+.rdx-canvas-hint {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 5px 11px;
+  font-size: 11.5px;
+  color: var(--ash);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  animation: rdx-hint-in 320ms var(--easing-standard) both;
+}
+
+/* Cùng khuôn với hint thường nhưng tông amber = "lưu ý, không phải lỗi". */
+.rdx-canvas-hint--warn {
+  max-width: min(520px, calc(100% - 28px));
+  color: var(--amber-deep);
+  background: rgba(255, 251, 235, 0.95);
+  border-color: rgba(156, 119, 20, 0.28);
+}
+
+@keyframes rdx-hint-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rdx-canvas-hint { animation: none; }
+}
+
+/* ── EXECUTIVE KPI BAR ────────────────────────────────────────────────── */
+.rdx-dept__kpi-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-4);
+  margin-top: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.rdx-kpi-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 14px 18px;
+  background: #ffffff;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  box-shadow: 0 4px 14px rgba(20, 19, 15, 0.04), 0 1px 3px rgba(20, 19, 15, 0.02);
+  transition: transform var(--duration-fast) var(--easing-standard),
+    box-shadow var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard);
+}
+
+.rdx-kpi-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--rust);
+  box-shadow: 0 6px 18px rgba(20, 19, 15, 0.07);
+}
+
+.rdx-kpi-card__icon {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--r-3);
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+}
+
+.rdx-kpi-card__icon--primary {
+  color: var(--rust);
+  background: var(--rust-soft);
+  border-color: rgba(197, 64, 10, 0.15);
+}
+
+.rdx-kpi-card__icon--moss {
+  color: var(--moss-deep);
+  background: var(--moss-soft);
+  border-color: rgba(47, 93, 58, 0.15);
+}
+
+.rdx-kpi-card__icon--amber {
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+  border-color: rgba(156, 119, 20, 0.2);
+}
+
+.rdx-kpi-card__icon--plum {
+  color: var(--plum-deep);
+  background: var(--plum-soft);
+  border-color: rgba(95, 77, 158, 0.2);
+}
+
+.rdx-kpi-card__content {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rdx-kpi-card__label {
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ash);
+}
+
+.rdx-kpi-card__value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rdx-kpi-card__value {
+  font-family: var(--ff-mono);
+  font-size: 19px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.rdx-kpi-card__sub {
+  font-size: 11.5px;
+  color: var(--ash-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rdx-kpi-card__progress {
+  width: 100%;
+  height: 4px;
+  background: var(--rule-hair);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.rdx-kpi-card__progress-bar {
+  height: 100%;
+  background: var(--rust);
+  border-radius: var(--r-pill);
+  transition: width var(--duration-enter) ease-out;
+}
+
+/* ── VIEW MODE TOGGLE ─────────────────────────────────────────────────── */
+.rdx-view-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: #e2e8f0;
+  border: 1px solid #cbd5e1;
+  border-radius: 99px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.rdx-view-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  background: transparent;
+  border: none;
+  border-radius: 99px;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.rdx-view-mode-btn:hover {
+  color: #0f172a;
+}
+
+.rdx-view-mode-btn.is-active {
+  color: #0f172a;
+  background: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+/* ── PULSE ANIMATION FOR MISSING HEAD OF DEPT ────────────────────────── */
+.rdx-tree__dot--pulse {
+  position: relative;
+}
+
+.rdx-tree__dot--pulse::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border-radius: 50%;
+  background: rgba(217, 119, 6, 0.4);
+  animation: rdx-pulse 2s infinite ease-in-out;
+}
+
+@keyframes rdx-pulse {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+}
+
+/* ── HEAD OF DEPT HERO CARD IN DRAWER OVERVIEW ────────────────────────── */
+.rdx-head-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: linear-gradient(135deg, #fff5f0 0%, #ffffff 100%);
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+}
+
+.rdx-head-hero__avatar {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--rust-soft);
+  border: 2px solid var(--paper);
+  color: var(--rust-deep);
+  font-weight: var(--fw-bold);
+  font-size: 15px;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.rdx-head-hero__avatar--none {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+
+.rdx-head-hero__info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rdx-head-hero__label {
+  font-size: 10.5px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ash);
+}
+
+.rdx-head-hero__name {
+  font-size: 14.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rdx-head-hero__sub {
+  font-size: 12px;
+  color: var(--ash-2);
+}
+
+/* ── SUBDEPARTMENTS LIST IN OVERVIEW ──────────────────────────────────── */
+.rdx-subdept-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rdx-subdept-section__title {
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ash);
+  margin: 0;
+}
+
+.rdx-subdept-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.rdx-subdept-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #ffffff;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  cursor: pointer;
+  transition: all var(--duration-fast);
+  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.02);
+}
+
+.rdx-subdept-card:hover {
+  border-color: var(--rust);
+  background: #fffbf9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(197, 64, 10, 0.06);
+}
+
+.rdx-subdept-card__name {
+  font-size: 12.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rdx-subdept-card__count {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  color: var(--rust);
+  background: var(--rust-soft);
+  padding: 1px 5px;
+  border-radius: var(--r-pill);
+  flex-shrink: 0;
+}
+
+@media (max-width: 1200px) {
+  .rdx-dept__kpi-bar {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .rdx-dept__kpi-bar {
+    grid-template-columns: 1fr;
+  }
+}
+
 
 .rdx-dept__head {
   display: flex;
@@ -122,43 +1791,239 @@
   opacity: 0.85;
 }
 
-/* Danh sách cây (cuộn riêng). */
+/* Danh sách cây dạng Card-Tile trực quan (cuộn riêng). */
 .rdx-tree {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   overflow-y: auto;
-  margin: 0 calc(var(--sp-2) * -1);
-  padding: 0 var(--sp-2);
+  padding: 2px;
 }
-.rdx-tree__row {
+
+/* Visual Card-Tile Org Tree */
+.rdx-tree__tile {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: 10px;
   padding: 8px 10px;
-  border: 1px solid transparent;
-  border-radius: var(--r-3);
-  cursor: pointer;
-  transition: background-color var(--duration-fast) var(--easing-standard),
-    border-color var(--duration-fast) var(--easing-standard);
-}
-.rdx-tree__row:hover {
   background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  margin-bottom: 2px;
+  cursor: pointer;
+  position: relative;
+  transition: all var(--duration-fast) var(--easing-standard);
+  box-shadow: 0 1px 2px rgba(20, 19, 15, 0.02);
 }
-.rdx-tree__row:focus-visible {
-  outline: 2px solid var(--rust);
-  outline-offset: -2px;
+
+.rdx-tree__tile:hover {
+  background: var(--canvas);
+  border-color: var(--rule);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.04);
 }
-.rdx-tree__row.is-active {
+
+.rdx-tree__tile.is-active {
+  background: var(--paper);
+  border-color: var(--rust);
+  box-shadow: 0 0 0 2px rgba(197, 64, 10, 0.14);
+}
+
+.rdx-tree__tile::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: var(--r-3) 0 0 var(--r-3);
+  background: transparent;
+  transition: background var(--duration-fast);
+}
+
+.rdx-tree__tile.is-active::before {
+  background: var(--rust);
+}
+
+.rdx-tree__tile.is-sx::before {
+  background: var(--amber);
+}
+
+.rdx-tree__tile.is-active.is-sx::before {
+  background: var(--rust);
+}
+
+.rdx-tree__tile-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.rdx-tree__tile-icon-bg {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  color: var(--rust);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.rdx-tree__tile.is-sx .rdx-tree__tile-icon-bg {
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+  border-color: rgba(156, 119, 20, 0.2);
+}
+
+.rdx-tree__tile-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rdx-tree__line1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rdx-tree__name {
+  font-weight: var(--fw-bold);
+  font-size: 13.5px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rdx-tree__code {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  color: var(--rust);
   background: var(--rust-soft);
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+}
+
+.rdx-tree__pill {
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: var(--rust);
+  border-radius: var(--r-pill);
+  padding: 1px 6px;
+}
+
+.rdx-tree__line2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.rdx-tree__staff {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+}
+
+.rdx-tree__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.rdx-tree__dot--warn {
+  background: #d97706;
+}
+
+.rdx-tree__dot--ok {
+  background: #16a34a;
+}
+
+.rdx-tree__warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  color: #b45309;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: var(--r-pill);
+  padding: 1px 6px;
+}
+
+.rdx-tree__head-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  color: #166534;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: var(--r-pill);
+  padding: 1px 6px;
+}
+
+.rdx-tree__subcount {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  color: var(--ash-2);
+}
+
+.rdx-tree__add-sub {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--rule);
+  background: var(--canvas);
+  color: var(--ash);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--duration-fast);
+  flex-shrink: 0;
+}
+
+.rdx-tree__tile:hover .rdx-tree__add-sub {
+  opacity: 1;
+}
+
+.rdx-tree__add-sub:hover {
+  background: var(--rust);
+  color: #fff;
   border-color: var(--rust);
 }
+
 .rdx-tree__caret {
   flex: 0 0 auto;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   display: grid;
   place-items: center;
   background: transparent;
@@ -167,81 +2032,20 @@
   color: var(--ash);
   cursor: pointer;
   padding: 0;
-  transform: rotate(-90deg);
   transition: transform var(--duration-fast) var(--easing-standard);
 }
+
 .rdx-tree__caret.is-open {
-  transform: rotate(0deg);
+  transform: rotate(90deg);
 }
+
 .rdx-tree__caret:hover {
   color: var(--rust-deep);
 }
+
 .rdx-tree__caret--leaf {
   cursor: default;
   transform: none;
-}
-.rdx-tree__body {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.rdx-tree__line1 {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  min-width: 0;
-}
-.rdx-tree__name {
-  font-weight: var(--fw-medium);
-  font-size: 14px;
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.rdx-tree__code {
-  flex: 0 0 auto;
-  font-family: var(--ff-mono);
-  font-size: 10px;
-  font-weight: var(--fw-bold);
-  color: var(--ash);
-}
-.rdx-tree__pill {
-  flex: 0 0 auto;
-  font-size: 10px;
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--canvas);
-  background: var(--rust);
-  border-radius: var(--r-pill);
-  padding: 1px 7px;
-}
-.rdx-tree__line2 {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-3);
-}
-.rdx-tree__staff {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-family: var(--ff-mono);
-  font-size: 11px;
-  color: var(--ash);
-}
-.rdx-tree__warn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: var(--fw-medium);
-  color: var(--amber-deep);
-  background: var(--amber-soft);
-  border-radius: var(--r-pill);
-  padding: 1px 8px;
 }
 .rdx-tree__empty {
   border: 1px dashed var(--rule);
@@ -262,47 +2066,35 @@
 .rdx-dept__detail {
   min-width: 0;
   height: 100%;
-  display: flex;
-  flex-direction: column;
 }
-.rdx-drawer {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  overflow: hidden;
-  box-shadow: var(--shadow-4);
-}
-
-/* Header nền ink. */
+/* Header nền Paper dịu mắt. */
 .rdx-drawer__head {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--sp-4);
-  padding: var(--sp-5);
-  background: var(--ink);
-  color: var(--on-charcoal);
+  gap: 16px;
+  padding: 14px 18px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-soft);
+  color: var(--ink);
 }
 .rdx-drawer__id {
   display: flex;
   align-items: center;
-  gap: var(--sp-4);
+  gap: 12px;
   min-width: 0;
 }
 .rdx-drawer__avatar {
   flex: 0 0 auto;
-  width: 48px;
-  height: 48px;
-  border-radius: var(--r-5);
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
   color: var(--rust);
-  background: rgba(197, 64, 10, 0.16);
+  background: var(--rust-soft);
+  border: 1px solid rgba(197, 64, 10, 0.15);
 }
 .rdx-drawer__idmain {
   min-width: 0;
@@ -310,8 +2102,8 @@
 .rdx-drawer__crumbs {
   font-family: var(--ff-mono);
   font-size: 11px;
-  letter-spacing: 0.02em;
-  color: var(--on-charcoal-muted);
+  font-weight: var(--fw-medium);
+  color: var(--ash);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -319,16 +2111,15 @@
 .rdx-drawer__nameline {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  margin-top: 3px;
+  gap: 6px;
+  margin-top: 2px;
   min-width: 0;
 }
 .rdx-drawer__name {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: var(--fw-bold);
-  letter-spacing: -0.01em;
-  color: var(--on-charcoal);
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -336,12 +2127,13 @@
 .rdx-drawer__code {
   flex: 0 0 auto;
   font-family: var(--ff-mono);
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: var(--fw-bold);
-  color: var(--on-charcoal-muted);
-  border: 1px solid rgba(245, 241, 232, 0.22);
-  border-radius: var(--r-2);
-  padding: 1px 6px;
+  color: var(--rust);
+  background: var(--rust-soft);
+  border: none;
+  border-radius: var(--r-pill);
+  padding: 1px 7px;
 }
 .rdx-drawer__pill {
   flex: 0 0 auto;
@@ -349,34 +2141,37 @@
   font-weight: var(--fw-bold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--canvas);
+  color: #fff;
   background: var(--rust);
   border-radius: var(--r-pill);
-  padding: 2px 8px;
+  padding: 1px 6px;
 }
 .rdx-drawer__headact {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: 6px;
   flex-shrink: 0;
 }
 .rdx-drawer__ghost {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: var(--fw-medium);
-  color: var(--on-charcoal);
-  background: rgba(245, 241, 232, 0.1);
-  border: 1px solid rgba(245, 241, 232, 0.24);
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
   border-radius: var(--r-3);
-  padding: 6px 12px;
   cursor: pointer;
-  transition: background-color var(--duration-fast) var(--easing-standard);
+  transition: all var(--duration-fast) var(--easing-standard);
 }
 .rdx-drawer__ghost:hover {
-  background: rgba(245, 241, 232, 0.2);
+  border-color: var(--rust);
+  color: var(--rust);
+  background: var(--paper);
 }
 .rdx-drawer__ghost:focus-visible {
   outline: 2px solid var(--rust);
@@ -385,17 +2180,19 @@
 .rdx-drawer__close {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
-  color: var(--on-charcoal-muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--r-3);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--canvas);
+  color: var(--ash);
+  border: 1px solid var(--rule-soft);
   cursor: pointer;
+  transition: all var(--duration-fast);
 }
 .rdx-drawer__close:hover {
-  color: var(--on-charcoal);
-  background: rgba(245, 241, 232, 0.12);
+  color: var(--ink);
+  border-color: var(--rule);
+  background: var(--paper);
 }
 .rdx-drawer__close:focus-visible {
   outline: 2px solid var(--rust);
@@ -406,24 +2203,24 @@
 .rdx-drawer__tabs {
   flex: 0 0 auto;
   display: flex;
-  gap: var(--sp-1);
-  padding: 0 var(--sp-5);
+  gap: 4px;
+  padding: 0 18px;
   border-bottom: 1px solid var(--rule);
-  background: var(--canvas);
+  background: var(--paper);
   overflow-x: auto;
 }
 .rdx-drawer__tab {
   position: relative;
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: var(--fw-medium);
   color: var(--ash);
   background: transparent;
   border: none;
-  padding: 14px 14px 12px;
+  padding: 10px 14px 8px;
   cursor: pointer;
   white-space: nowrap;
-  border-bottom: 2px solid transparent;
+  border-bottom: 2.5px solid transparent;
   margin-bottom: -1px;
   transition: color var(--duration-fast) var(--easing-standard);
 }
@@ -431,8 +2228,9 @@
   color: var(--ink);
 }
 .rdx-drawer__tab.is-active {
-  color: var(--rust-deep);
+  color: var(--rust);
   border-bottom-color: var(--rust);
+  font-weight: var(--fw-bold);
 }
 .rdx-drawer__tab:focus-visible {
   outline: 2px solid var(--rust);
@@ -444,79 +2242,86 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--sp-5);
+  padding: 16px 18px;
 }
 .rdx-tab {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-4);
+  gap: 14px;
 }
 
 /* ── TAB Tổng quan ─────────────────────────────────────────────────────── */
 .rdx-ov {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-4);
+  gap: 14px;
 }
 .rdx-ov__desc {
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--ash);
-  line-height: 1.55;
+  line-height: 1.5;
 }
 .rdx-ov__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--sp-3);
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
 }
 .rdx-ov__item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: var(--sp-3) var(--sp-4);
+  gap: 3px;
+  padding: 10px 14px;
   background: var(--paper);
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
+  border-radius: var(--r-3);
+  box-shadow: 0 1px 2px rgba(20, 19, 15, 0.02);
+  transition: all var(--duration-fast);
+}
+.rdx-ov__item:hover {
+  border-color: var(--rule);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.03);
 }
 .rdx-ov__item--wide {
   grid-column: 1 / -1;
 }
 .rdx-ov__k {
-  font-family: var(--ff-mono);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.04em;
   color: var(--ash);
 }
 .rdx-ov__v {
-  font-size: 15px;
-  font-weight: var(--fw-medium);
+  font-size: 13.5px;
+  font-weight: var(--fw-bold);
   color: var(--ink);
 }
 .rdx-ov__v--num {
   font-family: var(--ff-mono);
-  font-size: 18px;
-  font-weight: var(--fw-bold);
+  font-size: 17px;
+  color: var(--rust);
 }
 .rdx-ov__note {
   font-family: var(--ff-sans);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: var(--fw-regular);
   color: var(--ash-2);
 }
 .rdx-ov__branch {
   margin: 0;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--rust-deep);
+  font-weight: var(--fw-medium);
 }
 .rdx-ov__actions {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
+  gap: 8px;
   flex-wrap: wrap;
-  border-top: 1px solid var(--rule-hair);
-  padding-top: var(--sp-4);
+  border-top: 1px solid var(--rule-soft);
+  padding-top: 14px;
 }
 
 /* ── TAB Vai trò & Quyền ───────────────────────────────────────────────── */
@@ -685,3 +2490,1251 @@
     transition: none !important;
   }
 }
+
+/* ── EXECUTIVE KPI BAR ────────────────────────────────────────────────── */
+.rdx-dept__kpi-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.rdx-kpi-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 12px 16px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.02);
+  transition: transform var(--duration-fast) var(--easing-standard),
+    box-shadow var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard);
+}
+
+.rdx-kpi-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--rule);
+  box-shadow: 0 4px 12px rgba(20, 19, 15, 0.05);
+}
+
+.rdx-kpi-card__icon {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-3);
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+}
+
+.rdx-kpi-card__icon--primary {
+  color: var(--rust);
+  background: var(--rust-soft);
+  border-color: rgba(197, 64, 10, 0.15);
+}
+
+.rdx-kpi-card__icon--moss {
+  color: var(--moss-deep);
+  background: var(--moss-soft);
+  border-color: rgba(47, 93, 58, 0.15);
+}
+
+.rdx-kpi-card__icon--amber {
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+  border-color: rgba(156, 119, 20, 0.2);
+}
+
+.rdx-kpi-card__icon--plum {
+  color: var(--plum-deep);
+  background: var(--plum-soft);
+  border-color: rgba(95, 77, 158, 0.2);
+}
+
+.rdx-kpi-card__content {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rdx-kpi-card__label {
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ash);
+}
+
+.rdx-kpi-card__value-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rdx-kpi-card__value {
+  font-family: var(--ff-mono);
+  font-size: 18px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.rdx-kpi-card__sub {
+  font-size: 11px;
+  color: var(--ash-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rdx-kpi-card__progress {
+  width: 100%;
+  height: 4px;
+  background: var(--rule-hair);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.rdx-kpi-card__progress-bar {
+  height: 100%;
+  background: var(--rust);
+  border-radius: var(--r-pill);
+  transition: width var(--duration-enter) ease-out;
+}
+
+/* ── VIEW MODE TOGGLE ─────────────────────────────────────────────────── */
+.rdx-view-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  padding: 2px;
+  gap: 2px;
+}
+
+.rdx-view-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--easing-standard);
+}
+
+.rdx-view-mode-btn:hover {
+  color: var(--ink);
+}
+
+.rdx-view-mode-btn.is-active {
+  color: var(--on-charcoal);
+  background: var(--ink);
+  font-weight: var(--fw-bold);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* ── PULSE ANIMATION FOR MISSING HEAD OF DEPT ────────────────────────── */
+.rdx-tree__dot--pulse {
+  position: relative;
+}
+
+.rdx-tree__dot--pulse::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border-radius: 50%;
+  background: rgba(217, 119, 6, 0.4);
+  animation: rdx-pulse 2s infinite ease-in-out;
+}
+
+@keyframes rdx-pulse {
+  0% {
+    transform: scale(0.95);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+}
+
+/* ── HEAD OF DEPT HERO CARD IN DRAWER OVERVIEW ────────────────────────── */
+.rdx-head-hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, var(--paper) 0%, var(--canvas) 100%);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.03);
+}
+
+.rdx-head-hero__avatar {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--rust-soft);
+  border: 2px solid var(--paper);
+  color: var(--rust-deep);
+  font-weight: var(--fw-bold);
+  font-size: 15px;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.rdx-head-hero__avatar--none {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+
+.rdx-head-hero__info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rdx-head-hero__label {
+  font-size: 10.5px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ash);
+}
+
+.rdx-head-hero__name {
+  font-size: 14.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rdx-head-hero__sub {
+  font-size: 12px;
+  color: var(--ash-2);
+}
+
+/* ── SUBDEPARTMENTS LIST IN OVERVIEW ──────────────────────────────────── */
+.rdx-subdept-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rdx-subdept-section__title {
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ash);
+  margin: 0;
+}
+
+.rdx-subdept-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.rdx-subdept-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+
+.rdx-subdept-card:hover {
+  border-color: var(--rust);
+  background: var(--canvas);
+  transform: translateY(-1px);
+}
+
+.rdx-subdept-card__name {
+  font-size: 12.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rdx-subdept-card__count {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  color: var(--rust);
+  background: var(--rust-soft);
+  padding: 1px 5px;
+  border-radius: var(--r-pill);
+  flex-shrink: 0;
+}
+
+@media (max-width: 1200px) {
+  .rdx-dept__kpi-bar {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .rdx-dept__kpi-bar {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── FLOATING CANVAS CONTROLS (ZOOM & FIT VIEW) ───────────────────────── */
+.rdx-canvas-controls {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #ffffff;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  padding: 3px 6px;
+  box-shadow: 0 4px 14px rgba(20, 19, 15, 0.08);
+}
+
+.rdx-canvas-ctrl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+
+.rdx-canvas-ctrl-btn:hover {
+  background: var(--canvas);
+  color: var(--rust);
+}
+
+.rdx-canvas-ctrl-btn--text {
+  font-size: 11.5px;
+  font-weight: var(--fw-bold);
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  padding: 0 10px;
+}
+
+.rdx-canvas-ctrl-btn--text:hover {
+  background: var(--rust);
+  color: #ffffff;
+}
+
+.rdx-canvas-ctrl-btn--focus {
+  font-size: 11.5px;
+  font-weight: var(--fw-bold);
+  color: #ffffff;
+  background: var(--rust);
+  padding: 0 10px;
+}
+
+.rdx-canvas-ctrl-btn--focus:hover {
+  background: var(--rust-deep);
+}
+
+/* Badge % KIÊM nút về 100%: bề rộng cố định để thanh không nhảy khi số đổi
+   (100% → 45% là 1 ký tự ít hơn, đủ làm cả cụm nút giật sang). */
+.rdx-canvas-zoom-badge {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--ash);
+  width: 46px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-pill);
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.rdx-canvas-zoom-badge:hover:not(:disabled) {
+  background: var(--canvas);
+  color: var(--rust);
+}
+
+.rdx-canvas-zoom-badge:disabled {
+  cursor: default;
+}
+
+.rdx-canvas-zoom-badge:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+
+/* ── WOW ELEVATION & MODERN ENTERPRISE UI OVERRIDES ─────────────────── */
+
+/* High-contrast Header KPI strip */
+.rdx-compact-kpi {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 4px 16px -2px rgba(15, 23, 42, 0.06), 0 2px 4px rgba(15, 23, 42, 0.02);
+  transition: all 0.2s ease-in-out;
+}
+
+.rdx-compact-kpi:hover {
+  box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.1), 0 4px 8px rgba(15, 23, 42, 0.04);
+  border-color: #94a3b8;
+}
+
+.rdx-ckpi-val {
+  font-size: 15px;
+  letter-spacing: -0.02em;
+}
+
+/* Tree Sidebar Card Enhancements */
+.rdx-tree__tile {
+  border-radius: 10px;
+  border-color: #e2e8f0;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.rdx-tree__tile:hover {
+  transform: translateX(4px);
+  border-color: #cbd5e1;
+  box-shadow: 0 6px 18px -4px rgba(15, 23, 42, 0.08);
+}
+
+.rdx-tree__tile.is-active {
+  background: #fff8f6;
+  border-color: var(--rdx-primary);
+  box-shadow: 0 0 0 1px var(--rdx-primary), 0 6px 20px -4px rgba(197, 64, 10, 0.2);
+}
+
+.rdx-tree__tile-icon-bg {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.8);
+}
+
+.rdx-tree__code {
+  letter-spacing: 0.02em;
+  box-shadow: 0 1px 2px rgba(197, 64, 10, 0.08);
+}
+
+/* View Mode Toggle Switcher (Orange Brand Accent Theme) */
+.rdx-view-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #fff5f0;
+  border: 1px solid rgba(197, 64, 10, 0.2);
+  border-radius: 9px;
+  padding: 3px;
+  box-shadow: inset 0 1px 2px rgba(197, 64, 10, 0.05);
+}
+
+.rdx-view-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: #7c2d12;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.rdx-view-mode-btn:hover {
+  color: var(--rust);
+  background: rgba(197, 64, 10, 0.08);
+}
+
+.rdx-view-mode-btn.is-active {
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--rust) 0%, #d97706 100%);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(197, 64, 10, 0.3);
+}
+
+/* Expand All / Collapse All Action Buttons */
+.rdx-org-toolbar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink, #14130f);
+  background: #ffffff;
+  border: 1px solid var(--rule, #d8d2c0);
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(20, 19, 15, 0.03);
+  transition: all 0.15s ease-in-out;
+}
+
+.rdx-org-toolbar__btn:hover {
+  background: #fff5f0;
+  border-color: var(--rust, #c5400a);
+  color: var(--rust, #c5400a);
+  box-shadow: 0 2px 8px rgba(197, 64, 10, 0.1);
+  transform: translateY(-1px);
+}
+
+/* Hero Manager Card (Overview Tab) */
+.rdx-head-hero {
+  border-radius: 12px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 14px -2px rgba(15, 23, 42, 0.04);
+  transition: all 0.2s ease-in-out;
+}
+
+.rdx-head-hero:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 6px 20px -4px rgba(15, 23, 42, 0.07);
+}
+
+.rdx-head-hero__avatar {
+  width: 48px;
+  height: 48px;
+  font-size: 16px;
+}
+
+.rdx-head-hero__avatar--none {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #d97706;
+}
+
+.rdx-head-hero__name {
+  font-size: 15.5px;
+  color: #0f172a;
+}
+
+.rdx-head-hero__btn-highlight {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #ffffff;
+  background: linear-gradient(135deg, #c5400a 0%, #ea580c 100%);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(197, 64, 10, 0.3);
+  transition: all 0.15s ease-in-out;
+}
+
+.rdx-head-hero__btn-highlight:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 15px rgba(197, 64, 10, 0.4);
+}
+
+/* Sub-departments Cards Grid */
+.rdx-subdept-card {
+  border-radius: 8px;
+  border-color: #e2e8f0;
+  padding: 10px 14px;
+}
+
+.rdx-subdept-card:hover {
+  border-color: var(--rdx-primary);
+  background: #fff5f0;
+  box-shadow: 0 4px 12px rgba(197, 64, 10, 0.08);
+}
+
+/* Floating Canvas Zoom Controls */
+.rdx-canvas-controls {
+  backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 8px 24px -4px rgba(15, 23, 42, 0.12);
+}
+
+/* Org Chart Node Enhancements */
+.rdx-org-node {
+  border-radius: 10px;
+  border-color: #e2e8f0;
+  box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.05);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.rdx-org-node:hover {
+  border-color: var(--rdx-primary);
+  transform: translateY(-3px);
+  box-shadow: 0 10px 25px -4px rgba(15, 23, 42, 0.1);
+}
+
+.rdx-org-node.is-selected {
+  border-color: var(--rdx-primary);
+  background: #fff8f6;
+  box-shadow: 0 0 0 2px rgba(197, 64, 10, 0.2), 0 8px 20px -4px rgba(197, 64, 10, 0.15);
+}
+
+/* Interactive Tabs Counter Badge */
+.rdx-drawer__tab-badge {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: #f1f5f9;
+  color: #64748b;
+  margin-left: 6px;
+  transition: all 0.15s ease-in-out;
+}
+
+.rdx-drawer__tab.is-active .rdx-drawer__tab-badge {
+  background: var(--rdx-primary-soft);
+  color: var(--rdx-primary);
+}
+
+/* ── MODAL REDESIGN: Premium SaaS Dialog Visual System ──────────────── */
+
+/* Scrim & Container overrides for ConfirmDialog inside Departments Page */
+.cdlg-overlay {
+  background: rgba(20, 19, 15, 0.55) !important;
+  backdrop-filter: blur(4px) !important;
+}
+
+.cdlg {
+  background: #ffffff !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 14px !important;
+  box-shadow: 0 20px 50px -10px rgba(20, 19, 15, 0.2) !important;
+  font-family: var(--ff-sans) !important;
+  overflow-x: hidden !important;
+}
+
+.cdlg--wide {
+  max-width: 640px !important;
+}
+
+.cdlg__head {
+  padding: 18px 24px 16px !important;
+  border-bottom: 1px solid var(--rule-soft) !important;
+  background: #ffffff !important;
+  overflow-x: hidden !important;
+}
+
+.cdlg__title {
+  font-family: var(--ff-sans) !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  color: var(--ink) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+.rdx-modal-header-badge {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--rust-soft);
+  color: var(--rust);
+  border: 1px solid rgba(197, 64, 10, 0.2);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.rdx-modal-header-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rdx-modal-header-h2 {
+  font-family: var(--ff-sans);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+}
+
+.rdx-modal-header-sub {
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ash);
+  margin: 0;
+}
+
+.cdlg__body {
+  padding: 24px !important;
+  background: #ffffff !important;
+  font-family: var(--ff-sans) !important;
+  overflow-x: hidden !important;
+}
+
+.cdlg__foot {
+  padding: 16px 24px !important;
+  border-top: 1px solid var(--rule-soft) !important;
+  background: var(--canvas) !important;
+  overflow-x: hidden !important;
+}
+
+/* Modal Form Controls Overrides */
+.depts__form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+}
+
+.depts__field--full {
+  grid-column: 1 / -1;
+}
+
+.cdlg .field__label,
+.cdlg .depts__label {
+  font-family: var(--ff-sans) !important;
+  font-size: 13.5px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  color: var(--ink) !important;
+  margin-bottom: 6px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.cdlg input.input,
+.cdlg textarea.input {
+  font-family: var(--ff-sans) !important;
+  font-size: 14px !important;
+  color: var(--ink) !important;
+  background: #ffffff !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 8px !important;
+  padding: 9px 12px !important;
+  box-shadow: 0 1px 2px rgba(20, 19, 15, 0.03) !important;
+  transition: all 0.15s ease-in-out !important;
+}
+
+.cdlg input.input:focus,
+.cdlg textarea.input:focus {
+  outline: none !important;
+  border-color: var(--rust) !important;
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.15) !important;
+}
+
+.cdlg textarea.input {
+  min-height: 76px;
+  resize: vertical;
+}
+
+/* Switch Card for "Bộ phận Sản xuất" */
+.rdx-switch-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  background: #ffffff;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+.rdx-switch-card:hover {
+  background: #fffbf9;
+  border-color: var(--rust);
+  box-shadow: 0 4px 12px rgba(197, 64, 10, 0.06);
+}
+
+.rdx-switch-card.is-checked {
+  background: #fff5f0;
+  border-color: var(--rust);
+  box-shadow: 0 4px 14px rgba(197, 64, 10, 0.12);
+}
+
+.rdx-switch-card__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.rdx-switch-card__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid var(--rule);
+  color: var(--ash);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  transition: all 0.15s ease-in-out;
+}
+
+.rdx-switch-card.is-checked .rdx-switch-card__icon {
+  color: var(--rust);
+  background: #ffffff;
+  border-color: var(--rust);
+}
+
+.rdx-switch-card__main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rdx-switch-card__title {
+  font-family: var(--ff-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rdx-switch-card__desc {
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  color: var(--ash);
+}
+
+/* Custom Toggle Switch UI */
+.rdx-toggle-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: var(--rule);
+  border-radius: 99px;
+  transition: background 0.2s ease-in-out;
+  flex-shrink: 0;
+}
+
+.rdx-toggle-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  background: #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.2);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.rdx-switch-card.is-checked .rdx-toggle-switch {
+  background: var(--rust);
+}
+
+.rdx-switch-card.is-checked .rdx-toggle-switch::after {
+  transform: translateX(20px);
+}
+
+/* Readonly Info Card for Lương Thử Việc */
+.rdx-info-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #ffffff;
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+}
+
+.rdx-info-card__badge {
+  font-family: var(--ff-mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--rust);
+  background: var(--rust-soft);
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(197, 64, 10, 0.15);
+}
+
+.rdx-info-card__text {
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  color: var(--ash);
+}
+
+/* ── WOW ELEVATED STAFF CARDS (STAFF TAB REDESIGN) ──────────────────── */
+
+/* Section Head for Staff Tab */
+.depts__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.depts__eyebrow-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.depts__count-pill {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--rust);
+  background: var(--rust-soft);
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+
+/* Staff Search & Filter Toolbar */
+.depts__staff-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.depts__staff-search {
+  font-family: var(--ff-sans) !important;
+  font-size: 13.5px !important;
+  color: var(--ink) !important;
+  background: #ffffff !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 8px !important;
+  padding: 8px 12px !important;
+  box-shadow: 0 1px 2px rgba(20, 19, 15, 0.03) !important;
+  transition: all 0.15s ease-in-out !important;
+}
+
+.depts__staff-search:focus {
+  outline: none !important;
+  border-color: var(--rust) !important;
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.15) !important;
+}
+
+/* Elevated Staff Card List (High-Density View) */
+.depts__members {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0;
+  margin: 0 0 12px 0;
+  list-style: none;
+}
+
+.depts__member {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: #ffffff;
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.02);
+  transition: all 0.15s ease-in-out;
+  position: relative;
+}
+
+.depts__member:hover {
+  transform: translateY(-1px);
+  border-color: var(--rule);
+  box-shadow: 0 4px 12px rgba(20, 19, 15, 0.05);
+}
+
+.depts__member.is-selected {
+  background: #fff5f0;
+  border-color: var(--rust);
+  box-shadow: 0 0 0 1px var(--rust), 0 2px 8px rgba(197, 64, 10, 0.1);
+}
+
+.depts__member-check {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--rust);
+  cursor: pointer;
+}
+
+/* Avatar Circle */
+.depts__member-avatar {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #fbfaf5 0%, #f4e2d6 100%);
+  border: 1px solid var(--rule);
+  color: var(--rust-deep);
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 1px 2px rgba(20, 19, 15, 0.04);
+  position: relative;
+}
+
+.depts__member-avatar--head {
+  background: linear-gradient(135deg, #fffbeb 0%, #efe4c4 100%);
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+/* Staff Card Main Content */
+.depts__member-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.depts__member-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.depts__member-name {
+  font-family: var(--ff-sans);
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.depts__member-code {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--rust);
+  background: var(--rust-soft);
+  padding: 1px 6px;
+  border-radius: 99px;
+}
+
+/* Badge Trưởng phòng */
+.depts__badge--head {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--ff-sans);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  padding: 1px 8px;
+  border-radius: 99px;
+}
+
+/* Staff Card Sub line (position + username) */
+.depts__member-sub {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  color: var(--ash);
+}
+
+.depts__member-user {
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ash-2);
+}
+
+/* Meta Badges at right */
+.depts__member-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.depts__role-pill {
+  font-family: var(--ff-sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 2px 10px;
+  border-radius: 99px;
+}
+
+.depts__status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--ff-sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 99px;
+}
+
+.depts__status-pill--active {
+  color: #15803d;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+
+.depts__status-pill--locked {
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+
+/* ── QUICK CANDIDATE PICKER MODAL (CHỈ ĐỊNH TRƯỞNG PHÒNG NHANH) ─────── */
+.rdx-candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.rdx-candidate-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #ffffff;
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.rdx-candidate-card:hover {
+  background: #fffbf9;
+  border-color: var(--rust);
+  box-shadow: 0 2px 8px rgba(197, 64, 10, 0.08);
+}
+
+.rdx-candidate-card.is-selected {
+  background: #fff5f0;
+  border-color: var(--rust);
+  box-shadow: 0 0 0 1px var(--rust);
+}
+
+.rdx-candidate-card__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.rdx-candidate-radio {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--rust);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.rdx-candidate-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #fbfaf5 0%, #f4e2d6 100%);
+  border: 1px solid var(--rule);
+  color: var(--rust-deep);
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.rdx-candidate-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rdx-candidate-name {
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.rdx-candidate-username {
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+  color: var(--ash);
+}
+
+.rdx-candidate-current-badge {
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  font-weight: 700;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  padding: 2px 8px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+
+
+
+
+
+
+

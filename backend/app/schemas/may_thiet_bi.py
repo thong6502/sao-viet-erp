@@ -26,6 +26,9 @@ class MayThietBiIn(BaseModel):
     vung_in_dai: int | None = None
     vung_in_rong: int | None = None
     gripper_mm: int | None = None
+    nhip_giay_mm: int | None = None
+    le_hong_mm: int | None = None
+    duoi_thang_mau_mm: int | None = None
     so_units: int | None = None
     # BHR nguồn — validate ở service.
     nguon_bhr: str | None = None
@@ -91,6 +94,7 @@ class MayThietBiRow(BaseModel):
     vung_in_dai: int | None = None
     vung_in_rong: int | None = None
     gripper_mm: int | None = None
+    nhip_giay_mm: int | None = None
     le_hong_mm: int | None = None
     duoi_thang_mau_mm: int | None = None
     so_units: int | None = None

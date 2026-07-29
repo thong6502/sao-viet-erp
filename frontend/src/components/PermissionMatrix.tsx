@@ -49,7 +49,12 @@ export type ActionKey =
   | "can_record_deposit"
   | "can_assign_work"
   | "can_record_output"
-  | "can_handover";
+  | "can_handover"
+  | "can_request"
+  | "can_view_stock"
+  | "can_view_cost"
+  | "can_set_threshold"
+  | "can_post";
 
 // UI gộp Thêm/Sửa/Xóa thành một công tắc "quyền chỉnh sửa": tick là bật cả ba.
 // Dữ liệu vẫn lưu tách (can_create/can_update/can_delete) nên backend không đổi.
@@ -57,7 +62,12 @@ const WRITE_ACTIONS: ActionKey[] = ["can_create", "can_update", "can_delete"];
 
 // Quyền CHI TIẾT khai báo theo từng module (Cách B). Module không có tên ở đây → không hiện
 // cột chi tiết. Thêm module/hành động mới chỉ cần bổ sung vào bảng này + cột ở backend.
-const FINE_ACTIONS: Record<string, { key: ActionKey; label: string; hint?: string }[]> = {
+// `keys` (tuỳ chọn): 1 công tắc bật/tắt NHIỀU cột cùng lúc (gộp quyền). `key` = cột đại diện để
+// đếm/định danh; `keys` = toàn bộ cột được set. Không có `keys` → công tắc 1 cột như thường.
+const FINE_ACTIONS: Record<
+  string,
+  { key: ActionKey; keys?: ActionKey[]; label: string; hint?: string }[]
+> = {
   khach_hang: [
     {
       key: "can_reassign",
@@ -132,6 +142,29 @@ const FINE_ACTIONS: Record<string, { key: ActionKey; label: string; hint?: strin
     { key: "can_set_head", label: "Đặt trưởng phòng" },
     { key: "can_reparent", label: "Đổi cấp trên (cây tổ chức)" },
   ],
+  // Kho: 3 ô chi tiết + công tắc chung Xem (can_read) + Chỉnh sửa (= LẬP PHIẾU).
+  //   · Tạo đề nghị (can_request) — người XIN nhập/lĩnh vật tư.
+  //   · Duyệt đề nghị (can_approve) — quản lý bộ phận ĐỀ NGHỊ (KHÔNG phải kho).
+  //   · Quản lý kho (1 công tắc = 4 cột): ghi sổ + xem tồn + xem giá vốn + khai ngưỡng.
+  // Vai KHO (cấp phát) chỉ bật "Quản lý kho" + Lập phiếu; KHÔNG có Duyệt (kho không tự duyệt).
+  kho: [
+    {
+      key: "can_request",
+      label: "Tạo đề nghị nhập/xuất",
+      hint: "Lập ĐỀ NGHỊ nhập/xuất kho (tổ SX xin lĩnh vật tư, mua hàng xin nhập bổ sung). Người đề nghị nên để phạm vi \"Của tôi\".",
+    },
+    {
+      key: "can_approve",
+      label: "Duyệt đề nghị",
+      hint: "Duyệt / từ chối đề nghị kho (được cắt bớt số lượng khi duyệt). Của QUẢN LÝ BỘ PHẬN đề nghị (vd Quản lý sản xuất duyệt đề nghị của tổ), KHÔNG phải kho — kho chỉ nhận đề nghị đã duyệt rồi cấp. Không ai tự duyệt đề nghị của chính mình.",
+    },
+    {
+      key: "can_post",
+      keys: ["can_post", "can_view_stock", "can_view_cost", "can_set_threshold"],
+      label: "Quản lý kho (ghi sổ · xem tồn/giá vốn · ngưỡng)",
+      hint: "MỘT công tắc gộp 4 quyền của người CẤP PHÁT kho: GHI SỔ phiếu (chốt tồn) · XEM số tồn · XEM giá vốn & giá trị tồn · KHAI ngưỡng tồn. Thủ kho / kế toán kho / QL kho bật ô này. KHÔNG kèm Duyệt đề nghị (kho không tự duyệt).",
+    },
+  ],
   dm_giay_vat_tu: [
     { key: "can_manage_price", label: "Cập nhật bảng giá" },
     { key: "can_clone", label: "Nhân bản" },
@@ -146,6 +179,13 @@ const FINE_ACTIONS: Record<string, { key: ActionKey; label: string; hint?: strin
     { key: "can_approve", label: "Duyệt yêu cầu cập nhật" },
     { key: "can_export", label: "Xuất Excel danh sách" },
     { key: "can_adjust", label: "Chấm công: chấm bù / sửa công" },
+  ],
+  di_muon: [
+    {
+      key: "can_approve",
+      label: "Duyệt phiếu đi muộn / về sớm",
+      hint: "Duyệt / từ chối phiếu đi muộn · về sớm · nghỉ nửa buổi của người khác (và khai hộ cho thợ — khai hộ là duyệt luôn). Kết hợp Phạm vi: 'Cả phòng' = tổ trưởng chỉ đụng được người trong tổ mình + các tổ con; 'Tất cả' = HCNS duyệt toàn công ty. KHÔNG cần cờ này để nhân viên tự xin/hủy phiếu của chính mình.",
+    },
   ],
   tang_ca: [
     {
@@ -182,6 +222,8 @@ const MODULE_HINTS: Record<string, string> = {
     "Xem: thấy đơn nghỉ trong phạm vi được cấp. Chỉnh sửa: quản danh mục loại nghỉ. Nhân viên tự gửi và tự hủy đơn của mình thì KHÔNG cần cấp gì thêm.",
   tang_ca:
     "Xem: thấy mục Tăng ca trên thanh bên + danh sách phiếu trong phạm vi. Nhân viên tự gửi / tự hủy phiếu của chính mình thì KHÔNG cần cấp quyền nào. Muốn DUYỆT phiếu người khác thì bật quyền chi tiết “Duyệt phiếu tăng ca”.",
+  di_muon:
+    "Xem: thấy danh sách phiếu đi muộn / về sớm / nghỉ nửa buổi trong phạm vi (tab nằm trong màn Chấm công). Nhân viên tự xin / tự hủy phiếu của CHÍNH MÌNH thì KHÔNG cần cấp quyền nào — tab luôn hiện. Muốn DUYỆT phiếu người khác (và khai hộ thợ) thì bật quyền chi tiết “Duyệt phiếu đi muộn / về sớm”.",
   luong:
     "Xem: mở màn Lương (bảng lương tháng, tạm ứng). Chỉnh sửa: tính lại lương, sửa dòng lương, khai cấu hình. Cấu hình lương + duyệt tạm ứng + chốt kỳ + xuất file nằm ở quyền chi tiết. Nhân viên xem “Phiếu lương của tôi” thì không cần quyền này.",
   khach_hang:
@@ -226,7 +268,7 @@ const MODULE_GROUPS: { key: string; label: string; modules: string[] }[] = [
   { key: "san_xuat", label: "Sản xuất", modules: ["san_xuat"] },
   { key: "kho", label: "Kho", modules: ["kho", "thu_mua"] },
   { key: "ke_toan", label: "Kế toán", modules: ["ke_toan"] },
-  { key: "nhan_su", label: "Nhân sự", modules: ["nhan_su", "nghi_phep", "tang_ca", "luong"] },
+  { key: "nhan_su", label: "Nhân sự", modules: ["nhan_su", "nghi_phep", "tang_ca", "di_muon", "luong"] },
   {
     key: "danh_muc",
     label: "Danh mục",
@@ -275,6 +317,11 @@ export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
     can_assign_work: false,
     can_record_output: false,
     can_handover: false,
+    can_request: false,
+    can_view_stock: false,
+    can_view_cost: false,
+    can_set_threshold: false,
+    can_post: false,
   }));
 }
 
@@ -387,9 +434,10 @@ export function PermissionMatrix({
                   const label = moduleLabel.get(row.module_key) ?? row.module_key;
                   const canWrite = WRITE_ACTIONS.every((k) => row[k]);
                   const fineActs = FINE_ACTIONS[row.module_key];
-                  const fineGranted = fineActs
-                    ? fineActs.filter((a) => row[a.key]).length
-                    : 0;
+                  // Công tắc gộp (`keys`): bật = TẤT CẢ cột bật.
+                  const fineOn = (a: { key: ActionKey; keys?: ActionKey[] }) =>
+                    a.keys ? a.keys.every((k) => row[k]) : !!row[a.key];
+                  const fineGranted = fineActs ? fineActs.filter(fineOn).length : 0;
                   const fineIsOpen = openFine.has(row.module_key);
                   return (
                     <div key={row.module_key} className="rdx-perm__row">
@@ -469,11 +517,14 @@ export function PermissionMatrix({
                               <input
                                 type="checkbox"
                                 className="switch"
-                                checked={!!row[a.key]}
+                                checked={fineOn(a)}
                                 disabled={readOnly}
                                 aria-label={`${a.label} — ${label}`}
                                 onChange={(e) =>
-                                  onToggle(row.module_key, a.key, e.target.checked)
+                                  // Công tắc gộp → set TẤT CẢ cột trong `keys`; thường → 1 cột.
+                                  (a.keys ?? [a.key]).forEach((k) =>
+                                    onToggle(row.module_key, k, e.target.checked),
+                                  )
                                 }
                               />
                               <span className="rdx-perm__fine-text">

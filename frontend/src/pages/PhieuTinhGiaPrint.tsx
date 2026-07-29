@@ -2,6 +2,7 @@
 // Giao diện đen-trắng thuần, bảng chi tiết theo nhóm (data-driven: Nguyên vật liệu · Công đoạn),
 // khối Tổng giá vốn, 3 ô ký. Số nhóm hiển thị là số thứ tự (1., 2.) — không phụ thuộc mã idx.
 // Toàn bộ dữ liệu vào qua props `data`. Component KHÔNG tự format số — số đã là chuỗi format sẵn.
+import { Fragment } from "react";
 import svnLogoUrl from "../assets/sao-viet-nhat-logo-mark.png";
 import "./phieu-tinh-gia.css";
 
@@ -47,6 +48,35 @@ export interface PhieuTinhGiaSanPham {
   ten: string;
   soLuong: number;
   dvt: string;
+  /** Nhãn nhóm gộp khi báo giá — cùng nhãn = cùng một sản phẩm thương mại (ruột + bìa 1 cuốn). */
+  nhom?: string | null;
+}
+
+/** Gom sản phẩm theo nhãn nhóm, giữ vị trí dòng đầu của mỗi nhóm. Dùng chung cho bảng in. */
+type NodeSP =
+  | { kind: "don"; key: string; sp: PhieuTinhGiaSanPham }
+  | { kind: "nhom"; key: string; ten: string; soLuong: number; dvt: string; members: PhieuTinhGiaSanPham[] };
+
+function gomNhomSanPham(sps: PhieuTinhGiaSanPham[]): NodeSP[] {
+  const out: NodeSP[] = [];
+  const viTri = new Map<string, number>();
+  sps.forEach((sp, i) => {
+    const nh = (sp.nhom ?? "").trim();
+    if (!nh) {
+      out.push({ kind: "don", key: `d${i}`, sp });
+      return;
+    }
+    const k = nh.toLowerCase();
+    const at = viTri.get(k);
+    if (at === undefined) {
+      viTri.set(k, out.length);
+      // SL + ĐVT của nhóm lấy theo phần ĐẦU TIÊN (ruột) — khách mua 5.000 cuốn, không phải 10.000.
+      out.push({ kind: "nhom", key: `n${k}`, ten: nh, soLuong: sp.soLuong, dvt: sp.dvt, members: [sp] });
+    } else {
+      (out[at] as { members: PhieuTinhGiaSanPham[] }).members.push(sp);
+    }
+  });
+  return out;
 }
 
 export interface PhieuTinhGia {
@@ -212,26 +242,53 @@ export function PhieuTinhGiaPrint({
                 </tr>
               </thead>
               <tbody>
-                {sanPhams.map((sp, i) => (
-                  <tr key={i}>
-                    <td>{sp.ten}</td>
-                    <td className="ptg-num">{sp.soLuong.toLocaleString("vi-VN")}</td>
-                    <td>{sp.dvt}</td>
-                  </tr>
-                ))}
+                {/* Sản phẩm cùng nhãn nhóm = 1 sản phẩm thương mại (ruột + bìa của 1 cuốn) →
+                    in dưới một dòng nhóm, thành viên thụt vào. SL nhóm KHÔNG cộng dồn. */}
+                {gomNhomSanPham(sanPhams).map((node) =>
+                  node.kind === "don" ? (
+                    <tr key={node.key}>
+                      <td>{node.sp.ten}</td>
+                      <td className="ptg-num">{node.sp.soLuong.toLocaleString("vi-VN")}</td>
+                      <td>{node.sp.dvt}</td>
+                    </tr>
+                  ) : (
+                    <Fragment key={node.key}>
+                      <tr className="ptg-nhom">
+                        <td>
+                          {node.ten}
+                          <span className="ptg-nhom__sub"> · {node.members.length} phần</span>
+                        </td>
+                        <td className="ptg-num">{node.soLuong.toLocaleString("vi-VN")}</td>
+                        <td>{node.dvt}</td>
+                      </tr>
+                      {node.members.map((sp, k) => (
+                        <tr key={`${node.key}-${k}`} className="ptg-nhom-con">
+                          <td>{sp.ten}</td>
+                          <td className="ptg-num">{sp.soLuong.toLocaleString("vi-VN")}</td>
+                          <td>{sp.dvt}</td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  ),
+                )}
               </tbody>
             </table>
           </>
         )}
 
-        <div className="ptg-sec">Nội dung thực hiện</div>
-        <ol className="ptg-scope">
-          {noiDung.map((n, i) => (
-            <li key={i}>
-              <span className="ptg-k">{n.label}:</span> {n.text}
-            </li>
-          ))}
-        </ol>
+        {/* Chưa có nội dung thì ẩn hẳn — tiêu đề đứng trên khoảng trắng nhìn như phiếu làm dở. */}
+        {noiDung.length > 0 && (
+          <>
+            <div className="ptg-sec">Nội dung thực hiện</div>
+            <ol className="ptg-scope">
+              {noiDung.map((n, i) => (
+                <li key={i}>
+                  <span className="ptg-k">{n.label}:</span> {n.text}
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
 
         <div className="ptg-sec">Kết quả tính giá</div>
 

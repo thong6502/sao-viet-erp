@@ -55,6 +55,7 @@ MODULES: list[tuple[str, str]] = [
     ("nhan_su", "Nhân sự"),
     ("nghi_phep", "Nghỉ phép"),
     ("tang_ca", "Tăng ca"),
+    ("di_muon", "Đi muộn / về sớm"),
     ("luong", "Lương"),
 ]
 
@@ -121,6 +122,14 @@ def _full(scope: str, *, can_approve_exception: bool = False) -> dict:
         # khach_hang: thiết lập điều khoản tín dụng khách — bật cho vai quản lý (_full dùng chung
         # cho Giám đốc + GĐ KD + Trưởng phòng KD). NV Sales dùng _rcu → KHÔNG có (chỉ xem read-only).
         can_set_credit_terms=True,
+        # kho (spec-kho-de-nghi §9.2): 4 ô quyền chi tiết. Chỉ CÓ NGHĨA trên module `kho`, mà
+        # `_full` chỉ chạm module đó ở vai Giám đốc → thực chất đây là "GĐ toàn quyền kho".
+        # Quản lý kho KHÔNG dùng `_full` (khai riêng bên dưới) vì không được sửa giá vốn.
+        can_request=True,
+        can_view_stock=True,
+        can_view_cost=True,
+        can_set_threshold=True,
+        can_post=True,  # GĐ toàn quyền kho → được GHI SỔ (chốt tồn)
     )
 
 
@@ -132,6 +141,15 @@ def _read(scope: str) -> dict:
     return dict(
         can_read=True, can_create=False, can_update=False, can_delete=False, scope=scope
     )
+
+
+# Cụm "QUẢN LÝ KHO" — gộp 4 quyền của người CẤP PHÁT kho thành 1 công tắc trên ma trận
+# (chốt 2026-07-29): ghi sổ phiếu + xem tồn + xem giá vốn/giá trị tồn + khai ngưỡng tồn.
+# KHÔNG kèm `can_approve` — DUYỆT đề nghị là việc của quản lý bộ phận đề nghị, kho KHÔNG tự duyệt.
+_KHO_QL = {
+    "can_post": True, "can_view_stock": True,
+    "can_view_cost": True, "can_set_threshold": True,
+}
 
 
 def _leave_self(scope: str = SCOPE_OWN) -> dict:
@@ -164,6 +182,23 @@ def _ot_self(scope: str = SCOPE_OWN) -> dict:
 def _ot_lead(scope: str = SCOPE_DEPARTMENT) -> dict:
     """Quyền DUYỆT phiếu tăng ca (+ tạo hộ cho thợ, tạo hộ là duyệt luôn). Scope `department`
     = tổ mình + cây con ⇒ tổ trưởng CHỈ duyệt được người trong tổ; HCNS/Admin dùng scope `all`."""
+    return dict(
+        can_read=True, can_create=True, can_update=True, can_delete=False,
+        scope=scope, can_approve=True, can_cancel=True,
+    )
+
+
+# Phiếu ĐI MUỘN / VỀ SỚM / NGHỈ NỬA BUỔI — cùng luồng duyệt với tăng ca (tổ trưởng duyệt tổ mình).
+def _el_self(scope: str = SCOPE_OWN) -> dict:
+    """Tự phục vụ cho MỌI nhân viên: xem phiếu của mình + tự gửi + tự hủy. KHÔNG duyệt."""
+    return dict(
+        can_read=True, can_create=True, can_update=False, can_delete=False,
+        scope=scope, can_cancel=True,
+    )
+
+
+def _el_lead(scope: str = SCOPE_DEPARTMENT) -> dict:
+    """Quyền DUYỆT phiếu đi muộn/về sớm (+ khai hộ cho thợ, khai hộ là duyệt luôn)."""
     return dict(
         can_read=True, can_create=True, can_update=True, can_delete=False,
         scope=scope, can_approve=True, can_cancel=True,
@@ -205,6 +240,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # Nghỉ phép: HCNS là nơi DUYỆT tập trung (mọi đơn toàn công ty) + quản loại nghỉ.
             "nghi_phep": _leave_admin(SCOPE_ALL),
             "tang_ca": _ot_lead(SCOPE_ALL),
+            "di_muon": _el_lead(SCOPE_ALL),
             # Lương: HCNS/kế toán chạy trọn (tạo kỳ, duyệt tạm ứng, chốt, xuất).
             "luong": _full(SCOPE_ALL),
             # HCNS quản trị người dùng → giữ trọn các thao tác quản trị (tách khỏi "sửa"):
@@ -224,7 +260,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
     ),
     # Vai "Nhân viên" tối thiểu: Dashboard + tự phục vụ Nghỉ phép (cửa vào self-service).
     ("Hành chính nhân sự", "Nhân viên",
-     {"dashboard": _read(SCOPE_OWN), "nghi_phep": _leave_self(), "tang_ca": _ot_self()}),
+     {"dashboard": _read(SCOPE_OWN), "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self()}),
     # --- Khối SẢN XUẤT (Lát 1 — hộp việc 2 tầng, gate theo Ô QUYỀN, không theo chức danh) ---
     # Kế hoạch SX: cấu hình lệnh + PHÁT (can_approve), thấy mọi tổ (scope all). KHÔNG gán thợ.
     (
@@ -243,6 +279,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "phong_ban": _read(SCOPE_ALL),
             "nghi_phep": _leave_self(),
             "tang_ca": _ot_self(),
+            "di_muon": _el_self(),
         },
     ),
     # Tổ trưởng SX: xem tổ mình (scope own) + GÁN thợ (can_assign_work) → hộp việc FULL + nút gán.
@@ -252,9 +289,14 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_OWN),
             "san_xuat": {**_read(SCOPE_OWN), "can_assign_work": True, "can_record_output": True, "can_handover": True},
+            # Kho: đề nghị lĩnh vật tư cho tổ + DUYỆT cấp 1 đề nghị của tổ mình (BRD §2.8 b5 —
+            # "Tổ trưởng/Quản lý duyệt đề xuất cấp phát"). Scope DEPARTMENT: phải thấy đề nghị của
+            # NV trong phòng mới duyệt được (own chỉ thấy của mình → không có gì để duyệt).
+            "kho": {**_read(SCOPE_DEPARTMENT), "can_request": True, "can_approve": True},
             "nghi_phep": _leave_self(),
             # Tổ trưởng DUYỆT phiếu tăng ca của tổ mình (scope department = tổ + cây con).
             "tang_ca": _ot_lead(SCOPE_DEPARTMENT),
+            "di_muon": _el_lead(SCOPE_DEPARTMENT),
         },
     ),
     # Thợ SX: CHỈ xem việc được gán (read scope own, không gán) → hộp việc lọc theo bước được gán.
@@ -262,14 +304,14 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Sản xuất",
         "Thợ SX",
         {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_OWN),
-         "nghi_phep": _leave_self(), "tang_ca": _ot_self()},
+         "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self()},
     ),
     # QC: xem mọi tổ (scope all) để soi công đoạn bất kỳ (ghi lỗi = Lát 3, thêm can_report_defect sau).
     (
         "Sản xuất",
         "QC",
         {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_ALL),
-         "nghi_phep": _leave_self(), "tang_ca": _ot_self()},
+         "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self()},
     ),
     (
         "Kinh doanh",
@@ -316,24 +358,35 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "nghi_phep": _leave_self(),
         },
     ),
-    # === Vai trò tiếp cận Kho (BRD Module Kho §1.4/§1.5) =====================
-    # Thủ kho: vận hành phiếu + kiểm kê; KHÔNG duyệt, KHÔNG thấy giá vốn.
+    # === Vai trò tiếp cận Kho (BRD Module Kho §1.4/§1.5 · spec-kho-de-nghi §9.2) ==========
+    # GỘP QUYỀN (2026-07-29, mentor): 5 cột kho (duyệt · ghi sổ · xem tồn · xem giá vốn · khai
+    # ngưỡng) = 1 công tắc "Quản lý kho" trên ma trận → vai làm việc với kho bật cả cụm. `_KHO_QL`
+    # = cụm đó. Người đề nghị scope `own` (chỉ đèn tín hiệu, không thấy tồn/giá).
+    # Thủ kho: LẬP PHIẾU + Quản lý kho (đủ cụm). Khai rõ create/update/delete để công tắc "Lập phiếu"
+    # trên ma trận hiện ĐÚNG là bật.
     (
         "Kho",
         "Thủ kho",
         {
             "dashboard": _read(SCOPE_OWN),
-            "kho": _rcu(SCOPE_ALL),          # xem + tạo/nộp phiếu, kiểm kê, điều chỉnh nhanh
-            "san_xuat": _read(SCOPE_ALL),    # xem LSX để tham chiếu khi lập phiếu
+            "kho": {
+                "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
+                "scope": SCOPE_ALL, **_KHO_QL,
+            },
+            "san_xuat": _read(SCOPE_ALL),    # xem kế hoạch SX để tham chiếu khi lập phiếu
         },
     ),
-    # Quản lý kho: vận hành đầy đủ + duyệt + giá vốn + cấu hình danh mục kho.
+    # Quản lý kho: LẬP PHIẾU + Quản lý kho (ghi sổ + xem tồn/giá vốn + ngưỡng). KHÔNG duyệt đề nghị
+    # (việc của quản lý bộ phận đề nghị) và KHÔNG tự tạo đề nghị (kho cấp phát, không xin).
     (
         "Kho",
         "Quản lý kho",
         {
             "dashboard": _read(SCOPE_ALL),
-            "kho": _full(SCOPE_ALL),
+            "kho": {
+                "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
+                "scope": SCOPE_ALL, **_KHO_QL,
+            },
             "san_xuat": _read(SCOPE_ALL),
         },
     ),
@@ -346,42 +399,48 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "don_hang_ban": {**_read(SCOPE_ALL), "can_record_deposit": True},
         },
     ),
-    # Kế toán kho: DUYỆT & ghi sổ + xem GIÁ VỐN/giá trị tồn; đối chiếu. Không tạo phiếu.
+    # Kế toán kho: Quản lý kho (đủ cụm: duyệt + ghi sổ + xem tồn/giá vốn + ngưỡng) để đối chiếu,
+    # KHÔNG lập phiếu (không create — thủ kho cầm hàng, kế toán chốt sổ).
     (
         "Kế toán",
         "Kế toán kho",
         {
             "dashboard": _read(SCOPE_ALL),
-            "kho": {**_read(SCOPE_ALL), "can_approve": True, "can_manage_price": True},
+            "kho": {**_read(SCOPE_ALL), **_KHO_QL},
         },
     ),
-    # Nhân viên sản xuất: xuất NVL / nhập TP theo LSX; tạo lệnh SX.
+    # --- Phía ĐỀ NGHỊ: scope `own` (chỉ thấy đề nghị CỦA MÌNH), KHÔNG `can_view_stock`,
+    # KHÔNG `can_view_cost`, KHÔNG `can_create` (không lập phiếu). Họ biết khi nào cần đề
+    # nghị nhờ hệ thống ĐẨY cảnh báo ngưỡng tồn xuống, không phải tự đi soi kho (spec §8).
+    # Nhân viên sản xuất: đề nghị lĩnh NVL cho tổ.
     (
         "Sản xuất",
         "Nhân viên sản xuất",
         {
             "dashboard": _read(SCOPE_OWN),
-            "kho": {**_read(SCOPE_ALL), "can_create": True},
+            "kho": {**_read(SCOPE_OWN), "can_request": True},
             "san_xuat": _rcu(SCOPE_ALL),
         },
     ),
-    # Quản lý sản xuất: như trên + duyệt phiếu SX-liên-quan + quản lý lệnh SX.
+    # Quản lý sản xuất: như NV sản xuất + duyệt (cấp leo thang khi vượt ngưỡng/gấp).
+    # Scope kho = DEPARTMENT: PHẢI thấy đề nghị của cả phòng SX (do NV tạo) mới duyệt được —
+    # scope `own` chỉ thấy đề nghị của chính mình nên không có gì để duyệt.
     (
         "Sản xuất",
         "Quản lý sản xuất",
         {
             "dashboard": _read(SCOPE_ALL),
-            "kho": {**_read(SCOPE_ALL), "can_create": True, "can_approve": True},
+            "kho": {**_read(SCOPE_DEPARTMENT), "can_request": True, "can_approve": True},
             "san_xuat": _full(SCOPE_ALL),
         },
     ),
-    # Nhân viên mua hàng: nhập NVL từ NCC (PO), xuất trả NCC.
+    # Nhân viên mua hàng: đề nghị NHẬP khi tồn chạm ngưỡng (nguồn của phiếu nhập mua NCC).
     (
         "Mua hàng",
         "Nhân viên mua hàng",
         {
             "dashboard": _read(SCOPE_OWN),
-            "kho": {**_read(SCOPE_ALL), "can_create": True},
+            "kho": {**_read(SCOPE_OWN), "can_request": True},
         },
     ),
 ]
@@ -520,6 +579,7 @@ KHO_STAFF: list[tuple[str, str, str, str]] = [
     ("qlkho", "Lê Quản Lý Kho", "Kho", "Quản lý kho"),
     ("ketoankho", "Phạm Kế Toán", "Kế toán", "Kế toán kho"),
     ("nvsx", "Ngô Sản Xuất", "Sản xuất", "Nhân viên sản xuất"),
+    ("totruongsx", "Bùi Tổ Trưởng", "Sản xuất", "Tổ trưởng SX"),
     ("qlsx", "Vũ Quản Lý SX", "Sản xuất", "Quản lý sản xuất"),
     ("muahang", "Đỗ Mua Hàng", "Mua hàng", "Nhân viên mua hàng"),
 ]
@@ -951,9 +1011,12 @@ def seed_sales_history(db: Session) -> None:
     # Giữ demo "1 báo giá nhiều dòng" (như BG26-0011 trước đây) — mỗi dòng khóa 1 phiếu tính giá.
     if an_phat is not None and sale1 is not None:
         created = _month_mid(0, day=14)
+        # Cột cuối = DIỄN GIẢI quy cách in dưới tên sản phẩm (mỗi dòng = 1 gạch đầu dòng trên bản in).
         ml_lines = [
-            ("Catalogue A4 công ty", "brochure", _CATALOGUE_SPEC, _CATALOGUE_SPEC_TEXT, 1000, 3_264_000),
-            ("Tờ rơi A5 khuyến mãi", "flyer", _FLYER_SPEC, _FLYER_SPEC_TEXT, 5000, 3_655_500),
+            ("Catalogue A4 công ty", "brochure", _CATALOGUE_SPEC, _CATALOGUE_SPEC_TEXT, 1000, 3_264_000,
+             "KT: 210×297mm\nGiấy Couche 150g\nIn 4 màu 2 mặt\nCán màng mờ · Gấp · Đóng ghim"),
+            ("Tờ rơi A5 khuyến mãi", "flyer", _FLYER_SPEC, _FLYER_SPEC_TEXT, 5000, 3_655_500,
+             "KT: 148×210mm\nGiấy Couche 120g\nIn 4 màu 2 mặt\nCắt thành phẩm"),
         ]
         q = Quote(
             quote_number=_seq.generate_code("quotation", at_date=created.date()),
@@ -970,7 +1033,7 @@ def seed_sales_history(db: Session) -> None:
         db.flush()
         q.current_version_id = qv.id
         sub = disc = vat = fin = tc = 0.0
-        for i, (pname, ptype, spec, stext, qty, cost) in enumerate(ml_lines, start=1):
+        for i, (pname, ptype, spec, stext, qty, cost, dgiai) in enumerate(ml_lines, start=1):
             est, opt = _mk_estimate(an_phat, sale1.id, pname, ptype, spec, qty, cost, created)
             if i == 1:
                 q.estimate_id = est.id
@@ -979,6 +1042,7 @@ def seed_sales_history(db: Session) -> None:
             db.add(QuoteItem(
                 quote_version_id=qv.id, estimate_id=est.id, estimate_option_id=opt.id,
                 line_no=i, product_type=ptype, product_name=pname, product_spec_text=stext,
+                dien_giai=dgiai,
                 product_spec_snapshot_json=spec, quantity=qty, unit="cái",
                 total_cost_snapshot=cost, margin_percent=12.0, selling_price=selling,
                 unit_price=selling / qty, discount_amount=0.0, vat_percent=10.0,
@@ -1890,6 +1954,75 @@ def seed_pit_brackets(db: Session) -> None:
     db.commit()
 
 
+# Danh mục KHOẢN THU NHẬP mặc định (chủ 2026-07-27).
+#
+# ⚠️ KHÔNG seed những khoản ĐÃ CÓ CỘT RIÊNG và đã được engine TỰ TÍNH: tăng ca (`ot_pay` suy từ
+# chấm công) · phụ cấp ca (`phu_cap_ca` → `night_pay`) · chuyên cần · lương khoán/sản lượng ·
+# TIỀN NGÀY NGHỈ PHÉP (`luong_ngay_phep`, nằm trong `luong_cong`) · các khoản phạt.
+# Seed trùng những khoản đó là TRẢ TIỀN HAI LẦN. Danh sách chặn ở `_RESERVED`
+# (`payroll_component_service.py`) canh đúng ranh giới này.
+#
+# (code, tên, kind, is_taxable, sort_order) — `is_taxable=False` = MIỄN thuế TNCN.
+# 4 khoản miễn lấy đúng theo sheet TÍNH THUẾ TNCN của kế toán (`lương thuế T 05.2026.xlsx`).
+_PAYROLL_COMPONENTS_SEED = [
+    ("trang_phuc",         "Trang phục",             "thu", False, 10),
+    ("tro_cap_nha_o",      "Trợ cấp tiền nhà ở",     "thu", False, 20),
+    ("ho_tro_di_lai",      "Hỗ trợ chi phí đi lại",  "thu", False, 30),
+    ("tien_com",           "Tiền ăn ca / CN / giờ",  "thu", False, 40),
+    ("phu_cap_dien_thoai", "Phụ cấp điện thoại",     "thu", True,  50),
+    ("phu_cap_xang",       "Phụ cấp xăng xe",        "thu", True,  60),
+    ("phu_cap_kiem_nhiem", "Phụ cấp kiêm nhiệm",     "thu", True,  70),
+    # 4 khoản THƯỞNG chuyển từ ô tay sang danh mục (chủ 28/07/2026: "khoản 5s hay thưởng gì thì
+    # cho nó select từ quy tắc, để coi nó chịu thuế hay không"). Cột cũ trên `payroll_lines` vẫn
+    # còn để kỳ ĐÃ CHỐT giữ nguyên số, nhưng không ai ghi mới được nữa ⇒ KHÔNG trả hai lần.
+    # `is_taxable=True` giữ ĐÚNG hành vi cũ (5 ô tay vốn bị đóng đinh chịu thuế); chủ tự bỏ tích
+    # cho khoản nào thực chất là hoàn tiền (điển hình: Trả đồng phục).
+    ("thuong_5s",          "Thưởng 5S",              "thu", True,  100),
+    ("thuong_doanh_so",    "Thưởng doanh số",        "thu", True,  110),
+    ("thuong_thanh_tich",  "Thưởng thành tích",      "thu", True,  120),
+    ("tra_dong_phuc",      "Trả đồng phục",          "thu", True,  130),
+    # Hai khoản MỞ (chủ 27/07/2026): khoản lặt vặt phát sinh một lần (thưởng nóng của Sếp) thì
+    # dùng luôn hai khoản này + ghi chú, KHÔNG phải đẻ một danh mục mới dùng một lần rồi bỏ.
+    ("thu_nhap_khac_ct",   "Thu nhập khác (chịu thuế)", "thu", True,  900),
+    ("thu_nhap_khac_mt",   "Thu nhập khác (miễn thuế)", "thu", False, 910),
+]
+
+
+def seed_payroll_components(db: Session) -> None:
+    """Danh mục khoản thu nhập — SEED-ONCE (chủ tự thêm/xoá/đổi cờ thì KHÔNG bị mọc lại sau restart)."""
+    from sqlalchemy import func, select
+
+    from .models.payroll import PayrollComponent
+    if db.execute(select(func.count(PayrollComponent.id))).scalar_one() > 0:
+        return
+    for code, name, kind, taxable, order in _PAYROLL_COMPONENTS_SEED:
+        db.add(PayrollComponent(code=code, name=name, kind=kind,
+                                is_taxable=taxable, sort_order=order))
+    db.commit()
+
+
+def seed_job_grades(db: Session) -> None:
+    """Danh mục BẬC TAY NGHỀ — SEED-ONCE (chủ sửa tên/tắt bậc thì KHÔNG bị mọc lại sau restart).
+
+    Bộ chủ chốt 29/07/2026: 3 bậc chính + 2 bậc phụ, Bậc 1 là bậc CAO NHẤT. Không tiền, không
+    hệ số — đúng "khai bậc thôi".
+
+    ⚠️ Trùng ý với migration 0127 là CỐ Ý, và cần cả hai:
+      - DB thật đang chạy: `schema_migrations` chưa có 0127 ⇒ migration seed + backfill bậc cũ.
+      - DB dựng mới / test: test wipe bảng bằng `drop_all` nhưng `schema_migrations` KHÔNG phải
+        bảng model nên sống sót ⇒ migration bị coi là "đã chạy" và bỏ qua. Không có seeder này
+        thì danh mục rỗng, màn hồ sơ không có bậc nào để chọn.
+    Cả hai đều guard "đã có dòng thì thôi" nên chạy chồng cũng không nhân đôi."""
+    from sqlalchemy import func, select
+
+    from .models.employee import JOB_GRADE_SEED, JobGrade
+    if db.execute(select(func.count(JobGrade.id))).scalar_one() > 0:
+        return
+    for code, name, seq in JOB_GRADE_SEED:
+        db.add(JobGrade(code=code, name=name, seq=seq))
+    db.commit()
+
+
 def seed_san_xuat_org(db: Session) -> None:
     """Nền phòng ban SẢN XUẤT: đánh dấu "Sản xuất" là khối sản
     xuất + dựng cây TỔ con (Chế bản/In/Cán/Bế/Đóng gói/KCS, cấp "Tổ"), gắn công đoạn → tổ, chuyển
@@ -2028,6 +2161,8 @@ def seed_all(db: Session) -> None:
     seed_machines(db)
     seed_operations(db)
     seed_special_days(db)  # dữ liệu vận hành thật (không gated demo) — nền lịch/lễ dùng chung
+    seed_payroll_components(db)  # danh mục khoản thu nhập + cờ chịu thuế TNCN
+    seed_job_grades(db)  # danh mục bậc tay nghề (khối SX) — vận hành thật, không gated demo
     seed_pit_brackets(db)  # biểu thuế TNCN — dữ liệu vận hành thật (Lương đọc tính thuế)
     if settings.seed_demo:
         seed_kd_staff(db)

@@ -37,11 +37,12 @@
 
 /* Base Styles */
 .ns {
-  padding: var(--sp-6);
-  color: var(--ink);
+  padding: 20px 24px;
+  color: var(--ink, #14130f);
   font-family: var(--ff-sans);
   max-width: 1600px;
   margin: 0 auto;
+  min-height: calc(100vh - 60px);
 }
 
 .ns__head {
@@ -49,67 +50,112 @@
   justify-content: space-between;
   align-items: center;
   gap: var(--sp-4);
-  margin-bottom: var(--sp-6);
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--rule-soft, #e8e3d3);
 }
 
 .ns__title {
-  font-size: 24px;
-  font-weight: var(--fw-bold);
+  font-size: 22px;
+  font-weight: 700;
   margin: 0;
-  color: var(--ink);
-  letter-spacing: -0.015em;
+  color: var(--ink, #14130f);
+  letter-spacing: -0.02em;
 }
 
 .ns__sub {
-  color: var(--ash);
-  margin: var(--sp-1) 0 0;
-  font-size: 13.5px;
+  color: var(--ash, #6b665b);
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 400;
 }
 
-/* Dashboard / KPI Strip */
+.ns-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ns-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #c5400a 0%, #ea580c 100%);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(197, 64, 10, 0.28);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ns-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(197, 64, 10, 0.38);
+  background: linear-gradient(135deg, #b33808 0%, #d97706 100%);
+}
+
+.ns-btn-primary:active {
+  transform: translateY(0);
+}
+
+.ns-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--ink, #14130f);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.04);
+  transition: all 0.18s ease;
+}
+
+.ns-btn-secondary:hover {
+  background: #fff5f0;
+  border-color: #fdecde;
+  color: #c5400a;
+  box-shadow: 0 3px 8px rgba(197, 64, 10, 0.1);
+}
+
+/* ── Dải lọc nhanh theo trạng thái ──────────────────────────────────────
+   Trước đây là 4 thẻ KPI cao 90px, nhưng 3 số sau chỉ là phân rã của số đầu
+   và cả 4 đều KIÊM nút lọc — nghĩa là chúng là BỘ LỌC chứ không phải dashboard.
+   Đưa về đúng hình dạng bộ lọc: một dải pill cao 34px, trả ~62px cho bảng. */
 .ns2__kpis {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--sp-4);
-  margin-bottom: var(--sp-5);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .ns__kpi {
-  display: flex;
-  flex-direction: row;
+  display: inline-flex;
   align-items: center;
-  gap: var(--sp-4);
-  padding: var(--sp-4);
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  box-shadow: 0 2px 8px rgba(20, 19, 15, 0.02);
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
+  gap: 7px;
+  height: 34px;
+  padding: 0 13px;
+  background: #ffffff;
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: 999px;
+  color: var(--ash, #6b665b);
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
   text-align: left;
-  width: 100%;
+  white-space: nowrap;
 }
 
-.ns__kpi::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 4px;
-  height: 100%;
-  background: var(--rule);
-}
-
-.ns__kpi--total::after { background: var(--steel); }
-.ns__kpi--probation::after { background: var(--amber); }
-.ns__kpi--active::after { background: var(--moss); }
-.ns__kpi--action::after { background: var(--rust); }
-
-.ns__kpi:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-4);
-  border-color: var(--rule);
+.ns__kpi svg {
+  flex: 0 0 auto;
+  opacity: 0.75;
 }
 
 button.ns__kpi {
@@ -118,62 +164,110 @@ button.ns__kpi {
   font: inherit;
 }
 
-button.ns__kpi:hover {
-  background: var(--paper-contrast);
+.ns__kpi:hover {
+  border-color: var(--rule, #d8d2c0);
+  background: #fffaf7;
+  color: var(--ink, #14130f);
 }
 
-.ns__kpi-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--r-5);
-  background: var(--rule-hair);
-  color: var(--ash);
-  flex-shrink: 0;
+.ns__kpi:focus-visible {
+  outline: 2px solid var(--rust, #c5400a);
+  outline-offset: 2px;
 }
 
-.ns__kpi--total .ns__kpi-icon { background: var(--steel-soft); color: var(--steel); }
-.ns__kpi--probation .ns__kpi-icon { background: var(--amber-soft); color: var(--amber-deep); }
-.ns__kpi--active .ns__kpi-icon { background: var(--moss-soft); color: var(--moss-deep); }
-.ns__kpi--action .ns__kpi-icon { background: var(--rust-soft); color: var(--rust-deep); }
+/* Đang chọn = nền cam đặc: đọc được ngay đang lọc cái gì, không cần dò viền mảnh. */
+.ns__kpi.is-active {
+  background: var(--rust, #c5400a);
+  border-color: var(--rust, #c5400a);
+  color: #ffffff;
+}
 
-.ns__kpi-content {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: flex-start;
+.ns__kpi.is-active .ns__kpival,
+.ns__kpi.is-active .ns__kpilabel {
+  color: #ffffff;
+}
+
+.ns__kpi.is-active svg {
+  opacity: 1;
+}
+
+/* Ô "Sắp hết thử việc": đẩy sang phải, tách khỏi 3 ô đếm — đây là VIỆC CẦN LÀM,
+   không phải một con số thống kê nữa. */
+.ns__kpi--action {
+  margin-left: auto;
+  background: var(--amber-soft, #fdf6e3);
+  border-color: rgba(156, 119, 20, 0.28);
+  color: var(--amber-deep, #7a5c0f);
+}
+
+.ns__kpi--action:hover {
+  background: #f9edd2;
+  border-color: rgba(156, 119, 20, 0.45);
+  color: var(--amber-deep, #7a5c0f);
+}
+
+/* Không có ai sắp hết thử việc → tắt màu. Màu chỉ bật khi thật sự có việc. */
+.ns__kpi--action.is-quiet {
+  background: #ffffff;
+  border-color: var(--rule-soft, #e8e3d3);
+  color: var(--ash, #6b665b);
 }
 
 .ns__kpival {
-  font-size: 24px;
-  font-weight: var(--fw-bold);
-  line-height: 1.1;
-  color: var(--ink);
+  font-family: var(--ff-mono);
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--ink, #14130f);
 }
 
 .ns__kpilabel {
-  font-size: 11.5px;
-  color: var(--ash);
-  font-weight: var(--fw-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: inherit;
 }
 
-/* Toolbar & Advanced Filters - Horizontal Layout */
+/* ── Khung điều khiển: dải lọc nhanh + thanh lọc chung MỘT khung ────────── */
+.ns2__controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: 14px;
+  box-shadow: 0 2px 8px -2px rgba(20, 19, 15, 0.04);
+}
+
+/* Vạch ngăn mảnh giữa hai hàng — đủ để mắt biết đây là hai lớp lọc khác nhau,
+   không cần thêm một khung viền + shadow thứ hai. */
+.ns2__controls .ns2__kpis {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule-hair, #efebde);
+}
+
+/* Toolbar giờ nằm TRONG .ns2__controls nên bỏ hết khung/nền/shadow của chính nó. */
 .ns2__toolbar {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: var(--sp-3);
-  margin-bottom: var(--sp-4);
+  gap: 10px;
   width: 100%;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  margin-bottom: 0;
 }
 
+/* Ô tìm co được (min 180px) để 4 select + nút Excel đủ chỗ trên MỘT hàng.
+   Trước đây min-width 240px + flex:2 nên hàng luôn tràn và nút Excel bị đẩy xuống. */
 .ns-search-wrapper {
-  flex: 2;
-  min-width: 220px;
+  flex: 1 1 220px;
+  min-width: 180px;
   position: relative;
   display: flex;
   align-items: center;
@@ -182,68 +276,88 @@ button.ns__kpi:hover {
 .ns-search-icon {
   position: absolute;
   left: 12px;
-  color: var(--ash-2);
+  color: var(--ash, #6b665b);
   pointer-events: none;
 }
 
 .ns__search {
   width: 100%;
-  padding: 10px 12px 10px 38px !important;
-  border: 1px solid var(--rule);
-  border-radius: var(--r-5);
-  background: var(--canvas);
+  height: 38px;
+  padding: 4px 32px 4px 36px !important;
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: 10px;
+  background: #ffffff;
   font: inherit;
-  color: var(--ink);
-  box-shadow: inset 0 1px 3px rgba(20, 19, 15, 0.02);
-  transition: all 0.2s ease;
+  font-size: 13px;
+  color: var(--ink, #14130f);
+  transition: all 0.18s ease;
 }
 
 .ns__search:focus {
-  border-color: var(--rust);
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.1), inset 0 1px 3px rgba(20, 19, 15, 0.02);
+  border-color: var(--rust, #c5400a);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.15);
   outline: none;
 }
 
+/* nowrap có chủ đích: với flex-wrap, trình duyệt XUỐNG DÒNG trước rồi mới co,
+   nên 4 select + nút Excel luôn bị đẩy thành 2 hàng dù thừa chỗ để co.
+   Cho co xuống min-width thay vì rớt dòng; màn hẹp thật thì media query bên dưới lo. */
 .ns2__filters {
-  flex: 3;
+  flex: 1 1 auto;
   display: flex;
-  gap: var(--sp-2);
-  flex-wrap: wrap;
+  gap: 8px;
+  flex-wrap: nowrap;
   align-items: center;
+  justify-content: flex-end;
+}
+
+@media (max-width: 1180px) {
+  .ns2__filters {
+    flex-wrap: wrap;
+  }
 }
 
 .ns-select-wrapper {
   position: relative;
-  flex: 1;
-  min-width: 130px;
+  flex: 0 1 148px;
+  min-width: 118px;
 }
 
 .ns-select-wrapper select {
   width: 100%;
-  padding: 8px 30px 8px 12px;
-  border: 1px solid var(--rule);
-  border-radius: var(--r-5);
-  background: var(--canvas);
+  height: 38px;
+  padding: 4px 30px 4px 12px;
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: 10px;
+  background: #ffffff;
   font: inherit;
-  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink, #14130f);
   appearance: none;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.18s ease;
+}
+
+.ns-select-wrapper select:hover {
+  border-color: var(--rule, #d8d2c0);
+  background: #fff5f0;
 }
 
 .ns-select-wrapper select:focus {
-  border-color: var(--rust);
+  border-color: var(--rust, #c5400a);
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.15);
   outline: none;
-  background: #fff;
+  background: #ffffff;
 }
 
 .ns-select-chevron {
   position: absolute;
-  right: 10px;
+  right: 11px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--ash-2);
+  color: var(--ash, #6b665b);
   pointer-events: none;
 }
 
@@ -251,48 +365,48 @@ button.ns__kpi:hover {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--sp-2);
-  padding: 8px var(--sp-3);
-  border: 1px solid var(--moss-soft);
-  border-radius: var(--r-5);
-  background: var(--moss-soft);
-  color: var(--moss-deep);
-  font-weight: var(--fw-medium);
-  font-size: 13.5px;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--ink, #14130f);
+  font-weight: 600;
+  font-size: 13px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-}
-
-.ns-btn-excel:hover {
-  background: var(--moss);
-  color: #fff;
-  border-color: var(--moss);
+  transition: all 0.18s ease;
+  /* Luôn nằm cuối hàng lọc, không co và không bị đẩy xuống dòng riêng. */
+  flex: 0 0 auto;
+  margin-left: 2px;
+  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.04);
 }
 
 .ns2-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--rust);
-  background: var(--rust-soft);
-  color: var(--rust-deep);
-  padding: 6px 12px;
-  border-radius: var(--r-pill);
+  height: 38px;
+  border: 1px solid #fecdd3;
+  background: #fff1f2;
+  color: #e11d48;
+  padding: 0 14px;
+  border-radius: 10px;
   font-size: 12.5px;
-  font-weight: var(--fw-medium);
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.18s ease;
 }
 
 .ns2-chip:hover {
-  background: var(--rust);
-  color: #fff;
+  background: #e11d48;
+  color: #ffffff;
+  box-shadow: 0 3px 8px rgba(225, 29, 72, 0.25);
 }
 
 /* Outer Records Table */
 .ns2__grid {
-  display: block; /* No longer side-by-side */
+  display: block;
   width: 100%;
 }
 
@@ -301,56 +415,80 @@ button.ns__kpi:hover {
 }
 
 .ns-table-wrapper {
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  background: #fff;
-  box-shadow: 0 4px 16px rgba(20, 19, 15, 0.02);
-  overflow-x: auto;
-  margin-top: var(--sp-3);
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 4px 16px -2px rgba(20, 19, 15, 0.04), 0 1px 3px rgba(20, 19, 15, 0.02);
+  overflow: hidden;
+  margin-top: 4px;
 }
 
 .ns-table-records {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13.5px;
   text-align: left;
 }
 
+/* Header nền cam nhạt + kẻ cam đậm: trước đây chữ xám trên nền kem gần như chìm
+   vào thân bảng, mắt không có mốc để bám khi quét cột. */
 .ns-table-records th {
-  background: var(--canvas);
-  color: var(--ash);
-  font-weight: var(--fw-bold);
-  font-size: 12px;
+  background: var(--rust-soft, #fff5f0);
+  color: var(--rust-deep, #9a3412);
+  font-family: var(--ff-mono);
+  font-weight: 700;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: var(--sp-4);
-  border-bottom: 1px solid var(--rule-soft);
+  letter-spacing: 0.07em;
+  padding: 13px 18px;
+  border-bottom: 2px solid var(--rust, #c5400a);
 }
 
 .ns-table-records td {
-  padding: 12px var(--sp-4);
-  border-bottom: 1px solid var(--rule-hair);
-  color: var(--ink);
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--rule-hair, #efebde);
+  color: var(--ink, #14130f);
   vertical-align: middle;
 }
 
 .ns-table-row {
   cursor: pointer;
-  transition: all var(--duration-fast) var(--easing-standard);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .ns-table-row:hover {
-  background: var(--rule-hair);
+  background: #fff5f0;
+  box-shadow: inset 3px 0 0 0 var(--rust, #c5400a);
+}
+
+.ns-table-row:hover .ns-cell-name {
+  color: #ea580c;
 }
 
 .ns-table-row:last-child td {
-  border-bottom-style: none;
+  border-bottom: none;
 }
 
 .ns-cell-employee {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
+  gap: 12px;
+}
+
+.ns-avatar-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.ns-table-avatar-img {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid #ffffff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  flex-shrink: 0;
 }
 
 .ns-table-avatar {
@@ -360,93 +498,187 @@ button.ns__kpi:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: var(--fw-bold);
+  font-family: var(--ff-sans);
+  font-weight: 700;
   font-size: 13px;
-  color: #fff;
-  box-shadow: 0 2px 4px rgba(20, 19, 15, 0.05);
   flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25);
+}
+
+.ns-avatar-dot {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid #ffffff;
+}
+.ns-avatar-dot--active { background: #10b981; }
+.ns-avatar-dot--probation { background: #f59e0b; }
+.ns-avatar-dot--on_leave { background: #8b5cf6; }
+.ns-avatar-dot--resigned { background: #ef4444; }
+
+.ns-cell-name-wrap {
+  display: flex;
+  flex-direction: column;
 }
 
 .ns-cell-name {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-weight: var(--fw-bold);
-  color: var(--ink);
+  font-weight: 600;
+  color: #0f172a;
+  transition: color 0.15s ease;
+}
+
+.ns-code-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: #f5f0eb;
+  border: 1px solid #e5dcd3;
+  color: #7c2d12;
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.ns-grade-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #fff7ed;
+  border: 1px solid #ffedd5;
+  color: #c5400a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ns-cell-dept {
+  color: #334155;
+  font-weight: 500;
+}
+
+.ns-cell-title {
+  color: #64748b;
+}
+
+.ns-cell-date {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.ns-gender-tag--m {
+  color: #c5400a;
+  font-weight: 700;
+}
+
+.ns-gender-tag--f {
+  color: #ec4899;
+  font-weight: 700;
+}
+
+.ns-acc-tag {
+  color: #ea580c;
+  display: inline-flex;
+  align-items: center;
 }
 
 .ns-cell-name svg {
-  color: var(--ash-2);
+  color: #ea580c;
 }
 
 .ns-cell-code {
   font-family: var(--ff-mono);
-  font-size: 13px;
-  font-weight: var(--fw-medium);
-  color: var(--ash);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #ea580c;
 }
 
 .ns-cell-phone {
   font-family: var(--ff-mono);
-  font-size: 13px;
-  color: var(--ash);
+  font-size: 12px;
+  color: #64748b;
 }
 
-/* Preset initials classes based on official design tokens */
-.ns2-row__av--a, .ns-table-avatar--a { background: var(--rust-soft); color: var(--rust-deep); }
-.ns2-row__av--b, .ns-table-avatar--b { background: var(--steel-soft); color: var(--steel); }
-.ns2-row__av--c, .ns-table-avatar--c { background: var(--amber-soft); color: var(--amber-deep); }
-.ns2-row__av--d, .ns-table-avatar--d { background: var(--moss-soft); color: var(--moss-deep); }
-.ns2-row__av--e, .ns-table-avatar--e { background: var(--plum-soft); color: var(--plum-deep); }
-.ns2-row__av--g, .ns-table-avatar--g { background: var(--rule-soft); color: var(--ash); }
-.ns2-row__av--h, .ns-table-avatar--h { background: var(--rust-soft); color: var(--rust-deep); }
-.ns2-row__av--k, .ns-table-avatar--k { background: var(--steel-soft); color: var(--steel); }
-.ns2-row__av--l, .ns-table-avatar--l { background: var(--amber-soft); color: var(--amber-deep); }
-.ns2-row__av--m, .ns-table-avatar--m { background: var(--moss-soft); color: var(--moss-deep); }
-.ns2-row__av--n, .ns-table-avatar--n { background: var(--plum-soft); color: var(--plum-deep); }
-.ns2-row__av--p, .ns-table-avatar--p { background: var(--rule-soft); color: var(--ash); }
-.ns2-row__av--q, .ns-table-avatar--q { background: var(--rust-soft); color: var(--rust-deep); }
-.ns2-row__av--s, .ns-table-avatar--s { background: var(--steel-soft); color: var(--steel); }
-.ns2-row__av--t, .ns-table-avatar--t { background: var(--amber-soft); color: var(--amber-deep); }
-.ns2-row__av--u, .ns-table-avatar--u { background: var(--moss-soft); color: var(--moss-deep); }
-.ns2-row__av--v, .ns-table-avatar--v { background: var(--plum-soft); color: var(--plum-deep); }
-.ns2-row__av--x, .ns-table-avatar--x { background: var(--rule-soft); color: var(--ash); }
-.ns2-row__av--default, .ns-table-avatar--default { background: var(--rust-soft); color: var(--rust-deep); }
+/* Warm Earth & Primary Rust Initial Avatar Palettes */
+.ns2-row__av--a, .ns-table-avatar--a { background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%); color: #c5400a; }
+.ns2-row__av--b, .ns-table-avatar--b { background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); color: #b45309; }
+.ns2-row__av--c, .ns-table-avatar--c { background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%); color: #15803d; }
+.ns2-row__av--d, .ns-table-avatar--d { background: linear-gradient(135deg, #f5f0eb 0%, #e5dcd3 100%); color: #7c2d12; }
+.ns2-row__av--e, .ns-table-avatar--e { background: linear-gradient(135deg, #fae8ff 0%, #f5d0fe 100%); color: #a21caf; }
+.ns2-row__av--g, .ns-table-avatar--g { background: linear-gradient(135deg, #ffe4e6 0%, #fecdd3 100%); color: #be123c; }
+.ns2-row__av--h, .ns-table-avatar--h { background: linear-gradient(135deg, #fff5f0 0%, #ffedd5 100%); color: #c5400a; }
+.ns2-row__av--k, .ns-table-avatar--k { background: linear-gradient(135deg, #ccfbf1 0%, #99f6e4 100%); color: #0f766e; }
+.ns2-row__av--l, .ns-table-avatar--l { background: linear-gradient(135deg, #ffedd5 0%, #fdba74 100%); color: #c5400a; }
+.ns2-row__av--m, .ns-table-avatar--m { background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%); color: #6d28d9; }
+.ns2-row__av--n, .ns-table-avatar--n { background: linear-gradient(135deg, #fef2f2 0%, #fecaca 100%); color: #b91c1c; }
+.ns2-row__av--p, .ns-table-avatar--p { background: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%); color: #7e22ce; }
+.ns2-row__av--q, .ns-table-avatar--q { background: linear-gradient(135deg, #ecfdf5 0%, #a7f3d0 100%); color: #047857; }
+.ns2-row__av--s, .ns-table-avatar--s { background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%); color: #ea580c; }
+.ns2-row__av--t, .ns-table-avatar--t { background: linear-gradient(135deg, #f0fdf4 0%, #bbf7d0 100%); color: #166534; }
+.ns2-row__av--u, .ns-table-avatar--u { background: linear-gradient(135deg, #fef3c7 0%, #fed7aa 100%); color: #b45309; }
+.ns2-row__av--v, .ns-table-avatar--v { background: linear-gradient(135deg, #fff1f2 0%, #fecdd3 100%); color: #e11d48; }
+.ns2-row__av--x, .ns-table-avatar--x { background: linear-gradient(135deg, #fefce8 0%, #fef08a 100%); color: #a16207; }
+.ns2-row__av--default, .ns-table-avatar--default { background: linear-gradient(135deg, #fff5f0 0%, #f5f0eb 100%); color: #c5400a; }
 
-/* Status Badge Styles */
+/* Status Badge Styles with Soft Pill Aesthetic */
 .ns-badge {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   font-size: 11.5px;
-  font-weight: var(--fw-bold);
-  padding: 2px 10px;
-  border-radius: var(--r-pill);
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 99px;
   border: 1px solid transparent;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
-.ns-badge--ok { background: var(--moss-soft); color: var(--moss-deep); border-color: rgba(47, 93, 58, 0.15); }
-.ns-badge--warn { background: var(--amber-soft); color: var(--amber-deep); border-color: rgba(156, 119, 20, 0.15); }
-.ns-badge--info { background: var(--steel-soft); color: var(--steel); border-color: rgba(74, 85, 96, 0.15); }
-.ns-badge--muted { background: var(--rule-soft); color: var(--ash); border-color: rgba(216, 210, 192, 0.15); }
-.ns-badge--danger { background: var(--signal-soft); color: var(--signal); border-color: rgba(138, 31, 31, 0.15); }
+.ns-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
 
-/* Pager UI */
+.ns-badge--ok { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.ns-badge--warn { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+.ns-badge--info { background: #f3e8ff; color: #7e22ce; border-color: #e9d5ff; }
+.ns-badge--muted { background: #f8fafc; color: #64748b; border-color: #e2e8f0; }
+.ns-badge--danger { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
+
+.ns-badge--ok .ns-badge-dot { background: #10b981; }
+.ns-badge--warn .ns-badge-dot { background: #f59e0b; }
+.ns-badge--info .ns-badge-dot { background: #a855f7; }
+.ns-badge--muted .ns-badge-dot { background: #94a3b8; }
+.ns-badge--danger .ns-badge-dot { background: #f43f5e; }
+
+/* Pager UI - Minimalist Footer Bar */
 .ns__pager {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: var(--sp-4);
+  padding: 6px 12px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  margin-top: 6px;
   color: var(--ash);
-  font-size: 13.5px;
-  font-weight: var(--fw-medium);
+  font-size: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 
 .ns__pagerbtns {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: 4px;
 }
 
 /* Modals Overlay with Blur */
@@ -575,7 +807,6 @@ button.ns__kpi:hover {
   gap: var(--sp-3);
   padding: var(--sp-4) var(--sp-5);
   border-top: 1px solid var(--rule-soft);
-  background: var(--canvas);
 }
 
 .ns-modal__footright {
@@ -590,37 +821,38 @@ button.ns__kpi:hover {
   height: 100%;
   max-height: 85vh;
   overflow: hidden;
+  background: var(--canvas);
 }
 
 .ns2-detail__head {
   position: relative;
   background: linear-gradient(135deg, var(--charcoal) 0%, var(--charcoal-2) 100%);
   color: var(--on-charcoal);
-  padding: var(--sp-4) var(--sp-5) var(--sp-6);
-  border-radius: var(--r-6) var(--r-6) 0 0;
+  padding: 16px 20px 18px;
+  border-radius: var(--r-4) var(--r-4) 0 0;
   display: flex;
-  align-items: flex-end;
-  gap: var(--sp-4);
-  box-shadow: 0 4px 10px rgba(20, 19, 15, 0.05);
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 2px 8px rgba(20, 19, 15, 0.08);
   flex-shrink: 0;
 }
 
 .ns-avatar--lg {
-  width: 58px;
-  height: 58px;
-  font-size: 22px;
-  border-radius: var(--r-5);
-  border: 2.5px solid var(--canvas);
-  box-shadow: var(--shadow-4);
+  width: 52px;
+  height: 52px;
+  font-size: 20px;
+  font-family: var(--ff-mono);
+  font-weight: var(--fw-bold);
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   background: linear-gradient(135deg, var(--rust-soft) 0%, var(--rule-soft) 100%);
   color: var(--rust-deep);
   flex-shrink: 0;
-  margin-bottom: -16px;
   z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: var(--fw-bold);
   overflow: hidden;
 }
 
@@ -631,7 +863,6 @@ button.ns__kpi:hover {
 }
 
 .ns2-detail__id {
-  margin-bottom: -11px;
   z-index: 2;
   flex: 1;
 }
@@ -643,12 +874,12 @@ button.ns__kpi:hover {
   font-weight: var(--fw-bold);
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: 10px;
 }
 
 .ns2-detail__id .ns-detail__meta {
   color: var(--on-charcoal-muted);
-  font-size: 13px;
+  font-size: 12.5px;
   margin: 3px 0 0;
   display: flex;
   align-items: center;
@@ -657,7 +888,30 @@ button.ns__kpi:hover {
 
 .ns2-detail__id .ns-detail__meta svg {
   color: var(--on-charcoal-muted);
-  opacity: 0.7;
+  opacity: 0.8;
+}
+
+.ns-modal__close-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: rgba(255, 255, 255, 0.8);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--duration-fast);
+  z-index: 10;
+}
+
+.ns-modal__close-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
 }
 
 /* Restructured Profile Actions & Shortcuts Bar */
@@ -665,10 +919,10 @@ button.ns__kpi:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: var(--sp-4);
-  padding: 6px var(--sp-5);
+  gap: 12px;
+  padding: 6px 16px;
   border-bottom: 1px solid var(--rule-soft);
-  background: var(--paper-contrast);
+  background: var(--paper);
   flex-shrink: 0;
 }
 
@@ -676,15 +930,40 @@ button.ns__kpi:hover {
 .ns-detail__ops {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: 6px;
 }
 
 .ns-detail__shortcuts .btn,
 .ns-detail__ops .btn,
 .ns-detail__ops .ns-dropdown button {
-  padding: 6px 10px;
-  font-size: 12.5px;
+  padding: 4px 10px;
+  font-size: 12px;
   height: 30px;
+  border-radius: var(--r-3);
+  border: 1px solid var(--rule);
+  background: var(--canvas);
+  color: var(--ink);
+  font-weight: var(--fw-medium);
+  transition: all var(--duration-fast);
+}
+
+.ns-detail__shortcuts .btn:hover,
+.ns-detail__ops .btn:hover {
+  border-color: var(--rust);
+  color: var(--rust);
+  background: var(--paper);
+}
+
+.ns-detail__shortcuts .btn.ns-btn--danger {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #dc2626;
+}
+
+.ns-detail__shortcuts .btn.ns-btn--danger:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #fff;
 }
 
 .ns-dropdown {
@@ -696,14 +975,14 @@ button.ns__kpi:hover {
   position: absolute;
   right: 0;
   top: 105%;
-  background: #fff;
+  background: var(--paper);
   border: 1px solid var(--rule);
-  border-radius: var(--r-5);
-  box-shadow: var(--shadow-lg);
+  border-radius: var(--r-3);
+  box-shadow: 0 4px 14px rgba(20, 19, 15, 0.12);
   z-index: 30;
   min-width: 190px;
   overflow: hidden;
-  padding: var(--sp-1) 0;
+  padding: 4px 0;
   display: flex;
   flex-direction: column;
   animation: modalEnter 0.15s ease-out;
@@ -712,20 +991,20 @@ button.ns__kpi:hover {
 .ns-dropdown-item {
   background: none;
   border: none;
-  padding: 8px var(--sp-4);
+  padding: 6px 12px;
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   text-align: left;
   cursor: pointer;
   color: var(--ink);
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: 8px;
   transition: all 0.15s ease;
 }
 
 .ns-dropdown-item:hover {
-  background: var(--rule-hair);
+  background: var(--canvas);
   color: var(--rust-deep);
 }
 
@@ -737,10 +1016,10 @@ button.ns__kpi:hover {
 /* Tabs UI styling */
 .ns2-detail__tabs {
   display: flex;
-  gap: var(--sp-1);
-  padding: var(--sp-2) var(--sp-5) 0;
-  border-bottom: 1px solid var(--rule-soft);
-  background: var(--paper-contrast);
+  gap: 4px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--paper);
   overflow-x: auto;
   flex-shrink: 0;
 }
@@ -748,9 +1027,9 @@ button.ns__kpi:hover {
 .ns2-detail__tabs button {
   background: none;
   border: none;
-  padding: 10px var(--sp-4);
+  padding: 8px 12px;
   font: inherit;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: var(--fw-medium);
   cursor: pointer;
   color: var(--ash);
@@ -764,15 +1043,15 @@ button.ns__kpi:hover {
 }
 
 .ns2-detail__tabs button.is-active {
-  color: var(--rust-deep);
+  color: var(--rust);
   border-bottom-color: var(--rust);
   font-weight: var(--fw-bold);
 }
 
 /* Scrollable tabs content body */
 .ns2-detail__body {
-  padding: var(--sp-5);
-  background: #fff;
+  padding: 16px;
+  background: var(--canvas);
   flex: 1;
   overflow-y: auto;
 }
@@ -781,8 +1060,8 @@ button.ns__kpi:hover {
 .ns-info-sections {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--sp-4);
-  margin-bottom: var(--sp-4);
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 @media (max-width: 768px) {
@@ -793,26 +1072,26 @@ button.ns__kpi:hover {
 
 /* Modern Information Cards */
 .ns-info-card {
-  background: #fff;
+  background: var(--paper);
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  padding: 14px 18px;
+  border-radius: var(--r-3);
+  padding: 12px 16px;
   margin-bottom: 12px;
-  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.01);
+  box-shadow: 0 1px 2px rgba(20, 19, 15, 0.02);
 }
 
 .ns-info-card__title {
-  margin: 0 0 var(--sp-3);
-  font-size: 13.5px;
+  margin: 0 0 8px;
+  font-size: 12px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ash);
+  letter-spacing: 0.04em;
+  color: var(--rust);
   font-weight: var(--fw-bold);
   display: flex;
   align-items: center;
-  gap: 8px;
-  border-bottom: 1px solid var(--rule-hair);
-  padding-bottom: var(--sp-2);
+  gap: 6px;
+  border-bottom: 1px solid var(--rule-soft);
+  padding-bottom: 6px;
 }
 
 .ns-info-card__title svg {
@@ -822,13 +1101,13 @@ button.ns__kpi:hover {
 .ns-info-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: var(--sp-2) var(--sp-4);
+  gap: 4px 16px;
 }
 
 .ns-info-field {
   display: flex;
   align-items: flex-start;
-  gap: var(--sp-2);
+  gap: 6px;
   padding: 6px 0;
   border-bottom: 1px dashed var(--rule-hair);
 }
@@ -839,7 +1118,7 @@ button.ns__kpi:hover {
 }
 
 .ns-info-field__icon {
-  margin-top: 3px;
+  margin-top: 2px;
   color: var(--ash-2);
   flex-shrink: 0;
 }
@@ -847,13 +1126,56 @@ button.ns__kpi:hover {
 .ns-info-field__content {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+}
+
+.ns-info-select-wrapper {
+  position: relative;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.ns-info-select-wrapper select {
+  width: 100%;
+  height: 34px;
+  padding: 4px 28px 4px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--ink);
+  appearance: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ns-info-select-wrapper select:hover {
+  border-color: var(--ink);
+}
+
+.ns-info-select-wrapper select:focus {
+  border-color: var(--rust);
+  box-shadow: 0 0 0 2px rgba(197, 64, 10, 0.12);
+  outline: none;
+  background: var(--paper);
+}
+
+.ns-info-select-chevron {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ash-2);
+  pointer-events: none;
 }
 
 .ns-info-field__label {
   font-size: 11px;
   color: var(--ash);
-  font-weight: var(--fw-medium);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
 .ns-info-field__value {
@@ -869,14 +1191,24 @@ button.ns__kpi:hover {
   font-style: italic;
 }
 
+/* Dòng chỉ đường nhỏ dưới giá trị (vd: ca làm việc nay gán ở màn Chấm công). */
+.ns-info-field__hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ash-2);
+}
+
 .ns-inforow {
-  margin-bottom: var(--sp-4);
+  margin-top: 8px;
+  margin-bottom: 12px;
   display: flex;
-  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .ns-inforow .btn {
-  display: inline-flex;
   align-items: center;
   gap: 6px;
   font-size: 13.5px;
@@ -1015,6 +1347,27 @@ button.ns__kpi:hover {
   color: var(--ash);
 }
 
+/* Hàng "ô + nút" bên trong một .ns-field (chọn bậc + Thêm bậc, và ô nhập tên bậc mới).
+   KHÔNG mượn .ns-comp-add: class đó thuộc bộ chọn KHOẢN THU NHẬP, đổi bên đó là vỡ bên này. */
+.ns-inline-add {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.ns-inline-add > select,
+.ns-inline-add > input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Lỗi hiện NGAY DƯỚI ô (trùng tên bậc, tải danh mục hỏng) — banner ở đầu modal thì người dùng
+   không biết ô nào sai. */
+.ns-field__hint--err {
+  color: var(--signal);
+  font-weight: var(--fw-medium);
+}
+
 .ns-check {
   display: flex;
   align-items: center;
@@ -1086,15 +1439,6 @@ button.ns__kpi:hover {
 }
 
 .ns-wizard__salary-total small { grid-column: 1 / -1; }
-
-.ns-wizard__range-warning {
-  grid-column: 1 / -1;
-  padding: 8px 10px;
-  color: #8a4b08;
-  background: #fff4dc;
-  border: 1px solid #ead6ad;
-  font-size: 12.5px;
-}
 
 .ns-wizard__section-title {
   margin-top: var(--sp-2);
@@ -1334,4 +1678,83 @@ button.ns__kpi:hover {
   .ns-wizard__salary-intro span {
     text-align: left;
   }
+}
+
+/* --- Chọn khoản thu nhập từ DANH MỤC trong wizard tạo hồ sơ (chủ 27/07/2026) ---
+   Thay ô "phụ cấp gộp một cục": gộp thì engine không biết khoản nào miễn thuế TNCN. */
+.ns-comp-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) 130px minmax(140px, 1fr) auto;
+  gap: var(--sp-2);
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.ns-comp-row__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  min-width: 0;
+}
+.ns-tag {
+  border-radius: var(--r-pill);
+  padding: 1px 8px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.ns-tag--tax { background: var(--amber-soft); color: var(--amber-deep); }
+.ns-tag--free { background: var(--moss-soft); color: var(--moss-deep); }
+.ns-comp-add {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  margin-top: var(--sp-2);
+}
+.ns-comp-add select { flex: 1; min-width: 0; }
+
+/* Popover chọn khoản — bám khuôn `.md-page__menu` đã có, KHÔNG dùng <select> trần:
+   select mặc định của trình duyệt không style được phần option nên nhãn chịu/miễn thuế
+   phải viết bằng chữ "· miễn thuế", nhìn lạc hẳn khỏi phần còn lại của app. */
+.ns-comp-add { position: relative; }
+.ns-comp-add__btn { font-size: 13px; }
+.ns-comp-pop__veil { position: fixed; inset: 0; z-index: 30; }
+.ns-comp-pop {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 31;
+  min-width: 320px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  box-shadow: 0 10px 28px rgba(20, 19, 15, 0.16);
+  padding: 4px;
+}
+.ns-comp-pop button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-radius: var(--r-2);
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.ns-comp-pop button:hover { background: var(--rule-hair); }
+.ns-comp-pop__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-comp-pop__empty { padding: 10px; font-size: 12.5px; color: var(--ash); margin: 0; }
+.ns-comp-pop__foot {
+  border-top: 1px solid var(--rule-soft);
+  margin-top: 4px;
+  padding: 8px 10px 4px;
+  font-size: 12px;
+  color: var(--ash-2);
 }

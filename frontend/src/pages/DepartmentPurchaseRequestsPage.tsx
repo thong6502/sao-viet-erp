@@ -80,9 +80,14 @@ function emptyRequest(
 
 export function DepartmentPurchaseRequestsPage({
   focusRequestCode = null,
+  seedLines = null,
+  seedPurpose = null,
 }: {
   /** Liên thông từ PMH/Phiếu chi: lọc + tô sáng đúng mã YCMH này khi mở trang. */
   focusRequestCode?: string | null;
+  /** Liên thông từ Kho: mở form tạo, điền sẵn dòng vật tư (Tên + ĐVT) — bỏ trống SL/ghi chú. */
+  seedLines?: DepartmentPurchaseRequestLineInput[] | null;
+  seedPurpose?: string | null;
 }) {
   const { token, user } = useAuth();
   const can = useCan();
@@ -156,6 +161,20 @@ export function DepartmentPurchaseRequestsPage({
     setQ(focusRequestCode);
     setStatus("all");
   }, [focusRequestCode]);
+
+  // Liên thông từ Kho: mở form tạo với dòng vật tư điền sẵn (nguồn = Kho). `seedLines` là object
+  // MỚI mỗi lần điều hướng nên effect chạy đúng 1 lần / lượt bấm "Tạo yêu cầu mua".
+  useEffect(() => {
+    if (!seedLines || seedLines.length === 0) return;
+    setForm({
+      ...emptyRequest("kho"),
+      purpose: seedPurpose ?? "",
+      lines: seedLines,
+    });
+    setFormError(null);
+    setMode(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedLines]);
 
   function openCreate() {
     setForm(emptyRequest(defaultSourceType));

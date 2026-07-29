@@ -11,11 +11,18 @@ interface Props {
   khoInRong: number; // ② mm
   daiTP: number; // ③ mm
   rongTP: number; // ③ mm
-  chuaMm: number; // tổng 5 chừa (mm) trừ mỗi chiều
+  chuaMm: number; // chừa GỘP (mm) trừ đều mỗi chiều — đường cũ, dùng khi không tách chiều
+  chuaDai?: number; // chừa chiều DÀI (nhíp giấy + đuôi) — ưu tiên hơn chuaMm
+  chuaRong?: number; // chừa chiều RỘNG (lề hông ×2)
+  bleedMm?: number; // tràn lề mỗi cạnh con
+  kheCatMm?: number; // khe giữa 2 con kề nhau
   soCon: number; // Số con hiện tại (có thể được đè tay)
 }
 
-export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm, soCon }: Props) {
+export function ImpositionDiagram({
+  khoInDai, khoInRong, daiTP, rongTP, chuaMm,
+  chuaDai, chuaRong, bleedMm = 0, kheCatMm = 0, soCon,
+}: Props) {
   const { token } = useAuth();
   const [lay, setLay] = useState<BinhBaiOut | null>(null);
   const [pending, setPending] = useState(false);
@@ -38,6 +45,10 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm, 
           dai_thanh_pham: daiTP,
           rong_thanh_pham: rongTP,
           chua_mm: chuaMm,
+          chua_dai_mm: chuaDai,
+          chua_rong_mm: chuaRong,
+          bleed_mm: bleedMm,
+          khe_cat_mm: kheCatMm,
         })
         .then((res) => {
           if (my === seq.current) {
@@ -53,7 +64,7 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm, 
         });
     }, 300);
     return () => window.clearTimeout(h);
-  }, [token, ready, khoInDai, khoInRong, daiTP, rongTP, chuaMm]);
+  }, [token, ready, khoInDai, khoInRong, daiTP, rongTP, chuaMm, chuaDai, chuaRong, bleedMm, kheCatMm]);
 
   // Chưa đủ khổ → khối hướng dẫn.
   if (!ready) {
@@ -70,15 +81,20 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm, 
   const W = khoInRong;
   const H = khoInDai;
   const pad = Math.max(W, H) * 0.04;
-  const inset = (lay ? Math.max(0, chuaMm) : 0) / 2; // chừa vẽ = tổng chừa/2 mỗi biên
+  // Chừa vẽ lấy THEO CHIỀU từ chính engine (`chua_dai`/`chua_rong`) — chia đôi về hai biên.
+  const insetY = (lay ? Math.max(0, lay.chua_dai) : 0) / 2; // trục Y = chiều DÀI
+  const insetX = (lay ? Math.max(0, lay.chua_rong) : 0) / 2; // trục X = chiều RỘNG
 
   const cols = lay?.cols ?? 0;
   const rows = lay?.rows ?? 0;
   const rotated = !!lay?.rotated;
   const con = lay?.con ?? 0;
-  // Kích thước 1 con trên trục vẽ (X=rộng, Y=dài).
-  const cellW = rotated ? daiTP : rongTP; // theo trục X (rộng ②)
-  const cellH = rotated ? rongTP : daiTP; // theo trục Y (dài ②)
+  // Kích thước 1 con trên trục vẽ (X=rộng, Y=dài) — dùng piece ĐÃ cộng bleed của engine.
+  const pieceD = lay?.piece_dai ?? daiTP;
+  const pieceR = lay?.piece_rong ?? rongTP;
+  const cellW = rotated ? pieceD : pieceR; // theo trục X (rộng ②)
+  const cellH = rotated ? pieceR : pieceD; // theo trục Y (dài ②)
+  const khe = Math.max(0, kheCatMm); // n con → n−1 khe
 
   const pieces: { x: number; y: number; used: boolean }[] = [];
   if (con > 0) {
@@ -86,8 +102,8 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm, 
     for (let r = 0; r < rows; r++) {
       for (let cix = 0; cix < cols; cix++) {
         pieces.push({
-          x: inset + cix * cellW,
-          y: inset + r * cellH,
+          x: insetX + cix * (cellW + khe),
+          y: insetY + r * (cellH + khe),
           used: index < soCon,
         });
         index++;
@@ -95,6 +111,13 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm, 
     }
   }
   const showIndex = con > 0 && con <= 24;
+  // bleed > 0 → mỗi ô vẽ HAI hình: ngoài = vùng tràn lề, trong = thành phẩm thật.
+  const bleed = Math.max(0, bleedMm);
+  const trimW = Math.max(cellW - bleed * 2, 0);
+  const trimH = Math.max(cellH - bleed * 2, 0);
+  const chuaD = lay?.chua_dai ?? 0;
+  const chuaR = lay?.chua_rong ?? 0;
+  const coThongSo = bleed > 0 || khe > 0 || chuaD > 0 || chuaR > 0;
 
   return (
     <div className={`tg-imp${con === 0 && lay ? " tg-imp--bad" : ""}`}>
@@ -120,26 +143,36 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm, 
             rx={Math.max(W, H) * 0.008}
             vectorEffect="non-scaling-stroke"
           />
-          {/* Vùng khả dụng (trừ chừa) */}
-          {inset > 0 && (
+          {/* Vùng khả dụng (trừ chừa) — chừa lệch nhau giữa 2 chiều nên vẽ theo từng trục */}
+          {(insetX > 0 || insetY > 0) && (
             <rect
               className="tg-imp__usable"
-              x={inset}
-              y={inset}
-              width={Math.max(W - inset * 2, 0)}
-              height={Math.max(H - inset * 2, 0)}
+              x={insetX}
+              y={insetY}
+              width={Math.max(W - insetX * 2, 0)}
+              height={Math.max(H - insetY * 2, 0)}
               vectorEffect="non-scaling-stroke"
             />
           )}
-          {/* Lưới con */}
+          {/* Lưới con. bleed > 0 → hình ngoài = vùng tràn lề, hình trong = thành phẩm thật. */}
           {pieces.map((p, i) => (
             <g key={i}>
+              {bleed > 0 && (
+                <rect
+                  className="tg-imp__bleed"
+                  x={p.x}
+                  y={p.y}
+                  width={cellW}
+                  height={cellH}
+                  vectorEffect="non-scaling-stroke"
+                />
+              )}
               <rect
                 className={`tg-imp__piece${p.used ? "" : " tg-imp__piece--unused"}`}
-                x={p.x}
-                y={p.y}
-                width={cellW}
-                height={cellH}
+                x={p.x + bleed}
+                y={p.y + bleed}
+                width={trimW}
+                height={trimH}
                 vectorEffect="non-scaling-stroke"
               />
               {p.used && showIndex && (
@@ -160,10 +193,10 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm, 
           {con === 0 && lay && (
             <line
               className="tg-imp__cross"
-              x1={inset || W * 0.12}
-              y1={inset || H * 0.12}
-              x2={W - (inset || W * 0.12)}
-              y2={H - (inset || H * 0.12)}
+              x1={insetX || W * 0.12}
+              y1={insetY || H * 0.12}
+              x2={W - (insetX || W * 0.12)}
+              y2={H - (insetY || H * 0.12)}
               vectorEffect="non-scaling-stroke"
             />
           )}
@@ -175,15 +208,17 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm, 
           <>
             <span className="tg-imp__con">{soCon}</span>
             <span className="tg-imp__con-unit">con/tờ</span>
-            {soCon !== con && (
+            {/* Đè số con LỚN HƠN sức chứa lưới → giá vốn thiếu tờ. Chỉ NHẮC, không tự sửa. */}
+            {soCon > con ? (
+              <span className="tg-imp__over">đè vượt bình bài · engine xếp được {con}</span>
+            ) : soCon < con ? (
               <span className="tg-imp__overridden-hint" style={{ fontSize: "10.5px", color: "var(--ash-2)", marginLeft: "2px" }}>
-                (gốc {con})
+                (engine {con})
               </span>
-            )}
+            ) : null}
             <span className="tg-imp__sep">·</span>
-            <span className="tg-imp__eff">
-              hiệu suất {Math.round((soCon / Math.max(1, con)) * (lay?.hieu_suat ?? 0))}%
-            </span>
+            {/* Hiệu suất của LƯỚI engine — không nhân tỉ lệ đè, tránh vọt quá 100%. */}
+            <span className="tg-imp__eff">hiệu suất {Math.round(lay?.hieu_suat ?? 0)}%</span>
             <span className="tg-imp__grid">
               {cols}×{rows}
               {rotated ? " · xoay 90°" : ""}
@@ -195,6 +230,27 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm, 
           <span className="tg-imp__loading">{pending ? "Đang tính bình bài…" : "—"}</span>
         )}
       </div>
+
+      {/* Thông số ĐANG áp dụng — để nhìn ra ngay vì sao số con đổi, khỏi phải đoán. */}
+      {lay && coThongSo && (
+        <div className="tg-imp__params">
+          {bleed > 0 && (
+            <span className="tg-imp__param">
+              bleed <b>{bleed}</b> · con {cellW}×{cellH}
+            </span>
+          )}
+          {khe > 0 && (
+            <span className="tg-imp__param">
+              khe cắt <b>{khe}</b>
+            </span>
+          )}
+          {(chuaD > 0 || chuaR > 0) && (
+            <span className="tg-imp__param">
+              chừa dài <b>{chuaD}</b> · rộng <b>{chuaR}</b>
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

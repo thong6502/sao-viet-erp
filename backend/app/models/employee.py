@@ -20,18 +20,27 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
     Integer,
     String,
     UniqueConstraint,
+    false as sa_false,
+    true as sa_true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
 
 # --- Trạng thái nhân viên (vòng đời) ----------------------------------------
+# --- Cách tính thuế TNCN của một người --------------------------------------
+PIT_LUY_TIEN = "luy_tien"        # HĐ ≥ 3 tháng: bảng luỹ tiến + giảm trừ gia cảnh
+PIT_KHAU_TRU_10 = "khau_tru_10"  # HĐ < 3 tháng / thời vụ: khấu trừ 10% tại nguồn
+PIT_CAM_KET_08 = "cam_ket_08"    # có cam kết 08/CK-TNCN ⇒ không khấu trừ
+PIT_MODES = (PIT_LUY_TIEN, PIT_KHAU_TRU_10, PIT_CAM_KET_08)
+
 STATUS_PROBATION = "probation"      # thử việc
 STATUS_ACTIVE = "active"            # đang làm việc (chính thức)
 STATUS_ON_LEAVE = "on_leave"        # nghỉ dài hạn (thai sản / ốm / không lương)
@@ -77,8 +86,49 @@ DOC_KHAC = "khac"                   # khác
 ATTACHMENT_DOC_KINDS = (DOC_HOP_DONG, DOC_CCCD, DOC_BANG_CAP, DOC_KHAC)
 
 
+# --- Danh mục BẬC TAY NGHỀ (chủ 2026-07-29) ---------------------------------
+# Chủ chốt lại: **BỎ bậc phụ**, còn 5 BẬC CHÍNH đánh thẳng Bậc 1 → Bậc 5 (Bậc 1 CAO NHẤT).
+# (Bản đầu là 3 chính + 2 phụ `tho_*`/`phu_*` — migration 0129 đổi tên tại chỗ, giữ nguyên id
+# nên ai đang mang bậc thì không mất.)
+JOB_GRADE_SEED = (
+    ("bac_1", "Bậc 1", 1),
+    ("bac_2", "Bậc 2", 2),
+    ("bac_3", "Bậc 3", 3),
+    ("bac_4", "Bậc 4", 4),
+    ("bac_5", "Bậc 5", 5),
+)
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+class JobGrade(Base):
+    """Danh mục bậc tay nghề — dùng cho khối SẢN XUẤT.
+
+    🚫 **KHAI BẬC THÔI — KHÔNG có tiền, KHÔNG có hệ số** (chủ 2026-07-29). Bảng này cố ý chỉ có
+    mã · tên · thứ tự · bật/tắt. Gán bậc cho một người KHÔNG làm đổi một đồng nào trên bảng lương;
+    có test chốt việc đó. Khi nào cần chia sản lượng khoán theo bậc thì treo thêm cột vào ĐÂY —
+    không phải đi sửa hồ sơ từng người. Đó là lý do bậc là một BẢNG có id, không phải ô chữ.
+    """
+
+    __tablename__ = "job_grades"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Mã ổn định: `bac_1`…`bac_5`. Bộ `pay_grade_key` CŨ ('tho_*'/'phu_*') được migration 0127
+    # ánh xạ sang đây khi backfill, nên hồ sơ khai bằng mã cũ vẫn về đúng bậc.
+    code: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(60), nullable=False)
+    # Thứ tự hiển thị. Số NHỎ = bậc CAO (Bậc 1 đứng đầu) — theo cách chủ liệt kê.
+    seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Tắt thay vì xoá khi một bậc thôi dùng: hồ sơ cũ đang trỏ vào vẫn đọc được tên bậc.
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=sa_true()
+    )
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
 
 
 class Employee(Base):
@@ -102,7 +152,14 @@ class Employee(Base):
         Integer, ForeignKey("users.id"), unique=True, index=True, nullable=True
     )
     position: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # Bậc thợ (vd "3/7") — đầu vào lương khoán sau này. Free-text ở lát #1.
+    # BẬC TAY NGHỀ — nguồn sự thật DUY NHẤT từ 2026-07-29 (chủ). Trỏ danh mục `job_grades`.
+    # Chỉ đổi qua TRANSITION (`promote`/`transfer`), KHÔNG qua sửa hồ sơ thường — xem
+    # `EDITABLE_FIELDS` trong employee_service — nên mọi lần đổi bậc đều có dòng Quá trình công tác.
+    job_grade_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("job_grades.id"), index=True, nullable=True
+    )
+    # DORMANT từ 2026-07-29: bậc thợ chữ tự do (vd "3/7"). Migration 0127 đã chuyển sang
+    # `job_grade_id`; cột giữ lại cho dữ liệu cũ, NGỪNG GHI, chỉ đọc khi `job_grade_id` null.
     job_grade: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # Thâm niên ĐÃ CÓ trước khi vào làm (tháng) — người từng làm nơi khác chuyển sang phải khai.
     # Tổng thâm niên = prior_seniority_months + thời gian từ hire_date. Đợt 1 chỉ LƯU + hiển thị;
@@ -140,6 +197,15 @@ class Employee(Base):
     dependents_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    # CÁCH TÍNH THUẾ TNCN (chủ 2026-07-27). Ba trạng thái nên dùng String, KHÔNG nhồi 2 cờ Boolean
+    # (2 cờ = 4 tổ hợp, có 1 tổ hợp vô nghĩa — chỗ để dữ liệu lệch):
+    #   `luy_tien`    — HĐ từ 3 tháng trở lên: bảng luỹ tiến + giảm trừ gia cảnh (mặc định).
+    #   `khau_tru_10` — HĐ dưới 3 tháng / thời vụ / thực tập: khấu trừ 10% tại nguồn, KHÔNG bảng
+    #                   luỹ tiến, KHÔNG giảm trừ gia cảnh.
+    #   `cam_ket_08`  — đã làm cam kết 08/CK-TNCN (cả năm chưa tới ngưỡng chịu thuế) ⇒ không khấu trừ.
+    pit_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=PIT_LUY_TIEN, server_default=PIT_LUY_TIEN
+    )
     bank_account: Mapped[str | None] = mapped_column(String(30), nullable=True)
     bank_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
@@ -147,8 +213,10 @@ class Employee(Base):
     # Nhóm lương — trục tra bảng chính sách mức lương (salary_rate_rules), vd 'to_in',
     # 'to_dan', 'van_phong'. Null = chưa gán (tính lương sẽ nhắc khai).
     payroll_group: Mapped[str | None] = mapped_column(String(40), index=True, nullable=True)
-    # Bậc lương chuẩn hóa cho tổ tính theo bậc (tổ In): 'tho_1'/'tho_2'/'tho_3'/'phu_1'/'phu_2'.
-    # Tách khỏi `job_grade` free-text ("3/7") để tra rule được. Null = không theo bậc.
+    # DORMANT từ 2026-07-29: bậc lương chuẩn hóa 'tho_1'…'phu_2'. Bộ mã này ĐÃ THÀNH danh mục
+    # `job_grades` (cùng mã) và bậc của NV nằm ở `job_grade_id`. Cột giữ cho dữ liệu cũ, đã GỠ
+    # khỏi `EDITABLE_FIELDS` ⇒ không ai ghi được nữa. Để hai ô cùng nghĩa cùng sửa được chính là
+    # cái bẫy C-3 (sửa ô này không đổi ô kia) — nên chỉ còn MỘT đường ghi.
     pay_grade_key: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # --- Ca kíp ---
@@ -190,6 +258,136 @@ class EmployeeShiftAssignment(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
+
+
+class EmployeeShiftDay(Base):
+    """Ca cua nhan vien tai MOT NGAY cu the — lop DE len ca mac dinh theo moc.
+
+    Dung cho xoay ca linh hoat (hom nay ca khuya, mai ca ngay). Moi ngay cong van
+    chi 1 ca: ``UniqueConstraint(employee_id, work_date)`` la hang rao cung cho luat
+    do. Lam ngoai khung ca la TANG CA (module rieng), khong phai ca thu hai.
+
+    Ba trang thai cua mot o luoi phan ca:
+      - KHONG co dong        -> ke thua ca mac dinh (employee_shift_assignments).
+      - dong co ``shift_id`` -> ca cu the cho ngay do (de len moc).
+      - dong ``is_off=True`` -> NGHI theo lich (nghi luan phien rieng cua tung nguoi).
+
+    ``is_off`` chi la DAU KE HOACH: no KHONG chan cham cong va KHONG sinh he so
+    luong. Nguoi bi goi di lam dung ngay nghi rieng van cham cong duoc va huong
+    1x nhu ngay thuong — nen ``shift_id_on`` co y BO QUA dong ``is_off`` va roi
+    xuong ca nen. Chu nhat van theo luat nghi tuan chung (x2), khong doi.
+    """
+
+    __tablename__ = "employee_shift_days"
+    __table_args__ = (
+        UniqueConstraint("employee_id", "work_date", name="uq_employee_shift_day"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    employee_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("employees.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # NGAY CONG (khong phai ngay lich cua luot bam) — cung truc voi work_day_of().
+    work_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    # Logical link to work_shifts.id (khong FK cung, giong employee_shift_assignments).
+    # NULL di kem is_off=True nghia la ngay nghi theo lich.
+    shift_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    is_off: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=sa_false(), nullable=False
+    )
+    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
+# Hai LỚP sinh ra ca của một người — trục `kind` của bảng lịch sử dưới đây.
+SHIFT_LOG_KIND_DAY = "day"     # ô một ngày trên lưới phân ca (`employee_shift_days`)
+SHIFT_LOG_KIND_BASE = "base"   # ca nền theo mốc hiệu lực (`employee_shift_assignments`)
+SHIFT_LOG_KINDS = (SHIFT_LOG_KIND_DAY, SHIFT_LOG_KIND_BASE)
+
+# Thao tác đến TỪ MÀN NÀO. Có 5 đường thật sự đổi ca của người ta; thiếu một đường là màn
+# lịch sử báo "không có thay đổi" trong khi ca đã đổi — xem docstring `EmployeeShiftChangeLog`.
+SHIFT_LOG_ORIGIN_GRID = "grid"                # Khai ca → Phân ca tháng (lưới)
+SHIFT_LOG_ORIGIN_BASE_PANEL = "base_panel"    # panel Gán ca — một người
+SHIFT_LOG_ORIGIN_BASE_BULK = "base_bulk"      # panel Gán ca — hàng loạt
+SHIFT_LOG_ORIGIN_PROFILE = "profile"          # sửa hồ sơ NV (đổi `default_shift_id`)
+SHIFT_LOG_ORIGIN_BASE_REMOVE = "base_remove"  # gỡ một mốc ca nền gán nhầm
+SHIFT_LOG_ORIGINS = (
+    SHIFT_LOG_ORIGIN_GRID, SHIFT_LOG_ORIGIN_BASE_PANEL, SHIFT_LOG_ORIGIN_BASE_BULK,
+    SHIFT_LOG_ORIGIN_PROFILE, SHIFT_LOG_ORIGIN_BASE_REMOVE,
+)
+
+SHIFT_LOG_ACTION_SET = "set"
+SHIFT_LOG_ACTION_OFF = "off"
+SHIFT_LOG_ACTION_INHERIT = "inherit"
+SHIFT_LOG_ACTION_REMOVE = "remove"
+SHIFT_LOG_ACTIONS = (SHIFT_LOG_ACTION_SET, SHIFT_LOG_ACTION_OFF,
+                     SHIFT_LOG_ACTION_INHERIT, SHIFT_LOG_ACTION_REMOVE)
+
+
+class EmployeeShiftChangeLog(Base):
+    """LỊCH SỬ mọi lần ca của một người bị đổi — và hộp thư báo cho chính người đó.
+
+    Vì sao phải có bảng riêng: `employee_shift_days` / `employee_shift_assignments` đều GHI ĐÈ,
+    nên giá trị cũ mất hẳn. Nhật ký chung (`audit_logs`) chỉ có một dòng gộp kiểu "3 ô khai, 1 ô
+    về mặc định" — không biết ô nào, từ ca gì sang ca gì.
+
+    ⚠️ CA CỦA MỘT NGƯỜI ĐẾN TỪ HAI LỚP, và có **5 đường** ghi. Quên móc một đường là màn lịch sử
+    nói "không có thay đổi nào" trong khi ca người ta vừa bị đổi — tệ hơn là không có màn lịch sử:
+
+        lưới ngày   → `attendance_service.set_shift_plan`            (kind=day,  origin=grid)
+        ca nền      → `employee_service.set_default_shift`           (kind=base, origin=base_panel)
+                    → `employee_service.set_default_shift_bulk`      (kind=base, origin=base_bulk)
+                    → `employee_service.update_employee`             (kind=base, origin=profile)
+                    → `employee_service.delete_shift_assignment`     (kind=base, origin=base_remove)
+
+    `create_employee` CỐ Ý KHÔNG ghi (chốt chủ 28/07/2026): gán ca lần đầu lúc lập hồ sơ chưa có ca
+    cũ nào để so — ghi vào chỉ làm lịch sử lẫn dòng rác. Ca đầu tiên vẫn tra được ở bảng mốc.
+
+    Mọi đường ghi qua CÙNG một hàm `ShiftChangeLogRepository.log()`. Và luật xuyên suốt:
+    **trước == sau thì KHÔNG ghi** — lưới phân ca hay được bấm Lưu cả tháng một lần, không lọc là
+    mỗi lần lưu đẻ vài chục dòng rỗng + ngần ấy thông báo rác, chuông mất giá trị sau đúng một ngày.
+    """
+
+    __tablename__ = "employee_shift_change_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    employee_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("employees.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)     # SHIFT_LOG_KINDS
+    origin: Mapped[str] = mapped_column(String(16), nullable=False)  # SHIFT_LOG_ORIGINS
+    action: Mapped[str] = mapped_column(String(8), nullable=False)   # SHIFT_LOG_ACTIONS
+    # kind=day  → NGÀY CÔNG bị đổi.
+    # kind=base → `effective_from` của mốc (ca áp từ ngày này TRỞ VỀ SAU, không riêng ngày đó).
+    apply_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    # Logical link → work_shifts.id (không FK cứng, giống 2 bảng ca kia). NULL = không có ca.
+    shift_id_before: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    shift_id_after: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Chỉ có nghĩa với kind=day (ô "Nghỉ theo lịch").
+    is_off_before: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=sa_false()
+    )
+    is_off_after: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=sa_false()
+    )
+    # kind=day: TRƯỚC đó ô đang KẾ THỪA ca nền (chưa ai khai tay ngày này). Đây là chỗ trả lời
+    # "ca này do nền hay do người sửa" mà giao diện cần để hiện icon cây bút.
+    inherited_before: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=sa_false()
+    )
+    actor_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), index=True, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, index=True, nullable=False
+    )
+    # Tài khoản ĐÃ đẩy thông báo tới. NULL = NV không có tài khoản đăng nhập (công nhân xưởng) ⇒
+    # không báo được cho ai; màn khai ca đếm số này ra dòng "N người chưa báo được".
+    notified_user_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    # Người nhận đã đọc lúc nào. NULL = chưa đọc ⇒ nuôi badge (mirror `count_my_decided_unseen`).
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class EmployeeEvent(Base):

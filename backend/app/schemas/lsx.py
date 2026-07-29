@@ -50,13 +50,17 @@ class PreviewLine(BaseModel):
     don_vi_tinh: str
     phieu_thanh_phan_id: int | None = None
     ptg_ma: str | None = None
+    # Nhãn nhóm (ruột + bìa của 1 cuốn) — CHỈ để gom hiển thị cho dễ đọc. Sản xuất vẫn tạo
+    # 1 LỆNH cho MỖI dòng: ruột và bìa chạy máy khác nhau, không gộp được.
+    nhom: str | None = None
     # Số của engine chạy lại theo SL của ĐƠN (không lấy số lúc tính giá).
-    bu_hao_to: int = 0
-    so_to_ke_hoach: int = 0
-    so_to_nguyen: int = 0
-    so_con: int = 1
-    so_kem: int = 0
-    so_luot: int = 0
+    # None = CHƯA tính được (dòng chưa có bài tính giá) → UI hiện "—", KHÔNG bày số 0 giả.
+    bu_hao_to: int | None = None
+    so_to_ke_hoach: int | None = None
+    so_to_nguyen: int | None = None
+    so_con: int | None = None
+    so_kem: int | None = None
+    so_luot: int | None = None
     routing: list[PreviewRouting] = Field(default_factory=list)
     quy_cach: dict | None = None
     thieu: list[str] = Field(default_factory=list)
@@ -202,6 +206,8 @@ class LsxListItem(BaseModel):
     ma: str
     loai: str
     ten: str
+    # Nhãn nhóm đọc-sống từ dòng đơn: lệnh "Bìa" phải cho biết nó thuộc "Catalogue A4 - 32 trang".
+    nhom: str | None = None
     trang_thai: str
     order_id: int
     order_no: str | None = None
@@ -229,6 +235,8 @@ class LsxOut(BaseModel):
     loai: str
     lsx_goc_id: int | None = None
     ten: str
+    # Nhãn nhóm ĐỌC SỐNG từ dòng đơn (không lấy trong quy_cach_json — ảnh chụp cũ sẽ trống).
+    nhom: str | None = None
     trang_thai: str
 
     order_id: int

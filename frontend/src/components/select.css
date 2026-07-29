@@ -77,6 +77,37 @@
 .sel__list--portal {
   z-index: 2000;
 }
+/* Ô tìm trong popover (prop `searchable`) — dính đầu danh sách khi cuộn. */
+.sel__search {
+  position: sticky;
+  top: calc(var(--sp-1) * -1);
+  margin: calc(var(--sp-1) * -1) calc(var(--sp-1) * -1) var(--sp-1);
+  padding: var(--sp-1);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--rule-soft);
+  z-index: 1;
+}
+.sel__searchinput {
+  width: 100%;
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  padding: 6px 10px;
+}
+.sel__searchinput:focus {
+  outline: none;
+  border-color: var(--rust);
+}
+.sel__empty {
+  padding: 10px;
+  font-size: 12.5px;
+  color: var(--ash);
+  text-align: center;
+}
+
 .sel__opt {
   display: flex;
   align-items: baseline;

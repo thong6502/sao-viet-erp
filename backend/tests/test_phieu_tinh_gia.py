@@ -194,3 +194,60 @@ def test_phieu_tinh_gia_scope(client, auth_headers):
     assert id1 in idsa and id2 in idsa                  # admin (all) thấy hết
     # sale1 KHÔNG mở/sửa/xóa được phiếu của sale2 (ngoài phạm vi → 404).
     assert client.get(f"/api/phieu-tinh-gia/{id2}", headers=h1).status_code == 404
+
+
+def _seed_may_mitsubishi() -> int:
+    """Máy 2 màu Mitsubishi 72×102 như danh mục thật: nhíp KẼM 44, nhíp GIẤY 10, lề hông 5, đuôi 8."""
+    from app.models.may_thiet_bi import MayThietBi
+
+    db = SessionLocal()
+    try:
+        may = MayThietBi(
+            ma="IN-TEST-72", ten="Mitsubishi 72x102 test", loai_may="press_offset_sheet",
+            kho_max_dai=1020, kho_max_rong=720, kho_min_dai=545, kho_min_rong=390,
+            vung_in_dai=1010, vung_in_rong=710,
+            gripper_mm=44,        # nhíp KẼM — KHÔNG được dùng làm chừa giấy
+            nhip_giay_mm=10, le_hong_mm=5, duoi_thang_mau_mm=8,
+        )
+        db.add(may)
+        db.flush()
+        mid = may.id
+        db.commit()
+        return mid
+    finally:
+        db.close()
+
+
+def _con_cua(client, auth_headers, giay_id: int, may_id: int, **extra) -> int:
+    """Tạo phiếu 1 thành phần name card 90×54 auto bình bài → trả số con engine tính."""
+    tp = {"ten": "Name card", "giay_id": giay_id, "con_auto": True, "quy_cach_in": "mot_mat",
+          "dai_thanh_pham": 90, "rong_thanh_pham": 54, "may_id": may_id,
+          "kho_in_dai": 1020, "kho_in_rong": 720, "so_mau_a": 4, **extra}
+    resp = client.post("/api/phieu-tinh-gia", json={
+        "ten_san_pham": "Name card", "so_luong": 1000, "thanh_phans": [tp],
+    }, headers=auth_headers)
+    assert resp.status_code == 201, resp.text
+    # Số con là kết quả ENGINE (result_json), không phải cột `so_con` nhập tay.
+    return resp.json()["result"]["meta"]["components"][0]["con"]
+
+
+def test_bimh_bai_doc_nhip_giay_tu_may_khong_dung_nhip_kem(client, auth_headers):
+    """Chuỗi service→engine: chừa lấy nhíp GIẤY (10mm, 1 chiều), KHÔNG lấy nhíp kẽm (44mm, 2 chiều).
+
+    Name card 90×54 trên tờ 1020×720. Bản cũ (nhíp kẽm 44 trừ ĐỀU 2 chiều) ra 126 con.
+    Nay: chiều dài trừ 10+8=18, chiều rộng trừ 5×2=10 → 143. Không đọc máy thì ra 144 —
+    ba số khác nhau nên test phân biệt được đúng nguồn chừa.
+    """
+    giay_id, _ = _seed_catalog()
+    may_id = _seed_may_mitsubishi()
+    assert _con_cua(client, auth_headers, giay_id, may_id) == 143
+
+
+def test_bleed_va_khe_cat_tu_phieu_giam_so_con(client, auth_headers):
+    """bleed/khe cắt sale nhập trên phiếu phải chảy tới engine (con to hơn → ít con hơn)."""
+    giay_id, _ = _seed_catalog()
+    may_id = _seed_may_mitsubishi()
+    goc = _con_cua(client, auth_headers, giay_id, may_id)
+    co_bleed = _con_cua(client, auth_headers, giay_id, may_id, bleed_mm=3)
+    co_khe = _con_cua(client, auth_headers, giay_id, may_id, khe_cat_mm=5)
+    assert co_bleed < goc and co_khe < goc

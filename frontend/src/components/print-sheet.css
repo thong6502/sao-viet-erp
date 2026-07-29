@@ -1,84 +1,142 @@
-/* ===== Khuôn phiếu in dùng chung (.psheet) — bám phong cách bản in Báo giá đã duyệt (.qpdf).
-   Đen-trắng thuần, header xám, bảng viền, panel tổng đóng khung. Dùng cho: Xác nhận đơn hàng,
+/* ===== Khuôn phiếu in dùng chung (.psheet) — CÙNG HỆ với bản in Báo giá (.qpdf): tài liệu A4
+   đúng hai mực đen #000 + trắng #fff. Không xám, không màu nhấn, không bo góc, không đổ bóng;
+   phân cấp bằng cỡ chữ theo thang · độ dày nét kẻ · khoảng trắng. Dùng cho: Xác nhận đơn hàng,
    Lệnh sản xuất, và có thể mở rộng. File DUY NHẤT chứa @media print cho khuôn này. ===== */
 .psheet {
-  --ps-ink: #161616; --ps-muted: #555; --ps-line: #8c8c8c; --ps-line-strong: #2a2a2a;
-  --ps-hair: #c4c4c4; --ps-head: #e9e9e9; --ps-band: #f2f2f2;
-  background: #fff; color: var(--ps-ink);
-  font-family: "Be Vietnam Pro", "Segoe UI", Arial, sans-serif;
-  font-size: 11.5px; line-height: 1.45;
-  padding: 13mm 12mm 12mm; max-height: 74vh; overflow-y: auto;
-  -webkit-font-smoothing: antialiased;
+  --ps-ink: #000;
+  --ps-paper: #fff;
+  /* ==== Theo thể thức văn bản hành chính (Nghị định 30/2020/NĐ-CP), CÓ ĐIỀU CHỈNH CỠ — giữ Y HỆT
+     thang của bản in Báo giá (.qpdf) để hai chứng từ gửi cùng một khách nhìn ra là một nhà ====
+     Giữ đúng nghị định: Times New Roman (Unicode TCVN 6909:2001) màu đen · chỉ hai độ đậm
+     400/700 · KHÔNG giãn chữ · cách dòng tối đa 1,5 lines → 1.4 · cách đoạn tối thiểu 6pt (=8px)
+     · lề trên/dưới 20mm, trái 30mm, phải 20mm.
+     LỆCH CÓ CHỦ Ý: nghị định để nội dung 13–14pt (dựng cho công văn toàn chữ chạy); tờ này có
+     bảng 7 cột nên hạ về cỡ chứng từ thương mại: nội dung 10pt · phần phụ 8–9pt · tiêu đề 16pt.
+     Vẫn khai bằng **pt** chứ không px — px phụ thuộc màn hình, ra giấy sai cỡ. */
+  --ps-fs-micro: 8pt; --ps-fs-small: 9pt; --ps-fs-body: 10pt;
+  --ps-fs-lead: 12pt; --ps-fs-title: 16pt; --ps-fs-hero: 18pt;
+  --ps-sp-1: 4px; --ps-sp-2: 8px; --ps-sp-3: 12px; --ps-sp-4: 16px; --ps-sp-6: 24px;
+  background: var(--ps-paper); color: var(--ps-ink);
+  font-family: "Times New Roman", Times, "Liberation Serif", "Nimbus Roman", serif;
+  font-size: var(--ps-fs-body); line-height: 1.4;
+  /* Xem trước ĐÚNG KHỔ A4 + đúng lề (trên/dưới 20mm · trái 30mm · phải 20mm): nhìn trên màn ra
+     sao thì in ra vậy. Không khoá bề ngang thì khung hẹp làm con số trông như tràn ô, sửa theo
+     đó là nới cột thừa — trên giấy A4 vùng nội dung rộng 160mm, dư chỗ. */
+  /* Khoá CẢ HAI chiều của A4. Trước đây chỉ khoá bề ngang còn chiều cao để `max-height: 74vh`
+     nên tờ bị bóp còn ~141mm trong khi nội dung cao 197mm ⇒ phần đầu dính sát lề trên, phần
+     cuối tràn hẳn ra ngoài — nhìn đầu-cuối không cách đều lề. Tờ phải giữ nguyên khổ; muốn
+     cuộn thì để KHUNG NGOÀI (.ps-dialog) cuộn. */
+  width: 210mm; min-height: 297mm; margin: 0 auto;
+  padding: 20mm 20mm 20mm 30mm;
 }
 .psheet * { box-sizing: border-box; }
 .psheet h1 { margin: 0; }
+/* Nhãn: chữ hoa + cỡ nhỏ + đậm — phân cấp bằng kiểu chữ, không bằng giãn chữ. */
+.psheet .ps-lbl,
+.psheet table.ps-tbl tfoot .ps-sub-lbl,
+.psheet .ps-signs .ps-role {
+  text-transform: uppercase; font-size: var(--ps-fs-micro); font-weight: 700;
+}
 
-/* header: logo hộp | tiêu đề giữa | số/ngày phải */
-.psheet .ps-mh { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; border-bottom: 2px solid var(--ps-line-strong); padding-bottom: 9px; }
-.psheet .ps-logo { border: 1px solid var(--ps-line-strong); padding: 8px 10px; width: 108px; text-align: center; }
-.psheet .ps-logo img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+/* header: logo | tiêu đề giữa | số/ngày phải. Bỏ khung viền quanh logo (trông như con tem dán);
+   nét 3px dưới chân header gánh phần "chốt đầu trang". */
+.psheet .ps-mh {
+  display: grid; grid-template-columns: 96px 1fr max-content; align-items: center;
+  gap: var(--ps-sp-4); padding-bottom: var(--ps-sp-3); border-bottom: 3px solid var(--ps-ink);
+}
+.psheet .ps-logo { width: 96px; }
+.psheet .ps-logo img { display: block; width: 100%; height: auto; }
 .psheet .ps-th { text-align: center; }
-.psheet .ps-th h1 { font-size: 20px; font-weight: 800; letter-spacing: .02em; }
-.psheet .ps-cty { font-size: 9.5px; color: var(--ps-muted); margin-top: 3px; }
-.psheet .ps-meta { text-align: right; font-size: 11px; line-height: 1.55; }
+.psheet .ps-th h1 { font-size: var(--ps-fs-title); font-weight: 700; line-height: 1.15; }
+.psheet .ps-cty { font-size: var(--ps-fs-micro); font-weight: 700; text-transform: uppercase; margin-top: var(--ps-sp-2); }
+.psheet .ps-meta { text-align: right; font-size: var(--ps-fs-small); line-height: 1.7; }
 .psheet .ps-meta b { font-weight: 700; font-variant-numeric: tabular-nums; }
 
-/* tiêu đề mục */
-.psheet .ps-sec { font-weight: 800; font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; margin: 14px 0 6px; padding-bottom: 3px; border-bottom: 1.5px solid var(--ps-line-strong); }
+/* tiêu đề mục: nét đen full-bleed làm vách ngăn */
+.psheet .ps-sec {
+  font-weight: 700; font-size: var(--ps-fs-lead); text-transform: uppercase;
+  margin: var(--ps-sp-6) 0 var(--ps-sp-2); padding-bottom: var(--ps-sp-1);
+  border-bottom: 2px solid var(--ps-ink);
+}
 
-/* dải thông tin (khách / giao hàng) */
-.psheet .ps-info { border-bottom: 1px solid var(--ps-hair); padding: 8px 0 9px; }
-.psheet .ps-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 28px; }
-.psheet .ps-info-grid > div { padding: 1.5px 0; }
-.psheet .ps-lbl { color: var(--ps-muted); }
-.psheet .ps-info b { font-weight: 700; color: var(--ps-ink); }
+/* dải thông tin: nhãn khoá bề ngang ⇒ mọi giá trị thẳng hàng dọc, không so le */
+.psheet .ps-info { border-bottom: 1px solid var(--ps-ink); padding: var(--ps-sp-3) 0; }
+.psheet .ps-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ps-sp-1) 32px; }
+.psheet .ps-info-grid > div { display: grid; grid-template-columns: 108px 1fr; align-items: baseline; gap: var(--ps-sp-2); padding: var(--ps-sp-1) 0 0; }
+.psheet .ps-info b { font-weight: 700; }
+/* CÁCH ĐỀU HAI LỀ: cột phải căn giá trị sát LỀ PHẢI. Để mặc định căn trái thì giá trị ngắn
+   ("09/08/2026", "a") kết thúc cách lề phải 3–4cm, trong khi bảng bên dưới chạm sát lề — cả dải
+   nhìn dồn về trái. Nhãn vẫn căn trái để hai cột nhãn thẳng hàng. */
+.psheet .ps-info-grid > div:nth-child(even) { text-align: right; }
+.psheet .ps-info-grid > div:nth-child(even) .ps-lbl { text-align: left; }
 
-/* bảng chi tiết */
-.psheet table.ps-tbl { width: 100%; border-collapse: collapse; font-size: 10px; table-layout: fixed; }
-.psheet table.ps-tbl th, .psheet table.ps-tbl td { border: 1px solid var(--ps-line); padding: 5px 7px; vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; }
-.psheet table.ps-tbl thead th { background: var(--ps-head); font-weight: 700; text-align: center; font-size: 9px; text-transform: uppercase; letter-spacing: .02em; line-height: 1.25; }
+/* bảng chi tiết — đầu bảng tách bằng nét 2px, KHÔNG tô nền (mảng đen ra giấy rất gắt) */
+.psheet table.ps-tbl { width: 100%; border-collapse: collapse; font-size: var(--ps-fs-body); table-layout: fixed; border: 2px solid var(--ps-ink); }
+.psheet table.ps-tbl th, .psheet table.ps-tbl td { border: 0.75px solid var(--ps-ink); padding: var(--ps-sp-2); vertical-align: middle; word-wrap: break-word; overflow-wrap: anywhere; }
+.psheet table.ps-tbl td.ps-desc { vertical-align: top; }
+.psheet table.ps-tbl thead th {
+  background: var(--ps-paper); color: var(--ps-ink); border-bottom: 2px solid var(--ps-ink);
+  font-weight: 700; text-align: center; font-size: var(--ps-fs-small); text-transform: uppercase; line-height: 1.35;
+  padding: var(--ps-sp-3) var(--ps-sp-1);   /* nhan CHU HOA can cho hon chu thuong -> dem ngang hep lai */
+}
 .psheet table.ps-tbl td.c { text-align: center; }
+.psheet table.ps-tbl td.ps-empty { font-style: italic; padding: var(--ps-sp-4) var(--ps-sp-2); }
+/* `nowrap` CHỈ cho ô dữ liệu (con số không được ngắt dòng). Nhãn đầu bảng phải xuống dòng được,
+   không thì "Đơn giá (chưa VAT)" đẩy chữ tràn khỏi ô sang cột bên cạnh. */
 .psheet table.ps-tbl td.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.psheet table.ps-tbl tfoot td { background: var(--ps-band); font-weight: 800; border-top: 1.5px solid var(--ps-line-strong); }
-.psheet table.ps-tbl tfoot .ps-sub-lbl { text-align: right; text-transform: uppercase; letter-spacing: .03em; font-size: 9px; }
+/* NHÃN ĐẦU BẢNG căn GIỮA hết, kể cả cột số (`th.r` không được kéo sang phải) — hàng nhãn nửa
+   giữa nửa phải nhìn so le. Con số trong ô vẫn căn phải, đó mới là chỗ cần thẳng cột. */
+.psheet table.ps-tbl thead th, .psheet table.ps-tbl th.r { text-align: center; white-space: normal; }
+/* Ghi chú dưới nhãn cột ("chưa VAT") — tách dòng, chữ thường, nhẹ hơn nhãn chính. */
+.psheet table.ps-tbl thead th .ps-sub { display: block; font-weight: 400; font-size: var(--ps-fs-micro); text-transform: none; margin-top: 2px; }
+.psheet table.ps-tbl tfoot td { font-weight: 700; border-top: 1px solid var(--ps-ink); }
+.psheet table.ps-tbl tfoot .ps-sub-lbl { text-align: right; }
 
-/* panel tổng */
-.psheet .ps-grand { margin-top: 14px; border: 1.5px solid var(--ps-line-strong); background: var(--ps-band); display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 16px; }
-.psheet .ps-grand .ps-gt { font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
-.psheet .ps-grand .ps-gt .ps-gs { font-size: 9.5px; font-weight: 600; color: var(--ps-muted); text-transform: none; letter-spacing: 0; margin-top: 2px; }
-.psheet .ps-grand .ps-ga { font-size: 23px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.psheet .ps-grand .ps-ga .ps-u { font-size: 12px; font-weight: 700; margin-left: 4px; }
+/* panel tổng: đóng KHUNG 2px, ruột trắng — con số tự nó đã là thứ to nhất trang */
+.psheet .ps-grand { margin-top: var(--ps-sp-4); border: 2px solid var(--ps-ink); display: flex; align-items: center; justify-content: space-between; gap: var(--ps-sp-4); padding: var(--ps-sp-3) var(--ps-sp-4); }
+.psheet .ps-grand .ps-gt { font-size: var(--ps-fs-lead); font-weight: 700; text-transform: uppercase; }
+.psheet .ps-grand .ps-gt .ps-gs { font-size: var(--ps-fs-micro); font-weight: 400; text-transform: none; margin-top: var(--ps-sp-1); }
+.psheet .ps-grand .ps-ga { font-size: var(--ps-fs-hero); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1.1; }
+.psheet .ps-grand .ps-ga .ps-u { font-size: var(--ps-fs-lead); font-weight: 700; margin-left: 5px; }
 
-/* dải cọc (3 ô) */
-.psheet .ps-deposit { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
-.psheet .ps-deposit > div { border: 1px solid var(--ps-hair); padding: 8px 10px; }
-.psheet .ps-deposit .ps-lbl { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: .02em; }
-.psheet .ps-deposit b { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
+/* dải cọc (3 ô): KHÔNG đóng 3 cái khung nữa. Ngay dưới panel tổng đã có khung 2px rồi, thêm 3
+   hộp viền đen nữa là nửa dưới tờ giấy đầy chữ nhật — đó là chỗ trông "gắt". Giờ chỉ một nét kẻ
+   trên, ba cột chia bằng khoảng trắng. */
+.psheet .ps-deposit {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--ps-sp-6);
+  margin-top: var(--ps-sp-3); padding-top: var(--ps-sp-3); border-top: 0.75px solid var(--ps-ink);
+}
+/* CÁCH ĐỀU HAI LỀ: ô đầu bám lề trái · ô giữa căn giữa · ô cuối bám lề phải — dải trải đủ từ
+   lề này sang lề kia, không dồn về trái rồi bỏ trống 3cm bên phải. */
+.psheet .ps-deposit > div:nth-child(2) { text-align: center; }
+.psheet .ps-deposit > div:nth-child(3) { text-align: right; }
+.psheet .ps-deposit .ps-lbl { display: block; }
+.psheet .ps-deposit b { display: block; font-size: var(--ps-fs-lead); font-weight: 700; font-variant-numeric: tabular-nums; margin-top: var(--ps-sp-1); }
 
 /* grid quy cách (LSX) */
-.psheet .ps-specs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 18px; margin-top: 6px; font-size: 10.5px; }
-.psheet .ps-specs > div .ps-lbl { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: .02em; }
+.psheet .ps-specs { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--ps-sp-2) var(--ps-sp-4); margin-top: var(--ps-sp-2); font-size: var(--ps-fs-body); }
+.psheet .ps-specs > div .ps-lbl { display: block; }
 .psheet .ps-specs > div b { font-weight: 700; }
 
 /* khối tờ in (LSX) */
-.psheet .ps-form { border: 1px solid var(--ps-hair); padding: 8px 10px; margin-top: 8px; }
-.psheet .ps-form__hd { font-weight: 700; font-size: 11px; margin-bottom: 3px; }
-.psheet .ps-form__meta { font-size: 10px; color: var(--ps-muted); }
-.psheet .ps-form__gang { font-size: 10px; margin-top: 4px; }
-.psheet .ps-form__gang .ps-lbl { text-transform: uppercase; font-size: 9px; letter-spacing: .02em; }
+.psheet .ps-form { border: 1px solid var(--ps-ink); padding: var(--ps-sp-2) var(--ps-sp-3); margin-top: var(--ps-sp-2); }
+.psheet .ps-form__hd { font-weight: 700; margin-bottom: var(--ps-sp-1); }
+.psheet .ps-form__meta { font-size: var(--ps-fs-small); }
+.psheet .ps-form__gang { font-size: var(--ps-fs-small); margin-top: var(--ps-sp-1); }
 
-/* chữ ký */
-.psheet .ps-signs { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; margin-top: 22px; text-align: center; }
-.psheet .ps-signs .ps-role { font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
-.psheet .ps-signs .ps-hint { font-size: 8px; color: var(--ps-muted); font-style: italic; margin-top: 2px; }
-.psheet .ps-signs .ps-sp { height: 20mm; }
+/* chữ ký — chừa khoảng ký rồi KẺ NÉT để biết ký lên đâu */
+.psheet .ps-signs { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; margin-top: var(--ps-sp-6); text-align: center; }
+.psheet .ps-signs .ps-hint { font-size: var(--ps-fs-micro); font-style: italic; margin-top: var(--ps-sp-1); }
+.psheet .ps-signs .ps-sp { height: 20mm; border-bottom: 0.75px solid var(--ps-ink); margin: 0 10%; }
 
 /* chân trang */
-.psheet .ps-foot { margin-top: 16px; padding-top: 7px; border-top: 1px solid var(--ps-hair); display: flex; justify-content: space-between; gap: 12px; font-size: 8px; color: var(--ps-muted); }
+.psheet .ps-foot { margin-top: var(--ps-sp-6); padding-top: var(--ps-sp-2); border-top: 0.75px solid var(--ps-ink); display: flex; justify-content: space-between; gap: var(--ps-sp-3); font-size: var(--ps-fs-micro); }
 
 /* overlay preview (trên màn) */
 .ps-ov { position: fixed; inset: 0; background: rgba(20, 19, 15, .45); backdrop-filter: blur(4px); display: flex; align-items: flex-start; justify-content: center; padding: 24px; overflow: auto; z-index: 100; }
-.ps-dialog { background: #fff; border-radius: 10px; max-width: 900px; width: 100%; box-shadow: 0 20px 60px rgba(0, 0, 0, .3); display: flex; flex-direction: column; }
+/* Rộng đủ ôm tờ A4 (210mm ≈ 794px); màn hẹp hơn thì cuộn chứ không bóp méo tờ. Việc CUỘN nằm ở
+   khung này, không nằm ở tờ — tờ luôn giữ đúng khổ A4. */
+.ps-dialog { background: #fff; border-radius: 10px; max-width: 820px; width: 100%; max-height: 88vh; box-shadow: 0 20px 60px rgba(0, 0, 0, .3); display: flex; flex-direction: column; overflow: auto; }
 .ps-dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid #e5e2d8; }
 .ps-dialog-head h2 { margin: 0; font-size: 15px; font-weight: 700; color: #14130f; }
 .ps-dialog-head button { border: none; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: #6b675d; padding: 4px 8px; }
@@ -86,15 +144,30 @@
 
 /* ---- IN: chỉ chừa tờ .psheet, chảy qua nhiều trang A4 (bám cơ chế print của Báo giá) ---- */
 @media print {
-  @page { size: A4; margin: 11mm; }
+  /* Le trang theo Nghi dinh 30/2020/ND-CP: tren/duoi 20-25mm, trai 30-35mm,
+     phai 15-20mm. Le trai rong de dong/luu ho so. */
+  @page { size: A4; margin: 20mm 20mm 20mm 30mm; }
   body:has(.psheet) .shell > *:not(.shell__main),
   body:has(.psheet) .shell__main > *:not(.shell__content) { display: none !important; }
   body:has(.psheet) .shell__content { padding: 0 !important; overflow: visible !important; }
-  body:has(.psheet) .ps-ov { position: static !important; background: none !important; backdrop-filter: none !important; padding: 0 !important; display: block !important; overflow: visible !important; z-index: auto !important; }
-  body:has(.psheet) .ps-dialog { max-width: none !important; width: 100% !important; box-shadow: none !important; border-radius: 0 !important; }
+  /* Khối này TỪNG chỉ ẩn sidebar/topbar mà quên nội dung của chính trang nền → in ra cả bảng
+     danh sách đơn rồi mới tới tờ phiếu. Neo theo QUAN HỆ với `.psheet`: giữ tổ tiên + chính nó
+     + ruột nó, ẩn phần còn lại. Phiếu nằm sâu mấy tầng drawer cũng đúng. */
+  body:has(.psheet) .shell__content *:not(:has(.psheet)):not(.psheet):not(.psheet *) { display: none !important; }
+  body:has(.psheet) .shell__content :has(.psheet) {
+    position: static !important; inset: auto !important; transform: none !important;
+    display: block !important; width: auto !important; max-width: none !important;
+    height: auto !important; max-height: none !important; overflow: visible !important;
+    padding: 0 !important; margin: 0 !important; z-index: auto !important;
+    background: none !important; backdrop-filter: none !important;
+    box-shadow: none !important; border: 0 !important; border-radius: 0 !important;
+  }
   body:has(.psheet) .ps-dialog-head, body:has(.psheet) .ps-dialog-actions { display: none !important; }
-  body:has(.psheet) .psheet { max-height: none !important; overflow: visible !important; padding: 0 !important; }
-  body:has(.psheet) .psheet .ps-mh, body:has(.psheet) .psheet .ps-tbl thead th, body:has(.psheet) .psheet .ps-tbl tfoot td, body:has(.psheet) .psheet .ps-grand { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* Khi in, @page đã cầm khổ và lề → tờ phải nhả bề ngang/lề của bản xem trước, không thì cộng
+     dồn thành lề đôi và tràn sang trang thứ hai. */
+  body:has(.psheet) .psheet { max-height: none !important; min-height: 0 !important; overflow: visible !important; padding: 0 !important; width: auto !important; margin: 0 !important; }
+  /* Tờ không còn mảng tô nền nào — chỉ chữ đen + nét kẻ đen trên giấy trắng — nên không cần ép
+     `print-color-adjust`; máy in nào cũng dựng đúng. */
   body:has(.psheet) .psheet .ps-tbl tr, body:has(.psheet) .psheet .ps-grand, body:has(.psheet) .psheet .ps-signs { page-break-inside: avoid; }
   /* Overlay Đơn hàng / LSX đang mở phía dưới không được chiếm layout khi in */
   body:has(.psheet) .dhb__drawer-overlay { position: static !important; background: none !important; }
