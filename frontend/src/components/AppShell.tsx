@@ -28,7 +28,9 @@ import { LuongPage } from "../pages/LuongPage";
 import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
-import { KhoHangView } from "../pages/KhoHangView";
+import { KhoTonKhoPage } from "../pages/KhoTonKhoPage";
+import { KhoPage } from "../pages/KhoPage";
+
 // Danh mục rebuild (config .tsx — render pill JSX)
 import { REBUILD_CONFIGS } from "../pages/rebuildCatalogConfigs";
 import { DepartmentPurchaseRequestsPage } from "../pages/DepartmentPurchaseRequestsPage";
@@ -64,6 +66,9 @@ export interface NavParams {
   focusReceiptQuery?: string;
   /** P3 (redesign-bao-gia §6): mở thẳng 1 Phiếu tính giá (link "↳ PTG" từ Báo giá). */
   focusPhieuId?: number;
+  /** Liên thông Kho → YCMH: mở form Yêu cầu mua hàng điền sẵn dòng vật tư (Tên + ĐVT). */
+  purchaseSeedLines?: { item_name: string; unit: string; quantity: number; note?: string | null }[];
+  purchaseSeedPurpose?: string;
   /** Liên thông Đơn hàng → bàn Kế hoạch SX: mở thẳng đơn này ở hàng chờ / danh sách lệnh. */
   openSxOrderId?: number;
   /** Liên thông Phòng ban → Lương: mở thẳng tab "Cấu hình lương" (bảng lương của tổ). */
@@ -271,7 +276,8 @@ export function AppShell() {
   // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
-    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("tang_ca") || readable.has("di_muon"))) return;
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("di_muon"))) return;
+
     const close = connectQuoteEvents(token, (e) => {
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
       setQuoteTick((n) => n + 1);
@@ -431,6 +437,14 @@ export function AppShell() {
             lastAdvancePending.current = s.pending_approval_count;
           })
           .catch(() => {});
+      } else if (readable.has("kho") && e.type === "stock_request") {
+        // Tin ĐÍCH DANH của luồng kho (trình duyệt · duyệt/từ chối · kho tiếp nhận · cấp hàng).
+        // Câu chữ do backend soạn theo bước — FE dựng lại câu ở đây là cầm chắc lệch nội dung.
+        pushToast(e.message, "info");
+      } else if (readable.has("kho") && e.type === "stock_request_pending_changed") {
+        // Tín hiệu NHẸ: quoteTick ở đầu handler đã tăng → 2 màn kho đang mở tự refetch.
+        // Module kho chưa có endpoint đếm nên KHÔNG gọi reloadBadges (sẽ chỉ tốn request).
+
       }
     });
     return close;
@@ -459,19 +473,31 @@ export function AppShell() {
   }
 
   const baseId = activeId.split(":")[0];
-  // "kho-item:<id>" = màn 1 kho (menu con động) — gác cùng quyền `kho` với mục cha "Kho hàng".
+  // "Kho hàng" (kho vật lý: tồn/phiếu/ngưỡng) là VIỆC CỦA KHO, không phải của người đề nghị.
+  // Vai chỉ có `kho:read` (để tạo đề nghị) KHÔNG được thấy — chặn bằng `can_view_stock`, để
+  // ông sản xuất không nhìn thấy tồn/giá/lô của kho.
+  const canViewStock = !!caps.get("kho")?.can_view_stock;
+  // "kho-item:<id>" = màn 1 kho (menu con động) — gác quyền `kho` + `view_stock`.
   const moduleKeys =
     MODULES_BY_NAV_ID[baseId] ??
     (baseId === "kho-item" ? ["kho"] : undefined);
-  const allowed = moduleKeys != null && moduleKeys.some((moduleKey) => readable.has(moduleKey));
+  const allowed =
+    moduleKeys != null &&
+    moduleKeys.some((moduleKey) => readable.has(moduleKey)) &&
+    (baseId !== "kho-item" || canViewStock);
+
   const itemChildren: Record<string, { id: string; label: string }[]> = {};
   // Kho đã khai báo → item ĐỘNG dưới SECTION "Kho hàng" (id section = "kho-hang"). Bấm 1 kho → màn tạm.
+  // Chỉ đổ khi có `can_view_stock`; thiếu quyền → section "Kho hàng" rỗng nên tự ẩn.
   const dynamicItems: Record<string, NavItem[]> = {};
-  if (khoList.length) {
+  if (khoList.length && canViewStock) {
     dynamicItems["kho-hang"] = khoList.map((w): NavItem => ({
       id: `kho-item:${w.id}`, label: w.ten, icon: "warehouse", module: "kho",
     }));
   }
+  // Mục "Kho" chỉ cần `kho:read`; tab "Phiếu từ đề nghị" (cần create/view_stock) tự ẩn trong KhoPage.
+  const hiddenIds = new Set<string>();
+
 
   function renderContent() {
     if (!allowed) {
@@ -495,11 +521,25 @@ export function AppShell() {
     if (baseId === "khai-bao-kho") {
       return <RebuildCatalogPage key="khai-bao-kho" config={REBUILD_CONFIGS["khai-bao-kho"]} onMutate={reloadKho} />;
     }
-    // Màn TẠM cho 1 kho đã khai báo (bấm item "kho-item:<id>" dưới section "Kho hàng").
+    // Kho — MỘT module, chia tab (Đề nghị · Hộp yêu cầu) × (Nhập · Xuất). `quoteTick` là tick
+    // CHUNG của kênh SSE: mọi sự kiện kho đều đẩy tick nên bảng tự tươi, không mở EventSource riêng.
+    if (baseId === "kho-main") {
+      return <KhoPage eventTick={quoteTick} />;
+    }
+    // Màn TỒN KHO của 1 kho đã khai báo (bấm item "kho-item:<id>" dưới section "Kho hàng").
     if (baseId === "kho-item") {
       const id = Number(activeId.split(":")[1]);
       const w = khoList.find((x) => x.id === id);
-      return <KhoHangView ten={w?.ten ?? "Kho"} ma={w?.ma} />;
+      return (
+        <KhoTonKhoPage
+          key={`kho-ton-${id}`}
+          khoId={id}
+          ten={w?.ten ?? "Kho"}
+          ma={w?.ma}
+          token={token ?? ""}
+          navigate={navigate}
+        />
+      );
     }
     // Danh mục rebuild (Máy · Vật liệu Kho · Công đoạn · Loại SP · Giấy) — 1 trang generic theo config.
     if (REBUILD_CONFIGS[baseId]) {
@@ -570,6 +610,8 @@ export function AppShell() {
         return (
           <DepartmentPurchaseRequestsPage
             focusRequestCode={navParams?.focusRequestCode ?? null}
+            seedLines={navParams?.purchaseSeedLines ?? null}
+            seedPurpose={navParams?.purchaseSeedPurpose ?? null}
           />
         );
       case "mua-hang":
@@ -611,6 +653,7 @@ export function AppShell() {
           itemChildren={itemChildren}
           dynamicItems={dynamicItems}
           badges={badges}
+          hiddenIds={hiddenIds}
         />
         <div className="shell__main">
           <Topbar onOpenProfile={() => navigate("ho-so-cua-toi")} leaveUnseen={leaveUnseen} onOpenLeave={openLeaveFromBell} />

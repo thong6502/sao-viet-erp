@@ -34,7 +34,13 @@ export type PermAction =
   | "adjust"
   | "approve_exception"
   | "set_credit_terms"
-  | "record_deposit";
+  | "record_deposit"
+  // Kho (spec-kho-de-nghi §9.1) — quyền chi tiết của module `kho` + ghi sổ (SoD).
+  | "request"
+  | "view_stock"
+  | "view_cost"
+  | "set_threshold"
+  | "post";
 
 export type Capabilities = Map<string, ModuleCapability>;
 
@@ -92,6 +98,11 @@ export function PermissionsProvider({
     if (action === "approve_exception") return row.can_approve_exception;
     if (action === "set_credit_terms") return row.can_set_credit_terms;
     if (action === "record_deposit") return row.can_record_deposit;
+    if (action === "request") return row.can_request;
+    if (action === "view_stock") return row.can_view_stock;
+    if (action === "view_cost") return row.can_view_cost;
+    if (action === "set_threshold") return row.can_set_threshold;
+    if (action === "post") return row.can_post;
     return false;
   }
   function scopeOf(moduleKey: string): Scope | null {

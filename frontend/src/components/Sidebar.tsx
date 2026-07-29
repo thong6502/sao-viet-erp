@@ -105,8 +105,21 @@ const NAV: NavSection[] = [
     ],
   },
   {
-    // SECTION "Kho hàng" — header như "Cấu hình danh mục"; item bên dưới là các kho ĐÃ KHAI BÁO
-    // (inject ĐỘNG từ AppShell qua dynamicItems). Rỗng (chưa khai báo kho nào) → section tự ẩn.
+    // SECTION "Nhập xuất kho" — nghiệp vụ chứng từ kho (đề nghị + phiếu nhập/xuất). TÁCH khỏi
+    // "Kho hàng" vì section đó chỉ để LIỆT KÊ các kho vật lý đã khai báo, không chứa màn nghiệp vụ.
+    id: "nhap-xuat-kho",
+    label: "Nhập xuất kho",
+    items: [
+      // MỘT mục — bên trong chia tab VIỆC (Đề nghị · Hộp yêu cầu) × CHIỀU (Nhập · Xuất).
+      // Tab "Hộp yêu cầu" tự ẩn nếu vai không có create/view_stock (gate trong KhoPage).
+      // Tên "Đề nghị & Cấp phát": đúng việc của module (xin vật tư → kho cấp), phân biệt với
+      // section "Kho hàng" (kho vật lý: tồn/phiếu/ngưỡng).
+      { id: "kho-main", label: "Đề nghị nhập xuất", icon: "warehouse", module: "kho" },
+    ],
+  },
+  {
+    // SECTION "Kho hàng" — CHỈ chứa các kho ĐÃ KHAI BÁO (inject ĐỘNG từ AppShell qua
+    // dynamicItems, key theo section id). Không có kho nào → section tự ẩn.
     id: "kho-hang",
     label: "Kho hàng",
     items: [],
@@ -180,9 +193,12 @@ interface SidebarProps {
   dynamicItems?: Record<string, NavItem[]>;
   /** Badge số (đỏ) theo item id — vd "nghi-phep": số đơn chờ duyệt. Ẩn khi ≤0/absent. */
   badges?: Record<string, number>;
+  /** Item ẩn hẳn dù có quyền Read module — cho mục cần quyền CHI TIẾT (vd "Hộp yêu cầu kho"
+   *  cần `can_create`/`can_view_stock`). Sidebar không biết ma trận quyền nên AppShell tính sẵn. */
+  hiddenIds?: ReadonlySet<string>;
 }
 
-export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicItems, badges }: SidebarProps) {
+export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicItems, badges, hiddenIds }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -200,6 +216,7 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicIte
     return {
       ...s,
       items: merged
+        .filter((i) => !hiddenIds?.has(i.id))
         .filter((i) => (i.modules ?? [i.module]).some((module) => readable.has(module)))
         .map((i) => {
           const dyn = itemChildren?.[i.id];

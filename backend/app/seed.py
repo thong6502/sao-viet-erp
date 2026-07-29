@@ -122,6 +122,14 @@ def _full(scope: str, *, can_approve_exception: bool = False) -> dict:
         # khach_hang: thiết lập điều khoản tín dụng khách — bật cho vai quản lý (_full dùng chung
         # cho Giám đốc + GĐ KD + Trưởng phòng KD). NV Sales dùng _rcu → KHÔNG có (chỉ xem read-only).
         can_set_credit_terms=True,
+        # kho (spec-kho-de-nghi §9.2): 4 ô quyền chi tiết. Chỉ CÓ NGHĨA trên module `kho`, mà
+        # `_full` chỉ chạm module đó ở vai Giám đốc → thực chất đây là "GĐ toàn quyền kho".
+        # Quản lý kho KHÔNG dùng `_full` (khai riêng bên dưới) vì không được sửa giá vốn.
+        can_request=True,
+        can_view_stock=True,
+        can_view_cost=True,
+        can_set_threshold=True,
+        can_post=True,  # GĐ toàn quyền kho → được GHI SỔ (chốt tồn)
     )
 
 
@@ -133,6 +141,15 @@ def _read(scope: str) -> dict:
     return dict(
         can_read=True, can_create=False, can_update=False, can_delete=False, scope=scope
     )
+
+
+# Cụm "QUẢN LÝ KHO" — gộp 4 quyền của người CẤP PHÁT kho thành 1 công tắc trên ma trận
+# (chốt 2026-07-29): ghi sổ phiếu + xem tồn + xem giá vốn/giá trị tồn + khai ngưỡng tồn.
+# KHÔNG kèm `can_approve` — DUYỆT đề nghị là việc của quản lý bộ phận đề nghị, kho KHÔNG tự duyệt.
+_KHO_QL = {
+    "can_post": True, "can_view_stock": True,
+    "can_view_cost": True, "can_set_threshold": True,
+}
 
 
 def _leave_self(scope: str = SCOPE_OWN) -> dict:
@@ -272,6 +289,10 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_OWN),
             "san_xuat": {**_read(SCOPE_OWN), "can_assign_work": True, "can_record_output": True, "can_handover": True},
+            # Kho: đề nghị lĩnh vật tư cho tổ + DUYỆT cấp 1 đề nghị của tổ mình (BRD §2.8 b5 —
+            # "Tổ trưởng/Quản lý duyệt đề xuất cấp phát"). Scope DEPARTMENT: phải thấy đề nghị của
+            # NV trong phòng mới duyệt được (own chỉ thấy của mình → không có gì để duyệt).
+            "kho": {**_read(SCOPE_DEPARTMENT), "can_request": True, "can_approve": True},
             "nghi_phep": _leave_self(),
             # Tổ trưởng DUYỆT phiếu tăng ca của tổ mình (scope department = tổ + cây con).
             "tang_ca": _ot_lead(SCOPE_DEPARTMENT),
@@ -337,24 +358,35 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "nghi_phep": _leave_self(),
         },
     ),
-    # === Vai trò tiếp cận Kho (BRD Module Kho §1.4/§1.5) =====================
-    # Thủ kho: vận hành phiếu + kiểm kê; KHÔNG duyệt, KHÔNG thấy giá vốn.
+    # === Vai trò tiếp cận Kho (BRD Module Kho §1.4/§1.5 · spec-kho-de-nghi §9.2) ==========
+    # GỘP QUYỀN (2026-07-29, mentor): 5 cột kho (duyệt · ghi sổ · xem tồn · xem giá vốn · khai
+    # ngưỡng) = 1 công tắc "Quản lý kho" trên ma trận → vai làm việc với kho bật cả cụm. `_KHO_QL`
+    # = cụm đó. Người đề nghị scope `own` (chỉ đèn tín hiệu, không thấy tồn/giá).
+    # Thủ kho: LẬP PHIẾU + Quản lý kho (đủ cụm). Khai rõ create/update/delete để công tắc "Lập phiếu"
+    # trên ma trận hiện ĐÚNG là bật.
     (
         "Kho",
         "Thủ kho",
         {
             "dashboard": _read(SCOPE_OWN),
-            "kho": _rcu(SCOPE_ALL),          # xem + tạo/nộp phiếu, kiểm kê, điều chỉnh nhanh
-            "san_xuat": _read(SCOPE_ALL),    # xem LSX để tham chiếu khi lập phiếu
+            "kho": {
+                "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
+                "scope": SCOPE_ALL, **_KHO_QL,
+            },
+            "san_xuat": _read(SCOPE_ALL),    # xem kế hoạch SX để tham chiếu khi lập phiếu
         },
     ),
-    # Quản lý kho: vận hành đầy đủ + duyệt + giá vốn + cấu hình danh mục kho.
+    # Quản lý kho: LẬP PHIẾU + Quản lý kho (ghi sổ + xem tồn/giá vốn + ngưỡng). KHÔNG duyệt đề nghị
+    # (việc của quản lý bộ phận đề nghị) và KHÔNG tự tạo đề nghị (kho cấp phát, không xin).
     (
         "Kho",
         "Quản lý kho",
         {
             "dashboard": _read(SCOPE_ALL),
-            "kho": _full(SCOPE_ALL),
+            "kho": {
+                "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
+                "scope": SCOPE_ALL, **_KHO_QL,
+            },
             "san_xuat": _read(SCOPE_ALL),
         },
     ),
@@ -367,42 +399,48 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "don_hang_ban": {**_read(SCOPE_ALL), "can_record_deposit": True},
         },
     ),
-    # Kế toán kho: DUYỆT & ghi sổ + xem GIÁ VỐN/giá trị tồn; đối chiếu. Không tạo phiếu.
+    # Kế toán kho: Quản lý kho (đủ cụm: duyệt + ghi sổ + xem tồn/giá vốn + ngưỡng) để đối chiếu,
+    # KHÔNG lập phiếu (không create — thủ kho cầm hàng, kế toán chốt sổ).
     (
         "Kế toán",
         "Kế toán kho",
         {
             "dashboard": _read(SCOPE_ALL),
-            "kho": {**_read(SCOPE_ALL), "can_approve": True, "can_manage_price": True},
+            "kho": {**_read(SCOPE_ALL), **_KHO_QL},
         },
     ),
-    # Nhân viên sản xuất: xuất NVL / nhập TP theo LSX; tạo lệnh SX.
+    # --- Phía ĐỀ NGHỊ: scope `own` (chỉ thấy đề nghị CỦA MÌNH), KHÔNG `can_view_stock`,
+    # KHÔNG `can_view_cost`, KHÔNG `can_create` (không lập phiếu). Họ biết khi nào cần đề
+    # nghị nhờ hệ thống ĐẨY cảnh báo ngưỡng tồn xuống, không phải tự đi soi kho (spec §8).
+    # Nhân viên sản xuất: đề nghị lĩnh NVL cho tổ.
     (
         "Sản xuất",
         "Nhân viên sản xuất",
         {
             "dashboard": _read(SCOPE_OWN),
-            "kho": {**_read(SCOPE_ALL), "can_create": True},
+            "kho": {**_read(SCOPE_OWN), "can_request": True},
             "san_xuat": _rcu(SCOPE_ALL),
         },
     ),
-    # Quản lý sản xuất: như trên + duyệt phiếu SX-liên-quan + quản lý lệnh SX.
+    # Quản lý sản xuất: như NV sản xuất + duyệt (cấp leo thang khi vượt ngưỡng/gấp).
+    # Scope kho = DEPARTMENT: PHẢI thấy đề nghị của cả phòng SX (do NV tạo) mới duyệt được —
+    # scope `own` chỉ thấy đề nghị của chính mình nên không có gì để duyệt.
     (
         "Sản xuất",
         "Quản lý sản xuất",
         {
             "dashboard": _read(SCOPE_ALL),
-            "kho": {**_read(SCOPE_ALL), "can_create": True, "can_approve": True},
+            "kho": {**_read(SCOPE_DEPARTMENT), "can_request": True, "can_approve": True},
             "san_xuat": _full(SCOPE_ALL),
         },
     ),
-    # Nhân viên mua hàng: nhập NVL từ NCC (PO), xuất trả NCC.
+    # Nhân viên mua hàng: đề nghị NHẬP khi tồn chạm ngưỡng (nguồn của phiếu nhập mua NCC).
     (
         "Mua hàng",
         "Nhân viên mua hàng",
         {
             "dashboard": _read(SCOPE_OWN),
-            "kho": {**_read(SCOPE_ALL), "can_create": True},
+            "kho": {**_read(SCOPE_OWN), "can_request": True},
         },
     ),
 ]
@@ -541,6 +579,7 @@ KHO_STAFF: list[tuple[str, str, str, str]] = [
     ("qlkho", "Lê Quản Lý Kho", "Kho", "Quản lý kho"),
     ("ketoankho", "Phạm Kế Toán", "Kế toán", "Kế toán kho"),
     ("nvsx", "Ngô Sản Xuất", "Sản xuất", "Nhân viên sản xuất"),
+    ("totruongsx", "Bùi Tổ Trưởng", "Sản xuất", "Tổ trưởng SX"),
     ("qlsx", "Vũ Quản Lý SX", "Sản xuất", "Quản lý sản xuất"),
     ("muahang", "Đỗ Mua Hàng", "Mua hàng", "Nhân viên mua hàng"),
 ]

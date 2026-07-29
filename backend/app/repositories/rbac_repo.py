@@ -304,6 +304,11 @@ class RoleRepository:
         can_assign_work: bool = False,
         can_record_output: bool = False,
         can_handover: bool = False,
+        can_request: bool = False,
+        can_view_stock: bool = False,
+        can_view_cost: bool = False,
+        can_set_threshold: bool = False,
+        can_post: bool = False,
     ) -> RolePermission:
         """Upsert the (role, module) permission row."""
         perm = self.get_permission(role_id, module_key)
@@ -343,6 +348,11 @@ class RoleRepository:
         perm.can_assign_work = can_assign_work
         perm.can_record_output = can_record_output
         perm.can_handover = can_handover
+        perm.can_request = can_request
+        perm.can_view_stock = can_view_stock
+        perm.can_view_cost = can_view_cost
+        perm.can_set_threshold = can_set_threshold
+        perm.can_post = can_post
         self.db.commit()
         self.db.refresh(perm)
         return perm

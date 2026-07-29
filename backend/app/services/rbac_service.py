@@ -45,6 +45,12 @@ ACTION_RECORD_DEPOSIT = "record_deposit"  # don_hang_ban: ghi phiếu thu cọc 
 ACTION_ASSIGN_WORK = "assign_work"  # san_xuat: tổ trưởng gán thợ vào công đoạn của lệnh đã phát
 ACTION_RECORD_OUTPUT = "record_output"  # san_xuat: tổ trưởng ghi sản lượng đạt/hỏng cho bước (Lát 2)
 ACTION_HANDOVER = "handover"  # san_xuat: tổ trưởng bàn giao số sang tổ kế + xác nhận nhận (Lát 2)
+# kho (spec-kho-de-nghi §9.1) — 4 quyền chi tiết của module Kho:
+ACTION_REQUEST = "request"  # kho: TẠO ĐỀ NGHỊ nhập/xuất (tách khỏi create = lập PHIẾU)
+ACTION_VIEW_STOCK = "view_stock"  # kho: xem SỐ tồn (thiếu → chỉ thấy đèn tín hiệu 5 màu)
+ACTION_VIEW_COST = "view_cost"  # kho: xem giá vốn & giá trị tồn (BRD §1.5 — chỉ KT + BGĐ)
+ACTION_SET_THRESHOLD = "set_threshold"  # kho: khai ngưỡng tồn / cận tồn / tối đa
+ACTION_POST = "post"  # kho: GHI SỔ phiếu (chốt tồn) — tách khỏi create (lập nháp) để giữ SoD
 # Ghi chú: don_hang_ban tái dùng ACTION_APPROVE (= "Chốt đơn") và ACTION_CANCEL (= "Hủy đơn");
 # ACTION_APPROVE_EXCEPTION TÁCH RIÊNG (chỉ GĐ) — duyệt đơn đặc thù mới được chốt.
 
@@ -81,6 +87,11 @@ _ACTION_ATTR = {
     ACTION_ASSIGN_WORK: "can_assign_work",
     ACTION_RECORD_OUTPUT: "can_record_output",
     ACTION_HANDOVER: "can_handover",
+    ACTION_REQUEST: "can_request",
+    ACTION_VIEW_STOCK: "can_view_stock",
+    ACTION_VIEW_COST: "can_view_cost",
+    ACTION_SET_THRESHOLD: "can_set_threshold",
+    ACTION_POST: "can_post",
 }
 
 
@@ -150,6 +161,11 @@ class AuthorizationService:
                 "can_assign_work": p.can_assign_work,
                 "can_record_output": p.can_record_output,
                 "can_handover": p.can_handover,
+                "can_request": p.can_request,
+                "can_view_stock": p.can_view_stock,
+                "can_view_cost": p.can_view_cost,
+                "can_set_threshold": p.can_set_threshold,
+                "can_post": p.can_post,
             }
             for p in self.roles.permissions_for(user.role_id)
         ]

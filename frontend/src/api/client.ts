@@ -224,7 +224,11 @@ export type QuoteEvent =
   // Xếp lịch: đưa vào/gỡ kế hoạch · gán máy-ca-giờ · khóa → bàn Xếp lịch + badge cập nhật ngay.
   | { type: "xep_lich_changed" }
   // Chốt (thông tin) → báo KẾ TOÁN "đơn chờ ghi cọc" (popup module Phiếu thu). amount = cần thu.
-  | { type: "order_deposit_needed"; code?: string; order_id: number; amount: number };
+  | { type: "order_deposit_needed"; code?: string; order_id: number; amount: number }
+  // Kho (spec-kho-de-nghi §10): `stock_request` = tin đích danh có sẵn câu chữ để toast;
+  // `stock_request_pending_changed` = tín hiệu NHẸ (danh sách chờ đổi) → chỉ refetch badge.
+  | { type: "stock_request"; code?: string; message: string }
+  | { type: "stock_request_pending_changed"; code?: string };
 
 // --- Lệnh sản xuất (LSX) — bàn Kế hoạch sản xuất ------------------------------
 // Job (đơn) → Part (lệnh) → Operation (công đoạn). Mỗi DÒNG ĐƠN = 1 lệnh, ngang hàng.
@@ -965,6 +969,12 @@ export interface ModuleCapability {
   can_assign_work: boolean;
   can_record_output: boolean;
   can_handover: boolean;
+  /** kho — quyền chi tiết module Kho (spec-kho-de-nghi §9.1) + ghi sổ (SoD). */
+  can_request: boolean;
+  can_view_stock: boolean;
+  can_view_cost: boolean;
+  can_set_threshold: boolean;
+  can_post: boolean;
 }
 
 /** A live login session (active refresh token) for the admin user-detail view (spec-08). */
@@ -1016,6 +1026,12 @@ export interface PermissionRow {
   can_assign_work: boolean;
   can_record_output: boolean;
   can_handover: boolean;
+  /** kho — quyền chi tiết module Kho (spec-kho-de-nghi §9.1) + ghi sổ (SoD). */
+  can_request: boolean;
+  can_view_stock: boolean;
+  can_view_cost: boolean;
+  can_set_threshold: boolean;
+  can_post: boolean;
 }
 
 // --- Khách hàng (CRM), spec-06 v2 -------------------------------------------
@@ -4089,6 +4105,429 @@ export interface KhuonBeRow {
   active: boolean;
 }
 
+// ④ 1 lệnh trong bảng lịch chạy (Máy × Ngày)
+export interface LichChayRow {
+  lenh_id: number;
+  ma: string;
+  trang_thai: string;   // gate resize hạn nội bộ trên Gantt (sau phát khóa hạn)
+  order_no: string | null;
+  khach: string | null;
+  giay_label: string | null;
+  spec_tom_tat: string;
+  may_id: number | null;
+  ngay_chay: string | null;
+  thu_tu_chay: number | null;
+  thoi_luong_phut: number | null;
+  han_giao_khach: string | null;
+  han_giao_noi_bo: string | null;
+  can_khuon: boolean;
+  khuon_be_id: number | null;
+}
+// 1 công đoạn routing GỐC của ấn phẩm (đọc từ Tính giá) — KHÔNG có đơn giá (cô lập thương mại).
+export interface RoutingGocRow {
+  thu_tu: number;
+  cong_doan_id: number | null;
+  ten: string;
+  nha_cung_cap: string | null;
+  ghi_chu: string | null;
+}
+// 1 vật tư thêm của ấn phẩm (vecni bóng/mờ · cán màng…) — tên + ghi chú, không giá.
+export interface VatTuGocRow {
+  ten: string;
+  ghi_chu: string | null;
+}
+// Chi tiết ĐẦY ĐỦ ấn phẩm cho DRAWER (mirror phiếu công đoạn) — CHỈ KỸ THUẬT (đã lọc sạch giá).
+// Giá trị HIỆU LỰC = báo giá + override tại lệnh. editable = mở từ lệnh NHÁP (được sửa quy cách).
+export interface AnPhamChiTiet {
+  phieu_thanh_phan_id: number;
+  lenh_item_id: number | null;
+  editable: boolean;
+  overridden: string[]; // các field đã override so với báo giá
+  // nhận dạng / thành phẩm
+  ten: string;
+  loai_thanh_phan: string;
+  kho_thanh_pham: string | null;
+  dai_thanh_pham: number;
+  rong_thanh_pham: number;
+  kho_mo_rong: string | null;
+  tay_gap: string | null;
+  so_to_per_sp: number;
+  so_luong: number;
+  don_vi_tinh: string;
+  // giấy (đã resolve tên + chủng loại)
+  giay_id: number | null;
+  giay_ten: string | null;
+  chung_loai_ten: string | null;
+  gsm: number | null;
+  kho_nguyen: string | null;
+  kho_nguyen_dai: number;
+  kho_nguyen_rong: number;
+  nguon_giay: string;
+  // in & màu
+  co_in: boolean;
+  che_ban_loai: string | null;
+  quy_cach_in: string;
+  kho_in_dai: number;
+  kho_in_rong: number;
+  so_con: number;
+  con_auto: boolean;
+  may_id: number | null;
+  so_mau_a: number;
+  so_mau_b: number;
+  so_kem: number;
+  // số lượng (engine snapshot — null nếu phiếu chưa tính)
+  so_luong_can: number | null;
+  so_to_thuc_te: number | null;
+  so_to_sau_in: number | null;
+  so_to_nguyen: number | null;
+  con_tren_to: number | null;
+  bu_hao_auto: number | null;
+  bu_hao_so_to: number;
+  hao_so_to: number;
+  tinh_bu_hao_cd: boolean;
+  // note kỹ thuật theo sản phẩm + vật tư + routing
+  ghi_chu_ky_thuat: string | null;
+  vat_tu: VatTuGocRow[];
+  routing: RoutingGocRow[];
+}
+export interface PrintFormDetailOut extends PrintFormRow {
+  placements: PlacementRow[];
+  lenhs: LenhSXRow[];
+}
+// Handoff (§5.1): đơn đã chốt CHỜ lên kế hoạch — kèm ngữ cảnh để kế hoạch cấu hình.
+export interface HangChoAnPham {
+  phieu_thanh_phan_id: number | null;
+  description: string;
+  qty: number;
+  don_vi_tinh: string;
+  spec_tom_tat: string; // quy cách rút gọn (khổ TP · số màu · giấy) — kỹ thuật, không giá
+}
+export interface HangChoDon {
+  order_id: number;
+  order_no: string;
+  khach: string | null;
+  is_rush: boolean;
+  delivery_committed_date: string | null;
+  production_note: string | null;
+  an_pham: HangChoAnPham[];
+}
+export interface PrintFormListOut {
+  items: PrintFormRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+export interface LenhSXListParams {
+  order_id?: number;
+  trang_thai?: string;
+  page?: number;
+  size?: number;
+}
+/** 1 dòng xếp bài khi tạo tờ (ghép) — số con NHẬP TAY (máy chỉ ghi). */
+export interface GhepPlacementInput {
+  lenh_sx_id: number;
+  so_con: number;
+}
+/** Tạo 1 TỜ IN + xếp bài. Giấy/khổ/màu là ẢNH CHỤP (người kế hoạch tự nhìn PTG rồi nhập). */
+export interface GhepInput {
+  giay_id?: number | null;
+  giay_label?: string | null;
+  kho_in_dai?: number;
+  kho_in_rong?: number;
+  so_mau?: number;
+  may_id?: number | null;
+  so_to_chay?: number;
+  so_kem?: number;
+  placements: GhepPlacementInput[];
+}
+
+// --- Kho: đề nghị · phiếu · lô · ngưỡng tồn (spec-kho-de-nghi) ---------------
+// Mọi trường TIỀN (`don_gia`, `thanh_tien`, `gia_von`, `don_gia_nhap`) và `ton_kha_dung`
+// là `null` khi người gọi thiếu quyền — backend XÓA số khỏi response chứ không chỉ ẩn cột,
+// nên UI chỉ cần dò null để quyết định ẩn ô/cột.
+
+export type StockRequestKind = "NHAP" | "XUAT";
+
+export type StockRequestStatus =
+  | "draft"
+  | "pending"
+  | "approved"
+  | "received"
+  | "preparing"
+  | "partial"
+  | "done"
+  | "rejected"
+  | "cancelled";
+
+export type StockPriority = "binh_thuong" | "gap";
+
+/** Đèn tín hiệu 4 mức (bỏ "sắp hết/cận tồn") — KHÔNG kèm con số nên ai cũng nhận được. */
+export type StockLevel = "du_ton" | "du" | "can_mua" | "het";
+
+export type StockVoucherStatus = "draft" | "posted" | "cancelled";
+
+export interface StockRequestLine {
+  id: number;
+  /** null = hàng mới chưa gắn mã; xem `ten_tu_do`. Kho gắn/tạo mã ở bước phiếu. */
+  material_id: number | null;
+  material_code: string | null;
+  material_name: string | null;
+  /** Tên hàng mới do người đề nghị gõ tự do (khi chưa có mã). */
+  ten_tu_do: string | null;
+  dvt: string;
+  /** Quy đổi KHO của mặt hàng (1 don_vi_phu = he_so_quy_doi × dvt tồn). null = không quy đổi. */
+  don_vi_phu: string | null;
+  he_so_quy_doi: number | null;
+  sl_de_nghi: number;
+  sl_duyet: number;
+  sl_da_ung: number;
+  sl_con_lai: number;
+  /** Đơn giá NHẬP người đề nghị khai — phiếu kế thừa (kho chỉ đọc). Null với đề nghị XUẤT. */
+  don_gia: number | null;
+  /** Kho phản hồi: lý do kho cấp/nhập thiếu so với còn phải cấp (nếu có). */
+  ly_do_thieu: string | null;
+  ghi_chu: string | null;
+  muc_ton: StockLevel | null;
+  /** CHỈ có khi `can_view_stock`; thiếu quyền → null. */
+  ton_kha_dung: number | null;
+}
+
+export interface StockRequest {
+  id: number;
+  ma: string;
+  loai: StockRequestKind;
+  nguoi_tao_id: number;
+  nguoi_tao_ten: string | null;
+  bo_phan_id: number | null;
+  bo_phan_ten: string | null;
+  kho_id: number | null;
+  kho_ten: string | null;
+  ngay_can: string | null;
+  uu_tien: StockPriority;
+  ghi_chu: string | null;
+  trang_thai: StockRequestStatus;
+  nguoi_duyet_id: number | null;
+  nguoi_duyet_ten: string | null;
+  duyet_luc: string | null;
+  ly_do_tu_choi: string | null;
+  // Id phiếu ĐANG CHỜ GHI SỔ (nếu có) → đổi nút "Lập phiếu" thành "Xem phiếu", chống tạo trùng.
+  open_voucher_id: number | null;
+  created_at: string;
+  lines: StockRequestLine[];
+}
+
+export interface StockRequestPage {
+  items: StockRequest[];
+  total: number;
+}
+
+export interface StockRequestListParams {
+  q?: string | null;
+  loai?: StockRequestKind | null;
+  trang_thai?: StockRequestStatus[];
+  kho_id?: number | null;
+  page?: number;
+  size?: number;
+}
+
+export interface StockRequestLineInput {
+  // Hàng đã có mã → material_id. Hàng MỚI (gõ tên tự do) → bỏ material_id, gửi ten_tu_do.
+  material_id?: number | null;
+  ten_tu_do?: string | null;
+  dvt: string;
+  sl_de_nghi: number;
+  /** Đơn giá NHẬP người đề nghị khai (chỉ đề nghị NHẬP). Phiếu kế thừa; kho không sửa. */
+  don_gia?: number | null;
+  /** Quy đổi đơn vị người đề nghị khai (1 don_vi_phu = he_so_quy_doi × dvt tồn). */
+  don_vi_phu?: string | null;
+  he_so_quy_doi?: number | null;
+  ghi_chu?: string | null;
+}
+
+export interface StockRequestInput {
+  loai: StockRequestKind;
+  /** Kho KHÔNG chọn ở đề nghị nữa — quyết ở bước lập phiếu. Giữ optional cho tương thích. */
+  kho_id?: number | null;
+  /** Số đề nghị tự nhập; bỏ trống → hệ thống tự sinh. */
+  ma?: string | null;
+  ngay_can?: string | null;
+  uu_tien?: StockPriority;
+  ghi_chu?: string | null;
+  lines: StockRequestLineInput[];
+}
+
+export interface StockRequestUpdateInput {
+  ngay_can?: string | null;
+  uu_tien?: StockPriority;
+  ghi_chu?: string | null;
+  lines?: StockRequestLineInput[];
+}
+
+/** Ô chọn vật tư khi lập đề nghị — 4 trường tối thiểu, KHÔNG có giá. */
+export interface StockMaterialOption {
+  id: number;
+  code: string | null;
+  name: string | null;
+  unit: string | null;
+  don_vi_phu?: string | null;
+  he_so_quy_doi?: number | null;
+}
+
+export interface StockVoucherLine {
+  id: number;
+  request_line_id: number;
+  material_id: number;
+  material_code: string | null;
+  material_name: string | null;
+  dvt: string | null;
+  lot_id: number | null;
+  ma_lo: string | null;
+  so_luong: number;
+  ghi_chu: string | null;
+  don_gia: number | null;
+  thanh_tien: number | null;
+}
+
+export interface StockVoucher {
+  id: number;
+  ma: string;
+  loai: StockRequestKind;
+  request_id: number;
+  request_ma: string | null;
+  kho_id: number;
+  kho_ten: string | null;
+  ngay: string;
+  nguoi_lap_id: number;
+  nguoi_lap_ten: string | null;
+  /** Chuỗi trách nhiệm từ đề nghị gốc: ai đề nghị · ai duyệt. */
+  nguoi_de_nghi_ten: string | null;
+  nguoi_duyet_ten: string | null;
+  /** Người GHI SỔ (duyệt/chốt phiếu) — chỉ có sau khi đã ghi sổ. */
+  nguoi_ghi_so_ten: string | null;
+  nguoi_giao_nhan: string | null;
+  ghi_chu: string | null;
+  trang_thai: StockVoucherStatus;
+  ghi_so_luc: string | null;
+  created_at: string;
+  lines: StockVoucherLine[];
+  /** Tổng giá vốn — chỉ có khi `can_view_cost`. */
+  gia_von: number | null;
+}
+
+export interface StockVoucherPage {
+  items: StockVoucher[];
+  total: number;
+}
+
+export interface StockVoucherAttachment {
+  id: number;
+  stock_voucher_id: number;
+  file_name: string;
+  /** Đường dẫn tải (mount /static). Tải xuống = origin + file_url. */
+  file_url: string;
+  file_type: string | null;
+  uploaded_by: number | null;
+  uploaded_at: string;
+}
+
+export interface StockVoucherListParams {
+  q?: string | null;
+  loai?: StockRequestKind | null;
+  trang_thai?: StockVoucherStatus | null;
+  request_id?: number | null;
+  kho_id?: number | null;
+  page?: number;
+  size?: number;
+}
+
+export interface StockVoucherLineInput {
+  request_line_id: number;
+  /** Hàng mới: CHỌN mã có sẵn → material_id; hoặc TẠO MỚI → bỏ material_id, khai new_* (backend
+   *  tạo mã khi lưu/ghi sổ, không tạo eager). */
+  material_id?: number | null;
+  new_name?: string | null;
+  new_unit?: string | null;
+  new_don_vi_phu?: string | null;
+  new_he_so_quy_doi?: number | null;
+  so_luong: number;
+  /** Phiếu NHẬP: giá của lô sắp tạo. Phiếu XUẤT: bỏ qua (giá lấy đích danh từ lô). */
+  don_gia?: number | null;
+  /** Phiếu XUẤT: bắt buộc. Phiếu NHẬP: bỏ qua (lô sinh ra lúc ghi sổ). */
+  lot_id?: number | null;
+  /** Lý do cấp/nhập THIẾU (khi SL < còn phải cấp) — bắt buộc nếu thiếu; ghi vào đề nghị. */
+  ly_do?: string | null;
+  ghi_chu?: string | null;
+}
+
+export interface StockVoucherInput {
+  request_id: number;
+  kho_id: number;
+  /** Số phiếu tự nhập; bỏ trống → hệ thống tự sinh. */
+  ma?: string | null;
+  ngay?: string | null;
+  nguoi_giao_nhan?: string | null;
+  ghi_chu?: string | null;
+  lines: StockVoucherLineInput[];
+}
+
+export interface StockLot {
+  id: number;
+  ma_lo: string;
+  material_id: number;
+  material_code: string | null;
+  material_name: string | null;
+  /** Đơn vị tính của mã hàng (để tạo dòng Yêu cầu mua có sẵn ĐVT). */
+  dvt: string | null;
+  kho_id: number;
+  vi_tri: string | null;
+  ngay_nhap: string;
+  ncc: string | null;
+  sl_ban_dau: number;
+  sl_con_lai: number;
+  hsd: string | null;
+  trang_thai: string;
+  /** Phiếu NHẬP đã tạo ra lô (để link mã lô → phiếu). Null với tồn đầu kỳ. */
+  voucher_id: number | null;
+  /** Chỉ có khi `can_view_cost` — thủ kho chọn lô mà không thấy giá. */
+  don_gia_nhap: number | null;
+}
+
+export interface StockAllocationLine {
+  lot_id: number;
+  ma_lo: string;
+  ngay_nhap: string;
+  hsd: string | null;
+  sl_con_lai: number;
+  so_luong: number;
+  don_gia_nhap: number | null;
+}
+
+export interface StockAllocation {
+  lines: StockAllocationLine[];
+  /** > 0 = kho không đủ hàng cho số cần cấp. */
+  thieu: number;
+}
+
+export interface StockThreshold {
+  id: number;
+  material_id: number;
+  kho_id: number;
+  nguong_ton: number;
+  nguong_can_ton: number | null;
+  nguong_toi_da: number | null;
+  canh_bao: boolean;
+}
+
+export interface StockThresholdInput {
+  material_id: number;
+  kho_id: number;
+  nguong_ton: number;
+  /** Bỏ trống → backend tự suy ra = nguong_ton × 1.3. */
+  nguong_can_ton?: number | null;
+  nguong_toi_da?: number | null;
+  canh_bao?: boolean;
+}
+
 export const api = {
   login(username: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>("/api/auth/login", {
@@ -6384,6 +6823,191 @@ export const api = {
     // size ≤ 200 — router chặn `le=200`, gửi 500 là 422 (đừng nâng lại).
     list(token: string): Promise<{ items: CongDoanLite[] }> {
       return authed<{ items: CongDoanLite[] }>("/api/cong-doan?size=200", token);
+    },
+  },
+
+  // --- Kho: đề nghị · phiếu nhập/xuất · ngưỡng tồn (spec-kho-de-nghi) -------
+  // Gom 3 prefix `/api/kho/de-nghi`, `/api/kho/phieu`, `/api/kho/nguong-ton` vào một
+  // namespace vì chúng là MỘT luồng (đề nghị → phiếu → lô). Khai báo kho (`/api/kho`) vẫn
+  // đi qua `crud()` của rebuildCatalog — đó là danh mục, không phải chứng từ.
+  kho: {
+    deNghi: {
+      list(token: string, params: StockRequestListParams = {}): Promise<StockRequestPage> {
+        const qs = new URLSearchParams();
+        if (params.q) qs.set("q", params.q);
+        if (params.loai) qs.set("loai", params.loai);
+        // `trang_thai` là list ở backend → lặp param, KHÔNG nối bằng dấu phẩy.
+        for (const s of params.trang_thai ?? []) qs.append("trang_thai", s);
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        if (params.page) qs.set("page", String(params.page));
+        if (params.size) qs.set("size", String(params.size));
+        const suffix = qs.toString() ? `?${qs.toString()}` : "";
+        return authed<StockRequestPage>(`/api/kho/de-nghi${suffix}`, token);
+      },
+      get(token: string, id: number, khoId?: number | null): Promise<StockRequest> {
+        const suffix = khoId != null ? `?kho_id=${khoId}` : "";
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}${suffix}`, token);
+      },
+      create(token: string, body: StockRequestInput): Promise<StockRequest> {
+        return authed<StockRequest>("/api/kho/de-nghi", token, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      },
+      update(token: string, id: number, body: StockRequestUpdateInput): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}`, token, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+      },
+      submit(token: string, id: number): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}/trinh-duyet`, token, { method: "POST" });
+      },
+      /** `approved_qty`: line_id → SL duyệt. Gửi cho MỌI dòng (0 = không duyệt dòng đó). */
+      approve(token: string, id: number, approvedQty: Record<number, number>): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}/duyet`, token, {
+          method: "POST",
+          body: JSON.stringify({ approved_qty: approvedQty }),
+        });
+      },
+      reject(token: string, id: number, lyDo: string): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}/tu-choi`, token, {
+          method: "POST",
+          body: JSON.stringify({ ly_do: lyDo }),
+        });
+      },
+      cancel(token: string, id: number): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}/huy`, token, { method: "POST" });
+      },
+      /** Kho bấm "Tiếp nhận" (gác bằng `create`, không phải `approve` — kho không duyệt). */
+      receive(token: string, id: number): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}/tiep-nhan`, token, { method: "POST" });
+      },
+      prepare(token: string, id: number): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}/chuan-bi`, token, { method: "POST" });
+      },
+      /** Tìm vật tư cho ô chọn dòng đề nghị — gác `kho:read`, chỉ trả 4 trường (không giá). */
+      vatTu(token: string, q?: string | null, size = 30): Promise<StockMaterialOption[]> {
+        const qs = new URLSearchParams({ size: String(size) });
+        if (q) qs.set("q", q);
+        return authed<StockMaterialOption[]>(`/api/kho/de-nghi/vat-tu?${qs.toString()}`, token);
+      },
+      /** Thêm nhanh mặt hàng ngay ở đề nghị (tên + ĐVT + mã + quy đổi tuỳ chọn). 409 nếu trùng. */
+      taoVatTu(
+        token: string,
+        body: {
+          name: string;
+          unit: string;
+          code?: string | null;
+          don_vi_phu?: string | null;
+          he_so_quy_doi?: number | null;
+        },
+      ): Promise<StockMaterialOption> {
+        return authed<StockMaterialOption>("/api/kho/de-nghi/vat-tu", token, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      },
+      /** Khai/sửa quy đổi cho hàng đã có (nút 'Quy đổi' trên dòng phiếu). Cả hai null = bỏ quy đổi. */
+      quyDoi(
+        token: string,
+        materialId: number,
+        body: { don_vi_phu: string | null; he_so_quy_doi: number | null },
+      ): Promise<StockMaterialOption> {
+        return authed<StockMaterialOption>(`/api/kho/de-nghi/vat-tu/${materialId}/quy-doi`, token, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+      },
+      /** Gợi ý SL từ lịch sử đề nghị của bộ phận; `so_luong === null` = chưa đủ dữ liệu. */
+      goiYSoLuong(token: string, materialId: number): Promise<{ so_luong: number | null }> {
+        return authed<{ so_luong: number | null }>(
+          `/api/kho/de-nghi/goi-y/so-luong?material_id=${materialId}`,
+          token,
+        );
+      },
+    },
+
+    phieu: {
+      list(token: string, params: StockVoucherListParams = {}): Promise<StockVoucherPage> {
+        const qs = new URLSearchParams();
+        if (params.q) qs.set("q", params.q);
+        if (params.loai) qs.set("loai", params.loai);
+        if (params.trang_thai) qs.set("trang_thai", params.trang_thai);
+        if (params.request_id != null) qs.set("request_id", String(params.request_id));
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        if (params.page) qs.set("page", String(params.page));
+        if (params.size) qs.set("size", String(params.size));
+        const suffix = qs.toString() ? `?${qs.toString()}` : "";
+        return authed<StockVoucherPage>(`/api/kho/phieu${suffix}`, token);
+      },
+      get(token: string, id: number): Promise<StockVoucher> {
+        return authed<StockVoucher>(`/api/kho/phieu/${id}`, token);
+      },
+      create(token: string, body: StockVoucherInput): Promise<StockVoucher> {
+        return authed<StockVoucher>("/api/kho/phieu", token, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      },
+      /** Ghi sổ — điểm DUY NHẤT tồn kho thay đổi; sau đó phiếu không sửa được nữa. */
+      ghiSo(token: string, id: number): Promise<StockVoucher> {
+        return authed<StockVoucher>(`/api/kho/phieu/${id}/ghi-so`, token, { method: "POST" });
+      },
+      huy(token: string, id: number): Promise<StockVoucher> {
+        return authed<StockVoucher>(`/api/kho/phieu/${id}/huy`, token, { method: "POST" });
+      },
+      /** Gợi ý lấy hàng từ lô nào (FEFO → FIFO). `thieu` > 0 = kho không đủ hàng. */
+      goiYLo(
+        token: string,
+        params: { material_id: number; kho_id: number; so_luong: number },
+      ): Promise<StockAllocation> {
+        const qs = new URLSearchParams({
+          material_id: String(params.material_id),
+          kho_id: String(params.kho_id),
+          so_luong: String(params.so_luong),
+        });
+        return authed<StockAllocation>(`/api/kho/phieu/lo/goi-y?${qs.toString()}`, token);
+      },
+      danhSachLo(
+        token: string,
+        params: { material_id?: number | null; kho_id?: number | null; con_hang?: boolean },
+      ): Promise<StockLot[]> {
+        const qs = new URLSearchParams();
+        if (params.material_id != null) qs.set("material_id", String(params.material_id));
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        qs.set("con_hang", String(params.con_hang ?? true));
+        return authed<StockLot[]>(`/api/kho/phieu/lo/danh-sach?${qs.toString()}`, token);
+      },
+      // --- Đính kèm hóa đơn/chứng từ gốc (ảnh hoặc PDF, ≤10MB) ---
+      attachments(token: string, id: number): Promise<{ items: StockVoucherAttachment[] }> {
+        return authed<{ items: StockVoucherAttachment[] }>(`/api/kho/phieu/${id}/attachments`, token);
+      },
+      uploadAttachment(token: string, id: number, file: File): Promise<StockVoucherAttachment> {
+        const form = new FormData();
+        form.append("file", file);
+        return authed<StockVoucherAttachment>(`/api/kho/phieu/${id}/attachments`, token, {
+          method: "POST",
+          body: form,
+        });
+      },
+      deleteAttachment(token: string, id: number, attachmentId: number): Promise<void> {
+        return authed<void>(`/api/kho/phieu/${id}/attachments/${attachmentId}`, token, {
+          method: "DELETE",
+        });
+      },
+    },
+
+    nguongTon: {
+      list(token: string): Promise<StockThreshold[]> {
+        return authed<StockThreshold[]>("/api/kho/nguong-ton", token);
+      },
+      upsert(token: string, body: StockThresholdInput): Promise<StockThreshold> {
+        return authed<StockThreshold>("/api/kho/nguong-ton", token, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+      },
     },
   },
 

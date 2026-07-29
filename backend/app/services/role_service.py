@@ -158,6 +158,12 @@ class RoleService:
                     "can_assign_work": bool(p.can_assign_work) if p else False,
                     "can_record_output": bool(p.can_record_output) if p else False,
                     "can_handover": bool(p.can_handover) if p else False,
+                    # kho — quyền chi tiết (spec-kho-de-nghi §9.1) + ghi sổ (SoD).
+                    "can_request": bool(p.can_request) if p else False,
+                    "can_view_stock": bool(p.can_view_stock) if p else False,
+                    "can_view_cost": bool(p.can_view_cost) if p else False,
+                    "can_set_threshold": bool(p.can_set_threshold) if p else False,
+                    "can_post": bool(p.can_post) if p else False,
                 }
             )
         return rows
@@ -210,6 +216,11 @@ class RoleService:
                 can_assign_work=row.get("can_assign_work", False),
                 can_record_output=row.get("can_record_output", False),
                 can_handover=row.get("can_handover", False),
+                can_request=row.get("can_request", False),
+                can_view_stock=row.get("can_view_stock", False),
+                can_view_cost=row.get("can_view_cost", False),
+                can_set_threshold=row.get("can_set_threshold", False),
+                can_post=row.get("can_post", False),
             )
         self.audit.create(
             actor_user_id=actor_id,

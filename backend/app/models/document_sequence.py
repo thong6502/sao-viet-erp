@@ -15,6 +15,12 @@ from ..db import Base
 SEQ_YEAR_GLOBAL = 2000
 SEQ_DOC_TYPE_PAYMENT_VOUCHER = "payment_voucher"
 SEQ_DOC_TYPE_PAYMENT_RECEIPT = "payment_receipt"
+# Kho (spec-kho-de-nghi §10): phiếu nhập/xuất in theo mẫu 01-VT/02-VT của TT200 nên số
+# cũng chạy liên tục như phiếu thu/chi. Đề nghị dùng chung cơ chế cho nhất quán.
+SEQ_DOC_TYPE_STOCK_VOUCHER_IN = "stock_voucher_in"
+SEQ_DOC_TYPE_STOCK_VOUCHER_OUT = "stock_voucher_out"
+SEQ_DOC_TYPE_STOCK_REQUEST_IN = "stock_request_in"
+SEQ_DOC_TYPE_STOCK_REQUEST_OUT = "stock_request_out"
 
 
 class DocumentSequence(Base):

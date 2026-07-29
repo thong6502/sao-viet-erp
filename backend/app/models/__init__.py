@@ -85,6 +85,9 @@ from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
 from .cong_doan import CongDoan
 from .bu_hao import BuHao
 from .kho_hang import KhoHang
+from .stock_request import StockRequest, StockRequestLine
+from .stock_lot import StockLot, StockThreshold
+from .stock_voucher import StockVoucher, StockVoucherAttachment, StockVoucherLine
 from .khuon_be import KhuonBe
 from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
@@ -182,6 +185,13 @@ __all__ = [
     "PhieuThanhPhan",
     "PhieuThanhPham",
     "KhoHang",
+    "StockRequest",
+    "StockRequestLine",
+    "StockVoucher",
+    "StockVoucherAttachment",
+    "StockVoucherLine",
+    "StockLot",
+    "StockThreshold",
     "KhuonBe",
     "Lsx",
     "LsxCongDoan",
