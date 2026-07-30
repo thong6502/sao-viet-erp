@@ -2191,6 +2191,10 @@ def seed_all(db: Session) -> None:
         seed_document_sequences(db)
         seed_san_xuat_org(db)  # nền tổ SX (§13.1): tag "Sản xuất" + cây tổ + gắn công đoạn/thợ
         seed_san_xuat_accounts(db)  # Lát 1: tài khoản tổ trưởng/thợ/kế hoạch/QC + head_user_id
+        # Luồng THẬT đầu-cuối (tính giá → báo giá → đơn hàng bán → lệnh SX). CHẠY CUỐI: cần đủ
+        # khách + sale + danh mục giấy/công đoạn + tổ SX + tài khoản kế hoạch ở trên.
+        from .seed_luong_ban_sx import seed_luong_ban_sx
+        seed_luong_ban_sx(db)
     backfill_user_codes(db)
     # Chạy NGOÀI khối demo: luật "mọi tài khoản phải có hồ sơ" áp cho mọi DB (dev/live),
     # và phải chạy SAU các seed tài khoản demo ở trên để dọn luôn đám vừa tạo.
