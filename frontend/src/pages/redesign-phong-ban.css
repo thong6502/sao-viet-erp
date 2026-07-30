@@ -85,7 +85,7 @@
 }
 
 .rdx-ckpi-val {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 14px;
   font-weight: 700;
   color: var(--rdx-text-dark);
@@ -199,7 +199,7 @@
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.2);
 }
 .rdx-chip__n {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   font-weight: 700;
   color: inherit;
@@ -329,7 +329,7 @@
 }
 
 .rdx-tree__code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: 700;
   color: var(--rdx-primary);
@@ -360,7 +360,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 600;
   color: var(--rdx-text-slate);
@@ -537,7 +537,7 @@
   min-width: 0;
 }
 .rdx-drawer__crumbs {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 600;
   color: #64748b;
@@ -563,7 +563,7 @@
 }
 .rdx-drawer__code {
   flex: 0 0 auto;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   font-weight: 700;
   color: var(--rdx-primary);
@@ -733,7 +733,7 @@
   color: #0f172a;
 }
 .rdx-ov__v--num {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 18px;
   color: var(--rdx-primary);
 }
@@ -805,7 +805,7 @@
   white-space: nowrap;
 }
 .rdx-rolechip__n {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   color: var(--rust-deep);
@@ -1158,7 +1158,7 @@
 }
 
 .rdx-org-node__code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 9.5px;
   font-weight: var(--fw-bold);
   color: var(--rust);
@@ -1179,7 +1179,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-bold);
   color: var(--ash);
@@ -1306,7 +1306,7 @@
 }
 
 .rdx-org-node__toggle-n {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   font-weight: var(--fw-bold);
   line-height: 1;
@@ -1437,7 +1437,7 @@
 }
 
 .rdx-kpi-card__value {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 19px;
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -1652,7 +1652,7 @@
 }
 
 .rdx-subdept-card__count {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   color: var(--rust);
@@ -1781,7 +1781,7 @@
   border-color: var(--ink);
 }
 .rdx-chip__n {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   color: inherit;
@@ -1906,7 +1906,7 @@
 }
 
 .rdx-tree__code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   color: var(--rust);
@@ -1937,7 +1937,7 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-bold);
   color: var(--ash);
@@ -2100,7 +2100,7 @@
   min-width: 0;
 }
 .rdx-drawer__crumbs {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-medium);
   color: var(--ash);
@@ -2126,7 +2126,7 @@
 }
 .rdx-drawer__code {
   flex: 0 0 auto;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   font-weight: var(--fw-bold);
   color: var(--rust);
@@ -2299,7 +2299,7 @@
   color: var(--ink);
 }
 .rdx-ov__v--num {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 17px;
   color: var(--rust);
 }
@@ -2371,7 +2371,7 @@
   white-space: nowrap;
 }
 .rdx-rolechip__n {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   color: var(--rust-deep);
@@ -2578,7 +2578,7 @@
 }
 
 .rdx-kpi-card__value {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 18px;
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -2791,7 +2791,7 @@
 }
 
 .rdx-subdept-card__count {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   color: var(--rust);
@@ -2878,7 +2878,7 @@
 /* Badge % KIÊM nút về 100%: bề rộng cố định để thanh không nhảy khi số đổi
    (100% → 45% là 1 ký tự ít hơn, đủ làm cả cụm nút giật sang). */
 .rdx-canvas-zoom-badge {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-size: 11px;
   font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
@@ -3123,7 +3123,7 @@
 
 /* Interactive Tabs Counter Badge */
 .rdx-drawer__tab-badge {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: 700;
   padding: 1px 6px;
@@ -3393,7 +3393,7 @@
 }
 
 .rdx-info-card__badge {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 15px;
   font-weight: 700;
   color: var(--rust);
@@ -3427,7 +3427,7 @@
 }
 
 .depts__count-pill {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   color: var(--rust);
@@ -3552,7 +3552,7 @@
 }
 
 .depts__member-code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: 700;
   color: var(--rust);
@@ -3587,7 +3587,7 @@
 }
 
 .depts__member-user {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   font-weight: 600;
   color: var(--ash-2);
@@ -3715,7 +3715,7 @@
 }
 
 .rdx-candidate-username {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   color: var(--ash);
 }

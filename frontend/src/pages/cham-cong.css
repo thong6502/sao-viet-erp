@@ -128,7 +128,7 @@
 
 /* 3. Đồng hồ Live cao cấp - Giao diện số điện tử (Dark glassmorphism style) */
 .cc-live-clock {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 34px;
   font-weight: var(--fw-bold);
   color: #fff;
@@ -448,7 +448,7 @@
   text-align: right;
 }
 .cc-timeline-time {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 14px;
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -501,7 +501,7 @@
   color: var(--ash);
 }
 .cc-loc-coord {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   background: var(--rule-soft);
   padding: 2px 6px;
@@ -586,7 +586,7 @@
   font-weight: var(--fw-bold);
   color: var(--ink);
   margin: var(--sp-3) 0 var(--sp-2.5);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   border: 1px solid var(--rule-soft);
   align-self: flex-start;
 }
@@ -1288,7 +1288,7 @@
 
 /* Chi tiết con số ô lịch */
 .cc-month-cell-num {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-weight: var(--fw-bold);
   font-size: 14px;
 }
@@ -1418,7 +1418,7 @@
 
 /* Stack thời gian */
 .cc-log-time {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 13.5px;
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -1768,7 +1768,7 @@
   line-height: 1;
 }
 .cc-day-hdr-v2-num {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 13.5px;
   font-weight: var(--fw-bold);
   color: var(--on-charcoal);
@@ -1860,7 +1860,7 @@
   justify-content: center;
   padding: 3px 6px;
   border-radius: var(--r-2);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   font-weight: var(--fw-bold);
   min-width: 34px;
@@ -2130,7 +2130,7 @@
 }
 
 .cc-timeline-time {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 14px;
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -2506,7 +2506,7 @@
   border-radius: var(--r-4);
   background: var(--paper);
   color: var(--ink);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 18px;
   font-weight: var(--fw-bold);
   line-height: 1;
@@ -2549,7 +2549,7 @@
 
 .cc-time-selects__separator {
   color: var(--rust);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 22px;
   line-height: 1;
 }
@@ -2780,7 +2780,7 @@
   border-radius: var(--r-2);
   background: var(--rule-soft);
   color: var(--ash);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-bold);
 }
@@ -2825,7 +2825,7 @@
   justify-content: center;
   content: "HC";
   width: auto;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-medium);
   color: var(--ash-2);
@@ -2912,7 +2912,7 @@
   min-width: 0;
 }
 .cc-sp-who__code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 9.5px;
   color: var(--ash-2);
 }
@@ -2950,7 +2950,7 @@
   color: var(--ash-2);
 }
 .cc-sp-hdr__d {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   line-height: 1.25;
   font-weight: var(--fw-bold);
@@ -3029,7 +3029,7 @@
   height: 17px;
   padding: 0 3px;
   border-radius: var(--r-2);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   font-weight: var(--fw-bold);
   line-height: 1;
@@ -3075,7 +3075,7 @@
   justify-content: center;
   min-width: 22px;
   height: 17px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 13px;
   font-weight: var(--fw-bold);
   color: var(--ash);
@@ -3141,7 +3141,7 @@
   padding: 5px 0 !important;
   text-align: center;
   vertical-align: middle;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 9.5px;
   line-height: 1.1;
   border-right: 1px solid var(--rule-hair) !important;
@@ -3197,7 +3197,7 @@
 }
 .cc-sp-dirty.is-on .cc-sp-dirty__dot { background: var(--rust); }
 .cc-sp-progress {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   color: var(--ash);
 }
@@ -3350,7 +3350,7 @@
 .cc-sp-hist__tag.is-future { background: var(--amber-soft); color: var(--amber-deep); font-weight: var(--fw-bold); }
 .cc-sp-hist__range {
   margin-top: 3px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   color: var(--ash);
 }
@@ -3437,7 +3437,7 @@
   color: var(--ink);
 }
 .cc-qf-preset__sub {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash);
 }
@@ -3465,7 +3465,7 @@
   border-radius: var(--r-2);
   background: var(--rule-soft);
   color: var(--ash);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   font-weight: var(--fw-bold);
 }
@@ -3536,7 +3536,7 @@
 .cc-qf-strip__d {
   flex: 0 0 24px;
   text-align: center;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   color: var(--ash-2);
 }
@@ -3549,7 +3549,7 @@
   border-radius: var(--r-2);
   background: var(--rule-soft);
   color: var(--ash);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   font-weight: var(--fw-bold);
 }
@@ -3748,7 +3748,7 @@
 }
 .el-cell-mono {
   display: block;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-weight: var(--fw-bold);
   color: var(--ink);
 }
@@ -3775,7 +3775,7 @@
 }
 .el-shiftline svg { flex: none; color: var(--ash-2); }
 .el-shiftline b { color: var(--ink); }
-.el-shiftline__time { font-family: var(--ff-mono); color: var(--ink); font-weight: var(--fw-bold); }
+.el-shiftline__time { font-family: var(--ff-sans); color: var(--ink); font-weight: var(--fw-bold); }
 
 .el-balance {
   display: flex;
@@ -3792,7 +3792,7 @@
   color: var(--ash);
 }
 .el-balance__val {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: var(--fs-md);
   font-weight: var(--fw-bold);
   color: var(--moss-deep);
@@ -3915,7 +3915,8 @@
   color: var(--ash);
   border: 1px solid var(--rule-soft);
 }
-.cc-scl__when { color: var(--ash); font-variant-numeric: tabular-nums; }
+.cc-scl__when {   font-family: var(--ff-num);
+  color: var(--ash); font-variant-numeric: tabular-nums; }
 .cc-scl__when em { font-style: normal; font-size: 11px; color: var(--ash-2); }
 .cc-scl__delta { color: var(--ink); }
 .cc-scl__head {

@@ -7,7 +7,7 @@
 }
 
 .matrix thead th {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -82,7 +82,7 @@
   transform: rotate(180deg);
 }
 .matrix__fine-badge {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash);
   background: var(--rule-hair);
@@ -234,7 +234,7 @@
 }
 .rdx-perm__gcount {
   flex: 0 0 auto;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash);
   background: var(--paper);
@@ -267,7 +267,7 @@
   border-bottom: 1px solid var(--rule-hair);
 }
 .rdx-perm__colhead span {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -336,7 +336,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash);
   background: var(--paper);

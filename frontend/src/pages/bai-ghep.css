@@ -10,6 +10,7 @@
 
 /* --- Bảng thành viên: input số con/tờ + số dư --- */
 .bghep .bghep-ups {
+    font-family: var(--ff-num);
   width: 68px; text-align: right; padding: 4px 8px;
   border: 1px solid var(--rule-hair); border-radius: var(--radius-1, 6px);
   font-size: var(--fs-sm); color: var(--ink); font-variant-numeric: tabular-nums;
@@ -49,6 +50,7 @@
 .bghep .bghep-soto { display: flex; gap: var(--sp-6); margin: var(--sp-5) 0 var(--sp-3); flex-wrap: wrap; }
 .bghep .bghep-soto__big { display: grid; gap: 2px; }
 .bghep .bghep-soto__num {
+    font-family: var(--ff-num);
   font-size: var(--fs-xl); font-weight: var(--fw-bold); color: var(--ink); font-variant-numeric: tabular-nums;
 }
 .bghep .bghep-soto__lbl { font-size: var(--fs-sm); color: var(--ash); }

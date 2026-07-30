@@ -45,7 +45,7 @@
 
 .stabs__count {
   font-size: 11px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   background: var(--rule-soft);
   color: var(--ash);
   border-radius: var(--r-pill);
@@ -151,20 +151,22 @@
 
 .dpanel__label-extra {
   color: var(--rust);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
 }
 
 .dpanel__amount {
   font-size: 30px;
   font-weight: var(--fw-bold);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   letter-spacing: -0.01em;
   margin-top: var(--sp-2);
   line-height: 1.1;
 }
 
 .dpanel__amount small {
+    font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
   font-size: 16px;
   font-weight: var(--fw-regular);
   color: var(--ash-2);
@@ -207,7 +209,7 @@
 }
 
 .dpanel__row-value {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   color: var(--paper);
   white-space: nowrap;
 }
@@ -220,6 +222,8 @@
 }
 
 .dpanel__row--total .dpanel__row-value {
+    font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
   color: var(--rust);
   font-weight: var(--fw-bold);
   font-size: 16px;

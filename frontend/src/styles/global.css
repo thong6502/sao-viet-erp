@@ -23,7 +23,7 @@ body {
 
 /* Signature micro-upper label: 10px, weight 600, mono, uppercase, tracking .14em, ash. */
 .eyebrow {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -60,7 +60,7 @@ body {
   display: grid;
   place-items: center;
   color: var(--ash);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -88,7 +88,7 @@ body {
 }
 
 .field__label {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -318,7 +318,7 @@ body {
   display: inline-block;
   min-width: 18px;
   text-align: center;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-bold);
   background: var(--rule-soft);
@@ -347,7 +347,7 @@ body {
   border-radius: var(--r-3);
   background: var(--charcoal);
   color: var(--on-charcoal);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   font-weight: var(--fw-bold);
   letter-spacing: 0.04em;
@@ -356,7 +356,7 @@ body {
 
 /* KPI/stat card: label mono HOA + số to + sub-hint. Dùng trong .card hoặc độc lập. */
 .stat__label {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 9px;
   font-weight: var(--fw-medium);
   text-transform: uppercase;
@@ -393,7 +393,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-bold);
   letter-spacing: 0.04em;
@@ -417,7 +417,7 @@ body {
   align-items: center;
   justify-content: center;
   min-width: 32px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   font-weight: var(--fw-bold);
   border-radius: var(--r-2);

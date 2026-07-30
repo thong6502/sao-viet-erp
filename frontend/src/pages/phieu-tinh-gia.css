@@ -58,7 +58,8 @@
   box-shadow: 0 10px 34px rgba(0, 0, 0, .16);
   position: relative;
 }
-.ptg-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ptg-num {   font-family: var(--ff-num);
+  text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Nhóm gộp (ruột + bìa của 1 cuốn): dòng nhóm đậm + kẻ trên, thành viên thụt vào.
    Bản in đen-trắng nên phân cấp bằng ĐẬM/THỤT, không dùng màu. */
@@ -67,7 +68,8 @@
 .ptg-nhom-con > td:first-child { padding-left: 18px; }
 .ptg-center { text-align: center; }
 .ptg-cap { font-size: 8.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--ptg-muted); font-weight: 600; }
-.ptg-printed { position: absolute; top: 7mm; right: 12mm; font-size: 8px; color: var(--ptg-muted); font-variant-numeric: tabular-nums; }
+.ptg-printed {   font-family: var(--ff-num);
+  position: absolute; top: 7mm; right: 12mm; font-size: 8px; color: var(--ptg-muted); font-variant-numeric: tabular-nums; }
 
 /* header */
 .ptg-mh {
@@ -87,7 +89,8 @@
 .ptg-th h1 { font-size: 20px; font-weight: 800; letter-spacing: .02em; }
 .ptg-th .ptg-cty { font-size: 9.5px; color: var(--ptg-muted); margin-top: 2px; }
 .ptg-meta { text-align: right; font-size: 11px; line-height: 1.6; }
-.ptg-meta b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.ptg-meta b {   font-family: var(--ff-num);
+  font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* info */
 .ptg-info { border-bottom: 1px solid var(--ptg-hair); padding: 8px 0 9px; margin-bottom: 9px; }
@@ -129,7 +132,8 @@
 }
 .ptg-tbl thead th.ptg-num { text-align: right; }
 .ptg-tbl thead th.ptg-center { text-align: center; }
-.ptg-formula { color: var(--ptg-muted); font-size: 8.5px; font-variant-numeric: tabular-nums; line-height: 1.3; }
+.ptg-formula {   font-family: var(--ff-num);
+  color: var(--ptg-muted); font-size: 8.5px; font-variant-numeric: tabular-nums; line-height: 1.3; }
 .ptg-tbl tr.ptg-sub td { background: var(--ptg-band); font-weight: 800; border-top: 1.5px solid var(--ptg-line-strong); }
 .ptg-tbl tr.ptg-sub .ptg-sl { text-transform: uppercase; letter-spacing: .04em; font-size: 9px; }
 .ptg-tbl tr.ptg-empty td { color: var(--ptg-muted); font-style: italic; }
@@ -148,7 +152,8 @@
 }
 .ptg-grand .ptg-gt { font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
 .ptg-grand .ptg-gs { font-size: 8.5px; color: var(--ptg-muted); margin-top: 2px; }
-.ptg-grand .ptg-ga { font-size: 23px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ptg-grand .ptg-ga {   font-family: var(--ff-num);
+  font-size: 23px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ptg-grand .ptg-ga .ptg-u { font-size: 12px; font-weight: 700; margin-left: 4px; }
 
 /* signatures */

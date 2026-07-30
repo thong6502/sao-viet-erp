@@ -20,14 +20,14 @@
 
 /* --- Số: mọi ô số của kho đọc theo cột ------------------------------------ */
 .kho-num {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
 }
 input.kho-num,
 .rc-input.kho-num {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -66,7 +66,7 @@ input.kho-num,
 
 /* --- Dải meta mono một dòng dưới head drawer (thay Timeline 2 mốc) -------- */
 .kho-meta {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   color: var(--ash);
   padding: var(--sp-2) var(--sp-5);
@@ -104,7 +104,7 @@ input.kho-num,
 .kho-prog__bar--partial { background: var(--amber); }
 .kho-prog__bar--none { background: var(--rule); }
 .kho-prog__num {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   font-size: 11.5px;
   color: var(--ash);
@@ -147,7 +147,7 @@ input.kho-num,
 .kho-lines thead th {
   text-align: left;
   padding: 0 var(--sp-2) var(--sp-2);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   letter-spacing: 0.1em;
@@ -187,7 +187,7 @@ input.kho-num,
   color: var(--ink);
 }
 .kho-lines__code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash);
 }
@@ -242,7 +242,7 @@ input.kho-num,
   font-size: 13px;
 }
 .kho-alloc__title small {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash);
   margin-left: 6px;
@@ -252,7 +252,7 @@ input.kho-num,
   color: var(--ash);
 }
 .kho-alloc__remain b {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   color: var(--ink);
   margin-left: 4px;
@@ -339,7 +339,7 @@ input.kho-num,
 }
 /* Số "Cấp lần này" của phiếu XUẤT — chỉ đọc (lấy từ đề nghị), không phải ô nhập. */
 .kho-alloc__capfixed {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   color: var(--ink);
   padding: 0 2px;
@@ -374,7 +374,7 @@ input.kho-num,
 .kho-alloc__lots th {
   text-align: left;
   padding: 0 var(--sp-2) 6px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -396,7 +396,7 @@ input.kho-num,
   padding: 5px 8px;
 }
 .kho-alloc__sum {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--ash);
@@ -415,7 +415,7 @@ input.kho-num,
   color: var(--ash);
 }
 .kho-pager__page {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
 }
 
@@ -508,7 +508,7 @@ input.kho-num,
   color: var(--ash);
 }
 .kho-ton__value b {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   color: var(--ink);
   margin-left: 4px;
@@ -544,7 +544,7 @@ input.kho-num,
 }
 .kho-ton__lots th {
   text-align: left;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: 10.5px;
@@ -563,7 +563,7 @@ input.kho-num,
 }
 .kho-ton__lots .kho-num {
   text-align: right;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
 }
 
@@ -613,7 +613,7 @@ input.kho-num,
   white-space: nowrap;
 }
 .kho-combo__code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash);
   flex: none;

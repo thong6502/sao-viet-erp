@@ -24,7 +24,7 @@
 .ir-tab:hover { color: var(--ink); }
 .ir-tab--active { color: var(--ink); border-bottom-color: var(--rust); }
 .ir-tab__count {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-bold);
   padding: 0 6px;
@@ -39,7 +39,7 @@
 .ir-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .ir-chip {
   display: inline-block;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   padding: 2px 7px;
   border-radius: var(--r-pill);
@@ -199,15 +199,19 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-bold);
   background: var(--rule-soft);
   color: var(--ash);
 }
 .ir-step--active { color: var(--ink); border-bottom-color: var(--rust); }
-.ir-step--active .ir-step__num { background: var(--rust); color: #fff; }
-.ir-step--done .ir-step__num { background: var(--moss-soft); color: var(--moss-deep); }
+.ir-step--active .ir-step__num {   font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  background: var(--rust); color: #fff; }
+.ir-step--done .ir-step__num {   font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  background: var(--moss-soft); color: var(--moss-deep); }
 .ir-step:disabled { opacity: 0.55; cursor: not-allowed; }
 
 /* ---- Panel "Ảnh hưởng đến giá" / kiểm thử ---- */
@@ -226,7 +230,7 @@
 .ir-choice { display: flex; flex-direction: column; gap: var(--sp-4); }
 .ir-choice__q { display: flex; flex-direction: column; gap: 6px; }
 .ir-choice__label {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -276,7 +280,7 @@
   background: var(--paper);
 }
 .ir-derived__title {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -332,7 +336,7 @@
 }
 .ir-adv__grid .field { gap: 4px; }
 .ir-adv__feeds {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -351,7 +355,7 @@
   line-height: 1.75;
 }
 .ir-panel__title {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;

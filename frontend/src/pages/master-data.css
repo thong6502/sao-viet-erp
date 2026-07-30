@@ -36,7 +36,7 @@
   padding: var(--sp-4) var(--sp-5);
 }
 .md-page__stat-label {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -115,7 +115,7 @@
   font-size: 14px;
 }
 .md-page__table thead th {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -138,7 +138,7 @@
   background: var(--rule-hair);
 }
 .md-page__mono {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 13px;
 }
 .md-page__price {
@@ -153,7 +153,7 @@
   border-bottom: 1px solid var(--rule);
 }
 .md-page__group-label {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;

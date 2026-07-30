@@ -42,7 +42,7 @@
   justify-content: center;
   background: var(--signal);
   color: #fff;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-medium);
   line-height: 1;
@@ -129,7 +129,7 @@
   color: var(--ink);
 }
 .tb-user__sub {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash);
   white-space: nowrap;

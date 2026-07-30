@@ -59,7 +59,7 @@
 }
 
 .qtkd__count {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-num);
   font-size: var(--fs-sm, 0.875rem);
   color: var(--ash, #6b7280);
   background: var(--paper-contrast, #f3f4f6);
@@ -277,7 +277,7 @@
 .qtkd-divider { stroke: var(--rule-hair, #e2e8f0); stroke-width: 1; stroke-dasharray: 4 4; }
 
 .qtkd-lane-label {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.1em;
@@ -335,7 +335,7 @@
 }
 
 .qtkd-edge-label {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: 700;
   fill: var(--rust, #e05638);
@@ -502,7 +502,7 @@
 }
 
 .qtkd-tl-card__step {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 0.8rem;
   font-weight: 700;
   color: var(--ash, #94a3b8);
@@ -643,7 +643,7 @@
 .qtkd-drawer__lane-tag.is-gh { background: #f5f3ff; color: #6d28d9; }
 
 .qtkd-drawer__kind-tag {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   font-size: 0.7rem;
   font-weight: 600;
   color: var(--ash, #64748b);

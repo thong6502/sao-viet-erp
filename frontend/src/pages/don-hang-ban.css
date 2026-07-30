@@ -79,7 +79,7 @@
 }
 
 .dhb__tab-count {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   opacity: 0.7;
   background: rgba(138, 134, 118, 0.12);
@@ -235,7 +235,7 @@
 }
 
 .dhb__mono {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-weight: 600;
   font-size: 12px;
 }
@@ -246,7 +246,7 @@
 
 /* Cột "Giá trị" ở list — số quyết định, nổi bật nhất hàng */
 .dhb__val {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   font-size: 14px;
   font-weight: 700;
@@ -256,7 +256,7 @@
 }
 
 .dhb__order-code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 13px;
   font-weight: 700;
   color: var(--ink);
@@ -269,7 +269,7 @@
   color: var(--rust-deep);
   border-radius: var(--r-2);
   border: 1px solid color-mix(in srgb, var(--rust) 15%, transparent);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 600;
 }
@@ -287,7 +287,7 @@
 .dhb__deposit-header {
   display: flex;
   justify-content: space-between;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   color: var(--ash);
   margin-bottom: 4px;
@@ -446,7 +446,7 @@
   margin: 0;
   font-size: 20px;
   font-weight: 700;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   color: var(--ink);
   letter-spacing: -.02em;
 }
@@ -493,7 +493,7 @@
 
 .dhb__section-title {
   margin: 0;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -684,7 +684,7 @@
 
 .dhb__lifecycle-title {
   margin: 0;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -784,7 +784,7 @@
   font-size: 10.5px;
   color: var(--ash-2);
   margin-top: 2px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
 }
 
 /* Sections inside Vòng đời đơn */
@@ -874,7 +874,7 @@
 }
 
 .dhb__stat-n {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   font-size: 14px;
   font-weight: 700;

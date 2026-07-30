@@ -133,7 +133,7 @@
   white-space: nowrap;
 }
 .sel__opt-hint {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash);
 }

@@ -779,7 +779,7 @@ function LeaveTypesTab({ token }: { token: string }) {
                     <span className="cc-cell-badge cc-cell-badge--leave">Không lương</span>
                   )}
                 </td>
-                <td style={{ textAlign: "center", fontFamily: "var(--ff-mono)", fontWeight: "bold" }}>
+                <td style={{ textAlign: "center", fontFamily: "var(--ff-num)", fontWeight: "bold" }}>
                   {t.annual_quota > 0 ? `${t.annual_quota} ngày` : "—"}
                 </td>
                 <td style={{ textAlign: "center" }}>
@@ -921,7 +921,7 @@ function LeaveTable({ items, showEmployee, onCancel, onApprove, onReject,
               </td>
               <td>{fmtDate(r.start_date)}</td>
               <td>{fmtDate(r.end_date)}</td>
-              <td style={{ textAlign: "center", fontFamily: "var(--ff-mono)", fontWeight: "bold" }}>{r.days}</td>
+              <td style={{ textAlign: "center", fontFamily: "var(--ff-num)", fontWeight: "bold" }}>{r.days}</td>
               <td>
                 <div className="cc-reason-wrapper">
                   <span className="cc-reason-text">{r.reason ?? "—"}</span>

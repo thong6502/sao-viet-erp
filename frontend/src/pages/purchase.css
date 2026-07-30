@@ -55,6 +55,7 @@
 
 .purchase__list .purchase__date-cell,
 .purchase__list .purchase__money-cell {
+    font-family: var(--ff-num);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -77,7 +78,7 @@
 }
 
 .purchase__facts dt {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -229,7 +230,7 @@
 
 .purchase__source-codes {
   margin-top: 3px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--moss-deep);
 }
@@ -337,7 +338,7 @@
   padding: 10px 12px;
   background: var(--rule-hair);
   border-bottom: 1px solid var(--rule);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-bold);
   text-transform: none;
@@ -375,11 +376,13 @@
 }
 
 .purchase__number-input {
+    font-family: var(--ff-num);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
 .purchase__line-sum {
+    font-family: var(--ff-num);
   display: flex;
   align-items: center;
   justify-content: flex-end;

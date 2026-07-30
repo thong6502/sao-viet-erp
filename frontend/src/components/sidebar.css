@@ -1,10 +1,11 @@
-/* Sidebar — dark `--ink` rail. Local light-on-dark vars are scoped here only;
-   the rest of the app stays on the light paper palette (docs/UI_DESIGN.md). */
+/* Sidebar — dark `--ink` rail (nền lấy thẳng từ --ink nên đổi token là sidebar tự theo).
+   Bốn biến light-on-dark dưới đây chỉ sống trong phạm vi này. Đã đổi từ kem ấm sang slate
+   sáng cùng nhiệt độ với --ink mới; rgba nền lấy từ --paper (docs/UI_DESIGN.md §1). */
 .sidebar {
-  --sb-text: #e6e0d2;
-  --sb-muted: #97907f;
-  --sb-hover: rgba(245, 241, 232, 0.06);
-  --sb-edge: rgba(245, 241, 232, 0.08);
+  --sb-text: #e2e8f0;
+  --sb-muted: #94a3b8;
+  --sb-hover: rgba(248, 250, 252, 0.06);
+  --sb-edge: rgba(248, 250, 252, 0.1);
 
   flex: 0 0 244px;
   width: 244px;
@@ -58,7 +59,7 @@
 }
 
 .sidebar__tag {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -89,7 +90,7 @@
   background: none;
   border: 0;
   cursor: pointer;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -168,7 +169,7 @@
   border-radius: var(--r-pill);
   background: var(--signal);
   color: #fff;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-medium);
   line-height: 1;
