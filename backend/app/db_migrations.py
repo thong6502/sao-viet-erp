@@ -3754,6 +3754,120 @@ def _migrate_stock_request_line_quy_doi(db: Session) -> None:
     db.commit()
 
 
+def _migrate_piece_rate_cong_doan_mas(db: Session) -> None:
+    """Đầu việc khoán dùng cho NHIỀU công đoạn + trục quy đổi: thêm `piece_rates.cong_doan_mas`
+    (JSON list mã) và `tinh_theo` (VARCHAR(32)), nullable. Backfill `cong_doan_mas = [cong_doan]`
+    cho dòng cũ đã trỏ 1 mã để không mất liên kết. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "piece_rates" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "piece_rates")
+    is_pg = db.get_bind().dialect.name == "postgresql"
+    if "cong_doan_mas" not in cols:
+        # JSON (KHÔNG JSONB) để khớp `mapped_column(JSON)` của model: DB trắng đi đường `create_all`
+        # sẽ ra kiểu `json`, migration mà tạo `jsonb` là dev/prod lệch kiểu — query dùng toán tử
+        # jsonb chạy ở DB cũ rồi vỡ ở DB mới. Đã bắt được đúng lỗi này khi thử trên Postgres trắng.
+        db.execute(text("ALTER TABLE piece_rates ADD COLUMN cong_doan_mas JSON"))
+    if "tinh_theo" not in cols:
+        db.execute(text("ALTER TABLE piece_rates ADD COLUMN tinh_theo VARCHAR(32)"))
+    db.commit()
+    # Backfill: dòng cũ có `cong_doan` → list 1 phần tử. Ghép chuỗi JSON cho cả 2 dialect (cột kiểu
+    # `json` nên `to_jsonb` của Postgres không dùng được ở đây).
+    _cast = "::json" if is_pg else ""
+    db.execute(text(
+        f"UPDATE piece_rates SET cong_doan_mas = ('[\"' || cong_doan || '\"]'){_cast} "
+        "WHERE cong_doan IS NOT NULL AND cong_doan <> '' AND cong_doan_mas IS NULL"
+    ))
+    db.commit()
+
+
+def _migrate_lsx_cong_doan_khoan_json(db: Session) -> None:
+    """Bước lệnh ghim ĐẦU VIỆC KHOÁN: thêm `lsx_cong_doan.khoan_json` (JSON, nullable) =
+    {rate_id, ten, don_vi, don_gia, tinh_theo}. Ghim snapshot chứ không đọc-sống vì xưởng lên giá
+    khoán về sau KHÔNG được làm xê dịch lệnh đã phát. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "lsx_cong_doan" not in insp.get_table_names():
+        return
+    if "khoan_json" not in _existing_columns(insp, "lsx_cong_doan"):
+        # JSON, KHÔNG JSONB — xem ghi chú kiểu cột ở `_migrate_piece_rate_cong_doan_mas`.
+        db.execute(text("ALTER TABLE lsx_cong_doan ADD COLUMN khoan_json JSON"))
+    db.commit()
+
+
+def _migrate_don_vi_bai_in_gop_vao_bai(db: Session) -> None:
+    """Dọn hai thứ cùng nghĩa của bản seed đầu: đơn vị `bai_in` (trùng vai `bai` — cùng họ, cùng hệ
+    số 1, tức HAI đơn vị gốc trong một họ) và các dòng đơn giá khoán ghi `unit='bai_in'`.
+
+    `unit` của đơn giá là CHỮ HIỂN THỊ, nên "bai_in" không khớp mã (`bai`) lẫn tên ("bài in") → 3 dòng
+    "Bài in A/B/C" của seed lương cũ vĩnh viễn báo "chưa khai đơn vị". Đổi chữ trước rồi mới xoá đơn
+    vị dư, giữ đúng thứ tự để không có lúc nào dòng đơn giá trỏ vào đơn vị không tồn tại."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "piece_rates" in tables:
+        db.execute(text("UPDATE piece_rates SET unit = 'bài in' WHERE unit = 'bai_in'"))
+        db.commit()
+    if "don_vi_do" in tables:
+        # Chỉ xoá khi `bai` đã có mặt để nhận vai — không thì thà giữ dòng dư còn hơn mất đơn vị.
+        co_bai = db.execute(text("SELECT count(*) FROM don_vi_do WHERE ma = 'bai'")).scalar_one()
+        if co_bai:
+            db.execute(text("DELETE FROM don_vi_do WHERE ma = 'bai_in'"))
+        db.commit()
+
+
+def _migrate_khoan_json_ve_json(db: Session) -> None:
+    """Hạ `jsonb` → `json` cho 2 cột khoán ở DB đã chạy bản migration ĐẦU (bản đó tạo JSONB).
+
+    Vì sao phải dọn: DB TRẮNG đi đường `create_all` từ `mapped_column(JSON)` nên ra kiểu `json`, còn
+    DB cũ chạy migration bản đầu lại có `jsonb`. Cùng một cột mà dev/prod khác kiểu là bẫy âm thầm:
+    query dùng toán tử jsonb (`jsonb_array_length`, `@>`) chạy ở nơi này, vỡ ở nơi kia. Chỉ Postgres
+    mới có phân biệt này; SQLite no-op. Không dữ liệu nào mất — jsonb → json là cast an toàn."""
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    for bang, cot in (("piece_rates", "cong_doan_mas"), ("lsx_cong_doan", "khoan_json")):
+        if bang not in tables:
+            continue
+        kieu = next(
+            (str(c["type"]).lower() for c in insp.get_columns(bang) if c["name"] == cot), ""
+        )
+        if "jsonb" in kieu:
+            db.execute(text(
+                f"ALTER TABLE {bang} ALTER COLUMN {cot} TYPE JSON USING {cot}::text::json"
+            ))
+    db.commit()
+
+
+def _migrate_don_vi_do_chuan_hoa_ho(db: Session) -> None:
+    """Chuẩn hoá danh mục đơn vị của bản seed ĐẦU (trước khi chốt mô hình họ):
+
+    · gộp `con` · `cuon` · `bo` · `hop` về họ **thanh_pham** — chúng đều là "một thành phẩm xong",
+      để mỗi thứ một họ thì bước lệnh đếm `cai` không khớp nổi đơn giá "700 đ/cuốn";
+    · bỏ `bai_in` (trùng vai với `bai`, mà `bai` mới là mã đơn vị bước lệnh dùng);
+    · sửa nhãn `cai` từ "con / cái" thành "cái" cho diễn giải gọn.
+
+    No-op nếu bảng chưa có / đã chuẩn. KHÔNG đụng đơn vị người dùng tự khai.
+    """
+    insp = inspect(db.get_bind())
+    if "don_vi_do" not in insp.get_table_names():
+        return
+    db.execute(text(
+        "UPDATE don_vi_do SET ho = 'thanh_pham' "
+        "WHERE ma IN ('con', 'cuon', 'bo', 'hop', 'cai') AND ho <> 'thanh_pham'"
+    ))
+    db.execute(text("UPDATE don_vi_do SET ten = 'cái' WHERE ma = 'cai' AND ten = 'con / cái'"))
+    # `bai_in` chỉ xoá khi CHƯA ai dùng làm đơn vị đơn giá khoán — còn dùng thì để lại, đổi họ cho
+    # nó chung nhà với `bai` là đủ (xoá mất là bảng khoán hiện "đơn vị chưa khai").
+    con_dung = db.execute(text(
+        "SELECT COUNT(*) FROM piece_rates WHERE lower(unit) IN ('bai_in', 'bài in')"
+    )).scalar() or 0
+    if con_dung:
+        db.execute(text("UPDATE don_vi_do SET ho = 'bai' WHERE ma = 'bai_in'"))
+    else:
+        db.execute(text("DELETE FROM don_vi_do WHERE ma = 'bai_in'"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -3957,6 +4071,13 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0127_job_grade_catalog", _migrate_job_grade_catalog),
     ("0128_employee_salary_commission_pct", _migrate_employee_salary_commission_pct),
     ("0129_job_grade_drop_phu", _migrate_job_grade_drop_phu),
+    # Khoán theo ĐẦU VIỆC: 1 đầu việc phủ nhiều công đoạn + trục quy đổi; bước lệnh ghim đầu việc.
+    ("0130_piece_rate_cong_doan_mas", _migrate_piece_rate_cong_doan_mas),
+    ("0131_lsx_cong_doan_khoan_json", _migrate_lsx_cong_doan_khoan_json),
+    ("0132_don_vi_do_chuan_hoa_ho", _migrate_don_vi_do_chuan_hoa_ho),
+    # Dọn lệch kiểu cột do bản migration đầu tạo JSONB (create_all ra `json`) — xem docstring.
+    ("0133_khoan_json_ve_json", _migrate_khoan_json_ve_json),
+    ("0134_don_vi_bai_in_gop_vao_bai", _migrate_don_vi_bai_in_gop_vao_bai),
     # --- Nhánh tính giá / báo giá — bảng khác, chạy độc lập với khối lương ở trên ---
     # Số 0106+ TRÙNG với dãy lương ngay trên là CÓ CHỦ Ý: hai dãy đánh số song song, khoá
     # thật trong `schema_migrations` là CẢ CHUỖI id nên không đụng nhau. ĐỪNG đánh lại số —

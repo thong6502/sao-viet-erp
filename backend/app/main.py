@@ -42,6 +42,7 @@ from .routers import (
     vat_lieu_kho,
     cong_doan,
     bu_hao,
+    don_vi_do,
     kho,
     kho_request,
     kho_voucher,
@@ -140,6 +141,7 @@ app.include_router(may_thiet_bi.router)
 app.include_router(vat_lieu_kho.router)
 app.include_router(cong_doan.router)
 app.include_router(bu_hao.router)
+app.include_router(don_vi_do.router)
 # Các router con của Kho phải đăng ký TRƯỚC `kho.router`: kho.router có `/api/kho/{kho_id}`
 # (1 đoạn) nên sẽ nuốt `/api/kho/de-nghi` và `/api/kho/nguong-ton` nếu đứng trước —
 # FastAPI khớp theo THỨ TỰ đăng ký, không theo độ cụ thể.

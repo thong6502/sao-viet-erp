@@ -2764,7 +2764,9 @@ helper "Tính nhanh phạt" của modal Sửa lương.
 | `department_id` | `Integer` | **IX** | yes | — | Tổ sở hữu đơn giá (ref `departments.id`); khai trong Cấu hình lương của tổ. |
 | `code` | `String(20)` | — | yes | — | Mã (A–F cho máy in). |
 | `name` | `String(255)` | — | no | — | Tên công việc. |
-| `cong_doan` | `String(30)` | **IX** | yes | — | Mã công đoạn gắn đơn giá (Pha 5b, ref `cong_doan.ma`). |
+| `cong_doan` | `String(30)` | **IX** | yes | — | Mã công đoạn gắn đơn giá (Pha 5b, ref `cong_doan.ma`). **CỘT CŨ** — giữ để không mất dữ liệu; khai mới dùng `cong_doan_mas`. |
+| `cong_doan_mas` | `JSON` | — | yes | `[]` | NHIỀU mã công đoạn dùng chung 1 đầu việc khoán (bảng CÔNG KHOÁN thật: *"cán bóng · cán mờ · phủ UV nước · UV mờ"* = cùng 150đ/m²). **Rỗng = áp cho mọi công đoạn của tổ.** Luật khớp ở `piece_work_service.dau_viec_khop`: ưu tiên dòng khai ĐÚNG mã công đoạn, không có mới dùng dòng rỗng. |
+| `tinh_theo` | `String(32)` | — | yes | — | Trục quy đổi SL bước lệnh → đơn vị đơn giá. Dùng LẠI bộ `PRICING_BASIS` của `cong_doan` (per_sheet · per_sheet_area · per_area_sides · per_finished_qty…) — không đẻ enum thứ hai. |
 | `unit` | `String(12)` | — | no | `khac` | Đơn vị (m2/bai_in/tan/cuon/luot/hop/to/khac). |
 | `unit_price` | `Numeric(14,2)` | — | no | — | Đơn giá/đơn vị. |
 | `note` | `String(255)` | — | yes | — | Ghi chú. |
@@ -2862,6 +2864,12 @@ Ba cột nuôi thẳng routing của Lệnh SX (giá trị MẶC ĐỊNH, kế h
 **Purpose:** danh mục Bù hao — mỗi mã = danh sách BẬC số lượng → số tờ / %. Mô hình MỞ: bậc là dữ liệu JSON (`bac`), không phải cột cứng. Công đoạn TRỎ THẲNG 1 mã bù hao (qua `cong_doan.bu_hao_id`); engine tra bậc theo SL (bỏ trục số màu/số con). `bac` = `[{sl_tu, sl_den, gia_tri, don_vi(to|pct)}]`.
 
 **Tất cả cột:** `id`, `ma`, `ten`, `bac`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+
+### `don_vi_do`
+
+**Purpose:** danh mục ĐƠN VỊ ĐO + quy đổi, dùng CHUNG cho khoán · kho · mua hàng. Mỗi đơn vị thuộc một **họ quy đổi** (`ho`) và khai `he_so_goc` = có bao nhiêu đơn vị GỐC của họ trong 1 đơn vị này (m² = 10.000 cm² ⇒ `he_so_goc = 10000`; dòng hệ số 1 chính là đơn vị gốc). Đổi A→B **cùng họ** = `× he_so_goc(A) / he_so_goc(B)` — một cột số, không bảng cặp N×N. Khác họ thì KHÔNG đổi bằng hệ số, phải qua "cầu theo quy cách" trong `services/quy_doi_service.py` (tờ→m² cần khổ tờ in · tờ→kg cần thêm định lượng · tờ→con cần con/tờ); thiếu biến thì trả *không đổi được*, không đoán. Thứ phụ thuộc từng mặt hàng ("1 thùng keo = 3 kg") KHÔNG khai ở đây — chỗ đó là `material.don_vi_phu` + `he_so_quy_doi`. `hieu_luc_tu` = mốc hệ số hiện tại bắt đầu áp (sửa hệ số là đổi tiền từ nay về sau; mọi lần sửa ghi AuditLog). Bảng mới → `create_all` tự dựng, không migration.
+
+**Tất cả cột:** `id`, `ma`, `ten`, `ho`, `he_so_goc`, `hieu_luc_tu`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
 ### `kho_hang`
 
@@ -3113,6 +3121,7 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 | `di_chuyen_phut` | `Numeric(10,2)` | — | no | `0` | Di chuyển bán thành phẩm sang tổ/máy kế. KHÔNG chiếm máy. |
 | `so_nhan_cong` | `Integer` | — | no | `1` | Số người/máy chạy ĐỒNG THỜI (BC: Concurrent Capacities) — thời gian chạy ÷ số này. Chỉ có nghĩa với `loai_buoc` = `to`/`kcs`. |
 | `may_thay_the_ids` | `JSON` | — | yes | — | `list[int]` soft → `may_thiet_bi.id`. CHỈ THAM KHẢO, không tự xếp lịch. |
+| `khoan_json` | `JSON` | — | yes | — | ĐẦU VIỆC KHOÁN của bước — kế hoạch chọn "bước cán này làm *cán mờ* hay *ghép metalize*" (cùng công đoạn, hai đơn giá). SNAPSHOT `{rate_id, ten, don_vi, don_gia, tinh_theo}` từ `piece_rates`, KHÔNG đọc-sống: xưởng lên giá khoán về sau không được xê dịch lệnh đã phát. Tiền khoán là số DẪN XUẤT (tính lúc đọc trong `lsx_service._khoan_derived`), không lưu cột. |
 | `dieu_kien_json` | `JSON` | — | yes | — | `list[str]` cờ điều kiện bắt đầu (§4.5): `co_vat_tu` · `file_duyet` · `kem_xong` · `khuon_san_sang` · `mau_mau_ky` · `nhan_tu_gia_cong`. |
 | `nha_cung_cap` | `String(150)` | — | yes | — | Nhà gia công khi `loai_buoc='thue_ngoai'` — khai TAY (cơ sở nhỏ thường chưa có trong `suppliers`). |
 | `sl_gui` | `Numeric(14,2)` | — | yes | — | SL gửi đi gia công. |

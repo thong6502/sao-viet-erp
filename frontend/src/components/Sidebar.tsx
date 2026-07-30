@@ -132,6 +132,9 @@ const NAV: NavSection[] = [
       { id: "may-thiet-bi", label: "Thiết bị & Máy in", icon: "warehouse", module: "dm_thiet_bi" },
       { id: "cong-doan", label: "Công đoạn", icon: "activity", module: "dm_cong_doan" },
       { id: "bu-hao", label: "Bù hao", icon: "fileText", module: "dm_cong_doan" },
+      // Đơn vị & quy đổi: dùng chung cho khoán · kho · mua hàng, nên nằm ở danh mục chứ không
+      // chôn trong màn Lương.
+      { id: "don-vi", label: "Đơn vị & quy đổi", icon: "activity", module: "dm_cong_doan" },
       { id: "chung-loai-giay", label: "Chủng loại giấy", icon: "fileText", module: "kho" },
       { id: "giay", label: "Giấy", icon: "bag", module: "kho" },
       { id: "vat-tu-in-an", label: "Vật tư in ấn", icon: "bag", module: "kho" },

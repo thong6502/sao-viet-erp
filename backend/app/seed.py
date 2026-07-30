@@ -1829,9 +1829,11 @@ def seed_piece_work(db: Session) -> None:
         ("to_cat", None, "Cắt tờ / cắt sóng", "tan", 120_000),
         ("to_cat", None, "Cắt demi", "luot", 40),
         ("to_cat", None, "Gỡ hàng hộp (carton 3 lớp)", "hop", 20),
-        ("may_in_5mau", "A", "Bài in 1–2 màu", "bai_in", 120_000),
-        ("may_in_5mau", "B", "Bài in 3–4 màu", "bai_in", 150_000),
-        ("may_in_5mau", "C", "Bài in 4 màu có màu pha", "bai_in", 175_000),
+        # ĐVT là CHỮ HIỂN THỊ (khớp `don_vi_do.ten`), không phải mã gạch dưới: gõ "bai_in" thì
+        # module quy đổi không tra ra đơn vị nào → 3 dòng này mất khả năng đổi sang SL của bước.
+        ("may_in_5mau", "A", "Bài in 1–2 màu", "bài in", 120_000),
+        ("may_in_5mau", "B", "Bài in 3–4 màu", "bài in", 150_000),
+        ("may_in_5mau", "C", "Bài in 4 màu có màu pha", "bài in", 175_000),
     ]
     for g, code, name, unit, price in rates:
         repo.create_rate(group_name=g, code=code, name=name, unit=unit, unit_price=price,
@@ -2161,6 +2163,10 @@ def seed_all(db: Session) -> None:
     seed_machines(db)
     seed_operations(db)
     seed_special_days(db)  # dữ liệu vận hành thật (không gated demo) — nền lịch/lễ dùng chung
+    # Đơn vị đo & quy đổi: nền cho khoán · kho · mua hàng. KHÔNG gated demo — DB thật không bật
+    # SEED_DEMO, mà thiếu bảng này thì mọi quy đổi trả "đơn vị chưa khai".
+    from .seed_rebuild import seed_don_vi_do
+    seed_don_vi_do(db)
     seed_payroll_components(db)  # danh mục khoản thu nhập + cờ chịu thuế TNCN
     seed_job_grades(db)  # danh mục bậc tay nghề (khối SX) — vận hành thật, không gated demo
     seed_pit_brackets(db)  # biểu thuế TNCN — dữ liệu vận hành thật (Lương đọc tính thuế)

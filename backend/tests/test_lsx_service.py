@@ -418,6 +418,112 @@ def test_xoa_lenh_tra_dong_don_ve_hang_cho(db, orders, lsx_svc, admin, customer)
     assert lsx_svc.preview(d.id)["lines"][0]["lsx_id"] is None   # dòng mở lại để tạo lệnh mới
 
 
+# ================= Khoán theo đầu việc ở bước lệnh =================
+def _don_gia_khoan(db, *, cong_doan_ma: str, department_id: int, ten: str, don_vi: str,
+                   don_gia: float, tinh_theo: str):
+    """1 dòng bảng CÔNG KHOÁN của tổ."""
+    from app.models.piece_work import PieceRate
+
+    r = PieceRate(group_name="Tổ test", department_id=department_id, name=ten,
+                  cong_doan_mas=[cong_doan_ma], tinh_theo=tinh_theo, unit=don_vi,
+                  unit_price=don_gia, is_active=True)
+    db.add(r)
+    db.commit()
+    return r
+
+
+def test_bung_lenh_tu_dien_dau_viec_va_ra_tien_du_kien(db, orders, lsx_svc, admin, customer):
+    """Bảng khoán của tổ khớp ĐÚNG MỘT đầu việc → máy điền sẵn + quy đổi ra tiền công dự kiến.
+
+    Bước "Bế" đếm TỜ, đơn giá cũng đ/tờ nên không cần cầu; phần quy đổi chéo họ (tờ → m²) đã có
+    test riêng ở `test_quy_doi.py`.
+    """
+    ptg = _ptg_2_san_pham(db)
+    cd_be = db.query(CongDoan).filter(CongDoan.ma == "CD-BE-T").first()
+    _don_gia_khoan(db, cong_doan_ma="CD-BE-T", department_id=cd_be.department_id,
+                   ten="Bế máy tự động", don_vi="tờ", don_gia=250, tinh_theo="per_sheet")
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    lines = lsx_svc.preview(d.id)["lines"]
+    lsx = lsx_svc.tao(order_id=d.id, order_line_ids=[lines[0]["order_line_id"]], actor=admin)[0]
+
+    chi_tiet = lsx_svc.detail_dict(lsx)
+    buoc_be = next(b for b in chi_tiet["cong_doans"] if b["ten"] == "Bế")
+    assert buoc_be["khoan_ten"] == "Bế máy tự động"
+    assert buoc_be["khoan_don_gia"] == 250
+    # Tiền = SL VÀO của bước × đơn giá: thợ chạy bao nhiêu tờ thì ăn bấy nhiêu (kể cả tờ bù hao).
+    assert buoc_be["khoan_tien"] == pytest.approx(buoc_be["so_luong_vao"] * 250, rel=1e-6)
+    assert "đ/tờ" in buoc_be["khoan_dien_giai"]
+    assert chi_tiet["khoan_tien_tong"] >= buoc_be["khoan_tien"]
+
+
+def test_hai_dau_viec_cung_cong_doan_thi_khong_dien_ho(db, orders, lsx_svc, admin, customer):
+    """Bế máy 250đ/tờ và bế tay 400đ/tờ cùng một công đoạn — chỉ người biết hôm đó bế bằng gì, nên
+    máy để TRỐNG và gửi kèm danh sách chọn thay vì chọn hộ một cái."""
+    ptg = _ptg_2_san_pham(db)
+    cd_be = db.query(CongDoan).filter(CongDoan.ma == "CD-BE-T").first()
+    for ten, gia in (("Bế máy", 250), ("Bế tay", 400)):
+        _don_gia_khoan(db, cong_doan_ma="CD-BE-T", department_id=cd_be.department_id,
+                       ten=ten, don_vi="tờ", don_gia=gia, tinh_theo="per_sheet")
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    lines = lsx_svc.preview(d.id)["lines"]
+    lsx = lsx_svc.tao(order_id=d.id, order_line_ids=[lines[0]["order_line_id"]], actor=admin)[0]
+
+    buoc_be = next(b for b in lsx_svc.detail_dict(lsx)["cong_doans"] if b["ten"] == "Bế")
+    assert buoc_be["khoan_rate_id"] is None
+    assert {k["ten"] for k in buoc_be["khoan_chon_duoc"]} == {"Bế máy", "Bế tay"}
+    assert buoc_be["khoan_tien"] is None      # chưa chọn thì KHÔNG có số nào
+
+
+def test_sua_routing_ghim_dau_viec_va_giu_gia_luc_chon(db, orders, lsx_svc, admin, customer):
+    """Chọn đầu việc ở drawer → ghim SNAPSHOT. Xưởng lên giá khoán sau đó KHÔNG được xê dịch lệnh
+    đã phát: bước vẫn giữ đơn giá lúc chọn."""
+    ptg = _ptg_2_san_pham(db)
+    cd_be = db.query(CongDoan).filter(CongDoan.ma == "CD-BE-T").first()
+    r1 = _don_gia_khoan(db, cong_doan_ma="CD-BE-T", department_id=cd_be.department_id,
+                        ten="Bế máy", don_vi="tờ", don_gia=250, tinh_theo="per_sheet")
+    _don_gia_khoan(db, cong_doan_ma="CD-BE-T", department_id=cd_be.department_id,
+                   ten="Bế tay", don_vi="tờ", don_gia=400, tinh_theo="per_sheet")
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    lines = lsx_svc.preview(d.id)["lines"]
+    lsx = lsx_svc.tao(order_id=d.id, order_line_ids=[lines[0]["order_line_id"]], actor=admin)[0]
+
+    rows = [
+        LsxCongDoanIn(
+            thu_tu=cd.thu_tu, cong_doan_id=cd.cong_doan_id, ten=cd.ten, nhom=cd.nhom,
+            department_id=cd.department_id, so_luong_vao=float(cd.so_luong_vao),
+            so_luong_ra=float(cd.so_luong_ra), don_vi_vao=cd.don_vi_vao, don_vi_ra=cd.don_vi_ra,
+            piece_rate_id=(r1.id if cd.ten == "Bế" else None),
+        )
+        for cd in sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
+    ]
+    lsx = lsx_svc.replace_routing(lsx_id=lsx.id, rows_in=rows, actor=admin, ly_do=None)
+    buoc_be = next(b for b in lsx_svc.detail_dict(lsx)["cong_doans"] if b["ten"] == "Bế")
+    assert buoc_be["khoan_rate_id"] == r1.id and buoc_be["khoan_don_gia"] == 250
+
+    # Xưởng tăng giá khoán → lệnh ĐÃ ghim không đổi (đọc-sống là sai ở đây).
+    r1.unit_price = 999
+    db.commit()
+    buoc_be = next(b for b in lsx_svc.detail_dict(lsx_svc.get(lsx.id))["cong_doans"]
+                   if b["ten"] == "Bế")
+    assert buoc_be["khoan_don_gia"] == 250
+
+
+def test_khong_co_bang_khoan_thi_khong_co_tien(db, orders, lsx_svc, admin, customer):
+    """Tổ chưa khai giá khoán → mọi bước im lặng, tổng = 0. KHÔNG bịa số nào."""
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    lines = lsx_svc.preview(d.id)["lines"]
+    lsx = lsx_svc.tao(order_id=d.id, order_line_ids=[lines[0]["order_line_id"]], actor=admin)[0]
+
+    chi_tiet = lsx_svc.detail_dict(lsx)
+    assert all(b["khoan_rate_id"] is None and b["khoan_tien"] is None
+               for b in chi_tiet["cong_doans"])
+    assert chi_tiet["khoan_tien_tong"] == 0
+
+
 # ================= Routing lát 2: thời gian · tính ngược · cảnh báo =================
 def _buoc(**kw) -> LsxCongDoan:
     """1 bước rời để test công thức thời gian — không cần DB."""

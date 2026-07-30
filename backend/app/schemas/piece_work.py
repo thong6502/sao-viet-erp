@@ -1,7 +1,7 @@
 """Pydantic models cho API Đơn giá khoán (module `luong`, nhịp 2)."""
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # --- đơn giá khoán ----------------------------------------------------------
@@ -12,7 +12,11 @@ class RateIn(BaseModel):
     department_id: int | None = None
     code: str | None = Field(default=None, max_length=20)
     name: str = Field(min_length=1, max_length=255)
-    cong_doan: str | None = Field(default=None, max_length=30)
+    cong_doan: str | None = Field(default=None, max_length=30)   # cột CŨ (1 mã) — giữ tương thích
+    # Nhiều công đoạn dùng chung 1 đầu việc; rỗng = áp cho mọi công đoạn của tổ.
+    cong_doan_mas: list[str] = Field(default_factory=list)
+    # Trục quy đổi SL bước → đơn vị đơn giá (bộ `PRICING_BASIS` của công đoạn). None = chưa khai.
+    tinh_theo: str | None = Field(default=None, max_length=32)
     # Gõ TỰ DO — không enum. Service chuẩn hoá (trim + gộp chính tả hoa/thường) trước khi lưu.
     unit: str = Field(default="khác", max_length=24)
     unit_price: float = Field(ge=0)
@@ -29,10 +33,20 @@ class RateOut(BaseModel):
     code: str | None = None
     name: str
     cong_doan: str | None = None
+    cong_doan_mas: list[str] = Field(default_factory=list)
+    tinh_theo: str | None = None
     unit: str
     unit_price: float
     note: str | None = None
     is_active: bool
+
+    @field_validator("cong_doan_mas", mode="before")
+    @classmethod
+    def _null_thanh_rong(cls, v):
+        """Cột JSON mới → dòng đơn giá khai TRƯỚC migration có `NULL`, mà `default_factory` chỉ áp
+        khi THIẾU key chứ không khi giá trị là None → response 500 (đã vỡ thật ở màn Lương khoán:
+        3 dòng "Bài in A/B/C" của seed cũ làm cả danh sách trắng). Đổi None → [] tại cửa ra."""
+        return [] if v is None else v
 
 
 class RatesOut(BaseModel):

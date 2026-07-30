@@ -23,6 +23,25 @@ const KHOAN_GROUP_LABEL: Record<string, string> = Object.fromEntries(
 // người dùng GÕ TỰ DO; gợi ý lấy từ `GET /khoan/units` = mồi mặc định ∪ đơn vị nhà máy đã dùng.
 // Dựng lại danh sách cứng ở đây là trói lại đúng thứ vừa mở ra.
 
+// Trục quy đổi: SL của bước lệnh (tờ / con / kẽm) → đơn vị của đơn giá này. Dùng LẠI bộ
+// `pricing_basis` của Công đoạn — tính giá đã chạy trên đúng 12 trục đó, đẻ bộ thứ hai là mở đường
+// cho hai nơi lệch nhau. Chỉ phơi các trục có nghĩa với khoán (bỏ per_job / per_other).
+const TINH_THEO: { value: string; label: string }[] = [
+  { value: "per_sheet", label: "Theo số tờ in" },
+  { value: "per_sheet_area", label: "Theo diện tích tờ in (m² · cm²)" },
+  { value: "per_area_sides", label: "Theo diện tích × số lượt chạy" },
+  { value: "per_finished_qty", label: "Theo số thành phẩm (con · cái · cuốn)" },
+  { value: "per_finished_area", label: "Theo diện tích thành phẩm" },
+  { value: "per_book_page", label: "Theo số trang sách" },
+  { value: "per_book_page_q4", label: "Theo tay sách (trang ÷ 4)" },
+  { value: "per_position", label: "Theo số vị trí" },
+  { value: "per_bag", label: "Theo bao" },
+  { value: "per_carton", label: "Theo thùng" },
+];
+const TINH_THEO_LABEL: Record<string, string> = Object.fromEntries(
+  TINH_THEO.map((t) => [t.value, t.label]),
+);
+
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : "Có lỗi xảy ra.";
 }
@@ -76,6 +95,8 @@ export function KhoanRatesEditor({
               {!perDept && <th>Tổ</th>}
               <th>Mã</th>
               <th>Công việc</th>
+              <th>Công đoạn áp dụng</th>
+              <th>Tính theo</th>
               <th>Đơn vị</th>
               <th className="lg-num">Đơn giá</th>
               <th></th>
@@ -87,6 +108,14 @@ export function KhoanRatesEditor({
                 {!perDept && <td>{KHOAN_GROUP_LABEL[r.group_name] ?? r.group_name}</td>}
                 <td>{r.code ?? "—"}</td>
                 <td>{r.name}</td>
+                {/* Rỗng = áp cho MỌI công đoạn của tổ — nói thẳng ra chứ đừng để dấu gạch ngang,
+                    vì "mọi công đoạn" và "chưa khai" là hai nghĩa khác nhau. */}
+                <td>
+                  {r.cong_doan_mas?.length
+                    ? r.cong_doan_mas.join(" · ")
+                    : <span className="ns-muted">mọi công đoạn của tổ</span>}
+                </td>
+                <td>{r.tinh_theo ? (TINH_THEO_LABEL[r.tinh_theo] ?? r.tinh_theo) : "—"}</td>
                 <td>{r.unit}</td>
                 <td className="lg-num">{money(r.unit_price)}</td>
                 <td className="cc-rowact">
@@ -104,7 +133,7 @@ export function KhoanRatesEditor({
             ))}
             {rates.length === 0 && (
               <tr>
-                <td colSpan={perDept ? 5 : 6} className="ns__empty">
+                <td colSpan={perDept ? 7 : 8} className="ns__empty">
                   Chưa có đơn giá khoán nào.
                 </td>
               </tr>
@@ -154,8 +183,22 @@ function KhoanRateModal({
   const [name, setName] = useState(rate?.name ?? "");
   const [unit, setUnit] = useState(rate?.unit ?? "m²");
   const [price, setPrice] = useState(rate?.unit_price ?? 0);
+  const [congDoanMas, setCongDoanMas] = useState<string[]>(rate?.cong_doan_mas ?? []);
+  const [tinhTheo, setTinhTheo] = useState(rate?.tinh_theo ?? "");
+  const [cds, setCds] = useState<{ ma: string; ten: string; nhom?: string }[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Danh mục công đoạn để tick "đầu việc này áp cho công đoạn nào".
+  useEffect(() => {
+    api.congDoan
+      .list(token)
+      .then((r) => setCds(r.items.map((c) => ({ ma: c.ma, ten: c.ten }))))
+      .catch(() => setCds([]));
+  }, [token]);
+
+  const toggleCd = (ma: string) =>
+    setCongDoanMas((cur) => (cur.includes(ma) ? cur.filter((x) => x !== ma) : [...cur, ma]));
 
   async function save() {
     setBusy(true);
@@ -166,6 +209,8 @@ function KhoanRateModal({
       department_id: departmentId,
       code: code || null,
       name,
+      cong_doan_mas: congDoanMas,
+      tinh_theo: tinhTheo || null,
       unit,
       unit_price: price,
       is_active: true,
@@ -182,7 +227,9 @@ function KhoanRateModal({
   }
   return (
     <div className="ns-modal" role="dialog" aria-modal="true">
-      <div className="ns-modal__box">
+      {/* Rộng hơn modal chuẩn 490px: form này có thêm bảng tick công đoạn (13+ mục) — để 490 thì
+          grid 2 cột bị min-content của bảng tick đẩy tràn, cắt mất ô Đơn giá và dòng hướng dẫn. */}
+      <div className="ns-modal__box ns-modal__box--khoan">
         <header className="ns-modal__head">
           <h2>{rate ? "Sửa đơn giá khoán" : "Thêm đơn giá khoán"}</h2>
           <button className="ns-modal__x" onClick={onClose}>
@@ -198,7 +245,14 @@ function KhoanRateModal({
             {!perDept && (
               <label className="ns-field ns-wizard__full">
                 <span className="ns-field__label">Tổ *</span>
+                {/* `group_name` là CHỮ TỰ DO (dòng khai trong Cấu hình lương của tổ lưu thẳng TÊN
+                    tổ, vd "Tổ Cán màng"), còn danh sách dưới đây chỉ là 6 mã mồi. Không chèn giá
+                    trị hiện tại vào options thì select rơi về option ĐẦU và bấm Lưu là đổi tổ của
+                    dòng đó sang "to_boi" — mất liên kết đơn giá ↔ tổ mà không ai thấy. */}
                 <select value={group} onChange={(e) => setGroup(e.target.value)}>
+                  {!KHOAN_GROUPS.some((g) => g.key === group) && group && (
+                    <option value={group}>{KHOAN_GROUP_LABEL[group] ?? group}</option>
+                  )}
                   {KHOAN_GROUPS.map((g) => (
                     <option key={g.key} value={g.key}>
                       {g.label}
@@ -249,6 +303,20 @@ function KhoanRateModal({
                 <span>đ/{unit.trim() || "đơn vị"}</span>
               </div>
             </label>
+            {/* Trục quy đổi đi LIỀN cặp đơn giá/đơn vị: nó trả lời "SL của bước lệnh đổi sang đơn vị
+                này bằng cách nào" — không có nó thì lên lệnh hiện được đơn giá mà không ra tiền. */}
+            <label className="ns-field">
+              <span className="ns-field__label">Tính theo</span>
+              <select value={tinhTheo} onChange={(e) => setTinhTheo(e.target.value)}>
+                <option value="">— chưa khai —</option>
+                {TINH_THEO.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+              <span className="ns-field__hint">
+                Cán / phủ / bồi → diện tích tờ in · bế → số tờ · đóng cuốn → số thành phẩm.
+              </span>
+            </label>
             <label className="ns-field">
               <span className="ns-field__label">Mã</span>
               <input
@@ -257,8 +325,34 @@ function KhoanRateModal({
                 onChange={(e) => setCode(e.target.value)}
               />
             </label>
+            {/* NHIỀU công đoạn dùng chung một đơn giá — đúng bảng CÔNG KHOÁN giấy: "cán bóng · cán
+                mờ · phủ UV nước · UV mờ" cùng 150đ/m², khỏi nhân thành 4 dòng. */}
+            <div className="ns-field ns-wizard__full khoan-cdfield">
+              <span className="ns-field__label">
+                Áp cho công đoạn nào
+                {congDoanMas.length > 0 && <> — đã chọn {congDoanMas.length}</>}
+              </span>
+              <div className="khoan-cdpick">
+                {cds.map((c) => (
+                  <label key={c.ma} className={`khoan-cdpick__item${congDoanMas.includes(c.ma) ? " is-on" : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={congDoanMas.includes(c.ma)}
+                      onChange={() => toggleCd(c.ma)}
+                    />
+                    <span>{c.ten}</span>
+                  </label>
+                ))}
+                {cds.length === 0 && <span className="ns-muted">Chưa có công đoạn nào trong danh mục.</span>}
+              </div>
+              <span className="ns-field__hint">
+                Không tick gì = áp cho MỌI công đoạn của tổ. Tick riêng khi cùng một tổ mà việc khác
+                giá (bế máy 250đ/tờ ≠ bế tay 400đ/tờ).
+              </span>
+            </div>
             <p className="cc-card__hint ns-wizard__full" style={{ margin: 0 }}>
-              Đơn vị gõ được tự do (kg, bộ, mét tới…); đơn vị đã dùng sẽ tự vào gợi ý lần sau.
+              Đơn vị gõ được tự do (kg, bộ, mét tới…); đơn vị đã dùng sẽ tự vào gợi ý lần sau. Đơn vị
+              khớp danh mục <strong>Đơn vị &amp; quy đổi</strong> thì lệnh sản xuất tự quy đổi ra tiền.
             </p>
           </div>
         </div>

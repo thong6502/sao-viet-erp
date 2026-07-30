@@ -105,6 +105,25 @@ export function LsxBuocDrawer({
     return base.filter((m) => m.id !== row.may_id);
   }, [mayRefs, hienTatCaMay, mayChinh, row.may_id, row.may_thay_the_ids]);
 
+  // Đầu việc khoán chọn được: danh sách server gửi + giữ cả đầu việc ĐANG ghim dù nó không còn khớp
+  // (đổi tổ ở bước, hoặc bảng khoán đã sửa) — mất khỏi dropdown là người dùng tưởng dữ liệu bay.
+  const dsKhoan = useMemo(() => {
+    const ds = [...row.khoan_chon_duoc];
+    if (row.khoan_rate_id && !ds.some((k) => k.id === row.khoan_rate_id)) {
+      ds.unshift({
+        id: row.khoan_rate_id,
+        ten: `(đang ghim) đầu việc #${row.khoan_rate_id}`,
+        don_vi: "",
+        don_gia: 0,
+        tinh_theo: null,
+      });
+    }
+    return ds;
+  }, [row.khoan_chon_duoc, row.khoan_rate_id]);
+  // Diễn giải tiền do SERVER tính cho lựa chọn lúc tải. Vừa đổi lựa chọn thì nó hết đúng → không
+  // hiện số cũ (số cũ nhìn như số của việc mới), chỉ nhắc lưu để tính lại.
+  const khoanConKhop = row.khoan_rate_id === row.khoan_rate_id_luc_tai;
+
   useEffect(() => titleRef.current?.focus(), [row.key]);
 
   // Esc đóng + BẪY TAB trong drawer (nợ của lát trước: tab lọt ra sau nền, người dùng bàn phím lạc).
@@ -505,6 +524,47 @@ export function LsxBuocDrawer({
                         </button>
                       )}
                     </div>
+                  )}
+                  {/* CÔNG VIỆC KHOÁN của bước — nằm ở "Ai làm" vì nó đi liền tổ nhận việc. Ý nghĩa
+                      lớn nhất không phải tiền mà là CHỈ VIỆC: lệnh nói rõ bước cán này làm *cán mờ*
+                      hay *ghép metalize*, xưởng khỏi đoán. Danh sách do server lọc theo tổ + công
+                      đoạn (đã áp luật "ưu tiên dòng khai riêng") nên đây chỉ render. */}
+                  {(row.khoan_chon_duoc.length > 0 || row.khoan_rate_id != null) && (
+                    <label className="khsx-field khsx-field--wide">
+                      <span className="khsx-field__label">
+                        Công việc khoán
+                        <span className="khsx-field__origin">bảng khoán của tổ</span>
+                      </span>
+                      <select
+                        value={row.khoan_rate_id ?? ""}
+                        disabled={!canUpdate}
+                        onChange={(e) =>
+                          set("khoan_rate_id", e.target.value ? Number(e.target.value) : null)}
+                      >
+                        <option value="">— chưa chọn —</option>
+                        {dsKhoan.map((k) => (
+                          <option key={k.id} value={k.id}>
+                            {k.don_vi ? `${k.ten} — ${num(k.don_gia)} đ/${k.don_vi}` : k.ten}
+                          </option>
+                        ))}
+                      </select>
+                      {/* Ba số một dòng: SL bước → SL đã quy đổi → tiền. Không quy đổi được thì nói
+                          THIẾU GÌ, tuyệt đối không hiện số đoán (số đoán chảy thẳng vào tiền công). */}
+                      {!khoanConKhop ? (
+                        <span className="khsx-field__hint">
+                          Lưu công đoạn để tính lại tiền công theo đầu việc vừa chọn.
+                        </span>
+                      ) : row.khoan_dien_giai ? (
+                        <span className="khsx-khoan__ok">{row.khoan_dien_giai}</span>
+                      ) : row.khoan_ly_do ? (
+                        <span className="khsx-khoan__thieu">{row.khoan_ly_do}</span>
+                      ) : row.khoan_chon_duoc.length > 1 ? (
+                        <span className="khsx-field__hint">
+                          Tổ này có {row.khoan_chon_duoc.length} đầu việc cho công đoạn — chọn đúng
+                          việc thợ sẽ làm để ra tiền công.
+                        </span>
+                      ) : null}
+                    </label>
                   )}
                 </>
               )}

@@ -689,8 +689,25 @@ export interface LsxCongDoan extends LsxThueNgoaiFields {
   dieu_kien_json: string[];
   nguoi_giao_nhan_ten: string | null;
   ghi_chu: string | null;
+  // --- Khoán theo đầu việc: phần GHIM (đã chọn) + phần DẪN XUẤT (server tính lúc đọc) ---
+  khoan_rate_id: number | null;
+  khoan_ten: string | null;
+  khoan_don_vi: string | null;
+  khoan_don_gia: number | null;
+  khoan_tinh_theo: string | null;
+  /** Đầu việc chọn được cho bước (theo tổ + công đoạn) — server đã áp luật "ưu tiên dòng khai riêng". */
+  khoan_chon_duoc: { id: number; ten: string; don_vi: string; don_gia: number; tinh_theo: string | null }[];
+  khoan_sl: number | null;
+  khoan_don_vi_sl: string | null;
+  khoan_tien: number | null;
+  /** Cách tính hiện nguyên văn để người đọc kiểm bằng mắt: "241 tờ × 86 × 65 = … × 150 đ/m²". */
+  khoan_dien_giai: string | null;
+  khoan_thieu: string[];
+  khoan_ly_do: string | null;
 }
 export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
+  /** Đầu việc khoán: id để ghim · 0/null = bỏ chọn · KHÔNG gửi field = giữ mặc định của server. */
+  piece_rate_id?: number | null;
   thu_tu?: number; cong_doan_id?: number | null; ten?: string; nhom?: string | null;
   loai_buoc?: LsxLoaiBuoc; bat_buoc?: boolean;
   department_id?: number | null; may_id?: number | null; may_thay_the_ids?: number[];
@@ -760,6 +777,9 @@ export interface LsxDetail {
   thieu: string[];
   canh_bao: string[];
   lead_time: LsxLeadTime | null;
+  /** Công thợ khoán DỰ KIẾN cả lệnh = Σ bước quy đổi được. Là số SÀN: bước chưa chọn đầu việc
+   *  hoặc thiếu số để quy đổi thì không góp vào. */
+  khoan_tien_tong: number;
 }
 export interface LsxUpdateBody {
   ten?: string; so_luong_dat?: number; don_vi_tinh?: string; bu_hao_to?: number;
@@ -3140,6 +3160,13 @@ export interface PieceRate {
   department_id: number | null;
   code: string | null;
   name: string;
+  /** Cột CŨ (1 mã công đoạn) — giữ tương thích, khai mới dùng `cong_doan_mas`. */
+  cong_doan?: string | null;
+  /** NHIỀU công đoạn dùng chung 1 đầu việc (cán bóng · cán mờ · phủ UV = cùng 150đ/m²).
+   *  Rỗng = áp cho mọi công đoạn của tổ. */
+  cong_doan_mas: string[];
+  /** Trục quy đổi SL bước → đơn vị đơn giá (bộ `pricing_basis` của công đoạn). */
+  tinh_theo: string | null;
   unit: string;
   unit_price: number;
   note: string | null;
@@ -3173,6 +3200,8 @@ export interface PieceRateInput {
   department_id?: number | null;
   code?: string | null;
   name: string;
+  cong_doan_mas?: string[];
+  tinh_theo?: string | null;
   unit: string;
   unit_price: number;
   note?: string | null;

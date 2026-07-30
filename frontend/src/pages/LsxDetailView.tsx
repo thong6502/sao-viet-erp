@@ -922,6 +922,22 @@ export function LsxDetailView({
             <Fact k="Hạn SX nội bộ" v={ngay(d.han_hoan_thanh_sx)} cls={classHan(d.han_hoan_thanh_sx)} />
           </div>
 
+          {/* Công thợ khoán DỰ KIẾN — chỉ hiện khi có ít nhất một bước quy đổi ra tiền, và nói rõ
+              đây là số SÀN (bước chưa chọn đầu việc không góp vào) để không ai đọc thành chi phí
+              nhân công thật của lệnh. */}
+          {d.khoan_tien_tong > 0 && (
+            <div className="khsx-facts">
+              <Fact
+                k="Công thợ dự kiến"
+                v={`${num(d.khoan_tien_tong)} đ`}
+                cls="khsx-aside__khoan"
+              />
+              <p className="khsx-luuy__foot" style={{ gridColumn: "1 / -1", margin: 0 }}>
+                Σ các bước đã chọn công việc khoán — bước chưa chọn thì chưa tính vào.
+              </p>
+            </div>
+          )}
+
           {dirty && (
             <div className="khsx-aside__save">
               <p>Có thay đổi chưa lưu</p>

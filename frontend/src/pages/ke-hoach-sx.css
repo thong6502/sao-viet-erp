@@ -1339,3 +1339,33 @@
   .khsx-skel__bar { animation: none; }
   .khsx-drawer { animation: none; }
 }
+
+/* --- Khoán ở drawer bước: dòng "SL bước → SL quy đổi → tiền" ------------------------------------
+   Dùng nền/viền theo token slate; chữ tiền dùng --moss (đã tính được) vs --amber (thiếu số) để phân
+   biệt bằng CẢ màu lẫn nội dung, không chỉ màu. */
+.khsx-khoan__ok,
+.khsx-khoan__thieu {
+  display: block;
+  margin-top: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  border-radius: var(--r-2);
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+}
+.khsx-khoan__ok {
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+}
+/* Thiếu số để quy đổi: nói ra chứ không đoán — chữ amber, KHÔNG phải đỏ (đây không phải lỗi chặn). */
+.khsx-khoan__thieu {
+  color: var(--amber-deep, #92400e);
+  background: var(--amber-soft, #fef3c7);
+  border: 1px solid var(--amber, #d97706);
+  font-family: inherit;
+}
+/* Tổng công thợ dự kiến ở panel phải — số dẫn xuất, không phải số đã chốt. */
+.khsx-aside__khoan { color: var(--ink); }
+.khsx-aside__khoan small { display: block; color: var(--ash-2); font-size: 11px; margin-top: 2px; }

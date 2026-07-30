@@ -331,12 +331,67 @@ export const CFG_KHUON_BE: CatalogConfig = {
   ],
 };
 
+// ── Đơn vị & quy đổi ─────────────────────────────────────────────────────────────
+// Họ quy đổi: CHỈ đơn vị cùng họ đổi được cho nhau bằng hệ số. Qua họ khác (tờ → m², tờ → kg) phải
+// có quy cách của lệnh nên máy tự lo, không khai ở đây.
+const HO_QUY_DOI: Lbls = {
+  dien_tich: "Diện tích (cm² · m²)",
+  khoi_luong: "Khối lượng (kg · tấn)",
+  do_dai: "Độ dài (mm · mét)",
+  to: "Tờ (tờ · ram)",
+  thanh_pham: "Thành phẩm (cái · con · cuốn · hộp)",
+  kem: "Bản kẽm",
+  bai: "Bài in",
+  luot: "Lượt",
+  thung: "Thùng / bao",
+  khac: "Khác",
+};
+
+export const CFG_DON_VI: CatalogConfig = {
+  title: "Đơn vị & quy đổi",
+  subtitle:
+    "Đơn vị dùng chung cho khoán · kho · mua hàng. Mỗi đơn vị khai HỆ SỐ về đơn vị gốc của họ " +
+    "(m² = 10.000 cm², tấn = 1.000 kg, ram = 500 tờ) — dòng hệ số 1 chính là đơn vị gốc.",
+  prefix: "/api/don-vi",
+  softDelete: true,
+  facet: { key: "ho", values: mapOpt(HO_QUY_DOI), dynamic: true },
+  columns: [
+    { key: "ho", label: "Họ quy đổi", render: (r) => lbl(HO_QUY_DOI)(r.ho) },
+    {
+      key: "he_so_goc",
+      label: "Hệ số về đơn vị gốc",
+      render: (r) =>
+        Number(r.he_so_goc) === 1
+          ? "1 — đơn vị gốc của họ"
+          : Number(r.he_so_goc).toLocaleString("vi-VN"),
+    },
+    // Cảnh báo mềm từ backend (hệ số lệch chuẩn · họ chưa có đơn vị gốc) — hiện ngay ở list vì đây
+    // là số dùng để tính TIỀN, thấy muộn thì đã trả lương sai.
+    {
+      key: "canh_bao",
+      label: "Cảnh báo",
+      render: (r) => (Array.isArray(r.canh_bao) && r.canh_bao.length ? r.canh_bao.join(" · ") : "—"),
+    },
+  ],
+  fields: [
+    { key: "ho", label: "Họ quy đổi", type: "suggest", group: "Quy đổi", options: mapOpt(HO_QUY_DOI),
+      default: "khac",
+      hint: "Chỉ đơn vị CÙNG họ đổi được cho nhau. Gõ họ mới cũng được." },
+    { key: "he_so_goc", label: "Hệ số về đơn vị gốc", type: "number", group: "Quy đổi", default: 1,
+      hint: "1 đơn vị này = bao nhiêu đơn vị gốc? m² → 10.000 (gốc cm²) · tấn → 1.000 (gốc kg)" },
+    { key: "hieu_luc_tu", label: "Hệ số áp dụng từ ngày", type: "date", group: "Quy đổi",
+      hint: "Sửa hệ số là đổi tiền từ nay về sau — mốc này để đối chiếu phiếu cũ" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Quy đổi" },
+  ],
+};
+
 export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "loai-san-pham": CFG_LOAI_SAN_PHAM,
   "khai-bao-kho": CFG_KHO_HANG,
   "may-thiet-bi": CFG_MAY,
   "cong-doan": CFG_CONG_DOAN,
   "bu-hao": CFG_BU_HAO,
+  "don-vi": CFG_DON_VI,
   "chung-loai-giay": CFG_CHUNG_LOAI_GIAY,
   "giay": CFG_GIAY,
   "vat-tu-in-an": CFG_VAT_TU,

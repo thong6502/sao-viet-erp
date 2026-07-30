@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from .models.bu_hao import BuHao
 from .models.cong_doan import CongDoan
+from .models.don_vi_do import DonViDo
 from .models.khuon_be import KhuonBe
 from .models.loai_san_pham import LoaiSanPham
 from .models.may_thiet_bi import MayThietBi
@@ -20,6 +21,56 @@ from .models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 
 def _empty(db: Session, model) -> bool:
     return db.execute(select(model).limit(1)).first() is None
+
+
+# --- Đơn vị đo & quy đổi (nền cho khoán · kho · mua hàng) ---------------------------------------
+# (ma, ten, ho, he_so_goc) — he_so_goc = có bao nhiêu đơn vị GỐC của họ trong 1 đơn vị này; dòng
+# hệ số 1 chính là đơn vị gốc của họ. Chỉ đơn vị CÙNG họ đổi được cho nhau bằng hệ số; qua họ khác
+# phải dùng cầu theo quy cách (`services/quy_doi_service.py`).
+_DON_VI_SEED: list[tuple[str, str, str, float]] = [
+    ("cm2", "cm²", "dien_tich", 1),
+    ("m2", "m²", "dien_tich", 10_000),
+    ("kg", "kg", "khoi_luong", 1),
+    ("tan", "tấn", "khoi_luong", 1_000),
+    ("g", "g", "khoi_luong", 0.001),
+    ("m", "mét", "do_dai", 1),
+    ("mm", "mm", "do_dai", 0.001),
+    ("to", "tờ", "to", 1),
+    ("ram", "ram", "to", 500),          # quy ước ngành in: 1 ram = 500 tờ
+    # Họ THÀNH PHẨM — mọi cách đếm "một sản phẩm xong": bước lệnh gọi `cai`, bảng khoán của tổ gọi
+    # "cuốn" (sách) / "hộp" (gỡ hàng) / "con" (tem), nhưng đều là MỘT thành phẩm nên hệ số 1. Tách
+    # thành các họ riêng thì bước "vào keo" (đơn vị `cai`, 1.000 cuốn) vĩnh viễn không khớp đơn giá
+    # 700 đ/cuốn — đã gặp thật khi thử.
+    ("cai", "cái", "thanh_pham", 1),
+    ("con", "con", "thanh_pham", 1),
+    ("cuon", "cuốn", "thanh_pham", 1),
+    ("bo", "bộ", "thanh_pham", 1),
+    ("hop", "hộp", "thanh_pham", 1),
+    ("kem", "bản kẽm", "kem", 1),
+    ("bai", "bài in", "bai", 1),        # mã `bai` khớp đơn vị bước lệnh (DV_BAI), không phải "bai_in"
+    ("luot", "lượt", "luot", 1),        # cắt demi tính theo lượt
+    ("thung", "thùng", "thung", 1),
+]
+
+
+def seed_don_vi_do(db: Session) -> None:
+    """Đơn vị đo + hệ số quy đổi — DỮ LIỆU VẬN HÀNH THẬT, không phải demo.
+
+    Gọi NGOÀI khối `SEED_DEMO` (như biểu thuế TNCN / ngày lễ): thiếu bảng này thì mọi phép quy đổi
+    trả "đơn vị chưa khai" và tiền khoán không tính được — tê liệt trên chính DB thật, nơi không ai
+    bật seed demo.
+
+    Bổ sung theo MÃ CÒN THIẾU (không dùng `_empty`): thêm đơn vị mới vào `_DON_VI_SEED` là DB đang
+    chạy cũng nhận, khỏi phải drop bảng.
+    """
+    co = {d.ma for d in db.execute(select(DonViDo)).scalars()}
+    moi = [
+        DonViDo(ma=ma, ten=ten, ho=ho, he_so_goc=hs)
+        for ma, ten, ho, hs in _DON_VI_SEED if ma not in co
+    ]
+    if moi:
+        db.add_all(moi)
+        db.commit()
 
 
 def seed_rebuild_catalog(db: Session) -> None:
