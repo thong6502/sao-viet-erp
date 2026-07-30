@@ -34,7 +34,7 @@
 }
 /* Số lượng: mono muted cạnh title (thay count-pill tròn đen) */
 .rc__count {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-size: 13px;
   font-weight: var(--fw-regular);
   color: var(--ash-2);
@@ -144,7 +144,7 @@
   font-weight: var(--fw-bold);
 }
 .rc__tabn {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-size: 10px;
   color: var(--ash-2);
   font-variant-numeric: tabular-nums;
@@ -168,7 +168,7 @@
 .rc__table thead th {
   text-align: left;
   padding: var(--sp-4) var(--sp-4);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   letter-spacing: .12em;
@@ -200,7 +200,7 @@
   outline-offset: -2px;
 }
 .rc__mono {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 13px;
   white-space: nowrap;
 }
@@ -216,7 +216,7 @@
 /* Mã: badge vuông mono (đồng bộ .ptg-code) */
 .rc__code-badge {
   display: inline-block;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   font-weight: var(--fw-medium);
   color: var(--ink);
@@ -324,7 +324,7 @@
 /* --- Status badge (vuông, mono HOA — đồng bộ .bg__badge) --- */
 .rc-pill {
   display: inline-block;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -918,6 +918,7 @@ select.rc-input:focus {
   margin: 0;
 }
 .rc-bands__table input[type="number"] {
+    font-family: var(--ff-num);
   -moz-appearance: textfield;
   font-variant-numeric: tabular-nums;
 }
@@ -1032,12 +1033,14 @@ select.rc-input:focus {
   padding: 1px 7px;
 }
 .rc-ver__date {
+    font-family: var(--ff-num);
   margin-left: auto;
   font-size: 12px;
   color: var(--ash, #8a8676);
   font-variant-numeric: tabular-nums;
 }
 .rc-ver__price {
+    font-family: var(--ff-num);
   font-size: 20px;
   font-weight: 700;
   color: var(--ink, #14130f);
@@ -1061,6 +1064,7 @@ select.rc-input:focus {
   color: var(--ash, #8a8676);
 }
 .rc-ver__meta b {
+    font-family: var(--ff-num);
   font-weight: 600;
   color: var(--ink, #14130f);
   font-variant-numeric: tabular-nums;
@@ -1185,7 +1189,7 @@ select.rc-input:focus {
   color: var(--ink);
 }
 .rc-formula__preset-code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   color: var(--ash);
   margin-top: 1px;
@@ -1254,7 +1258,7 @@ select.rc-input:focus {
   font-weight: 600;
 }
 .rc-formula__var-code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: 500;
   opacity: 0.75;
@@ -1263,7 +1267,7 @@ select.rc-input:focus {
   border-radius: 3px;
 }
 .rc-formula__var-code-only {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   font-weight: 700;
 }
@@ -1318,7 +1322,7 @@ select.rc-input:focus {
   border: 1px solid #2e3140;
   color: #d1d5e6;
   border-radius: 4px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 600;
   padding: 2px 7px;
@@ -1373,7 +1377,7 @@ select.rc-input:focus {
   border-radius: var(--r-5) var(--r-5) 0 0;  /* bo góc trên khớp container (đã bỏ overflow:hidden) */
 }
 .rc-formula__editor-label {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   letter-spacing: 0.12em;
@@ -1440,7 +1444,7 @@ select.rc-input:focus {
   padding: 8px 10px 8px 12px;
   background: var(--paper);
   border-bottom: 1px solid var(--rule-soft);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   letter-spacing: 0.1em;
@@ -1479,7 +1483,7 @@ select.rc-input:focus {
 }
 .rc-syntax__tbl td:first-child { width: 92px; white-space: nowrap; }
 .rc-syntax__tbl code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-medium);
   color: var(--ink);
@@ -1495,7 +1499,7 @@ select.rc-input:focus {
   background: transparent !important;
   border: none !important;
   color: #f0f0c9 !important;
-  font-family: var(--ff-mono, "Fira Code", "JetBrains Mono", Consolas, monospace) !important;
+  font-family: var(--ff-num) !important;
   font-size: 13.5px !important;
   line-height: 1.6 !important;
   padding: 12px 14px !important;
@@ -1542,12 +1546,12 @@ select.rc-input:focus {
 .rc-formula__trans-token--func {
   font-weight: 700;
   color: #1e3a8a;
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-num);
 }
 .rc-formula__trans-token--num {
   font-weight: 600;
   color: #5b21b6;
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-num);
 }
 .rc-formula__trans-token--op {
   font-weight: 700;
@@ -1580,7 +1584,7 @@ select.rc-input:focus {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-num);
   font-size: 13px;
   line-height: 1.6;
   color: var(--ink, #14130f);
@@ -1716,7 +1720,7 @@ select.rc-input:focus {
   font-size: 11px;
   font-weight: 600;
   color: var(--ash, #6b665b);
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-sans);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1727,7 +1731,7 @@ select.rc-input:focus {
   border-radius: 6px;
   border: 1px solid var(--rule, #d8d2c0);
   background: var(--canvas, #fbfaf5);
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-num);
   width: 100%;
   transition: all 0.15s ease;
 }
@@ -1762,7 +1766,7 @@ select.rc-input:focus {
   color: var(--signal, #8a1f1f);
 }
 .rc-sandbox__result-value {
-  font-family: var(--ff-mono, monospace);
+  font-family: var(--ff-num);
   font-size: 16px;
   font-weight: 700;
   color: var(--moss-deep, #244a2e);

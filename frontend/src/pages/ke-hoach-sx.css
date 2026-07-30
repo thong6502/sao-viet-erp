@@ -41,7 +41,7 @@
   color: var(--ink);
 }
 .khsx__count {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: var(--fs-xs);
   color: var(--ash);
 }
@@ -147,7 +147,7 @@
 .khsx__row--rush { box-shadow: inset 3px 0 0 var(--rust); }
 
 .khsx__code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: var(--fs-xs);
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -190,7 +190,7 @@
 }
 
 .khsx-num {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
@@ -202,7 +202,7 @@
 
 /* tiến độ lên lệnh */
 .khsx-prog { display: flex; flex-direction: column; gap: 4px; }
-.khsx-prog b { font-family: var(--ff-mono); font-size: var(--fs-xs); }
+.khsx-prog b { font-family: var(--ff-sans); font-size: var(--fs-xs); }
 .khsx-prog__bar {
   display: block;
   width: 64px;
@@ -247,7 +247,7 @@
 }
 .khsx-chip--rush { background: var(--rust-soft); color: var(--rust-deep); border: 1px solid var(--rust); }
 .khsx-chip--ngoai { background: var(--steel-soft); color: var(--steel); }
-.khsx-chip--ptg { background: var(--rule-hair); color: var(--ink); font-family: var(--ff-mono); margin-left: 0; }
+.khsx-chip--ptg { background: var(--rule-hair); color: var(--ink); font-family: var(--ff-sans); margin-left: 0; }
 
 /* --- chip THIẾU (bo VUÔNG — khác pill để không lẫn) ---------------------- */
 .khsx-need {
@@ -262,7 +262,7 @@
   border: 1px solid color-mix(in srgb, var(--signal) 35%, transparent);
   white-space: nowrap;
 }
-.khsx-need--more { font-family: var(--ff-mono); }
+.khsx-need--more { font-family: var(--ff-sans); }
 .khsx-need-stack { display: inline-flex; flex-direction: column; gap: 3px; align-items: flex-start; }
 
 /* cảnh báo MỀM: không nền → đỏ-có-nền = chặn, vàng-không-nền = lưu ý */
@@ -368,7 +368,7 @@
 .khsx-drawer__headmain { flex: 1 1 auto; }
 .khsx-drawer__kicker {
   margin: 0 0 3px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   text-transform: uppercase;
   color: var(--rust);
@@ -542,7 +542,7 @@
 }
 .khsx-detail__ma {
   margin: 0;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 28px;
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -789,7 +789,7 @@
   word-break: break-word;
   line-height: 1.4;
 }
-.khsx-kv__val.khsx-num { text-align: left; font-family: var(--ff-mono); }
+.khsx-kv__val.khsx-num { text-align: left; font-family: var(--ff-sans); }
 .khsx-kv__val.is-nil {
   color: var(--ash-2);
   font-weight: normal;
@@ -813,7 +813,7 @@
   border-left: 4px solid var(--rust);
 }
 .khsx-qty__derive { margin: 0; font-size: var(--fs-sm); color: var(--ink); }
-.khsx-qty__res { color: var(--rust-deep); font-family: var(--ff-mono); font-size: var(--fs-md); }
+.khsx-qty__res { color: var(--rust-deep); font-family: var(--ff-sans); font-size: var(--fs-md); }
 
 /* --- cột phải ------------------------------------------------------------- */
 .khsx-aside { position: sticky; top: var(--sp-4); display: grid; gap: var(--sp-4); }
@@ -888,7 +888,7 @@
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
-.khsx-fact__value { font-family: var(--ff-mono); font-size: 13px; font-weight: 600; color: var(--ink); }
+.khsx-fact__value { font-family: var(--ff-sans); font-size: 13px; font-weight: 600; color: var(--ink); }
 
 .khsx-aside__save {
   background: var(--rust-soft);
@@ -927,7 +927,7 @@
   border-radius: var(--r-3);
   background: var(--rule-hair);
   color: var(--ash);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: var(--fs-xs);
 }
 /* Dải màu bên trái CHỈ cho bước NGOẠI LỆ (thuê ngoài · chờ · KCS · xả tờ). Bước máy/tổ là
@@ -981,11 +981,13 @@
 
 /* Thời lượng ("1 giờ 13 phút") có CHỮ CÓ DẤU nên KHÔNG được dùng mono — JetBrains Mono không
    dựng cho dấu tiếng Việt, đọc rất khó. Giữ canh cột bằng `tabular-nums` trên chính font app. */
-.khsx-dur { font-variant-numeric: tabular-nums; }
+.khsx-dur {   font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums; }
 
 /* Vào → Ra: SỐ mono canh cột, ĐƠN VỊ sans (chữ có dấu). */
 .khsx-rt__qty { white-space: nowrap; }
-.khsx-rt__qty .khsx-num { font-variant-numeric: tabular-nums; }
+.khsx-rt__qty .khsx-num {   font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums; }
 .khsx-rt__dv { color: var(--ash); font-size: var(--fs-xs); margin: 0 2px 0 3px; }
 .khsx-rt__arrow { color: var(--rule); margin: 0 4px; }
 .khsx-rt__goiy {

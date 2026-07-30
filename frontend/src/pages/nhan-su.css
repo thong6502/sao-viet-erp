@@ -214,7 +214,7 @@ button.ns__kpi {
 }
 
 .ns__kpival {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-size: 14px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -414,41 +414,46 @@ button.ns__kpi {
   width: 100%;
 }
 
+/* Bảng danh sách — spec DÙNG CHUNG, xem docs/UI_DESIGN.md §6 (bản gốc: `.rdx-quote`
+   trong bao-gia.css). Trước đây màn này tự đặt luật riêng: bo 16px, hai lớp đổ bóng,
+   header nền đào + kẻ rust 2px. Ba màn ba kiểu bảng thì không còn là một hệ thống. */
 .ns-table-wrapper {
-  border: 1px solid var(--rule-soft, #e8e3d3);
-  border-radius: 16px;
-  background: #ffffff;
-  box-shadow: 0 4px 16px -2px rgba(20, 19, 15, 0.04), 0 1px 3px rgba(20, 19, 15, 0.02);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--canvas);
   overflow: hidden;
   margin-top: 4px;
 }
 
 .ns-table-records {
   width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
+  /* collapse, không separate — để kẻ 1.5px dưới header liền mạch. */
+  border-collapse: collapse;
   font-size: 13.5px;
   text-align: left;
 }
 
-/* Header nền cam nhạt + kẻ cam đậm: trước đây chữ xám trên nền kem gần như chìm
-   vào thân bảng, mắt không có mốc để bám khi quét cột. */
+/* Dải tiêu đề: nền --paper + kẻ 1.5px --rule (UI_DESIGN §6). Nhận xét cũ vẫn đúng — "chữ
+   xám trên nền cùng màu thân bảng thì chìm, mắt không có mốc bám khi quét cột" — nhưng
+   thuốc thì quá liều: nền ĐÀO + kẻ RUST 2px làm dải tiêu đề tranh chú ý với dữ liệu.
+   --paper một mình gần như vô hình (1,046:1 so với --canvas); chính KẺ 1.5px, dày hơn kẻ
+   --rule-hair giữa các hàng, mới là thứ tách dải tiêu đề ra. */
 .ns-table-records th {
-  background: var(--rust-soft, #fff5f0);
-  color: var(--rust-deep, #9a3412);
-  font-family: var(--ff-mono);
-  font-weight: 700;
-  font-size: 11px;
+  background: var(--paper);
+  color: var(--ash);
+  font-family: var(--ff-sans);
+  font-weight: var(--fw-bold);
+  font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  padding: 13px 18px;
-  border-bottom: 2px solid var(--rust, #c5400a);
+  padding: 10px 14px;
+  border-bottom: 1.5px solid var(--rule);
 }
 
 .ns-table-records td {
-  padding: 13px 18px;
-  border-bottom: 1px solid var(--rule-hair, #efebde);
-  color: var(--ink, #14130f);
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rule-hair);
+  color: var(--ink);
   vertical-align: middle;
 }
 
@@ -457,13 +462,14 @@ button.ns__kpi {
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Hover = ĐỔI NỀN, hết (UI_DESIGN §6). Vạch trái `inset 3px rust` là dấu của hàng ĐANG
+   CHỌN, không phải hover — dùng cho hover thì khi nào thêm trạng thái chọn sẽ đụng nhau. */
 .ns-table-row:hover {
-  background: #fff5f0;
-  box-shadow: inset 3px 0 0 0 var(--rust, #c5400a);
+  background: var(--rust-soft);
 }
 
 .ns-table-row:hover .ns-cell-name {
-  color: #ea580c;
+  color: var(--rust-deep);
 }
 
 .ns-table-row:last-child td {
@@ -541,7 +547,7 @@ button.ns__kpi {
   background: #f5f0eb;
   border: 1px solid #e5dcd3;
   color: #7c2d12;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -594,14 +600,14 @@ button.ns__kpi {
 }
 
 .ns-cell-code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12.5px;
   font-weight: 700;
   color: #ea580c;
 }
 
 .ns-cell-phone {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   color: #64748b;
 }
@@ -841,7 +847,7 @@ button.ns__kpi {
   width: 52px;
   height: 52px;
   font-size: 20px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-weight: var(--fw-bold);
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.2);
@@ -1271,7 +1277,7 @@ button.ns__kpi {
   background: #fff;
   border: 2px solid var(--rule);
   font-size: 11.5px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-weight: var(--fw-bold);
   transition: all 0.25s ease;
   color: var(--ash);
@@ -1433,6 +1439,7 @@ button.ns__kpi {
 }
 
 .ns-wizard__salary-total strong {
+    font-family: var(--ff-num);
   color: var(--ink);
   font-size: 17px;
   font-variant-numeric: tabular-nums;
@@ -1578,14 +1585,15 @@ button.ns__kpi {
 .ns-file__date {
   color: var(--ash-2);
   font-size: 11px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
 }
 
 /* Request Queue & Tables */
+/* Bảng phụ (drawer chi tiết) — cùng spec §6 với bảng danh sách. */
 .ns__tablewrap {
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--canvas);
   overflow: hidden;
 }
 
@@ -1596,18 +1604,18 @@ button.ns__kpi {
 }
 
 .ns__table th {
-  background: var(--canvas);
+  background: var(--paper);
   color: var(--ash);
   font-weight: var(--fw-bold);
-  font-size: 11.5px;
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  padding: var(--sp-3) var(--sp-4);
-  border-bottom: 1px solid var(--rule-soft);
+  letter-spacing: 0.07em;
+  padding: 10px 14px;
+  border-bottom: 1.5px solid var(--rule);
 }
 
 .ns__table td {
-  padding: var(--sp-3) var(--sp-4);
+  padding: 12px 14px;
   border-bottom: 1px solid var(--rule-hair);
   color: var(--ink);
 }

@@ -47,7 +47,7 @@
   display: grid;
   place-items: center;
   color: var(--ash);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;

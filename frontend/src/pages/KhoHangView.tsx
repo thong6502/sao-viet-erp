@@ -16,7 +16,7 @@ export function KhoHangView({ ten, ma }: { ten: string; ma?: string }) {
         </span>
         <h1 className="lsx-soon__title">{ten}</h1>
         {ma && (
-          <p className="lsx-soon__sub" style={{ fontFamily: "var(--ff-mono)", letterSpacing: "0.04em" }}>{ma}</p>
+          <p className="lsx-soon__sub" style={{ fontFamily: "var(--ff-num)", letterSpacing: "0.04em" }}>{ma}</p>
         )}
         <p className="lsx-soon__sub">
           Kho đã được khai báo. Chức năng nhập / xuất / tồn kho đang được xây dựng — sẽ có ở bản sau.

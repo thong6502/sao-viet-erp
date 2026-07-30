@@ -448,7 +448,7 @@
 .cc-calendar-tooltip-date {
   font-size: 11px;
   color: var(--ash-2);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
 }
 
 .cc-calendar-tooltip-body {

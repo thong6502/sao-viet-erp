@@ -6313,7 +6313,7 @@ function AdjustRequestsTab({
                   <td
                     style={{
                       textAlign: "center",
-                      fontFamily: "var(--ff-mono)",
+                      fontFamily: "var(--ff-num)",
                       fontWeight: "bold",
                     }}
                   >

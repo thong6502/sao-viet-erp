@@ -1,20 +1,30 @@
 /* Design tokens — single source of truth for visual values.
-   Extracted from docs/UI_DESIGN.md ("paper + ink pigment", single rust accent).
-   Never hard-code raw values in components; reference these vars. */
+   Luật đầy đủ + lý do: docs/UI_DESIGN.md. Never hard-code raw values in components.
+
+   Hệ màu: neutral LẠNH (slate) + accent ẤM (rust) — cặp có chủ ý, đừng "sửa" cho đồng
+   nhiệt độ. Chốt 2026-07-30 theo màn Phòng ban (redesign-phong-ban.css) đã được duyệt;
+   trước đó neutral là bộ giấy-ngà ấm (#f5f1e8/#14130f/#6b665b/#d8d2c0). */
 :root {
-  /* Color */
-  --paper: #f5f1e8;
-  --canvas: #fbfaf5;
-  --ink: #14130f;
-  --ash: #6b665b;
-  --ash-2: #918b7e;
+  /* Color — neutral: 9 slot, không thêm không bớt (UI_DESIGN §1). Chỉ 3 bậc chữ:
+     ink (chính) / ash (mờ) / ash-2 (rất mờ). Cần bậc 4 thì dùng cỡ chữ hoặc độ đậm. */
+  --paper: #f8fafc;
+  --canvas: #ffffff;
+  --ink: #0f172a;
+  --ash: #475569;
+  /* ash-2 KHÔNG lấy slate-400 (#94a3b8) dù đó là bậc "đúng" theo thang Tailwind: nó chỉ
+     đạt 2,56:1 trên nền trắng ⇒ trượt WCAG AA cho chữ, mà token này đang dùng ở 358 chỗ
+     phần lớn là chữ. slate-500 đạt 4,55–4,76:1 và vẫn cách --ash 1,59:1 nên ba bậc chữ
+     còn phân biệt được (UI_DESIGN §9). */
+  --ash-2: #64748b;
+  /* Accent — MỘT màu, và nó ẤM (UI_DESIGN §2). rust-soft là "bề mặt được tô": header
+     bảng, hover hàng, hover nút phụ, nền phần tử đang chọn. Hover hàng KHÔNG dùng xám. */
   --rust: #c5400a;
   --rust-deep: #8a2d07;
   --rust-soft: #f4e2d6;
-  --paper-contrast: #f5f1e8;
-  --rule: #d8d2c0;
-  --rule-soft: #e8e3d3;
-  --rule-hair: #efebde;
+  --paper-contrast: #f8fafc;
+  --rule: #cbd5e1;
+  --rule-soft: #e2e8f0;
+  --rule-hair: #f1f5f9;
   --moss: #2f5d3a;
   --moss-soft: #dbe7dd;
   --moss-deep: #244a2e;
@@ -26,17 +36,20 @@
   --signal-deep: #6b1717;
   --steel: #4a5560;
   --steel-soft: #dde1e5;
-  /* Khối tối (header hồ sơ, pill active, nút primary đậm) — mockup CRM. */
-  --charcoal: #1c1a17;
-  --charcoal-2: #2a2723;
-  --on-charcoal: #f5f1e8;
-  --on-charcoal-muted: #b3ada1;
+  /* Khối tối (header hồ sơ, chip lọc đang chọn, nút primary đậm).
+     charcoal = LỰA CHỌN LỌC; rust = HÀNH ĐỘNG + toggle chế độ (UI_DESIGN §5). */
+  --charcoal: #0f172a;
+  --charcoal-2: #1e293b;
+  --on-charcoal: #f8fafc;
+  --on-charcoal-muted: #94a3b8;
   /* Badge hành vi (tím) — "Trả đúng hạn" trong mockup. */
   --plum: #5f4d9e;
   --plum-soft: #e6e0f2;
   --plum-deep: #483a7a;
-  /* Thang nhiệt (heatmap tần suất) — ramp từ nền ấm tới rust. */
-  --heat-0: #f3ede2;
+  /* Thang nhiệt (heatmap tần suất, ô định danh) — bậc 0 là "nguội" nên theo neutral lạnh,
+     bậc 1→4 ấm dần tới rust. Tương phản ĐỔI CHIỀU ở bậc 3: bậc 1-2 chữ --ink, bậc 4 chữ
+     --paper-contrast, RIÊNG bậc 3 phải dùng --ink (chữ giấy chỉ đạt 2,71:1 — UI_DESIGN §9). */
+  --heat-0: #f1f5f9;
   --heat-1: #f2d9c6;
   --heat-2: #e8b18e;
   --heat-3: #d97b4a;
@@ -50,10 +63,17 @@
   --score-bad-fg: var(--signal);
 
   /* Typography */
-  /* Self-hosted (styles/fonts.css): Be Vietnam Pro — sans hiện đại đủ dấu tiếng Việt,
-     JetBrains Mono — label HOA giãn cách / mã / số liệu (subset latin+vietnamese). */
+  /* MỘT font chữ cho toàn app (styles/fonts.css): Be Vietnam Pro. Mọi nhãn / tiêu đề /
+     nội dung đều dùng --ff-sans. Nhãn HOA giãn cách là hiệu ứng của
+     `text-transform: uppercase` + `letter-spacing`, KHÔNG phải của font — nên không cần
+     font thứ hai cho việc đó. */
   --ff-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --ff-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  /* CHỈ dùng cho SỐ và MÃ (tiền, số lượng, giờ, %, mã phiếu). Be Vietnam Pro có chữ số
+     RỘNG KHÁC NHAU (số "1" = 385 so với số "4" = 710 trên 1000em) và KHÔNG có feature
+     `tnum`, nên cột số dùng sans sẽ so le và CSS không cứu được. Luôn đi kèm
+     `font-variant-numeric: tabular-nums`. ĐỪNG dùng cho chữ — đó là việc của --ff-sans.
+     (Token cũ --ff-mono đã bỏ vì bị dùng tràn sang chữ ở 356 chỗ.) */
+  --ff-num: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
   --fw-regular: 400;
   --fw-medium: 500;
   --fw-bold: 600;

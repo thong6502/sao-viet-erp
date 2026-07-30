@@ -35,7 +35,7 @@
   flex: 0 0 auto;
 }
 .activity__filter-label {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -53,7 +53,7 @@
   font-size: 14px;
 }
 .activity__table thead th {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -78,7 +78,7 @@
 
 .activity__time,
 .activity__mono {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 13px;
   color: var(--ash);
   white-space: nowrap;
@@ -89,7 +89,7 @@
 
 .activity__status {
   color: var(--ash);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;

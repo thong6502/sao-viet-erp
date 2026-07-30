@@ -331,7 +331,7 @@ function KpiStrip({ stats }: { stats: OrderStatsOut }) {
       </div>
       <div className="dhb__kpi">
         <div className="dhb__kpi-l"><Icon name="check" size={13} /> Giá trị đã chốt</div>
-        <div className="dhb__kpi-n" style={{ fontFamily: "var(--ff-mono)", fontSize: 15, fontVariantNumeric: "tabular-nums" }}>{vndShort(stats.ordered_value)}</div>
+        <div className="dhb__kpi-n" style={{ fontFamily: "var(--ff-num)", fontSize: 15, fontVariantNumeric: "tabular-nums" }}>{vndShort(stats.ordered_value)}</div>
         <div className="dhb__kpi-s">{stats.ordered} đơn</div>
       </div>
       <div className="dhb__kpi">

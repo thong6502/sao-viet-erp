@@ -38,9 +38,11 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Select } from "../components/Select";
 import {
   AlarmClock,
+  BarChart3,
   ChevronDown,
   ChevronUp,
   ChevronLeft,
+  ChevronRight,
   Download,
   FileText,
   Gauge,
@@ -55,7 +57,9 @@ import {
   Phone,
   ReceiptText,
   Search,
+  SearchX,
   Tags,
+  UserPlus,
   Users,
   X,
   CheckCircle2,
@@ -66,7 +70,6 @@ import {
   Trash2,
   User,
   Check,
-  ChevronRight,
   ShieldCheck,
   Image,
   Sparkles,
@@ -134,10 +137,10 @@ function moneyCompact(n: number | null | undefined): string {
     return (n / 1_000_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " tỷ đ";
   }
   if (n >= 1_000_000) {
-    return (n / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " M đ";
+    return (n / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " Mđ";
   }
   if (n >= 1_000) {
-    return (n / 1_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " K đ";
+    return (n / 1_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " Kđ";
   }
   return n.toLocaleString("vi-VN") + " ₫";
 }
@@ -145,28 +148,21 @@ function moneyCompact(n: number | null | undefined): string {
 function moneySuperCompact(n: number | null | undefined): string {
   if (n == null) return "—";
   if (n >= 1_000_000_000) {
-    return (n / 1_000_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + "B";
+    return (n / 1_000_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " Bđ";
   }
   if (n >= 1_000_000) {
-    return (n / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + "M";
+    return (n / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " Mđ";
   }
   if (n >= 1_000) {
-    return (n / 1_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + "K";
+    return (n / 1_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " Kđ";
   }
   return n.toLocaleString("vi-VN") + " ₫";
 }
 
-/** Số to + đơn vị nhỏ ("22,17" + "M đ") cho stat card / cột tiền — theo prototype. */
+/** Số to + đơn vị ("22,17 Mđ") cho stat card / cột tiền — đồng màu 100%, không lệch font hay nhạt chữ. */
 function moneyStat(n: number | null | undefined): ReactNode {
   if (n == null || n <= 0) return "—";
-  const s = moneyCompact(n);
-  const m = s.match(/^([\d.,]+)\s*(.+)$/);
-  if (!m) return s;
-  return (
-    <>
-      {m[1]} <small>{m[2]}</small>
-    </>
-  );
+  return moneyCompact(n);
 }
 
 function getInitials(name: string): string {
@@ -572,23 +568,21 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
   return (
     <main className="kh">
       <header className="kh__head">
-        <div>
+        <div className="kh__title-group">
           <p className="eyebrow">Kinh doanh · CRM</p>
-          <h1 className="kh__title">Khách hàng</h1>
-          <p className="kh__sub">
-            {kpis ? (
-              <span className="kh__subtitle-stats">
-                <strong>{total}</strong> KH &middot; <strong>{kpis.new_this_month}</strong> mới trong tháng &middot; TB đơn <strong>{moneyCompact(kpis.avg_order_value)}</strong>
+          <div className="kh__title-row">
+            <h1 className="kh__title">Khách hàng</h1>
+            {kpis && (
+              <span className="kh__badge-summary">
+                <strong>{total}</strong> KH &middot; <strong>{kpis.new_this_month}</strong> mới tháng này
               </span>
-            ) : (
-              "Danh bạ 360° — tìm theo thẻ gán tay, xem lịch sử mua thật & dashboard."
             )}
-          </p>
+          </div>
         </div>
         <div className="kh__head-actions">
           {canExport && (
             <Button variant="ghost" onClick={exportBook} loading={exportingBook}>
-              Xuất CSV
+              <Download size={14} /> Xuất CSV
             </Button>
           )}
           {canCreate && (
@@ -598,18 +592,20 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
           )}
           {canReassign && (
             <Button variant="ghost" onClick={openReassign} disabled={sales.length < 2}>
-              Điều chuyển KH
+              Điều chuyển
             </Button>
           )}
-          <Button
-            variant="primary"
-            onClick={() => {
-              setEditing(null);
-              setMode("create");
-            }}
-          >
-            + Tạo khách hàng
-          </Button>
+          {canCreate && (
+            <Button
+              variant="primary"
+              onClick={() => {
+                setEditing(null);
+                setMode("create");
+              }}
+            >
+              + Tạo khách hàng
+            </Button>
+          )}
         </div>
       </header>
 
@@ -619,7 +615,7 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
         </div>
       )}
 
-      {/* KPI header strip — ô 4 = Cần chăm sóc hôm nay (bấm xổ danh sách, hết panel riêng). */}
+      {/* KPI header strip — low profile compact bar */}
       <KpiStrip
         kpis={kpis}
         loading={loading && !kpis}
@@ -632,133 +628,132 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
       {/* Danh sách Cần chăm sóc — chỉ hiện khi bấm ô KPI, sát ngay dưới strip. */}
       {(followups.length > 0 || visibleSuggestions.length > 0) && followupsOpen && (
         <div className="kh__followups card">
-          {(
-            <ul className="kh__followups-list">
-              {followups.map((f) => (
-                <li key={f.id}>
-                  <button type="button" className="kh__followups-row" onClick={() => setOpenId(f.customer_id)}>
-                    <RemindBadge level={f.remind_level} days={f.overdue_days} />
-                    <span className="kh__name">{f.customer_name}</span>
-                    <span className="kh__mono kh__muted">{f.customer_code}</span>
-                    <span className="kh__followups-note">{f.note}</span>
-                    <span className="kh__mono kh__muted">hạn {fmtDate(f.due_date)}</span>
-                    {f.assignee_name && <span className="kh__muted">· {f.assignee_name}</span>}
+          <ul className="kh__followups-list">
+            {followups.map((f) => (
+              <li key={f.id}>
+                <button type="button" className="kh__followups-row" onClick={() => setOpenId(f.customer_id)}>
+                  <RemindBadge level={f.remind_level} days={f.overdue_days} />
+                  <span className="kh__name">{f.customer_name}</span>
+                  <span className="kh__mono kh__muted">{f.customer_code}</span>
+                  <span className="kh__followups-note">{f.note}</span>
+                  <span className="kh__mono kh__muted">hạn {fmtDate(f.due_date)}</span>
+                  {f.assignee_name && <span className="kh__muted">· {f.assignee_name}</span>}
+                </button>
+              </li>
+            ))}
+            {visibleSuggestions.map((sg) => (
+              <li key={`sg-${sg.customer_id}`}>
+                <div className="kh__followups-row kh__followups-row--suggest">
+                  <span className="badge-sem badge-sem--plum"><Sparkles size={11} /> Gợi ý</span>
+                  <button
+                    type="button"
+                    className="kh__linkbtn kh__name"
+                    onClick={() => setOpenId(sg.customer_id)}
+                  >
+                    {sg.name}
                   </button>
-                </li>
-              ))}
-              {/* Gợi ý rule-based: khách thân thiết/đối tác im ắng ≥45 ngày (tier +
-                  last_order_at từ dữ liệu thật) — "Hẹn gọi" tạo việc ngày mai 1 chạm. */}
-              {visibleSuggestions.map((sg) => (
-                <li key={`sg-${sg.customer_id}`}>
-                  <div className="kh__followups-row kh__followups-row--suggest">
-                    <span className="badge-sem badge-sem--plum"><Sparkles size={11} /> Gợi ý</span>
-                    <button
-                      type="button"
-                      className="kh__linkbtn kh__name"
-                      onClick={() => setOpenId(sg.customer_id)}
-                    >
-                      {sg.name}
-                    </button>
-                    <span className="kh__mono kh__muted">{sg.code}</span>
-                    <span className="kh__followups-note">{sg.days} ngày chưa đặt lại — hỏi thăm?</span>
-                    <Button
-                      variant="secondary"
-                      loading={suggestBusyId === sg.customer_id}
-                      onClick={() => suggestToTask(sg)}
-                      style={{ padding: "3px 10px", fontSize: 12 }}
-                    >
-                      + Hẹn gọi
-                    </Button>
-                    <button
-                      type="button"
-                      className="kh__tag-x"
-                      aria-label="Bỏ gợi ý này"
-                      onClick={() =>
-                        setDismissedSuggest((prev) => new Set(prev).add(sg.customer_id))
-                      }
-                    >
-                      ×
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+                  <span className="kh__mono kh__muted">{sg.code}</span>
+                  <span className="kh__followups-note">{sg.days} ngày chưa đặt lại — hỏi thăm?</span>
+                  <Button
+                    variant="secondary"
+                    loading={suggestBusyId === sg.customer_id}
+                    onClick={() => suggestToTask(sg)}
+                    style={{ padding: "3px 10px", fontSize: 12 }}
+                  >
+                    + Hẹn gọi
+                  </Button>
+                  <button
+                    type="button"
+                    className="kh__tag-x"
+                    aria-label="Bỏ gợi ý này"
+                    onClick={() =>
+                      setDismissedSuggest((prev) => new Set(prev).add(sg.customer_id))
+                    }
+                  >
+                    ×
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
-      <div className="kh__toolbar">
-        {/* Enter để tìm (mockup không có nút Tìm riêng — đỡ một control). */}
-        <form className="kh__search" onSubmit={onSearch} role="search">
-          <div className="kh__search-input-wrap">
-            <span className="kh__search-icon" aria-hidden="true"><Search size={14} /></span>
-            <input
-              className="input kh__search-input"
-              placeholder="Tìm theo tên / MST / điện thoại…  ↵"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              aria-label="Tìm khách hàng"
-            />
-          </div>
-        </form>
-
-        <div className="kh__filter">
-          <Select
-            ariaLabel="Lọc theo NV phụ trách"
-            value={saleFilter}
-            placeholder="Tất cả NV phụ trách"
-            onChange={(v) => {
-              setSaleFilter(v ?? "");
+      {/* Single-row Integrated Toolbar */}
+      <div className="kh__toolbar-strip">
+        <div className="kh__sub-tabs">
+          <button
+            type="button"
+            className={`kh__sub-tab${!followupFilter ? " is-active" : ""}`}
+            onClick={() => {
+              setFollowupFilter(false);
               setPage(1);
             }}
-            options={[
-              { value: "", label: "Tất cả NV phụ trách" },
-              ...sales.map((s) => ({ value: String(s.id), label: s.name })),
-            ]}
-          />
+          >
+            Tất cả <span className="chip-count">{total}</span>
+          </button>
+          <button
+            type="button"
+            className={`kh__sub-tab${followupFilter ? " is-active" : ""}`}
+            onClick={() => {
+              setFollowupFilter(true);
+              setPage(1);
+            }}
+          >
+            <AlarmClock size={13} /> Cần theo dõi{" "}
+            <span className={`chip-count${followups.length > 0 ? " chip-count--alert" : ""}`}>
+              {followups.length}
+            </span>
+          </button>
         </div>
-        {tagLabels.length > 0 && (
+
+        <div className="kh__toolbar-controls">
+          <form className="kh__search" onSubmit={onSearch} role="search">
+            <div className="kh__search-input-wrap">
+              <span className="kh__search-icon" aria-hidden="true"><Search size={14} /></span>
+              <input
+                className="input kh__search-input"
+                placeholder="Tìm theo tên / MST / điện thoại…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                aria-label="Tìm khách hàng"
+              />
+            </div>
+          </form>
+
           <div className="kh__filter">
             <Select
-              ariaLabel="Lọc theo nhãn"
-              value={tagFilter}
-              placeholder="Tất cả nhãn"
+              ariaLabel="Lọc theo NV phụ trách"
+              value={saleFilter}
+              placeholder="Tất cả NV phụ trách"
               onChange={(v) => {
-                setTagFilter(v ?? "");
+                setSaleFilter(v ?? "");
                 setPage(1);
               }}
               options={[
-                { value: "", label: "Tất cả nhãn" },
-                ...tagLabels.map((t) => ({ value: t, label: t })),
+                { value: "", label: "Tất cả NV phụ trách" },
+                ...sales.map((s) => ({ value: String(s.id), label: s.name })),
               ]}
             />
           </div>
-        )}
-      </div>
-
-      {/* Sub-tab: Tất cả + Cần theo dõi (redesign spec-06 v2 — bỏ tab tier). Lọc phân loại
-          dùng THẺ gán tay ở dropdown "nhãn" phía trên. */}
-      <div className="kh__sub-tabs">
-        <button
-          type="button"
-          className={`kh__sub-tab kh__sub-tab--all${!followupFilter ? " is-active" : ""}`}
-          onClick={() => {
-            setFollowupFilter(false);
-            setPage(1);
-          }}
-        >
-          Tất cả <span className="kh__sub-tab-count">{kpis?.total_customers ?? 0}</span>
-        </button>
-        <button
-          type="button"
-          className={`kh__sub-tab kh__sub-tab--followup${followupFilter ? " is-active" : ""}`}
-          onClick={() => {
-            setFollowupFilter(true);
-            setPage(1);
-          }}
-        >
-          <AlarmClock size={13} /> Cần theo dõi <span className="kh__sub-tab-count">{followups.length}</span>
-        </button>
+          {tagLabels.length > 0 && (
+            <div className="kh__filter">
+              <Select
+                ariaLabel="Lọc theo nhãn"
+                value={tagFilter}
+                placeholder="Tất cả nhãn"
+                onChange={(v) => {
+                  setTagFilter(v ?? "");
+                  setPage(1);
+                }}
+                options={[
+                  { value: "", label: "Tất cả nhãn" },
+                  ...tagLabels.map((t) => ({ value: t, label: t })),
+                ]}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Khoảng CỐ ĐỊNH ngay trên bảng (chỉ cho người có quyền điều chuyển): luôn giữ chiều
@@ -785,7 +780,10 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
         </div>
       )}
 
-      <div className="card kh__tablewrap">
+      {/* KHÔNG kèm `.card`: global.css được bundle SAU page CSS nên `.card{padding:var(--sp-8)}`
+          thắng mọi `padding` khai ở đây ⇒ bảng bị đệm 32px, thành khung-trong-khung.
+          Báo giá làm đúng: chỉ `.q-card`, một khung bọc sát bảng. Xem UI_DESIGN §10. */}
+      <div className="kh__tablewrap">
         <table className="kh__table">
           <thead>
             <tr>
@@ -838,13 +836,18 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={colCount} className="kh__empty">
+                <td colSpan={colCount} className="kh__empty-cell">
                   {q || tagFilter || saleFilter || followupFilter ? (
-                    <>
-                      <p>Không có khách hàng khớp bộ lọc.</p>
-                      <button
-                        type="button"
-                        className="btn btn--ghost"
+                    <div className="kh__empty-state">
+                      <div className="kh__empty-icon">
+                        <SearchX size={28} />
+                      </div>
+                      <h3 className="kh__empty-title">Không tìm thấy khách hàng</h3>
+                      <p className="kh__empty-sub">
+                        Không tìm thấy khách hàng nào phù hợp với điều kiện tìm kiếm hoặc bộ lọc hiện tại.
+                      </p>
+                      <Button
+                        variant="ghost"
                         onClick={() => {
                           setQ("");
                           setTagFilter("");
@@ -854,11 +857,17 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
                         }}
                       >
                         Xoá bộ lọc
-                      </button>
-                    </>
+                      </Button>
+                    </div>
                   ) : (
-                    <>
-                      <p>Chưa có khách hàng nào trong sổ.</p>
+                    <div className="kh__empty-state">
+                      <div className="kh__empty-icon">
+                        <UserPlus size={28} />
+                      </div>
+                      <h3 className="kh__empty-title">Chưa có khách hàng nào trong sổ</h3>
+                      <p className="kh__empty-sub">
+                        Danh sách khách hàng của bạn hiện đang trống. Hãy tạo mới khách hàng đầu tiên để bắt đầu quản lý hồ sơ và giao dịch.
+                      </p>
                       <Button
                         variant="primary"
                         onClick={() => {
@@ -868,7 +877,7 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
                       >
                         + Tạo khách hàng đầu tiên
                       </Button>
-                    </>
+                    </div>
                   )}
                 </td>
               </tr>
@@ -904,7 +913,7 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
                         <div className="kh__identity">
                           <span className="kh__name">{c.name}</span>
                           <span className="kh__submeta">
-                            {c.tax_code && <span className="kh__mono">MST {c.tax_code}</span>}
+                            {c.tax_code && <span className="kh__mst-chip">MST {c.tax_code}</span>}
                           </span>
                           <div className="kh__row-badges">
                             {careDue > 0 && (
@@ -926,15 +935,31 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
                       </div>
                     </td>
                     <td className="kh__num kh__money">
-                      {c.revenue_12m > 0 ? moneyStat(c.revenue_12m) : <span className="kh__muted">—</span>}
+                      {c.revenue_12m > 0 ? (
+                        <span className="kh__revenue-val">{moneyStat(c.revenue_12m)}</span>
+                      ) : (
+                        <span className="kh__muted">—</span>
+                      )}
                     </td>
                     <td className="kh__num">
-                      {c.orders_total > 0 ? c.orders_total : <span className="kh__muted">0</span>}
+                      {c.orders_total > 0 ? (
+                        <span className="kh__orders-pill">{c.orders_total}</span>
+                      ) : (
+                        <span className="kh__muted">0</span>
+                      )}
                     </td>
                     <td className="kh__num">
                       {avgOrderValue > 0 ? moneySuperCompact(avgOrderValue) : <span className="kh__muted">—</span>}
                     </td>
-                    <td>{c.sale_name ?? <span className="kh__muted">Chưa gán</span>}</td>
+                    <td>
+                      {c.sale_name ? (
+                        <span className="kh__sale-chip">
+                          <User size={12} /> {c.sale_name}
+                        </span>
+                      ) : (
+                        <span className="kh__muted">Chưa gán</span>
+                      )}
+                    </td>
                     <td className="kh__arrow-col">
                       <span className="kh__arrow-icon">›</span>
                     </td>
@@ -944,47 +969,53 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
             )}
           </tbody>
         </table>
-      </div>
 
-      {!loading && !listError && rows.length > 0 && (
-        <div className="kh__pager">
-          <div className="kh__pager-left">
-            <span className="kh__muted">
-              {total} khách · trang {page}/{totalPages}
-            </span>
-            <div className="kh__pager-size">
-              <span className="kh__muted">Hiển thị</span>
-              <Select
-                ariaLabel="Số dòng mỗi trang"
-                value={pageSize}
-                onChange={(v) => {
-                  setPageSize(v ?? 25);
-                  setPage(1);
-                }}
-                options={PAGE_SIZES.map((n) => ({ value: n, label: String(n) }))}
-              />
+        {!loading && !listError && rows.length > 0 && (
+          <div className="kh__pager">
+            <div className="kh__pager-left">
+              <span className="kh__pager-info">
+                Tổng {total} khách hàng · Trang {page}/{totalPages}
+              </span>
+              <span className="kh__pager-divider" />
+              <div className="kh__pager-size">
+                <span>Hiển thị</span>
+                <Select
+                  ariaLabel="Số dòng mỗi trang"
+                  value={pageSize}
+                  onChange={(v) => {
+                    setPageSize(v ?? 25);
+                    setPage(1);
+                  }}
+                  options={PAGE_SIZES.map((n) => ({ value: n, label: `${n} dòng` }))}
+                />
+              </div>
+            </div>
+            <div className="kh__pager-btns">
+              <button
+                type="button"
+                className="kh__pager-btn"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                title="Trang trước"
+              >
+                <ChevronLeft size={16} /> Trước
+              </button>
+              <span className="kh__pager-page-indicator">
+                {page} / {totalPages}
+              </span>
+              <button
+                type="button"
+                className="kh__pager-btn"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                title="Trang sau"
+              >
+                Sau <ChevronRight size={16} />
+              </button>
             </div>
           </div>
-          <div className="kh__pager-btns">
-            <button
-              type="button"
-              className="btn btn--ghost"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              ‹ Trước
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            >
-              Sau ›
-            </button>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {mode === "create" && (
         <CustomerFormDialog
@@ -1146,51 +1177,76 @@ function KpiStrip({
   careOpen: boolean;
   onToggleCare: () => void;
 }) {
-  // MỘT card chia 4 ngăn (mockup) — ô 4 = "Cần chăm sóc hôm nay" (như prototype),
-  // bấm để xổ danh sách ngay dưới strip. Không còn panel riêng chiếm chỗ.
-  const cells: { label: string; value: ReactNode; hint: string }[] = [
-    { label: "Tổng khách hàng", value: kpis ? String(kpis.total_customers) : "—", hint: "trong phạm vi" },
-    {
-      label: "Mới trong tháng",
-      value: kpis ? String(kpis.new_this_month) : "—",
-      hint: "tạo tháng này",
-    },
-    {
-      label: "TB / đơn (12T)",
-      value: kpis ? moneyStat(kpis.avg_order_value) : "—",
-      hint: "từ đơn thật",
-    },
-  ];
   const careTotal = careCount + suggestCount;
+
+  // UI_DESIGN §4: chỉ số gộp thành MỘT dải pill (~38px), không phải 4 thẻ 84px xếp 4 cột —
+  // thẻ cao đẩy bảng dữ liệu (nội dung thật của màn) xuống dưới màn hình.
+  // "Cần chăm sóc" tách ra pill riêng: nó là VIỆC PHẢI LÀM, không phải số để đọc, nên nó
+  // được mang màu (§3) — nhưng ở liều pill, không phải tô cả thẻ.
   return (
-    <div className="stat-strip">
-      {cells.map((c) => (
-        <div className="stat-strip__cell" key={c.label}>
-          <span className="stat__label">{c.label}</span>
-          <span className="stat__value">
-            {loading ? <span className="kh__skel kh__skel--kpi" /> : c.value}
+    <div className="kh__kpis">
+      <div className="kh__ckpi">
+        <div className="kh__ckpi-item">
+          <span className="kh__ckpi-icon">
+            <Users size={14} />
           </span>
-          <span className="stat__hint">{c.hint}</span>
+          <span className="kh__ckpi-body">
+            <span className="kh__ckpi-val">
+              {loading ? <span className="kh__skel kh__skel--kpi" /> : (kpis ? String(kpis.total_customers) : "—")}
+            </span>
+            <span className="kh__ckpi-lbl">khách hàng</span>
+          </span>
         </div>
-      ))}
+
+        <span className="kh__ckpi-div" aria-hidden="true" />
+
+        <div className="kh__ckpi-item">
+          <span className="kh__ckpi-icon">
+            <UserPlus size={14} />
+          </span>
+          <span className="kh__ckpi-body">
+            <span className="kh__ckpi-val">
+              {loading ? <span className="kh__skel kh__skel--kpi" /> : (kpis ? String(kpis.new_this_month) : "—")}
+            </span>
+            <span className="kh__ckpi-lbl">mới tháng này</span>
+          </span>
+        </div>
+
+        <span className="kh__ckpi-div" aria-hidden="true" />
+
+        <div className="kh__ckpi-item">
+          <span className="kh__ckpi-icon">
+            <BarChart3 size={14} />
+          </span>
+          <span className="kh__ckpi-body">
+            <span className="kh__ckpi-val">
+              {loading ? <span className="kh__skel kh__skel--kpi" /> : (kpis ? moneyStat(kpis.avg_order_value) : "—")}
+            </span>
+            <span className="kh__ckpi-lbl">TB / đơn (12T)</span>
+          </span>
+        </div>
+      </div>
+
       <button
         type="button"
-        className={`stat-strip__cell stat-strip__cell--action${careTotal > 0 ? " is-alert" : ""}`}
+        className={`kh__care-pill${careTotal > 0 ? " is-alert" : ""}`}
         onClick={onToggleCare}
         aria-expanded={careOpen}
         disabled={careTotal === 0}
+        title={careTotal === 0 ? "Không có việc chăm sóc nào hôm nay" : undefined}
       >
-        <span className="stat__label">
-          <AlarmClock size={10} /> Cần chăm sóc hôm nay
-        </span>
-        <span className="stat__value">
-          {careCount}
-          {suggestCount > 0 && <small> việc · {suggestCount} gợi ý</small>}
-          {suggestCount === 0 && <small> việc</small>}
-        </span>
-        <span className="stat__hint">
-          {careTotal === 0 ? "sạch sẽ — không có gì chờ" : careOpen ? "bấm để thu gọn" : "bấm để xem danh sách"}
-        </span>
+        <AlarmClock size={14} />
+        {careTotal === 0 ? (
+          <span>Không có việc chăm sóc</span>
+        ) : (
+          <>
+            <span>
+              Cần chăm sóc hôm nay <strong className="kh__care-n">{careCount}</strong>
+              {suggestCount > 0 && <> · {suggestCount} gợi ý</>}
+            </span>
+            <span className="kh__care-caret" aria-hidden="true">{careOpen ? "▲" : "▼"}</span>
+          </>
+        )}
       </button>
     </div>
   );
@@ -1545,11 +1601,7 @@ function DashboardTab({
     { label: "Doanh số 12T", value: moneyStat(dash.revenue_12m), hint: "12 tháng gần nhất" },
     {
       label: "Số đơn 12T",
-      value: (
-        <>
-          {dash.orders_12m} <small>đơn</small>
-        </>
-      ),
+      value: `${dash.orders_12m} đơn`,
       hint: `${(dash.orders_12m / 12).toFixed(1)}/tháng`,
     },
     { label: "TB / đơn", value: moneyStat(avgVal), hint: avgVal > 20000000 ? "Above-avg" : "Average" },
@@ -2045,9 +2097,7 @@ function OrdersTab({
         </div>
         <div className="kh__kpi card">
           <span className="kh__kpi-label">SỐ ĐƠN HOÀN THÀNH</span>
-          <span className="kh__kpi-value">
-            {completedCount} <small>đơn</small>
-          </span>
+          <span className="kh__kpi-value">{completedCount} đơn</span>
           <span className="kh__kpi-hint">{perMonth.toFixed(1)}/tháng TB</span>
         </div>
         <div className="kh__kpi card">
@@ -2101,7 +2151,7 @@ function OrdersTab({
       </div>
 
       {/* Order List Table — chỉ cột có dữ liệu THẬT (bỏ SL / NV tạo / hạn giao / %TT của mẫu). */}
-      <div className="card kh__tablewrap kh__tablewrap--orders">
+      <div className="kh__tablewrap kh__tablewrap--orders">
         <div className="kh__sec-head">
           <h3>Toàn bộ đơn hàng</h3>
           <span className="kh__sec-count">{filteredRows.length} ĐƠN</span>
@@ -2251,16 +2301,12 @@ function QuotesTab({
       <div className="kh__kpis kh__kpis--orders">
         <div className="kh__kpi card">
           <span className="kh__kpi-label">{yearFilter ? `SỐ BÁO GIÁ ${yearFilter}` : "SỐ BÁO GIÁ LIFETIME"}</span>
-          <span className="kh__kpi-value">
-            {filteredRows.length} <small>BG</small>
-          </span>
+          <span className="kh__kpi-value">{filteredRows.length} BG</span>
           <span className="kh__kpi-hint">Tổng GT báo giá {moneyCompact(totalQuoted)}</span>
         </div>
         <div className="kh__kpi card">
           <span className="kh__kpi-label">TỈ LỆ CHỐT</span>
-          <span className="kh__kpi-value">
-            {winRate} <small>%</small>
-          </span>
+          <span className="kh__kpi-value">{winRate}%</span>
           <span className="kh__kpi-hint">{won.length}/{filteredRows.length} BG chốt hoặc duyệt</span>
         </div>
         <div className="kh__kpi card">
@@ -2312,7 +2358,7 @@ function QuotesTab({
       </div>
 
       {/* Bảng toàn bộ báo giá — bỏ cột SL / NV tạo / Đơn của mẫu (BE không trả các field đó). */}
-      <div className="card kh__tablewrap kh__tablewrap--orders">
+      <div className="kh__tablewrap kh__tablewrap--orders">
         <div className="kh__sec-head">
           <h3>Toàn bộ báo giá</h3>
           <span className="kh__sec-count">{filteredRows.length} BG</span>

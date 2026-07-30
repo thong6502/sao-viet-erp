@@ -42,6 +42,7 @@
 }
 
 .ulvl__rank {
+    font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   color: var(--muted, #6b7280);
 }

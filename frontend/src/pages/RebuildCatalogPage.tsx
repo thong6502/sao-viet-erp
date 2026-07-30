@@ -1096,7 +1096,7 @@ function RefSearchField({ value, options, placeholder, onChange }: {
     return (
       <div className="rc-input-wrapper" style={{ display: "flex", gap: "6px", alignItems: "stretch" }}>
         <span className="rc-input" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span><b style={{ fontFamily: "var(--ff-mono, monospace)" }}>{selected.ma}</b> · {selected.ten}</span>
+          <span><b style={{ fontFamily: "var(--ff-num)" }}>{selected.ma}</b> · {selected.ten}</span>
           <button type="button" className="rc-timeline__btn rc-timeline__btn--danger" title="Bỏ chọn — tìm lại"
             onClick={() => { onChange(null); setQ(""); setOpen(true); }}>✕</button>
         </span>
@@ -1122,7 +1122,7 @@ function RefSearchField({ value, options, placeholder, onChange }: {
                 background: "transparent", border: "none", cursor: "pointer" }}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => { onChange(o.id); setQ(""); setOpen(false); }}>
-              <b style={{ fontFamily: "var(--ff-mono, monospace)" }}>{o.ma}</b> · {o.ten}
+              <b style={{ fontFamily: "var(--ff-num)" }}>{o.ma}</b> · {o.ten}
             </button>
           ))}
         </div>

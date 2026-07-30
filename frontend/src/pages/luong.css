@@ -105,7 +105,8 @@
 .lg-table .ns__table tbody tr:hover {
   background: var(--rule-hair);
 }
-.lg-num { text-align: right; font-variant-numeric: tabular-nums; }
+.lg-num {   font-family: var(--ff-num);
+  text-align: right; font-variant-numeric: tabular-nums; }
 .lg-net { font-weight: var(--fw-bold); color: var(--moss-deep); font-size: 14.5px; }
 .lg-minus { color: var(--rust); font-weight: var(--fw-medium); }
 .lg-plus-val { color: var(--moss-deep); }
@@ -294,7 +295,7 @@
   letter-spacing: 0.05em;
 }
 .lg-kpi-card-val {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 16px;
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -426,7 +427,7 @@
   color: var(--ash);
 }
 .lg-param-val {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-weight: var(--fw-bold);
   color: var(--ink);
 }
@@ -841,10 +842,11 @@
 }
 .cl-table tbody tr:last-child td { border-bottom: none; }
 .cl-table th.num, .cl-table td.num {
+    font-family: var(--ff-num);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-.cl-table td.mono { font-family: var(--ff-mono); font-variant-numeric: tabular-nums; }
+.cl-table td.mono { font-family: var(--ff-num); font-variant-numeric: tabular-nums; }
 .cl-table td .rc-input-wrapper { max-width: 240px; }
 .cl-table td.num .rc-input-wrapper { margin-left: auto; max-width: 140px; }
 /* Công tắc trong bảng (Đơn giá ca) — căn giữa theo chiều dọc, KHÔNG flex trên <td>. */
@@ -901,7 +903,8 @@
 }
 .cl-comp__unit { font-size: 12px; color: var(--ash-2); }
 .cl-comp__src { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
-.cl-comp__ro { font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.cl-comp__ro {   font-family: var(--ff-num);
+  font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
 .cl-link {
   border: none;
   background: none;
@@ -942,7 +945,7 @@
 .cl-ins td.num .rc-input-wrapper { margin-left: auto; max-width: 128px; }
 .cl-ins__total td {
   background: var(--paper-contrast);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
   border-bottom: none;
@@ -1109,6 +1112,7 @@
 }
 .cl-holders li:last-child { border-bottom: none; }
 .cl-holders__code {
+    font-family: var(--ff-num);
   display: inline-block;
   min-width: 76px;
   color: var(--ash);
@@ -1199,6 +1203,7 @@
   color: var(--ink);
 }
 .lg-comp__money input {
+    font-family: var(--ff-num);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -1321,7 +1326,8 @@
   font-size: 13px;
   color: var(--ink);
 }
-.lg-lc__money input { text-align: right; font-variant-numeric: tabular-nums; }
+.lg-lc__money input {   font-family: var(--ff-num);
+  text-align: right; font-variant-numeric: tabular-nums; }
 .lg-lc__money input:focus,
 .lg-lc__note input:focus {
   border-color: var(--rust);
@@ -1330,6 +1336,7 @@
   box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.08);
 }
 .lg-lc__ro {
+    font-family: var(--ff-num);
   display: block;
   font-size: 13px;
   color: var(--ash);
@@ -1424,7 +1431,8 @@
   color: var(--ash);
   font-weight: var(--fw-bold);
 }
-.lg-pit__dep-val { font-variant-numeric: tabular-nums; }
+.lg-pit__dep-val {   font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums; }
 @media (max-width: 1000px) {
   .lg-pit { grid-template-columns: 1fr; }
   .lg-pit__ded {
@@ -1458,7 +1466,8 @@
   gap: var(--sp-3);
   font-size: 13px;
 }
-.lg-payslip2__taxcell b { font-variant-numeric: tabular-nums; }
+.lg-payslip2__taxcell b {   font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums; }
 .lg-payslip2__taxnote {
   grid-column: 1 / -1;
   font-size: 11px;
@@ -1487,6 +1496,7 @@
 }
 .lg-legacy__row:last-child { border-bottom: none; }
 .lg-legacy__row b {
+    font-family: var(--ff-num);
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
@@ -1528,13 +1538,15 @@
   color: var(--ash-2);
 }
 .cl-bulk__name { flex: 1; min-width: 0; }
-.cl-bulk__name b { font-variant-numeric: tabular-nums; margin-right: 6px; }
+.cl-bulk__name b {   font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums; margin-right: 6px; }
 .cl-bulk__has {
   font-size: 11px;
   color: var(--ash-2);
 }
 /* Sắp bị ghi đè — tông cảnh báo, KHÔNG dùng họ `signal` (dành cho lỗi hệ thống). */
 .cl-bulk__over {
+    font-family: var(--ff-num);
   font-size: 11px;
   font-weight: var(--fw-bold);
   color: var(--amber-deep);
@@ -1565,7 +1577,8 @@
   color: var(--ash);
 }
 .cl-bulk__bar span { flex: 1; }
-.cl-bulk__bar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.cl-bulk__bar b {   font-family: var(--ff-num);
+  color: var(--ink); font-variant-numeric: tabular-nums; }
 
 /* Ô số có HẬU TỐ đơn vị (vd "160000  đ/m²") — giữ NGUYÊN kiểu `ns-field input` để không lạc
    lõng cạnh các ô khác trong cùng modal. Hậu tố `pointer-events: none` để bấm vào vẫn trúng ô. */
@@ -1610,7 +1623,8 @@
   border-radius: var(--r-3);
 }
 .cl-lb__out { font-size: 13px; color: var(--ink); padding-bottom: 8px; }
-.cl-lb__out b { font-variant-numeric: tabular-nums; }
+.cl-lb__out b {   font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums; }
 .cl-lb__foot { display: flex; justify-content: flex-end; margin-top: var(--sp-3); }
 
 /* Cảnh báo khi trần khấu trừ vượt mức luật hoặc bị tắt — cảnh báo, KHÔNG chặn. */

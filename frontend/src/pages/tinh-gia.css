@@ -76,19 +76,19 @@
   flex-wrap: wrap;
 }
 .tg-head__title-sub {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 16px;
   font-weight: var(--fw-regular);
   color: var(--ash-2);
   letter-spacing: 0;
 }
 .tg-head__meta {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   color: var(--ash-2);
   font-size: 12px;
 }
 .tg-mono {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
 }
 
@@ -162,7 +162,7 @@
 }
 
 .tg-pill {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   letter-spacing: 0.1em;
@@ -240,7 +240,7 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 15%, transparent);
 }
 .tg-input--num {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -262,7 +262,7 @@ select.tg-input {
   background: var(--rule-hair);
   color: var(--ink);
   padding: 10px 12px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
@@ -397,7 +397,7 @@ select.tg-input {
   align-items: center;
   gap: var(--sp-2);
   padding: var(--sp-4) 0 var(--sp-2);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   font-weight: var(--fw-bold);
   letter-spacing: 0.09em;
@@ -426,7 +426,7 @@ select.tg-input {
 .tg-cost__tbl th {
   text-align: left;
   padding: 6px 10px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-medium);
   letter-spacing: 0.06em;
@@ -442,7 +442,7 @@ select.tg-input {
   vertical-align: top;
 }
 .tg-num {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -451,7 +451,7 @@ select.tg-input {
   text-align: center;
 }
 .tg-formula {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash-2);
 }
@@ -493,7 +493,7 @@ select.tg-input {
   color: var(--ink);
 }
 .tg-cost__grandval {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-size: 20px;
   font-variant-numeric: tabular-nums;
   color: var(--rust);
@@ -542,7 +542,7 @@ select.tg-input {
   padding: var(--sp-4) var(--sp-5) var(--sp-5);
 }
 .tg-info__title {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   letter-spacing: 0.12em;
@@ -685,7 +685,7 @@ select.tg-input {
   font-size: 13px;
 }
 .ptg-table thead th {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -724,7 +724,7 @@ select.tg-input {
 }
 .ptg-code {
   display: inline-block;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   font-weight: var(--fw-medium);
   color: var(--ink);
@@ -752,7 +752,7 @@ select.tg-input {
 }
 .ptg-tech {
   display: inline-block;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: var(--fw-medium);
   color: var(--steel);
@@ -766,7 +766,7 @@ select.tg-input {
 }
 .ptg-when__date {
   display: block;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   color: var(--ink);
 }
@@ -806,7 +806,7 @@ select.tg-input {
   margin: var(--sp-3) 0 0;
   font-size: 12px;
   color: var(--ash-2);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
 }
 
 /* ---- Status badge (dùng chung list + detail) ---- */
@@ -862,14 +862,14 @@ select.tg-input {
   align-items: flex-end;
 }
 .ptg-stat-label {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--ash-2);
 }
 .ptg-stat-val {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-size: 15px;
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -933,7 +933,7 @@ select.tg-input {
   margin: 0;
 }
 .tg-comp__cost {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-size: 11.5px;
   color: var(--ash);
   font-variant-numeric: tabular-nums;
@@ -956,7 +956,7 @@ select.tg-input {
   gap: var(--sp-3);
 }
 .tg-subsec__label {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   font-weight: var(--fw-bold);
   letter-spacing: 0.11em;
@@ -1129,7 +1129,7 @@ select.tg-input {
   top: 50%;
   transform: translateY(-50%);
   pointer-events: none;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash-2);
 }
@@ -1224,7 +1224,7 @@ select.tg-input {
   background: var(--rule-hair);
 }
 .tg-hien__k {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 9px;
   font-weight: var(--fw-medium);
   letter-spacing: 0.05em;
@@ -1233,7 +1233,7 @@ select.tg-input {
   white-space: nowrap;
 }
 .tg-hien__v {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-size: 15px;
   font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
@@ -1246,7 +1246,7 @@ select.tg-input {
   padding-top: var(--sp-2);
 }
 .tg-collapse__sum {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   font-weight: var(--fw-medium);
   letter-spacing: 0.06em;
@@ -1289,7 +1289,7 @@ select.tg-input {
   min-width: 0;
 }
 .tg-mau__head {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-medium);
   letter-spacing: 0.06em;
@@ -1313,7 +1313,7 @@ select.tg-input {
   border-top: 1px solid var(--rule-hair);
 }
 .tg-kem__val {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-size: 16px;
   font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
@@ -1347,7 +1347,7 @@ select.tg-input--sm {
 .tg-fin thead th {
   text-align: left;
   padding: 4px 6px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 9.5px;
   font-weight: var(--fw-medium);
   letter-spacing: 0.05em;
@@ -1462,7 +1462,7 @@ select.tg-input--sm {
 .tg-complist__meta {
   display: block;
   margin-top: 3px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash-2);
   letter-spacing: 0.01em;
@@ -1470,7 +1470,7 @@ select.tg-input--sm {
 .tg-complist__loai {
   display: inline-block;
   margin-top: 3px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: var(--fw-medium);
   letter-spacing: 0.04em;
@@ -1595,7 +1595,7 @@ select.tg-input--sm {
 }
 /* Biến thể LIVE: đang phản ánh con số người dùng vừa gõ, không phải chú thích tĩnh. */
 .tg-note--live {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--ash);
 }
@@ -1814,7 +1814,7 @@ select.tg-input--sm {
   color: var(--ash);
 }
 .tg-calc__num {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: var(--fs-xl);
   font-weight: var(--fw-medium);
   line-height: 1.1;
@@ -1822,7 +1822,7 @@ select.tg-input--sm {
 }
 .tg-calc__how {
   flex: 1 0 100%;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: var(--fs-2xs);
   line-height: 1.5;
   color: var(--ash-2);
@@ -1883,7 +1883,7 @@ select.tg-input--sm {
 }
 .tg-imp__pnum {
   fill: var(--rust-deep, var(--rust));
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-weight: 700;
 }
 .tg-imp__caption {
@@ -1891,11 +1891,12 @@ select.tg-input--sm {
   align-items: baseline;
   flex-wrap: wrap;
   gap: 6px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   color: var(--ash);
 }
 .tg-imp__con {
+    font-family: var(--ff-num);
   font-size: 18px;
   font-weight: var(--fw-bold);
   color: var(--rust);
@@ -1934,7 +1935,7 @@ select.tg-input--sm {
   flex-wrap: wrap;
   gap: 4px 6px;
   margin-top: 6px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   color: var(--ash-2);
 }
@@ -2132,7 +2133,7 @@ select.tg-input--sm {
   border-radius: 50%;
   background: var(--rust-soft);
   color: var(--rust-deep);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   margin-right: var(--sp-2);
@@ -2323,7 +2324,7 @@ select.tg-input--sm {
   border-bottom: none;
 }
 .rc-modal__right-col .tg-sheetrow b {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   color: var(--ink);
   font-weight: 700;
   font-size: 14.5px;
@@ -2347,7 +2348,7 @@ select.tg-input--sm {
   width: 80px;
   min-height: 28px;
   text-align: right;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 13px;
   padding: 2px 8px;
   border: 1px solid var(--rule);
@@ -2365,7 +2366,7 @@ select.tg-input--sm {
   background: var(--paper-contrast);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-2);
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   color: var(--ash);
   text-align: center;
@@ -2485,13 +2486,13 @@ select.tg-input--sm {
 
 /* ---- helper text classes ---- */
 .rdx-cost .num {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   text-align: right;
   white-space: nowrap;
 }
 .rdx-cost .mono {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
 }
 .rdx-cost .muted {
@@ -2509,7 +2510,7 @@ select.tg-input--sm {
   color: var(--ink);
 }
 .rdx-cost .code {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-weight: 600;
   font-size: 12.5px;
   color: var(--ink);
@@ -2625,7 +2626,7 @@ select.tg-input--sm {
   font-size: 13.5px;
 }
 .rdx-cost .panel thead th {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -2720,7 +2721,7 @@ select.tg-input--sm {
 
 /* ---- breakdown section title + derive chip ---- */
 .rdx-cost .secttl {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -2735,7 +2736,7 @@ select.tg-input--sm {
   gap: 9px;
 }
 .rdx-cost .secttl__n {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   font-weight: 700;
   color: var(--rust);
@@ -2748,7 +2749,7 @@ select.tg-input--sm {
   flex: none;
 }
 .rdx-cost .derive {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   color: var(--rust-deep);
   background: var(--rust-soft);
@@ -2774,7 +2775,7 @@ select.tg-input--sm {
   font-weight: 700;
 }
 .rdx-cost .subrow .val {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   color: var(--rust-deep);
   font-weight: 700;
@@ -2792,7 +2793,7 @@ select.tg-input--sm {
   padding: 14px 18px 0;
 }
 .rdx-cost .dk__eyebrow {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   letter-spacing: 0.15em;
   text-transform: uppercase;
@@ -2806,7 +2807,7 @@ select.tg-input--sm {
   flex: none;
 }
 .rdx-cost .dk__big {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   font-size: 38px;
@@ -2822,7 +2823,7 @@ select.tg-input--sm {
   margin-left: 3px;
 }
 .rdx-cost .dk__meta {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 12px;
   color: var(--on-dark-muted);
   padding: 2px 18px 12px;
@@ -2842,7 +2843,7 @@ select.tg-input--sm {
   color: var(--on-dark-muted);
 }
 .rdx-cost .drow .v {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
   color: var(--on-dark);
   font-weight: 500;
@@ -2888,7 +2889,7 @@ select.tg-input--sm {
   color: var(--ink);
 }
 .rdx-cost .irow .v.mono {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
 }
 
 /* ---- activity timeline ---- */
@@ -2945,7 +2946,7 @@ select.tg-input--sm {
   color: var(--ash);
   font-size: 12px;
   margin-top: 1px;
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
 }
 .rdx-cost .scrollbox {
   max-height: 224px;

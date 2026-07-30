@@ -43,6 +43,7 @@
    xuống dòng phụ — KHÔNG dùng flex trên <td> (phá hàng của bảng). */
 .acct-list th.acct-amount-cell,
 .acct-list td.acct-amount-cell {
+    font-family: var(--ff-num);
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -94,7 +95,7 @@
 }
 
 .acct-list tr.acct-group-row strong {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 11px;
   letter-spacing: 0.06em;
   white-space: nowrap;
@@ -110,6 +111,7 @@
 }
 
 .acct-group-row__total {
+    font-family: var(--ff-num);
   margin-left: auto;
   white-space: nowrap;
   color: var(--ash);
@@ -119,6 +121,7 @@
 
 /* Ô "Lập lúc": giờ phút giây + ngày, không gãy dòng. */
 .acct-list td.acct-time-cell {
+    font-family: var(--ff-num);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
   font-size: 13px;
@@ -239,7 +242,7 @@
 }
 
 .acct-attachments__label {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   color: var(--ash-2);
   text-transform: uppercase;
@@ -392,7 +395,7 @@
 .acct-summary-strip span,
 .acct-voucher-amount > span,
 .acct-account-pair span {
-  font-family: var(--ff-mono);
+  font-family: var(--ff-sans);
   font-size: 10px;
   color: var(--ash-2);
   text-transform: uppercase;
@@ -574,6 +577,7 @@
 }
 
 .acct-money-input {
+    font-family: var(--ff-num);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -755,7 +759,7 @@
   flex: 1;
 }
 .odq__code {
-  font-family: var(--ff-mono, ui-monospace, monospace);
+  font-family: var(--ff-num);
   font-weight: 700;
   color: var(--rust-deep, #8a2d07);
 }
