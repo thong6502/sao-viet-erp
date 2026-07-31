@@ -179,14 +179,59 @@ class PieceWorkService:
                 return float(b.rate_pct)
         return float(brackets[-1].rate_pct)
 
+    @staticmethod
+    def duoi_nguong(san_luong, min_output_qty) -> bool:
+        """Sản lượng của tổ có DƯỚI ngưỡng xét thưởng/phạt không.
+
+        ⚠️ So bằng `<` (tức "đạt ngưỡng" là `>=`): chủ khai "ít nhất X" thì đúng X phải được xét.
+        Ranh giới là chỗ luôn bị làm sai, và sai ở đây là cắt mất tiền thưởng của người ta mà nhìn
+        bảng lương không thấy gì bất thường — chỉ thấy số 0.
+
+        Ngưỡng `None`/`<= 0` = KHÔNG gác (giữ nguyên hành vi cho tổ đã khai mốc mà chưa khai ngưỡng).
+
+        `san_luong=None` = CHƯA BIẾT ⇒ coi như dưới ngưỡng. Fail-closed có chủ ý: chưa xác nhận
+        được tổ có đạt ngưỡng hay không thì không được phát thưởng.
+
+        ⚠️ Ngưỡng KHÔNG kèm đơn vị (chủ chốt "Đơn vị bỏ đi") ⇒ người gọi cộng TOÀN BỘ sản lượng của
+        tổ trong kỳ rồi truyền vào, không lọc theo đơn vị. Tổ làm nhiều loại việc khác đơn vị thì
+        con số cộng lại không có ý nghĩa vật lý — đánh đổi đã biết, xem docstring model."""
+        nguong = float(min_output_qty or 0)
+        if nguong <= 0:
+            return False
+        if san_luong is None:
+            return True
+        return float(san_luong) < nguong
+
     @classmethod
-    def leader_bonus_amount(cls, *, tong_khoan_to, defect_pct, brackets) -> float:
-        """Tiền thưởng/phạt tổ trưởng = tổng khoán của tổ × % của bậc trúng. Âm = trừ.
+    def leader_bonus_amount(cls, *, tong_khoan_to, defect_pct, brackets,
+                            san_luong=None, min_output_qty=0) -> float:
+        """Tiền thưởng/phạt tổ trưởng = tổng LƯƠNG KHOÁN của tổ × % của bậc trúng. Âm = trừ.
+
+        **Dưới ngưỡng SẢN LƯỢNG thì trả 0 NGAY, không dò bậc** (chủ 30/07/2026). Vì sao cần cửa
+        chặn: làm càng ít thì tỷ lệ lỗi càng vô nghĩa — hỏng 2 tờ trên 20 tờ đã là 10%, đủ rơi
+        xuống bậc phạt nặng nhất dù thực tế chẳng làm được gì.
+
+        Hai con số KHÁC NHAU, đừng lẫn:
+          - `tong_khoan_to` — TIỀN, là thứ % nhân lên để ra tiền thưởng/phạt.
+          - `san_luong`     — SỐ LƯỢNG, chỉ dùng để so với ngưỡng.
 
         ⚠️ CHƯA CÓ AI GỌI. Chờ nối vào `PayrollService.generate` cùng lúc dựng lại nguồn sản
-        lượng — hiện `khoan_map` luôn rỗng nên `tong_khoan_to` sẽ là 0 và hàm này trả 0.
+        lượng — hiện chưa có nguồn nào báo sản lượng nên `san_luong` luôn `None`.
         Đã có test riêng (`test_khoan_api.py`) để nó không thành hàm chết như `_lookup_rule`."""
+        if cls.duoi_nguong(san_luong, min_output_qty):
+            return 0.0
         return _r(float(tong_khoan_to or 0) * cls.leader_bonus_pct(defect_pct, brackets) / 100.0)
+
+    # --- ngưỡng tối thiểu ----------------------------------------------------
+
+    def leader_settings(self, department_id: int):
+        return self.piece.get_leader_settings(department_id)
+
+    def set_leader_settings(self, *, department_id: int, min_output_qty):
+        so = float(min_output_qty or 0)
+        if so < 0:
+            raise PieceWorkValidationError("Ngưỡng sản lượng không được âm.")
+        return self.piece.upsert_leader_settings(department_id, min_output_qty=so)
 
     # --- tiền khoán vào bảng lương ------------------------------------------
 

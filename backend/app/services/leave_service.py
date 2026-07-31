@@ -281,10 +281,27 @@ class LeaveService:
             })
         return out
 
-    def _decide(self, *, actor, request_id, new_status, note) -> LeaveRequest:
+    def _guard_scope(self, employee_id: int, *, scope: str, actor) -> None:
+        """Chặn GHI ra ngoài tầm dữ liệu của người gọi.
+
+        Ô quyền `approve` chỉ trả lời "được duyệt hay không", KHÔNG trả lời "được duyệt CHO AI".
+        Từ 29/07/2026 tổ trưởng ĐƯỢC duyệt nghỉ phép (chủ chốt) nên chốt này là thứ giữ họ trong
+        tổ mình — thiếu nó là cấp quyền duyệt cho cả công ty. Đơn nghỉ RA TIỀN: trừ quỹ phép năm,
+        nghỉ có lương hay không.
+
+        `scope` BẮT BUỘC — cố ý không cho mặc định, vì "quên khai thì bỏ qua kiểm tra" chính là
+        cơ chế đã để lỗ này tồn tại mà không ai biết."""
+        emp = self.employees.get_by_id(employee_id)
+        if emp is None:
+            return
+        if not self.employees.can_access(employee=emp, scope=scope, actor=actor):
+            raise LeaveForbidden("Nhân viên này ngoài phạm vi quản lý của bạn.")
+
+    def _decide(self, *, actor, request_id, new_status, note, scope: str) -> LeaveRequest:
         r = self.leaves.get_request(request_id)
         if r is None:
             raise LeaveNotFound("Không tìm thấy đơn nghỉ.")
+        self._guard_scope(r.employee_id, scope=scope, actor=actor)
         if r.status != STATUS_PENDING:
             raise LeaveValidationError("Chỉ duyệt/từ chối được đơn đang chờ.")
         self.leaves.update_request(
@@ -295,27 +312,33 @@ class LeaveService:
                           target=f"leave_request:{r.id}", detail=f"→ {new_status}")
         return r
 
-    def approve(self, *, actor, request_id, note=None) -> LeaveRequest:
-        return self._decide(actor=actor, request_id=request_id, new_status=STATUS_APPROVED, note=note)
+    def approve(self, *, actor, request_id, scope: str, note=None) -> LeaveRequest:
+        return self._decide(actor=actor, request_id=request_id, new_status=STATUS_APPROVED,
+                            note=note, scope=scope)
 
-    def reject(self, *, actor, request_id, note=None) -> LeaveRequest:
+    def reject(self, *, actor, request_id, scope: str, note=None) -> LeaveRequest:
         note = _clean(note)
         if not note:
             raise LeaveValidationError("Cần nhập lý do từ chối.")
-        return self._decide(actor=actor, request_id=request_id, new_status=STATUS_REJECTED, note=note)
+        return self._decide(actor=actor, request_id=request_id, new_status=STATUS_REJECTED,
+                            note=note, scope=scope)
 
-    def bulk_approve(self, *, actor, ids: list[int]) -> dict:
-        """Duyệt hàng loạt: bỏ qua (skip) đơn không-chờ thay vì vỡ cả mẻ."""
+    def bulk_approve(self, *, actor, ids: list[int], scope: str) -> dict:
+        """Duyệt hàng loạt: bỏ qua (skip) đơn không-chờ HOẶC ngoài phạm vi, thay vì vỡ cả mẻ.
+
+        `LeaveForbidden` là con của `LeaveError` nên đơn ngoài tổ tự rơi vào `skipped` — đúng ý:
+        mẻ gửi từ màn chỉ chứa đơn người dùng thấy, còn ai dò mã lạ thì nhận `skipped`, không lộ
+        đơn đó có tồn tại hay không."""
         done, skipped = [], []
         for i in ids:
             try:
-                self.approve(actor=actor, request_id=i)
+                self.approve(actor=actor, request_id=i, scope=scope)
                 done.append(i)
             except LeaveError:
                 skipped.append(i)
         return {"done": done, "skipped": skipped}
 
-    def bulk_reject(self, *, actor, ids: list[int], note) -> dict:
+    def bulk_reject(self, *, actor, ids: list[int], note, scope: str) -> dict:
         """Từ chối hàng loạt với 1 lý do chung (bắt buộc)."""
         note = _clean(note)
         if not note:
@@ -323,19 +346,24 @@ class LeaveService:
         done, skipped = [], []
         for i in ids:
             try:
-                self._decide(actor=actor, request_id=i, new_status=STATUS_REJECTED, note=note)
+                self._decide(actor=actor, request_id=i, new_status=STATUS_REJECTED, note=note,
+                             scope=scope)
                 done.append(i)
             except LeaveError:
                 skipped.append(i)
         return {"done": done, "skipped": skipped}
 
-    def cancel(self, *, actor, request_id, is_hr: bool = False) -> LeaveRequest:
+    def cancel(self, *, actor, request_id, is_hr: bool = False, scope: str = "own") -> LeaveRequest:
         r = self.leaves.get_request(request_id)
         if r is None:
             raise LeaveNotFound("Không tìm thấy đơn nghỉ.")
-        # Người tạo hủy đơn của mình, hoặc HR hủy bất kỳ.
+        # Người tạo hủy đơn của mình, hoặc người có quyền duyệt hủy đơn TRONG PHẠM VI của họ.
+        # Trước 29/07/2026 `is_hr` nghĩa là "hủy BẤT KỲ" — an toàn khi chỉ HCNS (scope `all`) có
+        # cờ đó. Nay tổ trưởng cũng có `approve` ⇒ để nguyên là tổ trưởng hủy được đơn cả công ty.
         if not is_hr and r.created_by != actor.id:
             raise LeaveForbidden("Bạn chỉ hủy được đơn của mình.")
+        if is_hr and r.created_by != actor.id:
+            self._guard_scope(r.employee_id, scope=scope, actor=actor)
         if r.status in (STATUS_REJECTED, STATUS_CANCELLED):
             raise LeaveValidationError("Đơn đã kết thúc, không hủy được.")
         self.leaves.update_request(r, status=STATUS_CANCELLED)
@@ -345,15 +373,27 @@ class LeaveService:
 
     # --- lịch nghỉ (toàn công ty) ------------------------------------------
 
-    def calendar(self, *, year: int, month: int) -> dict:
+    def calendar(self, *, year: int, month: int, scope: str = "all", actor=None) -> dict:
         """Lịch nghỉ tháng: mỗi NV có đơn ĐÃ DUYỆT hoặc ĐANG CHỜ giao với tháng → các ngày
-        nghỉ + trạng thái (để HR tránh duyệt trùng người). Bao gồm cả ngày cuối tuần trong
-        khoảng (phản chiếu đúng đơn)."""
+        nghỉ + trạng thái (để tránh duyệt trùng người). Bao gồm cả ngày cuối tuần trong khoảng
+        (phản chiếu đúng đơn).
+
+        LỌC THEO PHẠM VI người xem: màn này gác bằng ô quyền `approve`, mà từ 29/07/2026 tổ
+        trưởng cũng có cờ đó ⇒ không lọc là tổ trưởng đọc được lịch nghỉ của cả công ty."""
         import calendar as _cal
 
         first = date(year, month, 1)
         last = date(year, month, _cal.monthrange(year, month)[1])
         reqs = self.leaves.list_overlapping(first, last, (STATUS_APPROVED, STATUS_PENDING))
+        if actor is not None and scope != "all":
+            trong_tam: dict[int, bool] = {}
+            def _duoc_xem(emp_id: int) -> bool:
+                if emp_id not in trong_tam:
+                    emp = self.employees.get_by_id(emp_id)
+                    trong_tam[emp_id] = emp is not None and self.employees.can_access(
+                        employee=emp, scope=scope, actor=actor)
+                return trong_tam[emp_id]
+            reqs = [r for r in reqs if _duoc_xem(r.employee_id)]
         types = {t.id: t for t in self.leaves.list_types()}
         out: dict[int, dict] = {}
         for r in reqs:

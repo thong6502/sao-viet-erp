@@ -1481,7 +1481,17 @@ function MyTimesheetTab({ token }: { token: string }) {
   const MSG_PREVIEW = 3;
   const msgsShown = msgsOpen ? shiftMsgs : shiftMsgs.slice(0, MSG_PREVIEW);
 
+  // Ngày CHƯA TỚI không xin chỉnh công được — đơn này nghĩa là "tôi quên chấm hôm đó", không ai
+  // quên một ngày chưa xảy ra. Backend đã chặn (`_require_not_future`); ở đây chặn trước để khỏi
+  // mời người ta bấm rồi mới báo đỏ.
+  const homNay = new Date();
+  homNay.setHours(0, 0, 0, 0);
+  function laTuongLai(dayNum: number) {
+    return new Date(year, month - 1, dayNum) > homNay;
+  }
+
   function openReq(dayNum: number) {
+    if (laTuongLai(dayNum)) return;
     setReqDate(
       `${year}-${String(month).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`,
     );
@@ -1611,7 +1621,13 @@ function MyTimesheetTab({ token }: { token: string }) {
         </div>
       </div>
       {loading && <p className="ns__empty">Đang tải biểu công…</p>}
-      {!loading && !row && (
+      {!loading && !data && (
+        <p className="ns__empty">Không tải được biểu công tháng này.</p>
+      )}
+      {/* Có `data` mà không có hàng: từ 31/07/2026 backend luôn trả hàng của chính người đăng nhập
+          (kể cả chưa chấm buổi nào) nên nhánh này gần như không còn xảy ra. Giữ làm lưới an toàn —
+          màn trắng trơn không một lời nào là thứ tệ nhất. */}
+      {!loading && data && !row && (
         <p className="ns__empty">Tháng này bạn chưa có dữ liệu chấm công.</p>
       )}
       {!loading && row && data && (
@@ -1627,6 +1643,14 @@ function MyTimesheetTab({ token }: { token: string }) {
           <h4 className="ns-section__title" style={{ marginTop: 0 }}>
             Lịch công của tôi ({month}/{year})
           </h4>
+          {/* Lịch vẫn hiện đủ tháng — dòng này chỉ nói thêm cho khỏi hiểu nhầm là mất dữ liệu.
+              Trước đây cả lịch bị thay bằng một câu "chưa có dữ liệu", nên người quên chấm không
+              còn ô ngày nào để bấm xin chỉnh công. */}
+          {row.total_days === 0 && (
+            <p className="cc-note" style={{ marginBottom: 12 }}>
+              Tháng này bạn chưa có lượt chấm công nào. Bấm vào ô ngày để gửi yêu cầu chỉnh công.
+            </p>
+          )}
 
           <div className="cc-month-grid">
             {["T2", "T3", "T4", "T5", "T6", "T7", "CN"].map((w) => (
@@ -1658,24 +1682,34 @@ function MyTimesheetTab({ token }: { token: string }) {
               let otBadge = false;
 
               if (day) {
-                if (day.leave) {
+                // TRẬT TỰ QUAN TRỌNG — hỏi LƯỢT BẤM trước.
+                // Backend nhét TÊN NGÀY LỄ vào chung field `leave` với tên loại nghỉ phép, và
+                // ngày lễ ĐI LÀM thì ô vừa có `leave` vừa có giờ vào/ra. Trước đây `leave` được
+                // hỏi trước nên hôm đó bị vẽ thành "Nghỉ Phép (P)", nuốt mất giờ công thật.
+                const hasPunch = day.first_in || day.last_out;
+                if (hasPunch) {
+                  cellClass += " cc-month-cell--work";
+                  if (day.late || day.early) cellClass += " cc-month-cell--makeup";
+                  timeRange = `${day.first_in ?? "?"} - ${day.last_out ?? "?"}`;
+                  statusLabel =
+                    day.cong != null
+                      ? `Công: ${day.cong}`
+                      : day.hours != null
+                        ? `${day.hours}h`
+                        : "Đã chấm";
+                  if (day.ot_minutes) otBadge = true;
+                } else if (day.holiday) {
+                  // Lễ KHÔNG tiêu ngày phép năm — gọi nó là "Nghỉ Phép (P)" là nói sai bản chất.
+                  cellClass += " cc-month-cell--holiday";
+                  statusLabel = "Nghỉ lễ";
+                } else if (day.leave) {
                   cellClass += " cc-month-cell--holiday";
                   statusLabel = day.leave_paid ? "Nghỉ Phép (P)" : "Nghỉ KL";
-                } else {
-                  const hasPunch = day.first_in || day.last_out;
-                  if (hasPunch) {
-                    cellClass += " cc-month-cell--work";
-                    if (day.late || day.early)
-                      cellClass += " cc-month-cell--makeup";
-                    timeRange = `${day.first_in ?? "?"} - ${day.last_out ?? "?"}`;
-                    statusLabel =
-                      day.cong != null
-                        ? `Công: ${day.cong}`
-                        : day.hours != null
-                          ? `${day.hours}h`
-                          : "Đã chấm";
-                    if (day.ot_minutes) otBadge = true;
-                  }
+                } else if (day.planned_off) {
+                  // Nghỉ theo lịch xoay ca: dấu KẾ HOẠCH, không ra tiền, không tiêu phép — nên
+                  // để màu lặng như cuối tuần, đừng mượn màu lễ/phép.
+                  cellClass += " cc-month-cell--weekend";
+                  statusLabel = "Nghỉ theo lịch";
                 }
               }
 
@@ -1690,11 +1724,20 @@ function MyTimesheetTab({ token }: { token: string }) {
                 cellClass += " cc-month-cell--weekend";
               }
 
+              const chuaToi = laTuongLai(dayNum);
               return (
                 <div
                   key={dayNum}
                   className={cellClass}
-                  style={{ cursor: "pointer" }}
+                  style={{
+                    cursor: chuaToi ? "default" : "pointer",
+                    opacity: chuaToi ? 0.5 : undefined,
+                  }}
+                  title={
+                    chuaToi
+                      ? "Ngày chưa tới — chỉ xin chỉnh công cho ngày đã qua hoặc hôm nay."
+                      : "Bấm để gửi yêu cầu chỉnh công"
+                  }
                   onClick={() => openReq(dayNum)}
                 >
                   <div
@@ -3428,6 +3471,14 @@ function ShiftPlanPanel({ token }: { token: string }) {
     [data],
   );
 
+  // Gán xong người cuối cùng ⇒ TỰ TẮT lọc. Không có dòng này thì lọc vẫn bật mà nút bật/tắt đã
+  // biến mất (nút chỉ hiện khi còn người thiếu ca) ⇒ lưới rỗng, đổi phòng hay Tải lại cũng vô
+  // ích, người dùng kẹt luôn — đúng lỗi chủ báo 29/07/2026.
+  // Chờ `data` có rồi mới xét: lúc đang tải `data` là null ⇒ đếm ra 0 ⇒ tắt lọc oan.
+  useEffect(() => {
+    if (data && onlyNoDefault && noDefaultCount === 0) setOnlyNoDefault(false);
+  }, [data, onlyNoDefault, noDefaultCount]);
+
   const visibleRows = useMemo(() => {
     let rows = data?.rows ?? [];
     if (onlyNoDefault) rows = rows.filter((r) => r.no_default);
@@ -3946,13 +3997,19 @@ function ShiftPlanPanel({ token }: { token: string }) {
               aria-label="Tìm nhân viên"
             />
           </div>
-          {noDefaultCount > 0 && (
+          {/* Điều kiện có `|| onlyNoDefault`: nút PHẢI còn khi lọc đang bật, kể cả đếm về 0.
+              Nút biến mất mà lọc vẫn bật = không còn đường tắt nó đi. */}
+          {(noDefaultCount > 0 || onlyNoDefault) && (
             <button
               type="button"
               className={`cc-sp-flag${onlyNoDefault ? " is-on" : ""}`}
               aria-pressed={onlyNoDefault}
               onClick={() => setOnlyNoDefault((v) => !v)}
-              title="Những người chưa có ca nền — họ CHƯA CHẤM CÔNG ĐƯỢC cho tới khi được đặt ca"
+              title={
+                noDefaultCount > 0
+                  ? "Những người chưa có ca nền — họ CHƯA CHẤM CÔNG ĐƯỢC cho tới khi được đặt ca"
+                  : "Không còn ai thiếu ca — bấm để bỏ lọc, xem lại cả danh sách"
+              }
             >
               <AlertTriangle size={13} aria-hidden="true" /> Chưa có ca (
               {noDefaultCount})
@@ -4108,6 +4165,12 @@ function ShiftPlanPanel({ token }: { token: string }) {
         <span className="cc-sp-lg cc-sp-lg--ghost">Kế thừa ca nền</span>
         <span className="cc-sp-lg cc-sp-lg--hand">Khai tay</span>
         <span className="cc-sp-lg cc-sp-lg--rest">Nghỉ theo lịch</span>
+        <span
+          className="cc-sp-lg cc-sp-lg--leave"
+          title="Đọc thẳng từ phiếu nghỉ đã duyệt — chỉ để XEM, không phải dấu tô tay. Góc xanh = nghỉ có lương, góc đỏ = không lương. Huỷ/từ chối phiếu là dấu tự hết."
+        >
+          Nghỉ phép (đã duyệt)
+        </span>
         <span className="cc-sp-lg cc-sp-lg--hol">Lễ</span>
         <span className="cc-sp-lg cc-sp-lg--make">Làm bù</span>
         <span className="cc-sp-lg cc-sp-lg--x1">Nghỉ 1×</span>
@@ -4272,6 +4335,11 @@ function ShiftPlanPanel({ token }: { token: string }) {
                     </td>
                     {cal.map((c, ci) => {
                       const key = cellKey(row.employee_id, c.date);
+                      // Nghỉ phép đã duyệt: đọc THẲNG từ dữ liệu server, KHÔNG đi qua `eff`.
+                      // Bút ca không bao giờ đổi được phép, nên nó phải nằm NGOÀI mọi nhánh
+                      // xem-trước bên dưới — tô ca lên ngày nghỉ thì dấu vẫn phải còn.
+                      const lv = row.days[String(c.day)];
+                      const leaveName = lv?.leave_name ?? null;
                       const inRect =
                         !!drag &&
                         ri >= Math.min(drag.r0, drag.r1) &&
@@ -4317,6 +4385,10 @@ function ShiftPlanPanel({ token }: { token: string }) {
                           : "",
                         c.special_kind === "work" ? "cc-sp-cell--make" : "",
                         eff.off ? "cc-sp-cell--rest" : "",
+                        leaveName ? "cc-sp-cell--leave" : "",
+                        leaveName && lv?.leave_paid === false
+                          ? "cc-sp-cell--leave-unpaid"
+                          : "",
                         pending.has(key) ? "is-dirty" : "",
                         reason ? "is-rejected" : "",
                         inRect ? "is-preview" : "",
@@ -4327,6 +4399,11 @@ function ShiftPlanPanel({ token }: { token: string }) {
                       const dayTip = [
                         `${getWeekdayLabel(year, month, c.day)} ${fmtYmd(c.date)}`,
                         c.name,
+                        // Vào dayTip (chứ không chỉ chipTip) để hover ĐÂU trong ô cũng đọc được:
+                        // chipTip đã nối dayTip vào nên chỉ cần viết một chỗ.
+                        leaveName
+                          ? `NGHỈ PHÉP ĐÃ DUYỆT: ${leaveName}${lv?.leave_paid === false ? " (không lương)" : ""}`
+                          : null,
                       ]
                         .filter(Boolean)
                         .join(" · ");
@@ -4410,7 +4487,33 @@ function ShiftPlanPanel({ token }: { token: string }) {
               {visibleRows.length === 0 && (
                 <tr>
                   <td colSpan={cal.length + 3} className="ns__empty">
-                    Không có nhân viên phù hợp bộ lọc.
+                    {/* Nói RÕ lọc nào đang chặn + cho nút gỡ ngay tại chỗ. "Không có nhân viên
+                        phù hợp bộ lọc" trống trơn khiến người dùng tưởng mất dữ liệu. */}
+                    {onlyNoDefault ? (
+                      <>
+                        Đang lọc <b>“Chưa có ca”</b> — không còn ai thiếu ca.{" "}
+                        <button
+                          type="button"
+                          className="cc-sp-who__link"
+                          onClick={() => setOnlyNoDefault(false)}
+                        >
+                          Bỏ lọc, xem cả danh sách
+                        </button>
+                      </>
+                    ) : q.trim() ? (
+                      <>
+                        Không ai khớp từ khoá <b>“{q.trim()}”</b>.{" "}
+                        <button
+                          type="button"
+                          className="cc-sp-who__link"
+                          onClick={() => setQ("")}
+                        >
+                          Xoá tìm kiếm
+                        </button>
+                      </>
+                    ) : (
+                      "Phòng/tổ này chưa có nhân viên nào."
+                    )}
                   </td>
                 </tr>
               )}
@@ -4543,30 +4646,35 @@ function ShiftPlanPanel({ token }: { token: string }) {
               </p>
               <label className="cc-sp-basepop__row">
                 <span>Ca</span>
-                <select
-                  value={baseShift}
-                  onChange={(e) =>
-                    setBaseShift(
-                      e.target.value === ""
-                        ? ""
-                        : e.target.value === "none"
-                          ? "none"
-                          : Number(e.target.value),
-                    )
-                  }
-                >
-                  <option value="">— chọn ca —</option>
-                  {paintShifts.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.start_time}–{s.end_time})
-                    </option>
-                  ))}
-                  <option value="none">— bỏ gán ca nền —</option>
-                </select>
+                {/* Bọc `cc-select-wrapper` để ăn style chung (viền, cao 36px, mũi tên vẽ sẵn)
+                    thay vì rơi về select mặc định của trình duyệt. */}
+                <div className="cc-select-wrapper">
+                  <select
+                    value={baseShift}
+                    onChange={(e) =>
+                      setBaseShift(
+                        e.target.value === ""
+                          ? ""
+                          : e.target.value === "none"
+                            ? "none"
+                            : Number(e.target.value),
+                      )
+                    }
+                  >
+                    <option value="">— chọn ca —</option>
+                    {paintShifts.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.start_time}–{s.end_time})
+                      </option>
+                    ))}
+                    <option value="none">— bỏ gán ca nền —</option>
+                  </select>
+                </div>
               </label>
               <label className="cc-sp-basepop__row">
                 <span>Áp dụng từ</span>
                 <input
+                  className="cc-input-text"
                   type="date"
                   value={baseFrom}
                   onChange={(e) => setBaseFrom(e.target.value)}

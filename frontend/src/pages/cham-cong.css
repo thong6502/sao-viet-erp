@@ -3774,6 +3774,16 @@
   border: 1px solid var(--rule);
   background-image: repeating-linear-gradient(45deg, rgba(107, 102, 91, 0.3) 0 3px, transparent 3px 6px);
 }
+/* Chú giải nghỉ phép: vẽ lại y hệt ô trên lưới — khung như một ô, tam giác moss ở ĐÚNG góc
+   trên-phải. Chú giải mà vẽ khác thứ nó chú thì vô dụng, nên hướng góc phải khớp với
+   `.cc-sp-cell--leave::after` ở dưới. Biến "không lương" (đổi sang rust) nói bằng tooltip —
+   thêm ô thứ hai vào hàng chú giải 8 mục nữa là rối hơn phần nó giải thích. */
+.cc-sp-lg--leave::before {
+  border: 1px solid var(--rule);
+  background:
+    linear-gradient(to top right, transparent 50%, var(--moss) 50%) top right / 7px 7px no-repeat,
+    var(--canvas);
+}
 .cc-sp-lg--hol::before { background: rgba(197, 64, 10, 0.16); }
 .cc-sp-lg--make::before { background: rgba(95, 77, 158, 0.16); }
 .cc-sp-lg--x1::before { background: rgba(197, 64, 10, 0.16); border-bottom: 2px dashed var(--rust); }
@@ -3956,6 +3966,30 @@
 .cc-sp-table td.cc-sp-cell--rest {
   --sp-hatch: repeating-linear-gradient(45deg, rgba(107, 102, 91, 0.16) 0 3px, transparent 3px 7px);
 }
+
+/* Nghỉ phép ĐÃ DUYỆT — lớp phủ CHỈ ĐỂ XEM, đọc thẳng từ phiếu.
+   Cố ý KHÁC HẲN "Nghỉ theo lịch" ở trên: kia là gạch chéo xám phủ cả ô + nuốt chip thành dấu "–";
+   đây là TAM GIÁC ĐẶC ở góc, chip ca vẫn nguyên vẹn. Hai thứ trùng tên "nghỉ" mà khác hẳn bản chất
+   (một cái ra tiền, một cái không) nên phải khác hẳn cả hình LẪN màu — vẽ giống nhau là nhân đôi
+   hiểu nhầm. Góc PHẢI vì mép trái đã là thanh "chưa lưu" (is-dirty). */
+.cc-sp-table td.cc-sp-cell--leave { position: relative; }
+.cc-sp-table td.cc-sp-cell--leave::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-top: 7px solid var(--moss);
+  border-left: 7px solid transparent;
+  pointer-events: none;
+}
+.cc-sp-table--roomy td.cc-sp-cell--leave::after {
+  border-top-width: 9px;
+  border-left-width: 9px;
+}
+/* Không lương: cùng hình, đổi màu — "là nghỉ phép" đọc trước, "có lương hay không" đọc sau. */
+.cc-sp-table td.cc-sp-cell--leave-unpaid::after { border-top-color: var(--rust); }
 
 /* --- Chip ca -------------------------------------------------------------- */
 .cc-sp-chip {
@@ -4220,6 +4254,13 @@
   cursor: pointer;
 }
 .cc-sp-who__link:hover { text-decoration: underline; }
+/* Nút gỡ lọc nằm trong dòng "lưới rỗng" (chữ xám): `color: inherit` thì trông như chữ
+   thường, không ai biết bấm được — chỗ này phải nổi và gạch chân sẵn. */
+.ns__empty .cc-sp-who__link {
+  color: var(--rust);
+  font-weight: var(--fw-medium);
+  text-decoration: underline;
+}
 
 .cc-sp-drawer { position: fixed; inset: 0; z-index: 90; }
 .cc-sp-drawer__backdrop { position: absolute; inset: 0; background: rgba(20, 19, 15, 0.32); }

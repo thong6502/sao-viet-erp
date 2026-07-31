@@ -53,6 +53,12 @@ Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
 
 
+def _scope(authz: AuthorizationService, user: User) -> str:
+    """Phạm vi dữ liệu của người gọi trên module tăng ca. Mặc định `own` — hụt quyền thì siết
+    chặt nhất, không mở toang."""
+    return authz.scope_for(user, MODULE) or "own"
+
+
 def _raise(exc: Exception) -> None:
     if isinstance(exc, OvertimeNotFound):
         raise HTTPException(status_code=404, detail=str(exc))
@@ -176,9 +182,9 @@ def list_requests(svc: Service, employees: Employees, authz: Authz,
 
 
 @router.post("/bulk-approve", response_model=OvertimeBulkResultOut)
-def bulk_approve(body: OvertimeBulkIn, svc: Service, employees: Employees,
+def bulk_approve(body: OvertimeBulkIn, svc: Service, employees: Employees, authz: Authz,
                  user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
-    done = svc.bulk_approve(actor=user, request_ids=body.ids)
+    done = svc.bulk_approve(actor=user, request_ids=body.ids, scope=_scope(authz, user))
     for r in done:
         _notify_decision(r, employees, "approved")
     ids = {r.id for r in done}
@@ -187,10 +193,11 @@ def bulk_approve(body: OvertimeBulkIn, svc: Service, employees: Employees,
 
 
 @router.post("/bulk-reject", response_model=OvertimeBulkResultOut)
-def bulk_reject(body: OvertimeBulkRejectIn, svc: Service, employees: Employees,
+def bulk_reject(body: OvertimeBulkRejectIn, svc: Service, employees: Employees, authz: Authz,
                 user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
     try:
-        done = svc.bulk_reject(actor=user, request_ids=body.ids, note=body.note)
+        done = svc.bulk_reject(actor=user, request_ids=body.ids, note=body.note,
+                               scope=_scope(authz, user))
     except OvertimeError as exc:
         _raise(exc)
     for r in done:
@@ -202,9 +209,11 @@ def bulk_reject(body: OvertimeBulkRejectIn, svc: Service, employees: Employees,
 
 @router.post("/{request_id}/approve", response_model=OvertimeRequestOut)
 def approve(request_id: int, body: OvertimeDecisionIn, svc: Service, employees: Employees,
+            authz: Authz,
             user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
     try:
-        r = svc.approve(actor=user, request_id=request_id, note=body.note)
+        r = svc.approve(actor=user, request_id=request_id, note=body.note,
+                        scope=_scope(authz, user))
     except OvertimeError as exc:
         _raise(exc)
     _notify_decision(r, employees, "approved")
@@ -213,9 +222,11 @@ def approve(request_id: int, body: OvertimeDecisionIn, svc: Service, employees: 
 
 @router.post("/{request_id}/reject", response_model=OvertimeRequestOut)
 def reject(request_id: int, body: OvertimeRejectIn, svc: Service, employees: Employees,
+           authz: Authz,
            user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
     try:
-        r = svc.reject(actor=user, request_id=request_id, note=body.note)
+        r = svc.reject(actor=user, request_id=request_id, note=body.note,
+                       scope=_scope(authz, user))
     except OvertimeError as exc:
         _raise(exc)
     _notify_decision(r, employees, "rejected")

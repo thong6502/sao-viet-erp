@@ -3123,6 +3123,47 @@ def _migrate_job_grade_catalog(db: Session) -> None:
     db.commit()
 
 
+def _migrate_drop_kpi_bonus(db: Session) -> None:
+    """Xoá hẳn thưởng năng suất KPI (chủ 29/07/2026 — "xưởng không dùng tới, xóa backend luôn,
+    đang phát triển mà chưa chạy thật đâu").
+
+    Gỡ 2 cột `payroll_lines.kpi_percent` / `kpi_bonus` và các dòng bật/tắt KPI theo tổ.
+
+    🔴 **HÃM AN TOÀN — đừng gỡ.** DROP COLUMN là thao tác KHÔNG LÙI ĐƯỢC: mất là mất luôn, trong
+    DB không còn bản sao nào để khôi phục. DB dev thì đọc được (0 dòng có tiền KPI) nhưng DB thật
+    trên VPS thì KHÔNG. Nên trước khi drop phải ĐẾM: còn dòng lương nào mang tiền KPI thì **bỏ
+    qua, giữ nguyên cột**.
+
+    Bỏ sót vài cột thừa trên một DB nào đó là vô hại — SQLAlchemy chỉ đọc cột đã khai trong model.
+    Xoá nhầm tiền của người ta thì không cứu được. Chọn phía an toàn.
+
+    Guard theo cột ⇒ chạy lần hai là no-op; DB dựng mới bằng `create_all` không có 2 cột này nên
+    tự bỏ qua."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+
+    if "payroll_lines" in tables:
+        cols = _existing_columns(insp, "payroll_lines")
+        con = [c for c in ("kpi_percent", "kpi_bonus") if c in cols]
+        if con:
+            dieu_kien = " OR ".join(f"{c} <> 0" for c in con)
+            con_tien = int(db.execute(text(
+                f"SELECT COUNT(*) FROM payroll_lines WHERE {dieu_kien}")).scalar() or 0)
+            if con_tien:
+                # KHÔNG drop. Giữ cột + số; chủ soi rồi quyết, chứ máy không tự xoá tiền.
+                print(f"[0130] BO QUA drop cot KPI: con {con_tien} dong luong mang tien KPI. "
+                      f"Cot giu nguyen (vo hai — model khong doc nua).")
+            else:
+                for c in con:
+                    db.execute(text(f"ALTER TABLE payroll_lines DROP COLUMN {c}"))
+                db.commit()
+
+    # Dòng bật/tắt KPI theo tổ: chỉ là cấu hình, xoá vô điều kiện (không phải tiền).
+    if "department_salary_components" in tables:
+        db.execute(text("DELETE FROM department_salary_components WHERE component_key = 'kpi'"))
+        db.commit()
+
+
 def _migrate_job_grade_drop_phu(db: Session) -> None:
     """Bỏ bậc PHỤ: 3 chính + 2 phụ → **5 bậc chính** Bậc 1…Bậc 5 (chủ 2026-07-29, chốt lại trong
     ngày: *"bỏ phụ đi cho 5 bậc chính đánh từ bậc 1 đến bậc 5"*).
@@ -3162,6 +3203,144 @@ def _migrate_job_grade_drop_phu(db: Session) -> None:
              else {"cm": ma_moi, "s": seq_moi, "i": cur[0]}),
         )
     db.commit()
+
+
+def _migrate_noi_quy_nguon_va_file_goc(db: Session) -> None:
+    """Nội quy: khai NGUỒN của từng bản + đánh dấu file gốc của lần nhập (chủ 30/07/2026 —
+    *"nếu họ đưa pdf hoặc word lên thì… form chữ kiểu chữ dáng chữ vẫn giữ nguyên"*).
+
+    Hai cột:
+
+    - `noi_quy_versions.source_kind` — `'html'` (gõ trong app) hay `'file'` (tải tài liệu lên,
+      hiện đúng bản gốc). Mỗi BẢN khai đúng MỘT nguồn: để cả hai cùng sống trên một bản thì sớm
+      muộn chúng lệch nhau và không ai biết bản nào đang là luật. Mặc định `'html'` nên mọi bản
+      cũ giữ nguyên hành vi hiện tại.
+    - `noi_quy_attachments.is_import_source` — file GỐC do hệ thống tự đính khi nhập. Nhập lại thì
+      hàng này bị thay, không cộng dồn: nhập 3 lần mà để lại 3 file gần giống nhau thì lúc tranh
+      chấp không ai biết bản nào là bản thật. Mặc định `false` ⇒ mọi file người dùng đã tự đính
+      kèm trước đây được coi là chứng từ và KHÔNG bao giờ bị thay.
+
+    Bảng `noi_quy_pages` là bảng MỚI nên `create_all` tự tạo — không cần làm gì ở đây.
+
+    Guard theo cột ⇒ chạy lần hai là no-op; DB dựng mới bằng `create_all` đã có sẵn 2 cột nên tự
+    bỏ qua."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+
+    if ("noi_quy_versions" in tables
+            and "source_kind" not in _existing_columns(insp, "noi_quy_versions")):
+        db.execute(text(
+            "ALTER TABLE noi_quy_versions "
+            "ADD COLUMN source_kind VARCHAR(8) NOT NULL DEFAULT 'html'"))
+
+    if ("noi_quy_attachments" in tables
+            and "is_import_source" not in _existing_columns(insp, "noi_quy_attachments")):
+        # `false` (bool Python) chứ KHÔNG phải "0": chuỗi "0" chạy được trên SQLite nhưng VỠ khi
+        # Postgres tạo cột Boolean — bẫy đã ghi trong CLAUDE.md.
+        db.execute(text(
+            "ALTER TABLE noi_quy_attachments "
+            "ADD COLUMN is_import_source BOOLEAN NOT NULL DEFAULT false"))
+    db.commit()
+
+
+def _migrate_nguong_to_truong_theo_san_luong(db: Session) -> None:
+    """Ngưỡng xét thưởng/phạt tổ trưởng: đo bằng TIỀN → đo bằng SẢN LƯỢNG (chủ 30/07/2026).
+
+    Chủ nhìn màn thật rồi nói: *"nó là sản lượng mà sao lại chữ đ là sao"*. Ô đang là tiền, nhưng
+    trong đầu chủ nó là số lượng làm được — và màn hình là phép thử cuối.
+
+    Bê THẲNG con số cũ sang cột mới (chủ chốt: `3.000.000 đ` → `3.000.000 sản lượng`). Ngưỡng là
+    một con số trần, **không kèm đơn vị** — chủ chốt *"Đơn vị bỏ đi"*.
+
+    Bảng này mới dựng cùng ngày và chưa từng lên prod; trên DB dev nó đang **0 dòng** nên thực tế
+    không có gì để bê. Vẫn viết bước bê cho đúng ý và cho DB nào lỡ có dữ liệu.
+
+    Guard theo cột ⇒ chạy lần hai là no-op. Bảng chưa tồn tại (DB trắng, `create_all` sẽ dựng đúng
+    hình mới) thì bỏ qua."""
+    insp = inspect(db.get_bind())
+    if "piece_leader_bonus_settings" not in insp.get_table_names():
+        return
+
+    cols = _existing_columns(insp, "piece_leader_bonus_settings")
+    if "min_output_qty" not in cols:
+        db.execute(text(
+            "ALTER TABLE piece_leader_bonus_settings "
+            "ADD COLUMN min_output_qty NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+    if "min_khoan_to" in cols:
+        db.execute(text(
+            "UPDATE piece_leader_bonus_settings SET min_output_qty = min_khoan_to "
+            "WHERE min_output_qty = 0 AND min_khoan_to <> 0"))
+        db.commit()
+        db.execute(text("ALTER TABLE piece_leader_bonus_settings DROP COLUMN min_khoan_to"))
+        db.commit()
+
+
+def _migrate_noi_quy_nhieu_tai_lieu(db: Session) -> None:
+    """Nội quy: một bản ban hành → NHIỀU tài liệu, mỗi tài liệu một chuỗi version riêng
+    (chủ 30/07/2026 — *"upload được nhiều file, mỗi file đi theo title"*).
+
+    Gắn mọi bản nội quy đang có vào ĐÚNG MỘT tài liệu. Chúng vốn là các lần ban hành lại của cùng
+    một văn bản, nên gom vào một tài liệu là đúng — KHÔNG tách thành nhiều tài liệu.
+
+    Tiêu đề mặc định là HẰNG CHUỖI viết thẳng ở đây. Đã cân nhắc và loại hai nguồn "thông minh" hơn:
+      - `ghi_chu` — đó là *ghi chú thay đổi* ("Bổ sung quy định giờ tăng ca"), đặt làm tên tài liệu
+        thì sai mà nhìn vẫn hợp lý, loại sai tệ nhất.
+      - tên file gốc — ra "mau-noi-quy-lao-dong.pdf".
+    Chủ đổi tên trong màn hình mất 5 giây. Migration không đoán được thì migration không đoán.
+
+    Bảng `noi_quy_documents` là bảng MỚI ⇒ `create_all` lo; ở đây chỉ thêm cột + backfill."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "noi_quy_versions" not in tables:
+        return
+    if "noi_quy_documents" not in tables:
+        # `create_all` chạy TRƯỚC migration, nên tới đây mà chưa có bảng nghĩa là model chưa được
+        # export. Tự `CREATE TABLE` ở đây sẽ đẻ ra một bảng lệch với model — im lặng bỏ qua.
+        return
+
+    cols = _existing_columns(insp, "noi_quy_versions")
+    # NULLABLE, không NOT NULL: Postgres từ chối `ADD COLUMN NOT NULL` không default khi bảng đã có
+    # dòng — mà ở đây KHÔNG có default hợp lý (tài liệu chưa tồn tại lúc thêm cột).
+    if "document_id" not in cols:
+        db.execute(text("ALTER TABLE noi_quy_versions ADD COLUMN document_id INTEGER"))
+    if "title" not in cols:
+        db.execute(text("ALTER TABLE noi_quy_versions ADD COLUMN title VARCHAR(200)"))
+    db.commit()
+
+    # Guard theo DỮ LIỆU MỒ CÔI, không theo "đã insert tài liệu nào chưa": chạy lần hai là no-op,
+    # và nếu chủ đã tự tạo tài liệu thật rồi thì KHÔNG đẻ thêm một tài liệu rác nữa.
+    mo_coi = int(db.execute(text(
+        "SELECT COUNT(*) FROM noi_quy_versions WHERE document_id IS NULL")).scalar() or 0)
+    if not mo_coi:
+        return
+
+    ten = "Nội quy lao động"
+    db.execute(
+        text("INSERT INTO noi_quy_documents (title, seq, is_active, created_at) "
+             "VALUES (:t, 1, true, :now)"),
+        {"t": ten, "now": datetime.now(timezone.utc)},
+    )
+    db.commit()
+    doc_id = db.execute(text("SELECT MIN(id) FROM noi_quy_documents")).scalar()
+
+    # Gắn HẾT — cả published lẫn draft. Bỏ sót bản nào là bản đó thành mồ côi: không tài liệu nào
+    # trỏ tới ⇒ cả công ty mở nội quy ra thấy "chưa ban hành", dù dòng vẫn nằm nguyên trong DB.
+    db.execute(text("UPDATE noi_quy_versions SET document_id = :d WHERE document_id IS NULL"),
+               {"d": doc_id})
+    # Tiêu đề bản chụp: bản cũ chưa có, lấy tên tài liệu làm mốc.
+    db.execute(text("UPDATE noi_quy_versions SET title = :t WHERE title IS NULL"), {"t": ten})
+    db.commit()
+
+    con_sot = int(db.execute(text(
+        "SELECT COUNT(*) FROM noi_quy_versions WHERE document_id IS NULL")).scalar() or 0)
+    if con_sot:
+        # NỔ chứ không đi tiếp. `run_migrations` không bọc try/except nên app chết lúc khởi động và
+        # `0132` KHÔNG được ghi vào `schema_migrations` ⇒ lần sau chạy lại. Thà không boot còn hơn
+        # boot với nội quy mồ côi mà không ai biết.
+        raise RuntimeError(
+            f"[0132] Con {con_sot} ban noi quy chua gan tai lieu — DUNG de khong mat du lieu.")
 
 
 def _migrate_employee_salary_commission_pct(db: Session) -> None:
@@ -4276,6 +4455,12 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0127_job_grade_catalog", _migrate_job_grade_catalog),
     ("0128_employee_salary_commission_pct", _migrate_employee_salary_commission_pct),
     ("0129_job_grade_drop_phu", _migrate_job_grade_drop_phu),
+    # Nhánh nội quy / thưởng tổ trưởng (nhập từ dev) — số 0130-0133 TRÙNG dãy khoán ngay dưới là
+    # có chủ ý: khoá thật là CẢ CHUỖI id, không đụng nhau. Đừng đánh lại số.
+    ("0130_drop_kpi_bonus", _migrate_drop_kpi_bonus),
+    ("0131_noi_quy_nguon_va_file_goc", _migrate_noi_quy_nguon_va_file_goc),
+    ("0132_noi_quy_nhieu_tai_lieu", _migrate_noi_quy_nhieu_tai_lieu),
+    ("0133_nguong_to_truong_theo_san_luong", _migrate_nguong_to_truong_theo_san_luong),
     # Khoán theo ĐẦU VIỆC: 1 đầu việc phủ nhiều công đoạn + trục quy đổi; bước lệnh ghim đầu việc.
     ("0130_piece_rate_cong_doan_mas", _migrate_piece_rate_cong_doan_mas),
     ("0131_lsx_cong_doan_khoan_json", _migrate_lsx_cong_doan_khoan_json),

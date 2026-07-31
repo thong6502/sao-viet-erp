@@ -3527,6 +3527,188 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 
 ---
 
+### `piece_leader_bonus_settings`
+
+**Purpose:** NGƯỠNG sản lượng tối thiểu để xét thưởng/phạt tổ trưởng — mỗi tổ MỘT dòng.
+
+> Vì sao tách khỏi `piece_leader_bonus_brackets`: bảng bậc chỉ có một chiều là % hàng lỗi, nên
+> tổ làm 20 tờ và tổ làm 20.000 tờ bị đối xử như nhau — hỏng 2/20 tờ đã là 10%, rơi thẳng bậc
+> phạt nặng nhất. Ngưỡng là MỘT luật cho cả bộ bậc, nhét vào từng bậc thì mỗi dòng mang một bản
+> sao và sớm muộn lệch nhau.
+>
+> Luật: sản lượng `<` ngưỡng ⇒ KHÔNG thưởng KHÔNG phạt · `>=` ngưỡng ⇒ áp bảng bậc · ngưỡng `0`
+> ⇒ không gác · **chưa biết sản lượng (None) ⇒ coi như DƯỚI ngưỡng** (fail-closed, có chủ ý).
+>
+> ⚠️ Cùng số phận với bảng bậc: **CHƯA RA TIỀN** — chưa nguồn nào báo sản lượng nên mọi tổ đều
+> rơi vào nhánh fail-closed.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `department_id` | `Integer` → `INTEGER` | **UQ·IX** | no | — | Tổ được gác ngưỡng. **Soft-ref** `departments.id` (không FK cứng, giống bảng bậc). UNIQUE: hai dòng cùng tổ thì không ai biết dòng nào có hiệu lực. |
+| `min_output_qty` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | Sản lượng tối thiểu trong kỳ. **Số trần, KHÔNG kèm đơn vị** — người nối nguồn sản lượng phải cộng TOÀN BỘ sản lượng của tổ rồi so, không lọc theo đơn vị. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi khai ngưỡng. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC), `onupdate` | Lần sửa cuối. |
+
+**Keys & indexes**
+
+- Primary key: `id`. UNIQUE + index trên `department_id`. Không FK cấu trúc.
+
+**Relationships**
+
+- Một tổ (`departments`, liên kết mềm) ↔ đúng một ngưỡng. Đi kèm `piece_leader_bonus_brackets`.
+
+**Tất cả cột:** `id`, `department_id`, `min_output_qty`, `created_at`, `updated_at`.
+
+---
+
+## Nội quy công ty — tài liệu · bản ban hành · trang · file
+
+> **Append-only, KHÔNG sửa đè.** Nội quy là căn cứ kỷ luật: sửa đè thì sau này không trả lời được
+> *"hồi tháng 5 luật là gì"* — mà lúc cần câu trả lời đó thường là lúc đang tranh chấp. Mỗi lần
+> ban hành là một dòng `noi_quy_versions` mới, bản cũ lùi thành lịch sử.
+>
+> **Nháp vs Ban hành:** `draft` chỉ người soạn thấy; `published` cả công ty đọc. Bản hiệu lực của
+> một tài liệu = `published` có `published_at` mới nhất TRONG tài liệu đó.
+>
+> **Một bản khai đúng MỘT nguồn** (`source_kind`): `html` gõ trong app, hay `file` tải tài liệu
+> lên rồi dựng ảnh từng trang. Để cả hai cùng sống trên một bản thì sớm muộn chúng lệch nhau và
+> không ai biết bản nào đang là luật.
+>
+> 4 bảng đều MỚI ⇒ `create_all` tự tạo, KHÔNG cần migration; nhưng phải export ở `models/__init__.py`.
+
+---
+
+### `noi_quy_documents`
+
+**Purpose:** MỘT tài liệu trong bộ nội quy (Nội quy lao động · Quy chế lương thưởng · An toàn lao
+động…) — danh tính bền, sống qua mọi lần ban hành. Mỗi tài liệu là một CHUỖI VERSION riêng.
+
+> ⚠️ **KHÔNG có đường xoá tài liệu.** `noi_quy_pages` và `noi_quy_attachments` đều `ondelete=CASCADE`
+> theo version ⇒ xoá một tài liệu là bay toàn bộ lịch sử + ảnh trang + file bằng một cú bấm. Thôi
+> dùng thì đặt `is_active=False`, bản cũ vẫn tra được.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `title` | `String(200)` → `VARCHAR(200)` | — | no | — | Tên HIỆN HÀNH, dùng hiện danh sách. Tiêu đề từng bản đã ban hành chụp riêng ở `noi_quy_versions.title`. |
+| `seq` | `Integer` → `INTEGER` | — | no | `1` | Thứ tự hiện trong danh sách. |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | False = thôi áp dụng: mất khỏi danh sách nhân viên, KHÔNG mất khỏi lịch sử. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo tài liệu. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+
+**Relationships**
+
+- 1 tài liệu → nhiều `noi_quy_versions` (qua `document_id`, FK TRƠN không cascade).
+
+**Tất cả cột:** `id`, `title`, `seq`, `is_active`, `created_at`.
+
+---
+
+### `noi_quy_versions`
+
+**Purpose:** một BẢN của một tài liệu nội quy. Bản hiệu lực = `published` có `published_at` mới
+nhất trong cùng `document_id`.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `document_id` | `Integer` → `INTEGER` | **FK·IX** | yes | — | → `noi_quy_documents.id`. **FK trơn, CỐ Ý không cascade**: xoá lạc một tài liệu thì phải NỔ, không được âm thầm kéo theo cả lịch sử ban hành. |
+| `title` | `String(200)` → `VARCHAR(200)` | — | yes | — | BẢN CHỤP tiêu đề lúc ban hành. Không đọc thẳng từ `noi_quy_documents.title` vì đổi tên tài liệu sẽ viết lại tiêu đề của MỌI bản lịch sử. |
+| `noi_dung` | `Text` → `TEXT` | — | no | `""` | **HTML đã lọc allowlist ở server** (`lam_sach_html`, nh3) — không phải văn bản thuần. `<img src>` chỉ được trỏ `/api/files/`. Bản `source_kind='file'` để trống, nội dung nằm ở `noi_quy_pages`. |
+| `source_kind` | `String(8)` → `VARCHAR(8)` | — | no | `html` | Nguồn của bản này: `html` (gõ trong app) \| `file` (tải tài liệu lên). |
+| `ghi_chu` | `String(255)` → `VARCHAR(255)` | — | yes | — | "Bản này sửa gì" — để người đọc lịch sử khỏi so từng chữ. |
+| `status` | `String(12)` → `VARCHAR(12)` | **IX** | no | `draft` | `draft` \| `published`. |
+| `published_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | **IX** | yes | — | Chỉ có giá trị khi đã ban hành. NULL ⇒ vẫn là nháp, nhân viên KHÔNG thấy. |
+| `published_by` | `Integer` → `INTEGER` | **FK** | yes | — | → `users.id`. Ai bấm ban hành. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo bản nháp. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC), `onupdate` | Lần sửa cuối. |
+
+**Keys & indexes**
+
+- Primary key: `id`. FK `document_id` → `noi_quy_documents.id` (không cascade), `published_by` →
+  `users.id`. Index trên `document_id`, `status`, `published_at`.
+
+**Relationships**
+
+- Thuộc một `noi_quy_documents`. 1 bản → nhiều `noi_quy_pages` và `noi_quy_attachments` (cascade).
+
+**Tất cả cột:** `id`, `document_id`, `title`, `noi_dung`, `source_kind`, `ghi_chu`, `status`,
+`published_at`, `published_by`, `created_at`, `updated_at`.
+
+---
+
+### `noi_quy_attachments`
+
+**Purpose:** file đính kèm của MỘT bản nội quy (bản scan có ký/đóng dấu). Gắn vào version chứ
+không phải toàn cục — bản PDF có dấu là của đúng bản đó.
+
+> ⚠️ Bytes nằm ở kho file chung (`app/storage.py`), thư mục **`noi-quy/`**. Thư mục này CỐ Ý không
+> khai trong `_PREFIX_PERMISSION` của `routers/files.py` ⇒ ai đăng nhập cũng tải được, giống
+> `avatars/`. Thêm vào bảng đó là chỉ Giám đốc mở được file, phá đúng yêu cầu "tất cả nhân viên
+> thấy". Có test canh.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `version_id` | `Integer` → `INTEGER` | **FK·IX** | no | — | → `noi_quy_versions.id`, `ondelete=CASCADE`. |
+| `file_name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên file gốc lúc tải lên. |
+| `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | Đường dẫn `/api/files/...` trong kho file. |
+| `file_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | MIME type. |
+| `is_import_source` | `Boolean` → `BOOLEAN` | — | no | `false` | True = file GỐC của lần nhập nội dung, hệ thống tự đính; nhập lại thì hàng này bị THAY chứ không cộng dồn (3 file gần giống nhau thì lúc tranh chấp không ai biết bản thật). File người dùng tự đính = False, không bao giờ bị thay. |
+| `uploaded_by` | `Integer` → `INTEGER` | **FK** | yes | — | → `users.id`. |
+| `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tải lên. |
+
+**Keys & indexes**
+
+- Primary key: `id`. FK `version_id` → `noi_quy_versions.id` (CASCADE), `uploaded_by` → `users.id`.
+  Index trên `version_id`.
+
+**Relationships**
+
+- Nhiều file thuộc một `noi_quy_versions`; xoá bản là xoá theo.
+
+**Tất cả cột:** `id`, `version_id`, `file_name`, `file_url`, `file_type`, `is_import_source`,
+`uploaded_by`, `uploaded_at`.
+
+---
+
+### `noi_quy_pages`
+
+**Purpose:** MỘT trang của bản nội quy dạng PDF, đã dựng thành ảnh.
+
+> **Vì sao dựng ảnh thay vì tách chữ:** PDF không lưu đoạn văn hay kiểu chữ, chỉ lưu vị trí từng
+> chữ — tách ra là mất sạch dáng. Yêu cầu là "giữ nguyên form chữ dáng chữ", nên cách đúng là hiện
+> chính trang đó; kèm lợi ích lớn là bản SCAN đã ký/đóng dấu đỏ cũng dùng được, không cần OCR.
+>
+> Dựng MỘT LẦN lúc ban hành, không dựng lúc đọc — dựng khi đọc thì mỗi nhân viên mở màn là server
+> giải mã lại cả tập PDF.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `version_id` | `Integer` → `INTEGER` | **FK·IX** | no | — | → `noi_quy_versions.id`, `ondelete=CASCADE`. |
+| `page_no` | `Integer` → `INTEGER` | — | no | — | Số trang, đếm từ 1. |
+| `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | Ảnh trang trong kho file (`noi-quy/`). |
+| `width` | `Integer` → `INTEGER` | — | no | `0` | Bề rộng ảnh thật (px) — FE đặt sẵn lên `<img>` để trang KHÔNG nhảy khi ảnh tải lười xong. |
+| `height` | `Integer` → `INTEGER` | — | no | `0` | Chiều cao ảnh thật (px), cùng lý do. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi dựng ảnh. |
+
+**Keys & indexes**
+
+- Primary key: `id`. FK `version_id` → `noi_quy_versions.id` (CASCADE). Index trên `version_id`.
+
+**Relationships**
+
+- Nhiều trang thuộc một `noi_quy_versions`; xoá bản là xoá theo.
+
+**Tất cả cột:** `id`, `version_id`, `page_no`, `file_url`, `width`, `height`, `created_at`.
+
+---
+
 ## Kho — đề nghị · phiếu · lô · ngưỡng
 
 > Hai luật xương sống lấy từ BRD Module Kho:

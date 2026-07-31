@@ -57,6 +57,11 @@ MODULES: list[tuple[str, str]] = [
     ("tang_ca", "Tăng ca"),
     ("di_muon", "Đi muộn / về sớm"),
     ("luong", "Lương"),
+    # Nội quy công ty (chủ 30/07/2026): CHỈ Giám đốc soạn/ban hành — vai GĐ nhận toàn quyền
+    # qua `ALL_MODULE_KEYS` ở dưới, các vai khác khai module tường minh nên không dính.
+    # Việc ĐỌC nội quy KHÔNG gác bằng module này: `GET /api/noi-quy/current` chỉ đòi đăng
+    # nhập, để không vai nào bị bỏ sót mà mất quyền đọc nội quy.
+    ("noi_quy", "Nội quy công ty"),
 ]
 
 ALL_MODULE_KEYS = [k for k, _ in MODULES]
@@ -166,6 +171,22 @@ def _leave_admin(scope: str = SCOPE_ALL) -> dict:
     quản loại nghỉ (`can_approve` = cờ 'leave admin' gate cả duyệt lẫn CRUD loại nghỉ)."""
     return dict(
         can_read=True, can_create=True, can_update=True, can_delete=True,
+        scope=scope, can_approve=True, can_cancel=True,
+    )
+
+
+def _leave_lead(scope: str = SCOPE_DEPARTMENT) -> dict:
+    """Quyền DUYỆT đơn nghỉ phép cho TỔ TRƯỞNG (chủ 29/07/2026: "nghỉ phép thì để cho tổ trưởng
+    duyệt mà phạm vi trong tổ nó thôi").
+
+    Khác `_leave_admin` ở đúng một chỗ và đó là chỗ quan trọng: `can_update=False`. Ba endpoint
+    THÊM/SỬA/XOÁ danh mục LOẠI NGHỈ gác bằng ô `update` (xem `routers/leaves.py`), nên tổ trưởng
+    duyệt được đơn của tổ mình mà KHÔNG đụng được danh mục loại nghỉ của cả công ty — cái đó là
+    chính sách toàn công ty, giữ ở HCNS.
+
+    Scope `department` = tổ mình + cây con; service `_guard_scope` là thứ thi hành thật."""
+    return dict(
+        can_read=True, can_create=True, can_update=False, can_delete=False,
         scope=scope, can_approve=True, can_cancel=True,
     )
 
@@ -293,8 +314,12 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # "Tổ trưởng/Quản lý duyệt đề xuất cấp phát"). Scope DEPARTMENT: phải thấy đề nghị của
             # NV trong phòng mới duyệt được (own chỉ thấy của mình → không có gì để duyệt).
             "kho": {**_read(SCOPE_DEPARTMENT), "can_request": True, "can_approve": True},
-            "nghi_phep": _leave_self(),
+            # "nghi_phep": _leave_self(),
             # Tổ trưởng DUYỆT phiếu tăng ca của tổ mình (scope department = tổ + cây con).
+            # Tổ trưởng DUYỆT đơn nghỉ phép + phiếu tăng ca + đi muộn CỦA TỔ MÌNH
+            # (scope department = tổ + cây con). Tạm ứng và YC cập nhật hồ sơ KHÔNG cấp —
+            # chủ chốt hai thứ đó để bên nhân sự duyệt.
+            "nghi_phep": _leave_lead(SCOPE_DEPARTMENT),
             "tang_ca": _ot_lead(SCOPE_DEPARTMENT),
             "di_muon": _el_lead(SCOPE_DEPARTMENT),
         },
