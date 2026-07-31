@@ -254,6 +254,8 @@ const ICONS = {
       <path d="M9.5 17.75h2.5a2 2 0 0 0 2-2v-1.75" />
     </>
   ),
+  // Mũi tên hướng phải
+  arrowRight: <path d="M5 12h14M13 5l7 7-7 7" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;

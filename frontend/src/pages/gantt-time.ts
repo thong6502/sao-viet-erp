@@ -168,21 +168,127 @@ export function snapToWork(scale: TimeScale, t: number, snapMin: number): { t: n
   return { t, valid: false };                                 // sau ca cuối / ngoài trục → cấm thả
 }
 
-export interface Tick { x: number; label: string; strong: boolean }
+export interface Tick {
+  x: number;
+  label: string;
+  subLabel?: string;
+  strong: boolean;
+  isWeekend?: boolean;
+}
+
+export interface HeaderGroup {
+  label: string;
+  x: number;
+  w: number;
+}
+
+export interface GanttTimelineHeaderData {
+  groups: HeaderGroup[];
+  ticks: Tick[];
+}
+
+const WEEKDAYS = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 
 /** Mốc trục theo zoom: giờ (mỗi giờ), ca (mỗi 4h), ngày/tuần (mỗi ngày). Đầu ngày = mốc đậm. */
 export function buildTicks(scale: TimeScale, zoom: Zoom): Tick[] {
   const out: Tick[] = [];
   const step = zoom === "gio" ? 60 : zoom === "ca" ? 240 : 1440;
   const first = Math.floor(scale.winStart / 1440) * 1440;
+  const minGap = zoom === "gio" ? 44 : zoom === "ca" ? 40 : 36;
+  let lastX = -999;
+
   for (let t = first; t <= scale.winEnd; t += step) {
     if (t < scale.winStart) continue;
-    const w = fromWall(t);
+    const x = scale.xOf(t);
     const dayStart = t % 1440 === 0;
-    const label = zoom === "ngay" || zoom === "tuan" || dayStart
-      ? `${w.d}/${w.mo}`
-      : `${pad2(w.hh)}:${pad2(w.mi)}`;
-    out.push({ x: scale.xOf(t), label, strong: dayStart });
+
+    // Tránh chồng lấp nhãn khi khoảng ngoài ca co nhỏ (seam = 12px)
+    if (out.length > 0 && x - lastX < minGap && !dayStart) {
+      continue;
+    }
+    // Nếu trùng đúng ngày bắt đầu nhưng khoảng cách quá chật với ngày trước -> ẩn ngày trước hoặc bỏ qua
+    if (out.length > 0 && x - lastX < minGap && dayStart) {
+      if (x - lastX < 20) {
+        // Quá sát nhau (<20px) -> bỏ bớt tick vừa thêm để nhãn ngày mới nổi bật
+        out.pop();
+      }
+    }
+
+    const w = fromWall(t);
+    const dayOfWeek = new Date(Date.UTC(w.y, w.mo - 1, w.d)).getUTCDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    let label = "";
+    let subLabel: string | undefined = undefined;
+
+    if (zoom === "ngay" || zoom === "tuan" || dayStart) {
+      label = `${w.d}/${w.mo}`;
+      subLabel = WEEKDAYS[dayOfWeek];
+    } else {
+      label = `${pad2(w.hh)}:${pad2(w.mi)}`;
+    }
+
+    out.push({ x, label, subLabel, strong: dayStart, isWeekend });
+    lastX = x;
   }
   return out;
+}
+
+/** Dựng dữ liệu Header 2 tầng (Nhóm cấp trên: Tháng/Tuần + Ticks cấp dưới: Ngày/Giờ). */
+export function buildHeaderData(scale: TimeScale, zoom: Zoom): GanttTimelineHeaderData {
+  const ticks = buildTicks(scale, zoom);
+  const groups: HeaderGroup[] = [];
+
+  if (zoom === "gio" || zoom === "ca") {
+    // Nhóm theo từng NGÀY
+    let currentDayStr = "";
+    let startX = 0;
+    const step = 60;
+
+    for (let t = scale.winStart; t <= scale.winEnd; t += step) {
+      const w = fromWall(t);
+      const dayStr = `${pad2(w.d)}/${pad2(w.mo)}/${w.y}`;
+      const x = scale.xOf(t);
+
+      if (dayStr !== currentDayStr) {
+        if (currentDayStr && groups.length > 0) {
+          groups[groups.length - 1].w = Math.max(0, x - startX);
+        }
+        currentDayStr = dayStr;
+        startX = x;
+        const dayOfWeek = WEEKDAYS[new Date(Date.UTC(w.y, w.mo - 1, w.d)).getUTCDay()];
+        groups.push({
+          label: `${dayOfWeek}, ${dayStr}`,
+          x: startX,
+          w: scale.width - startX,
+        });
+      }
+    }
+  } else {
+    // Nhóm theo THÁNG / NĂM
+    let currentMonthStr = "";
+    let startX = 0;
+    const step = 1440;
+
+    for (let t = scale.winStart; t <= scale.winEnd; t += step) {
+      const w = fromWall(t);
+      const monthStr = `Tháng ${pad2(w.mo)}/${w.y}`;
+      const x = scale.xOf(t);
+
+      if (monthStr !== currentMonthStr) {
+        if (currentMonthStr && groups.length > 0) {
+          groups[groups.length - 1].w = Math.max(0, x - startX);
+        }
+        currentMonthStr = monthStr;
+        startX = x;
+        groups.push({
+          label: monthStr,
+          x: startX,
+          w: scale.width - startX,
+        });
+      }
+    }
+  }
+
+  return { groups, ticks };
 }

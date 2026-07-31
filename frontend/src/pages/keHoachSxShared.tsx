@@ -148,7 +148,8 @@ export function NguyCoTreChip({
       : `${slackNgay > 0 ? "+" : slackNgay < 0 ? "−" : ""}${Math.abs(slackNgay)}d`;
   return (
     <span className={`xlcd-risk ${meta.cls}`}>
-      {meta.label}
+      <span className="xlcd-risk__dot" aria-hidden="true" />
+      <span className="xlcd-risk__txt">{meta.label}</span>
       {slack && <span className="xlcd-risk__slack">{slack}</span>}
     </span>
   );
