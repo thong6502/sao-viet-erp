@@ -111,6 +111,9 @@ class LsxCongDoanIn(BaseModel):
     department_id: int | None = None
     may_id: int | None = None
     may_thay_the_ids: list[int] | None = None
+    # Đầu việc khoán của bước (`piece_rates.id`) — 0/null = bỏ chọn. KHÔNG gửi field này = giữ mặc
+    # định theo tổ + công đoạn (server tự điền), đừng gửi null "cho chắc" kẻo xoá mất đầu việc.
+    piece_rate_id: int | None = None
     # Số lượng & hao hụt
     so_luong_vao: float | None = None
     so_luong_ra: float | None = None
@@ -198,6 +201,23 @@ class LsxCongDoanOut(BaseModel):
     nguoi_giao_nhan_ten: str | None = None
     ghi_chu: str | None = None
 
+    # --- Khoán theo đầu việc ---------------------------------------------------
+    # GHIM (snapshot lúc chọn, xưởng lên giá sau không xê dịch lệnh đã phát):
+    khoan_rate_id: int | None = None
+    khoan_ten: str | None = None
+    khoan_don_vi: str | None = None
+    khoan_don_gia: float | None = None
+    # Các đầu việc CHỌN ĐƯỢC cho bước (theo tổ + công đoạn) — nuôi dropdown ở drawer.
+    khoan_chon_duoc: list[dict] = Field(default_factory=list)
+    # DẪN XUẤT (tính lúc đọc, không lưu): SL đã quy đổi · tiền dự kiến · diễn giải cách tính.
+    khoan_sl: float | None = None
+    khoan_don_vi_sl: str | None = None
+    khoan_tien: float | None = None
+    khoan_dien_giai: str | None = None
+    # Không quy đổi được thì nói THIẾU GÌ, không đoán số.
+    khoan_thieu: list[str] = Field(default_factory=list)
+    khoan_ly_do: str | None = None
+
 
 class LsxListItem(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -281,6 +301,12 @@ class LsxOut(BaseModel):
     thieu: list[str] = Field(default_factory=list)
     canh_bao: list[str] = Field(default_factory=list)
     lead_time: LeadTimeOut | None = None
+    # Công thợ khoán DỰ KIẾN cả lệnh = Σ bước quy đổi được. Là số SÀN: bước chưa chọn đầu việc hoặc
+    # thiếu số để quy đổi thì không góp vào — đừng đọc như tổng chi phí nhân công thật.
+    khoan_tien_tong: float = 0
+    # Chừa TÁCH CHIỀU, tính lúc đọc bằng `chua_theo_chieu` — màn lệnh chỉ hiện, không cộng lại.
+    chua_dai: float = 0
+    chua_rong: float = 0
 
 
 class LsxUpdateIn(BaseModel):

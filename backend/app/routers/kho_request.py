@@ -124,6 +124,7 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict[int, str]
         nguoi_duyet_id=req.nguoi_duyet_id,
         nguoi_duyet_ten=getattr(approver, "name", None),
         duyet_luc=req.duyet_luc, ly_do_tu_choi=req.ly_do_tu_choi,
+        ly_do_huy=req.ly_do_huy,
         open_voucher_id=open_voucher_id,
         created_at=req.created_at, lines=lines,
     )

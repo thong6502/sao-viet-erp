@@ -143,10 +143,27 @@ function nextShiftStart(fromLocal: string): string {
 }
 
 // Popover ô inline dùng FIXED (bảng có overflow → absolute bị cắt). Neo tại đáy nút, kẹp trong màn.
-function popStyle(a: DOMRect, width = 260): CSSProperties {
-  const left = Math.max(12, Math.min(a.left, window.innerWidth - width - 12));
-  const top = Math.min(a.bottom + 4, window.innerHeight - 120);
-  return { position: "fixed", top, left, width };
+function popStyle(a: DOMRect, width = 280): CSSProperties {
+  const pad = 16;
+  const left = Math.max(pad, Math.min(a.left, window.innerWidth - width - pad));
+  const top = Math.min(a.bottom + 6, window.innerHeight - 280);
+  return { position: "fixed", top, left, width, zIndex: 9999 };
+}
+
+function stepIcon(lb: LsxLoaiBuoc | null, ten?: string | null): IconName {
+  if (lb === "thue_ngoai") return "truck";
+  if (lb === "kcs") return "shield";
+  if (lb === "xa_to" || lb === "bai_ghep") return "layers";
+  if (lb === "to") return "building";
+  if (lb === "may") {
+    const t = (ten ?? "").toLowerCase();
+    if (t.includes("ctp") || t.includes("kẽm") || t.includes("in")) return "printer";
+    if (t.includes("xén") || t.includes("bế") || t.includes("cắt")) return "scissors";
+    if (t.includes("gấp") || t.includes("bắt") || t.includes("dán") || t.includes("vào keo")) return "layers";
+    if (t.includes("đóng gói") || t.includes("nhập kho")) return "box";
+    return "printer";
+  }
+  return "clipboard";
 }
 
 // ============================ controller =====================================
@@ -518,19 +535,30 @@ export function XepLichPage({
 
   return (
     <main className="xlcd">
-      <header className="khsx__head">
-        <p className="eyebrow">Sản xuất</p>
+      <header className="khsx__head xlcd-head">
         <div className="khsx__headrow">
-          <h1 className="khsx__title">Xếp lịch công đoạn</h1>
-          <span className="xlcd-count">
-            {num(summary.cho)} chờ xếp · {num(summary.daXep)} đã xếp
-            {summary.xungDot > 0 && <span className="xlcd-count__alert"> · {num(summary.xungDot)} xung đột</span>}
-            {sanSang && (
-              <span className={readyCount > 0 ? "xlcd-count__ready" : "xlcd-count__muted"}>
-                {" · "}{num(readyCount)} sẵn sàng phát hành
+          <div>
+            <p className="eyebrow">Sản xuất</p>
+            <h1 className="khsx__title">Xếp lịch công đoạn</h1>
+          </div>
+          <div className="xlcd-badges">
+            <span className="xlcd-badge xlcd-badge--cho">
+              <span className="xlcd-badge__num">{num(summary.cho)}</span> chờ xếp
+            </span>
+            <span className="xlcd-badge xlcd-badge--daxep">
+              <span className="xlcd-badge__num">{num(summary.daXep)}</span> đã xếp
+            </span>
+            {summary.xungDot > 0 && (
+              <span className="xlcd-badge xlcd-badge--alert">
+                <span className="xlcd-badge__num">{num(summary.xungDot)}</span> xung đột
               </span>
             )}
-          </span>
+            {sanSang && readyCount > 0 && (
+              <span className="xlcd-badge xlcd-badge--ready">
+                <span className="xlcd-badge__num">{num(readyCount)}</span> sẵn sàng phát hành
+              </span>
+            )}
+          </div>
         </div>
       </header>
 
@@ -775,10 +803,12 @@ export function XepLichPage({
                         }
                       >
                         {!collapsed &&
-                          b.rows.map((r) => (
+                          b.rows.map((r, stepIdx) => (
                             <BoardRow
                               key={r.id}
                               row={r}
+                              stepIdx={stepIdx}
+                              groupBy={groupBy}
                               show={show}
                               picked={picked.has(r.id)}
                               canUpdate={canUpdate}
@@ -914,6 +944,10 @@ function BandGroup({
   onGo?: () => void;
   children: ReactNode;
 }) {
+  const totalSteps = band.rows.length;
+  const scheduledSteps = band.rows.filter((r) => r.start_at != null || r.trang_thai === "da_xep").length;
+  const pct = totalSteps > 0 ? Math.round((scheduledSteps / totalSteps) * 100) : 0;
+
   return (
     <>
       <tr
@@ -933,6 +967,17 @@ function BandGroup({
               <span className="xlcd-band__title">{band.label}</span>
             </button>
             <span className="xlcd-band__meta">{bandMeta(band)}</span>
+
+            <div className="xlcd-band__progress-wrap" title={`${scheduledSteps}/${totalSteps} công đoạn đã xếp (${pct}%)`}>
+              <div className="xlcd-band__progress">
+                <div
+                  className={`xlcd-band__progress-bar ${pct === 100 ? "xlcd-band__progress-bar--complete" : ""}`}
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <span className="xlcd-band__progress-num">{scheduledSteps}/{totalSteps} đã xếp</span>
+            </div>
+
             {onGo && (
               <button type="button" className="xlcd-band__go" onClick={onGo}>
                 <Icon name="lockOpen" size={12} /> Gỡ kế hoạch
@@ -950,9 +995,11 @@ function BandGroup({
 interface ShowCols { somNhat: boolean; ketThuc: boolean; thoiLuong: boolean }
 
 function BoardRow({
-  row, show, picked, canUpdate, mays, phongBans, onTogglePick, onOpen, onGan, fetchGoiY,
+  row, stepIdx, groupBy, show, picked, canUpdate, mays, phongBans, onTogglePick, onOpen, onGan, fetchGoiY,
 }: {
   row: XepLichRow;
+  stepIdx?: number;
+  groupBy?: GroupBy;
   show: ShowCols;
   picked: boolean;
   canUpdate: boolean;
@@ -968,6 +1015,7 @@ function BoardRow({
   const meta = row.loai_buoc ? LSX_LOAI_BUOC_META[row.loai_buoc] : undefined;
   const soomTre = !!row.start_at && !!row.som_nhat && row.start_at < row.som_nhat;
   const isGhep = row.nguon === "in_ghep";
+  const isGroupedByOrder = groupBy === "lenh" || groupBy === "bai-ghep";
 
   return (
     <tr
@@ -996,15 +1044,24 @@ function BoardRow({
       </td>
       {/* 3 · mã */}
       <td className="xlcd-sticky-l xlcd-sticky-l--3">
-        <span className="xlcd-ma">
-          {isGhep && <Icon name="layers" size={12} />}
-          {row.lsx_ma ?? "—"}
-        </span>
-        {isGhep && <span className="khsx__sub">bài in ghép</span>}
+        {isGroupedByOrder && stepIdx != null ? (
+          <span className="xlcd-step-badge" title={`Bước ${stepIdx + 1} của ${row.lsx_ma ?? ""}`}>
+            CĐ {String(stepIdx + 1).padStart(2, "0")}
+          </span>
+        ) : (
+          <span className="xlcd-ma">
+            {isGhep && <Icon name="layers" size={12} />}
+            {row.lsx_ma ?? "—"}
+          </span>
+        )}
+        {isGhep && !isGroupedByOrder && <span className="khsx__sub">bài in ghép</span>}
       </td>
       {/* 4 · công đoạn */}
       <td className="xlcd-sticky-l xlcd-sticky-l--4 xlcd-shadow-l">
-        <span className="xlcd-cd">{row.cong_doan_ten ?? "—"}</span>
+        <div className="xlcd-cd-cell">
+          <Icon name={stepIcon(row.loai_buoc, row.cong_doan_ten)} size={13} className="xlcd-cd-icon" />
+          <span className="xlcd-cd">{row.cong_doan_ten ?? "—"}</span>
+        </div>
       </td>
       {/* 5 · SL */}
       <td className="khsx-num">
@@ -1014,8 +1071,10 @@ function BoardRow({
       </td>
       {/* 6 · thực hiện */}
       <td>
-        {meta ? <span className={`khsx-lb khsx-lb--${meta.tone}`}>{meta.label}</span> : "—"}
-        {row.department_ten && <div className="khsx__sub">{row.department_ten}</div>}
+        <div className="xlcd-dept-tag" title={row.department_ten ?? meta?.label}>
+          {meta && <span className={`khsx-lb khsx-lb--${meta.tone}`}>{meta.label}</span>}
+          {row.department_ten && <span>{row.department_ten}</span>}
+        </div>
       </td>
       {/* 7 · máy / NCC (inline) */}
       <td onClick={(e) => e.stopPropagation()}>

@@ -18,10 +18,7 @@ type FnTab = "denghi" | "yeucau";
 
 export function KhoPage({ eventTick = 0 }: { eventTick?: number }) {
   const can = useCan();
-  // Tab ĐỀ NGHỊ = phía XIN/DUYỆT (tạo đề nghị hoặc duyệt đề nghị). Vai KHO thuần (chỉ cấp phát)
-  // KHÔNG thấy tab này — họ xử lý ở "Phiếu từ đề nghị".
   const canDeNghi = can("kho", "request") || can("kho", "approve");
-  // Phiếu từ đề nghị = vai TRONG kho (lập phiếu hoặc xem tồn).
   const canYeuCau = can("kho", "create") || can("kho", "view_stock");
   const [fn, setFn] = useState<FnTab>(canDeNghi ? "denghi" : "yeucau");
   const [loai, setLoai] = useState<StockRequestKind>("NHAP");
@@ -42,7 +39,8 @@ export function KhoPage({ eventTick = 0 }: { eventTick?: number }) {
               className={`kho-shell__fn${activeFn === "denghi" ? " is-active" : ""}`}
               onClick={() => setFn("denghi")}
             >
-              Đề nghị
+              <FileTextIcon />
+              <span>Đề nghị</span>
             </button>
           )}
           {canYeuCau && (
@@ -51,7 +49,8 @@ export function KhoPage({ eventTick = 0 }: { eventTick?: number }) {
               className={`kho-shell__fn${activeFn === "yeucau" ? " is-active" : ""}`}
               onClick={() => setFn("yeucau")}
             >
-              Phiếu từ đề nghị
+              <InboxIcon />
+              <span>Phiếu từ đề nghị</span>
             </button>
           )}
         </div>
@@ -63,7 +62,8 @@ export function KhoPage({ eventTick = 0 }: { eventTick?: number }) {
               className={`seg${loai === k ? " is-active" : ""}`}
               onClick={() => setLoai(k)}
             >
-              {k === "NHAP" ? "Nhập" : "Xuất"}
+              {k === "NHAP" ? <ArrowDownIcon /> : <ArrowUpIcon />}
+              <span>{k === "NHAP" ? "Nhập" : "Xuất"}</span>
             </button>
           ))}
         </div>
@@ -77,3 +77,43 @@ export function KhoPage({ eventTick = 0 }: { eventTick?: number }) {
     </main>
   );
 }
+
+function FileTextIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+      <line x1="10" y1="9" x2="8" y2="9" />
+    </svg>
+  );
+}
+
+function InboxIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+      <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
+    </svg>
+  );
+}
+
+function ArrowDownIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <polyline points="19 12 12 19 5 12" />
+    </svg>
+  );
+}
+
+function ArrowUpIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="12" y1="19" x2="12" y2="5" />
+      <polyline points="5 12 12 5 19 12" />
+    </svg>
+  );
+}
+

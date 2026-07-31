@@ -9,6 +9,9 @@ from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy.orm import Session
+
+from ..db import get_db
 
 from ..deps import (
     CurrentUser,
@@ -100,6 +103,7 @@ from ..schemas.piece_work import (
 )
 from ..services.payroll_service import (
     PayrollError,
+    PayrollForbidden,
     PayrollLocked,
     PayrollNotFound,
     PayrollService,
@@ -144,6 +148,8 @@ def _emp_scope_for(authz: AuthorizationService, user: User) -> str:
 def _raise(exc: Exception) -> None:
     if isinstance(exc, (PayrollNotFound, PieceWorkNotFound)):
         raise HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, PayrollForbidden):
+        raise HTTPException(status_code=403, detail=str(exc))
     if isinstance(exc, PayrollLocked):
         raise HTTPException(status_code=409, detail=str(exc))
     if isinstance(exc, (PayrollValidationError, PieceWorkValidationError)):
@@ -496,10 +502,11 @@ def create_advance(body: AdvanceIn, svc: Service, employees: Employees, departme
 
 @router.post("/advances/{advance_id}/approve", response_model=AdvanceOut)
 def approve_advance(advance_id: int, body: AdvanceDecisionIn, svc: Service, employees: Employees,
-                    departments: Departments,
+                    departments: Departments, authz: Authz,
                     user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> AdvanceOut:
     try:
-        a = svc.decide_advance(advance_id=advance_id, actor=user, approve=True, note=body.note)
+        a = svc.decide_advance(advance_id=advance_id, actor=user, approve=True, note=body.note,
+                               scope=_emp_scope_for(authz, user))
     except PayrollError as exc:
         _raise(exc)
     _notify_advance_decision(a, employees, "approved")
@@ -508,10 +515,11 @@ def approve_advance(advance_id: int, body: AdvanceDecisionIn, svc: Service, empl
 
 @router.post("/advances/{advance_id}/reject", response_model=AdvanceOut)
 def reject_advance(advance_id: int, body: AdvanceDecisionIn, svc: Service, employees: Employees,
-                   departments: Departments,
+                   departments: Departments, authz: Authz,
                    user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> AdvanceOut:
     try:
-        a = svc.decide_advance(advance_id=advance_id, actor=user, approve=False, note=body.note)
+        a = svc.decide_advance(advance_id=advance_id, actor=user, approve=False, note=body.note,
+                               scope=_emp_scope_for(authz, user))
     except PayrollError as exc:
         _raise(exc)
     _notify_advance_decision(a, employees, "rejected")
@@ -606,8 +614,7 @@ def update_line(line_id: int, body: LineUpdateIn, svc: Service, employees: Emplo
                              monthly_override=body.monthly_override, note=body.note,
                              dieu_chinh_luong=body.dieu_chinh_luong,
                              di_tre=body.di_tre, dt_vuot_troi=body.dt_vuot_troi,
-                             phat_bien_ban=body.phat_bien_ban, phat_5s_dong_phuc=body.phat_5s_dong_phuc,
-                             kpi_percent=body.kpi_percent)
+                             phat_bien_ban=body.phat_bien_ban, phat_5s_dong_phuc=body.phat_5s_dong_phuc)
     except PayrollError as exc:
         _raise(exc)
     return _lines_out([ln], employees, departments, svc)[0]
@@ -768,10 +775,15 @@ def list_leader_brackets(svc: PieceService,
                          department_id: int) -> LeaderBracketsOut:
     """Bậc thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi — mỗi tổ một bộ riêng.
 
-    ⚠️ Engine CHƯA áp bảng này: tiền tính trên TỔNG KHOÁN của tổ, mà tổng khoán hiện luôn = 0
+    Trả kèm NGƯỠNG tối thiểu trong cùng một gói: trên màn chỉ có MỘT nút "Lưu bậc thưởng/phạt",
+    tách thành hai lời gọi là mời người dùng lưu nửa vời (được bậc, mất ngưỡng).
+
+    ⚠️ Engine CHƯA áp bảng này: tiền tính trên TỔNG LƯƠNG KHOÁN của tổ, mà tổng khoán hiện luôn = 0
     (chưa có nguồn sản lượng). Xem docstring `PieceLeaderBonusBracket`."""
+    st = svc.leader_settings(department_id)
     return LeaderBracketsOut(
         department_id=department_id,
+        min_output_qty=float(st.min_output_qty) if st is not None else 0.0,
         items=[LeaderBracketOut.model_validate(b) for b in svc.leader_brackets(department_id)],
     )
 
@@ -780,28 +792,43 @@ def list_leader_brackets(svc: PieceService,
 def set_leader_brackets(body: LeaderBracketsIn, svc: PieceService,
                         user: Annotated[User, Depends(require_permission(MODULE, "update"))]
                         ) -> LeaderBracketsOut:
-    """Thay CẢ BỘ mốc của một tổ. `items` rỗng = tổ này không áp thưởng/phạt tổ trưởng."""
+    """Thay CẢ BỘ mốc của một tổ + ngưỡng tối thiểu. `items` rỗng = tổ này không áp thưởng/phạt."""
     try:
         rows = svc.set_leader_brackets(
             department_id=body.department_id,
             rows=[i.model_dump() for i in body.items],
         )
+        # Lưu ngưỡng SAU khi bậc đã qua validate: bậc hỏng thì dừng luôn, không để lại một nửa
+        # thay đổi (ngưỡng mới + bậc cũ) — trạng thái nửa vời khó lần ra hơn là không lưu gì.
+        st = svc.set_leader_settings(
+            department_id=body.department_id, min_output_qty=body.min_output_qty,
+        )
     except PieceWorkError as exc:
         _raise(exc)
     return LeaderBracketsOut(
         department_id=body.department_id,
+        min_output_qty=float(st.min_output_qty),
         items=[LeaderBracketOut.model_validate(b) for b in rows],
     )
 
 
 @router.get("/khoan/units", response_model=UnitsOut)
-def list_khoan_units(svc: PieceService,
+def list_khoan_units(svc: PieceService, db: Annotated[Session, Depends(get_db)],
                      user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> UnitsOut:
-    """Gợi ý cho ô "Đơn vị" = mồi mặc định ∪ đơn vị nhà máy ĐÃ dùng.
+    """Đơn vị CHỌN ĐƯỢC cho ô "Đơn vị" = danh mục `Đơn vị & quy đổi` (chủ 2026-07-31).
 
-    ⚠️ Đây KHÔNG phải whitelist — người dùng gõ đơn vị ngoài danh sách vẫn lưu được (chủ
-    29/07/2026: *"chỉ select được mấy cái thôi… bất tiện lắm"*)."""
-    return UnitsOut(items=svc.unit_suggestions())
+    Trước đây là gợi ý cho ô gõ tự do (mồi mặc định ∪ đơn vị đã dùng). Gõ tự do làm đơn vị lệch
+    một chữ so với danh mục là lệnh sản xuất vĩnh viễn không quy đổi ra tiền được — thiếu đơn vị
+    thì thêm ở danh mục, một nguồn chứ không hai.
+
+    CHỈ trả danh mục, KHÔNG nối thêm đơn vị các dòng cũ: dòng cũ lưu MÃ (`m2`, `hop`, `luot`) còn
+    danh mục hiện TÊN (`m²`, `hộp`, `lượt`) nên nối vào là danh sách đôi nhau từng cặp, nhìn như
+    hai đơn vị khác nhau. Dòng cũ vẫn sửa được: màn khai tự chèn chính giá trị của nó vào danh
+    sách chọn (không ép đổi), `quy_doi_service` cũng tra được cả mã lẫn tên.
+    """
+    from ..repositories.don_vi_do_repo import DonViDoRepository
+
+    return UnitsOut(items=[d.ten for d in DonViDoRepository(db).all_active()])
 
 
 @router.post("/khoan/rates", response_model=RateOut, status_code=status.HTTP_201_CREATED)

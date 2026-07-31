@@ -84,6 +84,17 @@ class DepartmentService:
         head = self.users.get_by_id(dept.head_user_id)
         return head.name if head is not None else None
 
+    def _head_avatar(self, dept: Department) -> str | None:
+        """Ảnh đại diện của trưởng phòng.
+
+        Phải trả từ SERVER chứ không để FE tự suy: FE chỉ có ảnh của người đang đăng nhập (trong
+        context xác thực), nên nếu không trả field này thì ai mở màn cũng chỉ thấy đúng ảnh của
+        chính mình, còn mọi người khác ra chữ viết tắt."""
+        if dept.head_user_id is None:
+            return None
+        head = self.users.get_by_id(dept.head_user_id)
+        return head.avatar_url if head is not None else None
+
     def _head_title(self, dept: Department) -> str | None:
         """The head's title from the department's level (spec-06 / PBI-4004 label), or None."""
         if dept.level_id is None:
@@ -176,6 +187,7 @@ class DepartmentService:
                     "parent_id": dept.parent_id,
                     "head_user_id": dept.head_user_id,
                     "head_name": self._head_name(dept),
+                    "head_avatar_url": self._head_avatar(dept),
                     "level_id": dept.level_id,
                     "head_title": self._head_title(dept),
                     "la_san_xuat": dept.la_san_xuat,
@@ -207,6 +219,7 @@ class DepartmentService:
             "parent_id": dept.parent_id,
             "head_user_id": dept.head_user_id,
             "head_name": self._head_name(dept),
+            "head_avatar_url": self._head_avatar(dept),
             "level_id": dept.level_id,
             "head_title": self._head_title(dept),
             "la_san_xuat": dept.la_san_xuat,
@@ -247,6 +260,11 @@ class DepartmentService:
                     "role_name": role_name,
                     "is_active": user.is_active if user is not None else None,
                     "is_head": user is not None and user.id == head_id,
+                    # Ảnh nằm trên TÀI KHOẢN (`users.avatar_url`), không nằm trên hồ sơ nhân sự —
+                    # nên người chưa có tài khoản (công nhân xưởng không cần đăng nhập) thì null,
+                    # và FE hiện chữ viết tắt. Phải trả ở đây: FE chỉ biết ảnh của chính người đang
+                    # đăng nhập, thiếu field này là cả danh sách ra chữ viết tắt trừ đúng một dòng.
+                    "avatar_url": user.avatar_url if user is not None else None,
                 }
             )
         return members

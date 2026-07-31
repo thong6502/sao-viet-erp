@@ -115,6 +115,8 @@ class StockRequestOut(BaseModel):
     nguoi_duyet_ten: str | None = None
     duyet_luc: datetime | None = None
     ly_do_tu_choi: str | None = None
+    # Lý do KHO hủy đề nghị (hủy phiếu → đề nghị 'Đã hủy'). Hiện ở mục "Đã hủy".
+    ly_do_huy: str | None = None
     created_at: datetime
     # Id phiếu ĐANG CHỜ GHI SỔ (nếu có) — FE đổi nút "Lập phiếu" thành "Xem phiếu", chống tạo trùng.
     open_voucher_id: int | None = None
@@ -124,6 +126,19 @@ class StockRequestOut(BaseModel):
 class StockRequestPage(BaseModel):
     items: list[StockRequestOut]
     total: int
+
+
+class StockVoucherCancel(BaseModel):
+    """Body khi HỦY phiếu nháp — BẮT BUỘC lý do; đề nghị chuyển 'Đã hủy' kèm lý do này."""
+
+    ly_do: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def _strip(self) -> "StockVoucherCancel":
+        self.ly_do = self.ly_do.strip()
+        if not self.ly_do:
+            raise ValueError("Phải nhập lý do hủy.")
+        return self
 
 
 # --- Phiếu -------------------------------------------------------------------
@@ -266,6 +281,33 @@ class AllocationOut(BaseModel):
 
     lines: list[AllocationLineOut]
     thieu: float
+
+
+# --- Lịch sử Nhập/Xuất theo vật tư (popup màn Tồn kho) -----------------------
+
+class MaterialXuatRow(BaseModel):
+    """1 dòng phiếu XUẤT đã ghi sổ của mã hàng — để theo dõi xuất RIÊNG với nhập (lô)."""
+
+    ngay: date
+    voucher_id: int
+    voucher_ma: str | None = None
+    lot_id: int | None = None
+    ma_lo: str | None = None
+    so_luong: float
+    # Giá vốn ĐÍCH DANH của lô đã xuất — router XÓA khi thiếu `can_view_cost`.
+    don_gia: int | None = None
+
+
+class MaterialHistoryOut(BaseModel):
+    """Lịch sử 1 mã hàng tại 1 kho: NHẬP = các lô (kể cả đã hết) · XUẤT = dòng phiếu xuất."""
+
+    material_id: int
+    material_code: str | None = None
+    material_name: str | None = None
+    dvt: str | None = None
+    on_hand: float
+    nhap: list[StockLotOut] = []
+    xuat: list[MaterialXuatRow] = []
 
 
 # --- Ngưỡng tồn ---------------------------------------------------------------

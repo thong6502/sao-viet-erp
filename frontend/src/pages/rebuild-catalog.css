@@ -48,12 +48,31 @@
   line-height: 1.5;
 }
 
-/* --- Toolbar --- */
+/* --- Toolbar & Unified Top Bar --- */
+.rc__unified-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+  padding: 10px 14px;
+  background: var(--paper, #ffffff);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+}
+.rc__unified-right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
 .rc__toolbar {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
   margin-bottom: var(--sp-4);
+  flex-wrap: wrap;
 }
 .rc__spacer {
   flex: 1;
@@ -103,6 +122,7 @@
   padding: 7px 12px;
   font-size: 13px;
   height: 32px;
+  white-space: nowrap;
 }
 
 /* --- Filter tabs (gạch chân theo tông giấy — bỏ pill nền đen) --- */
@@ -153,6 +173,429 @@
   color: var(--rust);
 }
 
+/* Formula Chips & Badges trong Bảng Danh Mục */
+.rc__formula-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.rc__formula-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #334155;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 2px 7px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.rc__formula-pill--dynamic {
+  color: #0d9488;
+  background: #f0fdfa;
+  border-color: #99f6e4;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+}
+
+.rc__chip-muted {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+/* --- Khối QUY ĐỔI trong drawer Đơn vị (.dvqd) — Modern Enterprise Layout ------------- */
+.dvqd {
+  margin-top: 0;
+  padding-top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Biến màu & Khung Block tổng quan */
+.dvqd__block {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+}
+
+.dvqd__block--action {
+  background: #f8fafc;
+  border-style: dashed;
+  border-color: #cbd5e1;
+}
+
+.dvqd__block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.dvqd__block-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #0f172a;
+}
+
+.dvqd__count-badge {
+  font-size: 11px;
+  font-weight: 600;
+  background: #f1f5f9;
+  color: #475569;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
+/* Sub-sections trong Block 1 */
+.dvqd__sub-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dvqd__sub-section--inbound {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+.dvqd__sub-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.dvqd__sub-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  background: #e2e8f0;
+  color: #475569;
+  padding: 0 6px;
+  border-radius: 8px;
+}
+
+/* Thẻ Card Quy Đổi Khai Tại Đây */
+.dvqd__card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dvqd__card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 9px 12px;
+  transition: all 0.15s ease-in-out;
+}
+
+.dvqd__card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+}
+
+.dvqd__card--editing {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 1px #6366f1;
+  background: #fafafa;
+}
+
+.dvqd__card-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.dvqd__card-eq {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  font-size: 13px;
+  color: #0f172a;
+}
+
+/* Thẻ Tag Đơn vị */
+.dvqd__unit-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  padding: 3px 9px;
+  border-radius: 6px;
+}
+
+.dvqd__eq-sign {
+  font-weight: 700;
+  font-size: 13px;
+  color: #64748b;
+  padding: 0 2px;
+  user-select: none;
+}
+
+.dvqd__unit-name {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dvqd__expr {
+  font-weight: 600;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  font-size: 12px;
+  color: #0d9488;
+  background: #f0fdfa;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #99f6e4;
+  box-shadow: 0 1px 2px rgba(13, 148, 136, 0.05);
+}
+
+.dvqd__val-input {
+  width: 90px;
+  padding: 4px 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: center;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  transition: all 0.15s;
+}
+
+.dvqd__val-input:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.dvqd__val-input--dirty {
+  border-color: #f59e0b;
+  background: #fffbe3;
+}
+
+.dvqd__card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dvqd__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dvqd__btn:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.dvqd__btn--primary {
+  background: #4f46e5;
+  color: #ffffff;
+  border-color: #4f46e5;
+}
+
+.dvqd__btn--primary:hover:not(:disabled) {
+  background: #4338ca;
+  border-color: #4338ca;
+  color: #ffffff;
+}
+
+.dvqd__btn--danger {
+  color: #dc2626;
+  border-color: #fca5a5;
+  background: #ffffff;
+}
+
+.dvqd__btn--danger:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #ef4444;
+}
+
+/* Thẻ Badge phân biệt Cố định / Động */
+.dvqd__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+
+.dvqd__badge--dynamic {
+  background: #f5f3ff;
+  color: #6d28d9;
+  border: 1px solid #ddd6fe;
+}
+
+.dvqd__badge--static {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+/* Sub-panel chứa Trình biên soạn công thức khi bấm Sửa */
+.dvqd__editor-subpanel {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e2e8f0;
+}
+
+/* Khối Đơn vị khác đổi về X (Readonly Referencing) */
+.dvqd__inbound-card {
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dvqd__inbound-flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+
+.dvqd__inbound-expr {
+  font-weight: 600;
+  color: #334155;
+  background: #ffffff;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+}
+
+.dvqd__inbound-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dvqd__nguon {
+  font-size: 11.5px;
+  color: #64748b;
+  font-style: italic;
+}
+
+/* Form Thêm Quy Đổi Mới */
+.dvqd__create-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dvqd__create-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.dvqd__type-toggle {
+  display: inline-flex;
+  background: #e2e8f0;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.dvqd__type-btn {
+  padding: 4px 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dvqd__type-btn.is-active {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.dvqd__create-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dvqd__create-prefix {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.dvqd__hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.dvqd__err {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 4px 0;
+}
+
 /* --- Table (đồng bộ .ptg-table: thead mono HOA .12em, hover rule-hair) --- */
 .rc__tablewrap {
   background: var(--canvas);
@@ -179,11 +622,12 @@
   white-space: nowrap;
 }
 .rc__table td {
-  padding: var(--sp-3) var(--sp-4);
+  padding: 10px 14px;
   border-bottom: 1px solid var(--rule-hair);
   font-size: 13px;
   color: var(--ink);
   vertical-align: middle;
+  height: auto;
 }
 .rc__table tbody tr:last-child td {
   border-bottom: none;
@@ -1105,6 +1549,15 @@ select.rc-input:focus {
   flex-direction: column;
   gap: var(--sp-3);
   width: 100%;
+}
+.rc-formula__all-vars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(138, 134, 118, 0.03);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 10px;
 }
 .rc-formula__groups {
   display: flex;

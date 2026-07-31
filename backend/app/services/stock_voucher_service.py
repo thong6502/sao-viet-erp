@@ -299,9 +299,10 @@ class StockVoucherService:
         self.request_service.refresh_fulfillment(req)
         return v
 
-    def cancel(self, voucher_id: int):
-        """Hủy phiếu khi CÒN NHÁP. Phiếu đã ghi sổ không hủy được — muốn sửa thì lập phiếu
-        điều chỉnh (BRD §1.5: chứng từ đã ghi không sửa trực tiếp)."""
+    def cancel(self, voucher_id: int, ly_do: str):
+        """Hủy phiếu khi CÒN NHÁP — BẮT BUỘC lý do; đề nghị chuyển 'Đã hủy' kèm lý do (KẾT THÚC,
+        không cấp lại). Phiếu đã ghi sổ không hủy được — muốn sửa thì lập phiếu điều chỉnh
+        (BRD §1.5: chứng từ đã ghi không sửa trực tiếp)."""
         v = self.vouchers.get(voucher_id)
         if v is None:
             raise StockVoucherError("Không tìm thấy phiếu.")
@@ -311,12 +312,13 @@ class StockVoucherService:
             )
         v.trang_thai = VOUCHER_CANCELLED
         v = self.vouchers.save(v)
-        # Không còn phiếu active nào cho đề nghị + chưa ứng gì → đề nghị về "Cần cấp" (cấp lại).
+        # Không còn phiếu active nào cho đề nghị → đề nghị chuyển 'Đã hủy' kèm lý do (kết thúc).
+        # Còn phiếu ĐÃ GHI SỔ (đã cấp một phần) → giữ nguyên trạng thái, không đóng đề nghị.
         req = self.requests.get_with_lines(v.request_id)
         if req is not None:
             rows, _ = self.vouchers.list(request_id=req.id)
             if not any(x.trang_thai != VOUCHER_CANCELLED for x in rows):
-                self.request_service.revert_if_untouched(req)
+                self.request_service.cancel_by_kho(req, ly_do)
         return v
 
     # --- Gợi ý phân bổ lô ----------------------------------------------------

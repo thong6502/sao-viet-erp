@@ -53,7 +53,9 @@ from ..models.order import STATUS_ORDERED, Order, OrderLine
 from ..models.phieu_tinh_gia import PhieuThanhPhan, PhieuTinhGia
 from ..models.quotation import QuoteVersion
 from ..models.user import User
-from ..services.thanh_phan_engine import compute_phieu
+from ..services.piece_work_service import dau_viec_khop, khoan_snapshot
+from ..services.quy_doi_service import don_vi_map, tien_khoan
+from ..services.thanh_phan_engine import chua_theo_chieu, compute_phieu
 from ..services.tinh_gia_service import _bu_hao_to_dict, _resolve_thanh_phan
 
 # Công đoạn sau xén → đếm bằng CON (thành phẩm); còn lại đếm bằng TỜ. Heuristic theo tên để điền
@@ -221,6 +223,9 @@ class LsxService:
         self.repo = repo
         self.audit = audit
         self.sequence = sequence
+        self._rates_cache: list | None = None   # bảng đơn giá khoán (xem `_piece_rates`)
+        self._dv_cache: dict | None = None      # danh mục đơn vị (xem `_don_vis`)
+        self._cap_cache: dict | None = None     # đồ thị cặp quy đổi (xem `_cap_quy_doi`)
 
     # ================= tra cứu phụ trợ =================
 
@@ -229,6 +234,77 @@ class LsxService:
             _bu_hao_to_dict(b)
             for b in self.db.execute(select(BuHao).where(BuHao.active.is_(True))).scalars()
         ]
+
+    # --- Khoán theo đầu việc (bảng giá của tổ) + đơn vị quy đổi ---------------
+    # Cache theo INSTANCE service (1 request = 1 instance): bung lệnh gọi mỗi bước một lần, mà hai
+    # bảng này nhỏ và không đổi trong một request — query lại từng bước là N+1 vô ích.
+
+    def _piece_rates(self) -> list:
+        if self._rates_cache is None:
+            from ..models.piece_work import PieceRate
+
+            self._rates_cache = list(
+                self.db.execute(select(PieceRate).where(PieceRate.is_active.is_(True))).scalars()
+            )
+        return self._rates_cache
+
+    def _don_vis(self) -> dict:
+        if self._dv_cache is None:
+            from ..models.don_vi_do import DonViDo
+
+            rows = self.db.execute(select(DonViDo).where(DonViDo.active.is_(True))).scalars()
+            self._dv_cache = don_vi_map(list(rows))
+        return self._dv_cache
+
+    def _cap_quy_doi(self) -> list:
+        """DÒNG cặp quy đổi — nguồn chân lý của mọi phép đổi (bảng `don_vi_quy_doi`).
+
+        Giữ nguyên dòng chứ không dẹp sẵn thành đồ thị: dòng quy đổi động ("1 tờ = định lượng ×
+        dài × rộng" kg) chỉ ra hệ số sau khi thay quy cách của chính bước đang tính.
+        """
+        if self._cap_cache is None:
+            from ..repositories.don_vi_do_repo import DonViDoRepository
+
+            self._cap_cache = DonViDoRepository(self.db).cap_rows()
+        return self._cap_cache
+
+    def _khoan_mac_dinh(self, department_id: int | None, cd_obj) -> dict | None:
+        """Đầu việc khoán ĐIỀN SẴN cho một bước: khớp đúng 1 thì tự điền, nhiều thì để trống.
+
+        Nhiều đầu việc khớp (bế tay / bế máy cùng công đoạn) là chuyện chỉ người biết → máy để
+        trống + nhắc, KHÔNG chọn hộ. Tổ không ăn khoán thì danh sách rỗng, cũng ra None."""
+        khop = dau_viec_khop(self._piece_rates(), department_id=department_id)
+        return khoan_snapshot(khop[0]) if len(khop) == 1 else None
+
+    def _khoan_derived(self, cd, quy_cach: dict | None) -> dict:
+        """Tiền khoán DỰ KIẾN của bước — tính LÚC ĐỌC, không lưu cột.
+
+        SL lấy `so_luong_vao` (số thợ thật chạy qua tay, gồm cả tờ bù hao canh máy — thợ cán 241 tờ
+        thì ăn 241 tờ), rồi ĐỔI thẳng sang đơn vị của đơn giá. Không nhân thêm hệ số ngầm nào:
+        muốn trả theo lượt máy thì khai đơn giá theo đơn vị `lượt`, đừng giấu phép nhân trong code.
+        """
+        # Hợp đồng dict: LUÔN đủ 6 khoá (None khi chưa có gì) — caller `if kq["khoan_tien"]` chứ
+        # không phải `if "khoan_tien" in kq`. Trả dict rỗng khi bước chưa chọn đầu việc là mời gọi
+        # KeyError ở mọi chỗ đọc.
+        trong = {"khoan_sl": None, "khoan_don_vi_sl": None, "khoan_tien": None,
+                 "khoan_dien_giai": None, "khoan_thieu": [], "khoan_ly_do": None}
+        kh = cd.khoan_json or {}
+        if not kh.get("don_vi") or not kh.get("don_gia"):
+            return trong
+        sl = _f(cd.so_luong_vao)
+        kq = tien_khoan(
+            sl, cd.don_vi_vao, kh["don_vi"], _f(kh["don_gia"]), quy_cach or {},
+            self._don_vis(), self._cap_quy_doi(),
+        )
+        if "tien" not in kq:
+            return {**trong, "khoan_ly_do": kq.get("ly_do"), "khoan_thieu": kq.get("thieu") or []}
+        return {
+            **trong,
+            "khoan_sl": round(kq["sl"], 4),
+            "khoan_don_vi_sl": kq["don_vi"],
+            "khoan_tien": kq["tien"],
+            "khoan_dien_giai": kq["dien_giai"],
+        }
 
     def _customer_name(self, order: Order) -> str | None:
         if not order.customer_id:
@@ -531,6 +607,9 @@ class LsxService:
             # Rửa mực chỉ có ở bước IN — bước sau in không rửa mực.
             "ve_sinh_phut": _f(may.thoi_gian_rua_muc) if (may is not None and nhom == "print") else 0.0,
             "may_id": may_id,
+            # Đầu việc khoán của bước: điền sẵn khi bảng giá của tổ chỉ khớp MỘT dòng. Nhiều dòng
+            # (bế tay / bế máy) hoặc tổ không ăn khoán → None, kế hoạch tự chọn ở drawer.
+            "khoan_json": self._khoan_mac_dinh(r.get("department_id"), cd_obj),
         }
 
     def tao(self, *, order_id: int, order_line_ids: list[int], actor) -> list[Lsx]:
@@ -841,6 +920,12 @@ class LsxService:
         # lúc tạo lệnh nên lệnh tạo trước khi có tính năng nhóm sẽ trống — mà "thuộc sản phẩm nào"
         # là thông tin thương mại, phải luôn đúng hiện tại.
         line = self.db.get(OrderLine, lsx.order_line_id) if lsx.order_line_id else None
+        chua_d, chua_r = chua_theo_chieu(lsx.quy_cach_json or {})
+        # Quy cách của lệnh là nguồn biến cho quy đổi khoán (khổ tờ in · định lượng · con/tờ · số tay).
+        buoc_dicts = [
+            self._cong_doan_dict(cd, dept_names, may_names, lsx.quy_cach_json)
+            for cd in lsx.cong_doans
+        ]
         return {
             "nhom": getattr(line, "nhom", None),
             "order_no": order.order_no if order else None,
@@ -857,12 +942,22 @@ class LsxService:
             "thieu": self.thieu_cua(lsx),
             "canh_bao": self.canh_bao_cua(lsx),
             "lead_time": self.lead_time(lsx),
-            "cong_doans": [self._cong_doan_dict(cd, dept_names, may_names) for cd in lsx.cong_doans],
+            "cong_doans": buoc_dicts,
+            # Công thợ DỰ KIẾN cả lệnh = Σ các bước quy đổi được. Bước nào chưa chọn đầu việc / thiếu
+            # số để quy đổi thì không góp — nên đây là số SÀN, không phải con số cuối.
+            "khoan_tien_tong": round(sum(_f(b.get("khoan_tien")) for b in buoc_dicts)),
+            # Chừa TÁCH CHIỀU — tính LÚC ĐỌC bằng đúng hàm của engine, kể cả cho lệnh cũ. Màn lệnh
+            # chỉ việc hiện: để nó tự cộng lại từ các khoản chừa là đẻ ra bản thứ hai của công
+            # thức, mà bản thứ hai chính là chỗ vừa sai (gộp 20/20 thay vì 15/10).
+            "chua_dai": chua_d,
+            "chua_rong": chua_r,
         }
 
-    def _cong_doan_dict(self, cd, dept_names: dict, may_names: dict) -> dict:
+    def _cong_doan_dict(self, cd, dept_names: dict, may_names: dict,
+                        quy_cach: dict | None = None) -> dict:
         vao = _f(cd.so_luong_vao)
         t = thoi_luong_buoc(cd)
+        kh = cd.khoan_json or {}
         return {
             "id": cd.id, "thu_tu": cd.thu_tu, "cong_doan_id": cd.cong_doan_id,
             "ten": cd.ten, "nhom": cd.nhom, "loai_buoc": cd.loai_buoc, "bat_buoc": bool(cd.bat_buoc),
@@ -899,7 +994,22 @@ class LsxService:
             # viễn ngay sau lần lưu đầu (bước chưa khai năng suất bị đóng băng ở 0 phút).
             "chiem_may_phut": t["chiem_may_phut"],
             "tong_phut": t["tong_phut"],
+            # --- Khoán: phần GHIM (đầu việc đã chọn) + phần DẪN XUẤT (SL quy đổi · tiền · diễn giải)
+            "khoan_rate_id": kh.get("rate_id"),
+            "khoan_ten": kh.get("ten"),
+            "khoan_don_vi": kh.get("don_vi"),
+            "khoan_don_gia": _f(kh.get("don_gia")) or None,
+            # Các đầu việc CHỌN ĐƯỢC cho bước này = mọi đơn giá của TỔ — gửi kèm để drawer khỏi
+            # gọi thêm API.
+            "khoan_chon_duoc": [
+                {"id": r.id, "ten": r.name, "don_vi": r.unit, "don_gia": _f(r.unit_price)}
+                for r in self._dau_viec_cua_buoc(cd)
+            ],
+            **self._khoan_derived(cd, quy_cach),
         }
+
+    def _dau_viec_cua_buoc(self, cd) -> list:
+        return dau_viec_khop(self._piece_rates(), department_id=cd.department_id)
 
     def list_rows(self, **kw) -> list[dict]:
         rows = self.repo.list(**kw)
@@ -1013,6 +1123,16 @@ class LsxService:
             for f in self._ROUTING_FIELD_THUAN:
                 if d.get(f) is not None:
                     setattr(row, f, d[f])
+            # Đầu việc khoán: client gửi `piece_rate_id` thì GHIM ảnh chụp theo id đó (0/None = bỏ
+            # chọn); không gửi thì điền mặc định như lúc bung lệnh — kế thừa là MẶC ĐỊNH, không
+            # read-only, nên người sửa routing không mất đầu việc đã có.
+            if "piece_rate_id" in d:
+                rid = d.get("piece_rate_id") or 0
+                rate = next((x for x in self._piece_rates() if x.id == rid), None) if rid else None
+                row.khoan_json = khoan_snapshot(rate) if rate is not None else None
+            else:
+                cd_obj = self.db.get(CongDoan, cd_id) if cd_id else None
+                row.khoan_json = self._khoan_mac_dinh(dept, cd_obj)
             rows.append(row)
         self.repo.replace_cong_doans(lsx, rows)
         thieu = self.thieu_cua(lsx)

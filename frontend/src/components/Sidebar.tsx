@@ -41,6 +41,19 @@ const NAV: NavSection[] = [
     items: [
       { id: "dashboard", label: "Dashboard", icon: "grid", module: "dashboard" },
       { id: "ho-so-cua-toi", label: "Hồ sơ của tôi", icon: "users", module: "dashboard" },
+      // Nội quy công ty: Giám đốc soạn, MỌI nhân viên đọc.
+      // 🔴 `modules: [SELF_SERVICE_MODULE]` là CỐ Ý và BẮT BUỘC giữ nguyên. `self_service` được
+      // AppShell nhét vào `readable` cho mọi tài khoản, nên ai cũng thấy mục này — đúng yêu cầu
+      // "tất cả nhân viên có thể thấy". `module: "noi_quy"` chỉ còn là nhãn quyền GHI (Giám đốc
+      // soạn/ban hành), trang tự kiểm bằng `can("noi_quy","update")`.
+      // Sửa thành `modules: ["noi_quy"]` = CẢ CÔNG TY MẤT QUYỀN ĐỌC NỘI QUY, âm thầm, không lỗi.
+      {
+        id: "noi-quy",
+        label: "Nội quy công ty",
+        icon: "book",
+        module: "noi_quy",
+        modules: [SELF_SERVICE_MODULE],
+      },
     ],
   },
   {
@@ -132,6 +145,10 @@ const NAV: NavSection[] = [
       { id: "may-thiet-bi", label: "Thiết bị & Máy in", icon: "warehouse", module: "dm_thiet_bi" },
       { id: "cong-doan", label: "Công đoạn", icon: "activity", module: "dm_cong_doan" },
       { id: "bu-hao", label: "Bù hao", icon: "fileText", module: "dm_cong_doan" },
+      // Đơn vị & quy đổi: dùng chung cho khoán · kho · mua hàng, nên nằm ở danh mục chứ không
+      // chôn trong màn Lương. MỘT mục cho hai bảng (đơn vị · cặp "1 tấn = 1.000 kg") — tách hai
+      // mục thì hai cái tên gần trùng nhau, không ai đoán được vào đâu làm gì.
+      { id: "don-vi", label: "Đơn vị & quy đổi", icon: "activity", module: "dm_cong_doan" },
       { id: "chung-loai-giay", label: "Chủng loại giấy", icon: "fileText", module: "kho" },
       { id: "giay", label: "Giấy", icon: "bag", module: "kho" },
       { id: "vat-tu-in-an", label: "Vật tư in ấn", icon: "bag", module: "kho" },

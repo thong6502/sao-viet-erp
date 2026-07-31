@@ -323,8 +323,6 @@ export function LsxDetailView({
   // Ảnh chụp quy cách của lệnh CŨ không có các khoá thêm sau (bleed, khe cắt, cách bình…).
   // Thiếu khoá thì phải hiện "—", KHÔNG được để `n()` trả 0 rồi bày ra như số thật của phiếu.
   const co = (k: string): boolean => qc[k] !== undefined && qc[k] !== null;
-  const chuaMm =
-    n("chua_xen") + n("chua_tay_ke") + n("chua_nhip") + n("chua_duoi") + n("chua_ca_gay");
   const canKhuon = d.cong_doans.some((c) => /bế|cấn/i.test(c.ten));
   // Gợi ý phải bám số ĐANG GÕ, không phải số đã lưu — sửa SL/Con-trên-tờ mà gợi ý đứng im thì
   // cảnh báo lệch không bao giờ nổ, lệnh lưu xong in thiếu hàng.
@@ -592,7 +590,10 @@ export function LsxDetailView({
                       v={co("so_mau_pha") ? (n("so_mau_pha") > 0 ? num(n("so_mau_pha")) : "không") : "—"}
                       mono
                     />
-                    <KV k="Tổng chừa (mm)" v={num(chuaMm)} mono />
+                    {/* Chừa TÁCH CHIỀU do SERVER tính (`chua_theo_chieu`) — màn này chỉ hiện. Cộng
+                        lại ở đây là đẻ bản thứ hai của công thức, mà bản thứ hai chính là chỗ vừa
+                        sai: gộp "20" rồi trừ đều hai chiều, trong khi engine trừ 15/10. */}
+                    <KV k="Chừa dài / rộng (mm)" v={`${num(d.chua_dai)} / ${num(d.chua_rong)}`} mono />
                   </div>
                 </div>
               </div>
@@ -657,12 +658,24 @@ export function LsxDetailView({
                     <h4 className="khsx-spec__title">Sơ đồ bình khổ</h4>
                   </div>
                   <div className="khsx-spec__card-body">
+                    {/* KẾ THỪA TRỌN từ phiếu tính giá: đưa NGUYÊN các khoản chừa + bleed + khe cắt
+                        của quy cách, để server tách chiều bằng đúng engine. Bản trước tự cộng năm
+                        khoản thành một số rồi trừ đều hai chiều và bỏ quên bleed → sơ đồ vẽ 105
+                        con trong khi phiếu ra 99, hiệu suất cũng thành số ảo. */}
                     <ImpositionDiagram
                       khoInDai={n("kho_in_dai")}
                       khoInRong={n("kho_in_rong")}
                       daiTP={n("dai_thanh_pham")}
                       rongTP={n("rong_thanh_pham")}
-                      chuaMm={chuaMm}
+                      chuaMm={0}
+                      chuaTho={{
+                        chua_nhip: n("chua_nhip"),
+                        nhip_giay_mm: n("nhip_giay_mm"),
+                        le_hong_mm: n("le_hong_mm"),
+                        duoi_thang_mau_mm: n("duoi_thang_mau_mm"),
+                      }}
+                      bleedMm={n("bleed_mm")}
+                      kheCatMm={n("khe_cat_mm")}
                       soCon={n("so_con")}
                     />
                   </div>
@@ -921,6 +934,22 @@ export function LsxDetailView({
             <Fact k="Hạn giao khách" v={ngay(d.han_giao_khach)} cls={classHan(d.han_giao_khach)} />
             <Fact k="Hạn SX nội bộ" v={ngay(d.han_hoan_thanh_sx)} cls={classHan(d.han_hoan_thanh_sx)} />
           </div>
+
+          {/* Công thợ khoán DỰ KIẾN — chỉ hiện khi có ít nhất một bước quy đổi ra tiền, và nói rõ
+              đây là số SÀN (bước chưa chọn đầu việc không góp vào) để không ai đọc thành chi phí
+              nhân công thật của lệnh. */}
+          {d.khoan_tien_tong > 0 && (
+            <div className="khsx-facts">
+              <Fact
+                k="Công thợ dự kiến"
+                v={`${num(d.khoan_tien_tong)} đ`}
+                cls="khsx-aside__khoan"
+              />
+              <p className="khsx-luuy__foot" style={{ gridColumn: "1 / -1", margin: 0 }}>
+                Σ các bước đã chọn công việc khoán — bước chưa chọn thì chưa tính vào.
+              </p>
+            </div>
+          )}
 
           {dirty && (
             <div className="khsx-aside__save">

@@ -14,6 +14,12 @@ interface Props {
   chuaMm: number; // chừa GỘP (mm) trừ đều mỗi chiều — đường cũ, dùng khi không tách chiều
   chuaDai?: number; // chừa chiều DÀI (nhíp giấy + đuôi) — ưu tiên hơn chuaMm
   chuaRong?: number; // chừa chiều RỘNG (lề hông ×2)
+  /** Hoặc đưa nguyên CÁC KHOẢN CHỪA của phiếu/quy cách → server tự tách chiều. Ưu tiên dùng cách
+   *  này: nơi gọi khỏi lặp lại phép cộng của engine (đúng chỗ màn lệnh từng cộng sai). */
+  chuaTho?: {
+    chua_nhip?: number;   // ô đè của phiếu
+    nhip_giay_mm?: number; le_hong_mm?: number; duoi_thang_mau_mm?: number;  // danh mục MÁY
+  };
   bleedMm?: number; // tràn lề mỗi cạnh con
   kheCatMm?: number; // khe giữa 2 con kề nhau
   soCon: number; // Số con hiện tại (có thể được đè tay)
@@ -21,7 +27,7 @@ interface Props {
 
 export function ImpositionDiagram({
   khoInDai, khoInRong, daiTP, rongTP, chuaMm,
-  chuaDai, chuaRong, bleedMm = 0, kheCatMm = 0, soCon,
+  chuaDai, chuaRong, chuaTho, bleedMm = 0, kheCatMm = 0, soCon,
 }: Props) {
   const { token } = useAuth();
   const [lay, setLay] = useState<BinhBaiOut | null>(null);
@@ -47,6 +53,7 @@ export function ImpositionDiagram({
           chua_mm: chuaMm,
           chua_dai_mm: chuaDai,
           chua_rong_mm: chuaRong,
+          ...(chuaTho ?? {}),
           bleed_mm: bleedMm,
           khe_cat_mm: kheCatMm,
         })
@@ -64,7 +71,11 @@ export function ImpositionDiagram({
         });
     }, 300);
     return () => window.clearTimeout(h);
-  }, [token, ready, khoInDai, khoInRong, daiTP, rongTP, chuaMm, chuaDai, chuaRong, bleedMm, kheCatMm]);
+    // `chuaTho` là object → so bằng CHUỖI, không thì mỗi lần render lại là một tham chiếu mới và
+    // effect bắn liên tục (debounce 300ms không cứu nổi).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, ready, khoInDai, khoInRong, daiTP, rongTP, chuaMm, chuaDai, chuaRong,
+      JSON.stringify(chuaTho ?? null), bleedMm, kheCatMm]);
 
   // Chưa đủ khổ → khối hướng dẫn.
   if (!ready) {

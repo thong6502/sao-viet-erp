@@ -9,8 +9,6 @@ Cổng chốt = Chốt kỳ lương (payroll_lines đóng băng số khoán khi 
 """
 from __future__ import annotations
 
-import re
-
 from ..models.piece_work import DEFAULT_PIECE_UNITS, UNIT_KHAC
 
 
@@ -30,6 +28,34 @@ def _r(x) -> float:
     return float(round(float(x or 0)))
 
 
+def dau_viec_khop(rates, *, department_id: int | None) -> list:
+    """Các đầu việc khoán của một TỔ — HÀM THUẦN (Kế hoạch SX gọi khi bung lệnh).
+
+    Luật khớp chỉ còn một dòng: cùng tổ. Bảng đơn giá là bảng KHAI BÁO thuần — nó không biết và
+    không cần biết việc nào của tổ dùng dòng nào; gốc là bên sản xuất, người lập lệnh nhìn các
+    đơn giá của tổ rồi chọn. Bản trước cho khai "áp cho công đoạn nào" ngay trên dòng giá, thành
+    ra một luật khớp ngầm (dòng khai riêng thắng dòng khai chung) mà mở form ra không ai đoán được.
+
+    Trả list (0 = tổ không ăn khoán / chưa khai · 1 = tự điền được · >1 = để người chọn).
+    """
+    return [
+        r for r in (rates or [])
+        if getattr(r, "is_active", True)
+        and (department_id is None or r.department_id == department_id)
+    ]
+
+
+def khoan_snapshot(rate) -> dict:
+    """Ảnh chụp đầu việc để GHIM vào bước lệnh — xưởng lên giá khoán về sau không được xê dịch
+    lệnh đã phát, nên bước giữ số của chính nó thay vì đọc-sống bảng giá."""
+    return {
+        "rate_id": rate.id,
+        "ten": rate.name,
+        "don_vi": rate.unit,
+        "don_gia": float(rate.unit_price or 0),
+    }
+
+
 class PieceWorkService:
     def __init__(self, piece, outputs=None) -> None:
         self.piece = piece          # PieceWorkRepository (đơn giá khoán)
@@ -45,22 +71,15 @@ class PieceWorkService:
         người dùng gõ đơn vị ngoài danh sách này vẫn lưu bình thường."""
         return sorted(set(DEFAULT_PIECE_UNITS) | set(self.piece.distinct_units()))
 
-    def _normalize_unit(self, raw) -> str:
-        """Chuẩn hoá đơn vị TRƯỚC KHI LƯU. Gõ tự do thì phải có chỗ này, không thì cùng một đơn
-        vị đẻ ra "kg", "Kg", " KG " — gợi ý phình lên, thống kê không gom được.
-
-        Hai bước: (1) cắt khoảng trắng thừa; (2) khớp KHÔNG PHÂN BIỆT HOA/THƯỜNG với đơn vị đã
-        dùng ⇒ lấy ĐÚNG cách viết đã dùng.
-
-        CỐ Ý không gộp theo DẤU: "to" và "tô" là hai đơn vị khác nhau, bỏ dấu để gộp là sai
-        nghĩa. Và cố ý KHÔNG chặn đơn vị mới — chốt của chủ là gõ gì cũng được."""
-        s = re.sub(r"\s+", " ", str(raw or "").strip())
-        if not s:
-            return UNIT_KHAC
-        for known in self.unit_suggestions():
-            if known.lower() == s.lower():
-                return known
-        return s
+    def _sinh_ma(self) -> str:
+        """Mã dòng đơn giá — máy sinh, người dùng không gõ (chủ 2026-07-31). Chạy số theo dòng đã
+        có: KH-0001, KH-0002… Mã cũ của xưởng (A–F trong bảng giấy) giữ nguyên, không đụng."""
+        so = 0
+        for r in self.piece.list_rates():
+            ma = str(getattr(r, "code", "") or "")
+            if ma.upper().startswith("KH-") and ma[3:].isdigit():
+                so = max(so, int(ma[3:]))
+        return f"KH-{so + 1:04d}"
 
     def create_rate(self, **f):
         if not f.get("group_name"):
@@ -69,7 +88,11 @@ class PieceWorkService:
             raise PieceWorkValidationError("Thiếu tên công việc.")
         if f.get("unit_price") is None:
             raise PieceWorkValidationError("Thiếu đơn giá.")
-        f["unit"] = self._normalize_unit(f.get("unit"))
+        # Đơn vị lưu ĐÚNG chữ nhận được (màn khai chọn từ danh mục Đơn vị & quy đổi). Bản trước
+        # còn "chuẩn hoá" ngầm — âm thầm sửa chữ người ta gõ; bảng khai báo thì đừng làm thế.
+        f["unit"] = str(f.get("unit") or UNIT_KHAC).strip() or UNIT_KHAC
+        if not (f.get("code") or "").strip():
+            f["code"] = self._sinh_ma()
         return self.piece.create_rate(**f)
 
     def update_rate(self, rate_id, **f):
@@ -78,7 +101,7 @@ class PieceWorkService:
             raise PieceWorkNotFound("Không tìm thấy đơn giá.")
         patch = {k: v for k, v in f.items() if v is not None}
         if "unit" in patch:
-            patch["unit"] = self._normalize_unit(patch["unit"])
+            patch["unit"] = str(patch["unit"] or UNIT_KHAC).strip() or UNIT_KHAC
         return self.piece.update_rate(r, **patch)
 
     def delete_rate(self, rate_id):
@@ -156,14 +179,59 @@ class PieceWorkService:
                 return float(b.rate_pct)
         return float(brackets[-1].rate_pct)
 
+    @staticmethod
+    def duoi_nguong(san_luong, min_output_qty) -> bool:
+        """Sản lượng của tổ có DƯỚI ngưỡng xét thưởng/phạt không.
+
+        ⚠️ So bằng `<` (tức "đạt ngưỡng" là `>=`): chủ khai "ít nhất X" thì đúng X phải được xét.
+        Ranh giới là chỗ luôn bị làm sai, và sai ở đây là cắt mất tiền thưởng của người ta mà nhìn
+        bảng lương không thấy gì bất thường — chỉ thấy số 0.
+
+        Ngưỡng `None`/`<= 0` = KHÔNG gác (giữ nguyên hành vi cho tổ đã khai mốc mà chưa khai ngưỡng).
+
+        `san_luong=None` = CHƯA BIẾT ⇒ coi như dưới ngưỡng. Fail-closed có chủ ý: chưa xác nhận
+        được tổ có đạt ngưỡng hay không thì không được phát thưởng.
+
+        ⚠️ Ngưỡng KHÔNG kèm đơn vị (chủ chốt "Đơn vị bỏ đi") ⇒ người gọi cộng TOÀN BỘ sản lượng của
+        tổ trong kỳ rồi truyền vào, không lọc theo đơn vị. Tổ làm nhiều loại việc khác đơn vị thì
+        con số cộng lại không có ý nghĩa vật lý — đánh đổi đã biết, xem docstring model."""
+        nguong = float(min_output_qty or 0)
+        if nguong <= 0:
+            return False
+        if san_luong is None:
+            return True
+        return float(san_luong) < nguong
+
     @classmethod
-    def leader_bonus_amount(cls, *, tong_khoan_to, defect_pct, brackets) -> float:
-        """Tiền thưởng/phạt tổ trưởng = tổng khoán của tổ × % của bậc trúng. Âm = trừ.
+    def leader_bonus_amount(cls, *, tong_khoan_to, defect_pct, brackets,
+                            san_luong=None, min_output_qty=0) -> float:
+        """Tiền thưởng/phạt tổ trưởng = tổng LƯƠNG KHOÁN của tổ × % của bậc trúng. Âm = trừ.
+
+        **Dưới ngưỡng SẢN LƯỢNG thì trả 0 NGAY, không dò bậc** (chủ 30/07/2026). Vì sao cần cửa
+        chặn: làm càng ít thì tỷ lệ lỗi càng vô nghĩa — hỏng 2 tờ trên 20 tờ đã là 10%, đủ rơi
+        xuống bậc phạt nặng nhất dù thực tế chẳng làm được gì.
+
+        Hai con số KHÁC NHAU, đừng lẫn:
+          - `tong_khoan_to` — TIỀN, là thứ % nhân lên để ra tiền thưởng/phạt.
+          - `san_luong`     — SỐ LƯỢNG, chỉ dùng để so với ngưỡng.
 
         ⚠️ CHƯA CÓ AI GỌI. Chờ nối vào `PayrollService.generate` cùng lúc dựng lại nguồn sản
-        lượng — hiện `khoan_map` luôn rỗng nên `tong_khoan_to` sẽ là 0 và hàm này trả 0.
+        lượng — hiện chưa có nguồn nào báo sản lượng nên `san_luong` luôn `None`.
         Đã có test riêng (`test_khoan_api.py`) để nó không thành hàm chết như `_lookup_rule`."""
+        if cls.duoi_nguong(san_luong, min_output_qty):
+            return 0.0
         return _r(float(tong_khoan_to or 0) * cls.leader_bonus_pct(defect_pct, brackets) / 100.0)
+
+    # --- ngưỡng tối thiểu ----------------------------------------------------
+
+    def leader_settings(self, department_id: int):
+        return self.piece.get_leader_settings(department_id)
+
+    def set_leader_settings(self, *, department_id: int, min_output_qty):
+        so = float(min_output_qty or 0)
+        if so < 0:
+            raise PieceWorkValidationError("Ngưỡng sản lượng không được âm.")
+        return self.piece.upsert_leader_settings(department_id, min_output_qty=so)
 
     # --- tiền khoán vào bảng lương ------------------------------------------
 

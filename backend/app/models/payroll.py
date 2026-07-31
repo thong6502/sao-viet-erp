@@ -15,7 +15,7 @@ Cấu hình lương — hai cấp `NV → tổ` (KHÔNG còn hệ thống bậc 
   - `employee_salaries`           — lương vị trí (= lương cơ bản = mức đóng BH) + trách nhiệm +
                                     3 khoản PHỤ CẤP KHAI TAY (ca · thâm niên · khác). Bậc thợ
                                     chỉ là free-text `employees.job_grade`, hệ thống không quản.
-  - `department_salary_components` — bật/tắt + MỨC theo BỘ PHẬN: KPI · chuyên cần · khoán · tăng ca.
+  - `department_salary_components` — bật/tắt + MỨC theo BỘ PHẬN: chuyên cần · khoán · tăng ca.
 
 Portable SQLite/Postgres: Numeric(14,2) cho tiền, Date/DateTime DB-agnostic.
 """
@@ -71,14 +71,14 @@ PERIOD_PAID = "paid"      # đã chi trả (khóa cứng; hủy chi → về loc
 PERIOD_STATUSES = (PERIOD_DRAFT, PERIOD_LOCKED, PERIOD_PAID)
 
 # --- Thành phần lương bật/tắt theo BỘ PHẬN (màn Cấu hình lương, Tab 2) -------
-COMP_KPI = "kpi"                                # thưởng năng suất KPI — `value` = mức trần đ/tháng
 COMP_CHUYEN_CAN = "chuyen_can"                  # `value` = đ/tháng (trừ dần theo ngày nghỉ — C3)
 COMP_LUONG_KHOAN = "luong_khoan"                # bật/tắt — soi cờ departments.has_piece_work
 COMP_TANG_CA = "tang_ca"                        # bật/tắt tăng ca theo giờ
 # Ba khoản phụ cấp (ca · trách nhiệm · thâm niên) ĐÃ CHUYỂN sang khai TAY theo TỪNG NGƯỜI ở
 # `employee_salaries` — chủ chốt 2026-07-20: "cho nó khai tay đi, hệ thống không cần tính toán".
+# `kpi` (thưởng năng suất) ĐÃ GỠ 29/07/2026 — chủ: "xưởng không chấm KPI, xóa đi".
 SALARY_COMPONENT_KEYS = (
-    COMP_KPI, COMP_CHUYEN_CAN, COMP_LUONG_KHOAN, COMP_TANG_CA,
+    COMP_CHUYEN_CAN, COMP_LUONG_KHOAN, COMP_TANG_CA,
 )
 
 _MONEY = Numeric(14, 2)
@@ -216,7 +216,7 @@ class DepartmentSalaryComponent(Base):
     # Một trong SALARY_COMPONENT_KEYS.
     component_key: Mapped[str] = mapped_column(String(32), nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
-    # Đơn vị theo key: kpi/trách nhiệm/chuyên cần = đồng; ca đêm = % ; khoán/tăng ca/lương bậc = NULL.
+    # Đơn vị theo key: chuyên cần = đồng; khoán/tăng ca = NULL (chỉ bật/tắt).
     value: Mapped[float | None] = mapped_column(_MONEY, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
@@ -388,10 +388,6 @@ class PayrollLine(Base):
     night_premium_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     vi_pham: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")        # tay — giảm trừ khác (RAW; gộp trần 30% Đ102)
     other_bonus: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")    # tay (thưởng khác/hoa hồng)
-    # --- Thưởng năng suất KPI: % đạt nhập TAY theo tháng × mức trần của bộ phận (component `kpi`).
-    # kpi_bonus CHỊU thuế TNCN (khác tăng ca/ca đêm được miễn).
-    kpi_percent: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")
-    kpi_bonus: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     # --- Khoản chi tiết phiếu lương (Pha 4d) — HCNS nhập tay/tháng. Thưởng = thu nhập chịu thuế. ---
     thuong_5s: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     thuong_doanh_so: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")

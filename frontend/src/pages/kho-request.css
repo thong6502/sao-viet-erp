@@ -532,6 +532,160 @@ input.kho-num,
   font-weight: var(--fw-medium);
   color: var(--ink);
 }
+/* Cột "Ngày nhập" (cũ → mới) trên dòng Tồn kho — canh phải cho cùng khối với các cột số. */
+.kho-ton__date {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--ink);
+}
+.kho-ton__arrow {
+  color: var(--ash);
+  margin: 0 5px;
+}
+
+/* Nút "Lọc" + popover bộ lọc tồn kho — neo dưới nút (mẫu .rc-syntax). */
+.kho-filter {
+  position: relative;
+  flex: 0 0 auto;
+}
+.kho-filter__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.kho-filter__btn.is-active {
+  border-color: var(--rust);
+  color: var(--rust);
+}
+.kho-filter__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: var(--r-pill);
+  background: var(--rust);
+  color: var(--on-charcoal, #fff);
+  font-family: var(--ff-num);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  line-height: 1;
+}
+.kho-filter__pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  width: min(360px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-6);
+  box-shadow: var(--shadow-lg);
+  animation: rc-syntax-in 0.16s var(--easing-standard);
+}
+.kho-filter__sec {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kho-filter__lbl {
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+/* Ô ngày/tồn trong popover: chia đều bề rộng (đè width cố định của .kho-daterange). */
+.kho-filter__pop .kho-daterange .rc-input {
+  flex: 1;
+  min-width: 0;
+}
+.kho-filter__pop .kho-daterange input[type="date"] {
+  width: auto;
+}
+.kho-filter__foot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  border-top: 1px solid var(--rule-soft);
+  padding-top: var(--sp-3);
+}
+
+/* Pill bộ lọc đang bật — dưới thanh công cụ tab Tồn kho. */
+.kho-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+.kho-filterpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  background: var(--paper);
+  font-size: 12px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.kho-filterpill__x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--ash);
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  line-height: 1;
+}
+.kho-filterpill__x:hover {
+  background: var(--rust-soft);
+  color: var(--rust);
+}
+.kho-filterbar__clear {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ash);
+  padding: 4px 8px;
+  border-radius: var(--r-2);
+}
+.kho-filterbar__clear:hover {
+  color: var(--rust);
+  text-decoration: underline;
+}
+
+/* ─── Bảng kho (Tồn kho + Phiếu kho): gọn cột + vằn nền xen kẽ dễ dò dòng ──── */
+/* Padding ngang gọn hơn bảng .rc chung (sp-4 → sp-3) để bảng đỡ thưa. */
+.kho-table th,
+.kho-table td {
+  padding-left: var(--sp-3);
+  padding-right: var(--sp-3);
+}
+/* Zebra rất nhẹ (tông ash 4%) — chừa dòng skeleton lúc tải. */
+.kho-table tbody tr:nth-child(even):not(.rc-skel__row) {
+  background: color-mix(in srgb, var(--ash) 4%, transparent);
+}
+/* Hover phải thắng vằn nền → đặt sau, đặc thù cao hơn. */
+.kho-table tbody tr.rc__row:hover {
+  background: var(--rule-hair);
+}
 /* Bảng lô lồng trong dòng vật tư — nền chìm hơn để tách khỏi bảng chính. */
 .kho-ton__detailrow > td {
   background: var(--paper);
@@ -635,36 +789,70 @@ input.kho-num,
   justify-content: space-between;
   gap: var(--sp-4);
   flex-wrap: wrap;
-  border-bottom: 1px solid var(--rule);
-  margin-bottom: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-1);
+  margin-bottom: var(--sp-4);
 }
 .kho-shell__fns {
   display: flex;
-  gap: var(--sp-4);
+  align-items: center;
+  gap: var(--sp-2);
 }
 .kho-shell__fn {
   appearance: none;
-  background: none;
+  background: transparent;
   border: none;
+  border-radius: var(--r-3);
   cursor: pointer;
-  padding: var(--sp-3) 2px;
-  font-size: 15px;
+  padding: var(--sp-2) var(--sp-4);
+  font-family: var(--ff-sans);
+  font-size: 14px;
   font-weight: var(--fw-medium);
   color: var(--ash);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  transition: all var(--duration-fast) var(--easing-standard);
+  position: relative;
 }
 .kho-shell__fn:hover {
   color: var(--ink);
+  background: var(--rule-hair);
 }
 .kho-shell__fn.is-active {
-  color: var(--ink);
-  border-bottom-color: var(--rust);
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  font-weight: var(--fw-bold);
+}
+.kho-shell__fn.is-active::after {
+  content: "";
+  position: absolute;
+  bottom: -4px;
+  left: 12px;
+  right: 12px;
+  height: 2.5px;
+  background: var(--rust);
+  border-radius: var(--r-pill);
 }
 .kho-shell__dirs {
   display: flex;
   gap: var(--sp-1);
-  padding-bottom: 6px;
+  background: var(--paper);
+  padding: 3px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rule-soft);
+}
+.kho-shell__dirs .seg {
+  padding: 5px 14px;
+  font-size: 12.5px;
+}
+.kho-shell__dirs .seg.is-active {
+  background: var(--rust);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(197, 64, 10, 0.25);
 }
 
 /* Ô ghi chú riêng cho mặt hàng trong khối phân bổ (.kho-alloc). */
@@ -722,12 +910,25 @@ input.kho-num,
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+  background: var(--canvas);
+  padding: 2px 6px;
+  border-radius: var(--r-2);
+  border: 1px solid var(--rule-soft);
 }
 .kho-daterange input[type="date"] {
-  width: 150px;
+  width: 135px;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 4px 6px;
+  font-size: 12.5px;
+}
+.kho-daterange input[type="date"]:focus-visible {
+  border-color: var(--rule);
+  background: var(--canvas);
 }
 .kho-daterange__sep {
-  color: var(--ash, #999);
+  color: var(--ash);
+  font-size: 12px;
 }
 
 /* Ô khai QUY ĐỔI dưới mỗi dòng đề nghị NHẬP (1 đơn vị phụ = hệ số × ĐVT tồn). */
@@ -755,7 +956,7 @@ input.kho-num,
 .rc__filler,
 .rc__filler:hover {
   cursor: default;
-  background: transparent;
+  background: transparent !important;
 }
 .rc__filler td {
   color: transparent;
@@ -764,3 +965,50 @@ input.kho-num,
 .rc__table--fixed .rc__empty-state-td {
   height: 420px;
 }
+
+/* Enhancements for Code Badges & Row animations */
+.rc__code-badge {
+  display: inline-block;
+  font-family: var(--ff-num);
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  padding: 2px 8px;
+  border-radius: var(--r-2);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+
+/* Scrim glass backdrop */
+.rc-drawer__scrim {
+  backdrop-filter: blur(4px);
+  background: rgba(15, 23, 42, 0.4);
+  transition: opacity var(--duration-base) var(--easing-standard);
+}
+
+.rc-drawer {
+  box-shadow: var(--shadow-lg);
+  border-left: 1px solid var(--rule-soft);
+}
+
+.rc-drawer__head {
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--canvas);
+}
+
+.rc-sec__title {
+  position: relative;
+  padding-left: 10px;
+}
+.rc-sec__title::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 3px;
+  background: var(--rust);
+  border-radius: var(--r-pill);
+}
+

@@ -1,0 +1,183 @@
+/* Nội quy công ty — màn ĐỌC của TOÀN CÔNG TY (mọi nhân viên mở được).
+   ⚠️ Trang này CỐ Ý chỉ import `nhan-su.css` + file này. ĐỪNG import `luong.css` để mượn
+   `.cl-savebar`/`.cl-card`: đó là ~47 KB CSS của phân hệ lương, kéo vào một trang mà cả công
+   ty đều mở. Thanh lưu ở dưới được SAO Y `.cl-savebar` (luong.css:983–1010) sang `.nq-bar`.
+   Cùng lý do: ĐỪNG import `bao-gia.css` để mượn `.bgv .ver-item` cho danh sách tài liệu — nó là
+   CSS CHẾT (0 chỗ dùng) nằm trong một file 84 KB.
+   ⚠️ `global.css` phát ra SAU file này trong bundle ⇒ luật CÙNG độ ưu tiên ở đây THUA. Chỗ nào
+   đụng `.btn`/`.card` phải nâng bằng 2 class, xem các chú thích tại chỗ. */
+
+.nq { padding: 20px 24px; max-width: 1100px; margin: 0 auto; }
+.nq__titlerow { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.nq-banner__sub { display: block; margin-top: 3px; font-size: 11.5px; opacity: .85; }
+.nq__body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--sp-6); align-items: start; }
+.nq__body--solo { grid-template-columns: minmax(0, 1fr); }
+/* ⚠️ `minmax(0, …)` ở trên chỉ chặn cái CỘT phình, KHÔNG chặn cái Ô phình: ô lưới mặc định
+   `min-width: auto` = rộng bằng min-content của nó, nên nó tràn RA NGOÀI cột.
+   Đo được ở 375px hồi còn trình soạn thảo: ô lưới 626px trong khung nhìn 375px, cả trang cuộn
+   ngang. Trình soạn thảo đã gỡ nhưng luật này PHẢI Ở LẠI — mọi thứ có min-content rộng (bảng nhiều
+   cột, ảnh trang A4, tên file dài) đều bung ra đúng kiểu đó. `min-width: 0` là chỗ chữa đúng bệnh.
+   Cùng bài học với `.ns-filelist` bên dưới. Đo lại sau khi gỡ: 375px và 1440px đều KHÔNG cuộn ngang. */
+.nq__body > * { min-width: 0; }
+/* Tiêu đề TÀI LIỆU ĐANG MỞ + mốc ban hành CỦA CHÍNH NÓ. Từ khi bộ nội quy là nhiều tài liệu ban
+   hành riêng, mốc này KHÔNG được nằm cạnh tên màn ở header trang nữa: "Ban hành 30/07" ở đó chỉ
+   đúng cho một tài liệu trong bộ, đọc thành ngày của cả bộ là sai. */
+.nq-dochead { margin-bottom: var(--sp-4); }
+.nq-dochead__row { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.nq-dochead__title { margin: 0; font-size: 19px; line-height: 1.35; color: var(--ink); }
+.nq-dochead__meta { margin: 4px 0 0; font-size: 12px; color: var(--ash); }
+.nq-doc { background: var(--canvas); border: 1px solid var(--rule-soft); border-radius: var(--r-6); box-shadow: var(--shadow-1); padding: var(--sp-8); }
+/* ★ BỀ RỘNG ĐỌC — số quan trọng nhất của màn. min() để không phụ thuộc metric font.
+   ⚠️ BA con số dưới đây (68ch/680px · 15.5px · 1.75) là chốt, đừng chỉnh. */
+.nq-doc__text { max-width: min(68ch, 680px); font-size: 15.5px; line-height: 1.75; color: var(--ink); }
+/* ⚠️ Trước đây mỗi luật dưới đây là một CẶP `.nq-doc__text X, .nq-editor__content X`. Trình soạn
+   thảo đã gỡ nên vế `.nq-editor__content` biến mất — nhưng vế `.nq-doc__text` là của MÀN ĐỌC và
+   phải sống. Một lần tìm-thay xoá cả DÒNG chứa `nq-editor` là cắt luôn vế còn lại và nát màn đọc. */
+.nq-doc__text h1 { margin: 0 0 var(--sp-6); font-size: 25px; line-height: 1.3; text-align: center; }
+.nq-doc__text h2 { margin: var(--sp-7) 0 var(--sp-3); font-size: 18px; line-height: 1.45; color: var(--rust-deep); }
+.nq-doc__text h3 { margin: var(--sp-5) 0 var(--sp-2); font-size: 16px; line-height: 1.45; }
+/* h4 = cấp SÂU NHẤT được giữ (xem `MAX_HEADING` trong NoiQuyPage.tsx). Thiếu luật này thì Word có
+   Heading 4 vào đây sẽ ăn mặc định trình duyệt (đậm, cỡ lạ, lề lạ) và lạc hẳn kiểu chữ tài liệu. */
+.nq-doc__text h4 { margin: var(--sp-4) 0 var(--sp-2); font-size: 15.5px; line-height: 1.45; font-weight: var(--fw-bold); }
+.nq-doc__text p { margin: 0 0 1em; overflow-wrap: anywhere; }
+.nq-doc__text ul,
+.nq-doc__text ol { margin: 0 0 1em; padding-left: 1.65em; }
+.nq-doc__text blockquote { margin: var(--sp-4) 0; padding: 2px 0 2px var(--sp-4); border-left: 3px solid var(--rust); color: var(--ash); }
+.nq-doc__text hr { margin: var(--sp-7) 0; border: 0; border-top: 1px solid var(--rule); }
+.nq-doc__text img { display: block; max-width: 100%; height: auto; margin: var(--sp-4) auto; }
+.nq-doc__text table { width: 100%; margin: var(--sp-4) 0; border-collapse: collapse; table-layout: fixed; }
+/* Khay cuộn ngang quanh bảng ở màn đọc (do `docHtml` bọc vào). Bảng bên trong đổi sang tự giãn
+   theo nội dung — `table-layout: fixed` ở trên sẽ ép vừa khay và làm khay vô nghĩa.
+   ⚠️ KHÔNG dùng flex trên `<td>` (luật dự án) — ô bảng phải giữ display của bảng. */
+.nq-doc__text .nq-scrollx { margin: var(--sp-4) 0; overflow-x: auto; }
+.nq-doc__text .nq-scrollx table { width: auto; min-width: 100%; margin: 0; table-layout: auto; }
+.nq-doc__text .nq-scrollx th,
+.nq-doc__text .nq-scrollx td { overflow-wrap: normal; }
+.nq-doc__text th,
+.nq-doc__text td { padding: 8px 10px; border: 1px solid var(--rule); vertical-align: top; overflow-wrap: anywhere; }
+.nq-doc__text th { background: var(--paper); font-weight: var(--fw-bold); text-align: left; }
+/* Bản chuyển đổi TRUNG THỰC từ Word (`source_kind='file'`, không có ảnh trang).
+   Ở đây app phải IM LẶNG: hai luật trên (`h1` canh giữa, `h2` màu rust) là gu trình bày của app,
+   áp lên tài liệu người ta đã trình bày xong là SỬA DÁNG của họ — mà cả đường này tồn tại chỉ để
+   giữ dáng. Chỉ tắt đúng hai thứ đó; cỡ chữ/lề vẫn để làm nền cho phần Word không khai gì.
+   (`style` nội tuyến từ Word thắng mọi luật ở đây vì nội tuyến luôn hơn selector — đã đo.) */
+.nq-doc__text--goc h1 { text-align: inherit; }
+.nq-doc__text--goc h2 { color: inherit; }
+/* Đã bỏ 5 luật của bộ render văn bản thuần cũ (`.nq-doc__p/__art/__h/__hsub`), `textarea.nq-edit`,
+   và toàn bộ CSS của trình soạn thảo TipTap (`.nq-editor*`, `.nq-tool*`, `.nq-sel*`, `.nq-color*`,
+   `.nq-tablebar`, `.nq-tablebtn`, `.nq-edit__doc`, `.nq-edit__placeholder`) — màn này CHỈ tải file
+   lên, không còn ô soạn thảo. Giữ lại chỉ làm người sau tưởng còn đường render thứ hai. */
+.nq-edit__wrap { margin-top: var(--sp-4); }
+
+/* --- Tải NỘI DUNG lên: cái được và cái mất nói thẳng --------------------------------------
+   Bố cục 2 cột "nút | giải thích" chứ không phải nút kèm tooltip: tải lên là THAY nội dung đang
+   có, và PDF ≠ Word về độ trung thực, nên cái mất phải đọc được mà không cần trỏ chuột vào đâu.
+   Cột nút cố định 250px. */
+.nq-src { margin-bottom: var(--sp-4); padding: var(--sp-4) var(--sp-5); background: var(--paper); border: 1px solid var(--rule-soft); border-radius: var(--r-4); }
+.nq-src__title { display: block; margin-bottom: var(--sp-3); font-size: 13px; font-weight: var(--fw-bold); color: var(--ink); }
+.nq-src__row { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: var(--sp-4); align-items: start; }
+.nq-src__row + .nq-src__row { margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px dashed var(--rule-soft); }
+/* `.nq-src .btn` = 2 class ⇒ thắng `.btn` của global.css dù global phát ra SAU (bẫy đã gặp 2 lần
+   ở màn này). Không dùng `!important`. */
+.nq-src .btn { width: 100%; }
+.nq-src__desc { font-size: 11.5px; line-height: 1.6; color: var(--ash); }
+.nq-src__desc strong { color: var(--ink); font-weight: var(--fw-medium); }
+/* Dựng ảnh một tập PDF dày mất 10–30 giây. Không có dòng trạng thái này thì màn hình đứng im và
+   người dùng bấm lại / tải lại trang giữa chừng. */
+.nq-src__busy { margin: var(--sp-3) 0 0; font-size: 12px; line-height: 1.55; color: var(--rust-deep); }
+/* Dải nhắc "bản nháp này đang hiện đúng bản gốc". Màu rust vì nó nói về trạng thái ĐANG bất
+   thường (nhân viên chưa thấy thứ này), không phải một mẩu chú thích. */
+.nq-src__note { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; margin-bottom: var(--sp-3); padding: 10px 14px; font-size: 12.5px; line-height: 1.55; color: var(--rust-deep); background: var(--rust-soft); border: 1px solid color-mix(in srgb, var(--rust) 26%, var(--rule)); border-radius: var(--r-3); }
+.nq-src__note > span { min-width: 0; }
+
+/* --- Bản gốc PDF hiện bằng ẢNH TỪNG TRANG -------------------------------------------------
+   Mỗi trang là một "tờ giấy" riêng: nền canvas, viền nhẹ, nhãn số trang ở chân. Cách nhau rõ
+   (sp-4) để người đọc thấy được ranh giới trang — dồn sát nhau thì một nội quy 20 trang trông
+   như một dải ảnh dài vô tận, mất luôn cảm giác "đang ở trang mấy".
+   CỐ Ý không đặt `max-width` của `.nq-doc__text` lên đây: ảnh trang là ảnh khổ A4, bóp về 680px
+   là chữ trong ảnh nhỏ thêm 1/3 lần nữa. */
+.nq-pages { display: flex; flex-direction: column; gap: var(--sp-4); }
+.nq-pages__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
+.nq-pages__meta { font-size: 11.5px; color: var(--ash); min-width: 0; }
+/* Thẻ `<a>` nhưng KHÔNG mang class `.btn`: `.btn` của global.css phát ra sau file này, mượn nó là
+   tự đưa mình vào cuộc tranh chấp không cần thiết. Tự vẽ, 1 class là đủ thắng luật `a` chung. */
+.nq-pages__dl { flex: none; padding: 5px 12px; font-size: 12px; font-weight: var(--fw-medium); color: var(--rust-deep); background: var(--canvas); border: 1px solid color-mix(in srgb, var(--rust) 28%, var(--rule)); border-radius: var(--r-2); text-decoration: none; white-space: nowrap; }
+.nq-pages__dl:hover { background: var(--rust-soft); border-color: var(--rust); }
+.nq-pages__dl:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
+.nq-page { margin: 0; overflow: clip; background: var(--canvas); border: 1px solid var(--rule-soft); border-radius: var(--r-4); box-shadow: var(--shadow-1); }
+/* `zoom-in` chứ không `pointer`: nói đúng việc sẽ xảy ra (mở cỡ thật để phóng to). Trên điện thoại
+   một trang A4 co vào 375px là không đọc nổi, nên bấm được là bắt buộc, không phải tiện thêm. */
+.nq-page a { display: block; cursor: zoom-in; }
+.nq-page img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.nq-page__no { padding: 6px 12px; font-family: var(--ff-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; text-align: right; color: var(--ash); background: var(--paper); border-top: 1px solid var(--rule-soft); }
+/* Nhắc lại cảnh báo trong hộp Ban hành — phải nổi hơn `.cc-note` thường, đây là lần cuối cản được. */
+.nq-dlg__warn { color: var(--rust-deep); font-weight: var(--fw-med); }
+
+/* Cột dính. `max-height` + cuộn riêng là BẮT BUỘC từ khi có 3 khối (danh sách tài liệu + bản đã
+   ký + lịch sử): một phần tử `sticky` cao hơn khung nhìn thì phần đáy của nó KHÔNG BAO GIỜ cuộn
+   tới được — với bộ chục tài liệu thì khối "Lịch sử ban hành" biến mất khỏi tầm với. */
+.nq-aside { display: flex; flex-direction: column; gap: var(--sp-4); position: sticky; top: var(--sp-4); max-height: calc(100vh - var(--sp-8)); overflow-y: auto; }
+/* --- DANH SÁCH TÀI LIỆU (khối ĐẦU TIÊN của cột phải) ---------------------------------------
+   Bộ nội quy là NHIỀU văn bản; đây là đường DUY NHẤT đi tới từng cái, nên nó đứng TRÊN "Bản đã
+   ký" và "Lịch sử ban hành". Chôn nó xuống dưới là chôn luôn chức năng chính của màn.
+   Hình dạng mượn `.rdx-tree__tile` / `.is-active` (redesign-phong-ban.css:229-269) — pattern đang
+   SỐNG ở màn phòng ban, không phải CSS chết. Không mượn được class sẵn có: `.nq-hist li` không có
+   cursor/hover/trạng thái chọn, `.ns-filelist li` không có trạng thái chọn. */
+.nq-toclist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+/* `<button>` chứ không `<a>`: đây là đổi nội dung tại chỗ, không phải điều hướng. Class (0,1,0)
+   luôn thắng luật `button` mặc định của global.css (0,0,1) dù global phát ra sau — đã kiểm. */
+.nq-tocitem { display: block; width: 100%; text-align: left; padding: 8px 11px; font-family: inherit; font-size: 13px; line-height: 1.4; color: var(--ink); background: var(--canvas); border: 1px solid var(--rule-soft); border-radius: var(--r-3); cursor: pointer; }
+.nq-tocitem:hover:not(:disabled) { background: var(--paper); border-color: var(--ash-2); }
+.nq-tocitem.is-active { color: var(--rust-deep); background: var(--rust-soft); border-color: color-mix(in srgb, var(--rust) 30%, var(--rule)); font-weight: var(--fw-bold); }
+.nq-tocitem:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
+.nq-tocitem:disabled { opacity: .55; cursor: default; }
+/* Dòng dưới tiêu đề: ngày ban hành của CHÍNH tài liệu đó (+ nhãn "có nháp"/"đã ẩn" cho người
+   soạn). `font-weight` đặt lại vì `.is-active` in đậm cả nút. */
+.nq-tocitem__meta { display: block; margin-top: 2px; font-family: var(--ff-mono); font-size: 10.5px; font-weight: var(--fw-regular); color: var(--ash-2); }
+.nq-tocitem__tag { color: var(--rust-deep); }
+/* Hàng nút quản lý tài liệu — chỉ người soạn thấy. CỐ Ý KHÔNG có nút Xoá: backend không mở
+   endpoint xoá (xoá kéo theo cả lịch sử + ảnh trang + file qua CASCADE). Muốn cất đi thì "Ẩn".
+   Tự vẽ thay vì mượn `.btn`: ba nút `.btn` trong cột 300px là tràn/xuống dòng lung tung. */
+.nq-toc__acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px dashed var(--rule-soft); }
+.nq-toc__btn { flex: none; padding: 5px 10px; font-family: var(--ff-sans); font-size: 12px; font-weight: var(--fw-medium); color: var(--rust-deep); background: var(--canvas); border: 1px solid color-mix(in srgb, var(--rust) 28%, var(--rule)); border-radius: var(--r-2); cursor: pointer; white-space: nowrap; }
+.nq-toc__btn:hover:not(:disabled) { background: var(--rust-soft); border-color: var(--rust); }
+.nq-toc__btn:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
+.nq-toc__btn:disabled { opacity: .5; cursor: default; }
+/* .ns-filelist mặc định 2 cột (nhan-su.css:1538) — trong cột 300px phải ép về 1.
+   minmax(0, …) chứ KHÔNG phải `1fr` trần: `1fr` = minmax(auto,1fr) nên cột phình theo tên file
+   dài nhất (đo được 344px trong khay 258px) và tràn ra ngoài aside thay vì cắt "…". */
+.nq-aside .ns-filelist { grid-template-columns: minmax(0, 1fr); }
+.nq-aside__title { font-family: var(--ff-mono); font-size: 10px; font-weight: var(--fw-bold); text-transform: uppercase; letter-spacing: .14em; color: var(--ash); margin: 0 0 var(--sp-3); }
+.nq-filedel { background: none; border: 0; padding: 4px; border-radius: var(--r-2); color: var(--ash-2); cursor: pointer; flex: none; }
+.nq-filedel:hover { color: var(--signal); background: var(--signal-soft); }
+.nq-filedel:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+.nq-hist { list-style: none; margin: 0; padding: 0; }
+.nq-hist li { padding: 8px 0; border-bottom: 1px dashed var(--rule-soft); font-size: 12.5px; }
+.nq-hist li:last-child { border-bottom: none; }
+.nq-hist__when { font-family: var(--ff-mono); font-size: 11.5px; color: var(--ash-2); }
+/* Sao y .cl-savebar (luong.css:983–1010) để nhìn giống hệt mà không kéo cả luong.css vào. */
+.nq-bar { position: sticky; bottom: var(--sp-3); z-index: 20; margin-top: var(--sp-4); display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); flex-wrap: wrap; padding: 12px 16px; background: var(--canvas); border: 1px solid var(--rule); border-radius: var(--r-5); box-shadow: var(--shadow-4); animation: nq-bar-in var(--duration-base) var(--easing-standard); }
+@keyframes nq-bar-in { from { opacity: 0; transform: translateY(8px);} to { opacity: 1; transform: none;} }
+.nq-bar__txt { font-size: 13px; color: var(--ink); min-width: 0; }
+.nq-bar__txt.is-blocked { color: var(--signal); }
+.nq-bar__dot { color: var(--rust); }
+.nq-bar__acts { display: flex; align-items: center; gap: var(--sp-2); }
+/* `.card.` là BẮT BUỘC: khối này mang `card card--dense`, mà global.css nằm SAU noi-quy.css
+   trong bundle → cùng specificity thì `.card--dense` thắng và trạng thái rỗng bị bóp còn
+   padding 16px thay vì 40px. */
+.card.nq-state { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: var(--sp-10) var(--sp-5); }
+.nq-state__title { font-size: 14px; font-weight: var(--fw-bold); color: var(--ink); }
+.nq-state__desc { font-size: 12.5px; color: var(--ash); max-width: 46ch; line-height: 1.6; }
+.nq-state .btn { margin-top: var(--sp-3); }
+/* Hẹp hơn 1000px: cột phải GẬP LÊN TRÊN (`order: -1`) — danh sách tài liệu là đường vào nội dung,
+   đẩy xuống cuối trang là người dùng điện thoại phải cuộn hết một văn bản 20 trang mới thấy tên
+   tài liệu thứ hai. Bỏ luôn `max-height`/`overflow` của cột dính: ở đây nó không dính nữa, để lại
+   là tự cắt cụt một khối nằm giữa dòng chảy của trang. */
+@media (max-width: 1000px) { .nq__body { grid-template-columns: 1fr; } .nq-aside { position: static; order: -1; max-height: none; overflow: visible; } }
+/* Điện thoại: khối tải nội dung về MỘT cột (nút trên, giải thích dưới) — giữ 2 cột thì cột nút
+   250px ăn hết bề ngang 375px và phần giải thích bị nén thành cột chữ 1–2 từ. Giải thích KHÔNG
+   được ẩn: đây chính là chỗ nói "số thứ tự tự động của Word không giữ được". */
+@media (max-width: 640px) { .nq { padding: 14px 12px; } .nq-doc { padding: var(--sp-5) var(--sp-4); } .nq-doc__text { font-size: 16px; } .nq-src { padding: var(--sp-4); } .nq-src__row { grid-template-columns: minmax(0, 1fr); gap: var(--sp-2); } .nq-src__note { align-items: stretch; } .nq-bar { flex-direction: column; align-items: stretch; } .nq-bar__acts { justify-content: flex-end; } }
+
+/* `<summary>` mang .nq-aside__title — thêm affordance bấm được (khối "Lịch sử ban hành"). */
+.nq-aside summary.nq-aside__title { cursor: pointer; }

@@ -97,11 +97,7 @@ class ThanhPhanIn(BaseModel):
     bu_hao_so_to: int | None = None
     hao_so_to: int | None = None
     tinh_bu_hao_cd: bool | None = None
-    chua_xen: float | None = None
-    chua_tay_ke: float | None = None
     chua_nhip: float | None = None
-    chua_duoi: float | None = None
-    chua_ca_gay: float | None = None
     bleed_mm: float | None = None
     khe_cat_mm: float | None = None
     # In
@@ -153,11 +149,7 @@ class ThanhPhanOut(BaseModel):
     bu_hao_so_to: int
     hao_so_to: int
     tinh_bu_hao_cd: bool = True
-    chua_xen: float
-    chua_tay_ke: float
     chua_nhip: float
-    chua_duoi: float
-    chua_ca_gay: float
     bleed_mm: float = 0
     khe_cat_mm: float = 0
     # In

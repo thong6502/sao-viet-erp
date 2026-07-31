@@ -101,6 +101,9 @@ class StockRequest(Base):
     )
     duyet_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ly_do_tu_choi: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Lý do KHO HỦY đề nghị (hủy phiếu nháp → đề nghị KẾT THÚC ở 'Đã hủy'). Tách khỏi
+    # `ly_do_tu_choi` (lý do NGƯỜI DUYỆT từ chối). Null nếu chưa hủy. Thêm qua migration 0114.
+    ly_do_huy: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

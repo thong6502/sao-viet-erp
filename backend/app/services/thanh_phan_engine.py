@@ -183,6 +183,31 @@ def _suc_chua(usable: float, canh: float, khe: float) -> int:
     return max(floor((usable + khe) / buoc), 0)
 
 
+def chua_theo_chieu(tp: dict) -> tuple[float, float]:
+    """Chừa của một thành phần → (chừa chiều DÀI, chừa chiều RỘNG), mm.
+
+    NGUỒN LÀ DANH MỤC MÁY. Chừa tờ in là đặc tính của máy in, không phải của bài — khai một lần ở
+    máy thì mọi phiếu chọn máy đó ăn theo:
+      · DÀI  ← nhíp GIẤY (1 đầu, cạnh nạp) + đuôi/thanh màu (`nhip_giay_mm` + `duoi_thang_mau_mm`).
+      · RỘNG ← lề hông ×2 (`le_hong_mm`, trừ mỗi bên).
+
+    KHÔNG gộp một số trừ đều hai chiều — nhíp là mép máy kẹp ở CẠNH NẠP, không ăn chiều rộng.
+    `gripper_mm` là nhíp KẼM (~44mm), KHÔNG được dùng ở đây: dùng nhầm là hụt 14-19% số con.
+
+    Đè duy nhất còn lại: `chua_nhip` trên phiếu — khoản đổi theo job (hướng bài, cạnh nạp). Lề hông
+    · đuôi · xén · cả gáy đã bỏ khỏi phiếu (mig 0139): chúng chưa từng có chỗ nhập, mà xén/gáy còn
+    bị cộng đều cả hai chiều nên chỉ làm số con sai lệch âm thầm.
+
+    ĐÂY LÀ BẢN DUY NHẤT của phép cộng này. Màn lệnh sản xuất từng tự cộng năm khoản thành một số
+    rồi trừ đều hai chiều nên vẽ sơ đồ ra 105 con trong khi phiếu tính giá ra 99 — cùng một tờ,
+    hai hình khác nhau.
+    """
+    nhip = _f(tp.get("chua_nhip")) or _f(tp.get("nhip_giay_mm"))
+    duoi = _f(tp.get("duoi_thang_mau_mm"))
+    le_hong = _f(tp.get("le_hong_mm"))
+    return nhip + duoi, le_hong * 2
+
+
 def binh_bai_layout(*, kho_in_dai: float, kho_in_rong: float, dai_tp: float, rong_tp: float,
                     chua_mm: float = 0.0, chua_dai_mm: float | None = None,
                     chua_rong_mm: float | None = None,
@@ -306,17 +331,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         )
     dai_tp = _f(tp.get("dai_thanh_pham"))    # thành phẩm ③
     rong_tp = _f(tp.get("rong_thanh_pham"))
-    # CHỪA TÁCH THEO CHIỀU (không gộp 1 số trừ cả 2 chiều như bản cũ — nhíp không ăn chiều rộng):
-    #  · DÀI  ← nhíp GIẤY (cạnh nạp, 1 đầu) + đuôi/thanh màu. Nhíp ưu tiên `chua_nhip` của phiếu,
-    #           trống thì lấy `nhip_giay_mm` của máy (KHÁC `gripper_mm` = nhíp kẽm, đừng lẫn).
-    #  · RỘNG ← lề hông ×2 (hai bên).
-    #  · xén / cả gáy: chưa có căn cứ gán chiều (và chưa có ô nhập) → giữ cách cũ, cộng đều 2 chiều.
-    nhip = _f(tp.get("chua_nhip")) or _f(tp.get("nhip_giay_mm"))
-    duoi = _f(tp.get("chua_duoi")) or _f(tp.get("duoi_thang_mau_mm"))
-    le_hong = _f(tp.get("chua_tay_ke")) or _f(tp.get("le_hong_mm"))
-    chua_deu = _f(tp.get("chua_xen")) + _f(tp.get("chua_ca_gay"))
-    chua_dai = nhip + duoi + chua_deu
-    chua_rong = le_hong * 2 + chua_deu
+    chua_dai, chua_rong = chua_theo_chieu(tp)
     bleed = _f(tp.get("bleed_mm"))
     khe_cat = _f(tp.get("khe_cat_mm"))
 

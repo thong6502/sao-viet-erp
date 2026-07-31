@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from .models.bu_hao import BuHao
 from .models.cong_doan import CongDoan
+from .models.don_vi_do import DonViDo, DonViQuyDoi
 from .models.khuon_be import KhuonBe
 from .models.loai_san_pham import LoaiSanPham
 from .models.may_thiet_bi import MayThietBi
@@ -20,6 +21,109 @@ from .models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 
 def _empty(db: Session, model) -> bool:
     return db.execute(select(model).limit(1)).first() is None
+
+
+# --- Đơn vị đo & quy đổi (nền cho khoán · kho · mua hàng) ---------------------------------------
+# (mã, tên, họ, GIẢI NGHĨA). `ho` = LOẠI ĐO, chỉ để gom nhóm khi hiển thị — "đổi được cho nhau hay
+# không" nằm ở `_QUY_DOI_SEED` bên dưới, không ở loại đo.
+# Giải nghĩa hiện ở cột Ghi chú của màn Đơn vị: người ngoài nhà in mở
+# danh sách ra thấy "con", "bài in", "lượt" thì không đoán nổi đang đếm cái gì. Đơn vị ai cũng biết
+# (kg · m · cm²) để trống — viết thừa cũng là một kiểu ồn.
+_DON_VI_SEED: list[tuple[str, str, str, str]] = [
+    ("cm2", "cm²", "dien_tich", ""),
+    ("m2", "m²", "dien_tich", ""),
+    ("kg", "kg", "khoi_luong", ""),
+    ("tan", "tấn", "khoi_luong", ""),
+    ("g", "g", "khoi_luong", ""),
+    ("m", "mét", "do_dai", ""),
+    ("mm", "mm", "do_dai", ""),
+    ("to", "tờ", "to", "Tờ giấy chạy qua máy in."),
+    ("ram", "ram", "to", "Cách nhà cung cấp đóng gói giấy: 1 ram = 500 tờ."),
+    # Loại THÀNH PHẨM — mọi cách đếm "một sản phẩm xong": bước lệnh gọi `cai`, bảng khoán của tổ gọi
+    # "cuốn" (sách) / "hộp" (gỡ hàng) / "con" (tem). Chúng đếm như nhau nên có cặp quy đổi 1-1 bên
+    # dưới; thiếu cặp đó thì bước "vào keo" (đơn vị `cai`, 1.000 cuốn) không khớp đơn giá 700 đ/cuốn.
+    ("cai", "cái", "thanh_pham", "Một sản phẩm hoàn chỉnh. Cuốn · con · bộ · hộp đều quy về cái."),
+    ("con", "con", "thanh_pham", "Sản phẩm rời bế/xén ra từ tờ in — 1 tờ ra nhiều con (tem, thẻ, nhãn)."),
+    ("cuon", "cuốn", "thanh_pham", "Một cuốn sách thành phẩm (= 1 cái)."),
+    ("bo", "bộ", "thanh_pham", "Một bộ thành phẩm (= 1 cái)."),
+    ("hop", "hộp", "thanh_pham", "Một hộp thành phẩm (= 1 cái)."),
+    ("kem", "bản kẽm", "kem", "Bản kẽm phơi cho MỘT màu của một bài in."),
+    # mã `bai` khớp đơn vị bước lệnh (DV_BAI), không phải "bai_in"
+    ("bai", "bài in", "bai", "Một bài đã bình, chạy ra nhiều tờ in giống nhau."),
+    ("luot", "lượt", "luot", "Một lần đưa giấy qua máy (cắt demi tính theo lượt)."),
+    ("thung", "thùng", "thung", "Thùng đóng hàng lúc giao."),
+]
+
+# CẶP quy đổi: (tu, den, he_so) đọc là "1 <tu> = <he_so> <den>". Máy tự đi chiều ngược, nên KHÔNG
+# khai dòng đối xứng. Cặp nào chưa khai thì máy dò đường qua trung gian (tấn → g đi qua kg).
+_QUY_DOI_SEED: list[tuple[str, str, float, str]] = [
+    ("m2", "cm2", 10_000, ""),     # 1 m² = 10.000 cm²
+    ("tan", "kg", 1_000, ""),      # 1 tấn = 1.000 kg
+    ("kg", "g", 1_000, ""),        # 1 kg = 1.000 g
+    ("m", "mm", 1_000, ""),        # 1 mét = 1.000 mm
+    ("ram", "to", 500, ""),        # quy ước ngành in: 1 ram = 500 tờ
+    # Các cách đếm thành phẩm là MỘT: nối hết về `cai` để bước lệnh (đếm `cai`) khớp mọi đơn giá
+    # khoán dù xưởng ghi "cuốn", "con", "hộp" hay "bộ".
+    ("con", "cai", 1, ""),
+    ("cuon", "cai", 1, ""),
+    ("bo", "cai", 1, ""),
+    ("hop", "cai", 1, ""),
+    # --- Quy đổi ĐỘNG: hệ số là công thức, số ra tuỳ giấy/khổ của chính việc đang làm ---------
+    # Ba dòng này trước nằm CỨNG trong code (`quy_doi_service.CAU`) nên xưởng không sửa được.
+    # Biến do nơi gọi bơm: `dai`/`rong` là khổ của TỜ ĐANG ĐẾM (m), `dinh_luong` kg/m².
+    # tờ → cm² KHÔNG cần dòng riêng: đi tiếp bằng cặp m² → cm² đã khai ở trên.
+    ("to", "m2", 0, "dai * rong"),
+    ("to", "kg", 0, "dinh_luong * dai * rong"),
+    ("to", "cai", 0, "so_con"),
+]
+
+
+def seed_don_vi_do(db: Session) -> None:
+    """Đơn vị đo + cặp quy đổi — DỮ LIỆU VẬN HÀNH THẬT, không phải demo.
+
+    Gọi NGOÀI khối `SEED_DEMO` (như biểu thuế TNCN / ngày lễ): thiếu bảng này thì mọi phép quy đổi
+    trả "chưa khai quy đổi" và tiền khoán không tính được — tê liệt trên chính DB thật, nơi không ai
+    bật seed demo.
+
+    Bổ sung theo MÃ / CẶP CÒN THIẾU (không dùng `_empty`): thêm dòng mới vào hai danh sách trên là
+    DB đang chạy cũng nhận, khỏi phải drop bảng. Cặp người dùng tự sửa thì KHÔNG bị ghi đè.
+    """
+    co = {d.ma for d in db.execute(select(DonViDo)).scalars()}
+    moi = [
+        DonViDo(ma=ma, ten=ten, ho=ho, ghi_chu=gc or None)
+        for ma, ten, ho, gc in _DON_VI_SEED if ma not in co
+    ]
+    if moi:
+        db.add_all(moi)
+        db.commit()
+
+    # Giải nghĩa cho đơn vị nghề: điền vào dòng đang TRỐNG ghi chú, không đè chữ người dùng đã ghi.
+    # Làm riêng vì DB đang chạy đã có sẵn các dòng này từ trước khi có cột giải nghĩa.
+    nghia = {ma: gc for ma, _t, _h, gc in _DON_VI_SEED if gc}
+    them = 0
+    for d in db.execute(select(DonViDo)).scalars():
+        if nghia.get(d.ma) and not (d.ghi_chu or "").strip():
+            d.ghi_chu = nghia[d.ma]
+            them += 1
+    if them:
+        db.commit()
+
+    by_ma = {d.ma: d.id for d in db.execute(select(DonViDo)).scalars()}
+    da_co = {
+        (c.tu_id, c.den_id) for c in db.execute(select(DonViQuyDoi)).scalars()
+    }
+    caps = []
+    for tu, den, hs, ct in _QUY_DOI_SEED:
+        tu_id, den_id = by_ma.get(tu), by_ma.get(den)
+        if not tu_id or not den_id:
+            continue
+        # Kiểm CẢ HAI CHIỀU: người dùng có thể đã khai "1 tờ = 0,002 ram" — cùng một chuyện.
+        if (tu_id, den_id) in da_co or (den_id, tu_id) in da_co:
+            continue
+        caps.append(DonViQuyDoi(tu_id=tu_id, den_id=den_id, he_so=hs, cong_thuc=ct or None))
+    if caps:
+        db.add_all(caps)
+        db.commit()
 
 
 def seed_rebuild_catalog(db: Session) -> None:
@@ -32,48 +136,52 @@ def seed_rebuild_catalog(db: Session) -> None:
         _CM = "Cán màng / UV"      # cán màng / UV
         _BOI = "Bồi"               # bồi sóng / duplex
         _BE = "Bế"                 # bế / ép kim
+        # Chừa TỜ GIẤY của máy in — engine bình bài trừ theo chiều (dài ← nhíp + đuôi, rộng ←
+        # lề hông ×2). Đây là NGUỒN DUY NHẤT của chừa: phiếu chỉ còn ô đè `chua_nhip`. Số nghề
+        # thường gặp; xưởng đo lại máy mình thì sửa trong danh mục Máy.
+        _CHUA_IN = {"nhip_giay_mm": 10, "le_hong_mm": 5, "duoi_thang_mau_mm": 5}
         db.add_all([
             # ── MÁY IN nội bộ — kẽm / nhíp / khổ giấy / vùng in ───────────────────────
             MayThietBi(ma="IN-01", ten="Máy 2 màu Mitsubishi 72×102", loai_may=_IN, trang_thai="active",
-                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44,
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=390, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=710, vung_in_dai=1010, ghi_chu="Có in UV được",
                        ghi_chu_2="Hàng bồi sóng phải chạy in tay kề nghịch, đặt tay kề sẵn trên bài in"),
             MayThietBi(ma="IN-02", ten="Máy 4 màu Mitsubishi 79×109", loai_may=_IN, trang_thai="active",
-                       kho_kem_rong=930, kho_kem_dai=1130, gripper_mm=60,
+                       kho_kem_rong=930, kho_kem_dai=1130, gripper_mm=60, **_CHUA_IN,
                        kho_min_rong=540, kho_min_dai=750, kho_max_rong=800, kho_max_dai=1090,
                        vung_in_rong=780, vung_in_dai=1080),
             MayThietBi(ma="IN-03", ten="Máy 5 màu Mitsubishi 54×79", loai_may=_IN, trang_thai="active",
-                       kho_kem_rong=645, kho_kem_dai=830, gripper_mm=50,
+                       kho_kem_rong=645, kho_kem_dai=830, gripper_mm=50, **_CHUA_IN,
                        kho_min_rong=320, kho_min_dai=420, kho_max_rong=540, kho_max_dai=790,
                        vung_in_rong=535, vung_in_dai=780),
             MayThietBi(ma="IN-04", ten="Máy 6 màu Mitsubishi 72×102", loai_may=_IN, trang_thai="active",
-                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44,
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=710, vung_in_dai=1010, ghi_chu="Có in UV được"),
             MayThietBi(ma="IN-05", ten="Máy 6 màu Heidelberg 72×102", loai_may=_IN, trang_thai="active",
-                       kho_kem_rong=765, kho_kem_dai=1030, gripper_mm=44,
+                       kho_kem_rong=765, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=560, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=690, vung_in_dai=1000, ghi_chu="Có in UV được",
                        ghi_chu_2="Vùng in lớn hơn 69cm thì nhíp kẽm 38mm; chỉ in được giấy từ 150g trở lên"),
             MayThietBi(ma="IN-06", ten="Máy 7 màu Heidelberg 72×102", loai_may=_IN, trang_thai="active",
-                       kho_kem_rong=765, kho_kem_dai=1030, gripper_mm=44,
+                       kho_kem_rong=765, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=560, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=690, vung_in_dai=1000),
             # ── IN ngoài (xưởng in ngoài) ────────────────────────────────────────────
             MayThietBi(ma="IN-07", ten="Minh Tiến 72×102 - 5 màu", loai_may=_INX, trang_thai="active",
-                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=48,
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=48, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=710, vung_in_dai=1010, ghi_chu_2="Xưởng in ngoài"),
             MayThietBi(ma="IN-08", ten="Hoàng Anh 1020×1420 - 6 màu", loai_may=_INX, trang_thai="active",
                        kho_min_rong=575, kho_min_dai=810, kho_max_rong=1020, kho_max_dai=1420,
-                       vung_in_rong=1000, vung_in_dai=1400, ghi_chu_2="Xưởng in ngoài"),
+                       vung_in_rong=1000, vung_in_dai=1400, ghi_chu_2="Xưởng in ngoài", **_CHUA_IN),
             MayThietBi(ma="IN-09", ten="Bảo Tiến 72×102 - 6 màu", loai_may=_INX, trang_thai="active",
-                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=50,
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=50, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=710, vung_in_dai=1010, ghi_chu="Có in UV", ghi_chu_2="Xưởng in ngoài"),
             MayThietBi(ma="IN-10", ten="Đỉnh Việt 72×102 - 5 màu", loai_may=_INX, trang_thai="active",
-                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44,
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=710, vung_in_dai=1010, ghi_chu_2="Xưởng in ngoài"),
             # ── MÁY CÁN MÀNG + UV ĐỊNH HÌNH — chỉ khổ giấy min/max ────────────────────

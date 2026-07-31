@@ -26,6 +26,7 @@ import { NghiPhepPage } from "../pages/NghiPhepPage";
 import { TangCaPage } from "../pages/TangCaPage";
 import { LuongPage } from "../pages/LuongPage";
 import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
+import { NoiQuyPage } from "../pages/NoiQuyPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
 import { KhoTonKhoPage } from "../pages/KhoTonKhoPage";
@@ -537,6 +538,10 @@ export function AppShell() {
         />
       );
     }
+    // Id cũ "quy-doi" (màn cặp riêng, đã gộp vào drawer đơn vị) → về đúng màn Đơn vị.
+    if (baseId === "quy-doi") {
+      return <RebuildCatalogPage key="don-vi" config={REBUILD_CONFIGS["don-vi"]} />;
+    }
     // Danh mục rebuild (Máy · Vật liệu Kho · Công đoạn · Loại SP · Giấy) — 1 trang generic theo config.
     if (REBUILD_CONFIGS[baseId]) {
       return <RebuildCatalogPage key={baseId} config={REBUILD_CONFIGS[baseId]} />;
@@ -550,6 +555,8 @@ export function AppShell() {
         return <NhanSuPage navigate={navigate} />;
       case "ho-so-cua-toi":
         return <HoSoCuaToiPage />;
+      case "noi-quy":
+        return <NoiQuyPage />;
       case "cham-cong":
         // `eventTick` nhảy theo MỌI sự kiện SSE → tab phiếu đi muộn/về sớm đang mở tự tải lại ngay
         // khi tổ trưởng duyệt/từ chối (không chỉ nhảy badge).
