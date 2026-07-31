@@ -145,8 +145,10 @@ const FINE_ACTIONS: Record<
   // Kho: 3 ô chi tiết + công tắc chung Xem (can_read) + Chỉnh sửa (= LẬP PHIẾU).
   //   · Tạo đề nghị (can_request) — người XIN nhập/lĩnh vật tư.
   //   · Duyệt đề nghị (can_approve) — quản lý bộ phận ĐỀ NGHỊ (KHÔNG phải kho).
-  //   · Quản lý kho (1 công tắc = 4 cột): ghi sổ + xem tồn + xem giá vốn + khai ngưỡng.
-  // Vai KHO (cấp phát) chỉ bật "Quản lý kho" + Lập phiếu; KHÔNG có Duyệt (kho không tự duyệt).
+  //   · Xem kho (1 công tắc = 3 cột): xem tồn + xem giá vốn + khai ngưỡng.
+  //   · Ghi sổ phiếu (can_post) — TÁCH riêng để giữ SoD: Thủ kho lập phiếu NHƯNG KHÔNG ghi sổ.
+  // Vai KHO (cấp phát) bật "Xem kho" + Lập phiếu; chỉ QL kho / Kế toán kho thêm "Ghi sổ".
+  // KHÔNG có Duyệt (kho không tự duyệt).
   kho: [
     {
       key: "can_request",
@@ -159,10 +161,15 @@ const FINE_ACTIONS: Record<
       hint: "Duyệt / từ chối đề nghị kho (được cắt bớt số lượng khi duyệt). Của QUẢN LÝ BỘ PHẬN đề nghị (vd Quản lý sản xuất duyệt đề nghị của tổ), KHÔNG phải kho — kho chỉ nhận đề nghị đã duyệt rồi cấp. Không ai tự duyệt đề nghị của chính mình.",
     },
     {
+      key: "can_view_stock",
+      keys: ["can_view_stock", "can_view_cost", "can_set_threshold"],
+      label: "Xem kho (xem tồn/giá vốn · ngưỡng)",
+      hint: "MỘT công tắc gộp 3 quyền XEM/QUẢN của kho: XEM số tồn · XEM giá vốn & giá trị tồn · KHAI ngưỡng tồn. Thủ kho / QL kho / Kế toán kho bật ô này. KHÔNG gồm Ghi sổ (tách riêng bên dưới) và KHÔNG kèm Duyệt đề nghị.",
+    },
+    {
       key: "can_post",
-      keys: ["can_post", "can_view_stock", "can_view_cost", "can_set_threshold"],
-      label: "Quản lý kho (ghi sổ · xem tồn/giá vốn · ngưỡng)",
-      hint: "MỘT công tắc gộp 4 quyền của người CẤP PHÁT kho: GHI SỔ phiếu (chốt tồn) · XEM số tồn · XEM giá vốn & giá trị tồn · KHAI ngưỡng tồn. Thủ kho / kế toán kho / QL kho bật ô này. KHÔNG kèm Duyệt đề nghị (kho không tự duyệt).",
+      label: "Ghi sổ phiếu (chốt tồn)",
+      hint: "GHI SỔ phiếu nhập/xuất → tồn kho THAY ĐỔI THẬT (và Hủy phiếu). TÁCH khỏi Lập phiếu để giữ SoD: Thủ kho lập phiếu nháp, QL kho / Kế toán kho vào xem rồi Ghi sổ hoặc Hủy. Người cầm hàng khác người chốt sổ.",
     },
   ],
   dm_giay_vat_tu: [

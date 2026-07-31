@@ -51,20 +51,22 @@ const KHO_KEY = "kho.yeu-cau.kho-id";
 const PAGE_SIZE = 8;
 const FETCH_SIZE = 200;
 
-type TabId = "can-cap" | "dang-cap" | "done";
+type TabId = "can-cap" | "dang-cap" | "done" | "da-huy";
 
 const TAB_STATUSES: Record<TabId, StockRequestStatus[]> = {
   "can-cap": ["approved"],
   "dang-cap": ["received", "preparing", "partial"],
   done: ["done"],
+  "da-huy": ["cancelled"],
 };
-// Một lần gọi cho cả 3 tab đề nghị → số trên tab luôn khớp bảng, không lệch giữa các lần fetch.
+// Một lần gọi cho cả 4 tab đề nghị → số trên tab luôn khớp bảng, không lệch giữa các lần fetch.
 const INBOX_STATUSES: StockRequestStatus[] = [
   "approved",
   "received",
   "preparing",
   "partial",
   "done",
+  "cancelled",
 ];
 const FULFILLABLE: StockRequestStatus[] = ["approved", "received", "preparing", "partial"];
 
@@ -209,6 +211,7 @@ export function KhoYeuCauPage({
     { id: "can-cap", label: "Cần cấp" },
     { id: "dang-cap", label: "Đang cấp" },
     { id: "done", label: "Hoàn tất" },
+    { id: "da-huy", label: "Đã hủy" },
   ];
 
   // Cột đề nghị: 8 khi có nút Lập phiếu, 7 khi không (đã bỏ cột Tồn — đề nghị không gắn kho).
@@ -391,8 +394,10 @@ export function KhoYeuCauPage({
         )}
       </div>
 
-      {total > PAGE_SIZE && (
+      {total > 0 && (
         <div className="kho-pager">
+          <span className="kho-pager__page">{total} đề nghị</span>
+          <div className="rc__spacer" />
           <button
             type="button"
             className="btn btn--ghost"
@@ -402,7 +407,7 @@ export function KhoYeuCauPage({
             Trước
           </button>
           <span className="kho-pager__page">
-            {page} / {maxPage}
+            Trang {page} / {maxPage}
           </span>
           <button
             type="button"
@@ -424,7 +429,6 @@ export function KhoYeuCauPage({
           canCreate={canCreate}
           canViewStock={canViewStock}
           onClose={() => setOpenRequest(null)}
-          onChanged={load}
           onCreateVoucher={openFulfil}
         />
       )}
@@ -470,7 +474,6 @@ export function InboxRequestDrawer({
   canCreate,
   canViewStock,
   onClose,
-  onChanged,
   onCreateVoucher,
 }: {
   token: string;
@@ -479,12 +482,10 @@ export function InboxRequestDrawer({
   canCreate: boolean;
   canViewStock: boolean;
   onClose: () => void;
-  onChanged: () => void;
   onCreateVoucher: (r: StockRequest) => void;
 }) {
   const [req, setReq] = useState<StockRequest | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
@@ -501,21 +502,6 @@ export function InboxRequestDrawer({
 
   useEffect(reload, [reload]);
 
-  async function step(fn: () => Promise<StockRequest>, fallback: string) {
-    setBusy(true);
-    setError(null);
-    try {
-      const r = await fn();
-      setReq(r);
-      onChanged();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : fallback);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const status = req?.trang_thai;
   const canFulfill = canCreate && req != null && FULFILLABLE.includes(req.trang_thai);
 
   return (
@@ -560,6 +546,13 @@ export function InboxRequestDrawer({
             </div>
           ) : (
             <>
+              {req.trang_thai === "cancelled" && req.ly_do_huy && (
+                <div className="banner banner--warn" role="status">
+                  <span>
+                    <b>Đã hủy</b> — Lý do: {req.ly_do_huy}
+                  </span>
+                </div>
+              )}
               <section className="rc-sec">
                 <h3 className="rc-sec__title">Yêu cầu</h3>
                 <div className="rc-grid">
@@ -624,28 +617,8 @@ export function InboxRequestDrawer({
         </div>
 
         <footer className="rc-drawer__foot">
-          {/* CHỈ MỘT nút chuyển trạng thái tại mỗi thời điểm — hai nút cạnh nhau là mời người
-              dùng đoán xem cái nào "đúng hơn". */}
-          {canCreate && status === "approved" && req && (
-            <Button
-              variant="secondary"
-              loading={busy}
-              onClick={() => step(() => api.kho.deNghi.receive(token, req.id), "Không tiếp nhận được.")}
-            >
-              Tiếp nhận
-            </Button>
-          )}
-          {canCreate && status === "received" && req && (
-            <Button
-              variant="secondary"
-              loading={busy}
-              onClick={() =>
-                step(() => api.kho.deNghi.prepare(token, req.id), "Không chuyển sang chuẩn bị được.")
-              }
-            >
-              Bắt đầu chuẩn bị
-            </Button>
-          )}
+          {/* Kho đi thẳng "Đã duyệt → Lập phiếu"; phiếu tự chuyển đề nghị sang "đang chuẩn bị"
+              (voucher.create → mark_in_progress). Đã bỏ bước Tiếp nhận / Bắt đầu chuẩn bị. */}
           {canFulfill && req && (
             <Button variant="accent" onClick={() => onCreateVoucher(req)}>
               {req.open_voucher_id != null ? "Xem phiếu" : "Lập phiếu"}
@@ -1645,6 +1618,7 @@ export function VoucherDrawer({
   const [error, setError] = useState<string | null>(null);
   const [popupBlocked, setPopupBlocked] = useState(false);
   const [askCancel, setAskCancel] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
   const [askPost, setAskPost] = useState(false);
   // Đính kèm hóa đơn/chứng từ gốc (ảnh hoặc PDF).
   const [attachments, setAttachments] = useState<StockVoucherAttachment[]>([]);
@@ -1947,7 +1921,14 @@ export function VoucherDrawer({
             {/* HỦY = quyền của người GHI SỔ (Kế toán kho / QL kho), KHÔNG phải người lập. Người lập
                 tạo phiếu là gửi luôn, không tự rút lại được (SoD). */}
             {canPost && v?.trang_thai === "draft" && (
-              <button type="button" className="btn btn--danger" onClick={() => setAskCancel(true)}>
+              <button
+                type="button"
+                className="btn btn--danger"
+                onClick={() => {
+                  setCancelReason("");
+                  setAskCancel(true);
+                }}
+              >
                 Hủy phiếu
               </button>
             )}
@@ -1980,17 +1961,34 @@ export function VoucherDrawer({
       <ConfirmDialog
         open={askCancel}
         title="Hủy phiếu này?"
-        message="Phiếu hủy vẫn giữ số trong quyển và vẫn in được, nhưng không ghi sổ được nữa."
+        message="Đề nghị sẽ chuyển sang 'Đã hủy' kèm lý do và KHÔNG cấp lại. Phiếu vẫn giữ số & in được, nhưng không ghi sổ được nữa."
         confirmLabel="Hủy phiếu"
         cancelLabel="Giữ lại"
         danger
         busy={busy}
+        confirmDisabled={!cancelReason.trim()}
         onCancel={() => setAskCancel(false)}
         onConfirm={() => {
+          const ly = cancelReason.trim();
+          if (!ly || !v) return;
           setAskCancel(false);
-          if (v) void act(() => api.kho.phieu.huy(token, v.id), "Không hủy được phiếu.");
+          void act(() => api.kho.phieu.huy(token, v.id, ly), "Không hủy được phiếu.");
         }}
-      />
+      >
+        <label className="rc-field">
+          <span className="rc-field__label">
+            Lý do hủy <em>*</em>
+          </span>
+          <textarea
+            className="rc-textarea"
+            rows={3}
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+            placeholder="Vì sao hủy đề nghị này? (bắt buộc)"
+            autoFocus
+          />
+        </label>
+      </ConfirmDialog>
     </>
   );
 }

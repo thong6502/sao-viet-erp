@@ -368,8 +368,10 @@ export function KhoDeNghiPage({
         </table>
       </div>
 
-      {total > PAGE_SIZE && (
+      {total > 0 && (
         <div className="kho-pager">
+          <span className="kho-pager__page">{total} đề nghị</span>
+          <div className="rc__spacer" />
           <button
             type="button"
             className="btn btn--ghost"
@@ -379,7 +381,7 @@ export function KhoDeNghiPage({
             Trước
           </button>
           <span className="kho-pager__page">
-            {page} / {maxPage}
+            Trang {page} / {maxPage}
           </span>
           <button
             type="button"
@@ -502,8 +504,6 @@ function RequestDrawer({
     seed?.length ? seed.map((s) => newLine(s)) : [newLine()],
   );
 
-  // Dòng nào đang mở ô khai QUY ĐỔI (đơn vị phụ + hệ số) — chỉ đề nghị NHẬP.
-  const [qdOpen, setQdOpen] = useState<Set<string>>(new Set());
   const [dirty, setDirty] = useState(false);
   const [askDiscard, setAskDiscard] = useState(false);
   const [askCancel, setAskCancel] = useState(false);
@@ -746,6 +746,11 @@ function RequestDrawer({
               <span>Bị từ chối: {req.ly_do_tu_choi}</span>
             </div>
           )}
+          {req?.trang_thai === "cancelled" && req.ly_do_huy && (
+            <div className="banner banner--warn" role="status">
+              <span>Đã hủy: {req.ly_do_huy}</span>
+            </div>
+          )}
           {error && (
             <div className="banner banner--error" role="alert">
               <span>{error}</span>
@@ -838,7 +843,9 @@ function RequestDrawer({
                                   onPick={(m) => pickMaterial(l.key, m)}
                                   // Gõ tên rồi "＋ Thêm" = ghi thẳng tên vật tư, KHÔNG tạo mã.
                                   // Thủ kho gắn/tạo mã ở bước lập phiếu (người đề nghị không cần biết).
+                                  // XUẤT: chỉ lĩnh hàng ĐÃ có trong kho → không cho tạo hàng mới.
                                   createLabel="Thêm"
+                                  allowCreate={loai === "NHAP"}
                                   onCreate={(nm) => nameFreeText(l.key, nm)}
                                 />
                               ) : (
@@ -965,72 +972,6 @@ function RequestDrawer({
                               </td>
                             )}
                           </tr>
-                          {/* QUY ĐỔI (đơn vị phụ + hệ số) — CHỈ đề nghị NHẬP. Người đề nghị khai;
-                              phiếu kế thừa, kho không khai lại. */}
-                          {loai === "NHAP" && editable && (
-                            <tr className="kho-qd-row">
-                              <td />
-                              <td colSpan={5}>
-                                {qdOpen.has(l.key) || l.don_vi_phu ? (
-                                  <div className="kho-qd">
-                                    <span className="kho-qd__lbl">Quy đổi: 1</span>
-                                    <input
-                                      className="rc-input"
-                                      style={{ width: 110 }}
-                                      placeholder="đơn vị phụ"
-                                      value={l.don_vi_phu ?? ""}
-                                      onChange={(e) =>
-                                        patchLine(l.key, { don_vi_phu: e.target.value || null })
-                                      }
-                                      aria-label="Đơn vị phụ"
-                                    />
-                                    <span>=</span>
-                                    <input
-                                      type="number"
-                                      min={0}
-                                      step="any"
-                                      className="rc-input kho-num"
-                                      style={{ width: 100 }}
-                                      placeholder="hệ số"
-                                      value={l.he_so_quy_doi ?? ""}
-                                      onChange={(e) =>
-                                        patchLine(l.key, {
-                                          he_so_quy_doi:
-                                            e.target.value === "" ? null : Number(e.target.value),
-                                        })
-                                      }
-                                      aria-label="Hệ số quy đổi"
-                                    />
-                                    <span>{l.dvt || "đvt tồn"}</span>
-                                    <button
-                                      type="button"
-                                      className="rc__link-btn"
-                                      onClick={() => {
-                                        patchLine(l.key, { don_vi_phu: null, he_so_quy_doi: null });
-                                        setQdOpen((s) => {
-                                          const n = new Set(s);
-                                          n.delete(l.key);
-                                          return n;
-                                        });
-                                      }}
-                                    >
-                                      Bỏ
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    className="rc__link-btn"
-                                    onClick={() =>
-                                      setQdOpen((s) => new Set(s).add(l.key))
-                                    }
-                                  >
-                                    + Quy đổi (nhập theo đơn vị khác)
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          )}
                           </Fragment>
                         );
                       })}

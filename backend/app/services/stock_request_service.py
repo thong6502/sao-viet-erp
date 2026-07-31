@@ -232,6 +232,16 @@ class StockRequestService:
             self._notify(req, "Kho đã lập phiếu — đang chuẩn bị")
         return req
 
+    def cancel_by_kho(self, req: StockRequest, ly_do: str) -> StockRequest:
+        """Kho HỦY đề nghị khi hủy phiếu nháp — đề nghị KẾT THÚC ở 'Đã hủy' kèm lý do (thay
+        revert_if_untouched: KHÔNG trả về 'Chờ cấp', không cấp lại). Số đã cấp bởi phiếu ĐÃ GHI SỔ
+        trước đó (nếu có) vẫn nằm ở kho — phiếu ghi sổ không đảo; đề nghị vẫn đóng."""
+        req.trang_thai = REQ_CANCELLED
+        req.ly_do_huy = ly_do
+        req = self.requests.save(req)
+        self._notify(req, "Đề nghị đã bị hủy")
+        return req
+
     def revert_if_untouched(self, req: StockRequest) -> StockRequest:
         """Hủy phiếu nháp cuối cùng (không còn phiếu active) mà CHƯA ứng gì → về 'Cần cấp'
         (approved) để cấp lại. Đã ứng một phần thì giữ partial. Gọi từ voucher.cancel."""

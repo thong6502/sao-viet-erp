@@ -4349,6 +4349,8 @@ export interface StockRequest {
   nguoi_duyet_ten: string | null;
   duyet_luc: string | null;
   ly_do_tu_choi: string | null;
+  /** Lý do KHO hủy đề nghị (hủy phiếu → đề nghị "Đã hủy"). Hiện ở mục "Đã hủy". */
+  ly_do_huy: string | null;
   // Id phiếu ĐANG CHỜ GHI SỔ (nếu có) → đổi nút "Lập phiếu" thành "Xem phiếu", chống tạo trùng.
   open_voucher_id: number | null;
   created_at: string;
@@ -4555,6 +4557,29 @@ export interface StockThreshold {
   nguong_can_ton: number | null;
   nguong_toi_da: number | null;
   canh_bao: boolean;
+}
+
+/** 1 dòng phiếu XUẤT đã ghi sổ của mã hàng — theo dõi xuất riêng với nhập (lô). */
+export interface StockMaterialXuatRow {
+  ngay: string;
+  voucher_id: number;
+  voucher_ma: string | null;
+  lot_id: number | null;
+  ma_lo: string | null;
+  so_luong: number;
+  /** Giá vốn đích danh của lô đã xuất — chỉ có khi `can_view_cost`. */
+  don_gia: number | null;
+}
+
+/** Lịch sử 1 mã hàng tại 1 kho: NHẬP = các lô (cả đã hết) · XUẤT = dòng phiếu xuất. */
+export interface StockMaterialHistory {
+  material_id: number;
+  material_code: string | null;
+  material_name: string | null;
+  dvt: string | null;
+  on_hand: number;
+  nhap: StockLot[];
+  xuat: StockMaterialXuatRow[];
 }
 
 export interface StockThresholdInput {
@@ -7076,8 +7101,12 @@ export const api = {
       ghiSo(token: string, id: number): Promise<StockVoucher> {
         return authed<StockVoucher>(`/api/kho/phieu/${id}/ghi-so`, token, { method: "POST" });
       },
-      huy(token: string, id: number): Promise<StockVoucher> {
-        return authed<StockVoucher>(`/api/kho/phieu/${id}/huy`, token, { method: "POST" });
+      /** Hủy phiếu nháp — BẮT BUỘC lý do; đề nghị chuyển "Đã hủy" kèm lý do (kết thúc). */
+      huy(token: string, id: number, lyDo: string): Promise<StockVoucher> {
+        return authed<StockVoucher>(`/api/kho/phieu/${id}/huy`, token, {
+          method: "POST",
+          body: JSON.stringify({ ly_do: lyDo }),
+        });
       },
       /** Gợi ý lấy hàng từ lô nào (FEFO → FIFO). `thieu` > 0 = kho không đủ hàng. */
       goiYLo(
@@ -7100,6 +7129,18 @@ export const api = {
         if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
         qs.set("con_hang", String(params.con_hang ?? true));
         return authed<StockLot[]>(`/api/kho/phieu/lo/danh-sach?${qs.toString()}`, token);
+      },
+      /** Lịch sử Nhập (lô) + Xuất (dòng phiếu xuất đã ghi sổ) của 1 mã hàng tại 1 kho. */
+      lichSuVatTu(
+        token: string,
+        materialId: number,
+        khoId: number,
+      ): Promise<StockMaterialHistory> {
+        const qs = new URLSearchParams({ kho_id: String(khoId) });
+        return authed<StockMaterialHistory>(
+          `/api/kho/phieu/vat-tu/${materialId}/lich-su?${qs.toString()}`,
+          token,
+        );
       },
       // --- Đính kèm hóa đơn/chứng từ gốc (ảnh hoặc PDF, ≤10MB) ---
       attachments(token: string, id: number): Promise<{ items: StockVoucherAttachment[] }> {

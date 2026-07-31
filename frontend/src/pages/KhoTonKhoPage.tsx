@@ -6,12 +6,13 @@
 //     là chứng từ của kho, nên nằm cùng chỗ với tồn/ngưỡng).
 // Nút "Ngưỡng tồn" cũng nằm ở đây (không ở màn đề nghị) vì ngưỡng gắn với kho vật lý.
 // Giá vốn CHỈ hiện với `can_view_cost` — thiếu quyền thì cột giá biến mất (ẩn cột, không "—").
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   api,
   type StockLevel,
   type StockLot,
+  type StockMaterialHistory,
   type StockRequestKind,
   type StockThreshold,
   type StockVoucher,
@@ -86,7 +87,8 @@ export function KhoTonKhoPage({
   const [loadingV, setLoadingV] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
-  const [open, setOpen] = useState<Set<number>>(new Set());
+  // Vật tư đang mở popup lịch sử Nhập/Xuất (thay cho bung inline).
+  const [openMaterial, setOpenMaterial] = useState<MaterialGroup | null>(null);
   // Mã đã tick để tạo Yêu cầu mua hàng (chỉ tab Tồn kho).
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [voucherFilter, setVoucherFilter] = useState<"all" | StockVoucherStatus>("all");
@@ -95,6 +97,13 @@ export function KhoTonKhoPage({
   const [openVoucher, setOpenVoucher] = useState<number | null>(null);
   const [openRequest, setOpenRequest] = useState<number | null>(null);
   const [thresholdOpen, setThresholdOpen] = useState(false);
+  // Bộ lọc tab Tồn kho (client-side): khoảng ngày nhập (khớp bất kỳ lô nào) + khoảng tồn.
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [tonFrom, setTonFrom] = useState("");
+  const [tonTo, setTonTo] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement | null>(null);
   const canViewStock = can("kho", "view_stock");
 
   // Kho đơn lẻ cho ThresholdDrawer (nó cần danh sách kho cho ô chọn — ở đây khoá đúng 1 kho).
@@ -139,10 +148,27 @@ export function KhoTonKhoPage({
     loadVouchers();
   }, [load, loadVouchers]);
 
-  // Về trang 1 khi đổi tab / tìm kiếm / lọc phiếu.
+  // Về trang 1 khi đổi tab / tìm kiếm / lọc phiếu / lọc ngày-tồn.
   useEffect(() => {
     setPage(1);
-  }, [tab, q, voucherFilter, voucherLoai]);
+  }, [tab, q, voucherFilter, voucherLoai, dateFrom, dateTo, tonFrom, tonTo]);
+
+  // Đóng popover Lọc khi bấm ra ngoài / nhấn Esc.
+  useEffect(() => {
+    if (!filterOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) setFilterOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFilterOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [filterOpen]);
 
   const groups = useMemo<MaterialGroup[]>(() => {
     const m = new Map<number, MaterialGroup>();
@@ -176,12 +202,30 @@ export function KhoTonKhoPage({
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    if (!s) return groups;
-    return groups.filter(
-      (g) =>
-        (g.name ?? "").toLowerCase().includes(s) || (g.code ?? "").toLowerCase().includes(s),
-    );
-  }, [groups, q]);
+    const tf = tonFrom.trim() === "" ? null : Number(tonFrom);
+    const tt = tonTo.trim() === "" ? null : Number(tonTo);
+    return groups.filter((g) => {
+      if (
+        s &&
+        !((g.name ?? "").toLowerCase().includes(s) || (g.code ?? "").toLowerCase().includes(s))
+      )
+        return false;
+      // Ngày nhập: hiện nếu CÓ ≥1 lô có ngay_nhap rơi trong [dateFrom, dateTo] (so ISO yyyy-mm-dd).
+      if (dateFrom || dateTo) {
+        const hit = g.lots.some((lot) => {
+          const d = lot.ngay_nhap.slice(0, 10);
+          if (dateFrom && d < dateFrom) return false;
+          if (dateTo && d > dateTo) return false;
+          return true;
+        });
+        if (!hit) return false;
+      }
+      // Khoảng tồn khả dụng.
+      if (tf != null && !Number.isNaN(tf) && g.total < tf) return false;
+      if (tt != null && !Number.isNaN(tt) && g.total > tt) return false;
+      return true;
+    });
+  }, [groups, q, dateFrom, dateTo, tonFrom, tonTo]);
 
   const shownVouchers = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -202,13 +246,6 @@ export function KhoTonKhoPage({
       );
   }, [vouchers, voucherLoai, voucherFilter, q]);
 
-  function toggle(id: number) {
-    setOpen((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
   function toggleSel(id: number) {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -223,6 +260,17 @@ export function KhoTonKhoPage({
   );
   // Cảnh báo: mã đang ở "Cần mua" (≤ ngưỡng tồn).
   const canMua = useMemo(() => groups.filter((g) => g.level === "can_mua"), [groups]);
+
+  // Bộ lọc đang bật (để hiện badge số + pill + empty state).
+  const hasDateFilter = dateFrom !== "" || dateTo !== "";
+  const hasTonFilter = tonFrom !== "" || tonTo !== "";
+  const activeFilters = (hasDateFilter ? 1 : 0) + (hasTonFilter ? 1 : 0);
+  function clearFilters() {
+    setDateFrom("");
+    setDateTo("");
+    setTonFrom("");
+    setTonTo("");
+  }
 
   // Tạo Yêu cầu mua hàng từ các mã đã tick: mở form YCMH (nguồn Kho) điền sẵn Tên + ĐVT,
   // để trống SL + ghi chú cho người dùng nhập.
@@ -241,7 +289,7 @@ export function KhoTonKhoPage({
   }
 
   const voucherCols = canViewCost ? 7 : 6;
-  // Cột tab Tồn kho: [checkbox nếu canCreate] + caret + Vật tư + Mức + Tồn + Số lô
+  // Cột tab Tồn kho: [checkbox nếu canCreate] + Vật tư + Mức + Tồn + Số lô + Ngày nhập
   // [+ Ngưỡng tồn + Ngưỡng tối đa nếu set_threshold] [+ Giá trị nếu view_cost].
   const tonCols =
     (canCreate ? 1 : 0) + 5 + (canSetThreshold ? 2 : 0) + (canViewCost ? 1 : 0);
@@ -348,6 +396,85 @@ export function KhoTonKhoPage({
           </>
         )}
         <div className="rc__spacer" />
+        {tab === "ton" && (
+          <div className="kho-filter" ref={filterRef}>
+            <Button
+              variant="secondary"
+              className={`kho-filter__btn${activeFilters > 0 ? " is-active" : ""}`}
+              onClick={() => setFilterOpen((o) => !o)}
+              aria-expanded={filterOpen}
+            >
+              <FilterIcon />
+              Lọc
+              {activeFilters > 0 && <span className="kho-filter__count">{activeFilters}</span>}
+            </Button>
+            {filterOpen && (
+              <div className="kho-filter__pop" role="dialog" aria-label="Bộ lọc tồn kho">
+                <div className="kho-filter__sec">
+                  <div className="kho-filter__lbl">Ngày nhập</div>
+                  <div className="kho-daterange">
+                    <input
+                      type="date"
+                      className="rc-input"
+                      value={dateFrom}
+                      max={dateTo || undefined}
+                      onChange={(e) => setDateFrom(e.target.value)}
+                      aria-label="Ngày nhập từ"
+                    />
+                    <span className="kho-daterange__sep">–</span>
+                    <input
+                      type="date"
+                      className="rc-input"
+                      value={dateTo}
+                      min={dateFrom || undefined}
+                      onChange={(e) => setDateTo(e.target.value)}
+                      aria-label="Ngày nhập đến"
+                    />
+                  </div>
+                </div>
+                <div className="kho-filter__sec">
+                  <div className="kho-filter__lbl">Tồn khả dụng</div>
+                  <div className="kho-daterange">
+                    <input
+                      type="number"
+                      className="rc-input kho-num"
+                      placeholder="từ"
+                      value={tonFrom}
+                      onChange={(e) => setTonFrom(e.target.value)}
+                      aria-label="Tồn từ"
+                    />
+                    <span className="kho-daterange__sep">–</span>
+                    <input
+                      type="number"
+                      className="rc-input kho-num"
+                      placeholder="đến"
+                      value={tonTo}
+                      onChange={(e) => setTonTo(e.target.value)}
+                      aria-label="Tồn đến"
+                    />
+                  </div>
+                </div>
+                <div className="kho-filter__foot">
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    disabled={activeFilters === 0}
+                    onClick={clearFilters}
+                  >
+                    Xóa lọc
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    onClick={() => setFilterOpen(false)}
+                  >
+                    Xong
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         {tab === "ton" && canViewCost && groups.length > 0 && (
           <div className="kho-ton__value">
             Giá trị tồn: <b>{money(Math.round(totalValue))}</b>
@@ -359,6 +486,48 @@ export function KhoTonKhoPage({
           </Button>
         )}
       </div>
+
+      {/* Pill các bộ lọc đang bật — chỉ tab Tồn kho. */}
+      {tab === "ton" && activeFilters > 0 && (
+        <div className="kho-filterbar">
+          {hasDateFilter && (
+            <span className="kho-filterpill">
+              Ngày nhập: {dateFrom ? fmtDateISO(dateFrom) : "…"} – {dateTo ? fmtDateISO(dateTo) : "…"}
+              <button
+                type="button"
+                className="kho-filterpill__x"
+                aria-label="Bỏ lọc ngày nhập"
+                onClick={() => {
+                  setDateFrom("");
+                  setDateTo("");
+                }}
+              >
+                ✕
+              </button>
+            </span>
+          )}
+          {hasTonFilter && (
+            <span className="kho-filterpill">
+              Tồn: {tonFrom !== "" ? fmtQty(Number(tonFrom)) : "…"} –{" "}
+              {tonTo !== "" ? fmtQty(Number(tonTo)) : "…"}
+              <button
+                type="button"
+                className="kho-filterpill__x"
+                aria-label="Bỏ lọc khoảng tồn"
+                onClick={() => {
+                  setTonFrom("");
+                  setTonTo("");
+                }}
+              >
+                ✕
+              </button>
+            </span>
+          )}
+          <button type="button" className="kho-filterbar__clear" onClick={clearFilters}>
+            Xóa lọc
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="banner banner--error" role="alert" style={{ marginBottom: "var(--sp-4)" }}>
@@ -411,7 +580,7 @@ export function KhoTonKhoPage({
 
       <div className="rc__tablewrap">
         {tab === "ton" ? (
-          <table className="rc__table">
+          <table className="rc__table kho-table">
             <thead>
               <tr>
                 {canCreate && (
@@ -430,7 +599,6 @@ export function KhoTonKhoPage({
                     />
                   </th>
                 )}
-                <th style={{ width: 32 }} aria-label="Mở rộng" />
                 <th>Vật tư</th>
                 <th style={{ width: "12%" }}>Mức</th>
                 <th className="kho-num" style={{ width: "15%" }}>
@@ -438,6 +606,9 @@ export function KhoTonKhoPage({
                 </th>
                 <th className="kho-num" style={{ width: "9%" }}>
                   Số lô
+                </th>
+                <th className="kho-num" style={{ width: "13%" }}>
+                  Ngày nhập
                 </th>
                 {canSetThreshold && (
                   <>
@@ -462,7 +633,10 @@ export function KhoTonKhoPage({
                   <tr key={`sk-${i}`} className="rc-skel__row">
                     {Array.from({ length: tonCols }).map((__, c) => (
                       <td key={c}>
-                        <span className="rc-skel" style={{ width: c === 2 ? "70%" : "45%" }} />
+                        <span
+                          className="rc-skel"
+                          style={{ width: c === (canCreate ? 1 : 0) ? "70%" : "45%" }}
+                        />
                       </td>
                     ))}
                   </tr>
@@ -475,11 +649,18 @@ export function KhoTonKhoPage({
                       <p className="rc__empty-text">
                         {groups.length === 0
                           ? "Kho này chưa có hàng. Hàng sẽ xuất hiện sau khi ghi sổ phiếu nhập."
-                          : "Không có vật tư nào khớp tìm kiếm."}
+                          : "Không có vật tư nào khớp bộ lọc."}
                       </p>
                       {groups.length > 0 && (
-                        <button type="button" className="btn btn--ghost" onClick={() => setQ("")}>
-                          Xóa tìm kiếm
+                        <button
+                          type="button"
+                          className="btn btn--ghost"
+                          onClick={() => {
+                            setQ("");
+                            clearFilters();
+                          }}
+                        >
+                          Xóa bộ lọc
                         </button>
                       )}
                     </div>
@@ -487,16 +668,14 @@ export function KhoTonKhoPage({
                 </tr>
               ) : (
                 pagedGroups.map((g) => (
-                  <FragmentRow
+                  <MaterialRow
                     key={g.material_id}
                     g={g}
-                    isOpen={open.has(g.material_id)}
                     canViewCost={canViewCost}
                     selectable={canCreate}
                     checked={selected.has(g.material_id)}
                     onToggleSel={() => toggleSel(g.material_id)}
-                    onToggle={() => toggle(g.material_id)}
-                    onOpenVoucher={setOpenVoucher}
+                    onOpen={() => setOpenMaterial(g)}
                     canSetThreshold={canSetThreshold}
                     threshold={thresholds[g.material_id]}
                   />
@@ -505,7 +684,7 @@ export function KhoTonKhoPage({
             </tbody>
           </table>
         ) : (
-          <table className="rc__table">
+          <table className="rc__table kho-table">
             <thead>
               <tr>
                 <th style={{ width: "14%" }}>Số phiếu</th>
@@ -638,6 +817,20 @@ export function KhoTonKhoPage({
         </div>
       )}
 
+      {openMaterial && (
+        // Popup lịch sử Nhập/Xuất của 1 vật tư. Bấm mã lô / số phiếu bên trong → mở VoucherDrawer
+        // (render SAU khối này nên chồng lên trên). Vẫn giữ "bấm mã lô ra phiếu".
+        <MaterialHistoryDrawer
+          key={`mat-${openMaterial.material_id}`}
+          token={token}
+          khoId={khoId}
+          material={openMaterial}
+          canViewCost={canViewCost}
+          onOpenVoucher={setOpenVoucher}
+          onClose={() => setOpenMaterial(null)}
+        />
+      )}
+
       {openVoucher != null && (
         <VoucherDrawer
           key={`v-${openVoucher}`}
@@ -665,7 +858,6 @@ export function KhoTonKhoPage({
           canCreate={false}
           canViewStock={canViewStock}
           onClose={() => setOpenRequest(null)}
-          onChanged={loadVouchers}
           onCreateVoucher={() => {}}
         />
       )}
@@ -686,115 +878,327 @@ export function KhoTonKhoPage({
   );
 }
 
-function FragmentRow({
+function MaterialRow({
   g,
-  isOpen,
   canViewCost,
   selectable,
   checked,
   onToggleSel,
-  onToggle,
-  onOpenVoucher,
+  onOpen,
   canSetThreshold,
   threshold,
 }: {
   g: MaterialGroup;
-  isOpen: boolean;
   canViewCost: boolean;
   selectable: boolean;
   checked: boolean;
   onToggleSel: () => void;
-  onToggle: () => void;
-  onOpenVoucher: (voucherId: number) => void;
+  onOpen: () => void;
   canSetThreshold: boolean;
   threshold: StockThreshold | undefined;
 }) {
+  // Bấm dòng → mở popup lịch sử Nhập/Xuất (thay cho bung inline trước đây).
+  // Ngày nhập (lô đã sort cũ→mới ở groups): 1 lô → 1 ngày; nhiều lô → khoảng cũ→mới.
+  const oldest = g.lots.length ? g.lots[0].ngay_nhap : null;
+  const newest = g.lots.length ? g.lots[g.lots.length - 1].ngay_nhap : null;
+  const oneDay =
+    oldest != null && newest != null && oldest.slice(0, 10) === newest.slice(0, 10);
   return (
-    <>
-      <tr className="rc__row kho-ton__grow" onClick={onToggle}>
-        {selectable && (
-          <td onClick={(e) => e.stopPropagation()}>
-            <input
-              type="checkbox"
-              aria-label={`Chọn ${g.name ?? g.code ?? ""}`}
-              checked={checked}
-              onChange={onToggleSel}
-            />
-          </td>
-        )}
-        <td className="kho-ton__caret">
-          <span className={`kho-ton__chev${isOpen ? " is-open" : ""}`}>▸</span>
+    <tr className="rc__row kho-ton__grow" onClick={onOpen}>
+      {selectable && (
+        <td onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            aria-label={`Chọn ${g.name ?? g.code ?? ""}`}
+            checked={checked}
+            onChange={onToggleSel}
+          />
         </td>
-        <td>
-          <div className="rc__name">{g.name ?? "—"}</div>
-          {g.code && <div className="rc__muted kho-lines__code">{g.code}</div>}
-        </td>
-        <td>
-          {/* Chưa khai ngưỡng → không đèn (không cảnh báo bừa). */}
-          {g.level ? <StockLevelChip level={g.level} /> : <span className="rc__muted">—</span>}
-        </td>
-        <td className="kho-num kho-ton__total">{fmtQty(g.total)}</td>
-        <td className="kho-num">{g.lots.length}</td>
-        {canSetThreshold && (
+      )}
+      <td>
+        <div className="rc__name">{g.name ?? "—"}</div>
+        {g.code && <div className="rc__muted kho-lines__code">{g.code}</div>}
+      </td>
+      <td>
+        {/* Chưa khai ngưỡng → không đèn (không cảnh báo bừa). */}
+        {g.level ? <StockLevelChip level={g.level} /> : <span className="rc__muted">—</span>}
+      </td>
+      <td className="kho-num kho-ton__total">{fmtQty(g.total)}</td>
+      <td className="kho-num">{g.lots.length}</td>
+      <td className="kho-ton__date">
+        {oldest == null ? (
+          <span className="rc__muted">—</span>
+        ) : oneDay ? (
+          fmtDateISO(oldest)
+        ) : (
           <>
-            <td className="kho-num">
-              {threshold?.nguong_ton != null ? (
-                fmtQty(threshold.nguong_ton)
-              ) : (
-                <span className="rc__muted">—</span>
-              )}
-            </td>
-            <td className="kho-num">
-              {threshold?.nguong_toi_da != null ? (
-                fmtQty(threshold.nguong_toi_da)
-              ) : (
-                <span className="rc__muted">—</span>
-              )}
-            </td>
+            {fmtDateISO(oldest)}
+            <span className="kho-ton__arrow">→</span>
+            {fmtDateISO(newest)}
           </>
         )}
-        {canViewCost && <td className="kho-num">{money(Math.round(g.value))}</td>}
-      </tr>
-      {isOpen && (
-        <tr className="kho-ton__detailrow">
-          {selectable && <td />}
-          <td />
-          <td colSpan={4 + (canSetThreshold ? 2 : 0) + (canViewCost ? 1 : 0)}>
-            <table className="kho-ton__lots">
-              <thead>
-                <tr>
-                  <th>Mã lô</th>
-                  <th className="kho-num">Còn</th>
-                  <th>Ngày nhập</th>
-                  {canViewCost && <th className="kho-num">Đơn giá</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {g.lots.map((lot) => (
-                  <tr key={lot.id}>
-                    <td className="kho-lines__code">
-                      {lot.voucher_id != null ? (
-                        <CodeLink
-                          code={lot.ma_lo}
-                          onOpen={() => onOpenVoucher(lot.voucher_id!)}
-                        />
-                      ) : (
-                        lot.ma_lo
-                      )}
-                    </td>
-                    <td className="kho-num">{fmtQty(lot.sl_con_lai)}</td>
-                    <td>{fmtDateISO(lot.ngay_nhap)}</td>
-                    {canViewCost && (
-                      <td className="kho-num">{money(lot.don_gia_nhap ?? 0)}</td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      </td>
+      {canSetThreshold && (
+        <>
+          <td className="kho-num">
+            {threshold?.nguong_ton != null ? (
+              fmtQty(threshold.nguong_ton)
+            ) : (
+              <span className="rc__muted">—</span>
+            )}
           </td>
-        </tr>
+          <td className="kho-num">
+            {threshold?.nguong_toi_da != null ? (
+              fmtQty(threshold.nguong_toi_da)
+            ) : (
+              <span className="rc__muted">—</span>
+            )}
+          </td>
+        </>
       )}
-    </>
+      {canViewCost && <td className="kho-num">{money(Math.round(g.value))}</td>}
+    </tr>
+  );
+}
+
+function MaterialHistoryDrawer({
+  token,
+  khoId,
+  material,
+  canViewCost,
+  onOpenVoucher,
+  onClose,
+}: {
+  token: string;
+  khoId: number;
+  material: MaterialGroup;
+  canViewCost: boolean;
+  onOpenVoucher: (voucherId: number) => void;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<StockMaterialHistory | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"nhap" | "xuat">("nhap");
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    api.kho.phieu
+      .lichSuVatTu(token, material.material_id, khoId)
+      .then((d) => {
+        if (!alive) return;
+        setData(d);
+        setError(null);
+      })
+      .catch((e) => {
+        if (alive) setError(e instanceof ApiError ? e.message : "Không tải được lịch sử.");
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token, khoId, material.material_id]);
+
+  // Mỗi tab phân trang riêng, 10 dòng/trang; đổi tab → về trang 1.
+  useEffect(() => {
+    setPage(1);
+  }, [tab]);
+
+  const DRAWER_PAGE = 10;
+  const nhap = data?.nhap ?? [];
+  const xuat = data?.xuat ?? [];
+  const nhapPaged = nhap.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
+  const xuatPaged = xuat.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
+
+  return (
+    <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
+      <aside className="rc-drawer rc-drawer--mid" onClick={(e) => e.stopPropagation()}>
+        <header className="rc-drawer__head">
+          <div>
+            <div className="rc-drawer__kicker">LỊCH SỬ NHẬP / XUẤT</div>
+            <h2 className="rc-drawer__title">{material.name ?? material.code ?? "—"}</h2>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
+            {material.level && <StockLevelChip level={material.level} />}
+            <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
+              ✕
+            </button>
+          </div>
+        </header>
+
+        <div className="kho-meta">
+          {material.code ? `${material.code} · ` : ""}
+          Tồn khả dụng: <b>{fmtQty(data?.on_hand ?? material.total)}</b>
+          {material.dvt ? ` ${material.dvt}` : ""}
+        </div>
+
+        {/* Tab Nhập / Xuất — theo dõi nhập và xuất RIÊNG (spec màn Tồn kho). */}
+        <div
+          className="kho-shell__fns"
+          style={{ padding: "0 var(--sp-5)", borderBottom: "1px solid var(--rule-hair)" }}
+        >
+          {(
+            [
+              ["nhap", `Nhập (${nhap.length})`],
+              ["xuat", `Xuất (${xuat.length})`],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={`kho-shell__fn${tab === id ? " is-active" : ""}`}
+              onClick={() => setTab(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="rc-drawer__body">
+          {error && (
+            <div className="banner banner--error" role="alert">
+              <span>{error}</span>
+            </div>
+          )}
+          {loading ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-3)" }}>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <span key={i} className="rc-skel" style={{ width: `${90 - i * 12}%` }} />
+              ))}
+            </div>
+          ) : tab === "nhap" ? (
+            nhap.length === 0 ? (
+              <p className="kho-hint">Chưa có lô nhập nào cho vật tư này.</p>
+            ) : (
+              <div className="kho-lines__wrap">
+                <table className="kho-lines">
+                  <thead>
+                    <tr>
+                      <th style={{ minWidth: 150 }}>Mã lô</th>
+                      <th style={{ width: 96 }}>Ngày nhập</th>
+                      <th className="kho-num">SL nhập</th>
+                      <th className="kho-num">Còn</th>
+                      {canViewCost && <th className="kho-num">Đơn giá</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {nhapPaged.map((lot) => (
+                      <tr key={lot.id}>
+                        <td className="kho-lines__code">
+                          {lot.voucher_id != null ? (
+                            <CodeLink
+                              code={lot.ma_lo}
+                              onOpen={() => onOpenVoucher(lot.voucher_id!)}
+                            />
+                          ) : (
+                            lot.ma_lo
+                          )}
+                        </td>
+                        <td className="kho-lines__code">{fmtDateISO(lot.ngay_nhap)}</td>
+                        <td className="kho-num">{fmtQty(lot.sl_ban_dau)}</td>
+                        <td className="kho-num">{fmtQty(lot.sl_con_lai)}</td>
+                        {canViewCost && (
+                          <td className="kho-num">{money(lot.don_gia_nhap ?? 0)}</td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : xuat.length === 0 ? (
+            <p className="kho-hint">Chưa có lần xuất nào cho vật tư này.</p>
+          ) : (
+            <div className="kho-lines__wrap">
+              <table className="kho-lines">
+                <thead>
+                  <tr>
+                    <th style={{ width: 96 }}>Ngày xuất</th>
+                    <th style={{ width: 116 }}>Số phiếu</th>
+                    <th style={{ minWidth: 140 }}>Từ lô</th>
+                    <th className="kho-num">SL xuất</th>
+                    {canViewCost && <th className="kho-num">Giá vốn</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {xuatPaged.map((r, i) => (
+                    <tr key={`${r.voucher_id}-${r.lot_id}-${i}`}>
+                      <td className="kho-lines__code">{fmtDateISO(r.ngay)}</td>
+                      <td className="kho-lines__code">
+                        <CodeLink
+                          code={r.voucher_ma ?? "—"}
+                          onOpen={() => onOpenVoucher(r.voucher_id)}
+                        />
+                      </td>
+                      <td className="kho-lines__code">{r.ma_lo ?? "—"}</td>
+                      <td className="kho-num">{fmtQty(r.so_luong)}</td>
+                      {canViewCost && (
+                        <td className="kho-num">
+                          {r.don_gia != null ? money(Math.round(r.don_gia * r.so_luong)) : ""}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {!loading &&
+            (tab === "nhap" ? nhap.length : xuat.length) > DRAWER_PAGE && (
+              <DrawerPager
+                page={page}
+                total={tab === "nhap" ? nhap.length : xuat.length}
+                pageSize={DRAWER_PAGE}
+                onPage={setPage}
+              />
+            )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+// Phân trang cho bảng trong drawer Lịch sử Nhập/Xuất — cùng khung .kho-pager với màn Tồn kho.
+function DrawerPager({
+  page,
+  total,
+  pageSize,
+  onPage,
+}: {
+  page: number;
+  total: number;
+  pageSize: number;
+  onPage: (p: number) => void;
+}) {
+  const maxPage = Math.max(1, Math.ceil(total / pageSize));
+  return (
+    <div className="kho-pager">
+      <span className="kho-pager__page">{total} dòng</span>
+      <div className="rc__spacer" />
+      <button
+        type="button"
+        className="btn btn--ghost"
+        disabled={page <= 1}
+        onClick={() => onPage(Math.max(1, page - 1))}
+      >
+        Trước
+      </button>
+      <span className="kho-pager__page">
+        Trang {page} / {maxPage}
+      </span>
+      <button
+        type="button"
+        className="btn btn--ghost"
+        disabled={page >= maxPage}
+        onClick={() => onPage(Math.min(maxPage, page + 1))}
+      >
+        Sau
+      </button>
+    </div>
   );
 }
 
@@ -812,6 +1216,22 @@ const SearchIcon = () => (
   >
     <circle cx="11" cy="11" r="8" />
     <path d="m21 21-4.3-4.3" />
+  </svg>
+);
+
+const FilterIcon = () => (
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
   </svg>
 );
 

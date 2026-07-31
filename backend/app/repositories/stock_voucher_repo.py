@@ -100,6 +100,40 @@ class StockVoucherRepository:
             stmt = stmt.where(StockVoucher.id != exclude_voucher_id)
         return float(self.db.execute(stmt).scalar_one() or 0)
 
+    def xuat_history(self, material_id: int, kho_id: int) -> list[dict]:
+        """Lịch sử XUẤT của 1 mã hàng tại 1 kho — mỗi dòng phiếu XUẤT ĐÃ GHI SỔ, đích danh lô.
+
+        Giá vốn của dòng xuất = giá của lô bị trừ (`don_gia_nhap`), không phải `line.don_gia`
+        (phiếu xuất không khai giá). Router ẩn giá nếu người gọi thiếu `can_view_cost`.
+        """
+        from ..models.stock_lot import StockLot
+        from ..models.stock_voucher import VOUCHER_POSTED, VOUCHER_XUAT
+
+        stmt = (
+            select(
+                StockVoucher.id, StockVoucher.ma, StockVoucher.ngay,
+                StockVoucherLine.lot_id, StockVoucherLine.so_luong,
+                StockLot.ma_lo, StockLot.don_gia_nhap,
+            )
+            .join(StockVoucher, StockVoucher.id == StockVoucherLine.voucher_id)
+            .join(StockLot, StockLot.id == StockVoucherLine.lot_id, isouter=True)
+            .where(
+                StockVoucherLine.material_id == material_id,
+                StockVoucher.kho_id == kho_id,
+                StockVoucher.loai == VOUCHER_XUAT,
+                StockVoucher.trang_thai == VOUCHER_POSTED,
+            )
+            .order_by(StockVoucher.ngay.desc(), StockVoucher.id.desc())
+        )
+        return [
+            {
+                "voucher_id": r.id, "voucher_ma": r.ma, "ngay": r.ngay,
+                "lot_id": r.lot_id, "ma_lo": r.ma_lo,
+                "so_luong": float(r.so_luong), "don_gia": int(r.don_gia_nhap or 0),
+            }
+            for r in self.db.execute(stmt).all()
+        ]
+
     def create(self, *, ma: str, loai: str, request_id: int, nguoi_lap_id: int,
                lines: list[dict], **header) -> StockVoucher:
         obj = StockVoucher(ma=ma, loai=loai, request_id=request_id, nguoi_lap_id=nguoi_lap_id)

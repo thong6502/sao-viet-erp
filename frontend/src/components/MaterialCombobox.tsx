@@ -16,6 +16,7 @@ export function MaterialCombobox({
   onText,
   createLabel = "Tạo",
   hideCreate = false,
+  allowCreate = true,
   placeholder = "Gõ tên vật tư…",
   disabled = false,
 }: {
@@ -29,6 +30,8 @@ export function MaterialCombobox({
   createLabel?: string;
   /** Ẩn dòng "＋ Tạo …": khi text gõ vào ĐÃ là tên hàng mới (qua onText) thì không cần dòng này. */
   hideCreate?: boolean;
+  /** Cho phép tạo hàng MỚI. False (vd đề nghị XUẤT) → KHÔNG có dòng "＋ Tạo", chỉ chọn hàng có sẵn. */
+  allowCreate?: boolean;
   placeholder?: string;
   disabled?: boolean;
 }) {
@@ -94,7 +97,7 @@ export function MaterialCombobox({
 
   const trimmed = text.trim();
   const hasExact = opts.some((o) => (o.name ?? "").toLowerCase() === trimmed.toLowerCase());
-  const showCreate = trimmed.length > 0 && !hasExact && !hideCreate;
+  const showCreate = allowCreate && trimmed.length > 0 && !hasExact && !hideCreate;
   const rowCount = opts.length + (showCreate ? 1 : 0);
 
   function pick(m: StockMaterialOption) {
@@ -145,9 +148,11 @@ export function MaterialCombobox({
       )}
       {rowCount === 0 && (
         <li className="kho-combo__empty" role="presentation">
-          {hideCreate
-            ? "Không có hàng trùng — tên vừa gõ sẽ là hàng mới."
-            : "Gõ tên vật tư để tìm hoặc tạo mới."}
+          {!allowCreate
+            ? "Không tìm thấy vật tư — chỉ chọn hàng đã có trong kho."
+            : hideCreate
+              ? "Không có hàng trùng — tên vừa gõ sẽ là hàng mới."
+              : "Gõ tên vật tư để tìm hoặc tạo mới."}
         </li>
       )}
     </ul>
