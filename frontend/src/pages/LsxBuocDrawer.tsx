@@ -9,7 +9,7 @@
 // công đoạn" duy nhất ở bảng, nên người dùng không phải nhớ mình đang ở tầng lưu nào.
 //
 // Máy CHỈ ĐỀ XUẤT: số kế thừa nằm ở placeholder + nút 1-click, KHÔNG tự ghi vào ô.
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { LSX_DON_VI_LABELS, LSX_LOAI_BUOC_META, type LsxLoaiBuoc } from "../api/client";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
@@ -85,25 +85,14 @@ export function LsxBuocDrawer({
   const ngoai = row.loai_buoc === "thue_ngoai";
   const doiDonVi = row.don_vi_vao !== row.don_vi_ra;
   const t = useMemo(() => thoiLuong(row), [row]);
-  const [hienTatCaMay, setHienTatCaMay] = useState(false);
-
   const mayGoiYId = congDoanRefs?.find((c) => c.id === row.cong_doan_id)?.mayId ?? null;
   const nhomMay = useMemo(
     () => (mayRefs ? nhomMayTheoLoai(mayRefs, mayGoiYId) : []),
     [mayRefs, mayGoiYId],
   );
-  // Máy thay thế chỉ có nghĩa trong CÙNG loại máy (bế thay bế, không thay bằng máy cán). Mặc định
-  // lọc theo loại của máy chính + giữ máy đã chọn; cần khác loại thì bấm "Hiện tất cả".
-  const mayChinh = mayRefs?.find((m) => m.id === row.may_id) ?? null;
-  const dsMayThayThe = useMemo(() => {
-    if (!mayRefs) return [];
-    const base = hienTatCaMay
-      ? mayRefs
-      : mayRefs.filter(
-          (m) => (mayChinh != null && m.nhom === mayChinh.nhom) || row.may_thay_the_ids.includes(m.id),
-        );
-    return base.filter((m) => m.id !== row.may_id);
-  }, [mayRefs, hienTatCaMay, mayChinh, row.may_id, row.may_thay_the_ids]);
+  // Khối "Máy thay thế" đã BỎ (mig 0142): nó là ghi chú tay không ai đọc — xếp lịch/Gantt không tra
+  // tới. Việc "máy này kham nổi bài không" do `_may_fit.kiem_kha_nang` tự kiểm từ spec máy × quy
+  // cách mỗi lần gán/kéo máy, không cần ai nhớ tick trước.
 
   // Đầu việc khoán chọn được: danh sách server gửi + giữ cả đầu việc ĐANG ghim dù nó không còn khớp
   // (đổi tổ ở bước, hoặc bảng khoán đã sửa) — mất khỏi dropdown là người dùng tưởng dữ liệu bay.
@@ -472,57 +461,6 @@ export function LsxBuocDrawer({
                         5 người dán thì thời gian chạy chia 5 — chuẩn bị vẫn làm một lần.
                       </span>
                     </label>
-                  )}
-                  {mayRefs && (
-                    <div className="khsx-field khsx-field--wide">
-                      <span className="khsx-field__label">
-                        Máy thay thế
-                        <span className="khsx-field__origin">tham khảo — không tự xếp lịch</span>
-                      </span>
-                      {dsMayThayThe.length === 0 ? (
-                        <span className="khsx-field__hint">
-                          {mayChinh
-                            ? "Không có máy nào cùng loại."
-                            : "Chọn Máy ở trên trước — rồi bấm chọn máy cùng loại để dự phòng."}
-                        </span>
-                      ) : (
-                        <div className="khsx-maychip">
-                          {dsMayThayThe.map((m) => {
-                            const on = row.may_thay_the_ids.includes(m.id);
-                            return (
-                              <button
-                                key={m.id}
-                                type="button"
-                                className={`khsx-maychip__item${on ? " is-on" : ""}`}
-                                aria-pressed={on}
-                                disabled={!canUpdate}
-                                onClick={() =>
-                                  set(
-                                    "may_thay_the_ids",
-                                    on
-                                      ? row.may_thay_the_ids.filter((x) => x !== m.id)
-                                      : [...row.may_thay_the_ids, m.id],
-                                  )}
-                              >
-                                {/* Đã chọn không chỉ đổi màu — có dấu tick, để không phải phân
-                                    biệt bằng riêng màu nền. */}
-                                {on && <Icon name="check" size={11} />}
-                                {m.ten}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {canUpdate && mayRefs.length > 1 && (
-                        <button
-                          type="button"
-                          className="khsx-xlink"
-                          onClick={() => setHienTatCaMay((v) => !v)}
-                        >
-                          {hienTatCaMay ? "Chỉ máy cùng loại" : `Hiện tất cả ${mayRefs.length} máy`}
-                        </button>
-                      )}
-                    </div>
                   )}
                   {/* CÔNG VIỆC KHOÁN của bước — nằm ở "Ai làm" vì nó đi liền tổ nhận việc. Ý nghĩa
                       lớn nhất không phải tiền mà là CHỈ VIỆC: lệnh nói rõ bước cán này làm *cán mờ*

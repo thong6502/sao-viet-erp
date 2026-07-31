@@ -1838,34 +1838,10 @@ def seed_payroll(db: Session) -> None:
                             amount=1_500_000, reason="Ứng đợt 2 (chờ duyệt)")
 
 
-def seed_piece_work(db: Session) -> None:
-    """Seed đơn giá khoán demo (Lương khoán nhịp 2) — số hóa các bảng CÔNG KHOÁN thật.
-    Idempotent: bỏ qua nếu đã có đơn giá. (Tiền khoán = Phiếu sản lượng theo người, không seed.)"""
-    from .repositories.piece_work_repo import PieceWorkRepository
-
-    repo = PieceWorkRepository(db)
-    if repo.list_rates():
-        return
-    # (group, code, name, unit, price)
-    rates = [
-        ("to_boi", None, "Bồi carton 3 lớp E,B", "m2", 170),
-        ("to_boi", None, "Bồi carton 5 lớp BE,BC", "m2", 200),
-        ("to_boi", None, "Bồi tay", "m2", 250),
-        ("to_can_phu", None, "Cán bóng / mờ / phủ UV", "m2", 150),
-        ("to_can_phu", None, "Ghép màng matelize", "m2", 250),
-        ("to_cat", None, "Cắt giấy cuộn", "tan", 100_000),
-        ("to_cat", None, "Cắt tờ / cắt sóng", "tan", 120_000),
-        ("to_cat", None, "Cắt demi", "luot", 40),
-        ("to_cat", None, "Gỡ hàng hộp (carton 3 lớp)", "hop", 20),
-        # ĐVT là CHỮ HIỂN THỊ (khớp `don_vi_do.ten`), không phải mã gạch dưới: gõ "bai_in" thì
-        # module quy đổi không tra ra đơn vị nào → 3 dòng này mất khả năng đổi sang SL của bước.
-        ("may_in_5mau", "A", "Bài in 1–2 màu", "bài in", 120_000),
-        ("may_in_5mau", "B", "Bài in 3–4 màu", "bài in", 150_000),
-        ("may_in_5mau", "C", "Bài in 4 màu có màu pha", "bài in", 175_000),
-    ]
-    for g, code, name, unit, price in rates:
-        repo.create_rate(group_name=g, code=code, name=name, unit=unit, unit_price=price,
-                         note="Đơn giá khoán demo")
+# `seed_piece_work` ĐÃ GỠ (mig 0141). Nó seed 12 đơn giá khoán demo theo mã tổ cứng ('to_boi',
+# 'to_cat', 'may_in_5mau'…) mà KHÔNG gắn `department_id`; bước lệnh sản xuất lọc đầu việc bằng
+# chính id đó (`dau_viec_khop`) nên 12 dòng ấy không bao giờ tới được người lập lệnh. Bảng khoán
+# thật — có tổ đầy đủ — do `seed_luong_ban_sx._DON_GIA_KHOAN` sinh.
 
 
 # --- Sample phiếu tính giá (costing tickets) demo data ---------------------
@@ -2207,7 +2183,9 @@ def seed_all(db: Session) -> None:
         seed_attendance(db)
         seed_leaves(db)
         seed_payroll(db)
-        seed_piece_work(db)
+        # `seed_piece_work` đã BỎ (mig 0141): 12 dòng đơn giá khoán demo của nó không gắn
+        # `department_id` nên bước lệnh sản xuất không bao giờ thấy. Bảng khoán thật do
+        # `seed_luong_ban_sx` sinh, có tổ đầy đủ.
         seed_customers(db)
         seed_products(db)
         seed_sales_history(db)

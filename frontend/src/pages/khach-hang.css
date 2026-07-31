@@ -120,8 +120,9 @@
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  background: var(--rust-soft);
-  color: var(--rust-deep);
+  background: var(--paper, #f8fafc);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  color: var(--ink, #0f172a);
 }
 
 .kh__ckpi-body {
@@ -558,20 +559,19 @@
 /* Hover hàng = tint RUST, không phải xám (UI_DESIGN §2). Xám trên nền trắng gần như
    không thấy và làm bảng thành thứ chết. rust-soft lệch 1,258:1 so với --canvas. */
 .kh__row:hover {
-  background-color: var(--rust-soft) !important;
+  background-color: var(--paper, #f8fafc) !important;
 }
 
-/* Bàn phím: nền mờ là không đủ, phải có vành nét rõ (a11y — global.css dùng rust 2px). */
 .kh__row:focus-visible {
-  background-color: var(--rust-soft) !important;
-  outline: 2px solid var(--rust);
+  background-color: var(--paper, #f8fafc) !important;
+  outline: 2px solid var(--ink, #0f172a);
   outline-offset: -2px;
 }
 
-/* Hàng đang mở: nền ấm + viền trái rust, cùng ngôn ngữ với .row-selected ở global.css. */
+/* Hàng đang mở: Nền Slate nhạt sang trọng + viền trái Charcoal */
 .kh__row.is-open {
-  background-color: var(--rust-soft) !important;
-  box-shadow: inset 3px 0 0 var(--rust);
+  background-color: #f1f5f9 !important;
+  box-shadow: inset 3px 0 0 var(--ink, #0f172a);
 }
 
 .kh__identity-cell {
@@ -3011,30 +3011,37 @@
   font-size: 12px;
   letter-spacing: 0.04em;
   flex-shrink: 0;
-  border: 1px solid rgba(226, 232, 240, 0.8);
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  background: #f1f5f9;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
-/* Tông ô định danh Doanh nghiệp: Gradient Slate & Charcoal cao cấp */
+/* Light Slate Neutral Avatar Tones */
 .kh__avatar--plum {
-  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-  color: #ffffff;
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #cbd5e1;
 }
 .kh__avatar--moss {
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  color: #ffffff;
+  background: #f8fafc;
+  color: #0f172a;
+  border-color: #e2e8f0;
 }
 .kh__avatar--amber {
-  background: linear-gradient(135deg, #334155 0%, #475569 100%);
-  color: #ffffff;
+  background: #f1f5f9;
+  color: #1e293b;
+  border-color: #cbd5e1;
 }
 .kh__avatar--rust {
-  background: linear-gradient(135deg, #475569 0%, #64748b 100%);
-  color: #ffffff;
+  background: #e2e8f0;
+  color: #0f172a;
+  border-color: #cbd5e1;
 }
 .kh__avatar--steel {
-  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-  color: #ffffff;
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #cbd5e1;
 }
 
 .kh__row-badges {
@@ -5570,9 +5577,9 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: #fdf4ff;
-  border: 1px solid #f5d0fe;
-  color: #a21caf;
+  background: var(--paper, #f8fafc);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  color: var(--ink, #0f172a);
   border-radius: 6px;
   font-size: 11px;
   font-weight: var(--fw-bold, 700);
@@ -5631,8 +5638,9 @@
   gap: 4px;
   font-size: 11.5px;
   font-weight: var(--fw-bold, 600);
-  color: var(--rust-deep, #8a2d07);
-  background: var(--rust-soft, #f4e2d6);
+  color: var(--ash, #475569);
+  background: var(--paper, #f8fafc);
+  border: 1px solid var(--rule-soft, #e2e8f0);
   padding: 2px 8px;
   border-radius: 6px;
   width: fit-content;
@@ -5658,7 +5666,7 @@
   align-items: center;
   gap: 6px;
   padding: 6px 14px;
-  background: var(--rust, #c5400a);
+  background: var(--ink, #0f172a);
   color: #ffffff;
   border: none;
   border-radius: 8px;
@@ -5666,13 +5674,13 @@
   font-weight: var(--fw-bold, 700);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 2px 6px rgba(197, 64, 10, 0.2);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.15);
 }
 
 .kh__care-btn-call:hover:not(:disabled) {
-  background: var(--rust-deep, #8a2d07);
+  background: #1e293b;
   transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(197, 64, 10, 0.3);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.25);
 }
 
 .kh__care-btn-dismiss {
@@ -5693,5 +5701,18 @@
   background: #fee2e2;
   border-color: #fca5a5;
   color: #dc2626;
+}
+
+.kh__remind-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--paper, #f8fafc);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  color: var(--ink, #0f172a);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: var(--fw-bold, 700);
 }
 

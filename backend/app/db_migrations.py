@@ -4279,6 +4279,50 @@ def _migrate_lsx_qc_chua_ve_may(db: Session) -> None:
     db.commit()
 
 
+def _migrate_xoa_don_gia_khoan_mo_coi(db: Session) -> None:
+    """Xoá 12 dòng đơn giá khoán DEMO mồ côi do `seed_piece_work` (seed.py) sinh ra.
+
+    Chúng mang `group_name` là mã cứng ('to_boi', 'to_cat', 'may_in_5mau'…) và `department_id` để
+    TRỐNG. Bước lệnh sản xuất lọc đầu việc bằng `department_id` (`dau_viec_khop`) nên 12 dòng này
+    chưa bao giờ tới được người lập lệnh — chúng chỉ làm bảng khai dài ra và khiến ô "Tổ" phải giữ
+    danh sách mã cứng. Đơn giá khoán THẬT do `seed_luong_ban_sx` sinh, có `department_id` đầy đủ.
+
+    Nhắm CHÍNH XÁC dòng của seed (`note` = 'Đơn giá khoán demo' và chưa gắn tổ): đơn giá người dùng
+    tự khai — kể cả khi cũng chưa gắn tổ — KHÔNG bị đụng tới.
+
+    An toàn với lệnh đã phát: bước lệnh ghim ẢNH CHỤP (`khoan_snapshot`: tên · đơn vị · đơn giá)
+    chứ không đọc-sống bảng giá, nên xoá dòng gốc không xê dịch lệnh cũ."""
+    insp = inspect(db.get_bind())
+    if "piece_rates" not in insp.get_table_names():
+        return
+    db.execute(text(
+        "DELETE FROM piece_rates WHERE department_id IS NULL AND note = :n"
+    ), {"n": "Đơn giá khoán demo"})
+    db.commit()
+
+
+def _migrate_lsx_drop_may_thay_the(db: Session) -> None:
+    """Bỏ `lsx_cong_doan.may_thay_the_ids` — danh sách máy thay thế KHÔNG ai đọc.
+
+    Nó chỉ là ghi chú tay ("for information only" theo Print MIS): xếp lịch, Gantt và danh sách vấn
+    đề đều không tra tới. Việc "máy này có kham nổi bài không" đã có `_may_fit.kiem_kha_nang` tự
+    tính từ spec máy × quy cách (khổ · số màu · định lượng) mỗi lần gán/kéo máy — số liệu sống,
+    không phụ thuộc ai nhớ tick.
+
+    Best-effort (SQLite cũ có thể từ chối DROP COLUMN → cột mồ côi vô hại vì model không map).
+    No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "lsx_cong_doan" not in insp.get_table_names():
+        return
+    if "may_thay_the_ids" not in _existing_columns(insp, "lsx_cong_doan"):
+        return
+    try:
+        db.execute(text("ALTER TABLE lsx_cong_doan DROP COLUMN may_thay_the_ids"))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -4528,6 +4572,10 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0139_ptg_drop_chua_thua", _migrate_ptg_drop_chua_thua),
     # Lệnh cũ còn ôm chừa mồ côi trong snapshot → chuyển sang khoá máy, kẻo lệch với phiếu.
     ("0140_lsx_qc_chua_ve_may", _migrate_lsx_qc_chua_ve_may),
+    # Đơn giá khoán demo không gắn tổ → bước lệnh không bao giờ thấy; xoá cho sạch bảng khai.
+    ("0141_xoa_don_gia_khoan_mo_coi", _migrate_xoa_don_gia_khoan_mo_coi),
+    # Máy thay thế: ghi chú tay không ai đọc → bỏ, để `_may_fit` tự kiểm khi gán/kéo máy.
+    ("0142_lsx_drop_may_thay_the", _migrate_lsx_drop_may_thay_the),
 ]
 
 

@@ -75,6 +75,15 @@ Việc thứ 3 có test canh (`backend/tests/test_schema_documented.py`): thiế
 cd backend && python -m pytest tests/test_schema_documented.py -q
 ```
 
+Hoặc bật hook để máy tự chặn — chạy MỘT LẦN cho mỗi bản clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`.githooks/pre-commit` chỉ chạy guard khi commit có đụng `backend/app/models/` hoặc `DB_SCHEMA.md`
+(commit UI không phải chờ), và tự bỏ qua nếu máy không có python/pytest. Cần vượt: `--no-verify`.
+
 Thêm bảng thì chép khung sẵn ở mục *"Template for a new table"* cuối `DB_SCHEMA.md`.
 
 > **Đừng đánh lại số migration.** Trong `MIGRATIONS` có nhiều dãy số song song trùng nhau (`0113`

@@ -964,7 +964,6 @@ class LsxService:
             "department_id": cd.department_id,
             "department_ten": dept_names.get(cd.department_id),
             "may_id": cd.may_id, "may_ten": may_names.get(cd.may_id),
-            "may_thay_the_ids": cd.may_thay_the_ids or [],
             "so_luong_vao": vao, "so_luong_ra": _f(cd.so_luong_ra),
             "don_vi_vao": cd.don_vi_vao, "don_vi_ra": cd.don_vi_ra,
             "he_so_quy_doi": _f(cd.he_so_quy_doi),
@@ -1082,7 +1081,7 @@ class LsxService:
     _ROUTING_FIELD_THUAN = (
         "may_id", "bat_buoc", "he_so_quy_doi", "hao_hut", "hao_hut_pct", "so_luot_chay",
         "so_nhan_cong", "setup_phut", "nang_suat", "don_vi_nang_suat", "chay_phut",
-        "ve_sinh_phut", "cho_phut", "di_chuyen_phut", "may_thay_the_ids", "dieu_kien_json",
+        "ve_sinh_phut", "cho_phut", "di_chuyen_phut", "dieu_kien_json",
         "nha_cung_cap", "sl_gui", "ngay_gui_dk", "van_chuyen_ngay", "gia_cong_ngay",
         "ngay_nhan_dk", "hao_hut_cho_phep", "don_gia_gia_cong", "yeu_cau_ky_thuat",
         "nguoi_giao_nhan_id", "ghi_chu",

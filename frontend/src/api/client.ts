@@ -675,7 +675,7 @@ export interface LsxCongDoan extends LsxThueNgoaiFields {
   id: number; thu_tu: number; cong_doan_id: number | null;
   ten: string; nhom: string | null; loai_buoc: LsxLoaiBuoc; bat_buoc: boolean;
   department_id: number | null; department_ten: string | null;
-  may_id: number | null; may_ten: string | null; may_thay_the_ids: number[];
+  may_id: number | null; may_ten: string | null;
   // Đơn vị VÀO ≠ RA là chuyện thường ở bế/xén — hệ số quy đổi nối hai đầu.
   so_luong_vao: number; so_luong_ra: number;
   don_vi_vao: string; don_vi_ra: string; he_so_quy_doi: number;
@@ -709,7 +709,7 @@ export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   piece_rate_id?: number | null;
   thu_tu?: number; cong_doan_id?: number | null; ten?: string; nhom?: string | null;
   loai_buoc?: LsxLoaiBuoc; bat_buoc?: boolean;
-  department_id?: number | null; may_id?: number | null; may_thay_the_ids?: number[];
+  department_id?: number | null; may_id?: number | null;
   so_luong_vao?: number; so_luong_ra?: number;
   don_vi_vao?: string; don_vi_ra?: string; he_so_quy_doi?: number;
   hao_hut?: number; hao_hut_pct?: number; so_luot_chay?: number; so_nhan_cong?: number;
