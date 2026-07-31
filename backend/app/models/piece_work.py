@@ -108,3 +108,48 @@ class PieceLeaderBonusBracket(Base):
     rate_pct: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class PieceLeaderBonusSetting(Base):
+    """NGƯỠNG tối thiểu để xét thưởng/phạt tổ trưởng — mỗi tổ một dòng (chủ 30/07/2026).
+
+    Chủ: *"ở đó mới có Tỷ lệ lỗi tới nhưng không biết nằm trong phạm vi sản lượng là bao nhiêu"*.
+
+    **Vì sao cần:** bảng bậc chỉ có MỘT chiều là tỷ lệ lỗi, nên tổ làm rất ít và tổ làm rất nhiều
+    được đối xử như nhau. Tệ hơn: làm càng ít thì tỷ lệ lỗi càng vô nghĩa — hỏng 2 tờ trên 20 tờ đã
+    là 10%, đủ rơi xuống bậc phạt nặng nhất dù thực tế chẳng làm được gì.
+
+    Luật:
+        sản lượng của tổ  <  ngưỡng  ⇒  KHÔNG thưởng, KHÔNG phạt, bất kể tỷ lệ lỗi
+        sản lượng của tổ  ≥  ngưỡng  ⇒  áp bảng bậc như thường (">=", KHÔNG phải ">")
+        ngưỡng = 0                   ⇒  KHÔNG gác
+        chưa biết sản lượng (None)   ⇒  COI NHƯ dưới ngưỡng (fail-closed)
+
+    Vế cuối là chủ ý: chưa xác nhận được tổ có đạt ngưỡng hay không thì không được phát thưởng.
+
+    Ngưỡng là **một con số trần, KHÔNG kèm đơn vị** (chủ chốt 30/07/2026: *"Đơn vị bỏ đi"*).
+    ⚠️ Hệ quả cho người nối nguồn sản lượng sau này: cộng **toàn bộ** sản lượng của tổ trong kỳ rồi
+    so, không lọc theo đơn vị. Tổ nào làm nhiều loại việc khác đơn vị (vd vừa "m²" vừa "tờ") thì con
+    số cộng lại không có ý nghĩa vật lý — đó là đánh đổi đã biết, không phải sơ suất.
+
+    ⚠️ Cùng số phận với bảng bậc: **CHƯA RA TIỀN** cho tới khi dựng lại nguồn sản lượng — chưa có
+    nguồn nào báo sản lượng nên mọi tổ đều rơi vào nhánh fail-closed. Khai ở đây là chuẩn bị trước.
+
+    Bảng riêng chứ không thêm cột vào `piece_leader_bonus_brackets`: ngưỡng là MỘT luật cho cả bộ
+    bậc, nhét vào từng bậc thì mỗi dòng mang một bản sao và sớm muộn lệch nhau.
+    """
+
+    __tablename__ = "piece_leader_bonus_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Soft-ref `departments.id` (không FK cứng, giống `piece_rates` và bảng bậc). UNIQUE: mỗi tổ
+    # đúng một ngưỡng — hai dòng cho cùng một tổ thì không ai biết dòng nào đang có hiệu lực.
+    department_id: Mapped[int] = mapped_column(Integer, unique=True, index=True, nullable=False)
+    # Sản lượng tối thiểu trong kỳ. `0` = không gác. Không kèm đơn vị — xem docstring.
+    min_output_qty: Mapped[float] = mapped_column(
+        Numeric(14, 2), nullable=False, default=0, server_default="0"
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )

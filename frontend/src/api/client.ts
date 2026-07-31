@@ -840,6 +840,8 @@ export interface Department {
   parent_id?: number | null;
   head_user_id?: number | null;
   head_name?: string | null;
+  /** Ảnh của trưởng phòng — phải do server trả, FE chỉ biết ảnh của chính người đang đăng nhập. */
+  head_avatar_url?: string | null;
   /** This department's own role/user counts. */
   role_count?: number;
   user_count?: number;
@@ -896,6 +898,8 @@ export interface DepartmentMember {
   role_name?: string | null;
   is_active?: boolean | null;
   is_head: boolean;
+  /** Ảnh lấy từ `users.avatar_url`. Null = chưa có tài khoản, hoặc có mà chưa tải ảnh. */
+  avatar_url?: string | null;
 }
 
 /** A node in a department's delete-preview subtree (spec-05). */
@@ -909,6 +913,7 @@ export interface UserBrief {
   id: number;
   name: string;
   username: string;
+  avatar_url?: string | null;
 }
 
 export interface UserRow {
@@ -2396,6 +2401,10 @@ export interface ShiftPlanCell {
   shift_id: number | null;
   source: "day" | "assign" | "default" | "none";
   is_off: boolean;
+  /** Nghỉ phép ĐÃ DUYỆT — lớp phủ CHỈ ĐỂ XEM, đọc thẳng từ phiếu, không nằm trong bảng ca.
+   *  Khác hẳn `is_off` (dấu kế hoạch người dùng tự tô, không ra tiền). Huỷ phiếu là dấu tự hết. */
+  leave_name?: string | null;
+  leave_paid?: boolean | null;
 }
 
 export interface ShiftPlanDay {
@@ -2884,9 +2893,6 @@ export interface PayrollLine {
   ca_pay?: number;
   /** Premium CA ĐÊM theo giờ (giờ 22h–06h × hệ số + tăng ca đêm) — tự tính từ chấm công, DÒNG RIÊNG. */
   night_premium_pay?: number;
-  /** % đạt KPI của tháng (nhập tay ở modal "Sửa lương") và tiền thưởng đã quy ra. */
-  kpi_percent: number;
-  kpi_bonus: number;
   vi_pham: number;
   /**
    * Khoản DANH MỤC của dòng lương (snapshot Tầng 3) — phiếu lương in TỪNG DÒNG từ đây.
@@ -2940,8 +2946,6 @@ export interface PayrollLineInput {
   di_tre_manual?: boolean | null;
   monthly_override?: number | null;
   note?: string | null;
-  /** % đạt KPI → tiền = % × mức trần KPI của bộ phận (Cấu hình lương, Tab 2). */
-  kpi_percent?: number | null;
   dieu_chinh_luong?: number | null;   // cho phép ±
   di_tre?: number | null;
   dt_vuot_troi?: number | null;
@@ -2974,10 +2978,9 @@ export interface LatePenaltyBracketInput {
 }
 
 // --- Cấu hình lương: thành phần lương theo BỘ PHẬN (Tab 2) ------------------
-// PRD v2.1: chỉ còn 4 khoản khai theo TỔ. Các khoản phụ cấp (ca · thâm niên) đã chuyển sang
-// KHAI TAY ở từng NV (`employee_salaries`); gửi key cũ lên BE giờ ăn 422.
+// PRD v2.1: chỉ còn 3 khoản khai theo TỔ. Phụ cấp (ca · thâm niên) đã chuyển sang KHAI TAY ở
+// từng NV (`employee_salaries`), thưởng KPI xoá hẳn 29/07/2026; gửi key cũ lên BE giờ ăn 422.
 export type SalaryComponentKey =
-  | "kpi"
   | "chuyen_can"
   | "luong_khoan"
   | "tang_ca";
@@ -3165,6 +3168,12 @@ export interface LeaderBracketInput {
 }
 export interface LeaderBracketsOut {
   department_id: number;
+  /** Ngưỡng SẢN LƯỢNG của tổ trong kỳ để được xét thưởng/phạt. `0` = không gác.
+   *  Dưới ngưỡng ⇒ không thưởng không phạt, bất kể tỷ lệ lỗi — vì làm quá ít thì tỷ lệ lỗi vô
+   *  nghĩa (hỏng 2 tờ trên 20 tờ đã là 10%). Đi CÙNG GÓI với `items`: màn chỉ có một nút Lưu.
+   *  ⚠️ Đây là SỐ LƯỢNG, khác hẳn con số mà % thưởng/phạt nhân lên (đó là TIỀN khoán của tổ).
+   *  Con số trần, KHÔNG kèm đơn vị (chủ chốt "Đơn vị bỏ đi"). */
+  min_output_qty: number;
   items: LeaderBracket[];
 }
 
@@ -4535,6 +4544,93 @@ export interface StockThresholdInput {
   canh_bao?: boolean;
 }
 
+// --- Nội quy công ty --------------------------------------------------------
+
+export interface NoiQuyAttachment {
+  id: number;
+  file_name: string;
+  file_url: string;
+  file_type: string | null;
+  /** `true` = file GỐC của lần tải nội dung lên, hệ thống tự đính (nút "Tải bản PDF gốc" trỏ vào
+   *  nó). Tải lại thì hàng này bị THAY, không cộng dồn. File do người dùng tự bấm "Đính kèm" luôn
+   *  là `false` và không bao giờ bị thay. */
+  is_import_source: boolean;
+  uploaded_at: string;
+}
+
+/** Một TRANG của bản nội quy dạng PDF, server đã dựng sẵn thành ảnh.
+ *
+ * `width`/`height` là kích thước ảnh THẬT, phải đặt lên `<img>`: ảnh tải lười (`loading="lazy"`)
+ * mà không khai sẵn khung thì trang nhảy giật mỗi lần một trang tải xong. Bản cũ có thể trả 0 —
+ * khi đó BỎ HẲN thuộc tính, đừng đặt `width="0"` (ảnh sẽ co về 0 và biến mất). */
+export interface NoiQuyPage {
+  page_no: number;
+  file_url: string;
+  width: number;
+  height: number;
+}
+
+/** Một TÀI LIỆU trong bộ nội quy: "Nội quy lao động", "Quy chế lương thưởng", "An toàn lao
+ *  động", "Các lỗi thường gặp"… Đây là dòng trong DANH SÁCH ở cột phải; bấm vào là mở nội dung.
+ *
+ *  ⚠️ Mỗi tài liệu ban hành RIÊNG: sửa "Các lỗi thường gặp" thì "Nội quy lao động" giữ nguyên
+ *  ngày ban hành cũ. Vì vậy `published_at` ở đây là của CHÍNH tài liệu này, không phải của cả bộ. */
+export interface NoiQuyDocument {
+  id: number;
+  title: string;
+  seq: number;
+  is_active: boolean;
+  /** `null` = tài liệu chưa ban hành lần nào. `documents()` (danh sách của nhân viên) đã LỌC BỎ
+   *  những dòng này — bấm vào là ra trang trắng, trông y như hệ thống hỏng. `documentsAll()`
+   *  (danh sách của người soạn) thì giữ lại để họ còn làm tiếp. */
+  published_at: string | null;
+  /** Tài liệu này có bản nháp đang treo. CHỈ có nghĩa ở `documentsAll()`. */
+  co_nhap: boolean;
+}
+
+/** Một bản nội quy. `has_content=false` ⇒ CHƯA có bản nào (không phải lỗi tải). */
+export interface NoiQuy {
+  has_content: boolean;
+  id: number | null;
+  /** Tài liệu chứa bản này. `null` khi `has_content=false`. */
+  document_id: number | null;
+  /** Tiêu đề CỦA BẢN NÀY — bản chụp lúc ban hành, KHÔNG phải tên hiện hành của tài liệu. Đổi tên
+   *  tài liệu hôm nay không viết lại tiêu đề của bản đã ban hành hôm qua. */
+  title: string | null;
+  noi_dung: string;
+  /** `html` = gõ trong app (đọc `noi_dung`) · `file` = hiện đúng bản gốc đã tải lên.
+   *  Với `file` thì nội dung nằm ở `pages` — trừ khi `pages` rỗng (đường Word: `noi_dung` là HTML
+   *  giàu định dạng). Đây là cột FE rẽ nhánh hiển thị. */
+  source_kind: "html" | "file";
+  ghi_chu: string | null;
+  status: "draft" | "published" | null;
+  published_at: string | null;
+  published_by_name: string | null;
+  updated_at: string | null;
+  attachments: NoiQuyAttachment[];
+  /** Rỗng với bản `html`. Có giá trị ⇒ nội dung LÀ ảnh trang, KHÔNG phải `noi_dung`. */
+  pages: NoiQuyPage[];
+}
+
+/** Dòng lịch sử ban hành — CỐ Ý không có `noi_dung` (chỉ là mốc, không mở lại được). */
+export interface NoiQuyVersionRow {
+  id: number;
+  ghi_chu: string | null;
+  published_at: string | null;
+  published_by_name: string | null;
+}
+
+export interface NoiQuyDraftInput {
+  noi_dung: string;
+  ghi_chu?: string | null;
+  /** BỎ TRỐNG = giữ nguyên nguồn hiện tại — đây là mặc định ĐÚNG cho mọi lần lưu bình thường.
+   *
+   *  ⚠️ Truyền `"html"` là server XOÁ ảnh trang của bản nháp. Chỉ gửi khi người dùng thật sự chọn
+   *  "chuyển sang gõ trong app": lỡ gửi trong một lần "Lưu nháp" thường là mất trắng bản PDF đã
+   *  dựng. `"file"` = nội dung đang lưu là bản chuyển đổi trung thực từ tài liệu tải lên. */
+  source_kind?: "html" | "file" | null;
+}
+
 export const api = {
   login(username: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>("/api/auth/login", {
@@ -5877,11 +5973,14 @@ export const api = {
     leaderBrackets(token: string, departmentId: number): Promise<LeaderBracketsOut> {
       return authed<LeaderBracketsOut>(`/api/luong/khoan/leader-brackets?department_id=${departmentId}`, token);
     },
-    /** Thay CẢ BỘ mốc của một tổ. Mảng rỗng = tổ này không áp thưởng/phạt tổ trưởng. */
-    setLeaderBrackets(token: string, departmentId: number, items: LeaderBracketInput[]): Promise<LeaderBracketsOut> {
+    /** Thay CẢ BỘ mốc của một tổ + ngưỡng sản lượng. Mảng rỗng = tổ không áp thưởng/phạt. */
+    setLeaderBrackets(token: string, departmentId: number, items: LeaderBracketInput[],
+                      minOutputQty = 0): Promise<LeaderBracketsOut> {
       return authed<LeaderBracketsOut>("/api/luong/khoan/leader-brackets", token, {
         method: "PUT",
-        body: JSON.stringify({ department_id: departmentId, items }),
+        body: JSON.stringify({
+          department_id: departmentId, items, min_output_qty: minOutputQty,
+        }),
       });
     },
     createKhoanRate(token: string, input: PieceRateInput): Promise<PieceRate> {
@@ -7008,6 +7107,128 @@ export const api = {
           body: JSON.stringify(body),
         });
       },
+    },
+  },
+
+  // --- Nội quy công ty (module `noi_quy`) -----------------------------------
+  // Bộ nội quy là NHIỀU TÀI LIỆU. Gần như mọi endpoint đều mang `documentId` — ban hành,
+  // nháp, lịch sử, file đính kèm đều RIÊNG từng tài liệu (chủ chốt 30/07/2026).
+  //
+  // `documents` và `docCurrent` là màn ĐỌC của TOÀN CÔNG TY — backend CỐ Ý chỉ đòi đăng nhập,
+  // không gác `require_permission`. Mọi hàm còn lại cần `noi_quy:update` (hiện chỉ Giám đốc):
+  // gọi khi không có quyền là ăn 403, nên UI phải kiểm `can("noi_quy","update")` TRƯỚC khi gọi.
+  noiQuy: {
+    /** DANH SÁCH TÀI LIỆU cho cột phải — ai đăng nhập cũng gọi được. Chỉ tài liệu đang dùng VÀ
+     *  đã ban hành ít nhất một lần. */
+    documents(token: string): Promise<{ items: NoiQuyDocument[] }> {
+      return authed<{ items: NoiQuyDocument[] }>("/api/noi-quy/documents", token);
+    },
+    /** Danh sách cho NGƯỜI SOẠN — kèm tài liệu chưa ban hành, tài liệu đã ẩn, và cờ `co_nhap`. */
+    documentsAll(token: string): Promise<{ items: NoiQuyDocument[] }> {
+      return authed<{ items: NoiQuyDocument[] }>("/api/noi-quy/documents/tat-ca", token);
+    },
+    /** Bản đang hiệu lực của MỘT tài liệu. `has_content=false` ⇒ tài liệu này chưa ban hành. */
+    docCurrent(token: string, documentId: number): Promise<NoiQuy> {
+      return authed<NoiQuy>(`/api/noi-quy/documents/${documentId}/current`, token);
+    },
+    createDocument(token: string, title: string): Promise<NoiQuyDocument> {
+      return authed<NoiQuyDocument>("/api/noi-quy/documents", token, {
+        method: "POST",
+        body: JSON.stringify({ title }),
+      });
+    },
+    /** Đổi tên / xếp lại thứ tự / ẩn. **KHÔNG có đường XOÁ** — backend cố ý không mở endpoint
+     *  xoá: xoá một tài liệu là kéo theo cả lịch sử ban hành + ảnh trang + hàng file qua CASCADE.
+     *  Muốn cất đi thì `is_active: false`. */
+    patchDocument(
+      token: string,
+      documentId: number,
+      body: { title?: string; seq?: number; is_active?: boolean },
+    ): Promise<NoiQuyDocument> {
+      return authed<NoiQuyDocument>(`/api/noi-quy/documents/${documentId}`, token, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+    },
+    versions(token: string, documentId: number): Promise<{ items: NoiQuyVersionRow[] }> {
+      return authed<{ items: NoiQuyVersionRow[] }>(
+        `/api/noi-quy/documents/${documentId}/versions`,
+        token,
+      );
+    },
+    /** ⚠️ CÓ TÁC DỤNG PHỤ GHI DB: backend TẠO hàng nháp cho tài liệu này nếu chưa có (chép sẵn
+     *  nội dung + file + ảnh trang của bản hiệu lực).
+     *
+     *  ⇒ ĐỪNG gọi cho từng tài liệu lúc mở màn: làm thế là mọi tài liệu đều sinh nháp và cờ
+     *  `co_nhap` trong `documentsAll()` bật hết, mất sạch ý nghĩa. Chỉ gọi khi người dùng thật
+     *  sự bấm "Sửa". */
+    draft(token: string, documentId: number): Promise<NoiQuy> {
+      return authed<NoiQuy>(`/api/noi-quy/documents/${documentId}/draft`, token);
+    },
+    saveDraft(token: string, documentId: number, input: NoiQuyDraftInput): Promise<NoiQuy> {
+      return authed<NoiQuy>(`/api/noi-quy/documents/${documentId}/draft`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    /** Ban hành ĐÚNG MỘT tài liệu; các tài liệu khác giữ nguyên ngày ban hành cũ.
+     *
+     *  KHÔNG nhận body: thay đổi đang giữ trên màn (ghi chú) phải `saveDraft` TRƯỚC, nếu không
+     *  backend ban hành bản nháp CŨ mà không báo lỗi. */
+    publish(token: string, documentId: number): Promise<NoiQuy> {
+      return authed<NoiQuy>(`/api/noi-quy/documents/${documentId}/publish`, token, {
+        method: "POST",
+      });
+    },
+    /** File luôn đính vào BẢN NHÁP của tài liệu (server tự lấy/tạo nháp). PDF/Word/JPG/PNG, ≤20 MB. */
+    uploadAttachment(token: string, documentId: number, file: File): Promise<NoiQuyAttachment> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<NoiQuyAttachment>(`/api/noi-quy/documents/${documentId}/draft/attachments`, token, {
+        method: "POST",
+        body: form,
+      });
+    },
+    /** Đường "GIỮ NGUYÊN DÁNG" cho PDF: server dựng ảnh TỪNG TRANG rồi hiện chính trang đó, nên
+     *  giữ 100% bố cục — bản scan có ký, đóng dấu đỏ cũng dùng được, không cần OCR.
+     *
+     *  ⚠️ Hàm này **GHI THẲNG VÀO NHÁP** (đặt `source_kind='file'`, xoá `noi_dung`, tự đính file
+     *  gốc, THAY file gốc cũ chứ không cộng dồn) rồi trả về bản nháp đã đổi ⇒ phải đồng bộ lại
+     *  state màn hình từ kết quả trả về.
+     *
+     *  Chỉ nhận PDF ≤20 MB và ≤60 trang; quá thì 400 kèm câu nói rõ số trang. Dựng ảnh một tập
+     *  dày mất 10–30s — phải khoá nút trong lúc chờ. */
+    banGocPdf(token: string, documentId: number, file: File): Promise<NoiQuy> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<NoiQuy>(`/api/noi-quy/documents/${documentId}/draft/ban-goc-pdf`, token, {
+        method: "POST",
+        body: form,
+      });
+    },
+    /** Ảnh nằm TRONG THÂN BÀI, không phải file đính kèm.
+     *
+     *  ⚠️ CỐ Ý KHÔNG mang `documentId` — backend khai endpoint này ngoài phạm vi tài liệu.
+     *
+     *  ⚠️ Tên nghe như "ảnh của trình soạn thảo" nhưng màn này KHÔNG còn trình soạn thảo:
+     *  người dùng thật sự của nó là `docxToRichHtml` — MỌI ảnh trong file Word (logo, con dấu,
+     *  chữ ký) đi qua đây. Bộ lọc của server bỏ mọi `<img src>` không bắt đầu bằng `/api/files/`,
+     *  nên gỡ hàm này là logo và chữ ký trong Word bị xoá ÂM THẦM: tài liệu vẫn đủ chữ, chỉ mất
+     *  con dấu. */
+    uploadImage(token: string, file: File): Promise<{ url: string }> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<{ url: string }>("/api/noi-quy/draft/images", token, {
+        method: "POST",
+        body: form,
+      });
+    },
+    /** `attachmentId` phải là id của hàng file THUỘC NHÁP — id của bản đã ban hành ăn 400.
+     *  Không doc-scope: id hàng file đã trỏ ngược về đúng bản nháp của nó. */
+    deleteAttachment(token: string, attachmentId: number): Promise<void> {
+      return authed<void>(`/api/noi-quy/draft/attachments/${attachmentId}`, token, {
+        method: "DELETE",
+      });
     },
   },
 

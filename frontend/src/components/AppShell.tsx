@@ -26,6 +26,7 @@ import { NghiPhepPage } from "../pages/NghiPhepPage";
 import { TangCaPage } from "../pages/TangCaPage";
 import { LuongPage } from "../pages/LuongPage";
 import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
+import { NoiQuyPage } from "../pages/NoiQuyPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
 import { KhoTonKhoPage } from "../pages/KhoTonKhoPage";
@@ -550,6 +551,8 @@ export function AppShell() {
         return <NhanSuPage navigate={navigate} />;
       case "ho-so-cua-toi":
         return <HoSoCuaToiPage />;
+      case "noi-quy":
+        return <NoiQuyPage />;
       case "cham-cong":
         // `eventTick` nhảy theo MỌI sự kiện SSE → tab phiếu đi muộn/về sớm đang mở tự tải lại ngay
         // khi tổ trưởng duyệt/từ chối (không chỉ nhảy badge).

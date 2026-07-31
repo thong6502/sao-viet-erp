@@ -56,6 +56,12 @@ Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
 
 
+def _scope(authz: AuthorizationService, user: User) -> str:
+    """Phạm vi dữ liệu của người gọi trên module nghỉ phép. Mặc định `own` — hụt quyền thì siết
+    chặt nhất, không mở toang."""
+    return authz.scope_for(user, MODULE) or "own"
+
+
 def _raise(exc: Exception) -> None:
     if isinstance(exc, LeaveNotFound):
         raise HTTPException(status_code=404, detail=str(exc))
@@ -89,6 +95,15 @@ def _resolve(svc: LeaveService, employees: EmployeeRepository, reqs: list):
 # --- leave types (HR) -------------------------------------------------------
 
 
+# --- Danh mục LOẠI NGHỈ ------------------------------------------------------
+# Ba endpoint ghi bên dưới gác bằng ô quyền `update`, KHÔNG phải `approve` (chủ 29/07/2026).
+# Lý do: chủ chốt "nghỉ phép để tổ trưởng duyệt, phạm vi trong tổ nó thôi" ⇒ tổ trưởng được cấp
+# `can_approve`. Nếu danh mục vẫn gác bằng `approve` thì cấp quyền duyệt đơn là tổ trưởng sửa
+# được luôn DANH MỤC LOẠI NGHỈ của cả công ty — chính sách toàn công ty, phải giữ ở HCNS.
+# `update` trước đó KHÔNG dùng ở module này nên đổi sang đây không cướp quyền của ai:
+# HCNS (`_leave_admin`) có `can_update=True` giữ nguyên, mọi vai khác đều `False`.
+
+
 @router.get("/types", response_model=LeaveTypesOut)
 def list_types(svc: Service, user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> LeaveTypesOut:
     return LeaveTypesOut(items=[LeaveTypeOut.model_validate(t) for t in svc.list_types()])
@@ -96,7 +111,7 @@ def list_types(svc: Service, user: Annotated[User, Depends(require_permission(MO
 
 @router.post("/types", response_model=LeaveTypeOut, status_code=status.HTTP_201_CREATED)
 def create_type(body: LeaveTypeIn, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> LeaveTypeOut:
+                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LeaveTypeOut:
     try:
         t = svc.create_type(actor=user, name=body.name, is_paid=body.is_paid,
                             annual_quota=body.annual_quota, note=body.note)
@@ -107,7 +122,7 @@ def create_type(body: LeaveTypeIn, svc: Service,
 
 @router.put("/types/{type_id}", response_model=LeaveTypeOut)
 def update_type(type_id: int, body: LeaveTypeIn, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> LeaveTypeOut:
+                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LeaveTypeOut:
     try:
         t = svc.update_type(actor=user, type_id=type_id, name=body.name, is_paid=body.is_paid,
                             annual_quota=body.annual_quota, note=body.note, is_active=body.is_active)
@@ -118,7 +133,7 @@ def update_type(type_id: int, body: LeaveTypeIn, svc: Service,
 
 @router.delete("/types/{type_id}", status_code=204)
 def delete_type(type_id: int, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
+                user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
     try:
         svc.delete_type(actor=user, type_id=type_id)
     except LeaveError as exc:
@@ -174,18 +189,23 @@ def mark_seen(svc: Service,
 
 
 @router.get("/calendar", response_model=LeaveCalendarOut)
-def leave_calendar(svc: Service,
+def leave_calendar(svc: Service, authz: Authz,
                    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
                    year: int = Query(...), month: int = Query(..., ge=1, le=12)) -> LeaveCalendarOut:
-    """Lịch nghỉ toàn công ty trong tháng (đã duyệt + đang chờ) — HR tránh duyệt trùng người."""
-    return LeaveCalendarOut(**svc.calendar(year=year, month=month))
+    """Lịch nghỉ trong tháng (đã duyệt + đang chờ) — để tránh duyệt trùng người.
+
+    LỌC THEO PHẠM VI người xem: HCNS (scope `all`) thấy toàn công ty, tổ trưởng chỉ thấy tổ mình.
+    Màn này gác bằng ô `approve`, mà từ 29/07/2026 tổ trưởng cũng có cờ đó."""
+    return LeaveCalendarOut(**svc.calendar(year=year, month=month,
+                                          scope=_scope(authz, user), actor=user))
 
 
 @router.post("/{request_id}/cancel", response_model=LeaveRequestOut)
 def cancel_request(request_id: int, svc: Service, employees: Employees, authz: Authz, user: CurrentUser) -> LeaveRequestOut:
     is_hr = authz.can(user, MODULE, "approve")
     try:
-        r = svc.cancel(actor=user, request_id=request_id, is_hr=is_hr)
+        r = svc.cancel(actor=user, request_id=request_id, is_hr=is_hr,
+                       scope=_scope(authz, user))
     except LeaveError as exc:
         _raise(exc)
     return _resolve(svc, employees, [r])[0]
@@ -206,9 +226,11 @@ def list_requests(svc: Service, employees: Employees, authz: Authz,
 
 @router.post("/{request_id}/approve", response_model=LeaveRequestOut)
 def approve_request(request_id: int, body: LeaveDecisionIn, svc: Service, employees: Employees,
+                    authz: Authz,
                     user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> LeaveRequestOut:
     try:
-        r = svc.approve(actor=user, request_id=request_id, note=body.note)
+        r = svc.approve(actor=user, request_id=request_id, note=body.note,
+                        scope=_scope(authz, user))
     except LeaveError as exc:
         _raise(exc)
     return _resolve(svc, employees, [r])[0]
@@ -216,25 +238,29 @@ def approve_request(request_id: int, body: LeaveDecisionIn, svc: Service, employ
 
 @router.post("/{request_id}/reject", response_model=LeaveRequestOut)
 def reject_request(request_id: int, body: LeaveDecisionIn, svc: Service, employees: Employees,
+                   authz: Authz,
                    user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> LeaveRequestOut:
     try:
-        r = svc.reject(actor=user, request_id=request_id, note=body.note)
+        r = svc.reject(actor=user, request_id=request_id, note=body.note,
+                       scope=_scope(authz, user))
     except LeaveError as exc:
         _raise(exc)
     return _resolve(svc, employees, [r])[0]
 
 
 @router.post("/bulk-approve", response_model=LeaveBulkResultOut)
-def bulk_approve(body: LeaveBulkIn, svc: Service,
+def bulk_approve(body: LeaveBulkIn, svc: Service, authz: Authz,
                  user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> LeaveBulkResultOut:
-    return LeaveBulkResultOut(**svc.bulk_approve(actor=user, ids=body.ids))
+    return LeaveBulkResultOut(**svc.bulk_approve(actor=user, ids=body.ids,
+                                                scope=_scope(authz, user)))
 
 
 @router.post("/bulk-reject", response_model=LeaveBulkResultOut)
-def bulk_reject(body: LeaveBulkRejectIn, svc: Service,
+def bulk_reject(body: LeaveBulkRejectIn, svc: Service, authz: Authz,
                 user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> LeaveBulkResultOut:
     try:
-        res = svc.bulk_reject(actor=user, ids=body.ids, note=body.note)
+        res = svc.bulk_reject(actor=user, ids=body.ids, note=body.note,
+                              scope=_scope(authz, user))
     except LeaveError as exc:
         _raise(exc)
     return LeaveBulkResultOut(**res)

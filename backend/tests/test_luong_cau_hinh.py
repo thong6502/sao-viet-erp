@@ -284,56 +284,10 @@ def test_removed_shift_rate_and_allowance_type_endpoints_are_gone(client):
 # --- KPI ---------------------------------------------------------------------
 
 
-def test_kpi_bonus_taxable_and_needs_dept_switch(client):
-    """KPI = %đạt × mức trần bộ phận; bộ phận chưa bật → 0; KPI CHỊU thuế TNCN."""
-    client
-    db = SessionLocal()
-    try:
-        svc, dept = _cfg_svc(db, "Tổ KPI")
-        kw = dict(employee=_emp_ns(dept.id), salary=_salary_ns(base_amount=30_000_000),
-                  params=svc.get_params(), actual_cong=26, standard_cong=26,
-                  on=date(2026, 6, 1))
-        off = svc._compute(kpi_percent=85, **kw)
-        assert off["kpi_bonus"] == 0                     # bộ phận chưa bật KPI
-
-        svc.set_dept_components(department_id=dept.id, items=[
-            {"component_key": "kpi", "is_enabled": True, "value": 1_700_000}])
-        on_ = svc._compute(kpi_percent=85, **kw)
-        assert on_["kpi_percent"] == 85
-        assert on_["kpi_bonus"] == round(0.85 * 1_700_000)          # 1.445.000
-        assert on_["gross"] == off["gross"] + on_["kpi_bonus"]      # cộng vào tổng thu nhập
-        assert on_["pit"] > off["pit"]                              # CHỊU thuế (khác OT/ca đêm)
-        assert on_["pit_taxable"] == off["pit_taxable"] + on_["kpi_bonus"]
-    finally:
-        db.close()
-
-
-def test_kpi_percent_manual_and_preserved_on_regenerate(client):
-    """%KPI là ô nhập tay (update_line) và được GIỮ NGUYÊN khi bấm Tính lại."""
-    token = _admin_token(client)
-    dept_id = _dept_id("Hành chính nhân sự")
-    saved = client.put(f"/api/luong/dept-components/{dept_id}", json={
-        "items": [{"component_key": "kpi", "is_enabled": True, "value": 2_000_000}]},
-        headers=_h(token))
-    assert saved.status_code == 200
-    kpi_row = next(c for c in saved.json()["items"] if c["component_key"] == "kpi")
-    assert kpi_row["is_enabled"] and kpi_row["value"] == 2_000_000 and kpi_row["is_set"]
-
-    eid = _make_emp(client, token, name="NV KPI")
-    client.post(f"/api/luong/salaries/{eid}", json={"effective_from": "2026-01-01",
-                "amount_mode": "manual", "base_amount": 12_000_000}, headers=_h(token))
-    gen = client.post("/api/luong/generate", json={"year": 2026, "month": 9},
-                      headers=_h(token)).json()
-    line = next(l for l in gen["lines"] if l["employee_id"] == eid)
-    upd = client.put(f"/api/luong/lines/{line['id']}", json={"kpi_percent": 85},
-                     headers=_h(token)).json()
-    assert upd["kpi_percent"] == 85 and upd["kpi_bonus"] == round(0.85 * 2_000_000)
-
-    gen2 = client.post("/api/luong/generate", json={"year": 2026, "month": 9},
-                       headers=_h(token)).json()
-    l2 = next(l for l in gen2["lines"] if l["employee_id"] == eid)
-    assert l2["kpi_percent"] == 85 and l2["kpi_bonus"] == round(0.85 * 2_000_000)
-    assert l2["gross"] == upd["gross"] and l2["net_pay"] == upd["net_pay"]
+# Hai test KPI (thưởng năng suất) ĐÃ XOÁ 29/07/2026 cùng tính năng — chủ: "xưởng không dùng tới,
+# xóa backend luôn, đang phát triển mà chưa chạy thật đâu". Việc gỡ được canh bằng
+# `test_go_kpi_migration.py` (hãm không cho drop cột khi còn tiền) + hồi quy: `kpi_bonus` vốn luôn
+# bằng 0 nên bỏ nó khỏi công thức KHÔNG được đổi một đồng nào ở các test lương còn lại.
 
 
 # --- vá lệch "Sửa 1 ô" vs "Tính lại" ----------------------------------------
@@ -375,17 +329,18 @@ def test_dept_components_default_view_and_rbac(client):
     res = client.get(f"/api/luong/dept-components/{dept_id}", headers=_h(token))
     assert res.status_code == 200
     items = {c["component_key"]: c for c in res.json()["items"]}
-    # Bậc lương gỡ hẳn (luong_bac) + 3 khoản phụ cấp chuyển sang KHAI TAY theo NV → còn 4 khoản.
-    assert set(items) == {"kpi", "chuyen_can", "luong_khoan", "tang_ca"}
+    # Bậc lương gỡ hẳn (luong_bac) + 3 phụ cấp chuyển sang KHAI TAY theo NV + KPI xoá 29/07/2026
+    # (chủ: xưởng không chấm KPI) → còn 3 khoản.
+    assert set(items) == {"chuyen_can", "luong_khoan", "tang_ca"}
     assert items["chuyen_can"]["is_set"] is False
     assert items["luong_khoan"]["is_enabled"] is False   # soi cờ departments.has_piece_work
     assert client.get(f"/api/luong/dept-components/{dept_id}",
                       headers=_h(_sales_token())).status_code == 403
     assert client.put(f"/api/luong/dept-components/{dept_id}",
-                      json={"items": [{"component_key": "kpi", "is_enabled": True}]},
+                      json={"items": [{"component_key": "chuyen_can", "is_enabled": True}]},
                       headers=_h(_sales_token())).status_code == 403
     assert client.put("/api/luong/dept-components/999999",
-                      json={"items": [{"component_key": "kpi", "is_enabled": True}]},
+                      json={"items": [{"component_key": "chuyen_can", "is_enabled": True}]},
                       headers=_h(token)).status_code == 404
 
 

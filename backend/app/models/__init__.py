@@ -19,6 +19,7 @@ from .employee import (
     EmployeeShiftDay,
     JobGrade,
 )
+from .noi_quy import NoiQuyAttachment, NoiQuyDocument, NoiQuyPage, NoiQuyVersion
 from .profile_request import ProfileUpdateRequest
 from .leave import LeaveRequest, LeaveType
 from .late_early import LateEarlyRequest
@@ -47,7 +48,7 @@ from .payroll import (
     SalaryAdvance,
     SalaryRateRule,
 )
-from .piece_work import PieceLeaderBonusBracket, PieceRate
+from .piece_work import PieceLeaderBonusBracket, PieceLeaderBonusSetting, PieceRate
 from .product import Product, ProductComponent
 from .product_type_catalog import ProductTypeCatalog
 from .purchase import (
@@ -115,6 +116,10 @@ __all__ = [
     "EmployeeEvent",
     "EmployeeAttachment",
     "JobGrade",
+    "NoiQuyDocument",
+    "NoiQuyVersion",
+    "NoiQuyAttachment",
+    "NoiQuyPage",
     "ProfileUpdateRequest",
     "WorkLocation",
     "WorkShift",
@@ -174,6 +179,7 @@ __all__ = [
     "PitTaxBracket",
     "LatePenaltyBracket",
     "PieceLeaderBonusBracket",
+    "PieceLeaderBonusSetting",
     "PieceRate",
     "PlateDieRate",
     "Norm",

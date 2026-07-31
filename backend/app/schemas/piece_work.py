@@ -72,9 +72,13 @@ class LeaderBracketsIn(BaseModel):
     """Thay CẢ BỘ mốc của một tổ. Danh sách RỖNG = tổ này không áp thưởng/phạt tổ trưởng."""
 
     department_id: int
+    # Ngưỡng SẢN LƯỢNG của tổ trong kỳ để được xét thưởng/phạt. `0` = không gác.
+    # Đi CÙNG GÓI với `items` vì màn chỉ có một nút Lưu — tách ra là lưu được nửa này mất nửa kia.
+    min_output_qty: float = 0
     items: list[LeaderBracketIn] = []
 
 
 class LeaderBracketsOut(BaseModel):
     department_id: int
+    min_output_qty: float = 0
     items: list[LeaderBracketOut]

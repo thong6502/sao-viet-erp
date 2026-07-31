@@ -5,8 +5,12 @@ auto VÀO/RA toggling, self check-in gated on a linked employee, and the RBAC bo
 """
 from __future__ import annotations
 
-from datetime import date
+import calendar
+from datetime import date, timedelta
 
+import pytest
+
+import app.services.attendance_service as _att_svc
 from app.db import SessionLocal
 from app.repositories.employee_repo import EmployeeRepository
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
@@ -14,6 +18,27 @@ from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
 
 ADMIN = {"username": "admin", "password": "admin123"}
+
+
+def _ngay_cuoi_thang() -> date:
+    t = date.today()
+    return date(t.year, t.month, calendar.monthrange(t.year, t.month)[1])
+
+
+@pytest.fixture(autouse=True)
+def _ghim_hom_nay(monkeypatch):
+    """Ghim "hôm nay" về NGÀY CUỐI của tháng hiện tại.
+
+    Luật "không chấm công cho ngày chưa tới" (`_require_not_future`) làm mọi test hạn mức chỉnh
+    công phụ thuộc NGÀY CHẠY: `_this_month(1..11)` là quá khứ khi chạy cuối tháng nhưng là tương
+    lai khi chạy mùng 3. Ghim lại để suite xanh/đỏ vì CODE chứ không vì hôm nay là ngày mấy.
+
+    Phải là ngày CUỐI tháng chứ không phải một ngày cố định giữa tháng: nhiều test chấm công/chấm
+    bù dùng NGÀY THẬT (`_vn_today_str`), ghim vào ngày sớm hơn là chính ngày thật hoá "tương lai".
+    Ngày cuối tháng thoả cả hai đầu: ≥ mọi ngày thật, và > mọi ngày `_this_month` (kẹp ≤ 28).
+    "Ngày mai" trong test = mùng 1 tháng sau.
+    Seam này CHỈ chi phối `_require_not_future`; lượt chấm thật vẫn ghi theo giờ thực."""
+    monkeypatch.setattr(_att_svc, "_today_vn", _ngay_cuoi_thang)
 
 
 def _admin_token(client) -> str:
@@ -530,13 +555,15 @@ def test_locations_config_forbidden_without_permission(client):
 # --- hạn mức chỉnh công (chủ 27/07/2026: tối đa N ngày/tháng) ----------------
 
 
-def _shift_from_month_start(client, token, employee_id: int) -> None:
+def _shift_from_month_start(client, token, employee_id: int, *, eff: date | None = None) -> None:
     """Gán ca có hiệu lực từ NGÀY 1 tháng này — `_assign_test_shift` mặc định lấy hiệu lực từ
     HÔM NAY, nên các ngày đầu tháng sẽ 'chưa được gán ca' và yêu cầu chỉnh công bị chặn trước
-    khi chạm tới luật hạn mức."""
+    khi chạm tới luật hạn mức.
+
+    `eff` để lùi mốc xa hơn khi kịch bản chạm sang tháng trước."""
     shift_id = _ensure_test_shift(client, token)
     today = date.today()
-    eff = date(today.year, today.month, 1)
+    eff = eff or date(today.year, today.month, 1)
     # Ép `hire_date` qua repo: mốc ca KHÔNG được trước ngày vào làm, mà hồ sơ admin do
     # `backfill_employee_profiles` sinh ra có ngày vào làm là hôm nay.
     db = SessionLocal()
@@ -671,14 +698,189 @@ def test_han_muc_tinh_theo_thang_cua_ngay_cong(client):
 
     Nếu đếm theo ngày gửi thì mùng 1 gửi bù cho tháng trước sẽ ăn mất lượt của tháng mới."""
     token = _admin_token(client)
-    _shift_from_month_start(client, token, _link_admin_employee(client, token))
+    # Mốc ca phải bắt đầu từ THÁNG TRƯỚC — kịch bản dưới gửi đơn cho tháng trước, không có ca
+    # ngày đó thì bị chặn ở `_require_shift_on_day` trước khi chạm luật hạn mức.
+    thang_truoc = (date.today().replace(day=1) - timedelta(days=1)).replace(day=1)
+    _shift_from_month_start(client, token, _link_admin_employee(client, token), eff=thang_truoc)
     _set_adjust_limit(client, token, 2)
 
     _req_adjust(client, token, day=_this_month(3))
     _req_adjust(client, token, day=_this_month(4))
     _req_adjust(client, token, day=_this_month(5), expect=400)   # tháng này hết lượt
 
-    # Ngày thuộc THÁNG SAU vẫn gửi được — hạn mức riêng từng tháng.
-    today = date.today()
-    nxt = date(today.year + (today.month == 12), (today.month % 12) + 1, 5)
-    _req_adjust(client, token, day=nxt.isoformat())
+    # Ngày thuộc THÁNG TRƯỚC vẫn gửi được — hạn mức riêng từng tháng.
+    # (Trước 31/07/2026 test này dùng THÁNG SAU. Đó chính là cái vô lý chủ bắt được — không ai
+    # "quên chấm" một ngày chưa tới — và `_require_not_future` nay chặn. Đổi sang tháng trước
+    # đúng với kịch bản mà docstring vẫn luôn mô tả: mùng 1 gửi bù cho tháng trước.)
+    _req_adjust(client, token, day=thang_truoc.replace(day=5).isoformat())
+
+
+# --- Bảng công phải hiện ĐỦ NGƯỜI, không chỉ người đã chấm công -------------
+#
+# Trước 31/07/2026 `monthly_timesheet` chỉ dựng hàng cho ai có dấu vết (lượt bấm / đơn phép /
+# phiếu giờ). Ai cả tháng không chấm buổi nào thì KHÔNG có hàng nào — chủ mở "Công của tôi" thấy
+# trắng, HCNS không soi ra người vắng cả tháng, và họ mất luôn công lễ.
+
+
+def _nv_trang(client, token, *, ten: str, dept: str = "Hành chính nhân sự") -> tuple[int, str]:
+    """NV có hồ sơ + tài khoản nhưng KHÔNG lượt bấm, KHÔNG đơn gì. → (employee_id, token)."""
+    did = _dept_id(dept)
+    uid = _make_worker(f"u-{ten.lower().replace(' ', '-')}", did)
+    eid = _link_employee(client, token, full_name=ten, dept_id=did, user_id=uid)
+    return eid, create_access_token(str(uid))
+
+
+def test_NV_khong_dau_vet_VAN_co_hang_tren_cong_cua_toi(client):
+    """⭐ Đúng cái chủ báo: mở "Công của tôi" thấy trắng vì không bấm vân tay.
+
+    Hàng này CHÍNH LÀ thứ mở khoá cả khối lịch bên FE (`ChamCongPage` chặn lịch sau `row`) — không
+    có hàng thì không có ô ngày nào để bấm, mà nút xin chỉnh công lại nằm trên ô ngày: người quên
+    chấm cả tháng thành người DUY NHẤT không xin sửa công được."""
+    token = _admin_token(client)
+    _nv_trang(client, token, ten="NV Chua Cham")
+    _, wt = _nv_trang(client, token, ten="NV Trang")
+
+    year, month = _vn_year_month()
+    r = client.get(f"/api/attendance/me/timesheet?year={year}&month={month}", headers=_h(wt))
+    assert r.status_code == 200
+    rows = r.json()["rows"]
+    assert len(rows) == 1 and rows[0]["employee_name"] == "NV Trang"
+    assert rows[0]["total_days"] == 0     # vẫn nói thật: chưa chấm buổi nào
+    assert r.json()["days_in_month"] in (28, 29, 30, 31)
+
+
+def test_bang_cong_HCNS_hien_du_nguoi_va_loc_dung_phong(client):
+    """HCNS phải soi ra được ai cả tháng không chấm công — trước đây họ biến mất khỏi bảng."""
+    token = _admin_token(client)
+    _nv_trang(client, token, ten="NV Ho So A", dept="Hành chính nhân sự")
+    _nv_trang(client, token, ten="NV Kinh Doanh B", dept="Kinh doanh")
+
+    year, month = _vn_year_month()
+    tat_ca = client.get(f"/api/attendance/timesheet?year={year}&month={month}",
+                        headers=_h(token)).json()["rows"]
+    ten = {r["employee_name"] for r in tat_ca}
+    assert {"NV Ho So A", "NV Kinh Doanh B"} <= ten
+
+    # Lọc phòng vẫn phải kín: không rò người tổ khác.
+    kd = client.get(f"/api/attendance/timesheet?year={year}&month={month}"
+                    f"&department_id={_dept_id('Kinh doanh')}", headers=_h(token)).json()["rows"]
+    ten_kd = {r["employee_name"] for r in kd}
+    assert "NV Kinh Doanh B" in ten_kd and "NV Ho So A" not in ten_kd
+
+
+def _cho_nghi_viec(employee_id: int, ngay: date) -> None:
+    db = SessionLocal()
+    try:
+        repo = EmployeeRepository(db)
+        repo.update(repo.get_by_id(employee_id), resign_date=ngay)
+    finally:
+        db.close()
+
+
+def test_KHONG_lam_mat_hang_cua_NV_nghi_viec_con_log(client):
+    """⭐ Tập hàng là phép HỢP, không phải phép THAY.
+
+    NV đã nghỉ việc từ tháng trước mà còn lượt bấm sót lại trong tháng này thì VẪN phải giữ hàng.
+    Đổi 'biên chế HỢP dấu vết' thành 'chỉ biên chế' là làm biến mất hàng đang thấy — đây là thứ
+    canh cho tính thuần-cộng-thêm của thay đổi."""
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    dept = _dept_id("Hành chính nhân sự")
+    uid = _make_worker("u-nghi-con-log", dept)
+    eid = _link_employee(client, token, full_name="NV Nghi Con Log", dept_id=dept, user_id=uid)
+    wt = create_access_token(str(uid))
+    assert client.post("/api/attendance/check", json={"latitude": 10.0, "longitude": 106.0},
+                       headers=_h(wt)).json()["success"]
+
+    year, month = _vn_year_month()
+    # Nghỉ việc TRƯỚC ngày 1 tháng này ⇒ rơi khỏi biên chế, chỉ còn nhánh "có dấu vết" giữ lại.
+    _cho_nghi_viec(eid, date(year, month, 1) - timedelta(days=1))
+
+    rows = client.get(f"/api/attendance/timesheet?year={year}&month={month}",
+                      headers=_h(token)).json()["rows"]
+    assert any(r["employee_name"] == "NV Nghi Con Log" for r in rows), \
+        "lượt bấm còn đó mà hàng biến mất = làm mất dữ liệu đang hiển thị"
+
+
+def test_NV_nghi_viec_thang_truoc_KHONG_len_bang(client):
+    """⭐ Không kéo người lạ vào Lương.
+
+    `monthly_timesheet` nuôi `metrics_map` → bảng lương. NV nghỉ việc từ tháng trước, không dấu
+    vết gì, phải KHÔNG có hàng — có hàng là `bool(m)` bên Lương thành true và họ bị lôi ngược vào
+    kỳ lương đã đóng."""
+    token = _admin_token(client)
+    eid, _ = _nv_trang(client, token, ten="NV Da Nghi")
+    year, month = _vn_year_month()
+    _cho_nghi_viec(eid, date(year, month, 1) - timedelta(days=1))
+
+    rows = client.get(f"/api/attendance/timesheet?year={year}&month={month}",
+                      headers=_h(token)).json()["rows"]
+    assert all(r["employee_name"] != "NV Da Nghi" for r in rows)
+
+
+def test_cong_le_toi_tay_nguoi_khong_cham_cong(client):
+    """Quyết định của chủ 31/07/2026: còn biên chế thì hưởng công lễ, KHÔNG cần bấm vân tay.
+
+    Luật này (`_in_headcount_on`) vốn đã viết trong `monthly_timesheet`, nhưng nhánh `emp_holidays`
+    chỉ chạy cho ai đã có hàng — nên người không chấm công buổi nào mất trắng công lễ. Đây là
+    thay đổi chạm TIỀN, phải có test kẻo lần sau ai đó 'tối ưu' đi mất trong im lặng."""
+    token = _admin_token(client)
+    _, wt = _nv_trang(client, token, ten="NV Huong Le")
+
+    # 02/09/2026 (thứ Tư) — Quốc khánh, có sẵn trong lịch seed.
+    r = client.get("/api/attendance/me/timesheet?year=2026&month=9", headers=_h(wt)).json()
+    row = r["rows"][0]
+    assert row["total_days"] == 0                     # không bấm buổi nào
+    o_le = row["days"]["2"]
+    assert o_le["holiday"] is True and o_le["cong"] == 1.0
+    assert row["total_cong"] == 1.0                   # công lễ tới tay, không phải None/0
+
+
+# --- Không chấm công cho ngày CHƯA TỚI --------------------------------------
+#
+# Chủ phát hiện 31/07/2026: đang ngày 31/7 mà vẫn gửi được yêu cầu chỉnh công cho 02/8.
+# "Xin chỉnh công" nghĩa là "tôi QUÊN chấm hôm đó" — không ai quên một ngày chưa xảy ra.
+# `_ghim_hom_nay` ghim hôm nay = NGÀY CUỐI THÁNG ⇒ "ngày mai" = mùng 1 tháng sau.
+
+
+def _hom_nay() -> str:
+    return _ngay_cuoi_thang().isoformat()
+
+
+def _ngay_mai() -> str:
+    return (_ngay_cuoi_thang() + timedelta(days=1)).isoformat()
+
+
+def test_xin_chinh_cong_ngay_MAI_bi_chan_va_KHONG_ton_han_muc(client):
+    """⭐ Chặn phải đứng TRƯỚC `adjust_quota`.
+
+    Thiệt hại thật của lỗi này không phải cái đơn vô nghĩa mà là HẠN MỨC: `adjust_quota` đếm cả
+    đơn đang chờ, nên NV đốt sạch lượt của tháng bằng những ngày chưa tới rồi hết cửa sửa ngày
+    quên thật. Chặn sau khi trừ hạn mức thì coi như không chặn."""
+    token = _admin_token(client)
+    _shift_from_month_start(client, token, _link_admin_employee(client, token))
+    _set_adjust_limit(client, token, 5)
+    truoc = _quota(client, token)["used"]
+
+    r = _req_adjust(client, token, day=_ngay_mai(), expect=400)
+    assert "chưa tới" in r.json()["detail"], r.json()["detail"]
+    assert _quota(client, token)["used"] == truoc, "đơn bị chặn mà vẫn ăn mất một lượt"
+
+
+def test_xin_chinh_cong_HOM_NAY_van_gui_duoc(client):
+    """Canh cho việc chặn KHÔNG nới quá tay: quên chấm sáng nay, chiều xin sửa là chuyện thường."""
+    token = _admin_token(client)
+    _shift_from_month_start(client, token, _link_admin_employee(client, token))
+    _set_adjust_limit(client, token, 5)
+    _req_adjust(client, token, day=_hom_nay())     # đúng ngày đã ghim = hôm nay
+
+
+def test_HCNS_cham_bu_ngay_MAI_bi_chan(client):
+    """Punch tương lai nặng hơn đơn tương lai: nó RA CÔNG THẬT khi tới ngày."""
+    token = _admin_token(client)
+    eid = _link_admin_employee(client, token)
+    _shift_from_month_start(client, token, eid)
+    r = client.post("/api/attendance/adjust",
+                    json={"employee_id": eid, "date": _ngay_mai(), "check_type": "in",
+                          "time": "08:00", "reason": "chấm bù"}, headers=_h(token))
+    assert r.status_code == 400 and "chưa tới" in r.json()["detail"], r.text

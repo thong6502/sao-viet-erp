@@ -246,6 +246,13 @@ class ShiftPlanCellOut(BaseModel):
     shift_id: int | None = None
     source: str
     is_off: bool = False
+    # --- Lớp phủ NGHỈ PHÉP đã duyệt — chỉ để XEM ---------------------------
+    # ⚠️ KHÁC HẲN `is_off`: `is_off` là dấu KẾ HOẠCH do người dùng tự tô trên lưới (không trừ
+    # phép, không ra tiền, không chặn chấm công), còn hai field này đọc thẳng từ phiếu nghỉ ĐÃ
+    # DUYỆT và chính là thứ ra tiền qua Bảng công. Trùng tên "nghỉ" nhưng là hai chuyện.
+    # `None` = ngày đó không có phép. Không ghi xuống DB ⇒ huỷ phiếu là dấu tự hết.
+    leave_name: str | None = None
+    leave_paid: bool | None = None
 
 
 class ShiftPlanDayOut(BaseModel):
