@@ -61,8 +61,10 @@ import {
   Table,
   FileEdit,
   CheckCircle,
+  CheckCircle2,
   XCircle,
   AlertTriangle,
+  AlertCircle,
   RefreshCw,
   Trash2,
   Edit3,
@@ -416,11 +418,11 @@ function GpsRadarMap2D({
       <div className="cc-radar-map-header">
         <div className="cc-radar-map-title-group">
           <div className="cc-radar-map-title">
-            <MapPin size={15} style={{ color: "var(--rust)" }} />
-            <span>Chấm công GPS hôm nay</span>
+            <Target size={16} style={{ color: "var(--rust)" }} />
+            <span>Bản đồ Radar GPS định vị</span>
           </div>
           <div className="cc-radar-map-sub">
-            Định vị GPS trên điện thoại · bán kính <b>{radiusM}m</b> quanh {nearestName ?? "nhà máy"}
+            Phạm vi chấm công <b>{radiusM}m</b> quanh {nearestName ?? "nhà máy"}
           </div>
         </div>
         <button
@@ -428,67 +430,158 @@ function GpsRadarMap2D({
           className="cc-geo-status-refresh"
           onClick={onRefresh}
           disabled={locating}
-          title="Cập nhật vị trí GPS"
+          title="Cập nhật tọa độ GPS"
         >
           <RefreshCw size={14} className={locating ? "cc-animate-spin" : ""} />
         </button>
       </div>
 
-      {/* 2D Grid Canvas SVG */}
+      {/* 2D Tactical HUD Radar Grid Canvas SVG */}
       <div className="cc-radar-grid-container">
         <svg viewBox="0 0 400 180" className="cc-radar-svg">
           <defs>
             <pattern
               id="radar-grid-pattern"
-              width="24"
-              height="24"
+              width="20"
+              height="20"
               patternUnits="userSpaceOnUse"
             >
               <path
-                d="M 24 0 L 0 0 0 24"
+                d="M 20 0 L 0 0 0 20"
                 fill="none"
-                stroke="rgba(215, 205, 190, 0.45)"
+                stroke="rgba(71, 85, 105, 0.25)"
                 strokeWidth="0.8"
               />
             </pattern>
+            <radialGradient id="geofence-bg-gradient">
+              <stop offset="0%" stopColor={withinRange ? "rgba(47, 93, 58, 0.28)" : "rgba(138, 31, 31, 0.22)"} />
+              <stop offset="100%" stopColor={withinRange ? "rgba(47, 93, 58, 0.02)" : "rgba(138, 31, 31, 0.02)"} />
+            </radialGradient>
           </defs>
-          <rect width="400" height="180" fill="url(#radar-grid-pattern)" rx="8" />
+
+          {/* Dark Tactical Grid Background */}
+          <rect width="400" height="180" fill="#0b1329" />
+          <rect width="400" height="180" fill="url(#radar-grid-pattern)" />
+
+          {/* HUD Corner Tactical Brackets */}
+          <path d="M 8 16 L 8 8 L 16 8" fill="none" stroke="rgba(148, 163, 184, 0.4)" strokeWidth="1.5" />
+          <path d="M 392 16 L 392 8 L 384 8" fill="none" stroke="rgba(148, 163, 184, 0.4)" strokeWidth="1.5" />
+          <path d="M 8 164 L 8 172 L 16 172" fill="none" stroke="rgba(148, 163, 184, 0.4)" strokeWidth="1.5" />
+          <path d="M 392 164 L 392 172 L 384 172" fill="none" stroke="rgba(148, 163, 184, 0.4)" strokeWidth="1.5" />
+
+          {/* HUD Top Live Status Bar */}
+          <text x="14" y="18" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.65)" letterSpacing="0.08em" style={{ fontFamily: "var(--ff-num)" }}>
+            RADAR GPS // THEO DÕI TRỰC TIẾP
+          </text>
+          <text x="386" y="18" textAnchor="end" fontSize="8" fontWeight="bold" fill={withinRange ? "#4ade80" : "#f87171"} letterSpacing="0.08em" style={{ fontFamily: "var(--ff-num)" }}>
+            ● VÙNG CHẤM CÔNG: {withinRange ? "ĐẠT" : "NGOÀI VÙNG"}
+          </text>
+
+          {/* Expanding Radial Wave Ripples from Center */}
+          <g>
+            <circle cx={cx} cy={cy} r="0" fill="none" stroke={withinRange ? "#4ade80" : "#f87171"} strokeWidth="1.8">
+              <animate attributeName="r" from="0" to={radiusPx * 1.35} dur="3s" repeatCount="indefinite" begin="0s" />
+              <animate attributeName="opacity" values="0.9;0.4;0" dur="3s" repeatCount="indefinite" begin="0s" />
+            </circle>
+            <circle cx={cx} cy={cy} r="0" fill="none" stroke={withinRange ? "#4ade80" : "#f87171"} strokeWidth="1.8">
+              <animate attributeName="r" from="0" to={radiusPx * 1.35} dur="3s" repeatCount="indefinite" begin="1s" />
+              <animate attributeName="opacity" values="0.9;0.4;0" dur="3s" repeatCount="indefinite" begin="1s" />
+            </circle>
+            <circle cx={cx} cy={cy} r="0" fill="none" stroke={withinRange ? "#4ade80" : "#f87171"} strokeWidth="1.8">
+              <animate attributeName="r" from="0" to={radiusPx * 1.35} dur="3s" repeatCount="indefinite" begin="2s" />
+              <animate attributeName="opacity" values="0.9;0.4;0" dur="3s" repeatCount="indefinite" begin="2s" />
+            </circle>
+          </g>
+
+          {/* Tactical 360 Rotating Sweep Line & Sector Fade */}
+          <g>
+            <path
+              d={`M ${cx} ${cy} L ${cx} ${cy - radiusPx * 1.35} A ${radiusPx * 1.35} ${radiusPx * 1.35} 0 0 1 ${cx + radiusPx * 0.95} ${cy - radiusPx * 0.95} Z`}
+              fill={withinRange ? "rgba(74, 222, 128, 0.18)" : "rgba(248, 113, 113, 0.18)"}
+            />
+            <line
+              x1={cx}
+              y1={cy}
+              x2={cx}
+              y2={cy - radiusPx * 1.35}
+              stroke={withinRange ? "#4ade80" : "#f87171"}
+              strokeWidth="2.2"
+              strokeLinecap="round"
+            />
+            <animateTransform
+              attributeName="transform"
+              type="rotate"
+              from={`0 ${cx} ${cy}`}
+              to={`360 ${cx} ${cy}`}
+              dur="3.5s"
+              repeatCount="indefinite"
+            />
+          </g>
+
+          {/* Concentric HUD Inner Range Rings */}
+          <circle cx={cx} cy={cy} r={radiusPx * 0.33} fill="none" stroke="rgba(100, 116, 139, 0.3)" strokeWidth="0.8" strokeDasharray="2 2" />
+          <circle cx={cx} cy={cy} r={radiusPx * 0.66} fill="none" stroke="rgba(100, 116, 139, 0.3)" strokeWidth="0.8" strokeDasharray="2 2" />
 
           {/* Geofence Translucent Circle Area */}
           <circle
             cx={cx}
             cy={cy}
             r={radiusPx}
-            fill={withinRange ? "rgba(34, 197, 94, 0.12)" : "rgba(239, 68, 68, 0.08)"}
-            stroke={withinRange ? "#16a34a" : "#dc2626"}
-            strokeWidth="1.5"
-            strokeDasharray="4 3"
+            fill="url(#geofence-bg-gradient)"
+            stroke={withinRange ? "var(--moss)" : "var(--signal)"}
+            strokeWidth="1.8"
+            strokeDasharray="5 3"
           />
 
-          {/* Center Point (Factory / Workplace Center 0m) */}
-          <circle cx={cx} cy={cy} r="6" fill="#0f172a" />
-          <circle cx={cx} cy={cy} r="2.5" fill="#ffffff" />
-          <text
-            x={cx}
-            y={cy + 18}
-            textAnchor="middle"
-            fontSize="10"
-            fontWeight="bold"
-            fill="#334155"
-          >
-            Tâm ({nearestName ? nearestName.slice(0, 18) : "Nhà máy"})
-          </text>
+          {/* Compass Cardinal Points (N, S, E, W) */}
+          <text x={cx} y={cy - radiusPx - 4} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-num)" }}>N</text>
+          <text x={cx} y={cy + radiusPx + 11} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-num)" }}>S</text>
+          <text x={cx - radiusPx - 8} y={cy + 3} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-num)" }}>W</text>
+          <text x={cx + radiusPx + 8} y={cy + 3} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-num)" }}>E</text>
 
-          {/* Connecting Line from Center to User if Outside */}
-          {!withinRange && distanceM != null && (
+          {/* Crosshair Axes Lines */}
+          <line x1={cx - radiusPx - 15} y1={cy} x2={cx + radiusPx + 15} y2={cy} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" />
+          <line x1={cx} y1={cy - radiusPx - 15} x2={cx} y2={cy + radiusPx + 15} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" />
+
+          {/* Center Point (Factory / Workplace Center 0m) */}
+          <circle cx={cx} cy={cy} r="6" fill="#ffffff" />
+          <circle cx={cx} cy={cy} r="3.5" fill="#0f172a" />
+          <circle cx={cx} cy={cy} r="1.5" fill="var(--rust)" />
+
+          <g transform={`translate(${cx}, ${cy + 28})`}>
+            <rect
+              x="-54"
+              y="-7.5"
+              width="108"
+              height="14"
+              rx="3.5"
+              fill="rgba(11, 19, 41, 0.85)"
+              stroke="rgba(148, 163, 184, 0.35)"
+              strokeWidth="0.6"
+            />
+            <text
+              x="0"
+              y="2.5"
+              textAnchor="middle"
+              fontSize="8.5"
+              fontWeight="600"
+              fill="#e2e8f0"
+              letterSpacing="0.03em"
+            >
+              Tâm ({nearestName ? (nearestName.length > 13 ? nearestName.slice(0, 13) + "…" : nearestName) : "Nhà máy"})
+            </text>
+          </g>
+
+          {/* Connecting Line from Center to User */}
+          {distanceM != null && (
             <line
               x1={cx}
               y1={cy}
               x2={userX}
               y2={userY}
-              stroke="#ef4444"
-              strokeWidth="1.2"
-              strokeDasharray="3 3"
+              stroke={withinRange ? "var(--moss)" : "var(--signal)"}
+              strokeWidth="1.4"
+              strokeDasharray={withinRange ? "none" : "3 3"}
             />
           )}
 
@@ -498,43 +591,95 @@ function GpsRadarMap2D({
               <circle
                 cx={userX}
                 cy={userY}
-                r="10"
-                fill={withinRange ? "rgba(34, 197, 94, 0.25)" : "rgba(239, 68, 68, 0.25)"}
+                r="14"
+                fill={withinRange ? "rgba(47, 93, 58, 0.2)" : "rgba(138, 31, 31, 0.2)"}
+                className="cc-radar-user-ping"
               />
               <circle
                 cx={userX}
                 cy={userY}
                 r="5"
-                fill={withinRange ? "#16a34a" : "#dc2626"}
+                fill={withinRange ? "var(--moss)" : "var(--signal)"}
                 stroke="#ffffff"
-                strokeWidth="1.5"
+                strokeWidth="1.8"
               />
-              <text
-                x={userX}
-                y={userY - 10}
-                textAnchor="middle"
-                fontSize="10"
-                fontWeight="bold"
-                fill={withinRange ? "#15803d" : "#b91c1c"}
-              >
-                {withinRange
-                  ? `Vị trí bạn (${Math.round(distanceM)}m)`
-                  : `Bạn (Cách ${metersOut != null ? (metersOut > 1000 ? `${(metersOut / 1000).toFixed(1)}km` : `${Math.round(metersOut)}m`) : `${Math.round(distanceM)}m`})`}
-              </text>
+
+              <g transform={`translate(${userX}, ${userY - 16})`}>
+                <rect
+                  x="-50"
+                  y="-7.5"
+                  width="100"
+                  height="14"
+                  rx="3.5"
+                  fill={withinRange ? "rgba(22, 60, 32, 0.88)" : "rgba(80, 20, 20, 0.88)"}
+                  stroke={withinRange ? "rgba(74, 222, 128, 0.65)" : "rgba(248, 113, 113, 0.65)"}
+                  strokeWidth="0.6"
+                />
+                <text
+                  x="0"
+                  y="2.5"
+                  textAnchor="middle"
+                  fontSize="8.5"
+                  fontWeight="600"
+                  fill="#ffffff"
+                  style={{ fontFamily: "var(--ff-num)" }}
+                  letterSpacing="0.03em"
+                >
+                  {withinRange
+                    ? `Vị trí bạn (${Math.round(distanceM)}m)`
+                    : `Cách ${metersOut != null ? (metersOut > 1000 ? `${(metersOut / 1000).toFixed(1)}km` : `${Math.round(metersOut)}m`) : `${Math.round(distanceM)}m`}`}
+                </text>
+              </g>
             </g>
           )}
         </svg>
+      </div>
+
+      {/* Location Metrics Strip Below 2D Canvas */}
+      <div className="cc-radar-map-metrics-strip">
+        <div className="cc-radar-metric-chip">
+          <span className="cc-radar-metric-label">Bán kính hợp lệ</span>
+          <span className="cc-radar-metric-val">{radiusM} m</span>
+        </div>
+        <div className="cc-radar-metric-chip">
+          <span className="cc-radar-metric-label">Khoảng cách hiện tại</span>
+          <span className="cc-radar-metric-val">
+            {distanceM != null
+              ? distanceM > 1000
+                ? `${(distanceM / 1000).toFixed(1)} km`
+                : `${Math.round(distanceM)} m`
+              : "—"}
+          </span>
+        </div>
+        <div className="cc-radar-metric-chip">
+          <span className="cc-radar-metric-label">Trạng thái vị trí</span>
+          <span className={`cc-radar-metric-val ${withinRange ? "is-safe" : "is-warn"}`}>
+            {withinRange ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <CheckCircle2 size={13} /> Trong phạm vi
+              </span>
+            ) : metersOut != null ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <AlertCircle size={13} /> Cách {metersOut > 1000 ? `${(metersOut / 1000).toFixed(1)}km` : `${Math.round(metersOut)}m`}
+              </span>
+            ) : (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <XCircle size={13} /> Ngoài vùng
+              </span>
+            )}
+          </span>
+        </div>
       </div>
 
       {/* Legend Footer */}
       <div className="cc-radar-map-legend">
         <div className="cc-radar-legend-item">
           <span className="cc-radar-dot cc-radar-dot--center" />
-          <span>Tâm (0m)</span>
+          <span>Tâm nhà máy (0m)</span>
         </div>
         <div className="cc-radar-legend-item">
           <span className="cc-radar-dot cc-radar-dot--fence" />
-          <span>Geofence ({radiusM}m)</span>
+          <span>Vùng Geofence ({radiusM}m)</span>
         </div>
         <div className="cc-radar-legend-item">
           <span
@@ -542,8 +687,8 @@ function GpsRadarMap2D({
           />
           <span>
             {withinRange
-              ? "Vị trí bạn (Trong vùng)"
-              : `Vị trí bạn (Còn cách ${metersOut != null ? (metersOut > 1000 ? `${(metersOut / 1000).toFixed(1)}km` : `${Math.round(metersOut)}m`) : "ngoài vùng"})`}
+              ? "Vị trí bạn (Hợp lệ)"
+              : `Vị trí bạn (Cách ${metersOut != null ? (metersOut > 1000 ? `${(metersOut / 1000).toFixed(1)}km` : `${Math.round(metersOut)}m`) : "ngoài vùng"})`}
           </span>
         </div>
       </div>
@@ -755,11 +900,11 @@ function MyCheckIn({
 
   return (
     <div className="cc-checkin-hero-wrapper">
-      {/* 1. Hero Header Banner */}
+      {/* 1. Executive Hero Header Banner */}
       <div className="cc-checkin-hero-header">
         <div className="cc-checkin-user-profile">
           {status.employee_name && (
-            <div className="cc-employee-avatar">
+            <div className={`cc-employee-avatar ${status.next_action === "out" ? "is-working" : "is-off"}`}>
               {status.employee_name
                 .split(" ")
                 .filter(Boolean)
@@ -773,35 +918,41 @@ function MyCheckIn({
             <div className="cc-checkin-user-name">
               <h3>{status.employee_name}</h3>
               <span className={`cc-status-dot-pill ${status.next_action === "out" ? "is-working" : "is-off"}`}>
-                {status.next_action === "out" ? "🟢 Đang trong ca" : "⚪ Chưa vào ca"}
+                <span className={`cc-status-indicator-dot ${status.next_action === "out" ? "is-working" : "is-off"}`} />
+                {status.next_action === "out" ? "Đang trong ca" : "Chưa vào ca"}
               </span>
             </div>
-            <div className="cc-employee-sub" style={{ textAlign: "left", marginTop: 2 }}>
-              {status.last_check
-                ? `Lần gần nhất: chấm ${status.last_check.check_type === "in" ? "VÀO" : "RA"} lúc ${fmtDateTime(status.last_check.checked_at)}`
-                : "Chưa có lần chấm công nào."}
+            <div className="cc-employee-sub-chip">
+              <Clock size={12} style={{ flexShrink: 0 }} />
+              <span>
+                {status.last_check
+                  ? `Lần gần nhất: Chấm ${status.last_check.check_type === "in" ? "VÀO" : "RA"} lúc ${fmtDateTime(status.last_check.checked_at)}`
+                  : "Chưa có lượt chấm công nào hôm nay."}
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Live Clock & Shift Status Banner */}
+        {/* Live OLED Digital Clock & Shift Status Widget */}
         <div className="cc-checkin-clock-banner">
           <div className="cc-live-clock cc-live-clock-compact">
             <span>{clockH}</span>
             <span className="cc-clock-colon">:</span>
             <span>{clockM}</span>
             <span className="cc-clock-colon">:</span>
-            <span style={{ opacity: 0.85 }}>{clockS}</span>
+            <span className="cc-clock-sec">{clockS}</span>
           </div>
 
           {status.shift && (
             <div className="cc-shift-tracker-compact">
               <div className="cc-shift-title">
-                <Clock size={13} /> Ca {status.shift.name} ({status.shift.start_time} - {status.shift.end_time})
+                <Clock3 size={13} style={{ color: "var(--rust)" }} />
+                <span>Ca {status.shift.name} ({status.shift.start_time} - {status.shift.end_time})</span>
               </div>
               {showTimer && (
-                <div style={{ fontSize: 11, color: "var(--ash)" }}>
-                  Thời gian làm: <b>{fmtElapsed(status.last_check?.checked_at, nowTick)}</b>
+                <div className="cc-shift-elapsed-time">
+                  <span>Thời gian làm:</span>
+                  <b style={{ fontFamily: "var(--ff-num)" }}>{fmtElapsed(status.last_check?.checked_at, nowTick)}</b>
                 </div>
               )}
               {showTimer && (
@@ -846,7 +997,15 @@ function MyCheckIn({
             <div className="cc-punch-card-header">
               <span className="cc-punch-card-title">Trung tâm Chấm công</span>
               <span className={`cc-type-badge ${preview?.within_range ? "cc-type-badge--paid" : "cc-type-badge--unpaid"}`}>
-                {preview?.within_range ? "✓ Trong vùng" : "⊘ Ngoài vùng"}
+                {preview?.within_range ? (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <CheckCircle2 size={13} /> Trong vùng
+                  </span>
+                ) : (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <XCircle size={13} /> Ngoài vùng
+                  </span>
+                )}
               </span>
             </div>
 
@@ -892,12 +1051,62 @@ function MyCheckIn({
 
             {outside && preview?.meters_out != null && (
               <div className="cc-outside-hint-box">
-                <AlertTriangle size={14} style={{ color: "#dc2626", flexShrink: 0 }} />
+                <AlertTriangle size={14} style={{ color: "var(--signal)", flexShrink: 0 }} />
                 <span>
                   Hãy di chuyển lại gần xưởng thêm <b>{preview.meters_out > 1000 ? `${(preview.meters_out / 1000).toFixed(1)}km` : `${Math.round(preview.meters_out)}m`}</b> để mở khóa nút chấm công.
                 </span>
               </div>
             )}
+
+            {/* Tóm tắt Công & Giờ làm Hôm nay */}
+            <div className="cc-today-summary-card">
+              <div className="cc-today-summary-header">
+                <span className="cc-today-summary-title">Tóm tắt công hôm nay</span>
+                {status.shift && (
+                  <span className="cc-today-shift-tag">
+                    Ca {status.shift.name} ({status.shift.start_time} - {status.shift.end_time})
+                  </span>
+                )}
+              </div>
+              <div className="cc-today-metrics-grid">
+                <div className="cc-today-metric-item">
+                  <span className="cc-today-metric-label">VÀO ĐẦU</span>
+                  <span className="cc-today-metric-val">
+                    {status.today?.first_in ? (
+                      <span style={{ color: "var(--moss)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <LogIn size={13} /> {status.today.first_in}
+                      </span>
+                    ) : (
+                      <span style={{ color: "var(--ash-2)" }}>—</span>
+                    )}
+                  </span>
+                </div>
+                <div className="cc-today-metric-item">
+                  <span className="cc-today-metric-label">RA CUỐI</span>
+                  <span className="cc-today-metric-val">
+                    {status.today?.last_out ? (
+                      <span style={{ color: "var(--rust)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <LogOut size={13} /> {status.today.last_out}
+                      </span>
+                    ) : (
+                      <span style={{ color: "var(--ash-2)" }}>—</span>
+                    )}
+                  </span>
+                </div>
+                <div className="cc-today-metric-item">
+                  <span className="cc-today-metric-label">CÔNG DỰ KIẾN</span>
+                  <span className="cc-today-metric-val" style={{ color: "var(--ink)" }}>
+                    {status.today?.cong != null ? `${status.today.cong} công` : "—"}
+                  </span>
+                </div>
+              </div>
+              {status.today?.reason && (
+                <div className="cc-today-reason-note">
+                  <Info size={13} style={{ flexShrink: 0, color: "var(--ash)" }} />
+                  <span>{status.today.reason}</span>
+                </div>
+              )}
+            </div>
 
             {/* Quick Action Shortcuts Strip */}
             <div className="cc-shortcuts-strip">
@@ -922,11 +1131,11 @@ function MyCheckIn({
                 {geoErr}{" "}
                 <button
                   className="btn btn--ghost"
-                  style={{ marginLeft: 8 }}
+                  style={{ marginLeft: 8, display: "inline-flex", alignItems: "center", gap: 4 }}
                   onClick={refreshPreview}
                   disabled={locating}
                 >
-                  🔄 Thử lại
+                  <RefreshCw size={12} className={locating ? "cc-animate-spin" : ""} /> Thử lại
                 </button>
               </div>
             )}
@@ -947,8 +1156,9 @@ function MyCheckIn({
                     className="btn btn--ghost cc-setup__btn"
                     onClick={setPointHere}
                     disabled={checking}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
                   >
-                    📍 Đặt điểm chấm công tại đây
+                    <MapPin size={14} /> Đặt điểm chấm công tại đây
                   </button>
                   <p className="cc-note">
                     Tạo điểm chấm công mới tại tọa độ hiện tại (bán kính 150m) để
@@ -1053,6 +1263,37 @@ function MyCheckIn({
   );
 }
 
+function getLogDateKey(isoStr: string): string {
+  try {
+    const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(isoStr);
+    const d = new Date(hasTz ? isoStr : `${isoStr}Z`);
+    const todayStr = isoToday();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const ymd = `${y}-${m}-${day}`;
+    if (ymd === todayStr) return `Hôm nay (${day}/${m}/${y})`;
+    return `${day}/${m}/${y}`;
+  } catch {
+    return "Khác";
+  }
+}
+
+function getLogTimeOnly(isoStr: string): string {
+  try {
+    const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(isoStr);
+    const d = new Date(hasTz ? isoStr : `${isoStr}Z`);
+    return d.toLocaleTimeString("vi-VN", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return isoStr;
+  }
+}
+
 function MyHistoryModal({
   logs,
   onClose,
@@ -1060,74 +1301,112 @@ function MyHistoryModal({
   logs: AttendanceLog[];
   onClose: () => void;
 }) {
+  const totalCount = logs.length;
+  const inCount = logs.filter((l) => l.check_type === "in").length;
+  const outCount = logs.filter((l) => l.check_type === "out").length;
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, AttendanceLog[]>();
+    for (const log of logs) {
+      const dateKey = getLogDateKey(log.checked_at);
+      if (!map.has(dateKey)) map.set(dateKey, []);
+      map.get(dateKey)!.push(log);
+    }
+    return Array.from(map.entries());
+  }, [logs]);
+
   return (
     <div className="ns-modal" role="dialog" aria-modal="true">
-      <div className="ns-modal__box" style={{ maxWidth: "480px" }}>
-        <header className="ns-modal__head">
-          <h2
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              margin: 0,
-            }}
-          >
-            <ClipboardList size={18} /> Lịch sử chấm công của tôi
-          </h2>
-          <button className="ns-modal__x" onClick={onClose}>
+      <div className="ns-modal__box cc-history-modal-box" style={{ maxWidth: "540px" }}>
+        <header className="ns-modal__head cc-history-modal-head">
+          <div className="cc-history-modal-title-group">
+            <h2>
+              <ClipboardList size={18} style={{ color: "var(--rust)" }} />
+              <span>Lịch sử chấm công của tôi</span>
+            </h2>
+            <div className="cc-history-stats-strip">
+              <span className="cc-history-stat-chip">
+                Tổng: <b>{totalCount}</b> lượt
+              </span>
+              <span className="cc-history-stat-chip is-in">
+                <LogIn size={11} /> VÀO: <b>{inCount}</b>
+              </span>
+              <span className="cc-history-stat-chip is-out">
+                <LogOut size={11} /> RA: <b>{outCount}</b>
+              </span>
+            </div>
+          </div>
+          <button className="ns-modal__x" onClick={onClose} title="Đóng">
             ×
           </button>
         </header>
+
         <div
-          className="ns-modal__body"
-          style={{ maxHeight: "400px", overflowY: "auto" }}
+          className="ns-modal__body cc-history-modal-body"
+          style={{ maxHeight: "420px", overflowY: "auto" }}
         >
-          <div className="cc-timeline" style={{ marginTop: 0 }}>
-            {logs.map((l) => (
-              <div key={l.id} className="cc-timeline-item">
-                <div
-                  className={`cc-timeline-badge ${l.check_type === "in" ? "cc-timeline-badge--in" : "cc-timeline-badge--out"}`}
-                />
-                <div className="cc-timeline-content">
-                  <div className="cc-timeline-left">
-                    <span className="cc-timeline-action">
-                      Chấm {l.check_type === "in" ? "VÀO" : "RA"}
-                    </span>
-                    <span className="cc-timeline-location">
-                      <MapPin size={12} />{" "}
-                      {l.location_name || "Vị trí không xác định"}
-                    </span>
+          {grouped.length > 0 ? (
+            <div className="cc-history-grouped-list">
+              {grouped.map(([dateTitle, groupLogs]) => (
+                <div key={dateTitle} className="cc-history-date-group">
+                  <div className="cc-history-date-badge">
+                    <Calendar size={12} />
+                    <span>{dateTitle}</span>
                   </div>
-                  <div className="cc-timeline-right">
-                    <span className="cc-timeline-time">
-                      {fmtDateTime(l.checked_at)}
-                    </span>
-                    <div className="cc-timeline-distance">
-                      {l.distance_m != null
-                        ? `Cự ly: ${Math.round(l.distance_m)}m`
-                        : "—"}
-                    </div>
+                  <div className="cc-history-timeline">
+                    {groupLogs.map((l) => {
+                      const isIn = l.check_type === "in";
+                      return (
+                        <div key={l.id} className="cc-history-item">
+                          <div className={`cc-history-dot ${isIn ? "is-in" : "is-out"}`} />
+                          <div className="cc-history-card">
+                            <div className="cc-history-card-left">
+                              <div className={`cc-history-action-badge ${isIn ? "is-in" : "is-out"}`}>
+                                {isIn ? <LogIn size={13} /> : <LogOut size={13} />}
+                                <span>Chấm {isIn ? "VÀO" : "RA"}</span>
+                              </div>
+                              <div className="cc-history-location">
+                                <MapPin size={12} />
+                                <span>{l.location_name || "Vị trí không xác định"}</span>
+                              </div>
+                            </div>
+                            <div className="cc-history-card-right">
+                              <span className="cc-history-time">
+                                {getLogTimeOnly(l.checked_at)}
+                              </span>
+                              {l.distance_m != null && (
+                                <div className="cc-history-distance-chip">
+                                  <Navigation size={10} />
+                                  <span>Cự ly: {Math.round(l.distance_m)}m</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              </div>
-            ))}
-            {logs.length === 0 && (
-              <p
-                className="ns__empty"
-                style={{
-                  background: "var(--paper)",
-                  padding: "16px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--rule-soft)",
-                }}
-              >
-                Chưa có dữ liệu lịch sử chấm công.
-              </p>
-            )}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p
+              className="ns__empty"
+              style={{
+                background: "var(--paper)",
+                padding: "24px",
+                borderRadius: "12px",
+                border: "1px solid var(--rule-soft)",
+                textAlign: "center",
+              }}
+            >
+              Chưa có dữ liệu lịch sử chấm công.
+            </p>
+          )}
         </div>
-        <footer className="ns-modal__foot">
-          <button className="btn btn--ghost" onClick={onClose}>
+
+        <footer className="ns-modal__foot cc-history-modal-foot">
+          <button className="btn btn--primary" onClick={onClose} style={{ minWidth: "90px" }}>
             Đóng
           </button>
         </footer>
