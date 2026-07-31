@@ -3,6 +3,7 @@
 // `default` (prefill khi tạo), `jsonKey` (lưu lồng vào fields_theo_loai).
 // Enum hiển thị bằng thuật ngữ in ấn thuần Việt — dùng chung 1 bảng nhãn cho cả dropdown lẫn cột.
 import type { CatalogConfig } from "./RebuildCatalogPage";
+import { QuyDoiCuaDonVi } from "./QuyDoiCuaDonVi";
 
 // ── Bảng nhãn thuần Việt (in ấn) — 1 nguồn cho options + column render ──────────
 type Lbls = Record<string, string>;
@@ -332,57 +333,45 @@ export const CFG_KHUON_BE: CatalogConfig = {
 };
 
 // ── Đơn vị & quy đổi ─────────────────────────────────────────────────────────────
-// Họ quy đổi: CHỈ đơn vị cùng họ đổi được cho nhau bằng hệ số. Qua họ khác (tờ → m², tờ → kg) phải
-// có quy cách của lệnh nên máy tự lo, không khai ở đây.
-const HO_QUY_DOI: Lbls = {
-  dien_tich: "Diện tích (cm² · m²)",
-  khoi_luong: "Khối lượng (kg · tấn)",
-  do_dai: "Độ dài (mm · mét)",
-  to: "Tờ (tờ · ram)",
-  thanh_pham: "Thành phẩm (cái · con · cuốn · hộp)",
-  kem: "Bản kẽm",
-  bai: "Bài in",
-  luot: "Lượt",
-  thung: "Thùng / bao",
-  khac: "Khác",
-};
-
+// Ba bước, không hơn: tạo đơn vị A, tạo đơn vị B, khai "1 A = n B". Mọi khái niệm khác (loại đo,
+// đơn vị chuẩn, ngày hiệu lực) là chuyện nội bộ — không phơi ra màn khai.
 export const CFG_DON_VI: CatalogConfig = {
   title: "Đơn vị & quy đổi",
-  subtitle:
-    "Đơn vị dùng chung cho khoán · kho · mua hàng. Mỗi đơn vị khai HỆ SỐ về đơn vị gốc của họ " +
-    "(m² = 10.000 cm², tấn = 1.000 kg, ram = 500 tờ) — dòng hệ số 1 chính là đơn vị gốc.",
   prefix: "/api/don-vi",
   softDelete: true,
-  facet: { key: "ho", values: mapOpt(HO_QUY_DOI), dynamic: true },
+  // Tạo xong giữ drawer mở để khai quy đổi ngay — khối quy đổi phải có id mới gắn vào được.
+  moLaiSauKhiTao: true,
   columns: [
-    { key: "ho", label: "Họ quy đổi", render: (r) => lbl(HO_QUY_DOI)(r.ho) },
     {
-      key: "he_so_goc",
-      label: "Hệ số về đơn vị gốc",
-      render: (r) =>
-        Number(r.he_so_goc) === 1
-          ? "1 — đơn vị gốc của họ"
-          : Number(r.he_so_goc).toLocaleString("vi-VN"),
+      key: "quy_doi_text",
+      label: "Quy đổi",
+      render: (r) => {
+        const raw = r.quy_doi_text ? String(r.quy_doi_text).trim() : "";
+        if (!raw || raw === "Chưa khai quy đổi") {
+          return <span className="rc__chip-muted">Chưa khai báo</span>;
+        }
+        const parts = raw.split(" · ").map((p) => p.trim()).filter(Boolean);
+        return (
+          <div className="rc__formula-chips">
+            {parts.map((p, i) => {
+              const isDynamic = p.includes("dinh_luong") || p.includes("dai") || p.includes("rong") || p.includes("so_con") || p.includes("×");
+              return (
+                <span key={i} className={`rc__formula-pill ${isDynamic ? "rc__formula-pill--dynamic" : ""}`}>
+                  {p}
+                </span>
+              );
+            })}
+          </div>
+        );
+      },
     },
-    // Cảnh báo mềm từ backend (hệ số lệch chuẩn · họ chưa có đơn vị gốc) — hiện ngay ở list vì đây
-    // là số dùng để tính TIỀN, thấy muộn thì đã trả lương sai.
-    {
-      key: "canh_bao",
-      label: "Cảnh báo",
-      render: (r) => (Array.isArray(r.canh_bao) && r.canh_bao.length ? r.canh_bao.join(" · ") : "—"),
-    },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
   ],
   fields: [
-    { key: "ho", label: "Họ quy đổi", type: "suggest", group: "Quy đổi", options: mapOpt(HO_QUY_DOI),
-      default: "khac",
-      hint: "Chỉ đơn vị CÙNG họ đổi được cho nhau. Gõ họ mới cũng được." },
-    { key: "he_so_goc", label: "Hệ số về đơn vị gốc", type: "number", group: "Quy đổi", default: 1,
-      hint: "1 đơn vị này = bao nhiêu đơn vị gốc? m² → 10.000 (gốc cm²) · tấn → 1.000 (gốc kg)" },
-    { key: "hieu_luc_tu", label: "Hệ số áp dụng từ ngày", type: "date", group: "Quy đổi",
-      hint: "Sửa hệ số là đổi tiền từ nay về sau — mốc này để đối chiếu phiếu cũ" },
-    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Quy đổi" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text" },
   ],
+  // Quy đổi khai NGAY TẠI ĐÂY, dưới ô Ghi chú — một chỗ nhập, không màn thứ hai.
+  renderExtra: (_form, existing) => <QuyDoiCuaDonVi donVi={existing} />,
 };
 
 export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {

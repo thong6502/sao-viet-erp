@@ -41,10 +41,15 @@ export interface CatalogConfig {
   columns: ColumnDef[];
   fields: FieldDef[];
   facet?: FacetDef;             // tab lọc phía trên (tùy chọn)
-  renderExtra?: (form: Record<string, unknown>) => ReactNode;  // block phụ cuối drawer (vd preview BHR)
+  // Block phụ cuối drawer (preview BHR của Máy · bảng quy đổi của Đơn vị). `existing` = null khi
+  // đang TẠO — block nào cần id thì tự nhắc "lưu trước đã".
+  renderExtra?: (form: Record<string, unknown>, existing: Row | null) => ReactNode;
   hasVersions?: boolean;        // bật lịch sử giá (Giấy): thêm cột "Phiên bản" bấm mở lịch sử
   softDelete?: boolean;         // "Xóa" = ẩn mềm (active=false), giữ dữ liệu; list chỉ hiện active
   autoCode?: boolean;           // mã sinh NGẦM ở backend → ẩn ô "Mã" lúc tạo, không gửi ma
+  /** Tạo xong thì GIỮ drawer mở ở bản ghi vừa tạo. Dùng cho màn có khối con phải gắn vào id (vd
+   *  Đơn vị: tạo "tấn" xong khai ngay quy đổi) — đóng phắt là bắt người ta đi tìm lại dòng. */
+  moLaiSauKhiTao?: boolean;
   deriveInitial?: (existing: Row | null) => Record<string, unknown>;  // giá trị UI suy ra khi mở form (vd _method)
   transformSubmit?: (body: Record<string, unknown>, form: Record<string, unknown>) => Record<string, unknown>;  // map field UI → body API trước khi gửi
 }
@@ -109,25 +114,44 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
 
   return (
     <main className="rc">
-      <header className="rc__head">
-        <div className="rc__headrow">
-          <h1 className="rc__title">{config.title}</h1>
-          {/* Số lượng: mono muted cạnh title (ẩn khi showCount = false) */}
-          {config.showCount !== false && <span className="rc__count">{rows.length} mục</span>}
-        </div>
-        {config.subtitle ? <p className="rc__sub">{config.subtitle}</p> : null}
-      </header>
+      {config.subtitle ? (
+        <>
+          <header className="rc__head">
+            <div className="rc__headrow">
+              <h1 className="rc__title">{config.title}</h1>
+              {config.showCount !== false && <span className="rc__count">{rows.length} mục</span>}
+            </div>
+            <p className="rc__sub">{config.subtitle}</p>
+          </header>
 
-      <div className="rc__toolbar">
-        <div className="rc__search-wrapper">
-          <SearchIcon />
-          <input className="rc__search" placeholder="Tìm mã / tên…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="rc__toolbar">
+            <div className="rc__search-wrapper">
+              <SearchIcon />
+              <input className="rc__search" placeholder="Tìm mã / tên…" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+            <div className="rc__spacer" />
+            <Button variant="accent" onClick={() => setEditing("new")}>
+              <PlusIcon /> Thêm {config.title.toLowerCase()}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <div className="rc__unified-bar">
+          <div className="rc__headrow">
+            <h1 className="rc__title">{config.title}</h1>
+            {config.showCount !== false && <span className="rc__count">{rows.length} mục</span>}
+          </div>
+          <div className="rc__unified-right">
+            <div className="rc__search-wrapper">
+              <SearchIcon />
+              <input className="rc__search" placeholder="Tìm mã / tên…" value={q} onChange={(e) => setQ(e.target.value)} />
+            </div>
+            <Button variant="accent" onClick={() => setEditing("new")}>
+              <PlusIcon /> Thêm {config.title.toLowerCase()}
+            </Button>
+          </div>
         </div>
-        <div className="rc__spacer" />
-        <Button variant="accent" onClick={() => setEditing("new")}>
-          <PlusIcon /> Thêm {config.title.toLowerCase()}
-        </Button>
-      </div>
+      )}
 
       {config.facet && (
         <div className="rc__tabs">
@@ -154,13 +178,14 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
         <table className="rc__table">
           <thead>
             <tr>
-              <th style={{ width: "15%" }}>Mã</th>
-              <th style={{ width: "35%" }}>Tên</th>
+              <th style={{ width: "10%" }}>Mã</th>
+              <th style={{ width: "20%" }}>Tên</th>
               {config.columns.map((c) => {
                 const isCenter = c.key === "bac" || c.key === "dai" || c.key === "active";
-                return <th key={c.key} className={isCenter ? "text-center" : ""}>{c.label}</th>;
+                const w = c.key === "quy_doi_text" ? "45%" : c.key === "ghi_chu" ? "15%" : undefined;
+                return <th key={c.key} style={w ? { width: w } : undefined} className={isCenter ? "text-center" : ""}>{c.label}</th>;
               })}
-              <th className="rc__actcol" style={{ width: "100px" }}>Hành động</th>
+              <th className="rc__actcol" style={{ width: "10%" }}>Hành động</th>
             </tr>
           </thead>
           <tbody>
@@ -234,7 +259,12 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
 
       {editing && (
         <CatalogDrawer config={config} existing={editing === "new" ? null : editing} allRows={rows}
-          onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); onMutate?.(); }} />
+          onClose={() => { setEditing(null); load(); }}
+          onSaved={(moi) => {
+            setEditing(config.moLaiSauKhiTao && editing === "new" && moi ? moi : null);
+            load();
+            onMutate?.();
+          }} />
       )}
 
       {pricingRow && (
@@ -516,6 +546,15 @@ function SuggestField({
     return Array.from(set);
   }, [options, allRows, fieldKey]);
 
+  // Giá trị lưu là MÃ (`khoi_luong`), nhãn người đọc nằm ở `options`. Không tra ngược thì dropdown
+  // hiện mã trần — chủ mở ô "Nhóm đơn vị" ra thấy "khoi_luong" và không hiểu đang chọn cái gì.
+  // Giá trị người dùng tự gõ (không có trong options) thì hiện nguyên văn, đó đã là chữ của họ.
+  const nhan = useMemo(() => {
+    const m = new Map<string, string>();
+    options?.forEach((o) => m.set(o.value, o.label));
+    return m;
+  }, [options]);
+
   const isCustomVal = value !== "" && !suggestions.includes(value);
   const [isCustomMode, setIsCustomMode] = useState(isCustomVal);
 
@@ -576,7 +615,7 @@ function SuggestField({
         <option value="">— Chọn {placeholder || "giá trị"} —</option>
         {suggestions.map((s) => (
           <option key={s} value={s}>
-            {s}
+            {nhan.get(s) ?? s}
           </option>
         ))}
         <option value="_new_" style={{ fontWeight: "600", color: "var(--brand, #c2410c)" }}>
@@ -728,7 +767,8 @@ function SizeTiersField({ value, onChange }: { value: SizeTierRow[]; onChange: (
 
 // ── DRAWER COMPONENT ─────────────────────────────────────────────────────────────
 function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
-  config: CatalogConfig; existing: Row | null; allRows: Row[]; onClose: () => void; onSaved: () => void;
+  config: CatalogConfig; existing: Row | null; allRows: Row[];
+  onClose: () => void; onSaved: (moi?: Row) => void;
 }) {
   const { token } = useAuth();
   const api = useMemo(() => crud(config.prefix), [config.prefix]);
@@ -868,7 +908,12 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     for (const f of visibleFields) {
       let v = form[f.key];
       if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers") { body[f.key] = Array.isArray(v) ? v : []; continue; }
-      if (v === "" || v === undefined) { if (!f.required) continue; }
+      if (v === "" || v === undefined) {
+        const kieuChu = !f.type || f.type === "text" || f.type === "date" || f.type === "suggest";
+        const voonCoGiaTri = isEdit && existing != null && existing[f.key] != null
+          && existing[f.key] !== "";
+        if (!f.required && !(kieuChu && voonCoGiaTri)) continue;
+      }
       if ((f.type === "number" || f.type === "ref" || f.type === "ref-search") && v !== "" && v != null) v = Number(v);
       if (f.type === "json" && typeof v === "string" && v.trim()) {
         try { v = JSON.parse(v); } catch { setErr(`${f.label}: JSON không hợp lệ.`); setSaving(false); return; }
@@ -884,12 +929,10 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     }
     const finalBody = config.transformSubmit ? config.transformSubmit(body, form) : body;
     try {
-      if (isEdit && existing) {
-        await api.update(token, existing.id, finalBody);
-      } else {
-        await api.create(token, finalBody);
-      }
-      onSaved();
+      const moi = isEdit && existing
+        ? await api.update(token, existing.id, finalBody)
+        : await api.create(token, finalBody);
+      onSaved(moi);
     } catch (e2) { setErr(e2 instanceof ApiError ? e2.message : "Lưu thất bại."); setSaving(false); }
   }
 
@@ -899,7 +942,10 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     return allRows.some((r) => String(r.ma).trim().toUpperCase() === typedMa);
   }, [isEdit, typedMa, allRows]);
 
-  const hasFormulaField = useMemo(() => visibleFields.some((f) => f.type === "formula"), [visibleFields]);
+  const hasFormulaField = useMemo(
+    () => visibleFields.some((f) => f.type === "formula") || config.renderExtra != null,
+    [visibleFields, config.renderExtra]
+  );
 
   return (
     <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
@@ -921,7 +967,6 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
           
           {hasFormulaField ? (
             <div>
-              {/* Tab chuyển đổi thanh thoát không icon phèn, không nút toggle rác */}
               <div className="rc-drawer__tabs" style={{ marginBottom: "var(--sp-4)" }}>
                 <button
                   type="button"
@@ -935,12 +980,11 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                   className={`rc-drawer__tab${formulaTab === "formula" ? " is-active" : ""}`}
                   onClick={() => setFormulaTab("formula")}
                 >
-                  Công thức tính giá
+                  {config.renderExtra ? "Công thức quy đổi" : "Công thức tính giá"}
                 </button>
               </div>
 
               {formulaTab === "info" ? (
-                /* Tab Khai báo: Gọn gàng 100% trong 1 Card 2 Cột duy nhất — KHÔNG cuộn trang */
                 <section className="rc-card-section" style={{ padding: "16px 20px" }}>
                   <div className="rc-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "12px 16px" }}>
                     {!(config.autoCode && !isEdit) && (
@@ -970,11 +1014,11 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                   </div>
                 </section>
               ) : (
-                /* Tab Công thức tính giá */
                 <div>
                   {visibleFields
                     .filter((f) => f.type === "formula")
                     .map(renderField)}
+                  {config.renderExtra?.(form, existing)}
                 </div>
               )}
             </div>
@@ -1008,8 +1052,6 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
               </div>
             </section>
           )}
-
-          {config.renderExtra?.(form)}
         </form>
 
         <footer className="rc-drawer__foot">
@@ -1172,7 +1214,10 @@ const VAR_DESC: Record<string, string> = {
   to_dau_vao: "Số tờ vào máy = tờ cần in + bù hao",
   to_sau_in: "Số tờ tốt sau in (dùng cho gia công)",
   to_nguyen: "Số tờ giấy nguyên tiêu hao (giấy to chưa cắt)",
-  dinh_luong: "Định lượng giấy (gsm) — lấy từ ô Định lượng",
+  dinh_luong: "Định lượng giấy, kg/m² (= gsm ÷ 1.000)",
+  dai: "Dài của tờ ĐANG ĐẾM, mét — nơi gọi đưa (mua giấy: khổ nguyên · chạy máy: khổ in)",
+  rong: "Rộng của tờ đang đếm, mét",
+  so_con: "Số con trên tờ — 1 tờ bế ra mấy con",
   don_gia: "Đơn giá — lấy từ ô Giá / Lịch sử giá của mục",
   don_gia_kg: "Đơn giá theo cân (đ/kg)",
   don_gia_m2: "Đơn giá theo diện tích (đ/m²)",
@@ -1207,6 +1252,10 @@ const FRIENDLY_NAMES: Record<string, string> = {
   don_gia_kem: "Đơn giá kẽm",
   so_vi_tri: "Số vị trí",
   dien_tich: "Diện tích",
+  // Biến của công thức QUY ĐỔI đơn vị — tên là VAI TRÒ ("tờ đang đếm"), không neo vào khổ nào.
+  dai: "Dài tờ đang đếm",
+  rong: "Rộng tờ đang đếm",
+  so_con: "Số con/tờ",
 };
 
 function translateFormula(formula: string): ReactNode[] {
@@ -1264,45 +1313,36 @@ function translateFormula(formula: string): ReactNode[] {
 
 const MATH_FUNCS = ["ceil", "floor", "round", "max", "min"];
 
-function FormulaField({
+export function FormulaField({
   value,
   onChange,
-  configPrefix
+  configPrefix,
+  bienGoiY,
+  nhanO = "Công thức tính giá",
+  goY = "Nhập công thức tính giá (vd: dai_tp * rong_tp * don_gia)...",
+  id = "formula-textarea",
 }: {
   value: string;
   onChange: (v: string) => void;
   configPrefix: string;
+  /** Bộ biến RIÊNG cho ngữ cảnh khác tính giá (vd quy đổi đơn vị). Có thì thay hẳn whitelist. */
+  bienGoiY?: string[];
+  nhanO?: string;
+  goY?: string;
+  /** Nhiều ô công thức trên một màn thì phải khác id — nút chèn biến tìm textarea theo id. */
+  id?: string;
 }) {
   const isCd = configPrefix.includes("cong-doan");
   const isGiay = configPrefix.endsWith("/giay");   // "/api/vat-lieu-kho/giay"
-  const whitelist = isCd ? WHITELIST_VARS.cong_doan
-    : isGiay ? WHITELIST_VARS.giay : WHITELIST_VARS.vat_tu; // chip gợi ý
-  const validVars = useMemo(() => [...whitelist, ...EXTRA_VALID_VARS], [whitelist]);
-  const [hoveredVar, setHoveredVar] = useState<string | null>(null);
-
-  // Presets
-  const presets = useMemo(() => {
-    if (isCd) {
-      return [
-        { label: "Sản lượng", desc: "Số lượng × Đơn giá", formula: "so_luong * don_gia" },
-        { label: "Theo tờ in", desc: "Tờ vào máy × Đơn giá", formula: "to_dau_vao * don_gia" },
-        { label: "Theo lượt in", desc: "Tờ vào máy × Số mặt × Đơn giá lượt", formula: "to_dau_vao * so_mat * don_gia_luot" },
-        { label: "Theo con kẽm", desc: "Số kẽm × Đơn giá kẽm", formula: "so_kem * don_gia_kem" },
-      ];
-    }
-    if (isGiay) {
-      return [
-        { label: "Giấy theo cân (kg)", desc: "Định lượng × Dài nguyên × Rộng nguyên × Tờ nguyên × Đơn giá/kg", formula: "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen * don_gia_kg" },
-        { label: "Tờ giấy nguyên", desc: "Tờ giấy nguyên × Đơn giá", formula: "to_nguyen * don_gia" },
-        { label: "Theo diện tích m²", desc: "Dài nguyên × Rộng nguyên × Tờ nguyên × Đơn giá m²", formula: "dai_nguyen * rong_nguyen * to_nguyen * don_gia_m2" },
-      ];
-    }
-    return [
-      { label: "Theo sản lượng", desc: "Số lượng × Đơn giá", formula: "so_luong * don_gia" },
-      { label: "Theo tờ vào máy", desc: "Tờ vào máy × Đơn giá", formula: "to_dau_vao * don_gia" },
-      { label: "Theo diện tích in", desc: "Dài in × Rộng in × Tờ vào máy × Đơn giá m²", formula: "dai_in * rong_in * to_dau_vao * don_gia_m2" },
-    ];
-  }, [isCd, isGiay]);
+  const whitelist = bienGoiY ?? (isCd ? WHITELIST_VARS.cong_doan
+    : isGiay ? WHITELIST_VARS.giay : WHITELIST_VARS.vat_tu); // chip gợi ý
+  // Bộ biến riêng thì KHÔNG nới thêm biến engine tính giá — gõ `don_gia` vào công thức quy đổi
+  // phải báo đỏ ngay, không thì để đó tới lúc chạy mới biết.
+  const validVars = useMemo(
+    () => (bienGoiY ? [...bienGoiY] : [...whitelist, ...EXTRA_VALID_VARS]),
+    [whitelist, bienGoiY],
+  );
+  // Real-time formula validation
 
   // Popover "Cú pháp"
   const [showSyntax, setShowSyntax] = useState(false);
@@ -1322,7 +1362,7 @@ function FormulaField({
   }, [showSyntax]);
 
   const insertVar = (varName: string) => {
-    const el = document.getElementById("formula-textarea") as HTMLTextAreaElement | null;
+    const el = document.getElementById(id) as HTMLTextAreaElement | null;
     if (!el) {
       onChange(value + varName);
       return;
@@ -1342,9 +1382,12 @@ function FormulaField({
 
   // Group variables for clean categorical rendering
   const groups = useMemo(() => {
-    const sizeVars = ["dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in"];
-    const qtyVars = ["so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in", "to_nguyen"];
+    const sizeVars = ["dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in",
+      "dai", "rong"];
+    const qtyVars = ["so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in",
+      "to_nguyen", "so_con"];
     const priceVars = ["dinh_luong", "don_gia", "don_gia_m2", "don_gia_luot", "don_gia_kem", "don_gia_kg"];
+    const daXep = new Set([...sizeVars, ...qtyVars, ...priceVars]);
 
     return [
       {
@@ -1382,7 +1425,14 @@ function FormulaField({
           </svg>
         ),
         vars: whitelist.filter(v => priceVars.includes(v))
-      }
+      },
+      {
+        name: "Khác",
+        key: "khac",
+        colorClass: "rc-formula__var-tag--qty",
+        icon: null,
+        vars: whitelist.filter(v => !daXep.has(v)),
+      },
     ].filter(g => g.vars.length > 0);
   }, [whitelist]);
 
@@ -1430,7 +1480,7 @@ function FormulaField({
       {/* 1. Trình soạn thảo công thức ở trên cùng */}
       <div className="rc-formula__editor-container">
         <div className="rc-formula__editor-header">
-          <span className="rc-formula__editor-label">Công thức tính giá</span>
+          <span className="rc-formula__editor-label">{nhanO}</span>
           <button
             ref={syntaxBtnRef}
             type="button"
@@ -1492,12 +1542,12 @@ function FormulaField({
         </div>
 
         <textarea
-          id="formula-textarea"
+          id={id}
           className="rc-formula__textarea"
           rows={2}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="Nhập công thức tính giá (vd: dai_tp * rong_tp * don_gia)..."
+          placeholder={goY}
         />
       </div>
 
@@ -1521,78 +1571,25 @@ function FormulaField({
         </div>
       )}
 
-      {/* 3. Danh sách biến khả dụng */}
+      {/* 3. Danh sách biến khả dụng (Gom chung 1 nhóm) */}
       <div className="rc-formula__header-bar">
         <span className="rc-formula__header-title">Danh sách biến khả dụng</span>
       </div>
 
-      <div className="rc-formula__groups">
-        {groups.map((g) => (
-          <div key={g.key} className="rc-formula__group">
-            <div className="rc-formula__group-title">
-              {g.icon}
-              <span>{g.name}</span>
-            </div>
-            <div className="rc-formula__vars">
-              {g.vars.map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  className={`rc-formula__var-tag ${g.colorClass}`}
-                  onClick={() => insertVar(v)}
-                  onMouseEnter={() => setHoveredVar(v)}
-                  onMouseLeave={() => setHoveredVar(null)}
-                  title={VAR_DESC[v] || v}
-                >
-                  <span className="rc-formula__var-name">{FRIENDLY_NAMES[v] || v}</span>
-                  <code className="rc-formula__var-code">{v}</code>
-                </button>
-              ))}
-            </div>
-          </div>
+      <div className="rc-formula__all-vars">
+        {groups.flatMap((g) => g.vars.map((v) => ({ v, colorClass: g.colorClass }))).map(({ v, colorClass }) => (
+          <button
+            key={v}
+            type="button"
+            className={`rc-formula__var-tag ${colorClass}`}
+            onClick={() => insertVar(v)}
+            title={VAR_DESC[v] || v}
+          >
+            <span className="rc-formula__var-name">{FRIENDLY_NAMES[v] || v}</span>
+            <code className="rc-formula__var-code">{v}</code>
+          </button>
         ))}
       </div>
-
-      <div className="rc-formula__legend">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: "4px", color: "var(--rust)" }}>
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="16" x2="12" y2="12"/>
-          <line x1="12" y1="8" x2="12.01" y2="8"/>
-        </svg>
-        <span>
-          {hoveredVar ? (
-            <><strong>{FRIENDLY_NAMES[hoveredVar] || hoveredVar} ({hoveredVar})</strong>: {VAR_DESC[hoveredVar]}</>
-          ) : (
-            "Rê chuột vào biến để giải nghĩa, click để chèn nhanh vào công thức..."
-          )}
-        </span>
-      </div>
-
-      {/* 4. Công thức mẫu chèn nhanh */}
-      {presets.length > 0 && (
-        <div className="rc-formula__presets">
-          <div className="rc-formula__presets-label">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-            </svg>
-            Công thức mẫu gợi ý (Chèn nhanh 1-Click):
-          </div>
-          <div className="rc-formula__presets-list">
-            {presets.map((p) => (
-              <button
-                key={p.label}
-                type="button"
-                className="rc-formula__preset-btn"
-                onClick={() => onChange(p.formula)}
-                title={`Bấm để áp dụng công thức: ${p.desc}`}
-              >
-                <span className="rc-formula__preset-title">{p.label}</span>
-                <span className="rc-formula__preset-code">{p.formula}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

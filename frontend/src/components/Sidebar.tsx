@@ -133,7 +133,8 @@ const NAV: NavSection[] = [
       { id: "cong-doan", label: "Công đoạn", icon: "activity", module: "dm_cong_doan" },
       { id: "bu-hao", label: "Bù hao", icon: "fileText", module: "dm_cong_doan" },
       // Đơn vị & quy đổi: dùng chung cho khoán · kho · mua hàng, nên nằm ở danh mục chứ không
-      // chôn trong màn Lương.
+      // chôn trong màn Lương. MỘT mục cho hai bảng (đơn vị · cặp "1 tấn = 1.000 kg") — tách hai
+      // mục thì hai cái tên gần trùng nhau, không ai đoán được vào đâu làm gì.
       { id: "don-vi", label: "Đơn vị & quy đổi", icon: "activity", module: "dm_cong_doan" },
       { id: "chung-loai-giay", label: "Chủng loại giấy", icon: "fileText", module: "kho" },
       { id: "giay", label: "Giấy", icon: "bag", module: "kho" },
