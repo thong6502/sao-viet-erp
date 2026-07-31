@@ -162,21 +162,79 @@ def test_khach_cap_giay_thi_giay_0():
     assert _grp(res, "nvl")["subtotal"] == 0
 
 
-def test_formula_engine_ast_and_hao_so_to():
+def test_che_ban_khong_nam_trong_dong_giay():
+    """Chế bản để TRỐNG đơn vị (nhả kẽm, không nhả tờ) → tự rơi khỏi chuỗi bù hao theo tờ."""
+    tp = _component()
+    tp["thanh_phams"] = [
+        {"ten": "Ghi kẽm CTP", "cong_doan": {"ten": "Ghi kẽm CTP", "nhom": "prepress",
+                                             "kieu_bu_hao": "co_dinh", "so_to_bu_hao": 999,
+                                             "don_vi_vao": None, "don_vi_ra": None}},
+        {"ten": "In offset", "cong_doan": {"ten": "In offset", "nhom": "print",
+                                           "kieu_bu_hao": "co_dinh", "so_to_bu_hao": 150,
+                                           "don_vi_vao": "to", "don_vi_ra": "to"}},
+        {"ten": "Cán màng", "cong_doan": {"ten": "Cán màng", "nhom": "finishing",
+                                          "kieu_bu_hao": "co_dinh", "so_to_bu_hao": 50,
+                                          "don_vi_vao": "to", "don_vi_ra": "to"}},
+    ]
+    res = compute_phieu(so_luong=5000, thanh_phans=[tp])
+    m = res["meta"]["components"][0]
+    # Chế bản để trống là CỐ Ý → không kêu. (Bước khác quên khai thì có cảnh báo riêng.)
+    assert not [w for w in res.get("warnings", []) if "chưa khai đơn vị" in w]
+    # 5000/49 = 103 tờ net. Ngược: Cán 103→153 · In 153→303. 999 tờ của CHẾ BẢN không được cộng.
+    assert m["bu_hao_auto"] == 200
+    assert m["to_dau_vao"] == 303
+    # Chế bản KHÔNG có mặt trong phân rã (nó không chạm tờ nào).
+    assert [b["ten"] for b in m["bu_hao_chi_tiet"]] == ["In offset", "Cán màng"]
+    # Tờ sau in = `ra` của bước in → cán màng chỉ tính tiền trên 153 tờ, không phải 303.
+    assert m["to_sau_in"] == 153
+
+
+def test_routing_qua_ranh_gioi_be_thi_chuoi_bat_dau_tu_SL_KHACH_DAT():
+    """Routing có bế → chuỗi đi ngược từ 5.000 CON, quy về tờ tại đúng bước bế."""
+    tp = _component()
+    tp["thanh_phams"] = [
+        {"ten": "In offset", "cong_doan": {"ten": "In offset", "nhom": "print",
+                                           "kieu_bu_hao": "co_dinh", "so_to_bu_hao": 150,
+                                           "don_vi_vao": "to", "don_vi_ra": "to"}},
+        {"ten": "Bế", "cong_doan": {"ten": "Bế", "nhom": "finishing",
+                                    "kieu_bu_hao": "co_dinh", "so_to_bu_hao": 50,
+                                    "don_vi_vao": "to", "don_vi_ra": "cai"}},
+        {"ten": "Đóng gói", "cong_doan": {"ten": "Đóng gói", "nhom": "finishing",
+                                          "don_vi_vao": "cai", "don_vi_ra": "cai"}},
+    ]
+    res = compute_phieu(so_luong=5000, thanh_phans=[tp])
+    m = res["meta"]["components"][0]
+    # con=49, xả=2. Ngược: Đóng gói 5.000 con → Bế 5.000÷49=102,04 +50 = 152,04 tờ →
+    # In 152,04 + 150 = 302,04 → ceil 303 tờ vào máy.
+    assert m["to_dau_vao"] == 303
+    assert m["bu_hao_auto"] == 303 - m["to_net"]        # to_net = ceil(5000/49) = 103
+    assert m["to_nguyen"] == 152                        # ceil(303 / 2 mảnh xả)
+    assert m["to_sau_in"] == 153                        # `ra` của bước in = ceil(152,04)
+    # Chuỗi nhắm ĐÚNG số khách đặt nên không dư — khác ca không có bế (bình bài thừa ra vài con).
+    assert m["so_tp_ra"] == 5000
+    # Phân rã mang theo đơn vị để UI chỉ ra chỗ đổi.
+    be_row = next(b for b in m["bu_hao_chi_tiet"] if b["ten"] == "Bế")
+    assert (be_row["dv_vao"], be_row["dv_ra"]) == ("to", "cai")
+    assert be_row["hao"] == 50                          # hao đo bằng ĐƠN VỊ VÀO (tờ), không phải con
+    assert not [w for w in res.get("warnings", []) if "đứt đơn vị" in w]
+
+
+def test_formula_engine_ast_and_bu_them():
     tp = _component()
     tp["cong_thuc_gia"] = "dinh_luong * dai_nguyen * rong_nguyen * don_gia_kg * to_nguyen"
     tp["bu_hao_so_to"] = 250
-    tp["hao_so_to"] = 150
-    
+    tp["hao_so_to"] = 150   # ô "− Hao" ĐÃ BỎ — engine phải lờ đi, không trừ vào to_sau_in
+
     res = compute_phieu(so_luong=4000, thanh_phans=[tp])
     m = res["meta"]["components"][0]
-    
-    # 4000 / 49 = 82 con/to net
-    # to_dau_vao = 82 + 0 (finishing spoilages) + 250 (bu_hao) = 332
-    # to_sau_in = 332 - 150 = 182
+
+    # 4000 / 49 = 82 to net
+    # to_dau_vao = 82 + 0 (chuỗi công đoạn rỗng → bù hao 0) + 250 (bù thêm tay) = 332
+    # to_sau_in = 332: chuỗi KHÔNG có bước in → fallback = tờ vào máy (không trừ hao tay nữa)
     # to_nguyen = ceil(332 / 2) = 166
     assert m["to_dau_vao"] == 332
-    assert m["to_sau_in"] == 182
+    assert m["to_sau_in"] == 332
+    assert m["hao_tay"] == 0
     assert m["to_nguyen"] == 166
 
     # Verify formula calculation

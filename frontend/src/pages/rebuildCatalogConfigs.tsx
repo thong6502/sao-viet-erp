@@ -17,6 +17,17 @@ export const BINDING: Lbls = { ghim: "Đóng ghim", keo: "Vào keo", khau: "Khâ
 
 const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia công sau in", other: "Dịch vụ khác" };
 
+// Đơn vị đếm của công đoạn. Dòng giấy chảy MỘT CHIỀU qua ba đơn vị, đổi ở hai chỗ:
+//   tờ nguyên ──(xả)──▶ tờ in ──(bế/xén)──▶ tờ thành phẩm
+// Hệ số quy đổi KHÔNG khai ở đây — phiếu tính giá đã có con/tờ và số mảnh xả.
+// Ba mức của DÒNG GIẤY — hết. Bước không chạm giấy (chế bản) thì để TRỐNG ô đơn vị, chứ không
+// đẻ thêm lựa chọn cho nó: trống = "không nằm trên dòng giấy", engine bỏ qua khi tính bù hao.
+const DON_VI_CD: Lbls = {
+  to_nguyen: "Tờ nguyên (giấy to)",
+  to: "Tờ in",
+  cai: "Tờ thành phẩm (con)",
+};
+
 // Cách công đoạn góp bù hao — trỏ 1 mã bù hao (tra bảng theo SL), hoặc cộng cố định.
 const KIEU_BU_HAO: Lbls = {
   khong: "Không bù hao",
@@ -159,6 +170,9 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   facet: { key: "nhom", values: mapOpt(NHOM_CD) },
   columns: [
     { key: "nhom", label: "Giai đoạn", render: (r) => lbl(NHOM_CD)(r.nhom) },
+    // Nhìn ra ngay bước nào ĐỔI ĐƠN VỊ, và bước nào để trống (không nằm trên dòng giấy).
+    { key: "don_vi_vao", label: "Đơn vị", render: (r) =>
+        `${lbl(DON_VI_CD)(r.don_vi_vao)} → ${lbl(DON_VI_CD)(r.don_vi_ra)}` },
     { key: "kieu_bu_hao", label: "Bù hao", render: (r) =>
         r.kieu_bu_hao === "co_dinh" ? `Cố định ${r.so_to_bu_hao ?? 50} tờ` : lbl(KIEU_BU_HAO)(r.kieu_bu_hao ?? "khong") },
     // Nhìn ra công đoạn nào chưa khai số cho Lệnh sản xuất (giống cột Tốc độ bên màn Máy).
@@ -182,6 +196,13 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // CHỈ TÍNH THEO CÔNG THỨC: đã bỏ ô 'Cách tính giá' / 'Đơn giá' / 'Bậc kích thước'.
     // Đơn giá nhập per-phiếu (mỗi dòng phiếu tính giá tự mang don_gia); công đoạn chỉ khai CÔNG THỨC.
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
+    // ── Đơn vị đứng TRƯỚC Bù hao: nó quyết định bù hao được tra theo số gì (tờ hay con) ────────
+    { key: "don_vi_vao", label: "Đơn vị đầu vào", type: "select", group: "Đơn vị",
+      options: mapOpt(DON_VI_CD), default: "to",
+      hint: "Bước này NHẬN VÀO cái gì. Bù hao khai ở dưới cũng tính theo đơn vị này. Để TRỐNG nếu bước không chạm giấy (chế bản) — engine sẽ bỏ nó khỏi dòng giấy." },
+    { key: "don_vi_ra", label: "Đơn vị đầu ra", type: "select", group: "Đơn vị",
+      options: mapOpt(DON_VI_CD), default: "to",
+      hint: "Khác đầu vào = bước ĐỔI ĐƠN VỊ (bế: tờ in → tờ thành phẩm · xả giấy: tờ nguyên → tờ in). Hệ số quy đổi lấy từ phiếu tính giá (con/tờ, số mảnh xả) — không khai ở đây." },
     { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong" },
     { key: "bu_hao_id", label: "Mã bù hao (gõ để tìm)", type: "ref-search", refPrefix: "/api/bu-hao", group: "Bù hao",
       showIf: (f) => f.kieu_bu_hao === "tra_bang",

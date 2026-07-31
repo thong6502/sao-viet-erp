@@ -29,7 +29,8 @@ import re
 from math import ceil, floor
 
 from .routing_engine import basis_qty, compute_step_cost
-from .bu_hao_engine import bu_hao_cong_doan
+from ..models.lsx import DV_CAI, DV_TO, DV_TO_NGUYEN
+from .bu_hao_engine import chuoi_nguoc_dv
 
 
 def _f(v, d: float = 0.0) -> float:
@@ -369,21 +370,108 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     # --- Số tờ CẦN in (net) — tính TRƯỚC để tra bù hao THEO SỐ TỜ (không phải số lượng) ---
     to_net = ceil(sl * so_to_per_sp / con) if sl > 0 else 0
 
-    # --- Bù hao mỗi công đoạn: TỰ áp theo mã của công đoạn (kieu_bu_hao != "khong"), tra bậc
-    # theo SỐ TỜ CẦN IN (to_net). Toggle `tinh_bu_hao_cd` TẮT → bỏ qua (người dùng tự nhập bù). ---
-    finishing_spoilage_sum = 0.0
-    if tp.get("tinh_bu_hao_cd", True):
-        for row in tp.get("thanh_phams") or []:
-            cd = row.get("cong_doan") or {}
-            if cd and cd.get("kieu_bu_hao", "khong") != "khong":
-                finishing_spoilage_sum += bu_hao_cong_doan(cd, rows=bu_hao_rows, sl=to_net)
+    # --- Bù hao NGƯỢC theo công đoạn: đi từ CUỐI chuỗi lên, mỗi bước tra bậc theo số đi qua CHÍNH
+    # NÓ, ở ĐÚNG đơn vị của nó (bước in rơi bậc cao hơn bước xén cuối — cộng xuôi phẳng theo
+    # `to_net` thì mọi bước tra cùng một bậc). LUÔN tính: cột `tinh_bu_hao_cd` không còn được đọc,
+    # tắt bù hao tự là mở đường cho báo giá hụt giấy mà không ai biết. Muốn cộng thêm thì có ô
+    # "+ Bù thêm"; muốn bớt thì đi sửa định mức của công đoạn. ---
+    chain = tp.get("thanh_phams") or []
+    # Bước ở trên DÒNG GIẤY = bước có KHAI đơn vị. Chế bản để trống đơn vị (nó nhả kẽm, không nhả
+    # tờ) nên tự rơi ra khỏi đây — không cần luật riêng theo `nhom`.
+    idx_giay = [i for i, r in enumerate(chain)
+                if (r.get("cong_doan") or {}).get("don_vi_vao")
+                and (r.get("cong_doan") or {}).get("don_vi_ra")]
+    # Bước KHÔNG PHẢI chế bản mà bỏ trống đơn vị = nhiều khả năng quên khai. Nó rơi thẳng ra khỏi
+    # dòng giấy nên bù hao của nó biến mất KHÔNG kèn không trống — phải kêu, đừng để số 0 im lặng.
+    for i, r in enumerate(chain):
+        cd = r.get("cong_doan") or {}
+        if i not in idx_giay and cd.get("nhom") != "prepress":
+            warnings.append(
+                f"Thành phần '{name}': công đoạn '{r.get('ten') or cd.get('ten') or '?'}' chưa khai "
+                f"đơn vị vào/ra — không được tính vào dòng giấy (bù hao của nó bỏ qua)."
+            )
+    # Đơn vị vào/ra KHAI ở danh mục công đoạn. HỆ SỐ thì phiếu cấp — `con` (bình bài) và `xa`
+    # (số mảnh xả) đã tính ở trên, khai lại vào danh mục là đẻ nguồn sự thật thứ hai.
+    he_so_dv = {(DV_TO, DV_CAI): float(con), (DV_TO_NGUYEN, DV_TO): float(xa)}
+    buoc_in = []
+    for i in idx_giay:
+        cd = chain[i].get("cong_doan") or {}
+        buoc_in.append({
+            "cd": cd,
+            "ten": chain[i].get("ten") or cd.get("ten") or "Công đoạn",
+            "dv_vao": cd.get("don_vi_vao"),
+            "dv_ra": cd.get("don_vi_ra"),
+        })
+    # Chuỗi bắt đầu ở ĐƠN VỊ RA của bước cuối: routing có bế/xén thì đích là SỐ KHÁCH ĐẶT (con),
+    # không có thì đích là số tờ in cần. Đây là chỗ "đi ngược từ 5.000 đổ lại" thành thật.
+    dv_cuoi = buoc_in[-1]["dv_ra"] if buoc_in else DV_TO
+    to_can = float(sl) if dv_cuoi == DV_CAI else float(to_net)
+    buoc_giay, canh_bao_dv = chuoi_nguoc_dv(
+        buoc_in, rows=bu_hao_rows, to_can=to_can, he_so=he_so_dv)
+    for _c in canh_bao_dv:
+        warnings.append(f"Thành phần '{name}': {_c}")
 
-    # --- Số tờ: net → gross (tờ in) → tờ nguyên ---
-    bu_hao = _i(tp.get("bu_hao_so_to"))         # số bù nhập tay (cộng thêm to_dau_vao)
-    hao = _i(tp.get("hao_so_to"))               # số hao nhập tay (trừ bớt to_sau_in)
-    to_dau_vao = to_net + finishing_spoilage_sum + bu_hao
-    to_sau_in = max(to_dau_vao - hao, 0.0)
-    to_nguyen = ceil(to_dau_vao / xa) if to_dau_vao > 0 else 0
+    # --- Số tờ: đọc RA KHỎI CHUỖI tại đúng ranh giới đơn vị, không tính riêng bên ngoài ---
+    bu_hao = _i(tp.get("bu_hao_so_to"))         # "+ Bù thêm" — ô nhập tay DUY NHẤT còn lại
+
+    def _vao_tai(dv: str) -> float | None:
+        """Số lượng VÀO của bước đầu tiên ăn đơn vị `dv` — chính là mốc cần ở ranh giới đó."""
+        return next((b["vao"] for b in buoc_giay if b["dv_vao"] == dv), None)
+
+    to_can_vao = _vao_tai(DV_TO)
+    if to_can_vao is None:      # chuỗi rỗng, hoặc toàn bước không chạm tờ in
+        to_can_vao = float(to_net)
+    finishing_spoilage_sum = ceil(to_can_vao) - to_net       # Σ bù hao công đoạn (hiện trên panel)
+    # Bù thêm tay là tờ nạp ở đầu chuỗi → chảy qua MỌI bước, cộng vào cả vào lẫn ra.
+    if bu_hao:
+        for b in buoc_giay:
+            b["vao"] += bu_hao
+            b["ra"] += bu_hao
+    to_dau_vao = ceil(to_can_vao) + bu_hao
+    # Chuỗi CÓ bước xả giấy → tờ nguyên đọc thẳng từ bước đó; không có thì quy đổi ở đây như cũ.
+    _vao_nguyen = _vao_tai(DV_TO_NGUYEN)
+    if _vao_nguyen is not None:
+        to_nguyen = ceil(_vao_nguyen)
+    else:
+        to_nguyen = ceil(to_dau_vao / xa) if to_dau_vao > 0 else 0
+    # Tờ TỐT còn lại sau in = `ra` của bước IN (bước in cuối nếu chuỗi có nhiều) — nuôi công thức
+    # tiền của công đoạn sau in. Chuỗi không có bước in → giữ nguyên tờ vào máy (tương thích cũ).
+    to_sau_in = float(to_dau_vao)
+    for _i_row, _b in zip(idx_giay, buoc_giay):
+        if (chain[_i_row].get("cong_doan") or {}).get("nhom") == "print":
+            to_sau_in = float(ceil(_b["ra"]))
+    # Phân rã từng bước cho UI: bước nào ăn bao nhiêu tờ. Chế bản KHÔNG có mặt (không chạm tờ).
+    buoc = {i: b for i, b in zip(idx_giay, buoc_giay)}   # tra theo chỉ số dòng GỐC
+    bu_hao_chi_tiet = [
+        {
+            "ten": (chain[i].get("ten") or (chain[i].get("cong_doan") or {}).get("ten")
+                    or "Công đoạn"),
+            "nhom": (chain[i].get("cong_doan") or {}).get("nhom"),   # UI neo "Tờ sau in" vào bước in
+            "dv_vao": b["dv_vao"], "dv_ra": b["dv_ra"],   # UI hiện chỗ ĐỔI đơn vị
+            "vao": ceil(b["vao"]),
+            "ra": ceil(b["ra"]),
+            # `ra` QUY về đơn vị vào + hệ số đã dùng. Không có hai số này thì dòng đổi đơn vị đọc
+            # lên vô lý: "55 tờ in → 5.070 con" mà 55 × 210 = 11.550, người xem không kiểm được.
+            # Ràng buộc: ra_quy + hao == vao (đúng theo cách `hao` tính ngay dưới).
+            "ra_quy": ceil(b["ra"] / (he_so_dv.get((b["dv_vao"], b["dv_ra"])) or 1.0)),
+            "he_so": he_so_dv.get((b["dv_vao"], b["dv_ra"])) or 1.0,
+            # Hao đo bằng ĐƠN VỊ VÀO: bước bế vào 74 tờ ra 15.540 con thì hao là 50 TỜ, không phải
+            # hiệu hai con số khác đơn vị.
+            "hao": ceil(b["vao"]) - ceil(b["ra"] / (he_so_dv.get((b["dv_vao"], b["dv_ra"])) or 1.0)),
+        }
+        for i, b in zip(idx_giay, buoc_giay)
+    ]
+    # Khép mạch về ĐƠN VỊ KHÁCH ĐẶT: tờ ra khỏi bước cuối × con/tờ = số thành phẩm thật sự có.
+    # Không có dòng này thì panel nhảy thẳng từ "5.000 cái" sang "24 tờ" mà giấu chỗ quy đổi.
+    # Chuỗi KẾT THÚC Ở CON (có bước bế/xén) thì `to_ra_cuoi` đã là con — nhân `con` lần nữa là
+    # đếm hai lần. Chỉ quy đổi khi bước cuối còn đang đếm tờ in.
+    to_ra_cuoi = ceil(buoc_giay[-1]["ra"]) if buoc_giay else to_dau_vao
+    if so_to_per_sp <= 0:
+        so_tp_ra = 0
+    elif dv_cuoi == DV_CAI:
+        so_tp_ra = floor(to_ra_cuoi / so_to_per_sp)
+    else:
+        so_tp_ra = floor(to_ra_cuoi * con / so_to_per_sp)
 
     so_mau_a = _i(tp.get("so_mau_a"))     # màu PROCESS mặt A (CMYK…)
     so_mau_b = _i(tp.get("so_mau_b"))     # màu PROCESS mặt B
@@ -524,7 +612,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         "so_trang": 0, "so_cuon": 0, "so_bao": 0, "so_thung": 0,
     }
 
-    for row in tp.get("thanh_phams") or []:
+    for idx_buoc, row in enumerate(chain):
         cd = row.get("cong_doan") or {}
         ten_r = row.get("ten") or cd.get("ten") or "Công đoạn"
         row_sl = _i(row.get("so_luong"))
@@ -532,6 +620,10 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         basis = cd.get("pricing_basis") if cd else None
 
         ctx = dict(ctx_base)
+        # Số tờ ĐI QUA chính bước này (từ chuỗi ngược) — công thức của công đoạn dùng biến này
+        # là tính tiền trên đúng lượng tờ nó chạm, thay vì một con số chung cho cả chuỗi.
+        # Bước chế bản không nằm trong dòng giấy → rơi về tờ vào máy (kẽm phục vụ cả lượt in).
+        ctx["to_qua_buoc"] = ceil(buoc[idx_buoc]["vao"]) if idx_buoc in buoc else to_dau_vao
         # so_mat: dòng IN (nhom=print) LUÔN theo số mặt cách in (passes) — KHÔNG để field mặc định=1
         # nuốt (N2: model so_mat default=1 khiến fallback passes thành code chết). Finishing tự set
         # so_mat (cán 1/2 mặt); ≤0 → dùng passes.
@@ -611,8 +703,11 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             "to_net": to_net, "to_gross": to_dau_vao, "to_nguyen": to_nguyen,
             "so_kem": so_kem, "so_luot": so_luot,
             "to_dau_vao": to_dau_vao, "to_sau_in": to_sau_in,
-            "bu_hao_auto": _r(finishing_spoilage_sum),  # Σ bù hao công đoạn tự tra (theo số tờ)
-            "bu_hao_tay": bu_hao, "hao_tay": hao,        # số bù / hao nhập tay
+            "bu_hao_auto": _r(finishing_spoilage_sum),   # Σ bù hao công đoạn (chuỗi ngược)
+            "bu_hao_chi_tiet": bu_hao_chi_tiet,          # phân rã: bước nào ăn bao nhiêu tờ
+            "so_to_per_sp": so_to_per_sp,                # số con cần cho 1 thành phẩm
+            "to_ra_cuoi": to_ra_cuoi, "so_tp_ra": so_tp_ra,  # khép mạch tờ → thành phẩm
+            "bu_hao_tay": bu_hao, "hao_tay": 0,          # ô "− Hao" đã bỏ → luôn 0
         },
     }
 

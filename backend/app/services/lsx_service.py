@@ -28,6 +28,7 @@ from ..models.lsx import (
     DV_CAI,
     DV_KEM,
     DV_TO,
+    DV_TO_NGUYEN,
     LB_CHO,
     LB_KCS,
     LB_MAY,
@@ -60,9 +61,8 @@ from ..services.tinh_gia_service import _bu_hao_to_dict, _resolve_thanh_phan
 
 # Công đoạn sau xén → đếm bằng CON (thành phẩm); còn lại đếm bằng TỜ. Heuristic theo tên để điền
 # MẶC ĐỊNH cho kế hoạch, không phải luật — mọi dòng sửa được.
-_TEN_DEM_CON = ("dán", "gấp", "đóng gói", "cắt thành phẩm", "kcs", "thùng", "bao bì", "vào bìa",
-                "đóng cuốn", "thành phẩm", "nhập kho")
-# Công đoạn cần khuôn bế (checklist "chờ bổ sung"). Cũng là bước ĐỔI ĐƠN VỊ tờ → con.
+# Công đoạn cần khuôn bế (checklist "chờ bổ sung"). KHÔNG còn dùng để suy đơn vị — đơn vị nay đọc
+# từ `cong_doan.don_vi_vao/ra` (migration 0143 đã backfill theo đúng luật tên cũ này).
 _TEN_CAN_KHUON = ("bế", "be ", "cấn")
 
 # Trường KHÔNG chép sang quy cách lệnh sản xuất: toàn bộ là TIỀN (lệnh xuống xưởng không mang
@@ -73,26 +73,32 @@ _QC_BO_QUA = frozenset({
 })
 # Đơn vị năng suất luôn ĐI THEO đơn vị đầu vào của bước (công thức là `so_luong_vao / nang_suat`),
 # nên suy ra chứ không lưu cột riêng — lưu riêng là mở đường cho hai thứ lệch nhau.
-_DV_VAO_SANG_NS = {DV_TO: NS_TO_GIO, DV_CAI: NS_CAI_GIO, DV_KEM: NS_KEM_GIO, DV_BAI: NS_BAI_GIO}
+_DV_VAO_SANG_NS = {DV_TO_NGUYEN: NS_TO_GIO, DV_TO: NS_TO_GIO, DV_CAI: NS_CAI_GIO,
+                   DV_KEM: NS_KEM_GIO, DV_BAI: NS_BAI_GIO}
 
 
-def _don_vi_theo_buoc(ten: str | None, nhom: str | None, *, con: int = 1) -> tuple[str, str, float]:
-    """Đơn vị VÀO/RA + hệ số quy đổi mặc định của 1 bước, suy từ nhóm + tên công đoạn.
+def _don_vi_theo_buoc(cd_obj, *, con: int = 1, xa: int = 1) -> tuple[str, str, float]:
+    """Đơn vị VÀO/RA + hệ số quy đổi của 1 bước — ĐỌC KHAI BÁO ở danh mục công đoạn.
 
-    Tách riêng để `_default_buoc` (lúc bung lệnh) và `mac_dinh_buoc` (lúc kế hoạch ĐỔI công đoạn
-    giữa chừng) dùng CHUNG một luật — nhân bản sang frontend là đẻ nguồn sai lệch.
+    Trước đây hàm này DÒ CHỮ "bế"/"cấn" trong tên để suy ra bước đổi đơn vị; đặt tên lạ là suy sai,
+    mà tầng tính giá thì không suy gì cả nên tra bù hao sai đơn vị. Nay `cong_doan.don_vi_vao/ra`
+    là khai báo, cả hai tầng cùng đọc — một nguồn sự thật.
+
+    Đơn vị CHỈ có ba mức của dòng giấy (`to_nguyen` → `to` → `cai`). Bước không chạm giấy để
+    TRỐNG ở danh mục — không suy ra mã nào khác cho nó.
+
+    Hệ số KHÔNG lưu ở danh mục: nó thuộc về PHIẾU (`con` từ bình bài, `xa` = số mảnh xả từ khổ
+    giấy). Caller truyền vào.
     """
-    low = _norm(ten)
-    if nhom == "prepress":
-        return DV_KEM, DV_KEM, 1.0
-    if nhom == "print":
-        return DV_TO, DV_TO, 1.0
-    if any(k in low for k in _TEN_CAN_KHUON):
-        # BẾ = ranh giới đổi đơn vị: tờ vào → CON ra (ví dụ §4.2 của tài liệu nghiệp vụ).
-        return DV_TO, DV_CAI, float(max(con, 1))
-    if any(k in low for k in _TEN_DEM_CON):
-        return DV_CAI, DV_CAI, 1.0
-    return DV_TO, DV_TO, 1.0
+    dv_vao = getattr(cd_obj, "don_vi_vao", None) or DV_TO
+    dv_ra = getattr(cd_obj, "don_vi_ra", None) or DV_TO
+    if dv_vao == dv_ra:
+        return dv_vao, dv_ra, 1.0
+    if (dv_vao, dv_ra) == (DV_TO, DV_CAI):
+        return dv_vao, dv_ra, float(max(con, 1))
+    if (dv_vao, dv_ra) == (DV_TO_NGUYEN, DV_TO):
+        return dv_vao, dv_ra, float(max(xa, 1))
+    return dv_vao, dv_ra, 1.0
 
 
 def _nang_suat_buoc(may, cd_obj, dv_vao: str) -> tuple[float | None, str | None]:
@@ -565,8 +571,9 @@ class LsxService:
         to_ra = _f(comp.get("to_sau_in")) or to_vao
         con = max(int(comp.get("con") or 1), 1)
 
-        # --- Đơn vị vào/ra + hệ số (luật dùng chung với `mac_dinh_buoc`) rồi mới ra SỐ ---
-        dv_vao, dv_ra, he_so = _don_vi_theo_buoc(ten, nhom, con=con)
+        # --- Đơn vị vào/ra + hệ số (KHAI ở danh mục, dùng chung với `mac_dinh_buoc`) rồi mới ra SỐ ---
+        dv_vao, dv_ra, he_so = _don_vi_theo_buoc(
+            cd_obj, con=con, xa=max(int(comp.get("so_manh_xa") or 1), 1))
         if nhom == "prepress":
             vao = ra = _f(comp.get("so_kem"))
         elif nhom == "print":
@@ -769,7 +776,7 @@ class LsxService:
         if cd is None:
             raise LsxNotFound("Không tìm thấy công đoạn")
 
-        dv_vao, dv_ra, he_so = _don_vi_theo_buoc(cd.ten, cd.nhom, con=int(lsx.so_con or 1))
+        dv_vao, dv_ra, he_so = _don_vi_theo_buoc(cd, con=int(lsx.so_con or 1))
         # Bước IN chưa gán máy riêng thì dùng máy đã chọn ở phiếu tính giá (như lúc bung lệnh).
         may_id = cd.may_id or (lsx.may_id if cd.nhom == "print" else None)
         may = self.db.get(MayThietBi, may_id) if may_id else None

@@ -1,7 +1,10 @@
 """Công đoạn — service: CRUD + validate (§8)."""
 from __future__ import annotations
 
-from ..models.cong_doan import CHE_DO_TINH, KIEU_BU_HAO, NHOM, PRICING_BASIS, TOOLING_TYPE, CongDoan
+from ..models.cong_doan import (
+    CAP_DON_VI_HOP_LE, CHE_DO_TINH, DON_VI_DONG_GIAY, KIEU_BU_HAO, NHOM, PRICING_BASIS,
+    TOOLING_TYPE, CongDoan,
+)
 from ..repositories.cong_doan_repo import CongDoanRepository
 
 
@@ -41,6 +44,23 @@ class CongDoanService:
             raise CongDoanValidationError("Loại khuôn/kẽm không hợp lệ.")
         if data.get("kieu_bu_hao", "khong") not in KIEU_BU_HAO:
             raise CongDoanValidationError("Kiểu bù hao không hợp lệ. [E-CD-BUHAO]")
+        # Đơn vị vào/ra: TRỐNG = bước không chạm giấy (chế bản) → engine loại khỏi dòng giấy.
+        # Khai thì phải khai CẢ HAI, và đúng chiều — dòng giấy chảy một chiều tờ nguyên → tờ in →
+        # tờ thành phẩm, nên `cai → to` hay nhảy cóc là vô nghĩa.
+        dv_vao = (data.get("don_vi_vao") or "").strip() or None
+        dv_ra = (data.get("don_vi_ra") or "").strip() or None
+        data["don_vi_vao"], data["don_vi_ra"] = dv_vao, dv_ra
+        if (dv_vao is None) != (dv_ra is None):
+            raise CongDoanValidationError(
+                "Đơn vị đầu vào và đầu ra phải cùng khai, hoặc cùng để trống. [E-CD-DONVI]")
+        if dv_vao is not None:
+            if dv_vao not in DON_VI_DONG_GIAY or dv_ra not in DON_VI_DONG_GIAY:
+                raise CongDoanValidationError("Đơn vị vào/ra không hợp lệ. [E-CD-DONVI]")
+            if (dv_vao, dv_ra) not in CAP_DON_VI_HOP_LE:
+                raise CongDoanValidationError(
+                    f"Không quy đổi được {dv_vao} → {dv_ra}. Dòng giấy chỉ chảy một chiều: "
+                    f"tờ nguyên → tờ in → tờ thành phẩm. [E-CD-DONVI]"
+                )
         # W-CD-PRINT-SPOIL: bước in không nên có spoilage (bù hao lấy từ máy) — ép 0.
         if data.get("nhom") == "print" and data.get("spoilage_pct"):
             data["spoilage_pct"] = 0

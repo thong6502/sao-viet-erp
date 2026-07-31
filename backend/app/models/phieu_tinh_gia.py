@@ -102,10 +102,14 @@ class PhieuThanhPhan(Base):
     don_gia_giay: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     don_gia_don_vi: Mapped[str] = mapped_column(String(8), nullable=False, default="to")   # to|tan
     nguon_giay: Mapped[str] = mapped_column(String(12), nullable=False, default="cong_ty")  # cong_ty|khach
-    bu_hao_so_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # bù hao (tờ in cộng thêm) — KHÔNG hệ số
-    hao_so_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)      # hao (tờ in trừ đi)
-    # Bật/TẮT tính bù hao công đoạn TỰ (mỗi công đoạn tra theo số tờ). Tắt → không cộng bù hao tự;
-    # người dùng tự nhập `bu_hao_so_to`. Mặc định BẬT.
+    bu_hao_so_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # "+ Bù thêm" (tờ in cộng thêm) — KHÔNG hệ số
+    # KHÔNG CÒN DÙNG: ô "− Hao" đã bỏ khỏi UI + engine. Nó vốn là bản thay tay cho "tờ mất khi in",
+    # nay chuỗi bù hao NGƯỢC tính ra `to_sau_in` từ bước in nên không cần gõ. Giữ cột để khỏi
+    # migration và không mất dữ liệu cũ; engine lờ đi, `meta.hao_tay` luôn 0.
+    hao_so_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # KHÔNG CÒN DÙNG: nút bật/tắt bù hao tự đã bỏ khỏi UI + engine. Tắt bù hao là mở đường cho báo
+    # giá hụt giấy mà không ai biết — muốn cộng thêm thì có "+ Bù thêm", muốn bớt thì sửa định mức
+    # của công đoạn. Giữ cột để khỏi migration; engine luôn tính chuỗi ngược.
     tinh_bu_hao_cd: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
     # Chừa tờ in thuộc về MÁY (danh mục: `nhip_giay_mm` / `le_hong_mm` / `duoi_thang_mau_mm`).
     # Phiếu chỉ giữ MỘT ô đè: nhíp giấy — khoản duy nhất đổi theo job (cạnh nạp, hướng bài).

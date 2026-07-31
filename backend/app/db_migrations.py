@@ -1085,6 +1085,74 @@ def _migrate_cong_doan_size_tiers(db: Session) -> None:
     db.commit()
 
 
+def _migrate_cong_doan_don_vi(db: Session) -> None:
+    """Công đoạn: KHAI `don_vi_vao` / `don_vi_ra` thay vì đoán theo tên.
+
+    Dòng giấy đi qua BA đơn vị với HAI điểm quy đổi (tờ nguyên → tờ in → tờ thành phẩm). Trước đây
+    chữ `to` gộp cả tờ nguyên lẫn tờ in, và `lsx_service` phải dò chữ "bế"/"cấn" trong TÊN công
+    đoạn để suy ra bước đổi đơn vị — đặt tên lạ là suy sai, mà tầng tính giá thì không suy gì cả
+    nên tra bù hao sai đơn vị. Hệ số quy đổi KHÔNG lưu: phiếu đã có `con` + `so_manh_xa`.
+
+    Cũng NỚI `lsx_cong_doan.don_vi_vao/ra` từ VARCHAR(8) → VARCHAR(12): mã mới `to_nguyen` dài 9,
+    Postgres sẽ ném lỗi độ dài lúc ghi (SQLite không ép nên test không bắt được).
+
+    Backfill một lần theo đúng luật tên mà `lsx_service` đang dùng, để lệnh SX đang chạy không tính
+    sai ngay sau khi deploy; từ đó runtime CHỈ đọc cột, không còn đoán.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    is_pg = (bind.dialect.name or "").startswith("postgres")
+    tables = insp.get_table_names()
+
+    if "cong_doan" in tables:
+        existing = _existing_columns(insp, "cong_doan")
+        for col in ("don_vi_vao", "don_vi_ra"):
+            if col not in existing:
+                # NULL được phép = bước KHÔNG CHẠM GIẤY. Cho DEFAULT 'to' để dòng cũ có giá trị,
+                # rồi bỏ default + gỡ NULL constraint ngay bên dưới.
+                db.execute(text(
+                    f"ALTER TABLE cong_doan ADD COLUMN {col} VARCHAR(12) DEFAULT 'to'"
+                ))
+        db.commit()
+        db.execute(text("UPDATE cong_doan SET don_vi_vao = 'to' WHERE don_vi_vao IS NULL"))
+        db.execute(text("UPDATE cong_doan SET don_vi_ra = 'to' WHERE don_vi_ra IS NULL"))
+        # Backfill: bế/cấn = ranh giới tờ in → tờ thành phẩm.
+        db.execute(text(
+            "UPDATE cong_doan SET don_vi_vao = 'to', don_vi_ra = 'cai' "
+            "WHERE don_vi_ra = 'to' AND ("
+            "  lower(ten) LIKE '%bế%' OR lower(ten) LIKE '%be %' OR lower(ten) LIKE '%cấn%')"
+        ))
+        # Chế bản KHÔNG nằm trên dòng giấy (nhả kẽm, không nhả tờ) → để TRỐNG. Lệnh sản xuất tự
+        # suy ra kẽm từ `nhom`; danh mục không đẻ mã đơn vị riêng chỉ để phục vụ một khâu.
+        db.execute(text(
+            "UPDATE cong_doan SET don_vi_vao = NULL, don_vi_ra = NULL WHERE nhom = 'prepress'"
+        ))
+        # Nhánh còn lại của luật cũ: các bước ĐẾM CON (dán, gấp, đóng gói, xén thành phẩm…). Thứ tự
+        # phải sau nhánh bế — "Bế thành phẩm" khớp CẢ HAI, luật cũ cho bế thắng.
+        _dem_con = ("dán", "gấp", "đóng gói", "cắt thành phẩm", "kcs", "thùng", "bao bì",
+                    "vào bìa", "đóng cuốn", "thành phẩm", "nhập kho")
+        _like = " OR ".join(f"lower(ten) LIKE '%{k}%'" for k in _dem_con)
+        db.execute(text(
+            "UPDATE cong_doan SET don_vi_vao = 'cai', don_vi_ra = 'cai' "
+            "WHERE nhom NOT IN ('prepress', 'print') "
+            f"AND don_vi_vao = 'to' AND don_vi_ra = 'to' AND ({_like})"
+        ))
+        db.commit()
+
+    # Bỏ DEFAULT của `cong_doan` (giá trị mặc định là việc của form, không phải của DB) — chỉ
+    # Postgres; SQLite không ALTER được cột nên để nguyên, vô hại vì model đã nullable.
+    if is_pg and "cong_doan" in tables:
+        for col in ("don_vi_vao", "don_vi_ra"):
+            db.execute(text(f"ALTER TABLE cong_doan ALTER COLUMN {col} DROP DEFAULT"))
+        db.commit()
+
+    # Nới độ dài cột bên bảng bước lệnh. SQLite lưu VARCHAR(n) như TEXT (không ép) → chỉ Postgres.
+    if is_pg and "lsx_cong_doan" in tables:
+        for col in ("don_vi_vao", "don_vi_ra"):
+            db.execute(text(f"ALTER TABLE lsx_cong_doan ALTER COLUMN {col} TYPE VARCHAR(12)"))
+        db.commit()
+
+
 def _migrate_purchase_line_discount_vat(db: Session) -> None:
     """Thu mua: thêm giảm giá (%) và thuế GTGT (%) cho từng dòng phiếu mua.
 
@@ -4576,6 +4644,9 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0141_xoa_don_gia_khoan_mo_coi", _migrate_xoa_don_gia_khoan_mo_coi),
     # Máy thay thế: ghi chú tay không ai đọc → bỏ, để `_may_fit` tự kiểm khi gán/kéo máy.
     ("0142_lsx_drop_may_thay_the", _migrate_lsx_drop_may_thay_the),
+    # Đơn vị vào/ra của công đoạn: KHAI thay vì dò chữ trong tên — để engine tra bù hao đúng đơn vị
+    # ở ranh giới tờ nguyên → tờ in → tờ thành phẩm.
+    ("0143_cong_doan_don_vi", _migrate_cong_doan_don_vi),
 ]
 
 

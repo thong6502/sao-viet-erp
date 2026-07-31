@@ -58,6 +58,36 @@ def test_nang_suat_luu_va_sua_duoc():
                            pricing_basis="per_finished_qty")).nang_suat is None
 
 
+def test_don_vi_vao_ra_chi_chay_MOT_CHIEU():
+    """Dòng giấy: tờ nguyên → tờ in → tờ thành phẩm. Cặp đi ngược/nhảy cóc phải bị chặn."""
+    db, svc = _svc()
+    base = dict(nhom="finishing", pricing_basis="per_finished_qty")
+    # Không khai → TRỐNG = bước không nằm trên dòng giấy (KHÔNG còn đoán theo tên).
+    assert svc.create(dict(ma="X1", ten="Bế thành phẩm", **base)).don_vi_vao is None
+    # Khai đúng chiều thì nhận.
+    cd = svc.create(dict(ma="X2", ten="Bế", don_vi_vao="to", don_vi_ra="cai", **base))
+    assert (cd.don_vi_vao, cd.don_vi_ra) == ("to", "cai")
+    assert svc.create(dict(ma="X3", ten="Xả giấy", don_vi_vao="to_nguyen", don_vi_ra="to",
+                           **base)).don_vi_ra == "to"
+    # Ngược dòng: con không quay lại thành tờ.
+    with pytest.raises(CongDoanValidationError):
+        svc.create(dict(ma="X4", ten="Sai", don_vi_vao="cai", don_vi_ra="to", **base))
+    # Nhảy cóc: tờ nguyên không thành con một phát (thiếu bước xả + bế ở giữa).
+    with pytest.raises(CongDoanValidationError):
+        svc.create(dict(ma="X5", ten="Sai", don_vi_vao="to_nguyen", don_vi_ra="cai", **base))
+    # Mã đơn vị lạ — kể cả `kem`/`bai`: chúng KHÔNG phải mức trên dòng giấy.
+    for dv in ("met", "kem", "bai"):
+        with pytest.raises(CongDoanValidationError):
+            svc.create(dict(ma=f"X6{dv}", ten="Sai", don_vi_vao=dv, don_vi_ra=dv, **base))
+    # Khai một nửa thì chặn — trống là trống cả hai.
+    with pytest.raises(CongDoanValidationError):
+        svc.create(dict(ma="X7", ten="Sai", don_vi_vao="to", don_vi_ra="", **base))
+    # Chế bản: để TRỐNG vì không chạm giấy. Engine tính giá loại nó khỏi dòng giấy; lệnh sản xuất
+    # tự suy ra kẽm từ `nhom` (xem `lsx_service._don_vi_theo_buoc`).
+    cb = svc.create(dict(ma="X8", ten="Ghi kẽm CTP", nhom="prepress", pricing_basis="per_other"))
+    assert (cb.don_vi_vao, cb.don_vi_ra) == (None, None)
+
+
 def test_print_spoilage_forced_zero():
     db, svc = _svc()
     cd = svc.create(dict(ma="IN2", ten="In", nhom="print", pricing_basis="per_sheet", spoilage_pct=5))

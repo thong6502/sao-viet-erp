@@ -49,11 +49,17 @@ TRANG_THAI_LSX = (TT_NHAP, TT_CHO_BO_SUNG, TT_SAN_SANG, TT_DA_LAP_KE_HOACH, TT_D
 TRANG_THAI_SUA_DUOC = (TT_NHAP, TT_CHO_BO_SUNG, TT_SAN_SANG)  # chưa lập KH → sửa/xoá routing được
 
 # --- Đơn vị đếm của 1 công đoạn (print MIS: mỗi operation có đơn vị riêng, đổi ở ranh giới xén).
-DV_TO = "to"      # tờ in
-DV_CAI = "cai"    # con / thành phẩm
+DV_TO_NGUYEN = "to_nguyen"  # tờ giấy NGUYÊN (khổ mua về, chưa xả) — khác tờ in!
+DV_TO = "to"      # tờ in (sau khi xả từ tờ nguyên)
+DV_CAI = "cai"    # con / tờ thành phẩm
 DV_KEM = "kem"    # bộ kẽm (chế bản)
 DV_BAI = "bai"    # bài bình (chế bản: 1 bài → n bản kẽm)
-DON_VI_CONG_DOAN = (DV_TO, DV_CAI, DV_KEM, DV_BAI)
+DON_VI_CONG_DOAN = (DV_TO_NGUYEN, DV_TO, DV_CAI, DV_KEM, DV_BAI)
+
+# Dòng giấy đi qua BA đơn vị với HAI điểm quy đổi. Hệ số KHÔNG lưu ở đâu cả — phiếu tính giá đã
+# có sẵn (`so_manh_xa` từ khổ giấy, `con` từ bình bài); lưu lại là đẻ nguồn sự thật thứ hai.
+#     tờ nguyên ──(xả: ÷ số mảnh xả)──▶ tờ in ──(bế/xén: × con/tờ)──▶ tờ thành phẩm
+CAU_QUY_DOI = ((DV_TO_NGUYEN, DV_TO), (DV_TO, DV_CAI))
 
 # --- Loại bước (execution type). Quyết định bước CHIẾM cái gì khi lên Gantt — đây là lý do routing
 # tồn tại. Đối chiếu Dynamics 365 BC (nền của print MIS PrintVis): "wait/move time don't consume
@@ -207,11 +213,12 @@ class LsxCongDoan(Base):
     # Đơn vị VÀO ≠ RA là chuyện thường ở ranh giới xén/bế: 5.170 tờ vào → 20.680 con ra (hệ số 4).
     so_luong_vao: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     so_luong_ra: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    # String(12): mã `to_nguyen` dài 9 — VARCHAR(8) cũ CHẬT, Postgres ném lỗi độ dài lúc ghi.
     don_vi_vao: Mapped[str] = mapped_column(
-        String(8), nullable=False, server_default=DV_TO, default=DV_TO
+        String(12), nullable=False, server_default=DV_TO, default=DV_TO
     )
     don_vi_ra: Mapped[str] = mapped_column(
-        String(8), nullable=False, server_default=DV_TO, default=DV_TO
+        String(12), nullable=False, server_default=DV_TO, default=DV_TO
     )
     he_so_quy_doi: Mapped[float] = mapped_column(
         Numeric(12, 4), nullable=False, server_default="1", default=1

@@ -45,6 +45,10 @@ def _cong_doan_to_dict(cd: CongDoan) -> dict:
         "first_unit_floor": _f(cd.first_unit_floor) if cd.first_unit_floor is not None else None,
         "min_charge": _f(cd.min_charge) if cd.min_charge is not None else None,
         "spoilage_pct": _f(cd.spoilage_pct),
+        # Đơn vị vào/ra khai ở danh mục — engine cần để tra bù hao ĐÚNG đơn vị và biết bước nào là
+        # ranh giới quy đổi. Hệ số thì engine tự có (`con`, `so_manh_xa` của chính phiếu).
+        "don_vi_vao": cd.don_vi_vao,
+        "don_vi_ra": cd.don_vi_ra,
     }
 
 

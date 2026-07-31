@@ -43,7 +43,8 @@ chi phí**, nhưng **phơi vài biến** (số màu / mặt / kẽm) cho công t
 | `so_mat` | số mặt in (1 mặt→1; 2 mặt/tự trở→2) | quy cách | mặt |
 | `so_kem` | số bản kẽm | quy cách | bản |
 | `to_dau_vao` | **số tờ đầu vào máy in** | hệ thống | tờ |
-| `to_sau_in` | **số tờ còn lại sau in** | hệ thống | tờ |
+| `to_sau_in` | **số tờ TỐT còn lại sau in** | hệ thống | tờ |
+| `to_qua_buoc` | **số tờ đi qua CHÍNH bước này** (chỉ có trong công thức của công đoạn) | hệ thống | tờ |
 | *(field của item)* | vd `dinh_luong`, `don_gia_kg`, `don_gia_m2`, `don_gia_kem` | danh mục | kg/m², đ/… |
 
 > Khổ nhập bằng **cm**, biến đưa vào công thức quy về **m** (để `× đ/m²`, `× đ/kg` ra thẳng).
@@ -53,14 +54,27 @@ chi phí**, nhưng **phơi vài biến** (số màu / mặt / kẽm) cho công t
 
 ## 3. Hai số tờ (trái tim)
 
+Bù hao KHÔNG phải một cục cộng vào cuối — nó là **chuỗi NGƯỢC** đi từ cuối routing lên đầu.
+Mỗi bước hỏi *"để nhả ra `ra` tờ tốt thì phải nhận vào bao nhiêu?"*:
+
 ```
-to_dau_vao  = ⌈so_luong / so_tp⌉ + Σ(bù hao mỗi công đoạn) + số bù nhập tay   → nuôi GIẤY + IN
-to_sau_in   = to_dau_vao − số hao nhập tay                                     → nuôi CÔNG ĐOẠN SAU IN
+vào(bước) = (ra(bước) + tờ_cố_định) / (1 − %/100)      # tờ thì CỘNG, % thì CHIA
+
+to_net      = ⌈so_luong / so_tp⌉                        → tờ tốt cần ở CUỐI chuỗi
+to_dau_vao  = ⌈vào(bước đầu chuỗi)⌉ + "+ Bù thêm"       → nuôi GIẤY + IN
+to_sau_in   = ra(bước có nhom="print")                  → nuôi CÔNG ĐOẠN SAU IN
 ```
 
-Người viết công thức tự chọn nhân với `to_dau_vao` hay `to_sau_in` → tự quyết chi phí thuộc
-trước/sau in. **Engine không cần cờ "trước/sau in"** (nếu thêm cờ đó thì thừa và đá nhau với
-công thức — 2 nguồn sự thật).
+Bậc bù hao của mỗi bước tra theo `ra` của **chính bước đó**, nên bước in ở đầu chuỗi rơi vào bậc
+CAO hơn bước xén ở cuối — đúng thực tế. (Cộng xuôi phẳng theo một `to_net` chung thì mọi bước tra
+cùng một bậc → thiếu giấy ở đầu chuỗi.) Xem `services/bu_hao_engine.chuoi_nguoc`.
+
+Người viết công thức tự chọn nhân với `to_dau_vao`, `to_sau_in` hay `to_qua_buoc` → tự quyết chi
+phí thuộc trước/sau in. **Engine không cần cờ "trước/sau in"** (nếu thêm cờ đó thì thừa và đá nhau
+với công thức — 2 nguồn sự thật).
+
+> Ô **"− Hao"** (`hao_so_to`) ĐÃ BỎ: nó vốn là bản thay tay cho "tờ mất khi in", nay `to_sau_in`
+> lấy thẳng từ bước in trong chuỗi ngược. Cột DB giữ lại, engine lờ đi.
 
 ---
 
@@ -109,7 +123,7 @@ Nhãn tầng: **[Nhập]** KTV gõ · **[Auto]** tự điền từ danh mục, s
 | Loại giấy (nếu Công ty) | [Nhập] | → công thức + field giấy (định lượng, đơn giá/kg) |
 | Khổ giấy nguyên (D×R) · khổ giấy in (D×R) | [Nhập] | cảnh báo nếu khổ in > khổ máy |
 | Số thành phẩm/tờ (`so_tp`) | [Nhập] | cảnh báo bình bài (so với số thành phẩm/tờ hình học) |
-| Số bù (vào `to_dau_vao`) · số hao (ra `to_sau_in`) | [Nhập] | mặc định 0 |
+| "+ Bù thêm" (vào `to_dau_vao`) | [Nhập] | mặc định 0 — ô tay DUY NHẤT; "− Hao" đã bỏ |
 | Danh sách công đoạn (thêm/xóa) | [Auto] | routing Loại SP; mỗi công đoạn có công thức + bù hao |
 | Vật tư thêm | [Nhập] | danh mục vật tư in ấn; mỗi vật tư có công thức |
 | **số tờ đầu vào / sau in · số thành phẩm/tờ (hình học) · đ/thành phẩm từng dòng · tổng** | [Hiện] | tính-ra, khóa |
@@ -199,6 +213,11 @@ Giấy     = 0,25×0,445×0,64×17.100×2.250 = 2.739.375 → 685 đ/thành ph�
 Cán màng = 0,435×0,64×1.950×2.100       = 1.140.048 → 285 đ/thành phẩm   ✓
 ```
 (Các dòng còn lại neo tiếp khi cấu hình đủ công thức; đích cuối = **3.001 đ/thành phẩm**.)
+
+> ⚠️ **Neo này TÍNH THEO MÔ HÌNH CŨ, chưa cập nhật.** Từ khi bù hao đi ngược theo công đoạn (§3),
+> `to_sau_in` không còn là `to_dau_vao − hao tay` mà là `ra` của bước in trong chuỗi — nên dòng
+> Cán màng của ca này sẽ ra số khác. Cần chạy lại `scripts/verify_hop_doi.py` với một routing có
+> bước IN rồi neo lại số. Chưa làm.
 
 ---
 

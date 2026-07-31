@@ -2360,6 +2360,106 @@ select.tg-input--sm {
   outline: none;
   border-color: var(--rust);
 }
+/* Bù hao công đoạn: con số bấm được để bung phân rã từng bước của chuỗi ngược. */
+.rc-modal__right-col .tg-sheetdrill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  margin-right: -4px;
+  border: none;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ash);
+  cursor: pointer;
+}
+.rc-modal__right-col .tg-sheetdrill:hover {
+  background: var(--paper-contrast);
+  color: var(--rust-deep);
+}
+.rc-modal__right-col .tg-sheetdrill:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+.rc-modal__right-col .tg-sheetbreak {
+  list-style: none;
+  margin: 0 0 var(--sp-2);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
+  border-left: 2px solid var(--rule);
+  background: var(--paper-contrast);
+  border-radius: 0 var(--r-2) var(--r-2) 0;
+}
+.rc-modal__right-col .tg-sheetbreak__row {
+  display: flex;
+  flex-wrap: wrap;          /* dòng quy đổi của bước ĐỔI ĐƠN VỊ xuống hàng riêng */
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 2px 0;
+  font-family: var(--ff-sans);
+  font-size: 11.5px;
+  color: var(--ash);
+}
+/* Phép quy đổi của bước hai đơn vị: chiếm trọn một hàng ngay dưới, thụt vào cho thấy nó thuộc
+   dòng trên. Không có nó thì "55 tờ in → 5.070 con" là con số từ trên trời. */
+.rc-modal__right-col .tg-sheetbreak__quydoi {
+  flex: 1 0 100%;
+  padding-left: var(--sp-2);
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--ash);
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}
+.rc-modal__right-col .tg-sheetbreak__ten {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rc-modal__right-col .tg-sheetbreak__qty {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* Nhãn 2 dòng: tên hàng + phép quy đổi đứng ngay dưới (không giấu chỗ cái → tờ). */
+.rc-modal__right-col .tg-sheetrow__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.rc-modal__right-col .tg-sheetrow__derive {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--ash);
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+/* Dòng khép mạch cuối bảng phân rã: tờ cuối chuỗi quy ngược về đơn vị khách đặt. */
+.rc-modal__right-col .tg-sheetbreak__end {
+  margin-top: 4px;
+  padding-top: 5px;
+  border-top: 1px dashed var(--rule-soft);
+  font-family: var(--ff-sans);
+  font-size: 11.5px;
+  color: var(--ash);
+  font-variant-numeric: tabular-nums;
+}
+.rc-modal__right-col .tg-sheetbreak__end b {
+  color: var(--ink);
+  font-weight: 700;
+}
+.rc-modal__right-col .tg-sheetbreak__hao {
+  flex: 0 0 auto;
+  min-width: 72px;          /* mang cả đơn vị: "+150 tờ in" */
+  text-align: right;
+  white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--rust-deep);
+}
 .rc-modal__right-col .tg-sheetbox__foot {
   margin-top: var(--sp-3);
   padding: var(--sp-2) var(--sp-3);
@@ -2371,27 +2471,6 @@ select.tg-input--sm {
   color: var(--ash);
   text-align: center;
   line-height: 1.4;
-}
-
-/* Modern green/moss state switches for automatic spoilage */
-.rc-modal__right-col .tg-minitoggle {
-  font-family: var(--ff-sans);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-  border: 1px solid var(--rule-soft);
-  background: var(--paper-contrast);
-  color: var(--ash);
-  cursor: pointer;
-  transition: all var(--duration-fast) var(--easing-standard);
-}
-.rc-modal__right-col .tg-minitoggle--on {
-  background: var(--moss-soft);
-  border-color: var(--moss);
-  color: var(--moss-deep);
 }
 
 /* Auto/Revert styles inside fields */

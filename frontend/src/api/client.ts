@@ -238,7 +238,7 @@ export type LsxTrangThai =
   | "san_sang"
   | "da_lap_ke_hoach"   // đã sinh dòng xếp lịch (≈ Firm Planned) — routing khóa
   | "da_phat_hanh";     // đã phát hành xuống xưởng (≈ Released)
-export type LsxDonVi = "to" | "cai" | "kem" | "bai";
+export type LsxDonVi = "to_nguyen" | "to" | "cai" | "kem" | "bai";
 /** Loại bước = bước CHIẾM cái gì khi lên Gantt (`bai_ghep` khai sẵn, pha sau mới sinh). */
 export type LsxLoaiBuoc = "may" | "to" | "thue_ngoai" | "cho" | "kcs" | "xa_to" | "bai_ghep";
 export type LsxDonViNangSuat = "to_gio" | "cai_gio" | "kem_gio" | "bai_gio";
@@ -1463,9 +1463,25 @@ export interface TinhGiaComponentMeta {
   so_luot: number;
   to_dau_vao: number;
   to_sau_in: number;
-  bu_hao_auto?: number; // Σ bù hao công đoạn tự tra (theo số tờ cần in)
-  bu_hao_tay?: number; // số bù nhập tay (cộng thêm)
-  hao_tay?: number; // số hao nhập tay (trừ bớt)
+  bu_hao_auto?: number; // Σ bù hao công đoạn — engine đi NGƯỢC từ cuối chuỗi lên
+  bu_hao_chi_tiet?: BuHaoBuoc[]; // phân rã: bước nào ăn bao nhiêu tờ (thứ tự xuôi)
+  so_to_per_sp?: number; // số con cần cho 1 thành phẩm
+  to_ra_cuoi?: number; // tờ ra khỏi bước cuối chuỗi
+  so_tp_ra?: number; // thành phẩm thật sự có = to_ra_cuoi × con/tờ
+  bu_hao_tay?: number; // "+ Bù thêm" — ô nhập tay duy nhất còn lại
+  hao_tay?: number; // ô "− Hao" đã bỏ → engine luôn trả 0
+}
+/** 1 bước trong chuỗi ngược: số tờ vào — ra — hao của chính bước đó. */
+export interface BuHaoBuoc {
+  ten: string;
+  nhom?: string | null; // prepress|print|finishing — UI neo "Tờ sau in" vào bước in
+  dv_vao?: LsxDonVi | null; // đơn vị VÀO / RA của bước — khác nhau = bước đổi đơn vị
+  dv_ra?: LsxDonVi | null;
+  vao: number;
+  ra: number;
+  ra_quy?: number; // `ra` quy về ĐƠN VỊ VÀO — ra_quy + hao = vao
+  he_so?: number; // hệ số quy đổi đã dùng (1 nếu bước không đổi đơn vị)
+  hao: number; // đo bằng ĐƠN VỊ VÀO
 }
 /** Meta cấp phiếu — tổng hợp nhiều sản phẩm. */
 export interface TinhGiaMeta {

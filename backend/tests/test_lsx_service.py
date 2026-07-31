@@ -129,14 +129,15 @@ def _ptg_2_san_pham(db, *, sl_hop=20_000, sl_tem=35_000) -> PhieuTinhGia:
     cd_in.may_id = cd_in.may_id or may.id
     cd_in.setup_time = 45          # chuẩn bị máy in 45 phút
     db.flush()
+    # Đơn vị vào/ra là KHAI BÁO, không suy từ tên: bế = ranh giới tờ in → con, dán hộp đếm con.
     cd_be = CongDoan(ma="CD-BE-T", ten="Bế", nhom="finishing", cong_thuc_gia="so_luong * don_gia",
-                     department_id=to_id, setup_time=30)
+                     department_id=to_id, setup_time=30, don_vi_vao="to", don_vi_ra="cai")
     # Dán hộp = bước LÀM TAY: không gắn máy, nên năng suất phải tới từ danh mục công đoạn.
     # `spoilage_pct=2` để nguyên làm bằng chứng NGƯỢC: routing không được kế thừa nó (module Bù hao
     # đã lo phần hao) — xem assert `hao_hut_pct == 0` ở test kế thừa mặc định.
     cd_dan = CongDoan(ma="CD-DAN-T", ten="Dán hộp", nhom="finishing",
                       cong_thuc_gia="so_luong * don_gia", department_id=to_id, spoilage_pct=2,
-                      nang_suat=4000)
+                      nang_suat=4000, don_vi_vao="cai", don_vi_ra="cai")
     db.add_all([cd_be, cd_dan])
     db.flush()
 
