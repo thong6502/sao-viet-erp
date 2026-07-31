@@ -694,9 +694,8 @@ export interface LsxCongDoan extends LsxThueNgoaiFields {
   khoan_ten: string | null;
   khoan_don_vi: string | null;
   khoan_don_gia: number | null;
-  khoan_tinh_theo: string | null;
   /** Đầu việc chọn được cho bước (theo tổ + công đoạn) — server đã áp luật "ưu tiên dòng khai riêng". */
-  khoan_chon_duoc: { id: number; ten: string; don_vi: string; don_gia: number; tinh_theo: string | null }[];
+  khoan_chon_duoc: { id: number; ten: string; don_vi: string; don_gia: number }[];
   khoan_sl: number | null;
   khoan_don_vi_sl: string | null;
   khoan_tien: number | null;
@@ -3160,13 +3159,6 @@ export interface PieceRate {
   department_id: number | null;
   code: string | null;
   name: string;
-  /** Cột CŨ (1 mã công đoạn) — giữ tương thích, khai mới dùng `cong_doan_mas`. */
-  cong_doan?: string | null;
-  /** NHIỀU công đoạn dùng chung 1 đầu việc (cán bóng · cán mờ · phủ UV = cùng 150đ/m²).
-   *  Rỗng = áp cho mọi công đoạn của tổ. */
-  cong_doan_mas: string[];
-  /** Trục quy đổi SL bước → đơn vị đơn giá (bộ `pricing_basis` của công đoạn). */
-  tinh_theo: string | null;
   unit: string;
   unit_price: number;
   note: string | null;
@@ -3200,8 +3192,6 @@ export interface PieceRateInput {
   department_id?: number | null;
   code?: string | null;
   name: string;
-  cong_doan_mas?: string[];
-  tinh_theo?: string | null;
   unit: string;
   unit_price: number;
   note?: string | null;

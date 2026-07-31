@@ -246,7 +246,7 @@ class LsxCongDoan(Base):
     # --- Phương thức thực hiện ---
     # ĐẦU VIỆC KHOÁN của bước (`piece_rates`) — kế hoạch chọn "hôm nay bước cán này làm CÁN MỜ hay
     # GHÉP MATELIZE", vì cùng một công đoạn mà hai đơn giá khoán khác nhau, máy không đoán được.
-    # SNAPSHOT {rate_id, ten, don_vi, don_gia, tinh_theo} chứ không đọc-sống: xưởng lên giá khoán về
+    # SNAPSHOT {rate_id, ten, don_vi, don_gia} chứ không đọc-sống: xưởng lên giá khoán về
     # sau KHÔNG được làm xê dịch lệnh đã phát. Tiền khoán là số DẪN XUẤT (tính lúc đọc), không lưu.
     khoan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # DS máy thay thế — CHỈ ĐỂ THAM KHẢO, không tự xếp lịch (BC: "for information only").

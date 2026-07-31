@@ -9,6 +9,9 @@ from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy.orm import Session
+
+from ..db import get_db
 
 from ..deps import (
     CurrentUser,
@@ -795,13 +798,22 @@ def set_leader_brackets(body: LeaderBracketsIn, svc: PieceService,
 
 
 @router.get("/khoan/units", response_model=UnitsOut)
-def list_khoan_units(svc: PieceService,
+def list_khoan_units(svc: PieceService, db: Annotated[Session, Depends(get_db)],
                      user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> UnitsOut:
-    """Gợi ý cho ô "Đơn vị" = mồi mặc định ∪ đơn vị nhà máy ĐÃ dùng.
+    """Đơn vị CHỌN ĐƯỢC cho ô "Đơn vị" = danh mục `Đơn vị & quy đổi` (chủ 2026-07-31).
 
-    ⚠️ Đây KHÔNG phải whitelist — người dùng gõ đơn vị ngoài danh sách vẫn lưu được (chủ
-    29/07/2026: *"chỉ select được mấy cái thôi… bất tiện lắm"*)."""
-    return UnitsOut(items=svc.unit_suggestions())
+    Trước đây là gợi ý cho ô gõ tự do (mồi mặc định ∪ đơn vị đã dùng). Gõ tự do làm đơn vị lệch
+    một chữ so với danh mục là lệnh sản xuất vĩnh viễn không quy đổi ra tiền được — thiếu đơn vị
+    thì thêm ở danh mục, một nguồn chứ không hai.
+
+    CHỈ trả danh mục, KHÔNG nối thêm đơn vị các dòng cũ: dòng cũ lưu MÃ (`m2`, `hop`, `luot`) còn
+    danh mục hiện TÊN (`m²`, `hộp`, `lượt`) nên nối vào là danh sách đôi nhau từng cặp, nhìn như
+    hai đơn vị khác nhau. Dòng cũ vẫn sửa được: màn khai tự chèn chính giá trị của nó vào danh
+    sách chọn (không ép đổi), `quy_doi_service` cũng tra được cả mã lẫn tên.
+    """
+    from ..repositories.don_vi_do_repo import DonViDoRepository
+
+    return UnitsOut(items=[d.ten for d in DonViDoRepository(db).all_active()])
 
 
 @router.post("/khoan/rates", response_model=RateOut, status_code=status.HTTP_201_CREATED)

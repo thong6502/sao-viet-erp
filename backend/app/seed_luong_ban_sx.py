@@ -81,21 +81,21 @@ _CONG_DOAN_MOI: list[tuple] = [
 ]
 
 # --- Bảng CÔNG KHOÁN của tổ (số hoá đúng tờ Excel xưởng đang dùng) ------------------------------
-# (ten_to, ma, ten_dau_viec, [mã công đoạn áp dụng], tinh_theo, don_vi, don_gia, ghi_chu)
-# `tinh_theo` = trục quy đổi SL bước → đơn vị đơn giá (bộ PRICING_BASIS của công đoạn).
-# Rỗng `cong_doan_mas` = áp cho MỌI công đoạn của tổ.
+# (ten_to, ma, ten_dau_viec, [mã công đoạn — CHỈ để suy ra tổ], don_vi, don_gia, ghi_chu)
+# Đơn giá chỉ treo vào TỔ. Danh sách công đoạn ở đây KHÔNG được lưu vào bảng: nó chỉ dùng để tìm
+# `department_id` đúng của tổ, vì tên tổ trong Excel và tên phòng ban trong hệ có thể lệch nhau.
 _DON_GIA_KHOAN: list[tuple] = [
     ("Tổ Cán màng", "CP-01", "Cán bóng · cán mờ · phủ UV nước · UV mờ",
-     ["CD-0003", "CD-0010"], "per_sheet_area", "m²", 150,
+     ["CD-0003", "CD-0010"], "m²", 150,
      "Làm theo nhóm; tổ trưởng lấy 5%/tổng doanh thu, phần còn lại nhóm tự chia và báo kế toán."),
-    ("Tổ Cán màng", "CP-02", "Ghép màng metalize", ["CD-0013"], "per_sheet_area", "m²", 250, None),
+    ("Tổ Cán màng", "CP-02", "Ghép màng metalize", ["CD-0013"], "m²", 250, None),
     # Cùng công đoạn Bế nhưng hai cách làm hai giá → bước lệnh BẮT BUỘC người chọn, máy không đoán.
-    ("Tổ Bế & Xén", "BE-01", "Bế máy tự động", ["CD-0011"], "per_sheet", "tờ", 250, None),
-    ("Tổ Bế & Xén", "BE-02", "Bế tay (hàng ăn gian nhíp, SL ít)", ["CD-0011"], "per_sheet", "tờ", 400, None),
-    ("Tổ Bế & Xén", "XEN-01", "Xén 3 mặt thành phẩm", ["CD-0009"], "per_finished_qty", "cuốn", 120, None),
-    ("Tổ Đóng gói", "TP-01", "Gấp tay sách máy", ["CD-0007"], "per_sheet", "tờ", 60, None),
-    ("Tổ Đóng gói", "TP-02", "Bắt tay + vào keo gáy vuông", ["CD-0008"], "per_finished_qty", "cuốn", 700, None),
-    ("Tổ Đóng gói", "TP-03", "Đếm, bó, đóng gói thành phẩm", ["CD-0012"], "per_finished_qty", "cuốn", 40, None),
+    ("Tổ Bế & Xén", "BE-01", "Bế máy tự động", ["CD-0011"], "tờ", 250, None),
+    ("Tổ Bế & Xén", "BE-02", "Bế tay (hàng ăn gian nhíp, SL ít)", ["CD-0011"], "tờ", 400, None),
+    ("Tổ Bế & Xén", "XEN-01", "Xén 3 mặt thành phẩm", ["CD-0009"], "cuốn", 120, None),
+    ("Tổ Đóng gói", "TP-01", "Gấp tay sách máy", ["CD-0007"], "tờ", 60, None),
+    ("Tổ Đóng gói", "TP-02", "Bắt tay + vào keo gáy vuông", ["CD-0008"], "cuốn", 700, None),
+    ("Tổ Đóng gói", "TP-03", "Đếm, bó, đóng gói thành phẩm", ["CD-0012"], "cuốn", 40, None),
 ]
 
 # Canh máy bước IN: danh mục `CD-0002 In offset` để setup_time = 0 nên Gantt vẽ lệnh in "vào máy
@@ -174,7 +174,7 @@ def _ensure_don_gia_khoan(db: Session) -> None:
     cd_rows = {c.ma: c for c in db.execute(select(CongDoan)).scalars()}
     co_san = {r.code for r in db.execute(select(PieceRate)).scalars() if r.code}
     rows = []
-    for ten_to, ma, ten, cds, tinh_theo, don_vi, don_gia, ghi_chu in _DON_GIA_KHOAN:
+    for ten_to, ma, ten, cds, don_vi, don_gia, ghi_chu in _DON_GIA_KHOAN:
         if ma in co_san:
             continue
         dept_id = next(
@@ -185,7 +185,7 @@ def _ensure_don_gia_khoan(db: Session) -> None:
             continue   # chưa có tổ nào nhận → khai đơn giá cũng không ai dùng
         rows.append(PieceRate(
             group_name=ten_to, department_id=dept_id, code=ma, name=ten,
-            cong_doan_mas=cds, tinh_theo=tinh_theo, unit=don_vi, unit_price=don_gia,
+            unit=don_vi, unit_price=don_gia,
             note=ghi_chu, is_active=True,
         ))
     if rows:

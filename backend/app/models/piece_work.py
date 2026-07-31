@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Integer, JSON, Numeric, String
+from sqlalchemy import Boolean, DateTime, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -62,18 +62,10 @@ class PieceRate(Base):
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     code: Mapped[str | None] = mapped_column(String(20), nullable=True)  # mã (A–F cho máy in)
     name: Mapped[str] = mapped_column(String(255), nullable=False)       # tên công việc
-    # Công đoạn gắn đơn giá (mã cong_doan.ma) — tra đơn giá theo (tổ + công đoạn) khi ghi phiếu.
-    # ⚠️ CỘT CŨ, giữ để không mất dữ liệu. Khai mới dùng `cong_doan_mas` bên dưới.
+    # ⚠️ CỘT CHẾT — trước đây tra đơn giá theo (tổ + công đoạn). Bảng này giờ là KHAI BÁO thuần:
+    # đơn giá chỉ treo vào TỔ, việc nào của tổ dùng đơn giá nào là do bên sản xuất chọn ở bước
+    # lệnh. Giữ cột để không mất dữ liệu cũ; KHÔNG đọc ở bất kỳ đâu nữa.
     cong_doan: Mapped[str | None] = mapped_column(String(30), index=True, nullable=True)
-    # NHIỀU công đoạn dùng CHUNG một đầu việc khoán — đúng bảng "CÔNG KHOÁN" giấy của xưởng: một
-    # dòng *"cán bóng · cán mờ · phủ UV nước · UV mờ" = 150đ/m²* phủ cả 4 công đoạn, vì với THỢ bốn
-    # việc đó là một (cùng máy, cùng động tác); chỉ với KHÁCH mới khác (khác vật tư, khác giá bán).
-    # Rỗng = áp cho mọi công đoạn của tổ. JSON default=list (gotcha Postgres: KHÔNG server_default).
-    cong_doan_mas: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
-    # Trục quy đổi: SL của bước lệnh (tờ/con/kẽm) → đơn vị của đơn giá này. Dùng LẠI bộ
-    # `PRICING_BASIS` của `cong_doan.py` (per_sheet_area · per_area_sides · per_finished_qty…) —
-    # tính giá đã có 12 trục đó chạy hằng ngày, đẻ enum thứ hai là mở đường cho hai bộ lệch nhau.
-    tinh_theo: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # CHỮ hiển thị, không phải mã — xem ghi chú ở `DEFAULT_PIECE_UNITS`. 24 ký tự vì 12 vừa khít
     # "thùng carton" là hỏng. Đổi kiểu cột ⇒ migration 0125.
     unit: Mapped[str] = mapped_column(String(24), nullable=False, default=UNIT_KHAC, server_default=UNIT_KHAC)

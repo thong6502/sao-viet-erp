@@ -3794,6 +3794,27 @@ def _migrate_lsx_cong_doan_khoan_json(db: Session) -> None:
     db.commit()
 
 
+def _migrate_piece_rate_bo_luat_ngam(db: Session) -> None:
+    """Bảng đơn giá khoán về đúng nghĩa KHAI BÁO: xoá `cong_doan_mas` + `tinh_theo`.
+
+    Hai cột đó là hai luật NGẦM mà mở form ra không ai đoán được: `cong_doan_mas` khiến dòng khai
+    riêng thắng dòng khai chung khi khớp bước lệnh, `tinh_theo` khiến SL bị nhân thêm số lượt chạy
+    trước khi nhân đơn giá. Chủ chốt 2026-07-31: chỗ này chỉ ghi lại cái người ta gõ, mọi phép
+    tính nằm bên sản xuất. Đơn giá giờ chỉ treo vào TỔ; muốn trả theo lượt thì khai đơn vị `lượt`.
+
+    Cột `piece_rates.cong_doan` (1 mã, bản còn cũ hơn) GIỮ nguyên để không mất dữ liệu lịch sử —
+    đã đánh dấu cột chết trong model, không đọc ở đâu nữa.
+    """
+    insp = inspect(db.get_bind())
+    if "piece_rates" not in insp.get_table_names():
+        return
+    co = _existing_columns(insp, "piece_rates")
+    for cot in ("cong_doan_mas", "tinh_theo"):
+        if cot in co:
+            db.execute(text(f"ALTER TABLE piece_rates DROP COLUMN {cot}"))
+    db.commit()
+
+
 def _migrate_don_vi_quy_doi_cong_thuc(db: Session) -> None:
     """Quy đổi ĐỘNG: thêm `don_vi_quy_doi.cong_thuc` (nullable).
 
@@ -4194,6 +4215,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0136_don_vi_don_cap_du", _migrate_don_vi_don_cap_du),
     # Quy đổi ĐỘNG: hệ số được phép là công thức ("1 tờ = dinh_luong * dai * rong" kg).
     ("0137_don_vi_quy_doi_cong_thuc", _migrate_don_vi_quy_doi_cong_thuc),
+    # Đơn giá khoán về đúng nghĩa khai báo: bỏ luật khớp ngầm + phép nhân ngầm.
+    ("0138_piece_rate_bo_luat_ngam", _migrate_piece_rate_bo_luat_ngam),
     # --- Nhánh tính giá / báo giá — bảng khác, chạy độc lập với khối lương ở trên ---
     # Số 0106+ TRÙNG với dãy lương ngay trên là CÓ CHỦ Ý: hai dãy đánh số song song, khoá
     # thật trong `schema_migrations` là CẢ CHUỖI id nên không đụng nhau. ĐỪNG đánh lại số —

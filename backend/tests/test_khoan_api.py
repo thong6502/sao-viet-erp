@@ -55,9 +55,10 @@ def test_rate_scoped_by_department(client):
     assert a["id"] in all_ids and b["id"] in all_ids
 
 
-# --- Ô "Đơn vị": gõ tự do + gợi ý (chủ 29/07/2026) ---------------------------
-# Chủ: "chỉ select được mấy cái thôi, nhiều cái khác thì sao, bất tiện lắm nhỉ".
-# Dữ liệu vốn đã tự do (backend chưa bao giờ validate cột này) — chỉ cái <select> ở FE tự trói.
+# --- Ô "Đơn vị" ---------------------------------------------------------------
+# 2026-07-31: màn khai CHỌN từ danh mục `Đơn vị & quy đổi` (lệch một chữ là lệnh không quy đổi ra
+# tiền được). Nhưng API vẫn NHẬN chữ bất kỳ — dòng cũ, seed và import đều đang mang đơn vị ngoài
+# danh mục; chặn ở API là khoá luôn đường sửa những dòng đó.
 
 
 def _mk(client, token, **over):
@@ -74,14 +75,15 @@ def test_don_vi_go_tu_do_luu_duoc(client):
     assert r.json()["unit"] == "mét tới"
 
 
-def test_don_vi_gop_chinh_ta_hoa_thuong(client):
-    """⭐ Gõ "  KG " khi đã có "kg" ⇒ lưu "kg".
+def test_don_vi_luu_dung_chu_nhan_duoc(client):
+    """⭐ Lưu ĐÚNG chữ nhận được, chỉ cắt khoảng trắng thừa.
 
-    Không gộp thì cùng một đơn vị đẻ ra kg / Kg / KG, gợi ý phình lên và thống kê không gom được."""
+    Bản trước còn "chuẩn hoá" ngầm: gõ "KG" khi đã có "kg" thì server âm thầm đổi thành "kg". Có
+    lý khi ô đơn vị gõ tự do, nhưng chủ chốt 2026-07-31 — đơn vị CHỌN TỪ danh mục Đơn vị & quy đổi
+    và màn khai báo không được sửa chữ của người ta sau lưng."""
     token = _admin_token(client)
     assert _mk(client, token, unit="kg").json()["unit"] == "kg"
-    assert _mk(client, token, unit="  KG ").json()["unit"] == "kg"
-    assert _mk(client, token, unit="Kg").json()["unit"] == "kg"
+    assert _mk(client, token, unit="  KG ").json()["unit"] == "KG"
 
 
 def test_don_vi_khong_gop_theo_dau(client):
@@ -104,22 +106,23 @@ def test_don_vi_dai_24_ky_tu(client):
     assert _mk(client, token, unit="x" * 25).status_code == 422
 
 
-def test_goi_y_don_vi_moc_tu_du_lieu_da_dung(client):
-    """Gõ đơn vị mới một lần ⇒ lần sau nó nằm trong gợi ý. Gợi ý mọc từ chính dữ liệu người
-    dùng, không phải từ danh sách cứng ai đó đoán trước."""
+def test_don_vi_chon_duoc_la_danh_muc_don_vi(client):
+    """Danh sách đơn vị = danh mục `Đơn vị & quy đổi`, KHÔNG mọc thêm từ dữ liệu đã dùng.
+
+    Bản trước nối cả hai nguồn nên danh sách đôi nhau từng cặp (`m2`/`m²`, `hop`/`hộp`) — dòng cũ
+    lưu MÃ còn danh mục hiện TÊN, nhìn như hai đơn vị khác nhau."""
     token = _admin_token(client)
     truoc = client.get("/api/luong/khoan/units", headers=_h(token)).json()["items"]
-    assert "m²" in truoc, "thiếu gợi ý mồi"
-    assert "ram giấy" not in truoc
+    assert "m²" in truoc, "danh mục đơn vị chưa được seed"
+    assert len(truoc) == len(set(truoc)), "danh sách đơn vị bị trùng"
 
     _mk(client, token, unit="ram giấy")
     sau = client.get("/api/luong/khoan/units", headers=_h(token)).json()["items"]
-    assert "ram giấy" in sau
-    assert len(sau) == len(set(sau)), "danh sách gợi ý bị trùng"
+    assert sau == truoc, "đơn vị gõ ngoài danh mục không được chui vào danh sách chọn"
 
 
-def test_sua_don_gia_cung_chuan_hoa_don_vi(client):
-    """Đường SỬA cũng phải chuẩn hoá — không thì gõ tay lúc sửa lại lọt biến thể."""
+def test_sua_don_gia_giu_nguyen_chu_don_vi(client):
+    """Đường SỬA cũng chỉ cắt khoảng trắng, không đổi chữ."""
     token = _admin_token(client)
     rid = _mk(client, token, unit="bộ").json()["id"]
     upd = client.put(f"/api/luong/khoan/rates/{rid}", json={
@@ -127,7 +130,14 @@ def test_sua_don_gia_cung_chuan_hoa_don_vi(client):
         "unit": " BỘ ", "unit_price": 100,
     }, headers=_h(token))
     assert upd.status_code == 200, upd.text
-    assert upd.json()["unit"] == "bộ"
+    assert upd.json()["unit"] == "BỘ"
+
+
+def test_ma_tu_sinh_khi_bo_trong(client):
+    """Chủ chốt: không cho nhập mã, máy sinh KH-####."""
+    token = _admin_token(client)
+    ma = _mk(client, token, unit="kg").json()["code"]
+    assert ma and ma.startswith("KH-")
 
 
 # --- Bậc thưởng/phạt tổ trưởng theo tỷ lệ hàng lỗi (chủ 29/07/2026) ---------

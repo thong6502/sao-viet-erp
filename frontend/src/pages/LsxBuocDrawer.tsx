@@ -115,7 +115,6 @@ export function LsxBuocDrawer({
         ten: `(đang ghim) đầu việc #${row.khoan_rate_id}`,
         don_vi: "",
         don_gia: 0,
-        tinh_theo: null,
       });
     }
     return ds;

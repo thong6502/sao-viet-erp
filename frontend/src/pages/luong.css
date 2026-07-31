@@ -1635,43 +1635,49 @@
   font-weight: var(--fw-medium);
 }
 
-/* --- Chọn công đoạn cho 1 đầu việc khoán (nhiều công đoạn dùng chung 1 đơn giá) -----------------
-   Danh sách tick gọn trong khối cuộn: 13-20 công đoạn thì <select multiple> vừa khó bấm vừa không
-   thấy được cái nào đang chọn. Nền dùng token slate (--paper), KHÔNG hardcode kem. */
-.khoan-cdpick {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  max-height: 168px;
+/* --- Ô GÕ-ĐỂ-LỌC cho Tổ · Đơn vị trong modal đơn giá khoán -------------------------------------
+   Thay `<select>`: 18 dòng đơn vị mà phải cuộn tay, không gõ tắt được. Danh sách neo tuyệt đối
+   NGAY dưới ô (modal đã cuộn được nên không cần portal). */
+.khoan-cbx {
+  position: relative;
+}
+.khoan-cbx__list {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  max-height: 208px;
   overflow-y: auto;
-  padding: 8px;
-  background: var(--paper);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-2);
-}
-.khoan-cdpick__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  font-size: 12px;
-  line-height: 1.2;
-  color: var(--ash);
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
   background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: 999px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  box-shadow: var(--shadow-2, 0 8px 24px rgba(0, 0, 0, 0.1));
+}
+.khoan-cbx__item {
+  text-align: left;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-2);
   cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease;
 }
-.khoan-cdpick__item:hover { border-color: var(--rule); color: var(--ink); }
-/* Đang chọn = tint rust: đây là phần tử ĐƯỢC CHỌN, đúng vai của --rust-soft trong UI_DESIGN §2. */
-.khoan-cdpick__item.is-on {
-  background: var(--rust-soft);
-  border-color: var(--rust);
-  color: var(--rust-deep);
-  font-weight: var(--fw-medium);
+/* `is-active` = đang rê chuột / đi bằng phím · `is-on` = giá trị đang chọn. Hai trạng thái khác
+   nhau nên không dùng chung một màu. */
+.khoan-cbx__item.is-active { background: var(--paper); }
+.khoan-cbx__item.is-on { color: var(--rust-deep); font-weight: var(--fw-medium); }
+.khoan-cbx__empty {
+  padding: 8px 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ash);
 }
-.khoan-cdpick__item input { accent-color: var(--rust); margin: 0; }
 
 /* Modal đơn giá khoán rộng hơn chuẩn (490px) vì có thêm bảng tick công đoạn; và `min-width: 0` để
    min-content của bảng tick không đẩy grid 2 cột tràn ra ngoài hộp (đã cắt mất ô Đơn giá). */

@@ -207,7 +207,6 @@ class LsxCongDoanOut(BaseModel):
     khoan_ten: str | None = None
     khoan_don_vi: str | None = None
     khoan_don_gia: float | None = None
-    khoan_tinh_theo: str | None = None
     # Các đầu việc CHỌN ĐƯỢC cho bước (theo tổ + công đoạn) — nuôi dropdown ở drawer.
     khoan_chon_duoc: list[dict] = Field(default_factory=list)
     # DẪN XUẤT (tính lúc đọc, không lưu): SL đã quy đổi · tiền dự kiến · diễn giải cách tính.

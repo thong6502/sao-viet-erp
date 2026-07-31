@@ -68,19 +68,24 @@ Bảng "CÔNG KHOÁN" giấy của xưởng là **danh sách đầu việc + đ�
 tổ Cán/Phủ có *"cán bóng · cán mờ · phủ UV nước · UV mờ"* = 150 đ/m² và *"ghép màng metalize"* =
 250 đ/m². Khai ở `Lương → Cấu hình lương của tổ → Đơn giá khoán` (bảng `piece_rates`).
 
-**Quan hệ: NHIỀU công đoạn → MỘT đầu việc.** Cán bóng và cán mờ là hai công đoạn khác nhau (khác vật
-tư, khác giá BÁN) nhưng với THỢ là một việc (cùng máy, cùng động tác) nên cùng một công khoán. Vì vậy
-mỗi dòng đơn giá tick **nhiều** mã công đoạn (`cong_doan_mas`), khỏi nhân thành 4 dòng trùng giá.
-Rỗng = áp cho mọi công đoạn của tổ.
+**Màn này CHỈ KHAI BÁO** (chủ 2026-07-31: *"đoạn này là khai báo, đừng cho tính toán ngầm gì ở đây"*).
+Một dòng gồm đúng: **Tổ · Công việc · Đơn vị · Đơn giá** (+ mã máy sinh `KH-####`, ghi chú). Đơn vị
+**chọn từ danh mục `Đơn vị & quy đổi`**, không gõ tự do — lệch một chữ là lệnh sản xuất vĩnh viễn
+không quy đổi ra tiền được; thiếu đơn vị thì thêm ở danh mục, một nguồn chứ không hai.
 
-**Luật khớp đầu việc với bước lệnh** (`piece_work_service.dau_viec_khop`): cùng TỔ, rồi **ưu tiên dòng
-khai đúng mã công đoạn**; không có dòng nào khai riêng thì mới dùng dòng "áp cho mọi công đoạn". Trộn
-cả hai thì bảng có 1 dòng chung + 1 dòng riêng sẽ luôn ra 2 kết quả, bước nào cũng phải hỏi người dùng
-dù xưởng đã khai rõ.
+**Luật khớp đầu việc với bước lệnh** (`piece_work_service.dau_viec_khop`) chỉ còn một dòng: **cùng
+TỔ**. Gốc là bên sản xuất — bước lệnh nhìn các đơn giá của tổ mình rồi chọn; bảng giá không biết và
+không cần biết việc nào dùng dòng nào.
+
+Bản 2026-07-30 từng cho khai thêm hai thứ ngay trên dòng giá, **đã gỡ** (migration `0138`):
+`cong_doan_mas` (tick "áp cho công đoạn nào" → đẻ luật ngầm *dòng khai riêng thắng dòng khai chung*)
+và `tinh_theo` (trục `PRICING_BASIS` → âm thầm nhân SL với số lượt chạy trước khi nhân đơn giá). Mở
+form ra không ai đoán được hai luật đó. Muốn trả theo lượt máy thì **khai đơn giá theo đơn vị `lượt`**,
+đừng giấu phép nhân trong code.
 
 **Kế hoạch chọn đầu việc ở BƯỚC LỆNH**, không ở phiếu tính giá — lúc tính giá sale chưa biết chạy máy
 nào, bế tay hay bế máy. Ô nằm trong khối "Ai làm" của drawer bước (`Kế hoạch SX → lệnh → Công đoạn`);
-khớp đúng 1 đầu việc thì máy **điền sẵn**, khớp nhiều (bế máy 250 đ/tờ ≠ bế tay 400 đ/tờ) thì **để
+tổ có đúng 1 đơn giá thì máy **điền sẵn**, tổ có nhiều (bế máy 250 đ/tờ ≠ bế tay 400 đ/tờ) thì **để
 trống + nhắc** — chỉ người biết hôm đó bế bằng gì. Chọn xong GHIM snapshot vào
 `lsx_cong_doan.khoan_json`: xưởng lên giá khoán về sau không được xê dịch lệnh đã phát.
 

@@ -273,19 +273,15 @@ class LsxService:
 
         Nhiều đầu việc khớp (bế tay / bế máy cùng công đoạn) là chuyện chỉ người biết → máy để
         trống + nhắc, KHÔNG chọn hộ. Tổ không ăn khoán thì danh sách rỗng, cũng ra None."""
-        khop = dau_viec_khop(
-            self._piece_rates(),
-            department_id=department_id,
-            cong_doan_ma=(cd_obj.ma if cd_obj is not None else None),
-        )
+        khop = dau_viec_khop(self._piece_rates(), department_id=department_id)
         return khoan_snapshot(khop[0]) if len(khop) == 1 else None
 
     def _khoan_derived(self, cd, quy_cach: dict | None) -> dict:
         """Tiền khoán DỰ KIẾN của bước — tính LÚC ĐỌC, không lưu cột.
 
         SL lấy `so_luong_vao` (số thợ thật chạy qua tay, gồm cả tờ bù hao canh máy — thợ cán 241 tờ
-        thì ăn 241 tờ). Trục `per_area_sides` nhân thêm số lượt chạy vì xưởng tính công theo LƯỢT
-        máy, không theo diện tích tờ.
+        thì ăn 241 tờ), rồi ĐỔI thẳng sang đơn vị của đơn giá. Không nhân thêm hệ số ngầm nào:
+        muốn trả theo lượt máy thì khai đơn giá theo đơn vị `lượt`, đừng giấu phép nhân trong code.
         """
         # Hợp đồng dict: LUÔN đủ 6 khoá (None khi chưa có gì) — caller `if kq["khoan_tien"]` chứ
         # không phải `if "khoan_tien" in kq`. Trả dict rỗng khi bước chưa chọn đầu việc là mời gọi
@@ -296,8 +292,6 @@ class LsxService:
         if not kh.get("don_vi") or not kh.get("don_gia"):
             return trong
         sl = _f(cd.so_luong_vao)
-        if kh.get("tinh_theo") == "per_area_sides":
-            sl *= max(int(cd.so_luot_chay or 1), 1)
         kq = tien_khoan(
             sl, cd.don_vi_vao, kh["don_vi"], _f(kh["don_gia"]), quy_cach or {},
             self._don_vis(), self._cap_quy_doi(),
@@ -999,24 +993,17 @@ class LsxService:
             "khoan_ten": kh.get("ten"),
             "khoan_don_vi": kh.get("don_vi"),
             "khoan_don_gia": _f(kh.get("don_gia")) or None,
-            "khoan_tinh_theo": kh.get("tinh_theo"),
-            # Các đầu việc CHỌN ĐƯỢC cho bước này (theo tổ + công đoạn) — gửi kèm luôn để drawer khỏi
-            # gọi thêm API và khỏi nhân bản luật khớp "ưu tiên dòng khai riêng" sang frontend.
+            # Các đầu việc CHỌN ĐƯỢC cho bước này = mọi đơn giá của TỔ — gửi kèm để drawer khỏi
+            # gọi thêm API.
             "khoan_chon_duoc": [
-                {"id": r.id, "ten": r.name, "don_vi": r.unit,
-                 "don_gia": _f(r.unit_price), "tinh_theo": r.tinh_theo}
+                {"id": r.id, "ten": r.name, "don_vi": r.unit, "don_gia": _f(r.unit_price)}
                 for r in self._dau_viec_cua_buoc(cd)
             ],
             **self._khoan_derived(cd, quy_cach),
         }
 
     def _dau_viec_cua_buoc(self, cd) -> list:
-        cd_obj = self.db.get(CongDoan, cd.cong_doan_id) if cd.cong_doan_id else None
-        return dau_viec_khop(
-            self._piece_rates(),
-            department_id=cd.department_id,
-            cong_doan_ma=(cd_obj.ma if cd_obj is not None else None),
-        )
+        return dau_viec_khop(self._piece_rates(), department_id=cd.department_id)
 
     def list_rows(self, **kw) -> list[dict]:
         rows = self.repo.list(**kw)

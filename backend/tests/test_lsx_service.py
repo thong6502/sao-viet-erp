@@ -419,13 +419,12 @@ def test_xoa_lenh_tra_dong_don_ve_hang_cho(db, orders, lsx_svc, admin, customer)
 
 
 # ================= Khoán theo đầu việc ở bước lệnh =================
-def _don_gia_khoan(db, *, cong_doan_ma: str, department_id: int, ten: str, don_vi: str,
-                   don_gia: float, tinh_theo: str):
-    """1 dòng bảng CÔNG KHOÁN của tổ."""
+def _don_gia_khoan(db, *, department_id: int, ten: str, don_vi: str, don_gia: float):
+    """1 dòng bảng CÔNG KHOÁN của tổ. Đơn giá chỉ treo vào TỔ — bảng khai báo không biết công đoạn
+    nào dùng dòng nào, bên sản xuất chọn ở bước lệnh."""
     from app.models.piece_work import PieceRate
 
-    r = PieceRate(group_name="Tổ test", department_id=department_id, name=ten,
-                  cong_doan_mas=[cong_doan_ma], tinh_theo=tinh_theo, unit=don_vi,
+    r = PieceRate(group_name="Tổ test", department_id=department_id, name=ten, unit=don_vi,
                   unit_price=don_gia, is_active=True)
     db.add(r)
     db.commit()
@@ -440,8 +439,8 @@ def test_bung_lenh_tu_dien_dau_viec_va_ra_tien_du_kien(db, orders, lsx_svc, admi
     """
     ptg = _ptg_2_san_pham(db)
     cd_be = db.query(CongDoan).filter(CongDoan.ma == "CD-BE-T").first()
-    _don_gia_khoan(db, cong_doan_ma="CD-BE-T", department_id=cd_be.department_id,
-                   ten="Bế máy tự động", don_vi="tờ", don_gia=250, tinh_theo="per_sheet")
+    _don_gia_khoan(db, department_id=cd_be.department_id,
+                   ten="Bế máy tự động", don_vi="tờ", don_gia=250)
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     lines = lsx_svc.preview(d.id)["lines"]
@@ -458,13 +457,13 @@ def test_bung_lenh_tu_dien_dau_viec_va_ra_tien_du_kien(db, orders, lsx_svc, admi
 
 
 def test_hai_dau_viec_cung_cong_doan_thi_khong_dien_ho(db, orders, lsx_svc, admin, customer):
-    """Bế máy 250đ/tờ và bế tay 400đ/tờ cùng một công đoạn — chỉ người biết hôm đó bế bằng gì, nên
+    """Tổ có 2 đơn giá (bế máy 250đ/tờ · bế tay 400đ/tờ) — chỉ người biết hôm đó bế bằng gì, nên
     máy để TRỐNG và gửi kèm danh sách chọn thay vì chọn hộ một cái."""
     ptg = _ptg_2_san_pham(db)
     cd_be = db.query(CongDoan).filter(CongDoan.ma == "CD-BE-T").first()
     for ten, gia in (("Bế máy", 250), ("Bế tay", 400)):
-        _don_gia_khoan(db, cong_doan_ma="CD-BE-T", department_id=cd_be.department_id,
-                       ten=ten, don_vi="tờ", don_gia=gia, tinh_theo="per_sheet")
+        _don_gia_khoan(db, department_id=cd_be.department_id,
+                       ten=ten, don_vi="tờ", don_gia=gia)
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     lines = lsx_svc.preview(d.id)["lines"]
@@ -481,10 +480,10 @@ def test_sua_routing_ghim_dau_viec_va_giu_gia_luc_chon(db, orders, lsx_svc, admi
     đã phát: bước vẫn giữ đơn giá lúc chọn."""
     ptg = _ptg_2_san_pham(db)
     cd_be = db.query(CongDoan).filter(CongDoan.ma == "CD-BE-T").first()
-    r1 = _don_gia_khoan(db, cong_doan_ma="CD-BE-T", department_id=cd_be.department_id,
-                        ten="Bế máy", don_vi="tờ", don_gia=250, tinh_theo="per_sheet")
-    _don_gia_khoan(db, cong_doan_ma="CD-BE-T", department_id=cd_be.department_id,
-                   ten="Bế tay", don_vi="tờ", don_gia=400, tinh_theo="per_sheet")
+    r1 = _don_gia_khoan(db, department_id=cd_be.department_id,
+                        ten="Bế máy", don_vi="tờ", don_gia=250)
+    _don_gia_khoan(db, department_id=cd_be.department_id,
+                   ten="Bế tay", don_vi="tờ", don_gia=400)
 
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     lines = lsx_svc.preview(d.id)["lines"]

@@ -61,7 +61,6 @@ export interface KhoanChon {
   ten: string;
   don_vi: string;
   don_gia: number;
-  tinh_theo: string | null;
 }
 
 export const DON_VI: { key: string; label: string }[] = [

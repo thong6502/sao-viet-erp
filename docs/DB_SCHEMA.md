@@ -2764,9 +2764,7 @@ helper "Tính nhanh phạt" của modal Sửa lương.
 | `department_id` | `Integer` | **IX** | yes | — | Tổ sở hữu đơn giá (ref `departments.id`); khai trong Cấu hình lương của tổ. |
 | `code` | `String(20)` | — | yes | — | Mã (A–F cho máy in). |
 | `name` | `String(255)` | — | no | — | Tên công việc. |
-| `cong_doan` | `String(30)` | **IX** | yes | — | Mã công đoạn gắn đơn giá (Pha 5b, ref `cong_doan.ma`). **CỘT CŨ** — giữ để không mất dữ liệu; khai mới dùng `cong_doan_mas`. |
-| `cong_doan_mas` | `JSON` | — | yes | `[]` | NHIỀU mã công đoạn dùng chung 1 đầu việc khoán (bảng CÔNG KHOÁN thật: *"cán bóng · cán mờ · phủ UV nước · UV mờ"* = cùng 150đ/m²). **Rỗng = áp cho mọi công đoạn của tổ.** Luật khớp ở `piece_work_service.dau_viec_khop`: ưu tiên dòng khai ĐÚNG mã công đoạn, không có mới dùng dòng rỗng. |
-| `tinh_theo` | `String(32)` | — | yes | — | Trục quy đổi SL bước lệnh → đơn vị đơn giá. Dùng LẠI bộ `PRICING_BASIS` của `cong_doan` (per_sheet · per_sheet_area · per_area_sides · per_finished_qty…) — không đẻ enum thứ hai. |
+| `cong_doan` | `String(30)` | **IX** | yes | — | **CỘT CHẾT** — trước tra đơn giá theo (tổ + công đoạn). Bảng này giờ là KHAI BÁO thuần: đơn giá chỉ treo vào TỔ, việc nào dùng dòng nào là bên sản xuất chọn ở bước lệnh. Giữ cột để không mất dữ liệu cũ, không đọc ở đâu nữa. |
 | `unit` | `String(12)` | — | no | `khac` | Đơn vị (m2/bai_in/tan/cuon/luot/hop/to/khac). |
 | `unit_price` | `Numeric(14,2)` | — | no | — | Đơn giá/đơn vị. |
 | `note` | `String(255)` | — | yes | — | Ghi chú. |
@@ -3148,7 +3146,7 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 | `di_chuyen_phut` | `Numeric(10,2)` | — | no | `0` | Di chuyển bán thành phẩm sang tổ/máy kế. KHÔNG chiếm máy. |
 | `so_nhan_cong` | `Integer` | — | no | `1` | Số người/máy chạy ĐỒNG THỜI (BC: Concurrent Capacities) — thời gian chạy ÷ số này. Chỉ có nghĩa với `loai_buoc` = `to`/`kcs`. |
 | `may_thay_the_ids` | `JSON` | — | yes | — | `list[int]` soft → `may_thiet_bi.id`. CHỈ THAM KHẢO, không tự xếp lịch. |
-| `khoan_json` | `JSON` | — | yes | — | ĐẦU VIỆC KHOÁN của bước — kế hoạch chọn "bước cán này làm *cán mờ* hay *ghép metalize*" (cùng công đoạn, hai đơn giá). SNAPSHOT `{rate_id, ten, don_vi, don_gia, tinh_theo}` từ `piece_rates`, KHÔNG đọc-sống: xưởng lên giá khoán về sau không được xê dịch lệnh đã phát. Tiền khoán là số DẪN XUẤT (tính lúc đọc trong `lsx_service._khoan_derived`), không lưu cột. |
+| `khoan_json` | `JSON` | — | yes | — | ĐẦU VIỆC KHOÁN của bước — kế hoạch chọn "bước cán này làm *cán mờ* hay *ghép metalize*" (cùng công đoạn, hai đơn giá). SNAPSHOT `{rate_id, ten, don_vi, don_gia}` từ `piece_rates`, KHÔNG đọc-sống: xưởng lên giá khoán về sau không được xê dịch lệnh đã phát. Tiền khoán là số DẪN XUẤT (tính lúc đọc trong `lsx_service._khoan_derived`), không lưu cột. |
 | `dieu_kien_json` | `JSON` | — | yes | — | `list[str]` cờ điều kiện bắt đầu (§4.5): `co_vat_tu` · `file_duyet` · `kem_xong` · `khuon_san_sang` · `mau_mau_ky` · `nhan_tu_gia_cong`. |
 | `nha_cung_cap` | `String(150)` | — | yes | — | Nhà gia công khi `loai_buoc='thue_ngoai'` — khai TAY (cơ sở nhỏ thường chưa có trong `suppliers`). |
 | `sl_gui` | `Numeric(14,2)` | — | yes | — | SL gửi đi gia công. |

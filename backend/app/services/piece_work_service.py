@@ -9,9 +9,6 @@ Cổng chốt = Chốt kỳ lương (payroll_lines đóng băng số khoán khi 
 """
 from __future__ import annotations
 
-import re
-
-from ..models.cong_doan import PRICING_BASIS
 from ..models.piece_work import DEFAULT_PIECE_UNITS, UNIT_KHAC
 
 
@@ -31,34 +28,21 @@ def _r(x) -> float:
     return float(round(float(x or 0)))
 
 
-def dau_viec_khop(rates, *, department_id: int | None, cong_doan_ma: str | None) -> list:
-    """Các đầu việc khoán khớp một bước routing — HÀM THUẦN (Kế hoạch SX gọi khi bung lệnh).
+def dau_viec_khop(rates, *, department_id: int | None) -> list:
+    """Các đầu việc khoán của một TỔ — HÀM THUẦN (Kế hoạch SX gọi khi bung lệnh).
 
-    Luật khớp: cùng TỔ, rồi ưu tiên dòng khai ĐÚNG mã công đoạn của bước; không có dòng nào khai
-    riêng thì mới dùng dòng "áp cho mọi công đoạn của tổ" (`cong_doan_mas` rỗng). Nếu làm ngược —
-    trộn cả hai — thì bảng có 1 dòng chung + 1 dòng riêng sẽ luôn ra 2 kết quả và bước nào cũng
-    phải hỏi người dùng, dù xưởng đã khai rõ ràng.
+    Luật khớp chỉ còn một dòng: cùng tổ. Bảng đơn giá là bảng KHAI BÁO thuần — nó không biết và
+    không cần biết việc nào của tổ dùng dòng nào; gốc là bên sản xuất, người lập lệnh nhìn các
+    đơn giá của tổ rồi chọn. Bản trước cho khai "áp cho công đoạn nào" ngay trên dòng giá, thành
+    ra một luật khớp ngầm (dòng khai riêng thắng dòng khai chung) mà mở form ra không ai đoán được.
 
     Trả list (0 = tổ không ăn khoán / chưa khai · 1 = tự điền được · >1 = để người chọn).
     """
-    ma = (cong_doan_ma or "").strip().upper()
-    cua_to = [
+    return [
         r for r in (rates or [])
         if getattr(r, "is_active", True)
         and (department_id is None or r.department_id == department_id)
     ]
-
-    def _mas(r) -> list[str]:
-        raw = list(getattr(r, "cong_doan_mas", None) or [])
-        if not raw and getattr(r, "cong_doan", None):    # dòng cũ còn khai 1 mã ở cột `cong_doan`
-            raw = [r.cong_doan]
-        return [str(x).strip().upper() for x in raw if str(x).strip()]
-
-    if ma:
-        rieng = [r for r in cua_to if ma in _mas(r)]
-        if rieng:
-            return rieng
-    return [r for r in cua_to if not _mas(r)]
 
 
 def khoan_snapshot(rate) -> dict:
@@ -69,7 +53,6 @@ def khoan_snapshot(rate) -> dict:
         "ten": rate.name,
         "don_vi": rate.unit,
         "don_gia": float(rate.unit_price or 0),
-        "tinh_theo": rate.tinh_theo,
     }
 
 
@@ -88,35 +71,15 @@ class PieceWorkService:
         người dùng gõ đơn vị ngoài danh sách này vẫn lưu bình thường."""
         return sorted(set(DEFAULT_PIECE_UNITS) | set(self.piece.distinct_units()))
 
-    def _normalize_unit(self, raw) -> str:
-        """Chuẩn hoá đơn vị TRƯỚC KHI LƯU. Gõ tự do thì phải có chỗ này, không thì cùng một đơn
-        vị đẻ ra "kg", "Kg", " KG " — gợi ý phình lên, thống kê không gom được.
-
-        Hai bước: (1) cắt khoảng trắng thừa; (2) khớp KHÔNG PHÂN BIỆT HOA/THƯỜNG với đơn vị đã
-        dùng ⇒ lấy ĐÚNG cách viết đã dùng.
-
-        CỐ Ý không gộp theo DẤU: "to" và "tô" là hai đơn vị khác nhau, bỏ dấu để gộp là sai
-        nghĩa. Và cố ý KHÔNG chặn đơn vị mới — chốt của chủ là gõ gì cũng được."""
-        s = re.sub(r"\s+", " ", str(raw or "").strip())
-        if not s:
-            return UNIT_KHAC
-        for known in self.unit_suggestions():
-            if known.lower() == s.lower():
-                return known
-        return s
-
-    @staticmethod
-    def _validate_khoan_fields(f: dict) -> None:
-        """Kiểm 2 field của khoán-theo-đầu-việc. `tinh_theo` phải nằm trong bộ trục của CÔNG ĐOẠN —
-        gõ trục lạ thì lúc lên lệnh không quy đổi được SL, mà lỗi lại chỉ lộ ra ở khâu sản xuất."""
-        tt = f.get("tinh_theo")
-        if tt and tt not in PRICING_BASIS:
-            raise PieceWorkValidationError(f"Trục tính không hợp lệ: {tt}.")
-        mas = f.get("cong_doan_mas")
-        if mas is not None and not isinstance(mas, list):
-            raise PieceWorkValidationError("Danh sách công đoạn không hợp lệ.")
-        if isinstance(mas, list):
-            f["cong_doan_mas"] = [str(x).strip().upper() for x in mas if str(x).strip()]
+    def _sinh_ma(self) -> str:
+        """Mã dòng đơn giá — máy sinh, người dùng không gõ (chủ 2026-07-31). Chạy số theo dòng đã
+        có: KH-0001, KH-0002… Mã cũ của xưởng (A–F trong bảng giấy) giữ nguyên, không đụng."""
+        so = 0
+        for r in self.piece.list_rates():
+            ma = str(getattr(r, "code", "") or "")
+            if ma.upper().startswith("KH-") and ma[3:].isdigit():
+                so = max(so, int(ma[3:]))
+        return f"KH-{so + 1:04d}"
 
     def create_rate(self, **f):
         if not f.get("group_name"):
@@ -125,21 +88,20 @@ class PieceWorkService:
             raise PieceWorkValidationError("Thiếu tên công việc.")
         if f.get("unit_price") is None:
             raise PieceWorkValidationError("Thiếu đơn giá.")
-        f["unit"] = self._normalize_unit(f.get("unit"))
-        self._validate_khoan_fields(f)
+        # Đơn vị lưu ĐÚNG chữ nhận được (màn khai chọn từ danh mục Đơn vị & quy đổi). Bản trước
+        # còn "chuẩn hoá" ngầm — âm thầm sửa chữ người ta gõ; bảng khai báo thì đừng làm thế.
+        f["unit"] = str(f.get("unit") or UNIT_KHAC).strip() or UNIT_KHAC
+        if not (f.get("code") or "").strip():
+            f["code"] = self._sinh_ma()
         return self.piece.create_rate(**f)
 
     def update_rate(self, rate_id, **f):
         r = self.piece.get_rate(rate_id)
         if r is None:
             raise PieceWorkNotFound("Không tìm thấy đơn giá.")
-        # `cong_doan_mas` phải qua được cả khi RỖNG: bỏ hết công đoạn của một đầu việc (về "áp cho
-        # mọi công đoạn") là thao tác thật, mà lọc `v is not None` thì [] vẫn đi qua — chỉ cần đừng
-        # đổi cách lọc thành truthy.
         patch = {k: v for k, v in f.items() if v is not None}
         if "unit" in patch:
-            patch["unit"] = self._normalize_unit(patch["unit"])
-        self._validate_khoan_fields(patch)
+            patch["unit"] = str(patch["unit"] or UNIT_KHAC).strip() or UNIT_KHAC
         return self.piece.update_rate(r, **patch)
 
     def delete_rate(self, rate_id):
