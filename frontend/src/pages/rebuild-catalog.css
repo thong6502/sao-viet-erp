@@ -54,6 +54,7 @@
   align-items: center;
   gap: var(--sp-3);
   margin-bottom: var(--sp-4);
+  flex-wrap: wrap;
 }
 .rc__spacer {
   flex: 1;
@@ -103,6 +104,7 @@
   padding: 7px 12px;
   font-size: 13px;
   height: 32px;
+  white-space: nowrap;
 }
 
 /* --- Filter tabs (gạch chân theo tông giấy — bỏ pill nền đen) --- */

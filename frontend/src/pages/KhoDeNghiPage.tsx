@@ -843,7 +843,9 @@ function RequestDrawer({
                                   onPick={(m) => pickMaterial(l.key, m)}
                                   // Gõ tên rồi "＋ Thêm" = ghi thẳng tên vật tư, KHÔNG tạo mã.
                                   // Thủ kho gắn/tạo mã ở bước lập phiếu (người đề nghị không cần biết).
+                                  // XUẤT: chỉ lĩnh hàng ĐÃ có trong kho → không cho tạo hàng mới.
                                   createLabel="Thêm"
+                                  allowCreate={loai === "NHAP"}
                                   onCreate={(nm) => nameFreeText(l.key, nm)}
                                 />
                               ) : (
