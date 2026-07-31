@@ -265,6 +265,19 @@ const ICONS = {
   ),
   // Mũi tên hướng phải
   arrowRight: <path d="M5 12h14M13 5l7 7-7 7" />,
+  // Maximize / Focus
+  maximize: (
+    <>
+      <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+    </>
+  ),
+  // Cảnh báo / Alert
+  alert: (
+    <>
+      <path d="M12 9v4M12 17h.01" />
+      <path d="m10.29 3.86-8.6 15A1 1 0 0 0 2.56 20.36h18.88a1 1 0 0 0 .87-1.5l-8.6-15a1 1 0 0 0-1.72 0z" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;

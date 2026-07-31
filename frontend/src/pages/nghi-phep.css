@@ -1,6 +1,72 @@
-/* Phân hệ Nghỉ phép — Thiết kế SaaS cao cấp, giao diện đồng bộ, tinh tế */
+/* Phân hệ Nghỉ phép — Flat Modern Clean UI (Không bo góc khung, phẳng, tinh tế) */
 
-/* SaaS Modern Leave Management UI Redesign */
+/* Flat Clean Navigation Tabs */
+.ns-tabs.cc-tabs.lg-tabs {
+  display: flex !important;
+  align-items: center !important;
+  gap: 24px !important;
+  padding: 0 0 4px 0 !important;
+  margin-bottom: 20px !important;
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 2px solid #e2e8f0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.ns-tabs.cc-tabs.lg-tabs .lg-tabs__group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ns-tabs.cc-tabs.lg-tabs .lg-tab-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 8px 12px 10px 12px !important;
+  border-radius: 0 !important;
+  font-family: var(--ff-sans);
+  font-weight: 500 !important;
+  font-size: 14px !important;
+  color: #64748b !important;
+  border: none !important;
+  border-bottom: 3px solid transparent !important;
+  background: transparent !important;
+  cursor: pointer;
+  white-space: nowrap;
+  margin-bottom: -6px !important;
+  transition: all 0.15s ease !important;
+  box-shadow: none !important;
+}
+
+.ns-tabs.cc-tabs.lg-tabs .lg-tab-btn:hover {
+  color: #0f172a !important;
+  background: transparent !important;
+  border-bottom-color: #cbd5e1 !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.ns-tabs.cc-tabs.lg-tabs .lg-tab-btn.is-active {
+  color: #0f172a !important;
+  font-weight: 700 !important;
+  background: transparent !important;
+  border-bottom: 3px solid #0f172a !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.ns-tabs.cc-tabs.lg-tabs .lg-tab-btn.is-active .lg-tab-btn__icon {
+  color: #0f172a !important;
+}
+
+.ns-tabs.cc-tabs.lg-tabs .lg-tab-btn__icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2px;
+  color: #64748b !important;
+}
 
 /* Sleek & Compact Leave Header Strip (Single Row Layout) */
 .cc-leave-header-strip {
@@ -15,7 +81,7 @@
 .cc-quota-chips {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
@@ -23,25 +89,26 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px;
-  background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  padding: 6px 12px;
+  background: #f8fafc;
+  border: none;
+  border-left: 3px solid #cbd5e1;
+  border-radius: 0;
   font-size: 13px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  transition: border-color 0.15s ease;
+  box-shadow: none;
+  transition: background-color 0.15s ease;
 }
 
-.cc-quota-chip--high { border-left: 3.5px solid #10b981; }
-.cc-quota-chip--medium { border-left: 3.5px solid #f59e0b; }
-.cc-quota-chip--low { border-left: 3.5px solid #ef4444; }
+.cc-quota-chip--high { border-left-color: #10b981; }
+.cc-quota-chip--medium { border-left-color: #f59e0b; }
+.cc-quota-chip--low { border-left-color: #ef4444; }
 
 .cc-quota-chip-label {
-  font-weight: 600;
+  font-weight: 700;
   color: #475569;
-  font-size: 12px;
+  font-size: 11.5px;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.03em;
 }
 
 .cc-quota-chip-val {
@@ -82,30 +149,33 @@
   display: inline-flex !important;
   align-items: center !important;
   gap: 6px !important;
-  padding: 7px 16px !important;
-  border-radius: 9px !important;
+  padding: 8px 16px !important;
+  border-radius: 4px !important;
   font-weight: 600 !important;
   font-size: 13px !important;
-  background: #1c1a17 !important;
+  background: #0f172a !important;
   color: #ffffff !important;
-  box-shadow: 0 1px 3px rgba(28, 26, 23, 0.2) !important;
+  box-shadow: none !important;
+  border: none !important;
   transition: all 0.15s ease !important;
   white-space: nowrap;
 }
 
 .cc-btn-cta-compact:hover {
-  background: #0f172a !important;
-  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.2) !important;
-  transform: translateY(-1px);
+  background: #1e293b !important;
+  box-shadow: none !important;
+  transform: none !important;
 }
 
-/* Leave Table & Status Pills */
+/* Leave Table & Status Pills - Flat, No Card Frame */
 .cc-table-card {
   background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+  border-radius: 0;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  box-shadow: none;
 }
 
 .cc-leave-table {
@@ -114,18 +184,18 @@
 }
 
 .cc-leave-table th {
-  background: #f8fafc !important;
-  color: #475569 !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
+  background: #ffffff !important;
+  color: #64748b !important;
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: 12px 14px !important;
-  border-bottom: 1px solid #e2e8f0 !important;
+  letter-spacing: 0.05em;
+  padding: 10px 12px !important;
+  border-bottom: 1px solid #cbd5e1 !important;
 }
 
 .cc-leave-table td {
-  padding: 12px 14px !important;
+  padding: 12px 12px !important;
   border-bottom: 1px solid #f1f5f9 !important;
   vertical-align: middle;
   font-size: 13.5px;
@@ -153,8 +223,8 @@
 .cc-type-badge {
   display: inline-flex;
   align-items: center;
-  padding: 2px 7px;
-  border-radius: 6px;
+  padding: 2px 6px;
+  border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
 }
@@ -173,8 +243,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 3px 10px;
-  border-radius: 9999px;
+  padding: 2px 8px;
+  border-radius: 4px;
   background: #f1f5f9;
   color: #0f172a;
   font-weight: 700;
@@ -191,8 +261,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: 9999px;
+  padding: 3px 8px;
+  border-radius: 4px;
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;

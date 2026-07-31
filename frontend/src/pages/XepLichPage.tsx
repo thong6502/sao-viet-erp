@@ -1,6 +1,6 @@
 // BÀN XẾP LỊCH CÔNG ĐOẠN — biến routing đã "sẵn sàng" thành công việc CÓ MÁY + GIỜ.
 //
-// Luồng: LSX / bài ghép sẵn sàng nằm ở KHAY "Chờ xếp" (trái) → "Đưa vào kế hoạch" sinh dòng lịch →
+// Luồng: LSX / bài ghép sẵn sàng nằm ở KHAY "Chờ lập kế hoạch" → "Đưa vào kế hoạch" sinh dòng lịch →
 // BẢNG (phải) gom theo Máy / Lệnh / Bài ghép → gán máy·ca·giờ (inline hoặc drawer) → hệ tính giờ kết
 // thúc + độ dư + nhãn nguy cơ + cờ xung đột → khóa khi chốt. MÁY CHỈ GHI NHẬN — người kế hoạch quyết.
 //
@@ -37,9 +37,9 @@ import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { Icon, type IconName } from "../components/Icons";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { DetailModal } from "../components/DetailModal";
 import {
   BangLoi,
-  ChipGap,
   ChuoiCongDoan,
   EmptyState,
   LichTrangThaiPill,
@@ -200,7 +200,8 @@ export function XepLichPage({
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [openRowId, setOpenRowId] = useState<number | null>(null);
-  const [queueCollapsed, setQueueCollapsed] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [isFocusMode, setIsFocusMode] = useState(false);
   const [colsHidden, setColsHidden] = useState<Set<string>>(loadColsLS);
   const [colsMenuOpen, setColsMenuOpen] = useState(false);
   const [collapsedBands, setCollapsedBands] = useState<Set<string>>(new Set());
@@ -309,7 +310,7 @@ export function XepLichPage({
     if (!el) return;
     setEdge({ l: el.scrollLeft > 0, r: el.scrollLeft < el.scrollWidth - el.clientWidth - 1 });
   }, []);
-  useEffect(() => { recomputeEdge(); }, [recomputeEdge, filtered, colsHidden, queueCollapsed]);
+  useEffect(() => { recomputeEdge(); }, [recomputeEdge, filtered, colsHidden, queueOpen]);
 
   // ---- cuộn tới band vừa thêm + nháy ----
   useEffect(() => {
@@ -534,7 +535,7 @@ export function XepLichPage({
     drawerIdx >= 0 && drawerIdx < flatOrder.length - 1 ? () => setOpenRowId(flatOrder[drawerIdx + 1].id) : undefined;
 
   return (
-    <main className="xlcd">
+    <main className={`xlcd ${isFocusMode ? "xlcd--focus" : ""}`}>
       <header className="khsx__head xlcd-head">
         <div className="khsx__headrow">
           <div>
@@ -542,8 +543,17 @@ export function XepLichPage({
             <h1 className="khsx__title">Xếp lịch công đoạn</h1>
           </div>
           <div className="xlcd-badges">
-            <span className="xlcd-badge xlcd-badge--cho">
-              <span className="xlcd-badge__num">{num(summary.cho)}</span> chờ xếp
+            <button
+              type="button"
+              className="xlcd-badge xlcd-badge--cho xlcd-badge--btn"
+              onClick={() => setQueueOpen(true)}
+              title="Mở khay lệnh / bài ghép chờ đưa vào kế hoạch"
+            >
+              <span className="xlcd-badge__num">{num(queue?.length ?? 0)}</span> chờ lập kế hoạch
+              <span className="xlcd-badge__hint">Mở khay</span>
+            </button>
+            <span className="xlcd-badge">
+              <span className="xlcd-badge__num">{num(summary.cho)}</span> chưa xếp giờ
             </span>
             <span className="xlcd-badge xlcd-badge--daxep">
               <span className="xlcd-badge__num">{num(summary.daXep)}</span> đã xếp
@@ -564,17 +574,18 @@ export function XepLichPage({
 
       {err && <BangLoi text={err} onRetry={load} />}
 
-      <div className={`xlcd__grid ${queueCollapsed ? "xlcd__grid--min" : ""}`}>
-        <QueueRail
-          items={queue}
-          collapsed={queueCollapsed}
-          onToggleCollapse={() => setQueueCollapsed((v) => !v)}
-          canCreate={canCreate}
-          canUpdate={canUpdate}
-          daVaoKeHoach={daVaoKeHoach}
-          onDuaVao={duaVao}
-          onAskGo={setAskGo}
-        />
+      <div className="xlcd__grid">
+        {queueOpen && (
+          <QueuePopup
+            onClose={() => setQueueOpen(false)}
+            items={queue}
+            canCreate={canCreate}
+            canUpdate={canUpdate}
+            daVaoKeHoach={daVaoKeHoach}
+            onDuaVao={duaVao}
+            onAskGo={setAskGo}
+          />
+        )}
 
         <section className="xlcd-board" aria-label="Bảng xếp lịch công đoạn">
           <div className="khsx__toolbar">
@@ -650,6 +661,15 @@ export function XepLichPage({
               </>
             )}
 
+            <button
+              type="button"
+              className={`xlcd-fchip ${isFocusMode ? "is-on" : ""}`}
+              onClick={() => setIsFocusMode((v) => !v)}
+              title="Mở rộng bàn làm việc"
+            >
+              <Icon name="maximize" size={12} /> {isFocusMode ? "Thu nhỏ" : "Toàn màn hình"}
+            </button>
+
             <div className="khsx__spacer" />
 
             <label className="khsx__search">
@@ -724,7 +744,7 @@ export function XepLichPage({
               <EmptyState
                 icon="calendar"
                 title="Chưa có công đoạn nào cần xếp."
-                sub="Đưa một lệnh sản xuất hoặc bài ghép từ khay “Chờ xếp” vào kế hoạch để bắt đầu xếp máy và giờ."
+                sub="Đưa một lệnh sản xuất hoặc bài ghép từ khay “Chờ lập kế hoạch” vào kế hoạch để bắt đầu xếp máy và giờ."
               />
             )
           ) : viewMode === "gantt" ? (
@@ -1358,95 +1378,469 @@ function ColsMenu({
   );
 }
 
-// ============================ khay "Chờ xếp" ================================
-function QueueRail({
-  items, collapsed, onToggleCollapse, canCreate, canUpdate, daVaoKeHoach, onDuaVao, onAskGo,
+// ============================ popup "Chờ lập kế hoạch" =======================
+// Dùng primitive DetailModal (overlay + Esc + bấm ra ngoài + nút ×) thay vì tự dựng lớp phủ:
+// khay trượt-từ-trái cũ khi đóng vẫn nằm đè mép trái board nên để lộ vệt trắng dọc cạnh sidebar,
+// và lớp phủ riêng của nó không phủ hết padding trang.
+function QueuePopup({
+  onClose, items, canCreate, canUpdate, daVaoKeHoach, onDuaVao, onAskGo,
 }: {
+  onClose: () => void;
   items: XepLichHangChoItem[] | null;
-  collapsed: boolean;
-  onToggleCollapse: () => void;
   canCreate: boolean;
   canUpdate: boolean;
   daVaoKeHoach: Set<string>;
   onDuaVao: (item: XepLichHangChoItem) => void;
   onAskGo: (item: XepLichHangChoItem) => void;
 }) {
-  const total = items?.length ?? 0;
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterMode, setFilterMode] = useState<"all" | "rush" | "ghep" | "lsx">("all");
+  const [viewMode, setViewMode] = useState<"table" | "card">("table");
+  const [sortBy, setSortBy] = useState<"rush" | "deadline" | "ma" | "steps">("rush");
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
 
-  if (collapsed) {
-    return (
-      <aside className="xlcd-queue xlcd-queue--min">
-        <button type="button" className="xlcd-queue__spine" onClick={onToggleCollapse} aria-label="Mở khay Chờ xếp">
-          <Icon name="chevron" size={14} className="xlcd-queue__caret" />
-          <span className="xlcd-queue__spinetext">CHỜ XẾP</span>
-          {total > 0 && <span className="xlcd-queue__spinebadge">{total}</span>}
-        </button>
-      </aside>
-    );
-  }
+  const total = items?.length ?? 0;
+  const rushCount = useMemo(() => items?.filter((i) => i.is_rush).length ?? 0, [items]);
+
+  const filteredItems = useMemo(() => {
+    if (!items) return null;
+    let result = items.filter((it) => {
+      if (filterMode === "rush" && !it.is_rush) return false;
+      if (filterMode === "ghep" && it.nguon !== "in_ghep") return false;
+      if (filterMode === "lsx" && it.nguon !== "lsx") return false;
+
+      if (searchQuery.trim() !== "") {
+        const q = searchQuery.toLowerCase().trim();
+        const matchMa = it.ma.toLowerCase().includes(q);
+        const matchTen = (it.ten || "").toLowerCase().includes(q);
+        if (!matchMa && !matchTen) return false;
+      }
+
+      return true;
+    });
+
+    // Sắp xếp
+    result = [...result].sort((a, b) => {
+      if (sortBy === "rush") {
+        if (a.is_rush !== b.is_rush) return a.is_rush ? -1 : 1;
+      } else if (sortBy === "deadline") {
+        if (a.han_hoan_thanh_sx && b.han_hoan_thanh_sx) {
+          return a.han_hoan_thanh_sx.localeCompare(b.han_hoan_thanh_sx);
+        }
+        if (a.han_hoan_thanh_sx) return -1;
+        if (b.han_hoan_thanh_sx) return 1;
+      } else if (sortBy === "ma") {
+        return a.ma.localeCompare(b.ma);
+      } else if (sortBy === "steps") {
+        return (b.so_cong_doan || 0) - (a.so_cong_doan || 0);
+      }
+      return 0;
+    });
+
+    return result;
+  }, [items, filterMode, searchQuery, sortBy]);
+
+  // Các lệnh khả dụng để chọn (chưa đưa vào kế hoạch)
+  const selectableItems = useMemo(() => {
+    if (!filteredItems) return [];
+    return filteredItems.filter((it) => !daVaoKeHoach.has(`${it.nguon}-${it.id}`));
+  }, [filteredItems, daVaoKeHoach]);
+
+  const isAllSelected = useMemo(() => {
+    if (selectableItems.length === 0) return false;
+    return selectableItems.every((it) => selectedKeys.has(`${it.nguon}-${it.id}`));
+  }, [selectableItems, selectedKeys]);
+
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedKeys(new Set());
+    } else {
+      const next = new Set<string>();
+      selectableItems.forEach((it) => next.add(`${it.nguon}-${it.id}`));
+      setSelectedKeys(next);
+    }
+  };
+
+  const toggleSelectItem = (itemKey: string) => {
+    const next = new Set(selectedKeys);
+    if (next.has(itemKey)) next.delete(itemKey);
+    else next.add(itemKey);
+    setSelectedKeys(next);
+  };
+
+  const handleBatchSchedule = () => {
+    if (!filteredItems) return;
+    filteredItems.forEach((it) => {
+      const key = `${it.nguon}-${it.id}`;
+      if (selectedKeys.has(key) && !daVaoKeHoach.has(key)) {
+        onDuaVao(it);
+      }
+    });
+    setSelectedKeys(new Set());
+  };
 
   return (
-    <aside className="xlcd-queue">
-      <div className="xlcd-queue__head">
-        <span className="xlcd-queue__title">Chờ xếp</span>
-        <span className="xlcd-queue__count">{num(total)}</span>
-        <button type="button" className="xlcd-queue__collapse" onClick={onToggleCollapse} aria-label="Thu gọn khay">
-          <Icon name="chevron" size={15} className="xlcd-queue__caret is-left" />
-        </button>
-      </div>
-      <div className="xlcd-queue__body">
-        {items === null ? (
-          <QueueSkeleton />
-        ) : items.length === 0 ? (
-          <p className="xlcd-queue__empty">Hết hàng chờ.</p>
-        ) : (
-          items.map((it) => {
-            const inPlan = daVaoKeHoach.has(`${it.nguon}-${it.id}`);
-            const isGhep = it.nguon === "in_ghep";
-            return (
-              <div
-                key={`${it.nguon}-${it.id}`}
-                className={`xlcd-queue__item ${it.is_rush ? "xlcd-queue__item--rush" : ""}`}
-                role={canCreate && !inPlan ? "button" : undefined}
-                tabIndex={canCreate && !inPlan ? 0 : undefined}
-                aria-label={`Đưa ${it.ma} vào kế hoạch`}
-                onClick={canCreate && !inPlan ? () => onDuaVao(it) : undefined}
-                onKeyDown={(e) => {
-                  if (canCreate && !inPlan && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onDuaVao(it); }
-                }}
+    <DetailModal
+      kicker="XẾP LỊCH"
+      title="Chờ lập kế hoạch"
+      subtitle={
+        items === null
+          ? "Đang tải danh sách hàng chờ…"
+          : total === 0
+            ? "Không còn lệnh / bài ghép nào chờ."
+            : `${num(total)} lệnh / bài ghép sẵn sàng ${rushCount > 0 ? `(${rushCount} lệnh GẤP)` : ""}`
+      }
+      onClose={onClose}
+    >
+      <div className="xlcd-queue__container">
+        {/* HEADER CONTROLS: STATS + VIEW TOGGLE & SORTING */}
+        {items && items.length > 0 && (
+          <div className="xlcd-queue__insights">
+            <div className="xlcd-queue__stat-chip">
+              <Icon name="layers" size={12} />
+              <span>Sẵn sàng: <strong>{total}</strong></span>
+            </div>
+            {rushCount > 0 && (
+              <div className="xlcd-queue__stat-chip xlcd-queue__stat-chip--rush">
+                <span>GẤP: <strong>{rushCount}</strong></span>
+              </div>
+            )}
+
+            <div className="xlcd-queue__controls-right">
+              {/* SORT DROPDOWN */}
+              <select
+                className="xlcd-queue__sort-select"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                title="Sắp xếp danh sách"
               >
-                <div className="xlcd-queue__itemhead">
-                  <span className="xlcd-queue__ma">
-                    {isGhep && <Icon name="layers" size={12} />}
-                    {it.ma}
-                  </span>
-                  {it.is_rush && <ChipGap />}
-                </div>
-                {it.ten && <p className="xlcd-queue__name">{it.ten}</p>}
-                <p className="xlcd-queue__meta">
-                  <span>{it.so_cong_doan} {isGhep ? "lệnh" : "công đoạn"}</span>
-                  {it.han_hoan_thanh_sx && (
-                    <span className={`xlcd-queue__han ${classHan(it.han_hoan_thanh_sx)}`}>· hạn {ngay(it.han_hoan_thanh_sx)}</span>
-                  )}
-                </p>
-                {inPlan ? (
-                  <div className="xlcd-queue__inplan">
-                    <span><Icon name="check" size={12} /> Đã đưa vào</span>
-                    {canUpdate && (
-                      <button type="button" className="xlcd-queue__go" onClick={(e) => { e.stopPropagation(); onAskGo(it); }}>
-                        Gỡ
-                      </button>
+                <option value="rush">Ưu tiên GẤP</option>
+                <option value="deadline">Hạn SX gần nhất</option>
+                <option value="ma">Mã (A-Z)</option>
+                <option value="steps">Số công đoạn</option>
+              </select>
+
+              {/* VIEW SWITCHER */}
+              <div className="xlcd-queue__mode-switch">
+                <button
+                  type="button"
+                  className={`xlcd-queue__mode-btn ${viewMode === "table" ? "is-active" : ""}`}
+                  onClick={() => setViewMode("table")}
+                  title="Dạng Bảng nén (Phù hợp 20+ lệnh)"
+                >
+                  <Icon name="table" size={13} /> Bảng nén
+                </button>
+                <button
+                  type="button"
+                  className={`xlcd-queue__mode-btn ${viewMode === "card" ? "is-active" : ""}`}
+                  onClick={() => setViewMode("card")}
+                  title="Dạng Thẻ Visual"
+                >
+                  <Icon name="grid" size={13} /> Thẻ
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* IN-MODAL SEARCH & FILTER TOOLBAR */}
+        {items && items.length > 0 && (
+          <div className="xlcd-queue__toolbar">
+            <div className="xlcd-queue__search-box">
+              <Icon name="search" size={14} className="xlcd-queue__search-icon" />
+              <input
+                type="text"
+                className="xlcd-queue__search-input"
+                placeholder="Tìm theo mã LSX, bài ghép, tên đơn hàng..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  className="xlcd-queue__search-clear"
+                  onClick={() => setSearchQuery("")}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            <div className="xlcd-queue__filter-pills">
+              <button
+                type="button"
+                className={`xlcd-queue__pill ${filterMode === "all" ? "is-active" : ""}`}
+                onClick={() => setFilterMode("all")}
+              >
+                Tất cả ({total})
+              </button>
+              {rushCount > 0 && (
+                <button
+                  type="button"
+                  className={`xlcd-queue__pill xlcd-queue__pill--rush ${filterMode === "rush" ? "is-active" : ""}`}
+                  onClick={() => setFilterMode("rush")}
+                >
+                  Chỉ GẤP ({rushCount})
+                </button>
+              )}
+              <button
+                type="button"
+                className={`xlcd-queue__pill ${filterMode === "lsx" ? "is-active" : ""}`}
+                onClick={() => setFilterMode("lsx")}
+              >
+                Lệnh sản xuất
+              </button>
+              <button
+                type="button"
+                className={`xlcd-queue__pill ${filterMode === "ghep" ? "is-active" : ""}`}
+                onClick={() => setFilterMode("ghep")}
+              >
+                Bài ghép
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* DẠNG BẢNG NÉN (COMPACT TABLE VIEW - TỐI ƯU CHO 20+ LSX) */}
+        {viewMode === "table" ? (
+          <div className="xlcd-queue__table-wrap">
+            {items === null ? (
+              <QueueSkeleton />
+            ) : filteredItems && filteredItems.length === 0 ? (
+              <div className="xlcd-queue__empty-box">
+                <Icon name="search" size={24} />
+                <p className="xlcd-queue__empty">Không tìm thấy lệnh / bài ghép phù hợp.</p>
+              </div>
+            ) : (
+              <table className="xlcd-queue__table">
+                <thead>
+                  <tr>
+                    {canCreate && (
+                      <th style={{ width: 36, textAlign: "center" }}>
+                        <input
+                          type="checkbox"
+                          className="xlcd-queue__chk"
+                          checked={isAllSelected}
+                          onChange={toggleSelectAll}
+                          title="Chọn tất cả các lệnh chưa xếp"
+                        />
+                      </th>
+                    )}
+                    <th style={{ width: 90 }}>Loại</th>
+                    <th style={{ width: 130 }}>Mã Lệnh</th>
+                    <th>Tên sản phẩm / Đơn hàng</th>
+                    <th style={{ width: 100 }}>Công đoạn</th>
+                    <th style={{ width: 110 }}>Hạn SX</th>
+                    <th style={{ width: 130, textAlign: "right" }}>Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredItems?.map((it) => {
+                    const itemKey = `${it.nguon}-${it.id}`;
+                    const inPlan = daVaoKeHoach.has(itemKey);
+                    const isGhep = it.nguon === "in_ghep";
+                    const isSelected = selectedKeys.has(itemKey);
+
+                    return (
+                      <tr
+                        key={itemKey}
+                        className={`${isSelected ? "is-selected" : ""} ${inPlan ? "is-inplan" : ""}`}
+                      >
+                        {canCreate && (
+                          <td style={{ textAlign: "center" }}>
+                            {!inPlan && (
+                              <input
+                                type="checkbox"
+                                className="xlcd-queue__chk"
+                                checked={isSelected}
+                                onChange={() => toggleSelectItem(itemKey)}
+                              />
+                            )}
+                          </td>
+                        )}
+                        <td>
+                          <span className={`xlcd-queue__source-tag ${isGhep ? "xlcd-queue__source-tag--ghep" : ""}`}>
+                            {isGhep ? "Bài ghép" : "Lệnh SX"}
+                          </span>
+                        </td>
+                        <td>
+                          <span className="xlcd-queue__ma">{it.ma}</span>
+                          {it.is_rush && (
+                            <span className="xlcd-queue__rush-badge" style={{ marginLeft: 4 }}>GẤP</span>
+                          )}
+                        </td>
+                        <td title={it.ten}>
+                          <strong style={{ fontWeight: 600, color: "#1e293b" }}>{it.ten || "—"}</strong>
+                        </td>
+                        <td>
+                          <span className="xlcd-queue__stage-chip">
+                            {it.so_cong_doan} {isGhep ? "lệnh" : "bước"}
+                          </span>
+                        </td>
+                        <td>
+                          {it.han_hoan_thanh_sx ? (
+                            <span className={`xlcd-queue__han ${classHan(it.han_hoan_thanh_sx)}`}>
+                              {ngay(it.han_hoan_thanh_sx)}
+                            </span>
+                          ) : "—"}
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          {inPlan ? (
+                            <span className="xlcd-queue__inplan-tag" style={{ fontSize: 11 }}>
+                              <Icon name="check" size={11} /> Đã vào KH
+                              {canUpdate && (
+                                <button
+                                  type="button"
+                                  className="xlcd-queue__go"
+                                  style={{ marginLeft: 6 }}
+                                  onClick={() => onAskGo(it)}
+                                >
+                                  Gỡ
+                                </button>
+                              )}
+                            </span>
+                          ) : (
+                            canCreate && (
+                              <button
+                                type="button"
+                                className="xlcd-queue__tbl-btn"
+                                onClick={() => onDuaVao(it)}
+                              >
+                                + Đưa vào
+                              </button>
+                            )
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        ) : (
+          /* DẠNG THẺ (CARD VIEW) */
+          <div className="xlcd-queue__list">
+            {items === null ? (
+              <QueueSkeleton />
+            ) : filteredItems && filteredItems.length === 0 ? (
+              <div className="xlcd-queue__empty-box">
+                <Icon name="search" size={24} />
+                <p className="xlcd-queue__empty">Không tìm thấy lệnh / bài ghép phù hợp.</p>
+              </div>
+            ) : (
+              filteredItems?.map((it) => {
+                const itemKey = `${it.nguon}-${it.id}`;
+                const inPlan = daVaoKeHoach.has(itemKey);
+                const isGhep = it.nguon === "in_ghep";
+                const isSelected = selectedKeys.has(itemKey);
+                return (
+                  <div
+                    key={itemKey}
+                    className={`xlcd-queue__item ${it.is_rush ? "xlcd-queue__item--rush" : ""} ${inPlan ? "xlcd-queue__item--inplan" : ""}`}
+                    role={canCreate && !inPlan ? "button" : undefined}
+                    tabIndex={canCreate && !inPlan ? 0 : undefined}
+                    aria-label={`Đưa ${it.ma} vào kế hoạch`}
+                    onClick={canCreate && !inPlan ? () => onDuaVao(it) : undefined}
+                    onKeyDown={(e) => {
+                      if (canCreate && !inPlan && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onDuaVao(it); }
+                    }}
+                  >
+                    {/* CARD HEADER */}
+                    <div className="xlcd-queue__itemhead">
+                      {canCreate && !inPlan && (
+                        <input
+                          type="checkbox"
+                          className="xlcd-queue__chk"
+                          checked={isSelected}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={() => toggleSelectItem(itemKey)}
+                        />
+                      )}
+                      <span className={`xlcd-queue__source-tag ${isGhep ? "xlcd-queue__source-tag--ghep" : ""}`}>
+                        {isGhep ? "Bài ghép" : "Lệnh SX"}
+                      </span>
+
+                      <span className="xlcd-queue__ma">
+                        {it.ma}
+                      </span>
+
+                      {it.is_rush && (
+                        <span className="xlcd-queue__rush-badge" title="Đơn hàng gấp cần ưu tiên">
+                          GẤP
+                        </span>
+                      )}
+                    </div>
+
+                    {/* ORDER TITLE */}
+                    {it.ten && <p className="xlcd-queue__name" title={it.ten}>{it.ten}</p>}
+
+                    {/* METADATA CHIPS */}
+                    <div className="xlcd-queue__meta">
+                      <span className="xlcd-queue__stage-chip">
+                        <Icon name="layers" size={11} />
+                        {it.so_cong_doan} {isGhep ? "lệnh" : "công đoạn"}
+                      </span>
+
+                      {it.han_hoan_thanh_sx && (
+                        <span className={`xlcd-queue__han ${classHan(it.han_hoan_thanh_sx)}`}>
+                          <Icon name="clock" size={11} />
+                          Hạn {ngay(it.han_hoan_thanh_sx)}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* CTA ACTION BUTTON / IN-PLAN STATE */}
+                    {inPlan ? (
+                      <div className="xlcd-queue__inplan">
+                        <span className="xlcd-queue__inplan-tag">
+                          <Icon name="check" size={12} /> Đã đưa vào kế hoạch
+                        </span>
+                        {canUpdate && (
+                          <button
+                            type="button"
+                            className="xlcd-queue__go"
+                            onClick={(e) => { e.stopPropagation(); onAskGo(it); }}
+                            title="Gỡ khỏi kế hoạch"
+                          >
+                            Gỡ
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      canCreate && (
+                        <div className="xlcd-queue__action-row">
+                          <button type="button" className="xlcd-queue__btn-cta">
+                            <span>+ Đưa vào kế hoạch</span>
+                            <Icon name="chevron" size={12} />
+                          </button>
+                        </div>
+                      )
                     )}
                   </div>
-                ) : (
-                  canCreate && <span className="xlcd-queue__cta">Đưa vào kế hoạch <Icon name="chevron" size={12} /></span>
-                )}
-              </div>
-            );
-          })
+                );
+              })
+            )}
+          </div>
+        )}
+
+        {/* FLOATING BATCH ACTION BAR WHEN ITEMS ARE CHECKED */}
+        {selectedKeys.size > 0 && canCreate && (
+          <div className="xlcd-queue__batch-bar">
+            <div className="xlcd-queue__batch-count">
+              Đã chọn <strong>{selectedKeys.size}</strong> lệnh sản xuất / bài ghép
+            </div>
+            <button
+              type="button"
+              className="xlcd-queue__btn-add-batch"
+              onClick={handleBatchSchedule}
+            >
+              + Đưa {selectedKeys.size} lệnh vào kế hoạch
+            </button>
+          </div>
         )}
       </div>
-    </aside>
+    </DetailModal>
   );
 }
 

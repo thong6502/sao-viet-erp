@@ -3,9 +3,15 @@
    (pill · seg · scrim · drawer · nhóm · tính · gợi ý · ready · lb) dùng lại từ ke-hoach-sx.css. */
 
 .xlcd {
-  max-width: 1600px;
+  max-width: 100%;
   margin: 0 auto;
-  padding: var(--sp-5) var(--sp-6);
+  padding: var(--sp-4) var(--sp-6);
+  transition: padding var(--duration-normal) ease;
+}
+
+/* Chế độ Focus Mode (toàn màn hình) */
+.xlcd--focus {
+  padding: var(--sp-3) var(--sp-4);
 }
 
 /* Control KHÔNG kế thừa font trang → rơi về Arial, chữ tiếng Việt lệch. Ép về font app cho MỌI control. */
@@ -49,217 +55,646 @@ caption.sr-only {
   font-size: var(--fs-xs);
 }
 
-/* --- header count & metric badges ---------------------------------------- */
+/* --- header count & metric badges (Visual Stat Cards) ------------------- */
 .xlcd-head .khsx__headrow {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-4);
   flex-wrap: wrap;
+  margin-bottom: var(--sp-3);
 }
 .xlcd-badges {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: var(--sp-3);
   flex-wrap: wrap;
 }
 .xlcd-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border-radius: var(--r-pill);
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: var(--r-3);
   font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
-  background: var(--paper);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(8px);
   border: 1px solid var(--rule-soft);
   color: var(--ash);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transition: transform var(--duration-fast), box-shadow var(--duration-fast);
+}
+.xlcd-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-2);
 }
 .xlcd-badge__num {
   font-weight: var(--fw-bold);
   font-family: var(--ff-sans);
+  font-size: 14px;
 }
 .xlcd-badge--cho {
-  background: var(--paper);
+  background: rgba(245, 241, 232, 0.7);
   border-color: var(--rule);
   color: var(--ink);
 }
 .xlcd-badge--daxep {
-  background: var(--moss-soft);
-  border-color: var(--moss);
+  background: rgba(220, 245, 230, 0.6);
+  border-color: rgba(34, 139, 34, 0.3);
   color: var(--moss-deep);
 }
 .xlcd-badge--alert {
-  background: var(--signal-soft);
-  border-color: var(--signal);
+  background: rgba(254, 226, 226, 0.6);
+  border-color: rgba(239, 68, 68, 0.3);
   color: var(--signal);
 }
 .xlcd-badge--ready {
-  background: var(--amber-soft);
-  border-color: var(--amber);
+  background: rgba(254, 243, 199, 0.6);
+  border-color: rgba(245, 158, 11, 0.3);
   color: var(--amber-deep);
 }
 
-/* --- layout 2 cột: khay + board ----------------------------------------- */
+/* --- layout 100% full width cho Bàn Xếp Lịch ---------------------------- */
 .xlcd__grid {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--sp-4);
-  align-items: start;
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 500px;
 }
 .xlcd-board {
+  width: 100%;
   min-width: 0;
 }
 
-/* --- KHAY "Chờ xếp" ------------------------------------------------------ */
-.xlcd-queue {
-  width: 288px;
-  position: sticky;
-  top: var(--sp-4);
-  align-self: start;
-  max-height: calc(100vh - 128px);
+/* Nút Badge "Chờ xếp" có thể click mở Drawer */
+.xlcd-badge--btn {
+  cursor: pointer;
+  user-select: none;
+  transition: all var(--duration-fast);
+}
+.xlcd-badge--btn:hover {
+  background: var(--rust-soft);
+  border-color: var(--rust);
+  color: var(--rust-deep);
+}
+.xlcd-badge__hint {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+  margin-left: 4px;
+}
+
+/* --- Danh sách "Chờ lập kế hoạch" (nằm trong popup .dmodal) --------------- */
+.xlcd-queue__container {
   display: flex;
   flex-direction: column;
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
-  box-shadow: var(--shadow-1);
-  overflow: hidden;
+  gap: 14px;
 }
-.xlcd-queue__head {
+
+/* Header Quick Insights Stat Banner & View Controls */
+.xlcd-queue__insights {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-4);
-  border-bottom: 1px solid var(--rule-soft);
-  background: var(--paper);
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
 }
-.xlcd-queue__title {
-  font-size: var(--fs-md);
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-}
-.xlcd-queue__count {
-  font-family: var(--ff-sans);
-  font-size: var(--fs-xs);
-  color: var(--ash);
-  background: var(--rule-hair);
-  padding: 1px 8px;
-  border-radius: var(--r-pill);
-}
-.xlcd-queue__collapse {
-  margin-left: auto;
-  border: 0;
-  background: transparent;
-  color: var(--ash);
-  cursor: pointer;
-  padding: var(--sp-1);
-  display: inline-flex;
-}
-.xlcd-queue__caret { transform: rotate(-90deg); }
-.xlcd-queue__caret.is-left { transform: rotate(90deg); }
 
-.xlcd-queue__body {
-  overflow-y: auto;
-  padding: var(--sp-2);
+.xlcd-queue__stat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.xlcd-queue__stat-chip strong {
+  color: #ea580c;
+  font-weight: 700;
+}
+
+.xlcd-queue__stat-chip--rush {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #be123c;
+}
+
+.xlcd-queue__stat-chip--rush strong {
+  color: #e11d48;
+}
+
+/* View Mode Switcher (Bảng vs Thẻ) */
+.xlcd-queue__controls-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.xlcd-queue__mode-switch {
+  display: inline-flex;
+  background: #e2e8f0;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.xlcd-queue__mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.xlcd-queue__mode-btn:hover {
+  color: #0f172a;
+}
+
+.xlcd-queue__mode-btn.is-active {
+  background: #ffffff;
+  color: #ea580c;
+  font-weight: 700;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.xlcd-queue__sort-select {
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  font-size: 11.5px;
+  color: #334155;
+  cursor: pointer;
+}
+
+/* In-Modal Search & Filter Toolbar */
+.xlcd-queue__toolbar {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-2);
+  gap: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
 }
+
+.xlcd-queue__search-box {
+  position: relative;
+  width: 100%;
+}
+
+.xlcd-queue__search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.xlcd-queue__search-input {
+  width: 100%;
+  padding: 7px 30px 7px 30px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  font-size: 12.5px;
+  color: #0f172a;
+  transition: all 0.15s ease;
+}
+
+.xlcd-queue__search-input:focus {
+  outline: none;
+  border-color: #ea580c;
+  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.12);
+}
+
+.xlcd-queue__search-clear {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.xlcd-queue__filter-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.xlcd-queue__pill {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: #ffffff;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.xlcd-queue__pill:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.xlcd-queue__pill.is-active {
+  background: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
+}
+
+.xlcd-queue__pill--rush {
+  border-color: #fca5a5;
+  color: #c2410c;
+}
+
+.xlcd-queue__pill--rush.is-active {
+  background: #ea580c;
+  color: #ffffff;
+  border-color: #ea580c;
+}
+
+/* Cards Grid Layout */
+.xlcd-queue__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+  align-content: start;
+  max-height: 58vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.xlcd-queue__empty-box {
+  grid-column: 1 / -1;
+  padding: 36px 16px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+}
+
 .xlcd-queue__empty {
   margin: 0;
-  padding: var(--sp-6) var(--sp-3);
-  text-align: center;
-  color: var(--ash);
-  font-size: var(--fs-sm);
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 500;
 }
+
+/* Visual Order Cards */
 .xlcd-queue__item {
   position: relative;
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-3);
-  background: var(--canvas);
-  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 8px;
   cursor: pointer;
-  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+  transition: all 0.18s ease;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
 }
+
 .xlcd-queue__item[role="button"]:hover {
-  border-color: var(--rust);
-  box-shadow: var(--shadow-4);
+  transform: translateY(-2px);
+  border-color: #ea580c;
+  box-shadow: 0 6px 14px -4px rgba(234, 88, 12, 0.12);
 }
-.xlcd-queue__item:focus-visible {
-  outline: 2px solid var(--rust);
-  outline-offset: 1px;
+
+.xlcd-queue__item--rush {
+  border: 1px solid #fecdd3 !important;
+  background: #fff1f2;
 }
-.xlcd-queue__item--rush { box-shadow: inset 3px 0 0 var(--rust); }
+
+.xlcd-queue__item--inplan {
+  background: #f8fafc;
+  border-color: #cbd5e1;
+  opacity: 0.9;
+  cursor: default;
+}
+
 .xlcd-queue__itemhead {
   display: flex;
   align-items: center;
-  gap: var(--sp-1);
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
 }
-.xlcd-queue__ma {
+
+.xlcd-queue__source-tag {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-family: var(--ff-sans);
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-bold);
-  color: var(--ink);
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #475569;
 }
+
+.xlcd-queue__source-tag--ghep {
+  background: #ccfbf1;
+  color: #115e59;
+}
+
+.xlcd-queue__ma {
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.01em;
+}
+
+/* Rush Urgency Badge */
+.xlcd-queue__rush-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #ffe4e6;
+  border: 1px solid #fecdd3;
+  color: #e11d48;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
 .xlcd-queue__name {
   margin: 0;
-  font-size: var(--fs-sm);
-  color: var(--ash);
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
+
 .xlcd-queue__meta {
-  margin: 0;
-  font-size: var(--fs-xs);
-  color: var(--ash);
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
-}
-.xlcd-queue__han.khsx-date--soon { color: var(--amber-deep); }
-.xlcd-queue__han.khsx-date--late { color: var(--signal); font-weight: var(--fw-bold); }
-.xlcd-queue__cta {
   margin-top: 2px;
+}
+
+.xlcd-queue__stage-chip {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  font-size: var(--fs-xs);
-  color: var(--rust);
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #475569;
 }
-.xlcd-queue__cta svg { transform: rotate(-90deg); }
+
+.xlcd-queue__han {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.xlcd-queue__han.khsx-date--soon {
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #ffedd5;
+}
+
+.xlcd-queue__han.khsx-date--late {
+  background: #fff1f2;
+  color: #be123c;
+  border: 1px solid #fecdd3;
+  font-weight: 700;
+}
+
+/* Primary CTA Action Button */
+.xlcd-queue__action-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed #f1f5f9;
+}
+
+.xlcd-queue__btn-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  background: #ea580c;
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.xlcd-queue__item:hover .xlcd-queue__btn-cta {
+  background: #c2410c;
+  transform: translateX(2px);
+}
+
+.xlcd-queue__btn-cta svg {
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+
 .xlcd-queue__inplan {
-  margin-top: 2px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: var(--fs-xs);
-  color: var(--moss-deep);
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed #e2e8f0;
 }
-.xlcd-queue__inplan > span {
+
+.xlcd-queue__inplan-tag {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #059669;
 }
+
 .xlcd-queue__go {
-  border: 0;
-  background: transparent;
-  color: var(--ash);
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: var(--fs-xs);
-  text-decoration: underline;
-  padding: 2px 4px;
+  transition: all 0.15s ease;
 }
-.xlcd-queue__go:hover { color: var(--signal); }
+
+.xlcd-queue__go:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+/* Compact Table View (Dạng Bảng siêu gọn 38px/dòng) */
+.xlcd-queue__table-wrap {
+  max-height: 55vh;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.xlcd-queue__table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12.5px;
+}
+
+.xlcd-queue__table th {
+  padding: 8px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #475569;
+  background: #f8fafc;
+  border-bottom: 1px solid #cbd5e1;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  white-space: nowrap;
+}
+
+.xlcd-queue__table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #f1f5f9;
+  height: 38px;
+  color: #0f172a;
+  vertical-align: middle;
+}
+
+.xlcd-queue__table tr:hover td {
+  background: #f8fafc;
+}
+
+.xlcd-queue__table tr.is-selected td {
+  background: #eff6ff;
+}
+
+.xlcd-queue__table tr.is-inplan td {
+  background: #f0fdf4;
+  opacity: 0.85;
+}
+
+.xlcd-queue__chk {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #ea580c;
+}
+
+.xlcd-queue__tbl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #ea580c;
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.xlcd-queue__tbl-btn:hover {
+  background: #c2410c;
+}
+
+/* Floating Batch Action Bar Inside Modal */
+.xlcd-queue__batch-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #0f172a;
+  color: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.3);
+  margin-top: 4px;
+}
+
+.xlcd-queue__batch-count {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.xlcd-queue__batch-count strong {
+  color: #fb923c;
+}
+
+.xlcd-queue__btn-add-batch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #ea580c;
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.xlcd-queue__btn-add-batch:hover {
+  background: #c2410c;
+}
 
 .xlcd-queue__skel { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-1); }
 .xlcd-queue__skelbar { height: 52px; }
@@ -400,15 +835,23 @@ caption.sr-only {
 }
 .xlcd-table thead th.khsx-th--num { text-align: right; }
 
-/* Cột cố định 2 mép — nền ĐỤC (body kế thừa nền dòng; thead nền paper). */
+/* Cột cố định mép trái (Chỉ giữ Checkbox + Cờ + Mã) */
 .xlcd-sticky-l { position: sticky; z-index: 2; }
 .xlcd-sticky-l--1 { left: 0; width: 40px; min-width: 40px; max-width: 40px; }
 .xlcd-sticky-l--2 { left: 40px; width: 34px; min-width: 34px; max-width: 34px; }
 .xlcd-sticky-l--3 { left: 74px; width: 124px; min-width: 124px; max-width: 124px; }
-.xlcd-sticky-l--4 { left: 198px; width: 160px; min-width: 160px; max-width: 160px; }
-.xlcd-sticky-r { position: sticky; right: 0; z-index: 2; width: 220px; min-width: 220px; }
-.xlcd-table thead th.xlcd-sticky-l,
-.xlcd-table thead th.xlcd-sticky-r { z-index: 4; }
+.xlcd-sticky-l--4 { left: 198px; width: 160px; min-width: 160px; }
+
+/* Cột Trạng Thái bên phải — KHÔNG dùng position: sticky để bàn làm việc rộng mở, không bị kẹp 2 đầu */
+.xlcd-col-tt,
+.xlcd-sticky-r {
+  position: static;
+  z-index: 1;
+  width: auto;
+  min-width: 200px;
+}
+.xlcd-table thead th.xlcd-sticky-l { z-index: 4; }
+.xlcd-table thead th.xlcd-sticky-r { z-index: 3; }
 
 .xlcd-th-chk { padding-left: var(--sp-2); padding-right: 0; text-align: center; }
 .xlcd-td-chk { padding-left: var(--sp-2); padding-right: 0; text-align: center; }
@@ -417,9 +860,12 @@ caption.sr-only {
 .xlcd-flag-rush { color: var(--rust); display: block; }
 .xlcd-flag-lock { color: var(--steel); display: block; margin-top: 3px; }
 
-/* Shadow gờ 10px chỉ khi cuộn — mép TRONG cột (4) trái và cột (12) phải. */
-.xlcd-shadow-l::after,
-.xlcd-shadow-r::before {
+/* Shadow gờ 10px chỉ khi cuộn — mép TRONG cột dính bên trái.
+   KHÔNG có cặp bên phải: cột "Trạng thái" đã bỏ sticky (xem trên) nên nó cuộn đi cùng nội dung,
+   không còn gờ để đổ bóng. Rule cũ `.xlcd-shadow-r::before` vẫn absolute trong khi cha hết
+   position → nó neo lên `.xlcd__grid`, biến thành dải cao hết bảng nằm sát sidebar, mỗi dòng
+   một lớp chồng nhau thành vệt ĐEN ĐẶC, và tắt khi cuộn hết sang phải. Đã bỏ hẳn. */
+.xlcd-shadow-l::after {
   content: "";
   position: absolute;
   top: 0;
@@ -434,13 +880,7 @@ caption.sr-only {
   transform: translateX(100%);
   background: linear-gradient(to right, rgba(20, 19, 15, 0.1), transparent);
 }
-.xlcd-shadow-r::before {
-  left: 0;
-  transform: translateX(-100%);
-  background: linear-gradient(to left, rgba(20, 19, 15, 0.1), transparent);
-}
 .xlcd-tablewrap.is-scroll-l .xlcd-shadow-l::after { opacity: 1; }
-.xlcd-tablewrap.is-scroll-r .xlcd-shadow-r::before { opacity: 1; }
 
 /* --- dòng --------------------------------------------------------------- */
 .xlcd-row { background: var(--canvas); cursor: pointer; transition: background var(--duration-fast); }
@@ -855,28 +1295,53 @@ caption.sr-only {
 .xlcd-toast {
   position: fixed;
   left: 50%;
-  bottom: 84px;
+  bottom: 32px;
   transform: translateX(-50%);
-  z-index: 70;
+  z-index: 500;
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-4);
-  background: var(--charcoal);
-  color: var(--on-charcoal);
-  border-radius: var(--r-pill);
-  box-shadow: var(--shadow-lg);
-  font-size: var(--fs-sm);
+  gap: 12px;
+  padding: 10px 20px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #ffffff;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 16px 36px -6px rgba(15, 23, 42, 0.35), 0 0 0 1px rgba(234, 88, 12, 0.3);
+  font-size: 13.5px;
+  font-weight: 600;
+  animation: xlcdToastSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+@keyframes xlcdToastSlideUp {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 16px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
 .xlcd-toast__undo {
   border: 0;
-  background: transparent;
-  color: var(--amber-soft);
+  background: rgba(234, 88, 12, 0.2);
+  color: #fb923c;
+  border: 1px solid rgba(251, 146, 60, 0.3);
+  border-radius: 999px;
   cursor: pointer;
-  font-weight: var(--fw-bold);
-  font-size: var(--fs-sm);
-  text-decoration: underline;
-  padding: 0;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 3px 10px;
+  transition: all 0.15s ease;
+}
+
+.xlcd-toast__undo:hover {
+  background: #ea580c;
+  color: #ffffff;
+  border-color: #ea580c;
 }
 
 /* --- drawer 1 công đoạn (bổ sung cho .khsx-drawer--buoc) ----------------- */
@@ -957,37 +1422,118 @@ caption.sr-only {
   border-bottom: 1px solid var(--rule-soft);
   background: var(--paper);
 }
-.xlcd-gantt__nav { display: inline-flex; align-items: center; gap: var(--sp-2); }
+
+/* --- Gantt Board Outer Container (Glassmorphic modern styling) --- */
+.xlcd-gantt {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: var(--r-5, 16px);
+  box-shadow: 0 12px 36px -8px rgba(0, 0, 0, 0.06), 0 4px 12px -2px rgba(0, 0, 0, 0.03);
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.xlcd-gantt__controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.95) 0%, rgba(241, 245, 249, 0.85) 100%);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+  flex-wrap: wrap;
+}
+
+.xlcd-gantt__controls .khsx-seg {
+  background: rgba(226, 232, 240, 0.7);
+  padding: 3px;
+  border-radius: 10px;
+  display: inline-flex;
+  gap: 2px;
+}
+
+.xlcd-gantt__controls .khsx-seg button {
+  padding: 5px 14px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  border: none;
+  background: transparent;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+
+.xlcd-gantt__controls .khsx-seg button.is-active {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.xlcd-gantt__nav { display: inline-flex; align-items: center; gap: 6px; }
 .xlcd-gnav {
   display: inline-grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-2);
-  background: var(--canvas);
-  color: var(--ink);
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(203, 213, 225, 0.8);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
   cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: all 0.15s ease;
 }
-.xlcd-gnav:hover { border-color: var(--rule); }
+.xlcd-gnav:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
+  color: #0f172a;
+  transform: translateY(-1px);
+}
 .xlcd-gnav svg { transform: rotate(180deg); }
 .xlcd-gnav--r svg { transform: none; }
 .xlcd-goff {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: var(--fs-xs);
-  color: var(--ash);
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #475569;
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 10px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+.xlcd-goff:hover {
+  background: rgba(241, 245, 249, 0.8);
+}
+.xlcd-goff input[type="checkbox"] {
+  accent-color: #0284c7;
+  width: 15px;
+  height: 15px;
   cursor: pointer;
 }
-.xlcd-glegend { display: inline-flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+
+/* Legend items */
+.xlcd-glegend { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .xlcd-glegend__it {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--fs-xs);
-  color: var(--ash);
-  font-weight: var(--fw-medium);
+  font-size: 12px;
+  color: #475569;
+  font-weight: 500;
+  padding: 3px 10px;
+  background: rgba(241, 245, 249, 0.7);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 20px;
+  transition: all 0.15s ease;
+}
+.xlcd-glegend__it:hover {
+  transform: translateY(-1px);
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
 }
 .xlcd-glegend__dot {
   width: 8px;
@@ -995,18 +1541,18 @@ caption.sr-only {
   border-radius: 50%;
   background: var(--steel);
 }
-.xlcd-glegend__it--daxep .xlcd-glegend__dot { background: #64748b; }
-.xlcd-glegend__it--ghep .xlcd-glegend__dot { background: #8b5cf6; }
-.xlcd-glegend__it--warn .xlcd-glegend__dot { background: #f59e0b; }
-.xlcd-glegend__it--late .xlcd-glegend__dot { background: #ef4444; }
-.xlcd-glegend__it--conflict .xlcd-glegend__dot { background: #dc2626; box-shadow: 0 0 4px #ef4444; }
-.xlcd-glegend__it--locked .xlcd-glegend__dot { background: #10b981; }
+.xlcd-glegend__it--daxep .xlcd-glegend__dot { background: #0ea5e9; box-shadow: 0 0 6px rgba(14, 165, 233, 0.5); }
+.xlcd-glegend__it--ghep .xlcd-glegend__dot { background: #8b5cf6; box-shadow: 0 0 6px rgba(139, 92, 246, 0.5); }
+.xlcd-glegend__it--warn .xlcd-glegend__dot { background: #f59e0b; box-shadow: 0 0 6px rgba(245, 158, 11, 0.5); }
+.xlcd-glegend__it--late .xlcd-glegend__dot { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.5); }
+.xlcd-glegend__it--conflict .xlcd-glegend__dot { background: #dc2626; box-shadow: 0 0 8px #ef4444; }
+.xlcd-glegend__it--locked .xlcd-glegend__dot { background: #475569; }
 
 /* --- vùng cuộn + lưới ----------------------------------------------------- */
 .xlcd-gantt__scroll {
   position: relative;
   overflow: auto;
-  max-height: 72vh;
+  max-height: 74vh;
 }
 .xlcd-gantt__inner { position: relative; }
 
@@ -1015,9 +1561,10 @@ caption.sr-only {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--paper);
-  border-bottom: 1px solid var(--rule);
-  backdrop-filter: blur(8px);
+  background: rgba(255, 255, 255, 0.95);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
 }
 .xlcd-gantt__corner {
   position: sticky;
@@ -1026,28 +1573,28 @@ caption.sr-only {
   flex: none;
   display: flex;
   align-items: center;
-  padding: 0 var(--sp-3);
-  height: 52px;
-  background: var(--paper);
-  border-right: 1px solid var(--rule);
+  padding: 0 16px;
+  height: 54px;
+  background: #f8fafc;
+  border-right: 1px solid rgba(226, 232, 240, 0.9);
   font-size: 11px;
-  font-weight: var(--fw-bold);
-  letter-spacing: 0.05em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ash);
+  color: #64748b;
 }
 .xlcd-gtimehead--tiered {
   position: relative;
-  height: 52px;
+  height: 54px;
   flex: none;
   display: flex;
   flex-direction: column;
 }
 .xlcd-gtimehead__groups {
   position: relative;
-  height: 24px;
-  border-bottom: 1px solid var(--rule-hair);
-  background: var(--paper);
+  height: 25px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+  background: #f8fafc;
 }
 .xlcd-gtgroup {
   position: absolute;
@@ -1055,56 +1602,64 @@ caption.sr-only {
   bottom: 0;
   display: flex;
   align-items: center;
-  padding-left: 8px;
+  padding-left: 10px;
   font-size: 11px;
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-  border-right: 1px solid var(--rule-soft);
+  font-weight: 700;
+  color: #334155;
+  border-right: 1px solid rgba(203, 213, 225, 0.6);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  letter-spacing: 0.02em;
 }
 .xlcd-gtimehead__ticks {
   position: relative;
-  height: 28px;
+  height: 29px;
+  background: #ffffff;
 }
 .xlcd-gtick {
   position: absolute;
   top: 0;
   bottom: 0;
-  border-left: 1px solid var(--rule-hair);
-  padding: 2px 4px;
+  border-left: 1px solid rgba(241, 245, 249, 0.9);
+  padding: 2px 6px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  line-height: 1.1;
+  line-height: 1.15;
   white-space: nowrap;
+  transition: background 0.15s ease;
 }
 .xlcd-gtick.is-strong {
-  border-left-color: var(--rule);
-  background: rgba(0, 0, 0, 0.02);
+  border-left-color: rgba(203, 213, 225, 0.8);
+  background: rgba(248, 250, 252, 0.8);
 }
 .xlcd-gtick.is-weekend {
-  background: rgba(0, 0, 0, 0.035);
+  background: rgba(241, 245, 249, 0.9);
 }
 .xlcd-gtick__label {
   font-family: var(--ff-sans);
   font-size: 11px;
-  color: var(--ink);
-  font-weight: var(--fw-medium);
+  color: #1e293b;
+  font-weight: 600;
 }
 .xlcd-gtick__sub {
   font-size: 9px;
-  color: var(--ash);
+  color: #94a3b8;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  font-weight: 600;
+  letter-spacing: 0.03em;
 }
 
-/* --- lane (dòng máy) ------------------------------------------------------ */
+/* --- lane (dòng máy / group) ------------------------------------------------------ */
 .xlcd-glane {
   display: flex;
-  border-bottom: 1px solid var(--rule-hair);
+  border-bottom: 1px solid rgba(241, 245, 249, 0.9);
   position: relative;
+  transition: background 0.15s ease;
+}
+.xlcd-glane:hover {
+  background: rgba(248, 250, 252, 0.6);
 }
 .xlcd-glane__label {
   position: sticky;
@@ -1115,65 +1670,92 @@ caption.sr-only {
   flex-direction: column;
   justify-content: center;
   gap: 4px;
-  padding: var(--sp-2) var(--sp-3);
-  background: var(--canvas);
-  border-right: 1px solid var(--rule);
-  box-shadow: 2px 0 6px rgba(0, 0, 0, 0.03);
+  padding: 6px 12px;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: #ffffff;
+  border-right: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 3px 0 10px rgba(0, 0, 0, 0.02);
+  transition: background 0.15s ease;
 }
-.xlcd-glane--nomay .xlcd-glane__label { background: var(--amber-soft); }
+.xlcd-glane:hover .xlcd-glane__label {
+  background: #f8fafc;
+}
+.xlcd-glane--nomay .xlcd-glane__label {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border-left: 3px solid #f59e0b;
+}
 .xlcd-glane__name {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-  line-height: 1.3;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.25;
 }
 .xlcd-glane__name span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 170px;
+  max-width: 175px;
 }
-.xlcd-glane__name svg { color: var(--ash); flex: none; }
-.xlcd-glane__meta { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-.xlcd-glane__sub { font-size: var(--fs-2xs); color: var(--ash); }
+.xlcd-glane__name svg { color: #64748b; flex: none; }
+.xlcd-glane__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+.xlcd-glane__sub {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .xlcd-glane__khoa {
-  border: 0;
-  background: transparent;
-  color: var(--ash);
+  border: 1px solid rgba(203, 213, 225, 0.6);
+  background: #ffffff;
+  color: #64748b;
   cursor: pointer;
-  padding: 2px;
+  padding: 3px;
   margin-left: auto;
-  border-radius: var(--r-1);
+  border-radius: 6px;
+  transition: all 0.15s ease;
 }
-.xlcd-glane__khoa:hover { color: var(--signal); background: var(--rule-hair); }
+.xlcd-glane__khoa:hover { color: #ef4444; border-color: #fca5a5; background: #fef2f2; transform: scale(1.05); }
 
-/* Load meter colors */
+/* Load meter colors & visual bar */
 .xlcd-gload {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 .xlcd-gload__bar {
-  width: 36px;
-  height: 5px;
-  background: var(--rule-hair);
-  border-radius: var(--r-pill);
+  width: 44px;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 999px;
   overflow: hidden;
 }
 .xlcd-gload__fill {
   height: 100%;
-  border-radius: var(--r-pill);
-  transition: width var(--duration-fast) var(--easing-standard);
-  background: var(--moss);
+  border-radius: 999px;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  background: #10b981;
 }
 .xlcd-gload--good .xlcd-gload__fill { background: linear-gradient(90deg, #10b981, #059669); }
 .xlcd-gload--warn .xlcd-gload__fill { background: linear-gradient(90deg, #f59e0b, #d97706); }
-.xlcd-gload--over .xlcd-gload__fill { background: linear-gradient(90deg, #ef4444, #dc2626); }
-.xlcd-gload--warn .xlcd-gload__pct { color: #d97706; font-weight: var(--fw-bold); }
-.xlcd-gload--over .xlcd-gload__pct { color: #dc2626; font-weight: var(--fw-bold); }
+.xlcd-gload--over .xlcd-gload__fill { background: linear-gradient(90deg, #ef4444, #dc2626); box-shadow: 0 0 6px rgba(239, 68, 68, 0.6); }
+.xlcd-gload__pct { font-family: var(--ff-sans); font-size: 11px; font-weight: 600; color: #64748b; }
+.xlcd-gload--good .xlcd-gload__pct { color: #059669; }
+.xlcd-gload--warn .xlcd-gload__pct { color: #d97706; font-weight: 700; }
+.xlcd-gload--over .xlcd-gload__pct { color: #dc2626; font-weight: 800; }
 .xlcd-glane__track { position: relative; flex: none; overflow: hidden; }
 
 /* nền ngoài-ca/nghỉ (tô loang — thanh chạy liền qua) */
@@ -1183,116 +1765,142 @@ caption.sr-only {
   bottom: 0;
   background: repeating-linear-gradient(
     135deg,
-    var(--rule-hair),
-    var(--rule-hair) 5px,
-    transparent 5px,
-    transparent 10px
+    rgba(241, 245, 249, 0.8),
+    rgba(241, 245, 249, 0.8) 6px,
+    rgba(226, 232, 240, 0.5) 6px,
+    rgba(226, 232, 240, 0.5) 12px
   );
   pointer-events: none;
 }
 .xlcd-glane__status-dot {
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: #10b981;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.7);
   flex: none;
 }
 
-/* đường "bây giờ" */
+/* đường "bây giờ" (LIVE line) */
 .xlcd-gnow {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 2px;
-  background: #ef4444;
-  box-shadow: 0 0 8px #ef4444, 0 0 16px rgba(239, 68, 68, 0.5);
+  background: linear-gradient(180deg, #ef4444 0%, #f43f5e 100%);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.8), 0 0 20px rgba(239, 68, 68, 0.4);
   z-index: 6;
   pointer-events: none;
 }
 .xlcd-gnow--head { top: 0; bottom: 0; height: auto; }
 .xlcd-gnow__tag {
   position: absolute;
-  top: 2px;
+  top: 3px;
   left: 50%;
   transform: translateX(-50%);
-  background: #ef4444;
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   color: #ffffff;
   font-family: var(--ff-sans);
   font-size: 9px;
   font-weight: 800;
-  letter-spacing: 0.05em;
-  padding: 1px 5px;
-  border-radius: 3px;
-  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.4);
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.5);
   white-space: nowrap;
+  animation: pulse-live 2s infinite ease-in-out;
+}
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; transform: translateX(-50%) scale(1); }
+  50% { opacity: 0.85; transform: translateX(-50%) scale(1.06); }
 }
 
-/* --- thanh việc (FILL cõng rủi ro; badge/ký hiệu không chỉ-màu) ----------- */
+/* --- thanh việc (Gantt Task Bar - Modern Sleek Pill Design) ----------- */
 .xlcd-gbar {
   position: absolute;
   display: flex;
   align-items: center;
-  padding: 0 8px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  border-radius: 6px;
-  background: var(--paper);
-  color: var(--ink);
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+  color: #ffffff;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  transition: transform var(--duration-fast) var(--easing-standard), box-shadow var(--duration-fast) var(--easing-standard);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease, filter 0.2s ease;
+  user-select: none;
 }
 .xlcd-gbar:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  z-index: 5;
+  transform: translateY(-2px) scale(1.008);
+  box-shadow: 0 6px 18px rgba(2, 132, 199, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  filter: brightness(1.06);
+  z-index: 15 !important;
 }
-.xlcd-gbar:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; z-index: 4; }
-.xlcd-gbar__txt { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.xlcd-gbar:focus-visible { outline: 2px solid #0ea5e9; outline-offset: 2px; z-index: 14; }
+.xlcd-gbar__txt { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .xlcd-gbar__ma {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--ff-sans);
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
-.xlcd-gbar svg { flex: none; }
+.xlcd-gbar svg { flex: none; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2)); }
 
-/* bài ghép — gờ trái đậm + badge BG (spec: tím; palette không có → dùng steel-deep + accent) */
+/* bài ghép — gradient violet / indigo */
 .xlcd-gbar--ghep {
-  background: color-mix(in srgb, var(--steel-soft) 60%, var(--canvas));
-  border-color: var(--steel);
-  box-shadow: inset 3px 0 0 var(--steel);
+  background: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 3px 8px rgba(109, 40, 217, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
-/* trạng thái/rủi ro — override FILL (nổi nhất) */
-.xlcd-gbar.is-warn { background: var(--amber-soft); border-color: var(--amber-deep); }
+.xlcd-gbar--ghep:hover {
+  box-shadow: 0 6px 18px rgba(109, 40, 217, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+/* trạng thái/rủi ro — gradients rực rỡ */
+.xlcd-gbar.is-warn {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 3px 8px rgba(217, 119, 6, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
 .xlcd-gbar.is-conflict {
-  background: color-mix(in srgb, var(--signal-soft) 70%, var(--canvas));
-  border: 1px dashed var(--signal);
-  color: var(--signal-deep, var(--ink));
+  background: repeating-linear-gradient(
+    45deg,
+    #ef4444,
+    #ef4444 8px,
+    #dc2626 8px,
+    #dc2626 16px
+  );
+  border: 1px solid #fee2e2;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  color: #ffffff;
 }
 .xlcd-gbar.is-late {
-  background: var(--signal-soft);
-  border-color: var(--signal);
-  box-shadow: inset 3px 0 0 var(--signal);
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 3px 10px rgba(220, 38, 38, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 .xlcd-gbar.is-locked {
-  background: var(--moss-soft);
-  border-color: var(--moss-deep);
+  background: linear-gradient(135deg, #475569 0%, #334155 100%);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #f1f5f9;
+  box-shadow: 0 3px 8px rgba(51, 65, 85, 0.2);
 }
 .xlcd-gbadge {
   flex: none;
-  padding: 0 3px;
-  border-radius: 3px;
+  padding: 1px 5px;
+  border-radius: 4px;
   font-size: 9px;
-  font-weight: var(--fw-bold);
-  letter-spacing: 0.02em;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
-.xlcd-gbadge--bg { background: var(--steel); color: var(--on-charcoal); }
-/* Cờ TRỄ/GẤP: nền charcoal đục — đọc được trên MỌI màu thanh (không thêm hue mới). */
-.xlcd-gbadge--flag { background: var(--charcoal); color: var(--on-charcoal); }
+.xlcd-gbadge--bg { background: rgba(255, 255, 255, 0.25); color: #ffffff; backdrop-filter: blur(4px); }
+.xlcd-gbadge--flag { background: rgba(15, 23, 42, 0.85); color: #ffffff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
 
 /* --- tải máy % ------------------------------------------------------------ */
 .xlcd-gload { display: inline-flex; align-items: center; gap: 5px; }
@@ -1328,14 +1936,20 @@ caption.sr-only {
 .xlcd-gback--maint.is-click { pointer-events: auto; cursor: pointer; }
 .xlcd-gback--maint.is-click:hover { filter: brightness(0.94); }
 
-/* Đoạn setup (chuẩn bị) ở đầu thanh AN TOÀN — tông đậm hơn phần chạy. */
+/* Đoạn setup (chuẩn bị) ở đầu thanh — tông sọc chéo tinh tế phân biệt thời gian chuẩn bị máy. */
 .xlcd-gbar__setup {
   position: absolute;
   left: 0;
   top: 0;
   bottom: 0;
-  background: color-mix(in srgb, var(--steel) 34%, transparent);
-  border-right: 1px solid color-mix(in srgb, var(--steel) 55%, transparent);
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.25),
+    rgba(255, 255, 255, 0.25) 4px,
+    rgba(0, 0, 0, 0.08) 4px,
+    rgba(0, 0, 0, 0.08) 8px
+  );
+  border-right: 1.5px solid rgba(255, 255, 255, 0.5);
   pointer-events: none;
 }
 

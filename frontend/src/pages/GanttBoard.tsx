@@ -20,7 +20,7 @@ import {
   type TimeScale, type Zoom,
 } from "./gantt-time";
 
-const LABEL_W = 220; // bề rộng cột nhãn lane (sticky trái) - nới rộng để không đè chữ
+const LABEL_W = 240; // bề rộng cột nhãn lane (sticky trái) - nới rộng 240px để thông số không đè chữ
 const BAR_H = 26;
 const BAR_GAP = 4;
 const LANE_PAD = 8;
@@ -482,7 +482,7 @@ function GanttLane({
     r, x0: scale.xOf(wallMinutes(r.start_at as string)), x1: scale.xOf(wallMinutes(r.finish_at as string)),
   }))), [scheduled, scale]);
   const subRows = packed.length ? Math.max(...packed.map((p) => p.row)) + 1 : 1;
-  const laneH = Math.max(58, subRows * BAR_H + (subRows - 1) * BAR_GAP + LANE_PAD * 2);
+  const laneH = Math.max(68, subRows * BAR_H + (subRows - 1) * BAR_GAP + LANE_PAD * 2);
 
   const loadPct = useMemo(() => {
     if (!isMachine || availMin <= 0) return null;
@@ -559,6 +559,7 @@ function GanttBar({
   onDown: (r: XepLichRow, e: React.PointerEvent) => void;
   onKey: (r: XepLichRow, e: React.KeyboardEvent) => void;
 }) {
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
   const pieces = barPieces(scale, r.start_at, r.finish_at);
   if (!pieces.length) return null;
   const tip = barTip(r);
@@ -576,6 +577,17 @@ function GanttBar({
   const setupFrac = !isRisky(r) && r.chiem_may_phut > 0 ? Math.min(r.setup_phut / r.chiem_may_phut, 0.85) : 0;
   const draggable = canUpdate && !r.is_locked;
   const last = pieces.length - 1;
+
+  const handleMouseEnter = (e: React.MouseEvent) => {
+    setHoverPos({ x: e.clientX, y: e.clientY });
+  };
+  const handleMouseMove = (e: React.MouseEvent) => {
+    setHoverPos({ x: e.clientX, y: e.clientY });
+  };
+  const handleMouseLeave = () => {
+    setHoverPos(null);
+  };
+
   return (
     <>
       {dry && (
@@ -587,11 +599,13 @@ function GanttBar({
           type="button"
           className={`${barClass(r, dragging)} ${draggable ? "is-draggable" : ""}`}
           style={{ left: p.x, width: p.w, top, height: BAR_H }}
-          title={tip}
           aria-label={tip.replace(/\n/g, " · ")}
           onPointerDown={i === 0 && draggable ? (e) => onDown(r, e) : undefined}
           onKeyDown={i === 0 && draggable ? (e) => onKey(r, e) : undefined}
-          onClick={() => onOpen(r.id)}
+          onMouseEnter={handleMouseEnter}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+          onClick={() => { setHoverPos(null); onOpen(r.id); }}
         >
           {i === 0 && setupFrac > 0 && (
             <span className="xlcd-gbar__setup" style={{ width: `${setupFrac * 100}%` }} aria-hidden="true" />
@@ -607,6 +621,50 @@ function GanttBar({
           )}
         </button>
       ))}
+
+      {hoverPos && !dragging && (
+        <div
+          className="xlcd-gtip-card"
+          style={{
+            left: Math.min(hoverPos.x + 14, window.innerWidth - 300),
+            top: Math.min(hoverPos.y + 14, window.innerHeight - 220),
+          }}
+        >
+          <div className="xlcd-gtip-card__head">
+            <span className="xlcd-gtip-card__title">{r.lsx_ma ?? ""} · {r.cong_doan_ten ?? ""}</span>
+            {flag && <span className="xlcd-gbadge xlcd-gbadge--flag">{flag}</span>}
+          </div>
+          <div className="xlcd-gtip-card__res">
+            <Icon name="printer" size={12} />
+            <span>{r.may_ten ?? r.department_ten ?? r.nha_cung_cap ?? "Chưa gán máy"}</span>
+          </div>
+          <div className="xlcd-gtip-card__time">
+            <Icon name="clock" size={12} />
+            <span>{ngayGio(r.start_at)} → {ngayGio(r.finish_at)}</span>
+          </div>
+          <div className="xlcd-gtip-card__breakdown">
+            <span>Thiết lập: {thoiLuong(r.setup_phut)}</span>
+            <span>Chạy: {thoiLuong(r.chay_phut)}</span>
+            {r.ve_sinh_phut > 0 && <span>Vệ sinh: {thoiLuong(r.ve_sinh_phut)}</span>}
+          </div>
+          {(r.canh_bao_thoi_luong || r.ly_do_xac_nhan.length > 0) && (
+            <div className="xlcd-gtip-card__warns">
+              {r.canh_bao_thoi_luong && (
+                <div className="xlcd-gtip-card__warn">
+                  <Icon name="alert" size={11} />
+                  <span>{XEP_LICH_CANH_BAO_TL_LABELS[r.canh_bao_thoi_luong] ?? r.canh_bao_thoi_luong}</span>
+                </div>
+              )}
+              {r.ly_do_xac_nhan.map((ld, idx) => (
+                <div key={idx} className="xlcd-gtip-card__warn">
+                  <Icon name="alert" size={11} />
+                  <span>{XEP_LICH_XAC_NHAN_LABELS[ld] ?? ld}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
