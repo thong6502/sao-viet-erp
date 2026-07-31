@@ -81,7 +81,7 @@ class ParamsOut(BaseModel):
 
 # --- thành phần lương theo BỘ PHẬN (Cấu hình lương, Tab 2) ------------------
 
-_COMPONENT_KEY = "^(kpi|chuyen_can|luong_khoan|tang_ca)$"
+_COMPONENT_KEY = "^(chuyen_can|luong_khoan|tang_ca)$"   # `kpi` gỡ 29/07/2026
 
 
 class DeptComponentIn(BaseModel):
@@ -405,8 +405,6 @@ class LineOut(BaseModel):
     night_pay: float = 0           # = phụ cấp CA khai tay của NV — cột DB
     ca_pay: float = 0              # alias của `night_pay` (cùng MỘT số, đừng cộng 2 lần)
     night_premium_pay: float = 0   # premium CA ĐÊM theo giờ (giờ đêm × hệ số + tăng ca đêm) — tự tính, miễn TNCN
-    kpi_percent: float = 0
-    kpi_bonus: float = 0
     vi_pham: float
     other_bonus: float
     thuong_5s: float = 0
@@ -462,8 +460,6 @@ class LineUpdateIn(BaseModel):
     di_tre_manual: bool | None = None  # False = đưa phạt trễ VỀ TỰ ĐỘNG (tính lại từ chấm công); None = giữ
     monthly_override: float | None = Field(default=None, ge=0)
     note: str | None = Field(default=None, max_length=255)
-    # % đạt KPI của tháng (ô nhập tay) → tiền = % × mức trần KPI của bộ phận.
-    kpi_percent: float | None = Field(default=None, ge=0, le=200)
     # Khoản chi tiết (phiếu lương) — HCNS nhập tay. `dieu_chinh_luong` cho phép ÂM.
     dieu_chinh_luong: float | None = Field(default=None)
     di_tre: float | None = Field(default=None, ge=0)

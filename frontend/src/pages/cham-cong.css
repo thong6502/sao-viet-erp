@@ -3282,6 +3282,13 @@
   cursor: pointer;
 }
 .cc-sp-who__link:hover { text-decoration: underline; }
+/* Nút gỡ lọc nằm trong dòng "lưới rỗng" (chữ xám): `color: inherit` thì trông như chữ
+   thường, không ai biết bấm được — chỗ này phải nổi và gạch chân sẵn. */
+.ns__empty .cc-sp-who__link {
+  color: var(--rust);
+  font-weight: var(--fw-medium);
+  text-decoration: underline;
+}
 
 .cc-sp-drawer { position: fixed; inset: 0; z-index: 90; }
 .cc-sp-drawer__backdrop { position: absolute; inset: 0; background: rgba(20, 19, 15, 0.32); }

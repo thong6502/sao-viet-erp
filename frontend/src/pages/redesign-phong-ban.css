@@ -1225,8 +1225,18 @@
   border-radius: 50%;
 }
 
+/* "Chưa có người" ở sơ đồ cây — cùng lý do như `.rdx-tree__muted`: trạng thái bình thường của
+   phòng mới khai, không được tranh màu với ô "Thiếu TP" đang nhấp nháy. */
+.rdx-org-node__status--muted {
+  color: var(--ash);
+  background: transparent;
+  border: 1px dashed var(--rule);
+  font-weight: var(--fw-medium);
+}
+
 .rdx-org-node__dot--ok { background: #16a34a; }
 .rdx-org-node__dot--warn { background: #d97706; }
+.rdx-org-node__dot--muted { background: var(--ash-2); }
 
 .rdx-org-node__actions {
   position: absolute;
@@ -1984,6 +1994,25 @@
   border-radius: var(--r-pill);
   padding: 1px 6px;
 }
+
+/* "Chưa có nhân sự" — phòng mới khai, chưa tuyển ai nên cũng chưa có trưởng.
+   XÁM chứ không cam: đây KHÔNG phải việc cần xử lý, và tô cam cả 5 phòng rỗng thì cả danh sách
+   rực lên, mắt không còn bắt được phòng "có người mà thiếu trưởng" — đúng cái bẫy đã ghi ở
+   `.rdx-org-node__status--ok`. Dùng biến màu sẵn có, không đẻ hệ màu mới. */
+.rdx-tree__muted {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  padding: 1px 6px;
+}
+
+.rdx-tree__dot--muted { background: var(--ash-2); }
 
 .rdx-tree__subcount {
   display: inline-flex;

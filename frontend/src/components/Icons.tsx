@@ -13,6 +13,15 @@ const ICONS = {
       <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
     </>
   ),
+  // Nội quy công ty — quyển sách đóng gáy. CỐ Ý không dùng lại `clipboard`: glyph đó đã gánh
+  // 3 mục khác trong rail (Yêu cầu mua hàng · Loại sản phẩm · Khuôn bế), thêm lần 4 là trùng.
+  book: (
+    <>
+      <path d="M5 4.5a1.5 1.5 0 0 1 1.5-1.5H19v15H6.5A1.5 1.5 0 0 0 5 19.5Z" />
+      <path d="M5 19.5A1.5 1.5 0 0 1 6.5 18H19v3H6.5A1.5 1.5 0 0 1 5 19.5Z" />
+      <path d="M9 7.5h6M9 11h6" />
+    </>
+  ),
   // Bài ghép — sheets xếp lớp (nhiều bài chung một tờ in)
   layers: (
     <>

@@ -458,6 +458,7 @@ def approve_request(request_id: int, body: RequestDecisionIn, svc: Service, auth
                     user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> UpdateRequestOut:
     try:
         req = svc.decide_update_request(request_id=request_id, actor=user, approve=True, note=body.note,
+                                        scope=_scope_for(authz, user),
                                         can_edit_salary=authz.can(user, MODULE, "edit_salary"))
     except EmployeeError as exc:
         _raise(exc)
@@ -465,10 +466,11 @@ def approve_request(request_id: int, body: RequestDecisionIn, svc: Service, auth
 
 
 @router.post("/update-requests/{request_id}/reject", response_model=UpdateRequestOut)
-def reject_request(request_id: int, body: RequestDecisionIn, svc: Service,
+def reject_request(request_id: int, body: RequestDecisionIn, svc: Service, authz: Authz,
                    user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> UpdateRequestOut:
     try:
-        req = svc.decide_update_request(request_id=request_id, actor=user, approve=False, note=body.note)
+        req = svc.decide_update_request(request_id=request_id, actor=user, approve=False,
+                                        note=body.note, scope=_scope_for(authz, user))
     except EmployeeError as exc:
         _raise(exc)
     return UpdateRequestOut.model_validate(req)

@@ -2836,6 +2836,14 @@ function ShiftPlanPanel({ token }: { token: string }) {
     [data],
   );
 
+  // Gán xong người cuối cùng ⇒ TỰ TẮT lọc. Không có dòng này thì lọc vẫn bật mà nút bật/tắt đã
+  // biến mất (nút chỉ hiện khi còn người thiếu ca) ⇒ lưới rỗng, đổi phòng hay Tải lại cũng vô
+  // ích, người dùng kẹt luôn — đúng lỗi chủ báo 29/07/2026.
+  // Chờ `data` có rồi mới xét: lúc đang tải `data` là null ⇒ đếm ra 0 ⇒ tắt lọc oan.
+  useEffect(() => {
+    if (data && onlyNoDefault && noDefaultCount === 0) setOnlyNoDefault(false);
+  }, [data, onlyNoDefault, noDefaultCount]);
+
   const visibleRows = useMemo(() => {
     let rows = data?.rows ?? [];
     if (onlyNoDefault) rows = rows.filter((r) => r.no_default);
@@ -3354,13 +3362,19 @@ function ShiftPlanPanel({ token }: { token: string }) {
               aria-label="Tìm nhân viên"
             />
           </div>
-          {noDefaultCount > 0 && (
+          {/* Điều kiện có `|| onlyNoDefault`: nút PHẢI còn khi lọc đang bật, kể cả đếm về 0.
+              Nút biến mất mà lọc vẫn bật = không còn đường tắt nó đi. */}
+          {(noDefaultCount > 0 || onlyNoDefault) && (
             <button
               type="button"
               className={`cc-sp-flag${onlyNoDefault ? " is-on" : ""}`}
               aria-pressed={onlyNoDefault}
               onClick={() => setOnlyNoDefault((v) => !v)}
-              title="Những người chưa có ca nền — họ CHƯA CHẤM CÔNG ĐƯỢC cho tới khi được đặt ca"
+              title={
+                noDefaultCount > 0
+                  ? "Những người chưa có ca nền — họ CHƯA CHẤM CÔNG ĐƯỢC cho tới khi được đặt ca"
+                  : "Không còn ai thiếu ca — bấm để bỏ lọc, xem lại cả danh sách"
+              }
             >
               <AlertTriangle size={13} aria-hidden="true" /> Chưa có ca (
               {noDefaultCount})
@@ -3818,7 +3832,33 @@ function ShiftPlanPanel({ token }: { token: string }) {
               {visibleRows.length === 0 && (
                 <tr>
                   <td colSpan={cal.length + 3} className="ns__empty">
-                    Không có nhân viên phù hợp bộ lọc.
+                    {/* Nói RÕ lọc nào đang chặn + cho nút gỡ ngay tại chỗ. "Không có nhân viên
+                        phù hợp bộ lọc" trống trơn khiến người dùng tưởng mất dữ liệu. */}
+                    {onlyNoDefault ? (
+                      <>
+                        Đang lọc <b>“Chưa có ca”</b> — không còn ai thiếu ca.{" "}
+                        <button
+                          type="button"
+                          className="cc-sp-who__link"
+                          onClick={() => setOnlyNoDefault(false)}
+                        >
+                          Bỏ lọc, xem cả danh sách
+                        </button>
+                      </>
+                    ) : q.trim() ? (
+                      <>
+                        Không ai khớp từ khoá <b>“{q.trim()}”</b>.{" "}
+                        <button
+                          type="button"
+                          className="cc-sp-who__link"
+                          onClick={() => setQ("")}
+                        >
+                          Xoá tìm kiếm
+                        </button>
+                      </>
+                    ) : (
+                      "Phòng/tổ này chưa có nhân viên nào."
+                    )}
                   </td>
                 </tr>
               )}
@@ -3951,30 +3991,35 @@ function ShiftPlanPanel({ token }: { token: string }) {
               </p>
               <label className="cc-sp-basepop__row">
                 <span>Ca</span>
-                <select
-                  value={baseShift}
-                  onChange={(e) =>
-                    setBaseShift(
-                      e.target.value === ""
-                        ? ""
-                        : e.target.value === "none"
-                          ? "none"
-                          : Number(e.target.value),
-                    )
-                  }
-                >
-                  <option value="">— chọn ca —</option>
-                  {paintShifts.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.start_time}–{s.end_time})
-                    </option>
-                  ))}
-                  <option value="none">— bỏ gán ca nền —</option>
-                </select>
+                {/* Bọc `cc-select-wrapper` để ăn style chung (viền, cao 36px, mũi tên vẽ sẵn)
+                    thay vì rơi về select mặc định của trình duyệt. */}
+                <div className="cc-select-wrapper">
+                  <select
+                    value={baseShift}
+                    onChange={(e) =>
+                      setBaseShift(
+                        e.target.value === ""
+                          ? ""
+                          : e.target.value === "none"
+                            ? "none"
+                            : Number(e.target.value),
+                      )
+                    }
+                  >
+                    <option value="">— chọn ca —</option>
+                    {paintShifts.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.start_time}–{s.end_time})
+                      </option>
+                    ))}
+                    <option value="none">— bỏ gán ca nền —</option>
+                  </select>
+                </div>
               </label>
               <label className="cc-sp-basepop__row">
                 <span>Áp dụng từ</span>
                 <input
+                  className="cc-input-text"
                   type="date"
                   value={baseFrom}
                   onChange={(e) => setBaseFrom(e.target.value)}

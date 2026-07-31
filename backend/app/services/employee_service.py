@@ -523,11 +523,20 @@ class EmployeeService:
     def list_update_requests(self, *, status=None):
         return self.employees.list_update_requests(status=status)
 
-    def decide_update_request(self, *, request_id: int, actor, approve: bool, note=None,
-                              can_edit_salary: bool = True):
+    def decide_update_request(self, *, request_id: int, actor, approve: bool, scope: str,
+                              note=None, can_edit_salary: bool = True):
+        """Duyệt / từ chối yêu cầu NV xin sửa hồ sơ.
+
+        Chủ chốt 29/07/2026: **YC cập nhật hồ sơ do bên NHÂN SỰ duyệt**. Hiện chỉ HCNS có
+        `nhan_su.can_approve` (scope `all`) nên chốt phạm vi dưới đây không đổi hành vi hôm nay —
+        nó là lớp khoá dự phòng, để mai kia cấp quyền duyệt cho một vai scope `department` thì
+        người đó cũng chỉ duyệt được hồ sơ trong tổ mình."""
         req = self.employees.get_update_request(request_id)
         if req is None:
             raise EmployeeNotFound("Không tìm thấy yêu cầu cập nhật.")
+        nv = self.employees.get_by_id(req.employee_id)
+        if nv is not None and not self.employees.can_access(employee=nv, scope=scope, actor=actor):
+            raise EmployeeForbidden("Nhân viên này ngoài phạm vi quản lý của bạn.")
         if req.status != "pending":
             raise EmployeeValidationError("Yêu cầu đã được xử lý.")
         if approve:

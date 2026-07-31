@@ -34,6 +34,7 @@ from .routers import (
     operations,
     product_types_catalog,
     purchases,
+    noi_quy,
     profile,
     quotations,
     orders,
@@ -115,6 +116,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(files.router)
 app.include_router(profile.router)
+app.include_router(noi_quy.router)
 app.include_router(rbac.router)
 app.include_router(customers.router)
 app.include_router(employees.router)
