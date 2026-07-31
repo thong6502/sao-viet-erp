@@ -55,8 +55,14 @@ function getInitials(name?: string | null) {
 export function NghiPhepPage({ onChanged, focusEmployeeId }: { onChanged?: () => void; focusEmployeeId?: number }) {
   const { token } = useAuth();
   const can = useCan();
-  // Quyền DUYỆT (leave admin) — tách khỏi nhan_su.update; chỉ HCNS/Admin có.
+  // Quyền DUYỆT đơn — HCNS/Admin, VÀ tổ trưởng (chủ chốt 29/07/2026: tổ trưởng duyệt đơn trong
+  // tổ mình). Dùng cho tab "Duyệt đơn" + "Lịch nghỉ".
   const canManage = can("nghi_phep", "approve");
+  // Danh mục LOẠI NGHỈ là chính sách TOÀN CÔNG TY, chỉ HCNS/Admin. Phải gác bằng `update` cho
+  // KHỚP backend (`routers/leaves.py` gác 3 endpoint /types bằng `update`) — gác bằng `approve`
+  // là tổ trưởng (approve=true, update=false) nhìn thấy tab, mở ra, bấm lưu rồi ăn 403: màn
+  // mời-rồi-đuổi, người dùng tưởng mình có quyền.
+  const canTypes = can("nghi_phep", "update");
   const [tab, setTab] = useState<Tab>("me");
 
   // Liên thông từ Hồ sơ NV → mở "Duyệt đơn" lọc đúng NV đó.
@@ -76,12 +82,12 @@ export function NghiPhepPage({ onChanged, focusEmployeeId }: { onChanged?: () =>
         <button className={tab === "me" ? "is-active" : ""} onClick={() => setTab("me")}>Đơn của tôi</button>
         {canManage && <button className={tab === "approve" ? "is-active" : ""} onClick={() => setTab("approve")}>Duyệt đơn</button>}
         {canManage && <button className={tab === "calendar" ? "is-active" : ""} onClick={() => setTab("calendar")}>Lịch nghỉ</button>}
-        {canManage && <button className={tab === "types" ? "is-active" : ""} onClick={() => setTab("types")}>Loại nghỉ</button>}
+        {canTypes && <button className={tab === "types" ? "is-active" : ""} onClick={() => setTab("types")}>Loại nghỉ</button>}
       </nav>
       {tab === "me" && <MyLeaveTab token={token!} onChanged={onChanged} />}
       {tab === "approve" && canManage && <ApproveTab token={token!} onChanged={onChanged} focusEmployeeId={focusEmployeeId} />}
       {tab === "calendar" && canManage && <CalendarTab token={token!} />}
-      {tab === "types" && canManage && <LeaveTypesTab token={token!} />}
+      {tab === "types" && canTypes && <LeaveTypesTab token={token!} />}
     </main>
   );
 }
@@ -117,6 +123,9 @@ function LeaveRequestFormModal({
   onClose: () => void;
   onSubmit: () => void;
 }) {
+  // Ngày ngược (vd 1/8 → 31/7). Backend đã chặn (`leave_service.create_request`), nhưng để nó
+  // chặn nghĩa là bắt người dùng đi hết một vòng gửi–chờ–báo đỏ mới biết mình gõ nhầm.
+  const ngayNguoc = !!form.start_date && !!form.end_date && form.end_date < form.start_date;
   return (
     <div className="ns-modal" role="dialog" aria-modal="true">
       <div className="ns-modal__box cc-day-detail-modal-box">
@@ -140,13 +149,40 @@ function LeaveRequestFormModal({
           <div className="ns-grid" style={{ marginTop: 14 }}>
             <label className="ns-field">
               <span className="cc-field-label">Từ ngày *</span>
-              <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
+              {/* Đẩy "Từ ngày" vượt qua "Đến ngày" đã chọn ⇒ kéo Đến ngày theo. Nghỉ 1 ngày là ca
+                  phổ biến nhất nên đây gần như luôn đúng ý, và người dùng THẤY ô đổi trước mắt
+                  chứ không bị sửa lén lúc bấm Gửi. */}
+              <input
+                type="date"
+                value={form.start_date}
+                onChange={(e) => {
+                  const bd = e.target.value;
+                  setForm({
+                    ...form,
+                    start_date: bd,
+                    end_date: bd && form.end_date && form.end_date < bd ? bd : form.end_date,
+                  });
+                }}
+              />
             </label>
             <label className="ns-field">
               <span className="cc-field-label">Đến ngày *</span>
-              <input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
+              {/* `min` chỉ làm mờ ngày trong lịch chọn — nút Gửi là onClick thường chứ không phải
+                  submit của <form> nên validation gốc của trình duyệt KHÔNG BAO GIỜ chạy, gõ tay
+                  vẫn lọt. Chốt thật nằm ở `submit()`. */}
+              <input
+                type="date"
+                min={form.start_date || undefined}
+                value={form.end_date}
+                onChange={(e) => setForm({ ...form, end_date: e.target.value })}
+              />
             </label>
           </div>
+          {ngayNguoc && (
+            <div className="banner banner--error" style={{ marginTop: 10 }}>
+              Đến ngày phải sau hoặc bằng từ ngày.
+            </div>
+          )}
 
           <label className="ns-field" style={{ marginTop: 14 }}>
             <span className="cc-field-label">Lý do xin nghỉ</span>
@@ -267,6 +303,11 @@ function MyLeaveTab({ token, onChanged }: { token: string; onChanged?: () => voi
     setBusy(true); setError(null);
     try {
       if (form.leave_type_id === "") throw new ApiError("Chọn loại nghỉ.", 400);
+      // Chốt THẬT cho ngày ngược (`min` trên ô date không chặn được vì nút Gửi không phải submit
+      // của <form>). Dùng ĐÚNG câu chữ của backend `leave_service.create_request` — hai tầng nói
+      // hai kiểu thì người dùng tưởng là hai lỗi khác nhau.
+      if (form.start_date && form.end_date && form.end_date < form.start_date)
+        throw new ApiError("Đến ngày phải sau hoặc bằng từ ngày.", 400);
       const created = await api.leaves.create(token, {
         leave_type_id: form.leave_type_id, start_date: form.start_date, end_date: form.end_date, reason: form.reason || null,
       });

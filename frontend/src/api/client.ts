@@ -2401,6 +2401,10 @@ export interface ShiftPlanCell {
   shift_id: number | null;
   source: "day" | "assign" | "default" | "none";
   is_off: boolean;
+  /** Nghỉ phép ĐÃ DUYỆT — lớp phủ CHỈ ĐỂ XEM, đọc thẳng từ phiếu, không nằm trong bảng ca.
+   *  Khác hẳn `is_off` (dấu kế hoạch người dùng tự tô, không ra tiền). Huỷ phiếu là dấu tự hết. */
+  leave_name?: string | null;
+  leave_paid?: boolean | null;
 }
 
 export interface ShiftPlanDay {
