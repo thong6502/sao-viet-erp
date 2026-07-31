@@ -82,6 +82,8 @@ import {
   Droplets,
   StickyNote,
   Pin,
+  PhoneCall,
+  Clock3,
 } from "lucide-react";
 import { MixDonut, MonthBars } from "../components/charts";
 import "./khach-hang.css";
@@ -625,57 +627,80 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
         onToggleCare={() => setFollowupsOpen((v) => !v)}
       />
 
-      {/* Danh sách Cần chăm sóc — chỉ hiện khi bấm ô KPI, sát ngay dưới strip. */}
+      {/* Executive Care Panel Wrapper */}
       {(followups.length > 0 || visibleSuggestions.length > 0) && followupsOpen && (
-        <div className="kh__followups card">
-          <ul className="kh__followups-list">
+        <div className="kh__care-panel-wrapper">
+          <div className="kh__care-panel-header">
+            <div className="kh__care-panel-title">
+              <Sparkles size={16} style={{ color: "var(--rust)" }} />
+              <span>Nhiệm vụ & Gợi ý chăm sóc khách hàng</span>
+              <span className="kh__care-panel-count-tag">{followups.length + visibleSuggestions.length} mục</span>
+            </div>
+          </div>
+
+          <div className="kh__care-cards-grid">
             {followups.map((f) => (
-              <li key={f.id}>
-                <button type="button" className="kh__followups-row" onClick={() => setOpenId(f.customer_id)}>
+              <div key={f.id} className="kh__care-card-item kh__care-card-item--followup">
+                <div className="kh__care-card-top">
                   <RemindBadge level={f.remind_level} days={f.overdue_days} />
-                  <span className="kh__name">{f.customer_name}</span>
-                  <span className="kh__mono kh__muted">{f.customer_code}</span>
-                  <span className="kh__followups-note">{f.note}</span>
-                  <span className="kh__mono kh__muted">hạn {fmtDate(f.due_date)}</span>
-                  {f.assignee_name && <span className="kh__muted">· {f.assignee_name}</span>}
-                </button>
-              </li>
+                  <button type="button" className="kh__care-card-name" onClick={() => setOpenId(f.customer_id)}>
+                    {f.customer_name}
+                  </button>
+                  <span className="kh__care-card-code">{f.customer_code}</span>
+                </div>
+                <div className="kh__care-card-body">
+                  <span className="kh__care-card-note">{f.note}</span>
+                  <div className="kh__care-card-subinfo">
+                    <span className="kh__care-card-due">
+                      <Clock3 size={11} /> Hạn {fmtDate(f.due_date)}
+                    </span>
+                    {f.assignee_name && <span className="kh__care-card-assignee">· {f.assignee_name}</span>}
+                  </div>
+                </div>
+              </div>
             ))}
+
             {visibleSuggestions.map((sg) => (
-              <li key={`sg-${sg.customer_id}`}>
-                <div className="kh__followups-row kh__followups-row--suggest">
-                  <span className="badge-sem badge-sem--plum"><Sparkles size={11} /> Gợi ý</span>
-                  <button
-                    type="button"
-                    className="kh__linkbtn kh__name"
-                    onClick={() => setOpenId(sg.customer_id)}
-                  >
+              <div key={`sg-${sg.customer_id}`} className="kh__care-card-item kh__care-card-item--suggest">
+                <div className="kh__care-card-top">
+                  <span className="kh__care-suggest-badge">
+                    <Sparkles size={11} /> Gợi ý AI
+                  </span>
+                  <button type="button" className="kh__care-card-name" onClick={() => setOpenId(sg.customer_id)}>
                     {sg.name}
                   </button>
-                  <span className="kh__mono kh__muted">{sg.code}</span>
-                  <span className="kh__followups-note">{sg.days} ngày chưa đặt lại — hỏi thăm?</span>
-                  <Button
-                    variant="secondary"
-                    loading={suggestBusyId === sg.customer_id}
-                    onClick={() => suggestToTask(sg)}
-                    style={{ padding: "3px 10px", fontSize: 12 }}
-                  >
-                    + Hẹn gọi
-                  </Button>
+                  <span className="kh__care-card-code">{sg.code}</span>
+                </div>
+
+                <div className="kh__care-card-body">
+                  <span className="kh__care-days-tag">
+                    <Clock3 size={11} /> {sg.days} ngày chưa đặt lại
+                  </span>
+                  <span className="kh__care-card-note">Nên gọi điện hỏi thăm tình hình sử dụng hàng</span>
+                </div>
+
+                <div className="kh__care-card-actions">
                   <button
                     type="button"
-                    className="kh__tag-x"
-                    aria-label="Bỏ gợi ý này"
-                    onClick={() =>
-                      setDismissedSuggest((prev) => new Set(prev).add(sg.customer_id))
-                    }
+                    className="kh__care-btn-call"
+                    disabled={suggestBusyId === sg.customer_id}
+                    onClick={() => suggestToTask(sg)}
                   >
-                    ×
+                    <PhoneCall size={12} />
+                    <span>+ Hẹn gọi</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="kh__care-btn-dismiss"
+                    title="Bỏ qua gợi ý này"
+                    onClick={() => setDismissedSuggest((prev) => new Set(prev).add(sg.customer_id))}
+                  >
+                    <X size={13} />
                   </button>
                 </div>
-              </li>
+              </div>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 

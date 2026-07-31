@@ -156,42 +156,41 @@
 }
 
 /* ---- Pill "Cần chăm sóc hôm nay" ---------------------------------------- */
-/* Đây là VIỆC PHẢI LÀM nên nó được mang màu — nhưng ở liều pill, không tô cả thẻ.
-   Không có việc → trung tính + disabled: màu chỉ xuất hiện khi thật sự có việc. */
 .kh__care-pill {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: 8px;
   font-family: var(--ff-sans);
-  font-size: 12px;
-  font-weight: var(--fw-bold);
-  color: var(--ash);
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-pill);
+  font-size: 12.5px;
+  font-weight: var(--fw-bold, 600);
+  color: var(--ink, #0f172a);
+  background: var(--canvas, #ffffff);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 20px;
   padding: 6px 14px;
   cursor: pointer;
   white-space: nowrap;
-  transition: background-color var(--duration-base) var(--easing-standard),
-              border-color var(--duration-base) var(--easing-standard),
-              color var(--duration-base) var(--easing-standard);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .kh__care-pill:disabled {
   cursor: default;
-  color: var(--ash-2);
+  color: var(--ash-2, #64748b);
+  opacity: 0.7;
 }
 
 .kh__care-pill.is-alert {
-  color: var(--rust-deep);
-  background: var(--rust-soft);
-  border-color: var(--rust);
+  color: var(--ink, #0f172a);
+  background: var(--canvas, #ffffff);
+  border: 1px solid var(--rule-soft, #e2e8f0);
 }
 
-.kh__care-pill.is-alert:hover {
-  background: var(--rust);
-  border-color: var(--rust);
-  color: var(--paper-contrast);
+.kh__care-pill.is-alert:hover:not(:disabled) {
+  background: var(--paper, #f8fafc);
+  border-color: var(--rule, #cbd5e1);
+  color: var(--ink, #0f172a);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
 }
 
 .kh__care-pill:focus-visible {
@@ -200,9 +199,16 @@
 }
 
 .kh__care-n {
-  font-family: var(--ff-num);
+  font-family: var(--ff-num, "JetBrains Mono", monospace);
   font-variant-numeric: tabular-nums;
-  font-weight: var(--fw-bold);
+  font-weight: var(--fw-bold, 700);
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+  padding: 1px 7px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  margin: 0 2px;
 }
 
 .kh__care-caret {
@@ -2996,49 +3002,39 @@
 .kh__avatar {
   width: 32px;
   height: 32px;
-  border-radius: var(--r-2);
-  background: var(--rule-soft);
-  color: var(--ink);
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: var(--ff-sans);
-  font-size: 11px;
-  font-weight: var(--fw-bold);
+  font-weight: var(--fw-bold, 700);
+  font-size: 12px;
   letter-spacing: 0.04em;
   flex-shrink: 0;
-  transition: background-color var(--duration-base) var(--easing-standard), color var(--duration-base) var(--easing-standard);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
 }
-/* Tông ô định danh: MỘT HỌ MÀU ẤM, 4 bậc từ thang nhiệt (--heat-1..4, ramp kem → rust).
-   Vì sao không dùng rust/plum/moss/amber/steel như trước: màu avatar do HASH TÊN sinh ra
-   (getKhAvatarClass) nên nó KHÔNG mang nghĩa gì — mà moss/amber/signal trong hệ này là màu
-   NGỮ NGHĨA (tốt / cần theo dõi / lỗi). Lấy màu ngữ nghĩa gán cho thứ vô nghĩa làm người
-   dùng đọc ra thông tin không có: khách "Bao Bì Việt" xanh lá không hề nghĩa là khách tốt.
-   Thang nhiệt vẫn phân biệt được từng khách để mắt bắt nhanh khi cuộn, mà không nói dối.
-   Bậc 1-2 chữ mực, bậc 3-4 chữ giấy — đủ tương phản ở cả bốn bậc. */
+
+/* Tông ô định danh Doanh nghiệp: Gradient Slate & Charcoal cao cấp */
 .kh__avatar--plum {
-  background: var(--heat-1);
-  color: var(--ink);
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  color: #ffffff;
 }
 .kh__avatar--moss {
-  background: var(--heat-2);
-  color: var(--ink);
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+  color: #ffffff;
 }
-/* heat-3 + chữ giấy chỉ đạt 2,71:1 (đo bằng WCAG) → chữ MỰC, đạt 6,09:1. Bậc 3 là chỗ
-   thang nhiệt đổi chiều tương phản: từ đây trở xuống nền còn sáng nên phải dùng chữ mực. */
 .kh__avatar--amber {
-  background: var(--heat-3);
-  color: var(--ink);
+  background: linear-gradient(135deg, #334155 0%, #475569 100%);
+  color: #ffffff;
 }
 .kh__avatar--rust {
-  background: var(--heat-4);
-  color: var(--paper-contrast);
+  background: linear-gradient(135deg, #475569 0%, #64748b 100%);
+  color: #ffffff;
 }
-/* TAG_TONES trong TSX chỉ có 4 tông (rust/plum/moss/amber) nên --steel không còn được gán;
-   giữ lại phòng dữ liệu cũ, map về bậc nhạt nhất. */
 .kh__avatar--steel {
-  background: var(--heat-1);
-  color: var(--ink);
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  color: #ffffff;
 }
 
 .kh__row-badges {
@@ -5498,5 +5494,204 @@
   color: var(--ash);
   font-family: var(--ff-sans);
   padding: 0 6px;
+}
+
+/* Executive Care Panel Wrapper */
+.kh__care-panel-wrapper {
+  background: var(--canvas, #ffffff);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 16px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 20px -4px rgba(15, 23, 42, 0.06);
+}
+
+.kh__care-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule-soft, #e2e8f0);
+  margin-bottom: 14px;
+}
+
+.kh__care-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: var(--fw-bold, 700);
+  color: var(--ink, #0f172a);
+}
+
+.kh__care-panel-count-tag {
+  font-family: var(--ff-num, "JetBrains Mono", monospace);
+  font-size: 11.5px;
+  padding: 2px 8px;
+  background: var(--paper, #f8fafc);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 12px;
+  color: var(--ash, #475569);
+}
+
+.kh__care-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 12px;
+}
+
+.kh__care-card-item {
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.kh__care-card-item:hover {
+  border-color: var(--rule, #cbd5e1);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+  transform: translateY(-1.5px);
+}
+
+.kh__care-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.kh__care-suggest-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: #fdf4ff;
+  border: 1px solid #f5d0fe;
+  color: #a21caf;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: var(--fw-bold, 700);
+}
+
+.kh__care-card-name {
+  font-size: 13.5px;
+  font-weight: var(--fw-bold, 700);
+  color: var(--ink, #0f172a);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s ease;
+}
+
+.kh__care-card-name:hover {
+  color: var(--rust, #c5400a);
+  text-decoration: underline;
+}
+
+.kh__care-card-code {
+  font-family: var(--ff-num, "JetBrains Mono", monospace);
+  font-size: 11px;
+  color: var(--ash-2, #64748b);
+  background: var(--paper, #f8fafc);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--rule-soft, #e2e8f0);
+}
+
+.kh__care-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kh__care-card-subinfo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--ash, #475569);
+}
+
+.kh__care-card-due {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.kh__care-days-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: var(--fw-bold, 600);
+  color: var(--rust-deep, #8a2d07);
+  background: var(--rust-soft, #f4e2d6);
+  padding: 2px 8px;
+  border-radius: 6px;
+  width: fit-content;
+}
+
+.kh__care-card-note {
+  font-size: 12px;
+  color: var(--ash, #475569);
+}
+
+.kh__care-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule-soft, #e2e8f0);
+}
+
+.kh__care-btn-call {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: var(--rust, #c5400a);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: var(--fw-bold, 700);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 6px rgba(197, 64, 10, 0.2);
+}
+
+.kh__care-btn-call:hover:not(:disabled) {
+  background: var(--rust-deep, #8a2d07);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(197, 64, 10, 0.3);
+}
+
+.kh__care-btn-dismiss {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  background: var(--paper, #f8fafc);
+  color: var(--ash-2, #64748b);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.kh__care-btn-dismiss:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #dc2626;
 }
 
