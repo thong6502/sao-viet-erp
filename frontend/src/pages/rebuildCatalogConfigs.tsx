@@ -3,6 +3,7 @@
 // `default` (prefill khi tạo), `jsonKey` (lưu lồng vào fields_theo_loai).
 // Enum hiển thị bằng thuật ngữ in ấn thuần Việt — dùng chung 1 bảng nhãn cho cả dropdown lẫn cột.
 import type { CatalogConfig } from "./RebuildCatalogPage";
+import { QuyDoiCuaDonVi } from "./QuyDoiCuaDonVi";
 
 // ── Bảng nhãn thuần Việt (in ấn) — 1 nguồn cho options + column render ──────────
 type Lbls = Record<string, string>;
@@ -331,12 +332,55 @@ export const CFG_KHUON_BE: CatalogConfig = {
   ],
 };
 
+// ── Đơn vị & quy đổi ─────────────────────────────────────────────────────────────
+// Ba bước, không hơn: tạo đơn vị A, tạo đơn vị B, khai "1 A = n B". Mọi khái niệm khác (loại đo,
+// đơn vị chuẩn, ngày hiệu lực) là chuyện nội bộ — không phơi ra màn khai.
+export const CFG_DON_VI: CatalogConfig = {
+  title: "Đơn vị & quy đổi",
+  prefix: "/api/don-vi",
+  softDelete: true,
+  // Tạo xong giữ drawer mở để khai quy đổi ngay — khối quy đổi phải có id mới gắn vào được.
+  moLaiSauKhiTao: true,
+  columns: [
+    {
+      key: "quy_doi_text",
+      label: "Quy đổi",
+      render: (r) => {
+        const raw = r.quy_doi_text ? String(r.quy_doi_text).trim() : "";
+        if (!raw || raw === "Chưa khai quy đổi") {
+          return <span className="rc__chip-muted">Chưa khai báo</span>;
+        }
+        const parts = raw.split(" · ").map((p) => p.trim()).filter(Boolean);
+        return (
+          <div className="rc__formula-chips">
+            {parts.map((p, i) => {
+              const isDynamic = p.includes("dinh_luong") || p.includes("dai") || p.includes("rong") || p.includes("so_con") || p.includes("×");
+              return (
+                <span key={i} className={`rc__formula-pill ${isDynamic ? "rc__formula-pill--dynamic" : ""}`}>
+                  {p}
+                </span>
+              );
+            })}
+          </div>
+        );
+      },
+    },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
+  ],
+  fields: [
+    { key: "ghi_chu", label: "Ghi chú", type: "text" },
+  ],
+  // Quy đổi khai NGAY TẠI ĐÂY, dưới ô Ghi chú — một chỗ nhập, không màn thứ hai.
+  renderExtra: (_form, existing) => <QuyDoiCuaDonVi donVi={existing} />,
+};
+
 export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "loai-san-pham": CFG_LOAI_SAN_PHAM,
   "khai-bao-kho": CFG_KHO_HANG,
   "may-thiet-bi": CFG_MAY,
   "cong-doan": CFG_CONG_DOAN,
   "bu-hao": CFG_BU_HAO,
+  "don-vi": CFG_DON_VI,
   "chung-loai-giay": CFG_CHUNG_LOAI_GIAY,
   "giay": CFG_GIAY,
   "vat-tu-in-an": CFG_VAT_TU,

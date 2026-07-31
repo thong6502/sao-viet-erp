@@ -57,6 +57,11 @@ MODULES: list[tuple[str, str]] = [
     ("tang_ca", "Tăng ca"),
     ("di_muon", "Đi muộn / về sớm"),
     ("luong", "Lương"),
+    # Nội quy công ty (chủ 30/07/2026): CHỈ Giám đốc soạn/ban hành — vai GĐ nhận toàn quyền
+    # qua `ALL_MODULE_KEYS` ở dưới, các vai khác khai module tường minh nên không dính.
+    # Việc ĐỌC nội quy KHÔNG gác bằng module này: `GET /api/noi-quy/current` chỉ đòi đăng
+    # nhập, để không vai nào bị bỏ sót mà mất quyền đọc nội quy.
+    ("noi_quy", "Nội quy công ty"),
 ]
 
 ALL_MODULE_KEYS = [k for k, _ in MODULES]
@@ -169,6 +174,22 @@ def _leave_admin(scope: str = SCOPE_ALL) -> dict:
     quản loại nghỉ (`can_approve` = cờ 'leave admin' gate cả duyệt lẫn CRUD loại nghỉ)."""
     return dict(
         can_read=True, can_create=True, can_update=True, can_delete=True,
+        scope=scope, can_approve=True, can_cancel=True,
+    )
+
+
+def _leave_lead(scope: str = SCOPE_DEPARTMENT) -> dict:
+    """Quyền DUYỆT đơn nghỉ phép cho TỔ TRƯỞNG (chủ 29/07/2026: "nghỉ phép thì để cho tổ trưởng
+    duyệt mà phạm vi trong tổ nó thôi").
+
+    Khác `_leave_admin` ở đúng một chỗ và đó là chỗ quan trọng: `can_update=False`. Ba endpoint
+    THÊM/SỬA/XOÁ danh mục LOẠI NGHỈ gác bằng ô `update` (xem `routers/leaves.py`), nên tổ trưởng
+    duyệt được đơn của tổ mình mà KHÔNG đụng được danh mục loại nghỉ của cả công ty — cái đó là
+    chính sách toàn công ty, giữ ở HCNS.
+
+    Scope `department` = tổ mình + cây con; service `_guard_scope` là thứ thi hành thật."""
+    return dict(
+        can_read=True, can_create=True, can_update=False, can_delete=False,
         scope=scope, can_approve=True, can_cancel=True,
     )
 
@@ -296,8 +317,12 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # "Tổ trưởng/Quản lý duyệt đề xuất cấp phát"). Scope DEPARTMENT: phải thấy đề nghị của
             # NV trong phòng mới duyệt được (own chỉ thấy của mình → không có gì để duyệt).
             "kho": {**_read(SCOPE_DEPARTMENT), "can_request": True, "can_approve": True},
-            "nghi_phep": _leave_self(),
+            # "nghi_phep": _leave_self(),
             # Tổ trưởng DUYỆT phiếu tăng ca của tổ mình (scope department = tổ + cây con).
+            # Tổ trưởng DUYỆT đơn nghỉ phép + phiếu tăng ca + đi muộn CỦA TỔ MÌNH
+            # (scope department = tổ + cây con). Tạm ứng và YC cập nhật hồ sơ KHÔNG cấp —
+            # chủ chốt hai thứ đó để bên nhân sự duyệt.
+            "nghi_phep": _leave_lead(SCOPE_DEPARTMENT),
             "tang_ca": _ot_lead(SCOPE_DEPARTMENT),
             "di_muon": _el_lead(SCOPE_DEPARTMENT),
         },
@@ -1832,9 +1857,11 @@ def seed_piece_work(db: Session) -> None:
         ("to_cat", None, "Cắt tờ / cắt sóng", "tan", 120_000),
         ("to_cat", None, "Cắt demi", "luot", 40),
         ("to_cat", None, "Gỡ hàng hộp (carton 3 lớp)", "hop", 20),
-        ("may_in_5mau", "A", "Bài in 1–2 màu", "bai_in", 120_000),
-        ("may_in_5mau", "B", "Bài in 3–4 màu", "bai_in", 150_000),
-        ("may_in_5mau", "C", "Bài in 4 màu có màu pha", "bai_in", 175_000),
+        # ĐVT là CHỮ HIỂN THỊ (khớp `don_vi_do.ten`), không phải mã gạch dưới: gõ "bai_in" thì
+        # module quy đổi không tra ra đơn vị nào → 3 dòng này mất khả năng đổi sang SL của bước.
+        ("may_in_5mau", "A", "Bài in 1–2 màu", "bài in", 120_000),
+        ("may_in_5mau", "B", "Bài in 3–4 màu", "bài in", 150_000),
+        ("may_in_5mau", "C", "Bài in 4 màu có màu pha", "bài in", 175_000),
     ]
     for g, code, name, unit, price in rates:
         repo.create_rate(group_name=g, code=code, name=name, unit=unit, unit_price=price,
@@ -2164,6 +2191,10 @@ def seed_all(db: Session) -> None:
     seed_machines(db)
     seed_operations(db)
     seed_special_days(db)  # dữ liệu vận hành thật (không gated demo) — nền lịch/lễ dùng chung
+    # Đơn vị đo & quy đổi: nền cho khoán · kho · mua hàng. KHÔNG gated demo — DB thật không bật
+    # SEED_DEMO, mà thiếu bảng này thì mọi quy đổi trả "đơn vị chưa khai".
+    from .seed_rebuild import seed_don_vi_do
+    seed_don_vi_do(db)
     seed_payroll_components(db)  # danh mục khoản thu nhập + cờ chịu thuế TNCN
     seed_job_grades(db)  # danh mục bậc tay nghề (khối SX) — vận hành thật, không gated demo
     seed_pit_brackets(db)  # biểu thuế TNCN — dữ liệu vận hành thật (Lương đọc tính thuế)
@@ -2188,6 +2219,10 @@ def seed_all(db: Session) -> None:
         seed_document_sequences(db)
         seed_san_xuat_org(db)  # nền tổ SX (§13.1): tag "Sản xuất" + cây tổ + gắn công đoạn/thợ
         seed_san_xuat_accounts(db)  # Lát 1: tài khoản tổ trưởng/thợ/kế hoạch/QC + head_user_id
+        # Luồng THẬT đầu-cuối (tính giá → báo giá → đơn hàng bán → lệnh SX). CHẠY CUỐI: cần đủ
+        # khách + sale + danh mục giấy/công đoạn + tổ SX + tài khoản kế hoạch ở trên.
+        from .seed_luong_ban_sx import seed_luong_ban_sx
+        seed_luong_ban_sx(db)
     backfill_user_codes(db)
     # Chạy NGOÀI khối demo: luật "mọi tài khoản phải có hồ sơ" áp cho mọi DB (dev/live),
     # và phải chạy SAU các seed tài khoản demo ở trên để dọn luôn đám vừa tạo.

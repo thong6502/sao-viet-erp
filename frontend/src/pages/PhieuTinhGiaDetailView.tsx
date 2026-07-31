@@ -37,23 +37,19 @@ const cdName = (r: Row): string => (r.ten_hien_thi ? String(r.ten_hien_thi) : St
 const vtName = (r: Row): string => `${r.ma ? String(r.ma) + " · " : ""}${String(r.ten)}`;
 const numOf = (v: unknown): number => (typeof v === "number" ? v : Number(v) || 0);
 
-/** Chừa TÁCH THEO CHIỀU — khớp `_compute_one` của engine (đừng để hai bên lệch nhau).
+/** Chừa TÁCH THEO CHIỀU — khớp `chua_theo_chieu` của engine (đừng để hai bên lệch nhau).
  *
  *  · DÀI  ← nhíp GIẤY (cạnh nạp, 1 đầu) + đuôi/thanh màu
  *  · RỘNG ← lề hông ×2 (hai bên)
- *  · xén / cả gáy: chưa gán được chiều → cộng đều cả hai.
  *
- * Ô `chua_*` của phiếu là ĐÈ thủ công; để trống thì lấy theo danh mục máy. `gripper_mm` là nhíp
- * KẼM — KHÔNG dùng ở đây (dùng nhầm là hụt 14-19% số con). */
+ * Nguồn là DANH MỤC MÁY; phiếu chỉ còn một ô đè `chua_nhip`. Không chọn máy → chừa 0 cả hai chiều.
+ * `gripper_mm` là nhíp KẼM — KHÔNG dùng ở đây (dùng nhầm là hụt 14-19% số con). */
 function chuaTheoChieu(
-  c: { chua_xen: number; chua_tay_ke: number; chua_nhip: number; chua_duoi: number; chua_ca_gay: number },
+  c: { chua_nhip: number },
   may: Row | null | undefined,
 ): { dai: number; rong: number } {
   const nhip = c.chua_nhip || numOf(may?.nhip_giay_mm);
-  const duoi = c.chua_duoi || numOf(may?.duoi_thang_mau_mm);
-  const leHong = c.chua_tay_ke || numOf(may?.le_hong_mm);
-  const deu = c.chua_xen + c.chua_ca_gay;
-  return { dai: nhip + duoi + deu, rong: leHong * 2 + deu };
+  return { dai: nhip + numOf(may?.duoi_thang_mau_mm), rong: numOf(may?.le_hong_mm) * 2 };
 }
 
 const LOAI_TP: Record<string, string> = {
@@ -186,11 +182,7 @@ interface EditableComponent {
   bu_hao_so_to: number;
   hao_so_to: number;
   tinh_bu_hao_cd: boolean; // bật/tắt tính bù hao công đoạn tự
-  chua_xen: number;
-  chua_tay_ke: number;
-  chua_nhip: number;
-  chua_duoi: number;
-  chua_ca_gay: number;
+  chua_nhip: number; // đè nhíp giấy của máy (0 = theo danh mục Máy)
   bleed_mm: number;
   khe_cat_mm: number;
   // Kỹ thuật in ② — In/kẽm nay là CÔNG ĐOẠN (chuỗi), không còn field cứng ở đây.
@@ -253,11 +245,7 @@ function blankComponent(ten = ""): EditableComponent {
     bu_hao_so_to: 0,
     hao_so_to: 0,
     tinh_bu_hao_cd: true,
-    chua_xen: 0,
-    chua_tay_ke: 0,
     chua_nhip: 0,
-    chua_duoi: 0,
-    chua_ca_gay: 0,
     bleed_mm: 0,
     khe_cat_mm: 0,
     quy_cach_in: "mot_mat",
@@ -326,11 +314,7 @@ function fromComponent(c: ThanhPhanOut): EditableComponent {
     bu_hao_so_to: c.bu_hao_so_to ?? 0,
     hao_so_to: c.hao_so_to ?? 0,
     tinh_bu_hao_cd: c.tinh_bu_hao_cd ?? true,
-    chua_xen: c.chua_xen ?? 0,
-    chua_tay_ke: c.chua_tay_ke ?? 0,
     chua_nhip: c.chua_nhip ?? 0,
-    chua_duoi: c.chua_duoi ?? 0,
-    chua_ca_gay: c.chua_ca_gay ?? 0,
     bleed_mm: c.bleed_mm ?? 0,
     khe_cat_mm: c.khe_cat_mm ?? 0,
     quy_cach_in: c.quy_cach_in ?? "mot_mat",
@@ -373,11 +357,7 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
     bu_hao_so_to: c.bu_hao_so_to,
     hao_so_to: c.hao_so_to,
     tinh_bu_hao_cd: c.tinh_bu_hao_cd,
-    chua_xen: c.chua_xen,
-    chua_tay_ke: c.chua_tay_ke,
     chua_nhip: c.chua_nhip,
-    chua_duoi: c.chua_duoi,
-    chua_ca_gay: c.chua_ca_gay,
     bleed_mm: c.bleed_mm,
     khe_cat_mm: c.khe_cat_mm,
     quy_cach_in: c.quy_cach_in,
@@ -973,7 +953,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       ca: c.con_auto, sc: c.so_con, sp: c.so_to_per_sp, qc: c.quy_cach_in,
       ma: c.so_mau_a, mb: c.so_mau_b, mp: c.so_mau_pha, bu: c.bu_hao_so_to, hao: c.hao_so_to,
       tbh: c.tinh_bu_hao_cd,
-      ch: c.chua_xen + c.chua_tay_ke + c.chua_nhip + c.chua_duoi + c.chua_ca_gay,
+      ch: c.chua_nhip,
       bl: c.bleed_mm, ke: c.khe_cat_mm,
       gid: c.giay_id, may: c.may_id, cds: c.thanh_phams.map((f) => f.cong_doan_id),
     });
@@ -1753,7 +1733,6 @@ function ComponentModal({
 }) {
   // uid của sản phẩm đang mở trợ lý "tính số khuôn từ số trang" (mỗi lúc chỉ 1 popover).
   const [calcUid, setCalcUid] = useState<string | null>(null);
-  const chuaTong = c.chua_xen + c.chua_tay_ke + c.chua_nhip + c.chua_duoi + c.chua_ca_gay;
   const chuaCh = chuaTheoChieu(c, c.may_id ? mays.find((x) => x.id === c.may_id) : null);
   // Ô này chọn MÁY IN — engine lấy khổ giấy máy nhận + vùng in + nhíp giấy để bình bài. Máy bế,
   // máy bồi sóng, máy cán màng KHÔNG có mấy thông số đó, đổ vào chỉ tổ chọn nhầm (chúng thuộc
@@ -2285,7 +2264,7 @@ function ComponentModal({
                 khoInRong={c.kho_in_rong}
                 daiTP={c.dai_thanh_pham}
                 rongTP={c.rong_thanh_pham}
-                chuaMm={chuaTong}
+                chuaMm={0}
                 chuaDai={chuaCh.dai}
                 chuaRong={chuaCh.rong}
                 bleedMm={c.bleed_mm}

@@ -56,14 +56,6 @@ const COMPONENT_ROWS: {
   zeroWhenBlank?: boolean;
 }[] = [
   {
-    key: "kpi",
-    name: "Thưởng năng suất KPI",
-    desc: "Mức TRẦN. Tiền thưởng = % đạt của từng người × mức trần này, nhập % ở modal “Sửa lương” của bảng lương tháng.",
-    kind: "money",
-    unit: "đ / tháng",
-    zeroWhenBlank: true,
-  },
-  {
     key: "chuyen_can",
     name: "Chuyên cần",
     desc: "Công tắc bật/tắt cho cả tổ — TẮT thì không ai trong tổ được cộng, kể cả đã khai tiền. MỨC TIỀN khai ở hồ sơ từng nhân viên (tab Lương nhân viên). Trừ dần theo ngày nghỉ: nghỉ 0,5 ngày −25% · 1 ngày −50% · từ 2 ngày mất hết.",
@@ -1066,8 +1058,7 @@ function CoCheTab({
             <Info size={14} />
             <span>
               <b>Chuyên cần</b>: tổ chỉ bật/tắt — mức tiền khai ở{" "}
-              <b>hồ sơ từng nhân viên</b>, chưa khai thì 0 đ. <b>KPI</b>: bật mà
-              bỏ trống ô tiền = 0 đ.
+              <b>hồ sơ từng nhân viên</b>, chưa khai thì 0 đ.
             </span>
           </div>
           {loading ? (
@@ -1249,7 +1240,11 @@ function LeaderBonusEditor({
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [thuLoi, setThuLoi] = useState(7);          // ô thử nhanh: tỷ lệ lỗi
-  const [thuKhoan, setThuKhoan] = useState(0);      // tổng khoán giả định
+  const [thuKhoan, setThuKhoan] = useState(0);      // tổng lương khoán giả định (TIỀN)
+  const [thuSanLuong, setThuSanLuong] = useState(0); // sản lượng giả định (SỐ LƯỢNG)
+  // Ngưỡng SẢN LƯỢNG tối thiểu để XÉT thưởng/phạt. 0 = không gác (giữ nguyên hành vi cũ).
+  // ⚠️ Khác hẳn `thuKhoan`: ngưỡng là SỐ LƯỢNG, còn % thưởng/phạt nhân trên TIỀN.
+  const [nguong, setNguong] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -1264,6 +1259,7 @@ function LeaderBonusEditor({
             note: b.note ?? "",
           })),
         );
+        setNguong(r.min_output_qty ?? 0);
         setErr(null);
       })
       .catch((e) => alive && setErr(errText(e)));
@@ -1298,7 +1294,7 @@ function LeaderBonusEditor({
         up_to_defect_pct: x.up_to,
         rate_pct: x.rate,
         note: x.note.trim() || null,
-      })));
+      })), nguong);
       setRows(
         r.items.map((b) => ({
           up_to: b.up_to_defect_pct,
@@ -1306,6 +1302,7 @@ function LeaderBonusEditor({
           note: b.note ?? "",
         })),
       );
+      setNguong(r.min_output_qty ?? 0);
       setOk("Đã lưu bậc thưởng/phạt tổ trưởng.");
     } catch (e) {
       setErr(errText(e));
@@ -1325,7 +1322,11 @@ function LeaderBonusEditor({
   }
 
   const bacTrung = traBac(thuLoi);
-  const tienThu = bacTrung ? Math.round((thuKhoan * bacTrung.rate) / 100) : 0;
+  /** MIRROR `PieceWorkService.duoi_nguong`: so bằng `<` — đúng bằng ngưỡng thì ĐƯỢC xét
+   *  ("ít nhất X"). Lệch một chỗ ở đây là ô thử nói dối về chính thứ chủ đang khai.
+   *  So với SẢN LƯỢNG, không phải với tiền khoán — hai con số khác nhau. */
+  const duoiNguong = nguong > 0 && thuSanLuong < nguong;
+  const tienThu = !bacTrung || duoiNguong ? 0 : Math.round((thuKhoan * bacTrung.rate) / 100);
 
   /** Đọc bảng mốc thành câu tiếng Việt — nhìn bảng số khó hình dung, đọc câu thì ra ngay. */
   const cauDoc = (rows ?? [])
@@ -1342,6 +1343,11 @@ function LeaderBonusEditor({
       return `lỗi ${pham} ⇒ ${act}`;
     })
     .join(" · ");
+
+  // Vế ngưỡng đứng TRƯỚC các vế bậc: nó chặn trước, đọc sau thì hiểu ngược thứ tự áp dụng.
+  const nguongDoc = nguong.toLocaleString("vi-VN");
+  const cauNguong =
+    nguong > 0 ? `sản lượng của tổ dưới ${nguongDoc} ⇒ không xét thưởng/phạt` : "";
 
   return (
     <div className="cl-card">
@@ -1361,11 +1367,12 @@ function LeaderBonusEditor({
       </div>
 
       <div className="cl-card__body">
-        {/* Sự thật phải nói thẳng: khai xong CHƯA ra tiền. */}
+        {/* Sự thật phải nói thẳng: khai xong CHƯA ra tiền. ĐỪNG GỠ — cả mốc lẫn ngưỡng đều đang
+            chờ nguồn sản lượng; khai xong mà tưởng đã chạy là mất niềm tin. */}
         <div className="banner banner--warn">
           <span>
-            Tiền khoán của tổ hiện <b>luôn = 0</b> vì chưa có nguồn nhập sản lượng — khai mốc ở
-            đây là <b>chuẩn bị trước</b>, chưa ra tiền cho tới khi mở lại phần sản lượng.
+            Tổng lương khoán của tổ hiện <b>luôn = 0</b> vì chưa có nguồn nhập sản lượng — khai mốc
+            và ngưỡng ở đây là <b>chuẩn bị trước</b>, chưa ra tiền cho tới khi mở lại phần sản lượng.
           </span>
         </div>
         {!hasLeader && (
@@ -1390,13 +1397,32 @@ function LeaderBonusEditor({
           </div>
         ) : (
           <>
+            {/* Ngưỡng đặt TRƯỚC bảng bậc vì nó chặn trước: dưới ngưỡng thì bảng bậc không được xét
+                tới. Đặt sau bảng là đọc ngược thứ tự áp dụng. */}
+            <div className="cl-lb__gate">
+              <label className="ns-field">
+                <span className="ns-field__label">Chỉ xét khi tổng sản lượng của tổ đạt ít nhất</span>
+                <NumInput
+                  value={nguong}
+                  onChange={(v) => setNguong(v ?? 0)}
+                  min={0}
+                  step={100}
+                  disabled={readOnly}
+                />
+              </label>
+              <p className="cl-hint-inline">
+                Để <b>0</b> là không chặn. Dùng khi tổ làm quá ít: hỏng 2 tờ trên 20 tờ đã là 10%
+                lỗi, đủ rơi xuống bậc phạt nặng nhất dù thực tế chưa làm được gì.
+              </p>
+            </div>
+
             <div className="cl-table__wrap">
-              <table className="cl-table">
+              <table className="cl-table cl-lb__table">
                 <thead>
                   <tr>
                     <th style={{ width: 60 }}>Bậc</th>
-                    <th style={{ width: 190 }}>Tỷ lệ lỗi tới (%)</th>
-                    <th style={{ width: 210 }}>Thưởng (+) / Phạt (−) %</th>
+                    <th style={{ width: 190 }}>Tỷ lệ lỗi tới</th>
+                    <th style={{ width: 210 }}>Thưởng (+) / Phạt (−)</th>
                     <th>Ghi chú</th>
                     {!readOnly && <th style={{ width: 56 }} aria-label="Thao tác" />}
                   </tr>
@@ -1409,27 +1435,27 @@ function LeaderBonusEditor({
                         {r.up_to == null ? (
                           <span className="cl-muted">trở lên (mọi tỷ lệ cao hơn)</span>
                         ) : (
-                          <input
-                            type="number"
+                          <NumInput
+                            value={r.up_to}
+                            onChange={(v) => patch(i, { up_to: v ?? 0 })}
+                            suffix="%"
                             min={0}
                             max={100}
                             step={1}
                             disabled={readOnly}
-                            value={r.up_to}
-                            onChange={(e) => patch(i, { up_to: Number(e.target.value) })}
                           />
                         )}
                       </td>
                       <td>
                         <div className="cl-lb__rate">
-                          <input
-                            type="number"
+                          <NumInput
+                            value={r.rate}
+                            onChange={(v) => patch(i, { rate: v ?? 0 })}
+                            suffix="%"
                             min={-100}
                             max={100}
                             step={1}
                             disabled={readOnly}
-                            value={r.rate}
-                            onChange={(e) => patch(i, { rate: Number(e.target.value) })}
                           />
                           {/* Dấu âm dễ đọc lướt thành dương ⇒ hiện chip chữ cho chắc. */}
                           <span
@@ -1446,13 +1472,17 @@ function LeaderBonusEditor({
                         </div>
                       </td>
                       <td>
-                        <input
-                          type="text"
-                          maxLength={255}
-                          disabled={readOnly}
-                          value={r.note}
-                          onChange={(e) => patch(i, { note: e.target.value })}
-                        />
+                        <div className="rc-input-wrapper">
+                          <input
+                            className="rc-input"
+                            type="text"
+                            maxLength={255}
+                            placeholder="vd: đạt chuẩn"
+                            disabled={readOnly}
+                            value={r.note}
+                            onChange={(e) => patch(i, { note: e.target.value })}
+                          />
+                        </div>
                       </td>
                       {!readOnly && (
                         <td className="act">
@@ -1472,32 +1502,54 @@ function LeaderBonusEditor({
               </table>
             </div>
 
-            <p className="cl-hint-inline cl-lb__read">{cauDoc}</p>
+            <p className="cl-hint-inline cl-lb__read">
+              {cauNguong ? `${cauNguong} · ${cauDoc}` : cauDoc}
+            </p>
 
-            {/* Thử nhanh — bám đúng helper "Tính nhanh phạt" của bảng phạt đi trễ. */}
+            {/* Thử nhanh — bám đúng helper "Tính nhanh phạt" của bảng phạt đi trễ.
+                Đây là cách DUY NHẤT kiểm được cửa chặn hôm nay: chưa có nguồn sản lượng nên không
+                có số thật nào để nhìn. */}
             <div className="cl-lb__try">
               <label className="ns-field">
-                <span className="ns-field__label">Thử: tỷ lệ lỗi (%)</span>
-                <input
-                  type="number"
+                <span className="ns-field__label">Thử: tỷ lệ lỗi</span>
+                <NumInput
+                  value={thuLoi}
+                  onChange={(v) => setThuLoi(v ?? 0)}
+                  suffix="%"
                   min={0}
                   max={100}
-                  value={thuLoi}
-                  onChange={(e) => setThuLoi(Number(e.target.value))}
+                />
+              </label>
+             
+              <label className="ns-field">
+                <span className="ns-field__label">Sản lượng giả định</span>
+                <NumInput
+                  value={thuSanLuong}
+                  onChange={(v) => setThuSanLuong(v ?? 0)}
+                  min={0}
+                  step={100}
                 />
               </label>
               <label className="ns-field">
-                <span className="ns-field__label">Tổng khoán giả định (đ)</span>
-                <input
-                  type="number"
+                <span className="ns-field__label">Tổng lương khoán giả định</span>
+                <NumInput
+                  value={thuKhoan}
+                  onChange={(v) => setThuKhoan(v ?? 0)}
+                  suffix="đ"
                   min={0}
                   step={1000000}
-                  value={thuKhoan}
-                  onChange={(e) => setThuKhoan(Number(e.target.value))}
                 />
               </label>
               <div className="cl-lb__out">
-                {bacTrung ? (
+                {/* Dưới ngưỡng thì nói HẲN là không xét, đừng hiện "trúng bậc N ⇒ 0đ" — cùng ra 0
+                    nhưng hai lý do khác hẳn nhau, và chủ cần biết là lý do nào. */}
+                {!bacTrung ? (
+                  "Chưa khai bậc nào."
+                ) : duoiNguong ? (
+                  <>
+                    Dưới ngưỡng {nguongDoc} ⇒ <b>không xét thưởng/phạt</b>
+                  </>
+                ) : (
                   <>
                     Trúng bậc <b>{(rows ?? []).indexOf(bacTrung) + 1}</b> ⇒{" "}
                     <b>{bacTrung.rate > 0 ? `+${bacTrung.rate}` : bacTrung.rate}%</b>
@@ -1507,13 +1559,11 @@ function LeaderBonusEditor({
                         ⇒{" "}
                         <b className={tienThu < 0 ? "lg-minus" : ""}>
                           {tienThu < 0 ? "−" : "+"}
-                          {money(Math.abs(tienThu))}đ
+                          {money(Math.abs(tienThu))}
                         </b>
                       </>
                     )}
                   </>
-                ) : (
-                  "Chưa khai bậc nào."
                 )}
               </div>
             </div>
@@ -2337,8 +2387,9 @@ function BulkAssignDialog({
                       {cu != null && (
                         <span className={overwrite ? "cl-bulk__over" : "cl-bulk__has"}>
                           {overwrite
-                            ? `${money(cu)}đ → ${money(amount)}đ`
-                            : `đã có ${money(cu)}đ — bỏ qua`}
+                            /* `money()` đã kèm " đ" — đừng nối thêm `đ`. */
+                            ? `${money(cu)} → ${money(amount)}`
+                            : `đã có ${money(cu)} — bỏ qua`}
                         </span>
                       )}
                     </label>

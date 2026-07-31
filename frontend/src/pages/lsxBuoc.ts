@@ -45,6 +45,22 @@ export interface EditRow {
   don_gia_gia_cong: string;
   yeu_cau_ky_thuat: string;
   ghi_chu: string;
+  // --- khoán theo đầu việc ---
+  /** Đầu việc đang chọn (`piece_rates.id`) — người dùng đổi được. */
+  khoan_rate_id: number | null;
+  /** Danh sách chọn được + diễn giải tiền: READ-ONLY từ server (server áp luật khớp + quy đổi). */
+  khoan_chon_duoc: KhoanChon[];
+  khoan_dien_giai: string | null;
+  khoan_ly_do: string | null;
+  /** Đầu việc lúc TẢI về — đổi lựa chọn thì diễn giải cũ hết đúng, phải chờ lưu để server tính lại. */
+  khoan_rate_id_luc_tai: number | null;
+}
+
+export interface KhoanChon {
+  id: number;
+  ten: string;
+  don_vi: string;
+  don_gia: number;
 }
 
 export const DON_VI: { key: string; label: string }[] = [
@@ -125,6 +141,11 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     don_gia_gia_cong: s(cd.don_gia_gia_cong),
     yeu_cau_ky_thuat: cd.yeu_cau_ky_thuat ?? "",
     ghi_chu: cd.ghi_chu ?? "",
+    khoan_rate_id: cd.khoan_rate_id ?? null,
+    khoan_chon_duoc: cd.khoan_chon_duoc ?? [],
+    khoan_dien_giai: cd.khoan_dien_giai ?? null,
+    khoan_ly_do: cd.khoan_ly_do ?? null,
+    khoan_rate_id_luc_tai: cd.khoan_rate_id ?? null,
   };
 }
 
@@ -139,6 +160,9 @@ export function emptyRow(): EditRow {
     nha_cung_cap: "", sl_gui: "", ngay_gui_dk: "", van_chuyen_ngay: "", gia_cong_ngay: "",
     ngay_nhan_dk: "", hao_hut_cho_phep: "", don_gia_gia_cong: "", yeu_cau_ky_thuat: "",
     ghi_chu: "",
+    // Bước THÊM TAY chưa biết tổ/công đoạn nên chưa có đầu việc nào để gợi ý; lưu xong server điền.
+    khoan_rate_id: null, khoan_chon_duoc: [], khoan_dien_giai: null, khoan_ly_do: null,
+    khoan_rate_id_luc_tai: null,
   };
 }
 
@@ -200,6 +224,14 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       don_gia_gia_cong: ngoai ? on(r.don_gia_gia_cong) : undefined,
       yeu_cau_ky_thuat: ngoai ? ot(r.yeu_cau_ky_thuat) : null,
       ghi_chu: ot(r.ghi_chu),
+      // Đầu việc khoán — ba trạng thái khác nhau, đừng gộp:
+      //  · đang chọn         → gửi id
+      //  · từng có, nay bỏ   → gửi null (người dùng CHỦ Ý bỏ chọn)
+      //  · chưa bao giờ có   → KHÔNG gửi field, để server điền mặc định theo tổ + công đoạn
+      // Gửi null vô điều kiện thì bước mới thêm tay vĩnh viễn không được điền sẵn.
+      ...(r.khoan_rate_id != null || r.khoan_rate_id_luc_tai != null
+        ? { piece_rate_id: r.khoan_rate_id }
+        : {}),
     };
   });
 }

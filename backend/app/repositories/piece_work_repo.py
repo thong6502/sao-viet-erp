@@ -4,7 +4,11 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from ..models.piece_work import PieceLeaderBonusBracket, PieceRate
+from ..models.piece_work import (
+    PieceLeaderBonusBracket,
+    PieceLeaderBonusSetting,
+    PieceRate,
+)
 
 
 class PieceWorkRepository:
@@ -69,6 +73,31 @@ class PieceWorkRepository:
         for r in rows:
             self.db.add(PieceLeaderBonusBracket(department_id=department_id, **r))
         self.db.commit()
+
+    # --- Ngưỡng tối thiểu để xét thưởng/phạt (chủ 30/07/2026) ----------------
+
+    def get_leader_settings(self, department_id: int) -> PieceLeaderBonusSetting | None:
+        """`None` = tổ chưa khai ngưỡng ⇒ không gác. Khác hẳn ngưỡng = 0 về mặt ý định, nhưng cùng
+        hành vi, nên tầng service quy cả hai về 0."""
+        return self.db.execute(
+            select(PieceLeaderBonusSetting).where(
+                PieceLeaderBonusSetting.department_id == department_id
+            )
+        ).scalars().first()
+
+    def upsert_leader_settings(self, department_id: int, *,
+                               min_output_qty: float) -> PieceLeaderBonusSetting:
+        """Mỗi tổ đúng MỘT dòng (`department_id` UNIQUE) — có thì sửa, chưa có thì tạo."""
+        s = self.get_leader_settings(department_id)
+        if s is None:
+            s = PieceLeaderBonusSetting(department_id=department_id,
+                                        min_output_qty=min_output_qty)
+            self.db.add(s)
+        else:
+            s.min_output_qty = min_output_qty
+        self.db.commit()
+        self.db.refresh(s)
+        return s
 
     def commit(self) -> None:
         self.db.commit()

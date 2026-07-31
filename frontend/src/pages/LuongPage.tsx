@@ -16,6 +16,9 @@ import {
   AlertTriangle,
   Wallet,
   FileText,
+  Calculator,
+  Receipt,
+  HandCoins,
 } from "lucide-react";
 import {
   api,
@@ -47,7 +50,14 @@ import { KhoanRatesEditor } from "../components/KhoanRatesEditor";
 import "./nhan-su.css";
 import "./luong.css";
 
-type Tab = "bang" | "nhanvien" | "khoan" | "tamung" | "cauhinh" | "phieu" | "tamung-me";
+type Tab =
+  | "bang"
+  | "nhanvien"
+  | "khoan"
+  | "tamung"
+  | "cauhinh"
+  | "phieu"
+  | "tamung-me";
 
 function money(n: number | null | undefined): string {
   if (n == null) return "0";
@@ -94,7 +104,13 @@ function bonusRows(l: PayrollLine): [string, number][] {
   return [
     ...(l.components ?? [])
       .filter((c) => c.kind !== "tru" && c.source === "line")
-      .map((c) => [c.note ? `${c.name} (${c.note})` : c.name, c.amount] as [string, number]),
+      .map(
+        (c) =>
+          [c.note ? `${c.name} (${c.note})` : c.name, c.amount] as [
+            string,
+            number,
+          ],
+      ),
     ...legacyBonusRows(l),
   ];
 }
@@ -103,7 +119,9 @@ function bonusTotal(l: PayrollLine): number {
 }
 function bonusTitle(l: PayrollLine): string {
   const rows = bonusRows(l);
-  return rows.length ? rows.map(([k, v]) => `${k}: ${money(v)}`).join(" · ") : "";
+  return rows.length
+    ? rows.map(([k, v]) => `${k}: ${money(v)}`).join(" · ")
+    : "";
 }
 
 export function LuongPage({
@@ -154,59 +172,83 @@ export function LuongPage({
         </div>
       </header>
 
-      <nav className="ns-tabs cc-tabs">
-        {canManage && (
+      <nav className="ns-tabs cc-tabs lg-tabs" aria-label="Phân hệ Lương">
+        <div className="lg-tabs__group">
+          {canManage && (
+            <button
+              className={`lg-tab-btn ${tab === "bang" ? "is-active" : ""}`}
+              onClick={() => go("bang")}
+              title="Quản lý bảng lương tháng"
+            >
+              <Calendar className="lg-tab-btn__icon" />
+              <span>Bảng lương tháng</span>
+            </button>
+          )}
+          {canManage && (
+            <button
+              className={`lg-tab-btn ${tab === "nhanvien" ? "is-active" : ""}`}
+              onClick={() => go("nhanvien")}
+              title="Khai báo & điều chỉnh lương nhân viên"
+            >
+              <Users className="lg-tab-btn__icon" />
+              <span>Lương nhân viên</span>
+            </button>
+          )}
+          {canManage && (
+            <button
+              className={`lg-tab-btn ${tab === "khoan" ? "is-active" : ""}`}
+              onClick={() => go("khoan")}
+              title="Quản lý lương khoán"
+            >
+              <Calculator className="lg-tab-btn__icon" />
+              <span>Lương khoán</span>
+            </button>
+          )}
+          {canManage && (
+            <button
+              className={`lg-tab-btn ${tab === "tamung" ? "is-active" : ""}`}
+              onClick={() => go("tamung")}
+              title="Duyệt & quản lý tạm ứng"
+            >
+              <Wallet className="lg-tab-btn__icon" />
+              <span>Tạm ứng</span>
+            </button>
+          )}
+          {canReadConfig && (
+            <button
+              className={`lg-tab-btn ${tab === "cauhinh" ? "is-active" : ""}`}
+              onClick={() => go("cauhinh")}
+              title="Cấu hình thang bậc lương & cơ chế"
+            >
+              <Sliders className="lg-tab-btn__icon" />
+              <span>Cấu hình lương</span>
+              {cfgDirty && (
+                <span className="lg-tab-badge lg-tab-badge--dirty" title="Có thay đổi chưa lưu">•</span>
+              )}
+            </button>
+          )}
+        </div>
+
+        {canManage && <div className="lg-tabs__divider" aria-hidden="true" />}
+
+        <div className="lg-tabs__group lg-tabs__group--personal">
           <button
-            className={tab === "bang" ? "is-active" : ""}
-            onClick={() => go("bang")}
+            className={`lg-tab-btn ${tab === "phieu" ? "is-active" : ""}`}
+            onClick={() => go("phieu")}
+            title="Xem phiếu lương cá nhân"
           >
-            Bảng lương tháng
+            <Receipt className="lg-tab-btn__icon" />
+            <span>Phiếu lương của tôi</span>
           </button>
-        )}
-        {canManage && (
           <button
-            className={tab === "nhanvien" ? "is-active" : ""}
-            onClick={() => go("nhanvien")}
+            className={`lg-tab-btn ${tab === "tamung-me" ? "is-active" : ""}`}
+            onClick={() => go("tamung-me")}
+            title="Đề nghị & theo dõi tạm ứng cá nhân"
           >
-            Lương nhân viên
+            <HandCoins className="lg-tab-btn__icon" />
+            <span>Tạm ứng của tôi</span>
           </button>
-        )}
-        {canManage && (
-          <button
-            className={tab === "khoan" ? "is-active" : ""}
-            onClick={() => go("khoan")}
-          >
-            Lương khoán
-          </button>
-        )}
-        {canManage && (
-          <button
-            className={tab === "tamung" ? "is-active" : ""}
-            onClick={() => go("tamung")}
-          >
-            Tạm ứng
-          </button>
-        )}
-        {canReadConfig && (
-          <button
-            className={tab === "cauhinh" ? "is-active" : ""}
-            onClick={() => go("cauhinh")}
-          >
-            Cấu hình lương
-          </button>
-        )}
-        <button
-          className={tab === "phieu" ? "is-active" : ""}
-          onClick={() => go("phieu")}
-        >
-          Phiếu lương của tôi
-        </button>
-        <button
-          className={tab === "tamung-me" ? "is-active" : ""}
-          onClick={() => go("tamung-me")}
-        >
-          Tạm ứng của tôi
-        </button>
+        </div>
       </nav>
 
       {tab === "bang" && canManage && <BangLuongTab token={token!} />}
@@ -214,12 +256,20 @@ export function LuongPage({
         <NhanVienTab token={token!} focusEmployeeId={focusEmployeeId} />
       )}
       {tab === "khoan" && canManage && <KhoanTab token={token!} />}
-      {tab === "tamung" && canManage && <TamUngTab token={token!} eventTick={eventTick} />}
+      {tab === "tamung" && canManage && (
+        <TamUngTab token={token!} eventTick={eventTick} />
+      )}
       {tab === "cauhinh" && canReadConfig && (
-        <CauHinhLuongTab token={token!} readOnly={!canManage} onDirtyChange={setCfgDirty} />
+        <CauHinhLuongTab
+          token={token!}
+          readOnly={!canManage}
+          onDirtyChange={setCfgDirty}
+        />
       )}
       {tab === "phieu" && <PhieuLuongTab token={token!} />}
-      {tab === "tamung-me" && <TamUngCuaToiTab token={token!} eventTick={eventTick} />}
+      {tab === "tamung-me" && (
+        <TamUngCuaToiTab token={token!} eventTick={eventTick} />
+      )}
 
       <DiscardChangesDialog
         open={pendingTab !== null}
@@ -296,7 +346,11 @@ function BangLuongTab({ token }: { token: string }) {
   const totalWorkdays = shown.reduce((s, l) => s + (l.actual_cong ?? 0), 0);
   const totalDeductions = shown.reduce(
     (s, l) =>
-      s + (l.vi_pham ?? 0) + (l.bhxh ?? 0) + (l.advance_total ?? 0) + (l.luong_dot_1_total ?? 0),
+      s +
+      (l.vi_pham ?? 0) +
+      (l.bhxh ?? 0) +
+      (l.advance_total ?? 0) +
+      (l.luong_dot_1_total ?? 0),
     0,
   );
 
@@ -513,7 +567,9 @@ function BangLuongTab({ token }: { token: string }) {
                 <div className="lg-source-item">
                   <div className="lg-source-item-head">
                     <span className="lg-source-bullet lg-source-bullet--active"></span>
-                    <span className="lg-source-name">Thang bậc lương của tổ</span>
+                    <span className="lg-source-name">
+                      Thang bậc lương của tổ
+                    </span>
                   </div>
                   <span className="lg-source-text">
                     Áp dụng mức lương chuẩn theo vị trí, tổ nhóm công tác, thâm
@@ -660,12 +716,19 @@ function BangLuongTab({ token }: { token: string }) {
                     className="lg-num"
                     title={[
                       l.night_days ? `${l.night_days} ngày ca đêm` : "",
-                      l.night_pay ? `phụ cấp ca (tay) ${money(l.night_pay)}` : "",
-                      l.night_premium_pay ? `premium giờ×hệ số ${money(l.night_premium_pay)}` : "",
-                    ].filter(Boolean).join(" · ")}
+                      l.night_pay
+                        ? `phụ cấp ca (tay) ${money(l.night_pay)}`
+                        : "",
+                      l.night_premium_pay
+                        ? `premium giờ×hệ số ${money(l.night_premium_pay)}`
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   >
-                    {(l.night_pay || l.night_premium_pay)
-                      ? money((l.night_pay ?? 0) + (l.night_premium_pay ?? 0)) : "—"}
+                    {l.night_pay || l.night_premium_pay
+                      ? money((l.night_pay ?? 0) + (l.night_premium_pay ?? 0))
+                      : "—"}
                   </td>
                   <td className={`lg-num ${l.vi_pham ? "lg-minus" : ""}`}>
                     {l.vi_pham ? "−" + money(l.vi_pham) : "—"}
@@ -679,12 +742,18 @@ function BangLuongTab({ token }: { token: string }) {
                   <td className="lg-num lg-minus">
                     {l.bhxh ? "−" + money(l.bhxh) : "—"}
                   </td>
-                  <td className={`lg-num ${(l.advance_total || l.luong_dot_1_total) ? "lg-minus" : ""}`}>
+                  <td
+                    className={`lg-num ${l.advance_total || l.luong_dot_1_total ? "lg-minus" : ""}`}
+                  >
                     {l.luong_dot_1_total ? (
-                      <div title="Thanh toán lương đợt 1">−{money(l.luong_dot_1_total)}</div>
+                      <div title="Thanh toán lương đợt 1">
+                        −{money(l.luong_dot_1_total)}
+                      </div>
                     ) : null}
                     {l.advance_total ? (
-                      <div title="Tạm ứng đã nhận">−{money(l.advance_total)}</div>
+                      <div title="Tạm ứng đã nhận">
+                        −{money(l.advance_total)}
+                      </div>
                     ) : null}
                     {!l.advance_total && !l.luong_dot_1_total ? "—" : null}
                   </td>
@@ -698,7 +767,12 @@ function BangLuongTab({ token }: { token: string }) {
                         Sửa
                       </button>
                     )}
-                    <button className="btn btn--ghost" onClick={() => setPrinting(l)}>In</button>
+                    <button
+                      className="btn btn--ghost"
+                      onClick={() => setPrinting(l)}
+                    >
+                      In
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -744,14 +818,26 @@ function BangLuongTab({ token }: { token: string }) {
           <div className="ns-modal__box ns-modal__box--wide">
             <header className="ns-modal__head lg-payslip-noprint">
               <h2>Phiếu lương — {printing.employee_name}</h2>
-              <button className="ns-modal__x" onClick={() => setPrinting(null)}>×</button>
+              <button className="ns-modal__x" onClick={() => setPrinting(null)}>
+                ×
+              </button>
             </header>
             <div className="ns-modal__body">
               <PayslipCard line={printing} period={period} />
             </div>
             <footer className="ns-modal__foot lg-payslip-noprint">
-              <button className="btn btn--ghost" onClick={() => setPrinting(null)}>Đóng</button>
-              <button className="btn btn--primary" onClick={() => window.print()}>🖨 In phiếu</button>
+              <button
+                className="btn btn--ghost"
+                onClick={() => setPrinting(null)}
+              >
+                Đóng
+              </button>
+              <button
+                className="btn btn--primary"
+                onClick={() => window.print()}
+              >
+                🖨 In phiếu
+              </button>
             </footer>
           </div>
         </div>
@@ -779,20 +865,21 @@ function LineEditModal({
   onSaved: () => void;
 }) {
   const [viPham, setViPham] = useState(line.vi_pham);
-  // % đạt KPI của tháng → tiền = % × mức TRẦN KPI khai ở Cấu hình lương (tab Cơ chế bộ phận).
-  const [kpi, setKpi] = useState(line.kpi_percent);
   const [note, setNote] = useState(line.note ?? "");
   // ⚠️ KHÔNG còn ô thưởng ở đây (chủ 28/07/2026: "khoản 5s hay thưởng gì thì cho nó select từ
   // quy tắc, để coi nó chịu thuế hay không"). 5 ô thưởng + "Thưởng khác" đã bị gỡ; thưởng khai ở
   // khối "Khoản phát sinh tháng này" bên dưới. Backend cũng đã bỏ chúng khỏi `LineUpdateIn`.
   const [detail, setDetail] = useState({
-    di_tre: line.di_tre, dt_vuot_troi: line.dt_vuot_troi,
-    phat_bien_ban: line.phat_bien_ban, phat_5s_dong_phuc: line.phat_5s_dong_phuc,
+    di_tre: line.di_tre,
+    dt_vuot_troi: line.dt_vuot_troi,
+    phat_bien_ban: line.phat_bien_ban,
+    phat_5s_dong_phuc: line.phat_5s_dong_phuc,
   });
   // Cột thưởng CŨ còn số (kỳ chốt trước 28/07/2026, hoặc dòng migration cố ý không đụng vì HCNS
   // đã tự thêm khoản trùng) → hiện CHỈ ĐỌC để tổng trên màn khớp phiếu, không cho sửa.
   const legacyBonus = legacyBonusRows(line);
-  const setD = (k: keyof typeof detail, v: number) => setDetail((d) => ({ ...d, [k]: v }));
+  const setD = (k: keyof typeof detail, v: number) =>
+    setDetail((d) => ({ ...d, [k]: v }));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // Ô "Đi trễ": mặc định TỰ ĐỘNG từ chấm công. `di_tre_manual` = HCNS đã ghi đè tay.
@@ -806,10 +893,16 @@ function LineEditModal({
   const [lcErr, setLcErr] = useState<string | null>(null);
   const [lcOk, setLcOk] = useState<string | null>(null);
   const [lcBusyId, setLcBusyId] = useState<number | null>(null);
-  const [lcDraft, setLcDraft] = useState<Record<number, { amount: number; note: string }>>({});
+  const [lcDraft, setLcDraft] = useState<
+    Record<number, { amount: number; note: string }>
+  >({});
   const [lcCatalog, setLcCatalog] = useState<PayrollComponent[] | null>(null);
   const [lcCatalogErr, setLcCatalogErr] = useState<string | null>(null);
-  const [lcAdd, setLcAdd] = useState<{ component_id: number; amount: number; note: string } | null>(null);
+  const [lcAdd, setLcAdd] = useState<{
+    component_id: number;
+    amount: number;
+    note: string;
+  } | null>(null);
   const [lcAddBusy, setLcAddBusy] = useState(false);
   // Sửa khoản ⇒ backend tính lại dòng ⇒ các số tổng ở đầu modal (`line`) thành CŨ. Nói ra chứ
   // đừng để người dùng đọc số cũ tưởng là số mới.
@@ -823,7 +916,10 @@ function LineEditModal({
       // đang gõ dở ở dòng bên cạnh là mất công gõ lại (và dễ gõ nhầm số tiền lần hai).
       setLcDraft((prev) =>
         Object.fromEntries(
-          r.items.map((x) => [x.id, prev[x.id] ?? { amount: x.amount, note: x.note ?? "" }]),
+          r.items.map((x) => [
+            x.id,
+            prev[x.id] ?? { amount: x.amount, note: x.note ?? "" },
+          ]),
         ),
       );
       setLcErr(null);
@@ -919,8 +1015,10 @@ function LineEditModal({
       // để backend tính lại TNCN theo thu nhập chịu thuế mới (không cho sửa tay).
       const { di_tre, ...restDetail } = detail;
       const input = {
-        vi_pham: viPham, kpi_percent: kpi, pit_manual: false,
-        note: note || null, ...restDetail,
+        vi_pham: viPham,
+        pit_manual: false,
+        note: note || null,
+        ...restDetail,
         // Đi trễ: chỉ gửi số TAY khi HCNS chủ động sửa (khóa auto); bỏ về tự động → gửi cờ false
         // (backend tính lại từ chấm công). Auto không đổi → không gửi gì, giữ nguyên số auto.
         ...(diTreManual
@@ -970,31 +1068,18 @@ function LineEditModal({
                 onChange={(e) => setViPham(Number(e.target.value))}
               />
             </label>
-            <label className="ns-field">
-              <span className="ns-field__label">KPI (%)</span>
-              <input
-                type="number"
-                min={0}
-                max={200}
-                step={5}
-                value={kpi}
-                onChange={(e) => setKpi(Number(e.target.value))}
-              />
-              <span className="cc-card__hint">
-                % đạt của tháng × mức trần KPI của bộ phận. Bộ phận tắt KPI → luôn 0. Thưởng
-                KPI hiện tại: <b>{money(line.kpi_bonus)}đ</b>
-              </span>
-            </label>
           </div>
           {legacyBonus.length > 0 && (
             <>
               <h4 className="ns-section__title" style={{ marginTop: 14 }}>
-                Khoản kỳ cũ <span className="ns-badge ns-badge--muted">chỉ đọc</span>
+                Khoản kỳ cũ{" "}
+                <span className="ns-badge ns-badge--muted">chỉ đọc</span>
               </h4>
               <p className="cc-note">
                 Các ô thưởng nhập tay đã ngừng dùng từ 28/07/2026 — nay khai ở{" "}
-                <b>Khoản phát sinh tháng này</b> để chọn được chịu thuế hay miễn thuế. Số dưới đây
-                là của kỳ cũ, <b>vẫn được trả</b> và giữ nguyên để phiếu lương đã ký không đổi.
+                <b>Khoản phát sinh tháng này</b> để chọn được chịu thuế hay miễn
+                thuế. Số dưới đây là của kỳ cũ, <b>vẫn được trả</b> và giữ
+                nguyên để phiếu lương đã ký không đổi.
               </p>
               <div className="lg-legacy">
                 {legacyBonus.map(([lbl, v]) => (
@@ -1006,12 +1091,16 @@ function LineEditModal({
               </div>
             </>
           )}
-          <h4 className="ns-section__title" style={{ marginTop: 12 }}>Các khoản giảm trừ (phạt)</h4>
+          <h4 className="ns-section__title" style={{ marginTop: 12 }}>
+            Các khoản giảm trừ (phạt)
+          </h4>
           <div className="ns-grid">
             <label className="ns-field">
               <span className="ns-field__label">
                 Đi trễ / nghỉ KP{" "}
-                <span className={`ns-badge ${diTreManual ? "ns-badge--muted" : "ns-badge--ok"}`}>
+                <span
+                  className={`ns-badge ${diTreManual ? "ns-badge--muted" : "ns-badge--ok"}`}
+                >
                   {diTreManual ? "đã sửa tay" : "tự động"}
                 </span>
               </span>
@@ -1026,14 +1115,23 @@ function LineEditModal({
                 {diTreManual ? (
                   <>
                     Đang dùng số nhập tay.{" "}
-                    <button type="button" className="lg-linkbtn" onClick={() => setDiTreManual(false)}>
+                    <button
+                      type="button"
+                      className="lg-linkbtn"
+                      onClick={() => setDiTreManual(false)}
+                    >
                       ↩ Về tự động từ chấm công
                     </button>
                   </>
                 ) : (
                   <>
-                    Tự tính từ chấm công (bảng phạt × số phút trễ/về sớm KHÔNG phép mỗi ngày).{" "}
-                    <button type="button" className="lg-linkbtn" onClick={() => setDiTreManual(true)}>
+                    Tự tính từ chấm công (bảng phạt × số phút trễ/về sớm KHÔNG
+                    phép mỗi ngày).{" "}
+                    <button
+                      type="button"
+                      className="lg-linkbtn"
+                      onClick={() => setDiTreManual(true)}
+                    >
                       ✎ Sửa tay
                     </button>
                   </>
@@ -1058,8 +1156,8 @@ function LineEditModal({
             Khoản phát sinh tháng này
           </h4>
           <p className="cc-note">
-            Khoản ở đây <b>chỉ có ở kỳ này, không lặp sang tháng sau</b> — đúng chỗ để khai
-            thưởng nóng. Khoản trả đều hằng tháng thì gán ở{" "}
+            Khoản ở đây <b>chỉ có ở kỳ này, không lặp sang tháng sau</b> — đúng
+            chỗ để khai thưởng nóng. Khoản trả đều hằng tháng thì gán ở{" "}
             <b>Lương → Lương nhân viên → Sửa lương</b>. Thao tác ở khối này{" "}
             <b>lưu ngay</b>, không chờ nút “Lưu” bên dưới.
           </p>
@@ -1076,7 +1174,11 @@ function LineEditModal({
             {lcRows === null ? (
               <div className="lg-lc__empty">
                 {lcErr ? (
-                  <button type="button" className="lg-linkbtn" onClick={() => void loadLineComps()}>
+                  <button
+                    type="button"
+                    className="lg-linkbtn"
+                    onClick={() => void loadLineComps()}
+                  >
                     Thử tải lại
                   </button>
                 ) : (
@@ -1090,8 +1192,12 @@ function LineEditModal({
             ) : (
               lcRows.map((r) => {
                 const fromEmp = r.source === "employee";
-                const d = lcDraft[r.id] ?? { amount: r.amount, note: r.note ?? "" };
-                const dirty = d.amount !== r.amount || (d.note.trim() || null) !== r.note;
+                const d = lcDraft[r.id] ?? {
+                  amount: r.amount,
+                  note: r.note ?? "",
+                };
+                const dirty =
+                  d.amount !== r.amount || (d.note.trim() || null) !== r.note;
                 const rowBusy = lcBusyId === r.id;
                 return (
                   <div
@@ -1101,12 +1207,17 @@ function LineEditModal({
                     <div className="lg-lc__name">
                       {r.name}
                       {fromEmp && (
-                        <span className="ns-badge ns-badge--muted" style={{ marginLeft: 6 }}>
+                        <span
+                          className="ns-badge ns-badge--muted"
+                          style={{ marginLeft: 6 }}
+                        >
                           Từ hồ sơ
                         </span>
                       )}
                       {fromEmp && (
-                        <span className="lg-lc__src">sửa ở Lương → Lương nhân viên</span>
+                        <span className="lg-lc__src">
+                          sửa ở Lương → Lương nhân viên
+                        </span>
                       )}
                     </div>
                     <div>
@@ -1186,7 +1297,8 @@ function LineEditModal({
                             onClick={() =>
                               void lcRun(
                                 r.id,
-                                () => api.luong.deleteLineComponent(token, r.id),
+                                () =>
+                                  api.luong.deleteLineComponent(token, r.id),
                                 `Đã xoá khoản “${r.name}” khỏi kỳ này.`,
                               )
                             }
@@ -1225,7 +1337,8 @@ function LineEditModal({
                   </option>
                 ))}
                 <option value="" disabled>
-                  Không thấy khoản cần dùng? Tạo ở Cấu hình lương → Danh mục khoản thu nhập.
+                  Không thấy khoản cần dùng? Tạo ở Cấu hình lương → Danh mục
+                  khoản thu nhập.
                 </option>
               </select>
               <input
@@ -1235,7 +1348,9 @@ function LineEditModal({
                 placeholder="Số tiền"
                 aria-label="Số tiền khoản phát sinh"
                 value={lcAdd.amount || ""}
-                onChange={(e) => setLcAdd({ ...lcAdd, amount: Number(e.target.value) })}
+                onChange={(e) =>
+                  setLcAdd({ ...lcAdd, amount: Number(e.target.value) })
+                }
               />
               <input
                 type="text"
@@ -1286,8 +1401,8 @@ function LineEditModal({
           )}
           {lcTouched && (
             <p className="cc-card__hint">
-              Đã tính lại dòng lương này. Các số tổng ở đầu màn (phụ cấp · thu nhập tính thuế ·
-              TNCN) cập nhật sau khi đóng màn.
+              Đã tính lại dòng lương này. Các số tổng ở đầu màn (phụ cấp · thu
+              nhập tính thuế · TNCN) cập nhật sau khi đóng màn.
             </p>
           )}
 
@@ -1565,13 +1680,11 @@ function SalaryModal({
   const reload = useCallback(async () => {
     const [prev, hist] = await Promise.all([
       api.luong.salaryPreview(token, emp.id).catch(() => null),
-      api.luong
-        .salaries(token, emp.id)
-        .catch(() => ({
-          items: [] as EmployeeSalary[],
-          employee_id: emp.id,
-          employee_name: null,
-        })),
+      api.luong.salaries(token, emp.id).catch(() => ({
+        items: [] as EmployeeSalary[],
+        employee_id: emp.id,
+        employee_name: null,
+      })),
     ]);
     setPreview(prev);
     setHistory(hist.items);
@@ -1694,7 +1807,9 @@ function SalaryModal({
    *  danh sách (chống gán trùng, đúng ràng buộc UNIQUE ở DB); khoản đã ngừng áp dụng cũng ẩn
    *  (backend chặn gán mới). */
   const assigned = new Set((comps ?? []).map((r) => r.component_id));
-  const addable = (catalog ?? []).filter((c) => c.is_active && !assigned.has(c.id));
+  const addable = (catalog ?? []).filter(
+    (c) => c.is_active && !assigned.has(c.id),
+  );
 
   /** Chọn khoản từ danh mục ⇒ thêm MỘT dòng nháp (chưa gọi API). Số tiền + ghi chú gõ xong
    *  mới bấm "Lưu điều chỉnh" — cùng một nhịp lưu với các ô lương, không lưu lắt nhắt. */
@@ -1723,7 +1838,9 @@ function SalaryModal({
    *  làm người dùng tưởng đã gỡ trong khi tiền vẫn đang chạy. */
   async function removeComp(row: CompRow) {
     if (row.saved === null) {
-      setComps((list) => (list ?? []).filter((r) => r.component_id !== row.component_id));
+      setComps((list) =>
+        (list ?? []).filter((r) => r.component_id !== row.component_id),
+      );
       return;
     }
     setCompBusy(row.component_id);
@@ -1732,8 +1849,12 @@ function SalaryModal({
       await api.luong.components.setEmployeeValues(token, emp.id, [
         { component_id: row.component_id, amount: null },
       ]);
-      setComps((list) => (list ?? []).filter((r) => r.component_id !== row.component_id));
-      setOk(`Đã gỡ khoản “${row.name}” khỏi ${emp.full_name}. Kỳ lương đã chốt giữ nguyên số cũ.`);
+      setComps((list) =>
+        (list ?? []).filter((r) => r.component_id !== row.component_id),
+      );
+      setOk(
+        `Đã gỡ khoản “${row.name}” khỏi ${emp.full_name}. Kỳ lương đã chốt giữ nguyên số cũ.`,
+      );
     } catch (e) {
       setErr(errText(e));
     } finally {
@@ -1744,7 +1865,10 @@ function SalaryModal({
   /** Đổi cách tính thuế = đổi TIỀN THUẾ của người đó (bỏ/lấy lại giảm trừ gia cảnh) ⇒ hỏi lại
    *  trước khi lưu, không để bấm nhầm. Không đổi nhánh thì lưu thẳng. */
   const pitChanged =
-    canEditPit && pitMode != null && detail != null && pitMode !== detail.pit_mode;
+    canEditPit &&
+    pitMode != null &&
+    detail != null &&
+    pitMode !== detail.pit_mode;
   function saveSalary() {
     if (pitChanged) {
       setPitConfirm(true);
@@ -1838,7 +1962,9 @@ function SalaryModal({
           );
         }
       }
-      setOk("Đã lưu lương (hiệu lực từ hôm nay " + fmtYmd(eff) + ")." + pitNote);
+      setOk(
+        "Đã lưu lương (hiệu lực từ hôm nay " + fmtYmd(eff) + ")." + pitNote,
+      );
       reload();
     } catch (e) {
       setErr(errText(e));
@@ -1850,7 +1976,7 @@ function SalaryModal({
   // Tiền BHXH/BHYT/BHTN nhân viên đóng — theo TỶ LỆ đã cấu hình + áp trần RIÊNG đúng như engine
   // (_compute): mức đóng BH = LƯƠNG CƠ BẢN (chỉ vị trí), KHÔNG gồm trách nhiệm.
   const salaryBase = luongViTri + luongTrachNhiem; // mức nền: prorate công + gốc tính tăng ca
-  const bhBase = luongViTri;                        // đóng BH trên lương cơ bản (vị trí)
+  const bhBase = luongViTri; // đóng BH trên lương cơ bản (vị trí)
 
   // Tổng khoản THU của danh mục (khoản `tru` là khấu trừ, không cộng vào đây) + số cũ gộp cục.
   const compThu = (comps ?? []).reduce(
@@ -1936,7 +2062,8 @@ function SalaryModal({
   const deductionTotal =
     deductionSelf == null || deductionDependent == null
       ? null
-      : (applySelfDeduction ? deductionSelf : 0) + deductionDependent * dependents;
+      : (applySelfDeduction ? deductionSelf : 0) +
+        deductionDependent * dependents;
 
   return (
     <div className="ns-modal" role="dialog" aria-modal="true">
@@ -1977,8 +2104,9 @@ function SalaryModal({
               được. Cờ chịu thuế do ENGINE quyết (xem type SysRow) nên chỉ đọc. */}
           <h4 className="ns-section__title">Lương &amp; phụ cấp cố định</h4>
           <p className="cc-note">
-            5 ô cố định của phần mềm: sửa được <b>số tiền</b>, không gỡ được. Khi lưu, mức mới{" "}
-            <b>áp dụng từ hôm nay</b> và mốc cũ được giữ trong Lịch sử điều chỉnh.
+            5 ô cố định của phần mềm: sửa được <b>số tiền</b>, không gỡ được.
+            Khi lưu, mức mới <b>áp dụng từ hôm nay</b> và mốc cũ được giữ trong
+            Lịch sử điều chỉnh.
           </p>
           <div className="lg-comp lg-comp--sys">
             <div className="lg-comp__head">
@@ -2019,9 +2147,10 @@ function SalaryModal({
             Khoản thu nhập theo danh mục
           </h4>
           <p className="cc-note">
-            Khoản gán ở đây được trả <b>lặp lại mọi tháng</b> cho tới khi bạn gỡ. Chip{" "}
-            <b>Chịu thuế / Miễn thuế</b> kế thừa từ danh mục gốc — <b>không sửa ở đây</b>.
-            Thưởng nóng chỉ có một tháng thì đừng gán vào đây: khai ở{" "}
+            Khoản gán ở đây được trả <b>lặp lại mọi tháng</b> cho tới khi bạn
+            gỡ. Chip <b>Chịu thuế / Miễn thuế</b> kế thừa từ danh mục gốc —{" "}
+            <b>không sửa ở đây</b>. Thưởng nóng chỉ có một tháng thì đừng gán
+            vào đây: khai ở{" "}
             <b>Bảng lương → Sửa dòng → Khoản phát sinh tháng này</b>.
           </p>
           <div className="lg-comp lg-comp--cat">
@@ -2037,7 +2166,11 @@ function SalaryModal({
                 {compsErr ? (
                   <>
                     Không đọc được khoản của người này ({compsErr}).{" "}
-                    <button type="button" className="lg-linkbtn" onClick={() => void loadComps()}>
+                    <button
+                      type="button"
+                      className="lg-linkbtn"
+                      onClick={() => void loadComps()}
+                    >
                       Thử lại
                     </button>
                   </>
@@ -2059,12 +2192,18 @@ function SalaryModal({
                   <div className="lg-comp__name">
                     {r.name}
                     {r.kind === "tru" && (
-                      <span className="ns-badge ns-badge--danger" style={{ marginLeft: 6 }}>
+                      <span
+                        className="ns-badge ns-badge--danger"
+                        style={{ marginLeft: 6 }}
+                      >
                         Trừ
                       </span>
                     )}
                     {r.saved === null && (
-                      <span className="ns-badge ns-badge--muted" style={{ marginLeft: 6 }}>
+                      <span
+                        className="ns-badge ns-badge--muted"
+                        style={{ marginLeft: 6 }}
+                      >
                         chưa lưu
                       </span>
                     )}
@@ -2092,7 +2231,9 @@ function SalaryModal({
                       value={r.draft}
                       disabled={compBusy === r.component_id}
                       onChange={(e) =>
-                        setRow(r.component_id, { draft: Number(e.target.value) })
+                        setRow(r.component_id, {
+                          draft: Number(e.target.value),
+                        })
                       }
                     />
                   </div>
@@ -2104,7 +2245,9 @@ function SalaryModal({
                       aria-label={`Ghi chú khoản ${r.name}`}
                       value={r.note}
                       disabled={compBusy === r.component_id}
-                      onChange={(e) => setRow(r.component_id, { note: e.target.value })}
+                      onChange={(e) =>
+                        setRow(r.component_id, { note: e.target.value })
+                      }
                     />
                   </div>
                   <div className="lg-comp__act">
@@ -2145,10 +2288,15 @@ function SalaryModal({
                     </option>
                   ))}
                   <option value="" disabled>
-                    Không thấy khoản cần dùng? Tạo ở Cấu hình lương → Danh mục khoản thu nhập.
+                    Không thấy khoản cần dùng? Tạo ở Cấu hình lương → Danh mục
+                    khoản thu nhập.
                   </option>
                 </select>
-                <button type="button" className="btn btn--ghost" onClick={() => setPicking(false)}>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => setPicking(false)}
+                >
                   Hủy
                 </button>
               </>
@@ -2164,14 +2312,14 @@ function SalaryModal({
             )}
             {catalogErr && (
               <span className="cc-card__hint">
-                Không đọc được danh mục khoản thu nhập ({catalogErr}) — chưa chọn thêm khoản
-                được.
+                Không đọc được danh mục khoản thu nhập ({catalogErr}) — chưa
+                chọn thêm khoản được.
               </span>
             )}
             {catalog !== null && addable.length === 0 && !picking && (
               <span className="cc-card__hint">
-                Đã gán hết khoản đang bật trong danh mục. Cần khoản mới thì tạo ở{" "}
-                <b>Cấu hình lương → Danh mục khoản thu nhập</b>.
+                Đã gán hết khoản đang bật trong danh mục. Cần khoản mới thì tạo
+                ở <b>Cấu hình lương → Danh mục khoản thu nhập</b>.
               </span>
             )}
           </div>
@@ -2200,13 +2348,15 @@ function SalaryModal({
                 onChange={(e) => setLuongDot1(Number(e.target.value))}
               />
               <span className="cc-card__hint">
-                Mức trả trong MỘT lần, KHÔNG cộng vào lương tháng. Đây chỉ là số điền sẵn — muốn
-                trả đợt 1 thì sang tab <b>Tạm ứng</b> bấm <b>“+ Phiếu lương đợt 1”</b>, duyệt
-                xong mới trừ vào lương.
+                Mức trả trong MỘT lần, KHÔNG cộng vào lương tháng. Đây chỉ là số
+                điền sẵn — muốn trả đợt 1 thì sang tab <b>Tạm ứng</b> bấm{" "}
+                <b>“+ Phiếu lương đợt 1”</b>, duyệt xong mới trừ vào lương.
               </span>
             </label>
             <label className="ns-field">
-              <span className="ns-field__label">% hoa hồng (NV kinh doanh)</span>
+              <span className="ns-field__label">
+                % hoa hồng (NV kinh doanh)
+              </span>
               <input
                 type="number"
                 min={0}
@@ -2214,11 +2364,15 @@ function SalaryModal({
                 step={0.5}
                 placeholder="0"
                 value={commissionPct || ""}
-                onChange={(e) => setCommissionPct(e.target.value === "" ? 0 : Number(e.target.value))}
+                onChange={(e) =>
+                  setCommissionPct(
+                    e.target.value === "" ? 0 : Number(e.target.value),
+                  )
+                }
               />
               <span className="cc-card__hint">
                 Bỏ trống / 0 nếu không phải nhân viên kinh doanh.
-                 {/* Ô này <b>chỉ để KHAI</b> — hệ
+                {/* Ô này <b>chỉ để KHAI</b> — hệ
                 thống <b>CHƯA tự cộng hoa hồng vào lương</b>. Muốn trả thì vẫn phải thêm bằng tay
                 ở <b>khoản thu nhập</b> của nhân viên hoặc ngay trên phiếu lương. */}
               </span>
@@ -2228,7 +2382,9 @@ function SalaryModal({
           {/* Số phụ cấp GỘP MỘT CỤC của dữ liệu cũ — CHỈ ĐỌC, không xoá dữ liệu cũ. */}
           {allowance > 0 && (
             <div className="ns-field lg-legacy" style={{ marginTop: 12 }}>
-              <span className="ns-field__label">Các khoản phụ cấp (số cũ, gộp một cục)</span>
+              <span className="ns-field__label">
+                Các khoản phụ cấp (số cũ, gộp một cục)
+              </span>
               <input
                 type="number"
                 value={allowance}
@@ -2237,8 +2393,9 @@ function SalaryModal({
                 aria-label="Các khoản phụ cấp gộp một cục (số cũ, chỉ đọc)"
               />
               <span className="cc-card__hint">
-                Số cũ gộp một cục — nên tách ra từng khoản bên trên. Hệ thống vẫn cộng đủ số này
-                như trước nên tách xong mà chưa bỏ số cũ là <b>cộng hai lần</b>.{" "}
+                Số cũ gộp một cục — nên tách ra từng khoản bên trên. Hệ thống
+                vẫn cộng đủ số này như trước nên tách xong mà chưa bỏ số cũ là{" "}
+                <b>cộng hai lần</b>.{" "}
                 <button
                   type="button"
                   className="lg-linkbtn"
@@ -2260,7 +2417,8 @@ function SalaryModal({
             Bảo hiểm đóng ở nơi khác — công ty chỉ đóng TNLĐ-BNN
           </label>
           <p className="cc-card__hint">
-            Tích khi NV đã được nơi khác đóng BHXH/BHYT/BHTN. Công ty không trừ 3 khoản này của họ.
+            Tích khi NV đã được nơi khác đóng BHXH/BHYT/BHTN. Công ty không trừ
+            3 khoản này của họ.
           </p>
 
           <label className="ns-check" style={{ marginTop: 6 }}>
@@ -2272,7 +2430,8 @@ function SalaryModal({
             Đoàn viên công đoàn — có trừ đoàn phí công đoàn
           </label>
           <p className="cc-card__hint">
-            Chỉ đoàn viên mới bị trừ đoàn phí công đoàn (theo tỷ lệ ở Cấu hình lương). Không tích = không trừ.
+            Chỉ đoàn viên mới bị trừ đoàn phí công đoàn (theo tỷ lệ ở Cấu hình
+            lương). Không tích = không trừ.
           </p>
 
           {/* Cấu hình tính thuế TNCN theo TỪNG NGƯỜI. Mọi con số (giảm trừ, tỷ lệ khấu trừ,
@@ -2283,8 +2442,9 @@ function SalaryModal({
           </h4>
           {detailErr && (
             <p className="cc-card__hint">
-              ⚠ Không đọc được hồ sơ nhân sự của người này ({detailErr}) — phần cách tính thuế
-              và người phụ thuộc chỉ hiện được khi đọc được hồ sơ.
+              ⚠ Không đọc được hồ sơ nhân sự của người này ({detailErr}) — phần
+              cách tính thuế và người phụ thuộc chỉ hiện được khi đọc được hồ
+              sơ.
             </p>
           )}
           <div className="lg-pit">
@@ -2299,7 +2459,9 @@ function SalaryModal({
               >
                 {!pitKnown && (
                   <option value="">
-                    {detail == null ? "— đang đọc hồ sơ —" : "— không xem được —"}
+                    {detail == null
+                      ? "— đang đọc hồ sơ —"
+                      : "— không xem được —"}
                   </option>
                 )}
                 {PIT_MODE_ORDER.map((m) => (
@@ -2314,31 +2476,38 @@ function SalaryModal({
                   {pitEff === "khau_tru_10" && params && (
                     <>
                       {" "}
-                      Thuế = <b>{pctOf(params.pit_flat_rate)}%</b> × thu nhập chịu thuế, chỉ khấu
-                      trừ khi thu nhập chịu thuế đạt <b>{money(params.pit_flat_threshold)}đ</b>{" "}
-                      trở lên.
+                      Thuế = <b>{pctOf(params.pit_flat_rate)}%</b> × thu nhập
+                      chịu thuế, chỉ khấu trừ khi thu nhập chịu thuế đạt{" "}
+                      <b>{money(params.pit_flat_threshold)}đ</b> trở lên.
                     </>
                   )}
                   {pitEff === "cam_ket_08" && (
-                    <> Chỉ chọn khi đã nhận đủ bản cam kết và người này có mã số thuế cá nhân.</>
+                    <>
+                      {" "}
+                      Chỉ chọn khi đã nhận đủ bản cam kết và người này có mã số
+                      thuế cá nhân.
+                    </>
                   )}
                 </span>
               )}
               {!canEditPit && (
                 <span className="cc-card__hint">
-                  Tài khoản của bạn không có quyền sửa nhóm dữ liệu lương/BHXH của hồ sơ nhân sự
-                  nên ô này chỉ để xem.
+                  Tài khoản của bạn không có quyền sửa nhóm dữ liệu lương/BHXH
+                  của hồ sơ nhân sự nên ô này chỉ để xem.
                 </span>
               )}
               {canEditPit && detail != null && detail.pit_mode == null && (
                 <span className="cc-card__hint">
-                  Không xem được cách tính thuế hiện tại của người này (thiếu quyền xem dữ liệu
-                  lương của hồ sơ) — khoá sửa để không ghi đè nhầm.
+                  Không xem được cách tính thuế hiện tại của người này (thiếu
+                  quyền xem dữ liệu lương của hồ sơ) — khoá sửa để không ghi đè
+                  nhầm.
                 </span>
               )}
             </label>
 
-            <div className={`lg-pit__ded${hasDeduction ? "" : " lg-pit__ded--off"}`}>
+            <div
+              className={`lg-pit__ded${hasDeduction ? "" : " lg-pit__ded--off"}`}
+            >
               {!hasDeduction && (
                 <p className="lg-pit__note">
                   Cách tính này <b>không áp dụng giảm trừ gia cảnh</b>.
@@ -2358,8 +2527,9 @@ function SalaryModal({
                   "Đang đọc mức giảm trừ từ Cấu hình lương…"
                 ) : (
                   <>
-                    Giảm trừ <b>{money(deductionSelf)}đ</b>/tháng. Bỏ tích nếu người này đã đăng
-                    ký giảm trừ ở nơi làm việc khác (chỉ được đăng ký ở <b>MỘT</b> nơi).
+                    Giảm trừ <b>{money(deductionSelf)}đ</b>/tháng. Bỏ tích nếu
+                    người này đã đăng ký giảm trừ ở nơi làm việc khác (chỉ được
+                    đăng ký ở <b>MỘT</b> nơi).
                   </>
                 )}
               </p>
@@ -2380,8 +2550,9 @@ function SalaryModal({
                 )}
               </div>
               <p className="cc-card__hint">
-                Số người phụ thuộc khai ở <b>Nhân sự → hồ sơ → tab Lương &amp; BHXH</b>; ở đây
-                chỉ nhẩm hộ ra tiền.
+                Số người phụ thuộc khai ở{" "}
+                <b>Nhân sự → hồ sơ → tab Lương &amp; BHXH</b>; ở đây chỉ nhẩm hộ
+                ra tiền.
                 {hasDeduction && deductionTotal != null && detail != null && (
                   <>
                     {" "}
@@ -2393,9 +2564,24 @@ function SalaryModal({
           </div>
 
           <div className="ns-grid" style={{ marginTop: 12 }}>
-            <div className="ns-field" style={{ alignItems: "flex-end", gap: 6 }}>
-              {ok && <span style={{ color: "#2e7d32", fontSize: 13, fontWeight: 600 }}>✓ {ok}</span>}
-              {err && <span style={{ color: "#c62828", fontSize: 13, fontWeight: 600 }}>⚠ {err}</span>}
+            <div
+              className="ns-field"
+              style={{ alignItems: "flex-end", gap: 6 }}
+            >
+              {ok && (
+                <span
+                  style={{ color: "#2e7d32", fontSize: 13, fontWeight: 600 }}
+                >
+                  ✓ {ok}
+                </span>
+              )}
+              {err && (
+                <span
+                  style={{ color: "#c62828", fontSize: 13, fontWeight: 600 }}
+                >
+                  ⚠ {err}
+                </span>
+              )}
               <button
                 className="btn btn--primary"
                 onClick={saveSalary}
@@ -2415,13 +2601,17 @@ function SalaryModal({
                 </>
               ) : insuranceElsewhere ? (
                 <>
-                  NV có <b>BH đóng ở nơi khác</b> — công ty KHÔNG trừ BHXH/BHYT/BHTN của NV.
-                  <br />→ Công ty chỉ đóng <b>TNLĐ-BNN</b> {pctOf(params.tnld_bnn_rate)}% ={" "}
-                  <b>{money(bhBase * params.tnld_bnn_rate)}đ</b> (chi phí công ty, không trừ vào lương NV).
+                  NV có <b>BH đóng ở nơi khác</b> — công ty KHÔNG trừ
+                  BHXH/BHYT/BHTN của NV.
+                  <br />→ Công ty chỉ đóng <b>TNLĐ-BNN</b>{" "}
+                  {pctOf(params.tnld_bnn_rate)}% ={" "}
+                  <b>{money(bhBase * params.tnld_bnn_rate)}đ</b> (chi phí công
+                  ty, không trừ vào lương NV).
                 </>
               ) : (
                 <>
-                  Đóng BH trên lương cơ bản <b>{money(bhBase)}đ</b>, nhân viên đóng gồm:
+                  Đóng BH trên lương cơ bản <b>{money(bhBase)}đ</b>, nhân viên
+                  đóng gồm:
                   <br />· BHXH {pctOf(params.bhxh_rate)}% ={" "}
                   <b>{money(bhxhAmt)}đ</b>
                   {"  ·  "}BHYT {pctOf(params.bhyt_rate)}% ={" "}
@@ -2461,11 +2651,17 @@ function SalaryModal({
                     <tr key={s.id}>
                       <td>
                         {s.is_current ? (
-                          <span className="ns-badge ns-badge--ok">Đang áp dụng</span>
+                          <span className="ns-badge ns-badge--ok">
+                            Đang áp dụng
+                          </span>
                         ) : s.effective_to == null ? (
-                          <span className="ns-badge ns-badge--muted">Sắp áp dụng</span>
+                          <span className="ns-badge ns-badge--muted">
+                            Sắp áp dụng
+                          </span>
                         ) : (
-                          <span className="ns-badge ns-badge--muted">Đã thay</span>
+                          <span className="ns-badge ns-badge--muted">
+                            Đã thay
+                          </span>
                         )}
                       </td>
                       <td>{fmtDateTime(s.created_at)}</td>
@@ -2515,8 +2711,8 @@ function SalaryModal({
       >
         <p className="cdlg__msg">
           <b>{emp.full_name}</b> đang tính theo{" "}
-          <b>{PIT_MODE_META[detail?.pit_mode ?? "luy_tien"].label}</b>, sẽ chuyển sang{" "}
-          <b>{PIT_MODE_META[pitEff].label}</b>.
+          <b>{PIT_MODE_META[detail?.pit_mode ?? "luy_tien"].label}</b>, sẽ
+          chuyển sang <b>{PIT_MODE_META[pitEff].label}</b>.
         </p>
         {pitEff === "khau_tru_10" && (
           <p className="cdlg__msg">
@@ -2528,8 +2724,8 @@ function SalaryModal({
                 {dependents > 0 && (
                   <>
                     {" "}
-                    + {money(params.deduction_dependent * dependents)}đ cho {dependents} người
-                    phụ thuộc
+                    + {money(params.deduction_dependent * dependents)}đ cho{" "}
+                    {dependents} người phụ thuộc
                   </>
                 )}
                 )
@@ -2538,33 +2734,35 @@ function SalaryModal({
             {params && (
               <>
                 {" "}
-                mà bị khấu trừ thẳng <b>{pctOf(params.pit_flat_rate)}%</b> trên thu nhập chịu
-                thuế (từ {money(params.pit_flat_threshold)}đ trở lên)
+                mà bị khấu trừ thẳng <b>{pctOf(params.pit_flat_rate)}%</b> trên
+                thu nhập chịu thuế (từ {money(params.pit_flat_threshold)}đ trở
+                lên)
               </>
             )}
-            . <b>Tiền thuế sẽ tăng vọt.</b> Chỉ chọn cho HĐ dưới 3 tháng / thời vụ / thực tập.
+            . <b>Tiền thuế sẽ tăng vọt.</b> Chỉ chọn cho HĐ dưới 3 tháng / thời
+            vụ / thực tập.
           </p>
         )}
         {pitEff === "cam_ket_08" && (
           <p className="cdlg__msg">
-            Hệ thống sẽ <b>KHÔNG khấu trừ thuế TNCN</b> của người này. Chỉ chọn khi đã nhận đủ
-            bản cam kết <b>08/CK-TNCN</b> — khai sai thì công ty chịu trách nhiệm khấu trừ thiếu.
+            Hệ thống sẽ <b>KHÔNG khấu trừ thuế TNCN</b> của người này. Chỉ chọn
+            khi đã nhận đủ bản cam kết <b>08/CK-TNCN</b> — khai sai thì công ty
+            chịu trách nhiệm khấu trừ thiếu.
           </p>
         )}
         {pitEff === "luy_tien" && (
           <p className="cdlg__msg">
-            Người này quay lại tính theo <b>bảng thuế luỹ tiến + giảm trừ gia cảnh</b>
+            Người này quay lại tính theo{" "}
+            <b>bảng thuế luỹ tiến + giảm trừ gia cảnh</b>
             {deductionTotal != null && (
-              <>
-                {" "}
-                (tổng giảm trừ hiện tại {money(deductionTotal)}đ/tháng)
-              </>
+              <> (tổng giảm trừ hiện tại {money(deductionTotal)}đ/tháng)</>
             )}
             .
           </p>
         )}
         <p className="cdlg__msg">
-          Kỳ lương đã chốt/đã chi giữ nguyên số cũ; thay đổi chỉ ăn vào kỳ tính từ đây về sau.
+          Kỳ lương đã chốt/đã chi giữ nguyên số cũ; thay đổi chỉ ăn vào kỳ tính
+          từ đây về sau.
         </p>
       </ConfirmDialog>
     </div>
@@ -2598,7 +2796,13 @@ function advPrintData(a: SalaryAdvance) {
   };
 }
 
-function TamUngTab({ token, eventTick }: { token: string; eventTick?: number }) {
+function TamUngTab({
+  token,
+  eventTick,
+}: {
+  token: string;
+  eventTick?: number;
+}) {
   const [ym, setYm] = useState(curYm);
   const [items, setItems] = useState<SalaryAdvance[]>([]);
   const [emps, setEmps] = useState<EmployeeRow[]>([]);
@@ -2657,10 +2861,16 @@ function TamUngTab({ token, eventTick }: { token: string; eventTick?: number }) 
             onChange={(e) => setYm(e.target.value)}
           />
         </div>
-        <button className="btn btn--primary" onClick={() => setAdding("tam_ung")}>
+        <button
+          className="btn btn--primary"
+          onClick={() => setAdding("tam_ung")}
+        >
           + Thêm ứng
         </button>
-        <button className="btn btn--ghost" onClick={() => setAdding("luong_dot_1")}>
+        <button
+          className="btn btn--ghost"
+          onClick={() => setAdding("luong_dot_1")}
+        >
           + Phiếu lương đợt 1
         </button>
         <span className="lg-approved-badge">
@@ -2822,7 +3032,9 @@ function AddAdvanceModal({
       .then((r) => {
         if (!alive) return;
         const latest = r.items.length
-          ? [...r.items].sort((a, b) => b.effective_from.localeCompare(a.effective_from))[0]
+          ? [...r.items].sort((a, b) =>
+              b.effective_from.localeCompare(a.effective_from),
+            )[0]
           : null;
         const d1 = latest?.luong_dot_1 ?? 0;
         setDot1Profile(d1);
@@ -2864,7 +3076,8 @@ function AddAdvanceModal({
       <div className="ns-modal__box">
         <header className="ns-modal__head">
           <h2>
-            {isDot1 ? "Phiếu lương đợt 1" : "Thêm tạm ứng"} — {String(month).padStart(2, "0")}/{year}
+            {isDot1 ? "Phiếu lương đợt 1" : "Thêm tạm ứng"} —{" "}
+            {String(month).padStart(2, "0")}/{year}
           </h2>
           <button className="ns-modal__x" onClick={onClose}>
             ×
@@ -2874,8 +3087,9 @@ function AddAdvanceModal({
           {err && <div className="banner banner--error">{err}</div>}
           {isDot1 && (
             <p className="cc-note">
-              Số tiền điền sẵn theo <b>“Lương trả 1 lần”</b> trong hồ sơ NV (sửa được). Duyệt phiếu
-              xong mới trừ vào lương — hiện thành dòng <b>“Thanh toán lương đợt 1”</b> trên phiếu lương.
+              Số tiền điền sẵn theo <b>“Lương trả 1 lần”</b> trong hồ sơ NV (sửa
+              được). Duyệt phiếu xong mới trừ vào lương — hiện thành dòng{" "}
+              <b>“Thanh toán lương đợt 1”</b> trên phiếu lương.
             </p>
           )}
           <label className="ns-field">
@@ -2940,7 +3154,10 @@ function AddAdvanceModal({
 
 // --- Phiếu lương 2 cột (Thu | Trừ) — dùng chung cho self-service + In của HCNS ---------------
 
-function PayslipCard({ line: l, period }: {
+function PayslipCard({
+  line: l,
+  period,
+}: {
   line: PayrollLine;
   period: PayrollPeriod;
 }) {
@@ -2956,23 +3173,37 @@ function PayslipCard({ line: l, period }: {
   //                TRỪ khỏi "Phụ cấp khác", không thì cộng đôi.
   //   `line`     = phát sinh riêng kỳ này, nằm NGOÀI `allowance` ⇒ cộng thẳng thành dòng mới.
   const comps = l.components ?? [];
-  const compThuHoSo = comps.filter((c) => c.kind !== "tru" && c.source === "employee");
-  const compThuKy = comps.filter((c) => c.kind !== "tru" && c.source === "line");
+  const compThuHoSo = comps.filter(
+    (c) => c.kind !== "tru" && c.source === "employee",
+  );
+  const compThuKy = comps.filter(
+    (c) => c.kind !== "tru" && c.source === "line",
+  );
   const compTru = comps.filter((c) => c.kind === "tru");
   const pcKhacGoc = l.phu_cap_khac ?? l.allowance - pcThamNien;
-  const pcKhac = Math.max(0, pcKhacGoc - compThuHoSo.reduce((s, c) => s + c.amount, 0));
-  const compLabel = (c: LineComponent) => (c.note ? `${c.name} (${c.note})` : c.name);
+  const pcKhac = Math.max(
+    0,
+    pcKhacGoc - compThuHoSo.reduce((s, c) => s + c.amount, 0),
+  );
+  const compLabel = (c: LineComponent) =>
+    c.note ? `${c.name} (${c.note})` : c.name;
 
   // Dòng phụ "TRONG ĐÓ" — chỉ để NV đối chiếu, TUYỆT ĐỐI KHÔNG cộng vào TỔNG THU: số này đã
   // nằm sẵn trong `luong_cong` (ngày nghỉ phép chỉ trả LƯƠNG VỊ TRÍ, không có lương trách
   // nhiệm). Cùng idiom `phu_cap_tham_nien ⊂ allowance`; cộng nhầm là SAI TIỀN LƯƠNG.
   // Key = nhãn dòng cha → dòng phụ render ngay dưới dòng đó và nằm NGOÀI `incomeTotal`.
   const luongNgayPhep = l.luong_ngay_phep ?? 0;
-  const incomeSub: Record<string, [string, number]> = luongNgayPhep > 0
-    ? { "Lương theo công": ["Trong đó: lương ngày phép (theo lương vị trí)", luongNgayPhep] }
-    : {};
+  const incomeSub: Record<string, [string, number]> =
+    luongNgayPhep > 0
+      ? {
+          "Lương theo công": [
+            "Trong đó: lương ngày phép (theo lương vị trí)",
+            luongNgayPhep,
+          ],
+        }
+      : {};
 
-  const income = ([
+  const income = [
     ["Lương theo công", l.luong_cong],
     ["Phụ cấp ca", pcCa],
     ["Phụ cấp ca đêm (giờ × hệ số)", l.night_premium_pay ?? 0],
@@ -2981,11 +3212,6 @@ function PayslipCard({ line: l, period }: {
     ["Chuyên cần", l.chuyen_can],
     ["Lương khoán / sản lượng", l.khoan],
     ["Tăng ca", l.ot_pay],
-    // NV tự đối chiếu được: % đạt hiện ngay trên nhãn (chỉ khi có), tiền ở cột phải.
-    [
-      `Thưởng KPI${l.kpi_percent ? ` (${l.kpi_percent.toLocaleString("vi-VN", { maximumFractionDigits: 2 })}%)` : ""}`,
-      l.kpi_bonus,
-    ],
     // Khoản danh mục — mỗi khoản MỘT DÒNG, đúng tên chủ đặt (chữa "phụ cấp một cục").
     ...compThuHoSo.map((c) => [compLabel(c), c.amount]),
     ...compThuKy.map((c) => [compLabel(c), c.amount]),
@@ -2995,13 +3221,16 @@ function PayslipCard({ line: l, period }: {
       : []),
     // 6 cột thưởng CŨ (ngừng ghi 28/07/2026) — chỉ hiện khi còn số, để kỳ đã chốt in y nguyên.
     ...legacyBonusRows(l),
-  ] as [string, number][]);
+  ] as [string, number][];
   const incomeTotal = income.reduce((s, [, v]) => s + v, 0);
 
   // BHXH/BHYT/BHTN: backend trả sẵn 3 dòng (nhãn đã kèm tỷ lệ) — AI XEM CŨNG THẤY, không phải đi xin
   // `GET /params` vốn đòi quyền cấu hình lương. Tổng 3 dòng luôn đúng bằng `l.bhxh` đã đóng băng.
-  const deduct = ([
-    ...((l.insurance_lines ?? []).map((r) => [r.label, r.amount]) as [string, number][]),
+  const deduct = [
+    ...((l.insurance_lines ?? []).map((r) => [r.label, r.amount]) as [
+      string,
+      number,
+    ][]),
     ["Công đoàn", l.cong_doan],
     ["Thuế TNCN", l.pit],
     ["Đi trễ / nghỉ KP", l.di_tre],
@@ -3015,7 +3244,7 @@ function PayslipCard({ line: l, period }: {
     // 2 dòng RIÊNG: đợt 1 (đã trả giữa tháng qua phiếu) và tạm ứng ad-hoc. Thực nhận = đợt 2.
     ["Thanh toán lương đợt 1", l.luong_dot_1_total ?? 0],
     ["Tạm ứng đã nhận", l.advance_total],
-  ] as [string, number][]);
+  ] as [string, number][];
   const deductTotal = deduct.reduce((s, [, v]) => s + v, 0);
 
   return (
@@ -3023,42 +3252,85 @@ function PayslipCard({ line: l, period }: {
       <div className="lg-payslip2__head">
         <div>
           <div className="lg-payslip2__title">PHIẾU LƯƠNG</div>
-          <div className="lg-payslip2__who">{l.employee_name} <span className="ns__code">{l.employee_code}</span></div>
-          <div className="cc-card__hint">{l.department_name ?? "—"} · Tháng {String(period.month).padStart(2, "0")}/{period.year}</div>
+          <div className="lg-payslip2__who">
+            {l.employee_name}{" "}
+            <span className="ns__code">{l.employee_code}</span>
+          </div>
+          <div className="cc-card__hint">
+            {l.department_name ?? "—"} · Tháng{" "}
+            {String(period.month).padStart(2, "0")}/{period.year}
+          </div>
         </div>
         <div className="lg-payslip2__meta">
-          <div>NC chuẩn: <b>{l.standard_cong}</b> · Ngày công: <b>{l.actual_cong}</b></div>
-          <div>Giờ tăng ca: <b>{(l.ot_minutes / 60).toFixed(1)}h</b> · Mức đóng BH: <b>{money(l.insurance_base)}</b></div>
-          <span className={`ns-badge ${period.status !== "draft" ? "ns-badge--ok" : "ns-badge--muted"}`}>
-            {period.status === "paid" ? "Đã chi" : period.status === "locked" ? "Đã chốt" : "Tạm tính"}
+          <div>
+            NC chuẩn: <b>{l.standard_cong}</b> · Ngày công:{" "}
+            <b>{l.actual_cong}</b>
+          </div>
+          <div>
+            Giờ tăng ca: <b>{(l.ot_minutes / 60).toFixed(1)}h</b> · Mức đóng BH:{" "}
+            <b>{money(l.insurance_base)}</b>
+          </div>
+          <span
+            className={`ns-badge ${period.status !== "draft" ? "ns-badge--ok" : "ns-badge--muted"}`}
+          >
+            {period.status === "paid"
+              ? "Đã chi"
+              : period.status === "locked"
+                ? "Đã chốt"
+                : "Tạm tính"}
           </span>
         </div>
       </div>
       <div className="lg-payslip2__cols">
         <table className="lg-payslip2__tbl">
-          <thead><tr><th>Các khoản THU</th><th className="lg-num">Số tiền</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Các khoản THU</th>
+              <th className="lg-num">Số tiền</th>
+            </tr>
+          </thead>
           <tbody>
             {income.map(([lbl, v]) => {
               const sub = incomeSub[lbl];
               return (
                 <Fragment key={lbl}>
-                  <tr><td>{lbl}</td><td className="lg-num">{v ? money(v) : "—"}</td></tr>
+                  <tr>
+                    <td>{lbl}</td>
+                    <td className="lg-num">{v ? money(v) : "—"}</td>
+                  </tr>
                   {sub && (
                     <tr className="lg-payslip2__in">
-                      <td>{sub[0]}</td><td className="lg-num">{money(sub[1])}</td>
+                      <td>{sub[0]}</td>
+                      <td className="lg-num">{money(sub[1])}</td>
                     </tr>
                   )}
                 </Fragment>
               );
             })}
-            <tr className="lg-payslip2__sub"><td>TỔNG THU</td><td className="lg-num">{money(incomeTotal)}</td></tr>
+            <tr className="lg-payslip2__sub">
+              <td>TỔNG THU</td>
+              <td className="lg-num">{money(incomeTotal)}</td>
+            </tr>
           </tbody>
         </table>
         <table className="lg-payslip2__tbl">
-          <thead><tr><th>Các khoản TRỪ</th><th className="lg-num">Số tiền</th></tr></thead>
+          <thead>
+            <tr>
+              <th>Các khoản TRỪ</th>
+              <th className="lg-num">Số tiền</th>
+            </tr>
+          </thead>
           <tbody>
-            {deduct.map(([lbl, v]) => <tr key={lbl}><td>{lbl}</td><td className="lg-num">{v ? money(v) : "—"}</td></tr>)}
-            <tr className="lg-payslip2__sub"><td>TỔNG TRỪ</td><td className="lg-num">{money(deductTotal)}</td></tr>
+            {deduct.map(([lbl, v]) => (
+              <tr key={lbl}>
+                <td>{lbl}</td>
+                <td className="lg-num">{v ? money(v) : "—"}</td>
+              </tr>
+            ))}
+            <tr className="lg-payslip2__sub">
+              <td>TỔNG TRỪ</td>
+              <td className="lg-num">{money(deductTotal)}</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -3075,15 +3347,22 @@ function PayslipCard({ line: l, period }: {
           <b>{money(l.thu_nhap_mien_thue)}đ</b>
         </span>
         <span className="lg-payslip2__taxnote">
-          Thu nhập tính thuế = phần chịu thuế sau khi trừ bảo hiểm bắt buộc và giảm trừ gia cảnh
-          — thuế TNCN bấm trên số này. Thu nhập miễn thuế gồm tăng ca, ca đêm và các khoản không
-          tích “Chịu thuế” trong danh mục.
+          Thu nhập tính thuế = phần chịu thuế sau khi trừ bảo hiểm bắt buộc và
+          giảm trừ gia cảnh — thuế TNCN bấm trên số này. Thu nhập miễn thuế gồm
+          tăng ca, ca đêm và các khoản không tích “Chịu thuế” trong danh mục.
         </span>
       </div>
-      <div className="lg-payslip2__net"><span>THỰC NHẬN</span><span>{money(l.net_pay)}đ</span></div>
+      <div className="lg-payslip2__net">
+        <span>THỰC NHẬN</span>
+        <span>{money(l.net_pay)}đ</span>
+      </div>
       <div className="lg-payslip2__sign">
         <div>Người lập phiếu</div>
-        <div>Người nhận tiền<br /><span className="cc-card__hint">(ký, ghi rõ họ tên)</span></div>
+        <div>
+          Người nhận tiền
+          <br />
+          <span className="cc-card__hint">(ký, ghi rõ họ tên)</span>
+        </div>
       </div>
     </div>
   );
@@ -3091,7 +3370,13 @@ function PayslipCard({ line: l, period }: {
 
 // --- Tab: Tạm ứng của tôi (self-service — nhân viên tự đề nghị) --------------
 
-function TamUngCuaToiTab({ token, eventTick }: { token: string; eventTick?: number }) {
+function TamUngCuaToiTab({
+  token,
+  eventTick,
+}: {
+  token: string;
+  eventTick?: number;
+}) {
   const [data, setData] = useState<MyAdvances | null>(null);
   const [adding, setAdding] = useState<null | "tam_ung" | "luong_dot_1">(null);
 
@@ -3118,36 +3403,56 @@ function TamUngCuaToiTab({ token, eventTick }: { token: string; eventTick?: numb
 
   if (!data)
     return (
-      <p className="lg-payslip-empty-desc" style={{ textAlign: "center", marginTop: 24 }}>
+      <p
+        className="lg-payslip-empty-desc"
+        style={{ textAlign: "center", marginTop: 24 }}
+      >
         Đang tải…
       </p>
     );
   if (!data.has_employee)
     return (
       <div className="lg-table-empty-state">
-        <div className="lg-table-empty-icon"><Wallet size={20} /></div>
-        <span className="lg-table-empty-title">Tài khoản chưa gắn hồ sơ nhân sự</span>
+        <div className="lg-table-empty-icon">
+          <Wallet size={20} />
+        </div>
+        <span className="lg-table-empty-title">
+          Tài khoản chưa gắn hồ sơ nhân sự
+        </span>
         <span className="lg-table-empty-desc">
-          Liên hệ HCNS để liên kết tài khoản với hồ sơ, sau đó mới lập đề nghị tạm ứng được.
+          Liên hệ HCNS để liên kết tài khoản với hồ sơ, sau đó mới lập đề nghị
+          tạm ứng được.
         </span>
       </div>
     );
   return (
     <div>
       <div className="cc-toolbar lg-toolbar">
-        <button className="btn btn--primary" onClick={() => setAdding("tam_ung")}>
+        <button
+          className="btn btn--primary"
+          onClick={() => setAdding("tam_ung")}
+        >
           + Đề nghị tạm ứng
         </button>
-        <button className="btn btn--ghost" onClick={() => setAdding("luong_dot_1")}>
+        <button
+          className="btn btn--ghost"
+          onClick={() => setAdding("luong_dot_1")}
+        >
           + Xin lương đợt 1
         </button>
-        <span className="cc-card__hint">Đề nghị gửi tới kế toán duyệt; bấm “In phiếu” để ký &amp; nộp.</span>
+        <span className="cc-card__hint">
+          Đề nghị gửi tới kế toán duyệt; bấm “In phiếu” để ký &amp; nộp.
+        </span>
       </div>
       {data.items.length === 0 ? (
         <div className="lg-table-empty-state">
-          <div className="lg-table-empty-icon"><Wallet size={20} /></div>
+          <div className="lg-table-empty-icon">
+            <Wallet size={20} />
+          </div>
           <span className="lg-table-empty-title">Chưa có đề nghị tạm ứng</span>
-          <span className="lg-table-empty-desc">Nhấp “+ Đề nghị tạm ứng” để lập phiếu gửi kế toán.</span>
+          <span className="lg-table-empty-desc">
+            Nhấp “+ Đề nghị tạm ứng” để lập phiếu gửi kế toán.
+          </span>
         </div>
       ) : (
         <div className="lg-emp-table-wrapper">
@@ -3166,17 +3471,26 @@ function TamUngCuaToiTab({ token, eventTick }: { token: string; eventTick?: numb
             </thead>
             <tbody>
               {data.items.map((a) => {
-                const [label, cls] = STATUS[a.status] ?? [a.status, "ns-badge--muted"];
+                const [label, cls] = STATUS[a.status] ?? [
+                  a.status,
+                  "ns-badge--muted",
+                ];
                 const [kLabel, kCls] = KIND[a.kind] ?? KIND.tam_ung;
                 return (
                   <tr key={a.id}>
                     <td className="font-mono">{a.code ?? "—"}</td>
-                    <td><span className={`ns-badge ${kCls}`}>{kLabel}</span></td>
-                    <td>{String(a.period_month).padStart(2, "0")}/{a.period_year}</td>
+                    <td>
+                      <span className={`ns-badge ${kCls}`}>{kLabel}</span>
+                    </td>
+                    <td>
+                      {String(a.period_month).padStart(2, "0")}/{a.period_year}
+                    </td>
                     <td>{a.advance_date}</td>
                     <td className="lg-num font-mono">{money(a.amount)}đ</td>
                     <td>{a.reason ?? "—"}</td>
-                    <td><span className={`ns-badge ${cls}`}>{label}</span></td>
+                    <td>
+                      <span className={`ns-badge ${cls}`}>{label}</span>
+                    </td>
                     <td className="cc-rowact">
                       <button
                         className="btn btn--ghost"
@@ -3225,7 +3539,9 @@ function MyAdvanceModal({
   const [ym, setYm] = useState(curYm());
   // Phiếu đợt 1: điền sẵn theo "Lương trả 1 lần" trong hồ sơ (vẫn cho sửa).
   const [amount, setAmount] = useState(isDot1 ? dot1Prefill : 0);
-  const [dateStr, setDateStr] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dateStr, setDateStr] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -3258,29 +3574,50 @@ function MyAdvanceModal({
       <div className="ns-modal__box">
         <header className="ns-modal__head">
           <h2>{isDot1 ? "Xin thanh toán lương đợt 1" : "Đề nghị tạm ứng"}</h2>
-          <button className="ns-modal__x" onClick={onClose}>×</button>
+          <button className="ns-modal__x" onClick={onClose}>
+            ×
+          </button>
         </header>
         <div className="ns-modal__body">
           {err && <div className="banner banner--error">{err}</div>}
           {isDot1 && (
             <p className="cc-note">
-              Số tiền điền sẵn theo <b>“Lương trả 1 lần”</b> trong hồ sơ của bạn — sửa được. Kế toán
-              duyệt xong mới trừ, hiện thành dòng <b>“Thanh toán lương đợt 1”</b> trên phiếu lương.
-              {dot1Prefill <= 0 && <> Hồ sơ chưa khai mức này — nhập số bạn muốn ứng hoặc hỏi HCNS.</>}
+              Số tiền điền sẵn theo <b>“Lương trả 1 lần”</b> trong hồ sơ của bạn
+              — sửa được. Kế toán duyệt xong mới trừ, hiện thành dòng{" "}
+              <b>“Thanh toán lương đợt 1”</b> trên phiếu lương.
+              {dot1Prefill <= 0 && (
+                <>
+                  {" "}
+                  Hồ sơ chưa khai mức này — nhập số bạn muốn ứng hoặc hỏi HCNS.
+                </>
+              )}
             </p>
           )}
           <div className="ns-grid">
             <label className="ns-field">
               <span className="ns-field__label">Kỳ lương</span>
-              <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} />
+              <input
+                type="month"
+                value={ym}
+                onChange={(e) => setYm(e.target.value)}
+              />
             </label>
             <label className="ns-field">
               <span className="ns-field__label">Ngày ứng</span>
-              <input type="date" value={dateStr} onChange={(e) => setDateStr(e.target.value)} />
+              <input
+                type="date"
+                value={dateStr}
+                onChange={(e) => setDateStr(e.target.value)}
+              />
             </label>
             <label className="ns-field">
               <span className="ns-field__label">Số tiền *</span>
-              <input type="number" min={0} value={amount} onChange={(e) => setAmount(Number(e.target.value))} />
+              <input
+                type="number"
+                min={0}
+                value={amount}
+                onChange={(e) => setAmount(Number(e.target.value))}
+              />
             </label>
           </div>
           <label className="ns-field" style={{ marginTop: 12 }}>
@@ -3289,7 +3626,9 @@ function MyAdvanceModal({
           </label>
         </div>
         <footer className="ns-modal__foot">
-          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>
+            Hủy
+          </button>
           <button className="btn btn--primary" onClick={save} disabled={busy}>
             {busy ? "Đang gửi…" : "Gửi đề nghị"}
           </button>
@@ -3359,8 +3698,13 @@ function PhieuLuongTab({ token }: { token: string }) {
 
   return (
     <div className="lg-payslip">
-      <div className="lg-payslip-noprint" style={{ textAlign: "center", marginBottom: 8 }}>
-        <button className="btn btn--ghost" onClick={() => window.print()}>🖨 In phiếu</button>
+      <div
+        className="lg-payslip-noprint"
+        style={{ textAlign: "center", marginBottom: 8 }}
+      >
+        <button className="btn btn--ghost" onClick={() => window.print()}>
+          🖨 In phiếu
+        </button>
       </div>
       <PayslipCard line={l} period={data.period} />
     </div>

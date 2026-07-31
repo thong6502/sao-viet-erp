@@ -17,6 +17,7 @@ has shipped.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from sqlalchemy import inspect, text
@@ -3122,6 +3123,47 @@ def _migrate_job_grade_catalog(db: Session) -> None:
     db.commit()
 
 
+def _migrate_drop_kpi_bonus(db: Session) -> None:
+    """Xoá hẳn thưởng năng suất KPI (chủ 29/07/2026 — "xưởng không dùng tới, xóa backend luôn,
+    đang phát triển mà chưa chạy thật đâu").
+
+    Gỡ 2 cột `payroll_lines.kpi_percent` / `kpi_bonus` và các dòng bật/tắt KPI theo tổ.
+
+    🔴 **HÃM AN TOÀN — đừng gỡ.** DROP COLUMN là thao tác KHÔNG LÙI ĐƯỢC: mất là mất luôn, trong
+    DB không còn bản sao nào để khôi phục. DB dev thì đọc được (0 dòng có tiền KPI) nhưng DB thật
+    trên VPS thì KHÔNG. Nên trước khi drop phải ĐẾM: còn dòng lương nào mang tiền KPI thì **bỏ
+    qua, giữ nguyên cột**.
+
+    Bỏ sót vài cột thừa trên một DB nào đó là vô hại — SQLAlchemy chỉ đọc cột đã khai trong model.
+    Xoá nhầm tiền của người ta thì không cứu được. Chọn phía an toàn.
+
+    Guard theo cột ⇒ chạy lần hai là no-op; DB dựng mới bằng `create_all` không có 2 cột này nên
+    tự bỏ qua."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+
+    if "payroll_lines" in tables:
+        cols = _existing_columns(insp, "payroll_lines")
+        con = [c for c in ("kpi_percent", "kpi_bonus") if c in cols]
+        if con:
+            dieu_kien = " OR ".join(f"{c} <> 0" for c in con)
+            con_tien = int(db.execute(text(
+                f"SELECT COUNT(*) FROM payroll_lines WHERE {dieu_kien}")).scalar() or 0)
+            if con_tien:
+                # KHÔNG drop. Giữ cột + số; chủ soi rồi quyết, chứ máy không tự xoá tiền.
+                print(f"[0130] BO QUA drop cot KPI: con {con_tien} dong luong mang tien KPI. "
+                      f"Cot giu nguyen (vo hai — model khong doc nua).")
+            else:
+                for c in con:
+                    db.execute(text(f"ALTER TABLE payroll_lines DROP COLUMN {c}"))
+                db.commit()
+
+    # Dòng bật/tắt KPI theo tổ: chỉ là cấu hình, xoá vô điều kiện (không phải tiền).
+    if "department_salary_components" in tables:
+        db.execute(text("DELETE FROM department_salary_components WHERE component_key = 'kpi'"))
+        db.commit()
+
+
 def _migrate_job_grade_drop_phu(db: Session) -> None:
     """Bỏ bậc PHỤ: 3 chính + 2 phụ → **5 bậc chính** Bậc 1…Bậc 5 (chủ 2026-07-29, chốt lại trong
     ngày: *"bỏ phụ đi cho 5 bậc chính đánh từ bậc 1 đến bậc 5"*).
@@ -3161,6 +3203,144 @@ def _migrate_job_grade_drop_phu(db: Session) -> None:
              else {"cm": ma_moi, "s": seq_moi, "i": cur[0]}),
         )
     db.commit()
+
+
+def _migrate_noi_quy_nguon_va_file_goc(db: Session) -> None:
+    """Nội quy: khai NGUỒN của từng bản + đánh dấu file gốc của lần nhập (chủ 30/07/2026 —
+    *"nếu họ đưa pdf hoặc word lên thì… form chữ kiểu chữ dáng chữ vẫn giữ nguyên"*).
+
+    Hai cột:
+
+    - `noi_quy_versions.source_kind` — `'html'` (gõ trong app) hay `'file'` (tải tài liệu lên,
+      hiện đúng bản gốc). Mỗi BẢN khai đúng MỘT nguồn: để cả hai cùng sống trên một bản thì sớm
+      muộn chúng lệch nhau và không ai biết bản nào đang là luật. Mặc định `'html'` nên mọi bản
+      cũ giữ nguyên hành vi hiện tại.
+    - `noi_quy_attachments.is_import_source` — file GỐC do hệ thống tự đính khi nhập. Nhập lại thì
+      hàng này bị thay, không cộng dồn: nhập 3 lần mà để lại 3 file gần giống nhau thì lúc tranh
+      chấp không ai biết bản nào là bản thật. Mặc định `false` ⇒ mọi file người dùng đã tự đính
+      kèm trước đây được coi là chứng từ và KHÔNG bao giờ bị thay.
+
+    Bảng `noi_quy_pages` là bảng MỚI nên `create_all` tự tạo — không cần làm gì ở đây.
+
+    Guard theo cột ⇒ chạy lần hai là no-op; DB dựng mới bằng `create_all` đã có sẵn 2 cột nên tự
+    bỏ qua."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+
+    if ("noi_quy_versions" in tables
+            and "source_kind" not in _existing_columns(insp, "noi_quy_versions")):
+        db.execute(text(
+            "ALTER TABLE noi_quy_versions "
+            "ADD COLUMN source_kind VARCHAR(8) NOT NULL DEFAULT 'html'"))
+
+    if ("noi_quy_attachments" in tables
+            and "is_import_source" not in _existing_columns(insp, "noi_quy_attachments")):
+        # `false` (bool Python) chứ KHÔNG phải "0": chuỗi "0" chạy được trên SQLite nhưng VỠ khi
+        # Postgres tạo cột Boolean — bẫy đã ghi trong CLAUDE.md.
+        db.execute(text(
+            "ALTER TABLE noi_quy_attachments "
+            "ADD COLUMN is_import_source BOOLEAN NOT NULL DEFAULT false"))
+    db.commit()
+
+
+def _migrate_nguong_to_truong_theo_san_luong(db: Session) -> None:
+    """Ngưỡng xét thưởng/phạt tổ trưởng: đo bằng TIỀN → đo bằng SẢN LƯỢNG (chủ 30/07/2026).
+
+    Chủ nhìn màn thật rồi nói: *"nó là sản lượng mà sao lại chữ đ là sao"*. Ô đang là tiền, nhưng
+    trong đầu chủ nó là số lượng làm được — và màn hình là phép thử cuối.
+
+    Bê THẲNG con số cũ sang cột mới (chủ chốt: `3.000.000 đ` → `3.000.000 sản lượng`). Ngưỡng là
+    một con số trần, **không kèm đơn vị** — chủ chốt *"Đơn vị bỏ đi"*.
+
+    Bảng này mới dựng cùng ngày và chưa từng lên prod; trên DB dev nó đang **0 dòng** nên thực tế
+    không có gì để bê. Vẫn viết bước bê cho đúng ý và cho DB nào lỡ có dữ liệu.
+
+    Guard theo cột ⇒ chạy lần hai là no-op. Bảng chưa tồn tại (DB trắng, `create_all` sẽ dựng đúng
+    hình mới) thì bỏ qua."""
+    insp = inspect(db.get_bind())
+    if "piece_leader_bonus_settings" not in insp.get_table_names():
+        return
+
+    cols = _existing_columns(insp, "piece_leader_bonus_settings")
+    if "min_output_qty" not in cols:
+        db.execute(text(
+            "ALTER TABLE piece_leader_bonus_settings "
+            "ADD COLUMN min_output_qty NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+    if "min_khoan_to" in cols:
+        db.execute(text(
+            "UPDATE piece_leader_bonus_settings SET min_output_qty = min_khoan_to "
+            "WHERE min_output_qty = 0 AND min_khoan_to <> 0"))
+        db.commit()
+        db.execute(text("ALTER TABLE piece_leader_bonus_settings DROP COLUMN min_khoan_to"))
+        db.commit()
+
+
+def _migrate_noi_quy_nhieu_tai_lieu(db: Session) -> None:
+    """Nội quy: một bản ban hành → NHIỀU tài liệu, mỗi tài liệu một chuỗi version riêng
+    (chủ 30/07/2026 — *"upload được nhiều file, mỗi file đi theo title"*).
+
+    Gắn mọi bản nội quy đang có vào ĐÚNG MỘT tài liệu. Chúng vốn là các lần ban hành lại của cùng
+    một văn bản, nên gom vào một tài liệu là đúng — KHÔNG tách thành nhiều tài liệu.
+
+    Tiêu đề mặc định là HẰNG CHUỖI viết thẳng ở đây. Đã cân nhắc và loại hai nguồn "thông minh" hơn:
+      - `ghi_chu` — đó là *ghi chú thay đổi* ("Bổ sung quy định giờ tăng ca"), đặt làm tên tài liệu
+        thì sai mà nhìn vẫn hợp lý, loại sai tệ nhất.
+      - tên file gốc — ra "mau-noi-quy-lao-dong.pdf".
+    Chủ đổi tên trong màn hình mất 5 giây. Migration không đoán được thì migration không đoán.
+
+    Bảng `noi_quy_documents` là bảng MỚI ⇒ `create_all` lo; ở đây chỉ thêm cột + backfill."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "noi_quy_versions" not in tables:
+        return
+    if "noi_quy_documents" not in tables:
+        # `create_all` chạy TRƯỚC migration, nên tới đây mà chưa có bảng nghĩa là model chưa được
+        # export. Tự `CREATE TABLE` ở đây sẽ đẻ ra một bảng lệch với model — im lặng bỏ qua.
+        return
+
+    cols = _existing_columns(insp, "noi_quy_versions")
+    # NULLABLE, không NOT NULL: Postgres từ chối `ADD COLUMN NOT NULL` không default khi bảng đã có
+    # dòng — mà ở đây KHÔNG có default hợp lý (tài liệu chưa tồn tại lúc thêm cột).
+    if "document_id" not in cols:
+        db.execute(text("ALTER TABLE noi_quy_versions ADD COLUMN document_id INTEGER"))
+    if "title" not in cols:
+        db.execute(text("ALTER TABLE noi_quy_versions ADD COLUMN title VARCHAR(200)"))
+    db.commit()
+
+    # Guard theo DỮ LIỆU MỒ CÔI, không theo "đã insert tài liệu nào chưa": chạy lần hai là no-op,
+    # và nếu chủ đã tự tạo tài liệu thật rồi thì KHÔNG đẻ thêm một tài liệu rác nữa.
+    mo_coi = int(db.execute(text(
+        "SELECT COUNT(*) FROM noi_quy_versions WHERE document_id IS NULL")).scalar() or 0)
+    if not mo_coi:
+        return
+
+    ten = "Nội quy lao động"
+    db.execute(
+        text("INSERT INTO noi_quy_documents (title, seq, is_active, created_at) "
+             "VALUES (:t, 1, true, :now)"),
+        {"t": ten, "now": datetime.now(timezone.utc)},
+    )
+    db.commit()
+    doc_id = db.execute(text("SELECT MIN(id) FROM noi_quy_documents")).scalar()
+
+    # Gắn HẾT — cả published lẫn draft. Bỏ sót bản nào là bản đó thành mồ côi: không tài liệu nào
+    # trỏ tới ⇒ cả công ty mở nội quy ra thấy "chưa ban hành", dù dòng vẫn nằm nguyên trong DB.
+    db.execute(text("UPDATE noi_quy_versions SET document_id = :d WHERE document_id IS NULL"),
+               {"d": doc_id})
+    # Tiêu đề bản chụp: bản cũ chưa có, lấy tên tài liệu làm mốc.
+    db.execute(text("UPDATE noi_quy_versions SET title = :t WHERE title IS NULL"), {"t": ten})
+    db.commit()
+
+    con_sot = int(db.execute(text(
+        "SELECT COUNT(*) FROM noi_quy_versions WHERE document_id IS NULL")).scalar() or 0)
+    if con_sot:
+        # NỔ chứ không đi tiếp. `run_migrations` không bọc try/except nên app chết lúc khởi động và
+        # `0132` KHÔNG được ghi vào `schema_migrations` ⇒ lần sau chạy lại. Thà không boot còn hơn
+        # boot với nội quy mồ côi mà không ai biết.
+        raise RuntimeError(
+            f"[0132] Con {con_sot} ban noi quy chua gan tai lieu — DUNG de khong mat du lieu.")
 
 
 def _migrate_employee_salary_commission_pct(db: Session) -> None:
@@ -3781,6 +3961,324 @@ def _migrate_stock_request_line_quy_doi(db: Session) -> None:
     db.commit()
 
 
+def _migrate_piece_rate_cong_doan_mas(db: Session) -> None:
+    """Đầu việc khoán dùng cho NHIỀU công đoạn + trục quy đổi: thêm `piece_rates.cong_doan_mas`
+    (JSON list mã) và `tinh_theo` (VARCHAR(32)), nullable. Backfill `cong_doan_mas = [cong_doan]`
+    cho dòng cũ đã trỏ 1 mã để không mất liên kết. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "piece_rates" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "piece_rates")
+    is_pg = db.get_bind().dialect.name == "postgresql"
+    if "cong_doan_mas" not in cols:
+        # JSON (KHÔNG JSONB) để khớp `mapped_column(JSON)` của model: DB trắng đi đường `create_all`
+        # sẽ ra kiểu `json`, migration mà tạo `jsonb` là dev/prod lệch kiểu — query dùng toán tử
+        # jsonb chạy ở DB cũ rồi vỡ ở DB mới. Đã bắt được đúng lỗi này khi thử trên Postgres trắng.
+        db.execute(text("ALTER TABLE piece_rates ADD COLUMN cong_doan_mas JSON"))
+    if "tinh_theo" not in cols:
+        db.execute(text("ALTER TABLE piece_rates ADD COLUMN tinh_theo VARCHAR(32)"))
+    db.commit()
+    # Backfill: dòng cũ có `cong_doan` → list 1 phần tử. Ghép chuỗi JSON cho cả 2 dialect (cột kiểu
+    # `json` nên `to_jsonb` của Postgres không dùng được ở đây).
+    _cast = "::json" if is_pg else ""
+    db.execute(text(
+        f"UPDATE piece_rates SET cong_doan_mas = ('[\"' || cong_doan || '\"]'){_cast} "
+        "WHERE cong_doan IS NOT NULL AND cong_doan <> '' AND cong_doan_mas IS NULL"
+    ))
+    db.commit()
+
+
+def _migrate_lsx_cong_doan_khoan_json(db: Session) -> None:
+    """Bước lệnh ghim ĐẦU VIỆC KHOÁN: thêm `lsx_cong_doan.khoan_json` (JSON, nullable) =
+    {rate_id, ten, don_vi, don_gia, tinh_theo}. Ghim snapshot chứ không đọc-sống vì xưởng lên giá
+    khoán về sau KHÔNG được làm xê dịch lệnh đã phát. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "lsx_cong_doan" not in insp.get_table_names():
+        return
+    if "khoan_json" not in _existing_columns(insp, "lsx_cong_doan"):
+        # JSON, KHÔNG JSONB — xem ghi chú kiểu cột ở `_migrate_piece_rate_cong_doan_mas`.
+        db.execute(text("ALTER TABLE lsx_cong_doan ADD COLUMN khoan_json JSON"))
+    db.commit()
+
+
+def _migrate_piece_rate_bo_luat_ngam(db: Session) -> None:
+    """Bảng đơn giá khoán về đúng nghĩa KHAI BÁO: xoá `cong_doan_mas` + `tinh_theo`.
+
+    Hai cột đó là hai luật NGẦM mà mở form ra không ai đoán được: `cong_doan_mas` khiến dòng khai
+    riêng thắng dòng khai chung khi khớp bước lệnh, `tinh_theo` khiến SL bị nhân thêm số lượt chạy
+    trước khi nhân đơn giá. Chủ chốt 2026-07-31: chỗ này chỉ ghi lại cái người ta gõ, mọi phép
+    tính nằm bên sản xuất. Đơn giá giờ chỉ treo vào TỔ; muốn trả theo lượt thì khai đơn vị `lượt`.
+
+    Cột `piece_rates.cong_doan` (1 mã, bản còn cũ hơn) GIỮ nguyên để không mất dữ liệu lịch sử —
+    đã đánh dấu cột chết trong model, không đọc ở đâu nữa.
+    """
+    insp = inspect(db.get_bind())
+    if "piece_rates" not in insp.get_table_names():
+        return
+    co = _existing_columns(insp, "piece_rates")
+    for cot in ("cong_doan_mas", "tinh_theo"):
+        if cot in co:
+            db.execute(text(f"ALTER TABLE piece_rates DROP COLUMN {cot}"))
+    db.commit()
+
+
+def _migrate_don_vi_quy_doi_cong_thuc(db: Session) -> None:
+    """Quy đổi ĐỘNG: thêm `don_vi_quy_doi.cong_thuc` (nullable).
+
+    "1 tờ bằng mấy kg" không có đáp án chung nhưng TÍNH ĐƯỢC từ khổ + định lượng, nên cột này cho
+    dòng quy đổi ghi công thức thay cho con số; biến do nơi gọi bơm vào lúc chạy. Trước đó ba phép
+    đó nằm cứng trong code (`quy_doi_service.CAU`) nên xưởng không tự khai được.
+    No-op DB fresh / bảng chưa có / cột đã có.
+    """
+    insp = inspect(db.get_bind())
+    if "don_vi_quy_doi" not in insp.get_table_names():
+        return
+    if "cong_thuc" not in _existing_columns(insp, "don_vi_quy_doi"):
+        db.execute(text("ALTER TABLE don_vi_quy_doi ADD COLUMN cong_thuc VARCHAR(200)"))
+    db.commit()
+
+
+def _migrate_don_vi_don_cap_du(db: Session) -> None:
+    """Xoá CẶP DƯ: cạnh mà bỏ đi rồi hai đầu vẫn đổi được cho nhau qua đường khác.
+
+    DB đã chạy bản 0135 đầu tiên có 7 cặp 1-1 cho 5 đơn vị đếm thành phẩm (cái · con · cuốn · bộ ·
+    hộp) vì migration và seed cùng nối một nhóm. Không sai số nhưng bảng Quy đổi nhìn rối, và mỗi
+    dòng dư là một chỗ để người ta sửa lệch về sau. Giữ cạnh hệ số ≠ 1 (số thật của xưởng), chỉ xét
+    cạnh 1-1; xoá dần và kiểm lại sau mỗi lần để không cắt đứt liên thông.
+    """
+    insp = inspect(db.get_bind())
+    if "don_vi_quy_doi" not in insp.get_table_names():
+        return
+    rows = db.execute(text(
+        "SELECT q.id, a.ma, b.ma, q.he_so FROM don_vi_quy_doi q "
+        "JOIN don_vi_do a ON a.id = q.tu_id JOIN don_vi_do b ON b.id = q.den_id"
+    )).all()
+    canh = [(r[0], r[1], r[2], float(r[3])) for r in rows]
+
+    def _lien_thong(bo_qua: set[int], tu: str, den: str) -> bool:
+        g: dict[str, set[str]] = {}
+        for cid, a, b, _hs in canh:
+            if cid in bo_qua:
+                continue
+            g.setdefault(a, set()).add(b)
+            g.setdefault(b, set()).add(a)
+        seen, stack = {tu}, [tu]
+        while stack:
+            cur = stack.pop()
+            if cur == den:
+                return True
+            for ke in g.get(cur, ()):
+                if ke not in seen:
+                    seen.add(ke)
+                    stack.append(ke)
+        return den in seen
+
+    bo: set[int] = set()
+    for cid, a, b, hs in canh:
+        if abs(hs - 1.0) > 1e-9:
+            continue                       # cạnh mang số thật → giữ
+        if _lien_thong(bo | {cid}, a, b):  # bỏ nó mà vẫn đi được → dư
+            bo.add(cid)
+    for cid in bo:
+        db.execute(text("DELETE FROM don_vi_quy_doi WHERE id = :i"), {"i": cid})
+    db.commit()
+
+
+def _migrate_don_vi_he_so_goc_sang_cap(db: Session) -> None:
+    """Chuyển mô hình quy đổi: "hệ số về đơn vị gốc" (1 cột) → BẢNG CẶP `don_vi_quy_doi`.
+
+    Chủ 2026-07-30: *"có logic nào dễ hơn không, kiểu tạo được đơn vị rồi có hệ số quy đổi giữa các
+    đơn vị"* — mô hình cũ đúng về máy nhưng bắt người khai nhớ "đơn vị chuẩn của nhóm" mới điền được
+    số, nhìn vào không hiểu. Nay khai theo cặp như cách nói ngoài đời: "1 tấn = 1.000 kg".
+
+    Chuyển: mỗi đơn vị có `he_so_goc` ≠ 1 sinh 1 cặp về đơn vị gốc CÙNG HỌ (dòng hệ số 1).
+
+    Các đơn vị cùng họ mà ĐỀU hệ số 1 (cái · con · cuốn · bộ · hộp) thì KHÔNG nối ở đây — `seed_don_vi_do`
+    đã nối hết về `cai`. Nối cả hai nơi thì ra hai bộ cạnh chồng nhau (đã gặp thật: 7 cặp 1-1 cho 5
+    đơn vị, thừa 3 dòng nhìn rối dù không sai số).
+
+    Bảng do `create_all` dựng; ở đây chỉ đổ dữ liệu, và no-op nếu đã có cặp.
+    """
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "don_vi_do" not in tables or "don_vi_quy_doi" not in tables:
+        return
+    if "he_so_goc" not in _existing_columns(insp, "don_vi_do"):
+        return
+    if db.execute(text("SELECT count(*) FROM don_vi_quy_doi")).scalar_one():
+        return      # đã có cặp (DB mới seed) → không đụng
+    rows = db.execute(
+        text("SELECT id, ma, ho, he_so_goc FROM don_vi_do ORDER BY ho, id")
+    ).all()
+    theo_ho: dict[str, list] = {}
+    for r in rows:
+        theo_ho.setdefault((r[2] or "khac").strip().lower(), []).append(r)
+    for _ho, ds in theo_ho.items():
+        goc = next((d for d in ds if abs(float(d[3] or 0) - 1.0) < 1e-9), None)
+        if goc is None:
+            continue
+        for d in ds:
+            if d[0] == goc[0]:
+                continue
+            hs = float(d[3] or 0)
+            if hs <= 0 or abs(hs - 1.0) < 1e-9:
+                continue        # hệ số 1 → để `seed_don_vi_do` nối, xem docstring
+            db.execute(
+                text("INSERT INTO don_vi_quy_doi (tu_id, den_id, he_so, created_at, updated_at) "
+                     "VALUES (:tu, :den, :hs, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"),
+                {"tu": d[0], "den": goc[0], "hs": hs},
+            )
+    db.commit()
+
+
+def _migrate_don_vi_bai_in_gop_vao_bai(db: Session) -> None:
+    """Dọn hai thứ cùng nghĩa của bản seed đầu: đơn vị `bai_in` (trùng vai `bai` — cùng họ, cùng hệ
+    số 1, tức HAI đơn vị gốc trong một họ) và các dòng đơn giá khoán ghi `unit='bai_in'`.
+
+    `unit` của đơn giá là CHỮ HIỂN THỊ, nên "bai_in" không khớp mã (`bai`) lẫn tên ("bài in") → 3 dòng
+    "Bài in A/B/C" của seed lương cũ vĩnh viễn báo "chưa khai đơn vị". Đổi chữ trước rồi mới xoá đơn
+    vị dư, giữ đúng thứ tự để không có lúc nào dòng đơn giá trỏ vào đơn vị không tồn tại."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "piece_rates" in tables:
+        db.execute(text("UPDATE piece_rates SET unit = 'bài in' WHERE unit = 'bai_in'"))
+        db.commit()
+    if "don_vi_do" in tables:
+        # Chỉ xoá khi `bai` đã có mặt để nhận vai — không thì thà giữ dòng dư còn hơn mất đơn vị.
+        co_bai = db.execute(text("SELECT count(*) FROM don_vi_do WHERE ma = 'bai'")).scalar_one()
+        if co_bai:
+            db.execute(text("DELETE FROM don_vi_do WHERE ma = 'bai_in'"))
+        db.commit()
+
+
+def _migrate_khoan_json_ve_json(db: Session) -> None:
+    """Hạ `jsonb` → `json` cho 2 cột khoán ở DB đã chạy bản migration ĐẦU (bản đó tạo JSONB).
+
+    Vì sao phải dọn: DB TRẮNG đi đường `create_all` từ `mapped_column(JSON)` nên ra kiểu `json`, còn
+    DB cũ chạy migration bản đầu lại có `jsonb`. Cùng một cột mà dev/prod khác kiểu là bẫy âm thầm:
+    query dùng toán tử jsonb (`jsonb_array_length`, `@>`) chạy ở nơi này, vỡ ở nơi kia. Chỉ Postgres
+    mới có phân biệt này; SQLite no-op. Không dữ liệu nào mất — jsonb → json là cast an toàn."""
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    for bang, cot in (("piece_rates", "cong_doan_mas"), ("lsx_cong_doan", "khoan_json")):
+        if bang not in tables:
+            continue
+        kieu = next(
+            (str(c["type"]).lower() for c in insp.get_columns(bang) if c["name"] == cot), ""
+        )
+        if "jsonb" in kieu:
+            db.execute(text(
+                f"ALTER TABLE {bang} ALTER COLUMN {cot} TYPE JSON USING {cot}::text::json"
+            ))
+    db.commit()
+
+
+def _migrate_don_vi_do_chuan_hoa_ho(db: Session) -> None:
+    """Chuẩn hoá danh mục đơn vị của bản seed ĐẦU (trước khi chốt mô hình họ):
+
+    · gộp `con` · `cuon` · `bo` · `hop` về họ **thanh_pham** — chúng đều là "một thành phẩm xong",
+      để mỗi thứ một họ thì bước lệnh đếm `cai` không khớp nổi đơn giá "700 đ/cuốn";
+    · bỏ `bai_in` (trùng vai với `bai`, mà `bai` mới là mã đơn vị bước lệnh dùng);
+    · sửa nhãn `cai` từ "con / cái" thành "cái" cho diễn giải gọn.
+
+    No-op nếu bảng chưa có / đã chuẩn. KHÔNG đụng đơn vị người dùng tự khai.
+    """
+    insp = inspect(db.get_bind())
+    if "don_vi_do" not in insp.get_table_names():
+        return
+    db.execute(text(
+        "UPDATE don_vi_do SET ho = 'thanh_pham' "
+        "WHERE ma IN ('con', 'cuon', 'bo', 'hop', 'cai') AND ho <> 'thanh_pham'"
+    ))
+    db.execute(text("UPDATE don_vi_do SET ten = 'cái' WHERE ma = 'cai' AND ten = 'con / cái'"))
+    # `bai_in` chỉ xoá khi CHƯA ai dùng làm đơn vị đơn giá khoán — còn dùng thì để lại, đổi họ cho
+    # nó chung nhà với `bai` là đủ (xoá mất là bảng khoán hiện "đơn vị chưa khai").
+    con_dung = db.execute(text(
+        "SELECT COUNT(*) FROM piece_rates WHERE lower(unit) IN ('bai_in', 'bài in')"
+    )).scalar() or 0
+    if con_dung:
+        db.execute(text("UPDATE don_vi_do SET ho = 'bai' WHERE ma = 'bai_in'"))
+    else:
+        db.execute(text("DELETE FROM don_vi_do WHERE ma = 'bai_in'"))
+    db.commit()
+
+
+def _migrate_ptg_drop_chua_thua(db: Session) -> None:
+    """Bỏ 4 khoản chừa khỏi phiếu: `chua_tay_ke` · `chua_duoi` · `chua_xen` · `chua_ca_gay`.
+
+    Chừa tờ in là đặc tính của MÁY (`nhip_giay_mm` / `le_hong_mm` / `duoi_thang_mau_mm` ở danh mục
+    máy) — bốn cột này chưa từng có ô nhập ở bất kỳ màn nào, mà xén/cả gáy còn bị engine cộng đều
+    CẢ HAI chiều nên chỉ làm số con lệch âm thầm. Giữ lại `chua_nhip` làm ô đè theo job.
+
+    CẢNH BÁO GIÁ: phiếu cũ có `chua_tay_ke`/`chua_duoi` > 0 mà máy chưa khai chừa thì sau bước này
+    chừa về 0 → con/tờ tăng → số tờ giảm → giá vốn giảm. Điền danh mục Máy trước khi chạy.
+
+    Best-effort mỗi câu (SQLite cũ có thể từ chối DROP COLUMN → cột mồ côi vô hại vì model không
+    map). No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "phieu_thanh_phan")
+    for c in ("chua_tay_ke", "chua_duoi", "chua_xen", "chua_ca_gay"):
+        if c not in cols:
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE phieu_thanh_phan DROP COLUMN {c}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+def _migrate_lsx_qc_chua_ve_may(db: Session) -> None:
+    """Dọn chừa MỒ CÔI trong `lsx.quy_cach_json` sau mig 0139.
+
+    Snapshot quy cách của lệnh chụp nguyên dict thành phần, nên lệnh cũ còn giữ `chua_tay_ke` /
+    `chua_duoi` / `chua_xen` / `chua_ca_gay`. Từ 0139 engine không đọc chúng nữa → chừa của lệnh
+    tụt (vd 15/10 → 10/0) trong khi phiếu tính giá vẫn 15/10: CÙNG một tờ, hai màn hai số.
+
+    Chuyển giá trị sang đúng khoá máy trong snapshot (giữ nguyên Ý ĐỊNH lúc chụp, KHÔNG đọc lại
+    danh mục máy hiện tại — snapshot phải đứng yên):
+      · `chua_tay_ke` → `le_hong_mm`         (cùng đơn vị: mỗi bên, engine nhân 2)
+      · `chua_duoi`   → `duoi_thang_mau_mm`  (cộng một lần vào chiều dài)
+      · `chua_xen` + `chua_ca_gay` trước cộng đều CẢ HAI chiều → dồn vào đuôi (dài) và nửa vào
+        lề hông (rộng, vì bị nhân 2) để tổng mỗi chiều không đổi.
+    Chỉ ghi khi khoá máy đang trống — lệnh chụp lúc danh mục máy đã khai thì để yên. Xoá 4 khoá
+    chết sau khi chuyển. No-op nếu bảng chưa có / đã dọn."""
+    insp = inspect(db.get_bind())
+    if "lsx" not in insp.get_table_names():
+        return
+    pg = db.get_bind().dialect.name == "postgresql"
+    sql = ("UPDATE lsx SET quy_cach_json = CAST(:v AS JSON) WHERE id = :i" if pg
+           else "UPDATE lsx SET quy_cach_json = :v WHERE id = :i")
+    rows = db.execute(text("SELECT id, quy_cach_json FROM lsx WHERE quy_cach_json IS NOT NULL")).all()
+    for lsx_id, qc in rows:
+        if isinstance(qc, str):
+            qc = json.loads(qc)
+        if not isinstance(qc, dict):
+            continue
+        chet = ("chua_tay_ke", "chua_duoi", "chua_xen", "chua_ca_gay")
+        if not any(k in qc for k in chet):
+            continue
+
+        def _f(k: str) -> float:
+            try:
+                return float(qc.get(k) or 0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        deu = _f("chua_xen") + _f("chua_ca_gay")
+        if not _f("duoi_thang_mau_mm"):
+            qc["duoi_thang_mau_mm"] = _f("chua_duoi") + deu
+        if not _f("le_hong_mm"):
+            qc["le_hong_mm"] = _f("chua_tay_ke") + deu / 2
+        for k in chet:
+            qc.pop(k, None)
+        db.execute(text(sql), {"v": json.dumps(qc, ensure_ascii=False), "i": lsx_id})
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -3984,6 +4482,28 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0127_job_grade_catalog", _migrate_job_grade_catalog),
     ("0128_employee_salary_commission_pct", _migrate_employee_salary_commission_pct),
     ("0129_job_grade_drop_phu", _migrate_job_grade_drop_phu),
+    # Nhánh nội quy / thưởng tổ trưởng (nhập từ dev) — số 0130-0133 TRÙNG dãy khoán ngay dưới là
+    # có chủ ý: khoá thật là CẢ CHUỖI id, không đụng nhau. Đừng đánh lại số.
+    ("0130_drop_kpi_bonus", _migrate_drop_kpi_bonus),
+    ("0131_noi_quy_nguon_va_file_goc", _migrate_noi_quy_nguon_va_file_goc),
+    ("0132_noi_quy_nhieu_tai_lieu", _migrate_noi_quy_nhieu_tai_lieu),
+    ("0133_nguong_to_truong_theo_san_luong", _migrate_nguong_to_truong_theo_san_luong),
+    # Khoán theo ĐẦU VIỆC: 1 đầu việc phủ nhiều công đoạn + trục quy đổi; bước lệnh ghim đầu việc.
+    ("0130_piece_rate_cong_doan_mas", _migrate_piece_rate_cong_doan_mas),
+    ("0131_lsx_cong_doan_khoan_json", _migrate_lsx_cong_doan_khoan_json),
+    ("0132_don_vi_do_chuan_hoa_ho", _migrate_don_vi_do_chuan_hoa_ho),
+    # Dọn lệch kiểu cột do bản migration đầu tạo JSONB (create_all ra `json`) — xem docstring.
+    ("0133_khoan_json_ve_json", _migrate_khoan_json_ve_json),
+    ("0134_don_vi_bai_in_gop_vao_bai", _migrate_don_vi_bai_in_gop_vao_bai),
+    # Đổi mô hình quy đổi sang BẢNG CẶP ("1 tấn = 1.000 kg") — chủ thấy mô hình "hệ số về đơn vị
+    # gốc" khó hiểu. Chạy SAU 0134 để dữ liệu đơn vị đã dọn xong mới sinh cặp.
+    ("0135_don_vi_he_so_goc_sang_cap", _migrate_don_vi_he_so_goc_sang_cap),
+    # Dọn cặp 1-1 dư do bản 0135 đầu tiên + seed cùng nối nhóm đếm thành phẩm.
+    ("0136_don_vi_don_cap_du", _migrate_don_vi_don_cap_du),
+    # Quy đổi ĐỘNG: hệ số được phép là công thức ("1 tờ = dinh_luong * dai * rong" kg).
+    ("0137_don_vi_quy_doi_cong_thuc", _migrate_don_vi_quy_doi_cong_thuc),
+    # Đơn giá khoán về đúng nghĩa khai báo: bỏ luật khớp ngầm + phép nhân ngầm.
+    ("0138_piece_rate_bo_luat_ngam", _migrate_piece_rate_bo_luat_ngam),
     # --- Nhánh tính giá / báo giá — bảng khác, chạy độc lập với khối lương ở trên ---
     # Số 0106+ TRÙNG với dãy lương ngay trên là CÓ CHỦ Ý: hai dãy đánh số song song, khoá
     # thật trong `schema_migrations` là CẢ CHUỖI id nên không đụng nhau. ĐỪNG đánh lại số —
@@ -4004,6 +4524,10 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0113_kho_post_thukho_off", _migrate_kho_post_thukho_off),
     # Lý do kho hủy đề nghị (hủy phiếu → đề nghị 'Đã hủy' kèm lý do).
     ("0114_stock_request_ly_do_huy", _migrate_stock_request_ly_do_huy),
+    # Chừa tờ in về MỘT nguồn: danh mục Máy. Phiếu chỉ còn ô đè `chua_nhip`.
+    ("0139_ptg_drop_chua_thua", _migrate_ptg_drop_chua_thua),
+    # Lệnh cũ còn ôm chừa mồ côi trong snapshot → chuyển sang khoá máy, kẻo lệch với phiếu.
+    ("0140_lsx_qc_chua_ve_may", _migrate_lsx_qc_chua_ve_may),
 ]
 
 

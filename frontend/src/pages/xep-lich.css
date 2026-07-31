@@ -16,6 +16,22 @@
   font-family: inherit;
 }
 
+/* Accessibility Utility Class — ẩn dòng caption trôi nổi */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+caption.sr-only {
+  display: none !important;
+}
+
 /* `.eyebrow` global 10px HOA khó đọc — nới trong màn này (không đụng màn khác). */
 .xlcd .eyebrow {
   font-size: 12px;
@@ -33,15 +49,56 @@
   font-size: var(--fs-xs);
 }
 
-/* --- header count -------------------------------------------------------- */
-.xlcd-count {
-  font-family: var(--ff-sans);
-  font-size: var(--fs-xs);
-  color: var(--ash);
+/* --- header count & metric badges ---------------------------------------- */
+.xlcd-head .khsx__headrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
 }
-.xlcd-count__alert {
-  color: var(--signal);
+.xlcd-badges {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.xlcd-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  color: var(--ash);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+.xlcd-badge__num {
   font-weight: var(--fw-bold);
+  font-family: var(--ff-sans);
+}
+.xlcd-badge--cho {
+  background: var(--paper);
+  border-color: var(--rule);
+  color: var(--ink);
+}
+.xlcd-badge--daxep {
+  background: var(--moss-soft);
+  border-color: var(--moss);
+  color: var(--moss-deep);
+}
+.xlcd-badge--alert {
+  background: var(--signal-soft);
+  border-color: var(--signal);
+  color: var(--signal);
+}
+.xlcd-badge--ready {
+  background: var(--amber-soft);
+  border-color: var(--amber);
+  color: var(--amber-deep);
 }
 
 /* --- layout 2 cột: khay + board ----------------------------------------- */
@@ -347,9 +404,9 @@
 .xlcd-sticky-l { position: sticky; z-index: 2; }
 .xlcd-sticky-l--1 { left: 0; width: 40px; min-width: 40px; max-width: 40px; }
 .xlcd-sticky-l--2 { left: 40px; width: 34px; min-width: 34px; max-width: 34px; }
-.xlcd-sticky-l--3 { left: 74px; width: 116px; min-width: 116px; max-width: 116px; }
-.xlcd-sticky-l--4 { left: 190px; width: 150px; min-width: 150px; max-width: 150px; }
-.xlcd-sticky-r { position: sticky; right: 0; z-index: 2; width: 150px; min-width: 150px; }
+.xlcd-sticky-l--3 { left: 74px; width: 124px; min-width: 124px; max-width: 124px; }
+.xlcd-sticky-l--4 { left: 198px; width: 160px; min-width: 160px; max-width: 160px; }
+.xlcd-sticky-r { position: sticky; right: 0; z-index: 2; width: 220px; min-width: 220px; }
 .xlcd-table thead th.xlcd-sticky-l,
 .xlcd-table thead th.xlcd-sticky-r { z-index: 4; }
 
@@ -386,27 +443,73 @@
 .xlcd-tablewrap.is-scroll-r .xlcd-shadow-r::before { opacity: 1; }
 
 /* --- dòng --------------------------------------------------------------- */
-.xlcd-row { background: var(--canvas); cursor: pointer; }
+.xlcd-row { background: var(--canvas); cursor: pointer; transition: background var(--duration-fast); }
 .xlcd-row td { background: inherit; }   /* sticky kế thừa nền dòng → luôn đục + đúng trạng thái */
-.xlcd-row:hover { background: var(--rule-hair); }
+.xlcd-row:hover { background: var(--rust-soft); }
 .xlcd-row:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
 .xlcd-row--rush { background: color-mix(in srgb, var(--rust-soft) 40%, var(--canvas)); }
-.xlcd-row.is-checked { background: color-mix(in srgb, var(--steel-soft) 50%, var(--canvas)); }
+.xlcd-row.is-checked { background: color-mix(in srgb, var(--rust-soft) 70%, var(--canvas)); }
 .xlcd-row--ghep td:nth-child(3) { box-shadow: inset 2px 0 0 var(--steel); }
 .xlcd-row--blocked { opacity: 0.55; }
 .xlcd-row--blocked .xlcd-cell { cursor: not-allowed; }
 
 .xlcd-ma {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--r-2);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
   font-family: var(--ff-sans);
   font-size: var(--fs-xs);
   font-weight: var(--fw-bold);
   color: var(--ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
   white-space: nowrap;
 }
-.xlcd-ma svg { vertical-align: -1px; margin-right: 3px; color: var(--steel); }
+.xlcd-ma svg { vertical-align: -1px; margin-right: 2px; color: var(--steel); }
+
+.xlcd-step-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  white-space: nowrap;
+}
+
+.xlcd-dept-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  max-width: 180px;
+}
+.xlcd-dept-tag span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.xlcd-cd-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+.xlcd-cd-icon {
+  color: var(--ash-2);
+  flex-shrink: 0;
+}
 .xlcd-cd {
   display: block;
   overflow: hidden;
@@ -414,14 +517,18 @@
   white-space: nowrap;
   color: var(--ink);
   font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
 }
 .xlcd-early { color: var(--signal); font-weight: var(--fw-bold); }
 
 .xlcd-tt {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  align-items: flex-start;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 /* --- band (nhóm) -------------------------------------------------------- */
@@ -465,6 +572,40 @@
   color: var(--ash);
   white-space: nowrap;
 }
+.xlcd-band__progress-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+}
+.xlcd-band__progress {
+  width: 64px;
+  height: 6px;
+  background: var(--rule-hair);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.xlcd-band__progress-bar {
+  height: 100%;
+  background: var(--rust);
+  border-radius: var(--r-pill);
+  transition: width 0.3s ease;
+}
+.xlcd-band__progress-bar--complete {
+  background: var(--moss);
+}
+.xlcd-band__progress-num {
+  font-family: var(--ff-num);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+  white-space: nowrap;
+}
+
 .xlcd-band__go {
   display: inline-flex;
   align-items: center;
@@ -502,8 +643,12 @@
 .xlcd-cell:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
 .xlcd-cell:disabled { cursor: not-allowed; opacity: 0.6; }
 .xlcd-cell--empty {
-  border: 1px dashed var(--rule);
-  color: var(--ash);
+  border: 1px dashed var(--rust);
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  font-weight: var(--fw-medium);
 }
 .xlcd-cell__sub { color: var(--ash); font-size: var(--fs-2xs); margin-left: 4px; }
 
@@ -839,17 +984,23 @@
 .xlcd-glegend__it {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: var(--fs-2xs);
+  gap: 6px;
+  font-size: var(--fs-xs);
   color: var(--ash);
+  font-weight: var(--fw-medium);
 }
-.xlcd-glegend__sw {
-  position: static;
-  display: inline-block;
-  width: 18px;
-  height: 12px;
-  cursor: default;
+.xlcd-glegend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--steel);
 }
+.xlcd-glegend__it--daxep .xlcd-glegend__dot { background: #64748b; }
+.xlcd-glegend__it--ghep .xlcd-glegend__dot { background: #8b5cf6; }
+.xlcd-glegend__it--warn .xlcd-glegend__dot { background: #f59e0b; }
+.xlcd-glegend__it--late .xlcd-glegend__dot { background: #ef4444; }
+.xlcd-glegend__it--conflict .xlcd-glegend__dot { background: #dc2626; box-shadow: 0 0 4px #ef4444; }
+.xlcd-glegend__it--locked .xlcd-glegend__dot { background: #10b981; }
 
 /* --- vùng cuộn + lưới ----------------------------------------------------- */
 .xlcd-gantt__scroll {
@@ -863,43 +1014,91 @@
   display: flex;
   position: sticky;
   top: 0;
-  z-index: 5;
+  z-index: 10;
   background: var(--paper);
   border-bottom: 1px solid var(--rule);
+  backdrop-filter: blur(8px);
 }
 .xlcd-gantt__corner {
   position: sticky;
   left: 0;
-  z-index: 6;
+  z-index: 12;
   flex: none;
   display: flex;
   align-items: center;
   padding: 0 var(--sp-3);
-  height: 32px;
+  height: 52px;
   background: var(--paper);
   border-right: 1px solid var(--rule);
-  font-size: var(--fs-2xs);
+  font-size: 11px;
   font-weight: var(--fw-bold);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--ash);
 }
-.xlcd-gtimehead { position: relative; height: 32px; flex: none; }
+.xlcd-gtimehead--tiered {
+  position: relative;
+  height: 52px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+}
+.xlcd-gtimehead__groups {
+  position: relative;
+  height: 24px;
+  border-bottom: 1px solid var(--rule-hair);
+  background: var(--paper);
+}
+.xlcd-gtgroup {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  border-right: 1px solid var(--rule-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.xlcd-gtimehead__ticks {
+  position: relative;
+  height: 28px;
+}
 .xlcd-gtick {
   position: absolute;
   top: 0;
   bottom: 0;
   border-left: 1px solid var(--rule-hair);
-  padding-left: 4px;
+  padding: 2px 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.1;
+  white-space: nowrap;
 }
-.xlcd-gtick.is-strong { border-left-color: var(--rule); }
-.xlcd-gtick span {
+.xlcd-gtick.is-strong {
+  border-left-color: var(--rule);
+  background: rgba(0, 0, 0, 0.02);
+}
+.xlcd-gtick.is-weekend {
+  background: rgba(0, 0, 0, 0.035);
+}
+.xlcd-gtick__label {
   font-family: var(--ff-sans);
-  font-size: var(--fs-2xs);
-  color: var(--ash);
-  line-height: 32px;
+  font-size: 11px;
+  color: var(--ink);
+  font-weight: var(--fw-medium);
 }
-.xlcd-gtick.is-strong span { color: var(--ink); font-weight: var(--fw-bold); }
+.xlcd-gtick__sub {
+  font-size: 9px;
+  color: var(--ash);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
 
 /* --- lane (dòng máy) ------------------------------------------------------ */
 .xlcd-glane {
@@ -910,7 +1109,7 @@
 .xlcd-glane__label {
   position: sticky;
   left: 0;
-  z-index: 2;
+  z-index: 8;
   flex: none;
   display: flex;
   flex-direction: column;
@@ -919,6 +1118,7 @@
   padding: var(--sp-2) var(--sp-3);
   background: var(--canvas);
   border-right: 1px solid var(--rule);
+  box-shadow: 2px 0 6px rgba(0, 0, 0, 0.03);
 }
 .xlcd-glane--nomay .xlcd-glane__label { background: var(--amber-soft); }
 .xlcd-glane__name {
@@ -928,15 +1128,52 @@
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
   color: var(--ink);
+  line-height: 1.3;
 }
 .xlcd-glane__name span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 170px;
 }
 .xlcd-glane__name svg { color: var(--ash); flex: none; }
 .xlcd-glane__meta { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
 .xlcd-glane__sub { font-size: var(--fs-2xs); color: var(--ash); }
+.xlcd-glane__khoa {
+  border: 0;
+  background: transparent;
+  color: var(--ash);
+  cursor: pointer;
+  padding: 2px;
+  margin-left: auto;
+  border-radius: var(--r-1);
+}
+.xlcd-glane__khoa:hover { color: var(--signal); background: var(--rule-hair); }
+
+/* Load meter colors */
+.xlcd-gload {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.xlcd-gload__bar {
+  width: 36px;
+  height: 5px;
+  background: var(--rule-hair);
+  border-radius: var(--r-pill);
+  overflow: hidden;
+}
+.xlcd-gload__fill {
+  height: 100%;
+  border-radius: var(--r-pill);
+  transition: width var(--duration-fast) var(--easing-standard);
+  background: var(--moss);
+}
+.xlcd-gload--good .xlcd-gload__fill { background: linear-gradient(90deg, #10b981, #059669); }
+.xlcd-gload--warn .xlcd-gload__fill { background: linear-gradient(90deg, #f59e0b, #d97706); }
+.xlcd-gload--over .xlcd-gload__fill { background: linear-gradient(90deg, #ef4444, #dc2626); }
+.xlcd-gload--warn .xlcd-gload__pct { color: #d97706; font-weight: var(--fw-bold); }
+.xlcd-gload--over .xlcd-gload__pct { color: #dc2626; font-weight: var(--fw-bold); }
 .xlcd-glane__track { position: relative; flex: none; overflow: hidden; }
 
 /* nền ngoài-ca/nghỉ (tô loang — thanh chạy liền qua) */
@@ -953,34 +1190,66 @@
   );
   pointer-events: none;
 }
+.xlcd-glane__status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
+  flex: none;
+}
+
 /* đường "bây giờ" */
 .xlcd-gnow {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 2px;
-  background: var(--rust);
-  z-index: 3;
+  background: #ef4444;
+  box-shadow: 0 0 8px #ef4444, 0 0 16px rgba(239, 68, 68, 0.5);
+  z-index: 6;
   pointer-events: none;
 }
-.xlcd-gnow--head { top: auto; bottom: 0; height: 8px; }
+.xlcd-gnow--head { top: 0; bottom: 0; height: auto; }
+.xlcd-gnow__tag {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ef4444;
+  color: #ffffff;
+  font-family: var(--ff-sans);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.4);
+  white-space: nowrap;
+}
 
 /* --- thanh việc (FILL cõng rủi ro; badge/ký hiệu không chỉ-màu) ----------- */
 .xlcd-gbar {
   position: absolute;
   display: flex;
   align-items: center;
-  padding: 0 6px;
-  border: 1px solid var(--steel);
-  border-radius: var(--r-2);
-  background: var(--steel-soft);
+  padding: 0 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  background: var(--paper);
   color: var(--ink);
-  font-size: var(--fs-2xs);
+  font-size: 11px;
+  font-weight: 500;
   cursor: pointer;
   overflow: hidden;
-  transition: filter var(--duration-fast) var(--easing-standard);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: transform var(--duration-fast) var(--easing-standard), box-shadow var(--duration-fast) var(--easing-standard);
 }
-.xlcd-gbar:hover { filter: brightness(0.97); }
+.xlcd-gbar:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 5;
+}
 .xlcd-gbar:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; z-index: 4; }
 .xlcd-gbar__txt { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
 .xlcd-gbar__ma {

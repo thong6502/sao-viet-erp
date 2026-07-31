@@ -55,9 +55,10 @@ def test_rate_scoped_by_department(client):
     assert a["id"] in all_ids and b["id"] in all_ids
 
 
-# --- Ô "Đơn vị": gõ tự do + gợi ý (chủ 29/07/2026) ---------------------------
-# Chủ: "chỉ select được mấy cái thôi, nhiều cái khác thì sao, bất tiện lắm nhỉ".
-# Dữ liệu vốn đã tự do (backend chưa bao giờ validate cột này) — chỉ cái <select> ở FE tự trói.
+# --- Ô "Đơn vị" ---------------------------------------------------------------
+# 2026-07-31: màn khai CHỌN từ danh mục `Đơn vị & quy đổi` (lệch một chữ là lệnh không quy đổi ra
+# tiền được). Nhưng API vẫn NHẬN chữ bất kỳ — dòng cũ, seed và import đều đang mang đơn vị ngoài
+# danh mục; chặn ở API là khoá luôn đường sửa những dòng đó.
 
 
 def _mk(client, token, **over):
@@ -74,14 +75,15 @@ def test_don_vi_go_tu_do_luu_duoc(client):
     assert r.json()["unit"] == "mét tới"
 
 
-def test_don_vi_gop_chinh_ta_hoa_thuong(client):
-    """⭐ Gõ "  KG " khi đã có "kg" ⇒ lưu "kg".
+def test_don_vi_luu_dung_chu_nhan_duoc(client):
+    """⭐ Lưu ĐÚNG chữ nhận được, chỉ cắt khoảng trắng thừa.
 
-    Không gộp thì cùng một đơn vị đẻ ra kg / Kg / KG, gợi ý phình lên và thống kê không gom được."""
+    Bản trước còn "chuẩn hoá" ngầm: gõ "KG" khi đã có "kg" thì server âm thầm đổi thành "kg". Có
+    lý khi ô đơn vị gõ tự do, nhưng chủ chốt 2026-07-31 — đơn vị CHỌN TỪ danh mục Đơn vị & quy đổi
+    và màn khai báo không được sửa chữ của người ta sau lưng."""
     token = _admin_token(client)
     assert _mk(client, token, unit="kg").json()["unit"] == "kg"
-    assert _mk(client, token, unit="  KG ").json()["unit"] == "kg"
-    assert _mk(client, token, unit="Kg").json()["unit"] == "kg"
+    assert _mk(client, token, unit="  KG ").json()["unit"] == "KG"
 
 
 def test_don_vi_khong_gop_theo_dau(client):
@@ -104,22 +106,23 @@ def test_don_vi_dai_24_ky_tu(client):
     assert _mk(client, token, unit="x" * 25).status_code == 422
 
 
-def test_goi_y_don_vi_moc_tu_du_lieu_da_dung(client):
-    """Gõ đơn vị mới một lần ⇒ lần sau nó nằm trong gợi ý. Gợi ý mọc từ chính dữ liệu người
-    dùng, không phải từ danh sách cứng ai đó đoán trước."""
+def test_don_vi_chon_duoc_la_danh_muc_don_vi(client):
+    """Danh sách đơn vị = danh mục `Đơn vị & quy đổi`, KHÔNG mọc thêm từ dữ liệu đã dùng.
+
+    Bản trước nối cả hai nguồn nên danh sách đôi nhau từng cặp (`m2`/`m²`, `hop`/`hộp`) — dòng cũ
+    lưu MÃ còn danh mục hiện TÊN, nhìn như hai đơn vị khác nhau."""
     token = _admin_token(client)
     truoc = client.get("/api/luong/khoan/units", headers=_h(token)).json()["items"]
-    assert "m²" in truoc, "thiếu gợi ý mồi"
-    assert "ram giấy" not in truoc
+    assert "m²" in truoc, "danh mục đơn vị chưa được seed"
+    assert len(truoc) == len(set(truoc)), "danh sách đơn vị bị trùng"
 
     _mk(client, token, unit="ram giấy")
     sau = client.get("/api/luong/khoan/units", headers=_h(token)).json()["items"]
-    assert "ram giấy" in sau
-    assert len(sau) == len(set(sau)), "danh sách gợi ý bị trùng"
+    assert sau == truoc, "đơn vị gõ ngoài danh mục không được chui vào danh sách chọn"
 
 
-def test_sua_don_gia_cung_chuan_hoa_don_vi(client):
-    """Đường SỬA cũng phải chuẩn hoá — không thì gõ tay lúc sửa lại lọt biến thể."""
+def test_sua_don_gia_giu_nguyen_chu_don_vi(client):
+    """Đường SỬA cũng chỉ cắt khoảng trắng, không đổi chữ."""
     token = _admin_token(client)
     rid = _mk(client, token, unit="bộ").json()["id"]
     upd = client.put(f"/api/luong/khoan/rates/{rid}", json={
@@ -127,7 +130,14 @@ def test_sua_don_gia_cung_chuan_hoa_don_vi(client):
         "unit": " BỘ ", "unit_price": 100,
     }, headers=_h(token))
     assert upd.status_code == 200, upd.text
-    assert upd.json()["unit"] == "bộ"
+    assert upd.json()["unit"] == "BỘ"
+
+
+def test_ma_tu_sinh_khi_bo_trong(client):
+    """Chủ chốt: không cho nhập mã, máy sinh KH-####."""
+    token = _admin_token(client)
+    ma = _mk(client, token, unit="kg").json()["code"]
+    assert ma and ma.startswith("KH-")
 
 
 # --- Bậc thưởng/phạt tổ trưởng theo tỷ lệ hàng lỗi (chủ 29/07/2026) ---------
@@ -138,9 +148,11 @@ def test_sua_don_gia_cung_chuan_hoa_don_vi(client):
 _DEPT = 4242
 
 
-def _set_brackets(client, token, items, dept=_DEPT, expect=200):
+def _set_brackets(client, token, items, dept=_DEPT, expect=200, min_output_qty=0):
     r = client.put("/api/luong/khoan/leader-brackets",
-                   json={"department_id": dept, "items": items}, headers=_h(token))
+                   json={"department_id": dept, "items": items,
+                         "min_output_qty": min_output_qty},
+                   headers=_h(token))
     assert r.status_code == expect, r.text
     return r
 
@@ -149,6 +161,12 @@ def _get_brackets(client, token, dept=_DEPT):
     r = client.get(f"/api/luong/khoan/leader-brackets?department_id={dept}", headers=_h(token))
     assert r.status_code == 200, r.text
     return r.json()["items"]
+
+
+def _get_nguong(client, token, dept=_DEPT) -> float:
+    r = client.get(f"/api/luong/khoan/leader-brackets?department_id={dept}", headers=_h(token))
+    assert r.status_code == 200, r.text
+    return r.json()["min_output_qty"]
 
 
 def _bo_moc_chuan():
@@ -210,57 +228,111 @@ def test_ra_tien_dung_dau(client):
     assert S.leader_bonus_amount(tong_khoan_to=100_000_000, defect_pct=50, brackets=[]) == 0
 
 
-def test_chan_bang_moc_hong(client):
+# --- Ngưỡng tối thiểu để XÉT thưởng/phạt (chủ 30/07/2026) --------------------
+# Chủ: *"ở đó mới có Tỷ lệ lỗi tới nhưng không biết nằm trong phạm vi sản lượng là bao nhiêu"*.
+# Bảng bậc chỉ có một chiều là tỷ lệ lỗi ⇒ tổ làm rất ít và tổ làm rất nhiều bị đối xử như nhau.
+
+
+
+def _bac(client, token, qty):
+    """Khai bộ mốc chuẩn + ngưỡng sản lượng, trả về danh sách bậc đã đọc lại từ DB."""
+    _set_brackets(client, token, _bo_moc_chuan(), min_output_qty=qty)
+    db = SessionLocal()
+    try:
+        return PieceWorkRepository(db).list_leader_brackets(_DEPT)
+    finally:
+        db.close()
+
+
+def test_DUOI_nguong_thi_khong_thuong_khong_phat_du_lo_bao_nhieu(client):
+    """⭐ Lý do cửa chặn tồn tại: làm càng ít thì tỷ lệ lỗi càng vô nghĩa.
+
+    Hỏng 2 tờ trên 20 tờ đã là 10% — đủ rơi xuống bậc phạt nặng nhất dù thực tế chẳng làm được gì.
+    Phải chặn CẢ HAI đầu: không thưởng oan khi lỗi 0%, không phạt oan khi lỗi 50%."""
+    from app.services.piece_work_service import PieceWorkService as S
+
     token = _admin_token(client)
-    # Không tăng dần
-    _set_brackets(client, token, [
-        {"up_to_defect_pct": 10, "rate_pct": 2},
-        {"up_to_defect_pct": 5, "rate_pct": 0},
-        {"up_to_defect_pct": None, "rate_pct": -10},
-    ], expect=400)
-    # Hai bậc "trở lên"
-    _set_brackets(client, token, [
-        {"up_to_defect_pct": None, "rate_pct": 2},
-        {"up_to_defect_pct": None, "rate_pct": -10},
-    ], expect=400)
-    # Không có bậc "trở lên" ⇒ lỗi vượt mốc cuối không rơi vào bậc nào
-    _set_brackets(client, token, [{"up_to_defect_pct": 5, "rate_pct": 2}], expect=400)
-    # Bậc "trở lên" không nằm cuối
-    _set_brackets(client, token, [
-        {"up_to_defect_pct": None, "rate_pct": -10},
-        {"up_to_defect_pct": 5, "rate_pct": 2},
-    ], expect=400)
-    # % ngoài khoảng −100..100 ⇒ Pydantic chặn (422)
-    _set_brackets(client, token, [{"up_to_defect_pct": None, "rate_pct": 150}], expect=422)
+    bs = _bac(client, token, qty=5_000)
+
+    for loi in (0, 3, 20, 50):
+        assert S.leader_bonus_amount(tong_khoan_to=100_000_000, defect_pct=loi, brackets=bs,
+                                     san_luong=4_999, min_output_qty=5_000) == 0, \
+            f"dưới ngưỡng mà vẫn ra tiền ở mức lỗi {loi}%"
 
 
-def test_moi_to_mot_bo_moc_rieng(client):
-    """Khai cho tổ này KHÔNG được đụng tổ khác — mỗi tổ một cơ chế chất lượng riêng."""
+def test_DUNG_BANG_nguong_thi_VAN_duoc_xet(client):
+    """⭐ Ranh giới. Chủ khai "ít nhất X" ⇒ đúng X phải được xét (`>=`, KHÔNG phải `>`).
+
+    Lệch một chỗ ở đây là cắt mất tiền thưởng của người ta, mà nhìn bảng lương không thấy gì bất
+    thường — chỉ thấy số 0."""
+    from app.services.piece_work_service import PieceWorkService as S
+
     token = _admin_token(client)
-    _set_brackets(client, token, _bo_moc_chuan(), dept=7001)
-    _set_brackets(client, token, [{"up_to_defect_pct": None, "rate_pct": -5}], dept=7002)
+    bs = _bac(client, token, qty=5_000)
 
-    assert len(_get_brackets(client, token, dept=7001)) == 3
-    b2 = _get_brackets(client, token, dept=7002)
-    assert len(b2) == 1 and b2[0]["rate_pct"] == -5
+    assert S.leader_bonus_amount(tong_khoan_to=100_000_000, defect_pct=3, brackets=bs,
+                                 san_luong=4_999, min_output_qty=5_000) == 0
+    assert S.leader_bonus_amount(tong_khoan_to=100_000_000, defect_pct=3, brackets=bs,
+                                 san_luong=5_000, min_output_qty=5_000) == 2_000_000, \
+        "đúng bằng ngưỡng phải ĐƯỢC xét"
 
 
-def test_thay_ca_bo_khong_sot_bac_mo_coi(client):
-    """PUT 2 bậc lên bộ đang có 3 ⇒ còn ĐÚNG 2. Sót bậc cũ là tra ra bậc sai."""
+def test_CHUA_BIET_san_luong_thi_coi_nhu_duoi_nguong(client):
+    """⭐ Fail-closed có chủ ý: chưa xác nhận được tổ đạt ngưỡng thì KHÔNG phát thưởng.
+
+    Đây là trạng thái THẬT hôm nay — chưa có nguồn nhập sản lượng nào."""
+    from app.services.piece_work_service import PieceWorkService as S
+
     token = _admin_token(client)
-    _set_brackets(client, token, _bo_moc_chuan(), dept=7003)
-    _set_brackets(client, token, [
-        {"up_to_defect_pct": 8, "rate_pct": 1},
-        {"up_to_defect_pct": None, "rate_pct": -3},
-    ], dept=7003)
-    got = _get_brackets(client, token, dept=7003)
-    assert [b["seq"] for b in got] == [1, 2]
-    assert [b["up_to_defect_pct"] for b in got] == [8, None]
+    bs = _bac(client, token, qty=5_000)
+
+    assert S.leader_bonus_amount(tong_khoan_to=100_000_000, defect_pct=0, brackets=bs,
+                                 san_luong=None, min_output_qty=5_000) == 0
+    # Nhưng KHÔNG khai ngưỡng thì chưa biết sản lượng vẫn xét bình thường — không gác là không gác.
+    assert S.leader_bonus_amount(tong_khoan_to=100_000_000, defect_pct=0, brackets=bs,
+                                 san_luong=None, min_output_qty=0) == 2_000_000
 
 
-def test_xoa_sach_moc(client):
-    """Bộ rỗng = tổ này không áp thưởng/phạt tổ trưởng — hợp lệ, không phải lỗi."""
+def test_khong_khai_nguong_thi_KHONG_GAC(client):
+    """Bộ mốc đã khai từ trước (chưa có ngưỡng) phải giữ NGUYÊN hành vi cũ.
+
+    Thêm cửa chặn mà vô tình bật mặc định là cả loạt tổ mất thưởng im lặng."""
+    from app.services.piece_work_service import PieceWorkService as S
+
     token = _admin_token(client)
-    _set_brackets(client, token, _bo_moc_chuan(), dept=7004)
-    _set_brackets(client, token, [], dept=7004)
-    assert _get_brackets(client, token, dept=7004) == []
+    _set_brackets(client, token, _bo_moc_chuan())
+    db = SessionLocal()
+    try:
+        bs = PieceWorkRepository(db).list_leader_brackets(_DEPT)
+    finally:
+        db.close()
+
+    assert _get_nguong(client, token) == 0
+    assert S.leader_bonus_amount(tong_khoan_to=1_000, defect_pct=3, brackets=bs) == 20
+
+
+def test_nguong_luu_va_doc_lai_cung_goi_voi_bac(client):
+    """Ngưỡng đi CÙNG GÓI với bậc: màn chỉ có một nút Lưu, tách ra là lưu được nửa này mất nửa kia."""
+    token = _admin_token(client)
+    _set_brackets(client, token, _bo_moc_chuan(), min_output_qty=5_000)
+    assert _get_nguong(client, token) == 5_000
+    assert len(_get_brackets(client, token)) == 3, "lưu ngưỡng không được làm mất bậc"
+
+    # Sửa lại: phải GHI ĐÈ, không đẻ dòng thứ hai (`department_id` là UNIQUE).
+    _set_brackets(client, token, _bo_moc_chuan(), min_output_qty=200)
+    assert _get_nguong(client, token) == 200
+
+
+def test_moi_to_mot_nguong_rieng(client):
+    """Ngưỡng của tổ này không được rò sang tổ khác — cùng luật với bộ mốc."""
+    token = _admin_token(client)
+    _set_brackets(client, token, _bo_moc_chuan(), min_output_qty=5_000)
+    _set_brackets(client, token, _bo_moc_chuan(), dept=_DEPT + 1, min_output_qty=800)
+
+    assert _get_nguong(client, token, _DEPT) == 5_000
+    assert _get_nguong(client, token, _DEPT + 1) == 800
+
+
+def test_nguong_am_bi_chan(client):
+    token = _admin_token(client)
+    _set_brackets(client, token, _bo_moc_chuan(), min_output_qty=-1, expect=400)

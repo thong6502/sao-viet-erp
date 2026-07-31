@@ -161,10 +161,28 @@ class OvertimeService:
 
     # --- duyệt / từ chối / hủy ----------------------------------------------
 
-    def _decide(self, *, actor, request_id: int, new_status: str, note) -> OvertimeRequest:
+    def _guard_scope(self, employee_id: int, *, scope: str, actor) -> None:
+        """Chặn GHI ra ngoài tầm dữ liệu của người gọi.
+
+        Ô quyền `approve` chỉ trả lời "được duyệt hay không", KHÔNG trả lời "được duyệt CHO AI".
+        Thiếu chốt này thì tổ trưởng tổ A duyệt được phiếu của người tổ B chỉ cần biết mã phiếu —
+        mà chính họ KHÔNG thấy phiếu đó trên màn của mình (đường ĐỌC đã lọc scope). Che ở màn
+        không phải là khoá. Phiếu tăng ca RA TIỀN: 150% / 200% / 300% tùy loại ngày.
+
+        `scope` là tham số BẮT BUỘC — cố ý không cho mặc định. Cơ chế "quên khai thì bỏ qua kiểm
+        tra" chính là thứ đã để lỗ này tồn tại mà không ai biết (chủ 29/07/2026)."""
+        emp = self.employees.get_by_id(employee_id)
+        if emp is None:
+            return                # phiếu mồ côi NV — validate khác lo, đừng che lỗi thật ở đây
+        if not self.employees.can_access(employee=emp, scope=scope, actor=actor):
+            raise OvertimeForbidden("Nhân viên này ngoài phạm vi quản lý của bạn.")
+
+    def _decide(self, *, actor, request_id: int, new_status: str, note,
+                scope: str) -> OvertimeRequest:
         r = self.overtime.get_request(request_id)
         if r is None:
             raise OvertimeNotFound("Không tìm thấy phiếu tăng ca.")
+        self._guard_scope(r.employee_id, scope=scope, actor=actor)
         if r.status != STATUS_PENDING:
             raise OvertimeValidationError("Chỉ duyệt/từ chối được phiếu đang chờ.")
         self.overtime.update_request(
@@ -175,27 +193,35 @@ class OvertimeService:
                           target=f"overtime_request:{r.id}", detail=f"→ {new_status}")
         return r
 
-    def approve(self, *, actor, request_id: int, note=None) -> OvertimeRequest:
+    def approve(self, *, actor, request_id: int, scope: str, note=None) -> OvertimeRequest:
         return self._decide(actor=actor, request_id=request_id,
-                            new_status=STATUS_APPROVED, note=note)
+                            new_status=STATUS_APPROVED, note=note, scope=scope)
 
-    def reject(self, *, actor, request_id: int, note) -> OvertimeRequest:
+    def reject(self, *, actor, request_id: int, note, scope: str) -> OvertimeRequest:
         if not _clean(note):
             raise OvertimeValidationError("Từ chối phải ghi lý do.")
         return self._decide(actor=actor, request_id=request_id,
-                            new_status=STATUS_REJECTED, note=note)
+                            new_status=STATUS_REJECTED, note=note, scope=scope)
 
-    def bulk_approve(self, *, actor, request_ids, note=None) -> list[OvertimeRequest]:
-        """Duyệt cả mẻ (cả tổ tăng ca cùng một tối). Phiếu không-còn-chờ thì BỎ QUA, không vỡ mẻ."""
+    def bulk_approve(self, *, actor, request_ids, scope: str, note=None) -> list[OvertimeRequest]:
+        """Duyệt cả mẻ (cả tổ tăng ca cùng một tối). Phiếu không-còn-chờ hoặc NGOÀI PHẠM VI thì
+        BỎ QUA, không vỡ mẻ.
+
+        Ngoài phạm vi rơi vào `skipped` chứ KHÔNG nổ 403 cả mẻ: mẻ gửi từ màn chỉ chứa phiếu
+        người dùng nhìn thấy, còn ai dò mã lạ thì nhận `skipped` — không lộ phiếu đó có tồn tại
+        hay không. 403 cả mẻ vừa hỏng thao tác thật, vừa thành kênh dò thông tin."""
         out: list[OvertimeRequest] = []
         for rid in request_ids or []:
             r = self.overtime.get_request(rid)
             if r is None or r.status != STATUS_PENDING:
                 continue
-            out.append(self.approve(actor=actor, request_id=rid, note=note))
+            try:
+                out.append(self.approve(actor=actor, request_id=rid, note=note, scope=scope))
+            except OvertimeForbidden:
+                continue
         return out
 
-    def bulk_reject(self, *, actor, request_ids, note) -> list[OvertimeRequest]:
+    def bulk_reject(self, *, actor, request_ids, note, scope: str) -> list[OvertimeRequest]:
         if not _clean(note):
             raise OvertimeValidationError("Từ chối phải ghi lý do.")
         out: list[OvertimeRequest] = []
@@ -203,7 +229,10 @@ class OvertimeService:
             r = self.overtime.get_request(rid)
             if r is None or r.status != STATUS_PENDING:
                 continue
-            out.append(self.reject(actor=actor, request_id=rid, note=note))
+            try:
+                out.append(self.reject(actor=actor, request_id=rid, note=note, scope=scope))
+            except OvertimeForbidden:
+                continue
         return out
 
     def update_request(self, *, actor, request_id: int, work_date: date, from_minute: int,

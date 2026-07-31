@@ -2764,7 +2764,7 @@ helper "Tính nhanh phạt" của modal Sửa lương.
 | `department_id` | `Integer` | **IX** | yes | — | Tổ sở hữu đơn giá (ref `departments.id`); khai trong Cấu hình lương của tổ. |
 | `code` | `String(20)` | — | yes | — | Mã (A–F cho máy in). |
 | `name` | `String(255)` | — | no | — | Tên công việc. |
-| `cong_doan` | `String(30)` | **IX** | yes | — | Mã công đoạn gắn đơn giá (Pha 5b, ref `cong_doan.ma`). |
+| `cong_doan` | `String(30)` | **IX** | yes | — | **CỘT CHẾT** — trước tra đơn giá theo (tổ + công đoạn). Bảng này giờ là KHAI BÁO thuần: đơn giá chỉ treo vào TỔ, việc nào dùng dòng nào là bên sản xuất chọn ở bước lệnh. Giữ cột để không mất dữ liệu cũ, không đọc ở đâu nữa. |
 | `unit` | `String(12)` | — | no | `khac` | Đơn vị (m2/bai_in/tan/cuon/luot/hop/to/khac). |
 | `unit_price` | `Numeric(14,2)` | — | no | — | Đơn giá/đơn vị. |
 | `note` | `String(255)` | — | yes | — | Ghi chú. |
@@ -2863,6 +2863,39 @@ Ba cột nuôi thẳng routing của Lệnh SX (giá trị MẶC ĐỊNH, kế h
 
 **Tất cả cột:** `id`, `ma`, `ten`, `bac`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
+### `don_vi_do`
+
+**Purpose:** danh mục ĐƠN VỊ ĐO, dùng CHUNG cho khoán · kho · mua hàng. Chỉ là DANH SÁCH TÊN — quy đổi nằm ở bảng cặp `don_vi_quy_doi`. `ma` là mã code tham chiếu (`to`, `cai`, `m2`); `ten` là chữ hiển thị người dùng gõ ("tờ", "m²") và `quy_doi_service.don_vi_map()` đánh chỉ mục theo CẢ HAI vì bảng đơn giá khoán lưu chữ hiển thị còn bước lệnh dùng mã. `ho` = LOẠI ĐO, **không** quyết định đổi được hay không (việc đó theo cặp đã khai) — chỉ để gom nhóm khi hiển thị; UI KHÔNG phơi ô này ra (chủ 2026-07-30). `he_so_goc` là **cột CHẾT** của mô hình cũ ("hệ số về đơn vị gốc của họ"), giữ để không mất dữ liệu lịch sử, KHÔNG đọc ở đâu nữa — migration `0135` đã chuyển nó thành cặp. Bảng mới → `create_all` tự dựng, không migration.
+
+**Tất cả cột:** `id`, `ma`, `ten`, `ho`, `he_so_goc`, `hieu_luc_tu`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+
+### `don_vi_quy_doi`
+
+**Purpose:** CẶP quy đổi — mỗi dòng là một câu *"1 `tu` = `he_so` `den`"* (1 tấn = 1.000 kg · 1 ram = 500 tờ), đúng cách người ta nói ngoài đời. Nguồn chân lý của mọi phép đổi trong hệ.
+
+Cạnh đi **hai chiều**: khai `tấn → kg = 1.000` là đủ để đổi ngược `kg → tấn` (nhân 1/1.000) — bắt khai hai dòng thì sớm muộn hai dòng lệch nhau, nên `find_cap` coi hai chiều là MỘT và chặn khai trùng. Cặp chưa khai thẳng thì `quy_doi_service.duong_di()` **dò đường BFS** qua trung gian (hỏi tấn → g thì đi qua kg, nhân dồn hệ số); BFS chứ không DFS để đường ít chặng nhất, sai số nhân dồn ít nhất.
+
+**Chặn mâu thuẫn (không cho lưu):** thêm/sửa cặp mà lệch với đường đã có (đã có `1 tấn = 1.000 kg` + `1 kg = 1.000 g`, giờ khai `1 tấn = 999.000 g`) thì service từ chối và chỉ ra đường nào đang mâu thuẫn — chủ chốt 2026-07-30, vì số quy đổi chảy thẳng vào tiền khoán và tồn kho, lệch mà im lặng thì phát hiện ra đã trả lương sai mấy tháng. Sai số so sánh là TƯƠNG ĐỐI (`1e-6`) vì hệ số trải từ 0,001 tới 1.000.000.
+
+**Quy đổi ĐỘNG (`cong_thuc`):** *"1 tờ bằng mấy kg"* không có đáp án chung (tờ 65×86 Ford 70 là 0,039 kg còn tờ 79×109 Couché 300 là 0,258 kg) nhưng TÍNH ĐƯỢC từ khổ + định lượng, nên vẫn là một dòng khai được — hệ số là **công thức** thay cho con số: `1 tờ = dinh_luong * dai * rong` kg. Trước 2026-07-31 ba phép này nằm cứng trong code (`quy_doi_service.CAU`), xưởng không sửa được.
+
+Biến do **NƠI GỌI** bơm vào (`quy_doi_service.ngu_canh`), danh mục không tự đoán: chỉ nơi gọi mới biết bước đang đếm tờ NGUYÊN (mua giấy, khổ 79×109) hay tờ IN (chạy máy, khổ 65×86) — hai thứ khác khổ nên khác cân. Biến dùng được: `dai` · `rong` (m) · `dinh_luong` (kg/m² = gsm ÷ 1.000) · `so_con`, cùng từ vựng với công thức công đoạn. Cạnh động THIẾU biến thì bị loại khỏi đồ thị và câu trả lời nói rõ thiếu gì, KHÔNG đoán. Chiều ngược tự có (÷ hệ số) vì kết quả cuối vẫn là một số nhân. Dòng động **không bị chặn mâu thuẫn** lúc khai (chưa có giấy nào để thay biến) — kiểm lúc dùng qua diễn giải.
+
+Thứ phụ thuộc từng mặt hàng ("1 thùng keo = 3 kg" khác "1 thùng mực = ? kg") KHÔNG khai ở đây — chỗ đó là `material.don_vi_phu` + `he_so_quy_doi`.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `tu_id` | `Integer` | **FK→don_vi_do.id**, **IX** | no | — | Vế trái. `ON DELETE CASCADE` — cặp mồ côi là đường đi MA, máy vẫn tính ra số mà không ai hiểu. |
+| `den_id` | `Integer` | **FK→don_vi_do.id**, **IX** | no | — | Vế phải; `ON DELETE CASCADE`. |
+| `he_so` | `Numeric(18,6)` | — | no | — | 1 `tu` = `he_so` `den`. Dòng SỐ thì > 0 (service chặn 0/âm — chia 0 khi đi chiều ngược); dòng CÔNG THỨC lưu **0** (không phải 1: chỗ nào lỡ đọc cột này sẽ ra 0 → hỏng lộ ra ngay, chứ không ra số y như thật mà sai). |
+| `cong_thuc` | `String(200)` | — | yes | — | Quy đổi ĐỘNG: hệ số tính lúc dùng (`dinh_luong * dai * rong`). Có công thức thì `he_so` bị bỏ qua. Chỉ dùng biến trong `quy_doi_service.BIEN`, service chặn biến lạ. |
+| `ghi_chu` | `String(500)` | — | yes | — | Ghi chú. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+| `updated_at` | `DateTime(tz)` | — | no | now | Khi sửa. |
+
+- Unique: (`tu_id`, `den_id`) — `uq_don_vi_quy_doi_cap`. Bảng mới → `create_all` tự dựng; migration `0135` đổ dữ liệu từ `don_vi_do.he_so_goc` của mô hình cũ, `0137` thêm cột `cong_thuc`.
+
 ### `kho_hang`
 
 **Purpose:** danh mục KHAI BÁO kho (master data nhẹ) — mỗi dòng = 1 kho (vd "Kho thành phẩm") với mã / tên / vị trí / ghi chú. Đổ động ra navbar (mục "Kho hàng"); vận hành nhập/xuất/tồn để bản sau (KHÔNG kèm ở đây). Bảng mới → `create_all` tự dựng (không migration); tên `kho_hang` tránh đụng bảng `warehouses` cũ đã gỡ. Gác quyền module `kho`.
@@ -2895,7 +2928,7 @@ Ba cột nuôi thẳng routing của Lệnh SX (giá trị MẶC ĐỊNH, kế h
 
 **Purpose:** Thành phần (1 tờ giấy) của 1 phiếu tính giá — con của `phieu_tinh_gia` (`phieu_id` FK thật, cascade xoá). Gom cấu hình GIẤY (khổ nguyên, khổ thành phẩm ③ dạng số `dai/rong_thanh_pham`, đơn giá theo tờ|tấn, nguồn công ty|khách, bù hao số tờ, các loại tờ chừa) + KỸ THUẬT IN (chế bản/kẽm, quy cách 1 mặt|2 mặt|tự trở, khổ tờ in ② `kho_in_dai/rong`, số con ④ `so_con` + cờ `con_auto` tự bình bài, máy, đơn giá công in gộp mực) + MÀU (đã gộp: chỉ `so_mau_a`/`so_mau_b` — KHÔNG hệ số, KHÔNG tách SEL/Pantone/Nền). `giay_id`/`may_id` soft FK. `gia_von_tp` = ảnh chụp giá vốn thành phần (Σ 4 nhóm A/B/C/D). Mỗi thành phần có nhiều dòng gia công sau in (`phieu_thanh_pham`). Tính giá vốn KHÔNG dùng hệ số (mọi hệ số = 1 → đã gỡ khỏi model).
 
-**Tất cả cột:** `id`, `phieu_id`, `thu_tu`, `loai_thanh_phan`, `ten`, `kho_thanh_pham`, `dai_thanh_pham`, `rong_thanh_pham`, `kho_mo_rong`, `tay_gap`, `so_to_per_sp`, `so_luong`, `don_vi_tinh`, `nhom_bao_gia`, `loai_san_pham_id`, `giay_id`, `kho_nguyen`, `kho_nguyen_dai`, `kho_nguyen_rong`, `don_gia_giay`, `don_gia_don_vi`, `nguon_giay`, `bu_hao_so_to`, `hao_so_to`, `tinh_bu_hao_cd`, `chua_xen`, `chua_tay_ke`, `chua_nhip`, `chua_duoi`, `chua_ca_gay`, `bleed_mm`, `khe_cat_mm`, `co_in`, `che_ban_loai`, `che_ban_don_gia`, `quy_cach_in`, `kho_in_dai`, `kho_in_rong`, `so_con`, `con_auto`, `may_id`, `don_gia_cong_in`, `so_mau_a`, `so_mau_b`, `so_mau_pha`, `ghi_chu_ky_thuat`, `gia_von_tp`, `created_at`, `updated_at`. `ghi_chu_ky_thuat` (TEXT nullable, migration 0079) = ghi chú KỸ THUẬT/SX theo SẢN PHẨM (canh màu như mẫu · kẽm cũ · bù hao) — gõ ở Tính giá, xuống drawer lệnh SX; kỹ thuật, KHÔNG giá; khác `orders.production_note` (cấp đơn). `don_vi_tinh` (VARCHAR, migration 0074, default `'cái'`) = ĐVT sản phẩm (text tự do) → chảy sang Báo giá (`quote_items.unit`, thay `'cái'` hardcode). `kho_nguyen_dai`/`kho_nguyen_rong` (mm, migration 0063) = khổ giấy nguyên ① nhập trên phiếu, ĐÈ khổ danh mục Giấy khi > 0 (đặt hàng xả khổ khác); 0 = lấy theo danh mục. `kho_nguyen` giữ làm nhãn hiển thị / `giay_ten` fallback. `bleed_mm`/`khe_cat_mm` (mm, migration 0108) = tràn lề MỖI CẠNH con và khe giữa 2 con kề nhau, sale nhập trên phiếu; 0 = không tràn lề / bình sát cắt chung nhát. **Chừa trừ theo CHIỀU, không gộp:** chiều DÀI ← `chua_nhip` (trống thì lấy `may_thiet_bi.nhip_giay_mm`) + `chua_duoi` (trống → `duoi_thang_mau_mm`); chiều RỘNG ← `chua_tay_ke` ×2 (trống → `le_hong_mm`); `chua_xen`/`chua_ca_gay` cộng đều cả hai chiều. `so_to_per_sp` = số **BÀI IN (khuôn)** khác nhau của 1 sản phẩm, KHÔNG phải số tờ giấy trong sản phẩm: nhân cả `to_net` lẫn `so_kem` (sách 100 trang bình 16 trang/tay = 7 bài → 7 bộ kẽm). `so_mau_pha` (migration 0109) = số màu PHA (Pantone), **CỘNG THÊM** vào `so_mau_a`/`so_mau_b` (là màu PROCESS). Mỗi màu mực chạy 1 đơn vị máy = 1 bản kẽm nên màu pha có kẽm riêng: 4 CMYK + 1 Pantone = 5 kẽm; `so_kem = (màu process theo quy cách + so_mau_pha) × so_to_per_sp`. Biến `so_mau_pha` cũng phơi cho công thức (vd tiền mực pha qua dòng vật tư).
+**Tất cả cột:** `id`, `phieu_id`, `thu_tu`, `loai_thanh_phan`, `ten`, `kho_thanh_pham`, `dai_thanh_pham`, `rong_thanh_pham`, `kho_mo_rong`, `tay_gap`, `so_to_per_sp`, `so_luong`, `don_vi_tinh`, `nhom_bao_gia`, `loai_san_pham_id`, `giay_id`, `kho_nguyen`, `kho_nguyen_dai`, `kho_nguyen_rong`, `don_gia_giay`, `don_gia_don_vi`, `nguon_giay`, `bu_hao_so_to`, `hao_so_to`, `tinh_bu_hao_cd`, `chua_nhip`, `bleed_mm`, `khe_cat_mm`, `co_in`, `che_ban_loai`, `che_ban_don_gia`, `quy_cach_in`, `kho_in_dai`, `kho_in_rong`, `so_con`, `con_auto`, `may_id`, `don_gia_cong_in`, `so_mau_a`, `so_mau_b`, `so_mau_pha`, `ghi_chu_ky_thuat`, `gia_von_tp`, `created_at`, `updated_at`. `ghi_chu_ky_thuat` (TEXT nullable, migration 0079) = ghi chú KỸ THUẬT/SX theo SẢN PHẨM (canh màu như mẫu · kẽm cũ · bù hao) — gõ ở Tính giá, xuống drawer lệnh SX; kỹ thuật, KHÔNG giá; khác `orders.production_note` (cấp đơn). `don_vi_tinh` (VARCHAR, migration 0074, default `'cái'`) = ĐVT sản phẩm (text tự do) → chảy sang Báo giá (`quote_items.unit`, thay `'cái'` hardcode). `kho_nguyen_dai`/`kho_nguyen_rong` (mm, migration 0063) = khổ giấy nguyên ① nhập trên phiếu, ĐÈ khổ danh mục Giấy khi > 0 (đặt hàng xả khổ khác); 0 = lấy theo danh mục. `kho_nguyen` giữ làm nhãn hiển thị / `giay_ten` fallback. `bleed_mm`/`khe_cat_mm` (mm, migration 0108) = tràn lề MỖI CẠNH con và khe giữa 2 con kề nhau, sale nhập trên phiếu; 0 = không tràn lề / bình sát cắt chung nhát. **Chừa trừ theo CHIỀU, không gộp — nguồn là DANH MỤC MÁY:** chiều DÀI ← `may_thiet_bi.nhip_giay_mm` + `duoi_thang_mau_mm`; chiều RỘNG ← `le_hong_mm` ×2. Phiếu chỉ giữ MỘT ô đè `chua_nhip` (>0 thì thay nhíp của máy). `chua_tay_ke`/`chua_duoi`/`chua_xen`/`chua_ca_gay` đã DROP (mig `0139`): không có chỗ nhập, mà xén/gáy còn bị cộng đều cả hai chiều. `so_to_per_sp` = số **BÀI IN (khuôn)** khác nhau của 1 sản phẩm, KHÔNG phải số tờ giấy trong sản phẩm: nhân cả `to_net` lẫn `so_kem` (sách 100 trang bình 16 trang/tay = 7 bài → 7 bộ kẽm). `so_mau_pha` (migration 0109) = số màu PHA (Pantone), **CỘNG THÊM** vào `so_mau_a`/`so_mau_b` (là màu PROCESS). Mỗi màu mực chạy 1 đơn vị máy = 1 bản kẽm nên màu pha có kẽm riêng: 4 CMYK + 1 Pantone = 5 kẽm; `so_kem = (màu process theo quy cách + so_mau_pha) × so_to_per_sp`. Biến `so_mau_pha` cũng phơi cho công thức (vd tiền mực pha qua dòng vật tư).
 
 ---
 
@@ -3113,6 +3146,7 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 | `di_chuyen_phut` | `Numeric(10,2)` | — | no | `0` | Di chuyển bán thành phẩm sang tổ/máy kế. KHÔNG chiếm máy. |
 | `so_nhan_cong` | `Integer` | — | no | `1` | Số người/máy chạy ĐỒNG THỜI (BC: Concurrent Capacities) — thời gian chạy ÷ số này. Chỉ có nghĩa với `loai_buoc` = `to`/`kcs`. |
 | `may_thay_the_ids` | `JSON` | — | yes | — | `list[int]` soft → `may_thiet_bi.id`. CHỈ THAM KHẢO, không tự xếp lịch. |
+| `khoan_json` | `JSON` | — | yes | — | ĐẦU VIỆC KHOÁN của bước — kế hoạch chọn "bước cán này làm *cán mờ* hay *ghép metalize*" (cùng công đoạn, hai đơn giá). SNAPSHOT `{rate_id, ten, don_vi, don_gia}` từ `piece_rates`, KHÔNG đọc-sống: xưởng lên giá khoán về sau không được xê dịch lệnh đã phát. Tiền khoán là số DẪN XUẤT (tính lúc đọc trong `lsx_service._khoan_derived`), không lưu cột. |
 | `dieu_kien_json` | `JSON` | — | yes | — | `list[str]` cờ điều kiện bắt đầu (§4.5): `co_vat_tu` · `file_duyet` · `kem_xong` · `khuon_san_sang` · `mau_mau_ky` · `nhan_tu_gia_cong`. |
 | `nha_cung_cap` | `String(150)` | — | yes | — | Nhà gia công khi `loai_buoc='thue_ngoai'` — khai TAY (cơ sở nhỏ thường chưa có trong `suppliers`). |
 | `sl_gui` | `Numeric(14,2)` | — | yes | — | SL gửi đi gia công. |
@@ -3490,6 +3524,188 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 - Nhiều mốc thuộc một tổ (`departments`, liên kết mềm). Cùng họ với `piece_rates`.
 
 **Tất cả cột:** `id`, `department_id`, `seq`, `up_to_defect_pct`, `rate_pct`, `note`, `created_at`.
+
+---
+
+### `piece_leader_bonus_settings`
+
+**Purpose:** NGƯỠNG sản lượng tối thiểu để xét thưởng/phạt tổ trưởng — mỗi tổ MỘT dòng.
+
+> Vì sao tách khỏi `piece_leader_bonus_brackets`: bảng bậc chỉ có một chiều là % hàng lỗi, nên
+> tổ làm 20 tờ và tổ làm 20.000 tờ bị đối xử như nhau — hỏng 2/20 tờ đã là 10%, rơi thẳng bậc
+> phạt nặng nhất. Ngưỡng là MỘT luật cho cả bộ bậc, nhét vào từng bậc thì mỗi dòng mang một bản
+> sao và sớm muộn lệch nhau.
+>
+> Luật: sản lượng `<` ngưỡng ⇒ KHÔNG thưởng KHÔNG phạt · `>=` ngưỡng ⇒ áp bảng bậc · ngưỡng `0`
+> ⇒ không gác · **chưa biết sản lượng (None) ⇒ coi như DƯỚI ngưỡng** (fail-closed, có chủ ý).
+>
+> ⚠️ Cùng số phận với bảng bậc: **CHƯA RA TIỀN** — chưa nguồn nào báo sản lượng nên mọi tổ đều
+> rơi vào nhánh fail-closed.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `department_id` | `Integer` → `INTEGER` | **UQ·IX** | no | — | Tổ được gác ngưỡng. **Soft-ref** `departments.id` (không FK cứng, giống bảng bậc). UNIQUE: hai dòng cùng tổ thì không ai biết dòng nào có hiệu lực. |
+| `min_output_qty` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | Sản lượng tối thiểu trong kỳ. **Số trần, KHÔNG kèm đơn vị** — người nối nguồn sản lượng phải cộng TOÀN BỘ sản lượng của tổ rồi so, không lọc theo đơn vị. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi khai ngưỡng. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC), `onupdate` | Lần sửa cuối. |
+
+**Keys & indexes**
+
+- Primary key: `id`. UNIQUE + index trên `department_id`. Không FK cấu trúc.
+
+**Relationships**
+
+- Một tổ (`departments`, liên kết mềm) ↔ đúng một ngưỡng. Đi kèm `piece_leader_bonus_brackets`.
+
+**Tất cả cột:** `id`, `department_id`, `min_output_qty`, `created_at`, `updated_at`.
+
+---
+
+## Nội quy công ty — tài liệu · bản ban hành · trang · file
+
+> **Append-only, KHÔNG sửa đè.** Nội quy là căn cứ kỷ luật: sửa đè thì sau này không trả lời được
+> *"hồi tháng 5 luật là gì"* — mà lúc cần câu trả lời đó thường là lúc đang tranh chấp. Mỗi lần
+> ban hành là một dòng `noi_quy_versions` mới, bản cũ lùi thành lịch sử.
+>
+> **Nháp vs Ban hành:** `draft` chỉ người soạn thấy; `published` cả công ty đọc. Bản hiệu lực của
+> một tài liệu = `published` có `published_at` mới nhất TRONG tài liệu đó.
+>
+> **Một bản khai đúng MỘT nguồn** (`source_kind`): `html` gõ trong app, hay `file` tải tài liệu
+> lên rồi dựng ảnh từng trang. Để cả hai cùng sống trên một bản thì sớm muộn chúng lệch nhau và
+> không ai biết bản nào đang là luật.
+>
+> 4 bảng đều MỚI ⇒ `create_all` tự tạo, KHÔNG cần migration; nhưng phải export ở `models/__init__.py`.
+
+---
+
+### `noi_quy_documents`
+
+**Purpose:** MỘT tài liệu trong bộ nội quy (Nội quy lao động · Quy chế lương thưởng · An toàn lao
+động…) — danh tính bền, sống qua mọi lần ban hành. Mỗi tài liệu là một CHUỖI VERSION riêng.
+
+> ⚠️ **KHÔNG có đường xoá tài liệu.** `noi_quy_pages` và `noi_quy_attachments` đều `ondelete=CASCADE`
+> theo version ⇒ xoá một tài liệu là bay toàn bộ lịch sử + ảnh trang + file bằng một cú bấm. Thôi
+> dùng thì đặt `is_active=False`, bản cũ vẫn tra được.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `title` | `String(200)` → `VARCHAR(200)` | — | no | — | Tên HIỆN HÀNH, dùng hiện danh sách. Tiêu đề từng bản đã ban hành chụp riêng ở `noi_quy_versions.title`. |
+| `seq` | `Integer` → `INTEGER` | — | no | `1` | Thứ tự hiện trong danh sách. |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | False = thôi áp dụng: mất khỏi danh sách nhân viên, KHÔNG mất khỏi lịch sử. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo tài liệu. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+
+**Relationships**
+
+- 1 tài liệu → nhiều `noi_quy_versions` (qua `document_id`, FK TRƠN không cascade).
+
+**Tất cả cột:** `id`, `title`, `seq`, `is_active`, `created_at`.
+
+---
+
+### `noi_quy_versions`
+
+**Purpose:** một BẢN của một tài liệu nội quy. Bản hiệu lực = `published` có `published_at` mới
+nhất trong cùng `document_id`.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `document_id` | `Integer` → `INTEGER` | **FK·IX** | yes | — | → `noi_quy_documents.id`. **FK trơn, CỐ Ý không cascade**: xoá lạc một tài liệu thì phải NỔ, không được âm thầm kéo theo cả lịch sử ban hành. |
+| `title` | `String(200)` → `VARCHAR(200)` | — | yes | — | BẢN CHỤP tiêu đề lúc ban hành. Không đọc thẳng từ `noi_quy_documents.title` vì đổi tên tài liệu sẽ viết lại tiêu đề của MỌI bản lịch sử. |
+| `noi_dung` | `Text` → `TEXT` | — | no | `""` | **HTML đã lọc allowlist ở server** (`lam_sach_html`, nh3) — không phải văn bản thuần. `<img src>` chỉ được trỏ `/api/files/`. Bản `source_kind='file'` để trống, nội dung nằm ở `noi_quy_pages`. |
+| `source_kind` | `String(8)` → `VARCHAR(8)` | — | no | `html` | Nguồn của bản này: `html` (gõ trong app) \| `file` (tải tài liệu lên). |
+| `ghi_chu` | `String(255)` → `VARCHAR(255)` | — | yes | — | "Bản này sửa gì" — để người đọc lịch sử khỏi so từng chữ. |
+| `status` | `String(12)` → `VARCHAR(12)` | **IX** | no | `draft` | `draft` \| `published`. |
+| `published_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | **IX** | yes | — | Chỉ có giá trị khi đã ban hành. NULL ⇒ vẫn là nháp, nhân viên KHÔNG thấy. |
+| `published_by` | `Integer` → `INTEGER` | **FK** | yes | — | → `users.id`. Ai bấm ban hành. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo bản nháp. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC), `onupdate` | Lần sửa cuối. |
+
+**Keys & indexes**
+
+- Primary key: `id`. FK `document_id` → `noi_quy_documents.id` (không cascade), `published_by` →
+  `users.id`. Index trên `document_id`, `status`, `published_at`.
+
+**Relationships**
+
+- Thuộc một `noi_quy_documents`. 1 bản → nhiều `noi_quy_pages` và `noi_quy_attachments` (cascade).
+
+**Tất cả cột:** `id`, `document_id`, `title`, `noi_dung`, `source_kind`, `ghi_chu`, `status`,
+`published_at`, `published_by`, `created_at`, `updated_at`.
+
+---
+
+### `noi_quy_attachments`
+
+**Purpose:** file đính kèm của MỘT bản nội quy (bản scan có ký/đóng dấu). Gắn vào version chứ
+không phải toàn cục — bản PDF có dấu là của đúng bản đó.
+
+> ⚠️ Bytes nằm ở kho file chung (`app/storage.py`), thư mục **`noi-quy/`**. Thư mục này CỐ Ý không
+> khai trong `_PREFIX_PERMISSION` của `routers/files.py` ⇒ ai đăng nhập cũng tải được, giống
+> `avatars/`. Thêm vào bảng đó là chỉ Giám đốc mở được file, phá đúng yêu cầu "tất cả nhân viên
+> thấy". Có test canh.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `version_id` | `Integer` → `INTEGER` | **FK·IX** | no | — | → `noi_quy_versions.id`, `ondelete=CASCADE`. |
+| `file_name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên file gốc lúc tải lên. |
+| `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | Đường dẫn `/api/files/...` trong kho file. |
+| `file_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | MIME type. |
+| `is_import_source` | `Boolean` → `BOOLEAN` | — | no | `false` | True = file GỐC của lần nhập nội dung, hệ thống tự đính; nhập lại thì hàng này bị THAY chứ không cộng dồn (3 file gần giống nhau thì lúc tranh chấp không ai biết bản thật). File người dùng tự đính = False, không bao giờ bị thay. |
+| `uploaded_by` | `Integer` → `INTEGER` | **FK** | yes | — | → `users.id`. |
+| `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tải lên. |
+
+**Keys & indexes**
+
+- Primary key: `id`. FK `version_id` → `noi_quy_versions.id` (CASCADE), `uploaded_by` → `users.id`.
+  Index trên `version_id`.
+
+**Relationships**
+
+- Nhiều file thuộc một `noi_quy_versions`; xoá bản là xoá theo.
+
+**Tất cả cột:** `id`, `version_id`, `file_name`, `file_url`, `file_type`, `is_import_source`,
+`uploaded_by`, `uploaded_at`.
+
+---
+
+### `noi_quy_pages`
+
+**Purpose:** MỘT trang của bản nội quy dạng PDF, đã dựng thành ảnh.
+
+> **Vì sao dựng ảnh thay vì tách chữ:** PDF không lưu đoạn văn hay kiểu chữ, chỉ lưu vị trí từng
+> chữ — tách ra là mất sạch dáng. Yêu cầu là "giữ nguyên form chữ dáng chữ", nên cách đúng là hiện
+> chính trang đó; kèm lợi ích lớn là bản SCAN đã ký/đóng dấu đỏ cũng dùng được, không cần OCR.
+>
+> Dựng MỘT LẦN lúc ban hành, không dựng lúc đọc — dựng khi đọc thì mỗi nhân viên mở màn là server
+> giải mã lại cả tập PDF.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `version_id` | `Integer` → `INTEGER` | **FK·IX** | no | — | → `noi_quy_versions.id`, `ondelete=CASCADE`. |
+| `page_no` | `Integer` → `INTEGER` | — | no | — | Số trang, đếm từ 1. |
+| `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | Ảnh trang trong kho file (`noi-quy/`). |
+| `width` | `Integer` → `INTEGER` | — | no | `0` | Bề rộng ảnh thật (px) — FE đặt sẵn lên `<img>` để trang KHÔNG nhảy khi ảnh tải lười xong. |
+| `height` | `Integer` → `INTEGER` | — | no | `0` | Chiều cao ảnh thật (px), cùng lý do. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi dựng ảnh. |
+
+**Keys & indexes**
+
+- Primary key: `id`. FK `version_id` → `noi_quy_versions.id` (CASCADE). Index trên `version_id`.
+
+**Relationships**
+
+- Nhiều trang thuộc một `noi_quy_versions`; xoá bản là xoá theo.
+
+**Tất cả cột:** `id`, `version_id`, `page_no`, `file_url`, `width`, `height`, `created_at`.
 
 ---
 

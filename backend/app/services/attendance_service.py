@@ -265,6 +265,15 @@ def _clean(v: str | None) -> str | None:
     return v or None
 
 
+def _today_vn() -> date:
+    """Hôm nay theo giờ VN (không phải giờ máy chủ).
+
+    SEAM cố ý để test GHIM được ngày: mọi luật bám "hôm nay" mà không ghim được thì suite xanh/đỏ
+    theo NGÀY CHẠY chứ không theo code — vd test hạn mức chỉnh công dùng ngày 1–11 của tháng hiện
+    tại, chạy cuối tháng thì là quá khứ, chạy mùng 3 thì là tương lai."""
+    return datetime.now(timezone.utc).astimezone(VN_TZ).date()
+
+
 def _in_headcount_on(emp, d: date) -> bool:
     """NV có trong biên chế ngày d (đã vào làm & chưa nghỉ việc) → đủ điều kiện hưởng công lễ."""
     if getattr(emp, "hire_date", None) is not None and emp.hire_date > d:
@@ -837,6 +846,63 @@ class AttendanceService:
     def mark_shift_changes_seen(self, *, user) -> int:
         return self.employees.mark_shift_changes_seen(user.id)
 
+    # --- ngày nghỉ phép đã duyệt (dùng chung) --------------------------------
+
+    def _leave_map(self, year: int, month: int,
+                   allowed: set[int] | None) -> dict[int, dict[int, dict]]:
+        """Ngày NGHỈ NGUYÊN NGÀY đã duyệt trong tháng: `{emp_id → {day → {name, is_paid}}}`.
+
+        ⚠️ **MỘT định nghĩa duy nhất, dùng cho CẢ Bảng công tháng LẪN lưới Phân ca tháng.** Hai màn
+        nói về cùng một ngày nghỉ; chép ra hai bản là sớm muộn Bảng công bảo "có phép" còn lưới bảo
+        "không", mà không ai biết bên nào đúng.
+
+        `allowed=None` = không lọc; có tập thì chỉ giữ nhân sự trong tầm nhìn của người gọi — chống
+        rò ngày nghỉ của tổ khác.
+
+        Chỉ `approved`; phiếu đang chờ KHÔNG tính (`approved_in_range`). Khoảng ngày được **cắt
+        đúng trong tháng** nên phiếu vắt qua hai tháng chỉ hiện phần thuộc tháng đang xem."""
+        out: dict[int, dict[int, dict]] = {}
+        if self.leaves is None:
+            return out
+        days_in_month = calendar.monthrange(year, month)[1]
+        first = date(year, month, 1)
+        last = date(year, month, days_in_month)
+        ltypes = {t.id: t for t in self.leaves.list_types()}
+        for r in self.leaves.approved_in_range(first, last):
+            if allowed is not None and r.employee_id not in allowed:
+                continue
+            lt = ltypes.get(r.leave_type_id)
+            nm = lt.name if lt is not None else "Nghỉ"
+            paid = lt.is_paid if lt is not None else True
+            d, e = max(r.start_date, first), min(r.end_date, last)
+            while d <= e:
+                out.setdefault(r.employee_id, {})[d.day] = {"name": nm, "is_paid": paid}
+                d = date.fromordinal(d.toordinal() + 1)
+        return out
+
+    # --- ai LÊN BẢNG trong tháng (dùng chung Bảng công + lưới Phân ca) -------
+
+    def _employees_in_month(self, year: int, month: int, department_id: int | None,
+                            scope, actor) -> list:
+        """MỌI NV trong scope còn biên chế trong tháng.
+
+        ⚠️ **NGUỒN CHUNG của CẢ Bảng công tháng LẪN lưới Phân ca tháng** — cố ý gom về một mối để
+        hai màn không nói khác nhau về cùng một tháng.
+
+        Trước đây chỉ lưới Phân ca dùng hàm này, còn `monthly_timesheet` tự lấy "ai có lượt bấm /
+        đơn phép". Hệ quả: người CẢ THÁNG không chấm buổi nào biến mất khỏi Bảng công — HCNS không
+        soi ra được ai vắng cả tháng, NV quên chấm thì không còn ô ngày nào để bấm xin chỉnh công,
+        và họ mất luôn công lễ. Người chưa chấm công buổi nào chính là người cần nhìn thấy nhất."""
+        last = date(year, month, calendar.monthrange(year, month)[1])
+        first = date(year, month, 1)
+        rows = [
+            e for e in self.employees.list_scoped_all(scope=scope or SCOPE_ALL, actor=actor)
+            if _in_headcount_on(e, last) or _in_headcount_on(e, first)
+        ]
+        if department_id is not None:
+            rows = [e for e in rows if e.department_id == department_id]
+        return sorted(rows, key=lambda e: (e.code or "", e.id))
+
     # --- bảng công tháng ----------------------------------------------------
 
     def monthly_timesheet(self, *, year: int, month: int, department_id: int | None = None,
@@ -920,21 +986,9 @@ class AttendanceService:
                 by_emp.setdefault(emp_id, {}).setdefault(wd.day, []).append((local, ctype))
 
         # Ngày NGHỈ NGUYÊN NGÀY đã duyệt: {emp_id → {day → {name, is_paid}}}.
-        leave_map: dict[int, dict[int, dict]] = {}
         first = date(year, month, 1)
         last = date(year, month, days_in_month)
-        if self.leaves is not None:
-            ltypes = {t.id: t for t in self.leaves.list_types()}
-            for r in self.leaves.approved_in_range(first, last):
-                if allowed is not None and r.employee_id not in allowed:
-                    continue  # lọc theo scope: chỉ ngày nghỉ của NV trong tầm nhìn người gọi
-                lt = ltypes.get(r.leave_type_id)
-                nm = lt.name if lt is not None else "Nghỉ"
-                paid = lt.is_paid if lt is not None else True
-                d, e = max(r.start_date, first), min(r.end_date, last)
-                while d <= e:
-                    leave_map.setdefault(r.employee_id, {})[d.day] = {"name": nm, "is_paid": paid}
-                    d = date.fromordinal(d.toordinal() + 1)
+        leave_map = self._leave_map(year, month, allowed)
 
         # Phiếu ĐI MUỘN / VỀ SỚM / NGHỈ NỬA BUỔI đã duyệt (bảng RIÊNG, tổ trưởng duyệt):
         #   `hourly_map`      {emp_id → {day → tổng PHÚT xin vắng}}  — nền MIỄN PHẠT
@@ -993,9 +1047,29 @@ class AttendanceService:
                     "leave": None, "leave_paid": False, "holiday": False,
                     "planned_off": False}
 
+        # AI LÊN BẢNG = NV còn biên chế trong tháng **HỢP** NV có dấu vết (lượt bấm / đơn phép /
+        # phiếu giờ).
+        #
+        # HỢP chứ không THAY: người đã nghỉ việc tháng trước mà còn lượt bấm sót vẫn phải giữ hàng.
+        # Đổi thành "chỉ biên chế" là làm BIẾN MẤT hàng đang thấy — thay đổi chỉ được phép thuần
+        # cộng thêm.
+        #
+        # Nhánh dấu vết một mình là đủ cho tới 31/07/2026, và nó bỏ rơi đúng người cần thấy nhất:
+        # ai CẢ THÁNG không chấm buổi nào thì không có hàng nào, nên (1) không tự xem được lịch
+        # công, (2) không bấm được ô ngày để xin chỉnh công, (3) HCNS không soi ra họ, (4) mất
+        # công lễ vì nhánh `emp_holidays` bên dưới không bao giờ chạy tới.
+        emp_cache: dict[int, object] = {}
+        if only_employee_id is not None:
+            base_ids = {only_employee_id}
+        else:
+            emp_cache = {e.id: e for e in self._employees_in_month(
+                year, month, department_id, scope, actor)}
+            base_ids = set(emp_cache)
         rows = []
-        for emp_id in set(by_emp) | set(leave_map) | set(hourly_map):
-            emp = self.employees.get_by_id(emp_id)
+        for emp_id in base_ids | set(by_emp) | set(leave_map) | set(hourly_map):
+            # Dùng lại object đã nạp ở trên; chỉ những id đến từ nhánh "có dấu vết" mới phải hỏi
+            # DB. Không có nó thì bảng 100 NV bắn 100 query lẻ mỗi lần mở màn.
+            emp = emp_cache.get(emp_id) or self.employees.get_by_id(emp_id)
             if emp is None:
                 continue
             if department_id is not None and emp.department_id != department_id:
@@ -1388,23 +1462,6 @@ class AttendanceService:
 
     # --- lưới phân ca theo tháng (khai ca NV × ngày) ------------------------
 
-    def _shift_plan_employees(self, year: int, month: int, department_id: int | None,
-                              scope, actor) -> list:
-        """NV lên lưới khai ca: MỌI NV trong scope còn biên chế trong tháng.
-
-        Cố ý KHÁC nguồn của `monthly_timesheet` (chỉ gồm NV đã có lượt bấm / đơn
-        phép): người mới chưa chấm công buổi nào chính là người cần khai ca nhất,
-        không được để họ vắng mặt khỏi lưới."""
-        last = date(year, month, calendar.monthrange(year, month)[1])
-        first = date(year, month, 1)
-        rows = [
-            e for e in self.employees.list_scoped_all(scope=scope or SCOPE_ALL, actor=actor)
-            if _in_headcount_on(e, last) or _in_headcount_on(e, first)
-        ]
-        if department_id is not None:
-            rows = [e for e in rows if e.department_id == department_id]
-        return sorted(rows, key=lambda e: (e.code or "", e.id))
-
     def shift_plan(self, *, year: int, month: int, department_id: int | None = None,
                    scope=None, actor=None) -> dict:
         """Lưới phân ca tháng: mỗi ô cho biết ca của (NV, ngày) và ca đó ĐẾN TỪ ĐÂU.
@@ -1415,7 +1472,7 @@ class AttendanceService:
         if not (1 <= month <= 12):
             raise AttendanceValidationError("Tháng phải trong khoảng 1–12.")
         days_in_month = calendar.monthrange(year, month)[1]
-        emps = self._shift_plan_employees(year, month, department_id, scope, actor)
+        emps = self._employees_in_month(year, month, department_id, scope, actor)
         day_map = self.employees.shift_days_map(
             {e.id for e in emps}, date(year, month, 1), date(year, month, days_in_month)
         )
@@ -1437,6 +1494,16 @@ class AttendanceService:
                 "special_kind": sp.kind if sp is not None else None,
                 "name": sp.name if sp is not None else None,
             })
+
+        # Ngày nghỉ phép ĐÃ DUYỆT — chỉ để HIỂN THỊ.
+        #
+        # Chốt chống rò dữ liệu KHÔNG nằm ở tham số lọc này mà ở chỗ khác: lớp phủ bên dưới chỉ dán
+        # dấu cho `e` trong `emps`, mà `emps` đã qua `_employees_in_month` (áp `scope` +
+        # `department_id`). Nên người ngoài tầm nhìn không có DÒNG nào trên lưới để mà dán.
+        # Truyền tập id vào đây là để KHỎI DỰNG map thừa cho cả công ty — tiết kiệm, không phải
+        # hàng rào. Đừng nhầm hai vai trò đó: gỡ dòng này không làm rò, nhưng gỡ nhầm bộ lọc ở
+        # `_employees_in_month` thì rò thật.
+        leave_map = self._leave_map(year, month, {e.id for e in emps})
 
         rows = []
         for e in emps:
@@ -1466,6 +1533,17 @@ class AttendanceService:
                                     "is_off": False}
                 else:
                     days[str(d)] = {"shift_id": None, "source": "none", "is_off": False}
+
+            # LỚP PHỦ nghỉ phép — dán SAU khi ô đã dựng xong, cố ý tách hẳn khỏi 5 nhánh trên.
+            # Nhờ đặt ở đây mà tính chất "chỉ để XEM" là hiển nhiên khi đọc code: nó KHÔNG đụng
+            # `shift_id` / `source` / `is_off`, và KHÔNG ghi gì xuống DB. Người nghỉ phép vẫn
+            # ĐƯỢC PHÂN ca đó — chỉ là vắng mặt.
+            for ngay, lv in (leave_map.get(e.id) or {}).items():
+                o = days.get(str(ngay))
+                if o is not None:
+                    o["leave_name"] = lv["name"]
+                    o["leave_paid"] = lv["is_paid"]
+
             rows.append({
                 "employee_id": e.id, "employee_code": e.code, "employee_name": e.full_name,
                 "department_id": e.department_id,
@@ -1716,12 +1794,32 @@ class AttendanceService:
                 f"Kỳ công {the_day.month}/{the_day.year} đã chốt — mở lại kỳ công trước khi {what}."
             )
 
+    def _require_not_future(self, the_day: date, what: str) -> None:
+        """Chặn ghi nhận chấm công cho ngày CHƯA TỚI.
+
+        Chấm công là ghi nhận việc ĐÃ XẢY RA — không ai quên chấm một ngày chưa đến. Trước
+        31/07/2026 không có chốt này ở đâu cả (chủ phát hiện: ngày 31/7 vẫn gửi được yêu cầu
+        chỉnh công cho 02/8). Hai đường phải chặn:
+        · Đơn chỉnh công của NV — đơn tương lai vẫn ĂN HẠN MỨC tháng đó (`adjust_quota` đếm cả đơn
+          chờ), nên NV tự đốt sạch hạn mức tháng sau bằng những ngày chưa tới.
+        · Chấm bù tay của HCNS — nặng hơn: punch tương lai RA CÔNG THẬT khi tới ngày.
+
+        HÔM NAY vẫn cho (quên chấm sáng nay, chiều xin sửa là chuyện thường) — chỉ chặn `>`.
+        Ngày theo giờ **VN** chứ không giờ máy chủ: lệch múi giờ là cuối ngày chặn nhầm cả ngày
+        hợp lệ (cùng lý do `my_requests` lấy hôm nay theo VN_TZ)."""
+        if the_day > _today_vn():
+            raise AttendanceValidationError(
+                f"Không thể {what} cho ngày chưa tới ({the_day.strftime('%d/%m/%Y')})."
+            )
+
     def adjust(self, *, actor, scope, employee_id: int, date_str: str, check_type: str,
                time_hhmm: str, reason: str, fault_party: str | None) -> dict:
         """HCNS thêm 1 PUNCH điều chỉnh tay (chấm bù/sửa) — công tự tính lại từ punch.
         KHÔNG ghi đè số công. Bắt buộc lý do; ghi audit + người thực hiện."""
         emp = self._employee_in_scope(employee_id, scope, actor)
-        self._create_manual_punch(actor=actor, emp=emp, the_day=self._parse_ymd(date_str),
+        the_day = self._parse_ymd(date_str)
+        self._require_not_future(the_day, "chấm bù")
+        self._create_manual_punch(actor=actor, emp=emp, the_day=the_day,
                                   check_type=check_type, time_hhmm=time_hhmm, reason=reason,
                                   fault_party=fault_party)
         return self.day_detail(scope=scope, actor=actor, employee_id=emp.id, date_str=date_str)
@@ -1786,6 +1884,9 @@ class AttendanceService:
         the_day = self._parse_ymd(date_str)
         # Chặn ngay từ lúc GỬI, không đợi tới lúc duyệt: đơn cho tháng đã chốt không bao giờ
         # duyệt được, để NV gửi là ăn oan một lượt hạn mức.
+        # Cùng lý do đó, hai chốt dưới phải đứng TRƯỚC `adjust_quota` — chặn sau khi đã trừ hạn
+        # mức thì đơn hỏng vẫn kịp ăn mất một lượt.
+        self._require_not_future(the_day, "gửi yêu cầu chỉnh công")
         self._require_period_open(the_day, "gửi yêu cầu chỉnh công")
         self._require_shift_on_day(emp, the_day)
         q = self.adjust_quota(emp.id, the_day.year, the_day.month)

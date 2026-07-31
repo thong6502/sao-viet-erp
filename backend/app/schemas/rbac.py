@@ -36,6 +36,8 @@ class DepartmentSummaryOut(BaseModel):
     parent_id: int | None = None
     head_user_id: int | None = None
     head_name: str | None = None
+    # Ảnh đại diện của trưởng phòng. Null = chưa gán trưởng, hoặc trưởng chưa tải ảnh.
+    head_avatar_url: str | None = None
     # Organizational tier (spec-06 / PBI-4009): the level id + its head-title label, so the
     # UI can show e.g. "Trưởng khối" instead of a generic "Người đứng đầu". Null = untagged.
     level_id: int | None = None
@@ -71,6 +73,9 @@ class DepartmentMemberOut(BaseModel):
     role_name: str | None = None
     is_active: bool | None = None
     is_head: bool = False
+    # Ảnh đại diện, lấy từ `users.avatar_url`. Null = người này chưa có tài khoản, hoặc có mà chưa
+    # tải ảnh ⇒ FE hiện chữ viết tắt.
+    avatar_url: str | None = None
 
 
 _SalaryMechanism = Literal["cung", "bac_tho", "tham_nien", "tham_nien_gioi_tinh"]
@@ -143,6 +148,8 @@ class UserBrief(BaseModel):
     id: int
     name: str
     username: str
+    # Để danh sách chọn Trưởng phòng hiện ảnh thật. `from_attributes` tự lấy từ model `User`.
+    avatar_url: str | None = None
 
 
 class UserRow(BaseModel):

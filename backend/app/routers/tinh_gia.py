@@ -17,7 +17,7 @@ from ..deps import require_permission
 from ..models.phieu_tinh_gia import PhieuTinhGia
 from ..models.user import User
 from ..schemas.phieu_tinh_gia import PhieuTinhGiaCreate
-from ..services.thanh_phan_engine import binh_bai_layout
+from ..services.thanh_phan_engine import binh_bai_layout, chua_theo_chieu
 from ..services.tinh_gia_service import compute_phieu_snapshot
 from .phieu_tinh_gia import _build_thanh_phan
 
@@ -35,6 +35,13 @@ class BinhBaiIn(BaseModel):
     # Chừa TÁCH CHIỀU (ưu tiên hơn `chua_mm` khi gửi): dài ← nhíp giấy + đuôi; rộng ← lề hông ×2.
     chua_dai_mm: float | None = Field(default=None, ge=0)
     chua_rong_mm: float | None = Field(default=None, ge=0)
+    # Hoặc gửi thẳng CHỪA THÔ của phiếu/quy cách lệnh — server tự tách chiều bằng `chua_theo_chieu`
+    # (nhíp đè trên phiếu + nhíp/lề hông/đuôi của máy). Nơi gọi khỏi tự cộng: cộng tay ở màn thứ
+    # hai chính là chỗ đẻ ra sơ đồ 105 con trong khi phiếu ra 99.
+    chua_nhip: float | None = Field(default=None, ge=0)
+    nhip_giay_mm: float | None = Field(default=None, ge=0)
+    le_hong_mm: float | None = Field(default=None, ge=0)
+    duoi_thang_mau_mm: float | None = Field(default=None, ge=0)
     bleed_mm: float = Field(default=0, ge=0)    # tràn lề mỗi cạnh con
     khe_cat_mm: float = Field(default=0, ge=0)  # khe giữa 2 con kề nhau
 
@@ -45,10 +52,16 @@ def binh_bai(
     _: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> dict:
     """Bình bài live: trả số con + LAYOUT (cols/rows/rotated/usable) để FE vẽ sơ đồ đúng engine + hiệu suất."""
+    chua_d, chua_r = payload.chua_dai_mm, payload.chua_rong_mm
+    tho = {k: v for k, v in payload.model_dump().items()
+           if k in ("chua_nhip", "nhip_giay_mm", "le_hong_mm", "duoi_thang_mau_mm")
+           and v is not None}
+    if chua_d is None and chua_r is None and tho:
+        chua_d, chua_r = chua_theo_chieu(tho)
     lay = binh_bai_layout(
         kho_in_dai=payload.kho_in_dai, kho_in_rong=payload.kho_in_rong,
         dai_tp=payload.dai_thanh_pham, rong_tp=payload.rong_thanh_pham, chua_mm=payload.chua_mm,
-        chua_dai_mm=payload.chua_dai_mm, chua_rong_mm=payload.chua_rong_mm,
+        chua_dai_mm=chua_d, chua_rong_mm=chua_r,
         bleed_mm=payload.bleed_mm, khe_cat_mm=payload.khe_cat_mm,
     )
     dt_tp = payload.dai_thanh_pham * payload.rong_thanh_pham

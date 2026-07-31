@@ -41,7 +41,6 @@ from ..models.payroll import (
     BAND_Y1_5,
     BAND_Y5_10,
     COMP_CHUYEN_CAN,
-    COMP_KPI,
     COMP_LUONG_KHOAN,
     COMP_TANG_CA,
     PERIOD_DRAFT,
@@ -61,6 +60,10 @@ class PayrollValidationError(PayrollError):
 
 class PayrollNotFound(PayrollError):
     pass
+
+
+class PayrollForbidden(PayrollError):
+    """Thao tác nằm ngoài phạm vi dữ liệu của người gọi (403)."""
 
 
 class PayrollLocked(PayrollError):
@@ -258,18 +261,17 @@ class PayrollService:
         return True
 
     def _effective_component(self, key: str, *, department_id=None, emp_value=None,
-                             fallback=None, require_dept_row: bool = False):
+                             fallback=None):
         """Mức hiệu lực của MỘT khoản theo chuỗi ghi đè **2 cấp: NV → TỔ** (danh mục phụ cấp
         cấp công ty đã gỡ — nó không điều khiển gì nữa).
 
-        Trả `None` khi TỔ TẮT khoản đó (tắt ở tổ thì cấp NV cũng không được cộng).
-        `require_dept_row=True` cho khoản chỉ phát sinh khi tổ CHỦ ĐỘNG bật (KPI): chưa khai ở
-        tổ = không cộng. `fallback` cho khoản còn tham số cấp công ty theo thói quen của chủ
-        (chuyên cần — `payroll_params.chuyen_can_default`)."""
+        Trả `None` khi TỔ TẮT khoản đó (tắt ở tổ thì cấp NV cũng không được cộng). `fallback` cho
+        khoản còn tham số cấp công ty theo thói quen của chủ (chuyên cần —
+        `payroll_params.chuyen_can_default`).
+
+        (Cờ `require_dept_row` đã gỡ 29/07/2026 cùng thưởng KPI — KPI là khoản DUY NHẤT dùng nó.)"""
         comp = self._dept_comp_map(department_id).get(key)
         if comp is not None and not comp.is_enabled:
-            return None
-        if comp is None and require_dept_row:
             return None
         if emp_value is not None:
             return float(emp_value)
@@ -285,9 +287,9 @@ class PayrollService:
         return bool(comp.is_enabled)
 
     def dept_components(self, department_id: int) -> list[dict]:
-        """Cấu hình thành phần lương của 1 bộ phận — LUÔN trả đủ 5 khoản CÒN khai theo TỔ
-        (lương bậc · KPI · chuyên cần · lương khoán · tăng ca). Phụ cấp ca/trách nhiệm/thâm niên
-        đã chuyển sang KHAI TAY theo từng NV nên không còn ở đây."""
+        """Cấu hình thành phần lương của 1 bộ phận — LUÔN trả đủ các khoản CÒN khai theo TỔ
+        (chuyên cần · lương khoán · tăng ca). Phụ cấp ca/trách nhiệm/thâm niên đã chuyển sang
+        KHAI TAY theo từng NV; thưởng KPI đã gỡ hẳn 29/07/2026 — nên cả hai không còn ở đây."""
         comps = self._dept_comp_map(department_id)
         out: list[dict] = []
         for key in SALARY_COMPONENT_KEYS:
@@ -723,10 +725,21 @@ class PayrollService:
     def advances_by_employee(self, employee_id: int):
         return self.payroll.list_advances_by_employee(employee_id)
 
-    def decide_advance(self, *, advance_id, actor, approve: bool, note=None):
+    def decide_advance(self, *, advance_id, actor, approve: bool, scope: str, note=None):
+        """Duyệt / từ chối đề nghị tạm ứng.
+
+        Chủ chốt 29/07/2026: **tạm ứng do bên NHÂN SỰ duyệt**. Hiện chỉ HCNS có ô quyền `luong`
+        (scope `all`) nên chốt phạm vi dưới đây KHÔNG đổi hành vi hôm nay — nó là lớp khoá dự
+        phòng: mai kia ai đó cấp `luong:update` cho một vai scope `department` thì người đó cũng
+        chỉ duyệt được tạm ứng trong tổ mình, không phải cả công ty. Tạm ứng là TIỀN MẶT."""
         a = self.payroll.get_advance(advance_id)
         if a is None:
             raise PayrollNotFound("Không tìm thấy đề nghị tạm ứng.")
+        emp = self.employees.get_by_id(a.employee_id)
+        if emp is not None and not self.employees.can_access(
+            employee=emp, scope=scope, actor=actor
+        ):
+            raise PayrollForbidden("Nhân viên này ngoài phạm vi quản lý của bạn.")
         if a.status != ADV_PENDING:
             raise PayrollValidationError("Đề nghị đã được xử lý.")
         return self.payroll.update_advance(
@@ -754,7 +767,7 @@ class PayrollService:
                  ot_night_restday_minutes=0, ot_night_holiday_minutes=0, has_piece_work=False,
                  thuong_5s=0.0, thuong_doanh_so=0.0, thuong_thanh_tich=0.0, phep_nam=0.0,
                  tra_dong_phuc=0.0, dieu_chinh_luong=0.0, di_tre=0.0, dt_vuot_troi=0.0,
-                 phat_bien_ban=0.0, phat_5s_dong_phuc=0.0, kpi_percent=0.0,
+                 phat_bien_ban=0.0, phat_5s_dong_phuc=0.0,
                  components=None, line_components=None,
                   brackets=None, on: date, employee_status: str | None = None,
                   department_id: int | None = None) -> dict:
@@ -857,10 +870,6 @@ class PayrollService:
                              + (int(ot_night_holiday_minutes) / 60.0) * (night_pct + ot_extra * m_hol))
         )
 
-        # Thưởng năng suất KPI = %đạt (ô tay theo tháng) × MỨC TRẦN của bộ phận. Bộ phận chưa
-        # bật component `kpi` → luôn 0. CHỊU thuế TNCN (khác tăng ca/ca đêm được miễn).
-        kpi_cap = self._effective_component(COMP_KPI, department_id=dept_id, require_dept_row=True)
-        kpi_bonus = _round(float(kpi_percent or 0) / 100.0 * float(kpi_cap)) if kpi_cap else 0.0
 
         # Các khoản thưởng chi tiết = thu nhập CHỊU THUẾ (như other_bonus); dieu_chinh_luong cộng đại số (±).
         extra_income = (float(thuong_5s) + float(thuong_doanh_so) + float(thuong_thanh_tich)
@@ -870,7 +879,7 @@ class PayrollService:
         # `extra_thu_line` nằm NGOÀI `allowance` (xem khối khoản danh mục ở trên) nên phải cộng
         # riêng ở đây — cùng cách `update_line` cộng `extra_thu`, để hai đường ra CÙNG một số.
         gross_pre = (luong_cong + chuyen_can + allowance + float(khoan)
-                     + ot_pay + night_pay + night_premium_pay + kpi_bonus + float(other_bonus)
+                     + ot_pay + night_pay + night_premium_pay + float(other_bonus)
                      + extra_income + extra_thu_line)
 
         # BHXH: thử việc KHÔNG đóng (HĐ thử việc, Đ2 Luật BHXH); áp trần RIÊNG BHXH/BHYT vs BHTN.
@@ -959,8 +968,6 @@ class PayrollService:
             # TRONG ĐÓ của `allowance` (đã cộng ở trên) — tách ra để phiếu lương hiện DÒNG RIÊNG
             # (chữa B2 "phụ cấp một cục"). ĐỪNG cộng lại vào gross lần nữa.
             "phu_cap_tham_nien": tham_nien,
-            "kpi_percent": float(kpi_percent or 0),
-            "kpi_bonus": kpi_bonus,
             "vi_pham": _round(vi_pham),        # RAW (không capped) — trần 30% áp cho TỔNG phạt
             "other_bonus": _round(other_bonus),
             "thuong_5s": _round(thuong_5s),
@@ -1044,10 +1051,10 @@ class PayrollService:
                 if getattr(d, "has_piece_work", False)
             }
 
-        # Các ô tay chi tiết (thưởng/phạt/%KPI) được HCNS nhập ở "Sửa lương" — preserve khi Tính lại.
+        # Các ô tay chi tiết (thưởng/phạt) được HCNS nhập ở "Sửa lương" — preserve khi Tính lại.
         detail_fields = ("thuong_5s", "thuong_doanh_so", "thuong_thanh_tich", "phep_nam",
                          "tra_dong_phuc", "dieu_chinh_luong", "di_tre", "dt_vuot_troi",
-                         "phat_bien_ban", "phat_5s_dong_phuc", "kpi_percent")
+                         "phat_bien_ban", "phat_5s_dong_phuc")
         employees = self.employees.list_scoped_all(scope=scope, actor=actor)
         for emp in employees:
             employment_status, employment_department_id = self._employment_context_on(emp, pay_on)
@@ -1123,7 +1130,6 @@ class PayrollService:
                 ot_minutes=vals["ot_minutes"], ot_pay=vals["ot_pay"],
                 night_days=vals["night_days"], night_pay=vals["night_pay"],
                 night_premium_pay=vals["night_premium_pay"],
-                kpi_percent=vals["kpi_percent"], kpi_bonus=vals["kpi_bonus"],
                 vi_pham=vals["vi_pham"], other_bonus=vals["other_bonus"], gross=vals["gross"],
                 insurance_base=vals["insurance_base"], bhxh=vals["bhxh"], cong_doan=vals["cong_doan"],
                 pit=pit_eff, pit_manual=pit_manual, pit_taxable=vals["pit_taxable"],
@@ -1172,13 +1178,6 @@ class PayrollService:
         if defect_map is None or period is None:
             return 0.0
         return float(defect_map(period.year, period.month).get(employee_id, 0.0))
-
-    def _kpi_bonus_for(self, employee_id, kpi_percent) -> float:
-        """Thưởng KPI của 1 NV = %đạt × mức trần KPI của bộ phận (0 nếu bộ phận chưa bật)."""
-        emp = self.employees.get_by_id(employee_id) if self.employees is not None else None
-        cap = self._effective_component(
-            COMP_KPI, department_id=getattr(emp, "department_id", None), require_dept_row=True)
-        return _round(float(kpi_percent or 0) / 100.0 * float(cap)) if cap else 0.0
 
     # --- Tầng 3: khoản PHÁT SINH cho riêng một kỳ (thưởng nóng) --------------
 
@@ -1264,7 +1263,7 @@ class PayrollService:
     def update_line(self, *, line_id, actor, vi_pham=None, pit=None,
                     pit_manual=None, di_tre_manual=None, monthly_override=None, note=None,
                     dieu_chinh_luong=None, di_tre=None, dt_vuot_troi=None,
-                    phat_bien_ban=None, phat_5s_dong_phuc=None, kpi_percent=None):
+                    phat_bien_ban=None, phat_5s_dong_phuc=None):
         """Sửa ô tay 1 dòng (chỉ khi kỳ draft) → tính lại gross/TNCN/net.
 
         ⚠️ KHÔNG nhận khoản thưởng nữa (`thuong_5s`, `other_bonus`…): từ 28/07/2026 thưởng khai
@@ -1277,9 +1276,6 @@ class PayrollService:
         if period is None or period.status != PERIOD_DRAFT:
             raise PayrollLocked("Kỳ lương đã chốt/đã chi — không sửa được.")
 
-        if kpi_percent is not None:
-            ln.kpi_percent = float(kpi_percent)
-            ln.kpi_bonus = self._kpi_bonus_for(ln.employee_id, ln.kpi_percent)
         if vi_pham is not None:
             ln.vi_pham = _round(vi_pham)
         # Ô tay chi tiết (phạt + điều chỉnh). dieu_chinh_luong cho phép ÂM.
@@ -1335,11 +1331,11 @@ class PayrollService:
                    + float(getattr(ln, "night_premium_pay", 0) or 0))
         ln.thu_nhap_mien_thue = _round(ot_mien + comp_exempt)
 
-        # Lương TRƯỚC khấu trừ kỷ luật (gồm các khoản thưởng chi tiết + thưởng KPI) → TNCN tính trên số này.
+        # Lương TRƯỚC khấu trừ kỷ luật (gồm các khoản thưởng chi tiết) → TNCN tính trên số này.
         gross_pre = _round(extra_thu + float(ln.luong_cong) + float(ln.chuyen_can) + float(ln.allowance)
                            + float(ln.khoan) + float(ln.ot_pay) + float(ln.night_pay)
                            + float(getattr(ln, "night_premium_pay", 0) or 0)
-                           + float(ln.kpi_bonus) + float(ln.other_bonus)
+                           + float(ln.other_bonus)
                            + float(ln.thuong_5s) + float(ln.thuong_doanh_so)
                            + float(ln.thuong_thanh_tich) + float(ln.phep_nam)
                            + float(ln.tra_dong_phuc) + float(ln.dieu_chinh_luong))
