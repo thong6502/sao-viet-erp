@@ -1528,7 +1528,7 @@ function QueuePopup({
                   onClick={() => setViewMode("table")}
                   title="Dạng Bảng nén (Phù hợp 20+ lệnh)"
                 >
-                  <Icon name="table" size={13} /> Bảng nén
+                  <Icon name="columns" size={13} /> Bảng nén
                 </button>
                 <button
                   type="button"
@@ -1669,7 +1669,7 @@ function QueuePopup({
                             <span className="xlcd-queue__rush-badge" style={{ marginLeft: 4 }}>GẤP</span>
                           )}
                         </td>
-                        <td title={it.ten}>
+                        <td title={it.ten ?? undefined}>
                           <strong style={{ fontWeight: 600, color: "#1e293b" }}>{it.ten || "—"}</strong>
                         </td>
                         <td>
