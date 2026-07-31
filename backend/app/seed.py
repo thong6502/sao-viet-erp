@@ -143,13 +143,16 @@ def _read(scope: str) -> dict:
     )
 
 
-# Cụm "QUẢN LÝ KHO" — gộp 4 quyền của người CẤP PHÁT kho thành 1 công tắc trên ma trận
-# (chốt 2026-07-29): ghi sổ phiếu + xem tồn + xem giá vốn/giá trị tồn + khai ngưỡng tồn.
+# Cụm quyền KHO — TÁCH "Ghi sổ" (can_post) khỏi "Xem kho" để giữ SoD (BRD §3.19, khớp model
+# RolePermission.can_post): Thủ kho LẬP phiếu + xem kho NHƯNG KHÔNG ghi sổ; QL kho / Kế toán kho
+# mới ghi sổ (chốt tồn). Trên ma trận là 2 công tắc riêng.
+#   _KHO_VIEW = xem tồn + xem giá vốn/giá trị tồn + khai ngưỡng tồn.
+#   _KHO_QL   = _KHO_VIEW + ghi sổ phiếu (can_post).
 # KHÔNG kèm `can_approve` — DUYỆT đề nghị là việc của quản lý bộ phận đề nghị, kho KHÔNG tự duyệt.
-_KHO_QL = {
-    "can_post": True, "can_view_stock": True,
-    "can_view_cost": True, "can_set_threshold": True,
+_KHO_VIEW = {
+    "can_view_stock": True, "can_view_cost": True, "can_set_threshold": True,
 }
+_KHO_QL = {**_KHO_VIEW, "can_post": True}
 
 
 def _leave_self(scope: str = SCOPE_OWN) -> dict:
@@ -362,8 +365,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
     # GỘP QUYỀN (2026-07-29, mentor): 5 cột kho (duyệt · ghi sổ · xem tồn · xem giá vốn · khai
     # ngưỡng) = 1 công tắc "Quản lý kho" trên ma trận → vai làm việc với kho bật cả cụm. `_KHO_QL`
     # = cụm đó. Người đề nghị scope `own` (chỉ đèn tín hiệu, không thấy tồn/giá).
-    # Thủ kho: LẬP PHIẾU + Quản lý kho (đủ cụm). Khai rõ create/update/delete để công tắc "Lập phiếu"
-    # trên ma trận hiện ĐÚNG là bật.
+    # Thủ kho: LẬP PHIẾU + XEM KHO (tồn/giá vốn/ngưỡng) — KHÔNG ghi sổ (SoD: QL kho / Kế toán kho
+    # chốt tồn). Khai rõ create/update/delete để công tắc "Lập phiếu" trên ma trận hiện ĐÚNG là bật.
     (
         "Kho",
         "Thủ kho",
@@ -371,7 +374,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_OWN),
             "kho": {
                 "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
-                "scope": SCOPE_ALL, **_KHO_QL,
+                "scope": SCOPE_ALL, **_KHO_VIEW,
             },
             "san_xuat": _read(SCOPE_ALL),    # xem kế hoạch SX để tham chiếu khi lập phiếu
         },

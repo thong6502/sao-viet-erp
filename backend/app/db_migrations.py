@@ -3707,6 +3707,33 @@ def _migrate_role_permission_kho_post(db: Session) -> None:
     db.commit()
 
 
+def _migrate_kho_post_thukho_off(db: Session) -> None:
+    """SoD: Thủ kho LẬP phiếu nhưng KHÔNG ghi sổ (khớp RolePermission.can_post / BRD §3.19). Seed
+    cũ gộp can_post vào cụm "Quản lý kho" nên lỡ cấp cho Thủ kho — gỡ lại. CHỈ đụng vai tên
+    'Thủ kho', module kho; QL kho / Kế toán kho giữ nguyên. No-op DB fresh / chưa có bảng."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "role_permissions" not in tables or "roles" not in tables:
+        return
+    db.execute(text(
+        "UPDATE role_permissions SET can_post = FALSE "
+        "WHERE module_key = 'kho' AND role_id IN "
+        "(SELECT id FROM roles WHERE name = 'Thủ kho')"
+    ))
+    db.commit()
+
+
+def _migrate_stock_request_ly_do_huy(db: Session) -> None:
+    """Lý do KHO hủy đề nghị (hủy phiếu → đề nghị 'Đã hủy'): thêm stock_requests.ly_do_huy
+    (VARCHAR(500) nullable). No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "stock_requests" not in insp.get_table_names():
+        return
+    if "ly_do_huy" not in _existing_columns(insp, "stock_requests"):
+        db.execute(text("ALTER TABLE stock_requests ADD COLUMN ly_do_huy VARCHAR(500)"))
+    db.commit()
+
+
 def _migrate_stock_voucher_nguoi_ghi_so(db: Session) -> None:
     """Lưu AI GHI SỔ phiếu (duyệt/chốt): thêm `stock_vouchers.nguoi_ghi_so_id` (INTEGER nullable,
     soft → users.id). Null cho phiếu cũ. No-op DB fresh / bảng chưa có / cột đã có."""
@@ -3973,6 +4000,10 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0110_ptg_nhom_bao_gia", _migrate_ptg_nhom_bao_gia),
     ("0111_quote_item_nhom", _migrate_quote_item_nhom),
     ("0112_order_line_nhom", _migrate_order_line_nhom),
+    # SoD kho: gỡ can_post khỏi vai Thủ kho (lập phiếu ≠ ghi sổ) — seed cũ gộp nên lỡ cấp.
+    ("0113_kho_post_thukho_off", _migrate_kho_post_thukho_off),
+    # Lý do kho hủy đề nghị (hủy phiếu → đề nghị 'Đã hủy' kèm lý do).
+    ("0114_stock_request_ly_do_huy", _migrate_stock_request_ly_do_huy),
 ]
 
 

@@ -36,11 +36,14 @@ from ..repositories.user_repo import UserRepository
 from ..schemas.stock import (
     AllocationLineOut,
     AllocationOut,
+    MaterialHistoryOut,
+    MaterialXuatRow,
     StockLotOut,
     StockThresholdIn,
     StockThresholdOut,
     StockVoucherAttachmentListOut,
     StockVoucherAttachmentOut,
+    StockVoucherCancel,
     StockVoucherCreate,
     StockVoucherLineOut,
     StockVoucherOut,
@@ -226,13 +229,14 @@ def post_voucher(
 
 @router.post("/{voucher_id}/huy", response_model=StockVoucherOut)
 def cancel_voucher(
-    voucher_id: int, svc: Service, db: Db, authz: Authz,
+    voucher_id: int, payload: StockVoucherCancel, svc: Service, db: Db, authz: Authz,
     # Hủy phiếu = quyền của người GHI SỔ (kế toán kho / QL kho), KHÔNG phải người lập. Người lập
     # tạo phiếu là gửi luôn, không tự rút lại được (SoD: tách người cầm hàng & người chốt sổ).
+    # BẮT BUỘC lý do → đề nghị chuyển 'Đã hủy' kèm lý do (kết thúc, không cấp lại).
     user: Annotated[User, Depends(require_permission(MODULE, "post"))],
 ) -> StockVoucherOut:
     try:
-        v = svc.cancel(voucher_id)
+        v = svc.cancel(voucher_id, ly_do=payload.ly_do)
     except StockVoucherError as e:
         raise _err(e) from None
     return _serialize(v, svc=svc, db=db, can_view_cost=authz.can(user, MODULE, "view_cost"))
@@ -287,6 +291,49 @@ def list_lots(
         row.don_gia_nhap = int(lot.don_gia_nhap or 0) if can_view_cost else None
         out.append(row)
     return out
+
+
+@router.get("/vat-tu/{material_id}/lich-su", response_model=MaterialHistoryOut)
+def material_history(
+    material_id: int, svc: Service, db: Db, authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    kho_id: int = Query(...),
+) -> MaterialHistoryOut:
+    """Lịch sử NHẬP (mọi lô, kể cả đã hết) + XUẤT (dòng phiếu xuất đã ghi sổ) của 1 mã hàng
+    tại 1 kho — cho popup màn Tồn kho, tách theo dõi nhập/xuất riêng. Giá vốn ẩn nếu thiếu
+    `can_view_cost` (đường path 3 đoạn nên không đụng route `/{voucher_id}`)."""
+    can_view_cost = authz.can(user, MODULE, "view_cost")
+    m = MaterialRepository(db).by_ids([material_id]).get(material_id)
+
+    # NHẬP = mọi lô của mã hàng tại kho (con_hang=False để giữ cả lô đã xuất hết), FIFO theo ngày.
+    lots = svc.lots.list_lots(material_id=material_id, kho_id=kho_id, con_hang=False)
+    nhap: list[StockLotOut] = []
+    for lot in lots:
+        row = StockLotOut.model_validate(lot)
+        row.material_code = getattr(m, "code", None)
+        row.material_name = getattr(m, "name", None)
+        row.dvt = getattr(m, "unit", None)
+        row.don_gia_nhap = int(lot.don_gia_nhap or 0) if can_view_cost else None
+        nhap.append(row)
+
+    # XUẤT = dòng phiếu xuất đã ghi sổ (đích danh lô); giá vốn = giá lô, ẩn nếu thiếu quyền.
+    xuat = [
+        MaterialXuatRow(
+            ngay=r["ngay"], voucher_id=r["voucher_id"], voucher_ma=r["voucher_ma"],
+            lot_id=r["lot_id"], ma_lo=r["ma_lo"], so_luong=r["so_luong"],
+            don_gia=r["don_gia"] if can_view_cost else None,
+        )
+        for r in svc.vouchers.xuat_history(material_id, kho_id)
+    ]
+
+    return MaterialHistoryOut(
+        material_id=material_id,
+        material_code=getattr(m, "code", None),
+        material_name=getattr(m, "name", None),
+        dvt=getattr(m, "unit", None),
+        on_hand=svc.lots.on_hand(material_id, kho_id),
+        nhap=nhap, xuat=xuat,
+    )
 
 
 # --- Đính kèm hóa đơn/chứng từ gốc --------------------------------------------

@@ -448,7 +448,7 @@ def test_lap_phieu_can_post_moi_ghi_so_duoc(client):
 
 def test_lap_phieu_day_de_nghi_ra_khoi_can_cap(client):
     """Lập phiếu (nháp) → đề nghị rời 'Cần cấp' (approved) sang 'Đang chuẩn bị' (preparing);
-    hủy phiếu nháp cuối chưa ứng gì → về 'Cần cấp' (approved)."""
+    hủy phiếu nháp (BẮT BUỘC lý do) → đề nghị 'Đã hủy' (cancelled) KẾT THÚC + lưu lý do."""
     kho_id, mat_id = _setup(client)
     req = _approved_request(client, kho_id=kho_id, loai="NHAP", mat_id=mat_id, qty=10)
     assert req["trang_thai"] == "approved"
@@ -459,12 +459,17 @@ def test_lap_phieu_day_de_nghi_ra_khoi_can_cap(client):
     })
     vid = r.json()["id"]
 
-    def _st():
-        return client.get(f"/api/kho/de-nghi/{req['id']}", headers=tk).json()["trang_thai"]
+    def _req():
+        return client.get(f"/api/kho/de-nghi/{req['id']}", headers=tk).json()
 
-    assert _st() == "preparing"  # đã lập phiếu → rời 'Cần cấp'
-    assert client.post(f"/api/kho/phieu/{vid}/huy", headers=tk).status_code == 200
-    assert _st() == "approved"   # hủy phiếu nháp cuối, chưa ứng gì → về 'Cần cấp'
+    assert _req()["trang_thai"] == "preparing"  # đã lập phiếu → rời 'Cần cấp'
+    # Hủy phiếu BẮT BUỘC lý do — thiếu lý do thì 422.
+    assert client.post(f"/api/kho/phieu/{vid}/huy", headers=tk).status_code == 422
+    r = client.post(f"/api/kho/phieu/{vid}/huy", headers=tk, json={"ly_do": "Hết hàng, không cấp"})
+    assert r.status_code == 200, r.text
+    got = _req()
+    assert got["trang_thai"] == "cancelled"           # hủy phiếu nháp → đề nghị 'Đã hủy' (kết thúc)
+    assert got["ly_do_huy"] == "Hết hàng, không cấp"   # lý do lưu ở đề nghị
 
 
 def test_cap_thieu_bat_buoc_ly_do_va_hien_o_de_nghi(client):
@@ -530,6 +535,54 @@ def test_quy_doi_va_gia_khai_o_de_nghi_theo_vao_phieu(client):
     lots = client.get(f"/api/kho/phieu/lo/danh-sach?kho_id={kho_id}", headers=kt).json()
     lot = [x for x in lots if x["material_name"] == "Giấy Ream QĐ"][0]
     assert lot["don_gia_nhap"] == 500
+
+
+def test_lich_su_nhap_xuat_theo_vat_tu(client):
+    """Popup màn Tồn kho: endpoint lịch-sử tách NHẬP (lô, kể cả đã hết) và XUẤT (dòng phiếu đã
+    ghi sổ, đích danh lô); giá vốn ẩn khi thiếu `view_cost`."""
+    kho_id, mat_id = _setup(client)
+    _nhap(client, kho_id=kho_id, mat_id=mat_id, qty=10, gia=100_000)
+    _nhap(client, kho_id=kho_id, mat_id=mat_id, qty=10, gia=200_000)
+
+    # Xuất 15 = 10 (lô 100k) + 5 (lô 200k) → lô 100k rỗng, lô 200k còn 5.
+    req = _approved_request(client, kho_id=kho_id, loai="XUAT", mat_id=mat_id, qty=15)
+    line_id = req["lines"][0]["id"]
+    tk = _login(client, "t_thukho")
+    alloc = client.get("/api/kho/phieu/lo/goi-y", headers=tk,
+                       params={"material_id": mat_id, "kho_id": kho_id, "so_luong": 15}).json()
+    r = client.post("/api/kho/phieu", headers=tk, json={
+        "request_id": req["id"], "kho_id": kho_id,
+        "lines": [
+            {"request_line_id": line_id, "so_luong": x["so_luong"], "lot_id": x["lot_id"]}
+            for x in alloc["lines"]
+        ],
+    })
+    vid = r.json()["id"]
+    assert client.post(f"/api/kho/phieu/{vid}/ghi-so", headers=tk).status_code == 200
+
+    # Kế toán (view_cost) → thấy đủ giá.
+    kt = _login(client, "t_ketoan")
+    h = client.get(f"/api/kho/phieu/vat-tu/{mat_id}/lich-su", headers=kt,
+                   params={"kho_id": kho_id})
+    assert h.status_code == 200, h.text
+    data = h.json()
+    assert data["on_hand"] == 5
+    # NHẬP: 2 lô (giữ cả lô đã xuất hết), mang giá riêng.
+    assert len(data["nhap"]) == 2
+    assert sorted(l["don_gia_nhap"] for l in data["nhap"]) == [100_000, 200_000]
+    assert sorted(l["sl_con_lai"] for l in data["nhap"]) == [0, 5]
+    assert all(l["sl_ban_dau"] == 10 for l in data["nhap"])
+    # XUẤT: 2 dòng phân bổ, đều trỏ về phiếu xuất + có mã lô + giá vốn đích danh.
+    assert len(data["xuat"]) == 2
+    assert sorted(x["so_luong"] for x in data["xuat"]) == [5, 10]
+    assert all(x["ma_lo"] and x["voucher_id"] == vid for x in data["xuat"])
+    assert sorted(x["don_gia"] for x in data["xuat"]) == [100_000, 200_000]
+
+    # Thủ kho (KHÔNG view_cost) → giá bị ẩn cả hai phía (không lọt qua response).
+    h2 = client.get(f"/api/kho/phieu/vat-tu/{mat_id}/lich-su", headers=tk,
+                    params={"kho_id": kho_id}).json()
+    assert all(l["don_gia_nhap"] is None for l in h2["nhap"])
+    assert all(x["don_gia"] is None for x in h2["xuat"])
 
 
 def test_dinh_kem_hoa_don_vao_phieu(client):
