@@ -528,24 +528,6 @@ export function LsxDetailView({
 
           {tab === "quycach" && (
             <section className="khsx-panel" role="tabpanel" id="khsx-panel-quycach" aria-labelledby="khsx-tab-quycach" tabIndex={0}>
-              <div className="khsx-callout khsx-callout--steel">
-                <Icon name="fileText" size={16} />
-                <div className="khsx-callout__content">
-                  <span>
-                    Quy cách chốt từ bài tính giá <strong>{d.ptg_ma ?? ""}</strong> — sửa ở phiếu tính giá, không sửa tại đây.
-                  </span>
-                  {d.ptg_id && (
-                    <button
-                      type="button"
-                      className="khsx-xlink khsx-callout__btn"
-                      onClick={() => navigate?.("tinh-gia", { focusPhieuId: d.ptg_id })}
-                    >
-                      Mở phiếu tính giá →
-                    </button>
-                  )}
-                </div>
-              </div>
-
               <div className="khsx-spec__card">
                 <div className="khsx-spec__card-head">
                   <div className="khsx-spec__card-icon">

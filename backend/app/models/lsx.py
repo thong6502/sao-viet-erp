@@ -249,8 +249,6 @@ class LsxCongDoan(Base):
     # SNAPSHOT {rate_id, ten, don_vi, don_gia} chứ không đọc-sống: xưởng lên giá khoán về
     # sau KHÔNG được làm xê dịch lệnh đã phát. Tiền khoán là số DẪN XUẤT (tính lúc đọc), không lưu.
     khoan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    # DS máy thay thế — CHỈ ĐỂ THAM KHẢO, không tự xếp lịch (BC: "for information only").
-    may_thay_the_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # Cờ điều kiện bắt đầu, tập `DIEU_KIEN`.
     dieu_kien_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
 

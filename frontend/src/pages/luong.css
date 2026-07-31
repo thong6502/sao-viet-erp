@@ -1772,52 +1772,163 @@
   font-weight: var(--fw-medium);
 }
 
-/* --- Ô GÕ-ĐỂ-LỌC cho Tổ · Đơn vị trong modal đơn giá khoán -------------------------------------
-   Thay `<select>`: 18 dòng đơn vị mà phải cuộn tay, không gõ tắt được. Danh sách neo tuyệt đối
-   NGAY dưới ô (modal đã cuộn được nên không cần portal). */
+/* --- Ô GÕ-ĐỂ-LỌC cho Tổ · Đơn vị trong modal đơn giá khoán ------------------------------------- */
 .khoan-cbx {
   position: relative;
+  width: 100%;
 }
-.khoan-cbx__list {
+.khoan-cbx__input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.khoan-cbx__input {
+  width: 100%;
+  padding-right: 32px !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.khoan-cbx.is-open .khoan-cbx__input {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12) !important;
+}
+.khoan-cbx__arrow {
   position: absolute;
-  top: calc(100% + 2px);
-  left: 0;
-  right: 0;
-  z-index: 30;
-  max-height: 208px;
+  right: 10px;
+  pointer-events: none;
+  color: #94a3b8;
+  transition: transform 0.2s ease, color 0.15s ease;
+}
+.khoan-cbx.is-open .khoan-cbx__arrow {
+  transform: rotate(180deg);
+  color: #6366f1;
+}
+
+/* Portal List container - Rendered in document.body fixed overlay */
+.khoan-cbx__list {
+  max-height: 220px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  padding: 4px;
-  background: var(--canvas);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-2);
-  box-shadow: var(--shadow-2, 0 8px 24px rgba(0, 0, 0, 0.1));
+  padding: 6px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.16), 0 4px 10px -2px rgba(15, 23, 42, 0.08);
+  animation: fadeInDown 0.15s ease-out;
+}
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .khoan-cbx__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   text-align: left;
-  padding: 6px 10px;
+  padding: 8px 12px;
   font: inherit;
-  font-size: 13px;
-  color: var(--ink);
+  font-size: 13.5px;
+  color: #1e293b;
   background: transparent;
   border: 0;
-  border-radius: var(--r-2);
+  border-radius: 6px;
   cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  margin-bottom: 2px;
 }
-/* `is-active` = đang rê chuột / đi bằng phím · `is-on` = giá trị đang chọn. Hai trạng thái khác
-   nhau nên không dùng chung một màu. */
-.khoan-cbx__item.is-active { background: var(--paper); }
-.khoan-cbx__item.is-on { color: var(--rust-deep); font-weight: var(--fw-medium); }
+.khoan-cbx__item:last-child {
+  margin-bottom: 0;
+}
+.khoan-cbx__item.is-active {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+.khoan-cbx__item.is-on {
+  color: #4f46e5;
+  font-weight: 600;
+  background: #eef2ff;
+}
+.khoan-cbx__item-text {
+  flex: 1;
+}
+.khoan-cbx__item-check {
+  color: #4f46e5;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
 .khoan-cbx__empty {
-  padding: 8px 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
   font-size: 12.5px;
   line-height: 1.45;
-  color: var(--ash);
+  color: #64748b;
+  background: #f8fafc;
+  border-radius: 6px;
+}
+.khoan-cbx__empty-icon {
+  color: #94a3b8;
+  margin-top: 2px;
+  flex-shrink: 0;
 }
 
-/* Modal đơn giá khoán rộng hơn chuẩn (490px) vì có thêm bảng tick công đoạn; và `min-width: 0` để
-   min-content của bảng tick không đẩy grid 2 cột tràn ra ngoài hộp (đã cắt mất ô Đơn giá). */
-.ns-modal__box--khoan { width: 640px; }
+/* Modal đơn giá khoán styling */
+.ns-modal__box--khoan {
+  width: 540px;
+  max-width: 92vw;
+  border-radius: 16px;
+  box-shadow: 0 20px 40px -8px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  overflow: visible !important;
+}
+.ns-modal__box--khoan .ns-modal__head {
+  padding: 18px 24px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.ns-modal__box--khoan .ns-modal__head h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+.ns-modal__box--khoan .ns-modal__subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 2px;
+}
+.ns-modal__box--khoan .ns-modal__body {
+  padding: 20px 24px;
+  overflow: visible !important;
+}
+.ns-modal__box--khoan .ns-modal__foot {
+  padding: 16px 24px;
+  background: #f8fafc;
+  border-top: 1px solid #f1f5f9;
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
+}
+.khoan-hint-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: #1e40af;
+  line-height: 1.45;
+}
+.khoan-hint-box b {
+  color: #1d4ed8;
+}
 .khoan-cdfield { min-width: 0; }
 .khoan-cdfield .khoan-cdpick { min-width: 0; }
+

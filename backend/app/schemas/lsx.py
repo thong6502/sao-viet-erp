@@ -110,7 +110,6 @@ class LsxCongDoanIn(BaseModel):
     bat_buoc: bool | None = None
     department_id: int | None = None
     may_id: int | None = None
-    may_thay_the_ids: list[int] | None = None
     # Đầu việc khoán của bước (`piece_rates.id`) — 0/null = bỏ chọn. KHÔNG gửi field này = giữ mặc
     # định theo tổ + công đoạn (server tự điền), đừng gửi null "cho chắc" kẻo xoá mất đầu việc.
     piece_rate_id: int | None = None
@@ -162,7 +161,6 @@ class LsxCongDoanOut(BaseModel):
     department_ten: str | None = None
     may_id: int | None = None
     may_ten: str | None = None
-    may_thay_the_ids: list[int] = Field(default_factory=list)
 
     so_luong_vao: float
     so_luong_ra: float

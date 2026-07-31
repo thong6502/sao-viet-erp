@@ -14,7 +14,6 @@ export interface EditRow {
   bat_buoc: boolean;
   department_id: number | null;
   may_id: number | null;
-  may_thay_the_ids: number[];
   // số lượng & hao hụt
   so_luong_vao: string;
   so_luong_ra: string;
@@ -113,7 +112,6 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     bat_buoc: cd.bat_buoc,
     department_id: cd.department_id,
     may_id: cd.may_id,
-    may_thay_the_ids: cd.may_thay_the_ids ?? [],
     so_luong_vao: s(cd.so_luong_vao),
     so_luong_ra: s(cd.so_luong_ra),
     don_vi_vao: cd.don_vi_vao || "to",
@@ -152,7 +150,7 @@ export function toEdit(cd: LsxCongDoan): EditRow {
 export function emptyRow(): EditRow {
   return {
     key: newKey(), cong_doan_id: null, ten: "", nhom: null, loai_buoc: "may", bat_buoc: true,
-    department_id: null, may_id: null, may_thay_the_ids: [],
+    department_id: null, may_id: null,
     so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to", he_so_quy_doi: "",
     hao_hut: "", hao_hut_pct: "", so_luot_chay: "", so_nhan_cong: "",
     setup_phut: "", nang_suat: "", don_vi_nang_suat: "", chay_phut: "",
@@ -193,7 +191,6 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       // Để TRỐNG tổ → server tự lấy tổ mặc định của công đoạn (không ép khai lại).
       department_id: r.department_id,
       may_id: r.may_id,
-      may_thay_the_ids: r.may_thay_the_ids,
       so_luong_vao: n(r.so_luong_vao),
       so_luong_ra: n(r.so_luong_ra),
       don_vi_vao: r.don_vi_vao,
