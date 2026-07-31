@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from .models.bu_hao import BuHao
 from .models.cong_doan import CongDoan
-from .models.don_vi_do import DonViDo
+from .models.don_vi_do import DonViDo, DonViQuyDoi
 from .models.khuon_be import KhuonBe
 from .models.loai_san_pham import LoaiSanPham
 from .models.may_thiet_bi import MayThietBi
@@ -24,52 +24,105 @@ def _empty(db: Session, model) -> bool:
 
 
 # --- Đơn vị đo & quy đổi (nền cho khoán · kho · mua hàng) ---------------------------------------
-# (ma, ten, ho, he_so_goc) — he_so_goc = có bao nhiêu đơn vị GỐC của họ trong 1 đơn vị này; dòng
-# hệ số 1 chính là đơn vị gốc của họ. Chỉ đơn vị CÙNG họ đổi được cho nhau bằng hệ số; qua họ khác
-# phải dùng cầu theo quy cách (`services/quy_doi_service.py`).
-_DON_VI_SEED: list[tuple[str, str, str, float]] = [
-    ("cm2", "cm²", "dien_tich", 1),
-    ("m2", "m²", "dien_tich", 10_000),
-    ("kg", "kg", "khoi_luong", 1),
-    ("tan", "tấn", "khoi_luong", 1_000),
-    ("g", "g", "khoi_luong", 0.001),
-    ("m", "mét", "do_dai", 1),
-    ("mm", "mm", "do_dai", 0.001),
-    ("to", "tờ", "to", 1),
-    ("ram", "ram", "to", 500),          # quy ước ngành in: 1 ram = 500 tờ
-    # Họ THÀNH PHẨM — mọi cách đếm "một sản phẩm xong": bước lệnh gọi `cai`, bảng khoán của tổ gọi
-    # "cuốn" (sách) / "hộp" (gỡ hàng) / "con" (tem), nhưng đều là MỘT thành phẩm nên hệ số 1. Tách
-    # thành các họ riêng thì bước "vào keo" (đơn vị `cai`, 1.000 cuốn) vĩnh viễn không khớp đơn giá
-    # 700 đ/cuốn — đã gặp thật khi thử.
-    ("cai", "cái", "thanh_pham", 1),
-    ("con", "con", "thanh_pham", 1),
-    ("cuon", "cuốn", "thanh_pham", 1),
-    ("bo", "bộ", "thanh_pham", 1),
-    ("hop", "hộp", "thanh_pham", 1),
-    ("kem", "bản kẽm", "kem", 1),
-    ("bai", "bài in", "bai", 1),        # mã `bai` khớp đơn vị bước lệnh (DV_BAI), không phải "bai_in"
-    ("luot", "lượt", "luot", 1),        # cắt demi tính theo lượt
-    ("thung", "thùng", "thung", 1),
+# (mã, tên, họ, GIẢI NGHĨA). `ho` = LOẠI ĐO, chỉ để gom nhóm khi hiển thị — "đổi được cho nhau hay
+# không" nằm ở `_QUY_DOI_SEED` bên dưới, không ở loại đo.
+# Giải nghĩa hiện ở cột Ghi chú của màn Đơn vị: người ngoài nhà in mở
+# danh sách ra thấy "con", "bài in", "lượt" thì không đoán nổi đang đếm cái gì. Đơn vị ai cũng biết
+# (kg · m · cm²) để trống — viết thừa cũng là một kiểu ồn.
+_DON_VI_SEED: list[tuple[str, str, str, str]] = [
+    ("cm2", "cm²", "dien_tich", ""),
+    ("m2", "m²", "dien_tich", ""),
+    ("kg", "kg", "khoi_luong", ""),
+    ("tan", "tấn", "khoi_luong", ""),
+    ("g", "g", "khoi_luong", ""),
+    ("m", "mét", "do_dai", ""),
+    ("mm", "mm", "do_dai", ""),
+    ("to", "tờ", "to", "Tờ giấy chạy qua máy in."),
+    ("ram", "ram", "to", "Cách nhà cung cấp đóng gói giấy: 1 ram = 500 tờ."),
+    # Loại THÀNH PHẨM — mọi cách đếm "một sản phẩm xong": bước lệnh gọi `cai`, bảng khoán của tổ gọi
+    # "cuốn" (sách) / "hộp" (gỡ hàng) / "con" (tem). Chúng đếm như nhau nên có cặp quy đổi 1-1 bên
+    # dưới; thiếu cặp đó thì bước "vào keo" (đơn vị `cai`, 1.000 cuốn) không khớp đơn giá 700 đ/cuốn.
+    ("cai", "cái", "thanh_pham", "Một sản phẩm hoàn chỉnh. Cuốn · con · bộ · hộp đều quy về cái."),
+    ("con", "con", "thanh_pham", "Sản phẩm rời bế/xén ra từ tờ in — 1 tờ ra nhiều con (tem, thẻ, nhãn)."),
+    ("cuon", "cuốn", "thanh_pham", "Một cuốn sách thành phẩm (= 1 cái)."),
+    ("bo", "bộ", "thanh_pham", "Một bộ thành phẩm (= 1 cái)."),
+    ("hop", "hộp", "thanh_pham", "Một hộp thành phẩm (= 1 cái)."),
+    ("kem", "bản kẽm", "kem", "Bản kẽm phơi cho MỘT màu của một bài in."),
+    # mã `bai` khớp đơn vị bước lệnh (DV_BAI), không phải "bai_in"
+    ("bai", "bài in", "bai", "Một bài đã bình, chạy ra nhiều tờ in giống nhau."),
+    ("luot", "lượt", "luot", "Một lần đưa giấy qua máy (cắt demi tính theo lượt)."),
+    ("thung", "thùng", "thung", "Thùng đóng hàng lúc giao."),
+]
+
+# CẶP quy đổi: (tu, den, he_so) đọc là "1 <tu> = <he_so> <den>". Máy tự đi chiều ngược, nên KHÔNG
+# khai dòng đối xứng. Cặp nào chưa khai thì máy dò đường qua trung gian (tấn → g đi qua kg).
+_QUY_DOI_SEED: list[tuple[str, str, float, str]] = [
+    ("m2", "cm2", 10_000, ""),     # 1 m² = 10.000 cm²
+    ("tan", "kg", 1_000, ""),      # 1 tấn = 1.000 kg
+    ("kg", "g", 1_000, ""),        # 1 kg = 1.000 g
+    ("m", "mm", 1_000, ""),        # 1 mét = 1.000 mm
+    ("ram", "to", 500, ""),        # quy ước ngành in: 1 ram = 500 tờ
+    # Các cách đếm thành phẩm là MỘT: nối hết về `cai` để bước lệnh (đếm `cai`) khớp mọi đơn giá
+    # khoán dù xưởng ghi "cuốn", "con", "hộp" hay "bộ".
+    ("con", "cai", 1, ""),
+    ("cuon", "cai", 1, ""),
+    ("bo", "cai", 1, ""),
+    ("hop", "cai", 1, ""),
+    # --- Quy đổi ĐỘNG: hệ số là công thức, số ra tuỳ giấy/khổ của chính việc đang làm ---------
+    # Ba dòng này trước nằm CỨNG trong code (`quy_doi_service.CAU`) nên xưởng không sửa được.
+    # Biến do nơi gọi bơm: `dai`/`rong` là khổ của TỜ ĐANG ĐẾM (m), `dinh_luong` kg/m².
+    # tờ → cm² KHÔNG cần dòng riêng: đi tiếp bằng cặp m² → cm² đã khai ở trên.
+    ("to", "m2", 0, "dai * rong"),
+    ("to", "kg", 0, "dinh_luong * dai * rong"),
+    ("to", "cai", 0, "so_con"),
 ]
 
 
 def seed_don_vi_do(db: Session) -> None:
-    """Đơn vị đo + hệ số quy đổi — DỮ LIỆU VẬN HÀNH THẬT, không phải demo.
+    """Đơn vị đo + cặp quy đổi — DỮ LIỆU VẬN HÀNH THẬT, không phải demo.
 
     Gọi NGOÀI khối `SEED_DEMO` (như biểu thuế TNCN / ngày lễ): thiếu bảng này thì mọi phép quy đổi
-    trả "đơn vị chưa khai" và tiền khoán không tính được — tê liệt trên chính DB thật, nơi không ai
+    trả "chưa khai quy đổi" và tiền khoán không tính được — tê liệt trên chính DB thật, nơi không ai
     bật seed demo.
 
-    Bổ sung theo MÃ CÒN THIẾU (không dùng `_empty`): thêm đơn vị mới vào `_DON_VI_SEED` là DB đang
-    chạy cũng nhận, khỏi phải drop bảng.
+    Bổ sung theo MÃ / CẶP CÒN THIẾU (không dùng `_empty`): thêm dòng mới vào hai danh sách trên là
+    DB đang chạy cũng nhận, khỏi phải drop bảng. Cặp người dùng tự sửa thì KHÔNG bị ghi đè.
     """
     co = {d.ma for d in db.execute(select(DonViDo)).scalars()}
     moi = [
-        DonViDo(ma=ma, ten=ten, ho=ho, he_so_goc=hs)
-        for ma, ten, ho, hs in _DON_VI_SEED if ma not in co
+        DonViDo(ma=ma, ten=ten, ho=ho, ghi_chu=gc or None)
+        for ma, ten, ho, gc in _DON_VI_SEED if ma not in co
     ]
     if moi:
         db.add_all(moi)
+        db.commit()
+
+    # Giải nghĩa cho đơn vị nghề: điền vào dòng đang TRỐNG ghi chú, không đè chữ người dùng đã ghi.
+    # Làm riêng vì DB đang chạy đã có sẵn các dòng này từ trước khi có cột giải nghĩa.
+    nghia = {ma: gc for ma, _t, _h, gc in _DON_VI_SEED if gc}
+    them = 0
+    for d in db.execute(select(DonViDo)).scalars():
+        if nghia.get(d.ma) and not (d.ghi_chu or "").strip():
+            d.ghi_chu = nghia[d.ma]
+            them += 1
+    if them:
+        db.commit()
+
+    by_ma = {d.ma: d.id for d in db.execute(select(DonViDo)).scalars()}
+    da_co = {
+        (c.tu_id, c.den_id) for c in db.execute(select(DonViQuyDoi)).scalars()
+    }
+    caps = []
+    for tu, den, hs, ct in _QUY_DOI_SEED:
+        tu_id, den_id = by_ma.get(tu), by_ma.get(den)
+        if not tu_id or not den_id:
+            continue
+        # Kiểm CẢ HAI CHIỀU: người dùng có thể đã khai "1 tờ = 0,002 ram" — cùng một chuyện.
+        if (tu_id, den_id) in da_co or (den_id, tu_id) in da_co:
+            continue
+        caps.append(DonViQuyDoi(tu_id=tu_id, den_id=den_id, he_so=hs, cong_thuc=ct or None))
+    if caps:
+        db.add_all(caps)
         db.commit()
 
 

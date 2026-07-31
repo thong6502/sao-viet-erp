@@ -225,6 +225,7 @@ class LsxService:
         self.sequence = sequence
         self._rates_cache: list | None = None   # bảng đơn giá khoán (xem `_piece_rates`)
         self._dv_cache: dict | None = None      # danh mục đơn vị (xem `_don_vis`)
+        self._cap_cache: dict | None = None     # đồ thị cặp quy đổi (xem `_cap_quy_doi`)
 
     # ================= tra cứu phụ trợ =================
 
@@ -254,6 +255,18 @@ class LsxService:
             rows = self.db.execute(select(DonViDo).where(DonViDo.active.is_(True))).scalars()
             self._dv_cache = don_vi_map(list(rows))
         return self._dv_cache
+
+    def _cap_quy_doi(self) -> list:
+        """DÒNG cặp quy đổi — nguồn chân lý của mọi phép đổi (bảng `don_vi_quy_doi`).
+
+        Giữ nguyên dòng chứ không dẹp sẵn thành đồ thị: dòng quy đổi động ("1 tờ = định lượng ×
+        dài × rộng" kg) chỉ ra hệ số sau khi thay quy cách của chính bước đang tính.
+        """
+        if self._cap_cache is None:
+            from ..repositories.don_vi_do_repo import DonViDoRepository
+
+            self._cap_cache = DonViDoRepository(self.db).cap_rows()
+        return self._cap_cache
 
     def _khoan_mac_dinh(self, department_id: int | None, cd_obj) -> dict | None:
         """Đầu việc khoán ĐIỀN SẴN cho một bước: khớp đúng 1 thì tự điền, nhiều thì để trống.
@@ -286,7 +299,8 @@ class LsxService:
         if kh.get("tinh_theo") == "per_area_sides":
             sl *= max(int(cd.so_luot_chay or 1), 1)
         kq = tien_khoan(
-            sl, cd.don_vi_vao, kh["don_vi"], _f(kh["don_gia"]), quy_cach or {}, self._don_vis(),
+            sl, cd.don_vi_vao, kh["don_vi"], _f(kh["don_gia"]), quy_cach or {},
+            self._don_vis(), self._cap_quy_doi(),
         )
         if "tien" not in kq:
             return {**trong, "khoan_ly_do": kq.get("ly_do"), "khoan_thieu": kq.get("thieu") or []}

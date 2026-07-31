@@ -1,12 +1,32 @@
-"""Repository — Danh mục Đơn vị đo & quy đổi. CRUD + tra theo mã + liệt kê họ đã dùng."""
+"""Repository — Danh mục Đơn vị đo + CẶP quy đổi. CRUD + tra theo mã + liệt kê loại đo đã dùng."""
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
-from ..models.don_vi_do import DonViDo
+from ..models.don_vi_do import DonViDo, DonViQuyDoi
 
-_FIELDS = ("ten", "ho", "he_so_goc", "hieu_luc_tu", "ghi_chu", "active")
+_FIELDS = ("ten", "ho", "hieu_luc_tu", "ghi_chu", "active")
+_CAP_FIELDS = ("tu_id", "den_id", "he_so", "cong_thuc", "ghi_chu")
+
+
+@dataclass
+class CapRow:
+    """1 cặp quy đổi KÈM MÃ hai đầu — `quy_doi_service` là hàm thuần nên không tự truy DB được."""
+
+    id: int
+    tu_id: int
+    den_id: int
+    tu_ma: str
+    den_ma: str
+    tu_ten: str
+    den_ten: str
+    he_so: float
+    # Có công thức = quy đổi ĐỘNG, `he_so` vô nghĩa (lưu 0) — số chỉ có lúc chạy.
+    cong_thuc: str | None = None
+    ghi_chu: str | None = None
 
 
 class DonViDoRepository:
@@ -56,7 +76,7 @@ class DonViDoRepository:
             count_stmt = count_stmt.where(c)
         total = self.db.execute(count_stmt).scalar_one()
         page, size = max(1, page), max(1, min(size, 200))
-        base = base.order_by(DonViDo.ho.asc(), DonViDo.he_so_goc.asc(), DonViDo.ma.asc())
+        base = base.order_by(DonViDo.ho.asc(), DonViDo.ma.asc())
         base = base.offset((page - 1) * size).limit(size)
         return list(self.db.execute(base).scalars()), total
 
@@ -81,5 +101,74 @@ class DonViDoRepository:
         return obj
 
     def delete(self, obj) -> None:
+        self.db.delete(obj)
+        self.db.commit()
+
+    # --- cặp quy đổi ---------------------------------------------------------
+
+    def cap_rows(self, *, bo_qua_id: int | None = None) -> list[CapRow]:
+        """Mọi cặp kèm mã/tên hai đầu. `bo_qua_id` để dò đường KHÔNG tính cặp đang sửa (nếu tính,
+        nó tự mâu thuẫn với chính bản cũ của mình)."""
+        tu, den = aliased(DonViDo), aliased(DonViDo)
+        stmt = (
+            select(DonViQuyDoi.id, DonViQuyDoi.tu_id, DonViQuyDoi.den_id,
+                   tu.ma, den.ma, tu.ten, den.ten, DonViQuyDoi.he_so,
+                   DonViQuyDoi.cong_thuc, DonViQuyDoi.ghi_chu)
+            .join(tu, tu.id == DonViQuyDoi.tu_id)
+            .join(den, den.id == DonViQuyDoi.den_id)
+            .order_by(tu.ma.asc(), den.ma.asc())
+        )
+        if bo_qua_id is not None:
+            stmt = stmt.where(DonViQuyDoi.id != bo_qua_id)
+        return [
+            CapRow(id=r[0], tu_id=r[1], den_id=r[2], tu_ma=r[3], den_ma=r[4],
+                   tu_ten=r[5], den_ten=r[6], he_so=float(r[7]), cong_thuc=r[8], ghi_chu=r[9])
+            for r in self.db.execute(stmt).all()
+        ]
+
+    def list_cap(self, *, q: str | None = None, page: int = 1, size: int = 50):
+        rows = self.cap_rows()
+        if q:
+            needle = q.strip().lower()
+            rows = [r for r in rows
+                    if needle in f"{r.tu_ma} {r.den_ma} {r.tu_ten} {r.den_ten}".lower()]
+        total = len(rows)
+        page, size = max(1, page), max(1, min(size, 200))
+        return rows[(page - 1) * size: (page - 1) * size + size], total
+
+    def get_cap(self, cap_id: int):
+        return self.db.get(DonViQuyDoi, cap_id)
+
+    def find_cap(self, tu_id: int, den_id: int):
+        """Cặp giữa hai đơn vị theo CHIỀU NÀO CŨNG TÍNH — khai `tấn → kg` rồi khai tiếp `kg → tấn`
+        là hai dòng nói cùng một chuyện, sớm muộn lệch nhau."""
+        return self.db.execute(
+            select(DonViQuyDoi).where(
+                or_(
+                    (DonViQuyDoi.tu_id == tu_id) & (DonViQuyDoi.den_id == den_id),
+                    (DonViQuyDoi.tu_id == den_id) & (DonViQuyDoi.den_id == tu_id),
+                )
+            )
+        ).scalars().first()
+
+    def create_cap(self, data: dict):
+        obj = DonViQuyDoi(tu_id=data["tu_id"], den_id=data["den_id"], he_so=data["he_so"])
+        for k in ("cong_thuc", "ghi_chu"):
+            if k in data:
+                setattr(obj, k, data[k])
+        self.db.add(obj)
+        self.db.commit()
+        self.db.refresh(obj)
+        return obj
+
+    def update_cap(self, obj, data: dict):
+        for k in _CAP_FIELDS:
+            if k in data:
+                setattr(obj, k, data[k])
+        self.db.commit()
+        self.db.refresh(obj)
+        return obj
+
+    def delete_cap(self, obj) -> None:
         self.db.delete(obj)
         self.db.commit()

@@ -1,4 +1,4 @@
-"""Đơn vị & quy đổi router — CRUD danh mục đơn vị đo + thử một phép đổi.
+"""Đơn vị & quy đổi router — CRUD đơn vị + CRUD cặp quy đổi + thử một phép đổi.
 
 Dependency INLINE (bám `routers/bu_hao.py`). MODULE quyền = "dm_cong_doan": đơn vị là cấu hình sản
 xuất, ai khai được công đoạn/bù hao thì khai được đơn vị — không đẻ ô quyền mới cho một danh mục.
@@ -16,12 +16,13 @@ from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..schemas.don_vi_do import (
-    DonViDoIn, DonViDoListOut, DonViDoRow, HoListOut, QuyDoiIn, QuyDoiOut,
+    BienListOut, CapIn, CapListOut, CapRowOut, DonViDoIn, DonViDoListOut, DonViDoRow, HoListOut,
+    QuyDoiIn, QuyDoiOut,
 )
 from ..services.don_vi_do_service import (
-    DonViDoDuplicate, DonViDoNotFound, DonViDoService, DonViDoValidationError,
+    DonViDoDuplicate, DonViDoNotFound, DonViDoService, DonViDoValidationError, cong_thuc_chu,
 )
-from ..services.quy_doi_service import don_vi_map, doi_theo_quy_cach
+from ..services.quy_doi_service import BIEN, _so, don_vi_map, doi_theo_quy_cach
 
 router = APIRouter(prefix="/api/don-vi", tags=["don-vi"])
 MODULE = "dm_cong_doan"
@@ -45,6 +46,16 @@ def _err(e: Exception):
 def _row(svc: DonViDoService, obj) -> DonViDoRow:
     row = DonViDoRow.model_validate(obj)
     row.canh_bao = svc.canh_bao(obj)
+    row.quy_doi_text = svc.quy_doi_text(obj)
+    return row
+
+
+def _cap_row(c) -> CapRowOut:
+    row = CapRowOut.model_validate(c)
+    ve_phai = cong_thuc_chu(c.cong_thuc) if c.cong_thuc else _so(float(c.he_so))
+    row.cau = f"1 {c.tu_ten} = {ve_phai} {c.den_ten}"
+    row.ma = f"{c.tu_ma} → {c.den_ma}"
+    row.ten = row.cau
     return row
 
 
@@ -69,6 +80,56 @@ def list_ho(svc: Service, _: Annotated[User, Depends(require_permission(MODULE, 
     return HoListOut(items=svc.ho_goi_y())
 
 
+@router.get("/bien", response_model=BienListOut)
+def list_bien(_: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> BienListOut:
+    """Biến dùng được trong công thức quy đổi — màn khai phải LIỆT KÊ, không bắt người ta đoán tên."""
+    return BienListOut(items=[{"ma": k, "nhan": v} for k, v in BIEN.items()])
+
+
+@router.get("/quy-doi", response_model=CapListOut)
+def list_cap(
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    q: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=50, ge=1, le=200),
+) -> CapListOut:
+    rows, total = svc.list_cap(q=q, page=page, size=size)
+    return CapListOut(items=[_cap_row(r) for r in rows], total=total, page=page, size=size)
+
+
+@router.post("/quy-doi", response_model=CapRowOut, status_code=status.HTTP_201_CREATED)
+def create_cap(payload: CapIn, svc: Service,
+               current_user: Annotated[User, Depends(require_permission(MODULE, "create"))]) -> CapRowOut:
+    try:
+        obj = svc.create_cap(payload.model_dump(exclude_unset=True), actor_id=current_user.id)
+    except (DonViDoDuplicate, DonViDoValidationError, DonViDoNotFound) as e:
+        raise _err(e) from None
+    row = next((c for c in svc.repo.cap_rows() if c.id == obj.id), None)
+    return _cap_row(row)
+
+
+@router.put("/quy-doi/{cap_id}", response_model=CapRowOut)
+def update_cap(cap_id: int, payload: CapIn, svc: Service,
+               current_user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> CapRowOut:
+    try:
+        obj = svc.update_cap(cap_id, payload.model_dump(exclude_unset=True), actor_id=current_user.id)
+    except (DonViDoNotFound, DonViDoDuplicate, DonViDoValidationError) as e:
+        raise _err(e) from None
+    row = next((c for c in svc.repo.cap_rows() if c.id == obj.id), None)
+    return _cap_row(row)
+
+
+@router.delete("/quy-doi/{cap_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def delete_cap(cap_id: int, svc: Service,
+               current_user: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
+    try:
+        svc.delete_cap(cap_id, actor_id=current_user.id)
+    except DonViDoNotFound as e:
+        raise _err(e) from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/thu", response_model=QuyDoiOut)
 def thu_quy_doi(
     payload: QuyDoiIn,
@@ -77,7 +138,8 @@ def thu_quy_doi(
 ) -> QuyDoiOut:
     """Thử một phép đổi — trả kèm DIỄN GIẢI cách tính, hoặc nói rõ thiếu gì (không đoán)."""
     dvs = don_vi_map(svc.repo.all_active())
-    kq = doi_theo_quy_cach(payload.gia_tri, payload.tu, payload.den, payload.quy_cach, dvs)
+    kq = doi_theo_quy_cach(payload.gia_tri, payload.tu, payload.den, payload.quy_cach, dvs,
+                           svc.repo.cap_rows())
     return QuyDoiOut(**kq)
 
 
@@ -96,7 +158,7 @@ def create_item(payload: DonViDoIn, svc: Service,
     try:
         obj = svc.create(payload.model_dump(exclude_unset=True), actor_id=current_user.id)
         return _row(svc, obj)
-    except (DonViDoDuplicate, DonViDoValidationError) as e:
+    except (DonViDoDuplicate, DonViDoValidationError, DonViDoNotFound) as e:
         raise _err(e) from None
 
 

@@ -2867,9 +2867,36 @@ Ba cột nuôi thẳng routing của Lệnh SX (giá trị MẶC ĐỊNH, kế h
 
 ### `don_vi_do`
 
-**Purpose:** danh mục ĐƠN VỊ ĐO + quy đổi, dùng CHUNG cho khoán · kho · mua hàng. Mỗi đơn vị thuộc một **họ quy đổi** (`ho`) và khai `he_so_goc` = có bao nhiêu đơn vị GỐC của họ trong 1 đơn vị này (m² = 10.000 cm² ⇒ `he_so_goc = 10000`; dòng hệ số 1 chính là đơn vị gốc). Đổi A→B **cùng họ** = `× he_so_goc(A) / he_so_goc(B)` — một cột số, không bảng cặp N×N. Khác họ thì KHÔNG đổi bằng hệ số, phải qua "cầu theo quy cách" trong `services/quy_doi_service.py` (tờ→m² cần khổ tờ in · tờ→kg cần thêm định lượng · tờ→con cần con/tờ); thiếu biến thì trả *không đổi được*, không đoán. Thứ phụ thuộc từng mặt hàng ("1 thùng keo = 3 kg") KHÔNG khai ở đây — chỗ đó là `material.don_vi_phu` + `he_so_quy_doi`. `hieu_luc_tu` = mốc hệ số hiện tại bắt đầu áp (sửa hệ số là đổi tiền từ nay về sau; mọi lần sửa ghi AuditLog). Bảng mới → `create_all` tự dựng, không migration.
+**Purpose:** danh mục ĐƠN VỊ ĐO, dùng CHUNG cho khoán · kho · mua hàng. Chỉ là DANH SÁCH TÊN — quy đổi nằm ở bảng cặp `don_vi_quy_doi`. `ma` là mã code tham chiếu (`to`, `cai`, `m2`); `ten` là chữ hiển thị người dùng gõ ("tờ", "m²") và `quy_doi_service.don_vi_map()` đánh chỉ mục theo CẢ HAI vì bảng đơn giá khoán lưu chữ hiển thị còn bước lệnh dùng mã. `ho` = LOẠI ĐO, **không** quyết định đổi được hay không (việc đó theo cặp đã khai) — chỉ để gom nhóm khi hiển thị; UI KHÔNG phơi ô này ra (chủ 2026-07-30). `he_so_goc` là **cột CHẾT** của mô hình cũ ("hệ số về đơn vị gốc của họ"), giữ để không mất dữ liệu lịch sử, KHÔNG đọc ở đâu nữa — migration `0135` đã chuyển nó thành cặp. Bảng mới → `create_all` tự dựng, không migration.
 
 **Tất cả cột:** `id`, `ma`, `ten`, `ho`, `he_so_goc`, `hieu_luc_tu`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+
+### `don_vi_quy_doi`
+
+**Purpose:** CẶP quy đổi — mỗi dòng là một câu *"1 `tu` = `he_so` `den`"* (1 tấn = 1.000 kg · 1 ram = 500 tờ), đúng cách người ta nói ngoài đời. Nguồn chân lý của mọi phép đổi trong hệ.
+
+Cạnh đi **hai chiều**: khai `tấn → kg = 1.000` là đủ để đổi ngược `kg → tấn` (nhân 1/1.000) — bắt khai hai dòng thì sớm muộn hai dòng lệch nhau, nên `find_cap` coi hai chiều là MỘT và chặn khai trùng. Cặp chưa khai thẳng thì `quy_doi_service.duong_di()` **dò đường BFS** qua trung gian (hỏi tấn → g thì đi qua kg, nhân dồn hệ số); BFS chứ không DFS để đường ít chặng nhất, sai số nhân dồn ít nhất.
+
+**Chặn mâu thuẫn (không cho lưu):** thêm/sửa cặp mà lệch với đường đã có (đã có `1 tấn = 1.000 kg` + `1 kg = 1.000 g`, giờ khai `1 tấn = 999.000 g`) thì service từ chối và chỉ ra đường nào đang mâu thuẫn — chủ chốt 2026-07-30, vì số quy đổi chảy thẳng vào tiền khoán và tồn kho, lệch mà im lặng thì phát hiện ra đã trả lương sai mấy tháng. Sai số so sánh là TƯƠNG ĐỐI (`1e-6`) vì hệ số trải từ 0,001 tới 1.000.000.
+
+**Quy đổi ĐỘNG (`cong_thuc`):** *"1 tờ bằng mấy kg"* không có đáp án chung (tờ 65×86 Ford 70 là 0,039 kg còn tờ 79×109 Couché 300 là 0,258 kg) nhưng TÍNH ĐƯỢC từ khổ + định lượng, nên vẫn là một dòng khai được — hệ số là **công thức** thay cho con số: `1 tờ = dinh_luong * dai * rong` kg. Trước 2026-07-31 ba phép này nằm cứng trong code (`quy_doi_service.CAU`), xưởng không sửa được.
+
+Biến do **NƠI GỌI** bơm vào (`quy_doi_service.ngu_canh`), danh mục không tự đoán: chỉ nơi gọi mới biết bước đang đếm tờ NGUYÊN (mua giấy, khổ 79×109) hay tờ IN (chạy máy, khổ 65×86) — hai thứ khác khổ nên khác cân. Biến dùng được: `dai` · `rong` (m) · `dinh_luong` (kg/m² = gsm ÷ 1.000) · `so_con`, cùng từ vựng với công thức công đoạn. Cạnh động THIẾU biến thì bị loại khỏi đồ thị và câu trả lời nói rõ thiếu gì, KHÔNG đoán. Chiều ngược tự có (÷ hệ số) vì kết quả cuối vẫn là một số nhân. Dòng động **không bị chặn mâu thuẫn** lúc khai (chưa có giấy nào để thay biến) — kiểm lúc dùng qua diễn giải.
+
+Thứ phụ thuộc từng mặt hàng ("1 thùng keo = 3 kg" khác "1 thùng mực = ? kg") KHÔNG khai ở đây — chỗ đó là `material.don_vi_phu` + `he_so_quy_doi`.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `tu_id` | `Integer` | **FK→don_vi_do.id**, **IX** | no | — | Vế trái. `ON DELETE CASCADE` — cặp mồ côi là đường đi MA, máy vẫn tính ra số mà không ai hiểu. |
+| `den_id` | `Integer` | **FK→don_vi_do.id**, **IX** | no | — | Vế phải; `ON DELETE CASCADE`. |
+| `he_so` | `Numeric(18,6)` | — | no | — | 1 `tu` = `he_so` `den`. Dòng SỐ thì > 0 (service chặn 0/âm — chia 0 khi đi chiều ngược); dòng CÔNG THỨC lưu **0** (không phải 1: chỗ nào lỡ đọc cột này sẽ ra 0 → hỏng lộ ra ngay, chứ không ra số y như thật mà sai). |
+| `cong_thuc` | `String(200)` | — | yes | — | Quy đổi ĐỘNG: hệ số tính lúc dùng (`dinh_luong * dai * rong`). Có công thức thì `he_so` bị bỏ qua. Chỉ dùng biến trong `quy_doi_service.BIEN`, service chặn biến lạ. |
+| `ghi_chu` | `String(500)` | — | yes | — | Ghi chú. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+| `updated_at` | `DateTime(tz)` | — | no | now | Khi sửa. |
+
+- Unique: (`tu_id`, `den_id`) — `uq_don_vi_quy_doi_cap`. Bảng mới → `create_all` tự dựng; migration `0135` đổ dữ liệu từ `don_vi_do.he_so_goc` của mô hình cũ, `0137` thêm cột `cong_thuc`.
 
 ### `kho_hang`
 

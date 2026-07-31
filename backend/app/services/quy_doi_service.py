@@ -1,22 +1,25 @@
 """Quy đổi đơn vị — HÀM THUẦN, không giữ state, không đụng DB (caller nạp danh mục rồi truyền vào).
 
-Hai loại quy đổi, cố tình tách rời vì bản chất khác nhau:
+Nguồn chân lý là BẢNG CẶP người dùng khai: "1 tấn = 1.000 kg", "1 ram = 500 tờ". Khai một chiều là
+đủ — máy đi ngược bằng 1/hệ số. Cặp chưa khai thẳng thì dò đường qua trung gian (hỏi tấn → g thì đi
+qua kg). Không có khái niệm "nhóm" hay "đơn vị chuẩn" nào cả: hai đơn vị đổi được cho nhau khi và
+chỉ khi có đường cặp nối chúng.
 
-1. **Cùng họ — thuần số học.** `doi()`: m² ↔ cm², kg ↔ tấn, ram ↔ tờ. Chỉ cần `he_so_goc` của danh
-   mục `don_vi_do`, đúng ở mọi nơi mọi lúc.
+Hệ số của một cặp được phép là **CÔNG THỨC** thay vì con số — quy đổi ĐỘNG. "1 tờ bằng mấy kg"
+không có đáp án chung (tờ 65×86 Ford 70 là 0,039 kg, tờ 79×109 Couché 300 là 0,258 kg) nhưng TÍNH
+ĐƯỢC từ khổ + định lượng, nên nó vẫn là một dòng khai được: `1 tờ = dinh_luong * dai * rong` kg.
+Biến do **NƠI GỌI** bơm vào (`ngu_canh`) chứ danh mục không tự đoán: chỉ nơi gọi mới biết bước này
+đang đếm tờ NGUYÊN (mua giấy) hay tờ IN (chạy máy) — hai thứ khác khổ nên khác cân. Cạnh động
+thiếu biến thì bị LOẠI khỏi đồ thị, và câu trả lời nói rõ thiếu gì.
 
-2. **Khác họ — phải có QUY CÁCH của lệnh.** `doi_theo_quy_cach()`: câu "1 tờ bằng mấy kg" KHÔNG có
-   đáp án chung — tờ 65×86 Ford 70 là 0,039 kg, tờ 79×109 Couché 300 là 0,258 kg. Bốn cầu dưới đây
-   mỗi cầu khai rõ cần biến gì; **thiếu biến thì trả `thieu`, KHÔNG đoán** — số đoán ra chảy thẳng
-   vào tiền khoán và tồn kho.
-
-Cầu luôn nhả ra **đơn vị GỐC của họ đích** (cm² · kg · tờ · con · cuốn), rồi `doi()` đưa tiếp về đơn
-vị người ta hỏi (m², tấn…). Nhờ vậy thêm đơn vị mới trong họ không phải sửa cầu.
-
-Mọi kết quả đều kèm `dien_giai` khoe cách tính (`241 tờ × 86,0 × 65,0 = 1.347.190 cm² = 134,7 m²`) —
-người đọc kiểm được bằng mắt, và khi số sai thì biết sai ở đâu.
+Mọi kết quả kèm `dien_giai` khoe cách tính (`241 tờ × 0,168 kg/tờ = 40,49 kg`) — người đọc kiểm
+được bằng mắt; thiếu dữ liệu thì nói thiếu gì, KHÔNG đoán.
 """
 from __future__ import annotations
+
+import re
+
+from .thanh_phan_engine import MATH_FUNCS, safe_eval
 
 # --- Mã đơn vị mà CODE tham chiếu (danh mục có thể thêm đơn vị khác thoải mái) ----------------
 DV_TO = "to"
@@ -28,20 +31,17 @@ DV_M2 = "m2"
 DV_KG = "kg"
 DV_TAN = "tan"
 
-HO_DIEN_TICH = "dien_tich"
-HO_KHOI_LUONG = "khoi_luong"
-HO_TO = "to"
-# Mọi cách đếm "một thành phẩm xong" (cái · con · cuốn · bộ · hộp) nằm CHUNG một họ, hệ số 1: bước
-# lệnh gọi `cai` còn bảng khoán của tổ gọi "cuốn"/"hộp", nhưng đó là cùng một thứ được đếm.
-HO_THANH_PHAM = "thanh_pham"
-
-# Biến quy cách mỗi cầu cần — hiện nguyên văn cho người dùng khi thiếu.
-NHAN_BIEN = {
-    "kho_in_dai": "khổ tờ in (dài)",
-    "kho_in_rong": "khổ tờ in (rộng)",
-    "gsm": "định lượng giấy (g/m²)",
+# Biến dùng được trong công thức quy đổi — tên là VAI TRÒ ("khổ của tờ đang đếm"), không phải tên
+# cột của giấy. Nhãn hiện nguyên văn cho người dùng khi thiếu. Cùng bộ từ vựng với công thức công
+# đoạn (`thanh_phan_engine`): dài/rộng tính bằng MÉT, định lượng bằng kg/m².
+BIEN = {
+    "dai": "khổ tờ — chiều dài",
+    "rong": "khổ tờ — chiều rộng",
+    "dinh_luong": "định lượng giấy (g/m²)",
     "so_con": "số con trên tờ",
 }
+
+_TU = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
 
 
 def _f(v) -> float:
@@ -107,17 +107,125 @@ def ten_dv(ma: str, dvs: dict[str, dict]) -> str:
     return (dvs.get((ma or "").strip().lower()) or {}).get("ten") or ma
 
 
-def don_vi_goc_cua_ho(ho: str, dvs: dict[str, dict]) -> dict | None:
-    """Đơn vị gốc của họ = dòng có he_so_goc = 1. Không có ⇒ danh mục khai thiếu."""
-    ho = (ho or "").strip().lower()
-    for d in dvs.values():
-        if d["ho"] == ho and abs(d["he_so_goc"] - 1.0) < 1e-9:
-            return d
+def ngu_canh(quy_cach: dict | None) -> dict[str, float]:
+    """Quy cách của việc đang làm → BIẾN cho công thức quy đổi.
+
+    Nơi gọi quyết định khổ nào (chốt 2026-07-31): truyền thẳng `dai`/`rong` tính bằng MÉT khi đã
+    biết mình đang đếm tờ gì. Hai khoá cũ `kho_in_dai`/`kho_in_rong` (mm) vẫn nhận để lệnh sản xuất
+    khỏi phải sửa — mặc định là khổ tờ IN.
+    """
+    qc = quy_cach or {}
+
+    def _met(khoa_m: str, khoa_mm: str) -> float:
+        v = _f(qc.get(khoa_m))
+        return v if v > 0 else _f(qc.get(khoa_mm)) / 1000.0
+
+    return {
+        "dai": _met("dai", "kho_in_dai"),
+        "rong": _met("rong", "kho_in_rong"),
+        # kg/m² — cùng đơn vị với `dinh_luong` của công thức công đoạn, khỏi hai nghĩa cho một chữ.
+        "dinh_luong": _f(qc.get("dinh_luong")) or _f(qc.get("gsm")) / 1000.0,
+        "so_con": _f(qc.get("so_con")),
+    }
+
+
+def bien_trong(cong_thuc: str) -> list[str]:
+    """Tên biến xuất hiện trong công thức (bỏ tên hàm) — dùng cho cả UI gợi ý lẫn báo thiếu."""
+    return sorted({t for t in _TU.findall(cong_thuc or "") if t not in MATH_FUNCS})
+
+
+def _thieu_bien(cong_thuc: str, ctx: dict) -> list[str]:
+    """Biến chưa có số. Coi 0 là THIẾU: tờ khổ 0 hay định lượng 0 là chưa khai, không phải số thật."""
+    return [t for t in bien_trong(cong_thuc) if _f(ctx.get(t)) <= 0]
+
+
+def _doc_cap(r) -> tuple[str, str, float, str]:
+    if isinstance(r, dict):
+        tu, den, hs, ct = r.get("tu_ma"), r.get("den_ma"), _f(r.get("he_so")), r.get("cong_thuc")
+    else:
+        tu, den = getattr(r, "tu_ma", None), getattr(r, "den_ma", None)
+        hs, ct = _f(r.he_so), getattr(r, "cong_thuc", None)
+    return (str(tu or "").strip().lower(), str(den or "").strip().lower(), hs,
+            (ct or "").strip())
+
+
+def cap_map(rows, ctx: dict | None = None,
+            gia_dinh_du_bien: bool = False) -> dict[str, dict[str, float]]:
+    """list[DonViQuyDoi] → đồ thị {ma_tu: {ma_den: he_so}}, CẢ HAI CHIỀU.
+
+    Khai "1 tấn = 1.000 kg" là đủ để đổi ngược kg → tấn (nhân 1/1.000) — bắt khai hai dòng thì
+    sớm muộn hai dòng lệch nhau. Rows phải kèm mã hai đầu (`tu_ma`/`den_ma`) vì hàm này thuần,
+    không truy DB.
+
+    Dòng CÔNG THỨC (quy đổi động) chỉ vào đồ thị khi có `ctx` và đủ biến; thiếu biến thì cạnh đó
+    coi như KHÔNG TỒN TẠI — thà không đổi được còn hơn đổi bằng số đoán. `gia_dinh_du_bien` chỉ để
+    dựng câu báo lỗi ("đường này đi được nếu biết định lượng"), không dùng để tính ra số.
+    """
+    g: dict[str, dict[str, float]] = {}
+    for r in rows or []:
+        tu, den, hs, ct = _doc_cap(r)
+        if not tu or not den or tu == den:
+            continue
+        if ct:
+            thieu = _thieu_bien(ct, ctx or {})
+            if thieu:
+                if not gia_dinh_du_bien:
+                    continue
+                hs = 1.0            # cạnh "giả định" — chỉ để dò xem có đường hay không
+            else:
+                try:
+                    hs = float(safe_eval(ct, ctx or {}))
+                except (ValueError, ZeroDivisionError):
+                    continue
+        if hs <= 0:
+            continue
+        g.setdefault(tu, {})[den] = hs
+        g.setdefault(den, {})[tu] = 1.0 / hs
+    return g
+
+
+def duong_di(tu: str, den: str, cap: dict[str, dict[str, float]]) -> list[str] | None:
+    """Đường ngắn nhất tu → den trên đồ thị cặp (BFS). None = không có đường nào.
+
+    BFS chứ không DFS: đường qua ÍT chặng nhất thì sai số nhân dồn ít nhất, và diễn giải cũng
+    ngắn hơn cho người đọc.
+    """
+    tu, den = (tu or "").strip().lower(), (den or "").strip().lower()
+    if tu == den:
+        return [tu]
+    if tu not in cap:
+        return None
+    tu_dau: dict[str, str | None] = {tu: None}
+    hang_doi = [tu]
+    while hang_doi:
+        cur = hang_doi.pop(0)
+        for ke in cap.get(cur, {}):
+            if ke in tu_dau:
+                continue
+            tu_dau[ke] = cur
+            if ke == den:
+                duong = [ke]
+                while tu_dau[duong[-1]] is not None:
+                    duong.append(tu_dau[duong[-1]])       # type: ignore[index]
+                return list(reversed(duong))
+            hang_doi.append(ke)
     return None
 
 
-def doi(gia_tri: float, tu: str, den: str, dvs: dict[str, dict]) -> dict:
-    """Đổi trong CÙNG họ. Trả `{gia_tri, don_vi, dien_giai}`; không đổi được thì `{thieu, ly_do}`."""
+def he_so_duong(duong: list[str], cap: dict[str, dict[str, float]]) -> float:
+    """Nhân dồn hệ số dọc đường: [tan, kg, g] → 1.000 × 1.000 = 1.000.000."""
+    hs = 1.0
+    for i in range(len(duong) - 1):
+        hs *= cap[duong[i]][duong[i + 1]]
+    return hs
+
+
+def doi(gia_tri: float, tu: str, den: str, dvs: dict[str, dict],
+        cap: dict[str, dict[str, float]] | None = None) -> dict:
+    """Đổi theo CẶP đã khai (đi vòng qua trung gian nếu cần).
+
+    Trả `{gia_tri, don_vi, dien_giai}`; không có đường thì `{thieu, ly_do}` nói rõ thiếu cặp nào.
+    """
     tu_k, den_k = (tu or "").strip().lower(), (den or "").strip().lower()
     a, b = dvs.get(tu_k), dvs.get(den_k)
     if a is None or b is None:
@@ -127,124 +235,109 @@ def doi(gia_tri: float, tu: str, den: str, dvs: dict[str, dict]) -> dict:
     if tu_k == den_k or a["ma"] == b["ma"]:
         return {"gia_tri": _f(gia_tri), "don_vi": b["ten"],
                 "dien_giai": f"{_so(gia_tri)} {b['ten']}"}
-    if a["ho"] != b["ho"]:
+
+    duong = duong_di(a["ma"], b["ma"], cap or {})
+    if duong is None:
         return {
-            "thieu": ["quy_cach"],
-            "ly_do": f"{a['ten']} và {b['ten']} khác họ quy đổi — cần quy cách của lệnh "
-                     f"(khổ / định lượng / số con) mới đổi được.",
+            "thieu": ["cap"],
+            "ly_do": f"Chưa khai quy đổi giữa {a['ten']} và {b['ten']} — thêm ở "
+                     f"Cấu hình danh mục → Đơn vị & quy đổi.",
         }
-    ket_qua = _f(gia_tri) * a["he_so_goc"] / b["he_so_goc"]
-    if abs(a["he_so_goc"] - b["he_so_goc"]) < 1e-9:
-        # Hai đơn vị cùng họ, cùng hệ số (cái ↔ cuốn ↔ hộp): chỉ là cách GỌI khác, đừng in "÷ 1".
-        return {"gia_tri": ket_qua, "don_vi": b["ten"],
-                "dien_giai": f"{_so(gia_tri)} {a['ten']} = {_so(ket_qua)} {b['ten']}"}
-    if abs(a["he_so_goc"] - 1.0) < 1e-9:
-        dg = f"{_so(gia_tri)} {a['ten']} ÷ {_so(b['he_so_goc'])} = {_so(ket_qua)} {b['ten']}"
-    elif abs(b["he_so_goc"] - 1.0) < 1e-9:
-        dg = f"{_so(gia_tri)} {a['ten']} × {_so(a['he_so_goc'])} = {_so(ket_qua)} {b['ten']}"
+    hs = he_so_duong(duong, cap or {})
+    ket_qua = _f(gia_tri) * hs
+    if len(duong) > 2:
+        # Đi vòng thì NÓI RÕ đường: người xem phải biết con số đến từ đâu để còn kiểm.
+        qua = " → ".join(ten_dv(m, dvs) for m in duong)
+        dg = (f"{_so(gia_tri)} {a['ten']} × {_so(hs)} = {_so(ket_qua)} {b['ten']} "
+              f"(qua {qua})")
+    elif abs(hs - 1.0) < 1e-9:
+        # Hai đơn vị đếm như nhau (cái ↔ cuốn ↔ hộp): chỉ là cách GỌI khác, đừng in "× 1".
+        dg = f"{_so(gia_tri)} {a['ten']} = {_so(ket_qua)} {b['ten']}"
     else:
-        dg = (f"{_so(gia_tri)} {a['ten']} × {_so(a['he_so_goc'])} ÷ {_so(b['he_so_goc'])} "
-              f"= {_so(ket_qua)} {b['ten']}")
+        dg = f"{_so(gia_tri)} {a['ten']} × {_so(hs)} = {_so(ket_qua)} {b['ten']}"
     return {"gia_tri": ket_qua, "don_vi": b["ten"], "dien_giai": dg}
 
 
-# --- Bốn cầu qua họ khác (cần quy cách của lệnh) -----------------------------------------------
-#
-# Mỗi cầu: (họ đích) → hàm(gia_tri, quy_cach) trả (giá trị theo ĐƠN VỊ GỐC của họ đích, diễn giải)
-# hoặc (None, danh sách biến thiếu).
+# --- Quy đổi ĐỘNG: hệ số là công thức ----------------------------------------------------------
 
 
-def _to_sang_cm2(sl: float, qc: dict) -> tuple[float | None, str | list[str]]:
-    dai, rong = _f(qc.get("kho_in_dai")), _f(qc.get("kho_in_rong"))
-    thieu = [k for k, v in (("kho_in_dai", dai), ("kho_in_rong", rong)) if v <= 0]
-    if thieu:
-        return None, thieu
-    dai_cm, rong_cm = dai / 10.0, rong / 10.0
-    val = sl * dai_cm * rong_cm
-    return val, f"{_so(sl)} tờ × {_so(dai_cm)} cm × {_so(rong_cm)} cm = {_so(val)} cm²"
+def _canh_tren_duong(duong: list[str]) -> set[tuple[str, str]]:
+    """Cạnh của đường, tính CẢ HAI CHIỀU — cặp lưu chiều nào cũng là cạnh đó."""
+    xuoi = set(zip(duong, duong[1:]))
+    return xuoi | {(b, a) for a, b in xuoi}
 
 
-def _to_sang_kg(sl: float, qc: dict) -> tuple[float | None, str | list[str]]:
-    dai, rong, gsm = _f(qc.get("kho_in_dai")), _f(qc.get("kho_in_rong")), _f(qc.get("gsm"))
-    thieu = [k for k, v in (("kho_in_dai", dai), ("kho_in_rong", rong), ("gsm", gsm)) if v <= 0]
-    if thieu:
-        return None, thieu
-    dai_m, rong_m = dai / 1000.0, rong / 1000.0
-    val = sl * dai_m * rong_m * gsm / 1000.0
-    return val, (f"{_so(sl)} tờ × {_so(dai_m)} m × {_so(rong_m)} m × {_so(gsm)} g/m² ÷ 1.000 "
-                 f"= {_so(val)} kg")
+def _dong_tren_duong(rows, duong: list[str]) -> list:
+    canh = _canh_tren_duong(duong or [])
+    return [r for r in rows or []
+            if _doc_cap(r)[3] and (_doc_cap(r)[0], _doc_cap(r)[1]) in canh]
 
 
-def _to_sang_con(sl: float, qc: dict) -> tuple[float | None, str | list[str]]:
-    con = _f(qc.get("so_con"))
-    if con <= 0:
-        return None, ["so_con"]
-    val = sl * con
-    return val, f"{_so(sl)} tờ × {_so(con)} con/tờ = {_so(val)} con"
-
-
-# (họ nguồn, họ đích) → cầu. BA cầu, không hơn.
-#
-# Cố tình KHÔNG có cầu "con → cuốn ÷ số tay": nghe hợp lý nhưng sai bản chất. Bước lệnh đếm `cai`
-# nghĩa là đếm THÀNH PHẨM (1.000 cuốn sách / 1.000 thẻ) — chia thêm số tay là ra 200 cuốn, sai 5
-# lần. Số tay chỉ liên quan tới TỜ IN (đã xử ở `so_to_per_sp` của engine tính giá), không liên quan
-# tới việc đếm thành phẩm ở bước sau xén.
-CAU = {
-    (HO_TO, HO_DIEN_TICH): _to_sang_cm2,
-    (HO_TO, HO_KHOI_LUONG): _to_sang_kg,
-    (HO_TO, HO_THANH_PHAM): _to_sang_con,
-}
+def _chu_thich_dong(rows, duong: list[str], ctx: dict, dvs: dict[str, dict]) -> list[str]:
+    """Câu giải thích cho mỗi cạnh ĐỘNG đã dùng: "1 tờ = 0,168 kg (định lượng 0,3 × dài 0,86 ×
+    rộng 0,65)". Không có nó thì người xem thấy một hệ số từ trên trời rơi xuống."""
+    out: list[str] = []
+    for r in _dong_tren_duong(rows, duong):
+        tu, den, _hs, ct = _doc_cap(r)
+        try:
+            val = float(safe_eval(ct, ctx))
+        except (ValueError, ZeroDivisionError):
+            continue
+        so = " × ".join(f"{BIEN.get(b, b).split(' (')[0]} {_so(_f(ctx.get(b)))}"
+                        for b in bien_trong(ct) if b in BIEN)
+        cau = f"1 {ten_dv(tu, dvs)} = {_so(val)} {ten_dv(den, dvs)}"
+        out.append(f"{cau}: {so}" if so else cau)
+    return out
 
 
 def doi_theo_quy_cach(gia_tri: float, tu: str, den: str, quy_cach: dict | None,
-                      dvs: dict[str, dict]) -> dict:
-    """Đổi qua họ khác bằng quy cách lệnh. Cùng họ thì rơi về `doi()` cho gọn ở phía gọi."""
+                      dvs: dict[str, dict], cap_rows=None) -> dict:
+    """Đổi bằng cặp đã khai, KỂ CẢ cặp có công thức (quy đổi động).
+
+    Nhận thẳng DANH SÁCH DÒNG cặp chứ không nhận đồ thị đã dẹp phẳng: hệ số của dòng động chỉ có
+    sau khi thay biến, mà biến thì lấy từ `quy_cach` của chính việc đang làm.
+    """
     tu_k, den_k = (tu or "").strip().lower(), (den or "").strip().lower()
+    rows = list(cap_rows or [])
     a, b = dvs.get(tu_k), dvs.get(den_k)
     if a is None or b is None:
-        return doi(gia_tri, tu_k, den_k, dvs)      # trả nguyên lỗi "chưa khai đơn vị"
-    if a["ho"] == b["ho"]:
-        return doi(gia_tri, tu_k, den_k, dvs)
+        return doi(gia_tri, tu_k, den_k, dvs, cap_map(rows))   # nguyên lỗi "chưa khai đơn vị"
 
-    cau = CAU.get((a["ho"], b["ho"]))
-    if cau is None:
-        return {
-            "thieu": ["cau"],
-            "ly_do": f"Chưa có cách đổi {a['ten']} → {b['ten']} (họ {a['ho']} → {b['ho']}).",
-        }
-    goc = don_vi_goc_cua_ho(b["ho"], dvs)
-    if goc is None:
-        return {"thieu": ["don_vi_goc"],
-                "ly_do": f"Họ {b['ho']} chưa khai đơn vị gốc (hệ số = 1) trong danh mục."}
+    ctx = ngu_canh(quy_cach)
+    cap = cap_map(rows, ctx)
+    kq = doi(gia_tri, tu_k, den_k, dvs, cap)
+    if "gia_tri" in kq:
+        ghi = _chu_thich_dong(rows, duong_di(a["ma"], b["ma"], cap) or [], ctx, dvs)
+        if ghi:
+            kq["dien_giai"] = f"{kq['dien_giai']} ({' · '.join(ghi)})"
+        return kq
 
-    val, dg = cau(_f(gia_tri), quy_cach or {})
-    if val is None:
-        ten_thieu = [NHAN_BIEN.get(k, k) for k in dg]     # dg = list biến thiếu
-        return {"thieu": list(dg),
-                "ly_do": f"Lệnh chưa có {', '.join(ten_thieu)} nên không đổi được "
-                         f"{a['ten']} → {b['ten']}."}
-
-    # Cầu ra đơn vị GỐC của họ đích; nếu người ta hỏi đơn vị khác trong họ thì đi tiếp bằng hệ số.
-    if goc["ma"] == b["ma"]:
-        return {"gia_tri": val, "don_vi": b["ten"], "dien_giai": dg}
-    buoc2 = doi(val, goc["ma"], b["ma"], dvs)
-    if "gia_tri" not in buoc2:
-        return buoc2
-    return {
-        "gia_tri": buoc2["gia_tri"],
-        "don_vi": b["ten"],
-        "dien_giai": f"{dg} = {_so(buoc2['gia_tri'])} {b['ten']}",
-    }
+    # Không có đường. Nếu GIẢ ĐỊNH đủ biến mà lại có đường thì lỗi thật là thiếu số, không phải
+    # thiếu khai — nói thẳng thiếu cái gì thay vì bảo người ta đi khai thêm cặp.
+    duong_ao = duong_di(a["ma"], b["ma"], cap_map(rows, ctx, gia_dinh_du_bien=True))
+    if duong_ao:
+        thieu: list[str] = []
+        for r in _dong_tren_duong(rows, duong_ao):
+            for bien in _thieu_bien(_doc_cap(r)[3], ctx):
+                if bien not in thieu:
+                    thieu.append(bien)
+        if thieu:
+            return {
+                "thieu": thieu,
+                "ly_do": f"Chưa biết {', '.join(BIEN.get(k, k) for k in thieu)} nên không đổi "
+                         f"được {a['ten']} → {b['ten']}.",
+            }
+    return kq        # nguyên lỗi "chưa khai quy đổi giữa A và B"
 
 
 def tien_khoan(sl_buoc: float, don_vi_buoc: str, don_vi_gia: str, don_gia: float,
-               quy_cach: dict | None, dvs: dict[str, dict]) -> dict:
+               quy_cach: dict | None, dvs: dict[str, dict], cap_rows=None) -> dict:
     """Tiền khoán DỰ KIẾN của 1 bước = SL bước (đổi sang đơn vị đơn giá) × đơn giá.
 
     Trả `{sl, don_vi, tien, dien_giai}` hoặc `{thieu, ly_do}` — cùng hình dạng với các hàm trên để
     phía gọi chỉ cần kiểm `"tien" in kq`.
     """
-    kq = doi_theo_quy_cach(sl_buoc, don_vi_buoc, don_vi_gia, quy_cach, dvs)
+    kq = doi_theo_quy_cach(sl_buoc, don_vi_buoc, don_vi_gia, quy_cach, dvs, cap_rows)
     if "gia_tri" not in kq:
         return kq
     tien = round(kq["gia_tri"] * _f(don_gia))

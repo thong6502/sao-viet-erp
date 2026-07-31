@@ -84,5 +84,5 @@ Bảng đơn giá khoán của tổ (`Lương → Cấu hình lương của tổ
 / cuốn) rồi ra tiền công dự kiến. Cán / phủ / bồi → *theo diện tích tờ in*; bế → *theo số tờ in*;
 đóng cuốn → *theo số lượng thành phẩm*.
 
-Phần quy đổi giữa các đơn vị cùng loại (cm² ↔ m², kg ↔ tấn, ram ↔ tờ) nằm ở module riêng —
-xem `docs/spec-don-vi-quy-doi.md`.
+Phần quy đổi giữa các đơn vị (1 m² = 10.000 cm², 1 tấn = 1.000 kg, 1 ram = 500 tờ) khai theo CẶP
+ở module riêng — xem `docs/spec-don-vi-quy-doi.md`.

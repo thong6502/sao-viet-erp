@@ -3794,6 +3794,115 @@ def _migrate_lsx_cong_doan_khoan_json(db: Session) -> None:
     db.commit()
 
 
+def _migrate_don_vi_quy_doi_cong_thuc(db: Session) -> None:
+    """Quy đổi ĐỘNG: thêm `don_vi_quy_doi.cong_thuc` (nullable).
+
+    "1 tờ bằng mấy kg" không có đáp án chung nhưng TÍNH ĐƯỢC từ khổ + định lượng, nên cột này cho
+    dòng quy đổi ghi công thức thay cho con số; biến do nơi gọi bơm vào lúc chạy. Trước đó ba phép
+    đó nằm cứng trong code (`quy_doi_service.CAU`) nên xưởng không tự khai được.
+    No-op DB fresh / bảng chưa có / cột đã có.
+    """
+    insp = inspect(db.get_bind())
+    if "don_vi_quy_doi" not in insp.get_table_names():
+        return
+    if "cong_thuc" not in _existing_columns(insp, "don_vi_quy_doi"):
+        db.execute(text("ALTER TABLE don_vi_quy_doi ADD COLUMN cong_thuc VARCHAR(200)"))
+    db.commit()
+
+
+def _migrate_don_vi_don_cap_du(db: Session) -> None:
+    """Xoá CẶP DƯ: cạnh mà bỏ đi rồi hai đầu vẫn đổi được cho nhau qua đường khác.
+
+    DB đã chạy bản 0135 đầu tiên có 7 cặp 1-1 cho 5 đơn vị đếm thành phẩm (cái · con · cuốn · bộ ·
+    hộp) vì migration và seed cùng nối một nhóm. Không sai số nhưng bảng Quy đổi nhìn rối, và mỗi
+    dòng dư là một chỗ để người ta sửa lệch về sau. Giữ cạnh hệ số ≠ 1 (số thật của xưởng), chỉ xét
+    cạnh 1-1; xoá dần và kiểm lại sau mỗi lần để không cắt đứt liên thông.
+    """
+    insp = inspect(db.get_bind())
+    if "don_vi_quy_doi" not in insp.get_table_names():
+        return
+    rows = db.execute(text(
+        "SELECT q.id, a.ma, b.ma, q.he_so FROM don_vi_quy_doi q "
+        "JOIN don_vi_do a ON a.id = q.tu_id JOIN don_vi_do b ON b.id = q.den_id"
+    )).all()
+    canh = [(r[0], r[1], r[2], float(r[3])) for r in rows]
+
+    def _lien_thong(bo_qua: set[int], tu: str, den: str) -> bool:
+        g: dict[str, set[str]] = {}
+        for cid, a, b, _hs in canh:
+            if cid in bo_qua:
+                continue
+            g.setdefault(a, set()).add(b)
+            g.setdefault(b, set()).add(a)
+        seen, stack = {tu}, [tu]
+        while stack:
+            cur = stack.pop()
+            if cur == den:
+                return True
+            for ke in g.get(cur, ()):
+                if ke not in seen:
+                    seen.add(ke)
+                    stack.append(ke)
+        return den in seen
+
+    bo: set[int] = set()
+    for cid, a, b, hs in canh:
+        if abs(hs - 1.0) > 1e-9:
+            continue                       # cạnh mang số thật → giữ
+        if _lien_thong(bo | {cid}, a, b):  # bỏ nó mà vẫn đi được → dư
+            bo.add(cid)
+    for cid in bo:
+        db.execute(text("DELETE FROM don_vi_quy_doi WHERE id = :i"), {"i": cid})
+    db.commit()
+
+
+def _migrate_don_vi_he_so_goc_sang_cap(db: Session) -> None:
+    """Chuyển mô hình quy đổi: "hệ số về đơn vị gốc" (1 cột) → BẢNG CẶP `don_vi_quy_doi`.
+
+    Chủ 2026-07-30: *"có logic nào dễ hơn không, kiểu tạo được đơn vị rồi có hệ số quy đổi giữa các
+    đơn vị"* — mô hình cũ đúng về máy nhưng bắt người khai nhớ "đơn vị chuẩn của nhóm" mới điền được
+    số, nhìn vào không hiểu. Nay khai theo cặp như cách nói ngoài đời: "1 tấn = 1.000 kg".
+
+    Chuyển: mỗi đơn vị có `he_so_goc` ≠ 1 sinh 1 cặp về đơn vị gốc CÙNG HỌ (dòng hệ số 1).
+
+    Các đơn vị cùng họ mà ĐỀU hệ số 1 (cái · con · cuốn · bộ · hộp) thì KHÔNG nối ở đây — `seed_don_vi_do`
+    đã nối hết về `cai`. Nối cả hai nơi thì ra hai bộ cạnh chồng nhau (đã gặp thật: 7 cặp 1-1 cho 5
+    đơn vị, thừa 3 dòng nhìn rối dù không sai số).
+
+    Bảng do `create_all` dựng; ở đây chỉ đổ dữ liệu, và no-op nếu đã có cặp.
+    """
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "don_vi_do" not in tables or "don_vi_quy_doi" not in tables:
+        return
+    if "he_so_goc" not in _existing_columns(insp, "don_vi_do"):
+        return
+    if db.execute(text("SELECT count(*) FROM don_vi_quy_doi")).scalar_one():
+        return      # đã có cặp (DB mới seed) → không đụng
+    rows = db.execute(
+        text("SELECT id, ma, ho, he_so_goc FROM don_vi_do ORDER BY ho, id")
+    ).all()
+    theo_ho: dict[str, list] = {}
+    for r in rows:
+        theo_ho.setdefault((r[2] or "khac").strip().lower(), []).append(r)
+    for _ho, ds in theo_ho.items():
+        goc = next((d for d in ds if abs(float(d[3] or 0) - 1.0) < 1e-9), None)
+        if goc is None:
+            continue
+        for d in ds:
+            if d[0] == goc[0]:
+                continue
+            hs = float(d[3] or 0)
+            if hs <= 0 or abs(hs - 1.0) < 1e-9:
+                continue        # hệ số 1 → để `seed_don_vi_do` nối, xem docstring
+            db.execute(
+                text("INSERT INTO don_vi_quy_doi (tu_id, den_id, he_so, created_at, updated_at) "
+                     "VALUES (:tu, :den, :hs, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"),
+                {"tu": d[0], "den": goc[0], "hs": hs},
+            )
+    db.commit()
+
+
 def _migrate_don_vi_bai_in_gop_vao_bai(db: Session) -> None:
     """Dọn hai thứ cùng nghĩa của bản seed đầu: đơn vị `bai_in` (trùng vai `bai` — cùng họ, cùng hệ
     số 1, tức HAI đơn vị gốc trong một họ) và các dòng đơn giá khoán ghi `unit='bai_in'`.
@@ -4078,6 +4187,13 @@ MIGRATIONS: list[tuple[str, callable]] = [
     # Dọn lệch kiểu cột do bản migration đầu tạo JSONB (create_all ra `json`) — xem docstring.
     ("0133_khoan_json_ve_json", _migrate_khoan_json_ve_json),
     ("0134_don_vi_bai_in_gop_vao_bai", _migrate_don_vi_bai_in_gop_vao_bai),
+    # Đổi mô hình quy đổi sang BẢNG CẶP ("1 tấn = 1.000 kg") — chủ thấy mô hình "hệ số về đơn vị
+    # gốc" khó hiểu. Chạy SAU 0134 để dữ liệu đơn vị đã dọn xong mới sinh cặp.
+    ("0135_don_vi_he_so_goc_sang_cap", _migrate_don_vi_he_so_goc_sang_cap),
+    # Dọn cặp 1-1 dư do bản 0135 đầu tiên + seed cùng nối nhóm đếm thành phẩm.
+    ("0136_don_vi_don_cap_du", _migrate_don_vi_don_cap_du),
+    # Quy đổi ĐỘNG: hệ số được phép là công thức ("1 tờ = dinh_luong * dai * rong" kg).
+    ("0137_don_vi_quy_doi_cong_thuc", _migrate_don_vi_quy_doi_cong_thuc),
     # --- Nhánh tính giá / báo giá — bảng khác, chạy độc lập với khối lương ở trên ---
     # Số 0106+ TRÙNG với dãy lương ngay trên là CÓ CHỦ Ý: hai dãy đánh số song song, khoá
     # thật trong `schema_migrations` là CẢ CHUỖI id nên không đụng nhau. ĐỪNG đánh lại số —

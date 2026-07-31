@@ -84,7 +84,7 @@ from .may_thiet_bi import MayThietBi
 from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
 from .cong_doan import CongDoan
 from .bu_hao import BuHao
-from .don_vi_do import DonViDo
+from .don_vi_do import DonViDo, DonViQuyDoi
 from .kho_hang import KhoHang
 from .stock_request import StockRequest, StockRequestLine
 from .stock_lot import StockLot, StockThreshold
@@ -202,4 +202,5 @@ __all__ = [
     "XepLichVanDe",
     "MachineUnavailablePeriod",
     "DonViDo",
+    "DonViQuyDoi",
 ]
