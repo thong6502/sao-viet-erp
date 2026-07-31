@@ -17,6 +17,7 @@ has shipped.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from sqlalchemy import inspect, text
@@ -4024,6 +4025,54 @@ def _migrate_ptg_drop_chua_thua(db: Session) -> None:
             db.rollback()
 
 
+def _migrate_lsx_qc_chua_ve_may(db: Session) -> None:
+    """Dọn chừa MỒ CÔI trong `lsx.quy_cach_json` sau mig 0139.
+
+    Snapshot quy cách của lệnh chụp nguyên dict thành phần, nên lệnh cũ còn giữ `chua_tay_ke` /
+    `chua_duoi` / `chua_xen` / `chua_ca_gay`. Từ 0139 engine không đọc chúng nữa → chừa của lệnh
+    tụt (vd 15/10 → 10/0) trong khi phiếu tính giá vẫn 15/10: CÙNG một tờ, hai màn hai số.
+
+    Chuyển giá trị sang đúng khoá máy trong snapshot (giữ nguyên Ý ĐỊNH lúc chụp, KHÔNG đọc lại
+    danh mục máy hiện tại — snapshot phải đứng yên):
+      · `chua_tay_ke` → `le_hong_mm`         (cùng đơn vị: mỗi bên, engine nhân 2)
+      · `chua_duoi`   → `duoi_thang_mau_mm`  (cộng một lần vào chiều dài)
+      · `chua_xen` + `chua_ca_gay` trước cộng đều CẢ HAI chiều → dồn vào đuôi (dài) và nửa vào
+        lề hông (rộng, vì bị nhân 2) để tổng mỗi chiều không đổi.
+    Chỉ ghi khi khoá máy đang trống — lệnh chụp lúc danh mục máy đã khai thì để yên. Xoá 4 khoá
+    chết sau khi chuyển. No-op nếu bảng chưa có / đã dọn."""
+    insp = inspect(db.get_bind())
+    if "lsx" not in insp.get_table_names():
+        return
+    pg = db.get_bind().dialect.name == "postgresql"
+    sql = ("UPDATE lsx SET quy_cach_json = CAST(:v AS JSON) WHERE id = :i" if pg
+           else "UPDATE lsx SET quy_cach_json = :v WHERE id = :i")
+    rows = db.execute(text("SELECT id, quy_cach_json FROM lsx WHERE quy_cach_json IS NOT NULL")).all()
+    for lsx_id, qc in rows:
+        if isinstance(qc, str):
+            qc = json.loads(qc)
+        if not isinstance(qc, dict):
+            continue
+        chet = ("chua_tay_ke", "chua_duoi", "chua_xen", "chua_ca_gay")
+        if not any(k in qc for k in chet):
+            continue
+
+        def _f(k: str) -> float:
+            try:
+                return float(qc.get(k) or 0)
+            except (TypeError, ValueError):
+                return 0.0
+
+        deu = _f("chua_xen") + _f("chua_ca_gay")
+        if not _f("duoi_thang_mau_mm"):
+            qc["duoi_thang_mau_mm"] = _f("chua_duoi") + deu
+        if not _f("le_hong_mm"):
+            qc["le_hong_mm"] = _f("chua_tay_ke") + deu / 2
+        for k in chet:
+            qc.pop(k, None)
+        db.execute(text(sql), {"v": json.dumps(qc, ensure_ascii=False), "i": lsx_id})
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -4261,6 +4310,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0112_order_line_nhom", _migrate_order_line_nhom),
     # Chừa tờ in về MỘT nguồn: danh mục Máy. Phiếu chỉ còn ô đè `chua_nhip`.
     ("0139_ptg_drop_chua_thua", _migrate_ptg_drop_chua_thua),
+    # Lệnh cũ còn ôm chừa mồ côi trong snapshot → chuyển sang khoá máy, kẻo lệch với phiếu.
+    ("0140_lsx_qc_chua_ve_may", _migrate_lsx_qc_chua_ve_may),
 ]
 
 
