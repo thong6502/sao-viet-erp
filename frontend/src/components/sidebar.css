@@ -195,6 +195,7 @@
   background: var(--rust);
   color: var(--paper-contrast);
   font-weight: var(--fw-medium);
+  box-shadow: none;
 }
 .sidebar__link.is-active .sidebar__icon,
 .sidebar__link.is-active .sidebar__caret {

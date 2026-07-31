@@ -5716,3 +5716,190 @@
   font-weight: var(--fw-bold, 700);
 }
 
+/* ==========================================================================
+   SVN DESIGN SYSTEM ALIGNMENT (UI_DESIGN.md TOKENS)
+   ========================================================================== */
+
+/* 1. Primary Action Button (+ Tạo khách hàng) - Uses System Rust Accent */
+.kh__head-actions button:last-child,
+.kh__head-actions .btn[variant="primary"] {
+  background: var(--rust, #c5400a) !important;
+  color: #ffffff !important;
+  border: none !important;
+  font-weight: 600 !important;
+  box-shadow: 0 2px 8px rgba(197, 64, 10, 0.25) !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.kh__head-actions button:last-child:hover,
+.kh__head-actions .btn[variant="primary"]:hover {
+  background: var(--rust-deep, #8a2d07) !important;
+  box-shadow: 0 4px 12px rgba(138, 45, 7, 0.35) !important;
+  transform: translateY(-1px) !important;
+}
+
+/* 2. Active Tab Filter - Charcoal (#0f172a) per UI_DESIGN §5 */
+.kh__sub-tab.is-active {
+  background: var(--charcoal, #0f172a) !important;
+  color: var(--on-charcoal, #ffffff) !important;
+  border-color: var(--charcoal, #0f172a) !important;
+  font-weight: 600 !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15) !important;
+}
+
+.kh__sub-tab.is-active .chip-count,
+.kh__sub-tab.is-active .kh__sub-tab-count {
+  background: rgba(255, 255, 255, 0.2) !important;
+  color: #ffffff !important;
+}
+
+.kh__sub-tab:hover:not(.is-active) {
+  background: var(--paper, #f8fafc) !important;
+  color: var(--ink, #0f172a) !important;
+}
+
+.chip-count--alert {
+  background: var(--rust, #c5400a) !important;
+  color: #ffffff !important;
+}
+
+/* 3. Care Alert Pill Style - System Neutral Soft */
+.kh__care-pill {
+  background: var(--canvas, #ffffff) !important;
+  border: 1px solid var(--rule-soft, #e2e8f0) !important;
+  color: var(--ash, #475569) !important;
+  font-weight: 600 !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03) !important;
+}
+
+.kh__care-pill.is-alert {
+  background: #fffbe6 !important;
+  border: 1px solid #ffe58f !important;
+  color: #d46b08 !important;
+}
+
+.kh__care-pill:hover:not(:disabled) {
+  background: var(--paper, #f8fafc) !important;
+  border-color: var(--rule, #cbd5e1) !important;
+  color: var(--ink, #0f172a) !important;
+}
+
+.kh__care-n {
+  background: var(--paper, #f8fafc) !important;
+  color: var(--ink, #0f172a) !important;
+  border: 1px solid var(--rule-soft, #e2e8f0) !important;
+}
+
+/* 4. Avatar Prototype & Tone Colors */
+.kh__avatar {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 8px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-family: var(--ff-sans) !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+  letter-spacing: 0.02em !important;
+  flex-shrink: 0 !important;
+  background: var(--paper, #f8fafc) !important;
+  color: var(--ink, #0f172a) !important;
+  border: 1px solid var(--rule-soft, #e2e8f0) !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+}
+
+.kh__avatar--rust {
+  background: var(--rust-soft, #f4e2d6) !important;
+  color: var(--rust-deep, #8a2d07) !important;
+  border-color: #f0c5b3 !important;
+}
+
+.kh__avatar--plum {
+  background: #faf5ff !important;
+  color: #7e22ce !important;
+  border-color: #e9d5ff !important;
+}
+
+.kh__avatar--moss {
+  background: #f0fdf4 !important;
+  color: #15803d !important;
+  border-color: #bbf7d0 !important;
+}
+
+.kh__avatar--amber {
+  background: #fffbe6 !important;
+  color: #b45309 !important;
+  border-color: #fde68a !important;
+}
+
+.kh__avatar--steel {
+  background: #f0f9ff !important;
+  color: #0369a1 !important;
+  border-color: #bae6fd !important;
+}
+
+/* 5. Customer Code Badge - Neutral Slate Token */
+.kh__name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kh__code-badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--ff-num, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ash, #475569);
+  background: var(--paper, #f8fafc);
+  border: 1px solid var(--rule, #cbd5e1);
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* 6. Staff Assigned Chip (NV phụ trách) */
+.kh__sale-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ash, #475569);
+  background: var(--paper, #f8fafc);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  padding: 3px 10px;
+  border-radius: 12px;
+  transition: all 0.15s ease;
+}
+
+.kh__sale-chip:hover {
+  background: var(--canvas, #ffffff);
+  border-color: var(--rule, #cbd5e1);
+  color: var(--ink, #0f172a);
+}
+
+/* 7. Table Wrap & Row Hover - System Rust Soft Tint (§6) */
+.kh__tablewrap {
+  background: var(--canvas, #ffffff) !important;
+  border: 1px solid var(--rule, #cbd5e1) !important;
+  border-radius: var(--r-5, 8px) !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03) !important;
+}
+
+.kh__row:hover {
+  background-color: var(--paper, #f8fafc) !important;
+}
+
+.kh__row.is-open {
+  background-color: #f1f5f9 !important;
+  box-shadow: inset 3px 0 0 var(--ink, #0f172a) !important;
+}
+
+.kh__search-input.input:focus {
+  border-color: var(--rust, #c5400a) !important;
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.12) !important;
+}
+
