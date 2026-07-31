@@ -1,18 +1,15 @@
 /* Chấm công GPS — phong cách hiện đại, trực quan, hiệu ứng mượt mà */
 
-/* 1. Tabs Navigation nâng cấp */
+/* 1. Tabs Navigation nâng cấp - Modern Slate & Charcoal theme */
 .cc-tabs {
   display: flex;
   gap: var(--sp-2);
-  margin-bottom: var(--sp-6);
-  padding: 6px !important;
-  background: rgba(239, 235, 222, 0.85) !important;
-  border-radius: var(--r-pill) !important;
-  border: 1px solid rgba(28, 26, 23, 0.08);
-  box-shadow: inset 0 1px 3px rgba(20, 19, 15, 0.06), 0 2px 12px rgba(20, 19, 15, 0.03);
-  /* XUỐNG DÒNG, không cuộn ngang: thanh này từng ẩn cả thanh cuộn (`scrollbar-width: none`),
-     nên tab thứ 9 trở đi nằm ngoài màn hình mà KHÔNG có dấu hiệu nào để biết là còn nữa —
-     đúng kiểu lỗi "khai ở đâu không thấy". HCNS ở 1440px đã có 9 tab. */
+  margin-bottom: var(--sp-5);
+  padding: 5px !important;
+  background: #f1f5f9 !important;
+  border-radius: 14px !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
   flex-wrap: wrap;
   row-gap: var(--sp-2);
   position: relative;
@@ -21,29 +18,32 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 18px;
-  border: none;
+  padding: 7.5px 16px;
+  border: 1px solid transparent;
   background: transparent;
-  color: var(--ash-2);
+  color: #475569;
   font-family: var(--ff-sans);
   font-weight: var(--fw-medium);
-  font-size: 13px;
-  border-radius: var(--r-pill) !important;
+  font-size: 13.5px;
+  border-radius: 10px !important;
   cursor: pointer;
   white-space: nowrap;
   transition: all var(--duration-base) var(--easing-standard);
   position: relative;
 }
 .cc-tabs button:hover {
-  color: var(--rust);
-  background: rgba(255, 255, 255, 0.6);
+  color: #0f172a;
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(226, 232, 240, 0.8);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.05);
 }
 .cc-tabs button.is-active {
-  color: var(--rust-deep) !important;
-  background: var(--paper) !important;
+  color: #ffffff !important;
+  background: #1c1a17 !important;
+  border-color: #1c1a17 !important;
   font-weight: var(--fw-bold);
-  box-shadow: 0 4px 10px rgba(197, 64, 10, 0.08), 0 1px 3px rgba(20, 19, 15, 0.04) !important;
-  transform: translateY(-0.5px);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.25) !important;
+  transform: translateY(0);
 }
 
 .cc-toolbar {
@@ -298,17 +298,260 @@
   background: transparent;
   cursor: pointer;
   color: inherit;
-  display: inline-flex;
-  align-items: center;
-  padding: 2px;
   border-radius: 50%;
   transition: background var(--duration-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
 }
 .cc-geo-status-refresh:hover {
   background: rgba(0, 0, 0, 0.05);
 }
 
-/* Ca làm việc Tracker */
+/* 5. 2D Visual Radar Map Component */
+.cc-radar-map-2d-card {
+  width: 100%;
+  background: #fdfbf7;
+  border: 1px solid #e7dfd5;
+  border-radius: var(--r-5, 12px);
+  padding: 14px 16px;
+  margin-bottom: var(--sp-4, 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 2px 8px rgba(20, 19, 15, 0.03);
+  text-align: left;
+}
+
+.cc-radar-map-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cc-radar-map-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cc-radar-map-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: var(--fw-bold, 700);
+  color: #1e293b;
+}
+
+.cc-radar-map-sub {
+  font-size: 11.5px;
+  color: #64748b;
+}
+
+.cc-radar-grid-container {
+  width: 100%;
+  border: 1px solid #e5dec9;
+  border-radius: 8px;
+  background: #fbf8f1;
+  overflow: hidden;
+}
+
+.cc-radar-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.cc-radar-map-legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  font-size: 11px;
+  color: #475569;
+  padding-top: 4px;
+}
+
+.cc-radar-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cc-radar-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.cc-radar-dot--center {
+  background: #0f172a;
+}
+
+.cc-radar-dot--fence {
+  background: transparent;
+  border: 1.5px dashed #16a34a;
+}
+
+.cc-radar-dot--in {
+  background: #16a34a;
+}
+
+.cc-radar-dot--out {
+  background: #dc2626;
+}
+.cc-proximity-card {
+  width: 100%;
+  background: var(--canvas, #fafafa);
+  border: 1px solid var(--rule, #e2e8f0);
+  border-radius: var(--r-5, 12px);
+  box-shadow: 0 2px 8px rgba(20, 19, 15, 0.04);
+  padding: 14px 16px;
+  margin-bottom: var(--sp-4, 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-align: left;
+  transition: all var(--duration-base);
+}
+
+.cc-proximity-card.is-in-range {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.05) 0%, rgba(255, 255, 255, 0.95) 100%);
+}
+
+.cc-proximity-card.is-out-range {
+  border-color: rgba(239, 68, 68, 0.25);
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.04) 0%, rgba(255, 255, 255, 0.95) 100%);
+}
+
+.cc-proximity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--rule-soft, #e2e8f0);
+  padding-bottom: 8px;
+}
+
+.cc-proximity-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+
+.cc-proximity-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cc-proximity-status-dot.is-in {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25);
+  animation: pulseDot 2s infinite ease-in-out;
+}
+
+.cc-proximity-status-dot.is-out {
+  background: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+}
+
+.cc-proximity-title {
+  font-size: 13px;
+  font-weight: var(--fw-bold, 600);
+  color: var(--ink, #1e293b);
+  line-height: 1.3;
+  text-align: left;
+}
+
+.cc-proximity-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cc-proximity-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: var(--r-4, 8px);
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.cc-proximity-metric-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.cc-proximity-metric-label {
+  font-size: 10.5px;
+  color: var(--ash-2, #64748b);
+  white-space: nowrap;
+}
+
+.cc-proximity-metric-val {
+  font-size: 13px;
+  font-weight: var(--fw-bold, 700);
+  color: var(--ink, #0f172a);
+}
+
+.cc-proximity-metric-val.is-success {
+  color: #16a34a;
+}
+
+.cc-proximity-metric-val.is-warning {
+  color: #dc2626;
+}
+
+/* Distance Scale Visualizer Track */
+.cc-proximity-scale-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.cc-proximity-scale-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--ash-2, #64748b);
+  font-weight: var(--fw-medium, 500);
+}
+
+.cc-proximity-scale-track {
+  width: 100%;
+  height: 8px;
+  background: var(--rule-soft, #e2e8f0);
+  border-radius: 4px;
+  position: relative;
+  overflow: hidden;
+}
+
+.cc-proximity-scale-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.cc-proximity-scale-fill.is-in {
+  background: linear-gradient(90deg, #86efac 0%, #22c55e 100%);
+}
+
+.cc-proximity-scale-fill.is-out {
+  background: linear-gradient(90deg, #fca5a5 0%, #ef4444 100%);
+}
 .cc-shift-tracker {
   width: 100%;
   background: var(--canvas);
@@ -515,6 +758,199 @@
   font-weight: var(--fw-medium);
   color: var(--ink);
 }
+.cc-loc-a.cc-grid {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--sp-4);
+}
+
+/* Dual-Column Glassmorphic Hero Dashboard Layout */
+.cc-checkin-hero-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4, 16px);
+  width: 100%;
+  animation: slideDownFade var(--duration-base) var(--easing-standard);
+}
+
+.cc-checkin-hero-header {
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid var(--rule, #e2e8f0);
+  border-radius: var(--r-5, 14px);
+  padding: 16px 20px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.cc-checkin-user-profile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.cc-checkin-user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cc-checkin-user-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cc-checkin-user-name h3 {
+  font-size: 20px;
+  font-weight: var(--fw-bold, 700);
+  color: var(--ink, #0f172a);
+  margin: 0;
+}
+
+.cc-status-dot-pill {
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  padding: 2px 10px;
+  border-radius: var(--r-pill, 999px);
+}
+
+.cc-status-dot-pill.is-working {
+  background: rgba(34, 197, 94, 0.12);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.cc-status-dot-pill.is-off {
+  background: var(--rule-soft, #f1f5f9);
+  color: var(--ash-2, #64748b);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+}
+
+.cc-checkin-clock-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.cc-live-clock-compact {
+  font-size: 24px !important;
+  padding: 6px 16px !important;
+  margin-bottom: 0 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.2) !important;
+}
+
+.cc-shift-tracker-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--canvas, #f8fafc);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  padding: 6px 12px;
+  border-radius: 8px;
+}
+
+.cc-checkin-grid-layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: var(--sp-4, 16px);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .cc-checkin-grid-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cc-checkin-left-col {
+  width: 100%;
+}
+
+.cc-checkin-right-col {
+  width: 100%;
+}
+
+.cc-punch-card {
+  background: #ffffff;
+  border: 1px solid var(--rule, #e2e8f0);
+  border-radius: var(--r-5, 14px);
+  padding: 20px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.03);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.cc-punch-card-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--rule-soft, #e2e8f0);
+  padding-bottom: 10px;
+}
+
+.cc-punch-card-title {
+  font-size: 15px;
+  font-weight: var(--fw-bold, 700);
+  color: var(--ink, #0f172a);
+}
+
+.cc-outside-hint-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  padding: 8px 12px;
+  border-radius: 8px;
+  text-align: left;
+  line-height: 1.35;
+  margin-bottom: 16px;
+  width: 100%;
+}
+
+.cc-shortcuts-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule-soft, #e2e8f0);
+}
+
+.cc-shortcut-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 12px;
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  background: var(--canvas, #f8fafc);
+  color: var(--ink, #1e293b);
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: var(--fw-medium, 500);
+  cursor: pointer;
+  transition: all var(--duration-fast);
+}
+
+.cc-shortcut-btn:hover {
+  background: #ffffff;
+  border-color: var(--rust, #c5400a);
+  color: var(--rust-deep, #9a3005);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.05);
+}
 .cc-loc-actions {
   display: flex;
   justify-content: flex-end;
@@ -522,6 +958,186 @@
   margin-top: var(--sp-4);
   padding-top: var(--sp-3);
   border-top: 1px solid var(--rule-hair);
+}
+
+/* Locations Tab V2 (Geofence GPS Modern UI) */
+.cc-locations-wrapper {
+  animation: slideDownFade var(--duration-base) var(--easing-standard);
+}
+
+.cc-locations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: var(--sp-4);
+  margin-top: var(--sp-2);
+}
+
+.cc-loc-card-v2 {
+  background: #fff;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  box-shadow: 0 2px 6px rgba(20, 19, 15, 0.04);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  transition: transform var(--duration-fast), box-shadow var(--duration-fast), border-color var(--duration-fast);
+  position: relative;
+  overflow: hidden;
+}
+
+.cc-loc-card-v2:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-3);
+  border-color: rgba(197, 64, 10, 0.3);
+}
+
+.cc-loc-card-v2.is-inactive {
+  opacity: 0.65;
+  background: var(--canvas);
+  border-style: dashed;
+}
+
+.cc-loc-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+
+.cc-loc-icon-wrapper {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--r-4);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.12) 0%, rgba(16, 185, 129, 0.06) 100%);
+  color: #16a34a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.cc-loc-title-group {
+  flex: 1;
+  min-width: 0;
+}
+
+.cc-loc-card-title {
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin: 0 0 4px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cc-loc-status-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cc-loc-card-body {
+  border-top: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cc-loc-coord-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cc-loc-coord-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  padding: 3px 8px;
+  border-radius: var(--r-2);
+}
+
+.cc-loc-maps-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  border: 1px solid rgba(197, 64, 10, 0.15);
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  text-decoration: none;
+  transition: all var(--duration-fast);
+}
+
+.cc-loc-maps-link:hover {
+  background: var(--rust);
+  color: #fff;
+  border-color: var(--rust);
+}
+
+.cc-geofence-radar-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(197, 64, 10, 0.05);
+  border: 1px solid rgba(197, 64, 10, 0.15);
+  padding: 6px 10px;
+  border-radius: var(--r-3);
+  font-size: 12px;
+  color: var(--ink);
+  position: relative;
+  overflow: hidden;
+}
+
+.cc-geofence-pulse-ring {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rust);
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.2);
+  flex-shrink: 0;
+  animation: radarPulse 2s infinite ease-in-out;
+}
+
+@keyframes radarPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.25); }
+  50% { transform: scale(1.15); box-shadow: 0 0 0 6px rgba(197, 64, 10, 0.08); }
+}
+
+.cc-loc-note-box {
+  font-size: 11.5px;
+  color: var(--ash);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  padding: 6px 8px;
+  line-height: 1.35;
+}
+
+.cc-loc-note-label {
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.cc-loc-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
 }
 
 /* Shifts Cards */

@@ -16,6 +16,9 @@ import {
   AlertTriangle,
   Wallet,
   FileText,
+  Calculator,
+  Receipt,
+  HandCoins,
 } from "lucide-react";
 import {
   api,
@@ -154,59 +157,83 @@ export function LuongPage({
         </div>
       </header>
 
-      <nav className="ns-tabs cc-tabs">
-        {canManage && (
+      <nav className="ns-tabs cc-tabs lg-tabs" aria-label="Phân hệ Lương">
+        <div className="lg-tabs__group">
+          {canManage && (
+            <button
+              className={`lg-tab-btn ${tab === "bang" ? "is-active" : ""}`}
+              onClick={() => go("bang")}
+              title="Quản lý bảng lương tháng"
+            >
+              <Calendar className="lg-tab-btn__icon" />
+              <span>Bảng lương tháng</span>
+            </button>
+          )}
+          {canManage && (
+            <button
+              className={`lg-tab-btn ${tab === "nhanvien" ? "is-active" : ""}`}
+              onClick={() => go("nhanvien")}
+              title="Khai báo & điều chỉnh lương nhân viên"
+            >
+              <Users className="lg-tab-btn__icon" />
+              <span>Lương nhân viên</span>
+            </button>
+          )}
+          {canManage && (
+            <button
+              className={`lg-tab-btn ${tab === "khoan" ? "is-active" : ""}`}
+              onClick={() => go("khoan")}
+              title="Quản lý lương khoán"
+            >
+              <Calculator className="lg-tab-btn__icon" />
+              <span>Lương khoán</span>
+            </button>
+          )}
+          {canManage && (
+            <button
+              className={`lg-tab-btn ${tab === "tamung" ? "is-active" : ""}`}
+              onClick={() => go("tamung")}
+              title="Duyệt & quản lý tạm ứng"
+            >
+              <Wallet className="lg-tab-btn__icon" />
+              <span>Tạm ứng</span>
+            </button>
+          )}
+          {canReadConfig && (
+            <button
+              className={`lg-tab-btn ${tab === "cauhinh" ? "is-active" : ""}`}
+              onClick={() => go("cauhinh")}
+              title="Cấu hình thang bậc lương & cơ chế"
+            >
+              <Sliders className="lg-tab-btn__icon" />
+              <span>Cấu hình lương</span>
+              {cfgDirty && (
+                <span className="lg-tab-badge lg-tab-badge--dirty" title="Có thay đổi chưa lưu">•</span>
+              )}
+            </button>
+          )}
+        </div>
+
+        {canManage && <div className="lg-tabs__divider" aria-hidden="true" />}
+
+        <div className="lg-tabs__group lg-tabs__group--personal">
           <button
-            className={tab === "bang" ? "is-active" : ""}
-            onClick={() => go("bang")}
+            className={`lg-tab-btn ${tab === "phieu" ? "is-active" : ""}`}
+            onClick={() => go("phieu")}
+            title="Xem phiếu lương cá nhân"
           >
-            Bảng lương tháng
+            <Receipt className="lg-tab-btn__icon" />
+            <span>Phiếu lương của tôi</span>
           </button>
-        )}
-        {canManage && (
           <button
-            className={tab === "nhanvien" ? "is-active" : ""}
-            onClick={() => go("nhanvien")}
+            className={`lg-tab-btn ${tab === "tamung-me" ? "is-active" : ""}`}
+            onClick={() => go("tamung-me")}
+            title="Đề nghị & theo dõi tạm ứng cá nhân"
           >
-            Lương nhân viên
+            <HandCoins className="lg-tab-btn__icon" />
+            <span>Tạm ứng của tôi</span>
           </button>
-        )}
-        {canManage && (
-          <button
-            className={tab === "khoan" ? "is-active" : ""}
-            onClick={() => go("khoan")}
-          >
-            Lương khoán
-          </button>
-        )}
-        {canManage && (
-          <button
-            className={tab === "tamung" ? "is-active" : ""}
-            onClick={() => go("tamung")}
-          >
-            Tạm ứng
-          </button>
-        )}
-        {canReadConfig && (
-          <button
-            className={tab === "cauhinh" ? "is-active" : ""}
-            onClick={() => go("cauhinh")}
-          >
-            Cấu hình lương
-          </button>
-        )}
-        <button
-          className={tab === "phieu" ? "is-active" : ""}
-          onClick={() => go("phieu")}
-        >
-          Phiếu lương của tôi
-        </button>
-        <button
-          className={tab === "tamung-me" ? "is-active" : ""}
-          onClick={() => go("tamung-me")}
-        >
-          Tạm ứng của tôi
-        </button>
+        </div>
       </nav>
 
       {tab === "bang" && canManage && <BangLuongTab token={token!} />}

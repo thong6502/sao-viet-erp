@@ -3998,6 +3998,32 @@ def _migrate_don_vi_do_chuan_hoa_ho(db: Session) -> None:
     db.commit()
 
 
+def _migrate_ptg_drop_chua_thua(db: Session) -> None:
+    """Bỏ 4 khoản chừa khỏi phiếu: `chua_tay_ke` · `chua_duoi` · `chua_xen` · `chua_ca_gay`.
+
+    Chừa tờ in là đặc tính của MÁY (`nhip_giay_mm` / `le_hong_mm` / `duoi_thang_mau_mm` ở danh mục
+    máy) — bốn cột này chưa từng có ô nhập ở bất kỳ màn nào, mà xén/cả gáy còn bị engine cộng đều
+    CẢ HAI chiều nên chỉ làm số con lệch âm thầm. Giữ lại `chua_nhip` làm ô đè theo job.
+
+    CẢNH BÁO GIÁ: phiếu cũ có `chua_tay_ke`/`chua_duoi` > 0 mà máy chưa khai chừa thì sau bước này
+    chừa về 0 → con/tờ tăng → số tờ giảm → giá vốn giảm. Điền danh mục Máy trước khi chạy.
+
+    Best-effort mỗi câu (SQLite cũ có thể từ chối DROP COLUMN → cột mồ côi vô hại vì model không
+    map). No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "phieu_thanh_phan")
+    for c in ("chua_tay_ke", "chua_duoi", "chua_xen", "chua_ca_gay"):
+        if c not in cols:
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE phieu_thanh_phan DROP COLUMN {c}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -4233,6 +4259,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0110_ptg_nhom_bao_gia", _migrate_ptg_nhom_bao_gia),
     ("0111_quote_item_nhom", _migrate_quote_item_nhom),
     ("0112_order_line_nhom", _migrate_order_line_nhom),
+    # Chừa tờ in về MỘT nguồn: danh mục Máy. Phiếu chỉ còn ô đè `chua_nhip`.
+    ("0139_ptg_drop_chua_thua", _migrate_ptg_drop_chua_thua),
 ]
 
 

@@ -305,3 +305,47 @@ def test_mau_pha_nhan_theo_so_tay():
     tp.update({"quy_cach_in": "mot_mat", "so_mau_a": 4, "so_mau_b": 0, "so_mau_pha": 1,
                "so_to_per_sp": 8})
     assert compute_phieu(so_luong=1000, thanh_phans=[tp])["meta"]["components"][0]["so_kem"] == 40
+
+
+# --- Chừa tách theo chiều: MỘT bản duy nhất ------------------------------------------------------
+
+
+def test_chua_tach_chieu_nhip_khong_an_chieu_rong():
+    """Thẻ nhân viên thật: nhíp 10 + đuôi 5 → DÀI 15; lề hông 5 hai bên → RỘNG 10.
+
+    Nhíp là mép máy kẹp ở CẠNH NẠP, không liên quan chiều rộng. Cộng gộp các khoản thành một số
+    rồi trừ đều hai chiều (20/20) là cách màn lệnh sản xuất từng làm."""
+    from app.services.thanh_phan_engine import chua_theo_chieu
+
+    # NGUỒN = danh mục MÁY. `gripper_mm` là nhíp KẼM, KHÔNG được dùng.
+    assert chua_theo_chieu(
+        {"nhip_giay_mm": 10, "duoi_thang_mau_mm": 5, "le_hong_mm": 5, "gripper_mm": 44}
+    ) == (15, 10)
+    assert chua_theo_chieu(
+        {"nhip_giay_mm": 8, "duoi_thang_mau_mm": 4, "le_hong_mm": 3}
+    ) == (12, 6)
+    # `chua_nhip` trên phiếu ĐÈ nhíp của máy — khoản duy nhất còn đè được (mig 0139).
+    assert chua_theo_chieu(
+        {"chua_nhip": 12, "nhip_giay_mm": 8, "duoi_thang_mau_mm": 4, "le_hong_mm": 3}
+    ) == (16, 6)
+    # Không chọn máy + không đè → 0 cả hai chiều (bình sát mép, số con thổi phồng — cảnh báo ở UI).
+    assert chua_theo_chieu({}) == (0, 0)
+
+
+def test_binh_bai_the_nhan_vien_ra_99_con():
+    """Số THẬT của xưởng: thẻ 54×86 trên tờ in 860×650, bleed 2 → 11×9 = 99 con/tờ.
+
+    Canh nguyên cụm lỗi cũ của sơ đồ ở màn lệnh: bỏ bleed + trừ chừa đều hai chiều thì ra 105 con
+    (7×15 xoay 90°) — cùng một tờ mà hai màn vẽ hai hình khác nhau."""
+    from app.services.thanh_phan_engine import binh_bai_layout, chua_theo_chieu
+
+    chua_d, chua_r = chua_theo_chieu(
+        {"nhip_giay_mm": 10, "duoi_thang_mau_mm": 5, "le_hong_mm": 5}
+    )
+    lay = binh_bai_layout(kho_in_dai=860, kho_in_rong=650, dai_tp=86, rong_tp=54,
+                          chua_dai_mm=chua_d, chua_rong_mm=chua_r, bleed_mm=2)
+    assert (lay["con"], lay["cols"], lay["rows"], lay["rotated"]) == (99, 11, 9, False)
+    # Bỏ bleed + gộp chừa = đúng cách sai cũ → 105. Giữ lại để thấy vì sao hai màn từng lệch.
+    sai = binh_bai_layout(kho_in_dai=860, kho_in_rong=650, dai_tp=86, rong_tp=54,
+                          chua_mm=20, bleed_mm=0)
+    assert sai["con"] == 105

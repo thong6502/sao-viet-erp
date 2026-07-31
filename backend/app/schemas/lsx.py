@@ -304,6 +304,9 @@ class LsxOut(BaseModel):
     # Công thợ khoán DỰ KIẾN cả lệnh = Σ bước quy đổi được. Là số SÀN: bước chưa chọn đầu việc hoặc
     # thiếu số để quy đổi thì không góp vào — đừng đọc như tổng chi phí nhân công thật.
     khoan_tien_tong: float = 0
+    # Chừa TÁCH CHIỀU, tính lúc đọc bằng `chua_theo_chieu` — màn lệnh chỉ hiện, không cộng lại.
+    chua_dai: float = 0
+    chua_rong: float = 0
 
 
 class LsxUpdateIn(BaseModel):

@@ -779,6 +779,9 @@ export interface LsxDetail {
   /** Công thợ khoán DỰ KIẾN cả lệnh = Σ bước quy đổi được. Là số SÀN: bước chưa chọn đầu việc
    *  hoặc thiếu số để quy đổi thì không góp vào. */
   khoan_tien_tong: number;
+  /** Chừa tách chiều do server tính (`chua_theo_chieu`) — đừng cộng lại ở FE. */
+  chua_dai: number;
+  chua_rong: number;
 }
 export interface LsxUpdateBody {
   ten?: string; so_luong_dat?: number; don_vi_tinh?: string; bu_hao_to?: number;
@@ -1474,7 +1477,7 @@ export interface TinhGiaPreviewOut {
   warnings: string[];
 }
 
-/** Bình bài live (POST /api/tinh-gia/binh-bai) — mm; chua_mm = tổng 5 chừa (cm) × 10. */
+/** Bình bài live (POST /api/tinh-gia/binh-bai) — mm; chua_mm = chừa gộp (cm) × 10. */
 export interface BinhBaiIn {
   kho_in_dai: number;
   kho_in_rong: number;
@@ -1485,6 +1488,13 @@ export interface BinhBaiIn {
   /** Chừa TÁCH CHIỀU (ưu tiên hơn `chua_mm`): dài ← nhíp giấy + đuôi; rộng ← lề hông ×2. */
   chua_dai_mm?: number;
   chua_rong_mm?: number;
+  /** Hoặc gửi CHỪA THÔ — server tự tách chiều (`chua_theo_chieu`): `chua_nhip` là ô đè của phiếu,
+   *  ba cái sau là thông số danh mục MÁY. Nơi gọi đừng tự cộng: cộng tay ở màn thứ hai chính là
+   *  chỗ đẻ ra sơ đồ 105 con trong khi phiếu ra 99. */
+  chua_nhip?: number;
+  nhip_giay_mm?: number;
+  le_hong_mm?: number;
+  duoi_thang_mau_mm?: number;
   bleed_mm?: number;
   khe_cat_mm?: number;
 }
@@ -1575,11 +1585,9 @@ export interface ThanhPhanOut {
   bu_hao_so_to: number;
   hao_so_to: number;
   tinh_bu_hao_cd: boolean;
-  chua_xen: number;
-  chua_tay_ke: number;
+  /** Đè nhíp giấy của MÁY (0 = theo danh mục máy). Lề hông · đuôi · xén · cả gáy đã bỏ khỏi
+   *  phiếu — chừa tờ in khai một lần ở danh mục Máy. */
   chua_nhip: number;
-  chua_duoi: number;
-  chua_ca_gay: number;
   /** Tràn lề MỖI CẠNH con (0 = không tràn lề) — con để bình = thành phẩm + 2×bleed. */
   bleed_mm: number;
   /** Khe giữa 2 con kề nhau (0 = bình sát, cắt chung nhát). n con chỉ có n−1 khe. */
@@ -1682,11 +1690,7 @@ export interface ThanhPhanIn {
   bu_hao_so_to?: number;
   hao_so_to?: number;
   tinh_bu_hao_cd?: boolean;
-  chua_xen?: number;
-  chua_tay_ke?: number;
   chua_nhip?: number;
-  chua_duoi?: number;
-  chua_ca_gay?: number;
   bleed_mm?: number;
   khe_cat_mm?: number;
   co_in?: boolean;

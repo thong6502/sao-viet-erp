@@ -107,11 +107,11 @@ class PhieuThanhPhan(Base):
     # Bật/TẮT tính bù hao công đoạn TỰ (mỗi công đoạn tra theo số tờ). Tắt → không cộng bù hao tự;
     # người dùng tự nhập `bu_hao_so_to`. Mặc định BẬT.
     tinh_bu_hao_cd: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
-    chua_xen: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
-    chua_tay_ke: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    # Chừa tờ in thuộc về MÁY (danh mục: `nhip_giay_mm` / `le_hong_mm` / `duoi_thang_mau_mm`).
+    # Phiếu chỉ giữ MỘT ô đè: nhíp giấy — khoản duy nhất đổi theo job (cạnh nạp, hướng bài).
+    # Lề hông · đuôi · xén · cả gáy đã BỎ khỏi phiếu: chưa từng có chỗ nhập, chỉ làm engine cộng
+    # nhầm hai chiều. Muốn đổi thì sửa danh mục Máy — một nguồn, mọi phiếu ăn theo.
     chua_nhip: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
-    chua_duoi: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
-    chua_ca_gay: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     # Bình bài: con để bình = thành phẩm ③ + 2×bleed; giữa 2 con kề nhau chừa `khe_cat_mm`.
     # 0 = không tràn lề / bình sát cắt chung nhát. Sale nhập trên phiếu (hỏi khách hoặc kỹ thuật).
     bleed_mm: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)

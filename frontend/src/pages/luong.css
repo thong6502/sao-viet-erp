@@ -1,5 +1,110 @@
 /* Lương (module `luong`) — dùng chung tokens + nhan-su.css / cham-cong.css. */
 
+/* Modern Clean Payroll Tabs Navigation - Synchronized with Charcoal & Slate UI */
+.lg-tabs.cc-tabs {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  padding: 5px !important;
+  margin-bottom: 20px !important;
+  background: #f1f5f9 !important;
+  border-radius: 14px !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03) !important;
+  position: relative;
+}
+
+.lg-tabs .lg-tabs__group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.lg-tabs .lg-tabs__divider {
+  width: 1px;
+  height: 20px;
+  background: #cbd5e1;
+  margin: 0 4px;
+  align-self: center;
+}
+
+.lg-tabs .lg-tab-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 7px 16px !important;
+  border-radius: 10px !important;
+  font-family: var(--ff-sans);
+  font-weight: 500 !important;
+  font-size: 13.5px !important;
+  color: #475569 !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease-in-out !important;
+  position: relative;
+  user-select: none;
+}
+
+.lg-tabs .lg-tab-btn:hover {
+  color: #0f172a !important;
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-color: rgba(226, 232, 240, 0.8) !important;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.05) !important;
+  transform: translateY(0) !important;
+}
+
+.lg-tabs .lg-tab-btn__icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2px;
+  flex-shrink: 0;
+  color: #64748b !important;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.lg-tabs .lg-tab-btn:hover .lg-tab-btn__icon {
+  color: #0f172a !important;
+  transform: scale(1.08);
+}
+
+.lg-tabs .lg-tab-btn.is-active {
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  background: #1c1a17 !important;
+  border-color: #1c1a17 !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.25) !important;
+  transform: translateY(0) !important;
+}
+
+.lg-tabs .lg-tab-btn.is-active .lg-tab-btn__icon {
+  color: #ffffff !important;
+  transform: scale(1.05);
+}
+
+.lg-tabs .lg-tab-btn.is-active::after {
+  display: none !important;
+}
+
+.lg-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  margin-left: 2px;
+}
+
+.lg-tab-badge--dirty {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+}
+
 .lg-toolbar { flex-wrap: wrap; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); }
 
 /* Hạn mức tạm ứng còn lại — hiện TRƯỚC ô nhập tiền để NV khỏi gõ đại rồi ăn lỗi. */

@@ -72,7 +72,6 @@ import {
   Lock,
   Unlock,
   Plus,
-  Map as MapIcon,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -85,6 +84,9 @@ import {
   Eraser,
   Users,
   Repeat,
+  Target,
+  Navigation,
+  ExternalLink,
 } from "lucide-react";
 import { MixDonut } from "../components/charts";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -368,6 +370,187 @@ export function ChamCongPage({
 
 // --- Tab: Chấm công của tôi -------------------------------------------------
 
+// --- 2D Visual Radar Map Component for GPS Check-in --------------------------
+
+function GpsRadarMap2D({
+  nearestName,
+  radiusM,
+  distanceM,
+  metersOut,
+  withinRange,
+  locating,
+  onRefresh,
+}: {
+  nearestName: string | null;
+  radiusM: number;
+  distanceM: number | null;
+  metersOut: number | null;
+  withinRange: boolean;
+  locating: boolean;
+  onRefresh: () => void;
+}) {
+  const cx = 200;
+  const cy = 90;
+  const radiusPx = 55; // Visual circle radius for 150m geofence
+
+  let userX = cx;
+  let userY = cy;
+
+  if (distanceM != null && radiusM > 0) {
+    const distRatio = distanceM / radiusM;
+    let pxDist = 0;
+    if (withinRange) {
+      pxDist = Math.min(radiusPx - 10, distRatio * (radiusPx - 12));
+      if (pxDist < 12 && distanceM > 2) pxDist = 18;
+    } else {
+      pxDist = Math.min(135, radiusPx + 22 + Math.min(45, (distRatio - 1) * 20));
+    }
+
+    const angleRad = (-35 * Math.PI) / 180;
+    userX = cx + pxDist * Math.cos(angleRad);
+    userY = cy + pxDist * Math.sin(angleRad);
+  }
+
+  return (
+    <div className="cc-radar-map-2d-card">
+      <div className="cc-radar-map-header">
+        <div className="cc-radar-map-title-group">
+          <div className="cc-radar-map-title">
+            <MapPin size={15} style={{ color: "var(--rust)" }} />
+            <span>Chấm công GPS hôm nay</span>
+          </div>
+          <div className="cc-radar-map-sub">
+            Định vị GPS trên điện thoại · bán kính <b>{radiusM}m</b> quanh {nearestName ?? "nhà máy"}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="cc-geo-status-refresh"
+          onClick={onRefresh}
+          disabled={locating}
+          title="Cập nhật vị trí GPS"
+        >
+          <RefreshCw size={14} className={locating ? "cc-animate-spin" : ""} />
+        </button>
+      </div>
+
+      {/* 2D Grid Canvas SVG */}
+      <div className="cc-radar-grid-container">
+        <svg viewBox="0 0 400 180" className="cc-radar-svg">
+          <defs>
+            <pattern
+              id="radar-grid-pattern"
+              width="24"
+              height="24"
+              patternUnits="userSpaceOnUse"
+            >
+              <path
+                d="M 24 0 L 0 0 0 24"
+                fill="none"
+                stroke="rgba(215, 205, 190, 0.45)"
+                strokeWidth="0.8"
+              />
+            </pattern>
+          </defs>
+          <rect width="400" height="180" fill="url(#radar-grid-pattern)" rx="8" />
+
+          {/* Geofence Translucent Circle Area */}
+          <circle
+            cx={cx}
+            cy={cy}
+            r={radiusPx}
+            fill={withinRange ? "rgba(34, 197, 94, 0.12)" : "rgba(239, 68, 68, 0.08)"}
+            stroke={withinRange ? "#16a34a" : "#dc2626"}
+            strokeWidth="1.5"
+            strokeDasharray="4 3"
+          />
+
+          {/* Center Point (Factory / Workplace Center 0m) */}
+          <circle cx={cx} cy={cy} r="6" fill="#0f172a" />
+          <circle cx={cx} cy={cy} r="2.5" fill="#ffffff" />
+          <text
+            x={cx}
+            y={cy + 18}
+            textAnchor="middle"
+            fontSize="10"
+            fontWeight="bold"
+            fill="#334155"
+          >
+            Tâm ({nearestName ? nearestName.slice(0, 18) : "Nhà máy"})
+          </text>
+
+          {/* Connecting Line from Center to User if Outside */}
+          {!withinRange && distanceM != null && (
+            <line
+              x1={cx}
+              y1={cy}
+              x2={userX}
+              y2={userY}
+              stroke="#ef4444"
+              strokeWidth="1.2"
+              strokeDasharray="3 3"
+            />
+          )}
+
+          {/* User GPS Point Marker */}
+          {distanceM != null && (
+            <g>
+              <circle
+                cx={userX}
+                cy={userY}
+                r="10"
+                fill={withinRange ? "rgba(34, 197, 94, 0.25)" : "rgba(239, 68, 68, 0.25)"}
+              />
+              <circle
+                cx={userX}
+                cy={userY}
+                r="5"
+                fill={withinRange ? "#16a34a" : "#dc2626"}
+                stroke="#ffffff"
+                strokeWidth="1.5"
+              />
+              <text
+                x={userX}
+                y={userY - 10}
+                textAnchor="middle"
+                fontSize="10"
+                fontWeight="bold"
+                fill={withinRange ? "#15803d" : "#b91c1c"}
+              >
+                {withinRange
+                  ? `Vị trí bạn (${Math.round(distanceM)}m)`
+                  : `Bạn (Cách ${metersOut != null ? (metersOut > 1000 ? `${(metersOut / 1000).toFixed(1)}km` : `${Math.round(metersOut)}m`) : `${Math.round(distanceM)}m`})`}
+              </text>
+            </g>
+          )}
+        </svg>
+      </div>
+
+      {/* Legend Footer */}
+      <div className="cc-radar-map-legend">
+        <div className="cc-radar-legend-item">
+          <span className="cc-radar-dot cc-radar-dot--center" />
+          <span>Tâm (0m)</span>
+        </div>
+        <div className="cc-radar-legend-item">
+          <span className="cc-radar-dot cc-radar-dot--fence" />
+          <span>Geofence ({radiusM}m)</span>
+        </div>
+        <div className="cc-radar-legend-item">
+          <span
+            className={`cc-radar-dot ${withinRange ? "cc-radar-dot--in" : "cc-radar-dot--out"}`}
+          />
+          <span>
+            {withinRange
+              ? "Vị trí bạn (Trong vùng)"
+              : `Vị trí bạn (Còn cách ${metersOut != null ? (metersOut > 1000 ? `${(metersOut / 1000).toFixed(1)}km` : `${Math.round(metersOut)}m`) : "ngoài vùng"})`}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MyCheckIn({
   token,
   canConfig,
@@ -548,14 +731,6 @@ function MyCheckIn({
     !status.locations_configured ||
     outside;
 
-  const geoCls = locating
-    ? "cc-geo-status--wait"
-    : preview?.within_range
-      ? "cc-geo-status--in"
-      : preview
-        ? "cc-geo-status--out"
-        : "";
-
   function getShiftProgress(start: string, end: string, now: number): number {
     try {
       const todayStr = new Date().toISOString().split("T")[0];
@@ -579,231 +754,210 @@ function MyCheckIn({
   const clockS = clockParts[2] || "00";
 
   return (
-    <div className="cc-grid">
-      <div className="cc-main-card">
-        {status.employee_name && (
-          <div className="cc-employee-avatar">
-            {status.employee_name
-              .split(" ")
-              .filter(Boolean)
-              .map((n) => n[0])
-              .slice(-2)
-              .join("")
-              .toUpperCase()}
-          </div>
-        )}
-        <div className="cc-employee-name">{status.employee_name}</div>
-        <div className="cc-employee-sub">
-          {status.last_check
-            ? `Lần gần nhất: chấm ${status.last_check.check_type === "in" ? "VÀO" : "RA"} lúc ${fmtDateTime(status.last_check.checked_at)}`
-            : "Chưa có lần chấm công nào."}
-        </div>
-
-        {/* Live Clock Component */}
-        <div className="cc-live-clock">
-          <span>{clockH}</span>
-          <span className="cc-clock-colon">:</span>
-          <span>{clockM}</span>
-          <span className="cc-clock-colon">:</span>
-          <span style={{ opacity: 0.85 }}>{clockS}</span>
-        </div>
-
-        {/* Shift Details Tracker progress */}
-        {status.shift && (
-          <div className="cc-shift-tracker">
-            <div className="cc-shift-title">
-              <Clock size={14} /> Ca {status.shift.name} (
-              {status.shift.start_time} - {status.shift.end_time})
+    <div className="cc-checkin-hero-wrapper">
+      {/* 1. Hero Header Banner */}
+      <div className="cc-checkin-hero-header">
+        <div className="cc-checkin-user-profile">
+          {status.employee_name && (
+            <div className="cc-employee-avatar">
+              {status.employee_name
+                .split(" ")
+                .filter(Boolean)
+                .map((n) => n[0])
+                .slice(-2)
+                .join("")
+                .toUpperCase()}
             </div>
-            <div className="cc-shift-time">
-              {showTimer ? (
-                <span>
-                  Thời gian đã làm:{" "}
-                  <b>{fmtElapsed(status.last_check?.checked_at, nowTick)}</b>
-                </span>
-              ) : (
-                <span>Chưa bắt đầu ca làm việc.</span>
+          )}
+          <div className="cc-checkin-user-info">
+            <div className="cc-checkin-user-name">
+              <h3>{status.employee_name}</h3>
+              <span className={`cc-status-dot-pill ${status.next_action === "out" ? "is-working" : "is-off"}`}>
+                {status.next_action === "out" ? "🟢 Đang trong ca" : "⚪ Chưa vào ca"}
+              </span>
+            </div>
+            <div className="cc-employee-sub" style={{ textAlign: "left", marginTop: 2 }}>
+              {status.last_check
+                ? `Lần gần nhất: chấm ${status.last_check.check_type === "in" ? "VÀO" : "RA"} lúc ${fmtDateTime(status.last_check.checked_at)}`
+                : "Chưa có lần chấm công nào."}
+            </div>
+          </div>
+        </div>
+
+        {/* Live Clock & Shift Status Banner */}
+        <div className="cc-checkin-clock-banner">
+          <div className="cc-live-clock cc-live-clock-compact">
+            <span>{clockH}</span>
+            <span className="cc-clock-colon">:</span>
+            <span>{clockM}</span>
+            <span className="cc-clock-colon">:</span>
+            <span style={{ opacity: 0.85 }}>{clockS}</span>
+          </div>
+
+          {status.shift && (
+            <div className="cc-shift-tracker-compact">
+              <div className="cc-shift-title">
+                <Clock size={13} /> Ca {status.shift.name} ({status.shift.start_time} - {status.shift.end_time})
+              </div>
+              {showTimer && (
+                <div style={{ fontSize: 11, color: "var(--ash)" }}>
+                  Thời gian làm: <b>{fmtElapsed(status.last_check?.checked_at, nowTick)}</b>
+                </div>
+              )}
+              {showTimer && (
+                <div className="cc-shift-progress-bg">
+                  <div
+                    className="cc-shift-progress-fill"
+                    style={{
+                      width: `${getShiftProgress(status.shift.start_time, status.shift.end_time, nowTick)}%`,
+                    }}
+                  />
+                </div>
               )}
             </div>
-            {showTimer && (
-              <div className="cc-shift-progress-bg">
-                <div
-                  className="cc-shift-progress-fill"
-                  style={{
-                    width: `${getShiftProgress(status.shift.start_time, status.shift.end_time, nowTick)}%`,
-                  }}
-                />
+          )}
+        </div>
+      </div>
+
+      {/* 2. Dual-Column Grid Layout (60% Left / 40% Right) */}
+      <div className="cc-checkin-grid-layout">
+        {/* Left Column: 2D Radar Map Workspace */}
+        <div className="cc-checkin-left-col">
+          {status.locations_configured ? (
+            <GpsRadarMap2D
+              nearestName={preview?.nearest_name ?? null}
+              radiusM={preview?.radius_m ?? 150}
+              distanceM={preview?.distance_m ?? null}
+              metersOut={preview?.meters_out ?? null}
+              withinRange={!!preview?.within_range}
+              locating={locating}
+              onRefresh={refreshPreview}
+            />
+          ) : (
+            <div className="cc-radar-map-2d-card" style={{ padding: 40, textAlign: "center" }}>
+              <p className="cc-note">Chưa cấu hình điểm chấm công nào. Hãy liên hệ HCNS.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Right Column: Punch Action Center */}
+        <div className="cc-checkin-right-col">
+          <div className="cc-punch-card">
+            <div className="cc-punch-card-header">
+              <span className="cc-punch-card-title">Trung tâm Chấm công</span>
+              <span className={`cc-type-badge ${preview?.within_range ? "cc-type-badge--paid" : "cc-type-badge--unpaid"}`}>
+                {preview?.within_range ? "✓ Trong vùng" : "⊘ Ngoài vùng"}
+              </span>
+            </div>
+
+            {status.check_block_reason && (
+              <div className="banner banner--warn" style={{ width: "100%", marginTop: 10 }}>
+                {status.check_block_reason}
               </div>
             )}
-          </div>
-        )}
 
-        {status.check_block_reason && (
-          <div className="banner banner--warn" style={{ width: "100%" }}>
-            {status.check_block_reason}
-          </div>
-        )}
-
-        {/* GPS Range Status Bar */}
-        {status.locations_configured && (
-          <div className={`cc-geo-status ${geoCls}`}>
-            {locating ? (
-              <RefreshCw className="cc-animate-spin" size={14} />
-            ) : preview?.within_range ? (
-              <CheckCircle size={14} />
-            ) : (
-              <AlertTriangle size={14} />
-            )}
-            <span style={{ flex: 1, textAlign: "left" }}>
-              {locating
-                ? "📡 Đang định vị GPS của bạn..."
-                : preview?.within_range
-                  ? `✓ Trong phạm vi "${preview.nearest_name}" · cách ${Math.round(preview.distance_m ?? 0)} m`
-                  : preview
-                    ? `⊘ Ngoài phạm vi "${preview.nearest_name}" · còn cách ${Math.round(preview.meters_out ?? 0)} m`
-                    : "Bấm nút bên phải để tải lại phạm vi."}
-            </span>
-            <button
-              className="cc-geo-status-refresh"
-              onClick={refreshPreview}
-              disabled={locating}
-              title="Cập nhật vị trí"
-            >
-              <RefreshCw
-                size={12}
-                className={locating ? "cc-animate-spin" : ""}
-              />
-            </button>
-          </div>
-        )}
-
-        {/* Glow Pulsing Radar Button */}
-        <div className="cc-radar-container">
-          {!btnDisabled && (
-            <div
-              className={`cc-radar-wave ${isIn ? "cc-radar-wave--in" : "cc-radar-wave--out"}`}
-            />
-          )}
-          {!btnDisabled && (
-            <div
-              className={`cc-radar-wave ${isIn ? "cc-radar-wave--in" : "cc-radar-wave--out"}`}
-            />
-          )}
-          <button
-            className={`cc-radar-btn ${outside ? "cc-radar-btn--locked" : isIn ? "cc-radar-btn--in" : "cc-radar-btn--out"}`}
-            onClick={() => doCheck()}
-            disabled={btnDisabled}
-          >
-            <span className="cc-radar-btn-icon">
-              {locating ? (
-                <RefreshCw className="cc-animate-spin" size={24} />
-              ) : !status.can_check || outside ? (
-                <Lock size={24} />
-              ) : (
-                <UserCheck size={24} />
+            {/* Glow Pulsing Radar Button */}
+            <div className="cc-radar-container" style={{ margin: "24px 0" }}>
+              {!btnDisabled && (
+                <div className={`cc-radar-wave ${isIn ? "cc-radar-wave--in" : "cc-radar-wave--out"}`} />
               )}
-            </span>
-            <span style={{ fontSize: "14px", marginTop: "2px" }}>
-              {checking
-                ? "Đang chấm…"
-                : locating
-                  ? "Đang dò GPS…"
-                  : !status.can_check
+              {!btnDisabled && (
+                <div className={`cc-radar-wave ${isIn ? "cc-radar-wave--in" : "cc-radar-wave--out"}`} />
+              )}
+              <button
+                className={`cc-radar-btn ${outside ? "cc-radar-btn--locked" : isIn ? "cc-radar-btn--in" : "cc-radar-btn--out"}`}
+                onClick={() => doCheck()}
+                disabled={btnDisabled}
+              >
+                <span className="cc-radar-btn-icon">
+                  {locating ? (
+                    <RefreshCw className="cc-animate-spin" size={24} />
+                  ) : !status.can_check || outside ? (
+                    <Lock size={24} />
+                  ) : (
+                    <UserCheck size={24} />
+                  )}
+                </span>
+                <span style={{ fontSize: "14px", marginTop: "2px", fontWeight: "var(--fw-bold)" }}>
+                  {checking
+                    ? "Đang chấm…"
+                    : locating
+                    ? "Đang dò GPS…"
+                    : !status.can_check
                     ? "CHƯA ĐẾN GIỜ CHẤM"
                     : actionLabel}
-            </span>
-          </button>
-        </div>
-
-        {!status.locations_configured && (
-          <p className="cc-note">
-            Chưa cấu hình điểm chấm công nào. Hãy liên hệ HCNS.
-          </p>
-        )}
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "10px",
-            width: "100%",
-            marginTop: "16px",
-          }}
-        >
-          <button
-            className="btn btn--ghost"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "6px",
-              padding: "10px var(--sp-2)",
-              fontSize: "13px",
-            }}
-            onClick={() => setShowHistory(true)}
-          >
-            <ClipboardList size={14} /> Lịch sử
-          </button>
-          {navigate && (
-            <button
-              className="btn btn--ghost"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "6px",
-                padding: "10px var(--sp-2)",
-                fontSize: "13px",
-              }}
-              onClick={() => navigate("nghi-phep")}
-            >
-              <Coffee size={14} /> Nghỉ phép
-            </button>
-          )}
-        </div>
-
-        {geoErr && (
-          <div
-            className="banner banner--error"
-            style={{ marginTop: 12, width: "100%" }}
-          >
-            {geoErr}{" "}
-            <button
-              className="btn btn--ghost"
-              style={{ marginLeft: 8 }}
-              onClick={refreshPreview}
-              disabled={locating}
-            >
-              🔄 Thử lại
-            </button>
-          </div>
-        )}
-        {result && (
-          <div
-            className={`banner ${result.success ? "banner--ok" : "banner--warn"}`}
-            style={{ marginTop: 12, width: "100%" }}
-          >
-            {result.message}
-          </div>
-        )}
-
-        {canConfig &&
-          (!status.locations_configured ||
-            (result != null && !result.within_range)) && (
-            <div className="cc-setup" style={{ width: "100%" }}>
-              <button
-                className="btn btn--ghost cc-setup__btn"
-                onClick={setPointHere}
-                disabled={checking}
-              >
-                📍 Đặt điểm chấm công tại đây
+                </span>
               </button>
-              <p className="cc-note">
-                Tạo điểm chấm công mới tại tọa độ hiện tại (bán kính 150m) để
-                chấm ngay.
-              </p>
             </div>
-          )}
+
+            {outside && preview?.meters_out != null && (
+              <div className="cc-outside-hint-box">
+                <AlertTriangle size={14} style={{ color: "#dc2626", flexShrink: 0 }} />
+                <span>
+                  Hãy di chuyển lại gần xưởng thêm <b>{preview.meters_out > 1000 ? `${(preview.meters_out / 1000).toFixed(1)}km` : `${Math.round(preview.meters_out)}m`}</b> để mở khóa nút chấm công.
+                </span>
+              </div>
+            )}
+
+            {/* Quick Action Shortcuts Strip */}
+            <div className="cc-shortcuts-strip">
+              <button className="cc-shortcut-btn" onClick={() => setShowHistory(true)}>
+                <ClipboardList size={14} />
+                <span>Lịch sử chấm công</span>
+              </button>
+
+              {navigate && (
+                <button className="cc-shortcut-btn" onClick={() => navigate("nghi-phep")}>
+                  <Coffee size={14} />
+                  <span>Đăng ký nghỉ phép</span>
+                </button>
+              )}
+            </div>
+
+            {geoErr && (
+              <div
+                className="banner banner--error"
+                style={{ marginTop: 12, width: "100%" }}
+              >
+                {geoErr}{" "}
+                <button
+                  className="btn btn--ghost"
+                  style={{ marginLeft: 8 }}
+                  onClick={refreshPreview}
+                  disabled={locating}
+                >
+                  🔄 Thử lại
+                </button>
+              </div>
+            )}
+            {result && (
+              <div
+                className={`banner ${result.success ? "banner--ok" : "banner--warn"}`}
+                style={{ marginTop: 12, width: "100%" }}
+              >
+                {result.message}
+              </div>
+            )}
+
+            {canConfig &&
+              (!status.locations_configured ||
+                (result != null && !result.within_range)) && (
+                <div className="cc-setup" style={{ width: "100%", marginTop: 12 }}>
+                  <button
+                    className="btn btn--ghost cc-setup__btn"
+                    onClick={setPointHere}
+                    disabled={checking}
+                  >
+                    📍 Đặt điểm chấm công tại đây
+                  </button>
+                  <p className="cc-note">
+                    Tạo điểm chấm công mới tại tọa độ hiện tại (bán kính 150m) để
+                    chấm ngay.
+                  </p>
+                </div>
+              )}
+          </div>
+        </div>
       </div>
 
       {showHistory && (
@@ -1563,85 +1717,190 @@ function LocationsTab({ token }: { token: string }) {
     load();
   }
 
+  async function toggleActive(loc: WorkLocation) {
+    try {
+      await api.attendance.updateLocation(token, loc.id, {
+        name: loc.name,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        radius_m: loc.radius_m,
+        note: loc.note,
+        is_active: !loc.is_active,
+      });
+      load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Lỗi khi cập nhật.");
+    }
+  }
+
+  const totalLocations = items?.length ?? 0;
+  const activeLocations = items?.filter((l) => l.is_active).length ?? 0;
+  const avgRadius =
+    items && items.length > 0
+      ? Math.round(items.reduce((acc, l) => acc + l.radius_m, 0) / items.length)
+      : 0;
+
   return (
-    <div>
-      <div className="cc-toolbar">
-        <button className="btn btn--primary" onClick={() => setEditing("new")}>
-          <Plus size={14} /> Thêm điểm chấm công
+    <div className="cc-locations-wrapper">
+      {/* 1. Header Toolbar & Quick Stats */}
+      <div className="cc-calendar-dashboard" style={{ marginBottom: 20 }}>
+        <div className="cc-calendar-stats-strip">
+          <div className="cc-calendar-stat-card">
+            <span className="cc-calendar-stat-icon cc-calendar-stat-icon--users">
+              <MapPin size={16} />
+            </span>
+            <div className="cc-calendar-stat-info">
+              <span className="cc-calendar-stat-val">{totalLocations}</span>
+              <span className="cc-calendar-stat-label">Vị trí geofence</span>
+            </div>
+          </div>
+          <div className="cc-calendar-stat-card">
+            <span className="cc-calendar-stat-icon cc-calendar-stat-icon--check">
+              <CheckCircle size={16} />
+            </span>
+            <div className="cc-calendar-stat-info">
+              <span className="cc-calendar-stat-val">{activeLocations}</span>
+              <span className="cc-calendar-stat-label">Đang hoạt động</span>
+            </div>
+          </div>
+          <div className="cc-calendar-stat-card">
+            <span className="cc-calendar-stat-icon cc-calendar-stat-icon--clock">
+              <Target size={16} />
+            </span>
+            <div className="cc-calendar-stat-info">
+              <span className="cc-calendar-stat-val">{avgRadius} m</span>
+              <span className="cc-calendar-stat-label">Bán kính trung bình</span>
+            </div>
+          </div>
+        </div>
+
+        <button
+          className="btn btn--primary cc-btn-cta-compact"
+          onClick={() => setEditing("new")}
+        >
+          <Plus size={16} />
+          <span>Thêm điểm chấm công</span>
         </button>
       </div>
 
-      <div className="cc-card-grid">
-        {items?.map((l) => (
-          <div key={l.id} className="cc-loc-card">
-            <div>
-              <div className="cc-loc-header">
-                <span className="cc-loc-title">{l.name}</span>
-                <span
-                  className={`cc-badge-pill ${l.is_active ? "cc-badge-pill--primary" : "cc-badge-pill--gray"}`}
-                >
-                  {l.is_active ? "Đang dùng" : "Đã tắt"}
-                </span>
-              </div>
-              <div className="cc-loc-details">
-                <div
-                  style={{ display: "flex", gap: "6px", alignItems: "center" }}
-                >
-                  <MapIcon size={14} />
-                  <span className="cc-loc-coord">
-                    {Number(l.latitude).toFixed(6)},{" "}
-                    {Number(l.longitude).toFixed(6)}
-                  </span>
-                </div>
-                <div className="cc-loc-radius">
-                  <div
-                    style={{
-                      width: "10px",
-                      height: "10px",
-                      borderRadius: "50%",
-                      border: "2px solid var(--rust)",
-                      background: "var(--rust-soft)",
-                    }}
-                  />
-                  Bán kính geofence: <b>{l.radius_m} m</b>
-                </div>
-                {l.note && (
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      color: "var(--ash)",
-                      marginTop: "4px",
-                    }}
-                  >
-                    Ghi chú: {l.note}
+      {/* 2. Location Cards Grid */}
+      {items === null ? (
+        <div className="ns__empty cc-calendar-loading">
+          <div className="cc-loading-spinner" />
+          <span>Đang tải danh sách điểm chấm công...</span>
+        </div>
+      ) : items.length === 0 ? (
+        <div className="ns__empty" style={{ padding: 40 }}>
+          Chưa có điểm chấm công nào được cấu hình. Bấm "+ Thêm điểm chấm công" để tạo mới.
+        </div>
+      ) : (
+        <div className="cc-locations-grid">
+          {items.map((l) => {
+            const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${l.latitude},${l.longitude}`;
+            return (
+              <div
+                key={l.id}
+                className={`cc-loc-card-v2 ${!l.is_active ? "is-inactive" : ""}`}
+              >
+                <div className="cc-loc-card-head">
+                  <div className="cc-loc-icon-wrapper">
+                    <MapPin size={20} />
                   </div>
-                )}
+                  <div className="cc-loc-title-group">
+                    <h3 className="cc-loc-card-title" title={l.name}>
+                      {l.name}
+                    </h3>
+                    <div className="cc-loc-status-row">
+                      {l.is_active ? (
+                        <span className="cc-type-badge cc-type-badge--paid">
+                          <CheckCircle size={11} />
+                          <span>Đang dùng</span>
+                        </span>
+                      ) : (
+                        <span className="cc-type-badge cc-type-badge--unpaid">
+                          <XCircle size={11} />
+                          <span>Đã tắt</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="cc-leave-type-active-switch">
+                    <label
+                      className="cc-switch"
+                      title={
+                        l.is_active
+                          ? "Đang sử dụng (Click để tắt)"
+                          : "Đã tắt (Click để bật)"
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={l.is_active}
+                        onChange={() => toggleActive(l)}
+                      />
+                      <span className="cc-slider" />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="cc-loc-card-body">
+                  <div className="cc-loc-coord-row">
+                    <div className="cc-loc-coord-badge">
+                      <Navigation size={12} style={{ opacity: 0.7 }} />
+                      <span>
+                        {Number(l.latitude).toFixed(6)},{" "}
+                        {Number(l.longitude).toFixed(6)}
+                      </span>
+                    </div>
+
+                    <a
+                      href={mapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="cc-loc-maps-link"
+                      title="Mở tọa độ trên Google Maps"
+                    >
+                      <span>Bản đồ</span>
+                      <ExternalLink size={12} />
+                    </a>
+                  </div>
+
+                  <div className="cc-geofence-radar-pill">
+                    <div className="cc-geofence-pulse-ring" />
+                    <Target size={13} style={{ color: "var(--rust)" }} />
+                    <span>
+                      Bán kính cho phép: <b>{l.radius_m} m</b>
+                    </span>
+                  </div>
+
+                  {l.note && (
+                    <div className="cc-loc-note-box" title={l.note}>
+                      <span className="cc-loc-note-label">Ghi chú:</span> {l.note}
+                    </div>
+                  )}
+                </div>
+
+                <div className="cc-loc-card-foot">
+                  <button
+                    className="cc-leave-type-action-btn"
+                    onClick={() => setEditing(l)}
+                  >
+                    <Edit3 size={13} />
+                    <span>Sửa</span>
+                  </button>
+                  <button
+                    className="cc-leave-type-action-btn cc-leave-type-action-btn--danger"
+                    onClick={() => remove(l.id)}
+                  >
+                    <Trash2 size={13} />
+                    <span>Xóa</span>
+                  </button>
+                </div>
               </div>
-            </div>
-            <div className="cc-loc-actions">
-              <button
-                className="btn btn--ghost"
-                style={{ padding: "4px 10px" }}
-                onClick={() => setEditing(l)}
-              >
-                <Edit3 size={12} /> Sửa
-              </button>
-              <button
-                className="btn btn--ghost ns-danger"
-                style={{ padding: "4px 10px" }}
-                onClick={() => remove(l.id)}
-              >
-                <Trash2 size={12} /> Xóa
-              </button>
-            </div>
-          </div>
-        ))}
-        {items?.length === 0 && (
-          <div className="ns__empty" style={{ gridColumn: "1/-1" }}>
-            Chưa có điểm chấm công nào được cấu hình.
-          </div>
-        )}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {editing && (
         <LocationForm
@@ -1673,7 +1932,7 @@ function LocationForm({
     name: location?.name ?? "",
     latitude: location?.latitude ?? 0,
     longitude: location?.longitude ?? 0,
-    radius_m: location?.radius_m ?? 100,
+    radius_m: location?.radius_m ?? 150,
     note: location?.note ?? "",
     is_active: location?.is_active ?? true,
   });
@@ -1709,6 +1968,7 @@ function LocationForm({
     setBusy(true);
     setError(null);
     try {
+      if (!form.name.trim()) throw new Error("Vui lòng nhập tên điểm chấm công.");
       if (location)
         await api.attendance.updateLocation(token, location.id, form);
       else await api.attendance.createLocation(token, form);
@@ -1721,84 +1981,137 @@ function LocationForm({
 
   return (
     <div className="ns-modal" role="dialog" aria-modal="true">
-      <div className="ns-modal__box">
+      <div className="ns-modal__box cc-day-detail-modal-box">
         <header className="ns-modal__head">
-          <h2>{location ? "Sửa điểm chấm công" : "Thêm điểm chấm công"}</h2>
+          <div className="cc-modal-title-group">
+            <h2>{location ? "Chỉnh sửa điểm chấm công" : "Tạo điểm chấm công mới"}</h2>
+            <p className="cc-modal-subtitle">Cấu hình tọa độ GPS và bán kính geofence cho phép chốt công</p>
+          </div>
           <button className="ns-modal__x" onClick={onClose}>
             ×
           </button>
         </header>
-        <div className="ns-modal__body">
-          {error && <div className="banner banner--error">{error}</div>}
+        <div className="ns-modal__body cc-day-detail-modal-body">
+          {error && <div className="banner banner--error cc-ts-msg-banner" style={{ marginBottom: 16 }}>{error}</div>}
+          
           <label className="ns-field">
-            <span className="ns-field__label">Tên điểm *</span>
+            <span className="cc-field-label">Tên điểm chấm công *</span>
             <input
+              className="cc-input-text"
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
+              placeholder="vd: Xưởng in Sao Việt Nhật, Văn phòng đại diện..."
             />
           </label>
+
+          <div style={{ marginTop: 12, marginBottom: 12 }}>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                width: "100%",
+                justifyContent: "center",
+                borderStyle: "dashed",
+                borderColor: "var(--rust)",
+                color: "var(--rust-deep)",
+                background: "var(--rust-soft)",
+                padding: "8px 14px",
+                borderRadius: "var(--r-3)",
+                fontWeight: "var(--fw-bold)",
+                fontSize: "12.5px"
+              }}
+              onClick={useMyLocation}
+              disabled={locating}
+            >
+              <Navigation size={14} />
+              <span>{locating ? "Đang lấy tọa độ GPS..." : "Lấy vị trí GPS hiện tại của tôi"}</span>
+            </button>
+          </div>
+
           <div className="ns-grid" style={{ marginTop: 12 }}>
             <label className="ns-field">
-              <span className="ns-field__label">Vĩ độ (latitude)</span>
+              <span className="cc-field-label">Vĩ độ (latitude)</span>
               <input
                 type="number"
                 step="0.0000001"
+                className="cc-input-text"
                 value={form.latitude}
                 onChange={(e) => set("latitude", Number(e.target.value))}
               />
             </label>
             <label className="ns-field">
-              <span className="ns-field__label">Kinh độ (longitude)</span>
+              <span className="cc-field-label">Kinh độ (longitude)</span>
               <input
                 type="number"
                 step="0.0000001"
+                className="cc-input-text"
                 value={form.longitude}
                 onChange={(e) => set("longitude", Number(e.target.value))}
               />
             </label>
-            <label className="ns-field">
-              <span className="ns-field__label">Bán kính (mét)</span>
-              <input
-                type="number"
-                min={1}
-                value={form.radius_m}
-                onChange={(e) => set("radius_m", Number(e.target.value))}
-              />
-            </label>
-            <label className="ns-field">
-              <span className="ns-field__label">Trạng thái</span>
-              <label className="ns-check">
-                <input
-                  type="checkbox"
-                  checked={!!form.is_active}
-                  onChange={(e) => set("is_active", e.target.checked)}
-                />{" "}
-                Đang dùng
-              </label>
-            </label>
           </div>
-          <label className="ns-field" style={{ marginTop: 12 }}>
-            <span className="ns-field__label">Ghi chú (địa chỉ…)</span>
+
+          <label className="ns-field" style={{ marginTop: 14 }}>
+            <span className="cc-field-label">Bán kính cho phép (mét) *</span>
             <input
+              type="number"
+              min={10}
+              className="cc-input-text"
+              value={form.radius_m}
+              onChange={(e) => set("radius_m", Number(e.target.value))}
+              placeholder="vd: 150"
+            />
+            <div className="cc-radius-presets-row" style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: "var(--ash-2)" }}>Chọn nhanh:</span>
+              {[50, 100, 150, 200, 500].map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  className={`cc-calendar-chip ${form.radius_m === r ? "is-active" : ""}`}
+                  style={{ padding: "2px 10px", fontSize: 11 }}
+                  onClick={() => set("radius_m", r)}
+                >
+                  {r}m
+                </button>
+              ))}
+            </div>
+            <span className="cc-field-subtext" style={{ marginTop: 4 }}>Khoảng cách tối đa (mét) tính từ tâm vị trí cho phép nhân viên ấn nút Chấm công</span>
+          </label>
+
+          <label className="ns-field" style={{ marginTop: 14 }}>
+            <span className="cc-field-label">Ghi chú</span>
+            <input
+              className="cc-input-text"
               value={form.note ?? ""}
               onChange={(e) => set("note", e.target.value)}
+              placeholder="Địa chỉ cụ thể, hướng dẫn vị trí..."
             />
           </label>
-          <button
-            className="btn btn--ghost"
-            style={{ marginTop: 12 }}
-            onClick={useMyLocation}
-            disabled={locating}
-          >
-            {locating ? "Đang lấy…" : "📍 Lấy vị trí hiện tại của tôi"}
-          </button>
+
+          <div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--canvas)", padding: "10px 14px", borderRadius: "var(--r-3)", border: "1px solid var(--rule-soft)" }}>
+            <div>
+              <span className="cc-field-label" style={{ margin: 0, fontWeight: "var(--fw-bold)" }}>Đang hoạt động</span>
+              <span className="cc-field-subtext" style={{ display: "block" }}>Cho phép nhân viên chốt công tại vị trí này.</span>
+            </div>
+            <label className="cc-switch">
+              <input
+                type="checkbox"
+                checked={!!form.is_active}
+                onChange={(e) => set("is_active", e.target.checked)}
+              />
+              <span className="cc-slider" />
+            </label>
+          </div>
         </div>
         <footer className="ns-modal__foot">
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>
             Hủy
           </button>
           <button className="btn btn--primary" onClick={save} disabled={busy}>
-            {busy ? "Đang lưu…" : "Lưu"}
+            {busy ? "Đang lưu…" : "Lưu cấu hình"}
           </button>
         </footer>
       </div>

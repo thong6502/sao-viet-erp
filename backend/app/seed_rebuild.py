@@ -136,48 +136,52 @@ def seed_rebuild_catalog(db: Session) -> None:
         _CM = "Cán màng / UV"      # cán màng / UV
         _BOI = "Bồi"               # bồi sóng / duplex
         _BE = "Bế"                 # bế / ép kim
+        # Chừa TỜ GIẤY của máy in — engine bình bài trừ theo chiều (dài ← nhíp + đuôi, rộng ←
+        # lề hông ×2). Đây là NGUỒN DUY NHẤT của chừa: phiếu chỉ còn ô đè `chua_nhip`. Số nghề
+        # thường gặp; xưởng đo lại máy mình thì sửa trong danh mục Máy.
+        _CHUA_IN = {"nhip_giay_mm": 10, "le_hong_mm": 5, "duoi_thang_mau_mm": 5}
         db.add_all([
             # ── MÁY IN nội bộ — kẽm / nhíp / khổ giấy / vùng in ───────────────────────
             MayThietBi(ma="IN-01", ten="Máy 2 màu Mitsubishi 72×102", loai_may=_IN, trang_thai="active",
-                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44,
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=390, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=710, vung_in_dai=1010, ghi_chu="Có in UV được",
                        ghi_chu_2="Hàng bồi sóng phải chạy in tay kề nghịch, đặt tay kề sẵn trên bài in"),
             MayThietBi(ma="IN-02", ten="Máy 4 màu Mitsubishi 79×109", loai_may=_IN, trang_thai="active",
-                       kho_kem_rong=930, kho_kem_dai=1130, gripper_mm=60,
+                       kho_kem_rong=930, kho_kem_dai=1130, gripper_mm=60, **_CHUA_IN,
                        kho_min_rong=540, kho_min_dai=750, kho_max_rong=800, kho_max_dai=1090,
                        vung_in_rong=780, vung_in_dai=1080),
             MayThietBi(ma="IN-03", ten="Máy 5 màu Mitsubishi 54×79", loai_may=_IN, trang_thai="active",
-                       kho_kem_rong=645, kho_kem_dai=830, gripper_mm=50,
+                       kho_kem_rong=645, kho_kem_dai=830, gripper_mm=50, **_CHUA_IN,
                        kho_min_rong=320, kho_min_dai=420, kho_max_rong=540, kho_max_dai=790,
                        vung_in_rong=535, vung_in_dai=780),
             MayThietBi(ma="IN-04", ten="Máy 6 màu Mitsubishi 72×102", loai_may=_IN, trang_thai="active",
-                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44,
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=710, vung_in_dai=1010, ghi_chu="Có in UV được"),
             MayThietBi(ma="IN-05", ten="Máy 6 màu Heidelberg 72×102", loai_may=_IN, trang_thai="active",
-                       kho_kem_rong=765, kho_kem_dai=1030, gripper_mm=44,
+                       kho_kem_rong=765, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=560, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=690, vung_in_dai=1000, ghi_chu="Có in UV được",
                        ghi_chu_2="Vùng in lớn hơn 69cm thì nhíp kẽm 38mm; chỉ in được giấy từ 150g trở lên"),
             MayThietBi(ma="IN-06", ten="Máy 7 màu Heidelberg 72×102", loai_may=_IN, trang_thai="active",
-                       kho_kem_rong=765, kho_kem_dai=1030, gripper_mm=44,
+                       kho_kem_rong=765, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=560, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=690, vung_in_dai=1000),
             # ── IN ngoài (xưởng in ngoài) ────────────────────────────────────────────
             MayThietBi(ma="IN-07", ten="Minh Tiến 72×102 - 5 màu", loai_may=_INX, trang_thai="active",
-                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=48,
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=48, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=710, vung_in_dai=1010, ghi_chu_2="Xưởng in ngoài"),
             MayThietBi(ma="IN-08", ten="Hoàng Anh 1020×1420 - 6 màu", loai_may=_INX, trang_thai="active",
                        kho_min_rong=575, kho_min_dai=810, kho_max_rong=1020, kho_max_dai=1420,
-                       vung_in_rong=1000, vung_in_dai=1400, ghi_chu_2="Xưởng in ngoài"),
+                       vung_in_rong=1000, vung_in_dai=1400, ghi_chu_2="Xưởng in ngoài", **_CHUA_IN),
             MayThietBi(ma="IN-09", ten="Bảo Tiến 72×102 - 6 màu", loai_may=_INX, trang_thai="active",
-                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=50,
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=50, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=710, vung_in_dai=1010, ghi_chu="Có in UV", ghi_chu_2="Xưởng in ngoài"),
             MayThietBi(ma="IN-10", ten="Đỉnh Việt 72×102 - 5 màu", loai_may=_INX, trang_thai="active",
-                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44,
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=710, vung_in_dai=1010, ghi_chu_2="Xưởng in ngoài"),
             # ── MÁY CÁN MÀNG + UV ĐỊNH HÌNH — chỉ khổ giấy min/max ────────────────────

@@ -55,7 +55,7 @@ from ..models.quotation import QuoteVersion
 from ..models.user import User
 from ..services.piece_work_service import dau_viec_khop, khoan_snapshot
 from ..services.quy_doi_service import don_vi_map, tien_khoan
-from ..services.thanh_phan_engine import compute_phieu
+from ..services.thanh_phan_engine import chua_theo_chieu, compute_phieu
 from ..services.tinh_gia_service import _bu_hao_to_dict, _resolve_thanh_phan
 
 # Công đoạn sau xén → đếm bằng CON (thành phẩm); còn lại đếm bằng TỜ. Heuristic theo tên để điền
@@ -920,6 +920,7 @@ class LsxService:
         # lúc tạo lệnh nên lệnh tạo trước khi có tính năng nhóm sẽ trống — mà "thuộc sản phẩm nào"
         # là thông tin thương mại, phải luôn đúng hiện tại.
         line = self.db.get(OrderLine, lsx.order_line_id) if lsx.order_line_id else None
+        chua_d, chua_r = chua_theo_chieu(lsx.quy_cach_json or {})
         # Quy cách của lệnh là nguồn biến cho quy đổi khoán (khổ tờ in · định lượng · con/tờ · số tay).
         buoc_dicts = [
             self._cong_doan_dict(cd, dept_names, may_names, lsx.quy_cach_json)
@@ -945,6 +946,11 @@ class LsxService:
             # Công thợ DỰ KIẾN cả lệnh = Σ các bước quy đổi được. Bước nào chưa chọn đầu việc / thiếu
             # số để quy đổi thì không góp — nên đây là số SÀN, không phải con số cuối.
             "khoan_tien_tong": round(sum(_f(b.get("khoan_tien")) for b in buoc_dicts)),
+            # Chừa TÁCH CHIỀU — tính LÚC ĐỌC bằng đúng hàm của engine, kể cả cho lệnh cũ. Màn lệnh
+            # chỉ việc hiện: để nó tự cộng lại từ các khoản chừa là đẻ ra bản thứ hai của công
+            # thức, mà bản thứ hai chính là chỗ vừa sai (gộp 20/20 thay vì 15/10).
+            "chua_dai": chua_d,
+            "chua_rong": chua_r,
         }
 
     def _cong_doan_dict(self, cd, dept_names: dict, may_names: dict,

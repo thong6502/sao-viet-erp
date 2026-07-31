@@ -1,7 +1,7 @@
 import { useAuth } from "./auth/useAuth";
 import { AppShell } from "./components/AppShell";
 import { LoginPage } from "./pages/LoginPage";
-import { Icon } from "./components/Icons";
+import logoUrl from "./assets/sao-viet-nhat-logo-mark.png";
 import "./pages/auth.css";
 
 // Route by auth state (no router lib needed for the auth gate this spec):
@@ -19,7 +19,7 @@ export function App() {
             <div className="splash-glow" />
             <div className="splash-spinner-ring" />
             <div className="splash-logo">
-              <Icon name="layers" size={28} />
+              <img src={logoUrl} alt="Sao Việt Nhật Logo" className="splash-logo-img" />
             </div>
           </div>
           <div className="splash-content">
