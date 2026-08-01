@@ -516,6 +516,12 @@ def test_hai_dau_viec_cung_cong_doan_thi_khong_dien_ho(db, orders, lsx_svc, admi
     buoc_be = next(b for b in lsx_svc.detail_dict(lsx)["cong_doans"] if b["ten"] == "Dán hộp")
     assert buoc_be["khoan_rate_id"] is None
     assert {k["ten"] for k in buoc_be["khoan_chon_duoc"]} == {"Dán thường", "Dán khó"}
+    # Drawer phải có đủ định mức NGAY KHI mở dropdown để đổi đầu việc là xem được nhân lực
+    # và thời gian live, không phải lưu bước rồi mới nhận snapshot từ backend.
+    assert {
+        (k["nang_suat_nguoi_gio"], k["so_nguoi_tieu_chuan"], k["so_nguoi_toi_da"])
+        for k in buoc_be["khoan_chon_duoc"]
+    } == {(1000, 2, 4)}
     assert buoc_be["khoan_tien"] is None      # chưa chọn thì KHÔNG có số nào
 
 
@@ -599,6 +605,8 @@ def test_may_nhan_so_luot_nhung_khong_chia_theo_kip_nguoi():
     assert t["chay_phut"] == 120
     assert t["dien_giai"]["phuong_phap"] == "may"
     assert t["dien_giai"]["so_nhan_cong_tinh"] is None
+    assert t["dien_giai"]["so_nhan_cong_ke_hoach"] == 3
+    assert t["dien_giai"]["so_nhan_cong_tieu_chuan"] == 1
 
 
 def test_to_chia_theo_nguoi_va_gioi_han_o_muc_toi_da():
@@ -610,6 +618,8 @@ def test_to_chia_theo_nguoi_va_gioi_han_o_muc_toi_da():
     assert t["chiem_may_phut"] == 165
     assert t["dien_giai"]["nang_suat_hieu_dung"] == 2500
     assert t["dien_giai"]["so_nhan_cong_tinh"] == 5
+    assert t["dien_giai"]["so_nhan_cong_ke_hoach"] == 6
+    assert t["dien_giai"]["so_nhan_cong_toi_da"] == 5
     assert any("vượt mức tối đa hiệu quả" in x for x in t["dien_giai"]["canh_bao"])
 
 
@@ -1007,6 +1017,37 @@ def test_replace_routing_ton_trong_loai_buoc_do_khsx_chon(
     saved = next(x for x in lsx_svc.get(hop.id).cong_doans if x.id == row.id)
     assert saved.loai_buoc == "to"
     assert saved.may_id is None
+
+
+def test_doi_may_ke_thua_kip_chuan_nhung_giu_so_nguoi_ke_hoach_nhap_tai_lsx(
+    db, orders, lsx_svc, admin, customer
+):
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line_id = lsx_svc.preview(d.id)["lines"][0]["order_line_id"]
+    hop = lsx_svc.tao(order_id=d.id, order_line_ids=[line_id], actor=admin)[0]
+    may_moi = MayThietBi(
+        ma="MAY-KIP-2", ten="Máy kíp 2", loai_may="Bế", toc_do=4000,
+        don_vi_toc_do="to_gio", so_nhan_cong=2,
+    )
+    db.add(may_moi)
+    db.commit()
+    muc_tieu = next(x for x in hop.cong_doans if x.loai_buoc == "may")
+
+    lsx_svc.replace_routing(lsx_id=hop.id, actor=admin, rows_in=[
+        LsxCongDoanIn(
+            step_key=x.step_key, cong_doan_id=x.cong_doan_id, ten=x.ten, nhom=x.nhom,
+            department_id=x.department_id, loai_buoc=x.loai_buoc,
+            may_id=may_moi.id if x.id == muc_tieu.id else x.may_id,
+            so_nhan_cong=4 if x.id == muc_tieu.id else x.so_nhan_cong,
+        )
+        for x in sorted(hop.cong_doans, key=lambda item: item.thu_tu)
+    ])
+
+    saved = next(x for x in lsx_svc.get(hop.id).cong_doans if x.id == muc_tieu.id)
+    assert saved.so_nhan_cong_tieu_chuan == 2
+    assert saved.so_nhan_cong == 4
+    assert float(saved.nang_suat) == 4000
 
 
 def test_cong_doan_chua_khai_nang_suat_thi_de_trong_chu_khong_bia_so(

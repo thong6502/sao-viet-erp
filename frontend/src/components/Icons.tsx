@@ -278,6 +278,32 @@ const ICONS = {
       <path d="m10.29 3.86-8.6 15A1 1 0 0 0 2.56 20.36h18.88a1 1 0 0 0 .87-1.5l-8.6-15a1 1 0 0 0-1.72 0z" />
     </>
   ),
+  edit: (
+    <>
+      <path d="m4 20 4.2-1 10.6-10.6a2 2 0 0 0-2.8-2.8L5.4 16.2Z" />
+      <path d="m14.5 7.1 2.8 2.8" />
+    </>
+  ),
+  cpu: (
+    <>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <rect x="9" y="9" width="6" height="6" />
+      <path d="M15 2v2M9 2v2M15 20v2M9 20v2M20 15h2M20 9h2M2 15h2M2 9h2" />
+    </>
+  ),
+  minus: <path d="M5 12h14" />,
+  table: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
+    </>
+  ),
+  layout: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18M9 21V9" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;

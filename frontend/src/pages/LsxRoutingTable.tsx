@@ -20,6 +20,7 @@ import {
 } from "../api/client";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
+import { DagRoutingCanvas } from "../components/DagRoutingCanvas";
 import { LsxBuocDrawer } from "./LsxBuocDrawer";
 import { ChuoiCongDoan, ngay, num } from "./keHoachSxShared";
 import {
@@ -31,6 +32,7 @@ import {
   toBody,
   toEdit,
 } from "./lsxBuoc";
+import "./dag-routing.css";
 
 export interface RefRow {
   id: number;
@@ -114,6 +116,7 @@ export function LsxRoutingTable({
   onDirtyChange: (dirty: boolean) => void;
 }) {
   const [rows, setRows] = useState<EditRow[]>(() => congDoans.map(toEdit));
+  const [viewMode, setViewMode] = useState<"dag" | "table">("dag");
   const [undo, setUndo] = useState<{ row: EditRow; at: number } | null>(null);
   const [live, setLive] = useState("");
   const [moBuoc, setMoBuoc] = useState<number | null>(null);
@@ -319,6 +322,24 @@ export function LsxRoutingTable({
           <h3 className="khsx-rt__title">Chuỗi công đoạn ({rows.length})</h3>
           <p className="khsx-rt__origin">kế thừa từ bài tính giá · sửa được tại lệnh này</p>
         </div>
+
+        <div className="dag-view-switch">
+          <button
+            type="button"
+            className={`dag-view-switch__btn ${viewMode === "dag" ? "dag-view-switch__btn--active" : ""}`}
+            onClick={() => setViewMode("dag")}
+          >
+            <Icon name="workflow" size={14} /> Sơ đồ DAG
+          </button>
+          <button
+            type="button"
+            className={`dag-view-switch__btn ${viewMode === "table" ? "dag-view-switch__btn--active" : ""}`}
+            onClick={() => setViewMode("table")}
+          >
+            <Icon name="table" size={14} /> Bảng danh sách
+          </button>
+        </div>
+
         {canUpdate && (
           <div className="khsx-rt__baracts">
             <Button variant="secondary" onClick={them}>
@@ -340,7 +361,21 @@ export function LsxRoutingTable({
         <ChuoiCongDoan steps={flow} />
       </div>
 
-      <div className="khsx__tablewrap">
+      {viewMode === "dag" ? (
+        <DagRoutingCanvas
+          rows={rows}
+          congDoanRefs={congDoanRefs}
+          toRefs={toRefs}
+          mayRefs={mayRefs}
+          vatTuRefs={vatTuRefs}
+          phuThuocRefs={phuThuocRefs}
+          canUpdate={canUpdate}
+          onUpdateRows={setRows}
+          onOpenDrawer={(idx) => setMoBuoc(idx)}
+          onAddStep={them}
+        />
+      ) : (
+        <div className="khsx__tablewrap">
         <table className="khsx-rt__table">
           <caption className="sr-only">
             Danh sách công đoạn của lệnh. Bấm một hàng để mở chi tiết bước.
@@ -418,7 +453,7 @@ export function LsxRoutingTable({
                   <td>
                     <span className={lamO ? "" : "khsx-muted"}>{lamO || "tổ mặc định"}</span>
                     {r.so_nhan_cong && n(r.so_nhan_cong) > 1 && (
-                      <span className="khsx-rt__sub2">{r.so_nhan_cong} người</span>
+                      <span className="khsx-rt__sub2">Kế hoạch {r.so_nhan_cong} người</span>
                     )}
                   </td>
                   <td className="khsx-rt__qty">
@@ -443,9 +478,9 @@ export function LsxRoutingTable({
                     )}
                   </td>
                   <td className="khsx-rt__time">
-                    <span className="khsx-dur">{phut(t.tong)}</span>
+                    <span className="khsx-dur">{phut(t.chiemMay)}</span>
                     {t.tong !== t.chiemMay && (
-                      <span className="khsx-rt__sub2">chiếm máy {phut(t.chiemMay)}</span>
+                      <span className="khsx-rt__sub2">bước sau bắt đầu sau {phut(t.tong)}</span>
                     )}
                   </td>
                   <td>
@@ -519,6 +554,7 @@ export function LsxRoutingTable({
           </tbody>
         </table>
       </div>
+      )}
 
       {undo && (
         <div className="khsx-rt__undo">

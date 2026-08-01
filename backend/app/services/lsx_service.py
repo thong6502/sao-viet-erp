@@ -235,7 +235,12 @@ def thoi_luong_buoc(cd) -> dict:
         "nang_suat_co_so": round(ns, 2) if ns > 0 else None,
         "nang_suat_hieu_dung": round(nang_suat_hieu_dung, 2) if nang_suat_hieu_dung > 0 else None,
         "so_luot_chay": luot if loai == LB_MAY else None,
-        "so_nhan_cong_ke_hoach": nguoi_ke_hoach if loai == LB_TO else None,
+        "so_nhan_cong_ke_hoach": nguoi_ke_hoach if loai in (LB_MAY, LB_TO) else None,
+        "so_nhan_cong_tieu_chuan": (
+            max(int(getattr(cd, "so_nhan_cong_tieu_chuan", 1) or 1), 1)
+            if loai in (LB_MAY, LB_TO) else None
+        ),
+        "so_nhan_cong_toi_da": nguoi_toi_da if loai == LB_TO else None,
         "so_nhan_cong_tinh": nguoi_tinh,
         "setup_phut": round(setup, 2),
         "chay_phut": round(chay, 2),
@@ -356,6 +361,32 @@ class LsxService:
             return [r for r in rates if r.id in allowed]
         return rates
 
+    def _dau_viec_option_dicts(self, cd_obj, department_id: int | None) -> list[dict]:
+        """Đầu việc + định mức để drawer có thể preview nhân lực/thời gian trước khi lưu."""
+        assoc = {
+            x.piece_rate_id: x
+            for x in (getattr(cd_obj, "dau_viec_dinh_muc", None) or [])
+        }
+        out: list[dict] = []
+        for rate in self._dau_viec_cua_cong_doan(cd_obj, department_id):
+            dm = assoc.get(rate.id)
+            item = {
+                "id": rate.id,
+                "ten": rate.name,
+                "don_vi": rate.unit,
+                "don_gia": _f(rate.unit_price),
+            }
+            if dm is not None:
+                item.update({
+                    "nang_suat_nguoi_gio": _f(dm.nang_suat_nguoi_gio),
+                    "so_nguoi_tieu_chuan": int(dm.so_nguoi_tieu_chuan),
+                    "so_nguoi_toi_da": int(dm.so_nguoi_toi_da),
+                    "is_default": bool(dm.is_default),
+                    "don_vi_nang_suat": _DV_VAO_SANG_NS.get(cd_obj.don_vi_vao),
+                })
+            out.append(item)
+        return out
+
     def dau_viec_options(
         self, *, lsx_id: int, cong_doan_id: int, department_id: int | None
     ) -> list[dict]:
@@ -366,21 +397,7 @@ class LsxService:
             raise LsxNotFound("Không tìm thấy công đoạn")
         if department_id is None:
             return []
-        assoc = {x.piece_rate_id: x for x in (cd.dau_viec_dinh_muc or [])}
-        return [
-            {
-                "id": rate.id,
-                "ten": rate.name,
-                "don_vi": rate.unit,
-                "don_gia": _f(rate.unit_price),
-                "nang_suat_nguoi_gio": _f(assoc[rate.id].nang_suat_nguoi_gio),
-                "so_nguoi_tieu_chuan": int(assoc[rate.id].so_nguoi_tieu_chuan),
-                "so_nguoi_toi_da": int(assoc[rate.id].so_nguoi_toi_da),
-                "is_default": bool(assoc[rate.id].is_default),
-                "don_vi_nang_suat": _DV_VAO_SANG_NS.get(cd.don_vi_vao),
-            }
-            for rate in self._dau_viec_cua_cong_doan(cd, department_id)
-        ]
+        return self._dau_viec_option_dicts(cd, department_id)
 
     def _khoan_derived(self, cd, quy_cach: dict | None) -> dict:
         """Tiền khoán DỰ KIẾN của bước — tính LÚC ĐỌC, không lưu cột.
@@ -1191,6 +1208,7 @@ class LsxService:
         vao = _f(cd.so_luong_vao)
         t = thoi_luong_buoc(cd)
         kh = cd.khoan_json or {}
+        cd_obj = self.db.get(CongDoan, cd.cong_doan_id) if cd.cong_doan_id else None
         return {
             "id": cd.id, "step_key": cd.step_key, "thu_tu": cd.thu_tu, "cong_doan_id": cd.cong_doan_id,
             "ten": cd.ten, "nhom": cd.nhom, "loai_buoc": cd.loai_buoc, "bat_buoc": bool(cd.bat_buoc),
@@ -1235,10 +1253,7 @@ class LsxService:
             "khoan_don_gia": _f(kh.get("don_gia")) or None,
             # Các đầu việc CHỌN ĐƯỢC cho bước này = mọi đơn giá của TỔ — gửi kèm để drawer khỏi
             # gọi thêm API.
-            "khoan_chon_duoc": [
-                {"id": r.id, "ten": r.name, "don_vi": r.unit, "don_gia": _f(r.unit_price)}
-                for r in self._dau_viec_cua_buoc(cd)
-            ],
+            "khoan_chon_duoc": self._dau_viec_option_dicts(cd_obj, cd.department_id),
             "phu_thuoc_step_keys": [
                 p.step_key for edge in cd.phu_thuoc
                 if (p := self.db.get(LsxCongDoan, edge.buoc_truoc_id)) is not None
@@ -1412,7 +1427,8 @@ class LsxService:
                 kip = max(int(ceil(_f(may.so_nhan_cong))), 1) if may is not None else 1
                 row.so_nhan_cong_tieu_chuan = kip
                 row.so_nhan_cong_toi_da = None
-                row.so_nhan_cong = kip
+                if "so_nhan_cong" not in d:
+                    row.so_nhan_cong = kip
                 row.khoan_json = None
             elif row.loai_buoc == LB_THUE_NGOAI and source_changed:
                 row.nang_suat = row.don_vi_nang_suat = None

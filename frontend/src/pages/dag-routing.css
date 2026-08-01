@@ -1,0 +1,444 @@
+/* Giao diện Sơ đồ DAG kéo thả & Nối dây phụ thuộc Công đoạn (Routing) */
+
+.dag-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--rule, #e5e5e5);
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* Toolbar phía trên Canvas */
+.dag-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  flex-wrap: wrap;
+}
+
+.dag-toolbar__left,
+.dag-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Công tắc chuyển chế độ View (DAG vs Table) */
+.dag-view-switch {
+  display: inline-flex;
+  background: #e9ecef;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.dag-view-switch__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #495057;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dag-view-switch__btn:hover {
+  color: #212529;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.dag-view-switch__btn--active {
+  background: #ffffff;
+  color: #c25e38;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* Nút zoom / auto layout */
+.dag-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #ced4da;
+  background: #ffffff;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #343a40;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.dag-btn-icon:hover {
+  background: #f1f3f5;
+  border-color: #adb5bd;
+}
+
+/* Khung Canvas chính */
+.dag-viewport {
+  position: relative;
+  width: 100%;
+  height: 580px;
+  background-color: #fafbfc;
+  background-image: radial-gradient(#d0d7de 1.2px, transparent 1.2px);
+  background-size: 20px 20px;
+  border: 1px solid #e1e4e8;
+  border-radius: 8px;
+  overflow: hidden;
+  user-select: none;
+  cursor: grab;
+}
+
+.dag-viewport:active {
+  cursor: grabbing;
+}
+
+.dag-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform-origin: 0 0;
+}
+
+/* Lớp vẽ dây SVG */
+.dag-svg-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 1;
+}
+
+.dag-wire {
+  fill: none;
+  stroke: #8c959f;
+  stroke-width: 2.5px;
+  stroke-linecap: round;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.dag-wire:hover {
+  stroke: #c25e38;
+  stroke-width: 4px;
+  filter: drop-shadow(0 0 4px rgba(194, 94, 56, 0.4));
+}
+
+.dag-wire--draft {
+  fill: none;
+  stroke: #c25e38;
+  stroke-width: 3px;
+  stroke-dasharray: 6 4;
+  animation: dagDash 0.8s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes dagDash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+/* Nút xóa dây nối SVG */
+.dag-wire-delete {
+  cursor: pointer;
+  pointer-events: all;
+  transition: transform 0.15s ease;
+}
+
+.dag-wire-delete:hover circle {
+  fill: #e63946;
+}
+
+.dag-wire-delete:hover text {
+  fill: #ffffff;
+}
+
+/* Card Công đoạn (Node) */
+.dag-node {
+  position: absolute;
+  width: 240px;
+  background: #ffffff;
+  border: 1.5px solid #d0d7de;
+  border-radius: 8px;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.06);
+  z-index: 2;
+  cursor: move;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dag-node:hover {
+  border-color: #a0a7b0;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+.dag-node--selected {
+  border-color: #c25e38;
+  box-shadow: 0 0 0 3px rgba(194, 94, 56, 0.2), 0 4px 12px rgba(0, 0, 0, 0.08);
+  z-index: 12;
+}
+
+.dag-node--has-error {
+  border-color: #e63946;
+}
+
+.dag-node--has-warning {
+  border-color: #f59e0b;
+}
+
+/* Header của Node */
+.dag-node__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #14130f;
+  color: #ffffff;
+  border-top-left-radius: 6.5px;
+  border-top-right-radius: 6.5px;
+}
+
+.dag-node__seq {
+  font-family: var(--ff-mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.dag-node__title {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #f8f9fa;
+}
+
+.dag-node__type-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.dag-node__type-tag--may {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.dag-node__type-tag--thuong {
+  background: #059669;
+  color: #ffffff;
+}
+
+.dag-node__type-tag--thue_ngoai {
+  background: #d97706;
+  color: #ffffff;
+}
+
+.dag-node__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dag-node__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: #e2e8f0;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dag-node__btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+}
+
+.dag-node__btn--delete:hover {
+  background: #ef4444;
+}
+
+/* Body của Node */
+.dag-node__body {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dag-node__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.dag-node__label {
+  color: #6c757d;
+  font-weight: 500;
+}
+
+.dag-node__value {
+  color: #212529;
+  font-weight: 600;
+}
+
+.dag-node__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: #f1f3f5;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #495057;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dag-node__flow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f8f9fa;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #e9ecef;
+  font-size: 11px;
+  color: #343a40;
+}
+
+.dag-node__flow-arrow {
+  color: #c25e38;
+  font-weight: bold;
+}
+
+/* Warnings list inside node */
+.dag-node__warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.dag-node__warning-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.dag-node__warning-chip--err {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.dag-node__warning-chip--warn {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+/* Cổng kết nối (Ports) */
+.dag-port {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  background: #ffffff;
+  border: 2.5px solid #6c757d;
+  border-radius: 50%;
+  cursor: crosshair;
+  z-index: 15;
+  transition: all 0.15s ease;
+}
+
+.dag-port:hover {
+  transform: translateY(-50%) scale(1.35);
+  box-shadow: 0 0 0 4px rgba(194, 94, 56, 0.25);
+}
+
+.dag-port--in {
+  left: -8px;
+  border-color: #2563eb;
+}
+
+.dag-port--in:hover,
+.dag-port--in-target {
+  background: #2563eb;
+  border-color: #1d4ed8;
+}
+
+.dag-port--out {
+  right: -8px;
+  border-color: #c25e38;
+}
+
+.dag-port--out:hover {
+  background: #c25e38;
+  border-color: #9a4423;
+}
+
+/* Mini legend bar */
+.dag-legend {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 11px;
+  color: #6c757d;
+  padding: 4px 8px;
+}
+
+.dag-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dag-legend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}

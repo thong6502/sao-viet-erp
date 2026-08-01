@@ -704,7 +704,7 @@ export interface LsxCongDoan extends LsxThueNgoaiFields {
   khoan_don_vi: string | null;
   khoan_don_gia: number | null;
   /** Đầu việc chọn được cho bước (theo tổ + công đoạn) — server đã áp luật "ưu tiên dòng khai riêng". */
-  khoan_chon_duoc: { id: number; ten: string; don_vi: string; don_gia: number }[];
+  khoan_chon_duoc: LsxDauViecOption[];
   khoan_sl: number | null;
   khoan_don_vi_sl: string | null;
   khoan_tien: number | null;

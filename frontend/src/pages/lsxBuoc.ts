@@ -239,9 +239,79 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
   });
 }
 
-/** Chỉ đọc kết quả có cấu trúc từ backend. FE không giữ bản sao công thức nghiệp vụ. */
+/** Preview tức thời trong drawer trước khi lưu.
+ *
+ * Backend vẫn tính lại và chốt snapshot khi lưu. Bản preview này dùng đúng các đầu vào đang hiện
+ * trên form để người lập kế hoạch không phải lưu mù rồi mở lại mới biết thời gian thay đổi ra sao.
+ */
+export function thoiLuongLive(r: EditRow): Record<string, unknown> {
+  const f = (v: string | number | null | undefined): number => {
+    const x = Number(v ?? 0);
+    return Number.isFinite(x) ? x : 0;
+  };
+  const tron = (v: number): number => Math.round(v * 100) / 100;
+  const vao = f(r.so_luong_vao);
+  const ns = f(r.nang_suat);
+  const luot = Math.max(Math.trunc(f(r.so_luot_chay)) || 1, 1);
+  const nguoiKeHoach = Math.max(Math.trunc(f(r.so_nhan_cong)) || 1, 1);
+  const nguoiToiDa = Math.max(Math.trunc(f(r.so_nhan_cong_toi_da)) || nguoiKeHoach, 1);
+  const nguoiTinh = r.loai_buoc === "to" ? Math.min(nguoiKeHoach, nguoiToiDa) : null;
+  const coNhapDe = r.chay_phut.trim() !== "";
+  const canhBao: string[] = [];
+  let phuongPhap: string = r.loai_buoc;
+  let nangSuatHieuDung = ns;
+  let chay = 0;
+
+  if (coNhapDe) {
+    chay = f(r.chay_phut);
+    phuongPhap = "nhap_de";
+  } else if (r.loai_buoc === "to") {
+    nangSuatHieuDung = ns * (nguoiTinh ?? 1);
+    chay = nangSuatHieuDung > 0 && vao > 0 ? vao / nangSuatHieuDung * 60 : 0;
+    if (ns <= 0) phuongPhap = "thieu_nang_suat";
+    if (r.so_nhan_cong_toi_da != null && nguoiKeHoach > nguoiToiDa) {
+      canhBao.push("Số người kế hoạch vượt mức tối đa hiệu quả; thời gian chỉ tính theo mức tối đa.");
+    }
+  } else if (r.loai_buoc === "may") {
+    chay = ns > 0 && vao > 0 ? vao * luot / ns * 60 : 0;
+    if (ns <= 0) phuongPhap = "thieu_nang_suat";
+  } else {
+    nangSuatHieuDung = 0;
+  }
+  if (phuongPhap === "thieu_nang_suat") {
+    canhBao.push("Thiếu năng suất hợp lệ; hãy chọn nguồn năng suất hoặc nhập đè thời gian chạy.");
+  }
+
+  const setup = f(r.setup_phut);
+  const veSinh = f(r.ve_sinh_phut);
+  const cho = f(r.cho_phut);
+  const diChuyen = f(r.di_chuyen_phut);
+  const chiemTaiNguyen = setup + chay + veSinh;
+  return {
+    phuong_phap: phuongPhap,
+    so_luong_vao: tron(vao),
+    don_vi_vao: r.don_vi_vao,
+    nguon_nang_suat: r.loai_buoc === "to" ? "dau_viec" : (r.loai_buoc === "may" ? "may" : null),
+    nang_suat_co_so: ns > 0 ? tron(ns) : null,
+    nang_suat_hieu_dung: nangSuatHieuDung > 0 ? tron(nangSuatHieuDung) : null,
+    so_luot_chay: r.loai_buoc === "may" ? luot : null,
+    so_nhan_cong_ke_hoach: r.loai_buoc === "thue_ngoai" ? null : nguoiKeHoach,
+    so_nhan_cong_tieu_chuan: r.loai_buoc === "thue_ngoai" ? null : r.so_nhan_cong_tieu_chuan,
+    so_nhan_cong_toi_da: r.loai_buoc === "to" ? r.so_nhan_cong_toi_da : null,
+    so_nhan_cong_tinh: nguoiTinh,
+    setup_phut: tron(setup),
+    chay_phut: tron(chay),
+    ve_sinh_phut: tron(veSinh),
+    cho_phut: tron(cho),
+    di_chuyen_phut: tron(diChuyen),
+    chiem_tai_nguyen_phut: tron(chiemTaiNguyen),
+    tong_phut: tron(chiemTaiNguyen + cho + diChuyen),
+    canh_bao: canhBao,
+  };
+}
+
 export function thoiLuong(r: EditRow): { chay: number; chiemMay: number; tong: number } {
-  const d = r.thoi_luong_dien_giai;
+  const d = thoiLuongLive(r);
   return {
     chay: Number(d.chay_phut ?? 0),
     chiemMay: Number(d.chiem_tai_nguyen_phut ?? 0),

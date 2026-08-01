@@ -46,3 +46,28 @@ def test_drawer_khong_goi_y_may_tu_cong_doan() -> None:
     source = DRAWER.read_text(encoding="utf-8")
     assert "Máy mặc định của công đoạn" not in source
     assert "mayGoiYId" not in source
+
+
+def test_drawer_hien_nhan_luc_ke_thua_va_ket_qua_thoi_gian_o_cuoi() -> None:
+    source = DRAWER.read_text(encoding="utf-8")
+    assert "Số người vận hành kế hoạch" in source
+    assert "Kíp vận hành tiêu chuẩn" in source
+    assert "Số người kế hoạch" in source
+    assert "Định mức tiêu chuẩn" in source
+    assert "Tối đa còn tăng năng suất" in source
+    assert "Nguồn tính" in source
+    assert "Thời gian kế hoạch" in source
+    assert source.index("Nguồn tính") < source.index("Thời gian kế hoạch")
+
+
+def test_drawer_doi_dau_viec_cap_nhat_dinh_muc_va_thoi_gian_live() -> None:
+    source = DRAWER.read_text(encoding="utf-8")
+    model = (DRAWER.parent / "lsxBuoc.ts").read_text(encoding="utf-8")
+
+    assert "chonDauViec" in source
+    assert "nang_suat_nguoi_gio" in source
+    assert "so_nguoi_tieu_chuan" in source
+    assert "so_nguoi_toi_da" in source
+    assert "thoiLuongLive" in source
+    assert "export function thoiLuongLive" in model
+    assert "Math.min(nguoiKeHoach, nguoiToiDa)" in model

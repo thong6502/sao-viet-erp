@@ -397,6 +397,128 @@ export function LsxDetailView({
         </div>
       </header>
 
+      {/* Top Summary Bar - Top Bar ngang (Option 1) */}
+      <div className="khsx-topbar">
+        {/* Trạng thái kiểm tra & Popover thông báo mục thiếu */}
+        <div className="khsx-topbar__status">
+          {d.trang_thai === "san_sang" ? (
+            <span className="khsx-topbar__tag khsx-topbar__tag--ok">
+              <Icon name="check" size={14} /> Sẵn sàng
+            </span>
+          ) : d.thieu.length > 0 ? (
+            <div className="khsx-topbar__pop-trigger">
+              <span className="khsx-topbar__tag khsx-topbar__tag--warn">
+                <Icon name="alert" size={14} /> Còn thiếu {d.thieu.length} mục
+              </span>
+              <div className="khsx-topbar__popover">
+                <p className="khsx-topbar__pop-title">Danh sách mục chưa hoàn thiện:</p>
+                <ul>
+                  {d.thieu.map((code) => (
+                    <li key={code}>
+                      <span>• {LSX_THIEU_LABELS[code] ?? code}</span>
+                      {code === "thieu_khuon" && (
+                        <button type="button" className="khsx-xlink" onClick={() => setTab("chung")}>Sửa →</button>
+                      )}
+                      {code === "thieu_routing" && (
+                        <button type="button" className="khsx-xlink" onClick={() => setTab("routing")}>Sửa →</button>
+                      )}
+                      {(code === "thieu_giay" || code === "thieu_kho") && (
+                        <button type="button" className="khsx-xlink" onClick={() => setTab("quycach")}>Xem →</button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ) : (
+            <span className="khsx-topbar__tag khsx-topbar__tag--ok">
+              <Icon name="check" size={14} /> Đủ dữ liệu
+            </span>
+          )}
+
+          {d.canh_bao.length > 0 && (
+            <span
+              className="khsx-topbar__tag khsx-topbar__tag--info"
+              title={d.canh_bao.map((c) => LSX_CANH_BAO_LABELS[c] ?? c).join("; ")}
+            >
+              <Icon name="help" size={13} /> {d.canh_bao.length} lưu ý
+            </span>
+          )}
+        </div>
+
+        {/* Dải chỉ số phẳng nằm ngang (Horizontal Metric Pills) */}
+        <div className="khsx-topbar__metrics">
+          <div className="khsx-metric-pill">
+            <span className="khsx-metric-pill__label">SL Đặt</span>
+            <span className="khsx-metric-pill__val">{num(d.so_luong_dat)} {d.don_vi_tinh}</span>
+          </div>
+          <span className="khsx-metric-sep">·</span>
+          <div className="khsx-metric-pill">
+            <span className="khsx-metric-pill__label">Bù hao</span>
+            <span className="khsx-metric-pill__val">{num(d.bu_hao_to)} tờ</span>
+          </div>
+          <span className="khsx-metric-sep">·</span>
+          <div className="khsx-metric-pill">
+            <span className="khsx-metric-pill__label">Tờ in</span>
+            <span className="khsx-metric-pill__val">{num(d.so_to_ke_hoach)}</span>
+          </div>
+          <span className="khsx-metric-sep">·</span>
+          <div className="khsx-metric-pill">
+            <span className="khsx-metric-pill__label">Tờ nguyên</span>
+            <span className="khsx-metric-pill__val">{num(d.so_to_nguyen)}</span>
+          </div>
+          <span className="khsx-metric-sep">·</span>
+          <div className="khsx-metric-pill">
+            <span className="khsx-metric-pill__label">Con / tờ</span>
+            <span className="khsx-metric-pill__val">{num(d.so_con)}</span>
+          </div>
+          <span className="khsx-metric-sep">·</span>
+          <div className="khsx-metric-pill">
+            <span className="khsx-metric-pill__label">Công đoạn</span>
+            <span className="khsx-metric-pill__val">{num(d.cong_doans.length)}</span>
+          </div>
+          <span className="khsx-metric-sep">·</span>
+          <div className="khsx-metric-pill">
+            <span className="khsx-metric-pill__label">Hạn giao</span>
+            <span className={`khsx-metric-pill__val ${classHan(d.han_giao_khach)}`}>{ngay(d.han_giao_khach)}</span>
+          </div>
+          {d.khoan_tien_tong > 0 && (
+            <>
+              <span className="khsx-metric-sep">·</span>
+              <div className="khsx-metric-pill" title="Tổng tiền công thợ dự kiến">
+                <span className="khsx-metric-pill__label">Công thợ</span>
+                <span className="khsx-metric-pill__val" style={{ color: "#c25e38" }}>{num(d.khoan_tien_tong)} đ</span>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Nút hành động CTA & Nút Lưu khi Form thay đổi */}
+        <div className="khsx-topbar__action">
+          {dirty && (
+            <div style={{ display: "flex", gap: 6, marginRight: 8 }}>
+              <Button variant="ghost" onClick={() => setForm(toForm(d))}>
+                Hoàn tác
+              </Button>
+              <Button variant="primary" loading={saving} onClick={luu}>
+                Lưu thay đổi
+              </Button>
+            </div>
+          )}
+
+          {d.trang_thai === "san_sang" ? (
+            <Button variant="ghost" onClick={() => doiTrangThai("nhap")}>
+              Mở lại để sửa
+            </Button>
+          ) : (
+            <Button variant="accent" disabled={d.thieu.length > 0} onClick={() => doiTrangThai("san_sang")}>
+              Sẵn sàng lập kế hoạch
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {readyErr && <BangLoi text={readyErr} onRetry={load} />}
       {err && <BangLoi text={err} onRetry={load} />}
 
       <div className="khsx-detail__grid">
@@ -749,143 +871,6 @@ export function LsxDetailView({
             </section>
           )}
         </div>
-
-        <aside className="khsx-aside">
-          <div
-            className={`khsx-ready ${
-              d.trang_thai === "san_sang"
-                ? "khsx-ready--done"
-                : d.thieu.length
-                ? "khsx-ready--blocked"
-                : "khsx-ready--ok"
-            }`}
-          >
-            {d.trang_thai === "san_sang" ? (
-              <>
-                <p className="khsx-ready__title">
-                  <Icon name="check" size={15} /> Đã sẵn sàng lập kế hoạch.
-                </p>
-                <Button variant="ghost" block onClick={() => doiTrangThai("nhap")}>
-                  Mở lại để sửa
-                </Button>
-              </>
-            ) : d.thieu.length ? (
-              <>
-                <p className="khsx-ready__title">Còn thiếu {d.thieu.length} mục</p>
-                <ul className="khsx-ready__list" id="khsx-ready-list">
-                  {d.thieu.map((code) => (
-                    <li key={code} className="khsx-ready__item">
-                      <Icon name="x" size={12} />
-                      <span>{LSX_THIEU_LABELS[code] ?? code}</span>
-                      {code === "thieu_khuon" && (
-                        <button type="button" className="khsx-xlink" onClick={() => setTab("chung")}>
-                          Sửa →
-                        </button>
-                      )}
-                      {code === "thieu_routing" && (
-                        <button type="button" className="khsx-xlink" onClick={() => setTab("routing")}>
-                          Sửa →
-                        </button>
-                      )}
-                      {(code === "thieu_giay" || code === "thieu_kho") && (
-                        <button type="button" className="khsx-xlink" onClick={() => setTab("quycach")}>
-                          Xem →
-                        </button>
-                      )}
-                      {(code === "thieu_ngay_giao" || code === "khong_co_ptg") && (
-                        <button
-                          type="button"
-                          className="khsx-xlink"
-                          onClick={() => navigate?.("don-hang-ban", { openOrderId: d.order_id })}
-                        >
-                          Mở đơn →
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-                <Button variant="accent" block disabled aria-describedby="khsx-ready-list">
-                  Sẵn sàng lập kế hoạch
-                </Button>
-              </>
-            ) : (
-              <>
-                <p className="khsx-ready__title">
-                  <Icon name="check" size={15} /> Đủ dữ liệu.
-                </p>
-                <Button variant="accent" block onClick={() => doiTrangThai("san_sang")}>
-                  Sẵn sàng lập kế hoạch
-                </Button>
-              </>
-            )}
-            {readyErr && <BangLoi text={readyErr} onRetry={load} />}
-          </div>
-
-          {/* Rổ MỀM — tách hẳn khỏi checklist chặn ở trên: đây là nghi vấn nghề, người kế hoạch
-              đọc rồi tự quyết, hệ thống KHÔNG chặn phát hành vì mấy dòng này. */}
-          {d.canh_bao.length > 0 && (
-            <div className="khsx-luuy">
-              <p className="khsx-luuy__title">
-                <Icon name="help" size={14} /> Lưu ý ({d.canh_bao.length})
-              </p>
-              <ul className="khsx-luuy__list">
-                {d.canh_bao.map((code) => (
-                  <li key={code}>
-                    <span>{LSX_CANH_BAO_LABELS[code] ?? code}</span>
-                    {(code === "dut_chuyen" || code === "ra_lon_hon_vao"
-                      || code === "khac_bai_tinh_gia" || code === "vuot_han_giao") && (
-                      <button type="button" className="khsx-xlink" onClick={() => setTab("routing")}>
-                        Xem →
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              <p className="khsx-luuy__foot">Không chặn — bạn vẫn đánh dấu sẵn sàng được.</p>
-            </div>
-          )}
-
-          <div className="khsx-facts">
-            <Fact k="SL đặt" v={`${num(d.so_luong_dat)} ${d.don_vi_tinh}`} />
-            <Fact k="Bù hao" v={`${num(d.bu_hao_to)} tờ`} />
-            <Fact k="Tờ in" v={num(d.so_to_ke_hoach)} />
-            <Fact k="Tờ nguyên" v={num(d.so_to_nguyen)} />
-            <Fact k="Con / tờ" v={num(d.so_con)} />
-            <Fact k="Công đoạn" v={num(d.cong_doans.length)} />
-            <Fact k="Hạn giao khách" v={ngay(d.han_giao_khach)} cls={classHan(d.han_giao_khach)} />
-            <Fact k="Hạn SX nội bộ" v={ngay(d.han_hoan_thanh_sx)} cls={classHan(d.han_hoan_thanh_sx)} />
-          </div>
-
-          {/* Công thợ khoán DỰ KIẾN — chỉ hiện khi có ít nhất một bước quy đổi ra tiền, và nói rõ
-              đây là số SÀN (bước chưa chọn đầu việc không góp vào) để không ai đọc thành chi phí
-              nhân công thật của lệnh. */}
-          {d.khoan_tien_tong > 0 && (
-            <div className="khsx-facts">
-              <Fact
-                k="Công thợ dự kiến"
-                v={`${num(d.khoan_tien_tong)} đ`}
-                cls="khsx-aside__khoan"
-              />
-              <p className="khsx-luuy__foot" style={{ gridColumn: "1 / -1", margin: 0 }}>
-                Σ các bước đã chọn công việc khoán — bước chưa chọn thì chưa tính vào.
-              </p>
-            </div>
-          )}
-
-          {dirty && (
-            <div className="khsx-aside__save">
-              <p>Có thay đổi chưa lưu</p>
-              <div className="khsx-aside__savebtns">
-                <Button variant="ghost" onClick={() => setForm(toForm(d))}>
-                  Hoàn tác
-                </Button>
-                <Button variant="primary" loading={saving} onClick={luu}>
-                  Lưu
-                </Button>
-              </div>
-            </div>
-          )}
-        </aside>
       </div>
 
       <ConfirmDialog
@@ -921,15 +906,6 @@ function KV({
       >
         {v}
       </span>
-    </div>
-  );
-}
-
-function Fact({ k, v, cls = "" }: { k: string; v: string; cls?: string }) {
-  return (
-    <div className="khsx-fact">
-      <span className="khsx-fact__label">{k}</span>
-      <span className={`khsx-fact__value ${cls}`}>{v}</span>
     </div>
   );
 }
