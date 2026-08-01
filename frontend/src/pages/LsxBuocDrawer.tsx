@@ -325,11 +325,13 @@ export function LsxBuocDrawer({
         <div className="khsx-drawer__body">
           {/* --- 1. Nhận diện --- */}
           <Nhom id="sec-nhan-dien" title="Nhận diện">
-            <div className="khsx-form">
+            <div className="khsx-nhan-dien-grid">
+              {/* Hàng 1 - Cột 1: Công đoạn */}
               <label className="khsx-field">
-                <span className="khsx-field__label">Công đoạn</span>
+                <span className="khsx-field__label">CÔNG ĐOẠN</span>
                 {congDoanRefs ? (
                   <select
+                    className="khsx-select-std"
                     value={row.cong_doan_id ?? (row.ten ? "__keep__" : "")}
                     disabled={!canUpdate}
                     onChange={(e) => {
@@ -353,6 +355,7 @@ export function LsxBuocDrawer({
                   </select>
                 ) : (
                   <input
+                    className="khsx-input-std"
                     value={row.ten}
                     disabled={!canUpdate}
                     onChange={(e) => set("ten", e.target.value)}
@@ -360,11 +363,10 @@ export function LsxBuocDrawer({
                 )}
               </label>
 
-              <div className="khsx-field khsx-field--wide">
-                <span className="khsx-field__label">
-                  Loại bước — quyết định tài nguyên chiếm dụng khi xếp lịch
-                </span>
-                <div className="khsx-seg khsx-seg--wide" role="group" aria-label="Loại bước">
+              {/* Hàng 1 - Cột 2: Loại bước */}
+              <div className="khsx-field">
+                <span className="khsx-field__label">LOẠI BƯỚC</span>
+                <div className="khsx-seg-std" role="group" aria-label="Loại bước">
                   {LOAI_BUOC_ORDER.map((k) => {
                     const m = LSX_LOAI_BUOC_META[k];
                     return (
@@ -384,30 +386,33 @@ export function LsxBuocDrawer({
                 </div>
               </div>
 
-              <label className="khsx-field--check-card">
+              {/* Hàng 2 - Cột 1: Ghi chú kỹ thuật */}
+              <label className="khsx-field">
+                <span className="khsx-field__label">GHI CHÚ KÝ THUẬT CHO THỢ</span>
                 <input
-                  type="checkbox"
-                  checked={row.bat_buoc}
-                  disabled={!canUpdate}
-                  onChange={(e) => set("bat_buoc", e.target.checked)}
-                />
-                <div className="khsx-check-card__info">
-                  <span className="khsx-check-card__title">Bước bắt buộc</span>
-                  <span className="khsx-check-card__sub">
-                    Bỏ tick = công đoạn tùy chọn, có thể bỏ qua khi cần tiến độ gấp
-                  </span>
-                </div>
-              </label>
-
-              <label className="khsx-field khsx-field--wide">
-                <span className="khsx-field__label">Ghi chú kỹ thuật cho thợ</span>
-                <input
+                  className="khsx-input-std"
                   value={row.ghi_chu}
                   disabled={!canUpdate}
-                  placeholder="vd: canh màu theo mẫu đã ký, kiểm tra kỹ độ bám keo"
+                  placeholder="vd: canh màu theo mẫu đã ký, kiểm tra keo..."
                   onChange={(e) => set("ghi_chu", e.target.value)}
                 />
               </label>
+
+              {/* Hàng 2 - Cột 2: Tùy chọn bước bắt buộc */}
+              <div className="khsx-field">
+                <span className="khsx-field__label">TÙY CHỌN BƯỚC</span>
+                <label className="khsx-check-box-std">
+                  <input
+                    type="checkbox"
+                    checked={row.bat_buoc}
+                    disabled={!canUpdate}
+                    onChange={(e) => set("bat_buoc", e.target.checked)}
+                  />
+                  <span className="khsx-check-label-text">
+                    <strong>Bước bắt buộc</strong> (không được bỏ qua)
+                  </span>
+                </label>
+              </div>
             </div>
           </Nhom>
 
@@ -519,350 +524,388 @@ export function LsxBuocDrawer({
 
           {/* --- 3. Thực hiện --- */}
           <Nhom id="sec-ai-lam" title="Phân công thực hiện">
-            <div className="khsx-form">
-              {!ngoai && (
-                <>
-                  <label className="khsx-field">
-                    <span className="khsx-field__label">Tổ phụ trách</span>
-                    {toRefs ? (
-                      <select
-                        value={row.department_id ?? ""}
-                        disabled={!canUpdate}
-                        onChange={(e) =>
-                          onDoiTo(e.target.value ? Number(e.target.value) : null)
-                        }
-                      >
-                        <option value="">— tổ mặc định của công đoạn —</option>
-                        {toRefs.map((t2) => (
-                          <option key={t2.id} value={t2.id}>
-                            {t2.ten}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="khsx-kv__val">tổ mặc định</span>
-                    )}
-                  </label>
-
-                  <label className="khsx-field">
-                    <span className="khsx-field__label">Máy sản xuất</span>
-                    {mayRefs ? (
-                      <select
-                        value={row.may_id ?? ""}
-                        disabled={!canUpdate}
-                        onChange={(e) =>
-                          set("may_id", e.target.value ? Number(e.target.value) : null)
-                        }
-                      >
-                        <option value="">— chưa gán máy —</option>
-                        {nhomMay.map((g) => (
-                          <optgroup key={g.ten} label={g.ten}>
-                            {g.items.map((m) => (
-                              <option key={m.id} value={m.id}>
-                                {m.ten}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="khsx-kv__val">—</span>
-                    )}
-                  </label>
-
-                  {row.loai_buoc === "may" && (
-                    <label className="khsx-field">
-                      <span className="khsx-field__label">Số người vận hành kế hoạch</span>
-                      <input
-                        type="number"
-                        min="1"
-                        value={row.so_nhan_cong}
-                        placeholder="1"
-                        disabled={!canUpdate}
-                        onChange={(e) => set("so_nhan_cong", e.target.value)}
-                      />
-                      <span className="khsx-field__hint">
-                        Kíp vận hành tiêu chuẩn: {row.so_nhan_cong_tieu_chuan} người. Nhân lực
-                        không làm thay đổi tốc độ máy.
-                      </span>
-                    </label>
+            {!ngoai ? (
+              <div className="khsx-form">
+                <label className="khsx-field">
+                  <span className="khsx-field__label">Tổ phụ trách</span>
+                  {toRefs ? (
+                    <select
+                      value={row.department_id ?? ""}
+                      disabled={!canUpdate}
+                      onChange={(e) =>
+                        onDoiTo(e.target.value ? Number(e.target.value) : null)
+                      }
+                    >
+                      <option value="">— tổ mặc định của công đoạn —</option>
+                      {toRefs.map((t2) => (
+                        <option key={t2.id} value={t2.id}>
+                          {t2.ten}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="khsx-kv__val">tổ mặc định</span>
                   )}
+                </label>
 
-                  {row.loai_buoc === "to" && (
-                    <label className="khsx-field">
-                      <span className="khsx-field__label">Số người kế hoạch</span>
-                      <input
-                        type="number"
-                        min="1"
-                        value={row.so_nhan_cong}
-                        placeholder="1"
-                        disabled={!canUpdate}
-                        onChange={(e) => set("so_nhan_cong", e.target.value)}
-                      />
-                      <span className="khsx-field__hint">
-                        Định mức tiêu chuẩn: {row.so_nhan_cong_tieu_chuan} người. Tối đa tăng
-                        năng suất: {row.so_nhan_cong_toi_da ?? "chưa khai"} người.
-                      </span>
-                    </label>
+                <label className="khsx-field">
+                  <span className="khsx-field__label">Máy sản xuất</span>
+                  {mayRefs ? (
+                    <select
+                      value={row.may_id ?? ""}
+                      disabled={!canUpdate}
+                      onChange={(e) =>
+                        set("may_id", e.target.value ? Number(e.target.value) : null)
+                      }
+                    >
+                      <option value="">— chưa gán máy —</option>
+                      {nhomMay.map((g) => (
+                        <optgroup key={g.ten} label={g.ten}>
+                          {g.items.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.ten}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="khsx-kv__val">—</span>
                   )}
+                </label>
 
-                  {(row.khoan_chon_duoc.length > 0 || row.khoan_rate_id != null) && (
-                    <div className="khsx-field khsx-field--wide khsx-khoan-card">
-                      <div className="khsx-khoan-card__head">
-                        <span className="khsx-field__label">Công việc khoán</span>
-                        <span className="khsx-tag-subtle">bảng khoán của tổ</span>
-                      </div>
-                      <select
-                        value={row.khoan_rate_id ?? ""}
-                        disabled={!canUpdate}
-                        onChange={(e) => chonDauViec(e.target.value)}
-                      >
-                        <option value="">— chọn đầu việc khoán —</option>
-                        {dsKhoan.map((k) => (
-                          <option key={k.id} value={k.id}>
-                            {k.don_vi
-                              ? `${k.ten} — ${num(k.don_gia)} đ/${k.don_vi}`
-                              : k.ten}
-                          </option>
-                        ))}
-                      </select>
+                {row.loai_buoc === "may" && (
+                  <label className="khsx-field">
+                    <span className="khsx-field__label">Số người vận hành kế hoạch</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={row.so_nhan_cong}
+                      placeholder="1"
+                      disabled={!canUpdate}
+                      onChange={(e) => set("so_nhan_cong", e.target.value)}
+                    />
+                    <span className="khsx-field__hint">
+                      Kíp vận hành tiêu chuẩn: {row.so_nhan_cong_tieu_chuan} người. Nhân lực
+                      không làm thay đổi tốc độ máy.
+                    </span>
+                  </label>
+                )}
 
-                      <div className="khsx-khoan-card__status">
-                        {!khoanConKhop ? (
-                          <span className="khsx-pill-status khsx-pill-status--warn">
-                            Lưu công đoạn để tính lại tiền công
-                          </span>
-                        ) : row.khoan_dien_giai ? (
-                          <span className="khsx-pill-status khsx-pill-status--ok">
-                            {row.khoan_dien_giai}
-                          </span>
-                        ) : row.khoan_ly_do ? (
-                          <span className="khsx-pill-status khsx-pill-status--error">
-                            {row.khoan_ly_do}
-                          </span>
-                        ) : row.khoan_chon_duoc.length > 1 ? (
-                          <span className="khsx-field__hint">
-                            Tổ có {row.khoan_chon_duoc.length} đầu việc khoán — chọn đúng việc thợ làm để tự động ra tiền công.
-                          </span>
-                        ) : null}
-                      </div>
+                {row.loai_buoc === "to" && (
+                  <label className="khsx-field">
+                    <span className="khsx-field__label">Số người kế hoạch</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={row.so_nhan_cong}
+                      placeholder="1"
+                      disabled={!canUpdate}
+                      onChange={(e) => set("so_nhan_cong", e.target.value)}
+                    />
+                    <span className="khsx-field__hint">
+                      Định mức tiêu chuẩn: {row.so_nhan_cong_tieu_chuan} người. Tối đa tăng
+                      năng suất: {row.so_nhan_cong_toi_da ?? "chưa khai"} người.
+                    </span>
+                  </label>
+                )}
+
+                {(row.khoan_chon_duoc.length > 0 || row.khoan_rate_id != null) && (
+                  <div className="khsx-field khsx-field--wide khsx-khoan-card">
+                    <div className="khsx-khoan-card__head">
+                      <span className="khsx-field__label">Công việc khoán</span>
+                      <span className="khsx-tag-subtle">bảng khoán của tổ</span>
                     </div>
-                  )}
-                </>
-              )}
+                    <select
+                      value={row.khoan_rate_id ?? ""}
+                      disabled={!canUpdate}
+                      onChange={(e) => chonDauViec(e.target.value)}
+                    >
+                      <option value="">— chọn đầu việc khoán —</option>
+                      {dsKhoan.map((k) => (
+                        <option key={k.id} value={k.id}>
+                          {k.don_vi
+                            ? `${k.ten} — ${num(k.don_gia)} đ/${k.don_vi}`
+                            : k.ten}
+                        </option>
+                      ))}
+                    </select>
 
-              {ngoai && (
-                <div className="khsx-subcontract-box">
-                  <div className="khsx-subcontract-grid">
-                    <label className="khsx-field khsx-field--wide">
-                      <span className="khsx-field__label">Nhà gia công đối tác</span>
-                      <input
-                        className={!row.nha_cung_cap ? "khsx-input--bad" : ""}
-                        value={row.nha_cung_cap}
-                        disabled={!canUpdate}
-                        placeholder="Tên cơ sở nhận gia công"
-                        onChange={(e) => set("nha_cung_cap", e.target.value)}
-                      />
-                    </label>
+                    <div className="khsx-khoan-card__status">
+                      {!khoanConKhop ? (
+                        <span className="khsx-pill-status khsx-pill-status--warn">
+                          Lưu công đoạn để tính lại tiền công
+                        </span>
+                      ) : row.khoan_dien_giai ? (
+                        <span className="khsx-pill-status khsx-pill-status--ok">
+                          {row.khoan_dien_giai}
+                        </span>
+                      ) : row.khoan_ly_do ? (
+                        <span className="khsx-pill-status khsx-pill-status--error">
+                          {row.khoan_ly_do}
+                        </span>
+                      ) : row.khoan_chon_duoc.length > 1 ? (
+                        <span className="khsx-field__hint">
+                          Tổ có {row.khoan_chon_duoc.length} đầu việc khoán — chọn đúng việc thợ làm để tự động ra tiền công.
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="khsx-subcontract-sync">
+                {/* Hàng 1: Nhà gia công đối tác */}
+                <label className="khsx-field khsx-field--full">
+                  <span className="khsx-field__label">NHÀ GIA CÔNG ĐỐI TÁC</span>
+                  <input
+                    className={`khsx-input-std ${!row.nha_cung_cap ? "khsx-input--bad" : ""}`}
+                    value={row.nha_cung_cap}
+                    disabled={!canUpdate}
+                    placeholder="Nhập tên cơ sở / nhà máy gia công đối tác..."
+                    onChange={(e) => set("nha_cung_cap", e.target.value)}
+                  />
+                </label>
 
-                    <label className="khsx-field">
-                      <span className="khsx-field__label">Số lượng gửi</span>
+                {/* Hàng 2: Số lượng gửi & Hao hụt cho phép */}
+                <div className="khsx-subcontract-grid">
+                  <label className="khsx-field">
+                    <span className="khsx-field__label">SỐ LƯỢNG GỬI GIA CÔNG</span>
+                    <div className="khsx-vattu-input-group">
                       <input
                         type="number"
+                        className="khsx-vattu-num-input"
                         value={row.sl_gui}
-                        placeholder={row.so_luong_vao || "—"}
+                        placeholder={row.so_luong_vao || "0"}
                         disabled={!canUpdate}
                         onChange={(e) => set("sl_gui", e.target.value)}
                       />
-                    </label>
+                      <span className="khsx-vattu-unit-tag">{dvNhan(row.don_vi_vao)}</span>
+                    </div>
+                  </label>
 
-                    <label className="khsx-field">
-                      <span className="khsx-field__label">Hao hụt cho phép</span>
+                  <label className="khsx-field">
+                    <span className="khsx-field__label">HAO HỤT CHO PHÉP</span>
+                    <div className="khsx-vattu-input-group">
                       <input
                         type="number"
+                        min="0"
+                        className="khsx-vattu-num-input"
                         value={row.hao_hut_cho_phep}
                         placeholder="0"
                         disabled={!canUpdate}
                         onChange={(e) => set("hao_hut_cho_phep", e.target.value)}
                       />
-                    </label>
+                      <span className="khsx-vattu-unit-tag">{dvNhan(row.don_vi_vao)}</span>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Hàng 3: Thẻ Lịch trình tiến độ gia công dạng 2 Cột rộng rãi */}
+                <div className="khsx-subcontract-schedule-card">
+                  <div className="khsx-schedule-card__head">
+                    <span className="khsx-field__label">LỊCH TRÌNH TIẾN ĐỘ GIA CÔNG DỰ KIẾN</span>
+                    {canUpdate && ngayNhanGoiY && ngayNhanGoiY !== row.ngay_nhan_dk && (
+                      <button
+                        type="button"
+                        className="khsx-btn-suggest-pill"
+                        onClick={() => set("ngay_nhan_dk", ngayNhanGoiY)}
+                      >
+                        ⚡ Áp dụng gợi ý: <strong>{ngayNhanGoiY}</strong>
+                      </button>
+                    )}
                   </div>
 
-                  {/* Thanh Tiến Độ Mini 4 Mốc Gia Công */}
-                  <div className="khsx-subcontract-timeline">
-                    <span className="khsx-timeline-title">LỊCH TRÌNH THUÊ NGOÀI DỰ KIẾN</span>
-                    <div className="khsx-timeline-steps">
-                      <div className="khsx-timeline-step">
-                        <span className="khsx-timeline-step__label">Gửi đi</span>
-                        <input
-                          type="date"
-                          className={`khsx-timeline-input ${!row.ngay_gui_dk ? "khsx-input--bad" : ""}`}
-                          value={row.ngay_gui_dk}
-                          disabled={!canUpdate}
-                          onChange={(e) => set("ngay_gui_dk", e.target.value)}
-                        />
-                      </div>
-                      <div className="khsx-timeline-arrow">➔</div>
-                      <div className="khsx-timeline-step">
-                        <span className="khsx-timeline-step__label">Vận chuyển (ngày)</span>
+                  <div className="khsx-schedule-grid">
+                    <label className="khsx-field">
+                      <span className="khsx-field__label">NGÀY GỬI ĐI</span>
+                      <input
+                        type="date"
+                        className={`khsx-input-std ${!row.ngay_gui_dk ? "khsx-input--bad" : ""}`}
+                        value={row.ngay_gui_dk}
+                        disabled={!canUpdate}
+                        onChange={(e) => set("ngay_gui_dk", e.target.value)}
+                      />
+                    </label>
+
+                    <label className="khsx-field">
+                      <span className="khsx-field__label">NGÀY NHẬN LẠI</span>
+                      <input
+                        type="date"
+                        className={`khsx-input-std ${!row.ngay_nhan_dk ? "khsx-input--bad" : ""}`}
+                        value={row.ngay_nhan_dk}
+                        disabled={!canUpdate}
+                        onChange={(e) => set("ngay_nhan_dk", e.target.value)}
+                      />
+                    </label>
+
+                    <label className="khsx-field">
+                      <span className="khsx-field__label">THỜI GIAN VẬN CHUYỂN</span>
+                      <div className="khsx-vattu-input-group">
                         <input
                           type="number"
                           step="0.5"
-                          className="khsx-timeline-input"
+                          min="0"
+                          className="khsx-vattu-num-input"
                           value={row.van_chuyen_ngay}
                           placeholder="0"
                           disabled={!canUpdate}
                           onChange={(e) => set("van_chuyen_ngay", e.target.value)}
                         />
+                        <span className="khsx-vattu-unit-tag">ngày</span>
                       </div>
-                      <div className="khsx-timeline-arrow">➔</div>
-                      <div className="khsx-timeline-step">
-                        <span className="khsx-timeline-step__label">Gia công (ngày)</span>
+                    </label>
+
+                    <label className="khsx-field">
+                      <span className="khsx-field__label">THỜI GIAN GIA CÔNG</span>
+                      <div className="khsx-vattu-input-group">
                         <input
                           type="number"
                           step="0.5"
-                          className="khsx-timeline-input"
+                          min="0"
+                          className="khsx-vattu-num-input"
                           value={row.gia_cong_ngay}
                           placeholder="0"
                           disabled={!canUpdate}
                           onChange={(e) => set("gia_cong_ngay", e.target.value)}
                         />
+                        <span className="khsx-vattu-unit-tag">ngày</span>
                       </div>
-                      <div className="khsx-timeline-arrow">➔</div>
-                      <div className="khsx-timeline-step">
-                        <span className="khsx-timeline-step__label">Nhận lại</span>
-                        <input
-                          type="date"
-                          className={`khsx-timeline-input ${!row.ngay_nhan_dk ? "khsx-input--bad" : ""}`}
-                          value={row.ngay_nhan_dk}
-                          disabled={!canUpdate}
-                          onChange={(e) => set("ngay_nhan_dk", e.target.value)}
-                        />
-                      </div>
-                    </div>
-
-                    {canUpdate && ngayNhanGoiY && ngayNhanGoiY !== row.ngay_nhan_dk && (
-                      <div className="khsx-timeline-suggest">
-                        <button
-                          type="button"
-                          className="khsx-btn-suggest"
-                          onClick={() => set("ngay_nhan_dk", ngayNhanGoiY)}
-                        >
-                          Áp dụng ngày gợi ý: {ngayNhanGoiY} (Gửi + Vận chuyển × 2 + Gia công)
-                        </button>
-                      </div>
-                    )}
+                    </label>
                   </div>
+                </div>
 
-                  <div className="khsx-form khsx-form--top-gap">
-                    <label className="khsx-field">
-                      <span className="khsx-field__label">Đơn giá gia công</span>
+                {/* Hàng 4: Đơn giá & Yêu cầu kỹ thuật */}
+                <div className="khsx-subcontract-grid">
+                  <label className="khsx-field khsx-field--full">
+                    <span className="khsx-field__label">ĐƠN GIÁ GIA CÔNG (VNĐ)</span>
+                    <div className="khsx-vattu-input-group">
                       <input
                         type="number"
+                        min="0"
+                        className="khsx-vattu-num-input"
                         value={row.don_gia_gia_cong}
                         placeholder="0"
                         disabled={!canUpdate}
                         onChange={(e) => set("don_gia_gia_cong", e.target.value)}
                       />
-                    </label>
+                      <span className="khsx-vattu-unit-tag">đ/{dvNhan(row.don_vi_vao) || "đơn vị"}</span>
+                    </div>
+                  </label>
 
-                    <label className="khsx-field khsx-field--wide">
-                      <span className="khsx-field__label">Yêu cầu kỹ thuật gửi đối tác</span>
-                      <textarea
-                        rows={2}
-                        value={row.yeu_cau_ky_thuat}
-                        disabled={!canUpdate}
-                        placeholder="vd: màng mờ mịn, không bong tróc mép, đóng gói 500 cái/tập"
-                        onChange={(e) => set("yeu_cau_ky_thuat", e.target.value)}
-                      />
-                    </label>
-                  </div>
+                  <label className="khsx-field khsx-field--full">
+                    <span className="khsx-field__label">YÊU CẦU KÝ THUẬT GỬI ĐỐI TÁC</span>
+                    <textarea
+                      className="khsx-textarea-std"
+                      rows={2}
+                      value={row.yeu_cau_ky_thuat}
+                      disabled={!canUpdate}
+                      placeholder="vd: màng mờ mịn, không bong tróc mép, đóng gói 500 cái/tập..."
+                      onChange={(e) => set("yeu_cau_ky_thuat", e.target.value)}
+                    />
+                  </label>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </Nhom>
 
           {/* --- 4. Vật tư --- */}
           <Nhom id="sec-vat-tu" title="Vật tư cần dùng">
-            <p className="khsx-nhom__sub">Nhu cầu vật tư riêng biệt của công đoạn này.</p>
-            <div className="khsx-vattu-list">
-              {row.vat_tus.map((v, i) => (
-                <div className="khsx-vattu-row" key={v.vat_tu_id}>
-                  <div className="khsx-vattu-row__info">
-                    <span className="khsx-vattu-row__code">{v.vat_tu_ma}</span>
-                    <span className="khsx-vattu-row__name">{v.vat_tu_ten}</span>
-                  </div>
-                  <div className="khsx-vattu-row__actions">
-                    <input
-                      type="number"
-                      min="0.001"
-                      step="any"
-                      className="khsx-vattu-input"
-                      value={v.so_luong}
-                      disabled={!canUpdate}
-                      onChange={(e) =>
-                        set(
-                          "vat_tus",
-                          row.vat_tus.map((x, j) =>
-                            j === i ? { ...x, so_luong: e.target.value } : x,
-                          ),
-                        )
-                      }
-                    />
-                    <span className="khsx-unit-badge">{v.don_vi}</span>
-                    {canUpdate && (
-                      <button
-                        type="button"
-                        className="khsx-btn-icon-danger"
-                        title="Xóa vật tư"
-                        onClick={() =>
-                          set(
-                            "vat_tus",
-                            row.vat_tus.filter((_, j) => j !== i),
-                          )
-                        }
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M18 6L6 18M6 6l12 12" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-
-              {canUpdate && vatTuRefs && (
-                <div className="khsx-vattu-add">
-                  <span className="khsx-field__label">Thêm vật tư vào công đoạn</span>
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      const item = vatTuRefs.find((v) => v.id === Number(e.target.value));
-                      if (item && !row.vat_tus.some((v) => v.vat_tu_id === item.id)) {
-                        set("vat_tus", [
-                          ...row.vat_tus,
-                          {
-                            vat_tu_id: item.id,
-                            vat_tu_ma: item.ma ?? "",
-                            vat_tu_ten: item.ten,
-                            don_vi: item.donVi ?? "",
-                            so_luong: "",
-                          },
-                        ]);
-                      }
-                    }}
-                  >
-                    <option value="">— chọn từ danh mục vật tư in ấn —</option>
-                    {vatTuRefs
-                      .filter((x) => !row.vat_tus.some((v) => v.vat_tu_id === x.id))
-                      .map((x) => (
-                        <option key={x.id} value={x.id}>
-                          {x.ma} · {x.ten} ({x.donVi})
-                        </option>
-                      ))}
-                  </select>
+            <div className="khsx-vattu-section">
+              <p className="khsx-nhom__sub">Nhu cầu vật tư riêng biệt của công đoạn này.</p>
+              
+              {row.vat_tus.length > 0 && (
+                <div className="khsx-vattu-table-head">
+                  <span>VẬT TƯ & QUY CÁCH</span>
+                  <span>ĐỊNH MỨC TIÊU HAO</span>
                 </div>
               )}
+
+              <div className="khsx-vattu-list">
+                {row.vat_tus.map((v, i) => (
+                  <div className="khsx-vattu-card" key={v.vat_tu_id}>
+                    <div className="khsx-vattu-card__info">
+                      <span className="khsx-vattu-card__code">{v.vat_tu_ma}</span>
+                      <span className="khsx-vattu-card__name">{v.vat_tu_ten}</span>
+                    </div>
+
+                    <div className="khsx-vattu-card__actions">
+                      <div className="khsx-vattu-input-group">
+                        <input
+                          type="number"
+                          min="0.001"
+                          step="any"
+                          className="khsx-vattu-num-input"
+                          value={v.so_luong}
+                          placeholder="0"
+                          disabled={!canUpdate}
+                          onChange={(e) =>
+                            set(
+                              "vat_tus",
+                              row.vat_tus.map((x, j) =>
+                                j === i ? { ...x, so_luong: e.target.value } : x,
+                              ),
+                            )
+                          }
+                        />
+                        <span className="khsx-vattu-unit-tag">{dvNhan(v.don_vi)}</span>
+                      </div>
+
+                      {canUpdate && (
+                        <button
+                          type="button"
+                          className="khsx-vattu-del-btn"
+                          title="Xóa vật tư khỏi công đoạn"
+                          onClick={() =>
+                            set(
+                              "vat_tus",
+                              row.vat_tus.filter((_, j) => j !== i),
+                            )
+                          }
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M18 6L6 18M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {canUpdate && vatTuRefs && (
+                  <div className="khsx-vattu-add-box">
+                    <span className="khsx-vattu-add-label">+ THÊM VẬT TƯ VÀO CÔNG ĐOẠN</span>
+                    <select
+                      className="khsx-vattu-select-add"
+                      value=""
+                      onChange={(e) => {
+                        const item = vatTuRefs.find((v) => v.id === Number(e.target.value));
+                        if (item && !row.vat_tus.some((v) => v.vat_tu_id === item.id)) {
+                          set("vat_tus", [
+                            ...row.vat_tus,
+                            {
+                              vat_tu_id: item.id,
+                              vat_tu_ma: item.ma ?? "",
+                              vat_tu_ten: item.ten,
+                              don_vi: item.donVi ?? "",
+                              so_luong: "",
+                            },
+                          ]);
+                        }
+                      }}
+                    >
+                      <option value="">— chọn từ danh mục vật tư in ấn —</option>
+                      {vatTuRefs
+                        .filter((x) => !row.vat_tus.some((v) => v.vat_tu_id === x.id))
+                        .map((x) => (
+                          <option key={x.id} value={x.id}>
+                            {x.ma} · {x.ten} ({dvNhan(x.donVi)})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                )}
+              </div>
             </div>
           </Nhom>
 
@@ -911,11 +954,14 @@ export function LsxBuocDrawer({
 
           {/* --- 6. Năng suất & thời gian --- */}
           <Nhom id="sec-thoi-gian" title="Thời gian & Năng suất">
-            <div className="khsx-form">
+            <div className="khsx-thoi-gian-grid">
+              {/* Hàng 1 */}
               <label className="khsx-field">
-                <span className="khsx-field__label">Chuẩn bị / Setup (phút)</span>
+                <span className="khsx-field__label">CHUẨN BỊ / SETUP (PHÚT)</span>
                 <input
                   type="number"
+                  min="0"
+                  className="khsx-input-std"
                   value={row.setup_phut}
                   placeholder="0"
                   disabled={!canUpdate}
@@ -923,26 +969,36 @@ export function LsxBuocDrawer({
                 />
               </label>
 
-              {row.loai_buoc === "may" && (
+              {row.loai_buoc === "may" ? (
                 <label className="khsx-field">
-                  <span className="khsx-field__label">Số lượt chạy qua máy</span>
+                  <span className="khsx-field__label">SỐ LƯỢT CHẠY QUA MÁY</span>
                   <input
                     type="number"
                     min="1"
+                    className="khsx-input-std"
                     value={row.so_luot_chay}
                     placeholder="1"
                     disabled={!canUpdate}
                     onChange={(e) => set("so_luot_chay", e.target.value)}
                   />
                 </label>
+              ) : (
+                <div className="khsx-field" />
               )}
 
+              {/* Hàng 2 */}
               <label className="khsx-field">
-                <span className="khsx-field__label">Năng suất kế hoạch</span>
-                <div className="khsx-inline">
-                  <input type="number" value={row.nang_suat} placeholder="—" disabled />
+                <span className="khsx-field__label">NĂNG SUẤT KẾ HOẠCH</span>
+                <div className="khsx-input-unit-combine">
+                  <input
+                    type="number"
+                    className="khsx-input-combine__num"
+                    value={row.nang_suat}
+                    placeholder="—"
+                    disabled
+                  />
                   <select
-                    className="khsx-inline__unit"
+                    className="khsx-input-combine__unit"
                     value={row.don_vi_nang_suat}
                     disabled
                     aria-label="Đơn vị năng suất"
@@ -955,107 +1011,112 @@ export function LsxBuocDrawer({
                     ))}
                   </select>
                 </div>
-                <span className="khsx-field__hint">
-                  {row.loai_buoc === "may"
-                    ? "Kế thừa từ tốc độ chuẩn của máy."
-                    : row.loai_buoc === "to"
-                    ? "Kế thừa từ định mức đầu việc khoán."
-                    : "Không áp dụng cho bước thuê ngoài."}
-                </span>
+                <span className="khsx-field__hint">Tự động kế thừa từ máy / tổ</span>
               </label>
 
-              <label className="khsx-field">
-                <span className="khsx-field__label">Thời gian chạy (phút)</span>
+              <label className="khsx-field khsx-field--highlight-input">
+                <span className="khsx-field__label">THỜI GIAN CHẠY (PHÚT)</span>
                 <input
                   type="number"
+                  min="0"
+                  className="khsx-input-std khsx-input-std--bold"
                   value={row.chay_phut}
                   placeholder={t.chay > 0 ? String(Math.round(t.chay)) : "—"}
                   disabled={!canUpdate}
                   onChange={(e) => set("chay_phut", e.target.value)}
                 />
-                <span className="khsx-field__hint">
-                  Để trống = tự động tính từ năng suất. Gõ số vào = ghi đè thời gian chạy.
-                </span>
+                <span className="khsx-field__hint">Nhập đè = ghi đè thời gian chạy</span>
               </label>
 
+              {/* Hàng 3 */}
               <label className="khsx-field">
-                <span className="khsx-field__label">Vệ sinh / chuyển đổi (phút)</span>
+                <span className="khsx-field__label">VỆ SINH / CHUYỂN ĐỔI (PHÚT)</span>
                 <input
                   type="number"
+                  min="0"
+                  className="khsx-input-std"
                   value={row.ve_sinh_phut}
                   placeholder="0"
                   disabled={!canUpdate}
-                  onChange={(e) => set("ve_sinh_phut", e.target.value)}
+                  onChange={(e) => set("ve_sinh_phut", Math.max(0, Number(e.target.value) || 0).toString())}
                 />
               </label>
 
               <label className="khsx-field">
-                <span className="khsx-field__label">Chờ kỹ thuật (phút)</span>
+                <span className="khsx-field__label">CHỜ KỸ THUẬT (PHÚT)</span>
                 <input
                   type="number"
+                  min="0"
+                  className="khsx-input-std"
                   value={row.cho_phut}
                   placeholder="0"
                   disabled={!canUpdate}
-                  onChange={(e) => set("cho_phut", e.target.value)}
+                  onChange={(e) => set("cho_phut", Math.max(0, Number(e.target.value) || 0).toString())}
                 />
-                <span className="khsx-field__hint">Khô mực / khô keo — không chiếm dụng máy.</span>
+                <span className="khsx-field__hint">Khô mực / keo (không chiếm máy)</span>
               </label>
 
-              <label className="khsx-field">
-                <span className="khsx-field__label">Di chuyển sang bước sau (phút)</span>
+              {/* Hàng 4 */}
+              <label className="khsx-field khsx-field--full">
+                <span className="khsx-field__label">DI CHUYỂN SANG BƯỚC SAU (PHÚT)</span>
                 <input
                   type="number"
+                  min="0"
+                  className="khsx-input-std"
                   value={row.di_chuyen_phut}
                   placeholder="0"
                   disabled={!canUpdate}
-                  onChange={(e) => set("di_chuyen_phut", e.target.value)}
+                  onChange={(e) => set("di_chuyen_phut", Math.max(0, Number(e.target.value) || 0).toString())}
                 />
               </label>
             </div>
 
-            {/* Thanh Phân Bổ Thời Gian Đồ Họa Nằm Ngang (Time Distribution Bar) */}
+            {/* Thanh Phân Bổ Thời Gian Executive */}
             <div className="khsx-time-analytics">
-              <span className="khsx-time-analytics__title">PHÂN BỔ THỜI GIAN KẾ HOẠCH</span>
+              <div className="khsx-time-analytics__head">
+                <span className="khsx-time-analytics__title">PHÂN BỔ THỜI GIAN KẾ HOẠCH</span>
+                <span className="khsx-time-analytics__sum">{phut(t.tong)}</span>
+              </div>
               <div className="khsx-time-bar">
                 <div
                   className="khsx-time-bar__seg khsx-time-bar__seg--setup"
                   style={{ width: `${timeBreakdown.pctSetup}%` }}
-                  title={`Setup: ${timeBreakdown.setup} phút`}
+                  title={`Setup: ${timeBreakdown.setup}m`}
                 />
                 <div
                   className="khsx-time-bar__seg khsx-time-bar__seg--chay"
                   style={{ width: `${timeBreakdown.pctChay}%` }}
-                  title={`Chạy: ${timeBreakdown.chay} phút`}
+                  title={`Chạy: ${timeBreakdown.chay}m`}
                 />
                 <div
                   className="khsx-time-bar__seg khsx-time-bar__seg--vesinh"
                   style={{ width: `${timeBreakdown.pctVeSinh}%` }}
-                  title={`Vệ sinh: ${timeBreakdown.veSinh} phút`}
+                  title={`Vệ sinh: ${timeBreakdown.veSinh}m`}
                 />
                 <div
                   className="khsx-time-bar__seg khsx-time-bar__seg--cho"
                   style={{ width: `${timeBreakdown.pctCho}%` }}
-                  title={`Chờ / Di chuyển: ${timeBreakdown.cho + timeBreakdown.diChuyen} phút`}
+                  title={`Chờ / Di chuyển: ${timeBreakdown.cho + timeBreakdown.diChuyen}m`}
                 />
               </div>
 
               <div className="khsx-time-legend">
                 <span className="khsx-legend-item khsx-legend-item--setup">
-                  Setup {num(timeBreakdown.setup)}m
+                  Setup <strong>{num(timeBreakdown.setup)}m</strong>
                 </span>
                 <span className="khsx-legend-item khsx-legend-item--chay">
-                  Chạy {num(timeBreakdown.chay)}m
+                  Chạy <strong>{num(timeBreakdown.chay)}m</strong>
                 </span>
                 <span className="khsx-legend-item khsx-legend-item--vesinh">
-                  Vệ sinh {num(timeBreakdown.veSinh)}m
+                  Vệ sinh <strong>{num(timeBreakdown.veSinh)}m</strong>
                 </span>
                 <span className="khsx-legend-item khsx-legend-item--cho">
-                  Chờ/Di chuyển {num(timeBreakdown.cho + timeBreakdown.diChuyen)}m
+                  Chờ/Di chuyển <strong>{num(timeBreakdown.cho + timeBreakdown.diChuyen)}m</strong>
                 </span>
               </div>
             </div>
 
-            {/* Bảng Giải Trình Công Thức Tính & Thời Gian Tổng */}
+            {/* Giải Trình KPI Dual Cards */}
             <div className="khsx-tinh">
               {Array.isArray(tg.canh_bao) &&
                 tg.canh_bao.map((warning) => (
@@ -1108,12 +1169,6 @@ export function LsxBuocDrawer({
                   </span>
                 </div>
               </div>
-
-              {canUpdate && (
-                <p className="khsx-field__hint khsx-hint-center">
-                  Sửa số rồi bấm <strong>Lưu công đoạn</strong> ở bảng chính để tính lại diễn giải.
-                </p>
-              )}
             </div>
           </Nhom>
         </div>

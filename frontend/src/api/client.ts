@@ -249,7 +249,23 @@ export const LSX_DON_VI_LABELS: Record<string, string> = {
   cai: "Tờ thành phẩm (con)",
   kem: "Kẽm",
   bai: "Bài",
+  ban: "Bản",
+  kg: "kg",
+  m2: "m²",
+  m3: "m³",
+  met: "Mét",
+  m: "m",
+  cuon: "Cuộn",
+  hop: "Hộp",
+  ram: "Ram",
+  bo: "Bộ",
+  khuon: "Khuôn",
+  lo: "Lô",
+  thung: "Thùng",
+  bao: "Bao",
+  kg_giay: "kg",
 };
+
 
 /** Nhãn + màu của loại bước. `tone` map sang class `.khsx-lb--{tone}` trong ke-hoach-sx.css. */
 export const LSX_LOAI_BUOC_META: Record<LsxLoaiBuoc, { label: string; tone: string; hint: string }> = {

@@ -1699,51 +1699,129 @@
   font-weight: var(--fw-bold);
 }
 
-/* Checkbox Bước Bắt Buộc Fix */
-.khsx-field--check-card {
-  grid-column: 1 / -1 !important;
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: flex-start !important;
-  gap: 12px !important;
-  padding: 12px 16px !important;
+/* Pixel-Perfect Aligned Grid for Section Nhận diện */
+.khsx-nhan-dien-grid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 12px 16px !important;
+  align-items: start !important;
+}
+
+.khsx-select-std,
+.khsx-input-std {
+  width: 100% !important;
+  height: 36px !important;
+  box-sizing: border-box !important;
+  padding: 0 12px !important;
+  font-size: 13px !important;
+  color: var(--ink) !important;
   border: 1px solid var(--rule-soft) !important;
-  border-radius: 10px !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  outline: none !important;
+}
+.khsx-select-std:focus,
+.khsx-input-std:focus {
+  border-color: var(--rust-deep) !important;
+}
+
+.khsx-seg-std {
+  display: flex !important;
+  height: 36px !important;
+  box-sizing: border-box !important;
+  padding: 2px !important;
+  border-radius: 8px !important;
+  background: var(--paper-contrast, #f1f3f5) !important;
+  border: 1px solid var(--rule-soft) !important;
+}
+.khsx-seg-std button {
+  flex: 1 1 0 !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: var(--ash) !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+.khsx-seg-std button.is-active {
+  background: #ffffff !important;
+  color: var(--rust-deep, #942b17) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+  font-weight: 700 !important;
+}
+
+.khsx-check-box-std {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  height: 36px !important;
+  box-sizing: border-box !important;
+  padding: 0 12px !important;
+  border: 1px solid var(--rule-soft) !important;
+  border-radius: 8px !important;
   background: #ffffff !important;
   cursor: pointer !important;
   transition: all 0.15s ease !important;
-  margin: 4px 0 !important;
 }
-.khsx-field--check-card:hover {
+.khsx-check-box-std:hover {
   border-color: var(--rule) !important;
   background: var(--paper-contrast, #f8f9fa) !important;
 }
-.khsx-field--check-card input[type="checkbox"] {
-  width: 18px !important;
-  height: 18px !important;
-  margin-top: 2px !important;
-  flex: 0 0 auto !important;
+.khsx-check-box-std input[type="checkbox"] {
+  width: 16px !important;
+  height: 16px !important;
   accent-color: var(--rust-deep, #942b17) !important;
   cursor: pointer !important;
+  flex: 0 0 auto !important;
 }
-.khsx-check-card__info {
+.khsx-check-label-text {
+  font-size: 12px !important;
+  color: var(--ink) !important;
+  white-space: nowrap !important;
+}
+
+/* Synchronized Subcontracting Layout 100% Standard */
+.khsx-subcontract-sync {
+  grid-column: 1 / -1 !important;
+  width: 100% !important;
   display: flex !important;
   flex-direction: column !important;
-  gap: 2px !important;
+  gap: 10px !important;
 }
-.khsx-check-card__title {
-  display: block !important;
-  font-size: 13px !important;
-  font-weight: var(--fw-bold) !important;
-  color: var(--ink) !important;
-  line-height: 1.3 !important;
+
+.khsx-subcontract-grid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 8px 12px !important;
 }
-.khsx-check-card__sub {
-  display: block !important;
-  font-size: 12px !important;
-  color: var(--ash) !important;
-  line-height: 1.4 !important;
+
+.khsx-subcontract-schedule-card {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  padding: 12px 14px !important;
+  border: 1px solid var(--rule-soft) !important;
+  border-radius: 8px !important;
+  background: var(--paper-contrast, #f8f9fa) !important;
 }
+
+.khsx-schedule-card__head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+}
+
+.khsx-schedule-grid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 10px 12px !important;
+}
+
+
+
 
 /* Executive Metric Cards Container */
 .khsx-metric-cards-container {
@@ -2040,85 +2118,180 @@
 }
 .khsx-btn-suggest:hover { color: var(--rust-deep); }
 
-/* Vật tư List Row & Add Section Fix */
+/* Executive Material Inventory Section */
+.khsx-vattu-section {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+.khsx-vattu-table-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 0 8px 4px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
+  color: var(--ash-2, #888) !important;
+  border-bottom: 1px solid var(--rule-soft) !important;
+}
+
 .khsx-vattu-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
 }
-.khsx-vattu-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
-  border: 1px solid var(--rule-soft);
-  border-radius: 8px;
-  background: #ffffff;
+
+.khsx-vattu-card {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 10px 14px !important;
+  border: 1px solid var(--rule-soft) !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+  transition: all 0.15s ease !important;
 }
-.khsx-vattu-row__info {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.khsx-vattu-card:hover {
+  border-color: var(--rule) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04) !important;
 }
-.khsx-vattu-row__code {
-  font-size: 11px;
-  font-weight: var(--fw-bold);
-  color: var(--ash);
-  background: var(--paper-contrast);
-  padding: 2px 6px;
-  border-radius: 4px;
+
+.khsx-vattu-card__info {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  min-width: 0 !important;
+  flex: 1 1 auto !important;
 }
-.khsx-vattu-row__name {
-  font-size: 13px;
-  font-weight: var(--fw-medium);
-  color: var(--ink);
+
+.khsx-vattu-card__code {
+  font-family: var(--ff-mono, monospace) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: var(--steel, #3b82f6) !important;
+  background: #eff6ff !important;
+  padding: 3px 8px !important;
+  border-radius: 6px !important;
+  border: 1px solid #dbeafe !important;
+  white-space: nowrap !important;
+  letter-spacing: 0.03em !important;
 }
-.khsx-vattu-row__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+
+.khsx-vattu-card__name {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--ink) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
 }
-.khsx-vattu-input {
-  width: 90px;
-  padding: 4px 8px;
-  font-size: 13px;
-  font-weight: var(--fw-bold);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  border: 1px solid var(--rule);
-  border-radius: 6px;
+
+.khsx-vattu-card__actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex: 0 0 auto !important;
 }
-.khsx-btn-icon-danger {
-  background: none;
-  border: none;
-  color: var(--ash);
-  padding: 4px;
-  cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.15s ease;
+
+.khsx-vattu-input-group {
+  display: flex !important;
+  align-items: center !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  background: #ffffff !important;
+  transition: border-color 0.15s ease !important;
 }
-.khsx-btn-icon-danger:hover {
-  color: #c5221f;
-  background: #fce8e6;
+.khsx-vattu-input-group:focus-within {
+  border-color: var(--rust-deep, #942b17) !important;
+  box-shadow: 0 0 0 3px rgba(148, 43, 23, 0.1) !important;
 }
-.khsx-vattu-add {
+
+.khsx-vattu-num-input {
+  width: 85px !important;
+  height: 32px !important;
+  padding: 0 8px !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  text-align: right !important;
+  color: var(--ink) !important;
+  font-variant-numeric: tabular-nums !important;
+  border: none !important;
+  outline: none !important;
+  background: transparent !important;
+}
+
+.khsx-vattu-unit-tag {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 32px !important;
+  padding: 0 10px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: var(--ash) !important;
+  background: var(--paper-contrast, #f1f3f5) !important;
+  border-left: 1px solid var(--rule-soft) !important;
+  white-space: nowrap !important;
+}
+
+.khsx-vattu-del-btn {
+  width: 32px !important;
+  height: 32px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: var(--ash-2, #aaa) !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+.khsx-vattu-del-btn:hover {
+  color: #c5221f !important;
+  background: #fce8e6 !important;
+  border-color: #fca5a5 !important;
+}
+
+.khsx-vattu-add-box {
   display: flex !important;
   flex-direction: column !important;
   gap: 6px !important;
-  margin-top: 12px !important;
-  padding-top: 12px !important;
+  margin-top: 10px !important;
+  padding-top: 10px !important;
   border-top: 1px dashed var(--rule-soft) !important;
-  width: 100% !important;
 }
-.khsx-vattu-add select {
+
+.khsx-vattu-add-label {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
+  color: var(--ash) !important;
+}
+
+.khsx-vattu-select-add {
   width: 100% !important;
-  box-sizing: border-box !important;
-  padding: 8px 12px !important;
+  height: 36px !important;
+  padding: 0 12px !important;
   font-size: 13px !important;
-  border: 1px solid var(--rule-soft) !important;
+  color: var(--ink) !important;
+  border: 1px dashed var(--rule) !important;
   border-radius: 8px !important;
+  background: #fafafa !important;
+  cursor: pointer !important;
+  outline: none !important;
+  transition: all 0.15s ease !important;
+}
+.khsx-vattu-select-add:hover {
+  border-color: var(--rust-deep) !important;
   background: #ffffff !important;
 }
+
 
 /* DAG Group Cards & Chips */
 .khsx-dag-groups {
@@ -2143,6 +2316,142 @@
   flex-wrap: wrap !important;
   gap: 8px !important;
 }
+
+/* Executive Time & Capacity Grid */
+.khsx-thoi-gian-grid {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 12px 16px !important;
+  align-items: start !important;
+}
+
+.khsx-field--full {
+  grid-column: 1 / -1 !important;
+}
+
+.khsx-input-unit-combine {
+  display: flex !important;
+  align-items: center !important;
+  height: 36px !important;
+  border: 1px solid var(--rule-soft) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  background: var(--paper-contrast, #f8f9fa) !important;
+}
+
+.khsx-input-combine__num {
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  padding: 0 10px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: var(--ink) !important;
+  font-variant-numeric: tabular-nums !important;
+  border: none !important;
+  outline: none !important;
+  background: transparent !important;
+}
+
+.khsx-input-combine__unit {
+  height: 100% !important;
+  padding: 0 8px !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: var(--ash) !important;
+  background: #ffffff !important;
+  border: none !important;
+  border-left: 1px solid var(--rule-soft) !important;
+  outline: none !important;
+}
+
+.khsx-field--highlight-input .khsx-input-std {
+  border-color: var(--rust-soft, #fca5a5) !important;
+  background: #fffcfc !important;
+  font-weight: 700 !important;
+}
+
+/* Executive Time Analytics Graphic */
+.khsx-time-analytics {
+  margin-top: 14px !important;
+  padding: 14px 16px !important;
+  border: 1px solid var(--rule-soft) !important;
+  border-radius: 12px !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02) !important;
+}
+
+.khsx-time-analytics__head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  margin-bottom: 8px !important;
+}
+
+.khsx-time-analytics__title {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.05em !important;
+  color: var(--ash) !important;
+}
+
+.khsx-time-analytics__sum {
+  font-size: 13px !important;
+  font-weight: 800 !important;
+  color: var(--ink) !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+.khsx-time-bar {
+  height: 10px !important;
+  width: 100% !important;
+  border-radius: 6px !important;
+  background: var(--paper-contrast, #e9ecef) !important;
+  display: flex !important;
+  overflow: hidden !important;
+}
+
+.khsx-time-bar__seg {
+  height: 100% !important;
+  transition: width 0.3s ease !important;
+}
+.khsx-time-bar__seg--setup { background: #f59e0b !important; }
+.khsx-time-bar__seg--chay { background: #3b82f6 !important; }
+.khsx-time-bar__seg--vesinh { background: #10b981 !important; }
+.khsx-time-bar__seg--cho { background: #8b5cf6 !important; }
+
+.khsx-time-legend {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 12px !important;
+  margin-top: 10px !important;
+  font-size: 12px !important;
+}
+
+.khsx-legend-item {
+  font-size: 11px !important;
+  color: var(--ash) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+.khsx-legend-item::before {
+  content: "" !important;
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  flex: 0 0 auto !important;
+}
+.khsx-legend-item--setup::before { background: #f59e0b !important; }
+.khsx-legend-item--chay::before { background: #3b82f6 !important; }
+.khsx-legend-item--vesinh::before { background: #10b981 !important; }
+.khsx-legend-item--cho::before { background: #8b5cf6 !important; }
+
+.khsx-legend-item strong {
+  color: var(--ink) !important;
+  font-weight: 700 !important;
+}
+
+
 .khsx-dag-chip {
   display: inline-flex !important;
   align-items: center !important;
