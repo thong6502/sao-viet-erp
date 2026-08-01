@@ -98,11 +98,34 @@ class LeadTimeOut(BaseModel):
     ngay_con_lai: int | None = None   # tới `han_giao_khach`; âm = đã trễ
 
 
+class LsxBuocVatTuIn(BaseModel):
+    vat_tu_id: int
+    so_luong: float = Field(gt=0)
+
+
+class LsxBuocVatTuOut(BaseModel):
+    id: int
+    vat_tu_id: int
+    vat_tu_ma: str
+    vat_tu_ten: str
+    don_vi: str
+    so_luong: float
+
+
+class PhuThuocOption(BaseModel):
+    lsx_id: int
+    lsx_ma: str
+    nhom: str | None = None
+    step_key: str
+    ten_buoc: str
+    thu_tu: int
+
+
 class LsxCongDoanIn(BaseModel):
-    """1 dòng routing client gửi lên (REPLACE-ALL). Field nào bỏ trống thì server điền mặc định
-    từ danh mục — không bắt người dùng khai lại thứ đã có."""
+    """Một dòng routing client gửi lên để upsert tại chỗ theo ``step_key``."""
 
     thu_tu: int | None = None
+    step_key: str | None = None
     cong_doan_id: int | None = None
     ten: str | None = None
     nhom: str | None = None
@@ -131,8 +154,6 @@ class LsxCongDoanIn(BaseModel):
     ve_sinh_phut: float | None = Field(default=None, ge=0)
     cho_phut: float | None = Field(default=None, ge=0)
     di_chuyen_phut: float | None = Field(default=None, ge=0)
-    # Điều kiện bắt đầu (§4.5)
-    dieu_kien_json: list[str] | None = None
     # Gia công ngoài (§8)
     nha_cung_cap: str | None = None
     sl_gui: float | None = Field(default=None, ge=0)
@@ -145,12 +166,15 @@ class LsxCongDoanIn(BaseModel):
     yeu_cau_ky_thuat: str | None = None
     nguoi_giao_nhan_id: int | None = None
     ghi_chu: str | None = None
+    phu_thuoc_step_keys: list[str] | None = None
+    vat_tus: list[LsxBuocVatTuIn] | None = None
 
 
 class LsxCongDoanOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    step_key: str
     thu_tu: int
     cong_doan_id: int | None = None
     ten: str
@@ -164,8 +188,10 @@ class LsxCongDoanOut(BaseModel):
 
     so_luong_vao: float
     so_luong_ra: float
-    don_vi_vao: str
-    don_vi_ra: str
+    # NULL = bước KHÔNG CHẠM GIẤY (chế bản đếm kẽm) → đứng ngoài chuỗi tính ngược. Khai `str`
+    # cứng thì mọi lần mở chi tiết lệnh có bước chế bản là 500.
+    don_vi_vao: str | None = None
+    don_vi_ra: str | None = None
     he_so_quy_doi: float
     hao_hut: float
     hao_hut_pct: float
@@ -173,6 +199,8 @@ class LsxCongDoanOut(BaseModel):
     so_luot_chay: int = 1
 
     so_nhan_cong: int = 1
+    so_nhan_cong_tieu_chuan: int = 1
+    so_nhan_cong_toi_da: int | None = None
     setup_phut: float = 0
     nang_suat: float | None = None
     don_vi_nang_suat: str | None = None
@@ -183,8 +211,7 @@ class LsxCongDoanOut(BaseModel):
     # derived — chiếm máy ĂN capacity; tổng thêm chờ + di chuyển (KHÔNG ăn capacity)
     chiem_may_phut: float = 0
     tong_phut: float = 0
-
-    dieu_kien_json: list[str] = Field(default_factory=list)
+    thoi_luong_dien_giai: dict = Field(default_factory=dict)
 
     nha_cung_cap: str | None = None
     sl_gui: float | None = None
@@ -215,6 +242,8 @@ class LsxCongDoanOut(BaseModel):
     # Không quy đổi được thì nói THIẾU GÌ, không đoán số.
     khoan_thieu: list[str] = Field(default_factory=list)
     khoan_ly_do: str | None = None
+    phu_thuoc_step_keys: list[str] = Field(default_factory=list)
+    vat_tus: list[LsxBuocVatTuOut] = Field(default_factory=list)
 
 
 class LsxListItem(BaseModel):
@@ -337,8 +366,8 @@ class TinhNguocRow(BaseModel):
     ten: str
     so_luong_vao: float
     so_luong_ra: float
-    don_vi_vao: str
-    don_vi_ra: str
+    don_vi_vao: str | None = None
+    don_vi_ra: str | None = None
 
 
 class TinhNguocOut(BaseModel):
@@ -360,13 +389,16 @@ class BuocMacDinhOut(BaseModel):
     loai_buoc: str
     department_id: int | None = None
     may_id: int | None = None
-    don_vi_vao: str
-    don_vi_ra: str
+    don_vi_vao: str | None = None
+    don_vi_ra: str | None = None
     he_so_quy_doi: float
     setup_phut: float
     nang_suat: float | None = None
     don_vi_nang_suat: str | None = None
     ve_sinh_phut: float
+    so_nhan_cong: int = 1
+    so_nhan_cong_tieu_chuan: int = 1
+    so_nhan_cong_toi_da: int | None = None
 
 
 class TrangThaiIn(BaseModel):

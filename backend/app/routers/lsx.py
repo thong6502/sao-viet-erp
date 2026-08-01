@@ -33,6 +33,7 @@ from ..schemas.lsx import (
     LsxOut,
     LsxUpdateIn,
     PreviewOut,
+    PhuThuocOption,
     RoutingReplaceIn,
     TaoLsxIn,
     TinhNguocOut,
@@ -181,6 +182,41 @@ def get_item(
         raise _map(exc)
     _guard_scope(db, lsx, user, authz)
     return _out(svc, lsx)
+
+
+@router.get("/{lsx_id}/phu-thuoc-options", response_model=list[PhuThuocOption])
+def phu_thuoc_options(
+    lsx_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> list[PhuThuocOption]:
+    svc = _svc(db)
+    try:
+        _guard_scope(db, svc.get(lsx_id), user, authz)
+        return [PhuThuocOption.model_validate(x) for x in svc.phu_thuoc_options(lsx_id)]
+    except Exception as exc:
+        raise _map(exc)
+
+
+@router.get("/{lsx_id}/dau-viec-options")
+def dau_viec_options(
+    lsx_id: int,
+    cong_doan_id: int,
+    department_id: int | None,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> list[dict]:
+    """Đầu việc khoán hợp lệ sau khi kế hoạch đổi tổ của một bước LSX."""
+    svc = _svc(db)
+    try:
+        _guard_scope(db, svc.get(lsx_id), user, authz)
+        return svc.dau_viec_options(
+            lsx_id=lsx_id, cong_doan_id=cong_doan_id, department_id=department_id,
+        )
+    except Exception as exc:
+        raise _map(exc)
 
 
 @router.put("/{lsx_id}", response_model=LsxOut)

@@ -89,6 +89,8 @@ export const CFG_MAY: CatalogConfig = {
     // Máy chưa có số thì lệnh sản xuất bỏ trống thời gian chạy, Gantt sau này vẽ thanh rỗng.
     { key: "toc_do", label: "Tốc độ",
       render: (r) => (r.toc_do ? `${Number(r.toc_do).toLocaleString("vi-VN")} tờ/giờ` : "—") },
+    { key: "so_nhan_cong", label: "Kíp chuẩn",
+      render: (r) => `${Math.max(1, Math.ceil(Number(r.so_nhan_cong) || 1))} người` },
   ],
   // Lọc theo Nhóm máy. `dynamic` vì ô này gõ TỰ DO: nhóm chủ xưởng tự đặt vẫn có tab riêng,
   // không bị rơi ra ngoài như khi khai cứng 5 giá trị gợi ý.
@@ -147,6 +149,9 @@ export const CFG_MAY: CatalogConfig = {
     // ── Tốc độ & thời gian → nuôi thẳng thời lượng bước ở Lệnh sản xuất ───────
     { key: "toc_do", label: "Tốc độ chạy (tờ/giờ)", type: "number", group: "Tốc độ & thời gian",
       hint: "Tính theo LƯỢT qua máy — in 2 mặt thì mỗi tờ chạy 2 lượt. Bỏ trống thì lệnh sản xuất để trống thời gian chạy." },
+    { key: "so_nhan_cong", label: "Số người vận hành tiêu chuẩn", type: "number", required: true,
+      default: 1, group: "Tốc độ & thời gian",
+      hint: "Kíp nhân lực chuẩn để vận hành máy. Số người này dùng lập kế hoạch nhân lực, không nhân tốc độ máy." },
     { key: "thoi_gian_rua_muc", label: "Thời gian rửa mực (phút)", type: "number", group: "Tốc độ & thời gian",
       showIf: (f) => isMayIn(f.loai_may),
       hint: "Vệ sinh máy sau khi in xong — cộng vào thời gian chiếm máy" },
@@ -185,13 +190,11 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "department_id", label: "Phòng ban / Tổ phụ trách", type: "ref", refPrefix: "/api/cong-doan/phong-ban", group: "Thông tin",
       hint: "Tổ/bộ phận sẽ nhận việc công đoạn này khi phát lệnh sản xuất" },
 
-    // ── Số nuôi thẳng thời lượng bước ở Lệnh sản xuất (giá trị MẶC ĐỊNH, kế hoạch sửa được) ────
+    // ── Nguồn nuôi thẳng thời lượng bước ở Lệnh sản xuất ──────────────────────────────────────
     { key: "setup_time", label: "Thời gian chuẩn bị (phút)", type: "number", group: "Lệnh sản xuất",
       hint: "Canh máy trước khi chạy — tính MỘT LẦN cho cả lệnh, không nhân theo số lượng" },
-    { key: "may_id", label: "Máy mặc định", type: "ref", refPrefix: "/api/may-thiet-bi", group: "Lệnh sản xuất",
-      hint: "Bung lệnh là tự gán máy này. Bỏ trống thì bước in vẫn lấy máy đã chọn ở phiếu tính giá." },
-    { key: "nang_suat", label: "Năng suất mỗi giờ", type: "number", group: "Lệnh sản xuất",
-      hint: "Đơn vị đi theo đầu vào của bước: chế bản = kẽm/giờ · in, cán, bế = tờ/giờ · dán, đóng gói = con/giờ. Bước có máy thì lấy tốc độ máy — ô này dành cho việc LÀM TAY." },
+    { key: "dau_viec_dinh_muc", label: "Đầu việc và định mức của tổ", type: "dau-viec-dinh-muc",
+      refPrefix: "/api/cong-doan/dau-viec", group: "Lệnh sản xuất" },
 
     // CHỈ TÍNH THEO CÔNG THỨC: đã bỏ ô 'Cách tính giá' / 'Đơn giá' / 'Bậc kích thước'.
     // Đơn giá nhập per-phiếu (mỗi dòng phiếu tính giá tự mang don_gia); công đoạn chỉ khai CÔNG THỨC.
@@ -215,6 +218,8 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   // CHỈ TÍNH THEO CÔNG THỨC: công đoạn luôn ở chế độ sản lượng + basis 'per_other' (giá phẳng/công
   // thức) để backend không chặn E-CD-BASIS. Dọn run_rate/size_tiers (đơn giá nay nhập per-phiếu).
   transformSubmit: (body) => {
+    body.department_id = body.department_id ?? null;
+    body.dau_viec_dinh_muc = body.dau_viec_dinh_muc ?? [];
     body.che_do_tinh = "theo_san_luong";
     body.pricing_basis = "per_other";
     body.run_rate = null;

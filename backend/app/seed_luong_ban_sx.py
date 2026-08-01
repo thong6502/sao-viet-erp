@@ -25,7 +25,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models.cong_doan import CongDoan
+from .models.cong_doan import CongDoan, CongDoanDauViec
 from .models.customer import Customer
 from .models.khuon_be import KhuonBe
 from .models.loai_san_pham import LoaiSanPham
@@ -121,7 +121,6 @@ def _ensure_cong_doan(db: Session) -> dict[str, int]:
     """Bổ sung công đoạn khâu sách/thẻ (idempotent theo mã). Trả map mã → id của MỌI công đoạn."""
     from .models.department import Department
 
-    may_ids = {m.ma: m.id for m in db.execute(select(MayThietBi)).scalars()}
     to_ids = {d.name: d.id for d in db.execute(select(Department)).scalars()}
     co_san = {c.ma: c for c in db.execute(select(CongDoan)).scalars()}
     for (ma, ten, nhom, ct, rate, setup, ns, may_ma, to_ten, kieu_bh, so_to_bh,
@@ -131,7 +130,6 @@ def _ensure_cong_doan(db: Session) -> dict[str, int]:
         db.add(CongDoan(
             ma=ma, ten=ten, nhom=nhom, che_do_tinh="theo_san_luong", pricing_basis="per_other",
             cong_thuc_gia=ct, run_rate=rate, setup_time=setup, nang_suat=ns,
-            may_id=may_ids.get(may_ma) if may_ma else None,
             department_id=to_ids.get(to_ten),
             kieu_bu_hao=kieu_bh, so_to_bu_hao=so_to_bh,
             requires_tooling=tooling, tooling_type=tooling_type, ghi_chu=ghi_chu,
@@ -191,6 +189,25 @@ def _ensure_don_gia_khoan(db: Session) -> None:
     if rows:
         db.add_all(rows)
         db.commit()
+
+
+def _ensure_dinh_muc_to(db: Session) -> None:
+    """Mồi định mức cho demo từ chính đầu việc của tổ; không ghép đầu việc khác tổ."""
+    from .models.piece_work import PieceRate
+    rates = list(db.execute(select(PieceRate).where(PieceRate.is_active.is_(True))).scalars())
+    by_dept: dict[int, list[PieceRate]] = {}
+    for r in rates:
+        if r.department_id:
+            by_dept.setdefault(r.department_id, []).append(r)
+    for cd in db.execute(select(CongDoan)).scalars():
+        if cd.dau_viec_dinh_muc or not cd.department_id:
+            continue
+        for i, rate in enumerate(by_dept.get(cd.department_id, [])):
+            cd.dau_viec_dinh_muc.append(CongDoanDauViec(
+                piece_rate_id=rate.id, nang_suat_nguoi_gio=float(cd.nang_suat or 500),
+                so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3, is_default=i == 0,
+            ))
+    db.commit()
 
 
 def _ensure_loai_the(db: Session) -> int | None:
@@ -258,7 +275,7 @@ def _tao_phieu_tinh_gia(db: Session, *, cd: dict[str, int], sale_id: int | None,
     # ── ① RUỘT SÁCH — 160 trang A5 trên tờ 65×86: 16 con/mặt = tay 32 trang → 5 tay/cuốn ──────
     ruot = PhieuThanhPhan(
         thu_tu=0, loai_thanh_phan="ruot", ten="Ruột sách 160 trang",
-        kho_thanh_pham="14,5×20,5 cm (A5)", dai_thanh_pham=205, rong_thanh_pham=145,
+        dai_thanh_pham=205, rong_thanh_pham=145,
         so_to_per_sp=5,              # 160 trang ÷ 32 trang/tay = 5 bài in, mỗi bài 1 bộ kẽm
         so_luong=SL_SACH, don_vi_tinh="cuốn", nhom_bao_gia=NHOM_SACH,
         loai_san_pham_id=lsp_sach_id,
@@ -286,8 +303,7 @@ def _tao_phieu_tinh_gia(db: Session, *, cd: dict[str, int], sale_id: int | None,
     # ── ② BÌA SÁCH — bìa rời, khổ mở 300×205 (2 tay + gáy 10mm), Couché 300 cán màng mờ ───────
     bia = PhieuThanhPhan(
         thu_tu=1, loai_thanh_phan="bia", ten="Bìa sách (bìa rời, cán màng mờ)",
-        kho_thanh_pham="30×20,5 cm (khổ mở)", kho_mo_rong="300×205 mm (2 tay + gáy 10mm)",
-        dai_thanh_pham=300, rong_thanh_pham=205,
+        dai_thanh_pham=300, rong_thanh_pham=205,   # khổ MỞ của bìa (2 tay + gáy 10mm)
         so_to_per_sp=1, so_luong=SL_SACH, don_vi_tinh="cuốn", nhom_bao_gia=NHOM_SACH,
         loai_san_pham_id=lsp_sach_id,
         giay_id=(couche300.id if couche300 else None), kho_nguyen="650×860",
@@ -308,7 +324,7 @@ def _tao_phieu_tinh_gia(db: Session, *, cd: dict[str, int], sale_id: int | None,
     # ── ③ THẺ NHÂN VIÊN — 54×86mm (khổ CR80), Couché 300, cán mờ 2 mặt, bế góc tròn ───────────
     the = PhieuThanhPhan(
         thu_tu=2, loai_thanh_phan="to_roi", ten="Thẻ nhân viên 54×86mm",
-        kho_thanh_pham="5,4×8,6 cm", dai_thanh_pham=86, rong_thanh_pham=54,
+        dai_thanh_pham=86, rong_thanh_pham=54,
         so_to_per_sp=1, so_luong=SL_THE, don_vi_tinh="thẻ",
         loai_san_pham_id=lsp_the_id,
         giay_id=(couche300.id if couche300 else None), kho_nguyen="650×860",
@@ -355,7 +371,7 @@ def _tao_phieu_the_bo_sung(db: Session, *, cd: dict[str, int], sale_id: int | No
     )
     the = PhieuThanhPhan(
         thu_tu=0, loai_thanh_phan="to_roi", ten="Thẻ nhân viên 54×86mm (đợt 2)",
-        kho_thanh_pham="5,4×8,6 cm", dai_thanh_pham=86, rong_thanh_pham=54,
+        dai_thanh_pham=86, rong_thanh_pham=54,
         so_to_per_sp=1, so_luong=SL_THE_BO_SUNG, don_vi_tinh="thẻ",
         loai_san_pham_id=lsp_the_id,
         giay_id=(couche300.id if couche300 else None), kho_nguyen="650×860",
@@ -403,7 +419,7 @@ def _tao_bao_gia(db: Session, *, ptg: PhieuTinhGia, khach: Customer, sale_id: in
         DEFAULT_TERMS, Quote, QuoteActivityLog, QuoteItem, QuoteVersion,
         STATUS_ACCEPTED, VERSION_STATUS_ACCEPTED,
     )
-    from .services.quotation_service import QuotationService, dien_giai_tu_thanh_phan
+    from .services.quotation_service import QuotationService, _kho_tp, dien_giai_tu_thanh_phan
 
     sent = created + timedelta(days=1)
     accepted = created + timedelta(days=3)
@@ -445,7 +461,7 @@ def _tao_bao_gia(db: Session, *, ptg: PhieuTinhGia, khach: Customer, sale_id: in
             quote_version_id=v.id, phieu_thanh_phan_id=tp.id, line_no=pos + 1,
             product_type=tp.loai_thanh_phan or "san_pham",
             product_name=tp.ten or ptg.ten_san_pham,
-            product_spec_text=tp.kho_thanh_pham,
+            product_spec_text=_kho_tp(tp),
             dien_giai=dien_giai_tu_thanh_phan(db, tp),
             nhom=tp.nhom_bao_gia,
             quantity=qty, unit=tp.don_vi_tinh or "cái",
@@ -648,6 +664,7 @@ def seed_luong_ban_sx(db: Session) -> None:
     cd = _ensure_cong_doan(db)
     _ensure_may_nang_luc(db)
     _ensure_don_gia_khoan(db)   # bảng khoán của tổ → bước lệnh tự điền được đầu việc lúc bung
+    _ensure_dinh_muc_to(db)
 
     can_luong_du = not _co_phieu(db, TEN_PHIEU)
     can_luong_cho = not _co_phieu(db, TEN_PHIEU_BO_SUNG)

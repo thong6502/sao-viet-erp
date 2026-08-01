@@ -169,11 +169,8 @@ interface EditableComponent {
   loai_thanh_phan: string;
   ten: string;
   // Thành phẩm ③
-  kho_thanh_pham: string; // nhãn tự do
   dai_thanh_pham: number; // mm
   rong_thanh_pham: number; // mm
-  kho_mo_rong: string;
-  tay_gap: string;
   so_to_per_sp: number;
   so_luong: number; // SL đặt của SP này (0 = lấy SL mặc định phiếu)
   don_vi_tinh: string; // ĐVT sản phẩm (text tự do, mặc định "cái") → chảy sang Báo giá
@@ -235,11 +232,8 @@ function blankComponent(ten = ""): EditableComponent {
     uid: nextUid(),
     loai_thanh_phan: "to_roi",
     ten,
-    kho_thanh_pham: "",
     dai_thanh_pham: 0,
     rong_thanh_pham: 0,
-    kho_mo_rong: "",
-    tay_gap: "",
     so_to_per_sp: 1,
     so_luong: 0,
     don_vi_tinh: "cái",
@@ -304,11 +298,8 @@ function fromComponent(c: ThanhPhanOut): EditableComponent {
     uid: nextUid(),
     loai_thanh_phan: c.loai_thanh_phan ?? "to_roi",
     ten: c.ten ?? "",
-    kho_thanh_pham: c.kho_thanh_pham ?? "",
     dai_thanh_pham: c.dai_thanh_pham ?? 0,
     rong_thanh_pham: c.rong_thanh_pham ?? 0,
-    kho_mo_rong: c.kho_mo_rong ?? "",
-    tay_gap: c.tay_gap ?? "",
     so_to_per_sp: c.so_to_per_sp ?? 1,
     so_luong: c.so_luong ?? 0,
     don_vi_tinh: c.don_vi_tinh ?? "cái",
@@ -347,11 +338,8 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
   return {
     loai_thanh_phan: c.loai_thanh_phan,
     ten: c.ten,
-    kho_thanh_pham: c.kho_thanh_pham.trim() || null,
     dai_thanh_pham: c.dai_thanh_pham,
     rong_thanh_pham: c.rong_thanh_pham,
-    kho_mo_rong: c.kho_mo_rong.trim() || null,
-    tay_gap: c.tay_gap.trim() || null,
     so_to_per_sp: c.so_to_per_sp,
     so_luong: c.so_luong,
     don_vi_tinh: c.don_vi_tinh.trim() || "cái",
@@ -1902,9 +1890,10 @@ function ComponentModal({
                         />
                       )}
                     </div>
-                    {/* Ô "Tay gấp" (chữ tự do) ĐÃ GỠ 2026-07-29: không vào công thức giá, lại
-                        đụng nghĩa với "trang mỗi tay" của trợ lý ngay cạnh. Cột `tay_gap` GIỮ
-                        NGUYÊN + vẫn gửi lên (dữ liệu phiếu cũ không mất, lệnh SX vẫn đọc được). */}
+                    {/* Ô "Tay gấp" gỡ 2026-07-29 (đụng nghĩa với "trang mỗi tay" của trợ lý cạnh
+                        đây). Cột `tay_gap` — cùng `kho_thanh_pham` / `kho_mo_rong` — nay DROP hẳn
+                        ở mig 0144: từ khi gỡ ô nhập thì phiếu mới luôn rỗng, mà bản lệnh vẫn vẽ ra
+                        ba dòng "—" làm người đọc tưởng phiếu có khai. */}
                     {/* Số bài in nhân cả tờ giấy LẪN kẽm (gõ nhầm 50 thay vì 7 là kẽm phồng 7 lần)
                         → dòng này LUÔN hiện để nói rõ phải điền GÌ, không chỉ nói hậu quả. */}
                     {/* Chú thích NẰM CẠNH ô (span-8, cùng hàng) chứ không phải dòng dưới cả hàng

@@ -79,11 +79,11 @@ class PhieuThanhPhan(Base):
     thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     loai_thanh_phan: Mapped[str] = mapped_column(String(30), nullable=False, default="to_roi")
     ten: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    kho_thanh_pham: Mapped[str | None] = mapped_column(String(100), nullable=True)  # nhãn tự do hiển thị
+    # `kho_thanh_pham` / `kho_mo_rong` / `tay_gap` đã DROP (mig 0144): ô nhập gỡ từ 2026-07-29 nên
+    # phiếu mới luôn rỗng, mà bản lệnh vẫn vẽ ra ba dòng "—". Khổ thành phẩm THẬT là
+    # `dai_thanh_pham` / `rong_thanh_pham` ngay dưới (mm, nuôi bình bài).
     dai_thanh_pham: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # mm — khổ thành phẩm ③ (bình bài)
     rong_thanh_pham: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # mm ★
-    kho_mo_rong: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    tay_gap: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # Số BÀI IN (khuôn) mỗi sản phẩm — mỗi bài 1 bộ kẽm. Sách: số tay. KHÔNG phải số tờ giấy.
     so_to_per_sp: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     so_luong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # SL đặt của SẢN PHẨM này (0 = lấy SL mặc định phiếu)

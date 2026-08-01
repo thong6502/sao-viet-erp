@@ -35,6 +35,30 @@ class CongDoanService:
             raise CongDoanValidationError("Tên công đoạn không được trống.")
         if data.get("nhom") not in NHOM:
             raise CongDoanValidationError("Nhóm công đoạn không hợp lệ.")
+        dinh_muc = data.get("dau_viec_dinh_muc") or []
+        if dinh_muc:
+            if data.get("department_id") is None:
+                raise CongDoanValidationError("Muốn khai định mức đầu việc phải chọn tổ phụ trách.")
+            ids = [int(r.get("piece_rate_id") or 0) for r in dinh_muc]
+            if len(ids) != len(set(ids)):
+                raise CongDoanValidationError("Một đầu việc không được chọn trùng.")
+            if sum(bool(r.get("is_default")) for r in dinh_muc) > 1:
+                raise CongDoanValidationError("Mỗi công đoạn chỉ có một đầu việc mặc định.")
+            rates = self.repo.piece_rates(set(ids))
+            for r in dinh_muc:
+                rid = int(r.get("piece_rate_id") or 0)
+                rate = rates.get(rid)
+                if rate is None or not rate.is_active:
+                    raise CongDoanValidationError("Đầu việc không tồn tại hoặc đã ngừng dùng.")
+                if rate.department_id != data.get("department_id"):
+                    raise CongDoanValidationError("Đầu việc phải thuộc đúng tổ phụ trách.")
+                ns = float(r.get("nang_suat_nguoi_gio") or 0)
+                tc = int(r.get("so_nguoi_tieu_chuan") or 0)
+                td = int(r.get("so_nguoi_toi_da") or 0)
+                if ns <= 0:
+                    raise CongDoanValidationError("Năng suất một người phải lớn hơn 0.")
+                if tc < 1 or td < tc:
+                    raise CongDoanValidationError("Số người phải thỏa 1 ≤ tiêu chuẩn ≤ tối đa.")
         che_do = data.get("che_do_tinh", "theo_san_luong")
         if che_do not in CHE_DO_TINH:
             raise CongDoanValidationError("Chế độ tính không hợp lệ.")
@@ -73,6 +97,12 @@ class CongDoanService:
 
     def list(self, **kw):
         return self.repo.list(**kw)
+
+    def dau_viec_options(self, department_id: int | None = None) -> list[dict]:
+        return [{"id": r.id, "ma": r.code or f"DV-{r.id}", "ten": r.name,
+                 "department_id": r.department_id, "don_vi": r.unit,
+                 "don_gia": float(r.unit_price)}
+                for r in self.repo.piece_rates_active(department_id)]
 
     def create(self, data: dict) -> CongDoan:
         self._validate(data)

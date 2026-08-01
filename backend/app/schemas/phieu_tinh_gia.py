@@ -75,11 +75,8 @@ class ThanhPhanIn(BaseModel):
     thu_tu: int | None = None
     loai_thanh_phan: str | None = None
     ten: str | None = None
-    kho_thanh_pham: str | None = None
     dai_thanh_pham: int | None = None
     rong_thanh_pham: int | None = None
-    kho_mo_rong: str | None = None
-    tay_gap: str | None = None
     so_to_per_sp: int | None = Field(default=None, ge=1)
     so_luong: int | None = Field(default=None, ge=0)   # SL của sản phẩm này
     don_vi_tinh: str | None = Field(default=None, max_length=30)   # ĐVT sản phẩm (text tự do)
@@ -128,11 +125,8 @@ class ThanhPhanOut(BaseModel):
     thu_tu: int
     loai_thanh_phan: str
     ten: str
-    kho_thanh_pham: str | None = None
     dai_thanh_pham: int
     rong_thanh_pham: int
-    kho_mo_rong: str | None = None
-    tay_gap: str | None = None
     so_to_per_sp: int
     so_luong: int
     don_vi_tinh: str = "cái"

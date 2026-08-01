@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
@@ -1151,6 +1152,64 @@ def _migrate_cong_doan_don_vi(db: Session) -> None:
         for col in ("don_vi_vao", "don_vi_ra"):
             db.execute(text(f"ALTER TABLE lsx_cong_doan ALTER COLUMN {col} TYPE VARCHAR(12)"))
         db.commit()
+
+
+def _migrate_ptg_drop_kho_tp_mo_rong_tay_gap(db: Session) -> None:
+    """Bỏ 3 cột khỏi sản phẩm của phiếu: `kho_thanh_pham` · `kho_mo_rong` · `tay_gap`.
+
+    Ô nhập của cả ba đã gỡ khỏi màn phiếu tính giá từ 2026-07-29; từ đó cột chỉ còn được chép qua
+    chép lại, phiếu mới luôn rỗng — nhưng bản Lệnh sản xuất vẫn vẽ ba dòng "Khổ thành phẩm / Khổ
+    mở rộng / Tay gấp" nên người đọc tưởng phiếu có khai mà thực ra là "—".
+
+    MẤT GÌ: phiếu cũ có `kho_thanh_pham` dạng nhãn chữ ("14,5×20,5 cm (A5)", "30×20,5 cm (khổ
+    mở)") — phần SỐ trùng hoàn toàn với `dai_thanh_pham`/`rong_thanh_pham` (mm) vẫn còn, chỉ mất
+    chú thích trong ngoặc. `kho_mo_rong`/`tay_gap` rỗng ở mọi dòng.
+
+    Lệnh SX cũ giữ nguyên nhãn đó trong `quy_cach_json` (JSON không bị migration đụng), chỉ là màn
+    lệnh thôi vẽ ra.
+
+    KHÔNG đụng `phieu_tinh_gia.kho_thanh_pham` (cấp phiếu, cột khác) — nó nằm ngoài phạm vi chốt.
+
+    Best-effort mỗi câu (SQLite cũ có thể từ chối DROP COLUMN → cột mồ côi vô hại vì model không
+    map). No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "phieu_thanh_phan")
+    for c in ("kho_thanh_pham", "kho_mo_rong", "tay_gap"):
+        if c not in cols:
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE phieu_thanh_phan DROP COLUMN {c}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+def _migrate_lsx_cong_doan_don_vi_nullable(db: Session) -> None:
+    """Bước lệnh: `don_vi_vao`/`don_vi_ra` cho phép NULL = bước KHÔNG CHẠM GIẤY.
+
+    Đơn vị bước nay KẾ THỪA từ `cong_doan` và chỉ có 3 mức của dòng giấy (`to_nguyen` → `to` →
+    `cai`). Bước chế bản đếm kẽm — không nằm trên dòng giấy — nên để TRỐNG, thay vì rơi về `to`
+    rồi hiện "4 tờ → 4 tờ" (số 4 là số KẼM).
+
+    `DROP NOT NULL` là Postgres-only: SQLite không ép nên pytest xanh dù chưa chạy — phải kiểm
+    bằng `psql`.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "lsx_cong_doan" not in insp.get_table_names():
+        return
+    if (bind.dialect.name or "").startswith("postgres"):
+        for col in ("don_vi_vao", "don_vi_ra"):
+            db.execute(text(f"ALTER TABLE lsx_cong_doan ALTER COLUMN {col} DROP NOT NULL"))
+            db.execute(text(f"ALTER TABLE lsx_cong_doan ALTER COLUMN {col} DROP DEFAULT"))
+        db.commit()
+    # Bước thuộc công đoạn chế bản → về TRỐNG. Dùng `nhom` của chính dòng bước (đã chụp lúc tạo)
+    # để khỏi phụ thuộc công đoạn còn sống hay đã xoá.
+    db.execute(text("UPDATE lsx_cong_doan SET don_vi_vao = NULL, don_vi_ra = NULL "
+                    "WHERE nhom = 'prepress'"))
+    db.commit()
 
 
 def _migrate_purchase_line_discount_vat(db: Session) -> None:
@@ -4391,6 +4450,115 @@ def _migrate_lsx_drop_may_thay_the(db: Session) -> None:
         db.rollback()
 
 
+def _migrate_khsx_dinh_muc_vat_tu_phu_thuoc(db: Session) -> None:
+    """KHSX động: định mức đầu việc, step key, vật tư bước và DAG phụ thuộc."""
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    # SQLite chỉ tự tăng với đúng `INTEGER PRIMARY KEY`; PostgreSQL cần identity/serial.
+    id_pk = "INTEGER PRIMARY KEY" if db.get_bind().dialect.name == "sqlite" else "SERIAL PRIMARY KEY"
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS cong_doan_dau_viec ("
+        f"id {id_pk}, cong_doan_id INTEGER NOT NULL REFERENCES cong_doan(id) ON DELETE CASCADE, "
+        "piece_rate_id INTEGER NOT NULL, nang_suat_nguoi_gio NUMERIC(14,2) NOT NULL, "
+        "so_nguoi_tieu_chuan INTEGER NOT NULL DEFAULT 1, so_nguoi_toi_da INTEGER NOT NULL DEFAULT 1, "
+        "is_default BOOLEAN NOT NULL DEFAULT false, UNIQUE(cong_doan_id,piece_rate_id))"
+    ))
+    if "piece_rates" in tables and "cong_doan" in tables:
+        rows = db.execute(text(
+            "SELECT c.id,c.department_id,c.nang_suat FROM cong_doan c "
+            "WHERE c.department_id IS NOT NULL AND c.nang_suat IS NOT NULL AND c.nang_suat>0"
+        )).all()
+        for cid, did, ns in rows:
+            rates = db.execute(text(
+                "SELECT id FROM piece_rates WHERE department_id=:d AND is_active=true"
+            ), {"d": did}).all()
+            if len(rates) == 1:
+                db.execute(text(
+                    "INSERT INTO cong_doan_dau_viec "
+                    "(cong_doan_id,piece_rate_id,nang_suat_nguoi_gio,so_nguoi_tieu_chuan,so_nguoi_toi_da,is_default) "
+                    "SELECT :c,:r,:n,1,1,true WHERE NOT EXISTS (SELECT 1 FROM cong_doan_dau_viec "
+                    "WHERE cong_doan_id=:c AND piece_rate_id=:r)"
+                ), {"c": cid, "r": rates[0][0], "n": ns})
+
+    if "lsx_cong_doan" in tables:
+        cols = _existing_columns(insp, "lsx_cong_doan")
+        if "step_key" not in cols:
+            db.execute(text("ALTER TABLE lsx_cong_doan ADD COLUMN step_key VARCHAR(36)"))
+        if "so_nhan_cong_tieu_chuan" not in cols:
+            db.execute(text("ALTER TABLE lsx_cong_doan ADD COLUMN so_nhan_cong_tieu_chuan INTEGER NOT NULL DEFAULT 1"))
+        if "so_nhan_cong_toi_da" not in cols:
+            db.execute(text("ALTER TABLE lsx_cong_doan ADD COLUMN so_nhan_cong_toi_da INTEGER"))
+        for (sid,) in db.execute(text("SELECT id FROM lsx_cong_doan WHERE step_key IS NULL OR step_key=''")):
+            db.execute(text("UPDATE lsx_cong_doan SET step_key=:k WHERE id=:i"),
+                       {"k": str(uuid4()), "i": sid})
+        db.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_lsx_cong_doan_step_key ON lsx_cong_doan(step_key)"))
+        db.execute(text(
+            "UPDATE lsx_cong_doan SET so_nhan_cong_tieu_chuan=CASE WHEN so_nhan_cong<1 THEN 1 ELSE so_nhan_cong END, "
+            "so_nhan_cong_toi_da=CASE WHEN loai_buoc IN ('to','kcs') THEN "
+            "CASE WHEN so_nhan_cong<1 THEN 1 ELSE so_nhan_cong END ELSE NULL END"
+        ))
+        db.execute(text("UPDATE lsx_cong_doan SET loai_buoc='to' WHERE loai_buoc='kcs'"))
+        db.execute(text("UPDATE lsx_cong_doan SET loai_buoc='may' WHERE loai_buoc='xa_to'"))
+
+        waits = db.execute(text(
+            "SELECT id,lsx_id,thu_tu,setup_phut,chay_phut,ve_sinh_phut,cho_phut,di_chuyen_phut "
+            "FROM lsx_cong_doan WHERE loai_buoc='cho' ORDER BY lsx_id,thu_tu"
+        )).all()
+        for wid, lid, seq, setup, run, clean, wait, move in waits:
+            prev = db.execute(text(
+                "SELECT id FROM lsx_cong_doan WHERE lsx_id=:l AND thu_tu<:s AND loai_buoc<>'cho' "
+                "ORDER BY thu_tu DESC LIMIT 1"
+            ), {"l": lid, "s": seq}).first()
+            if prev is None:
+                raise RuntimeError(f"LSX {lid} có bước Chờ đầu tuyến (id={wid}); cần audit tay trước migration")
+            total = sum(float(x or 0) for x in (setup, run, clean, wait, move))
+            db.execute(text("UPDATE lsx_cong_doan SET cho_phut=cho_phut+:p WHERE id=:i"),
+                       {"p": total, "i": prev[0]})
+            if "xep_lich_cong_doan" in tables:
+                db.execute(text("DELETE FROM xep_lich_cong_doan WHERE lsx_cong_doan_id=:i"), {"i": wid})
+            db.execute(text("DELETE FROM lsx_cong_doan WHERE id=:i"), {"i": wid})
+        gang_ids = [x[0] for x in db.execute(text("SELECT id FROM lsx_cong_doan WHERE loai_buoc='bai_ghep'"))]
+        for sid in gang_ids:
+            if "xep_lich_cong_doan" in tables:
+                db.execute(text("DELETE FROM xep_lich_cong_doan WHERE lsx_cong_doan_id=:i"), {"i": sid})
+            db.execute(text("DELETE FROM lsx_cong_doan WHERE id=:i"), {"i": sid})
+
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS lsx_cong_doan_vat_tu ("
+        f"id {id_pk}, lsx_cong_doan_id INTEGER NOT NULL REFERENCES lsx_cong_doan(id) ON DELETE CASCADE, "
+        "vat_tu_id INTEGER NOT NULL, vat_tu_ma_snapshot VARCHAR(30) NOT NULL, "
+        "vat_tu_ten_snapshot VARCHAR(150) NOT NULL, don_vi_snapshot VARCHAR(16) NOT NULL, "
+        "so_luong NUMERIC(14,3) NOT NULL, thu_tu INTEGER NOT NULL DEFAULT 0, "
+        "UNIQUE(lsx_cong_doan_id,vat_tu_id))"
+    ))
+    db.execute(text(
+        "CREATE TABLE IF NOT EXISTS lsx_cong_doan_phu_thuoc ("
+        f"id {id_pk}, buoc_truoc_id INTEGER NOT NULL REFERENCES lsx_cong_doan(id), "
+        "buoc_sau_id INTEGER NOT NULL REFERENCES lsx_cong_doan(id) ON DELETE CASCADE, "
+        "created_at TIMESTAMP NOT NULL, UNIQUE(buoc_truoc_id,buoc_sau_id))"
+    ))
+    if "lsx_cong_doan" in tables:
+        for (lid,) in db.execute(text("SELECT DISTINCT lsx_id FROM lsx_cong_doan")):
+            ids = [x[0] for x in db.execute(text(
+                "SELECT id FROM lsx_cong_doan WHERE lsx_id=:l ORDER BY thu_tu,id"
+            ), {"l": lid})]
+            for prev, cur in zip(ids, ids[1:]):
+                db.execute(text(
+                    "INSERT INTO lsx_cong_doan_phu_thuoc (buoc_truoc_id,buoc_sau_id,created_at) "
+                    "SELECT :p,:c,CURRENT_TIMESTAMP WHERE NOT EXISTS (SELECT 1 FROM lsx_cong_doan_phu_thuoc "
+                    "WHERE buoc_truoc_id=:p AND buoc_sau_id=:c)"
+                ), {"p": prev, "c": cur})
+    if "xep_lich_cong_doan" in tables:
+        db.execute(text("UPDATE xep_lich_cong_doan SET loai_buoc='to' WHERE loai_buoc='kcs'"))
+        db.execute(text("UPDATE xep_lich_cong_doan SET loai_buoc='may' WHERE loai_buoc='xa_to'"))
+    # Dùng snapshot `cols` đã đọc đầu migration. Gọi `inspect(engine)` lần nữa tại đây sẽ mở
+    # connection thứ hai trong khi transaction hiện tại đang giữ lock UPDATE/ALTER trên chính
+    # bảng này; PostgreSQL khi đó chờ khóa của chính app và startup treo vô hạn.
+    if "lsx_cong_doan" in tables and "dieu_kien_json" in cols:
+        db.execute(text("ALTER TABLE lsx_cong_doan DROP COLUMN dieu_kien_json"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -4647,6 +4815,12 @@ MIGRATIONS: list[tuple[str, callable]] = [
     # Đơn vị vào/ra của công đoạn: KHAI thay vì dò chữ trong tên — để engine tra bù hao đúng đơn vị
     # ở ranh giới tờ nguyên → tờ in → tờ thành phẩm.
     ("0143_cong_doan_don_vi", _migrate_cong_doan_don_vi),
+    # Ba cột chưa từng có ô nhập nhưng vẫn bày ra bản lệnh dưới dạng "—" → bỏ hẳn.
+    ("0144_ptg_drop_kho_tp_mo_rong_tay_gap", _migrate_ptg_drop_kho_tp_mo_rong_tay_gap),
+    # Bước lệnh: đơn vị cho phép TRỐNG = bước không chạm giấy (chế bản đếm kẽm). Đơn vị nay kế
+    # thừa từ danh mục công đoạn, server ghi — client không gửi.
+    ("0145_lsx_cong_doan_don_vi_nullable", _migrate_lsx_cong_doan_don_vi_nullable),
+    ("0146_khsx_dinh_muc_vat_tu_phu_thuoc", _migrate_khsx_dinh_muc_vat_tu_phu_thuoc),
 ]
 
 

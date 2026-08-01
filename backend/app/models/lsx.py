@@ -17,9 +17,10 @@ Gotcha Postgres: Boolean default = `false()`/`true()` của SQLAlchemy, KHÔNG s
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from uuid import uuid4
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text,
+    Boolean, Date, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint,
     false as sa_false, true as sa_true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -62,18 +63,13 @@ DON_VI_CONG_DOAN = (DV_TO_NGUYEN, DV_TO, DV_CAI, DV_KEM, DV_BAI)
 CAU_QUY_DOI = ((DV_TO_NGUYEN, DV_TO), (DV_TO, DV_CAI))
 
 # --- Loại bước (execution type). Quyết định bước CHIẾM cái gì khi lên Gantt — đây là lý do routing
-# tồn tại. Đối chiếu Dynamics 365 BC (nền của print MIS PrintVis): "wait/move time don't consume
-# capacity on the work center calendar" → `cho` chỉ đẩy thời gian, không chiếm tài nguyên nào.
+# tồn tại. Thời gian chờ/di chuyển nằm trên bước và không chiếm năng lực tài nguyên.
 LB_MAY = "may"                 # chiếm MÁY (in, cán, bế, xén)
 LB_TO = "to"                   # chiếm TỔ lao động (dán tay, đóng gói)
 LB_THUE_NGOAI = "thue_ngoai"   # nhà gia công làm — không chiếm máy/tổ nội bộ
-LB_CHO = "cho"                 # chờ kỹ thuật (khô mực, khô keo) — không chiếm gì
-LB_KCS = "kcs"                 # kiểm tra — chiếm tổ
-LB_XA_TO = "xa_to"             # chia/tách bán thành phẩm — chiếm máy xén
-LB_BAI_GHEP = "bai_ghep"       # chạy chung ở bài ghép — khai sẵn, PHA SAU mới sinh
-LOAI_BUOC = (LB_MAY, LB_TO, LB_THUE_NGOAI, LB_CHO, LB_KCS, LB_XA_TO, LB_BAI_GHEP)
+LOAI_BUOC = (LB_MAY, LB_TO, LB_THUE_NGOAI)
 # Bước chiếm tổ (nhiều người làm song song được → `so_nhan_cong` chia thời gian chạy).
-LOAI_BUOC_THEO_TO = (LB_TO, LB_KCS)
+LOAI_BUOC_THEO_TO = (LB_TO,)
 
 # --- Đơn vị năng suất (output/giờ). Khớp `may_thiet_bi.don_vi_toc_do` ở phần dùng được.
 NS_TO_GIO = "to_gio"
@@ -81,18 +77,6 @@ NS_CAI_GIO = "cai_gio"
 NS_KEM_GIO = "kem_gio"
 NS_BAI_GIO = "bai_gio"
 DON_VI_NANG_SUAT = (NS_TO_GIO, NS_CAI_GIO, NS_KEM_GIO, NS_BAI_GIO)
-
-# --- Điều kiện bắt đầu (§4.5) — tập cờ CỐ ĐỊNH, lưu trong `dieu_kien_json`. "Công đoạn trước xong"
-# là mặc định của mô hình tuyến tính nên không có cờ riêng.
-DIEU_KIEN = (
-    "co_vat_tu",         # vật tư (giấy/mực) đã sẵn
-    "file_duyet",        # file khách đã duyệt
-    "kem_xong",          # kẽm đã xuất
-    "khuon_san_sang",    # khuôn bế/ép đã có
-    "mau_mau_ky",        # mẫu màu đã ký
-    "nhan_tu_gia_cong",  # đã nhận bán thành phẩm từ nhà gia công
-)
-
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -189,6 +173,9 @@ class LsxCongDoan(Base):
     __tablename__ = "lsx_cong_doan"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    step_key: Mapped[str] = mapped_column(
+        String(36), unique=True, index=True, nullable=False, default=lambda: str(uuid4())
+    )
     lsx_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("lsx.id", ondelete="CASCADE"), index=True, nullable=False
     )
@@ -213,13 +200,12 @@ class LsxCongDoan(Base):
     # Đơn vị VÀO ≠ RA là chuyện thường ở ranh giới xén/bế: 5.170 tờ vào → 20.680 con ra (hệ số 4).
     so_luong_vao: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     so_luong_ra: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    # KẾ THỪA từ `cong_doan.don_vi_vao/ra`, server ghi — client KHÔNG gửi, drawer không có ô chọn.
+    # Đơn vị vào/ra là bản chất của công đoạn (bế luôn là tờ in → con), không đổi theo từng đơn.
+    # NULL = bước KHÔNG CHẠM GIẤY (chế bản đếm kẽm) → đứng ngoài chuỗi tính ngược.
     # String(12): mã `to_nguyen` dài 9 — VARCHAR(8) cũ CHẬT, Postgres ném lỗi độ dài lúc ghi.
-    don_vi_vao: Mapped[str] = mapped_column(
-        String(12), nullable=False, server_default=DV_TO, default=DV_TO
-    )
-    don_vi_ra: Mapped[str] = mapped_column(
-        String(12), nullable=False, server_default=DV_TO, default=DV_TO
-    )
+    don_vi_vao: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    don_vi_ra: Mapped[str | None] = mapped_column(String(12), nullable=True)
     he_so_quy_doi: Mapped[float] = mapped_column(
         Numeric(12, 4), nullable=False, server_default="1", default=1
     )
@@ -249,6 +235,12 @@ class LsxCongDoan(Base):
     so_nhan_cong: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1", default=1
     )
+    # Snapshot định mức tại lúc bung/chọn đầu việc. Với bước Máy đây là kíp tiêu chuẩn và max=NULL;
+    # với bước Tổ, `toi_da` chặn phần năng suất tăng thêm nhưng không cấm kế hoạch bố trí dư người.
+    so_nhan_cong_tieu_chuan: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1", default=1
+    )
+    so_nhan_cong_toi_da: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # --- Phương thức thực hiện ---
     # ĐẦU VIỆC KHOÁN của bước (`piece_rates`) — kế hoạch chọn "hôm nay bước cán này làm CÁN MỜ hay
@@ -256,9 +248,6 @@ class LsxCongDoan(Base):
     # SNAPSHOT {rate_id, ten, don_vi, don_gia} chứ không đọc-sống: xưởng lên giá khoán về
     # sau KHÔNG được làm xê dịch lệnh đã phát. Tiền khoán là số DẪN XUẤT (tính lúc đọc), không lưu.
     khoan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    # Cờ điều kiện bắt đầu, tập `DIEU_KIEN`.
-    dieu_kien_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
-
     # --- Gia công ngoài (§8) — chỉ dùng khi `loai_buoc = thue_ngoai`. NCC khai TAY (text tự do):
     # cơ sở gia công nhỏ lẻ thường chưa có trong danh mục `suppliers`, chốt không bắt khai trước.
     nha_cung_cap: Mapped[str | None] = mapped_column(String(150), nullable=True)
@@ -282,3 +271,45 @@ class LsxCongDoan(Base):
     )
 
     lsx: Mapped["Lsx"] = relationship("Lsx", back_populates="cong_doans")
+    vat_tus: Mapped[list["LsxCongDoanVatTu"]] = relationship(
+        "LsxCongDoanVatTu", back_populates="buoc", order_by="LsxCongDoanVatTu.thu_tu",
+        cascade="all, delete-orphan",
+    )
+    phu_thuoc: Mapped[list["LsxCongDoanPhuThuoc"]] = relationship(
+        "LsxCongDoanPhuThuoc", foreign_keys="LsxCongDoanPhuThuoc.buoc_sau_id",
+        back_populates="buoc_sau", cascade="all, delete-orphan",
+    )
+
+
+class LsxCongDoanVatTu(Base):
+    __tablename__ = "lsx_cong_doan_vat_tu"
+    __table_args__ = (UniqueConstraint("lsx_cong_doan_id", "vat_tu_id", name="uq_lsx_buoc_vat_tu"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lsx_cong_doan_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("lsx_cong_doan.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    vat_tu_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    vat_tu_ma_snapshot: Mapped[str] = mapped_column(String(30), nullable=False)
+    vat_tu_ten_snapshot: Mapped[str] = mapped_column(String(150), nullable=False)
+    don_vi_snapshot: Mapped[str] = mapped_column(String(16), nullable=False)
+    so_luong: Mapped[float] = mapped_column(Numeric(14, 3), nullable=False)
+    thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    buoc: Mapped["LsxCongDoan"] = relationship("LsxCongDoan", back_populates="vat_tus")
+
+
+class LsxCongDoanPhuThuoc(Base):
+    __tablename__ = "lsx_cong_doan_phu_thuoc"
+    __table_args__ = (UniqueConstraint("buoc_truoc_id", "buoc_sau_id", name="uq_lsx_buoc_phu_thuoc"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    buoc_truoc_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("lsx_cong_doan.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    buoc_sau_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("lsx_cong_doan.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    buoc_sau: Mapped["LsxCongDoan"] = relationship(
+        "LsxCongDoan", foreign_keys=[buoc_sau_id], back_populates="phu_thuoc"
+    )

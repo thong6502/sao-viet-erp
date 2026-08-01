@@ -58,8 +58,10 @@ def _bu_hao_to_dict(b: BuHao) -> dict:
 
 # ============================ Mô hình THEO THÀNH PHẦN ============================
 _TP_SCALAR_FIELDS = (
-    "thu_tu", "loai_thanh_phan", "ten", "kho_thanh_pham", "dai_thanh_pham", "rong_thanh_pham",
-    "kho_mo_rong", "tay_gap", "so_to_per_sp", "so_luong", "loai_san_pham_id",
+    "thu_tu", "loai_thanh_phan", "ten", "dai_thanh_pham", "rong_thanh_pham",
+    # `don_vi_tinh` đi qua engine như mọi trường khác → lệnh sản xuất kế thừa được ĐVT từ PHIẾU,
+    # thôi cảnh mỗi tầng tự lấy một đường rồi không ai kiểm chúng có khớp nhau không.
+    "don_vi_tinh", "so_to_per_sp", "so_luong", "loai_san_pham_id",
     "giay_id", "kho_nguyen", "kho_nguyen_dai", "kho_nguyen_rong", "don_gia_giay",
     "don_gia_don_vi", "nguon_giay", "bu_hao_so_to", "hao_so_to", "tinh_bu_hao_cd",
     "chua_nhip", "bleed_mm", "khe_cat_mm",

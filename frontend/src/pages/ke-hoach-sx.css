@@ -293,7 +293,6 @@
    nói cùng một thứ tiếng. Bước máy/tổ (phần lớn routing) để trơn. */
 .khsx-flow__step--ngoai { background: var(--rust-soft); color: var(--rust-deep); }
 .khsx-flow__step--cho { background: var(--amber-soft); color: var(--amber-deep); }
-.khsx-flow__step--kcs { background: var(--moss-soft); color: var(--moss-deep); }
 .khsx-flow__step--xa { background: var(--plum-soft); color: var(--plum-deep); }
 .khsx-flow__step + .khsx-flow__step::before { content: "›"; color: var(--ash-2); margin-right: 4px; }
 .khsx-flow--none { color: var(--signal); font-size: var(--fs-xs); }
@@ -959,7 +958,6 @@
 .khsx-rt__row td:first-child { border-left: 3px solid transparent; }
 .khsx-rt__row--ngoai td:first-child { border-left-color: var(--rust); }
 .khsx-rt__row--cho td:first-child { border-left-color: var(--amber); }
-.khsx-rt__row--kcs td:first-child { border-left-color: var(--moss); }
 .khsx-rt__row--xa td:first-child { border-left-color: var(--plum); }
 .khsx-rt__row[draggable="true"] { cursor: grab; }
 .khsx-rt__row.is-keo { opacity: 0.45; }
@@ -997,7 +995,6 @@
 .khsx-lb--to { background: var(--rule-hair); color: var(--ash); }
 .khsx-lb--ngoai { background: var(--rust-soft); color: var(--rust-deep); }
 .khsx-lb--cho { background: var(--amber-soft); color: var(--amber-deep); }
-.khsx-lb--kcs { background: var(--moss-soft); color: var(--moss-deep); }
 .khsx-lb--xa { background: var(--plum-soft); color: var(--plum-deep); }
 .khsx-lb--ghep { background: var(--rule-hair); color: var(--ash); }
 .khsx-lb--opt { background: transparent; color: var(--ash); border: 1px dashed var(--rule); }
@@ -1184,6 +1181,36 @@
 .khsx-field__hint { font-size: var(--fs-xs); color: var(--ash); line-height: 1.45; margin-top: 2px; }
 .khsx-input--bad { border-color: var(--signal) !important; }
 
+/* Con/tờ là ô DUY NHẤT sửa được trong khối Quy cách (hệ số cầu tờ in → con) — viền cam mảnh để
+   mắt thấy ngay giữa một lưới toàn số chỉ-đọc. */
+.khsx-kv--edit { border-color: var(--rust-soft, var(--rule-soft)); }
+.khsx-kv__input {
+  width: 100%;
+  min-height: 30px;
+  padding: 2px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+}
+.khsx-kv__input:focus { outline: none; border-color: var(--rust); }
+.khsx-kv__input:disabled { background: var(--paper-contrast); color: var(--ash); }
+
+/* Số DẪN XUẤT trong drawer bước: hiện như text, không phải ô nhập — chuỗi ngược ghi ra chúng. */
+.khsx-readonly {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 32px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Đơn vị dán cạnh ô số */
 .khsx-unit-tag {
   flex: 0 0 auto;
@@ -1245,6 +1272,24 @@
 .khsx-tinh__val { font-size: var(--fs-md); color: var(--ink); }
 .khsx-tinh__row--total .khsx-tinh__val { font-size: var(--fs-lg); font-weight: var(--fw-bold); }
 .khsx-tinh__note { font-size: var(--fs-xs); color: var(--ash); flex: 1 1 200px; }
+.khsx-alert {
+  padding: var(--sp-2) var(--sp-3);
+  border-left: 3px solid var(--warning, #b7791f);
+  background: var(--warning-soft, #fff8e6);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+}
+.khsx-dep-group {
+  margin: 0;
+  padding: var(--sp-2) 0 0;
+  border: 0;
+}
+.khsx-dep-group legend {
+  padding: 0;
+  color: var(--ash);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+}
 
 .khsx-cond {
   display: grid;

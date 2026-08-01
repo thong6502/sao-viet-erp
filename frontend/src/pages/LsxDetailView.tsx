@@ -1,5 +1,5 @@
 // Chi tiết 1 LỆNH SẢN XUẤT — nơi kế hoạch hoàn thiện lệnh trước khi lập kế hoạch.
-// 5 tab: Thông tin chung · Quy cách (read-only từ bài tính giá) · Số lượng & bù hao · Routing · Nhật ký.
+// 4 tab: Thông tin chung · Quy cách · Công đoạn (routing) · Nhật ký.
 // Cột phải: checklist "còn thiếu gì" + nút "Sẵn sàng lập kế hoạch" (CTA duy nhất của màn).
 //
 // Trạng thái `nhap ↔ cho_bo_sung` do SERVER lật sau mỗi lần lưu — client luôn lấy lại từ response,
@@ -34,12 +34,14 @@ import {
   num,
 } from "./keHoachSxShared";
 
-type TabKey = "chung" | "quycach" | "soluong" | "routing" | "nhatky";
+// Tab "Số lượng & bù hao" ĐÃ BỎ: mọi số ở đó nay là dẫn xuất của chuỗi ngược (số tờ in, tờ
+// nguyên, bù hao) và đã hiện ở thanh bên. Ô duy nhất còn gõ được là SL ra của bước CUỐI, nằm
+// trong drawer bước; con/tờ chuyển sang tab Quy cách.
+type TabKey = "chung" | "quycach" | "routing" | "nhatky";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "chung", label: "Thông tin chung" },
   { key: "quycach", label: "Quy cách" },
-  { key: "soluong", label: "Số lượng & bù hao" },
   { key: "routing", label: "Công đoạn" },
   { key: "nhatky", label: "Nhật ký" },
 ];
@@ -66,12 +68,8 @@ interface FormState {
   so_con: string;
 }
 
-/** Số bài in = 1 sản phẩm ăn mấy TỜ IN khác nội dung. Tờ rơi/hộp/name card = 1; sách 200 trang
- *  tay 32 → 7. Bỏ vế này khỏi công thức thì số tờ hụt đúng bấy nhiêu lần. Quy cách cũ chưa có
- *  khoá → coi như 1, không phải 0 (0 sẽ nuốt sạch số tờ). */
-function soBaiIn(qc: Record<string, unknown>): number {
-  return Math.max(Number(qc.so_to_per_sp ?? 1) || 1, 1);
-}
+// `soBaiIn` đã bỏ cùng tab "Số lượng & bù hao": số bài in nay chỉ còn được dùng trong chuỗi
+// ngược ở server (`_ap_chuoi_nguoc`), frontend không tự tính số tờ nữa.
 
 function toForm(d: LsxDetail): FormState {
   return {
@@ -119,6 +117,8 @@ export function LsxDetailView({
   const [toRefs, setToRefs] = useState<RefRow[] | null>(null);
   const [mayRefs, setMayRefs] = useState<RefRow[] | null>(null);
   const [khuonRefs, setKhuonRefs] = useState<RefRow[] | null>(null);
+  const [vatTuRefs, setVatTuRefs] = useState<RefRow[] | null>(null);
+  const [phuThuocRefs, setPhuThuocRefs] = useState<import("../api/client").LsxPhuThuocOption[]>([]);
 
   const load = useCallback(() => {
     if (!token) return;
@@ -140,11 +140,15 @@ export function LsxDetailView({
     if (!token) return;
     // Không có quyền đọc danh mục → để null, ô hiện read-only thay vì select rỗng (select rỗng
     // + lưu = xoá trắng dữ liệu).
-    api.congDoan.list(token).then((r) => setCongDoanRefs(r.items.map((c) => ({ id: c.id, ten: c.ten, mayId: c.may_id ?? null })))).catch(() => setCongDoanRefs(null));
+    api.congDoan.list(token).then((r) => setCongDoanRefs(r.items.map((c) => ({ id: c.id, ten: c.ten })))).catch(() => setCongDoanRefs(null));
     crud("/api/cong-doan/phong-ban").list(token).then((r) => setToRefs(r.items.map((t) => ({ id: t.id, ten: t.ten })))).catch(() => setToRefs(null));
     crud("/api/may-thiet-bi").list(token).then((r) => setMayRefs(r.items.map((m) => ({ id: m.id, ten: m.ten, nhom: m.loai_may ? String(m.loai_may) : null })))).catch(() => setMayRefs(null));
     api.khuonBe.list(token, { active: true }).then((r) => setKhuonRefs(r.items.map((k) => ({ id: k.id, ten: k.ten })))).catch(() => setKhuonRefs(null));
-  }, [token]);
+    crud("/api/vat-lieu-kho/vat-tu-in-an").list(token, { active: true }).then((r) =>
+      setVatTuRefs(r.items.map((v) => ({ id: v.id, ten: v.ten, ma: String(v.ma), donVi: String(v.don_vi_gia ?? "") })))
+    ).catch(() => setVatTuRefs(null));
+    api.lsx.phuThuocOptions(token, lsxId).then(setPhuThuocRefs).catch(() => setPhuThuocRefs([]));
+  }, [token, lsxId]);
 
   // Nhật ký nạp LƯỜI — chỉ khi mở tab.
   useEffect(() => {
@@ -161,27 +165,6 @@ export function LsxDetailView({
     setForm((prev) => (prev ? { ...prev, [k]: v } : prev));
   }
 
-  // SL đặt · Con/tờ · Bù hao đổi → Số tờ in và Số tờ giấy nguyên NHẢY THEO NGAY, không bắt
-  // bấm "Dùng số máy tính". Hai ô đó vẫn gõ đè tay được (gõ xong lệch thì có dòng cảnh báo), nhưng
-  // hễ đụng lại 3 ô nguồn là máy tính lại từ đầu.
-  function setSoLuong(k: "so_luong_dat" | "so_con" | "bu_hao_to", v: string) {
-    const qcj = (d?.quy_cach_json ?? {}) as Record<string, unknown>;
-    const xa = Math.max(Number(qcj.so_manh_xa ?? 1) || 1, 1);
-    const bai = soBaiIn(qcj);
-    setForm((prev) => {
-      if (!prev) return prev;
-      const next = { ...prev, [k]: v };
-      const sl = Number(next.so_luong_dat || 0);
-      const con = Number(next.so_con || 0);
-      if (sl > 0 && con > 0) {
-        const toIn = Math.ceil((sl * bai) / con) + Number(next.bu_hao_to || 0);
-        next.so_to_ke_hoach = String(toIn);
-        next.so_to_nguyen = String(Math.ceil(toIn / xa));
-      }
-      return next;
-    });
-  }
-
   async function luu() {
     if (!token || !form || !d) return;
     setSaving(true);
@@ -193,8 +176,8 @@ export function LsxDetailView({
       ghi_chu: form.ghi_chu || null,
       so_luong_dat: Number(form.so_luong_dat || 0),
       bu_hao_to: Number(form.bu_hao_to || 0),
-      so_to_ke_hoach: Number(form.so_to_ke_hoach || 0),
-      so_to_nguyen: Number(form.so_to_nguyen || 0),
+      // `so_to_ke_hoach` / `so_to_nguyen` KHÔNG gửi nữa — server đọc ra từ chuỗi ngược tại hai
+      // ranh giới đơn vị (tờ nguyên → tờ in). Gửi lên chỉ tổ có nguồn sự thật thứ hai.
       so_con: Number(form.so_con || 1),
     };
     // Chỉ gửi khoá/máy khi danh mục đọc được — tránh xoá trắng dữ liệu server đang giữ.
@@ -213,17 +196,38 @@ export function LsxDetailView({
     }
   }
 
-  /** Gợi ý SL vào/ra chạy ngược từ SL thành phẩm — CHỈ ĐỌC, bảng tự hỏi người dùng có áp không. */
-  const tinhNguoc = useCallback(async () => {
-    if (!token || !d) return [];
-    return (await api.lsx.tinhNguoc(token, d.id)).rows;
-  }, [token, d]);
+  /** Sửa cấp LỆNH từ drawer bước cuối: SL thành phẩm cần giao + hao thêm.
+   *
+   *  Hai số này là ĐẦU VÀO DUY NHẤT của chuỗi ngược — server nhận xong tính lại vào/ra + hao của
+   *  mọi bước rồi trả lệnh mới, nên phải nạp lại `d` chứ không patch cục bộ. */
+  const patchLsx = useCallback(
+    async (p: { so_luong_dat?: number; bu_hao_to?: number }) => {
+      if (!token || !d) return;
+      try {
+        const r = await api.lsx.update(token, d.id, p as LsxUpdateBody);
+        setD(r);
+        setForm(toForm(r));
+        onChanged();
+      } catch (e: unknown) {
+        setErr(e instanceof ApiError ? e.message : String(e));
+      }
+    },
+    [token, d, onChanged],
+  );
 
   /** Bộ mặc định của công đoạn mới khi kế hoạch đổi 1 bước — luật ở backend, client chỉ áp. */
   const macDinhBuoc = useCallback(
     async (congDoanId: number) => {
       if (!token || !d) throw new Error("chưa sẵn sàng");
       return api.lsx.macDinhBuoc(token, d.id, congDoanId);
+    },
+    [token, d],
+  );
+
+  const dauViecOptions = useCallback(
+    async (congDoanId: number, departmentId: number) => {
+      if (!token || !d) throw new Error("chưa sẵn sàng");
+      return api.lsx.dauViecOptions(token, d.id, congDoanId, departmentId);
     },
     [token, d],
   );
@@ -238,6 +242,7 @@ export function LsxDetailView({
       setForm(toForm(r));
       setActs(null);
       setRoutingDirty(false);
+      api.lsx.phuThuocOptions(token, d.id).then(setPhuThuocRefs).catch(() => {});
       onChanged();
     } catch (e: unknown) {
       setErr(e instanceof ApiError ? e.message : String(e));
@@ -324,15 +329,8 @@ export function LsxDetailView({
   // Thiếu khoá thì phải hiện "—", KHÔNG được để `n()` trả 0 rồi bày ra như số thật của phiếu.
   const co = (k: string): boolean => qc[k] !== undefined && qc[k] !== null;
   const canKhuon = d.cong_doans.some((c) => /bế|cấn/i.test(c.ten));
-  // Gợi ý phải bám số ĐANG GÕ, không phải số đã lưu — sửa SL/Con-trên-tờ mà gợi ý đứng im thì
-  // cảnh báo lệch không bao giờ nổ, lệnh lưu xong in thiếu hàng.
-  const slDangGo = Number(form.so_luong_dat || 0);
-  const conDangGo = Number(form.so_con || 0);
-  const goiYToIn =
-    slDangGo > 0 && conDangGo > 0
-      ? Math.ceil((slDangGo * soBaiIn(qc)) / conDangGo) + Number(form.bu_hao_to || 0)
-      : 0;
-  const lechToIn = goiYToIn > 0 && Number(form.so_to_ke_hoach || 0) !== goiYToIn;
+  // Số tờ in / tờ nguyên KHÔNG còn tính ở đây: chúng là hai mốc ĐỌC RA từ chuỗi ngược bên server
+  // (`_ap_chuoi_nguoc`). Giữ bản tính thứ hai ở frontend là mở đường cho hai số lệch nhau.
   const hanTre =
     !!form.han_hoan_thanh_sx && !!d.han_giao_khach && form.han_hoan_thanh_sx >= d.han_giao_khach;
 
@@ -417,7 +415,7 @@ export function LsxDetailView({
               >
                 {t.label}
                 {((t.key === "routing" && routingDirty) ||
-                  ((t.key === "chung" || t.key === "soluong") && dirty)) && (
+                  ((t.key === "chung" || t.key === "quycach") && dirty)) && (
                   <span className="khsx-tabs__dot" aria-label="có thay đổi chưa lưu" />
                 )}
               </button>
@@ -537,10 +535,13 @@ export function LsxDetailView({
                 </div>
                 <div className="khsx-spec__card-body">
                   <div className="khsx-kvgrid">
+                    {/* Nhận diện sản phẩm — tên · loại · ĐVT kế thừa từ PHIẾU TÍNH GIÁ (cùng nguồn
+                        với quy cách). Ba dòng "Khổ thành phẩm / Khổ mở rộng / Tay gấp" đã bỏ
+                        (mig 0144): cột không còn ô nhập nên vĩnh viễn hiện "—". */}
+                    <KV k="Tên sản phẩm" v={s("ten")} />
+                    <KV k="Loại sản phẩm" v={s("loai_san_pham_ten")} />
+                    <KV k="Đơn vị tính" v={s("don_vi_tinh")} />
                     <KV k="Dài × rộng (mm)" v={`${num(n("dai_thanh_pham"))} × ${num(n("rong_thanh_pham"))}`} mono />
-                    <KV k="Khổ thành phẩm" v={s("kho_thanh_pham")} />
-                    <KV k="Khổ mở rộng" v={s("kho_mo_rong")} />
-                    <KV k="Tay gấp" v={s("tay_gap")} />
                     <KV k="Số bài in" v={num(n("so_to_per_sp"))} mono />
                     {/* Ưu tiên nhãn ĐỌC SỐNG từ dòng đơn; ảnh chụp quy cách chỉ là dự phòng cho
                         lệnh tạo trước khi có tính năng nhóm. */}
@@ -589,7 +590,20 @@ export function LsxDetailView({
                 </div>
                 <div className="khsx-spec__card-body">
                   <div className="khsx-kvgrid">
-                    <KV k="Con / tờ" v={num(n("so_con"))} mono />
+                    {/* Ô DUY NHẤT sửa được trong Quy cách: con/tờ là hệ số cầu `tờ in → con`,
+                        xưởng ép số con khác bài tính giá là chuyện thường. Đổi xong server chạy
+                        lại cả chuỗi ngược. Các số còn lại là ảnh chụp từ phiếu, không sửa ở lệnh. */}
+                    <label className="khsx-kv khsx-kv--edit">
+                      <span className="khsx-kv__key">Con / tờ</span>
+                      <input
+                        className="khsx-kv__input"
+                        type="number"
+                        min={1}
+                        disabled={!canUpdate}
+                        value={form.so_con}
+                        onChange={(e) => set("so_con", e.target.value)}
+                      />
+                    </label>
                     <KV k="Số mảnh xả" v={num(n("so_manh_xa"))} mono />
                     <KV k="Số kẽm" v={num(n("so_kem"))} mono />
                     <KV k="Số lượt in" v={num(n("so_luot"))} mono />
@@ -675,83 +689,6 @@ export function LsxDetailView({
             </section>
           )}
 
-          {tab === "soluong" && (
-            <section className="khsx-panel" role="tabpanel" id="khsx-panel-soluong" aria-labelledby="khsx-tab-soluong" tabIndex={0}>
-              <div className="khsx-spec__card">
-                <div className="khsx-spec__card-head">
-                  <div className="khsx-spec__card-icon">
-                    <Icon name="calculator" size={16} />
-                  </div>
-                  <h4 className="khsx-spec__title">Cấu hình số lượng &amp; bù hao</h4>
-                </div>
-                <div className="khsx-spec__card-body">
-                  <div className="khsx-form">
-                    <label className="khsx-field">
-                      <span className="khsx-field__label">Số lượng khách đặt ({d.don_vi_tinh})</span>
-                      <input
-                        type="number"
-                        value={form.so_luong_dat}
-                        onChange={(e) => setSoLuong("so_luong_dat", e.target.value)}
-                      />
-                    </label>
-                    <label className="khsx-field">
-                      <span className="khsx-field__label">Bù hao (tờ)</span>
-                      <input type="number" value={form.bu_hao_to} onChange={(e) => setSoLuong("bu_hao_to", e.target.value)} />
-                    </label>
-                    <label className="khsx-field">
-                      <span className="khsx-field__label">
-                        Số tờ in<span className="khsx-field__origin">đề xuất</span>
-                      </span>
-                      <input
-                        type="number"
-                        value={form.so_to_ke_hoach}
-                        onChange={(e) => set("so_to_ke_hoach", e.target.value)}
-                      />
-                    </label>
-                    <label className="khsx-field">
-                      <span className="khsx-field__label">Số tờ giấy nguyên</span>
-                      <input
-                        type="number"
-                        value={form.so_to_nguyen}
-                        onChange={(e) => set("so_to_nguyen", e.target.value)}
-                      />
-                    </label>
-                    <label className="khsx-field">
-                      <span className="khsx-field__label">Con / tờ</span>
-                      <input type="number" value={form.so_con} onChange={(e) => setSoLuong("so_con", e.target.value)} />
-                    </label>
-                  </div>
-
-                  <div className="khsx-qty__card">
-                    <p className="khsx-qty__derive">
-                      Công thức: Tờ in = ⌈{num(slDangGo)}
-                      {soBaiIn(qc) > 1 ? ` × ${num(soBaiIn(qc))} bài` : ""} ÷ {num(conDangGo)}⌉ + bù hao{" "}
-                      {num(Number(form.bu_hao_to || 0))} → <strong className="khsx-qty__res">{num(goiYToIn)} tờ</strong>
-                    </p>
-                    {soBaiIn(qc) > 1 && (
-                      <p className="khsx-qty__hint">
-                        Mỗi {d.don_vi_tinh} cần {num(soBaiIn(qc))} bài in khác nội dung (theo quy cách chụp từ
-                        bài tính giá) — nên số tờ gấp {num(soBaiIn(qc))} lần.
-                      </p>
-                    )}
-                    {lechToIn && (
-                      <p className="khsx-qty__mismatch">
-                        Số bạn nhập ({num(Number(form.so_to_ke_hoach || 0))}) khác số máy tính ra.
-                        <button
-                          type="button"
-                          className="khsx-xlink"
-                          onClick={() => set("so_to_ke_hoach", String(goiYToIn))}
-                        >
-                          Dùng số máy tính
-                        </button>
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </section>
-          )}
-
           {tab === "routing" && (
             <section className="khsx-panel" role="tabpanel" id="khsx-panel-routing" aria-labelledby="khsx-tab-routing" tabIndex={0}>
               <div className="khsx-spec__card">
@@ -764,18 +701,20 @@ export function LsxDetailView({
                 <div className="khsx-spec__card-body">
                   <LsxRoutingTable
                     congDoans={d.cong_doans}
-                    soToKeHoach={d.so_to_ke_hoach}
                     soLuongDat={d.so_luong_dat}
-                    soCon={d.so_con}
+                    buHaoThem={d.bu_hao_to}
                     leadTime={d.lead_time}
                     congDoanRefs={congDoanRefs}
                     toRefs={toRefs}
                     mayRefs={mayRefs}
+                    vatTuRefs={vatTuRefs}
+                    phuThuocRefs={phuThuocRefs}
                     canUpdate={canUpdate}
                     saving={savingRouting}
                     onSave={luuRouting}
-                    onTinhNguoc={tinhNguoc}
+                    onPatchLsx={patchLsx}
                     onMacDinhBuoc={macDinhBuoc}
+                    onDauViecOptions={dauViecOptions}
                     onDirtyChange={setRoutingDirty}
                   />
                 </div>

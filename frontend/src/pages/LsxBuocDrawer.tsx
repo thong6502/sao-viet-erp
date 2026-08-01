@@ -1,23 +1,21 @@
 // Drawer CHI TIẾT 1 BƯỚC routing — chỗ khai đủ thứ mà bảng không chứa nổi.
 //
-// Vì sao tách khỏi bảng: routing lát này cần ~20 ô mỗi bước (đơn vị vào/ra + hệ số, 5 loại thời
-// gian, số nhân công, điều kiện bắt đầu, 10 ô gia công ngoài). Nhồi hết vào bảng thì mỗi ô còn
+// Vì sao tách khỏi bảng: routing lát này cần nhiều dữ liệu mỗi bước (đơn vị, thời gian, nhân công,
+// vật tư, phụ thuộc và gia công ngoài). Nhồi hết vào bảng thì mỗi ô còn
 // ~60px và phải cuộn ngang liên tục. Bảng giữ phần QUYẾT ĐỊNH (bước nào, ai làm, bao lâu), drawer
 // giữ phần KHAI BÁO.
 //
 // Sửa ở đây ghi THẲNG vào state của bảng (không có nút "Áp dụng" riêng) — vẫn chỉ một nút "Lưu
 // công đoạn" duy nhất ở bảng, nên người dùng không phải nhớ mình đang ở tầng lưu nào.
 //
-// Máy CHỈ ĐỀ XUẤT: số kế thừa nằm ở placeholder + nút 1-click, KHÔNG tự ghi vào ô.
-import { useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
-import { LSX_DON_VI_LABELS, LSX_LOAI_BUOC_META, type LsxLoaiBuoc } from "../api/client";
+// Năng suất là snapshot chỉ đọc từ máy hoặc định mức đầu việc; người dùng chỉ nhập đè thời gian.
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { LSX_LOAI_BUOC_META, type LsxLoaiBuoc } from "../api/client";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
-import type { RefRow } from "./LsxRoutingTable";
+import { dvNhan as dvNhanChung, type RefRow } from "./LsxRoutingTable";
 import { num } from "./keHoachSxShared";
 import {
-  DIEU_KIEN,
-  DON_VI,
   DON_VI_NANG_SUAT,
   type EditRow,
   n,
@@ -25,40 +23,40 @@ import {
   thoiLuong,
 } from "./lsxBuoc";
 
-const LOAI_BUOC_ORDER: LsxLoaiBuoc[] = ["may", "to", "thue_ngoai", "cho", "kcs", "xa_to"];
+const LOAI_BUOC_ORDER: LsxLoaiBuoc[] = ["may", "to", "thue_ngoai"];
 
-/** Gom máy theo `loai_may`, máy mặc định của công đoạn tách riêng lên đầu.
+/** Gom máy theo `loai_may`.
  *  Xưởng có ~24 máy đủ loại (bế, bồi, UV, cán, in) — đổ phẳng thì gán máy bế cho bước ghi kẽm
  *  cũng trôi. Nhóm KHÔNG chặn: vẫn chọn được máy bất kỳ, chỉ là mắt phải đi qua nhãn loại. */
-function nhomMayTheoLoai(mayRefs: RefRow[], mayGoiYId: number | null): { ten: string; items: RefRow[] }[] {
+function nhomMayTheoLoai(mayRefs: RefRow[]): { ten: string; items: RefRow[] }[] {
   const groups = new Map<string, RefRow[]>();
   for (const m of mayRefs) {
-    if (m.id === mayGoiYId) continue;
     const k = (m.nhom || "").trim() || "Chưa phân loại";
     const arr = groups.get(k);
     if (arr) arr.push(m);
     else groups.set(k, [m]);
   }
-  const out = [...groups.entries()]
+  return [...groups.entries()]
     .sort((a, b) => a[0].localeCompare(b[0], "vi"))
     .map(([ten, items]) => ({ ten, items }));
-  const goiY = mayRefs.find((m) => m.id === mayGoiYId);
-  return goiY ? [{ ten: "Máy mặc định của công đoạn", items: [goiY] }, ...out] : out;
 }
 
 export function LsxBuocDrawer({
   row,
   index,
   tong,
-  soCon,
-  soToKeHoach,
   soLuongDat,
+  buHaoThem,
   congDoanRefs,
   toRefs,
   mayRefs,
+  vatTuRefs,
+  phuThuocRefs,
   canUpdate,
   onPatch,
+  onPatchLsx,
   onDoiCongDoan,
+  onDoiTo,
   onClose,
   onPrev,
   onNext,
@@ -66,16 +64,22 @@ export function LsxBuocDrawer({
   row: EditRow;
   index: number;
   tong: number;
-  soCon: number;
-  soToKeHoach: number;
   soLuongDat: number;
+  /** `lsx.bu_hao_to` — hao thêm của kế hoạch, cộng vào bước CUỐI (đơn vị theo bước đó). */
+  buHaoThem: number;
   congDoanRefs: RefRow[] | null;
   toRefs: RefRow[] | null;
   mayRefs: RefRow[] | null;
+  vatTuRefs: RefRow[] | null;
+  phuThuocRefs: import("../api/client").LsxPhuThuocOption[];
   canUpdate: boolean;
   onPatch: (p: Partial<EditRow>) => void;
+  /** Sửa thẳng CẤP LỆNH — chỉ bước CUỐI dùng: SL thành phẩm cần giao (`so_luong_dat`) và hao
+   *  thêm của kế hoạch (`bu_hao_to`). Cả chuỗi phía trên tính ngược lại từ hai số này. */
+  onPatchLsx?: (p: { so_luong_dat?: number; bu_hao_to?: number }) => void;
   /** Đổi công đoạn: kéo lại toàn bộ mặc định của công đoạn mới (giữ SL vào/ra). */
   onDoiCongDoan: (congDoanId: number | null) => void;
+  onDoiTo: (departmentId: number | null) => void;
   onClose: () => void;
   onPrev: () => void;
   onNext: () => void;
@@ -83,12 +87,21 @@ export function LsxBuocDrawer({
   const panelRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const ngoai = row.loai_buoc === "thue_ngoai";
-  const doiDonVi = row.don_vi_vao !== row.don_vi_ra;
+  const doiDonVi = !!row.don_vi_vao && !!row.don_vi_ra && row.don_vi_vao !== row.don_vi_ra;
+  // Bước CUỐI là chỗ DUY NHẤT còn gõ số: SL thành phẩm cần giao + hao thêm. Bước không chạm giấy
+  // (chế bản, đơn vị trống) không tính là bước cuối của dòng giấy.
+  const laBuocCuoi = index === tong - 1 && !!row.don_vi_ra;
+  const [slRaCuoi, setSlRaCuoi] = useState(String(soLuongDat ?? 0));
+  const [haoThem, setHaoThem] = useState(String(buHaoThem ?? 0));
+  useEffect(() => setSlRaCuoi(String(soLuongDat ?? 0)), [soLuongDat]);
+  useEffect(() => setHaoThem(String(buHaoThem ?? 0)), [buHaoThem]);
+  // Nhãn đơn vị dùng CHUNG với bảng routing — hai nơi tự viết là sớm muộn lệch chữ.
+  const dvNhan = (dv: string | null | undefined) => dvNhanChung(dv, row.nhom);
   const t = useMemo(() => thoiLuong(row), [row]);
-  const mayGoiYId = congDoanRefs?.find((c) => c.id === row.cong_doan_id)?.mayId ?? null;
+  const tg = row.thoi_luong_dien_giai;
   const nhomMay = useMemo(
-    () => (mayRefs ? nhomMayTheoLoai(mayRefs, mayGoiYId) : []),
-    [mayRefs, mayGoiYId],
+    () => (mayRefs ? nhomMayTheoLoai(mayRefs) : []),
+    [mayRefs],
   );
   // Khối "Máy thay thế" đã BỎ (mig 0142): nó là ghi chú tay không ai đọc — xếp lịch/Gantt không tra
   // tới. Việc "máy này kham nổi bài không" do `_may_fit.kiem_kha_nang` tự kiểm từ spec máy × quy
@@ -108,6 +121,20 @@ export function LsxBuocDrawer({
     }
     return ds;
   }, [row.khoan_chon_duoc, row.khoan_rate_id]);
+  const nhomPhuThuoc = useMemo(() => {
+    const currentLsxId = phuThuocRefs.find((o) => o.step_key === row.key)?.lsx_id;
+    const groups = new Map<number, typeof phuThuocRefs>();
+    for (const option of phuThuocRefs.filter((o) => o.step_key !== row.key)) {
+      groups.set(option.lsx_id, [...(groups.get(option.lsx_id) ?? []), option]);
+    }
+    return [...groups.entries()]
+      .sort(([a], [b]) => a === currentLsxId ? -1 : b === currentLsxId ? 1 : a - b)
+      .map(([lsxId, options]) => ({
+        lsxId,
+        label: `${options[0]?.lsx_ma ?? `LSX #${lsxId}`}${lsxId === currentLsxId ? " · hiện tại" : ""}`,
+        options,
+      }));
+  }, [phuThuocRefs, row.key]);
   // Diễn giải tiền do SERVER tính cho lựa chọn lúc tải. Vừa đổi lựa chọn thì nó hết đúng → không
   // hiện số cũ (số cũ nhìn như số của việc mới), chỉ nhắc lưu để tính lại.
   const khoanConKhop = row.khoan_rate_id === row.khoan_rate_id_luc_tai;
@@ -139,13 +166,6 @@ export function LsxBuocDrawer({
 
   function set<K extends keyof EditRow>(k: K, v: EditRow[K]) {
     onPatch({ [k]: v } as Partial<EditRow>);
-  }
-
-  function toggleDieuKien(key: string) {
-    const co = row.dieu_kien_json.includes(key);
-    set("dieu_kien_json", co
-      ? row.dieu_kien_json.filter((x) => x !== key)
-      : [...row.dieu_kien_json, key]);
   }
 
   /** Ngày nhận lại gợi ý = gửi + vận chuyển đi + gia công + vận chuyển về.
@@ -296,110 +316,101 @@ export function LsxBuocDrawer({
           {/* --- 2. Số lượng --- */}
           <Nhom title="Số lượng &amp; hao hụt">
             <div className="khsx-form">
-              <label className="khsx-field">
+              {/* Số lượng của MỌI bước là dẫn xuất của chuỗi ngược — server tính từ SL thành
+                  phẩm của bước CUỐI đi ngược lên. Ô duy nhất gõ được nằm ở bước cuối. */}
+              <div className="khsx-field">
                 <span className="khsx-field__label">Số lượng vào</span>
-                <div className="khsx-inline">
-                  <input
-                    type="number"
-                    value={row.so_luong_vao}
-                    placeholder={String(row.don_vi_vao === "cai" ? soLuongDat : soToKeHoach)}
-                    disabled={!canUpdate}
-                    onChange={(e) => set("so_luong_vao", e.target.value)}
-                  />
-                  <DonViChon
-                    value={row.don_vi_vao}
-                    disabled={!canUpdate}
-                    label="Đơn vị vào"
-                    onChange={(v) => set("don_vi_vao", v)}
-                  />
-                </div>
-              </label>
-              <label className="khsx-field">
-                <span className="khsx-field__label">Số lượng ra</span>
-                <div className="khsx-inline">
-                  <input
-                    type="number"
-                    value={row.so_luong_ra}
-                    placeholder={String(row.don_vi_ra === "cai" ? soLuongDat : soToKeHoach)}
-                    disabled={!canUpdate}
-                    onChange={(e) => set("so_luong_ra", e.target.value)}
-                  />
-                  <DonViChon
-                    value={row.don_vi_ra}
-                    disabled={!canUpdate}
-                    label="Đơn vị ra"
-                    onChange={(v) => set("don_vi_ra", v)}
-                  />
-                </div>
-              </label>
-
-              {doiDonVi && (
-                <label className="khsx-field">
-                  <span className="khsx-field__label">
-                    Hệ số quy đổi
-                    <span className="khsx-field__origin">bắt buộc khi đổi đơn vị</span>
-                  </span>
+                <p className="khsx-readonly">
+                  {num(Number(row.so_luong_vao || 0))}{" "}
+                  <span className="khsx-unit-tag">{dvNhan(row.don_vi_vao)}</span>
+                </p>
+              </div>
+              <div className="khsx-field">
+                <span className="khsx-field__label">
+                  Số lượng ra
+                  {laBuocCuoi && <span className="khsx-field__origin">gõ được</span>}
+                </span>
+                {laBuocCuoi ? (
                   <div className="khsx-inline">
                     <input
                       type="number"
-                      value={row.he_so_quy_doi}
-                      placeholder={soCon > 1 ? String(soCon) : "1"}
+                      min={1}
+                      value={slRaCuoi}
                       disabled={!canUpdate}
-                      onChange={(e) => set("he_so_quy_doi", e.target.value)}
+                      onChange={(e) => setSlRaCuoi(e.target.value)}
+                      onBlur={() => onPatchLsx?.({ so_luong_dat: Math.max(0, Number(slRaCuoi) || 0) })}
                     />
-                    {canUpdate && soCon > 1 && (
-                      <button
-                        type="button"
-                        className="khsx-xlink"
-                        onClick={() => set("he_so_quy_doi", String(soCon))}
-                      >
-                        dùng {num(soCon)} con/tờ
-                      </button>
-                    )}
+                    <span className="khsx-unit-tag">{dvNhan(row.don_vi_ra)}</span>
+                  </div>
+                ) : (
+                  <p className="khsx-readonly">
+                    {num(Number(row.so_luong_ra || 0))}{" "}
+                    <span className="khsx-unit-tag">{dvNhan(row.don_vi_ra)}</span>
+                  </p>
+                )}
+                <span className="khsx-field__hint">
+                  {laBuocCuoi
+                    ? "Số thành phẩm cần giao — cả chuỗi phía trên tính ngược từ đây."
+                    : "Máy tính ngược từ SL thành phẩm của bước cuối."}
+                </span>
+              </div>
+
+              {doiDonVi && (
+                <div className="khsx-field">
+                  <span className="khsx-field__label">Quy đổi đơn vị</span>
+                  <p className="khsx-readonly">
+                    1 {dvNhan(row.don_vi_vao)} = {num(Number(row.he_so_quy_doi || 1))}{" "}
+                    {dvNhan(row.don_vi_ra)}
+                  </p>
+                  <span className="khsx-field__hint">
+                    Hệ số lấy từ quy cách của lệnh (con/tờ · số mảnh xả) — không khai ở đây.
+                  </span>
+                </div>
+              )}
+
+              <div className="khsx-field">
+                <span className="khsx-field__label">Hao hụt</span>
+                <p className="khsx-readonly">
+                  {Number(row.hao_hut || 0) > 0 || Number(row.hao_hut_pct || 0) > 0 ? (
+                    <>
+                      {Number(row.hao_hut || 0) > 0 && (
+                        <>
+                          {num(Number(row.hao_hut))}{" "}
+                          <span className="khsx-unit-tag">{dvNhan(row.don_vi_vao)}</span>
+                        </>
+                      )}
+                      {Number(row.hao_hut_pct || 0) > 0 && <> + {row.hao_hut_pct}%</>}
+                    </>
+                  ) : (
+                    "—"
+                  )}
+                </p>
+                <span className="khsx-field__hint">
+                  Theo định mức bù hao khai ở danh mục công đoạn. Muốn đổi thì sửa ở đó
+                  {laBuocCuoi ? "; riêng bước cuối có ô Hao thêm dưới đây." : "."}
+                </span>
+              </div>
+
+              {laBuocCuoi && (
+                <label className="khsx-field">
+                  <span className="khsx-field__label">Hao thêm</span>
+                  <div className="khsx-inline">
+                    <input
+                      type="number"
+                      min={0}
+                      value={haoThem}
+                      disabled={!canUpdate}
+                      onChange={(e) => setHaoThem(e.target.value)}
+                      onBlur={() => onPatchLsx?.({ bu_hao_to: Math.max(0, Number(haoThem) || 0) })}
+                    />
+                    <span className="khsx-unit-tag">{dvNhan(row.don_vi_ra)}</span>
                   </div>
                   <span className="khsx-field__hint">
-                    1 {LSX_DON_VI_LABELS[row.don_vi_vao] ?? row.don_vi_vao} ra{" "}
-                    {row.he_so_quy_doi || "?"} {LSX_DON_VI_LABELS[row.don_vi_ra] ?? row.don_vi_ra}
+                    Kế hoạch cộng thêm khi biết ca này khó — cộng vào bước cuối rồi chảy ngược
+                    lên thành số giấy.
                   </span>
                 </label>
               )}
-
-              <label className="khsx-field">
-                <span className="khsx-field__label">Hao hụt cố định (canh máy)</span>
-                <div className="khsx-inline">
-                  <input
-                    type="number"
-                    value={row.hao_hut}
-                    placeholder="0"
-                    disabled={!canUpdate}
-                    onChange={(e) => set("hao_hut", e.target.value)}
-                  />
-                  {/* Ô số trần không nói 50 là 50 tờ hay 50 kẽm — dán đơn vị VÀO của bước vào cạnh. */}
-                  <span className="khsx-unit-tag">{LSX_DON_VI_LABELS[row.don_vi_vao] ?? row.don_vi_vao}</span>
-                </div>
-              </label>
-              <label className="khsx-field">
-                <span className="khsx-field__label">Hao hụt theo tỷ lệ (%)</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={row.hao_hut_pct}
-                  placeholder="0"
-                  disabled={!canUpdate}
-                  onChange={(e) => set("hao_hut_pct", e.target.value)}
-                />
-              </label>
-              <label className="khsx-field">
-                <span className="khsx-field__label">Số lượt chạy</span>
-                <input
-                  type="number"
-                  value={row.so_luot_chay}
-                  placeholder="1"
-                  disabled={!canUpdate}
-                  onChange={(e) => set("so_luot_chay", e.target.value)}
-                />
-                <span className="khsx-field__hint">In trở 2 mặt = 2 lượt → thời gian chạy gấp đôi.</span>
-              </label>
             </div>
           </Nhom>
 
@@ -415,7 +426,7 @@ export function LsxBuocDrawer({
                         value={row.department_id ?? ""}
                         disabled={!canUpdate}
                         onChange={(e) =>
-                          set("department_id", e.target.value ? Number(e.target.value) : null)}
+                          onDoiTo(e.target.value ? Number(e.target.value) : null)}
                       >
                         <option value="">— tổ mặc định của công đoạn —</option>
                         {toRefs.map((t2) => (
@@ -447,7 +458,7 @@ export function LsxBuocDrawer({
                       <span className="khsx-kv__val">—</span>
                     )}
                   </label>
-                  {(row.loai_buoc === "to" || row.loai_buoc === "kcs") && (
+                  {row.loai_buoc === "to" && (
                     <label className="khsx-field">
                       <span className="khsx-field__label">Số người làm cùng lúc</span>
                       <input
@@ -458,7 +469,7 @@ export function LsxBuocDrawer({
                         onChange={(e) => set("so_nhan_cong", e.target.value)}
                       />
                       <span className="khsx-field__hint">
-                        5 người dán thì thời gian chạy chia 5 — chuẩn bị vẫn làm một lần.
+                        Chuẩn {row.so_nhan_cong_tieu_chuan}; hiệu quả tối đa {row.so_nhan_cong_toi_da ?? "—"} người.
                       </span>
                     </label>
                   )}
@@ -614,11 +625,66 @@ export function LsxBuocDrawer({
             </div>
           </Nhom>
 
-          {/* --- 4. Năng suất & thời gian --- */}
+          <Nhom title="Vật tư cần dùng">
+            <p className="khsx-nhom__sub">Khai nhu cầu của riêng bước này từ Danh mục vật tư in ấn.</p>
+            <div className="khsx-form">
+              {row.vat_tus.map((v, i) => (
+                <div className="khsx-field khsx-field--wide" key={v.vat_tu_id}>
+                  <span className="khsx-field__label">{v.vat_tu_ma} · {v.vat_tu_ten}</span>
+                  <div className="khsx-inline">
+                    <input type="number" min="0.001" step="any" value={v.so_luong} disabled={!canUpdate}
+                      onChange={(e) => set("vat_tus", row.vat_tus.map((x, j) => j === i ? { ...x, so_luong: e.target.value } : x))} />
+                    <span className="khsx-kv__val">{v.don_vi}</span>
+                    {canUpdate && <button type="button" className="khsx-xlink"
+                      onClick={() => set("vat_tus", row.vat_tus.filter((_, j) => j !== i))}>Bỏ</button>}
+                  </div>
+                </div>
+              ))}
+              {canUpdate && vatTuRefs && (
+                <label className="khsx-field khsx-field--wide">
+                  <span className="khsx-field__label">Thêm vật tư</span>
+                  <select value="" onChange={(e) => {
+                    const item = vatTuRefs.find((v) => v.id === Number(e.target.value));
+                    if (item && !row.vat_tus.some((v) => v.vat_tu_id === item.id)) {
+                      set("vat_tus", [...row.vat_tus, { vat_tu_id: item.id, vat_tu_ma: item.ma ?? "", vat_tu_ten: item.ten, don_vi: item.donVi ?? "", so_luong: "" }]);
+                    }
+                  }}>
+                    <option value="">— chọn từ danh mục —</option>
+                    {vatTuRefs.filter((x) => !row.vat_tus.some((v) => v.vat_tu_id === x.id)).map((x) =>
+                      <option key={x.id} value={x.id}>{x.ma} · {x.ten} ({x.donVi})</option>)}
+                  </select>
+                </label>
+              )}
+            </div>
+          </Nhom>
+
+          <Nhom title="Phụ thuộc để xếp lịch">
+            <p className="khsx-nhom__sub">Bước này chỉ bắt đầu sau khi tất cả tiền nhiệm đã hoàn thành.</p>
+            <div className="khsx-cond">
+              {nhomPhuThuoc.map((group) => (
+                <fieldset className="khsx-dep-group" key={group.lsxId}>
+                  <legend>{group.label}</legend>
+                  {group.options.map((o) => (
+                    <label key={o.step_key} className="khsx-cond__item">
+                      <input type="checkbox" disabled={!canUpdate}
+                        checked={row.phu_thuoc_step_keys.includes(o.step_key)}
+                        onChange={(e) => set("phu_thuoc_step_keys", e.target.checked
+                          ? [...row.phu_thuoc_step_keys, o.step_key]
+                          : row.phu_thuoc_step_keys.filter((k) => k !== o.step_key))} />
+                      <span>{o.ten_buoc}</span>
+                    </label>
+                  ))}
+                </fieldset>
+              ))}
+              {nhomPhuThuoc.length === 0 && <span className="khsx-field__hint">Chưa có bước khác trong đơn hàng.</span>}
+            </div>
+          </Nhom>
+
+          {/* --- Năng suất & thời gian --- */}
           <Nhom title="Mất bao lâu">
             <div className="khsx-form">
               <label className="khsx-field">
-                <span className="khsx-field__label">Chuẩn bị máy (phút)</span>
+                <span className="khsx-field__label">Chuẩn bị (phút)</span>
                 <input
                   type="number"
                   value={row.setup_phut}
@@ -627,22 +693,27 @@ export function LsxBuocDrawer({
                   onChange={(e) => set("setup_phut", e.target.value)}
                 />
               </label>
+              {row.loai_buoc === "may" && (
+                <label className="khsx-field">
+                  <span className="khsx-field__label">Số lượt chạy qua máy</span>
+                  <input type="number" min="1" value={row.so_luot_chay} placeholder="1"
+                    disabled={!canUpdate} onChange={(e) => set("so_luot_chay", e.target.value)} />
+                </label>
+              )}
               <label className="khsx-field">
-                <span className="khsx-field__label">Năng suất</span>
+                <span className="khsx-field__label">Năng suất kế hoạch</span>
                 <div className="khsx-inline">
                   <input
                     type="number"
                     value={row.nang_suat}
                     placeholder="—"
-                    disabled={!canUpdate}
-                    onChange={(e) => set("nang_suat", e.target.value)}
+                    disabled
                   />
                   <select
                     className="khsx-inline__unit"
                     value={row.don_vi_nang_suat}
-                    disabled={!canUpdate}
+                    disabled
                     aria-label="Đơn vị năng suất"
-                    onChange={(e) => set("don_vi_nang_suat", e.target.value)}
                   >
                     <option value="">— đơn vị —</option>
                     {DON_VI_NANG_SUAT.map((u) => (
@@ -650,6 +721,13 @@ export function LsxBuocDrawer({
                     ))}
                   </select>
                 </div>
+                <span className="khsx-field__hint">
+                  {row.loai_buoc === "may"
+                    ? "Kế thừa từ máy được chọn."
+                    : row.loai_buoc === "to"
+                      ? "Kế thừa từ định mức của đầu việc."
+                      : "Không áp dụng cho bước thuê ngoài."}
+                </span>
               </label>
               <label className="khsx-field">
                 <span className="khsx-field__label">Thời gian chạy (phút)</span>
@@ -698,45 +776,41 @@ export function LsxBuocDrawer({
             </div>
 
             <div className="khsx-tinh">
+              {Array.isArray(tg.canh_bao) && tg.canh_bao.map((warning) => (
+                <div className="khsx-alert" key={String(warning)}>{String(warning)}</div>
+              ))}
+              {Number(tg.nang_suat_hieu_dung ?? 0) > 0 && (
+                <div className="khsx-tinh__row">
+                  <span className="khsx-tinh__label">Công thức chạy</span>
+                  <span className="khsx-tinh__note">
+                    {num(Number(tg.so_luong_vao ?? 0))} {String(tg.don_vi_vao ?? "")}
+                    {row.loai_buoc === "may" ? ` × ${Number(tg.so_luot_chay ?? 1)} lượt` : ""}
+                    {row.loai_buoc === "to" ? ` ÷ ${num(Number(tg.nang_suat_co_so ?? 0))}/người/giờ × ${Number(tg.so_nhan_cong_tinh ?? 1)} người` : ` ÷ ${num(Number(tg.nang_suat_hieu_dung ?? 0))}/giờ`}
+                    {` × 60 = ${num(Number(tg.chay_phut ?? 0))} phút`}
+                  </span>
+                </div>
+              )}
               <div className="khsx-tinh__row">
                 <span className="khsx-tinh__label">Chiếm máy / tổ</span>
                 <span className="khsx-tinh__val khsx-dur">{phut(t.chiemMay)}</span>
                 <span className="khsx-tinh__note">
-                  {num(Math.round(n(row.setup_phut)))} chuẩn bị + {num(Math.round(t.chay))} chạy +{" "}
-                  {num(Math.round(n(row.ve_sinh_phut)))} vệ sinh
+                  {num(Number(tg.setup_phut ?? 0))} chuẩn bị + {num(Number(tg.chay_phut ?? 0))} chạy +{" "}
+                  {num(Number(tg.ve_sinh_phut ?? 0))} vệ sinh
                 </span>
               </div>
               <div className="khsx-tinh__row khsx-tinh__row--total">
                 <span className="khsx-tinh__label">Tổng thời gian dẫn</span>
                 <span className="khsx-tinh__val khsx-dur">{phut(t.tong)}</span>
                 <span className="khsx-tinh__note">
-                  {n(row.cho_phut) > 0 || n(row.di_chuyen_phut) > 0
-                    ? `thêm ${num(Math.round(n(row.cho_phut)))} chờ + ${num(Math.round(n(row.di_chuyen_phut)))} di chuyển — hai khoản này KHÔNG chiếm máy`
+                  {Number(tg.cho_phut ?? 0) > 0 || Number(tg.di_chuyen_phut ?? 0) > 0
+                    ? `thêm ${num(Number(tg.cho_phut ?? 0))} chờ + ${num(Number(tg.di_chuyen_phut ?? 0))} di chuyển — hai khoản này KHÔNG chiếm máy`
                     : "không có chờ / di chuyển"}
                 </span>
               </div>
+              {canUpdate && <p className="khsx-field__hint">Sửa số rồi lưu công đoạn để backend tính và cập nhật diễn giải.</p>}
             </div>
           </Nhom>
 
-          {/* --- 5. Điều kiện bắt đầu --- */}
-          <Nhom title="Chỉ được bắt đầu khi">
-            <p className="khsx-nhom__sub">
-              Công đoạn trước xong là điều kiện mặc định — dưới đây là những thứ cần thêm.
-            </p>
-            <div className="khsx-cond">
-              {DIEU_KIEN.map((d) => (
-                <label key={d.key} className="khsx-cond__item">
-                  <input
-                    type="checkbox"
-                    checked={row.dieu_kien_json.includes(d.key)}
-                    disabled={!canUpdate}
-                    onChange={() => toggleDieuKien(d.key)}
-                  />
-                  <span>{d.label}</span>
-                </label>
-              ))}
-            </div>
-          </Nhom>
         </div>
 
         <footer className="khsx-drawer__foot">
@@ -761,28 +835,6 @@ function Nhom({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function DonViChon({
-  value,
-  disabled,
-  label,
-  onChange,
-}: {
-  value: string;
-  disabled: boolean;
-  label: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <select
-      className="khsx-inline__unit"
-      value={value}
-      disabled={disabled}
-      aria-label={label}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      {DON_VI.map((u) => (
-        <option key={u.key} value={u.key}>{u.label}</option>
-      ))}
-    </select>
-  );
-}
+// `DonViChon` đã BỎ: đơn vị vào/ra khai MỘT CHỖ ở danh mục công đoạn, lệnh chỉ kế thừa và hiển
+// thị. Cho chọn lại ở đây là đẻ nguồn sự thật thứ hai, và cũng vô nghĩa — đơn vị là bản chất
+// của công đoạn (bế luôn là tờ in → con), không đổi theo từng đơn hàng.

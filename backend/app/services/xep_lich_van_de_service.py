@@ -2,8 +2,8 @@
 
 Bàn kiểm soát cuối trước khi thả kế hoạch xuống xưởng (bám BC Planning Worksheet: cảnh báo + action
 message recompute mỗi lần đọc, KHÔNG lưu). Vấn đề là DẪN XUẤT từ `XepLichService.danh_sach()` (đã tính
-sẵn cờ trùng máy / nhãn nguy cơ / bị chặn / cần xác nhận) + 3 detector rẻ (đè khóa máy · sai tiền nhiệm
-· gang thiếu xả tờ). Chỉ PHẦN CON NGƯỜI XỬ LÝ lưu ở `xep_lich_van_de` (neo `issue_key`); lịch sử dùng
+sẵn cờ trùng máy / nhãn nguy cơ / bị chặn / cần xác nhận) cùng các detector đè khóa máy và sai tiền
+nhiệm. Chỉ PHẦN CON NGƯỜI XỬ LÝ lưu ở `xep_lich_van_de` (neo `issue_key`); lịch sử dùng
 AuditLog. Máy-chỉ-ghi-nhận: máy phát hiện + tính trễ + gợi ý; người Tiếp nhận rồi mới xử lý/duyệt ngoại lệ.
 
 Phân mức: Chặn (bắt buộc xử lý trước phát hành) · Nghiêm trọng · Cao · Cảnh báo. `da_phat_hanh`
@@ -20,7 +20,7 @@ from ..models.bai_ghep import (
     TT_DA_LAP_KE_HOACH as BG_DA_LAP, TT_DA_PHAT_HANH as BG_DA_PHAT_HANH, BaiGhep, BaiGhepThanhVien,
 )
 from ..models.lsx import (
-    LB_THUE_NGOAI, LB_XA_TO, TT_DA_LAP_KE_HOACH as LSX_DA_LAP,
+    LB_THUE_NGOAI, TT_DA_LAP_KE_HOACH as LSX_DA_LAP,
     TT_DA_PHAT_HANH as LSX_DA_PHAT_HANH, Lsx,
 )
 from ..models.xep_lich_van_de import (
@@ -45,7 +45,6 @@ SEV_ORDER = {SEV_CHAN: 0, SEV_NGHIEM_TRONG: 1, SEV_CAO: 2, SEV_CANH_BAO: 3}
 CAT_TRUNG_MAY = "trung_may"
 CAT_DE_KHOA_MAY = "de_khoa_may"
 CAT_SAI_TIEN_NHIEM = "sai_tien_nhiem"
-CAT_GANG_THIEU_XA_TO = "gang_thieu_xa_to"
 CAT_THIEU_DU_LIEU = "thieu_du_lieu"
 CAT_NGUY_CO_TRE = "nguy_co_tre"
 CAT_MAY_KHONG_KHAM = "may_khong_kham"
@@ -124,7 +123,6 @@ class XepLichVanDeService:
         issues += self._trung_may(rows)
         issues += self._de_khoa_may(rows)
         issues += self._sai_tien_nhiem(rows)
-        issues += self._gang_thieu_xa_to(rows)
         issues += self._thieu_du_lieu(rows)
         issues += self._nguy_co_tre(rows)
         issues += self._may_khong_kham(rows)
@@ -277,33 +275,6 @@ class XepLichVanDeService:
                 "delay_phut": None,
                 "group_key": f"lsx:{r['lsx_id']}",
             })
-        return out
-
-    def _gang_thieu_xa_to(self, rows: list[dict]) -> list[dict]:
-        """LSX tham gia bài ghép nhưng routing thiếu bước XẢ TỜ (tách bán thành phẩm sau in chung) — Chặn."""
-        bg_ids = _uniq([r["bai_ghep_id"] for r in rows if r["nguon"] == "in_ghep" and r["bai_ghep_id"]])
-        out: list[dict] = []
-        for bgid in bg_ids:
-            bg = self.xl.bg_repo.get(bgid)
-            if bg is None:
-                continue
-            for tv in bg.thanh_viens:
-                lid = tv.lsx_id
-                member_rows = [r for r in rows if r["nguon"] == "lsx" and r["lsx_id"] == lid]
-                if not member_rows:
-                    continue
-                if any(r["loai_buoc"] == LB_XA_TO for r in member_rows):
-                    continue
-                out.append({
-                    "issue_key": f"{CAT_GANG_THIEU_XA_TO}:{lid}",
-                    "category": CAT_GANG_THIEU_XA_TO, "severity": SEV_CHAN,
-                    "title": (f"{member_rows[0]['lsx_ma']} tham gia bài ghép {bg.ma} nhưng routing chưa "
-                              f"có bước xả tờ (tách bán thành phẩm sau khi in chung)."),
-                    "nguyen_nhan": "In chạy chung ở bài ghép, sau in phải xả tờ tách ra mới chạy tiếp riêng.",
-                    "impacts": self._impact(member_rows, extra_bg=[bgid]),
-                    "delay_phut": None,
-                    "group_key": f"bai_ghep:{bgid}",
-                })
         return out
 
     def _thieu_du_lieu(self, rows: list[dict]) -> list[dict]:

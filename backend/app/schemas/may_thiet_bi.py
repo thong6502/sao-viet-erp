@@ -35,6 +35,8 @@ class MayThietBiIn(BaseModel):
     don_gia_gio_BHR: float | None = None
     toc_do: float | None = None
     don_vi_toc_do: str | None = None
+    # Kíp chuẩn cần để vận hành máy. Đây là nhu cầu nhân lực, không nhân tốc độ máy.
+    so_nhan_cong: float = Field(default=1, ge=1)
     fields_theo_loai: dict | None = None
 
 

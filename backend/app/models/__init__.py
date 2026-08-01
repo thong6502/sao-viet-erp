@@ -83,7 +83,7 @@ from .plate_die_rate import PlateDieRate
 from .norm import Norm
 from .may_thiet_bi import MayThietBi
 from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
-from .cong_doan import CongDoan
+from .cong_doan import CongDoan, CongDoanDauViec
 from .bu_hao import BuHao
 from .don_vi_do import DonViDo, DonViQuyDoi
 from .kho_hang import KhoHang
@@ -93,7 +93,7 @@ from .stock_voucher import StockVoucher, StockVoucherAttachment, StockVoucherLin
 from .khuon_be import KhuonBe
 from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
-from .lsx import Lsx, LsxCongDoan
+from .lsx import Lsx, LsxCongDoan, LsxCongDoanVatTu, LsxCongDoanPhuThuoc
 from .bai_ghep import BaiGhep, BaiGhepThanhVien
 from .xep_lich import XepLichCongDoan
 from .xep_lich_van_de import XepLichVanDe
@@ -202,6 +202,9 @@ __all__ = [
     "KhuonBe",
     "Lsx",
     "LsxCongDoan",
+    "LsxCongDoanVatTu",
+    "LsxCongDoanPhuThuoc",
+    "CongDoanDauViec",
     "BaiGhep",
     "BaiGhepThanhVien",
     "XepLichCongDoan",

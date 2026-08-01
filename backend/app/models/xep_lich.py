@@ -74,7 +74,7 @@ class XepLichCongDoan(Base):
     )
     # Snapshot `lsx_cong_doan.thu_tu` — sắp thứ tự chuỗi + suy bước trước-sau không cần join.
     source_thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    # Snapshot loại bước (may/to/thue_ngoai/cho/kcs/xa_to/in_ghep) — lọc "cần gán máy" khỏi join.
+    # Snapshot loại bước routing (may/to/thue_ngoai); dòng in ghép cũng dùng `may`.
     loai_buoc: Mapped[str] = mapped_column(String(12), nullable=False, default="may")
 
     # --- Tài nguyên được gán (record-only: máy đề xuất, người quyết) ---

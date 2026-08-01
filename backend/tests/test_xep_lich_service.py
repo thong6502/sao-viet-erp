@@ -20,7 +20,7 @@ from app.db_migrations import run_migrations
 from app.models.cong_doan import CongDoan
 from app.models.customer import Customer
 from app.models.department import Department
-from app.models.lsx import LB_MAY, LB_XA_TO, TT_DA_LAP_KE_HOACH, TT_SAN_SANG, LsxCongDoan
+from app.models.lsx import LB_MAY, TT_DA_LAP_KE_HOACH, TT_SAN_SANG, LsxCongDoan, LsxCongDoanPhuThuoc
 from app.models.may_thiet_bi import MayThietBi
 from app.models.phieu_tinh_gia import PhieuThanhPhan, PhieuThanhPham, PhieuTinhGia
 from app.models.quotation import STATUS_ACCEPTED, Quote, QuoteItem, QuoteVersion
@@ -119,8 +119,10 @@ def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000) -> PhieuTinhGia:
                          cong_thuc_gia="so_luong * don_gia")
         db.add(cd_in)
     cd_in.department_id = cd_in.department_id or to_id
-    cd_in.may_id = cd_in.may_id or may.id
     cd_in.setup_time = 45
+    # Đơn vị KHAI ở danh mục (bước in chạy TỜ IN) — thiếu thì bước rơi khỏi dòng giấy và xếp lịch
+    # mất luôn đường tính thời lượng theo máy (`to_gio`).
+    cd_in.don_vi_vao = cd_in.don_vi_ra = "to"
     db.flush()
 
     def _sp(thu_tu, ten, sl, dai, rong):
@@ -128,7 +130,7 @@ def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000) -> PhieuTinhGia:
             thu_tu=thu_tu, ten=ten, so_luong=sl, don_vi_tinh="cái",
             dai_thanh_pham=dai, rong_thanh_pham=rong, giay_id=giay.id,
             kho_nguyen_dai=790, kho_nguyen_rong=1090, kho_in_dai=650, kho_in_rong=900,
-            so_mau_a=4, so_mau_b=0, quy_cach_in="mot_mat",
+            so_mau_a=4, so_mau_b=0, quy_cach_in="mot_mat", may_id=may.id,
         )
         sp.thanh_phams.append(
             PhieuThanhPham(thu_tu=0, cong_doan_id=cd_in.id, ten="In offset", don_gia=200)
@@ -281,9 +283,9 @@ def test_bai_ghep_in_chung_mot_dong_loai_tru_in(db, orders, lsx_svc, bg_svc, xl_
     # Mỗi LSX thêm bước xả tờ (sau in) để thành viên còn công đoạn xếp riêng sau khi in chung.
     for lsx in created:
         db.add(LsxCongDoan(
-            lsx_id=lsx.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_XA_TO,
+            lsx_id=lsx.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
             may_id=_in_step(db, lsx.id).may_id, so_luong_vao=5000, nang_suat=3000,
-            don_vi_nang_suat="to_gio",
+            don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to",
         ))
     db.commit()
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
@@ -295,7 +297,7 @@ def test_bai_ghep_in_chung_mot_dong_loai_tru_in(db, orders, lsx_svc, bg_svc, xl_
     gang = repo.by_bai_ghep(bg.id)
     assert len(gang) == 1 and gang[0].nguon == "in_ghep"        # in chung xuất hiện MỘT lần
     member = repo.by_lsx(created[0].id)
-    assert len(member) == 1 and member[0].loai_buoc == LB_XA_TO  # in bị loại, còn xả tờ
+    assert len(member) == 1 and member[0].loai_buoc == LB_MAY  # in bị loại, còn xả tờ như bước Máy
     assert all(l.trang_thai == TT_DA_LAP_KE_HOACH for l in created)
     # Thành viên bài ghép KHÔNG gỡ kế hoạch trực tiếp (phải gỡ qua bài ghép) — tránh mồ côi dòng in chung.
     with pytest.raises(XepLichConflict):
@@ -309,13 +311,17 @@ def test_som_nhat_theo_gio_thuc_cua_buoc_truoc(db, orders, lsx_svc, xl_svc, admi
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
     step.setup_phut, step.nang_suat, step.so_luong_vao, step.chay_phut = 0, 5000, 5000, None  # In = 60 phút
-    db.add(LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_XA_TO,
-                       may_id=step.may_id, so_luong_vao=5000, nang_suat=6000, don_vi_nang_suat="to_gio"))
+    xa = LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
+                     may_id=step.may_id, so_luong_vao=5000, nang_suat=6000, don_vi_nang_suat="to_gio",
+                     don_vi_vao="to", don_vi_ra="to")
+    db.add(xa)
+    db.flush()
+    db.add(LsxCongDoanPhuThuoc(buoc_truoc_id=step.id, buoc_sau_id=xa.id))
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dongs = XepLichRepository(db).by_lsx(lsx.id)
     in_dong = next(d for d in dongs if d.source_thu_tu == 0)
-    xa_dong = next(d for d in dongs if d.loai_buoc == LB_XA_TO)
+    xa_dong = next(d for d in dongs if d.lsx_cong_doan_id != in_dong.lsx_cong_doan_id)
     # Gán In bắt đầu 28/7 08:00 → kết thúc 09:00.
     xl_svc.gan(dong_id=in_dong.id,
                patch={"may_id": step.may_id, "start_at": datetime(2026, 7, 28, 8, 0, tzinfo=timezone.utc)},
@@ -323,6 +329,36 @@ def test_som_nhat_theo_gio_thuc_cua_buoc_truoc(db, orders, lsx_svc, xl_svc, admi
     items = {it["id"]: it for it in xl_svc.danh_sach()["items"]}
     # Sớm nhất của Xả tờ KHÔNG được sớm hơn khi In kết thúc thật (09:00).
     assert items[xa_dong.id]["som_nhat"].replace(tzinfo=None) >= datetime(2026, 7, 28, 9, 0)
+
+
+def test_dag_buoc_ghep_lay_moc_muon_nhat_cua_nhieu_tien_nhiem(
+    db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch,
+):
+    monkeypatch.setattr("app.services.xep_lich_service._utcnow",
+                        lambda: datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc))
+    monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    a = _in_step(db, lsx.id)
+    b = LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Nhánh B", loai_buoc=LB_MAY,
+                    may_id=a.may_id, so_luong_vao=100, nang_suat=100,
+                    don_vi_vao="to", don_vi_ra="to")
+    c = LsxCongDoan(lsx_id=lsx.id, thu_tu=2, ten="Ghép", loai_buoc=LB_MAY,
+                    may_id=a.may_id, so_luong_vao=100, nang_suat=100,
+                    don_vi_vao="to", don_vi_ra="to")
+    db.add_all([b, c]); db.flush()
+    db.add_all([
+        LsxCongDoanPhuThuoc(buoc_truoc_id=a.id, buoc_sau_id=c.id),
+        LsxCongDoanPhuThuoc(buoc_truoc_id=b.id, buoc_sau_id=c.id),
+    ])
+    db.commit()
+    xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
+    rows = XepLichRepository(db).by_lsx(lsx.id)
+    by_step = {r.lsx_cong_doan_id: r for r in rows}
+    by_step[a.id].finish_at = datetime(2026, 8, 3, 9, 0, tzinfo=timezone.utc)
+    by_step[b.id].finish_at = datetime(2026, 8, 3, 11, 0, tzinfo=timezone.utc)
+    db.commit()
+    items = {it["id"]: it for it in xl_svc.danh_sach()["items"]}
+    assert items[by_step[c.id].id]["som_nhat"].replace(tzinfo=None) == datetime(2026, 8, 3, 11, 0)
 
 
 def test_cong_gio_lam_tran_sang_ngay_ke(db, xl_svc, monkeypatch):
@@ -571,13 +607,17 @@ def test_xem_truoc_day_buoc_sau(db, orders, lsx_svc, xl_svc, admin, customer, mo
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
     step.setup_phut, step.nang_suat, step.so_luong_vao, step.chay_phut = 0, 5000, 5000, None
-    db.add(LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_XA_TO,
-                       may_id=step.may_id, so_luong_vao=5000, nang_suat=6000, don_vi_nang_suat="to_gio"))
+    xa = LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
+                     may_id=step.may_id, so_luong_vao=5000, nang_suat=6000, don_vi_nang_suat="to_gio",
+                     don_vi_vao="to", don_vi_ra="to")
+    db.add(xa)
+    db.flush()
+    db.add(LsxCongDoanPhuThuoc(buoc_truoc_id=step.id, buoc_sau_id=xa.id))
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dongs = XepLichRepository(db).by_lsx(lsx.id)
     in_id = next(d.id for d in dongs if d.source_thu_tu == 0)
-    xa_id = next(d.id for d in dongs if d.loai_buoc == LB_XA_TO)
+    xa_id = next(d.id for d in dongs if d.source_thu_tu == 1)
     res = xl_svc.xem_truoc(dong_id=in_id, may_id=step.may_id,
                            start_at=datetime(2026, 7, 28, 8, 0, tzinfo=timezone.utc))
     xa = next((x for x in res["day_doi"] if x["id"] == xa_id), None)

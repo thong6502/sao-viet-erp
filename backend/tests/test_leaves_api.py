@@ -348,10 +348,11 @@ def test_quota_prorated_for_mid_year_hire(client):
     token = _admin_token(client)
     tid = _make_type(client, token, name="Phép năm", is_paid=True)  # quota 12
     y = date.today().year
-    emp = client.post("/api/employees",
-        json={"full_name": "NV Mới", "department_id": _dept_id("Hành chính nhân sự"),
-              "hire_date": f"{y}-07-01"}, headers=_h(token)).json()["employee"]
-    client.post(f"/api/employees/{emp['id']}/account", json={"user_id": _uid("admin")}, headers=_h(token))
+    # Admin đã có hồ sơ do backfill và quan hệ tài khoản↔nhân viên là 1–1. Tạo hồ sơ thứ hai rồi
+    # gọi endpoint gán admin sẽ bị từ chối; bỏ qua response khiến test vô tình dùng ngày vào làm
+    # của hồ sơ cũ (= hôm chạy test), nên sang tháng 8 quota tụt từ 6 xuống 5.
+    emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
+    _set_hire_date(emp["id"], date(y, 7, 1))
 
     me = client.get("/api/leaves/me", headers=_h(token)).json()
     q = next(q for q in me["quotas"] if q["name"] == "Phép năm")

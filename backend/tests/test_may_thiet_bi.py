@@ -1,5 +1,6 @@
 """Máy thiết bị — model + compute_bhr (§4.2/4.3) + validate (§8). Self-contained in-memory DB."""
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -8,6 +9,7 @@ from app.db import Base
 import app.models  # noqa: F401 — đăng ký metadata
 from app.models.may_thiet_bi import MayThietBi
 from app.repositories.may_thiet_bi_repo import MayThietBiRepository
+from app.schemas.may_thiet_bi import MayThietBiIn
 from app.services.may_thiet_bi_service import (
     MayThietBiDuplicate,
     MayThietBiService,
@@ -48,6 +50,14 @@ def test_create_and_active_from_trang_thai():
     assert m.active is True                       # trang_thai=active → active
     m2 = svc.update(m.id, _off74(trang_thai="retired"))
     assert m2.active is False
+
+
+def test_kip_van_hanh_tieu_chuan_la_du_lieu_khai_bao_cua_may():
+    assert "so_nhan_cong" in MayThietBiIn.model_fields
+    payload = MayThietBiIn(**_off74(so_nhan_cong=3))
+    assert payload.so_nhan_cong == 3
+    with pytest.raises(ValidationError):
+        MayThietBiIn(**_off74(so_nhan_cong=0))
 
 
 def test_duplicate_ma_rejected():

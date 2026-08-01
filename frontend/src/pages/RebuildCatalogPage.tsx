@@ -11,7 +11,7 @@ import "./rebuild-catalog.css";
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "date" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "ref-search" | "bands" | "size_tiers" | "suggest" | "formula";
+  type?: "text" | "number" | "date" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "ref-search" | "bands" | "size_tiers" | "suggest" | "formula" | "dau-viec-dinh-muc";
   options?: { value: string; label: string }[];
   refPrefix?: string;           // ref / ref-multi / ref-search: endpoint danh mục nguồn (đổ theo TÊN/MÃ)
   required?: boolean;
@@ -763,6 +763,35 @@ function SizeTiersField({ value, onChange }: { value: SizeTierRow[]; onChange: (
   );
 }
 
+interface DinhMucRow { piece_rate_id: number; nang_suat_nguoi_gio: number; so_nguoi_tieu_chuan: number; so_nguoi_toi_da: number; is_default: boolean }
+function DinhMucDauViecField({ value, options, departmentId, donViVao, onChange }: {
+  value: DinhMucRow[]; options: Row[]; departmentId: number | null; donViVao: string;
+  onChange: (v: DinhMucRow[]) => void;
+}) {
+  const allowed = options.filter((o) => Number(o.department_id) === departmentId);
+  const selected = new Set(value.map((r) => r.piece_rate_id));
+  const patch = (i: number, p: Partial<DinhMucRow>) => onChange(value.map((r, j) => j === i ? { ...r, ...p } : r));
+  return <div className="rc-bands">
+    {!departmentId ? <div className="rc-bands__empty">Chọn Tổ phụ trách trước.</div> : <>
+      <table className="rc-bands__table"><thead><tr><th>Đầu việc chi tiết</th><th>NS/người/giờ</th><th>Người chuẩn</th><th>Tối đa</th><th>Mặc định</th><th /></tr></thead>
+        <tbody>{value.length === 0 && <tr><td colSpan={6} className="rc-bands__empty">
+          {allowed.length === 0 ? "Tổ này chưa có đầu việc khoán để liên kết." : "Chưa chọn đầu việc định mức."}
+        </td></tr>}{value.map((r, i) => { const opt = options.find((o) => o.id === r.piece_rate_id); return <tr key={r.piece_rate_id}>
+          <td>{opt ? `${opt.ma} · ${opt.ten}` : `#${r.piece_rate_id}`}</td>
+          <td><input className="rc-input rc-input--num" type="number" min="0.01" step="any" value={r.nang_suat_nguoi_gio} onChange={(e) => patch(i, { nang_suat_nguoi_gio: Number(e.target.value) })} /></td>
+          <td><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_tieu_chuan} onChange={(e) => patch(i, { so_nguoi_tieu_chuan: Number(e.target.value) })} /></td>
+          <td><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_toi_da} onChange={(e) => patch(i, { so_nguoi_toi_da: Number(e.target.value) })} /></td>
+          <td><input type="radio" name="dinh-muc-default" checked={r.is_default} onChange={() => onChange(value.map((x, j) => ({ ...x, is_default: j === i })))} /></td>
+          <td><button type="button" className="rc-bands__del" onClick={() => onChange(value.filter((_, j) => j !== i))}><TrashIcon /></button></td>
+        </tr>; })}</tbody></table>
+      <select className="rc-input" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onChange([...value, { piece_rate_id: id, nang_suat_nguoi_gio: 1, so_nguoi_tieu_chuan: 1, so_nguoi_toi_da: 1, is_default: value.length === 0 }]); }}>
+        <option value="">＋ Chọn đầu việc của tổ</option>{allowed.filter((o) => !selected.has(o.id)).map((o) => <option key={o.id} value={o.id}>{o.ma} · {o.ten}</option>)}
+      </select>
+      <span className="rc-field__hint">Đơn vị năng suất: {donViVao || "đầu vào"}/người/giờ. Đơn vị trả khoán không đổi đơn vị năng suất.</span>
+    </>}
+  </div>;
+}
+
 
 
 // ── DRAWER COMPONENT ─────────────────────────────────────────────────────────────
@@ -779,7 +808,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
       ten: existing?.ten ?? ""
     };
     for (const f of config.fields) {
-      if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers") {
+      if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers" || f.type === "dau-viec-dinh-muc") {
         const ev = existing?.[f.key];
         init[f.key] = Array.isArray(ev) ? ev : [];
       } else if (f.jsonKey) {
@@ -796,13 +825,22 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const set = (k: string, v: unknown) => setForm((p) => ({ ...p, [k]: v }));
+  const setRef = (key: string, value: string) => {
+    if (key !== "department_id" || String(form.department_id ?? "") === value) {
+      set(key, value);
+      return;
+    }
+    const dinhMuc = Array.isArray(form.dau_viec_dinh_muc) ? form.dau_viec_dinh_muc : [];
+    if (dinhMuc.length > 0 && !window.confirm("Đổi tổ phụ trách sẽ bỏ các đầu việc định mức đã chọn. Tiếp tục?")) return;
+    setForm((prev) => ({ ...prev, department_id: value, dau_viec_dinh_muc: [] }));
+  };
 
   // Đổ dropdown "chọn theo tên" cho field ref/ref-multi từ danh mục nguồn.
   const [refData, setRefData] = useState<Record<string, Row[]>>({});
   useEffect(() => {
     if (!token) return;
     const prefixes = [...new Set(
-      config.fields.filter((f) => f.type === "ref" || f.type === "ref-multi" || f.type === "ref-search").map((f) => f.refPrefix).filter(Boolean) as string[],
+      config.fields.filter((f) => f.type === "ref" || f.type === "ref-multi" || f.type === "ref-search" || f.type === "dau-viec-dinh-muc").map((f) => f.refPrefix).filter(Boolean) as string[],
     )];
     if (prefixes.length === 0) return;
     let alive = true;
@@ -820,7 +858,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
 
   const renderField = (f: FieldDef) => {
     const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
-    const isFullWidth = f.type === "bands" || f.type === "size_tiers" || f.type === "ref-multi" || f.type === "json" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
+    const isFullWidth = f.type === "bands" || f.type === "size_tiers" || f.type === "ref-multi" || f.type === "dau-viec-dinh-muc" || f.type === "json" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
     const Tag = f.type === "formula" || f.type === "bands" || f.type === "size_tiers" ? "div" : "label";
     return (
       <Tag className={`rc-field${f.type === "checkbox" ? " rc-field--check" : ""}${isFullWidth ? " rc-field--full" : ""}`} key={f.key}>
@@ -830,6 +868,12 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
             onChange={(v) => set(f.key, v)} />
         ) : f.type === "size_tiers" ? (
           <SizeTiersField value={Array.isArray(form[f.key]) ? (form[f.key] as SizeTierRow[]) : []}
+            onChange={(v) => set(f.key, v)} />
+        ) : f.type === "dau-viec-dinh-muc" ? (
+          <DinhMucDauViecField value={Array.isArray(form[f.key]) ? form[f.key] as DinhMucRow[] : []}
+            options={refData[f.refPrefix ?? ""] ?? []}
+            departmentId={form.department_id ? Number(form.department_id) : null}
+            donViVao={String(form.don_vi_vao ?? "")}
             onChange={(v) => set(f.key, v)} />
         ) : f.type === "select" ? (
           <div className="rc-input-wrapper">
@@ -849,7 +893,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
           />
         ) : f.type === "ref" ? (
           <div className="rc-input-wrapper">
-            <select className="rc-input" value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)}>
+            <select className="rc-input" value={String(form[f.key] ?? "")} onChange={(e) => setRef(f.key, e.target.value)}>
               <option value="">— chọn —</option>
               {(refData[f.refPrefix ?? ""] ?? []).map((o) => (
                 <option key={o.id} value={o.id}>{o.ma} · {o.ten}</option>
@@ -907,7 +951,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     if (!config.autoCode || isEdit) body.ma = form.ma;
     for (const f of visibleFields) {
       let v = form[f.key];
-      if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers") { body[f.key] = Array.isArray(v) ? v : []; continue; }
+      if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers" || f.type === "dau-viec-dinh-muc") { body[f.key] = Array.isArray(v) ? v : []; continue; }
       if (v === "" || v === undefined) {
         const kieuChu = !f.type || f.type === "text" || f.type === "date" || f.type === "suggest";
         const voonCoGiaTri = isEdit && existing != null && existing[f.key] != null

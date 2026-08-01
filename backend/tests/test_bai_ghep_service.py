@@ -173,7 +173,6 @@ def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000) -> PhieuTinhGia:
                          cong_thuc_gia="so_luong * don_gia")
         db.add(cd_in)
     cd_in.department_id = cd_in.department_id or to_id
-    cd_in.may_id = cd_in.may_id or may.id
     cd_in.setup_time = 45
     db.flush()
 
@@ -182,7 +181,7 @@ def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000) -> PhieuTinhGia:
             thu_tu=thu_tu, ten=ten, so_luong=sl, don_vi_tinh="cái",
             dai_thanh_pham=dai, rong_thanh_pham=rong, giay_id=giay.id,
             kho_nguyen_dai=790, kho_nguyen_rong=1090, kho_in_dai=650, kho_in_rong=900,
-            so_mau_a=4, so_mau_b=0, quy_cach_in="mot_mat",
+            so_mau_a=4, so_mau_b=0, quy_cach_in="mot_mat", may_id=may.id,
         )
         sp.thanh_phams.append(
             PhieuThanhPham(thu_tu=0, cong_doan_id=cd_in.id, ten="In offset", don_gia=200)

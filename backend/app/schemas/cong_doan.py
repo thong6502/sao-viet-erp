@@ -6,6 +6,19 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class CongDoanDauViecIn(BaseModel):
+    piece_rate_id: int
+    nang_suat_nguoi_gio: float = Field(gt=0)
+    so_nguoi_tieu_chuan: int = Field(ge=1)
+    so_nguoi_toi_da: int = Field(ge=1)
+    is_default: bool = False
+
+
+class CongDoanDauViecRow(CongDoanDauViecIn):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+
+
 class CongDoanIn(BaseModel):
     ma: str = Field(min_length=1, max_length=30)
     ten: str = Field(min_length=1, max_length=150)
@@ -18,7 +31,6 @@ class CongDoanIn(BaseModel):
     bu_hao_id: int | None = None
     so_to_bu_hao: int = Field(default=50, ge=0)
     nhom: str
-    may_id: int | None = None
     department_id: int | None = None
     khoan_ghi_theo: str = "khong"
     allowed_defect_pct: float = Field(default=0, ge=0, le=1)
@@ -41,6 +53,7 @@ class CongDoanIn(BaseModel):
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
     active: bool = True
+    dau_viec_dinh_muc: list[CongDoanDauViecIn] = Field(default_factory=list)
 
 
 class CongDoanRow(BaseModel):
@@ -55,7 +68,6 @@ class CongDoanRow(BaseModel):
     bu_hao_id: int | None = None
     so_to_bu_hao: int = 50
     nhom: str
-    may_id: int | None = None
     department_id: int | None = None
     khoan_ghi_theo: str = "khong"
     allowed_defect_pct: float = 0
@@ -77,6 +89,7 @@ class CongDoanRow(BaseModel):
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
     active: bool
+    dau_viec_dinh_muc: list[CongDoanDauViecRow] = Field(default_factory=list)
     updated_at: datetime | None = None
 
 

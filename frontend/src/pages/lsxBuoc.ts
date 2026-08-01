@@ -25,6 +25,8 @@ export interface EditRow {
   so_luot_chay: string;
   // năng suất & thời gian (phút)
   so_nhan_cong: string;
+  so_nhan_cong_tieu_chuan: number;
+  so_nhan_cong_toi_da: number | null;
   setup_phut: string;
   nang_suat: string;
   don_vi_nang_suat: string;
@@ -32,7 +34,9 @@ export interface EditRow {
   ve_sinh_phut: string;
   cho_phut: string;
   di_chuyen_phut: string;
-  dieu_kien_json: string[];
+  thoi_luong_dien_giai: Record<string, unknown>;
+  phu_thuoc_step_keys: string[];
+  vat_tus: { vat_tu_id: number; vat_tu_ma: string; vat_tu_ten: string; don_vi: string; so_luong: string }[];
   // gia công ngoài (§8)
   nha_cung_cap: string;
   sl_gui: string;
@@ -60,6 +64,11 @@ export interface KhoanChon {
   ten: string;
   don_vi: string;
   don_gia: number;
+  nang_suat_nguoi_gio?: number;
+  so_nguoi_tieu_chuan?: number;
+  so_nguoi_toi_da?: number;
+  is_default?: boolean;
+  don_vi_nang_suat?: string | null;
 }
 
 export const DON_VI: { key: string; label: string }[] = [
@@ -77,15 +86,6 @@ export const DON_VI_NANG_SUAT: { key: string; label: string }[] = [
 ];
 
 /** Điều kiện bắt đầu (§4.5) — "công đoạn trước xong" là mặc định nên không có ô riêng. */
-export const DIEU_KIEN: { key: string; label: string }[] = [
-  { key: "co_vat_tu", label: "Vật tư đã sẵn" },
-  { key: "file_duyet", label: "File đã duyệt" },
-  { key: "kem_xong", label: "Kẽm đã xuất" },
-  { key: "khuon_san_sang", label: "Khuôn đã sẵn sàng" },
-  { key: "mau_mau_ky", label: "Mẫu màu đã ký" },
-  { key: "nhan_tu_gia_cong", label: "Đã nhận từ nhà gia công" },
-];
-
 let seq = 0;
 export function newKey(): string {
   seq += 1;
@@ -104,7 +104,7 @@ function s0(v: number | null | undefined): string {
 
 export function toEdit(cd: LsxCongDoan): EditRow {
   return {
-    key: newKey(),
+    key: cd.step_key,
     cong_doan_id: cd.cong_doan_id,
     ten: cd.ten,
     nhom: cd.nhom,
@@ -121,6 +121,8 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     hao_hut_pct: s(cd.hao_hut_pct),
     so_luot_chay: s(cd.so_luot_chay),
     so_nhan_cong: s(cd.so_nhan_cong),
+    so_nhan_cong_tieu_chuan: cd.so_nhan_cong_tieu_chuan ?? 1,
+    so_nhan_cong_toi_da: cd.so_nhan_cong_toi_da,
     setup_phut: s(cd.setup_phut),
     nang_suat: s(cd.nang_suat),
     don_vi_nang_suat: cd.don_vi_nang_suat ?? "",
@@ -128,7 +130,9 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     ve_sinh_phut: s(cd.ve_sinh_phut),
     cho_phut: s(cd.cho_phut),
     di_chuyen_phut: s(cd.di_chuyen_phut),
-    dieu_kien_json: cd.dieu_kien_json ?? [],
+    thoi_luong_dien_giai: cd.thoi_luong_dien_giai ?? {},
+    phu_thuoc_step_keys: cd.phu_thuoc_step_keys ?? [],
+    vat_tus: (cd.vat_tus ?? []).map((v) => ({ ...v, so_luong: String(v.so_luong) })),
     nha_cung_cap: cd.nha_cung_cap ?? "",
     sl_gui: s(cd.sl_gui),
     ngay_gui_dk: cd.ngay_gui_dk ?? "",
@@ -154,7 +158,9 @@ export function emptyRow(): EditRow {
     so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to", he_so_quy_doi: "",
     hao_hut: "", hao_hut_pct: "", so_luot_chay: "", so_nhan_cong: "",
     setup_phut: "", nang_suat: "", don_vi_nang_suat: "", chay_phut: "",
-    ve_sinh_phut: "", cho_phut: "", di_chuyen_phut: "", dieu_kien_json: [],
+    so_nhan_cong_tieu_chuan: 1, so_nhan_cong_toi_da: null,
+    ve_sinh_phut: "", cho_phut: "", di_chuyen_phut: "", thoi_luong_dien_giai: {},
+    phu_thuoc_step_keys: [], vat_tus: [],
     nha_cung_cap: "", sl_gui: "", ngay_gui_dk: "", van_chuyen_ngay: "", gia_cong_ngay: "",
     ngay_nhan_dk: "", hao_hut_cho_phep: "", don_gia_gia_cong: "", yeu_cau_ky_thuat: "",
     ghi_chu: "",
@@ -183,6 +189,7 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
     const ngoai = r.loai_buoc === "thue_ngoai";
     return {
       thu_tu: i,
+      step_key: r.key.startsWith("r") ? undefined : r.key,
       cong_doan_id: r.cong_doan_id,
       ten: r.ten || "Công đoạn",
       nhom: r.nhom,
@@ -201,14 +208,13 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       so_luot_chay: on(r.so_luot_chay),
       so_nhan_cong: on(r.so_nhan_cong),
       setup_phut: on(r.setup_phut),
-      nang_suat: on(r.nang_suat),
-      don_vi_nang_suat: ot(r.don_vi_nang_suat),
       // Ô trống = để máy tính từ năng suất (KHÔNG phải 0 phút).
       chay_phut: r.chay_phut.trim() === "" ? null : n(r.chay_phut),
       ve_sinh_phut: on(r.ve_sinh_phut),
       cho_phut: on(r.cho_phut),
       di_chuyen_phut: on(r.di_chuyen_phut),
-      dieu_kien_json: r.dieu_kien_json,
+      phu_thuoc_step_keys: r.phu_thuoc_step_keys,
+      vat_tus: r.vat_tus.map((v) => ({ vat_tu_id: v.vat_tu_id, so_luong: n(v.so_luong) })),
       // Khối gia công ngoài chỉ gửi khi bước ĐANG là thuê ngoài — đổi loại bước rồi thì
       // không kéo theo dữ liệu NCC cũ làm checklist hiểu nhầm.
       nha_cung_cap: ngoai ? ot(r.nha_cung_cap) : null,
@@ -233,25 +239,14 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
   });
 }
 
-/** Thời lượng 1 bước tính NGAY TRÊN MÁY KHÁCH — bảng phản hồi tức thì khi gõ, không đợi lưu.
- *  Công thức phải khớp `thoi_luong_buoc` ở backend (nguồn chân lý khi lưu). */
+/** Chỉ đọc kết quả có cấu trúc từ backend. FE không giữ bản sao công thức nghiệp vụ. */
 export function thoiLuong(r: EditRow): { chay: number; chiemMay: number; tong: number } {
-  const setup = n(r.setup_phut);
-  const veSinh = n(r.ve_sinh_phut);
-  const cho = n(r.cho_phut);
-  const diChuyen = n(r.di_chuyen_phut);
-  let chay: number;
-  if (r.chay_phut.trim() !== "") {
-    chay = n(r.chay_phut);            // người kế hoạch gõ đè thì thắng công thức
-  } else {
-    const ns = n(r.nang_suat);
-    const vao = n(r.so_luong_vao);
-    const luot = Math.max(n(r.so_luot_chay) || 1, 1);
-    const nc = Math.max(n(r.so_nhan_cong) || 1, 1);
-    chay = ns > 0 && vao > 0 ? (vao / ns) * 60 * luot / nc : 0;
-  }
-  const chiemMay = setup + chay + veSinh;
-  return { chay, chiemMay, tong: chiemMay + cho + diChuyen };
+  const d = r.thoi_luong_dien_giai;
+  return {
+    chay: Number(d.chay_phut ?? 0),
+    chiemMay: Number(d.chiem_tai_nguyen_phut ?? 0),
+    tong: Number(d.tong_phut ?? 0),
+  };
 }
 
 /** "2 giờ 4 phút" — đọc nhanh hơn "124 phút" khi bước dài.

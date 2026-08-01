@@ -9,7 +9,7 @@ from __future__ import annotations
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..models.lsx import LOAI_MOI, Lsx, LsxCongDoan
+from ..models.lsx import LOAI_MOI, Lsx, LsxCongDoan, LsxCongDoanPhuThuoc
 from ..models.order import STATUS_ORDERED, Order, OrderLine
 
 
@@ -21,7 +21,10 @@ class LsxRepository:
 
     def get(self, lsx_id: int) -> Lsx | None:
         return self.db.execute(
-            select(Lsx).where(Lsx.id == lsx_id).options(selectinload(Lsx.cong_doans))
+            select(Lsx).where(Lsx.id == lsx_id).options(
+                selectinload(Lsx.cong_doans).selectinload(LsxCongDoan.vat_tus),
+                selectinload(Lsx.cong_doans).selectinload(LsxCongDoan.phu_thuoc),
+            )
         ).scalar_one_or_none()
 
     def list(
@@ -105,13 +108,24 @@ class LsxRepository:
         self.db.delete(lsx)
         self.db.flush()
 
-    def replace_cong_doans(self, lsx: Lsx, rows: list[LsxCongDoan]) -> None:
-        """REPLACE-ALL routing (cùng lối với phiếu tính giá): xoá sạch rồi dựng lại theo payload."""
-        lsx.cong_doans.clear()
+    def sync_cong_doans(self, lsx: Lsx, rows: list[LsxCongDoan]) -> None:
+        """Đồng bộ tại chỗ để giữ PK bước cho dòng lịch và cạnh phụ thuộc."""
+        keep = {r.id for r in rows if r.id is not None}
+        for old in list(lsx.cong_doans):
+            if old.id not in keep:
+                lsx.cong_doans.remove(old)
         for i, row in enumerate(rows):
             row.thu_tu = i
-            lsx.cong_doans.append(row)
+            if row not in lsx.cong_doans:
+                lsx.cong_doans.append(row)
         self.db.flush()
+
+    def phu_thuoc_toi_buoc(self, step_ids: set[int]) -> list[LsxCongDoanPhuThuoc]:
+        if not step_ids:
+            return []
+        return list(self.db.execute(
+            select(LsxCongDoanPhuThuoc).where(LsxCongDoanPhuThuoc.buoc_truoc_id.in_(step_ids))
+        ).scalars())
 
     def commit(self) -> None:
         self.db.commit()

@@ -1,7 +1,7 @@
 """Vấn đề kế hoạch (xung đột & nguy cơ trễ) — service-level tests.
 
 Tái dùng fixtures + helpers của test xếp lịch (đơn → SX → lệnh → sẵn sàng → đưa vào kế hoạch → gán).
-Kiểm 3 detector mới rẻ (đè khóa máy · sai tiền nhiệm · gang thiếu xả tờ), vòng đời state, luật ngoại
+Kiểm detector đè khóa máy và sai tiền nhiệm, vòng đời state, luật ngoại
 lệ (kỹ thuật bất khả không được duyệt), và gate PHÁT HÀNH (còn Chặn → chặn; ngoại lệ → thả; thu hồi).
 """
 from __future__ import annotations
@@ -12,7 +12,7 @@ import pytest
 
 from app.db import SessionLocal
 from app.models.lsx import (
-    LB_THUE_NGOAI, LB_TO, LB_XA_TO, Lsx, LsxCongDoan, TT_DA_LAP_KE_HOACH, TT_DA_PHAT_HANH,
+    LB_MAY, LB_THUE_NGOAI, LB_TO, Lsx, LsxCongDoan, TT_DA_LAP_KE_HOACH, TT_DA_PHAT_HANH,
 )
 from app.models.may_thiet_bi import MayThietBi
 from app.models.role import Role, RolePermission
@@ -100,14 +100,14 @@ def test_sai_tien_nhiem_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, cus
     assert all(it["severity"] == "chan" for it in sai)
 
 
-# --- Detector: gang thiếu bước xả tờ ----------------------------------------
-def test_gang_thieu_xa_to_detector(db, orders, lsx_svc, bg_svc, xl_svc, vd_svc, admin, customer, monkeypatch):
+# --- Xả tờ là bước Máy bình thường, không còn detector theo tên ---------------
+def test_khong_con_detector_gang_thieu_xa_to(db, orders, lsx_svc, bg_svc, xl_svc, vd_svc, admin, customer, monkeypatch):
     _luon_lam(monkeypatch)
     a, b = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
-    # a: có bước finishing KHÁC (thiếu xả tờ) → phải bị bắt. b: có xả tờ → hợp lệ.
+    # Có hay không có bước tên Xả tờ đều do routing động quyết định, không sinh cảnh báo hardcode.
     db.add(LsxCongDoan(lsx_id=a.id, thu_tu=1, ten="Dán", nhom="finishing", loai_buoc=LB_TO,
                        department_id=_in_step(db, a.id).department_id, so_luong_vao=5000, chay_phut=20))
-    db.add(LsxCongDoan(lsx_id=b.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_XA_TO,
+    db.add(LsxCongDoan(lsx_id=b.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
                        may_id=_in_step(db, b.id).may_id, so_luong_vao=5000, nang_suat=6000,
                        don_vi_nang_suat="to_gio"))
     db.commit()
@@ -115,8 +115,7 @@ def test_gang_thieu_xa_to_detector(db, orders, lsx_svc, bg_svc, xl_svc, vd_svc, 
     bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai="san_sang", actor=admin)
     xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)
     gang = _cats(vd_svc.liet_ke(), "gang_thieu_xa_to")
-    assert len(gang) == 1 and gang[0]["severity"] == "chan"
-    assert a.id in gang[0]["impacts"]["lsx_ids"] and b.id not in gang[0]["impacts"]["lsx_ids"]
+    assert gang == []
 
 
 # --- Gate phát hành: còn Chặn → chặn; ngoại lệ → thả; thu hồi ----------------

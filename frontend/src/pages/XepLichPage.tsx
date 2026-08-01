@@ -109,9 +109,8 @@ type ResKind = "may" | "to" | "ncc" | "none";
 /** Bước chiếm gì → ô "Máy/NCC" gán field nào. */
 function resKind(lb: LsxLoaiBuoc | null): ResKind {
   if (lb === "thue_ngoai") return "ncc";
-  if (lb === "to" || lb === "kcs") return "to";
-  if (lb === "cho") return "none";
-  return "may"; // may · xa_to · (in chung của bài ghép)
+  if (lb === "to") return "to";
+  return "may"; // bước Máy và dòng in chung của bài ghép
 }
 function resText(r: XepLichRow): string | null {
   switch (resKind(r.loai_buoc)) {
@@ -152,8 +151,6 @@ function popStyle(a: DOMRect, width = 280): CSSProperties {
 
 function stepIcon(lb: LsxLoaiBuoc | null, ten?: string | null): IconName {
   if (lb === "thue_ngoai") return "truck";
-  if (lb === "kcs") return "shield";
-  if (lb === "xa_to" || lb === "bai_ghep") return "layers";
   if (lb === "to") return "building";
   if (lb === "may") {
     const t = (ten ?? "").toLowerCase();
