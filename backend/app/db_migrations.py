@@ -4579,6 +4579,67 @@ MIGRATIONS: list[tuple[str, callable]] = [
 ]
 
 
+def _migrate_noi_quy_file_registry(db: Session) -> None:
+    """Đưa tài liệu có file của luồng ban hành cũ sang danh mục file mới.
+
+    Chỉ lấy bản published mới nhất của mỗi tài liệu và một file gốc xem trước được. Các bảng cũ
+    vẫn giữ nguyên; migration không xóa lịch sử.
+    """
+    tables = set(inspect(db.get_bind()).get_table_names())
+    required = {
+        "noi_quy_records", "noi_quy_documents", "noi_quy_versions", "noi_quy_attachments",
+    }
+    if not required.issubset(tables):
+        return
+    db.execute(text("""
+        INSERT INTO noi_quy_records (
+            code, name, file_name, file_url, file_type, file_size, note,
+            uploaded_by, uploaded_at
+        )
+        SELECT
+            'NQ-LEGACY-' || d.id,
+            d.title,
+            a.file_name,
+            a.file_url,
+            CASE
+                WHEN lower(a.file_name) LIKE '%.pdf' THEN 'application/pdf'
+                WHEN lower(a.file_name) LIKE '%.png' THEN 'image/png'
+                WHEN lower(a.file_name) LIKE '%.jpg' OR lower(a.file_name) LIKE '%.jpeg'
+                    THEN 'image/jpeg'
+                WHEN lower(a.file_name) LIKE '%.webp' THEN 'image/webp'
+                ELSE 'application/octet-stream'
+            END,
+            0,
+            'Chuyển từ dữ liệu nội quy cũ',
+            COALESCE(a.uploaded_by, v.published_by),
+            COALESCE(a.uploaded_at, v.published_at, d.created_at)
+        FROM noi_quy_documents d
+        JOIN noi_quy_versions v ON v.id = (
+            SELECT v2.id FROM noi_quy_versions v2
+            WHERE v2.document_id = d.id AND v2.status = 'published'
+            ORDER BY v2.published_at DESC, v2.id DESC LIMIT 1
+        )
+        JOIN noi_quy_attachments a ON a.id = (
+            SELECT a2.id FROM noi_quy_attachments a2
+            WHERE a2.version_id = v.id
+              AND (
+                lower(a2.file_name) LIKE '%.pdf' OR lower(a2.file_name) LIKE '%.png'
+                OR lower(a2.file_name) LIKE '%.jpg' OR lower(a2.file_name) LIKE '%.jpeg'
+                OR lower(a2.file_name) LIKE '%.webp'
+              )
+            ORDER BY a2.is_import_source DESC, a2.id ASC LIMIT 1
+        )
+        WHERE COALESCE(a.uploaded_by, v.published_by) IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM noi_quy_records r WHERE r.code = 'NQ-LEGACY-' || d.id
+          )
+    """))
+    db.commit()
+
+
+MIGRATIONS.append(("0134_noi_quy_file_registry", _migrate_noi_quy_file_registry))
+
+
 def run_migrations(db: Session) -> None:
     """Apply any not-yet-applied migrations, tracked in schema_migrations."""
     db.execute(text(
