@@ -36,6 +36,14 @@ def _dept_id(name: str) -> int:
         db.close()
 
 
+def _role_id(name: str, department_id: int) -> int:
+    db = SessionLocal()
+    try:
+        return RoleRepository(db).get_by_name_and_department(name, department_id).id
+    finally:
+        db.close()
+
+
 def _sales_token() -> str:
     db = SessionLocal()
     try:
@@ -348,17 +356,33 @@ def test_quota_prorated_for_mid_year_hire(client):
     token = _admin_token(client)
     tid = _make_type(client, token, name="Phép năm", is_paid=True)  # quota 12
     y = date.today().year
-    # Admin đã có hồ sơ do backfill và quan hệ tài khoản↔nhân viên là 1–1. Tạo hồ sơ thứ hai rồi
-    # gọi endpoint gán admin sẽ bị từ chối; bỏ qua response khiến test vô tình dùng ngày vào làm
-    # của hồ sơ cũ (= hôm chạy test), nên sang tháng 8 quota tụt từ 6 xuống 5.
-    emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
-    _set_hire_date(emp["id"], date(y, 7, 1))
+    # Admin đã có hồ sơ do backfill và quan hệ tài khoản↔nhân viên là 1–1, nên không gán thêm hồ
+    # sơ cho admin được. Tạo hẳn nhân viên riêng kèm tài khoản rồi đăng nhập bằng chính họ.
+    dept_id = _dept_id("Hành chính nhân sự")
+    role_id = _role_id("Nhân viên", dept_id)
+    emp = client.post("/api/employees",
+        json={
+            "full_name": "NV Mới",
+            "department_id": dept_id,
+            "hire_date": f"{y}-07-01",
+            "account": {
+                "username": "nv-moi-phep",
+                "password": "secret1",
+                "role_id": role_id,
+            },
+        },
+        headers=_h(token),
+    ).json()["employee"]
+    employee_token = client.post(
+        "/api/auth/login",
+        json={"username": "nv-moi-phep", "password": "secret1"},
+    ).json()["access_token"]
 
-    me = client.get("/api/leaves/me", headers=_h(token)).json()
+    me = client.get("/api/leaves/me", headers=_h(employee_token)).json()
     q = next(q for q in me["quotas"] if q["name"] == "Phép năm")
     assert q["annual_quota"] == 6 and q["remaining"] == 6  # 12 × 6 tháng (7..12) / 12
 
     # Đơn dài (>6 ngày làm việc) → chặn vì vượt hạn mức đã prorate.
     r = client.post("/api/leaves", json={"leave_type_id": tid,
-        "start_date": f"{y}-11-02", "end_date": f"{y}-11-16"}, headers=_h(token))
+        "start_date": f"{y}-11-02", "end_date": f"{y}-11-16"}, headers=_h(employee_token))
     assert r.status_code == 400 and "Vượt hạn mức" in r.json()["detail"]

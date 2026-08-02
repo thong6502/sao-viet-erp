@@ -1,4 +1,8 @@
-"""Nội quy công ty (chủ 30/07/2026 — "chỗ để Giám đốc viết nội quy, tất cả nhân viên thấy").
+"""Nội quy công ty.
+
+Luồng hiện hành dùng `noi_quy_records`: mỗi dòng là một tài liệu tải lên, không còn nháp, soạn
+thảo hay ban hành phiên bản. Các bảng version/page/attachment phía dưới được giữ lại ở dạng
+legacy để DB đã chạy không mất dữ liệu; API mới không ghi vào chúng.
 
 Hai bảng:
   - `noi_quy_versions`    — mỗi lần ban hành là MỘT dòng mới, KHÔNG ghi đè bản cũ.
@@ -25,6 +29,31 @@ from sqlalchemy.sql import false as sa_false, true as sa_true
 
 from ..db import Base
 
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class NoiQuyRecord(Base):
+    """Một tài liệu trong danh mục nội quy công ty."""
+
+    __tablename__ = "noi_quy_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(24), unique=True, index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    uploaded_by: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), index=True, nullable=False
+    )
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, index=True, nullable=False
+    )
+
 # --- Trạng thái một bản nội quy ---------------------------------------------
 NQ_DRAFT = "draft"          # đang soạn — CHỈ người soạn thấy
 NQ_PUBLISHED = "published"  # đã ban hành — mọi nhân viên thấy
@@ -37,11 +66,6 @@ NQ_STATUSES = (NQ_DRAFT, NQ_PUBLISHED)
 NQ_SRC_HTML = "html"  # gõ/sửa trong app → đọc từ `noi_dung`
 NQ_SRC_FILE = "file"  # tải tài liệu lên → đọc từ ảnh trang (`noi_quy_pages`) hoặc `noi_dung` giàu
 NQ_SOURCE_KINDS = (NQ_SRC_HTML, NQ_SRC_FILE)
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
 
 class NoiQuyDocument(Base):
     """MỘT tài liệu trong bộ nội quy — danh tính bền, sống qua mọi lần ban hành.

@@ -1607,8 +1607,8 @@ SEAM-19 (`drivers.employee_id` back-fill khi Tài xế build). Portable across S
 | `department_id`           | `Integer` → `INTEGER`                                  | **FK→departments.id**, **IX**  | yes  | —              | Phòng/tổ; trục RBAC data-scope. Null tới khi gán.                                                                   |
 | `user_id`                 | `Integer` → `INTEGER`                                  | **FK→users.id**, **U**, **IX** | yes  | —              | Tài khoản login nối 1–1 (UNIQUE); null = chưa nối.                                                                  |
 | `position`                | `String(255)` → `VARCHAR(255)`                         | —                              | yes  | —              | Chức danh.                                                                                                          |
-| `job_grade_id`            | `Integer` → `INTEGER`                                  | **FK→job_grades.id**, **IX**   | yes  | —              | **BẬC TAY NGHỀ — nguồn sự thật DUY NHẤT** từ 2026-07-29. Trỏ danh mục `job_grades`. Chỉ đổi qua TRANSITION (`promote`/`transfer`), KHÔNG qua sửa hồ sơ thường, nên mọi lần đổi bậc đều có dòng "Quá trình công tác". Thêm qua migration 0127. |
-| `job_grade`               | `String(50)` → `VARCHAR(50)`                           | —                              | yes  | —              | ⚠️ **DORMANT** từ 2026-07-29 — bậc thợ chữ tự do (vd "3/7"). Migration 0127 đã chuyển sang `job_grade_id`; cột giữ lại cho dữ liệu cũ, NGỪNG GHI, chỉ đọc khi `job_grade_id` rỗng.                    |
+| `job_grade_id`            | `Integer` → `INTEGER`                                  | **FK→job_grades.id**, **IX**   | yes  | —              | **BẬC TAY NGHỀ — nguồn sự thật DUY NHẤT** (chủ 29/07/2026). Trỏ danh mục `job_grades`. Chỉ đổi qua TRANSITION (`promote`/`transfer`), KHÔNG qua sửa hồ sơ thường ⇒ mọi lần đổi bậc đều có dòng Quá trình công tác. NULL = chưa khai bậc. Thêm qua migration 0127. |
+| `job_grade`               | `String(50)` → `VARCHAR(50)`                           | —                              | yes  | —              | ⚠️ **CỘT CŨ — NGỪNG GHI từ 29/07/2026.** Bậc thợ chữ tự do (vd "3/7"). Migration 0127 đã chuyển sang `job_grade_id`; cột giữ cho dữ liệu cũ, chỉ đọc khi `job_grade_id` NULL. |
 | `prior_seniority_months`  | `Integer` → `INTEGER`                                  | —                              | no   | `0`            | Thâm niên đã có TRƯỚC khi vào làm (tháng); tổng thâm niên = số này + thời gian từ `hire_date`. Đợt 1 chỉ lưu/hiển thị. Thêm qua migration 0093. |
 | `status`                  | `String(16)` → `VARCHAR(16)`                           | —                              | no   | `probation`    | probation/active/on_leave/suspended/resigned.                                                                       |
 | `hire_date`               | `Date` → `DATE`                                        | —                              | yes  | —              | Ngày vào làm.                                                                                                       |
@@ -1634,7 +1634,7 @@ SEAM-19 (`drivers.employee_id` back-fill khi Tài xế build). Portable across S
 | `bank_name`               | `String(100)` → `VARCHAR(100)`                         | —                              | yes  | —              | Ngân hàng.                                                                                                          |
 | `default_shift_id`        | `Integer` → `INTEGER`                                  | **IX**                         | yes  | —              | Ca làm việc mặc định (logical link → `work_shifts.id`, không FK cứng). Null = chưa gán ca. Thêm qua migration 0011. |
 | `payroll_group`           | `String(40)` → `VARCHAR(40)`                           | **IX**                         | yes  | —              | Nhóm lương — trục tra `salary_rate_rules` (vd `to_in`, `san_xuat`, `van_phong`). Thêm qua migration 0012.           |
-| `pay_grade_key`           | `String(20)` → `VARCHAR(20)`                           | —                              | yes  | —              | Bậc lương chuẩn hóa cho tổ theo bậc (tho_1..phu_2). Tách khỏi `job_grade` free-text. Thêm qua migration 0012.       |
+| `pay_grade_key`           | `String(20)` → `VARCHAR(20)`                           | —                              | yes  | —              | ⚠️ **CỘT CŨ — NGỪNG GHI từ 29/07/2026** (đã gỡ khỏi `EDITABLE_FIELDS`). Bậc lương chuẩn hóa `tho_1`..`phu_2`. Bộ mã này nay **là** danh mục `job_grades` (cùng mã) và bậc của NV nằm ở `job_grade_id`. Giữ cột cho dữ liệu cũ. Thêm qua migration 0012. |
 | `photo_url`               | `String(500)` → `VARCHAR(500)`                         | —                              | yes  | —              | Đường dẫn ảnh hồ sơ (mirror avatar), `/static/hr/<id>/…`. Null = initials.                                          |
 | `note`                    | `String(1000)` → `VARCHAR(1000)`                       | —                              | yes  | —              | Ghi chú tự do.                                                                                                      |
 | `created_at`              | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                              | no   | now (UTC)      | Khi tạo hồ sơ.                                                                                                      |
@@ -1704,6 +1704,78 @@ tuần chung), nên `shift_id_on()` cố ý bỏ qua dòng `is_off` và rơi xu�
 
 ---
 
+### `employee_shift_change_logs`
+
+**Purpose:** LỊCH SỬ mọi lần ca của một người bị đổi — **và** hộp thư báo cho chính người đó
+(chủ 28/07/2026). Hai bảng ca kia đều **ghi đè** nên giá trị cũ mất hẳn, còn `audit_logs` chỉ có
+một dòng gộp kiểu *"3 ô khai, 1 ô về mặc định"* — không biết ô nào, từ ca gì sang ca gì.
+
+⚠️ **Ca đến từ HAI lớp và có 5 đường ghi.** Quên móc một đường là màn lịch sử báo *"không có thay
+đổi nào"* trong khi ca vừa bị đổi — sai kiểu đó tệ hơn là không có màn lịch sử:
+`set_shift_plan` (lưới) · `set_default_shift` · `set_default_shift_bulk` · `update_employee` ·
+`delete_shift_assignment`. Tất cả đi qua **một** hàm `EmployeeRepository.log_shift_change()`, và hàm
+đó tự bỏ qua khi **trước == sau** (lưới hay được bấm Lưu cả tháng — không lọc là đẻ hàng chục dòng
+rỗng + ngần ấy thông báo rác). `create_employee` **cố ý không ghi**: gán ca lần đầu chưa có ca cũ để
+so. Bảng do `create_all` tạo (không migration).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| ------ | ------------------------------------- | --- | ---- | ------- | ------- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `employee_id` | `Integer` → `INTEGER` | **FK→employees.id**, **IX** | no | — | Nhân viên bị đổi ca; `ON DELETE CASCADE`. |
+| `kind` | `String(8)` → `VARCHAR(8)` | — | no | — | `day` = ô một ngày trên lưới · `base` = ca nền theo mốc hiệu lực. Trục tách 2 lớp trên màn. |
+| `origin` | `String(16)` → `VARCHAR(16)` | — | no | — | Thao tác đến từ màn nào: `grid` · `base_panel` · `base_bulk` · `profile` · `base_remove`. |
+| `action` | `String(8)` → `VARCHAR(8)` | — | no | — | `set` · `off` · `inherit` · `remove`. |
+| `apply_date` | `Date` → `DATE` | **IX** | no | — | `kind=day` → NGÀY CÔNG bị đổi. `kind=base` → `effective_from` của mốc (áp từ ngày này **trở về sau**). |
+| `shift_id_before` | `Integer` → `INTEGER` | — | yes | — | Soft-ref `work_shifts.id` TRƯỚC khi sửa; NULL = không có ca. |
+| `shift_id_after` | `Integer` → `INTEGER` | — | yes | — | Soft-ref `work_shifts.id` SAU khi sửa. |
+| `is_off_before` | `Boolean` → `BOOLEAN` | — | no | `false` | Ô "Nghỉ theo lịch" trước khi sửa — chỉ có nghĩa với `kind=day`. |
+| `is_off_after` | `Boolean` → `BOOLEAN` | — | no | `false` | Ô "Nghỉ theo lịch" sau khi sửa. |
+| `inherited_before` | `Boolean` → `BOOLEAN` | — | no | `false` | `kind=day`: TRƯỚC đó ô đang **kế thừa ca nền** (chưa ai khai tay ngày này). Đây là chỗ trả lời "ca này do nền hay do người sửa" — nuôi icon cây bút trên lưới. |
+| `actor_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Ai sửa. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | **IX** | no | now (UTC) | Sửa lúc nào. |
+| `notified_user_id` | `Integer` → `INTEGER` | **IX** | yes | — | Tài khoản đã đẩy thông báo tới. **NULL = NV không có tài khoản đăng nhập** (công nhân xưởng) ⇒ không báo được cho ai; màn Khai ca đếm số này ra dòng *"N người chưa báo được"*. |
+| `seen_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Người nhận đã đọc lúc nào. NULL = chưa đọc ⇒ nuôi badge. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `employee_id`, `apply_date`, `created_at`, `actor_user_id`,
+  `notified_user_id`. Không UNIQUE — một ngày có thể bị sửa nhiều lần, mỗi lần một dòng.
+
+---
+
+### `job_grades`
+
+**Purpose:** danh mục **BẬC TAY NGHỀ** cho khối SẢN XUẤT (chủ 29/07/2026). Bộ chủ chốt:
+**5 bậc chính — Bậc 1 → Bậc 5**, trong đó **Bậc 1 là bậc cao nhất**. (Bản đầu trong ngày là 3
+chính + 2 phụ `tho_*`/`phu_*`; chủ chốt lại bỏ bậc phụ ⇒ **migration 0129** đổi tên TẠI CHỖ, giữ
+nguyên `id` nên ai đang mang bậc không bị mất.)
+
+🚫 **KHAI BẬC THÔI — KHÔNG có tiền, KHÔNG có hệ số.** Bảng cố ý chỉ có mã · tên · thứ tự · bật/tắt;
+gán bậc cho một người **không làm đổi một đồng nào** trên bảng lương (có test chốt). Khi nào cần
+chia sản lượng khoán theo bậc thì treo cột vào ĐÂY, không phải đi sửa hồ sơ từng người — đó là lý
+do bậc là một BẢNG có id chứ không phải ô chữ.
+
+Trước 29/07/2026 bậc nằm ở **hai** cột song song, không cột nào dùng để tính được: `employees.job_grade`
+(chữ tự do "3/7") và `employees.pay_grade_key` (chuẩn hoá nhưng không có màn). Migration 0127 gom
+cả hai về một mối — nay chỉ còn `employees.job_grade_id` là nguồn sự thật. Bảng do `create_all` tạo (không migration); dữ liệu seed
++ backfill nằm ở **migration 0127**.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| ------ | ------------------------------------- | --- | ---- | ------- | ------- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `code` | `String(20)` → `VARCHAR(20)` | **UQ**, **IX** | no | — | Mã ổn định `bac_1`…`bac_5`. Bộ `pay_grade_key` CŨ (`tho_1`…`phu_2`) được migration 0127 **ánh xạ** sang đây khi backfill (theo mức lương giảm dần: `phu_1`→Bậc 4, `phu_2`→Bậc 5). Bậc do migration tự sinh từ chữ cũ lạ mang mã `cu_<n>`. |
+| `name` | `String(60)` → `VARCHAR(60)` | — | no | — | Tên hiển thị ("Bậc 1", "Phụ 2"). Chủ sửa được. |
+| `seq` | `Integer` → `INTEGER` | — | no | `0` | Thứ tự hiển thị. Số **NHỎ = bậc CAO** (Bậc 1 đứng đầu). |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Tắt thay vì xoá khi một bậc thôi dùng — hồ sơ cũ đang trỏ vào vẫn đọc được tên bậc. Bậc tự sinh từ dữ liệu cũ vào với `false` để danh sách chọn vẫn sạch 5 bậc. |
+| `note` | `String(255)` → `VARCHAR(255)` | — | yes | — | Ghi chú. Bậc tự sinh mang ghi chú *"Tự sinh từ dữ liệu cũ — soát lại rồi gộp hoặc bật"*. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Ngày tạo. |
+
+**Keys & indexes**
+
+- Primary key: `id`. UNIQUE + index: `code`. Được `employees.job_grade_id` tham chiếu.
+
+---
+
 ### `employee_events`
 
 **Purpose:** một mốc "Quá trình công tác" của nhân viên (module `nhan_su`). Service ghi 1
@@ -1761,6 +1833,164 @@ Bytes lưu dưới `<backend>/static`, phục vụ read-only ở `/static`; ch�
 **Relationships**
 
 - Many attachments belong to one `employees` row; deleting the employee cascades to its files.
+
+---
+
+### `noi_quy_records`
+
+**Purpose:** danh mục tài liệu nội quy hiện hành. Mỗi dòng là một file độc lập; module chỉ có
+ba thao tác nghiệp vụ **Xem / Thêm / Xóa**, không có nháp, sửa nội dung hay ban hành phiên bản.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| ------ | ------------------------------------- | --- | ---- | ------- | ------- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Khóa chính nội bộ. |
+| `code` | `String(24)` → `VARCHAR(24)` | **UQ, IX** | no | sinh tự động | Mã truy vết dạng `NQ-YYMMDD-XXXX`. |
+| `name` | `String(200)` → `VARCHAR(200)` | — | no | — | Tên tài liệu. |
+| `file_name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên file hiển thị. |
+| `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | File riêng tư trong `/api/files/noi-quy/...`. |
+| `file_type` | `String(100)` → `VARCHAR(100)` | — | no | — | MIME đã kiểm tra bằng chữ ký file; chỉ PDF/PNG/JPEG/WebP. |
+| `file_size` | `Integer` → `INTEGER` | — | no | `0` | Dung lượng byte. |
+| `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú tùy chọn. |
+| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id, IX** | no | — | Người tải tài liệu lên. |
+| `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | **IX** | no | now (UTC) | Thời điểm tải lên. |
+
+Các bảng `noi_quy_documents`, `noi_quy_versions`, `noi_quy_attachments`, `noi_quy_pages` phía
+dưới là dữ liệu **legacy** của luồng soạn thảo/ban hành cũ; được giữ để không làm mất dữ liệu DB.
+API hiện hành không ghi vào các bảng đó.
+
+---
+
+### `noi_quy_documents` (legacy)
+
+**Purpose:** **MỘT tài liệu trong bộ nội quy** — danh tính bền, sống qua mọi lần ban hành
+(chủ 30/07/2026 — *"upload được nhiều file, mỗi file đi theo title, bấm title thì mở ra bên trái"*).
+
+Bộ nội quy một nhà máy thường là **nhiều văn bản**: Nội quy lao động, Quy chế lương thưởng, An toàn
+lao động, Các lỗi thường gặp… Mỗi cái một file, **một vòng đời riêng**: sửa "Các lỗi thường gặp" thì
+"Nội quy lao động" giữ nguyên ngày ban hành cũ. Mỗi tài liệu là một **chuỗi version riêng** qua
+`noi_quy_versions.document_id`.
+
+⚠️ **KHÔNG có đường xoá tài liệu.** `noi_quy_pages` và `noi_quy_attachments` đều `ondelete=CASCADE`
+theo version ⇒ xoá một tài liệu là bay toàn bộ lịch sử + ảnh trang + hàng file chỉ bằng một cú bấm.
+Thôi dùng thì đặt `is_active=false`; bản cũ vẫn tra được vì *"hồi tháng 5 luật là gì"* là câu phải
+trả lời được.
+
+Bảng do `create_all` tạo (**không migration** — bảng mới).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| ------ | ------------------------------------- | --- | ---- | ------- | ------- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `title` | `String(200)` → `VARCHAR(200)` | — | no | — | Tên **HIỆN HÀNH**, dùng hiện danh sách bên phải. Tiêu đề của từng bản đã ban hành được chụp riêng ở `noi_quy_versions.title`. |
+| `seq` | `Integer` → `INTEGER` | — | no | `1` | Thứ tự hiện trong danh sách. |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | `false` = thôi áp dụng: mất khỏi danh sách nhân viên và khỏi bản hiệu lực, **nhưng KHÔNG mất khỏi lịch sử**. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Ngày tạo tài liệu. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Không FK ra ngoài.
+
+---
+
+### `noi_quy_versions`
+
+**Purpose:** **NỘI QUY CÔNG TY** (chủ 30/07/2026 — *"chỗ để Giám đốc viết nội quy, tất cả nhân viên
+thấy"*). Mỗi lần ban hành là **MỘT dòng mới, KHÔNG ghi đè** bản cũ.
+
+**Vì sao versioned:** nội quy là căn cứ kỷ luật. Sửa đè thì sau này không ai trả lời được *"hồi
+tháng 5 luật là gì"* — mà lúc cần câu trả lời đó thường là lúc đang tranh chấp. Cùng khuôn
+`employee_salaries`: thêm bản ghi, giữ lịch sử.
+
+**Nháp vs Ban hành:** Giám đốc sửa trên bản `draft` (chỉ mình thấy); bấm ban hành thì thành
+`published` và bản cũ lùi thành lịch sử. Thiếu bước này là cả công ty đọc nội quy viết dở.
+Bản đang hiệu lực = `published` có `published_at` MỚI NHẤT.
+
+Bảng do `create_all` tạo; cột `source_kind` thêm sau bằng **migration `0131`**.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| ------ | ------------------------------------- | --- | ---- | ------- | ------- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `document_id` | `Integer` → `INTEGER` | **FK→noi_quy_documents.id**, **IX** | yes | — | Tài liệu chứa bản này. **FK TRƠN, CỐ Ý KHÔNG cascade**: xoá lạc một tài liệu thì phải NỔ, không được âm thầm kéo theo cả lịch sử ban hành. Nullable vì cột thêm sau bằng migration `0132` (Postgres từ chối `ADD COLUMN NOT NULL` không default trên bảng đã có dòng); sau backfill thì mọi dòng đều có giá trị. |
+| `title` | `String(200)` → `VARCHAR(200)` | — | yes | — | **BẢN CHỤP tiêu đề lúc ban hành**. Vì sao không đọc thẳng `noi_quy_documents.title`: đổi tên tài liệu khi đó sẽ viết lại tiêu đề của MỌI bản lịch sử — đúng thứ mà kiến trúc append-only này dựng ra để chống. Thêm bằng migration `0132`. |
+| `noi_dung` | `Text` → `TEXT` | — | no | `""` | Toàn văn nội quy dạng **HTML đã lọc allowlist ở SERVER** (`lam_sach_html` — nh3): chỉ thẻ cấu trúc + định dạng chữ, `<img src>` chỉ được trỏ vào `/api/files/`. Lọc ở server mới là chốt thật (DOMPurify phía trình duyệt chỉ là lớp hai) vì nội quy do MỘT người ghi nhưng MỌI nhân viên render. Với `source_kind='file'` mà bản gốc là PDF thì cột này **trống** — nội dung nằm ở `noi_quy_pages`. |
+| `source_kind` | `String(8)` → `VARCHAR(8)` | — | no | `html` | Nguồn của bản này: `html` (Giám đốc gõ/sửa trong app) · `file` (tải Word/PDF lên, hiện đúng bản gốc để **giữ nguyên dáng chữ**). Mỗi bản khai đúng MỘT nguồn — để cả hai cùng sống trên một bản thì sớm muộn lệch nhau và không ai biết bản nào đang là luật. |
+| `ghi_chu` | `String(255)` → `VARCHAR(255)` | — | yes | — | "Bản này sửa gì" — để người đọc lịch sử khỏi phải so từng chữ. |
+| `status` | `String(12)` → `VARCHAR(12)` | **IX** | no | `draft` | `draft` (chỉ người soạn thấy) · `published` (mọi nhân viên thấy). |
+| `published_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | **IX** | yes | — | Ban hành lúc nào. **NULL = vẫn là nháp**, nhân viên KHÔNG thấy. Bản hiệu lực là bản `published` có giá trị này lớn nhất. |
+| `published_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Ai ban hành (hiện chỉ Giám đốc có quyền). |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Ngày tạo bản nháp. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Lần sửa gần nhất (`onupdate`). |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `status`, `published_at`. FK: `published_by → users.id`.
+
+---
+
+### `noi_quy_attachments`
+
+**Purpose:** file đính kèm của **MỘT bản nội quy** — thường là bản PDF/Word đã ký, đóng dấu (nội
+quy lao động trên 10 người phải đăng ký với Sở, bản gốc có dấu vẫn cần giữ). Gắn vào version chứ
+không phải "toàn cục": bản scan có dấu là của đúng bản nội quy đó.
+
+⚠️ **Bytes nằm dưới thư mục `noi-quy/`** của kho file chung, và thư mục này **CỐ Ý không khai
+trong `_PREFIX_PERMISSION`** (`routers/files.py`) ⇒ ai đăng nhập cũng tải được, giống `avatars/`.
+Thêm nó vào bảng đó là **chỉ Giám đốc mở được file** — phá đúng yêu cầu "tất cả nhân viên thấy".
+Có test canh chuyện này.
+
+Bảng do `create_all` tạo; cột `is_import_source` thêm sau bằng **migration `0131`**.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| ------ | ------------------------------------- | --- | ---- | ------- | ------- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `version_id` | `Integer` → `INTEGER` | **FK→noi_quy_versions.id**, **IX** | no | — | Bản nội quy chứa file này; `ON DELETE CASCADE`. |
+| `file_name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên file gốc để hiển thị/tải về. |
+| `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | Đường dẫn `/api/files/noi-quy/...`. |
+| `file_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | MIME type. |
+| `is_import_source` | `Boolean` → `BOOLEAN` | — | no | `false` | `true` = file **GỐC của lần nhập/tải nội dung**, do hệ thống tự đính. Nhập lại thì hàng này bị **THAY, không cộng dồn**: nhập 3 lần mà để lại 3 file gần giống nhau thì lúc tranh chấp không ai biết bản nào là bản thật. File do người dùng tự bấm "Đính kèm" giữ `false` và **không bao giờ bị thay**. |
+| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Ai tải lên. |
+| `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Tải lên lúc nào. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `version_id`. FK: `version_id → noi_quy_versions.id`
+  (`ON DELETE CASCADE`), `uploaded_by → users.id`.
+
+---
+
+### `noi_quy_pages`
+
+**Purpose:** **MỘT trang của bản nội quy dạng PDF, đã dựng thành ảnh** (chủ 30/07/2026 — *"nếu họ
+đưa pdf hoặc word lên thì… form chữ kiểu chữ dáng chữ vẫn giữ nguyên"*).
+
+**Vì sao dựng ảnh thay vì tách chữ:** PDF **không lưu đoạn văn hay kiểu chữ**, chỉ lưu vị trí từng
+chữ trên trang — tách chữ ra là mất sạch dáng. Muốn giữ nguyên dáng thì cách duy nhất đúng là hiện
+chính trang đó. Kèm lợi ích lớn: **bản SCAN đã ký, đóng dấu đỏ cũng dùng được**, không cần OCR.
+
+**Dựng MỘT LẦN lúc ban hành**, không dựng lúc đọc — dựng khi đọc thì mỗi nhân viên mở màn là server
+giải mã lại cả tập PDF. Dùng `pypdfium2` (Apache/BSD, bọc PDFium của Google) + `Pillow`; **cố ý
+không dùng `PyMuPDF`** vì nó AGPL-3.0 hoặc phải trả phí bản quyền, và AGPL áp cả khi chỉ chạy làm
+dịch vụ web nội bộ.
+
+⚠️ Ảnh nằm dưới thư mục **`noi-quy/`** của kho file chung — cùng lý do như `noi_quy_attachments`:
+thư mục này **CỐ Ý không khai trong `_PREFIX_PERMISSION`** nên mọi nhân viên tải được. Thêm vào bảng
+đó là **cả công ty không xem được nội quy**.
+
+Bảng do `create_all` tạo (**không migration** — bảng mới).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| ------ | ------------------------------------- | --- | ---- | ------- | ------- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `version_id` | `Integer` → `INTEGER` | **FK→noi_quy_versions.id**, **IX** | no | — | Bản nội quy chứa trang này; `ON DELETE CASCADE`. |
+| `page_no` | `Integer` → `INTEGER` | — | no | — | Số trang, **đếm từ 1**. Dùng để xếp thứ tự khi hiện. |
+| `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | Đường dẫn ảnh `/api/files/noi-quy/...`. |
+| `width` | `Integer` → `INTEGER` | — | no | `0` | Bề rộng ảnh thật (px). |
+| `height` | `Integer` → `INTEGER` | — | no | `0` | Bề cao ảnh thật (px). Cùng `width` để FE đặt sẵn kích thước trên `<img>` ⇒ trang **không nhảy** khi ảnh tải lười xong. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Dựng ảnh lúc nào. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `version_id`. FK: `version_id → noi_quy_versions.id`
+  (`ON DELETE CASCADE`).
 
 ---
 
@@ -2522,6 +2752,7 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 | `bhtn_rate_er` | `Numeric(6,4)` | no | `0.01` | Tỷ lệ NSDLĐ đóng BHTN (không trừ vào lương NV). Thêm qua migration 0076. |
 | `cong_doan_rate` | `Numeric(6,4)` | no | `0` | Tỷ lệ đoàn phí công đoàn (chủ tự khai; mẫu 0.5%=0.005). Thêm qua migration 0074. |
 | `tnld_bnn_rate` | `Numeric(6,4)` | no | `0.005` | Tỷ lệ TNLĐ-BNN do CÔNG TY chịu (mẫu 0.5%=0.005) — dùng khi NV có BH đóng ở nơi khác (`employee_salaries.insurance_elsewhere`); KHÔNG trừ vào lương NV, chỉ hiển thị ở màn Sửa lương. Thêm qua migration 0096. |
+| `phat_cap_pct` | `Numeric(6,4)` | no | `0.3` | **Trần khấu trừ kỷ luật** — mức **LUẬT** (Điều 102 BLLĐ 2019: phạt/bồi thường trừ vào lương không quá **30%** lương thực trả sau BHXH và TNCN), không phải chính sách công ty. `0` = **TẮT trần**: ghi phạt bao nhiêu trừ bấy nhiêu (`gross` vẫn có sàn 0, phần vượt KHÔNG dồn sang kỳ sau). Cột `payroll_lines.phat_bien_ban` luôn lưu số RAW chưa kẹp. Trước 29/07/2026 số 30% viết cứng trong `payroll_service._capped_penalty`. Thêm qua migration 0126. |
 | `deduction_self` | `Numeric(14,2)` | no | `15500000` | Giảm trừ gia cảnh bản thân (TNCN, mức 2026 NQ 110/2025). |
 | `deduction_dependent` | `Numeric(14,2)` | no | `6200000` | Giảm trừ mỗi người phụ thuộc (mức 2026). |
 | `chuyen_can_default` | `Numeric(14,2)` | no | `300000` | Mức chuyên cần mặc định (đủ công). |
@@ -2549,14 +2780,14 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 **Purpose:** bật/tắt + MỨC từng thành phần lương theo BỘ PHẬN (màn "Cấu hình lương" Tab 2). Cấu
 hình theo TỔ (2 cấp NV → tổ): không có dòng = "chưa khai" (rơi xuống tham số chung với chuyên cần);
 `is_enabled=false` = TẮT hẳn khoản đó cho cả bộ phận (cấp NV cũng không được cộng). 4 khoản còn khai
-theo tổ: `kpi`/`chuyen_can`/`luong_khoan`/`tang_ca` (phụ cấp ca/thâm niên/khác đã chuyển sang KHAI TAY
+theo tổ: `chuyen_can`/`luong_khoan`/`tang_ca` (phụ cấp ca/thâm niên/khác đã chuyển sang KHAI TAY
 theo từng NV ở `employee_salaries`). Bảng do `create_all` tạo.
 
 | Column           | Type            | Key                                 | Null | Default | Meaning                                            |
 | ---------------- | --------------- | ----------------------------------- | ---- | ------- | -------------------------------------------------- |
 | `id`             | `Integer`       | **PK**                              | no   | auto    | PK.                                                |
 | `department_id`  | `Integer`       | **FK→departments.id**, **IX**       | no   | —       | Bộ phận sở hữu; xóa phòng thì xóa dòng (CASCADE).  |
-| `component_key`  | `String(32)`    | **U(department_id, component_key)** | no   | —       | `kpi`/`chuyen_can`/`luong_khoan`/`tang_ca`.        |
+| `component_key`  | `String(32)`    | **U(department_id, component_key)** | no   | —       | `chuyen_can`/`luong_khoan`/`tang_ca`. Khoá `kpi` (thưởng năng suất) ĐÃ GỠ 29/07/2026 — migration 0130 xoá cả 2 cột `payroll_lines.kpi_*` lẫn các dòng cấu hình `kpi` ở bảng này. |
 | `is_enabled`     | `Boolean`       | —                                   | no   | `true`  | Bộ phận có áp dụng khoản này không.                |
 | `value`          | `Numeric(14,2)` | —                                   | yes  | —       | Mức của bộ phận; NULL = bật nhưng chưa khai mức (chuyên cần rơi về tham số chung). |
 | `updated_at`     | `DateTime(tz)`  | —                                   | no   | now     | Lần cập nhật.                                      |
@@ -2669,6 +2900,13 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 
 **Purpose:** dòng lương 1 NV trong 1 kỳ (snapshot). UNIQUE(`period_id`,`employee_id`).
 
+> ⚠️ **6 cột thưởng đã NGỪNG GHI (28/07/2026):** `thuong_5s` · `thuong_doanh_so` ·
+> `thuong_thanh_tich` · `phep_nam` · `tra_dong_phuc` · `other_bonus`. Chúng bị **đóng đinh chịu
+> thuế**, không khai được "miễn thuế". Nay mọi khoản thưởng khai qua `payroll_line_components`
+> (chọn từ danh mục ⇒ cờ `is_taxable` là quy tắc chung). Cột **vẫn còn và vẫn được engine cộng
+> vào `gross`** để kỳ ĐÃ CHỐT giữ nguyên số; chỉ chặn ghi mới (bỏ khỏi `LineUpdateIn`).
+> Migration `0124` đã dời số của các kỳ **draft** sang `payroll_line_components`.
+
 | Column | Type | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
 | `id` | `Integer` | **PK** | no | auto | PK. |
@@ -2691,15 +2929,13 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `night_days` | `Integer` | — | no | `0` | Số ngày làm ca đêm (từ Chấm công) — chỉ để tham khảo, KHÔNG ra tiền. Thêm qua migration 0043. |
 | `night_pay` | `Numeric(14,2)` | — | no | `0` | **Phụ cấp CA của kỳ** = số KHAI TAY ở `employee_salaries.phu_cap_ca` (cộng phẳng, không prorate). API phơi thêm alias `ca_pay` = cùng số này. Miễn TNCN như tăng ca. Thêm qua migration 0043. |
 | `night_premium_pay` | `Numeric(14,2)` | — | no | `0` | **Premium CA ĐÊM theo GIỜ** (giờ 22h–06h × hệ số ca + tăng ca đêm Đ98.3) — tự tính từ chấm công, DÒNG RIÊNG, miễn TNCN. Thêm qua migration 0102. |
-| `kpi_percent` | `Numeric(6,2)` | — | no | `0` | % đạt KPI của tháng (nhập tay ở "Sửa lương", preserve khi Tính lại). Thêm qua migration 0076. |
-| `kpi_bonus` | `Numeric(14,2)` | — | no | `0` | Thưởng KPI = `kpi_percent`% × mức trần KPI của bộ phận; 0 nếu bộ phận chưa bật. CHỊU thuế TNCN. Thêm qua migration 0076. |
 | `vi_pham` | `Numeric(14,2)` | — | no | `0` | Giảm trừ khác (nhập tay, RAW; gộp trần 30% Đ102). |
-| `other_bonus` | `Numeric(14,2)` | — | no | `0` | Thưởng khác/hoa hồng (nhập tay). |
-| `thuong_5s` | `Numeric(14,2)` | — | no | `0` | Thưởng 5S (nhập tay). Thêm qua migration 0074. |
-| `thuong_doanh_so` | `Numeric(14,2)` | — | no | `0` | Thưởng doanh số (nhập tay). Thêm qua migration 0074. |
-| `thuong_thanh_tich` | `Numeric(14,2)` | — | no | `0` | Thưởng thành tích (nhập tay). Thêm qua migration 0074. |
-| `phep_nam` | `Numeric(14,2)` | — | no | `0` | Tiền phép năm (nhập tay). Thêm qua migration 0074. |
-| `tra_dong_phuc` | `Numeric(14,2)` | — | no | `0` | Trả tiền đồng phục (cn thôi việc). Thêm qua migration 0074. |
+| `other_bonus` | `Numeric(14,2)` | — | no | `0` | ⚠️ **CỘT CŨ — NGỪNG GHI từ 28/07/2026.** Thưởng khác/hoa hồng (nhập tay). |
+| `thuong_5s` | `Numeric(14,2)` | — | no | `0` | ⚠️ **CỘT CŨ — NGỪNG GHI từ 28/07/2026.** Thưởng 5S. Thêm qua migration 0074. |
+| `thuong_doanh_so` | `Numeric(14,2)` | — | no | `0` | ⚠️ **CỘT CŨ — NGỪNG GHI từ 28/07/2026.** Thưởng doanh số. Thêm qua migration 0074. |
+| `thuong_thanh_tich` | `Numeric(14,2)` | — | no | `0` | ⚠️ **CỘT CŨ — NGỪNG GHI từ 28/07/2026.** Thưởng thành tích. Thêm qua migration 0074. |
+| `phep_nam` | `Numeric(14,2)` | — | no | `0` | ⚠️ **CỘT CŨ — NGỪNG GHI từ 28/07/2026.** Tiền phép năm nhập tay. Engine đã tự trả tiền ngày nghỉ phép ở `luong_ngay_phep` ⇒ ô này là đường trả HAI LẦN, nay `_RESERVED` chặn cả việc tạo khoản danh mục trùng tên. Thêm qua migration 0074. |
+| `tra_dong_phuc` | `Numeric(14,2)` | — | no | `0` | ⚠️ **CỘT CŨ — NGỪNG GHI từ 28/07/2026.** Trả tiền đồng phục (cn thôi việc). Thêm qua migration 0074. |
 | `dieu_chinh_luong` | `Numeric(14,2)` | — | no | `0` | Điều chỉnh lương (±, cộng đại số). Thêm qua migration 0074. |
 | `di_tre` | `Numeric(14,2)` | — | no | `0` | Phạt đi trễ/về sớm/nghỉ KP (RAW). Tự động từ chấm công (bảng phạt × số phút vi phạm không phép mỗi ngày) trừ khi `di_tre_manual`. Thêm qua migration 0074. |
 | `di_tre_manual` | `Boolean` | — | no | `false` | HCNS sửa tay ô "Đi trễ" → khóa không cho phạt tự động (từ chấm công) đè khi Tính lại. Mirror `pit_manual`. Thêm qua migration 0099. |
@@ -2737,6 +2973,80 @@ luật đổi. Bảng do `create_all` tạo (không migration); seed-once 5 bậ
 
 ---
 
+### `payroll_components`
+
+**Purpose:** DANH MỤC khoản thu nhập / khấu trừ của bảng lương (chủ 2026-07-27). Thay cho ô "Phụ cấp
+KHÁC" gộp một cục — mỗi khoản một dòng, HCNS tự thêm/xoá/bật tắt, và mỗi khoản mang cờ `is_taxable`
+là nguồn DUY NHẤT trả lời "khoản này có tính thuế TNCN không". Bảng do `create_all` tạo (không
+migration); seed-once 21 khoản theo bảng lương kế toán đang dùng. **Xoá:** khoản đã dùng ở kỳ lương
+nào thì KHÔNG xoá cứng, chỉ `is_active=false` — xoá cứng là phiếu lương kỳ cũ mất dòng, tổng không
+còn khớp chữ ký người nhận.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `code` | `String(40)` | **U**, **IX** | no | — | Mã khoản (vd `trang_phuc`). |
+| `name` | `String(120)` | — | no | — | Tên hiện trên phiếu lương. |
+| `kind` | `String(8)` | — | no | `thu` | `thu` = cộng vào tổng lương · `tru` = khấu trừ. |
+| `is_taxable` | `Boolean` | — | no | `true` | **Có tính vào thu nhập chịu thuế TNCN không.** `false` = miễn. |
+| `in_insurance_base` | `Boolean` | — | no | `false` | Có cộng vào gốc đóng BH không (mặc định KHÔNG — gốc đóng BH là `luong_vi_tri`). |
+| `sort_order` | `Integer` | — | no | `0` | Thứ tự hiện trên phiếu lương. |
+| `is_active` | `Boolean` | — | no | `true` | `false` = ngưng dùng (ẩn khỏi form nhập mới, kỳ cũ vẫn hiện). |
+| `note` | `String(255)` | — | yes | — | Ghi chú. |
+| `created_at` | `DateTime(tz)` | — | no | now | Thời điểm tạo. |
+
+- Keys & indexes: PK `id`; UNIQUE `code`; index `code`.
+- Relationships: referenced by `payroll_group_components.component_id` và
+  `employee_salary_components.component_id` (cả hai ON DELETE CASCADE).
+
+---
+
+### `employee_salary_components`
+
+**Purpose:** mức của một khoản cho MỘT NGƯỜI — đè lên mức mặc định của nhóm lương. Cố ý KHÔNG
+version theo `effective_from` như `employee_salaries`: kỳ lương đã chốt vốn đã đóng băng ở
+`payroll_lines`, thêm một trục version nữa chỉ tạo chỗ để lệch. Bảng do `create_all` tạo (không
+migration).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `employee_id` | `Integer` | **FK→employees.id**, **IX** | no | — | Nhân viên; `ON DELETE CASCADE`. |
+| `component_id` | `Integer` | **FK→payroll_components.id**, **IX** | no | — | Khoản trong danh mục; `ON DELETE CASCADE`. |
+| `amount` | `Numeric(14,2)` | — | no | `0` | Mức của riêng người này (đồng). |
+| `note` | `String(255)` | — | yes | — | Ghi chú tự do — cho khoản "Thu nhập khác" lưu vết vì sao có khoản này (vd "Phụ cấp tiếng Nhật theo dự án X"). Chép sang snapshot dòng lương. Thêm qua migration 0121. |
+| `created_at` | `DateTime(tz)` | — | no | now | Thời điểm tạo. |
+
+- Keys & indexes: PK `id`; UNIQUE `(employee_id, component_id)` = `uq_employee_component`; index `employee_id`, `component_id`.
+- Relationships: `employee_id FK→employees.id` (CASCADE), `component_id FK→payroll_components.id` (CASCADE).
+
+---
+
+### `payroll_line_components`
+
+**Purpose:** SNAPSHOT từng khoản trên MỘT dòng lương — để phiếu lương hiện được từng khoản, và để
+kỳ đã chốt giữ nguyên số cũ. Chép cả `code`/`name`/`kind`/`is_taxable` tại thời điểm tính chứ không
+chỉ trỏ `component_id`: sau này chủ đổi tên khoản hay bỏ tích "Chịu thuế" thì phiếu lương các kỳ CŨ
+vẫn in ra đúng y lúc trả tiền. Bảng do `create_all` tạo (không migration).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `line_id` | `Integer` | **FK→payroll_lines.id**, **IX** | no | — | Dòng lương; `ON DELETE CASCADE`. |
+| `component_id` | `Integer` | **IX** | no | — | Soft-ref `payroll_components.id` (KHÔNG FK cứng — khoản có thể bị xoá, snapshot vẫn đứng vững). |
+| `code` | `String(40)` | — | no | — | Mã khoản, chép lúc tính. |
+| `name` | `String(120)` | — | no | — | Tên khoản, chép lúc tính (phiếu lương in theo tên này). |
+| `kind` | `String(8)` | — | no | — | `thu` / `tru`, chép lúc tính. |
+| `is_taxable` | `Boolean` | — | no | `true` | Cờ chịu thuế TẠI THỜI ĐIỂM TÍNH — đổi cờ ở danh mục không sửa số kỳ cũ. |
+| `amount` | `Numeric(14,2)` | — | no | `0` | Số tiền khoản này trên dòng lương (đồng). |
+| `source` | `String(8)` | — | no | `employee` | NGUỒN dòng này: `employee` = chép từ hồ sơ NV ⇒ bị GHI ĐÈ mỗi lần "Tính lại"; `line` = HCNS thêm tay cho RIÊNG kỳ này (thưởng nóng) ⇒ GIỮ NGUYÊN qua mọi lần tính lại và KHÔNG lặp sang kỳ sau. Thiếu cột này thì "Tính lại" xoá sạch thưởng nóng. Thêm qua migration 0121. |
+| `note` | `String(255)` | — | yes | — | Ghi chú (vd "Thưởng nóng của Sếp"). Thêm qua migration 0121. |
+
+- Keys & indexes: PK `id`; UNIQUE `(line_id, component_id)` = `uq_line_component`; index `line_id`, `component_id`.
+- Relationships: `line_id FK→payroll_lines.id` (CASCADE). `component_id` là soft-ref, KHÔNG FK.
+
+---
+
 ### `late_penalty_brackets`
 
 **Purpose:** bảng phạt đi trễ / về sớm KHÔNG phép (toàn công ty) — dữ liệu SỬA ĐƯỢC (PRD §4/D11).
@@ -2770,6 +3080,86 @@ helper "Tính nhanh phạt" của modal Sửa lương.
 | `note` | `String(255)` | — | yes | — | Ghi chú. |
 | `is_active` | `Boolean` | — | no | `true` | Đang dùng. |
 | `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+
+---
+
+### `piece_leader_bonus_brackets`
+
+**Purpose:** bậc **THƯỞNG/PHẠT TỔ TRƯỞNG** theo **tỷ lệ hàng lỗi** của tổ (chủ 29/07/2026).
+Tổ trưởng chịu trách nhiệm chất lượng nên thu nhập gắn với tỷ lệ lỗi: làm tốt được thưởng thêm,
+để lỗi nhiều thì bị trừ — tính bằng **% trên TỔNG TIỀN KHOÁN của tổ** (*"% này là tiền đó nha"*).
+
+**Mỗi TỔ một bộ mốc riêng** (`department_id`) — khác `late_penalty_brackets` / `pit_tax_brackets`
+vốn là bảng toàn công ty. Cách tra thì y hệt: bậc **ĐẦU TIÊN** có `tỷ lệ lỗi ≤ up_to_defect_pct`
+thắng; `up_to_defect_pct = NULL` là bậc cao nhất (∞), đúng MỘT bậc và phải nằm cuối.
+
+Ví dụ: `≤5% → +2,00` · `≤10% → 0,00` · `(∞) → −10,00`.
+
+> ⚠️ **ENGINE CHƯA ÁP BẢNG NÀY.** Tiền tính trên tổng khoán của tổ, mà tổng khoán hiện **luôn = 0**:
+> `PieceWorkService.khoan_map` đọc từ `self.outputs`, nhưng `ProductionOutputRepository` **không tồn
+> tại trong code** và `deps.py` truyền `outputs=None`. Khai mốc là chuẩn bị sẵn; nối vào lương cùng
+> lúc dựng lại nguồn sản lượng. Màn khai có banner nói thẳng điều này.
+
+Bảng do `create_all` tạo (không migration).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `department_id` | `Integer` | **IX** | no | — | Tổ sở hữu bộ mốc. Soft-ref `departments.id` (không FK cứng, giống `piece_rates`). |
+| `seq` | `Integer` | — | no | — | Thứ tự bậc 1..N. |
+| `up_to_defect_pct` | `Numeric(6,2)` | — | yes | — | **Trần % HÀNG LỖI** của bậc. `NULL` = bậc cao nhất (∞) — đúng MỘT bậc, phải ở cuối. |
+| `rate_pct` | `Numeric(6,2)` | — | no | — | **% trên TỔNG TIỀN KHOÁN của tổ. DƯƠNG = thưởng · ÂM = phạt.** Gõ nhầm dấu là đảo ngược ý nghĩa của bậc. |
+| `note` | `String(255)` | — | yes | — | Ghi chú bậc. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `department_id`. Không UNIQUE — bộ mốc được thay CẢ BỘ (xoá-ghi-lại)
+  chứ không sửa lẻ từng dòng.
+
+---
+
+### `piece_leader_bonus_settings`
+
+**Purpose:** **NGƯỠNG tối thiểu để xét** thưởng/phạt tổ trưởng — mỗi tổ một dòng (chủ 30/07/2026:
+*"ở đó mới có Tỷ lệ lỗi tới nhưng không biết nằm trong phạm vi sản lượng là bao nhiêu"*).
+
+**Vì sao cần:** bảng bậc chỉ có MỘT chiều là tỷ lệ lỗi, nên tổ làm rất ít và tổ làm rất nhiều bị đối
+xử như nhau. Tệ hơn: **làm càng ít thì tỷ lệ lỗi càng vô nghĩa** — hỏng 2 tờ trên 20 tờ đã là 10%,
+đủ rơi xuống bậc phạt nặng nhất dù thực tế chẳng làm được gì.
+
+```
+sản lượng của tổ  <  ngưỡng  ⇒  KHÔNG thưởng, KHÔNG phạt, bất kể tỷ lệ lỗi
+sản lượng của tổ  ≥  ngưỡng  ⇒  áp bảng bậc như thường   (">=", KHÔNG phải ">")
+ngưỡng = 0 / chưa khai       ⇒  KHÔNG gác
+chưa biết sản lượng          ⇒  COI NHƯ dưới ngưỡng (fail-closed)
+```
+
+Đừng lẫn hai con số: **ngưỡng đo bằng SỐ LƯỢNG**, còn **% thưởng/phạt vẫn nhân trên TIỀN** — tổng
+`payroll_lines.khoan` của **MỌI nhân sự thuộc tổ** trong kỳ (tính **cả phần của chính tổ trưởng**,
+và là số **ĐÃ trừ** hao lỗi theo người).
+
+⚠️ **Ngưỡng không kèm đơn vị** (chủ chốt *"Đơn vị bỏ đi"*). Hệ quả cho người nối nguồn sản lượng sau
+này: cộng **toàn bộ** sản lượng của tổ trong kỳ rồi so, không lọc theo đơn vị. Tổ làm nhiều loại
+việc khác đơn vị (vừa "m²" vừa "tờ") thì con số cộng lại không có ý nghĩa vật lý — **đánh đổi đã
+biết, không phải sơ suất**.
+
+> ⚠️ Cùng số phận với bảng bậc: **CHƯA RA TIỀN** cho tới khi dựng lại nguồn sản lượng — tổng khoán
+> hiện luôn = 0 nên mọi tổ đều dưới mọi ngưỡng.
+
+Bảng do `create_all` tạo (không migration).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `department_id` | `Integer` | **UQ**, **IX** | no | — | Tổ sở hữu ngưỡng. Soft-ref `departments.id`. **UNIQUE**: mỗi tổ đúng một ngưỡng — hai dòng cùng tổ thì không ai biết dòng nào đang có hiệu lực. |
+| `min_output_qty` | `Numeric(14,2)` | — | no | `0` | Ngưỡng **SẢN LƯỢNG** của tổ trong kỳ, **con số trần không kèm đơn vị**. `0` = không gác. Thêm bằng migration `0133` (trước đó là `min_khoan_to`, đo bằng tiền — chủ nhìn màn thật rồi đổi: *"nó là sản lượng mà sao lại chữ đ"*, và *"Đơn vị bỏ đi"*). |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+| `updated_at` | `DateTime(tz)` | — | no | now | Lần sửa gần nhất (`onupdate`). |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique + index: `department_id`.
 
 ---
 

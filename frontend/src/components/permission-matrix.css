@@ -293,6 +293,15 @@
   display: flex;
   justify-content: center;
 }
+.rdx-perm__record-actions { display: flex; align-items: center; justify-content: center; gap: 7px; }
+.rdx-perm__record-actions label { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; color: var(--ash); cursor: pointer; }
+.rdx-perm__record-actions input { margin: 0; accent-color: var(--rust); }
+.rdx-perm__always-read {
+  color: var(--ash);
+  font-size: 10px;
+  line-height: 1.2;
+  text-align: center;
+}
 .rdx-perm__cell--mod {
   display: flex;
   align-items: center;
