@@ -298,6 +298,9 @@ export function BaiGhepDetailView({
           onSuaThanhVien={suaUps}
           onBoThanhVien={boThanhVien}
           onThemThanhVien={themThanhVien}
+          onSuaThongSoTo={luu}
+          dirtyThongSoTo={dirty}
+          dangLuuThongSoTo={saving}
         />
       </div>
 

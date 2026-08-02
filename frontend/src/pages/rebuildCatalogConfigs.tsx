@@ -90,7 +90,7 @@ export const CFG_MAY: CatalogConfig = {
     { key: "toc_do", label: "Tốc độ",
       render: (r) =>
         r.toc_do
-          ? `${Number(r.toc_do).toLocaleString("vi-VN")} ${r.loai_may === "prepress_ctp" ? "kẽm/giờ" : "tờ/giờ"}`
+          ? `${Number(r.toc_do).toLocaleString("vi-VN")} ${r.don_vi_toc_do === "kem_gio" ? "kẽm/giờ" : "tờ/giờ"}`
           : "—" },
     { key: "so_nhan_cong", label: "Kíp chuẩn",
       render: (r) => `${Math.max(1, Math.ceil(Number(r.so_nhan_cong) || 1))} người` },
@@ -151,7 +151,14 @@ export const CFG_MAY: CatalogConfig = {
     { key: "kho_max_dai", label: "Khổ giấy max — dài (mm)", type: "number", group: "Khổ giấy" },
     // ── Tốc độ & thời gian → nuôi thẳng thời lượng bước ở Lệnh sản xuất ───────
     { key: "toc_do", label: "Tốc độ chạy", type: "number", group: "Tốc độ & thời gian",
-      hint: "Máy in đếm TỜ/giờ (theo LƯỢT qua máy — in 2 mặt thì mỗi tờ chạy 2 lượt); máy ghi kẽm CTP đếm KẼM/giờ. Hệ tự nhận đơn vị theo loại máy. Bỏ trống thì lệnh sản xuất để trống thời gian chạy." },
+      hint: "Máy in tính theo LƯỢT qua máy — in 2 mặt thì mỗi tờ chạy 2 lượt. Bỏ trống thì lệnh sản xuất để trống thời gian chạy. Chọn đơn vị ở ô bên cạnh." },
+    { key: "don_vi_toc_do", label: "Đơn vị tốc độ", type: "select", group: "Tốc độ & thời gian",
+      default: "to_gio",
+      options: [
+        { value: "to_gio", label: "tờ/giờ — máy in, máy gia công tờ" },
+        { value: "kem_gio", label: "kẽm/giờ — máy ghi kẽm CTP" },
+      ],
+      hint: "Đơn vị của con số bên trái, phải khớp thứ mà công đoạn ĐẾM. Lệch đơn vị thì lệnh sản xuất bỏ qua tốc độ này (không quy đổi bừa) và bước sẽ trống thời gian chạy." },
     { key: "so_nhan_cong", label: "Số người vận hành tiêu chuẩn", type: "number", required: true,
       default: 1, group: "Tốc độ & thời gian",
       hint: "Kíp nhân lực chuẩn để vận hành máy. Số người này dùng lập kế hoạch nhân lực, không nhân tốc độ máy." },
@@ -162,12 +169,12 @@ export const CFG_MAY: CatalogConfig = {
     { key: "ghi_chu", label: "Ghi chú 1", type: "text", group: "Ghi chú" },
     { key: "ghi_chu_2", label: "Ghi chú 2", type: "text", group: "Ghi chú" },
   ],
-  // KHÔNG bày dropdown đơn vị tốc độ: 5 lựa chọn (m²/cuộn/mét…) chỉ tạo cơ hội chọn nhầm rồi
-  // thắc mắc sao lệnh SX vẫn trống năng suất. Đơn vị SUY từ loại máy — máy ghi kẽm CTP đếm kẽm,
-  // còn lại đếm tờ. Sai đơn vị thì lệnh SX lặng lẽ bỏ qua tốc độ, nên để máy suy an toàn hơn.
+  // Đơn vị tốc độ là Ô CHỌN 2 giá trị, không suy từ `loai_may`: nhóm máy ở đây là CHỮ TỰ DO
+  // ("Máy in", "Bế", "Cán màng / UV"…) nên suy theo nó là đoán, mà đoán sai thì lệnh SX lặng lẽ
+  // bỏ qua tốc độ. Chỉ bày 2 lựa chọn đang dùng thật (tờ/giờ · kẽm/giờ), không đổ hết 5 đơn vị.
   transformSubmit: (body) => ({
     ...body,
-    don_vi_toc_do: body.toc_do ? (body.loai_may === "prepress_ctp" ? "kem_gio" : "to_gio") : null,
+    don_vi_toc_do: body.toc_do ? (body.don_vi_toc_do || "to_gio") : null,
   }),
 };
 

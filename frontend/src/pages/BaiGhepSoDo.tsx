@@ -47,6 +47,9 @@ export function BaiGhepSoDo({
   onSuaThanhVien,
   onBoThanhVien,
   onThemThanhVien,
+  onSuaThongSoTo,
+  dirtyThongSoTo,
+  dangLuuThongSoTo,
 }: {
   baiGhepId: number;
   tick: number;
@@ -59,6 +62,11 @@ export function BaiGhepSoDo({
   onSuaThanhVien: (tvId: number, soCon: number, buocInStepKey?: string) => void;
   onBoThanhVien: (tvId: number) => void;
   onThemThanhVien: (lsxIds: number[]) => void;
+  /** CỬA GHI DUY NHẤT của thông số tờ: sơ đồ không tự gọi API, đẩy lên cha (xem
+   *  `test_so_do_bai_ghep_nhanh_chi_doc_va_mot_cua_ghi_thong_so_to`). */
+  onSuaThongSoTo?: () => void;
+  dirtyThongSoTo?: boolean;
+  dangLuuThongSoTo?: boolean;
 }) {
   const { token } = useAuth();
   const [sd, setSd] = useState<SoDo | null>(null);
@@ -83,11 +91,11 @@ export function BaiGhepSoDo({
   const nhanhChon = typeof chon === "number" ? sd.nhanh.find((n) => n.lsx_id === chon) : null;
 
   return (
-    <section className="khsx-panel bgsd bgsd-split-container">
-      <div className="bgsd-split-main">
+    <section className="khsx-panel bgsd bgsd-canvas-container">
+      <div className="bgsd-canvas-wrapper">
         <p className="bghep-hint" style={{ margin: "0 0 8px" }}>
           Mỗi lệnh giữ chuỗi riêng cả trước lẫn sau in — chỉ <strong>tờ giấy trên máy in</strong> là
-          chung. Bấm node để xem/sửa chi tiết bên phải.
+          chung. Bấm node hoặc nút bên trên để xem/sửa chi tiết.
         </p>
 
         {sd.nhanh.length === 0 ? (
@@ -95,78 +103,92 @@ export function BaiGhepSoDo({
             <Icon name="layers" size={28} />
             <p className="khsx-empty__title">Bài chưa có lệnh nào.</p>
             <p className="khsx-empty__sub">
-              Thêm lệnh ở bảng bên phải để sơ đồ có nhánh biểu diễn.
+              Bấm nút "Thông số tờ & Nhập liệu" ở góc trên để thêm lệnh vào bài ghép.
             </p>
           </div>
         ) : (
-          <div className="bgsd-canvas-wrapper">
-            <BaiGhepDagCanvas
-              sd={sd}
-              chon={chon}
-              onChon={(val) => setChon(val)}
-              onMoLenh={onMoLenh}
-            />
-            {chon === null && (
-              <button
-                type="button"
-                className="bgsd-reopen-inspector"
-                onClick={() => setChon("in")}
-                title="Mở thông số tờ chạy chung & nhập liệu"
-              >
-                <Icon name="layers" size={14} />
-                <span>Thông số & Nhập liệu</span>
-              </button>
-            )}
-          </div>
+          <BaiGhepDagCanvas
+            sd={sd}
+            chon={chon}
+            onChon={(val) => setChon(val)}
+            onMoLenh={onMoLenh}
+          />
         )}
+
+        {/* Floating Bar trên góc Canvas */}
+        <div className="bgsd-floating-bar">
+          <button
+            type="button"
+            className="bgsd-btn-floating-inspector"
+            onClick={() => setChon("in")}
+            title="Mở bảng Thông số tờ chạy chung & Nhập liệu Bài ghép"
+          >
+            <Icon name="layers" size={16} />
+            <span>Thông số tờ & Nhập liệu Bài ghép</span>
+            {detail.thanh_vien.length > 0 && (
+              <span className="bgsd-floating-badge">{detail.thanh_vien.length} lệnh</span>
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Side Inspector Panel (Trọn gói Nhập liệu & Quản lý Bài ghép) */}
-      {(chon === "in" || nhanhChon) && (
-        <aside className="bgsd-inspector-aside">
-          <div className="bgsd-inspector-head">
-            <span className="bgsd-inspector-title">
-              <Icon name={chon === "in" ? "layers" : "fileText"} size={14} />
-              {chon === "in" ? "Thông số tờ & Nhập liệu Bài ghép" : `Chi tiết ${nhanhChon?.lsx_ma}`}
-            </span>
-            <button
-              type="button"
-              className="bgsd-inspector-close"
-              onClick={() => setChon(null)}
-              title="Đóng panel"
-            >
-              <Icon name="x" size={14} />
-            </button>
-          </div>
+      {/* Modal Popup (Trọn gói Nhập liệu & Quản lý Bài ghép) */}
+      {chon !== null && (
+        <div className="bgsd-modal-overlay" onClick={() => setChon(null)}>
+          <div
+            className="bgsd-modal-dialog"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div className="bgsd-modal-head">
+              <span className="bgsd-modal-title">
+                <Icon name={chon === "in" ? "layers" : "fileText"} size={16} />
+                {chon === "in"
+                  ? "Thông số tờ & Nhập liệu Bài ghép"
+                  : `Chi tiết Lệnh ${nhanhChon?.lsx_ma}`}
+              </span>
+              <button
+                type="button"
+                className="bgsd-modal-close"
+                onClick={() => setChon(null)}
+                title="Đóng popup (Esc)"
+              >
+                <Icon name="x" size={16} />
+              </button>
+            </div>
 
-          <div className="bgsd-inspector-body">
-            {chon === "in" ? (
-              <div className="bgsd-inspector-sections">
-                {/* 1. Cấu hình Giấy, Khổ in & Hao hụt */}
-                <div className="bgsd-sec">
-                  <div className="bgsd-sec__head">
-                    <Icon name="settings" size={14} />
-                    <span>Cấu hình Giấy, Khổ in & Hao hụt</span>
-                  </div>
-                  <div className="khsx-form" style={{ gap: "8px" }}>
-                    <label className="khsx-field" style={{ marginBottom: "6px" }}>
-                      <span>Giấy chạy chung</span>
-                      <select
-                        value={form.giay_id ?? ""}
-                        disabled={!canUpdate}
-                        onChange={(e) =>
-                          setForm({ ...form, giay_id: e.target.value ? Number(e.target.value) : null })
-                        }
-                      >
-                        <option value="">— chọn giấy —</option>
-                        {giayOptions.map(([id, ten]) => (
-                          <option key={id} value={id}>
-                            {ten || `Giấy #${id}`}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+            <div className="bgsd-modal-body">
+              {chon === "in" ? (
+                <div className="bgsd-modal-content-grid">
+                  {/* 1. Cấu hình Giấy, Khổ in & Hao hụt (Grid 4 cột) */}
+                  <div className="bgsd-sec bgsd-sec--featured">
+                    <div className="bgsd-sec__head">
+                      <Icon name="settings" size={15} />
+                      <span>Cấu hình Giấy, Khổ in & Hao hụt</span>
+                    </div>
+                    <div className="bgsd-form-grid-4">
+                      <label className="khsx-field bgsd-field-wide">
+                        <span>Giấy chạy chung</span>
+                        <select
+                          value={form.giay_id ?? ""}
+                          disabled={!canUpdate}
+                          onChange={(e) =>
+                            setForm({
+                              ...form,
+                              giay_id: e.target.value ? Number(e.target.value) : null,
+                            })
+                          }
+                        >
+                          <option value="">— chọn giấy —</option>
+                          {giayOptions.map(([id, ten]) => (
+                            <option key={id} value={id}>
+                              {ten || `Giấy #${id}`}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
                       <label className="khsx-field">
                         <span>Khổ dài (mm)</span>
                         <input
@@ -182,6 +204,7 @@ export function BaiGhepSoDo({
                           }
                         />
                       </label>
+
                       <label className="khsx-field">
                         <span>Khổ rộng (mm)</span>
                         <input
@@ -197,8 +220,7 @@ export function BaiGhepSoDo({
                           }
                         />
                       </label>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+
                       <label className="khsx-field">
                         <span>Hao setup (tờ)</span>
                         <input
@@ -211,6 +233,7 @@ export function BaiGhepSoDo({
                           }
                         />
                       </label>
+
                       <label className="khsx-field">
                         <span>Hao chạy (tờ)</span>
                         <input
@@ -225,209 +248,253 @@ export function BaiGhepSoDo({
                       </label>
                     </div>
                   </div>
-                </div>
 
-                {/* 2. Quản lý Thành viên & Số con/tờ */}
-                <div className="bgsd-sec">
-                  <div className="bgsd-sec__head">
-                    <Icon name="users" size={14} />
-                    <span>Thành viên & Phân bổ con/tờ ({detail.thanh_vien.length})</span>
-                  </div>
-
-                  <div className="khsx__tablewrap" style={{ marginBottom: "8px" }}>
-                    <table className="khsx__table">
-                      <thead>
-                        <tr>
-                          <th>Lệnh</th>
-                          <th className="khsx-num">Con/tờ</th>
-                          <th className="khsx-num">Nhu cầu</th>
-                          <th>Lượt in</th>
-                          <th className="khsx-num">Dư</th>
-                          <th aria-label="Bỏ" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.thanh_vien.map((t) => (
-                          <tr key={t.thanh_vien_id} className="khsx__row">
-                            <td>
-                              <div className="khsx__code">{t.lsx_ma}</div>
-                              {t.is_rush && <ChipGap />}
-                            </td>
-                            <td className="khsx-num">
-                              <input
-                                type="number"
-                                min={0}
-                                className="bghep-ups"
-                                defaultValue={t.so_con_tren_to}
-                                disabled={!canUpdate}
-                                onBlur={(e) => {
-                                  const v = Number(e.target.value);
-                                  if (v !== t.so_con_tren_to) onSuaThanhVien(t.thanh_vien_id, v);
-                                }}
-                                aria-label={`Số con trên tờ của ${t.lsx_ma}`}
-                              />
-                            </td>
-                            <td className="khsx-num">{num(t.nhu_cau_to)}</td>
-                            <td>
-                              {t.buoc_in_chon_duoc.length > 1 ? (
-                                <select
-                                  className="khsx-select-sm"
-                                  value={t.buoc_in_step_key ?? ""}
-                                  disabled={!canUpdate}
-                                  onChange={(e) =>
-                                    onSuaThanhVien(t.thanh_vien_id, t.so_con_tren_to, e.target.value)
-                                  }
-                                >
-                                  {t.buoc_in_chon_duoc.map((b) => (
-                                    <option key={b.step_key} value={b.step_key}>
-                                      {b.ten}
-                                    </option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <span className="khsx-muted" style={{ fontSize: "11px" }}>
-                                  {t.buoc_in_chon_duoc[0]?.ten ?? "—"}
-                                </span>
-                              )}
-                            </td>
-                            <td className={`khsx-num ${t.du > 0 ? "bghep-du" : ""}`}>
-                              {t.du > 0 ? `+${num(t.du)}` : num(t.du)}
-                            </td>
-                            <td>
-                              {canUpdate && (
-                                <button
-                                  type="button"
-                                  className="khsx-xlink"
-                                  style={{ color: "var(--signal)" }}
-                                  onClick={() => onBoThanhVien(t.thanh_vien_id)}
-                                  title="Bỏ khỏi bài ghép"
-                                >
-                                  Bỏ
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {canUpdate && (
-                    <ThemPicker
-                      exclude={new Set(detail.thanh_vien.map((t) => t.lsx_id))}
-                      onThem={onThemThanhVien}
-                    />
-                  )}
-                </div>
-
-                {/* 3. Kiểm tương thích sản xuất (Accordion) */}
-                <div className="bgsd-sec">
-                  <button
-                    type="button"
-                    className="bgsd-accordion-btn"
-                    onClick={() => setShowTuongThich(!showTuongThich)}
-                  >
-                    <span className="bgsd-sec__head" style={{ margin: 0 }}>
-                      <Icon name="check" size={14} />
-                      <span>
-                        Kiểm tương thích (
-                        {detail.tuong_thich.rows.filter((r) => r.muc === "ok").length}/
-                        {detail.tuong_thich.rows.length} đạt)
+                  {/* 2. Quản lý Thành viên & Số con/tờ */}
+                  <div className="bgsd-sec">
+                    <div className="bgsd-sec__head" style={{ justifyContent: "space-between" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <Icon name="users" size={15} />
+                        <span>Thành viên & Phân bổ con/tờ ({detail.thanh_vien.length})</span>
                       </span>
-                    </span>
-                    <Icon
-                      name="chevron"
-                      size={14}
-                      className={`bgsd-accordion-caret ${showTuongThich ? "is-open" : ""}`}
-                    />
-                  </button>
+                    </div>
 
-                  {showTuongThich && (
-                    <div className="bgsd-accordion-body">
-                      <table className="khsx__table bghep-compat">
+                    <div className="khsx__tablewrap bgsd-modal-tablewrap">
+                      <table className="khsx__table bgsd-modal-table">
                         <thead>
                           <tr>
-                            <th>Thuộc tính</th>
-                            {detail.thanh_vien.map((m) => (
-                              <th key={m.thanh_vien_id}>{m.lsx_ma}</th>
-                            ))}
-                            <th>Kết quả</th>
+                            <th>Mã LSX & Đơn hàng</th>
+                            <th className="khsx-num" style={{ width: "120px" }}>Con / tờ</th>
+                            <th className="khsx-num">Nhu cầu tờ</th>
+                            <th>Lượt in</th>
+                            <th className="khsx-num">Số tờ dư</th>
+                            <th aria-label="Hành động" style={{ width: "60px" }} />
                           </tr>
                         </thead>
                         <tbody>
-                          {detail.tuong_thich.rows.map((row) => {
-                            const meta = BAI_GHEP_MUC_META[row.muc] ?? {
-                              label: row.muc,
-                              tone: "warn",
-                            };
-                            return (
-                              <tr key={row.thuoc_tinh} className="khsx__row">
-                                <td className="bghep-compat__attr">{row.thuoc_tinh}</td>
-                                {row.gia_tri.map((v, i) => (
-                                  <td key={i}>{nhanCompat(v)}</td>
-                                ))}
-                                <td>
-                                  <span className={`bghep-muc bghep-muc--${meta.tone}`}>
-                                    {meta.label}
+                          {detail.thanh_vien.map((t) => (
+                            <tr key={t.thanh_vien_id} className="khsx__row">
+                              <td>
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                  <span className="khsx__code">{t.lsx_ma}</span>
+                                  {t.is_rush && <ChipGap />}
+                                </div>
+                              </td>
+                              <td className="khsx-num">
+                                <div className="bgsd-ups-stepper">
+                                  <button
+                                    type="button"
+                                    className="bgsd-ups-btn"
+                                    disabled={!canUpdate || t.so_con_tren_to <= 0}
+                                    onClick={() =>
+                                      onSuaThanhVien(t.thanh_vien_id, Math.max(0, t.so_con_tren_to - 1))
+                                    }
+                                    title="Giảm số con"
+                                  >
+                                    -
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    className="bghep-ups bgsd-ups-input"
+                                    value={t.so_con_tren_to}
+                                    disabled={!canUpdate}
+                                    onChange={(e) => {
+                                      const v = Number(e.target.value);
+                                      onSuaThanhVien(t.thanh_vien_id, v);
+                                    }}
+                                    aria-label={`Số con trên tờ của ${t.lsx_ma}`}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="bgsd-ups-btn"
+                                    disabled={!canUpdate}
+                                    onClick={() =>
+                                      onSuaThanhVien(t.thanh_vien_id, t.so_con_tren_to + 1)
+                                    }
+                                    title="Tăng số con"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </td>
+                              <td className="khsx-num">{num(t.nhu_cau_to)}</td>
+                              <td>
+                                {t.buoc_in_chon_duoc.length > 1 ? (
+                                  <select
+                                    className="khsx-select-sm"
+                                    value={t.buoc_in_step_key ?? ""}
+                                    disabled={!canUpdate}
+                                    onChange={(e) =>
+                                      onSuaThanhVien(t.thanh_vien_id, t.so_con_tren_to, e.target.value)
+                                    }
+                                  >
+                                    {t.buoc_in_chon_duoc.map((b) => (
+                                      <option key={b.step_key} value={b.step_key}>
+                                        {b.ten}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <span className="khsx-muted" style={{ fontSize: "12px" }}>
+                                    {t.buoc_in_chon_duoc[0]?.ten ?? "—"}
                                   </span>
-                                </td>
-                              </tr>
-                            );
-                          })}
+                                )}
+                              </td>
+                              <td className={`khsx-num ${t.du > 0 ? "bghep-du" : ""}`}>
+                                {t.du > 0 ? `+${num(t.du)}` : num(t.du)}
+                              </td>
+                              <td>
+                                {canUpdate && (
+                                  <button
+                                    type="button"
+                                    className="khsx-xlink"
+                                    style={{ color: "var(--signal)" }}
+                                    onClick={() => onBoThanhVien(t.thanh_vien_id)}
+                                    title="Bỏ khỏi bài ghép"
+                                  >
+                                    Bỏ
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
-                  )}
-                </div>
 
-                {/* 4. Ghi chú Kế hoạch */}
-                <div className="bgsd-sec">
-                  <div className="bgsd-sec__head">
-                    <Icon name="edit" size={14} />
-                    <span>Ghi chú kế hoạch</span>
+                    {canUpdate && (
+                      <div style={{ marginTop: "12px" }}>
+                        <ThemPicker
+                          exclude={new Set(detail.thanh_vien.map((t) => t.lsx_id))}
+                          onThem={onThemThanhVien}
+                        />
+                      </div>
+                    )}
                   </div>
-                  <textarea
-                    rows={2}
-                    className="khsx-textarea"
-                    value={form.ghi_chu}
-                    disabled={!canUpdate}
-                    onChange={(e) => setForm({ ...form, ghi_chu: e.target.value })}
-                    placeholder="Ghi chú thêm cho bài ghép…"
-                  />
+
+                  {/* 3. Kiểm tương thích sản xuất (Accordion) */}
+                  <div className="bgsd-sec">
+                    <button
+                      type="button"
+                      className="bgsd-accordion-btn"
+                      onClick={() => setShowTuongThich(!showTuongThich)}
+                    >
+                      <span className="bgsd-sec__head" style={{ margin: 0 }}>
+                        <Icon name="check" size={15} />
+                        <span>
+                          Kiểm tương thích sản xuất (
+                          {detail.tuong_thich.rows.filter((r) => r.muc === "ok").length}/
+                          {detail.tuong_thich.rows.length} đạt)
+                        </span>
+                      </span>
+                      <Icon
+                        name="chevron"
+                        size={15}
+                        className={`bgsd-accordion-caret ${showTuongThich ? "is-open" : ""}`}
+                      />
+                    </button>
+
+                    {showTuongThich && (
+                      <div className="bgsd-accordion-body">
+                        <table className="khsx__table bghep-compat">
+                          <thead>
+                            <tr>
+                              <th>Thuộc tính</th>
+                              {detail.thanh_vien.map((m) => (
+                                <th key={m.thanh_vien_id}>{m.lsx_ma}</th>
+                              ))}
+                              <th>Kết quả</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {detail.tuong_thich.rows.map((row) => {
+                              const meta = BAI_GHEP_MUC_META[row.muc] ?? {
+                                label: row.muc,
+                                tone: "warn",
+                              };
+                              return (
+                                <tr key={row.thuoc_tinh} className="khsx__row">
+                                  <td className="bghep-compat__attr">{row.thuoc_tinh}</td>
+                                  {row.gia_tri.map((v, i) => (
+                                    <td key={i}>{nhanCompat(v)}</td>
+                                  ))}
+                                  <td>
+                                    <span className={`bghep-muc bghep-muc--${meta.tone}`}>
+                                      {meta.label}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 4. Ghi chú Kế hoạch */}
+                  <div className="bgsd-sec">
+                    <div className="bgsd-sec__head">
+                      <Icon name="edit" size={15} />
+                      <span>Ghi chú kế hoạch</span>
+                    </div>
+                    <textarea
+                      rows={2}
+                      className="khsx-textarea"
+                      value={form.ghi_chu}
+                      disabled={!canUpdate}
+                      onChange={(e) => setForm({ ...form, ghi_chu: e.target.value })}
+                      placeholder="Ghi chú thêm cho bài ghép…"
+                    />
+                  </div>
                 </div>
-              </div>
-            ) : nhanhChon ? (
-              <div>
-                <div className="bgsd-panel__head" style={{ marginBottom: "12px" }}>
-                  <span className="bgsd__cham" style={{ background: mau(nhanhChon.mau) }} />
-                  <span className="khsx__code">{nhanhChon.lsx_ma}</span>
-                  <span style={{ fontSize: "13px", fontWeight: 600 }}>{nhanhChon.lsx_ten}</span>
+              ) : nhanhChon ? (
+                <div style={{ padding: "8px 4px" }}>
+                  <div className="bgsd-panel__head" style={{ marginBottom: "16px" }}>
+                    <span className="bgsd__cham" style={{ background: mau(nhanhChon.mau) }} />
+                    <span className="khsx__code">{nhanhChon.lsx_ma}</span>
+                    <span style={{ fontSize: "14px", fontWeight: 600 }}>{nhanhChon.lsx_ten}</span>
+                  </div>
+                  <div style={{ marginBottom: "16px" }}>
+                    <button
+                      type="button"
+                      className="khsx-xlink"
+                      style={{ fontSize: "14px", fontWeight: 600 }}
+                      onClick={() => onMoLenh(nhanhChon.lsx_id)}
+                    >
+                      Mở chi tiết lệnh sản xuất →
+                    </button>
+                  </div>
+                  <div className="khsx-kvgrid" style={{ gap: "12px", gridTemplateColumns: "1fr 1fr" }}>
+                    <Kv k="Khách hàng" v={nhanhChon.customer_name ?? "—"} />
+                    <Kv k="Hạn hoàn thành" v={ngay(nhanhChon.han_hoan_thanh_sx) || "—"} />
+                    <Kv k="Con / tờ" v={String(nhanhChon.so_con_tren_to)} />
+                    <Kv k="Nhu cầu tờ" v={num(nhanhChon.nhu_cau_to)} />
+                    <Kv
+                      k="Các bước sau in"
+                      v={`${nhanhChon.sau_in.length} bước · ${phut(
+                        nhanhChon.sau_in.reduce((s, c) => s + c.tong_phut, 0),
+                      )}`}
+                    />
+                  </div>
                 </div>
-                <div style={{ marginBottom: "14px" }}>
-                  <button
-                    type="button"
-                    className="khsx-xlink"
-                    onClick={() => onMoLenh(nhanhChon.lsx_id)}
-                  >
-                    Mở chi tiết lệnh →
-                  </button>
-                </div>
-                <div className="khsx-kvgrid" style={{ gap: "10px" }}>
-                  <Kv k="Khách hàng" v={nhanhChon.customer_name ?? "—"} />
-                  <Kv k="Hạn hoàn thành" v={ngay(nhanhChon.han_hoan_thanh_sx) || "—"} />
-                  <Kv k="Con / tờ" v={String(nhanhChon.so_con_tren_to)} />
-                  <Kv k="Nhu cầu tờ" v={num(nhanhChon.nhu_cau_to)} />
-                  <Kv
-                    k="Các bước sau in"
-                    v={`${nhanhChon.sau_in.length} bước · ${phut(
-                      nhanhChon.sau_in.reduce((s, c) => s + c.tong_phut, 0),
-                    )}`}
-                  />
-                </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
+
+            <div className="bgsd-modal-footer">
+              <Button variant="secondary" onClick={() => setChon(null)}>
+                Đóng
+              </Button>
+              {/* Form thông số tờ nằm trong popup che cả trang, nên nút Lưu ở header không với tới
+                  được — lặp lại lối ghi ở đây. Vẫn gọi cùng một hàm luu() của cha, không đẻ cửa ghi thứ hai. */}
+              {chon === "in" && dirtyThongSoTo && (
+                <Button variant="primary" loading={dangLuuThongSoTo} onClick={() => onSuaThongSoTo?.()}>
+                  Lưu thông số tờ
+                </Button>
+              )}
+            </div>
           </div>
-        </aside>
+        </div>
       )}
     </section>
   );
