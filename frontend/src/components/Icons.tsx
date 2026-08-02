@@ -304,6 +304,35 @@ const ICONS = {
       <path d="M3 9h18M9 21V9" />
     </>
   ),
+  // Bánh răng cấu hình. CỐ Ý tách khỏi `edit`: `edit` là sửa nội dung một bản ghi, còn glyph này
+  // là chỉnh tham số của cả khối (khổ giấy, hao hụt…), hai nghĩa khác nhau trong sơ đồ bài ghép.
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2.5v2.2M12 19.3v2.2M4.28 7l1.9 1.1M17.82 15.9l1.9 1.1M4.28 17l1.9-1.1M17.82 8.1l1.9-1.1" />
+    </>
+  ),
+  // Mắt xích — bước thuộc LSX khác (phụ thuộc chéo lệnh) trên sơ đồ DAG.
+  link: (
+    <>
+      <path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.6-2.6a4 4 0 0 0-5.66-5.66l-1.3 1.3" />
+      <path d="M13.5 10.5a4 4 0 0 0-5.7 0l-2.6 2.6a4 4 0 0 0 5.66 5.66l1.3-1.3" />
+    </>
+  ),
+  // Mũi tên vòng ngược — dựng lại / xếp lại từ đầu.
+  rotateCcw: (
+    <>
+      <path d="M3 12a9 9 0 1 0 2.64-6.36L3 8" />
+      <path d="M3 3v5h5" />
+    </>
+  ),
+  // Toàn màn hình — mũi tên chéo bung ra 2 góc. Khác `maximize` (4 ngoặc góc = căn vừa khung nhìn).
+  fullscreen: (
+    <>
+      <path d="M14 4h6v6M20 4l-7 7" />
+      <path d="M10 20H4v-6M4 20l7-7" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;

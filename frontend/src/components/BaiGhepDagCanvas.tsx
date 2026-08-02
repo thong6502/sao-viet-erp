@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { BaiGhepSoDo as SoDo } from "../api/client";
 import { LSX_LOAI_BUOC_META } from "../api/client";
-import { Icon } from "./Icons";
+import { Icon, type IconName } from "./Icons";
 import { ChipGap, classHan, ngay, num } from "../pages/keHoachSxShared";
 import { phut } from "../pages/lsxBuoc";
 
@@ -29,7 +29,7 @@ const CARD_IN_H = 105;
 const BRANCH_HDR_W = 155;
 const GAP_X = 52;
 
-function getStepIcon(loaiBuoc: string): string {
+function getStepIcon(loaiBuoc: string): IconName {
   switch (loaiBuoc) {
     case "thue_ngoai":
       return "truck";
@@ -40,11 +40,11 @@ function getStepIcon(loaiBuoc: string): string {
     case "ctp":
       return "layers";
     case "dong_goi":
-      return "package";
+      return "packageCheck";
     case "kcs":
-      return "check-circle";
+      return "check";
     default:
-      return "sliders";
+      return "settings";
   }
 }
 
@@ -228,7 +228,7 @@ export function BaiGhepDagCanvas({ sd, chon, onChon, onMoLenh }: BaiGhepDagCanva
           <Icon name="maximize" size={13} /> Căn vừa
         </button>
         <button type="button" className="bgsd-tb-btn bgsd-tb-btn--text" onClick={handleResetLayout} title="Xếp lại sơ đồ">
-          <Icon name="rotate-ccw" size={13} /> Sắp xếp lại
+          <Icon name="rotateCcw" size={13} /> Sắp xếp lại
         </button>
         <div className="bgsd-tb-divider" />
         <button
@@ -245,7 +245,7 @@ export function BaiGhepDagCanvas({ sd, chon, onChon, onMoLenh }: BaiGhepDagCanva
           onClick={handleToggleFullscreen}
           title="Toàn màn hình"
         >
-          <Icon name="external-link" size={14} />
+          <Icon name="fullscreen" size={14} />
         </button>
       </div>
 
@@ -427,7 +427,9 @@ export function BaiGhepDagCanvas({ sd, chon, onChon, onMoLenh }: BaiGhepDagCanva
                     width: BRANCH_HDR_W,
                   }}
                   onClick={() => onChon(n.lsx_id)}
+                  onDoubleClick={() => onMoLenh?.(n.lsx_id)}
                   onMouseDown={(e) => handleStartDragNode(`hdr_left_${n.lsx_id}`, e)}
+                  title="Nháy đúp để mở lệnh sản xuất"
                 >
                   <div className="bgsd-card-branch__head">
                     <span className="bgsd__cham" style={{ background: c }} />
@@ -464,6 +466,10 @@ export function BaiGhepDagCanvas({ sd, chon, onChon, onMoLenh }: BaiGhepDagCanva
                       onClick={(e) => {
                         e.stopPropagation();
                         onChon(n.lsx_id);
+                      }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        onMoLenh?.(n.lsx_id);
                       }}
                       onMouseDown={(e) => handleStartDragNode(`node_${node.step_key}`, e)}
                     >
@@ -532,6 +538,10 @@ export function BaiGhepDagCanvas({ sd, chon, onChon, onMoLenh }: BaiGhepDagCanva
                           e.stopPropagation();
                           onChon(n.lsx_id);
                         }}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          onMoLenh?.(n.lsx_id);
+                        }}
                         onMouseDown={(e) => handleStartDragNode(`node_${node.step_key}`, e)}
                       >
                         <div className="bgsd-card-node__icon">
@@ -563,7 +573,7 @@ export function BaiGhepDagCanvas({ sd, chon, onChon, onMoLenh }: BaiGhepDagCanva
                   >
                     {n.du > 0 ? (
                       <span className="bgsd-pill-status is-surplus">
-                        <Icon name="check-circle" size={12} /> dư +{num(n.du)}
+                        <Icon name="check" size={12} /> dư +{num(n.du)}
                       </span>
                     ) : (
                       <span className="bgsd-pill-status is-exact">

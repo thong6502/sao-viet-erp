@@ -2,20 +2,17 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   ApiError,
-  LSX_LOAI_BUOC_META,
   BAI_GHEP_MUC_META,
   api,
   type BaiGhepDetail,
   type BaiGhepSoDo as SoDo,
-  type BaiGhepSoDoNhanh,
-  type BaiGhepSoDoNode,
   type HangChoGhepItem,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
 import { BaiGhepDagCanvas } from "../components/BaiGhepDagCanvas";
-import { BangLoi, ChipGap, Skeleton, classHan, ngay, num } from "./keHoachSxShared";
+import { BangLoi, ChipGap, Skeleton, ngay, num } from "./keHoachSxShared";
 import { phut } from "./lsxBuoc";
 
 export interface Form {
@@ -50,7 +47,6 @@ export function BaiGhepSoDo({
   onSuaThanhVien,
   onBoThanhVien,
   onThemThanhVien,
-  onSuaThongSoTo,
 }: {
   baiGhepId: number;
   tick: number;
@@ -63,7 +59,6 @@ export function BaiGhepSoDo({
   onSuaThanhVien: (tvId: number, soCon: number, buocInStepKey?: string) => void;
   onBoThanhVien: (tvId: number) => void;
   onThemThanhVien: (lsxIds: number[]) => void;
-  onSuaThongSoTo?: () => void;
 }) {
   const { token } = useAuth();
   const [sd, setSd] = useState<SoDo | null>(null);
@@ -85,7 +80,6 @@ export function BaiGhepSoDo({
   if (err) return <BangLoi text={err} onRetry={load} />;
   if (!sd) return <Skeleton />;
 
-  const bg = sd.bai_ghep;
   const nhanhChon = typeof chon === "number" ? sd.nhanh.find((n) => n.lsx_id === chon) : null;
 
   return (
@@ -132,7 +126,7 @@ export function BaiGhepSoDo({
         <aside className="bgsd-inspector-aside">
           <div className="bgsd-inspector-head">
             <span className="bgsd-inspector-title">
-              <Icon name={chon === "in" ? "layers" : "file-text"} size={14} />
+              <Icon name={chon === "in" ? "layers" : "fileText"} size={14} />
               {chon === "in" ? "Thông số tờ & Nhập liệu Bài ghép" : `Chi tiết ${nhanhChon?.lsx_ma}`}
             </span>
             <button
@@ -341,7 +335,11 @@ export function BaiGhepSoDo({
                         {detail.tuong_thich.rows.length} đạt)
                       </span>
                     </span>
-                    <Icon name={showTuongThich ? "chevron-up" : "chevron-down"} size={14} />
+                    <Icon
+                      name="chevron"
+                      size={14}
+                      className={`bgsd-accordion-caret ${showTuongThich ? "is-open" : ""}`}
+                    />
                   </button>
 
                   {showTuongThich && (
@@ -385,7 +383,7 @@ export function BaiGhepSoDo({
                 {/* 4. Ghi chú Kế hoạch */}
                 <div className="bgsd-sec">
                   <div className="bgsd-sec__head">
-                    <Icon name="edit-3" size={14} />
+                    <Icon name="edit" size={14} />
                     <span>Ghi chú kế hoạch</span>
                   </div>
                   <textarea
@@ -508,36 +506,5 @@ function Kv({ k, v }: { k: string; v: string | number }) {
       <span className="khsx-kv__k">{k}</span>
       <span className="khsx-kv__v">{v}</span>
     </div>
-  );
-}
-
-function NodeChip({
-  node,
-  ngoai,
-  onClick,
-}: {
-  node: BaiGhepSoDoNode;
-  ngoai: { step_key: string; ten: string; lsx_ma: string | null }[];
-  onClick: () => void;
-}) {
-  const meta = LSX_LOAI_BUOC_META[node.loai_buoc] ?? { label: node.loai_buoc, tone: "" };
-  return (
-    <>
-      {ngoai.map((o) => (
-        <span className="bgsd-node bgsd-node--ngoai" key={o.step_key} title="Bước của lệnh khác">
-          <span className="bgsd-node__ten">{o.ten}</span>
-          <span className="bgsd-node__phu">{o.lsx_ma ?? "LSX khác"}</span>
-        </span>
-      ))}
-      <button type="button" className="bgsd-node" onClick={onClick} title={`Mở lệnh · ${node.ten}`}>
-        <span className="bgsd-node__ten">{node.ten}</span>
-        <span className="bgsd-node__phu">
-          {node.loai_buoc === "thue_ngoai"
-            ? node.nha_cung_cap || "chưa có nhà gia công"
-            : node.may_ten || node.to_ten || meta.label}
-          {node.tong_phut > 0 ? ` · ${phut(node.tong_phut)}` : ""}
-        </span>
-      </button>
-    </>
   );
 }

@@ -653,6 +653,15 @@
   cursor: pointer;
 }
 .bgsd-accordion-btn:hover { opacity: 0.85; }
+/* Bộ icon chỉ có 1 chevron (hướng xuống) — mở thì lật lên bằng transform. */
+.bgsd-accordion-caret {
+  flex: none;
+  transition: transform 0.16s ease;
+}
+.bgsd-accordion-caret.is-open { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) {
+  .bgsd-accordion-caret { transition: none; }
+}
 
 .bgsd-accordion-body {
   margin-top: 8px;
