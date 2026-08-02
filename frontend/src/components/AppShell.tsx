@@ -41,7 +41,13 @@ import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPag
 import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
 import { PaymentReceiptsPage } from "../pages/PaymentReceiptsPage";
 import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
-import { MODULES_BY_NAV_ID, SELF_SERVICE_MODULE, Sidebar, type NavItem } from "./Sidebar";
+import {
+  AUTHENTICATED_NAV_IDS,
+  MODULES_BY_NAV_ID,
+  SELF_SERVICE_MODULE,
+  Sidebar,
+  type NavItem,
+} from "./Sidebar";
 import { Topbar } from "./Topbar";
 
 /** A cross-module navigation intent: which screen to open + optional payload so the
@@ -479,9 +485,10 @@ export function AppShell() {
     MODULES_BY_NAV_ID[baseId] ??
     (baseId === "kho-item" ? ["kho"] : undefined);
   const allowed =
-    moduleKeys != null &&
-    moduleKeys.some((moduleKey) => readable.has(moduleKey)) &&
-    (baseId !== "kho-item" || canViewStock);
+    AUTHENTICATED_NAV_IDS.has(baseId) ||
+    (moduleKeys != null &&
+      moduleKeys.some((moduleKey) => readable.has(moduleKey)) &&
+      (baseId !== "kho-item" || canViewStock));
 
   const itemChildren: Record<string, { id: string; label: string }[]> = {};
   // Kho đã khai báo → item ĐỘNG dưới SECTION "Kho hàng" (id section = "kho-hang"). Bấm 1 kho → màn tạm.

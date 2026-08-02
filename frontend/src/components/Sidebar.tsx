@@ -25,6 +25,7 @@ export interface NavItem {
 }
 
 export const SELF_SERVICE_MODULE = "self_service";
+export const AUTHENTICATED_NAV_IDS: ReadonlySet<string> = new Set(["noi-quy"]);
 
 interface NavSection {
   id: string;
@@ -41,18 +42,13 @@ const NAV: NavSection[] = [
     items: [
       { id: "dashboard", label: "Dashboard", icon: "grid", module: "dashboard" },
       { id: "ho-so-cua-toi", label: "Hồ sơ của tôi", icon: "users", module: "dashboard" },
-      // Nội quy công ty: Giám đốc soạn, MỌI nhân viên đọc.
-      // 🔴 `modules: [SELF_SERVICE_MODULE]` là CỐ Ý và BẮT BUỘC giữ nguyên. `self_service` được
-      // AppShell nhét vào `readable` cho mọi tài khoản, nên ai cũng thấy mục này — đúng yêu cầu
-      // "tất cả nhân viên có thể thấy". `module: "noi_quy"` chỉ còn là nhãn quyền GHI (Giám đốc
-      // soạn/ban hành), trang tự kiểm bằng `can("noi_quy","update")`.
-      // Sửa thành `modules: ["noi_quy"]` = CẢ CÔNG TY MẤT QUYỀN ĐỌC NỘI QUY, âm thầm, không lỗi.
+      // Danh mục dùng chung: mọi tài khoản đã đăng nhập đều thấy và mở được.
       {
         id: "noi-quy",
         label: "Nội quy công ty",
         icon: "book",
         module: "noi_quy",
-        modules: [SELF_SERVICE_MODULE],
+        modules: ["noi_quy"],
       },
     ],
   },
@@ -234,7 +230,10 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicIte
       ...s,
       items: merged
         .filter((i) => !hiddenIds?.has(i.id))
-        .filter((i) => (i.modules ?? [i.module]).some((module) => readable.has(module)))
+        .filter((i) =>
+          AUTHENTICATED_NAV_IDS.has(i.id) ||
+          (i.modules ?? [i.module]).some((module) => readable.has(module)),
+        )
         .map((i) => {
           const dyn = itemChildren?.[i.id];
           return dyn && dyn.length ? { ...i, children: dyn } : i;

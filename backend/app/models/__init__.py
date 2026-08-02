@@ -19,7 +19,13 @@ from .employee import (
     EmployeeShiftDay,
     JobGrade,
 )
-from .noi_quy import NoiQuyAttachment, NoiQuyDocument, NoiQuyPage, NoiQuyVersion
+from .noi_quy import (
+    NoiQuyAttachment,
+    NoiQuyDocument,
+    NoiQuyPage,
+    NoiQuyRecord,
+    NoiQuyVersion,
+)
 from .profile_request import ProfileUpdateRequest
 from .leave import LeaveRequest, LeaveType
 from .late_early import LateEarlyRequest
@@ -118,6 +124,7 @@ __all__ = [
     "EmployeeAttachment",
     "JobGrade",
     "NoiQuyDocument",
+    "NoiQuyRecord",
     "NoiQuyVersion",
     "NoiQuyAttachment",
     "NoiQuyPage",

@@ -57,10 +57,7 @@ MODULES: list[tuple[str, str]] = [
     ("tang_ca", "Tăng ca"),
     ("di_muon", "Đi muộn / về sớm"),
     ("luong", "Lương"),
-    # Nội quy công ty (chủ 30/07/2026): CHỈ Giám đốc soạn/ban hành — vai GĐ nhận toàn quyền
-    # qua `ALL_MODULE_KEYS` ở dưới, các vai khác khai module tường minh nên không dính.
-    # Việc ĐỌC nội quy KHÔNG gác bằng module này: `GET /api/noi-quy/current` chỉ đòi đăng
-    # nhập, để không vai nào bị bỏ sót mà mất quyền đọc nội quy.
+    # Nội quy là danh mục file. Module chỉ dùng Xem / Thêm / Xóa; không có thao tác Sửa.
     ("noi_quy", "Nội quy công ty"),
 ]
 
@@ -237,6 +234,10 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         ADMIN_ROLE,
         {
             **{k: _full(SCOPE_ALL) for k in ALL_MODULE_KEYS},
+            "noi_quy": dict(
+                can_read=True, can_create=True, can_update=False, can_delete=True,
+                scope=SCOPE_ALL,
+            ),
             # Chỉ GĐ được DUYỆT "báo giá đặc thù" (BG-2) — TP KD giữ _full nhưng KHÔNG có quyền này.
             "bao_gia": _full(SCOPE_ALL, can_approve_exception=True),
             # Đơn hàng bán: GĐ duyệt "đơn đặc thù" + hủy đơn đã chốt + ghi cọc (GĐ toàn quyền).
