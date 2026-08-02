@@ -246,7 +246,7 @@ export type LsxDonViNangSuat = "to_gio" | "cai_gio" | "kem_gio" | "bai_gio";
 export const LSX_DON_VI_LABELS: Record<string, string> = {
   to_nguyen: "Tờ nguyên (giấy to)",
   to: "Tờ in",
-  cai: "Tờ thành phẩm (con)",
+  cai: "Thành phẩm",
   kem: "Kẽm",
   bai: "Bài",
   ban: "Bản",
@@ -314,6 +314,7 @@ export const BAI_GHEP_THIEU_LABELS: Record<string, string> = {
   thieu_giay: "Chưa chọn giấy chạy chung",
   thieu_kho_in: "Chưa có khổ tờ in chung",
   thieu_ups: "Có thành viên chưa khai số con/tờ",
+  thieu_buoc_in: "Lệnh in nhiều lượt — chưa chọn lượt nào chạy chung tờ",
   thieu_so_to: "Chưa tính được số tờ",
 };
 
@@ -358,10 +359,46 @@ export interface BaiGhepThanhVien {
   thanh_vien_id: number; lsx_id: number; lsx_ma: string | null; lsx_ten: string | null;
   so_luong_dat: number; don_vi_tinh: string | null; is_rush: boolean; trang_thai_lsx: string | null;
   so_con_tren_to: number; san_luong_du_kien: number; du: number;
+  /** Bước in nào của lệnh chạy chung tờ + các lượt chọn được (lệnh in 2 lượt thì phải chỉ rõ). */
+  buoc_in_step_key: string | null;
+  buoc_in_chon_duoc: { step_key: string; ten: string; thu_tu: number }[];
+  /** Số tờ lệnh THẬT SỰ cần — đã gồm hao các bước sau in, khác `ceil(SL đặt / con)`. */
+  nhu_cau_to: number;
   giay_id: number | null; giay_ten: string | null;
   so_mau_a: number | null; so_mau_b: number | null; quy_cach_in: string | null;
   kho_tp: string | null; han_hoan_thanh_sx: string | null;
 }
+/** Sơ đồ bài ghép — N nhánh vào → MỘT node IN → N nhánh ra. DẪN XUẤT ở server, không lưu cạnh. */
+export interface BaiGhepSoDoNode {
+  step_key: string; ten: string; nhom: string | null; loai_buoc: LsxLoaiBuoc; thu_tu: number;
+  to_ten: string | null; may_ten: string | null; nha_cung_cap: string | null;
+  tong_phut: number; chiem_may_phut: number; phu_thuoc_step_keys: string[];
+}
+export interface BaiGhepSoDoNhanh {
+  thanh_vien_id: number; lsx_id: number; lsx_ma: string | null; lsx_ten: string | null;
+  customer_name: string | null; han_hoan_thanh_sx: string | null; is_rush: boolean;
+  /** Chỉ số màu của nhánh — FE map sang bảng màu, để ba đơn hàng cạnh nhau không lẫn. */
+  mau: number;
+  so_con_tren_to: number;
+  buoc_in_step_key: string | null;
+  buoc_in_chon_duoc: { step_key: string; ten: string; thu_tu: number }[];
+  nhu_cau_to: number; du: number;
+  truoc_in: BaiGhepSoDoNode[]; sau_in: BaiGhepSoDoNode[];
+}
+export interface BaiGhepSoDo {
+  bai_ghep: {
+    id: number; ma: string; trang_thai: string;
+    may_id: number | null; may_ten: string | null;
+    giay_id: number | null; giay_ten: string | null;
+    kho_in_dai: number | null; kho_in_rong: number | null;
+    hao_hut_setup: number; hao_hut_chay: number;
+    so_to_tot: number; tong_to: number; fill_pct: number | null;
+  };
+  nhanh: BaiGhepSoDoNhanh[];
+  /** Tiền nhiệm NGOÀI bài (vd ruột sách cùng đơn) → node bóng mờ ở nhánh sau in. */
+  ngoai: { step_key: string; ten: string; lsx_ma: string | null }[];
+}
+
 export interface BaiGhepSoTo {
   so_to_tot: number; tong_to: number; fill_pct: number | null; han_in_muon_nhat: string | null;
   rows: { thanh_vien_id: number; lsx_id: number; can: number; con: number;
@@ -691,10 +728,30 @@ interface LsxThueNgoaiFields {
   hao_hut_cho_phep: number | null;
   don_gia_gia_cong: number | null;
   yeu_cau_ky_thuat: string | null;
-  nguoi_giao_nhan_id: number | null;
 }
 
-export interface LsxCongDoan extends LsxThueNgoaiFields {
+/** Sổ THỰC TẾ của bước gia công ngoài + mọi thứ server SUY RA từ nó (không lưu cột).
+ *
+ * Ghi qua cửa thực thi `api.lsx.giaoNhan`, KHÔNG qua lưu routing — hàng ra cổng lúc lệnh đang
+ * chạy, mà lưu routing bị chặn đúng trạng thái đó.
+ */
+export interface LsxGiaoNhanFields {
+  nguoi_giao_id: number | null;
+  nguoi_giao_ten: string | null;
+  giao_luc: string | null;
+  sl_giao_thuc: number | null;
+  nguoi_nhan_id: number | null;
+  nguoi_nhan_ten: string | null;
+  nhan_luc: string | null;
+  sl_nhan_thuc: number | null;
+  giao_nhan_trang_thai: "chua_gui" | "dang_ngoai" | "da_ve" | null;
+  so_hut: number | null;
+  hut_vuot_dinh_muc: boolean;
+  tien_gia_cong_thuc: number | null;
+  qua_han_ngay: number | null;
+}
+
+export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   id: number; step_key: string; thu_tu: number; cong_doan_id: number | null;
   ten: string; nhom: string | null; loai_buoc: LsxLoaiBuoc; bat_buoc: boolean;
   department_id: number | null; department_ten: string | null;
@@ -712,7 +769,6 @@ export interface LsxCongDoan extends LsxThueNgoaiFields {
   thoi_luong_dien_giai: Record<string, unknown>;
   phu_thuoc_step_keys: string[];
   vat_tus: { id: number; vat_tu_id: number; vat_tu_ma: string; vat_tu_ten: string; don_vi: string; so_luong: number }[];
-  nguoi_giao_nhan_ten: string | null;
   ghi_chu: string | null;
   // --- Khoán theo đầu việc: phần GHIM (đã chọn) + phần DẪN XUẤT (server tính lúc đọc) ---
   khoan_rate_id: number | null;
@@ -815,6 +871,15 @@ export interface LsxDetail {
   /** Chừa tách chiều do server tính (`chua_theo_chieu`) — đừng cộng lại ở FE. */
   chua_dai: number;
   chua_rong: number;
+  /** Lệnh đang ghép chung tờ với ai. `null` = in riêng. Khi có, THÔNG SỐ TỜ (máy in, giấy, khổ
+   *  tờ in, số con) do BÀI quyết — sửa ở màn lệnh không có tác dụng. */
+  bai_ghep: LsxBaiGhep | null;
+}
+export interface LsxBaiGhep {
+  id: number; ma: string; trang_thai: string;
+  may_id: number | null; may_ten: string | null;
+  giay_id: number | null; kho_in_dai: number | null; kho_in_rong: number | null;
+  so_con_tren_to: number; buoc_in_step_key: string | null;
 }
 export interface LsxUpdateBody {
   ten?: string; so_luong_dat?: number; don_vi_tinh?: string; bu_hao_to?: number;
@@ -1498,7 +1563,9 @@ export interface TinhGiaComponentMeta {
   to_sau_in: number;
   bu_hao_auto?: number; // Σ bù hao công đoạn — engine đi NGƯỢC từ cuối chuỗi lên
   bu_hao_chi_tiet?: BuHaoBuoc[]; // phân rã: bước nào ăn bao nhiêu tờ (thứ tự xuôi)
-  so_to_per_sp?: number; // số con cần cho 1 thành phẩm
+  so_trang?: number; // số trang nội dung của 1 sản phẩm (người dùng khai)
+  trang_moi_tay?: number; // số trang mỗi tay gấp
+  so_to_per_sp?: number; // số bài in — DẪN XUẤT: so_trang / trang_moi_tay
   to_ra_cuoi?: number; // tờ ra khỏi bước cuối chuỗi
   so_tp_ra?: number; // thành phẩm thật sự có = to_ra_cuoi × con/tờ
   bu_hao_tay?: number; // "+ Bù thêm" — ô nhập tay duy nhất còn lại
@@ -1621,7 +1688,9 @@ export interface ThanhPhanOut {
   rong_thanh_pham: number; // ③
   /** Nhãn gộp dòng khi báo giá (ruột + bìa 1 cuốn gõ giống nhau). Không vào công thức giá. */
   nhom_bao_gia: string | null;
-  so_to_per_sp: number;
+  so_to_per_sp: number; // DẪN XUẤT (server ghi) = so_trang / trang_moi_tay
+  so_trang: number; // số trang nội dung của 1 sản phẩm (tờ rời = 1)
+  trang_moi_tay: number; // số trang mỗi tay gấp (tờ rời = 1)
   so_luong: number; // SL đặt của sản phẩm này (0 = lấy SL mặc định phiếu)
   don_vi_tinh: string; // ĐVT sản phẩm (text tự do, mặc định "cái") → chảy sang Báo giá
   loai_san_pham_id: number | null; // loại SP của sản phẩm này
@@ -1724,7 +1793,8 @@ export interface ThanhPhanIn {
   dai_thanh_pham?: number;
   rong_thanh_pham?: number;
   nhom_bao_gia?: string | null;
-  so_to_per_sp?: number;
+  so_trang?: number; // số trang nội dung (số bài in do server dẫn xuất, không gửi)
+  trang_moi_tay?: number;
   so_luong?: number; // SL đặt của sản phẩm này (0 = SL mặc định phiếu)
   don_vi_tinh?: string | null; // ĐVT sản phẩm (text tự do)
   loai_san_pham_id?: number | null; // loại SP của sản phẩm này
@@ -6163,6 +6233,17 @@ export const api = {
     phuThuocOptions(token: string, id: number): Promise<LsxPhuThuocOption[]> {
       return authed<LsxPhuThuocOption[]>(`/api/lsx/${id}/phu-thuoc-options`, token);
     },
+    /** Ghi nhận THỰC TẾ hàng gia công ngoài đi/về. Cửa riêng — chạy được cả khi lệnh đã lập
+     *  kế hoạch, vì hàng ra cổng đúng lúc lệnh đang chạy. */
+    giaoNhan(
+      token: string, id: number, buocId: number,
+      body: { su_kien: "giao" | "nhan"; nguoi_id?: number | null; luc?: string | null; so_luong?: number | null },
+    ): Promise<LsxDetail> {
+      return authed<LsxDetail>(`/api/lsx/${id}/buoc/${buocId}/giao-nhan`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
     dauViecOptions(
       token: string, id: number, congDoanId: number, departmentId: number,
     ): Promise<LsxDauViecOption[]> {
@@ -6241,10 +6322,19 @@ export const api = {
         method: "POST", body: JSON.stringify({ lsx_ids: lsxIds }),
       });
     },
-    suaThanhVien(token: string, id: number, tvId: number, soConTrenTo: number): Promise<BaiGhepDetail> {
+    suaThanhVien(
+      token: string, id: number, tvId: number, soConTrenTo: number, buocInStepKey?: string | null,
+    ): Promise<BaiGhepDetail> {
       return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/thanh-vien/${tvId}`, token, {
-        method: "PUT", body: JSON.stringify({ so_con_tren_to: soConTrenTo }),
+        method: "PUT",
+        body: JSON.stringify({
+          so_con_tren_to: soConTrenTo,
+          ...(buocInStepKey ? { buoc_in_step_key: buocInStepKey } : {}),
+        }),
       });
+    },
+    soDo(token: string, id: number): Promise<BaiGhepSoDo> {
+      return authed<BaiGhepSoDo>(`/api/bai-ghep/${id}/so-do`, token);
     },
     boThanhVien(token: string, id: number, tvId: number): Promise<BaiGhepDetail> {
       return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/thanh-vien/${tvId}`, token, { method: "DELETE" });

@@ -642,3 +642,31 @@ def test_xem_truoc_bao_xung_dot(db, orders, lsx_svc, xl_svc, admin, customer, mo
     res = xl_svc.xem_truoc(dong_id=b_id, may_id=may_id,
                            start_at=datetime(2026, 7, 27, 8, 30, tzinfo=timezone.utc))       # B chồng A
     assert a_id in res["xung_dot_ids"]
+
+
+def test_lenh_in_hai_luot_chi_loai_dung_luot_duoc_ghep(
+    db, orders, lsx_svc, bg_svc, xl_svc, admin, customer
+):
+    """Quét cả nhóm `print` sẽ làm BỐC HƠI cả hai lượt in khỏi board — neo `step_key` mới đúng."""
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    for lsx in created:
+        db.add(LsxCongDoan(
+            lsx_id=lsx.id, thu_tu=1, ten="In mặt sau", nhom="print", loai_buoc=LB_MAY,
+            may_id=_in_step(db, lsx.id).may_id, so_luong_vao=5000, nang_suat=3000,
+            don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to",
+        ))
+    db.commit()
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+
+    # Hai lượt in → máy không đoán, bài thiếu dữ liệu cho tới khi người chọn.
+    assert "thieu_buoc_in" in bg_svc.thieu_cua(bg_svc._get(bg.id))
+    for tv in bg_svc._get(bg.id).thanh_viens:
+        mat_truoc = _in_step(db, tv.lsx_id)
+        bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv.id,
+                              so_con_tren_to=tv.so_con_tren_to,
+                              buoc_in_step_key=mat_truoc.step_key, actor=admin)
+    bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
+
+    xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)
+    member = XepLichRepository(db).by_lsx(created[0].id)
+    assert [r.source_thu_tu for r in member] == [1]     # chỉ lượt ĐƯỢC NEO bị loại

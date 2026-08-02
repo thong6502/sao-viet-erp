@@ -1428,6 +1428,130 @@
   color: var(--ink);
   font-size: var(--fs-sm);
 }
+
+/* --- Sổ giao – nhận thực tế (bước thuê ngoài) ---------------------------------
+   Khối DỰ KIẾN ở trên là form gõ; khối này là SỰ KIỆN ĐÃ XẢY RA nên nhìn khác hẳn:
+   không lưới ô nhập, mà là trạng thái + hai dòng ghi nhận. */
+.khsx-gn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.khsx-gn__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.khsx-gn__pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--sp-2);
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ash);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.khsx-gn__pill--dang_ngoai {
+  border-color: var(--rust-soft, var(--rule));
+  background: var(--rust-soft, var(--paper));
+  color: var(--rust-deep, var(--ink));
+}
+.khsx-gn__pill--da_ve {
+  border-color: var(--ok, #2f855a);
+  background: var(--ok-soft, #edf7f0);
+  color: var(--ok, #2f855a);
+}
+.khsx-gn__canhbao {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--signal, #c53030);
+}
+.khsx-gn__cot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.khsx-gn__muc { display: flex; }
+.khsx-gn__dong {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--paper);
+  font-size: var(--fs-sm);
+}
+.khsx-gn__nhan {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+.khsx-gn__noi { flex: 1; color: var(--ink); }
+.khsx-gn__sua {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--rust);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+.khsx-gn__sua:hover { text-decoration: underline; }
+.khsx-gn__form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--rust-soft, var(--rule));
+  border-radius: 6px;
+  background: var(--paper);
+}
+.khsx-gn__formbtns {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: var(--sp-2);
+}
+.khsx-gn__hint { grid-column: 1 / -1; margin: 0; }
+
+@media (max-width: 640px) {
+  .khsx-gn__form { grid-template-columns: 1fr; }
+}
+
+/* Badge trạng thái hàng gia công ngoài — dùng CHUNG ở bảng và node sơ đồ DAG.
+   Chỉ để NHÌN và NHẢY vào sổ; cửa ghi duy nhất nằm trong drawer. */
+.khsx-gn-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 4px;
+  padding: 2px var(--sp-2, 8px);
+  border: 1px solid var(--rule, #e1e4e8);
+  border-radius: 999px;
+  background: var(--paper, #fafbfc);
+  color: var(--ash, #6c757d);
+  font-size: var(--fs-xs, 11px);
+  font-weight: 600;
+  line-height: 1.5;
+  cursor: pointer;
+  text-align: left;
+}
+.khsx-gn-badge:hover { border-color: var(--rust, #c25e38); color: var(--rust, #c25e38); }
+.khsx-gn-badge--dang_ngoai {
+  border-color: var(--rust-soft, #e0b9a6);
+  color: var(--rust-deep, #9a4423);
+}
+.khsx-gn-badge--da_ve { border-color: var(--ok, #2f855a); color: var(--ok, #2f855a); }
+.khsx-gn-badge.is-canhbao {
+  border-color: var(--signal, #c53030);
+  color: var(--signal, #c53030);
+}
 .khsx-dep-group {
   margin: 0;
   padding: var(--sp-2) 0 0;
@@ -2594,3 +2718,19 @@
   margin-top: 2px;
 }
 .khsx-hint-center { text-align: center; margin-top: 8px; }
+
+/* Băng "bước in do bài ghép điều phối" ở đầu khối công đoạn — nói ra chỗ quyền đã chuyển. */
+.khsx-ghep-bang {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px dashed #7c5cbf;
+  border-radius: 6px;
+  background: #f6f3fc;
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.khsx-ghep-bang svg { flex: 0 0 auto; margin-top: 2px; color: #7c5cbf; }

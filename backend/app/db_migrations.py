@@ -921,6 +921,133 @@ def _migrate_ptg_so_mau_pha(db: Session) -> None:
     db.commit()
 
 
+def _migrate_ptg_so_trang(db: Session) -> None:
+    """Tính giá: thêm `phieu_thanh_phan.so_trang` + `trang_moi_tay` — số trang NỘI DUNG của 1 sản
+    phẩm và số trang mỗi tay gấp. Người dùng khai và LƯU (trước đây popover tính xong là mất, chỉ
+    còn lại kết quả `so_to_per_sp` nên mở lại không biết đã tính từ đâu).
+
+    Số tờ in nay tính thẳng từ số trang: `SL × so_trang / con` thay cho `SL × số bài in / con`.
+    Công thức cũ chia "số tay" cho "số con" — hai đại lượng khác đơn vị — nên sách bình tay ra sai.
+    Dữ liệu cũ: so_trang = trang_moi_tay = 1 (mặc định) ⇒ mọi phiếu TỜ RỜI đang có giữ NGUYÊN số
+    tờ như trước (`SL × 1 / con` = `SL × 1 / con`). Phiếu sách phải khai lại số trang. No-op nếu
+    đã có."""
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "phieu_thanh_phan")
+    if "so_trang" not in cols:
+        db.execute(text(
+            "ALTER TABLE phieu_thanh_phan ADD COLUMN so_trang INTEGER NOT NULL DEFAULT 1"))
+    if "trang_moi_tay" not in cols:
+        db.execute(text(
+            "ALTER TABLE phieu_thanh_phan ADD COLUMN trang_moi_tay INTEGER NOT NULL DEFAULT 1"))
+    db.commit()
+
+
+def _migrate_lsx_cong_doan_giao_nhan_thuc(db: Session) -> None:
+    """Thuê ngoài: sổ GIAO – NHẬN THỰC TẾ trên chính bước lệnh (không đẻ bảng).
+
+    Khối gia công ngoài trước nay toàn số DỰ KIẾN; hàng ra khỏi cổng không có tên người giao,
+    người nhận, số thực gửi/nhận — trễ thì không truy được, thiếu thì không ai nhận.
+
+    `nguoi_giao_nhan_id` (một người cho cả hai đầu việc) ĐỔI TÊN thành `nguoi_giao_id`: giao và
+    nhận là HAI sự kiện, khác ngày khác người khác số lượng. Cột cũ chưa từng lên UI nên chắc
+    chắn toàn NULL — đổi tên rẻ hơn là thêm cột thứ ba rồi bỏ cột cũ chết ở đó.
+
+    KHÔNG thêm cột số hỏng (`= sl_giao_thuc - sl_nhan_thuc`), trạng thái (suy từ hai mốc thời
+    gian) hay tiền gia công thực (`= sl_nhan_thuc × don_gia_gia_cong`) — đều là dẫn xuất.
+
+    Idempotent; no-op trên DB fresh (create_all đã ra tên mới) và DB chưa có bảng."""
+    insp = inspect(db.get_bind())
+    if "lsx_cong_doan" not in insp.get_table_names():
+        return
+
+    def run(sql: str) -> None:
+        """Best-effort DDL: SQLite cũ từ chối RENAME COLUMN thì đừng làm vỡ cả migration."""
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    cols = _existing_columns(insp, "lsx_cong_doan")
+    if "nguoi_giao_nhan_id" in cols and "nguoi_giao_id" not in cols:
+        run("ALTER TABLE lsx_cong_doan RENAME COLUMN nguoi_giao_nhan_id TO nguoi_giao_id")
+
+    cols = _existing_columns(inspect(db.get_bind()), "lsx_cong_doan")
+    for name, ddl in (
+        ("nguoi_giao_id", "INTEGER"),          # đường lui nếu RENAME bị từ chối
+        ("giao_luc", "TIMESTAMP"),
+        ("sl_giao_thuc", "NUMERIC(14,2)"),
+        ("nguoi_nhan_id", "INTEGER"),
+        ("nhan_luc", "TIMESTAMP"),
+        ("sl_nhan_thuc", "NUMERIC(14,2)"),
+    ):
+        if name not in cols:
+            db.execute(text(f"ALTER TABLE lsx_cong_doan ADD COLUMN {name} {ddl}"))
+    db.commit()
+    run("CREATE INDEX IF NOT EXISTS ix_lsx_cong_doan_nguoi_giao_id "
+        "ON lsx_cong_doan (nguoi_giao_id)")
+    run("CREATE INDEX IF NOT EXISTS ix_lsx_cong_doan_nguoi_nhan_id "
+        "ON lsx_cong_doan (nguoi_nhan_id)")
+
+
+def _migrate_bai_ghep_buoc_in_step_key(db: Session) -> None:
+    """Bài ghép neo ĐÍCH DANH bước in nào của thành viên chạy chung tờ.
+
+    Trước nay nhận diện bằng quy ước ngầm `nhom == "print" and loai_buoc == "may"`. Quy ước đó
+    đủ dùng khi mỗi lệnh có ĐÚNG MỘT bước in máy, nhưng lệnh in 2 lượt (mặt trước / mặt sau tách
+    dòng, in nền + màu pha) thì `bo_qua_in` bỏ SẠCH mọi bước print — cả hai lượt biến mất khỏi
+    board, thay bằng một dòng in ghép.
+
+    Neo bằng `step_key` chứ KHÔNG phải `id`: `replace_routing` khớp hàng cũ bằng
+    `{r.step_key: r}` nên step_key sống qua mọi lần lưu routing, còn id thì hàng dựng lại sinh id
+    mới. (Quyết định cũ "bài ghép neo LSX, không neo công đoạn" đúng với id, không đúng với
+    step_key.)
+
+    Backfill: điền bước in đầu tiên cho thành viên đã có — lệnh một lượt in thì đúng luôn."""
+    insp = inspect(db.get_bind())
+    if "bai_ghep_thanh_vien" not in insp.get_table_names():
+        return
+    if "buoc_in_step_key" not in _existing_columns(insp, "bai_ghep_thanh_vien"):
+        db.execute(text(
+            "ALTER TABLE bai_ghep_thanh_vien ADD COLUMN buoc_in_step_key VARCHAR(40)"))
+        db.commit()
+    if "lsx_cong_doan" not in insp.get_table_names():
+        return
+    db.execute(text(
+        "UPDATE bai_ghep_thanh_vien SET buoc_in_step_key = ("
+        "  SELECT cd.step_key FROM lsx_cong_doan cd"
+        "  WHERE cd.lsx_id = bai_ghep_thanh_vien.lsx_id"
+        "    AND cd.nhom = 'print' AND cd.loai_buoc = 'may'"
+        "  ORDER BY cd.thu_tu LIMIT 1)"
+        " WHERE buoc_in_step_key IS NULL"
+    ))
+    db.commit()
+
+
+def _migrate_don_vi_khau_sach(db: Session) -> None:
+    """Khâu sách: `Gấp tay sách` và `Bắt tay + vào keo` đang khai `cái → cái` (mặc định của model,
+    seed không khai đơn vị nên rơi vào đó).
+
+    Gấp tay là gấp cả TỜ IN — một tờ thành một tay; vào keo mới là chỗ gom `số tay` tờ thành MỘT
+    cuốn. Khai `cái → cái` thì chuỗi bù hao ngược không thấy ranh giới tờ↔cuốn nào để áp hệ số,
+    chạy 1:1 từ cuốn xuống tận bước in → số giấy phải mua hụt đúng bằng số tay mỗi cuốn (sách 160
+    trang tay 16 thì hụt 10 lần). No-op nếu mã không tồn tại hoặc đã khai đúng."""
+    insp = inspect(db.get_bind())
+    if "cong_doan" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "cong_doan")
+    if "don_vi_vao" not in cols or "don_vi_ra" not in cols:
+        return   # chưa chạy 0143 → không có gì để sửa
+    for ma, dv_vao, dv_ra in (("CD-0007", "to", "to"), ("CD-0008", "to", "cai")):
+        db.execute(
+            text("UPDATE cong_doan SET don_vi_vao = :v, don_vi_ra = :r WHERE ma = :m"),
+            {"v": dv_vao, "r": dv_ra, "m": ma},
+        )
+    db.commit()
+
+
 def _migrate_ptg_nhom_bao_gia(db: Session) -> None:
     """Tính giá: thêm `phieu_thanh_phan.nhom_bao_gia` — nhãn GỘP DÒNG KHI BÁO GIÁ.
 
@@ -4821,6 +4948,14 @@ MIGRATIONS: list[tuple[str, callable]] = [
     # thừa từ danh mục công đoạn, server ghi — client không gửi.
     ("0145_lsx_cong_doan_don_vi_nullable", _migrate_lsx_cong_doan_don_vi_nullable),
     ("0146_khsx_dinh_muc_vat_tu_phu_thuoc", _migrate_khsx_dinh_muc_vat_tu_phu_thuoc),
+    # Số tờ in tính thẳng từ SỐ TRANG (lưu lại, không còn là phép tính vứt đi trong popover).
+    ("0147_ptg_so_trang", _migrate_ptg_so_trang),
+    # Gấp tay / vào keo khai `cái → cái` làm chuỗi bù hao ngược mất ranh giới tờ↔cuốn.
+    ("0148_don_vi_khau_sach", _migrate_don_vi_khau_sach),
+    # Thuê ngoài: sổ giao – nhận THỰC TẾ (ai giao, ai nhận, số thực gửi/nhận) trên chính bước lệnh.
+    ("0149_lsx_cong_doan_giao_nhan_thuc", _migrate_lsx_cong_doan_giao_nhan_thuc),
+    # Bài ghép neo ĐÍCH DANH bước in chạy chung tờ (quy ước ngầm theo `nhom` vỡ khi lệnh in 2 lượt).
+    ("0150_bai_ghep_buoc_in_step_key", _migrate_bai_ghep_buoc_in_step_key),
 ]
 
 

@@ -80,6 +80,14 @@ _CONG_DOAN_MOI: list[tuple] = [
      "Tổ Cán màng", "co_dinh", 50, False, None, "4.000đ/m², sàn 200.000đ/lượt ghép."),
 ]
 
+# Đơn vị VÀO/RA của khâu sách — KHÔNG để mặc định `cai`. Gấp tay là gấp cả TỜ IN (một tờ thành
+# một tay), còn vào keo mới là chỗ gom nhiều tay thành MỘT CUỐN. Khai sai thành `cai → cai` thì
+# chuỗi bù hao ngược mất ranh giới tờ↔cuốn, chạy 1:1 và ra số giấy hụt đúng bằng số tay mỗi cuốn.
+_DON_VI_KHAU_SACH: dict[str, tuple[str, str]] = {
+    "CD-0007": ("to", "to"),     # gấp tay: tờ in → tờ in (đã gấp thành tay)
+    "CD-0008": ("to", "cai"),    # bắt tay + vào keo: gom `so_tay` tờ → 1 cuốn
+}
+
 # --- Bảng CÔNG KHOÁN của tổ (số hoá đúng tờ Excel xưởng đang dùng) ------------------------------
 # (ten_to, ma, ten_dau_viec, [mã công đoạn — CHỈ để suy ra tổ], don_vi, don_gia, ghi_chu)
 # Đơn giá chỉ treo vào TỔ. Danh sách công đoạn ở đây KHÔNG được lưu vào bảng: nó chỉ dùng để tìm
@@ -137,6 +145,12 @@ def _ensure_cong_doan(db: Session) -> dict[str, int]:
     cd_in = co_san.get("CD-0002")
     if cd_in is not None and not cd_in.setup_time:
         cd_in.setup_time = _SETUP_IN_MAC_DINH
+    db.flush()
+    # Sửa cả công đoạn ĐÃ CÓ, không chỉ cái mới tạo: DB demo cũ đang giữ `cai → cai` mặc định.
+    for c in db.execute(select(CongDoan)).scalars():
+        dv = _DON_VI_KHAU_SACH.get(c.ma)
+        if dv and (c.don_vi_vao, c.don_vi_ra) != dv:
+            c.don_vi_vao, c.don_vi_ra = dv
     db.flush()
     return {c.ma: c.id for c in db.execute(select(CongDoan)).scalars()}
 

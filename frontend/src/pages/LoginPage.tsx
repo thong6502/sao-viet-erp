@@ -79,7 +79,6 @@ export function LoginPage() {
             <h1 className="auth__title" id="auth-title">
               Đăng nhập
             </h1>
-            <p className="auth__sub">Hệ thống quản trị sản xuất in thông minh</p>
           </header>
 
           {notice && !formError && (
@@ -172,14 +171,6 @@ export function LoginPage() {
               </Button>
             </div>
           </form>
-
-          <footer className="auth__footer">
-            <div className="auth__security-chip">
-              <span className="auth__security-dot" />
-              <Icon name="shield" size={13} />
-              <span>Bảo mật nội bộ 256-bit</span>
-            </div>
-          </footer>
         </div>
       </section>
 

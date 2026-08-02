@@ -7,6 +7,7 @@ lệnh DỰ KIẾN dẫn xuất tại chỗ từ dòng đơn + phiếu tính gi�
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -164,7 +165,9 @@ class LsxCongDoanIn(BaseModel):
     hao_hut_cho_phep: float | None = Field(default=None, ge=0)
     don_gia_gia_cong: float | None = Field(default=None, ge=0)
     yeu_cau_ky_thuat: str | None = None
-    nguoi_giao_nhan_id: int | None = None
+    # Người giao / người nhận + số thực KHÔNG nhận ở đây: đó là THỰC THI, ghi qua
+    # `POST /api/lsx/{id}/buoc/{buoc_id}/giao-nhan`. Lưu routing bị chặn khi lệnh đã lập kế
+    # hoạch, mà hàng ra cổng đúng lúc lệnh đang chạy.
     ghi_chu: str | None = None
     phu_thuoc_step_keys: list[str] | None = None
     vat_tus: list[LsxBuocVatTuIn] | None = None
@@ -222,8 +225,21 @@ class LsxCongDoanOut(BaseModel):
     hao_hut_cho_phep: float | None = None
     don_gia_gia_cong: float | None = None
     yeu_cau_ky_thuat: str | None = None
-    nguoi_giao_nhan_id: int | None = None
-    nguoi_giao_nhan_ten: str | None = None
+    # --- Gia công ngoài: sổ THỰC TẾ + dẫn xuất đọc từ nó ---------------------------
+    nguoi_giao_id: int | None = None
+    nguoi_giao_ten: str | None = None
+    giao_luc: datetime | None = None
+    sl_giao_thuc: float | None = None
+    nguoi_nhan_id: int | None = None
+    nguoi_nhan_ten: str | None = None
+    nhan_luc: datetime | None = None
+    sl_nhan_thuc: float | None = None
+    # DẪN XUẤT (tính lúc đọc, không lưu cột)
+    giao_nhan_trang_thai: str | None = None   # chua_gui | dang_ngoai | da_ve
+    so_hut: float | None = None               # giao − nhận
+    hut_vuot_dinh_muc: bool = False
+    tien_gia_cong_thuc: float | None = None
+    qua_han_ngay: int | None = None           # >0 = quá hạn nhận, chỉ khi chưa nhận
     ghi_chu: str | None = None
 
     # --- Khoán theo đầu việc ---------------------------------------------------
@@ -244,6 +260,19 @@ class LsxCongDoanOut(BaseModel):
     khoan_ly_do: str | None = None
     phu_thuoc_step_keys: list[str] = Field(default_factory=list)
     vat_tus: list[LsxBuocVatTuOut] = Field(default_factory=list)
+
+
+class LsxGiaoNhanIn(BaseModel):
+    """Ghi nhận MỘT sự kiện thực tế của bước thuê ngoài: giao hàng đi, hoặc nhận hàng về.
+
+    Đi qua cửa THỰC THI riêng, KHÔNG qua lưu routing — xem `LsxBuocIn`. `nguoi_id` để trống thì
+    server lấy người đang đăng nhập; `luc` để trống thì lấy thời điểm ghi.
+    """
+
+    su_kien: Literal["giao", "nhan"]
+    nguoi_id: int | None = None
+    luc: datetime | None = None
+    so_luong: float | None = Field(default=None, ge=0)
 
 
 class LsxListItem(BaseModel):
@@ -334,6 +363,22 @@ class LsxOut(BaseModel):
     # Chừa TÁCH CHIỀU, tính lúc đọc bằng `chua_theo_chieu` — màn lệnh chỉ hiện, không cộng lại.
     chua_dai: float = 0
     chua_rong: float = 0
+    # Lệnh đang ghép chung tờ với ai. None = in riêng. Khi có, THÔNG SỐ TỜ (máy in, giấy, khổ tờ
+    # in, số con) đọc theo bài — sửa ở màn lệnh không có tác dụng.
+    bai_ghep: LsxBaiGhepOut | None = None
+
+
+class LsxBaiGhepOut(BaseModel):
+    id: int
+    ma: str
+    trang_thai: str
+    may_id: int | None = None
+    may_ten: str | None = None
+    giay_id: int | None = None
+    kho_in_dai: int | None = None
+    kho_in_rong: int | None = None
+    so_con_tren_to: int = 1
+    buoc_in_step_key: str | None = None
 
 
 class LsxUpdateIn(BaseModel):

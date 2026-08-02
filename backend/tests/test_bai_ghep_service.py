@@ -9,6 +9,7 @@ phẩm cố ý CHỈ có bước In để LSX dễ đạt `san_sang` (không vư
 from __future__ import annotations
 
 from datetime import date, timedelta
+from math import ceil
 
 import pytest
 
@@ -280,3 +281,161 @@ def test_tao_chan_lsx_khong_co_cong_doan_in(db, orders, lsx_svc, bg_svc, admin, 
     db.commit()
     with pytest.raises(BaiGhepValidationError):
         bg_svc.tao(lsx_ids=[created[0].id, created[1].id], actor=admin)
+
+
+# ============ Số tờ theo NHU CẦU THẬT + neo bước in ============
+# Công thức cũ `ceil(SL đặt / con)` lấy số thành phẩm GIAO KHÁCH, bỏ mất hao của các bước sau in
+# (gấp, bắt tay, vào keo, xén) → bài ghép cấp không đủ giấy mà không ai báo.
+
+
+def _them_buoc_hao_sau_in(db, lsx_svc, lsx, actor, *, so_to_bu_hao: int):
+    """Nối thêm bước SAU IN có bù hao cố định. Bước in của seed nhả `cái`, nên bước sau nó
+    cũng đếm `cái` — hao ở đây phải lần ngược qua cầu tờ→cái mới ra số tờ phải in."""
+    from app.schemas.lsx import LsxCongDoanIn
+
+    # Công đoạn IN của seed không khai đơn vị → nó đứng NGOÀI dòng giấy. Khai to→cái cho nó
+    # thì chuỗi mới có ranh giới tờ↔cái để hao ở bước sau lần ngược về số tờ phải in.
+    cd_in = db.get(CongDoan, sorted(lsx.cong_doans, key=lambda c: c.thu_tu)[0].cong_doan_id)
+    cd_in.don_vi_vao, cd_in.don_vi_ra = "to", "cai"
+    db.flush()
+    cd = CongDoan(
+        ma=f"CD-HAO-{lsx.id}", ten="Cán màng", nhom="finishing",
+        cong_thuc_gia="so_luong * don_gia",
+        don_vi_vao="cai", don_vi_ra="cai",
+        kieu_bu_hao="co_dinh", so_to_bu_hao=so_to_bu_hao,
+        department_id=_to_san_xuat(db).id,
+    )
+    db.add(cd)
+    db.flush()
+    cu = sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
+    lsx_svc.replace_routing(lsx_id=lsx.id, actor=actor, rows_in=[
+        *[LsxCongDoanIn(step_key=c.step_key, ten=c.ten, nhom=c.nhom,
+                        cong_doan_id=c.cong_doan_id) for c in cu],
+        LsxCongDoanIn(ten="Cán màng", nhom="finishing", cong_doan_id=cd.id),
+    ])
+    return cd
+
+
+def test_so_to_gom_hao_cac_buoc_sau_in(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Thêm bước sau in hao 300 tờ → bài phải cấp thêm đúng 300 tờ, không còn `ceil(SL/con)`."""
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)   # A=20k, B=8k
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    d = bg_svc.detail_dict(bg)
+    a, b = _by_sl(d, 20_000), _by_sl(d, 8_000)
+    bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=a["thanh_vien_id"],
+                          so_con_tren_to=4, actor=admin)
+    bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=b["thanh_vien_id"],
+                          so_con_tren_to=2, actor=admin)
+    truoc = bg_svc.detail_dict(bg_svc._get(bg.id))["so_to"]["so_to_tot"]
+    assert truoc == 5_000                       # chưa có bước sau in → đúng bằng ceil(20000/4)
+
+    lsx_a = next(l for l in created if l.so_luong_dat == 20_000)
+    _them_buoc_hao_sau_in(db, lsx_svc, lsx_svc.get(lsx_a.id), admin, so_to_bu_hao=300)
+
+    # Hao 300 CÁI ở bước cán → phải in 20.300 cái → 20.300 ÷ 4 con/tờ = 5.075 tờ.
+    # Công thức cũ `ceil(20.000/4)` vẫn ra 5.000 → thiếu 75 tờ, không ai báo.
+    d3 = bg_svc.detail_dict(bg_svc._get(bg.id))
+    assert d3["so_to"]["so_to_tot"] == 5_075
+    assert _by_sl(d3, 20_000)["nhu_cau_to"] == 5_075
+
+
+def test_neo_buoc_in_dien_san_khi_lenh_chi_co_mot_luot(db, orders, lsx_svc, bg_svc, admin, customer):
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    assert all(tv.buoc_in_step_key for tv in bg_svc._get(bg.id).thanh_viens)
+    # Không thiếu dữ liệu vì máy suy được — người dùng không phải chọn gì.
+    assert "thieu_buoc_in" not in bg_svc.thieu_cua(bg_svc._get(bg.id))
+
+
+def test_lenh_hai_luot_in_thi_bat_chon_khong_doan(db, orders, lsx_svc, bg_svc, admin, customer):
+    """In 2 lượt (mặt trước / mặt sau tách dòng) → máy KHÔNG đoán lượt nào ghép chung tờ."""
+    from app.schemas.lsx import LsxCongDoanIn
+
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    lsx_a = lsx_svc.get(created[0].id)
+    cu = sorted(lsx_a.cong_doans, key=lambda c: c.thu_tu)
+    in_cu = cu[0]
+    lsx_svc.replace_routing(lsx_id=lsx_a.id, actor=admin, rows_in=[
+        LsxCongDoanIn(step_key=in_cu.step_key, ten=in_cu.ten, nhom="print",
+                      cong_doan_id=in_cu.cong_doan_id, may_id=in_cu.may_id),
+        LsxCongDoanIn(ten="In offset mặt sau", nhom="print",
+                      cong_doan_id=in_cu.cong_doan_id, may_id=in_cu.may_id),
+    ])
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    tv_a = next(tv for tv in bg_svc._get(bg.id).thanh_viens if tv.lsx_id == lsx_a.id)
+    assert tv_a.buoc_in_step_key is None                       # để trống, không đoán
+    assert "thieu_buoc_in" in bg_svc.thieu_cua(bg_svc._get(bg.id))
+
+    buoc_in_2 = sorted(lsx_svc.get(lsx_a.id).cong_doans, key=lambda c: c.thu_tu)[1]
+    bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv_a.id, so_con_tren_to=4,
+                          buoc_in_step_key=buoc_in_2.step_key, actor=admin)
+    assert "thieu_buoc_in" not in bg_svc.thieu_cua(bg_svc._get(bg.id))
+
+    with pytest.raises(BaiGhepValidationError):
+        bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv_a.id, so_con_tren_to=4,
+                              buoc_in_step_key="khong-ton-tai", actor=admin)
+
+
+def test_chan_bo_buoc_in_khi_lenh_dang_ghep(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Bỏ bước in của lệnh đang ghép = bài mất chỗ bám. Chặn, không để nó trỏ vào key đã chết."""
+    from app.schemas.lsx import LsxCongDoanIn
+    from app.services.lsx_service import LsxConflict
+
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    lsx_a = lsx_svc.get(created[0].id)
+
+    with pytest.raises(LsxConflict):
+        lsx_svc.replace_routing(lsx_id=lsx_a.id, actor=admin, rows_in=[
+            LsxCongDoanIn(ten="Cán màng", nhom="finishing"),      # bước in biến mất
+        ])
+
+
+def test_sua_so_con_o_bai_thi_lenh_tinh_lai_ngay(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Thông số tờ của lệnh là DẪN XUẤT của bài. Không có chỗ nối này thì hai màn lệch nhau ngay
+    lần gõ đầu tiên: bài nói 2 con/tờ, lệnh vẫn giữ số tờ tính theo con cũ."""
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    lsx_a = next(l for l in created if l.so_luong_dat == 20_000)
+    _them_buoc_hao_sau_in(db, lsx_svc, lsx_svc.get(lsx_a.id), admin, so_to_bu_hao=0)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    tv = next(t for t in bg_svc._get(bg.id).thanh_viens if t.lsx_id == lsx_a.id)
+
+    bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv.id, so_con_tren_to=4, actor=admin)
+    db.refresh(lsx_svc.get(lsx_a.id))
+    bon_con = lsx_svc.get(lsx_a.id).so_to_ke_hoach
+
+    bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv.id, so_con_tren_to=2, actor=admin)
+    db.refresh(lsx_svc.get(lsx_a.id))
+    hai_con = lsx_svc.get(lsx_a.id).so_to_ke_hoach
+
+    assert bon_con == 5_000 and hai_con == 10_000        # ít con/tờ → phải in nhiều tờ hơn
+
+    # Gỡ khỏi bài → thông số in trả về bài tính giá gốc (con/tờ của lệnh), không giữ số của bài.
+    bg_svc.bo_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv.id, actor=admin)
+    db.refresh(lsx_svc.get(lsx_a.id))
+    l = lsx_svc.get(lsx_a.id)
+    assert l.so_to_ke_hoach == ceil(20_000 / l.so_con)
+
+
+def test_so_do_cat_chuoi_tai_buoc_in_va_khong_luu_canh(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Sơ đồ: mỗi lệnh giữ chuỗi riêng cả TRƯỚC lẫn SAU in, gặp nhau đúng một điểm là node IN."""
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    lsx_a = next(l for l in created if l.so_luong_dat == 20_000)
+    _them_buoc_hao_sau_in(db, lsx_svc, lsx_svc.get(lsx_a.id), admin, so_to_bu_hao=0)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+
+    sd = bg_svc.so_do(bg_svc._get(bg.id))
+    assert sd["bai_ghep"]["ma"] == bg.ma
+    assert len(sd["nhanh"]) == 2
+    nh = next(n for n in sd["nhanh"] if n["lsx_id"] == lsx_a.id)
+    # Bước in KHÔNG nằm ở nhánh nào — nó là node IN chung ở giữa.
+    keys = {c["step_key"] for c in nh["truoc_in"] + nh["sau_in"]}
+    assert nh["buoc_in_step_key"] not in keys
+    assert [c["ten"] for c in nh["sau_in"]] == ["Cán màng"]     # sau in là chuỗi riêng của lệnh
+    assert nh["mau"] != next(n for n in sd["nhanh"] if n["lsx_id"] != lsx_a.id)["mau"]
+
+    # Không có cạnh nào được lưu thêm: đồ thị dựng lúc đọc từ thành viên + routing.
+    from app.models.lsx import LsxCongDoanPhuThuoc
+    truoc = db.query(LsxCongDoanPhuThuoc).count()
+    bg_svc.so_do(bg_svc._get(bg.id))
+    assert db.query(LsxCongDoanPhuThuoc).count() == truoc

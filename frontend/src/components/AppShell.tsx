@@ -72,6 +72,8 @@ export interface NavParams {
   purchaseSeedPurpose?: string;
   /** Liên thông Đơn hàng → bàn Kế hoạch SX: mở thẳng đơn này ở hàng chờ / danh sách lệnh. */
   openSxOrderId?: number;
+  /** Liên thông sơ đồ Bài ghép → Kế hoạch SX: mở thẳng chi tiết một lệnh. */
+  openLsxId?: number;
   /** Liên thông Phòng ban → Lương: mở thẳng tab "Cấu hình lương" (bảng lương của tổ). */
   luongTab?: "cauhinh";
 }
@@ -601,12 +603,13 @@ export function AppShell() {
           <KeHoachSXPage
             navigate={navigate}
             openOrderId={navParams?.openSxOrderId ?? null}
+            openLsxId={navParams?.openLsxId ?? null}
             eventTick={quoteTick}
             onBadgeStale={reloadBadges}
           />
         );
       case "bai-ghep":
-        return <BaiGhepPage eventTick={quoteTick} onBadgeStale={reloadBadges} />;
+        return <BaiGhepPage navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "xep-lich-cong-doan":
         return <XepLichPage navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "yeu-cau-mua-hang":

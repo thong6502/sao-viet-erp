@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import type { RefRow } from "../pages/LsxRoutingTable";
+import { nhanGiaoNhan, type RefRow } from "../pages/LsxRoutingTable";
 import { type EditRow, n, phut, thoiLuong } from "../pages/lsxBuoc";
 import { Icon } from "./Icons";
 import { LSX_DON_VI_LABELS, LSX_LOAI_BUOC_META } from "../api/client";
@@ -15,11 +15,16 @@ export interface DagNodeCardProps {
   toRefs: RefRow[] | null;
   mayRefs: RefRow[] | null;
   warnings: string[];
+  /** Khác null = bước in này CHẠY CHUNG tờ với bài ghép đó — thông số tờ sửa ở bài. */
+  maBaiGhep?: string | null;
   canUpdate: boolean;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
   onNodeMouseDown: (e: React.MouseEvent, key: string) => void;
   onPortMouseDown: (e: React.MouseEvent, key: string, portType: "in" | "out") => void;
   onPortMouseUp: (e: React.MouseEvent, key: string, portType: "in" | "out") => void;
-  onOpenDrawer: (index: number) => void;
+  /** `tab` chỉ dùng cho deep-link từ badge — mở drawer là nhảy thẳng tới khối đó. */
+  onOpenDrawer: (index: number, tab?: "giao_nhan") => void;
   onDeleteNode: (index: number) => void;
 }
 
@@ -34,7 +39,10 @@ export function DagNodeCard({
   toRefs,
   mayRefs,
   warnings,
+  maBaiGhep,
   canUpdate,
+  onMouseEnter,
+  onMouseLeave,
   onNodeMouseDown,
   onPortMouseDown,
   onPortMouseUp,
@@ -64,6 +72,7 @@ export function DagNodeCard({
   const hasWarning = warnings.length > 0 && !hasError;
 
   let cardClass = "dag-node";
+  if (maBaiGhep) cardClass += " dag-node--ghep";
   if (isSelected) cardClass += " dag-node--selected";
   else if (hasError) cardClass += " dag-node--has-error";
   else if (hasWarning) cardClass += " dag-node--has-warning";
@@ -78,6 +87,8 @@ export function DagNodeCard({
         top: `${position.y}px`,
       }}
       onMouseDown={(e) => onNodeMouseDown(e, row.key)}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
     >
       {/* Cổng vào (Input Port - bên trái) */}
       <div
@@ -100,9 +111,15 @@ export function DagNodeCard({
           {row.ten || "Công đoạn"}
         </span>
 
-        <span className={`dag-node__type-tag dag-node__type-tag--${row.loai_buoc}`}>
-          {meta.label}
-        </span>
+        {maBaiGhep ? (
+          <span className="dag-node__type-tag dag-node__type-tag--ghep" title="Chạy chung tờ">
+            {maBaiGhep}
+          </span>
+        ) : (
+          <span className={`dag-node__type-tag dag-node__type-tag--${row.loai_buoc}`}>
+            {meta.label}
+          </span>
+        )}
 
         {canUpdate && (
           <div className="dag-node__actions">
@@ -166,6 +183,25 @@ export function DagNodeCard({
           <span className="dag-node__label">Thời lượng:</span>
           <span className="dag-node__value">{thoiGian}</span>
         </div>
+
+        {/* Hàng gửi ra ngoài đang ở đâu — nhìn sơ đồ là biết khúc nào nằm ngoài xưởng. */}
+        {row.loai_buoc === "thue_ngoai" && row.giao_nhan && (
+          <button
+            type="button"
+            className={`khsx-gn-badge khsx-gn-badge--${row.giao_nhan.giao_nhan_trang_thai ?? "chua_gui"} ${
+              (row.giao_nhan.qua_han_ngay ?? 0) > 0 || row.giao_nhan.hut_vuot_dinh_muc
+                ? "is-canhbao"
+                : ""
+            }`}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenDrawer(index, "giao_nhan");
+            }}
+          >
+            {nhanGiaoNhan(row)}
+          </button>
+        )}
 
         {/* Cảnh báo nếu có */}
         {warnings.length > 0 && (

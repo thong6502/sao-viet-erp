@@ -300,9 +300,15 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     """Tính chi phí 1 SẢN PHẨM → 2 nhóm (nvl · cong_doan). Trả {name, rows, total, meta}."""
     name = tp.get("ten") or ""
     sl = _i(tp.get("so_luong")) or _i(so_luong_mac_dinh)   # SL của sản phẩm này; 0 → SL mặc định phiếu
-    # Số BÀI IN (khuôn) khác nhau của 1 sản phẩm — KHÔNG phải số tờ giấy trong sản phẩm.
-    # Nhân cả số tờ in LẪN số bộ kẽm: sách 100 trang bình 16 trang/tay = 7 bài, mỗi bài 1 bộ kẽm.
-    so_to_per_sp = max(_i(tp.get("so_to_per_sp"), 1), 1)
+    # Số TRANG nội dung của 1 sản phẩm + số trang mỗi tay gấp — người dùng khai, engine LƯU.
+    # Số tờ in đi thẳng từ đây (`sl × so_trang / con`), không qua "số bài in" nữa: chia số TAY cho
+    # số CON là chia hai đại lượng khác đơn vị, sách bình tay vì thế ra sai.
+    so_trang = max(_i(tp.get("so_trang"), 1), 1)
+    trang_moi_tay = max(_i(tp.get("trang_moi_tay"), 1), 1)
+    # Số TAY = số bài in (khuôn) — DẪN XUẤT, mỗi tay 1 bộ kẽm. Sách 160 trang tay 16 → 10 tay.
+    # Tờ rời 1/1 → 1 tay, y như trước.
+    so_tay = max(ceil(so_trang / trang_moi_tay), 1)
+    so_to_per_sp = so_tay
     qc = tp.get("quy_cach_in", "mot_mat")
     passes = 1 if qc == "mot_mat" else 2                    # số mặt qua máy (2 mặt / tự trở = 2)
 
@@ -368,7 +374,15 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     xa = max(xa, 1)
 
     # --- Số tờ CẦN in (net) — tính TRƯỚC để tra bù hao THEO SỐ TỜ (không phải số lượng) ---
-    to_net = ceil(sl * so_to_per_sp / con) if sl > 0 else 0
+    # HAI KIỂU LÀM khác hẳn nhau, `trang_moi_tay` là thứ phân biệt (không cần thêm cờ nào):
+    #  · GẤP TAY (sách, trang mỗi tay > 1): tờ in gấp NGUYÊN VẸN thành một tay → 1 tờ = 1 tay, một
+    #    cuốn cần `so_tay` tờ. Tờ không bị cắt rời nên `con` KHÔNG vào công thức — nó chỉ để vẽ sơ
+    #    đồ bình bài và kiểm khổ có vừa tờ. Bật/tắt `con_auto` vì thế không làm sai số giấy.
+    #  · CẮT RỜI (tờ rơi, danh thiếp, hộp): một tờ cắt ra `con` cái.
+    # `cai_moi_to` dùng lại làm HỆ SỐ quy đổi tờ↔cái cho chuỗi bù hao ngược ở dưới — một nguồn duy
+    # nhất, khỏi hai chỗ tính lệch nhau.
+    cai_moi_to = (1.0 / so_tay) if trang_moi_tay > 1 else float(con)
+    to_net = ceil(sl / cai_moi_to) if sl > 0 and cai_moi_to > 0 else 0
 
     # --- Bù hao NGƯỢC theo công đoạn: đi từ CUỐI chuỗi lên, mỗi bước tra bậc theo số đi qua CHÍNH
     # NÓ, ở ĐÚNG đơn vị của nó (bước in rơi bậc cao hơn bước xén cuối — cộng xuôi phẳng theo
@@ -392,7 +406,10 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             )
     # Đơn vị vào/ra KHAI ở danh mục công đoạn. HỆ SỐ thì phiếu cấp — `con` (bình bài) và `xa`
     # (số mảnh xả) đã tính ở trên, khai lại vào danh mục là đẻ nguồn sự thật thứ hai.
-    he_so_dv = {(DV_TO, DV_CAI): float(con), (DV_TO_NGUYEN, DV_TO): float(xa)}
+    # Ranh giới tờ in → cái: cắt rời thì 1 tờ ra `con` cái; GẤP TAY thì ngược chiều — phải gom
+    # `so_tay` tờ mới ra 1 cuốn (hệ số 1/so_tay). Không có nó, chuỗi ngược chạy 1:1 và mỗi cuốn
+    # hỏng ở bước xén chỉ đòi bù 1 tờ thay vì `so_tay` tờ.
+    he_so_dv = {(DV_TO, DV_CAI): cai_moi_to, (DV_TO_NGUYEN, DV_TO): float(xa)}
     buoc_in = []
     for i in idx_giay:
         cd = chain[i].get("cong_doan") or {}
@@ -466,12 +483,10 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     # Chuỗi KẾT THÚC Ở CON (có bước bế/xén) thì `to_ra_cuoi` đã là con — nhân `con` lần nữa là
     # đếm hai lần. Chỉ quy đổi khi bước cuối còn đang đếm tờ in.
     to_ra_cuoi = ceil(buoc_giay[-1]["ra"]) if buoc_giay else to_dau_vao
-    if so_to_per_sp <= 0:
-        so_tp_ra = 0
-    elif dv_cuoi == DV_CAI:
-        so_tp_ra = floor(to_ra_cuoi / so_to_per_sp)
+    if dv_cuoi == DV_CAI:
+        so_tp_ra = to_ra_cuoi          # chuỗi đã kết thúc Ở THÀNH PHẨM — không quy đổi thêm lần nữa
     else:
-        so_tp_ra = floor(to_ra_cuoi * con / so_to_per_sp)
+        so_tp_ra = floor(to_ra_cuoi * cai_moi_to)   # còn đang đếm tờ in → × số cái mỗi tờ
 
     so_mau_a = _i(tp.get("so_mau_a"))     # màu PROCESS mặt A (CMYK…)
     so_mau_b = _i(tp.get("so_mau_b"))     # màu PROCESS mặt B
@@ -705,7 +720,8 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             "to_dau_vao": to_dau_vao, "to_sau_in": to_sau_in,
             "bu_hao_auto": _r(finishing_spoilage_sum),   # Σ bù hao công đoạn (chuỗi ngược)
             "bu_hao_chi_tiet": bu_hao_chi_tiet,          # phân rã: bước nào ăn bao nhiêu tờ
-            "so_to_per_sp": so_to_per_sp,                # số con cần cho 1 thành phẩm
+            "so_trang": so_trang, "trang_moi_tay": trang_moi_tay,   # người dùng khai
+            "so_to_per_sp": so_to_per_sp,                # số bài in — DẪN XUẤT: so_trang / trang_moi_tay
             "to_ra_cuoi": to_ra_cuoi, "so_tp_ra": so_tp_ra,  # khép mạch tờ → thành phẩm
             "bu_hao_tay": bu_hao, "hao_tay": 0,          # ô "− Hao" đã bỏ → luôn 0
         },

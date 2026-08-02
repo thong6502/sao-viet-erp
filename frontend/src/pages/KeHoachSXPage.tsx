@@ -33,12 +33,15 @@ type View = { mode: "list" } | { mode: "detail"; id: number };
 export function KeHoachSXPage({
   navigate,
   openOrderId,
+  openLsxId,
   eventTick,
   onBadgeStale,
 }: {
   navigate?: (id: string, params?: Record<string, unknown>) => void;
   /** Deep-link từ Đơn hàng: mở thẳng hàng chờ + drawer lệnh dự kiến của đơn này. */
   openOrderId?: number | null;
+  /** Deep-link từ sơ đồ Bài ghép: mở thẳng chi tiết MỘT lệnh. */
+  openLsxId?: number | null;
   /** Tăng mỗi lần có event SSE → refetch (real-time, không bắt người dùng F5). */
   eventTick?: number;
   onBadgeStale?: () => void;
@@ -94,6 +97,10 @@ export function KeHoachSXPage({
       setPreviewOrderId(openOrderId);
     }
   }, [openOrderId]);
+
+  useEffect(() => {
+    if (openLsxId) setView({ mode: "detail", id: openLsxId });
+  }, [openLsxId]);
 
   useEffect(() => {
     if (!flash) return;

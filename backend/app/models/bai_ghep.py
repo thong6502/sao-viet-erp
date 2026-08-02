@@ -102,5 +102,9 @@ class BaiGhepThanhVien(Base):
     # Số con của LSX này trên tờ ghép (ups). INPUT người sửa (bố cục ghép khác in riêng); mặc định
     # = `lsx.so_con`. Số tờ tốt = max_i(ceil(lsx.so_luong_dat / so_con_tren_to)).
     so_con_tren_to: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Bước in NÀO của lệnh này chạy chung tờ. Neo bằng `step_key` (bền qua `replace_routing`)
+    # chứ không bằng id bước — hàng dựng lại sinh id mới. Máy suy sẵn bước print+máy đầu tiên;
+    # lệnh có từ 2 lượt in trở lên thì bắt người chọn, không đoán.
+    buoc_in_step_key: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
     bai_ghep: Mapped["BaiGhep"] = relationship("BaiGhep", back_populates="thanh_viens")

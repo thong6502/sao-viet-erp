@@ -11,7 +11,7 @@ Phân mức: Chặn (bắt buộc xử lý trước phát hành) · Nghiêm tr�
 """
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
@@ -408,8 +408,9 @@ class XepLichVanDeService:
             bg = self.xl.bg_repo.get(bgid)
             if bg is None:
                 continue
+            lsx_cua_tv = self.xl.bg_repo.lsx_by_ids([tv.lsx_id for tv in bg.thanh_viens])
             for tv in bg.thanh_viens:
-                lsx = self.xl.lsx_repo.get(tv.lsx_id)
+                lsx = lsx_cua_tv.get(tv.lsx_id)
                 han = self.xl._han(lsx)
                 if han is None or _aware(_cuoi_ngay(han)) >= finish_in:
                     continue
@@ -428,7 +429,13 @@ class XepLichVanDeService:
 
     def _thue_ngoai(self, rows: list[dict]) -> list[dict]:
         """Bước gia công ngoài: (a) thiếu NCC / ngày gửi-nhận → Chặn (không chốt được lịch nhận);
-        (b) bước SAU (trong LSX) xếp bắt đầu TRƯỚC ngày nhận gia công dự kiến → Nghiêm trọng."""
+        (b) bước SAU (trong LSX) xếp bắt đầu TRƯỚC mốc nhận hàng → Nghiêm trọng;
+        (c) hàng đang ở ngoài mà QUÁ HẠN nhận → Nghiêm trọng;
+        (d) nhận về HỤT vượt định mức cho phép → Nghiêm trọng.
+
+        Mốc nhận lấy SỐ THỰC khi đã có (`nhan_luc`), chưa về mới rơi về `ngay_nhan_dk`. Một bộ
+        luật cho cả dự kiến lẫn thực tế — đừng để màn lệnh và màn xung đột phán hai kiểu.
+        """
         out: list[dict] = []
         for r in rows:
             if r["loai_buoc"] != LB_THUE_NGOAI:
@@ -453,21 +460,57 @@ class XepLichVanDeService:
                     "delay_phut": None,
                     "group_key": f"lsx:{r['lsx_id']}",
                 })
-            # (b) bước sau xếp trước ngày nhận gia công dự kiến
-            if lcd.ngay_nhan_dk is not None and orm is not None and r["lsx_id"]:
-                nhan = _aware(_cuoi_ngay(lcd.ngay_nhan_dk))
+            # (b) bước sau xếp trước MỐC NHẬN — thực tế thắng dự kiến khi hàng đã về
+            da_ve = lcd.nhan_luc is not None
+            nhan = (_aware(lcd.nhan_luc) if da_ve
+                    else _aware(_cuoi_ngay(lcd.ngay_nhan_dk)) if lcd.ngay_nhan_dk else None)
+            if nhan is not None and orm is not None and r["lsx_id"]:
                 starts = [_aware(x.start_at) for x in self.xl.repo.by_lsx(r["lsx_id"])
                           if x.source_thu_tu > orm.source_thu_tu and x.start_at]
                 early = min(starts) if starts else None
                 if early is not None and early < nhan:
+                    moc = "đã nhận" if da_ve else "dự kiến"
                     out.append({
                         "issue_key": f"thue_ngoai_tre:{r['id']}",
                         "category": CAT_THUE_NGOAI, "severity": SEV_NGHIEM_TRONG,
                         "title": (f"{r['lsx_ma']}: bước sau xếp {_fmt(early)} — TRƯỚC khi nhận hàng gia công "
-                                  f"{r['cong_doan_ten']} (dự kiến {_fmt(nhan)})"),
-                        "nguyen_nhan": "Công đoạn sau được xếp bắt đầu trước ngày dự kiến nhận hàng gia công về.",
+                                  f"{r['cong_doan_ten']} ({moc} {_fmt(nhan)})"),
+                        "nguyen_nhan": "Công đoạn sau được xếp bắt đầu trước lúc nhận hàng gia công về.",
                         "impacts": self._impact([r]),
                         "delay_phut": round((nhan - early).total_seconds() / 60.0),
+                        "group_key": f"lsx:{r['lsx_id']}",
+                    })
+            # (c) hàng ĐANG Ở NGOÀI mà quá hạn nhận — chỉ đếm khi đã thật sự giao đi
+            if lcd.giao_luc is not None and not da_ve and lcd.ngay_nhan_dk is not None:
+                tre = (date.today() - lcd.ngay_nhan_dk).days
+                if tre > 0:
+                    out.append({
+                        "issue_key": f"thue_ngoai_qua_han:{r['id']}",
+                        "category": CAT_THUE_NGOAI, "severity": SEV_NGHIEM_TRONG,
+                        "title": (f"{r['lsx_ma']} · {r['cong_doan_ten']}: hàng đang ở ngoài, "
+                                  f"quá hạn nhận {tre} ngày"),
+                        "nguyen_nhan": (f"Đã giao cho {lcd.nha_cung_cap or 'nhà gia công'} nhưng chưa "
+                                        f"nhận về, hẹn {lcd.ngay_nhan_dk:%d/%m}."),
+                        "impacts": self._impact([r]),
+                        "delay_phut": tre * 24 * 60,
+                        "group_key": f"lsx:{r['lsx_id']}",
+                    })
+            # (d) nhận về hụt vượt định mức — định mức TRỐNG là chưa khai, đừng phán
+            if (lcd.sl_giao_thuc is not None and lcd.sl_nhan_thuc is not None
+                    and lcd.hao_hut_cho_phep is not None):
+                hut = float(lcd.sl_giao_thuc) - float(lcd.sl_nhan_thuc)
+                cho_phep = float(lcd.hao_hut_cho_phep)
+                if hut > cho_phep:
+                    out.append({
+                        "issue_key": f"thue_ngoai_hut:{r['id']}",
+                        "category": CAT_THUE_NGOAI, "severity": SEV_NGHIEM_TRONG,
+                        "title": (f"{r['lsx_ma']} · {r['cong_doan_ten']}: nhận về hụt "
+                                  f"{hut:,.0f}, định mức cho phép {cho_phep:,.0f}".replace(",", ".")),
+                        "nguyen_nhan": (f"Giao {float(lcd.sl_giao_thuc):,.0f} nhận "
+                                        f"{float(lcd.sl_nhan_thuc):,.0f} — thiếu hàng cho bước sau."
+                                        ).replace(",", "."),
+                        "impacts": self._impact([r]),
+                        "delay_phut": None,
                         "group_key": f"lsx:{r['lsx_id']}",
                     })
         return out

@@ -2383,44 +2383,122 @@ select.tg-input--sm {
 }
 .rc-modal__right-col .tg-sheetbreak {
   list-style: none;
-  margin: 0 0 var(--sp-2);
-  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
-  border-left: 2px solid var(--rule);
-  background: var(--paper-contrast);
-  border-radius: 0 var(--r-2) var(--r-2) 0;
-}
-.rc-modal__right-col .tg-sheetbreak__row {
+  margin: var(--sp-2) 0;
+  padding: 0;
   display: flex;
-  flex-wrap: wrap;          /* dòng quy đổi của bước ĐỔI ĐƠN VỊ xuống hàng riêng */
-  align-items: baseline;
+  flex-direction: column;
+  gap: 8px;
+}
+.rc-modal__right-col .tg-step-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  transition: border-color 0.15s ease;
+}
+.rc-modal__right-col .tg-step-card:hover {
+  border-color: var(--rule);
+}
+.rc-modal__right-col .tg-step-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--sp-2);
-  padding: 2px 0;
+}
+.rc-modal__right-col .tg-step-card__title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.rc-modal__right-col .tg-step-card__ten {
+  font-family: var(--ff-sans);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rc-modal__right-col .tg-hao-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  background: rgba(224, 86, 56, 0.1);
+  border: 1px solid rgba(224, 86, 56, 0.25);
+  border-radius: 10px;
+  color: var(--rust-deep);
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.rc-modal__right-col .tg-step-card__flow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
   font-family: var(--ff-sans);
   font-size: 11.5px;
   color: var(--ash);
+  font-variant-numeric: tabular-nums;
 }
-/* Phép quy đổi của bước hai đơn vị: chiếm trọn một hàng ngay dưới, thụt vào cho thấy nó thuộc
-   dòng trên. Không có nó thì "55 tờ in → 5.070 con" là con số từ trên trời. */
-.rc-modal__right-col .tg-sheetbreak__quydoi {
-  flex: 1 0 100%;
-  padding-left: var(--sp-2);
-  font-style: normal;
+.rc-modal__right-col .tg-step-card__flow-arrow {
+  color: var(--ash);
+  opacity: 0.6;
+  font-size: 12px;
+}
+.rc-modal__right-col .tg-step-card__qty {
+  font-weight: 600;
+  color: var(--ink);
+}
+.rc-modal__right-col .tg-step-card__qty small {
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--ash);
+  margin-left: 2px;
+}
+.rc-modal__right-col .tg-step-card__details {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px 8px;
+  background: var(--paper);
+  border-left: 2px solid var(--rust);
+  border-radius: 0 4px 4px 0;
+  font-family: var(--ff-sans);
   font-size: 10.5px;
   color: var(--ash);
-  opacity: 0.8;
   font-variant-numeric: tabular-nums;
 }
-.rc-modal__right-col .tg-sheetbreak__ten {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.rc-modal__right-col .tg-ratio-tag,
+.rc-modal__right-col .tg-math-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
-.rc-modal__right-col .tg-sheetbreak__qty {
-  flex: 0 0 auto;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
+.rc-modal__right-col .tg-ratio-tag svg,
+.rc-modal__right-col .tg-math-tag svg {
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+.rc-modal__right-col .tg-ratio-tag {
+  color: var(--rust-deep);
+  font-weight: 500;
+}
+.rc-modal__right-col .tg-math-tag {
+  color: var(--ash);
+  opacity: 0.9;
 }
 /* Nhãn 2 dòng: tên hàng + phép quy đổi đứng ngay dưới (không giấu chỗ cái → tờ). */
 .rc-modal__right-col .tg-sheetrow__stack {
@@ -2449,16 +2527,6 @@ select.tg-input--sm {
 .rc-modal__right-col .tg-sheetbreak__end b {
   color: var(--ink);
   font-weight: 700;
-}
-.rc-modal__right-col .tg-sheetbreak__hao {
-  flex: 0 0 auto;
-  min-width: 72px;          /* mang cả đơn vị: "+150 tờ in" */
-  text-align: right;
-  white-space: nowrap;
-  font-size: 11.5px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--rust-deep);
 }
 .rc-modal__right-col .tg-sheetbox__foot {
   margin-top: var(--sp-3);

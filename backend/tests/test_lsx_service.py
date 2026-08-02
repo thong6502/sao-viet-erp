@@ -15,7 +15,13 @@ from app.db_migrations import run_migrations
 from app.models.cong_doan import CongDoan, CongDoanDauViec
 from app.models.customer import Customer
 from app.models.department import Department
-from app.models.lsx import TT_CHO_BO_SUNG, TT_NHAP, TT_SAN_SANG, LsxCongDoan
+from app.models.lsx import (
+    TT_CHO_BO_SUNG,
+    TT_DA_LAP_KE_HOACH,
+    TT_NHAP,
+    TT_SAN_SANG,
+    LsxCongDoan,
+)
 from app.models.may_thiet_bi import MayThietBi
 from app.models.phieu_tinh_gia import PhieuThanhPhan, PhieuThanhPham, PhieuTinhGia
 from app.models.quotation import STATUS_ACCEPTED, Quote, QuoteItem, QuoteVersion
@@ -1216,3 +1222,134 @@ def test_migration_0093_chay_hai_lan_van_no_op():
     dv = dict(s.execute(text("SELECT ten, don_vi_vao FROM lsx_cong_doan")).all())
     assert dv["Dán hộp"] == "cai" and dv["In offset"] == "to"
     s.close()
+
+
+# ===================== Thuê ngoài: sổ giao – nhận thực tế =====================
+# Hàng ra khỏi cổng phải có tên người và số thực. Việc này xảy ra lúc lệnh ĐANG CHẠY, nên nó đi
+# qua cửa THỰC THI riêng — không dùng chung cửa với sửa cấu hình routing.
+
+
+def _lenh_co_buoc_thue_ngoai(db, orders, lsx_svc, admin, customer):
+    """1 lệnh có bước cuối là gia công ngoài, đã khai dự kiến (gửi 20.500, cho phép hụt 100)."""
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    hop, _tem = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
+    lsx_svc.replace_routing(lsx_id=hop.id, actor=admin, rows_in=[
+        LsxCongDoanIn(ten="In offset", nhom="print", don_vi_vao="to"),
+        LsxCongDoanIn(ten="Cán màng", nhom="finishing", loai_buoc="thue_ngoai",
+                      nha_cung_cap="Cơ sở Tân Bình", sl_gui=20_500,
+                      ngay_gui_dk=date.today() - timedelta(days=5),
+                      ngay_nhan_dk=date.today() - timedelta(days=2),
+                      hao_hut_cho_phep=100, don_gia_gia_cong=500),
+    ])
+    lsx = lsx_svc.get(hop.id)
+    return lsx, next(cd for cd in lsx.cong_doans if cd.loai_buoc == "thue_ngoai")
+
+
+def _gn(su_kien: str, **kw):
+    from app.schemas.lsx import LsxGiaoNhanIn
+
+    return LsxGiaoNhanIn(su_kien=su_kien, **kw)
+
+
+def test_ghi_giao_nhan_van_chay_khi_lenh_da_lap_ke_hoach(db, orders, lsx_svc, admin, customer):
+    """LÝ DO TỒN TẠI của cửa riêng: giao hàng xảy ra SAU khi đã lập kế hoạch.
+
+    Đi chung cửa với `replace_routing` thì bắt kế hoạch gỡ lịch cả lệnh chỉ để ghi một dòng
+    "đã giao 20.500 lúc 14h" — tức ghi không nổi đúng lúc cần ghi nhất.
+    """
+    lsx, buoc = _lenh_co_buoc_thue_ngoai(db, orders, lsx_svc, admin, customer)
+    lsx.trang_thai = TT_DA_LAP_KE_HOACH
+    db.commit()
+
+    # Cửa cấu hình bị khoá...
+    with pytest.raises(LsxConflict):
+        lsx_svc.replace_routing(lsx_id=lsx.id, actor=admin, rows_in=[
+            LsxCongDoanIn(ten="In offset", nhom="print", don_vi_vao="to"),
+        ])
+    # ...nhưng cửa thực thi thì không.
+    lsx_svc.ghi_giao_nhan(lsx_id=lsx.id, buoc_id=buoc.id, payload=_gn("giao"), actor=admin)
+
+    d = lsx_svc.detail_dict(lsx_svc.get(lsx.id))
+    row = next(c for c in d["cong_doans"] if c["loai_buoc"] == "thue_ngoai")
+    assert row["giao_nhan_trang_thai"] == "dang_ngoai"
+    assert row["nguoi_giao_id"] == admin.id and row["giao_luc"] is not None
+    assert float(row["sl_giao_thuc"]) == 20_500          # để trống → lấy số gửi dự kiến
+
+
+def test_giao_nhan_chi_cho_buoc_thue_ngoai(db, orders, lsx_svc, admin, customer):
+    lsx, _ = _lenh_co_buoc_thue_ngoai(db, orders, lsx_svc, admin, customer)
+    buoc_may = next(cd for cd in lsx.cong_doans if cd.loai_buoc != "thue_ngoai")
+    with pytest.raises(LsxValidationError):
+        lsx_svc.ghi_giao_nhan(lsx_id=lsx.id, buoc_id=buoc_may.id, payload=_gn("giao"), actor=admin)
+
+
+def test_nhan_ve_hut_vuot_dinh_muc_va_tien_tinh_theo_so_nhan(db, orders, lsx_svc, admin, customer):
+    """Trả tiền cho hàng CẦM VỀ ĐƯỢC, không phải hàng gửi đi. Hụt vượt định mức thì nói ra."""
+    lsx, buoc = _lenh_co_buoc_thue_ngoai(db, orders, lsx_svc, admin, customer)
+    lsx_svc.ghi_giao_nhan(lsx_id=lsx.id, buoc_id=buoc.id,
+                          payload=_gn("giao", so_luong=20_500), actor=admin)
+    lsx_svc.ghi_giao_nhan(lsx_id=lsx.id, buoc_id=buoc.id,
+                          payload=_gn("nhan", so_luong=20_300), actor=admin)
+
+    row = next(c for c in lsx_svc.detail_dict(lsx_svc.get(lsx.id))["cong_doans"]
+               if c["loai_buoc"] == "thue_ngoai")
+    assert row["giao_nhan_trang_thai"] == "da_ve"
+    assert row["so_hut"] == 200                       # 20.500 − 20.300
+    assert row["hut_vuot_dinh_muc"] is True           # cho phép 100
+    assert row["tien_gia_cong_thuc"] == 20_300 * 500  # theo SỐ NHẬN
+    assert row["qua_han_ngay"] is None                # về rồi thì không còn "quá hạn"
+
+
+def test_dang_o_ngoai_qua_han_dem_theo_ngay_nhan_du_kien(db, orders, lsx_svc, admin, customer):
+    lsx, buoc = _lenh_co_buoc_thue_ngoai(db, orders, lsx_svc, admin, customer)
+    row = next(c for c in lsx_svc.detail_dict(lsx_svc.get(lsx.id))["cong_doans"]
+               if c["loai_buoc"] == "thue_ngoai")
+    assert row["giao_nhan_trang_thai"] == "chua_gui" and row["qua_han_ngay"] is None
+
+    lsx_svc.ghi_giao_nhan(lsx_id=lsx.id, buoc_id=buoc.id, payload=_gn("giao"), actor=admin)
+    row = next(c for c in lsx_svc.detail_dict(lsx_svc.get(lsx.id))["cong_doans"]
+               if c["loai_buoc"] == "thue_ngoai")
+    assert row["qua_han_ngay"] == 2                   # hẹn về 2 hôm trước, chưa nhận
+
+
+# ===================== Chế bản lấy được tốc độ máy ghi kẽm =====================
+# Trước đây luật bắt cứng "bước phải đếm TỜ" nên bước chế bản (đếm KẼM, đứng ngoài dòng giấy)
+# KHÔNG BAO GIỜ lấy được tốc độ máy: ghi 4 kẽm hay 40 kẽm cũng ra thời lượng bằng đúng thời gian
+# chuẩn bị, và lead-time cả lệnh hụt phần chế bản.
+
+
+class _May:
+    def __init__(self, toc_do, don_vi):
+        self.toc_do, self.don_vi_toc_do = toc_do, don_vi
+
+
+class _Cd:
+    def __init__(self, nhom):
+        self.nhom = nhom
+
+
+def test_che_ban_lay_toc_do_may_ghi_kem():
+    from app.services.lsx_service import _nang_suat_buoc
+
+    # Máy CTP khai kẽm/giờ + bước chế bản (đơn vị vào TRỐNG) → khớp.
+    assert _nang_suat_buoc(_May(20, "kem_gio"), _Cd("prepress"), None) == (20.0, "kem_gio")
+    # Máy in khai tờ/giờ + bước đếm tờ → vẫn như cũ.
+    assert _nang_suat_buoc(_May(5000, "to_gio"), _Cd("print"), "to") == (5000.0, "to_gio")
+    # Lệch đơn vị thì BỎ QUA, không quy đổi bừa — 20 kẽm/giờ không phải 20 tờ/giờ.
+    assert _nang_suat_buoc(_May(20, "kem_gio"), _Cd("print"), "to") == (None, None)
+    assert _nang_suat_buoc(_May(5000, "to_gio"), _Cd("prepress"), None) == (None, None)
+
+
+def test_thoi_luong_che_ban_chay_theo_so_kem():
+    """4 kẽm @ 20 kẽm/giờ = 12 phút ghi; cộng 10 phút chuẩn bị → 22 phút, không phải 10."""
+    b = _buoc(ten="Ghi kèm CTP", loai_buoc="may", nhom="prepress", so_luong_vao=4,
+              don_vi_vao=None, nang_suat=20, don_vi_nang_suat="kem_gio", setup_phut=10)
+    t = thoi_luong_buoc(b)
+    assert round(t["chay_phut"]) == 12
+    assert round(t["chiem_may_phut"]) == 22
+    # Gấp 10 lần số kẽm thì thời gian ghi cũng gấp 10 — trước đây cả hai đều ra 10 phút.
+    b10 = _buoc(ten="Ghi kèm CTP", loai_buoc="may", nhom="prepress", so_luong_vao=40,
+                don_vi_vao=None, nang_suat=20, don_vi_nang_suat="kem_gio", setup_phut=10)
+    assert round(thoi_luong_buoc(b10)["chay_phut"]) == 120

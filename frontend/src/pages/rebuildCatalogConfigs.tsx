@@ -25,7 +25,7 @@ const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia c�
 const DON_VI_CD: Lbls = {
   to_nguyen: "Tờ nguyên (giấy to)",
   to: "Tờ in",
-  cai: "Tờ thành phẩm (con)",
+  cai: "Thành phẩm",
 };
 
 // Cách công đoạn góp bù hao — trỏ 1 mã bù hao (tra bảng theo SL), hoặc cộng cố định.
@@ -88,7 +88,10 @@ export const CFG_MAY: CatalogConfig = {
     // Hiện ngay trên list để nhìn ra máy nào CHƯA khai tốc độ — không phải bấm vào từng cái.
     // Máy chưa có số thì lệnh sản xuất bỏ trống thời gian chạy, Gantt sau này vẽ thanh rỗng.
     { key: "toc_do", label: "Tốc độ",
-      render: (r) => (r.toc_do ? `${Number(r.toc_do).toLocaleString("vi-VN")} tờ/giờ` : "—") },
+      render: (r) =>
+        r.toc_do
+          ? `${Number(r.toc_do).toLocaleString("vi-VN")} ${r.loai_may === "prepress_ctp" ? "kẽm/giờ" : "tờ/giờ"}`
+          : "—" },
     { key: "so_nhan_cong", label: "Kíp chuẩn",
       render: (r) => `${Math.max(1, Math.ceil(Number(r.so_nhan_cong) || 1))} người` },
   ],
@@ -147,8 +150,8 @@ export const CFG_MAY: CatalogConfig = {
     { key: "kho_max_rong", label: "Khổ giấy max — rộng (mm)", type: "number", group: "Khổ giấy" },
     { key: "kho_max_dai", label: "Khổ giấy max — dài (mm)", type: "number", group: "Khổ giấy" },
     // ── Tốc độ & thời gian → nuôi thẳng thời lượng bước ở Lệnh sản xuất ───────
-    { key: "toc_do", label: "Tốc độ chạy (tờ/giờ)", type: "number", group: "Tốc độ & thời gian",
-      hint: "Tính theo LƯỢT qua máy — in 2 mặt thì mỗi tờ chạy 2 lượt. Bỏ trống thì lệnh sản xuất để trống thời gian chạy." },
+    { key: "toc_do", label: "Tốc độ chạy", type: "number", group: "Tốc độ & thời gian",
+      hint: "Máy in đếm TỜ/giờ (theo LƯỢT qua máy — in 2 mặt thì mỗi tờ chạy 2 lượt); máy ghi kẽm CTP đếm KẼM/giờ. Hệ tự nhận đơn vị theo loại máy. Bỏ trống thì lệnh sản xuất để trống thời gian chạy." },
     { key: "so_nhan_cong", label: "Số người vận hành tiêu chuẩn", type: "number", required: true,
       default: 1, group: "Tốc độ & thời gian",
       hint: "Kíp nhân lực chuẩn để vận hành máy. Số người này dùng lập kế hoạch nhân lực, không nhân tốc độ máy." },
@@ -159,11 +162,12 @@ export const CFG_MAY: CatalogConfig = {
     { key: "ghi_chu", label: "Ghi chú 1", type: "text", group: "Ghi chú" },
     { key: "ghi_chu_2", label: "Ghi chú 2", type: "text", group: "Ghi chú" },
   ],
-  // Xưởng CHỈ in offset tờ → không có ô chọn đơn vị tốc độ, hệ tự ghi `to_gio`. Bày dropdown 5 lựa
-  // chọn (m²/cuộn/mét…) chỉ tạo cơ hội chọn nhầm rồi thắc mắc sao lệnh SX vẫn trống năng suất.
+  // KHÔNG bày dropdown đơn vị tốc độ: 5 lựa chọn (m²/cuộn/mét…) chỉ tạo cơ hội chọn nhầm rồi
+  // thắc mắc sao lệnh SX vẫn trống năng suất. Đơn vị SUY từ loại máy — máy ghi kẽm CTP đếm kẽm,
+  // còn lại đếm tờ. Sai đơn vị thì lệnh SX lặng lẽ bỏ qua tốc độ, nên để máy suy an toàn hơn.
   transformSubmit: (body) => ({
     ...body,
-    don_vi_toc_do: body.toc_do ? "to_gio" : null,
+    don_vi_toc_do: body.toc_do ? (body.loai_may === "prepress_ctp" ? "kem_gio" : "to_gio") : null,
   }),
 };
 

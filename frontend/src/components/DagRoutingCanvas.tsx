@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { LsxPhuThuocOption } from "../api/client";
 import type { RefRow } from "../pages/LsxRoutingTable";
 import { type EditRow } from "../pages/lsxBuoc";
 import { DagNodeCard } from "./DagNodeCard";
@@ -11,25 +12,45 @@ export interface DagRoutingCanvasProps {
   toRefs: RefRow[] | null;
   mayRefs: RefRow[] | null;
   vatTuRefs: RefRow[] | null;
-  phuThuocRefs: import("../api/client").LsxPhuThuocOption[];
+  phuThuocRefs: LsxPhuThuocOption[];
+  /** Lệnh đang ghép chung tờ → node bước in hiện dạng CHUNG (viền đứt + mã bài). */
+  baiGhep: import("../api/client").LsxBaiGhep | null;
   canUpdate: boolean;
   onUpdateRows: (rows: EditRow[]) => void;
-  onOpenDrawer: (index: number) => void;
+  /** `tab` chỉ dùng cho deep-link từ badge trên node (vd sổ giao–nhận). */
+  onOpenDrawer: (index: number, tab?: "giao_nhan") => void;
   onAddStep: () => void;
 }
 
-interface Point {
+export interface Point {
   x: number;
   y: number;
 }
 
-/** Tự động tính toán vị trí phân tầng ( Sugiyama / Layered Layout ) */
-function computeAutoLayout(rows: EditRow[]): Record<string, Point> {
+const NODE_WIDTH = 240;
+const NODE_HEIGHT = 144;
+const GAP_X = 56;
+const GAP_Y = 160;
+const START_X = 50;
+const START_Y = 50;
+const GRAPH_PADDING = 32;
+const MIN_VIEWPORT_HEIGHT = 320;
+const MAX_VIEWPORT_HEIGHT = 580;
+
+/** Tự động tính toán vị trí phân tầng ( Sugiyama / Layered Layout ).
+ *
+ * `ghostKeys` = bước của LSX KHÁC trong cùng đơn hàng đang được phụ thuộc. Chúng luôn là nguồn
+ * (level 0) vì canvas không sửa được routing của lệnh khác — nhờ vậy cột trái đọc ra ngay
+ * "cái gì từ lệnh khác chảy vào lệnh này".
+ */
+function computeAutoLayout(rows: EditRow[], ghostKeys: string[] = []): Record<string, Point> {
   const rowMap = new Map<string, EditRow>();
   rows.forEach((r) => rowMap.set(r.key, r));
+  const ghosts = new Set(ghostKeys);
 
   // Tính level (độ sâu) của từng bước
   const levels = new Map<string, number>();
+  ghosts.forEach((key) => levels.set(key, 0));
 
   function getLevel(key: string, visited = new Set<string>()): number {
     if (levels.has(key)) return levels.get(key)!;
@@ -44,7 +65,7 @@ function computeAutoLayout(rows: EditRow[]): Record<string, Point> {
 
     let maxPredLevel = -1;
     for (const predKey of r.phu_thuoc_step_keys) {
-      if (rowMap.has(predKey)) {
+      if (rowMap.has(predKey) || ghosts.has(predKey)) {
         maxPredLevel = Math.max(maxPredLevel, getLevel(predKey, new Set(visited)));
       }
     }
@@ -56,20 +77,15 @@ function computeAutoLayout(rows: EditRow[]): Record<string, Point> {
 
   rows.forEach((r) => getLevel(r.key));
 
-  // Nhóm node theo level
+  // Nhóm node theo level — ghost xếp trước để nằm trên cùng cột 0
   const levelGroups = new Map<number, string[]>();
-  rows.forEach((r) => {
-    const lvl = levels.get(r.key) ?? 0;
+  [...ghostKeys, ...rows.map((r) => r.key)].forEach((key) => {
+    const lvl = levels.get(key) ?? 0;
     if (!levelGroups.has(lvl)) levelGroups.set(lvl, []);
-    levelGroups.get(lvl)!.push(r.key);
+    levelGroups.get(lvl)!.push(key);
   });
 
   const positions: Record<string, Point> = {};
-  const NODE_WIDTH = 240;
-  const GAP_X = 80;
-  const GAP_Y = 160;
-  const START_X = 50;
-  const START_Y = 50;
 
   levelGroups.forEach((keys, lvl) => {
     keys.forEach((key, idx) => {
@@ -81,6 +97,72 @@ function computeAutoLayout(rows: EditRow[]): Record<string, Point> {
   });
 
   return positions;
+}
+
+/** Một tầng thì canvas gọn; nhiều nhánh mới tăng chiều cao, tối đa bằng chiều cao cũ. */
+export function computeViewportHeight(rows: EditRow[], ghostKeys: string[] = []): number {
+  if (!rows.length) return MIN_VIEWPORT_HEIGHT;
+  const auto = computeAutoLayout(rows, ghostKeys);
+  const keys = [...rows.map((row) => row.key), ...ghostKeys];
+  const maxY = Math.max(...keys.map((key) => auto[key]?.y ?? START_Y));
+  return Math.max(
+    MIN_VIEWPORT_HEIGHT,
+    Math.min(MAX_VIEWPORT_HEIGHT, maxY + NODE_HEIGHT + GRAPH_PADDING),
+  );
+}
+
+/** Chiều rộng nội dung thật để viewport sinh thanh cuộn tới node ngoài cùng. */
+export function computeCanvasWidth(
+  positions: Record<string, Point>,
+  keys: string[],
+): number {
+  if (!keys.length) return 0;
+  const maxX = Math.max(...keys.map((key) => positions[key]?.x ?? START_X));
+  return maxX + NODE_WIDTH + GRAPH_PADDING;
+}
+
+export function computeCanvasHeight(
+  positions: Record<string, Point>,
+  keys: string[],
+): number {
+  if (!keys.length) return MIN_VIEWPORT_HEIGHT;
+  const maxY = Math.max(...keys.map((key) => positions[key]?.y ?? START_Y));
+  return maxY + NODE_HEIGHT + GRAPH_PADDING;
+}
+
+/** Đặt chỗ cho một node ngoài LSX ở cột trái, đẩy cả sơ đồ sang phải nếu cột đó đang bị chiếm. */
+export function themViTriGhost(
+  prev: Record<string, Point>,
+  key: string,
+  ghostIndex: number,
+  rowKeys: string[],
+): Record<string, Point> {
+  const next = { ...prev };
+  const canTrai = START_X + NODE_WIDTH + GAP_X;
+  const daCo = rowKeys.filter((k) => next[k]);
+  if (daCo.length) {
+    const minX = Math.min(...daCo.map((k) => next[k].x));
+    if (minX < canTrai) {
+      const delta = canTrai - minX;
+      daCo.forEach((k) => {
+        next[k] = { x: next[k].x + delta, y: next[k].y };
+      });
+    }
+  }
+  next[key] = { x: START_X, y: START_Y + ghostIndex * GAP_Y };
+  return next;
+}
+
+/** Tiền nhiệm KHÔNG thuộc LSX đang mở = bước của lệnh khác trong cùng đơn hàng. */
+export function ghostKeysCua(rows: EditRow[]): string[] {
+  const noiBo = new Set(rows.map((r) => r.key));
+  const out: string[] = [];
+  rows.forEach((r) =>
+    (r.phu_thuoc_step_keys || []).forEach((key) => {
+      if (!noiBo.has(key) && !out.includes(key)) out.push(key);
+    }),
+  );
+  return out;
 }
 
 /** Kiểm tra nếu thêm mối quan hệ targetKey -> dependsOnSourceKey có tạo chu trình lặp (Cycle) không */
@@ -113,13 +195,71 @@ function checkCreatesCycle(rows: EditRow[], targetKey: string, sourceKey: string
   return false;
 }
 
+/** Node chỉ-đọc cho bước thuộc LSX KHÁC trong cùng đơn hàng: chỉ có cổng Ra, không sửa/xoá. */
+function DagGhostNodeCard({
+  stepKey,
+  option,
+  position,
+  onNodeMouseDown,
+  onPortMouseDown,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  stepKey: string;
+  option: LsxPhuThuocOption | undefined;
+  position: Point;
+  onNodeMouseDown: (e: React.MouseEvent, key: string) => void;
+  onPortMouseDown: (e: React.MouseEvent, key: string, portType: "in" | "out") => void;
+  onMouseEnter?: () => void;
+  onMouseLeave?: () => void;
+}) {
+  return (
+    <div
+      className="dag-node dag-node--ngoai"
+      style={{ left: `${position.x}px`, top: `${position.y}px` }}
+      onMouseDown={(e) => onNodeMouseDown(e, stepKey)}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      title="Bước của lệnh sản xuất khác — sửa tại lệnh đó"
+    >
+      <div className="dag-node__head dag-node__head--ngoai">
+        <span className="dag-node__lsx">{option?.lsx_ma ?? "LSX khác"}</span>
+        <span className="dag-node__title" title={option?.ten_buoc ?? stepKey}>
+          {option?.ten_buoc ?? "Bước ngoài lệnh"}
+        </span>
+      </div>
+      <div className="dag-node__body">
+        <div className="dag-node__row">
+          <span className="dag-node__badge">
+            <Icon name="workflow" size={11} />
+            {option ? `Bước #${option.thu_tu * 10}` : stepKey}
+          </span>
+          {option?.nhom && <span className="dag-node__badge">{option.nhom}</span>}
+        </div>
+        <p className="dag-node__ngoai-hint">
+          Lệnh này chỉ chạy sau khi bước trên của lệnh kia xong.
+        </p>
+      </div>
+      <div
+        className="dag-port dag-port--out"
+        title="Kéo dây từ đây sang cổng Vào của bước trong lệnh này"
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          onPortMouseDown(e, stepKey, "out");
+        }}
+      />
+    </div>
+  );
+}
+
 export function DagRoutingCanvas({
   rows,
   congDoanRefs: _congDoanRefs,
   toRefs,
   mayRefs,
   vatTuRefs: _vatTuRefs,
-  phuThuocRefs: _phuThuocRefs,
+  phuThuocRefs,
+  baiGhep,
   canUpdate,
   onUpdateRows,
   onOpenDrawer,
@@ -144,30 +284,91 @@ export function DagRoutingCanvas({
   const [connectingSourceKey, setConnectingSourceKey] = useState<string | null>(null);
   const [mousePos, setMousePos] = useState<Point>({ x: 0, y: 0 });
 
+  // State hover highlight dây nối
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const [hoveredWireId, setHoveredWireId] = useState<string | null>(null);
+
+  // State thu gọn từng nhóm LSX trong Sidebar ngăn trái
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<number, boolean>>({});
+
+  // Bước LSX khác đang được kéo dây nhưng chưa nối xong — giữ tạm để có điểm neo vẽ dây nháp.
+  const [ghostDangKeo, setGhostDangKeo] = useState<string | null>(null);
+  const [railMo, setRailMo] = useState(false);
+
   const viewportRef = useRef<HTMLDivElement>(null);
+  const ghostKeys = useMemo(() => {
+    const ds = ghostKeysCua(rows);
+    if (ghostDangKeo && !ds.includes(ghostDangKeo) && !rows.some((r) => r.key === ghostDangKeo)) {
+      ds.push(ghostDangKeo);
+    }
+    return ds;
+  }, [rows, ghostDangKeo]);
+  const allKeys = useMemo(() => [...rows.map((r) => r.key), ...ghostKeys], [rows, ghostKeys]);
+  const optionByKey = useMemo(
+    () => new Map(phuThuocRefs.map((o) => [o.step_key, o] as const)),
+    [phuThuocRefs],
+  );
+  /** Ngăn trái: mọi bước của LSX KHÁC trong đơn, gom theo lệnh — nguồn để kéo dây thẳng vào canvas. */
+  const railGroups = useMemo(() => {
+    const noiBo = new Set(rows.map((r) => r.key));
+    const groups = new Map<number, { ma: string; nhom: string | null; items: LsxPhuThuocOption[] }>();
+    phuThuocRefs
+      .filter((o) => !noiBo.has(o.step_key))
+      .forEach((o) => {
+        const g = groups.get(o.lsx_id) ?? { ma: o.lsx_ma, nhom: o.nhom, items: [] };
+        g.items.push(o);
+        groups.set(o.lsx_id, g);
+      });
+    return [...groups.entries()].map(([lsxId, g]) => ({ lsxId, ...g }));
+  }, [phuThuocRefs, rows]);
+  const daNoiKeys = useMemo(
+    () => new Set(rows.flatMap((r) => r.phu_thuoc_step_keys || [])),
+    [rows],
+  );
+
+  const layoutSignature = rows
+    .map((row) => `${row.key}:${(row.phu_thuoc_step_keys || []).join(",")}`)
+    .join("|");
+  const viewportHeight = useMemo(
+    () => computeViewportHeight(rows, ghostKeys),
+    [layoutSignature, ghostKeys],
+  );
+  const canvasWidth = useMemo(() => computeCanvasWidth(positions, allKeys), [positions, allKeys]);
+  const canvasHeight = useMemo(() => computeCanvasHeight(positions, allKeys), [positions, allKeys]);
 
   // Cập nhật vị trí tự động cho các bước mới thêm chưa có vị trí
   useEffect(() => {
     setPositions((prev) => {
-      const auto = computeAutoLayout(rows);
-      const updated = { ...prev };
+      const auto = computeAutoLayout(rows, ghostKeys);
+      let updated = { ...prev };
       let changed = false;
       rows.forEach((r) => {
         if (!updated[r.key]) {
-          updated[r.key] = auto[r.key] || { x: 50, y: 50 };
+          updated[r.key] = auto[r.key] || { x: START_X, y: START_Y };
+          changed = true;
+        }
+      });
+      ghostKeys.forEach((key, idx) => {
+        if (!updated[key]) {
+          updated = themViTriGhost(updated, key, idx, rows.map((r) => r.key));
           changed = true;
         }
       });
       return changed ? updated : prev;
     });
-  }, [rows]);
+  }, [rows, ghostKeys]);
 
   // Nút Sắp xếp tự động (Auto Layout)
   const handleAutoLayout = useCallback(() => {
-    setPositions(computeAutoLayout(rows));
+    const auto = computeAutoLayout(rows, ghostKeys);
+    setPositions(auto);
     setPan({ x: 0, y: 0 });
     setZoom(1);
-  }, [rows]);
+    if (viewportRef.current) {
+      viewportRef.current.scrollLeft = 0;
+      viewportRef.current.scrollTop = 0;
+    }
+  }, [rows, ghostKeys]);
 
   // Tính toán đường cong Bezier giữa 2 cổng kết nối
   const calculateBezier = useCallback(
@@ -257,7 +458,22 @@ export function DagRoutingCanvas({
     if (connectingSourceKey) {
       setConnectingSourceKey(null);
     }
+    setGhostDangKeo(null);
   }, [connectingSourceKey]);
+
+  // Kéo dây bắt đầu từ NGĂN TRÁI (ngoài viewport) nên phải nghe mouseup ở cấp window, không thì
+  // thả tay ngoài canvas là dây nháp treo lại.
+  useEffect(() => {
+    if (!connectingSourceKey && !isPanning && !draggingKey) return;
+    const huy = () => {
+      setIsPanning(false);
+      setDraggingKey(null);
+      setConnectingSourceKey(null);
+      setGhostDangKeo(null);
+    };
+    window.addEventListener("mouseup", huy);
+    return () => window.removeEventListener("mouseup", huy);
+  }, [connectingSourceKey, isPanning, draggingKey]);
 
   // Bắt đầu kéo dây từ Cổng Out
   const handlePortMouseDown = (_e: React.MouseEvent, key: string, portType: "in" | "out") => {
@@ -265,6 +481,23 @@ export function DagRoutingCanvas({
     setConnectingSourceKey(key);
     const startPos = getPortOutPos(key);
     setMousePos(startPos);
+  };
+
+  /** Bấm giữ một bước ở ngăn trái = dựng node bóng mờ ở cột trái rồi kéo dây từ cổng Ra của nó. */
+  const handleRailMouseDown = (e: React.MouseEvent, option: LsxPhuThuocOption) => {
+    e.preventDefault();
+    if (!canUpdate) return;
+    const key = option.step_key;
+    let viTri: Point = positions[key] ?? { x: START_X, y: START_Y };
+    if (!positions[key]) {
+      const rowKeys = rows.map((r) => r.key);
+      const tiep = themViTriGhost(positions, key, ghostKeys.length, rowKeys);
+      viTri = tiep[key];
+      setPositions(tiep);
+    }
+    setGhostDangKeo(key);
+    setConnectingSourceKey(key);
+    setMousePos({ x: viTri.x + NODE_WIDTH, y: viTri.y + 60 });
   };
 
   // Thả dây vào Cổng In của Node đích
@@ -391,12 +624,17 @@ export function DagRoutingCanvas({
               <span className="dag-legend__dot" style={{ background: "#c25e38" }} /> Cổng Ra
               (Output)
             </span>
+            {ghostKeys.length > 0 && (
+              <span className="dag-legend__item">
+                <span className="dag-legend__dot dag-legend__dot--ngoai" /> Bước LSX khác
+              </span>
+            )}
           </div>
 
           <button
             type="button"
             className="dag-btn-icon"
-            onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
+            onClick={() => setZoom((z) => Math.max(0.2, z - 0.1))}
             title="Thu nhỏ"
           >
             <Icon name="minus" size={13} />
@@ -415,8 +653,85 @@ export function DagRoutingCanvas({
         </div>
       </div>
 
-      {/* Viewport Canvas */}
-      <div
+      <div className="dag-main" style={{ height: viewportHeight }}>
+        {/* Ngăn trái: bước của LSX khác trong cùng đơn hàng — kéo thẳng vào canvas, khỏi mở drawer */}
+        {railGroups.length > 0 && (
+          <aside className={`dag-rail ${railMo ? "" : "dag-rail--dong"}`}>
+            <button
+              type="button"
+              className="dag-rail__head"
+              onClick={() => setRailMo((v) => !v)}
+              aria-expanded={railMo}
+              title={railMo ? "Thu gọn ngăn" : "Mở ngăn bước LSX khác"}
+            >
+              <Icon name="workflow" size={13} />
+              {railMo && <span className="dag-rail__title">Bước LSX khác</span>}
+              <span className="dag-rail__count">
+                {railGroups.reduce((s, g) => s + g.items.length, 0)}
+              </span>
+              {railMo && <Icon name="chevron" size={13} />}
+            </button>
+
+            {railMo && (
+              <div className="dag-rail__body">
+                <p className="dag-rail__hint">
+                  {canUpdate
+                    ? "Bấm giữ một bước rồi kéo sang cổng Vào (chấm xanh) của bước trong lệnh này."
+                    : "Chỉ xem — không có quyền sửa công đoạn."}
+                </p>
+                {railGroups.map((g) => {
+                  const isCollapsed = Boolean(collapsedGroups[g.lsxId]);
+                  return (
+                    <div className="dag-rail__group" key={g.lsxId}>
+                      <div
+                        className="dag-rail__group-head"
+                        onClick={() =>
+                          setCollapsedGroups((prev) => ({ ...prev, [g.lsxId]: !prev[g.lsxId] }))
+                        }
+                        title={isCollapsed ? "Bấm để mở danh sách bước" : "Bấm để thu gọn"}
+                      >
+                        <span className="dag-rail__lsx" title={g.ma}>{g.ma}</span>
+                        {g.nhom && <span className="dag-rail__nhom" title={g.nhom}>{g.nhom}</span>}
+                        <span className="dag-rail__group-count">({g.items.length})</span>
+                        <span
+                          className={`dag-rail__group-chevron ${isCollapsed ? "is-collapsed" : ""}`}
+                        >
+                          <Icon name="chevron" size={11} />
+                        </span>
+                      </div>
+                      {!isCollapsed &&
+                        g.items.map((o) => (
+                          <div
+                            key={o.step_key}
+                            className={`dag-rail__item ${daNoiKeys.has(o.step_key) ? "is-noi" : ""} ${
+                              canUpdate ? "" : "is-readonly"
+                            }`}
+                            onMouseDown={(e) => handleRailMouseDown(e, o)}
+                            title={
+                              canUpdate
+                                ? `Kéo "${o.ten_buoc}" sang cổng Vào của bước cần chờ nó`
+                                : o.ten_buoc
+                            }
+                          >
+                            <span className="dag-rail__port" />
+                            <span className="dag-rail__ten">{o.ten_buoc}</span>
+                            {daNoiKeys.has(o.step_key) && (
+                              <span className="dag-rail__da-noi" title="Đã nối vào lệnh này">
+                                <Icon name="check" size={12} />
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </aside>
+        )}
+
+        {/* Viewport Canvas */}
+        <div
         ref={viewportRef}
         className="dag-viewport"
         onMouseDown={handleViewportMouseDown}
@@ -426,39 +741,57 @@ export function DagRoutingCanvas({
         <div
           className="dag-canvas"
           style={{
+            width: canvasWidth,
+            minWidth: "100%",
+            height: Math.max(canvasHeight, viewportHeight),
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           }}
         >
           {/* Lớp SVG vẽ Dây nối */}
           <svg className="dag-svg-layer">
             {/* Dây nối chính thức */}
-            {wires.map((w) => (
-              <g key={w.id}>
-                <path className="dag-wire" d={w.path} />
-                {canUpdate && (
-                  <g
-                    className="dag-wire-delete"
-                    transform={`translate(${w.midPoint.x}, ${w.midPoint.y})`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteWire(w.targetKey, w.sourceKey);
-                    }}
-                  >
-                    <circle r="9" fill="#8c959f" />
-                    <text
-                      x="0"
-                      y="3.5"
-                      textAnchor="middle"
-                      fill="#fff"
-                      fontSize="11"
-                      fontWeight="bold"
+            {wires.map((w) => {
+              const isHighlighted =
+                (hoveredKey && (w.sourceKey === hoveredKey || w.targetKey === hoveredKey)) ||
+                hoveredWireId === w.id;
+              const isAnyHovered = Boolean(hoveredKey || hoveredWireId);
+
+              let wireClass = "dag-wire";
+              if (isHighlighted) wireClass += " dag-wire--highlighted";
+              else if (isAnyHovered) wireClass += " dag-wire--dimmed";
+
+              return (
+                <g
+                  key={w.id}
+                  onMouseEnter={() => setHoveredWireId(w.id)}
+                  onMouseLeave={() => setHoveredWireId(null)}
+                >
+                  <path className={wireClass} d={w.path} />
+                  {canUpdate && (
+                    <g
+                      className="dag-wire-delete"
+                      transform={`translate(${w.midPoint.x}, ${w.midPoint.y})`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteWire(w.targetKey, w.sourceKey);
+                      }}
                     >
-                      ×
-                    </text>
-                  </g>
-                )}
-              </g>
-            ))}
+                      <circle r="9" fill="#8c959f" />
+                      <text
+                        x="0"
+                        y="3.5"
+                        textAnchor="middle"
+                        fill="#fff"
+                        fontSize="11"
+                        fontWeight="bold"
+                      >
+                        ×
+                      </text>
+                    </g>
+                  )}
+                </g>
+              );
+            })}
 
             {/* Dây nối nháp đang kéo (Draft wire) */}
             {connectingSourceKey && (
@@ -468,6 +801,20 @@ export function DagRoutingCanvas({
               />
             )}
           </svg>
+
+          {/* Node bóng mờ: bước của LSX khác đang được phụ thuộc — chỉ đọc, chỉ có cổng Ra */}
+          {ghostKeys.map((key, idx) => (
+            <DagGhostNodeCard
+              key={key}
+              stepKey={key}
+              option={optionByKey.get(key)}
+              position={positions[key] || { x: START_X, y: START_Y + idx * GAP_Y }}
+              onNodeMouseDown={handleNodeMouseDown}
+              onPortMouseDown={handlePortMouseDown}
+              onMouseEnter={() => setHoveredKey(key)}
+              onMouseLeave={() => setHoveredKey(null)}
+            />
+          ))}
 
           {/* Lớp các Node công đoạn */}
           {rows.map((r, i) => {
@@ -485,7 +832,10 @@ export function DagRoutingCanvas({
                 toRefs={toRefs}
                 mayRefs={mayRefs}
                 warnings={[]}
+                maBaiGhep={baiGhep?.buoc_in_step_key === r.key ? baiGhep.ma : null}
                 canUpdate={canUpdate}
+                onMouseEnter={() => setHoveredKey(r.key)}
+                onMouseLeave={() => setHoveredKey(null)}
                 onNodeMouseDown={handleNodeMouseDown}
                 onPortMouseDown={handlePortMouseDown}
                 onPortMouseUp={handlePortMouseUp}
@@ -494,6 +844,7 @@ export function DagRoutingCanvas({
               />
             );
           })}
+          </div>
         </div>
       </div>
     </div>

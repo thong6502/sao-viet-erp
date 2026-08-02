@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent a
 import {
   api,
   ApiError,
+  LSX_DON_VI_LABELS,
   type PhieuTinhGiaOut,
   type PhieuTinhGiaColOut,
   type PtgActivity,
@@ -36,6 +37,11 @@ const rowLabel = (r: Row): string => `${r.ma ? `${r.ma} · ` : ""}${r.ten}`;
 const cdName = (r: Row): string => (r.ten_hien_thi ? String(r.ten_hien_thi) : String(r.ten));
 const vtName = (r: Row): string => `${r.ma ? String(r.ma) + " · " : ""}${String(r.ten)}`;
 const numOf = (v: unknown): number => (typeof v === "number" ? v : Number(v) || 0);
+
+/** Số BÀI IN = số trang ÷ trang mỗi tay — dẫn xuất y hệt engine (`thanh_phan_engine`), FE chỉ
+ *  hiện lại cho người khai thấy ngay, không gửi lên. */
+const soBaiIn = (c: { so_trang: number; trang_moi_tay: number }): number =>
+  Math.max(1, Math.ceil((c.so_trang || 1) / (c.trang_moi_tay || 1)));
 
 /** Chừa TÁCH THEO CHIỀU — khớp `chua_theo_chieu` của engine (đừng để hai bên lệch nhau).
  *
@@ -112,15 +118,10 @@ function cellValue(v: string | number | null): string {
 // Engine trả công thức thế số dạng "don_gia(2.000) × to_nguyen(334)" (tên biến + giá trị).
 // Đổi sang diễn giải người-đọc-được "2.000 đ × 334 tờ": bỏ tên biến, gắn đơn vị.
 // Token lạ → chỉ giữ giá trị. Không match gì → trả nguyên chuỗi (an toàn).
-// Nhãn NGẮN của đơn vị bước, dùng ở bảng phân rã bù hao (chỉ hiện tại bước ĐỔI đơn vị).
-const DV_NGAN: Record<string, string> = {
-  to_nguyen: "tờ nguyên",
-  to: "tờ in",
-  cai: "con",
-  kem: "kẽm",
-  bai: "bài",
-};
-const dvNgan = (v: string | null | undefined) => (v ? (DV_NGAN[v] ?? v) : "");
+// Đơn vị bước ở bảng phân rã bù hao PHẢI đọc y hệt tên đã khai trong danh mục Công đoạn — người
+// lập phiếu đối chiếu hai màn với nhau, nhãn lệch một chữ là mất dấu. Nên KHÔNG khai bộ nhãn
+// riêng ở đây, dùng thẳng `LSX_DON_VI_LABELS` (một nguồn cho cả danh mục · lệnh SX · tính giá).
+const dvNgan = (v: string | null | undefined) => (v ? (LSX_DON_VI_LABELS[v] ?? v) : "");
 
 const FORMULA_UNIT: Record<string, string> = {
   to_nguyen: "tờ", to_dau_vao: "tờ", so_to: "tờ",
@@ -171,7 +172,9 @@ interface EditableComponent {
   // Thành phẩm ③
   dai_thanh_pham: number; // mm
   rong_thanh_pham: number; // mm
-  so_to_per_sp: number;
+  so_to_per_sp: number; // DẪN XUẤT (server ghi) — chỉ để đọc lại phiếu cũ
+  so_trang: number;      // số trang nội dung của 1 sản phẩm (tờ rời = 1)
+  trang_moi_tay: number; // số trang mỗi tay gấp (tờ rời = 1)
   so_luong: number; // SL đặt của SP này (0 = lấy SL mặc định phiếu)
   don_vi_tinh: string; // ĐVT sản phẩm (text tự do, mặc định "cái") → chảy sang Báo giá
   // Nhãn GỘP DÒNG KHI BÁO GIÁ: ruột + bìa cùng cuốn gõ giống nhau → báo giá in 1 dòng "quyển
@@ -235,6 +238,8 @@ function blankComponent(ten = ""): EditableComponent {
     dai_thanh_pham: 0,
     rong_thanh_pham: 0,
     so_to_per_sp: 1,
+    so_trang: 1,
+    trang_moi_tay: 1,
     so_luong: 0,
     don_vi_tinh: "cái",
     nhom_bao_gia: "",
@@ -301,6 +306,8 @@ function fromComponent(c: ThanhPhanOut): EditableComponent {
     dai_thanh_pham: c.dai_thanh_pham ?? 0,
     rong_thanh_pham: c.rong_thanh_pham ?? 0,
     so_to_per_sp: c.so_to_per_sp ?? 1,
+    so_trang: c.so_trang ?? 1,
+    trang_moi_tay: c.trang_moi_tay ?? 1,
     so_luong: c.so_luong ?? 0,
     don_vi_tinh: c.don_vi_tinh ?? "cái",
     nhom_bao_gia: c.nhom_bao_gia ?? "",
@@ -340,7 +347,8 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
     ten: c.ten,
     dai_thanh_pham: c.dai_thanh_pham,
     rong_thanh_pham: c.rong_thanh_pham,
-    so_to_per_sp: c.so_to_per_sp,
+    so_trang: c.so_trang,
+    trang_moi_tay: c.trang_moi_tay,
     so_luong: c.so_luong,
     don_vi_tinh: c.don_vi_tinh.trim() || "cái",
     nhom_bao_gia: c.nhom_bao_gia.trim() || null,
@@ -531,15 +539,18 @@ const KhuonCalcIcon = () => (
 );
 
 
-/** Trợ lý quy đổi số trang → SỐ BÀI IN. Chỉ tính hộ rồi ghi kết quả vào ô, KHÔNG lưu DB
- *  và KHÔNG phụ thuộc loại sản phẩm: ai làm sách thì dùng, làm tờ rơi thì kệ nó. */
-function KhuonCalc({ domId, onApply, onClose }: {
+/** Số trang → SỐ BÀI IN. Hai ô này nay ĐƯỢC LƯU (`so_trang` / `trang_moi_tay`): số tờ in của
+ *  engine đi thẳng từ số trang, nên mở lại phiếu phải thấy đúng thứ người ta đã khai — trước đây
+ *  tính xong là mất, chỉ còn lại kết quả nên không ai biết nó ra từ đâu. Mặc định 1/1 = tờ rời. */
+function KhuonCalc({ domId, soTrangDaLuu, moiTayDaLuu, onApply, onClose }: {
   domId: string;
-  onApply: (n: number) => void;
+  soTrangDaLuu: number;
+  moiTayDaLuu: number;
+  onApply: (soTrang: number, moiTay: number) => void;
   onClose: () => void;
 }) {
-  const [soTrang, setSoTrang] = useState(0);
-  const [moiTay, setMoiTay] = useState(16);
+  const [soTrang, setSoTrang] = useState(soTrangDaLuu);
+  const [moiTay, setMoiTay] = useState(moiTayDaLuu);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const firstRef = useRef<HTMLInputElement | null>(null);
 
@@ -574,7 +585,7 @@ function KhuonCalc({ domId, onApply, onClose }: {
   const tayDu = moiTay > 0 ? Math.floor(soTrang / moiTay) : 0;
   const du = moiTay > 0 ? soTrang % moiTay : 0;
   const apply = () => {
-    if (khuon > 0) onApply(khuon);
+    if (khuon > 0) onApply(soTrang, moiTay);
   };
   const onEnter = (e: ReactKeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
@@ -948,7 +959,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       sl: c.so_luong,
       kd: c.kho_in_dai, kr: c.kho_in_rong, d: c.dai_thanh_pham, r: c.rong_thanh_pham,
       knd: c.kho_nguyen_dai, knr: c.kho_nguyen_rong,
-      ca: c.con_auto, sc: c.so_con, sp: c.so_to_per_sp, qc: c.quy_cach_in,
+      ca: c.con_auto, sc: c.so_con, tr: c.so_trang, tmt: c.trang_moi_tay, qc: c.quy_cach_in,
       ma: c.so_mau_a, mb: c.so_mau_b, mp: c.so_mau_pha, bu: c.bu_hao_so_to, hao: c.hao_so_to,
       tbh: c.tinh_bu_hao_cd,
       ch: c.chua_nhip,
@@ -1735,9 +1746,6 @@ function ComponentModal({
   const [moPhanRa, setMoPhanRa] = useState(false);
   // "Tờ sau in" là tờ tốt ra khỏi bước IN — neo vào đúng bước đó để không phải đoán con số ở đâu ra.
   const buocIn = liveMeta?.bu_hao_chi_tiet?.find((b) => b.nhom === "print") ?? null;
-  // Bước cuối dòng giấy quyết định chuỗi kết thúc ở đơn vị nào (có bế/xén → kết ở con).
-  const _ct = liveMeta?.bu_hao_chi_tiet ?? [];
-  const buocCuoi = _ct.length ? _ct[_ct.length - 1] : null;
   const chuaCh = chuaTheoChieu(c, c.may_id ? mays.find((x) => x.id === c.may_id) : null);
   // Ô này chọn MÁY IN — engine lấy khổ giấy máy nhận + vùng in + nhíp giấy để bình bài. Máy bế,
   // máy bồi sóng, máy cán màng KHÔNG có mấy thông số đó, đổ vào chỉ tổ chọn nhầm (chúng thuộc
@@ -1868,22 +1876,26 @@ function ComponentModal({
                           <KhuonCalcIcon /> tính từ số trang
                         </button>
                       </div>
+                      {/* DẪN XUẤT `so_trang / trang_moi_tay` — sửa ở popover, không gõ thẳng vào
+                          đây: gõ tay thì server cũng ghi đè lúc tính, thành ô ma. */}
                       <input
                         className="tg-input tg-input--num"
                         type="number"
-                        min={1}
-                        step="1"
+                        readOnly
                         aria-labelledby={`khuon-lbl-${c.uid}`}
-                        value={c.so_to_per_sp}
-                        onChange={(e) =>
-                          patchComp(c.uid, { so_to_per_sp: Math.max(1, Number(e.target.value)) })
-                        }
+                        value={soBaiIn(c)}
                       />
                       {calcUid === c.uid && (
                         <KhuonCalc
                           domId={`khuon-calc-${c.uid}`}
-                          onApply={(n) => {
-                            patchComp(c.uid, { so_to_per_sp: Math.max(1, n) });
+                          soTrangDaLuu={c.so_trang}
+                          moiTayDaLuu={c.trang_moi_tay}
+                          onApply={(soTrang, moiTay) => {
+                            // LƯU cả hai ô — engine tự chia ra số bài in, không ghi kết quả vào đây.
+                            patchComp(c.uid, {
+                              so_trang: Math.max(1, soTrang),
+                              trang_moi_tay: Math.max(1, moiTay),
+                            });
                             setCalcUid(null);
                           }}
                           onClose={() => setCalcUid(null)}
@@ -1901,8 +1913,10 @@ function ComponentModal({
                     <p className="tg-note tg-span-12">
                       <b>Mấy bài in khác nhau?</b> In giống nhau cả loạt → 1 (tờ rơi, hộp, name
                       card). Sách 200 trang tay 32 → 7, vì mỗi tay một nội dung khác.
-                      {c.so_to_per_sp > 1 ? (
-                        <> Đang {c.so_to_per_sp} → tờ in ×{c.so_to_per_sp} · kẽm ×{c.so_to_per_sp}.</>
+                      {" "}Bấm <b>tính từ số trang</b> để khai — số bài in tự ra.
+                      {soBaiIn(c) > 1 ? (
+                        <> Đang {c.so_trang} trang ÷ {c.trang_moi_tay} = {soBaiIn(c)} bài
+                        → kẽm ×{soBaiIn(c)}.</>
                       ) : null}
                     </p>
                 {/* Bleed + khe cắt: cộng vào kích thước con khi bình bài. Hỏi khách/kỹ thuật;
@@ -2294,7 +2308,7 @@ function ComponentModal({
                   {liveMeta && liveMeta.con > 0 && (
                     <em className="tg-sheetrow__derive">
                       ⌈{fmt(liveMeta.so_luong)}
-                      {(liveMeta.so_to_per_sp ?? 1) > 1 ? ` × ${fmt(liveMeta.so_to_per_sp ?? 1)} bài` : ""}
+                      {(liveMeta.so_trang ?? 1) > 1 ? ` × ${fmt(liveMeta.so_trang ?? 1)} trang` : ""}
                       {" ÷ "}
                       {fmt(liveMeta.con)} con/tờ⌉
                     </em>
@@ -2321,49 +2335,62 @@ function ComponentModal({
               </div>
               {moPhanRa && (liveMeta?.bu_hao_chi_tiet?.length ?? 0) > 0 && (
                 <ul className="tg-sheetbreak">
-                  {liveMeta!.bu_hao_chi_tiet!.map((b, i) => (
-                    <li key={i} className="tg-sheetbreak__row">
-                      <span className="tg-sheetbreak__ten">{b.ten}</span>
-                      {/* MỌI số đều kèm đơn vị — số trần thì không biết đang đếm tờ hay con. */}
-                      <span className="tg-sheetbreak__qty">
-                        {`${fmt(b.vao)} ${dvNgan(b.dv_vao)} → ${fmt(b.ra)} ${dvNgan(b.dv_ra)}`.trim()}
-                      </span>
-                      <b className="tg-sheetbreak__hao">
-                        {/* Hao đo bằng ĐƠN VỊ VÀO của bước. */}
-                        {b.hao > 0 ? `+${fmt(b.hao)} ${dvNgan(b.dv_vao)}`.trim() : "—"}
-                      </b>
-                      {/* Bước ĐỔI ĐƠN VỊ: xuống dòng hiện hệ số + phép quy đổi. Không có nó thì
-                          dòng trên đọc lên vô lý — "55 tờ in → 5.070 con" mà 55 × 210 = 11.550. */}
-                      {b.dv_vao !== b.dv_ra && b.he_so ? (
-                        <em className="tg-sheetbreak__quydoi">
-                          1 {dvNgan(b.dv_vao)} = {fmt(b.he_so)} {dvNgan(b.dv_ra)} → cần{" "}
-                          {fmt(b.ra_quy ?? 0)} {dvNgan(b.dv_vao)} tốt + {fmt(b.hao)} hao ={" "}
-                          {fmt(b.vao)} {dvNgan(b.dv_vao)}
-                        </em>
-                      ) : null}
-                    </li>
-                  ))}
-                  <li className="tg-sheetbreak__end">
-                    {/* Chuỗi kết thúc ở CON rồi thì khỏi quy đổi thêm — nói thẳng số thành phẩm. */}
-                    {buocCuoi?.dv_ra === "cai" ? (
-                      <>
-                        → ra{" "}
-                        <b>
-                          {fmt(liveMeta!.so_tp_ra ?? 0)} {c.don_vi_tinh || "cái"}
-                        </b>
-                      </>
-                    ) : (
-                      <>
-                        → ra {fmt(liveMeta!.to_ra_cuoi ?? 0)} tờ ={" "}
-                        <b>
-                          {fmt(liveMeta!.so_tp_ra ?? 0)} {c.don_vi_tinh || "cái"}
-                        </b>
-                      </>
-                    )}
-                    {(liveMeta!.so_tp_ra ?? 0) - liveMeta!.so_luong > 0
-                      ? ` · dư ${fmt((liveMeta!.so_tp_ra ?? 0) - liveMeta!.so_luong)}`
-                      : ""}
-                  </li>
+                  {liveMeta!.bu_hao_chi_tiet!.map((b, i) => {
+                    const doiTiLe = b.dv_vao !== b.dv_ra && !!b.he_so && b.he_so !== 1;
+                    const coHao = b.hao > 0;
+                    const dvV = dvNgan(b.dv_vao);
+                    const dvR = dvNgan(b.dv_ra);
+                    const heSoText = doiTiLe
+                      ? (b.he_so! < 1 ? `${fmt(1 / b.he_so!)} ${dvV} = 1 ${dvR}` : `1 ${dvV} = ${fmt(b.he_so!)} ${dvR}`)
+                      : null;
+                    const haoText = coHao
+                      ? `cần ${fmt(b.ra_quy ?? 0)} ${dvV} tốt + ${fmt(b.hao)} hao = ${fmt(b.vao)} ${dvV}`
+                      : null;
+
+                    return (
+                      <li key={i} className="tg-step-card">
+                        <div className="tg-step-card__head">
+                          <div className="tg-step-card__title-group">
+                            <span className="tg-step-card__ten" title={b.ten}>{b.ten}</span>
+                          </div>
+                          {coHao && (
+                            <span className="tg-hao-pill" title="Bù hao công đoạn này">
+                              +{fmt(b.hao)} {dvV}
+                            </span>
+                          )}
+                        </div>
+                        <div className="tg-step-card__flow">
+                          <span className="tg-step-card__qty">
+                            {fmt(b.vao)} <small>{dvV}</small>
+                          </span>
+                          <span className="tg-step-card__flow-arrow">→</span>
+                          <span className="tg-step-card__qty">
+                            {fmt(b.ra)} <small>{dvR}</small>
+                          </span>
+                        </div>
+                        {(doiTiLe || coHao) && (
+                          <div className="tg-step-card__details">
+                            {heSoText && (
+                              <span className="tg-ratio-tag">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/>
+                                </svg>
+                                <span>{heSoText}</span>
+                              </span>
+                            )}
+                            {haoText && (
+                              <span className="tg-math-tag">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M8 7h6"/><path d="M8 11h8"/>
+                                </svg>
+                                <span>{haoText}</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
               <div className="tg-sheetrow tg-sheetrow--input">
@@ -2397,11 +2424,27 @@ function ComponentModal({
               <div className="tg-sheetrow tg-sheetrow--total">
                 <span className="tg-sheetrow__stack">
                   = Tờ nguyên (giấy to)
-                  {liveMeta && liveMeta.so_manh_xa > 0 && (
-                    <em className="tg-sheetrow__derive">
-                      ⌈{fmt(liveMeta.to_dau_vao)} ÷ {fmt(liveMeta.so_manh_xa)} tờ in/tờ nguyên⌉
-                    </em>
-                  )}
+                  {/* Chú thích phải bám ĐÚNG nguồn của con số: chuỗi có bước ăn tờ nguyên (bước in)
+                      thì engine đọc thẳng số vào của bước đó — nói "to_dau_vao ÷ số mảnh xả" là mô
+                      tả một phép tính KHÔNG được dùng, và ra kết quả khác hẳn số đang hiện. */}
+                  {(() => {
+                    const buocNguyen = liveMeta?.bu_hao_chi_tiet?.find(
+                      (b) => b.dv_vao === "to_nguyen",
+                    );
+                    if (buocNguyen) {
+                      return (
+                        <em className="tg-sheetrow__derive">
+                          {fmt(buocNguyen.ra_quy ?? 0)} tốt + {fmt(buocNguyen.hao)} hao ở
+                          {" “"}{buocNguyen.ten}{"”"}
+                        </em>
+                      );
+                    }
+                    return liveMeta && liveMeta.so_manh_xa > 0 ? (
+                      <em className="tg-sheetrow__derive">
+                        ⌈{fmt(liveMeta.to_dau_vao)} ÷ {fmt(liveMeta.so_manh_xa)} tờ in/tờ nguyên⌉
+                      </em>
+                    ) : null;
+                  })()}
                 </span>
                 <b>{liveMeta ? `${fmt(liveMeta.to_nguyen)} tờ` : "…"}</b>
               </div>

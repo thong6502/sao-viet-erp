@@ -77,7 +77,9 @@ class ThanhPhanIn(BaseModel):
     ten: str | None = None
     dai_thanh_pham: int | None = None
     rong_thanh_pham: int | None = None
-    so_to_per_sp: int | None = Field(default=None, ge=1)
+    so_to_per_sp: int | None = Field(default=None, ge=1)   # DẪN XUẤT (engine ghi) — client gửi cũng bị đè
+    so_trang: int | None = Field(default=None, ge=1)        # số trang nội dung của 1 sản phẩm
+    trang_moi_tay: int | None = Field(default=None, ge=1)   # số trang mỗi tay gấp
     so_luong: int | None = Field(default=None, ge=0)   # SL của sản phẩm này
     don_vi_tinh: str | None = Field(default=None, max_length=30)   # ĐVT sản phẩm (text tự do)
     # Nhãn gộp dòng KHI IN báo giá (ruột + bìa 1 cuốn gõ giống nhau). Không vào công thức giá.
@@ -128,6 +130,8 @@ class ThanhPhanOut(BaseModel):
     dai_thanh_pham: int
     rong_thanh_pham: int
     so_to_per_sp: int
+    so_trang: int = 1
+    trang_moi_tay: int = 1
     so_luong: int
     don_vi_tinh: str = "cái"
     nhom_bao_gia: str | None = None

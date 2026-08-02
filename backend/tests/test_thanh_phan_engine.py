@@ -358,11 +358,15 @@ def test_mau_pha_cong_them_ban_kem():
 
 
 def test_mau_pha_nhan_theo_so_tay():
-    """Ruột sách 8 tay, 4 màu + 1 pha mỗi tay → (4+1) × 8 = 40 kẽm."""
+    """Ruột sách 128 trang, tay 16 → 8 tay; 4 màu + 1 pha mỗi tay → (4+1) × 8 = 40 kẽm.
+
+    Số tay là DẪN XUẤT `so_trang / trang_moi_tay` — gửi thẳng `so_to_per_sp` không còn tác dụng."""
     tp = _component()
     tp.update({"quy_cach_in": "mot_mat", "so_mau_a": 4, "so_mau_b": 0, "so_mau_pha": 1,
-               "so_to_per_sp": 8})
-    assert compute_phieu(so_luong=1000, thanh_phans=[tp])["meta"]["components"][0]["so_kem"] == 40
+               "so_trang": 128, "trang_moi_tay": 16})
+    out = compute_phieu(so_luong=1000, thanh_phans=[tp])["meta"]["components"][0]
+    assert out["so_to_per_sp"] == 8
+    assert out["so_kem"] == 40
 
 
 # --- Chừa tách theo chiều: MỘT bản duy nhất ------------------------------------------------------

@@ -23,9 +23,11 @@ import "./bai-ghep.css";
 type View = { mode: "list" } | { mode: "detail"; id: number };
 
 export function BaiGhepPage({
+  navigate,
   eventTick,
   onBadgeStale,
 }: {
+  navigate?: (id: string, params?: Record<string, unknown>) => void;
   eventTick?: number;
   onBadgeStale?: () => void;
 }) {
@@ -108,6 +110,7 @@ export function BaiGhepPage({
       <main className="khsx bghep">
         <BaiGhepDetailView
           baiGhepId={view.id}
+          navigate={navigate}
           onBack={() => setView({ mode: "list" })}
           onChanged={doiDuLieu}
         />

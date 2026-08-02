@@ -21,7 +21,7 @@ import {
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
 import { DagRoutingCanvas } from "../components/DagRoutingCanvas";
-import { LsxBuocDrawer } from "./LsxBuocDrawer";
+import { LsxBuocDrawer, type TabKey as DrawerTabKey } from "./LsxBuocDrawer";
 import { ChuoiCongDoan, ngay, num } from "./keHoachSxShared";
 import {
   type EditRow,
@@ -53,6 +53,18 @@ export function dvNhan(dv: string | null | undefined, nhom?: string | null): str
 }
 
 /** Lỗi/nghi vấn của RIÊNG 1 dòng — chỉ tô màu, không chặn lưu. */
+/** Nhãn ngắn cho badge trạng thái hàng gia công ngoài — dùng chung bảng và sơ đồ DAG. */
+export function nhanGiaoNhan(r: EditRow): string {
+  const gn = r.giao_nhan;
+  if (!gn || gn.giao_nhan_trang_thai === "chua_gui") return "Chưa gửi đi";
+  if (gn.giao_nhan_trang_thai === "dang_ngoai") {
+    const tre = gn.qua_han_ngay ?? 0;
+    return tre > 0 ? `Đang ở ngoài · quá hạn ${tre} ngày` : "Đang ở ngoài";
+  }
+  const hut = gn.so_hut ?? 0;
+  return hut > 0 ? `Đã về · thiếu ${num(hut)}` : "Đã về";
+}
+
 function loiDong(rows: EditRow[], i: number): string[] {
   const r = rows[i];
   const out: string[] = [];
@@ -82,6 +94,7 @@ export function LsxRoutingTable({
   soLuongDat,
   buHaoThem,
   leadTime,
+  baiGhep,
   congDoanRefs,
   toRefs,
   mayRefs,
@@ -93,12 +106,15 @@ export function LsxRoutingTable({
   onPatchLsx,
   onMacDinhBuoc,
   onDauViecOptions,
+  onGiaoNhan,
   onDirtyChange,
 }: {
   congDoans: LsxCongDoan[];
   soLuongDat: number;
   buHaoThem: number;
   leadTime: LsxLeadTime | null;
+  /** Lệnh đang ghép chung tờ → thông số tờ do BÀI quyết, bước in khoá lại ở màn này. */
+  baiGhep: import("../api/client").LsxBaiGhep | null;
   congDoanRefs: RefRow[] | null;
   toRefs: RefRow[] | null;
   mayRefs: RefRow[] | null;
@@ -113,6 +129,10 @@ export function LsxRoutingTable({
   onDauViecOptions: (
     congDoanId: number, departmentId: number,
   ) => Promise<import("../api/client").LsxDauViecOption[]>;
+  /** Ghi nhận giao/nhận hàng gia công ngoài — GHI THẲNG, không đi qua "Lưu công đoạn". */
+  onGiaoNhan: (
+    buocId: number, body: { su_kien: "giao" | "nhan"; luc?: string; so_luong?: number },
+  ) => Promise<void>;
   onDirtyChange: (dirty: boolean) => void;
 }) {
   const [rows, setRows] = useState<EditRow[]>(() => congDoans.map(toEdit));
@@ -120,6 +140,7 @@ export function LsxRoutingTable({
   const [undo, setUndo] = useState<{ row: EditRow; at: number } | null>(null);
   const [live, setLive] = useState("");
   const [moBuoc, setMoBuoc] = useState<number | null>(null);
+  const [tabDau, setTabDau] = useState<DrawerTabKey | undefined>(undefined);
   const [keo, setKeo] = useState<number | null>(null);
   const [lyDo, setLyDo] = useState("");
   const goc = useRef(JSON.stringify(toBody(congDoans.map(toEdit))));
@@ -273,8 +294,9 @@ export function LsxRoutingTable({
   // `tinhNguoc` / `apDungGoiY` đã BỎ: số lượng mọi bước nay do SERVER tính ngược và ghi thẳng
   // (`_ap_chuoi_nguoc`), nên không còn "gợi ý" nào để đối chiếu rồi bấm áp dụng.
 
-  function moDrawer(i: number, el: HTMLElement | null) {
+  function moDrawer(i: number, el: HTMLElement | null, tab?: DrawerTabKey) {
     hangMo.current = el;
+    setTabDau(tab);
     setMoBuoc(i);
   }
 
@@ -357,6 +379,23 @@ export function LsxRoutingTable({
         )}
       </div>
 
+      {/* Lệnh đang ghép chung tờ: quyền quyết định về TỜ đã chuyển sang bài. Nói ra ở đây, không
+          để người kế hoạch sửa máy in rồi tưởng có tác dụng. */}
+      {baiGhep && (
+        <div className="khsx-ghep-bang">
+          <Icon name="layers" size={14} />
+          <span>
+            Bước in do bài ghép <strong>{baiGhep.ma}</strong> điều phối —{" "}
+            {baiGhep.may_ten ? `chạy máy ${baiGhep.may_ten}` : "chưa chọn máy"} ·{" "}
+            {baiGhep.so_con_tren_to} con/tờ
+            {baiGhep.kho_in_dai && baiGhep.kho_in_rong
+              ? ` · khổ ${baiGhep.kho_in_dai}×${baiGhep.kho_in_rong}`
+              : ""}
+            . Máy, giấy, khổ tờ in và số con sửa tại bài.
+          </span>
+        </div>
+      )}
+
       <div className="khsx-rt__flow">
         <ChuoiCongDoan steps={flow} />
       </div>
@@ -369,9 +408,10 @@ export function LsxRoutingTable({
           mayRefs={mayRefs}
           vatTuRefs={vatTuRefs}
           phuThuocRefs={phuThuocRefs}
+          baiGhep={baiGhep}
           canUpdate={canUpdate}
           onUpdateRows={setRows}
-          onOpenDrawer={(idx) => setMoBuoc(idx)}
+          onOpenDrawer={(idx, tab) => moDrawer(idx, null, tab)}
           onAddStep={them}
         />
       ) : (
@@ -454,6 +494,21 @@ export function LsxRoutingTable({
                     <span className={lamO ? "" : "khsx-muted"}>{lamO || "tổ mặc định"}</span>
                     {r.so_nhan_cong && n(r.so_nhan_cong) > 1 && (
                       <span className="khsx-rt__sub2">Kế hoạch {r.so_nhan_cong} người</span>
+                    )}
+                    {/* Hàng gửi ra ngoài đang ở đâu — bấm là nhảy thẳng vào sổ giao–nhận. Badge
+                        chỉ để NHÌN và NHẢY: một cửa ghi duy nhất, nằm trong drawer. */}
+                    {ngoai && r.giao_nhan && (
+                      <button
+                        type="button"
+                        className={`khsx-gn-badge khsx-gn-badge--${r.giao_nhan.giao_nhan_trang_thai ?? "chua_gui"} ${
+                          (r.giao_nhan.qua_han_ngay ?? 0) > 0 || r.giao_nhan.hut_vuot_dinh_muc
+                            ? "is-canhbao"
+                            : ""
+                        }`}
+                        onClick={(e) => moDrawer(i, e.currentTarget, "giao_nhan")}
+                      >
+                        {nhanGiaoNhan(r)}
+                      </button>
                     )}
                   </td>
                   <td className="khsx-rt__qty">
@@ -634,11 +689,14 @@ export function LsxRoutingTable({
           mayRefs={mayRefs}
           vatTuRefs={vatTuRefs}
           phuThuocRefs={phuThuocRefs}
+          baiGhep={baiGhep}
           canUpdate={canUpdate}
           onPatch={(p) => patch(rows[moBuoc].key, p)}
           onPatchLsx={onPatchLsx}
           onDoiCongDoan={(id) => doiCongDoan(rows[moBuoc].key, id, rows[moBuoc].ten)}
           onDoiTo={(id) => doiTo(rows[moBuoc].key, id)}
+          onGiaoNhan={onGiaoNhan}
+          tabDau={tabDau}
           onClose={dongDrawer}
           onPrev={() => setMoBuoc(Math.max(moBuoc - 1, 0))}
           onNext={() => setMoBuoc(Math.min(moBuoc + 1, rows.length - 1))}

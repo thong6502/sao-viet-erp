@@ -259,7 +259,18 @@ class LsxCongDoan(Base):
     hao_hut_cho_phep: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     don_gia_gia_cong: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
     yeu_cau_ky_thuat: Mapped[str | None] = mapped_column(Text, nullable=True)
-    nguoi_giao_nhan_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → users.id
+    # --- Gia công ngoài: sổ THỰC TẾ (khác 9 cột trên — kia là DỰ KIẾN) -----------------
+    # Giao và nhận là HAI sự kiện: khác ngày, khác người, khác số lượng. Ghi qua cửa THỰC THI
+    # (`POST .../giao-nhan`), không qua lưu routing — hàng ra cổng lúc lệnh đang chạy, mà lưu
+    # routing thì bị chặn ở trạng thái đã lập kế hoạch.
+    # Số hỏng/thiếu = `sl_giao_thuc - sl_nhan_thuc`, trạng thái suy từ hai mốc thời gian, tiền
+    # gia công thực = `sl_nhan_thuc × don_gia_gia_cong` — DẪN XUẤT, không lưu cột.
+    nguoi_giao_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → users.id
+    giao_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sl_giao_thuc: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    nguoi_nhan_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → users.id
+    nhan_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sl_nhan_thuc: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
 
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
 

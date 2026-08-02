@@ -61,7 +61,7 @@ _TP_SCALAR_FIELDS = (
     "thu_tu", "loai_thanh_phan", "ten", "dai_thanh_pham", "rong_thanh_pham",
     # `don_vi_tinh` đi qua engine như mọi trường khác → lệnh sản xuất kế thừa được ĐVT từ PHIẾU,
     # thôi cảnh mỗi tầng tự lấy một đường rồi không ai kiểm chúng có khớp nhau không.
-    "don_vi_tinh", "so_to_per_sp", "so_luong", "loai_san_pham_id",
+    "don_vi_tinh", "so_to_per_sp", "so_trang", "trang_moi_tay", "so_luong", "loai_san_pham_id",
     "giay_id", "kho_nguyen", "kho_nguyen_dai", "kho_nguyen_rong", "don_gia_giay",
     "don_gia_don_vi", "nguon_giay", "bu_hao_so_to", "hao_so_to", "tinh_bu_hao_cd",
     "chua_nhip", "bleed_mm", "khe_cat_mm",
@@ -178,11 +178,14 @@ def compute_phieu_snapshot(db: Session, phieu) -> dict:
     ).scalars()]
     result = compute_phieu(so_luong=so_luong, thanh_phans=resolved, bu_hao_rows=bu_hao_rows)
 
-    # gán giá vốn từng thành phần.
+    # gán giá vốn từng thành phần + ghi ngược SỐ BÀI IN dẫn xuất (so_trang / trang_moi_tay) để
+    # bản lệnh và báo giá đọc được mà không phải tính lại.
     for comp in result["meta"]["components"]:
         idx = comp["idx"]
         if 0 <= idx < len(tps):
             tps[idx].gia_von_tp = comp["gia_von_tp"]
+            if comp.get("so_to_per_sp"):
+                tps[idx].so_to_per_sp = int(comp["so_to_per_sp"])
 
     tong = float(result.get("grand_total") or 0)
     phieu.tong_gia_von = tong

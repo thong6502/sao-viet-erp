@@ -85,7 +85,13 @@ class PhieuThanhPhan(Base):
     dai_thanh_pham: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # mm — khổ thành phẩm ③ (bình bài)
     rong_thanh_pham: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # mm ★
     # Số BÀI IN (khuôn) mỗi sản phẩm — mỗi bài 1 bộ kẽm. Sách: số tay. KHÔNG phải số tờ giấy.
+    # DẪN XUẤT từ `so_trang / trang_moi_tay`; engine ghi lại mỗi lần tính, người dùng không nhập.
     so_to_per_sp: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Số TRANG NỘI DUNG của 1 sản phẩm (tờ rời 1 mặt = 1, 2 mặt = 2, sách = số trang thật) và số
+    # trang mỗi tay gấp. Người dùng khai, LƯU lại (trước đây popover tính xong là mất).
+    # Số tờ in = SL × so_trang / (con × số mặt) — số mặt suy từ `quy_cach_in`.
+    so_trang: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    trang_moi_tay: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     so_luong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # SL đặt của SẢN PHẨM này (0 = lấy SL mặc định phiếu)
     don_vi_tinh: Mapped[str] = mapped_column(String(30), nullable=False, default="cái")  # ĐVT sản phẩm (text tự do) → chảy sang Báo giá
     # Nhóm GỘP KHI BÁO GIÁ: các sản phẩm cùng nhãn này (ruột + bìa của 1 cuốn) in ra báo giá

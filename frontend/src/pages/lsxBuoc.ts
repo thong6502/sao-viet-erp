@@ -3,10 +3,18 @@
 // Tách riêng khỏi cả hai để không vòng import, và để chỗ nào cũng nhìn cùng một hình dạng dòng.
 // Mọi ô số giữ dạng CHUỖI: ô trống ("") khác 0 — trống nghĩa là "chưa khai, dùng gợi ý", còn 0 là
 // người dùng cố tình khai bằng 0. Ép sang number quá sớm sẽ xoá mất sự khác nhau đó.
-import type { LsxCongDoan, LsxCongDoanBody, LsxLoaiBuoc } from "../api/client";
+import type {
+  LsxCongDoan,
+  LsxCongDoanBody,
+  LsxGiaoNhanFields,
+  LsxLoaiBuoc,
+} from "../api/client";
 
 export interface EditRow {
   key: string;
+  /** Id THẬT của bước ở server — null nếu bước mới thêm chưa lưu. Cần cho các cửa ghi ngoài
+   *  routing (vd sổ giao–nhận), vì `key` chỉ là step_key. */
+  id: number | null;
   cong_doan_id: number | null;
   ten: string;
   nhom: string | null;
@@ -48,6 +56,9 @@ export interface EditRow {
   don_gia_gia_cong: string;
   yeu_cau_ky_thuat: string;
   ghi_chu: string;
+  /** Sổ giao–nhận THỰC TẾ + dẫn xuất — READ-ONLY ở form này. Ghi qua `api.lsx.giaoNhan`, không
+   *  đi kèm lưu routing (hàng ra cổng lúc lệnh đang chạy, lưu routing thì bị chặn). */
+  giao_nhan: LsxGiaoNhanFields | null;
   // --- khoán theo đầu việc ---
   /** Đầu việc đang chọn (`piece_rates.id`) — người dùng đổi được. */
   khoan_rate_id: number | null;
@@ -105,6 +116,7 @@ function s0(v: number | null | undefined): string {
 export function toEdit(cd: LsxCongDoan): EditRow {
   return {
     key: cd.step_key,
+    id: cd.id ?? null,
     cong_doan_id: cd.cong_doan_id,
     ten: cd.ten,
     nhom: cd.nhom,
@@ -143,6 +155,21 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     don_gia_gia_cong: s(cd.don_gia_gia_cong),
     yeu_cau_ky_thuat: cd.yeu_cau_ky_thuat ?? "",
     ghi_chu: cd.ghi_chu ?? "",
+    giao_nhan: {
+      nguoi_giao_id: cd.nguoi_giao_id ?? null,
+      nguoi_giao_ten: cd.nguoi_giao_ten ?? null,
+      giao_luc: cd.giao_luc ?? null,
+      sl_giao_thuc: cd.sl_giao_thuc ?? null,
+      nguoi_nhan_id: cd.nguoi_nhan_id ?? null,
+      nguoi_nhan_ten: cd.nguoi_nhan_ten ?? null,
+      nhan_luc: cd.nhan_luc ?? null,
+      sl_nhan_thuc: cd.sl_nhan_thuc ?? null,
+      giao_nhan_trang_thai: cd.giao_nhan_trang_thai ?? "chua_gui",
+      so_hut: cd.so_hut ?? null,
+      hut_vuot_dinh_muc: Boolean(cd.hut_vuot_dinh_muc),
+      tien_gia_cong_thuc: cd.tien_gia_cong_thuc ?? null,
+      qua_han_ngay: cd.qua_han_ngay ?? null,
+    },
     khoan_rate_id: cd.khoan_rate_id ?? null,
     khoan_chon_duoc: cd.khoan_chon_duoc ?? [],
     khoan_dien_giai: cd.khoan_dien_giai ?? null,
@@ -153,7 +180,8 @@ export function toEdit(cd: LsxCongDoan): EditRow {
 
 export function emptyRow(): EditRow {
   return {
-    key: newKey(), cong_doan_id: null, ten: "", nhom: null, loai_buoc: "may", bat_buoc: true,
+    key: newKey(), id: null, cong_doan_id: null, ten: "", nhom: null, loai_buoc: "may",
+    bat_buoc: true,
     department_id: null, may_id: null,
     so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to", he_so_quy_doi: "",
     hao_hut: "", hao_hut_pct: "", so_luot_chay: "", so_nhan_cong: "",
@@ -164,6 +192,8 @@ export function emptyRow(): EditRow {
     nha_cung_cap: "", sl_gui: "", ngay_gui_dk: "", van_chuyen_ngay: "", gia_cong_ngay: "",
     ngay_nhan_dk: "", hao_hut_cho_phep: "", don_gia_gia_cong: "", yeu_cau_ky_thuat: "",
     ghi_chu: "",
+    // Bước mới chưa lưu thì chưa có id để ghi giao–nhận — sổ chỉ mở sau khi lưu routing.
+    giao_nhan: null,
     // Bước THÊM TAY chưa biết tổ/công đoạn nên chưa có đầu việc nào để gợi ý; lưu xong server điền.
     khoan_rate_id: null, khoan_chon_duoc: [], khoan_dien_giai: null, khoan_ly_do: null,
     khoan_rate_id_luc_tai: null,
