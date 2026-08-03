@@ -4,7 +4,7 @@
 //   • Tạm ứng — ghi nhiều lần → duyệt → tự trừ.
 //   • Cấu hình lương — 3 tab con: bậc lương & KPI · cơ chế theo bộ phận · phụ cấp & bảo hiểm.
 //   • Phiếu lương của tôi — self-service.
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Calendar,
   DollarSign,
@@ -292,6 +292,8 @@ function BangLuongTab({ token }: { token: string }) {
   const [period, setPeriod] = useState<PayrollPeriod | null>(null);
   const [lines, setLines] = useState<PayrollLine[]>([]);
   const [filter, setFilter] = useState<"all" | "ct" | "tv">("all");
+  const [q, setQ] = useState("");
+  const [dept, setDept] = useState("all");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<PayrollLine | null>(null);
@@ -335,10 +337,28 @@ function BangLuongTab({ token }: { token: string }) {
     }
   }
 
-  const shown = lines.filter(
-    (l) =>
-      filter === "all" || (filter === "tv" ? l.is_probation : !l.is_probation),
+  // Danh sách Phòng/Tổ lấy từ CHÍNH các dòng lương đang có, không gọi thêm API: kỳ lương nào
+  // cũng chỉ gồm người có mặt trong kỳ đó, nên đổ cả cây phòng ban ra là bày cả những tổ không
+  // có ai để lọc.
+  const dsPhong = useMemo(
+    () =>
+      Array.from(
+        new Set(lines.map((l) => (l.department_name ?? "").trim()).filter(Boolean)),
+      ).sort((a, b) => a.localeCompare(b, "vi")),
+    [lines],
   );
+
+  const kw = q.trim().toLowerCase();
+  const shown = lines.filter((l) => {
+    if (filter !== "all" && (filter === "tv") !== l.is_probation) return false;
+    if (dept !== "all" && (l.department_name ?? "").trim() !== dept) return false;
+    if (!kw) return true;
+    // Tìm theo CẢ mã lẫn họ tên — người trả lương gõ mã, người soát gõ tên.
+    return (
+      (l.employee_name ?? "").toLowerCase().includes(kw) ||
+      (l.employee_code ?? "").toLowerCase().includes(kw)
+    );
+  });
   const totalNet = shown.reduce((s, l) => s + l.net_pay, 0);
   const totalStaff = shown.length;
   const officialCount = shown.filter((l) => !l.is_probation).length;
@@ -391,6 +411,30 @@ function BangLuongTab({ token }: { token: string }) {
             onChange={(e) => setYm(e.target.value)}
           />
         </div>
+        <div className="lg-search-wrapper">
+          <span className="lg-search-icon">
+            <Search size={14} />
+          </span>
+          <input
+            className="lg-search-input"
+            placeholder="Tìm theo tên / mã…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+        {dsPhong.length > 1 && (
+          <select
+            className="lg-dept-filter"
+            value={dept}
+            onChange={(e) => setDept(e.target.value)}
+            title="Lọc theo Phòng / Tổ"
+          >
+            <option value="all">Tất cả phòng / tổ</option>
+            {dsPhong.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        )}
         <div className="lg-seg">
           {(["all", "ct", "tv"] as const).map((f) => (
             <button
@@ -1612,6 +1656,8 @@ type SysRow = {
   taxable: boolean;
   value: number;
   set: (v: number) => void;
+  /** Khoản đã NGƯNG: cho xem số cũ để tra lịch sử nhưng không cho sửa (sửa cũng không ra tiền). */
+  readOnly?: boolean;
 };
 
 function SalaryModal({
@@ -2032,11 +2078,15 @@ function SalaryModal({
     },
     {
       key: "phu_cap_ca",
-      name: "Phụ cấp ca",
-      note: "Cộng phẳng mỗi tháng — engine miễn TNCN như tiền tăng ca / ca đêm",
-      taxable: false,
+      name: "Phụ cấp ca (đã ngưng)",
+      // Chú thích cũ ghi "engine miễn TNCN như tiền tăng ca / ca đêm" — câu đó KHẲNG ĐỊNH SAI:
+      // phần miễn thuế là di sản từ hồi ô này là tiền ca đêm ĐƯỢC TÍNH, còn TT 111/2013 Đ3.1.i
+      // chỉ miễn phần trả CAO HƠN gắn với giờ đêm/tăng ca THỰC TẾ.
+      note: "KHÔNG còn ra tiền từ 03/08/2026 — cơm & phụ cấp ca nay tính theo CA THỰC LÀM (khai ở từng ca, màn Chấm công). Số cũ giữ lại để tra lịch sử.",
+      taxable: true,
       value: phuCapCa,
       set: setPhuCapCa,
+      readOnly: true,
     },
     {
       key: "phu_cap_tham_nien",
@@ -2057,6 +2107,14 @@ function SalaryModal({
   const pitKnown = detail != null && detail.pit_mode != null;
   const pitEff = pitMode ?? "luy_tien";
   const hasDeduction = pitEff === "luy_tien"; // 2 nhánh còn lại KHÔNG có giảm trừ gia cảnh
+
+  // Khối "Cấu hình tính thuế TNCN" trong modal này ĐANG TẮT (JSX bị comment ở ~2494–2616). Giữ
+  // nguyên phần tính ở trên để bật lại chỉ cần bỏ comment khối JSX. Mấy dòng `void` dưới đây chỉ
+  // để TypeScript thôi báo "khai mà không dùng" — không chạy gì, không đổi hành vi.
+  void PIT_MODE_ORDER;
+  void detailErr;
+  void pitKnown;
+  void hasDeduction;
   const deductionSelf = params ? params.deduction_self : null;
   const deductionDependent = params ? params.deduction_dependent : null;
   const deductionTotal =
@@ -2134,6 +2192,10 @@ function SalaryModal({
                     step={100000}
                     aria-label={`Số tiền ${r.name}`}
                     value={r.value}
+                    // Ô đã ngưng: cho XEM số cũ nhưng KHÔNG cho sửa. Ẩn hẳn thì người ta không
+                    // tra được lịch sử; để sửa được thì lại hứa suông vì số đó không ra tiền nữa.
+                    readOnly={r.readOnly}
+                    disabled={r.readOnly}
                     onChange={(e) => r.set(Number(e.target.value))}
                   />
                 </div>
@@ -2437,7 +2499,7 @@ function SalaryModal({
           {/* Cấu hình tính thuế TNCN theo TỪNG NGƯỜI. Mọi con số (giảm trừ, tỷ lệ khấu trừ,
               ngưỡng) LẤY TỪ `GET /api/luong/params` — viết cứng vào chuỗi là màn hình nói dối
               ngay lần luật đổi mức. */}
-          <h4 className="ns-section__title" style={{ marginTop: 16 }}>
+          {/* <h4 className="ns-section__title" style={{ marginTop: 16 }}>
             Cấu hình tính thuế TNCN
           </h4>
           {detailErr && (
@@ -2450,8 +2512,6 @@ function SalaryModal({
           <div className="lg-pit">
             <label className="ns-field lg-pit__mode">
               <span className="ns-field__label">Cách tính thuế TNCN</span>
-              {/* Chưa đọc được hồ sơ thì ĐỂ TRỐNG, đừng hiện sẵn "Luỹ tiến" — người dùng sẽ
-                  đọc thành "người này đang tính luỹ tiến" trong khi mình chưa biết gì. */}
               <select
                 value={pitKnown ? pitEff : ""}
                 disabled={!canEditPit || !pitKnown}
@@ -2561,7 +2621,7 @@ function SalaryModal({
                 )}
               </p>
             </div>
-          </div>
+          </div> */}
 
           <div className="ns-grid" style={{ marginTop: 12 }}>
             <div
@@ -3205,7 +3265,13 @@ function PayslipCard({
 
   const income = [
     ["Lương theo công", l.luong_cong],
-    ["Phụ cấp ca", pcCa],
+    // Hai khoản theo CA THỰC LÀM (từ 03/08/2026) — mỗi khoản MỘT DÒNG, không gộp: phiếu lương
+    // phải nói rõ ăn bao nhiêu cơm, bao nhiêu phụ cấp.
+    ["Cơm ca", l.meal_allowance_pay ?? 0],
+    ["Phụ cấp ca (theo ca làm)", l.shift_allowance_pay ?? 0],
+    // Ô cũ per-người đã ngưng ⇒ chỉ còn hiện ở kỳ CŨ đã chốt (còn số thì mới in dòng), để phiếu
+    // lương tháng trước in lại vẫn đúng y nguyên.
+    ...(pcCa ? ([["Phụ cấp ca (khai tay — đã ngưng)", pcCa]] as [string, number][]) : []),
     ["Phụ cấp ca đêm (giờ × hệ số)", l.night_premium_pay ?? 0],
     ["Phụ cấp thâm niên", pcThamNien],
     ["Phụ cấp khác", pcKhac],
@@ -3337,7 +3403,7 @@ function PayslipCard({
       {/* 2 dòng thuế (chủ 27/07/2026). `pit_taxable` là thu nhập TÍNH thuế — đã trừ bảo hiểm
           + giảm trừ gia cảnh, KHÔNG phải "tổng thu nhập chịu thuế"; backend không snapshot số
           đó nên gọi đúng tên, đừng dán nhãn "chịu thuế" lên số đã trừ giảm trừ. */}
-      <div className="lg-payslip2__tax">
+      {/* <div className="lg-payslip2__tax">
         <span className="lg-payslip2__taxcell">
           <span>Thu nhập tính thuế TNCN</span>
           <b>{money(l.pit_taxable)}đ</b>
@@ -3351,7 +3417,7 @@ function PayslipCard({
           giảm trừ gia cảnh — thuế TNCN bấm trên số này. Thu nhập miễn thuế gồm
           tăng ca, ca đêm và các khoản không tích “Chịu thuế” trong danh mục.
         </span>
-      </div>
+      </div> */}
       <div className="lg-payslip2__net">
         <span>THỰC NHẬN</span>
         <span>{money(l.net_pay)}đ</span>

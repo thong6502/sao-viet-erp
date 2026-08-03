@@ -11,7 +11,6 @@ import {
   api,
   type DepartmentPurchaseRequestRow,
   type DepartmentPurchaseRequestStatus,
-  type DepartmentPurchaseSourceType,
   type PurchaseRequestInput,
   type PurchaseRequestLineInput,
   type PurchaseRequestRow,
@@ -49,15 +48,6 @@ const STATUS_META: Record<
 type StatusFilter = "all" | PurchaseRequestStatus;
 type SourceStatusFilter = "all" | DepartmentPurchaseRequestStatus;
 
-const SOURCE_TYPE_LABELS: Record<DepartmentPurchaseSourceType, string> = {
-  kinh_doanh: "Kinh doanh",
-  kho: "Kho",
-  san_xuat: "Sản xuất",
-  cong_nghe: "Công nghệ",
-  gia_cong_ngoai: "Gia công ngoài",
-  khac: "Khác",
-};
-
 const SOURCE_STATUS_META: Record<
   DepartmentPurchaseRequestStatus,
   { label: string; tone: string }
@@ -91,6 +81,12 @@ function emptyRequest(): PurchaseRequestInput {
     note: "",
     lines: [emptyLine()],
   };
+}
+
+function todayInputValue(): string {
+  const now = new Date();
+  const localNow = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return localNow.toISOString().slice(0, 10);
 }
 
 function fromRequest(row: PurchaseRequestRow): PurchaseRequestInput {
@@ -134,6 +130,73 @@ function lineVatAmount(line: PurchaseRequestLineInput): number {
     (Number(line.quantity) || 0) * (Number(line.expected_unit_price) || 0);
   const taxable = Math.max(0, base - lineDiscountAmount(line));
   return Math.round((taxable * (Number(line.vat_percent) || 0)) / 100);
+}
+
+function normalizeItemName(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function supplierItemForLine(
+  supplier: SupplierRow | undefined,
+  line: PurchaseRequestLineInput,
+) {
+  if (!supplier) return null;
+  const name = normalizeItemName(line.item_name);
+  return (
+    supplier.items.find(
+      (item) =>
+        normalizeItemName(item.item_name) === name &&
+        item.unit.trim().toLowerCase() === line.unit.trim().toLowerCase(),
+    ) ??
+    supplier.items.find((item) => normalizeItemName(item.item_name) === name) ??
+    null
+  );
+}
+
+function applySupplierPrices(
+  lines: PurchaseRequestLineInput[],
+  suppliers: SupplierRow[],
+  supplierId: number | null,
+): PurchaseRequestLineInput[] {
+  const supplier = suppliers.find((row) => row.id === supplierId);
+  return lines.map((line) => {
+    const item = supplierItemForLine(supplier, line);
+    if (!item) return line;
+    return {
+      ...line,
+      unit: item.unit || line.unit,
+      expected_unit_price: item.unit_price,
+      vat_percent: item.vat_percent,
+    };
+  });
+}
+
+function supplierQuotedTotal(
+  supplier: SupplierRow,
+  lines: PurchaseRequestLineInput[],
+): number | null {
+  let total = 0;
+  let matched = 0;
+  for (const line of lines) {
+    const item = supplierItemForLine(supplier, line);
+    if (!item) continue;
+    matched += 1;
+    total += (Number(line.quantity) || 0) * item.unit_price;
+  }
+  return matched === lines.length && matched > 0 ? total : null;
+}
+
+function bestSupplierIdForLines(
+  lines: PurchaseRequestLineInput[],
+  suppliers: SupplierRow[],
+): number | null {
+  let best: { supplierId: number; total: number } | null = null;
+  for (const supplier of suppliers) {
+    const total = supplierQuotedTotal(supplier, lines);
+    if (total == null) continue;
+    if (!best || total < best.total) best = { supplierId: supplier.id, total };
+  }
+  return best?.supplierId ?? null;
 }
 
 function html(value: unknown): string {
@@ -319,10 +382,10 @@ function printPurchaseRequest(row: PurchaseRequestRow): boolean {
     <div><span class="label">Nhà cung cấp</span>${html(row.supplier_name || "Chưa chọn")}</div>
     <div><span class="label">Ngày cần hàng</span>${html(fmtDate(row.needed_date))}</div>
     <div><span class="label">Ngày dự kiến nhận hàng</span>${html(fmtDate(row.expected_receipt_date))}</div>
-    <div><span class="label">Yêu cầu nguồn</span>${html(sourceCodes)}</div>
+    <div><span class="label">Phiếu yêu cầu mua hàng</span>${html(sourceCodes)}</div>
     <div><span class="label">Bộ phận/người yêu cầu</span>${html(sourceDepartments || "Nội bộ")}</div>
     <div><span class="label">Người lập</span>${html(row.created_by_name || "—")}</div>
-    <div><span class="label">Kế toán duyệt</span>${html(row.approved_by_name || "Chưa duyệt")}</div>
+    <div><span class="label">Người duyệt</span>${html(row.approved_by_name || "Chưa duyệt")}</div>
     <div><span class="label">Gửi duyệt</span>${html(fmtDate(row.submitted_at))}</div>
     <div><span class="label">Duyệt lúc</span>${html(fmtDate(row.approved_at))}</div>
     <div style="grid-column: 1 / -1;"><span class="label">Mục đích</span>${html(row.purpose || "—")}</div>
@@ -369,6 +432,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
   const openYcmh = (code: string) =>
     navigate("yeu-cau-mua-hang", { focusRequestCode: code });
   const canUpdate = can("thu_mua", "update");
+  const canApprove = can("thu_mua", "approve");
   const canDelete = can("thu_mua", "delete");
   const canCancel = can("thu_mua", "cancel");
 
@@ -387,12 +451,6 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
   const [sourceStatus, setSourceStatus] = useState<SourceStatusFilter>("all");
   const [sourceLoading, setSourceLoading] = useState(true);
   const [sourcePage, setSourcePage] = useState(1);
-  // Lưu CẢ object (không chỉ id) để tick vẫn giữ khi lật sang trang khác — một
-  // phiếu mua có thể gom YCMH nằm ở nhiều trang.
-  const [checkedSources, setCheckedSources] = useState<
-    DepartmentPurchaseRequestRow[]
-  >([]);
-
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -404,9 +462,13 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
   const [editing, setEditing] = useState<PurchaseRequestRow | null>(null);
   const [form, setForm] = useState<PurchaseRequestInput>(emptyRequest());
   const [formError, setFormError] = useState<string | null>(null);
+  const minPurchaseDate = useMemo(() => todayInputValue(), []);
+  // Ngày dự kiến nhận chỉ bị chặn bởi HÔM NAY, KHÔNG bởi ngày cần hàng (chủ 03/08/2026):
+  // nhận hàng sớm hơn ngày cần là trường hợp mong muốn, chặn nó là cấm đúng cái tốt.
+  const expectedReceiptMinDate = minPurchaseDate;
   const [deleting, setDeleting] = useState<PurchaseRequestRow | null>(null);
   const [reasonModal, setReasonModal] = useState<null | {
-    kind: "cancel";
+    kind: "cancel" | "reject";
     row: PurchaseRequestRow;
     reason: string;
     error: string | null;
@@ -434,15 +496,6 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
       .then((res) => {
         setSourceRows(res.items);
         setSourceTotal(res.total);
-        // Giữ tick xuyên trang: một YCMH đang tick chỉ bị bỏ khi trang hiện tại
-        // cho thấy nó đã rời trạng thái "open" (đã được gom/hủy); nếu không xuất
-        // hiện ở trang này thì nó đang ở trang khác → giữ nguyên.
-        setCheckedSources((current) =>
-          current.filter((picked) => {
-            const fresh = res.items.find((row) => row.id === picked.id);
-            return !fresh || fresh.status === "open";
-          }),
-        );
       })
       .catch(() => {
         setSourceRows([]);
@@ -501,20 +554,6 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
     1,
     Math.ceil(sourceTotal / SOURCE_PAGE_SIZE),
   );
-  // Lựa chọn tích lũy across trang — chính là danh sách gom vào phiếu mua.
-  const selectedSources = checkedSources;
-  // Gộp trang hiện tại với các YCMH đã tick ở trang khác — nếu không, phiếu gom
-  // xuyên trang sẽ thiếu ô chọn cho những YCMH nằm ngoài trang đang xem.
-  const formSourceRows = useMemo(() => {
-    const pool = new Map<number, DepartmentPurchaseRequestRow>();
-    for (const row of sourceRows) pool.set(row.id, row);
-    for (const row of checkedSources) pool.set(row.id, row);
-    return [...pool.values()].filter(
-      (row) =>
-        row.status === "open" || form.source_request_ids.includes(row.id),
-    );
-  }, [sourceRows, checkedSources, form.source_request_ids]);
-
   // Chỉ thay dòng trong danh sách, KHÔNG đụng selectedId: các nút thao tác nằm ở
   // bảng, chọn dòng ở đây sẽ tự bung popup chi tiết. Popup đang mở thì `selected`
   // tự lấy lại dòng mới từ `rows`.
@@ -524,47 +563,33 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
     );
   }
 
-  function toggleSource(row: DepartmentPurchaseRequestRow) {
-    if (row.status !== "open") return;
-    setCheckedSources((current) =>
-      current.some((picked) => picked.id === row.id)
-        ? current.filter((picked) => picked.id !== row.id)
-        : [...current, row],
-    );
-  }
-
-  function openCreatePurchaseRequest() {
-    if (selectedSources.length === 0) {
-      setError("Vui lòng chọn ít nhất một yêu cầu mua hàng từ phòng ban.");
+  function openCreatePurchaseRequest(pickedSource: DepartmentPurchaseRequestRow) {
+    if (pickedSource.status !== "open") {
+      setError("Chỉ lập phiếu mua hàng từ yêu cầu đang chờ Thu mua xử lý.");
       return;
     }
-    const dates = selectedSources
-      .map((row) => row.needed_date)
-      .filter(Boolean)
-      .sort();
-    const lines = selectedSources.flatMap((source) =>
-      source.lines.map((line) => ({
-        item_name: line.item_name,
-        unit: line.unit,
-        quantity: line.quantity,
-        expected_unit_price: line.expected_unit_price,
-        discount_percent: 0,
-        vat_percent: 0,
-        note: line.note ?? `Từ ${source.code}`,
-      })),
-    );
+    const source = pickedSource;
+    const lines = source.lines.map((line) => ({
+      item_name: line.item_name,
+      unit: line.unit,
+      quantity: line.quantity,
+      expected_unit_price: line.expected_unit_price,
+      discount_percent: 0,
+      vat_percent: 0,
+      note: line.note ?? `Từ ${source.code}`,
+    }));
+    const suggestedSupplierId = bestSupplierIdForLines(lines, suppliers);
     setEditing(null);
     setForm({
-      supplier_id: null,
-      source_request_ids: selectedSources.map((source) => source.id),
-      purpose:
-        selectedSources.length === 1
-          ? selectedSources[0].purpose
-          : `Mua theo ${selectedSources.map((source) => source.code).join(", ")}`,
-      needed_date: dates[0] ?? "",
+      supplier_id: suggestedSupplierId,
+      source_request_ids: [source.id],
+      purpose: source.purpose,
+      needed_date: source.needed_date ?? "",
       expected_receipt_date: "",
       note: "",
-      lines: lines.length ? lines : [emptyLine()],
+      lines: lines.length
+        ? applySupplierPrices(lines, suppliers, suggestedSupplierId)
+        : [emptyLine()],
     });
     setFormError(null);
     setMode("create");
@@ -616,10 +641,19 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
       setFormError(`Vui lòng nhập đầy đủ: ${missingHeader.join(", ")}.`);
       return;
     }
-    if (payload.source_request_ids.length === 0) {
-      setFormError(
-        "Vui lòng chọn ít nhất một yêu cầu mua hàng từ phòng ban để lập phiếu.",
-      );
+    if (payload.needed_date && payload.needed_date < minPurchaseDate) {
+      setFormError("Ngày cần hàng không được nhỏ hơn hôm nay.");
+      return;
+    }
+    if (
+      payload.expected_receipt_date &&
+      payload.expected_receipt_date < minPurchaseDate
+    ) {
+      setFormError("Ngày dự kiến nhận hàng không được nhỏ hơn hôm nay.");
+      return;
+    }
+    if (payload.source_request_ids.length !== 1) {
+      setFormError("Mỗi phiếu mua hàng chỉ được lập từ 1 yêu cầu mua hàng.");
       return;
     }
     if (
@@ -666,7 +700,6 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
         setTotal((t) => t + 1);
       }
       setMode(null);
-      setCheckedSources([]); // tạo xong: bỏ chọn hết (các YCMH đã gom rời "open")
       loadSuppliers();
       loadSources();
     } catch (err) {
@@ -718,10 +751,17 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
   async function confirmReason() {
     if (!token || !reasonModal) return;
     const { row, kind, reason } = reasonModal;
+    if (kind === "reject" && !reason.trim()) {
+      setReasonModal({ ...reasonModal, error: "Vui lòng nhập lý do từ chối." });
+      return;
+    }
     setActionBusy(`${kind}:${row.id}`);
     setReasonModal({ ...reasonModal, error: null });
     try {
-      const next = await api.purchaseRequests.cancel(token, row.id, reason || null);
+      const next =
+        kind === "reject"
+          ? await api.purchaseRequests.reject(token, row.id, reason.trim())
+          : await api.purchaseRequests.cancel(token, row.id, reason || null);
       updateRow(next);
       setReasonModal(null);
       loadSources();
@@ -804,6 +844,30 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
             }
           />
         )}
+        {canApprove && row.status === "pending_approval" && (
+          <>
+            <RowActionButton
+              dense={dense}
+              label="Duyệt"
+              icon="check"
+              loading={busy("approve")}
+              onClick={() =>
+                runAction(row, "approve", () =>
+                  api.purchaseRequests.approve(token!, row.id),
+                )
+              }
+            />
+            <RowActionButton
+              dense={dense}
+              label="Từ chối"
+              icon="ban"
+              danger
+              onClick={() =>
+                setReasonModal({ kind: "reject", row, reason: "", error: null })
+              }
+            />
+          </>
+        )}
         {canUpdate && row.status === "approved" && (
           <RowActionButton
             dense={dense}
@@ -872,8 +936,8 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
         <p className="eyebrow">Thu mua</p>
         <h1 className="md-page__title">Mua hàng</h1>
         <p className="md-page__sub">
-          Bộ phận mua hàng lập phiếu yêu cầu, gửi kế toán duyệt, sau đó theo dõi
-          đã mua và đã nhận hàng.
+          Bộ phận mua hàng lập PMH từ YCMH, gửi người có quyền duyệt, sau đó
+          theo dõi đã mua và đã nhận hàng.
         </p>
       </header>
 
@@ -882,17 +946,6 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
           <div>
             <p className="eyebrow">Yêu cầu từ phòng ban</p>
             <h2>Danh sách chờ Thu mua xử lý</h2>
-          </div>
-          <div className="purchase__actions">
-            {canCreate && (
-              <Button
-                variant="primary"
-                onClick={openCreatePurchaseRequest}
-                disabled={selectedSources.length === 0}
-              >
-                Tạo phiếu mua từ yêu cầu
-              </Button>
-            )}
           </div>
         </div>
 
@@ -936,13 +989,15 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
 
         <table className="md-page__table">
           <thead>
+            {/* Thao tác đứng CUỐI — khớp bảng Phiếu mua ngay dưới. Cùng một màn mà hai bảng để
+                cột nút ở hai đầu thì mắt phải nhảy qua lại. */}
             <tr>
-              <th>Chọn</th>
               <th>Mã yêu cầu</th>
               <th>Nguồn</th>
               <th>Cần hàng</th>
               <th>Vật tư</th>
               <th>Trạng thái</th>
+              <th>Thao tác</th>
             </tr>
           </thead>
           <tbody>
@@ -964,26 +1019,18 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                 return (
                   <tr
                     key={row.id}
-                    className={`md-page__row${checkedSources.some((picked) => picked.id === row.id) ? " purchase__row--selected" : ""}`}
-                    onClick={() => toggleSource(row)}
+                    className="md-page__row"
+                    onClick={() =>
+                      !disabled && canCreate
+                        ? openCreatePurchaseRequest(row)
+                        : undefined
+                    }
                   >
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={checkedSources.some(
-                          (picked) => picked.id === row.id,
-                        )}
-                        disabled={disabled}
-                        onChange={() => toggleSource(row)}
-                        aria-label={`Chọn ${row.code}`}
-                      />
-                    </td>
                     <td>
                       <strong className="md-page__mono">{row.code}</strong>
                       <div className="md-page__muted">{row.purpose}</div>
                     </td>
                     <td>
-                      {/* {SOURCE_TYPE_LABELS[row.source_type]} */}
                       <div>
                         {row.requesting_department_name ||
                           row.requested_by_name ||
@@ -1003,6 +1050,19 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                     <td>
                       <SourceStatusBadge status={row.status} />
                     </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {canCreate && !disabled ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => openCreatePurchaseRequest(row)}
+                        >
+                          Tạo phiếu
+                        </Button>
+                      ) : (
+                        <span className="md-page__muted">—</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })
@@ -1011,7 +1071,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
         </table>
         <div className="purchase__source-foot">
           <span className="md-page__muted">
-            Đã chọn {selectedSources.length} yêu cầu · Tổng {sourceTotal}
+            Tổng {sourceTotal} yêu cầu
           </span>
           {sourceTotalPages > 1 && (
             <div className="md-page__pager-btns">
@@ -1185,6 +1245,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
           kicker="Chi tiết phiếu"
           title={selected.code}
           badge={<StatusBadge status={selected.status} />}
+          footer={actionButtons(selected)}
           onClose={() => setSelectedId(null)}
         >
           <dl className="purchase__facts">
@@ -1193,7 +1254,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
               <dd>{selected.supplier_name || "Chưa chọn"}</dd>
             </div>
             <div>
-              <dt>Yêu cầu nguồn</dt>
+              <dt>Phiếu yêu cầu mua hàng</dt>
               <dd>
                 {selected.sources.length
                   ? selected.sources.map((source, index) => (
@@ -1283,7 +1344,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
       {mode && (
         <div className="md-page__overlay" role="presentation">
           <div
-            className="card md-page__dialog purchase__dialog"
+            className="card md-page__dialog purchase__dialog purchase__dialog--order"
             role="dialog"
             aria-modal="true"
           >
@@ -1314,65 +1375,34 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                     onChange={(e) =>
                       setForm({
                         ...form,
-                        supplier_id: e.target.value
-                          ? Number(e.target.value)
-                          : null,
+                        supplier_id: e.target.value ? Number(e.target.value) : null,
+                        lines: applySupplierPrices(
+                          form.lines,
+                          suppliers,
+                          e.target.value ? Number(e.target.value) : null,
+                        ),
                       })
                     }
                   >
                     <option value="">Chọn nhà cung cấp</option>
-                    {suppliers.map((supplier) => (
-                      <option key={supplier.id} value={supplier.id}>
-                        {supplier.name}
-                      </option>
-                    ))}
+                    {suppliers.map((supplier) => {
+                      const bestId = bestSupplierIdForLines(form.lines, suppliers);
+                      const bestHint =
+                        supplier.id === bestId ? " - giá thấp nhất" : "";
+                      return (
+                        <option key={supplier.id} value={supplier.id}>
+                          {`${supplier.name}${bestHint}`}
+                        </option>
+                      );
+                    })}
                   </select>
-                </LocalField>
-                <LocalField label="Yêu cầu nguồn" wide required>
-                  <div className="purchase__source-picker">
-                    {formSourceRows.length === 0 ? (
-                      <span className="md-page__muted">
-                        Chưa có yêu cầu đang chờ mua.
-                      </span>
-                    ) : (
-                      formSourceRows.map((source) => (
-                        <label
-                          key={source.id}
-                          className="purchase__source-option"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={form.source_request_ids.includes(
-                              source.id,
-                            )}
-                            onChange={(e) =>
-                              setForm((current) => ({
-                                ...current,
-                                source_request_ids: e.target.checked
-                                  ? [...current.source_request_ids, source.id]
-                                  : current.source_request_ids.filter(
-                                      (id) => id !== source.id,
-                                    ),
-                              }))
-                            }
-                          />
-                          <span>
-                            <strong>{source.code}</strong>
-                            <small>
-                              {SOURCE_TYPE_LABELS[source.source_type]} ·{" "}
-                              {fmtDate(source.needed_date)}
-                            </small>
-                          </span>
-                        </label>
-                      ))
-                    )}
-                  </div>
                 </LocalField>
                 <LocalField label="Ngày cần hàng" required>
                   <input
                     className="input"
                     type="date"
                     required
+                    min={minPurchaseDate}
                     value={form.needed_date ?? ""}
                     onChange={(e) =>
                       setForm({ ...form, needed_date: e.target.value })
@@ -1383,6 +1413,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                   <input
                     className="input"
                     type="date"
+                    min={expectedReceiptMinDate}
                     value={form.expected_receipt_date ?? ""}
                     onChange={(e) =>
                       setForm({
@@ -1627,10 +1658,10 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
 
       <ConfirmDialog
         open={Boolean(reasonModal)}
-        title="Hủy phiếu?"
+        title={reasonModal?.kind === "reject" ? "Từ chối phiếu?" : "Hủy phiếu?"}
         message={reasonModal ? `Phiếu ${reasonModal.row.code}` : undefined}
         danger
-        confirmLabel="Hủy phiếu"
+        confirmLabel={reasonModal?.kind === "reject" ? "Từ chối phiếu" : "Hủy phiếu"}
         busy={
           reasonModal
             ? actionBusy === `${reasonModal.kind}:${reasonModal.row.id}`
@@ -1641,7 +1672,9 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
         onCancel={() => setReasonModal(null)}
       >
         <label className="purchase__field">
-          <span>Lý do / ghi chú</span>
+          <span>
+            {reasonModal?.kind === "reject" ? "Lý do từ chối" : "Lý do / ghi chú"}
+          </span>
           <textarea
             className="input purchase__textarea"
             value={reasonModal?.reason ?? ""}

@@ -10,6 +10,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -102,6 +103,33 @@ class Supplier(Base):
         cascade="all, delete-orphan",
         order_by="SupplierBankAccount.id",
     )
+    items: Mapped[list["SupplierItem"]] = relationship(
+        "SupplierItem",
+        back_populates="supplier",
+        cascade="all, delete-orphan",
+        order_by="SupplierItem.id",
+    )
+
+
+class SupplierItem(Base):
+    __tablename__ = "supplier_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    supplier_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("suppliers.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    item_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    unit_price: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    vat_percent: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    supplier: Mapped[Supplier] = relationship("Supplier", back_populates="items")
 
 
 class PurchaseRequest(Base):

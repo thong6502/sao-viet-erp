@@ -13,7 +13,7 @@ from __future__ import annotations
 import calendar
 import json
 import math
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time as dtime, timedelta, timezone
 
 from ..models.attendance import (
     APERIOD_DRAFT,
@@ -761,15 +761,35 @@ class AttendanceService:
             return None
         return {e.id for e in self.employees.list_scoped_all(scope=scope, actor=actor)}
 
-    def list_logs(self, *, scope=None, actor=None, employee_id: int | None = None, limit: int = 100):
+    # Trần khi CÓ lọc ngày. Khoảng ngày đã tự bó dữ liệu lại, nhưng một ngày của xưởng 50 người là
+    # ~200 lượt — giữ trần 100 thì lọc xong vẫn MẤT NỬA NGÀY trong im lặng, tức lọc ngày mà vẫn
+    # không tin được. Số này cũng là số hiện trên màn ("tối đa N"), đừng để hai nơi lệch nhau.
+    LOG_LIMIT_CO_LOC_NGAY = 1000
+
+    def list_logs(self, *, scope=None, actor=None, employee_id: int | None = None,
+                  limit: int = 100, q: str | None = None, tu_ngay=None, den_ngay=None):
         """Log chấm công, LỌC THEO SCOPE của người gọi (own/department/all). `employee_id` do
-        client truyền chỉ được chấp nhận nếu nằm trong tập cho phép (ngoài → rỗng, không rò)."""
+        client truyền chỉ được chấp nhận nếu nằm trong tập cho phép (ngoài → rỗng, không rò).
+
+        `q` (tìm theo tên/mã NV) đi XUỐNG SQL cùng tập `allowed` — nó THU HẸP thêm chứ không bao
+        giờ thay thế lớp scope. Gõ tên người ngoài phạm vi thì `allowed` đã loại từ trước, kết quả
+        rỗng; tìm kiếm không được là đường vòng để nhìn trộm."""
+        # Ngày do người dùng chọn là NGÀY VN; log lưu UTC ⇒ phải quy đổi ở đây, không đẩy xuống
+        # repo. `den_ngay` lấy TRỌN ngày đó nên biên phải là 00:00 hôm SAU (nửa mở), không thì
+        # người chọn "đến 28/7" mất sạch lượt bấm trong ngày 28.
+        tu = datetime.combine(tu_ngay, dtime(0, 0), tzinfo=VN_TZ).astimezone(timezone.utc) if tu_ngay else None
+        den = (datetime.combine(den_ngay, dtime(0, 0), tzinfo=VN_TZ)
+               + timedelta(days=1)).astimezone(timezone.utc) if den_ngay else None
+        if tu is not None or den is not None:
+            limit = self.LOG_LIMIT_CO_LOC_NGAY
+
         allowed = self._allowed_employee_ids(scope, actor)
         if employee_id is not None:
             if allowed is not None and employee_id not in allowed:
                 return []
-            return self.attendance.list_all(employee_ids={employee_id}, limit=limit)
-        return self.attendance.list_all(employee_ids=allowed, limit=limit)
+            return self.attendance.list_all(employee_ids={employee_id}, limit=limit, q=q,
+                                            tu=tu, den=den)
+        return self.attendance.list_all(employee_ids=allowed, limit=limit, q=q, tu=tu, den=den)
 
     # --- lịch sử thay đổi ca + hộp thư của NV -------------------------------
 
@@ -1255,6 +1275,22 @@ class AttendanceService:
                         unpaid_leave += 1
                     total_cong += cong
                 day_map[str(d)] = cell
+
+            # NGÀY THỰC LÀM theo từng CA — nền cho phụ cấp cơm / phụ cấp ca khai trên `work_shifts`.
+            #
+            # Ở đây CHỈ báo SỰ THẬT ("ca này làm mấy ngày, mỗi ngày được bao nhiêu công"), KHÔNG áp
+            # ngưỡng: ngưỡng là CHÍNH SÁCH TRẢ TIỀN, tham số của nó nằm bên Lương. Chấm công mà tự
+            # quyết ngày nào đáng tiền là đặt sai tầng, và đổi ngưỡng lại phải sửa hai chỗ.
+            #
+            # Chạy SAU khi `day_map` xong (không nhét vào 5 nhánh trên) vì `cell["cong"]` còn bị
+            # cộng thêm ở nhánh hoàn công phép — đọc sớm là đọc số chưa chốt.
+            ca_lam: dict[int, list[float]] = {}
+            for c in day_map.values():
+                sid = c.get("shift_id")
+                if sid is None or not c.get("present"):
+                    continue          # nghỉ phép / nghỉ lễ / không đi làm → không phải ngày làm ca
+                ca_lam.setdefault(int(sid), []).append(round(float(c.get("cong") or 0), 2))
+
             summary_shift = shifts.get(next(iter(used_shift_ids))) if len(used_shift_ids) == 1 else None
             has_cong = bool(used_shift_ids) or total_leave > 0 or bool(emp_holidays)
             rows.append({
@@ -1273,6 +1309,8 @@ class AttendanceService:
                 "ot_holiday_minutes": ot_holiday, "ot_restday_minutes": ot_restday,
                 "hanging_days": hanging,
                 "late_off_days": late_off_days,   # [số phút vi phạm mỗi ngày không phép] → payroll áp bảng phạt
+                # {ca → [công của từng ngày làm ca đó]} → Lương tính phụ cấp cơm / phụ cấp ca
+                "ca_lam": ca_lam,
                 "night_premium_minutes": round(night_premium_minutes, 2),   # Σ phút đêm × (hệ số−1) → premium giờ đêm
                 "ot_night_normal_minutes": ot_night_normal,
                 "ot_night_restday_minutes": ot_night_restday,
@@ -1385,6 +1423,7 @@ class AttendanceService:
                 ot_night_restday_minutes=r.get("ot_night_restday_minutes", 0),
                 ot_night_holiday_minutes=r.get("ot_night_holiday_minutes", 0),
                 late_off_days_json=json.dumps(r.get("late_off_days") or []),
+                ca_lam_json=json.dumps(r.get("ca_lam") or {}),
             )
         self.attendance.update_period(
             p, status=APERIOD_LOCKED, locked_at=datetime.now(timezone.utc),
@@ -1442,6 +1481,9 @@ class AttendanceService:
                 "ot_holiday_minutes": int(r.get("ot_holiday_minutes") or 0),
                 "ot_restday_minutes": int(r.get("ot_restday_minutes") or 0),
                 "late_off_days": [int(x) for x in (r.get("late_off_days") or [])],
+                # {ca → [công từng ngày]}. PHẢI có ở CẢ nhánh snapshot bên dưới, không thì phụ cấp
+                # ca/cơm NHẢY SỐ đúng lúc chốt công — lỗi đã gặp với `excused_cong`/`paid_leave_days`.
+                "ca_lam": {int(k): [float(x) for x in v] for k, v in (r.get("ca_lam") or {}).items()},
                 "night_premium_minutes": float(r.get("night_premium_minutes") or 0),
                 "ot_night_normal_minutes": int(r.get("ot_night_normal_minutes") or 0),
                 "ot_night_restday_minutes": int(r.get("ot_night_restday_minutes") or 0),

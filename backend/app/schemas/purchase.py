@@ -6,6 +6,16 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class SupplierItemIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_name: str = Field(min_length=1, max_length=255)
+    unit: str = Field(min_length=1, max_length=32)
+    unit_price: int = Field(gt=0)
+    vat_percent: float = Field(default=0, ge=0, le=100)
+    note: str | None = Field(default=None, max_length=2000)
+
+
 class SupplierIn(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     tax_code: str = Field(min_length=1, max_length=20)
@@ -17,6 +27,21 @@ class SupplierIn(BaseModel):
     payment_terms: str | None = Field(default=None, max_length=255)
     status: str = Field(default="active", max_length=16)
     note: str | None = Field(default=None, max_length=2000)
+    items: list[SupplierItemIn] = Field(default_factory=list)
+
+
+class SupplierItemRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    supplier_id: int
+    item_name: str
+    unit: str
+    unit_price: int
+    vat_percent: float
+    note: str | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class SupplierRow(BaseModel):
@@ -35,6 +60,7 @@ class SupplierRow(BaseModel):
     note: str | None = None
     created_at: datetime
     updated_at: datetime
+    items: list[SupplierItemRow] = Field(default_factory=list)
 
 
 class SupplierListOut(BaseModel):
@@ -42,6 +68,17 @@ class SupplierListOut(BaseModel):
     total: int
     page: int
     size: int
+
+
+class SupplierItemCatalogRow(BaseModel):
+    item_name: str
+    unit: str
+    supplier_count: int
+    min_unit_price: int
+
+
+class SupplierItemCatalogOut(BaseModel):
+    items: list[SupplierItemCatalogRow]
 
 
 class PurchaseRequestLineIn(BaseModel):
@@ -64,7 +101,7 @@ class DepartmentPurchaseRequestLineIn(BaseModel):
 
 
 class DepartmentPurchaseRequestIn(BaseModel):
-    source_type: str = Field(min_length=1, max_length=32)
+    source_type: str | None = Field(default=None, max_length=32)
     related_document_type: str | None = Field(default=None, max_length=64)
     related_document_code: str | None = Field(default=None, max_length=64)
     purpose: str = Field(min_length=1, max_length=500)

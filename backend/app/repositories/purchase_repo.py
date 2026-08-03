@@ -20,6 +20,7 @@ from ..models.purchase import (
     PurchaseRequestLine,
     PurchaseRequestSource,
     Supplier,
+    SupplierItem,
 )
 
 
@@ -49,7 +50,11 @@ class SupplierRepository:
         self.db = db
 
     def get_by_id(self, supplier_id: int) -> Supplier | None:
-        return self.db.get(Supplier, supplier_id)
+        return self.db.execute(
+            select(Supplier)
+            .options(selectinload(Supplier.items))
+            .where(Supplier.id == supplier_id)
+        ).scalars().first()
 
     def find_by_name(self, name: str) -> Supplier | None:
         name = (name or "").strip()
@@ -84,7 +89,7 @@ class SupplierRepository:
         if supplier_group:
             conditions.append(Supplier.supplier_group == supplier_group)
 
-        stmt = select(Supplier)
+        stmt = select(Supplier).options(selectinload(Supplier.items))
         count_stmt = select(func.count()).select_from(Supplier)
         for c in conditions:
             stmt = stmt.where(c)
@@ -115,6 +120,7 @@ class SupplierRepository:
         payment_terms: str | None = None,
         status: str = SUPPLIER_ACTIVE,
         note: str | None = None,
+        items: Sequence["SupplierItemInput"] | None = None,
     ) -> Supplier:
         row = Supplier(
             name=name,
@@ -128,6 +134,17 @@ class SupplierRepository:
             status=status,
             note=note,
         )
+        row.items = [
+            SupplierItem(
+                item_name=item.item_name,
+                unit=item.unit,
+                unit_price=item.unit_price,
+                vat_percent=item.vat_percent,
+                is_active=True,
+                note=item.note,
+            )
+            for item in (items or [])
+        ]
         self.db.add(row)
         try:
             self.db.commit()
@@ -138,8 +155,21 @@ class SupplierRepository:
         return row
 
     def update(self, supplier: Supplier, **values) -> Supplier:
+        items = values.pop("items", None)
         for key, value in values.items():
             setattr(supplier, key, value)
+        if items is not None:
+            supplier.items = [
+                SupplierItem(
+                    item_name=item.item_name,
+                    unit=item.unit,
+                    unit_price=item.unit_price,
+                    vat_percent=item.vat_percent,
+                    is_active=True,
+                    note=item.note,
+                )
+                for item in items
+            ]
         try:
             self.db.commit()
         except Exception:
@@ -147,6 +177,76 @@ class SupplierRepository:
             raise
         self.db.refresh(supplier)
         return supplier
+
+    def list_item_catalog(self) -> list[dict]:
+        rows = list(
+            self.db.execute(
+                select(SupplierItem)
+                .join(Supplier, Supplier.id == SupplierItem.supplier_id)
+                .where(Supplier.status == SUPPLIER_ACTIVE)
+                .order_by(func.lower(SupplierItem.item_name), SupplierItem.unit_price.asc(), SupplierItem.id.asc())
+            ).scalars()
+        )
+        grouped: dict[str, dict] = {}
+        suppliers_by_key: dict[str, set[int]] = {}
+        for row in rows:
+            key = (row.item_name or "").strip().lower()
+            if not key:
+                continue
+            current = grouped.get(key)
+            if current is None:
+                grouped[key] = {
+                    "item_name": row.item_name,
+                    "unit": row.unit,
+                    "min_unit_price": int(row.unit_price),
+                }
+                suppliers_by_key[key] = set()
+            elif int(row.unit_price) < int(current["min_unit_price"]):
+                current["min_unit_price"] = int(row.unit_price)
+                current["unit"] = row.unit
+                current["item_name"] = row.item_name
+            suppliers_by_key[key].add(row.supplier_id)
+        return [
+            {
+                **value,
+                "supplier_count": len(suppliers_by_key[key]),
+            }
+            for key, value in grouped.items()
+        ]
+
+    def has_active_item(self, item_name: str) -> bool:
+        clean_name = (item_name or "").strip().lower()
+        if not clean_name:
+            return False
+        return (
+            self.db.execute(
+                select(SupplierItem.id)
+                .join(Supplier, Supplier.id == SupplierItem.supplier_id)
+                .where(
+                    Supplier.status == SUPPLIER_ACTIVE,
+                    func.lower(SupplierItem.item_name) == clean_name,
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            is not None
+        )
+
+
+class SupplierItemInput:
+    def __init__(
+        self,
+        *,
+        item_name: str,
+        unit: str,
+        unit_price: int,
+        vat_percent: float = 0,
+        note: str | None = None,
+    ) -> None:
+        self.item_name = item_name
+        self.unit = unit
+        self.unit_price = unit_price
+        self.vat_percent = vat_percent
+        self.note = note
 
 
 class PurchaseRequestLineInput:
@@ -228,6 +328,8 @@ class DepartmentPurchaseRequestRepository:
         q: str | None = None,
         status: str | None = None,
         source_type: str | None = None,
+        requesting_department_id: int | None = None,
+        filter_by_department: bool = False,
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
@@ -247,6 +349,8 @@ class DepartmentPurchaseRequestRepository:
             conditions.append(DepartmentPurchaseRequest.status == status)
         if source_type:
             conditions.append(DepartmentPurchaseRequest.source_type == source_type)
+        if filter_by_department:
+            conditions.append(DepartmentPurchaseRequest.requesting_department_id == requesting_department_id)
 
         stmt = select(DepartmentPurchaseRequest).options(
             selectinload(DepartmentPurchaseRequest.lines),
@@ -319,6 +423,36 @@ class DepartmentPurchaseRequestRepository:
         return self.get_by_id(row.id) or row
 
     def save(self, request: DepartmentPurchaseRequest) -> DepartmentPurchaseRequest:
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        self.db.refresh(request)
+        return self.get_by_id(request.id) or request
+
+    def update(
+        self,
+        request: DepartmentPurchaseRequest,
+        *,
+        purpose: str,
+        needed_date: date,
+        note: str | None,
+        lines: Sequence[DepartmentPurchaseRequestLineInput],
+    ) -> DepartmentPurchaseRequest:
+        request.purpose = purpose
+        request.needed_date = needed_date
+        request.note = note
+        request.lines = [
+            DepartmentPurchaseRequestLine(
+                item_name=line.item_name,
+                unit=line.unit,
+                quantity=line.quantity,
+                expected_unit_price=line.expected_unit_price,
+                note=line.note,
+            )
+            for line in lines
+        ]
         try:
             self.db.commit()
         except Exception:

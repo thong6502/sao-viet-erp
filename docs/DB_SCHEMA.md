@@ -2195,7 +2195,7 @@ từ đây khi kỳ đã `locked`. Xóa + ghi lại mỗi lần Chốt / Mở l�
 | `excused_cong` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | Công THIẾU nhưng CÓ ĐƠN nghỉ theo giờ đã duyệt (đi muộn/về sớm/nửa ngày). **KHÔNG** cộng vào `total_cong` — tiền công vẫn trừ; chỉ để Lương giữ nguyên phụ cấp chuyên cần. Thêm qua migration 0111. |
 | `ot_holiday_minutes` | `Integer` → `INTEGER` | — | no | `0` | Phút OT ngày lễ. Thêm qua migration 0065. |
 | `ot_restday_minutes` | `Integer` → `INTEGER` | — | no | `0` | Phút OT ngày nghỉ tuần. Thêm qua migration 0065. |
-| `late_off_days_json` | `Text` → `TEXT` | — | yes | — | JSON list SỐ PHÚT vi phạm (trễ+sớm, không phép) MỖI NGÀY — đóng băng để Lương áp bảng phạt trễ/sớm tự động (mỗi phần tử = 1 lần). Thêm qua migration 0098. |
+| `late_off_days_json`, `ca_lam_json` | `Text` → `TEXT` | — | yes | — | JSON list SỐ PHÚT vi phạm (trễ+sớm, không phép) MỖI NGÀY — đóng băng để Lương áp bảng phạt trễ/sớm tự động (mỗi phần tử = 1 lần). Thêm qua migration 0098. |
 | `night_premium_minutes` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Σ phút đêm TRONG ca × (hệ số ca − 1) → Lương tính premium giờ đêm. Thêm qua migration 0101. |
 | `ot_night_normal_minutes` | `Integer` → `INTEGER` | — | no | `0` | Phút TĂNG CA ĐÊM ngày thường (Lương áp hệ số luật). Thêm qua migration 0101. |
 | `ot_night_restday_minutes` | `Integer` → `INTEGER` | — | no | `0` | Phút TĂNG CA ĐÊM ngày nghỉ tuần. Thêm qua migration 0101. |
@@ -2241,6 +2241,36 @@ vật tư/dịch vụ, dùng để chọn vào phiếu yêu cầu mua hàng.
 
 - One supplier can be referenced by many `purchase_requests`.
 - One supplier can own many `supplier_bank_accounts`.
+- One supplier can own many `supplier_items`.
+
+---
+
+### `supplier_items`
+
+**Purpose:** danh sách mặt hàng/bảng giá hiện tại mà từng nhà cung cấp có thể cung ứng. One row = một mặt hàng của một NCC, dùng để gợi ý ĐVT/đơn giá/VAT khi lập phiếu mua.
+
+| Column        | Type (SQLAlchemy → SQLite / Postgres)                  | Key                  | Null | Default        | Meaning                                      |
+| ------------- | ------------------------------------------------------ | -------------------- | ---- | -------------- | -------------------------------------------- |
+| `id`          | `Integer` → `INTEGER` / `SERIAL`                       | **PK**               | no   | auto-increment | Surrogate primary key.                       |
+| `supplier_id` | `Integer` → `INTEGER`                                  | **FK→suppliers.id**, **IX** | no   | —              | Nhà cung cấp sở hữu mặt hàng/bảng giá.       |
+| `item_name`   | `String(255)` → `VARCHAR(255)`                         | **IX**               | no   | —              | Tên vật tư/sản phẩm/dịch vụ NCC cung cấp.    |
+| `unit`        | `String(32)` → `VARCHAR(32)`                           | —                    | no   | —              | Đơn vị tính.                                 |
+| `unit_price`  | `BigInteger` → `BIGINT`                                | —                    | no   | `0`            | Đơn giá hiện tại của NCC.                    |
+| `vat_percent` | `Numeric(6,2)` → `NUMERIC(6,2)`                        | —                    | no   | `0`            | Thuế GTGT tham khảo theo mặt hàng.           |
+| `is_active`   | `Boolean` → `BOOLEAN`                                  | —                    | no   | `true`         | Cột kỹ thuật ẩn để tương thích DB cũ; UI không dùng trạng thái mặt hàng. |
+| `note`        | `Text` → `TEXT`                                        | —                    | yes  | —              | Ghi chú báo giá/điều kiện mua.               |
+| `created_at`  | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                    | no   | now (UTC)      | Khi tạo.                                     |
+| `updated_at`  | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                    | no   | now (UTC)      | Cập nhật cuối.                               |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes on `supplier_id`, `item_name`.
+- Foreign key: `supplier_id FK→suppliers.id` (cascade).
+
+**Relationships**
+
+- One supplier item belongs to one `suppliers` row.
 
 ---
 
@@ -2771,6 +2801,7 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 | `pit_flat_rate` | `Numeric(6,4)` | no | `0.1` | Tỷ lệ **KHẤU TRỪ TẠI NGUỒN** cho HĐ dưới 3 tháng / thời vụ (`employees.pit_mode = khau_tru_10`). PHÂN SỐ: `0.10` = 10%. Khai được vì đây là số theo LUẬT, đổi theo luật — đừng viết cứng trong code. Thêm qua migration 0120. |
 | `pit_flat_threshold` | `Numeric(14,2)` | no | `2000000` | Ngưỡng thu nhập MỖI LẦN TRẢ mới phải khấu trừ tại nguồn (hiện 2.000.000đ). Đi cặp với `pit_flat_rate`. Thêm qua migration 0120. |
 | `phat_cap_pct` | `Numeric(6,4)` | no | `0.3` | **TRẦN KHẤU TRỪ KỶ LUẬT** — PHÂN SỐ (`0.30` = 30%). ⚠️ Đây là MỨC LUẬT, không phải chính sách công ty: Điều 102 BLLĐ 2019 giới hạn khấu trừ mỗi tháng không quá 30% lương còn lại sau khi trừ BHXH và TNCN. Trước viết cứng `0.30` trong `_capped_penalty`. `0` = TẮT TRẦN (ghi phạt bao nhiêu trừ bấy nhiêu; thực nhận vẫn có sàn 0, không âm) — màn Cấu hình lương cảnh báo khi đặt 0 hoặc > 30%. Thêm qua migration 0126. |
+| `phu_cap_ca_min_cong` | `Numeric(5,2)` | no | `0.5` | **NGƯỠNG CÔNG để hưởng phụ cấp cơm/ca của một ngày** (chủ chốt 03/08/2026). Ngày có `cong >= ` số này thì hưởng **TRỌN** mức của ca; dưới ngưỡng thì **KHÔNG có gì** — cố ý **KHÔNG nhân theo tỷ lệ**: một suất ăn là có hoặc không, nhân tỷ lệ thì đi muộn 15 phút (công 0,97) ra 24.250đ tiền cơm. `0.5` = nghỉ nửa buổi vẫn được hưởng. ⚠️ Hệ thống KHÔNG có cờ "nửa buổi" — đi muộn/về sớm/nghỉ nửa buổi dùng chung `late_early_requests` và engine chỉ đọc ĐỘ DÀI khoảng vắng, nên luật buộc phải diễn đạt theo `cong`. Thêm qua migration 0157. |
 | `updated_at` | `DateTime(tz)` | no | now | Lần cập nhật. |
 
 ---
@@ -2927,7 +2958,9 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `ot_minutes` | `Integer` | — | no | `0` | Tổng phút tăng ca (từ Chấm công). Thêm qua migration 0043. |
 | `ot_pay` | `Numeric(14,2)` | — | no | `0` | Tiền tăng ca (hệ số phẳng). Thêm qua migration 0043. |
 | `night_days` | `Integer` | — | no | `0` | Số ngày làm ca đêm (từ Chấm công) — chỉ để tham khảo, KHÔNG ra tiền. Thêm qua migration 0043. |
-| `night_pay` | `Numeric(14,2)` | — | no | `0` | **Phụ cấp CA của kỳ** = số KHAI TAY ở `employee_salaries.phu_cap_ca` (cộng phẳng, không prorate). API phơi thêm alias `ca_pay` = cùng số này. Miễn TNCN như tăng ca. Thêm qua migration 0043. |
+| `night_pay` | `Numeric(14,2)` | — | no | `0` | ⚠️ **NGƯNG từ 03/08/2026 — luôn 0.** Trước đây = số KHAI TAY ở `employee_salaries.phu_cap_ca` (cộng phẳng) và được miễn TNCN. Phần miễn đó là **di sản**: ô này vốn là tiền ca đêm ĐƯỢC TÍNH (đơn giá tổ × số lượt, bỏ ở mg 0090), khi đổi sang số gõ tay thì phần miễn bị bê nguyên sang — mà TT 111/2013 Đ3.1.i chỉ miễn **phần trả CAO HƠN** gắn với giờ đêm/tăng ca THỰC TẾ. Nay phụ cấp cơm/ca tính theo CA THỰC LÀM (2 cột dưới); cột này GIỮ để không mất lịch sử kỳ đã chốt. API vẫn phơi alias `ca_pay`. |
+| `meal_allowance_pay` | `Numeric(14,2)` | — | no | `0` | Tiền **CƠM CA** = `work_shifts.meal_allowance` × số ngày THỰC LÀM ca đó. Thêm qua migration 0157. |
+| `shift_allowance_pay` | `Numeric(14,2)` | — | no | `0` | **PHỤ CẤP CA** = `work_shifts.shift_allowance` × số ngày THỰC LÀM ca đó. Tách RIÊNG khỏi cột trên vì tiền ăn giữa ca có trần miễn thuế riêng (730k/tháng) — gộp một cục là mất đường tách sau. Cả hai **CHỊU thuế TNCN**; khoản nào thật sự miễn thì khai ở danh mục khoản thu nhập có cờ `is_taxable`. Thêm qua migration 0157. |
 | `night_premium_pay` | `Numeric(14,2)` | — | no | `0` | **Premium CA ĐÊM theo GIỜ** (giờ 22h–06h × hệ số ca + tăng ca đêm Đ98.3) — tự tính từ chấm công, DÒNG RIÊNG, miễn TNCN. Thêm qua migration 0102. |
 | `vi_pham` | `Numeric(14,2)` | — | no | `0` | Giảm trừ khác (nhập tay, RAW; gộp trần 30% Đ102). |
 | `other_bonus` | `Numeric(14,2)` | — | no | `0` | ⚠️ **CỘT CŨ — NGỪNG GHI từ 28/07/2026.** Thưởng khác/hoa hồng (nhập tay). |
@@ -3189,6 +3222,18 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 > Specs: `docs/spec-may-thiet-bi.md`, `spec-cong-doan.md`, `spec-san-pham.md`.
 > (Quy tắc bình bài + Tính giá thành đã bỏ — xem git tag `backup/pre-remove-binhbai-tinhgia`.)
 
+### `nhom_may`
+
+**Purpose:** danh mục **NHÓM MÁY** — danh sách tên được phép chọn ở ô "Nhóm máy" của màn Thiết bị & Máy in.
+
+🔴 **KHÔNG phải khoá ngoại.** `may_thiet_bi.loai_may` vẫn lưu **CHỮ**; bảng này chỉ quản danh sách tên được bày ra. Lý do giữ chữ: chuỗi đó đang được đọc ở Lệnh SX (`LsxBuocDrawer` · `LsxDetailView` · `LsxRoutingTable`), Phiếu tính giá, và ở chính màn Máy (`isMayIn()` quyết định ẩn/hiện ~8 ô, facet tab lọc theo nó) — đổi sang id là kéo theo cả 5 chỗ đó cộng migration dữ liệu, trong khi việc cần làm chỉ là "cho thêm và cho xoá tên trong danh sách".
+
+**Hệ quả bắt buộc nhớ:** vì không có FK, DB không tự giữ — nên **service CHẶN xoá khi còn máy dùng** (`NhomMayService.delete`, kèm SỐ máy trong thông báo). Xoá mù là để lại máy mang tên nhóm không còn tồn tại, và không chỗ nào báo. Tạo lại tên đã bị ẩn thì **bật lại dòng cũ** thay vì báo trùng.
+
+Bảng MỚI → `create_all` tự dựng, **không cần migration cho bảng**; migration `0155` chỉ để **backfill** `DISTINCT may_thiet_bi.loai_may` + tên mặc định, để DB đang chạy không mất nhóm do xưởng tự đặt. Danh sách mặc định `NHOM_MAY_MAC_DINH` khai trong `models/may_thiet_bi.py` là nguồn DUY NHẤT, `seed_rebuild.seed_nhom_may` import lại (seed đôi — `schema_migrations` sống qua `drop_all` nên test không chạy migration).
+
+**Tất cả cột:** `id`, `ten`, `active`, `created_at`, `updated_at`.
+
 ### `may_thiet_bi`
 
 **Purpose:** máy sản xuất = cost center (BHR) + spec năng lực (khổ/nhíp/units). Một row = một máy. Field theo `loai_may` gói trong JSON `fields_theo_loai`; các field engine dùng nhiều được promote thành cột thật.
@@ -3206,7 +3251,7 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 | BHR (`von_dau_tu` `nam_khau_hao` `gio_lam_nam` `availability_pct` `productivity_pct` …) |                | công thức đơn giá giờ máy (spec §4).                                          |
 | `fields_theo_loai`                                                                      | `JSON`         | field đặc thù theo `loai_may`.                                                |
 
-**Tất cả cột:** `id`, `ma`, `ten`, `loai_may`, `finishing_subtype`, `nhom_cost_center`, `phong_ban_id`, `dia_diem`, `hang_san_xuat`, `model`, `so_seri`, `trang_thai`, `ghi_chu`, `ghi_chu_2`, `ma_tai_san`, `ma_TK_cost_center`, `nha_cung_cap`, `ngay_dua_vao_su_dung`, `het_han_bao_hanh`, `phuong_phap_khau_hao`, `nguon_bhr`, `don_gia_gio_BHR`, `von_dau_tu`, `gia_tri_thu_hoi`, `nam_khau_hao`, `lai_von_pct`, `gio_lam_nam`, `availability_pct`, `productivity_pct`, `efficiency_pct`, `so_nhan_cong`, `luong_gio`, `luong_burden_pct`, `cong_suat_kW`, `he_so_tai_dien`, `don_gia_dien`, `bao_hiem_nam`, `dien_tich_san_m2`, `don_gia_thue_m2_nam`, `bao_tri_gio`, `overhead_gio`, `markup_pct`, `ngay_cap_nhat_bhr`, `toc_do`, `don_vi_toc_do`, `makeready_time_default`, `thoi_gian_rua_muc`, `min_stock_gsm`, `max_stock_gsm`, `vat_lieu_ho_tro_class`, `so_may_song_song`, `so_ca`, `chi_so_dem_luot`, `ngay_bao_tri_gan_nhat`, `chu_ky_bao_tri`, `chu_ky_bao_tri_don_vi`, `ngay_bao_tri_ke_tiep`, `kho_max_dai`, `kho_max_rong`, `kho_min_dai`, `kho_min_rong`, `kho_kem_dai`, `kho_kem_rong`, `vung_in_dai`, `vung_in_rong`, `gripper_mm`, `nhip_giay_mm`, `le_hong_mm`, `duoi_thang_mau_mm`, `so_units`, `units_truoc`, `units_sau`, `khoa_class`, `co_tro_mat`, `cho_phep_tu_tro`, `cho_phep_tro_dau_duoi`, `bu_hao_canh_may_per_mau`, `bu_hao_chay_pct`, `ho_tro_cip3`, `fields_theo_loai`, `created_at`, `updated_at`. **Hai loại nhíp — ĐỪNG LẪN:** `gripper_mm` = mép nhíp trên BẢN KẼM (~44mm, nhãn UI "Nhíp kẽm"); `nhip_giay_mm` (INTEGER nullable, migration 0107) = cạnh máy KẸP TỜ GIẤY (~8–12mm) → bình bài trừ vào chiều DÀI tờ in. `le_hong_mm` trừ MỖI BÊN chiều rộng, `duoi_thang_mau_mm` trừ chiều dài; cả hai đã có cột từ trước nhưng tới migration 0107 mới có ô nhập trên UI.
+**Tất cả cột:** `id`, `ma`, `ten`, `loai_may`, `finishing_subtype`, `nhom_cost_center`, `phong_ban_id`, `dia_diem`, `hang_san_xuat`, `model`, `so_seri`, `trang_thai`, `ghi_chu`, `ghi_chu_2`, `ma_tai_san`, `ma_TK_cost_center`, `nha_cung_cap`, `ngay_dua_vao_su_dung`, `het_han_bao_hanh`, `phuong_phap_khau_hao`, `nguon_bhr`, `don_gia_gio_BHR`, `von_dau_tu`, `gia_tri_thu_hoi`, `nam_khau_hao`, `lai_von_pct`, `gio_lam_nam`, `availability_pct`, `productivity_pct`, `efficiency_pct`, `so_nhan_cong`, `luong_gio`, `luong_burden_pct`, `cong_suat_kW`, `he_so_tai_dien`, `don_gia_dien`, `bao_hiem_nam`, `dien_tich_san_m2`, `don_gia_thue_m2_nam`, `bao_tri_gio`, `overhead_gio`, `markup_pct`, `ngay_cap_nhat_bhr`, `toc_do`, `toc_do_min`, `toc_do_max`, `don_vi_toc_do`, `makeready_time_default`, `thoi_gian_rua_muc`, `min_stock_gsm`, `max_stock_gsm`, `vat_lieu_ho_tro_class`, `so_may_song_song`, `so_ca`, `chi_so_dem_luot`, `ngay_bao_tri_gan_nhat`, `chu_ky_bao_tri`, `chu_ky_bao_tri_don_vi`, `ngay_bao_tri_ke_tiep`, `kho_max_dai`, `kho_max_rong`, `kho_min_dai`, `kho_min_rong`, `kho_kem_dai`, `kho_kem_rong`, `vung_in_dai`, `vung_in_rong`, `gripper_mm`, `nhip_giay_mm`, `le_hong_mm`, `duoi_thang_mau_mm`, `so_units`, `units_truoc`, `units_sau`, `khoa_class`, `co_tro_mat`, `cho_phep_tu_tro`, `cho_phep_tro_dau_duoi`, `bu_hao_canh_may_per_mau`, `bu_hao_chay_pct`, `ho_tro_cip3`, `fields_theo_loai`, `created_at`, `updated_at`. **Hai loại nhíp — ĐỪNG LẪN:** `gripper_mm` = mép nhíp trên BẢN KẼM (~44mm, nhãn UI "Nhíp kẽm"); `nhip_giay_mm` (INTEGER nullable, migration 0107) = cạnh máy KẸP TỜ GIẤY (~8–12mm) → bình bài trừ vào chiều DÀI tờ in. `le_hong_mm` trừ MỖI BÊN chiều rộng, `duoi_thang_mau_mm` trừ chiều dài; cả hai đã có cột từ trước nhưng tới migration 0107 mới có ô nhập trên UI. **Ba cột tốc độ — chỉ MỘT cột chảy vào tính toán:** `toc_do` = tốc độ TRUNG BÌNH, là số duy nhất Tính giá / Lệnh SX / Xếp lịch đọc (tên cột giữ nguyên dù nhãn UI đã đổi thành "Tốc độ trung bình"); `toc_do_min` / `toc_do_max` (NUMERIC(12,2) nullable, migration 0152) là dải năng lực **CHỈ ĐỂ KHAI** theo chốt của chủ 03/08/2026 — không nối vào công thức nào. Cho lịch chạy bằng khoảng [sớm–muộn] là việc viết lại lõi xếp lịch, không phải chỉ đọc thêm hai cột này. **`don_vi_toc_do`** (VARCHAR(32) sau migration 0153, trước là 16) mang mã dạng `<đơn vị đếm>_gio` **suy ra từ danh mục `don_vi_do`** — chủ tự thêm/xoá đơn vị ở màn "Đơn vị & quy đổi" là danh sách chọn tự đổi theo, không có bảng riêng. `don_vi_do.ma` rộng 24 nên mã ở đây tới 28 ký tự; SQLite không ép độ dài (test không bắt được) nhưng Postgres thật thì lỗi lúc lưu — đó là lý do nới cột. Lệnh SX so khớp mã này với thứ công đoạn ĐẾM (`_DV_VAO_SANG_NS`); lệch là bỏ qua tốc độ trong im lặng, nên **đừng đổi quy ước đặt mã**.
 
 ### `chung_loai_giay`
 
@@ -3270,7 +3315,9 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 **Purpose:** danh mục ĐƠN VỊ ĐO, dùng CHUNG cho khoán · kho · mua hàng. Chỉ là DANH SÁCH TÊN — quy đổi nằm ở bảng cặp `don_vi_quy_doi`. `ma` là mã code tham chiếu (`to`, `cai`, `m2`); `ten` là chữ hiển thị người dùng gõ ("tờ", "m²") và `quy_doi_service.don_vi_map()` đánh chỉ mục theo CẢ HAI vì bảng đơn giá khoán lưu chữ hiển thị còn bước lệnh dùng mã. `ho` = LOẠI ĐO, **không** quyết định đổi được hay không (việc đó theo cặp đã khai) — chỉ để gom nhóm khi hiển thị; UI KHÔNG phơi ô này ra (chủ 2026-07-30). `he_so_goc` là **cột CHẾT** của mô hình cũ ("hệ số về đơn vị gốc của họ"), giữ để không mất dữ liệu lịch sử, KHÔNG đọc ở đâu nữa — migration `0135` đã chuyển nó thành cặp. Bảng mới → `create_all` tự dựng, không migration.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `ho`, `he_so_goc`, `hieu_luc_tu`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `ho`, `he_so_goc`, `hieu_luc_tu`, `ghi_chu`, `active`, `dung_lam_toc_do`, `created_at`, `updated_at`.
+
+**`dung_lam_toc_do`** (BOOLEAN NOT NULL DEFAULT FALSE, migration `0154`): đơn vị này có được bày trong ô "Đơn vị tốc độ" của màn Máy không — mã sinh ra là `<ma>_gio`. Cần cờ riêng vì bảng dùng CHUNG: đổ cả danh mục ra thì người khai máy phải chọn giữa `g/giờ`, `thùng/giờ`, `tấn/giờ`… (chủ soi ra 03/08/2026 — 17 dòng, quá nửa vô nghĩa với máy). 🔴 **"Xoá đơn vị tốc độ" trên màn Máy = BỎ CỜ, không xoá dòng** — xoá `kg` cho khuất mắt là gãy quy đổi bên kho và tiền khoán. Danh sách bật sẵn (`DON_VI_TOC_DO_MAC_DINH` trong `db_migrations.py`) là nguồn duy nhất, `seed_rebuild.seed_don_vi_do` import lại chứ không chép — migration chỉ bật LÚC TẠO CỘT, chạy lại sẽ không đè lựa chọn người dùng.
 
 ### `don_vi_quy_doi`
 
@@ -3358,6 +3405,14 @@ Thứ phụ thuộc từng mặt hàng ("1 thùng keo = 3 kg" khác "1 thùng m�
 **Purpose:** Thu mua (PR#8) — nhà cung cấp. One row = 1 NCC (thông tin liên hệ + nhóm + điều khoản thanh toán).
 
 **Tất cả cột:** `id`, `name`, `tax_code`, `phone`, `email`, `address`, `contact_name`, `supplier_group`, `payment_terms`, `status`, `note`, `created_at`, `updated_at`.
+
+---
+
+### `supplier_items`
+
+**Purpose:** Thu mua — mặt hàng/bảng giá hiện tại theo từng nhà cung cấp. One row = 1 vật tư/sản phẩm/dịch vụ NCC có thể cung cấp.
+
+**Tất cả cột:** `id`, `supplier_id`, `item_name`, `unit`, `unit_price`, `vat_percent`, `is_active`, `note`, `created_at`, `updated_at`.
 
 ---
 

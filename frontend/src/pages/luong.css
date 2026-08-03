@@ -1932,3 +1932,25 @@
 .khoan-cdfield { min-width: 0; }
 .khoan-cdfield .khoan-cdpick { min-width: 0; }
 
+
+/* --- Bảng lương: ô tìm + lọc Phòng/Tổ trên thanh công cụ ---------------------
+   `.lg-search-wrapper` gốc có margin-bottom (dùng ở màn khai lương, xếp dọc). Trong thanh công cụ
+   của Bảng lương nó nằm CÙNG HÀNG với ô tháng và nút Chính thức/Thử việc, nên phải bỏ margin đó
+   — không thì mỗi ô lệch một độ cao. */
+.lg-toolbar .lg-search-wrapper { margin-bottom: 0; }
+.lg-toolbar .lg-search-input { min-width: 220px; }
+
+.lg-dept-filter {
+  height: 34px;
+  padding: 0 30px 0 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  cursor: pointer;
+  max-width: 220px;
+  transition: all var(--duration-base) var(--easing-standard);
+}
+.lg-dept-filter:focus { outline: none; border-color: var(--rust); }
