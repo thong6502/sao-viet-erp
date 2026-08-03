@@ -21,6 +21,7 @@ from ..schemas.purchase import (
     SupplierRow,
 )
 from ..services.purchase_service import (
+    DEPARTMENT_REQUEST_READER_MODULES,
     PurchaseConflict,
     PurchaseForbidden,
     PurchaseNotFound,
@@ -30,14 +31,11 @@ from ..services.purchase_service import (
 
 router = APIRouter(tags=["purchases"])
 MODULE = "thu_mua"
-DEPARTMENT_REQUEST_READERS = (
-    ("thu_mua", "read"),
-    ("bao_gia", "read"),
-    ("kho", "read"),
-    ("san_xuat", "read"),
-    ("dm_giay_vat_tu", "read"),
-    # Kế toán truy vết YCMH nguồn khi duyệt PMH / lập Phiếu chi (SEAM-25).
-    ("ke_toan", "read"),
+# Cổng quyền đọc YCMH dựng từ CHÍNH danh sách mà service dùng để quyết định có co danh sách về
+# phòng ban hay không — thêm/bớt một vai chỉ phải sửa một chỗ, không còn cảnh cấp quyền vào được
+# màn nhưng lại bị lọc ra rỗng. (Kế toán truy vết YCMH nguồn khi duyệt PMH / lập Phiếu chi: SEAM-25.)
+DEPARTMENT_REQUEST_READERS = tuple(
+    (module, "read") for module in DEPARTMENT_REQUEST_READER_MODULES
 )
 
 

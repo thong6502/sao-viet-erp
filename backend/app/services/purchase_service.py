@@ -55,6 +55,23 @@ from ..repositories.user_repo import UserRepository
 from .rbac_service import AuthorizationService
 
 
+# Những module được cấp quyền ĐỌC danh sách YCMH. Router dựng cổng quyền từ đúng danh sách này
+# (`DEPARTMENT_REQUEST_READERS`), nên hai nơi không thể lệch nhau.
+#
+# Dùng cả cho việc co danh sách về phòng ban: ai có scope `all` ở BẤT KỲ module nào trong đây thì
+# thấy YCMH toàn công ty. Chỉ hỏi mỗi `thu_mua` là sai — kế toán (SEAM-25) truy vết YCMH nguồn từ
+# PMH/Phiếu chi mà KHÔNG hề có quyền `thu_mua`, `scope_for` trả None nên bị co về phòng Kế toán và
+# nhìn thấy RỖNG. Người chỉ có scope phòng ban thì vẫn bị co như cũ.
+DEPARTMENT_REQUEST_READER_MODULES = (
+    "thu_mua",
+    "bao_gia",
+    "kho",
+    "san_xuat",
+    "dm_giay_vat_tu",
+    "ke_toan",
+)
+
+
 class PurchaseError(Exception):
     pass
 
@@ -272,7 +289,7 @@ class PurchaseService:
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[dict], int]:
-        filter_by_department = self.authz.scope_for(actor, "thu_mua") != SCOPE_ALL
+        filter_by_department = not self._sees_all_department_requests(actor)
         rows, total = self.department_requests.list(
             q=q,
             status=status,
@@ -285,8 +302,15 @@ class PurchaseService:
         )
         return [self._to_department_request_out(row) for row in rows], total
 
+    def _sees_all_department_requests(self, actor) -> bool:
+        """Có nhìn được YCMH của TOÀN công ty không. Xem `DEPARTMENT_REQUEST_READER_MODULES`."""
+        return any(
+            self.authz.scope_for(actor, module) == SCOPE_ALL
+            for module in DEPARTMENT_REQUEST_READER_MODULES
+        )
+
     def _can_view_department_request(self, row: DepartmentPurchaseRequest, actor) -> bool:
-        if self.authz.scope_for(actor, "thu_mua") == SCOPE_ALL:
+        if self._sees_all_department_requests(actor):
             return True
         return row.requesting_department_id == actor.department_id
 

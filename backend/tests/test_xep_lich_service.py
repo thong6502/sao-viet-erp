@@ -338,6 +338,12 @@ def test_dag_buoc_ghep_lay_moc_muon_nhat_cua_nhieu_tien_nhiem(
                         lambda: datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc))
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    # `som_nhat` còn bị chặn dưới bởi mốc BÀN GIAO SX (`_san_thoi_gian`), mà mốc đó do
+    # `order_service.release_production` đóng dấu bằng giờ THẬT — nó không đi qua `_utcnow` vừa
+    # patch ở trên. Không ghim lại thì hễ chạy sau 11:00 UTC là sàn giờ thật vượt mốc tiền nhiệm,
+    # `som_nhat` thành "bây giờ" và test đỏ theo đồng hồ chứ không theo logic đang đo.
+    lsx.ban_giao_at = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
+    db.commit()
     a = _in_step(db, lsx.id)
     b = LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Nhánh B", loai_buoc=LB_MAY,
                     may_id=a.may_id, so_luong_vao=100, nang_suat=100,
