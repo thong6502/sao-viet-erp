@@ -208,6 +208,14 @@ input.kho-num,
   color: var(--ink);
 }
 
+/* Danh sách khối cấp: >2 dòng thì CUỘN (giới hạn chiều cao) thay vì đổ hết ra drawer. */
+.kho-alloc-list--scroll {
+  max-height: 58vh;
+  overflow-y: auto;
+  /* chừa mép phải để thanh cuộn không đè viền khối .kho-alloc */
+  padding-right: var(--sp-1);
+}
+
 /* --- Khối phân bổ lô (signature element màn Hộp yêu cầu) ----------------- */
 .kho-alloc {
   border: 1px solid var(--rule-soft);

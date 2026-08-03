@@ -1127,7 +1127,9 @@ function VoucherCreateDrawer({
                   ))}
                 </div>
               ) : (
-                blocks.map((b) => (
+                // >2 dòng cấp → bọc danh sách vào khung CUỘN (giới hạn chiều cao) thay vì đổ hết ra.
+                <div className={`kho-alloc-list${blocks.length > 2 ? " kho-alloc-list--scroll" : ""}`}>
+                  {blocks.map((b) => (
                   <AllocCard
                     key={b.line.id}
                     token={token}
@@ -1157,7 +1159,8 @@ function VoucherCreateDrawer({
                       }))
                     }
                   />
-                ))
+                  ))}
+                </div>
               )}
             </section>
 
