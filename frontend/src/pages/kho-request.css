@@ -576,7 +576,7 @@ input.kho-num,
 .kho-filter__pop {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
+  left: 0;
   z-index: 40;
   width: min(360px, 92vw);
   display: flex;
@@ -671,20 +671,53 @@ input.kho-num,
   text-decoration: underline;
 }
 
-/* ─── Bảng kho (Tồn kho + Phiếu kho): gọn cột + vằn nền xen kẽ dễ dò dòng ──── */
-/* Padding ngang gọn hơn bảng .rc chung (sp-4 → sp-3) để bảng đỡ thưa. */
+/* ─── Bảng kho (Tồn kho + Phiếu kho): gọn cột ─────────────────────────────── */
+/* Padding ngang gọn cho ô đệm/skeleton; hàng thật + thead theo §6 (.kho-list). */
 .kho-table th,
 .kho-table td {
   padding-left: var(--sp-3);
   padding-right: var(--sp-3);
 }
-/* Zebra rất nhẹ (tông ash 4%) — chừa dòng skeleton lúc tải. */
-.kho-table tbody tr:nth-child(even):not(.rc-skel__row) {
-  background: color-mix(in srgb, var(--ash) 4%, transparent);
+
+/* ─── §6 Hệ thiết kế — bảng chuẩn cho 3 màn danh sách Kho ──────────────────────
+   Scope bằng .kho-list (thêm ở root mỗi trang) để KHÔNG đụng .rc__table dùng chung
+   với RebuildCatalog. th: nền paper + kẻ dưới 1.5px rule; nhãn 11/700 HOA .07em ash.
+   td: padding 12/14 + kẻ hair (hàng cuối vẫn bỏ kẻ theo .rc). Hover: nền rust-soft. */
+.kho-list .rc__table thead th {
+  padding: 10px 14px;
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ash);
+  background: var(--paper);
+  border-bottom: 1.5px solid var(--rule);
 }
-/* Hover phải thắng vằn nền → đặt sau, đặc thù cao hơn. */
-.kho-table tbody tr.rc__row:hover {
-  background: var(--rule-hair);
+/* Cột số căn phải (khớp ô số tbody) — không ép nhãn số sang trái. */
+.kho-list .rc__table thead th.kho-num {
+  text-align: right;
+}
+.kho-list .rc__row td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rule-hair);
+}
+.kho-list .rc__row:hover td {
+  background: var(--rust-soft);
+}
+/* Bảng Tồn/Phiếu kho: chặn chiều cao, dài thì cuộn TRONG khung (không đẩy trang dài ra);
+   header dính lại khi cuộn để luôn thấy tên cột. Chỉ áp cho .kho-tablewrap (2 bảng này),
+   không đụng bảng Đề nghị/Hộp yêu cầu (dùng .rc__table--fixed). */
+.kho-list .kho-tablewrap {
+  max-height: calc(100vh - 20rem);
+  overflow: auto;
+}
+.kho-list .kho-tablewrap .rc__table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* border-collapse có thể làm rơi viền dưới header khi sticky → giữ kẻ bằng shadow. */
+  box-shadow: inset 0 -1.5px 0 var(--rule);
 }
 /* Bảng lô lồng trong dòng vật tư — nền chìm hơn để tách khỏi bảng chính. */
 .kho-ton__detailrow > td {
@@ -1012,3 +1045,74 @@ input.kho-num,
   border-radius: var(--r-pill);
 }
 
+
+/* --- Tem QR vật tư (drawer Tồn kho): quét ra deep-link lô + vị trí --- */
+.rc__link-btn.is-active {
+  color: var(--rust, #c5400a);
+  background: var(--rust-soft, #f4e2d6);
+}
+.kho-qr {
+  display: flex;
+  gap: var(--sp-4);
+  align-items: center;
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+.kho-qr__img {
+  flex: none;
+  width: 148px;
+  height: 148px;
+  padding: 8px;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+}
+.kho-qr__img svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.kho-qr__img--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--ash);
+}
+.kho-qr__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.kho-qr__note {
+  font-size: 12px;
+  color: var(--ash);
+  line-height: 1.4;
+}
+.kho-qr__url {
+  font-family: var(--ff-num);
+  font-size: 11px;
+  color: var(--ash-2);
+  word-break: break-all;
+  line-height: 1.35;
+}
+
+/* --- Màn kết quả quét QR (KhoScanPage): trang riêng list lô + vị trí của 1 vật tư --- */
+.kho-scan__bar {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-3);
+}
+/* Điện thoại hẹp: cho cuộn NGANG bảng thay vì vỡ layout (ghi đè overflow:hidden của .rc__tablewrap). */
+.kho-scan__tablewrap {
+  overflow-x: auto;
+}
+.kho-vitri {
+  font-family: var(--ff-num);
+  font-weight: 600;
+  color: var(--ink);
+}

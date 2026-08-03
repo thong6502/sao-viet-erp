@@ -25,6 +25,7 @@ import { Select } from "../components/Select";
 import { StockLevelChip } from "../components/StockLevelChip";
 import type { NavigateFn } from "../components/AppShell";
 import { fmtDateISO, money } from "../utils/format";
+import { qrToSvg } from "../lib/qr";
 import { VoucherStatusBadge, fmtQty } from "./khoShared";
 import {
   InboxRequestDrawer,
@@ -66,12 +67,15 @@ export function KhoTonKhoPage({
   ma,
   token,
   navigate,
+  openMaterialId = null,
 }: {
   khoId: number;
   ten: string;
   ma?: string;
   token: string;
   navigate: NavigateFn;
+  /** Deep-link tem QR: mở thẳng drawer lô + vị trí của vật tư này khi tồn đã tải xong. */
+  openMaterialId?: number | null;
 }) {
   const can = useCan();
   const canViewCost = can("kho", "view_cost");
@@ -104,7 +108,6 @@ export function KhoTonKhoPage({
   const [tonTo, setTonTo] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const filterRef = useRef<HTMLDivElement | null>(null);
-  const canViewStock = can("kho", "view_stock");
 
   // Kho đơn lẻ cho ThresholdDrawer (nó cần danh sách kho cho ô chọn — ở đây khoá đúng 1 kho).
   const khoOne: KhoOption[] = useMemo(
@@ -200,6 +203,17 @@ export function KhoTonKhoPage({
     return arr.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "vi"));
   }, [lots, thresholds]);
 
+  // Deep-link tem QR: khi có openMaterialId + tồn đã tải → bung drawer đúng vật tư (1 lần cho mỗi
+  // id, ref chặn mở lại sau khi người dùng đóng).
+  const deepLinkedId = useRef<number | null>(null);
+  useEffect(() => {
+    if (!openMaterialId || deepLinkedId.current === openMaterialId) return;
+    const g = groups.find((x) => x.material_id === openMaterialId);
+    if (!g) return;
+    deepLinkedId.current = openMaterialId;
+    setOpenMaterial(g);
+  }, [openMaterialId, groups]);
+
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     const tf = tonFrom.trim() === "" ? null : Number(tonFrom);
@@ -290,9 +304,9 @@ export function KhoTonKhoPage({
 
   const voucherCols = canViewCost ? 7 : 6;
   // Cột tab Tồn kho: [checkbox nếu canCreate] + Vật tư + Mức + Tồn + Số lô + Ngày nhập
-  // [+ Ngưỡng tồn + Ngưỡng tối đa nếu set_threshold] [+ Giá trị nếu view_cost].
+  // [+ Ngưỡng (gộp tồn–tối đa) nếu set_threshold] [+ Giá trị nếu view_cost].
   const tonCols =
-    (canCreate ? 1 : 0) + 5 + (canSetThreshold ? 2 : 0) + (canViewCost ? 1 : 0);
+    (canCreate ? 1 : 0) + 5 + (canSetThreshold ? 1 : 0) + (canViewCost ? 1 : 0);
 
   // Phân trang (dùng chung cho cả 2 tab; số tổng theo tab đang xem).
   const pageTotal = tab === "ton" ? filtered.length : shownVouchers.length;
@@ -301,7 +315,7 @@ export function KhoTonKhoPage({
   const pagedVouchers = shownVouchers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
-    <main className="rc">
+    <main className="rc kho-list">
       <header className="rc__head">
         <div className="rc__headrow">
           <h1 className="rc__title">{ten}</h1>
@@ -378,6 +392,11 @@ export function KhoTonKhoPage({
                 options={[
                   { value: "all", label: "Mọi trạng thái", hint: String(vouchers.length) },
                   {
+                    value: "draft",
+                    label: "Chờ ghi sổ",
+                    hint: String(vouchers.filter((v) => v.trang_thai === "draft").length),
+                  },
+                  {
                     value: "posted",
                     label: "Đã ghi sổ",
                     hint: String(vouchers.filter((v) => v.trang_thai === "posted").length),
@@ -395,7 +414,6 @@ export function KhoTonKhoPage({
             </div>
           </>
         )}
-        <div className="rc__spacer" />
         {tab === "ton" && (
           <div className="kho-filter" ref={filterRef}>
             <Button
@@ -475,11 +493,7 @@ export function KhoTonKhoPage({
             )}
           </div>
         )}
-        {tab === "ton" && canViewCost && groups.length > 0 && (
-          <div className="kho-ton__value">
-            Giá trị tồn: <b>{money(Math.round(totalValue))}</b>
-          </div>
-        )}
+        <div className="rc__spacer" />
         {canSetThreshold && (
           <Button variant="secondary" onClick={() => setThresholdOpen(true)}>
             Ngưỡng tồn
@@ -578,7 +592,7 @@ export function KhoTonKhoPage({
         </div>
       )}
 
-      <div className="rc__tablewrap">
+      <div className="rc__tablewrap kho-tablewrap">
         {tab === "ton" ? (
           <table className="rc__table kho-table">
             <thead>
@@ -611,14 +625,9 @@ export function KhoTonKhoPage({
                   Ngày nhập
                 </th>
                 {canSetThreshold && (
-                  <>
-                    <th className="kho-num" style={{ width: "12%" }}>
-                      Ngưỡng tồn
-                    </th>
-                    <th className="kho-num" style={{ width: "12%" }}>
-                      Ngưỡng tối đa
-                    </th>
-                  </>
+                  <th className="kho-num" style={{ width: "16%" }}>
+                    Ngưỡng
+                  </th>
                 )}
                 {canViewCost && (
                   <th className="kho-num" style={{ width: "16%" }}>
@@ -794,6 +803,11 @@ export function KhoTonKhoPage({
           <span className="kho-pager__page">
             {tab === "ton" ? `${pageTotal} vật tư` : `${pageTotal} phiếu`}
           </span>
+          {tab === "ton" && canViewCost && groups.length > 0 && (
+            <span className="kho-ton__value">
+              Giá trị tồn: <b>{money(Math.round(totalValue))}</b>
+            </span>
+          )}
           <div className="rc__spacer" />
           <button
             type="button"
@@ -826,6 +840,7 @@ export function KhoTonKhoPage({
           khoId={khoId}
           material={openMaterial}
           canViewCost={canViewCost}
+          canCreate={canCreate}
           onOpenVoucher={setOpenVoucher}
           onClose={() => setOpenMaterial(null)}
         />
@@ -856,7 +871,6 @@ export function KhoTonKhoPage({
           khoId={khoId}
           requestId={openRequest}
           canCreate={false}
-          canViewStock={canViewStock}
           onClose={() => setOpenRequest(null)}
           onCreateVoucher={() => {}}
         />
@@ -876,6 +890,55 @@ export function KhoTonKhoPage({
       )}
     </main>
   );
+}
+
+// In tem QR cho MỘT vật tư ở MỘT kho. Mã QR trỏ TRANG TRA KHO CÔNG KHAI qua token đã KÝ
+// (`#s=<token>`) — quét KHÔNG cần đăng nhập và KHÔNG dò id tuần tự được (services/qr_token).
+// Dùng chung cho nút QR trên từng hàng Tồn kho VÀ nút "In tem" trong drawer → tem giống hệt.
+async function printMaterialQr(
+  authToken: string,
+  khoId: number,
+  materialId: number,
+  code?: string | null,
+  name?: string | null,
+) {
+  // Mở cửa sổ NGAY trong nhịp click (tránh popup-blocker chặn sau await); điền nội dung sau.
+  const w = window.open("", "_blank", "width=460,height=600");
+  if (!w) return;
+  w.document.write(
+    `<!doctype html><meta charset="utf-8"><title>Tem QR</title>` +
+      `<body style="font-family:system-ui,sans-serif;text-align:center;padding:48px;color:#64748b">Đang tạo tem…</body>`,
+  );
+  const esc = (s: string) =>
+    s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
+  try {
+    // Lấy token đã ký từ server (cần đăng nhập — người in tem luôn đang đăng nhập).
+    const { token } = await api.kho.phieu.qrToken(authToken, khoId, materialId);
+    const url = `${window.location.origin}/#s=${token}`;
+    // border 4 = quiet-zone chuẩn (đủ khoảng trắng để máy quét bắt được, kể cả khi in nhỏ).
+    const svg = qrToSvg(url, { border: 4 });
+    const c = esc(code ?? "");
+    const n = esc(name ?? "");
+    w.document.open();
+    w.document.write(
+      `<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Tem QR ${c || n}</title>` +
+        `<style>*{box-sizing:border-box}body{font-family:'Be Vietnam Pro',system-ui,sans-serif;margin:0;padding:24px;text-align:center;color:#0f172a}` +
+        `.card{display:inline-block;border:1px solid #cbd5e1;border-radius:12px;padding:20px 24px}` +
+        `.code{font-size:22px;font-weight:800;letter-spacing:.5px}.name{font-size:14px;color:#475569;margin:4px 0 14px;max-width:280px}` +
+        `svg{width:280px;height:280px}.hint{font-size:11px;color:#94a3b8;margin-top:10px}</style></head>` +
+        `<body><div class="card"><div class="code">${c}</div><div class="name">${n}</div>${svg}` +
+        `<div class="hint">Quét để xem lô &amp; vị trí trong kho</div></div>` +
+        `<script>window.onload=function(){window.focus();window.print()}</script></body></html>`,
+    );
+    w.document.close();
+  } catch {
+    w.document.open();
+    w.document.write(
+      `<!doctype html><meta charset="utf-8"><body style="font-family:system-ui,sans-serif;text-align:center;padding:48px;color:#c5400a">` +
+        `Không tạo được tem QR. Đóng cửa sổ này và thử lại.</body>`,
+    );
+    w.document.close();
+  }
 }
 
 function MaterialRow({
@@ -939,22 +1002,15 @@ function MaterialRow({
         )}
       </td>
       {canSetThreshold && (
-        <>
-          <td className="kho-num">
-            {threshold?.nguong_ton != null ? (
-              fmtQty(threshold.nguong_ton)
-            ) : (
-              <span className="rc__muted">—</span>
-            )}
-          </td>
-          <td className="kho-num">
-            {threshold?.nguong_toi_da != null ? (
-              fmtQty(threshold.nguong_toi_da)
-            ) : (
-              <span className="rc__muted">—</span>
-            )}
-          </td>
-        </>
+        <td className="kho-num">
+          {threshold?.nguong_ton == null && threshold?.nguong_toi_da == null ? (
+            <span className="rc__muted">—</span>
+          ) : (
+            `${threshold?.nguong_ton != null ? fmtQty(threshold.nguong_ton) : "—"}–${
+              threshold?.nguong_toi_da != null ? fmtQty(threshold.nguong_toi_da) : "—"
+            }`
+          )}
+        </td>
       )}
       {canViewCost && <td className="kho-num">{money(Math.round(g.value))}</td>}
     </tr>
@@ -966,6 +1022,7 @@ function MaterialHistoryDrawer({
   khoId,
   material,
   canViewCost,
+  canCreate,
   onOpenVoucher,
   onClose,
 }: {
@@ -973,6 +1030,7 @@ function MaterialHistoryDrawer({
   khoId: number;
   material: MaterialGroup;
   canViewCost: boolean;
+  canCreate: boolean;
   onOpenVoucher: (voucherId: number) => void;
   onClose: () => void;
 }) {
@@ -981,6 +1039,50 @@ function MaterialHistoryDrawer({
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"nhap" | "xuat">("nhap");
   const [page, setPage] = useState(1);
+  // Sửa VỊ TRÍ cất lô (kệ/ô): ẩn sau nút "+"; bấm mới hiện ô nhập + nút Lưu.
+  const [editViTriId, setEditViTriId] = useState<number | null>(null);
+  const [draftViTri, setDraftViTri] = useState("");
+  // Tem QR vật tư: quét ra TRANG TRA KHO CÔNG KHAI (không đăng nhập) qua token đã ký "#s=..".
+  const [showQr, setShowQr] = useState(false);
+  const [qrUrl, setQrUrl] = useState<string | null>(null);
+  // Lấy token ký khi mở panel QR lần đầu (mint cần đăng nhập → dùng chính token phiên).
+  useEffect(() => {
+    if (!showQr || qrUrl) return;
+    let alive = true;
+    api.kho.phieu
+      .qrToken(token, khoId, material.material_id)
+      .then(({ token: t }) => {
+        if (alive) setQrUrl(`${window.location.origin}/#s=${t}`);
+      })
+      .catch(() => {
+        /* lỗi mạng/quyền — panel hiện trạng thái đang tạo; nút In tem vẫn tự lấy token khi bấm */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [showQr, qrUrl, token, khoId, material.material_id]);
+  // border 4 = quiet-zone chuẩn (đủ khoảng trắng để máy quét bắt được, kể cả khi in nhỏ).
+  const qrSvg = useMemo(() => (qrUrl ? qrToSvg(qrUrl, { border: 4 }) : ""), [qrUrl]);
+
+  // In tem = hàm dùng chung (giống nút QR trên từng hàng Tồn kho). Tự lấy token ký rồi in.
+  function printQr() {
+    void printMaterialQr(token, khoId, material.material_id, material.code, material.name);
+  }
+
+  async function saveViTri(lotId: number, viTri: string) {
+    const v = viTri.trim() || null;
+    try {
+      await api.kho.phieu.suaViTriLo(token, lotId, v);
+      setData((d) =>
+        d
+          ? { ...d, nhap: d.nhap.map((lot) => (lot.id === lotId ? { ...lot, vi_tri: v } : lot)) }
+          : d,
+      );
+      setEditViTriId(null);
+    } catch {
+      /* lỗi quyền/mạng — giữ nguyên; ô về giá trị cũ khi mở lại drawer */
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -1024,11 +1126,47 @@ function MaterialHistoryDrawer({
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
             {material.level && <StockLevelChip level={material.level} />}
+            {/* QR gắn với LÔ nhập (vị trí lô) → chỉ hiện ở tab Nhập. */}
+            {tab === "nhap" && (
+              <button
+                type="button"
+                className={`rc__link-btn${showQr ? " is-active" : ""}`}
+                onClick={() => setShowQr((v) => !v)}
+                aria-pressed={showQr}
+                title="Tem QR vật tư — quét ra lô & vị trí"
+              >
+                {showQr ? "▾ QR" : "▸ QR"}
+              </button>
+            )}
             <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
               ✕
             </button>
           </div>
         </header>
+
+        {showQr && tab === "nhap" && (
+          // Tem QR: quét bằng điện thoại → mở TRANG TRA KHO CÔNG KHAI (lô + vị trí). In để dán kệ.
+          <div className="kho-qr">
+            {qrUrl ? (
+              <div
+                className="kho-qr__img"
+                // qrSvg do chính ta sinh (không chứa dữ liệu người dùng) → an toàn.
+                dangerouslySetInnerHTML={{ __html: qrSvg }}
+              />
+            ) : (
+              <div className="kho-qr__img kho-qr__img--loading">Đang tạo mã…</div>
+            )}
+            <div className="kho-qr__side">
+              <div className="kho-qr__note">
+                Quét để xem lô &amp; vị trí của vật tư này (không cần đăng nhập).
+              </div>
+              {qrUrl && <div className="kho-qr__url">{qrUrl}</div>}
+              <button type="button" className="rc__link-btn" onClick={printQr}>
+                🖨 In tem
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="kho-meta">
           {material.code ? `${material.code} · ` : ""}
@@ -1082,6 +1220,7 @@ function MaterialHistoryDrawer({
                       <th style={{ width: 96 }}>Ngày nhập</th>
                       <th className="kho-num">SL nhập</th>
                       <th className="kho-num">Còn</th>
+                      <th style={{ minWidth: 96 }}>Vị trí</th>
                       {canViewCost && <th className="kho-num">Đơn giá</th>}
                     </tr>
                   </thead>
@@ -1101,6 +1240,46 @@ function MaterialHistoryDrawer({
                         <td className="kho-lines__code">{fmtDateISO(lot.ngay_nhap)}</td>
                         <td className="kho-num">{fmtQty(lot.sl_ban_dau)}</td>
                         <td className="kho-num">{fmtQty(lot.sl_con_lai)}</td>
+                        <td>
+                          {!canCreate ? (
+                            <span className="kho-lines__code">{lot.vi_tri ?? "—"}</span>
+                          ) : editViTriId === lot.id ? (
+                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                              <input
+                                className="rc-input"
+                                style={{ width: 90, padding: "4px 8px" }}
+                                value={draftViTri}
+                                autoFocus
+                                placeholder="Kệ/ô"
+                                onChange={(e) => setDraftViTri(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") void saveViTri(lot.id, draftViTri);
+                                  if (e.key === "Escape") setEditViTriId(null);
+                                }}
+                                aria-label={`Vị trí lô ${lot.ma_lo}`}
+                              />
+                              <button
+                                type="button"
+                                className="btn btn--accent"
+                                style={{ height: 28, padding: "2px 10px" }}
+                                onClick={() => void saveViTri(lot.id, draftViTri)}
+                              >
+                                Lưu
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="rc__link-btn"
+                              onClick={() => {
+                                setDraftViTri(lot.vi_tri ?? "");
+                                setEditViTriId(lot.id);
+                              }}
+                            >
+                              {lot.vi_tri ? lot.vi_tri : "+ Vị trí"}
+                            </button>
+                          )}
+                        </td>
                         {canViewCost && (
                           <td className="kho-num">{money(lot.don_gia_nhap ?? 0)}</td>
                         )}

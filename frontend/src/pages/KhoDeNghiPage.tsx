@@ -3,7 +3,7 @@
 // Ranh giới của màn này là ranh giới QUYỀN: người đề nghị KHÔNG thấy số tồn, KHÔNG thấy giá,
 // KHÔNG thấy lô, KHÔNG chọn kho. Đề nghị chỉ nói "xin cái gì, bao nhiêu"; kho nào là quyết định
 // ở BƯỚC LẬP PHIẾU (thủ kho). Hàng mới thì gõ tên tự do — thủ kho gắn/tạo mã khi lập phiếu.
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError,
   api,
@@ -43,10 +43,9 @@ const TAB_STATUSES: Record<Exclude<TabId, "all" | "cho-toi-duyet">, StockRequest
 
 /** Ngày cần gần nhất → mới tạo nhất. Đề nghị không có ngày cần xếp sau cùng trong nhóm. */
 function sortRequests(a: StockRequest, b: StockRequest): number {
-  const da = a.ngay_can ?? "9999-12-31";
-  const db = b.ngay_can ?? "9999-12-31";
-  if (da !== db) return da < db ? -1 : 1;
-  return b.created_at.localeCompare(a.created_at);
+  // Mới nhất lên đầu: đề nghị vừa tạo hiện trên cùng.
+  if (a.created_at !== b.created_at) return b.created_at.localeCompare(a.created_at);
+  return b.ma.localeCompare(a.ma);
 }
 
 export function KhoDeNghiPage({
@@ -66,7 +65,7 @@ export function KhoDeNghiPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
-  const [tab, setTab] = useState<TabId>(canApprove ? "cho-toi-duyet" : "all");
+  const [tab, setTab] = useState<TabId>("all");
   // Lọc theo khoảng NGÀY CẦN (rỗng = không lọc đầu đó).
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -75,15 +74,6 @@ export function KhoDeNghiPage({
   const [drawer, setDrawer] = useState<
     null | { mode: "new"; seed?: SeedLine[]; loai?: StockRequestKind } | { mode: "open"; id: number }
   >(null);
-
-  // Người duyệt vào màn là để DUYỆT → tab mặc định phải là hộp việc của họ. Chỉ chạy một lần
-  // khi ma trận quyền về (caps nạp bất đồng bộ nên lần render đầu canApprove luôn false).
-  const tabPinned = useRef(false);
-  useEffect(() => {
-    if (tabPinned.current || !canApprove) return;
-    tabPinned.current = true;
-    setTab("cho-toi-duyet");
-  }, [canApprove]);
 
   const load = useCallback(() => {
     if (!token) return;
@@ -162,7 +152,7 @@ export function KhoDeNghiPage({
   const colCount = 6;
 
   return (
-    <>
+    <div className="kho-list">
       <header className="rc__head">
         <div className="rc__headrow">
           <h1 className="rc__title">Đề nghị kho</h1>
@@ -412,7 +402,7 @@ export function KhoDeNghiPage({
           }}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -800,6 +790,7 @@ function RequestDrawer({
                   <table className="kho-lines">
                     <thead className="kho-lines__head">
                       <tr>
+                        <th style={{ width: 40 }}>STT</th>
                         <th style={{ minWidth: 180 }}>Vật tư</th>
                         <th style={{ width: 76 }}>ĐVT</th>
                         <th className="kho-num" style={{ width: 100 }}>
@@ -827,7 +818,7 @@ function RequestDrawer({
                       </tr>
                     </thead>
                     <tbody>
-                      {lines.map((l) => {
+                      {lines.map((l, i) => {
                         const cut =
                           canApproveNow && l.lineId != null
                             ? l.sl_de_nghi - (Number(approveQty[l.lineId] ?? l.sl_de_nghi) || 0)
@@ -835,6 +826,7 @@ function RequestDrawer({
                         return (
                           <Fragment key={l.key}>
                           <tr>
+                            <td className="kho-lines__code">{i + 1}</td>
                             <td>
                               {editable ? (
                                 <MaterialCombobox

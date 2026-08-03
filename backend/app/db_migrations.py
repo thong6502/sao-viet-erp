@@ -3734,6 +3734,17 @@ def _migrate_stock_request_ly_do_huy(db: Session) -> None:
     db.commit()
 
 
+def _migrate_stock_voucher_line_vi_tri(db: Session) -> None:
+    """Vị trí cất lô (NHẬP) khai ở dòng phiếu: thêm stock_voucher_lines.vi_tri (VARCHAR(100)
+    nullable). Ghi sổ chép sang stock_lots.vi_tri. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "stock_voucher_lines" not in insp.get_table_names():
+        return
+    if "vi_tri" not in _existing_columns(insp, "stock_voucher_lines"):
+        db.execute(text("ALTER TABLE stock_voucher_lines ADD COLUMN vi_tri VARCHAR(100)"))
+    db.commit()
+
+
 def _migrate_stock_voucher_nguoi_ghi_so(db: Session) -> None:
     """Lưu AI GHI SỔ phiếu (duyệt/chốt): thêm `stock_vouchers.nguoi_ghi_so_id` (INTEGER nullable,
     soft → users.id). Null cho phiếu cũ. No-op DB fresh / bảng chưa có / cột đã có."""
@@ -3778,6 +3789,21 @@ def _migrate_stock_request_line_quy_doi(db: Session) -> None:
         db.execute(text("ALTER TABLE stock_request_lines ADD COLUMN don_vi_phu VARCHAR(16)"))
     if "he_so_quy_doi" not in cols:
         db.execute(text("ALTER TABLE stock_request_lines ADD COLUMN he_so_quy_doi NUMERIC(14,4)"))
+    db.commit()
+
+
+def _migrate_stock_attachment_urls(db: Session) -> None:
+    """Đính kèm phiếu kho từng lưu file_url `/static/kho/..` (mount /static đã gỡ vì lộ file) nên
+    không mở được. Đổi sang `/api/files/kho/..` (router có đăng nhập). File trên đĩa vẫn đúng chỗ
+    (LocalStorage gốc = <backend>/static) → chỉ cần sửa URL. `/static/` = 8 ký tự → substr từ vị trí 9."""
+    insp = inspect(db.get_bind())
+    if not insp.has_table("stock_voucher_attachments"):
+        return
+    db.execute(text(
+        "UPDATE stock_voucher_attachments "
+        "SET file_url = '/api/files/' || substr(file_url, 9) "
+        "WHERE file_url LIKE '/static/%'"
+    ))
     db.commit()
 
 
@@ -4004,6 +4030,10 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0113_kho_post_thukho_off", _migrate_kho_post_thukho_off),
     # Lý do kho hủy đề nghị (hủy phiếu → đề nghị 'Đã hủy' kèm lý do).
     ("0114_stock_request_ly_do_huy", _migrate_stock_request_ly_do_huy),
+    # Vị trí cất lô (NHẬP) khai ở dòng phiếu; ghi sổ chép sang lô.
+    ("0115_stock_voucher_line_vi_tri", _migrate_stock_voucher_line_vi_tri),
+    # Đính kèm phiếu kho: đổi file_url /static/kho/.. → /api/files/kho/.. (mount /static đã gỡ).
+    ("0116_stock_attachment_url_api_files", _migrate_stock_attachment_urls),
 ]
 
 

@@ -32,7 +32,6 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { MaterialCombobox } from "../components/MaterialCombobox";
 import { Select } from "../components/Select";
-import { StockLevelChip } from "../components/StockLevelChip";
 import { fmtDate, fmtDateISO, money } from "../utils/format";
 import { printStockVoucher, type StockVoucherPrintData } from "../utils/printStockVoucher";
 import {
@@ -51,9 +50,10 @@ const KHO_KEY = "kho.yeu-cau.kho-id";
 const PAGE_SIZE = 8;
 const FETCH_SIZE = 200;
 
-type TabId = "can-cap" | "dang-cap" | "done" | "da-huy";
+type TabId = "tat-ca" | "can-cap" | "dang-cap" | "done" | "da-huy";
 
 const TAB_STATUSES: Record<TabId, StockRequestStatus[]> = {
+  "tat-ca": ["approved", "received", "preparing", "partial", "done", "cancelled"],
   "can-cap": ["approved"],
   "dang-cap": ["received", "preparing", "partial"],
   done: ["done"],
@@ -78,12 +78,9 @@ export interface KhoOption {
 
 /** Quá hạn → ngày cần → mã. */
 function sortInbox(a: StockRequest, b: StockRequest): number {
-  const late = (r: StockRequest) => (isOverdue(r.ngay_can, r.trang_thai) ? 0 : 1);
-  if (late(a) !== late(b)) return late(a) - late(b);
-  const da = a.ngay_can ?? "9999-12-31";
-  const db = b.ngay_can ?? "9999-12-31";
-  if (da !== db) return da < db ? -1 : 1;
-  return a.ma.localeCompare(b.ma);
+  // Mới nhất lên đầu: đề nghị/phiếu vừa tạo (hoặc vừa có hoạt động) hiện trên cùng.
+  if (a.created_at !== b.created_at) return b.created_at.localeCompare(a.created_at);
+  return b.ma.localeCompare(a.ma);
 }
 
 function progressOf(r: StockRequest): { done: number; total: number; pct: number } {
@@ -104,7 +101,6 @@ export function KhoYeuCauPage({
   const can = useCan();
   const canCreate = can("kho", "create");
   const canPost = can("kho", "post");
-  const canViewStock = can("kho", "view_stock");
   const canViewCost = can("kho", "view_cost");
 
   const [khoList, setKhoList] = useState<KhoOption[]>([]);
@@ -113,7 +109,7 @@ export function KhoYeuCauPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
-  const [tab, setTab] = useState<TabId>("can-cap");
+  const [tab, setTab] = useState<TabId>("tat-ca");
   const [page, setPage] = useState(1);
 
   const [openRequest, setOpenRequest] = useState<number | null>(null);
@@ -208,6 +204,7 @@ export function KhoYeuCauPage({
   const pageRequests = slice(shownRequests);
 
   const tabs: { id: TabId; label: string }[] = [
+    { id: "tat-ca", label: "Tất cả" },
     { id: "can-cap", label: "Cần cấp" },
     { id: "dang-cap", label: "Đang cấp" },
     { id: "done", label: "Hoàn tất" },
@@ -218,7 +215,7 @@ export function KhoYeuCauPage({
   const reqCols = canCreate ? 8 : 7;
 
   return (
-    <>
+    <div className="kho-list">
       <header className="rc__head">
         <div className="rc__headrow">
           <h1 className="rc__title">Phiếu từ đề nghị</h1>
@@ -427,7 +424,6 @@ export function KhoYeuCauPage({
           khoId={khoId}
           requestId={openRequest}
           canCreate={canCreate}
-          canViewStock={canViewStock}
           onClose={() => setOpenRequest(null)}
           onCreateVoucher={openFulfil}
         />
@@ -461,7 +457,7 @@ export function KhoYeuCauPage({
           onChanged={load}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -472,7 +468,6 @@ export function InboxRequestDrawer({
   khoId,
   requestId,
   canCreate,
-  canViewStock,
   onClose,
   onCreateVoucher,
 }: {
@@ -480,7 +475,6 @@ export function InboxRequestDrawer({
   khoId: number | null;
   requestId: number;
   canCreate: boolean;
-  canViewStock: boolean;
   onClose: () => void;
   onCreateVoucher: (r: StockRequest) => void;
 }) {
@@ -573,20 +567,19 @@ export function InboxRequestDrawer({
                   <table className="kho-lines">
                     <thead>
                       <tr>
+                        <th style={{ width: 40 }}>STT</th>
                         <th style={{ minWidth: 150 }}>Vật tư</th>
                         <th style={{ width: 56 }}>ĐVT</th>
                         <th className="kho-num">Đề nghị</th>
                         <th className="kho-num">Duyệt</th>
                         <th className="kho-num">Đã ứng</th>
                         <th className="kho-num">Còn lại</th>
-                        {/* Không có `can_view_stock` → cột BIẾN MẤT, không phải "—". */}
-                        {canViewStock && <th className="kho-num">Tồn khả dụng</th>}
-                        <th style={{ width: 92 }}>Đèn</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {req.lines.map((l) => (
+                      {req.lines.map((l, i) => (
                         <tr key={l.id}>
+                          <td className="kho-lines__code">{i + 1}</td>
                           <td>
                             <div className="kho-lines__name">
                               {l.material_name ?? l.ten_tu_do ?? "—"}
@@ -600,12 +593,6 @@ export function InboxRequestDrawer({
                           <td className="kho-num">{fmtQty(l.sl_duyet)}</td>
                           <td className="kho-num">{fmtQty(l.sl_da_ung)}</td>
                           <td className="kho-num">{fmtQty(l.sl_con_lai)}</td>
-                          {canViewStock && (
-                            <td className="kho-num">{fmtQty(l.ton_kha_dung ?? 0)}</td>
-                          )}
-                          <td>
-                            <StockLevelChip level={l.muc_ton} />
-                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -674,6 +661,8 @@ interface AllocBlock {
   lyDo: string;
   /** Ghi chú riêng cho mặt hàng (dòng) trên phiếu. */
   ghiChu: string;
+  /** Phiếu NHẬP: vị trí cất lô (kệ/ô) — ghi sổ chép sang lô. */
+  viTri: string;
   /** Phiếu NHẬP: đơn vị đang gõ ở ô SL nhập — "ton" (đơn vị tồn) hoặc "phu" (đơn vị quy đổi). */
   unit: "ton" | "phu";
   touched: boolean;
@@ -752,6 +741,7 @@ function VoucherCreateDrawer({
       donGia: l.don_gia != null ? String(l.don_gia) : "",
       lyDo: "",
       ghiChu: "",
+      viTri: "",
       unit: "ton",
       touched: false,
       warn: null,
@@ -914,6 +904,7 @@ function VoucherCreateDrawer({
             new_unit: b.newUnit.trim() || b.line.dvt,
             so_luong: b.cap,
             don_gia: canViewCost ? Math.round(Number(b.donGia) || 0) : undefined,
+            vi_tri: b.viTri.trim() || undefined,
             ly_do: ly,
             ghi_chu: ghi,
           });
@@ -926,6 +917,7 @@ function VoucherCreateDrawer({
             material_id: b.matId,
             so_luong: b.cap * factor,
             don_gia: canViewCost ? Math.round((Number(b.donGia) || 0) / factor) : undefined,
+            vi_tri: b.viTri.trim() || undefined,
             ly_do: ly,
             ghi_chu: ghi,
           });
@@ -1151,6 +1143,7 @@ function VoucherCreateDrawer({
                     onCap={(v) => patch(b.line.id, (cur) => ({ ...cur, touched: true, cap: v }))}
                     onLyDo={(v) => patch(b.line.id, (cur) => ({ ...cur, lyDo: v }))}
                     onGhiChu={(v) => patch(b.line.id, (cur) => ({ ...cur, ghiChu: v }))}
+                    onViTri={(v) => patch(b.line.id, (cur) => ({ ...cur, viTri: v }))}
                     onUnit={(u) => patch(b.line.id, (cur) => ({ ...cur, unit: u }))}
                     onLotQty={(lotId, v) => setLotQty(b.line.id, lotId, v)}
                     onAddLot={(lotId) => addLot(b.line.id, lotId)}
@@ -1246,6 +1239,7 @@ function AllocCard({
   onCap,
   onLyDo,
   onGhiChu,
+  onViTri,
   onUnit,
   onLotQty,
   onAddLot,
@@ -1264,12 +1258,15 @@ function AllocCard({
   onCap: (v: number) => void;
   onLyDo: (v: string) => void;
   onGhiChu: (v: string) => void;
+  onViTri: (v: string) => void;
   onUnit: (u: "ton" | "phu") => void;
   onLotQty: (lotId: number, v: number) => void;
   onAddLot: (lotId: number) => void;
   onRemoveLot: (lotId: number) => void;
 }) {
   const l = block.line;
+  // Ẩn Lý do/Ghi chú sau nút "+" cho gọn; cấp thiếu → tự bung (lý do bắt buộc).
+  const [noteOpen, setNoteOpen] = useState(false);
   // Hàng mới (đề nghị gõ tên tự do) chưa có mã. KHÔNG tạo eager: điền form → backend tạo mã khi
   // LƯU/GHI SỔ. Hoặc chuyển sang tìm & chọn mã có sẵn nếu hàng thực ra đã có trong kho.
   const needsCode = block.matId == null;
@@ -1456,6 +1453,15 @@ function AllocCard({
                 <b className="kho-alloc__capfixed">
                   {block.donGia ? `${Number(block.donGia).toLocaleString("vi-VN")} đ` : "—"}
                 </b>
+                <label>Vị trí</label>
+                <input
+                  className="rc-input"
+                  style={{ width: 120, padding: "6px 8px" }}
+                  value={block.viTri}
+                  onChange={(e) => onViTri(e.target.value)}
+                  placeholder="Kệ/ô (tuỳ chọn)"
+                  aria-label="Vị trí cất lô"
+                />
               </>
             )}
             <div className="kho-alloc__spacer" />
@@ -1466,31 +1472,45 @@ function AllocCard({
               {l.don_vi_phu ? ` · 1 ${l.don_vi_phu} = ${fmtQty(l.he_so_quy_doi)} ${l.dvt}` : ""}
             </p>
           ) : null}
-          {/* Cấp/nhập ÍT HƠN còn phải cấp → BẮT BUỘC nhập lý do; hiện ở "Kho phản hồi" của đề nghị. */}
-          {isShort && (
-            <div className="kho-alloc__note kho-alloc__lydo">
-              <label htmlFor={`ly-${l.id}`}>
-                Lý do cấp thiếu <em>*</em>
-              </label>
-              <input
-                id={`ly-${l.id}`}
-                className={`rc-input${!block.lyDo.trim() ? " rc-input--warn" : ""}`}
-                value={block.lyDo}
-                onChange={(e) => onLyDo(e.target.value)}
-                placeholder={`Vì sao chỉ ${isNhap ? "nhập" : "cấp"} ${fmtQty(cappedTon)}/${fmtQty(l.sl_con_lai)}? (vd NCC giao thiếu)`}
-              />
-            </div>
+          {/* Ẩn Lý do/Ghi chú sau nút "+"; cấp thiếu → tự bung (lý do BẮT BUỘC). */}
+          {noteOpen || isShort ? (
+            <>
+              {isShort && (
+                <div className="kho-alloc__note kho-alloc__lydo">
+                  <label htmlFor={`ly-${l.id}`}>
+                    Lý do cấp thiếu <em>*</em>
+                  </label>
+                  <input
+                    id={`ly-${l.id}`}
+                    className={`rc-input${!block.lyDo.trim() ? " rc-input--warn" : ""}`}
+                    value={block.lyDo}
+                    onChange={(e) => onLyDo(e.target.value)}
+                    placeholder={`Vì sao chỉ ${isNhap ? "nhập" : "cấp"} ${fmtQty(cappedTon)}/${fmtQty(l.sl_con_lai)}? (vd NCC giao thiếu)`}
+                  />
+                </div>
+              )}
+              <div className="kho-alloc__note">
+                <label htmlFor={`ghi-${l.id}`}>Ghi chú</label>
+                <input
+                  id={`ghi-${l.id}`}
+                  className="rc-input"
+                  value={block.ghiChu}
+                  onChange={(e) => onGhiChu(e.target.value)}
+                  placeholder="Ghi chú riêng cho mặt hàng này (không bắt buộc)"
+                />
+              </div>
+              {/* Cho ẩn lại khi tự mở (KHÔNG ẩn khi cấp thiếu — lý do lúc đó bắt buộc). */}
+              {noteOpen && !isShort && (
+                <button type="button" className="rc__link-btn" onClick={() => setNoteOpen(false)}>
+                  − Ẩn ghi chú / lý do
+                </button>
+              )}
+            </>
+          ) : (
+            <button type="button" className="rc__link-btn" onClick={() => setNoteOpen(true)}>
+              + Ghi chú / lý do
+            </button>
           )}
-          <div className="kho-alloc__note">
-            <label htmlFor={`ghi-${l.id}`}>Ghi chú</label>
-            <input
-              id={`ghi-${l.id}`}
-              className="rc-input"
-              value={block.ghiChu}
-              onChange={(e) => onGhiChu(e.target.value)}
-              placeholder="Ghi chú riêng cho mặt hàng này (không bắt buộc)"
-            />
-          </div>
 
           {!isNhap && (
             <>
@@ -1512,13 +1532,14 @@ function AllocCard({
                       <th className="kho-num">Còn</th>
                       {canViewCost && <th className="kho-num">Đơn giá</th>}
                       <th className="kho-num">Lấy</th>
+                      {canViewCost && <th className="kho-num">Thành tiền</th>}
                       <th />
                     </tr>
                   </thead>
                   <tbody>
                     {block.lots.length === 0 ? (
                       <tr>
-                        <td colSpan={canViewCost ? 6 : 5} className="kho-lines__empty">
+                        <td colSpan={canViewCost ? 7 : 5} className="kho-lines__empty">
                           Chưa chọn lô nào.
                         </td>
                       </tr>
@@ -1544,6 +1565,13 @@ function AllocCard({
                               aria-label={`Lấy từ lô ${lot.ma_lo}`}
                             />
                           </td>
+                          {canViewCost && (
+                            <td className="kho-num">
+                              {lot.don_gia_nhap != null
+                                ? money(Math.round((lot.so_luong || 0) * lot.don_gia_nhap))
+                                : ""}
+                            </td>
+                          )}
                           <td>
                             <button
                               type="button"

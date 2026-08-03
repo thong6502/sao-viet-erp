@@ -148,6 +148,7 @@ class StockVoucherRepository:
                 so_luong=ln["so_luong"],
                 don_gia=ln.get("don_gia"),
                 ghi_chu=ln.get("ghi_chu"),
+                vi_tri=ln.get("vi_tri"),
             ))
         self.db.add(obj)
         self.db.commit()

@@ -73,6 +73,8 @@ export interface NavParams {
   openSxOrderId?: number;
   /** Liên thông Phòng ban → Lương: mở thẳng tab "Cấu hình lương" (bảng lương của tổ). */
   luongTab?: "cauhinh";
+  /** Deep-link QR tem kho: mở thẳng drawer lô + vị trí của đúng vật tư này trên màn Tồn kho. */
+  openMaterialId?: number;
 }
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
@@ -473,14 +475,13 @@ export function AppShell() {
   // Vai chỉ có `kho:read` (để tạo đề nghị) KHÔNG được thấy — chặn bằng `can_view_stock`, để
   // ông sản xuất không nhìn thấy tồn/giá/lô của kho.
   const canViewStock = !!caps.get("kho")?.can_view_stock;
-  // "kho-item:<id>" = màn 1 kho (menu con động) — gác quyền `kho` + `view_stock`.
-  const moduleKeys =
-    MODULES_BY_NAV_ID[baseId] ??
-    (baseId === "kho-item" ? ["kho"] : undefined);
+  // "kho-item:<id>" = màn Tồn kho của 1 kho — gác `kho` + `view_stock`.
+  const isKhoView = baseId === "kho-item";
+  const moduleKeys = MODULES_BY_NAV_ID[baseId] ?? (isKhoView ? ["kho"] : undefined);
   const allowed =
     moduleKeys != null &&
     moduleKeys.some((moduleKey) => readable.has(moduleKey)) &&
-    (baseId !== "kho-item" || canViewStock);
+    (!isKhoView || canViewStock);
 
   const itemChildren: Record<string, { id: string; label: string }[]> = {};
   // Kho đã khai báo → item ĐỘNG dưới SECTION "Kho hàng" (id section = "kho-hang"). Bấm 1 kho → màn tạm.
@@ -534,6 +535,7 @@ export function AppShell() {
           ma={w?.ma}
           token={token ?? ""}
           navigate={navigate}
+          openMaterialId={navParams?.openMaterialId ?? null}
         />
       );
     }

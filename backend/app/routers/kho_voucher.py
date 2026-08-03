@@ -39,6 +39,7 @@ from ..schemas.stock import (
     MaterialHistoryOut,
     MaterialXuatRow,
     StockLotOut,
+    StockLotViTriIn,
     StockThresholdIn,
     StockThresholdOut,
     StockVoucherAttachmentListOut,
@@ -50,6 +51,7 @@ from ..schemas.stock import (
     StockVoucherPage,
 )
 from ..services.material_service import MaterialService
+from ..services.qr_token import sign_scan
 from ..services.rbac_service import AuthorizationService
 from ..services.sequence_service import SequenceService
 from ..services.stock_request_service import StockRequestService
@@ -242,6 +244,20 @@ def cancel_voucher(
     return _serialize(v, svc=svc, db=db, can_view_cost=authz.can(user, MODULE, "view_cost"))
 
 
+@router.patch("/lo/{lot_id}/vi-tri")
+def update_lot_vi_tri(
+    lot_id: int, payload: StockLotViTriIn, svc: Service,
+    # Vị trí VẬT LÝ (kệ/ô) do người CẦM HÀNG (thủ kho) quản → gate `create`.
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+):
+    """Sửa VỊ TRÍ cất lô trong kho (sửa từ drawer Lịch sử của sản phẩm)."""
+    try:
+        lot = svc.set_lot_vi_tri(lot_id, payload.vi_tri)
+    except StockVoucherError as e:
+        raise _err(e) from None
+    return {"id": lot.id, "vi_tri": lot.vi_tri}
+
+
 # --- Lô & gợi ý phân bổ ------------------------------------------------------
 
 @router.get("/lo/goi-y", response_model=AllocationOut)
@@ -334,6 +350,17 @@ def material_history(
         on_hand=svc.lots.on_hand(material_id, kho_id),
         nhap=nhap, xuat=xuat,
     )
+
+
+@router.get("/vat-tu/{material_id}/qr-token")
+def material_qr_token(
+    material_id: int,
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    kho_id: int = Query(...),
+) -> dict[str, str]:
+    """Mã QR đã ký cho tem dán kệ (in tem CẦN đăng nhập; trang quét công khai thì KHÔNG).
+    FE nhúng vào link `#s=<token>` rồi vẽ QR. Path 3 đoạn nên không đụng route `/{voucher_id}`."""
+    return {"token": sign_scan(kho_id, material_id)}
 
 
 # --- Đính kèm hóa đơn/chứng từ gốc --------------------------------------------

@@ -4466,6 +4466,8 @@ export interface StockVoucherLineInput {
   /** Lý do cấp/nhập THIẾU (khi SL < còn phải cấp) — bắt buộc nếu thiếu; ghi vào đề nghị. */
   ly_do?: string | null;
   ghi_chu?: string | null;
+  /** Phiếu NHẬP: vị trí cất lô (kệ/ô) — thủ kho khai; ghi sổ chép sang lô. */
+  vi_tri?: string | null;
 }
 
 export interface StockVoucherInput {
@@ -6986,6 +6988,18 @@ export const api = {
           body: JSON.stringify({ ly_do: lyDo }),
         });
       },
+      /** Sửa VỊ TRÍ cất lô (kệ/ô) — từ drawer Lịch sử của sản phẩm. Quyền `create` (thủ kho). */
+      suaViTriLo(
+        token: string,
+        lotId: number,
+        viTri: string | null,
+      ): Promise<{ id: number; vi_tri: string | null }> {
+        return authed<{ id: number; vi_tri: string | null }>(
+          `/api/kho/phieu/lo/${lotId}/vi-tri`,
+          token,
+          { method: "PATCH", body: JSON.stringify({ vi_tri: viTri }) },
+        );
+      },
       /** Gợi ý lấy hàng từ lô nào (FEFO → FIFO). `thieu` > 0 = kho không đủ hàng. */
       goiYLo(
         token: string,
@@ -7017,6 +7031,14 @@ export const api = {
         const qs = new URLSearchParams({ kho_id: String(khoId) });
         return authed<StockMaterialHistory>(
           `/api/kho/phieu/vat-tu/${materialId}/lich-su?${qs.toString()}`,
+          token,
+        );
+      },
+      /** Mã QR đã ký cho tem dán kệ (in tem CẦN đăng nhập). FE nhúng vào link `#s=<token>`. */
+      qrToken(token: string, khoId: number, materialId: number): Promise<{ token: string }> {
+        const qs = new URLSearchParams({ kho_id: String(khoId) });
+        return authed<{ token: string }>(
+          `/api/kho/phieu/vat-tu/${materialId}/qr-token?${qs.toString()}`,
           token,
         );
       },
@@ -7052,7 +7074,33 @@ export const api = {
     },
   },
 
+  /** Endpoint CÔNG KHAI — tra kho khi quét tem QR (KHÔNG đăng nhập, KHÔNG giá vốn). */
+  public: {
+    khoScan(scanToken: string): Promise<PublicScan> {
+      const qs = new URLSearchParams({ t: scanToken });
+      return request<PublicScan>(`/api/public/kho-scan?${qs.toString()}`);
+    },
+  },
+
 };
+
+/** Dữ liệu tra kho CÔNG KHAI (quét tem QR). KHÔNG có trường tiền (giá vốn/đơn giá). */
+export interface PublicScanLot {
+  ma_lo: string | null;
+  ngay_nhap: string;
+  hsd: string | null;
+  vi_tri: string | null;
+  sl_con_lai: number;
+}
+
+export interface PublicScan {
+  material_code: string | null;
+  material_name: string | null;
+  dvt: string | null;
+  kho_ten: string | null;
+  on_hand: number;
+  lots: PublicScanLot[];
+}
 
 export interface PlateDieRateRow {
   id: number;

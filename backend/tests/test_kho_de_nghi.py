@@ -472,6 +472,34 @@ def test_lap_phieu_day_de_nghi_ra_khoi_can_cap(client):
     assert got["ly_do_huy"] == "Hết hàng, không cấp"   # lý do lưu ở đề nghị
 
 
+def test_vi_tri_lo_nhap_va_sua(client):
+    """Vị trí cất lô: khai ở dòng phiếu NHẬP → ghi sổ CHÉP sang lô; sửa được qua endpoint."""
+    kho_id, mat_id = _setup(client)
+    req = _approved_request(client, kho_id=kho_id, loai="NHAP", mat_id=mat_id, qty=10)
+    tk = _login(client, "t_thukho")
+    r = client.post("/api/kho/phieu", headers=tk, json={
+        "request_id": req["id"], "kho_id": kho_id,
+        "lines": [{"request_line_id": req["lines"][0]["id"], "so_luong": 10,
+                   "don_gia": 1000, "vi_tri": "A1-Kệ 3"}],
+    })
+    assert r.status_code == 201, r.text
+    vid = r.json()["id"]
+    assert client.post(f"/api/kho/phieu/{vid}/ghi-so", headers=tk).status_code == 200
+
+    def _lots():
+        return client.get("/api/kho/phieu/lo/danh-sach", headers=tk,
+                          params={"material_id": mat_id, "kho_id": kho_id}).json()
+
+    lot = _lots()[0]
+    assert lot["vi_tri"] == "A1-Kệ 3"   # khai lúc NHẬP → chép sang lô khi ghi sổ
+
+    # Sửa vị trí qua endpoint (quyền create — thủ kho cầm hàng).
+    r = client.patch(f"/api/kho/phieu/lo/{lot['id']}/vi-tri", headers=tk, json={"vi_tri": "B2-Kệ 5"})
+    assert r.status_code == 200, r.text
+    assert r.json()["vi_tri"] == "B2-Kệ 5"
+    assert _lots()[0]["vi_tri"] == "B2-Kệ 5"
+
+
 def test_cap_thieu_bat_buoc_ly_do_va_hien_o_de_nghi(client):
     """Cấp/nhập ÍT HƠN còn phải cấp → phải nhập LÝ DO; lý do ghi vào đề nghị (kho phản hồi)."""
     kho_id, mat_id = _setup(client)

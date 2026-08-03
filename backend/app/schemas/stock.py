@@ -160,6 +160,8 @@ class StockVoucherLineIn(BaseModel):
     # Lý do cấp/nhập THIẾU (khi SL < còn phải cấp) — bắt buộc nếu thiếu; ghi vào đề nghị (kho phản hồi).
     ly_do: str | None = Field(default=None, max_length=500)
     ghi_chu: str | None = Field(default=None, max_length=500)
+    # Phiếu NHẬP: vị trí cất lô trong kho (kệ/ô) — thủ kho khai; ghi sổ chép sang lô.
+    vi_tri: str | None = Field(default=None, max_length=100)
 
 
 class StockVoucherCreate(BaseModel):
@@ -242,6 +244,12 @@ class StockVoucherAttachmentListOut(BaseModel):
 
 # --- Lô & phân bổ ------------------------------------------------------------
 
+class StockLotViTriIn(BaseModel):
+    """Sửa vị trí cất lô (kệ/ô) trong kho."""
+
+    vi_tri: str | None = Field(default=None, max_length=100)
+
+
 class StockLotOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -308,6 +316,28 @@ class MaterialHistoryOut(BaseModel):
     on_hand: float
     nhap: list[StockLotOut] = []
     xuat: list[MaterialXuatRow] = []
+
+
+# --- Tra kho CÔNG KHAI (quét tem QR, không đăng nhập) -------------------------
+# TUYỆT ĐỐI không có trường tiền (giá vốn/đơn giá): trang này ai có link cũng xem được.
+
+class PublicScanLot(BaseModel):
+    ma_lo: str | None = None
+    ngay_nhap: date
+    hsd: date | None = None
+    vi_tri: str | None = None
+    sl_con_lai: float
+
+
+class PublicScanOut(BaseModel):
+    """Dữ liệu tra kho công khai: tên vật tư · ĐVT · kho · tổng tồn · các lô (vị trí)."""
+
+    material_code: str | None = None
+    material_name: str | None = None
+    dvt: str | None = None
+    kho_ten: str | None = None
+    on_hand: float
+    lots: list[PublicScanLot] = []
 
 
 # --- Ngưỡng tồn ---------------------------------------------------------------
