@@ -7,7 +7,10 @@ from sqlalchemy.pool import StaticPool
 from app.db import Base
 import app.models  # noqa: F401
 from app.models.cong_doan import CongDoan  # noqa: F401 — đăng ký metadata
+from app.models.department import Department
+from app.models.piece_work import PieceRate
 from app.repositories.cong_doan_repo import CongDoanRepository
+from app.schemas.cong_doan import CongDoanIn, CongDoanRow
 from app.services.cong_doan_service import (
     CongDoanDuplicate,
     CongDoanService,
@@ -56,6 +59,103 @@ def test_nang_suat_luu_va_sua_duoc():
     # Không khai vẫn hợp lệ → NULL (routing để trống, không bịa 0).
     assert svc.create(dict(ma="GOI", ten="Đóng gói", nhom="finishing",
                            pricing_basis="per_finished_qty")).nang_suat is None
+
+
+def test_cong_doan_to_luu_dinh_muc_theo_dau_viec():
+    db, svc = _svc()
+    to = Department(name="Tổ Bồi", code="PB900", la_san_xuat=True)
+    db.add(to)
+    db.flush()
+    rate = PieceRate(group_name="Tổ Bồi", department_id=to.id, code="BOI-01",
+                     name="Bồi sóng", unit="tờ", unit_price=200)
+    db.add(rate)
+    db.commit()
+
+    cd = svc.create(dict(
+        ma="BOI", ten="Bồi sóng", nhom="finishing",
+        department_id=to.id, pricing_basis="per_finished_qty",
+        dau_viec_dinh_muc=[dict(
+            piece_rate_id=rate.id, nang_suat_nguoi_gio=500,
+            so_nguoi_tieu_chuan=3, so_nguoi_toi_da=5, is_default=True,
+        )],
+    ))
+
+    assert len(cd.dau_viec_dinh_muc) == 1
+    dm = cd.dau_viec_dinh_muc[0]
+    assert dm.piece_rate_id == rate.id
+    assert float(dm.nang_suat_nguoi_gio) == 500
+    assert (dm.so_nguoi_tieu_chuan, dm.so_nguoi_toi_da, dm.is_default) == (3, 5, True)
+
+
+def test_dinh_muc_to_chan_dau_viec_khac_to_va_hai_mac_dinh():
+    db, svc = _svc()
+    to_a = Department(name="Tổ A", code="PB901", la_san_xuat=True)
+    to_b = Department(name="Tổ B", code="PB902", la_san_xuat=True)
+    db.add_all([to_a, to_b])
+    db.flush()
+    rates = [
+        PieceRate(group_name="A", department_id=to_a.id, name="A1", unit="tờ", unit_price=1),
+        PieceRate(group_name="A", department_id=to_a.id, name="A2", unit="tờ", unit_price=1),
+        PieceRate(group_name="B", department_id=to_b.id, name="B1", unit="tờ", unit_price=1),
+    ]
+    db.add_all(rates)
+    db.commit()
+    base = dict(ma="TO-A", ten="Việc A", nhom="finishing",
+                department_id=to_a.id, pricing_basis="per_finished_qty")
+
+    with pytest.raises(CongDoanValidationError, match="đúng tổ"):
+        svc.create({**base, "dau_viec_dinh_muc": [dict(
+            piece_rate_id=rates[2].id, nang_suat_nguoi_gio=100,
+            so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2, is_default=True,
+        )]})
+
+    with pytest.raises(CongDoanValidationError, match="mặc định"):
+        svc.create({**base, "ma": "TO-A2", "dau_viec_dinh_muc": [
+            dict(piece_rate_id=rates[0].id, nang_suat_nguoi_gio=100,
+                 so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2, is_default=True),
+            dict(piece_rate_id=rates[1].id, nang_suat_nguoi_gio=120,
+                 so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3, is_default=True),
+        ]})
+
+
+def test_cong_doan_trung_tinh_khong_mang_loai_thuc_hien_hoac_may_mac_dinh():
+    """Máy/Tổ là quyết định của bước LSX, không phải thuộc tính danh mục Công đoạn."""
+    assert "loai_thuc_hien" not in CongDoanIn.model_fields
+    assert "may_id" not in CongDoanIn.model_fields
+    assert "loai_thuc_hien" not in CongDoanRow.model_fields
+    assert "may_id" not in CongDoanRow.model_fields
+    assert not hasattr(CongDoan, "loai_thuc_hien")
+    assert not hasattr(CongDoan, "may_id")
+
+
+def test_don_vi_vao_ra_chi_chay_MOT_CHIEU():
+    """Dòng giấy: tờ nguyên → tờ in → tờ thành phẩm. Cặp đi ngược/nhảy cóc phải bị chặn."""
+    db, svc = _svc()
+    base = dict(nhom="finishing", pricing_basis="per_finished_qty")
+    # Không khai → TRỐNG = bước không nằm trên dòng giấy (KHÔNG còn đoán theo tên).
+    assert svc.create(dict(ma="X1", ten="Bế thành phẩm", **base)).don_vi_vao is None
+    # Khai đúng chiều thì nhận.
+    cd = svc.create(dict(ma="X2", ten="Bế", don_vi_vao="to", don_vi_ra="cai", **base))
+    assert (cd.don_vi_vao, cd.don_vi_ra) == ("to", "cai")
+    assert svc.create(dict(ma="X3", ten="Xả giấy", don_vi_vao="to_nguyen", don_vi_ra="to",
+                           **base)).don_vi_ra == "to"
+    # Ngược dòng: con không quay lại thành tờ.
+    with pytest.raises(CongDoanValidationError):
+        svc.create(dict(ma="X4", ten="Sai", don_vi_vao="cai", don_vi_ra="to", **base))
+    # Nhảy cóc: tờ nguyên không thành con một phát (thiếu bước xả + bế ở giữa).
+    with pytest.raises(CongDoanValidationError):
+        svc.create(dict(ma="X5", ten="Sai", don_vi_vao="to_nguyen", don_vi_ra="cai", **base))
+    # Mã đơn vị lạ — kể cả `kem`/`bai`: chúng KHÔNG phải mức trên dòng giấy.
+    for dv in ("met", "kem", "bai"):
+        with pytest.raises(CongDoanValidationError):
+            svc.create(dict(ma=f"X6{dv}", ten="Sai", don_vi_vao=dv, don_vi_ra=dv, **base))
+    # Khai một nửa thì chặn — trống là trống cả hai.
+    with pytest.raises(CongDoanValidationError):
+        svc.create(dict(ma="X7", ten="Sai", don_vi_vao="to", don_vi_ra="", **base))
+    # Chế bản: để TRỐNG vì không chạm giấy. Engine tính giá loại nó khỏi dòng giấy; lệnh sản xuất
+    # tự suy ra kẽm từ `nhom` (xem `lsx_service._don_vi_theo_buoc`).
+    cb = svc.create(dict(ma="X8", ten="Ghi kẽm CTP", nhom="prepress", pricing_basis="per_other"))
+    assert (cb.don_vi_vao, cb.don_vi_ra) == (None, None)
 
 
 def test_print_spoilage_forced_zero():

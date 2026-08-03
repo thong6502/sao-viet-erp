@@ -64,9 +64,6 @@ function phuongAnCho(it: XepLichVanDe): ActMsg[] {
     case "sai_tien_nhiem":
       out.push({ icon: "workflow", label: "Mở Bảng theo lệnh để sửa thứ tự công đoạn", nav: lsx != null ? { kind: "bang-lenh", flash: { nguon: "lsx", id: lsx } } : { kind: "bang-lenh" } });
       break;
-    case "gang_thieu_xa_to":
-      out.push({ icon: "layers", label: "Mở bài ghép để bổ sung công đoạn xả tờ", nav: bg != null ? { kind: "bang-bai-ghep", flash: { nguon: "in_ghep", id: bg } } : { kind: "bang-bai-ghep" } });
-      break;
     case "thieu_du_lieu":
       out.push({ icon: "pencil", label: "Mở lệnh để khai năng suất / gán máy", nav: { kind: "man-ke-hoach" } });
       break;

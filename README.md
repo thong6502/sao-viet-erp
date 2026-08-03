@@ -57,6 +57,39 @@ API docs tự sinh khi backend chạy: **http://localhost:8000/docs**.
 
 Lệnh xác minh chuẩn duy nhất — chạy `pytest` + `compileall` (hiện **308 passed**).
 
+## Đổi schema — bẫy làm đỏ CI nhiều nhất
+
+Dự án **không có Alembic**. `create_all` chỉ TẠO bảng mới, **không ALTER** bảng đã có. Mỗi lần
+đụng vào model phải làm đủ ba việc, trong **cùng một commit**:
+
+1. **Bảng mới** → export ở `backend/app/models/__init__.py`. Quên là `create_all` không thấy bảng.
+2. **Thêm/đổi cột của bảng đã có** → viết hàm trong `backend/app/db_migrations.py` rồi đăng ký vào
+   `MIGRATIONS`. DB live/prod chỉ nhận cột mới qua đường này; máy dev thì xoá `backend/dev.db`
+   cho tạo lại cũng được.
+3. **Ghi vào [docs/DB_SCHEMA.md](docs/DB_SCHEMA.md)** — mọi bảng và **mọi cột** phải có mặt.
+
+Việc thứ 3 có test canh (`backend/tests/test_schema_documented.py`): thiếu một cột là gate
+`Build & test` đỏ và **deploy bị chặn**, dù toàn bộ test khác xanh. Kiểm trước khi push:
+
+```bash
+cd backend && python -m pytest tests/test_schema_documented.py -q
+```
+
+Hoặc bật hook để máy tự chặn — chạy MỘT LẦN cho mỗi bản clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`.githooks/pre-commit` chỉ chạy guard khi commit có đụng `backend/app/models/` hoặc `DB_SCHEMA.md`
+(commit UI không phải chờ), và tự bỏ qua nếu máy không có python/pytest. Cần vượt: `--no-verify`.
+
+Thêm bảng thì chép khung sẵn ở mục *"Template for a new table"* cuối `DB_SCHEMA.md`.
+
+> **Đừng đánh lại số migration.** Trong `MIGRATIONS` có nhiều dãy số song song trùng nhau (`0113`
+> xuất hiện ở cả dãy lương, dãy kho lẫn dãy tính giá) — đó là chủ ý, vì khoá thật trong bảng
+> `schema_migrations` là **cả chuỗi id**. Đổi id của migration đã chạy là DB sẽ chạy lại nó.
+
 ## Chạy với Docker (Postgres / Redis / MinIO)
 
 **Một file compose duy nhất** (`docker-compose.yml`) và **một lệnh duy nhất** cho mọi môi trường:

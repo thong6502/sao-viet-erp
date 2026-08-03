@@ -557,9 +557,15 @@ def test_shift_plan_bulk_set_off_inherit(client):
 
     row, data = _plan_row(client, token, emp["id"])
     assert data["locked"] is False
-    assert row["days"]["1"] == {"shift_id": night["id"], "source": "day", "is_off": False}
+    # So từng khoá thay vì so nguyên dict: ô còn mang lớp phủ nghỉ phép (`leave_name`/`leave_paid`,
+    # chỉ để xem) nên so nguyên khối sẽ đỏ mỗi lần thêm một thông tin hiển thị mới.
+    assert row["days"]["1"]["shift_id"] == night["id"]
+    assert row["days"]["1"]["source"] == "day" and row["days"]["1"]["is_off"] is False
     assert row["days"]["2"]["is_off"] is True
-    assert row["days"]["3"] == {"shift_id": base["id"], "source": "assign", "is_off": False}
+    assert row["days"]["3"]["shift_id"] == base["id"]
+    assert row["days"]["3"]["source"] == "assign" and row["days"]["3"]["is_off"] is False
+    # Không có phiếu nghỉ nào ⇒ không ô nào mang dấu phép.
+    assert all(v["leave_name"] is None for v in row["days"].values())
     assert row["no_default"] is False
 
     # inherit trên ô ĐANG khai → xóa, quay về mốc
@@ -1057,3 +1063,168 @@ def test_tru_phep_khong_duoc_duc_ra_cong_ao(client):
     assert row["paid_leave_days"] == 0.44            # kẹp theo công thiếu thật, không phải 0,5
     assert row["late_off_days"] == []
     assert row["excused_cong"] == 0
+
+
+# --- Lớp phủ NGHỈ PHÉP trên lưới Phân ca tháng (chủ 30/07/2026) --------------
+# Chủ hỏi: *"nhân viên làm phiếu xin nghỉ thì chỗ phân ca tháng mà ngày nó nghỉ nó có tự nhảy là
+# nghỉ không"*. Trước đây: KHÔNG — lưới hoàn toàn mù với nghỉ phép.
+#
+# Chủ chốt cách vá: **hiện ĐỂ XEM, KHÔNG ghi đè**. Dấu nghỉ phép đọc thẳng từ phiếu, không viết vào
+# `employee_shift_days`. Nhờ vậy huỷ phiếu là lưới tự hết dấu, và không đẻ nguồn sự thật thứ hai.
+#
+# ⚠️ Đừng lẫn với `is_off` ("Nghỉ theo lịch"): đó là dấu KẾ HOẠCH do người dùng tự tô, không trừ
+# phép, không ra tiền. Trùng tên "nghỉ" nhưng là hai chuyện khác hẳn.
+
+
+def _don_nghi(client, token, emp_id, tu, den, *, duyet=True, paid=True):
+    """Tạo (và tuỳ chọn duyệt) một phiếu nghỉ nguyên ngày. Trả về id phiếu."""
+    tid = client.post("/api/leaves/types",
+                      json={"name": f"Phép {'năm' if paid else 'không lương'} {tu}",
+                            "is_paid": paid, "annual_quota": 12},
+                      headers=_h(token)).json()["id"]
+    r = client.post("/api/leaves",
+                    json={"employee_id": emp_id, "leave_type_id": tid,
+                          "start_date": tu, "end_date": den},
+                    headers=_h(token))
+    assert r.status_code == 201, r.text
+    rid = r.json()["id"]
+    if duyet:
+        assert client.post(f"/api/leaves/{rid}/approve", json={},
+                           headers=_h(token)).status_code == 200
+    return rid
+
+
+def _o_luoi(client, token, emp_id, year, month, ngay):
+    data = client.get(f"/api/attendance/shift-plan?year={year}&month={month}",
+                      headers=_h(token)).json()
+    row = next(r for r in data["rows"] if r["employee_id"] == emp_id)
+    return row["days"][str(ngay)]
+
+
+def test_phep_da_duyet_HIEN_tren_luoi_ma_KHONG_doi_o(client):
+    """⭐ Cả điểm của "chỉ để xem": ô có dấu phép, nhưng ca/nguồn/`is_off` KHÔNG suy suyển.
+
+    Người nghỉ phép vẫn ĐƯỢC PHÂN ca đó — chỉ là vắng mặt. Ghi đè ô thành "nghỉ" là mất thông tin
+    họ thuộc ca nào."""
+    token = _admin_token(client)
+    emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
+
+    truoc = _o_luoi(client, token, emp["id"], 2026, 9, 10)
+    _don_nghi(client, token, emp["id"], "2026-09-10", "2026-09-10")
+    sau = _o_luoi(client, token, emp["id"], 2026, 9, 10)
+
+    assert sau["leave_name"], "ngày nghỉ phép đã duyệt phải có dấu trên lưới"
+    assert sau["leave_paid"] is True
+    for k in ("shift_id", "source", "is_off"):
+        assert sau[k] == truoc[k], f"lớp phủ KHÔNG được đụng `{k}`"
+
+
+def test_doc_luoi_KHONG_ghi_gi_xuong_DB(client):
+    """⭐ Đọc mà ghi là hỏng đúng thứ chủ chọn tránh.
+
+    Nếu lỡ ghi vào `employee_shift_days` thì huỷ phiếu xong dấu vẫn nằm đó, và không ai biết ô đó
+    do người tô hay do máy tô."""
+    from app.models.employee import EmployeeShiftDay
+
+    token = _admin_token(client)
+    emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
+    _don_nghi(client, token, emp["id"], "2026-09-14", "2026-09-16")
+
+    db = SessionLocal()
+    try:
+        truoc = db.query(EmployeeShiftDay).count()
+    finally:
+        db.close()
+
+    client.get("/api/attendance/shift-plan?year=2026&month=9", headers=_h(token))
+
+    db = SessionLocal()
+    try:
+        assert db.query(EmployeeShiftDay).count() == truoc, "đọc lưới KHÔNG được ghi dòng nào"
+    finally:
+        db.close()
+
+
+def test_TU_CHOI_phieu_thi_dau_TU_BIEN_MAT(client):
+    """⭐ Món lợi chính của lớp phủ so với ghi đè — và là lý do KHÔNG được "tối ưu" thành ghi đè.
+
+    Không ai phải đi gỡ dấu tay; sửa phiếu là lưới đúng theo ngay."""
+    token = _admin_token(client)
+    emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
+    rid = _don_nghi(client, token, emp["id"], "2026-09-11", "2026-09-11")
+    assert _o_luoi(client, token, emp["id"], 2026, 9, 11)["leave_name"]
+
+    # Không từ chối được đơn đã duyệt ⇒ huỷ, đó mới là đường thật của nghiệp vụ.
+    assert client.post(f"/api/leaves/{rid}/cancel", json={},
+                       headers=_h(token)).status_code in (200, 204)
+    assert _o_luoi(client, token, emp["id"], 2026, 9, 11)["leave_name"] is None, \
+        "huỷ phiếu rồi mà dấu vẫn còn = lưới nói dối"
+
+
+def test_phieu_CHO_DUYET_thi_KHONG_co_dau(client):
+    """Chỉ `approved` mới hiện. Phiếu chờ duyệt mà đã tô lên lưới là người xếp ca tưởng đã chốt."""
+    token = _admin_token(client)
+    emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
+    _don_nghi(client, token, emp["id"], "2026-09-12", "2026-09-12", duyet=False)
+    assert _o_luoi(client, token, emp["id"], 2026, 9, 12)["leave_name"] is None
+
+
+def test_phieu_vat_qua_hai_thang_bi_CAT_dung_bien(client):
+    """Phiếu 28/08→02/09: xem tháng 9 chỉ thấy ngày 1–2, không tràn sang ngày khác."""
+    token = _admin_token(client)
+    emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
+    _don_nghi(client, token, emp["id"], "2026-08-28", "2026-09-02")
+
+    data = client.get("/api/attendance/shift-plan?year=2026&month=9", headers=_h(token)).json()
+    row = next(r for r in data["rows"] if r["employee_id"] == emp["id"])
+    co_dau = {int(k) for k, v in row["days"].items() if v["leave_name"]}
+    assert co_dau == {1, 2}, f"phải đúng ngày 1–2 của tháng 9: {sorted(co_dau)}"
+
+
+def test_bang_cong_va_luoi_noi_CUNG_MOT_chuyen(client):
+    """Hai màn dùng CHUNG `_leave_map`. Chép ra hai bản là sớm muộn Bảng công bảo "có phép" còn
+    lưới bảo "không", mà không ai biết bên nào đúng.
+
+    ⚠️ So cho đúng khái niệm: ô Bảng công dùng CHÍNH field `leave` để hiện cả TÊN NGÀY LỄ
+    (`attendance_service.py:1184`), nên phải loại ngày lễ ra trước khi đối chiếu — nếu không thì
+    test đỏ vì 2/9, một lý do chẳng liên quan gì tới nghỉ phép."""
+    token = _admin_token(client)
+    emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
+    _don_nghi(client, token, emp["id"], "2026-09-17", "2026-09-18")
+
+    luoi = client.get("/api/attendance/shift-plan?year=2026&month=9", headers=_h(token)).json()
+    lrow = next(r for r in luoi["rows"] if r["employee_id"] == emp["id"])
+    ngay_luoi = {int(k) for k, v in lrow["days"].items() if v["leave_name"]}
+
+    ts = client.get("/api/attendance/timesheet?year=2026&month=9", headers=_h(token)).json()
+    trow = next(r for r in ts["rows"] if r["employee_id"] == emp["id"])
+    ngay_cong = {int(k) for k, v in trow["days"].items()
+                 if v.get("leave") and not v.get("holiday")}
+
+    assert ngay_luoi == ngay_cong == {17, 18}
+    # Và ngày LỄ thì lưới KHÔNG gắn dấu phép — lễ không phải nghỉ phép.
+    assert lrow["days"]["2"]["leave_name"] is None
+
+
+def test_nghi_phep_KHONG_ro_sang_to_khac(client):
+    """⭐ Ngày nghỉ của người tổ khác không được lọt sang lưới tổ mình.
+
+    Chốt thật KHÔNG phải ở bộ lọc `_leave_map` mà ở `_employees_in_month`: người ngoài tầm nhìn
+    không có DÒNG nào trên lưới nên không có chỗ để dán dấu. Test này canh đúng tính chất đó — nếu
+    một ngày ai đó nới `_employees_in_month`, đây là thứ đỏ lên."""
+    token = _admin_token(client)
+    emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
+    _don_nghi(client, token, emp["id"], "2026-09-21", "2026-09-21")
+
+    # Xem lưới của MỘT TỔ KHÁC với tổ của người vừa nghỉ.
+    to_khac = _dept_id("Kho")
+    assert to_khac != emp["department_id"], "kịch bản cần hai tổ khác nhau"
+    data = client.get(
+        f"/api/attendance/shift-plan?year=2026&month=9&department_id={to_khac}",
+        headers=_h(token),
+    ).json()
+
+    assert all(r["employee_id"] != emp["id"] for r in data["rows"]), \
+        "người tổ khác không được xuất hiện trên lưới"
+    assert all(v["leave_name"] is None for r in data["rows"] for v in r["days"].values()), \
+        "không được dính dấu nghỉ phép của người ngoài tổ"

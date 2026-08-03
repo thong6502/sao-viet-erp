@@ -74,3 +74,15 @@ Ngữ cảnh đơn: `so_to_in_gross` (số tờ in), `so_mat` (số mặt), `dt_
 > **Lưu ý:** bộ 11 đơn vị này thuộc `routing_engine` — **chưa nối vào Báo giá live** (`pricing_engine.py`
 > đang chạy dùng danh mục `operations` với 4 đơn vị: tờ / m² / cái / SP). Hiện dùng để chuẩn hoá
 > danh mục; khi nối engine mới vào Báo giá thì mỗi công đoạn tự tính theo bảng trên.
+
+---
+
+## Cũng chính bộ này dùng cho LƯƠNG KHOÁN
+
+Bảng đơn giá khoán của tổ (`Lương → Cấu hình lương của tổ`) chọn **một trong các trục trên** ở ô
+"Tính theo", để lệnh sản xuất biết đổi SL của bước (tờ / con / kẽm) sang đơn vị của đơn giá (m² / tấn
+/ cuốn) rồi ra tiền công dự kiến. Cán / phủ / bồi → *theo diện tích tờ in*; bế → *theo số tờ in*;
+đóng cuốn → *theo số lượng thành phẩm*.
+
+Phần quy đổi giữa các đơn vị (1 m² = 10.000 cm², 1 tấn = 1.000 kg, 1 ram = 500 tờ) khai theo CẶP
+ở module riêng — xem `docs/spec-don-vi-quy-doi.md`.

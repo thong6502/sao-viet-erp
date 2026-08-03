@@ -1,5 +1,110 @@
 /* Lương (module `luong`) — dùng chung tokens + nhan-su.css / cham-cong.css. */
 
+/* Modern Clean Payroll Tabs Navigation - Synchronized with Charcoal & Slate UI */
+.lg-tabs.cc-tabs {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  padding: 5px !important;
+  margin-bottom: 20px !important;
+  background: #f1f5f9 !important;
+  border-radius: 14px !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03) !important;
+  position: relative;
+}
+
+.lg-tabs .lg-tabs__group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.lg-tabs .lg-tabs__divider {
+  width: 1px;
+  height: 20px;
+  background: #cbd5e1;
+  margin: 0 4px;
+  align-self: center;
+}
+
+.lg-tabs .lg-tab-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 7px 16px !important;
+  border-radius: 10px !important;
+  font-family: var(--ff-sans);
+  font-weight: 500 !important;
+  font-size: 13.5px !important;
+  color: #475569 !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.18s ease-in-out !important;
+  position: relative;
+  user-select: none;
+}
+
+.lg-tabs .lg-tab-btn:hover {
+  color: #0f172a !important;
+  background: rgba(255, 255, 255, 0.85) !important;
+  border-color: rgba(226, 232, 240, 0.8) !important;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.05) !important;
+  transform: translateY(0) !important;
+}
+
+.lg-tabs .lg-tab-btn__icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2px;
+  flex-shrink: 0;
+  color: #64748b !important;
+  transition: transform 0.18s ease, color 0.18s ease;
+}
+
+.lg-tabs .lg-tab-btn:hover .lg-tab-btn__icon {
+  color: #0f172a !important;
+  transform: scale(1.08);
+}
+
+.lg-tabs .lg-tab-btn.is-active {
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  background: #1c1a17 !important;
+  border-color: #1c1a17 !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.25) !important;
+  transform: translateY(0) !important;
+}
+
+.lg-tabs .lg-tab-btn.is-active .lg-tab-btn__icon {
+  color: #ffffff !important;
+  transform: scale(1.05);
+}
+
+.lg-tabs .lg-tab-btn.is-active::after {
+  display: none !important;
+}
+
+.lg-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  margin-left: 2px;
+}
+
+.lg-tab-badge--dirty {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+}
+
 .lg-toolbar { flex-wrap: wrap; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); }
 
 /* Hạn mức tạm ứng còn lại — hiện TRƯỚC ô nhập tiền để NV khỏi gõ đại rồi ăn lỗi. */
@@ -1602,7 +1707,14 @@
 /* --- Thưởng/phạt tổ trưởng theo tỷ lệ hàng lỗi (chủ 29/07/2026) --- */
 /* Ô % kèm chip Thưởng/Phạt: dấu âm dễ đọc lướt thành dương nên phải có chữ đi kèm. */
 .cl-lb__rate { display: flex; align-items: center; gap: var(--sp-2); }
-.cl-lb__rate input { width: 96px; }
+/* Ô % + chip "Thưởng/Phạt" đứng cạnh nhau: ghim bề rộng ô cho chip khỏi bị đẩy xuống dòng.
+   Nhắm vào WRAPPER chứ không phải `input` — ô số dùng `NumInput` (rc-input-wrapper + suffix),
+   đặt width lên chính input sẽ đá nhau với `.rc-input { width: 100% }`. */
+.cl-lb__rate .rc-input-wrapper { width: 112px; flex: none; }
+/* Cột "Tỷ lệ lỗi tới": số ngắn, để rộng bằng cả cột trông trống trải. */
+.cl-lb__table td .rc-input-wrapper { max-width: 150px; }
+/* Ghi chú là chữ, cần rộng — cởi trần 150px ở trên cho riêng cột này. */
+.cl-lb__table td:nth-child(4) .rc-input-wrapper { max-width: none; }
 /* Câu đọc từ chính bảng mốc — bảng số khó hình dung, đọc câu thì ra ngay. */
 .cl-lb__read {
   margin-top: var(--sp-2);
@@ -1612,15 +1724,40 @@
   border-radius: var(--r-2);
   line-height: 1.7;
 }
+/* Ngưỡng tối thiểu — đứng TRƯỚC bảng bậc vì nó chặn trước. Nền rust nhạt để tách khỏi bảng bậc:
+   đây là một luật KHÁC loại (cửa chặn), không phải thêm một bậc nữa. */
+/* Ngưỡng tối thiểu — đứng TRƯỚC bảng bậc vì nó chặn trước. Nền paper để tách khỏi bảng bậc:
+   đây là một luật KHÁC loại (cửa chặn), không phải thêm một bậc nữa.
+   2 cột: ô số lượng · lời giải thích. */
+.cl-lb__gate {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-items: start;
+  margin-bottom: var(--sp-4);
+  padding: 12px 14px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+}
+.cl-lb__gate .cl-hint-inline { margin: 0; align-self: center; }
+@media (max-width: 1100px) {
+  .cl-lb__gate { grid-template-columns: minmax(0, 1fr); }
+}
+/* 4 cột: tỷ lệ lỗi · sản lượng giả định · tổng khoán giả định · kết quả.
+   Sản lượng và tiền là HAI ô riêng — ngưỡng đo bằng số lượng, còn % nhân trên tiền. */
 .cl-lb__try {
   display: grid;
-  grid-template-columns: 180px 220px 1fr;
+  grid-template-columns: 150px 170px 200px minmax(0, 1fr);
   gap: var(--sp-3);
   align-items: end;
   margin-top: var(--sp-3);
   padding: 10px 12px;
   border: 1px dashed var(--rule);
   border-radius: var(--r-3);
+}
+@media (max-width: 1100px) {
+  .cl-lb__try { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .cl-lb__out { font-size: 13px; color: var(--ink); padding-bottom: 8px; }
 .cl-lb__out b {   font-family: var(--ff-num);
@@ -1634,3 +1771,164 @@
   color: var(--amber-deep);
   font-weight: var(--fw-medium);
 }
+
+/* --- Ô GÕ-ĐỂ-LỌC cho Tổ · Đơn vị trong modal đơn giá khoán ------------------------------------- */
+.khoan-cbx {
+  position: relative;
+  width: 100%;
+}
+.khoan-cbx__input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.khoan-cbx__input {
+  width: 100%;
+  padding-right: 32px !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.khoan-cbx.is-open .khoan-cbx__input {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12) !important;
+}
+.khoan-cbx__arrow {
+  position: absolute;
+  right: 10px;
+  pointer-events: none;
+  color: #94a3b8;
+  transition: transform 0.2s ease, color 0.15s ease;
+}
+.khoan-cbx.is-open .khoan-cbx__arrow {
+  transform: rotate(180deg);
+  color: #6366f1;
+}
+
+/* Portal List container - Rendered in document.body fixed overlay */
+.khoan-cbx__list {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px -4px rgba(15, 23, 42, 0.16), 0 4px 10px -2px rgba(15, 23, 42, 0.08);
+  animation: fadeInDown 0.15s ease-out;
+}
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.khoan-cbx__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 13.5px;
+  color: #1e293b;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  margin-bottom: 2px;
+}
+.khoan-cbx__item:last-child {
+  margin-bottom: 0;
+}
+.khoan-cbx__item.is-active {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+.khoan-cbx__item.is-on {
+  color: #4f46e5;
+  font-weight: 600;
+  background: #eef2ff;
+}
+.khoan-cbx__item-text {
+  flex: 1;
+}
+.khoan-cbx__item-check {
+  color: #4f46e5;
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+.khoan-cbx__empty {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #64748b;
+  background: #f8fafc;
+  border-radius: 6px;
+}
+.khoan-cbx__empty-icon {
+  color: #94a3b8;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+/* Modal đơn giá khoán styling */
+.ns-modal__box--khoan {
+  width: 540px;
+  max-width: 92vw;
+  border-radius: 16px;
+  box-shadow: 0 20px 40px -8px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  overflow: visible !important;
+}
+.ns-modal__box--khoan .ns-modal__head {
+  padding: 18px 24px;
+  border-bottom: 1px solid #f1f5f9;
+}
+.ns-modal__box--khoan .ns-modal__head h2 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+}
+.ns-modal__box--khoan .ns-modal__subtitle {
+  font-size: 13px;
+  color: #64748b;
+  margin-top: 2px;
+}
+.ns-modal__box--khoan .ns-modal__body {
+  padding: 20px 24px;
+  overflow: visible !important;
+}
+.ns-modal__box--khoan .ns-modal__foot {
+  padding: 16px 24px;
+  background: #f8fafc;
+  border-top: 1px solid #f1f5f9;
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
+}
+.khoan-hint-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: #1e40af;
+  line-height: 1.45;
+}
+.khoan-hint-box b {
+  color: #1d4ed8;
+}
+.khoan-cdfield { min-width: 0; }
+.khoan-cdfield .khoan-cdpick { min-width: 0; }
+

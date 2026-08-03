@@ -148,7 +148,8 @@ export function NguyCoTreChip({
       : `${slackNgay > 0 ? "+" : slackNgay < 0 ? "−" : ""}${Math.abs(slackNgay)}d`;
   return (
     <span className={`xlcd-risk ${meta.cls}`}>
-      {meta.label}
+      <span className="xlcd-risk__dot" aria-hidden="true" />
+      <span className="xlcd-risk__txt">{meta.label}</span>
       {slack && <span className="xlcd-risk__slack">{slack}</span>}
     </span>
   );
@@ -164,7 +165,6 @@ export const XEP_LICH_CATEGORY_META: Record<XepLichVanDeCategory, { label: strin
   trung_may: { label: "Trùng máy", icon: "printer" },
   de_khoa_may: { label: "Đè vùng khóa máy", icon: "lock" },
   sai_tien_nhiem: { label: "Sai thứ tự công đoạn", icon: "workflow" },
-  gang_thieu_xa_to: { label: "Bài ghép thiếu xả tờ", icon: "layers" },
   thieu_du_lieu: { label: "Thiếu dữ liệu", icon: "help" },
   nguy_co_tre: { label: "Nguy cơ trễ hạn", icon: "clock" },
   may_khong_kham: { label: "Máy không đáp ứng", icon: "ban" },
@@ -317,7 +317,6 @@ export function ChuoiCongDoan({
             aria-current={active ? "step" : undefined}
           >
             {s.loai_buoc === "thue_ngoai" && <Icon name="truck" size={10} />}
-            {s.loai_buoc === "cho" && <Icon name="clock" size={10} />}
             {s.ten}
           </span>
         );

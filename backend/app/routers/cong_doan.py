@@ -66,6 +66,16 @@ def list_phong_ban_options(
     return RefOptionListOut(items=[RefOption(id=d.id, ma=d.code, ten=d.name) for d in depts])
 
 
+@router.get("/dau-viec")
+def list_dau_viec_options(
+    svc: Service,
+    _: Annotated[User, Depends(require_any_permission((MODULE, "read"), ("luong", "read")))],
+    department_id: int | None = Query(default=None),
+):
+    items = svc.dau_viec_options(department_id)
+    return {"items": items, "total": len(items), "page": 1, "size": max(len(items), 1)}
+
+
 @router.get("/{cd_id}", response_model=CongDoanRow)
 def get_item(cd_id: int, svc: Service, _: Annotated[User, Depends(require_permission(MODULE, "read"))]):
     try:

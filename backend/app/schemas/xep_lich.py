@@ -194,7 +194,7 @@ class VanDeException(BaseModel):
 
 class VanDeItem(BaseModel):
     issue_key: str
-    category: str                        # trung_may | de_khoa_may | sai_tien_nhiem | gang_thieu_xa_to | thieu_du_lieu | nguy_co_tre | may_khong_kham | qua_tai_may | han_bai_ghep | thue_ngoai
+    category: str                        # de_khoa_may | sai_tien_nhiem | thieu_du_lieu | nguy_co_tre | may_khong_kham | qua_tai_may | han_bai_ghep | thue_ngoai
     severity: str                        # chan | nghiem_trong | cao | canh_bao
     title: str
     nguyen_nhan: str | None = None

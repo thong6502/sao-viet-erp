@@ -1514,7 +1514,7 @@ def test_ngay_phep_chi_tra_luong_vi_tri(client):
         # `luong_ngay_phep` KHÔNG được cộng vào gross lần nữa.
         assert v["gross"] == round(v["luong_cong"] + v["chuyen_can"] + v["allowance"]
                                    + v["khoan"] + v["ot_pay"] + v["night_pay"]
-                                   + v["night_premium_pay"] + v["kpi_bonus"] + v["other_bonus"])
+                                   + v["night_premium_pay"] + v["other_bonus"])
     finally:
         db.close()
 
@@ -1986,7 +1986,7 @@ def test_line_out_tra_ra_khoan_de_phieu_luong_khop_tong(client):
     # Dựng đúng 2 cột của phiếu lương. Khoản hồ sơ ĐÃ nằm trong `allowance` nên không cộng lại;
     # chỉ khoản `source='line'` mới là dòng thu nhập thêm.
     thu = (l["luong_cong"] + l["chuyen_can"] + l["allowance"] + l["khoan"] + l["ot_pay"]
-           + l["night_pay"] + l["night_premium_pay"] + l["kpi_bonus"] + l["dieu_chinh_luong"]
+           + l["night_pay"] + l["night_premium_pay"] + l["dieu_chinh_luong"]
            + l["thuong_5s"] + l["thuong_doanh_so"] + l["thuong_thanh_tich"] + l["phep_nam"]
            + l["tra_dong_phuc"] + l["other_bonus"]
            + sum(c["amount"] for c in comps if c["kind"] != "tru" and c["source"] == "line"))

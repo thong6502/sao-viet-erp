@@ -25,6 +25,7 @@ export interface NavItem {
 }
 
 export const SELF_SERVICE_MODULE = "self_service";
+export const AUTHENTICATED_NAV_IDS: ReadonlySet<string> = new Set(["noi-quy"]);
 
 interface NavSection {
   id: string;
@@ -41,6 +42,14 @@ const NAV: NavSection[] = [
     items: [
       { id: "dashboard", label: "Dashboard", icon: "grid", module: "dashboard" },
       { id: "ho-so-cua-toi", label: "Hồ sơ của tôi", icon: "users", module: "dashboard" },
+      // Danh mục dùng chung: mọi tài khoản đã đăng nhập đều thấy và mở được.
+      {
+        id: "noi-quy",
+        label: "Nội quy công ty",
+        icon: "book",
+        module: "noi_quy",
+        modules: ["noi_quy"],
+      },
     ],
   },
   {
@@ -132,6 +141,10 @@ const NAV: NavSection[] = [
       { id: "may-thiet-bi", label: "Thiết bị & Máy in", icon: "warehouse", module: "dm_thiet_bi" },
       { id: "cong-doan", label: "Công đoạn", icon: "activity", module: "dm_cong_doan" },
       { id: "bu-hao", label: "Bù hao", icon: "fileText", module: "dm_cong_doan" },
+      // Đơn vị & quy đổi: dùng chung cho khoán · kho · mua hàng, nên nằm ở danh mục chứ không
+      // chôn trong màn Lương. MỘT mục cho hai bảng (đơn vị · cặp "1 tấn = 1.000 kg") — tách hai
+      // mục thì hai cái tên gần trùng nhau, không ai đoán được vào đâu làm gì.
+      { id: "don-vi", label: "Đơn vị & quy đổi", icon: "activity", module: "dm_cong_doan" },
       { id: "chung-loai-giay", label: "Chủng loại giấy", icon: "fileText", module: "kho" },
       { id: "giay", label: "Giấy", icon: "bag", module: "kho" },
       { id: "vat-tu-in-an", label: "Vật tư in ấn", icon: "bag", module: "kho" },
@@ -217,7 +230,10 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicIte
       ...s,
       items: merged
         .filter((i) => !hiddenIds?.has(i.id))
-        .filter((i) => (i.modules ?? [i.module]).some((module) => readable.has(module)))
+        .filter((i) =>
+          AUTHENTICATED_NAV_IDS.has(i.id) ||
+          (i.modules ?? [i.module]).some((module) => readable.has(module)),
+        )
         .map((i) => {
           const dyn = itemChildren?.[i.id];
           return dyn && dyn.length ? { ...i, children: dyn } : i;

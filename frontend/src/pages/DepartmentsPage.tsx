@@ -124,14 +124,20 @@ export function DepartmentsPage({
       size?: number;
     },
   ) {
-    const isCurrentUser =
-      (options?.userId && user?.id === options.userId) ||
-      (options?.username && user?.username === options.username) ||
-      (user?.name && user.name.trim().toLowerCase() === name.trim().toLowerCase());
+    // Server đã trả ảnh cho TỪNG người (`avatar_url` / `head_avatar_url`), nên đây là nguồn chính.
+    //
+    // Nhánh dự phòng chỉ còn dùng khi đúng người đang đăng nhập: họ vừa đổi ảnh trong màn Tài khoản
+    // thì context xác thực mới hơn danh sách đang cache, hiện ngay cho khỏi tưởng đổi không ăn.
+    //
+    // 🔴 ĐÃ GỠ nhánh so theo TÊN. Trước đây ai trùng tên với người đang đăng nhập là **hiện ảnh của
+    // người đang đăng nhập lên hàng của họ** — mà trùng tên trong nhà máy là chuyện thường
+    // (Nguyễn Văn A). Gắn sai mặt vào sai người trên màn nhân sự là loại sai không được phép có,
+    // và nó im lặng hoàn toàn. Chỉ khớp theo `id` — thứ duy nhất định danh chắc chắn.
+    const laChinhMinh = options?.userId != null && user?.id === options.userId;
 
     const src = options?.avatarUrl
       ? assetUrl(options.avatarUrl)
-      : isCurrentUser && user?.avatar_url
+      : laChinhMinh && user?.avatar_url
       ? assetUrl(user.avatar_url)
       : null;
 
@@ -305,7 +311,7 @@ export function DepartmentsPage({
 
   // Cây tổ chức (cột trái) — tìm theo tên/mã + chip lọc phân loại phòng.
   const [search, setSearch] = useState("");
-  const [treeFilter, setTreeFilter] = useState<"all" | "san_xuat" | "van_phong" | "no_head">(
+  const [treeFilter, setTreeFilter] = useState<"all" | "san_xuat" | "van_phong" | "no_head" | "no_staff">(
     "all",
   );
   // Chế độ xem: danh sách cây thẻ (tree) vs Sơ đồ khối trực quan (chart)
@@ -470,26 +476,44 @@ export function DepartmentsPage({
     return ids;
   }, [selectedId, childrenOf]);
 
-  // A department's staffing status (wireframe): no staff → trống; staff but no head → thiếu TP.
-  function deptStatus(d: Department): "empty" | "no_head" | "complete" {
-    if ((d.employee_count ?? 0) === 0) return "empty";
-    if (d.head_user_id == null) return "no_head";
-    return "complete";
+  // Tình trạng một phòng. Xét TRƯỞNG TRƯỚC, người sau — thứ tự này là cả bug đã sửa:
+  //
+  // Bản cũ `if (employee_count === 0) return "empty"` thoát ngay ở dòng đầu, KHÔNG bao giờ xét tới
+  // `head_user_id`. Mà badge chỉ có 2 nhánh (`no_head` / còn lại) nên `"empty"` rơi vào nhánh "Có
+  // trưởng" ⇒ 5 trong 8 phòng của công ty đang hiện "Có trưởng" trong khi chưa gán ai, và chip lọc
+  // đếm "Thiếu trưởng 0". Màn nói dối đúng chỗ người ta tin nó nhất.
+  //
+  // "Đã gán trưởng chưa" và "đã có người chưa" là HAI CHIỀU ĐỘC LẬP, gộp vào một enum là sai từ
+  // gốc. Giờ trưởng quyết trước: phòng có trưởng mà chưa tuyển ai vẫn là `complete` (trưởng phòng
+  // mới nhận việc), không tụt xuống `no_staff`.
+  //
+  // Cũng hết phụ thuộc vào `employee_count` cho việc xét trưởng — con số đó chỉ đếm hồ sơ RIÊNG của
+  // phòng, không tính tổ con (department_service.py), nên phòng cha có người nằm hết ở tổ con vẫn
+  // ra 0 và trước đây cũng bị gán nhầm là "có trưởng".
+  function deptStatus(d: Department): "no_staff" | "no_head" | "complete" {
+    if (d.head_user_id != null) return "complete";
+    return (d.employee_count ?? 0) === 0 ? "no_staff" : "no_head";
   }
 
-  // Đếm cho chip lọc cây: tổng · khối SX · văn phòng · thiếu trưởng.
+  // Đếm cho chip lọc cây: tổng · khối SX · văn phòng · thiếu trưởng · chưa có nhân sự.
+  // Đếm RIÊNG hai loại chứ không gộp: gộp lại là mất đúng cái phân biệt vừa dựng ra — "có người mà
+  // không ai phụ trách" là việc phải xử lý ngay, còn "phòng chưa tuyển ai" thì không.
   const treeStats = useMemo(() => {
     let sanXuat = 0;
     let noHead = 0;
+    let noStaff = 0;
     for (const d of departments) {
       if (d.la_san_xuat) sanXuat += 1;
-      if (deptStatus(d) === "no_head") noHead += 1;
+      const st = deptStatus(d);
+      if (st === "no_head") noHead += 1;
+      else if (st === "no_staff") noStaff += 1;
     }
     return {
       all: departments.length,
       san_xuat: sanXuat,
       van_phong: departments.length - sanXuat,
       no_head: noHead,
+      no_staff: noStaff,
     };
   }, [departments]);
 
@@ -513,6 +537,7 @@ export function DepartmentsPage({
     if (treeFilter === "san_xuat" && !d.la_san_xuat) return false;
     if (treeFilter === "van_phong" && d.la_san_xuat) return false;
     if (treeFilter === "no_head" && deptStatus(d) !== "no_head") return false;
+    if (treeFilter === "no_staff" && deptStatus(d) !== "no_staff") return false;
     return true;
   }
 
@@ -1068,7 +1093,7 @@ export function DepartmentsPage({
   }) {
     const isCollapsed = collapsed.has(d.id);
     const isActive = d.id === selectedId;
-    const noHead = deptStatus(d) === "no_head";
+    const tinhTrang = deptStatus(d);
 
     // Lucide SVG Icon khối phòng ban
     const DeptIcon = d.parent_id == null
@@ -1133,13 +1158,21 @@ export function DepartmentsPage({
               <span>{d.employee_count ?? 0}</span>
             </span>
 
-            {noHead ? (
-              <span className="rdx-tree__warn" title="Chưa có Trưởng phòng">
+            {/* Ba tình trạng, ba cách hiện. Chỉ `no_head` được tô CAM: phòng có người mà không ai
+                phụ trách là việc phải xử lý ngay. Phòng chưa tuyển ai thì chưa có trưởng là bình
+                thường ⇒ xám, để mắt còn bắt được chỗ cam thật sự (xem chú thích ở sơ đồ cây). */}
+            {tinhTrang === "no_head" ? (
+              <span className="rdx-tree__warn" title="Phòng đã có nhân sự nhưng chưa chỉ định Trưởng phòng">
                 <span className="rdx-tree__dot rdx-tree__dot--warn" />
                 Chưa chỉ định
               </span>
+            ) : tinhTrang === "no_staff" ? (
+              <span className="rdx-tree__muted" title="Phòng chưa có nhân sự nào, nên cũng chưa có Trưởng phòng">
+                <span className="rdx-tree__dot rdx-tree__dot--muted" />
+                Chưa có nhân sự
+              </span>
             ) : (
-              <span className="rdx-tree__head-ok" title="Đã có Trưởng phòng">
+              <span className="rdx-tree__head-ok" title={d.head_name ? `Trưởng phòng: ${d.head_name}` : "Đã có Trưởng phòng"}>
                 <span className="rdx-tree__dot rdx-tree__dot--ok" />
                 Có trưởng
               </span>
@@ -1191,7 +1224,7 @@ export function DepartmentsPage({
     const hasKids = kids.length > 0;
     const isOpen = hasKids && !isCollapsed;
     const isSelected = dept.id === selectedId;
-    const noHead = deptStatus(dept) === "no_head";
+    const tinhTrang = deptStatus(dept);
     const hiddenCount = hasKids && isCollapsed ? countBranch(dept) : 0;
 
     const DeptIcon = dept.parent_id == null
@@ -1233,18 +1266,29 @@ export function DepartmentsPage({
                   cả sơ đồ rực lên, mắt không bắt được phòng nào đang thiếu trưởng.
                   Tên trưởng cũng KHÔNG rút gọn bằng từ cuối nữa: head_name có thể là chức
                   danh ("Tổ trưởng Tổ Chế bản") — cắt ra thành "bản", vô nghĩa. */}
-              {noHead ? (
-                <span className="rdx-org-node__status rdx-org-node__status--warn">
+              {tinhTrang === "no_head" ? (
+                <span className="rdx-org-node__status rdx-org-node__status--warn"
+                      title="Phòng đã có nhân sự nhưng chưa chỉ định Trưởng phòng">
                   <span className="rdx-org-node__dot rdx-org-node__dot--warn rdx-tree__dot--pulse" />
                   Thiếu TP
+                </span>
+              ) : tinhTrang === "no_staff" ? (
+                <span className="rdx-org-node__status rdx-org-node__status--muted"
+                      title="Phòng chưa có nhân sự nào, nên cũng chưa có Trưởng phòng">
+                  <span className="rdx-org-node__dot rdx-org-node__dot--muted" />
+                  Chưa có người
                 </span>
               ) : (
                 <span
                   className="rdx-org-node__status rdx-org-node__status--ok"
-                  title={dept.head_name ? `Trưởng phòng: ${dept.head_name}` : "Đã có Trưởng phòng"}
+                  title={dept.head_name ? `Trưởng phòng: ${dept.head_name}` : "Đã gán Trưởng phòng, nhưng không tìm thấy tài khoản người đó"}
                 >
                   <UserCheck size={10} />
-                  {dept.head_name ?? "Có TP"}
+                  {/* KHÔNG fallback về chữ "Có TP": `head_name` là null khi tài khoản trưởng đã bị
+                      xoá (department_service._head_name trả None). In "Có TP" lúc đó là khẳng định
+                      một điều sai — phòng đang trỏ vào một người không còn tồn tại, mà đó đúng là
+                      thứ cần thấy để đi gán lại. */}
+                  {dept.head_name ?? "TP không còn tài khoản"}
                 </span>
               )}
             </div>
@@ -1344,7 +1388,11 @@ export function DepartmentsPage({
     { key: "all", label: "Tất cả", n: treeStats.all },
     { key: "san_xuat", label: "Sản xuất", n: treeStats.san_xuat },
     { key: "van_phong", label: "Văn phòng", n: treeStats.van_phong },
+    // Hai chip RIÊNG, cố ý không gộp: "Thiếu trưởng" là việc phải xử lý ngay (phòng có người mà
+    // không ai phụ trách); "Chưa có nhân sự" chỉ là phòng mới khai, chưa tuyển ai. Gộp một số là
+    // mất đúng cái phân biệt này — và trước đây gộp kiểu ngược lại nên chip luôn đếm 0.
     { key: "no_head", label: "Thiếu trưởng", n: treeStats.no_head },
+    { key: "no_staff", label: "Chưa có nhân sự", n: treeStats.no_staff },
   ] as const;
   const tabs = [
     { key: "overview", label: "Tổng quan", count: undefined },
@@ -1691,6 +1739,7 @@ export function DepartmentsPage({
                         renderMemberAvatar(currentDept.head_name, {
                           isHead: true,
                           userId: currentDept.head_user_id,
+                          avatarUrl: currentDept.head_avatar_url,
                           size: 48,
                         })
                       ) : (
@@ -1816,57 +1865,80 @@ export function DepartmentsPage({
                       <span className="depts__inline-error" role="alert">
                         {detailError}
                       </span>
-                    ) : members.length === 0 ? (
-                      <p className="depts__hint">
-                        {canAddEmployee
-                          ? "Phòng chưa có nhân sự. Bấm “+ Thêm nhân viên” ở trên để thêm."
-                          : "Phòng chưa có nhân sự. Thêm người ở màn “Hồ sơ nhân sự”."}
-                      </p>
                     ) : (
                       <>
-                        {/* Compact Single-Row Toolbar */}
+                        {/* ⚠️ Thanh này phải nằm NGOÀI nhánh `members.length === 0`, đừng đẩy nó
+                            trở lại vào trong. Trước đây cả thanh (kèm nút "Thêm nhân viên") nằm ở
+                            nhánh else, còn dòng chữ "Bấm + Thêm nhân viên ở trên" nằm ở nhánh then
+                            — hai nhánh loại trừ nhau nên câu hướng dẫn KHÔNG BAO GIỜ có thể đúng,
+                            và phòng rỗng thì không còn đường nào thêm người đầu tiên.
+                            Khuôn đúng để đối chiếu: nút "Thêm phòng gốc" ở thanh đầu trang, ngoài
+                            mọi điều kiện rỗng.
+                            Ô tìm + lọc thì ngược lại: chỉ có nghĩa khi đã có người, nên ẩn khi rỗng.
+                            Không quyền thêm + phòng rỗng ⇒ thanh chẳng còn gì, bỏ hẳn khay trống. */}
+                    {(members.length > 0 || canAddEmployee) && (
                     <div className="depts__staff-toolbar" style={{ marginBottom: 12 }}>
-                      <div className="rdx-tree__search" style={{ flex: "1 1 auto", maxWidth: "240px" }}>
-                        <Search size={14} className="rdx-tree__search-icon" />
-                        <input
-                          className="rdx-tree__search-input"
-                          placeholder="Tìm tên, mã, tài khoản…"
-                          value={memberSearch}
-                          onChange={(e) => {
-                            setMemberSearch(e.target.value);
-                            setMemberPage(1);
-                          }}
-                          aria-label="Tìm nhân sự"
-                        />
-                      </div>
+                      {members.length > 0 && (
+                        <>
+                          <div className="rdx-tree__search" style={{ flex: "1 1 auto", maxWidth: "240px" }}>
+                            <Search size={14} className="rdx-tree__search-icon" />
+                            <input
+                              className="rdx-tree__search-input"
+                              placeholder="Tìm tên, mã, tài khoản…"
+                              value={memberSearch}
+                              onChange={(e) => {
+                                setMemberSearch(e.target.value);
+                                setMemberPage(1);
+                              }}
+                              aria-label="Tìm nhân sự"
+                            />
+                          </div>
 
-                      <div style={{ width: "160px", flexShrink: 0 }}>
-                        <Select
-                          ariaLabel="Lọc trạng thái nhân sự"
-                          value={memberStatusFilter}
-                          onChange={(v) => {
-                            setMemberStatusFilter(v);
-                            setMemberPage(1);
-                          }}
-                          options={[
-                            { value: "all", label: "Tất cả trạng thái" },
-                            { value: "active", label: "Đang hoạt động" },
-                            { value: "locked", label: "Đã khóa" },
-                          ]}
-                        />
-                      </div>
-
+                          <div style={{ width: "160px", flexShrink: 0 }}>
+                            <Select
+                              ariaLabel="Lọc trạng thái nhân sự"
+                              value={memberStatusFilter}
+                              onChange={(v) => {
+                                setMemberStatusFilter(v);
+                                setMemberPage(1);
+                              }}
+                              options={[
+                                { value: "all", label: "Tất cả trạng thái" },
+                                { value: "active", label: "Đang hoạt động" },
+                                { value: "locked", label: "Đã khóa" },
+                              ]}
+                            />
+                          </div>
+                        </>
+                      )}
                       {canAddEmployee && (
                         <button
                           type="button"
                           className="rdx-head-hero__btn-highlight"
                           style={{ height: "34px", fontSize: "12px", padding: "0 12px", flexShrink: 0 }}
+                          // Khoá khi chưa nạp được danh mục cho form. Trước đây nút vẫn bấm được mà
+                          // modal có điều kiện `empMeta && …` nên KHÔNG MỞ GÌ, KHÔNG BÁO GÌ —
+                          // người dùng bấm mấy lần rồi tưởng máy treo.
+                          disabled={!empMeta}
+                          title={empMeta
+                            ? undefined
+                            : "Chưa nạp được danh mục phòng/vai trò/ca. Tải lại trang rồi thử lại."}
                           onClick={() => setWizardOpen(true)}
                         >
                           <Plus size={14} /> Thêm nhân viên
                         </button>
                       )}
                     </div>
+                    )}
+
+                    {members.length === 0 ? (
+                      <p className="depts__hint">
+                        {canAddEmployee
+                          ? "Phòng chưa có nhân sự. Bấm “+ Thêm nhân viên” ở trên để thêm người đầu tiên."
+                          : "Phòng chưa có nhân sự. Thêm người ở màn “Hồ sơ nhân sự”."}
+                      </p>
+                    ) : (
+                      <>
 
                     {/* Floating Bulk Action Bar — ONLY rendered when 1+ members are checked */}
                     {canBulk && selectedMemberIds.size > 0 && (
@@ -2002,7 +2074,7 @@ export function DepartmentsPage({
                                     isHead: m.is_head,
                                     userId: m.user_id,
                                     username: m.username,
-                                    avatarUrl: (m as any).avatar_url || (m as any).photo_url,
+                                    avatarUrl: m.avatar_url,
                                     size: 34,
                                   })}
                                   <div className="depts__member-main">
@@ -2099,6 +2171,8 @@ export function DepartmentsPage({
                             </div>
                           </div>
                         )}
+                      </>
+                    )}
                       </>
                     )}
                   </div>
@@ -2534,7 +2608,7 @@ export function DepartmentsPage({
                         {renderMemberAvatar(u.name, {
                           userId: u.id,
                           username: u.username,
-                          avatarUrl: (u as any).avatar_url,
+                          avatarUrl: u.avatar_url,
                           size: 36,
                         })}
                         <div className="rdx-candidate-info">

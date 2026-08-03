@@ -25,9 +25,9 @@ from ..models.bai_ghep import (
 from ..models.attendance import WorkShift
 from ..models.department import Department
 from ..models.lsx import (
-    DV_TO, LB_BAI_GHEP, LB_MAY, NS_TO_GIO,
+    DV_TO, LB_MAY, NS_TO_GIO,
     TT_DA_LAP_KE_HOACH as LSX_DA_LAP, TT_DA_PHAT_HANH as LSX_DA_PHAT_HANH,
-    TT_SAN_SANG as LSX_SAN_SANG, Lsx, LsxCongDoan,
+    TT_SAN_SANG as LSX_SAN_SANG, Lsx, LsxCongDoan, LsxCongDoanPhuThuoc,
 )
 from ..models.machine_unavailable import LY_DO_BAO_TRI, LY_DO_KHOA, MachineUnavailablePeriod
 from ..models.may_thiet_bi import MayThietBi
@@ -326,13 +326,6 @@ class XepLichService:
     def _lcd(self, lcd_id: int | None) -> LsxCongDoan | None:
         return self.db.get(LsxCongDoan, lcd_id) if lcd_id else None
 
-    def _may_names(self, ids: set[int]) -> dict[int, str]:
-        ids = {i for i in ids if i}
-        if not ids:
-            return {}
-        rows = self.db.execute(select(MayThietBi.id, MayThietBi.ten).where(MayThietBi.id.in_(ids))).all()
-        return {i: n for i, n in rows}
-
     def _dept_names(self, ids: set[int]) -> dict[int, str]:
         ids = {i for i in ids if i}
         if not ids:
@@ -340,15 +333,33 @@ class XepLichService:
         rows = self.db.execute(select(Department.id, Department.name).where(Department.id.in_(ids))).all()
         return {i: n for i, n in rows}
 
+    def _may_by_ids(self, ids: set[int]) -> dict[int, MayThietBi]:
+        ids = {i for i in ids if i}
+        if not ids:
+            return {}
+        rows = self.db.execute(select(MayThietBi).where(MayThietBi.id.in_(ids))).scalars()
+        return {m.id: m for m in rows}
+
+    def _nap_lo(self, rows: list[XepLichCongDoan]) -> tuple[dict, dict, dict]:
+        """Nạp LÔ bối cảnh cho cả tập dòng lịch — 3 query thay vì 3-5 query MỖI dòng (né N+1):
+        Lsx kèm công đoạn (identity map ấm → `_lcd` khỏi query), bài ghép kèm thành viên, máy full
+        spec (nạp TRƯỚC vòng `_thoi_luong` để `db.get(MayThietBi)` trúng identity map)."""
+        lsx_map = self.bg_repo.lsx_by_ids(list({r.lsx_id for r in rows if r.lsx_id}))
+        bg_map = self.bg_repo.by_ids(list({r.bai_ghep_id for r in rows if r.bai_ghep_id}))
+        may_map = self._may_by_ids({r.may_id for r in rows if r.may_id})
+        return lsx_map, bg_map, may_map
+
     # ================= THỜI LƯỢNG 1 DÒNG =================
 
-    def _thoi_luong(self, dong: XepLichCongDoan) -> dict:
+    def _thoi_luong(self, dong: XepLichCongDoan, bg: BaiGhep | None = None) -> dict:
         """{chiem_may_phut, tong_phut, setup_phut, chay_phut, ve_sinh_phut, theo_may, canh_bao}.
 
         In ghép: theo số tờ / tốc độ máy in. Bước nội bộ: nếu có máy khai tốc độ + đơn vị khớp
-        (máy `to_gio` ⟷ bước vào `to`) → TÍNH LẠI theo máy đang gán (HM3); ngược lại snapshot bước."""
+        (máy `to_gio` ⟷ bước vào `to`) → TÍNH LẠI theo máy đang gán (HM3); ngược lại snapshot bước.
+        `bg` truyền từ vòng lặp bảng (đã nạp lô ở `_nap_lo`) để khỏi query lại từng dòng."""
         if dong.nguon == NGUON_IN_GHEP:
-            bg = self.bg_repo.get(dong.bai_ghep_id) if dong.bai_ghep_id else None
+            if bg is None:
+                bg = self.bg_repo.get(dong.bai_ghep_id) if dong.bai_ghep_id else None
             if bg is None:
                 return _dur_0()
             lsx_map = self.bg_repo.lsx_by_ids([tv.lsx_id for tv in bg.thanh_viens])
@@ -381,15 +392,15 @@ class XepLichService:
             else:
                 vao = _f(lcd.so_luong_vao)
                 luot = max(int(lcd.so_luot_chay or 1), 1)
-                nhan = max(int(lcd.so_nhan_cong or 1), 1)
-                chay = (vao / toc_do * 60.0 * luot / nhan) if vao > 0 else 0.0
+                # Kíp vận hành không làm máy chạy nhanh hơn. Chỉ số lượt qua máy nhân thời gian.
+                chay = (vao / toc_do * 60.0 * luot) if vao > 0 else 0.0
             chiem = round(setup + chay + ve_sinh, 2)
             return {"chiem_may_phut": chiem, "tong_phut": round(chiem + cho + di_chuyen, 2),
                     "setup_phut": round(setup, 2), "chay_phut": round(chay, 2),
                     "ve_sinh_phut": round(ve_sinh, 2), "theo_may": True, "canh_bao": None}
         t = thoi_luong_buoc(lcd)
-        canh_bao = None
-        if dong.may_id:
+        canh_bao = "thieu_nang_suat" if t["dien_giai"]["phuong_phap"] == "thieu_nang_suat" else None
+        if canh_bao is None and dong.may_id:
             canh_bao = "may_chua_toc_do" if (may is None or toc_do <= 0) else "don_vi_lech"
         return {"chiem_may_phut": t["chiem_may_phut"], "tong_phut": t["tong_phut"],
                 "setup_phut": _f(lcd.setup_phut), "chay_phut": t["chay_phut"],
@@ -419,16 +430,28 @@ class XepLichService:
         )
 
     def _sinh_dong(self, lsx: Lsx, *, bo_qua_in: bool, actor) -> list[XepLichCongDoan]:
-        """Dòng lịch cho mọi công đoạn của LSX, NGOẠI TRỪ: công đoạn in (nếu `bo_qua_in` — đã chạy chung
-        ở bài ghép) và bước `bai_ghep` (đặt chỗ pha sau)."""
+        """Dòng lịch cho mọi công đoạn của LSX; bỏ ĐÚNG bước in đang chạy chung ở bài ghép.
+
+        Bỏ theo `buoc_in_step_key` chứ không quét cả nhóm `print`: lệnh in 2 lượt (mặt trước /
+        mặt sau tách dòng) thì quét cả nhóm là làm BỐC HƠI cả hai lượt khỏi board, trong khi bài
+        chỉ ghép một lượt.
+        """
+        bo_key = self._buoc_in_ghep_key(lsx.id) if bo_qua_in else None
         out: list[XepLichCongDoan] = []
         for cd in sorted(lsx.cong_doans, key=lambda c: c.thu_tu):
-            if cd.loai_buoc == LB_BAI_GHEP:
-                continue
-            if bo_qua_in and cd.nhom == NHOM_PRINT and cd.loai_buoc == LB_MAY:
+            if bo_qua_in and (
+                cd.step_key == bo_key
+                # Chưa neo (dữ liệu cũ chưa backfill) → giữ hành vi cũ cho lệnh một lượt in.
+                or (bo_key is None and cd.nhom == NHOM_PRINT and cd.loai_buoc == LB_MAY)
+            ):
                 continue
             out.append(self._dong_moi(lsx, cd, actor))
         return out
+
+    def _buoc_in_ghep_key(self, lsx_id: int) -> str | None:
+        return self.db.execute(
+            select(BaiGhepThanhVien.buoc_in_step_key).where(BaiGhepThanhVien.lsx_id == lsx_id)
+        ).scalars().first()
 
     def dua_vao_lsx(self, *, lsx_id: int, actor) -> Lsx:
         lsx = self.lsx_repo.get(lsx_id)
@@ -537,18 +560,20 @@ class XepLichService:
         # dòng đã có giờ sẽ đẩy naive vào `_cong_gio_lam` → so naive vs aware → TypeError → 500.
         start = _aware(dong.start_at)
         dong.start_at = start
-        chiem = self._thoi_luong(dong)["chiem_may_phut"]
+        duration = self._thoi_luong(dong)
+        chiem = duration["chiem_may_phut"]
+        thieu_thoi_luong = duration.get("canh_bao") == "thieu_nang_suat"
         if start is not None and chiem > 0:
             dong.finish_at = _cong_gio_lam(start, chiem, self.lich, self._chan_may(dong.may_id))
         else:
             dong.finish_at = None
         co_tai_nguyen = bool(dong.may_id or dong.department_id or (dong.nha_cung_cap or "").strip())
-        if start is not None and co_tai_nguyen and chiem > 0:
+        if start is not None and co_tai_nguyen and chiem > 0 and not thieu_thoi_luong:
             dong.trang_thai, dong.blocked_reason = TT_DA_XEP, None
         else:
             dong.trang_thai = TT_CHO_XEP
             dong.blocked_reason = (
-                LY_DO_THIEU_THOI_LUONG if chiem <= 0
+                LY_DO_THIEU_THOI_LUONG if chiem <= 0 or thieu_thoi_luong
                 else LY_DO_THIEU_MAY if not co_tai_nguyen else LY_DO_CHO_TIEN_DE
             )
         # Lịch sử thay đổi (HM6): ghi vết đổi máy/giờ — gộp chuỗi kéo-thả liên tiếp cùng dòng.
@@ -657,6 +682,102 @@ class XepLichService:
                 it["nhan_rui_ro"] = "an_toan"
         return info
 
+    def _do_thi(self, rows: list[XepLichCongDoan], *, dur: dict[int, dict],
+                lsx_map: dict[int, Lsx | None]) -> dict[int, dict]:
+        """CPM trên DAG routing, kể cả cạnh xuyên LSX trong cùng đơn hàng.
+
+        `thu_tu` không tạo quan hệ ngầm ở đây; quan hệ duy nhất là bảng phụ thuộc. Tiền nhiệm chưa
+        được đưa vào kế hoạch vẫn được nhận diện để UI báo `cho_tien_de` thay vì cho bước sau chạy.
+        """
+        by_step = {r.lsx_cong_doan_id: r for r in rows if r.lsx_cong_doan_id}
+        row_by_id = {r.id: r for r in rows}
+        step_ids = set(by_step)
+        # Chỉ nạp cạnh TRỎ TỚI bước trong kế hoạch (đủ cho preds + cờ cho_tien_de) — không quét cả bảng.
+        edges = list(self.db.execute(
+            select(LsxCongDoanPhuThuoc).where(LsxCongDoanPhuThuoc.buoc_sau_id.in_(step_ids))
+        ).scalars()) if step_ids else []
+        preds: dict[int, list[int]] = {r.id: [] for r in rows}
+        succs: dict[int, list[int]] = {r.id: [] for r in rows}
+        missing: set[int] = set()
+        for e in edges:
+            sau = by_step.get(e.buoc_sau_id)
+            if sau is None:
+                continue
+            truoc = by_step.get(e.buoc_truoc_id)
+            if truoc is None:
+                missing.add(sau.id)
+                continue
+            preds[sau.id].append(truoc.id)
+            succs[truoc.id].append(sau.id)
+
+        indeg = {rid: len(ps) for rid, ps in preds.items()}
+        queue = sorted((rid for rid, n in indeg.items() if n == 0),
+                       key=lambda rid: (row_by_id[rid].lsx_id or 0, row_by_id[rid].source_thu_tu))
+        topo: list[int] = []
+        while queue:
+            rid = queue.pop(0)
+            topo.append(rid)
+            for sid in succs[rid]:
+                indeg[sid] -= 1
+                if indeg[sid] == 0:
+                    queue.append(sid)
+        if len(topo) != len(rows):
+            raise XepLichValidationError("Routing có chu trình nên không thể tính lịch")
+
+        gang_map = self._gang_finish_map({r.lsx_id for r in rows if r.lsx_id})
+        info: dict[int, dict] = {}
+        for rid in topo:
+            r = row_by_id[rid]
+            lsx = lsx_map.get(r.lsx_id) if r.lsx_id else None
+            floor = self._san_thoi_gian(lsx)
+            gang = gang_map.get(r.lsx_id)
+            if gang:
+                floor = max(floor, gang)
+            pred_finishes: list[datetime] = []
+            for pid in preds[rid]:
+                pr = row_by_id[pid]
+                pfinish = _aware(pr.finish_at) or info[pid]["earliest_finish"]
+                lag = dur[pid]["tong_phut"] - dur[pid]["chiem_may_phut"]
+                pred_finishes.append(pfinish + timedelta(minutes=lag))
+            es = max([floor, *pred_finishes])
+            chiem = dur[rid]["chiem_may_phut"]
+            ef = _cong_gio_lam(es, chiem, self.lich) if chiem > 0 else es
+            info[rid] = {"som_nhat": es, "earliest_finish": ef,
+                         "blocked_reason": LY_DO_CHO_TIEN_DE if rid in missing else None}
+
+        latest_start: dict[int, datetime] = {}
+        for rid in reversed(topo):
+            r = row_by_id[rid]
+            lsx = lsx_map.get(r.lsx_id) if r.lsx_id else None
+            candidates: list[datetime] = []
+            han = self._han(lsx)
+            if han:
+                candidates.append(_cuoi_ngay(han))
+            candidates.extend(latest_start[sid] for sid in succs[rid] if sid in latest_start)
+            if not candidates:
+                continue
+            lf = min(candidates)
+            info[rid]["muon_nhat"] = lf
+            chiem = dur[rid]["chiem_may_phut"]
+            ls = _lui_gio_lam(lf, chiem, self.lich) if chiem > 0 else lf
+            lag = dur[rid]["tong_phut"] - chiem
+            latest_start[rid] = ls - timedelta(minutes=lag)
+
+        today = _utcnow().date()
+        for rid, it in info.items():
+            muon, ef = it.get("muon_nhat"), it["earliest_finish"]
+            if muon is None:
+                it.update(slack_ngay=None, nhan_rui_ro="chua_co_han")
+                continue
+            slack = self.cal.working_days_between(ef.date(), muon.date())
+            if muon.date() < ef.date():
+                slack = -self.cal.working_days_between(muon.date(), ef.date())
+            han = self._han(lsx_map.get(row_by_id[rid].lsx_id)) if row_by_id[rid].lsx_id else None
+            risk = "da_tre" if han and (han < today or ef > _cuoi_ngay(han)) else (
+                "nguy_co_tre" if slack < 0 else "sap_toi_han" if slack <= NGUONG_SAP_TOI_HAN else "an_toan")
+            it.update(slack_ngay=slack, nhan_rui_ro=risk)
+        return info
+
     # ================= XUNG ĐỘT MÁY =================
 
     def _xung_dot_ids(self) -> set[int]:
@@ -680,12 +801,14 @@ class XepLichService:
         dong = self._get_dong(dong_id)
         chiem = self._thoi_luong(dong)["chiem_may_phut"]
         may_id = dong.may_id
-        # Chuỗi của LSX để lấy sớm-nhất + muộn-nhất của chính dòng này.
         san, gang_finish, han = self._boi_canh_chuoi(dong)
-        rows = (self.repo.by_lsx(dong.lsx_id) if dong.nguon == NGUON_LSX
-                else self.repo.by_bai_ghep(dong.bai_ghep_id))
-        dur = {r.id: self._thoi_luong(r) for r in rows}
-        chuoi = self._chuoi(rows, san=san, gang_finish=gang_finish, han=han, dur=dur)
+        rows = self.repo.list_dong() if dong.nguon == NGUON_LSX else self.repo.by_bai_ghep(dong.bai_ghep_id)
+        lsx_map, bg_map, _ = self._nap_lo(rows)
+        dur = {r.id: self._thoi_luong(r, bg=bg_map.get(r.bai_ghep_id)) for r in rows}
+        if dong.nguon == NGUON_LSX:
+            chuoi = self._do_thi([r for r in rows if r.nguon == NGUON_LSX], dur=dur, lsx_map=lsx_map)
+        else:
+            chuoi = self._chuoi(rows, san=san, gang_finish=gang_finish, han=han, dur=dur)
         it = chuoi.get(dong_id, {})
         som = it.get("som_nhat", san)
         chan = self._chan_may(may_id)
@@ -712,13 +835,33 @@ class XepLichService:
         """Nếu LSX là thành viên bài ghép: kết thúc in ghép (đã xếp) làm tiền đề bước xả tờ."""
         if not lsx_id:
             return None
-        bg_id = self.db.execute(
-            select(BaiGhepThanhVien.bai_ghep_id).where(BaiGhepThanhVien.lsx_id == lsx_id)
-        ).scalars().first()
-        if bg_id is None:
-            return None
-        finishes = [_aware(r.finish_at) for r in self.repo.by_bai_ghep(bg_id) if r.finish_at]
-        return max(finishes) if finishes else None
+        return self._gang_finish_map({lsx_id}).get(lsx_id)
+
+    def _gang_finish_map(self, lsx_ids: set[int]) -> dict[int, datetime | None]:
+        """lsx_id → kết thúc in ghép của bài ghép chứa nó — 2 query cho CẢ TẬP (`_do_thi` cần mốc này
+        cho từng dòng, gọi lẻ là N+1). LSX không thuộc bài nào → không có key; bài chưa xếp giờ → None."""
+        lsx_ids = {i for i in lsx_ids if i}
+        if not lsx_ids:
+            return {}
+        bg_cua_lsx = {
+            lid: bgid for lid, bgid in self.db.execute(
+                select(BaiGhepThanhVien.lsx_id, BaiGhepThanhVien.bai_ghep_id)
+                .where(BaiGhepThanhVien.lsx_id.in_(lsx_ids))
+            ).all()
+        }
+        if not bg_cua_lsx:
+            return {}
+        finish_max: dict[int, datetime] = {}
+        for bgid, fin in self.db.execute(
+            select(XepLichCongDoan.bai_ghep_id, XepLichCongDoan.finish_at).where(
+                XepLichCongDoan.bai_ghep_id.in_(set(bg_cua_lsx.values())),
+                XepLichCongDoan.finish_at.is_not(None),
+            )
+        ).all():
+            f = _aware(fin)
+            if bgid not in finish_max or f > finish_max[bgid]:
+                finish_max[bgid] = f
+        return {lid: finish_max.get(bgid) for lid, bgid in bg_cua_lsx.items()}
 
     def _khe_trong(self, may_id: int, tu: datetime, chiem: float, *, exclude_id: int) -> datetime | None:
         """Khe trống sớm nhất ≥ `tu` trên `may_id` đủ chỗ `chiem` phút — né dòng đã xếp + VÙNG KHÓA máy."""
@@ -916,32 +1059,22 @@ class XepLichService:
         return {"items": items, "total": len(items)}
 
     def danh_sach(self, *, may_id: int | None = None, q: str | None = None) -> dict:
-        rows = self.repo.list_dong(may_id=may_id)
-        lsx_ids = {r.lsx_id for r in rows if r.lsx_id}
-        bg_ids = {r.bai_ghep_id for r in rows if r.bai_ghep_id}
-        lsx_map = {i: self.lsx_repo.get(i) for i in lsx_ids}
-        bg_map = {i: self.bg_repo.get(i) for i in bg_ids}
-        dur = {r.id: self._thoi_luong(r) for r in rows}
+        # Luôn tính DAG trên TOÀN bộ dòng đã đưa vào kế hoạch; lọc máy chỉ là lọc hiển thị. Nếu
+        # lọc trước, tiền nhiệm nằm ở máy khác bị hiểu nhầm là "chưa vào kế hoạch".
+        rows = self.repo.list_dong()
+        lsx_map, bg_map, may_objs = self._nap_lo(rows)
+        dur = {r.id: self._thoi_luong(r, bg=bg_map.get(r.bai_ghep_id)) for r in rows}
         xung_dot = self._xung_dot_ids()
 
-        # Chuỗi theo từng LSX (bài ghép: dòng in ghép là chuỗi 1 phần tử, không hạn).
-        chuoi: dict[int, dict] = {}
-        theo_lsx: dict[int, list[XepLichCongDoan]] = {}
+        noi_bo = [r for r in rows if r.nguon == NGUON_LSX]
+        chuoi = self._do_thi(noi_bo, dur=dur, lsx_map=lsx_map) if noi_bo else {}
         for r in rows:
-            if r.nguon == NGUON_LSX and r.lsx_id:
-                theo_lsx.setdefault(r.lsx_id, []).append(r)
-        for lid, lrows in theo_lsx.items():
-            lsx = lsx_map.get(lid)
-            chuoi.update(self._chuoi(
-                lrows, san=self._san_thoi_gian(lsx),
-                gang_finish=self._gang_finish_cho_lsx(lid), han=self._han(lsx), dur=dur,
-            ))
+            if r.nguon == NGUON_IN_GHEP:
+                chuoi.update(self._chuoi([r], san=self._san_thoi_gian(None), gang_finish=None,
+                                         han=None, dur=dur))
 
-        may_ids = {r.may_id for r in rows if r.may_id}
-        may_names = self._may_names(may_ids)
+        may_names = {i: m.ten for i, m in may_objs.items()}
         dept_names = self._dept_names({r.department_id for r in rows})
-        # Spec máy đầy đủ (1 query/máy) để kiểm khả năng (khổ/số màu/định lượng) — HM4.
-        may_objs = {i: self.db.get(MayThietBi, i) for i in may_ids}
 
         items: list[dict] = []
         for r in rows:
@@ -970,7 +1103,11 @@ class XepLichService:
                 "theo_may": d.get("theo_may", False), "canh_bao_thoi_luong": d.get("canh_bao"),
                 "slack_ngay": ch.get("slack_ngay"), "nhan_rui_ro": ch.get("nhan_rui_ro"),
                 "trang_thai": r.trang_thai, "is_locked": bool(r.is_locked),
-                "co_xung_dot": r.id in xung_dot, "blocked_reason": r.blocked_reason,
+                "co_xung_dot": r.id in xung_dot,
+                "blocked_reason": ch.get("blocked_reason") or (
+                    LY_DO_THIEU_THOI_LUONG if d.get("canh_bao") == "thieu_nang_suat"
+                    else r.blocked_reason
+                ),
                 "can_xac_nhan": bool(ly_do_xn), "ly_do_xac_nhan": ly_do_xn,
                 "is_rush": bool(lsx.is_rush) if lsx else False,
             })
@@ -978,4 +1115,6 @@ class XepLichService:
             like = q.strip().lower()
             items = [it for it in items if like in (it["lsx_ma"] or "").lower()
                      or like in (it["cong_doan_ten"] or "").lower()]
+        if may_id is not None:
+            items = [it for it in items if it["may_id"] == may_id]
         return {"items": items, "total": len(items)}

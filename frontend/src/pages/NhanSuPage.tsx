@@ -712,6 +712,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                 {!loading &&
                   rows.map((e) => {
                     const avatarClass = getAvatarClass(e.full_name);
+                    const photoSrc = assetUrl(e.photo_url);
                     return (
                       <tr
                         key={e.id}
@@ -724,9 +725,24 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                         <td>
                           <div className="ns-cell-employee">
                             <div className="ns-avatar-wrapper">
-                              <span className={`ns-table-avatar ${avatarClass}`}>
-                                {e.full_name.trim().slice(0, 1).toUpperCase()}
-                              </span>
+                              {/* CÓ ảnh thì hiện ảnh, KHÔNG có thì mới rơi về chữ cái.
+                                  Trước đây danh sách luôn vẽ chữ cái dù hồ sơ đã có ảnh — trong
+                                  khay chi tiết thì lại hiện ảnh, nên cùng một người ra hai mặt
+                                  khác nhau ở hai chỗ. `photo_url` vốn đã có trong `EmployeeRow`
+                                  của API và class `.ns-table-avatar-img` cũng đã có sẵn trong CSS;
+                                  chỉ thiếu đúng nhánh này. */}
+                              {photoSrc ? (
+                                <img
+                                  src={photoSrc}
+                                  alt={e.full_name}
+                                  className="ns-table-avatar-img"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <span className={`ns-table-avatar ${avatarClass}`}>
+                                  {e.full_name.trim().slice(0, 1).toUpperCase()}
+                                </span>
+                              )}
                               <span
                                 className={`ns-avatar-dot ns-avatar-dot--${e.status}`}
                                 title={`Trạng thái: ${STATUS_LABEL[e.status] ?? e.status}`}
@@ -1313,7 +1329,7 @@ export function EmployeeWizard({
                   value={form.job_grade_id ?? null}
                   onChange={(id) => set("job_grade_id", id)}
                   label="Bậc tay nghề"
-                  hint="Chỉ khai cho khối sản xuất. Khai bậc thôi — bậc KHÔNG làm đổi tiền lương."
+                  // hint="Chỉ khai cho khối sản xuất. Khai bậc thôi — bậc KHÔNG làm đổi tiền lương."
                   canCreate={canCreateGrade}
                 />
               )}
@@ -1512,12 +1528,12 @@ export function EmployeeWizard({
                       placeholder="0"
                     />
                   </Field>
-                  <div className="banner banner--warn ns-wizard__full">
+                  {/* <div className="banner banner--warn ns-wizard__full">
                     Ô này <b>chỉ để KHAI</b> — hệ thống{" "}
                     <b>CHƯA tự cộng hoa hồng vào lương</b>. Muốn trả thì vẫn
                     phải thêm bằng tay ở <b>khoản thu nhập</b> của nhân viên
                     hoặc ngay trên phiếu lương.
-                  </div>
+                  </div> */}
                   <div className="ns-wizard__full">
                     <div className="ns-field__label">
                       Khoản thu nhập / phụ cấp

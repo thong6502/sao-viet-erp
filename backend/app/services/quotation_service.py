@@ -52,6 +52,17 @@ _QUY_CACH_IN_NHAN = {
 }
 
 
+def _kho_tp(tp) -> str | None:
+    """Khổ thành phẩm dạng người đọc — `"205×145mm"`. None khi chưa khai đủ hai chiều.
+
+    Thay cho cột chữ `kho_thanh_pham` đã DROP ở mig 0144: cột đó chỉ chép lại chính hai số này
+    bằng cm ("14,5×20,5 cm") nên giữ hai nguồn là mở đường cho chúng lệch nhau.
+    """
+    dai = int(getattr(tp, "dai_thanh_pham", 0) or 0)
+    rong = int(getattr(tp, "rong_thanh_pham", 0) or 0)
+    return f"{dai}×{rong}mm" if dai and rong else None
+
+
 def dien_giai_tu_thanh_phan(db, tp) -> str | None:
     """Bung DIỄN GIẢI quy cách (in ra báo giá) từ 1 'sản phẩm' của bài tính giá.
 
@@ -63,12 +74,10 @@ def dien_giai_tu_thanh_phan(db, tp) -> str | None:
 
     dong: list[str] = []
 
-    # Khổ thành phẩm: ưu tiên số đo thật; không có thì lấy nhãn tự do người dùng gõ.
-    dai, rong = int(getattr(tp, "dai_thanh_pham", 0) or 0), int(getattr(tp, "rong_thanh_pham", 0) or 0)
-    if dai and rong:
-        dong.append(f"KT: {dai}×{rong}mm")
-    elif getattr(tp, "kho_thanh_pham", None):
-        dong.append(f"KT: {tp.kho_thanh_pham}")
+    # Khổ thành phẩm: số đo thật. Nhãn chữ `kho_thanh_pham` đã DROP (mig 0144) — nó vốn chỉ chép
+    # lại đúng hai số này bằng cm nên bỏ đi không mất gì.
+    if _kho_tp(tp):
+        dong.append(f"KT: {_kho_tp(tp)}")
 
     # Giấy: tên + định lượng từ danh mục. Khách cấp giấy thì nói rõ (ảnh hưởng giá — khách cần biết).
     if getattr(tp, "giay_id", None) is not None:
@@ -680,7 +689,7 @@ class QuotationService:
                 line_no=i,
                 product_type=tp.loai_thanh_phan or "san_pham",
                 product_name=tp.ten or ptg.ten_san_pham or f"Sản phẩm {i}",
-                product_spec_text=tp.kho_thanh_pham,
+                product_spec_text=_kho_tp(tp),
                 # Đông cứng lúc tạo: sửa PTG về sau KHÔNG đổi bản đã gửi khách (đồng bộ → version mới).
                 dien_giai=dien_giai_tu_thanh_phan(self.quotations.db, tp),
                 # Nhãn nhóm: chỉ để BẢN IN gom dòng (ruột + bìa → 1 dòng "quyển sách"). Dữ liệu

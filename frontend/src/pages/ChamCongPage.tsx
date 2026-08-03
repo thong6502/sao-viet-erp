@@ -61,8 +61,10 @@ import {
   Table,
   FileEdit,
   CheckCircle,
+  CheckCircle2,
   XCircle,
   AlertTriangle,
+  AlertCircle,
   RefreshCw,
   Trash2,
   Edit3,
@@ -72,7 +74,6 @@ import {
   Lock,
   Unlock,
   Plus,
-  Map as MapIcon,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -85,6 +86,9 @@ import {
   Eraser,
   Users,
   Repeat,
+  Target,
+  Navigation,
+  ExternalLink,
 } from "lucide-react";
 import { MixDonut } from "../components/charts";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -368,6 +372,330 @@ export function ChamCongPage({
 
 // --- Tab: Chấm công của tôi -------------------------------------------------
 
+// --- 2D Visual Radar Map Component for GPS Check-in --------------------------
+
+function GpsRadarMap2D({
+  nearestName,
+  radiusM,
+  distanceM,
+  metersOut,
+  withinRange,
+  locating,
+  onRefresh,
+}: {
+  nearestName: string | null;
+  radiusM: number;
+  distanceM: number | null;
+  metersOut: number | null;
+  withinRange: boolean;
+  locating: boolean;
+  onRefresh: () => void;
+}) {
+  const cx = 200;
+  const cy = 90;
+  const radiusPx = 55; // Visual circle radius for 150m geofence
+
+  let userX = cx;
+  let userY = cy;
+
+  if (distanceM != null && radiusM > 0) {
+    const distRatio = distanceM / radiusM;
+    let pxDist = 0;
+    if (withinRange) {
+      pxDist = Math.min(radiusPx - 10, distRatio * (radiusPx - 12));
+      if (pxDist < 12 && distanceM > 2) pxDist = 18;
+    } else {
+      pxDist = Math.min(135, radiusPx + 22 + Math.min(45, (distRatio - 1) * 20));
+    }
+
+    const angleRad = (-35 * Math.PI) / 180;
+    userX = cx + pxDist * Math.cos(angleRad);
+    userY = cy + pxDist * Math.sin(angleRad);
+  }
+
+  return (
+    <div className="cc-radar-map-2d-card">
+      <div className="cc-radar-map-header">
+        <div className="cc-radar-map-title-group">
+          <div className="cc-radar-map-title">
+            <Target size={16} style={{ color: "var(--rust)" }} />
+            <span>Bản đồ Radar GPS định vị</span>
+          </div>
+          <div className="cc-radar-map-sub">
+            Phạm vi chấm công <b>{radiusM}m</b> quanh {nearestName ?? "nhà máy"}
+          </div>
+        </div>
+        <button
+          type="button"
+          className="cc-geo-status-refresh"
+          onClick={onRefresh}
+          disabled={locating}
+          title="Cập nhật tọa độ GPS"
+        >
+          <RefreshCw size={14} className={locating ? "cc-animate-spin" : ""} />
+        </button>
+      </div>
+
+      {/* 2D Tactical HUD Radar Grid Canvas SVG */}
+      <div className="cc-radar-grid-container">
+        <svg viewBox="0 0 400 180" className="cc-radar-svg">
+          <defs>
+            <pattern
+              id="radar-grid-pattern"
+              width="20"
+              height="20"
+              patternUnits="userSpaceOnUse"
+            >
+              <path
+                d="M 20 0 L 0 0 0 20"
+                fill="none"
+                stroke="rgba(71, 85, 105, 0.25)"
+                strokeWidth="0.8"
+              />
+            </pattern>
+            <radialGradient id="geofence-bg-gradient">
+              <stop offset="0%" stopColor={withinRange ? "rgba(47, 93, 58, 0.28)" : "rgba(138, 31, 31, 0.22)"} />
+              <stop offset="100%" stopColor={withinRange ? "rgba(47, 93, 58, 0.02)" : "rgba(138, 31, 31, 0.02)"} />
+            </radialGradient>
+          </defs>
+
+          {/* Dark Tactical Grid Background */}
+          <rect width="400" height="180" fill="#0b1329" />
+          <rect width="400" height="180" fill="url(#radar-grid-pattern)" />
+
+          {/* HUD Corner Tactical Brackets */}
+          <path d="M 8 16 L 8 8 L 16 8" fill="none" stroke="rgba(148, 163, 184, 0.4)" strokeWidth="1.5" />
+          <path d="M 392 16 L 392 8 L 384 8" fill="none" stroke="rgba(148, 163, 184, 0.4)" strokeWidth="1.5" />
+          <path d="M 8 164 L 8 172 L 16 172" fill="none" stroke="rgba(148, 163, 184, 0.4)" strokeWidth="1.5" />
+          <path d="M 392 164 L 392 172 L 384 172" fill="none" stroke="rgba(148, 163, 184, 0.4)" strokeWidth="1.5" />
+
+          {/* HUD Top Live Status Bar */}
+          <text x="14" y="18" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.65)" letterSpacing="0.08em" style={{ fontFamily: "var(--ff-num)" }}>
+            RADAR GPS // THEO DÕI TRỰC TIẾP
+          </text>
+          <text x="386" y="18" textAnchor="end" fontSize="8" fontWeight="bold" fill={withinRange ? "#4ade80" : "#f87171"} letterSpacing="0.08em" style={{ fontFamily: "var(--ff-num)" }}>
+            ● VÙNG CHẤM CÔNG: {withinRange ? "ĐẠT" : "NGOÀI VÙNG"}
+          </text>
+
+          {/* Expanding Radial Wave Ripples from Center */}
+          <g>
+            <circle cx={cx} cy={cy} r="0" fill="none" stroke={withinRange ? "#4ade80" : "#f87171"} strokeWidth="1.8">
+              <animate attributeName="r" from="0" to={radiusPx * 1.35} dur="3s" repeatCount="indefinite" begin="0s" />
+              <animate attributeName="opacity" values="0.9;0.4;0" dur="3s" repeatCount="indefinite" begin="0s" />
+            </circle>
+            <circle cx={cx} cy={cy} r="0" fill="none" stroke={withinRange ? "#4ade80" : "#f87171"} strokeWidth="1.8">
+              <animate attributeName="r" from="0" to={radiusPx * 1.35} dur="3s" repeatCount="indefinite" begin="1s" />
+              <animate attributeName="opacity" values="0.9;0.4;0" dur="3s" repeatCount="indefinite" begin="1s" />
+            </circle>
+            <circle cx={cx} cy={cy} r="0" fill="none" stroke={withinRange ? "#4ade80" : "#f87171"} strokeWidth="1.8">
+              <animate attributeName="r" from="0" to={radiusPx * 1.35} dur="3s" repeatCount="indefinite" begin="2s" />
+              <animate attributeName="opacity" values="0.9;0.4;0" dur="3s" repeatCount="indefinite" begin="2s" />
+            </circle>
+          </g>
+
+          {/* Tactical 360 Rotating Sweep Line & Sector Fade */}
+          <g>
+            <path
+              d={`M ${cx} ${cy} L ${cx} ${cy - radiusPx * 1.35} A ${radiusPx * 1.35} ${radiusPx * 1.35} 0 0 1 ${cx + radiusPx * 0.95} ${cy - radiusPx * 0.95} Z`}
+              fill={withinRange ? "rgba(74, 222, 128, 0.18)" : "rgba(248, 113, 113, 0.18)"}
+            />
+            <line
+              x1={cx}
+              y1={cy}
+              x2={cx}
+              y2={cy - radiusPx * 1.35}
+              stroke={withinRange ? "#4ade80" : "#f87171"}
+              strokeWidth="2.2"
+              strokeLinecap="round"
+            />
+            <animateTransform
+              attributeName="transform"
+              type="rotate"
+              from={`0 ${cx} ${cy}`}
+              to={`360 ${cx} ${cy}`}
+              dur="3.5s"
+              repeatCount="indefinite"
+            />
+          </g>
+
+          {/* Concentric HUD Inner Range Rings */}
+          <circle cx={cx} cy={cy} r={radiusPx * 0.33} fill="none" stroke="rgba(100, 116, 139, 0.3)" strokeWidth="0.8" strokeDasharray="2 2" />
+          <circle cx={cx} cy={cy} r={radiusPx * 0.66} fill="none" stroke="rgba(100, 116, 139, 0.3)" strokeWidth="0.8" strokeDasharray="2 2" />
+
+          {/* Geofence Translucent Circle Area */}
+          <circle
+            cx={cx}
+            cy={cy}
+            r={radiusPx}
+            fill="url(#geofence-bg-gradient)"
+            stroke={withinRange ? "var(--moss)" : "var(--signal)"}
+            strokeWidth="1.8"
+            strokeDasharray="5 3"
+          />
+
+          {/* Compass Cardinal Points (N, S, E, W) */}
+          <text x={cx} y={cy - radiusPx - 4} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-num)" }}>N</text>
+          <text x={cx} y={cy + radiusPx + 11} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-num)" }}>S</text>
+          <text x={cx - radiusPx - 8} y={cy + 3} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-num)" }}>W</text>
+          <text x={cx + radiusPx + 8} y={cy + 3} textAnchor="middle" fontSize="8" fontWeight="bold" fill="rgba(148, 163, 184, 0.7)" style={{ fontFamily: "var(--ff-num)" }}>E</text>
+
+          {/* Crosshair Axes Lines */}
+          <line x1={cx - radiusPx - 15} y1={cy} x2={cx + radiusPx + 15} y2={cy} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" />
+          <line x1={cx} y1={cy - radiusPx - 15} x2={cx} y2={cy + radiusPx + 15} stroke="rgba(148, 163, 184, 0.2)" strokeWidth="1" />
+
+          {/* Center Point (Factory / Workplace Center 0m) */}
+          <circle cx={cx} cy={cy} r="6" fill="#ffffff" />
+          <circle cx={cx} cy={cy} r="3.5" fill="#0f172a" />
+          <circle cx={cx} cy={cy} r="1.5" fill="var(--rust)" />
+
+          <g transform={`translate(${cx}, ${cy + 28})`}>
+            <rect
+              x="-54"
+              y="-7.5"
+              width="108"
+              height="14"
+              rx="3.5"
+              fill="rgba(11, 19, 41, 0.85)"
+              stroke="rgba(148, 163, 184, 0.35)"
+              strokeWidth="0.6"
+            />
+            <text
+              x="0"
+              y="2.5"
+              textAnchor="middle"
+              fontSize="8.5"
+              fontWeight="600"
+              fill="#e2e8f0"
+              letterSpacing="0.03em"
+            >
+              Tâm ({nearestName ? (nearestName.length > 13 ? nearestName.slice(0, 13) + "…" : nearestName) : "Nhà máy"})
+            </text>
+          </g>
+
+          {/* Connecting Line from Center to User */}
+          {distanceM != null && (
+            <line
+              x1={cx}
+              y1={cy}
+              x2={userX}
+              y2={userY}
+              stroke={withinRange ? "var(--moss)" : "var(--signal)"}
+              strokeWidth="1.4"
+              strokeDasharray={withinRange ? "none" : "3 3"}
+            />
+          )}
+
+          {/* User GPS Point Marker */}
+          {distanceM != null && (
+            <g>
+              <circle
+                cx={userX}
+                cy={userY}
+                r="14"
+                fill={withinRange ? "rgba(47, 93, 58, 0.2)" : "rgba(138, 31, 31, 0.2)"}
+                className="cc-radar-user-ping"
+              />
+              <circle
+                cx={userX}
+                cy={userY}
+                r="5"
+                fill={withinRange ? "var(--moss)" : "var(--signal)"}
+                stroke="#ffffff"
+                strokeWidth="1.8"
+              />
+
+              <g transform={`translate(${userX}, ${userY - 16})`}>
+                <rect
+                  x="-50"
+                  y="-7.5"
+                  width="100"
+                  height="14"
+                  rx="3.5"
+                  fill={withinRange ? "rgba(22, 60, 32, 0.88)" : "rgba(80, 20, 20, 0.88)"}
+                  stroke={withinRange ? "rgba(74, 222, 128, 0.65)" : "rgba(248, 113, 113, 0.65)"}
+                  strokeWidth="0.6"
+                />
+                <text
+                  x="0"
+                  y="2.5"
+                  textAnchor="middle"
+                  fontSize="8.5"
+                  fontWeight="600"
+                  fill="#ffffff"
+                  style={{ fontFamily: "var(--ff-num)" }}
+                  letterSpacing="0.03em"
+                >
+                  {withinRange
+                    ? `Vị trí bạn (${Math.round(distanceM)}m)`
+                    : `Cách ${metersOut != null ? (metersOut > 1000 ? `${(metersOut / 1000).toFixed(1)}km` : `${Math.round(metersOut)}m`) : `${Math.round(distanceM)}m`}`}
+                </text>
+              </g>
+            </g>
+          )}
+        </svg>
+      </div>
+
+      {/* Location Metrics Strip Below 2D Canvas */}
+      <div className="cc-radar-map-metrics-strip">
+        <div className="cc-radar-metric-chip">
+          <span className="cc-radar-metric-label">Bán kính hợp lệ</span>
+          <span className="cc-radar-metric-val">{radiusM} m</span>
+        </div>
+        <div className="cc-radar-metric-chip">
+          <span className="cc-radar-metric-label">Khoảng cách hiện tại</span>
+          <span className="cc-radar-metric-val">
+            {distanceM != null
+              ? distanceM > 1000
+                ? `${(distanceM / 1000).toFixed(1)} km`
+                : `${Math.round(distanceM)} m`
+              : "—"}
+          </span>
+        </div>
+        <div className="cc-radar-metric-chip">
+          <span className="cc-radar-metric-label">Trạng thái vị trí</span>
+          <span className={`cc-radar-metric-val ${withinRange ? "is-safe" : "is-warn"}`}>
+            {withinRange ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <CheckCircle2 size={13} /> Trong phạm vi
+              </span>
+            ) : metersOut != null ? (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <AlertCircle size={13} /> Cách {metersOut > 1000 ? `${(metersOut / 1000).toFixed(1)}km` : `${Math.round(metersOut)}m`}
+              </span>
+            ) : (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <XCircle size={13} /> Ngoài vùng
+              </span>
+            )}
+          </span>
+        </div>
+      </div>
+
+      {/* Legend Footer */}
+      <div className="cc-radar-map-legend">
+        <div className="cc-radar-legend-item">
+          <span className="cc-radar-dot cc-radar-dot--center" />
+          <span>Tâm nhà máy (0m)</span>
+        </div>
+        <div className="cc-radar-legend-item">
+          <span className="cc-radar-dot cc-radar-dot--fence" />
+          <span>Vùng Geofence ({radiusM}m)</span>
+        </div>
+        <div className="cc-radar-legend-item">
+          <span
+            className={`cc-radar-dot ${withinRange ? "cc-radar-dot--in" : "cc-radar-dot--out"}`}
+          />
+          <span>
+            {withinRange
+              ? "Vị trí bạn (Hợp lệ)"
+              : `Vị trí bạn (Cách ${metersOut != null ? (metersOut > 1000 ? `${(metersOut / 1000).toFixed(1)}km` : `${Math.round(metersOut)}m`) : "ngoài vùng"})`}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MyCheckIn({
   token,
   canConfig,
@@ -548,14 +876,6 @@ function MyCheckIn({
     !status.locations_configured ||
     outside;
 
-  const geoCls = locating
-    ? "cc-geo-status--wait"
-    : preview?.within_range
-      ? "cc-geo-status--in"
-      : preview
-        ? "cc-geo-status--out"
-        : "";
-
   function getShiftProgress(start: string, end: string, now: number): number {
     try {
       const todayStr = new Date().toISOString().split("T")[0];
@@ -579,231 +899,275 @@ function MyCheckIn({
   const clockS = clockParts[2] || "00";
 
   return (
-    <div className="cc-grid">
-      <div className="cc-main-card">
-        {status.employee_name && (
-          <div className="cc-employee-avatar">
-            {status.employee_name
-              .split(" ")
-              .filter(Boolean)
-              .map((n) => n[0])
-              .slice(-2)
-              .join("")
-              .toUpperCase()}
-          </div>
-        )}
-        <div className="cc-employee-name">{status.employee_name}</div>
-        <div className="cc-employee-sub">
-          {status.last_check
-            ? `Lần gần nhất: chấm ${status.last_check.check_type === "in" ? "VÀO" : "RA"} lúc ${fmtDateTime(status.last_check.checked_at)}`
-            : "Chưa có lần chấm công nào."}
-        </div>
-
-        {/* Live Clock Component */}
-        <div className="cc-live-clock">
-          <span>{clockH}</span>
-          <span className="cc-clock-colon">:</span>
-          <span>{clockM}</span>
-          <span className="cc-clock-colon">:</span>
-          <span style={{ opacity: 0.85 }}>{clockS}</span>
-        </div>
-
-        {/* Shift Details Tracker progress */}
-        {status.shift && (
-          <div className="cc-shift-tracker">
-            <div className="cc-shift-title">
-              <Clock size={14} /> Ca {status.shift.name} (
-              {status.shift.start_time} - {status.shift.end_time})
+    <div className="cc-checkin-hero-wrapper">
+      {/* 1. Executive Hero Header Banner */}
+      <div className="cc-checkin-hero-header">
+        <div className="cc-checkin-user-profile">
+          {status.employee_name && (
+            <div className={`cc-employee-avatar ${status.next_action === "out" ? "is-working" : "is-off"}`}>
+              {status.employee_name
+                .split(" ")
+                .filter(Boolean)
+                .map((n) => n[0])
+                .slice(-2)
+                .join("")
+                .toUpperCase()}
             </div>
-            <div className="cc-shift-time">
-              {showTimer ? (
-                <span>
-                  Thời gian đã làm:{" "}
-                  <b>{fmtElapsed(status.last_check?.checked_at, nowTick)}</b>
-                </span>
-              ) : (
-                <span>Chưa bắt đầu ca làm việc.</span>
+          )}
+          <div className="cc-checkin-user-info">
+            <div className="cc-checkin-user-name">
+              <h3>{status.employee_name}</h3>
+              <span className={`cc-status-dot-pill ${status.next_action === "out" ? "is-working" : "is-off"}`}>
+                <span className={`cc-status-indicator-dot ${status.next_action === "out" ? "is-working" : "is-off"}`} />
+                {status.next_action === "out" ? "Đang trong ca" : "Chưa vào ca"}
+              </span>
+            </div>
+            <div className="cc-employee-sub-chip">
+              <Clock size={12} style={{ flexShrink: 0 }} />
+              <span>
+                {status.last_check
+                  ? `Lần gần nhất: Chấm ${status.last_check.check_type === "in" ? "VÀO" : "RA"} lúc ${fmtDateTime(status.last_check.checked_at)}`
+                  : "Chưa có lượt chấm công nào hôm nay."}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Live OLED Digital Clock & Shift Status Widget */}
+        <div className="cc-checkin-clock-banner">
+          <div className="cc-live-clock cc-live-clock-compact">
+            <span>{clockH}</span>
+            <span className="cc-clock-colon">:</span>
+            <span>{clockM}</span>
+            <span className="cc-clock-colon">:</span>
+            <span className="cc-clock-sec">{clockS}</span>
+          </div>
+
+          {status.shift && (
+            <div className="cc-shift-tracker-compact">
+              <div className="cc-shift-title">
+                <Clock3 size={13} style={{ color: "var(--rust)" }} />
+                <span>Ca {status.shift.name} ({status.shift.start_time} - {status.shift.end_time})</span>
+              </div>
+              {showTimer && (
+                <div className="cc-shift-elapsed-time">
+                  <span>Thời gian làm:</span>
+                  <b style={{ fontFamily: "var(--ff-num)" }}>{fmtElapsed(status.last_check?.checked_at, nowTick)}</b>
+                </div>
+              )}
+              {showTimer && (
+                <div className="cc-shift-progress-bg">
+                  <div
+                    className="cc-shift-progress-fill"
+                    style={{
+                      width: `${getShiftProgress(status.shift.start_time, status.shift.end_time, nowTick)}%`,
+                    }}
+                  />
+                </div>
               )}
             </div>
-            {showTimer && (
-              <div className="cc-shift-progress-bg">
-                <div
-                  className="cc-shift-progress-fill"
-                  style={{
-                    width: `${getShiftProgress(status.shift.start_time, status.shift.end_time, nowTick)}%`,
-                  }}
-                />
+          )}
+        </div>
+      </div>
+
+      {/* 2. Dual-Column Grid Layout (60% Left / 40% Right) */}
+      <div className="cc-checkin-grid-layout">
+        {/* Left Column: 2D Radar Map Workspace */}
+        <div className="cc-checkin-left-col">
+          {status.locations_configured ? (
+            <GpsRadarMap2D
+              nearestName={preview?.nearest_name ?? null}
+              radiusM={preview?.radius_m ?? 150}
+              distanceM={preview?.distance_m ?? null}
+              metersOut={preview?.meters_out ?? null}
+              withinRange={!!preview?.within_range}
+              locating={locating}
+              onRefresh={refreshPreview}
+            />
+          ) : (
+            <div className="cc-radar-map-2d-card" style={{ padding: 40, textAlign: "center" }}>
+              <p className="cc-note">Chưa cấu hình điểm chấm công nào. Hãy liên hệ HCNS.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Right Column: Punch Action Center */}
+        <div className="cc-checkin-right-col">
+          <div className="cc-punch-card">
+            <div className="cc-punch-card-header">
+              <span className="cc-punch-card-title">Trung tâm Chấm công</span>
+              <span className={`cc-type-badge ${preview?.within_range ? "cc-type-badge--paid" : "cc-type-badge--unpaid"}`}>
+                {preview?.within_range ? (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <CheckCircle2 size={13} /> Trong vùng
+                  </span>
+                ) : (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                    <XCircle size={13} /> Ngoài vùng
+                  </span>
+                )}
+              </span>
+            </div>
+
+            {status.check_block_reason && (
+              <div className="banner banner--warn" style={{ width: "100%", marginTop: 10 }}>
+                {status.check_block_reason}
               </div>
             )}
-          </div>
-        )}
 
-        {status.check_block_reason && (
-          <div className="banner banner--warn" style={{ width: "100%" }}>
-            {status.check_block_reason}
-          </div>
-        )}
-
-        {/* GPS Range Status Bar */}
-        {status.locations_configured && (
-          <div className={`cc-geo-status ${geoCls}`}>
-            {locating ? (
-              <RefreshCw className="cc-animate-spin" size={14} />
-            ) : preview?.within_range ? (
-              <CheckCircle size={14} />
-            ) : (
-              <AlertTriangle size={14} />
-            )}
-            <span style={{ flex: 1, textAlign: "left" }}>
-              {locating
-                ? "📡 Đang định vị GPS của bạn..."
-                : preview?.within_range
-                  ? `✓ Trong phạm vi "${preview.nearest_name}" · cách ${Math.round(preview.distance_m ?? 0)} m`
-                  : preview
-                    ? `⊘ Ngoài phạm vi "${preview.nearest_name}" · còn cách ${Math.round(preview.meters_out ?? 0)} m`
-                    : "Bấm nút bên phải để tải lại phạm vi."}
-            </span>
-            <button
-              className="cc-geo-status-refresh"
-              onClick={refreshPreview}
-              disabled={locating}
-              title="Cập nhật vị trí"
-            >
-              <RefreshCw
-                size={12}
-                className={locating ? "cc-animate-spin" : ""}
-              />
-            </button>
-          </div>
-        )}
-
-        {/* Glow Pulsing Radar Button */}
-        <div className="cc-radar-container">
-          {!btnDisabled && (
-            <div
-              className={`cc-radar-wave ${isIn ? "cc-radar-wave--in" : "cc-radar-wave--out"}`}
-            />
-          )}
-          {!btnDisabled && (
-            <div
-              className={`cc-radar-wave ${isIn ? "cc-radar-wave--in" : "cc-radar-wave--out"}`}
-            />
-          )}
-          <button
-            className={`cc-radar-btn ${outside ? "cc-radar-btn--locked" : isIn ? "cc-radar-btn--in" : "cc-radar-btn--out"}`}
-            onClick={() => doCheck()}
-            disabled={btnDisabled}
-          >
-            <span className="cc-radar-btn-icon">
-              {locating ? (
-                <RefreshCw className="cc-animate-spin" size={24} />
-              ) : !status.can_check || outside ? (
-                <Lock size={24} />
-              ) : (
-                <UserCheck size={24} />
+            {/* Glow Pulsing Radar Button */}
+            <div className="cc-radar-container" style={{ margin: "24px 0" }}>
+              {!btnDisabled && (
+                <div className={`cc-radar-wave ${isIn ? "cc-radar-wave--in" : "cc-radar-wave--out"}`} />
               )}
-            </span>
-            <span style={{ fontSize: "14px", marginTop: "2px" }}>
-              {checking
-                ? "Đang chấm…"
-                : locating
-                  ? "Đang dò GPS…"
-                  : !status.can_check
+              {!btnDisabled && (
+                <div className={`cc-radar-wave ${isIn ? "cc-radar-wave--in" : "cc-radar-wave--out"}`} />
+              )}
+              <button
+                className={`cc-radar-btn ${outside ? "cc-radar-btn--locked" : isIn ? "cc-radar-btn--in" : "cc-radar-btn--out"}`}
+                onClick={() => doCheck()}
+                disabled={btnDisabled}
+              >
+                <span className="cc-radar-btn-icon">
+                  {locating ? (
+                    <RefreshCw className="cc-animate-spin" size={24} />
+                  ) : !status.can_check || outside ? (
+                    <Lock size={24} />
+                  ) : (
+                    <UserCheck size={24} />
+                  )}
+                </span>
+                <span style={{ fontSize: "14px", marginTop: "2px", fontWeight: "var(--fw-bold)" }}>
+                  {checking
+                    ? "Đang chấm…"
+                    : locating
+                    ? "Đang dò GPS…"
+                    : !status.can_check
                     ? "CHƯA ĐẾN GIỜ CHẤM"
                     : actionLabel}
-            </span>
-          </button>
-        </div>
-
-        {!status.locations_configured && (
-          <p className="cc-note">
-            Chưa cấu hình điểm chấm công nào. Hãy liên hệ HCNS.
-          </p>
-        )}
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "10px",
-            width: "100%",
-            marginTop: "16px",
-          }}
-        >
-          <button
-            className="btn btn--ghost"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "6px",
-              padding: "10px var(--sp-2)",
-              fontSize: "13px",
-            }}
-            onClick={() => setShowHistory(true)}
-          >
-            <ClipboardList size={14} /> Lịch sử
-          </button>
-          {navigate && (
-            <button
-              className="btn btn--ghost"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "6px",
-                padding: "10px var(--sp-2)",
-                fontSize: "13px",
-              }}
-              onClick={() => navigate("nghi-phep")}
-            >
-              <Coffee size={14} /> Nghỉ phép
-            </button>
-          )}
-        </div>
-
-        {geoErr && (
-          <div
-            className="banner banner--error"
-            style={{ marginTop: 12, width: "100%" }}
-          >
-            {geoErr}{" "}
-            <button
-              className="btn btn--ghost"
-              style={{ marginLeft: 8 }}
-              onClick={refreshPreview}
-              disabled={locating}
-            >
-              🔄 Thử lại
-            </button>
-          </div>
-        )}
-        {result && (
-          <div
-            className={`banner ${result.success ? "banner--ok" : "banner--warn"}`}
-            style={{ marginTop: 12, width: "100%" }}
-          >
-            {result.message}
-          </div>
-        )}
-
-        {canConfig &&
-          (!status.locations_configured ||
-            (result != null && !result.within_range)) && (
-            <div className="cc-setup" style={{ width: "100%" }}>
-              <button
-                className="btn btn--ghost cc-setup__btn"
-                onClick={setPointHere}
-                disabled={checking}
-              >
-                📍 Đặt điểm chấm công tại đây
+                </span>
               </button>
-              <p className="cc-note">
-                Tạo điểm chấm công mới tại tọa độ hiện tại (bán kính 150m) để
-                chấm ngay.
-              </p>
             </div>
-          )}
+
+            {outside && preview?.meters_out != null && (
+              <div className="cc-outside-hint-box">
+                <AlertTriangle size={14} style={{ color: "var(--signal)", flexShrink: 0 }} />
+                <span>
+                  Hãy di chuyển lại gần xưởng thêm <b>{preview.meters_out > 1000 ? `${(preview.meters_out / 1000).toFixed(1)}km` : `${Math.round(preview.meters_out)}m`}</b> để mở khóa nút chấm công.
+                </span>
+              </div>
+            )}
+
+            {/* Tóm tắt Công & Giờ làm Hôm nay */}
+            <div className="cc-today-summary-card">
+              <div className="cc-today-summary-header">
+                <span className="cc-today-summary-title">Tóm tắt công hôm nay</span>
+                {status.shift && (
+                  <span className="cc-today-shift-tag">
+                    Ca {status.shift.name} ({status.shift.start_time} - {status.shift.end_time})
+                  </span>
+                )}
+              </div>
+              <div className="cc-today-metrics-grid">
+                <div className="cc-today-metric-item">
+                  <span className="cc-today-metric-label">VÀO ĐẦU</span>
+                  <span className="cc-today-metric-val">
+                    {status.today?.first_in ? (
+                      <span style={{ color: "var(--moss)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <LogIn size={13} /> {status.today.first_in}
+                      </span>
+                    ) : (
+                      <span style={{ color: "var(--ash-2)" }}>—</span>
+                    )}
+                  </span>
+                </div>
+                <div className="cc-today-metric-item">
+                  <span className="cc-today-metric-label">RA CUỐI</span>
+                  <span className="cc-today-metric-val">
+                    {status.today?.last_out ? (
+                      <span style={{ color: "var(--rust)", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        <LogOut size={13} /> {status.today.last_out}
+                      </span>
+                    ) : (
+                      <span style={{ color: "var(--ash-2)" }}>—</span>
+                    )}
+                  </span>
+                </div>
+                <div className="cc-today-metric-item">
+                  <span className="cc-today-metric-label">CÔNG DỰ KIẾN</span>
+                  <span className="cc-today-metric-val" style={{ color: "var(--ink)" }}>
+                    {status.today?.cong != null ? `${status.today.cong} công` : "—"}
+                  </span>
+                </div>
+              </div>
+              {status.today?.reason && (
+                <div className="cc-today-reason-note">
+                  <Info size={13} style={{ flexShrink: 0, color: "var(--ash)" }} />
+                  <span>{status.today.reason}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Action Shortcuts Strip */}
+            <div className="cc-shortcuts-strip">
+              <button className="cc-shortcut-btn" onClick={() => setShowHistory(true)}>
+                <ClipboardList size={14} />
+                <span>Lịch sử chấm công</span>
+              </button>
+
+              {navigate && (
+                <button className="cc-shortcut-btn" onClick={() => navigate("nghi-phep")}>
+                  <Coffee size={14} />
+                  <span>Đăng ký nghỉ phép</span>
+                </button>
+              )}
+            </div>
+
+            {geoErr && (
+              <div
+                className="banner banner--error"
+                style={{ marginTop: 12, width: "100%" }}
+              >
+                {geoErr}{" "}
+                <button
+                  className="btn btn--ghost"
+                  style={{ marginLeft: 8, display: "inline-flex", alignItems: "center", gap: 4 }}
+                  onClick={refreshPreview}
+                  disabled={locating}
+                >
+                  <RefreshCw size={12} className={locating ? "cc-animate-spin" : ""} /> Thử lại
+                </button>
+              </div>
+            )}
+            {result && (
+              <div
+                className={`banner ${result.success ? "banner--ok" : "banner--warn"}`}
+                style={{ marginTop: 12, width: "100%" }}
+              >
+                {result.message}
+              </div>
+            )}
+
+            {canConfig &&
+              (!status.locations_configured ||
+                (result != null && !result.within_range)) && (
+                <div className="cc-setup" style={{ width: "100%", marginTop: 12 }}>
+                  <button
+                    className="btn btn--ghost cc-setup__btn"
+                    onClick={setPointHere}
+                    disabled={checking}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                  >
+                    <MapPin size={14} /> Đặt điểm chấm công tại đây
+                  </button>
+                  <p className="cc-note">
+                    Tạo điểm chấm công mới tại tọa độ hiện tại (bán kính 150m) để
+                    chấm ngay.
+                  </p>
+                </div>
+              )}
+          </div>
+        </div>
       </div>
 
       {showHistory && (
@@ -899,6 +1263,37 @@ function MyCheckIn({
   );
 }
 
+function getLogDateKey(isoStr: string): string {
+  try {
+    const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(isoStr);
+    const d = new Date(hasTz ? isoStr : `${isoStr}Z`);
+    const todayStr = isoToday();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const ymd = `${y}-${m}-${day}`;
+    if (ymd === todayStr) return `Hôm nay (${day}/${m}/${y})`;
+    return `${day}/${m}/${y}`;
+  } catch {
+    return "Khác";
+  }
+}
+
+function getLogTimeOnly(isoStr: string): string {
+  try {
+    const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(isoStr);
+    const d = new Date(hasTz ? isoStr : `${isoStr}Z`);
+    return d.toLocaleTimeString("vi-VN", {
+      timeZone: "Asia/Ho_Chi_Minh",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return isoStr;
+  }
+}
+
 function MyHistoryModal({
   logs,
   onClose,
@@ -906,74 +1301,112 @@ function MyHistoryModal({
   logs: AttendanceLog[];
   onClose: () => void;
 }) {
+  const totalCount = logs.length;
+  const inCount = logs.filter((l) => l.check_type === "in").length;
+  const outCount = logs.filter((l) => l.check_type === "out").length;
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, AttendanceLog[]>();
+    for (const log of logs) {
+      const dateKey = getLogDateKey(log.checked_at);
+      if (!map.has(dateKey)) map.set(dateKey, []);
+      map.get(dateKey)!.push(log);
+    }
+    return Array.from(map.entries());
+  }, [logs]);
+
   return (
     <div className="ns-modal" role="dialog" aria-modal="true">
-      <div className="ns-modal__box" style={{ maxWidth: "480px" }}>
-        <header className="ns-modal__head">
-          <h2
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              margin: 0,
-            }}
-          >
-            <ClipboardList size={18} /> Lịch sử chấm công của tôi
-          </h2>
-          <button className="ns-modal__x" onClick={onClose}>
+      <div className="ns-modal__box cc-history-modal-box" style={{ maxWidth: "540px" }}>
+        <header className="ns-modal__head cc-history-modal-head">
+          <div className="cc-history-modal-title-group">
+            <h2>
+              <ClipboardList size={18} style={{ color: "var(--rust)" }} />
+              <span>Lịch sử chấm công của tôi</span>
+            </h2>
+            <div className="cc-history-stats-strip">
+              <span className="cc-history-stat-chip">
+                Tổng: <b>{totalCount}</b> lượt
+              </span>
+              <span className="cc-history-stat-chip is-in">
+                <LogIn size={11} /> VÀO: <b>{inCount}</b>
+              </span>
+              <span className="cc-history-stat-chip is-out">
+                <LogOut size={11} /> RA: <b>{outCount}</b>
+              </span>
+            </div>
+          </div>
+          <button className="ns-modal__x" onClick={onClose} title="Đóng">
             ×
           </button>
         </header>
+
         <div
-          className="ns-modal__body"
-          style={{ maxHeight: "400px", overflowY: "auto" }}
+          className="ns-modal__body cc-history-modal-body"
+          style={{ maxHeight: "420px", overflowY: "auto" }}
         >
-          <div className="cc-timeline" style={{ marginTop: 0 }}>
-            {logs.map((l) => (
-              <div key={l.id} className="cc-timeline-item">
-                <div
-                  className={`cc-timeline-badge ${l.check_type === "in" ? "cc-timeline-badge--in" : "cc-timeline-badge--out"}`}
-                />
-                <div className="cc-timeline-content">
-                  <div className="cc-timeline-left">
-                    <span className="cc-timeline-action">
-                      Chấm {l.check_type === "in" ? "VÀO" : "RA"}
-                    </span>
-                    <span className="cc-timeline-location">
-                      <MapPin size={12} />{" "}
-                      {l.location_name || "Vị trí không xác định"}
-                    </span>
+          {grouped.length > 0 ? (
+            <div className="cc-history-grouped-list">
+              {grouped.map(([dateTitle, groupLogs]) => (
+                <div key={dateTitle} className="cc-history-date-group">
+                  <div className="cc-history-date-badge">
+                    <Calendar size={12} />
+                    <span>{dateTitle}</span>
                   </div>
-                  <div className="cc-timeline-right">
-                    <span className="cc-timeline-time">
-                      {fmtDateTime(l.checked_at)}
-                    </span>
-                    <div className="cc-timeline-distance">
-                      {l.distance_m != null
-                        ? `Cự ly: ${Math.round(l.distance_m)}m`
-                        : "—"}
-                    </div>
+                  <div className="cc-history-timeline">
+                    {groupLogs.map((l) => {
+                      const isIn = l.check_type === "in";
+                      return (
+                        <div key={l.id} className="cc-history-item">
+                          <div className={`cc-history-dot ${isIn ? "is-in" : "is-out"}`} />
+                          <div className="cc-history-card">
+                            <div className="cc-history-card-left">
+                              <div className={`cc-history-action-badge ${isIn ? "is-in" : "is-out"}`}>
+                                {isIn ? <LogIn size={13} /> : <LogOut size={13} />}
+                                <span>Chấm {isIn ? "VÀO" : "RA"}</span>
+                              </div>
+                              <div className="cc-history-location">
+                                <MapPin size={12} />
+                                <span>{l.location_name || "Vị trí không xác định"}</span>
+                              </div>
+                            </div>
+                            <div className="cc-history-card-right">
+                              <span className="cc-history-time">
+                                {getLogTimeOnly(l.checked_at)}
+                              </span>
+                              {l.distance_m != null && (
+                                <div className="cc-history-distance-chip">
+                                  <Navigation size={10} />
+                                  <span>Cự ly: {Math.round(l.distance_m)}m</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
-              </div>
-            ))}
-            {logs.length === 0 && (
-              <p
-                className="ns__empty"
-                style={{
-                  background: "var(--paper)",
-                  padding: "16px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--rule-soft)",
-                }}
-              >
-                Chưa có dữ liệu lịch sử chấm công.
-              </p>
-            )}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p
+              className="ns__empty"
+              style={{
+                background: "var(--paper)",
+                padding: "24px",
+                borderRadius: "12px",
+                border: "1px solid var(--rule-soft)",
+                textAlign: "center",
+              }}
+            >
+              Chưa có dữ liệu lịch sử chấm công.
+            </p>
+          )}
         </div>
-        <footer className="ns-modal__foot">
-          <button className="btn btn--ghost" onClick={onClose}>
+
+        <footer className="ns-modal__foot cc-history-modal-foot">
+          <button className="btn btn--primary" onClick={onClose} style={{ minWidth: "90px" }}>
             Đóng
           </button>
         </footer>
@@ -1048,7 +1481,17 @@ function MyTimesheetTab({ token }: { token: string }) {
   const MSG_PREVIEW = 3;
   const msgsShown = msgsOpen ? shiftMsgs : shiftMsgs.slice(0, MSG_PREVIEW);
 
+  // Ngày CHƯA TỚI không xin chỉnh công được — đơn này nghĩa là "tôi quên chấm hôm đó", không ai
+  // quên một ngày chưa xảy ra. Backend đã chặn (`_require_not_future`); ở đây chặn trước để khỏi
+  // mời người ta bấm rồi mới báo đỏ.
+  const homNay = new Date();
+  homNay.setHours(0, 0, 0, 0);
+  function laTuongLai(dayNum: number) {
+    return new Date(year, month - 1, dayNum) > homNay;
+  }
+
   function openReq(dayNum: number) {
+    if (laTuongLai(dayNum)) return;
     setReqDate(
       `${year}-${String(month).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`,
     );
@@ -1178,7 +1621,13 @@ function MyTimesheetTab({ token }: { token: string }) {
         </div>
       </div>
       {loading && <p className="ns__empty">Đang tải biểu công…</p>}
-      {!loading && !row && (
+      {!loading && !data && (
+        <p className="ns__empty">Không tải được biểu công tháng này.</p>
+      )}
+      {/* Có `data` mà không có hàng: từ 31/07/2026 backend luôn trả hàng của chính người đăng nhập
+          (kể cả chưa chấm buổi nào) nên nhánh này gần như không còn xảy ra. Giữ làm lưới an toàn —
+          màn trắng trơn không một lời nào là thứ tệ nhất. */}
+      {!loading && data && !row && (
         <p className="ns__empty">Tháng này bạn chưa có dữ liệu chấm công.</p>
       )}
       {!loading && row && data && (
@@ -1194,6 +1643,14 @@ function MyTimesheetTab({ token }: { token: string }) {
           <h4 className="ns-section__title" style={{ marginTop: 0 }}>
             Lịch công của tôi ({month}/{year})
           </h4>
+          {/* Lịch vẫn hiện đủ tháng — dòng này chỉ nói thêm cho khỏi hiểu nhầm là mất dữ liệu.
+              Trước đây cả lịch bị thay bằng một câu "chưa có dữ liệu", nên người quên chấm không
+              còn ô ngày nào để bấm xin chỉnh công. */}
+          {row.total_days === 0 && (
+            <p className="cc-note" style={{ marginBottom: 12 }}>
+              Tháng này bạn chưa có lượt chấm công nào. Bấm vào ô ngày để gửi yêu cầu chỉnh công.
+            </p>
+          )}
 
           <div className="cc-month-grid">
             {["T2", "T3", "T4", "T5", "T6", "T7", "CN"].map((w) => (
@@ -1225,24 +1682,34 @@ function MyTimesheetTab({ token }: { token: string }) {
               let otBadge = false;
 
               if (day) {
-                if (day.leave) {
+                // TRẬT TỰ QUAN TRỌNG — hỏi LƯỢT BẤM trước.
+                // Backend nhét TÊN NGÀY LỄ vào chung field `leave` với tên loại nghỉ phép, và
+                // ngày lễ ĐI LÀM thì ô vừa có `leave` vừa có giờ vào/ra. Trước đây `leave` được
+                // hỏi trước nên hôm đó bị vẽ thành "Nghỉ Phép (P)", nuốt mất giờ công thật.
+                const hasPunch = day.first_in || day.last_out;
+                if (hasPunch) {
+                  cellClass += " cc-month-cell--work";
+                  if (day.late || day.early) cellClass += " cc-month-cell--makeup";
+                  timeRange = `${day.first_in ?? "?"} - ${day.last_out ?? "?"}`;
+                  statusLabel =
+                    day.cong != null
+                      ? `Công: ${day.cong}`
+                      : day.hours != null
+                        ? `${day.hours}h`
+                        : "Đã chấm";
+                  if (day.ot_minutes) otBadge = true;
+                } else if (day.holiday) {
+                  // Lễ KHÔNG tiêu ngày phép năm — gọi nó là "Nghỉ Phép (P)" là nói sai bản chất.
+                  cellClass += " cc-month-cell--holiday";
+                  statusLabel = "Nghỉ lễ";
+                } else if (day.leave) {
                   cellClass += " cc-month-cell--holiday";
                   statusLabel = day.leave_paid ? "Nghỉ Phép (P)" : "Nghỉ KL";
-                } else {
-                  const hasPunch = day.first_in || day.last_out;
-                  if (hasPunch) {
-                    cellClass += " cc-month-cell--work";
-                    if (day.late || day.early)
-                      cellClass += " cc-month-cell--makeup";
-                    timeRange = `${day.first_in ?? "?"} - ${day.last_out ?? "?"}`;
-                    statusLabel =
-                      day.cong != null
-                        ? `Công: ${day.cong}`
-                        : day.hours != null
-                          ? `${day.hours}h`
-                          : "Đã chấm";
-                    if (day.ot_minutes) otBadge = true;
-                  }
+                } else if (day.planned_off) {
+                  // Nghỉ theo lịch xoay ca: dấu KẾ HOẠCH, không ra tiền, không tiêu phép — nên
+                  // để màu lặng như cuối tuần, đừng mượn màu lễ/phép.
+                  cellClass += " cc-month-cell--weekend";
+                  statusLabel = "Nghỉ theo lịch";
                 }
               }
 
@@ -1257,11 +1724,20 @@ function MyTimesheetTab({ token }: { token: string }) {
                 cellClass += " cc-month-cell--weekend";
               }
 
+              const chuaToi = laTuongLai(dayNum);
               return (
                 <div
                   key={dayNum}
                   className={cellClass}
-                  style={{ cursor: "pointer" }}
+                  style={{
+                    cursor: chuaToi ? "default" : "pointer",
+                    opacity: chuaToi ? 0.5 : undefined,
+                  }}
+                  title={
+                    chuaToi
+                      ? "Ngày chưa tới — chỉ xin chỉnh công cho ngày đã qua hoặc hôm nay."
+                      : "Bấm để gửi yêu cầu chỉnh công"
+                  }
                   onClick={() => openReq(dayNum)}
                 >
                   <div
@@ -1563,85 +2039,190 @@ function LocationsTab({ token }: { token: string }) {
     load();
   }
 
+  async function toggleActive(loc: WorkLocation) {
+    try {
+      await api.attendance.updateLocation(token, loc.id, {
+        name: loc.name,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        radius_m: loc.radius_m,
+        note: loc.note,
+        is_active: !loc.is_active,
+      });
+      load();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Lỗi khi cập nhật.");
+    }
+  }
+
+  const totalLocations = items?.length ?? 0;
+  const activeLocations = items?.filter((l) => l.is_active).length ?? 0;
+  const avgRadius =
+    items && items.length > 0
+      ? Math.round(items.reduce((acc, l) => acc + l.radius_m, 0) / items.length)
+      : 0;
+
   return (
-    <div>
-      <div className="cc-toolbar">
-        <button className="btn btn--primary" onClick={() => setEditing("new")}>
-          <Plus size={14} /> Thêm điểm chấm công
+    <div className="cc-locations-wrapper">
+      {/* 1. Header Toolbar & Quick Stats */}
+      <div className="cc-calendar-dashboard" style={{ marginBottom: 20 }}>
+        <div className="cc-calendar-stats-strip">
+          <div className="cc-calendar-stat-card">
+            <span className="cc-calendar-stat-icon cc-calendar-stat-icon--users">
+              <MapPin size={16} />
+            </span>
+            <div className="cc-calendar-stat-info">
+              <span className="cc-calendar-stat-val">{totalLocations}</span>
+              <span className="cc-calendar-stat-label">Vị trí geofence</span>
+            </div>
+          </div>
+          <div className="cc-calendar-stat-card">
+            <span className="cc-calendar-stat-icon cc-calendar-stat-icon--check">
+              <CheckCircle size={16} />
+            </span>
+            <div className="cc-calendar-stat-info">
+              <span className="cc-calendar-stat-val">{activeLocations}</span>
+              <span className="cc-calendar-stat-label">Đang hoạt động</span>
+            </div>
+          </div>
+          <div className="cc-calendar-stat-card">
+            <span className="cc-calendar-stat-icon cc-calendar-stat-icon--clock">
+              <Target size={16} />
+            </span>
+            <div className="cc-calendar-stat-info">
+              <span className="cc-calendar-stat-val">{avgRadius} m</span>
+              <span className="cc-calendar-stat-label">Bán kính trung bình</span>
+            </div>
+          </div>
+        </div>
+
+        <button
+          className="btn btn--primary cc-btn-cta-compact"
+          onClick={() => setEditing("new")}
+        >
+          <Plus size={16} />
+          <span>Thêm điểm chấm công</span>
         </button>
       </div>
 
-      <div className="cc-card-grid">
-        {items?.map((l) => (
-          <div key={l.id} className="cc-loc-card">
-            <div>
-              <div className="cc-loc-header">
-                <span className="cc-loc-title">{l.name}</span>
-                <span
-                  className={`cc-badge-pill ${l.is_active ? "cc-badge-pill--primary" : "cc-badge-pill--gray"}`}
-                >
-                  {l.is_active ? "Đang dùng" : "Đã tắt"}
-                </span>
-              </div>
-              <div className="cc-loc-details">
-                <div
-                  style={{ display: "flex", gap: "6px", alignItems: "center" }}
-                >
-                  <MapIcon size={14} />
-                  <span className="cc-loc-coord">
-                    {Number(l.latitude).toFixed(6)},{" "}
-                    {Number(l.longitude).toFixed(6)}
-                  </span>
-                </div>
-                <div className="cc-loc-radius">
-                  <div
-                    style={{
-                      width: "10px",
-                      height: "10px",
-                      borderRadius: "50%",
-                      border: "2px solid var(--rust)",
-                      background: "var(--rust-soft)",
-                    }}
-                  />
-                  Bán kính geofence: <b>{l.radius_m} m</b>
-                </div>
-                {l.note && (
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      color: "var(--ash)",
-                      marginTop: "4px",
-                    }}
-                  >
-                    Ghi chú: {l.note}
+      {/* 2. Location Cards Grid */}
+      {items === null ? (
+        <div className="ns__empty cc-calendar-loading">
+          <div className="cc-loading-spinner" />
+          <span>Đang tải danh sách điểm chấm công...</span>
+        </div>
+      ) : items.length === 0 ? (
+        <div className="ns__empty" style={{ padding: 40 }}>
+          Chưa có điểm chấm công nào được cấu hình. Bấm "+ Thêm điểm chấm công" để tạo mới.
+        </div>
+      ) : (
+        <div className="cc-locations-grid">
+          {items.map((l) => {
+            const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${l.latitude},${l.longitude}`;
+            return (
+              <div
+                key={l.id}
+                className={`cc-loc-card-v2 ${!l.is_active ? "is-inactive" : ""}`}
+              >
+                <div className="cc-loc-card-head">
+                  <div className="cc-loc-icon-wrapper">
+                    <MapPin size={20} />
                   </div>
-                )}
+                  <div className="cc-loc-title-group">
+                    <h3 className="cc-loc-card-title" title={l.name}>
+                      {l.name}
+                    </h3>
+                    <div className="cc-loc-status-row">
+                      {l.is_active ? (
+                        <span className="cc-type-badge cc-type-badge--paid">
+                          <CheckCircle size={11} />
+                          <span>Đang dùng</span>
+                        </span>
+                      ) : (
+                        <span className="cc-type-badge cc-type-badge--unpaid">
+                          <XCircle size={11} />
+                          <span>Đã tắt</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="cc-leave-type-active-switch">
+                    <label
+                      className="cc-switch"
+                      title={
+                        l.is_active
+                          ? "Đang sử dụng (Click để tắt)"
+                          : "Đã tắt (Click để bật)"
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={l.is_active}
+                        onChange={() => toggleActive(l)}
+                      />
+                      <span className="cc-slider" />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="cc-loc-card-body">
+                  <div className="cc-loc-coord-row">
+                    <div className="cc-loc-coord-badge">
+                      <Navigation size={12} style={{ opacity: 0.7 }} />
+                      <span>
+                        {Number(l.latitude).toFixed(6)},{" "}
+                        {Number(l.longitude).toFixed(6)}
+                      </span>
+                    </div>
+
+                    <a
+                      href={mapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="cc-loc-maps-link"
+                      title="Mở tọa độ trên Google Maps"
+                    >
+                      <span>Bản đồ</span>
+                      <ExternalLink size={12} />
+                    </a>
+                  </div>
+
+                  <div className="cc-geofence-radar-pill">
+                    <div className="cc-geofence-pulse-ring" />
+                    <Target size={13} style={{ color: "var(--rust)" }} />
+                    <span>
+                      Bán kính cho phép: <b>{l.radius_m} m</b>
+                    </span>
+                  </div>
+
+                  {l.note && (
+                    <div className="cc-loc-note-box" title={l.note}>
+                      <span className="cc-loc-note-label">Ghi chú:</span> {l.note}
+                    </div>
+                  )}
+                </div>
+
+                <div className="cc-loc-card-foot">
+                  <button
+                    className="cc-leave-type-action-btn"
+                    onClick={() => setEditing(l)}
+                  >
+                    <Edit3 size={13} />
+                    <span>Sửa</span>
+                  </button>
+                  <button
+                    className="cc-leave-type-action-btn cc-leave-type-action-btn--danger"
+                    onClick={() => remove(l.id)}
+                  >
+                    <Trash2 size={13} />
+                    <span>Xóa</span>
+                  </button>
+                </div>
               </div>
-            </div>
-            <div className="cc-loc-actions">
-              <button
-                className="btn btn--ghost"
-                style={{ padding: "4px 10px" }}
-                onClick={() => setEditing(l)}
-              >
-                <Edit3 size={12} /> Sửa
-              </button>
-              <button
-                className="btn btn--ghost ns-danger"
-                style={{ padding: "4px 10px" }}
-                onClick={() => remove(l.id)}
-              >
-                <Trash2 size={12} /> Xóa
-              </button>
-            </div>
-          </div>
-        ))}
-        {items?.length === 0 && (
-          <div className="ns__empty" style={{ gridColumn: "1/-1" }}>
-            Chưa có điểm chấm công nào được cấu hình.
-          </div>
-        )}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {editing && (
         <LocationForm
@@ -1673,7 +2254,7 @@ function LocationForm({
     name: location?.name ?? "",
     latitude: location?.latitude ?? 0,
     longitude: location?.longitude ?? 0,
-    radius_m: location?.radius_m ?? 100,
+    radius_m: location?.radius_m ?? 150,
     note: location?.note ?? "",
     is_active: location?.is_active ?? true,
   });
@@ -1709,6 +2290,7 @@ function LocationForm({
     setBusy(true);
     setError(null);
     try {
+      if (!form.name.trim()) throw new Error("Vui lòng nhập tên điểm chấm công.");
       if (location)
         await api.attendance.updateLocation(token, location.id, form);
       else await api.attendance.createLocation(token, form);
@@ -1721,84 +2303,137 @@ function LocationForm({
 
   return (
     <div className="ns-modal" role="dialog" aria-modal="true">
-      <div className="ns-modal__box">
+      <div className="ns-modal__box cc-day-detail-modal-box">
         <header className="ns-modal__head">
-          <h2>{location ? "Sửa điểm chấm công" : "Thêm điểm chấm công"}</h2>
+          <div className="cc-modal-title-group">
+            <h2>{location ? "Chỉnh sửa điểm chấm công" : "Tạo điểm chấm công mới"}</h2>
+            <p className="cc-modal-subtitle">Cấu hình tọa độ GPS và bán kính geofence cho phép chốt công</p>
+          </div>
           <button className="ns-modal__x" onClick={onClose}>
             ×
           </button>
         </header>
-        <div className="ns-modal__body">
-          {error && <div className="banner banner--error">{error}</div>}
+        <div className="ns-modal__body cc-day-detail-modal-body">
+          {error && <div className="banner banner--error cc-ts-msg-banner" style={{ marginBottom: 16 }}>{error}</div>}
+          
           <label className="ns-field">
-            <span className="ns-field__label">Tên điểm *</span>
+            <span className="cc-field-label">Tên điểm chấm công *</span>
             <input
+              className="cc-input-text"
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
+              placeholder="vd: Xưởng in Sao Việt Nhật, Văn phòng đại diện..."
             />
           </label>
+
+          <div style={{ marginTop: 12, marginBottom: 12 }}>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                width: "100%",
+                justifyContent: "center",
+                borderStyle: "dashed",
+                borderColor: "var(--rust)",
+                color: "var(--rust-deep)",
+                background: "var(--rust-soft)",
+                padding: "8px 14px",
+                borderRadius: "var(--r-3)",
+                fontWeight: "var(--fw-bold)",
+                fontSize: "12.5px"
+              }}
+              onClick={useMyLocation}
+              disabled={locating}
+            >
+              <Navigation size={14} />
+              <span>{locating ? "Đang lấy tọa độ GPS..." : "Lấy vị trí GPS hiện tại của tôi"}</span>
+            </button>
+          </div>
+
           <div className="ns-grid" style={{ marginTop: 12 }}>
             <label className="ns-field">
-              <span className="ns-field__label">Vĩ độ (latitude)</span>
+              <span className="cc-field-label">Vĩ độ (latitude)</span>
               <input
                 type="number"
                 step="0.0000001"
+                className="cc-input-text"
                 value={form.latitude}
                 onChange={(e) => set("latitude", Number(e.target.value))}
               />
             </label>
             <label className="ns-field">
-              <span className="ns-field__label">Kinh độ (longitude)</span>
+              <span className="cc-field-label">Kinh độ (longitude)</span>
               <input
                 type="number"
                 step="0.0000001"
+                className="cc-input-text"
                 value={form.longitude}
                 onChange={(e) => set("longitude", Number(e.target.value))}
               />
             </label>
-            <label className="ns-field">
-              <span className="ns-field__label">Bán kính (mét)</span>
-              <input
-                type="number"
-                min={1}
-                value={form.radius_m}
-                onChange={(e) => set("radius_m", Number(e.target.value))}
-              />
-            </label>
-            <label className="ns-field">
-              <span className="ns-field__label">Trạng thái</span>
-              <label className="ns-check">
-                <input
-                  type="checkbox"
-                  checked={!!form.is_active}
-                  onChange={(e) => set("is_active", e.target.checked)}
-                />{" "}
-                Đang dùng
-              </label>
-            </label>
           </div>
-          <label className="ns-field" style={{ marginTop: 12 }}>
-            <span className="ns-field__label">Ghi chú (địa chỉ…)</span>
+
+          <label className="ns-field" style={{ marginTop: 14 }}>
+            <span className="cc-field-label">Bán kính cho phép (mét) *</span>
             <input
+              type="number"
+              min={10}
+              className="cc-input-text"
+              value={form.radius_m}
+              onChange={(e) => set("radius_m", Number(e.target.value))}
+              placeholder="vd: 150"
+            />
+            <div className="cc-radius-presets-row" style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap", alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: "var(--ash-2)" }}>Chọn nhanh:</span>
+              {[50, 100, 150, 200, 500].map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  className={`cc-calendar-chip ${form.radius_m === r ? "is-active" : ""}`}
+                  style={{ padding: "2px 10px", fontSize: 11 }}
+                  onClick={() => set("radius_m", r)}
+                >
+                  {r}m
+                </button>
+              ))}
+            </div>
+            <span className="cc-field-subtext" style={{ marginTop: 4 }}>Khoảng cách tối đa (mét) tính từ tâm vị trí cho phép nhân viên ấn nút Chấm công</span>
+          </label>
+
+          <label className="ns-field" style={{ marginTop: 14 }}>
+            <span className="cc-field-label">Ghi chú</span>
+            <input
+              className="cc-input-text"
               value={form.note ?? ""}
               onChange={(e) => set("note", e.target.value)}
+              placeholder="Địa chỉ cụ thể, hướng dẫn vị trí..."
             />
           </label>
-          <button
-            className="btn btn--ghost"
-            style={{ marginTop: 12 }}
-            onClick={useMyLocation}
-            disabled={locating}
-          >
-            {locating ? "Đang lấy…" : "📍 Lấy vị trí hiện tại của tôi"}
-          </button>
+
+          <div style={{ marginTop: 16, display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--canvas)", padding: "10px 14px", borderRadius: "var(--r-3)", border: "1px solid var(--rule-soft)" }}>
+            <div>
+              <span className="cc-field-label" style={{ margin: 0, fontWeight: "var(--fw-bold)" }}>Đang hoạt động</span>
+              <span className="cc-field-subtext" style={{ display: "block" }}>Cho phép nhân viên chốt công tại vị trí này.</span>
+            </div>
+            <label className="cc-switch">
+              <input
+                type="checkbox"
+                checked={!!form.is_active}
+                onChange={(e) => set("is_active", e.target.checked)}
+              />
+              <span className="cc-slider" />
+            </label>
+          </div>
         </div>
         <footer className="ns-modal__foot">
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>
             Hủy
           </button>
           <button className="btn btn--primary" onClick={save} disabled={busy}>
-            {busy ? "Đang lưu…" : "Lưu"}
+            {busy ? "Đang lưu…" : "Lưu cấu hình"}
           </button>
         </footer>
       </div>
@@ -2836,6 +3471,14 @@ function ShiftPlanPanel({ token }: { token: string }) {
     [data],
   );
 
+  // Gán xong người cuối cùng ⇒ TỰ TẮT lọc. Không có dòng này thì lọc vẫn bật mà nút bật/tắt đã
+  // biến mất (nút chỉ hiện khi còn người thiếu ca) ⇒ lưới rỗng, đổi phòng hay Tải lại cũng vô
+  // ích, người dùng kẹt luôn — đúng lỗi chủ báo 29/07/2026.
+  // Chờ `data` có rồi mới xét: lúc đang tải `data` là null ⇒ đếm ra 0 ⇒ tắt lọc oan.
+  useEffect(() => {
+    if (data && onlyNoDefault && noDefaultCount === 0) setOnlyNoDefault(false);
+  }, [data, onlyNoDefault, noDefaultCount]);
+
   const visibleRows = useMemo(() => {
     let rows = data?.rows ?? [];
     if (onlyNoDefault) rows = rows.filter((r) => r.no_default);
@@ -3354,13 +3997,19 @@ function ShiftPlanPanel({ token }: { token: string }) {
               aria-label="Tìm nhân viên"
             />
           </div>
-          {noDefaultCount > 0 && (
+          {/* Điều kiện có `|| onlyNoDefault`: nút PHẢI còn khi lọc đang bật, kể cả đếm về 0.
+              Nút biến mất mà lọc vẫn bật = không còn đường tắt nó đi. */}
+          {(noDefaultCount > 0 || onlyNoDefault) && (
             <button
               type="button"
               className={`cc-sp-flag${onlyNoDefault ? " is-on" : ""}`}
               aria-pressed={onlyNoDefault}
               onClick={() => setOnlyNoDefault((v) => !v)}
-              title="Những người chưa có ca nền — họ CHƯA CHẤM CÔNG ĐƯỢC cho tới khi được đặt ca"
+              title={
+                noDefaultCount > 0
+                  ? "Những người chưa có ca nền — họ CHƯA CHẤM CÔNG ĐƯỢC cho tới khi được đặt ca"
+                  : "Không còn ai thiếu ca — bấm để bỏ lọc, xem lại cả danh sách"
+              }
             >
               <AlertTriangle size={13} aria-hidden="true" /> Chưa có ca (
               {noDefaultCount})
@@ -3516,6 +4165,12 @@ function ShiftPlanPanel({ token }: { token: string }) {
         <span className="cc-sp-lg cc-sp-lg--ghost">Kế thừa ca nền</span>
         <span className="cc-sp-lg cc-sp-lg--hand">Khai tay</span>
         <span className="cc-sp-lg cc-sp-lg--rest">Nghỉ theo lịch</span>
+        <span
+          className="cc-sp-lg cc-sp-lg--leave"
+          title="Đọc thẳng từ phiếu nghỉ đã duyệt — chỉ để XEM, không phải dấu tô tay. Góc xanh = nghỉ có lương, góc đỏ = không lương. Huỷ/từ chối phiếu là dấu tự hết."
+        >
+          Nghỉ phép (đã duyệt)
+        </span>
         <span className="cc-sp-lg cc-sp-lg--hol">Lễ</span>
         <span className="cc-sp-lg cc-sp-lg--make">Làm bù</span>
         <span className="cc-sp-lg cc-sp-lg--x1">Nghỉ 1×</span>
@@ -3680,6 +4335,11 @@ function ShiftPlanPanel({ token }: { token: string }) {
                     </td>
                     {cal.map((c, ci) => {
                       const key = cellKey(row.employee_id, c.date);
+                      // Nghỉ phép đã duyệt: đọc THẲNG từ dữ liệu server, KHÔNG đi qua `eff`.
+                      // Bút ca không bao giờ đổi được phép, nên nó phải nằm NGOÀI mọi nhánh
+                      // xem-trước bên dưới — tô ca lên ngày nghỉ thì dấu vẫn phải còn.
+                      const lv = row.days[String(c.day)];
+                      const leaveName = lv?.leave_name ?? null;
                       const inRect =
                         !!drag &&
                         ri >= Math.min(drag.r0, drag.r1) &&
@@ -3725,6 +4385,10 @@ function ShiftPlanPanel({ token }: { token: string }) {
                           : "",
                         c.special_kind === "work" ? "cc-sp-cell--make" : "",
                         eff.off ? "cc-sp-cell--rest" : "",
+                        leaveName ? "cc-sp-cell--leave" : "",
+                        leaveName && lv?.leave_paid === false
+                          ? "cc-sp-cell--leave-unpaid"
+                          : "",
                         pending.has(key) ? "is-dirty" : "",
                         reason ? "is-rejected" : "",
                         inRect ? "is-preview" : "",
@@ -3735,6 +4399,11 @@ function ShiftPlanPanel({ token }: { token: string }) {
                       const dayTip = [
                         `${getWeekdayLabel(year, month, c.day)} ${fmtYmd(c.date)}`,
                         c.name,
+                        // Vào dayTip (chứ không chỉ chipTip) để hover ĐÂU trong ô cũng đọc được:
+                        // chipTip đã nối dayTip vào nên chỉ cần viết một chỗ.
+                        leaveName
+                          ? `NGHỈ PHÉP ĐÃ DUYỆT: ${leaveName}${lv?.leave_paid === false ? " (không lương)" : ""}`
+                          : null,
                       ]
                         .filter(Boolean)
                         .join(" · ");
@@ -3818,7 +4487,33 @@ function ShiftPlanPanel({ token }: { token: string }) {
               {visibleRows.length === 0 && (
                 <tr>
                   <td colSpan={cal.length + 3} className="ns__empty">
-                    Không có nhân viên phù hợp bộ lọc.
+                    {/* Nói RÕ lọc nào đang chặn + cho nút gỡ ngay tại chỗ. "Không có nhân viên
+                        phù hợp bộ lọc" trống trơn khiến người dùng tưởng mất dữ liệu. */}
+                    {onlyNoDefault ? (
+                      <>
+                        Đang lọc <b>“Chưa có ca”</b> — không còn ai thiếu ca.{" "}
+                        <button
+                          type="button"
+                          className="cc-sp-who__link"
+                          onClick={() => setOnlyNoDefault(false)}
+                        >
+                          Bỏ lọc, xem cả danh sách
+                        </button>
+                      </>
+                    ) : q.trim() ? (
+                      <>
+                        Không ai khớp từ khoá <b>“{q.trim()}”</b>.{" "}
+                        <button
+                          type="button"
+                          className="cc-sp-who__link"
+                          onClick={() => setQ("")}
+                        >
+                          Xoá tìm kiếm
+                        </button>
+                      </>
+                    ) : (
+                      "Phòng/tổ này chưa có nhân viên nào."
+                    )}
                   </td>
                 </tr>
               )}
@@ -3951,30 +4646,35 @@ function ShiftPlanPanel({ token }: { token: string }) {
               </p>
               <label className="cc-sp-basepop__row">
                 <span>Ca</span>
-                <select
-                  value={baseShift}
-                  onChange={(e) =>
-                    setBaseShift(
-                      e.target.value === ""
-                        ? ""
-                        : e.target.value === "none"
-                          ? "none"
-                          : Number(e.target.value),
-                    )
-                  }
-                >
-                  <option value="">— chọn ca —</option>
-                  {paintShifts.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.start_time}–{s.end_time})
-                    </option>
-                  ))}
-                  <option value="none">— bỏ gán ca nền —</option>
-                </select>
+                {/* Bọc `cc-select-wrapper` để ăn style chung (viền, cao 36px, mũi tên vẽ sẵn)
+                    thay vì rơi về select mặc định của trình duyệt. */}
+                <div className="cc-select-wrapper">
+                  <select
+                    value={baseShift}
+                    onChange={(e) =>
+                      setBaseShift(
+                        e.target.value === ""
+                          ? ""
+                          : e.target.value === "none"
+                            ? "none"
+                            : Number(e.target.value),
+                      )
+                    }
+                  >
+                    <option value="">— chọn ca —</option>
+                    {paintShifts.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.start_time}–{s.end_time})
+                      </option>
+                    ))}
+                    <option value="none">— bỏ gán ca nền —</option>
+                  </select>
+                </div>
               </label>
               <label className="cc-sp-basepop__row">
                 <span>Áp dụng từ</span>
                 <input
+                  className="cc-input-text"
                   type="date"
                   value={baseFrom}
                   onChange={(e) => setBaseFrom(e.target.value)}

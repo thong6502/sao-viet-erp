@@ -16,11 +16,11 @@ import { Icon } from "../components/Icons";
 import { ngay, ngayGio, thoiLuong } from "./keHoachSxShared";
 import type { Band, GroupBy } from "./XepLichPage";
 import {
-  buildScale, buildTicks, barPieces, fromWall, nowWall, snapToWork, wallMinutes, wallOf,
+  buildHeaderData, buildScale, barPieces, fromWall, nowWall, snapToWork, wallMinutes, wallOf,
   type TimeScale, type Zoom,
 } from "./gantt-time";
 
-const LABEL_W = 184; // bề rộng cột nhãn lane (sticky trái)
+const LABEL_W = 240; // bề rộng cột nhãn lane (sticky trái) - nới rộng 240px để thông số không đè chữ
 const BAR_H = 26;
 const BAR_GAP = 4;
 const LANE_PAD = 8;
@@ -172,7 +172,7 @@ export function GanttBoard({
     () => buildScale(lichNen?.khoang_lam ?? [], winStart, winEnd, zoom, hideOff),
     [lichNen, winStart, winEnd, zoom, hideOff],
   );
-  const ticks = useMemo(() => buildTicks(scale, zoom), [scale, zoom]);
+  const headerData = useMemo(() => buildHeaderData(scale, zoom), [scale, zoom]);
   const offRects = useMemo(() => scale.offRects(), [scale]);
   const nowX = useMemo(() => {
     const t = nowWall();
@@ -367,13 +367,31 @@ export function GanttBoard({
             <div className="xlcd-gantt__corner" style={{ width: LABEL_W }}>
               {groupBy === "may" ? "Máy" : groupBy === "bai-ghep" ? "Bài ghép / LSX" : "Lệnh"}
             </div>
-            <div className="xlcd-gtimehead" style={{ width: trackW }}>
-              {ticks.map((t, i) => (
-                <div key={i} className={`xlcd-gtick ${t.strong ? "is-strong" : ""}`} style={{ left: t.x }}>
-                  <span>{t.label}</span>
+            <div className="xlcd-gtimehead xlcd-gtimehead--tiered" style={{ width: trackW }}>
+              <div className="xlcd-gtimehead__groups">
+                {headerData.groups.map((g, i) => (
+                  <div key={i} className="xlcd-gtgroup" style={{ left: g.x, width: g.w }}>
+                    <span>{g.label}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="xlcd-gtimehead__ticks">
+                {headerData.ticks.map((t, i) => (
+                  <div
+                    key={i}
+                    className={`xlcd-gtick ${t.strong ? "is-strong" : ""} ${t.isWeekend ? "is-weekend" : ""}`}
+                    style={{ left: t.x }}
+                  >
+                    <span className="xlcd-gtick__label">{t.label}</span>
+                    {t.subLabel && <span className="xlcd-gtick__sub">{t.subLabel}</span>}
+                  </div>
+                ))}
+              </div>
+              {nowX != null && (
+                <div className="xlcd-gnow xlcd-gnow--head" style={{ left: nowX }} title="Bây giờ">
+                  <span className="xlcd-gnow__tag">LIVE</span>
                 </div>
-              ))}
-              {nowX != null && <div className="xlcd-gnow xlcd-gnow--head" style={{ left: nowX }} />}
+              )}
             </div>
           </div>
 
@@ -464,7 +482,7 @@ function GanttLane({
     r, x0: scale.xOf(wallMinutes(r.start_at as string)), x1: scale.xOf(wallMinutes(r.finish_at as string)),
   }))), [scheduled, scale]);
   const subRows = packed.length ? Math.max(...packed.map((p) => p.row)) + 1 : 1;
-  const laneH = subRows * BAR_H + (subRows - 1) * BAR_GAP + LANE_PAD * 2;
+  const laneH = Math.max(68, subRows * BAR_H + (subRows - 1) * BAR_GAP + LANE_PAD * 2);
 
   const loadPct = useMemo(() => {
     if (!isMachine || availMin <= 0) return null;
@@ -479,6 +497,7 @@ function GanttLane({
     <div className={`xlcd-glane ${band.noMay ? "xlcd-glane--nomay" : ""}`} style={{ height: laneH }}>
       <div className="xlcd-glane__label" style={{ width: LABEL_W }}>
         <div className="xlcd-glane__name">
+          <span className="xlcd-glane__status-dot" title="Máy hoạt động bình thường" />
           <Icon name={band.icon} size={13} />
           <span title={band.label}>{band.label}</span>
           {isMachine && canUpdate && mayId != null && (
@@ -540,6 +559,7 @@ function GanttBar({
   onDown: (r: XepLichRow, e: React.PointerEvent) => void;
   onKey: (r: XepLichRow, e: React.KeyboardEvent) => void;
 }) {
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
   const pieces = barPieces(scale, r.start_at, r.finish_at);
   if (!pieces.length) return null;
   const tip = barTip(r);
@@ -557,6 +577,17 @@ function GanttBar({
   const setupFrac = !isRisky(r) && r.chiem_may_phut > 0 ? Math.min(r.setup_phut / r.chiem_may_phut, 0.85) : 0;
   const draggable = canUpdate && !r.is_locked;
   const last = pieces.length - 1;
+
+  const handleMouseEnter = (e: React.MouseEvent) => {
+    setHoverPos({ x: e.clientX, y: e.clientY });
+  };
+  const handleMouseMove = (e: React.MouseEvent) => {
+    setHoverPos({ x: e.clientX, y: e.clientY });
+  };
+  const handleMouseLeave = () => {
+    setHoverPos(null);
+  };
+
   return (
     <>
       {dry && (
@@ -568,11 +599,13 @@ function GanttBar({
           type="button"
           className={`${barClass(r, dragging)} ${draggable ? "is-draggable" : ""}`}
           style={{ left: p.x, width: p.w, top, height: BAR_H }}
-          title={tip}
           aria-label={tip.replace(/\n/g, " · ")}
           onPointerDown={i === 0 && draggable ? (e) => onDown(r, e) : undefined}
           onKeyDown={i === 0 && draggable ? (e) => onKey(r, e) : undefined}
-          onClick={() => onOpen(r.id)}
+          onMouseEnter={handleMouseEnter}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+          onClick={() => { setHoverPos(null); onOpen(r.id); }}
         >
           {i === 0 && setupFrac > 0 && (
             <span className="xlcd-gbar__setup" style={{ width: `${setupFrac * 100}%` }} aria-hidden="true" />
@@ -588,6 +621,50 @@ function GanttBar({
           )}
         </button>
       ))}
+
+      {hoverPos && !dragging && (
+        <div
+          className="xlcd-gtip-card"
+          style={{
+            left: Math.min(hoverPos.x + 14, window.innerWidth - 300),
+            top: Math.min(hoverPos.y + 14, window.innerHeight - 220),
+          }}
+        >
+          <div className="xlcd-gtip-card__head">
+            <span className="xlcd-gtip-card__title">{r.lsx_ma ?? ""} · {r.cong_doan_ten ?? ""}</span>
+            {flag && <span className="xlcd-gbadge xlcd-gbadge--flag">{flag}</span>}
+          </div>
+          <div className="xlcd-gtip-card__res">
+            <Icon name="printer" size={12} />
+            <span>{r.may_ten ?? r.department_ten ?? r.nha_cung_cap ?? "Chưa gán máy"}</span>
+          </div>
+          <div className="xlcd-gtip-card__time">
+            <Icon name="clock" size={12} />
+            <span>{ngayGio(r.start_at)} → {ngayGio(r.finish_at)}</span>
+          </div>
+          <div className="xlcd-gtip-card__breakdown">
+            <span>Thiết lập: {thoiLuong(r.setup_phut)}</span>
+            <span>Chạy: {thoiLuong(r.chay_phut)}</span>
+            {r.ve_sinh_phut > 0 && <span>Vệ sinh: {thoiLuong(r.ve_sinh_phut)}</span>}
+          </div>
+          {(r.canh_bao_thoi_luong || r.ly_do_xac_nhan.length > 0) && (
+            <div className="xlcd-gtip-card__warns">
+              {r.canh_bao_thoi_luong && (
+                <div className="xlcd-gtip-card__warn">
+                  <Icon name="alert" size={11} />
+                  <span>{XEP_LICH_CANH_BAO_TL_LABELS[r.canh_bao_thoi_luong] ?? r.canh_bao_thoi_luong}</span>
+                </div>
+              )}
+              {r.ly_do_xac_nhan.map((ld, idx) => (
+                <div key={idx} className="xlcd-gtip-card__warn">
+                  <Icon name="alert" size={11} />
+                  <span>{XEP_LICH_XAC_NHAN_LABELS[ld] ?? ld}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -690,9 +767,9 @@ function KhoaForm({
 }
 
 function LoadMeter({ pct }: { pct: number }) {
-  const over = pct > 100;
+  const level = pct > 100 ? "over" : pct >= 85 ? "warn" : "good";
   return (
-    <span className={`xlcd-gload ${over ? "xlcd-gload--over" : ""}`} title={`Tải máy ${pct}%`}>
+    <span className={`xlcd-gload xlcd-gload--${level}`} title={`Tải máy ${pct}%`}>
       <span className="xlcd-gload__bar">
         <span className="xlcd-gload__fill" style={{ width: `${Math.min(pct, 100)}%` }} />
       </span>
@@ -702,19 +779,19 @@ function LoadMeter({ pct }: { pct: number }) {
 }
 
 function GanttLegend() {
-  const items: { cls: string; label: string }[] = [
-    { cls: "", label: "Đã xếp" },
-    { cls: "xlcd-gbar--ghep", label: "Bài ghép" },
-    { cls: "is-warn", label: "Sắp tới hạn" },
-    { cls: "is-late", label: "Nguy cơ / trễ" },
-    { cls: "is-conflict", label: "Xung đột" },
-    { cls: "is-locked", label: "Đã khóa" },
+  const items: { type: string; label: string }[] = [
+    { type: "daxep", label: "Đã xếp" },
+    { type: "ghep", label: "Bài ghép" },
+    { type: "warn", label: "Sắp tới hạn" },
+    { type: "late", label: "Nguy cơ / trễ" },
+    { type: "conflict", label: "Xung đột" },
+    { type: "locked", label: "Đã khóa" },
   ];
   return (
     <div className="xlcd-glegend" aria-hidden="true">
       {items.map((it) => (
-        <span key={it.label} className="xlcd-glegend__it">
-          <span className={`xlcd-gbar ${it.cls} xlcd-glegend__sw`} />
+        <span key={it.label} className={`xlcd-glegend__it xlcd-glegend__it--${it.type}`}>
+          <span className="xlcd-glegend__dot" />
           {it.label}
         </span>
       ))}

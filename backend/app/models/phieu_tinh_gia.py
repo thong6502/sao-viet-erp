@@ -79,13 +79,19 @@ class PhieuThanhPhan(Base):
     thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     loai_thanh_phan: Mapped[str] = mapped_column(String(30), nullable=False, default="to_roi")
     ten: Mapped[str] = mapped_column(String(255), nullable=False, default="")
-    kho_thanh_pham: Mapped[str | None] = mapped_column(String(100), nullable=True)  # nhãn tự do hiển thị
+    # `kho_thanh_pham` / `kho_mo_rong` / `tay_gap` đã DROP (mig 0144): ô nhập gỡ từ 2026-07-29 nên
+    # phiếu mới luôn rỗng, mà bản lệnh vẫn vẽ ra ba dòng "—". Khổ thành phẩm THẬT là
+    # `dai_thanh_pham` / `rong_thanh_pham` ngay dưới (mm, nuôi bình bài).
     dai_thanh_pham: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # mm — khổ thành phẩm ③ (bình bài)
     rong_thanh_pham: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # mm ★
-    kho_mo_rong: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    tay_gap: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # Số BÀI IN (khuôn) mỗi sản phẩm — mỗi bài 1 bộ kẽm. Sách: số tay. KHÔNG phải số tờ giấy.
+    # DẪN XUẤT từ `so_trang / trang_moi_tay`; engine ghi lại mỗi lần tính, người dùng không nhập.
     so_to_per_sp: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Số TRANG NỘI DUNG của 1 sản phẩm (tờ rời 1 mặt = 1, 2 mặt = 2, sách = số trang thật) và số
+    # trang mỗi tay gấp. Người dùng khai, LƯU lại (trước đây popover tính xong là mất).
+    # Số tờ in = SL × so_trang / (con × số mặt) — số mặt suy từ `quy_cach_in`.
+    so_trang: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    trang_moi_tay: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     so_luong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # SL đặt của SẢN PHẨM này (0 = lấy SL mặc định phiếu)
     don_vi_tinh: Mapped[str] = mapped_column(String(30), nullable=False, default="cái")  # ĐVT sản phẩm (text tự do) → chảy sang Báo giá
     # Nhóm GỘP KHI BÁO GIÁ: các sản phẩm cùng nhãn này (ruột + bìa của 1 cuốn) in ra báo giá
@@ -102,16 +108,20 @@ class PhieuThanhPhan(Base):
     don_gia_giay: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     don_gia_don_vi: Mapped[str] = mapped_column(String(8), nullable=False, default="to")   # to|tan
     nguon_giay: Mapped[str] = mapped_column(String(12), nullable=False, default="cong_ty")  # cong_ty|khach
-    bu_hao_so_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # bù hao (tờ in cộng thêm) — KHÔNG hệ số
-    hao_so_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)      # hao (tờ in trừ đi)
-    # Bật/TẮT tính bù hao công đoạn TỰ (mỗi công đoạn tra theo số tờ). Tắt → không cộng bù hao tự;
-    # người dùng tự nhập `bu_hao_so_to`. Mặc định BẬT.
+    bu_hao_so_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # "+ Bù thêm" (tờ in cộng thêm) — KHÔNG hệ số
+    # KHÔNG CÒN DÙNG: ô "− Hao" đã bỏ khỏi UI + engine. Nó vốn là bản thay tay cho "tờ mất khi in",
+    # nay chuỗi bù hao NGƯỢC tính ra `to_sau_in` từ bước in nên không cần gõ. Giữ cột để khỏi
+    # migration và không mất dữ liệu cũ; engine lờ đi, `meta.hao_tay` luôn 0.
+    hao_so_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # KHÔNG CÒN DÙNG: nút bật/tắt bù hao tự đã bỏ khỏi UI + engine. Tắt bù hao là mở đường cho báo
+    # giá hụt giấy mà không ai biết — muốn cộng thêm thì có "+ Bù thêm", muốn bớt thì sửa định mức
+    # của công đoạn. Giữ cột để khỏi migration; engine luôn tính chuỗi ngược.
     tinh_bu_hao_cd: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
-    chua_xen: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
-    chua_tay_ke: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    # Chừa tờ in thuộc về MÁY (danh mục: `nhip_giay_mm` / `le_hong_mm` / `duoi_thang_mau_mm`).
+    # Phiếu chỉ giữ MỘT ô đè: nhíp giấy — khoản duy nhất đổi theo job (cạnh nạp, hướng bài).
+    # Lề hông · đuôi · xén · cả gáy đã BỎ khỏi phiếu: chưa từng có chỗ nhập, chỉ làm engine cộng
+    # nhầm hai chiều. Muốn đổi thì sửa danh mục Máy — một nguồn, mọi phiếu ăn theo.
     chua_nhip: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
-    chua_duoi: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
-    chua_ca_gay: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     # Bình bài: con để bình = thành phẩm ③ + 2×bleed; giữa 2 con kề nhau chừa `khe_cat_mm`.
     # 0 = không tràn lề / bình sát cắt chung nhát. Sale nhập trên phiếu (hỏi khách hoặc kỹ thuật).
     bleed_mm: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)

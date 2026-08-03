@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from ..models.cong_doan import CongDoan
+from ..models.cong_doan import CongDoan, CongDoanDauViec
+from ..models.piece_work import PieceRate
 
 ASSIGNABLE = (
-    "ten", "ten_hien_thi", "kieu_bu_hao", "bu_hao_id", "so_to_bu_hao", "nhom", "may_id", "department_id", "khoan_ghi_theo",
+    "ten", "ten_hien_thi", "don_vi_vao", "don_vi_ra",
+    "kieu_bu_hao", "bu_hao_id", "so_to_bu_hao", "nhom", "department_id", "khoan_ghi_theo",
     "allowed_defect_pct", "allowed_defect_abs",
     "che_do_tinh", "pricing_basis", "setup_cost", "setup_time", "nang_suat",
     "run_rate", "rate_tiers", "size_tiers", "first_unit_floor", "min_charge", "requires_tooling",
@@ -20,7 +22,22 @@ class CongDoanRepository:
         self.db = db
 
     def get(self, cd_id: int) -> CongDoan | None:
-        return self.db.get(CongDoan, cd_id)
+        return self.db.execute(
+            select(CongDoan).where(CongDoan.id == cd_id)
+            .options(selectinload(CongDoan.dau_viec_dinh_muc))
+        ).scalar_one_or_none()
+
+    def piece_rates(self, ids: set[int]) -> dict[int, PieceRate]:
+        if not ids:
+            return {}
+        rows = self.db.execute(select(PieceRate).where(PieceRate.id.in_(ids))).scalars()
+        return {r.id: r for r in rows}
+
+    def piece_rates_active(self, department_id: int | None = None) -> list[PieceRate]:
+        stmt = select(PieceRate).where(PieceRate.is_active.is_(True))
+        if department_id is not None:
+            stmt = stmt.where(PieceRate.department_id == department_id)
+        return list(self.db.execute(stmt.order_by(PieceRate.department_id, PieceRate.code, PieceRate.name)).scalars())
 
     def find_by_ma(self, ma: str) -> CongDoan | None:
         ma = (ma or "").strip().upper()
@@ -38,7 +55,7 @@ class CongDoanRepository:
             conds.append(CongDoan.nhom == nhom)
         if active is not None:
             conds.append(CongDoan.active.is_(active))
-        base = select(CongDoan)
+        base = select(CongDoan).options(selectinload(CongDoan.dau_viec_dinh_muc))
         count_stmt = select(func.count()).select_from(CongDoan)
         for c in conds:
             base = base.where(c)
@@ -53,9 +70,15 @@ class CongDoanRepository:
             if k in data:
                 setattr(cd, k, data[k])
 
+    @staticmethod
+    def _replace_dinh_muc(cd: CongDoan, rows: list[dict]) -> None:
+        cd.dau_viec_dinh_muc.clear()
+        cd.dau_viec_dinh_muc.extend(CongDoanDauViec(**r) for r in rows)
+
     def create(self, data: dict) -> CongDoan:
         cd = CongDoan(ma=data["ma"].strip().upper())
         self._apply(cd, data)
+        self._replace_dinh_muc(cd, data.get("dau_viec_dinh_muc") or [])
         self.db.add(cd)
         self.db.commit()
         self.db.refresh(cd)
@@ -65,6 +88,7 @@ class CongDoanRepository:
         if data.get("ma"):
             cd.ma = data["ma"].strip().upper()
         self._apply(cd, data)
+        self._replace_dinh_muc(cd, data.get("dau_viec_dinh_muc") or [])
         self.db.commit()
         self.db.refresh(cd)
         return cd

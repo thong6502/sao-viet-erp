@@ -16,7 +16,8 @@ from ..models.bai_ghep import (
 )
 from ..models.customer import Customer
 from ..models.lsx import (
-    LB_MAY, TT_DA_LAP_KE_HOACH as LSX_DA_LAP, TT_SAN_SANG as LSX_SAN_SANG, Lsx,
+    DV_TO, LB_MAY, TT_DA_LAP_KE_HOACH as LSX_DA_LAP, TT_SAN_SANG as LSX_SAN_SANG,
+    Lsx, LsxCongDoan,
 )
 from ..models.may_thiet_bi import MayThietBi
 from ..models.order import STATUS_ORDERED, Order
@@ -54,8 +55,20 @@ def _kho(d, r) -> str | None:
     return f"{int(d)}×{int(r)}" if d and r else None
 
 
+def _cac_buoc_in(lsx: Lsx) -> list:
+    """Mọi bước IN MÁY của lệnh, theo thứ tự routing.
+
+    Lệnh thường có đúng một; nhưng in 2 lượt (mặt trước / mặt sau tách dòng, in nền + màu pha)
+    thì có nhiều — lúc đó máy KHÔNG được đoán lượt nào ghép chung tờ.
+    """
+    return sorted(
+        (cd for cd in lsx.cong_doans if cd.nhom == NHOM_PRINT and cd.loai_buoc == LB_MAY),
+        key=lambda cd: cd.thu_tu,
+    )
+
+
 def _co_cong_doan_in(lsx: Lsx) -> bool:
-    return any(cd.nhom == NHOM_PRINT and cd.loai_buoc == LB_MAY for cd in lsx.cong_doans)
+    return bool(_cac_buoc_in(lsx))
 
 
 class BaiGhepService:
@@ -64,8 +77,24 @@ class BaiGhepService:
         self.repo = repo
         self.audit = audit
         self.sequence = sequence
+        self._lsx_service = None   # dựng trễ, xem `_lsx_svc`
 
     # ================= tra cứu phụ trợ =================
+
+    def _lsx_svc(self):
+        """`LsxService` dựng trễ để hỏi chuỗi ngược của lệnh.
+
+        Import trong hàm + dựng theo yêu cầu: `lsx_service` là module nặng và bài ghép chỉ cần
+        đúng một hàm THUẦN của nó (`tinh_nguoc_routing`), không cần vòng đời chung.
+        """
+        if self._lsx_service is None:
+            from ..repositories.lsx_repo import LsxRepository
+            from .lsx_service import LsxService
+
+            self._lsx_service = LsxService(
+                self.db, LsxRepository(self.db), self.audit, self.sequence
+            )
+        return self._lsx_service
 
     def _get(self, bai_ghep_id: int) -> BaiGhep:
         bg = self.repo.get(bai_ghep_id)
@@ -170,9 +199,15 @@ class BaiGhepService:
             created_by=getattr(actor, "id", None),
         )
         for i in ids:
-            bg.thanh_viens.append(
-                BaiGhepThanhVien(lsx_id=i, so_con_tren_to=int(lsx_map[i].so_con or 1))
-            )
+            bg.thanh_viens.append(BaiGhepThanhVien(
+                lsx_id=i,
+                so_con_tren_to=int(lsx_map[i].so_con or 1),
+                # Lệnh một lượt in → điền luôn, người dùng không phải làm gì. Nhiều lượt thì để
+                # trống và `thieu_cua` sẽ đòi chọn — máy không đoán khi câu trả lời không hiển nhiên.
+                buoc_in_step_key=(
+                    buoc_in[0].step_key if len(buoc_in := _cac_buoc_in(lsx_map[i])) == 1 else None
+                ),
+            ))
         self._goi_y_giay_kho(bg, lsx_map)
         self.repo.add(bg)
         self.audit.create(
@@ -205,9 +240,15 @@ class BaiGhepService:
         lsx_map = self.repo.lsx_by_ids(ids)
         self._validate_them(ids, lsx_map)
         for i in ids:
-            bg.thanh_viens.append(
-                BaiGhepThanhVien(lsx_id=i, so_con_tren_to=int(lsx_map[i].so_con or 1))
-            )
+            bg.thanh_viens.append(BaiGhepThanhVien(
+                lsx_id=i,
+                so_con_tren_to=int(lsx_map[i].so_con or 1),
+                # Lệnh một lượt in → điền luôn, người dùng không phải làm gì. Nhiều lượt thì để
+                # trống và `thieu_cua` sẽ đòi chọn — máy không đoán khi câu trả lời không hiển nhiên.
+                buoc_in_step_key=(
+                    buoc_in[0].step_key if len(buoc_in := _cac_buoc_in(lsx_map[i])) == 1 else None
+                ),
+            ))
         self._mark_nhap(bg)
         self.audit.create(
             actor_user_id=getattr(actor, "id", None), action="them_thanh_vien",
@@ -222,7 +263,11 @@ class BaiGhepService:
         tv = next((t for t in bg.thanh_viens if t.id == thanh_vien_id), None)
         if tv is None:
             raise BaiGhepNotFound("Không tìm thấy thành viên")
+        lsx_id_bo = tv.lsx_id
         bg.thanh_viens.remove(tv)
+        self.db.flush()
+        # Gỡ khỏi bài → thông số in trả về bài tính giá gốc (bố cục in riêng), không giữ số của bài.
+        self._tinh_lai_lenh(bg, [lsx_id_bo])
         self._mark_nhap(bg)
         self.audit.create(
             actor_user_id=getattr(actor, "id", None), action="bo_thanh_vien",
@@ -231,7 +276,8 @@ class BaiGhepService:
         self.repo.commit()
         return self._get(bg.id)
 
-    def sua_thanh_vien(self, *, bai_ghep_id: int, thanh_vien_id: int, so_con_tren_to: int, actor) -> BaiGhep:
+    def sua_thanh_vien(self, *, bai_ghep_id: int, thanh_vien_id: int, so_con_tren_to: int,
+                       actor, buoc_in_step_key: str | None = None) -> BaiGhep:
         bg = self._get(bai_ghep_id)
         self._chan_da_lap(bg)
         tv = next((t for t in bg.thanh_viens if t.id == thanh_vien_id), None)
@@ -240,6 +286,13 @@ class BaiGhepService:
         if int(so_con_tren_to) < 0:
             raise BaiGhepValidationError("Số con/tờ không hợp lệ")
         tv.so_con_tren_to = int(so_con_tren_to)
+        if buoc_in_step_key is not None:
+            lsx = self.repo.lsx_by_ids([tv.lsx_id]).get(tv.lsx_id)
+            hop_le = {cd.step_key for cd in _cac_buoc_in(lsx)} if lsx else set()
+            if buoc_in_step_key not in hop_le:
+                raise BaiGhepValidationError("Bước đã chọn không phải công đoạn in của lệnh này")
+            tv.buoc_in_step_key = buoc_in_step_key
+        self._tinh_lai_lenh(bg, [tv.lsx_id])
         self._mark_nhap(bg)
         self.repo.commit()
         return self._get(bg.id)
@@ -251,10 +304,50 @@ class BaiGhepService:
                       "hao_hut_chay", "ghi_chu"):
             if field in patch:
                 setattr(bg, field, patch[field])
+        # Khổ tờ in đổi → số mảnh xả của thành viên đổi theo.
+        if {"kho_in_dai", "kho_in_rong"} & set(patch):
+            self._tinh_lai_lenh(bg)
         self.repo.commit()
         return self._get(bg.id)
 
+    def _tinh_lai_lenh(self, bg: BaiGhep, lsx_ids: list[int] | None = None) -> None:
+        """Chạy lại chuỗi ngược cho các lệnh liên quan — KHÔNG commit (caller commit).
+
+        Thông số tờ của lệnh là DẪN XUẤT của bài khi đã ghép (số con, khổ tờ in → số mảnh xả).
+        Không có chỗ nối này thì sửa số con ở bài xong, màn lệnh vẫn giữ số tờ cũ — hai màn lệch
+        nhau ngay lần gõ đầu tiên. Gỡ khỏi bài cũng gọi hàm này: hết ghép thì `_he_so_cau` tự rơi
+        về số của bài tính giá.
+        """
+        ids = lsx_ids if lsx_ids is not None else [tv.lsx_id for tv in bg.thanh_viens]
+        if not ids:
+            return
+        svc = self._lsx_svc()
+        for lsx in self.repo.lsx_by_ids(ids).values():
+            svc._ap_chuoi_nguoc(lsx)
+
     # ================= ENGINE (thuần) =================
+
+    def _nhu_cau_to(self, lsx: Lsx | None, so_con: int) -> int:
+        """Số TỜ IN mà lệnh này thật sự cần khi xếp `so_con` con/tờ.
+
+        Lấy từ chuỗi ngược của lệnh nên ĐÃ GỒM hao của mọi bước sau in (gấp, bắt tay, vào keo,
+        xén). Công thức cũ `ceil(SL đặt / con)` lấy số thành phẩm giao khách — thiếu đúng phần
+        hao đó, nên bài ghép cấp không đủ giấy mà không ai báo.
+
+        Không tính được (lệnh chưa có routing dòng giấy) → rơi về `ceil(SL đặt / con)`, tức đúng
+        bằng hành vi cũ, chứ không trả 0 làm bài tưởng không cần tờ nào.
+        """
+        can = int(getattr(lsx, "so_luong_dat", 0) or 0) if lsx else 0
+        if lsx is None or so_con <= 0 or can <= 0:
+            return 0
+        rows = {r["idx"]: r for r in self._lsx_svc().tinh_nguoc_routing(lsx, so_con=so_con)}
+        buoc = sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
+        vao_to = next(
+            (r["so_luong_vao"] for i, cd in enumerate(buoc)
+             if cd.don_vi_vao == DV_TO and (r := rows.get(i))),
+            None,
+        )
+        return ceil(_f(vao_to)) if vao_to else ceil(can / so_con)
 
     def tinh_so_to(self, bg: BaiGhep, lsx_map: dict[int, Lsx]) -> dict:
         rows: list[dict] = []
@@ -263,10 +356,11 @@ class BaiGhepService:
             l = lsx_map.get(tv.lsx_id)
             can = int(getattr(l, "so_luong_dat", 0) or 0) if l else 0
             con = int(tv.so_con_tren_to or 0)
-            per = ceil(can / con) if con > 0 and can > 0 else 0
+            per = self._nhu_cau_to(l, con)
             if con > 0:
                 so_to_tot = max(so_to_tot, per)
-            rows.append({"thanh_vien_id": tv.id, "lsx_id": tv.lsx_id, "can": can, "con": con})
+            rows.append({"thanh_vien_id": tv.id, "lsx_id": tv.lsx_id, "can": can, "con": con,
+                         "nhu_cau_to": per})
         for r in rows:
             r["san_luong_du_kien"] = so_to_tot * r["con"] if r["con"] > 0 else 0
             r["du"] = r["san_luong_du_kien"] - r["can"]
@@ -289,6 +383,112 @@ class BaiGhepService:
             "fill_pct": fill_pct,
             "han_in_muon_nhat": min(hans) if hans else None,
             "rows": rows,
+        }
+
+    # ================= SƠ ĐỒ (dẫn xuất, không lưu cạnh) =================
+
+    def so_do(self, bg: BaiGhep) -> dict:
+        """Đồ thị của bài: N nhánh vào → MỘT node IN → N nhánh ra.
+
+        DẪN XUẤT hoàn toàn, dựng lúc đọc từ ba nguồn đã có: thành viên bài + routing từng lệnh +
+        vị trí bước in trong routing đó. KHÔNG thêm cạnh xuyên đơn vào `lsx_cong_doan_phu_thuoc`
+        — quan hệ ghép sinh từ vật lý tờ giấy, bằng chứng là bản ghi thành viên, không phải quan
+        hệ người dùng khai. Mở cửa cho cạnh xuyên đơn là mở cửa cho khai bừa.
+
+        Mỗi lệnh giữ chuỗi riêng CẢ TRƯỚC LẪN SAU in (kể cả chế bản) — chỉ tờ giấy trên máy in là
+        chung.
+        """
+        lsx_map = self._lsx_map(bg)
+        so_to = self.tinh_so_to(bg, lsx_map)
+        du_by_tv = {r["thanh_vien_id"]: r for r in so_to["rows"]}
+        cust = self._customer_names({l.order_id for l in lsx_map.values()})
+        svc = self._lsx_svc()
+        dept_names = svc._dept_names(
+            {cd.department_id for l in lsx_map.values() for cd in l.cong_doans if cd.department_id}
+        )
+        may_names = svc._may_names(
+            {cd.may_id for l in lsx_map.values() for cd in l.cong_doans if cd.may_id}
+            | {bg.may_id}
+        )
+        trong_so_do: set[str] = set()
+        nhanh: list[dict] = []
+
+        for mau, tv in enumerate(bg.thanh_viens):
+            l = lsx_map.get(tv.lsx_id)
+            if l is None:
+                continue
+            buoc = sorted(l.cong_doans, key=lambda c: c.thu_tu)
+            key_in = tv.buoc_in_step_key or next(
+                (cd.step_key for cd in _cac_buoc_in(l)), None
+            )
+            vi_tri = next((i for i, cd in enumerate(buoc) if cd.step_key == key_in), None)
+            truoc = buoc[:vi_tri] if vi_tri is not None else buoc
+            sau = buoc[vi_tri + 1:] if vi_tri is not None else []
+            trong_so_do.update(cd.step_key for cd in buoc)
+            r = du_by_tv.get(tv.id, {})
+            nhanh.append({
+                "thanh_vien_id": tv.id, "lsx_id": l.id, "lsx_ma": l.ma, "lsx_ten": l.ten,
+                "customer_name": cust.get(l.order_id),
+                "han_hoan_thanh_sx": l.han_hoan_thanh_sx,
+                "is_rush": bool(l.is_rush),
+                "mau": mau,
+                "so_con_tren_to": tv.so_con_tren_to,
+                "buoc_in_step_key": key_in,
+                "buoc_in_chon_duoc": [
+                    {"step_key": cd.step_key, "ten": cd.ten, "thu_tu": cd.thu_tu}
+                    for cd in _cac_buoc_in(l)
+                ],
+                "nhu_cau_to": r.get("nhu_cau_to", 0),
+                "du": r.get("du", 0),
+                "truoc_in": [self._node(cd, dept_names, may_names) for cd in truoc],
+                "sau_in": [self._node(cd, dept_names, may_names) for cd in sau],
+            })
+
+        # Tiền nhiệm NGOÀI sơ đồ (vd ruột sách của cùng đơn, không nằm trong bài) → node bóng mờ.
+        # Hai kiểu hội tụ khác nhau: ở IN là máy suy, ở nhánh là người khai — vẽ cả hai mới đủ.
+        can_ngoai = {
+            k for n in nhanh for cd in (n["truoc_in"] + n["sau_in"])
+            for k in cd["phu_thuoc_step_keys"] if k not in trong_so_do
+        }
+        ngoai = [
+            {"step_key": cd.step_key, "ten": cd.ten,
+             "lsx_ma": (lx.ma if (lx := self.db.get(Lsx, cd.lsx_id)) else None)}
+            for cd in self.db.execute(
+                select(LsxCongDoan).where(LsxCongDoan.step_key.in_(can_ngoai))
+            ).scalars()
+        ] if can_ngoai else []
+
+        return {
+            "bai_ghep": {
+                "id": bg.id, "ma": bg.ma, "trang_thai": bg.trang_thai,
+                "may_id": bg.may_id, "may_ten": may_names.get(bg.may_id),
+                "giay_id": bg.giay_id,
+                "giay_ten": self._giay_names({bg.giay_id}).get(bg.giay_id),
+                "kho_in_dai": bg.kho_in_dai, "kho_in_rong": bg.kho_in_rong,
+                "hao_hut_setup": bg.hao_hut_setup, "hao_hut_chay": bg.hao_hut_chay,
+                "so_to_tot": so_to["so_to_tot"], "tong_to": so_to["tong_to"],
+                "fill_pct": so_to["fill_pct"],
+            },
+            "nhanh": nhanh,
+            "ngoai": ngoai,
+        }
+
+    def _node(self, cd, dept_names: dict, may_names: dict) -> dict:
+        """Node gọn cho sơ đồ — chỉ thứ mắt cần: làm gì · ai làm · bao lâu · chờ ai."""
+        from .lsx_service import thoi_luong_buoc
+
+        t = thoi_luong_buoc(cd)
+        return {
+            "step_key": cd.step_key, "ten": cd.ten, "nhom": cd.nhom,
+            "loai_buoc": cd.loai_buoc, "thu_tu": cd.thu_tu,
+            "to_ten": dept_names.get(cd.department_id),
+            "may_ten": may_names.get(cd.may_id),
+            "nha_cung_cap": cd.nha_cung_cap,
+            "tong_phut": t["tong_phut"], "chiem_may_phut": t["chiem_may_phut"],
+            "phu_thuoc_step_keys": [
+                p.step_key for edge in cd.phu_thuoc
+                if (p := self.db.get(LsxCongDoan, edge.buoc_truoc_id)) is not None
+            ],
         }
 
     # ================= KIỂM TƯƠNG THÍCH (mềm) =================
@@ -340,6 +540,13 @@ class BaiGhepService:
             thieu.append("thieu_kho_in")
         if any(int(tv.so_con_tren_to or 0) <= 0 for tv in bg.thanh_viens):
             thieu.append("thieu_ups")
+        # Lệnh nhiều lượt in mà chưa chỉ lượt nào ghép chung → không biết cắt chuỗi ở đâu.
+        if any(tv.buoc_in_step_key is None and len(_cac_buoc_in(l)) > 1
+               for tv in bg.thanh_viens if (l := lsx_map.get(tv.lsx_id))):
+            thieu.append("thieu_buoc_in")
+        # Số tờ chạy = MAX nhu cầu các thành viên, nên không thành viên nào có thể thiếu tờ —
+        # "thiếu giấy" trước đây là hệ quả của công thức cũ (lấy SL đặt, bỏ hao các bước sau in),
+        # sửa công thức là hết, không cần thêm cổng chặn.
         if self.tinh_so_to(bg, lsx_map)["so_to_tot"] <= 0:
             thieu.append("thieu_so_to")
         return thieu
@@ -456,6 +663,15 @@ class BaiGhepService:
                 "is_rush": bool(l.is_rush) if l else False,
                 "trang_thai_lsx": l.trang_thai if l else None,
                 "so_con_tren_to": tv.so_con_tren_to,
+                # Bước in nào của lệnh chạy chung tờ + các lượt in chọn được (lệnh in 2 lượt).
+                "buoc_in_step_key": tv.buoc_in_step_key,
+                "buoc_in_chon_duoc": [
+                    {"step_key": cd.step_key, "ten": cd.ten, "thu_tu": cd.thu_tu}
+                    for cd in (_cac_buoc_in(l) if l else [])
+                ],
+                # Số tờ lệnh này THẬT SỰ cần (đã gồm hao các bước sau in) — để màn bài giải thích
+                # được vì sao số tờ chạy là 5.075 chứ không phải 5.000.
+                "nhu_cau_to": r.get("nhu_cau_to", 0),
                 "san_luong_du_kien": r.get("san_luong_du_kien", 0), "du": r.get("du", 0),
                 "giay_id": qc.get("giay_id"), "giay_ten": qc.get("giay_ten"),
                 "so_mau_a": qc.get("so_mau_a"), "so_mau_b": qc.get("so_mau_b"),

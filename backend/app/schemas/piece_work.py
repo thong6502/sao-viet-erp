@@ -12,8 +12,8 @@ class RateIn(BaseModel):
     department_id: int | None = None
     code: str | None = Field(default=None, max_length=20)
     name: str = Field(min_length=1, max_length=255)
-    cong_doan: str | None = Field(default=None, max_length=30)
-    # Gõ TỰ DO — không enum. Service chuẩn hoá (trim + gộp chính tả hoa/thường) trước khi lưu.
+    # Đơn vị CHỌN TỪ danh mục `Đơn vị & quy đổi` (màn khai gửi TÊN đơn vị). Không enum cứng ở đây:
+    # danh mục là nguồn, thêm đơn vị mới không phải sửa code.
     unit: str = Field(default="khác", max_length=24)
     unit_price: float = Field(ge=0)
     note: str | None = Field(default=None, max_length=255)
@@ -28,7 +28,6 @@ class RateOut(BaseModel):
     department_id: int | None = None
     code: str | None = None
     name: str
-    cong_doan: str | None = None
     unit: str
     unit_price: float
     note: str | None = None
@@ -72,9 +71,13 @@ class LeaderBracketsIn(BaseModel):
     """Thay CẢ BỘ mốc của một tổ. Danh sách RỖNG = tổ này không áp thưởng/phạt tổ trưởng."""
 
     department_id: int
+    # Ngưỡng SẢN LƯỢNG của tổ trong kỳ để được xét thưởng/phạt. `0` = không gác.
+    # Đi CÙNG GÓI với `items` vì màn chỉ có một nút Lưu — tách ra là lưu được nửa này mất nửa kia.
+    min_output_qty: float = 0
     items: list[LeaderBracketIn] = []
 
 
 class LeaderBracketsOut(BaseModel):
     department_id: int
+    min_output_qty: float = 0
     items: list[LeaderBracketOut]

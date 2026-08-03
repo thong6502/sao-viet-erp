@@ -28,11 +28,13 @@ from ..schemas.lsx import (
     HangChoOut,
     LsxActivityItem,
     LsxActivityOut,
+    LsxGiaoNhanIn,
     LsxListItem,
     LsxListOut,
     LsxOut,
     LsxUpdateIn,
     PreviewOut,
+    PhuThuocOption,
     RoutingReplaceIn,
     TaoLsxIn,
     TinhNguocOut,
@@ -183,6 +185,41 @@ def get_item(
     return _out(svc, lsx)
 
 
+@router.get("/{lsx_id}/phu-thuoc-options", response_model=list[PhuThuocOption])
+def phu_thuoc_options(
+    lsx_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> list[PhuThuocOption]:
+    svc = _svc(db)
+    try:
+        _guard_scope(db, svc.get(lsx_id), user, authz)
+        return [PhuThuocOption.model_validate(x) for x in svc.phu_thuoc_options(lsx_id)]
+    except Exception as exc:
+        raise _map(exc)
+
+
+@router.get("/{lsx_id}/dau-viec-options")
+def dau_viec_options(
+    lsx_id: int,
+    cong_doan_id: int,
+    department_id: int | None,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> list[dict]:
+    """Đầu việc khoán hợp lệ sau khi kế hoạch đổi tổ của một bước LSX."""
+    svc = _svc(db)
+    try:
+        _guard_scope(db, svc.get(lsx_id), user, authz)
+        return svc.dau_viec_options(
+            lsx_id=lsx_id, cong_doan_id=cong_doan_id, department_id=department_id,
+        )
+    except Exception as exc:
+        raise _map(exc)
+
+
 @router.put("/{lsx_id}", response_model=LsxOut)
 def update_item(
     lsx_id: int,
@@ -216,6 +253,31 @@ def replace_routing(
         lsx = svc.replace_routing(
             lsx_id=lsx_id, rows_in=payload.cong_doans, actor=user, ly_do=payload.ly_do
         )
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "lsx_changed", "order_id": lsx.order_id})
+    return _out(svc, lsx)
+
+
+@router.post("/{lsx_id}/buoc/{buoc_id}/giao-nhan", response_model=LsxOut)
+def ghi_giao_nhan(
+    lsx_id: int,
+    buoc_id: int,
+    payload: LsxGiaoNhanIn,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> LsxOut:
+    """Ghi nhận THỰC TẾ hàng gia công ngoài đi/về — CỬA RIÊNG, không đi qua lưu routing.
+
+    Việc này xảy ra lúc lệnh ĐANG CHẠY (đã lập kế hoạch), mà `PUT /routing` chặn đúng trạng thái
+    đó. Tách cửa để khỏi bắt kế hoạch gỡ lịch cả lệnh chỉ để ghi một dòng giao hàng. Quyền tái
+    dùng `update` của lệnh — không đẻ vai mới; ai bấm ghi vào AuditLog.
+    """
+    svc = _svc(db)
+    try:
+        _guard_scope(db, svc.get(lsx_id), user, authz)
+        lsx = svc.ghi_giao_nhan(lsx_id=lsx_id, buoc_id=buoc_id, payload=payload, actor=user)
     except Exception as exc:
         raise _map(exc)
     hub.broadcast({"type": "lsx_changed", "order_id": lsx.order_id})

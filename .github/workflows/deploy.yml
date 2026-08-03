@@ -20,35 +20,11 @@ concurrency:
 jobs:
   # ---------------------------------------------------------------
   # 1) CI gate — không deploy nếu build/test gãy.
+  #    Định nghĩa nằm ở `build-test.yml` (dùng chung với CI của pull request), KHÔNG chép lại ở
+  #    đây: hai bản rời nhau thì PR và deploy sẽ kiểm hai thứ khác nhau mà không ai biết.
   # ---------------------------------------------------------------
   build-test:
-    name: Build & test (gate)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # Frontend: tsc + vite build (bắt lỗi type + build).
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Frontend build
-        working-directory: frontend
-        run: |
-          npm ci
-          npm run build
-
-      # Backend: cài deps + chạy pytest (SQLite in-memory, không cần DB ngoài).
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-      - name: Backend tests
-        run: |
-          pip install -r backend/requirements.txt
-          pytest -q
+    uses: ./.github/workflows/build-test.yml
 
   # ---------------------------------------------------------------
   # 2) Deploy — SSH vào VPS, kéo code, dựng lại containers.

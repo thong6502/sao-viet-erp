@@ -72,7 +72,6 @@ import {
   Check,
   ShieldCheck,
   Image,
-  Sparkles,
   Layers,
   Palette,
   Scissors,
@@ -82,6 +81,7 @@ import {
   Droplets,
   StickyNote,
   Pin,
+  Clock3,
 } from "lucide-react";
 import { MixDonut, MonthBars } from "../components/charts";
 import "./khach-hang.css";
@@ -291,69 +291,6 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
   // Panel "Cần chăm sóc" (#28): việc đến hạn/quá hạn trong scope của tôi.
   const [followups, setFollowups] = useState<FollowupRow[]>([]);
   const [followupsOpen, setFollowupsOpen] = useState(false);
-
-  // Gợi ý chăm sóc rule-based (smart, thuần FE): khách thân thiết/đối tác mà lâu
-  // không đặt hàng → nhắc hỏi thăm. Tính từ tier + last_order_at CÓ SẴN trong list.
-  const [suggestions, setSuggestions] = useState<
-    Array<{ customer_id: number; code: string; name: string; days: number }>
-  >([]);
-  const [dismissedSuggest, setDismissedSuggest] = useState<Set<number>>(new Set());
-  const [suggestBusyId, setSuggestBusyId] = useState<number | null>(null);
-
-  const loadSuggestions = useCallback(() => {
-    if (!token) return;
-    // Quét cả sổ trong scope (size 200 là đủ cỡ danh bạ hiện tại) — 1 call nhẹ.
-    api.customers
-      .list(token, { size: 200 })
-      .then((res) => {
-        const now = Date.now();
-        const out = res.items
-          // Redesign spec-06 v2: gợi ý theo LÂU CHƯA MUA thật (bỏ tier).
-          .filter((c) => c.last_order_at)
-          .map((c) => ({
-            customer_id: c.id,
-            code: c.code,
-            name: c.name,
-            days: Math.floor((now - new Date(c.last_order_at as string).getTime()) / 86_400_000),
-          }))
-          .filter((x) => x.days >= 45)
-          .sort((a, b) => b.days - a.days)
-          .slice(0, 5);
-        setSuggestions(out);
-      })
-      .catch(() => setSuggestions([]));
-  }, [token]);
-
-  useEffect(() => {
-    loadSuggestions();
-  }, [loadSuggestions]);
-
-  /** 1 chạm từ gợi ý: tạo luôn lịch hẹn "gọi hỏi thăm" hạn ngày mai 09:00. */
-  async function suggestToTask(sg: { customer_id: number; name: string; days: number }) {
-    if (!token || suggestBusyId != null) return;
-    setSuggestBusyId(sg.customer_id);
-    try {
-      // Hẹn CUỐI GIỜ HÔM NAY: việc lập tức xuất hiện trong panel (feedback thấy ngay)
-      // và đúng tinh thần gợi ý — "gọi hỏi thăm" là việc của hôm nay, không phải mai.
-      await api.customers.addCareTask(token, sg.customer_id, {
-        note: `Gọi hỏi thăm — ${sg.days} ngày chưa đặt lại`,
-        due_date: new Date(`${dateInDays(0)}T17:00:00`).toISOString(),
-      });
-      setDismissedSuggest((prev) => new Set(prev).add(sg.customer_id));
-      loadFollowups();
-    } catch {
-      /* lỗi mạng — giữ gợi ý để thử lại */
-    } finally {
-      setSuggestBusyId(null);
-    }
-  }
-
-  const visibleSuggestions = suggestions.filter(
-    (sg) =>
-      !dismissedSuggest.has(sg.customer_id) &&
-      // Đã có việc đến hạn cho khách này thì khỏi gợi ý thêm — tránh nhắc trùng.
-      !followups.some((f) => f.customer_id === sg.customer_id),
-  );
 
   const loadFollowups = useCallback(() => {
     if (!token) return;
@@ -620,62 +557,44 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
         kpis={kpis}
         loading={loading && !kpis}
         careCount={followups.length}
-        suggestCount={visibleSuggestions.length}
         careOpen={followupsOpen}
         onToggleCare={() => setFollowupsOpen((v) => !v)}
       />
 
-      {/* Danh sách Cần chăm sóc — chỉ hiện khi bấm ô KPI, sát ngay dưới strip. */}
-      {(followups.length > 0 || visibleSuggestions.length > 0) && followupsOpen && (
-        <div className="kh__followups card">
-          <ul className="kh__followups-list">
+      {/* Executive Care Panel Wrapper */}
+      {followups.length > 0 && followupsOpen && (
+        <div className="kh__care-panel-wrapper">
+          <div className="kh__care-panel-header">
+            <div className="kh__care-panel-title">
+              <AlarmClock size={16} style={{ color: "var(--ink)" }} />
+              <span>Nhiệm vụ chăm sóc khách hàng</span>
+              <span className="kh__care-panel-count-tag">{followups.length} mục</span>
+            </div>
+          </div>
+
+          <div className="kh__care-cards-grid">
             {followups.map((f) => (
-              <li key={f.id}>
-                <button type="button" className="kh__followups-row" onClick={() => setOpenId(f.customer_id)}>
+              <div key={f.id} className="kh__care-card-item kh__care-card-item--followup">
+                <div className="kh__care-card-top">
                   <RemindBadge level={f.remind_level} days={f.overdue_days} />
-                  <span className="kh__name">{f.customer_name}</span>
-                  <span className="kh__mono kh__muted">{f.customer_code}</span>
-                  <span className="kh__followups-note">{f.note}</span>
-                  <span className="kh__mono kh__muted">hạn {fmtDate(f.due_date)}</span>
-                  {f.assignee_name && <span className="kh__muted">· {f.assignee_name}</span>}
-                </button>
-              </li>
-            ))}
-            {visibleSuggestions.map((sg) => (
-              <li key={`sg-${sg.customer_id}`}>
-                <div className="kh__followups-row kh__followups-row--suggest">
-                  <span className="badge-sem badge-sem--plum"><Sparkles size={11} /> Gợi ý</span>
-                  <button
-                    type="button"
-                    className="kh__linkbtn kh__name"
-                    onClick={() => setOpenId(sg.customer_id)}
-                  >
-                    {sg.name}
+                  <button type="button" className="kh__care-card-name" onClick={() => setOpenId(f.customer_id)}>
+                    {f.customer_name}
                   </button>
-                  <span className="kh__mono kh__muted">{sg.code}</span>
-                  <span className="kh__followups-note">{sg.days} ngày chưa đặt lại — hỏi thăm?</span>
-                  <Button
-                    variant="secondary"
-                    loading={suggestBusyId === sg.customer_id}
-                    onClick={() => suggestToTask(sg)}
-                    style={{ padding: "3px 10px", fontSize: 12 }}
-                  >
-                    + Hẹn gọi
-                  </Button>
-                  <button
-                    type="button"
-                    className="kh__tag-x"
-                    aria-label="Bỏ gợi ý này"
-                    onClick={() =>
-                      setDismissedSuggest((prev) => new Set(prev).add(sg.customer_id))
-                    }
-                  >
-                    ×
-                  </button>
+                  <span className="kh__care-card-code">{f.customer_code}</span>
                 </div>
-              </li>
+                <div className="kh__care-card-body">
+                  <span className="kh__care-card-note">{f.note}</span>
+                  <div className="kh__care-card-subinfo">
+                    <span className="kh__care-card-due">
+                      <Clock3 size={11} /> Hạn {fmtDate(f.due_date)}
+                    </span>
+                    {f.assignee_name && <span className="kh__care-card-assignee">· {f.assignee_name}</span>}
+                  </div>
+                </div>
+              </div>
             ))}
-          </ul>
+
+          </div>
         </div>
       )}
 
@@ -911,7 +830,10 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
                       <div className="kh__identity-cell">
                         <div className={`kh__avatar ${getKhAvatarClass(c.name)}`}>{initials}</div>
                         <div className="kh__identity">
-                          <span className="kh__name">{c.name}</span>
+                          <div className="kh__name-row">
+                            <span className="kh__name">{c.name}</span>
+                            <span className="kh__code-badge">{c.code || `KH${String(c.id).padStart(3, "0")}`}</span>
+                          </div>
                           <span className="kh__submeta">
                             {c.tax_code && <span className="kh__mst-chip">MST {c.tax_code}</span>}
                           </span>
@@ -1166,18 +1088,16 @@ function KpiStrip({
   kpis,
   loading,
   careCount,
-  suggestCount,
   careOpen,
   onToggleCare,
 }: {
   kpis: CustomerKpis | null;
   loading: boolean;
   careCount: number;
-  suggestCount: number;
   careOpen: boolean;
   onToggleCare: () => void;
 }) {
-  const careTotal = careCount + suggestCount;
+  const careTotal = careCount;
 
   // UI_DESIGN §4: chỉ số gộp thành MỘT dải pill (~38px), không phải 4 thẻ 84px xếp 4 cột —
   // thẻ cao đẩy bảng dữ liệu (nội dung thật của màn) xuống dưới màn hình.
@@ -1242,7 +1162,6 @@ function KpiStrip({
           <>
             <span>
               Cần chăm sóc hôm nay <strong className="kh__care-n">{careCount}</strong>
-              {suggestCount > 0 && <> · {suggestCount} gợi ý</>}
             </span>
             <span className="kh__care-caret" aria-hidden="true">{careOpen ? "▲" : "▼"}</span>
           </>
@@ -3437,8 +3356,6 @@ function NotesTab({ customerId }: { customerId: number }) {
 // --- Chăm sóc tab (#20/#27/#28: nhật ký + lịch hẹn follow-up, nhắc 1-2-3) ------
 
 function RemindBadge({ level, days }: { level: number; days: number }) {
-  // Mức nhắc TÍNH từ số ngày quá hạn (BE trả sẵn) — badge semantic theo token:
-  // lần 1 = amber, lần 2 = rust, lần 3 = signal (nặng nhất), chưa đến hạn = moss.
   if (level <= 0) {
     return (
       <span className="badge-sem badge-sem--moss">
@@ -3446,22 +3363,13 @@ function RemindBadge({ level, days }: { level: number; days: number }) {
       </span>
     );
   }
-  const cls = level >= 3 ? "badge-sem--signal" : level === 2 ? "badge-sem--rust" : "badge-sem--amber";
-  const icon = level >= 3 ? <AlertTriangle size={11} /> : <Clock size={11} />;
   return (
-    <span className={`badge-sem ${cls}`} title={days > 0 ? `Quá hạn ${days} ngày` : "Đến hạn hôm nay"}>
-      {icon} Nhắc lần {level}{days > 0 ? ` (${days} ngày)` : ""}
+    <span className="kh__remind-badge-pill" title={days > 0 ? `Quá hạn ${days} ngày` : "Đến hạn hôm nay"}>
+      <Clock size={11} /> Nhắc lần {level}{days > 0 ? ` (${days} ngày)` : ""}
     </span>
   );
 }
 
-/** yyyy-mm-dd của (hôm nay + n ngày) theo giờ máy — cho chip ngày nhanh. */
-function dateInDays(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + n);
-  const p = (x: number) => String(x).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
 
 
 function CareTab({ customerId, onCareChanged }: { customerId: number; onCareChanged?: () => void }) {

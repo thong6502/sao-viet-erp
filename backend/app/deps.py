@@ -28,6 +28,7 @@ from .repositories.piece_work_repo import PieceWorkRepository
 from .repositories.cong_doan_repo import CongDoanRepository
 from .repositories.customer_repo import CustomerRepository
 from .repositories.employee_repo import EmployeeRepository
+from .repositories.noi_quy_repo import NoiQuyRepository
 from .repositories.machine_repo import MachineRepository
 from .repositories.material_repo import MaterialRepository
 from .repositories.operation_repo import OperationRepository
@@ -70,6 +71,7 @@ from .services.piece_work_service import PieceWorkService
 from .services.customer_service import CustomerService
 from .services.department_service import DepartmentService
 from .services.employee_service import EmployeeService
+from .services.noi_quy_service import NoiQuyService
 from .services.machine_service import MachineService
 from .services.material_service import MaterialService
 from .services.operation_service import OperationService
@@ -299,6 +301,19 @@ def get_employee_service(
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
 ) -> EmployeeService:
     return EmployeeService(employees, audit, users, departments)
+
+
+def get_noi_quy_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> NoiQuyRepository:
+    return NoiQuyRepository(db)
+
+
+def get_noi_quy_service(
+    noi_quy: Annotated[NoiQuyRepository, Depends(get_noi_quy_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> NoiQuyService:
+    return NoiQuyService(noi_quy, audit)
 
 
 def get_calendar_repository(

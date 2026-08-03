@@ -26,6 +26,7 @@ import { NghiPhepPage } from "../pages/NghiPhepPage";
 import { TangCaPage } from "../pages/TangCaPage";
 import { LuongPage } from "../pages/LuongPage";
 import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
+import { NoiQuyPage } from "../pages/NoiQuyPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
 import { KhoTonKhoPage } from "../pages/KhoTonKhoPage";
@@ -40,7 +41,13 @@ import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPag
 import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
 import { PaymentReceiptsPage } from "../pages/PaymentReceiptsPage";
 import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
-import { MODULES_BY_NAV_ID, SELF_SERVICE_MODULE, Sidebar, type NavItem } from "./Sidebar";
+import {
+  AUTHENTICATED_NAV_IDS,
+  MODULES_BY_NAV_ID,
+  SELF_SERVICE_MODULE,
+  Sidebar,
+  type NavItem,
+} from "./Sidebar";
 import { Topbar } from "./Topbar";
 
 /** A cross-module navigation intent: which screen to open + optional payload so the
@@ -71,6 +78,8 @@ export interface NavParams {
   purchaseSeedPurpose?: string;
   /** Liên thông Đơn hàng → bàn Kế hoạch SX: mở thẳng đơn này ở hàng chờ / danh sách lệnh. */
   openSxOrderId?: number;
+  /** Liên thông sơ đồ Bài ghép → Kế hoạch SX: mở thẳng chi tiết một lệnh. */
+  openLsxId?: number;
   /** Liên thông Phòng ban → Lương: mở thẳng tab "Cấu hình lương" (bảng lương của tổ). */
   luongTab?: "cauhinh";
   /** Deep-link QR tem kho: mở thẳng drawer lô + vị trí của đúng vật tư này trên màn Tồn kho. */
@@ -479,9 +488,10 @@ export function AppShell() {
   const isKhoView = baseId === "kho-item";
   const moduleKeys = MODULES_BY_NAV_ID[baseId] ?? (isKhoView ? ["kho"] : undefined);
   const allowed =
-    moduleKeys != null &&
-    moduleKeys.some((moduleKey) => readable.has(moduleKey)) &&
-    (!isKhoView || canViewStock);
+    AUTHENTICATED_NAV_IDS.has(baseId) ||
+    (moduleKeys != null &&
+      moduleKeys.some((moduleKey) => readable.has(moduleKey)) &&
+      (baseId !== "kho-item" || canViewStock));
 
   const itemChildren: Record<string, { id: string; label: string }[]> = {};
   // Kho đã khai báo → item ĐỘNG dưới SECTION "Kho hàng" (id section = "kho-hang"). Bấm 1 kho → màn tạm.
@@ -539,6 +549,10 @@ export function AppShell() {
         />
       );
     }
+    // Id cũ "quy-doi" (màn cặp riêng, đã gộp vào drawer đơn vị) → về đúng màn Đơn vị.
+    if (baseId === "quy-doi") {
+      return <RebuildCatalogPage key="don-vi" config={REBUILD_CONFIGS["don-vi"]} />;
+    }
     // Danh mục rebuild (Máy · Vật liệu Kho · Công đoạn · Loại SP · Giấy) — 1 trang generic theo config.
     if (REBUILD_CONFIGS[baseId]) {
       return <RebuildCatalogPage key={baseId} config={REBUILD_CONFIGS[baseId]} />;
@@ -552,6 +566,8 @@ export function AppShell() {
         return <NhanSuPage navigate={navigate} />;
       case "ho-so-cua-toi":
         return <HoSoCuaToiPage />;
+      case "noi-quy":
+        return <NoiQuyPage />;
       case "cham-cong":
         // `eventTick` nhảy theo MỌI sự kiện SSE → tab phiếu đi muộn/về sớm đang mở tự tải lại ngay
         // khi tổ trưởng duyệt/từ chối (không chỉ nhảy badge).
@@ -596,12 +612,13 @@ export function AppShell() {
           <KeHoachSXPage
             navigate={navigate}
             openOrderId={navParams?.openSxOrderId ?? null}
+            openLsxId={navParams?.openLsxId ?? null}
             eventTick={quoteTick}
             onBadgeStale={reloadBadges}
           />
         );
       case "bai-ghep":
-        return <BaiGhepPage eventTick={quoteTick} onBadgeStale={reloadBadges} />;
+        return <BaiGhepPage navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "xep-lich-cong-doan":
         return <XepLichPage navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "yeu-cau-mua-hang":

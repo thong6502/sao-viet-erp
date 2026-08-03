@@ -4,22 +4,30 @@ TẦNG 1 `cong_doan` (danh mục master, ở đây). TẦNG 2 `routing_step` (in
 (engine tính giá + jobspec) — chưa dựng vì cần FK jobspec/component. Engine cost/cascade/kẽm =
 hàm thuần trong `services/routing_engine.py` (Phase D gọi).
 
-Module MỚI (strangler) — song song `operation.py` cũ. Chưa wired. `may_id` = FK MỀM (plain int)
-tới `may_thiet_bi.id` (khớp convention soft-ref của repo này, tránh coupling tạo bảng).
+Module MỚI (strangler) — song song `operation.py` cũ. Chưa wired.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
 from sqlalchemy import (
-    Boolean, DateTime, Integer, JSON, Numeric, String, Text,
+    Boolean, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint,
     false as sa_false, true as sa_true,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
+from .lsx import DV_CAI, DV_TO, DV_TO_NGUYEN
 
 NHOM = ("prepress", "print", "finishing")
+# Đơn vị của công đoạn trên DÒNG GIẤY — đúng ba mức, không hơn. Kẽm/bài KHÔNG ở đây: bước chế bản
+# không chạm giấy nên để TRỐNG (None), engine loại nó khỏi dòng giấy.
+DON_VI_DONG_GIAY = (DV_TO_NGUYEN, DV_TO, DV_CAI)
+# Cặp vào→ra hợp lệ. Dòng giấy chảy MỘT CHIỀU (tờ nguyên → tờ in → tờ thành phẩm), nên `cai → to`
+# hay `to → to_nguyen` là vô nghĩa — chặn ở service, đừng để khai rồi engine tính bậy.
+CAP_DON_VI_HOP_LE = frozenset(
+    [(d, d) for d in DON_VI_DONG_GIAY] + [(DV_TO_NGUYEN, DV_TO), (DV_TO, DV_CAI)]
+)
 CHE_DO_TINH = ("theo_san_luong",)  # "theo_gio" đã gỡ — công đoạn chỉ tính theo công thức/sản lượng
 # Đơn vị tính giá công đoạn (bao trùm chế bản + in + sau in). Engine `routing_engine.basis_qty`
 # quy đổi mỗi key → số lượng tính tiền từ ctx job.
@@ -59,8 +67,18 @@ class CongDoan(Base):
     kieu_bu_hao: Mapped[str] = mapped_column(String(16), nullable=False, server_default="khong", default="khong")
     bu_hao_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → bu_hao.id (soft) khi kieu=tra_bang
     so_to_bu_hao: Mapped[int] = mapped_column(Integer, nullable=False, server_default="50", default=50)  # +tờ hao khi kieu_bu_hao=co_dinh
+    # Đơn vị VÀO / RA của công đoạn trên DÒNG GIẤY — KHAI, không đoán theo tên. Chỉ ba mức:
+    # `to_nguyen` → `to` (tờ in) → `cai` (tờ thành phẩm). Khác nhau = bước ĐỔI ĐƠN VỊ (bế: tờ in →
+    # tờ thành phẩm · xả giấy: tờ nguyên → tờ in).
+    #
+    # NULL = bước KHÔNG CHẠM GIẤY (chế bản ghi kẽm) → engine loại khỏi dòng giấy. Không đẻ mã đơn
+    # vị riêng cho nó: kẽm là đơn vị của khâu chế bản, không phải một mức trên dòng giấy.
+    #
+    # Hệ số quy đổi KHÔNG lưu ở đây: phiếu tính giá đã có `con` (bình bài) và `so_manh_xa` (khổ
+    # giấy) — khai lại là đẻ nguồn sự thật thứ hai.
+    don_vi_vao: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    don_vi_ra: Mapped[str | None] = mapped_column(String(12), nullable=True)
     nhom: Mapped[str] = mapped_column(String(12), index=True, nullable=False)  # prepress|print|finishing
-    may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → may_thiet_bi.id (soft)
     # Phòng ban / tổ phụ trách công đoạn (soft-ref → departments.id). Khi phát Lệnh SX, mỗi bước
     # công đoạn đẩy xuống đúng tổ này. Nullable: công đoạn cũ chưa gán vẫn hợp lệ.
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → departments.id (soft)
@@ -80,11 +98,8 @@ class CongDoan(Base):
 
     setup_cost: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
     setup_time: Mapped[float] = mapped_column(Numeric(8, 2), nullable=False, server_default="0", default=0)  # phút
-    # Năng suất mặc định KHI LÊN LỆNH SẢN XUẤT (output/giờ) — dành cho bước KHÔNG gắn máy: máy có
-    # `may_thiet_bi.toc_do` riêng, còn việc làm tay (dán, đóng gói) thì năng suất thuộc về công đoạn.
-    # ĐƠN VỊ KHÔNG LƯU: suy từ đơn vị ĐẦU VÀO của bước (chế bản = kẽm/giờ · in–cán–bế = tờ/giờ ·
-    # dán–đóng gói = con/giờ). Lưu riêng đơn vị chỉ tạo cơ hội cho nó lệch với đơn vị bước, vì
-    # `thoi_luong_buoc` tính `so_luong_vao / nang_suat` nên hai thứ BUỘC phải cùng đơn vị.
+    # Cột legacy chỉ giữ để migration/backfill dữ liệu cũ. LSX mới lấy tốc độ từ máy hoặc định mức
+    # `cong_doan_dau_viec`, không còn đọc năng suất chung của công đoạn.
     nang_suat: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     run_rate: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)   # đơn giá theo basis
     rate_tiers: Mapped[list | None] = mapped_column(JSON, nullable=True)            # [{from_qty,rate,kieu,driver}]
@@ -106,3 +121,32 @@ class CongDoan(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
+
+    dau_viec_dinh_muc: Mapped[list["CongDoanDauViec"]] = relationship(
+        "CongDoanDauViec", back_populates="cong_doan", order_by="CongDoanDauViec.id",
+        cascade="all, delete-orphan",
+    )
+
+
+class CongDoanDauViec(Base):
+    """Định mức nhân lực khi đầu việc của tổ được chọn làm bước Tổ tại KHSX."""
+
+    __tablename__ = "cong_doan_dau_viec"
+    __table_args__ = (
+        UniqueConstraint("cong_doan_id", "piece_rate_id", name="uq_cd_dau_viec_rate"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cong_doan_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("cong_doan.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # Soft-ref tới piece_rates: bảng giá có vòng đời riêng; service chặn id/tổ không hợp lệ.
+    piece_rate_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    nang_suat_nguoi_gio: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
+    so_nguoi_tieu_chuan: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    so_nguoi_toi_da: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    is_default: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
+
+    cong_doan: Mapped["CongDoan"] = relationship("CongDoan", back_populates="dau_viec_dinh_muc")

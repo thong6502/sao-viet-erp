@@ -1,0 +1,31 @@
+#!/bin/sh
+# Chặn tại MÁY cái lỗi làm đỏ CI nhiều nhất: thêm bảng/cột vào model mà quên ghi
+# `docs/DB_SCHEMA.md`. Guard chạy ~1 giây; để CI bắt thì mất 14 phút và chặn deploy.
+#
+# Bật: git config core.hooksPath .githooks
+# Bỏ qua một lần: git commit --no-verify
+#
+# CHỈ chạy khi commit có đụng model backend hoặc chính file từ điển — commit UI/CSS không
+# phải chờ gì. Thiếu python/pytest (máy chỉ làm frontend) → BỎ QUA, không chặn: hook mà
+# chặn nhầm người không liên quan thì chỉ tổ bị tắt đi.
+set -e
+
+changed=$(git diff --cached --name-only --diff-filter=ACMR)
+echo "$changed" | grep -qE '^(backend/app/models/|docs/DB_SCHEMA\.md)' || exit 0
+
+command -v python >/dev/null 2>&1 || exit 0
+python -c "import pytest" >/dev/null 2>&1 || exit 0
+
+echo "pre-commit: kiểm DB_SCHEMA.md khớp model…"
+if ! (cd backend && python -m pytest tests/test_schema_documented.py -q >/tmp/svn-schema-guard.log 2>&1); then
+  echo ""
+  echo "  ✗ docs/DB_SCHEMA.md LỆCH với model — commit bị chặn."
+  echo ""
+  sed -n 's/^E *//p' /tmp/svn-schema-guard.log | head -20
+  echo ""
+  echo "  Sửa: ghi bảng/cột mới vào docs/DB_SCHEMA.md (chép khung ở mục"
+  echo "  \"Template for a new table\" cuối file), rồi commit lại."
+  echo "  Cố tình bỏ qua: git commit --no-verify"
+  exit 1
+fi
+echo "pre-commit: DB_SCHEMA.md khớp model ✓"

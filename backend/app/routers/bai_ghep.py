@@ -29,6 +29,7 @@ from ..schemas.bai_ghep import (
     BaiGhepUpdateIn,
     HangChoGhepItem,
     HangChoGhepOut,
+    SoDoOut,
     SuaThanhVienIn,
     TaoBaiGhepIn,
     ThemThanhVienIn,
@@ -105,6 +106,23 @@ def chi_tiet(
         raise _map(exc)
 
 
+@router.get("/{bai_ghep_id}/so-do", response_model=SoDoOut)
+def so_do(
+    bai_ghep_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> SoDoOut:
+    """Đồ thị của bài: N nhánh vào → MỘT node IN → N nhánh ra.
+
+    DẪN XUẤT, không lưu cạnh nào — xem `docs/spec-bai-ghep-dag.md` §2.1.
+    """
+    svc = _svc(db)
+    try:
+        return SoDoOut.model_validate(svc.so_do(svc._get(bai_ghep_id)))
+    except Exception as exc:
+        raise _map(exc)
+
+
 # --- Tạo / sửa ---------------------------------------------------------------
 @router.post("", response_model=BaiGhepDetailOut, status_code=status.HTTP_201_CREATED)
 def tao(
@@ -166,7 +184,8 @@ def sua_thanh_vien(
     try:
         bg = svc.sua_thanh_vien(
             bai_ghep_id=bai_ghep_id, thanh_vien_id=thanh_vien_id,
-            so_con_tren_to=payload.so_con_tren_to, actor=user,
+            so_con_tren_to=payload.so_con_tren_to,
+            buoc_in_step_key=payload.buoc_in_step_key, actor=user,
         )
     except Exception as exc:
         raise _map(exc)

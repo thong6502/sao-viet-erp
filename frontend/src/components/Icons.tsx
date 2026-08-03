@@ -13,6 +13,15 @@ const ICONS = {
       <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
     </>
   ),
+  // Nội quy công ty — quyển sách đóng gáy. CỐ Ý không dùng lại `clipboard`: glyph đó đã gánh
+  // 3 mục khác trong rail (Yêu cầu mua hàng · Loại sản phẩm · Khuôn bế), thêm lần 4 là trùng.
+  book: (
+    <>
+      <path d="M5 4.5a1.5 1.5 0 0 1 1.5-1.5H19v15H6.5A1.5 1.5 0 0 0 5 19.5Z" />
+      <path d="M5 19.5A1.5 1.5 0 0 1 6.5 18H19v3H6.5A1.5 1.5 0 0 1 5 19.5Z" />
+      <path d="M9 7.5h6M9 11h6" />
+    </>
+  ),
   // Bài ghép — sheets xếp lớp (nhiều bài chung một tờ in)
   layers: (
     <>
@@ -252,6 +261,76 @@ const ICONS = {
       <rect x="14.5" y="9.25" width="6.5" height="5.5" rx="1.3" />
       <path d="M9.5 6.25h2.5a2 2 0 0 1 2 2v3.75" />
       <path d="M9.5 17.75h2.5a2 2 0 0 0 2-2v-1.75" />
+    </>
+  ),
+  // Mũi tên hướng phải
+  arrowRight: <path d="M5 12h14M13 5l7 7-7 7" />,
+  // Maximize / Focus
+  maximize: (
+    <>
+      <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />
+    </>
+  ),
+  // Cảnh báo / Alert
+  alert: (
+    <>
+      <path d="M12 9v4M12 17h.01" />
+      <path d="m10.29 3.86-8.6 15A1 1 0 0 0 2.56 20.36h18.88a1 1 0 0 0 .87-1.5l-8.6-15a1 1 0 0 0-1.72 0z" />
+    </>
+  ),
+  edit: (
+    <>
+      <path d="m4 20 4.2-1 10.6-10.6a2 2 0 0 0-2.8-2.8L5.4 16.2Z" />
+      <path d="m14.5 7.1 2.8 2.8" />
+    </>
+  ),
+  cpu: (
+    <>
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <rect x="9" y="9" width="6" height="6" />
+      <path d="M15 2v2M9 2v2M15 20v2M9 20v2M20 15h2M20 9h2M2 15h2M2 9h2" />
+    </>
+  ),
+  minus: <path d="M5 12h14" />,
+  table: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18M3 15h18M9 3v18M15 3v18" />
+    </>
+  ),
+  layout: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18M9 21V9" />
+    </>
+  ),
+  // Bánh răng cấu hình. CỐ Ý tách khỏi `edit`: `edit` là sửa nội dung một bản ghi, còn glyph này
+  // là chỉnh tham số của cả khối (khổ giấy, hao hụt…), hai nghĩa khác nhau trong sơ đồ bài ghép.
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2.5v2.2M12 19.3v2.2M4.28 7l1.9 1.1M17.82 15.9l1.9 1.1M4.28 17l1.9-1.1M17.82 8.1l1.9-1.1" />
+    </>
+  ),
+  // Mắt xích — bước thuộc LSX khác (phụ thuộc chéo lệnh) trên sơ đồ DAG.
+  link: (
+    <>
+      <path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.6-2.6a4 4 0 0 0-5.66-5.66l-1.3 1.3" />
+      <path d="M13.5 10.5a4 4 0 0 0-5.7 0l-2.6 2.6a4 4 0 0 0 5.66 5.66l1.3-1.3" />
+    </>
+  ),
+  // Mũi tên vòng ngược — dựng lại / xếp lại từ đầu.
+  rotateCcw: (
+    <>
+      <path d="M3 12a9 9 0 1 0 2.64-6.36L3 8" />
+      <path d="M3 3v5h5" />
+    </>
+  ),
+  // Toàn màn hình — mũi tên chéo bung ra 2 góc. Khác `maximize` (4 ngoặc góc = căn vừa khung nhìn).
+  fullscreen: (
+    <>
+      <path d="M14 4h6v6M20 4l-7 7" />
+      <path d="M10 20H4v-6M4 20l7-7" />
     </>
   ),
 } satisfies Record<string, ReactNode>;

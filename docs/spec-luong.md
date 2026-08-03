@@ -59,3 +59,50 @@ Chọn tháng → **Tạo bảng lương** (máy kéo công + mức + tạm ứn
 ## Ngoài phạm vi Phase 1 (để sau)
 Lương khoán theo tổ (cần Sản xuất cho sản lượng) · hoa hồng KD auto · TNCN lũy tiến 7 bậc auto ·
 tách LCB/TN/PC (2:1:2 / 2:2:1) auto · vi phạm có danh mục/workflow.
+
+---
+
+## Khoán theo ĐẦU VIỆC (2026-07-30)
+
+Bảng "CÔNG KHOÁN" giấy của xưởng là **danh sách đầu việc + đơn giá**, không phải một giá cho cả tổ:
+tổ Cán/Phủ có *"cán bóng · cán mờ · phủ UV nước · UV mờ"* = 150 đ/m² và *"ghép màng metalize"* =
+250 đ/m². Khai ở `Lương → Cấu hình lương của tổ → Đơn giá khoán` (bảng `piece_rates`).
+
+**Màn này CHỈ KHAI BÁO** (chủ 2026-07-31: *"đoạn này là khai báo, đừng cho tính toán ngầm gì ở đây"*).
+Một dòng gồm đúng: **Tổ · Công việc · Đơn vị · Đơn giá** (+ mã máy sinh `KH-####`, ghi chú). Đơn vị
+**chọn từ danh mục `Đơn vị & quy đổi`**, không gõ tự do — lệch một chữ là lệnh sản xuất vĩnh viễn
+không quy đổi ra tiền được; thiếu đơn vị thì thêm ở danh mục, một nguồn chứ không hai.
+
+**Luật khớp đầu việc với bước lệnh** (`piece_work_service.dau_viec_khop`) chỉ còn một dòng: **cùng
+TỔ**. Gốc là bên sản xuất — bước lệnh nhìn các đơn giá của tổ mình rồi chọn; bảng giá không biết và
+không cần biết việc nào dùng dòng nào.
+
+Bản 2026-07-30 từng cho khai thêm hai thứ ngay trên dòng giá, **đã gỡ** (migration `0138`):
+`cong_doan_mas` (tick "áp cho công đoạn nào" → đẻ luật ngầm *dòng khai riêng thắng dòng khai chung*)
+và `tinh_theo` (trục `PRICING_BASIS` → âm thầm nhân SL với số lượt chạy trước khi nhân đơn giá). Mở
+form ra không ai đoán được hai luật đó. Muốn trả theo lượt máy thì **khai đơn giá theo đơn vị `lượt`**,
+đừng giấu phép nhân trong code.
+
+**Kế hoạch chọn đầu việc ở BƯỚC LỆNH**, không ở phiếu tính giá — lúc tính giá sale chưa biết chạy máy
+nào, bế tay hay bế máy. Ô nằm trong khối "Ai làm" của drawer bước (`Kế hoạch SX → lệnh → Công đoạn`);
+tổ có đúng 1 đơn giá thì máy **điền sẵn**, tổ có nhiều (bế máy 250 đ/tờ ≠ bế tay 400 đ/tờ) thì **để
+trống + nhắc** — chỉ người biết hôm đó bế bằng gì. Chọn xong GHIM snapshot vào
+`lsx_cong_doan.khoan_json`: xưởng lên giá khoán về sau không được xê dịch lệnh đã phát.
+
+**Tiền khoán = SL VÀO của bước → quy đổi sang đơn vị đơn giá → × đơn giá**, tính LÚC ĐỌC (không lưu
+cột). Quy đổi qua `services/quy_doi_service.py` — xem `docs/spec-don-vi-quy-doi.md`. Số thật: bước cán
+màng của lệnh thẻ nhân viên = `241 tờ × 86 cm × 65 cm = 134,72 m² × 150 đ/m² = 20.208 đ`.
+
+Đếm theo SL VÀO vì **thợ chạy bao nhiêu tờ thì ăn bấy nhiêu**, kể cả 230 tờ bù hao canh máy 4 màu;
+hàng lỗi do thợ trừ riêng, không bằng cách hạ số tờ.
+
+### Phạm vi hiện tại — chỉ KẾ HOẠCH
+
+Lát này dừng ở **số dự kiến**: bước hiện dòng ba số, lệnh hiện Σ "Công thợ dự kiến" (là số SÀN — bước
+chưa chọn đầu việc thì không góp vào). **Chưa** nối vào cột `khoan` của bảng lương, vì nguồn SẢN LƯỢNG
+THẬT đã bị gỡ khỏi hệ (`production_outputs` không còn model/router; `PieceWorkService.khoan_map` luôn
+trả rỗng). Dựng lại khâu "tổ trưởng báo sản lượng" là lát riêng, và nó cũng mở luôn
+`piece_leader_bonus_brackets` (thưởng/phạt tổ trưởng theo % hàng lỗi) đang treo.
+
+Cũng **chưa** làm: chia tiền trong nhóm (ghi chú Excel: *tổ trưởng lấy 5%, còn lại nhóm tự chia*) —
+máy chỉ nên GHI NHẬN con số tổ trưởng báo, không tự chia, vì tỷ lệ do nhóm tự thoả thuận.

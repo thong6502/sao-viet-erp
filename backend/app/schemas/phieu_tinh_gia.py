@@ -75,12 +75,11 @@ class ThanhPhanIn(BaseModel):
     thu_tu: int | None = None
     loai_thanh_phan: str | None = None
     ten: str | None = None
-    kho_thanh_pham: str | None = None
     dai_thanh_pham: int | None = None
     rong_thanh_pham: int | None = None
-    kho_mo_rong: str | None = None
-    tay_gap: str | None = None
-    so_to_per_sp: int | None = Field(default=None, ge=1)
+    so_to_per_sp: int | None = Field(default=None, ge=1)   # DẪN XUẤT (engine ghi) — client gửi cũng bị đè
+    so_trang: int | None = Field(default=None, ge=1)        # số trang nội dung của 1 sản phẩm
+    trang_moi_tay: int | None = Field(default=None, ge=1)   # số trang mỗi tay gấp
     so_luong: int | None = Field(default=None, ge=0)   # SL của sản phẩm này
     don_vi_tinh: str | None = Field(default=None, max_length=30)   # ĐVT sản phẩm (text tự do)
     # Nhãn gộp dòng KHI IN báo giá (ruột + bìa 1 cuốn gõ giống nhau). Không vào công thức giá.
@@ -97,11 +96,7 @@ class ThanhPhanIn(BaseModel):
     bu_hao_so_to: int | None = None
     hao_so_to: int | None = None
     tinh_bu_hao_cd: bool | None = None
-    chua_xen: float | None = None
-    chua_tay_ke: float | None = None
     chua_nhip: float | None = None
-    chua_duoi: float | None = None
-    chua_ca_gay: float | None = None
     bleed_mm: float | None = None
     khe_cat_mm: float | None = None
     # In
@@ -132,12 +127,11 @@ class ThanhPhanOut(BaseModel):
     thu_tu: int
     loai_thanh_phan: str
     ten: str
-    kho_thanh_pham: str | None = None
     dai_thanh_pham: int
     rong_thanh_pham: int
-    kho_mo_rong: str | None = None
-    tay_gap: str | None = None
     so_to_per_sp: int
+    so_trang: int = 1
+    trang_moi_tay: int = 1
     so_luong: int
     don_vi_tinh: str = "cái"
     nhom_bao_gia: str | None = None
@@ -153,11 +147,7 @@ class ThanhPhanOut(BaseModel):
     bu_hao_so_to: int
     hao_so_to: int
     tinh_bu_hao_cd: bool = True
-    chua_xen: float
-    chua_tay_ke: float
     chua_nhip: float
-    chua_duoi: float
-    chua_ca_gay: float
     bleed_mm: float = 0
     khe_cat_mm: float = 0
     # In
