@@ -1,0 +1,21 @@
+name: CI
+
+# Mở / cập nhật PR nhắm vào `dev` hoặc `main` → chạy cổng kiểm. Trước đây chỉ `push` mới chạy CI,
+# nghĩa là code chỉ được kiểm SAU KHI đã merge — muộn mất một nhịp.
+#
+# `pull_request` (KHÔNG phải `pull_request_target`): chạy code của PR bằng token chỉ-đọc và không
+# có secrets. `pull_request_target` chạy code PR với quyền của repo — PR từ fork là chiếm được
+# repo. Cổng kiểm này không cần secret nào nên `pull_request` là đủ.
+on:
+  pull_request:
+    branches: [dev, main]
+
+# Push thêm commit vào PR thì HỦY lần chạy cũ — chỉ kết quả của commit mới nhất mới có nghĩa.
+# Khác deploy (không được hủy giữa chừng), CI hủy ngang vô hại.
+concurrency:
+  group: ci-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    uses: ./.github/workflows/build-test.yml

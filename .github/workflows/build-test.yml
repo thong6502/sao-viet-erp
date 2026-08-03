@@ -1,0 +1,46 @@
+name: Build & test
+
+# BẢN DUY NHẤT của cổng kiểm. Không tự chạy — hai nơi gọi vào:
+#   · ci.yml     (pull_request → dev/main)  — bắt lỗi TRƯỚC khi merge
+#   · deploy.yml (push → dev/main)          — chặn deploy nếu gãy
+# Chép thành hai bản ở hai file thì sớm muộn chúng lệch nhau, lúc đó CI của PR và CI của deploy
+# kiểm hai thứ khác nhau mà không ai biết.
+on:
+  workflow_call:
+
+jobs:
+  # Hai job SONG SONG, cố ý. Trước đây frontend và backend là hai step nối tiếp trong CÙNG một
+  # job: frontend gãy type là pytest KHÔNG BAO GIỜ chạy, nên PR merge vào kèm nợ backend ẩn.
+  # Tách ra thì thấy cả hai lỗi trong một lần chạy, và tổng thời gian cũng ngắn hơn.
+  frontend:
+    name: Frontend (tsc + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+  backend:
+    name: Backend (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      # `pytest.ini` ở gốc repo đã trỏ `testpaths = backend/tests` → chạy từ gốc là đúng.
+      # SQLite in-memory, không cần Postgres/Redis nên runner không phải dựng service nào.
+      - name: Tests
+        run: |
+          pip install -r backend/requirements.txt
+          pytest -q
