@@ -3605,8 +3605,8 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 | `kho_in_dai` | `Integer` | — | yes | — | Khổ tờ in chạy chung (mm). |
 | `kho_in_rong` | `Integer` | — | yes | — | Khổ tờ in chạy chung (mm). |
 | `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id` — máy in (không bắt buộc lát 1). |
-| `hao_hut_setup` | `Integer` | — | no | `0` | Tờ bù canh máy. |
-| `hao_hut_chay` | `Integer` | — | no | `0` | Tờ bù khi chạy. |
+| `hao_hut_setup` | `Integer` | — | yes | — | Tờ bù canh máy. **NULL = chưa khai** → bài dùng hao máy đề xuất; **0 = khai "chạy đúng số, không bù"**. Hai ý này từng chung giá trị 0 nên `... or hao_de_xuat` nuốt mất ý định khai 0 (mig `0152`). |
+| `hao_hut_chay` | `Integer` | — | yes | — | Tờ bù khi chạy. NULL/0 xem `hao_hut_setup`. |
 | `ghi_chu` | `Text` | — | yes | — | Ghi chú kế hoạch. |
 | `created_by` | `Integer` | — | yes | — | Soft → `users.id`. |
 | `created_at` | `DateTime(timezone=True)` | — | no | now | |

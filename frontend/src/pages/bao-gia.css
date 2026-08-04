@@ -1071,7 +1071,10 @@ select.input {
 .bgv .cust-combo__in { width: 100%; }
 .bgv .cust-combo__pop {
   position: absolute; z-index: 50; top: calc(100% + 4px); right: 0;
-  min-width: 240px; max-width: 340px; max-height: 264px; overflow-y: auto;
+  /* `min-width: 240px` cứng trong khi ô kích hoạt chỉ rộng 200px (maxWidth ở TSX) → popup
+     luôn thò sang trái, nhìn như bị lệch. `min-width: 100%` = bám đúng mép ô; `max-content`
+     cho nó tự nới khi tên khách dài, trần vẫn 340px. */
+  min-width: 100%; width: max-content; max-width: 340px; max-height: 264px; overflow-y: auto;
   background: var(--paper-contrast); border: 1px solid var(--rule);
   border-radius: 10px; box-shadow: 0 14px 32px rgba(0,0,0,0.18); padding: 4px;
 }
@@ -1364,7 +1367,11 @@ select.input {
 .rdx-quote .badge.signal .d { background: var(--signal); }
 
 /* ---- Cards + tables (list & detail) ---------------------------------------- */
-.rdx-quote .q-card { background: var(--canvas); border: 1px solid var(--rule); border-radius: var(--r-5); overflow: hidden; }
+/* `overflow-x: auto`: 6 cột không vừa khung hẹp — `hidden` thì cắt cụt cột Trạng thái/Cập nhật
+   mà không cuộn được. `overflow-y: hidden` vẫn bo góc như cũ. Sàn min-width để cột không bị
+   bóp thành cột chữ dọc; pager (`.foot`) là anh em nên không trôi theo khi cuộn. */
+.rdx-quote .q-card { background: var(--canvas); border: 1px solid var(--rule); border-radius: var(--r-5); overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; }
+.rdx-quote .q-card > table { min-width: 860px; }
 .rdx-quote table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .rdx-quote thead th { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ash); font-weight: 700; text-align: left; padding: 10px 14px; background: var(--paper); border-bottom: 1.5px solid var(--rule); white-space: nowrap; }
 .rdx-quote thead th.num {   font-family: var(--ff-num);
@@ -1413,6 +1420,11 @@ select.input {
 
 /* ---- DETAIL: panel --------------------------------------------------------- */
 .rdx-quote .panel { background: var(--canvas); border: 1px solid var(--rule); border-radius: var(--r-5); overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+/* Popup combobox khách hàng là `position:absolute` NẰM TRONG `.panel`, mà `.panel` clip
+   `overflow:hidden` (để bo góc) → danh sách khách bị CẮT NGANG ở đáy thẻ, dòng cuối mất một nửa.
+   Chỉ mở khoá ĐÚNG thẻ đang chứa combobox (`:has`) — các panel khác vẫn clip như cũ, và khi
+   báo giá ở chế độ chỉ-đọc thì combobox không render nên luật này cũng không khớp. */
+.rdx-quote .panel:has(.cust-combo) { overflow: visible; }
 .rdx-quote .panel__hd { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--rule-soft); flex: none; gap: 12px; }
 .rdx-quote .panel__hd h3 { margin: 0; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 9px; color: var(--ink); }
 .rdx-quote .panel__hd h3 svg { color: var(--rust); flex: none; }
@@ -1880,3 +1892,36 @@ select.input {
 .rdx-quote .accept-pick-sum b { color: var(--rust-deep); }
 .rdx-quote .accept-pick-sum-amt {   font-family: var(--ff-num);
   font-weight: 700; font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* ==========================================================================
+   §RESPONSIVE — màn danh sách Báo giá
+   Phần cốt lõi (cuộn ngang + sàn min-width cho bảng) nằm ở `.q-card` mục
+   "Cards + tables". Dưới đây là phần nhường chỗ ở khung hẹp.
+   ĐỂ CUỐI FILE vì file có nhiều lớp override nối đuôi, mà media query KHÔNG cộng
+   specificity — đặt ở giữa là bị lớp sau đè.
+   ========================================================================== */
+@media (max-width: 1024px) {
+  .rdx-quote {
+    padding: 16px 16px 32px;
+  }
+  .rdx-quote thead th {
+    padding: 9px 11px;
+  }
+  .rdx-quote tbody td {
+    padding: 11px 11px;
+  }
+}
+
+@media (max-width: 640px) {
+  .rdx-quote {
+    padding: 12px 12px 28px;
+  }
+  .rdx-quote .q-pagehead h1 {
+    font-size: 21px;
+  }
+  /* max-width 420px giữ ô tìm bé tí trong khi còn cả dòng trống → cho nó giãn hết dòng. */
+  .rdx-quote .q-search {
+    max-width: none;
+    flex: 1 1 100%;
+  }
+}

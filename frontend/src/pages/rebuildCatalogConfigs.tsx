@@ -118,7 +118,7 @@ export const CFG_MAY: CatalogConfig = {
         { value: "Bồi", label: "Bồi" },
         { value: "Bế", label: "Bế" },
       ],
-      hint: "Gợi ý hoặc gõ tự do: Máy in, Cán màng / UV, Bồi, Bế…" },
+    },
     // ── Khổ kẽm + nhíp kẽm ─────────────────────────────────────────────────────
     { key: "kho_kem_rong", label: "Khổ kẽm — rộng (mm)", type: "number", group: "Khổ kẽm & vùng in",
       showIf: (f) => isMayIn(f.loai_may),
@@ -150,24 +150,20 @@ export const CFG_MAY: CatalogConfig = {
     { key: "kho_max_rong", label: "Khổ giấy max — rộng (mm)", type: "number", group: "Khổ giấy" },
     { key: "kho_max_dai", label: "Khổ giấy max — dài (mm)", type: "number", group: "Khổ giấy" },
     // ── Tốc độ & thời gian → nuôi thẳng thời lượng bước ở Lệnh sản xuất ───────
-    { key: "toc_do", label: "Tốc độ chạy", type: "number", group: "Tốc độ & thời gian",
-      hint: "Máy in tính theo LƯỢT qua máy — in 2 mặt thì mỗi tờ chạy 2 lượt. Bỏ trống thì lệnh sản xuất để trống thời gian chạy. Chọn đơn vị ở ô bên cạnh." },
+    { key: "toc_do", label: "Tốc độ chạy", type: "number", group: "Tốc độ & thời gian" },
     { key: "don_vi_toc_do", label: "Đơn vị tốc độ", type: "select", group: "Tốc độ & thời gian",
       default: "to_gio",
       options: [
         { value: "to_gio", label: "tờ/giờ — máy in, máy gia công tờ" },
         { value: "kem_gio", label: "kẽm/giờ — máy ghi kẽm CTP" },
-      ],
-      hint: "Đơn vị của con số bên trái, phải khớp thứ mà công đoạn ĐẾM. Lệch đơn vị thì lệnh sản xuất bỏ qua tốc độ này (không quy đổi bừa) và bước sẽ trống thời gian chạy." },
+      ] },
     { key: "so_nhan_cong", label: "Số người vận hành tiêu chuẩn", type: "number", required: true,
-      default: 1, group: "Tốc độ & thời gian",
-      hint: "Kíp nhân lực chuẩn để vận hành máy. Số người này dùng lập kế hoạch nhân lực, không nhân tốc độ máy." },
+      default: 1, group: "Tốc độ & thời gian" },
     { key: "thoi_gian_rua_muc", label: "Thời gian rửa mực (phút)", type: "number", group: "Tốc độ & thời gian",
       showIf: (f) => isMayIn(f.loai_may),
       hint: "Vệ sinh máy sau khi in xong — cộng vào thời gian chiếm máy" },
     // ── Ghi chú ────────────────────────────────────────────────────────────────
-    { key: "ghi_chu", label: "Ghi chú 1", type: "text", group: "Ghi chú" },
-    { key: "ghi_chu_2", label: "Ghi chú 2", type: "text", group: "Ghi chú" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
   // Đơn vị tốc độ là Ô CHỌN 2 giá trị, không suy từ `loai_may`: nhóm máy ở đây là CHỮ TỰ DO
   // ("Máy in", "Bế", "Cán màng / UV"…) nên suy theo nó là đoán, mà đoán sai thì lệnh SX lặng lẽ

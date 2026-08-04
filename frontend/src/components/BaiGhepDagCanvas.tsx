@@ -74,14 +74,31 @@ export function tinhBienNoiDung(pos: Record<string, Point>): { w: number; h: num
  *
  * Không ép các lệnh cùng số công đoạn: mỗi lệnh dài ngắn tuỳ nó, chỉ điểm gộp mới phải trùng cột.
  * Chạy tăng dần cho tới khi ổn định — giá trị chỉ đi lên và bị chặn trên nên chắc chắn dừng.
+ *
+ * Trả kèm `hoiTu`: ngân sách vòng lặp là CHẶN CỨNG chứ không phải chứng minh hội tụ. Hết ngân
+ * sách mà còn đổi thì các bước cùng nhóm chưa chắc cùng cột — thẻ chung sẽ vẽ đè. Im lặng trả
+ * layout sai là kiểu lỗi không ai truy được, nên phải có cờ để màn hình nói ra.
  */
-export function tinhCot(sd: SoDo): Record<string, number> {
+export function tinhCot(sd: SoDo): { cot: Record<string, number>; hoiTu: boolean } {
   const cot: Record<string, number> = {};
   const nhomGop: string[][] = sd.gop.map((g) => g.thanh_vien.map((tv) => tv.lsx_step_key));
   sd.nhanh.forEach((n) => n.buoc.forEach((b, i) => (cot[b.step_key] = i)));
 
+  // Cạnh CHÉO LỆNH cũng phải đẩy cột. Trước đây hàm chỉ nhìn thứ tự MẢNG trong một nhánh, nên
+  // "bìa chờ ruột" vẽ ra dây chạy ngược từ phải sang trái — sơ đồ nói sai chiều phụ thuộc.
+  // Chỉ nhận cạnh trỏ vào bước CÓ trong sơ đồ; tiền nhiệm ngoài bài đã vẽ riêng thành node mờ.
+  const canh: Array<[string, string]> = [];
+  sd.nhanh.forEach((n) =>
+    n.buoc.forEach((b) =>
+      b.phu_thuoc_step_keys.forEach((pk) => {
+        if (cot[pk] !== undefined) canh.push([pk, b.step_key]);
+      }),
+    ),
+  );
+
   const tongBuoc = sd.nhanh.reduce((s, n) => s + n.buoc.length, 0);
-  for (let vong = 0; vong <= tongBuoc; vong++) {
+  let hoiTu = false;
+  for (let vong = 0; vong <= tongBuoc + canh.length; vong++) {
     let doi = false;
     for (const nhom of nhomGop) {
       const c = Math.max(...nhom.map((k) => cot[k] ?? 0));
@@ -101,9 +118,62 @@ export function tinhCot(sd: SoDo): Record<string, number> {
         }
       }
     }
-    if (!doi) break;
+    for (const [truoc, sau] of canh) {
+      if ((cot[sau] ?? 0) <= (cot[truoc] ?? 0)) {
+        cot[sau] = (cot[truoc] ?? 0) + 1;
+        doi = true;
+      }
+    }
+    if (!doi) {
+      hoiTu = true;
+      break;
+    }
   }
-  return cot;
+  return { cot, hoiTu };
+}
+
+/** Thứ tự HÀNG (chỉ số nhánh gốc) sao cho thành viên của cùng một lượt chung nằm liền nhau.
+ *
+ * Thẻ chung đặt ở hàng nhỏ nhất và cao tới hàng lớn nhất nó đè lên. Bài 3 lệnh mà chỉ hàng 0 và
+ * hàng 2 gộp thì thẻ chung phủ luôn thẻ bước của hàng 1 — thẻ dưới mất hẳn, không ai biết nó
+ * tồn tại. Xếp liền nhau vừa hết đè vừa nói đúng hơn: nhánh nào chung tờ thì đứng cạnh nhau.
+ *
+ * Không phải lúc nào cũng xếp liền được (ba lượt chung đan chéo nhau thì bất khả), nên
+ * `initialPositions` còn một cửa chặn nữa: thẻ nào vẫn vướng thì đẩy sang phải.
+ */
+export function sapHang(sd: SoDo): number[] {
+  const viTri = new Map<number, number>();
+  sd.nhanh.forEach((n, i) => viTri.set(n.lsx_id, i));
+  const nhom = sd.gop
+    .map((g) =>
+      g.thanh_vien
+        .map((tv) => viTri.get(tv.lsx_id))
+        .filter((i): i is number => i !== undefined),
+    )
+    .sort((a, b) => b.length - a.length);   // nhóm lớn xếp trước: bị xé thì thiệt hại lớn hơn
+
+  const thuTu: number[] = [];
+  const daXep = new Set<number>();
+  for (const g of nhom) {
+    for (const i of g) {
+      if (daXep.has(i)) continue;
+      daXep.add(i);
+      thuTu.push(i);
+    }
+  }
+  sd.nhanh.forEach((_, i) => {
+    if (!daXep.has(i)) thuTu.push(i);
+  });
+  return thuTu;
+}
+
+/** Chiều cao thật của một thẻ chung — nó trải qua các HÀNG nó đè lên. */
+function caoGopCua(g: BuocChung, hangCua: (lsxId: number) => number | undefined): number {
+  const hang = g.thanh_vien
+    .map((tv) => hangCua(tv.lsx_id))
+    .filter((i): i is number => i !== undefined);
+  if (!hang.length) return CARD_H;
+  return (Math.max(...hang) - Math.min(...hang)) * ROW_H + CARD_H;
 }
 
 function getStepIcon(node: { loai_buoc: string; nhom: string | null }): IconName {
@@ -179,6 +249,10 @@ export function BaiGhepDagCanvas({
   const [dangChon, setDangChon] = useState<string[]>([]);
   const [ungVien, setUngVien] = useState<UngVien>({});
   const [dangGop, setDangGop] = useState(false);
+  /** Vì sao thẻ vừa bấm không gộp được — thẻ mờ mà bấm vào không nói gì là màn hình câm. */
+  const [lyDoChan, setLyDoChan] = useState<string | null>(null);
+  /** Số thứ tự lượt hỏi ứng viên: chỉ lượt MỚI NHẤT được ghi kết quả. */
+  const seqUngVienRef = useRef(0);
 
   const ngoaiMap = useMemo(() => new Map(sd.ngoai.map((o) => [o.step_key, o])), [sd.ngoai]);
   /** `lsx_step_key → bước chung đang đè lên nó`. */
@@ -192,22 +266,35 @@ export function BaiGhepDagCanvas({
     sd.nhanh.forEach((n) => n.buoc.forEach((b) => m.set(b.step_key, b)));
     return m;
   }, [sd.nhanh]);
-  /** `step_key → hàng (index nhánh) chứa nó`. Cần để vẽ cạnh CHÉO LỆNH giữa hai lệnh trong cùng
+  /** `lsx_id → HÀNG hiển thị`. Khác thứ tự mảng `sd.nhanh`: thành viên của cùng một lượt chung
+   *  được xếp liền nhau để thẻ chung không trải qua nhánh lạ (xem `sapHang`). */
+  const hangCuaLsx = useMemo(() => {
+    const m = new Map<number, number>();
+    sapHang(sd).forEach((idxGoc, hang) => {
+      const n = sd.nhanh[idxGoc];
+      if (n) m.set(n.lsx_id, hang);
+    });
+    return m;
+  }, [sd]);
+  const hangCua = useCallback((lsxId: number) => hangCuaLsx.get(lsxId) ?? 0, [hangCuaLsx]);
+
+  /** `step_key → hàng chứa nó`. Cần để vẽ cạnh CHÉO LỆNH giữa hai lệnh trong cùng
    *  bài — vd sách: ruột cắt xong mới vào bìa. Trước đây chỉ vẽ tiền nhiệm NGOÀI bài, nên cạnh
    *  chéo giữa hai thành viên biến mất khỏi sơ đồ dù engine vẫn tính nó. */
   const hangCuaBuoc = useMemo(() => {
     const m = new Map<string, number>();
-    sd.nhanh.forEach((n, i) => n.buoc.forEach((b) => m.set(b.step_key, i)));
+    sd.nhanh.forEach((n) => n.buoc.forEach((b) => m.set(b.step_key, hangCuaLsx.get(n.lsx_id) ?? 0)));
     return m;
-  }, [sd.nhanh]);
+  }, [sd.nhanh, hangCuaLsx]);
 
-  const cot = useMemo(() => tinhCot(sd), [sd]);
+  const layout = useMemo(() => tinhCot(sd), [sd]);
+  const cot = layout.cot;
   const xCuaCot = useCallback((c: number) => PAD + HDR_W + GAP_X + c * (CARD_W + GAP_X), []);
 
   const initialPositions = useMemo(() => {
     const pos: Record<string, Point> = {};
-    sd.nhanh.forEach((n, idx) => {
-      const y = PAD + idx * ROW_H;
+    sd.nhanh.forEach((n) => {
+      const y = PAD + hangCua(n.lsx_id) * ROW_H;
       pos[`hdr_${n.lsx_id}`] = { x: PAD, y: y + (CARD_H - HDR_H) / 2 };
       n.buoc.forEach((b) => {
         if (deLen.has(b.step_key)) return;   // bước bị đè không có thẻ riêng — thẻ chung thay nó
@@ -215,20 +302,37 @@ export function BaiGhepDagCanvas({
       });
     });
 
-    // Thẻ chung: cùng cột, trải dọc từ nhánh đầu tới nhánh cuối mà nó đè lên → nhánh tụ vào trái,
+    // Thẻ chung: cùng cột, trải dọc từ hàng đầu tới hàng cuối mà nó đè lên → nhánh tụ vào trái,
     // toả ra phải, không cần vẽ thêm khung gì.
+    const oGop: Array<{ x: number; y: number; cao: number }> = [];
     sd.gop.forEach((g) => {
       const hang = g.thanh_vien
-        .map((tv) => sd.nhanh.findIndex((n) => n.lsx_id === tv.lsx_id))
-        .filter((i) => i >= 0);
+        .map((tv) => hangCuaLsx.get(tv.lsx_id))
+        .filter((i): i is number => i !== undefined);
       if (!hang.length) return;
       const c = cot[g.thanh_vien[0].lsx_step_key] ?? 0;
-      pos[`gop_${g.step_key}`] = { x: xCuaCot(c), y: PAD + Math.min(...hang) * ROW_H };
+      const p = { x: xCuaCot(c), y: PAD + Math.min(...hang) * ROW_H };
+      pos[`gop_${g.step_key}`] = p;
+      oGop.push({ ...p, cao: caoGopCua(g, (id) => hangCuaLsx.get(id)) });
     });
 
+    // Cửa chặn cuối: `sapHang` xếp thành viên liền nhau nhưng ba lượt chung đan chéo thì bất khả.
+    // Thẻ nào còn nằm trong vùng của một thẻ chung mà không phải thành viên → đẩy sang phải.
+    // Để chồng lên nhau là thẻ dưới biến mất, không ai biết bước đó tồn tại.
+    for (const [id, p] of Object.entries(pos)) {
+      if (id.startsWith("gop_")) continue;
+      const w = id.startsWith("hdr_") ? HDR_W : CARD_W;
+      const h = id.startsWith("hdr_") ? HDR_H : CARD_H;
+      for (const o of oGop) {
+        if (p.x < o.x + GANG_W && p.x + w > o.x && p.y < o.y + o.cao && p.y + h > o.y) {
+          p.x = o.x + GANG_W + GAP_X;
+        }
+      }
+    }
+
     // Tiền nhiệm NGOÀI bài (ruột sách của cùng đơn…) → node bóng mờ, đặt lệch lên trên bước cần nó.
-    sd.nhanh.forEach((n, idx) => {
-      const y = PAD + idx * ROW_H;
+    sd.nhanh.forEach((n) => {
+      const y = PAD + hangCua(n.lsx_id) * ROW_H;
       n.buoc.forEach((b) => {
         b.phu_thuoc_step_keys.forEach((pk) => {
           if (!ngoaiMap.has(pk) || pos[`ngoai_${pk}`]) return;
@@ -237,22 +341,15 @@ export function BaiGhepDagCanvas({
       });
     });
     return pos;
-  }, [sd, cot, deLen, ngoaiMap, xCuaCot]);
+  }, [sd, cot, deLen, ngoaiMap, xCuaCot, hangCua, hangCuaLsx]);
 
   useEffect(() => {
     setPositions(initialPositions);
   }, [initialPositions]);
 
-  /** Chiều cao thật của một thẻ chung — nó trải qua các nhánh nó đè lên. */
   const caoGop = useCallback(
-    (g: BuocChung) => {
-      const hang = g.thanh_vien
-        .map((tv) => sd.nhanh.findIndex((n) => n.lsx_id === tv.lsx_id))
-        .filter((i) => i >= 0);
-      if (!hang.length) return CARD_H;
-      return (Math.max(...hang) - Math.min(...hang)) * ROW_H + CARD_H;
-    },
-    [sd.nhanh],
+    (g: BuocChung) => caoGopCua(g, (id) => hangCuaLsx.get(id)),
+    [hangCuaLsx],
   );
 
   const bien = useMemo(() => {
@@ -342,8 +439,10 @@ export function BaiGhepDagCanvas({
 
   // --- Chọn / gộp -----------------------------------------------------------
   const huyChon = useCallback(() => {
+    seqUngVienRef.current += 1;    // câu trả lời đang bay về sẽ bị bỏ, không sáng lại thẻ nào
     setDangChon([]);
     setUngVien({});
+    setLyDoChan(null);
   }, []);
 
   useEffect(() => {
@@ -360,17 +459,24 @@ export function BaiGhepDagCanvas({
     huyChon();
   }, [sd, huyChon]);
 
-  /** Hỏi server sau mỗi lần đổi tập chọn. Kiểm vòng ở server vì nó mới thấy cạnh chéo lệnh. */
+  /** Hỏi server sau mỗi lần đổi tập chọn. Kiểm vòng ở server vì nó mới thấy cạnh chéo lệnh.
+   *
+   *  Đánh số lượt hỏi: bấm nhanh thì câu trả lời có thể về KHÔNG theo thứ tự gửi, và câu của tập
+   *  chọn cũ mà về sau sẽ sáng nhầm thẻ cho tập mới — bấm Gộp là ăn 409, đúng cái mà "kiểm TRƯỚC"
+   *  sinh ra để tránh. Chỉ lượt mới nhất được ghi kết quả.
+   */
   const capNhatUngVien = useCallback(
     async (keys: string[]) => {
+      const seq = ++seqUngVienRef.current;
       if (!onHoiUngVien || !keys.length) {
         setUngVien({});
         return;
       }
       try {
-        setUngVien(await onHoiUngVien(keys));
+        const kq = await onHoiUngVien(keys);
+        if (seq === seqUngVienRef.current) setUngVien(kq);
       } catch {
-        setUngVien({});   // hỏi hụt thì thà không sáng thẻ nào còn hơn sáng sai
+        if (seq === seqUngVienRef.current) setUngVien({});   // hỏi hụt thì thà đừng sáng thẻ nào
       }
     },
     [onHoiUngVien],
@@ -380,22 +486,33 @@ export function BaiGhepDagCanvas({
    *
    * Trước đây bấm thẻ là mở popup chi tiết lệnh; giờ một-bấm đã mang nghĩa khác nên popup sẽ đè
    * ngay lên thao tác đang làm. Muốn xem lệnh thì bấm thẻ lệnh đầu hàng, hoặc nháy đúp.
+   *
+   * Tính tập mới NGOÀI updater của `setDangChon`. Gọi `capNhatUngVien` bên trong updater là gửi
+   * ĐÔI request dưới StrictMode (React chạy updater hai lần để soi hàm thuần) — mỗi cú bấm hai
+   * lượt hỏi server, và hai lượt ấy còn đua nhau ghi `ungVien`.
    */
   const bamThe = useCallback(
-    (node: Node, _lsxId: number) => {
+    (node: Node) => {
       if (!canUpdate || !onGop || deLen.has(node.step_key)) return;
-      setDangChon((truoc) => {
-        let sau: string[];
-        if (truoc.includes(node.step_key)) sau = truoc.filter((k) => k !== node.step_key);
-        else if (!truoc.length) sau = [node.step_key];
-        else if (ungVien[node.step_key]?.gop_duoc) sau = [...truoc, node.step_key];
-        else if (ungVien[node.step_key]) return truoc;      // mờ vì sẽ sinh vòng — không cho chọn
-        else sau = [node.step_key];                          // khác công đoạn → chọn lại từ đầu
-        void capNhatUngVien(sau);
-        return sau;
-      });
+      const truoc = dangChon;
+      let sau: string[];
+      if (truoc.includes(node.step_key)) sau = truoc.filter((k) => k !== node.step_key);
+      else if (!truoc.length) sau = [node.step_key];
+      else if (ungVien[node.step_key]?.gop_duoc) sau = [...truoc, node.step_key];
+      else if (ungVien[node.step_key]) {
+        // Mờ vì sẽ sinh vòng: KHÔNG cho chọn, nhưng phải nói ra. Trước đây chỗ này `return` câm —
+        // người dùng bấm mãi không hiểu vì sao thẻ không nhận.
+        setLyDoChan(
+          ungVien[node.step_key].ly_do
+            ?? `Không gộp "${node.ten}" vào lượt đang chọn được — sẽ sinh vòng phụ thuộc.`,
+        );
+        return;
+      } else sau = [node.step_key];                          // khác công đoạn → chọn lại từ đầu
+      setLyDoChan(null);
+      setDangChon(sau);
+      void capNhatUngVien(sau);
     },
-    [canUpdate, onGop, deLen, ungVien, capNhatUngVien],
+    [canUpdate, onGop, deLen, ungVien, dangChon, capNhatUngVien],
   );
 
   /** Nhánh nào đang được tô đậm: nhánh người bấm, hoặc nhánh của bước đầu tiên đang chọn để gộp. */
@@ -541,6 +658,13 @@ export function BaiGhepDagCanvas({
         >
           <Icon name="fullscreen" size={14} />
         </button>
+        {/* Phép xếp cột hết ngân sách vòng lặp mà chưa ổn định → các bước cùng lượt chung chưa
+            chắc cùng cột, thẻ có thể vẽ lệch. Nói ra thay vì lặng lẽ bày một sơ đồ sai. */}
+        {!layout.hoiTu && (
+          <span className="bgsd-tb-canhbao" role="alert" title="Sơ đồ có ràng buộc vòng hoặc quá phức tạp để xếp cột — vị trí thẻ có thể chưa đúng. Số liệu không ảnh hưởng.">
+            <Icon name="alert" size={13} /> Sơ đồ xếp chưa chuẩn
+          </span>
+        )}
       </div>
 
       {/* Vùng cuộn thật: có thanh cuộn 2 chiều, lăn/Shift+lăn/phím mũi tên chạy sẵn. */}
@@ -566,13 +690,14 @@ export function BaiGhepDagCanvas({
                 </filter>
               </defs>
 
-              {sd.nhanh.map((n, idx) => {
+              {sd.nhanh.map((n) => {
                 const c = mau(n.mau);
                 const isSelected = lsxDangChon === n.lsx_id;
                 const strokeWidth = isSelected ? 3.6 : 2.2;
                 const opacity = lsxDangChon !== null && !isSelected ? 0.24 : 0.88;
                 const filterAttr = isSelected ? "url(#bgsdGlowFilter)" : undefined;
-                const yNhanh = PAD + idx * ROW_H;
+                const hang = hangCua(n.lsx_id);
+                const yNhanh = PAD + hang * ROW_H;
                 const lines: React.ReactNode[] = [];
 
                 const hdrP = positions[`hdr_${n.lsx_id}`];
@@ -615,7 +740,7 @@ export function BaiGhepDagCanvas({
                     // Tiền nhiệm là bước của LỆNH KHÁC TRONG BÀI (sách: ruột xong mới vào bìa).
                     // Bỏ qua cạnh trong cùng một hàng — dây tuần tự ở trên đã vẽ rồi.
                     const hangTruoc = hangCuaBuoc.get(pk);
-                    if (hangTruoc === undefined || hangTruoc === idx) return;
+                    if (hangTruoc === undefined || hangTruoc === hang) return;
                     const ra = mep(pk, "phai", PAD + hangTruoc * ROW_H);
                     if (!ra) return;
                     lines.push(
@@ -770,11 +895,21 @@ export function BaiGhepDagCanvas({
             })}
 
             {/* --- Từng nhánh: thẻ lệnh + routing đầy đủ --- */}
-            {sd.nhanh.map((n, idx) => {
+            {sd.nhanh.map((n) => {
               const c = mau(n.mau);
               const isSelected = lsxDangChon === n.lsx_id;
               const hdrP = positions[`hdr_${n.lsx_id}`] || { x: PAD, y: PAD };
-              const yNhanh = PAD + idx * ROW_H;
+              const yNhanh = PAD + hangCua(n.lsx_id) * ROW_H;
+              // Chip "dư tờ" bám vào thẻ RIÊNG đầu tiên sau điểm toả. Không có thẻ nào (bước gộp
+              // là bước cuối routing — rất hay gặp khi mới gộp bước in) thì `-1`, và chip chuyển
+              // sang khối tổng kết cuối nhánh chứ KHÔNG biến mất như trước.
+              const toaIdx = n.toa_step_key
+                ? n.buoc.findIndex((x) => x.step_key === n.toa_step_key)
+                : -1;
+              const neoDuTo =
+                toaIdx >= 0
+                  ? n.buoc.findIndex((b, j) => j > toaIdx && !deLen.has(b.step_key))
+                  : -1;
 
               return (
                 <React.Fragment key={n.thanh_vien_id}>
@@ -876,7 +1011,6 @@ export function BaiGhepDagCanvas({
                     const uv = ungVien[b.step_key];
                     const sang = !!uv?.gop_duoc;
                     const mo = dangChon.length > 0 && !daChon && !sang;
-                    const sauToa = !!n.toa_step_key && i > n.buoc.findIndex((x) => x.step_key === n.toa_step_key);
 
                     return (
                       <React.Fragment key={b.step_key}>
@@ -906,7 +1040,7 @@ export function BaiGhepDagCanvas({
                           } ${sang ? "is-ung-vien" : ""} ${mo ? "is-mo" : ""}`}
                           style={{ left: p.x, top: p.y, width: CARD_W, ["--mau-nhanh" as string]: c }}
                           title={uv && !uv.gop_duoc ? uv.ly_do ?? undefined : undefined}
-                          onClick={(e) => { e.stopPropagation(); bamThe(b, n.lsx_id); }}
+                          onClick={(e) => { e.stopPropagation(); bamThe(b); }}
                           onDoubleClick={(e) => { e.stopPropagation(); onMoLenh?.(n.lsx_id); }}
                           onMouseDown={(e) => handleStartDragNode(`node_${b.step_key}`, e)}
                         >
@@ -939,7 +1073,7 @@ export function BaiGhepDagCanvas({
 
                         {/* Dư TỜ — phát sinh NGAY tại điểm toả: bài chạy `so_to_tot` tờ chung, lệnh
                             nào cần ít hơn thì thừa ngay tại đó. Khác hẳn dư CON ở cuối chuỗi. */}
-                        {sauToa && i === n.buoc.findIndex((x) => x.step_key === n.toa_step_key) + 1 && (
+                        {i === neoDuTo && (
                           <div
                             className={`bgsd-du-to ${n.du_to > 0 ? "is-thua" : "is-vua"}`}
                             style={{ left: p.x - 6, top: p.y - 24 }}
@@ -965,6 +1099,22 @@ export function BaiGhepDagCanvas({
                         top: yNhanh + CARD_H / 2 - 18,
                       }}
                     >
+                      {/* Bước gộp là bước CUỐI routing thì không còn thẻ riêng nào để treo chip
+                          "dư tờ" lên. Trước đây chip biến mất hẳn, dù `du_to` vẫn khác 0 — số có
+                          mà màn hình câm. Dồn về đây, xếp trên dư thành phẩm: hai số cùng là
+                          tổng kết cuối nhánh, đọc liền nhau đúng thứ tự tờ → con. */}
+                      {neoDuTo < 0 && (
+                        <span
+                          className={`bgsd-du-to bgsd-du-to--tong ${n.du_to > 0 ? "is-thua" : "is-vua"}`}
+                          title={
+                            n.du_to > 0
+                              ? `Bài chạy ${num(n.nhu_cau_to + n.du_to)} tờ, lệnh này chỉ cần ${num(n.nhu_cau_to)} tờ`
+                              : "Lệnh này là lệnh quyết định số tờ của bài"
+                          }
+                        >
+                          {n.du_to > 0 ? `+${num(n.du_to)} tờ` : "đủ tờ"}
+                        </span>
+                      )}
                       {n.du > 0 ? (
                         <span className="bgsd-pill-status is-surplus">
                           <Icon name="check" size={12} /> dư +{num(n.du)} con
@@ -987,6 +1137,13 @@ export function BaiGhepDagCanvas({
           <span className="bgsd-selbar__info">
             Đã chọn <b>{dangChon.length}</b> bước{tenDangChon ? ` · ${tenDangChon}` : ""}
           </span>
+          {/* Bấm thẻ mờ vì sinh vòng: nói ngay lý do server trả về. Trước đây chỗ này im, người
+              dùng bấm mãi không hiểu vì sao thẻ không nhận. */}
+          {lyDoChan && (
+            <span className="bgsd-selbar__chan" role="alert">
+              <Icon name="alert" size={13} /> {lyDoChan}
+            </span>
+          )}
           <button
             type="button" className="bgsd-selbar__gop"
             disabled={dangChon.length < 2 || dangGop}

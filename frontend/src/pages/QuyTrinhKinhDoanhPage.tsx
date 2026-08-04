@@ -124,13 +124,14 @@ export const NODES: FlowNode[] = [
   },
   {
     id: "prod",
-    label: "Lệnh sản xuất",
+    label: "Sản xuất",
     lane: "sx",
     kind: "process",
     cx: 635,
     cy: 260,
+    to: "ke-hoach-sx",
     role: "Quản lý Sản xuất",
-    desc: "Phát lệnh sản xuất tới các tổ in, cắt, gia công cán màng, bế hộp.",
+    desc: "Tiến hành sản xuất, phát lệnh tới các tổ in, cắt, gia công cán màng, bế hộp.",
   },
   {
     id: "stockin",
@@ -296,7 +297,6 @@ function getConnectedElements(targetId: string | null) {
 export function QuyTrinhKinhDoanhPage({ navigate }: { navigate: (id: string) => void }) {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<FlowNode | null>(null);
-  const [viewMode, setViewMode] = useState<"swimlane" | "timeline">("swimlane");
   const [activeLaneFilter, setActiveLaneFilter] = useState<LaneKey | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -358,33 +358,6 @@ export function QuyTrinhKinhDoanhPage({ navigate }: { navigate: (id: string) => 
 
         {/* Dynamic Controls Bar */}
         <div className="qtkd__toolbar">
-          {/* View Mode Switcher */}
-          <div className="qtkd__view-toggle" role="group" aria-label="Chế độ xem">
-            <button
-              className={`qtkd__btn-toggle ${viewMode === "swimlane" ? "is-active" : ""}`}
-              onClick={() => setViewMode("swimlane")}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="7" height="7" rx="1" />
-                <rect x="14" y="3" width="7" height="7" rx="1" />
-                <rect x="14" y="14" width="7" height="7" rx="1" />
-                <rect x="3" y="14" width="7" height="7" rx="1" />
-              </svg>
-              Sơ đồ Swimlane
-            </button>
-            <button
-              className={`qtkd__btn-toggle ${viewMode === "timeline" ? "is-active" : ""}`}
-              onClick={() => setViewMode("timeline")}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="3" y1="6" x2="21" y2="6" />
-                <line x1="3" y1="12" x2="21" y2="12" />
-                <line x1="3" y1="18" x2="21" y2="18" />
-              </svg>
-              Pipeline Dòng thời gian
-            </button>
-          </div>
-
           {/* Lane Filters */}
           <div className="qtkd__lane-filters">
             <button
@@ -423,215 +396,160 @@ export function QuyTrinhKinhDoanhPage({ navigate }: { navigate: (id: string) => 
             )}
           </div>
 
-          {/* Zoom controls for Swimlane */}
-          {viewMode === "swimlane" && (
-            <div className="qtkd__zoom-box">
-              <button onClick={() => handleZoom(-0.1)} title="Thu nhỏ (-)">
-                -
+          {/* Zoom controls */}
+          <div className="qtkd__zoom-box">
+            <button onClick={() => handleZoom(-0.1)} title="Thu nhỏ (-)">
+              -
+            </button>
+            <span>{Math.round(zoomLevel * 100)}%</span>
+            <button onClick={() => handleZoom(0.1)} title="Phóng to (+)">
+              +
+            </button>
+            {zoomLevel !== 1 && (
+              <button onClick={handleResetZoom} title="Khôi phục 100%">
+                ↺
               </button>
-              <span>{Math.round(zoomLevel * 100)}%</span>
-              <button onClick={() => handleZoom(0.1)} title="Phóng to (+)">
-                +
-              </button>
-              {zoomLevel !== 1 && (
-                <button onClick={handleResetZoom} title="Khôi phục 100%">
-                  ↺
-                </button>
-              )}
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </header>
 
-      {/* Main Content Area */}
-      {viewMode === "swimlane" ? (
-        <div className="qtkd__board" ref={boardRef}>
-          <div
-            className="qtkd__zoom-wrapper"
-            style={{
-              transform: `scale(${zoomLevel})`,
-              transformOrigin: "top left",
-              transition: "transform 0.2s cubic-bezier(0.2, 0, 0, 1)",
-            }}
+      {/* Main Content Area — Sơ đồ Swimlane */}
+      <div className="qtkd__board" ref={boardRef}>
+        <div
+          className="qtkd__zoom-wrapper"
+          style={{
+            transform: `scale(${zoomLevel})`,
+            transformOrigin: "top left",
+            transition: "transform 0.2s cubic-bezier(0.2, 0, 0, 1)",
+          }}
+        >
+          <svg
+            className="qtkd-svg"
+            viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+            role="img"
+            aria-label="Sơ đồ swimlane quy trình kinh doanh 5 làn."
           >
-            <svg
-              className="qtkd-svg"
-              viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-              role="img"
-              aria-label="Sơ đồ swimlane quy trình kinh doanh 5 làn."
-            >
-              <defs>
-                <marker
-                  id="qtkd-arrow"
-                  viewBox="0 0 10 10"
-                  refX="8"
-                  refY="5"
-                  markerWidth="7"
-                  markerHeight="7"
-                  orient="auto-start-reverse"
-                >
-                  <path
-                    d="M2 1 L8 5 L2 9"
-                    className="qtkd-arrowhead"
-                    fill="none"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </marker>
-                <marker
-                  id="qtkd-arrow-active"
-                  viewBox="0 0 10 10"
-                  refX="8"
-                  refY="5"
-                  markerWidth="8"
-                  markerHeight="8"
-                  orient="auto-start-reverse"
-                >
-                  <path
-                    d="M2 1 L8 5 L2 9"
-                    className="qtkd-arrowhead-active"
-                    fill="none"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </marker>
-
-                {/* Neon Glow Filter */}
-                <filter id="qtkd-glow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feGaussianBlur stdDeviation="3" result="blur" />
-                  <feComposite in="SourceGraphic" in2="blur" operator="over" />
-                </filter>
-              </defs>
-
-              {/* Lane Background Bands */}
-              <rect className="qtkd-lane-band" x="0" y="0" width={VIEW_W} height={HEAD_H} />
-              {DIVIDERS.map((x) => (
-                <line key={x} className="qtkd-divider" x1={x} y1="0" x2={x} y2={VIEW_H} />
-              ))}
-              <line className="qtkd-lane-rule" x1="0" y1={HEAD_H} x2={VIEW_W} y2={HEAD_H} />
-
-              {/* Lane Headers */}
-              {LANES.map((l) => (
-                <g key={l.key} className={`qtkd-lane-header ${activeLaneFilter === l.key ? "is-highlighted" : ""}`}>
-                  <text className="qtkd-lane-label" x={l.cx} y={HEAD_H / 2 + 1} textAnchor="middle" dominantBaseline="central">
-                    {l.label}
-                  </text>
-                </g>
-              ))}
-
-              {/* Edges with Active Glow & Neon Pulse Animation */}
-              {EDGES.map((e, idx) => {
-                const isHoverActive = connectedEdges.has(idx);
-                const isDimmed = hoveredNodeId && !isHoverActive;
-                return (
-                  <g
-                    key={idx}
-                    className={`qtkd-edge-group ${isHoverActive ? "is-active" : ""} ${isDimmed ? "is-dimmed" : ""}`}
-                  >
-                    {/* Base stroke */}
-                    <path
-                      className="qtkd-edge"
-                      d={e.d}
-                      fill="none"
-                      markerEnd={isHoverActive ? "url(#qtkd-arrow-active)" : "url(#qtkd-arrow)"}
-                    />
-
-                    {/* Animated Neon Pulse Stroke for active path */}
-                    {isHoverActive && (
-                      <path
-                        className="qtkd-edge-pulse"
-                        d={e.d}
-                        fill="none"
-                        filter="url(#qtkd-glow)"
-                      />
-                    )}
-
-                    {e.label && (
-                      <text className="qtkd-edge-label" x={e.lx} y={e.ly} textAnchor="middle" dominantBaseline="central">
-                        {e.label}
-                      </text>
-                    )}
-                  </g>
-                );
-              })}
-
-              {/* Nodes */}
-              {NODES.map((node) => {
-                const isConnected = connectedNodes.has(node.id);
-                const isDimmed =
-                  (hoveredNodeId && !isConnected) ||
-                  (!filteredNodeIds.has(node.id) && !hoveredNodeId);
-                const isSelected = selectedNode?.id === node.id;
-                const isHovered = hoveredNodeId === node.id;
-
-                return (
-                  <FlowNodeRender
-                    key={node.id}
-                    node={node}
-                    isHovered={isHovered}
-                    isConnected={isConnected}
-                    isDimmed={isDimmed}
-                    isSelected={isSelected}
-                    onHover={() => setHoveredNodeId(node.id)}
-                    onLeave={() => setHoveredNodeId(null)}
-                    onClick={() => setSelectedNode(node)}
-                    navigate={navigate}
-                  />
-                );
-              })}
-            </svg>
-          </div>
-        </div>
-      ) : (
-        /* Timeline View Mode */
-        <div className="qtkd__timeline">
-          <div className="qtkd__timeline-grid">
-            {filteredNodes.map((node, index) => (
-              <div
-                key={node.id}
-                className={`qtkd-tl-card is-${node.lane} ${node.to ? "is-link" : ""}`}
-                onClick={() => setSelectedNode(node)}
+            <defs>
+              <marker
+                id="qtkd-arrow"
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
               >
-                <div className="qtkd-tl-card__head">
-                  <span className="qtkd-tl-card__step">#0{index + 1}</span>
-                  <span className={`qtkd-tl-card__lane-tag is-${node.lane}`}>
-                    {LANES.find((l) => l.key === node.lane)?.label}
-                  </span>
-                </div>
-                <h3 className="qtkd-tl-card__title">{node.label}</h3>
-                {node.sub && <span className="qtkd-tl-card__sub">{node.sub}</span>}
-                <p className="qtkd-tl-card__desc">{node.desc}</p>
+                <path
+                  d="M2 1 L8 5 L2 9"
+                  className="qtkd-arrowhead"
+                  fill="none"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </marker>
+              <marker
+                id="qtkd-arrow-active"
+                viewBox="0 0 10 10"
+                refX="8"
+                refY="5"
+                markerWidth="8"
+                markerHeight="8"
+                orient="auto-start-reverse"
+              >
+                <path
+                  d="M2 1 L8 5 L2 9"
+                  className="qtkd-arrowhead-active"
+                  fill="none"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </marker>
 
-                <div className="qtkd-tl-card__foot">
-                  <span className="qtkd-tl-card__role">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                      <circle cx="12" cy="7" r="4" />
-                    </svg>
-                    {node.role}
-                  </span>
+              {/* Neon Glow Filter */}
+              <filter id="qtkd-glow" x="-20%" y="-20%" width="140%" height="140%">
+                <feGaussianBlur stdDeviation="3" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+            </defs>
 
-                  {node.to ? (
-                    <button
-                      className="qtkd-tl-card__btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(node.to!);
-                      }}
-                    >
-                      Mở màn hình →
-                    </button>
-                  ) : (
-                    <span className="qtkd-tl-card__soon">Sắp ra mắt</span>
-                  )}
-                </div>
-              </div>
+            {/* Lane Background Bands */}
+            <rect className="qtkd-lane-band" x="0" y="0" width={VIEW_W} height={HEAD_H} />
+            {DIVIDERS.map((x) => (
+              <line key={x} className="qtkd-divider" x1={x} y1="0" x2={x} y2={VIEW_H} />
             ))}
-          </div>
+            <line className="qtkd-lane-rule" x1="0" y1={HEAD_H} x2={VIEW_W} y2={HEAD_H} />
+
+            {/* Lane Headers */}
+            {LANES.map((l) => (
+              <g key={l.key} className={`qtkd-lane-header ${activeLaneFilter === l.key ? "is-highlighted" : ""}`}>
+                <text className="qtkd-lane-label" x={l.cx} y={HEAD_H / 2 + 1} textAnchor="middle" dominantBaseline="central">
+                  {l.label}
+                </text>
+              </g>
+            ))}
+
+            {/* Edges */}
+            {EDGES.map((edge, idx) => {
+              const isHoverActive = connectedEdges.has(idx);
+              const isDimmed = hoveredNodeId && !isHoverActive;
+              return (
+                <g
+                  key={idx}
+                  className={`qtkd-edge-group ${isHoverActive ? "is-active" : ""} ${isDimmed ? "is-dimmed" : ""}`}
+                >
+                  <path
+                    className="qtkd-edge"
+                    d={edge.d}
+                    fill="none"
+                    markerEnd={isHoverActive ? "url(#qtkd-arrow-active)" : "url(#qtkd-arrow)"}
+                  />
+                  {isHoverActive && (
+                    <path
+                      className="qtkd-edge-pulse"
+                      d={edge.d}
+                      fill="none"
+                      filter="url(#qtkd-glow)"
+                    />
+                  )}
+                  {edge.label && (
+                    <text className="qtkd-edge-label" x={edge.lx} y={edge.ly} textAnchor="middle" dominantBaseline="central">
+                      {edge.label}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+
+            {/* Nodes */}
+            {NODES.map((node) => {
+              const isConnected = connectedNodes.has(node.id);
+              const isDimmed =
+                (hoveredNodeId && !isConnected) ||
+                (!filteredNodeIds.has(node.id) && !hoveredNodeId);
+              const isSelected = selectedNode?.id === node.id;
+              const isHovered = hoveredNodeId === node.id;
+
+              return (
+                <FlowNodeRender
+                  key={node.id}
+                  node={node}
+                  isHovered={isHovered}
+                  isConnected={isConnected}
+                  isDimmed={isDimmed}
+                  isSelected={isSelected}
+                  onHover={() => setHoveredNodeId(node.id)}
+                  onLeave={() => setHoveredNodeId(null)}
+                  onClick={() => setSelectedNode(node)}
+                  navigate={navigate}
+                />
+              );
+            })}
+          </svg>
         </div>
-      )}
+      </div>
 
       {/* Flyout Detail Drawer */}
       {selectedNode && (

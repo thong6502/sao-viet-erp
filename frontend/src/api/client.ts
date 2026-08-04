@@ -415,7 +415,22 @@ export interface BaiGhepSoDoBuocChung {
   chay_phut: number | null;
   setup_phut: number; ve_sinh_phut: number; cho_phut: number; di_chuyen_phut: number;
   so_luot_chay: number;
-  khoan_json: Record<string, unknown> | null;
+  /** Khoán của lượt chung — cùng hợp đồng với bước lệnh: phần GHIM (đầu việc đã chọn) + danh
+   *  sách chọn được của TỔ đang gán + phần DẪN XUẤT (SL quy đổi · tiền · diễn giải). */
+  khoan_rate_id: number | null;
+  khoan_ten: string | null;
+  khoan_don_vi: string | null;
+  khoan_don_gia: number | null;
+  /** Định mức (năng suất · số người) chỉ có khi công đoạn đã nối đầu việc đó — nên phần ấy là
+   *  TUỲ CHỌN, đừng khai đủ `LsxDauViecOption` rồi đọc bừa. */
+  khoan_chon_duoc: (Pick<LsxDauViecOption, "id" | "ten" | "don_vi" | "don_gia"> &
+    Partial<LsxDauViecOption>)[];
+  khoan_sl: number | null;
+  khoan_don_vi_sl: string | null;
+  khoan_tien: number | null;
+  khoan_dien_giai: string | null;
+  khoan_thieu: string[];
+  khoan_ly_do: string | null;
   vat_tus: { vat_tu_id: number; ma: string; ten: string; don_vi: string; so_luong: number }[];
   /** Gia công ngoài (DỰ KIẾN) — bước chung thuê ngoài thì cả bài đi MỘT phiếu, MỘT nhà cung cấp. */
   sl_gui: number | null; ngay_gui_dk: string | null;
@@ -450,7 +465,7 @@ export interface BaiGhepSoDo {
     may_id: number | null; may_ten: string | null;
     giay_id: number | null; giay_ten: string | null;
     kho_in_dai: number | null; kho_in_rong: number | null;
-    hao_hut_setup: number; hao_hut_chay: number;
+    hao_hut_setup: number | null; hao_hut_chay: number | null;
     so_to_tot: number; tong_to: number; fill_pct: number | null;
     /** Hao đề xuất của các lượt chung, tách setup/chạy vì hai thứ áp khác nhau. */
     hao_de_xuat: number; hao_setup_de_xuat: number; hao_chay_de_xuat: number;
@@ -477,7 +492,9 @@ export interface BaiGhepSoTo {
 /** Kế hoạch của lượt chạy chung. Số lượng/hao/thời lượng KHÔNG có ở đây — chúng là dẫn xuất. */
 export interface BaiGhepBuocChungBody {
   department_id?: number | null; may_id?: number | null; loai_buoc?: LsxLoaiBuoc;
-  so_nhan_cong?: number; khoan_json?: Record<string, unknown> | null;
+  /** Đầu việc khoán ghim theo ID (0/null = bỏ chọn). Ảnh chụp đơn giá do SERVER chụp — client
+   *  không gửi `khoan_json` thô, kẻo đơn giá bịa chảy thẳng vào phiếu lương. */
+  so_nhan_cong?: number; piece_rate_id?: number | null;
   nang_suat?: number | null; don_vi_nang_suat?: string | null;
   chay_phut?: number | null; setup_phut?: number; ve_sinh_phut?: number;
   cho_phut?: number; di_chuyen_phut?: number; so_luot_chay?: number;
@@ -499,7 +516,8 @@ export interface BaiGhepDetail {
   giay_id: number | null; giay_ten: string | null;
   kho_in_dai: number | null; kho_in_rong: number | null;
   may_id: number | null; may_ten: string | null;
-  hao_hut_setup: number; hao_hut_chay: number; ghi_chu: string | null;
+  /** `null` = CHƯA KHAI (bài dùng hao máy đề xuất) · `0` = khai "chạy đúng số, không bù". */
+  hao_hut_setup: number | null; hao_hut_chay: number | null; ghi_chu: string | null;
   thanh_vien: BaiGhepThanhVien[];
   so_to: BaiGhepSoTo;
   tuong_thich: BaiGhepTuongThich;
@@ -507,7 +525,9 @@ export interface BaiGhepDetail {
 }
 export interface BaiGhepUpdateBody {
   giay_id?: number | null; kho_in_dai?: number | null; kho_in_rong?: number | null;
-  may_id?: number | null; hao_hut_setup?: number; hao_hut_chay?: number; ghi_chu?: string | null;
+  /** Gửi `null` = xoá khai báo (quay về hao máy đề xuất); gửi `0` = khai "không bù hao". */
+  may_id?: number | null; hao_hut_setup?: number | null; hao_hut_chay?: number | null;
+  ghi_chu?: string | null;
 }
 
 // --- Xếp lịch công đoạn — bàn xếp lịch (máy + giờ) của Kế hoạch sản xuất -------

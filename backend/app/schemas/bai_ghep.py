@@ -45,7 +45,10 @@ class BuocChungUpdateIn(BaseModel):
     may_id: int | None = None
     loai_buoc: str | None = None
     so_nhan_cong: int | None = None
-    khoan_json: dict | None = None
+    # Đầu việc khoán ghim theo ID, KHÔNG nhận `khoan_json` thô: ảnh chụp đơn giá là thứ server
+    # chụp từ bảng giá của tổ. Cho client gửi thẳng là mở cửa cho đơn giá bịa vào phiếu lương.
+    # 0 / null = bỏ chọn. Luật kiểm dùng chung với bước lệnh (`_dau_viec_cua_cong_doan`).
+    piece_rate_id: int | None = None
     nang_suat: float | None = None
     don_vi_nang_suat: str | None = None
     chay_phut: float | None = None
@@ -174,8 +177,11 @@ class BaiGhepDetailOut(BaseModel):
     kho_in_rong: int | None = None
     may_id: int | None = None
     may_ten: str | None = None
-    hao_hut_setup: int = 0
-    hao_hut_chay: int = 0
+    # None = CHƯA KHAI (bài dùng số máy đề xuất) · 0 = khai "chạy đúng số, không bù". Khai
+    # `int = 0` ở đây là ép NULL thành 0 ngay tại response model — form sẽ hiện 0 và người dùng
+    # tưởng đã khai không-hao, trong khi bài vẫn đang cộng hao đề xuất.
+    hao_hut_setup: int | None = None
+    hao_hut_chay: int | None = None
     ghi_chu: str | None = None
     thanh_vien: list[ThanhVienOut] = Field(default_factory=list)
     so_to: dict = Field(default_factory=dict)          # so_to_tot · tong_to · fill_pct · han · rows
@@ -262,7 +268,19 @@ class SoDoBuocChung(BaseModel):
     cho_phut: float = 0
     di_chuyen_phut: float = 0
     so_luot_chay: int = 1
-    khoan_json: dict | None = None
+    # Khoán: phần GHIM (đầu việc đã chọn, ảnh chụp) + danh sách chọn được của TỔ đang gán + phần
+    # DẪN XUẤT (SL quy đổi · tiền · diễn giải) — cùng hợp đồng với bước lệnh ở màn KHSX.
+    khoan_rate_id: int | None = None
+    khoan_ten: str | None = None
+    khoan_don_vi: str | None = None
+    khoan_don_gia: float | None = None
+    khoan_chon_duoc: list[dict] = Field(default_factory=list)
+    khoan_sl: float | None = None
+    khoan_don_vi_sl: str | None = None
+    khoan_tien: float | None = None
+    khoan_dien_giai: str | None = None
+    khoan_thieu: list[str] = Field(default_factory=list)
+    khoan_ly_do: str | None = None
     vat_tus: list[dict] = Field(default_factory=list)
     # Gia công ngoài (DỰ KIẾN) — bước chung thuê ngoài thì cả bài đi MỘT phiếu, MỘT nhà cung cấp.
     sl_gui: float | None = None

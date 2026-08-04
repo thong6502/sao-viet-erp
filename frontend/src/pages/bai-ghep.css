@@ -343,6 +343,20 @@
 .bgsd-tb-btn.is-active { background: #0284c7; color: #ffffff; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35); }
 .bgsd-tb-zoom { font-size: 12px; font-family: var(--ff-mono, monospace); font-weight: 700; min-width: 46px; text-align: center; color: #0284c7; }
 .bgsd-tb-divider { width: 1px; height: 16px; background: #cbd5e1; margin: 0 4px; }
+/* Phép xếp cột chưa hội tụ → vị trí thẻ có thể lệch. Cảnh báo về LAYOUT, không phải về số liệu. */
+.bgsd-tb-canhbao {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--amber-soft, #fef3c7);
+  color: var(--amber-deep, #92400e);
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
 
 /* Vùng cuộn thật. Nhờ overflow:auto mà lăn chuột, Shift+lăn, trackpad hai ngón, phím mũi tên và
    cảm ứng đều chạy sẵn — trước đây overflow:hidden nên chỉ còn cách kéo nền, không ai đoán ra. */
@@ -720,8 +734,10 @@
 /* --- Thẻ Kết Quả Đầu Ra KPI (Right Result Node) --- */
 .bgsd-card-branch--right {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 5px;
   border-left-width: 1px;
   border-right: 5px solid #059669;
   background: #f0fdf4;
@@ -1416,6 +1432,9 @@
 }
 .bgsd-du-to.is-thua { background: var(--amber-soft, #fef3c7); color: var(--amber-deep, #92400e); }
 .bgsd-du-to.is-vua { background: var(--rule-soft, #e2e8f0); color: var(--ash, #64748b); }
+/* Bước gộp là bước CUỐI routing → không còn thẻ riêng nào để neo chip, nó về khối tổng kết cuối
+   nhánh. Ở đó chip phải nằm TRONG dòng chảy (xếp trên "dư con"), không thả nổi tuyệt đối. */
+.bgsd-du-to--tong { position: static; display: inline-flex; align-items: center; }
 .bgsd-card-in__badge--giay { opacity: 0.85; }
 
 /* ===================================================================
@@ -1522,6 +1541,19 @@
   cursor: pointer;
 }
 .bgsd-selbar__huy:hover { color: #fff; text-decoration: underline; }
+/* Lý do thẻ mờ không nhận: hiện ngay trên thanh chọn, không bắt người dùng rê chuột tìm tooltip. */
+.bgsd-selbar__chan {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 420px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.16);
+  color: #fcd34d;
+  font-size: 12px;
+  line-height: 1.35;
+}
 
 /* Ghi chú kỹ thuật của từng lệnh trong drawer bước chung — GOM, không đè. */
 .bgsd-gang-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }

@@ -183,11 +183,15 @@
 }
 
 /* --- Table --- */
+/* `overflow-x: auto` (không phải `hidden`): 8 cột không bao giờ vừa khung hẹp — hidden thì
+   cắt cụt cột Trạng thái mà không cuộn được. `overflow-y: hidden` vẫn bo góc như cũ. */
 .dhb__tablewrap {
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-6);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
   box-shadow: var(--shadow-4);
   transition: box-shadow var(--duration-base) var(--easing-standard);
 }
@@ -200,6 +204,9 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  /* Sàn để cột không bị bóp thành cột chữ dọc ("Công ty / TNHH / An / Phát").
+     Dưới ngưỡng này thì CUỘN, chứ không ép chữ xuống dòng từng từ. */
+  min-width: 920px;
 }
 
 .dhb__table thead th {
@@ -987,6 +994,49 @@
 @media (max-width: 760px) {
   .dhb__kpis {
     grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ==========================================================================
+   §RESPONSIVE — màn danh sách Đơn hàng bán
+   Cùng bệnh với màn Khách hàng: bảng 8 cột nằm trong khung `overflow:hidden` nên
+   khung hẹp vừa cắt cụt cột phải vừa bóp tên khách thành cột chữ dọc. Xử lý ở
+   `.dhb__tablewrap` (cuộn ngang) + `.dhb__table { min-width }` phía trên; dưới đây
+   chỉ là phần nhường chỗ: siết đệm, cho các dải điều khiển xuống dòng.
+   ========================================================================== */
+.dhb__header {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1024px) {
+  .dhb-container {
+    padding: var(--sp-4) var(--sp-4);
+  }
+  .dhb__table thead th {
+    padding: 10px 11px;
+  }
+  .dhb__table tbody td {
+    padding: 11px 11px;
+  }
+}
+
+@media (max-width: 640px) {
+  .dhb-container {
+    padding: var(--sp-3);
+  }
+  .dhb__title {
+    font-size: 20px;
+  }
+  /* Ô tìm 250px cứng đứng cạnh dải tab là tràn — cho nó chiếm trọn dòng dưới. */
+  .dhb__spacer {
+    display: none;
+  }
+  .dhb__search-wrapper {
+    flex: 1 1 100%;
+  }
+  .dhb__search-input {
+    width: 100%;
+    min-width: 0;
   }
 }
 

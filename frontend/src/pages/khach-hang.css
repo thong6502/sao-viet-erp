@@ -5903,3 +5903,110 @@
   box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.12) !important;
 }
 
+/* ==========================================================================
+   §RESPONSIVE — màn DANH SÁCH khách hàng
+   Khung hẹp (pane chia đôi, laptop 13", tablet dọc) trước đây vỡ 4 chỗ:
+   nút hành động bị đẩy khỏi màn, badge tổng-KH bị bóp gãy chữ, bảng 7 cột
+   `nowrap` bị `overflow:hidden` CẮT CỤT (không cuộn được), pager `nowrap` tràn.
+   Nguyên tắc:
+   - Bảng cuộn ngang TRONG khung thẻ (`.kh__tablescroll`), KHÔNG đẩy cả trang trượt.
+   - Mọi dải điều khiển (head / toolbar / pager) được phép xuống dòng.
+   - KHÔNG ẩn cột: doanh số / số đơn chính là thứ người dùng vào màn này để xem.
+
+   ĐỂ Ở CUỐI FILE là cố ý: file này có nhiều lớp override nối đuôi (§7 bảng ở trên,
+   avatar ~3100, care-cards ~5540). Media query KHÔNG cộng thêm specificity, nên đặt
+   khối này ở giữa file là bị các lớp sau đè. Thêm luật responsive → thêm vào ĐÂY.
+   ========================================================================== */
+
+/* Vùng cuộn bọc riêng bảng; pager là anh em nên đứng yên khi cuộn ngang.
+   `.kh__tablewrap` vẫn giữ `overflow:hidden` để bo góc khung. */
+.kh__tablescroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.kh__head {
+  flex-wrap: wrap;
+}
+/* Flex item thiếu min-width:0 thì tên dài đẩy nút hành động ra ngoài thay vì xuống dòng. */
+.kh__title-group {
+  min-width: 0;
+}
+.kh__title-row {
+  flex-wrap: wrap;
+}
+/* Badge tổng KH: không khoá nowrap thì bị bóp thành 3 dòng gãy chữ. */
+.kh__badge-summary {
+  white-space: nowrap;
+}
+.kh__head-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.kh__pager,
+.kh__pager-left {
+  flex-wrap: wrap;
+}
+/* auto-fill + minmax(340px) tạo track 340px CỨNG: khung < 340 là tràn.
+   `min(340px, 100%)` cho track co theo khung. */
+.kh__care-cards-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+}
+
+@media (max-width: 1024px) {
+  .kh {
+    padding: 14px 16px;
+  }
+  /* Siết đệm ô để bảng THƯỜNG vừa khung — cuộn ngang chỉ là van an toàn. */
+  .kh__table thead th {
+    padding: 9px 10px;
+  }
+  .kh__table tbody td {
+    padding: 10px 10px;
+  }
+  .kh__identity-cell {
+    gap: 9px;
+  }
+  /* Nhóm nút xuống hàng riêng, canh trái cho thẳng lề với tiêu đề. */
+  .kh__head-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .kh {
+    padding: 12px;
+    gap: 12px;
+  }
+  .kh__title {
+    font-size: 20px;
+  }
+  /* Ô tìm kiếm chiếm trọn dòng, 2 bộ lọc chia dòng dưới — hết cảnh select bị bóp. */
+  .kh__toolbar-controls {
+    justify-content: flex-start;
+  }
+  .kh__search {
+    flex: 1 1 100%;
+  }
+  .kh__filter {
+    flex: 1 1 150px;
+    width: auto;
+  }
+  /* Dải chỉ số hết là "viên pill" một hàng → cho xuống dòng, bo góc nhẹ lại. */
+  .kh__ckpi {
+    flex-wrap: wrap;
+    row-gap: 8px;
+    border-radius: var(--r-5);
+  }
+  .kh__pager {
+    justify-content: flex-start;
+    gap: 10px;
+  }
+  .kh__pager-btns {
+    margin-left: auto;
+  }
+}
+

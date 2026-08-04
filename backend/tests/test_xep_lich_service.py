@@ -412,6 +412,11 @@ def test_dag_buoc_ghep_lay_moc_muon_nhat_cua_nhieu_tien_nhiem(
                         lambda: datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc))
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    # `_san_thoi_gian` = max(_utcnow(), ban_giao_at). Ghim `_utcnow` thôi là CHƯA đủ: fixture đặt
+    # `ban_giao_at` bằng giờ THẬT, nên sàn thời gian trôi theo ngày chạy test và nuốt mốc tiền
+    # nhiệm ngay khi hôm nay vượt 2026-08-03 — bom hẹn giờ, nổ ngày 2026-08-03.
+    lsx.ban_giao_at = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
+    db.commit()
     a = _in_step(db, lsx.id)
     b = LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Nhánh B", loai_buoc=LB_MAY,
                     may_id=a.may_id, so_luong_vao=100, nang_suat=100,

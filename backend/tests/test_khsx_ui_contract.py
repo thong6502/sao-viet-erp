@@ -1,3 +1,14 @@
+"""Hợp đồng UI của KHSX — soi TRÊN MÃ NGUỒN FE.
+
+Đây là kiểm CẤU TRÚC, không phải kiểm hành vi: nó chứng minh ký tự tồn tại, không chứng minh
+render. Đổi `n.buoc.map(...)` thành `n.buoc.filter(...).map(...)` là đỏ dù đúng; để nguyên chuỗi
+đó trong một comment thì xanh dù đã xoá sạch UI.
+
+Vẫn giữ vì nó rẻ và bắt được đúng một loại lỗi: ai đó gỡ mất một cửa ghi / một khoá dữ liệu mà
+không ai để ý. Nhưng nó KHÔNG còn là bằng chứng duy nhất cho FE — hành vi thật (bấm chọn, gộp,
+chip số) nay có test render bằng vitest + jsdom, xem `frontend/src/components/*.test.tsx` và
+`test_bang_chung_fe_that_su_ton_tai` ở cuối file này.
+"""
 import re
 from pathlib import Path
 
@@ -191,3 +202,22 @@ def test_dag_co_thanh_keo_ngang_va_van_giu_sap_xep_tu_dong() -> None:
     assert "scrollLeft = 0" in source
     assert "overflow: auto" in css
     assert "height: 580px" not in css
+
+
+def test_bang_chung_fe_that_su_ton_tai() -> None:
+    """Bộ test render của FE phải còn sống và phải được CI chạy.
+
+    Không kiểm nội dung test FE ở đây (vô nghĩa — lại grep chuỗi). Chỉ chốt đúng hai điều mà xoá
+    đi thì cả module mất bằng chứng hành vi mà pytest vẫn xanh: file test còn đó, và cổng kiểm
+    còn gọi nó. Thư mục có test nhưng CI không chạy còn tệ hơn không có test: nhìn vào tưởng
+    phần đó đã được khoá.
+    """
+    goc = DRAWER.parents[3]          # …/frontend/src/pages/X.tsx → gốc repo
+    canvas_test = goc / "frontend" / "src" / "components" / "BaiGhepDagCanvas.test.tsx"
+    assert canvas_test.exists(), "mất test render của canvas bài ghép"
+
+    pkg = (goc / "frontend" / "package.json").read_text(encoding="utf-8")
+    assert '"test"' in pkg and "vitest" in pkg
+
+    ci = (goc / ".github" / "workflows" / "build-test.yml").read_text(encoding="utf-8")
+    assert "npm test" in ci, "cổng kiểm không chạy test FE thì test FE sẽ mục"

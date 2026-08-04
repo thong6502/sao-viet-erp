@@ -160,7 +160,9 @@ def bg_svc(db):
 
 
 # --- dựng nguồn: 2 sản phẩm CÙNG GIẤY, mỗi cái chỉ có bước In ------------------
-def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000) -> PhieuTinhGia:
+def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000, sl_them: tuple[int, ...] = ()) -> PhieuTinhGia:
+    """PTG 2 thành phần in cùng giấy. `sl_them` nối thêm thành phần — cần khi test tầm ngắm của
+    `_do_thi_cua`: phải có lệnh CÙNG ĐƠN nhưng NGOÀI bài để đồ thị còn chỗ mà lan tới."""
     giay = GiayNguyen(
         ma="G-IV350B", ten="Ivory 350", gsm=350, don_gia=25_000, don_vi_gia="tan",
         cong_thuc_gia="to_nguyen * dai_nguyen * rong_nguyen * dinh_luong * don_gia / 1000",
@@ -191,6 +193,8 @@ def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000) -> PhieuTinhGia:
 
     p = PhieuTinhGia(ma="PTG-GHEP-0001", ten_san_pham="2 hộp ghép", so_luong=sl_a)
     p.thanh_phans.extend([_sp(0, "Hộp A", sl_a, 200, 150), _sp(1, "Hộp B", sl_b, 180, 120)])
+    for i, sl in enumerate(sl_them):
+        p.thanh_phans.append(_sp(2 + i, f"Hộp {chr(ord('C') + i)}", sl, 160, 100))
     db.add(p)
     db.commit()
     return p
@@ -828,3 +832,344 @@ def test_so_do_giu_routing_day_du_va_khong_luu_canh(db, orders, lsx_svc, bg_svc,
     truoc = db.query(LsxCongDoanPhuThuoc).count()
     bg_svc.so_do(bg_svc._get(bg.id))
     assert db.query(LsxCongDoanPhuThuoc).count() == truoc
+
+
+# --- §3 sổ nợ: hao khai tay · thứ tự bước chung · khoán lượt chung ------------
+def _cd_can_mang_chung(db) -> CongDoan:
+    """MỘT công đoạn cán màng dùng chung cho cả hai lệnh — cùng `cong_doan_id` mới gộp được.
+
+    Khác `_them_buoc_hao_sau_in`: hàm kia đẻ mỗi lệnh một công đoạn riêng, hai bước đó không bao
+    giờ gộp chung lượt được.
+    """
+    cd = CongDoan(
+        ma="CD-CAN-CHUNG", ten="Cán màng", nhom="finishing",
+        cong_thuc_gia="so_luong * don_gia", don_vi_vao="to", don_vi_ra="to",
+        department_id=_to_san_xuat(db).id,
+    )
+    db.add(cd)
+    db.flush()
+    return cd
+
+
+def _noi_buoc_cuoi(lsx_svc, lsx_id, admin, cd: CongDoan) -> None:
+    """Nối `cd` vào CUỐI routing, KHÔNG khai `phu_thuoc_step_keys`.
+
+    Cố ý để routing không có cạnh phụ thuộc nào — đó chính là ca đồ thị rời rạc, Kahn trả thứ tự
+    tuỳ ý. Chuỗi thật của lệnh nằm ở `thu_tu`.
+    """
+    from app.schemas.lsx import LsxCongDoanIn
+
+    cu = sorted(lsx_svc.get(lsx_id).cong_doans, key=lambda c: c.thu_tu)
+    lsx_svc.replace_routing(lsx_id=lsx_id, actor=admin, rows_in=[
+        *[LsxCongDoanIn(step_key=c.step_key, ten=c.ten, nhom=c.nhom,
+                        cong_doan_id=c.cong_doan_id) for c in cu],
+        LsxCongDoanIn(ten=cd.ten, nhom=cd.nhom, cong_doan_id=cd.id),
+    ])
+
+
+def _keys_cua_cong_doan(lsx_svc, created, cd_id: int) -> list[str]:
+    return [
+        next(c.step_key for c in lsx_svc.get(l.id).cong_doans if c.cong_doan_id == cd_id)
+        for l in created
+    ]
+
+
+def test_khai_hao_0_thi_bai_khong_tu_thay_bang_de_xuat(
+    db, orders, lsx_svc, bg_svc, admin, customer,
+):
+    """"Chạy đúng số, không bù" là quyết định hợp lệ — máy không được đè lên nó.
+
+    Hai cột hao từng `NOT NULL DEFAULT 0` nên "chưa ai khai" và "khai 0" là CÙNG một giá trị, mà
+    engine đọc bằng `int(setup) + int(chay) or hao_de_xuat`: ai gõ 0 vẫn bị cộng hao máy, và
+    không có đường nào khai không-bù-hao.
+    """
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    # Công đoạn in của seed không khai quy tắc bù hao → đề xuất = 0, test sẽ rỗng nghĩa.
+    cd_in = db.get(CongDoan, sorted(
+        lsx_svc.get(created[0].id).cong_doans, key=lambda c: c.thu_tu)[0].cong_doan_id)
+    cd_in.kieu_bu_hao, cd_in.so_to_bu_hao = "co_dinh", 250
+    db.commit()
+
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+
+    chua_khai = bg_svc.detail_dict(bg_svc._get(bg.id))["so_to"]
+    assert chua_khai["hao_de_xuat"] == 250, "fixture phải có hao đề xuất thì test mới có nghĩa"
+    # CHƯA KHAI (NULL) → vẫn dùng số máy đề xuất, y như trước khi sửa.
+    assert chua_khai["tong_to"] == chua_khai["so_to_tot"] + chua_khai["hao_de_xuat"]
+
+    bg_svc.sua(bai_ghep_id=bg.id, patch={"hao_hut_setup": 0, "hao_hut_chay": 0}, actor=admin)
+    khai_0 = bg_svc.detail_dict(bg_svc._get(bg.id))["so_to"]
+    assert khai_0["hao_de_xuat"] == chua_khai["hao_de_xuat"], "đề xuất vẫn hiện để còn đối chiếu"
+    assert khai_0["tong_to"] == khai_0["so_to_tot"], "khai 0 mà vẫn cộng hao là đè lên ý người dùng"
+    assert khai_0["to_nguyen_can"] == khai_0["so_to_tot"]
+
+    # Xoá khai báo (None) → quay về đề xuất, không kẹt ở 0.
+    bg_svc.sua(bai_ghep_id=bg.id, patch={"hao_hut_setup": None, "hao_hut_chay": None}, actor=admin)
+    lai = bg_svc.detail_dict(bg_svc._get(bg.id))["so_to"]
+    assert lai["tong_to"] == lai["so_to_tot"] + lai["hao_de_xuat"]
+
+
+def test_tong_to_va_to_nguyen_can_dung_chung_mot_co_so_hao(
+    db, orders, lsx_svc, bg_svc, admin, customer,
+):
+    """Hai số cùng nghĩa "tờ phải cấp", chỉ khác đơn vị — không được lấy hai cơ sở hao khác nhau.
+
+    `tong_to` từng chỉ cộng hao KHAI TAY còn `to_nguyen_can` cộng hao ÁP DỤNG (có fallback đề
+    xuất). Bài chưa khai hao thì hai ô nằm cạnh nhau trên cùng header nói hai chuyện khác nhau.
+    """
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+
+    for patch in ({}, {"hao_hut_setup": 120, "hao_hut_chay": 30},
+                  {"hao_hut_setup": 0, "hao_hut_chay": 0}):
+        if patch:
+            bg_svc.sua(bai_ghep_id=bg.id, patch=patch, actor=admin)
+        so_to = bg_svc.detail_dict(bg_svc._get(bg.id))["so_to"]
+        # Fixture không có bước xả (1 tờ nguyên = 1 tờ in) nên hai số phải TRÙNG khít.
+        assert so_to["tong_to"] == so_to["to_nguyen_can"], (
+            f"patch={patch}: to in {so_to['tong_to']} != to nguyen {so_to['to_nguyen_can']}"
+        )
+
+
+def test_thu_tu_buoc_chung_dung_chieu_du_routing_khong_co_canh(
+    db, orders, lsx_svc, bg_svc, admin, customer,
+):
+    """Routing chưa nối dây → đồ thị RỜI RẠC, nhưng thứ tự bước chung vẫn phải đúng chiều.
+
+    `lsx_cong_doan_phu_thuoc` chỉ lưu cạnh NGƯỜI nối tay; chuỗi trong một lệnh là ngầm theo
+    `thu_tu`. Thiếu chuỗi ngầm thì Kahn trả thứ tự tuỳ ý, `_sap_lai_thu_tu` đánh số sai chiều,
+    rồi `_node_chungs` chạy NGƯỢC theo đúng thứ tự sai đó để chia hao — sai lặng lẽ.
+
+    Gộp CỐ Ý ngược chiều (cán trước, in sau) để thứ tự bấm khác thứ tự routing.
+    """
+    from app.models.lsx import LsxCongDoanPhuThuoc
+
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    cd_can = _cd_can_mang_chung(db)
+    for l in created:
+        _noi_buoc_cuoi(lsx_svc, l.id, admin, cd_can)
+
+    ids = [c.id for l in created for c in lsx_svc.get(l.id).cong_doans]
+    assert db.query(LsxCongDoanPhuThuoc).filter(
+        LsxCongDoanPhuThuoc.buoc_sau_id.in_(ids)
+    ).count() == 0, "test chỉ có nghĩa khi routing KHÔNG có cạnh phụ thuộc nào"
+
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    bg_svc.gop(bai_ghep_id=bg.id,
+               step_keys=_keys_cua_cong_doan(lsx_svc, created, cd_can.id), actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+
+    sd = bg_svc.so_do(bg_svc._get(bg.id))
+    chung_in = next(g for g in sd["gop"] if g["nhom"] == "print")
+    chung_can = next(g for g in sd["gop"] if g["cong_doan_id"] == cd_can.id)
+    assert chung_in["thu_tu"] < chung_can["thu_tu"], (
+        f"in phai dung truoc can: in={chung_in['thu_tu']} can={chung_can['thu_tu']}"
+    )
+
+
+def test_sua_routing_thi_thu_tu_buoc_chung_duoc_danh_lai(
+    db, orders, lsx_svc, bg_svc, admin, customer,
+):
+    """`_sap_lai_thu_tu` từng CHỈ chạy khi gộp/tách — sửa routing thì `thu_tu` bước chung thiu.
+
+    `replace_routing` chặn XOÁ bước đang bị đè, nhưng vẫn cho đổi `thu_tu`. Đảo hai bước đã gộp
+    mà bài không đánh lại thứ tự thì `_node_chungs` chia hao theo chuỗi đã cũ.
+    """
+    from app.schemas.lsx import LsxCongDoanIn
+
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    cd_can = _cd_can_mang_chung(db)
+    for l in created:
+        _noi_buoc_cuoi(lsx_svc, l.id, admin, cd_can)
+
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+    bg_svc.gop(bai_ghep_id=bg.id,
+               step_keys=_keys_cua_cong_doan(lsx_svc, created, cd_can.id), actor=admin)
+
+    def _thu_tu(khoa) -> int:
+        sd = bg_svc.so_do(bg_svc._get(bg.id))
+        return next(g["thu_tu"] for g in sd["gop"]
+                    if g["nhom"] == khoa or g["cong_doan_id"] == khoa)
+
+    assert _thu_tu("print") < _thu_tu(cd_can.id)
+
+    # ĐẢO routing của cả hai lệnh: cán chạy trước, in sau. Không xoá bước nào nên không bị chặn.
+    for l in created:
+        cu = sorted(lsx_svc.get(l.id).cong_doans, key=lambda c: c.thu_tu)
+        lsx_svc.replace_routing(lsx_id=l.id, actor=admin, rows_in=[
+            LsxCongDoanIn(step_key=c.step_key, ten=c.ten, nhom=c.nhom,
+                          cong_doan_id=c.cong_doan_id)
+            for c in reversed(cu)
+        ])
+
+    assert _thu_tu(cd_can.id) < _thu_tu("print"), (
+        "dao routing xong ma thu tu buoc chung khong doi = `thu_tu` da thiu"
+    )
+
+
+def test_khoan_luot_chung_ghim_theo_id_va_chan_dau_viec_la(
+    db, orders, lsx_svc, bg_svc, admin, customer,
+):
+    """Lượt chung chọn được đầu việc khoán — backend vẫn nhận nhưng form chưa có ô nhập.
+
+    Ghim theo ID và SERVER chụp ảnh đơn giá: cho client gửi `khoan_json` thô là mở cửa cho đơn
+    giá bịa chảy thẳng vào phiếu lương.
+    """
+    from app.models.cong_doan import CongDoanDauViec
+    from app.models.piece_work import PieceRate
+
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    # Khai bảng khoán TRƯỚC khi đụng tới bài: `LsxService._piece_rates()` cache theo instance,
+    # mà `BaiGhepService` dựng instance đó ở lần gọi engine đầu tiên.
+    to = _to_san_xuat(db)
+    cd_in_id = sorted(lsx_svc.get(created[0].id).cong_doans, key=lambda c: c.thu_tu)[0].cong_doan_id
+    rate = PieceRate(group_name="to_in", name="In tờ rời", unit="to", unit_price=35,
+                     department_id=to.id, is_active=True)
+    db.add(rate)
+    db.flush()
+    db.add(CongDoanDauViec(
+        cong_doan_id=cd_in_id, piece_rate_id=rate.id,
+        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2, so_nguoi_toi_da=3, is_default=True,
+    ))
+    db.commit()
+
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+    chung = bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]
+    assert chung["cong_doan_id"] == cd_in_id
+
+    bg_svc.lap_ke_hoach_buoc_chung(
+        bai_ghep_id=bg.id, gang_step_key=chung["step_key"],
+        patch={"department_id": to.id, "piece_rate_id": rate.id}, actor=admin,
+    )
+    sau = bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]
+    assert sau["khoan_rate_id"] == rate.id
+    assert sau["khoan_ten"] == "In tờ rời" and sau["khoan_don_gia"] == 35
+    assert rate.id in {k["id"] for k in sau["khoan_chon_duoc"]}
+    # Định mức đi kèm: chọn xong mà năng suất vẫn trống thì thẻ vẫn kêu "Chưa có năng suất".
+    assert sau["nang_suat"] == 3000 and sau["so_nhan_cong"] == 2
+    assert "Chưa có năng suất" not in sau["thieu"]
+
+    # Đầu việc không thuộc tổ / công đoạn → CHẶN, không âm thầm ghim.
+    la = PieceRate(group_name="to_khac", name="Việc tổ khác", unit="to", unit_price=99,
+                   department_id=None, is_active=True)
+    db.add(la)
+    db.commit()
+    with pytest.raises(BaiGhepValidationError):
+        bg_svc.lap_ke_hoach_buoc_chung(
+            bai_ghep_id=bg.id, gang_step_key=chung["step_key"],
+            patch={"piece_rate_id": la.id}, actor=admin,
+        )
+
+
+# --- §4 sổ nợ: khoá TẦNG SERVICE của đồ thị (9 test cũ đều thuần Python) -----
+def _step_key(lsx_svc, lsx_id: int, *, nhom: str | None = None, cd_id: int | None = None) -> str:
+    cds = sorted(lsx_svc.get(lsx_id).cong_doans, key=lambda c: c.thu_tu)
+    return next(c.step_key for c in cds
+                if (nhom is None or c.nhom == nhom) and (cd_id is None or c.cong_doan_id == cd_id))
+
+
+def _cho_buoc_cua(lsx_svc, lsx_id: int, admin, *, step_key: str, cho_key: str | None) -> None:
+    """Khai `step_key` PHỤ THUỘC `cho_key` — cạnh CHÉO LỆNH, qua đúng API thật. `None` = gỡ cạnh.
+
+    `replace_routing` chỉ cho phụ thuộc công đoạn CÙNG ĐƠN HÀNG, nên mọi cạnh chéo ở đây đều là
+    cạnh hợp lệ theo luật hiện hành, không phải cạnh nhét tay vào DB.
+    """
+    from app.schemas.lsx import LsxCongDoanIn
+
+    cu = sorted(lsx_svc.get(lsx_id).cong_doans, key=lambda c: c.thu_tu)
+    lsx_svc.replace_routing(lsx_id=lsx_id, actor=admin, rows_in=[
+        LsxCongDoanIn(
+            step_key=c.step_key, ten=c.ten, nhom=c.nhom, cong_doan_id=c.cong_doan_id,
+            phu_thuoc_step_keys=([cho_key] if (cho_key and c.step_key == step_key) else []),
+        )
+        for c in cu
+    ])
+
+
+def test_do_thi_cua_lan_theo_canh_qua_NHIEU_bac_khong_dung_o_mot_hop(
+    db, orders, lsx_svc, bg_svc, admin, customer,
+):
+    """Tầm ngắm kiểm vòng phải ĐÓNG BAO THEO CẠNH, lặp tới khi không kéo thêm được ai.
+
+    `_do_thi_cua` là phần CHẠM DB của đồ thị — 9 test `bai_ghep_graph` đều thuần Python nên
+    khoá được thuật toán mà không khoá được việc service nạp đúng tập node/cạnh. Cắt tầm ngắm
+    ở một bậc thì kiểm vòng báo "gộp được" rồi xưởng mới phát hiện kẹt.
+
+    Dây chuyền: A (trong bài) chờ C, C chờ D. Cả C lẫn D đều NGOÀI bài — D cách bài hai bậc.
+    """
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer, sl_them=(5_000, 4_000))
+    assert len(created) == 4, "cần 2 lệnh ngoài bài để có bậc thứ hai mà lan tới"
+    a, b, c, d = created
+    cd_can = _cd_can_mang_chung(db)
+    for l in created:
+        _noi_buoc_cuoi(lsx_svc, l.id, admin, cd_can)
+
+    _cho_buoc_cua(lsx_svc, a.id, admin,
+                  step_key=_step_key(lsx_svc, a.id, nhom="print"),
+                  cho_key=_step_key(lsx_svc, c.id, cd_id=cd_can.id))
+    _cho_buoc_cua(lsx_svc, c.id, admin,
+                  step_key=_step_key(lsx_svc, c.id, nhom="print"),
+                  cho_key=_step_key(lsx_svc, d.id, cd_id=cd_can.id))
+
+    bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
+    buocs, canhs = bg_svc._do_thi_cua(bg_svc._get(bg.id))
+
+    trong_tam = {x.lsx_id for x in buocs}
+    assert {a.id, b.id, c.id} <= trong_tam, "chưa kéo nổi lệnh kề bài — cắt ngay bậc một"
+    assert d.id in trong_tam, "dừng ở một bậc: lệnh cách bài hai bậc bị bỏ ngoài tầm ngắm"
+    assert {x.trong_bai for x in buocs if x.lsx_id == a.id} == {True}
+    assert {x.trong_bai for x in buocs if x.lsx_id == d.id} == {False}
+
+    # Và CẠNH chéo lệnh phải theo về, không chỉ mỗi node.
+    keys = {x.key for x in buocs}
+    cap = {(e.truoc, e.sau) for e in canhs}
+    assert all(e.truoc in keys and e.sau in keys for e in canhs)
+    assert (_step_key(lsx_svc, c.id, cd_id=cd_can.id),
+            _step_key(lsx_svc, a.id, nhom="print")) in cap
+
+
+def test_canh_cheo_lenh_lam_vo_phep_gop_o_TANG_SERVICE(
+    db, orders, lsx_svc, bg_svc, admin, customer,
+):
+    """Cạnh chéo lệnh phải chặn được phép gộp khi đi qua service thật, không chỉ ở tầng thuần.
+
+    A.In chờ B.Cán, mà B.Cán lại chờ B.In. Gộp A.In với B.In là bắt một lượt máy vừa phải chạy
+    trước vừa phải chạy sau chính nó — vòng thật, không phải bắt lỗi hình thức.
+
+    Test này ĐỎ ngay nếu `_do_thi_cua` quên nạp cạnh chéo: bỏ cạnh đó đi thì đồ thị sạch bong.
+    """
+    from app.services.bai_ghep_service import BaiGhepVongPhuThuoc
+
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    a, b = created
+    cd_can = _cd_can_mang_chung(db)
+    for l in created:
+        _noi_buoc_cuoi(lsx_svc, l.id, admin, cd_can)
+
+    _cho_buoc_cua(lsx_svc, a.id, admin,
+                  step_key=_step_key(lsx_svc, a.id, nhom="print"),
+                  cho_key=_step_key(lsx_svc, b.id, cd_id=cd_can.id))
+
+    bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
+    keys_in = [_step_key(lsx_svc, l.id, nhom="print") for l in created]
+
+    # Canvas hỏi TRƯỚC: bước in của B phải hiện MỜ kèm lý do, không để bấm rồi mới 409.
+    uv = bg_svc.ung_vien_gop(bg_svc._get(bg.id), [keys_in[0]])
+    assert uv[keys_in[1]]["gop_duoc"] is False
+    assert uv[keys_in[1]]["ly_do"]
+
+    with pytest.raises(BaiGhepVongPhuThuoc) as e:
+        bg_svc.gop(bai_ghep_id=bg.id, step_keys=keys_in, actor=admin)
+    assert e.value.nut, "409 phải mang chu trình để người dùng biết gỡ ở đâu"
+    assert e.value.nhan_chung, "và mang nhân chứng để canvas tô đúng cặp bước chọi nhau"
+
+    # Không có cạnh chéo thì chính phép gộp ấy chạy ngon — chứng minh đỏ là DO cạnh, không do
+    # test dựng sai.
+    _cho_buoc_cua(lsx_svc, a.id, admin,
+                  step_key=_step_key(lsx_svc, a.id, nhom="print"), cho_key=None)
+    bg_svc.gop(bai_ghep_id=bg.id, step_keys=keys_in, actor=admin)
+    assert len(bg_svc.so_do(bg_svc._get(bg.id))["gop"]) == 1

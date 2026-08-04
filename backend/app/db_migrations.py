@@ -4706,6 +4706,33 @@ def _migrate_xep_lich_bai_ghep_cong_doan(db: Session) -> None:
         db.commit()
 
 
+def _migrate_bai_ghep_hao_nullable(db: Session) -> None:
+    """`bai_ghep.hao_hut_setup/chay`: NOT NULL DEFAULT 0 → nullable. NULL = CHƯA KHAI.
+
+    Cột cũ không phân biệt được "chưa ai khai" với "khai 0". Engine đọc chúng bằng
+    `int(setup) + int(chay) or hao_de_xuat`, nên ai cố ý khai không-bù-hao vẫn bị thay bằng số
+    máy đề xuất — không có đường nào bảo bài chạy đúng số.
+
+    Đưa bài đang 0/0 về NULL để GIỮ NGUYÊN số đang hiện (code cũ hiểu 0/0 là chưa khai). Bài có
+    bất kỳ số khác 0 thì giữ nguyên — đó là số người đã khai thật.
+
+    `DROP NOT NULL` là Postgres-only: SQLite dựng bảng thẳng từ model nên đã nullable sẵn, và
+    pytest sẽ xanh dù nhánh này chưa chạy — phải kiểm trên Postgres.
+    """
+    insp = inspect(db.get_bind())
+    if "bai_ghep" not in insp.get_table_names():
+        return
+    if (db.get_bind().dialect.name or "").startswith("postgres"):
+        for col in ("hao_hut_setup", "hao_hut_chay"):
+            db.execute(text(f"ALTER TABLE bai_ghep ALTER COLUMN {col} DROP NOT NULL"))
+            db.execute(text(f"ALTER TABLE bai_ghep ALTER COLUMN {col} DROP DEFAULT"))
+    db.execute(text(
+        "UPDATE bai_ghep SET hao_hut_setup = NULL, hao_hut_chay = NULL "
+        "WHERE COALESCE(hao_hut_setup, 0) = 0 AND COALESCE(hao_hut_chay, 0) = 0"
+    ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -4978,6 +5005,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0150_bai_ghep_buoc_in_step_key", _migrate_bai_ghep_buoc_in_step_key),
     # Bài ghép gộp nhiều công đoạn (CTP/in/cán/bế) → MỖI bước chung một dòng lịch, phải neo được.
     ("0151_xep_lich_bai_ghep_cong_doan", _migrate_xep_lich_bai_ghep_cong_doan),
+    # Hao của bài: NULL = chưa khai, 0 = khai "không bù" — hai ý khác nhau, trước dùng chung số 0.
+    ("0152_bai_ghep_hao_nullable", _migrate_bai_ghep_hao_nullable),
 ]
 
 

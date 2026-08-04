@@ -33,6 +33,7 @@ from .bai_ghep_graph import (
     ung_vien_gop as _ung_vien_gop,
 )
 from .bu_hao_engine import chuoi_nguoc_dv, hao_buoc
+from .piece_work_service import khoan_snapshot
 from .thanh_phan_engine import cau_to_sang_cai, la_gap_tay, so_tay_moi_cuon
 from .tinh_gia_service import _bu_hao_to_dict
 
@@ -505,6 +506,26 @@ class BaiGhepService:
                 )
             ).scalars()
         ]
+
+        # CHUỖI NGẦM theo `thu_tu` của từng lệnh. `lsx_cong_doan_phu_thuoc` chỉ lưu cạnh NGƯỜI
+        # nối tay (thường là cạnh CHÉO lệnh); chuỗi trong một lệnh là ngầm — đúng chuỗi mà
+        # `_ap_chuoi_nguoc` đi và đúng thứ tự sơ đồ vẽ.
+        #
+        # Bỏ nó thì routing chưa nối dây cho ra đồ thị RỜI RẠC: Kahn trả thứ tự tuỳ ý,
+        # `_sap_lai_thu_tu` đánh số sai chiều, rồi `_node_chungs` chạy ngược chia hao theo đúng
+        # thứ tự sai đó — sai số lặng lẽ, không ai báo. Thêm cạnh ngầm cũng làm `kiem_gop` chặt
+        # hơn đúng chỗ cần: gộp chéo (A2+B3 trong khi B2+A3 đã gộp) nay lộ ra là vòng thật.
+        co_san = {(c.truoc, c.sau) for c in canhs}
+        theo_lsx: dict[int, list] = {}
+        for cd, _, lsx_id in rows:
+            theo_lsx.setdefault(lsx_id, []).append(cd)
+        for cds in theo_lsx.values():
+            cds.sort(key=lambda c: (c.thu_tu or 0, c.id))
+            for truoc, sau in zip(cds, cds[1:]):
+                canh = (truoc.step_key, sau.step_key)
+                if canh not in co_san:
+                    co_san.add(canh)
+                    canhs.append(GCanh(truoc=canh[0], sau=canh[1]))
         return buocs, canhs
 
     def _nhom_hien_co(self, bg: BaiGhep) -> list[list[str]]:
@@ -626,7 +647,9 @@ class BaiGhepService:
     # Trường NGƯỜI nhập cho lượt chạy chung. Số lượng/hao/thời lượng KHÔNG có ở đây: chúng là
     # dẫn xuất, engine tính lúc đọc — cho sửa là đẻ nguồn sự thật thứ hai.
     _SUA_DUOC_BUOC_CHUNG = (
-        "department_id", "may_id", "so_nhan_cong", "khoan_json", "loai_buoc",
+        # `khoan_json` KHÔNG có ở đây: nó là ảnh chụp server tự chụp từ `piece_rate_id`
+        # (xem `_ghim_khoan_chung`), không phải thứ client gửi thẳng.
+        "department_id", "may_id", "so_nhan_cong", "loai_buoc",
         "nang_suat", "don_vi_nang_suat", "chay_phut", "setup_phut", "ve_sinh_phut",
         "cho_phut", "di_chuyen_phut", "so_luot_chay", "ghi_chu",
         "nha_cung_cap", "sl_gui", "ngay_gui_dk", "van_chuyen_ngay", "gia_cong_ngay",
@@ -645,6 +668,9 @@ class BaiGhepService:
         for field in self._SUA_DUOC_BUOC_CHUNG:
             if field in patch:
                 setattr(chung, field, patch[field])
+        # Sau vòng trên: tổ có thể vừa đổi trong cùng lượt lưu, mà đầu việc khoán lọc THEO TỔ.
+        if "piece_rate_id" in patch:
+            self._ghim_khoan_chung(chung, patch["piece_rate_id"], giu_kip="so_nhan_cong" in patch)
         if "vat_tus" in patch:
             self._thay_vat_tu_chung(chung, patch["vat_tus"] or [])
         self.db.flush()
@@ -657,6 +683,68 @@ class BaiGhepService:
         )
         self.repo.commit()
         return self._get(bg.id)
+
+    def _ghim_khoan_chung(
+        self, chung: BaiGhepCongDoan, rate_id: int | None, *, giu_kip: bool,
+    ) -> None:
+        """Ghim đầu việc khoán cho lượt chạy chung — mượn NGUYÊN luật của bước lệnh.
+
+        Khoán của một lượt chạy chung không có gì khác khoán của một bước lệnh: vẫn là "tổ này
+        làm đầu việc nào, đơn giá bao nhiêu". Nên chỗ này gọi thẳng `LsxService` chứ không chép
+        lại phép lọc theo tổ + kiểm đầu việc thuộc công đoạn + gắp định mức.
+
+        Kéo theo định mức (năng suất · số người) y như bước lệnh: chọn đầu việc xong mà năng suất
+        vẫn trống thì thẻ vẫn kêu "Chưa có năng suất", người dùng phải gõ lại số đã có sẵn.
+        """
+        from .lsx_service import _DV_VAO_SANG_NS
+
+        svc = self._lsx_svc()
+        cd_obj = self.db.get(CongDoan, chung.cong_doan_id) if chung.cong_doan_id else None
+        rid = int(rate_id or 0)
+        rate = next((x for x in svc._piece_rates() if x.id == rid), None) if rid else None
+        if rid and rate is None:
+            raise BaiGhepValidationError("Không tìm thấy đầu việc khoán")
+        if rate is not None:
+            allowed = {x.id for x in svc._dau_viec_cua_cong_doan(cd_obj, chung.department_id)}
+            if rate.id not in allowed:
+                raise BaiGhepValidationError("Đầu việc không thuộc công đoạn hoặc tổ phụ trách")
+        chung.khoan_json = khoan_snapshot(rate) if rate is not None else None
+        if rate is None:
+            return
+        dm = next((x for x in (getattr(cd_obj, "dau_viec_dinh_muc", None) or [])
+                   if x.piece_rate_id == rate.id), None)
+        if dm is None:
+            return
+        chung.khoan_json.update({
+            "nang_suat_nguoi_gio": _f(dm.nang_suat_nguoi_gio),
+            "so_nguoi_tieu_chuan": int(dm.so_nguoi_tieu_chuan),
+            "so_nguoi_toi_da": int(dm.so_nguoi_toi_da),
+        })
+        chung.nang_suat = _f(dm.nang_suat_nguoi_gio)
+        chung.don_vi_nang_suat = _DV_VAO_SANG_NS.get(cd_obj.don_vi_vao) if cd_obj else None
+        chung.so_nhan_cong_tieu_chuan = int(dm.so_nguoi_tieu_chuan)
+        chung.so_nhan_cong_toi_da = int(dm.so_nguoi_toi_da)
+        if not giu_kip:                       # người dùng vừa gõ tay kíp thì đừng đè lên
+            chung.so_nhan_cong = int(dm.so_nguoi_tieu_chuan)
+
+    def _khoan_chung_dict(self, c: BaiGhepCongDoan) -> dict:
+        """Khối khoán của thẻ bước chung: phần ghim + danh sách chọn được + tiền DỰ KIẾN.
+
+        Tiền tính bằng đúng `_khoan_derived` của bước lệnh. Quy cách truyền `{}` là CÓ Ý: tờ ghép
+        không thuộc quy cách của lệnh nào cả, nên cầu quy đổi nào cần quy cách sẽ báo thiếu qua
+        `khoan_thieu` thay vì lặng lẽ mượn số của một thành viên bất kỳ.
+        """
+        svc = self._lsx_svc()
+        cd_obj = self.db.get(CongDoan, c.cong_doan_id) if c.cong_doan_id else None
+        kh = c.khoan_json or {}
+        return {
+            "khoan_rate_id": kh.get("rate_id"),
+            "khoan_ten": kh.get("ten"),
+            "khoan_don_vi": kh.get("don_vi"),
+            "khoan_don_gia": _f(kh.get("don_gia")) or None,
+            "khoan_chon_duoc": svc._dau_viec_option_dicts(cd_obj, c.department_id),
+            **svc._khoan_derived(c, {}),
+        }
 
     def _thay_vat_tu_chung(self, chung: BaiGhepCongDoan, vat_tus: list[dict]) -> None:
         """Thay toàn bộ vật tư của bước chung. Snapshot mã/tên/đơn vị để đổi danh mục không làm
@@ -838,8 +926,6 @@ class BaiGhepService:
             r["du"] = r["san_luong_du_kien"] - r["can"]
             # Dư TỜ ngay tại điểm toả — đại lượng có nghĩa ở nút thắt, khác hẳn dư con ở cuối chuỗi.
             r["du_to"] = so_to_tot - r["nhu_cau_to"] if con > 0 else 0
-        tong_to = so_to_tot + int(bg.hao_hut_setup or 0) + int(bg.hao_hut_chay or 0)
-
         # Hao của MỖI bước chung: một lần lên máy, một lần canh. Tách đôi setup/chạy vì hai thứ
         # áp khác nhau — gộp làm một số thì người khai không sửa lại được phần nào cho đúng.
         # Bậc tra theo `ra` của CHÍNH bước đó (đúng đơn vị của nó), không tra mọi bước bằng số tờ:
@@ -855,7 +941,17 @@ class BaiGhepService:
             hao_setup += fixed
             hao_chay += max(_f(h["hao"]) - fixed, 0.0)
         hao_de_xuat = hao_setup + hao_chay
-        hao_ap_dung = int(bg.hao_hut_setup or 0) + int(bg.hao_hut_chay or 0) or int(hao_de_xuat)
+        # NULL = chưa ai khai → lấy số máy đề xuất. Khai rồi (kể cả khai 0) → tôn trọng đúng số
+        # người gõ: "chạy đúng số, không bù" là một quyết định hợp lệ, trước đây `or hao_de_xuat`
+        # nuốt mất vì 0 rơi vào nhánh falsy.
+        da_khai = bg.hao_hut_setup is not None or bg.hao_hut_chay is not None
+        hao_ap_dung = (
+            int(bg.hao_hut_setup or 0) + int(bg.hao_hut_chay or 0) if da_khai else int(hao_de_xuat)
+        )
+        # `tong_to` và `to_nguyen_can` cùng nghĩa "tờ phải cấp", chỉ khác đơn vị (tờ in ↔ tờ
+        # nguyên) — nên phải cùng một cơ sở hao. Trước đây `tong_to` chỉ cộng hao khai tay còn
+        # `to_nguyen_can` cộng `hao_ap_dung`: bài chưa khai hao thì hai số nói hai chuyện.
+        tong_to = so_to_tot + hao_ap_dung
 
         # Tờ IN là sản phẩm của lượt in; tờ NGUYÊN mới là thứ đi lĩnh kho. Hai số khác nhau đúng
         # bằng phần hao canh máy — gộp làm một là lĩnh thiếu giấy mà không ai báo.
@@ -864,14 +960,18 @@ class BaiGhepService:
         # NGƯỜI khai ở danh mục công đoạn. Trước đây chỗ này lấy hệ số của BƯỚC TOẢ — mà bước toả
         # thường là bế (`to → cai`), hệ số của nó là con/tờ. Lấy nhầm cầu thì 5.075 tờ với 4 con/tờ
         # ra 1.269 tờ nguyên: ai cầm số đó đi lĩnh giấy là thiếu 3/4.
-        to_nguyen_can = so_to_tot + hao_ap_dung
+        #
+        # Hao đếm ở TỜ IN (bậc bù hao tra theo đơn vị của bước in), nên phải cộng vào TRƯỚC rồi
+        # mới chia mảnh xả. Cộng sau phép chia là tính hao bằng tờ nguyên: tờ nguyên xả 4 mảnh
+        # thì 100 tờ hao bị đòi thành 100 tờ nguyên = 400 mảnh, thừa gấp 4.
+        to_nguyen_can = tong_to
         for r in rows:
             l = lsx_map.get(r["lsx_id"])
             if l is None:
                 continue
             xa = _f(self._lsx_svc()._he_so_cau(l, so_con=r["con"] or None).get((DV_TO_NGUYEN, DV_TO)))
             if xa > 0:
-                to_nguyen_can = ceil(so_to_tot / xa) + hao_ap_dung
+                to_nguyen_can = ceil(tong_to / xa)
             break
 
         # PHẦN GIẤY của từng lệnh — chia theo CON, cùng khoá với phép chia sản lượng ở điểm toả.
@@ -1197,7 +1297,7 @@ class BaiGhepService:
                 "setup_phut": _f(c.setup_phut), "ve_sinh_phut": _f(c.ve_sinh_phut),
                 "cho_phut": _f(c.cho_phut), "di_chuyen_phut": _f(c.di_chuyen_phut),
                 "so_luot_chay": c.so_luot_chay,
-                "khoan_json": c.khoan_json,
+                **self._khoan_chung_dict(c),
                 "vat_tus": [
                     {"vat_tu_id": v.vat_tu_id, "ma": v.vat_tu_ma_snapshot,
                      "ten": v.vat_tu_ten_snapshot, "don_vi": v.don_vi_snapshot,

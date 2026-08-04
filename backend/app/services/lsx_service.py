@@ -1817,6 +1817,7 @@ class LsxService:
         self.db.flush()
         self._kiem_chu_trinh_phu_thuoc(lsx.order_id)
         self._ap_chuoi_nguoc(lsx)     # đơn vị + số lượng của MỌI bước là dẫn xuất, server ghi
+        self._bai_ghep_xep_lai(lsx)   # lệnh đang ghép → thứ tự bước chung của bài phải theo
         thieu = self.thieu_cua(lsx)
         if thieu and lsx.trang_thai != TT_CHO_BO_SUNG:
             lsx.trang_thai = TT_CHO_BO_SUNG
@@ -1832,6 +1833,28 @@ class LsxService:
         )
         self.repo.commit()
         return self.get(lsx_id)
+
+    def _bai_ghep_xep_lai(self, lsx: Lsx) -> None:
+        """Routing của lệnh đổi → đánh lại thứ tự bước chung của bài rồi tính lại. KHÔNG commit.
+
+        `_sap_lai_thu_tu` trước đây chỉ chạy khi GỘP / TÁCH. Nhưng sửa routing đổi được cả
+        `thu_tu` lẫn `cong_doan_id` của bước đang bị đè (chỉ XOÁ bước đó mới bị chặn), nên
+        `thu_tu` của bước chung thiu ngay sau lần kéo-thả đầu tiên — mà `_node_chungs` chạy
+        NGƯỢC theo đúng thứ tự đó để chia hao. Sai lặng lẽ, không ai báo.
+
+        Import trễ y như `BaiGhepService._lsx_svc` đi chiều ngược lại: hai service gọi chéo nhau,
+        import ở đầu file là vòng.
+        """
+        ghep = self._ghep_cua(lsx)
+        if ghep is None:
+            return
+        from ..repositories.bai_ghep_repo import BaiGhepRepository
+        from .bai_ghep_service import BaiGhepService
+
+        svc = BaiGhepService(self.db, BaiGhepRepository(self.db), self.audit, self.sequence)
+        bg = ghep[0]
+        svc._sap_lai_thu_tu(bg)
+        svc._tinh_lai(bg)
 
     def _kiem_chu_trinh_phu_thuoc(self, order_id: int) -> None:
         step_ids = set(self.db.execute(

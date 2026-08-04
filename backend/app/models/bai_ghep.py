@@ -61,8 +61,11 @@ class BaiGhep(Base):
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)   # → may_thiet_bi.id
 
     # --- Hao hụt tờ (người khai) — cộng vào số tờ tốt để ra tổng tờ cấp ---
-    hao_hut_setup: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # bù canh máy
-    hao_hut_chay: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # bù khi chạy
+    # NULL = CHƯA KHAI, bài lấy số máy đề xuất · 0 = NGƯỜI khai "chạy đúng số, không bù".
+    # Hai ý này từng chung một giá trị 0 nên `or hao_de_xuat` nuốt mất ý định khai 0: không có
+    # cách nào bảo bài đừng cộng hao. Đó là lý do cột phải nullable chứ không phải default 0.
+    hao_hut_setup: Mapped[int | None] = mapped_column(Integer, nullable=True)  # bù canh máy
+    hao_hut_chay: Mapped[int | None] = mapped_column(Integer, nullable=True)   # bù khi chạy
 
     ghi_chu: Mapped[str | None] = mapped_column(Text, nullable=True)
 

@@ -11,7 +11,10 @@ rồi in số · `đọc` = agent kết luận bằng đọc code, tôi chưa ki
 > Số dòng ghi ở đây là **tại thời điểm review**. Các mục ở §0 đã sửa sau đó nên
 > `bai_ghep_service.py`, `xep_lich_service.py`, `test_bai_ghep_service.py` đã xê dịch nhiều dòng.
 
-**Tổng: 21 đã sửa · 19 còn nợ** (0 nặng · 0 lệch plan · 9 trung bình · 4 lỗ test · 6 vặt).
+**Tổng: 35 đã sửa · 6 còn nợ** (0 nặng · 0 lệch plan · 0 trung bình · 0 lỗ test · 6 vặt).
+
+> Bản trước ghi "19 còn nợ (9 trung bình)" nhưng §3 đếm tay ra **10 dòng** — thêm `M12` và dòng
+> `MỚI` mà quên bump số. Con số ở đây đã đếm lại.
 
 **Cập nhật 2026-08-03:**
 - **Đợt 2** — đã sửa **hết 5 lỗi nặng** S2–S6, mỗi cái kèm test khoá, vì cả năm đều lọt qua bộ
@@ -29,7 +32,13 @@ rồi in số · `đọc` = agent kết luận bằng đọc code, tôi chưa ki
   **Bìa sách vẫn ghép bình thường.** Test: `test_ruot_sach_khong_vao_duoc_bai_ghep` (có cả ca
   ngược — bìa không bị chặn nhầm).
 
-Chi tiết ở §0 và §2. **19 mục còn nợ nằm ở §3 → §5.**
+- **Đợt 7 (2026-08-04)** — làm **hết §3 (10 mục trung bình)**. Kèm 1 migration (`0152`) và 5 test
+  khoá. Chi tiết ở chính §3.
+- **Đợt 8 (2026-08-04)** — lấp **hết §4 (4 lỗ test)**. Mở hẳn bộ chạy test FE (**vitest + jsdom**,
+  repo trước nay chưa có) và nối vào cổng kiểm CI. Mọi test mới đều được **hạ code về bản cũ để
+  xem nó có đỏ không** trước khi tính là xong — bài học từ cái test giả ở §0.
+
+Chi tiết ở §0, §2, §3 và §4. **6 mục còn nợ nằm ở §5.**
 
 ---
 
@@ -212,11 +221,27 @@ chúng** vào `tong_phut` hiện trên thẻ → thời lượng lượt chung l
 
 ---
 
-## §3. CÒN — TRUNG BÌNH (9)
+## §3. TRUNG BÌNH — ĐÃ LÀM HẾT (10/10, đợt 7 · 2026-08-04)
+
+| # | Đã sửa thế nào | Test khoá |
+|---|---|---|
+| **MỚI** `khoan_json` | Form bước chung nay có ô **Công việc khoán** — dùng lại **nguyên** khối `khsx-khoan-card` của drawer bước lệnh. Backend **bỏ nhận `khoan_json` thô**, chuyển sang `piece_rate_id`: ảnh chụp đơn giá là thứ SERVER chụp, cho client gửi thẳng là mở cửa cho đơn giá bịa chảy vào phiếu lương. `_ghim_khoan_chung` gọi thẳng `LsxService._dau_viec_cua_cong_doan` + `khoan_snapshot` + gắp định mức (năng suất · số người), `_khoan_chung_dict` trả thêm phần dẫn xuất bằng `_khoan_derived` — quy cách truyền `{}` CÓ Ý, vì tờ ghép không thuộc quy cách của lệnh nào, thiếu cầu thì báo `khoan_thieu` chứ không mượn số của một thành viên bất kỳ | `test_khoan_luot_chung_ghim_theo_id_va_chan_dau_viec_la` — ghim đúng ảnh chụp, kéo theo định mức (hết chip "Chưa có năng suất"), và đầu việc **không thuộc tổ → chặn** |
+| **M2** | Thêm `sapHang()`: xếp thành viên của cùng một lượt chung **nằm liền nhau**, nên thẻ chung không còn trải qua nhánh lạ. Ba lượt chung đan chéo thì xếp liền là bất khả → cửa chặn thứ hai trong `initialPositions`: thẻ nào còn nằm trong vùng thẻ chung mà không phải thành viên thì **đẩy sang phải**. Để chồng là thẻ dưới biến mất, không ai biết bước đó tồn tại | — (layout) |
+| **M3** | Bỏ điều kiện `i === indexOf(toả)+1`. Neo mới = **thẻ riêng ĐẦU TIÊN sau điểm toả** (bước ngay sau mà cũng bị gộp thì nhảy tiếp). Không có thẻ nào — bước gộp là bước CUỐI routing, rất hay gặp — thì chip dồn về khối tổng kết cuối nhánh, xếp trên "dư con": hai số cùng là tổng kết, đọc liền nhau đúng thứ tự tờ → con | — (layout) |
+| **M4** | Hai cột hao thành **nullable**: `NULL` = chưa khai (dùng hao máy đề xuất) · `0` = khai "chạy đúng số, không bù". Migration **`0152`** đưa bài đang 0/0 về NULL để **giữ nguyên số đang hiện**. FE: ô để trống ≠ gõ 0, kèm placeholder + dòng nhắc "đang dùng hao máy đề xuất N tờ" | `test_khai_hao_0_thi_bai_khong_tu_thay_bang_de_xuat` — cả ba trạng thái NULL → 0 → NULL |
+| **M5** | `tong_to` nay cũng dùng `hao_ap_dung` như `to_nguyen_can`. **Lòi thêm một lỗi**: hao cộng SAU phép chia mảnh xả, tức đếm hao bằng tờ nguyên — tờ xả 4 mảnh thì 100 tờ hao bị đòi thành 400 mảnh. Sửa thành `ceil(tong_to / xa)` | `test_tong_to_va_to_nguyen_can_dung_chung_mot_co_so_hao` — chạy qua cả ba trạng thái hao |
+| **M6** | `_do_thi_cua` thêm **cạnh NGẦM theo `thu_tu`** trong từng lệnh. `lsx_cong_doan_phu_thuoc` chỉ lưu cạnh NGƯỜI nối tay (thường là cạnh chéo lệnh); chuỗi trong một lệnh là ngầm — đúng chuỗi `_ap_chuoi_nguoc` đi. Kèm lợi ích: `kiem_gop` chặt hơn đúng chỗ cần — gộp chéo (A2+B3 khi B2+A3 đã gộp) nay lộ ra là vòng thật | `test_thu_tu_buoc_chung_dung_chieu_du_routing_khong_co_canh` — assert trước rằng routing **không có cạnh nào**, rồi gộp ngược chiều |
+| **M7** | `replace_routing` gọi thêm `_bai_ghep_xep_lai(lsx)` (import trễ, ngược chiều với `BaiGhepService._lsx_svc`) → `_sap_lai_thu_tu` + `_tinh_lai` | `test_sua_routing_thi_thu_tu_buoc_chung_duoc_danh_lai` — đảo routing cả hai lệnh, thứ tự bước chung phải đảo theo |
+| **M8** | Tính tập chọn mới **NGOÀI** updater của `setDangChon` (StrictMode chạy updater 2 lần → 2 request mỗi cú bấm). Thêm **seq token**: chỉ lượt hỏi mới nhất được ghi `ungVien`; `huyChon` bump seq nên câu trả lời đang bay về không sáng lại thẻ nào | — (hành vi FE) |
+| **M9** | Bấm thẻ mờ vì sinh vòng nay **hiện lý do server trả** ngay trên thanh chọn (`role="alert"`), thay vì `return` câm | — (hành vi FE) |
+| **M12** | `tinhCot` trả `{cot, hoiTu}`; hết ngân sách mà còn đổi → toolbar hiện chip **"Sơ đồ xếp chưa chuẩn"** thay vì lặng lẽ bày layout sai. Và hàm nay **có đọc `phu_thuoc_step_keys`**: cạnh chéo lệnh cũng đẩy cột, nên "bìa chờ ruột" không còn vẽ dây chạy ngược | — (layout) |
+| ~~M1~~ · ~~M10~~ | ✅ đã sửa từ đợt 4 | — |
+
+<details><summary>Chẩn đoán gốc (giữ để tra lại)</summary>
 
 | # | Chỗ | Vấn đề |
 |---|---|---|
-| **MỚI** | `BaiGhepSoDo.tsx` `BuocChungForm` | **`khoan_json` chưa có ô nhập** — backend nhận, model có cột, nhưng form không bày. Công việc khoán của lượt chung sẽ luôn rỗng. Cần editor riêng (tham khảo `KhoanRatesEditor.tsx`) |
+| **MỚI** | `BaiGhepSoDo.tsx` `BuocChungForm` | `khoan_json` chưa có ô nhập — backend nhận, model có cột, nhưng form không bày. Công việc khoán của lượt chung sẽ luôn rỗng |
 | M2 | `BaiGhepDagCanvas.tsx:208-215`, `:235-244` | Thẻ chung đặt tại `y = min(hàng)`, cao `(max-min)*ROW_H + CARD_H`. Bài 3 lệnh mà chỉ hàng 0 và 2 gộp → thẻ chung **phủ đè** thẻ bước của hàng 1 ở cùng cột |
 | M3 | `BaiGhepDagCanvas.tsx:843` | Chip "dư tờ" chỉ render ở bước **ngay sau** điểm toả. Nếu bước gộp cuối cũng là bước cuối routing (rất phổ biến khi mới gộp bước in) thì **không có chip nào**, dù `du_to > 0`. Probe: `du_to = 1075` mà canvas im |
 | M4 | `bai_ghep_service.py:710` | `hao_ap_dung = int(setup) + int(chay) or int(hao_de_xuat)` — người dùng cố ý khai hao = 0 bị âm thầm thay bằng số máy đề xuất. Không có cách khai "không hao" |
@@ -225,29 +250,26 @@ chúng** vào `tong_phut` hiện trên thẻ → thời lượng lượt chung l
 | M7 | không có chỗ nào | `_sap_lai_thu_tu` chỉ gọi trong `gop`/`tach`. **Đổi thứ tự routing của lệnh** (`replace_routing` chặn xoá bước bị đè nhưng cho phép đổi `thu_tu` và cả `cong_doan_id`) không kích hoạt sắp lại → `thu_tu` bước chung thiu, bất biến "các bước gộp cùng một công đoạn" có thể vỡ âm thầm |
 | M8 | `BaiGhepDagCanvas.tsx:372-387` | `capNhatUngVien()` (fetch + `setUngVien`) gọi **bên trong updater của `setDangChon`**. `main.tsx:11` bật StrictMode → updater chạy 2 lần → **2 request `POST /ung-vien-gop` mỗi lần bấm**. Không có AbortController / seq token: bấm nhanh thì response cũ về sau ghi đè `ungVien` của tập chọn mới → thẻ sáng sai → bấm Gộp bị 409, đúng cái mà "kiểm TRƯỚC" định tránh. (Không phải stale-closure: `ungVien` nằm trong dep array) |
 | M9 | `BaiGhepDagCanvas.tsx:380` | Bấm thẻ mờ **vì sinh vòng** → `return truoc`, không phản hồi gì. Plan §4 nói "Bấm thẻ mờ = bắt đầu chọn lại từ công đoạn đó". Thẻ mờ vì khác công đoạn thì đúng, thẻ mờ vì vòng thì câm |
-| ~~M1~~ | — | ✅ **ĐÃ SỬA** ở đợt 4: backend trả `department_id`/`may_id`, select so id |
-| ~~M10~~ | — | ✅ **ĐÃ SỬA** ở đợt 4: schema đổi sang `hao_de_xuat` + khai thêm `so_buoc_chung` |
 | M12 | `BaiGhepDagCanvas.tsx:76-105` | `tinhCot` **có dừng** (giá trị chỉ tăng, chặn trên bởi `tongBuoc`) nên không vòng vô tận. Nhưng ngân sách `tongBuoc+1` vòng là *chặn cứng chứ không phải chứng minh hội tụ*; nếu chưa hội tụ, hàm im lặng trả layout mà các bước cùng nhóm **không cùng cột** → thẻ chung vẽ đè. Không có cờ báo. Hàm cũng bỏ qua hoàn toàn `phu_thuoc_step_keys` (chỉ dùng thứ tự mảng) |
+
+</details>
 
 ---
 
-## §4. CÒN — LỖ ĐỘ PHỦ TEST (4)
+## §4. LỖ ĐỘ PHỦ TEST — ĐÃ LẤP HẾT (4/4, đợt 8 · 2026-08-04)
 
-1. ~~Mọi test chỉ gộp DUY NHẤT bước in~~ — **thu hẹp**: `test_moi_buoc_chung_mot_dong_lich_khong_bi_boc_hoi`
-   nay gộp **2 công đoạn**, nên hố S4 đã có test. **Còn lại**: M6 (`_sap_lai_thu_tu` khi routing
-   không có cạnh phụ thuộc) vẫn chưa có ca nào chạy qua.
-2. ~~0 test cho `buoc_bi_de` / `bo_thanh_vien` sau gộp~~ — **đã có** (§0 đợt 2). **Còn lại**:
-   `_do_thi_cua` phần chạm DB vẫn 0 test.
-3. 9 test của `bai_ghep_graph` đều **thuần Python** với đồ thị tự dựng — khoá thuật toán tốt,
-   nhưng **không** khoá việc service nạp đúng tập node/cạnh. Ca "cạnh chéo lệnh" chỉ được test ở
-   tầng thuần, không ở tầng service.
-4. `test_khsx_ui_contract.py:93-124` là **grep chuỗi** trên source FE (`assert "n.buoc.map" in sd`).
-   Chỉ chứng minh ký tự tồn tại, không chứng minh render/luồng. Đổi `n.buoc.map(...)` thành
-   `n.buoc.filter(...).map(...)` là test đỏ dù đúng; để chuỗi đó trong comment là test xanh dù xoá
-   hết UI. (Pattern có sẵn của repo, nhưng nó là **toàn bộ** "bằng chứng FE" của lát này.)
+| # | Đã lấp thế nào |
+|---|---|
+| **1** | M6 nay có `test_thu_tu_buoc_chung_dung_chieu_du_routing_khong_co_canh` (đợt 7) — assert TRƯỚC rằng routing không có cạnh phụ thuộc nào, rồi gộp ngược chiều và bắt thứ tự bước chung phải đúng chiều |
+| **2** | `test_do_thi_cua_lan_theo_canh_qua_NHIEU_bac_khong_dung_o_mot_hop` — dây chuyền A(trong bài) → C → D, cả C lẫn D đều ngoài bài, D cách bài **hai bậc**. Kiểm cả node lẫn cạnh, và cờ `trong_bai`. **Đã chứng minh đỏ được**: chặn vòng lặp ở một bậc thì `d.id` rơi khỏi tầm ngắm |
+| **3** | `test_canh_cheo_lenh_lam_vo_phep_gop_o_TANG_SERVICE` — A.In chờ B.Cán (cạnh khai qua API thật), gộp A.In+B.In phải ra `BaiGhepVongPhuThuoc` có `nut` + `nhan_chung`; `ung_vien_gop` phải trả `gop_duoc=False` kèm lý do. Kết đuôi bằng ca NGƯỢC: gỡ cạnh đi thì chính phép gộp ấy chạy ngon — chứng minh đỏ là DO cạnh chứ không do test dựng sai. **Đã chứng minh đỏ được**: bỏ nạp cạnh thì `gop_duoc` trở lại `True` |
+| **4** | Dựng **vitest + jsdom + testing-library** (repo trước nay không có bộ chạy test FE nào). `BaiGhepDagCanvas.test.tsx` render canvas thật rồi bấm vào nó: một-cú-bấm-một-request dưới StrictMode · câu trả lời cũ về muộn bị bỏ · thẻ mờ vì vòng phải nói lý do · chip dư tờ khi bước gộp là bước cuối · `sapHang` xếp liền nhau · `tinhCot` đọc cạnh chéo và báo chưa hội tụ. **Ba cái đầu đã chứng minh đỏ được** bằng cách hạ tạm code về bản cũ. `npm test` nối vào cổng kiểm CI, và pytest có `test_bang_chung_fe_that_su_ton_tai` chốt "file test còn đó + CI còn gọi nó" |
 
-Ngoài ra, plan §Verification mục 3 (đối chiếu số bằng engine thật trên `GB26-0001` của DB dev)
-**không có dấu vết đã làm**; mục 6 (soi UI trên trình duyệt) **chưa làm**.
+Test grep chuỗi cũ **giữ nguyên** — nó rẻ và bắt được đúng một loại lỗi (ai đó gỡ mất một cửa ghi
+mà không để ý). Chỉ khác là nó thôi làm bằng chứng DUY NHẤT; docstring đầu file đã ghi rõ ranh giới.
+
+> Còn nợ ngoài phạm vi §4: plan §Verification mục 3 (đối chiếu số bằng engine thật trên `GB26-0001`
+> của DB dev) **không có dấu vết đã làm**; mục 6 (soi UI trên trình duyệt) **chưa làm**.
 
 ---
 
@@ -287,10 +309,12 @@ là bốn mối đó.
 
 ## Còn lại — đề xuất thứ tự
 
-1. **K1** bổ sung form bước chung (vật tư · khoán · năng suất · khối thuê ngoài) — anh đã chốt
-   hướng "bổ sung cho form hiện tại", chưa làm.
-2. **M1 · M3 · M10** — ba lỗi người dùng gặp ngay: tổ đã gán hiện "— chọn tổ —", chip dư tờ không
-   hiện, `hao_in_de_xuat` ở màn danh sách luôn 0.
-3. **M8** — 2 request mỗi lần bấm + race đè kết quả cũ lên mới.
-4. **K2 · K3 · K4** — quyết định nghiệp vụ, cần chốt với anh trước khi sửa.
-5. Phần còn lại (M2, M4–M7, M9, M12, §4, §5) theo mức độ.
+> Mục này từng liệt K1 · M1 · M10 · K2 · K3 · K4 là việc phải làm trong khi §0/§2 ghi cả sáu đã
+> xong — đọc lướt là hiểu sai trạng thái. Đã viết lại theo đúng những gì còn nợ.
+
+1. **§5 mục 6** — `thieu_cua` không kiểm `bg.may_id` → bài "sẵn sàng" vẫn đẻ dòng lịch
+   `may_id = None`. Cái này ra tận bàn xếp lịch, là mục duy nhất còn lại có hậu quả thật.
+2. **§5 mục 4** — `_co_cong_doan_in` vẫn bắt MỌI lệnh phải có bước in, kể cả bài chỉ định gộp CTP.
+3. **§5 mục 1 · 2 · 3 · 5** — dọn code/nhãn/docstring chết.
+4. Ngoài sổ này: đối chiếu số trên DB dev thật (`GB26-0001`) và soi UI trên trình duyệt — hai mục
+   Verification của plan chưa làm.

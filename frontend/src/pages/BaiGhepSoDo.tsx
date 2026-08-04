@@ -23,8 +23,10 @@ export interface Form {
   giay_id: number | null;
   kho_in_dai: number | null;
   kho_in_rong: number | null;
-  hao_hut_setup: number;
-  hao_hut_chay: number;
+  // `null` = CHƯA KHAI → bài lấy số máy đề xuất. `0` = khai "chạy đúng số, không bù".
+  // Hai ý này từng chung một giá trị 0 nên không có cách nào bảo bài đừng cộng hao.
+  hao_hut_setup: number | null;
+  hao_hut_chay: number | null;
   ghi_chu: string;
 }
 
@@ -112,6 +114,14 @@ export function BaiGhepSoDo({
   // Chip tương thích lấy mức XẤU NHẤT từ chính dữ liệu. Trước đây icon/màu tô cứng xanh nên bài
   // ghép có dòng "không phù hợp" vẫn hiện dấu tích xanh — báo an toàn cho một bài đang lỗi.
   // Lưu ý `muc` (phu_hop/can_xac_nhan/khong_phu_hop) KHÁC `tone` trong BAI_GHEP_MUC_META.
+  // Hao của bài: chưa khai ô nào (cả hai `null`) thì bài đang chạy bằng số MÁY ĐỀ XUẤT. Phải nói
+  // ra, không thì hai ô trống trông như "không bù hao" trong khi số tờ cấp vẫn đang cộng hao.
+  const hao = {
+    deXuat: form.hao_hut_setup == null && form.hao_hut_chay == null,
+    setup: detail.so_to.hao_setup_de_xuat,
+    chay: detail.so_to.hao_chay_de_xuat,
+  };
+
   const compatRows = detail.tuong_thich.rows;
   const compatDat = compatRows.filter((r) => r.muc === "phu_hop").length;
   const compatTone = compatRows.some((r) => r.muc === "khong_phu_hop")
@@ -284,15 +294,22 @@ export function BaiGhepSoDo({
                         />
                       </label>
 
+                      {/* ĐỂ TRỐNG ≠ GÕ 0. Trống = chưa khai, bài tự lấy hao máy đề xuất. Gõ 0 =
+                          "chạy đúng số, không bù" và bài tôn trọng đúng số đó. */}
                       <label className="khsx-field bgsd-field-half">
                         <span>Hao setup (tờ)</span>
                         <input
                           type="number"
                           min={0}
                           disabled={!canUpdate}
-                          value={form.hao_hut_setup}
+                          value={form.hao_hut_setup ?? ""}
+                          placeholder={hao.deXuat ? `${hao.setup}` : "theo máy"}
+                          title="Để trống = dùng hao máy đề xuất. Gõ 0 = chạy đúng số, không bù."
                           onChange={(e) =>
-                            setForm({ ...form, hao_hut_setup: Number(e.target.value) })
+                            setForm({
+                              ...form,
+                              hao_hut_setup: e.target.value === "" ? null : Number(e.target.value),
+                            })
                           }
                         />
                       </label>
@@ -303,13 +320,25 @@ export function BaiGhepSoDo({
                           type="number"
                           min={0}
                           disabled={!canUpdate}
-                          value={form.hao_hut_chay}
+                          value={form.hao_hut_chay ?? ""}
+                          placeholder={hao.deXuat ? `${hao.chay}` : "theo máy"}
+                          title="Để trống = dùng hao máy đề xuất. Gõ 0 = chạy đúng số, không bù."
                           onChange={(e) =>
-                            setForm({ ...form, hao_hut_chay: Number(e.target.value) })
+                            setForm({
+                              ...form,
+                              hao_hut_chay: e.target.value === "" ? null : Number(e.target.value),
+                            })
                           }
                         />
                       </label>
                     </div>
+                    {hao.deXuat && (
+                      <p className="bgsd-hint">
+                        Đang dùng hao máy đề xuất <b>{num(hao.setup + hao.chay)} tờ</b> (canh máy{" "}
+                        {num(hao.setup)} · chạy {num(hao.chay)}). Gõ số để đè, gõ <b>0</b> để chạy
+                        đúng số không bù.
+                      </p>
+                    )}
                   </div>
 
                   {/* 2. Quản lý Thành viên & Số con/tờ */}
@@ -625,6 +654,21 @@ function BuocChungForm({
   const val = <K extends keyof BaiGhepBuocChungBody>(k: K, hienCo: BaiGhepBuocChungBody[K]) =>
     (f[k] !== undefined ? f[k] : hienCo);
 
+  /** Đầu việc đang GHIM có thể không còn trong bảng khoán của tổ (đổi tổ, hoặc dòng bị ngừng) —
+   *  vẫn phải bày ra, không thì `<select>` rơi về "— chọn —" và người dùng tưởng chưa ai chọn. */
+  const dsKhoan = (() => {
+    const ds = [...g.khoan_chon_duoc];
+    if (g.khoan_rate_id != null && !ds.some((k) => k.id === g.khoan_rate_id)) {
+      ds.unshift({
+        id: g.khoan_rate_id,
+        ten: g.khoan_ten ?? `(đang ghim) đầu việc #${g.khoan_rate_id}`,
+        don_vi: g.khoan_don_vi ?? "",
+        don_gia: g.khoan_don_gia ?? 0,
+      });
+    }
+    return ds;
+  })();
+
   // Vật tư sửa theo LÔ: giữ nguyên danh sách hiện có rồi thay cả cụm khi lưu (API là replace-all).
   const vtHienTai = (f.vat_tus ?? g.vat_tus.map((v) => ({ vat_tu_id: v.vat_tu_id, so_luong: v.so_luong })));
   const datVatTu = (rows: { vat_tu_id: number; so_luong: number }[]) => setF({ ...f, vat_tus: rows });
@@ -754,6 +798,49 @@ function BuocChungForm({
             />
           </label>
         </div>
+
+        {/* Công việc khoán của LƯỢT CHUNG — cùng bảng khoán, cùng cách chọn với bước lệnh ở màn
+            KHSX. Ghim theo ID; ảnh chụp đơn giá do server chụp. Đổi tổ thì danh sách đổi theo, nên
+            phải LƯU rồi mở lại mới thấy danh sách mới — báo rõ thay vì để người dùng tưởng tổ mới
+            không có đầu việc nào. */}
+        {(g.khoan_chon_duoc.length > 0 || g.khoan_rate_id != null) && (
+          <div className="khsx-field khsx-field--wide khsx-khoan-card">
+            <div className="khsx-khoan-card__head">
+              <span className="khsx-field__label">Công việc khoán</span>
+              <span className="khsx-tag-subtle">bảng khoán của tổ</span>
+            </div>
+            <select
+              value={val("piece_rate_id", g.khoan_rate_id) ?? ""}
+              disabled={!canUpdate}
+              onChange={(e) =>
+                setF({ ...f, piece_rate_id: e.target.value ? Number(e.target.value) : null })
+              }
+            >
+              <option value="">— chọn đầu việc khoán —</option>
+              {dsKhoan.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {k.don_vi ? `${k.ten} — ${num(k.don_gia)} đ/${k.don_vi}` : k.ten}
+                </option>
+              ))}
+            </select>
+            <div className="khsx-khoan-card__status">
+              {f.piece_rate_id !== undefined || f.department_id !== undefined ? (
+                <span className="khsx-pill-status khsx-pill-status--warn">
+                  Lưu lượt chung để tính lại tiền công
+                </span>
+              ) : g.khoan_dien_giai ? (
+                <span className="khsx-pill-status khsx-pill-status--ok">{g.khoan_dien_giai}</span>
+              ) : g.khoan_ly_do ? (
+                <span className="khsx-pill-status khsx-pill-status--error">{g.khoan_ly_do}</span>
+              ) : g.khoan_chon_duoc.length > 1 ? (
+                <span className="khsx-field__hint">
+                  Tổ có {g.khoan_chon_duoc.length} đầu việc khoán — chọn đúng việc thợ làm để tự
+                  động ra tiền công.
+                </span>
+              ) : null}
+            </div>
+          </div>
+        )}
 
         {/* Số của cả lượt — CHỈ ĐỌC. Đây là chỗ hay bị hiểu nhầm nhất: hao đếm MỘT LẦN cho lượt
             chung, không phải mỗi lệnh một bộ cho cùng một lần lên máy. */}
