@@ -147,3 +147,42 @@ def test_xoa_don_vi_thi_cap_cua_no_di_theo(svc):
     tan, kg = _bo_ba(svc)
     svc.delete(tan.id)
     assert svc.repo.cap_rows() == []
+
+
+# --- Cờ "dùng làm đơn vị tốc độ" --------------------------------------------
+#
+# Ô "Đơn vị tốc độ" bên màn Máy lọc theo cờ này. Trước 03/08/2026 nó đổ CẢ danh mục ra — 17 dòng,
+# quá nửa vô nghĩa với máy (g/giờ, thùng/giờ, tấn/giờ…), chủ soi ra ngay.
+
+
+def test_don_vi_moi_mac_dinh_KHONG_phai_don_vi_toc_do(svc):
+    """Bảng dùng chung kho/khoán/mua hàng ⇒ đơn vị mới thêm chưa chắc là tốc độ máy. Mặc định TẮT,
+    người dùng tự bật — bật sẵn là danh sách lại rác dần theo thời gian."""
+    dv = svc.create({"ma": "thung_go", "ten": "thùng gỗ"})
+    assert dv.dung_lam_toc_do is False
+
+
+def test_bat_va_go_co_toc_do(svc):
+    dv = svc.create({"ma": "cuon", "ten": "cuộn", "dung_lam_toc_do": True})
+    assert dv.dung_lam_toc_do is True
+    dv = svc.update(dv.id, {"ma": "cuon", "ten": "cuộn", "dung_lam_toc_do": False})
+    assert dv.dung_lam_toc_do is False
+
+
+def test_GO_khoi_danh_sach_toc_do_KHONG_xoa_don_vi(svc):
+    """⭐ Chốt quan trọng nhất của tính năng này.
+
+    Nút "×" bên màn Máy chỉ BỎ CỜ. Nếu một ngày ai đó đấu nó vào `delete` cho "gọn", xoá `kg` để
+    khuất mắt "kg/giờ" sẽ kéo theo mọi cặp quy đổi của kg ⇒ gãy tồn kho và TIỀN KHOÁN. Test này
+    canh đúng việc đơn vị phải SỐNG SÓT sau khi gỡ."""
+    kg = svc.create({"ma": "kg", "ten": "kg", "ho": "khoi_luong", "dung_lam_toc_do": True})
+    tan = svc.create({"ma": "tan", "ten": "tấn", "ho": "khoi_luong"})
+    svc.create_cap({"tu_id": tan.id, "den_id": kg.id, "he_so": 1000})
+
+    svc.update(kg.id, {"ma": "kg", "ten": "kg", "ho": "khoi_luong", "dung_lam_toc_do": False})
+
+    con_lai = svc.get(kg.id)
+    assert con_lai is not None and con_lai.active is True, "go co ma mat don vi"
+    assert con_lai.dung_lam_toc_do is False
+    caps, _tong = svc.list_cap()
+    assert any(c.tu_ma == "tan" and c.den_ma == "kg" for c in caps), "go co ma mat cap quy doi"

@@ -1,6 +1,7 @@
 """Phiếu chi/UNC — file chứng từ đính kèm (upload/list/delete + giới hạn)."""
 from __future__ import annotations
 
+from datetime import date, timedelta
 from pathlib import Path
 
 from app.db import SessionLocal
@@ -34,11 +35,24 @@ def _supplier(client, headers) -> dict:
             "address": "7 Trần Phú, Hà Nội",
             "contact_name": "Trần Hoa",
             "supplier_group": "paper",
+            # Dòng vật tư phải có trong danh mục mặt hàng của một NCC đang hoạt động
+            # (`purchase_service._clean_department_lines` → `suppliers.has_active_item`), nếu không
+            # thì YCMH bị chặn 422 ngay từ bước đầu. Tên phải khớp đúng tên dùng ở `_voucher`.
+            "items": [
+                {"item_name": "Giấy Duplex", "unit": "tờ", "unit_price": 2200, "vat_percent": 8}
+            ],
         },
         headers=headers,
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def _needed_date(days: int = 30) -> str:
+    """Ngày cần hàng phải >= hôm nay (`purchase_service._business_today`, giờ VN). Cắm cứng một
+    ngày cụ thể là tự hẹn giờ cho test vỡ — cả file này từng đỏ vì `2026-07-20` trôi vào quá khứ.
+    Đệm 30 ngày nên chênh múi giờ CI (UTC) với VN không đụng tới."""
+    return (date.today() + timedelta(days=days)).isoformat()
 
 
 def _voucher(client, headers, supplier_id: int) -> dict:
@@ -47,7 +61,7 @@ def _voucher(client, headers, supplier_id: int) -> dict:
         json={
             "source_type": "kinh_doanh",
             "purpose": "Mua giấy cần chứng từ",
-            "needed_date": "2026-07-20",
+            "needed_date": _needed_date(),
             "lines": [{"item_name": "Giấy Duplex", "unit": "tờ", "quantity": 1000}],
         },
         headers=headers,
@@ -59,7 +73,7 @@ def _voucher(client, headers, supplier_id: int) -> dict:
             "supplier_id": supplier_id,
             "source_request_ids": [source.json()["id"]],
             "purpose": "Mua giấy cần chứng từ",
-            "needed_date": "2026-07-20",
+            "needed_date": _needed_date(),
             "lines": [
                 {
                     "item_name": "Giấy Duplex",

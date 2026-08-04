@@ -1,7 +1,7 @@
 // Chấm công GPS (module `nhan_su`). 3 tab:
 //   • Chấm công của tôi — lấy GPS trình duyệt, chấm VÀO/RA nếu trong bán kính điểm gần nhất.
 //   • Điểm chấm công (HR) — khai toạ độ + bán kính; "Lấy vị trí hiện tại" để điền nhanh.
-//   • Bảng chấm công (HR) — toàn bộ log.
+//   • Nhật ký chấm công (HR) — 100 lượt bấm gần nhất, tìm được theo tên/mã NV.
 // Server là cổng geofence thật (Haversine); ngoài phạm vi bị chặn cứng.
 import {
   useCallback,
@@ -253,7 +253,7 @@ export function ChamCongPage({
   const canApproveEl = can("di_muon", "approve"); // duyệt phiếu đi muộn / về sớm
   const [tab, setTab] = useState<Tab>("me");
 
-  // Liên thông từ Hồ sơ NV → mở "Bảng chấm công" lọc đúng NV đó.
+  // Liên thông từ Hồ sơ NV → mở "Nhật ký chấm công" lọc đúng NV đó.
   useEffect(() => {
     if (focusEmployeeId && canView) setTab("logs");
   }, [focusEmployeeId, canView]);
@@ -318,7 +318,7 @@ export function ChamCongPage({
             className={tab === "logs" ? "is-active" : ""}
             onClick={() => setTab("logs")}
           >
-            <ClipboardList size={14} /> Bảng chấm công
+            <ClipboardList size={14} /> Nhật ký chấm công
           </button>
         )}
         {canView && (
@@ -2455,12 +2455,28 @@ function LogsTab({
   const [kpi, setKpi] = useState<TodayKpi | null>(null);
 
   useEffect(() => setFocus(focusEmployeeId), [focusEmployeeId]);
+
+  // Ô tìm: gõ tới đâu gọi API tới đó thì mỗi phím một request. Chờ 300ms im tay rồi mới gọi.
+  const [q, setQ] = useState("");
+  const [qGui, setQGui] = useState("");
   useEffect(() => {
+    const t = setTimeout(() => setQGui(q), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  // Khoảng ngày để xem lại NGÀY TRƯỚC. Không đặt mặc định = hôm nay: mở màn ra thấy ngay lượt
+  // gần nhất vẫn đúng ý hơn, ai cần lùi ngày thì tự chọn.
+  const [tuNgay, setTuNgay] = useState("");
+  const [denNgay, setDenNgay] = useState("");
+  const ngayNguoc = !!tuNgay && !!denNgay && denNgay < tuNgay;
+
+  useEffect(() => {
+    if (ngayNguoc) return;      // khoảng vô nghĩa → giữ nguyên kết quả cũ, khỏi gọi API thừa
     api.attendance
-      .logs(token, focus)
+      .logs(token, focus, qGui, tuNgay || undefined, denNgay || undefined)
       .then((r) => setItems(r.items))
       .catch(() => setItems([]));
-  }, [token, focus]);
+  }, [token, focus, qGui, tuNgay, denNgay, ngayNguoc]);
 
   useEffect(() => {
     if (focus == null) {
@@ -2585,10 +2601,72 @@ function LogsTab({
         </div>
       )}
 
+      {/* Dùng lại `cc-sp-search` của chính màn này (lưới Phân ca). KHÔNG mượn `lg-search-*` bên
+          màn Lương: class đó nằm trong `luong.css` mà file này không import — mượn là ô trần
+          không style, mà kéo cả `luong.css` sang thì tệ hơn nữa. */}
+      <div className="cc-toolbar" style={{ marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+        <label className="cc-sp-search">
+          <Search size={14} />
+          <input
+            placeholder="Tìm theo tên / mã nhân viên…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </label>
+        <label className="cc-sp-search">
+          <span style={{ fontSize: 12 }}>Từ</span>
+          <input
+            type="date"
+            value={tuNgay}
+            max={denNgay || undefined}
+            onChange={(e) => setTuNgay(e.target.value)}
+          />
+        </label>
+        <label className="cc-sp-search">
+          <span style={{ fontSize: 12 }}>đến</span>
+          <input
+            type="date"
+            value={denNgay}
+            min={tuNgay || undefined}
+            onChange={(e) => setDenNgay(e.target.value)}
+          />
+        </label>
+        {(tuNgay || denNgay) && (
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => {
+              setTuNgay("");
+              setDenNgay("");
+            }}
+          >
+            ✕ Bỏ lọc ngày
+          </button>
+        )}
+      </div>
+      {ngayNguoc && (
+        <div className="banner banner--error" style={{ marginBottom: 10 }}>
+          Đến ngày phải sau hoặc bằng từ ngày.
+        </div>
+      )}
+
       {!items ? (
         <p className="ns__empty">Đang tải lịch sử chấm công…</p>
       ) : (
-        <AttendanceTable logs={items} showEmployee={focus == null} />
+        <>
+          <AttendanceTable logs={items} showEmployee={focus == null} />
+          {/* Nói THẬT về giới hạn: không ghi thì người dùng tưởng đã thấy hết rồi kết luận sai
+              ("hôm kia nó không chấm công") trong khi thật ra lượt cũ nằm ngoài 100 dòng này. */}
+          <p className="cc-note" style={{ marginTop: 8 }}>
+            {items.length === 0
+              ? `Không có lượt chấm công nào${qGui ? ` khớp “${qGui}”` : ""}${
+                  tuNgay || denNgay ? " trong khoảng ngày đã chọn" : ""
+                }.`
+              : tuNgay || denNgay
+                ? `Đang xem ${items.length} lượt bấm trong khoảng ngày đã chọn${qGui ? ` khớp “${qGui}”` : ""}.`
+                : `Đang xem ${items.length} lượt bấm gần nhất${qGui ? ` khớp “${qGui}”` : ""} — tối đa 100. Muốn xem ngày trước thì chọn khoảng ngày ở trên.`}
+          </p>
+        </>
       )}
     </div>
   );
@@ -7804,6 +7882,14 @@ function ElFormModal({
   const remaining = quota?.remaining ?? 0;
   const shortOfLeave = !forEmployee && quotas.length > 0 && remaining < 0.5;
 
+  // Băng số dư phép + khối "trừ vào phép năm" của form này ĐANG TẮT (JSX bị comment ở ~7965 và
+  // ~8099). Phần tính ở trên giữ nguyên để bật lại chỉ cần bỏ comment khối JSX, không phải dựng
+  // lại cả dây chuyền `quotas → quota → remaining`. Ba dòng `void` dưới đây chỉ để TypeScript
+  // thôi báo "khai mà không dùng" — không chạy gì, không đổi hành vi.
+  void types;
+  void leaveCong;
+  void shortOfLeave;
+
   // 1 phiếu/ngày: dò trong danh sách `mine` NGAY khi đổi ngày, đừng để bấm Gửi rồi mới báo.
   const clash = useMemo(() => {
     if (forEmployee || !workDate) return null;
@@ -7884,7 +7970,7 @@ function ElFormModal({
         <div className="ns-modal__body">
           {err && <div className="banner banner--error">{err}</div>}
 
-          {forEmployee ? (
+          {/* {forEmployee ? (
             <div className="el-balance el-balance--muted">
               <span>Số dư phép của thợ sẽ được hệ thống kiểm khi lưu.</span>
             </div>
@@ -7895,7 +7981,7 @@ function ElFormModal({
                 còn {elNum(remaining)} / {elNum(quota.annual_quota)} ngày
               </span>
             </div>
-          ) : null}
+          ) : null} */}
 
           {forEmployee && (
             <label className="ns-field">
@@ -8018,7 +8104,7 @@ function ElFormModal({
             <p className="np-hint np-hint--ok">Nghỉ {elDurLong(minutes)}</p>
           ) : null}
 
-          {canDeduct && types.length > 0 && (
+          {/* {canDeduct && types.length > 0 && (
             <div className="el-stack">
               <label className="ns-check">
                 <input
@@ -8083,7 +8169,7 @@ function ElFormModal({
                 </p>
               )}
             </div>
-          )}
+          )} */}
 
           <label className="ns-field el-field">
             <span className="ns-field__label">Lý do</span>

@@ -25,7 +25,10 @@ export interface NavItem {
 }
 
 export const SELF_SERVICE_MODULE = "self_service";
-export const AUTHENTICATED_NAV_IDS: ReadonlySet<string> = new Set(["noi-quy"]);
+export const AUTHENTICATED_NAV_IDS: ReadonlySet<string> = new Set([
+  "noi-quy",
+  "yeu-cau-mua-hang",
+]);
 
 interface NavSection {
   id: string;

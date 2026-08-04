@@ -3024,9 +3024,15 @@ export interface PayrollLine {
   ot_minutes: number;
   ot_pay: number;
   night_days: number;
-  /** Phụ cấp CA khai tay của NV (v2.1) — cột DB. `ca_pay` là alias, CÙNG một số, đừng cộng 2 lần. */
+  /** ⚠️ NGƯNG từ 03/08/2026 — luôn 0 ở kỳ mới. Trước là phụ cấp CA khai tay per-người (cộng
+   *  phẳng). `ca_pay` là alias, CÙNG một số, đừng cộng 2 lần. Kỳ CŨ đã chốt vẫn còn số ở đây. */
   night_pay: number;
   ca_pay?: number;
+  /** Cơm ca = `work_shifts.meal_allowance` × số ngày THỰC LÀM ca đó (ngày đủ ngưỡng công). */
+  meal_allowance_pay?: number;
+  /** Phụ cấp ca = `work_shifts.shift_allowance` × số ngày THỰC LÀM ca đó. Tách riêng khỏi cơm vì
+   *  tiền ăn giữa ca có trần miễn thuế riêng. */
+  shift_allowance_pay?: number;
   /** Premium CA ĐÊM theo giờ (giờ 22h–06h × hệ số + tăng ca đêm) — tự tính từ chấm công, DÒNG RIÊNG. */
   night_premium_pay?: number;
   vi_pham: number;
@@ -3613,6 +3619,26 @@ export interface ProductionOrderInput {
 // --- Thu mua ----------------------------------------------------------------
 export type SupplierStatus = "active" | "inactive";
 
+export interface SupplierItemRow {
+  id: number;
+  supplier_id: number;
+  item_name: string;
+  unit: string;
+  unit_price: number;
+  vat_percent: number;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupplierItemInput {
+  item_name: string;
+  unit: string;
+  unit_price: number;
+  vat_percent?: number;
+  note?: string | null;
+}
+
 export interface SupplierRow {
   id: number;
   name: string;
@@ -3627,6 +3653,14 @@ export interface SupplierRow {
   note: string | null;
   created_at: string;
   updated_at: string;
+  items: SupplierItemRow[];
+}
+
+export interface SupplierItemCatalogRow {
+  item_name: string;
+  unit: string;
+  supplier_count: number;
+  min_unit_price: number;
 }
 
 export interface SupplierInput {
@@ -3640,6 +3674,7 @@ export interface SupplierInput {
   payment_terms?: string | null;
   status?: SupplierStatus;
   note?: string | null;
+  items?: SupplierItemInput[];
 }
 
 export interface SupplierListOut {
@@ -3691,7 +3726,7 @@ export interface DepartmentPurchaseRequestLineInput {
 }
 
 export interface DepartmentPurchaseRequestInput {
-  source_type: DepartmentPurchaseSourceType;
+  source_type?: DepartmentPurchaseSourceType | null;
   related_document_type?: string | null;
   related_document_code?: string | null;
   purpose: string;
@@ -5586,8 +5621,23 @@ export const api = {
         method: "POST", body: JSON.stringify({ note }),
       });
     },
-    logs(token: string, employeeId?: number): Promise<{ items: AttendanceLog[] }> {
-      const suffix = employeeId != null ? `?employee_id=${employeeId}` : "";
+    /** Nhật ký chấm công — 100 lượt gần nhất. `q` tìm theo TÊN hoặc MÃ nhân viên và chạy ở
+     *  SERVER: lọc ở client chỉ tìm trong 100 lượt đã tải, mà 100 lượt của cả xưởng chưa hết nửa
+     *  ngày ⇒ gõ tên ai cũng dễ ra "không tìm thấy" dù họ vẫn đi làm. */
+    logs(
+      token: string,
+      employeeId?: number,
+      q?: string,
+      tuNgay?: string,
+      denNgay?: string,
+    ): Promise<{ items: AttendanceLog[] }> {
+      const qs = new URLSearchParams();
+      if (employeeId != null) qs.set("employee_id", String(employeeId));
+      if (q && q.trim()) qs.set("q", q.trim());
+      // Khoảng NGÀY VN, trọn hai đầu. Có lọc ngày thì server tự nới trần dòng.
+      if (tuNgay) qs.set("tu_ngay", tuNgay);
+      if (denNgay) qs.set("den_ngay", denNgay);
+      const suffix = qs.toString() ? `?${qs}` : "";
       return authed<{ items: AttendanceLog[] }>(`/api/attendance/logs${suffix}`, token);
     },
     timesheet(token: string, year: number, month: number, departmentId?: number | null): Promise<Timesheet> {
@@ -6672,6 +6722,9 @@ export const api = {
         method: "PATCH",
       });
     },
+    itemCatalog(token: string): Promise<{ items: SupplierItemCatalogRow[] }> {
+      return authed<{ items: SupplierItemCatalogRow[] }>("/api/supplier-items/catalog", token);
+    },
   },
 
   departmentPurchaseRequests: {
@@ -6692,9 +6745,18 @@ export const api = {
     get(token: string, id: number): Promise<DepartmentPurchaseRequestRow> {
       return authed<DepartmentPurchaseRequestRow>(`/api/department-purchase-requests/${id}`, token);
     },
+    canCreate(token: string): Promise<{ can_create: boolean }> {
+      return authed<{ can_create: boolean }>("/api/department-purchase-requests/can-create", token);
+    },
     create(token: string, input: DepartmentPurchaseRequestInput): Promise<DepartmentPurchaseRequestRow> {
       return authed<DepartmentPurchaseRequestRow>("/api/department-purchase-requests", token, {
         method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: DepartmentPurchaseRequestInput): Promise<DepartmentPurchaseRequestRow> {
+      return authed<DepartmentPurchaseRequestRow>(`/api/department-purchase-requests/${id}`, token, {
+        method: "PUT",
         body: JSON.stringify(input),
       });
     },

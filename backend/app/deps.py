@@ -578,10 +578,11 @@ def get_purchase_service(
     ],
     requests: Annotated[PurchaseRequestRepository, Depends(get_purchase_request_repository)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
+    departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
 ) -> PurchaseService:
-    return PurchaseService(suppliers, department_requests, requests, users, audit, authz)
+    return PurchaseService(suppliers, department_requests, requests, users, departments, audit, authz)
 
 
 def get_accounting_repository(

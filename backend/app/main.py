@@ -140,6 +140,7 @@ app.include_router(operations.router)
 # Gỡ (2026-07-16): products · plate_die_rates · norms — không màn nào gọi, module quyền đã bỏ
 # (migration 0069). Bảng + repo GIỮ: engine tính giá vẫn đọc norms/plate_die_rates.
 app.include_router(may_thiet_bi.router)
+app.include_router(may_thiet_bi.nhom_may_router)   # danh mục Nhóm máy (cùng module quyền)
 app.include_router(vat_lieu_kho.router)
 app.include_router(cong_doan.router)
 app.include_router(bu_hao.router)

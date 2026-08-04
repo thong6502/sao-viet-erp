@@ -72,3 +72,56 @@ def test_costing_reader_cannot_create_catalog(client):
         headers=_h(token),
     )
     assert resp.status_code == 403
+
+
+# --- Danh mục Nhóm máy (/api/nhom-may) ---------------------------------------
+#
+# Router MỚI 03/08/2026, cùng module quyền `dm_thiet_bi` với màn Máy — chủ ý để ai khai được máy
+# thì thêm/xoá được nhóm ngay tại ô, không có cảnh thấy nút rồi ăn 403.
+
+ADMIN = {"username": "admin", "password": "admin123"}
+
+
+def _admin(client) -> dict[str, str]:
+    return _h(client.post("/api/auth/login", json=ADMIN).json()["access_token"])
+
+
+def test_nhom_may_doc_duoc_boi_nguoi_lam_tinh_gia(client):
+    """Cùng luật OR-gate như 4 danh mục trên: ô "Nhóm máy" cũng phải đổ được ở màn Tính giá."""
+    token = _token_for_role("costing-only", [("tinh_gia_thanh", "all")])
+    r = client.get("/api/nhom-may", headers=_h(token))
+    assert r.status_code == 200 and "items" in r.json()
+
+
+def test_nhom_may_nguoi_la_van_403(client):
+    token = _token_for_role("nobody", [("dashboard", "own")])
+    assert client.get("/api/nhom-may", headers=_h(token)).status_code == 403
+
+
+def test_nhom_may_them_roi_xoa_qua_API(client):
+    h = _admin(client)
+    tao = client.post("/api/nhom-may", json={"ten": "Ép kim"}, headers=h)
+    assert tao.status_code == 201, tao.text
+    row = tao.json()
+    # `ma` là computed_field soi từ `ten` — FE dùng chung khuôn danh mục nên cần khoá này.
+    assert row["ma"] == row["ten"] == "Ép kim"
+    assert any(x["ten"] == "Ép kim" for x in client.get("/api/nhom-may", headers=h).json()["items"])
+
+    assert client.post("/api/nhom-may", json={"ten": "Ép kim"}, headers=h).status_code == 409
+    assert client.delete(f"/api/nhom-may/{row['id']}", headers=h).status_code == 204
+    assert all(x["ten"] != "Ép kim" for x in client.get("/api/nhom-may", headers=h).json()["items"])
+
+
+def test_nhom_may_xoa_khi_con_may_dung_thi_409_kem_so_may(client):
+    """⭐ Trạng thái không cho xoá ⇒ 409 (không phải 422: dữ liệu gửi lên chẳng sai gì cả).
+    Thông báo phải mang SỐ MÁY để người ta biết còn phải sửa mấy cái."""
+    h = _admin(client)
+    ten = "Nhóm thử xoá"
+    nhom = client.post("/api/nhom-may", json={"ten": ten}, headers=h).json()
+    may = client.post("/api/may-thiet-bi",
+                      json={"ma": "TX-01", "ten": "Máy thử", "loai_may": ten}, headers=h)
+    assert may.status_code == 201, may.text
+
+    r = client.delete(f"/api/nhom-may/{nhom['id']}", headers=h)
+    assert r.status_code == 409, r.text
+    assert "1" in r.json()["detail"], r.json()["detail"]

@@ -769,6 +769,9 @@ class PayrollService:
                  tra_dong_phuc=0.0, dieu_chinh_luong=0.0, di_tre=0.0, dt_vuot_troi=0.0,
                  phat_bien_ban=0.0, phat_5s_dong_phuc=0.0,
                  components=None, line_components=None,
+                 # {ca → [công từng ngày làm ca đó]} từ Chấm công + bảng tra ca (mức cơm/phụ cấp).
+                 # Mặc định rỗng để unit test dựng tay không phải khai — số ra y như trước.
+                 ca_lam=None, shift_by_id=None,
                   brackets=None, on: date, employee_status: str | None = None,
                   department_id: int | None = None) -> dict:
         effective_status = employee_status or employee.status
@@ -853,9 +856,32 @@ class PayrollService:
                                 # bị loại khỏi actual_cong (base) ở Chấm công ⇒ trả trọn 1× uncapped ở đây.
                                 + float(plain_cong) * 1.0)
             )
-        # Phụ cấp CA = số KHAI TAY của NV (cộng phẳng). `night_days` từ Chấm công chỉ để tham
-        # khảo trên bảng lương, KHÔNG còn ra tiền.
-        night_pay = _round(getattr(salary, "phu_cap_ca", 0) or 0) if salary else 0.0
+        # ⚠️ NGƯNG 03/08/2026 — đường phụ cấp ca PER-NGƯỜI (số phẳng gõ tay ở hồ sơ lương) đã tắt.
+        # Phụ cấp cơm/ca nay tính THEO CA THỰC LÀM ở khối ngay dưới. Phải tắt CÙNG LƯỢT với việc
+        # bật khối đó — để cả hai cùng chạy là TRẢ HAI LẦN. Cột `employee_salaries.phu_cap_ca` vẫn
+        # còn (không drop) để giữ lịch sử; ô trên màn Lương chuyển thành chỉ đọc.
+        night_pay = 0.0
+
+        # --- Phụ cấp CƠM CA + PHỤ CẤP CA, theo TỪNG CA THỰC LÀM ---------------------------
+        # `ca_lam` = {ca → [công của từng ngày làm ca đó]} do Chấm công báo (đã đóng băng qua Chốt
+        # công ở `ca_lam_json`). Ở ĐÂY mới áp CHÍNH SÁCH: ngày đủ ngưỡng thì hưởng TRỌN, dưới
+        # ngưỡng thì không có — cố ý KHÔNG nhân theo tỷ lệ (chủ chốt 03/08/2026). Một suất ăn là
+        # có hoặc không; nhân tỷ lệ thì đi muộn 15 phút (công 0,97) ra 24.250đ tiền cơm.
+        min_cong = float(getattr(params, "phu_cap_ca_min_cong", 0.5) or 0)
+        ca_theo_id = shift_by_id or {}
+        meal_allowance_pay = 0.0
+        shift_allowance_pay = 0.0
+        for shift_id, cong_list in (ca_lam or {}).items():
+            ca = ca_theo_id.get(int(shift_id))
+            if ca is None:
+                continue          # ca đã xoá khỏi danh mục → không đoán mức, bỏ qua
+            so_ngay = sum(1 for c in cong_list if float(c or 0) >= min_cong)
+            if so_ngay <= 0:
+                continue
+            meal_allowance_pay += float(getattr(ca, "meal_allowance", 0) or 0) * so_ngay
+            shift_allowance_pay += float(getattr(ca, "shift_allowance", 0) or 0) * so_ngay
+        meal_allowance_pay = _round(meal_allowance_pay)
+        shift_allowance_pay = _round(shift_allowance_pay)
 
         # Lương CA ĐÊM theo GIỜ (Đ98) — DÒNG RIÊNG (`night_premium_pay`), MIỄN TNCN như tăng ca. Hai phần:
         #  (1) giờ đêm TRONG ca × hệ số per-ca (Chấm công đã weight (hệ số−1)) → premium theo giờ.
@@ -880,6 +906,7 @@ class PayrollService:
         # riêng ở đây — cùng cách `update_line` cộng `extra_thu`, để hai đường ra CÙNG một số.
         gross_pre = (luong_cong + chuyen_can + allowance + float(khoan)
                      + ot_pay + night_pay + night_premium_pay + float(other_bonus)
+                     + meal_allowance_pay + shift_allowance_pay
                      + extra_income + extra_thu_line)
 
         # BHXH: thử việc KHÔNG đóng (HĐ thử việc, Đ2 Luật BHXH); áp trần RIÊNG BHXH/BHYT vs BHTN.
@@ -962,8 +989,12 @@ class PayrollService:
             "ot_minutes": int(ot_minutes),
             "ot_pay": ot_pay,
             "night_days": int(night_days),
-            "night_pay": night_pay,          # = phụ cấp CA khai tay, miễn TNCN (như cũ)
+            "night_pay": night_pay,          # NGƯNG 03/08/2026 — luôn 0 (xem chỗ gán)
             "night_premium_pay": night_premium_pay,   # premium giờ đêm + tăng ca đêm (theo giờ), miễn TNCN
+            # Phụ cấp theo CA THỰC LÀM. CHỊU thuế (không trừ trong `_auto_pit`) — hướng an toàn;
+            # khoản nào thật sự được miễn thì khai ở danh mục khoản thu nhập có cờ `is_taxable`.
+            "meal_allowance_pay": meal_allowance_pay,
+            "shift_allowance_pay": shift_allowance_pay,
 
             # TRONG ĐÓ của `allowance` (đã cộng ở trên) — tách ra để phiếu lương hiện DÒNG RIÊNG
             # (chữa B2 "phụ cấp một cục"). ĐỪNG cộng lại vào gross lần nữa.
@@ -1035,6 +1066,9 @@ class PayrollService:
         # áp cho kỳ này → tra mức "hiện hành đến CUỐI tháng", không phải chỉ tính đến ngày 01.
         pay_on = date(int(year), int(month), monthrange(int(year), int(month))[1])
         metrics_map = self.attendance.metrics_map(year, month)   # {emp: {cong, ot_minutes, night_days}}
+        # Bảng tra CA → mức cơm/phụ cấp. Nạp MỘT lần cho cả kỳ: `generate` chạy engine cho hàng
+        # trăm NV, tra từng người là hàng trăm query lẻ.
+        shift_by_id = {s.id: s for s in self.attendance.list_shifts()}
         advance_map = self.payroll.approved_advance_map(year, month, kind=ADV_KIND_TAM_UNG)
         dot1_map = self.payroll.approved_advance_map(year, month, kind=ADV_KIND_LUONG_DOT_1)
         salary_map = self.payroll.latest_salaries_map(pay_on)
@@ -1103,6 +1137,8 @@ class PayrollService:
                 ot_night_normal_minutes=int(m.get("ot_night_normal_minutes", 0)),
                 ot_night_restday_minutes=int(m.get("ot_night_restday_minutes", 0)),
                 ot_night_holiday_minutes=int(m.get("ot_night_holiday_minutes", 0)),
+                ca_lam=m.get("ca_lam") or {},
+                shift_by_id=shift_by_id,
                 has_piece_work=(employment_department_id in piece_dept_ids),
                 brackets=brackets, on=on,
                 employee_status=employment_status,
@@ -1130,6 +1166,8 @@ class PayrollService:
                 ot_minutes=vals["ot_minutes"], ot_pay=vals["ot_pay"],
                 night_days=vals["night_days"], night_pay=vals["night_pay"],
                 night_premium_pay=vals["night_premium_pay"],
+                meal_allowance_pay=vals["meal_allowance_pay"],
+                shift_allowance_pay=vals["shift_allowance_pay"],
                 vi_pham=vals["vi_pham"], other_bonus=vals["other_bonus"], gross=vals["gross"],
                 insurance_base=vals["insurance_base"], bhxh=vals["bhxh"], cong_doan=vals["cong_doan"],
                 pit=pit_eff, pit_manual=pit_manual, pit_taxable=vals["pit_taxable"],
