@@ -3,6 +3,7 @@
 // Tách riêng khỏi cả hai để không vòng import, và để chỗ nào cũng nhìn cùng một hình dạng dòng.
 // Mọi ô số giữ dạng CHUỖI: ô trống ("") khác 0 — trống nghĩa là "chưa khai, dùng gợi ý", còn 0 là
 // người dùng cố tình khai bằng 0. Ép sang number quá sớm sẽ xoá mất sự khác nhau đó.
+import { LSX_DON_VI_LABELS } from "../api/client";
 import type {
   LsxCongDoan,
   LsxCongDoanBody,
@@ -361,4 +362,28 @@ export function phut(v: number): string {
   const gio = Math.floor(m / 60);
   const du = m % 60;
   return du ? `${gio} giờ ${du} phút` : `${gio} giờ`;
+}
+
+/** Mã đơn vị → nhãn người đọc (`to` → "Tờ in", `cai` → "Thành phẩm"…). */
+export function nhanDonVi(dv: string | null | undefined): string {
+  return dv ? LSX_DON_VI_LABELS[dv] ?? dv : "";
+}
+
+/** Câu quy đổi của MỘT bước: `"10 Tờ in = 1 Thành phẩm"`. `null` khi bước không đổi đơn vị.
+ *
+ *  LẬT LẠI khi hệ số < 1 — đó là ca SÁCH GẤP TAY (10 tờ mới gom thành 1 cuốn → hệ số 0,1). Viết
+ *  thẳng `"1 Tờ in = 0,1 Thành phẩm"` thì đúng số nhưng người đọc phải tự nghịch đảo trong đầu.
+ *  Bên Tính giá đã lật từ lâu; đây là bản DÙNG CHUNG để bốn màn (tính giá · bảng routing · drawer
+ *  bước · thẻ bước chung bài ghép) không mỗi nơi một kiểu. */
+export function heSoChu(
+  heSo: number | null | undefined,
+  dvVao: string | null | undefined,
+  dvRa: string | null | undefined,
+): string | null {
+  const hs = Number(heSo);
+  if (!dvVao || !dvRa || dvVao === dvRa || !Number.isFinite(hs) || hs === 1 || hs <= 0) return null;
+  const so = (v: number) => v.toLocaleString("vi-VN", { maximumFractionDigits: 4 });
+  return hs < 1
+    ? `${so(1 / hs)} ${nhanDonVi(dvVao)} = 1 ${nhanDonVi(dvRa)}`
+    : `1 ${nhanDonVi(dvVao)} = ${so(hs)} ${nhanDonVi(dvRa)}`;
 }

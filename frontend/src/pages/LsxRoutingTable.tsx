@@ -26,6 +26,7 @@ import { ChuoiCongDoan, ngay, num } from "./keHoachSxShared";
 import {
   type EditRow,
   emptyRow,
+  heSoChu,
   n,
   phut,
   thoiLuong,
@@ -522,11 +523,12 @@ export function LsxRoutingTable({
                         <span className="khsx-num">{num(n(r.so_luong_ra))}</span>
                         <span className="khsx-rt__dv">{dvNhan(r.don_vi_ra, r.nhom)}</span>
                         {/* Bước ĐỔI ĐƠN VỊ: nói luôn hệ số, không thì "59 tờ in → 5.201 con" là số
-                            từ trên trời (59 × 180 = 10.620, không phải 5.201 — chuỗi đi NGƯỢC). */}
-                        {r.don_vi_vao && r.don_vi_ra && r.don_vi_vao !== r.don_vi_ra && (
+                            từ trên trời (59 × 180 = 10.620, không phải 5.201 — chuỗi đi NGƯỢC).
+                            `heSoChu` LẬT lại khi hệ số < 1 (sách gấp tay) → "10 Tờ in = 1 Thành
+                            phẩm" thay vì "1 Tờ in = 0,1 Thành phẩm". */}
+                        {heSoChu(n(r.he_so_quy_doi) || 1, r.don_vi_vao, r.don_vi_ra) && (
                           <span className="khsx-rt__sub2">
-                            1 {dvNhan(r.don_vi_vao, r.nhom)} = {num(n(r.he_so_quy_doi) || 1)}{" "}
-                            {dvNhan(r.don_vi_ra, r.nhom)}
+                            {heSoChu(n(r.he_so_quy_doi) || 1, r.don_vi_vao, r.don_vi_ra)}
                           </span>
                         )}
                       </>

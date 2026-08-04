@@ -340,6 +340,16 @@ export function LsxDetailView({
       ? `${num(n("kho_in_dai"))} × ${num(n("kho_in_rong"))}`
       : "— (in thẳng khổ giấy nguyên)";
   const vatTus = (Array.isArray(qc.vat_tus) ? qc.vat_tus : []) as { ten?: string; so_luong?: number }[];
+  // SÁCH GẤP TAY vs CẮT RỜI — cùng tiêu chí backend dùng để chọn nhánh hệ số (`la_gap_tay`).
+  // Sách: tờ in gấp NGUYÊN VẸN thành một tay, một cuốn cần `soTay` TỜ → giấy nhân lên theo số tay,
+  // và `con/tờ` KHÔNG vào công thức giấy (nó chỉ để bình bài + kiểm khổ có vừa tờ).
+  const trangMoiTay = Math.max(n("trang_moi_tay") || 1, 1);
+  const laSach = trangMoiTay > 1;
+  const soTay = laSach ? Math.max(Math.ceil(Math.max(n("so_trang"), 1) / trangMoiTay), 1) : 1;
+  const giaiThichSach = laSach
+    ? `Sách gấp tay — con/tờ chỉ để bình bài và kiểm khổ, KHÔNG chi phối số giấy. `
+      + `Giấy tính theo ${num(soTay)} tờ in = 1 ${d.don_vi_tinh || "cuốn"}.`
+    : undefined;
   // Ảnh chụp quy cách của lệnh CŨ không có các khoá thêm sau (bleed, khe cắt, cách bình…).
   // Thiếu khoá thì phải hiện "—", KHÔNG được để `n()` trả 0 rồi bày ra như số thật của phiếu.
   const co = (k: string): boolean => qc[k] !== undefined && qc[k] !== null;
@@ -483,9 +493,22 @@ export function LsxDetailView({
             <span className="khsx-metric-pill__val">{num(d.so_to_nguyen)}</span>
           </div>
           <span className="khsx-metric-sep">·</span>
-          <div className="khsx-metric-pill">
+          {/* Sách thì "con/tờ" KHÔNG chi phối giấy — nói thẳng bằng một chip riêng, chứ để mỗi
+              con/tờ đứng cạnh Tờ in/Tờ nguyên là người đọc tưởng giấy tính theo nó. */}
+          {laSach && (
+            <>
+              <div className="khsx-metric-pill" title={giaiThichSach}>
+                <span className="khsx-metric-pill__label">Sách · tay</span>
+                <span className="khsx-metric-pill__val">{num(soTay)} tờ/cuốn</span>
+              </div>
+              <span className="khsx-metric-sep">·</span>
+            </>
+          )}
+          <div className="khsx-metric-pill" title={giaiThichSach}>
             <span className="khsx-metric-pill__label">Con / tờ</span>
-            <span className="khsx-metric-pill__val">{num(d.so_con)}</span>
+            <span className={`khsx-metric-pill__val ${laSach ? "khsx-muted" : ""}`}>
+              {num(d.so_con)}
+            </span>
           </div>
           <span className="khsx-metric-sep">·</span>
           <div className="khsx-metric-pill">
@@ -679,7 +702,19 @@ export function LsxDetailView({
                     <KV k="Loại sản phẩm" v={s("loai_san_pham_ten")} />
                     <KV k="Đơn vị tính" v={s("don_vi_tinh")} />
                     <KV k="Dài × rộng (mm)" v={`${num(n("dai_thanh_pham"))} × ${num(n("rong_thanh_pham"))}`} mono />
-                    <KV k="Số bài in" v={num(n("so_to_per_sp"))} mono />
+                    {/* Số bài in = SỐ TAY mỗi cuốn, TÍNH TẠI CHỖ từ `so_trang / trang_moi_tay`.
+                        `so_to_per_sp` trong ảnh chụp là thứ engine GHI RA, thiu ngay khi ai sửa số
+                        trang mà không chạy lại — chính engine ghi cảnh báo đó trong docstring. */}
+                    <KV
+                      k="Số bài in"
+                      v={laSach ? `${num(soTay)} tờ in = 1 ${s("don_vi_tinh")}` : num(n("so_to_per_sp"))}
+                      mono
+                    />
+                    {/* Hai số PHÂN BIỆT sách với hàng cắt rời. Có sẵn trong ảnh chụp quy cách nhưng
+                        trước đây không màn nào render → nhìn lệnh không biết đây là loại gì. */}
+                    {laSach && (
+                      <KV k="Số trang / trang mỗi tay" v={`${num(n("so_trang"))} / ${num(trangMoiTay)}`} mono />
+                    )}
                     {/* Ưu tiên nhãn ĐỌC SỐNG từ dòng đơn; ảnh chụp quy cách chỉ là dự phòng cho
                         lệnh tạo trước khi có tính năng nhóm. */}
                     <KV k="Thuộc sản phẩm" v={d.nhom || s("nhom_bao_gia")} />
@@ -727,20 +762,30 @@ export function LsxDetailView({
                 </div>
                 <div className="khsx-spec__card-body">
                   <div className="khsx-kvgrid">
-                    {/* Ô DUY NHẤT sửa được trong Quy cách: con/tờ là hệ số cầu `tờ in → con`,
-                        xưởng ép số con khác bài tính giá là chuyện thường. Đổi xong server chạy
-                        lại cả chuỗi ngược. Các số còn lại là ảnh chụp từ phiếu, không sửa ở lệnh. */}
-                    <label className="khsx-kv khsx-kv--edit">
+                    {/* Ô DUY NHẤT sửa được trong Quy cách — với hàng CẮT RỜI: con/tờ là hệ số cầu
+                        `tờ in → con`, xưởng ép số con khác bài tính giá là chuyện thường, đổi xong
+                        server chạy lại cả chuỗi ngược.
+                        Với SÁCH GẤP TAY thì KHOÁ: tờ in gấp nguyên vẹn thành một tay, giấy tính
+                        theo `1/so_tay`, `con` bị `cau_to_sang_cai` loại hoàn toàn. Để ô mở là mời
+                        người dùng gõ một số rồi bấm lưu mà không có gì đổi — lừa người dùng.
+                        Các số còn lại là ảnh chụp từ phiếu, không sửa ở lệnh. */}
+                    <label
+                      className={`khsx-kv ${laSach ? "" : "khsx-kv--edit"}`}
+                      title={giaiThichSach}
+                    >
                       <span className="khsx-kv__key">Con / tờ</span>
                       <input
                         className="khsx-kv__input"
                         type="number"
                         min={1}
-                        disabled={!canUpdate}
+                        disabled={!canUpdate || laSach}
                         value={form.so_con}
                         onChange={(e) => set("so_con", e.target.value)}
                       />
                     </label>
+                    {laSach && (
+                      <p className="khsx-nhom__sub khsx-kv--span">{giaiThichSach}</p>
+                    )}
                     <KV k="Số mảnh xả" v={num(n("so_manh_xa"))} mono />
                     <KV k="Số kẽm" v={num(n("so_kem"))} mono />
                     <KV k="Số lượt in" v={num(n("so_luot"))} mono />

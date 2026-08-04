@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent a
 import {
   api,
   ApiError,
-  LSX_DON_VI_LABELS,
   type PhieuTinhGiaOut,
   type PhieuTinhGiaColOut,
   type PtgActivity,
@@ -22,6 +21,7 @@ import { congDoan, giay, loaiSanPham, mayThietBi, vatTu, type Row } from "../api
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ImpositionDiagram } from "./ImpositionDiagram";
+import { heSoChu, nhanDonVi } from "./lsxBuoc";
 import { PhieuTinhGiaPrint, type PhieuTinhGia, type PhieuTinhGiaColumn } from "./PhieuTinhGiaPrint";
 import "./rebuild-catalog.css";
 import "./tinh-gia.css";
@@ -121,7 +121,9 @@ function cellValue(v: string | number | null): string {
 // Đơn vị bước ở bảng phân rã bù hao PHẢI đọc y hệt tên đã khai trong danh mục Công đoạn — người
 // lập phiếu đối chiếu hai màn với nhau, nhãn lệch một chữ là mất dấu. Nên KHÔNG khai bộ nhãn
 // riêng ở đây, dùng thẳng `LSX_DON_VI_LABELS` (một nguồn cho cả danh mục · lệnh SX · tính giá).
-const dvNgan = (v: string | null | undefined) => (v ? (LSX_DON_VI_LABELS[v] ?? v) : "");
+// Dùng lại bản chung ở `pages/lsxBuoc` — trước đây chỗ này chép y hệt một dòng tra
+// `LSX_DON_VI_LABELS`, thêm một đơn vị mới là phải nhớ sửa hai nơi.
+const dvNgan = nhanDonVi;
 
 const FORMULA_UNIT: Record<string, string> = {
   to_nguyen: "tờ", to_dau_vao: "tờ", so_to: "tờ",
@@ -2336,13 +2338,13 @@ function ComponentModal({
               {moPhanRa && (liveMeta?.bu_hao_chi_tiet?.length ?? 0) > 0 && (
                 <ul className="tg-sheetbreak">
                   {liveMeta!.bu_hao_chi_tiet!.map((b, i) => {
-                    const doiTiLe = b.dv_vao !== b.dv_ra && !!b.he_so && b.he_so !== 1;
                     const coHao = b.hao > 0;
                     const dvV = dvNgan(b.dv_vao);
                     const dvR = dvNgan(b.dv_ra);
-                    const heSoText = doiTiLe
-                      ? (b.he_so! < 1 ? `${fmt(1 / b.he_so!)} ${dvV} = 1 ${dvR}` : `1 ${dvV} = ${fmt(b.he_so!)} ${dvR}`)
-                      : null;
+                    // Câu quy đổi dùng CHUNG với màn lệnh + bài ghép (`pages/lsxBuoc`) — luật lật
+                    // hệ số khi < 1 bắt nguồn từ đây, giữ ba bản chép là ba chỗ để lệch.
+                    const heSoText = heSoChu(b.he_so, b.dv_vao, b.dv_ra);
+                    const doiTiLe = !!heSoText;
                     const haoText = coHao
                       ? `cần ${fmt(b.ra_quy ?? 0)} ${dvV} tốt + ${fmt(b.hao)} hao = ${fmt(b.vao)} ${dvV}`
                       : null;

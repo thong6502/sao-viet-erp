@@ -4686,6 +4686,26 @@ def _migrate_khsx_dinh_muc_vat_tu_phu_thuoc(db: Session) -> None:
     db.commit()
 
 
+def _migrate_xep_lich_bai_ghep_cong_doan(db: Session) -> None:
+    """Dòng lịch của bài ghép neo ĐÍCH DANH bước chạy chung nào.
+
+    Trước nay bài chỉ đẻ ĐÚNG MỘT dòng "in ghép" — đúng khi điểm gộp duy nhất là bước in. Nay
+    người dùng gộp cả CTP / cán / bế, mà `_sinh_dong` thì loại MỌI bước bị đè khỏi routing lệnh:
+    gộp ba công đoạn là ba bước biến mất khỏi board, chỉ còn một dòng thay thế, và dòng đó lấy
+    máy của BÀI chứ không lấy máy người dùng vừa khai cho lượt chung.
+
+    KHÔNG backfill: dòng cũ (`bai_ghep_cong_doan_id IS NULL`) vẫn chạy nhánh thời lượng cũ theo
+    máy của bài, nên bài đã lập kế hoạch từ trước không vỡ.
+    """
+    insp = inspect(db.get_bind())
+    if "xep_lich_cong_doan" not in insp.get_table_names():
+        return
+    if "bai_ghep_cong_doan_id" not in _existing_columns(insp, "xep_lich_cong_doan"):
+        db.execute(text(
+            "ALTER TABLE xep_lich_cong_doan ADD COLUMN bai_ghep_cong_doan_id INTEGER"))
+        db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -4956,6 +4976,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0149_lsx_cong_doan_giao_nhan_thuc", _migrate_lsx_cong_doan_giao_nhan_thuc),
     # Bài ghép neo ĐÍCH DANH bước in chạy chung tờ (quy ước ngầm theo `nhom` vỡ khi lệnh in 2 lượt).
     ("0150_bai_ghep_buoc_in_step_key", _migrate_bai_ghep_buoc_in_step_key),
+    # Bài ghép gộp nhiều công đoạn (CTP/in/cán/bế) → MỖI bước chung một dòng lịch, phải neo được.
+    ("0151_xep_lich_bai_ghep_cong_doan", _migrate_xep_lich_bai_ghep_cong_doan),
 ]
 
 

@@ -84,6 +84,126 @@ def orders(db):
     return OrderService(OrderRepository(db), audit, QuotationRepository(db), db, acc_repo, accounting)
 
 
+def _ptg_sach(db, *, so_cuon=2_000, so_trang=160, trang_moi_tay=16) -> PhieuTinhGia:
+    """Phiếu tính giá một cuốn SÁCH: In → Gấp tay → Bắt tay+vào keo → Xén 3 mặt.
+
+    `Bắt tay + vào keo` là bước duy nhất đổi đơn vị `to → cai` — chỗ GOM `so_tay` tờ thành MỘT
+    cuốn (đúng như migration `0148` khai cho `CD-0008`). Gấp tay giữ `to → to` vì nó gấp cả tờ,
+    một tờ thành một tay.
+    """
+    giay = GiayNguyen(ma="G-FORD70", ten="Ford 70", gsm=70, don_gia=22_000, don_vi_gia="tan",
+                      cong_thuc_gia="to_nguyen * dai_nguyen * rong_nguyen * dinh_luong * don_gia / 1000")
+    db.add(giay)
+    to_id = _to_san_xuat(db).id
+    may = _may_in(db)
+    cds = [
+        CongDoan(ma="CD-IN-S", ten="In offset", nhom="print", cong_thuc_gia="so_luong * don_gia",
+                 department_id=to_id, don_vi_vao="to", don_vi_ra="to"),
+        CongDoan(ma="CD-GAP-S", ten="Gấp tay sách", nhom="finishing",
+                 cong_thuc_gia="so_luong * don_gia", department_id=to_id,
+                 don_vi_vao="to", don_vi_ra="to"),
+        CongDoan(ma="CD-KEO-S", ten="Bắt tay + vào keo", nhom="finishing",
+                 cong_thuc_gia="so_luong * don_gia", department_id=to_id,
+                 don_vi_vao="to", don_vi_ra="cai"),
+        # Hao 50 CUỐN ở bước xén — để kiểm nó lội ngược qua cầu ra đúng 500 TỜ.
+        CongDoan(ma="CD-XEN-S", ten="Xén 3 mặt", nhom="finishing",
+                 cong_thuc_gia="so_luong * don_gia", department_id=to_id,
+                 don_vi_vao="cai", don_vi_ra="cai", kieu_bu_hao="co_dinh", so_to_bu_hao=50),
+    ]
+    db.add_all(cds)
+    db.flush()
+
+    p = PhieuTinhGia(ma="PTG-SACH-0001", ten_san_pham="Sách A5", so_luong=so_cuon)
+    ruot = PhieuThanhPhan(
+        thu_tu=0, ten="Ruột sách A5", so_luong=so_cuon, don_vi_tinh="cuốn",
+        dai_thanh_pham=210, rong_thanh_pham=148,
+        so_trang=so_trang, trang_moi_tay=trang_moi_tay,
+        giay_id=giay.id, kho_nguyen_dai=860, kho_nguyen_rong=650,
+        kho_in_dai=860, kho_in_rong=650, so_mau_a=1, so_mau_b=1, quy_cach_in="hai_mat",
+        may_id=may.id,
+    )
+    for i, cd in enumerate(cds):
+        ruot.thanh_phams.append(PhieuThanhPham(thu_tu=i, cong_doan_id=cd.id, ten=cd.ten, don_gia=50))
+    p.thanh_phans.append(ruot)
+    db.add(p)
+    db.commit()
+    return p
+
+
+def test_sach_di_het_luong_don_den_lenh(db, orders, lsx_svc, admin, customer):
+    """SÁCH đi hết luồng đơn → tính giá → lệnh: số giấy phải nhân lên theo SỐ TAY.
+
+    Ca thật, không phải chuỗi tự dựng. Đúng bộ số của panel bù hao bên Tính giá:
+    2.000 cuốn × 10 tay = 20.000 tờ, cộng 50 cuốn hao ở bước xén lội ngược qua cầu thành 500 tờ
+    → 20.500 tờ. Code cũ lấy `so_con` (bình bài = 16) nên bước in chỉ nhận 128 tờ — hụt 160 lần,
+    và giờ máy in cũng hụt theo (3 phút thay vì hơn 8 tiếng), tức xếp lịch cũng vỡ.
+    """
+    ptg = _ptg_sach(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+
+    assert lsx_svc._he_so_cau(lsx)[("to", "cai")] == pytest.approx(0.1)   # 10 tờ = 1 cuốn
+    assert lsx.so_to_ke_hoach == 20_500
+
+    buoc = {c.ten: c for c in lsx.cong_doans}
+    keo = buoc["Bắt tay + vào keo"]
+    assert (float(keo.so_luong_vao), float(keo.so_luong_ra)) == (20_500, 2_050)
+    assert (keo.don_vi_vao, keo.don_vi_ra) == ("to", "cai")
+    xen = buoc["Xén 3 mặt"]
+    assert (float(xen.so_luong_vao), float(xen.so_luong_ra)) == (2_050, 2_000)
+    assert float(xen.hao_hut) == 50
+    # Hao 50 CUỐN ở cuối chuỗi lội ngược qua cầu = 500 TỜ ở bước in. Cộng hao phẳng thì chỉ ra 50.
+    assert float(buoc["In offset"].so_luong_vao) == 20_500
+
+    # Giờ máy ăn theo `so_luong_vao`: hệ số sai là xếp lịch sai theo, không riêng số giấy.
+    assert thoi_luong_buoc(buoc["In offset"])["chiem_may_phut"] > 400   # 20.500 tờ ÷ 5.000 tờ/giờ
+
+
+def test_cau_to_sang_cai_sach_gap_tay_nguoc_chieu_voi_cat_roi(db, lsx_svc):
+    """Sách gấp tay: NHIỀU tờ mới gom thành MỘT cuốn → hệ số `1/so_tay`, nhỏ hơn 1.
+
+    Đây là chỗ tầng lệnh từng lệch với tính giá: nó trả thẳng `so_con` cho mọi loại hàng, nên lệnh
+    sách cấp thiếu giấy đúng `con × so_tay` lần — một chiều, không bao giờ thừa, và không ai báo.
+    Migration `0148` đã dựng sẵn cầu `to → cai` cho bước "Bắt tay + vào keo"; thiếu đúng hệ số.
+    """
+    from app.models.lsx import Lsx
+
+    # Sách A5 160 trang, tay 16 → 10 tay = 10 TỜ cho mỗi cuốn. `so_con` để 8 cho chắc: kiểu gấp
+    # tay thì `con` KHÔNG được vào công thức giấy, có đặt bao nhiêu cũng không đổi hệ số.
+    sach = Lsx(so_con=8, quy_cach_json={"so_trang": 160, "trang_moi_tay": 16, "so_manh_xa": 1})
+    assert lsx_svc._he_so_cau(sach)[("to", "cai")] == pytest.approx(0.1)
+
+    # Hàng CẮT RỜI đi chiều ngược lại: một tờ ra `con` cái. Nhánh mới không được đụng vào ca này.
+    the = Lsx(so_con=99, quy_cach_json={"so_manh_xa": 1})
+    assert lsx_svc._he_so_cau(the)[("to", "cai")] == 99.0
+
+    # `trang_moi_tay = 1` là hàng thường, không phải sách một tay.
+    mot_tay = Lsx(so_con=4, quy_cach_json={"so_trang": 4, "trang_moi_tay": 1})
+    assert lsx_svc._he_so_cau(mot_tay)[("to", "cai")] == 4.0
+
+
+def test_chuoi_nguoc_sach_can_nhieu_to_hon_so_cuon(db, lsx_svc):
+    """Hệ quả trên chuỗi ngược: 2.000 cuốn sách 10 tay phải ra 20.000 tờ, không phải 2.000/con."""
+    from app.models.lsx import Lsx, LsxCongDoan
+
+    sach = Lsx(
+        so_luong_dat=2_000, so_con=8,
+        quy_cach_json={"so_trang": 160, "trang_moi_tay": 16, "so_manh_xa": 1},
+    )
+    # Chuỗi tối thiểu có ranh giới tờ↔cuốn, đúng như `0148` khai cho khâu sách.
+    sach.cong_doans = [
+        LsxCongDoan(thu_tu=0, ten="In offset", nhom="print", don_vi_vao="to", don_vi_ra="to"),
+        LsxCongDoan(thu_tu=1, ten="Bắt tay + vào keo", nhom="finishing",
+                    don_vi_vao="to", don_vi_ra="cai"),
+    ]
+    rows = {r["ten"]: r for r in lsx_svc.tinh_nguoc_routing(sach)}
+    assert rows["Bắt tay + vào keo"]["so_luong_ra"] == 2_000
+    assert rows["Bắt tay + vào keo"]["so_luong_vao"] == 20_000
+    assert rows["In offset"]["so_luong_vao"] == 20_000
+
+
 @pytest.fixture
 def lsx_svc(db):
     return LsxService(

@@ -368,6 +368,18 @@ class LsxOut(BaseModel):
     bai_ghep: LsxBaiGhepOut | None = None
 
 
+class BuocBiDeOut(BaseModel):
+    """Một bước của lệnh đang bị bài ghép ĐÈ — số ở đây là của CẢ LƯỢT chung, không phải của lệnh."""
+
+    gop_step_key: str
+    ten: str
+    to_ten: str | None = None
+    may_ten: str | None = None
+    so_luong_vao: float = 0
+    so_luong_ra: float = 0
+    hao_hut: float = 0
+
+
 class LsxBaiGhepOut(BaseModel):
     id: int
     ma: str
@@ -378,7 +390,10 @@ class LsxBaiGhepOut(BaseModel):
     kho_in_dai: int | None = None
     kho_in_rong: int | None = None
     so_con_tren_to: int = 1
-    buoc_in_step_key: str | None = None
+    # `lsx_step_key → bước chung đang đè lên nó`. Thay `buoc_in_step_key` (giả định bước in là điểm
+    # gộp duy nhất — sai, bài còn gộp CTP/cán/bế). Quên sửa model này một lần rồi: service trả
+    # `buoc_bi_de` mà pydantic lọc mất, badge + hai số phía lệnh thành code chết mà không ai báo.
+    buoc_bi_de: dict[str, BuocBiDeOut] = Field(default_factory=dict)
 
 
 class LsxUpdateIn(BaseModel):

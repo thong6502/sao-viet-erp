@@ -219,6 +219,22 @@ def test_hang_cho_ghep_hien_2_lsx_cung_giay(db, orders, lsx_svc, bg_svc, admin, 
     assert all(r["giay_ten"] == "Ivory 350" for r in rows)
 
 
+def _buoc_in_keys(lsx_svc, created) -> list[str]:
+    return [
+        next(c.step_key for c in sorted(lsx_svc.get(l.id).cong_doans, key=lambda c: c.thu_tu)
+             if c.nhom == "print")
+        for l in created
+    ]
+
+
+def _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin):
+    """Thao tác NGƯỜI làm trên canvas: chọn bước in của từng lệnh rồi bấm Gộp.
+
+    Bài ghép KHÔNG tự gộp — mở ra là routing đầy đủ của từng lệnh, chưa chung gì cả.
+    """
+    return bg_svc.gop(bai_ghep_id=bg.id, step_keys=_buoc_in_keys(lsx_svc, created), actor=admin)
+
+
 def test_tao_bai_ghep_va_tinh_so_to(db, orders, lsx_svc, bg_svc, admin, customer):
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)  # A=20k, B=8k
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
@@ -230,6 +246,10 @@ def test_tao_bai_ghep_va_tinh_so_to(db, orders, lsx_svc, bg_svc, admin, customer
     bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=a["thanh_vien_id"], so_con_tren_to=4, actor=admin)
     bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=b["thanh_vien_id"], so_con_tren_to=2, actor=admin)
 
+    # Chưa gộp bước nào = chưa chung tờ với ai → dư chưa có nghĩa, không báo bừa một con số.
+    assert all(tv["du"] == 0 for tv in bg_svc.detail_dict(bg_svc._get(bg.id))["thanh_vien"])
+
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
     d2 = bg_svc.detail_dict(bg_svc._get(bg.id))
     assert d2["so_to"]["so_to_tot"] == 5000
     assert _by_sl(d2, 20_000)["du"] == 0            # 5000×4 − 20000
@@ -254,9 +274,26 @@ def test_gate_san_sang_can_it_nhat_2_thanh_vien(db, orders, lsx_svc, bg_svc, adm
         bg_svc.set_trang_thai(bai_ghep_id=bg1.id, trang_thai=TT_SAN_SANG, actor=admin)
 
 
+def _lap_ke_hoach_moi_buoc_chung(db, bg_svc, bg, admin):
+    """Gán tổ/máy/thời lượng cho mọi bước chung — gộp xong là phải lập lại kế hoạch cho lượt đó."""
+    may = db.query(MayThietBi).first() or _may_in(db)
+    for c in bg_svc._buoc_chungs(bg_svc._get(bg.id)):
+        bg_svc.lap_ke_hoach_buoc_chung(
+            bai_ghep_id=bg.id, gang_step_key=c.step_key, actor=admin,
+            patch={"department_id": _to_san_xuat(db).id, "may_id": may.id, "chay_phut": 60},
+        )
+
+
 def test_san_sang_ok_va_sua_thanh_vien_ha_ve_nhap(db, orders, lsx_svc, bg_svc, admin, customer):
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)  # giấy + khổ auto, ups>0
+    # Chưa gộp gì thì đây là 2 lệnh rời, không phải bài ghép → chặn sẵn sàng.
+    assert "thieu_buoc_chung" in bg_svc.thieu_cua(bg_svc._get(bg.id))
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+    # Gộp rồi mà chưa gán tổ/máy cho lượt chung → vẫn chặn.
+    assert "thieu_ke_hoach_buoc_chung" in bg_svc.thieu_cua(bg_svc._get(bg.id))
+    _lap_ke_hoach_moi_buoc_chung(db, bg_svc, bg, admin)
+
     bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
     assert bg.trang_thai == TT_SAN_SANG
     tv0 = bg_svc.detail_dict(bg)["thanh_vien"][0]["thanh_vien_id"]
@@ -339,22 +376,312 @@ def test_so_to_gom_hao_cac_buoc_sau_in(db, orders, lsx_svc, bg_svc, admin, custo
     assert _by_sl(d3, 20_000)["nhu_cau_to"] == 5_075
 
 
-def test_neo_buoc_in_dien_san_khi_lenh_chi_co_mot_luot(db, orders, lsx_svc, bg_svc, admin, customer):
+def test_du_tru_hao_cac_buoc_sau_diem_toa(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Số DƯ phải đi qua LƯỢT ĐI, không phải `so_to_tot × con`.
+
+    Đây là con số từng sai 12× và 241× mà LỌT QUA trọn bộ test — chưa từng có test nào canh `du`.
+    Lấy `so_to_tot × con` là bỏ sạch hao của các bước sau điểm toả: bài báo dư một đống trong khi
+    thực tế vừa đủ, người kế hoạch nhìn số đó rồi bớt giấy là thiếu hàng.
+    """
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)   # A=20k, B=8k
+    lsx_a = next(l for l in created if l.so_luong_dat == 20_000)
+    # Bước sau in ăn 300 cái → lượt đi phải trừ đúng 300 khi tính sản lượng thật.
+    _them_buoc_hao_sau_in(db, lsx_svc, lsx_svc.get(lsx_a.id), admin, so_to_bu_hao=300)
+
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    d = bg_svc.detail_dict(bg)
+    for sl, con in ((20_000, 4), (8_000, 2)):
+        bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=_by_sl(d, sl)["thanh_vien_id"],
+                              so_con_tren_to=con, actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+
+    d2 = bg_svc.detail_dict(bg_svc._get(bg.id))
+    so_to_tot = d2["so_to"]["so_to_tot"]
+    a = _by_sl(d2, 20_000)
+    assert so_to_tot == 5_075                      # 20.300 cái ÷ 4 con/tờ, đã gồm hao bước cán
+
+    # Lệnh A quyết định số tờ → chạy hết chuỗi riêng còn ĐÚNG số đặt, không dư.
+    assert a["san_luong_du_kien"] == 20_000 and a["du"] == 0
+    # Nếu ai đó tính bằng `so_to_tot × con` thì ra 20.300 → dư 300 ảo. Khoá lại đúng chỗ đó.
+    assert a["san_luong_du_kien"] != so_to_tot * a["so_con_tren_to"]
+    assert a["du_to"] == 0                         # A là lệnh cần nhiều tờ nhất
+
+    # Lệnh B không có bước hao thêm nên `so_to_tot × con` mới đúng với nó — và nó dư thật.
+    b = _by_sl(d2, 8_000)
+    assert b["du_to"] == so_to_tot - b["nhu_cau_to"] > 0
+    assert b["du"] == so_to_tot * b["so_con_tren_to"] - 8_000
+
+
+def test_hao_buoc_chung_dem_dung_mot_lan_cho_ca_luot(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Một lần lên máy thì canh máy MỘT lần — không phải mỗi lệnh một bộ hao cho cùng lượt đó.
+
+    Trước đây mỗi lệnh chạy chuỗi ngược riêng nên mỗi lệnh tự cộng một bộ hao canh máy; hai lệnh
+    ghép chung là 2× hao cho một lần in.
+    """
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
-    assert all(tv.buoc_in_step_key for tv in bg_svc._get(bg.id).thanh_viens)
-    # Không thiếu dữ liệu vì máy suy được — người dùng không phải chọn gì.
-    assert "thieu_buoc_in" not in bg_svc.thieu_cua(bg_svc._get(bg.id))
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+
+    sd = bg_svc.so_do(bg_svc._get(bg.id))
+    assert len(sd["gop"]) == 1
+    chung = sd["gop"][0]
+
+    # Hao của lượt chung phải bằng ĐÚNG MỘT lần tra bù hao của công đoạn ở bậc số tờ của BÀI.
+    # KHÔNG assert `vao - ra == hao_hut`: `_node_chungs` viết thẳng `hao_hut = vao - ra` nên đó là
+    # hằng đẳng thức, engine đếm hao hai lần test vẫn xanh.
+    cd_in = next(c for c in lsx_svc.get(created[0].id).cong_doans if c.nhom == "print")
+    mot_lan, _pct = bg_svc._hao_o_bac(cd_in.cong_doan_id, sd["bai_ghep"]["so_to_tot"])
+    assert chung["hao_hut"] == pytest.approx(mot_lan)
+    assert sd["bai_ghep"]["hao_setup_de_xuat"] == int(mot_lan)   # 1 bộ, không phải 2
+
+    # Và bước bị đè trong từng lệnh KHÔNG còn giữ bộ hao riêng nữa (lớp đè đã chuyển tầng hao).
+    for lsx in created:
+        cd = next(c for c in lsx_svc.get(lsx.id).cong_doans if c.nhom == "print")
+        assert float(cd.hao_hut or 0) == 0.0, "hao bước đã gộp phải nằm ở bài, không ở lệnh"
 
 
-def test_lenh_hai_luot_in_thi_bat_chon_khong_doan(db, orders, lsx_svc, bg_svc, admin, customer):
-    """In 2 lượt (mặt trước / mặt sau tách dòng) → máy KHÔNG đoán lượt nào ghép chung tờ."""
+def test_to_nguyen_can_di_qua_cau_to_nguyen_sang_to(db, orders, lsx_svc, bg_svc, admin, customer):
+    """"Giấy lĩnh kho" phải quy đổi qua cầu `to_nguyen → to` (số mảnh xả), KHÔNG qua con/tờ.
+
+    Bước toả thường là bế (`to → cai`) nên hệ số của nó là con/tờ. Lấy nhầm cầu thì 5.075 tờ với
+    4 con/tờ ra 1.269 tờ nguyên — ai cầm số đó đi lĩnh giấy là thiếu 3/4. Số này hiện thẳng trên
+    header nên sai là sai ngay trước mắt người kế hoạch.
+    """
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    lsx_a = next(l for l in created if l.so_luong_dat == 20_000)
+    # Fixture này khai bước in là `to → cai`, tức điểm toả ĐỔI ĐƠN VỊ — đúng ca dễ lấy nhầm cầu.
+    _them_buoc_hao_sau_in(db, lsx_svc, lsx_svc.get(lsx_a.id), admin, so_to_bu_hao=0)
+
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    d = bg_svc.detail_dict(bg)
+    for sl, con in ((20_000, 4), (8_000, 2)):
+        bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=_by_sl(d, sl)["thanh_vien_id"],
+                              so_con_tren_to=con, actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+
+    so_to = bg_svc.detail_dict(bg_svc._get(bg.id))["so_to"]
+    # Chuỗi seed không có bước xả → 1 tờ nguyên = 1 tờ in, giấy lĩnh kho KHÔNG ĐƯỢC nhỏ hơn tờ in.
+    assert so_to["to_nguyen_can"] >= so_to["so_to_tot"], (
+        f"lĩnh {so_to['to_nguyen_can']} tờ nguyên cho {so_to['so_to_tot']} tờ in là thiếu giấy"
+    )
+    assert so_to["to_nguyen_can"] == so_to["so_to_tot"] + so_to["hao_de_xuat"]
+
+
+def test_quy_doi_don_vi_buoc_chung_tra_BANG_CAU_giong_tinh_gia(
+    db, orders, lsx_svc, bg_svc, admin, customer
+):
+    """Quy đổi vào→ra của bước chung phải đi qua BẢNG CẦU của bài, đúng cách engine tính giá làm.
+
+    Đơn vị vào/ra là thứ NGƯỜI khai ở danh mục công đoạn; hệ số thì BÀI cấp (`con` từ bình bài,
+    `so_manh_xa` từ khổ giấy) — khai hệ số ở danh mục là đẻ nguồn sự thật thứ hai. Với bước bế
+    chung, hệ số là **TỔNG con của mọi lệnh** trên tờ ghép, không phải con của một lệnh nào.
+    """
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    lsx_a = next(l for l in created if l.so_luong_dat == 20_000)
+    # Helper này khai bước in là `to → cai` → bước gộp CÓ đổi đơn vị, đúng ca cần khoá.
+    _them_buoc_hao_sau_in(db, lsx_svc, lsx_svc.get(lsx_a.id), admin, so_to_bu_hao=0)
+
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    d = bg_svc.detail_dict(bg)
+    for sl, con in ((20_000, 4), (8_000, 2)):
+        bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=_by_sl(d, sl)["thanh_vien_id"],
+                              so_con_tren_to=con, actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+
+    chung = bg_svc._buoc_chungs(bg_svc._get(bg.id))[0]
+    assert (chung.don_vi_vao, chung.don_vi_ra) == ("to", "cai"), "phải snapshot đơn vị đã khai"
+    assert float(chung.he_so_quy_doi) == 6.0, "4 + 2 con/tờ — TỔNG, không phải con của một lệnh"
+    # Vào đếm TỜ, ra đếm CON. Ra / hệ số = tờ tốt, luôn ≤ tờ vào (phần chênh chính là hao).
+    assert float(chung.so_luong_ra) / 6.0 <= float(chung.so_luong_vao)
+    assert float(chung.hao_hut) >= 0
+
+    node = next(g for g in bg_svc.so_do(bg_svc._get(bg.id))["gop"]
+                if g["step_key"] == chung.step_key)
+    assert (node["don_vi_vao"], node["don_vi_ra"]) == ("to", "cai")
+    assert node["so_luong_ra"] == pytest.approx(float(chung.so_luong_ra))
+
+
+def _hoa_thanh_sach(db, lsx, *, so_trang=160, trang_moi_tay=16):
+    """Biến một lệnh thành SÁCH gấp tay: 160 trang / 16 trang mỗi tay → 10 tay = 10 TỜ mỗi cuốn."""
+    lsx.quy_cach_json = {**(lsx.quy_cach_json or {}),
+                         "so_trang": so_trang, "trang_moi_tay": trang_moi_tay}
+    db.commit()
+    return lsx
+
+
+def test_ruot_sach_khong_vao_duoc_bai_ghep(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Ruột sách KHÔNG ghép chung tờ được — chặn ở CẢ hàng chờ lẫn cửa ghi.
+
+    Một cuốn 10 tay = 10 TỜ IN KHÁC NHAU, mỗi tay một bộ kẽm. Mô hình bài ghép giả định mỗi thành
+    viên góp ĐÚNG MỘT bố cục tờ (`so_con_tren_to`), nên không diễn tả nổi — cho vào là ra số vô
+    nghĩa chứ không phải số xấp xỉ.
+    """
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    sach = _hoa_thanh_sach(db, lsx_svc.get(created[0].id))
+    bia = created[1]                      # `trang_moi_tay` = 1 → hàng cắt rời
+
+    # Hàng chờ: sách biến mất, bìa vẫn còn.
+    cho = {r["lsx_id"] for r in bg_svc.hang_cho_ghep()}
+    assert sach.id not in cho
+    assert bia.id in cho, "bìa sách là hàng cắt rời, KHÔNG được chặn nhầm"
+
+    # Cửa ghi phải chặn độc lập — hàng chờ chỉ là bộ lọc hiển thị, API vẫn gọi thẳng được.
+    with pytest.raises(BaiGhepValidationError) as e:
+        bg_svc.tao(lsx_ids=[sach.id, bia.id], actor=admin)
+    assert "10 tay/cuốn" in str(e.value)   # câu báo nói rõ VÌ SAO, không chỉ "không hợp lệ"
+
+    # Và chặn cả ở cửa thêm-thành-viên, không riêng lúc tạo.
+    bg = bg_svc.tao(lsx_ids=[bia.id], actor=admin)
+    with pytest.raises(BaiGhepValidationError):
+        bg_svc.them_thanh_vien(bai_ghep_id=bg.id, lsx_ids=[sach.id], actor=admin)
+
+
+def test_cai_moi_to_cua_bai_van_theo_dung_luat_gap_tay(db, orders, lsx_svc, bg_svc, admin, customer):
+    """`_cai_moi_to` vẫn phải theo luật chung, kể cả khi cửa vào đã chặn sách.
+
+    Chặn là chính sách ở CỬA; hệ số là LUẬT. Để hệ số sai rồi dựa vào cửa chặn là đặt cược rằng
+    cửa không bao giờ hở — mà cửa thì thay đổi (vd sau này cho ghép theo từng tay).
+    """
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    sach = _hoa_thanh_sach(db, lsx_svc.get(created[0].id))
+    cat_roi = lsx_svc.get(created[1].id)
+
+    assert bg_svc._cai_moi_to(sach, 4) == pytest.approx(0.1), "10 tờ = 1 cuốn, `con` không tính"
+    assert bg_svc._cai_moi_to(cat_roi, 2) == 2.0
+
+
+def test_the_buoc_bi_de_hien_so_cua_luot_chung_khong_phai_nhu_cau_rieng(
+    db, orders, lsx_svc, bg_svc, admin, customer
+):
+    """Lệnh nhỏ trong bài cần 4.000 tờ nhưng bài chạy 5.075 → nó THẬT SỰ nhận 5.075.
+
+    Để thẻ hiện nhu cầu riêng (4.000) thì nó đá nhau với chính chip "dư tờ 1.075" ngay bên cạnh,
+    và đá cả với sản lượng dự kiến của nhánh. Kiểm chéo: dư tờ × con = dư thành phẩm.
+    """
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    lsx_a = next(l for l in created if l.so_luong_dat == 20_000)
+    lsx_b = next(l for l in created if l.so_luong_dat == 8_000)
+    _them_buoc_hao_sau_in(db, lsx_svc, lsx_svc.get(lsx_a.id), admin, so_to_bu_hao=300)
+
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    d = bg_svc.detail_dict(bg)
+    for sl, con in ((20_000, 4), (8_000, 2)):
+        bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=_by_sl(d, sl)["thanh_vien_id"],
+                              so_con_tren_to=con, actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+
+    sd = bg_svc.so_do(bg_svc._get(bg.id))
+    so_to_tot = sd["bai_ghep"]["so_to_tot"]
+    assert so_to_tot == 5_075                      # max(5.075 của A, 4.000 của B)
+
+    nh_b = next(n for n in sd["nhanh"] if n["lsx_id"] == lsx_b.id)
+    in_b = next(b for b in nh_b["buoc"] if b["gop_step_key"])
+    assert in_b["so_luong_vao"] == so_to_tot, "bước bị đè phải nhận số TỜ của lượt chung"
+    assert in_b["so_luong_ra"] == so_to_tot * 2, "qua cầu thì nhân con/tờ của CHÍNH lệnh này"
+    assert in_b["so_luong_ra"] == nh_b["san_luong_du_kien"]   # thẻ khớp nhánh
+
+    # Kiểm chéo cầu: dư TỜ × con/tờ = dư THÀNH PHẨM. Lệch là cầu quy đổi sai ở đâu đó.
+    assert nh_b["du_to"] == 1_075
+    assert nh_b["du_to"] * 2 == nh_b["du"] == 2_150
+
+
+def test_so_luong_buoc_chung_duoc_GHI_xuong_db(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Số của bước chung là DẪN XUẤT nhưng vẫn phải GHI — `thoi_luong_buoc()` đọc `so_luong_vao`
+    để suy giờ chạy, và màn lệnh đọc mấy cột này. Không ghi thì cả hai đọc ra 0."""
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+
+    chung = bg_svc._buoc_chungs(bg_svc._get(bg.id))[0]
+    assert float(chung.so_luong_vao) > 0, "cột số của bước chung không được để trống"
+    assert float(chung.so_luong_ra) > 0
+
+    # Đổi con/tờ → số của bước chung phải đổi theo, không được thiu.
+    tv = bg_svc._get(bg.id).thanh_viens[0]
+    truoc = float(bg_svc._buoc_chungs(bg_svc._get(bg.id))[0].so_luong_vao)
+    bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv.id,
+                          so_con_tren_to=max(1, tv.so_con_tren_to // 2), actor=admin)
+    assert float(bg_svc._buoc_chungs(bg_svc._get(bg.id))[0].so_luong_vao) != truoc
+
+
+def test_khoi_bai_ghep_cua_lenh_khong_bi_response_model_nuot(
+    db, orders, lsx_svc, bg_svc, admin, customer
+):
+    """Mọi khoá service trả phải SỐNG SÓT qua response model.
+
+    Đã dính một lần: service trả `buoc_bi_de` mà `LsxBaiGhepOut` quên khai, pydantic lọc mất, nên
+    badge mã bài ghép và hai-số ở màn lệnh thành code chết — FE dùng optional chaining nên không
+    crash, nó chỉ im lặng không hiện gì. Không test nào bắt được.
+    """
+    from app.schemas.lsx import LsxBaiGhepOut
+
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+
+    d = lsx_svc._bai_ghep_dict(lsx_svc.get(created[0].id))
+    assert d and d["buoc_bi_de"], "service phải trả lớp đè của lệnh"
+    ra = LsxBaiGhepOut.model_validate(d).model_dump()
+    assert set(d) <= set(ra), f"response model nuốt mất khoá: {set(d) - set(ra)}"
+
+    de = next(iter(ra["buoc_bi_de"].values()))
+    assert de["so_luong_vao"] > 0, "màn lệnh sẽ hiện 'bài cấp 0 tờ'"
+    assert de["ten"] and de["gop_step_key"]
+
+
+def test_lenh_roi_bai_thi_lop_de_di_theo(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Bỏ thành viên phải dọn lớp đè của nó.
+
+    Để lại map mồ côi thì lệnh đã rời bài vẫn bị chặn sửa routing ("tách bước khỏi bài trước") mà
+    UI không còn đường nào để tách — người dùng vào ngõ cụt. Nó cũng vẫn bị bỏ hao ở bước in dù
+    không còn ghép với ai, tức mua thiếu giấy.
+    """
+    from app.models.bai_ghep_cong_doan import BaiGhepCongDoanMap
+    from app.schemas.lsx import LsxCongDoanIn
+
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+    assert db.query(BaiGhepCongDoanMap).count() == 2
+
+    tv = next(t for t in bg_svc._get(bg.id).thanh_viens if t.lsx_id == created[0].id)
+    bg_svc.bo_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv.id, actor=admin)
+
+    # Lượt chung còn một mình một lệnh thì không còn là "chạy chung" → xoá cả dòng lẫn map.
+    assert db.query(BaiGhepCongDoanMap).count() == 0
+    assert bg_svc._buoc_chungs(bg_svc._get(bg.id)) == []
+
+    # Và lệnh vừa rời bài phải sửa routing được ngay, không bị lớp đè cũ khoá.
+    lsx_a = lsx_svc.get(created[0].id)
+    lsx_svc.replace_routing(lsx_id=lsx_a.id, actor=admin, rows_in=[
+        LsxCongDoanIn(step_key=c.step_key, ten=c.ten, nhom=c.nhom, cong_doan_id=c.cong_doan_id)
+        for c in sorted(lsx_a.cong_doans, key=lambda c: c.thu_tu)
+    ])
+
+
+def test_tao_bai_ghep_khong_tu_gop_buoc_nao(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Mở bài ra là routing ĐẦY ĐỦ của từng lệnh, không có node "in chung tờ" nào tự mọc ra.
+
+    Ghép bài chung cả CTP/cán/bế chứ không riêng bước in, nên máy đoán hộ vừa sai vừa cướp mất
+    quyết định của người lập kế hoạch.
+    """
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+
+    assert bg_svc._buoc_chungs(bg_svc._get(bg.id)) == []
+    assert "thieu_buoc_chung" in bg_svc.thieu_cua(bg_svc._get(bg.id))
+    sd = bg_svc.so_do(bg_svc._get(bg.id))
+    assert sd["gop"] == []
+    assert all(not b["gop_step_key"] for n in sd["nhanh"] for b in n["buoc"])
+
+
+def test_lenh_hai_luot_in_gop_dung_luot_nguoi_chon(db, orders, lsx_svc, bg_svc, admin, customer):
+    """In 2 lượt (mặt trước / mặt sau tách dòng) → chỉ lượt NGƯỜI chọn bị đè, lượt kia chạy riêng."""
     from app.schemas.lsx import LsxCongDoanIn
 
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     lsx_a = lsx_svc.get(created[0].id)
-    cu = sorted(lsx_a.cong_doans, key=lambda c: c.thu_tu)
-    in_cu = cu[0]
+    in_cu = sorted(lsx_a.cong_doans, key=lambda c: c.thu_tu)[0]
     lsx_svc.replace_routing(lsx_id=lsx_a.id, actor=admin, rows_in=[
         LsxCongDoanIn(step_key=in_cu.step_key, ten=in_cu.ten, nhom="print",
                       cong_doan_id=in_cu.cong_doan_id, may_id=in_cu.may_id),
@@ -362,32 +689,87 @@ def test_lenh_hai_luot_in_thi_bat_chon_khong_doan(db, orders, lsx_svc, bg_svc, a
                       cong_doan_id=in_cu.cong_doan_id, may_id=in_cu.may_id),
     ])
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
-    tv_a = next(tv for tv in bg_svc._get(bg.id).thanh_viens if tv.lsx_id == lsx_a.id)
-    assert tv_a.buoc_in_step_key is None                       # để trống, không đoán
-    assert "thieu_buoc_in" in bg_svc.thieu_cua(bg_svc._get(bg.id))
 
-    buoc_in_2 = sorted(lsx_svc.get(lsx_a.id).cong_doans, key=lambda c: c.thu_tu)[1]
-    bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv_a.id, so_con_tren_to=4,
-                          buoc_in_step_key=buoc_in_2.step_key, actor=admin)
-    assert "thieu_buoc_in" not in bg_svc.thieu_cua(bg_svc._get(bg.id))
+    luot_2 = sorted(lsx_svc.get(lsx_a.id).cong_doans, key=lambda c: c.thu_tu)[1]
+    in_b = next(c for c in sorted(lsx_svc.get(created[1].id).cong_doans, key=lambda c: c.thu_tu)
+                if c.nhom == "print")
+    bg_svc.gop(bai_ghep_id=bg.id, step_keys=[luot_2.step_key, in_b.step_key], actor=admin)
+
+    sd = bg_svc.so_do(bg_svc._get(bg.id))
+    nh = next(n for n in sd["nhanh"] if n["lsx_id"] == lsx_a.id)
+    bi_de = {b["step_key"] for b in nh["buoc"] if b["gop_step_key"]}
+    assert bi_de == {luot_2.step_key}          # lượt 1 vẫn chạy riêng, không bị nuốt theo
+    assert nh["toa_step_key"] == luot_2.step_key
+
+
+def test_mot_lenh_khong_gop_hai_buoc_vao_cung_mot_luot(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Hai lượt in của CÙNG một lệnh là hai lần lên máy — gộp làm một là bịa mất một lượt."""
+    from app.schemas.lsx import LsxCongDoanIn
+
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    lsx_a = lsx_svc.get(created[0].id)
+    in_cu = sorted(lsx_a.cong_doans, key=lambda c: c.thu_tu)[0]
+    lsx_svc.replace_routing(lsx_id=lsx_a.id, actor=admin, rows_in=[
+        LsxCongDoanIn(step_key=in_cu.step_key, ten=in_cu.ten, nhom="print",
+                      cong_doan_id=in_cu.cong_doan_id, may_id=in_cu.may_id),
+        LsxCongDoanIn(ten="In offset mặt sau", nhom="print",
+                      cong_doan_id=in_cu.cong_doan_id, may_id=in_cu.may_id),
+    ])
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    hai_luot = sorted(lsx_svc.get(lsx_a.id).cong_doans, key=lambda c: c.thu_tu)[:2]
 
     with pytest.raises(BaiGhepValidationError):
-        bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv_a.id, so_con_tren_to=4,
-                              buoc_in_step_key="khong-ton-tai", actor=admin)
+        bg_svc.gop(bai_ghep_id=bg.id, step_keys=[c.step_key for c in hai_luot], actor=admin)
 
 
-def test_chan_bo_buoc_in_khi_lenh_dang_ghep(db, orders, lsx_svc, bg_svc, admin, customer):
-    """Bỏ bước in của lệnh đang ghép = bài mất chỗ bám. Chặn, không để nó trỏ vào key đã chết."""
+def test_chi_gop_duoc_cac_buoc_cung_cong_doan(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Điều kiện gộp là CÙNG CÔNG ĐOẠN — quy cách thì người dùng có nghiệp vụ đó, máy không phán."""
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    lsx_a = next(l for l in created if l.so_luong_dat == 20_000)
+    _them_buoc_hao_sau_in(db, lsx_svc, lsx_svc.get(lsx_a.id), admin, so_to_bu_hao=0)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+
+    can_a = next(c for c in lsx_svc.get(lsx_a.id).cong_doans if c.ten == "Cán màng")
+    in_b = next(c for c in sorted(lsx_svc.get(created[1].id).cong_doans, key=lambda c: c.thu_tu)
+                if c.nhom == "print")
+    with pytest.raises(BaiGhepValidationError):
+        bg_svc.gop(bai_ghep_id=bg.id, step_keys=[can_a.step_key, in_b.step_key], actor=admin)
+
+
+def test_tach_tra_lai_so_rieng_cua_tung_lenh(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Ghi đè, KHÔNG phá gốc: tách gộp ra là số cũ quay lại, không phải khôi phục từ đâu cả."""
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    truoc = bg_svc.detail_dict(bg_svc._get(bg.id))["so_to"]["so_to_tot"]
+
+    bg_svc.gop(bai_ghep_id=bg.id, step_keys=_buoc_in_keys(lsx_svc, created), actor=admin)
+    chung = bg_svc._buoc_chungs(bg_svc._get(bg.id))
+    assert len(chung) == 1
+
+    bg_svc.tach(bai_ghep_id=bg.id, gang_step_key=chung[0].step_key, actor=admin)
+    assert bg_svc._buoc_chungs(bg_svc._get(bg.id)) == []
+    assert bg_svc.detail_dict(bg_svc._get(bg.id))["so_to"]["so_to_tot"] == truoc
+
+
+def test_chan_bo_buoc_dang_gop_khi_sua_routing(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Bỏ bước đang chạy chung = bài mất chỗ bám. Chặn, không để lớp đè trỏ vào key đã chết."""
     from app.schemas.lsx import LsxCongDoanIn
     from app.services.lsx_service import LsxConflict
 
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
-    bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
     lsx_a = lsx_svc.get(created[0].id)
+
+    # Chưa gộp thì sửa routing thoải mái — bài chưa bám vào bước nào của lệnh.
+    lsx_svc.replace_routing(lsx_id=lsx_a.id, actor=admin, rows_in=[
+        LsxCongDoanIn(step_key=c.step_key, ten=c.ten, nhom=c.nhom, cong_doan_id=c.cong_doan_id)
+        for c in sorted(lsx_svc.get(lsx_a.id).cong_doans, key=lambda c: c.thu_tu)
+    ])
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
 
     with pytest.raises(LsxConflict):
         lsx_svc.replace_routing(lsx_id=lsx_a.id, actor=admin, rows_in=[
-            LsxCongDoanIn(ten="Cán màng", nhom="finishing"),      # bước in biến mất
+            LsxCongDoanIn(ten="Cán màng", nhom="finishing"),      # bước đang gộp biến mất
         ])
 
 
@@ -417,24 +799,31 @@ def test_sua_so_con_o_bai_thi_lenh_tinh_lai_ngay(db, orders, lsx_svc, bg_svc, ad
     assert l.so_to_ke_hoach == ceil(20_000 / l.so_con)
 
 
-def test_so_do_cat_chuoi_tai_buoc_in_va_khong_luu_canh(db, orders, lsx_svc, bg_svc, admin, customer):
-    """Sơ đồ: mỗi lệnh giữ chuỗi riêng cả TRƯỚC lẫn SAU in, gặp nhau đúng một điểm là node IN."""
+def test_so_do_giu_routing_day_du_va_khong_luu_canh(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Sơ đồ: mỗi lệnh giữ routing ĐẦY ĐỦ; bước đã gộp được đánh dấu `gop_step_key`, không biến mất."""
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     lsx_a = next(l for l in created if l.so_luong_dat == 20_000)
     _them_buoc_hao_sau_in(db, lsx_svc, lsx_svc.get(lsx_a.id), admin, so_to_bu_hao=0)
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
 
     sd = bg_svc.so_do(bg_svc._get(bg.id))
     assert sd["bai_ghep"]["ma"] == bg.ma
     assert len(sd["nhanh"]) == 2
     nh = next(n for n in sd["nhanh"] if n["lsx_id"] == lsx_a.id)
-    # Bước in KHÔNG nằm ở nhánh nào — nó là node IN chung ở giữa.
-    keys = {c["step_key"] for c in nh["truoc_in"] + nh["sau_in"]}
-    assert nh["buoc_in_step_key"] not in keys
-    assert [c["ten"] for c in nh["sau_in"]] == ["Cán màng"]     # sau in là chuỗi riêng của lệnh
+
+    # Bước in VẪN nằm trong routing của lệnh, chỉ mang thêm dấu bị đè.
+    bi_de = [b for b in nh["buoc"] if b["gop_step_key"]]
+    assert len(bi_de) == 1 and bi_de[0]["nhom"] == "print"
+    assert "Cán màng" in [b["ten"] for b in nh["buoc"]]
     assert nh["mau"] != next(n for n in sd["nhanh"] if n["lsx_id"] != lsx_a.id)["mau"]
 
-    # Không có cạnh nào được lưu thêm: đồ thị dựng lúc đọc từ thành viên + routing.
+    # Một thẻ chung, mang đủ hai lệnh nó đè lên.
+    assert len(sd["gop"]) == 1
+    assert {tv["lsx_id"] for tv in sd["gop"][0]["thanh_vien"]} == {l.id for l in created}
+    assert sd["gop"][0]["ma_bai_ghep"] == bg.ma
+
+    # Không có cạnh nào được lưu thêm: đồ thị dựng lúc đọc từ thành viên + routing + lớp đè.
     from app.models.lsx import LsxCongDoanPhuThuoc
     truoc = db.query(LsxCongDoanPhuThuoc).count()
     bg_svc.so_do(bg_svc._get(bg.id))

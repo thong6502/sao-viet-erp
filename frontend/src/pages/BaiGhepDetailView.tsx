@@ -5,6 +5,7 @@ import {
   api,
   BAI_GHEP_CANH_BAO_LABELS,
   BAI_GHEP_THIEU_LABELS,
+  type BaiGhepBuocChungBody,
   type BaiGhepDetail,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
@@ -99,13 +100,48 @@ export function BaiGhepDetailView({
     }
   }
 
-  async function suaUps(tvId: number, soCon: number, buocInStepKey?: string) {
+  async function suaUps(tvId: number, soCon: number) {
     if (!token) return;
     try {
-      apply(await api.baiGhep.suaThanhVien(token, baiGhepId, tvId, soCon, buocInStepKey));
+      apply(await api.baiGhep.suaThanhVien(token, baiGhepId, tvId, soCon));
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : String(e));
     }
+  }
+
+  // --- Gộp / tách / lập kế hoạch lượt chung -----------------------------------
+  // Cửa ghi nằm ở đây, sơ đồ chỉ đẩy lên — cùng luật với thông số tờ. Ba hàm này đều `apply()`
+  // nên bảng thành viên và sơ đồ cùng nhận số mới trong một nhịp, không lệch nhau.
+  async function gop(stepKeys: string[]) {
+    if (!token) return;
+    try {
+      apply(await api.baiGhep.gop(token, baiGhepId, stepKeys));
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
+  async function tach(gangStepKey: string) {
+    if (!token) return;
+    try {
+      apply(await api.baiGhep.tach(token, baiGhepId, gangStepKey));
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
+  async function luuBuocChung(gangStepKey: string, body: BaiGhepBuocChungBody) {
+    if (!token) return;
+    try {
+      apply(await api.baiGhep.luuBuocChung(token, baiGhepId, gangStepKey, body));
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : String(e));
+    }
+  }
+
+  async function hoiUngVien(stepKeys: string[]) {
+    if (!token) return {};
+    return (await api.baiGhep.ungVienGop(token, baiGhepId, stepKeys)).ung_vien;
   }
 
   async function boThanhVien(tvId: number) {
@@ -154,60 +190,60 @@ export function BaiGhepDetailView({
 
   return (
     <div className="khsx-detail">
-      <button type="button" className="khsx-back" onClick={onBack}>
-        ‹ Danh sách bài ghép
-      </button>
-      <p className="eyebrow">Sản xuất · Bài ghép</p>
-      <div className="khsx-detail__titlerow">
-        <h1 className="khsx-detail__ma">{d.ma}</h1>
-        <TrangThaiPill tt={d.trang_thai} lg />
-        <span className="khsx__spacer" />
-        <Button variant="ghost" onClick={() => setConfirmingXoa(true)}>
-          <Icon name="trash" size={14} /> Xoá
-        </Button>
-      </div>
-
       {err && <BangLoi text={err} onRetry={load} />}
 
-      {/* Compact Top Header Bar (Thông tin tóm tắt & Nút bấm chính) */}
-      <div className="bghep-compact-topbar">
-        <div className="bghep-compact-topbar__header">
-          <div className="bghep-compact-topbar__badges">
-            <div
-              className={`bghep-badge-ready ${
-                d.trang_thai === "san_sang"
-                  ? "bghep-badge-ready--done"
-                  : d.thieu.length
-                  ? "bghep-badge-ready--blocked"
-                  : "bghep-badge-ready--ok"
-              }`}
-            >
-              <Icon name={d.trang_thai === "san_sang" ? "check" : d.thieu.length ? "x" : "check"} size={13} />
-              <span>
-                {d.trang_thai === "san_sang"
-                  ? "Sẵn sàng xếp lịch"
-                  : d.thieu.length
-                  ? `Còn thiếu ${d.thieu.length} mục`
-                  : "Đủ điều kiện"}
-              </span>
-            </div>
+      {/* Unified Compact Header Bar */}
+      <div className="bghep-unified-header">
+        {/* Row 1: Back Link + Code + Status Badges + Actions */}
+        <div className="bghep-uh-row1">
+          <div className="bghep-uh-titlegroup">
+            <button type="button" className="khsx-back bghep-back-btn" onClick={onBack}>
+              ‹ Danh sách bài ghép
+            </button>
+            <div className="bghep-uh-titlewrap">
+              <h1 className="khsx-detail__ma bghep-ma-title">{d.ma}</h1>
+              <TrangThaiPill tt={d.trang_thai} lg />
 
-            <div className="bghep-badge-note" title="Nhớ thêm bước xả tờ ở từng lệnh khi in ghép — hệ không tự chèn">
-              <Icon name="help" size={13} />
-              <span>Nhớ thêm bước <strong>xả tờ</strong> ở từng lệnh</span>
-            </div>
-
-            {d.canh_bao.length > 0 && (
-              <div className="bghep-badge-luuy" title={d.canh_bao.map((code) => BAI_GHEP_CANH_BAO_LABELS[code] ?? code).join(" · ")}>
-                <Icon name="help" size={13} />
+              <div
+                className={`bghep-badge-ready ${
+                  d.trang_thai === "san_sang"
+                    ? "bghep-badge-ready--done"
+                    : d.thieu.length
+                    ? "bghep-badge-ready--blocked"
+                    : "bghep-badge-ready--ok"
+                }`}
+              >
+                <Icon name={d.trang_thai === "san_sang" ? "check" : d.thieu.length ? "x" : "check"} size={13} />
                 <span>
-                  Lưu ý ({d.canh_bao.length}): {d.canh_bao.map((code) => BAI_GHEP_CANH_BAO_LABELS[code] ?? code).join(" · ")}
+                  {d.trang_thai === "san_sang"
+                    ? "Sẵn sàng xếp lịch"
+                    : d.thieu.length
+                    ? `Còn thiếu ${d.thieu.length} mục`
+                    : "Đủ điều kiện"}
                 </span>
               </div>
-            )}
+
+              <div className="bghep-badge-note" title="Nhớ thêm bước xả tờ ở từng lệnh khi in ghép — hệ không tự chèn">
+                <Icon name="help" size={13} />
+                <span>Nhớ bước <strong>xả tờ</strong></span>
+              </div>
+
+              {d.canh_bao.length > 0 && (
+                <div className="bghep-badge-luuy" title={d.canh_bao.map((code) => BAI_GHEP_CANH_BAO_LABELS[code] ?? code).join(" · ")}>
+                  <Icon name="help" size={13} />
+                  <span>
+                    Lưu ý ({d.canh_bao.length}): {d.canh_bao.map((code) => BAI_GHEP_CANH_BAO_LABELS[code] ?? code).join(" · ")}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="bghep-top-toolbar__actions">
+          <div className="bghep-uh-actions">
+            <Button variant="ghost" onClick={() => setConfirmingXoa(true)} title="Xoá bài ghép">
+              <Icon name="trash" size={14} /> Xoá
+            </Button>
+
             {d.trang_thai === "san_sang" ? (
               <Button variant="ghost" onClick={() => doiTrangThai("nhap")}>
                 Mở lại để sửa
@@ -235,46 +271,64 @@ export function BaiGhepDetailView({
           </div>
         </div>
 
-        {/* 5 Micro Facts Cards */}
-        <div className="bghep-compact-topbar__facts">
-          <div className="bghep-micro-fact">
-            <span className="bghep-micro-fact__label">Số lệnh</span>
-            <span className="bghep-micro-fact__val">{num(d.thanh_vien.length)}</span>
+        {/* Row 2: Micro KPI Metric Strip */}
+        <div className="bghep-uh-metrics">
+          <div className="bghep-uh-metric-item">
+            <span className="bghep-uh-m-label">Số lệnh:</span>
+            <strong className="bghep-uh-m-val">{num(d.thanh_vien.length)}</strong>
           </div>
-          <div className="bghep-micro-fact">
-            <span className="bghep-micro-fact__label">Số tờ tốt</span>
-            <span className="bghep-micro-fact__val">{num(d.so_to.so_to_tot)}</span>
+          <span className="bghep-uh-m-sep">•</span>
+          <div className="bghep-uh-metric-item">
+            <span className="bghep-uh-m-label">Số tờ tốt:</span>
+            <strong className="bghep-uh-m-val">{num(d.so_to.so_to_tot)}</strong>
           </div>
-          <div className="bghep-micro-fact">
-            <span className="bghep-micro-fact__label">Tổng tờ cấp</span>
-            <span className="bghep-micro-fact__val">{num(d.so_to.tong_to)}</span>
+          <span className="bghep-uh-m-sep">•</span>
+          {/* Hai số, không gộp: tờ IN là sản phẩm của lượt in; giấy LĨNH KHO còn cộng hao canh
+              máy. Nhãn "Tổng tờ cấp" cũ mập mờ, ai cầm số đó đi lĩnh giấy là thiếu. */}
+          <div className="bghep-uh-metric-item">
+            <span className="bghep-uh-m-label">Tờ in:</span>
+            <strong className="bghep-uh-m-val">{num(d.so_to.so_to_tot)}</strong>
           </div>
-          <div className="bghep-micro-fact">
-            <span className="bghep-micro-fact__label">Tờ dùng</span>
-            <span
-              className={`bghep-micro-fact__val ${
-                d.so_to.fill_pct != null && (d.so_to.fill_pct < 55 || d.so_to.fill_pct > 100)
-                  ? "khsx-date--soon"
-                  : ""
-              }`}
-            >
+          <span className="bghep-uh-m-sep">•</span>
+          <div
+            className="bghep-uh-metric-item"
+            title={
+              d.so_to.so_buoc_chung > 0
+                ? `Gồm ${num(d.so_to.hao_setup_de_xuat)} tờ canh máy + ${num(
+                    d.so_to.hao_chay_de_xuat,
+                  )} tờ hao chạy của ${d.so_to.so_buoc_chung} lượt chạy chung`
+                : "Chưa gộp bước nào — chưa có lượt chạy chung nào để tính hao"
+            }
+          >
+            <span className="bghep-uh-m-label">Giấy lĩnh kho:</span>
+            <strong className="bghep-uh-m-val">{num(d.so_to.to_nguyen_can)}</strong>
+          </div>
+          <span className="bghep-uh-m-sep">•</span>
+          <div className="bghep-uh-metric-item">
+            <span className="bghep-uh-m-label">Tờ dùng:</span>
+            {/* CHỈ hiển thị, KHÔNG phán — cả "vượt khổ" lẫn "bài thưa". `con/tờ` ở đây là số người
+                bình bài bằng phần mềm khác rồi khai lại, còn khổ thành phẩm chưa trừ xén/chừa;
+                lấy hai thứ đó nhân với nhau rồi kêu bài không xếp lọt (hoặc kêu thưa) là kêu oan.
+                Người cân bài nhìn con số là đủ, họ có nghiệp vụ đó. */}
+            <strong className="bghep-uh-m-val">
               {d.so_to.fill_pct == null ? "—" : `${d.so_to.fill_pct}%`}
-            </span>
+            </strong>
           </div>
-          <div className="bghep-micro-fact">
-            <span className="bghep-micro-fact__label">Hạn in gần nhất</span>
-            <span className={`bghep-micro-fact__val ${classHan(d.so_to.han_in_muon_nhat)}`}>
+          <span className="bghep-uh-m-sep">•</span>
+          <div className="bghep-uh-metric-item">
+            <span className="bghep-uh-m-label">Hạn in gần nhất:</span>
+            <strong className={`bghep-uh-m-val ${classHan(d.so_to.han_in_muon_nhat)}`}>
               {ngay(d.so_to.han_in_muon_nhat) || "—"}
-            </span>
+            </strong>
           </div>
         </div>
 
         {/* Cảnh báo thiếu mục */}
         {d.trang_thai !== "san_sang" && d.thieu.length > 0 && (
-          <div style={{ fontSize: "12px", color: "var(--signal)", marginTop: "2px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          <div className="bghep-uh-missing">
             <span>Còn thiếu:</span>
             {d.thieu.map((code) => (
-              <span key={code} style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+              <span key={code} className="bghep-uh-missing-tag">
                 • {BAI_GHEP_THIEU_LABELS[code] ?? code}
               </span>
             ))}
@@ -301,6 +355,10 @@ export function BaiGhepDetailView({
           onSuaThongSoTo={luu}
           dirtyThongSoTo={dirty}
           dangLuuThongSoTo={saving}
+          onGop={gop}
+          onTach={tach}
+          onLuuBuocChung={luuBuocChung}
+          onHoiUngVien={hoiUngVien}
         />
       </div>
 

@@ -17,6 +17,7 @@ import { ngayGio, num } from "./keHoachSxShared";
 import {
   DON_VI_NANG_SUAT,
   type EditRow,
+  heSoChu,
   n,
   phut,
   thoiLuong,
@@ -114,9 +115,11 @@ export function LsxBuocDrawer({
   const [activeTab, setActiveTab] = useState<TabKey>("nhan_dien");
 
   const ngoai = row.loai_buoc === "thue_ngoai";
-  // Bước in CHẠY CHUNG tờ: máy thật nằm ở bài ghép. Cho sửa ở đây là cho sửa một ô vô tác dụng —
-  // xếp lịch không đọc nó, thời lượng in cũng tính theo máy của bài.
-  const buocGhep = baiGhep && baiGhep.buoc_in_step_key === row.key ? baiGhep : null;
+  // Bước đang bị bài ghép ĐÈ: máy thật nằm ở bài. Cho sửa ở đây là cho sửa một ô vô tác dụng —
+  // xếp lịch không đọc nó, thời lượng cũng tính theo máy của bài. Không riêng bước in nữa: bài
+  // gộp cả CTP/cán/bế, nên tra theo lớp đè (`buoc_bi_de`) chứ không so với một step_key duy nhất.
+  const deLen = baiGhep?.buoc_bi_de?.[row.key] ?? null;
+  const buocGhep = baiGhep && deLen ? baiGhep : null;
   const doiDonVi = !!row.don_vi_vao && !!row.don_vi_ra && row.don_vi_vao !== row.don_vi_ra;
   // Bước CUỐI là chỗ DUY NHẤT còn gõ số: SL thành phẩm cần giao + hao thêm. Bước không chạm giấy
   // (chế bản, đơn vị trống) không tính là bước cuối của dòng giấy.
@@ -579,12 +582,13 @@ export function LsxBuocDrawer({
                 </div>
               )}
 
-              {doiDonVi && (
+              {/* `heSoChu` LẬT lại khi hệ số < 1 (sách gấp tay): "10 Tờ in = 1 Thành phẩm" thay vì
+                  "1 Tờ in = 0,1 Thành phẩm" — cùng cách trình bày với panel bù hao bên Tính giá. */}
+              {doiDonVi && heSoChu(Number(row.he_so_quy_doi || 1), row.don_vi_vao, row.don_vi_ra) && (
                 <div className="khsx-wchip khsx-wchip--info">
                   <span className="khsx-wchip__label">Quy đổi:</span>
                   <span className="khsx-wchip__val">
-                    1 {dvNhan(row.don_vi_vao)} = <strong>{num(Number(row.he_so_quy_doi || 1))}</strong>{" "}
-                    {dvNhan(row.don_vi_ra)}
+                    <strong>{heSoChu(Number(row.he_so_quy_doi || 1), row.don_vi_vao, row.don_vi_ra)}</strong>
                   </span>
                 </div>
               )}
@@ -619,12 +623,20 @@ export function LsxBuocDrawer({
 
                 <label className="khsx-field">
                   <span className="khsx-field__label">Máy sản xuất</span>
-                  {buocGhep ? (
+                  {buocGhep && deLen ? (
                     <>
-                      <span className="khsx-kv__val">{buocGhep.may_ten ?? "chưa chọn ở bài"}</span>
+                      <span className="khsx-kv__val">
+                        {deLen.may_ten ?? buocGhep.may_ten ?? "chưa chọn ở bài"}
+                      </span>
+                      {/* CẢ HAI số: lượt chung chạy bao nhiêu, và phần của riêng lệnh này là bao
+                          nhiêu. Chỉ hiện một số là người đọc không biết mình đang nhìn cái nào. */}
                       <span className="khsx-field__hint">
-                        Bài ghép <strong>{buocGhep.ma}</strong> điều phối bước in này — đổi máy,
-                        giấy, khổ tờ in và số con tại bài.
+                        Bước "{deLen.ten}" chạy chung ở bài <strong>{buocGhep.ma}</strong> —
+                        bài cấp {deLen.so_luong_vao.toLocaleString("vi-VN")} tờ
+                        {n(row.so_luong_vao) > 0 && (
+                          <> · phần lệnh này {n(row.so_luong_vao).toLocaleString("vi-VN")} tờ</>
+                        )}
+                        . Đổi máy, giấy, khổ tờ in và số con tại bài.
                       </span>
                     </>
                   ) : mayRefs ? (

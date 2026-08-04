@@ -64,19 +64,137 @@
 }
 .bghep .bghep-soto__lbl { font-size: var(--fs-sm); color: var(--ash); }
 
-/* --- Picker thêm lệnh --- */
-.bghep .bghep-pick {
-  margin-top: var(--sp-4); padding: var(--sp-4);
-  border: 1px dashed var(--rule-soft); border-radius: var(--radius-2, 8px); background: var(--paper);
+/* --- Picker thêm lệnh (Modern Pro Max) --- */
+.bgsd-btn-add-picker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  background: #ffffff;
+  border: 1px dashed #0284c7;
+  border-radius: 10px;
+  color: #0284c7;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.bghep .bghep-pick__title { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--ink); font-weight: var(--fw-medium); }
-.bghep .bghep-pick__list {
-  list-style: none; margin: 0 0 var(--sp-3); padding: 0; display: grid; gap: 6px; max-height: 220px; overflow: auto;
+.bgsd-btn-add-picker:hover {
+  background: #f0f9ff;
+  border-style: solid;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.12);
 }
-.bghep .bghep-pick__list label {
-  display: flex; gap: var(--sp-2); align-items: center; font-size: var(--fs-sm); color: var(--ink); cursor: pointer;
+
+.bgsd-pick-container {
+  margin-top: 14px;
+  padding: 16px;
+  background: #ffffff;
+  border: 1px solid rgba(2, 132, 199, 0.3);
+  border-radius: 14px;
+  box-shadow: 0 6px 20px rgba(2, 132, 199, 0.08);
 }
-.bghep .bghep-pick__foot { display: flex; gap: var(--sp-2); justify-content: flex-end; }
+
+.bghep-pick__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.bghep-pick__title {
+  margin: 0;
+  font-size: 14px;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.bghep-pick__list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.bgsd-pick-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #0f172a;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.bgsd-pick-item:hover {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+.bgsd-pick-item.is-checked {
+  background: #f0f9ff;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 1px #0284c7;
+}
+
+.bgsd-pick-checkbox {
+  width: 17px;
+  height: 17px;
+  accent-color: #0284c7;
+  cursor: pointer;
+}
+
+.bgsd-pick-code {
+  font-weight: 700;
+  color: #0284c7;
+}
+
+.bgsd-pick-name {
+  font-weight: 600;
+  color: #0f172a;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bgsd-pick-giay {
+  font-size: 12px;
+  color: #64748b;
+  background: #e2e8f0;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.bgsd-pick-qty {
+  font-family: var(--ff-num, monospace);
+  font-size: 12px;
+  font-weight: 700;
+  color: #059669;
+  background: #dcfce7;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #bbf7d0;
+}
+
+.bghep-pick__foot {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+}
 
 /* --- Field nhỏ (khổ / hao hụt) --- */
 .bghep .khsx-field--sm { max-width: 190px; }
@@ -165,24 +283,27 @@
 }
 .bghep .bgsd-panel__head .khsx-xlink { margin-left: auto; }
 
-/* --- WOW DAG Canvas cho Bài ghép --- */
+/* --- WOW DAG Canvas cho Bài ghép (Pro Max Edition) --- */
+/* MỘT khối duy nhất — trước đây selector này khai hai lần, khối sau đè height của khối trước. */
 .bgsd-canvas-wrap {
   position: relative;
   width: 100%;
-  height: 520px;
-  border: 1px solid var(--rule-hair, #e2e8f0);
-  border-radius: var(--radius-2, 12px);
-  background: var(--paper, #f8fafc);
+  height: 100%;
+  min-height: 420px;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  background-color: #f8fafc;
   overflow: hidden;
   margin-bottom: var(--sp-4);
   user-select: none;
-  box-shadow: inset 0 2px 6px rgba(0,0,0,0.02);
+  box-shadow: inset 0 2px 8px rgba(15, 23, 42, 0.03), 0 8px 28px rgba(15, 23, 42, 0.06);
 }
-
-/* Nền Lưới Chấm Dot Grid Dịu Mắt */
 .bgsd-canvas-wrap.has-dot-grid {
-  background-image: radial-gradient(rgba(148, 163, 184, 0.25) 1.2px, transparent 1.2px);
-  background-size: 24px 24px;
+  background-image: 
+    radial-gradient(rgba(2, 132, 199, 0.22) 1.5px, transparent 1.5px),
+    radial-gradient(rgba(99, 102, 241, 0.08) 1px, transparent 1px);
+  background-size: 26px 26px, 13px 13px;
+  background-position: 0 0, 6.5px 6.5px;
 }
 
 .bgsd-canvas__toolbar {
@@ -193,49 +314,73 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 10px;
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(226, 232, 240, 0.9);
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(2, 132, 199, 0.25);
   border-radius: 999px;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.09), 0 2px 6px rgba(2, 132, 199, 0.06);
 }
 
 .bgsd-tb-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  height: 28px;
-  padding: 0 8px;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--ink, #1e293b);
-  font-size: var(--fs-xs, 12px);
-  font-weight: 500;
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.bgsd-tb-btn:hover { background: rgba(241, 245, 249, 0.9); color: #0284c7; }
-.bgsd-tb-btn.is-active { background: #e0f2fe; color: #0284c7; }
-.bgsd-tb-zoom { font-size: 12px; font-family: var(--ff-mono, monospace); min-width: 44px; text-align: center; color: #64748b; }
-.bgsd-tb-divider { width: 1px; height: 16px; background: #e2e8f0; margin: 0 4px; }
+.bgsd-tb-btn:hover { background: #e0f2fe; color: #0284c7; transform: translateY(-1px); }
+.bgsd-tb-btn.is-active { background: #0284c7; color: #ffffff; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35); }
+.bgsd-tb-zoom { font-size: 12px; font-family: var(--ff-mono, monospace); font-weight: 700; min-width: 46px; text-align: center; color: #0284c7; }
+.bgsd-tb-divider { width: 1px; height: 16px; background: #cbd5e1; margin: 0 4px; }
 
+/* Vùng cuộn thật. Nhờ overflow:auto mà lăn chuột, Shift+lăn, trackpad hai ngón, phím mũi tên và
+   cảm ứng đều chạy sẵn — trước đây overflow:hidden nên chỉ còn cách kéo nền, không ai đoán ra. */
+/* Vùng cuộn. `display:flex` + `margin:auto` ở lớp định cỡ: sơ đồ nhỏ hơn khung thì nằm GIỮA,
+   lớn hơn thì cuộn được cả hai phía. Dùng `justify-content:center` sẽ cắt mất mép trái khi tràn.
+   Đệm trên chừa chỗ cho thanh công cụ nổi (top:14 + cao ~40) để hàng đầu không bị nó đè. */
 .bgsd-canvas {
   width: 100%;
   height: 100%;
+  overflow: auto;
   cursor: grab;
+  display: flex;
+  padding: 64px 20px 20px;
+  box-sizing: border-box;
 }
 .bgsd-canvas.is-panning { cursor: grabbing; }
+.bgsd-canvas:focus-visible {
+  outline: 2px solid var(--rust, #c25e38);
+  outline-offset: -2px;
+}
+/* Cùng khuôn thanh cuộn với .dag-viewport của sơ đồ routing để hai màn không lệch nhau. */
+.bgsd-canvas::-webkit-scrollbar { width: 10px; height: 10px; }
+.bgsd-canvas::-webkit-scrollbar-track { background: #f1f3f5; }
+.bgsd-canvas::-webkit-scrollbar-thumb {
+  background: #adb5bd;
+  border: 2px solid #f1f3f5;
+  border-radius: 999px;
+}
+.bgsd-canvas::-webkit-scrollbar-thumb:hover { background: #868e96; }
 
+/* Lớp định cỡ: kích thước ĐÃ nhân zoom, quyết định tầm cuộn. Không transform lớp này. */
+.bgsd-canvas__sizer { position: relative; margin: auto; flex: none; }
+
+/* Mặt vẽ: toạ độ gốc chưa nhân zoom, kích thước do JS đặt theo biên nội dung thật. */
 .bgsd-canvas__viewport {
   position: absolute;
   top: 0;
   left: 0;
-  width: 3200px;
-  height: 2200px;
 }
 
 .bgsd-canvas__svg {
@@ -247,262 +392,530 @@
   pointer-events: none;
 }
 
-/* Animation đường flow hạt sáng chạy dọc dây nối */
+/* Animation đường flow hạt sáng neon chạy dọc dây nối */
 @keyframes bgsdFlow {
-  from { stroke-dashoffset: 28; }
+  from { stroke-dashoffset: 32; }
   to { stroke-dashoffset: 0; }
 }
 .bgsd-flow-line {
-  animation: bgsdFlow 1.2s linear infinite;
-  opacity: 0.7;
+  animation: bgsdFlow 1s linear infinite;
+  opacity: 0.9;
 }
 
-/* Thẻ Node IN CHUNG TỜ (Slate Neon Hub) */
+/* --- Canvas Top Bar (Hướng dẫn & Nút Mở Thông Số) --- */
+.bgsd-canvas-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.bgsd-canvas-top-bar .bghep-hint {
+  font-size: 13px;
+  color: #64748b;
+  flex: 1;
+  min-width: 280px;
+}
+
+/* --- Thẻ Master Node IN CHUNG TỜ (Central Cyber Core Hub) --- */
 .bgsd-card-in {
   position: absolute;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: #0f172a;
-  color: #fff;
+  width: 260px !important;
+  height: 116px !important;
+  box-sizing: border-box !important;
+  padding: 12px 16px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #0b1329 0%, #1e1b4b 50%, #0f172a 100%);
+  border: 2px solid #0284c7;
+  color: #ffffff;
   cursor: move;
-  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 
+    0 16px 36px rgba(2, 132, 199, 0.32), 
+    0 0 20px rgba(56, 189, 248, 0.2),
+    inset 0 1px 1px rgba(255, 255, 255, 0.25);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   z-index: 6;
+  overflow: hidden;
+}
+.bgsd-card-in::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.15), transparent 60%);
+  pointer-events: none;
 }
 .bgsd-card-in:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 14px 30px -5px rgba(15, 23, 42, 0.4), 0 0 12px rgba(56, 189, 248, 0.4);
+  transform: translateY(-4px) scale(1.03);
+  box-shadow: 
+    0 22px 48px rgba(2, 132, 199, 0.42), 
+    0 0 28px rgba(56, 189, 248, 0.55),
+    inset 0 1px 2px rgba(255, 255, 255, 0.4);
 }
 .bgsd-card-in.is-chon {
-  box-shadow: 0 0 0 3px #38bdf8, 0 14px 32px rgba(15, 23, 42, 0.45);
+  border-color: #38bdf8;
+  box-shadow: 
+    0 0 0 4px rgba(56, 189, 248, 0.4), 
+    0 22px 50px rgba(15, 23, 42, 0.6),
+    0 0 32px rgba(56, 189, 248, 0.6);
 }
 
-.bgsd-card-in__head { display: flex; align-items: center; justify-content: space-between; }
-.bgsd-card-in__ma { font-family: var(--ff-mono, monospace); font-size: 12px; color: #38bdf8; font-weight: 600; }
-.bgsd-card-in__pill { font-size: 10px; font-weight: 700; color: #94a3b8; letter-spacing: 0.04em; }
-
-.bgsd-card-in__title { font-size: 15px; font-weight: 800; letter-spacing: 0.05em; color: #f8fafc; text-align: center; margin: 4px 0; }
-.bgsd-card-in__foot { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: #cbd5e1; }
-.bgsd-card-in__may { display: inline-flex; align-items: center; gap: 4px; color: #94a3b8; }
-.bgsd-card-in__badge { padding: 2px 6px; background: rgba(56, 189, 248, 0.15); border-radius: 4px; color: #7dd3fc; font-weight: 600; }
-
-/* Điểm cắm dây (Port Pins) */
-.bgsd-port {
-  position: absolute;
-  top: 50%;
-  width: 8px;
-  height: 8px;
+.bgsd-card-in__head { display: flex; align-items: center; justify-content: space-between; z-index: 1; }
+.bgsd-card-in__ma { font-family: var(--ff-mono, monospace); font-size: 12px; color: #38bdf8; font-weight: 800; letter-spacing: 0.05em; }
+.bgsd-card-in__pill { 
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px; 
+  font-weight: 800; 
+  color: #38bdf8; 
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  padding: 2px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.04em; 
+}
+.bgsd-card-in__dot {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #38bdf8;
   box-shadow: 0 0 8px #38bdf8;
-  transform: translateY(-50%);
+  animation: bgsdPulseDot 1.5s infinite;
 }
-.bgsd-port--left { left: -4px; }
-.bgsd-port--right { right: -4px; }
+@keyframes bgsdPulseDot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.5); opacity: 0.5; }
+}
 
-/* Thẻ Node công đoạn (Sắc nét nền đục 100% che dây) */
+.bgsd-card-in__title { 
+  font-size: 16px; 
+  font-weight: 900; 
+  letter-spacing: 0.08em; 
+  color: #ffffff; 
+  text-align: center; 
+  margin: 3px 0; 
+  text-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+  z-index: 1;
+}
+
+.bgsd-card-in__foot { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: #cbd5e1; z-index: 1; }
+.bgsd-card-in__may { display: inline-flex; align-items: center; gap: 5px; color: #94a3b8; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+.bgsd-card-in__badge { padding: 3px 10px; background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(2, 132, 199, 0.35)); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 999px; color: #e0f2fe; font-weight: 800; font-family: var(--ff-num, monospace); }
+
+/* Điểm cắm dây Cyber Ports (Port Pins) */
+.bgsd-port {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #38bdf8;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 14px #38bdf8;
+  transform: translateY(-50%);
+  z-index: 7;
+  animation: bgsdPulsePort 2s infinite;
+}
+@keyframes bgsdPulsePort {
+  0%, 100% { transform: translateY(-50%) scale(1); box-shadow: 0 0 10px #38bdf8; }
+  50% { transform: translateY(-50%) scale(1.3); box-shadow: 0 0 20px #38bdf8, 0 0 30px rgba(56, 189, 248, 0.6); }
+}
+.bgsd-port--left { left: -6px; }
+.bgsd-port--right { right: -6px; }
+
+/* --- Thẻ Node Công Đoạn (Modern 3D Elevation Cards: 200x76px) --- */
 .bgsd-card-node {
   position: absolute;
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 200px !important;
+  height: 76px !important;
+  box-sizing: border-box !important;
   padding: 8px 12px;
-  border-radius: 10px;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(8px);
+  border: 1px solid #e2e8f0;
   border-left: 4px solid var(--mau-nhanh, #0284c7);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+  box-shadow: 
+    0 6px 18px rgba(15, 23, 42, 0.06),
+    0 2px 4px rgba(15, 23, 42, 0.03);
   cursor: move;
-  transition: all 0.15s ease;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   z-index: 5;
   text-align: left;
+  overflow: hidden !important;
 }
 .bgsd-card-node:hover {
-  transform: translateY(-2px) scale(1.02);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1), 0 0 0 1px var(--mau-nhanh, #0284c7);
+  transform: translateY(-4px) scale(1.03);
+  box-shadow: 
+    0 14px 30px rgba(15, 23, 42, 0.12), 
+    0 0 0 2px var(--mau-nhanh, #0284c7),
+    0 4px 12px color-mix(in srgb, var(--mau-nhanh, #0284c7) 25%, transparent);
 }
 .bgsd-card-node.is-nhanh-chon {
   border-color: var(--mau-nhanh, #0284c7);
-  box-shadow: 0 0 0 2.5px var(--mau-nhanh, #0284c7), 0 8px 20px rgba(15, 23, 42, 0.12);
+  background: #ffffff;
+  box-shadow: 
+    0 0 0 3.5px color-mix(in srgb, var(--mau-nhanh, #0284c7) 40%, transparent), 
+    0 14px 32px rgba(15, 23, 42, 0.16);
 }
 
 .bgsd-card-node__icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--mau-nhanh, #0284c7) 12%, transparent);
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mau-nhanh, #0284c7) 14%, transparent);
   color: var(--mau-nhanh, #0284c7);
   flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mau-nhanh, #0284c7) 20%, transparent);
 }
 
-.bgsd-card-node__body { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
-.bgsd-card-node .bgsd-node__ten { font-size: 13px; font-weight: 600; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.bgsd-card-node .bgsd-node__phu { font-size: 11px; color: #475569; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bgsd-card-node__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+.bgsd-card-node .bgsd-node__ten {
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: block;
+  line-height: 1.2;
+}
+.bgsd-card-node .bgsd-node__phu {
+  font-size: 11.5px;
+  color: #64748b;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: block;
+  margin-top: 3px;
+}
 
-/* Thẻ Nhánh LSX Header */
+/* --- Thẻ Nhánh Đơn Hàng LSX Header (Left Ticket Node: 165x76px) --- */
+/* KÍCH THƯỚC do JS đặt inline (BRANCH_HDR_W/H) — không chép lại ở đây. Cùng bộ số đó còn dùng để
+   tính biên vùng cuộn, nên CSS mà chép thì hai bên lệch nhau là thẻ bị cắt mất chữ. */
 .bgsd-card-branch {
   position: absolute;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  justify-content: center;
+  gap: 2px;
+  box-sizing: border-box;
   padding: 8px 12px;
   background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-left: 4px solid var(--mau-nhanh, #0284c7);
-  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  border-left: 5px solid var(--mau-nhanh, #0284c7);
+  border-radius: 14px;
   font-size: 12px;
   cursor: move;
   z-index: 5;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
-  transition: all 0.15s ease;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden !important;
 }
 .bgsd-card-branch:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1);
+  transform: translateY(-4px) scale(1.03);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.12), 0 0 0 2px var(--mau-nhanh, #0284c7);
 }
 .bgsd-card-branch.is-chon {
   background: #f0f9ff;
   border-color: #0284c7;
-  box-shadow: 0 0 0 2px #0284c7;
+  box-shadow: 0 0 0 3.5px rgba(2, 132, 199, 0.3), 0 14px 30px rgba(15, 23, 42, 0.14);
 }
 
-.bgsd-card-branch__head { display: flex; align-items: center; gap: 6px; }
-.bgsd-card-branch__cust { color: #475569; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
-.bgsd-card-branch__tags { display: flex; align-items: center; gap: 4px; margin-top: 2px; }
+.bgsd-card-branch__head { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.bgsd-branch__ups { font-size: 10px; font-weight: 800; color: #0284c7; background: #e0f2fe; border: 1px solid #bae6fd; padding: 1px 6px; border-radius: 6px; font-family: var(--ff-mono, monospace); white-space: nowrap; }
+.bgsd-card-branch__cust { display: grid; gap: 1px; max-width: 100%; min-width: 0; }
+.bgsd-card-branch__cust > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Sản phẩm là dòng chính, khách là dòng phụ — cùng cỡ thì mắt không biết bám vào đâu. */
+.bgsd-branch__sp { color: #334155; font-size: 11.5px; font-weight: 700; }
+.bgsd-branch__kh { color: var(--ash); font-size: 10.5px; font-weight: 500; }
 
-/* Status Pill bên phải (Dư/Thiếu) */
+/* Cần / dư tờ — con số quyết định của bài ghép. */
+.bgsd-card-branch__to {
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+  margin-top: 3px; font-size: 10.5px; font-variant-numeric: tabular-nums;
+}
+.bgsd-branch__can { color: var(--ash); font-weight: 600; }
+.bgsd-branch__can.is-warn { color: var(--amber-deep); }
+.bgsd-branch__du {
+  padding: 1px 6px; border-radius: 999px; font-weight: 700;
+  background: var(--rule-soft); color: var(--ash);
+}
+.bgsd-branch__du.is-warn { background: var(--amber-soft); color: var(--amber-deep); }
+.bgsd-branch__du.is-bad { background: var(--signal-soft); color: var(--signal); }
+
+/* Phần giấy lệnh này gánh — thông tin CHI PHÍ, để nhạt hơn cần/dư tờ (thứ quyết định lúc cân bài). */
+.bgsd-branch__giay {
+  color: var(--ash); font-weight: 600; font-size: 10px;
+  padding: 1px 6px; border-radius: 999px; background: var(--rule-soft);
+  white-space: nowrap;
+}
+
+/* `con/tờ` sửa tại chỗ: giữ nguyên hình dáng chip để thẻ không nhảy layout khi đổi qua ô nhập.
+   Ẩn spinner của input number — mũi tên tí xíu trên chip 10px vừa xấu vừa khó bấm trúng. */
+.bgsd-branch__ups--edit {
+  width: 52px; text-align: center; appearance: textfield; -moz-appearance: textfield;
+  cursor: text;
+}
+.bgsd-branch__ups--edit::-webkit-outer-spin-button,
+.bgsd-branch__ups--edit::-webkit-inner-spin-button { appearance: none; margin: 0; }
+.bgsd-branch__ups--edit:hover { border-color: #7dd3fc; }
+.bgsd-branch__ups--edit:focus-visible {
+  outline: 2px solid var(--rust, #c25e38); outline-offset: 1px; background: #fff;
+}
+
+/* Lượt in chạy chung tờ — chỉ hiện khi lệnh có nhiều hơn một lượt in. */
+.bgsd-branch__luot {
+  display: flex; align-items: center; gap: 4px; margin-top: 2px;
+  font-size: 10px; color: var(--ash);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.bgsd-card-branch__tags { display: flex; align-items: center; gap: 5px; margin-top: 1px; }
+
+/* Tag GẤP Nhấp Nháy (Rush Badge) */
+@keyframes bgsdRushPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 rgba(225, 29, 72, 0); }
+  50% { transform: scale(1.05); box-shadow: 0 0 8px rgba(225, 29, 72, 0.5); }
+}
+.bgsd-rush-tag {
+  animation: bgsdRushPulse 1.8s infinite;
+}
+
+.bgsd-node__step-num {
+  font-size: 10.5px;
+  font-weight: 900;
+  color: var(--mau-nhanh, #0284c7);
+  background: color-mix(in srgb, var(--mau-nhanh, #0284c7) 14%, transparent);
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-right: 3px;
+  font-family: var(--ff-mono, monospace);
+}
+
+/* --- Thẻ Kết Quả Đầu Ra KPI (Right Result Node) --- */
 .bgsd-card-branch--right {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-left-width: 1px;
-  border-right: 3px solid #94a3b8;
+  border-right: 5px solid #059669;
+  background: #f0fdf4;
 }
 .bgsd-pill-status {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  font-weight: 600;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 800;
+  font-family: var(--ff-mono, monospace);
 }
-.bgsd-pill-status.is-surplus { color: #059669; }
-.bgsd-pill-status.is-exact { color: #64748b; }
+.bgsd-pill-status.is-surplus { 
+  color: #047857; 
+  background: #d1fae5;
+  border: 1px solid #a7f3d0;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.bgsd-pill-status.is-exact { 
+  color: #475569; 
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
 
-/* --- Compact Top Header Bar cho Bài ghép (Siêu gọn ở đầu trang) --- */
-.bghep-compact-topbar {
+/* --- Unified Single-Card Top Header Bar (Siêu gọn ~90px) & Backward-Compatible Topbar --- */
+.bghep-compact-topbar,
+.bghep-unified-header {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-2, 8px);
-  padding: 10px 14px;
-  background: var(--bg-card, #ffffff);
-  border: 1px solid var(--rule-hair, #e2e8f0);
-  border-radius: var(--radius-2, 10px);
-  margin-bottom: var(--sp-3, 12px);
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03);
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  margin-bottom: 10px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.02);
 }
 
-.bghep-compact-topbar__header {
+.bghep-compact-topbar__header,
+.bghep-uh-row1 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--sp-3);
+  gap: 12px;
   flex-wrap: wrap;
 }
 
-.bghep-compact-topbar__badges {
+.bghep-compact-topbar__badges,
+.bghep-uh-titlegroup,
+.bghep-uh-titlewrap {
   display: flex;
   align-items: center;
-  gap: var(--sp-2, 8px);
+  gap: 8px;
   flex-wrap: wrap;
+}
+
+.bghep-back-btn {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-bottom: 0 !important;
+}
+.bghep-back-btn:hover { background: #e2e8f0; color: #0f172a; }
+
+.bghep-ma-title {
+  font-size: 20px;
+  font-weight: 900;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  margin: 0;
+  line-height: 1;
 }
 
 .bghep-badge-ready {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  gap: 5px;
+  padding: 3px 10px;
   border-radius: 999px;
-  font-size: var(--fs-xs, 12px);
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 700;
 }
-.bghep-badge-ready--ok { background: #dcfce7; color: #15803d; }
-.bghep-badge-ready--blocked { background: #fee2e2; color: #b91c1c; }
-.bghep-badge-ready--done { background: #e0f2fe; color: #0369a1; }
+.bghep-badge-ready--ok { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+.bghep-badge-ready--blocked { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+.bghep-badge-ready--done { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
 
 .bghep-badge-note {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
+  gap: 4px;
+  padding: 3px 10px;
   border-radius: 999px;
-  background: var(--amber-soft, #fef3c7);
-  color: var(--amber-deep, #92400e);
-  font-size: var(--fs-xs, 12px);
-  font-weight: 500;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 11.5px;
+  font-weight: 600;
 }
 
 .bghep-badge-luuy {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
+  gap: 4px;
+  padding: 3px 10px;
   border-radius: 999px;
   background: #fff7ed;
   border: 1px solid #ffedd5;
   color: #c2410c;
-  font-size: var(--fs-xs, 12px);
-  font-weight: 500;
+  font-size: 11.5px;
+  font-weight: 600;
 }
 
-.bghep-compact-topbar__facts {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: var(--sp-2, 8px);
-}
-
-.bghep-micro-fact {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 6px 10px;
-  background: var(--paper, #f8fafc);
-  border: 1px solid var(--rule-hair, #e2e8f0);
-  border-radius: var(--radius-1, 6px);
-}
-
-.bghep-micro-fact__label {
-  font-size: 11px;
-  color: var(--ash, #64748b);
-  white-space: nowrap;
-}
-
-.bghep-micro-fact__val {
-  font-family: var(--ff-num, inherit);
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--ink, #0f172a);
-}
-
-@media (max-width: 768px) {
-  .bghep-compact-topbar__facts {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-.bghep-top-toolbar__actions {
+.bghep-top-toolbar__actions,
+.bghep-uh-actions {
   display: flex;
   align-items: center;
-  gap: var(--sp-2);
+  gap: 8px;
+}
+
+/* Horizontal Micro Metric Strip & Facts Grid */
+.bghep-compact-topbar__facts,
+.bghep-uh-metrics {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 14px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.bghep-micro-fact,
+.bghep-uh-metric-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.bghep-micro-fact__label,
+.bghep-uh-m-label {
+  color: #64748b;
+  font-weight: 500;
+  margin-right: 2px;
+}
+
+.bghep-micro-fact__val,
+.bghep-uh-m-val {
+  color: #0f172a;
+  font-weight: 800;
+  font-family: var(--ff-mono, monospace);
+  padding: 1px 6px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 5px;
+}
+
+.bghep-uh-m-sep {
+  color: #cbd5e1;
+  font-size: 10px;
+}
+
+.bghep-uh-missing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: #ef4444;
+  font-weight: 600;
+}
+.bghep-uh-missing-tag {
+  background: #fef2f2;
+  border: 1px solid #fee2e2;
+  padding: 1px 6px;
+  border-radius: 4px;
 }
 
 .bgsd-canvas-container {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 210px);
-  height: calc(100vh - 210px);
+  min-height: calc(100vh - 140px);
+  height: calc(100vh - 140px);
   position: relative;
 }
 
@@ -560,6 +973,7 @@
 }
 
 /* --- Modern Modal Popup --- */
+/* --- Modern Modal Popup (WOW Pro Max) --- */
 .bgsd-modal-overlay {
   position: fixed;
   top: 0;
@@ -567,9 +981,9 @@
   right: 0;
   bottom: 0;
   z-index: 9999;
-  background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -584,20 +998,20 @@
 
 .bgsd-modal-dialog {
   width: 100%;
-  max-width: 920px;
+  max-width: 960px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-card, #ffffff);
-  border: 1px solid var(--rule-hair, #e2e8f0);
-  border-radius: 16px;
-  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.2), 0 4px 16px rgba(15, 23, 42, 0.08);
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25), 0 8px 24px rgba(15, 23, 42, 0.1);
   overflow: hidden;
   animation: bgsdSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes bgsdSlideUp {
-  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
@@ -605,18 +1019,32 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 22px;
-  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
-  border-bottom: 1px solid var(--rule-hair, #e2e8f0);
+  padding: 14px 22px;
+  background: linear-gradient(135deg, #0f172a, #1e293b);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  color: #ffffff;
 }
 
 .bgsd-modal-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
-  color: var(--ink, #0f172a);
+  color: #ffffff;
   display: flex;
   align-items: center;
   gap: 10px;
+  letter-spacing: -0.01em;
+}
+
+.bgsd-modal-icon-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(2, 132, 199, 0.25);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.3);
 }
 
 .bgsd-modal-close {
@@ -627,20 +1055,22 @@
   height: 32px;
   border-radius: 50%;
   border: 0;
-  background: transparent;
-  color: var(--ash, #64748b);
+  background: rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 .bgsd-modal-close:hover {
-  background: rgba(15, 23, 42, 0.08);
-  color: var(--ink, #0f172a);
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  transform: rotate(90deg);
 }
 
 .bgsd-modal-body {
   flex: 1;
   padding: 20px 22px;
   overflow-y: auto;
+  background: #f8fafc;
 }
 
 .bgsd-modal-footer {
@@ -648,31 +1078,62 @@
   align-items: center;
   justify-content: flex-end;
   gap: 12px;
-  padding: 14px 22px;
-  background: var(--paper, #f8fafc);
-  border-top: 1px solid var(--rule-hair, #e2e8f0);
+  padding: 12px 22px;
+  background: #ffffff;
+  border-top: 1px solid #e2e8f0;
 }
 
-/* --- Inline Grid Form 4 columns --- */
+/* --- Section Container Modern Elevation --- */
+.bgsd-sec {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+  transition: all 0.15s ease;
+}
+.bgsd-sec:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+
 .bgsd-sec--featured {
   background: #ffffff;
-  border: 1px solid rgba(2, 132, 199, 0.2);
-  box-shadow: 0 2px 10px rgba(2, 132, 199, 0.04);
+  border: 1px solid rgba(2, 132, 199, 0.25);
+  box-shadow: 0 4px 16px rgba(2, 132, 199, 0.06);
 }
 
+.bgsd-sec__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 14px;
+}
+
+/* --- Form Layout & Labels --- */
 .bgsd-form-grid-4 {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  margin-top: 6px;
+  gap: 14px;
 }
 
 .bgsd-field-wide {
   grid-column: span 4;
 }
 
+.bgsd-field-half {
+  grid-column: span 4;
+}
+
 @media (min-width: 640px) {
   .bgsd-field-wide {
+    grid-column: span 2;
+  }
+  .bgsd-field-half {
     grid-column: span 2;
   }
 }
@@ -681,60 +1142,140 @@
 .bgsd-ups-stepper {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--rule-hair, #cbd5e1);
-  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
   overflow: hidden;
   background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.bgsd-ups-stepper:focus-within {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
 }
 
 .bgsd-ups-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 28px;
+  width: 28px;
+  height: 30px;
   border: 0;
-  background: var(--paper, #f1f5f9);
-  color: var(--ink, #0f172a);
+  background: #f1f5f9;
+  color: #0f172a;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 15px;
   cursor: pointer;
   user-select: none;
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 .bgsd-ups-btn:hover:not(:disabled) {
-  background: #e2e8f0;
+  background: #0284c7;
+  color: #ffffff;
 }
 .bgsd-ups-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
 }
 
 .bgsd-ups-input {
-  width: 44px !important;
-  height: 28px !important;
+  width: 64px !important;
+  height: 30px !important;
   border: 0 !important;
-  border-left: 1px solid var(--rule-hair, #cbd5e1) !important;
-  border-right: 1px solid var(--rule-hair, #cbd5e1) !important;
+  border-left: 1px solid #e2e8f0 !important;
+  border-right: 1px solid #e2e8f0 !important;
   border-radius: 0 !important;
   text-align: center !important;
-  font-weight: 600;
-  padding: 0 4px !important;
+  font-weight: 700 !important;
+  font-family: var(--ff-num, monospace) !important;
+  font-size: 14px !important;
+  color: #0f172a !important;
+  padding: 0 2px !important;
 }
 
 /* --- Table styling inside modal --- */
 .bgsd-modal-tablewrap {
-  border-radius: 8px;
-  border: 1px solid var(--rule-hair, #e2e8f0);
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.02);
 }
 
 .bgsd-modal-table {
   width: 100%;
 }
 .bgsd-modal-table th {
-  background: var(--paper, #f8fafc);
+  background: #f1f5f9;
   font-weight: 700;
-  color: var(--ink, #0f172a);
+  color: #334155;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 10px 12px;
+}
+.bgsd-modal-table td {
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+/* Status Chips & Surplus Badges */
+.bgsd-chip-surplus {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--ff-num, monospace);
+  border: 1px solid #bbf7d0;
+}
+
+/* Chip + icon "Kiểm tương thích": màu THEO mức xấu nhất của dữ liệu, không tô cứng. Dùng token
+   hệ (moss/amber/signal) thay hex thô — xem quy ước ở đầu file. */
+.bgsd-chip-compat-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-left: 8px;
+}
+.bgsd-chip-compat-count.is-ok { background: var(--moss-soft); color: var(--moss-deep); }
+.bgsd-chip-compat-count.is-warn { background: var(--amber-soft); color: var(--amber-deep); }
+.bgsd-chip-compat-count.is-bad { background: var(--signal-soft); color: var(--signal); }
+
+.bgsd-compat-icon { flex: none; }
+.bgsd-compat-icon.is-ok { color: var(--moss); }
+.bgsd-compat-icon.is-warn { color: var(--amber-deep); }
+.bgsd-compat-icon.is-bad { color: var(--signal); }
+
+.bgsd-accordion-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  border: 0;
+  padding: 4px 0;
+  cursor: pointer;
+  text-align: left;
+}
+.bgsd-accordion-caret {
+  transition: transform 0.2s ease;
+  color: #64748b;
+}
+.bgsd-accordion-caret.is-open {
+  transform: rotate(180deg);
+}
+
+.bgsd-accordion-body {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #e2e8f0;
 }
 
 .bgsd-banner-callout {
@@ -748,6 +1289,47 @@
 }
 .bgsd-banner-callout--amber { background: var(--amber-soft); color: var(--amber-deep); }
 .bgsd-banner-callout--signal { background: var(--signal-soft); color: var(--signal); }
+
+/* --- High-end Styled Textarea cho Ghi chú Kế hoạch --- */
+.bgsd-notes-textarea {
+  width: 100%;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  font-size: 13.5px;
+  color: #0f172a;
+  line-height: 1.55;
+  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.04);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  resize: vertical;
+  min-height: 78px;
+  font-family: inherit;
+}
+
+.bgsd-notes-textarea::placeholder {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+.bgsd-notes-textarea:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #ffffff;
+}
+
+.bgsd-notes-textarea:focus {
+  outline: none;
+  background: #ffffff;
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15), inset 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.bgsd-notes-textarea:disabled {
+  background: #f1f5f9;
+  color: #64748b;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
 
 /* --- Single Workspace Inspector Sub-Sections --- */
 .bgsd-inspector-sections {
@@ -819,3 +1401,143 @@
 
 
 
+
+/* Dư TỜ ngay sau nút thắt IN — đặt tại chỗ nó phát sinh, không dồn xuống cuối chuỗi. */
+.bgsd-du-to {
+  position: absolute;
+  z-index: 4;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.bgsd-du-to.is-thua { background: var(--amber-soft, #fef3c7); color: var(--amber-deep, #92400e); }
+.bgsd-du-to.is-vua { background: var(--rule-soft, #e2e8f0); color: var(--ash, #64748b); }
+.bgsd-card-in__badge--giay { opacity: 0.85; }
+
+/* ===================================================================
+   GỘP BƯỚC — thẻ chung, thẻ ứng viên, thanh chọn
+   Thẻ ở sơ đồ bài ghép dùng LẠI bộ class `.dag-node*` của sơ đồ routing (dag-routing.css) để hai
+   màn nhìn y hệt nhau. Dưới đây chỉ là phần RIÊNG của bài ghép: lượt chạy chung trải dọc qua các
+   nhánh, và trạng thái sáng/mờ lúc đang chọn bước để gộp.
+   =================================================================== */
+
+/* Thẻ của một lượt chạy CHUNG — trải dọc qua các nhánh nó đè lên, nên nhánh tự tụ vào trái và
+   toả ra phải mà không cần vẽ thêm khung gì. */
+.bgsd-gang {
+  border-top-color: var(--rust, #c25e38);
+  box-shadow: 0 6px 20px rgba(194, 94, 56, 0.16);
+  display: flex;
+  flex-direction: column;
+  z-index: 6;
+}
+.bgsd-gang .dag-node__body { flex: 1; }
+.bgsd-gang__chams { display: inline-flex; gap: 3px; margin-right: 2px; flex: 0 0 auto; }
+
+/* Nút sửa/tách chỉ hiện khi RÊ CHUỘT hoặc khi thẻ đang được chọn/focus — thẻ chung vốn đã chật
+   (tên + mã bài + chấm màu + số + thời lượng), để nút hiện thường trực là nó ăn mất chỗ của số.
+   Giữ hiện khi focus-within để bàn phím vẫn tới được nút (rê chuột thì không tab được). */
+.bgsd-gang--hover-act .dag-node__actions {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.bgsd-gang--hover-act:hover .dag-node__actions,
+.bgsd-gang--hover-act:focus-within .dag-node__actions,
+.bgsd-gang--hover-act.dag-node--selected .dag-node__actions {
+  opacity: 1;
+}
+@media (hover: none) {
+  /* Cảm ứng không có trạng thái rê — luôn hiện, không thì không bấm được. */
+  .bgsd-gang--hover-act .dag-node__actions { opacity: 1; }
+}
+
+/* Lệnh nào đang nằm trên tờ này. Dấu * = lệnh đó có ghi chú kỹ thuật riêng — thợ chạy chung một
+   lượt phải đọc được yêu cầu của mọi khách, nên gom lên thẻ chứ không giấu trong drawer. */
+.bgsd-gang__lenh { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.bgsd-gang__lenh-chip {
+  padding: 1px 7px;
+  border: 1px solid var(--rule-hair, #e2e8f0);
+  border-radius: 999px;
+  background: var(--paper, #f8fafc);
+  font-family: var(--ff-mono, monospace);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-soft, #475569);
+}
+
+/* Trạng thái lúc đang chọn bước để gộp: ứng viên SÁNG, phần còn lại MỜ. Kiểm vòng đã chạy ở
+   server trước đó nên cái gì sáng là bấm được, không có chuyện bấm rồi mới bị từ chối. */
+.bgsd-step { transition: opacity 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
+.bgsd-step.is-ung-vien {
+  border-color: var(--rust, #c25e38);
+  box-shadow: 0 0 0 3px rgba(194, 94, 56, 0.18), 0 4px 14px rgba(194, 94, 56, 0.14);
+  cursor: pointer;
+}
+.bgsd-step.is-mo { opacity: 0.32; }
+.bgsd-step.is-mo:hover { opacity: 0.5; }
+.bgsd-step.is-chon-gop { border-top-color: var(--rust, #c25e38); }
+
+/* Thanh nổi đáy khung khi đang chọn — nói rõ đang chọn mấy bước, công đoạn nào. */
+.bgsd-selbar {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--ink, #14130f);
+  color: #f8fafc;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+  font-size: 12.5px;
+}
+.bgsd-selbar__info b { font-variant-numeric: tabular-nums; }
+.bgsd-selbar__gop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border: none;
+  border-radius: 999px;
+  background: var(--rust, #c25e38);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.bgsd-selbar__gop:disabled { opacity: 0.45; cursor: not-allowed; }
+.bgsd-selbar__gop:not(:disabled):hover { filter: brightness(1.08); }
+.bgsd-selbar__huy {
+  padding: 5px 10px;
+  border: none;
+  background: none;
+  color: #cbd5e1;
+  font-size: 12px;
+  cursor: pointer;
+}
+.bgsd-selbar__huy:hover { color: #fff; text-decoration: underline; }
+
+/* Ghi chú kỹ thuật của từng lệnh trong drawer bước chung — GOM, không đè. */
+.bgsd-gang-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.bgsd-gang-notes li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--paper, #f8fafc);
+  font-size: 12.5px;
+}
+.bgsd-gang-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 4px;
+}

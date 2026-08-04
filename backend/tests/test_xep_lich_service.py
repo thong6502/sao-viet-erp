@@ -278,6 +278,80 @@ def test_go_ke_hoach_xoa_dong_va_mo_routing(db, orders, lsx_svc, xl_svc, admin, 
     assert XepLichRepository(db).by_lsx(lsx.id) == []
 
 
+def _gop_in_va_san_sang(db, bg_svc, bg, admin, keys=None):
+    """Gộp bước in của các thành viên + lập kế hoạch cho lượt chung → bài đủ điều kiện sẵn sàng.
+
+    Bài ghép KHÔNG tự gộp bước nào: chưa gộp thì đó là N lệnh rời, gate `san_sang` chặn.
+    """
+    from app.models.department import Department
+
+    tvs = bg_svc._get(bg.id).thanh_viens
+    bg_svc.gop(
+        bai_ghep_id=bg.id, actor=admin,
+        step_keys=keys or [_in_step(db, tv.lsx_id).step_key for tv in tvs],
+    )
+    mau = _in_step(db, tvs[0].lsx_id)
+    to_id = mau.department_id or db.query(Department.id).scalar()
+    for c in bg_svc._buoc_chungs(bg_svc._get(bg.id)):
+        bg_svc.lap_ke_hoach_buoc_chung(
+            bai_ghep_id=bg.id, gang_step_key=c.step_key, actor=admin,
+            patch={"department_id": to_id, "may_id": mau.may_id, "chay_phut": 60},
+        )
+    return bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
+
+
+def test_moi_buoc_chung_mot_dong_lich_khong_bi_boc_hoi(
+    db, orders, lsx_svc, bg_svc, xl_svc, admin, customer
+):
+    """Gộp NHIỀU công đoạn → mỗi bước chung một dòng lịch, dùng máy của chính bước đó.
+
+    `_sinh_dong` loại MỌI bước bị đè khỏi routing lệnh. Nếu bài chỉ đẻ đúng một dòng "in ghép" thì
+    gộp thêm một công đoạn nữa là bước đó **bốc hơi khỏi board**: không đặt chỗ máy, không tính
+    thời lượng, không ai báo.
+    """
+    from app.models.department import Department
+
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    # Mỗi lệnh thêm bước "Xả tờ" để có công đoạn thứ hai gộp được.
+    for lsx in created:
+        db.add(LsxCongDoan(
+            lsx_id=lsx.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
+            cong_doan_id=_in_step(db, lsx.id).cong_doan_id,
+            may_id=_in_step(db, lsx.id).may_id, so_luong_vao=5000, nang_suat=3000,
+            don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to",
+        ))
+    db.commit()
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+
+    tvs = bg_svc._get(bg.id).thanh_viens
+    bg_svc.gop(bai_ghep_id=bg.id, actor=admin,
+               step_keys=[_in_step(db, tv.lsx_id).step_key for tv in tvs])
+    bg_svc.gop(bai_ghep_id=bg.id, actor=admin, step_keys=[
+        next(c.step_key for c in lsx_svc.get(tv.lsx_id).cong_doans if c.ten == "Xả tờ")
+        for tv in tvs
+    ])
+    mau = _in_step(db, tvs[0].lsx_id)
+    to_id = mau.department_id or db.query(Department.id).scalar()
+    for c in bg_svc._buoc_chungs(bg_svc._get(bg.id)):
+        bg_svc.lap_ke_hoach_buoc_chung(
+            bai_ghep_id=bg.id, gang_step_key=c.step_key, actor=admin,
+            patch={"department_id": to_id, "may_id": mau.may_id, "chay_phut": 45},
+        )
+    bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
+    xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)
+
+    gang = XepLichRepository(db).by_bai_ghep(bg.id)
+    assert len(gang) == 2, "gộp 2 công đoạn phải ra 2 dòng lịch, không phải 1"
+    assert all(r.bai_ghep_cong_doan_id for r in gang), "dòng phải neo đích danh bước chung"
+    # Máy lấy từ bước chung người dùng vừa khai, KHÔNG phải `bg.may_id` (bài chưa chọn máy).
+    assert bg.may_id is None and all(r.may_id == mau.may_id for r in gang)
+    # Thời lượng theo kế hoạch của bước chung (chay_phut gõ đè), không theo tổng tờ / máy của bài.
+    assert all(xl_svc._thoi_luong(r)["chay_phut"] == 45 for r in gang)
+    # Không lệnh nào còn giữ dòng riêng cho hai bước đã gộp.
+    for lsx in created:
+        assert XepLichRepository(db).by_lsx(lsx.id) == []
+
+
 def test_bai_ghep_in_chung_mot_dong_loai_tru_in(db, orders, lsx_svc, bg_svc, xl_svc, admin, customer):
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     # Mỗi LSX thêm bước xả tờ (sau in) để thành viên còn công đoạn xếp riêng sau khi in chung.
@@ -289,7 +363,7 @@ def test_bai_ghep_in_chung_mot_dong_loai_tru_in(db, orders, lsx_svc, bg_svc, xl_
         ))
     db.commit()
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
-    bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
+    bg = _gop_in_va_san_sang(db, bg_svc, bg, admin)
 
     xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)
     repo = XepLichRepository(db)
@@ -647,7 +721,7 @@ def test_xem_truoc_bao_xung_dot(db, orders, lsx_svc, xl_svc, admin, customer, mo
 def test_lenh_in_hai_luot_chi_loai_dung_luot_duoc_ghep(
     db, orders, lsx_svc, bg_svc, xl_svc, admin, customer
 ):
-    """Quét cả nhóm `print` sẽ làm BỐC HƠI cả hai lượt in khỏi board — neo `step_key` mới đúng."""
+    """Quét cả nhóm `print` sẽ làm BỐC HƠI cả hai lượt in khỏi board — lớp đè theo `step_key` mới đúng."""
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     for lsx in created:
         db.add(LsxCongDoan(
@@ -658,14 +732,9 @@ def test_lenh_in_hai_luot_chi_loai_dung_luot_duoc_ghep(
     db.commit()
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
 
-    # Hai lượt in → máy không đoán, bài thiếu dữ liệu cho tới khi người chọn.
-    assert "thieu_buoc_in" in bg_svc.thieu_cua(bg_svc._get(bg.id))
-    for tv in bg_svc._get(bg.id).thanh_viens:
-        mat_truoc = _in_step(db, tv.lsx_id)
-        bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv.id,
-                              so_con_tren_to=tv.so_con_tren_to,
-                              buoc_in_step_key=mat_truoc.step_key, actor=admin)
-    bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
+    # Hai lượt in → máy không đoán, bài chưa có gì chạy chung cho tới khi người gộp.
+    assert "thieu_buoc_chung" in bg_svc.thieu_cua(bg_svc._get(bg.id))
+    bg = _gop_in_va_san_sang(db, bg_svc, bg, admin)   # gộp ĐÚNG lượt mặt trước
 
     xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)
     member = XepLichRepository(db).by_lsx(created[0].id)

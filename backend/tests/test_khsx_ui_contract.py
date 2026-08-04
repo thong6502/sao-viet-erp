@@ -90,26 +90,36 @@ def test_drawer_doi_dau_viec_cap_nhat_dinh_muc_va_thoi_gian_live() -> None:
     assert "Math.min(nguoiKeHoach, nguoiToiDa)" in model
 
 
-def test_so_do_bai_ghep_nhanh_chi_doc_va_mot_cua_ghi_thong_so_to() -> None:
-    """Sơ đồ bài ghép: nhánh CHỈ ĐỌC (bấm là sang lệnh), thông số tờ sửa ở tab Giấy & số tờ.
+def test_so_do_bai_ghep_ve_routing_day_du_va_mot_cua_ghi() -> None:
+    """Sơ đồ bài ghép: routing ĐẦY ĐỦ từng lệnh, bước chung do NGƯỜI khai, mọi cửa ghi đẩy lên cha.
 
     Máy/giấy/khổ mà đặt thêm form trong sơ đồ là hai form cùng một dữ liệu, mỗi form một dirty
-    state — mầm lệch. Số con và lượt in thì ghi NGAY qua API sẵn có nên để inline được.
+    state — mầm lệch. Gộp/tách cũng vậy: sơ đồ chỉ gọi callback, cha mới gọi API và `apply()` kết
+    quả, nhờ đó bảng thành viên và sơ đồ cùng nhận số mới trong một nhịp.
     """
     sd_file = DRAWER.parent / "BaiGhepSoDo.tsx"
     canvas_file = DRAWER.parents[1] / "components" / "BaiGhepDagCanvas.tsx"
     sd = sd_file.read_text(encoding="utf-8") + ("\n" + canvas_file.read_text(encoding="utf-8") if canvas_file.exists() else "")
     detail = (DRAWER.parent / "BaiGhepDetailView.tsx").read_text(encoding="utf-8")
 
-    assert "IN CHUNG TỜ" in sd                       # nút thắt duy nhất
-    assert "truoc_in" in sd and "sau_in" in sd       # mỗi lệnh giữ chuỗi riêng hai phía
+    # KHÔNG tự đúc node in chung: ghép bài chung cả CTP/cán/bế, chọn bước nào là việc của người.
+    assert "IN CHUNG TỜ" not in sd
+    assert "n.buoc.map" in sd                        # vẽ routing đầy đủ của từng lệnh
+    assert "gop_step_key" in sd                      # bước bị đè vẫn còn, chỉ mang thêm dấu
+    assert "toa_step_key" in sd                      # điểm toả suy từ bước gộp cuối cùng
     assert "bgsd-node--ngoai" in sd                  # tiền nhiệm ngoài bài → node bóng mờ
     assert "onMoLenh" in sd                          # nhánh chỉ đọc, bấm là điều hướng
-    # Sơ đồ KHÔNG tự gọi API ghi thông số tờ — chỉ đẩy lên cha.
-    assert "api.baiGhep.update" not in sd
+    # Chọn → gộp → tách, và kiểm vòng hỏi TRƯỚC khi cho bấm.
+    assert "onGop" in sd and "onTach" in sd
+    assert "onHoiUngVien" in sd
+    # Sơ đồ KHÔNG tự gọi API ghi — chỉ đẩy lên cha.
+    for cua_ghi in ("api.baiGhep.update", "api.baiGhep.gop", "api.baiGhep.tach",
+                    "api.baiGhep.luuBuocChung"):
+        assert cua_ghi not in sd, f"{cua_ghi} phải gọi ở cha, không gọi trong sơ đồ"
     assert "onSuaThongSoTo" in sd
     # Sơ đồ Bài ghép nằm trực tiếp trong BaiGhepDetailView (Studio 1 màn hình duy nhất).
     assert "BaiGhepSoDo" in detail
+    assert "api.baiGhep.gop" in detail and "api.baiGhep.tach" in detail
 
 
 def test_thue_ngoai_co_so_giao_nhan_va_chi_mot_cua_ghi() -> None:

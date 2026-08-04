@@ -22,6 +22,7 @@ from ..models.bai_ghep import (
     TT_DA_LAP_KE_HOACH as BG_DA_LAP, TT_DA_PHAT_HANH as BG_DA_PHAT_HANH,
     TT_SAN_SANG as BG_SAN_SANG, BaiGhep, BaiGhepThanhVien,
 )
+from ..models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
 from ..models.attendance import WorkShift
 from ..models.department import Department
 from ..models.lsx import (
@@ -358,6 +359,16 @@ class XepLichService:
         (máy `to_gio` ⟷ bước vào `to`) → TÍNH LẠI theo máy đang gán (HM3); ngược lại snapshot bước.
         `bg` truyền từ vòng lặp bảng (đã nạp lô ở `_nap_lo`) để khỏi query lại từng dòng."""
         if dong.nguon == NGUON_IN_GHEP:
+            # Dòng neo ĐÍCH DANH bước chung → thời lượng lấy từ chính bước đó (máy, năng suất,
+            # `chay_phut` gõ đè, số lượt) — cùng công thức với bước của lệnh, vì nó CŨNG là một
+            # bước có kế hoạch. Trước đây mọi dòng bài đều tính theo máy của bài + tổng tờ, tức là
+            # vứt sạch những gì người dùng khai trong drawer bước chung.
+            bgcd = (
+                self.db.get(BaiGhepCongDoan, dong.bai_ghep_cong_doan_id)
+                if dong.bai_ghep_cong_doan_id else None
+            )
+            if bgcd is not None:
+                return self._thoi_luong_noi_bo(dong, bgcd)
             if bg is None:
                 bg = self.bg_repo.get(dong.bai_ghep_id) if dong.bai_ghep_id else None
             if bg is None:
@@ -374,8 +385,12 @@ class XepLichService:
             return _dur_0()
         return self._thoi_luong_noi_bo(dong, lcd)
 
-    def _thoi_luong_noi_bo(self, dong: XepLichCongDoan, lcd: LsxCongDoan) -> dict:
-        """Bước nội bộ THEO MÁY (HM3): máy đang gán khai tốc độ + đơn vị khớp (`to_gio`⟷`to`) → tính
+    def _thoi_luong_noi_bo(
+        self, dong: XepLichCongDoan, lcd: LsxCongDoan | BaiGhepCongDoan,
+    ) -> dict:
+        """Bước THEO MÁY (HM3) — dùng chung cho bước của lệnh lẫn bước chạy chung của bài, vì cả
+        hai đều là "một bước có kế hoạch" với cùng bộ trường (`BaiGhepCongDoan` mirror
+        `LsxCongDoan`). Máy đang gán khai tốc độ + đơn vị khớp (`to_gio`⟷`to`) → tính
         LIVE, TÁCH BẠCH — setup = makeready máy, chạy = SL_vào / tốc độ × lượt / nhân-công, vệ sinh =
         rửa mực máy (đúng BC: makeready theo máy, chạy theo tốc độ). Ngược lại fallback snapshot bước.
         `chay_phut` người kế hoạch gõ đè vẫn THẮNG công thức. `chờ`/`di chuyển` giữ theo bước (lag,
@@ -430,28 +445,26 @@ class XepLichService:
         )
 
     def _sinh_dong(self, lsx: Lsx, *, bo_qua_in: bool, actor) -> list[XepLichCongDoan]:
-        """Dòng lịch cho mọi công đoạn của LSX; bỏ ĐÚNG bước in đang chạy chung ở bài ghép.
+        """Dòng lịch cho mọi công đoạn của LSX; bỏ ĐÚNG các bước đang chạy chung ở bài ghép.
 
-        Bỏ theo `buoc_in_step_key` chứ không quét cả nhóm `print`: lệnh in 2 lượt (mặt trước /
-        mặt sau tách dòng) thì quét cả nhóm là làm BỐC HƠI cả hai lượt khỏi board, trong khi bài
-        chỉ ghép một lượt.
+        Bỏ theo lớp đè `bai_ghep_cong_doan_map` chứ không quét cả nhóm `print`: lệnh in 2 lượt
+        (mặt trước / mặt sau tách dòng) thì quét cả nhóm là làm BỐC HƠI cả hai lượt khỏi board,
+        trong khi bài chỉ ghép một lượt. Bài còn gộp cả CTP/cán/bế, nên tập bỏ là mọi bước bị đè,
+        không riêng bước in.
         """
-        bo_key = self._buoc_in_ghep_key(lsx.id) if bo_qua_in else None
+        bo_keys = self._buoc_ghep_keys(lsx.id) if bo_qua_in else set()
         out: list[XepLichCongDoan] = []
         for cd in sorted(lsx.cong_doans, key=lambda c: c.thu_tu):
-            if bo_qua_in and (
-                cd.step_key == bo_key
-                # Chưa neo (dữ liệu cũ chưa backfill) → giữ hành vi cũ cho lệnh một lượt in.
-                or (bo_key is None and cd.nhom == NHOM_PRINT and cd.loai_buoc == LB_MAY)
-            ):
+            if bo_qua_in and cd.step_key in bo_keys:
                 continue
             out.append(self._dong_moi(lsx, cd, actor))
         return out
 
-    def _buoc_in_ghep_key(self, lsx_id: int) -> str | None:
-        return self.db.execute(
-            select(BaiGhepThanhVien.buoc_in_step_key).where(BaiGhepThanhVien.lsx_id == lsx_id)
-        ).scalars().first()
+    def _buoc_ghep_keys(self, lsx_id: int) -> set[str]:
+        """Các bước của lệnh đang bị bài ghép đè — bài xếp lịch cho chúng một dòng chung."""
+        return set(self.db.execute(
+            select(BaiGhepCongDoanMap.lsx_step_key).where(BaiGhepCongDoanMap.lsx_id == lsx_id)
+        ).scalars())
 
     def dua_vao_lsx(self, *, lsx_id: int, actor) -> Lsx:
         lsx = self.lsx_repo.get(lsx_id)
@@ -480,11 +493,25 @@ class XepLichService:
             raise XepLichConflict(f"Bài ghép {bg.ma} đã lập kế hoạch")
         if bg.trang_thai != BG_SAN_SANG or self.bg_svc.thieu_cua(bg):
             raise XepLichConflict(f"Bài ghép {bg.ma} chưa sẵn sàng xếp lịch")
-        # Dòng in chạy chung — chiếm máy in của bài ghép.
-        self.repo.add(XepLichCongDoan(
-            nguon=NGUON_IN_GHEP, bai_ghep_id=bg.id, source_thu_tu=0, loai_buoc=LB_MAY,
-            may_id=bg.may_id, trang_thai=TT_CHO_XEP, created_by=getattr(actor, "id", None),
-        ))
+        # MỖI bước chạy chung một dòng — không phải một dòng "in ghép" duy nhất. `_sinh_dong` loại
+        # mọi bước bị đè khỏi routing lệnh, nên gộp CTP + In + Cán mà chỉ đẻ một dòng là hai bước
+        # kia bốc hơi khỏi board. Máy / tổ / NCC lấy từ chính bước chung (người vừa khai ở drawer),
+        # không lấy `bg.may_id` — lấy máy của bài là vứt kế hoạch người dùng vừa lập.
+        chungs = self.bg_svc._buoc_chungs(bg)
+        if chungs:
+            for c in chungs:
+                self.repo.add(XepLichCongDoan(
+                    nguon=NGUON_IN_GHEP, bai_ghep_id=bg.id, bai_ghep_cong_doan_id=c.id,
+                    source_thu_tu=int(c.thu_tu or 0), loai_buoc=c.loai_buoc or LB_MAY,
+                    may_id=c.may_id, department_id=c.department_id, nha_cung_cap=c.nha_cung_cap,
+                    trang_thai=TT_CHO_XEP, created_by=getattr(actor, "id", None),
+                ))
+        else:
+            # Bài cũ chưa có lớp đè (dữ liệu trước lát này) — giữ nguyên hành vi một dòng theo bài.
+            self.repo.add(XepLichCongDoan(
+                nguon=NGUON_IN_GHEP, bai_ghep_id=bg.id, source_thu_tu=0, loai_buoc=LB_MAY,
+                may_id=bg.may_id, trang_thai=TT_CHO_XEP, created_by=getattr(actor, "id", None),
+            ))
         lsx_map = self.bg_repo.lsx_by_ids([tv.lsx_id for tv in bg.thanh_viens])
         for tv in bg.thanh_viens:
             lsx = lsx_map.get(tv.lsx_id)
@@ -1083,7 +1110,16 @@ class XepLichService:
             lcd = self._lcd(r.lsx_cong_doan_id)
             ly_do_xn = self._kiem_kha_nang(r, lsx=lsx, may=may_objs.get(r.may_id))
             ma = (lsx.ma if lsx else None) if r.nguon == NGUON_LSX else (bg.ma if bg else None)
-            ten = (lcd.ten if lcd else None) if r.nguon == NGUON_LSX else "In chung"
+            if r.nguon == NGUON_LSX:
+                ten = lcd.ten if lcd else None
+            else:
+                # Tên THẬT của bước chạy chung ("Cán màng", "Ghi kẽm CTP"…). Gọi mọi dòng của bài
+                # là "In chung" thì board có 3 dòng trùng tên, không biết dòng nào là bước nào.
+                bgcd = (
+                    self.db.get(BaiGhepCongDoan, r.bai_ghep_cong_doan_id)
+                    if r.bai_ghep_cong_doan_id else None
+                )
+                ten = bgcd.ten if bgcd else "In chung"
             ch = chuoi.get(r.id, {})
             d = dur[r.id]
             items.append({

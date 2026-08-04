@@ -314,20 +314,23 @@ export const BAI_GHEP_THIEU_LABELS: Record<string, string> = {
   thieu_giay: "Chưa chọn giấy chạy chung",
   thieu_kho_in: "Chưa có khổ tờ in chung",
   thieu_ups: "Có thành viên chưa khai số con/tờ",
-  thieu_buoc_in: "Lệnh in nhiều lượt — chưa chọn lượt nào chạy chung tờ",
+  // Chưa gộp bước nào = N lệnh rời, chưa phải bài ghép. Đây là trạng thái MẶC ĐỊNH của bài mới
+  // tạo, nên thiếu nhãn là ai mở bài cũng thấy chữ mã trần.
+  thieu_buoc_chung: "Chưa gộp bước nào — chọn bước cùng công đoạn ở các lệnh rồi bấm Gộp",
+  thieu_ke_hoach_buoc_chung: "Lượt chạy chung chưa có tổ / máy / năng suất",
   thieu_so_to: "Chưa tính được số tờ",
 };
 
-/** Cảnh báo MỀM — chỉ tô màu, không chặn. */
+/** Cảnh báo MỀM — chỉ tô màu, không chặn. Chỉ còn tín hiệu về TRẠNG THÁI đơn/lệnh.
+ *
+ *  ĐÃ BỎ `khac_giay` / `khac_so_mau` / `khac_so_mat` / `bai_thua`: điều kiện gộp chỉ là cùng công
+ *  đoạn, còn quy cách thì người dùng có nghiệp vụ đó — máy không phán hộ. Bảng "Kiểm tương thích"
+ *  vẫn bày đủ giá trị để người tự so, và `fill_pct` vẫn hiện dưới dạng con số. */
 export const BAI_GHEP_CANH_BAO_LABELS: Record<string, string> = {
-  khac_giay: "Thành viên khác loại giấy",
-  khac_so_mau: "Thành viên khác số màu",
-  khac_so_mat: "Thành viên khác số mặt / kiểu trở",
   co_gap: "Có lệnh GẤP trong bài",
   lech_han: "Hạn giao các lệnh lệch nhau xa",
   thanh_vien_khong_san_sang: "Có lệnh không còn sẵn sàng",
   don_huy: "Có lệnh thuộc đơn đã huỷ",
-  bai_thua: "Bài thưa — nhiều chỗ trống, phí giấy",
 };
 
 /** Mức tương thích 1 thuộc tính giữa các thành viên → nhãn + tone (class `.bghep-muc--{tone}`). */
@@ -359,20 +362,71 @@ export interface BaiGhepThanhVien {
   thanh_vien_id: number; lsx_id: number; lsx_ma: string | null; lsx_ten: string | null;
   so_luong_dat: number; don_vi_tinh: string | null; is_rush: boolean; trang_thai_lsx: string | null;
   so_con_tren_to: number; san_luong_du_kien: number; du: number;
-  /** Bước in nào của lệnh chạy chung tờ + các lượt chọn được (lệnh in 2 lượt thì phải chỉ rõ). */
-  buoc_in_step_key: string | null;
-  buoc_in_chon_duoc: { step_key: string; ten: string; thu_tu: number }[];
-  /** Số tờ lệnh THẬT SỰ cần — đã gồm hao các bước sau in, khác `ceil(SL đặt / con)`. */
+  /** Bước gộp CUỐI CÙNG của lệnh = điểm toả. null = lệnh chưa gộp bước nào. */
+  toa_step_key: string | null;
+  /** Số tờ lệnh THẬT SỰ cần — đã gồm hao các bước riêng, khác `ceil(SL đặt / con)`. */
   nhu_cau_to: number;
+  du_to: number;
+  phan_giay_to: number; ty_le_giay: number;
   giay_id: number | null; giay_ten: string | null;
   so_mau_a: number | null; so_mau_b: number | null; quy_cach_in: string | null;
   kho_tp: string | null; han_hoan_thanh_sx: string | null;
 }
-/** Sơ đồ bài ghép — N nhánh vào → MỘT node IN → N nhánh ra. DẪN XUẤT ở server, không lưu cạnh. */
+/** Sơ đồ bài ghép — routing ĐẦY ĐỦ từng lệnh + các bước NGƯỜI khai là chạy chung.
+ *  DẪN XUẤT ở server, không lưu cạnh: hình tụ-rồi-toả rơi ra từ phép co nút. */
 export interface BaiGhepSoDoNode {
   step_key: string; ten: string; nhom: string | null; loai_buoc: LsxLoaiBuoc; thu_tu: number;
+  /** Khoá điều kiện gộp: chỉ các bước CÙNG công đoạn mới gộp được với nhau. */
+  cong_doan_id: number | null;
+  /** Khác null = bước này đang bị một bước chung ĐÈ (thẻ chung mới là nơi hiện số/tổ/máy). */
+  gop_step_key: string | null;
   to_ten: string | null; may_ten: string | null; nha_cung_cap: string | null;
   tong_phut: number; chiem_may_phut: number; phu_thuoc_step_keys: string[];
+  /** Sau điểm toả là số LƯỢT ĐI (bài chạy bấy nhiêu tờ thì bước này thật sự nhận/ra bấy nhiêu);
+   *  trước đó là lượt về của chính lệnh. null ở bước ngoài dòng giấy (chế bản đếm kẽm). */
+  so_luong_vao: number | null; so_luong_ra: number | null;
+  don_vi_vao: string | null; don_vi_ra: string | null; hao_hut: number | null;
+}
+/** Một lượt chạy CHUNG — thẻ trải ngang, nhánh tụ vào trái và toả ra phải. */
+export interface BaiGhepSoDoBuocChung {
+  step_key: string; ten: string; nhom: string | null; cong_doan_id: number | null;
+  loai_buoc: LsxLoaiBuoc; thu_tu: number;
+  /** Số của CẢ LƯỢT. Đơn vị lấy từ khai báo công đoạn — bước bế nhả `cai` thì `so_luong_ra` đếm con. */
+  so_luong_vao: number; so_luong_ra: number;
+  don_vi_vao: string | null; don_vi_ra: string | null;
+  /** `ra` quy về ĐƠN VỊ VÀO + hệ số đã dùng — cùng bộ số `bu_hao_chi_tiet` của tính giá. Thiếu hai
+   *  số này thì dòng đổi đơn vị đọc lên vô lý ("20.500 tờ → 2.050 cuốn" mà không nói 10 tờ = 1 cuốn). */
+  he_so_quy_doi: number; so_luong_ra_quy: number | null;
+  /** Hao đếm ĐÚNG MỘT LẦN cho cả lượt, ở ĐƠN VỊ VÀO — thứ mất trên máy là tờ, không phải con. */
+  hao_hut: number; hao_hut_pct: number;
+  /** Chuỗi đứt đơn vị / thiếu hệ số — phải lộ ra, đừng lặng lẽ chạy hệ số 1. */
+  canh_bao_don_vi: string[];
+  /** Đã khai gì đó cho lượt chung chưa → tách ra là mất. Cờ THẬT của server, đừng dò chuỗi `thieu`. */
+  da_lap_ke_hoach: boolean;
+  /** ID + TÊN: `<select>` cần id để chọn đúng, nhãn cần tên. Chỉ có tên là form phải lấy tên làm
+   *  `value` rồi so chuỗi với id — tổ đã gán vẫn hiện "— chọn tổ —". */
+  department_id: number | null; to_ten: string | null;
+  may_id: number | null; may_ten: string | null;
+  nha_cung_cap: string | null;
+  tong_phut: number; chiem_may_phut: number;
+  /** Giá trị NGƯỜI đã khai — form mồi lại từ đây, không thì mở drawer là ô trống rồi lưu đè mất. */
+  so_nhan_cong: number;
+  nang_suat: number | null; don_vi_nang_suat: string | null;
+  chay_phut: number | null;
+  setup_phut: number; ve_sinh_phut: number; cho_phut: number; di_chuyen_phut: number;
+  so_luot_chay: number;
+  khoan_json: Record<string, unknown> | null;
+  vat_tus: { vat_tu_id: number; ma: string; ten: string; don_vi: string; so_luong: number }[];
+  /** Gia công ngoài (DỰ KIẾN) — bước chung thuê ngoài thì cả bài đi MỘT phiếu, MỘT nhà cung cấp. */
+  sl_gui: number | null; ngay_gui_dk: string | null;
+  van_chuyen_ngay: number | null; gia_cong_ngay: number | null; ngay_nhan_dk: string | null;
+  hao_hut_cho_phep: number | null; don_gia_gia_cong: number | null;
+  yeu_cau_ky_thuat: string | null;
+  ghi_chu: string | null; ma_bai_ghep: string | null;
+  /** Lệnh nào bị đè + ghi chú kỹ thuật của lệnh đó (GOM, không đè). */
+  thanh_vien: { lsx_id: number; lsx_ma: string | null; lsx_step_key: string;
+                ghi_chu_ky_thuat: string | null }[];
+  thieu: string[];
 }
 export interface BaiGhepSoDoNhanh {
   thanh_vien_id: number; lsx_id: number; lsx_ma: string | null; lsx_ten: string | null;
@@ -380,10 +434,15 @@ export interface BaiGhepSoDoNhanh {
   /** Chỉ số màu của nhánh — FE map sang bảng màu, để ba đơn hàng cạnh nhau không lẫn. */
   mau: number;
   so_con_tren_to: number;
-  buoc_in_step_key: string | null;
-  buoc_in_chon_duoc: { step_key: string; ten: string; thu_tu: number }[];
-  nhu_cau_to: number; du: number;
-  truoc_in: BaiGhepSoDoNode[]; sau_in: BaiGhepSoDoNode[];
+  toa_step_key: string | null;
+  nhu_cau_to: number; du: number; san_luong_du_kien: number;
+  /** Dư TỜ ngay tại điểm toả — khác dư con ở cuối chuỗi. */
+  du_to: number;
+  /** Phần giấy lệnh này gánh, chia theo CON. Tờ dùng chung nên không có "tờ của lệnh nào" —
+   *  chia được là CHI PHÍ giấy, theo diện tích chiếm trên tờ. */
+  phan_giay_to: number; ty_le_giay: number;
+  /** Routing ĐẦY ĐỦ của lệnh, theo thứ tự. Bước đã gộp mang `gop_step_key`, không biến mất. */
+  buoc: BaiGhepSoDoNode[];
 }
 export interface BaiGhepSoDo {
   bai_ghep: {
@@ -393,16 +452,45 @@ export interface BaiGhepSoDo {
     kho_in_dai: number | null; kho_in_rong: number | null;
     hao_hut_setup: number; hao_hut_chay: number;
     so_to_tot: number; tong_to: number; fill_pct: number | null;
+    /** Hao đề xuất của các lượt chung, tách setup/chạy vì hai thứ áp khác nhau. */
+    hao_de_xuat: number; hao_setup_de_xuat: number; hao_chay_de_xuat: number;
+    /** Giấy phải LĨNH KHO = tờ in + hao. Khác `so_to_tot` (tờ in). */
+    to_nguyen_can: number;
+    so_buoc_chung: number;
   };
   nhanh: BaiGhepSoDoNhanh[];
-  /** Tiền nhiệm NGOÀI bài (vd ruột sách cùng đơn) → node bóng mờ ở nhánh sau in. */
+  gop: BaiGhepSoDoBuocChung[];
+  /** Tiền nhiệm NGOÀI bài (vd ruột sách cùng đơn) → node bóng mờ. */
   ngoai: { step_key: string; ten: string; lsx_ma: string | null }[];
 }
 
 export interface BaiGhepSoTo {
   so_to_tot: number; tong_to: number; fill_pct: number | null; han_in_muon_nhat: string | null;
-  rows: { thanh_vien_id: number; lsx_id: number; can: number; con: number;
-          san_luong_du_kien: number; du: number }[];
+  /** Hao của các lượt chạy chung (tách setup/chạy), và giấy phải lĩnh kho (= tờ in + hao). */
+  hao_de_xuat: number; hao_setup_de_xuat: number; hao_chay_de_xuat: number;
+  to_nguyen_can: number; so_buoc_chung: number;
+  rows: { thanh_vien_id: number; lsx_id: number; can: number; con: number; co_gop: boolean;
+          toa_step_key: string | null;
+          nhu_cau_to: number; du_to: number; san_luong_du_kien: number; du: number }[];
+}
+
+/** Kế hoạch của lượt chạy chung. Số lượng/hao/thời lượng KHÔNG có ở đây — chúng là dẫn xuất. */
+export interface BaiGhepBuocChungBody {
+  department_id?: number | null; may_id?: number | null; loai_buoc?: LsxLoaiBuoc;
+  so_nhan_cong?: number; khoan_json?: Record<string, unknown> | null;
+  nang_suat?: number | null; don_vi_nang_suat?: string | null;
+  chay_phut?: number | null; setup_phut?: number; ve_sinh_phut?: number;
+  cho_phut?: number; di_chuyen_phut?: number; so_luot_chay?: number;
+  ghi_chu?: string | null;
+  vat_tus?: { vat_tu_id: number; so_luong: number }[];
+  nha_cung_cap?: string | null; sl_gui?: number | null; ngay_gui_dk?: string | null;
+  van_chuyen_ngay?: number | null; gia_cong_ngay?: number | null; ngay_nhan_dk?: string | null;
+  hao_hut_cho_phep?: number | null; don_gia_gia_cong?: number | null;
+  yeu_cau_ky_thuat?: string | null;
+}
+/** `step_key → gộp thêm vào được không, không thì vì sao` (kiểm TRƯỚC khi cho bấm Gộp). */
+export interface BaiGhepUngVienGop {
+  ung_vien: Record<string, { gop_duoc: boolean; ly_do: string | null }>;
 }
 export interface BaiGhepTuongThichRow { thuoc_tinh: string; gia_tri: (string | null)[]; muc: string }
 export interface BaiGhepTuongThich { thanh_vien: { lsx_id: number }[]; rows: BaiGhepTuongThichRow[] }
@@ -879,7 +967,15 @@ export interface LsxBaiGhep {
   id: number; ma: string; trang_thai: string;
   may_id: number | null; may_ten: string | null;
   giay_id: number | null; kho_in_dai: number | null; kho_in_rong: number | null;
-  so_con_tren_to: number; buoc_in_step_key: string | null;
+  so_con_tren_to: number;
+  /** `lsx_step_key → bước chung đang ĐÈ lên nó`. Màn lệnh phải nói được CẢ HAI số ("bài cấp
+   *  1.480 tờ · phần lệnh này 987 tờ"), không thì người sửa máy ở đây mà không biết máy thật
+   *  nằm ở bài. Không còn `buoc_in_step_key`: bài gộp cả CTP/cán/bế, không riêng bước in. */
+  buoc_bi_de: Record<string, {
+    gop_step_key: string; ten: string;
+    to_ten: string | null; may_ten: string | null;
+    so_luong_vao: number; so_luong_ra: number; hao_hut: number;
+  }>;
 }
 export interface LsxUpdateBody {
   ten?: string; so_luong_dat?: number; don_vi_tinh?: string; bu_hao_to?: number;
@@ -6252,18 +6348,43 @@ export const api = {
       });
     },
     suaThanhVien(
-      token: string, id: number, tvId: number, soConTrenTo: number, buocInStepKey?: string | null,
+      token: string, id: number, tvId: number, soConTrenTo: number,
     ): Promise<BaiGhepDetail> {
       return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/thanh-vien/${tvId}`, token, {
-        method: "PUT",
-        body: JSON.stringify({
-          so_con_tren_to: soConTrenTo,
-          ...(buocInStepKey ? { buoc_in_step_key: buocInStepKey } : {}),
-        }),
+        method: "PUT", body: JSON.stringify({ so_con_tren_to: soConTrenTo }),
       });
     },
     soDo(token: string, id: number): Promise<BaiGhepSoDo> {
       return authed<BaiGhepSoDo>(`/api/bai-ghep/${id}/so-do`, token);
+    },
+
+    // --- Gộp / tách bước chạy chung (cửa ghi của lớp đè) --------------------
+    /** Gộp N bước CÙNG công đoạn ở N lệnh thành một lượt chạy chung. */
+    gop(token: string, id: number, stepKeys: string[]): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/gop`, token, {
+        method: "POST", body: JSON.stringify({ step_keys: stepKeys }),
+      });
+    },
+    /** Tách lượt chung → mỗi lệnh lấy lại bước và số của chính nó (gốc chưa từng bị sửa). */
+    tach(token: string, id: number, gangStepKey: string): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(
+        `/api/bai-ghep/${id}/gop/${encodeURIComponent(gangStepKey)}`, token, { method: "DELETE" },
+      );
+    },
+    /** Lập kế hoạch cho lượt chung: một tổ, một máy, một kíp, một bộ vật tư. */
+    luuBuocChung(
+      token: string, id: number, gangStepKey: string, body: BaiGhepBuocChungBody,
+    ): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(
+        `/api/bai-ghep/${id}/gop/${encodeURIComponent(gangStepKey)}`, token,
+        { method: "PUT", body: JSON.stringify(body) },
+      );
+    },
+    /** Đang chọn các bước này thì gộp thêm được bước nào — hỏi TRƯỚC khi cho bấm Gộp. */
+    ungVienGop(token: string, id: number, stepKeys: string[]): Promise<BaiGhepUngVienGop> {
+      return authed<BaiGhepUngVienGop>(`/api/bai-ghep/${id}/ung-vien-gop`, token, {
+        method: "POST", body: JSON.stringify({ step_keys: stepKeys }),
+      });
     },
     boThanhVien(token: string, id: number, tvId: number): Promise<BaiGhepDetail> {
       return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/thanh-vien/${tvId}`, token, { method: "DELETE" });

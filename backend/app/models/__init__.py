@@ -101,6 +101,7 @@ from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
 from .lsx import Lsx, LsxCongDoan, LsxCongDoanVatTu, LsxCongDoanPhuThuoc
 from .bai_ghep import BaiGhep, BaiGhepThanhVien
+from .bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCongDoanVatTu
 from .xep_lich import XepLichCongDoan
 from .xep_lich_van_de import XepLichVanDe
 from .machine_unavailable import MachineUnavailablePeriod
@@ -108,6 +109,9 @@ from .document_sequence import DocumentSequence
 from .estimate import Estimate, EstimateOption, EstimateCostLine
 
 __all__ = [
+    "BaiGhepCongDoan",
+    "BaiGhepCongDoanMap",
+    "BaiGhepCongDoanVatTu",
     "User",
     "Department",
     "Role",

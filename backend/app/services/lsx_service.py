@@ -13,12 +13,13 @@ Nguyên tắc:
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from math import ceil
+from math import ceil, floor
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.bai_ghep import BaiGhep, BaiGhepThanhVien
+from ..models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
 from ..models.bu_hao import BuHao
 from ..models.cong_doan import CAP_DON_VI_HOP_LE, CongDoan
 from ..models.customer import Customer
@@ -58,7 +59,7 @@ from ..models.vat_lieu_kho import VatTuInAn
 from ..services.bu_hao_engine import hao_buoc
 from ..services.piece_work_service import dau_viec_khop, khoan_snapshot
 from ..services.quy_doi_service import don_vi_map, tien_khoan
-from ..services.thanh_phan_engine import chua_theo_chieu, compute_phieu
+from ..services.thanh_phan_engine import cau_to_sang_cai, chua_theo_chieu, compute_phieu
 from ..services.tinh_gia_service import _bu_hao_to_dict, _resolve_thanh_phan
 
 # Công đoạn sau xén → đếm bằng CON (thành phẩm); còn lại đếm bằng TỜ. Heuristic theo tên để điền
@@ -960,7 +961,13 @@ class LsxService:
         if ghep is not None and (xa_bai := self._manh_xa_theo_bai(qc, ghep[0])):
             xa = xa_bai
         return {
-            (DV_TO, DV_CAI): float(max(int(con or 0), 1)),
+            # Cầu `to → cai` KHÔNG phải lúc nào cũng là số con: sách gấp tay thì nhiều TỜ mới gom
+            # thành MỘT cuốn (hệ số `1/so_tay`, nhỏ hơn 1), và `con` không vào công thức giấy.
+            # Dùng chung hàm với engine tính giá — trước đây tầng này trả thẳng `con` nên lệnh sách
+            # cấp thiếu giấy đúng `con × so_tay` lần, một chiều, không ai báo.
+            (DV_TO, DV_CAI): cau_to_sang_cai(
+                trang_moi_tay=qc.get("trang_moi_tay"), so_trang=qc.get("so_trang"), con=con,
+            ),
             (DV_TO_NGUYEN, DV_TO): float(max(int(xa or 0), 1)),
         }
 
@@ -989,7 +996,9 @@ class LsxService:
         xoay = int(ng_d // in_r) * int(ng_r // in_d)
         return max(thang, xoay) or None
 
-    def tinh_nguoc_routing(self, lsx: Lsx, *, so_con: int | None = None) -> list[dict]:
+    def tinh_nguoc_routing(
+        self, lsx: Lsx, *, so_con: int | None = None, bo_hao_step_keys: set[str] | None = None
+    ) -> list[dict]:
         """Chạy NGƯỢC chuỗi công đoạn từ SL thành phẩm → SL vào/ra của từng bước.
 
         Đúng chiều tư duy xưởng và đúng mô hình BC (`Input = Output × (1 + Scrap%) + FixedScrap`,
@@ -1033,7 +1042,12 @@ class LsxService:
         for pos in range(len(idx) - 1, -1, -1):
             i = idx[pos]
             cd = buoc[i]
-            fixed, pct = hao_buoc(_quy_tac_bu_hao(cd.cong_doan_id), rows=bu_hao_rows, sl=can_ra)
+            if bo_hao_step_keys and cd.step_key in bo_hao_step_keys:
+                # Bước đã CHUYỂN TẦNG hao lên bài ghép: một lượt in chung thì chỉ canh máy một lần,
+                # để hao ở đây nữa là mỗi lệnh trong bài cộng thêm một bộ hao cho cùng lượt in đó.
+                fixed, pct = 0.0, 0.0
+            else:
+                fixed, pct = hao_buoc(_quy_tac_bu_hao(cd.cong_doan_id), rows=bu_hao_rows, sl=can_ra)
             if pos == len(idx) - 1:      # bước CUỐI nhận thêm hao của kế hoạch
                 fixed += _f(lsx.bu_hao_to)
             hs = he_so.get((cd.don_vi_vao, cd.don_vi_ra), 1.0) if cd.don_vi_vao != cd.don_vi_ra else 1.0
@@ -1051,6 +1065,88 @@ class LsxService:
             }
             can_ra = vao  # bước trước phải GIAO đủ chừng này
         return [o for o in out if o]
+
+    def tinh_xuoi_tu_to(
+        self, lsx: Lsx, *, tu_step_key: str, so_to: float, so_con: int | None = None
+    ) -> list[dict]:
+        """Chạy XUÔI từ số tờ THẬT giao cho lệnh → sản lượng thật ở từng bước sau đó.
+
+        Lượt về trả lời "cần bao nhiêu tờ để đủ hàng". Ghép bài thì câu hỏi ngược lại: bài in
+        `so_to` tờ chung cho mọi lệnh, vậy TỪNG lệnh thật sự ra bao nhiêu? Không có lượt đi thì
+        chỗ đó phải đoán bằng `so_to × con` — tức bỏ qua toàn bộ hao của các bước sau in, và số
+        dư báo lên gấp cả chục lần thực tế.
+
+        Nghịch đảo đúng công thức của lượt về (`vào = (ra/hs + tờ) / (1 − %)`):
+            `ra = (vào × (1 − %) − tờ) × hs`
+
+        `tu_step_key` là ĐIỂM TOẢ — bước chạy chung cuối cùng. Bài giao `so_to` TỜ vào bước đó, và
+        chính bước đó có thể đổi đơn vị (bế: 1 tờ → N con). Nên phải áp HỆ SỐ của bước toả trước
+        khi chạy tiếp, nếu không thì bước kế nhận số tờ mà tưởng là số con — sản lượng hụt đúng
+        `con` lần. HAO của bước toả thì KHÔNG áp: nó đã đếm một lần ở tầng bài.
+        """
+        buoc = sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
+        idx = [i for i, c in enumerate(buoc) if c.don_vi_vao and c.don_vi_ra]
+        try:
+            bat_dau = next(p for p, i in enumerate(idx) if buoc[i].step_key == tu_step_key)
+        except StopIteration:
+            return []
+
+        he_so = self._he_so_cau(lsx, so_con=so_con)
+        bu_hao_rows = [_bu_hao_to_dict(b) for b in self.db.execute(
+            select(BuHao).where(BuHao.active.is_(True))
+        ).scalars()]
+        cd_cache: dict[int, dict] = {}
+
+        def _quy_tac(cong_doan_id) -> dict:
+            if not cong_doan_id:
+                return {}
+            if cong_doan_id not in cd_cache:
+                obj = self.db.get(CongDoan, cong_doan_id)
+                cd_cache[cong_doan_id] = {} if obj is None else {
+                    "kieu_bu_hao": obj.kieu_bu_hao,
+                    "bu_hao_id": obj.bu_hao_id,
+                    "so_to_bu_hao": obj.so_to_bu_hao,
+                }
+            return cd_cache[cong_doan_id]
+
+        cd_toa = buoc[idx[bat_dau]]
+        hs_toa = (
+            he_so.get((cd_toa.don_vi_vao, cd_toa.don_vi_ra), 1.0)
+            if cd_toa.don_vi_vao != cd_toa.don_vi_ra else 1.0
+        )
+        out: list[dict] = []
+        dang_co = float(so_to) * hs_toa   # đã ở ĐƠN VỊ VÀO của bước kế tiếp
+        for pos in range(bat_dau + 1, len(idx)):
+            i = idx[pos]
+            cd = buoc[i]
+            fixed, pct = hao_buoc(_quy_tac(cd.cong_doan_id), rows=bu_hao_rows, sl=dang_co)
+            pct = min(max(pct, 0.0), 99.0)
+            hs = he_so.get((cd.don_vi_vao, cd.don_vi_ra), 1.0) if cd.don_vi_vao != cd.don_vi_ra else 1.0
+            ra = (dang_co * (1.0 - pct / 100.0) - fixed) * hs
+            ra = max(0.0, floor(ra))
+            out.append({
+                "idx": i, "step_key": cd.step_key, "thu_tu": cd.thu_tu, "ten": cd.ten,
+                "so_luong_vao": dang_co, "so_luong_ra": ra,
+                "don_vi_vao": cd.don_vi_vao, "don_vi_ra": cd.don_vi_ra,
+                "he_so_quy_doi": hs, "hao_hut": fixed, "hao_hut_pct": pct,
+            })
+            dang_co = ra
+        return out
+
+    def _bo_hao_do_ghep(self, lsx: Lsx) -> set[str] | None:
+        """Bước của lệnh đang bị bài ghép ĐÈ → hao đã đếm một lần ở tầng bài, đừng cộng lại.
+
+        Không có chỗ nối này thì `lsx_cong_doan` vẫn LƯU hao riêng của từng lệnh cho bước chạy
+        chung: bài ghép hiển thị một bộ hao, mà DB giữ hai bộ — hai nguồn sự thật lệch nhau ngay
+        ở con số quan trọng nhất (số giấy phải mua).
+        """
+        if not lsx.id:
+            return None
+        keys = set(self.db.execute(
+            select(BaiGhepCongDoanMap.lsx_step_key)
+            .where(BaiGhepCongDoanMap.lsx_id == lsx.id)
+        ).scalars())
+        return keys or None
 
     def _ap_chuoi_nguoc(self, lsx: Lsx) -> None:
         """GHI kết quả chuỗi ngược vào từng bước + hai mốc số tờ của lệnh. KHÔNG commit.
@@ -1073,7 +1169,9 @@ class LsxService:
                 # lặng ở đây nghĩa là hao của nó biến mất khỏi số giấy phải mua.
                 cd.don_vi_vao = cd.don_vi_ra = truoc_ra or DV_TO
             truoc_ra = cd.don_vi_ra or truoc_ra
-        rows = {r["idx"]: r for r in self.tinh_nguoc_routing(lsx)}
+        rows = {r["idx"]: r for r in self.tinh_nguoc_routing(
+            lsx, bo_hao_step_keys=self._bo_hao_do_ghep(lsx),
+        )}
         for i, cd in enumerate(buoc):
             r = rows.get(i)
             if r is None:            # bước ngoài dòng giấy (chế bản) — giữ nguyên số kẽm
@@ -1252,13 +1350,31 @@ class LsxService:
         if ghep is None:
             return None
         bg, tv = ghep
+        # Bước nào của lệnh đang bị bài ĐÈ + số của cả lượt chung. Màn lệnh phải nói được CẢ HAI
+        # số ("bài cấp 1.480 tờ · phần lệnh này 987 tờ"), không thì người sửa máy in ở đây mà
+        # không biết máy thật nằm ở bài.
+        de_len = {
+            m.lsx_step_key: {
+                "gop_step_key": c.step_key, "ten": c.ten,
+                "to_ten": self._dept_names({c.department_id}).get(c.department_id),
+                "may_ten": self._may_names({c.may_id}).get(c.may_id),
+                "so_luong_vao": _f(c.so_luong_vao), "so_luong_ra": _f(c.so_luong_ra),
+                "hao_hut": _f(c.hao_hut),
+            }
+            for c, m in self.db.execute(
+                select(BaiGhepCongDoan, BaiGhepCongDoanMap)
+                .join(BaiGhepCongDoanMap,
+                      BaiGhepCongDoanMap.bai_ghep_cong_doan_id == BaiGhepCongDoan.id)
+                .where(BaiGhepCongDoanMap.lsx_id == lsx.id)
+            ).all()
+        }
         return {
             "id": bg.id, "ma": bg.ma, "trang_thai": bg.trang_thai,
             "may_id": bg.may_id, "may_ten": self._may_names({bg.may_id}).get(bg.may_id),
             "giay_id": bg.giay_id,
             "kho_in_dai": bg.kho_in_dai, "kho_in_rong": bg.kho_in_rong,
             "so_con_tren_to": tv.so_con_tren_to,
-            "buoc_in_step_key": tv.buoc_in_step_key,
+            "buoc_bi_de": de_len,
         }
 
     def _cong_doan_dict(self, cd, dept_names: dict, may_names: dict,
@@ -1618,16 +1734,22 @@ class LsxService:
                     )
                     row.so_nhan_cong = row.so_nhan_cong_tieu_chuan
             rows.append(row)
-        # Bước in đang neo bởi bài ghép mà biến mất khỏi payload → bài mất chỗ bám. Chặn ở đây
-        # thay vì để bài ghép âm thầm trỏ vào một `step_key` không còn tồn tại.
-        ghep = self.db.execute(
-            select(BaiGhep.ma, BaiGhepThanhVien.buoc_in_step_key)
-            .join(BaiGhepThanhVien, BaiGhepThanhVien.bai_ghep_id == BaiGhep.id)
-            .where(BaiGhepThanhVien.lsx_id == lsx.id)
-        ).first()
-        if ghep and ghep[1] and ghep[1] not in {r.step_key for r in rows}:
+        # Bước đang bị một bài ghép ĐÈ mà biến mất khỏi payload → bài mất chỗ bám. Chặn ở đây
+        # thay vì để lớp đè âm thầm trỏ vào một `step_key` không còn tồn tại. Neo nay là
+        # `bai_ghep_cong_doan_map` (mọi bước đã gộp), không riêng bước in.
+        con_lai = {r.step_key for r in rows}
+        mat = self.db.execute(
+            select(BaiGhep.ma, BaiGhepCongDoanMap.lsx_step_key, BaiGhepCongDoan.ten)
+            .join(BaiGhepCongDoan, BaiGhepCongDoan.bai_ghep_id == BaiGhep.id)
+            .join(BaiGhepCongDoanMap,
+                  BaiGhepCongDoanMap.bai_ghep_cong_doan_id == BaiGhepCongDoan.id)
+            .where(BaiGhepCongDoanMap.lsx_id == lsx.id)
+        ).all()
+        hong = next((m for m in mat if m[1] not in con_lai), None)
+        if hong:
             raise LsxConflict(
-                f"Lệnh đang trong bài ghép {ghep[0]} — gỡ khỏi bài trước khi bỏ bước in"
+                f'Bước "{hong[2]}" đang chạy chung trong bài ghép {hong[0]} — tách bước khỏi bài '
+                f"trước khi bỏ nó khỏi routing"
             )
         removed_ids = {r.id for r in lsx.cong_doans if r not in rows and r.id is not None}
         external = [e for e in self.repo.phu_thuoc_toi_buoc(removed_ids)

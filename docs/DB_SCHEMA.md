@@ -3594,7 +3594,7 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 
 ### `bai_ghep`
 
-**Purpose:** Header một bài ghép (gang form) — gom công đoạn IN của nhiều LSX chạy chung 1 tờ, 1 lần lên máy. 1 dòng = 1 bài ghép. Chỉ quản phần chạy chung (giấy + khổ tờ in chung + máy + hao hụt); mỗi LSX vẫn độc lập.
+**Purpose:** Header một bài ghép (gang form) — gom các công đoạn chạy chung của nhiều LSX trên 1 tờ, 1 lần lên máy. 1 dòng = 1 bài ghép. Chỉ quản phần chạy chung (giấy + khổ tờ in chung + máy + hao hụt); mỗi LSX vẫn độc lập. Chung không chỉ có mỗi bước in — các bước chung do NGƯỜI khai, xem `bai_ghep_cong_doan`.
 
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 | --- | --- | --- | --- | --- | --- |
@@ -3636,7 +3636,7 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 | `bai_ghep_id` | `Integer` | FK→`bai_ghep.id` (CASCADE), IX | no | — | Bài ghép chứa thành viên. |
 | `lsx_id` | `Integer` | FK→`lsx.id` (RESTRICT), IX | no | — | LSX thành viên — RESTRICT chặn xoá LSX đang ghép ở tầng DB. |
 | `so_con_tren_to` | `Integer` | — | no | `1` | Số con/tờ của LSX trong bài (ups). INPUT người sửa, mặc định `lsx.so_con`. |
-| `buoc_in_step_key` | `String(40)` | — | yes | — | Bước in nào của lệnh chạy chung tờ. Neo bằng `step_key` (bền qua `replace_routing`), không bằng id bước. Máy suy sẵn; lệnh ≥2 lượt in thì bắt chọn. |
+| `buoc_in_step_key` | `String(40)` | — | yes | — | **DEPRECATED** → thay bằng `bai_ghep_cong_doan` + `bai_ghep_cong_doan_map`. Giả định "bước in là điểm gộp DUY NHẤT" — sai thực tế (còn CTP/cán/bế chung) và không diễn tả nổi nhiều bước gộp. Giữ cột để không vỡ dữ liệu cũ; code mới NGỪNG ĐỌC. Gỡ ở đợt dọn riêng. |
 
 **Keys & indexes**
 
@@ -3650,6 +3650,120 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 
 ---
 
+### `bai_ghep_cong_doan`
+
+**Purpose:** 1 công đoạn chạy CHUNG của bài ghép — lớp **GHI ĐÈ** lên bước tương ứng của từng LSX thành viên. Ghép bài không chỉ chung mỗi bước in: cùng tờ ghép thì bộ kẽm là một (CTP chung), cán màng cán cả tờ, bế chung nếu cùng dao. NGƯỜI khai (chọn các bước **cùng công đoạn** ở nhiều lệnh rồi gộp), máy không tự đoán. Mirror các trường *kế hoạch* của `lsx_cong_doan`; **CỐ Ý bỏ 6 cột thực-tế-giao-nhận** (`nguoi_giao_id`, `giao_luc`, `sl_giao_thuc`, `nguoi_nhan_id`, `nhan_luc`, `sl_nhan_thuc`) vì ghi nhận hàng đi/về là việc của pha thực thi. Bảng mới → `create_all` tự tạo (không migration).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto | Surrogate PK. |
+| `step_key` | `String(36)` | U, IX | no | `uuid4()` | Neo bền của bước chung (giống `lsx_cong_doan.step_key`) — API gộp/tách/lập-KH tham chiếu bằng key này, không bằng `id`. |
+| `bai_ghep_id` | `Integer` | FK→`bai_ghep.id` (CASCADE), IX | no | — | Bài ghép sở hữu bước chung. |
+| `thu_tu` | `Integer` | — | no | `0` | Thứ tự hiển thị trong bài. Thứ tự CHẠY suy từ cạnh phụ thuộc (dẫn xuất), không lấy từ đây. |
+| `cong_doan_id` | `Integer` | IX | yes | — | Soft → `cong_doan.id`. Điều kiện gộp = các bước **cùng** `cong_doan_id`. |
+| `ten` | `String(255)` | — | no | `""` | Tên bước (snapshot từ bước gốc). |
+| `nhom` | `String(12)` | — | yes | — | Nhóm công đoạn (snapshot) — `truoc_in` / `in` / `sau_in`… |
+| `loai_buoc` | `String(12)` | — | no | `may` | `may` / `thu_cong` / `thue_ngoai` — cùng bộ giá trị `lsx_cong_doan.loai_buoc`. |
+| `bat_buoc` | `Boolean` | — | no | `true` | Bước bắt buộc (snapshot). |
+| `department_id` | `Integer` | IX | yes | — | Soft → `departments.id`. Một lượt chạy chung = MỘT tổ. NULL = chưa lập kế hoạch (thẻ hiện chip ⚠️). |
+| `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id`. Một lượt chạy chung = MỘT máy. |
+| `so_nhan_cong` | `Integer` | — | no | `1` | Số người kế hoạch cho lượt chung. |
+| `so_nhan_cong_tieu_chuan` | `Integer` | — | no | `1` | Định biên chuẩn (snapshot danh mục) — mốc so sánh. |
+| `so_nhan_cong_toi_da` | `Integer` | — | yes | — | Trần người của công đoạn (snapshot danh mục). |
+| `khoan_json` | `JSON` | — | yes | — | Công việc khoán của bước chung — cùng hình dạng `lsx_cong_doan.khoan_json`. |
+| `so_luong_vao` | `Numeric(14,2)` | — | no | `0` | Số lượng vào, tính ở **đơn vị tờ ghép** cho cả lượt (không phải phần của một lệnh). |
+| `so_luong_ra` | `Numeric(14,2)` | — | no | `0` | Số lượng ra của cả lượt. Toả về từng lệnh theo `bai_ghep_thanh_vien.so_con_tren_to`. |
+| `don_vi_vao` | `String(12)` | — | yes | — | Đơn vị vào (`to`, `cai`…). |
+| `don_vi_ra` | `String(12)` | — | yes | — | Đơn vị ra. |
+| `he_so_quy_doi` | `Numeric(12,4)` | — | no | `1` | Hệ số vào→ra (vd 1 tờ → 4 con). |
+| `hao_hut` | `Numeric(14,2)` | — | no | `0` | Tờ hao **cố định** (canh máy) — đếm **ĐÚNG MỘT LẦN** cho cả lượt chung. Đây chính là chỗ sửa lỗi mỗi lệnh tự cộng một bộ hao cho cùng một lần lên máy. |
+| `hao_hut_pct` | `Numeric(6,2)` | — | no | `0` | % hao theo độ dài lượt. Tách đôi với `hao_hut` vì hai thứ áp khác nhau (kiểu BC). |
+| `so_luot_chay` | `Integer` | — | no | `1` | Số lượt chạy (vd in 2 mặt trở tự). |
+| `setup_phut` | `Numeric(10,2)` | — | no | `0` | Phút canh máy — một lần cho lượt chung. |
+| `nang_suat` | `Numeric(12,2)` | — | yes | — | Năng suất (theo `don_vi_nang_suat`). |
+| `don_vi_nang_suat` | `String(10)` | — | yes | — | `to_gio` / `cai_gio`… |
+| `chay_phut` | `Numeric(10,2)` | — | yes | — | Phút chạy suy từ `so_luong_vao` + năng suất; NULL = chưa đủ dữ liệu. |
+| `ve_sinh_phut` | `Numeric(10,2)` | — | no | `0` | Phút rửa mực/vệ sinh máy sau lượt. |
+| `cho_phut` | `Numeric(10,2)` | — | no | `0` | Phút chờ (khô mực, ổn định…). |
+| `di_chuyen_phut` | `Numeric(10,2)` | — | no | `0` | Phút di chuyển giữa tổ/máy. |
+| `nha_cung_cap` | `String(150)` | — | yes | — | Bước chung thuê ngoài → cả bài đi **một** phiếu, **một** NCC (bước chung nằm TRƯỚC điểm toả nên giao/nhận đều ở tầng bài). |
+| `sl_gui` | `Numeric(14,2)` | — | yes | — | Số lượng gửi đi (DỰ KIẾN). |
+| `ngay_gui_dk` | `Date` | — | yes | — | Ngày gửi dự kiến. |
+| `van_chuyen_ngay` | `Numeric(6,2)` | — | yes | — | Số ngày vận chuyển (2 chiều). |
+| `gia_cong_ngay` | `Numeric(6,2)` | — | yes | — | Số ngày gia công tại NCC. |
+| `ngay_nhan_dk` | `Date` | — | yes | — | Ngày nhận dự kiến. |
+| `hao_hut_cho_phep` | `Numeric(14,2)` | — | yes | — | Hao hụt cho phép thoả thuận với NCC. |
+| `don_gia_gia_cong` | `Numeric(18,2)` | — | yes | — | Đơn giá gia công ngoài. |
+| `yeu_cau_ky_thuat` | `Text` | — | yes | — | Yêu cầu kỹ thuật gửi NCC. |
+| `ghi_chu` | `String(500)` | — | yes | — | Ghi chú của BÀI. Ghi chú kỹ thuật của từng lệnh **KHÔNG bị đè** — service gom lại kèm mã lệnh, vì thợ chạy chung một lượt phải đọc được yêu cầu của mọi khách trên tờ đó. |
+| `created_at` | `DateTime(timezone=True)` | — | no | now | |
+| `updated_at` | `DateTime(timezone=True)` | — | no | now/onupdate | |
+
+> **Derived, KHÔNG lưu cột:** cạnh phụ thuộc của bài (đồ thị co: thay mỗi bước đã gộp bằng dòng chung của nó rồi khử trùng — khai ở hai nơi là hai nguồn sự thật) · điểm toả · dư tờ mỗi nhánh · phần giấy chia về từng lệnh (chia **theo con**).
+
+**Keys & indexes**
+
+- Primary key: `id`. Foreign keys: `bai_ghep_id` FK→`bai_ghep.id` (on delete CASCADE). Unique: `step_key`. Indexes: `step_key`, `bai_ghep_id`, `cong_doan_id`, `department_id`, `may_id`.
+
+**Relationships**
+
+- Một `bai_ghep` có nhiều `bai_ghep_cong_doan`. Mỗi dòng có nhiều `bai_ghep_cong_doan_map` (đè lên bước nào của lệnh nào) và nhiều `bai_ghep_cong_doan_vat_tu` — cả hai cascade delete.
+- **GHI ĐÈ, KHÔNG PHÁ GỐC:** bước của LSX vẫn còn nguyên trong `lsx_cong_doan` với số của nó; tách gộp là số cũ quay lại, không phải khôi phục từ đâu. Engine chỉ việc "chỗ nào bị đè thì lấy số của bài".
+
+**Tất cả cột:** `id`, `step_key`, `bai_ghep_id`, `thu_tu`, `cong_doan_id`, `ten`, `nhom`, `loai_buoc`, `bat_buoc`, `department_id`, `may_id`, `so_nhan_cong`, `so_nhan_cong_tieu_chuan`, `so_nhan_cong_toi_da`, `khoan_json`, `so_luong_vao`, `so_luong_ra`, `don_vi_vao`, `don_vi_ra`, `he_so_quy_doi`, `hao_hut`, `hao_hut_pct`, `so_luot_chay`, `setup_phut`, `nang_suat`, `don_vi_nang_suat`, `chay_phut`, `ve_sinh_phut`, `cho_phut`, `di_chuyen_phut`, `nha_cung_cap`, `sl_gui`, `ngay_gui_dk`, `van_chuyen_ngay`, `gia_cong_ngay`, `ngay_nhan_dk`, `hao_hut_cho_phep`, `don_gia_gia_cong`, `yeu_cau_ky_thuat`, `ghi_chu`, `created_at`, `updated_at`.
+
+---
+
+### `bai_ghep_cong_doan_map`
+
+**Purpose:** Dòng chung này ĐÈ lên bước nào của lệnh nào. 1 dòng = 1 bước LSX bị một bước chung phủ. Neo bằng `lsx_step_key` chứ KHÔNG bằng `lsx_cong_doan.id`: sửa routing của lệnh là replace-all → `id` tái sinh, neo theo id sẽ mất dấu (cùng bài học đã khiến `bai_ghep_thanh_vien` neo vào `lsx_id`).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto | Surrogate PK. |
+| `bai_ghep_cong_doan_id` | `Integer` | FK→`bai_ghep_cong_doan.id` (CASCADE), IX | no | — | Bước chung đang đè. |
+| `lsx_id` | `Integer` | IX | no | — | Soft → `lsx.id` — lệnh có bước bị đè (soft vì đã có FK THẬT ở `bai_ghep_thanh_vien.lsx_id`). |
+| `lsx_step_key` | `String(36)` | U, IX | no | — | Soft → `lsx_cong_doan.step_key` — bước bị đè. UNIQUE toàn bảng: một bước của lệnh chỉ được đè bởi **ĐÚNG MỘT** dòng chung. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Foreign keys: `bai_ghep_cong_doan_id` FK→`bai_ghep_cong_doan.id` (on delete CASCADE). Unique: `lsx_step_key` = `uq_bgcd_map_lsx_step`. Indexes: `bai_ghep_cong_doan_id`, `lsx_id`, `lsx_step_key`.
+
+**Relationships**
+
+- Nhiều `bai_ghep_cong_doan_map` thuộc một `bai_ghep_cong_doan`. Tách gộp = xoá dòng chung → map biến theo (CASCADE) → bước LSX hết bị đè, số riêng của nó hiện lại.
+
+**Tất cả cột:** `id`, `bai_ghep_cong_doan_id`, `lsx_id`, `lsx_step_key`.
+
+---
+
+### `bai_ghep_cong_doan_vat_tu`
+
+**Purpose:** Vật tư của bước chung — mực, kẽm, màng… dùng cho **cả lượt**, không của riêng lệnh nào. Mirror ĐÚNG hình dạng `lsx_cong_doan_vat_tu` (kể cả kiểu snapshot) để drawer dùng lại không phải rẽ nhánh.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto | Surrogate PK. |
+| `bai_ghep_cong_doan_id` | `Integer` | FK→`bai_ghep_cong_doan.id` (CASCADE), IX | no | — | Bước chung tiêu thụ vật tư. |
+| `vat_tu_id` | `Integer` | IX | no | — | Soft → `vat_tu_in_an.id`. |
+| `vat_tu_ma_snapshot` | `String(30)` | — | no | — | Mã vật tư chốt lúc lập kế hoạch (đổi danh mục không làm đổi kế hoạch cũ). |
+| `vat_tu_ten_snapshot` | `String(150)` | — | no | — | Tên vật tư chốt lúc lập kế hoạch. |
+| `don_vi_snapshot` | `String(16)` | — | no | — | Đơn vị chốt lúc lập kế hoạch. |
+| `so_luong` | `Numeric(14,3)` | — | no | — | Định mức cho cả lượt chung. |
+| `thu_tu` | `Integer` | — | no | `0` | Thứ tự hiển thị. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Foreign keys: `bai_ghep_cong_doan_id` FK→`bai_ghep_cong_doan.id` (on delete CASCADE). Indexes: `bai_ghep_cong_doan_id`, `vat_tu_id`.
+
+**Relationships**
+
+- Nhiều `bai_ghep_cong_doan_vat_tu` thuộc một `bai_ghep_cong_doan` (cascade delete, `order_by` `thu_tu`). FK danh mục `vat_tu_id` là MỀM — snapshot mã/tên/đơn vị chịu trách nhiệm hiển thị.
+
+**Tất cả cột:** `id`, `bai_ghep_cong_doan_id`, `vat_tu_id`, `vat_tu_ma_snapshot`, `vat_tu_ten_snapshot`, `don_vi_snapshot`, `so_luong`, `thu_tu`.
+
+---
+
 ### `xep_lich_cong_doan`
 
 **Purpose:** 1 dòng kế hoạch xếp lịch cho 1 công đoạn (operation của lệnh) HOẶC 1 lần in chung của bài ghép. Chỉ lưu QUYẾT ĐỊNH của người (máy/tổ/NCC · ca · giờ · trạng thái · khóa); số dẫn xuất tính lúc đọc. Bảng mới → `create_all` tự tạo (không migration).
@@ -3660,7 +3774,8 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 | `nguon` | `String(12)` | — | no | `lsx` | `lsx` (công đoạn 1 lệnh) / `in_ghep` (in chung bài ghép). |
 | `lsx_id` | `Integer` | FK→`lsx.id` (CASCADE), IX | yes | — | Lệnh chứa dòng; NULL khi `in_ghep`. |
 | `lsx_cong_doan_id` | `Integer` | IX | yes | — | Soft → `lsx_cong_doan.id` (neo CHÍNH; id ổn định nhờ khóa routing khi đã lập KH). NULL khi `in_ghep`. |
-| `bai_ghep_id` | `Integer` | FK→`bai_ghep.id` (CASCADE), IX | yes | — | Bài ghép của dòng in chung; NULL khi `lsx`. |
+| `bai_ghep_id` | `Integer` | FK→`bai_ghep.id` (CASCADE), IX | yes | — | Bài ghép của dòng chạy chung; NULL khi `lsx`. |
+| `bai_ghep_cong_doan_id` | `Integer` | IX | yes | — | Soft → `bai_ghep_cong_doan.id` — dòng này là bước CHẠY CHUNG nào. Bài gộp nhiều công đoạn (CTP·in·cán·bế) nên MỖI bước chung là MỘT dòng; thiếu neo này thì gộp 3 bước mà chỉ đẻ 1 dòng, 2 bước kia bốc hơi khỏi board. NULL = dòng cũ trước migration `0151` (chạy nhánh thời lượng theo máy của bài). |
 | `source_thu_tu` | `Integer` | — | no | `0` | Snapshot `lsx_cong_doan.thu_tu` — sắp chuỗi + suy bước trước/sau. |
 | `loai_buoc` | `String(12)` | — | no | `may` | Snapshot loại bước (`may`/`to`/`thue_ngoai`). |
 | `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id` — máy được gán. |
@@ -3687,7 +3802,7 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 
 - Neo `lsx_cong_doan_id` là SOFT (không FK) — an toàn vì routing bị khóa khi lệnh `da_lap_ke_hoach`. Cấu trúc (`lsx_id`/`bai_ghep_id`) là FK THẬT + CASCADE (lớp chặn cuối DB); vòng đời "gỡ kế hoạch" xóa dòng TRƯỚC khi mở lại routing nên không mồ côi.
 
-**Tất cả cột:** `id`, `nguon`, `lsx_id`, `lsx_cong_doan_id`, `bai_ghep_id`, `source_thu_tu`, `loai_buoc`, `may_id`, `department_id`, `nha_cung_cap`, `work_shift_id`, `start_at`, `finish_at`, `trang_thai`, `is_locked`, `blocked_reason`, `ghi_chu`, `created_by`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `nguon`, `lsx_id`, `lsx_cong_doan_id`, `bai_ghep_id`, `bai_ghep_cong_doan_id`, `source_thu_tu`, `loai_buoc`, `may_id`, `department_id`, `nha_cung_cap`, `work_shift_id`, `start_at`, `finish_at`, `trang_thai`, `is_locked`, `blocked_reason`, `ghi_chu`, `created_by`, `created_at`, `updated_at`.
 
 ---
 

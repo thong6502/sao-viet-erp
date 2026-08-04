@@ -27,6 +27,8 @@ from ..schemas.bai_ghep import (
     BaiGhepListItem,
     BaiGhepListOut,
     BaiGhepUpdateIn,
+    BuocChungUpdateIn,
+    GopBuocIn,
     HangChoGhepItem,
     HangChoGhepOut,
     SoDoOut,
@@ -34,6 +36,8 @@ from ..schemas.bai_ghep import (
     TaoBaiGhepIn,
     ThemThanhVienIn,
     TrangThaiIn,
+    UngVienGopIn,
+    UngVienGopOut,
 )
 from ..services.actor_display import actor_labels
 from ..services.bai_ghep_service import (
@@ -41,6 +45,7 @@ from ..services.bai_ghep_service import (
     BaiGhepNotFound,
     BaiGhepService,
     BaiGhepValidationError,
+    BaiGhepVongPhuThuoc,
 )
 from ..services.sequence_service import SequenceService
 
@@ -60,6 +65,14 @@ def _svc(db: Session) -> BaiGhepService:
 def _map(exc: Exception) -> HTTPException:
     if isinstance(exc, BaiGhepNotFound):
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    # Vòng phụ thuộc: trả CẢ chu trình lẫn nhân chứng, không chỉ câu chữ — canvas cần đúng cặp
+    # bước mâu thuẫn để tô, chứ hiện mỗi dòng chữ thì người dùng phải tự dò.
+    if isinstance(exc, BaiGhepVongPhuThuoc):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": str(exc), "loai": "vong_phu_thuoc",
+                    "nut": exc.nut, "tu_tro": exc.tu_tro, "nhan_chung": exc.nhan_chung},
+        )
     if isinstance(exc, BaiGhepConflict):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     if isinstance(exc, BaiGhepValidationError):
@@ -184,13 +197,83 @@ def sua_thanh_vien(
     try:
         bg = svc.sua_thanh_vien(
             bai_ghep_id=bai_ghep_id, thanh_vien_id=thanh_vien_id,
-            so_con_tren_to=payload.so_con_tren_to,
-            buoc_in_step_key=payload.buoc_in_step_key, actor=user,
+            so_con_tren_to=payload.so_con_tren_to, actor=user,
         )
     except Exception as exc:
         raise _map(exc)
     hub.broadcast({"type": "bai_ghep_changed"})
     return _detail(svc, bg)
+
+
+# --- Gộp / tách bước chạy chung ----------------------------------------------
+# Cửa ghi DUY NHẤT của lớp đè. Điều kiện gộp chỉ là CÙNG CÔNG ĐOẠN — quy cách thì người dùng có
+# nghiệp vụ đó, máy không phán hộ.
+@router.post("/{bai_ghep_id}/gop", response_model=BaiGhepDetailOut)
+def gop_buoc(
+    bai_ghep_id: int,
+    payload: GopBuocIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> BaiGhepDetailOut:
+    svc = _svc(db)
+    try:
+        bg = svc.gop(bai_ghep_id=bai_ghep_id, step_keys=payload.step_keys, actor=user)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "bai_ghep_changed"})
+    return _detail(svc, bg)
+
+
+@router.delete("/{bai_ghep_id}/gop/{gang_step_key}", response_model=BaiGhepDetailOut)
+def tach_buoc(
+    bai_ghep_id: int,
+    gang_step_key: str,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> BaiGhepDetailOut:
+    svc = _svc(db)
+    try:
+        bg = svc.tach(bai_ghep_id=bai_ghep_id, gang_step_key=gang_step_key, actor=user)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "bai_ghep_changed"})
+    return _detail(svc, bg)
+
+
+@router.put("/{bai_ghep_id}/gop/{gang_step_key}", response_model=BaiGhepDetailOut)
+def lap_ke_hoach_buoc_chung(
+    bai_ghep_id: int,
+    gang_step_key: str,
+    payload: BuocChungUpdateIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> BaiGhepDetailOut:
+    svc = _svc(db)
+    try:
+        bg = svc.lap_ke_hoach_buoc_chung(
+            bai_ghep_id=bai_ghep_id, gang_step_key=gang_step_key,
+            patch=payload.model_dump(exclude_unset=True), actor=user,
+        )
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "bai_ghep_changed"})
+    return _detail(svc, bg)
+
+
+@router.post("/{bai_ghep_id}/ung-vien-gop", response_model=UngVienGopOut)
+def ung_vien_gop(
+    bai_ghep_id: int,
+    payload: UngVienGopIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> UngVienGopOut:
+    """Đang chọn các bước này thì gộp thêm được bước nào — canvas hỏi TRƯỚC khi cho bấm Gộp."""
+    svc = _svc(db)
+    try:
+        bg = svc._get(bai_ghep_id)
+        return UngVienGopOut(ung_vien=svc.ung_vien_gop(bg, payload.step_keys))
+    except Exception as exc:
+        raise _map(exc)
 
 
 @router.delete("/{bai_ghep_id}/thanh-vien/{thanh_vien_id}", response_model=BaiGhepDetailOut)

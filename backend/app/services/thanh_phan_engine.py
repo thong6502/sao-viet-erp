@@ -33,6 +33,45 @@ from ..models.lsx import DV_CAI, DV_TO, DV_TO_NGUYEN
 from .bu_hao_engine import chuoi_nguoc_dv
 
 
+def cau_to_sang_cai(*, trang_moi_tay, so_trang, con) -> float:
+    """Hệ số cầu `tờ in → cái` của MỘT sản phẩm. NGUỒN SỰ THẬT DUY NHẤT cho cả tính giá, lệnh sản
+    xuất và bài ghép — ba tầng tự suy riêng thì ba số khác nhau cho cùng một cuốn sách.
+
+    HAI KIỂU LÀM khác hẳn nhau, `trang_moi_tay` là thứ phân biệt (không cần thêm cờ nào):
+
+    - **GẤP TAY** (sách, trang mỗi tay > 1): tờ in gấp NGUYÊN VẸN thành một tay → 1 tờ = 1 tay,
+      một cuốn cần `so_tay` tờ. Hệ số **`1/so_tay`**, NHỎ HƠN 1. Tờ không bị cắt rời nên `con`
+      KHÔNG vào công thức — nó chỉ để vẽ sơ đồ bình bài và kiểm khổ có vừa tờ.
+    - **CẮT RỜI** (tờ rơi, danh thiếp, hộp): một tờ cắt ra `con` cái.
+
+    Lấy `con` cho cả hai kiểu là sai hẳn với sách: 10 tờ mới ra 1 cuốn mà tính thành 1 tờ ra N
+    cuốn thì số giấy hụt đúng `con × so_tay` lần, và hụt một chiều (không bao giờ thừa).
+
+    `so_tay` TÍNH LẠI từ `so_trang / trang_moi_tay`; đừng nhận `so_to_per_sp` đã lưu — đó là số
+    engine GHI RA, snapshot của nó thiu ngay khi ai sửa số trang mà không chạy lại.
+    """
+    tmt = max(int(_f(trang_moi_tay) or 1), 1)
+    if tmt > 1:
+        return 1.0 / so_tay_moi_cuon(trang_moi_tay=trang_moi_tay, so_trang=so_trang)
+    return float(max(int(_f(con) or 0), 1))
+
+
+def so_tay_moi_cuon(*, trang_moi_tay, so_trang) -> int:
+    """Số TAY (= số tờ in) của một cuốn. `ceil(số trang / trang mỗi tay)`, tối thiểu 1."""
+    tmt = max(int(_f(trang_moi_tay) or 1), 1)
+    return max(ceil(max(_f(so_trang), 1.0) / tmt), 1)
+
+
+def la_gap_tay(quy_cach) -> bool:
+    """Sản phẩm GẤP TAY (sách) hay CẮT RỜI?
+
+    Dùng ĐÚNG tiêu chí `cau_to_sang_cai` dùng để chọn nhánh `1/so_tay` — hai chỗ hỏi cùng một câu
+    thì không thể trả lời lệch nhau. Ai cần biết "lệnh này có phải sách không" thì gọi hàm này,
+    đừng tự gõ lại `trang_moi_tay > 1` ở chỗ khác.
+    """
+    return max(int(_f((quy_cach or {}).get("trang_moi_tay")) or 1), 1) > 1
+
+
 def _f(v, d: float = 0.0) -> float:
     if v is None:
         return d
@@ -381,7 +420,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     #  · CẮT RỜI (tờ rơi, danh thiếp, hộp): một tờ cắt ra `con` cái.
     # `cai_moi_to` dùng lại làm HỆ SỐ quy đổi tờ↔cái cho chuỗi bù hao ngược ở dưới — một nguồn duy
     # nhất, khỏi hai chỗ tính lệch nhau.
-    cai_moi_to = (1.0 / so_tay) if trang_moi_tay > 1 else float(con)
+    cai_moi_to = cau_to_sang_cai(trang_moi_tay=trang_moi_tay, so_trang=so_trang, con=con)
     to_net = ceil(sl / cai_moi_to) if sl > 0 and cai_moi_to > 0 else 0
 
     # --- Bù hao NGƯỢC theo công đoạn: đi từ CUỐI chuỗi lên, mỗi bước tra bậc theo số đi qua CHÍNH
