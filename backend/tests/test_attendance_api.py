@@ -884,3 +884,115 @@ def test_HCNS_cham_bu_ngay_MAI_bi_chan(client):
                     json={"employee_id": eid, "date": _ngay_mai(), "check_type": "in",
                           "time": "08:00", "reason": "chấm bù"}, headers=_h(token))
     assert r.status_code == 400 and "chưa tới" in r.json()["detail"], r.text
+
+
+# --- Nhật ký chấm công: tìm theo tên / mã ------------------------------------
+#
+# Tìm ở SERVER chứ không lọc ở FE: danh sách chỉ trả 100 lượt gần nhất của CẢ XƯỞNG, lọc sau khi
+# đã cắt thì gõ tên người không bấm trong vài giờ qua sẽ ra "không tìm thấy" dù họ vẫn đi làm.
+
+
+def _cham(client, token):
+    return client.post("/api/attendance/check",
+                       json={"latitude": 10.0, "longitude": 106.0}, headers=_h(token))
+
+
+def _nhat_ky(client, token, **params):
+    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    r = client.get(f"/api/attendance/logs{'?' + qs if qs else ''}", headers=_h(token))
+    assert r.status_code == 200, r.text
+    return r.json()["items"]
+
+
+def test_tim_nhat_ky_theo_ten_va_theo_ma(client):
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    dept = _dept_id("Hành chính nhân sự")
+    ua = _make_worker("nk-an", dept)
+    _link_employee(client, token, full_name="Nguyễn Văn An", dept_id=dept, user_id=ua)
+    ub = _make_worker("nk-binh", dept)
+    _link_employee(client, token, full_name="Trần Thị Bình", dept_id=dept, user_id=ub)
+    ta, tb = create_access_token(str(ua)), create_access_token(str(ub))
+    assert _cham(client, ta).json()["success"] and _cham(client, tb).json()["success"]
+
+    assert len(_nhat_ky(client, token)) == 2                      # không lọc → cả hai
+    chi_an = _nhat_ky(client, token, q="An")
+    assert chi_an and all(x["employee_name"] == "Nguyễn Văn An" for x in chi_an)
+    # Không phân biệt hoa/thường.
+    assert len(_nhat_ky(client, token, q="nguyễn")) == len(chi_an)
+    # Theo MÃ nhân viên.
+    ma = client.get("/api/employees/me", headers=_h(ta)).json()["employee"]["code"]
+    assert ma and _nhat_ky(client, token, q=ma)
+
+
+def test_tim_khong_khop_ai_thi_RONG_chu_khong_tra_het(client):
+    """Không khớp mà trả hết là kiểu 'tìm kiếm' tệ nhất — người dùng tưởng đã tìm ra."""
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    _link_admin_employee(client, token)
+    assert _cham(client, token).json()["success"]
+    assert _nhat_ky(client, token) != []
+    assert _nhat_ky(client, token, q="khongcoainaytencainay") == []
+
+
+def test_TIM_KIEM_khong_ro_sang_to_khac(client):
+    """⭐ Tìm kiếm KHÔNG được là đường vòng để nhìn trộm. Người chỉ thấy tổ mình gõ tên người tổ
+    khác phải ra RỖNG — `q` thu hẹp bên TRONG lớp scope, không thay thế nó."""
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    dept_a, dept_b = _dept_id("Hành chính nhân sự"), _dept_id("Kinh doanh")
+    ub = _make_worker("nk-to-b", dept_b)
+    _link_employee(client, token, full_name="Người Tổ B", dept_id=dept_b, user_id=ub)
+    assert _cham(client, create_access_token(str(ub))).json()["success"]
+
+    hr_a = _dept_hr_token("Hành chính nhân sự")     # scope = phòng mình
+    assert _nhat_ky(client, hr_a, q="Người Tổ B") == [], "tim kiem lam ro nguoi to khac"
+    # Admin (scope all) thì vẫn thấy — chứng tỏ dữ liệu CÓ, chỉ bị scope chặn đúng chỗ.
+    assert _nhat_ky(client, token, q="Người Tổ B") != []
+
+
+def test_loc_nhat_ky_theo_khoang_ngay(client):
+    """⭐ Xem lại NGÀY TRƯỚC — nhu cầu chủ nêu 03/08/2026.
+
+    Biên `den_ngay` phải lấy TRỌN ngày đó (nửa mở tới 00:00 hôm sau): chọn "đến 28/7" mà cắt ở
+    00:00 ngày 28 là mất sạch lượt bấm trong chính ngày 28 — lỗi lệch biên kinh điển."""
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from app.db import SessionLocal as _S
+    from app.models.attendance import AttendanceLog
+
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    eid = _link_admin_employee(client, token)
+
+    vn = _tz(_td(hours=7))
+    hom_qua = (_dt.now(vn) - _td(days=1)).date()
+    truoc_nua = (_dt.now(vn) - _td(days=5)).date()
+    db = _S()
+    try:
+        for d, gio in ((hom_qua, 8), (hom_qua, 17), (truoc_nua, 8)):
+            db.add(AttendanceLog(
+                employee_id=eid, check_type="in" if gio < 12 else "out",
+                checked_at=_dt.combine(d, _dt.min.time(), tzinfo=vn).replace(hour=gio)
+                .astimezone(_tz.utc)))
+        db.commit()
+    finally:
+        db.close()
+
+    # Đúng MỘT ngày: tu = den = hôm qua ⇒ phải ra ĐỦ 2 lượt của ngày đó (8h và 17h).
+    mot_ngay = _nhat_ky(client, token, tu_ngay=hom_qua.isoformat(), den_ngay=hom_qua.isoformat())
+    assert len(mot_ngay) == 2, f"bien 'den_ngay' cat mat luot trong ngay: {mot_ngay}"
+
+    # Khoảng rộng gom cả hai ngày.
+    ca_hai = _nhat_ky(client, token, tu_ngay=truoc_nua.isoformat(), den_ngay=hom_qua.isoformat())
+    assert len(ca_hai) == 3
+
+    # Ngoài khoảng ⇒ rỗng.
+    assert _nhat_ky(client, token, tu_ngay=hom_qua.isoformat(),
+                    den_ngay=hom_qua.isoformat(), q="khongkhopai") == []
+
+
+def test_loc_ngay_thi_NOI_TRAN_dong(client):
+    """Có lọc ngày thì trần phải nới: một ngày của xưởng đông người vượt xa 100 lượt, giữ trần cũ
+    là lọc xong vẫn mất nửa ngày TRONG IM LẶNG."""
+    from app.services.attendance_service import AttendanceService
+    assert AttendanceService.LOG_LIMIT_CO_LOC_NGAY > 100

@@ -470,6 +470,23 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_OWN),
             "kho": {**_read(SCOPE_OWN), "can_request": True},
+            "thu_mua": {
+                **_rcu(SCOPE_ALL),
+                "can_cancel": True,
+                "can_approve": False,
+            },
+        },
+    ),
+    (
+        "Mua hàng",
+        "Trưởng bộ phận mua hàng",
+        {
+            "dashboard": _read(SCOPE_ALL),
+            "kho": {**_read(SCOPE_DEPARTMENT), "can_request": True},
+            "thu_mua": {
+                **_full(SCOPE_ALL),
+                "can_approve": True,
+            },
         },
     ),
 ]
@@ -2202,6 +2219,10 @@ def seed_all(db: Session) -> None:
         # khách + sale + danh mục giấy/công đoạn + tổ SX + tài khoản kế hoạch ở trên.
         from .seed_luong_ban_sx import seed_luong_ban_sx
         seed_luong_ban_sx(db)
+    # Danh mục Nhóm máy — vận hành thật, KHÔNG gated demo (thiếu nó thì ô "Nhóm máy" trống trơn,
+    # không khai được máy nào). Chạy SAU khối demo để gom luôn nhóm của đám máy vừa seed.
+    from .seed_rebuild import seed_nhom_may
+    seed_nhom_may(db)
     backfill_user_codes(db)
     # Chạy NGOÀI khối demo: luật "mọi tài khoản phải có hồ sơ" áp cho mọi DB (dev/live),
     # và phải chạy SAU các seed tài khoản demo ở trên để dọn luôn đám vừa tạo.

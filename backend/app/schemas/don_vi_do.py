@@ -15,6 +15,9 @@ class DonViDoIn(BaseModel):
     hieu_luc_tu: date | None = None
     ghi_chu: str | None = Field(default=None, max_length=500)
     active: bool = True
+    # Bày trong ô "Đơn vị tốc độ" của màn Máy hay không. Mặc định KHÔNG: bảng này dùng chung cho
+    # kho/khoán/mua hàng, đơn vị mới thêm chưa chắc là tốc độ máy.
+    dung_lam_toc_do: bool = False
 
 
 class DonViDoRow(BaseModel):
@@ -27,6 +30,7 @@ class DonViDoRow(BaseModel):
     hieu_luc_tu: date | None = None
     ghi_chu: str | None = None
     active: bool
+    dung_lam_toc_do: bool = False
     updated_at: datetime | None = None
     # Cảnh báo mềm (chưa khai quy đổi với ai) — hiện ở màn khai, không chặn lưu.
     canh_bao: list[str] = Field(default_factory=list)

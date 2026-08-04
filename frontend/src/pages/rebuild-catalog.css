@@ -2232,3 +2232,55 @@ select.rc-input:focus {
   font-weight: 600;
   text-shadow: none;
 }
+
+/* --- Đơn vị tốc độ: chọn + thêm/gỡ ngay tại chỗ -------------------------------
+   Khối quản lý chỉ bung ra khi bấm "＋ Thêm / gỡ" — mặc định ô này phải trông y như
+   một ô chọn bình thường, không được chiếm chỗ của các ô khác trong nhóm. */
+.rc-dvtd { display: flex; flex-direction: column; gap: 8px; }
+.rc-dvtd__row { display: flex; align-items: center; gap: 8px; }
+.rc-dvtd__row > .rc-input { flex: 1 1 auto; min-width: 0; }
+.rc-dvtd__manage {
+  flex: 0 0 auto;
+  border: 1px dashed var(--rule, #d8d2c0);
+  background: var(--canvas, #fbfaf6);
+  color: var(--ink, #14130f);
+  padding: 7px 12px;
+  border-radius: var(--r-3, 6px);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12.5px;
+  white-space: nowrap;
+  transition: all var(--duration-base, 140ms) var(--easing-standard, ease);
+}
+.rc-dvtd__manage:hover:not(:disabled) { border-style: solid; border-color: var(--ash-2, #a8a294); }
+.rc-dvtd__manage:disabled { opacity: 0.45; cursor: not-allowed; }
+.rc-dvtd__panel {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--rule, #d8d2c0);
+  border-radius: var(--r-3, 6px);
+  background: var(--paper, #f5f2ea);
+}
+.rc-dvtd__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rc-dvtd__chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 4px 3px 10px;
+  border: 1px solid var(--rule, #d8d2c0);
+  border-radius: 999px;
+  background: var(--canvas, #fbfaf6);
+  font-size: 12.5px;
+}
+.rc-dvtd__chip button {
+  border: none; background: transparent; cursor: pointer;
+  color: var(--ash, #8a8676); font-size: 15px; line-height: 1;
+  padding: 2px 6px; border-radius: 999px;
+}
+.rc-dvtd__chip button:hover:not(:disabled) {
+  background: var(--signal-soft, #efd5d5); color: var(--signal, #8a1f1f);
+}
+.rc-dvtd__chip button:disabled { opacity: 0.4; cursor: not-allowed; }
+.rc-dvtd__err {
+  font-size: 12.5px; color: var(--signal, #8a1f1f);
+  background: var(--signal-soft, #efd5d5);
+  padding: 6px 10px; border-radius: var(--r-3, 6px);
+}

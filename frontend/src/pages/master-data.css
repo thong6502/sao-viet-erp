@@ -177,6 +177,12 @@
   white-space: nowrap;
   text-align: right;
 }
+/* Tiêu đề cột Thao tác phải canh phải THEO NÚT. Trước đây nó luôn nằm bên trái vì
+   `.md-page__table thead th{text-align:left}` (0,2,1) THẮNG `.md-page__actions-col` (0,1,0) —
+   nên chữ "THAO TÁC" đứng một nơi, nút đứng một nẻo. Phải nâng độ ưu tiên, không phải !important. */
+.md-page__table thead th.md-page__actions-col {
+  text-align: right;
+}
 .md-page__rowbtn {
   padding: 2px 10px;
   font-size: 13px;

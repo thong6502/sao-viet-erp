@@ -19,12 +19,16 @@ from ..schemas.may_thiet_bi import (
     MayThietBiIn,
     MayThietBiListOut,
     MayThietBiRow,
+    NhomMayIn,
+    NhomMayListOut,
+    NhomMayRow,
 )
 from ..services.may_thiet_bi_service import (
     MayThietBiDuplicate,
     MayThietBiNotFound,
     MayThietBiService,
     MayThietBiValidationError,
+    NhomMayService,
     compute_bhr_preview,
 )
 
@@ -138,4 +142,58 @@ def delete_item(
         svc.delete(may_id)
     except MayThietBiNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- Danh mục NHÓM MÁY (/api/nhom-may) ---------------------------------------
+# Router RIÊNG nhưng CÙNG module quyền `dm_thiet_bi` với màn Máy — nhờ vậy ai khai được máy thì
+# thêm/xoá được nhóm ngay tại ô, không có cảnh thấy nút rồi ăn 403 (bài học từ tab "Loại nghỉ").
+
+nhom_may_router = APIRouter(prefix="/api/nhom-may", tags=["may-thiet-bi"])
+
+
+def get_nhom_may_service(db: Annotated[Session, Depends(get_db)]) -> NhomMayService:
+    return NhomMayService(db)
+
+
+NhomService = Annotated[NhomMayService, Depends(get_nhom_may_service)]
+
+
+@nhom_may_router.get("", response_model=NhomMayListOut)
+def list_nhom_may(
+    svc: NhomService,
+    # Đọc được nếu có quyền cấu hình Máy HOẶC Tính giá — cùng lý do với danh sách máy ở trên.
+    _: Annotated[User, Depends(require_any_permission((MODULE, "read"), ("tinh_gia_thanh", "read")))],
+) -> NhomMayListOut:
+    rows = svc.list()
+    return NhomMayListOut(items=[NhomMayRow.model_validate(r) for r in rows], total=len(rows))
+
+
+@nhom_may_router.post("", response_model=NhomMayRow, status_code=status.HTTP_201_CREATED)
+def create_nhom_may(
+    payload: NhomMayIn,
+    svc: NhomService,
+    _: Annotated[User, Depends(require_permission(MODULE, "create"))],
+) -> NhomMayRow:
+    try:
+        return NhomMayRow.model_validate(svc.create(payload.ten))
+    except MayThietBiDuplicate as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
+    except MayThietBiValidationError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+
+
+@nhom_may_router.delete("/{nhom_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def delete_nhom_may(
+    nhom_id: int,
+    svc: NhomService,
+    _: Annotated[User, Depends(require_permission(MODULE, "delete"))],
+) -> Response:
+    try:
+        svc.delete(nhom_id)
+    except MayThietBiNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    except MayThietBiValidationError as e:
+        # 409 chứ không 422: dữ liệu gửi lên hợp lệ, chỉ là TRẠNG THÁI không cho xoá.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)

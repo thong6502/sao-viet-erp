@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import secrets
 import string
+import unicodedata
 from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
+from zoneinfo import ZoneInfo
 
+from ..models.role import SCOPE_ALL
 from ..models.purchase import (
     DEPARTMENT_PURCHASE_SOURCE_TYPES,
     DPR_CANCELLED,
@@ -25,6 +28,12 @@ from ..models.purchase import (
     SUPPLIER_INACTIVE,
     SUPPLIER_STATUSES,
     PurchaseRequest,
+    SOURCE_CONG_NGHE,
+    SOURCE_GIA_CONG_NGOAI,
+    SOURCE_KHAC,
+    SOURCE_KHO,
+    SOURCE_KINH_DOANH,
+    SOURCE_SAN_XUAT,
     Supplier,
 )
 from ..models.accounting import (
@@ -38,10 +47,29 @@ from ..repositories.purchase_repo import (
     DepartmentPurchaseRequestRepository,
     PurchaseRequestLineInput,
     PurchaseRequestRepository,
+    SupplierItemInput,
     SupplierRepository,
 )
+from ..repositories.rbac_repo import DepartmentRepository
 from ..repositories.user_repo import UserRepository
 from .rbac_service import AuthorizationService
+
+
+# Những module được cấp quyền ĐỌC danh sách YCMH. Router dựng cổng quyền từ đúng danh sách này
+# (`DEPARTMENT_REQUEST_READERS`), nên hai nơi không thể lệch nhau.
+#
+# Dùng cả cho việc co danh sách về phòng ban: ai có scope `all` ở BẤT KỲ module nào trong đây thì
+# thấy YCMH toàn công ty. Chỉ hỏi mỗi `thu_mua` là sai — kế toán (SEAM-25) truy vết YCMH nguồn từ
+# PMH/Phiếu chi mà KHÔNG hề có quyền `thu_mua`, `scope_for` trả None nên bị co về phòng Kế toán và
+# nhìn thấy RỖNG. Người chỉ có scope phòng ban thì vẫn bị co như cũ.
+DEPARTMENT_REQUEST_READER_MODULES = (
+    "thu_mua",
+    "bao_gia",
+    "kho",
+    "san_xuat",
+    "dm_giay_vat_tu",
+    "ke_toan",
+)
 
 
 class PurchaseError(Exception):
@@ -66,6 +94,10 @@ class PurchaseForbidden(PurchaseError):
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _business_today() -> date:
+    return datetime.now(ZoneInfo("Asia/Bangkok")).date()
 
 
 def _money_round(value: Decimal) -> int:
@@ -93,6 +125,7 @@ class PurchaseService:
         department_requests: DepartmentPurchaseRequestRepository,
         requests: PurchaseRequestRepository,
         users: UserRepository,
+        departments: DepartmentRepository,
         audit: AuditLogRepository,
         authz: AuthorizationService,
     ) -> None:
@@ -100,6 +133,7 @@ class PurchaseService:
         self.department_requests = department_requests
         self.requests = requests
         self.users = users
+        self.departments = departments
         self.audit = audit
         self.authz = authz
 
@@ -151,6 +185,7 @@ class PurchaseService:
         status = values.get("status") or SUPPLIER_ACTIVE
         if status not in SUPPLIER_STATUSES:
             raise PurchaseValidationError("Trạng thái nhà cung cấp không hợp lệ.")
+        items = self._clean_supplier_items(values.get("items") or [])
         return {
             "name": name,
             "tax_code": tax_code,
@@ -162,7 +197,40 @@ class PurchaseService:
             "payment_terms": (values.get("payment_terms") or "").strip() or None,
             "status": status,
             "note": (values.get("note") or "").strip() or None,
+            "items": items,
         }
+
+    def _clean_supplier_items(self, raw_items) -> list[SupplierItemInput]:
+        items: list[SupplierItemInput] = []
+        for raw in raw_items or []:
+            get = raw.get if isinstance(raw, dict) else lambda key, default=None: getattr(raw, key, default)
+            item_name = (get("item_name") or "").strip()
+            unit = (get("unit") or "").strip()
+            raw_price = get("unit_price", 0) or 0
+            raw_vat = get("vat_percent", 0) or 0
+            note = (get("note") or "").strip() or None
+            if not item_name and not unit and not raw_price and not raw_vat and not note:
+                continue
+            if not item_name:
+                raise PurchaseValidationError("Ten mat hang nha cung cap khong duoc trong.")
+            if not unit:
+                raise PurchaseValidationError("Don vi tinh mat hang nha cung cap khong duoc trong.")
+            unit_price = int(raw_price)
+            if unit_price <= 0:
+                raise PurchaseValidationError("Don gia mat hang nha cung cap phai lon hon 0.")
+            vat_percent = float(raw_vat)
+            if vat_percent < 0 or vat_percent > 100:
+                raise PurchaseValidationError("VAT mat hang nha cung cap phai tu 0 den 100.")
+            items.append(
+                SupplierItemInput(
+                    item_name=item_name,
+                    unit=unit,
+                    unit_price=unit_price,
+                    vat_percent=vat_percent,
+                    note=note,
+                )
+            )
+        return items
 
     def create_supplier(self, *, actor, **values) -> Supplier:
         cleaned = self._clean_supplier_values(**values)
@@ -205,11 +273,15 @@ class PurchaseService:
         )
         return supplier
 
+    def list_supplier_item_catalog(self) -> list[dict]:
+        return self.suppliers.list_item_catalog()
+
     # --- department purchase requests -------------------------------------
 
     def list_department_requests(
         self,
         *,
+        actor,
         q: str | None = None,
         status: str | None = None,
         source_type: str | None = None,
@@ -217,10 +289,30 @@ class PurchaseService:
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[dict], int]:
+        filter_by_department = not self._sees_all_department_requests(actor)
         rows, total = self.department_requests.list(
-            q=q, status=status, source_type=source_type, sort=sort, page=page, size=size
+            q=q,
+            status=status,
+            source_type=source_type,
+            requesting_department_id=actor.department_id,
+            filter_by_department=filter_by_department,
+            sort=sort,
+            page=page,
+            size=size,
         )
         return [self._to_department_request_out(row) for row in rows], total
+
+    def _sees_all_department_requests(self, actor) -> bool:
+        """Có nhìn được YCMH của TOÀN công ty không. Xem `DEPARTMENT_REQUEST_READER_MODULES`."""
+        return any(
+            self.authz.scope_for(actor, module) == SCOPE_ALL
+            for module in DEPARTMENT_REQUEST_READER_MODULES
+        )
+
+    def _can_view_department_request(self, row: DepartmentPurchaseRequest, actor) -> bool:
+        if self._sees_all_department_requests(actor):
+            return True
+        return row.requesting_department_id == actor.department_id
 
     def _department_request(self, request_id: int) -> DepartmentPurchaseRequest:
         row = self.department_requests.get_by_id(request_id)
@@ -228,8 +320,11 @@ class PurchaseService:
             raise PurchaseNotFound("Khong tim thay phieu yeu cau mua tu phong ban.")
         return row
 
-    def get_department_request(self, request_id: int) -> dict:
-        return self._to_department_request_out(self._department_request(request_id))
+    def get_department_request(self, request_id: int, *, actor) -> dict:
+        row = self._department_request(request_id)
+        if not self._can_view_department_request(row, actor):
+            raise PurchaseNotFound("Khong tim thay phieu yeu cau mua tu phong ban.")
+        return self._to_department_request_out(row)
 
     def _clean_department_request_header(
         self,
@@ -246,7 +341,29 @@ class PurchaseService:
             raise PurchaseValidationError("Muc dich yeu cau mua khong duoc trong.")
         if needed_date is None:
             raise PurchaseValidationError("Ngay can hang la thong tin bat buoc.")
+        if needed_date < _business_today():
+            raise PurchaseValidationError("Ngay can hang khong duoc nho hon hom nay.")
         return cleaned_source_type, cleaned_purpose, needed_date
+
+    def _source_type_for_actor(self, actor) -> str:
+        if actor.department_id is None:
+            return SOURCE_KHAC
+        department = self.departments.get_by_id(actor.department_id)
+        if department is None:
+            return SOURCE_KHAC
+        normalized = unicodedata.normalize("NFD", department.name or "")
+        name = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn").lower()
+        if "kho" in name:
+            return SOURCE_KHO
+        if "san xuat" in name:
+            return SOURCE_SAN_XUAT
+        if "cong nghe" in name:
+            return SOURCE_CONG_NGHE
+        if "gia cong" in name:
+            return SOURCE_GIA_CONG_NGOAI
+        if "kinh doanh" in name or "sale" in name:
+            return SOURCE_KINH_DOANH
+        return SOURCE_KHAC
 
     def _clean_department_lines(self, raw_lines) -> list[DepartmentPurchaseRequestLineInput]:
         if not raw_lines:
@@ -257,6 +374,8 @@ class PurchaseService:
             item_name = (get("item_name") or "").strip()
             if not item_name:
                 raise PurchaseValidationError("Ten vat tu khong duoc trong.")
+            if not self.suppliers.has_active_item(item_name):
+                raise PurchaseValidationError("Vat tu chua co trong danh muc mat hang nha cung cap.")
             unit = (get("unit") or "").strip()
             if not unit:
                 raise PurchaseValidationError("Don vi tinh khong duoc trong.")
@@ -296,6 +415,9 @@ class PurchaseService:
         lines,
         actor,
     ) -> dict:
+        if not self.can_create_department_request(actor):
+            raise PurchaseForbidden("Ban khong co quyen tao yeu cau mua hang cho bo phan.")
+        source_type = self._source_type_for_actor(actor)
         source_type, cleaned_purpose, needed_date = self._clean_department_request_header(
             source_type=source_type, purpose=purpose, needed_date=needed_date
         )
@@ -318,6 +440,50 @@ class PurchaseService:
             detail=row.code,
         )
         return self._to_department_request_out(row)
+
+    def can_create_department_request(self, actor) -> bool:
+        if self.authz.can(actor, "thu_mua", "request"):
+            return True
+        if actor.department_id is None:
+            return False
+        department = self.departments.get_by_id(actor.department_id)
+        return department is not None and department.head_user_id == actor.id
+
+    def update_department_request(
+        self,
+        request_id: int,
+        *,
+        source_type: str | None,
+        related_document_type: str | None,
+        related_document_code: str | None,
+        purpose: str | None,
+        needed_date: date | None,
+        note: str | None,
+        lines,
+        actor,
+    ) -> dict:
+        row = self._department_request(request_id)
+        if row.status != DPR_OPEN:
+            raise PurchaseConflict("Chi yeu cau chua tao phieu mua moi duoc sua.")
+        if row.requested_by_user_id != actor.id:
+            raise PurchaseForbidden("Chi nguoi tao yeu cau moi duoc sua.")
+        source_type, cleaned_purpose, needed_date = self._clean_department_request_header(
+            source_type=row.source_type, purpose=purpose, needed_date=needed_date
+        )
+        saved = self.department_requests.update(
+            row,
+            purpose=cleaned_purpose,
+            needed_date=needed_date,
+            note=(note or "").strip() or None,
+            lines=self._clean_department_lines(lines),
+        )
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="update_department_purchase_request",
+            target=f"department_purchase_request:{row.id}",
+            detail=row.code,
+        )
+        return self._to_department_request_out(saved)
 
     def cancel_department_request(self, request_id: int, *, reason: str | None, actor) -> dict:
         row = self._department_request(request_id)
@@ -386,7 +552,24 @@ class PurchaseService:
             raise PurchaseValidationError("Mục đích mua hàng không được trống.")
         if needed_date is None:
             raise PurchaseValidationError("Ngày cần hàng là thông tin bắt buộc.")
+        if needed_date < _business_today():
+            raise PurchaseValidationError("Ngay can hang khong duoc nho hon hom nay.")
         return supplier_id, cleaned_purpose, needed_date
+
+    def _clean_expected_receipt_date(
+        self,
+        *,
+        needed_date: date,
+        expected_receipt_date: date | None,
+    ) -> date | None:
+        if expected_receipt_date is None:
+            return None
+        if expected_receipt_date < _business_today():
+            raise PurchaseValidationError("Ngay du kien nhan hang khong duoc nho hon hom nay.")
+        # KHÔNG chặn "nhận sớm hơn ngày cần" (chủ 03/08/2026). Nhận hàng TRƯỚC ngày cần chính là
+        # trường hợp MONG MUỐN — bắt `nhận ≥ cần` là cấm đúng cái tốt, ép mọi kế hoạch phải về sát
+        # hạn hoặc trễ. Ràng buộc duy nhất còn lại: không nhận vào ngày đã qua.
+        return expected_receipt_date
 
     def _clean_lines(self, raw_lines) -> list[PurchaseRequestLineInput]:
         if not raw_lines:
@@ -452,6 +635,8 @@ class PurchaseService:
                 seen.add(source_id)
         if not ids:
             raise PurchaseValidationError("Phieu mua phai gan it nhat mot yeu cau mua tu phong ban.")
+        if len(ids) != 1:
+            raise PurchaseValidationError("Moi phieu mua hang chi duoc gan 1 yeu cau mua tu phong ban.")
         rows = self.department_requests.get_many(ids)
         by_id = {row.id: row for row in rows}
         missing = [str(source_id) for source_id in ids if source_id not in by_id]
@@ -487,6 +672,9 @@ class PurchaseService:
     ) -> dict:
         supplier_id, cleaned_purpose, needed_date = self._clean_request_header(
             supplier_id=supplier_id, purpose=purpose, needed_date=needed_date
+        )
+        expected_receipt_date = self._clean_expected_receipt_date(
+            needed_date=needed_date, expected_receipt_date=expected_receipt_date
         )
         self._require_supplier_active(supplier_id)
         cleaned_lines = self._clean_lines(lines)
@@ -528,6 +716,9 @@ class PurchaseService:
             raise PurchaseConflict("Chỉ phiếu nháp hoặc bị từ chối mới được sửa.")
         supplier_id, cleaned_purpose, needed_date = self._clean_request_header(
             supplier_id=supplier_id, purpose=purpose, needed_date=needed_date
+        )
+        expected_receipt_date = self._clean_expected_receipt_date(
+            needed_date=needed_date, expected_receipt_date=expected_receipt_date
         )
         self._require_supplier_active(supplier_id)
         row = self.requests.update_header_and_lines(

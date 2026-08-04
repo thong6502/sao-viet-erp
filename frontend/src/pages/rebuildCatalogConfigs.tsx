@@ -2,7 +2,8 @@
 // `showIf` (ẩn/hiện theo kiểu), `ref`/`ref-multi` (chọn theo TÊN thay vì gõ id),
 // `default` (prefill khi tạo), `jsonKey` (lưu lồng vào fields_theo_loai).
 // Enum hiển thị bằng thuật ngữ in ấn thuần Việt — dùng chung 1 bảng nhãn cho cả dropdown lẫn cột.
-import type { CatalogConfig } from "./RebuildCatalogPage";
+import type { CatalogConfig, ChuanBiKhoanRow } from "./RebuildCatalogPage";
+import { tongChuanBi } from "./RebuildCatalogPage";
 import { QuyDoiCuaDonVi } from "./QuyDoiCuaDonVi";
 
 // ── Bảng nhãn thuần Việt (in ấn) — 1 nguồn cho options + column render ──────────
@@ -77,6 +78,19 @@ const isMayIn = (val: unknown) => {
 
 // Form MỞ (phẳng): mọi ô luôn hiện, không phân loại cứng. Chủ xưởng tự đặt "Nhóm máy"
 // (chữ tự do) rồi nhập khổ kẽm / nhíp / khổ giấy / vùng in / ghi chú.
+// Nhãn đơn vị tốc độ cho BẢNG DANH SÁCH (drawer thì đọc thẳng danh mục nên hiện tên đầy đủ).
+// Mã luôn có dạng `<đơn vị đếm>_gio`; chỉ dịch vài mã nghề gặp hằng ngày, còn lại hiện nguyên
+// phần mã — thà hơi thô còn hơn bịa nhãn cho đơn vị chủ tự thêm mà mình không biết tên.
+const NHAN_DV_DEM: Record<string, string> = {
+  to: "tờ", kem: "bản kẽm", cai: "cái", con: "con", bai: "bài in", luot: "lượt",
+  m2: "m²", m: "mét", kg: "kg", ram: "ram",
+};
+function nhanDonViTocDo(ma: string): string {
+  if (!ma) return "";
+  const goc = ma.endsWith("_gio") ? ma.slice(0, -4) : ma;
+  return `${NHAN_DV_DEM[goc] ?? goc}/giờ`;
+}
+
 export const CFG_MAY: CatalogConfig = {
   title: "Thiết bị & Máy in",
   subtitle: "Nhập tự do mọi loại máy (in, cán màng/UV, bồi, bế…). Tự đặt Nhóm máy rồi điền khổ kẽm, nhíp kẽm, khổ giấy, vùng in.",
@@ -88,9 +102,12 @@ export const CFG_MAY: CatalogConfig = {
     // Hiện ngay trên list để nhìn ra máy nào CHƯA khai tốc độ — không phải bấm vào từng cái.
     // Máy chưa có số thì lệnh sản xuất bỏ trống thời gian chạy, Gantt sau này vẽ thanh rỗng.
     { key: "toc_do", label: "Tốc độ",
+      // Đơn vị giờ do người dùng tự thêm nên KHÔNG khai cứng nhãn được. Bảng danh sách không nạp
+      // danh mục đơn vị, nên lấy phần trước "_gio" của mã — luôn đúng, dù xấu hơn với đơn vị lạ.
+      // Vài mã nghề gặp hằng ngày thì dịch cho dễ đọc, còn lại hiện nguyên mã (không bịa nhãn).
       render: (r) =>
         r.toc_do
-          ? `${Number(r.toc_do).toLocaleString("vi-VN")} ${r.don_vi_toc_do === "kem_gio" ? "kẽm/giờ" : "tờ/giờ"}`
+          ? `${Number(r.toc_do).toLocaleString("vi-VN")} ${nhanDonViTocDo(String(r.don_vi_toc_do ?? ""))}`
           : "—" },
     { key: "so_nhan_cong", label: "Kíp chuẩn",
       render: (r) => `${Math.max(1, Math.ceil(Number(r.so_nhan_cong) || 1))} người` },
@@ -110,15 +127,11 @@ export const CFG_MAY: CatalogConfig = {
   },
   fields: [
     // ── Nhóm máy (chữ gợi ý + tự do) ──────────────────────────────────────────
-    { key: "loai_may", label: "Nhóm máy", type: "suggest", required: true, group: "Phân loại",
-      options: [
-        { value: "Máy in", label: "Máy in" },
-        { value: "In ngoài", label: "In ngoài" },
-        { value: "Cán màng / UV", label: "Cán màng / UV" },
-        { value: "Bồi", label: "Bồi" },
-        { value: "Bế", label: "Bế" },
-      ],
-    },
+    // Danh mục THẬT từ 03/08/2026 (bảng `nhom_may`) — trước đây là 5 tên khai cứng ở đây ∪ giá
+    // trị có thật trên máy, nên 5 tên kia không cách nào gỡ. Giá trị lưu trên máy vẫn là CHỮ.
+    { key: "loai_may", label: "Nhóm máy", type: "nhom_may", required: true, group: "Phân loại",
+      refPrefix: "/api/nhom-may",
+      hint: "Chọn từ danh mục. Bấm “＋ Thêm / xoá” để tự quản danh sách ngay tại đây." },
     // ── Khổ kẽm + nhíp kẽm ─────────────────────────────────────────────────────
     { key: "kho_kem_rong", label: "Khổ kẽm — rộng (mm)", type: "number", group: "Khổ kẽm & vùng in",
       showIf: (f) => isMayIn(f.loai_may),
@@ -150,28 +163,90 @@ export const CFG_MAY: CatalogConfig = {
     { key: "kho_max_rong", label: "Khổ giấy max — rộng (mm)", type: "number", group: "Khổ giấy" },
     { key: "kho_max_dai", label: "Khổ giấy max — dài (mm)", type: "number", group: "Khổ giấy" },
     // ── Tốc độ & thời gian → nuôi thẳng thời lượng bước ở Lệnh sản xuất ───────
-    { key: "toc_do", label: "Tốc độ chạy", type: "number", group: "Tốc độ & thời gian" },
-    { key: "don_vi_toc_do", label: "Đơn vị tốc độ", type: "select", group: "Tốc độ & thời gian",
-      default: "to_gio",
-      options: [
-        { value: "to_gio", label: "tờ/giờ — máy in, máy gia công tờ" },
-        { value: "kem_gio", label: "kẽm/giờ — máy ghi kẽm CTP" },
-      ] },
+    { key: "toc_do", label: "Tốc độ trung bình", type: "number", group: "Tốc độ & thời gian",
+      hint: "Số DUY NHẤT chảy vào tính giá / lệnh sản xuất / xếp lịch. Máy in tính theo LƯỢT qua máy — in 2 mặt thì mỗi tờ chạy 2 lượt. Bỏ trống thì lệnh sản xuất để trống thời gian chạy. Chọn đơn vị ở ô bên cạnh." },
+    // Dải năng lực — CHỈ ĐỂ KHAI (chủ 03/08/2026). Cố ý KHÔNG nối vào tính toán nào; ai đọc code
+    // này đừng "tiện tay" cho xếp lịch dùng min/max, lõi xếp lịch đơn trị từ gốc.
+    { key: "toc_do_min", label: "Tốc độ tối thiểu", type: "number", group: "Tốc độ & thời gian",
+      // hint: "Chỉ để ghi lại dải năng lực máy — KHÔNG vào tính thời gian. Để trống cũng được." 
+    },
+    { key: "toc_do_max", label: "Tốc độ tối đa", type: "number", group: "Tốc độ & thời gian",
+      // hint: "Chỉ để ghi lại dải năng lực máy — KHÔNG vào tính thời gian. Để trống cũng được."
+     },
+    { key: "don_vi_toc_do", label: "Đơn vị tốc độ", type: "don_vi_toc_do",
+      group: "Tốc độ & thời gian", refPrefix: "/api/don-vi", default: "to_gio",
+      // hint: "Danh sách này SUY RA từ danh mục “Đơn vị & quy đổi” — thêm/xoá đơn vị bên màn đó là ô này tự đổi theo. Phải khớp thứ mà công đoạn ĐẾM; lệch thì lệnh sản xuất bỏ qua tốc độ này (không quy đổi bừa) và bước sẽ trống thời gian chạy."
+     },
     { key: "so_nhan_cong", label: "Số người vận hành tiêu chuẩn", type: "number", required: true,
       default: 1, group: "Tốc độ & thời gian" },
     { key: "thoi_gian_rua_muc", label: "Thời gian rửa mực (phút)", type: "number", group: "Tốc độ & thời gian",
       showIf: (f) => isMayIn(f.loai_may),
       hint: "Vệ sinh máy sau khi in xong — cộng vào thời gian chiếm máy" },
+    // ── Thời gian chuẩn bị (canh máy) — 3 kiểu ────────────────────────────────
+    // Cột `makeready_time_default` đã tồn tại và Xếp lịch ĐANG ĐỌC; trước nay chỉ seed điền được.
+    // Ô này phơi nó ra. KHÁC "Chuẩn bị" bên màn Công đoạn (`cong_doan.setup_time`, Lệnh SX dùng) —
+    // chủ chốt 03/08/2026 để nguyên hai nơi hai việc, KHÔNG gộp, KHÔNG cộng.
+    { key: "_chuan_bi_kieu", label: "Thời gian chuẩn bị", type: "select", group: "Tốc độ & thời gian",
+      default: "trong",
+      options: [
+        { value: "trong", label: "Để trống — chưa khai" },
+        { value: "tong", label: "Điền tổng — gõ thẳng một số" },
+        { value: "khoan", label: "Theo từng khoản — máy tự cộng" },
+      ],
+      hint: "Thời gian canh máy trước khi chạy. Xếp lịch cộng số này vào thời gian chiếm máy." },
+    { key: "makeready_time_default", label: "Tổng thời gian chuẩn bị (phút)", type: "number",
+      group: "Tốc độ & thời gian",
+      showIf: (f) => f._chuan_bi_kieu === "tong",
+      hint: "Gõ thẳng tổng số phút canh máy." },
+    { key: "chuan_bi_khoan", label: "Các khoản chuẩn bị", type: "chuan_bi_khoan",
+      group: "Tốc độ & thời gian", jsonKey: "fields_theo_loai",
+      showIf: (f) => f._chuan_bi_kieu === "khoan",
+      hint: "Vd: thay giấy 15 phút · thay mực 18 phút → tổng 33 phút. Tổng TỰ CỘNG, không sửa tay được — sửa tay là hai số đá nhau, không ai biết bên nào đúng." },
     // ── Ghi chú ────────────────────────────────────────────────────────────────
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
   // Đơn vị tốc độ là Ô CHỌN 2 giá trị, không suy từ `loai_may`: nhóm máy ở đây là CHỮ TỰ DO
   // ("Máy in", "Bế", "Cán màng / UV"…) nên suy theo nó là đoán, mà đoán sai thì lệnh SX lặng lẽ
   // bỏ qua tốc độ. Chỉ bày 2 lựa chọn đang dùng thật (tờ/giờ · kẽm/giờ), không đổ hết 5 đơn vị.
-  transformSubmit: (body) => ({
-    ...body,
-    don_vi_toc_do: body.toc_do ? (body.don_vi_toc_do || "to_gio") : null,
-  }),
+  // Kiểu chuẩn bị KHÔNG có cột riêng — SUY từ dữ liệu đã lưu. Thêm cột "kiểu" là đẻ trạng thái
+  // thứ hai có thể đá nhau với chính dữ liệu (kiểu="khoản" mà danh sách rỗng thì tin ai?).
+  deriveInitial: (existing) => {
+    const box = (existing?.fields_theo_loai ?? {}) as Record<string, unknown>;
+    const khoan = box.chuan_bi_khoan;
+    const co_khoan = Array.isArray(khoan) && khoan.length > 0;
+    const co_tong = existing?.makeready_time_default != null && existing.makeready_time_default !== "";
+    return { _chuan_bi_kieu: co_khoan ? "khoan" : co_tong ? "tong" : "trong" };
+  },
+  transformSubmit: (body, form, existing) => {
+    const out: Record<string, unknown> = {
+      ...body,
+      don_vi_toc_do: body.toc_do ? (body.don_vi_toc_do || "to_gio") : null,
+    };
+    // Ô CHỈ ĐỂ UI, không có cột — gửi lên là 422.
+    delete out._chuan_bi_kieu;
+
+    // Đổi kiểu phải DỌN kiểu cũ. Form chỉ gửi field ĐANG HIỆN, mà backend gán từng phần
+    // (`if k in data`) ⇒ không dọn thì số cũ nằm lại: chuyển "tổng 30" sang "để trống" vẫn còn 30,
+    // và `deriveInitial` lần sau đọc được nó rồi lật ngược kiểu về "tổng".
+    const kieu = form._chuan_bi_kieu;
+    // ⚠️ Nền phải là JSON CŨ của bản ghi, không phải {}: ở kiểu "tổng"/"trống" thì ô các-khoản bị
+    // ẩn nên `body.fields_theo_loai` không tồn tại — dựng lại từ số 0 là XOÁ SẠCH các khoá khác
+    // của cột này (thông số riêng của máy web/digital/flexo… đều nằm trong đó).
+    const box = {
+      ...((existing?.fields_theo_loai as Record<string, unknown>) ?? {}),
+      ...((out.fields_theo_loai as Record<string, unknown>) ?? {}),
+    };
+    if (kieu === "khoan") {
+      const rows = (Array.isArray(box.chuan_bi_khoan) ? box.chuan_bi_khoan : []) as ChuanBiKhoanRow[];
+      // Tổng do MÁY cộng — đây là số Xếp lịch đọc. Nguồn chân lý vẫn là một cột duy nhất.
+      out.makeready_time_default = tongChuanBi(rows) || null;
+    } else {
+      box.chuan_bi_khoan = [];
+      if (kieu === "trong") out.makeready_time_default = null;
+    }
+    out.fields_theo_loai = box;
+    return out;
+  },
 };
 
 export const CFG_CONG_DOAN: CatalogConfig = {

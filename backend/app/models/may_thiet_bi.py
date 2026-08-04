@@ -109,8 +109,19 @@ class MayThietBi(Base):
     ngay_cap_nhat_bhr: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     # ---- §3.5 Năng lực / tốc độ ----
+    # `toc_do` = tốc độ TRUNG BÌNH (nhãn màn hình đổi 03/08/2026). Tên cột GIỮ NGUYÊN: Tính giá,
+    # Lệnh SX, Xếp lịch và Chọn-máy-hợp-khổ đều đang đọc `toc_do`, đổi tên là gãy cả bốn.
     toc_do: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
-    don_vi_toc_do: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Dải năng lực máy — CHỈ ĐỂ KHAI (chủ 03/08/2026: "khai ra vậy thôi, sau họ dùng họ tự biết
+    # lấy ra"). KHÔNG nối vào công thức nào: mọi tính thời gian vẫn chạy bằng `toc_do` trung bình.
+    # Muốn cho lịch chạy bằng KHOẢNG [sớm–muộn] thì phải viết lại lõi xếp lịch (`_cong_gio_lam`
+    # cộng MỘT con số phút), không phải chỉ đọc thêm hai cột này.
+    toc_do_min: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    toc_do_max: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    # Mã dạng `<đơn vị đếm>_gio`, SUY RA từ danh mục `don_vi_do` (chủ tự thêm/xoá đơn vị ở màn
+    # "Đơn vị & quy đổi"). `don_vi_do.ma` rộng 24 ⇒ mã ở đây có thể tới 28 ký tự: 16 là TRÀN.
+    # SQLite bỏ qua độ dài nên test vẫn xanh, Postgres thật thì lỗi lúc lưu — nới lên 32 (mg 0153).
+    don_vi_toc_do: Mapped[str | None] = mapped_column(String(32), nullable=True)
     makeready_time_default: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)  # phút
     thoi_gian_rua_muc: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)       # phút
     min_stock_gsm: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -165,3 +176,34 @@ class MayThietBi(Base):
     def active(self) -> bool:
         """`active` suy từ trang_thai — chỉ máy đang hoạt động mới cho báo giá (§3.1)."""
         return self.trang_thai == "active"
+
+
+# Tên nhóm máy MẶC ĐỊNH — nguồn DUY NHẤT cho cả migration backfill lẫn seed.
+# `schema_migrations` sống qua `drop_all` nên test không chạy lại migration; chỉ seed dựng được
+# DB test. Chép danh sách ra hai chỗ là sớm muộn hai chỗ lệch nhau.
+NHOM_MAY_MAC_DINH = ("Máy in", "In ngoài", "Cán màng / UV", "Bồi", "Bế")
+
+
+class NhomMay(Base):
+    """Danh mục NHÓM MÁY — danh sách tên được phép chọn ở ô "Nhóm máy" của màn Thiết bị.
+
+    ⚠️ **KHÔNG phải khoá ngoại.** `may_thiet_bi.loai_may` vẫn lưu CHỮ, và bảng này chỉ quản danh
+    sách tên được bày ra. Lý do: chuỗi đó đang được đọc ở Lệnh SX (`LsxBuocDrawer`,
+    `LsxDetailView`, `LsxRoutingTable`), Phiếu tính giá, và ở chính màn Máy (`isMayIn()` quyết định
+    ẩn/hiện ~8 ô, facet tab lọc theo nó). Đổi sang id là kéo theo cả 5 chỗ đó + migration dữ liệu,
+    trong khi việc cần làm chỉ là "cho thêm và cho xoá tên trong danh sách".
+
+    Hệ quả phải nhớ: xoá một nhóm KHÔNG tự sửa máy đang mang tên đó ⇒ service phải CHẶN xoá khi
+    còn máy dùng (kèm số máy), nếu không là để lại máy thuộc nhóm không còn tồn tại."""
+
+    __tablename__ = "nhom_may"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ten: Mapped[str] = mapped_column(String(60), unique=True, index=True, nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_true(), default=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )

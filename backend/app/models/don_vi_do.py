@@ -24,6 +24,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint,
+    false as sa_false,
     true as sa_true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -92,6 +93,17 @@ class DonViDo(Base):
 
     active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_true(), default=True
+    )
+    # Đơn vị này có được bày trong ô "Đơn vị tốc độ" của màn Máy không (mã sinh ra là `<ma>_gio`).
+    #
+    # Vì sao cần cờ RIÊNG chứ không bày cả danh mục: bảng này dùng CHUNG cho kho / khoán / mua
+    # hàng, đổ hết ra thì người khai máy phải chọn giữa "g/giờ", "thùng/giờ", "tấn/giờ"… (chủ soi
+    # ra 03/08/2026 — danh sách 17 dòng, quá nửa vô nghĩa với máy).
+    #
+    # Và vì sao "xoá đơn vị tốc độ" = BỎ CỜ chứ không xoá dòng: xoá `kg` cho khuất mắt là gãy quy
+    # đổi bên kho và tiền khoán. Bỏ cờ thì đơn vị vẫn sống cho các phân hệ kia dùng.
+    dung_lam_toc_do: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

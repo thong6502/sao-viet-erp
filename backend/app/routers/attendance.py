@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -422,8 +423,16 @@ def list_logs(
     authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     employee_id: int | None = Query(default=None),
+    # Tìm theo TÊN hoặc MÃ nhân viên. Lọc ở SQL (xem `AttendanceRepository.list_all`) — danh sách
+    # chỉ trả 100 lượt gần nhất nên lọc ở FE là gõ tên ai cũng dễ ra "không tìm thấy".
+    q: str | None = Query(default=None, max_length=100),
+    # Khoảng NGÀY VN (trọn hai đầu). Có lọc ngày thì service tự nới trần dòng — một ngày của xưởng
+    # đông người vượt xa 100 lượt, giữ trần cũ là lọc xong vẫn mất nửa ngày.
+    tu_ngay: date | None = Query(default=None),
+    den_ngay: date | None = Query(default=None),
 ) -> AttendanceLogsOut:
-    logs = svc.list_logs(scope=_scope_for(authz, user), actor=user, employee_id=employee_id)
+    logs = svc.list_logs(scope=_scope_for(authz, user), actor=user, employee_id=employee_id, q=q,
+                         tu_ngay=tu_ngay, den_ngay=den_ngay)
     loc_names = {l.id: l.name for l in svc.list_locations()}
     emp_names: dict[int, str] = {}
     for eid in {l.employee_id for l in logs}:

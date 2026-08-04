@@ -245,5 +245,10 @@ class AttendancePeriodLine(Base):
     # Phạt trễ/sớm tự động: danh sách SỐ PHÚT vi phạm (trễ+sớm, không phép) MỖI NGÀY, lưu JSON để đóng
     # băng qua Chốt; Lương áp bảng phạt (mỗi phần tử = 1 lần). NULL/"[]" = không vi phạm.
     late_off_days_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # {ca → [công của từng ngày làm ca đó]} — nền tính phụ cấp cơm / phụ cấp ca khai trên
+    # `work_shifts`. Đóng băng qua Chốt công như `late_off_days_json`: thiếu nó thì phụ cấp NHẢY SỐ
+    # đúng lúc HCNS bấm Chốt (draft một số, chốt xong một số). Ngưỡng "bao nhiêu công thì được
+    # hưởng" KHÔNG lưu ở đây — đó là chính sách trả tiền, nằm ở tham số Lương.
+    ca_lam_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

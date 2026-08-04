@@ -1173,3 +1173,50 @@ def test_canh_cheo_lenh_lam_vo_phep_gop_o_TANG_SERVICE(
                   step_key=_step_key(lsx_svc, a.id, nhom="print"), cho_key=None)
     bg_svc.gop(bai_ghep_id=bg.id, step_keys=keys_in, actor=admin)
     assert len(bg_svc.so_do(bg_svc._get(bg.id))["gop"]) == 1
+
+
+def test_khai_vat_tu_cho_luot_chung_va_snapshot_dung_don_vi(
+    db, orders, lsx_svc, bg_svc, admin, customer,
+):
+    """Khai vật tư cho lượt chung — nhánh này CHƯA có test nào chạy qua, và nó đang gãy thật.
+
+    `_thay_vat_tu_chung` đọc `mat.don_vi`, mà `VatTuInAn` chỉ có `don_vi_gia`: bấm Lưu ở drawer
+    bước chung với một dòng vật tư là AttributeError → 500. Bước lệnh bên `lsx_service` vẫn luôn
+    dùng đúng `don_vi_gia`, nên đây là lỗi chép lệch giữa hai chỗ làm cùng một việc.
+
+    Snapshot mã/tên/đơn vị là CÓ Ý: đổi danh mục về sau không được làm xê dịch kế hoạch đã chốt.
+    """
+    from app.models.vat_lieu_kho import VatTuInAn
+
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+    chung = bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]
+
+    muc = VatTuInAn(ma="VT-MUC-01", ten="Mực đen", don_vi_gia="kg", don_gia=180_000, active=True)
+    db.add(muc)
+    db.commit()
+
+    bg_svc.lap_ke_hoach_buoc_chung(
+        bai_ghep_id=bg.id, gang_step_key=chung["step_key"],
+        patch={"vat_tus": [{"vat_tu_id": muc.id, "so_luong": 2.5}]}, actor=admin,
+    )
+    sau = bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]
+    assert len(sau["vat_tus"]) == 1
+    v = sau["vat_tus"][0]
+    assert (v["ma"], v["ten"], v["don_vi"]) == ("VT-MUC-01", "Mực đen", "kg")
+    assert v["so_luong"] == pytest.approx(2.5)
+
+    # Đổi danh mục KHÔNG được kéo theo kế hoạch đã chốt.
+    muc.ten, muc.don_vi_gia = "Mực đen (đổi tên)", "lit"
+    db.commit()
+    lai = bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]["vat_tus"][0]
+    assert (lai["ten"], lai["don_vi"]) == ("Mực đen", "kg")
+
+    # Cùng một vật tư hai dòng trong một bước → chặn.
+    with pytest.raises(BaiGhepValidationError):
+        bg_svc.lap_ke_hoach_buoc_chung(
+            bai_ghep_id=bg.id, gang_step_key=chung["step_key"],
+            patch={"vat_tus": [{"vat_tu_id": muc.id, "so_luong": 1},
+                               {"vat_tu_id": muc.id, "so_luong": 2}]}, actor=admin,
+        )

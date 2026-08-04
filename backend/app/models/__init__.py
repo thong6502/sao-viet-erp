@@ -64,6 +64,7 @@ from .purchase import (
     PurchaseRequestLine,
     PurchaseRequestSource,
     Supplier,
+    SupplierItem,
 )
 from .accounting import (
     CompanyBankAccount,
@@ -87,7 +88,7 @@ from .unit_level import UnitLevel
 from .user import User
 from .plate_die_rate import PlateDieRate
 from .norm import Norm
-from .may_thiet_bi import MayThietBi
+from .may_thiet_bi import MayThietBi, NhomMay
 from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
 from .cong_doan import CongDoan, CongDoanDauViec
 from .bu_hao import BuHao
@@ -149,6 +150,7 @@ __all__ = [
     "ProductComponent",
     "ProductTypeCatalog",
     "Supplier",
+    "SupplierItem",
     "DepartmentPurchaseRequest",
     "DepartmentPurchaseRequestLine",
     "PurchaseRequest",

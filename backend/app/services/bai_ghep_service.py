@@ -763,8 +763,11 @@ class BaiGhepService:
             if mat is None:
                 raise BaiGhepValidationError("Vật tư không tồn tại hoặc đã ngừng dùng")
             chung.vat_tus.append(BaiGhepCongDoanVatTu(
+                # `don_vi_gia`, KHÔNG phải `don_vi` — `VatTuInAn` không có cột nào tên `don_vi`.
+                # Gõ nhầm ở đây là AttributeError lúc chạy, 500 ngay khi bấm Lưu; bước lệnh
+                # (`lsx_service`) vẫn luôn dùng đúng `don_vi_gia`.
                 vat_tu_id=mat.id, vat_tu_ma_snapshot=mat.ma, vat_tu_ten_snapshot=mat.ten,
-                don_vi_snapshot=mat.don_vi, so_luong=_f(v.get("so_luong")), thu_tu=i,
+                don_vi_snapshot=mat.don_vi_gia, so_luong=_f(v.get("so_luong")), thu_tu=i,
             ))
 
     def _sap_lai_thu_tu(self, bg: BaiGhep) -> None:

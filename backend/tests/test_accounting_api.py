@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date, timedelta
 
 from app.db import SessionLocal
 from app.models.role import SCOPE_ALL
@@ -27,11 +28,24 @@ def _supplier(client, headers) -> dict:
             "address": "18 Nguyễn Trãi, Hà Nội",
             "contact_name": "Nguyễn Lan",
             "supplier_group": "paper",
+            # Dòng vật tư phải có trong danh mục mặt hàng của một NCC đang hoạt động
+            # (`purchase_service._clean_department_lines` → `suppliers.has_active_item`), nếu không
+            # thì YCMH bị chặn 422 ngay từ bước đầu. Tên phải khớp đúng tên dùng ở `_purchase`.
+            "items": [
+                {"item_name": "Giấy Duplex", "unit": "tờ", "unit_price": 2200, "vat_percent": 8}
+            ],
         },
         headers=headers,
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def _needed_date(days: int = 30) -> str:
+    """Ngày cần hàng phải >= hôm nay (`purchase_service._business_today`, giờ VN). Cắm cứng một
+    ngày cụ thể là tự hẹn giờ cho test vỡ — cả file này từng đỏ vì `2026-07-20` trôi vào quá khứ.
+    Đệm 30 ngày nên chênh múi giờ CI (UTC) với VN không đụng tới."""
+    return (date.today() + timedelta(days=days)).isoformat()
 
 
 def _purchase(client, headers, supplier_id: int) -> tuple[dict, dict]:
@@ -40,7 +54,7 @@ def _purchase(client, headers, supplier_id: int) -> tuple[dict, dict]:
         json={
             "source_type": "kinh_doanh",
             "purpose": "Mua giấy cho đơn in",
-            "needed_date": "2026-07-20",
+            "needed_date": _needed_date(),
             "lines": [{"item_name": "Giấy Duplex", "unit": "tờ", "quantity": 1000}],
         },
         headers=headers,
@@ -53,7 +67,7 @@ def _purchase(client, headers, supplier_id: int) -> tuple[dict, dict]:
             "supplier_id": supplier_id,
             "source_request_ids": [source_body["id"]],
             "purpose": "Mua giấy cho đơn in",
-            "needed_date": "2026-07-20",
+            "needed_date": _needed_date(),
             "lines": [
                 {
                     "item_name": "Giấy Duplex",

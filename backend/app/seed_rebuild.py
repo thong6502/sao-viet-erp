@@ -88,9 +88,12 @@ def seed_don_vi_do(db: Session) -> None:
     Bổ sung theo MÃ / CẶP CÒN THIẾU (không dùng `_empty`): thêm dòng mới vào hai danh sách trên là
     DB đang chạy cũng nhận, khỏi phải drop bảng. Cặp người dùng tự sửa thì KHÔNG bị ghi đè.
     """
+    from .db_migrations import DON_VI_TOC_DO_MAC_DINH   # một nguồn duy nhất, đừng chép danh sách
+
     co = {d.ma for d in db.execute(select(DonViDo)).scalars()}
     moi = [
-        DonViDo(ma=ma, ten=ten, ho=ho, ghi_chu=gc or None)
+        DonViDo(ma=ma, ten=ten, ho=ho, ghi_chu=gc or None,
+                dung_lam_toc_do=ma in DON_VI_TOC_DO_MAC_DINH)
         for ma, ten, ho, gc in _DON_VI_SEED if ma not in co
     ]
     if moi:
@@ -123,6 +126,34 @@ def seed_don_vi_do(db: Session) -> None:
         caps.append(DonViQuyDoi(tu_id=tu_id, den_id=den_id, he_so=hs, cong_thuc=ct or None))
     if caps:
         db.add_all(caps)
+        db.commit()
+
+
+def seed_nhom_may(db: Session) -> None:
+    """Danh mục Nhóm máy — DỮ LIỆU VẬN HÀNH THẬT, không gated demo.
+
+    Gọi NGOÀI khối `SEED_DEMO`: thiếu bảng này thì ô "Nhóm máy" trống trơn và không khai được máy
+    nào. Nạp theo TÊN CÒN THIẾU (không `_empty`) nên DB đang chạy cũng nhận, khỏi drop bảng.
+
+    Vì sao seed ĐÔI (ở đây + migration 0155): `schema_migrations` sống qua `drop_all` nên test
+    KHÔNG chạy lại migration — chỉ seed mới dựng được DB test."""
+    from .models.may_thiet_bi import MayThietBi, NHOM_MAY_MAC_DINH, NhomMay
+
+    da_co = {r for r in db.execute(select(NhomMay.ten)).scalars()}
+    # Gộp cả nhóm ĐANG có máy dùng: xưởng tự đặt tên nào thì tên đó phải có trong danh mục,
+    # không thì máy trỏ vào nhóm "không tồn tại".
+    dang_dung = {
+        (t or "").strip()
+        for t in db.execute(select(MayThietBi.loai_may).distinct()).scalars()
+        if (t or "").strip()
+    }
+    moi: list[NhomMay] = []
+    for ten in (*NHOM_MAY_MAC_DINH, *sorted(dang_dung)):
+        if ten not in da_co:
+            da_co.add(ten)          # chặn trùng NGAY trong lượt này (tên mặc định có thể trùng
+            moi.append(NhomMay(ten=ten))   # với tên máy đang dùng)
+    if moi:
+        db.add_all(moi)
         db.commit()
 
 
