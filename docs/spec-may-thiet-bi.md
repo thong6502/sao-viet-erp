@@ -121,9 +121,11 @@ may_thiet_bi.khoa_class     → giá kẽm trong danh mục Kẽm & khuôn (kem_
 ### 3.5 Nhóm NĂNG LỰC / TỐC ĐỘ (mọi máy)
 | Field | Kiểu | Đơn vị | Mô tả |
 |---|---|---|---|
-| toc_do | number | | tốc độ chạy danh nghĩa |
-| don_vi_toc_do | enum(to_gio, m2_gio, cuon_gio, luot_gio, met_gio) | | khớp `loai_may` |
-| makeready_time_default | number | phút | thời gian canh máy mặc định (job mới) |
+| toc_do | number | | **Tốc độ TRUNG BÌNH** (nhãn UI đổi 03/08/2026; tên cột giữ nguyên). Số DUY NHẤT chảy vào Tính giá / Lệnh SX / Xếp lịch |
+| toc_do_min | number | | Tốc độ tối thiểu — **CHỈ ĐỂ KHAI**, không vào công thức nào (mg 0152) |
+| toc_do_max | number | | Tốc độ tối đa — **CHỈ ĐỂ KHAI** (mg 0152) |
+| don_vi_toc_do | mã `<đơn vị đếm>_gio` | | **SUY RA từ danh mục `don_vi_do`** — chủ tự thêm/xoá đơn vị ở màn "Đơn vị & quy đổi" là danh sách chọn tự đổi theo. KHÔNG còn là enum cứng. VARCHAR(32) sau mg 0153 |
+| makeready_time_default | number | phút | thời gian canh máy — **3 kiểu khai**: để trống · gõ tổng · theo từng khoản (chi tiết trong `fields_theo_loai.chuan_bi_khoan`, tổng TỰ CỘNG và khoá chỉ đọc) |
 | thoi_gian_rua_muc | number | phút | rửa mực/đổi màu (TÁCH khỏi canh máy; đổi đậm→nhạt lâu hơn) |
 | min_stock_gsm | int | gsm | định lượng nhỏ nhất chạy được |
 | max_stock_gsm | int | gsm | định lượng lớn nhất |
@@ -356,7 +358,8 @@ CHO SCHEDULING: { toc_do, lich, so_ca, so_may_song_song, may_thay_the, availabil
 | E-MAY-KHO | kho_min > kho_max | chặn |
 | E-MAY-NHIP | gripper_mm ≥ kho_min_rong | chặn |
 | E-MAY-BHR0 | BHR ≤ 0 hoặc gio_tinh_phi ≤ 0 | chặn |
-| E-MAY-SPEED | toc_do ≤ 0 hoặc don_vi_toc_do không khớp loai_may | chặn |
+| E-MAY-SPEED | toc_do / toc_do_min / toc_do_max ≤ 0 | chặn |
+| E-MAY-SPEED-RANGE | min > max, hoặc min > trung bình, hoặc max < trung bình | chặn (chỉ kiểm ô ĐÃ khai — không ép khai đủ ba) |
 | E-MAY-JOBFIT | job: khổ in > kho_max hoặc < kho_min | chặn (khi báo giá) |
 | W-MAY-GSM | job_gsm ngoài [min,max]_stock_gsm | cảnh báo |
 | W-MAY-PROD | productivity/availability ngoài [50,98]% | cảnh báo |
