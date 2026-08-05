@@ -689,14 +689,20 @@ def _build_table_xlsx(year: int, month: int, lines) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = f"Luong {month:02d}-{year}"
+    # ⚠️ Các cột khoản CỘNG LẠI phải ra đúng cột "Tổng" (= `gross`). Thêm khoản mới vào engine mà
+    # quên thêm cột ở đây thì file xuất ra không khớp và kế toán không dò ra chênh ở đâu — đúng
+    # chuyện đã xảy ra với "Cơm ca"/"Phụ cấp ca" khi nối hai khoản đó ngày 03/08/2026.
     ws.append(["Mã", "Họ tên", "Phòng/Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
-               "Khoán", "Tăng ca", "Ca đêm", "Ca đêm (giờ×hệ số)", "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN",
+               "Khoán", "Tăng ca", "Ca đêm", "Ca đêm (giờ×hệ số)", "Cơm ca", "Phụ cấp ca",
+               "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN",
                "Tạm ứng", "Thực lĩnh"])
     for l in lines:
         ws.append([l.employee_code or "", l.employee_name or "", l.department_name or "",
                    "Thử việc" if l.is_probation else "Chính thức", float(l.actual_cong),
                    int(l.luong_cong), int(l.chuyen_can), int(l.allowance), int(l.khoan),
                    int(l.ot_pay), int(l.night_pay), int(getattr(l, "night_premium_pay", 0) or 0),
+                   int(getattr(l, "meal_allowance_pay", 0) or 0),
+                   int(getattr(l, "shift_allowance_pay", 0) or 0),
                    int(l.vi_pham), int(_bonus_total(l)),
                    int(l.gross), int(l.bhxh), int(l.pit), int(l.advance_total), int(l.net_pay)])
     buf = BytesIO()

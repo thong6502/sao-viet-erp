@@ -11,6 +11,7 @@ from ..schemas.purchase import (
     DepartmentPurchaseRequestIn,
     DepartmentPurchaseRequestListOut,
     DepartmentPurchaseRequestOut,
+    PurchaseRequestBatchIn,
     PurchaseRequestIn,
     PurchaseRequestListOut,
     PurchaseRequestOut,
@@ -23,6 +24,11 @@ from ..schemas.purchase import (
 from ..services.purchase_service import (
     DEPARTMENT_REQUEST_READER_MODULES,
     PurchaseConflict,
+    # Bắt LỚP CHA `PurchaseError` ở mọi route: trước đây 14/18 chỗ chỉ liệt kê 3 loại lỗi và bỏ sót
+    # `PurchaseForbidden`, nên mọi lỗi QUYỀN rơi ra ngoài thành **500** thay vì 403 — người dùng
+    # thấy "lỗi hệ thống" trong khi thật ra là "bạn không được phép". `_map_error` vốn đã phân loại
+    # đủ cả bốn, thiếu chỉ là ở chỗ `except`.
+    PurchaseError,
     PurchaseForbidden,
     PurchaseNotFound,
     PurchaseService,
@@ -84,7 +90,7 @@ def get_department_purchase_request(
 ) -> DepartmentPurchaseRequestOut:
     try:
         return DepartmentPurchaseRequestOut(**svc.get_department_request(request_id, actor=user))
-    except (PurchaseValidationError, PurchaseConflict, PurchaseForbidden, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
 
 
@@ -102,7 +108,7 @@ def create_department_purchase_request(
         return DepartmentPurchaseRequestOut(
             **svc.create_department_request(actor=user, **payload.model_dump())
         )
-    except (PurchaseValidationError, PurchaseConflict, PurchaseForbidden, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
 
 
@@ -117,7 +123,7 @@ def update_department_purchase_request(
         return DepartmentPurchaseRequestOut(
             **svc.update_department_request(request_id, actor=user, **payload.model_dump())
         )
-    except (PurchaseValidationError, PurchaseConflict, PurchaseForbidden, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
 
 
@@ -132,7 +138,7 @@ def cancel_department_purchase_request(
         return DepartmentPurchaseRequestOut(
             **svc.cancel_department_request(request_id, reason=payload.reason, actor=user)
         )
-    except (PurchaseValidationError, PurchaseConflict, PurchaseForbidden, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
 
 
@@ -177,7 +183,7 @@ def create_supplier(
 ) -> SupplierRow:
     try:
         return SupplierRow.model_validate(svc.create_supplier(actor=user, **payload.model_dump()))
-    except (PurchaseValidationError, PurchaseConflict, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
 
 
@@ -192,7 +198,7 @@ def update_supplier(
         return SupplierRow.model_validate(
             svc.update_supplier(supplier_id, actor=user, **payload.model_dump())
         )
-    except (PurchaseValidationError, PurchaseConflict, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
 
 
@@ -204,14 +210,14 @@ def toggle_supplier(
 ) -> SupplierRow:
     try:
         return SupplierRow.model_validate(svc.toggle_supplier_active(supplier_id, actor=user))
-    except (PurchaseValidationError, PurchaseConflict, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
 
 
 @router.get("/api/purchase-requests", response_model=PurchaseRequestListOut)
 def list_purchase_requests(
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    _: Annotated[
+    user: Annotated[
         User,
         Depends(require_any_permission((MODULE, "read"), ("ke_toan", "read"))),
     ],
@@ -223,7 +229,8 @@ def list_purchase_requests(
     size: int = Query(default=20, ge=1, le=200),
 ) -> PurchaseRequestListOut:
     rows, total = svc.list_requests(
-        q=q, status=status_, supplier_id=supplier_id, sort=sort, page=page, size=size
+        q=q, status=status_, supplier_id=supplier_id, sort=sort, page=page, size=size,
+        actor=user,
     )
     return PurchaseRequestListOut(items=rows, total=total, page=page, size=size)
 
@@ -232,14 +239,15 @@ def list_purchase_requests(
 def get_purchase_request(
     request_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    _: Annotated[
+    user: Annotated[
         User,
         Depends(require_any_permission((MODULE, "read"), ("ke_toan", "read"))),
     ],
 ) -> PurchaseRequestOut:
     try:
-        return PurchaseRequestOut(**svc.get_request(request_id))
-    except (PurchaseValidationError, PurchaseConflict, PurchaseNotFound) as exc:
+        # Truyền `actor`: lọc ở danh sách mà để chi tiết mở là biết id đọc được hết.
+        return PurchaseRequestOut(**svc.get_request(request_id, actor=user))
+    except PurchaseError as exc:
         raise _map_error(exc) from None
 
 
@@ -251,8 +259,27 @@ def create_purchase_request(
 ) -> PurchaseRequestOut:
     try:
         return PurchaseRequestOut(**svc.create_request(actor=user, **payload.model_dump()))
-    except (PurchaseValidationError, PurchaseConflict, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
+
+
+@router.post("/api/purchase-requests/batch", response_model=PurchaseRequestListOut,
+             status_code=status.HTTP_201_CREATED)
+def create_purchase_requests_batch(
+    payload: PurchaseRequestBatchIn,
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+) -> PurchaseRequestListOut:
+    """Yêu cầu chứa hàng của nhiều NCC → tách thành nhiều phiếu, mỗi NCC một phiếu, TRONG MỘT LẦN.
+
+    Không để giao diện gọi endpoint tạo phiếu nhiều lần: lần đầu là yêu cầu nguồn bị giữ chỗ, lần
+    sau bị chặn ngay. Và hỏng thì phải hỏng cả mẻ, không để lại phiếu mồ côi đang giữ chỗ."""
+    try:
+        rows = svc.create_requests_batch(actor=user, **payload.model_dump())
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+    return PurchaseRequestListOut(items=[PurchaseRequestOut(**row) for row in rows],
+                                  total=len(rows), page=1, size=len(rows) or 1)
 
 
 @router.put("/api/purchase-requests/{request_id}", response_model=PurchaseRequestOut)
@@ -266,7 +293,7 @@ def update_purchase_request(
         return PurchaseRequestOut(
             **svc.update_request(request_id, actor=user, **payload.model_dump())
         )
-    except (PurchaseValidationError, PurchaseConflict, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
 
 
@@ -278,7 +305,7 @@ def delete_purchase_request(
 ) -> Response:
     try:
         svc.delete_request(request_id, actor=user)
-    except (PurchaseValidationError, PurchaseConflict, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -291,7 +318,7 @@ def submit_purchase_request(
 ) -> PurchaseRequestOut:
     try:
         return PurchaseRequestOut(**svc.submit(request_id, actor=user))
-    except (PurchaseValidationError, PurchaseConflict, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
 
 
@@ -303,7 +330,7 @@ def approve_purchase_request(
 ) -> PurchaseRequestOut:
     try:
         return PurchaseRequestOut(**svc.approve(request_id, actor=user))
-    except (PurchaseValidationError, PurchaseConflict, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
 
 
@@ -316,7 +343,7 @@ def reject_purchase_request(
 ) -> PurchaseRequestOut:
     try:
         return PurchaseRequestOut(**svc.reject(request_id, reason=payload.reason, actor=user))
-    except (PurchaseValidationError, PurchaseConflict, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
 
 
@@ -328,7 +355,7 @@ def mark_purchase_request_purchased(
 ) -> PurchaseRequestOut:
     try:
         return PurchaseRequestOut(**svc.mark_purchased(request_id, actor=user))
-    except (PurchaseValidationError, PurchaseConflict, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
 
 
@@ -340,7 +367,7 @@ def mark_purchase_request_received(
 ) -> PurchaseRequestOut:
     try:
         return PurchaseRequestOut(**svc.mark_received(request_id, actor=user))
-    except (PurchaseValidationError, PurchaseConflict, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None
 
 
@@ -353,5 +380,5 @@ def cancel_purchase_request(
 ) -> PurchaseRequestOut:
     try:
         return PurchaseRequestOut(**svc.cancel(request_id, reason=payload.reason, actor=user))
-    except (PurchaseValidationError, PurchaseConflict, PurchaseNotFound) as exc:
+    except PurchaseError as exc:
         raise _map_error(exc) from None

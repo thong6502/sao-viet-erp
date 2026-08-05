@@ -470,23 +470,31 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_OWN),
             "kho": {**_read(SCOPE_OWN), "can_request": True},
+            # Scope `own` (chủ 04/08/2026: "tôi là nhân viên chỉ thấy đơn của tôi thôi"). Trước
+            # đây là `all` — nhân viên nhìn thấy phiếu của cả công ty. `can_cancel` giữ nguyên:
+            # service đã thu hẹp thành "chỉ huỷ được phiếu NHÁP do chính mình lập".
             "thu_mua": {
-                **_rcu(SCOPE_ALL),
+                **_rcu(SCOPE_OWN),
                 "can_cancel": True,
                 "can_approve": False,
             },
         },
     ),
+    # TÁCH VAI (chủ 04/08/2026): bộ phận Mua hàng KHÔNG duyệt phiếu mua của chính mình — ai đề
+    # xuất chi tiền thì không được là người đồng ý chi. Duyệt là việc của giám đốc / người được
+    # trao quyền. Trước đây vai này có `can_approve: True` nên trưởng bộ phận tự duyệt được.
+    # DB đang chạy không tự nhận seed ⇒ có migration 0159 gỡ luôn cờ đó.
     (
         "Mua hàng",
         "Trưởng bộ phận mua hàng",
         {
             "dashboard": _read(SCOPE_ALL),
             "kho": {**_read(SCOPE_DEPARTMENT), "can_request": True},
-            "thu_mua": {
-                **_full(SCOPE_ALL),
-                "can_approve": True,
-            },
+            # ⚠️ `_full` TỰ BẬT `can_approve` — phải ghi đè False chứ không phải chỉ bỏ dòng cấp
+            # thêm, nếu không quyền duyệt vẫn còn nguyên mà nhìn code lại tưởng đã gỡ.
+            # Scope `department`: trưởng bộ phận thấy phiếu của CẢ BỘ PHẬN mình, không chỉ của
+            # riêng mình — nhưng cũng không nhìn sang phiếu bộ phận khác.
+            "thu_mua": {**_full(SCOPE_DEPARTMENT), "can_approve": False},
         },
     ),
 ]

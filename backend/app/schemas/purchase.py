@@ -39,6 +39,9 @@ class SupplierItemRow(BaseModel):
     unit: str
     unit_price: int
     vat_percent: float
+    # Phải phơi ra: ô chọn NCC ở form phiếu mua lọc theo cờ này. Không có nó thì giao diện mời một
+    # NCC đã ngưng bán mặt hàng đó, người dùng chọn xong mới bị backend từ chối — bẫy.
+    is_active: bool = True
     note: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -118,6 +121,30 @@ class PurchaseRequestIn(BaseModel):
     expected_receipt_date: date | None = None
     note: str | None = Field(default=None, max_length=2000)
     lines: list[PurchaseRequestLineIn] = Field(min_length=1)
+
+
+class PurchaseRequestBatchLineIn(PurchaseRequestLineIn):
+    """Dòng hàng ĐÃ GÁN nhà cung cấp — dùng cho đường tạo cả mẻ.
+
+    Một phiếu mua là thoả thuận với MỘT nhà cung cấp, nên khi yêu cầu chứa hàng của nhiều nơi thì
+    phải tách thành nhiều phiếu. Gán NCC ở đây, backend nhóm lại rồi đẻ phiếu."""
+
+    supplier_id: int = Field(gt=0)
+
+
+class PurchaseRequestBatchIn(BaseModel):
+    """Tạo NHIỀU phiếu mua trong MỘT lần, nhóm theo nhà cung cấp của từng dòng.
+
+    Vì sao không để giao diện gọi API tạo phiếu nhiều lần: tạo phiếu đầu là yêu cầu nguồn bị GIỮ
+    CHỖ ngay, lần gọi thứ hai cho NCC khác sẽ bị chặn. Gộp một lần cũng để hỏng thì hỏng cả mẻ,
+    không để lại phiếu mồ côi."""
+
+    source_request_ids: list[int] = Field(min_length=1)
+    purpose: str = Field(min_length=1, max_length=500)
+    needed_date: date
+    expected_receipt_date: date | None = None
+    note: str | None = Field(default=None, max_length=2000)
+    lines: list[PurchaseRequestBatchLineIn] = Field(min_length=1)
 
 
 class PurchaseRequestLineOut(BaseModel):

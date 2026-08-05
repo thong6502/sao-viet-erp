@@ -5270,3 +5270,119 @@ def _migrate_phu_cap_ca_theo_ca(db: Session) -> None:
 
 
 MIGRATIONS.append(("0157_phu_cap_ca_theo_ca", _migrate_phu_cap_ca_theo_ca))
+
+
+def _migrate_bhxh_mien_tu_so_ngay(db: Session) -> None:
+    """Ngưỡng "14 ngày không lương thì không đóng BHXH" thành THAM SỐ (chủ 04/08/2026 — *"đang
+    hard code à, vậy sao đổi luật thì sao"*).
+
+    Trước đó `_compute` so với hằng số `BHXH_MIEN_TU_SO_NGAY = 14` viết thẳng trong service. Đây là
+    mức LUẬT (QĐ 595/QĐ-BHXH Đ42.4) nên không bỏ luật, chỉ bỏ chỗ viết cứng — cùng lối đã làm cho
+    `phat_cap_pct` (0126) và `pit_flat_rate` (0120). Mặc định 14 giữ nguyên hành vi cũ; `0` = tắt.
+
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if ("payroll_params" in insp.get_table_names()
+            and "bhxh_mien_tu_so_ngay" not in _existing_columns(insp, "payroll_params")):
+        db.execute(text(
+            "ALTER TABLE payroll_params ADD COLUMN bhxh_mien_tu_so_ngay "
+            "INTEGER NOT NULL DEFAULT 14"))
+    db.commit()
+
+
+MIGRATIONS.append(("0158_bhxh_mien_tu_so_ngay", _migrate_bhxh_mien_tu_so_ngay))
+
+
+def _migrate_thu_mua_bo_phan_khong_duyet(db: Session) -> None:
+    """Bộ phận Mua hàng KHÔNG duyệt phiếu mua (chủ 04/08/2026: *"thu mua làm gì có quyền duyệt,
+    từ chối, huỷ — nó chỉ có giám đốc và người được trao quyền chứ"*).
+
+    Tách vai: ai đề xuất chi tiền thì không được là người đồng ý chi. `seed.py` đã sửa nhưng seed
+    chỉ áp cho DB TRẮNG — hệ đang chạy phải gỡ bằng migration, không thì trưởng bộ phận mua hàng
+    vẫn duyệt được phiếu của chính mình.
+
+    Gỡ theo BỘ PHẬN chứ không theo tên vai: tên vai sửa tay lúc nào cũng được, mà sửa xong thì câu
+    lệnh bám theo tên câm lặng thất hiệu.
+
+    ⚠️ CỐ Ý chỉ gỡ cho bộ phận "Mua hàng". Vai nào khác đang có `thu_mua.can_approve` thì KHÔNG
+    đụng — đoán mò rồi gỡ nhầm quyền của giám đốc là tắc cả luồng duyệt, mà không ai hiểu vì sao.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if not {"role_permissions", "roles", "departments"} <= tables:
+        return
+    db.execute(text(
+        "UPDATE role_permissions SET can_approve = FALSE "
+        "WHERE module_key = 'thu_mua' AND role_id IN ("
+        "  SELECT r.id FROM roles r JOIN departments d ON d.id = r.department_id "
+        "  WHERE d.name = 'Mua hàng')"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0159_thu_mua_bo_phan_khong_duyet", _migrate_thu_mua_bo_phan_khong_duyet))
+
+
+def _migrate_xoa_chung_tu_ke_toan_lam_lai(db: Session) -> None:
+    """🔴 XOÁ SẠCH chứng từ kế toán để dựng lại phân hệ (chủ 04/08/2026: "đập cả bảng dữ liệu").
+
+    Xoá con trước cha sau cho khỏi vướng khoá ngoại:
+      `payment_receipt_attachments` → `payment_voucher_attachments` → `payment_receipts`
+      → `payment_vouchers`, rồi reset bộ đếm số chứng từ về 0 (đánh lại từ PC00001).
+
+    ⚠️ KHÔNG lùi lại được. Chủ đã xác nhận dữ liệu hiện tại là dữ liệu thử.
+
+    CỐ Ý GIỮ `company_bank_accounts` và `supplier_bank_accounts`: đó là thông tin ai đó ngồi gõ
+    (số tài khoản, chi nhánh), không phải chứng từ phát sinh — xoá đi là bắt gõ lại mà chẳng
+    được gì.
+
+    Chạy MỘT LẦN: `schema_migrations` nhớ tên nên lần khởi động sau không xoá lại. Nhưng nếu ai đó
+    xoá dòng ghi nhớ đó thì nó xoá lần nữa — đừng làm vậy trên DB có dữ liệu thật.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    for name in ("payment_receipt_attachments", "payment_voucher_attachments",
+                 "payment_receipts", "payment_vouchers"):
+        if name in tables:
+            db.execute(text(f"DELETE FROM {name}"))
+    if "document_sequences" in tables:
+        db.execute(text(
+            "UPDATE document_sequences SET current_number = 0 WHERE doc_type = 'payment_voucher'"))
+    db.commit()
+
+
+MIGRATIONS.append(("0160_xoa_chung_tu_ke_toan_lam_lai", _migrate_xoa_chung_tu_ke_toan_lam_lai))
+
+
+def _migrate_thu_mua_pham_vi_nhin(db: Session) -> None:
+    """Co phạm vi nhìn phiếu mua theo vai (chủ 04/08/2026: *"tôi là nhân viên chỉ thấy đơn của tôi
+    thôi, còn trưởng bộ phận hoặc giám đốc mới thấy cả"*).
+
+    - Nhân viên mua hàng → `own` (chỉ phiếu mình lập)
+    - Trưởng bộ phận mua hàng → `department` (cả bộ phận)
+    - Giám đốc giữ `all` — KHÔNG đụng tới.
+
+    Trước đây cả hai vai đều `all`, mà `list_requests` lại không hề đọc scope nên ai có
+    `thu_mua:read` là thấy phiếu toàn công ty. Service đã vá; đây là vá phần khai báo trên DB
+    đang chạy (seed chỉ áp cho DB trắng).
+
+    Đổi theo **bộ phận + tên vai** — không quét cả bảng, để không cắt nhầm phạm vi của vai khác.
+    """
+    insp = inspect(db.get_bind())
+    if not {"role_permissions", "roles", "departments"} <= set(insp.get_table_names()):
+        return
+    for ten_vai, scope in (("Nhân viên mua hàng", "own"),
+                           ("Trưởng bộ phận mua hàng", "department")):
+        db.execute(
+            text(
+                "UPDATE role_permissions SET scope = :sc "
+                "WHERE module_key = 'thu_mua' AND role_id IN ("
+                "  SELECT r.id FROM roles r JOIN departments d ON d.id = r.department_id "
+                "  WHERE d.name = 'Mua hàng' AND r.name = :ten)"
+            ),
+            {"sc": scope, "ten": ten_vai},
+        )
+    db.commit()
+
+
+MIGRATIONS.append(("0161_thu_mua_pham_vi_nhin", _migrate_thu_mua_pham_vi_nhin))

@@ -8,7 +8,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
-from ..models.role import SCOPE_ALL
+from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.purchase import (
     DEPARTMENT_PURCHASE_SOURCE_TYPES,
     DPR_CANCELLED,
@@ -70,6 +70,15 @@ DEPARTMENT_REQUEST_READER_MODULES = (
     "dm_giay_vat_tu",
     "ke_toan",
 )
+
+
+# Những module được cấp quyền ĐỌC phiếu mua hàng. Ai có scope `all` ở BẤT KỲ module nào trong đây
+# thì thấy phiếu của toàn công ty.
+#
+# ⚠️ Phải có `ke_toan`: màn Đơn mua hàng của kế toán (`/api/accounting/inbox`) gọi CHUNG
+# `list_requests`, mà kế toán KHÔNG có quyền `thu_mua` ⇒ `scope_for` trả None ⇒ bị co về "của
+# mình" ⇒ thấy RỖNG. Đúng cái bẫy đã sập với YCMH — đừng lặp lại.
+PURCHASE_REQUEST_READER_MODULES = ("thu_mua", "ke_toan")
 
 
 class PurchaseError(Exception):
@@ -303,7 +312,23 @@ class PurchaseService:
         return [self._to_department_request_out(row) for row in rows], total
 
     def _sees_all_department_requests(self, actor) -> bool:
-        """Có nhìn được YCMH của TOÀN công ty không. Xem `DEPARTMENT_REQUEST_READER_MODULES`."""
+        """Có nhìn được YCMH của TOÀN công ty không.
+
+        HAI vai khác hẳn nhau, đừng gộp:
+
+        · **Người XỬ LÝ** — ai có module `thu_mua` — thấy YCMH của MỌI phòng ban. Đó là HỘP VIỆC
+          của họ: công việc của thu mua chính là biến đơn của phòng khác thành phiếu mua. Không
+          phụ thuộc scope: nhân viên thu mua scope `own` (chỉ thấy PHIẾU MUA của mình) vẫn phải
+          thấy đủ yêu cầu gửi đến, nếu không thì ngồi nhìn màn hình trống.
+        · **Người ĐỀ NGHỊ** (bao_gia · kho · san_xuat · dm_giay_vat_tu) — chỉ thấy yêu cầu của
+          phòng mình, trừ khi được cấp scope `all`.
+
+        ⚠️ Ngày 04/08/2026 tôi hạ scope `thu_mua` của nhân viên mua hàng xuống `own` để họ chỉ
+        thấy PHIẾU MUA của mình — và làm mù luôn hộp việc này, vì lúc đó cả hai danh sách cùng đọc
+        một ô scope. Hai thứ khác nhau thì phải hỏi hai câu khác nhau.
+        """
+        if self.authz.scope_for(actor, "thu_mua") is not None:
+            return True
         return any(
             self.authz.scope_for(actor, module) == SCOPE_ALL
             for module in DEPARTMENT_REQUEST_READER_MODULES
@@ -514,14 +539,63 @@ class PurchaseService:
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
+        actor=None,
+        exclude_statuses: list[str] | None = None,
     ) -> tuple[list[dict], int]:
+        # PHẠM VI NHÌN (chủ 04/08/2026: "nhân viên chỉ thấy đơn của tôi thôi, trưởng bộ phận hoặc
+        # giám đốc mới thấy cả"). Trước đây hàm này KHÔNG nhận `actor` — ai có `thu_mua:read` là
+        # thấy phiếu của cả công ty, bất kể vai được khai scope gì.
+        creator_ids: list[int] | None = None
+        if actor is not None:
+            scope = self._purchase_scope(actor)
+            if scope == SCOPE_DEPARTMENT:
+                creator_ids = self._nguoi_cung_phong(actor)
+            elif scope != SCOPE_ALL:
+                creator_ids = [actor.id]
         rows, total = self.requests.list(
-            q=q, status=status, supplier_id=supplier_id, sort=sort, page=page, size=size
+            q=q, status=status, supplier_id=supplier_id, sort=sort, page=page, size=size,
+            creator_ids=creator_ids, exclude_statuses=exclude_statuses,
         )
         return [self._to_request_out(r) for r in rows], total
 
-    def get_request(self, request_id: int) -> dict:
-        return self._to_request_out(self._request(request_id))
+    def _purchase_scope(self, actor) -> str | None:
+        """Phạm vi phiếu mua actor được nhìn: `all` | `department` | `own`.
+
+        `all` nếu có scope `all` ở BẤT KỲ module nào trong `PURCHASE_REQUEST_READER_MODULES` —
+        không thì lấy scope rộng nhất trong số các module actor có. Người không có module nào →
+        `own` (chỉ phiếu của chính mình), đó là mức chặt nhất chứ không phải "thấy hết"."""
+        rong_dan = {SCOPE_OWN: 0, SCOPE_DEPARTMENT: 1, SCOPE_ALL: 2}
+        best = SCOPE_OWN
+        for module in PURCHASE_REQUEST_READER_MODULES:
+            sc = self.authz.scope_for(actor, module)
+            if sc and rong_dan.get(sc, 0) > rong_dan[best]:
+                best = sc
+        return best
+
+    def _nguoi_cung_phong(self, actor) -> list[int]:
+        """id của những người CÙNG PHÒNG BAN với actor — dùng cho scope `department`.
+
+        `purchase_requests` không có cột phòng ban, chỉ có `created_by_user_id`, nên phải quy về
+        "người tạo thuộc phòng ban của tôi"."""
+        if getattr(actor, "department_id", None) is None:
+            return [actor.id]
+        return [u.id for u in self.users.list_by_department(actor.department_id)] or [actor.id]
+
+    def _co_duoc_xem(self, row: PurchaseRequest, actor) -> bool:
+        scope = self._purchase_scope(actor)
+        if scope == SCOPE_ALL:
+            return True
+        if scope == SCOPE_DEPARTMENT:
+            return row.created_by_user_id in set(self._nguoi_cung_phong(actor))
+        return row.created_by_user_id == actor.id
+
+    def get_request(self, request_id: int, *, actor=None) -> dict:
+        row = self._request(request_id)
+        # Lọc ở DANH SÁCH mà để CHI TIẾT mở là vô nghĩa — biết id là đọc được hết. Báo 404 chứ
+        # không 403: không xác nhận cho người ngoài biết phiếu đó có tồn tại hay không.
+        if actor is not None and not self._co_duoc_xem(row, actor):
+            raise PurchaseNotFound("Không tìm thấy phiếu yêu cầu mua hàng.")
+        return self._to_request_out(row)
 
     def _request(self, request_id: int) -> PurchaseRequest:
         row = self.requests.get_by_id(request_id)
@@ -571,7 +645,14 @@ class PurchaseService:
         # hạn hoặc trễ. Ràng buộc duy nhất còn lại: không nhận vào ngày đã qua.
         return expected_receipt_date
 
-    def _clean_lines(self, raw_lines) -> list[PurchaseRequestLineInput]:
+    def _clean_lines(self, raw_lines, *, supplier_id: int | None = None) -> list[PurchaseRequestLineInput]:
+        """Làm sạch dòng hàng của PHIẾU MUA.
+
+        `supplier_id` bắt buộc trên đường thật (create/update): mỗi dòng phải nằm trong danh mục
+        mặt hàng ĐANG BẬT của CHÍNH NCC đó. Trước 04/08/2026 chỗ này không kiểm gì — chọn NCC A
+        rồi ghi mặt hàng chỉ NCC B bán thì phiếu vẫn tạo được, im lặng, tới lúc gửi đơn mới vỡ.
+        Để `None` là bỏ qua kiểm — chỉ dành cho chỗ gọi không có NCC (nếu sau này có).
+        """
         if not raw_lines:
             raise PurchaseValidationError("Phiếu phải có ít nhất một dòng hàng.")
         lines: list[PurchaseRequestLineInput] = []
@@ -580,6 +661,11 @@ class PurchaseService:
             item_name = (get("item_name") or "").strip()
             if not item_name:
                 raise PurchaseValidationError("Tên hàng không được trống.")
+            if supplier_id is not None and not self.suppliers.supplier_sells(supplier_id, item_name):
+                raise PurchaseValidationError(
+                    f'Nha cung cap nay khong ban "{item_name}". '
+                    "Chon nha cung cap khac cho dong nay, hoac khai mat hang do cho ho truoc."
+                )
             unit = (get("unit") or "").strip()
             if not unit:
                 raise PurchaseValidationError("Đơn vị tính không được trống.")
@@ -677,7 +763,7 @@ class PurchaseService:
             needed_date=needed_date, expected_receipt_date=expected_receipt_date
         )
         self._require_supplier_active(supplier_id)
-        cleaned_lines = self._clean_lines(lines)
+        cleaned_lines = self._clean_lines(lines, supplier_id=supplier_id)
         source_requests = self._resolve_source_requests(source_request_ids, allow_in_purchase=False)
         row = self.requests.create(
             code=self._new_purchase_code(),
@@ -697,6 +783,86 @@ class PurchaseService:
             detail=row.code,
         )
         return self._to_request_out(row)
+
+    def create_requests_batch(
+        self,
+        *,
+        purpose,
+        needed_date,
+        expected_receipt_date: date | None = None,
+        note: str | None,
+        lines,
+        source_request_ids,
+        actor,
+    ) -> list[dict]:
+        """Tạo N phiếu mua từ một danh sách dòng ĐÃ GÁN nhà cung cấp — nhóm theo NCC.
+
+        Một phiếu mua là thoả thuận với MỘT nhà cung cấp, nên yêu cầu chứa hàng của nhiều nơi thì
+        buộc phải tách. Gộp vào một lời gọi vì hai lý do:
+
+        1. Giao diện KHÔNG gọi API tạo phiếu nhiều lần được: tạo phiếu đầu là yêu cầu nguồn bị
+           giữ chỗ ngay (`_replace_sources` đẩy sang `pending_approval`), lần thứ hai cho NCC khác
+           sẽ bị `_resolve_source_requests` chặn. Ở đây khai luôn tập yêu cầu đó là "đã biết,
+           cho phép" nên cả mẻ dùng chung được.
+        2. Hỏng thì hỏng CẢ MẺ (`create_many` một commit), không để lại phiếu mồ côi giữ chỗ.
+
+        Thứ tự phiếu ra theo thứ tự NCC XUẤT HIỆN LẦN ĐẦU trong danh sách dòng — người dùng nhìn
+        bảng từ trên xuống thì phiếu cũng ra theo thứ tự đó, không nhảy lung tung.
+        """
+        raw = list(lines or [])
+        if not raw:
+            raise PurchaseValidationError("Phai co it nhat mot dong hang.")
+
+        # Nhóm theo NCC, giữ thứ tự xuất hiện.
+        nhom: dict[int, list] = {}
+        for line in raw:
+            get = line.get if isinstance(line, dict) else lambda k, d=None: getattr(line, k, d)
+            sid = get("supplier_id")
+            if not sid:
+                raise PurchaseValidationError(
+                    f'Dong "{(get("item_name") or "").strip()}" chua chon nha cung cap.'
+                )
+            nhom.setdefault(int(sid), []).append(line)
+
+        # Yêu cầu nguồn: giải MỘT lần cho cả mẻ. `allowed_reserved_ids` để chính các yêu cầu này
+        # không tự chặn nhau khi phiếu thứ hai trở đi gắn lại cùng tập.
+        source_requests = self._resolve_source_requests(source_request_ids, allow_in_purchase=False)
+        source_ids = {row.id for row in source_requests}
+
+        # Kiểm TẤT CẢ trước khi dựng bất cứ thứ gì — vỡ ở nhóm thứ ba thì hai nhóm đầu cũng
+        # không được tạo.
+        items: list[dict] = []
+        for supplier_id, group in nhom.items():
+            sid, cleaned_purpose, cleaned_needed = self._clean_request_header(
+                supplier_id=supplier_id, purpose=purpose, needed_date=needed_date
+            )
+            cleaned_receipt = self._clean_expected_receipt_date(
+                needed_date=cleaned_needed, expected_receipt_date=expected_receipt_date
+            )
+            self._require_supplier_active(sid)
+            items.append(dict(
+                code=self._new_purchase_code(),
+                supplier_id=sid,
+                purpose=cleaned_purpose,
+                needed_date=cleaned_needed,
+                expected_receipt_date=cleaned_receipt,
+                created_by_user_id=actor.id,
+                note=(note or "").strip() or None,
+                lines=self._clean_lines(group, supplier_id=sid),
+                source_requests=self._resolve_source_requests(
+                    source_ids, allow_in_purchase=False, allowed_reserved_ids=source_ids
+                ),
+            ))
+
+        rows = self.requests.create_many(items)
+        for row in rows:
+            self.audit.create(
+                actor_user_id=actor.id,
+                action="create_purchase_request",
+                target=f"purchase_request:{row.id}",
+                detail=row.code,
+            )
+        return [self._to_request_out(row) for row in rows]
 
     def update_request(
         self,
@@ -728,7 +894,7 @@ class PurchaseService:
             needed_date=needed_date,
             expected_receipt_date=expected_receipt_date,
             note=(note or "").strip() or None,
-            lines=self._clean_lines(lines),
+            lines=self._clean_lines(lines, supplier_id=supplier_id),
             source_requests=self._resolve_source_requests(
                 source_request_ids,
                 allow_in_purchase=False,
@@ -778,6 +944,16 @@ class PurchaseService:
         row = self._request(request_id)
         if row.status != PR_PENDING:
             raise PurchaseConflict("Chỉ phiếu đang chờ duyệt mới được duyệt.")
+        # TÁCH VAI (chủ 04/08/2026: "thu mua làm gì có quyền duyệt"): ai đề xuất chi tiền thì
+        # không được là người đồng ý chi. Chốt ở ĐÂY chứ không chỉ ở phân quyền, vì phân quyền là
+        # cấu hình — bật lại lúc nào cũng được ở màn Phân quyền mà không ai hay.
+        #
+        # KHÔNG miễn cho giám đốc (chủ chốt). Hệ quả: giám đốc tự lập phiếu thì phải người khác
+        # duyệt. Muốn nới thì thêm một ô miễn trừ, đừng gỡ chốt.
+        if row.created_by_user_id is not None and row.created_by_user_id == actor.id:
+            raise PurchaseForbidden(
+                "Nguoi lap phieu khong duoc tu duyet phieu cua chinh minh."
+            )
         row.status = PR_APPROVED
         row.approved_by_user_id = actor.id
         row.approved_at = _now()
@@ -812,14 +988,34 @@ class PurchaseService:
         self.audit.create(actor_user_id=actor.id, action="mark_purchase_request_purchased", target=f"purchase_request:{row.id}", detail=row.code)
         return self._to_request_out(saved)
 
+    def _moi_phieu_da_ve_hang(self, source) -> bool:
+        """Mọi phiếu mua (chưa huỷ) gắn với yêu cầu này đã nhận hàng chưa.
+
+        Đọc qua `purchase_links` nên tự đúng khi một yêu cầu bị tách thành nhiều phiếu theo NCC.
+        Phiếu ĐÃ HUỶ không tính — huỷ rồi thì nó không còn nợ ai cái gì; nếu tính thì yêu cầu sẽ
+        treo mãi ở "đang mua" chỉ vì một phiếu bỏ đi."""
+        phieu = [
+            link.purchase_request for link in getattr(source, "purchase_links", [])
+            if link.purchase_request is not None
+            and link.purchase_request.status != PR_CANCELLED
+        ]
+        return bool(phieu) and all(p.status == PR_RECEIVED for p in phieu)
+
     def mark_received(self, request_id: int, *, actor) -> dict:
         row = self._request(request_id)
         if row.status != PR_PURCHASED:
             raise PurchaseConflict("Chỉ phiếu đã mua mới được đánh dấu đã nhận hàng.")
         row.status = PR_RECEIVED
+        # Một yêu cầu có thể được tách thành NHIỀU phiếu (mỗi NCC một phiếu) ⇒ chỉ "Xong" khi
+        # MỌI phiếu chưa huỷ của nó đã về hàng. Trước 04/08/2026 chỗ này set thẳng "Xong" cho mọi
+        # yêu cầu nguồn, nên phiếu giấy về trước là yêu cầu báo xong trong khi băng keo còn chưa
+        # ai mua — bộ phận đề nghị nhìn vào tưởng đủ hàng.
         for link in row.sources:
-            if link.department_request and link.department_request.status != DPR_CANCELLED:
-                link.department_request.status = DPR_DONE
+            src = link.department_request
+            if src is None or src.status == DPR_CANCELLED:
+                continue
+            if self._moi_phieu_da_ve_hang(src):
+                src.status = DPR_DONE
         saved = self.requests.save(row)
         self.audit.create(actor_user_id=actor.id, action="mark_purchase_request_received", target=f"purchase_request:{row.id}", detail=row.code)
         return self._to_request_out(saved)
@@ -828,6 +1024,18 @@ class PurchaseService:
         row = self._request(request_id)
         if row.status in (PR_RECEIVED, PR_CANCELLED):
             raise PurchaseConflict("Phiếu đã nhận hàng hoặc đã hủy thì không thể hủy tiếp.")
+        # Huỷ phiếu ĐÃ GỬI DUYỆT là quyết định của người duyệt, không phải của thu mua (chủ chốt
+        # 04/08/2026). Người chỉ có `cancel` thì chỉ được dọn phiếu NHÁP DO CHÍNH MÌNH lập — giữ
+        # được việc tự dọn nháp mà không cho giết phiếu đang nằm trên bàn giám đốc.
+        #
+        # Phân biệt theo NĂNG LỰC (`approve`) chứ không theo tên vai: tên vai đổi lúc nào cũng
+        # được, mà đổi xong thì luật viết theo tên vai câm lặng thất hiệu.
+        if not self.authz.can(actor, "thu_mua", "approve"):
+            if row.status != PR_DRAFT or row.created_by_user_id != actor.id:
+                raise PurchaseForbidden(
+                    "Chi huy duoc phieu nhap do chinh minh lap. "
+                    "Phieu da gui duyet thi nguoi duyet quyet."
+                )
         if any(
             voucher.status in (PAYMENT_VOUCHER_WAITING, PAYMENT_VOUCHER_PAID)
             for voucher in row.payment_vouchers

@@ -474,6 +474,42 @@ def _mk_ot(client, token, eid, *, work_date, frm, to):
     return r.json()
 
 
+def _cham_cong_du_dong_bhxh(eid):
+    """Chấm công 15 NGÀY THƯỜNG của tháng 6/2026 cho NV — vừa đủ để KHÔNG dính luật 14 ngày.
+
+    Từ 04/08/2026 engine áp QĐ 595 Đ42.4: tháng có ≥14 ngày làm việc mà không làm và không hưởng
+    lương thì tháng đó KHÔNG đóng BHXH. Test lương cũ dựng NV không có một lượt chấm nào (0 công)
+    nên rơi thẳng vào nhánh đó — phải cho họ đi làm thật thì mới kiểm được đúng thứ đang muốn kiểm.
+
+    Chỉ chọn Thứ Hai–Thứ Sáu (01/06/2026 là Thứ Hai) để không sinh công ngày nghỉ tuần — thứ đó
+    kéo theo premium và làm lệch các phép so sánh `gross` viết tay trong test. Vào/ra đúng giờ ca
+    nên cũng không sinh phạt đi trễ.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    from app.repositories.attendance_repo import AttendanceRepository
+
+    ngay_thuong = [1, 2, 3, 4, 5, 8, 9, 10, 11, 12, 15, 16, 17, 18, 19]
+    db = SessionLocal()
+    try:
+        arepo = AttendanceRepository(db)
+        # ⚠️ `meal_allowance`/`shift_allowance` của model CÓ MẶC ĐỊNH 25.000/50.000 — không khai
+        # 0 ở đây thì mỗi ngày công tự cộng 75.000đ và các phép so sánh `gross` viết tay trong
+        # test lệch mà không hiểu vì sao. Test này chỉ muốn có CÔNG, không muốn có phụ cấp.
+        shift = arepo.create_shift(name=f"HC-{eid}", start_minute=480, end_minute=1020,
+                                   is_overnight=False, grace_minutes=5,
+                                   meal_allowance=0, shift_allowance=0)
+        EmployeeRepository(db).get_by_id(eid).default_shift_id = shift.id
+        db.commit()
+        for d in ngay_thuong:
+            # 08:00 VN = 01:00 UTC (vào), 17:00 VN = 10:00 UTC (ra) — khớp ca 480→1020.
+            for kind, hour in (("in", 1), ("out", 10)):
+                arepo.create_log(employee_id=eid, check_type=kind,
+                                 checked_at=_dt(2026, 6, d, hour, 0, tzinfo=_tz.utc),
+                                 within_range=True)
+    finally:
+        db.close()
+
+
 def _gen_line(client, token, eid):
     gen = client.post("/api/luong/generate", json={"year": 2026, "month": 6},
                       headers=_h(token)).json()
@@ -520,6 +556,7 @@ def test_phieu_luong_tach_3_dong_bao_hiem(client):
     eid = _make_emp(client, token, name="NV Bảo hiểm", status="active")
     client.post(f"/api/luong/salaries/{eid}", json={"effective_from": "2026-01-01",
                 "luong_vi_tri": 10_000_000}, headers=_h(token))
+    _cham_cong_du_dong_bhxh(eid)   # không đi làm ngày nào thì tháng đó không đóng BHXH (Đ42.4)
     line = _gen_line(client, token, eid)
 
     rows = line["insurance_lines"]
@@ -1210,6 +1247,7 @@ def test_generate_lock_flow(client):
     client.post(f"/api/luong/salaries/{eid}", json={
         "effective_from": "2026-01-01", "luong_vi_tri": 10_000_000,
     }, headers=_h(token))
+    _cham_cong_du_dong_bhxh(eid)   # không đi làm ngày nào thì tháng đó không đóng BHXH (Đ42.4)
     # tạm ứng đã duyệt 2tr trong kỳ
     aid = client.post("/api/luong/advances", json={
         "employee_id": eid, "period_year": 2026, "period_month": 6,

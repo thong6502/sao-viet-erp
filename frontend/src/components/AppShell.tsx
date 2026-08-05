@@ -40,7 +40,9 @@ import { SuppliersPage } from "../pages/SuppliersPage";
 import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPage";
 import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
 import { PaymentReceiptsPage } from "../pages/PaymentReceiptsPage";
-import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
+// Màn "Tài khoản ngân hàng" đã gỡ khỏi menu 04/08/2026 và không còn ai liên kết tới. File màn vẫn
+// giữ để đợt kế toán sau dựng lại; bật lại chỉ cần bỏ comment dòng này và thêm lại `case`.
+// import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
 import {
   AUTHENTICATED_NAV_IDS,
   MODULES_BY_NAV_ID,
@@ -631,7 +633,9 @@ export function AppShell() {
         return <PurchaseRequestsPage navigate={navigate} />;
       case "nha-cung-cap":
         return <SuppliersPage />;
-      case "ke-toan-yeu-cau-mua":
+      // Bấm vào chính "Kế toán thu mua" thì rơi vào con đầu tiên — đừng để nó ra màn trắng.
+      case "ke-toan-thu-mua":
+      case "ke-toan-don-mua-hang":
         return <AccountingPurchaseInboxPage navigate={navigate} />;
       case "ke-toan-phieu-chi":
         return (
@@ -640,6 +644,13 @@ export function AppShell() {
             focusQuery={navParams?.focusVoucherQuery ?? null}
           />
         );
+      // "Phiếu thu" và "Tài khoản ngân hàng" đã GỠ KHỎI MENU (chủ 04/08/2026).
+      //
+      // Nhưng `case` của Phiếu thu vẫn GIỮ, vì hai màn khác đang nhảy sang nó bằng liên kết:
+      // `DonHangBanPage` (theo dấu tiền khách đặt cọc) và `PaymentVouchersPage`. Gỡ `case` thì hai
+      // liên kết đó rơi về Dashboard — người dùng bấm vào thấy nhảy lung tung, tưởng hỏng.
+      // Muốn bỏ HẲN Phiếu thu thì phải gỡ hai liên kết kia trước, và như vậy là cắt luôn đường
+      // theo dõi tiền cọc của Đơn hàng bán — việc đó cần chủ chốt riêng.
       case "ke-toan-phieu-thu":
         return (
           <PaymentReceiptsPage
@@ -647,8 +658,6 @@ export function AppShell() {
             focusQuery={navParams?.focusReceiptQuery ?? null}
           />
         );
-      case "ke-toan-tai-khoan":
-        return <AccountingBankAccountsPage />;
       case "nhat-ky":
         return <ActivityLogPage />;
       default:

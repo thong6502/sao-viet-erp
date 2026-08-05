@@ -85,7 +85,36 @@ def _purchase(client, headers, supplier_id: int) -> tuple[dict, dict]:
     body = purchase.json()
     submitted = client.post(f"/api/purchase-requests/{body['id']}/submit", headers=headers)
     assert submitted.status_code == 200, submitted.text
-    return submitted.json(), source_body
+    _duyet(client, body["id"])
+    return client.get(f"/api/purchase-requests/{body['id']}", headers=headers).json(), source_body
+
+
+def _duyet(client, purchase_id: int) -> None:
+    """Duyệt PMH bằng tài khoản KHÁC người lập.
+
+    Từ 04/08/2026: (a) đường gộp "duyệt + lập phiếu chi một cú bấm" đã bỏ — kế toán chỉ lập phiếu
+    chi cho PMH ĐÃ DUYỆT; (b) người lập không tự duyệt được phiếu của mình. Nên test phải có người
+    duyệt riêng, đúng như ngoài đời: giám đốc duyệt, kế toán mới viết phiếu chi.
+    """
+    db = SessionLocal()
+    try:
+        users = UserRepository(db)
+        u = users.get_by_username("acct-approver")
+        if u is None:
+            bgd = DepartmentRepository(db).get_by_name("Ban giám đốc")
+            roles = RoleRepository(db)
+            role = roles.create(name="Duyet PMH cho ke toan", department_id=bgd.id)
+            roles.set_permission(role_id=role.id, module_key="thu_mua",
+                                 can_read=True, can_approve=True, scope=SCOPE_ALL)
+            u = users.create(username="acct-approver", name="GD Duyet",
+                             password_hash=hash_password("x"))
+            users.set_assignment(u, department_id=bgd.id, role_id=role.id, is_active=True)
+        token = create_access_token(str(u.id))
+    finally:
+        db.close()
+    r = client.post(f"/api/purchase-requests/{purchase_id}/approve",
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
 
 
 def _cash_payload(amount: int) -> dict:
@@ -140,8 +169,8 @@ def test_approve_and_create_cash_voucher_tracks_partial_payment(client):
     purchase, source = _purchase(client, headers, supplier["id"])
 
     created = client.post(
-        f"/api/accounting/purchase-requests/{purchase['id']}/approve-and-create-voucher",
-        json=_cash_payload(1_000_000),
+        "/api/accounting/payment-vouchers",
+        json={**_cash_payload(1_000_000), "purchase_request_id": purchase['id']},
         headers=headers,
     )
     assert created.status_code == 201, created.text
@@ -188,7 +217,7 @@ def test_unc_requires_bank_accounts_reference_and_blocks_overpayment(client):
     headers = _headers(client)
     supplier = _supplier(client, headers)
     purchase, _ = _purchase(client, headers, supplier["id"])
-    assert client.post(f"/api/purchase-requests/{purchase['id']}/approve", headers=headers).status_code == 200
+    # `_purchase()` đã duyệt sẵn (bằng tài khoản khác người lập) — duyệt lại là 409.
     company, beneficiary = _bank_accounts(client, headers, supplier["id"])
 
     payload = {
@@ -234,7 +263,7 @@ def test_final_payment_allowed_before_received_purchase(client):
     headers = _headers(client)
     supplier = _supplier(client, headers)
     purchase, _ = _purchase(client, headers, supplier["id"])
-    assert client.post(f"/api/purchase-requests/{purchase['id']}/approve", headers=headers).status_code == 200
+    # `_purchase()` đã duyệt sẵn (bằng tài khoản khác người lập) — duyệt lại là 409.
     payload = {
         "purchase_request_id": purchase["id"],
         **_cash_payload(2_200_000),
@@ -249,7 +278,7 @@ def test_foreign_currency_reserves_vnd_and_blocks_purchase_cancellation(client):
     headers = _headers(client)
     supplier = _supplier(client, headers)
     purchase, _ = _purchase(client, headers, supplier["id"])
-    assert client.post(f"/api/purchase-requests/{purchase['id']}/approve", headers=headers).status_code == 200
+    # `_purchase()` đã duyệt sẵn (bằng tài khoản khác người lập) — duyệt lại là 409.
 
     payload = {
         "purchase_request_id": purchase["id"],
@@ -330,8 +359,8 @@ def test_doc_no_shared_counter_across_voucher_types(client):
     company, beneficiary = _bank_accounts(client, headers, supplier["id"])
 
     cash = client.post(
-        f"/api/accounting/purchase-requests/{purchase['id']}/approve-and-create-voucher",
-        json=_cash_payload(500_000),
+        "/api/accounting/payment-vouchers",
+        json={**_cash_payload(500_000), "purchase_request_id": purchase['id']},
         headers=headers,
     )
     assert cash.status_code == 201, cash.text
@@ -377,9 +406,13 @@ def test_receipt_doc_no_has_own_counter(client):
     assert receipt.json()["doc_no"] == "PT00001"  # bộ đếm riêng, không nối tiếp PC
 
 
-def test_approve_and_create_voucher_failure_leaves_purchase_pending(client, monkeypatch):
-    """Khóa hazard: cấp số (tự commit) phải xảy ra TRƯỚC khi đổi trạng thái PMH —
-    nếu lưu phiếu lỗi thì PMH không được kẹt ở 'đã duyệt' mà không có phiếu chi."""
+def test_lap_phieu_chi_loi_thi_khong_de_lai_phieu_mo_coi(client, monkeypatch):
+    """Lập phiếu chi hỏng giữa chừng thì KHÔNG được để lại phiếu chi dở dang.
+
+    Bản cũ của test này canh một hazard của đường GỘP "duyệt + lập phiếu chi một cú bấm": lưu phiếu
+    lỗi mà PMH đã bị đẩy sang 'đã duyệt' thì phiếu kẹt ở trạng thái duyệt rồi mà không có chứng từ.
+    Đường gộp đã bỏ hẳn (04/08/2026) nên hazard đó không còn: duyệt là bước riêng, lập phiếu chi
+    KHÔNG đụng tới trạng thái PMH. Giờ canh vế còn ý nghĩa — hỏng thì không đẻ ra phiếu chi nào."""
     from app.repositories.accounting_repo import AccountingRepository
 
     headers = _headers(client)
@@ -392,16 +425,20 @@ def test_approve_and_create_voucher_failure_leaves_purchase_pending(client, monk
     monkeypatch.setattr(AccountingRepository, "save_voucher", boom)
     try:
         client.post(
-            f"/api/accounting/purchase-requests/{purchase['id']}/approve-and-create-voucher",
-            json=_cash_payload(500_000),
+            "/api/accounting/payment-vouchers",
+            json={**_cash_payload(500_000), "purchase_request_id": purchase['id']},
             headers=headers,
         )
     except RuntimeError:
         pass  # TestClient dội lỗi ra — đúng kỳ vọng
     monkeypatch.undo()
 
+    # PMH giữ nguyên 'đã duyệt' — lập phiếu chi không đụng trạng thái nó.
     refreshed = client.get(f"/api/purchase-requests/{purchase['id']}", headers=headers)
-    assert refreshed.json()["status"] == "pending_approval"  # KHÔNG bị duyệt oan
+    assert refreshed.json()["status"] == "approved"
+    # Và không có phiếu chi mồ côi nào được tạo.
+    ds = client.get(f"/api/accounting/payment-vouchers?q={purchase['code']}", headers=headers)
+    assert ds.json()["total"] == 0
 
 
 def test_search_by_doc_no_and_debit_credit_roundtrip(client):
@@ -409,8 +446,8 @@ def test_search_by_doc_no_and_debit_credit_roundtrip(client):
     supplier = _supplier(client, headers)
     purchase, _ = _purchase(client, headers, supplier["id"])
     created = client.post(
-        f"/api/accounting/purchase-requests/{purchase['id']}/approve-and-create-voucher",
-        json={**_cash_payload(500_000), "debit_account": "242, 1331", "credit_account": "1111"},
+        "/api/accounting/payment-vouchers",
+        json={**{**_cash_payload(500_000), "debit_account": "242, 1331", "credit_account": "1111"}, "purchase_request_id": purchase['id']},
         headers=headers,
     )
     assert created.status_code == 201, created.text
@@ -447,8 +484,8 @@ def test_voucher_accepts_payload_without_accounts_and_rejects_too_long(client):
 
     # Payload cũ (không có debit/credit) vẫn phải chạy.
     ok = client.post(
-        f"/api/accounting/purchase-requests/{purchase['id']}/approve-and-create-voucher",
-        json=_cash_payload(500_000),
+        "/api/accounting/payment-vouchers",
+        json={**_cash_payload(500_000), "purchase_request_id": purchase['id']},
         headers=headers,
     )
     assert ok.status_code == 201, ok.text
@@ -503,8 +540,8 @@ def test_cancelled_voucher_keeps_doc_no(client):
     supplier = _supplier(client, headers)
     purchase, _ = _purchase(client, headers, supplier["id"])
     created = client.post(
-        f"/api/accounting/purchase-requests/{purchase['id']}/approve-and-create-voucher",
-        json=_cash_payload(500_000),
+        "/api/accounting/payment-vouchers",
+        json={**_cash_payload(500_000), "purchase_request_id": purchase['id']},
         headers=headers,
     ).json()
     cancelled = client.post(
@@ -531,8 +568,8 @@ def _receipt_payload(amount: int, **overrides) -> dict:
 
 def _paid_cash_voucher(client, headers, purchase_id: int, amount: int) -> dict:
     created = client.post(
-        f"/api/accounting/purchase-requests/{purchase_id}/approve-and-create-voucher",
-        json=_cash_payload(amount),
+        "/api/accounting/payment-vouchers",
+        json={**_cash_payload(amount), "purchase_request_id": purchase_id},
         headers=headers,
     )
     assert created.status_code == 201, created.text
@@ -551,8 +588,8 @@ def test_receipt_requires_paid_voucher(client):
     supplier = _supplier(client, headers)
     purchase, _ = _purchase(client, headers, supplier["id"])
     waiting = client.post(
-        f"/api/accounting/purchase-requests/{purchase['id']}/approve-and-create-voucher",
-        json=_cash_payload(1_000_000),
+        "/api/accounting/payment-vouchers",
+        json={**_cash_payload(1_000_000), "purchase_request_id": purchase['id']},
         headers=headers,
     )
     assert waiting.status_code == 201, waiting.text
@@ -825,14 +862,14 @@ def test_vouchers_group_sort_keeps_same_pmh_adjacent(client):
     purchase_b, _ = _purchase(client, headers, supplier["id"])
 
     a1 = client.post(
-        f"/api/accounting/purchase-requests/{purchase_a['id']}/approve-and-create-voucher",
-        json=_cash_payload(500_000),
+        "/api/accounting/payment-vouchers",
+        json={**_cash_payload(500_000), "purchase_request_id": purchase_a['id']},
         headers=headers,
     )
     assert a1.status_code == 201, a1.text
     b1 = client.post(
-        f"/api/accounting/purchase-requests/{purchase_b['id']}/approve-and-create-voucher",
-        json=_cash_payload(400_000),
+        "/api/accounting/payment-vouchers",
+        json={**_cash_payload(400_000), "purchase_request_id": purchase_b['id']},
         headers=headers,
     )
     assert b1.status_code == 201, b1.text
@@ -889,15 +926,15 @@ def test_accounting_approve_permission_also_allows_voucher_creation(client):
     assert client.get("/api/accounting/inbox", headers=reader_headers).status_code == 200
     assert (
         client.post(
-            f"/api/accounting/purchase-requests/{purchase['id']}/approve-and-create-voucher",
-            json=_cash_payload(500_000),
+            "/api/accounting/payment-vouchers",
+            json={**_cash_payload(500_000), "purchase_request_id": purchase['id']},
             headers=reader_headers,
         ).status_code
         == 403
     )
     allowed = client.post(
-        f"/api/accounting/purchase-requests/{purchase['id']}/approve-and-create-voucher",
-        json=_cash_payload(500_000),
+        "/api/accounting/payment-vouchers",
+        json={**_cash_payload(500_000), "purchase_request_id": purchase['id']},
         headers=approver_headers,
     )
     assert allowed.status_code == 201, allowed.text

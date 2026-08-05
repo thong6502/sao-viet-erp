@@ -719,6 +719,7 @@ const PARAMS_A = [
   "night_pct",
   "ot_night_extra_pct",
   "adjust_max_per_month",
+  "phu_cap_ca_min_cong",
 ] as const satisfies readonly (keyof PayrollParams)[];
 const PARAMS_INS = [
   "bhxh_rate",
@@ -732,6 +733,7 @@ const PARAMS_INS = [
   "cong_doan_rate",
   "tnld_bnn_rate",
   "phat_cap_pct",
+  "bhxh_mien_tu_so_ngay",
 ] as const satisfies readonly (keyof PayrollParams)[];
 const PARAMS_TAX = [
   "deduction_self",
@@ -983,6 +985,19 @@ function CoCheTab({
                 readOnly={readOnly}
                 value={p.adjust_max_per_month}
                 onChange={(v) => setP("adjust_max_per_month", Math.round(v))}
+              />
+              {/* Có cột từ 03/08/2026 và tài liệu ghi "khai được", nhưng thiếu cả ô nhập lẫn tên
+                  trong allowlist của `update_params` ⇒ thực tế là số cứng 0,5. Nối nốt. */}
+              <ParamField
+                label="Công tối thiểu để hưởng cơm / phụ cấp ca"
+                hint="Ngày nào đạt từ mức công này trở lên thì hưởng TRỌN tiền cơm + phụ cấp của ca hôm đó; dưới mức thì không có gì — cố ý không chia theo tỷ lệ, vì một suất ăn là có hoặc không. 0,5 = nghỉ nửa buổi vẫn được hưởng."
+                suffix="công"
+                step={0.25}
+                min={0}
+                max={1}
+                readOnly={readOnly}
+                value={p.phu_cap_ca_min_cong}
+                onChange={(v) => setP("phu_cap_ca_min_cong", v)}
               />
             </div>
           </section>
@@ -1877,8 +1892,9 @@ function DanhMucTab({ token, readOnly }: { token: string; readOnly: boolean }) {
                       <td className="num">
                         {c.employee_count > 0 || c.period_count > 0 ? (
                           <>
-                            {c.employee_count} nhân viên · {c.period_count} kỳ
-                            lương
+                            {c.employee_count} nhân viên 
+                            {/* · {c.period_count} kỳ
+                            lương */}
                             <span className="cl-cell__sub">
                               không xoá cứng được
                             </span>
@@ -2526,14 +2542,14 @@ function PhuCapTab({
 
   return (
     <>
-      <div className="cl-override-note">
+      {/* <div className="cl-override-note">
         <Info size={14} />
         <span>
           Bốn khoản phụ cấp (ca · trách nhiệm · thâm niên · khác) KHÔNG khai ở
           đây — gõ tay theo TỪNG NGƯỜI ở tab “Lương nhân viên”, một số cố định
           dùng cho mọi tháng.
         </span>
-      </div>
+      </div> */}
 
       <div className="cl-card">
         <h3 className="cl-card__title">Bảo hiểm bắt buộc</h3>
@@ -2651,6 +2667,29 @@ function PhuCapTab({
                   {toPct(p.phat_cap_pct) === 0
                     ? "Đang TẮT trần — phạt bao nhiêu trừ bấy nhiêu (thực nhận vẫn không âm)."
                     : `Đang đặt ${toPct(p.phat_cap_pct)}%, VƯỢT mức 30% của Điều 102 BLLĐ.`}{" "}
+                  Đây là mức luật định, không phải chính sách công ty.
+                </p>
+              )}
+              {/* Trước 04/08/2026 số 14 viết cứng trong `payroll_service`. Đây là số NGÀY —
+                  KHÔNG bọc `toPct` như mấy ô tỷ lệ ngay trên, chép nhầm là lệch 100 lần. */}
+              <ParamField
+                label="Không đóng BHXH nếu nghỉ không lương từ"
+                hint="QĐ 595/QĐ-BHXH Đ42.4: tháng nào người lao động không làm việc và không hưởng lương từ 14 ngày làm việc trở lên thì tháng đó không đóng BHXH. Phủ luôn người vào/nghỉ việc giữa tháng. Đặt 0 = TẮT luật (tháng nào cũng trừ BHXH)."
+                suffix="ngày"
+                step={1}
+                min={0}
+                max={31}
+                readOnly={readOnly}
+                value={p.bhxh_mien_tu_so_ngay}
+                onChange={(v) => setP("bhxh_mien_tu_so_ngay", Math.round(v))}
+              />
+              {/* Cảnh báo, KHÔNG chặn — cùng lối với trần Điều 102 ngay trên. */}
+              {p.bhxh_mien_tu_so_ngay !== 14 && (
+                <p className="cl-hint-inline cl-warn-legal">
+                  ⚠{" "}
+                  {p.bhxh_mien_tu_so_ngay === 0
+                    ? "Đang TẮT luật — tháng nào cũng trừ BHXH, kể cả tháng nghỉ không lương cả tháng."
+                    : `Đang đặt ${p.bhxh_mien_tu_so_ngay} ngày, LỆCH mức 14 ngày của QĐ 595 Đ42.4.`}{" "}
                   Đây là mức luật định, không phải chính sách công ty.
                 </p>
               )}

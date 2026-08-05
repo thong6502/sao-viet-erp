@@ -268,32 +268,9 @@ class AccountingService:
         )
         return self._voucher_out(saved)
 
-    def approve_and_create_voucher(self, request_id: int, *, actor, **values):
-        purchase = self._purchase(request_id)
-        if purchase.status != PR_PENDING:
-            raise AccountingConflict("Chỉ phiếu mua đang chờ duyệt mới được duyệt.")
-        prepared = self._prepare_voucher(
-            purchase, values, allow_pending_purchase=True, exclude_voucher_id=None
-        )
-        # Cấp số TRƯỚC khi chạm ORM object: increment_and_get() tự commit và dùng chung
-        # Session — nếu gọi sau các mutation dưới, nó sẽ commit sớm PR_APPROVED +
-        # DPR_IN_PURCHASE; save_voucher lỗi → PMH đã duyệt mà không có phiếu chi.
-        doc_no = self._next_voucher_doc_no()
-        purchase.status = PR_APPROVED
-        purchase.approved_by_user_id = actor.id
-        purchase.approved_at = _now()
-        for link in purchase.sources:
-            if link.department_request and link.department_request.status not in (DPR_DONE, DPR_CANCELLED):
-                link.department_request.status = DPR_IN_PURCHASE
-        voucher = self._new_voucher(purchase, prepared, actor.id, doc_no=doc_no)
-        saved = self.repo.save_voucher(voucher)
-        self.audit.create(
-            actor_user_id=actor.id,
-            action="approve_purchase_and_create_payment_voucher",
-            target=f"purchase_request:{purchase.id}",
-            detail=f"{purchase.code} -> {saved.code}",
-        )
-        return self._voucher_out(saved)
+    # ĐÃ GỠ 04/08/2026: `approve_and_create_voucher()` — gộp duyệt PMH + lập phiếu chi vào một
+    # thao tác. Tách vai: người đồng ý chi không được là người viết phiếu chi. Duyệt nay ở
+    # `purchase_service.approve()` (có chốt chống tự duyệt), lập phiếu chi ở `create_voucher()`.
 
     def update_voucher(self, voucher_id: int, *, actor, purchase_request_id: int, **values):
         voucher = self._voucher(voucher_id)

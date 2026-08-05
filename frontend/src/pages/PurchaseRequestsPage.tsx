@@ -59,7 +59,16 @@ const SOURCE_STATUS_META: Record<
   cancelled: { label: "Đã hủy", tone: "cancelled" },
 };
 
-function emptyLine(): PurchaseRequestLineInput {
+/** Dòng hàng trong FORM — mang thêm NCC của riêng nó.
+ *
+ * Một phiếu mua là thoả thuận với MỘT nhà cung cấp, nhưng một yêu cầu thường chứa hàng của nhiều
+ * nơi. Nên NCC gán ở DÒNG, rồi lúc gửi mới nhóm lại thành N phiếu. Ô "Nhà cung cấp" ở đầu phiếu
+ * chỉ còn dùng cho chế độ SỬA (phiếu đã tồn tại thì nó vốn đã thuộc về một NCC). */
+type FormLine = PurchaseRequestLineInput & { supplier_id?: number | null };
+
+type FormState = Omit<PurchaseRequestInput, "lines"> & { lines: FormLine[] };
+
+function emptyLine(): FormLine {
   return {
     item_name: "",
     unit: "",
@@ -68,10 +77,11 @@ function emptyLine(): PurchaseRequestLineInput {
     discount_percent: 0,
     vat_percent: 0,
     note: "",
+    supplier_id: null,
   };
 }
 
-function emptyRequest(): PurchaseRequestInput {
+function emptyRequest(): FormState {
   return {
     supplier_id: null,
     source_request_ids: [],
@@ -89,7 +99,7 @@ function todayInputValue(): string {
   return localNow.toISOString().slice(0, 10);
 }
 
-function fromRequest(row: PurchaseRequestRow): PurchaseRequestInput {
+function fromRequest(row: PurchaseRequestRow): FormState {
   return {
     supplier_id: row.supplier_id,
     source_request_ids: row.sources.map(
@@ -107,6 +117,8 @@ function fromRequest(row: PurchaseRequestRow): PurchaseRequestInput {
       discount_percent: line.discount_percent,
       vat_percent: line.vat_percent,
       note: line.note ?? "",
+      // Phiếu đã tồn tại thì mọi dòng đều thuộc NCC của phiếu — không tách nữa.
+      supplier_id: row.supplier_id,
     })),
   };
 }
@@ -150,6 +162,99 @@ function supplierItemForLine(
     ) ??
     supplier.items.find((item) => normalizeItemName(item.item_name) === name) ??
     null
+  );
+}
+
+/** Số NCC hiện trong ô chọn của mỗi dòng. Đủ để so giá mà không biến ô chọn thành danh bạ. */
+const SO_NCC_GOI_Y = 5;
+
+export type ChaoGia = {
+  supplier_id: number;
+  supplier_name: string;
+  unit_price: number;
+  vat_percent: number;
+  unit: string;
+};
+
+/** Những NCC ĐANG HOẠT ĐỘNG bán mặt hàng này, xếp GIÁ TĂNG DẦN, lấy tối đa `SO_NCC_GOI_Y`.
+ *
+ * Xếp theo đơn giá CHƯA VAT vì đó là số đi vào dòng hàng. NCC có VAT khác nhau thì giá sau thuế
+ * có thể đảo thứ tự — nên ô chọn hiện luôn cả VAT để nhìn là biết, không giấu.
+ *
+ * Không cần gọi API: danh sách NCC nạp cho màn này đã kèm bảng giá mặt hàng của từng người.
+ */
+function chaoGiaChoMatHang(
+  itemName: string,
+  suppliers: SupplierRow[],
+): ChaoGia[] {
+  const ten = normalizeItemName(itemName);
+  if (!ten) return [];
+  const out: ChaoGia[] = [];
+  for (const ncc of suppliers) {
+    if (ncc.status !== "active") continue;
+    const item = ncc.items.find(
+      (i) => normalizeItemName(i.item_name) === ten && i.is_active !== false,
+    );
+    if (!item) continue;
+    out.push({
+      supplier_id: ncc.id,
+      supplier_name: ncc.name,
+      unit_price: item.unit_price,
+      vat_percent: item.vat_percent ?? 0,
+      unit: item.unit,
+    });
+  }
+  out.sort((a, b) => a.unit_price - b.unit_price);
+  return out.slice(0, SO_NCC_GOI_Y);
+}
+
+/** Ô chọn nhà cung cấp cho MỘT dòng hàng — hiện tối đa 5 nơi bán, rẻ nhất lên trước, kèm giá.
+ *
+ * Chưa gõ tên vật tư thì chưa biết hỏi ai ⇒ ô khoá lại và nói rõ. Gõ tên mà không ai bán thì cũng
+ * nói thẳng, không để ô rỗng im lặng rồi người dùng bấm Lưu mới biết. */
+function LineSupplierPicker({
+  line,
+  suppliers,
+  onPick,
+}: {
+  line: FormLine;
+  suppliers: SupplierRow[];
+  onPick: (chao: ChaoGia | null) => void;
+}) {
+  const chaoGia = chaoGiaChoMatHang(line.item_name, suppliers);
+  const chuaGoTen = !normalizeItemName(line.item_name);
+
+  if (chuaGoTen || chaoGia.length === 0) {
+    return (
+      <select className="input" disabled aria-label="Nhà cung cấp của dòng">
+        <option>{chuaGoTen ? "Nhập vật tư trước" : "Chưa có NCC nào bán"}</option>
+      </select>
+    );
+  }
+  return (
+    <select
+      className="input"
+      required
+      aria-label="Nhà cung cấp của dòng"
+      value={line.supplier_id ?? ""}
+      onChange={(e) =>
+        onPick(
+          chaoGia.find((c) => c.supplier_id === Number(e.target.value)) ?? null,
+        )
+      }
+    >
+      <option value="">Chọn nhà cung cấp</option>
+      {/* Nhãn "· rẻ nhất" đang TẮT (dòng comment bên dưới). Bật lại thì thêm `, i` vào tham số
+          map — bỏ đi ở đây chỉ vì để lại là TypeScript báo "khai mà không dùng", chứ không phải
+          tôi gỡ ý đó. Danh sách vẫn xếp giá tăng dần nên dòng đầu vẫn là rẻ nhất. */}
+      {chaoGia.map((c) => (
+        <option key={c.supplier_id} value={c.supplier_id}>
+          {c.supplier_name} — {money(c.unit_price)}
+          {c.vat_percent ? ` (VAT ${c.vat_percent}%)` : ""}
+          {/* {i === 0 && chaoGia.length > 1 ? " · rẻ nhất" : ""} */}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -432,7 +537,11 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
   const openYcmh = (code: string) =>
     navigate("yeu-cau-mua-hang", { focusRequestCode: code });
   const canUpdate = can("thu_mua", "update");
-  const canApprove = can("thu_mua", "approve");
+  // KHÔNG còn `canApprove` ở màn này: duyệt đơn mua đã chuyển sang Kế toán thu mua (04/08/2026).
+  //
+  // ⚠️ Hộp "Lý do từ chối" (`reasonModal.kind === "reject"`) vẫn còn trong file nhưng KHÔNG CÒN AI
+  // BẤM — chỉ nhánh `cancel` còn chạy. Giữ tạm để chép sang màn Đơn mua hàng; chép xong thì dọn,
+  // đừng để nó nằm lại làm người đọc sau tưởng màn này vẫn từ chối được.
   const canDelete = can("thu_mua", "delete");
   const canCancel = can("thu_mua", "cancel");
 
@@ -460,8 +569,27 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
 
   const [mode, setMode] = useState<null | "create" | "edit">(null);
   const [editing, setEditing] = useState<PurchaseRequestRow | null>(null);
-  const [form, setForm] = useState<PurchaseRequestInput>(emptyRequest());
+  const [form, setForm] = useState<FormState>(emptyRequest());
   const [formError, setFormError] = useState<string | null>(null);
+  // Gom dòng theo NCC để nói trước "sẽ tạo mấy phiếu". Giữ THỨ TỰ NCC xuất hiện lần đầu — khớp
+  // đúng cách backend nhóm, để bảng xem trước không nói một đằng, phiếu ra một nẻo.
+  const phieuSeTao = useMemo(() => {
+    const theoNcc = new Map<number, { ten: string; soDong: number; tien: number }>();
+    for (const line of form.lines) {
+      if (!line.supplier_id) continue;
+      const cu = theoNcc.get(line.supplier_id) ?? {
+        ten:
+          suppliers.find((s) => s.id === line.supplier_id)?.name ??
+          `NCC #${line.supplier_id}`,
+        soDong: 0,
+        tien: 0,
+      };
+      cu.soDong += 1;
+      cu.tien += lineTotal(line);
+      theoNcc.set(line.supplier_id, cu);
+    }
+    return [...theoNcc.values()];
+  }, [form.lines, suppliers]);
   const minPurchaseDate = useMemo(() => todayInputValue(), []);
   // Ngày dự kiến nhận chỉ bị chặn bởi HÔM NAY, KHÔNG bởi ngày cần hàng (chủ 03/08/2026):
   // nhận hàng sớm hơn ngày cần là trường hợp mong muốn, chặn nó là cấm đúng cái tốt.
@@ -578,18 +706,29 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
       vat_percent: 0,
       note: line.note ?? `Từ ${source.code}`,
     }));
-    const suggestedSupplierId = bestSupplierIdForLines(lines, suppliers);
+    // Máy gán sẵn NCC RẺ NHẤT cho TỪNG DÒNG (không phải một NCC cho cả phiếu): phần lớn dòng chỉ
+    // có một nơi bán nên tự khớp, người thu mua chỉ phải xử lý mấy chỗ có nhiều lựa chọn.
+    // Dòng nào chưa ai bán thì để trống — ô chọn sẽ nói rõ, không im lặng.
+    const daGan: FormLine[] = lines.map((line) => {
+      const re = chaoGiaChoMatHang(line.item_name, suppliers)[0];
+      if (!re) return { ...line, supplier_id: null };
+      return {
+        ...line,
+        supplier_id: re.supplier_id,
+        unit: line.unit || re.unit,
+        expected_unit_price: re.unit_price,
+        vat_percent: re.vat_percent,
+      };
+    });
     setEditing(null);
     setForm({
-      supplier_id: suggestedSupplierId,
+      supplier_id: null,
       source_request_ids: [source.id],
       purpose: source.purpose,
       needed_date: source.needed_date ?? "",
       expected_receipt_date: "",
       note: "",
-      lines: lines.length
-        ? applySupplierPrices(lines, suppliers, suggestedSupplierId)
-        : [emptyLine()],
+      lines: daGan.length ? daGan : [emptyLine()],
     });
     setFormError(null);
     setMode("create");
@@ -602,7 +741,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
     setMode("edit");
   }
 
-  function cleanRequest(input: PurchaseRequestInput): PurchaseRequestInput {
+  function cleanRequest(input: FormState): FormState {
     const trimOptional = (v?: string | null) => {
       const s = (v ?? "").trim();
       return s || null;
@@ -624,6 +763,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
         discount_percent: Number(line.discount_percent) || 0,
         vat_percent: Number(line.vat_percent) || 0,
         note: trimOptional(line.note),
+        supplier_id: line.supplier_id ?? null,
       })),
     };
   }
@@ -632,8 +772,10 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
     e.preventDefault();
     if (!token || saving) return;
     const payload = cleanRequest(form);
+    // Chế độ TẠO: NCC gán ở từng DÒNG (kiểm ở dưới), không có ô NCC ở đầu phiếu.
+    // Chế độ SỬA: phiếu đã thuộc về một NCC, giữ nguyên ô đầu phiếu.
     const missingHeader = [
-      !payload.supplier_id ? "Nhà cung cấp" : "",
+      mode === "edit" && !payload.supplier_id ? "Nhà cung cấp" : "",
       !payload.needed_date ? "Ngày cần hàng" : "",
       !payload.purpose ? "Mục đích" : "",
     ].filter(Boolean);
@@ -687,17 +829,49 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
       );
       return;
     }
+    // Mỗi dòng phải biết mua của ai — không thì backend không nhóm được thành phiếu.
+    if (mode !== "edit") {
+      const chuaGan = payload.lines.filter((line) => !line.supplier_id);
+      if (chuaGan.length > 0) {
+        setFormError(
+          `Chưa chọn nhà cung cấp cho: ${chuaGan
+            .map((line) => line.item_name || "(dòng trống)")
+            .join(", ")}.`,
+        );
+        return;
+      }
+    }
     setSaving(true);
     setFormError(null);
     try {
-      const saved =
-        mode === "edit" && editing
-          ? await api.purchaseRequests.update(token, editing.id, payload)
-          : await api.purchaseRequests.create(token, payload);
-      if (mode === "edit") updateRow(saved);
-      else {
-        setRows((current) => [saved, ...current]);
-        setTotal((t) => t + 1);
+      if (mode === "edit" && editing) {
+        const saved = await api.purchaseRequests.update(token, editing.id, {
+          ...payload,
+          lines: payload.lines.map(({ supplier_id: _bo, ...line }) => line),
+        });
+        updateRow(saved);
+      } else {
+        // Tách phiếu theo NCC trong MỘT lời gọi — gọi `create` nhiều lần sẽ bị chặn từ lần thứ
+        // hai vì phiếu đầu đã giữ chỗ yêu cầu nguồn.
+        const { items } = await api.purchaseRequests.createBatch(token, {
+          source_request_ids: payload.source_request_ids,
+          purpose: payload.purpose,
+          needed_date: payload.needed_date,
+          expected_receipt_date: payload.expected_receipt_date,
+          note: payload.note,
+          lines: payload.lines.map((line) => ({
+            item_name: line.item_name,
+            unit: line.unit,
+            quantity: line.quantity,
+            expected_unit_price: line.expected_unit_price,
+            discount_percent: line.discount_percent,
+            vat_percent: line.vat_percent,
+            note: line.note,
+            supplier_id: line.supplier_id as number,
+          })),
+        });
+        setRows((current) => [...items, ...current]);
+        setTotal((t) => t + items.length);
       }
       setMode(null);
       loadSuppliers();
@@ -778,7 +952,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
     }
   }
 
-  function setLine(index: number, patch: Partial<PurchaseRequestLineInput>) {
+  function setLine(index: number, patch: Partial<FormLine>) {
     setForm((current) => ({
       ...current,
       lines: current.lines.map((line, i) =>
@@ -844,30 +1018,10 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
             }
           />
         )}
-        {canApprove && row.status === "pending_approval" && (
-          <>
-            <RowActionButton
-              dense={dense}
-              label="Duyệt"
-              icon="check"
-              loading={busy("approve")}
-              onClick={() =>
-                runAction(row, "approve", () =>
-                  api.purchaseRequests.approve(token!, row.id),
-                )
-              }
-            />
-            <RowActionButton
-              dense={dense}
-              label="Từ chối"
-              icon="ban"
-              danger
-              onClick={() =>
-                setReasonModal({ kind: "reject", row, reason: "", error: null })
-              }
-            />
-          </>
-        )}
+        {/* KHÔNG có nút Duyệt / Từ chối ở màn Mua hàng (chủ 04/08/2026: "phải duyệt ở phần kế
+            toán chứ"). Duyệt đơn mua là quyết định CHI TIỀN — nó thuộc về giám đốc / người được
+            trao quyền, và nay nằm ở màn Kế toán thu mua → Đơn mua hàng.
+            Thu mua ở đây chỉ: Xem · In · Sửa · Gửi duyệt · Huỷ · Xoá. */}
         {canUpdate && row.status === "approved" && (
           <RowActionButton
             dense={dense}
@@ -1367,6 +1521,10 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                 </div>
               )}
               <div className="md-page__form-grid">
+                {/* Ô NCC ở ĐẦU PHIẾU chỉ còn cho chế độ SỬA: phiếu đã tồn tại thì nó vốn thuộc về
+                    một nhà cung cấp. Lúc TẠO thì NCC gán ở từng DÒNG, vì một yêu cầu thường chứa
+                    hàng của nhiều nơi và mỗi NCC phải ra một phiếu riêng. */}
+                {mode === "edit" && (
                 <LocalField label="Nhà cung cấp" required>
                   <select
                     className="input"
@@ -1397,6 +1555,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                     })}
                   </select>
                 </LocalField>
+                )}
                 <LocalField label="Ngày cần hàng" required>
                   <input
                     className="input"
@@ -1446,24 +1605,28 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
               <div className="purchase__form-section">
                 <div className="purchase__form-section-head">
                   <h3>Dòng hàng</h3>
-                  <button
-                    type="button"
-                    className="btn btn--ghost"
-                    onClick={() =>
-                      setForm((current) => ({
-                        ...current,
-                        lines: [...current.lines, emptyLine()],
-                      }))
-                    }
-                  >
-                    + Thêm dòng
-                  </button>
+                  {/* KHÔNG có nút thêm dòng: danh sách hàng lấy nguyên từ yêu cầu của bộ phận.
+                      Thu mua thêm được một dòng thì thành mua thứ không ai xin. Cần mua thêm thì
+                      bộ phận gửi yêu cầu mới, để còn có người duyệt. */}
+                  <span className="md-page__muted">
+                    Lấy từ yêu cầu — Thu mua chọn nhà cung cấp và giá
+                  </span>
                 </div>
-                <div className="purchase__line-editor">
+                <div
+                  className={`purchase__line-editor${
+                    mode !== "edit" ? " purchase__line-editor--tach-ncc" : ""
+                  }`}
+                >
                   <div className="purchase__line-labels" aria-hidden="true">
                     <span>
                       Vật tư <span className="purchase__required-star">*</span>
                     </span>
+                    {mode !== "edit" && (
+                      <span>
+                        Nhà cung cấp{" "}
+                        <span className="purchase__required-star">*</span>
+                      </span>
+                    )}
                     <span>
                       ĐVT <span className="purchase__required-star">*</span>
                     </span>
@@ -1483,40 +1646,53 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                   </div>
                   {form.lines.map((line, index) => (
                     <div className="purchase__line-edit" key={index}>
+                      {/* Vật tư và ĐVT do BỘ PHẬN ĐỀ NGHỊ quyết, thu mua không được đổi — đổi ở
+                          đây là mua thứ khác với thứ người ta xin mà không ai hay. Thu mua chỉ
+                          chọn MUA CỦA AI và giá. Cùng lý do: không thêm/xoá dòng. */}
                       <input
-                        className="input purchase__line-name"
+                        className="input purchase__line-name purchase__readonly-field"
                         required
+                        readOnly
                         aria-label="Tên vật tư"
-                        placeholder="VD: Giấy Duplex 350gsm"
+                        title="Vật tư do bộ phận đề nghị khai — Thu mua không sửa được"
                         value={line.item_name}
-                        onChange={(e) =>
-                          setLine(index, { item_name: e.target.value })
-                        }
                       />
+                      {mode !== "edit" && (
+                        <LineSupplierPicker
+                          line={line}
+                          suppliers={suppliers}
+                          onPick={(chao) =>
+                            setLine(index, {
+                              supplier_id: chao?.supplier_id ?? null,
+                              // Chọn NCC là lấy luôn GIÁ CỦA CHÍNH HỌ — để người dùng gõ lại là
+                              // mở đường cho việc đặt một đằng, giá một nẻo.
+                              ...(chao
+                                ? {
+                                    unit: line.unit || chao.unit,
+                                    expected_unit_price: chao.unit_price,
+                                    vat_percent: chao.vat_percent,
+                                  }
+                                : {}),
+                            })
+                          }
+                        />
+                      )}
                       <input
-                        className="input purchase__line-unit"
+                        className="input purchase__line-unit purchase__readonly-field"
                         required
+                        readOnly
                         aria-label="Đơn vị tính"
-                        placeholder="VD: tờ, kg, cuộn"
+                        title="Đơn vị tính do bộ phận đề nghị khai — Thu mua không sửa được"
                         value={line.unit}
-                        onChange={(e) =>
-                          setLine(index, { unit: e.target.value })
-                        }
                       />
                       <input
-                        className="input purchase__number-input"
+                        className="input purchase__number-input purchase__readonly-field"
                         type="number"
-                        min="0.01"
-                        step="0.01"
                         required
+                        readOnly
                         aria-label="Số lượng"
-                        placeholder="VD: 1000"
+                        title="Số lượng do bộ phận đề nghị khai — Thu mua không sửa được"
                         value={line.quantity > 0 ? line.quantity : ""}
-                        onChange={(e) =>
-                          setLine(index, {
-                            quantity: Number(e.target.value || 0),
-                          })
-                        }
                       />
                       <input
                         className="input purchase__number-input"
@@ -1592,21 +1768,10 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                           <span className="md-page__muted">Chưa tính</span>
                         )}
                       </strong>
-                      <button
-                        type="button"
-                        className="purchase__line-remove"
-                        aria-label="Xóa dòng vật tư"
-                        title="Xóa dòng"
-                        disabled={form.lines.length <= 1}
-                        onClick={() =>
-                          setForm((current) => ({
-                            ...current,
-                            lines: current.lines.filter((_, i) => i !== index),
-                          }))
-                        }
-                      >
-                        ×
-                      </button>
+                      {/* Ô trống giữ chỗ cột cuối — bỏ hẳn thì lưới lệch một cột. Không cho xoá
+                          dòng vì bỏ bớt là mua thiếu so với thứ bộ phận đã xin, mà phiếu vẫn
+                          trông như đã xử lý xong yêu cầu đó. */}
+                      <span aria-hidden="true" />
                     </div>
                   ))}
                 </div>
@@ -1621,6 +1786,19 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                     )}
                   </strong>
                 </div>
+                {/* Nói TRƯỚC sẽ đẻ ra mấy phiếu. Bấm Lưu rồi mới thấy danh sách nhảy thêm mấy
+                    dòng là bất ngờ không đáng có — và người dùng cần biết để còn đổi NCC. */}
+                {mode !== "edit" && phieuSeTao.length > 0 && (
+                  <p className="md-page__muted" style={{ marginTop: 4 }}>
+                    Sẽ tạo <strong>{phieuSeTao.length} phiếu</strong> —{" "}
+                    {phieuSeTao
+                      .map(
+                        (p) =>
+                          `${p.ten}: ${p.soDong} dòng / ${money(p.tien)}`,
+                      )
+                      .join(" · ")}
+                  </p>
+                )}
               </div>
 
               <div className="md-page__dialog-actions">

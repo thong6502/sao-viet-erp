@@ -2934,6 +2934,12 @@ export interface PayrollParams {
   /** Trần khấu trừ kỷ luật (Điều 102 BLLĐ) — mức LUẬT, mặc định 0.30.
    *  `0` = TẮT trần: ghi phạt bao nhiêu trừ bấy nhiêu (thực nhận vẫn có sàn 0). */
   phat_cap_pct: number;
+  /** SỐ NGÀY nghỉ không lương trong tháng để MIỄN đóng BHXH tháng đó — mức LUẬT (QĐ 595 Đ42.4),
+   *  mặc định 14. `0` = TẮT luật: tháng nào cũng trừ BHXH. Đây là số NGÀY, không phải tỷ lệ. */
+  bhxh_mien_tu_so_ngay: number;
+  /** Ngưỡng CÔNG của một ngày để hưởng TRỌN cơm + phụ cấp của ca hôm đó (0,5 = nghỉ nửa buổi
+   *  vẫn được hưởng). Cố ý không chia theo tỷ lệ — một suất ăn là có hoặc không. */
+  phu_cap_ca_min_cong: number;
   chuyen_can_default: number;
   standard_hours_per_day: number;
   ot_multiplier: number;
@@ -3742,6 +3748,9 @@ export interface SupplierItemRow {
   unit: string;
   unit_price: number;
   vat_percent: number;
+  /** Mặt hàng còn bán không. Ô chọn NCC ở form phiếu mua lọc theo cờ này — ngưng bán thì không
+   *  mời nữa, vì backend cũng chặn đặt mới. */
+  is_active: boolean;
   note: string | null;
   created_at: string;
   updated_at: string;
@@ -3832,6 +3841,20 @@ export interface PurchaseRequestLineInput {
   discount_percent: number;
   vat_percent: number;
   note?: string | null;
+}
+
+/** Dòng hàng ĐÃ GÁN nhà cung cấp — chỉ dùng cho đường tạo cả mẻ. */
+export interface PurchaseRequestBatchLineInput extends PurchaseRequestLineInput {
+  supplier_id: number;
+}
+
+export interface PurchaseRequestBatchInput {
+  source_request_ids: number[];
+  purpose: string;
+  needed_date: string;
+  expected_receipt_date?: string | null;
+  note?: string | null;
+  lines: PurchaseRequestBatchLineInput[];
 }
 
 export interface DepartmentPurchaseRequestLineInput {
@@ -6934,6 +6957,18 @@ export const api = {
         body: JSON.stringify(input),
       });
     },
+    /** Tách phiếu theo NCC: mỗi dòng mang `supplier_id`, backend nhóm lại rồi đẻ N phiếu TRONG
+     *  MỘT LẦN. Đừng gọi `create` nhiều lần — phiếu đầu giữ chỗ yêu cầu nguồn, lần sau bị chặn. */
+    createBatch(
+      token: string,
+      input: PurchaseRequestBatchInput,
+    ): Promise<{ items: PurchaseRequestRow[]; total: number }> {
+      return authed<{ items: PurchaseRequestRow[]; total: number }>(
+        "/api/purchase-requests/batch",
+        token,
+        { method: "POST", body: JSON.stringify(input) },
+      );
+    },
     update(token: string, id: number, input: PurchaseRequestInput): Promise<PurchaseRequestRow> {
       return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}`, token, {
         method: "PUT",
@@ -7082,17 +7117,6 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(input),
       });
-    },
-    approveAndCreateVoucher(
-      token: string,
-      purchaseRequestId: number,
-      input: PaymentVoucherBaseInput,
-    ): Promise<PaymentVoucherRow> {
-      return authed<PaymentVoucherRow>(
-        `/api/accounting/purchase-requests/${purchaseRequestId}/approve-and-create-voucher`,
-        token,
-        { method: "POST", body: JSON.stringify(input) },
-      );
     },
     markVoucherPaid(token: string, id: number, bankReference: string | null): Promise<PaymentVoucherRow> {
       return authed<PaymentVoucherRow>(`/api/accounting/payment-vouchers/${id}/mark-paid`, token, {

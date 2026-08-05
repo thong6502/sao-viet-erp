@@ -55,6 +55,34 @@ def _needed_date(days: int = 30) -> str:
     return (date.today() + timedelta(days=days)).isoformat()
 
 
+def _duyet(client, purchase_id: int) -> None:
+    """Duyệt PMH bằng tài khoản KHÁC người lập.
+
+    Từ 04/08/2026: (a) đường gộp "duyệt + lập phiếu chi một cú bấm" đã bỏ — kế toán chỉ lập phiếu
+    chi cho PMH ĐÃ DUYỆT; (b) người lập không tự duyệt được phiếu của mình. Nên test phải có người
+    duyệt riêng, đúng như ngoài đời: giám đốc duyệt, kế toán mới viết phiếu chi.
+    """
+    db = SessionLocal()
+    try:
+        users = UserRepository(db)
+        u = users.get_by_username("acct-approver")
+        if u is None:
+            bgd = DepartmentRepository(db).get_by_name("Ban giám đốc")
+            roles = RoleRepository(db)
+            role = roles.create(name="Duyet PMH cho ke toan", department_id=bgd.id)
+            roles.set_permission(role_id=role.id, module_key="thu_mua",
+                                 can_read=True, can_approve=True, scope=SCOPE_ALL)
+            u = users.create(username="acct-approver", name="GD Duyet",
+                             password_hash=hash_password("x"))
+            users.set_assignment(u, department_id=bgd.id, role_id=role.id, is_active=True)
+        token = create_access_token(str(u.id))
+    finally:
+        db.close()
+    r = client.post(f"/api/purchase-requests/{purchase_id}/approve",
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+
+
 def _voucher(client, headers, supplier_id: int) -> dict:
     source = client.post(
         "/api/department-purchase-requests",
@@ -92,9 +120,11 @@ def _voucher(client, headers, supplier_id: int) -> dict:
         f"/api/purchase-requests/{purchase.json()['id']}/submit", headers=headers
     )
     assert submitted.status_code == 200, submitted.text
+    _duyet(client, purchase.json()["id"])
     created = client.post(
-        f"/api/accounting/purchase-requests/{purchase.json()['id']}/approve-and-create-voucher",
+        "/api/accounting/payment-vouchers",
         json={
+            "purchase_request_id": purchase.json()["id"],
             "voucher_type": "cash",
             "payment_stage": "advance",
             "voucher_date": "2026-07-13",

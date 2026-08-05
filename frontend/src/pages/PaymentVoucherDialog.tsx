@@ -24,7 +24,6 @@ const STAGE_LABELS: Record<PaymentStage, string> = {
 
 interface PaymentVoucherDialogProps {
   purchase: PurchaseRequestRow;
-  combined?: boolean;
   voucher?: PaymentVoucherRow | null;
   onClose: () => void;
   onSaved: (voucher: PaymentVoucherRow) => void;
@@ -95,7 +94,6 @@ function initialForm(
 
 export function PaymentVoucherDialog({
   purchase,
-  combined = false,
   voucher = null,
   onClose,
   onSaved,
@@ -342,14 +340,11 @@ export function PaymentVoucherDialog({
     setSaving(true);
     setError(null);
     try {
+      // Đường "duyệt + lập phiếu chi trong một cú bấm" đã BỎ HẲN (chủ 04/08/2026): giám đốc duyệt
+      // ở màn Đơn mua hàng trước, kế toán mới lập phiếu chi. Hai chữ ký, hai người — một người
+      // vừa duyệt khoản chi vừa viết phiếu chi là phá tách vai.
       let saved: PaymentVoucherRow;
-      if (combined) {
-        saved = await api.accounting.approveAndCreateVoucher(
-          token,
-          purchase.id,
-          payload,
-        );
-      } else if (voucher) {
+      if (voucher) {
         const input: PaymentVoucherInput = {
           ...payload,
           purchase_request_id: purchase.id,
@@ -396,11 +391,7 @@ export function PaymentVoucherDialog({
         <header className="acct-modal__head">
           <div>
             <p className="eyebrow">
-              {combined
-                ? "Duyệt PMH và lập chứng từ"
-                : voucher
-                  ? "Sửa chứng từ"
-                  : "Lập chứng từ thanh toán"}
+              {voucher ? "Sửa chứng từ" : "Lập chứng từ thanh toán"}
             </p>
             <h2 id="payment-voucher-title">
               {purchase.code} · {purchase.supplier_name}
@@ -808,11 +799,7 @@ export function PaymentVoucherDialog({
             Hủy
           </Button>
           <Button type="submit" variant="accent" loading={saving}>
-            {combined
-              ? "Duyệt & lập chứng từ"
-              : voucher
-                ? "Lưu thay đổi"
-                : "Lập chứng từ"}
+            {voucher ? "Lưu thay đổi" : "Lập chứng từ"}
           </Button>
         </footer>
       </form>

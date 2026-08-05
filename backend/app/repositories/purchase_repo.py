@@ -215,6 +215,8 @@ class SupplierRepository:
         ]
 
     def has_active_item(self, item_name: str) -> bool:
+        """CÓ NCC NÀO đang hoạt động bán thứ này không — dùng lúc lập YÊU CẦU mua, khi chưa biết
+        sẽ mua của ai. Muốn hỏi "NCC CỤ THỂ này có bán không" thì dùng `supplier_sells`."""
         clean_name = (item_name or "").strip().lower()
         if not clean_name:
             return False
@@ -224,6 +226,29 @@ class SupplierRepository:
                 .join(Supplier, Supplier.id == SupplierItem.supplier_id)
                 .where(
                     Supplier.status == SUPPLIER_ACTIVE,
+                    func.lower(SupplierItem.item_name) == clean_name,
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            is not None
+        )
+
+    def supplier_sells(self, supplier_id: int, item_name: str) -> bool:
+        """NCC CỤ THỂ này có bán mặt hàng đó không — dùng lúc lập PHIẾU MUA, khi đã chọn NCC.
+
+        Khác `has_active_item` ở hai chỗ: bó theo đúng một NCC, và có xét `SupplierItem.is_active`
+        (mặt hàng đã ngưng bán thì không đặt mới được nữa). Khớp tên theo chuỗi viết thường đã cắt
+        khoảng trắng — đúng cách `list_item_catalog` gom danh mục, để hai nơi không hiểu khác nhau.
+        """
+        clean_name = (item_name or "").strip().lower()
+        if not clean_name or not supplier_id:
+            return False
+        return (
+            self.db.execute(
+                select(SupplierItem.id)
+                .where(
+                    SupplierItem.supplier_id == int(supplier_id),
+                    SupplierItem.is_active.is_(True),
                     func.lower(SupplierItem.item_name) == clean_name,
                 )
                 .limit(1)
@@ -494,8 +519,15 @@ class PurchaseRequestRepository:
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
+        creator_ids: list[int] | None = None,
+        exclude_statuses: list[str] | None = None,
     ) -> tuple[list[PurchaseRequest], int]:
         conditions = []
+        # PHẠM VI NHÌN: None = thấy hết (giám đốc / kế toán). Danh sách RỖNG nghĩa là không thấy
+        # gì — phải phân biệt với None, `if creator_ids:` sẽ nuốt mất trường hợp rỗng và cho thấy
+        # cả công ty, đúng cái lỗ đang vá.
+        if creator_ids is not None:
+            conditions.append(PurchaseRequest.created_by_user_id.in_(creator_ids or [-1]))
         if q:
             like = f"%{q.strip().lower()}%"
             conditions.append(
@@ -511,6 +543,10 @@ class PurchaseRequestRepository:
             )
         if status:
             conditions.append(PurchaseRequest.status == status)
+        # Loại hẳn vài trạng thái khỏi một hộp thư nào đó (vd hộp Kế toán không nhận phiếu NHÁP).
+        # Chặn ở ĐÂY chứ không chỉ ở giao diện — lọc trên màn thì gọi thẳng API vẫn ra.
+        if exclude_statuses:
+            conditions.append(PurchaseRequest.status.notin_(exclude_statuses))
         if supplier_id is not None:
             conditions.append(PurchaseRequest.supplier_id == supplier_id)
 
@@ -539,19 +575,20 @@ class PurchaseRequestRepository:
         rows = list(self.db.execute(stmt.offset((page - 1) * size).limit(size)).scalars())
         return rows, total
 
-    def create(
+    def _build(
         self,
         *,
         code: str,
         supplier_id: int | None,
         purpose: str | None,
         needed_date: date | None,
-        expected_receipt_date: date | None = None,
+        expected_receipt_date: date | None,
         created_by_user_id: int | None,
         note: str | None,
         lines: Sequence[PurchaseRequestLineInput],
         source_requests: Sequence[DepartmentPurchaseRequest],
     ) -> PurchaseRequest:
+        """Dựng một phiếu trong bộ nhớ (CHƯA commit) — dùng chung cho `create` và `create_many`."""
         row = PurchaseRequest(
             code=code,
             status=PR_DRAFT,
@@ -576,6 +613,26 @@ class PurchaseRequestRepository:
         ]
         self._replace_sources(row, source_requests)
         self.db.add(row)
+        return row
+
+    def create(
+        self,
+        *,
+        code: str,
+        supplier_id: int | None,
+        purpose: str | None,
+        needed_date: date | None,
+        expected_receipt_date: date | None = None,
+        created_by_user_id: int | None,
+        note: str | None,
+        lines: Sequence[PurchaseRequestLineInput],
+        source_requests: Sequence[DepartmentPurchaseRequest],
+    ) -> PurchaseRequest:
+        row = self._build(
+            code=code, supplier_id=supplier_id, purpose=purpose, needed_date=needed_date,
+            expected_receipt_date=expected_receipt_date, created_by_user_id=created_by_user_id,
+            note=note, lines=lines, source_requests=source_requests,
+        )
         try:
             self.db.commit()
         except Exception:
@@ -583,6 +640,19 @@ class PurchaseRequestRepository:
             raise
         self.db.refresh(row)
         return self.get_by_id(row.id) or row
+
+    def create_many(self, items: Sequence[dict]) -> list[PurchaseRequest]:
+        """Tạo NHIỀU phiếu trong MỘT commit — hoặc ra đủ, hoặc không ra cái nào.
+
+        Gọi `create` trong vòng lặp thì mỗi lần một commit: hỏng ở phiếu thứ hai là phiếu đầu đã
+        nằm lại trong DB và yêu cầu nguồn bị giữ chỗ dở dang, không ai dọn."""
+        rows = [self._build(**item) for item in items]
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        return [self.get_by_id(row.id) or row for row in rows]
 
     def update_header_and_lines(
         self,

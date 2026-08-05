@@ -11,6 +11,7 @@ import {
   api,
   type PurchaseRequestRow,
   type SupplierInput,
+  type SupplierItemCatalogRow,
   type SupplierItemInput,
   type SupplierRow,
 } from "../api/client";
@@ -175,6 +176,21 @@ export function SuppliersPage() {
   // Tab 2 internal item search filter
   const [itemSearchQ, setItemSearchQ] = useState("");
 
+  // Danh mục vật tư GỘP của mọi NCC — dùng để gợi ý tên khi khai mặt hàng.
+  //
+  // Vì sao cần: hệ nhận diện "cùng một vật tư" bằng CHÍNH CHUỖI TÊN (viết thường, cắt khoảng
+  // trắng). NCC A khai "Giấy Duplex 350gsm", NCC B khai "Giay Duplex 350" là hai vật tư khác nhau
+  // ⇒ không so được giá giữa hai bên, và lúc gom mua hàng máy không bao giờ gợi ý B thay cho A.
+  // Gợi ý ở đây để tên tự hội tụ, thay vì dựng một bảng vật tư trung tâm.
+  const [itemCatalog, setItemCatalog] = useState<SupplierItemCatalogRow[]>([]);
+  useEffect(() => {
+    if (!token) return;
+    api.suppliers
+      .itemCatalog(token)
+      .then((res) => setItemCatalog(res.items))
+      .catch(() => setItemCatalog([]));   // không chặn: mất gợi ý thì vẫn gõ tay được
+  }, [token]);
+
   // Tab 3 Purchase Orders History State
   const [poList, setPoList] = useState<PurchaseRequestRow[]>([]);
   const [poLoading, setPoLoading] = useState(false);
@@ -243,6 +259,13 @@ export function SuppliersPage() {
       return { group: grp, count };
     });
   }, [allSuppliers, rows]);
+
+  // Dải pill lọc theo nhóm ĐANG TẮT (JSX bị comment ở ~500). Giữ nguyên phần tính ở trên để bật
+  // lại chỉ cần bỏ comment khối JSX. `selectedGroup` vẫn chạy thật — nó đi thẳng vào tham số
+  // `supplier_group` của API, chỉ là hiện chưa có nút nào đổi nó. Hai dòng `void` dưới đây chỉ để
+  // TypeScript thôi báo "khai mà không dùng" — không chạy gì, không đổi hành vi.
+  void groupPills;
+  void setSelectedGroup;
 
   // Metric stats — fallback về rows khi allSuppliers chưa load xong
   const stats = useMemo(() => {
@@ -497,7 +520,7 @@ export function SuppliersPage() {
       {/* Lọc nhanh theo nhóm NCC. Nhóm lấy từ dữ liệu thật (`groupPills`), chưa nhóm nào được đặt
           thì cả dải tự ẩn — không bày ô lọc rỗng. Lọc chạy ở SERVER qua `supplier_group`, nên
           đếm ở pill là đếm toàn bộ NCC chứ không phải mỗi trang đang xem. */}
-      {groupPills.length > 0 && (
+      {/* {groupPills.length > 0 && (
         <div className="supplier-pills-bar">
           <button
             type="button"
@@ -527,7 +550,7 @@ export function SuppliersPage() {
             </button>
           ))}
         </div>
-      )}
+      )} */}
 
       {error && (
         <div className="banner banner--error" role="alert">
@@ -946,6 +969,16 @@ export function SuppliersPage() {
                       </span>
                     </div>
 
+                    {/* Nguồn gợi ý dùng chung cho MỌI dòng — khai một lần, đừng lặp trong map. */}
+                    <datalist id="supplier-item-name-suggestions">
+                      {itemCatalog.map((c) => (
+                        <option key={c.item_name} value={c.item_name}>
+                          {c.unit}
+                          {c.supplier_count > 1 ? ` · ${c.supplier_count} NCC đang bán` : ""}
+                        </option>
+                      ))}
+                    </datalist>
+
                     {/* Table Editor */}
                     <div className="supplier__item-editor">
                       <div className="supplier__item-labels" aria-hidden="true" style={{ gridTemplateColumns: "minmax(180px, 1.4fr) minmax(70px, 0.5fr) minmax(110px, 0.8fr) minmax(65px, 0.5fr) minmax(120px, 0.8fr) minmax(130px, 1fr) 36px" }}>
@@ -968,13 +1001,27 @@ export function SuppliersPage() {
                             key={originalIndex}
                             style={{ gridTemplateColumns: "minmax(180px, 1.4fr) minmax(70px, 0.5fr) minmax(110px, 0.8fr) minmax(65px, 0.5fr) minmax(120px, 0.8fr) minmax(130px, 1fr) 36px" }}
                           >
+                            {/* `datalist` chứ không phải `select`: tên MỚI phải gõ được, vì đây
+                                chính là chỗ vật tư mới vào danh mục. Gợi ý chỉ để tên hội tụ. */}
                             <input
                               className="input"
+                              list="supplier-item-name-suggestions"
                               placeholder="VD: Giấy Duplex 350gsm"
                               value={item.item_name}
-                              onChange={(e) =>
-                                setSupplierItem(originalIndex, { item_name: e.target.value })
-                              }
+                              onChange={(e) => {
+                                const ten = e.target.value;
+                                // Gõ/chọn trúng tên đã có mà chưa khai ĐVT thì điền hộ — đơn vị
+                                // lệch nhau cũng làm hai bên không so được với nhau.
+                                const trung = itemCatalog.find(
+                                  (c) =>
+                                    c.item_name.trim().toLowerCase() ===
+                                    ten.trim().toLowerCase(),
+                                );
+                                setSupplierItem(originalIndex, {
+                                  item_name: ten,
+                                  ...(trung && !item.unit ? { unit: trung.unit } : {}),
+                                });
+                              }}
                             />
                             <input
                               className="input"

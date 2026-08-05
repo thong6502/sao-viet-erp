@@ -102,6 +102,12 @@ _DEFAULT_LATE_PENALTY_BRACKETS = [
 ]
 
 
+# LƯỚI DỰ PHÒNG cho `payroll_params.bhxh_mien_tu_so_ngay` — chỉ dùng khi bản ghi params cũ chưa có
+# cột (cùng idiom `getattr(params, "phat_cap_pct", 0.30)`). Số thật khai ở màn Cấu hình lương:
+# luật đổi thì gõ lại, KHÔNG sửa code. Xem QĐ 595/QĐ-BHXH Đ42.4.
+BHXH_MIEN_TU_SO_NGAY_MAC_DINH = 14
+
+
 def _chuyen_can_ratio(actual_cong, standard_cong) -> float:
     """Tỷ lệ chuyên cần TRỪ DẦN (PRD C3, khớp bảng lương thật):
     `số ngày nghỉ = max(0, công chuẩn − công thực)` · `tỷ lệ = max(0, 1 − 0,5 × số ngày nghỉ)`.
@@ -229,6 +235,10 @@ class PayrollService:
             "night_pct", "bh_base_cap", "bhtn_base_cap", "cong_doan_rate",
             "tnld_bnn_rate", "ot_night_extra_pct", "adjust_max_per_month",
             "pit_flat_rate", "pit_flat_threshold", "phat_cap_pct",
+            # ⚠️ Tên nào KHÔNG có trong rổ này thì PUT chạy ngon lành mà số không hề đổi — thêm
+            # cột mà quên khai ở đây là dựng ra một ô cấu hình giả. `phu_cap_ca_min_cong` thêm từ
+            # 03/08/2026 đã bị sót đúng kiểu đó, tuy tài liệu ghi là "khai được".
+            "phu_cap_ca_min_cong", "bhxh_mien_tu_so_ngay",
         }
         data = {k: v for k, v in fields.items() if k in allowed and v is not None}
         data["updated_at"] = datetime.now(timezone.utc)
@@ -882,6 +892,13 @@ class PayrollService:
             shift_allowance_pay += float(getattr(ca, "shift_allowance", 0) or 0) * so_ngay
         meal_allowance_pay = _round(meal_allowance_pay)
         shift_allowance_pay = _round(shift_allowance_pay)
+        # MIỄN TNCN cả hai (chủ chốt 04/08/2026). Trước đó để chịu thuế với lý do "khoản nào thật
+        # sự miễn thì khai ở danh mục khoản thu nhập" — nhưng khai ở đó nữa là TRẢ HAI LẦN, nên
+        # thực tế không có đường nào miễn: cùng một khoản tiền cơm, đi đường ca thì chịu thuế, đi
+        # đường danh mục thì miễn. Kế toán đang xếp "Tiền ăn ca/CN/GH" vào nhóm MIỄN
+        # (`docs/prd-thu-nhap-chiu-thue.md §1`). KHÔNG áp trần 730.000đ/tháng — đồng bộ chốt "miễn
+        # toàn bộ, không áp trần luật" ở §2 của chính tài liệu đó; rủi ro đã ghi ở §7.
+        ca_exempt = meal_allowance_pay + shift_allowance_pay
 
         # Lương CA ĐÊM theo GIỜ (Đ98) — DÒNG RIÊNG (`night_premium_pay`), MIỄN TNCN như tăng ca. Hai phần:
         #  (1) giờ đêm TRONG ca × hệ số per-ca (Chấm công đã weight (hệ số−1)) → premium theo giờ.
@@ -909,6 +926,19 @@ class PayrollService:
                      + meal_allowance_pay + shift_allowance_pay
                      + extra_income + extra_thu_line)
 
+        # Số ngày KHÔNG làm việc và KHÔNG hưởng lương trong tháng — dùng cho luật 14 ngày ở dưới.
+        # `actual_cong` ĐÃ gồm ngày lễ hưởng lương và ngày phép có lương (Chấm công cộng vào
+        # `total_cong` ở `attendance_service.py:1258` và `:1276`) nên hai loại đó KHÔNG bị đếm là
+        # nghỉ không lương — đúng ý luật. Riêng `plain_cong` (ngày off1x CÓ đi làm, CÓ trả 1×) đã
+        # bị trừ khỏi `total_cong` ở `:1195` nên phải cộng trả lại, nếu không người đi làm ngày
+        # off1x bị đếm nhầm thành nghỉ không lương và mất BHXH oan.
+        ngay_khong_luong = max(
+            0.0,
+            float(standard_cong or 0) - float(actual_cong or 0) - float(plain_cong or 0),
+        )
+        nguong_bhxh = int(
+            getattr(params, "bhxh_mien_tu_so_ngay", BHXH_MIEN_TU_SO_NGAY_MAC_DINH) or 0)
+
         # BHXH: thử việc KHÔNG đóng (HĐ thử việc, Đ2 Luật BHXH); áp trần RIÊNG BHXH/BHYT vs BHTN.
         if is_probation:
             insurance_base = 0.0
@@ -918,6 +948,18 @@ class PayrollService:
             # insurance_base (= lương cơ bản) để đoàn phí công đoàn vẫn tính + hiển thị. Công ty chỉ chịu
             # TNLĐ-BNN (`params.tnld_bnn_rate`) — khoản đó thuộc phía chủ SDLĐ, KHÔNG trừ vào lương và chỉ
             # hiện ở màn Sửa lương (FE); engine không ghi vào bảng lương tháng nên không xuất ở đây.
+            insurance_base = float(getattr(salary, "luong_vi_tri", 0) or 0) if salary else 0.0
+            bhxh = 0.0
+        elif nguong_bhxh > 0 and ngay_khong_luong >= nguong_bhxh:
+            # QĐ 595/QĐ-BHXH Đ42.4: không làm việc và không hưởng tiền lương từ `nguong_bhxh` ngày
+            # làm việc trở lên trong tháng thì THÁNG ĐÓ KHÔNG ĐÓNG BHXH. Một nhánh này phủ cả hai
+            # tình huống: người vào/nghỉ việc GIỮA THÁNG (ít công), và người nghỉ không lương dài.
+            #
+            # 🔴 `nguong_bhxh > 0` KHÔNG phải cho đẹp: `0` nghĩa là TẮT luật, mà bỏ vế đó ra thì
+            # `ngay_khong_luong >= 0` LUÔN ĐÚNG ⇒ cả xưởng mất sạch BHXH trong khi bảng lương trông
+            # vẫn bình thường. Có test riêng canh đúng chỗ này.
+            # GIỮ `insurance_base` như nhánh "BH đóng nơi khác" để phiếu lương vẫn hiện mức đóng —
+            # để trống thì người xem tưởng chưa khai lương cơ bản.
             insurance_base = float(getattr(salary, "luong_vi_tri", 0) or 0) if salary else 0.0
             bhxh = 0.0
         else:
@@ -947,7 +989,7 @@ class PayrollService:
         dependents = int(getattr(employee, "dependents_count", 0) or 0)
         pit_assessable, pit_taxable, pit_auto = self._auto_pit(
             gross=gross_pre_r, bhxh=bhxh_r, ot_pay=ot_pay, night_pay=night_pay,
-            night_premium_pay=night_premium_pay, component_exempt=component_exempt,
+            night_premium_pay=night_premium_pay, component_exempt=component_exempt + ca_exempt,
             apply_self_deduction=bool(getattr(salary, "apply_self_deduction", True)) if salary else True,
             pit_mode=getattr(employee, "pit_mode", None),
             dependents_count=dependents, params=params, brackets=brackets,
@@ -975,7 +1017,8 @@ class PayrollService:
             # Snapshot 2 số DẪN XUẤT cho phiếu lương. CHỊU thuế ≠ TÍNH thuế (`pit_taxable`).
             "thu_nhap_chiu_thue": _round(pit_assessable),
             "thu_nhap_mien_thue": _round(
-                float(ot_pay) + float(night_pay) + float(night_premium_pay) + component_exempt),
+                float(ot_pay) + float(night_pay) + float(night_premium_pay)
+                + component_exempt + ca_exempt),
             "monthly_salary": _round(monthly),
             "luong_cong": _round(luong_cong),
             # TRONG ĐÓ của `luong_cong` — phiếu lương hiện dòng riêng, TUYỆT ĐỐI không cộng
@@ -991,8 +1034,8 @@ class PayrollService:
             "night_days": int(night_days),
             "night_pay": night_pay,          # NGƯNG 03/08/2026 — luôn 0 (xem chỗ gán)
             "night_premium_pay": night_premium_pay,   # premium giờ đêm + tăng ca đêm (theo giờ), miễn TNCN
-            # Phụ cấp theo CA THỰC LÀM. CHỊU thuế (không trừ trong `_auto_pit`) — hướng an toàn;
-            # khoản nào thật sự được miễn thì khai ở danh mục khoản thu nhập có cờ `is_taxable`.
+            # Phụ cấp theo CA THỰC LÀM — MIỄN TNCN (xem `ca_exempt` ở trên). Hai cột này CỘNG
+            # THÊM vào gross, KHÔNG phải "trong đó" của khoản nào.
             "meal_allowance_pay": meal_allowance_pay,
             "shift_allowance_pay": shift_allowance_pay,
 
@@ -1363,22 +1406,31 @@ class PayrollService:
         comp_deduct = sum(float(c.amount) for c in comps if c.kind == "tru")
         comp_exempt = sum(float(c.amount) for c in comps
                           if c.kind != "tru" and not c.is_taxable)
+        # Phần MIỄN thuế KHÔNG đến từ danh mục: tăng ca + ca đêm + cơm ca + phụ cấp ca.
         # Phải đặt TRƯỚC `_apply_auto_pit` — hàm đó đọc `thu_nhap_mien_thue` để trừ ra khỏi
-        # thu nhập chịu thuế.
-        ot_mien = (float(ln.ot_pay or 0) + float(ln.night_pay or 0)
-                   + float(getattr(ln, "night_premium_pay", 0) or 0))
-        ln.thu_nhap_mien_thue = _round(ot_mien + comp_exempt)
+        # thu nhập chịu thuế (nó tự suy phần danh mục = snapshot − OT/đêm, nên cơm/phụ cấp ca rơi
+        # vào vế "danh mục" của nó và vẫn được miễn đúng; không phải sửa hàm đó).
+        ca_mien = (float(getattr(ln, "meal_allowance_pay", 0) or 0)
+                   + float(getattr(ln, "shift_allowance_pay", 0) or 0))
+        mien_ngoai_danh_muc = (float(ln.ot_pay or 0) + float(ln.night_pay or 0)
+                               + float(getattr(ln, "night_premium_pay", 0) or 0) + ca_mien)
+        ln.thu_nhap_mien_thue = _round(mien_ngoai_danh_muc + comp_exempt)
 
         # Lương TRƯỚC khấu trừ kỷ luật (gồm các khoản thưởng chi tiết) → TNCN tính trên số này.
+        # ⚠️ PHẢI khớp 1-1 với `gross_pre` của `_compute`. Thiếu một số hạng ở đây là "Sửa 1 ô"
+        # ăn mất tiền của người lao động mà bảng lương vẫn trông bình thường — `ca_mien` (cơm ca +
+        # phụ cấp ca) đã từng bị sót đúng kiểu đó, giống bệnh cũ của `khoan_defect` và
+        # `component_deduct`. Thêm số hạng mới vào `_compute` thì thêm CẢ ở đây.
         gross_pre = _round(extra_thu + float(ln.luong_cong) + float(ln.chuyen_can) + float(ln.allowance)
                            + float(ln.khoan) + float(ln.ot_pay) + float(ln.night_pay)
                            + float(getattr(ln, "night_premium_pay", 0) or 0)
+                           + ca_mien
                            + float(ln.other_bonus)
                            + float(ln.thuong_5s) + float(ln.thuong_doanh_so)
                            + float(ln.thuong_thanh_tich) + float(ln.phep_nam)
                            + float(ln.tra_dong_phuc) + float(ln.dieu_chinh_luong))
         ln.gross = gross_pre
-        ln.thu_nhap_chiu_thue = _round(max(0.0, gross_pre - ot_mien - comp_exempt))
+        ln.thu_nhap_chiu_thue = _round(max(0.0, gross_pre - mien_ngoai_danh_muc - comp_exempt))
         # TNCN: reset về tự tính (pit_manual=False) / ghi đè tay (pit) / else cập nhật auto theo gross mới.
         if pit_manual is False:
             self._apply_auto_pit(ln)
