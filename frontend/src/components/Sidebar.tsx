@@ -127,6 +127,9 @@ const NAV: NavSection[] = [
         children: [
           { id: "ke-toan-don-mua-hang", label: "Đơn mua hàng" },
           { id: "ke-toan-phieu-chi", label: VOUCHER_PAGE_LABEL },
+          // Công nợ phải trả nằm ở ĐÂY chứ không đứng riêng dưới "Kế toán": 100% số liệu của nó
+          // đến từ PMH + phiếu chi. Sau này có công nợ phải THU (khách hàng) thì đó là nhánh khác.
+          { id: "ke-toan-cong-no", label: "Công nợ phải trả" },
         ],
       },
     ],

@@ -92,6 +92,9 @@ class PurchaseRequestLineIn(BaseModel):
     discount_percent: float = Field(default=0, ge=0, le=100)
     vat_percent: float = Field(default=0, ge=0, le=100)
     note: str | None = Field(default=None, max_length=2000)
+    # Dòng YCMH đẻ ra dòng này. Không bắt buộc — thu mua vẫn được thêm dòng ngoài yêu cầu, và
+    # phiếu lập trước 05/08/2026 không có. Server chốt id phải thuộc đúng yêu cầu nguồn.
+    department_request_line_id: int | None = Field(default=None, gt=0)
 
 
 class DepartmentPurchaseRequestLineIn(BaseModel):
@@ -152,6 +155,8 @@ class PurchaseRequestLineOut(BaseModel):
     item_name: str
     unit: str
     quantity: float
+    # None = chưa khai lúc nhận hàng ⇒ hiểu là nhận đủ `quantity`.
+    received_quantity: float | None = None
     expected_unit_price: int
     discount_percent: float
     discount_amount: int
@@ -159,6 +164,19 @@ class PurchaseRequestLineOut(BaseModel):
     vat_amount: int
     line_total: int
     note: str | None = None
+
+
+class LineFulfilmentOut(BaseModel):
+    """Một dòng yêu cầu đã vào phiếu nào, của NCC nào, tới đâu rồi."""
+
+    purchase_request_id: int
+    purchase_code: str
+    purchase_status: str
+    supplier_name: str | None = None
+    ordered_quantity: float
+    ordered_unit: str
+    # None = chưa khai lúc nhận hàng ⇒ hiểu là nhận đủ `ordered_quantity`.
+    received_quantity: float | None = None
 
 
 class DepartmentPurchaseRequestLineOut(BaseModel):
@@ -169,6 +187,16 @@ class DepartmentPurchaseRequestLineOut(BaseModel):
     expected_unit_price: int
     line_total: int
     note: str | None = None
+    # None = dòng chưa vào phiếu nào, HOẶC phiếu lập trước 05/08/2026 (chưa có nối dòng ↔ dòng).
+    # Giao diện phải phân biệt hai ca, đừng hiện như nhau.
+    fulfilment: LineFulfilmentOut | None = None
+
+
+class DepartmentRequestPurchaseOut(BaseModel):
+    id: int
+    code: str
+    status: str
+    supplier_name: str | None = None
 
 
 class DepartmentPurchaseRequestOut(BaseModel):
@@ -189,6 +217,8 @@ class DepartmentPurchaseRequestOut(BaseModel):
     updated_at: datetime
     total_estimate: int
     lines: list[DepartmentPurchaseRequestLineOut]
+    # Các phiếu mua sinh ra từ yêu cầu này — luôn có, kể cả khi `fulfilment` theo dòng còn rỗng.
+    purchase_requests: list[DepartmentRequestPurchaseOut] = []
 
 
 class DepartmentPurchaseRequestListOut(BaseModel):
@@ -229,6 +259,8 @@ class PurchaseRequestOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     total_estimate: int
+    # Giá trị hàng THỰC NHẬN — công nợ và trần lập phiếu chi bám số này, không bám `total_estimate`.
+    received_total: int = 0
     pending_amount: int
     paid_amount: int
     receipt_received_amount: int = 0
@@ -249,3 +281,15 @@ class PurchaseRequestListOut(BaseModel):
 
 class ReasonIn(BaseModel):
     reason: str | None = Field(default=None, max_length=2000)
+
+
+class ReceivedLineIn(BaseModel):
+    line_id: int
+    # None = xoá khai báo, quay về "nhận đủ".
+    received_quantity: float | None = Field(default=None, ge=0)
+
+
+class ReceivedLinesIn(BaseModel):
+    """Số thực nhận từng dòng. Bỏ trống `lines` = nhận đủ như đã đặt (đường gọi cũ vẫn chạy)."""
+
+    lines: list[ReceivedLineIn] = Field(default_factory=list)

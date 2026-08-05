@@ -14,7 +14,10 @@ from ..models.purchase import (
     DPR_PENDING_APPROVAL,
     DepartmentPurchaseRequest,
     DepartmentPurchaseRequestLine,
+    PR_APPROVED,
     PR_DRAFT,
+    PR_PURCHASED,
+    PR_RECEIVED,
     SUPPLIER_ACTIVE,
     PurchaseRequest,
     PurchaseRequestLine,
@@ -285,6 +288,7 @@ class PurchaseRequestLineInput:
         discount_percent: float = 0,
         vat_percent: float = 0,
         note: str | None = None,
+        department_request_line_id: int | None = None,
     ) -> None:
         self.item_name = item_name
         self.unit = unit
@@ -293,6 +297,7 @@ class PurchaseRequestLineInput:
         self.discount_percent = discount_percent
         self.vat_percent = vat_percent
         self.note = note
+        self.department_request_line_id = department_request_line_id
 
 
 class DepartmentPurchaseRequestLineInput:
@@ -312,6 +317,20 @@ class DepartmentPurchaseRequestLineInput:
         self.note = note
 
 
+# Phiếu mua sinh ra từ yêu cầu, kèm dòng + NCC. Cần cho HAI việc, cả hai đều chạy trên MỌI yêu
+# cầu được đọc ra: suy trạng thái (`_tinh_lai_trang_thai_ycmh`) và hiện tình trạng TỪNG SẢN PHẨM ở
+# chi tiết. Không nạp sẵn thì mỗi yêu cầu trong danh sách bắn thêm mấy query — danh sách 20 dòng
+# thành cả trăm lượt hỏi DB.
+_NAP_PHIEU_CON = (
+    selectinload(DepartmentPurchaseRequest.purchase_links)
+    .selectinload(PurchaseRequestSource.purchase_request)
+    .selectinload(PurchaseRequest.lines),
+    selectinload(DepartmentPurchaseRequest.purchase_links)
+    .selectinload(PurchaseRequestSource.purchase_request)
+    .selectinload(PurchaseRequest.supplier),
+)
+
+
 class DepartmentPurchaseRequestRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -323,6 +342,7 @@ class DepartmentPurchaseRequestRepository:
                 selectinload(DepartmentPurchaseRequest.lines),
                 selectinload(DepartmentPurchaseRequest.requesting_department),
                 selectinload(DepartmentPurchaseRequest.requested_by),
+                *_NAP_PHIEU_CON,
             )
             .where(DepartmentPurchaseRequest.id == request_id)
         ).scalars().first()
@@ -381,6 +401,7 @@ class DepartmentPurchaseRequestRepository:
             selectinload(DepartmentPurchaseRequest.lines),
             selectinload(DepartmentPurchaseRequest.requesting_department),
             selectinload(DepartmentPurchaseRequest.requested_by),
+            *_NAP_PHIEU_CON,
         )
         count_stmt = select(func.count()).select_from(DepartmentPurchaseRequest)
         for c in conditions:
@@ -575,6 +596,38 @@ class PurchaseRequestRepository:
         rows = list(self.db.execute(stmt.offset((page - 1) * size).limit(size)).scalars())
         return rows, total
 
+    def list_for_payables(self, *, supplier_id: int | None = None) -> list[PurchaseRequest]:
+        """Các phiếu mua CÓ THỂ đang nợ NCC — nguồn của màn Công nợ phải trả.
+
+        Lọc hẹp ngay ở SQL: chỉ phiếu `đã duyệt / đã mua / đã nhận`. Nháp, chờ duyệt, bị từ chối và
+        đã huỷ thì không nợ ai đồng nào nên không lôi ra. Ai còn nợ THẬT thì lọc tiếp bằng Python —
+        bắt buộc, vì giá trị đơn cộng từ các dòng (có chiết khấu + VAT) chứ không phải một cột SUM
+        được.
+
+        Không phân trang: màn công nợ phải cộng đúng TỔNG, cắt trang là ra số sai. Bù lại nạp sẵn
+        đúng những quan hệ `purchase_money` cần, để không đẻ ra N+1 query.
+
+        ⚠️ Tập này lớn dần theo thời gian (đơn đã trả xong vẫn mang trạng thái `received`). Ở quy mô
+        vài trăm phiếu/tháng thì chưa đáng lo; khi nào chậm thì cắt bằng mốc ngày, đừng bỏ Python
+        filter đi."""
+        stmt = (
+            select(PurchaseRequest)
+            .options(
+                selectinload(PurchaseRequest.lines),
+                selectinload(PurchaseRequest.supplier),
+                selectinload(PurchaseRequest.payment_vouchers).selectinload(PaymentVoucher.receipts),
+                # Badge "chưa có chứng từ" đọc `voucher.attachments`. Thiếu dòng này là mỗi phiếu
+                # chi bắn thêm một query — đúng cái N+1 mà eager load ở đây sinh ra để tránh.
+                selectinload(PurchaseRequest.payment_vouchers).selectinload(
+                    PaymentVoucher.attachments
+                ),
+            )
+            .where(PurchaseRequest.status.in_([PR_APPROVED, PR_PURCHASED, PR_RECEIVED]))
+        )
+        if supplier_id is not None:
+            stmt = stmt.where(PurchaseRequest.supplier_id == supplier_id)
+        return list(self.db.execute(stmt.order_by(PurchaseRequest.id.desc())).scalars())
+
     def _build(
         self,
         *,
@@ -608,6 +661,7 @@ class PurchaseRequestRepository:
                 discount_percent=line.discount_percent,
                 vat_percent=line.vat_percent,
                 note=line.note,
+                department_request_line_id=getattr(line, "department_request_line_id", None),
             )
             for line in lines
         ]
@@ -680,6 +734,7 @@ class PurchaseRequestRepository:
                 discount_percent=line.discount_percent,
                 vat_percent=line.vat_percent,
                 note=line.note,
+                department_request_line_id=getattr(line, "department_request_line_id", None),
             )
             for line in lines
         ]

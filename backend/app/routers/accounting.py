@@ -31,6 +31,8 @@ from ..schemas.accounting import (
     PaymentVoucherIn,
     PaymentVoucherListOut,
     PaymentVoucherOut,
+    PayablesDetailOut,
+    PayablesSummaryOut,
     SupplierBankAccountIn,
     SupplierBankAccountOut,
 )
@@ -79,6 +81,32 @@ def accounting_inbox(
         exclude_statuses=[PR_DRAFT],
     )
     return PurchaseRequestListOut(items=rows, total=total, page=page, size=size)
+
+
+@router.get("/api/accounting/payables", response_model=PayablesSummaryOut)
+def accounting_payables(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    q: str | None = Query(default=None),
+) -> PayablesSummaryOut:
+    # Chỉ ĐỌC — không đẻ ô quyền mới, `ke_toan:read` là đủ. Không phân trang: cắt trang là ra
+    # TỔNG sai.
+    #
+    # `q` lọc ở SERVER chứ không lọc trên danh sách đã trả về: NCC đã trả hết và im lặng lâu thì
+    # KHÔNG có dòng nào trong danh sách để mà lọc — phải để service lôi họ ra.
+    return PayablesSummaryOut(**svc.payables_summary(q=q))
+
+
+@router.get("/api/accounting/payables/{supplier_id}", response_model=PayablesDetailOut)
+def accounting_payables_detail(
+    supplier_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    all_history: bool = Query(default=False),
+) -> PayablesDetailOut:
+    # `all_history` bỏ mốc kỳ cho riêng rổ "đã chi" — nút "Xem lịch sử cũ hơn". Chỉ nới cho MỘT
+    # NCC nên vẫn nhẹ; đừng bao giờ nới cho bảng tổng hợp.
+    return PayablesDetailOut(**svc.payables_detail(supplier_id, all_history=all_history))
 
 
 @router.get("/api/accounting/company-bank-accounts", response_model=list[CompanyBankAccountOut])

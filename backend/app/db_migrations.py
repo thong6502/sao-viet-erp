@@ -5386,3 +5386,57 @@ def _migrate_thu_mua_pham_vi_nhin(db: Session) -> None:
 
 
 MIGRATIONS.append(("0161_thu_mua_pham_vi_nhin", _migrate_thu_mua_pham_vi_nhin))
+
+
+def _migrate_so_thuc_nhan_dong_phieu_mua(db: Session) -> None:
+    """Số THỰC NHẬN từng dòng phiếu mua, nền cho màn Công nợ phải trả (chủ 05/08/2026).
+
+    Trước đó `mark_received` chỉ lật một trạng thái, không ghi được hàng về BAO NHIÊU ⇒ hệ luôn
+    hiểu NCC giao đủ. Giao thiếu 20% mà công nợ vẫn ghi đủ 100% là kế toán chi thừa tiền thật.
+
+    Cột để **NULL** (không DEFAULT): null = chưa ai khai ⇒ service coi như nhận đủ `quantity`. Nhờ
+    vậy mọi phiếu cũ giữ nguyên số tiền, không đơn nào tự đổi giá trị sau khi nâng cấp. Nếu đặt
+    DEFAULT 0 thì mọi đơn cũ hoá thành "nhận 0" và công nợ về 0 sạch — mất trắng nợ đang có.
+
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if ("purchase_request_lines" in insp.get_table_names()
+            and "received_quantity" not in _existing_columns(insp, "purchase_request_lines")):
+        db.execute(text(
+            "ALTER TABLE purchase_request_lines ADD COLUMN received_quantity NUMERIC(14,2)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0162_so_thuc_nhan_dong_phieu_mua", _migrate_so_thuc_nhan_dong_phieu_mua))
+
+
+def _migrate_noi_dong_phieu_mua_voi_dong_yeu_cau(db: Session) -> None:
+    """Nối DÒNG phiếu mua với DÒNG yêu cầu đã đẻ ra nó (chủ 05/08/2026: *"bấm vào chi tiết thì nó
+    sẽ hiện trạng thái của từng sản phẩm chứ nhỉ"*).
+
+    Trước đó nối duy nhất là `purchase_request_sources` — PHIẾU ↔ YÊU CẦU, ở mức đầu phiếu. Biết
+    "PMH-01 đến từ YCMH-05" nhưng không biết dòng giấy trong PMH-01 là dòng nào của YCMH-05, nên
+    không hiện được trạng thái từng sản phẩm, và trạng thái YCMH chỉ suy được ở mức phiếu.
+
+    ⚠️ Chỉ thêm CỘT, **không** thêm khoá ngoại: `ALTER TABLE ... ADD CONSTRAINT` không chạy trên
+    SQLite nên migration sẽ vỡ ở môi trường khác. DB dựng mới bằng `create_all` thì có khoá ngoại
+    (khai trong model); DB đang chạy thì không. Hệ quả: xoá một dòng YCMH có thể để lại id mồ côi
+    trên DB live ⇒ chỗ đọc PHẢI chịu được "nối tới dòng không còn tồn tại", đừng giả định luôn tìm
+    thấy.
+
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if "purchase_request_lines" not in insp.get_table_names():
+        return
+    if "department_request_line_id" not in _existing_columns(insp, "purchase_request_lines"):
+        db.execute(text(
+            "ALTER TABLE purchase_request_lines ADD COLUMN department_request_line_id INTEGER"))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_purchase_request_lines_department_request_line_id "
+        "ON purchase_request_lines (department_request_line_id)"))
+    db.commit()
+
+
+MIGRATIONS.append(
+    ("0163_noi_dong_phieu_mua_voi_dong_yeu_cau", _migrate_noi_dong_phieu_mua_voi_dong_yeu_cau)
+)

@@ -27,6 +27,9 @@ import { DetailModal } from "../components/DetailModal";
 import { RowActionButton } from "../components/RowActionButton";
 import { fmtDate, money } from "../utils/format";
 import "./master-data.css";
+// Hộp khai số thực nhận mượn bảng gọn `.pay-table` của màn Công nợ — cùng một loại bảng phụ trong
+// hộp thoại, không dựng bộ lớp thứ hai cho y hệt một việc.
+import "./payables.css";
 import "./purchase.css";
 
 const PAGE_SIZE = 10;
@@ -64,7 +67,11 @@ const SOURCE_STATUS_META: Record<
  * Một phiếu mua là thoả thuận với MỘT nhà cung cấp, nhưng một yêu cầu thường chứa hàng của nhiều
  * nơi. Nên NCC gán ở DÒNG, rồi lúc gửi mới nhóm lại thành N phiếu. Ô "Nhà cung cấp" ở đầu phiếu
  * chỉ còn dùng cho chế độ SỬA (phiếu đã tồn tại thì nó vốn đã thuộc về một NCC). */
-type FormLine = PurchaseRequestLineInput & { supplier_id?: number | null };
+type FormLine = PurchaseRequestLineInput & {
+  supplier_id?: number | null;
+  /** Dòng YCMH đẻ ra dòng này — gửi lên để chi tiết yêu cầu hiện được tình trạng từng sản phẩm. */
+  department_request_line_id?: number | null;
+};
 
 type FormState = Omit<PurchaseRequestInput, "lines"> & { lines: FormLine[] };
 
@@ -595,11 +602,17 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
   // nhận hàng sớm hơn ngày cần là trường hợp mong muốn, chặn nó là cấm đúng cái tốt.
   const expectedReceiptMinDate = minPurchaseDate;
   const [deleting, setDeleting] = useState<PurchaseRequestRow | null>(null);
+  // Dùng CHUNG một hộp "nhập lý do" cho cả huỷ / từ chối / lùi đã nhận — không dựng hộp thứ ba.
   const [reasonModal, setReasonModal] = useState<null | {
-    kind: "cancel" | "reject";
+    kind: "cancel" | "reject" | "undo_received";
     row: PurchaseRequestRow;
     reason: string;
     error: string | null;
+  }>(null);
+  // Hộp khai SỐ THỰC NHẬN: mở khi bấm "Đã nhận" (mode `receive`) hoặc khi sửa lại sau (`edit`).
+  const [receiveModal, setReceiveModal] = useState<null | {
+    row: PurchaseRequestRow;
+    mode: "receive" | "edit";
   }>(null);
 
   const loadSuppliers = useCallback(() => {
@@ -705,6 +718,10 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
       discount_percent: 0,
       vat_percent: 0,
       note: line.note ?? `Từ ${source.code}`,
+      // Nối DÒNG ↔ DÒNG. Form dựng từ chính các dòng của yêu cầu nên id có sẵn ngay đây; không
+      // gửi lên thì chi tiết yêu cầu không hiện được tình trạng từng sản phẩm, mà ghép bù theo
+      // tên hàng thì trượt (thu mua sửa được tên cho khớp danh mục NCC).
+      department_request_line_id: line.id,
     }));
     // Máy gán sẵn NCC RẺ NHẤT cho TỪNG DÒNG (không phải một NCC cho cả phiếu): phần lớn dòng chỉ
     // có một nơi bán nên tự khớp, người thu mua chỉ phải xử lý mấy chỗ có nhiều lựa chọn.
@@ -764,6 +781,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
         vat_percent: Number(line.vat_percent) || 0,
         note: trimOptional(line.note),
         supplier_id: line.supplier_id ?? null,
+        department_request_line_id: line.department_request_line_id ?? null,
       })),
     };
   }
@@ -868,6 +886,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
             vat_percent: line.vat_percent,
             note: line.note,
             supplier_id: line.supplier_id as number,
+            department_request_line_id: line.department_request_line_id,
           })),
         });
         setRows((current) => [...items, ...current]);
@@ -929,13 +948,21 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
       setReasonModal({ ...reasonModal, error: "Vui lòng nhập lý do từ chối." });
       return;
     }
+    // Lùi "Đã nhận hàng" XOÁ một món nợ khỏi màn Kế toán ⇒ bắt buộc ghi lý do, để nhật ký còn truy
+    // được. Server cũng chặn lý do rỗng; đây chỉ là chặn sớm cho đỡ một vòng gọi.
+    if (kind === "undo_received" && !reason.trim()) {
+      setReasonModal({ ...reasonModal, error: "Vui lòng nhập lý do lùi trạng thái." });
+      return;
+    }
     setActionBusy(`${kind}:${row.id}`);
     setReasonModal({ ...reasonModal, error: null });
     try {
       const next =
         kind === "reject"
           ? await api.purchaseRequests.reject(token, row.id, reason.trim())
-          : await api.purchaseRequests.cancel(token, row.id, reason || null);
+          : kind === "undo_received"
+            ? await api.purchaseRequests.undoReceived(token, row.id, reason.trim())
+            : await api.purchaseRequests.cancel(token, row.id, reason || null);
       updateRow(next);
       setReasonModal(null);
       loadSources();
@@ -1036,15 +1063,35 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
           />
         )}
         {canUpdate && row.status === "purchased" && (
+          // Bấm ra HỘP KHAI SỐ THỰC NHẬN chứ không lật thẳng trạng thái: đây là mốc phát sinh CÔNG
+          // NỢ, một cú bấm nhầm là đẻ ra nợ trên bàn kế toán. Hộp vừa là bước xác nhận, vừa là chỗ
+          // khai NCC giao thiếu bao nhiêu.
           <RowActionButton
             dense={dense}
             label="Đã nhận"
             icon="packageCheck"
-            loading={busy("received")}
+            onClick={() => setReceiveModal({ row, mode: "receive" })}
+          />
+        )}
+        {/* Sau khi đã nhận: sửa lại số thực nhận (NCC giao nhiều đợt) và lùi trạng thái nếu bấm
+            nhầm. Cả hai server đều đòi quyền DUYỆT — nút vẫn hiện, người thiếu quyền bấm sẽ nhận
+            đúng câu báo thay vì im lặng không có lối. */}
+        {canUpdate && row.status === "received" && (
+          <RowActionButton
+            dense={dense}
+            label="Sửa số nhận"
+            icon="pencil"
+            onClick={() => setReceiveModal({ row, mode: "edit" })}
+          />
+        )}
+        {canUpdate && row.status === "received" && (
+          <RowActionButton
+            dense={dense}
+            label="Lùi đã nhận"
+            icon="rotateCcw"
+            danger
             onClick={() =>
-              runAction(row, "received", () =>
-                api.purchaseRequests.markReceived(token!, row.id),
-              )
+              setReasonModal({ kind: "undo_received", row, reason: "", error: null })
             }
           />
         )}
@@ -1836,10 +1883,28 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
 
       <ConfirmDialog
         open={Boolean(reasonModal)}
-        title={reasonModal?.kind === "reject" ? "Từ chối phiếu?" : "Hủy phiếu?"}
-        message={reasonModal ? `Phiếu ${reasonModal.row.code}` : undefined}
+        title={
+          reasonModal?.kind === "reject"
+            ? "Từ chối phiếu?"
+            : reasonModal?.kind === "undo_received"
+              ? "Lùi về 'Đã mua'?"
+              : "Hủy phiếu?"
+        }
+        message={
+          reasonModal
+            ? reasonModal.kind === "undo_received"
+              ? `Phiếu ${reasonModal.row.code} — công nợ của đơn này sẽ mất khỏi màn Kế toán, và yêu cầu của bộ phận quay về "Đang mua".`
+              : `Phiếu ${reasonModal.row.code}`
+            : undefined
+        }
         danger
-        confirmLabel={reasonModal?.kind === "reject" ? "Từ chối phiếu" : "Hủy phiếu"}
+        confirmLabel={
+          reasonModal?.kind === "reject"
+            ? "Từ chối phiếu"
+            : reasonModal?.kind === "undo_received"
+              ? "Lùi trạng thái"
+              : "Hủy phiếu"
+        }
         busy={
           reasonModal
             ? actionBusy === `${reasonModal.kind}:${reasonModal.row.id}`
@@ -1851,7 +1916,11 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
       >
         <label className="purchase__field">
           <span>
-            {reasonModal?.kind === "reject" ? "Lý do từ chối" : "Lý do / ghi chú"}
+            {reasonModal?.kind === "reject"
+              ? "Lý do từ chối"
+              : reasonModal?.kind === "undo_received"
+                ? "Lý do lùi (bắt buộc)"
+                : "Lý do / ghi chú"}
           </span>
           <textarea
             className="input purchase__textarea"
@@ -1864,7 +1933,136 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
           />
         </label>
       </ConfirmDialog>
+
+      {receiveModal && (
+        <ReceiveDialog
+          row={receiveModal.row}
+          mode={receiveModal.mode}
+          onClose={() => setReceiveModal(null)}
+          onDone={(next) => {
+            updateRow(next);
+            setReceiveModal(null);
+            loadSources();
+          }}
+        />
+      )}
     </main>
+  );
+}
+
+/**
+ * Khai SỐ THỰC NHẬN lúc bấm "Đã nhận hàng".
+ *
+ * Ô số điền sẵn bằng số đã đặt ⇒ hàng về đủ thì chỉ bấm Xác nhận, KHÔNG phải gõ gì. Chỉ khi NCC
+ * giao thiếu mới phải sửa xuống. Số này là nền của công nợ và là trần lập phiếu chi — ghi nợ đủ
+ * cho hàng về thiếu là kế toán chi thừa tiền thật.
+ *
+ * `mode="edit"` dùng cho ca NCC giao nhiều đợt (đợt 1 về 600, đợt 2 về nốt thì sửa lên 1000);
+ * đường này server đòi quyền DUYỆT vì nó đổi số nợ đã ghi.
+ */
+function ReceiveDialog({
+  row,
+  mode,
+  onClose,
+  onDone,
+}: {
+  row: PurchaseRequestRow;
+  mode: "receive" | "edit";
+  onClose: () => void;
+  onDone: (next: PurchaseRequestRow) => void;
+}) {
+  const { token } = useAuth();
+  const [values, setValues] = useState<Record<number, string>>(() =>
+    Object.fromEntries(
+      row.lines.map((line) => [
+        line.id,
+        String(line.received_quantity ?? line.quantity),
+      ]),
+    ),
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const thieu = row.lines.some(
+    (line) => Number(values[line.id] ?? line.quantity) < line.quantity,
+  );
+
+  async function submit() {
+    if (!token) return;
+    const lines = row.lines.map((line) => ({
+      line_id: line.id,
+      received_quantity: Number(values[line.id] ?? line.quantity),
+    }));
+    if (lines.some((l) => !Number.isFinite(l.received_quantity!) || l.received_quantity! < 0)) {
+      setError("Số thực nhận phải là số không âm.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      onDone(
+        mode === "receive"
+          ? await api.purchaseRequests.markReceived(token, row.id, lines)
+          : await api.purchaseRequests.updateReceivedQuantities(token, row.id, lines),
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Không lưu được số thực nhận.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ConfirmDialog
+      open
+      title={mode === "receive" ? "Xác nhận đã nhận hàng" : "Sửa số thực nhận"}
+      message={`Phiếu ${row.code} — về đủ thì bấm Xác nhận, về thiếu thì sửa số xuống.`}
+      confirmLabel={mode === "receive" ? "Xác nhận đã nhận" : "Lưu số thực nhận"}
+      busy={busy}
+      error={error}
+      onConfirm={submit}
+      onCancel={onClose}
+    >
+      <table className="pay-table">
+        <thead>
+          <tr>
+            <th>Vật tư</th>
+            <th className="pay-num">Đặt</th>
+            <th className="pay-num">Thực nhận</th>
+          </tr>
+        </thead>
+        <tbody>
+          {row.lines.map((line) => (
+            <tr key={line.id}>
+              <td>{line.item_name}</td>
+              <td className="pay-num">
+                {line.quantity} {line.unit}
+              </td>
+              <td className="pay-num">
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={line.quantity}
+                  step="any"
+                  style={{ width: 110, textAlign: "right" }}
+                  value={values[line.id] ?? ""}
+                  onChange={(e) =>
+                    setValues((current) => ({ ...current, [line.id]: e.target.value }))
+                  }
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {thieu && (
+        <p className="pay-block__hint" style={{ marginTop: 8 }}>
+          Có dòng nhận thiếu so với số đặt — công nợ và trần lập phiếu chi sẽ tính theo số thực
+          nhận.
+        </p>
+      )}
+    </ConfirmDialog>
   );
 }
 

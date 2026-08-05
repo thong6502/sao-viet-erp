@@ -128,6 +128,8 @@ def _voucher(client, headers, supplier_id: int) -> dict:
             "voucher_type": "cash",
             "payment_stage": "advance",
             "voucher_date": "2026-07-13",
+            # Hạn trả BẮT BUỘC từ 05/08/2026 — không có hạn thì phiếu không bao giờ bị báo quá hạn.
+            "planned_payment_date": "2026-07-28",
             "amount": 1_000_000,
             "currency": "VND",
             "exchange_rate": 1,

@@ -3841,6 +3841,95 @@ export interface PurchaseRequestLineInput {
   discount_percent: number;
   vat_percent: number;
   note?: string | null;
+  /** Dòng YCMH đẻ ra dòng này — nền cho "tình trạng từng sản phẩm" ở chi tiết yêu cầu. */
+  department_request_line_id?: number | null;
+}
+
+// --- Công nợ phải trả ------------------------------------------------------
+// KHÔNG có bảng công nợ dưới DB: mọi số dưới đây SUY RA từ phiếu mua + phiếu chi lúc gọi API.
+
+export interface PayableSupplierRow {
+  supplier_id: number | null;
+  supplier_name: string;
+  /** Số đơn CÒN NỢ (🔴 + 🟡). Đơn đã trả xong không đếm ở đây. */
+  order_count: number;
+  /** 🔴 Hàng đã nhận mà chưa có phiếu chi phủ hết — nợ có thật, chưa vào sổ. */
+  unrecorded_amount: number;
+  /** 🟡 Đã lập phiếu, tiền chưa ra. */
+  waiting_amount: number;
+  overdue_amount: number;
+  /** Tiền ĐÃ CHI trong kỳ. NCC trả hết vẫn giữ được dòng nhờ số này. */
+  paid_in_period: number;
+  total_due: number;
+}
+
+export interface PayablesSummary {
+  items: PayableSupplierRow[];
+  total_due: number;
+  unrecorded_amount: number;
+  waiting_amount: number;
+  overdue_amount: number;
+  paid_in_period: number;
+  period_months: number;
+  as_of: string;
+}
+
+export interface PayableUnrecordedRow {
+  purchase_request_id: number;
+  code: string;
+  status: PurchaseRequestStatus;
+  total_estimate: number;
+  received_total: number;
+  amount: number;
+  expected_receipt_date: string | null;
+}
+
+export interface PayableWaitingRow {
+  voucher_id: number;
+  code: string;
+  doc_no: string | null;
+  voucher_type: string;
+  purchase_request_id: number;
+  purchase_code: string;
+  amount: number;
+  /** Phân biệt các ĐỢT GIAO của cùng một đơn — thiếu nó thì ba đợt trông y hệt nhau. */
+  invoice_number: string | null;
+  invoice_date: string | null;
+  /** null = phiếu cũ lập trước khi hạn trả thành bắt buộc ⇒ KHÔNG BAO GIỜ vào cột Quá hạn.
+      Giao diện phải gắn badge "Chưa đặt hạn". */
+  planned_payment_date: string | null;
+  overdue_days: number;
+  has_attachment: boolean;
+}
+
+/** ✅ Một LẦN CHI trong kỳ. Cộng lại đúng bằng cột "Đã trả". */
+export interface PayablePaidRow {
+  voucher_id: number;
+  code: string;
+  doc_no: string | null;
+  voucher_type: string;
+  purchase_request_id: number;
+  purchase_code: string;
+  amount: number;
+  invoice_number: string | null;
+  invoice_date: string | null;
+  paid_date: string;
+}
+
+export interface PayablesDetail {
+  supplier_id: number;
+  supplier_name: string;
+  unrecorded: PayableUnrecordedRow[];
+  waiting: PayableWaitingRow[];
+  paid: PayablePaidRow[];
+  period_months: number;
+  /** true = rổ "đã chi" đang hiện TOÀN BỘ lịch sử, không còn cắt theo kỳ. */
+  all_history: boolean;
+  unrecorded_amount: number;
+  waiting_amount: number;
+  overdue_amount: number;
+  paid_in_period: number;
+  as_of: string;
 }
 
 /** Dòng hàng ĐÃ GÁN nhà cung cấp — chỉ dùng cho đường tạo cả mẻ. */
@@ -3884,11 +3973,19 @@ export interface PurchaseRequestInput {
   lines: PurchaseRequestLineInput[];
 }
 
+/** Khai số thực nhận cho một dòng. `null` = xoá khai báo, quay về "nhận đủ". */
+export interface ReceivedLineInput {
+  line_id: number;
+  received_quantity: number | null;
+}
+
 export interface PurchaseRequestLineOut {
   id: number;
   item_name: string;
   unit: string;
   quantity: number;
+  /** `null` = chưa khai lúc nhận hàng ⇒ hiểu là nhận đủ `quantity`. */
+  received_quantity: number | null;
   expected_unit_price: number;
   discount_percent: number;
   discount_amount: number;
@@ -3896,6 +3993,18 @@ export interface PurchaseRequestLineOut {
   vat_amount: number;
   line_total: number;
   note: string | null;
+}
+
+/** Một dòng yêu cầu đã vào phiếu nào, của NCC nào, tới đâu rồi. */
+export interface LineFulfilment {
+  purchase_request_id: number;
+  purchase_code: string;
+  purchase_status: PurchaseRequestStatus;
+  supplier_name: string | null;
+  ordered_quantity: number;
+  ordered_unit: string;
+  /** null = chưa khai lúc nhận hàng ⇒ hiểu là nhận đủ `ordered_quantity`. */
+  received_quantity: number | null;
 }
 
 export interface DepartmentPurchaseRequestLineOut {
@@ -3906,6 +4015,16 @@ export interface DepartmentPurchaseRequestLineOut {
   expected_unit_price: number;
   line_total: number;
   note: string | null;
+  /** null = dòng CHƯA vào phiếu nào, HOẶC phiếu lập trước 05/08/2026 (chưa có nối dòng ↔ dòng).
+      Hai ca đó phải hiện khác nhau — xem `DepartmentPurchaseRequestRow.purchase_requests`. */
+  fulfilment: LineFulfilment | null;
+}
+
+export interface DepartmentRequestPurchaseRow {
+  id: number;
+  code: string;
+  status: PurchaseRequestStatus;
+  supplier_name: string | null;
 }
 
 export interface DepartmentPurchaseRequestRow {
@@ -3926,6 +4045,8 @@ export interface DepartmentPurchaseRequestRow {
   updated_at: string;
   total_estimate: number;
   lines: DepartmentPurchaseRequestLineOut[];
+  /** Phiếu mua sinh ra từ yêu cầu này — luôn có, kể cả khi `fulfilment` theo dòng còn rỗng. */
+  purchase_requests: DepartmentRequestPurchaseRow[];
 }
 
 export interface DepartmentPurchaseRequestListOut {
@@ -3966,6 +4087,8 @@ export interface PurchaseRequestRow {
   created_at: string;
   updated_at: string;
   total_estimate: number;
+  /** Giá trị hàng THỰC NHẬN. Bằng `total_estimate` chừng nào chưa ai khai thiếu. */
+  received_total: number;
   pending_amount: number;
   paid_amount: number;
   receipt_received_amount: number;
@@ -6993,8 +7116,33 @@ export const api = {
     markPurchased(token: string, id: number): Promise<PurchaseRequestRow> {
       return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}/mark-purchased`, token, { method: "POST" });
     },
-    markReceived(token: string, id: number): Promise<PurchaseRequestRow> {
-      return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}/mark-received`, token, { method: "POST" });
+    markReceived(
+      token: string,
+      id: number,
+      lines: ReceivedLineInput[] = [],
+    ): Promise<PurchaseRequestRow> {
+      return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}/mark-received`, token, {
+        method: "POST",
+        body: JSON.stringify({ lines }),
+      });
+    },
+    /** Sửa số thực nhận SAU khi đã nhận (NCC giao nhiều đợt). Đòi quyền duyệt ở server. */
+    updateReceivedQuantities(
+      token: string,
+      id: number,
+      lines: ReceivedLineInput[],
+    ): Promise<PurchaseRequestRow> {
+      return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}/received-quantities`, token, {
+        method: "PUT",
+        body: JSON.stringify({ lines }),
+      });
+    },
+    /** Lùi "Đã nhận hàng" về "Đã mua". Bắt buộc có lý do; server chặn nếu đã có phiếu chi ĐÃ CHI. */
+    undoReceived(token: string, id: number, reason: string): Promise<PurchaseRequestRow> {
+      return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}/undo-received`, token, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
     },
     cancel(token: string, id: number, reason: string | null): Promise<PurchaseRequestRow> {
       return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}/cancel`, token, {
@@ -7019,6 +7167,21 @@ export const api = {
       if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
       return authed<PurchaseRequestListOut>(`/api/accounting/inbox${suffix}`, token);
+    },
+    /** Công nợ phải trả gom theo NCC. Không phân trang — cắt trang là ra TỔNG sai.
+        `q` lọc ở SERVER: NCC đã trả hết và im lặng lâu thì không có dòng nào để lọc phía màn. */
+    payables(token: string, q?: string): Promise<PayablesSummary> {
+      const suffix = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
+      return authed<PayablesSummary>(`/api/accounting/payables${suffix}`, token);
+    },
+    /** `allHistory` bỏ mốc kỳ cho rổ "đã chi" — nút "Xem lịch sử cũ hơn". Chỉ nới cho MỘT NCC. */
+    payablesDetail(
+      token: string,
+      supplierId: number,
+      allHistory = false,
+    ): Promise<PayablesDetail> {
+      const suffix = allHistory ? "?all_history=true" : "";
+      return authed<PayablesDetail>(`/api/accounting/payables/${supplierId}${suffix}`, token);
     },
     companyAccounts(token: string, activeOnly = false): Promise<CompanyBankAccountRow[]> {
       return authed<CompanyBankAccountRow[]>(

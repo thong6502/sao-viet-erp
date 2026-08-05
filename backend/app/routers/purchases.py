@@ -16,6 +16,7 @@ from ..schemas.purchase import (
     PurchaseRequestListOut,
     PurchaseRequestOut,
     ReasonIn,
+    ReceivedLinesIn,
     SupplierIn,
     SupplierItemCatalogOut,
     SupplierListOut,
@@ -364,9 +365,47 @@ def mark_purchase_request_received(
     request_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    payload: ReceivedLinesIn | None = None,
 ) -> PurchaseRequestOut:
+    # Body TUỲ CHỌN: gọi không kèm gì = nhận đủ như đặt, y hệt trước 05/08/2026.
+    lines = [item.model_dump() for item in payload.lines] if payload is not None else None
     try:
-        return PurchaseRequestOut(**svc.mark_received(request_id, actor=user))
+        return PurchaseRequestOut(**svc.mark_received(request_id, received_lines=lines, actor=user))
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+
+
+@router.put(
+    "/api/purchase-requests/{request_id}/received-quantities", response_model=PurchaseRequestOut
+)
+def update_purchase_request_received_quantities(
+    request_id: int,
+    payload: ReceivedLinesIn,
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> PurchaseRequestOut:
+    # Cổng `update` để vào module; service thu về `thu_mua:approve` vì sửa số này là ĐỔI SỐ NỢ.
+    try:
+        return PurchaseRequestOut(
+            **svc.update_received_quantities(
+                request_id, received_lines=[i.model_dump() for i in payload.lines], actor=user
+            )
+        )
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+
+
+@router.post("/api/purchase-requests/{request_id}/undo-received", response_model=PurchaseRequestOut)
+def undo_purchase_request_received(
+    request_id: int,
+    payload: ReasonIn,
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> PurchaseRequestOut:
+    # Cổng ở đây chỉ là `update` (vào được module); service mới thu về `thu_mua:approve` — cùng lối
+    # đã dùng cho `cancel`, để người thiếu quyền nhận đúng câu báo thay vì 403 trống.
+    try:
+        return PurchaseRequestOut(**svc.undo_received(request_id, reason=payload.reason, actor=user))
     except PurchaseError as exc:
         raise _map_error(exc) from None
 

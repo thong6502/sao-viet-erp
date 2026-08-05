@@ -41,8 +41,12 @@ const PAYMENT_META = {
 
 export function AccountingPurchaseInboxPage({
   navigate,
+  focusRequestCode,
 }: {
   navigate: NavigateFn;
+  /** Mã PMH cần mở sẵn — màn Công nợ phải trả nhảy sang đây để lập phiếu chi cho đúng đơn đó.
+      Không có nó thì bấm "Lập phiếu chi" chỉ đổ ra danh sách trắng, người dùng phải tự đi tìm. */
+  focusRequestCode?: string | null;
 }) {
   const { token } = useAuth();
   const can = useCan();
@@ -59,7 +63,7 @@ export function AccountingPurchaseInboxPage({
   const [rows, setRows] = useState<PurchaseRequestRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(focusRequestCode ?? "");
   // Mới vào hiện TẤT CẢ (chủ 04/08/2026). Trước đây mặc định lọc "chờ duyệt" nên mở màn ra là
   // giấu mất đơn đã duyệt, đã mua, đã nhận — kế toán tưởng chưa có gì để lập phiếu chi.
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -107,6 +111,13 @@ export function AccountingPurchaseInboxPage({
   useEffect(() => {
     load();
   }, [load]);
+
+  // Sang màn này từ nơi khác kèm mã PMH ⇒ nhét luôn vào ô tìm và về trang 1.
+  useEffect(() => {
+    if (!focusRequestCode) return;
+    setQ(focusRequestCode);
+    setPage(1);
+  }, [focusRequestCode]);
 
   const selected = useMemo(
     () => rows.find((row) => row.id === selectedId) ?? null,
@@ -338,6 +349,12 @@ export function AccountingPurchaseInboxPage({
                     </td>
                     <td className="acct-amount-cell">
                       <strong>{money(row.total_estimate)}</strong>
+                      {/* NCC giao thiếu thì trần lập phiếu chi tụt theo giá trị THỰC NHẬN. Không
+                          nói ra ở đây thì kế toán viết phiếu bằng số trên đơn rồi bị chặn mà không
+                          hiểu vì sao. */}
+                      {row.received_total < row.total_estimate && (
+                        <small>Thực nhận {money(row.received_total)}</small>
+                      )}
                     </td>
                     <td>
                       <span

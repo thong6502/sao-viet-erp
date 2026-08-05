@@ -37,6 +37,7 @@ import { REBUILD_CONFIGS } from "../pages/rebuildCatalogConfigs";
 import { DepartmentPurchaseRequestsPage } from "../pages/DepartmentPurchaseRequestsPage";
 import { PurchaseRequestsPage } from "../pages/PurchaseRequestsPage";
 import { SuppliersPage } from "../pages/SuppliersPage";
+import { AccountingPayablesPage } from "../pages/AccountingPayablesPage";
 import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPage";
 import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
 import { PaymentReceiptsPage } from "../pages/PaymentReceiptsPage";
@@ -636,7 +637,12 @@ export function AppShell() {
       // Bấm vào chính "Kế toán thu mua" thì rơi vào con đầu tiên — đừng để nó ra màn trắng.
       case "ke-toan-thu-mua":
       case "ke-toan-don-mua-hang":
-        return <AccountingPurchaseInboxPage navigate={navigate} />;
+        return (
+          <AccountingPurchaseInboxPage
+            navigate={navigate}
+            focusRequestCode={navParams?.focusRequestCode ?? null}
+          />
+        );
       case "ke-toan-phieu-chi":
         return (
           <PaymentVouchersPage
@@ -644,6 +650,8 @@ export function AppShell() {
             focusQuery={navParams?.focusVoucherQuery ?? null}
           />
         );
+      case "ke-toan-cong-no":
+        return <AccountingPayablesPage navigate={navigate} />;
       // "Phiếu thu" và "Tài khoản ngân hàng" đã GỠ KHỎI MENU (chủ 04/08/2026).
       //
       // Nhưng `case` của Phiếu thu vẫn GIỮ, vì hai màn khác đang nhảy sang nó bằng liên kết:

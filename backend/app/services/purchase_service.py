@@ -81,6 +81,38 @@ DEPARTMENT_REQUEST_READER_MODULES = (
 PURCHASE_REQUEST_READER_MODULES = ("thu_mua", "ke_toan")
 
 
+# Thang bậc tiến độ của một phiếu mua, dùng để SUY trạng thái yêu cầu mua hàng (xem
+# `_tinh_lai_trang_thai_ycmh`).
+#
+# BỊ TỪ CHỐI / ĐÃ HUỶ = bậc 0: phần hàng đó chưa ai mua được, nên yêu cầu phải quay về "Chờ mua"
+# để thu mua lập phiếu khác — `create` chỉ nhận yêu cầu đang "Chờ mua" nên để bậc cao hơn là chặn
+# mất đường lập lại. Bỏ qua hẳn cũng sai: có ngày báo "Xong" trong khi một nửa đơn bị từ chối.
+#
+# NHÁP = bậc 1 (Chờ duyệt), KHÔNG phải 0. Trông lệch nhưng đúng với hệ: `_replace_sources`
+# (purchase_repo.py) đẩy yêu cầu sang "Chờ duyệt" ngay khi thu mua TẠO phiếu, kể cả phiếu còn nháp
+# — đó là cách hệ GIỮ CHỖ yêu cầu để người thứ hai không lập phiếu chồng lên. Để bậc 0 thì suy ra
+# một đằng, repo ghi một nẻo, và chỗ giữ chỗ vỡ.
+#
+# ⚠️ Việc repo tự đặt trạng thái nghiệp vụ là SAI TẦNG. Gỡ được thì phải tách "giữ chỗ" ra khỏi
+# "trạng thái" — ngoài phạm vi đợt này, ghi lại đây để đợt sau còn biết đường.
+_BAC_PHIEU = {
+    PR_REJECTED: 0,
+    PR_CANCELLED: 0,
+    PR_DRAFT: 1,
+    PR_PENDING: 1,
+    PR_APPROVED: 2,
+    PR_PURCHASED: 2,
+    PR_RECEIVED: 3,
+}
+
+_BAC_SANG_TRANG_THAI = {
+    0: DPR_OPEN,
+    1: DPR_PENDING_APPROVAL,
+    2: DPR_IN_PURCHASE,
+    3: DPR_DONE,
+}
+
+
 class PurchaseError(Exception):
     pass
 
@@ -125,6 +157,90 @@ def _purchase_line_amounts(
     taxable = max(0, gross - discount)
     vat = _money_round(Decimal(taxable) * Decimal(str(vat_percent)) / Decimal(100))
     return gross, discount, vat, taxable + vat
+
+
+def qty_thuc_nhan(line) -> float:
+    """Số THỰC NHẬN của một dòng phiếu mua.
+
+    `received_quantity` NULL = chưa ai khai ⇒ coi như nhận đủ số đã đặt. Nhờ quy ước này mọi phiếu
+    lập trước 05/08/2026 giữ nguyên số tiền sau khi nâng cấp."""
+    return float(line.quantity if line.received_quantity is None else line.received_quantity)
+
+
+def purchase_money(row) -> dict:
+    """MỘT nguồn số cho mọi con tiền của một phiếu mua hàng.
+
+    Cả `_to_request_out` (màn Mua hàng / Đơn mua hàng) lẫn màn **Công nợ phải trả** đều gọi hàm
+    này. Để hai bên tự cộng lấy là để hai bên lệch nhau — mà lệch TIỀN thì không ai phát hiện cho
+    tới lúc ngồi đối chiếu với NCC.
+
+    Hai tổng đi song song, đừng lẫn:
+    - `total` — giá trị **đơn đặt**, theo `quantity`. Vẫn là con số in trên đơn.
+    - `received_total` — giá trị hàng **thực nhận**, theo `received_quantity`.
+
+    `tran` (trần) là số dùng để chốt còn nợ bao nhiêu và được lập phiếu chi tối đa bao nhiêu:
+    hàng đã về ⇒ theo **thực nhận** (NCC giao 80% thì không cho lập phiếu 100%); hàng chưa về ⇒
+    vẫn theo giá trị đơn, để còn đặt cọc / ứng trước được."""
+    total = 0
+    received_total = 0
+    for line in row.lines:
+        unit_price = int(line.expected_unit_price)
+        discount_percent = float(line.discount_percent or 0)
+        vat_percent = float(line.vat_percent or 0)
+        _, _, _, line_total = _purchase_line_amounts(
+            quantity=float(line.quantity),
+            unit_price=unit_price,
+            discount_percent=discount_percent,
+            vat_percent=vat_percent,
+        )
+        _, _, _, line_received = _purchase_line_amounts(
+            quantity=qty_thuc_nhan(line),
+            unit_price=unit_price,
+            discount_percent=discount_percent,
+            vat_percent=vat_percent,
+        )
+        total += line_total
+        received_total += line_received
+    pending_amount = sum(
+        int(voucher.amount_vnd)
+        for voucher in row.payment_vouchers
+        if voucher.status == PAYMENT_VOUCHER_WAITING
+    )
+    paid_amount = sum(
+        int(voucher.amount_vnd)
+        for voucher in row.payment_vouchers
+        if voucher.status == PAYMENT_VOUCHER_PAID
+    )
+    # Tiền ĐÃ THU về (phiếu thu received) làm giảm số đã chi thực;
+    # paid_amount giữ số thô để UI hiện tách bạch "đã chi X, đã thu Y".
+    receipt_received_amount = sum(
+        int(receipt.amount_vnd)
+        for voucher in row.payment_vouchers
+        for receipt in voucher.receipts
+        if receipt.status == PAYMENT_RECEIPT_RECEIVED
+    )
+    net_paid = paid_amount - receipt_received_amount
+    tran = received_total if row.status == PR_RECEIVED else total
+    outstanding_amount = max(0, tran - net_paid)
+    available_amount = max(0, tran - net_paid - pending_amount)
+    if tran > 0 and net_paid >= tran:
+        payment_status = "paid"
+    elif net_paid > 0 or pending_amount > 0:
+        payment_status = "partial"
+    else:
+        payment_status = "unpaid"
+    return {
+        "total": total,
+        "received_total": received_total,
+        "tran": tran,
+        "pending_amount": pending_amount,
+        "paid_amount": paid_amount,
+        "receipt_received_amount": receipt_received_amount,
+        "net_paid": net_paid,
+        "outstanding_amount": outstanding_amount,
+        "available_amount": available_amount,
+        "payment_status": payment_status,
+    }
 
 
 class PurchaseService:
@@ -645,13 +761,36 @@ class PurchaseService:
         # hạn hoặc trễ. Ràng buộc duy nhất còn lại: không nhận vào ngày đã qua.
         return expected_receipt_date
 
-    def _clean_lines(self, raw_lines, *, supplier_id: int | None = None) -> list[PurchaseRequestLineInput]:
+    @staticmethod
+    def _chot_noi_dong(cleaned_lines, source_requests) -> None:
+        """Dòng phiếu chỉ được trỏ về dòng của CHÍNH yêu cầu nguồn nó gắn.
+
+        Không chốt thì phiếu trỏ được sang dòng của yêu cầu khác, và chi tiết YCMH hiện nhầm tiến
+        độ của người khác — im lặng, không báo lỗi.
+
+        Chạy RIÊNG sau khi đã gỡ yêu cầu nguồn, không nhét vào `_clean_lines`: nhét vào thì phải
+        gỡ nguồn trước khi làm sạch dòng, và thứ tự báo lỗi đảo ngược — người dùng gõ thiếu đơn vị
+        tính lại nhận câu "yêu cầu không còn ở trạng thái chờ mua"."""
+        hop_le = {line.id for src in source_requests for line in getattr(src, "lines", [])}
+        for line in cleaned_lines:
+            src_line_id = getattr(line, "department_request_line_id", None)
+            if src_line_id is not None and src_line_id not in hop_le:
+                raise PurchaseValidationError(
+                    f'Dòng "{line.item_name}" trỏ tới một dòng không thuộc yêu cầu nguồn của phiếu này.'
+                )
+
+    def _clean_lines(
+        self, raw_lines, *, supplier_id: int | None = None
+    ) -> list[PurchaseRequestLineInput]:
         """Làm sạch dòng hàng của PHIẾU MUA.
 
         `supplier_id` bắt buộc trên đường thật (create/update): mỗi dòng phải nằm trong danh mục
         mặt hàng ĐANG BẬT của CHÍNH NCC đó. Trước 04/08/2026 chỗ này không kiểm gì — chọn NCC A
         rồi ghi mặt hàng chỉ NCC B bán thì phiếu vẫn tạo được, im lặng, tới lúc gửi đơn mới vỡ.
         Để `None` là bỏ qua kiểm — chỉ dành cho chỗ gọi không có NCC (nếu sau này có).
+
+        Cái nối dòng ↔ dòng (`department_request_line_id`) chỉ được ĐỌC ở đây, chốt tính hợp lệ
+        nằm ở `_chot_noi_dong` — chạy sau khi đã gỡ yêu cầu nguồn, để không đảo thứ tự báo lỗi.
         """
         if not raw_lines:
             raise PurchaseValidationError("Phiếu phải có ít nhất một dòng hàng.")
@@ -681,6 +820,8 @@ class PurchaseService:
                 raise PurchaseValidationError("Giảm giá (%) phải trong khoảng 0 đến 100.")
             if vat_percent < 0 or vat_percent > 100:
                 raise PurchaseValidationError("Thuế GTGT (%) phải trong khoảng 0 đến 100.")
+            raw_src = get("department_request_line_id")
+            src_line_id = int(raw_src) if raw_src not in (None, "") else None
             lines.append(
                 PurchaseRequestLineInput(
                     item_name=item_name,
@@ -690,6 +831,7 @@ class PurchaseService:
                     discount_percent=discount_percent,
                     vat_percent=vat_percent,
                     note=(get("note") or "").strip() or None,
+                    department_request_line_id=src_line_id,
                 )
             )
         return lines
@@ -765,6 +907,7 @@ class PurchaseService:
         self._require_supplier_active(supplier_id)
         cleaned_lines = self._clean_lines(lines, supplier_id=supplier_id)
         source_requests = self._resolve_source_requests(source_request_ids, allow_in_purchase=False)
+        self._chot_noi_dong(cleaned_lines, source_requests)
         row = self.requests.create(
             code=self._new_purchase_code(),
             supplier_id=supplier_id,
@@ -840,6 +983,8 @@ class PurchaseService:
                 needed_date=cleaned_needed, expected_receipt_date=expected_receipt_date
             )
             self._require_supplier_active(sid)
+            cleaned_group = self._clean_lines(group, supplier_id=sid)
+            self._chot_noi_dong(cleaned_group, source_requests)
             items.append(dict(
                 code=self._new_purchase_code(),
                 supplier_id=sid,
@@ -848,7 +993,7 @@ class PurchaseService:
                 expected_receipt_date=cleaned_receipt,
                 created_by_user_id=actor.id,
                 note=(note or "").strip() or None,
-                lines=self._clean_lines(group, supplier_id=sid),
+                lines=cleaned_group,
                 source_requests=self._resolve_source_requests(
                     source_ids, allow_in_purchase=False, allowed_reserved_ids=source_ids
                 ),
@@ -887,6 +1032,13 @@ class PurchaseService:
             needed_date=needed_date, expected_receipt_date=expected_receipt_date
         )
         self._require_supplier_active(supplier_id)
+        cleaned_lines = self._clean_lines(lines, supplier_id=supplier_id)
+        nguon = self._resolve_source_requests(
+            source_request_ids,
+            allow_in_purchase=False,
+            allowed_reserved_ids={link.department_request_id for link in row.sources},
+        )
+        self._chot_noi_dong(cleaned_lines, nguon)
         row = self.requests.update_header_and_lines(
             row,
             supplier_id=supplier_id,
@@ -894,12 +1046,8 @@ class PurchaseService:
             needed_date=needed_date,
             expected_receipt_date=expected_receipt_date,
             note=(note or "").strip() or None,
-            lines=self._clean_lines(lines, supplier_id=supplier_id),
-            source_requests=self._resolve_source_requests(
-                source_request_ids,
-                allow_in_purchase=False,
-                allowed_reserved_ids={link.department_request_id for link in row.sources},
-            ),
+            lines=cleaned_lines,
+            source_requests=nguon,
         )
         self.audit.create(
             actor_user_id=actor.id,
@@ -914,9 +1062,9 @@ class PurchaseService:
         if row.status != PR_DRAFT:
             raise PurchaseConflict("Chỉ phiếu nháp mới được xóa.")
         code = row.code
+        # Suy LẠI bỏ qua chính phiếu sắp xoá — sau `delete` thì quan hệ đã rời, không đọc được nữa.
         for link in row.sources:
-            if link.department_request and link.department_request.status in (DPR_PENDING_APPROVAL, DPR_IN_PURCHASE):
-                link.department_request.status = DPR_OPEN
+            self._tinh_lai_trang_thai_ycmh(link.department_request, bo_qua_phieu_id=row.id)
         self.requests.delete(row)
         self.audit.create(
             actor_user_id=actor.id,
@@ -934,8 +1082,7 @@ class PurchaseService:
         row.approved_by_user_id = None
         row.approved_at = None
         for link in row.sources:
-            if link.department_request and link.department_request.status not in (DPR_DONE, DPR_CANCELLED):
-                link.department_request.status = DPR_PENDING_APPROVAL
+            self._tinh_lai_trang_thai_ycmh(link.department_request)
         saved = self.requests.save(row)
         self.audit.create(actor_user_id=actor.id, action="submit_purchase_request", target=f"purchase_request:{row.id}", detail=row.code)
         return self._to_request_out(saved)
@@ -958,8 +1105,7 @@ class PurchaseService:
         row.approved_by_user_id = actor.id
         row.approved_at = _now()
         for link in row.sources:
-            if link.department_request and link.department_request.status not in (DPR_DONE, DPR_CANCELLED):
-                link.department_request.status = DPR_IN_PURCHASE
+            self._tinh_lai_trang_thai_ycmh(link.department_request)
         saved = self.requests.save(row)
         self.audit.create(actor_user_id=actor.id, action="approve_purchase_request", target=f"purchase_request:{row.id}", detail=row.code)
         return self._to_request_out(saved)
@@ -973,8 +1119,7 @@ class PurchaseService:
         row.approved_at = _now()
         row.note = (reason or "").strip() or row.note
         for link in row.sources:
-            if link.department_request and link.department_request.status in (DPR_PENDING_APPROVAL, DPR_IN_PURCHASE):
-                link.department_request.status = DPR_OPEN
+            self._tinh_lai_trang_thai_ycmh(link.department_request)
         saved = self.requests.save(row)
         self.audit.create(actor_user_id=actor.id, action="reject_purchase_request", target=f"purchase_request:{row.id}", detail=row.code)
         return self._to_request_out(saved)
@@ -988,36 +1133,190 @@ class PurchaseService:
         self.audit.create(actor_user_id=actor.id, action="mark_purchase_request_purchased", target=f"purchase_request:{row.id}", detail=row.code)
         return self._to_request_out(saved)
 
-    def _moi_phieu_da_ve_hang(self, source) -> bool:
-        """Mọi phiếu mua (chưa huỷ) gắn với yêu cầu này đã nhận hàng chưa.
+    def _tinh_lai_trang_thai_ycmh(self, source, *, bo_qua_phieu_id: int | None = None) -> None:
+        """SUY trạng thái yêu cầu mua hàng từ tập phiếu con. Gọi ở MỌI mốc đụng tới phiếu.
 
-        Đọc qua `purchase_links` nên tự đúng khi một yêu cầu bị tách thành nhiều phiếu theo NCC.
-        Phiếu ĐÃ HUỶ không tính — huỷ rồi thì nó không còn nợ ai cái gì; nếu tính thì yêu cầu sẽ
-        treo mãi ở "đang mua" chỉ vì một phiếu bỏ đi."""
+        Trước 05/08/2026 chỉ mốc *nhận hàng* biết suy; sáu chỗ còn lại set thẳng nên "ai bấm sau
+        thì ghi đè". Hệ quả thấy được trên màn:
+        - Duyệt MỘT phiếu là yêu cầu thành "Đang mua", dù phiếu kia còn nằm chờ giám đốc ⇒ bộ phận
+          tưởng cả yêu cầu đã được duyệt.
+        - Từ chối một phiếu kéo yêu cầu về "Chờ mua" dù phiếu kia đã duyệt và đang đi mua.
+        - Phiếu bị TỪ CHỐI không được loại khỏi phép "mọi phiếu đã về hàng" (chỉ loại phiếu HUỶ)
+          nên yêu cầu treo ở "Đang mua" **vĩnh viễn**, kể cả khi hàng đã về đủ qua phiếu lập lại.
+
+        Luật: xếp bậc, lấy bậc **THẤP NHẤT**. Báo bi quan thì cùng lắm bộ phận đi hỏi; báo lạc
+        quan thì họ ngồi chờ hàng không bao giờ tới.
+
+        Phiếu **bị từ chối / đã huỷ** tính là bậc 0 (Chờ mua), KHÔNG phải bỏ qua: phần hàng đó chưa
+        ai mua được, nên yêu cầu phải quay lại hàng chờ để thu mua lập phiếu khác — hoặc bộ phận
+        huỷ hẳn yêu cầu. Bỏ qua thì có ngày báo "Xong" trong khi một nửa đơn bị từ chối. Và vì
+        `create` chỉ nhận yêu cầu đang "Chờ mua", để bậc 0 mới còn đường lập lại.
+
+        Suy theo **DÒNG** khi phiếu có nối `department_request_line_id` — chính xác hơn hẳn: phiếu
+        cũ bị huỷ và phiếu mới đã về hàng cùng phủ một dòng thì dòng đó tính là đã xong. Dữ liệu cũ
+        không có nối thì lùi về suy theo PHIẾU.
+
+        Yêu cầu đã HUỶ thì không đụng — huỷ là quyết định của người, không phải trạng thái suy ra.
+        """
+        if source is None or source.status == DPR_CANCELLED:
+            return
         phieu = [
-            link.purchase_request for link in getattr(source, "purchase_links", [])
+            link.purchase_request
+            for link in getattr(source, "purchase_links", [])
             if link.purchase_request is not None
-            and link.purchase_request.status != PR_CANCELLED
+            and (bo_qua_phieu_id is None or link.purchase_request.id != bo_qua_phieu_id)
         ]
-        return bool(phieu) and all(p.status == PR_RECEIVED for p in phieu)
+        if not phieu:
+            source.status = DPR_OPEN
+            return
 
-    def mark_received(self, request_id: int, *, actor) -> dict:
+        bac_theo_dong: dict[int, int] = {}
+        for p in phieu:
+            for line in p.lines:
+                src_line_id = getattr(line, "department_request_line_id", None)
+                if src_line_id is None:
+                    continue
+                # Một dòng có thể đi qua NHIỀU phiếu (bị từ chối rồi lập lại) ⇒ lấy tiến độ CAO
+                # NHẤT của dòng đó, không phải của phiếu cuối cùng.
+                bac_theo_dong[src_line_id] = max(
+                    bac_theo_dong.get(src_line_id, 0), _BAC_PHIEU.get(p.status, 0)
+                )
+        if bac_theo_dong:
+            # Dòng nào chưa có phiếu nào phủ thì vẫn là "Chờ mua" — chính là chỗ hay bị bỏ sót.
+            bac = min(
+                bac_theo_dong.get(line.id, 0) for line in getattr(source, "lines", [])
+            ) if getattr(source, "lines", None) else min(bac_theo_dong.values())
+        else:
+            bac = min(_BAC_PHIEU.get(p.status, 0) for p in phieu)
+        source.status = _BAC_SANG_TRANG_THAI[bac]
+
+    # `_moi_phieu_da_ve_hang` đã GỠ 05/08/2026: `_tinh_lai_trang_thai_ycmh` nuốt trọn việc của nó
+    # và làm đúng thêm hai ca mà nó bỏ sót — phiếu BỊ TỪ CHỐI (nó chỉ loại phiếu huỷ nên yêu cầu
+    # treo vĩnh viễn) và suy theo DÒNG khi có nối dòng ↔ dòng.
+
+    def _ap_so_thuc_nhan(self, row: PurchaseRequest, khai: list[dict] | None) -> None:
+        """Ghi số thực nhận vào các dòng của phiếu.
+
+        `khai` là None hoặc rỗng ⇒ KHÔNG đụng gì, các dòng giữ `received_quantity` cũ (thường là
+        NULL = nhận đủ). Nhờ vậy đường gọi cũ `mark_received(id, actor=...)` chạy y như trước.
+
+        Không cho khai NHIỀU hơn số đặt: giá trị thực nhận là trần lập phiếu chi, khai vống lên là
+        chi vượt giá trị đơn giám đốc đã duyệt mà không qua duyệt lại. NCC giao dư thật thì sửa đơn,
+        không phải sửa ở đây."""
+        if not khai:
+            return
+        theo_id = {line.id: line for line in row.lines}
+        for item in khai:
+            line_id = item.get("line_id")
+            line = theo_id.get(line_id)
+            if line is None:
+                raise PurchaseValidationError(f"Dòng {line_id} không thuộc phiếu này.")
+            raw = item.get("received_quantity")
+            if raw is None:
+                line.received_quantity = None
+                continue
+            qty = float(raw)
+            if qty < 0:
+                raise PurchaseValidationError("Số thực nhận không được âm.")
+            if qty > float(line.quantity):
+                raise PurchaseValidationError(
+                    f"'{line.item_name}': nhận {qty:g} nhiều hơn số đặt {float(line.quantity):g}. "
+                    "Nhận dư thì sửa đơn rồi duyệt lại, không khai vống ở đây."
+                )
+            line.received_quantity = qty
+
+    def mark_received(self, request_id: int, *, received_lines: list[dict] | None = None, actor) -> dict:
         row = self._request(request_id)
         if row.status != PR_PURCHASED:
             raise PurchaseConflict("Chỉ phiếu đã mua mới được đánh dấu đã nhận hàng.")
+        self._ap_so_thuc_nhan(row, received_lines)
         row.status = PR_RECEIVED
-        # Một yêu cầu có thể được tách thành NHIỀU phiếu (mỗi NCC một phiếu) ⇒ chỉ "Xong" khi
-        # MỌI phiếu chưa huỷ của nó đã về hàng. Trước 04/08/2026 chỗ này set thẳng "Xong" cho mọi
-        # yêu cầu nguồn, nên phiếu giấy về trước là yêu cầu báo xong trong khi băng keo còn chưa
-        # ai mua — bộ phận đề nghị nhìn vào tưởng đủ hàng.
+        # Một yêu cầu có thể tách thành NHIỀU phiếu (mỗi NCC một phiếu) ⇒ chỉ "Xong" khi MỌI phần
+        # của nó đã về. Phiếu giấy về trước mà báo Xong thì bộ phận tưởng đủ hàng trong khi băng
+        # keo còn chưa ai mua.
         for link in row.sources:
-            src = link.department_request
-            if src is None or src.status == DPR_CANCELLED:
-                continue
-            if self._moi_phieu_da_ve_hang(src):
-                src.status = DPR_DONE
+            self._tinh_lai_trang_thai_ycmh(link.department_request)
         saved = self.requests.save(row)
         self.audit.create(actor_user_id=actor.id, action="mark_purchase_request_received", target=f"purchase_request:{row.id}", detail=row.code)
+        return self._to_request_out(saved)
+
+    def update_received_quantities(self, request_id: int, *, received_lines: list[dict], actor) -> dict:
+        """Sửa lại số thực nhận SAU khi phiếu đã ở 'Đã nhận hàng'.
+
+        Dùng cho ca NCC giao làm nhiều đợt: đợt 1 khai 60, đợt 2 về thì sửa lên 100. (Lịch sử từng
+        đợt về ngày nào thì hàm này KHÔNG lưu — chờ phiếu nhập kho.)
+
+        Đòi `thu_mua:approve` chứ không phải `update`: sửa số này là **đổi số nợ đã ghi trên màn kế
+        toán**, ngang với việc lùi trạng thái. Vào nhật ký để còn truy được ai sửa.
+
+        Chốt an toàn: hạ số thực nhận xuống DƯỚI số đã chi/đang chờ chi là chặn — nếu không thì
+        phiếu chi treo lơ lửng vượt cả giá trị hàng, `available_amount` âm bị kẹp về 0 và số liệu
+        im lặng sai."""
+        if not self.authz.can(actor, "thu_mua", "approve"):
+            raise PurchaseForbidden("Chỉ người có quyền duyệt mới được sửa số thực nhận.")
+        row = self._request(request_id)
+        if row.status != PR_RECEIVED:
+            raise PurchaseConflict("Chỉ phiếu đã nhận hàng mới sửa được số thực nhận.")
+        self._ap_so_thuc_nhan(row, received_lines)
+        money = purchase_money(row)
+        da_cam_ket = money["net_paid"] + money["pending_amount"]
+        if money["received_total"] < da_cam_ket:
+            raise PurchaseConflict(
+                f"Giá trị thực nhận ({money['received_total']:,}đ) thấp hơn số đã chi và đang chờ chi "
+                f"({da_cam_ket:,}đ). Huỷ bớt phiếu chi trước rồi sửa lại."
+            )
+        saved = self.requests.save(row)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="update_purchase_request_received_quantities",
+            target=f"purchase_request:{row.id}",
+            detail=f"{row.code} — thực nhận {money['received_total']:,}đ / đặt {money['total']:,}đ",
+        )
+        return self._to_request_out(saved)
+
+    def undo_received(self, request_id: int, *, reason: str | None, actor) -> dict:
+        """Lùi 'Đã nhận hàng' về 'Đã mua'.
+
+        Trước 05/08/2026 KHÔNG có đường nào ra khỏi `received`: `mark_received` chỉ gán vào, còn
+        `cancel()` chặn thẳng phiếu đã nhận. Bấm nhầm là kẹt vĩnh viễn — trước đây không ai thấy,
+        nhưng từ khi có màn Công nợ phải trả thì mỗi lần bấm nhầm là đẻ một món nợ ảo nằm chình ình
+        trên bàn kế toán.
+
+        Ba việc, thiếu việc nào cũng hỏng:
+
+        1. **Tiền đã ra thì không lùi.** Có phiếu chi ĐÃ CHI nghĩa là tiền rời két rồi; quay lại
+           khai 'chưa nhận hàng' là nói dối sổ quỹ. Phiếu mới `chờ chi` thì lùi thoải mái — nợ chưa
+           thành tiền, kế toán huỷ phiếu là xong.
+        2. Lật phiếu về `purchased`.
+        3. **Tính LẠI trạng thái YCMH nguồn** qua `_tinh_lai_trang_thai_ycmh`. Quên vế này thì
+           YCMH đứng nguyên 'Xong' trong khi phiếu đã lùi — bộ phận đề nghị nhìn vào tưởng đủ hàng.
+           Suy lại chứ KHÔNG kéo mù: một YCMH tách ra nhiều phiếu theo NCC, lùi một phiếu chưa chắc
+           đã hết 'Xong'.
+
+        Quyền: `thu_mua:approve` (trưởng bộ phận / giám đốc). Nút này XOÁ một món nợ khỏi màn kế
+        toán nên không phải việc nhân viên tự quyết — cùng lằn ranh đã áp cho `cancel`."""
+        if not self.authz.can(actor, "thu_mua", "approve"):
+            raise PurchaseForbidden("Chỉ người có quyền duyệt mới được lùi trạng thái đã nhận hàng.")
+        ly_do = (reason or "").strip()
+        if not ly_do:
+            raise PurchaseValidationError("Phải ghi lý do lùi trạng thái đã nhận hàng.")
+        row = self._request(request_id)
+        if row.status != PR_RECEIVED:
+            raise PurchaseConflict("Chỉ phiếu đã nhận hàng mới lùi được.")
+        if any(v.status == PAYMENT_VOUCHER_PAID for v in row.payment_vouchers):
+            raise PurchaseConflict(
+                "Đơn đã có phiếu chi ĐÃ CHI — xử lý phần tiền trước khi lùi trạng thái."
+            )
+        row.status = PR_PURCHASED
+        for link in row.sources:
+            self._tinh_lai_trang_thai_ycmh(link.department_request)
+        saved = self.requests.save(row)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="undo_purchase_request_received",
+            target=f"purchase_request:{row.id}",
+            detail=f"{row.code} — {ly_do}",
+        )
         return self._to_request_out(saved)
 
     def cancel(self, request_id: int, *, reason: str | None, actor) -> dict:
@@ -1044,8 +1343,7 @@ class PurchaseService:
         row.status = PR_CANCELLED
         row.note = (reason or "").strip() or row.note
         for link in row.sources:
-            if link.department_request and link.department_request.status in (DPR_PENDING_APPROVAL, DPR_IN_PURCHASE):
-                link.department_request.status = DPR_OPEN
+            self._tinh_lai_trang_thai_ycmh(link.department_request)
         saved = self.requests.save(row)
         self.audit.create(actor_user_id=actor.id, action="cancel_purchase_request", target=f"purchase_request:{row.id}", detail=row.code)
         return self._to_request_out(saved)
@@ -1059,7 +1357,10 @@ class PurchaseService:
         return u.name if u is not None else None
 
     def _to_request_out(self, row: PurchaseRequest) -> dict:
-        total = 0
+        # Mọi con TIỀN lấy từ `purchase_money` — dùng chung với màn Công nợ phải trả, không cộng lại
+        # ở đây. Vòng lặp dưới chỉ dựng phần HIỂN THỊ của từng dòng.
+        money = purchase_money(row)
+        total = money["total"]
         lines = []
         for line in row.lines:
             qty = float(line.quantity)
@@ -1072,13 +1373,15 @@ class PurchaseService:
                 discount_percent=discount_percent,
                 vat_percent=vat_percent,
             )
-            total += line_total
             lines.append(
                 {
                     "id": line.id,
                     "item_name": line.item_name,
                     "unit": line.unit,
                     "quantity": qty,
+                    "received_quantity": (
+                        None if line.received_quantity is None else float(line.received_quantity)
+                    ),
                     "expected_unit_price": unit_price,
                     "discount_percent": discount_percent,
                     "discount_amount": discount_amount,
@@ -1112,33 +1415,12 @@ class PurchaseService:
                     ),
                 }
             )
-        pending_amount = sum(
-            int(voucher.amount_vnd)
-            for voucher in row.payment_vouchers
-            if voucher.status == PAYMENT_VOUCHER_WAITING
-        )
-        paid_amount = sum(
-            int(voucher.amount_vnd)
-            for voucher in row.payment_vouchers
-            if voucher.status == PAYMENT_VOUCHER_PAID
-        )
-        # Tiền ĐÃ THU về (phiếu thu received) làm giảm số đã chi thực;
-        # paid_amount giữ số thô để UI hiện tách bạch "đã chi X, đã thu Y".
-        receipt_received_amount = sum(
-            int(receipt.amount_vnd)
-            for voucher in row.payment_vouchers
-            for receipt in voucher.receipts
-            if receipt.status == PAYMENT_RECEIPT_RECEIVED
-        )
-        net_paid = paid_amount - receipt_received_amount
-        outstanding_amount = max(0, total - net_paid)
-        available_amount = max(0, total - net_paid - pending_amount)
-        if total > 0 and net_paid >= total:
-            payment_status = "paid"
-        elif net_paid > 0 or pending_amount > 0:
-            payment_status = "partial"
-        else:
-            payment_status = "unpaid"
+        pending_amount = money["pending_amount"]
+        paid_amount = money["paid_amount"]
+        receipt_received_amount = money["receipt_received_amount"]
+        outstanding_amount = money["outstanding_amount"]
+        available_amount = money["available_amount"]
+        payment_status = money["payment_status"]
         return {
             "id": row.id,
             "code": row.code,
@@ -1158,6 +1440,8 @@ class PurchaseService:
             "created_at": row.created_at,
             "updated_at": row.updated_at,
             "total_estimate": total,
+            # Giá trị hàng THỰC NHẬN. Bằng `total_estimate` chừng nào chưa ai khai thiếu.
+            "received_total": money["received_total"],
             "pending_amount": pending_amount,
             "paid_amount": paid_amount,
             "receipt_received_amount": receipt_received_amount,
@@ -1169,9 +1453,51 @@ class PurchaseService:
             "lines": lines,
         }
 
+    def _tinh_trang_tung_dong(self, row: DepartmentPurchaseRequest) -> dict[int, dict]:
+        """Với mỗi DÒNG của yêu cầu: nó đã vào phiếu nào, của NCC nào, tới đâu rồi.
+
+        Trước 05/08/2026 chi tiết yêu cầu KHÔNG hề nhắc tới phiếu mua nào — bộ phận vào xem cũng
+        không biết yêu cầu của mình đã thành phiếu nào, ai bán, tới đâu.
+
+        Một dòng có thể đi qua NHIỀU phiếu (bị từ chối rồi thu mua lập lại) ⇒ lấy phiếu có tiến độ
+        CAO NHẤT, không phải phiếu mới nhất: phiếu lập lại đã về hàng thì dòng đó xong, dù phiếu cũ
+        vẫn nằm đó ở trạng thái bị từ chối.
+
+        Chỉ đọc qua `department_request_line_id`. KHÔNG ghép bù bằng tên hàng cho dữ liệu cũ — thà
+        để trống và nói "chưa rõ" còn hơn đoán sai mà trông như thật."""
+        theo_dong: dict[int, dict] = {}
+        for link in getattr(row, "purchase_links", []):
+            phieu = link.purchase_request
+            if phieu is None:
+                continue
+            for pl in phieu.lines:
+                src_line_id = getattr(pl, "department_request_line_id", None)
+                if src_line_id is None:
+                    continue
+                bac = _BAC_PHIEU.get(phieu.status, 0)
+                cu = theo_dong.get(src_line_id)
+                if cu is not None and cu["_bac"] >= bac:
+                    continue
+                theo_dong[src_line_id] = {
+                    "_bac": bac,
+                    "purchase_request_id": phieu.id,
+                    "purchase_code": phieu.code,
+                    "purchase_status": phieu.status,
+                    "supplier_name": phieu.supplier.name if phieu.supplier else None,
+                    "ordered_quantity": float(pl.quantity),
+                    "ordered_unit": pl.unit,
+                    "received_quantity": (
+                        float(pl.received_quantity) if pl.received_quantity is not None else None
+                    ),
+                }
+        for muc in theo_dong.values():
+            muc.pop("_bac", None)
+        return theo_dong
+
     def _to_department_request_out(self, row: DepartmentPurchaseRequest) -> dict:
         total = 0
         lines = []
+        tinh_trang = self._tinh_trang_tung_dong(row)
         for line in row.lines:
             qty = float(line.quantity)
             unit_price = int(line.expected_unit_price)
@@ -1186,6 +1512,9 @@ class PurchaseService:
                     "expected_unit_price": unit_price,
                     "line_total": line_total,
                     "note": line.note,
+                    # None = chưa vào phiếu nào, HOẶC phiếu lập trước 05/08/2026 (chưa có nối
+                    # dòng ↔ dòng). Giao diện phải nói rõ hai ca đó, đừng hiện như nhau.
+                    "fulfilment": tinh_trang.get(line.id),
                 }
             )
         return {
@@ -1208,4 +1537,24 @@ class PurchaseService:
             "updated_at": row.updated_at,
             "total_estimate": total,
             "lines": lines,
+            # Các phiếu mua sinh ra từ yêu cầu này. Vẫn cần dù đã có `fulfilment` theo dòng: yêu
+            # cầu lập trước 05/08/2026 không có nối dòng ↔ dòng nên `fulfilment` rỗng, còn đây thì
+            # luôn có — ít nhất bộ phận biết yêu cầu của mình đã thành phiếu nào, ai bán.
+            "purchase_requests": sorted(
+                (
+                    {
+                        "id": link.purchase_request.id,
+                        "code": link.purchase_request.code,
+                        "status": link.purchase_request.status,
+                        "supplier_name": (
+                            link.purchase_request.supplier.name
+                            if link.purchase_request.supplier
+                            else None
+                        ),
+                    }
+                    for link in getattr(row, "purchase_links", [])
+                    if link.purchase_request is not None
+                ),
+                key=lambda p: p["code"],
+            ),
         }
