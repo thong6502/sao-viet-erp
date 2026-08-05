@@ -804,7 +804,8 @@
   animation: rc-fade var(--duration-base) var(--easing-standard);
 }
 .rc-drawer {
-  width: min(560px, 95vw);
+  width: max(50vw, 540px);
+  max-width: 95vw;
   height: 100dvh;
   background: var(--canvas);
   border-left: 1px solid var(--rule-soft);
@@ -817,7 +818,7 @@
 }
 /* Form có công thức → rộng để chứa layout 2 cột (form | công thức + sandbox) */
 .rc-drawer--formula {
-  width: min(900px, 96vw);
+  width: min(92vw, 1100px);
 }
 
 .rc-drawer__tabs {
@@ -938,28 +939,33 @@
 
 /* Card-style Sections (phẳng — bỏ hover đổi viền/shadow trang trí) */
 .rc-card-section {
-  background: var(--paper-contrast);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-5);
-  padding: var(--sp-4);
-  box-shadow: var(--shadow-1);
+  background: var(--paper-contrast, #ffffff);
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: var(--r-5, 12px);
+  padding: 16px 20px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
   display: flex;
   flex-direction: column;
-  gap: var(--sp-4);
+  gap: var(--sp-3, 12px);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.rc-card-section:hover {
+  border-color: rgba(197, 64, 10, 0.22);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.05);
 }
 .rc-card-section__title {
   font-family: var(--ff-sans);
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 700;
-  letter-spacing: .02em;
+  letter-spacing: .06em;
   text-transform: uppercase;
-  color: var(--charcoal, #1c1a17);
+  color: var(--rust, #c5400a);
   display: flex;
   align-items: center;
   gap: var(--sp-2);
   border-bottom: 1px solid var(--rule-soft, #e8e3d3);
   padding-bottom: 8px;
-  margin-bottom: var(--sp-1);
+  margin-bottom: 4px;
 }
 .rc-card-section__title svg {
   color: var(--rust, #c5400a);
@@ -1440,6 +1446,116 @@ select.rc-input:focus {
   background: var(--ink, #14130f);
   color: var(--paper-contrast, #f5f1e8);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* ── Bảng Định mức đầu việc của Tổ (DinhMucDauViecField) ── */
+.rc-bands--dinh-muc {
+  gap: 10px;
+}
+.rc-dinh-muc-wrapper {
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: var(--r-3, 6px);
+  overflow-x: auto;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.04);
+}
+.rc-dinh-muc-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.rc-dinh-muc-table th {
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ash, #8a8676);
+  border-bottom: 1px solid var(--rule-soft, #e8e3d3);
+  border-right: 1px solid var(--rule-hair, #efebde);
+  background: var(--canvas, #fbfaf6);
+  white-space: nowrap;
+}
+.rc-dinh-muc-table th:last-child {
+  border-right: none;
+}
+.rc-dinh-muc-table .rc-col--group {
+  text-align: center;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-size: 11.5px;
+  color: var(--ink, #14130f);
+}
+.rc-dinh-muc-table .rc-group--ns {
+  background: color-mix(in srgb, var(--rust, #c5400a) 6%, #fff);
+  border-bottom: 2px solid color-mix(in srgb, var(--rust, #c5400a) 40%, transparent);
+}
+.rc-dinh-muc-table .rc-group--nl {
+  background: color-mix(in srgb, #2b6cb0 6%, #fff);
+  border-bottom: 2px solid color-mix(in srgb, #2b6cb0 40%, transparent);
+}
+.rc-dinh-muc-table .rc-col--left { text-align: left; vertical-align: middle; }
+.rc-dinh-muc-table .rc-col--num { text-align: right; width: 72px; min-width: 68px; vertical-align: middle; }
+.rc-dinh-muc-table .rc-col--unit { text-align: center; width: 125px; min-width: 125px; vertical-align: middle; }
+.rc-dinh-muc-table .rc-col--center { text-align: center; vertical-align: middle; }
+
+.rc-dinh-muc-name {
+  font-weight: 500;
+  color: var(--ink, #14130f);
+  padding: 6px 10px !important;
+  white-space: normal;
+  min-width: 160px;
+}
+
+.rc-dinh-muc-table td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--rule-hair, #efebde);
+  border-right: 1px solid var(--rule-hair, #f5f2e9);
+}
+.rc-dinh-muc-table td:last-child {
+  border-right: none;
+}
+.rc-dinh-muc-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.rc-dinh-muc-table tbody tr:hover {
+  background-color: color-mix(in srgb, var(--rust, #c5400a) 2%, #fff);
+}
+.rc-dinh-muc-table .rc-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 6px;
+  font-size: 12.5px;
+}
+.rc-dinh-muc-table input[type="radio"] {
+  accent-color: var(--rust, #c5400a);
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  vertical-align: middle;
+}
+.rc-dinh-muc-add {
+  margin-top: 2px;
+}
+.rc-dinh-muc-add__select {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px dashed var(--rule, #d8d2c0);
+  border-radius: var(--r-3, 6px);
+  background: var(--canvas, #fbfaf6);
+  color: var(--ink, #14130f);
+  cursor: pointer;
+  outline: none;
+  transition: all var(--duration-fast, 120ms) var(--easing-standard, ease);
+}
+.rc-dinh-muc-add__select:hover {
+  border-color: var(--rust, #c5400a);
+  background: #fff;
+  color: var(--rust, #c5400a);
+  box-shadow: 0 1px 4px rgba(197, 64, 10, 0.08);
 }
 
 /* ── Lịch sử giá: danh sách thẻ phiên bản (vừa bề rộng drawer) ───────── */

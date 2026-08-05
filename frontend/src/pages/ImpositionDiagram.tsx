@@ -23,11 +23,51 @@ interface Props {
   bleedMm?: number; // tràn lề mỗi cạnh con
   kheCatMm?: number; // khe giữa 2 con kề nhau
   soCon: number; // Số con hiện tại (có thể được đè tay)
+  /** > 1 = SÁCH (gấp tay) → vẽ lưới TAY thay cho lưới con. Xem `luoiTay` bên dưới. */
+  trangMoiTay?: number;
+}
+
+/** Lưới của một TAY SÁCH — hỏi câu khác hẳn bình bài, nên không dùng chung đáp án được:
+ *  bình bài hỏi "tờ này nhét được mấy con", tay sách thì số ô ĐÃ CHỐT (= trang mỗi tay ÷ 2),
+ *  việc còn lại chỉ là xếp đúng chừng ấy ô cho vừa tờ. Lấy `con` của engine vẽ tay 16 trang
+ *  là ra 16 ô trong khi đúng phải 8.
+ *
+ *  Thử mọi cách chia `cols × rows = oMoiMat`, cả hai hướng trang. Diện tích giấy ăn vào NHƯ NHAU
+ *  ở mọi cách chia (tích cols×rows không đổi) nên KHÔNG phân xử được bằng phế liệu. Thứ tự chấm:
+ *
+ *   ① TRANG ĐỨNG trước — chỉ xoay 90° khi để đứng không cách nào vừa. Chấm bằng độ phủ trước
+ *     rồi mới tính hướng thì tay 16 khổ 65×86 ra "2×4 xoay 90°": vẫn vừa tờ, vẫn đúng 8 ô, ăn
+ *     giấy y hệt, nhưng không ai bình bài kiểu đó — thợ xếp 4×2 trang đứng.
+ *   ② cùng hướng thì lấy cái phủ đều hai chiều nhất (`min(phủ ngang, phủ dọc)` lớn nhất).
+ *
+ *  ĐÂY LÀ HÌNH MINH HOẠ, KHÔNG PHẢI BẢN BÌNH BÀI ĐEM IN: không đánh số trang, không hướng gấp,
+ *  không thớ giấy. Muốn mấy thứ đó thì phải dựng `folding_scheme` ở docs/spec-quy-tac-binh-bai.md. */
+function luoiTay(
+  oMoiMat: number, dungW: number, dungH: number, pieceR: number, pieceD: number, khe: number,
+): { cols: number; rows: number; xoay: boolean } | null {
+  if (oMoiMat < 1 || dungW <= 0 || dungH <= 0 || pieceR <= 0 || pieceD <= 0) return null;
+  let best: { cols: number; rows: number; xoay: boolean; phu: number } | null = null;
+  for (const xoay of [false, true]) {
+    for (let cols = 1; cols <= oMoiMat; cols++) {
+      if (oMoiMat % cols !== 0) continue;
+      const rows = oMoiMat / cols;
+      const cw = xoay ? pieceD : pieceR;
+      const ch = xoay ? pieceR : pieceD;
+      const canW = cols * cw + khe * (cols - 1);
+      const canH = rows * ch + khe * (rows - 1);
+      if (canW > dungW || canH > dungH) continue;
+      const phu = Math.min(canW / dungW, canH / dungH);
+      if (!best || phu > best.phu) best = { cols, rows, xoay, phu };
+    }
+    // ① Đã có cách xếp trang ĐỨNG thì dừng — vòng `xoay = true` chỉ là phương án cứu.
+    if (best) break;
+  }
+  return best ? { cols: best.cols, rows: best.rows, xoay: best.xoay } : null;
 }
 
 export function ImpositionDiagram({
   khoInDai, khoInRong, daiTP, rongTP, chuaMm,
-  chuaDai, chuaRong, chuaTho, bleedMm = 0, kheCatMm = 0, soCon,
+  chuaDai, chuaRong, chuaTho, bleedMm = 0, kheCatMm = 0, soCon, trangMoiTay = 1,
 }: Props) {
   const { token } = useAuth();
   const [lay, setLay] = useState<BinhBaiOut | null>(null);
@@ -96,16 +136,40 @@ export function ImpositionDiagram({
   const insetY = (lay ? Math.max(0, lay.chua_dai) : 0) / 2; // trục Y = chiều DÀI
   const insetX = (lay ? Math.max(0, lay.chua_rong) : 0) / 2; // trục X = chiều RỘNG
 
-  const cols = lay?.cols ?? 0;
-  const rows = lay?.rows ?? 0;
-  const rotated = !!lay?.rotated;
-  const con = lay?.con ?? 0;
-  // Kích thước 1 con trên trục vẽ (X=rộng, Y=dài) — dùng piece ĐÃ cộng bleed của engine.
-  const pieceD = lay?.piece_dai ?? daiTP;
-  const pieceR = lay?.piece_rong ?? rongTP;
+  const khe = Math.max(0, kheCatMm); // n con → n−1 khe
+  // bleed > 0 → mỗi ô vẽ HAI hình: ngoài = vùng tràn lề, trong = thành phẩm thật.
+  const bleed = Math.max(0, bleedMm);
+  // Kích thước 1 ô trên trục vẽ (X=rộng, Y=dài) — dùng piece ĐÃ cộng bleed của engine. Nhánh dự
+  // phòng phải cộng bleed tay: lưới tay vẽ được TRƯỚC khi /binh-bai trả lời, không thì nhấp nháy.
+  const pieceD = lay?.piece_dai ?? daiTP + bleed * 2;
+  const pieceR = lay?.piece_rong ?? rongTP + bleed * 2;
+
+  // ── SÁCH: lưới TAY, không phải lưới con ──
+  const laTay = trangMoiTay > 1;
+  const oMoiMat = laTay ? Math.max(1, Math.ceil(trangMoiTay / 2)) : 0; // tay in 2 mặt → chia đôi
+  const tay = laTay
+    ? luoiTay(oMoiMat, Math.max(W - (lay?.chua_rong ?? 0), 0), Math.max(H - (lay?.chua_dai ?? 0), 0),
+              pieceR, pieceD, khe)
+    : null;
+
+  const cols = laTay ? tay?.cols ?? 0 : lay?.cols ?? 0;
+  const rows = laTay ? tay?.rows ?? 0 : lay?.rows ?? 0;
+  const rotated = laTay ? !!tay?.xoay : !!lay?.rotated;
+  // Số ô VẼ: tay sách luôn đủ `oMoiMat` (không có chuyện xếp thiếu trang), tờ rời theo engine.
+  const con = laTay ? (tay ? oMoiMat : 0) : lay?.con ?? 0;
   const cellW = rotated ? pieceD : pieceR; // theo trục X (rộng ②)
   const cellH = rotated ? pieceR : pieceD; // theo trục Y (dài ②)
-  const khe = Math.max(0, kheCatMm); // n con → n−1 khe
+
+  // Bình bài xếp KÍN nên vẽ từ mép chừa là đúng. Tay sách thì số ô chốt cứng, thường chỉ ăn
+  // nửa tờ — vẽ từ góc sẽ ra một khối lệch trông như hình vẽ hỏng, nên căn giữa vùng khả dụng.
+  const canhX =
+    laTay && con > 0
+      ? Math.max((W - insetX * 2 - (cols * cellW + khe * (cols - 1))) / 2, 0)
+      : 0;
+  const canhY =
+    laTay && con > 0
+      ? Math.max((H - insetY * 2 - (rows * cellH + khe * (rows - 1))) / 2, 0)
+      : 0;
 
   const pieces: { x: number; y: number; used: boolean }[] = [];
   if (con > 0) {
@@ -113,25 +177,30 @@ export function ImpositionDiagram({
     for (let r = 0; r < rows; r++) {
       for (let cix = 0; cix < cols; cix++) {
         pieces.push({
-          x: insetX + cix * (cellW + khe),
-          y: insetY + r * (cellH + khe),
-          used: index < soCon,
+          x: insetX + canhX + cix * (cellW + khe),
+          y: insetY + canhY + r * (cellH + khe),
+          used: laTay || index < soCon,
         });
         index++;
       }
     }
   }
-  const showIndex = con > 0 && con <= 24;
-  // bleed > 0 → mỗi ô vẽ HAI hình: ngoài = vùng tràn lề, trong = thành phẩm thật.
-  const bleed = Math.max(0, bleedMm);
+  // Đánh số ô = số con thứ mấy. Tay sách KHÔNG đánh: 1..8 ở đây dễ bị đọc nhầm thành số TRANG,
+  // mà thứ tự trang thật thì phụ thuộc kiểu gấp — thứ hình này không biết và không hứa.
+  const showIndex = !laTay && con > 0 && con <= 24;
   const trimW = Math.max(cellW - bleed * 2, 0);
   const trimH = Math.max(cellH - bleed * 2, 0);
+  // Phần tờ thật sự dùng — tay 16 trên tờ chứa nổi 32 thì con số này rơi xuống ~50%, nhìn là biết.
+  const phuTay =
+    laTay && tay && W > 0 && H > 0
+      ? Math.round(((oMoiMat * cellW * cellH) / ((W - (lay?.chua_rong ?? 0)) * (H - (lay?.chua_dai ?? 0)))) * 100)
+      : 0;
   const chuaD = lay?.chua_dai ?? 0;
   const chuaR = lay?.chua_rong ?? 0;
   const coThongSo = bleed > 0 || khe > 0 || chuaD > 0 || chuaR > 0;
 
   return (
-    <div className={`tg-imp${con === 0 && lay ? " tg-imp--bad" : ""}`}>
+    <div className={`tg-imp${con === 0 && (lay || laTay) ? " tg-imp--bad" : ""}`}>
       <div className="tg-imp__stage">
         <svg
           className="tg-imp__svg"
@@ -139,9 +208,13 @@ export function ImpositionDiagram({
           preserveAspectRatio="xMidYMid meet"
           role="img"
           aria-label={
-            con > 0
-              ? `Sơ đồ bình bài: ${soCon} con mỗi tờ in (tổng ${con})`
-              : "Khổ thành phẩm lớn hơn khổ tờ in — không vừa"
+            laTay
+              ? con > 0
+                ? `Sơ đồ tay sách: ${oMoiMat} trang mỗi mặt tờ in, lưới ${cols}×${rows}`
+                : `Khổ tờ in không xếp nổi ${oMoiMat} trang mỗi mặt`
+              : con > 0
+                ? `Sơ đồ bình bài: ${soCon} con mỗi tờ in (tổng ${con})`
+                : "Khổ thành phẩm lớn hơn khổ tờ in — không vừa"
           }
         >
           {/* Tờ in */}
@@ -201,7 +274,7 @@ export function ImpositionDiagram({
             </g>
           ))}
           {/* Cảnh báo không vừa */}
-          {con === 0 && lay && (
+          {con === 0 && (lay || laTay) && (
             <line
               className="tg-imp__cross"
               x1={insetX || W * 0.12}
@@ -215,7 +288,24 @@ export function ImpositionDiagram({
       </div>
 
       <div className="tg-imp__caption">
-        {con > 0 ? (
+        {laTay ? (
+          con > 0 ? (
+            <>
+              <span className="tg-imp__con">{oMoiMat}</span>
+              <span className="tg-imp__con-unit">trang/mặt</span>
+              <span className="tg-imp__sep">·</span>
+              <span className="tg-imp__eff">hiệu suất {phuTay}%</span>
+              <span className="tg-imp__grid">
+                {cols}×{rows}
+                {rotated ? " · xoay 90°" : ""}
+              </span>
+            </>
+          ) : (
+            <span className="tg-imp__warn">
+              Khổ tờ in không xếp nổi {oMoiMat} trang mỗi mặt.
+            </span>
+          )
+        ) : con > 0 ? (
           <>
             <span className="tg-imp__con">{soCon}</span>
             <span className="tg-imp__con-unit">con/tờ</span>

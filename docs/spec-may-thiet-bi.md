@@ -124,7 +124,7 @@ may_thiet_bi.khoa_class     → giá kẽm trong danh mục Kẽm & khuôn (kem_
 | toc_do | number | | tốc độ chạy danh nghĩa |
 | don_vi_toc_do | enum(to_gio, m2_gio, cuon_gio, luot_gio, met_gio) | | khớp `loai_may` |
 | makeready_time_default | number | phút | thời gian canh máy mặc định (job mới) |
-| thoi_gian_rua_muc | number | phút | rửa mực/đổi màu (TÁCH khỏi canh máy; đổi đậm→nhạt lâu hơn) |
+| thoi_gian_rua_muc | number | phút | **DORMANT 2026-08-04** — đã bỏ ô nhập trên form Máy và gỡ khỏi engine xếp lịch (chiếm máy = canh máy + chạy). Cột còn trong DB, không phơi ra API. |
 | min_stock_gsm | int | gsm | định lượng nhỏ nhất chạy được |
 | max_stock_gsm | int | gsm | định lượng lớn nhất |
 | vat_lieu_ho_tro_class | enum[] | | loại vật liệu (tráng/không tráng/carton/nhựa/decal/foil) |
@@ -329,7 +329,7 @@ tien_cong_may = (gio_chay + gio_canh_may) × BHR    [hoặc dùng per-1000-lư�
 ```
 CHO BÌNH BÀI: { gripper_mm, kho_max/min, so_units, cho_phep_tu_tro, cho_phep_tro_dau_duoi,
                 le_hong_mm?, duoi_thang_mau_mm?, truc?{repeat, pitch, dia} }
-CHO TÍNH GIÁ: { BHR / don_gia_ban_gio, toc_do × efficiency, makeready_time, thoi_gian_rua_muc,
+CHO TÍNH GIÁ: { BHR / don_gia_ban_gio, toc_do × efficiency, makeready_time,
                 bu_hao_canh_may_per_mau, bu_hao_chay_pct, units_truoc/sau, khoa_class,
                 chi_phi_phu_per_m2?, click_*? (digital), don_gia_muc_per_m2? (wide/inkjet) }
 CHO SCHEDULING: { toc_do, lich, so_ca, so_may_song_song, may_thay_the, availability_pct }

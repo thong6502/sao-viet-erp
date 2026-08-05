@@ -53,14 +53,31 @@ TRANG_THAI_SUA_DUOC = (TT_NHAP, TT_CHO_BO_SUNG, TT_SAN_SANG)  # chưa lập KH �
 DV_TO_NGUYEN = "to_nguyen"  # tờ giấy NGUYÊN (khổ mua về, chưa xả) — khác tờ in!
 DV_TO = "to"      # tờ in (sau khi xả từ tờ nguyên)
 DV_CAI = "cai"    # con / tờ thành phẩm
-DV_KEM = "kem"    # bộ kẽm (chế bản)
+DV_CON = "con"    # mảnh cắt ra từ MỘT tờ in — KHÁC `cai`: sách gấp tay thì nhiều tờ mới ra 1 cuốn
+DV_KEM = "kem"    # bộ kẽm (chế bản) — nhãn màn hình là "Bản"
 DV_BAI = "bai"    # bài bình (chế bản: 1 bài → n bản kẽm)
-DON_VI_CONG_DOAN = (DV_TO_NGUYEN, DV_TO, DV_CAI, DV_KEM, DV_BAI)
+# Thêm 2026-08-05 theo yêu cầu chủ: mức TAY của khâu sách, nằm trên dòng giấy.
+#   tờ in ──(gấp)──▶ TAY sách ──(bắt tay + vào keo)──▶ cuốn
+# `cai` (thành phẩm) là ĐÍCH CUỐI của dòng giấy — chủ chốt 2026-08-05, không có mức nào sau nó.
+# CHƯA có cầu quy đổi (chủ chốt "quy đổi bàn sau"): `_he_so_cau` không có key nên
+# `he_so.get(..., 1.0)` rơi về hệ số 1 — chuỗi ngược vẫn chạy, chỉ là chưa nhân/chia gì.
+# Khi chốt công thức thì thêm vào `CAU_QUY_DOI` + `_he_so_cau`, ĐỪNG khai hệ số ở chỗ khác.
+DV_TAY = "tay"    # tay sách (1 tờ in gấp lại = 1 tay, mang n trang)
+# Đơn vị KHÔNG nằm trên dòng giấy — chỉ để ghi nhận, không có cầu quy đổi (xem `CAU_QUY_DOI`).
+DV_NGOAI_DONG_GIAY = ("mau", "tan", "me", "m2", "nhip", "hop")
+DON_VI_CONG_DOAN = (
+    DV_TO_NGUYEN, DV_TO, DV_CON, DV_TAY, DV_CAI, DV_KEM, DV_BAI, *DV_NGOAI_DONG_GIAY,
+)
 
 # Dòng giấy đi qua BA đơn vị với HAI điểm quy đổi. Hệ số KHÔNG lưu ở đâu cả — phiếu tính giá đã
 # có sẵn (`so_manh_xa` từ khổ giấy, `con` từ bình bài); lưu lại là đẻ nguồn sự thật thứ hai.
 #     tờ nguyên ──(xả: ÷ số mảnh xả)──▶ tờ in ──(bế/xén: × con/tờ)──▶ tờ thành phẩm
-CAU_QUY_DOI = ((DV_TO_NGUYEN, DV_TO), (DV_TO, DV_CAI))
+#     tờ nguyên ──(÷ số mảnh xả)──▶ tờ in ──(× con/tờ)──▶ con ──(÷ số tay)──▶ thành phẩm
+# Cầu `to → cai` GIỮ NGUYÊN (đi tắt, bỏ qua `con`) vì phần lớn routing khai thẳng như vậy; hai
+# cầu qua `con` là đường dài cho bước nào thật sự đếm mảnh. Hệ số cả bốn suy ở `_he_so_cau`.
+CAU_QUY_DOI = (
+    (DV_TO_NGUYEN, DV_TO), (DV_TO, DV_CAI), (DV_TO, DV_CON), (DV_CON, DV_CAI),
+)
 
 # --- Loại bước (execution type). Quyết định bước CHIẾM cái gì khi lên Gantt — đây là lý do routing
 # tồn tại. Thời gian chờ/di chuyển nằm trên bước và không chiếm năng lực tài nguyên.
@@ -75,8 +92,11 @@ LOAI_BUOC_THEO_TO = (LB_TO,)
 NS_TO_GIO = "to_gio"
 NS_CAI_GIO = "cai_gio"
 NS_KEM_GIO = "kem_gio"
-NS_BAI_GIO = "bai_gio"
-DON_VI_NANG_SUAT = (NS_TO_GIO, NS_CAI_GIO, NS_KEM_GIO, NS_BAI_GIO)
+# KHÔNG có `bai_gio`. Máy CTP nhả ra BẢN KẼM chứ không nhả ra "bài": một bài 4 màu tốn 4 lượt ghi,
+# bài 1 màu tốn 1 — khai "20 bài/giờ" là con số không đo được. Thứ đo ổn định là `kem_gio`.
+# (Mã cũ sinh ra từ thời `DON_VI_CONG_DOAN` cho công đoạn khai 5 đơn vị; nay `DON_VI_DONG_GIAY`
+# chỉ còn `to_nguyen · to · cai` nên không bước nào khớp được `bai` — nó chết hẳn, đã gỡ.)
+DON_VI_NANG_SUAT = (NS_TO_GIO, NS_CAI_GIO, NS_KEM_GIO)
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -224,10 +244,17 @@ class LsxCongDoan(Base):
     # ăn capacity — đúng BC: "wait time and move time don't consume capacity on the work center".
     setup_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
     nang_suat: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
-    don_vi_nang_suat: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # String(32): đơn vị năng suất của bước TỔ nay là mã người khai chọn ở định mức đầu việc
+    # (`ban_proof_gio` dài 13) chứ không chỉ ba mã suy ra `to_gio`/`cai_gio`/`kem_gio`. SQLite bỏ
+    # qua độ dài nên test không bắt được — chỉ Postgres thật mới lỗi lúc lưu (migration 0159).
+    don_vi_nang_suat: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # Người kế hoạch gõ đè thời gian chạy → thắng công thức năng suất. NULL = để máy tính.
     chay_phut: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    # DORMANT 2026-08-04 — vệ sinh/rửa mực bỏ khỏi hệ: bước mới luôn 0, engine thôi cộng.
     ve_sinh_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
+    # "Thời gian khác" (migration 0153) — ô DUY NHẤT người kế hoạch còn gõ được ở tab Thời gian;
+    # cộng THẲNG vào thời gian chiếm máy. Chuẩn bị/tốc độ nay kế thừa từ máy, không sửa tại bước.
+    phat_sinh_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
     cho_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
     di_chuyen_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
     # Số người/máy chạy ĐỒNG THỜI (BC: Concurrent Capacities) — 5 người dán thì thời gian chạy ÷ 5.
@@ -241,6 +268,10 @@ class LsxCongDoan(Base):
         Integer, nullable=False, server_default="1", default=1
     )
     so_nhan_cong_toi_da: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Mốc thứ ba của định mức nhân lực. Cả ba mốc KẾ THỪA từ `cong_doan_dau_viec` nhưng SỬA ĐƯỢC
+    # tại bước (kế thừa = mặc định, không read-only). Chỉ `toi_da` vào công thức (trần thời gian);
+    # `toi_thieu` hiện là khai báo.
+    so_nhan_cong_toi_thieu: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # --- Phương thức thực hiện ---
     # ĐẦU VIỆC KHOÁN của bước (`piece_rates`) — kế hoạch chọn "hôm nay bước cán này làm CÁN MỜ hay

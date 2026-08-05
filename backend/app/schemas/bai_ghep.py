@@ -51,11 +51,8 @@ class BuocChungUpdateIn(BaseModel):
     piece_rate_id: int | None = None
     nang_suat: float | None = None
     don_vi_nang_suat: str | None = None
-    chay_phut: float | None = None
-    setup_phut: float | None = None
-    ve_sinh_phut: float | None = None
-    cho_phut: float | None = None
-    di_chuyen_phut: float | None = None
+    # Ô DUY NHẤT còn gõ được: chuẩn bị + tốc độ kế thừa SỐNG từ máy (2026-08-04).
+    phat_sinh_phut: float | None = None
     so_luot_chay: int | None = None
     ghi_chu: str | None = None
     vat_tus: list[dict] | None = None
@@ -225,6 +222,9 @@ class SoDoNode(BaseModel):
     nha_cung_cap: str | None = None
     tong_phut: float = 0
     chiem_may_phut: float = 0
+    # Dải nhanh/chậm nhất (tốc độ tối đa / tối thiểu của máy). Máy chưa khai dải ⇒ = TB.
+    chiem_may_phut_min: float = 0
+    chiem_may_phut_max: float = 0
     phu_thuoc_step_keys: list[str] = Field(default_factory=list)
 
 
@@ -258,15 +258,16 @@ class SoDoBuocChung(BaseModel):
     nha_cung_cap: str | None = None
     tong_phut: float = 0
     chiem_may_phut: float = 0
+    # Dải nhanh/chậm nhất (tốc độ tối đa / tối thiểu của máy). Máy chưa khai dải ⇒ = TB.
+    chiem_may_phut_min: float = 0
+    chiem_may_phut_max: float = 0
     # Giá trị NGƯỜI đã khai — form phải mồi lại được, không thì mở drawer là ô trống và lưu đè mất.
     so_nhan_cong: int = 1
     nang_suat: float | None = None
     don_vi_nang_suat: str | None = None
-    chay_phut: float | None = None
-    setup_phut: float = 0
-    ve_sinh_phut: float = 0
-    cho_phut: float = 0
-    di_chuyen_phut: float = 0
+    chay_phut: float | None = None      # dẫn xuất: SL vào × 60 ÷ tốc độ máy × số lượt
+    setup_phut: float = 0               # kế thừa từ máy (read-only)
+    phat_sinh_phut: float = 0
     so_luot_chay: int = 1
     # Khoán: phần GHIM (đầu việc đã chọn, ảnh chụp) + danh sách chọn được của TỔ đang gán + phần
     # DẪN XUẤT (SL quy đổi · tiền · diễn giải) — cùng hợp đồng với bước lệnh ở màn KHSX.

@@ -79,8 +79,8 @@ def test_drawer_hien_nhan_luc_ke_thua_va_ket_qua_thoi_gian_o_cuoi() -> None:
     assert "kíp vận hành tiêu chuẩn" in source
     # Bước TỔ: người kế hoạch đổi được, kèm định mức và trần tăng năng suất.
     assert "số người kế hoạch" in source
-    assert "định mức tiêu chuẩn" in source
-    assert "tối đa tăng năng suất" in source
+    assert "định mức nhân lực" in source
+    assert "trần thời gian" in source
     # Nguồn tính đứng TRƯỚC kết quả — đọc từ "vì sao ra số này" rồi mới tới con số.
     assert "nguồn tính" in source
     assert "thời gian chiếm máy" in source

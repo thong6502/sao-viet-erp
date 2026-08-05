@@ -26,7 +26,7 @@ from ..models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
 from ..models.attendance import WorkShift
 from ..models.department import Department
 from ..models.lsx import (
-    DV_TO, LB_MAY, NS_TO_GIO,
+    LB_MAY,
     TT_DA_LAP_KE_HOACH as LSX_DA_LAP, TT_DA_PHAT_HANH as LSX_DA_PHAT_HANH,
     TT_SAN_SANG as LSX_SAN_SANG, Lsx, LsxCongDoan, LsxCongDoanPhuThuoc,
 )
@@ -262,8 +262,8 @@ def _lui_gio_lam(ket_thuc: datetime, phut: float, lich: LichXuong, chan: tuple =
 
 def _dur_0() -> dict:
     """Thời lượng 0 (dòng chưa đủ dữ liệu) — kèm breakdown để DTO nhất quán."""
-    return {"chiem_may_phut": 0.0, "tong_phut": 0.0,
-            "setup_phut": 0.0, "chay_phut": 0.0, "ve_sinh_phut": 0.0,
+    return {"chiem_may_phut": 0.0, "chiem_may_phut_min": 0.0, "chiem_may_phut_max": 0.0,
+            "tong_phut": 0.0, "setup_phut": 0.0, "chay_phut": 0.0,
             "theo_may": False, "canh_bao": None}
 
 
@@ -275,15 +275,26 @@ def _mo_ta_gan(truoc: tuple, sau: tuple) -> str:
 
 
 def _thoi_luong_in_ghep(bg: BaiGhep, tong_to: int, may: MayThietBi | None) -> dict:
-    """Thời lượng công đoạn IN CHUNG của bài ghép: makeready + số tờ / tốc độ + rửa mực. Không có máy /
-    chưa khai tốc độ → 0 (dòng bị chặn `thieu_thoi_luong`)."""
+    """Thời lượng công đoạn IN CHUNG của bài ghép: makeready + số tờ / tốc độ. Không có máy /
+    chưa khai tốc độ → 0 (dòng bị chặn `thieu_thoi_luong`).
+
+    Vệ sinh/rửa mực đã BỎ khỏi hệ (2026-08-04): không còn cộng vào thời gian chiếm máy."""
     setup = _f(may.makeready_time_default) if may else 0.0
-    ve_sinh = _f(may.thoi_gian_rua_muc) if may else 0.0
     toc_do = _f(may.toc_do) if may else 0.0
-    chay = (float(tong_to) / toc_do * 60.0) if toc_do > 0 and tong_to > 0 else 0.0
-    chiem = round(setup + chay + ve_sinh, 2)
+
+    def _chay(v: float) -> float:
+        return (float(tong_to) * 60.0 / v) if v > 0 and tong_to > 0 else 0.0
+
+    chay = _chay(toc_do)
+    cao = _f(may.toc_do_max) if may else 0.0      # tốc độ TỐI ĐA ⇒ thời lượng NHỎ nhất
+    thap = _f(may.toc_do_min) if may else 0.0
+    chay_nhanh = _chay(cao) if cao > 0 else chay
+    chay_cham = _chay(thap) if thap > 0 else chay
+    chiem = round(setup + chay, 2)
     return {"chiem_may_phut": chiem, "tong_phut": chiem,
-            "setup_phut": round(setup, 2), "chay_phut": round(chay, 2), "ve_sinh_phut": round(ve_sinh, 2)}
+            "chiem_may_phut_min": round(setup + chay_nhanh, 2),
+            "chiem_may_phut_max": round(setup + chay_cham, 2),
+            "setup_phut": round(setup, 2), "chay_phut": round(chay, 2)}
 
 
 class XepLichService:
@@ -353,7 +364,7 @@ class XepLichService:
     # ================= THỜI LƯỢNG 1 DÒNG =================
 
     def _thoi_luong(self, dong: XepLichCongDoan, bg: BaiGhep | None = None) -> dict:
-        """{chiem_may_phut, tong_phut, setup_phut, chay_phut, ve_sinh_phut, theo_may, canh_bao}.
+        """{chiem_may_phut(+_min/_max), tong_phut, setup_phut, chay_phut, theo_may, canh_bao}.
 
         In ghép: theo số tờ / tốc độ máy in. Bước nội bộ: nếu có máy khai tốc độ + đơn vị khớp
         (máy `to_gio` ⟷ bước vào `to`) → TÍNH LẠI theo máy đang gán (HM3); ngược lại snapshot bước.
@@ -388,38 +399,35 @@ class XepLichService:
     def _thoi_luong_noi_bo(
         self, dong: XepLichCongDoan, lcd: LsxCongDoan | BaiGhepCongDoan,
     ) -> dict:
-        """Bước THEO MÁY (HM3) — dùng chung cho bước của lệnh lẫn bước chạy chung của bài, vì cả
-        hai đều là "một bước có kế hoạch" với cùng bộ trường (`BaiGhepCongDoan` mirror
-        `LsxCongDoan`). Máy đang gán khai tốc độ + đơn vị khớp (`to_gio`⟷`to`) → tính
-        LIVE, TÁCH BẠCH — setup = makeready máy, chạy = SL_vào / tốc độ × lượt / nhân-công, vệ sinh =
-        rửa mực máy (đúng BC: makeready theo máy, chạy theo tốc độ). Ngược lại fallback snapshot bước.
-        `chay_phut` người kế hoạch gõ đè vẫn THẮNG công thức. `chờ`/`di chuyển` giữ theo bước (lag,
-        không chiếm máy). `canh_bao` báo vì sao KHÔNG tính-theo-máy được (đơn vị lệch / máy chưa khai
-        tốc độ) để UI nhắc số đang là snapshot."""
+        """Bước THEO MÁY — dùng chung cho bước của lệnh lẫn bước chạy chung của bài, vì cả hai đều
+        là "một bước có kế hoạch" với cùng bộ trường (`BaiGhepCongDoan` mirror `LsxCongDoan`).
+
+        Từ 2026-08-04 hàm này KHÔNG tự tính nữa mà ủy thác cho `thoi_luong_buoc(lcd, may)` — công
+        thức chỉ còn MỘT bản, khỏi cảnh hai nơi tính hai kiểu rồi lệch nhau::
+
+            thời lượng = thời gian khác + chuẩn bị (từ MÁY) + SL vào × 60 ÷ tốc độ × số lượt
+
+        `min`/`max` là cùng công thức với tốc độ tối đa / tối thiểu của máy → Gantt vẽ râu ở đuôi
+        thanh. `theo_may` = tính được từ máy đang gán; sai thì `canh_bao` nói vì sao (máy chưa khai
+        tốc độ / đơn vị lệch) để UI nhắc, thay vì im lặng ra số 0."""
         may = self.db.get(MayThietBi, dong.may_id) if dong.may_id else None
-        toc_do = _f(may.toc_do) if may else 0.0
-        dv_khop = bool(may and may.don_vi_toc_do == NS_TO_GIO and lcd.don_vi_vao == DV_TO)
-        cho, di_chuyen = _f(lcd.cho_phut), _f(lcd.di_chuyen_phut)
-        if toc_do > 0 and dv_khop:
-            setup, ve_sinh = _f(may.makeready_time_default), _f(may.thoi_gian_rua_muc)
-            if lcd.chay_phut is not None:
-                chay = _f(lcd.chay_phut)
-            else:
-                vao = _f(lcd.so_luong_vao)
-                luot = max(int(lcd.so_luot_chay or 1), 1)
-                # Kíp vận hành không làm máy chạy nhanh hơn. Chỉ số lượt qua máy nhân thời gian.
-                chay = (vao / toc_do * 60.0 * luot) if vao > 0 else 0.0
-            chiem = round(setup + chay + ve_sinh, 2)
-            return {"chiem_may_phut": chiem, "tong_phut": round(chiem + cho + di_chuyen, 2),
-                    "setup_phut": round(setup, 2), "chay_phut": round(chay, 2),
-                    "ve_sinh_phut": round(ve_sinh, 2), "theo_may": True, "canh_bao": None}
-        t = thoi_luong_buoc(lcd)
-        canh_bao = "thieu_nang_suat" if t["dien_giai"]["phuong_phap"] == "thieu_nang_suat" else None
-        if canh_bao is None and dong.may_id:
-            canh_bao = "may_chua_toc_do" if (may is None or toc_do <= 0) else "don_vi_lech"
-        return {"chiem_may_phut": t["chiem_may_phut"], "tong_phut": t["tong_phut"],
-                "setup_phut": _f(lcd.setup_phut), "chay_phut": t["chay_phut"],
-                "ve_sinh_phut": _f(lcd.ve_sinh_phut), "theo_may": False, "canh_bao": canh_bao}
+        t = thoi_luong_buoc(lcd, may)
+        pp = t["dien_giai"]["phuong_phap"]
+        canh_bao = None
+        if pp == "thieu_nang_suat":
+            canh_bao = "may_chua_toc_do"
+        elif pp == "don_vi_lech":
+            canh_bao = "don_vi_lech"
+        return {
+            "chiem_may_phut": t["chiem_may_phut"],
+            "chiem_may_phut_min": t["chiem_may_phut_min"],
+            "chiem_may_phut_max": t["chiem_may_phut_max"],
+            "tong_phut": t["tong_phut"],
+            "setup_phut": t["dien_giai"]["setup_phut"],
+            "chay_phut": t["chay_phut"],
+            "theo_may": pp == "may",
+            "canh_bao": canh_bao,
+        }
 
     def _kiem_kha_nang(self, dong: XepLichCongDoan, lsx: Lsx | None = None,
                        may: MayThietBi | None = None) -> list[str]:
@@ -967,7 +975,9 @@ class XepLichService:
         return {
             "finish_at": _naive(finish),
             "chiem_may_phut": chiem, "setup_phut": d["setup_phut"],
-            "chay_phut": d["chay_phut"], "ve_sinh_phut": d["ve_sinh_phut"],
+            "chay_phut": d["chay_phut"],
+            "chiem_may_phut_min": d.get("chiem_may_phut_min", chiem),
+            "chiem_may_phut_max": d.get("chiem_may_phut_max", chiem),
             "theo_may": d.get("theo_may", False),
             "xung_dot_ids": xung_dot, "day_doi": day_doi,
             "han_hoan_thanh_moi": han_moi, "nhan_rui_ro": nhan,
@@ -1134,8 +1144,9 @@ class XepLichService:
                 "som_nhat": ch.get("som_nhat"), "muon_nhat": ch.get("muon_nhat"),
                 "start_at": r.start_at, "finish_at": r.finish_at,
                 "chiem_may_phut": d["chiem_may_phut"], "tong_phut": d["tong_phut"],
+                "chiem_may_phut_min": d.get("chiem_may_phut_min", d["chiem_may_phut"]),
+                "chiem_may_phut_max": d.get("chiem_may_phut_max", d["chiem_may_phut"]),
                 "setup_phut": d.get("setup_phut", 0.0), "chay_phut": d.get("chay_phut", 0.0),
-                "ve_sinh_phut": d.get("ve_sinh_phut", 0.0),
                 "theo_may": d.get("theo_may", False), "canh_bao_thoi_luong": d.get("canh_bao"),
                 "slack_ngay": ch.get("slack_ngay"), "nhan_rui_ro": ch.get("nhan_rui_ro"),
                 "trang_thai": r.trang_thai, "is_locked": bool(r.is_locked),

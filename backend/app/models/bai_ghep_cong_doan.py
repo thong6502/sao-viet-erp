@@ -74,6 +74,8 @@ class BaiGhepCongDoan(Base):
         Integer, nullable=False, server_default="1", default=1
     )
     so_nhan_cong_toi_da: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Mirror `lsx_cong_doan.so_nhan_cong_toi_thieu` — bước chung của bài cũng là một bước có kế hoạch.
+    so_nhan_cong_toi_thieu: Mapped[int | None] = mapped_column(Integer, nullable=True)
     khoan_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # --- Số lượng & hao hụt: tính ở ĐƠN VỊ TỜ GHÉP, hao đếm ĐÚNG MỘT LẦN cho cả lượt ---
@@ -95,9 +97,13 @@ class BaiGhepCongDoan(Base):
     # --- Thời gian (phút) — một lượt chạy, một khoảng chiếm máy ---
     setup_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
     nang_suat: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
-    don_vi_nang_suat: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # String(32) — cùng lý do với `lsx_cong_doan.don_vi_nang_suat` (mã đơn vị người khai chọn).
+    don_vi_nang_suat: Mapped[str | None] = mapped_column(String(32), nullable=True)
     chay_phut: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    # DORMANT 2026-08-04 — mirror `LsxCongDoan.ve_sinh_phut`, cùng lý do: bỏ khỏi hệ, giữ cột.
     ve_sinh_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
+    # "Thời gian khác" (migration 0153) — mirror `LsxCongDoan.phat_sinh_phut`.
+    phat_sinh_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
     cho_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
     di_chuyen_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
 

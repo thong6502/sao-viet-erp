@@ -309,12 +309,8 @@ export function AppShell() {
             lastPending.current = s.pending_approval_count;
           })
           .catch(() => {});
-      } else if (readable.has("don_hang_ban") && e.type === "order_decision") {
-        pushToast(
-          e.decision === "approved" ? `✓ Đơn ${e.code} đã được duyệt` : `✕ Đơn ${e.code} bị từ chối`,
-          e.decision === "approved" ? "ok" : "warn",
-        );
-        reloadBadges();
+      // Nhánh `order_decision` (duyệt/từ chối đơn đặc thù) đã gỡ cùng luồng duyệt — backend
+      // không còn publish event này nữa.
       } else if (readable.has("don_hang_ban") && e.type === "order_deposit_ok") {
         pushToast(`🔔 Đơn ${e.code} đã đủ cọc — chuyển xuống sản xuất được rồi`, "info");
         reloadBadges();

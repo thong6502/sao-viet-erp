@@ -70,9 +70,18 @@ class CongDoanRepository:
             if k in data:
                 setattr(cd, k, data[k])
 
-    @staticmethod
-    def _replace_dinh_muc(cd: CongDoan, rows: list[dict]) -> None:
-        cd.dau_viec_dinh_muc.clear()
+    def _replace_dinh_muc(self, cd: CongDoan, rows: list[dict]) -> None:
+        """Thay TRỌN bộ định mức đầu việc của công đoạn.
+
+        BẮT BUỘC `flush()` giữa xoá và thêm: trong MỘT flush, SQLAlchemy phát INSERT trước DELETE
+        cho cùng một bảng, nên lưu lại đúng đầu việc cũ là đụng `uq_cd_dau_viec_rate` → 500
+        (`duplicate key (cong_doan_id, piece_rate_id)`). Xoá bay đi trước rồi mới chèn thì cả hai
+        đường — sửa số của dòng cũ và bỏ/thêm dòng — đều chạy.
+        """
+        if cd.dau_viec_dinh_muc:
+            cd.dau_viec_dinh_muc.clear()
+            if cd.id is not None:          # công đoạn mới chưa có id thì chưa có gì để xoá
+                self.db.flush()
         cd.dau_viec_dinh_muc.extend(CongDoanDauViec(**r) for r in rows)
 
     def create(self, data: dict) -> CongDoan:

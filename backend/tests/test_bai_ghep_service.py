@@ -59,7 +59,7 @@ def _to_san_xuat(db) -> Department:
 def _may_in(db) -> MayThietBi:
     may = MayThietBi(
         ma="MAY-IN-BG", ten="Máy in 4 màu", loai_may="press_offset_sheet",
-        toc_do=5_000, don_vi_toc_do="to_gio", thoi_gian_rua_muc=15,
+        toc_do=5_000, don_vi_toc_do="to_gio",
         kho_max_dai=1020, kho_max_rong=720,
     )
     db.add(may)

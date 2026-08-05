@@ -17,16 +17,23 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
-from .lsx import DV_CAI, DV_TO, DV_TO_NGUYEN
+from .lsx import DV_CAI, DV_CON, DV_TAY, DV_TO, DV_TO_NGUYEN
 
 NHOM = ("prepress", "print", "finishing")
 # Đơn vị của công đoạn trên DÒNG GIẤY — đúng ba mức, không hơn. Kẽm/bài KHÔNG ở đây: bước chế bản
 # không chạm giấy nên để TRỐNG (None), engine loại nó khỏi dòng giấy.
-DON_VI_DONG_GIAY = (DV_TO_NGUYEN, DV_TO, DV_CAI)
+DON_VI_DONG_GIAY = (DV_TO_NGUYEN, DV_TO, DV_CON, DV_TAY, DV_CAI)
 # Cặp vào→ra hợp lệ. Dòng giấy chảy MỘT CHIỀU (tờ nguyên → tờ in → tờ thành phẩm), nên `cai → to`
 # hay `to → to_nguyen` là vô nghĩa — chặn ở service, đừng để khai rồi engine tính bậy.
+# Khâu SÁCH nối thêm mức TAY (2026-08-05): tờ in → tay → cuốn. Vẫn MỘT CHIỀU, và vẫn cho
+# `to → cai` đi tắt vì phần lớn routing khai thẳng như vậy (sách mới đi qua `tay`).
 CAP_DON_VI_HOP_LE = frozenset(
-    [(d, d) for d in DON_VI_DONG_GIAY] + [(DV_TO_NGUYEN, DV_TO), (DV_TO, DV_CAI)]
+    [(d, d) for d in DON_VI_DONG_GIAY]
+    + [(DV_TO_NGUYEN, DV_TO), (DV_TO, DV_CAI),
+       # `con` có cầu THẬT trong engine (`CAU_QUY_DOI`: to→con, con→cai) từ trước, chỉ bị cổng
+       # khai báo này bỏ quên — mở ra chứ đừng xoá khỏi danh sách chọn.
+       (DV_TO, DV_CON), (DV_CON, DV_CAI),
+       (DV_TO, DV_TAY), (DV_TAY, DV_CAI)]
 )
 CHE_DO_TINH = ("theo_san_luong",)  # "theo_gio" đã gỡ — công đoạn chỉ tính theo công thức/sản lượng
 # Đơn vị tính giá công đoạn (bao trùm chế bản + in + sau in). Engine `routing_engine.basis_qty`
@@ -143,6 +150,21 @@ class CongDoanDauViec(Base):
     # Soft-ref tới piece_rates: bảng giá có vòng đời riêng; service chặn id/tổ không hợp lệ.
     piece_rate_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     nang_suat_nguoi_gio: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False)
+    # Dải năng suất — `nang_suat_nguoi_gio` giữ nghĩa TRUNG BÌNH, hai cột này là mức thấp/cao,
+    # đúng lối máy (`may_thiet_bi.toc_do` + `toc_do_min`/`toc_do_max`). Nullable: đầu việc chưa
+    # khai dải thì ba mức bằng nhau và râu Gantt co về một điểm — KHÔNG bịa min=max=TB.
+    nang_suat_nguoi_gio_min: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    nang_suat_nguoi_gio_max: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # Đơn vị năng suất do người khai CHỌN (mã `<đơn vị>_gio`, cùng bảng với ô "Đơn vị tốc độ" của
+    # máy). Đây là NHÃN KHAI BÁO: engine chia thẳng SL vào cho năng suất, KHÔNG quy đổi — bước
+    # quy đổi làm sau. Trống = giữ lối cũ (suy theo đơn vị vào của công đoạn).
+    don_vi_nang_suat: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Ba mốc nhân lực: tối thiểu ≤ tiêu chuẩn ≤ tối đa. `tieu_chuan` là số điền sẵn vào bước,
+    # `toi_da` là trần tính thời gian (thêm người nữa không nhanh hơn). `toi_thieu` là KHAI BÁO —
+    # chưa vào công thức, mặc định 1 nghĩa là không ràng buộc.
+    so_nguoi_toi_thieu: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     so_nguoi_tieu_chuan: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     so_nguoi_toi_da: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_default: Mapped[bool] = mapped_column(

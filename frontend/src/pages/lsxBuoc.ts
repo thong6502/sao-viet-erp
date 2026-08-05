@@ -34,15 +34,16 @@ export interface EditRow {
   so_luot_chay: string;
   // năng suất & thời gian (phút)
   so_nhan_cong: string;
+  /** Ba mốc định mức nhân lực — KẾ THỪA từ đầu việc khoán nhưng SỬA ĐƯỢC tại bước. */
+  so_nhan_cong_toi_thieu: number | null;
   so_nhan_cong_tieu_chuan: number;
   so_nhan_cong_toi_da: number | null;
-  setup_phut: string;
   nang_suat: string;
   don_vi_nang_suat: string;
-  chay_phut: string;
-  ve_sinh_phut: string;
-  cho_phut: string;
-  di_chuyen_phut: string;
+  /** Ô DUY NHẤT còn gõ được ở tab Thời gian (2026-08-04): chuẩn bị + tốc độ kế thừa từ máy.
+   *  `setup_phut`/`chay_phut`/`cho_phut`/`di_chuyen_phut` đã rời form — số hiển thị lấy từ
+   *  `thoi_luong_dien_giai` (server tính), không còn ô nào ghi ngược vào bước. */
+  phat_sinh_phut: string;
   thoi_luong_dien_giai: Record<string, unknown>;
   phu_thuoc_step_keys: string[];
   vat_tus: { vat_tu_id: number; vat_tu_ma: string; vat_tu_ten: string; don_vi: string; so_luong: string }[];
@@ -77,6 +78,11 @@ export interface KhoanChon {
   don_vi: string;
   don_gia: number;
   nang_suat_nguoi_gio?: number;
+  /** Dải năng suất của định mức — chỉ để hiện khoảng nhanh–chậm, null = chưa khai. */
+  nang_suat_nguoi_gio_min?: number | null;
+  nang_suat_nguoi_gio_max?: number | null;
+  /** Khai báo, chưa vào công thức — xem `cong_doan_dau_viec.so_nguoi_toi_thieu`. */
+  so_nguoi_toi_thieu?: number;
   so_nguoi_tieu_chuan?: number;
   so_nguoi_toi_da?: number;
   is_default?: boolean;
@@ -90,11 +96,12 @@ export const DON_VI: { key: string; label: string }[] = [
   { key: "bai", label: "Bài" },
 ];
 
+// KHÔNG có `bai_gio`: máy CTP nhả ra BẢN KẼM, không nhả ra "bài" — bài 4 màu tốn 4 lượt ghi,
+// bài 1 màu tốn 1, nên "bài/giờ" là con số không đo được. Xem `models/lsx.py` cùng lý do.
 export const DON_VI_NANG_SUAT: { key: string; label: string }[] = [
   { key: "to_gio", label: "tờ/giờ" },
   { key: "cai_gio", label: "con/giờ" },
   { key: "kem_gio", label: "kẽm/giờ" },
-  { key: "bai_gio", label: "bài/giờ" },
 ];
 
 /** Điều kiện bắt đầu (§4.5) — "công đoạn trước xong" là mặc định nên không có ô riêng. */
@@ -107,11 +114,6 @@ export function newKey(): string {
 /** Số → chuỗi cho ô nhập. 0 và null đều thành "" để hiện GỢI Ý ở placeholder. */
 function s(v: number | null | undefined): string {
   return v ? String(v) : "";
-}
-
-/** Số → chuỗi nhưng GIỮ số 0 (ô người dùng chủ động khai, không có gợi ý). */
-function s0(v: number | null | undefined): string {
-  return v == null ? "" : String(v);
 }
 
 export function toEdit(cd: LsxCongDoan): EditRow {
@@ -134,15 +136,12 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     hao_hut_pct: s(cd.hao_hut_pct),
     so_luot_chay: s(cd.so_luot_chay),
     so_nhan_cong: s(cd.so_nhan_cong),
+    so_nhan_cong_toi_thieu: cd.so_nhan_cong_toi_thieu ?? null,
     so_nhan_cong_tieu_chuan: cd.so_nhan_cong_tieu_chuan ?? 1,
     so_nhan_cong_toi_da: cd.so_nhan_cong_toi_da,
-    setup_phut: s(cd.setup_phut),
     nang_suat: s(cd.nang_suat),
     don_vi_nang_suat: cd.don_vi_nang_suat ?? "",
-    chay_phut: s0(cd.chay_phut),
-    ve_sinh_phut: s(cd.ve_sinh_phut),
-    cho_phut: s(cd.cho_phut),
-    di_chuyen_phut: s(cd.di_chuyen_phut),
+    phat_sinh_phut: s(cd.phat_sinh_phut),
     thoi_luong_dien_giai: cd.thoi_luong_dien_giai ?? {},
     phu_thuoc_step_keys: cd.phu_thuoc_step_keys ?? [],
     vat_tus: (cd.vat_tus ?? []).map((v) => ({ ...v, so_luong: String(v.so_luong) })),
@@ -186,9 +185,9 @@ export function emptyRow(): EditRow {
     department_id: null, may_id: null,
     so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to", he_so_quy_doi: "",
     hao_hut: "", hao_hut_pct: "", so_luot_chay: "", so_nhan_cong: "",
-    setup_phut: "", nang_suat: "", don_vi_nang_suat: "", chay_phut: "",
-    so_nhan_cong_tieu_chuan: 1, so_nhan_cong_toi_da: null,
-    ve_sinh_phut: "", cho_phut: "", di_chuyen_phut: "", thoi_luong_dien_giai: {},
+    nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "",
+    so_nhan_cong_toi_thieu: null, so_nhan_cong_tieu_chuan: 1, so_nhan_cong_toi_da: null,
+    thoi_luong_dien_giai: {},
     phu_thuoc_step_keys: [], vat_tus: [],
     nha_cung_cap: "", sl_gui: "", ngay_gui_dk: "", van_chuyen_ngay: "", gia_cong_ngay: "",
     ngay_nhan_dk: "", hao_hut_cho_phep: "", don_gia_gia_cong: "", yeu_cau_ky_thuat: "",
@@ -238,12 +237,17 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       hao_hut_pct: on(r.hao_hut_pct),
       so_luot_chay: on(r.so_luot_chay),
       so_nhan_cong: on(r.so_nhan_cong),
-      setup_phut: on(r.setup_phut),
+      // Ba mốc định mức: gửi lên để số người kế hoạch sửa tay không bị server kéo lại theo
+      // danh mục. Bước Máy/Thuê ngoài không có định mức tổ nên bỏ qua.
+      ...(r.loai_buoc === "to"
+        ? {
+            so_nhan_cong_toi_thieu: r.so_nhan_cong_toi_thieu ?? undefined,
+            so_nhan_cong_tieu_chuan: r.so_nhan_cong_tieu_chuan || undefined,
+            so_nhan_cong_toi_da: r.so_nhan_cong_toi_da ?? undefined,
+          }
+        : {}),
       // Ô trống = để máy tính từ năng suất (KHÔNG phải 0 phút).
-      chay_phut: r.chay_phut.trim() === "" ? null : n(r.chay_phut),
-      ve_sinh_phut: on(r.ve_sinh_phut),
-      cho_phut: on(r.cho_phut),
-      di_chuyen_phut: on(r.di_chuyen_phut),
+      phat_sinh_phut: on(r.phat_sinh_phut),
       phu_thuoc_step_keys: r.phu_thuoc_step_keys,
       vat_tus: r.vat_tus.map((v) => ({ vat_tu_id: v.vat_tu_id, so_luong: n(v.so_luong) })),
       // Khối gia công ngoài chỉ gửi khi bước ĐANG là thuê ngoài — đổi loại bước rồi thì
@@ -275,55 +279,81 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
  * Backend vẫn tính lại và chốt snapshot khi lưu. Bản preview này dùng đúng các đầu vào đang hiện
  * trên form để người lập kế hoạch không phải lưu mù rồi mở lại mới biết thời gian thay đổi ra sao.
  */
-export function thoiLuongLive(r: EditRow): Record<string, unknown> {
+export interface MayTinhGio {
+  tocDo?: number | null;
+  tocDoMin?: number | null;
+  tocDoMax?: number | null;
+  donViTocDo?: string | null;
+  chuanBiPhut?: number | null;
+  chuanBiKhoan?: { ten?: string; phut?: number }[];
+}
+
+export function thoiLuongLive(r: EditRow, may?: MayTinhGio | null): Record<string, unknown> {
   const f = (v: string | number | null | undefined): number => {
     const x = Number(v ?? 0);
     return Number.isFinite(x) ? x : 0;
   };
   const tron = (v: number): number => Math.round(v * 100) / 100;
   const vao = f(r.so_luong_vao);
-  const ns = f(r.nang_suat);
   const luot = Math.max(Math.trunc(f(r.so_luot_chay)) || 1, 1);
   const nguoiKeHoach = Math.max(Math.trunc(f(r.so_nhan_cong)) || 1, 1);
   const nguoiToiDa = Math.max(Math.trunc(f(r.so_nhan_cong_toi_da)) || nguoiKeHoach, 1);
   const nguoiTinh = r.loai_buoc === "to" ? Math.min(nguoiKeHoach, nguoiToiDa) : null;
-  const coNhapDe = r.chay_phut.trim() !== "";
   const canhBao: string[] = [];
-  let phuongPhap: string = r.loai_buoc;
-  let nangSuatHieuDung = ns;
-  let chay = 0;
 
-  if (coNhapDe) {
-    chay = f(r.chay_phut);
-    phuongPhap = "nhap_de";
-  } else if (r.loai_buoc === "to") {
+  // Số của MÁY ĐANG CHỌN trên form (`may`) — KHÔNG đợi server. Đổi máy trong drawer là chuẩn bị
+  // + thời gian chạy phải nhảy ngay; chỉ khi bấm Lưu mới ghi DB. Không truyền `may` (bảng chưa
+  // nạp xong danh mục) thì rơi về diễn giải server đã trả — vẫn hơn là ra 0.
+  const dgServer = (r.thoi_luong_dien_giai ?? {}) as Record<string, unknown>;
+  const numOf = (k: string): number => Number(dgServer[k] ?? 0) || 0;
+  const coMay = may != null;
+  const setup = coMay ? (r.loai_buoc === "may" ? f(may?.chuanBiPhut) : 0) : numOf("setup_phut");
+  const khac = f(r.phat_sinh_phut);
+  const khoanChuanBi = coMay
+    ? (r.loai_buoc === "may" ? (may?.chuanBiKhoan ?? []) : [])
+    : (Array.isArray(dgServer.chuan_bi_khoan) ? dgServer.chuan_bi_khoan : []);
+
+  let phuongPhap: string = r.loai_buoc;
+  let nangSuatHieuDung = 0;
+  let chay = 0;
+  let chayNhanh = 0;
+  let chayCham = 0;
+
+  if (r.loai_buoc === "to") {
+    // Bước TỔ không lấy tốc độ từ máy — vẫn là năng suất đầu việc khoán chia theo người.
+    const ns = f(r.nang_suat);
     nangSuatHieuDung = ns * (nguoiTinh ?? 1);
-    chay = nangSuatHieuDung > 0 && vao > 0 ? vao / nangSuatHieuDung * 60 : 0;
+    chay = nangSuatHieuDung > 0 && vao > 0 ? (vao / nangSuatHieuDung) * 60 : 0;
+    chayNhanh = chay;
+    chayCham = chay;
     if (ns <= 0) phuongPhap = "thieu_nang_suat";
     if (r.so_nhan_cong_toi_da != null && nguoiKeHoach > nguoiToiDa) {
       canhBao.push("Số người kế hoạch vượt mức tối đa hiệu quả; thời gian chỉ tính theo mức tối đa.");
     }
   } else if (r.loai_buoc === "may") {
-    chay = ns > 0 && vao > 0 ? vao * luot / ns * 60 : 0;
-    if (ns <= 0) phuongPhap = "thieu_nang_suat";
-  } else {
-    nangSuatHieuDung = 0;
+    // Công thức chốt 2026-08-04: SL vào × 60 ÷ tốc độ × số lượt.
+    // KHÔNG kiểm nhãn đơn vị của máy — chỉ lấy CON SỐ (chủ chốt 2026-08-05).
+    const tocDo = coMay ? f(may?.tocDo) : numOf("toc_do");
+    const tocDoMax = coMay ? f(may?.tocDoMax) : numOf("toc_do_max");
+    const tocDoMin = coMay ? f(may?.tocDoMin) : numOf("toc_do_min");
+    const chayVoi = (v: number): number => (v > 0 && vao > 0 ? (vao * 60) / v * luot : 0);
+    nangSuatHieuDung = tocDo;
+    chay = chayVoi(tocDo);
+    chayNhanh = tocDoMax > 0 ? chayVoi(tocDoMax) : chay;   // tốc độ TỐI ĐA ⇒ thời lượng nhỏ nhất
+    chayCham = tocDoMin > 0 ? chayVoi(tocDoMin) : chay;
+    if (tocDo <= 0) phuongPhap = "thieu_nang_suat";
   }
   if (phuongPhap === "thieu_nang_suat") {
-    canhBao.push("Thiếu năng suất hợp lệ; hãy chọn nguồn năng suất hoặc nhập đè thời gian chạy.");
+    canhBao.push("Máy đang gán chưa khai tốc độ (hoặc bước chưa gán máy) nên không tính được thời gian chạy.");
   }
 
-  const setup = f(r.setup_phut);
-  const veSinh = f(r.ve_sinh_phut);
-  const cho = f(r.cho_phut);
-  const diChuyen = f(r.di_chuyen_phut);
-  const chiemTaiNguyen = setup + chay + veSinh;
+  const chiemTaiNguyen = khac + setup + chay;
   return {
     phuong_phap: phuongPhap,
     so_luong_vao: tron(vao),
     don_vi_vao: r.don_vi_vao,
     nguon_nang_suat: r.loai_buoc === "to" ? "dau_viec" : (r.loai_buoc === "may" ? "may" : null),
-    nang_suat_co_so: ns > 0 ? tron(ns) : null,
+    nang_suat_co_so: nangSuatHieuDung > 0 ? tron(nangSuatHieuDung) : null,
     nang_suat_hieu_dung: nangSuatHieuDung > 0 ? tron(nangSuatHieuDung) : null,
     so_luot_chay: r.loai_buoc === "may" ? luot : null,
     so_nhan_cong_ke_hoach: r.loai_buoc === "thue_ngoai" ? null : nguoiKeHoach,
@@ -331,22 +361,36 @@ export function thoiLuongLive(r: EditRow): Record<string, unknown> {
     so_nhan_cong_toi_da: r.loai_buoc === "to" ? r.so_nhan_cong_toi_da : null,
     so_nhan_cong_tinh: nguoiTinh,
     setup_phut: tron(setup),
+    chuan_bi_khoan: khoanChuanBi,
+    phat_sinh_phut: tron(khac),
     chay_phut: tron(chay),
-    ve_sinh_phut: tron(veSinh),
-    cho_phut: tron(cho),
-    di_chuyen_phut: tron(diChuyen),
+    chay_phut_min: tron(chayNhanh),
+    chay_phut_max: tron(chayCham),
+    toc_do: coMay ? (may?.tocDo ?? null) : (dgServer.toc_do ?? null),
+    toc_do_min: coMay ? (may?.tocDoMin ?? null) : (dgServer.toc_do_min ?? null),
+    toc_do_max: coMay ? (may?.tocDoMax ?? null) : (dgServer.toc_do_max ?? null),
+    co_dai_toc_do: tron(chayNhanh) !== tron(chayCham),
     chiem_tai_nguyen_phut: tron(chiemTaiNguyen),
-    tong_phut: tron(chiemTaiNguyen + cho + diChuyen),
+    tong_phut: tron(chiemTaiNguyen),
     canh_bao: canhBao,
   };
 }
 
-export function thoiLuong(r: EditRow): { chay: number; chiemMay: number; tong: number } {
-  const d = thoiLuongLive(r);
+/** Thời lượng bước cho bảng/thẻ. `chiemMin`/`chiemMax` = cùng công thức với tốc độ tối đa /
+ *  tối thiểu của máy; máy chưa khai dải thì cả ba bằng nhau (`coDai` = false). */
+export function thoiLuong(r: EditRow, may?: MayTinhGio | null): {
+  chay: number; chiemMay: number; tong: number;
+  chiemMin: number; chiemMax: number; coDai: boolean;
+} {
+  const d = thoiLuongLive(r, may);
+  const co_dinh = Number(d.phat_sinh_phut ?? 0) + Number(d.setup_phut ?? 0);
   return {
     chay: Number(d.chay_phut ?? 0),
     chiemMay: Number(d.chiem_tai_nguyen_phut ?? 0),
     tong: Number(d.tong_phut ?? 0),
+    chiemMin: co_dinh + Number(d.chay_phut_min ?? d.chay_phut ?? 0),
+    chiemMax: co_dinh + Number(d.chay_phut_max ?? d.chay_phut ?? 0),
+    coDai: Boolean(d.co_dai_toc_do),
   };
 }
 

@@ -87,6 +87,75 @@ def test_cong_doan_to_luu_dinh_muc_theo_dau_viec():
     assert (dm.so_nguoi_tieu_chuan, dm.so_nguoi_toi_da, dm.is_default) == (3, 5, True)
 
 
+def test_dinh_muc_luu_dai_nang_suat_don_vi_va_ba_moc_nhan_luc():
+    """Dải năng suất + đơn vị khai báo + ba mốc nhân lực lưu đúng, và khai ngược thì bị chặn."""
+    db, svc = _svc()
+    to = Department(name="Tổ Dán", code="PB903", la_san_xuat=True)
+    db.add(to)
+    db.flush()
+    rate = PieceRate(group_name="Tổ Dán", department_id=to.id, name="Dán hộp",
+                     unit="hộp", unit_price=80)
+    db.add(rate)
+    db.commit()
+    base = dict(ma="DAN", ten="Dán hộp", nhom="finishing",
+                department_id=to.id, pricing_basis="per_finished_qty")
+
+    cd = svc.create({**base, "dau_viec_dinh_muc": [dict(
+        piece_rate_id=rate.id, nang_suat_nguoi_gio=250,
+        nang_suat_nguoi_gio_min=200, nang_suat_nguoi_gio_max=320,
+        don_vi_nang_suat="hop_gio",
+        so_nguoi_toi_thieu=2, so_nguoi_tieu_chuan=4, so_nguoi_toi_da=8, is_default=True,
+    )]})
+    dm = cd.dau_viec_dinh_muc[0]
+    assert (float(dm.nang_suat_nguoi_gio_min), float(dm.nang_suat_nguoi_gio_max)) == (200, 320)
+    assert dm.don_vi_nang_suat == "hop_gio"
+    assert (dm.so_nguoi_toi_thieu, dm.so_nguoi_tieu_chuan, dm.so_nguoi_toi_da) == (2, 4, 8)
+
+    # Tối thiểu > trung bình ⇒ "nhanh nhất" hoá ra chậm hơn "chậm nhất" — chặn ngay ở service.
+    with pytest.raises(CongDoanValidationError, match="tối thiểu"):
+        svc.create({**base, "ma": "DAN2", "dau_viec_dinh_muc": [dict(
+            piece_rate_id=rate.id, nang_suat_nguoi_gio=250, nang_suat_nguoi_gio_min=400,
+            so_nguoi_tieu_chuan=4, so_nguoi_toi_da=8, is_default=True,
+        )]})
+    # Ba mốc nhân lực phải xếp đúng thứ tự.
+    with pytest.raises(CongDoanValidationError, match="1 ≤ tối thiểu"):
+        svc.create({**base, "ma": "DAN3", "dau_viec_dinh_muc": [dict(
+            piece_rate_id=rate.id, nang_suat_nguoi_gio=250,
+            so_nguoi_toi_thieu=5, so_nguoi_tieu_chuan=4, so_nguoi_toi_da=8, is_default=True,
+        )]})
+
+
+def test_luu_lai_dinh_muc_cung_dau_viec_khong_dung_unique():
+    """Sửa số rồi lưu lại ĐÚNG đầu việc cũ — trước đây 500 `duplicate key uq_cd_dau_viec_rate`.
+
+    Bẫy SQLAlchemy: trong một flush, INSERT bay trước DELETE cho cùng bảng, nên xoá-rồi-thêm
+    dòng có cùng `(cong_doan_id, piece_rate_id)` là đụng UNIQUE. Repo phải flush ở giữa.
+    """
+    db, svc = _svc()
+    to = Department(name="Tổ Cán màng", code="PB904", la_san_xuat=True)
+    db.add(to)
+    db.flush()
+    rate = PieceRate(group_name="Tổ Cán màng", department_id=to.id, name="Cán mờ",
+                     unit="m²", unit_price=150)
+    db.add(rate)
+    db.commit()
+    base = dict(ma="CAN-M", ten="Cán màng mờ", nhom="finishing",
+                department_id=to.id, pricing_basis="per_finished_qty")
+    cd = svc.create({**base, "dau_viec_dinh_muc": [dict(
+        piece_rate_id=rate.id, nang_suat_nguoi_gio=3000,
+        so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3, is_default=True,
+    )]})
+
+    cd = svc.update(cd.id, {**base, "dau_viec_dinh_muc": [dict(
+        piece_rate_id=rate.id, nang_suat_nguoi_gio=3000,
+        nang_suat_nguoi_gio_min=2000, nang_suat_nguoi_gio_max=5000,
+        so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3, is_default=True,
+    )]})
+    assert len(cd.dau_viec_dinh_muc) == 1
+    dm = cd.dau_viec_dinh_muc[0]
+    assert (float(dm.nang_suat_nguoi_gio_min), float(dm.nang_suat_nguoi_gio_max)) == (2000, 5000)
+
+
 def test_dinh_muc_to_chan_dau_viec_khac_to_va_hai_mac_dinh():
     db, svc = _svc()
     to_a = Department(name="Tổ A", code="PB901", la_san_xuat=True)

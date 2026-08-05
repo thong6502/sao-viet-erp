@@ -18,7 +18,8 @@ ASSIGNABLE = (
     "don_gia_dien", "bao_hiem_nam", "dien_tich_san_m2", "don_gia_thue_m2_nam", "bao_tri_gio",
     "overhead_gio", "markup_pct", "ngay_cap_nhat_bhr",
     "toc_do", "toc_do_min", "toc_do_max",
-    "don_vi_toc_do", "makeready_time_default", "thoi_gian_rua_muc", "min_stock_gsm",
+    # `thoi_gian_rua_muc` gỡ khỏi danh sách cột nhận-từ-client (cột dormant, xem models).
+    "don_vi_toc_do", "makeready_time_default", "min_stock_gsm",
     "max_stock_gsm", "vat_lieu_ho_tro_class", "so_may_song_song", "so_ca", "chi_so_dem_luot",
     "ngay_bao_tri_gan_nhat", "chu_ky_bao_tri", "chu_ky_bao_tri_don_vi", "ngay_bao_tri_ke_tiep",
     "kho_max_dai", "kho_max_rong", "kho_min_dai", "kho_min_rong",

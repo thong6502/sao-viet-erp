@@ -752,51 +752,32 @@ function BuocChungForm({
               onChange={(e) => setF({ ...f, nang_suat: e.target.value ? Number(e.target.value) : null })}
             />
           </label>
+          {/* Chạy · Canh máy · Chờ · Di chuyển ĐÃ BỎ (2026-08-04): thời lượng lượt chung nay
+              suy từ MÁY đang gán bằng đúng công thức của bước lệnh —
+                thời gian khác + chuẩn bị (từ máy) + SL vào × 60 ÷ tốc độ × số lượt.
+              Ô duy nhất còn gõ được là "Thời gian khác". */}
           <label className="khsx-field">
-            <span>Chạy (phút)</span>
+            <span>Thời gian khác (phút)</span>
             <input
               type="number" min={0} disabled={!canUpdate}
-              placeholder="để trống = suy từ năng suất"
-              title="Gõ số ở đây thì nó THẮNG công thức năng suất"
-              value={val("chay_phut", g.chay_phut) ?? ""}
-              onChange={(e) => setF({ ...f, chay_phut: e.target.value ? Number(e.target.value) : null })}
+              title="Phát sinh ngoài định mức — cộng thẳng vào thời gian chiếm máy"
+              value={val("phat_sinh_phut", g.phat_sinh_phut) ?? ""}
+              onChange={(e) => setF({ ...f, phat_sinh_phut: e.target.value ? Number(e.target.value) : 0 })}
             />
           </label>
-          <label className="khsx-field">
-            <span>Canh máy (phút)</span>
-            <input
-              type="number" min={0} disabled={!canUpdate}
-              title="Makeready — một lần cho cả lượt chung, không phải mỗi lệnh một lần"
-              value={val("setup_phut", g.setup_phut) ?? ""}
-              onChange={(e) => setF({ ...f, setup_phut: e.target.value ? Number(e.target.value) : 0 })}
-            />
-          </label>
-          <label className="khsx-field">
-            <span>Vệ sinh (phút)</span>
-            <input
-              type="number" min={0} disabled={!canUpdate}
-              title="Rửa mực / vệ sinh máy sau lượt"
-              value={val("ve_sinh_phut", g.ve_sinh_phut) ?? ""}
-              onChange={(e) => setF({ ...f, ve_sinh_phut: e.target.value ? Number(e.target.value) : 0 })}
-            />
-          </label>
-          <label className="khsx-field">
-            <span>Chờ (phút)</span>
-            <input
-              type="number" min={0} disabled={!canUpdate}
-              title="Khô mực, ổn định… — ĐẨY bước sau nhưng KHÔNG chiếm máy"
-              value={val("cho_phut", g.cho_phut) ?? ""}
-              onChange={(e) => setF({ ...f, cho_phut: e.target.value ? Number(e.target.value) : 0 })}
-            />
-          </label>
-          <label className="khsx-field">
-            <span>Di chuyển (phút)</span>
-            <input
-              type="number" min={0} disabled={!canUpdate}
-              value={val("di_chuyen_phut", g.di_chuyen_phut) ?? ""}
-              onChange={(e) => setF({ ...f, di_chuyen_phut: e.target.value ? Number(e.target.value) : 0 })}
-            />
-          </label>
+        </div>
+
+        <div className="khsx-tinh-gio">
+          <div className="khsx-tinh-gio__row">
+            <span>Chuẩn bị (từ máy) + chạy + thời gian khác</span>
+            <b>{phut(g.chiem_may_phut)}</b>
+          </div>
+          {g.chiem_may_phut_max - g.chiem_may_phut_min > 0.5 && (
+            <div className="khsx-tinh-gio__dai">
+              <span>Nhanh nhất <b>{phut(g.chiem_may_phut_min)}</b></span>
+              <span>Chậm nhất <b>{phut(g.chiem_may_phut_max)}</b></span>
+            </div>
+          )}
         </div>
 
         {/* Công việc khoán của LƯỢT CHUNG — cùng bảng khoán, cùng cách chọn với bước lệnh ở màn

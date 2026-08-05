@@ -148,13 +148,15 @@ class LsxCongDoanIn(BaseModel):
     so_luot_chay: int | None = Field(default=None, ge=1)
     # Năng suất & thời gian (phút)
     so_nhan_cong: int | None = Field(default=None, ge=1)
-    setup_phut: float | None = Field(default=None, ge=0)
-    nang_suat: float | None = Field(default=None, ge=0)
-    don_vi_nang_suat: str | None = None
-    chay_phut: float | None = Field(default=None, ge=0)
-    ve_sinh_phut: float | None = Field(default=None, ge=0)
-    cho_phut: float | None = Field(default=None, ge=0)
-    di_chuyen_phut: float | None = Field(default=None, ge=0)
+    # Ba mốc nhân lực KẾ THỪA từ định mức đầu việc nhưng SỬA ĐƯỢC tại bước — mỗi lệnh một hoàn
+    # cảnh (tổ mượn người, việc gấp). Không gửi = giữ số đang có / để server điền từ định mức.
+    so_nhan_cong_toi_thieu: int | None = Field(default=None, ge=1)
+    so_nhan_cong_tieu_chuan: int | None = Field(default=None, ge=1)
+    so_nhan_cong_toi_da: int | None = Field(default=None, ge=1)
+    # Ô DUY NHẤT còn gõ được ở tab Thời gian (2026-08-04). `setup_phut` · `nang_suat` ·
+    # `chay_phut` · `cho_phut` · `di_chuyen_phut` đã BỎ khỏi input: chuẩn bị + tốc độ nay kế
+    # thừa SỐNG từ module Máy, người kế hoạch không sửa tại bước.
+    phat_sinh_phut: float | None = Field(default=None, ge=0)
     # Gia công ngoài (§8)
     nha_cung_cap: str | None = None
     sl_gui: float | None = Field(default=None, ge=0)
@@ -202,17 +204,20 @@ class LsxCongDoanOut(BaseModel):
     so_luot_chay: int = 1
 
     so_nhan_cong: int = 1
+    so_nhan_cong_toi_thieu: int | None = None
     so_nhan_cong_tieu_chuan: int = 1
     so_nhan_cong_toi_da: int | None = None
+    # `setup_phut` KẾ THỪA từ máy (read-only trên UI); `phat_sinh_phut` là ô người gõ.
     setup_phut: float = 0
+    phat_sinh_phut: float = 0
     nang_suat: float | None = None
     don_vi_nang_suat: str | None = None
-    chay_phut: float | None = None      # None = để máy tính từ năng suất
-    ve_sinh_phut: float = 0
-    cho_phut: float = 0
-    di_chuyen_phut: float = 0
-    # derived — chiếm máy ĂN capacity; tổng thêm chờ + di chuyển (KHÔNG ăn capacity)
+    chay_phut: float | None = None      # dẫn xuất: SL vào × 60 ÷ tốc độ máy × số lượt
+    # derived — thời lượng theo tốc độ TRUNG BÌNH (Gantt đặt thanh), kèm dải nhanh/chậm nhất
+    # suy từ tốc độ tối đa / tối thiểu của máy. Máy chưa khai dải ⇒ cả ba bằng nhau.
     chiem_may_phut: float = 0
+    chiem_may_phut_min: float = 0
+    chiem_may_phut_max: float = 0
     tong_phut: float = 0
     thoi_luong_dien_giai: dict = Field(default_factory=dict)
 
@@ -396,11 +401,42 @@ class LsxBaiGhepOut(BaseModel):
     buoc_bi_de: dict[str, BuocBiDeOut] = Field(default_factory=dict)
 
 
+class LsxQuyCachIn(BaseModel):
+    """THÔNG SỐ của lệnh mà kế hoạch sửa được tại chỗ — snapshot vẫn là snapshot.
+
+    Lệnh KHÔNG tự bám theo phiếu tính giá; đây chỉ là mở khoá cho người kế hoạch chỉnh ảnh chụp
+    mà không phải quay về phiếu rồi tạo lại lệnh (tạo lại là mất sạch routing đã chỉnh).
+
+    Chỉ NGUYÊN NHÂN nằm ở đây. HỆ QUẢ (`so_kem` · `so_luot` · `so_manh_xa` · `so_to_ke_hoach` ·
+    `so_to_nguyen`) server tính lại từ đúng bộ này, client gửi lên cũng bị bỏ — xem
+    `LsxService.ap_quy_cach`.
+    """
+
+    giay_id: int | None = None
+    nguon_giay: str | None = None
+    kho_nguyen_dai: float | None = Field(default=None, ge=0)
+    kho_nguyen_rong: float | None = Field(default=None, ge=0)
+    kho_in_dai: float | None = Field(default=None, ge=0)
+    kho_in_rong: float | None = Field(default=None, ge=0)
+    dai_thanh_pham: float | None = Field(default=None, ge=0)
+    rong_thanh_pham: float | None = Field(default=None, ge=0)
+    quy_cach_in: str | None = None
+    muc_a: list[str] | None = None
+    muc_b: list[str] | None = None
+    so_trang: int | None = Field(default=None, ge=1)
+    trang_moi_tay: int | None = Field(default=None, ge=1)
+    bleed_mm: float | None = Field(default=None, ge=0)
+    khe_cat_mm: float | None = Field(default=None, ge=0)
+    con_auto: bool | None = None
+
+
 class LsxUpdateIn(BaseModel):
     ten: str | None = None
     so_luong_dat: int | None = Field(default=None, ge=0)
     don_vi_tinh: str | None = None
     bu_hao_to: int | None = Field(default=None, ge=0)
+    # Cụm THÔNG SỐ (ảnh chụp từ phiếu) — sửa cái nào là mọi số dẫn xuất tính lại ngay.
+    quy_cach: LsxQuyCachIn | None = None
     so_to_ke_hoach: int | None = Field(default=None, ge=0)
     so_to_nguyen: int | None = Field(default=None, ge=0)
     so_con: int | None = Field(default=None, ge=1)
@@ -455,7 +491,6 @@ class BuocMacDinhOut(BaseModel):
     setup_phut: float
     nang_suat: float | None = None
     don_vi_nang_suat: str | None = None
-    ve_sinh_phut: float
     so_nhan_cong: int = 1
     so_nhan_cong_tieu_chuan: int = 1
     so_nhan_cong_toi_da: int | None = None

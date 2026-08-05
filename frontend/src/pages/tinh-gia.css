@@ -266,6 +266,31 @@ select.tg-input {
   font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
+/* Biến thể "có kèm phép tính": trị số + đơn vị bên trái, cách suy ra dạt về phải. Cùng ngôn ngữ
+   với dòng `tg-sheetrow__derive` ở panel số tờ — người đọc gặp lại đúng một kiểu trình bày. */
+.tg-readout--derive {
+  gap: 6px;
+  min-height: 40px;
+}
+.tg-readout__val {
+  font-size: 15px;
+  font-weight: 600;
+}
+.tg-readout__unit {
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  color: var(--ash);
+}
+.tg-readout__how {
+  margin-left: auto;
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  font-style: normal;
+  color: var(--ash-2);
+  white-space: nowrap;
+}
+
+/* Khối MỰC IN đã CHUYỂN sang `src/components/MucIn.css` — xem lý do trong file đó. */
 
 /* ---------- Segmented công nghệ in (dùng .stabs) ---------- */
 .tg-tech {

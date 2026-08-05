@@ -60,7 +60,7 @@ def test_de_khoa_may_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, custom
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
     step.setup_phut, step.nang_suat, step.so_luong_vao = 0, 5000, 5000
-    step.chay_phut, step.ve_sinh_phut, step.so_luot_chay = None, 0, 1  # theo máy 30+60+15 = 105'
+    step.chay_phut, step.ve_sinh_phut, step.so_luot_chay = None, 0, 1  # theo máy 30+60 = 90'
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dong = XepLichRepository(db).by_lsx(lsx.id)[0]
@@ -115,7 +115,7 @@ def _gop_in_va_san_sang(db, bg_svc, bg, admin):
     for c in bg_svc._buoc_chungs(bg_svc._get(bg.id)):
         bg_svc.lap_ke_hoach_buoc_chung(
             bai_ghep_id=bg.id, gang_step_key=c.step_key, actor=admin,
-            patch={"department_id": to_id, "may_id": mau.may_id, "chay_phut": 60},
+            patch={"department_id": to_id, "may_id": mau.may_id},
         )
     return bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai="san_sang", actor=admin)
 
@@ -218,9 +218,11 @@ def test_qua_tai_may_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, custom
     monkeypatch.setattr("app.services.xep_lich_van_de_service._utcnow", lambda: fixed)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    # chay_phut gõ đè 4000' (~66h) chiếm máy > 7×480' = 3360' khả dụng (nền fallback 8h/ngày) → >100% Cao.
-    step.setup_phut, step.ve_sinh_phut, step.so_luot_chay = 0, 0, 1
-    step.chay_phut, step.nang_suat, step.so_luong_vao = 4000, None, 5000
+    # Ô "Thời gian khác" 4000' (~66h) chiếm máy > 7×480' = 3360' khả dụng (nền fallback
+    # 8h/ngày) → >100% Cao. Dùng ô này vì `chay_phut` gõ đè đã bỏ (2026-08-04): thời gian
+    # chạy nay luôn suy từ tốc độ máy, không ghim cứng được nữa.
+    step.so_luot_chay, step.so_luong_vao = 1, 5000
+    step.phat_sinh_phut = 4000
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dong = XepLichRepository(db).by_lsx(lsx.id)[0]

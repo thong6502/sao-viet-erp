@@ -80,12 +80,16 @@ _CONG_DOAN_MOI: list[tuple] = [
      "Tổ Cán màng", "co_dinh", 50, False, None, "4.000đ/m², sàn 200.000đ/lượt ghép."),
 ]
 
-# Đơn vị VÀO/RA của khâu sách — KHÔNG để mặc định `cai`. Gấp tay là gấp cả TỜ IN (một tờ thành
-# một tay), còn vào keo mới là chỗ gom nhiều tay thành MỘT CUỐN. Khai sai thành `cai → cai` thì
-# chuỗi bù hao ngược mất ranh giới tờ↔cuốn, chạy 1:1 và ra số giấy hụt đúng bằng số tay mỗi cuốn.
+# Đơn vị VÀO/RA của khâu sách — KHÔNG để mặc định `cai`. Khai sai thành `cai → cai` thì chuỗi bù
+# hao ngược mất ranh giới tờ↔cuốn, chạy 1:1 và ra số giấy hụt đúng bằng số tay mỗi cuốn.
+#
+# Đường sách đủ ba chặng: TỜ NGUYÊN → TỜ IN → TAY → CUỐN. Trước đây hai bước này khai `to → to`
+# rồi `to → cai`, tức nhảy cóc qua mức TAY: gấp xong vẫn gọi là tờ in, tới vào keo mới đổi thẳng
+# tờ → cuốn. Số giấy vẫn đúng (cầu tắt `to → cai` gánh cả 1/so_tay) nhưng bù hao của bước gấp và
+# bước bắt tay bị tra bậc ở SAI ĐƠN VỊ, và người đọc lệnh không thấy tay ở đâu ra.
 _DON_VI_KHAU_SACH: dict[str, tuple[str, str]] = {
-    "CD-0007": ("to", "to"),     # gấp tay: tờ in → tờ in (đã gấp thành tay)
-    "CD-0008": ("to", "cai"),    # bắt tay + vào keo: gom `so_tay` tờ → 1 cuốn
+    "CD-0007": ("to", "tay"),    # gấp tay: 1 tờ in gấp nguyên thành 1 tay (hệ số 1)
+    "CD-0008": ("tay", "cai"),   # bắt tay + vào keo: gom `so_tay` tay → 1 cuốn
 }
 
 # --- Bảng CÔNG KHOÁN của tổ (số hoá đúng tờ Excel xưởng đang dùng) ------------------------------
@@ -111,13 +115,13 @@ _DON_GIA_KHOAN: list[tuple] = [
 _SETUP_IN_MAC_DINH = 45.0
 
 # --- Năng lực máy dùng trong luồng (chỉ điền khi cột còn TRỐNG — không đè số người dùng đã khai).
-# (ma, toc_do tờ/giờ, makeready phút, rửa mực phút)
-_MAY_NANG_LUC: list[tuple[str, float, float, float]] = [
-    ("IN-01", 8000, 30, 20),    # Mitsubishi 2 màu 72×102 — ruột sách đen
-    ("IN-02", 9000, 45, 30),    # Mitsubishi 4 màu 79×109
-    ("IN-04", 10000, 60, 40),   # Mitsubishi 6 màu 72×102
-    ("CM-03", 3000, 20, 0),     # cán màng 800×1080
-    ("BE-01", 4000, 60, 0),     # bế tự động Yawa 1050
+# (ma, toc_do tờ/giờ, makeready phút). Cột rửa mực đã bỏ khỏi hệ nên seed thôi điền.
+_MAY_NANG_LUC: list[tuple[str, float, float]] = [
+    ("IN-01", 8000, 30),    # Mitsubishi 2 màu 72×102 — ruột sách đen
+    ("IN-02", 9000, 45),    # Mitsubishi 4 màu 79×109
+    ("IN-04", 10000, 60),   # Mitsubishi 6 màu 72×102
+    ("CM-03", 3000, 20),    # cán màng 800×1080
+    ("BE-01", 4000, 60),    # bế tự động Yawa 1050
 ]
 
 
@@ -156,9 +160,9 @@ def _ensure_cong_doan(db: Session) -> dict[str, int]:
 
 
 def _ensure_may_nang_luc(db: Session) -> None:
-    """Điền tốc độ / makeready / rửa mực cho các máy của luồng — CHỈ khi cột còn trống."""
+    """Điền tốc độ / makeready cho các máy của luồng — CHỈ khi cột còn trống."""
     by_ma = {m.ma: m for m in db.execute(select(MayThietBi)).scalars()}
-    for ma, toc_do, makeready, rua_muc in _MAY_NANG_LUC:
+    for ma, toc_do, makeready in _MAY_NANG_LUC:
         m = by_ma.get(ma)
         if m is None:
             continue
@@ -167,8 +171,6 @@ def _ensure_may_nang_luc(db: Session) -> None:
             m.don_vi_toc_do = "to_gio"
         if not m.makeready_time_default:
             m.makeready_time_default = makeready
-        if not m.thoi_gian_rua_muc and rua_muc:
-            m.thoi_gian_rua_muc = rua_muc
     db.flush()
 
 
@@ -610,14 +612,13 @@ def _tao_lenh_san_xuat(db: Session, *, order, actor, khuon_the_id: int | None) -
 
 
 def _sua_don_vi_gap_tay(lsx) -> None:
-    """Hiệu chỉnh bước 'Gấp tay sách' về đơn vị TỜ — đúng như kế hoạch sửa tay trên màn lệnh.
+    """Ghim SỐ LƯỢNG bước 'Gấp tay sách' về số TỜ IN — 10.250 tờ, không phải 1.000 cuốn.
 
-    Heuristic mặc định của `lsx_service` cho mọi bước có chữ "gấp" đếm theo CON (đúng với gấp tờ
-    rơi: xén rời rồi mới gấp từng con). Gấp TAY SÁCH thì gấp cả TỜ in — 10.250 tờ, không phải
-    1.000 cuốn. Cùng một chữ, hai nghiệp vụ; máy không suy được nên người kế hoạch quyết, và seed
-    mô phỏng lệnh ĐÃ được hiệu chỉnh.
+    Gấp TAY SÁCH là gấp cả TỜ in, một tờ ra một tay (hệ số 1) — khác hẳn gấp tờ rơi (xén rời rồi
+    mới gấp từng con). Đơn vị nay do DANH MỤC khai (`to → tay`, xem `_DON_VI_KHAU_SACH`) chứ
+    không còn dò chữ "gấp" trong tên nữa; hàm này chỉ còn ghim số lượng cho lệnh mô phỏng.
     """
-    from .models.lsx import DV_TO, NS_TO_GIO
+    from .models.lsx import DV_TAY, DV_TO, NS_TO_GIO
 
     to = float(lsx.so_to_ke_hoach or 0)
     if to <= 0:
@@ -626,9 +627,9 @@ def _sua_don_vi_gap_tay(lsx) -> None:
         if "gấp tay" not in (cd.ten or "").lower():
             continue
         cd.so_luong_vao = to
-        cd.so_luong_ra = to
+        cd.so_luong_ra = to          # 1 tờ = 1 tay nên vào bằng ra, chỉ đổi TÊN đơn vị
         cd.don_vi_vao = DV_TO
-        cd.don_vi_ra = DV_TO
+        cd.don_vi_ra = DV_TAY
         cd.he_so_quy_doi = 1
         if cd.nang_suat:
             cd.don_vi_nang_suat = NS_TO_GIO

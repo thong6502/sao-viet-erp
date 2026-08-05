@@ -264,10 +264,10 @@ def test_quy_uoc_ma_don_vi_toc_do_khop_bang_tra_cua_lenh_SX():
     Đây là chốt cho quyết định "suy danh sách từ danh mục Đơn vị": nếu ai đó đổi quy ước đặt mã
     (vd `toc_do_1`), lệnh SX BỎ QUA tốc độ trong im lặng — bước ra thời gian trống, không báo lỗi,
     không ai biết. Test này bắt cái im lặng đó."""
-    from app.models.lsx import DV_BAI, DV_KEM, DV_TO, NS_BAI_GIO, NS_KEM_GIO, NS_TO_GIO
+    from app.models.lsx import DV_KEM, DV_TO, NS_KEM_GIO, NS_TO_GIO
     from app.services.lsx_service import _DV_VAO_SANG_NS
 
-    for dv_dem, ns in ((DV_TO, NS_TO_GIO), (DV_KEM, NS_KEM_GIO), (DV_BAI, NS_BAI_GIO)):
+    for dv_dem, ns in ((DV_TO, NS_TO_GIO), (DV_KEM, NS_KEM_GIO)):
         assert ns == f"{dv_dem}_gio", f"{ns} khong theo quy uoc <{dv_dem}>_gio"
         assert _DV_VAO_SANG_NS[dv_dem] == ns
 

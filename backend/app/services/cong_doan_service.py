@@ -53,12 +53,24 @@ class CongDoanService:
                 if rate.department_id != data.get("department_id"):
                     raise CongDoanValidationError("Đầu việc phải thuộc đúng tổ phụ trách.")
                 ns = float(r.get("nang_suat_nguoi_gio") or 0)
+                tt = int(r.get("so_nguoi_toi_thieu") or 1)
                 tc = int(r.get("so_nguoi_tieu_chuan") or 0)
                 td = int(r.get("so_nguoi_toi_da") or 0)
                 if ns <= 0:
                     raise CongDoanValidationError("Năng suất một người phải lớn hơn 0.")
-                if tc < 1 or td < tc:
-                    raise CongDoanValidationError("Số người phải thỏa 1 ≤ tiêu chuẩn ≤ tối đa.")
+                if tt < 1 or tc < tt or td < tc:
+                    raise CongDoanValidationError(
+                        "Số người phải thỏa 1 ≤ tối thiểu ≤ tiêu chuẩn ≤ tối đa.")
+                # Dải năng suất: khai mức nào thì mức đó phải đứng đúng phía của trung bình, không
+                # thì "nhanh nhất" ra dài hơn "chậm nhất" và râu Gantt vẽ ngược.
+                ns_min = r.get("nang_suat_nguoi_gio_min")
+                ns_max = r.get("nang_suat_nguoi_gio_max")
+                if ns_min is not None and float(ns_min) > ns:
+                    raise CongDoanValidationError(
+                        "Năng suất tối thiểu không được lớn hơn năng suất trung bình.")
+                if ns_max is not None and float(ns_max) < ns:
+                    raise CongDoanValidationError(
+                        "Năng suất tối đa không được nhỏ hơn năng suất trung bình.")
         che_do = data.get("che_do_tinh", "theo_san_luong")
         if che_do not in CHE_DO_TINH:
             raise CongDoanValidationError("Chế độ tính không hợp lệ.")

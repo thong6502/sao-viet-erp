@@ -110,10 +110,15 @@ class ThanhPhanIn(BaseModel):
     con_auto: bool | None = None
     may_id: int | None = None
     don_gia_cong_in: float | None = None
-    # Màu (gộp — chỉ số màu mỗi mặt)
+    # Mực in: TẬP mã mỗi mặt (`["C","M","Y","K"]`) — nguồn sự thật của số kẽm, vì tự trở dùng
+    # chung một bộ bản nên kẽm là `|A ∪ B|`, không suy được từ hai con số.
+    muc_a: list[str] | None = None
+    muc_b: list[str] | None = None
+    # Ba số màu: DẪN XUẤT, engine tính lại từ tập rồi ghi đè. Còn nhận từ client để phiếu cũ
+    # (chưa có tập mực) lưu lại không mất số — đừng dựa vào chúng để tính gì.
     so_mau_a: int | None = None
     so_mau_b: int | None = None
-    so_mau_pha: int | None = Field(default=None, ge=0)   # màu pha NẰM TRONG tổng số màu trên
+    so_mau_pha: int | None = Field(default=None, ge=0)
     ghi_chu_ky_thuat: str | None = None   # note KỸ THUẬT/SX theo sản phẩm (canh màu/kẽm cũ/bù hao) → drawer lệnh
     thanh_phams: list[ThanhPhamIn] | None = None
     vat_tus: list[VatTuLineIn] | None = None
@@ -161,7 +166,9 @@ class ThanhPhanOut(BaseModel):
     con_auto: bool
     may_id: int | None = None
     don_gia_cong_in: float
-    # Màu (gộp)
+    # Mực in — tập mã mỗi mặt; ba số dưới là dẫn xuất engine đã chốt.
+    muc_a: list[str] = Field(default_factory=list)
+    muc_b: list[str] = Field(default_factory=list)
     so_mau_a: int
     so_mau_b: int
     so_mau_pha: int = 0

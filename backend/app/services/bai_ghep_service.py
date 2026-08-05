@@ -21,7 +21,7 @@ from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan
 from ..models.customer import Customer
 from ..models.lsx import (
-    DV_CAI, DV_TO, DV_TO_NGUYEN, LB_MAY,
+    DV_CAI, DV_TAY, DV_TO, DV_TO_NGUYEN, LB_MAY,
     TT_DA_LAP_KE_HOACH as LSX_DA_LAP, TT_SAN_SANG as LSX_SAN_SANG,
     Lsx, LsxCongDoan, LsxCongDoanPhuThuoc,
 )
@@ -34,7 +34,7 @@ from .bai_ghep_graph import (
 )
 from .bu_hao_engine import chuoi_nguoc_dv, hao_buoc
 from .piece_work_service import khoan_snapshot
-from .thanh_phan_engine import cau_to_sang_cai, la_gap_tay, so_tay_moi_cuon
+from .thanh_phan_engine import cau_to_sang_cai, la_gap_tay, so_tay_moi_cuon, tap_muc
 from .tinh_gia_service import _bu_hao_to_dict
 
 NHOM_PRINT = "print"
@@ -198,7 +198,11 @@ class BaiGhepService:
                 "han_hoan_thanh_sx": l.han_hoan_thanh_sx, "is_rush": bool(l.is_rush),
                 "order_id": l.order_id, "customer_name": cust.get(l.order_id),
                 "giay_id": qc.get("giay_id"), "giay_ten": qc.get("giay_ten"), "gsm": qc.get("gsm"),
+                # Gửi kèm TẬP MỰC: người ghép chọn ứng viên ngay ở bảng này, mà "4/1" của hai
+                # lệnh có thể là hai bộ mực khác nhau (CMYK/K với CMYK/185C) — chung tờ là chung
+                # bản, nên nhìn con số mà gật là ghép một bài không in chung được.
                 "so_mau_a": qc.get("so_mau_a"), "so_mau_b": qc.get("so_mau_b"),
+                "muc_a": tap_muc(qc.get("muc_a")), "muc_b": tap_muc(qc.get("muc_b")),
                 "quy_cach_in": qc.get("quy_cach_in"),
                 "kho_tp": _kho(qc.get("dai_thanh_pham"), qc.get("rong_thanh_pham")),
                 "kho_in": _kho(qc.get("kho_in_dai"), qc.get("kho_in_rong")),
@@ -596,6 +600,7 @@ class BaiGhepService:
             so_nhan_cong_tieu_chuan=int(mau.so_nhan_cong_tieu_chuan or 1),
             so_nhan_cong=int(mau.so_nhan_cong_tieu_chuan or 1),
             so_nhan_cong_toi_da=mau.so_nhan_cong_toi_da,
+            so_nhan_cong_toi_thieu=mau.so_nhan_cong_toi_thieu,
             don_vi_nang_suat=mau.don_vi_nang_suat,
             # Đơn vị vào/ra là thứ NGƯỜI khai ở danh mục công đoạn, không phải thứ bài tự đặt.
             # Đóng đinh `tờ ➔ tờ` là nói sai ngay khi bước gộp là bế (`to → cai`): thẻ chung ghi
@@ -649,9 +654,11 @@ class BaiGhepService:
     _SUA_DUOC_BUOC_CHUNG = (
         # `khoan_json` KHÔNG có ở đây: nó là ảnh chụp server tự chụp từ `piece_rate_id`
         # (xem `_ghim_khoan_chung`), không phải thứ client gửi thẳng.
+        # Thời lượng KẾ THỪA từ máy (2026-08-04): client chỉ còn gửi `phat_sinh_phut`.
+        # `setup_phut`/`chay_phut`/`cho_phut`/`di_chuyen_phut`/`ve_sinh_phut` đã rời bộ này.
         "department_id", "may_id", "so_nhan_cong", "loai_buoc",
-        "nang_suat", "don_vi_nang_suat", "chay_phut", "setup_phut", "ve_sinh_phut",
-        "cho_phut", "di_chuyen_phut", "so_luot_chay", "ghi_chu",
+        "nang_suat", "don_vi_nang_suat", "phat_sinh_phut",
+        "so_luot_chay", "ghi_chu",
         "nha_cung_cap", "sl_gui", "ngay_gui_dk", "van_chuyen_ngay", "gia_cong_ngay",
         "ngay_nhan_dk", "hao_hut_cho_phep", "don_gia_gia_cong", "yeu_cau_ky_thuat",
     )
@@ -696,7 +703,7 @@ class BaiGhepService:
         Kéo theo định mức (năng suất · số người) y như bước lệnh: chọn đầu việc xong mà năng suất
         vẫn trống thì thẻ vẫn kêu "Chưa có năng suất", người dùng phải gõ lại số đã có sẵn.
         """
-        from .lsx_service import _DV_VAO_SANG_NS
+        from .lsx_service import _DV_VAO_SANG_NS, _dinh_muc_snapshot
 
         svc = self._lsx_svc()
         cd_obj = self.db.get(CongDoan, chung.cong_doan_id) if chung.cong_doan_id else None
@@ -715,15 +722,16 @@ class BaiGhepService:
                    if x.piece_rate_id == rate.id), None)
         if dm is None:
             return
-        chung.khoan_json.update({
-            "nang_suat_nguoi_gio": _f(dm.nang_suat_nguoi_gio),
-            "so_nguoi_tieu_chuan": int(dm.so_nguoi_tieu_chuan),
-            "so_nguoi_toi_da": int(dm.so_nguoi_toi_da),
-        })
+        # Bước chung của bài cũng là "một bước có kế hoạch" → ghim NGUYÊN bộ định mức như bước
+        # lệnh, gồm cả dải năng suất min/max và đơn vị khai báo.
+        chung.khoan_json.update(_dinh_muc_snapshot(dm))
         chung.nang_suat = _f(dm.nang_suat_nguoi_gio)
-        chung.don_vi_nang_suat = _DV_VAO_SANG_NS.get(cd_obj.don_vi_vao) if cd_obj else None
+        chung.don_vi_nang_suat = dm.don_vi_nang_suat or (
+            _DV_VAO_SANG_NS.get(cd_obj.don_vi_vao) if cd_obj else None
+        )
         chung.so_nhan_cong_tieu_chuan = int(dm.so_nguoi_tieu_chuan)
         chung.so_nhan_cong_toi_da = int(dm.so_nguoi_toi_da)
+        chung.so_nhan_cong_toi_thieu = int(getattr(dm, "so_nguoi_toi_thieu", 1) or 1)
         if not giu_kip:                       # người dùng vừa gõ tay kíp thì đừng đè lên
             chung.so_nhan_cong = int(dm.so_nguoi_tieu_chuan)
 
@@ -861,9 +869,14 @@ class BaiGhepService:
                     l, so_con=int(tv.so_con_tren_to or 0) or None
                 ).get((DV_TO_NGUYEN, DV_TO)))
                 break
+        to_cai = tong if tong > 0 else 1.0
         return {
-            (DV_TO, DV_CAI): tong if tong > 0 else 1.0,
+            (DV_TO, DV_CAI): to_cai,
             (DV_TO_NGUYEN, DV_TO): max(xa, 1.0),
+            # Đường DÀI của sách (gấp → bắt tay + vào keo). Gấp không sinh không mất tờ nên cầu
+            # đầu là 1, cầu sau lấy lại nguyên cầu tắt — tích hai cầu luôn bằng `to → cai`.
+            (DV_TO, DV_TAY): 1.0,
+            (DV_TAY, DV_CAI): to_cai,
         }
 
     def _nhu_cau_to(self, lsx: Lsx | None, so_con: int, bo_hao: set[str] | None = None) -> int:
@@ -1269,7 +1282,7 @@ class BaiGhepService:
             h = hang.get(c.id) or {"vao": 0.0, "ra": 0.0, "hao": 0.0,
                                    "dv_vao": c.don_vi_vao, "dv_ra": c.don_vi_ra}
             _fixed, pct = self._hao_o_bac(c.cong_doan_id, h["ra"])
-            t = thoi_luong_buoc(c)
+            t = thoi_luong_buoc(c, self.db.get(MayThietBi, c.may_id) if c.may_id else None)
             ds = sorted(thanh_vien.get(c.id, []), key=lambda x: x["lsx_ma"] or "")
             out.append({
                 "step_key": c.step_key, "ten": c.ten, "nhom": c.nhom,
@@ -1292,13 +1305,16 @@ class BaiGhepService:
                 "may_id": c.may_id, "may_ten": may_names.get(c.may_id),
                 "nha_cung_cap": c.nha_cung_cap,
                 "tong_phut": t["tong_phut"], "chiem_may_phut": t["chiem_may_phut"],
+                "chiem_may_phut_min": t["chiem_may_phut_min"],
+                "chiem_may_phut_max": t["chiem_may_phut_max"],
                 # Giá trị NGƯỜI đã khai — form phải mồi lại được, không thì mỗi lần mở drawer là
                 # ô trống và lưu đè mất số cũ.
                 "so_nhan_cong": c.so_nhan_cong,
                 "nang_suat": _f(c.nang_suat) or None, "don_vi_nang_suat": c.don_vi_nang_suat,
-                "chay_phut": _f(c.chay_phut) if c.chay_phut is not None else None,
-                "setup_phut": _f(c.setup_phut), "ve_sinh_phut": _f(c.ve_sinh_phut),
-                "cho_phut": _f(c.cho_phut), "di_chuyen_phut": _f(c.di_chuyen_phut),
+                # Chuẩn bị + chạy là SỐ DẪN XUẤT từ máy, không phải cột cũ (đã dormant).
+                "chay_phut": t["chay_phut"],
+                "setup_phut": t["dien_giai"]["setup_phut"],
+                "phat_sinh_phut": _f(c.phat_sinh_phut),
                 "so_luot_chay": c.so_luot_chay,
                 **self._khoan_chung_dict(c),
                 "vat_tus": [
@@ -1323,7 +1339,7 @@ class BaiGhepService:
                 # chuỗi `thieu.includes("Chưa chọn tổ")` — đổi câu chữ bên này là bên kia lặng lẽ
                 # tách không hỏi, và ai đã khai máy + năng suất nhưng chưa chọn tổ thì mất trắng.
                 "da_lap_ke_hoach": bool(
-                    c.department_id or c.may_id or c.chay_phut is not None
+                    c.department_id or c.may_id or _f(c.phat_sinh_phut)
                     or _f(c.nang_suat) or (c.ghi_chu or "").strip()
                     or (c.nha_cung_cap or "").strip() or c.vat_tus or c.khoan_json
                 ),
@@ -1343,7 +1359,8 @@ class BaiGhepService:
             thieu.append("Chưa chọn máy")
         if c.loai_buoc == "thue_ngoai" and not (c.nha_cung_cap or "").strip():
             thieu.append("Chưa có nhà cung cấp")
-        if c.chay_phut is None and not _f(c.nang_suat):
+        # Bước máy lấy tốc độ SỐNG từ máy đang gán; thiếu thì chip "Chưa chọn máy" ở trên đã nói.
+        if c.loai_buoc != LB_MAY and not _f(c.nang_suat):
             thieu.append("Chưa có năng suất")
         return thieu
 
@@ -1360,7 +1377,7 @@ class BaiGhepService:
         """
         from .lsx_service import thoi_luong_buoc
 
-        t = thoi_luong_buoc(cd)
+        t = thoi_luong_buoc(cd, self.db.get(MayThietBi, cd.may_id) if cd.may_id else None)
         sl = sl or {}
         return {
             "so_luong_vao": sl.get("so_luong_vao"), "so_luong_ra": sl.get("so_luong_ra"),
@@ -1401,9 +1418,18 @@ class BaiGhepService:
             muc = "can_xac_nhan"
         rows.append(_row("Giấy", [t or "—" for t in giay_ten], muc))
 
-        # Số màu (proxy — không auto phù hợp theo con số): giống → phù hợp, khác → cần xác nhận.
-        maus = [f"{qc.get('so_mau_a') or 0}/{qc.get('so_mau_b') or 0}" for qc in qcs]
-        rows.append(_row("Số màu", maus, "phu_hop" if len(set(maus)) <= 1 else "can_xac_nhan"))
+        # MỰC: ghép chung tờ là chung một bộ bản, nên phải khớp CHÍNH XÁC TỪNG MỰC, không phải
+        # khớp số lượng. Hai lệnh cùng nhãn "4/1" mà một bên mặt sau là K còn bên kia là 185C thì
+        # bản kẽm khác nhau — so con số sẽ gật "phù hợp" cho một bài không in chung được.
+        # Lệnh cũ chưa có tập mực (`quy_cach_json` trước 2026-08-05) → rơi về nhãn số như trước.
+        def _nhan_muc(qc: dict) -> str:
+            a, b = tap_muc(qc.get("muc_a")), tap_muc(qc.get("muc_b"))
+            if not a and not b:
+                return f"{qc.get('so_mau_a') or 0}/{qc.get('so_mau_b') or 0}"
+            return f"{'+'.join(a) or '—'} / {'+'.join(b) or '—'}"
+
+        maus = [_nhan_muc(qc) for qc in qcs]
+        rows.append(_row("Mực in", maus, "phu_hop" if len(set(maus)) <= 1 else "can_xac_nhan"))
 
         # Số mặt/trở.
         mats = [qc.get("quy_cach_in") or "—" for qc in qcs]
@@ -1559,7 +1585,11 @@ class BaiGhepService:
                 "san_luong_du_kien": r.get("san_luong_du_kien", 0), "du": r.get("du", 0),
                 "phan_giay_to": r.get("phan_giay_to", 0), "ty_le_giay": r.get("ty_le_giay", 0),
                 "giay_id": qc.get("giay_id"), "giay_ten": qc.get("giay_ten"),
+                # Gửi kèm TẬP MỰC: người ghép chọn ứng viên ngay ở bảng này, mà "4/1" của hai
+                # lệnh có thể là hai bộ mực khác nhau (CMYK/K với CMYK/185C) — chung tờ là chung
+                # bản, nên nhìn con số mà gật là ghép một bài không in chung được.
                 "so_mau_a": qc.get("so_mau_a"), "so_mau_b": qc.get("so_mau_b"),
+                "muc_a": tap_muc(qc.get("muc_a")), "muc_b": tap_muc(qc.get("muc_b")),
                 "quy_cach_in": qc.get("quy_cach_in"),
                 "kho_tp": _kho(qc.get("dai_thanh_pham"), qc.get("rong_thanh_pham")),
                 "han_hoan_thanh_sx": l.han_hoan_thanh_sx if l else None,

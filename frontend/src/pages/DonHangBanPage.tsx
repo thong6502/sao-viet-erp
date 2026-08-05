@@ -1,5 +1,6 @@
-// Đơn hàng bán — redesign-don-hang-ban.md (P1: list + chi tiết + tạo + sửa đặt-hàng).
-// Cọc/duyệt/chốt/hủy = P2–P5. Icon dùng bộ Icon nhà (không emoji).
+// Đơn hàng bán — redesign-don-hang-ban.md (P1: list + chi tiết + sửa thông tin đặt-hàng).
+// Cọc/chốt/hủy = P2–P5. Icon dùng bộ Icon nhà (không emoji).
+// Màn này KHÔNG tạo đơn: đơn sinh từ màn Báo giá khi khách chốt. Luồng duyệt đơn đặc thù đã gỡ.
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Icon, type IconName } from "../components/Icons";
@@ -11,10 +12,7 @@ import {
   type CustomerAddress,
   type CustomerContact,
   type LsxListItem,
-  type OrderCreateInput,
   type OrderDetail,
-  type OrderEnumsOut,
-  type OrderLineInput,
   type OrderRow,
   type OrderStatsOut,
 } from "../api/client";
@@ -60,16 +58,16 @@ type TabDef = {
   id: string;
   label: string;
   status?: string;
-  approval_state?: string;
   clientFilter?: (o: OrderRow) => boolean;
   countKey?: keyof OrderStatsOut;
 };
+// Tab "Chờ duyệt" đã bỏ cùng luồng duyệt đơn đặc thù — nó chỉ đếm đơn nhập tay, mà đường tạo
+// đơn tay đã gỡ nên tab đó vĩnh viễn rỗng.
 const TABS: TabDef[] = [
   { id: "all", label: "Tất cả", countKey: "all" },
   { id: "draft", label: "Nháp", status: "draft", countKey: "draft" },
-  { id: "pending", label: "Chờ duyệt", approval_state: "pending", countKey: "pending_approval" },
   { id: "awaiting_deposit", label: "Chờ cọc", status: "draft", clientFilter: (o) => !o.deposit_ok },
-  { id: "ready", label: "Sẵn sàng chốt", status: "draft", clientFilter: (o) => o.deposit_ok && (!o.needs_approval || o.approval_state === "approved") },
+  { id: "ready", label: "Sẵn sàng chốt", status: "draft", clientFilter: (o) => o.deposit_ok },
   { id: "ordered", label: "Đã chốt", status: "ordered", countKey: "ordered" },
   { id: "cancelled", label: "Hủy", status: "cancelled", countKey: "cancelled" },
 ];
@@ -95,10 +93,8 @@ function RowFlags({ o }: { o: OrderRow }) {
   return (
     <span className="dhb__flags">
       {o.is_rush && <Chip icon="bell" label="GẤP" tone="rush" />}
-      {o.needs_approval && o.approval_state !== "approved" && (
-        <Chip icon="clock" label="Chờ duyệt" tone="warn" />
-      )}
-      {o.order_nature === "gia_cong" && <Chip icon="scissors" label="Gia công" tone="info" />}
+      {/* "Chờ duyệt" + "Gia công" đã bỏ cùng luồng duyệt và trường Bản chất đơn.
+          "Không giá vốn" GIỮ: đơn nhập tay CŨ (cost_basis='none') vẫn còn trong DB. */}
       {o.cost_basis === "none" && <Chip icon="help" label="Không giá vốn" tone="muted" />}
     </span>
   );
@@ -112,7 +108,7 @@ interface Props {
 export function DonHangBanPage({ navigate, openOrderId }: Props) {
   const { token } = useAuth();
   const can = useCan();
-  const canCreate = can("don_hang_ban", "create");
+  // `create` KHÔNG còn được dùng ở màn này (đơn sinh từ Báo giá) — quyền vẫn tồn tại, gác ở đó.
   const canUpdate = can("don_hang_ban", "update");
   const canRecordDeposit = can("don_hang_ban", "record_deposit");
   const canApproveException = can("don_hang_ban", "approve_exception");
@@ -124,10 +120,10 @@ export function DonHangBanPage({ navigate, openOrderId }: Props) {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [enums, setEnums] = useState<OrderEnumsOut | null>(null);
+  // `/enums` không còn được nạp ở đây: nó chỉ phục vụ hộp thoại tạo đơn (đã xoá). Nhãn trạng thái
+  // dùng bảng STATUS_META tĩnh phía trên.
 
   const [selected, setSelected] = useState<OrderDetail | null>(null);
-  const [creating, setCreating] = useState(false);
   const [stats, setStats] = useState<OrderStatsOut | null>(null);
 
   const load = useCallback(() => {
@@ -137,7 +133,7 @@ export function DonHangBanPage({ navigate, openOrderId }: Props) {
     setErr(null);
     api.orders
       .list(token, {
-        q: q || undefined, status: t.status, approval_state: t.approval_state,
+        q: q || undefined, status: t.status,
         sort: "-created_at", page: 1, size: 50,
       })
       .then((r) => {
@@ -153,9 +149,6 @@ export function DonHangBanPage({ navigate, openOrderId }: Props) {
   useEffect(() => {
     load();
   }, [load]);
-  useEffect(() => {
-    if (token && !enums) api.orders.enums(token).then(setEnums).catch(() => {});
-  }, [token, enums]);
 
   function openDetail(id: number) {
     if (!token) return;
@@ -175,11 +168,8 @@ export function DonHangBanPage({ navigate, openOrderId }: Props) {
           <p className="eyebrow">Kinh doanh</p>
           <h1 className="dhb__title">Đơn hàng bán</h1>
         </div>
-        {canCreate && (
-          <button className="btn btn--primary" onClick={() => setCreating(true)}>
-            <Icon name="plus" size={16} /> Tạo đơn
-          </button>
-        )}
+        {/* Nút "+ Tạo đơn" đã gỡ: đơn CHỈ sinh từ màn Báo giá khi khách chốt (BaoGiaPage →
+            api.orders.create). Giữ nút ở đây là cửa thứ hai làm cùng một việc. */}
       </header>
 
       {stats && <KpiStrip stats={stats} />}
@@ -298,17 +288,6 @@ export function DonHangBanPage({ navigate, openOrderId }: Props) {
           navigate={navigate}
         />
       )}
-      {creating && enums && (
-        <CreateModal
-          enums={enums}
-          onClose={() => setCreating(false)}
-          onCreated={(d) => {
-            setCreating(false);
-            load();
-            setSelected(d);
-          }}
-        />
-      )}
     </main>
   );
 }
@@ -334,11 +313,7 @@ function KpiStrip({ stats }: { stats: OrderStatsOut }) {
         <div className="dhb__kpi-n" style={{ fontFamily: "var(--ff-num)", fontSize: 15, fontVariantNumeric: "tabular-nums" }}>{vndShort(stats.ordered_value)}</div>
         <div className="dhb__kpi-s">{stats.ordered} đơn</div>
       </div>
-      <div className="dhb__kpi">
-        <div className="dhb__kpi-l"><Icon name="shield" size={13} /> Chờ duyệt</div>
-        <div className="dhb__kpi-n" style={{ color: stats.pending_approval > 0 ? "var(--amber-deep)" : undefined }}>{stats.pending_approval}</div>
-        <div className="dhb__kpi-s">đơn đặc thù</div>
-      </div>
+      {/* Thẻ "Chờ duyệt · đơn đặc thù" đã bỏ cùng luồng duyệt — nó chỉ đếm đơn nhập tay. */}
     </div>
   );
 }
@@ -497,7 +472,6 @@ function OrderDrawer({
                 <div className="dhb__kv-grid">
                   <KV k="Nguồn" v={order.source_type === "bao_gia" ? "Từ báo giá" : "Nhập giá tay"} />
                   <KV k="Loại" v={order.order_kind === "bo_sung" ? "Đơn bổ sung" : "Đơn mới"} />
-                  <KV k="Bản chất" v={order.order_nature === "gia_cong" ? "Gia công" : "Hàng hóa"} />
                   <KV k="NV phụ trách" v={order.sale_name ?? "—"} />
                   <KV k="Ngày tạo" v={<span className="dhb__mono">{fmtDate(order.created_at)}</span>} />
                   {order.ordered_at && <KV k="Ngày chốt" v={<span className="dhb__mono">{fmtDate(order.ordered_at)}</span>} />}
@@ -514,12 +488,6 @@ function OrderDrawer({
                     <KV k="Lưu ý SX" v={order.production_note || "—"} />
                   )}
                   <KV k="% cọc" v={<span className="dhb__mono">{order.deposit_pct != null ? `${order.deposit_pct}%` : "—"}</span>} />
-                  {order.invoice_entity_name && (
-                    <KV
-                      k="Pháp nhân xuất HĐ"
-                      v={`${order.invoice_entity_name}${order.invoice_entity_tax_code ? " · MST " + order.invoice_entity_tax_code : ""}`}
-                    />
-                  )}
                 </div>
                 {editing && (
                   <div style={{ marginTop: 12 }}>
@@ -747,13 +715,7 @@ function OrderDrawer({
                   </div>
                 )}
               </Section>
- 
-              {/* ⑤ Duyệt (chỉ đơn cần duyệt) */}
-              {order.needs_approval && (
-                <Section title="Duyệt đơn đặc thù">
-                  <ApprovalPanel order={order} canApprove={canApproveException} onSaved={onSaved} />
-                </Section>
-              )}
+              {/* Khối ⑤ "Duyệt đơn đặc thù" đã gỡ cùng luồng duyệt. */}
             </>
           )}
 
@@ -1081,9 +1043,6 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
   const [deliveryNote, setDeliveryNote] = useState(order.delivery_note ?? "");
   const [productionNote, setProductionNote] = useState(order.production_note ?? "");
   const [isRush, setIsRush] = useState(order.is_rush);
-  const [entity, setEntity] = useState(order.invoice_entity_name ?? "");
-  const [taxCode, setTaxCode] = useState(order.invoice_entity_tax_code ?? "");
-  const [nature, setNature] = useState(order.order_nature);
   const [depositPct, setDepositPct] = useState(order.deposit_pct != null ? String(order.deposit_pct) : "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1142,9 +1101,6 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
         delivery_note: deliveryNote.trim() || null,
         production_note: productionNote.trim() || null,
         is_rush: isRush,
-        invoice_entity_name: entity || null,
-        invoice_entity_tax_code: taxCode || null,
-        order_nature: nature,
         deposit_pct: depositPct.trim() === "" ? null : Number(depositPct),
       });
       onSaved(d);
@@ -1208,14 +1164,7 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
       <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, cursor: "pointer", userSelect: "none" }}>
         <input type="checkbox" checked={isRush} onChange={(e) => setIsRush(e.target.checked)} /> Hàng gấp (ưu tiên sản xuất)
       </label>
-      <Field label="Bản chất đơn">
-        <select value={nature} onChange={(e) => setNature(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
-          <option value="hang_hoa">Hàng hóa</option>
-          <option value="gia_cong">Gia công</option>
-        </select>
-      </Field>
-      <Field label="Pháp nhân xuất HĐ"><input value={entity} onChange={(e) => setEntity(e.target.value)} placeholder="Mặc định = khách" className="dhb__input" /></Field>
-      <Field label="MST xuất HĐ"><input value={taxCode} onChange={(e) => setTaxCode(e.target.value)} className="dhb__input" /></Field>
+      {/* 3 ô "Bản chất đơn" · "Pháp nhân xuất HĐ" · "MST xuất HĐ" đã gỡ (2026-08-04). */}
       {err && <div className="banner banner--error">{err}</div>}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button className="btn btn--ghost" onClick={onCancel} disabled={saving}>Hủy</button>
@@ -1225,162 +1174,7 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
   );
 }
 
-// --- Modal tạo đơn ------------------------------------------------------------
-function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onClose: () => void; onCreated: (d: OrderDetail) => void }) {
-  const { token } = useAuth();
-  const [source, setSource] = useState("bao_gia");
-  const [quotationId, setQuotationId] = useState("");
-  const [customerId, setCustomerId] = useState("");
-  const [nature, setNature] = useState("hang_hoa");
-  const [lines, setLines] = useState<OrderLineInput[]>([{ description: "", qty: 1, don_vi_tinh: "cái", unit_price: 0, vat_pct: 8 }]);
-  const [po, setPo] = useState("");
-  const [depositPct, setDepositPct] = useState("");
-  const [isSupp, setIsSupp] = useState(false);
-  const [isRush, setIsRush] = useState(false);
-  const [parentId, setParentId] = useState("");
-  const [quotes, setQuotes] = useState<{ id: number; code: string; customer_name: string | null }[]>([]);
-  const [custs, setCusts] = useState<{ id: number; name: string; code: string }[]>([]);
-  const [parents, setParents] = useState<{ id: number; order_no: string; customer_name: string | null }[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!token) return;
-    api.quotations.list(token, { status: "accepted", size: 100 }).then((r) => setQuotes(r.items)).catch(() => {});
-    api.customers.list(token, { size: 200 }).then((r) => setCusts(r.items)).catch(() => {});
-    api.orders.list(token, { status: "ordered", size: 100 }).then((r) => setParents(r.items)).catch(() => {});
-  }, [token]);
-
-  async function submit() {
-    if (!token) return;
-    setSaving(true);
-    setErr(null);
-    try {
-      const input: OrderCreateInput = {
-        source_type: source, order_nature: nature, customer_po_no: po || null,
-        order_kind: isSupp ? "bo_sung" : "moi",
-        parent_order_id: isSupp && parentId ? Number(parentId) : null,
-        is_rush: isRush,
-      };
-      if (source === "bao_gia") input.quotation_id = Number(quotationId);
-      else {
-        input.customer_id = Number(customerId);
-        input.lines = lines.filter((l) => l.description);
-        input.vat_pct_estimate = lines[0]?.vat_pct ?? 8;
-      }
-      if (depositPct.trim() !== "") input.deposit_pct = Number(depositPct);
-      const d = await api.orders.create(token, input);
-      onCreated(d);
-    } catch (e: unknown) {
-      setErr(String((e as Error)?.message ?? e));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div onClick={onClose} className="dhb__modal-overlay">
-      <div onClick={(e) => e.stopPropagation()} className="dhb__modal-content" style={{ maxHeight: "90vh", overflowY: "auto" }}>
-        <h2 className="dhb__modal-title">Tạo đơn hàng</h2>
-
-        <Field label="Nguồn đơn">
-          <div style={{ display: "flex", gap: 8 }}>
-            {enums.source_types.map((s) => (
-              <button
-                key={s.value}
-                onClick={() => setSource(s.value)}
-                style={{
-                  flex: 1,
-                  padding: "8px 12px",
-                  borderRadius: "var(--r-3)",
-                  border: "1px solid",
-                  borderColor: source === s.value ? "var(--charcoal)" : "var(--rule-soft)",
-                  background: source === s.value ? "var(--charcoal)" : "var(--canvas)",
-                  color: source === s.value ? "var(--on-charcoal)" : "var(--ash)",
-                  fontWeight: 600,
-                  fontSize: 13,
-                  cursor: "pointer",
-                  transition: "all var(--duration-fast) var(--easing-standard)",
-                }}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </Field>
-
-        {source === "bao_gia" ? (
-          <Field label="Báo giá đã duyệt (khách đồng ý)">
-            <select value={quotationId} onChange={(e) => setQuotationId(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
-              <option value="">— Chọn báo giá —</option>
-              {quotes.map((qu) => (
-                <option key={qu.id} value={qu.id}>{qu.code} · {qu.customer_name ?? ""}</option>
-              ))}
-            </select>
-          </Field>
-        ) : (
-          <>
-            <Field label="Khách hàng">
-              <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
-                <option value="">— Chọn khách —</option>
-                {custs.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
-                ))}
-              </select>
-            </Field>
-            <div style={{ margin: "10px 0" }}>
-              <span style={{ fontSize: 12, color: "var(--ash)", display: "block", marginBottom: 6 }}>Dòng hàng (nhập tay — không giá vốn, sẽ cần duyệt)</span>
-              {lines.map((l, i) => (
-                <div key={i} style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                  <input placeholder="Mô tả" value={l.description} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))} className="dhb__input" style={{ flex: 2 }} />
-                  <input type="number" placeholder="SL" value={l.qty} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, qty: Number(e.target.value) } : x)))} className="dhb__input" style={{ width: 70 }} />
-                  <input placeholder="ĐVT" value={l.don_vi_tinh ?? ""} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, don_vi_tinh: e.target.value } : x)))} className="dhb__input" style={{ width: 70 }} />
-                  <input type="number" placeholder="Đơn giá" value={l.unit_price ?? 0} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, unit_price: Number(e.target.value) } : x)))} className="dhb__input" style={{ width: 100 }} />
-                </div>
-              ))}
-              <button className="btn btn--ghost" style={{ marginTop: 8, height: 28, padding: "4px 10px", fontSize: 12 }} onClick={() => setLines((ls) => [...ls, { description: "", qty: 1, don_vi_tinh: "cái", unit_price: 0, vat_pct: 8 }])}>
-                <Icon name="plus" size={13} /> Thêm dòng
-              </button>
-            </div>
-          </>
-        )}
-
-        <Field label="Bản chất">
-          <select value={nature} onChange={(e) => setNature(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
-            <option value="hang_hoa">Hàng hóa</option>
-            <option value="gia_cong">Gia công (khách ứng giấy)</option>
-          </select>
-        </Field>
-        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 12 }}>
-          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, cursor: "pointer", userSelect: "none" }}>
-            <input type="checkbox" checked={isSupp} onChange={(e) => setIsSupp(e.target.checked)} /> Đơn bổ sung (in thêm — giữ kẽm cũ)
-          </label>
-          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, cursor: "pointer", userSelect: "none" }}>
-            <input type="checkbox" checked={isRush} onChange={(e) => setIsRush(e.target.checked)} /> Hàng gấp (ưu tiên sản xuất)
-          </label>
-        </div>
-        {isSupp && (
-          <Field label="Đơn gốc (giữ kẽm)">
-            <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
-              <option value="">— Chọn đơn gốc đã chốt —</option>
-              {parents.map((p) => (
-                <option key={p.id} value={p.id}>{p.order_no} · {p.customer_name ?? ""}</option>
-              ))}
-            </select>
-          </Field>
-        )}
-        <Field label="% cọc (tùy chọn — báo giá: trống = ghim theo báo giá)"><input type="number" min={0} max={100} value={depositPct} onChange={(e) => setDepositPct(e.target.value)} placeholder="vd 30" className="dhb__input" /></Field>
-        <Field label="Số PO khách (tùy chọn)"><input value={po} onChange={(e) => setPo(e.target.value)} className="dhb__input" /></Field>
-
-        {err && <div className="banner banner--error">{err}</div>}
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
-          <button className="btn btn--ghost" onClick={onClose} disabled={saving}>Hủy</button>
-          <button className="btn btn--primary" onClick={submit} disabled={saving}>{saving ? "Đang tạo…" : "Tạo đơn"}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
+// Modal "Tạo đơn hàng" đã XOÁ: đơn chỉ sinh từ màn Báo giá khi khách chốt.
 
 function ConfirmPanel({ order, canManage, canExtend, onSaved }: { order: OrderDetail; canManage: boolean; canExtend: boolean; onSaved: (d: OrderDetail) => void }) {
   const { token } = useAuth();
@@ -1440,70 +1234,7 @@ function ConfirmPanel({ order, canManage, canExtend, onSaved }: { order: OrderDe
   );
 }
 
-const APPROVAL_STATE_META: Record<string, { label: string; bg: string; fg: string }> = {
-  none: { label: "Chưa trình", bg: "#eef1f6", fg: "#5a6a7d" },
-  pending: { label: "Chờ duyệt", bg: "#fff3e0", fg: "#b4681f" },
-  approved: { label: "Đã duyệt", bg: "#e4f5ec", fg: "#1f8a52" },
-  rejected: { label: "Bị từ chối", bg: "#fdecea", fg: "#b4432b" },
-};
-
-function ApprovalPanel({ order, canApprove, onSaved }: { order: OrderDetail; canApprove: boolean; onSaved: (d: OrderDetail) => void }) {
-  const { token } = useAuth();
-  const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const st = order.approval_state;
-  const meta = APPROVAL_STATE_META[st] ?? APPROVAL_STATE_META.none;
-
-  async function run(fn: () => Promise<OrderDetail>) {
-    if (!token) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      onSaved(await fn());
-      setNote("");
-    } catch (e: unknown) {
-      setErr(String((e as Error)?.message ?? e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div style={{ display: "grid", gap: 8 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ color: "#7a8698", fontSize: 13 }}>Trạng thái</span>
-        <span style={{ padding: "2px 9px", borderRadius: 999, background: meta.bg, color: meta.fg, fontSize: 12, fontWeight: 600 }}>{meta.label}</span>
-      </div>
-      {order.approvals.map((a) => (
-        <div key={a.id} style={{ fontSize: 13, borderLeft: `3px solid ${a.decision === "approved" ? "#1f8a52" : "#b4432b"}`, paddingLeft: 8 }}>
-          <strong>{a.decision === "approved" ? "Duyệt" : "Từ chối"}</strong> · {a.decided_by_name ?? "—"} ·{" "}
-          {new Date(a.decided_at).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-          {a.note && <div style={{ color: "#5a6a7d" }}>{a.note}</div>}
-        </div>
-      ))}
-      {err && <div className="banner banner--error">{err}</div>}
-      {st !== "approved" &&
-        (canApprove ? (
-          <>
-            <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ghi chú / lý do (bắt buộc khi từ chối)" className="dhb__input" style={{ minHeight: 52, resize: "vertical" }} />
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn btn--primary" disabled={busy || !note.trim()} onClick={() => run(() => api.orders.approve(token!, order.id, note))}>
-                <Icon name="check" size={14} /> Duyệt
-              </button>
-              <button className="btn" disabled={busy || !note.trim()} onClick={() => run(() => api.orders.reject(token!, order.id, note))}>
-                <Icon name="ban" size={14} /> Từ chối
-              </button>
-            </div>
-          </>
-        ) : (
-          <button className="btn btn--primary" style={{ justifySelf: "start" }} disabled={busy} onClick={() => run(() => api.orders.submit(token!, order.id))}>
-            <Icon name="send" size={14} /> {st === "rejected" ? "Trình duyệt lại" : "Trình duyệt"}
-          </button>
-        ))}
-    </div>
-  );
-}
+// `ApprovalPanel` + `APPROVAL_STATE_META` đã XOÁ cùng luồng duyệt đơn đặc thù.
 
 function DepositForm({ order, onSaved }: { order: OrderDetail; onSaved: (d: OrderDetail) => void }) {
   const { token } = useAuth();

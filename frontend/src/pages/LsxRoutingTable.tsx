@@ -42,6 +42,15 @@ export interface RefRow {
   nhom?: string | null;
   ma?: string;
   donVi?: string;
+  /** MÁY — số để tính thời lượng NGAY trên form, trước khi lưu. Đổi máy trong drawer phải thấy
+   *  chuẩn bị + thời gian chạy nhảy liền; đợi server trả `thoi_luong_dien_giai` thì phải bấm Lưu
+   *  mới biết, mà đúng lúc đó người dùng đã lưu mù rồi. */
+  tocDo?: number | null;
+  tocDoMin?: number | null;
+  tocDoMax?: number | null;
+  donViTocDo?: string | null;
+  chuanBiPhut?: number | null;
+  chuanBiKhoan?: { ten?: string; phut?: number }[];
 }
 
 /** Nhãn đơn vị của bước. Đơn vị TRỐNG = bước ngoài dòng giấy, hiển thị “—”. */
@@ -192,10 +201,9 @@ export function LsxRoutingTable({
           department_id: m.department_id,
           don_vi_vao: m.don_vi_vao, don_vi_ra: m.don_vi_ra,
           he_so_quy_doi: m.he_so_quy_doi > 1 ? String(m.he_so_quy_doi) : "",
-          setup_phut: m.setup_phut ? String(m.setup_phut) : "",
-          chay_phut: "",   // bước mới ⇒ bỏ ghi đè cũ, để máy tính lại từ năng suất
+          // Thời gian chuẩn bị + chạy KHÔNG còn nằm ở bước: kế thừa sống từ máy đang gán.
         });
-        setLive(`Đã đổi sang ${m.ten} và lấy lại đơn vị, tổ phụ trách, thời gian chuẩn bị`);
+        setLive(`Đã đổi sang ${m.ten} và lấy lại đơn vị, tổ phụ trách`);
       } catch {
         // Mất mạng / không có quyền đọc danh mục → ít nhất vẫn đổi được tên, đừng chặn người dùng.
         patch(key, { cong_doan_id: id, ten: tenHienTai, department_id: null });
@@ -219,7 +227,6 @@ export function LsxRoutingTable({
       so_nhan_cong: "1",
       so_nhan_cong_tieu_chuan: 1,
       so_nhan_cong_toi_da: null,
-      chay_phut: "",
     };
     patch(key, reset);
     if (!departmentId || !row?.cong_doan_id) return;
@@ -320,10 +327,18 @@ export function LsxRoutingTable({
   const tong = useMemo(
     () => rows.reduce(
       (acc, r) => {
-        const t = thoiLuong(r);
-        return { chiemMay: acc.chiemMay + t.chiemMay, tong: acc.tong + t.tong };
+        const t = thoiLuong(r, mayRefs?.find((m) => m.id === r.may_id) ?? null);
+        // Bước không có dải (tổ / thuê ngoài / máy chưa khai min-max) góp CÙNG một số vào cả
+        // hai đầu ⇒ chúng không làm khoảng rộng ra một cách giả tạo.
+        return {
+          chiemMay: acc.chiemMay + t.chiemMay,
+          tong: acc.tong + t.tong,
+          min: acc.min + t.chiemMin,
+          max: acc.max + t.chiemMax,
+          coDai: acc.coDai || t.coDai,
+        };
       },
-      { chiemMay: 0, tong: 0 },
+      { chiemMay: 0, tong: 0, min: 0, max: 0, coDai: false },
     ),
     [rows],
   );
@@ -455,7 +470,7 @@ export function LsxRoutingTable({
             )}
             {rows.map((r, i) => {
               const meta = LSX_LOAI_BUOC_META[r.loai_buoc];
-              const t = thoiLuong(r);
+              const t = thoiLuong(r, mayRefs?.find((m) => m.id === r.may_id) ?? null);
               const loi = loiDong(rows, i);
               const ngoai = r.loai_buoc === "thue_ngoai";
               const lamO = ngoai
@@ -536,6 +551,11 @@ export function LsxRoutingTable({
                   </td>
                   <td className="khsx-rt__time">
                     <span className="khsx-dur">{phut(t.chiemMay)}</span>
+                    {t.coDai && (
+                      <span className="khsx-rt__sub2 khsx-rt__dai" title="Nhanh nhất – chậm nhất theo dải tốc độ của máy">
+                        {phut(t.chiemMin)} – {phut(t.chiemMax)}
+                      </span>
+                    )}
                     {t.tong !== t.chiemMay && (
                       <span className="khsx-rt__sub2">bước sau bắt đầu sau {phut(t.tong)}</span>
                     )}
@@ -629,6 +649,7 @@ export function LsxRoutingTable({
             <strong className="khsx-lead__val khsx-dur">{phut(tong.tong)}</strong>
             <span className="khsx-lead__note">
               ≈ {soNgay.toFixed(1)} ngày làm việc · chiếm máy {phut(tong.chiemMay)}
+              {tong.coDai && <> · nhanh–chậm {phut(tong.min)} – {phut(tong.max)}</>}
             </span>
           </div>
           <div className="khsx-lead__side">

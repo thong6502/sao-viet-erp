@@ -79,11 +79,13 @@ class XepLichDongOut(BaseModel):
     start_at: datetime | None = None
     finish_at: datetime | None = None
     chiem_may_phut: float = 0
+    # Dải nhanh/chậm nhất — Gantt vẽ RÂU ở đuôi thanh (thanh vẫn đặt theo TB).
+    chiem_may_phut_min: float = 0
+    chiem_may_phut_max: float = 0
     tong_phut: float = 0
-    # Breakdown chiếm máy (Gantt vẽ thanh 2 đoạn setup+chạy; vệ sinh gộp cuối).
+    # Breakdown chiếm máy (Gantt vẽ thanh 2 đoạn setup+chạy). Vệ sinh/rửa mực đã bỏ khỏi hệ.
     setup_phut: float = 0
     chay_phut: float = 0
-    ve_sinh_phut: float = 0
     theo_may: bool = False              # thời lượng tính LẠI theo tốc độ máy đang gán (HM3) vs snapshot bước
     canh_bao_thoi_luong: str | None = None  # may_chua_toc_do | don_vi_lech — vì sao không tính-theo-máy được
     slack_ngay: int | None = None
@@ -115,9 +117,11 @@ class XemTruocOut(BaseModel):
     """Ảnh hưởng khi thả 1 dòng — hộp thoại xác nhận chỉ bật khi có `day_doi`/`xung_dot_ids`/`can_xac_nhan`."""
     finish_at: datetime | None = None
     chiem_may_phut: float = 0
+    # Dải nhanh/chậm nhất — Gantt vẽ RÂU ở đuôi thanh (thanh vẫn đặt theo TB).
+    chiem_may_phut_min: float = 0
+    chiem_may_phut_max: float = 0
     setup_phut: float = 0
     chay_phut: float = 0
-    ve_sinh_phut: float = 0
     theo_may: bool = False
     xung_dot_ids: list[int] = Field(default_factory=list)
     day_doi: list[DayDoiItem] = Field(default_factory=list)

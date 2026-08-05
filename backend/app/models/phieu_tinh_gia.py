@@ -139,11 +139,26 @@ class PhieuThanhPhan(Base):
     may_id: Mapped[int | None] = mapped_column(Integer, nullable=True)              # → may_thiet_bi.id (soft)
     don_gia_cong_in: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)  # mực GỘP trong đơn giá
 
-    # --- Màu (đã gộp: chỉ SỐ MÀU mỗi mặt — không SEL/Pan/Nền, không hệ số) ---
+    # --- Mực in: TẬP MÃ MỰC mỗi mặt, không phải con số ---
+    # `["C","M","Y","K"]` · `["K","185C"]`. C/M/Y/K là bốn mã process cố định; mọi mã khác là màu
+    # pha, chuỗi tự do đã chuẩn hoá (viết hoa, bỏ khoảng trắng thừa) — KHÔNG có danh mục mực.
+    #
+    # Phải là TẬP chứ không phải số, vì tự trở/trở nhíp dùng chung một bộ bản nên số kẽm là
+    # `|A ∪ B|`: 4 màu CMYK ở mặt A với 1 Pantone ở mặt B ra 5 kẽm, còn `max(4,1)` ra 4 — thiếu
+    # đúng cái bản Pantone, ra tới máy mới lộ. Con số không mang đủ thông tin để tính hợp.
+    #
+    # An toàn khi gõ tự do vì hợp CHỈ tính trong phạm vi MỘT thành phần (ruột và bìa là hai bộ
+    # bản riêng): mã chỉ cần thống nhất giữa mặt A và mặt B của cùng sản phẩm, tức trong tầm một
+    # cái form. UI cho bấm lại mã của mặt kia thay vì gõ lại nên không lệch.
+    muc_a: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+    muc_b: Mapped[list | None] = mapped_column(JSON, nullable=True, default=list)
+
+    # --- Ba số màu: nay là DẪN XUẤT của `muc_a`/`muc_b`, engine ghi lại. GIỮ NGUYÊN NGHĨA CŨ ---
+    # `so_mau_a/b` = số mực PROCESS mỗi mặt; `so_mau_pha` = số mực pha PHÂN BIỆT của cả hai mặt.
+    # Giữ cột + giữ nghĩa để ~28 chỗ đang đọc (công thức mực, `_may_fit`, lệnh SX, bài ghép, báo
+    # giá) không phải sửa dòng nào, và để tiền mực của phiếu cũ không nhúc nhích sau backfill.
     so_mau_a: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # số màu mặt A
     so_mau_b: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # số màu mặt B
-    # Màu pha (Pantone) — NẰM TRONG tổng số màu trên, KHÔNG cộng thêm: 1 màu pha vẫn 1 kẽm, đã đếm
-    # ở so_mau_a/b. Ghi nhận để xưởng biết phải pha mực + rửa máy; engine chỉ phơi biến `so_mau_pha`.
     so_mau_pha: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Ghi chú KỸ THUẬT/SX theo SẢN PHẨM (canh màu như mẫu · kẽm cũ · bù hao…) — kỹ thuật, KHÔNG giá;

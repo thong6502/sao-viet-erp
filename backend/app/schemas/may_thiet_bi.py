@@ -42,7 +42,8 @@ class MayThietBiIn(BaseModel):
     # `makeready_time_default` = thời gian CANH MÁY, Xếp lịch đọc. KHÁC "Chuẩn bị" của Công đoạn
     # (`cong_doan.setup_time`, Lệnh SX đọc) — hai nơi hai việc, không gộp không cộng.
     makeready_time_default: float | None = None
-    thoi_gian_rua_muc: float | None = None
+    # `thoi_gian_rua_muc` ĐÃ BỎ khỏi hợp đồng API (2026-08-04) — cột còn trong DB nhưng không
+    # nhận/không trả nữa; engine xếp lịch thôi cộng vệ sinh.
     # Kíp chuẩn cần để vận hành máy. Đây là nhu cầu nhân lực, không nhân tốc độ máy.
     so_nhan_cong: float = Field(default=1, ge=1)
     fields_theo_loai: dict | None = None
@@ -93,7 +94,7 @@ class MayThietBiRow(BaseModel):
     toc_do_max: float | None = None
     don_vi_toc_do: str | None = None
     makeready_time_default: float | None = None
-    thoi_gian_rua_muc: float | None = None
+    # `thoi_gian_rua_muc` bỏ khỏi DTO đọc — cột dormant, không phơi ra API nữa.
     min_stock_gsm: int | None = None
     max_stock_gsm: int | None = None
     # Engine bình bài (offset)

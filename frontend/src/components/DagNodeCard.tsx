@@ -55,15 +55,19 @@ export function DagNodeCard({
     return toRefs.find((t) => t.id === row.department_id)?.ten ?? null;
   }, [row.department_id, toRefs]);
 
-  const mayTen = useMemo(() => {
-    if (!row.may_id || !mayRefs) return null;
-    return mayRefs.find((m) => m.id === row.may_id)?.ten ?? null;
-  }, [row.may_id, mayRefs]);
+  // Máy đang gán — nguồn tốc độ + thời gian chuẩn bị của công thức thời lượng. Trước đây chỉ lấy
+  // mỗi TÊN để in badge, còn `thoiLuong(row)` gọi không kèm máy nên node luôn hiện "—" dù drawer
+  // ngay cạnh đã tính ra số: hai chỗ cùng công thức mà một chỗ thiếu đầu vào.
+  const may = useMemo(
+    () => (row.may_id && mayRefs ? mayRefs.find((m) => m.id === row.may_id) ?? null : null),
+    [row.may_id, mayRefs],
+  );
+  const mayTen = may?.ten ?? null;
 
   const thoiGian = useMemo(() => {
-    const t = thoiLuong(row);
+    const t = thoiLuong(row, may);
     return phut(t.tong);
-  }, [row]);
+  }, [row, may]);
 
   const meta = LSX_LOAI_BUOC_META[row.loai_buoc] ?? { label: row.loai_buoc };
 

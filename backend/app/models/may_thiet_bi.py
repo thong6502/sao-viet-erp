@@ -42,7 +42,14 @@ TRANG_THAI = ("active", "maintenance", "retired")          # active mới cho b�
 NGUON_BHR = ("nhap_truc_tiep", "dung_tu_von")
 KHAU_HAO = ("duong_thang", "so_du_giam_dan")
 KHOA_CLASS = ("52", "74", "79", "102", "custom")           # lớp khổ máy → tra giá kẽm
-DON_VI_TOC_DO = ("to_gio", "m2_gio", "cuon_gio", "luot_gio", "met_gio")
+# Danh sách CỐ ĐỊNH, khớp ô chọn ở `DonViTocDoField` (FE). Chủ chốt 04/08/2026.
+# CẢNH BÁO: chỉ `to_gio · cai_gio · kem_gio` là Lệnh SX khớp được để ra thời lượng
+# (`_DV_VAO_SANG_NS` trong `lsx_service.py`); phần còn lại chỉ để GHI NHẬN năng lực máy.
+# Hằng số này hiện KHÔNG được validate ở đâu — máy vẫn lưu được giá trị ngoài danh sách.
+DON_VI_TOC_DO = (
+    "ban_proof_gio", "mau_gio", "kem_gio", "to_gio", "tan_gio",
+    "me_gio", "m2_gio", "nhip_gio", "hop_gio",
+)
 
 
 def _utcnow() -> datetime:
@@ -123,6 +130,8 @@ class MayThietBi(Base):
     # SQLite bỏ qua độ dài nên test vẫn xanh, Postgres thật thì lỗi lúc lưu — nới lên 32 (mg 0153).
     don_vi_toc_do: Mapped[str | None] = mapped_column(String(32), nullable=True)
     makeready_time_default: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)  # phút
+    # DORMANT 2026-08-04 — vệ sinh/rửa mực đã bỏ khỏi hệ: KHÔNG còn ô nhập, engine xếp lịch
+    # thôi cộng. Cột giữ để không mất số cũ (dự án không có Alembic, `create_all` không ALTER).
     thoi_gian_rua_muc: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)       # phút
     min_stock_gsm: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_stock_gsm: Mapped[int | None] = mapped_column(Integer, nullable=True)
