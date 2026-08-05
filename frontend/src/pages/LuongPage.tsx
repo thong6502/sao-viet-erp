@@ -2152,7 +2152,8 @@ function SalaryModal({
                       ? "theo quy tắc"
                       : "chưa có"}
               </span>
-              {" · "}phụ cấp {money(preview.allowance)} · đóng BH trên{" "}
+              {/* {" · "}phụ cấp {money(preview.allowance)} */}
+               · đóng BH trên{" "}
               {money(preview.insurance_base)}
             </div>
           )}

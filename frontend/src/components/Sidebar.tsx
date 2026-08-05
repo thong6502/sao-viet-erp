@@ -110,10 +110,28 @@ const NAV: NavSection[] = [
     id: "ke-toan",
     label: "Kế toán",
     items: [
-      { id: "ke-toan-yeu-cau-mua", label: "Yêu cầu mua hàng", icon: "fileCheck", module: "ke_toan" },
-      { id: "ke-toan-phieu-chi", label: VOUCHER_PAGE_LABEL, icon: "calculator", module: "ke_toan" },
-      { id: "ke-toan-phieu-thu", label: "Phiếu thu", icon: "fileText", module: "ke_toan" },
-      { id: "ke-toan-tai-khoan", label: "Tài khoản ngân hàng", icon: "building", module: "ke_toan" },
+      // "Đơn mua hàng" TRƯỚC ĐÂY mang nhãn "Yêu cầu mua hàng" — nhãn SAI: màn này hiển thị PHIẾU
+      // MUA HÀNG (`/api/accounting/inbox` trả `PurchaseRequestListOut`), không phải YCMH. Nhìn
+      // menu cũ tưởng có hai chỗ xem YCMH, thật ra một chỗ là PMH.
+      //
+      // Đây cũng là nơi DUYỆT đơn mua hàng (chủ 04/08/2026: "phải duyệt ở phần kế toán chứ") —
+      // màn Mua hàng bên Thu mua không còn nút duyệt nữa.
+      //
+      // "Phiếu thu" và "Tài khoản ngân hàng" tạm GỠ khỏi menu theo yêu cầu; file màn vẫn còn để
+      // dựng lại ở đợt kế toán sau.
+      {
+        id: "ke-toan-thu-mua",
+        label: "Kế toán thu mua",
+        icon: "calculator",
+        module: "ke_toan",
+        children: [
+          { id: "ke-toan-don-mua-hang", label: "Đơn mua hàng" },
+          { id: "ke-toan-phieu-chi", label: VOUCHER_PAGE_LABEL },
+          // Công nợ phải trả nằm ở ĐÂY chứ không đứng riêng dưới "Kế toán": 100% số liệu của nó
+          // đến từ PMH + phiếu chi. Sau này có công nợ phải THU (khách hàng) thì đó là nhánh khác.
+          { id: "ke-toan-cong-no", label: "Công nợ phải trả" },
+        ],
+      },
     ],
   },
   {
@@ -195,8 +213,23 @@ export const MODULE_BY_NAV_ID: Record<string, string> = Object.fromEntries(
   NAV.flatMap((s) => s.items.map((i) => [i.id, i.module])),
 );
 
+/** nav id → những module cần có quyền đọc để vào được mục đó.
+ *
+ * ⚠️ PHẢI gom cả MENU CON. `NavChild` không khai `module` riêng nên nó **thừa hưởng** của item
+ * cha; thiếu vế này thì mọi mục con tra ra `undefined` và `AppShell` chặn 403 — kể cả giám đốc
+ * toàn quyền. Đúng lỗi đã xảy ra 04/08/2026 khi gom "Đơn mua hàng" + "Phiếu chi" thành con của
+ * "Kế toán thu mua": hai mục đang chạy tốt bỗng báo "không có quyền truy cập".
+ */
 export const MODULES_BY_NAV_ID: Record<string, string[]> = Object.fromEntries(
-  NAV.flatMap((s) => s.items.map((i) => [i.id, i.modules ?? [i.module]])),
+  NAV.flatMap((s) =>
+    s.items.flatMap((i) => {
+      const mods = i.modules ?? [i.module];
+      return [
+        [i.id, mods] as [string, string[]],
+        ...(i.children ?? []).map((c) => [c.id, mods] as [string, string[]]),
+      ];
+    }),
+  ),
 );
 
 interface SidebarProps {

@@ -11,6 +11,7 @@ from ..deps import (
     require_any_permission,
     require_permission,
 )
+from ..models.purchase import PR_DRAFT
 from ..models.user import User
 from ..schemas.accounting import (
     ApproveAndCreateVoucherIn,
@@ -30,6 +31,8 @@ from ..schemas.accounting import (
     PaymentVoucherIn,
     PaymentVoucherListOut,
     PaymentVoucherOut,
+    PayablesDetailOut,
+    PayablesSummaryOut,
     SupplierBankAccountIn,
     SupplierBankAccountOut,
 )
@@ -60,7 +63,7 @@ def _map_error(exc: Exception) -> HTTPException:
 @router.get("/api/accounting/inbox", response_model=PurchaseRequestListOut)
 def accounting_inbox(
     purchases: Annotated[PurchaseService, Depends(get_purchase_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     q: str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
     supplier_id: int | None = Query(default=None),
@@ -68,10 +71,42 @@ def accounting_inbox(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ) -> PurchaseRequestListOut:
+    # Kế toán có `ke_toan` scope `all` ⇒ `_purchase_scope` trả `all` ⇒ thấy HẾT đơn mua, đúng như
+    # họ cần để lập phiếu chi. Truyền `actor` để chính lối này không thành lỗ nhìn xuyên phạm vi.
     rows, total = purchases.list_requests(
-        q=q, status=status_, supplier_id=supplier_id, sort=sort, page=page, size=size
+        q=q, status=status_, supplier_id=supplier_id, sort=sort, page=page, size=size,
+        actor=user,
+        # Đơn NHÁP là thu mua còn đang sửa, CHƯA gửi duyệt — không thuộc hộp thư kế toán (chủ
+        # 04/08/2026). Chặn ở API chứ không chỉ giấu ở giao diện.
+        exclude_statuses=[PR_DRAFT],
     )
     return PurchaseRequestListOut(items=rows, total=total, page=page, size=size)
+
+
+@router.get("/api/accounting/payables", response_model=PayablesSummaryOut)
+def accounting_payables(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    q: str | None = Query(default=None),
+) -> PayablesSummaryOut:
+    # Chỉ ĐỌC — không đẻ ô quyền mới, `ke_toan:read` là đủ. Không phân trang: cắt trang là ra
+    # TỔNG sai.
+    #
+    # `q` lọc ở SERVER chứ không lọc trên danh sách đã trả về: NCC đã trả hết và im lặng lâu thì
+    # KHÔNG có dòng nào trong danh sách để mà lọc — phải để service lôi họ ra.
+    return PayablesSummaryOut(**svc.payables_summary(q=q))
+
+
+@router.get("/api/accounting/payables/{supplier_id}", response_model=PayablesDetailOut)
+def accounting_payables_detail(
+    supplier_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    all_history: bool = Query(default=False),
+) -> PayablesDetailOut:
+    # `all_history` bỏ mốc kỳ cho riêng rổ "đã chi" — nút "Xem lịch sử cũ hơn". Chỉ nới cho MỘT
+    # NCC nên vẫn nhẹ; đừng bao giờ nới cho bảng tổng hợp.
+    return PayablesDetailOut(**svc.payables_detail(supplier_id, all_history=all_history))
 
 
 @router.get("/api/accounting/company-bank-accounts", response_model=list[CompanyBankAccountOut])
@@ -256,23 +291,10 @@ def update_payment_voucher(
         raise _map_error(exc) from None
 
 
-@router.post(
-    "/api/accounting/purchase-requests/{request_id}/approve-and-create-voucher",
-    response_model=PaymentVoucherOut,
-    status_code=status.HTTP_201_CREATED,
-)
-def approve_and_create_payment_voucher(
-    request_id: int,
-    payload: ApproveAndCreateVoucherIn,
-    svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
-):
-    try:
-        return PaymentVoucherOut(
-            **svc.approve_and_create_voucher(request_id, actor=user, **payload.model_dump())
-        )
-    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
-        raise _map_error(exc) from None
+# ĐÃ GỠ 04/08/2026 — `POST .../approve-and-create-voucher` (duyệt PMH và lập phiếu chi trong
+# MỘT cú bấm). Nó cho kế toán tự duyệt khoản chi rồi tự viết phiếu chi, phá tách vai. Nay đúng
+# hai bước: giám đốc duyệt ở `/api/purchase-requests/{id}/approve`, kế toán lập phiếu chi ở
+# `POST /api/accounting/payment-vouchers` (vốn đã đòi PMH từ 'đã duyệt' trở lên).
 
 
 @router.post("/api/accounting/payment-vouchers/{voucher_id}/mark-paid", response_model=PaymentVoucherOut)

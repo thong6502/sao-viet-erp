@@ -11,9 +11,11 @@ import {
   api,
   type DepartmentPurchaseRequestInput,
   type DepartmentPurchaseRequestLineInput,
+  type DepartmentPurchaseRequestLineOut,
   type DepartmentPurchaseRequestRow,
   type DepartmentPurchaseRequestStatus,
   type DepartmentPurchaseSourceType,
+  type PurchaseRequestStatus,
   type SupplierItemCatalogRow,
 } from "../api/client";
 import { useCan } from "../auth/permissions";
@@ -24,6 +26,9 @@ import { DetailModal } from "../components/DetailModal";
 import { RowActionButton } from "../components/RowActionButton";
 import { fmtDate } from "../utils/format";
 import "./master-data.css";
+// Bảng tình trạng từng dòng mượn `.pay-table` của màn Công nợ — cùng loại bảng phụ trong hộp
+// thoại, không dựng bộ lớp thứ hai cho y hệt một việc.
+import "./payables.css";
 import "./purchase.css";
 
 type StatusFilter = "all" | DepartmentPurchaseRequestStatus;
@@ -595,24 +600,68 @@ export function DepartmentPurchaseRequestsPage({
           <p className="eyebrow">
             Vật tư đã yêu cầu ({selected.lines.length} dòng)
           </p>
-          <div className="purchase__lines">
-            {selected.lines.map((line) => (
-              <div className="purchase__line" key={line.id}>
-                <span>
-                  <strong>{line.item_name}</strong>
-                  {line.note && (
-                    <>
-                      <br />
-                      <small>{line.note}</small>
-                    </>
-                  )}
-                </span>
-                <strong>
-                  {line.quantity.toLocaleString("vi-VN")} {line.unit}
-                </strong>
+          {/* Trạng thái ở đầu phiếu là bậc THẤP NHẤT của các dòng — nhìn danh sách biết "có gì đó
+              chưa xong". Bảng dưới đây trả lời tiếp: chưa xong ở ĐÂU. Thiếu bảng thì biết kẹt mà
+              không biết kẹt chỗ nào; thiếu trạng thái đầu phiếu thì phải mở từng yêu cầu mới biết. */}
+          <table className="pay-table">
+            <thead>
+              <tr>
+                <th>Vật tư</th>
+                <th className="pay-num">Yêu cầu</th>
+                <th>Nhà cung cấp</th>
+                <th>Tình trạng</th>
+              </tr>
+            </thead>
+            <tbody>
+              {selected.lines.map((line) => (
+                <tr key={line.id}>
+                  <td>
+                    <strong>{line.item_name}</strong>
+                    {line.note && (
+                      <>
+                        <br />
+                        <small>{line.note}</small>
+                      </>
+                    )}
+                  </td>
+                  <td className="pay-num">
+                    {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                  </td>
+                  <td>{line.fulfilment?.supplier_name ?? "—"}</td>
+                  <td>
+                    <LineFulfilmentCell
+                      line={line}
+                      coPhieu={selected.purchase_requests.length > 0}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {selected.purchase_requests.length > 0 && (
+            <>
+              <p className="eyebrow" style={{ marginTop: 16 }}>
+                Phiếu mua đã lập ({selected.purchase_requests.length})
+              </p>
+              <div className="purchase__lines">
+                {selected.purchase_requests.map((p) => (
+                  <div className="purchase__line" key={p.id}>
+                    <span>
+                      <strong>{p.code}</strong>
+                      {p.supplier_name && (
+                        <>
+                          <br />
+                          <small>{p.supplier_name}</small>
+                        </>
+                      )}
+                    </span>
+                    <StatusBadgePhieu status={p.status} />
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
         </DetailModal>
       )}
 
@@ -825,6 +874,74 @@ function SourceStatusBadge({
     <span className={`purchase__status purchase__status--${meta.tone}`}>
       {meta.label}
     </span>
+  );
+}
+
+/** Nhãn trạng thái của một PHIẾU MUA. Dùng chung cho ô tình trạng dòng và danh sách phiếu. */
+const PHIEU_STATUS_META: Record<PurchaseRequestStatus, { label: string; tone: string }> = {
+  draft: { label: "Nháp", tone: "draft" },
+  pending_approval: { label: "Chờ duyệt", tone: "pending" },
+  approved: { label: "Đã duyệt", tone: "approved" },
+  rejected: { label: "Bị từ chối", tone: "rejected" },
+  purchased: { label: "Đã mua", tone: "purchased" },
+  received: { label: "Đã nhận", tone: "received" },
+  cancelled: { label: "Đã hủy", tone: "cancelled" },
+};
+
+function StatusBadgePhieu({ status }: { status: PurchaseRequestStatus }) {
+  const meta = PHIEU_STATUS_META[status];
+  return (
+    <span className={`purchase__status purchase__status--${meta.tone}`}>{meta.label}</span>
+  );
+}
+
+/**
+ * Tình trạng của MỘT DÒNG vật tư.
+ *
+ * Ba ca phải hiện KHÁC nhau, gộp lại là nói dối:
+ *   1. Chưa ai lập phiếu cho yêu cầu này ⇒ "Chờ thu mua lập phiếu".
+ *   2. Đã có phiếu nhưng dòng này không nối được ⇒ phiếu lập TRƯỚC 05/08/2026, hồi đó chưa có nối
+ *      dòng ↔ dòng. Nói thẳng "chưa rõ, xem danh sách phiếu bên dưới" — KHÔNG đoán theo tên hàng,
+ *      đoán trượt thì im lặng hiện sai và không ai biết.
+ *   3. Nối được ⇒ hiện trạng thái phiếu, kèm cảnh báo nếu NCC giao thiếu hoặc phiếu bị từ chối.
+ */
+function LineFulfilmentCell({
+  line,
+  coPhieu,
+}: {
+  line: DepartmentPurchaseRequestLineOut;
+  coPhieu: boolean;
+}) {
+  if (!line.fulfilment) {
+    return coPhieu ? (
+      <small>Chưa rõ — phiếu lập trước khi hệ ghi nhận theo dòng</small>
+    ) : (
+      <small>Chờ thu mua lập phiếu</small>
+    );
+  }
+  const f = line.fulfilment;
+  const nhan = f.received_quantity ?? f.ordered_quantity;
+  const thieu = f.purchase_status === "received" && nhan < f.ordered_quantity;
+  return (
+    <>
+      <StatusBadgePhieu status={f.purchase_status} />
+      <br />
+      <small>
+        {f.purchase_code}
+        {f.ordered_quantity !== line.quantity && (
+          // Bộ phận xin 1.000 tờ mà NCC bán theo ram thì thu mua đổi đơn vị — hiện cả hai con số
+          // ngay tại dòng, thay vì để hai nơi rời nhau không ai đối chiếu.
+          <> · mua {f.ordered_quantity.toLocaleString("vi-VN")} {f.ordered_unit}</>
+        )}
+        {f.purchase_status === "received" && (
+          <> · nhận {nhan.toLocaleString("vi-VN")} {f.ordered_unit}</>
+        )}
+      </small>
+      {thieu && <small className="pay-short">Giao thiếu so với số đặt</small>}
+      {f.purchase_status === "rejected" && (
+        <small className="pay-short">Cần lập phiếu lại cho dòng này</small>
+      )}
+    </>
   );
 }
 
