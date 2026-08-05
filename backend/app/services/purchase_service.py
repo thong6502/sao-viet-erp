@@ -714,8 +714,31 @@ class PurchaseService:
         return self._to_request_out(row)
 
     def _request(self, request_id: int) -> PurchaseRequest:
+        """Tra phiếu theo id, KHÔNG kiểm phạm vi.
+
+        ⚠️ Chỉ dùng cho đường đọc đã tự kiểm (`get_request`) hoặc chỗ gọi nội bộ. Mọi hàm GHI phải
+        đi qua `_request_ghi` — xem lý do ở đó."""
         row = self.requests.get_by_id(request_id)
         if row is None:
+            raise PurchaseNotFound("Không tìm thấy phiếu yêu cầu mua hàng.")
+        return row
+
+    def _request_ghi(self, request_id: int, actor) -> PurchaseRequest:
+        """Cửa DUY NHẤT cho mọi hàm ghi lên phiếu mua. **Ghi không được rộng hơn đọc.**
+
+        Trước 05/08/2026 chỉ đường ĐỌC kiểm phạm vi; toàn bộ đường GHI tra thẳng `_request` nên
+        cổng quyền ở router chỉ hỏi *"có quyền `thu_mua:update` không"*, KHÔNG hỏi phiếu đó của ai.
+        Nhân viên không nhìn thấy phiếu đồng nghiệp trong danh sách (nhận 404) nhưng gọi thẳng theo
+        id thì **sửa, xoá, gửi duyệt, đánh dấu đã nhận hàng** đều được — mà "đã nhận hàng" thì ĐẺ RA
+        CÔNG NỢ trên bàn kế toán. Id là số chạy, đoán được.
+
+        Trớ trêu là `cancel` đã có chốt sở hữu riêng từ 04/08, còn `delete` thì không: huỷ phiếu
+        người khác bị chặn mà XOÁ HẲN lại được.
+
+        Báo 404 chứ không 403 — giống hệt đường đọc, để không xác nhận cho người ngoài biết phiếu đó
+        có tồn tại. Trả 403 là tự khai ra "có phiếu này nhưng anh không được đụng"."""
+        row = self._request(request_id)
+        if not self._co_duoc_xem(row, actor):
             raise PurchaseNotFound("Không tìm thấy phiếu yêu cầu mua hàng.")
         return row
 
@@ -1022,7 +1045,7 @@ class PurchaseService:
         note,
         lines,
     ) -> dict:
-        row = self._request(request_id)
+        row = self._request_ghi(request_id, actor)
         if row.status not in (PR_DRAFT, PR_REJECTED):
             raise PurchaseConflict("Chỉ phiếu nháp hoặc bị từ chối mới được sửa.")
         supplier_id, cleaned_purpose, needed_date = self._clean_request_header(
@@ -1058,7 +1081,7 @@ class PurchaseService:
         return self._to_request_out(row)
 
     def delete_request(self, request_id: int, *, actor) -> None:
-        row = self._request(request_id)
+        row = self._request_ghi(request_id, actor)
         if row.status != PR_DRAFT:
             raise PurchaseConflict("Chỉ phiếu nháp mới được xóa.")
         code = row.code
@@ -1074,7 +1097,7 @@ class PurchaseService:
         )
 
     def submit(self, request_id: int, *, actor) -> dict:
-        row = self._request(request_id)
+        row = self._request_ghi(request_id, actor)
         if row.status not in (PR_DRAFT, PR_REJECTED):
             raise PurchaseConflict("Chỉ phiếu nháp hoặc bị từ chối mới được gửi duyệt.")
         row.status = PR_PENDING
@@ -1088,7 +1111,7 @@ class PurchaseService:
         return self._to_request_out(saved)
 
     def approve(self, request_id: int, *, actor) -> dict:
-        row = self._request(request_id)
+        row = self._request_ghi(request_id, actor)
         if row.status != PR_PENDING:
             raise PurchaseConflict("Chỉ phiếu đang chờ duyệt mới được duyệt.")
         # TÁCH VAI (chủ 04/08/2026: "thu mua làm gì có quyền duyệt"): ai đề xuất chi tiền thì
@@ -1111,7 +1134,7 @@ class PurchaseService:
         return self._to_request_out(saved)
 
     def reject(self, request_id: int, *, reason: str | None, actor) -> dict:
-        row = self._request(request_id)
+        row = self._request_ghi(request_id, actor)
         if row.status != PR_PENDING:
             raise PurchaseConflict("Chỉ phiếu đang chờ duyệt mới được từ chối.")
         row.status = PR_REJECTED
@@ -1125,7 +1148,7 @@ class PurchaseService:
         return self._to_request_out(saved)
 
     def mark_purchased(self, request_id: int, *, actor) -> dict:
-        row = self._request(request_id)
+        row = self._request_ghi(request_id, actor)
         if row.status != PR_APPROVED:
             raise PurchaseConflict("Chỉ phiếu đã duyệt mới được đánh dấu đã mua.")
         row.status = PR_PURCHASED
@@ -1226,7 +1249,7 @@ class PurchaseService:
             line.received_quantity = qty
 
     def mark_received(self, request_id: int, *, received_lines: list[dict] | None = None, actor) -> dict:
-        row = self._request(request_id)
+        row = self._request_ghi(request_id, actor)
         if row.status != PR_PURCHASED:
             raise PurchaseConflict("Chỉ phiếu đã mua mới được đánh dấu đã nhận hàng.")
         self._ap_so_thuc_nhan(row, received_lines)
@@ -1254,7 +1277,7 @@ class PurchaseService:
         im lặng sai."""
         if not self.authz.can(actor, "thu_mua", "approve"):
             raise PurchaseForbidden("Chỉ người có quyền duyệt mới được sửa số thực nhận.")
-        row = self._request(request_id)
+        row = self._request_ghi(request_id, actor)
         if row.status != PR_RECEIVED:
             raise PurchaseConflict("Chỉ phiếu đã nhận hàng mới sửa được số thực nhận.")
         self._ap_so_thuc_nhan(row, received_lines)
@@ -1300,7 +1323,7 @@ class PurchaseService:
         ly_do = (reason or "").strip()
         if not ly_do:
             raise PurchaseValidationError("Phải ghi lý do lùi trạng thái đã nhận hàng.")
-        row = self._request(request_id)
+        row = self._request_ghi(request_id, actor)
         if row.status != PR_RECEIVED:
             raise PurchaseConflict("Chỉ phiếu đã nhận hàng mới lùi được.")
         if any(v.status == PAYMENT_VOUCHER_PAID for v in row.payment_vouchers):
@@ -1320,7 +1343,7 @@ class PurchaseService:
         return self._to_request_out(saved)
 
     def cancel(self, request_id: int, *, reason: str | None, actor) -> dict:
-        row = self._request(request_id)
+        row = self._request_ghi(request_id, actor)
         if row.status in (PR_RECEIVED, PR_CANCELLED):
             raise PurchaseConflict("Phiếu đã nhận hàng hoặc đã hủy thì không thể hủy tiếp.")
         # Huỷ phiếu ĐÃ GỬI DUYỆT là quyết định của người duyệt, không phải của thu mua (chủ chốt
