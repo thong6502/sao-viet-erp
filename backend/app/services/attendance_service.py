@@ -37,7 +37,14 @@ from ..models.employee import (
     SHIFT_LOG_ORIGIN_GRID,
 )
 from ..models.leave import STATUS_PENDING as LEAVE_PENDING
-from ..models.payroll import PERIOD_LOCKED
+from ..models.payroll import PERIOD_LOCKED, PERIOD_PAID
+
+# Kỳ lương đã KHOÁ SỐ — không được mở lại kỳ công đằng sau nó nữa.
+#
+# Phải có CẢ `paid`, không chỉ `locked`. `paid` là trạng thái ĐI SAU `locked` (chốt → đã chi), nên
+# chỉ chặn `locked` là quên đúng lúc nguy hiểm nhất: tiền đã phát cho công nhân rồi mà bảng công
+# đằng sau vẫn sửa được ⇒ mất hẳn dấu vết "lương tháng này trả theo công nào".
+PAYROLL_DA_KHOA = (PERIOD_LOCKED, PERIOD_PAID)
 from ..models.role import SCOPE_ALL
 from ..repositories.attendance_repo import AttendanceRepository
 from ..repositories.audit_repo import AuditLogRepository
@@ -1367,7 +1374,9 @@ class AttendanceService:
         payroll_locked = False
         if self._payroll is not None:
             pp = self._payroll.get_period_by_ym(year, month)
-            payroll_locked = pp is not None and pp.status == PERIOD_LOCKED
+            # Cùng luật với `reopen_period`: sót `paid` ở đây thì giao diện vẫn bày nút "Mở lại kỳ
+            # công" cho kỳ đã chi, người dùng bấm vào mới ăn lỗi — đúng kiểu hai tầng nói khác nhau.
+            payroll_locked = pp is not None and pp.status in PAYROLL_DA_KHOA
         return {
             "year": year, "month": month,
             "status": p.status if p is not None else APERIOD_DRAFT,
@@ -1442,10 +1451,13 @@ class AttendanceService:
             raise AttendanceValidationError("Kỳ công chưa chốt.")
         if self._payroll is not None:
             pp = self._payroll.get_period_by_ym(year, month)
-            if pp is not None and pp.status == PERIOD_LOCKED:
+            if pp is not None and pp.status in PAYROLL_DA_KHOA:
+                da_chi = pp.status == PERIOD_PAID
                 raise AttendanceValidationError(
-                    "Kỳ lương tháng này đã chốt — không mở lại kỳ công. "
-                    "Điều chỉnh sai sót bằng truy lĩnh/khấu trừ kỳ sau."
+                    ("Kỳ lương tháng này ĐÃ CHI — tiền đã phát, không mở lại kỳ công. "
+                     if da_chi else
+                     "Kỳ lương tháng này đã chốt — không mở lại kỳ công. ")
+                    + "Điều chỉnh sai sót bằng truy lĩnh/khấu trừ kỳ sau."
                 )
         self.attendance.delete_period_lines(p.id)
         self.attendance.update_period(p, status=APERIOD_DRAFT, locked_at=None, locked_by=None,
