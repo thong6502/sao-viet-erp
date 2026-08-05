@@ -2379,9 +2379,11 @@ cần mua trong phiếu.
 | --------------------- | ------------------------------------- | ----------------------------------- | ---- | -------------- | -------------------------------------------------- |
 | `id`                  | `Integer` → `INTEGER` / `SERIAL`      | **PK**                              | no   | auto-increment | Surrogate primary key.                             |
 | `purchase_request_id` | `Integer` → `INTEGER`                 | **FK→purchase_requests.id**, **IX** | no   | —              | Phiếu cha.                                         |
+| `department_request_line_id` | `Integer` → `INTEGER`          | **FK→department_purchase_request_lines.id**, **IX** | yes | — | Dòng YCMH đã đẻ ra dòng này (nối DÒNG↔DÒNG, khác `purchase_request_sources` nối PHIẾU↔YÊU CẦU). Nền cho "trạng thái từng sản phẩm" ở chi tiết YCMH. `NULL` = phiếu lập trước 05/08/2026 hoặc dòng thu mua tự thêm. ⚠️ Khoá ngoại CHỈ có trên DB dựng bằng `create_all`; migration 0163 chỉ thêm cột (SQLite không ALTER được constraint) nên DB live có thể có id mồ côi — chỗ đọc phải chịu được. |
 | `item_name`           | `String(255)` → `VARCHAR(255)`        | —                                   | no   | —              | Tên vật tư/dịch vụ cần mua.                        |
 | `unit`                | `String(32)` → `VARCHAR(32)`          | —                                   | no   | `"cái"`        | Đơn vị tính.                                       |
 | `quantity`            | `Numeric(14,2)` → `NUMERIC(14,2)`     | —                                   | no   | `0`            | Số lượng cần mua.                                  |
+| `received_quantity`   | `Numeric(14,2)` → `NUMERIC(14,2)`     | —                                   | yes  | —              | Số THỰC NHẬN, khai lúc bấm "Đã nhận hàng". `NULL` = chưa khai ⇒ coi như nhận đủ `quantity` (giữ nguyên hành vi phiếu cũ). Công nợ phải trả và trần lập phiếu chi cộng theo cột này. |
 | `expected_unit_price` | `BigInteger` → `BIGINT`               | —                                   | no   | `0`            | Đơn giá dự kiến (VND).                             |
 | `discount_percent`    | `Numeric(6,2)` → `NUMERIC(6,2)`       | —                                   | no   | `0`            | Giảm giá theo % trên tiền trước giảm của dòng mua. |
 | `vat_percent`         | `Numeric(6,2)` → `NUMERIC(6,2)`       | —                                   | no   | `0`            | Thuế GTGT theo % trên tiền sau giảm giá.           |
@@ -2802,6 +2804,7 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 | `pit_flat_threshold` | `Numeric(14,2)` | no | `2000000` | Ngưỡng thu nhập MỖI LẦN TRẢ mới phải khấu trừ tại nguồn (hiện 2.000.000đ). Đi cặp với `pit_flat_rate`. Thêm qua migration 0120. |
 | `phat_cap_pct` | `Numeric(6,4)` | no | `0.3` | **TRẦN KHẤU TRỪ KỶ LUẬT** — PHÂN SỐ (`0.30` = 30%). ⚠️ Đây là MỨC LUẬT, không phải chính sách công ty: Điều 102 BLLĐ 2019 giới hạn khấu trừ mỗi tháng không quá 30% lương còn lại sau khi trừ BHXH và TNCN. Trước viết cứng `0.30` trong `_capped_penalty`. `0` = TẮT TRẦN (ghi phạt bao nhiêu trừ bấy nhiêu; thực nhận vẫn có sàn 0, không âm) — màn Cấu hình lương cảnh báo khi đặt 0 hoặc > 30%. Thêm qua migration 0126. |
 | `phu_cap_ca_min_cong` | `Numeric(5,2)` | no | `0.5` | **NGƯỠNG CÔNG để hưởng phụ cấp cơm/ca của một ngày** (chủ chốt 03/08/2026). Ngày có `cong >= ` số này thì hưởng **TRỌN** mức của ca; dưới ngưỡng thì **KHÔNG có gì** — cố ý **KHÔNG nhân theo tỷ lệ**: một suất ăn là có hoặc không, nhân tỷ lệ thì đi muộn 15 phút (công 0,97) ra 24.250đ tiền cơm. `0.5` = nghỉ nửa buổi vẫn được hưởng. ⚠️ Hệ thống KHÔNG có cờ "nửa buổi" — đi muộn/về sớm/nghỉ nửa buổi dùng chung `late_early_requests` và engine chỉ đọc ĐỘ DÀI khoảng vắng, nên luật buộc phải diễn đạt theo `cong`. Thêm qua migration 0157. |
+| `bhxh_mien_tu_so_ngay` | `Integer` | no | `14` | **SỐ NGÀY nghỉ không lương trong tháng mà từ đó tháng đó KHÔNG ĐÓNG BHXH.** ⚠️ MỨC LUẬT, không phải chính sách công ty: QĐ 595/QĐ-BHXH Đ42.4 — không làm việc và không hưởng tiền lương từ **14 ngày làm việc** trở lên trong tháng thì tháng đó không đóng BHXH. Engine đếm `ngay_khong_luong = standard_cong − actual_cong − plain_cong` (`plain_cong` là ngày off1x CÓ đi làm và CÓ trả 1× nên phải cộng lại, không thì người làm ngày đó mất BHXH oan). `0` = **TẮT LUẬT**: tháng nào cũng trừ BHXH, như hành vi trước 04/08/2026 — engine kiểm `> 0` TRƯỚC khi so, thiếu chốt đó thì `>= 0` luôn đúng và cả xưởng mất sạch BHXH. Trước 04/08/2026 số 14 viết cứng trong `payroll_service`. Thêm qua migration 0158. |
 | `updated_at` | `DateTime(tz)` | no | now | Lần cập nhật. |
 
 ---
@@ -3426,9 +3429,9 @@ Thứ phụ thuộc từng mặt hàng ("1 thùng keo = 3 kg" khác "1 thùng m�
 
 ### `purchase_request_lines`
 
-**Purpose:** Thu mua — dòng hàng của PMH (mặt hàng, SL, đơn giá, giảm giá %, VAT %). Tiền tính động.
+**Purpose:** Thu mua — dòng hàng của PMH (mặt hàng, SL đặt, SL thực nhận, đơn giá, giảm giá %, VAT %). Tiền tính động.
 
-**Tất cả cột:** `id`, `purchase_request_id`, `item_name`, `unit`, `quantity`, `expected_unit_price`, `discount_percent`, `vat_percent`, `note`.
+**Tất cả cột:** `id`, `purchase_request_id`, `department_request_line_id`, `item_name`, `unit`, `quantity`, `received_quantity`, `expected_unit_price`, `discount_percent`, `vat_percent`, `note`.
 
 ---
 

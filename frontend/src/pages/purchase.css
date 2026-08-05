@@ -617,6 +617,18 @@
   border-bottom: 1px solid var(--rule-soft);
 }
 
+/* Lúc TẠO phiếu, mỗi dòng tự mang nhà cung cấp của nó (một yêu cầu thường có hàng của nhiều nơi,
+   mỗi NCC ra một phiếu). Thêm một cột ⇒ phải khai lại cả bộ, lưới này là cột CỐ ĐỊNH chứ không
+   tự co. Cột NCC để rộng vì nó hiện "Tên NCC — 2.200 đ (VAT 8%)". */
+.purchase__line-editor--tach-ncc .purchase__line-labels,
+.purchase__line-editor--tach-ncc .purchase__line-edit {
+  grid-template-columns:
+    minmax(170px, 1.7fr) minmax(180px, 1.5fr) minmax(76px, 0.55fr) minmax(92px, 0.65fr)
+    minmax(112px, 0.75fr) minmax(78px, 0.55fr) minmax(112px, 0.75fr)
+    minmax(78px, 0.55fr) minmax(130px, 1fr) minmax(118px, 0.75fr) 40px;
+  min-width: 1240px;
+}
+
 .purchase__line-editor--request .purchase__line-labels,
 .purchase__line-editor--request .purchase__line-edit {
   min-width: 0;

@@ -42,6 +42,11 @@ class ParamsIn(BaseModel):
     pit_flat_threshold: float | None = Field(default=None, ge=0)
     # Trần khấu trừ kỷ luật (Đ102 BLLĐ). 0 = TẮT trần — cố ý cho phép, chủ tự chịu rủi ro.
     phat_cap_pct: float | None = Field(default=None, ge=0, le=1)
+    # Ngưỡng ngày nghỉ không lương để MIỄN đóng BHXH tháng đó (QĐ 595 Đ42.4). 0 = TẮT luật.
+    # `le=31` vì đây là số NGÀY trong một tháng, không phải tỷ lệ.
+    bhxh_mien_tu_so_ngay: int | None = Field(default=None, ge=0, le=31)
+    # Ngưỡng CÔNG của một ngày để hưởng trọn cơm/phụ cấp ca hôm đó (0,5 = nghỉ nửa buổi vẫn ăn).
+    phu_cap_ca_min_cong: float | None = Field(default=None, ge=0, le=1)
     # Phụ cấp cơm/ca đêm KHÔNG còn ở cấp công ty — khai theo từng CA (`work_shifts`).
 
 
@@ -59,6 +64,8 @@ class ParamsOut(BaseModel):
     pit_flat_rate: float = 0.10
     pit_flat_threshold: float = 2_000_000
     phat_cap_pct: float = 0.30
+    bhxh_mien_tu_so_ngay: int = 14
+    phu_cap_ca_min_cong: float = 0.5
     bhxh_rate_er: float = 0.175
     bhyt_rate_er: float = 0.03
     bhtn_rate_er: float = 0.01
@@ -405,6 +412,10 @@ class LineOut(BaseModel):
     night_pay: float = 0           # = phụ cấp CA khai tay của NV — cột DB
     ca_pay: float = 0              # alias của `night_pay` (cùng MỘT số, đừng cộng 2 lần)
     night_premium_pay: float = 0   # premium CA ĐÊM theo giờ (giờ đêm × hệ số + tăng ca đêm) — tự tính, miễn TNCN
+    # Phụ cấp theo CA THỰC LÀM (03/08/2026). Engine tính và LƯU từ đầu nhưng schema quên phơi ra
+    # ⇒ phiếu lương ở FE đọc `l.meal_allowance_pay ?? 0` nên hiện 0đ mãi dù tiền đã cộng vào gross.
+    meal_allowance_pay: float = 0
+    shift_allowance_pay: float = 0
     vi_pham: float
     other_bonus: float
     thuong_5s: float = 0

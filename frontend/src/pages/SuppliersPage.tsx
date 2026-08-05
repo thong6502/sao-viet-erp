@@ -11,6 +11,7 @@ import {
   api,
   type PurchaseRequestRow,
   type SupplierInput,
+  type SupplierItemCatalogRow,
   type SupplierItemInput,
   type SupplierRow,
 } from "../api/client";
@@ -72,7 +73,9 @@ function fromSupplier(row: SupplierRow): SupplierInput {
   };
 }
 
-function cleanSupplierItems(items: SupplierItemInput[] = []): SupplierItemInput[] {
+function cleanSupplierItems(
+  items: SupplierItemInput[] = [],
+): SupplierItemInput[] {
   return items
     .map((item) => ({
       item_name: (item.item_name ?? "").trim(),
@@ -125,7 +128,10 @@ function formatVND(amount: number): string {
   return new Intl.NumberFormat("vi-VN").format(Math.round(amount)) + " đ";
 }
 
-function getPOStatusLabel(status: string): { label: string; className: string } {
+function getPOStatusLabel(status: string): {
+  label: string;
+  className: string;
+} {
   switch (status) {
     case "draft":
       return { label: "Nháp", className: "purchase__status--draft" };
@@ -170,10 +176,27 @@ export function SuppliersPage() {
   const [selected, setSelected] = useState<SupplierRow | null>(null);
   const [form, setForm] = useState<SupplierInput>(emptySupplier());
   const [formError, setFormError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"info" | "items" | "history">("info");
+  const [activeTab, setActiveTab] = useState<"info" | "items" | "history">(
+    "info",
+  );
 
   // Tab 2 internal item search filter
   const [itemSearchQ, setItemSearchQ] = useState("");
+
+  // Danh mục vật tư GỘP của mọi NCC — dùng để gợi ý tên khi khai mặt hàng.
+  //
+  // Vì sao cần: hệ nhận diện "cùng một vật tư" bằng CHÍNH CHUỖI TÊN (viết thường, cắt khoảng
+  // trắng). NCC A khai "Giấy Duplex 350gsm", NCC B khai "Giay Duplex 350" là hai vật tư khác nhau
+  // ⇒ không so được giá giữa hai bên, và lúc gom mua hàng máy không bao giờ gợi ý B thay cho A.
+  // Gợi ý ở đây để tên tự hội tụ, thay vì dựng một bảng vật tư trung tâm.
+  const [itemCatalog, setItemCatalog] = useState<SupplierItemCatalogRow[]>([]);
+  useEffect(() => {
+    if (!token) return;
+    api.suppliers
+      .itemCatalog(token)
+      .then((res) => setItemCatalog(res.items))
+      .catch(() => setItemCatalog([])); // không chặn: mất gợi ý thì vẫn gõ tay được
+  }, [token]);
 
   // Tab 3 Purchase Orders History State
   const [poList, setPoList] = useState<PurchaseRequestRow[]>([]);
@@ -186,7 +209,11 @@ export function SuppliersPage() {
     if (!token) return;
     Promise.all([
       api.suppliers.list(token, { size: 500, sort: "name", status: "active" }),
-      api.suppliers.list(token, { size: 500, sort: "name", status: "inactive" }),
+      api.suppliers.list(token, {
+        size: 500,
+        sort: "name",
+        status: "inactive",
+      }),
     ])
       .then(([activeRes, inactiveRes]) => {
         setAllSuppliers([...activeRes.items, ...inactiveRes.items]);
@@ -238,11 +265,19 @@ export function SuppliersPage() {
     fromData.sort((a, b) => a.localeCompare(b, "vi"));
 
     return fromData.map((grp) => {
-      const count = allSuppliers.filter((s) => s.supplier_group === grp).length
-        || rows.filter((s) => s.supplier_group === grp).length;
+      const count =
+        allSuppliers.filter((s) => s.supplier_group === grp).length ||
+        rows.filter((s) => s.supplier_group === grp).length;
       return { group: grp, count };
     });
   }, [allSuppliers, rows]);
+
+  // Dải pill lọc theo nhóm ĐANG TẮT (JSX bị comment ở ~500). Giữ nguyên phần tính ở trên để bật
+  // lại chỉ cần bỏ comment khối JSX. `selectedGroup` vẫn chạy thật — nó đi thẳng vào tham số
+  // `supplier_group` của API, chỉ là hiện chưa có nút nào đổi nó. Hai dòng `void` dưới đây chỉ để
+  // TypeScript thôi báo "khai mà không dùng" — không chạy gì, không đổi hành vi.
+  void groupPills;
+  void setSelectedGroup;
 
   // Metric stats — fallback về rows khi allSuppliers chưa load xong
   const stats = useMemo(() => {
@@ -250,7 +285,8 @@ export function SuppliersPage() {
       return {
         totalCount: allSuppliers.length,
         activeCount: allSuppliers.filter((s) => s.status === "active").length,
-        inactiveCount: allSuppliers.filter((s) => s.status === "inactive").length,
+        inactiveCount: allSuppliers.filter((s) => s.status === "inactive")
+          .length,
       };
     }
     // Fallback: dùng total từ API + rows để có thông tin cơ bản
@@ -274,7 +310,8 @@ export function SuppliersPage() {
         })
         .catch((err) => {
           if (err instanceof ApiError) setPoError(err.message);
-          else setPoError("Không tải được lịch sử mua hàng của nhà cung cấp này.");
+          else
+            setPoError("Không tải được lịch sử mua hàng của nhà cung cấp này.");
         })
         .finally(() => setPoLoading(false));
     }
@@ -446,8 +483,6 @@ export function SuppliersPage() {
         </div>
       </div>
 
-
-
       {/* Search Toolbar */}
       <div className="md-page__toolbar">
         <form
@@ -497,7 +532,7 @@ export function SuppliersPage() {
       {/* Lọc nhanh theo nhóm NCC. Nhóm lấy từ dữ liệu thật (`groupPills`), chưa nhóm nào được đặt
           thì cả dải tự ẩn — không bày ô lọc rỗng. Lọc chạy ở SERVER qua `supplier_group`, nên
           đếm ở pill là đếm toàn bộ NCC chứ không phải mỗi trang đang xem. */}
-      {groupPills.length > 0 && (
+      {/* {groupPills.length > 0 && (
         <div className="supplier-pills-bar">
           <button
             type="button"
@@ -527,7 +562,7 @@ export function SuppliersPage() {
             </button>
           ))}
         </div>
-      )}
+      )} */}
 
       {error && (
         <div className="banner banner--error" role="alert">
@@ -577,12 +612,23 @@ export function SuppliersPage() {
                   {/* Column 1: Supplier Name + Group Badge + Tax Code */}
                   <td className="supplier__name-cell">
                     <strong className="supplier__primary">{row.name}</strong>
-                    <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", marginTop: "4px" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "6px",
+                        alignItems: "center",
+                        flexWrap: "wrap",
+                        marginTop: "4px",
+                      }}
+                    >
                       {/* {row.supplier_group && (
                         <span className="supplier-group-badge">{row.supplier_group}</span>
                       )} */}
                       {row.tax_code && (
-                        <span className="md-page__mono md-page__muted" style={{ fontSize: "12px" }}>
+                        <span
+                          className="md-page__mono md-page__muted"
+                          style={{ fontSize: "12px" }}
+                        >
                           MST: {row.tax_code}
                         </span>
                       )}
@@ -592,35 +638,59 @@ export function SuppliersPage() {
                   {/* Column 2: Contact Person + Phone link / Email */}
                   <td className="supplier__contact-cell">
                     <div>
-                      <strong>{row.contact_name || <span className="md-page__muted">—</span>}</strong>
+                      <strong>
+                        {row.contact_name || (
+                          <span className="md-page__muted">—</span>
+                        )}
+                      </strong>
                     </div>
-                    <div className="supplier__secondary" style={{ display: "flex", flexDirection: "column", gap: "2px", fontSize: "12px" }}>
+                    <div
+                      className="supplier__secondary"
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "2px",
+                        fontSize: "12px",
+                      }}
+                    >
                       {row.phone && (
                         <a
-                          href={`tel:${row.phone}`}
+                          // href={`tel:${row.phone}`}
                           onClick={(e) => e.stopPropagation()}
-                          style={{ color: "var(--moss-deep)", textDecoration: "none", fontWeight: 500 }}
+                          style={{
+                            color: "var(--moss-deep)",
+                            textDecoration: "none",
+                            fontWeight: 500,
+                          }}
                         >
-                         {row.phone}
+                          {row.phone}
                         </a>
                       )}
                       {row.email && (
                         <a
-                          href={`mailto:${row.email}`}
+                          // href={`mailto:${row.email}`}
                           onClick={(e) => e.stopPropagation()}
-                          style={{ color: "var(--ash)", textDecoration: "none" }}
+                          style={{
+                            color: "var(--ash)",
+                            textDecoration: "none",
+                          }}
                         >
-                         {row.email}
+                          {row.email}
                         </a>
                       )}
-                      {!row.phone && !row.email && <span className="md-page__muted">—</span>}
+                      {!row.phone && !row.email && (
+                        <span className="md-page__muted">—</span>
+                      )}
                     </div>
                   </td>
 
                   {/* Column 3: Mặt hàng — chỉ hiện số đếm */}
                   <td className="supplier__items-cell">
                     {row.items.length > 0 ? (
-                      <span className="ir-tab__count" style={{ fontSize: "12px" }}>
+                      <span
+                        className="ir-tab__count"
+                        style={{ fontSize: "12px" }}
+                      >
                         {row.items.length} mặt hàng
                       </span>
                     ) : (
@@ -697,7 +767,11 @@ export function SuppliersPage() {
 
       {/* Full Height Side Drawer (Replaces centered modal dialog) */}
       {mode && (
-        <div className="supplier-drawer-overlay" role="presentation" onClick={closeDrawer}>
+        <div
+          className="supplier-drawer-overlay"
+          role="presentation"
+          onClick={closeDrawer}
+        >
           <div
             className="supplier-drawer"
             role="dialog"
@@ -753,7 +827,9 @@ export function SuppliersPage() {
               >
                 Bảng giá vật tư
                 {itemsInForm.length > 0 && (
-                  <span className="supplier-tab-count">{itemsInForm.length}</span>
+                  <span className="supplier-tab-count">
+                    {itemsInForm.length}
+                  </span>
                 )}
               </button>
 
@@ -761,7 +837,9 @@ export function SuppliersPage() {
                 <button
                   type="button"
                   className={`supplier-drawer__tab ${
-                    activeTab === "history" ? "supplier-drawer__tab--active" : ""
+                    activeTab === "history"
+                      ? "supplier-drawer__tab--active"
+                      : ""
                   }`}
                   onClick={() => setActiveTab("history")}
                 >
@@ -772,7 +850,11 @@ export function SuppliersPage() {
 
             {/* Drawer Form Content */}
             <form
-              style={{ display: "flex", flexDirection: "column", height: "calc(100% - 120px)" }}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                height: "calc(100% - 120px)",
+              }}
               onSubmit={save}
             >
               <div className="supplier-drawer__body">
@@ -790,7 +872,9 @@ export function SuppliersPage() {
                         className="input"
                         required
                         value={form.name}
-                        onChange={(e) => setForm({ ...form, name: e.target.value })}
+                        onChange={(e) =>
+                          setForm({ ...form, name: e.target.value })
+                        }
                         placeholder="VD: Công ty TNHH Giấy Việt Triều"
                       />
                     </LocalField>
@@ -899,7 +983,9 @@ export function SuppliersPage() {
                       <textarea
                         className="input purchase__textarea"
                         value={form.note ?? ""}
-                        onChange={(e) => setForm({ ...form, note: e.target.value })}
+                        onChange={(e) =>
+                          setForm({ ...form, note: e.target.value })
+                        }
                         placeholder="Ghi chú thêm về năng lực, ưu đãi chiết khấu..."
                       />
                     </LocalField>
@@ -915,7 +1001,8 @@ export function SuppliersPage() {
                           Danh mục &amp; Báo giá Vật tư
                         </h3>
                         <p className="md-page__muted">
-                          Khai báo đơn giá &amp; VAT hiện tại để gợi ý tự động khi lập Phiếu Mua Hàng.
+                          Khai báo đơn giá &amp; VAT hiện tại để gợi ý tự động
+                          khi lập Phiếu Mua Hàng.
                         </p>
                       </div>
                       <button
@@ -924,7 +1011,10 @@ export function SuppliersPage() {
                         onClick={() =>
                           setForm((current) => ({
                             ...current,
-                            items: [...(current.items ?? []), emptySupplierItem()],
+                            items: [
+                              ...(current.items ?? []),
+                              emptySupplierItem(),
+                            ],
                           }))
                         }
                       >
@@ -933,7 +1023,13 @@ export function SuppliersPage() {
                     </div>
 
                     {/* Toolbar tìm kiếm vật tư trong drawer */}
-                    <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "10px",
+                        alignItems: "center",
+                      }}
+                    >
                       <input
                         className="input"
                         placeholder="Tìm vật tư trong bảng giá..."
@@ -941,14 +1037,37 @@ export function SuppliersPage() {
                         onChange={(e) => setItemSearchQ(e.target.value)}
                         style={{ maxWidth: "280px" }}
                       />
-                      <span className="md-page__muted" style={{ fontSize: "13px" }}>
-                        Hiển thị {filteredFormItems.length} / {itemsInForm.length} vật tư
+                      <span
+                        className="md-page__muted"
+                        style={{ fontSize: "13px" }}
+                      >
+                        Hiển thị {filteredFormItems.length} /{" "}
+                        {itemsInForm.length} vật tư
                       </span>
                     </div>
 
+                    {/* Nguồn gợi ý dùng chung cho MỌI dòng — khai một lần, đừng lặp trong map. */}
+                    <datalist id="supplier-item-name-suggestions">
+                      {itemCatalog.map((c) => (
+                        <option key={c.item_name} value={c.item_name}>
+                          {c.unit}
+                          {c.supplier_count > 1
+                            ? ` · ${c.supplier_count} NCC đang bán`
+                            : ""}
+                        </option>
+                      ))}
+                    </datalist>
+
                     {/* Table Editor */}
                     <div className="supplier__item-editor">
-                      <div className="supplier__item-labels" aria-hidden="true" style={{ gridTemplateColumns: "minmax(180px, 1.4fr) minmax(70px, 0.5fr) minmax(110px, 0.8fr) minmax(65px, 0.5fr) minmax(120px, 0.8fr) minmax(130px, 1fr) 36px" }}>
+                      <div
+                        className="supplier__item-labels"
+                        aria-hidden="true"
+                        style={{
+                          gridTemplateColumns:
+                            "minmax(180px, 1.4fr) minmax(70px, 0.5fr) minmax(110px, 0.8fr) minmax(65px, 0.5fr) minmax(120px, 0.8fr) minmax(130px, 1fr) 36px",
+                        }}
+                      >
                         <span>Tên vật tư *</span>
                         <span>ĐVT *</span>
                         <span>Đơn giá (chưa VAT) *</span>
@@ -960,28 +1079,50 @@ export function SuppliersPage() {
 
                       {filteredFormItems.map(({ item, originalIndex }) => {
                         const priceAfterVAT =
-                          (item.unit_price || 0) * (1 + (item.vat_percent || 0) / 100);
+                          (item.unit_price || 0) *
+                          (1 + (item.vat_percent || 0) / 100);
 
                         return (
                           <div
                             className="supplier__item-row"
                             key={originalIndex}
-                            style={{ gridTemplateColumns: "minmax(180px, 1.4fr) minmax(70px, 0.5fr) minmax(110px, 0.8fr) minmax(65px, 0.5fr) minmax(120px, 0.8fr) minmax(130px, 1fr) 36px" }}
+                            style={{
+                              gridTemplateColumns:
+                                "minmax(180px, 1.4fr) minmax(70px, 0.5fr) minmax(110px, 0.8fr) minmax(65px, 0.5fr) minmax(120px, 0.8fr) minmax(130px, 1fr) 36px",
+                            }}
                           >
+                            {/* `datalist` chứ không phải `select`: tên MỚI phải gõ được, vì đây
+                                chính là chỗ vật tư mới vào danh mục. Gợi ý chỉ để tên hội tụ. */}
                             <input
                               className="input"
+                              list="supplier-item-name-suggestions"
                               placeholder="VD: Giấy Duplex 350gsm"
                               value={item.item_name}
-                              onChange={(e) =>
-                                setSupplierItem(originalIndex, { item_name: e.target.value })
-                              }
+                              onChange={(e) => {
+                                const ten = e.target.value;
+                                // Gõ/chọn trúng tên đã có mà chưa khai ĐVT thì điền hộ — đơn vị
+                                // lệch nhau cũng làm hai bên không so được với nhau.
+                                const trung = itemCatalog.find(
+                                  (c) =>
+                                    c.item_name.trim().toLowerCase() ===
+                                    ten.trim().toLowerCase(),
+                                );
+                                setSupplierItem(originalIndex, {
+                                  item_name: ten,
+                                  ...(trung && !item.unit
+                                    ? { unit: trung.unit }
+                                    : {}),
+                                });
+                              }}
                             />
                             <input
                               className="input"
                               placeholder="tờ, kg..."
                               value={item.unit}
                               onChange={(e) =>
-                                setSupplierItem(originalIndex, { unit: e.target.value })
+                                setSupplierItem(originalIndex, {
+                                  unit: e.target.value,
+                                })
                               }
                             />
                             <input
@@ -1004,7 +1145,11 @@ export function SuppliersPage() {
                               max="100"
                               step="0.01"
                               placeholder="10"
-                              value={(item.vat_percent ?? 0) >= 0 ? item.vat_percent : ""}
+                              value={
+                                (item.vat_percent ?? 0) >= 0
+                                  ? item.vat_percent
+                                  : ""
+                              }
                               onChange={(e) =>
                                 setSupplierItem(originalIndex, {
                                   vat_percent: Number(e.target.value || 0),
@@ -1012,14 +1157,18 @@ export function SuppliersPage() {
                               }
                             />
                             <div className="supplier-item-vat-calculated">
-                              {item.unit_price > 0 ? formatVND(priceAfterVAT) : "—"}
+                              {item.unit_price > 0
+                                ? formatVND(priceAfterVAT)
+                                : "—"}
                             </div>
                             <input
                               className="input"
                               placeholder="Nếu có"
                               value={item.note ?? ""}
                               onChange={(e) =>
-                                setSupplierItem(originalIndex, { note: e.target.value })
+                                setSupplierItem(originalIndex, {
+                                  note: e.target.value,
+                                })
                               }
                             />
                             <button
@@ -1049,24 +1198,37 @@ export function SuppliersPage() {
                 {/* TAB 3: Lịch sử Mua hàng (PMH) */}
                 {activeTab === "history" && (
                   <div>
-                    <h3 style={{ fontSize: "16px", fontWeight: "bold", marginBottom: "4px" }}>
+                    <h3
+                      style={{
+                        fontSize: "16px",
+                        fontWeight: "bold",
+                        marginBottom: "4px",
+                      }}
+                    >
                       Lịch sử Phiếu Mua Hàng (PMH)
                     </h3>
-                    <p className="md-page__muted" style={{ marginBottom: "16px" }}>
+                    <p
+                      className="md-page__muted"
+                      style={{ marginBottom: "16px" }}
+                    >
                       Danh sách các đơn mua hàng đã được giao cho NCC này xử lý.
                     </p>
 
                     {mode === "create" || !selected ? (
                       <div className="banner banner--info">
-                        Vui lòng lưu thông tin nhà cung cấp trước khi xem lịch sử mua hàng.
+                        Vui lòng lưu thông tin nhà cung cấp trước khi xem lịch
+                        sử mua hàng.
                       </div>
                     ) : poLoading ? (
-                      <div className="md-page__status">Đang tải lịch sử mua hàng...</div>
+                      <div className="md-page__status">
+                        Đang tải lịch sử mua hàng...
+                      </div>
                     ) : poError ? (
                       <div className="banner banner--error">{poError}</div>
                     ) : poList.length === 0 ? (
                       <div className="md-page__empty">
-                        Chưa có Phiếu Mua Hàng nào phát sinh với nhà cung cấp này.
+                        Chưa có Phiếu Mua Hàng nào phát sinh với nhà cung cấp
+                        này.
                       </div>
                     ) : (
                       <div className="card md-page__tablewrap">
@@ -1076,7 +1238,9 @@ export function SuppliersPage() {
                               <th>Mã PMH</th>
                               <th>Ngày tạo</th>
                               <th>Mục đích / Người tạo</th>
-                              <th style={{ textAlign: "right" }}>Tổng giá trị</th>
+                              <th style={{ textAlign: "right" }}>
+                                Tổng giá trị
+                              </th>
                               <th>Trạng thái PMH</th>
                             </tr>
                           </thead>
@@ -1085,15 +1249,23 @@ export function SuppliersPage() {
                               const statusMeta = getPOStatusLabel(po.status);
                               return (
                                 <tr key={po.id}>
-                                  <td className="md-page__mono" style={{ fontWeight: "bold" }}>
+                                  <td
+                                    className="md-page__mono"
+                                    style={{ fontWeight: "bold" }}
+                                  >
                                     {po.code}
                                   </td>
                                   <td className="md-page__mono">
-                                    {new Date(po.created_at).toLocaleDateString("vi-VN")}
+                                    {new Date(po.created_at).toLocaleDateString(
+                                      "vi-VN",
+                                    )}
                                   </td>
                                   <td>
                                     <div>{po.purpose || "Mua vật tư in"}</div>
-                                    <div className="md-page__muted" style={{ fontSize: "12px" }}>
+                                    <div
+                                      className="md-page__muted"
+                                      style={{ fontSize: "12px" }}
+                                    >
                                       Bởi: {po.created_by_name || "Hệ thống"}
                                     </div>
                                   </td>
@@ -1103,7 +1275,9 @@ export function SuppliersPage() {
                                     </strong>
                                   </td>
                                   <td>
-                                    <span className={`purchase__status ${statusMeta.className}`}>
+                                    <span
+                                      className={`purchase__status ${statusMeta.className}`}
+                                    >
                                       {statusMeta.label}
                                     </span>
                                   </td>

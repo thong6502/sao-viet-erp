@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import secrets
 import string
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.exc import IntegrityError
 
@@ -50,7 +51,7 @@ from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
 from ..repositories.user_repo import UserRepository
 from ..storage import get_storage, key_from_url, make_key, url_from_key
-from .purchase_service import _purchase_line_amounts
+from .purchase_service import _purchase_line_amounts, purchase_money
 from .sequence_service import SequenceService
 
 
@@ -74,12 +75,28 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _business_today() -> date:
+    """Hôm nay theo giờ xưởng. SEAM — cột 'Quá hạn' của Công nợ phải trả so ngày qua đây.
+
+    Để test chọc được (`monkeypatch.setattr(accounting_service, "_business_today", ...)`). Gọi thẳng
+    `date.today()` trong thân hàm là đẻ ra test thối theo thời gian — dự án đã dính một lần rồi."""
+    return datetime.now(ZoneInfo("Asia/Bangkok")).date()
+
+
 # File đính kèm chứng từ: bytes đi qua kho file dùng chung (app/storage.py), đọc lại qua
 # /api/files và chỉ người có quyền `ke_toan` mới xem được. Vẫn giới hạn loại + cỡ file.
 _ATTACHMENT_SUBDIR = "ke-toan"
 _RECEIPT_ATTACHMENT_SUBDIR = "ke-toan-thu"
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 MAX_ATTACHMENTS_PER_VOUCHER = 20
+
+# Kỳ của cột "Đã trả" và rổ ✅ trên màn Công nợ phải trả. CỨNG, cố ý không cho chọn trên giao diện:
+# ô chọn kỳ là nút toàn màn mà 90% thời gian không dùng tới (việc hằng ngày là "ai đang nợ, ai quá
+# hạn" — hai thứ đó không dính gì tới kỳ). Cần tra NCC đã im lặng lâu thì dùng Ô TÌM, nó lôi được
+# mọi NCC bất kể kỳ.
+#
+# Kỳ càng dài càng phải quét nhiều đơn đã tất toán ⇒ đây cũng là chốt chặn màn chậm dần.
+PAYABLES_PERIOD_MONTHS = 3
 
 
 def _delete_stored_file(file_url: str | None) -> None:
@@ -243,6 +260,213 @@ class AccountingService:
         )
         return self._supplier_account_out(saved)
 
+    # --- công nợ phải trả -------------------------------------------------
+    #
+    # KHÔNG có bảng công nợ. Số dư là phép CỘNG TRỪ chạy lúc mở màn, suy từ chứng từ đang có, nên
+    # không ai gõ tay sửa được và không bao giờ lệch với phiếu. Muốn một món nợ biến mất chỉ có hai
+    # đường: lập phiếu chi rồi chi, hoặc huỷ đơn.
+    #
+    # Ba rổ, đừng lẫn:
+    #   🔴 CHƯA VÀO SỔ — đơn ĐÃ NHẬN HÀNG mà chưa có phiếu chi phủ hết. Nợ có thật nhưng kế toán
+    #      chưa lập phiếu. Bỏ rổ này đi là GIẤU NỢ: bảng sạch bong trong khi vẫn đang nợ NCC.
+    #   🟡 CHỜ CHI — đã lập phiếu, tiền chưa ra. Nợ đã vào sổ, có hạn trả.
+    #   ✅ ĐÃ TRẢ — từng LẦN TRẢ (không phải từng đơn). Cộng lại đúng bằng cột "Đã trả".
+    #
+    # Rổ ✅ trước 05/08/2026 liệt kê "đơn đã trả xong" — sai đơn vị: cột "Đã trả" là TIỀN, bấm vào
+    # mà ra danh sách ĐƠN thì cộng không khớp. Đổi sang từng lần trả cũng hợp việc đối chiếu hơn:
+    # NCC gửi sao kê cũng nghĩ theo từng lần nhận tiền, không nghĩ theo đơn.
+    #
+    # ⚠️ Nhãn trên màn phải là "Đã trả" ở CẢ HAI chỗ (cột ngoài bảng lẫn khối trong drawer). Có lúc
+    # ngoài bảng ghi "Đã trả" mà trong drawer ghi "Đã chi trong kỳ" — cùng một con số, hai tên, chủ
+    # đọc không hiểu là cái gì. Tên trường trong API (`paid_in_period`, `paid`) giữ nguyên, chỉ nhãn
+    # hiển thị mới cần đồng bộ.
+    #
+    # Đơn đã duyệt mà hàng chưa về KHÔNG nằm ở đây — chưa nợ ai. (Đó là "dự chi", việc khác.)
+
+    def _no_cua_phieu(self, row) -> dict:
+        """Bóc một phiếu mua thành các con số công nợ.
+
+        Tiền lấy từ `purchase_money` — DÙNG CHUNG với màn Mua hàng, không cộng lại ở đây. Hai chỗ
+        tự cộng lấy là hai chỗ lệch, mà lệch tiền thì tới lúc đối chiếu với NCC mới lòi ra."""
+        money = purchase_money(row)
+        # `available_amount` = phần trần chưa có phiếu chi nào phủ. Với đơn ĐÃ NHẬN HÀNG, đó đúng
+        # bằng số nợ chưa vào sổ. Đơn chưa nhận hàng thì phần này chưa phải nợ.
+        chua_vao_so = money["available_amount"] if row.status == PR_RECEIVED else 0
+        return {
+            "money": money,
+            "chua_vao_so": chua_vao_so,
+            "cho_chi": money["pending_amount"],
+            "con_no": chua_vao_so + money["pending_amount"],
+        }
+
+    @staticmethod
+    def _ngay_chi(v) -> date:
+        """Ngày tiền THỰC SỰ rời két. `paid_at` là mốc bấm 'Đã chi'; phiếu cũ chưa có thì lùi về
+        ngày chứng từ."""
+        return v.paid_at.date() if v.paid_at is not None else v.voucher_date
+
+    def payables_summary(self, *, q: str | None = None) -> dict:
+        """Công nợ phải trả gom theo nhà cung cấp.
+
+        Dựng dòng khi **còn nợ > 0 HOẶC đã trả trong kỳ > 0**. Chỉ lấy "còn nợ > 0" là NCC vừa trả
+        hết biến mất khỏi bảng ngay — mà đó đúng là lúc cần thấy nhất: câu hỏi *"làm sao biết mình
+        đã trả hết"* chỉ trả lời được bằng cách NHÌN THẤY danh sách đã trả, không phải bằng việc
+        không thấy gì (im lặng còn có nghĩa là màn hỏng).
+
+        `q` = tìm theo tên NCC. Khi có `q` thì lôi ra **mọi** NCC khớp tên, kể cả nợ 0đ và không hề
+        giao dịch trong kỳ — dùng để tra một NCC đã im lặng lâu. Lọc ở SERVER chứ không lọc trên
+        danh sách đã dựng, vì NCC đó vốn không có dòng nào để mà lọc."""
+        hom_nay = _business_today()
+        moc_ky = hom_nay - timedelta(days=31 * PAYABLES_PERIOD_MONTHS)
+        tim = (q or "").strip().lower()
+        theo_ncc: dict[int | None, dict] = {}
+
+        def _muc(row) -> dict:
+            return theo_ncc.setdefault(
+                row.supplier_id,
+                {
+                    "supplier_id": row.supplier_id,
+                    "supplier_name": row.supplier.name if row.supplier else "(không rõ NCC)",
+                    "order_count": 0,
+                    "unrecorded_amount": 0,
+                    "waiting_amount": 0,
+                    "overdue_amount": 0,
+                    "paid_in_period": 0,
+                    "total_due": 0,
+                },
+            )
+
+        for row in self.purchases.list_for_payables():
+            no = self._no_cua_phieu(row)
+            da_tra_ky = sum(
+                int(v.amount_vnd)
+                for v in row.payment_vouchers
+                if v.status == PAYMENT_VOUCHER_PAID and self._ngay_chi(v) >= moc_ky
+            )
+            ten = (row.supplier.name if row.supplier else "").lower()
+            khop_tim = bool(tim) and tim in ten
+            if no["con_no"] <= 0 and da_tra_ky <= 0 and not khop_tim:
+                continue
+            muc = _muc(row)
+            muc["paid_in_period"] += da_tra_ky
+            if no["con_no"] <= 0:
+                # Đơn không còn nợ vẫn được góp tiền đã trả, nhưng KHÔNG đếm vào "Đơn còn nợ" —
+                # cột đếm mà lẫn đơn đã xong là nó chửi nhau với cột "Tổng còn nợ".
+                continue
+            muc["order_count"] += 1
+            muc["unrecorded_amount"] += no["chua_vao_so"]
+            muc["waiting_amount"] += no["cho_chi"]
+            muc["total_due"] += no["con_no"]
+            for v in row.payment_vouchers:
+                if v.status != PAYMENT_VOUCHER_WAITING:
+                    continue
+                if v.planned_payment_date is not None and v.planned_payment_date < hom_nay:
+                    muc["overdue_amount"] += int(v.amount_vnd)
+
+        items = sorted(
+            theo_ncc.values(),
+            key=lambda m: (m["total_due"], m["paid_in_period"]),
+            reverse=True,
+        )
+        return {
+            "items": items,
+            "total_due": sum(m["total_due"] for m in items),
+            "unrecorded_amount": sum(m["unrecorded_amount"] for m in items),
+            "waiting_amount": sum(m["waiting_amount"] for m in items),
+            "overdue_amount": sum(m["overdue_amount"] for m in items),
+            "paid_in_period": sum(m["paid_in_period"] for m in items),
+            "period_months": PAYABLES_PERIOD_MONTHS,
+            "as_of": hom_nay,
+        }
+
+    def payables_detail(self, supplier_id: int, *, all_history: bool = False) -> dict:
+        """Chi tiết công nợ một NCC — 🔴 chưa vào sổ · 🟡 chờ chi · ✅ đã chi trong kỳ.
+
+        ⚠️ Kỳ CHỈ cắt phần ĐÃ TRẢ. Nợ chưa trả (🔴 và 🟡) không hề nhìn ngày — đơn nợ từ hai năm
+        trước hôm nay vẫn hiện đủ. Nợ cũ không bao giờ tự biến mất.
+
+        `all_history=True` bỏ mốc kỳ cho riêng rổ ✅ — dùng cho nút "Xem lịch sử cũ hơn". NCC trả
+        hết từ 5 tháng trước thì mặc định rổ ✅ rỗng, tra ra "không nợ" nhưng không thấy đã trả
+        những gì; nút này để với tới.
+
+        Nới chỉ cho MỘT NCC nên vẫn nhẹ. Đừng bao giờ nới cho cả bảng tổng hợp — lúc đó mỗi lần mở
+        màn phải quét mọi đơn từ ngày mở công ty."""
+        hom_nay = _business_today()
+        moc_ky = (
+            date.min if all_history else hom_nay - timedelta(days=31 * PAYABLES_PERIOD_MONTHS)
+        )
+        supplier = self.suppliers.get_by_id(supplier_id)
+        chua_vao_so: list[dict] = []
+        cho_chi: list[dict] = []
+        da_chi: list[dict] = []
+        for row in self.purchases.list_for_payables(supplier_id=supplier_id):
+            no = self._no_cua_phieu(row)
+            money = no["money"]
+            if no["chua_vao_so"] > 0:
+                chua_vao_so.append(
+                    {
+                        "purchase_request_id": row.id,
+                        "code": row.code,
+                        "status": row.status,
+                        "total_estimate": money["total"],
+                        "received_total": money["received_total"],
+                        "amount": no["chua_vao_so"],
+                        "expected_receipt_date": row.expected_receipt_date,
+                    }
+                )
+            for v in row.payment_vouchers:
+                chung = {
+                    "voucher_id": v.id,
+                    "code": v.code,
+                    "doc_no": v.doc_no,
+                    "voucher_type": v.voucher_type,
+                    "purchase_request_id": row.id,
+                    "purchase_code": row.code,
+                    "amount": int(v.amount_vnd),
+                    # Số hoá đơn là thứ PHÂN BIỆT các đợt giao của cùng một đơn. Không có nó thì
+                    # ba đợt hiện ba dòng trông y hệt nhau, không biết dòng nào là đợt nào.
+                    "invoice_number": v.invoice_number,
+                    "invoice_date": v.invoice_date,
+                }
+                if v.status == PAYMENT_VOUCHER_WAITING:
+                    tre = (
+                        (hom_nay - v.planned_payment_date).days
+                        if v.planned_payment_date is not None and v.planned_payment_date < hom_nay
+                        else 0
+                    )
+                    cho_chi.append(
+                        {
+                            **chung,
+                            "planned_payment_date": v.planned_payment_date,
+                            "overdue_days": tre,
+                            # Ảnh chụp phiếu giao hàng / hoá đơn NCC. Đợt này chỉ CẢNH BÁO, không
+                            # chặn — siết cứng khi chưa biết thực tế kẹt bao nhiêu là dễ tắc việc.
+                            "has_attachment": bool(v.attachments),
+                        }
+                    )
+                elif v.status == PAYMENT_VOUCHER_PAID:
+                    ngay = self._ngay_chi(v)
+                    if ngay >= moc_ky:
+                        da_chi.append({**chung, "paid_date": ngay})
+        # Sắp theo hạn trả, phiếu THIẾU hạn đẩy lên ĐẦU chứ không dìm xuống cuối: chúng là loại
+        # không bao giờ vào được cột Quá hạn, phải đập vào mắt để còn đi đặt hạn.
+        cho_chi.sort(key=lambda x: (x["planned_payment_date"] is not None, x["planned_payment_date"] or hom_nay))
+        da_chi.sort(key=lambda x: x["paid_date"], reverse=True)
+        return {
+            "supplier_id": supplier_id,
+            "supplier_name": supplier.name if supplier is not None else "(không rõ NCC)",
+            "unrecorded": chua_vao_so,
+            "waiting": cho_chi,
+            "paid": da_chi,
+            "period_months": PAYABLES_PERIOD_MONTHS,
+            "all_history": all_history,
+            "unrecorded_amount": sum(x["amount"] for x in chua_vao_so),
+            "waiting_amount": sum(x["amount"] for x in cho_chi),
+            "overdue_amount": sum(x["amount"] for x in cho_chi if x["overdue_days"] > 0),
+            "paid_in_period": sum(x["amount"] for x in da_chi),
+            "as_of": hom_nay,
+        }
+
     # --- vouchers ---------------------------------------------------------
 
     def list_vouchers(self, **filters):
@@ -268,32 +492,9 @@ class AccountingService:
         )
         return self._voucher_out(saved)
 
-    def approve_and_create_voucher(self, request_id: int, *, actor, **values):
-        purchase = self._purchase(request_id)
-        if purchase.status != PR_PENDING:
-            raise AccountingConflict("Chỉ phiếu mua đang chờ duyệt mới được duyệt.")
-        prepared = self._prepare_voucher(
-            purchase, values, allow_pending_purchase=True, exclude_voucher_id=None
-        )
-        # Cấp số TRƯỚC khi chạm ORM object: increment_and_get() tự commit và dùng chung
-        # Session — nếu gọi sau các mutation dưới, nó sẽ commit sớm PR_APPROVED +
-        # DPR_IN_PURCHASE; save_voucher lỗi → PMH đã duyệt mà không có phiếu chi.
-        doc_no = self._next_voucher_doc_no()
-        purchase.status = PR_APPROVED
-        purchase.approved_by_user_id = actor.id
-        purchase.approved_at = _now()
-        for link in purchase.sources:
-            if link.department_request and link.department_request.status not in (DPR_DONE, DPR_CANCELLED):
-                link.department_request.status = DPR_IN_PURCHASE
-        voucher = self._new_voucher(purchase, prepared, actor.id, doc_no=doc_no)
-        saved = self.repo.save_voucher(voucher)
-        self.audit.create(
-            actor_user_id=actor.id,
-            action="approve_purchase_and_create_payment_voucher",
-            target=f"purchase_request:{purchase.id}",
-            detail=f"{purchase.code} -> {saved.code}",
-        )
-        return self._voucher_out(saved)
+    # ĐÃ GỠ 04/08/2026: `approve_and_create_voucher()` — gộp duyệt PMH + lập phiếu chi vào một
+    # thao tác. Tách vai: người đồng ý chi không được là người viết phiếu chi. Duyệt nay ở
+    # `purchase_service.approve()` (có chốt chống tự duyệt), lập phiếu chi ở `create_voucher()`.
 
     def update_voucher(self, voucher_id: int, *, actor, purchase_request_id: int, **values):
         voucher = self._voucher(voucher_id)
@@ -916,9 +1117,9 @@ class AccountingService:
                 Decimal("1"), rounding=ROUND_HALF_UP
             )
         )
-        total = self._purchase_total(purchase)
+        tran = self._tran_lap_phieu(purchase)
         reserved = self.repo.reserved_amount(purchase.id, exclude_id=exclude_voucher_id)
-        available = max(0, total - reserved)
+        available = max(0, tran - reserved)
         if amount_vnd > available:
             raise AccountingValidationError(
                 f"Số tiền quy đổi vượt quá số còn được phép lập ({available:,} đ)."
@@ -953,11 +1154,41 @@ class AccountingService:
             if bank_fee_bearer not in BANK_FEE_BEARERS:
                 raise AccountingValidationError("Bên chịu phí ngân hàng không hợp lệ.")
 
+        # HẠN TRẢ bắt buộc (chủ 05/08/2026). Trước đó để trống được, mà cột "Quá hạn" ở màn Công nợ
+        # so `hạn trả < hôm nay` ⇒ phiếu thiếu hạn KHÔNG BAO GIỜ vào cột đó. Kế toán nhìn bảng thấy
+        # "Quá hạn 0đ" rồi yên tâm trong khi có phiếu trễ cả tháng — đúng bệnh giấu nợ, chỉ khác chỗ.
+        # Phiếu cũ đã lỡ tạo thiếu hạn thì giữ nguyên, màn Công nợ gắn badge "Chưa đặt hạn" để lôi ra.
+        han_tra = values.get("planned_payment_date")
+        if han_tra is None:
+            raise AccountingValidationError(
+                "Phải có hạn trả tiền — không có hạn thì phiếu này không bao giờ bị báo quá hạn."
+            )
+        ngay_ct = values.get("voucher_date")
+        hom_nay = _business_today()
+        # CỐ Ý KHÔNG chặn ngày quá khứ. Hoá đơn về muộn là chuyện thường: chi phát sinh 28/7, hoá
+        # đơn về 5/8 ⇒ phiếu phải mang ngày 28/7 mới vào đúng kỳ kế toán. Hạn trả quá khứ cũng hợp
+        # lệ — nhập phiếu cho khoản ĐÃ trễ thì phải giữ đúng ngày thật để nó hiện đỏ ngay; ép sang
+        # tương lai là làm giả nợ.
+        #
+        # Chỉ chặn ba thứ VÔ LÝ:
+        if ngay_ct is not None and ngay_ct > hom_nay:
+            raise AccountingValidationError(
+                "Ngày chứng từ không được ở tương lai — kiểm lại năm xem có gõ nhầm không."
+            )
+        ngay_hd = values.get("invoice_date")
+        if ngay_hd is not None and ngay_hd > hom_nay:
+            raise AccountingValidationError("Ngày hóa đơn không được ở tương lai.")
+        if ngay_ct is not None and han_tra < ngay_ct:
+            # Hạn trả trước ngày lập chứng từ là vô nghĩa, và nó bơm số rác thẳng vào cột "Quá hạn":
+            # phiếu vừa tạo xong đã báo trễ mấy chục ngày.
+            raise AccountingValidationError(
+                "Hạn trả tiền không được trước ngày chứng từ."
+            )
         return {
             "voucher_type": voucher_type,
             "payment_stage": stage,
             "voucher_date": values.get("voucher_date"),
-            "planned_payment_date": values.get("planned_payment_date"),
+            "planned_payment_date": han_tra,
             "amount": amount,
             "amount_vnd": amount_vnd,
             "currency": currency,
@@ -1044,15 +1275,21 @@ class AccountingService:
 
     @staticmethod
     def _purchase_total(purchase: PurchaseRequest) -> int:
-        return sum(
-            _purchase_line_amounts(
-                quantity=float(line.quantity),
-                unit_price=int(line.expected_unit_price),
-                discount_percent=float(line.discount_percent or 0),
-                vat_percent=float(line.vat_percent or 0),
-            )[3]
-            for line in purchase.lines
-        )
+        """Giá trị ĐƠN ĐẶT — con số in trên phiếu mua. Chỉ để HIỂN THỊ.
+
+        Trần lập phiếu chi KHÔNG dùng hàm này (xem `_tran_lap_phieu`): hàng về thiếu thì trần phải
+        tụt theo, còn số trên đơn thì không đổi."""
+        return purchase_money(purchase)["total"]
+
+    @staticmethod
+    def _tran_lap_phieu(purchase: PurchaseRequest) -> int:
+        """Số tối đa được phép lập phiếu chi cho phiếu mua này.
+
+        Hàng ĐÃ VỀ ⇒ theo giá trị **thực nhận**: NCC giao 800/1000 tờ thì không cho viết phiếu đủ
+        1000, nếu không màn Công nợ báo nợ 80% trong khi phiếu chi viết 100% — hai con số chửi nhau
+        và kế toán không biết tin số nào. Hàng CHƯA về ⇒ vẫn theo giá trị đơn, để còn đặt cọc /
+        ứng trước được."""
+        return purchase_money(purchase)["tran"]
 
     def _supplier_account_out(self, row: SupplierBankAccount) -> dict:
         return {

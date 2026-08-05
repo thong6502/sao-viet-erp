@@ -185,9 +185,29 @@ class PurchaseRequestLine(Base):
     purchase_request_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("purchase_requests.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    # Dòng của YCMH đã đẻ ra dòng này. Nối DÒNG ↔ DÒNG, khác `purchase_request_sources` (nối
+    # PHIẾU ↔ YÊU CẦU). Không có nó thì chỉ biết "phiếu này đến từ yêu cầu kia", không biết dòng
+    # giấy trong phiếu là dòng nào của yêu cầu ⇒ không hiện được trạng thái TỪNG SẢN PHẨM.
+    #
+    # KHÔNG ghép bù bằng tên hàng: thu mua sửa được tên khi lập phiếu (hệ còn chủ động gợi ý sửa
+    # cho khớp danh mục NCC), và một yêu cầu có thể có hai dòng trùng tên. Ghép trượt thì im lặng
+    # hiện SAI trạng thái, không báo lỗi.
+    #
+    # NULL = phiếu lập trước 05/08/2026, hoặc dòng thu mua tự thêm ngoài yêu cầu.
+    department_request_line_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("department_purchase_request_lines.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     item_name: Mapped[str] = mapped_column(String(255), nullable=False)
     unit: Mapped[str] = mapped_column(String(32), nullable=False, default="cái")
     quantity: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    # Số THỰC NHẬN, khai lúc bấm "Đã nhận hàng". NULL = chưa ai khai ⇒ coi như nhận đủ `quantity`,
+    # nhờ vậy mọi phiếu lập trước 05/08/2026 giữ nguyên số tiền, không đơn nào tự đổi giá trị.
+    # Công nợ phải trả cộng theo cột này, không theo `quantity` — NCC giao thiếu mà vẫn ghi nợ đủ
+    # là kế toán chi thừa.
+    received_quantity: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
     expected_unit_price: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     discount_percent: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0)
     vat_percent: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0)

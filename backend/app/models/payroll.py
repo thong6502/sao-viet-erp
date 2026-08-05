@@ -168,6 +168,18 @@ class PayrollParams(Base):
     # `0` = TẮT TRẦN: ghi phạt bao nhiêu trừ bấy nhiêu (thực nhận vẫn có sàn 0, không âm).
     # Màn Cấu hình lương cảnh báo khi đặt 0 hoặc > 30%. Thêm qua migration 0126.
     phat_cap_pct: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.30, server_default="0.3")
+    # SỐ NGÀY nghỉ không lương trong tháng mà từ đó tháng đó KHÔNG ĐÓNG BHXH.
+    #
+    # ⚠️ MỨC LUẬT, không phải chính sách công ty: QĐ 595/QĐ-BHXH Đ42.4 — người lao động không làm
+    # việc và không hưởng tiền lương từ 14 ngày làm việc trở lên trong tháng thì tháng đó không
+    # đóng BHXH. Khai được vì luật đổi thì gõ lại, đừng viết cứng trong engine (cùng lý do với
+    # `phat_cap_pct` và `pit_flat_rate`).
+    #
+    # `0` = TẮT LUẬT: tháng nào cũng trừ BHXH, như hành vi trước 04/08/2026. Engine PHẢI kiểm
+    # `> 0` trước khi so — không thì `ngay_khong_luong >= 0` luôn đúng và CẢ XƯỞNG mất sạch BHXH.
+    # Thêm qua migration 0158.
+    bhxh_mien_tu_so_ngay: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=14, server_default="14")
     # Phụ cấp cơm/ca ĐÃ CHUYỂN sang khai theo TỪNG CA (`work_shifts.meal_allowance` ·
     # `.shift_allowance`) — chủ đổi ý 2026-07-21: gắn vào ca thì NV được gán ca đó tự cộng.
     #

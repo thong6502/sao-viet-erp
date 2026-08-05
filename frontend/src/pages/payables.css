@@ -1,0 +1,293 @@
+/* Công nợ phải trả — bám tokens.css, không cắm giá trị thô (UI_DESIGN §1).
+   Ba màu nghĩa dùng đúng thang có sẵn: signal = quá hạn, amber = chưa vào sổ, moss = đã xong. */
+
+.pay-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.pay-kpis--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* Laptop 1280–1440 vẫn đủ 4 cột; 1100 xuống 2 cột; hẹp nữa mới xếp dọc. */
+@media (max-width: 1100px) {
+  .pay-kpis--4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .pay-kpis,
+  .pay-kpis--4 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.pay-kpi {
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--radius-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-left: 3px solid var(--steel);
+}
+
+.pay-kpi--danger {
+  border-left-color: var(--signal);
+}
+
+.pay-kpi--warn {
+  border-left-color: var(--amber);
+}
+
+.pay-kpi--ok {
+  border-left-color: var(--moss);
+}
+
+.pay-kpi__label {
+  display: block;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ash-2);
+}
+
+.pay-kpi__value {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 24px;
+  line-height: 1.2;
+  color: var(--ink);
+}
+
+.pay-kpi--danger .pay-kpi__value {
+  color: var(--signal);
+}
+
+.pay-kpi--warn .pay-kpi__value {
+  color: var(--amber-deep);
+}
+
+.pay-kpi--ok .pay-kpi__value {
+  color: var(--moss-deep);
+}
+
+.pay-kpi small {
+  color: var(--ash-2);
+  font-size: 12px;
+}
+
+/* --- pill lọc --- */
+
+.pay-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.pay-pills--drawer {
+  margin-bottom: var(--sp-3);
+}
+
+.pay-pill {
+  border: 1px solid var(--rule);
+  background: var(--canvas);
+  color: var(--ash);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pay-pill:hover {
+  background: var(--rust-soft);
+}
+
+/* Lựa chọn LỌC dùng charcoal, không dùng rust (rust dành cho HÀNH ĐỘNG) — UI_DESIGN §5. */
+.pay-pill--on {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+  color: var(--on-charcoal);
+}
+
+/* --- ô số bấm được trên bảng ngoài --- */
+
+.pay-cell {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+}
+
+.pay-cell--zero {
+  color: var(--ash-2);
+}
+
+.pay-cell--link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 3px;
+}
+
+.pay-cell--link:hover {
+  color: var(--rust);
+  text-decoration-color: var(--rust);
+}
+
+.pay-cell--warn {
+  color: var(--amber-deep);
+}
+
+.pay-cell--danger {
+  color: var(--signal);
+  font-weight: 600;
+}
+
+.pay-cell--ok {
+  color: var(--moss-deep);
+}
+
+/* Nhãn "Đã trả hết" — NCC còn nợ 0đ nhưng vẫn nằm trên bảng nhờ tiền đã chi trong kỳ. */
+.pay-ok {
+  color: var(--moss-deep);
+}
+
+/* --- khối trong drawer --- */
+
+.pay-block {
+  border-top: 1px solid var(--rule-soft);
+  padding-top: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+
+.pay-block__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.pay-block__head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.pay-block__head strong {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+}
+
+.pay-block--danger .pay-block__head h3,
+.pay-block--danger .pay-block__head strong {
+  color: var(--signal);
+}
+
+.pay-block--warn .pay-block__head h3,
+.pay-block--warn .pay-block__head strong {
+  color: var(--amber-deep);
+}
+
+.pay-block__hint {
+  margin: 2px 0 var(--sp-2);
+  color: var(--ash-2);
+  font-size: 12px;
+}
+
+.pay-empty {
+  color: var(--ash-2);
+  font-size: 13px;
+  margin: var(--sp-2) 0;
+}
+
+.pay-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.pay-table th {
+  text-align: left;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ash-2);
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--rule-soft);
+  font-weight: 500;
+}
+
+.pay-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--rule-hair);
+  vertical-align: top;
+}
+
+/* Cột tiền: KHÔNG dùng flex trên td (phá hàng của bảng) — cùng luật đã áp ở accounting.css. */
+.pay-table .pay-num {
+  text-align: right;
+  white-space: nowrap;
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+}
+
+.pay-table small {
+  color: var(--ash-2);
+}
+
+.pay-short {
+  color: var(--amber-deep);
+}
+
+.pay-warn {
+  color: var(--amber-deep);
+}
+
+.pay-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.pay-badge--danger {
+  background: var(--signal-soft);
+  color: var(--signal-deep);
+}
+
+/* "Chưa đặt hạn" — phiếu không có hạn trả thì KHÔNG BAO GIỜ vào cột Quá hạn. Phải nổi lên, nếu
+   không nó lặng lẽ nằm ngoài mọi cảnh báo. */
+.pay-badge--warn {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+
+.pay-block--ok .pay-block__head h3,
+.pay-block--ok .pay-block__head strong {
+  color: var(--moss-deep);
+}
+
+.pay-toggle {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.pay-toggle:hover {
+  color: var(--rust);
+}
