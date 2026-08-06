@@ -253,8 +253,8 @@ const MODULE_HINTS: Record<string, string> = {
 
 // Nghĩa CHUNG của 3 cột — luôn đúng với mọi module, hiện ở dòng tiêu đề.
 const COL_HINTS = {
-  read: "Cho phép MỞ và ĐỌC dữ liệu của module này. Tắt “Xem” thì mục đó biến mất khỏi thanh bên trái.",
-  write: "Gộp 3 quyền Thêm + Sửa + Xóa. Bật là được tạo mới, sửa và xóa dữ liệu — trong giới hạn của cột Phạm vi.",
+  read: "Cho phép mở và đọc dữ liệu của module này. Nếu tắt “Xem”, hệ thống sẽ tắt luôn các quyền thao tác liên quan để tránh cấp quyền nửa chừng.",
+  write: "Gộp 3 quyền Thêm + Sửa + Xóa. Khi bật thao tác, hệ thống tự hiểu người đó cũng phải được xem module này.",
   scope: "Giới hạn được đụng tới bao nhiêu dữ liệu: “Của tôi” = chỉ bản ghi của chính mình · “Cả phòng” = phòng/tổ mình và mọi tổ con · “Tất cả” = toàn công ty.",
 };
 
@@ -439,8 +439,13 @@ export function PermissionMatrix({
                 </div>
                 {g.rows.map((row) => {
                   const label = moduleLabel.get(row.module_key) ?? row.module_key;
-                  const canWrite = WRITE_ACTIONS.every((k) => row[k]);
                   const isNoiQuy = row.module_key === "noi_quy";
+                  const actionKeys: ActionKey[] = isNoiQuy
+                    ? ["can_create", "can_delete"]
+                    : WRITE_ACTIONS;
+                  const canWrite = isNoiQuy
+                    ? row.can_create && row.can_delete
+                    : WRITE_ACTIONS.every((k) => row[k]);
                   const fineActs = FINE_ACTIONS[row.module_key];
                   // Công tắc gộp (`keys`): bật = TẤT CẢ cột bật.
                   const fineOn = (a: { key: ActionKey; keys?: ActionKey[] }) =>
@@ -476,7 +481,16 @@ export function PermissionMatrix({
                       </div>
                       <div className="rdx-perm__cell rdx-perm__cell--act">
                         {isNoiQuy ? (
-                          <span className="rdx-perm__always-read">Mọi nhân viên</span>
+                          <div className="rdx-perm__fixed-read">
+                            <input
+                              type="checkbox"
+                              className="switch"
+                              checked
+                              disabled
+                              aria-label={`Xem — ${label} — mọi nhân viên`}
+                            />
+                            <span className="rdx-perm__fixed-note">Mọi nhân viên</span>
+                          </div>
                         ) : (
                           <input
                             type="checkbox"
@@ -491,41 +505,22 @@ export function PermissionMatrix({
                         )}
                       </div>
                       <div className="rdx-perm__cell rdx-perm__cell--act">
-                        {isNoiQuy ? (
-                          <span className="rdx-perm__record-actions">
-                            <label title="Được tải tài liệu nội quy lên">
-                              <input
-                                type="checkbox"
-                                checked={row.can_create}
-                                disabled={readOnly}
-                                onChange={(e) => onToggle(row.module_key, "can_create", e.target.checked)}
-                              />
-                              Thêm
-                            </label>
-                            <label title="Được xóa tài liệu nội quy">
-                              <input
-                                type="checkbox"
-                                checked={row.can_delete}
-                                disabled={readOnly}
-                                onChange={(e) => onToggle(row.module_key, "can_delete", e.target.checked)}
-                              />
-                              Xóa
-                            </label>
-                          </span>
-                        ) : (
-                          <input
-                            type="checkbox"
-                            className="switch"
-                            checked={canWrite}
-                            disabled={readOnly}
-                            aria-label={`Chỉnh sửa (thêm, sửa, xóa) — ${label}`}
-                            onChange={(e) =>
-                              WRITE_ACTIONS.forEach((k) =>
-                                onToggle(row.module_key, k, e.target.checked),
-                              )
-                            }
-                          />
-                        )}
+                        <input
+                          type="checkbox"
+                          className="switch"
+                          checked={canWrite}
+                          disabled={readOnly}
+                          aria-label={
+                            isNoiQuy
+                              ? `Thao tác (thêm, xóa) — ${label}`
+                              : `Chỉnh sửa (thêm, sửa, xóa) — ${label}`
+                          }
+                          onChange={(e) =>
+                            actionKeys.forEach((k) =>
+                              onToggle(row.module_key, k, e.target.checked),
+                            )
+                          }
+                        />
                       </div>
                       <div className="rdx-perm__cell rdx-perm__cell--scope">
                         <select
