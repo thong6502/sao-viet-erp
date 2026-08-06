@@ -261,3 +261,96 @@ class PaymentReceiptAttachmentOut(BaseModel):
 
 class PaymentReceiptAttachmentListOut(BaseModel):
     items: list[PaymentReceiptAttachmentOut]
+
+
+# --- Công nợ phải trả ------------------------------------------------------
+# Không có bảng công nợ: các số dưới đây SUY RA từ phiếu mua + phiếu chi lúc gọi API.
+
+
+class PayableSupplierOut(BaseModel):
+    supplier_id: int | None = None
+    supplier_name: str
+    # Số đơn CÒN NỢ (🔴 + 🟡). Đơn đã trả xong không đếm ở đây, nếu không cột này chửi nhau với
+    # `total_due` — nhìn "12 đơn / còn nợ 5tr" là không hiểu đơn nào đang nợ.
+    order_count: int
+    unrecorded_amount: int
+    waiting_amount: int
+    overdue_amount: int
+    # Tiền ĐÃ CHI trong kỳ. NCC trả hết vẫn giữ được dòng nhờ số này ⇒ "đã trả hết" là thứ NHÌN
+    # THẤY, không phải suy ra từ việc không thấy gì.
+    paid_in_period: int = 0
+    total_due: int
+
+
+class PayablesSummaryOut(BaseModel):
+    items: list[PayableSupplierOut]
+    total_due: int
+    unrecorded_amount: int
+    waiting_amount: int
+    overdue_amount: int
+    paid_in_period: int = 0
+    period_months: int = 3
+    as_of: date
+
+
+class PayableUnrecordedOut(BaseModel):
+    """🔴 Hàng đã nhận mà chưa có phiếu chi phủ hết — nợ có thật, chưa vào sổ."""
+
+    purchase_request_id: int
+    code: str
+    status: str
+    total_estimate: int
+    received_total: int
+    amount: int
+    expected_receipt_date: date | None = None
+
+
+class PayableWaitingOut(BaseModel):
+    """🟡 Đã lập phiếu, tiền chưa ra."""
+
+    voucher_id: int
+    code: str
+    doc_no: str | None = None
+    voucher_type: str
+    purchase_request_id: int
+    purchase_code: str
+    amount: int
+    # Số hoá đơn phân biệt các ĐỢT GIAO của cùng một đơn — thiếu nó thì ba đợt trông y hệt nhau.
+    invoice_number: str | None = None
+    invoice_date: date | None = None
+    # None = phiếu cũ lập trước khi hạn trả thành bắt buộc ⇒ KHÔNG BAO GIỜ vào cột Quá hạn.
+    # Giao diện phải gắn badge "Chưa đặt hạn", đừng để nó lặng lẽ biến mất.
+    planned_payment_date: date | None = None
+    overdue_days: int = 0
+    has_attachment: bool = False
+
+
+class PayablePaidOut(BaseModel):
+    """✅ Một LẦN CHI trong kỳ. Cộng lại đúng bằng cột "Đã trả"."""
+
+    voucher_id: int
+    code: str
+    doc_no: str | None = None
+    voucher_type: str
+    purchase_request_id: int
+    purchase_code: str
+    amount: int
+    invoice_number: str | None = None
+    invoice_date: date | None = None
+    paid_date: date
+
+
+class PayablesDetailOut(BaseModel):
+    supplier_id: int
+    supplier_name: str
+    unrecorded: list[PayableUnrecordedOut]
+    waiting: list[PayableWaitingOut]
+    paid: list[PayablePaidOut]
+    period_months: int
+    # True = đã bỏ mốc kỳ, rổ "đã chi" đang hiện TOÀN BỘ lịch sử (nút "Xem lịch sử cũ hơn").
+    all_history: bool = False
+    unrecorded_amount: int
+    waiting_amount: int
+    overdue_amount: int
+    paid_in_period: int
+    as_of: date

@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from ..models.may_thiet_bi import KHOA_CLASS, MayThietBi
+from sqlalchemy import func, select
+
+from ..models.may_thiet_bi import KHOA_CLASS, MayThietBi, NhomMay
 from ..repositories.may_thiet_bi_repo import MayThietBiRepository
 
 
@@ -128,6 +130,22 @@ class MayThietBiService:
         dvtd = data.get("don_vi_toc_do")
         if toc_do is not None and _f(toc_do) <= 0:
             raise MayThietBiValidationError("Tốc độ phải > 0. [E-MAY-SPEED]")
+        # Dải tốc độ: chỉ kiểm những ô ĐÃ khai. Không ép khai đủ ba — khai mỗi trung bình là
+        # trường hợp thường gặp nhất, bắt điền đủ chỉ tổ làm người ta gõ số bừa cho qua.
+        td_min, td_max = data.get("toc_do_min"), data.get("toc_do_max")
+        for nhan, v in (("tối thiểu", td_min), ("tối đa", td_max)):
+            if v is not None and _f(v) <= 0:
+                raise MayThietBiValidationError(f"Tốc độ {nhan} phải > 0. [E-MAY-SPEED]")
+        if td_min is not None and td_max is not None and _f(td_min) > _f(td_max):
+            raise MayThietBiValidationError(
+                "Tốc độ tối thiểu > tối đa. [E-MAY-SPEED-RANGE]")
+        if toc_do is not None:
+            if td_min is not None and _f(td_min) > _f(toc_do):
+                raise MayThietBiValidationError(
+                    "Tốc độ tối thiểu > tốc độ trung bình. [E-MAY-SPEED-RANGE]")
+            if td_max is not None and _f(td_max) < _f(toc_do):
+                raise MayThietBiValidationError(
+                    "Tốc độ tối đa < tốc độ trung bình. [E-MAY-SPEED-RANGE]")
         # BHR ≤ 0 kiểm khi tính (compute_bhr) — dữ liệu chưa đủ vẫn cho lưu nháp.
         if (data.get("nguon_bhr") or "dung_tu_von") == "nhap_truc_tiep":
             if _f(data.get("don_gia_gio_BHR")) <= 0:
@@ -165,3 +183,65 @@ class MayThietBiService:
 
     def bhr(self, may_id: int) -> dict:
         return compute_bhr(self.get(may_id))
+
+
+# --- Danh mục NHÓM MÁY -------------------------------------------------------
+
+
+class NhomMayService:
+    """Danh sách tên được phép chọn ở ô "Nhóm máy". KHÔNG phải khoá ngoại — xem docstring
+    `models.may_thiet_bi.NhomMay`."""
+
+    def __init__(self, db) -> None:
+        self.db = db
+
+    def list(self) -> list[NhomMay]:
+        return list(
+            self.db.execute(
+                select(NhomMay).where(NhomMay.active.is_(True)).order_by(NhomMay.ten)
+            ).scalars()
+        )
+
+    def _tim_theo_ten(self, ten: str) -> NhomMay | None:
+        return self.db.execute(select(NhomMay).where(NhomMay.ten == ten)).scalars().first()
+
+    def create(self, ten: str) -> NhomMay:
+        ten = (ten or "").strip()
+        if not ten:
+            raise MayThietBiValidationError("Tên nhóm máy không được trống.")
+        if len(ten) > 60:
+            raise MayThietBiValidationError("Tên nhóm máy tối đa 60 ký tự.")
+        cu = self._tim_theo_ten(ten)
+        if cu is not None:
+            # Nhóm bị ẩn trước đó thì BẬT LẠI thay vì báo trùng — người dùng gõ đúng tên đó nghĩa
+            # là họ muốn nó có mặt, chứ không quan tâm nó từng bị gỡ.
+            if not cu.active:
+                cu.active = True
+                self.db.commit()
+                self.db.refresh(cu)
+                return cu
+            raise MayThietBiDuplicate("Nhóm máy đã tồn tại.")
+        row = NhomMay(ten=ten)
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return row
+
+    def dem_may_dung(self, ten: str) -> int:
+        return int(self.db.execute(
+            select(func.count()).select_from(MayThietBi).where(MayThietBi.loai_may == ten)
+        ).scalar_one())
+
+    def delete(self, nhom_id: int) -> None:
+        row = self.db.get(NhomMay, nhom_id)
+        if row is None:
+            raise MayThietBiNotFound("Không tìm thấy nhóm máy.")
+        # 🔴 CHẶN khi còn máy dùng. Bảng này không phải FK nên DB không tự giữ — xoá mù là để lại
+        # máy mang tên nhóm không còn tồn tại, và không chỗ nào báo.
+        n = self.dem_may_dung(row.ten)
+        if n > 0:
+            raise MayThietBiValidationError(
+                f"Còn {n} máy đang thuộc nhóm “{row.ten}” — đổi nhóm cho các máy đó trước đã."
+            )
+        self.db.delete(row)
+        self.db.commit()

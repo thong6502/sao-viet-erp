@@ -11,7 +11,6 @@ import {
   api,
   type DepartmentPurchaseRequestRow,
   type DepartmentPurchaseRequestStatus,
-  type DepartmentPurchaseSourceType,
   type PurchaseRequestInput,
   type PurchaseRequestLineInput,
   type PurchaseRequestRow,
@@ -28,6 +27,9 @@ import { DetailModal } from "../components/DetailModal";
 import { RowActionButton } from "../components/RowActionButton";
 import { fmtDate, money } from "../utils/format";
 import "./master-data.css";
+// Hộp khai số thực nhận mượn bảng gọn `.pay-table` của màn Công nợ — cùng một loại bảng phụ trong
+// hộp thoại, không dựng bộ lớp thứ hai cho y hệt một việc.
+import "./payables.css";
 import "./purchase.css";
 
 const PAGE_SIZE = 10;
@@ -49,15 +51,6 @@ const STATUS_META: Record<
 type StatusFilter = "all" | PurchaseRequestStatus;
 type SourceStatusFilter = "all" | DepartmentPurchaseRequestStatus;
 
-const SOURCE_TYPE_LABELS: Record<DepartmentPurchaseSourceType, string> = {
-  kinh_doanh: "Kinh doanh",
-  kho: "Kho",
-  san_xuat: "Sản xuất",
-  cong_nghe: "Công nghệ",
-  gia_cong_ngoai: "Gia công ngoài",
-  khac: "Khác",
-};
-
 const SOURCE_STATUS_META: Record<
   DepartmentPurchaseRequestStatus,
   { label: string; tone: string }
@@ -69,7 +62,20 @@ const SOURCE_STATUS_META: Record<
   cancelled: { label: "Đã hủy", tone: "cancelled" },
 };
 
-function emptyLine(): PurchaseRequestLineInput {
+/** Dòng hàng trong FORM — mang thêm NCC của riêng nó.
+ *
+ * Một phiếu mua là thoả thuận với MỘT nhà cung cấp, nhưng một yêu cầu thường chứa hàng của nhiều
+ * nơi. Nên NCC gán ở DÒNG, rồi lúc gửi mới nhóm lại thành N phiếu. Ô "Nhà cung cấp" ở đầu phiếu
+ * chỉ còn dùng cho chế độ SỬA (phiếu đã tồn tại thì nó vốn đã thuộc về một NCC). */
+type FormLine = PurchaseRequestLineInput & {
+  supplier_id?: number | null;
+  /** Dòng YCMH đẻ ra dòng này — gửi lên để chi tiết yêu cầu hiện được tình trạng từng sản phẩm. */
+  department_request_line_id?: number | null;
+};
+
+type FormState = Omit<PurchaseRequestInput, "lines"> & { lines: FormLine[] };
+
+function emptyLine(): FormLine {
   return {
     item_name: "",
     unit: "",
@@ -78,10 +84,11 @@ function emptyLine(): PurchaseRequestLineInput {
     discount_percent: 0,
     vat_percent: 0,
     note: "",
+    supplier_id: null,
   };
 }
 
-function emptyRequest(): PurchaseRequestInput {
+function emptyRequest(): FormState {
   return {
     supplier_id: null,
     source_request_ids: [],
@@ -93,7 +100,13 @@ function emptyRequest(): PurchaseRequestInput {
   };
 }
 
-function fromRequest(row: PurchaseRequestRow): PurchaseRequestInput {
+function todayInputValue(): string {
+  const now = new Date();
+  const localNow = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return localNow.toISOString().slice(0, 10);
+}
+
+function fromRequest(row: PurchaseRequestRow): FormState {
   return {
     supplier_id: row.supplier_id,
     source_request_ids: row.sources.map(
@@ -111,6 +124,8 @@ function fromRequest(row: PurchaseRequestRow): PurchaseRequestInput {
       discount_percent: line.discount_percent,
       vat_percent: line.vat_percent,
       note: line.note ?? "",
+      // Phiếu đã tồn tại thì mọi dòng đều thuộc NCC của phiếu — không tách nữa.
+      supplier_id: row.supplier_id,
     })),
   };
 }
@@ -134,6 +149,166 @@ function lineVatAmount(line: PurchaseRequestLineInput): number {
     (Number(line.quantity) || 0) * (Number(line.expected_unit_price) || 0);
   const taxable = Math.max(0, base - lineDiscountAmount(line));
   return Math.round((taxable * (Number(line.vat_percent) || 0)) / 100);
+}
+
+function normalizeItemName(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function supplierItemForLine(
+  supplier: SupplierRow | undefined,
+  line: PurchaseRequestLineInput,
+) {
+  if (!supplier) return null;
+  const name = normalizeItemName(line.item_name);
+  return (
+    supplier.items.find(
+      (item) =>
+        normalizeItemName(item.item_name) === name &&
+        item.unit.trim().toLowerCase() === line.unit.trim().toLowerCase(),
+    ) ??
+    supplier.items.find((item) => normalizeItemName(item.item_name) === name) ??
+    null
+  );
+}
+
+/** Số NCC hiện trong ô chọn của mỗi dòng. Đủ để so giá mà không biến ô chọn thành danh bạ. */
+const SO_NCC_GOI_Y = 5;
+
+export type ChaoGia = {
+  supplier_id: number;
+  supplier_name: string;
+  unit_price: number;
+  vat_percent: number;
+  unit: string;
+};
+
+/** Những NCC ĐANG HOẠT ĐỘNG bán mặt hàng này, xếp GIÁ TĂNG DẦN, lấy tối đa `SO_NCC_GOI_Y`.
+ *
+ * Xếp theo đơn giá CHƯA VAT vì đó là số đi vào dòng hàng. NCC có VAT khác nhau thì giá sau thuế
+ * có thể đảo thứ tự — nên ô chọn hiện luôn cả VAT để nhìn là biết, không giấu.
+ *
+ * Không cần gọi API: danh sách NCC nạp cho màn này đã kèm bảng giá mặt hàng của từng người.
+ */
+function chaoGiaChoMatHang(
+  itemName: string,
+  suppliers: SupplierRow[],
+): ChaoGia[] {
+  const ten = normalizeItemName(itemName);
+  if (!ten) return [];
+  const out: ChaoGia[] = [];
+  for (const ncc of suppliers) {
+    if (ncc.status !== "active") continue;
+    const item = ncc.items.find(
+      (i) => normalizeItemName(i.item_name) === ten && i.is_active !== false,
+    );
+    if (!item) continue;
+    out.push({
+      supplier_id: ncc.id,
+      supplier_name: ncc.name,
+      unit_price: item.unit_price,
+      vat_percent: item.vat_percent ?? 0,
+      unit: item.unit,
+    });
+  }
+  out.sort((a, b) => a.unit_price - b.unit_price);
+  return out.slice(0, SO_NCC_GOI_Y);
+}
+
+/** Ô chọn nhà cung cấp cho MỘT dòng hàng — hiện tối đa 5 nơi bán, rẻ nhất lên trước, kèm giá.
+ *
+ * Chưa gõ tên vật tư thì chưa biết hỏi ai ⇒ ô khoá lại và nói rõ. Gõ tên mà không ai bán thì cũng
+ * nói thẳng, không để ô rỗng im lặng rồi người dùng bấm Lưu mới biết. */
+function LineSupplierPicker({
+  line,
+  suppliers,
+  onPick,
+}: {
+  line: FormLine;
+  suppliers: SupplierRow[];
+  onPick: (chao: ChaoGia | null) => void;
+}) {
+  const chaoGia = chaoGiaChoMatHang(line.item_name, suppliers);
+  const chuaGoTen = !normalizeItemName(line.item_name);
+
+  if (chuaGoTen || chaoGia.length === 0) {
+    return (
+      <select className="input" disabled aria-label="Nhà cung cấp của dòng">
+        <option>{chuaGoTen ? "Nhập vật tư trước" : "Chưa có NCC nào bán"}</option>
+      </select>
+    );
+  }
+  return (
+    <select
+      className="input"
+      required
+      aria-label="Nhà cung cấp của dòng"
+      value={line.supplier_id ?? ""}
+      onChange={(e) =>
+        onPick(
+          chaoGia.find((c) => c.supplier_id === Number(e.target.value)) ?? null,
+        )
+      }
+    >
+      <option value="">Chọn nhà cung cấp</option>
+      {/* Nhãn "· rẻ nhất" đang TẮT (dòng comment bên dưới). Bật lại thì thêm `, i` vào tham số
+          map — bỏ đi ở đây chỉ vì để lại là TypeScript báo "khai mà không dùng", chứ không phải
+          tôi gỡ ý đó. Danh sách vẫn xếp giá tăng dần nên dòng đầu vẫn là rẻ nhất. */}
+      {chaoGia.map((c) => (
+        <option key={c.supplier_id} value={c.supplier_id}>
+          {c.supplier_name} — {money(c.unit_price)}
+          {c.vat_percent ? ` (VAT ${c.vat_percent}%)` : ""}
+          {/* {i === 0 && chaoGia.length > 1 ? " · rẻ nhất" : ""} */}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function applySupplierPrices(
+  lines: PurchaseRequestLineInput[],
+  suppliers: SupplierRow[],
+  supplierId: number | null,
+): PurchaseRequestLineInput[] {
+  const supplier = suppliers.find((row) => row.id === supplierId);
+  return lines.map((line) => {
+    const item = supplierItemForLine(supplier, line);
+    if (!item) return line;
+    return {
+      ...line,
+      unit: item.unit || line.unit,
+      expected_unit_price: item.unit_price,
+      vat_percent: item.vat_percent,
+    };
+  });
+}
+
+function supplierQuotedTotal(
+  supplier: SupplierRow,
+  lines: PurchaseRequestLineInput[],
+): number | null {
+  let total = 0;
+  let matched = 0;
+  for (const line of lines) {
+    const item = supplierItemForLine(supplier, line);
+    if (!item) continue;
+    matched += 1;
+    total += (Number(line.quantity) || 0) * item.unit_price;
+  }
+  return matched === lines.length && matched > 0 ? total : null;
+}
+
+function bestSupplierIdForLines(
+  lines: PurchaseRequestLineInput[],
+  suppliers: SupplierRow[],
+): number | null {
+  let best: { supplierId: number; total: number } | null = null;
+  for (const supplier of suppliers) {
+    const total = supplierQuotedTotal(supplier, lines);
+    if (total == null) continue;
+    if (!best || total < best.total) best = { supplierId: supplier.id, total };
+  }
+  return best?.supplierId ?? null;
 }
 
 function html(value: unknown): string {
@@ -319,10 +494,10 @@ function printPurchaseRequest(row: PurchaseRequestRow): boolean {
     <div><span class="label">Nhà cung cấp</span>${html(row.supplier_name || "Chưa chọn")}</div>
     <div><span class="label">Ngày cần hàng</span>${html(fmtDate(row.needed_date))}</div>
     <div><span class="label">Ngày dự kiến nhận hàng</span>${html(fmtDate(row.expected_receipt_date))}</div>
-    <div><span class="label">Yêu cầu nguồn</span>${html(sourceCodes)}</div>
+    <div><span class="label">Phiếu yêu cầu mua hàng</span>${html(sourceCodes)}</div>
     <div><span class="label">Bộ phận/người yêu cầu</span>${html(sourceDepartments || "Nội bộ")}</div>
     <div><span class="label">Người lập</span>${html(row.created_by_name || "—")}</div>
-    <div><span class="label">Kế toán duyệt</span>${html(row.approved_by_name || "Chưa duyệt")}</div>
+    <div><span class="label">Người duyệt</span>${html(row.approved_by_name || "Chưa duyệt")}</div>
     <div><span class="label">Gửi duyệt</span>${html(fmtDate(row.submitted_at))}</div>
     <div><span class="label">Duyệt lúc</span>${html(fmtDate(row.approved_at))}</div>
     <div style="grid-column: 1 / -1;"><span class="label">Mục đích</span>${html(row.purpose || "—")}</div>
@@ -362,16 +537,25 @@ function printPurchaseRequest(row: PurchaseRequestRow): boolean {
   return true;
 }
 
-export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
+export function PurchaseRequestsPage({
+  navigate,
+  eventTick = 0,
+}: {
+  navigate: NavigateFn;
+  eventTick?: number;
+}) {
   const { token } = useAuth();
   const can = useCan();
   const canCreate = can("thu_mua", "create");
   const openYcmh = (code: string) =>
     navigate("yeu-cau-mua-hang", { focusRequestCode: code });
   const canUpdate = can("thu_mua", "update");
-  const canDelete = can("thu_mua", "delete");
-  const canCancel = can("thu_mua", "cancel");
-
+  const canApprovePurchase = can("thu_mua", "approve");
+  // KHÔNG còn `canApprove` ở màn này: duyệt đơn mua đã chuyển sang Kế toán thu mua (04/08/2026).
+  //
+  // ⚠️ Hộp "Lý do từ chối" (`reasonModal.kind === "reject"`) vẫn còn trong file nhưng KHÔNG CÒN AI
+  // BẤM — chỉ nhánh `cancel` còn chạy. Giữ tạm để chép sang màn Đơn mua hàng; chép xong thì dọn,
+  // đừng để nó nằm lại làm người đọc sau tưởng màn này vẫn từ chối được.
   const [rows, setRows] = useState<PurchaseRequestRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -387,12 +571,6 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
   const [sourceStatus, setSourceStatus] = useState<SourceStatusFilter>("all");
   const [sourceLoading, setSourceLoading] = useState(true);
   const [sourcePage, setSourcePage] = useState(1);
-  // Lưu CẢ object (không chỉ id) để tick vẫn giữ khi lật sang trang khác — một
-  // phiếu mua có thể gom YCMH nằm ở nhiều trang.
-  const [checkedSources, setCheckedSources] = useState<
-    DepartmentPurchaseRequestRow[]
-  >([]);
-
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -402,14 +580,43 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
 
   const [mode, setMode] = useState<null | "create" | "edit">(null);
   const [editing, setEditing] = useState<PurchaseRequestRow | null>(null);
-  const [form, setForm] = useState<PurchaseRequestInput>(emptyRequest());
+  const [form, setForm] = useState<FormState>(emptyRequest());
   const [formError, setFormError] = useState<string | null>(null);
+  // Gom dòng theo NCC để nói trước "sẽ tạo mấy phiếu". Giữ THỨ TỰ NCC xuất hiện lần đầu — khớp
+  // đúng cách backend nhóm, để bảng xem trước không nói một đằng, phiếu ra một nẻo.
+  const phieuSeTao = useMemo(() => {
+    const theoNcc = new Map<number, { ten: string; soDong: number; tien: number }>();
+    for (const line of form.lines) {
+      if (!line.supplier_id) continue;
+      const cu = theoNcc.get(line.supplier_id) ?? {
+        ten:
+          suppliers.find((s) => s.id === line.supplier_id)?.name ??
+          `NCC #${line.supplier_id}`,
+        soDong: 0,
+        tien: 0,
+      };
+      cu.soDong += 1;
+      cu.tien += lineTotal(line);
+      theoNcc.set(line.supplier_id, cu);
+    }
+    return [...theoNcc.values()];
+  }, [form.lines, suppliers]);
+  const minPurchaseDate = useMemo(() => todayInputValue(), []);
+  // Ngày dự kiến nhận chỉ bị chặn bởi HÔM NAY, KHÔNG bởi ngày cần hàng (chủ 03/08/2026):
+  // nhận hàng sớm hơn ngày cần là trường hợp mong muốn, chặn nó là cấm đúng cái tốt.
+  const expectedReceiptMinDate = minPurchaseDate;
   const [deleting, setDeleting] = useState<PurchaseRequestRow | null>(null);
+  // Dùng CHUNG một hộp "nhập lý do" cho cả huỷ / từ chối / lùi đã nhận — không dựng hộp thứ ba.
   const [reasonModal, setReasonModal] = useState<null | {
-    kind: "cancel";
+    kind: "cancel" | "reject" | "undo_received";
     row: PurchaseRequestRow;
     reason: string;
     error: string | null;
+  }>(null);
+  // Hộp khai SỐ THỰC NHẬN: mở khi bấm "Đã nhận" (mode `receive`) hoặc khi sửa lại sau (`edit`).
+  const [receiveModal, setReceiveModal] = useState<null | {
+    row: PurchaseRequestRow;
+    mode: "receive" | "edit";
   }>(null);
 
   const loadSuppliers = useCallback(() => {
@@ -434,15 +641,6 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
       .then((res) => {
         setSourceRows(res.items);
         setSourceTotal(res.total);
-        // Giữ tick xuyên trang: một YCMH đang tick chỉ bị bỏ khi trang hiện tại
-        // cho thấy nó đã rời trạng thái "open" (đã được gom/hủy); nếu không xuất
-        // hiện ở trang này thì nó đang ở trang khác → giữ nguyên.
-        setCheckedSources((current) =>
-          current.filter((picked) => {
-            const fresh = res.items.find((row) => row.id === picked.id);
-            return !fresh || fresh.status === "open";
-          }),
-        );
       })
       .catch(() => {
         setSourceRows([]);
@@ -491,6 +689,13 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (eventTick <= 0) return;
+    loadSuppliers();
+    loadSources();
+    load();
+  }, [eventTick, loadSuppliers, loadSources, load]);
+
   const selected = useMemo(
     () => rows.find((row) => row.id === selectedId) ?? null,
     [rows, selectedId],
@@ -501,20 +706,6 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
     1,
     Math.ceil(sourceTotal / SOURCE_PAGE_SIZE),
   );
-  // Lựa chọn tích lũy across trang — chính là danh sách gom vào phiếu mua.
-  const selectedSources = checkedSources;
-  // Gộp trang hiện tại với các YCMH đã tick ở trang khác — nếu không, phiếu gom
-  // xuyên trang sẽ thiếu ô chọn cho những YCMH nằm ngoài trang đang xem.
-  const formSourceRows = useMemo(() => {
-    const pool = new Map<number, DepartmentPurchaseRequestRow>();
-    for (const row of sourceRows) pool.set(row.id, row);
-    for (const row of checkedSources) pool.set(row.id, row);
-    return [...pool.values()].filter(
-      (row) =>
-        row.status === "open" || form.source_request_ids.includes(row.id),
-    );
-  }, [sourceRows, checkedSources, form.source_request_ids]);
-
   // Chỉ thay dòng trong danh sách, KHÔNG đụng selectedId: các nút thao tác nằm ở
   // bảng, chọn dòng ở đây sẽ tự bung popup chi tiết. Popup đang mở thì `selected`
   // tự lấy lại dòng mới từ `rows`.
@@ -524,47 +715,48 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
     );
   }
 
-  function toggleSource(row: DepartmentPurchaseRequestRow) {
-    if (row.status !== "open") return;
-    setCheckedSources((current) =>
-      current.some((picked) => picked.id === row.id)
-        ? current.filter((picked) => picked.id !== row.id)
-        : [...current, row],
-    );
-  }
-
-  function openCreatePurchaseRequest() {
-    if (selectedSources.length === 0) {
-      setError("Vui lòng chọn ít nhất một yêu cầu mua hàng từ phòng ban.");
+  function openCreatePurchaseRequest(pickedSource: DepartmentPurchaseRequestRow) {
+    if (pickedSource.status !== "open") {
+      setError("Chỉ lập phiếu mua hàng từ yêu cầu đang chờ Thu mua xử lý.");
       return;
     }
-    const dates = selectedSources
-      .map((row) => row.needed_date)
-      .filter(Boolean)
-      .sort();
-    const lines = selectedSources.flatMap((source) =>
-      source.lines.map((line) => ({
-        item_name: line.item_name,
-        unit: line.unit,
-        quantity: line.quantity,
-        expected_unit_price: line.expected_unit_price,
-        discount_percent: 0,
-        vat_percent: 0,
-        note: line.note ?? `Từ ${source.code}`,
-      })),
-    );
+    const source = pickedSource;
+    const lines = source.lines.map((line) => ({
+      item_name: line.item_name,
+      unit: line.unit,
+      quantity: line.quantity,
+      expected_unit_price: line.expected_unit_price,
+      discount_percent: 0,
+      vat_percent: 0,
+      note: line.note ?? `Từ ${source.code}`,
+      // Nối DÒNG ↔ DÒNG. Form dựng từ chính các dòng của yêu cầu nên id có sẵn ngay đây; không
+      // gửi lên thì chi tiết yêu cầu không hiện được tình trạng từng sản phẩm, mà ghép bù theo
+      // tên hàng thì trượt (thu mua sửa được tên cho khớp danh mục NCC).
+      department_request_line_id: line.id,
+    }));
+    // Máy gán sẵn NCC RẺ NHẤT cho TỪNG DÒNG (không phải một NCC cho cả phiếu): phần lớn dòng chỉ
+    // có một nơi bán nên tự khớp, người thu mua chỉ phải xử lý mấy chỗ có nhiều lựa chọn.
+    // Dòng nào chưa ai bán thì để trống — ô chọn sẽ nói rõ, không im lặng.
+    const daGan: FormLine[] = lines.map((line) => {
+      const re = chaoGiaChoMatHang(line.item_name, suppliers)[0];
+      if (!re) return { ...line, supplier_id: null };
+      return {
+        ...line,
+        supplier_id: re.supplier_id,
+        unit: line.unit || re.unit,
+        expected_unit_price: re.unit_price,
+        vat_percent: re.vat_percent,
+      };
+    });
     setEditing(null);
     setForm({
       supplier_id: null,
-      source_request_ids: selectedSources.map((source) => source.id),
-      purpose:
-        selectedSources.length === 1
-          ? selectedSources[0].purpose
-          : `Mua theo ${selectedSources.map((source) => source.code).join(", ")}`,
-      needed_date: dates[0] ?? "",
+      source_request_ids: [source.id],
+      purpose: source.purpose,
+      needed_date: source.needed_date ?? "",
       expected_receipt_date: "",
       note: "",
-      lines: lines.length ? lines : [emptyLine()],
+      lines: daGan.length ? daGan : [emptyLine()],
     });
     setFormError(null);
     setMode("create");
@@ -577,7 +769,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
     setMode("edit");
   }
 
-  function cleanRequest(input: PurchaseRequestInput): PurchaseRequestInput {
+  function cleanRequest(input: FormState): FormState {
     const trimOptional = (v?: string | null) => {
       const s = (v ?? "").trim();
       return s || null;
@@ -599,6 +791,8 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
         discount_percent: Number(line.discount_percent) || 0,
         vat_percent: Number(line.vat_percent) || 0,
         note: trimOptional(line.note),
+        supplier_id: line.supplier_id ?? null,
+        department_request_line_id: line.department_request_line_id ?? null,
       })),
     };
   }
@@ -607,8 +801,10 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
     e.preventDefault();
     if (!token || saving) return;
     const payload = cleanRequest(form);
+    // Chế độ TẠO: NCC gán ở từng DÒNG (kiểm ở dưới), không có ô NCC ở đầu phiếu.
+    // Chế độ SỬA: phiếu đã thuộc về một NCC, giữ nguyên ô đầu phiếu.
     const missingHeader = [
-      !payload.supplier_id ? "Nhà cung cấp" : "",
+      mode === "edit" && !payload.supplier_id ? "Nhà cung cấp" : "",
       !payload.needed_date ? "Ngày cần hàng" : "",
       !payload.purpose ? "Mục đích" : "",
     ].filter(Boolean);
@@ -616,10 +812,19 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
       setFormError(`Vui lòng nhập đầy đủ: ${missingHeader.join(", ")}.`);
       return;
     }
-    if (payload.source_request_ids.length === 0) {
-      setFormError(
-        "Vui lòng chọn ít nhất một yêu cầu mua hàng từ phòng ban để lập phiếu.",
-      );
+    if (payload.needed_date && payload.needed_date < minPurchaseDate) {
+      setFormError("Ngày cần hàng không được nhỏ hơn hôm nay.");
+      return;
+    }
+    if (
+      payload.expected_receipt_date &&
+      payload.expected_receipt_date < minPurchaseDate
+    ) {
+      setFormError("Ngày dự kiến nhận hàng không được nhỏ hơn hôm nay.");
+      return;
+    }
+    if (payload.source_request_ids.length !== 1) {
+      setFormError("Mỗi phiếu mua hàng chỉ được lập từ 1 yêu cầu mua hàng.");
       return;
     }
     if (
@@ -653,20 +858,52 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
       );
       return;
     }
+    // Mỗi dòng phải biết mua của ai — không thì backend không nhóm được thành phiếu.
+    if (mode !== "edit") {
+      const chuaGan = payload.lines.filter((line) => !line.supplier_id);
+      if (chuaGan.length > 0) {
+        setFormError(
+          `Chưa chọn nhà cung cấp cho: ${chuaGan
+            .map((line) => line.item_name || "(dòng trống)")
+            .join(", ")}.`,
+        );
+        return;
+      }
+    }
     setSaving(true);
     setFormError(null);
     try {
-      const saved =
-        mode === "edit" && editing
-          ? await api.purchaseRequests.update(token, editing.id, payload)
-          : await api.purchaseRequests.create(token, payload);
-      if (mode === "edit") updateRow(saved);
-      else {
-        setRows((current) => [saved, ...current]);
-        setTotal((t) => t + 1);
+      if (mode === "edit" && editing) {
+        const saved = await api.purchaseRequests.update(token, editing.id, {
+          ...payload,
+          lines: payload.lines.map(({ supplier_id: _bo, ...line }) => line),
+        });
+        updateRow(saved);
+      } else {
+        // Tách phiếu theo NCC trong MỘT lời gọi — gọi `create` nhiều lần sẽ bị chặn từ lần thứ
+        // hai vì phiếu đầu đã giữ chỗ yêu cầu nguồn.
+        const { items } = await api.purchaseRequests.createBatch(token, {
+          source_request_ids: payload.source_request_ids,
+          purpose: payload.purpose,
+          needed_date: payload.needed_date,
+          expected_receipt_date: payload.expected_receipt_date,
+          note: payload.note,
+          lines: payload.lines.map((line) => ({
+            item_name: line.item_name,
+            unit: line.unit,
+            quantity: line.quantity,
+            expected_unit_price: line.expected_unit_price,
+            discount_percent: line.discount_percent,
+            vat_percent: line.vat_percent,
+            note: line.note,
+            supplier_id: line.supplier_id as number,
+            department_request_line_id: line.department_request_line_id,
+          })),
+        });
+        setRows((current) => [...items, ...current]);
+        setTotal((t) => t + items.length);
       }
       setMode(null);
-      setCheckedSources([]); // tạo xong: bỏ chọn hết (các YCMH đã gom rời "open")
       loadSuppliers();
       loadSources();
     } catch (err) {
@@ -718,10 +955,25 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
   async function confirmReason() {
     if (!token || !reasonModal) return;
     const { row, kind, reason } = reasonModal;
+    if (kind === "reject" && !reason.trim()) {
+      setReasonModal({ ...reasonModal, error: "Vui lòng nhập lý do từ chối." });
+      return;
+    }
+    // Lùi "Đã nhận hàng" XOÁ một món nợ khỏi màn Kế toán ⇒ bắt buộc ghi lý do, để nhật ký còn truy
+    // được. Server cũng chặn lý do rỗng; đây chỉ là chặn sớm cho đỡ một vòng gọi.
+    if (kind === "undo_received" && !reason.trim()) {
+      setReasonModal({ ...reasonModal, error: "Vui lòng nhập lý do lùi trạng thái." });
+      return;
+    }
     setActionBusy(`${kind}:${row.id}`);
     setReasonModal({ ...reasonModal, error: null });
     try {
-      const next = await api.purchaseRequests.cancel(token, row.id, reason || null);
+      const next =
+        kind === "reject"
+          ? await api.purchaseRequests.reject(token, row.id, reason.trim())
+          : kind === "undo_received"
+            ? await api.purchaseRequests.undoReceived(token, row.id, reason.trim())
+            : await api.purchaseRequests.cancel(token, row.id, reason || null);
       updateRow(next);
       setReasonModal(null);
       loadSources();
@@ -738,7 +990,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
     }
   }
 
-  function setLine(index: number, patch: Partial<PurchaseRequestLineInput>) {
+  function setLine(index: number, patch: Partial<FormLine>) {
     setForm((current) => ({
       ...current,
       lines: current.lines.map((line, i) =>
@@ -804,6 +1056,10 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
             }
           />
         )}
+        {/* KHÔNG có nút Duyệt / Từ chối ở màn Mua hàng (chủ 04/08/2026: "phải duyệt ở phần kế
+            toán chứ"). Duyệt đơn mua là quyết định CHI TIỀN — nó thuộc về giám đốc / người được
+            trao quyền, và nay nằm ở màn Kế toán thu mua → Đơn mua hàng.
+            Thu mua ở đây chỉ: Xem · In · Sửa · Gửi duyệt · Huỷ · Xoá. */}
         {canUpdate && row.status === "approved" && (
           <RowActionButton
             dense={dense}
@@ -818,19 +1074,39 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
           />
         )}
         {canUpdate && row.status === "purchased" && (
+          // Bấm ra HỘP KHAI SỐ THỰC NHẬN chứ không lật thẳng trạng thái: đây là mốc phát sinh CÔNG
+          // NỢ, một cú bấm nhầm là đẻ ra nợ trên bàn kế toán. Hộp vừa là bước xác nhận, vừa là chỗ
+          // khai NCC giao thiếu bao nhiêu.
           <RowActionButton
             dense={dense}
             label="Đã nhận"
             icon="packageCheck"
-            loading={busy("received")}
+            onClick={() => setReceiveModal({ row, mode: "receive" })}
+          />
+        )}
+        {/* Sau khi đã nhận: sửa lại số thực nhận (NCC giao nhiều đợt) và lùi trạng thái nếu bấm
+            nhầm. Cả hai server đều đòi quyền DUYỆT — nút vẫn hiện, người thiếu quyền bấm sẽ nhận
+            đúng câu báo thay vì im lặng không có lối. */}
+        {canUpdate && canApprovePurchase && row.status === "received" && (
+          <RowActionButton
+            dense={dense}
+            label="Sửa số nhận"
+            icon="pencil"
+            onClick={() => setReceiveModal({ row, mode: "edit" })}
+          />
+        )}
+        {canUpdate && canApprovePurchase && row.status === "received" && (
+          <RowActionButton
+            dense={dense}
+            label="Lùi đã nhận"
+            icon="rotateCcw"
+            danger
             onClick={() =>
-              runAction(row, "received", () =>
-                api.purchaseRequests.markReceived(token!, row.id),
-              )
+              setReasonModal({ kind: "undo_received", row, reason: "", error: null })
             }
           />
         )}
-        {canCancel &&
+        {/* {canCancel &&
           row.status !== "received" &&
           row.status !== "cancelled" && (
             <RowActionButton
@@ -842,8 +1118,8 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                 setReasonModal({ kind: "cancel", row, reason: "", error: null })
               }
             />
-          )}
-        {canDelete && row.status === "draft" && (
+          )} */}
+        {/* {canDelete && row.status === "draft" && (
           <RowActionButton
             dense={dense}
             label="Xóa"
@@ -851,7 +1127,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
             danger
             onClick={() => setDeleting(row)}
           />
-        )}
+        )} */}
       </div>
     );
   }
@@ -872,8 +1148,8 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
         <p className="eyebrow">Thu mua</p>
         <h1 className="md-page__title">Mua hàng</h1>
         <p className="md-page__sub">
-          Bộ phận mua hàng lập phiếu yêu cầu, gửi kế toán duyệt, sau đó theo dõi
-          đã mua và đã nhận hàng.
+          Bộ phận mua hàng lập PMH từ YCMH, gửi người có quyền duyệt, sau đó
+          theo dõi đã mua và đã nhận hàng.
         </p>
       </header>
 
@@ -882,17 +1158,6 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
           <div>
             <p className="eyebrow">Yêu cầu từ phòng ban</p>
             <h2>Danh sách chờ Thu mua xử lý</h2>
-          </div>
-          <div className="purchase__actions">
-            {canCreate && (
-              <Button
-                variant="primary"
-                onClick={openCreatePurchaseRequest}
-                disabled={selectedSources.length === 0}
-              >
-                Tạo phiếu mua từ yêu cầu
-              </Button>
-            )}
           </div>
         </div>
 
@@ -913,9 +1178,9 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                 setSourcePage(1);
               }}
             />
-            <Button type="submit" variant="ghost">
+            {/* <Button type="submit" variant="ghost">
               Tìm
-            </Button>
+            </Button> */}
           </form>
           <select
             className="input purchase__select"
@@ -936,13 +1201,15 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
 
         <table className="md-page__table">
           <thead>
+            {/* Thao tác đứng CUỐI — khớp bảng Phiếu mua ngay dưới. Cùng một màn mà hai bảng để
+                cột nút ở hai đầu thì mắt phải nhảy qua lại. */}
             <tr>
-              <th>Chọn</th>
               <th>Mã yêu cầu</th>
               <th>Nguồn</th>
               <th>Cần hàng</th>
               <th>Vật tư</th>
               <th>Trạng thái</th>
+              <th>Thao tác</th>
             </tr>
           </thead>
           <tbody>
@@ -964,26 +1231,18 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                 return (
                   <tr
                     key={row.id}
-                    className={`md-page__row${checkedSources.some((picked) => picked.id === row.id) ? " purchase__row--selected" : ""}`}
-                    onClick={() => toggleSource(row)}
+                    className="md-page__row"
+                    onClick={() =>
+                      !disabled && canCreate
+                        ? openCreatePurchaseRequest(row)
+                        : undefined
+                    }
                   >
-                    <td onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={checkedSources.some(
-                          (picked) => picked.id === row.id,
-                        )}
-                        disabled={disabled}
-                        onChange={() => toggleSource(row)}
-                        aria-label={`Chọn ${row.code}`}
-                      />
-                    </td>
                     <td>
                       <strong className="md-page__mono">{row.code}</strong>
                       <div className="md-page__muted">{row.purpose}</div>
                     </td>
                     <td>
-                      {/* {SOURCE_TYPE_LABELS[row.source_type]} */}
                       <div>
                         {row.requesting_department_name ||
                           row.requested_by_name ||
@@ -1003,6 +1262,19 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                     <td>
                       <SourceStatusBadge status={row.status} />
                     </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {canCreate && !disabled ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={() => openCreatePurchaseRequest(row)}
+                        >
+                          Tạo phiếu
+                        </Button>
+                      ) : (
+                        <span className="md-page__muted">—</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })
@@ -1011,7 +1283,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
         </table>
         <div className="purchase__source-foot">
           <span className="md-page__muted">
-            Đã chọn {selectedSources.length} yêu cầu · Tổng {sourceTotal}
+            Tổng {sourceTotal} yêu cầu
           </span>
           {sourceTotalPages > 1 && (
             <div className="md-page__pager-btns">
@@ -1055,9 +1327,9 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
               setPage(1);
             }}
           />
-          <Button type="submit" variant="ghost">
+          {/* <Button type="submit" variant="ghost">
             Tìm
-          </Button>
+          </Button> */}
         </form>
         <select
           className="input purchase__select"
@@ -1185,6 +1457,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
           kicker="Chi tiết phiếu"
           title={selected.code}
           badge={<StatusBadge status={selected.status} />}
+          footer={actionButtons(selected)}
           onClose={() => setSelectedId(null)}
         >
           <dl className="purchase__facts">
@@ -1193,7 +1466,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
               <dd>{selected.supplier_name || "Chưa chọn"}</dd>
             </div>
             <div>
-              <dt>Yêu cầu nguồn</dt>
+              <dt>Phiếu yêu cầu mua hàng</dt>
               <dd>
                 {selected.sources.length
                   ? selected.sources.map((source, index) => (
@@ -1283,7 +1556,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
       {mode && (
         <div className="md-page__overlay" role="presentation">
           <div
-            className="card md-page__dialog purchase__dialog"
+            className="card md-page__dialog purchase__dialog purchase__dialog--order"
             role="dialog"
             aria-modal="true"
           >
@@ -1306,6 +1579,10 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                 </div>
               )}
               <div className="md-page__form-grid">
+                {/* Ô NCC ở ĐẦU PHIẾU chỉ còn cho chế độ SỬA: phiếu đã tồn tại thì nó vốn thuộc về
+                    một nhà cung cấp. Lúc TẠO thì NCC gán ở từng DÒNG, vì một yêu cầu thường chứa
+                    hàng của nhiều nơi và mỗi NCC phải ra một phiếu riêng. */}
+                {mode === "edit" && (
                 <LocalField label="Nhà cung cấp" required>
                   <select
                     className="input"
@@ -1314,65 +1591,35 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                     onChange={(e) =>
                       setForm({
                         ...form,
-                        supplier_id: e.target.value
-                          ? Number(e.target.value)
-                          : null,
+                        supplier_id: e.target.value ? Number(e.target.value) : null,
+                        lines: applySupplierPrices(
+                          form.lines,
+                          suppliers,
+                          e.target.value ? Number(e.target.value) : null,
+                        ),
                       })
                     }
                   >
                     <option value="">Chọn nhà cung cấp</option>
-                    {suppliers.map((supplier) => (
-                      <option key={supplier.id} value={supplier.id}>
-                        {supplier.name}
-                      </option>
-                    ))}
+                    {suppliers.map((supplier) => {
+                      const bestId = bestSupplierIdForLines(form.lines, suppliers);
+                      const bestHint =
+                        supplier.id === bestId ? " - giá thấp nhất" : "";
+                      return (
+                        <option key={supplier.id} value={supplier.id}>
+                          {`${supplier.name}${bestHint}`}
+                        </option>
+                      );
+                    })}
                   </select>
                 </LocalField>
-                <LocalField label="Yêu cầu nguồn" wide required>
-                  <div className="purchase__source-picker">
-                    {formSourceRows.length === 0 ? (
-                      <span className="md-page__muted">
-                        Chưa có yêu cầu đang chờ mua.
-                      </span>
-                    ) : (
-                      formSourceRows.map((source) => (
-                        <label
-                          key={source.id}
-                          className="purchase__source-option"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={form.source_request_ids.includes(
-                              source.id,
-                            )}
-                            onChange={(e) =>
-                              setForm((current) => ({
-                                ...current,
-                                source_request_ids: e.target.checked
-                                  ? [...current.source_request_ids, source.id]
-                                  : current.source_request_ids.filter(
-                                      (id) => id !== source.id,
-                                    ),
-                              }))
-                            }
-                          />
-                          <span>
-                            <strong>{source.code}</strong>
-                            <small>
-                              {SOURCE_TYPE_LABELS[source.source_type]} ·{" "}
-                              {fmtDate(source.needed_date)}
-                            </small>
-                          </span>
-                        </label>
-                      ))
-                    )}
-                  </div>
-                </LocalField>
+                )}
                 <LocalField label="Ngày cần hàng" required>
                   <input
                     className="input"
                     type="date"
                     required
+                    min={minPurchaseDate}
                     value={form.needed_date ?? ""}
                     onChange={(e) =>
                       setForm({ ...form, needed_date: e.target.value })
@@ -1383,6 +1630,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                   <input
                     className="input"
                     type="date"
+                    min={expectedReceiptMinDate}
                     value={form.expected_receipt_date ?? ""}
                     onChange={(e) =>
                       setForm({
@@ -1415,24 +1663,28 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
               <div className="purchase__form-section">
                 <div className="purchase__form-section-head">
                   <h3>Dòng hàng</h3>
-                  <button
-                    type="button"
-                    className="btn btn--ghost"
-                    onClick={() =>
-                      setForm((current) => ({
-                        ...current,
-                        lines: [...current.lines, emptyLine()],
-                      }))
-                    }
-                  >
-                    + Thêm dòng
-                  </button>
+                  {/* KHÔNG có nút thêm dòng: danh sách hàng lấy nguyên từ yêu cầu của bộ phận.
+                      Thu mua thêm được một dòng thì thành mua thứ không ai xin. Cần mua thêm thì
+                      bộ phận gửi yêu cầu mới, để còn có người duyệt. */}
+                  <span className="md-page__muted">
+                    Lấy từ yêu cầu — Thu mua chọn nhà cung cấp và giá
+                  </span>
                 </div>
-                <div className="purchase__line-editor">
+                <div
+                  className={`purchase__line-editor${
+                    mode !== "edit" ? " purchase__line-editor--tach-ncc" : ""
+                  }`}
+                >
                   <div className="purchase__line-labels" aria-hidden="true">
                     <span>
                       Vật tư <span className="purchase__required-star">*</span>
                     </span>
+                    {mode !== "edit" && (
+                      <span>
+                        Nhà cung cấp{" "}
+                        <span className="purchase__required-star">*</span>
+                      </span>
+                    )}
                     <span>
                       ĐVT <span className="purchase__required-star">*</span>
                     </span>
@@ -1452,40 +1704,53 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                   </div>
                   {form.lines.map((line, index) => (
                     <div className="purchase__line-edit" key={index}>
+                      {/* Vật tư và ĐVT do BỘ PHẬN ĐỀ NGHỊ quyết, thu mua không được đổi — đổi ở
+                          đây là mua thứ khác với thứ người ta xin mà không ai hay. Thu mua chỉ
+                          chọn MUA CỦA AI và giá. Cùng lý do: không thêm/xoá dòng. */}
                       <input
-                        className="input purchase__line-name"
+                        className="input purchase__line-name purchase__readonly-field"
                         required
+                        readOnly
                         aria-label="Tên vật tư"
-                        placeholder="VD: Giấy Duplex 350gsm"
+                        title="Vật tư do bộ phận đề nghị khai — Thu mua không sửa được"
                         value={line.item_name}
-                        onChange={(e) =>
-                          setLine(index, { item_name: e.target.value })
-                        }
                       />
+                      {mode !== "edit" && (
+                        <LineSupplierPicker
+                          line={line}
+                          suppliers={suppliers}
+                          onPick={(chao) =>
+                            setLine(index, {
+                              supplier_id: chao?.supplier_id ?? null,
+                              // Chọn NCC là lấy luôn GIÁ CỦA CHÍNH HỌ — để người dùng gõ lại là
+                              // mở đường cho việc đặt một đằng, giá một nẻo.
+                              ...(chao
+                                ? {
+                                    unit: line.unit || chao.unit,
+                                    expected_unit_price: chao.unit_price,
+                                    vat_percent: chao.vat_percent,
+                                  }
+                                : {}),
+                            })
+                          }
+                        />
+                      )}
                       <input
-                        className="input purchase__line-unit"
+                        className="input purchase__line-unit purchase__readonly-field"
                         required
+                        readOnly
                         aria-label="Đơn vị tính"
-                        placeholder="VD: tờ, kg, cuộn"
+                        title="Đơn vị tính do bộ phận đề nghị khai — Thu mua không sửa được"
                         value={line.unit}
-                        onChange={(e) =>
-                          setLine(index, { unit: e.target.value })
-                        }
                       />
                       <input
-                        className="input purchase__number-input"
+                        className="input purchase__number-input purchase__readonly-field"
                         type="number"
-                        min="0.01"
-                        step="0.01"
                         required
+                        readOnly
                         aria-label="Số lượng"
-                        placeholder="VD: 1000"
+                        title="Số lượng do bộ phận đề nghị khai — Thu mua không sửa được"
                         value={line.quantity > 0 ? line.quantity : ""}
-                        onChange={(e) =>
-                          setLine(index, {
-                            quantity: Number(e.target.value || 0),
-                          })
-                        }
                       />
                       <input
                         className="input purchase__number-input"
@@ -1561,21 +1826,10 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                           <span className="md-page__muted">Chưa tính</span>
                         )}
                       </strong>
-                      <button
-                        type="button"
-                        className="purchase__line-remove"
-                        aria-label="Xóa dòng vật tư"
-                        title="Xóa dòng"
-                        disabled={form.lines.length <= 1}
-                        onClick={() =>
-                          setForm((current) => ({
-                            ...current,
-                            lines: current.lines.filter((_, i) => i !== index),
-                          }))
-                        }
-                      >
-                        ×
-                      </button>
+                      {/* Ô trống giữ chỗ cột cuối — bỏ hẳn thì lưới lệch một cột. Không cho xoá
+                          dòng vì bỏ bớt là mua thiếu so với thứ bộ phận đã xin, mà phiếu vẫn
+                          trông như đã xử lý xong yêu cầu đó. */}
+                      <span aria-hidden="true" />
                     </div>
                   ))}
                 </div>
@@ -1590,6 +1844,19 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                     )}
                   </strong>
                 </div>
+                {/* Nói TRƯỚC sẽ đẻ ra mấy phiếu. Bấm Lưu rồi mới thấy danh sách nhảy thêm mấy
+                    dòng là bất ngờ không đáng có — và người dùng cần biết để còn đổi NCC. */}
+                {mode !== "edit" && phieuSeTao.length > 0 && (
+                  <p className="md-page__muted" style={{ marginTop: 4 }}>
+                    Sẽ tạo <strong>{phieuSeTao.length} phiếu</strong> —{" "}
+                    {phieuSeTao
+                      .map(
+                        (p) =>
+                          `${p.ten}: ${p.soDong} dòng / ${money(p.tien)}`,
+                      )
+                      .join(" · ")}
+                  </p>
+                )}
               </div>
 
               <div className="md-page__dialog-actions">
@@ -1627,10 +1894,28 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
 
       <ConfirmDialog
         open={Boolean(reasonModal)}
-        title="Hủy phiếu?"
-        message={reasonModal ? `Phiếu ${reasonModal.row.code}` : undefined}
+        title={
+          reasonModal?.kind === "reject"
+            ? "Từ chối phiếu?"
+            : reasonModal?.kind === "undo_received"
+              ? "Lùi về 'Đã mua'?"
+              : "Hủy phiếu?"
+        }
+        message={
+          reasonModal
+            ? reasonModal.kind === "undo_received"
+              ? `Phiếu ${reasonModal.row.code} — công nợ của đơn này sẽ mất khỏi màn Kế toán, và yêu cầu của bộ phận quay về "Đang mua".`
+              : `Phiếu ${reasonModal.row.code}`
+            : undefined
+        }
         danger
-        confirmLabel="Hủy phiếu"
+        confirmLabel={
+          reasonModal?.kind === "reject"
+            ? "Từ chối phiếu"
+            : reasonModal?.kind === "undo_received"
+              ? "Lùi trạng thái"
+              : "Hủy phiếu"
+        }
         busy={
           reasonModal
             ? actionBusy === `${reasonModal.kind}:${reasonModal.row.id}`
@@ -1641,7 +1926,13 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
         onCancel={() => setReasonModal(null)}
       >
         <label className="purchase__field">
-          <span>Lý do / ghi chú</span>
+          <span>
+            {reasonModal?.kind === "reject"
+              ? "Lý do từ chối"
+              : reasonModal?.kind === "undo_received"
+                ? "Lý do lùi (bắt buộc)"
+                : "Lý do / ghi chú"}
+          </span>
           <textarea
             className="input purchase__textarea"
             value={reasonModal?.reason ?? ""}
@@ -1653,7 +1944,136 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
           />
         </label>
       </ConfirmDialog>
+
+      {receiveModal && (
+        <ReceiveDialog
+          row={receiveModal.row}
+          mode={receiveModal.mode}
+          onClose={() => setReceiveModal(null)}
+          onDone={(next) => {
+            updateRow(next);
+            setReceiveModal(null);
+            loadSources();
+          }}
+        />
+      )}
     </main>
+  );
+}
+
+/**
+ * Khai SỐ THỰC NHẬN lúc bấm "Đã nhận hàng".
+ *
+ * Ô số điền sẵn bằng số đã đặt ⇒ hàng về đủ thì chỉ bấm Xác nhận, KHÔNG phải gõ gì. Chỉ khi NCC
+ * giao thiếu mới phải sửa xuống. Số này là nền của công nợ và là trần lập phiếu chi — ghi nợ đủ
+ * cho hàng về thiếu là kế toán chi thừa tiền thật.
+ *
+ * `mode="edit"` dùng cho ca NCC giao nhiều đợt (đợt 1 về 600, đợt 2 về nốt thì sửa lên 1000);
+ * đường này server đòi quyền DUYỆT vì nó đổi số nợ đã ghi.
+ */
+function ReceiveDialog({
+  row,
+  mode,
+  onClose,
+  onDone,
+}: {
+  row: PurchaseRequestRow;
+  mode: "receive" | "edit";
+  onClose: () => void;
+  onDone: (next: PurchaseRequestRow) => void;
+}) {
+  const { token } = useAuth();
+  const [values, setValues] = useState<Record<number, string>>(() =>
+    Object.fromEntries(
+      row.lines.map((line) => [
+        line.id,
+        String(line.received_quantity ?? line.quantity),
+      ]),
+    ),
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const thieu = row.lines.some(
+    (line) => Number(values[line.id] ?? line.quantity) < line.quantity,
+  );
+
+  async function submit() {
+    if (!token) return;
+    const lines = row.lines.map((line) => ({
+      line_id: line.id,
+      received_quantity: Number(values[line.id] ?? line.quantity),
+    }));
+    if (lines.some((l) => !Number.isFinite(l.received_quantity!) || l.received_quantity! < 0)) {
+      setError("Số thực nhận phải là số không âm.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      onDone(
+        mode === "receive"
+          ? await api.purchaseRequests.markReceived(token, row.id, lines)
+          : await api.purchaseRequests.updateReceivedQuantities(token, row.id, lines),
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Không lưu được số thực nhận.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ConfirmDialog
+      open
+      title={mode === "receive" ? "Xác nhận đã nhận hàng" : "Sửa số thực nhận"}
+      message={`Phiếu ${row.code} — về đủ thì bấm Xác nhận, về thiếu thì sửa số xuống.`}
+      confirmLabel={mode === "receive" ? "Xác nhận đã nhận" : "Lưu số thực nhận"}
+      busy={busy}
+      error={error}
+      onConfirm={submit}
+      onCancel={onClose}
+    >
+      <table className="pay-table">
+        <thead>
+          <tr>
+            <th>Vật tư</th>
+            <th className="pay-num">Đặt</th>
+            <th className="pay-num">Thực nhận</th>
+          </tr>
+        </thead>
+        <tbody>
+          {row.lines.map((line) => (
+            <tr key={line.id}>
+              <td>{line.item_name}</td>
+              <td className="pay-num">
+                {line.quantity} {line.unit}
+              </td>
+              <td className="pay-num">
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={line.quantity}
+                  step="any"
+                  style={{ width: 110, textAlign: "right" }}
+                  value={values[line.id] ?? ""}
+                  onChange={(e) =>
+                    setValues((current) => ({ ...current, [line.id]: e.target.value }))
+                  }
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {thieu && (
+        <p className="pay-block__hint" style={{ marginTop: 8 }}>
+          Có dòng nhận thiếu so với số đặt — công nợ và trần lập phiếu chi sẽ tính theo số thực
+          nhận.
+        </p>
+      )}
+    </ConfirmDialog>
   );
 }
 

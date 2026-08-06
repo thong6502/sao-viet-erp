@@ -35,7 +35,7 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
   const [ban, setBan] = useState(false);
   // Dòng đang thêm. `dong` = khai bằng công thức (quy đổi động) thay vì con số.
   const [them, setThem] = useState({ gia: "", den_id: "", dong: false });
-  const [moBien, setMoBien] = useState(false);
+  const [moBien, setMoBien] = useState(true);
   const [sua, setSua] = useState<Record<number, string>>({});
   // Chỉ MỘT trình soạn công thức mở một lúc.
   const [suaCt, setSuaCt] = useState<number | null>(null);

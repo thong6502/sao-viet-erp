@@ -2,20 +2,23 @@
 redesign-don-hang-ban.md (khâu ④ CHỐT ĐƠN). V5: cọc KHÔNG còn ở đây — Kế toán lập
 PaymentReceipt(source='don_hang_ban', order_id) (models/accounting.py).
 
-An **order** (đơn hàng bán) is created từ một **báo giá đã duyệt** (`accepted`, còn hạn) HOẶC
-**nhập giá tay** (`source_type`). At chốt đơn it **snapshots** the priced line copy-on-write so a
-later price/norm change never rewrites the đơn.
+An **order** (đơn hàng bán) is created từ một **báo giá đã duyệt** (`accepted`, còn hạn). At chốt
+đơn it **snapshots** the priced line copy-on-write so a later price/norm change never rewrites
+the đơn.
 
 P1 redesign (2026-07-15) — quyết định đã khóa (xem docs/redesign-don-hang-ban.md):
-  - **2 nguồn:** `bao_gia` (ghim quotation_id+version+effective_from, giá+giá vốn bất biến) ·
-    `nhap_tay` (không giá vốn → biên "không xác định"; luôn cần TP/GĐ duyệt). Bỏ "nhân bản".
+  - **1 nguồn:** `bao_gia` (ghim quotation_id+version+effective_from, giá+giá vốn bất biến).
     Đơn bổ sung (`order_kind=bo_sung`, `parent_order_id`) giữ kẽm → giá riêng.
   - **% cọc = ghim từ BÁO GIÁ** (`deposit_pct`), khóa trên đơn. Số ngày công nợ KHÔNG giữ ở đơn.
   - **Trạng thái active:** draft → ordered → cancelled. (`on_hold`/`change_order` dormant.)
-  - **order_nature** {hang_hoa, gia_cong} thay cờ `has_customer_paper` (2 gốc thuế).
-  - **Duyệt tại đơn** cho nguồn không-qua-báo-giá qua `approval_state` + `order_approvals`.
   - **Hủy:** `cancel_*` (lý do + lỗi tại ai) — cọc KHÔNG xóa; "còn cọc chưa quyết toán" SUY RA từ
     data (đơn hủy + Σ cọc đã nhận > 0). Duyệt bản in + tiến độ SX là luồng NGOÀI hệ thống (bỏ field).
+
+GỠ 2026-08-04 — đường tạo đơn NHẬP TAY + toàn bộ luồng DUYỆT đơn đặc thù. Các hằng/cột dưới đây
+thành **DORMANT**: giữ nguyên để 12 đơn `nhap_tay` cũ còn đọc được và vì dự án KHÔNG có Alembic
+(`create_all` không ALTER được) — không phải vì còn ai dùng. Cùng kiểu với `has_customer_paper`.
+DORMANT: `SOURCE_NHAP_TAY` · `order_nature` · `invoice_entity_*` · `needs_approval` ·
+`approval_state` · bảng `order_approvals`.
 """
 from __future__ import annotations
 
@@ -37,13 +40,13 @@ from sqlalchemy.types import JSON
 from ..db import Base
 
 # --- source_type (P1 redesign): nguồn tạo đơn ---------------------------------
-SOURCE_BAO_GIA = "bao_gia"        # từ báo giá đã duyệt (ghim quotation + snapshot giá/giá vốn)
-SOURCE_NHAP_TAY = "nhap_tay"      # nhập giá tay (không giá vốn → biên "không xác định")
+SOURCE_BAO_GIA = "bao_gia"        # NGUỒN DUY NHẤT hiện nay
+SOURCE_NHAP_TAY = "nhap_tay"      # DORMANT — đường tạo đã gỡ, hằng còn để ĐỌC đơn cũ
 SOURCE_TYPES = (SOURCE_BAO_GIA, SOURCE_NHAP_TAY)
 
-# --- order_nature: bản chất giao dịch (gốc thuế, thay has_customer_paper) ------
+# --- order_nature: DORMANT (gỡ cùng vùng "Bản chất đơn" trên UI) ---------------
 NATURE_HANG_HOA = "hang_hoa"      # xưởng lo hết → HĐ toàn bộ giá trị
-NATURE_GIA_CONG = "gia_cong"      # khách ứng giấy → HĐ chỉ tiền công (xử ở Pha Hóa đơn)
+NATURE_GIA_CONG = "gia_cong"      # khách ứng giấy → HĐ chỉ tiền công
 ORDER_NATURES = (NATURE_HANG_HOA, NATURE_GIA_CONG)
 
 # --- order_type (§41, dormant) -------------------------------------------------
@@ -69,7 +72,8 @@ ORDER_STATUSES = (
     STATUS_CANCELLED,
 )
 
-# --- approval_state (P3): trạng thái trình-duyệt của đơn cần duyệt --------------
+# --- approval_state: DORMANT (luồng duyệt đơn đã gỡ) ---------------------------
+# Chỉ còn APPROVAL_STATE_NONE được GHI (mọi đơn mới); 3 giá trị kia không sinh ra nữa.
 APPROVAL_STATE_NONE = "none"        # đơn không cần duyệt
 APPROVAL_STATE_PENDING = "pending"  # đã "Trình duyệt", chờ người có quyền
 APPROVAL_STATE_APPROVED = "approved"

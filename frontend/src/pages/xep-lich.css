@@ -2056,6 +2056,21 @@ caption.sr-only {
   z-index: 1;
 }
 
+/* RÂU nhanh–chậm ở ĐUÔI thanh: thanh đặt theo thời lượng TRUNG BÌNH, râu nói "xong sớm nhất /
+   muộn nhất" nếu máy chạy ở tốc độ tối đa / tối thiểu. Hai vạch đứng ở hai đầu + gạch ngang nối,
+   đúng hình hộp-râu quen thuộc. Máy chưa khai dải min/max thì component KHÔNG render phần này —
+   đừng vẽ râu bề rộng 0, nó trông như máy chạy chính xác tuyệt đối. */
+.xlcd-grau {
+  position: absolute;
+  height: 8px;
+  pointer-events: none;
+  z-index: 2;
+  border-top: 2px solid color-mix(in srgb, var(--ink) 45%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--ink) 45%, transparent);
+  border-right: 2px solid color-mix(in srgb, var(--ink) 45%, transparent);
+  border-radius: 2px 2px 0 0;
+}
+
 /* Hộp thoại ảnh-hưởng (bật khi có bước-sau / xung-đột / cần-xác-nhận). */
 .xlcd-scrim {
   position: fixed;

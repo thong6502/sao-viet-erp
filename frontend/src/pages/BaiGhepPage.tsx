@@ -230,7 +230,7 @@ function ChoTable({
               <th className="bghep-check" aria-label="Chọn" />
               <th>Lệnh</th>
               <th>Giấy</th>
-              <th className="khsx-num">Số màu</th>
+              <th>Mực in</th>
               <th>Khổ TP</th>
               <th className="khsx-num">Số lượng</th>
               <th>Hạn in</th>
@@ -280,8 +280,13 @@ function ChoTable({
                       {r.giay_ten || "—"}
                       {r.gsm ? <span className="khsx-unit"> · {r.gsm} gsm</span> : null}
                     </td>
-                    <td className="khsx-num">
-                      {r.so_mau_a ?? 0}/{r.so_mau_b ?? 0}
+                    {/* Mực THẬT, không phải "4/1": ghép chung tờ là chung một bộ bản, mà CMYK/K
+                        với CMYK/185C cùng ra nhãn "4/1" trong khi bản kẽm khác hẳn. Người ghép
+                        chọn ứng viên ngay ở bảng này nên nhãn phải nói đúng. */}
+                    <td>
+                      {(r.muc_a?.length ?? 0) + (r.muc_b?.length ?? 0) > 0
+                        ? `${r.muc_a?.join("+") || "—"} / ${r.muc_b?.join("+") || "—"}`
+                        : `${r.so_mau_a ?? 0}/${r.so_mau_b ?? 0}`}
                     </td>
                     <td>{r.kho_tp || "—"}</td>
                     <td className="khsx-num">

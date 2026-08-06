@@ -2,7 +2,8 @@
 // `showIf` (ẩn/hiện theo kiểu), `ref`/`ref-multi` (chọn theo TÊN thay vì gõ id),
 // `default` (prefill khi tạo), `jsonKey` (lưu lồng vào fields_theo_loai).
 // Enum hiển thị bằng thuật ngữ in ấn thuần Việt — dùng chung 1 bảng nhãn cho cả dropdown lẫn cột.
-import type { CatalogConfig } from "./RebuildCatalogPage";
+import type { CatalogConfig, ChuanBiKhoanRow } from "./RebuildCatalogPage";
+import { ClockIcon, DON_VI_TOC_DO, isMayIn, tongChuanBi } from "./RebuildCatalogPage";
 import { QuyDoiCuaDonVi } from "./QuyDoiCuaDonVi";
 
 // ── Bảng nhãn thuần Việt (in ấn) — 1 nguồn cho options + column render ──────────
@@ -22,9 +23,26 @@ const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia c�
 // Hệ số quy đổi KHÔNG khai ở đây — phiếu tính giá đã có con/tờ và số mảnh xả.
 // Ba mức của DÒNG GIẤY — hết. Bước không chạm giấy (chế bản) thì để TRỐNG ô đơn vị, chứ không
 // đẻ thêm lựa chọn cho nó: trống = "không nằm trên dòng giấy", engine bỏ qua khi tính bù hao.
+// Danh sách CỐ ĐỊNH (chủ chốt 04/08/2026) — ô chọn, không thêm/sửa/xoá.
+//
+// BỐN mã đầu nằm trên DÒNG GIẤY và có cầu quy đổi thật:
+//     tờ nguyên ──(số mảnh xả)──▶ tờ in ──(con/tờ)──▶ con ──(1/số tay)──▶ thành phẩm
+// `con` KHÁC `thành phẩm`: sách gấp tay thì nhiều tờ mới gom thành MỘT cuốn, còn con chỉ là số
+// mảnh cắt ra từ một tờ. Hệ số hai cầu này SUY ra ở `_he_so_cau`, không khai tay.
+//
+// 🔴 Các mã còn lại (bản · mẫu · tấn · mẻ · m² · nhịp · hộp) KHÔNG có cầu quy đổi. Bước khai
+// chúng vẫn lưu được, nhưng engine bù hao lấy hệ số 1 kèm warning — tức "1 tấn = 1 tờ" khi tính
+// ngược số tờ cấp. Chỉ dùng cho bước KHÔNG nằm trên dòng giấy.
+// CHỈ các mức trên DÒNG GIẤY — phải khớp `cong_doan.DON_VI_DONG_GIAY` ở backend, vì service
+// chặn mọi đơn vị ngoài danh sách đó (`[E-CD-DONVI]`). Bỏ 2026-08-05: `Bản · Mẫu · Tấn · Mẻ ·
+// m² · Nhịp · Hộp` — chúng chưa bao giờ lưu được (backend đã chặn từ trước) nên chỉ là bẫy cho
+// người khai. Thêm đơn vị mới thì phải mở ở CẢ HAI nơi, đừng chỉ thêm nhãn ở đây.
+//   tờ nguyên --(xả)--> tờ in --(gấp)--> tay sách --(bắt tay/vào keo)--> thành phẩm (ĐÍCH CUỐI)
 const DON_VI_CD: Lbls = {
   to_nguyen: "Tờ nguyên (giấy to)",
   to: "Tờ in",
+  con: "Con",
+  tay: "Tay sách",
   cai: "Thành phẩm",
 };
 
@@ -48,10 +66,30 @@ export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
   title: "Loại sản phẩm",
   subtitle: "Khuôn mẫu sản phẩm — gán cách dàn khuôn (bình bài) + chuỗi công đoạn mặc định.",
   prefix: "/api/loai-san-pham",
-  columns: [],
+  columns: [
+    {
+      key: "routing_template",
+      label: "Chuỗi công đoạn mặc định",
+      render: (r) => {
+        const arr = (r.routing_template ?? []) as unknown[];
+        if (!Array.isArray(arr) || arr.length === 0) {
+          return <span style={{ color: "var(--ash, #8a8577)", fontSize: "12.5px" }}>Chưa khai báo</span>;
+        }
+        return (
+          <div className="rc__formula-chips">
+            <span className="rc__formula-pill rc__formula-pill--dynamic">
+              {arr.length} bước sản xuất
+            </span>
+          </div>
+        );
+      },
+    },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
+  ],
   fields: [
     { key: "routing_template", label: "Chuỗi công đoạn mặc định", type: "ref-multi", refPrefix: "/api/cong-doan",
       group: "Công đoạn mặc định", hint: "Các bước sản xuất, theo đúng thứ tự chạy" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
   deriveInitial: (existing) => ({
     structural_type: existing?.structural_type ?? "flat",
@@ -70,28 +108,92 @@ export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
   }),
 };
 
-const isMayIn = (val: unknown) => {
-  const s = String(val || "").trim().toLowerCase();
-  return s === "máy in" || s === "in ngoài" || s.startsWith("in ") || s.includes("máy in") || s.includes("in offset");
-};
-
 // Form MỞ (phẳng): mọi ô luôn hiện, không phân loại cứng. Chủ xưởng tự đặt "Nhóm máy"
 // (chữ tự do) rồi nhập khổ kẽm / nhíp / khổ giấy / vùng in / ghi chú.
+// Nhãn đơn vị tốc độ cho BẢNG DANH SÁCH — lấy ĐÚNG bảng mà ô chọn đang dùng (`DON_VI_TOC_DO`).
+// Trước đây đây là bảng nhãn RIÊNG, thiếu mã nào thì hiện trần phần mã: máy khai `tan_gio` ra
+// "tan/giờ" mất dấu, mà ô chọn ngay cạnh lại ghi "tấn/h". Hai bảng nhãn cho cùng một thứ thì kiểu
+// gì cũng lệch — nay một nguồn duy nhất.
+function nhanDonViTocDo(ma: string): string {
+  if (!ma) return "";
+  const co = DON_VI_TOC_DO.find((d) => d.ma === ma);
+  if (co) return co.nhan;
+  // Mã cũ ngoài danh sách (máy khai từ trước khi khoá): hiện phần mã + "/h" chứ không bịa nhãn.
+  return `${ma.endsWith("_gio") ? ma.slice(0, -4) : ma}/h`;
+}
+
 export const CFG_MAY: CatalogConfig = {
-  title: "Thiết bị & Máy in",
+  title: "Thiết bị & Máy móc",
   subtitle: "Nhập tự do mọi loại máy (in, cán màng/UV, bồi, bế…). Tự đặt Nhóm máy rồi điền khổ kẽm, nhíp kẽm, khổ giấy, vùng in.",
   prefix: "/api/may-thiet-bi",
   columns: [
     { key: "loai_may", label: "Nhóm máy", render: (r) => (r.loai_may ? String(r.loai_may) : "—") },
-    { key: "kho_max", label: "Khổ giấy max (mm)",
-      render: (r) => (r.kho_max_rong || r.kho_max_dai ? `${r.kho_max_rong ?? "?"}×${r.kho_max_dai ?? "?"}` : "—") },
-    // Hiện ngay trên list để nhìn ra máy nào CHƯA khai tốc độ — không phải bấm vào từng cái.
-    // Máy chưa có số thì lệnh sản xuất bỏ trống thời gian chạy, Gantt sau này vẽ thanh rỗng.
-    { key: "toc_do", label: "Tốc độ",
-      render: (r) =>
-        r.toc_do
-          ? `${Number(r.toc_do).toLocaleString("vi-VN")} ${r.don_vi_toc_do === "kem_gio" ? "kẽm/giờ" : "tờ/giờ"}`
-          : "—" },
+    { key: "thong_so_kho", label: "Khổ máy & Vùng in",
+      render: (r) => {
+        // `Row` là bản ghi động (`unknown` mọi field) nên phải ép chuỗi trước khi render, và guard
+        // phải ép Boolean — `unknown && JSX` không phải ReactNode.
+        const so = (v: unknown) => (v == null || v === "" ? "?" : String(v));
+        const isMayInType = isMayIn(String(r.loai_may ?? ""));
+        const hasKhoMax = Boolean(r.kho_max_rong || r.kho_max_dai);
+        const hasKem = isMayInType && Boolean(r.kho_kem_rong || r.kho_kem_dai);
+        const hasVungIn = isMayInType && Boolean(r.vung_in_rong || r.vung_in_dai);
+        if (!hasKhoMax && !hasKem && !hasVungIn) return "—";
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: "2px", fontSize: "12.5px" }}>
+            {hasKhoMax && (
+              <div>
+                <span style={{ fontWeight: 600 }}>{so(r.kho_max_rong)}×{so(r.kho_max_dai)}</span>
+                <span style={{ fontSize: "11px", color: "var(--ash, #8a8577)", marginLeft: "4px" }}>(giấy max)</span>
+              </div>
+            )}
+            {hasKem && (
+              <div style={{ fontSize: "11px", color: "var(--charcoal, #374151)" }}>
+                <span>Kẽm: {so(r.kho_kem_rong)}×{so(r.kho_kem_dai)}</span>
+                {hasVungIn && (
+                  <span style={{ marginLeft: "6px" }}>• In: {so(r.vung_in_rong)}×{so(r.vung_in_dai)}</span>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      }
+    },
+    { key: "chua_le", label: "Chừa lề tờ in",
+      render: (r) => {
+        if (!isMayIn(String(r.loai_may ?? ""))) return "—";
+        const parts = [];
+        if (r.nhip_giay_mm) parts.push(`Nhíp ${r.nhip_giay_mm}mm`);
+        if (r.le_hong_mm) parts.push(`Lề ${r.le_hong_mm}mm`);
+        if (r.duoi_thang_mau_mm) parts.push(`Đuôi ${r.duoi_thang_mau_mm}mm`);
+        if (parts.length === 0) return "—";
+        return (
+          <div style={{ fontSize: "11.5px", color: "var(--charcoal, #4b5563)", lineHeight: "1.4" }}>
+            {parts.join(" • ")}
+          </div>
+        );
+      }
+    },
+    { key: "toc_do", label: "Tốc độ & Chuẩn bị",
+      render: (r) => {
+        const nSpeed = r.toc_do ? `${Number(r.toc_do).toLocaleString("vi-VN")} ${nhanDonViTocDo(String(r.don_vi_toc_do ?? ""))}` : null;
+        const box = (r.fields_theo_loai ?? {}) as Record<string, unknown>;
+        const khoan = box.chuan_bi_khoan as ChuanBiKhoanRow[] | undefined;
+        const tongKhoan = Array.isArray(khoan) && khoan.length > 0 ? tongChuanBi(khoan) : 0;
+        const totalMakeready = tongKhoan > 0 ? tongKhoan : (Number(r.makeready_time_default) || 0);
+
+        if (!nSpeed && !totalMakeready) return "—";
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: "2px", fontSize: "12.5px" }}>
+            {nSpeed ? <div style={{ fontWeight: 600 }}>{nSpeed}</div> : <div style={{ color: "var(--ash)" }}>—</div>}
+            {totalMakeready > 0 && (
+              <div style={{ fontSize: "11.5px", color: "var(--rust, #c5400a)", fontWeight: 500, display: "flex", alignItems: "center" }}>
+                <ClockIcon width={12} height={12} /> Chuẩn bị: {totalMakeready} phút
+              </div>
+            )}
+          </div>
+        );
+      }
+    },
     { key: "so_nhan_cong", label: "Kíp chuẩn",
       render: (r) => `${Math.max(1, Math.ceil(Number(r.so_nhan_cong) || 1))} người` },
   ],
@@ -110,72 +212,100 @@ export const CFG_MAY: CatalogConfig = {
   },
   fields: [
     // ── Nhóm máy (chữ gợi ý + tự do) ──────────────────────────────────────────
-    { key: "loai_may", label: "Nhóm máy", type: "suggest", required: true, group: "Phân loại",
-      options: [
-        { value: "Máy in", label: "Máy in" },
-        { value: "In ngoài", label: "In ngoài" },
-        { value: "Cán màng / UV", label: "Cán màng / UV" },
-        { value: "Bồi", label: "Bồi" },
-        { value: "Bế", label: "Bế" },
-      ],
-      hint: "Gợi ý hoặc gõ tự do: Máy in, Cán màng / UV, Bồi, Bế…" },
-    // ── Khổ kẽm + nhíp kẽm ─────────────────────────────────────────────────────
-    { key: "kho_kem_rong", label: "Khổ kẽm — rộng (mm)", type: "number", group: "Khổ kẽm & vùng in",
-      showIf: (f) => isMayIn(f.loai_may),
-      hint: "Bản kẽm máy nhận, vd 800*1030 (rộng*dài)" },
-    { key: "kho_kem_dai", label: "Khổ kẽm — dài (mm)", type: "number", group: "Khổ kẽm & vùng in",
+    // ── 1. Thông tin chung ──────────────────────────────────────────────────
+    { key: "loai_may", label: "Nhóm máy", type: "nhom_may", required: true, group: "Thông tin chung",
+      refPrefix: "/api/nhom-may" },
+    // ── 2. Khổ kẽm & Vùng in (chỉ Máy in) ───────────────────────────────────
+    { key: "kho_kem_rong", label: "Khổ kẽm — rộng (mm)", type: "number", group: "Khổ kẽm & Vùng in",
       showIf: (f) => isMayIn(f.loai_may) },
-    { key: "gripper_mm", label: "Nhíp kẽm (mm)", type: "number", group: "Khổ kẽm & vùng in",
-      showIf: (f) => isMayIn(f.loai_may),
-      hint: "Mép nhíp trên kẽm, vd 44 mm" },
-    // ── Chừa trên TỜ GIẤY (khác nhíp kẽm ở trên) → engine tính giá trừ khi bình bài ────────────
-    { key: "nhip_giay_mm", label: "Nhíp giấy (mm)", type: "number", group: "Chừa tờ in",
-      showIf: (f) => isMayIn(f.loai_may),
-      hint: "Cạnh máy KẸP TỜ GIẤY, thường 8–12 mm. KHÁC nhíp kẽm (~44mm) ở trên — trừ vào chiều DÀI tờ in" },
-    { key: "le_hong_mm", label: "Lề hông (mm)", type: "number", group: "Chừa tờ in",
-      showIf: (f) => isMayIn(f.loai_may),
-      hint: "Trừ MỖI BÊN chiều rộng tờ in" },
-    { key: "duoi_thang_mau_mm", label: "Đuôi + thanh màu (mm)", type: "number", group: "Chừa tờ in",
-      showIf: (f) => isMayIn(f.loai_may),
-      hint: "Cuối tờ, trừ vào chiều DÀI" },
-    // ── Vùng in lớn nhất ───────────────────────────────────────────────────────
-    { key: "vung_in_rong", label: "Vùng in max — rộng (mm)", type: "number", group: "Khổ kẽm & vùng in",
-      showIf: (f) => isMayIn(f.loai_may),
-      hint: "Vùng in được lớn nhất, vd 710*1010 (rộng*dài)" },
-    { key: "vung_in_dai", label: "Vùng in max — dài (mm)", type: "number", group: "Khổ kẽm & vùng in",
+    { key: "kho_kem_dai", label: "Khổ kẽm — dài (mm)", type: "number", group: "Khổ kẽm & Vùng in",
       showIf: (f) => isMayIn(f.loai_may) },
-    // ── Khổ giấy min/max ───────────────────────────────────────────────────────
-    { key: "kho_min_rong", label: "Khổ giấy min — rộng (mm)", type: "number", group: "Khổ giấy" },
-    { key: "kho_min_dai", label: "Khổ giấy min — dài (mm)", type: "number", group: "Khổ giấy" },
-    { key: "kho_max_rong", label: "Khổ giấy max — rộng (mm)", type: "number", group: "Khổ giấy" },
-    { key: "kho_max_dai", label: "Khổ giấy max — dài (mm)", type: "number", group: "Khổ giấy" },
-    // ── Tốc độ & thời gian → nuôi thẳng thời lượng bước ở Lệnh sản xuất ───────
-    { key: "toc_do", label: "Tốc độ chạy", type: "number", group: "Tốc độ & thời gian",
-      hint: "Máy in tính theo LƯỢT qua máy — in 2 mặt thì mỗi tờ chạy 2 lượt. Bỏ trống thì lệnh sản xuất để trống thời gian chạy. Chọn đơn vị ở ô bên cạnh." },
-    { key: "don_vi_toc_do", label: "Đơn vị tốc độ", type: "select", group: "Tốc độ & thời gian",
-      default: "to_gio",
-      options: [
-        { value: "to_gio", label: "tờ/giờ — máy in, máy gia công tờ" },
-        { value: "kem_gio", label: "kẽm/giờ — máy ghi kẽm CTP" },
-      ],
-      hint: "Đơn vị của con số bên trái, phải khớp thứ mà công đoạn ĐẾM. Lệch đơn vị thì lệnh sản xuất bỏ qua tốc độ này (không quy đổi bừa) và bước sẽ trống thời gian chạy." },
+    { key: "vung_in_rong", label: "Vùng in max — rộng (mm)", type: "number", group: "Khổ kẽm & Vùng in",
+      showIf: (f) => isMayIn(f.loai_may) },
+    { key: "vung_in_dai", label: "Vùng in max — dài (mm)", type: "number", group: "Khổ kẽm & Vùng in",
+      showIf: (f) => isMayIn(f.loai_may) },
+    { key: "gripper_mm", label: "Nhíp kẽm (mm)", type: "number", group: "Khổ kẽm & Vùng in",
+      showIf: (f) => isMayIn(f.loai_may) },
+    // ── 3. Thông số chừa lề tờ in (chỉ Máy in) ─────────────────────────────
+    { key: "nhip_giay_mm", label: "Nhíp giấy (mm)", type: "number", group: "Thông số chừa lề tờ in",
+      showIf: (f) => isMayIn(f.loai_may) },
+    { key: "le_hong_mm", label: "Lề hông (mm)", type: "number", group: "Thông số chừa lề tờ in",
+      showIf: (f) => isMayIn(f.loai_may) },
+    { key: "duoi_thang_mau_mm", label: "Đuôi + thanh màu (mm)", type: "number", group: "Thông số chừa lề tờ in",
+      showIf: (f) => isMayIn(f.loai_may) },
+    // ── 4. Khổ giấy máy nhận ─────────────────────────────────────────────────
+    { key: "kho_min_rong", label: "Khổ giấy min — rộng (mm)", type: "number", group: "Khổ giấy máy nhận" },
+    { key: "kho_min_dai", label: "Khổ giấy min — dài (mm)", type: "number", group: "Khổ giấy máy nhận" },
+    { key: "kho_max_rong", label: "Khổ giấy max — rộng (mm)", type: "number", group: "Khổ giấy máy nhận" },
+    { key: "kho_max_dai", label: "Khổ giấy max — dài (mm)", type: "number", group: "Khổ giấy máy nhận" },
+    // ── 5. Tốc độ & Năng suất vận hành ───────────────────────────────────────
+    { key: "toc_do", label: "Tốc độ trung bình", type: "number", group: "Tốc độ & Vận hành" },
+    { key: "don_vi_toc_do", label: "Đơn vị tốc độ", type: "don_vi_toc_do",
+      group: "Tốc độ & Vận hành", default: "to_gio" },
+    { key: "toc_do_min", label: "Tốc độ tối thiểu", type: "number", group: "Tốc độ & Vận hành" },
+    { key: "toc_do_max", label: "Tốc độ tối đa", type: "number", group: "Tốc độ & Vận hành" },
     { key: "so_nhan_cong", label: "Số người vận hành tiêu chuẩn", type: "number", required: true,
-      default: 1, group: "Tốc độ & thời gian",
-      hint: "Kíp nhân lực chuẩn để vận hành máy. Số người này dùng lập kế hoạch nhân lực, không nhân tốc độ máy." },
-    { key: "thoi_gian_rua_muc", label: "Thời gian rửa mực (phút)", type: "number", group: "Tốc độ & thời gian",
-      showIf: (f) => isMayIn(f.loai_may),
-      hint: "Vệ sinh máy sau khi in xong — cộng vào thời gian chiếm máy" },
-    // ── Ghi chú ────────────────────────────────────────────────────────────────
-    { key: "ghi_chu", label: "Ghi chú 1", type: "text", group: "Ghi chú" },
-    { key: "ghi_chu_2", label: "Ghi chú 2", type: "text", group: "Ghi chú" },
+      default: 1, group: "Tốc độ & Vận hành" },
+    // Ô "Thời gian rửa mực" ĐÃ BỎ (2026-08-04): vệ sinh/rửa mực gỡ khỏi hệ, engine xếp lịch
+    // thôi cộng vào thời gian chiếm máy. Cột DB giữ dormant — đừng khai lại ô này.
+    { key: "_chuan_bi_kieu", label: "Thời gian chuẩn bị", type: "select", group: "Tốc độ & Vận hành",
+      default: "trong",
+      options: [
+        { value: "trong", label: "Để trống — chưa khai" },
+        { value: "tong", label: "Điền tổng — gõ thẳng một số" },
+        { value: "khoan", label: "Theo từng khoản — máy tự cộng" },
+      ] },
+    { key: "makeready_time_default", label: "Tổng thời gian chuẩn bị (phút)", type: "number",
+      group: "Tốc độ & Vận hành",
+      showIf: (f) => f._chuan_bi_kieu === "tong" },
+    { key: "chuan_bi_khoan", label: "Các khoản chuẩn bị", type: "chuan_bi_khoan",
+      group: "Tốc độ & Vận hành", jsonKey: "fields_theo_loai",
+      showIf: (f) => f._chuan_bi_kieu === "khoan" },
+    // ── 6. Ghi chú ───────────────────────────────────────────────────────────
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
   // Đơn vị tốc độ là Ô CHỌN 2 giá trị, không suy từ `loai_may`: nhóm máy ở đây là CHỮ TỰ DO
   // ("Máy in", "Bế", "Cán màng / UV"…) nên suy theo nó là đoán, mà đoán sai thì lệnh SX lặng lẽ
   // bỏ qua tốc độ. Chỉ bày 2 lựa chọn đang dùng thật (tờ/giờ · kẽm/giờ), không đổ hết 5 đơn vị.
-  transformSubmit: (body) => ({
-    ...body,
-    don_vi_toc_do: body.toc_do ? (body.don_vi_toc_do || "to_gio") : null,
-  }),
+  // Kiểu chuẩn bị KHÔNG có cột riêng — SUY từ dữ liệu đã lưu. Thêm cột "kiểu" là đẻ trạng thái
+  // thứ hai có thể đá nhau với chính dữ liệu (kiểu="khoản" mà danh sách rỗng thì tin ai?).
+  deriveInitial: (existing) => {
+    const box = (existing?.fields_theo_loai ?? {}) as Record<string, unknown>;
+    const khoan = box.chuan_bi_khoan;
+    const co_khoan = Array.isArray(khoan) && khoan.length > 0;
+    const co_tong = existing?.makeready_time_default != null && existing.makeready_time_default !== "";
+    return { _chuan_bi_kieu: co_khoan ? "khoan" : co_tong ? "tong" : "trong" };
+  },
+  transformSubmit: (body, form, existing) => {
+    const out: Record<string, unknown> = {
+      ...body,
+      don_vi_toc_do: body.toc_do ? (body.don_vi_toc_do || "to_gio") : null,
+    };
+    // Ô CHỈ ĐỂ UI, không có cột — gửi lên là 422.
+    delete out._chuan_bi_kieu;
+
+    // Đổi kiểu phải DỌN kiểu cũ. Form chỉ gửi field ĐANG HIỆN, mà backend gán từng phần
+    // (`if k in data`) ⇒ không dọn thì số cũ nằm lại: chuyển "tổng 30" sang "để trống" vẫn còn 30,
+    // và `deriveInitial` lần sau đọc được nó rồi lật ngược kiểu về "tổng".
+    const kieu = form._chuan_bi_kieu;
+    // ⚠️ Nền phải là JSON CŨ của bản ghi, không phải {}: ở kiểu "tổng"/"trống" thì ô các-khoản bị
+    // ẩn nên `body.fields_theo_loai` không tồn tại — dựng lại từ số 0 là XOÁ SẠCH các khoá khác
+    // của cột này (thông số riêng của máy web/digital/flexo… đều nằm trong đó).
+    const box = {
+      ...((existing?.fields_theo_loai as Record<string, unknown>) ?? {}),
+      ...((out.fields_theo_loai as Record<string, unknown>) ?? {}),
+    };
+    if (kieu === "khoan") {
+      const rows = (Array.isArray(box.chuan_bi_khoan) ? box.chuan_bi_khoan : []) as ChuanBiKhoanRow[];
+      // Tổng do MÁY cộng — đây là số Xếp lịch đọc. Nguồn chân lý vẫn là một cột duy nhất.
+      out.makeready_time_default = tongChuanBi(rows) || null;
+    } else {
+      box.chuan_bi_khoan = [];
+      if (kieu === "trong") out.makeready_time_default = null;
+    }
+    out.fields_theo_loai = box;
+    return out;
+  },
 };
 
 export const CFG_CONG_DOAN: CatalogConfig = {
@@ -193,17 +323,19 @@ export const CFG_CONG_DOAN: CatalogConfig = {
         r.kieu_bu_hao === "co_dinh" ? `Cố định ${r.so_to_bu_hao ?? 50} tờ` : lbl(KIEU_BU_HAO)(r.kieu_bu_hao ?? "khong") },
     // Nhìn ra công đoạn nào chưa khai số cho Lệnh sản xuất (giống cột Tốc độ bên màn Máy).
     { key: "setup_time", label: "Chuẩn bị",
-      render: (r) => (Number(r.setup_time) > 0 ? `${Number(r.setup_time)} phút` : "—") },
+      render: (r) => (Number(r.setup_time) > 0 ? (
+        <span style={{ color: "var(--rust, #c5400a)", fontWeight: 500, display: "flex", alignItems: "center" }}>
+          <ClockIcon width={12} height={12} /> {Number(r.setup_time)} phút
+        </span>
+      ) : "—") },
     { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
   ],
   fields: [
     { key: "nhom", label: "Giai đoạn", type: "select", required: true, group: "Thông tin", options: mapOpt(NHOM_CD) },
-    { key: "department_id", label: "Phòng ban / Tổ phụ trách", type: "ref", refPrefix: "/api/cong-doan/phong-ban", group: "Thông tin",
-      hint: "Tổ/bộ phận sẽ nhận việc công đoạn này khi phát lệnh sản xuất" },
+    { key: "department_id", label: "Phòng ban / Tổ phụ trách", type: "ref", refPrefix: "/api/cong-doan/phong-ban", group: "Thông tin" },
 
     // ── Nguồn nuôi thẳng thời lượng bước ở Lệnh sản xuất ──────────────────────────────────────
-    { key: "setup_time", label: "Thời gian chuẩn bị (phút)", type: "number", group: "Lệnh sản xuất",
-      hint: "Canh máy trước khi chạy — tính MỘT LẦN cho cả lệnh, không nhân theo số lượng" },
+    { key: "setup_time", label: "Thời gian chuẩn bị (phút)", type: "number", group: "Lệnh sản xuất" },
     { key: "dau_viec_dinh_muc", label: "Đầu việc và định mức của tổ", type: "dau-viec-dinh-muc",
       refPrefix: "/api/cong-doan/dau-viec", group: "Lệnh sản xuất" },
 
@@ -212,18 +344,14 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
     // ── Đơn vị đứng TRƯỚC Bù hao: nó quyết định bù hao được tra theo số gì (tờ hay con) ────────
     { key: "don_vi_vao", label: "Đơn vị đầu vào", type: "select", group: "Đơn vị",
-      options: mapOpt(DON_VI_CD), default: "to",
-      hint: "Bước này NHẬN VÀO cái gì. Bù hao khai ở dưới cũng tính theo đơn vị này. Để TRỐNG nếu bước không chạm giấy (chế bản) — engine sẽ bỏ nó khỏi dòng giấy." },
+      options: mapOpt(DON_VI_CD), default: "to" },
     { key: "don_vi_ra", label: "Đơn vị đầu ra", type: "select", group: "Đơn vị",
-      options: mapOpt(DON_VI_CD), default: "to",
-      hint: "Khác đầu vào = bước ĐỔI ĐƠN VỊ (bế: tờ in → tờ thành phẩm · xả giấy: tờ nguyên → tờ in). Hệ số quy đổi lấy từ phiếu tính giá (con/tờ, số mảnh xả) — không khai ở đây." },
+      options: mapOpt(DON_VI_CD), default: "to" },
     { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong" },
     { key: "bu_hao_id", label: "Mã bù hao (gõ để tìm)", type: "ref-search", refPrefix: "/api/bu-hao", group: "Bù hao",
-      showIf: (f) => f.kieu_bu_hao === "tra_bang",
-      hint: "Gõ mã / tên bù hao để tìm (vd 3-4 → In 3-4 màu) — engine tra bậc theo số lượng" },
+      showIf: (f) => f.kieu_bu_hao === "tra_bang" },
     { key: "so_to_bu_hao", label: "Số tờ cộng cố định", type: "number", group: "Bù hao", default: 50,
-      showIf: (f) => f.kieu_bu_hao === "co_dinh",
-      hint: "Mặc định 50; bế nổi / dán móc đáy = 30" },
+      showIf: (f) => f.kieu_bu_hao === "co_dinh" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Thông tin" },
   ],
   // CHỈ TÍNH THEO CÔNG THỨC: công đoạn luôn ở chế độ sản lượng + basis 'per_other' (giá phẳng/công
@@ -244,7 +372,36 @@ export const CFG_BU_HAO: CatalogConfig = {
   subtitle: "Mỗi mã bù hao = danh sách bậc số lượng → số tờ / %. Công đoạn trỏ mã bù hao để tra bậc theo SL.",
   prefix: "/api/bu-hao",
   columns: [
-    { key: "bac", label: "Số bậc", render: (r) => `${Array.isArray(r.bac) ? r.bac.length : 0} bậc` },
+    {
+      key: "bac",
+      label: "Bậc số lượng & Mức bù hao",
+      render: (r) => {
+        const arr = (r.bac ?? []) as { sl_tu?: number; sl_den?: number | null; den_cm?: number | null; gia_tri?: number; don_gia?: number; don_vi?: string }[];
+        if (!Array.isArray(arr) || arr.length === 0) {
+          return <span style={{ color: "var(--ash, #8a8577)", fontSize: "12.5px" }}>Chưa khai báo</span>;
+        }
+        return (
+          <div className="rc__formula-chips">
+            {arr.slice(0, 3).map((item, idx) => {
+              const cap = item.sl_den ?? item.den_cm;
+              const capStr = cap != null && cap > 0 ? `≤${Number(cap).toLocaleString("vi-VN")}` : `>${Number(item.sl_tu ?? 0).toLocaleString("vi-VN")}`;
+              const val = item.gia_tri ?? item.don_gia ?? 0;
+              const unitStr = item.don_vi === "pct" || item.don_vi === "%" ? "%" : " tờ";
+              return (
+                <span key={idx} className="rc__formula-pill">
+                  {capStr}: {val}{unitStr}
+                </span>
+              );
+            })}
+            {arr.length > 3 && (
+              <span className="rc__chip-muted">+{arr.length - 3} bậc</span>
+            )}
+          </div>
+        );
+      },
+    },
+    { key: "so_bac", label: "Số bậc", render: (r) => `${Array.isArray(r.bac) ? r.bac.length : 0} bậc` },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
   ],
   fields: [
     { key: "bac", label: "Bậc số lượng → giá trị (tờ / %)", type: "bands", group: "Bậc số lượng" },

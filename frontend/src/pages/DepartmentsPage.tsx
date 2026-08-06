@@ -53,6 +53,65 @@ import "./departments.css";
 import "./nhan-su.css";
 import "./redesign-phong-ban.css";
 
+const READ_IMPLYING_ACTIONS: ActionKey[] = [
+  "can_create",
+  "can_update",
+  "can_delete",
+  "can_reassign",
+  "can_export",
+  "can_view_debt",
+  "can_view_discount",
+  "can_approve",
+  "can_manage_status",
+  "can_reset_password",
+  "can_lock",
+  "can_revoke_sessions",
+  "can_assign_role",
+  "can_transfer",
+  "can_set_head",
+  "can_requote",
+  "can_manage_price",
+  "can_cancel",
+  "can_manage_permissions",
+  "can_clone",
+  "can_toggle_active",
+  "can_reparent",
+  "can_view_salary",
+  "can_edit_salary",
+  "can_adjust",
+  "can_approve_exception",
+  "can_set_credit_terms",
+  "can_record_deposit",
+  "can_assign_work",
+  "can_record_output",
+  "can_handover",
+  "can_request",
+  "can_view_stock",
+  "can_view_cost",
+  "can_set_threshold",
+  "can_post",
+];
+
+function applyPermissionDependency(
+  row: PermissionRow,
+  action: ActionKey,
+  value: boolean,
+): PermissionRow {
+  const next = { ...row, [action]: value };
+  if (action === "can_read" && !value) {
+    for (const key of READ_IMPLYING_ACTIONS) next[key] = false;
+    return next;
+  }
+  if (action === "can_view_salary" && !value) {
+    next.can_edit_salary = false;
+  }
+  if (action === "can_edit_salary" && value) {
+    next.can_view_salary = true;
+  }
+  if (value && READ_IMPLYING_ACTIONS.includes(action)) next.can_read = true;
+  return next;
+}
+
 /** Đã kéo sơ đồ cây ít nhất 1 lần → không nhắc "kéo để di chuyển" nữa. */
 const PAN_HINT_KEY = "rdx-org-pan-hint";
 
@@ -963,7 +1022,11 @@ export function DepartmentsPage({
 
   function toggleAddRole(moduleKey: string, action: ActionKey, value: boolean) {
     setAddRoleMatrix((rows) =>
-      rows.map((r) => (r.module_key === moduleKey ? { ...r, [action]: value } : r)),
+      rows.map((r) =>
+        r.module_key === moduleKey
+          ? applyPermissionDependency(r, action, value)
+          : r,
+      ),
     );
   }
 
@@ -1025,7 +1088,11 @@ export function DepartmentsPage({
 
   function toggleEditRole(moduleKey: string, action: ActionKey, value: boolean) {
     setEditRoleMatrix((rows) =>
-      rows.map((r) => (r.module_key === moduleKey ? { ...r, [action]: value } : r)),
+      rows.map((r) =>
+        r.module_key === moduleKey
+          ? applyPermissionDependency(r, action, value)
+          : r,
+      ),
     );
   }
 

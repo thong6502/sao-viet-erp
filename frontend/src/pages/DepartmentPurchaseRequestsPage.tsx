@@ -11,9 +11,12 @@ import {
   api,
   type DepartmentPurchaseRequestInput,
   type DepartmentPurchaseRequestLineInput,
+  type DepartmentPurchaseRequestLineOut,
   type DepartmentPurchaseRequestRow,
   type DepartmentPurchaseRequestStatus,
   type DepartmentPurchaseSourceType,
+  type PurchaseRequestStatus,
+  type SupplierItemCatalogRow,
 } from "../api/client";
 import { useCan } from "../auth/permissions";
 import { useAuth } from "../auth/useAuth";
@@ -23,17 +26,12 @@ import { DetailModal } from "../components/DetailModal";
 import { RowActionButton } from "../components/RowActionButton";
 import { fmtDate } from "../utils/format";
 import "./master-data.css";
+// Bảng tình trạng từng dòng mượn `.pay-table` của màn Công nợ — cùng loại bảng phụ trong hộp
+// thoại, không dựng bộ lớp thứ hai cho y hệt một việc.
+import "./payables.css";
 import "./purchase.css";
 
 type StatusFilter = "all" | DepartmentPurchaseRequestStatus;
-
-const REQUEST_MODULES = [
-  "thu_mua",
-  "bao_gia",
-  "kho",
-  "san_xuat",
-  "dm_giay_vat_tu",
-];
 
 const SOURCE_TYPE_LABELS: Record<DepartmentPurchaseSourceType, string> = {
   kinh_doanh: "Kinh doanh",
@@ -65,7 +63,7 @@ function emptyLine(): DepartmentPurchaseRequestLineInput {
 }
 
 function emptyRequest(
-  sourceType: DepartmentPurchaseSourceType,
+  sourceType: DepartmentPurchaseSourceType | null = null,
 ): DepartmentPurchaseRequestInput {
   return {
     source_type: sourceType,
@@ -78,11 +76,19 @@ function emptyRequest(
   };
 }
 
+function todayInputValue(): string {
+  const now = new Date();
+  const localNow = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return localNow.toISOString().slice(0, 10);
+}
+
 export function DepartmentPurchaseRequestsPage({
+  eventTick = 0,
   focusRequestCode = null,
   seedLines = null,
   seedPurpose = null,
 }: {
+  eventTick?: number;
   /** Liên thông từ PMH/Phiếu chi: lọc + tô sáng đúng mã YCMH này khi mở trang. */
   focusRequestCode?: string | null;
   /** Liên thông từ Kho: mở form tạo, điền sẵn dòng vật tư (Tên + ĐVT) — bỏ trống SL/ghi chú. */
@@ -91,15 +97,10 @@ export function DepartmentPurchaseRequestsPage({
 }) {
   const { token, user } = useAuth();
   const can = useCan();
-  const canCreate = REQUEST_MODULES.some((module) => can(module, "create"));
   const canAdminCancel = can("thu_mua", "cancel");
-
-  const defaultSourceType = useMemo<DepartmentPurchaseSourceType>(() => {
-    if (can("kho", "create")) return "kho";
-    if (can("san_xuat", "create")) return "san_xuat";
-    if (can("dm_giay_vat_tu", "create")) return "cong_nghe";
-    return "kinh_doanh";
-  }, [can]);
+  const [canCreate, setCanCreate] = useState(false);
+  const [departmentName, setDepartmentName] = useState<string | null>(null);
+  const [itemCatalog, setItemCatalog] = useState<SupplierItemCatalogRow[]>([]);
 
   const [rows, setRows] = useState<DepartmentPurchaseRequestRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -111,7 +112,10 @@ export function DepartmentPurchaseRequestsPage({
   const [forbidden, setForbidden] = useState(false);
   const [mode, setMode] = useState(false);
   const [form, setForm] = useState<DepartmentPurchaseRequestInput>(
-    emptyRequest(defaultSourceType),
+    emptyRequest(),
+  );
+  const [editing, setEditing] = useState<DepartmentPurchaseRequestRow | null>(
+    null,
   );
   const [formError, setFormError] = useState<string | null>(null);
   const [canceling, setCanceling] = useState<DepartmentPurchaseRequestRow | null>(
@@ -119,6 +123,7 @@ export function DepartmentPurchaseRequestsPage({
   );
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const minNeededDate = useMemo(() => todayInputValue(), []);
 
   // Lấy lại từ `rows` (không lưu cả object) để sau khi Hủy cập nhật `rows` thì
   // popup đang mở tự thấy trạng thái mới.
@@ -154,6 +159,71 @@ export function DepartmentPurchaseRequestsPage({
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (eventTick <= 0 || !token) return;
+    load();
+    let alive = true;
+    api.suppliers
+      .itemCatalog(token)
+      .then((res) => {
+        if (alive) setItemCatalog(res.items);
+      })
+      .catch(() => {
+        if (alive) setItemCatalog([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [eventTick, load, token]);
+
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    api.departmentPurchaseRequests
+      .canCreate(token)
+      .then((res) => {
+        if (alive) setCanCreate(res.can_create);
+      })
+      .catch(() => {
+        if (alive) setCanCreate(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    api
+      .profile(token)
+      .then((profile) => {
+        if (alive) setDepartmentName(profile.department_name);
+      })
+      .catch(() => {
+        if (alive) setDepartmentName(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    api.suppliers
+      .itemCatalog(token)
+      .then((res) => {
+        if (alive) setItemCatalog(res.items);
+      })
+      .catch(() => {
+        if (alive) setItemCatalog([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+
   // Liên thông: đổ mã YCMH cần truy vết vào ô tìm kiếm → load() tự chạy lại
   // (q đổi làm useCallback tạo lại), danh sách chỉ còn đúng phiếu đó.
   useEffect(() => {
@@ -177,9 +247,36 @@ export function DepartmentPurchaseRequestsPage({
   }, [seedLines]);
 
   function openCreate() {
-    setForm(emptyRequest(defaultSourceType));
+    setEditing(null);
+    setForm(emptyRequest());
     setFormError(null);
     setMode(true);
+  }
+
+  function openEdit(row: DepartmentPurchaseRequestRow) {
+    setEditing(row);
+    setForm({
+      source_type: row.source_type,
+      related_document_type: row.related_document_type,
+      related_document_code: row.related_document_code,
+      purpose: row.purpose,
+      needed_date: row.needed_date,
+      note: row.note ?? "",
+      lines: row.lines.map((line) => ({
+        item_name: line.item_name,
+        unit: line.unit,
+        quantity: line.quantity,
+        note: line.note,
+      })),
+    });
+    setFormError(null);
+    setMode(true);
+  }
+
+  function closeForm() {
+    setMode(false);
+    setEditing(null);
+    setFormError(null);
   }
 
   function setLine(
@@ -194,6 +291,14 @@ export function DepartmentPurchaseRequestsPage({
     }));
   }
 
+  function selectCatalogItem(index: number, itemName: string) {
+    const picked = itemCatalog.find((item) => item.item_name === itemName);
+    setLine(index, {
+      item_name: itemName,
+      unit: picked?.unit ?? "",
+    });
+  }
+
   function cleanRequest(
     input: DepartmentPurchaseRequestInput,
   ): DepartmentPurchaseRequestInput {
@@ -202,7 +307,7 @@ export function DepartmentPurchaseRequestsPage({
       return s || null;
     };
     return {
-      source_type: input.source_type,
+      source_type: input.source_type ?? null,
       related_document_type: null,
       related_document_code: null,
       purpose: (input.purpose ?? "").trim(),
@@ -222,12 +327,19 @@ export function DepartmentPurchaseRequestsPage({
     if (!token || saving) return;
     const payload = cleanRequest(form);
     const missingHeader = [
-      !payload.source_type ? "Bộ phận phát sinh" : "",
       !payload.needed_date ? "Ngày cần hàng" : "",
       !payload.purpose ? "Mục đích" : "",
     ].filter(Boolean);
     if (missingHeader.length > 0) {
       setFormError(`Vui lòng nhập đầy đủ: ${missingHeader.join(", ")}.`);
+      return;
+    }
+    if (payload.needed_date && payload.needed_date < minNeededDate) {
+      setFormError("Ngày cần hàng không được nhỏ hơn hôm nay.");
+      return;
+    }
+    if (itemCatalog.length === 0) {
+      setFormError("Chua co vat tu nao trong danh muc mat hang nha cung cap.");
       return;
     }
     if (
@@ -239,6 +351,15 @@ export function DepartmentPurchaseRequestsPage({
       );
       return;
     }
+    if (
+      payload.lines.some(
+        (line) =>
+          !itemCatalog.some((item) => item.item_name === line.item_name),
+      )
+    ) {
+      setFormError("Vat tu yeu cau phai chon tu danh muc mat hang nha cung cap.");
+      return;
+    }
     if (payload.lines.some((line) => line.quantity <= 0)) {
       setFormError("Số lượng phải lớn hơn 0.");
       return;
@@ -246,10 +367,16 @@ export function DepartmentPurchaseRequestsPage({
     setSaving(true);
     setFormError(null);
     try {
-      const saved = await api.departmentPurchaseRequests.create(token, payload);
-      setRows((current) => [saved, ...current]);
-      setTotal((current) => current + 1);
-      setMode(false);
+      const saved = editing
+        ? await api.departmentPurchaseRequests.update(token, editing.id, payload)
+        : await api.departmentPurchaseRequests.create(token, payload);
+      setRows((current) =>
+        editing
+          ? current.map((row) => (row.id === saved.id ? saved : row))
+          : [saved, ...current],
+      );
+      if (!editing) setTotal((current) => current + 1);
+      closeForm();
     } catch (err) {
       if (err instanceof ApiError) setFormError(err.message);
       else setFormError("Không tạo được yêu cầu mua hàng.");
@@ -315,9 +442,9 @@ export function DepartmentPurchaseRequestsPage({
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
-          <Button type="submit" variant="ghost">
+          {/* <Button type="submit" variant="ghost">
             Tìm
-          </Button>
+          </Button> */}
         </form>
         <select
           className="input purchase__select"
@@ -387,9 +514,9 @@ export function DepartmentPurchaseRequestsPage({
                     <div className="md-page__muted">{row.purpose}</div>
                   </td>
                   <td>
-                    {SOURCE_TYPE_LABELS[row.source_type]}
+                    {row.requesting_department_name || "Nội bộ"}
                     <div className="md-page__muted">
-                      {row.requesting_department_name || "Nội bộ"}
+                      {SOURCE_TYPE_LABELS[row.source_type]}
                     </div>
                   </td>
                   <td>{fmtDate(row.needed_date)}</td>
@@ -424,6 +551,16 @@ export function DepartmentPurchaseRequestsPage({
                         onClick={() => setSelectedId(row.id)}
                       />
                       {row.status === "open" &&
+                        row.requested_by_user_id === user?.id && (
+                          <button
+                            type="button"
+                            className="btn btn--ghost md-page__rowbtn"
+                            onClick={() => openEdit(row)}
+                          >
+                            Sửa
+                          </button>
+                        )}
+                      {row.status === "open" &&
                         (canAdminCancel ||
                           row.requested_by_user_id === user?.id) && (
                           <button
@@ -456,7 +593,7 @@ export function DepartmentPurchaseRequestsPage({
         >
           <dl className="purchase__facts">
             <div>
-              <dt>Bộ phận phát sinh</dt>
+              <dt>Nhóm nguồn</dt>
               <dd>{SOURCE_TYPE_LABELS[selected.source_type]}</dd>
             </div>
             <div>
@@ -482,40 +619,84 @@ export function DepartmentPurchaseRequestsPage({
           <p className="eyebrow">
             Vật tư đã yêu cầu ({selected.lines.length} dòng)
           </p>
-          <div className="purchase__lines">
-            {selected.lines.map((line) => (
-              <div className="purchase__line" key={line.id}>
-                <span>
-                  <strong>{line.item_name}</strong>
-                  {line.note && (
-                    <>
-                      <br />
-                      <small>{line.note}</small>
-                    </>
-                  )}
-                </span>
-                <strong>
-                  {line.quantity.toLocaleString("vi-VN")} {line.unit}
-                </strong>
+          {/* Trạng thái ở đầu phiếu là bậc THẤP NHẤT của các dòng — nhìn danh sách biết "có gì đó
+              chưa xong". Bảng dưới đây trả lời tiếp: chưa xong ở ĐÂU. Thiếu bảng thì biết kẹt mà
+              không biết kẹt chỗ nào; thiếu trạng thái đầu phiếu thì phải mở từng yêu cầu mới biết. */}
+          <table className="pay-table">
+            <thead>
+              <tr>
+                <th>Vật tư</th>
+                <th className="pay-num">Yêu cầu</th>
+                {/* <th>Nhà cung cấp</th> */}
+                <th>Tình trạng</th>
+              </tr>
+            </thead>
+            <tbody>
+              {selected.lines.map((line) => (
+                <tr key={line.id}>
+                  <td>
+                    <strong>{line.item_name}</strong>
+                    {line.note && (
+                      <>
+                        <br />
+                        <small>{line.note}</small>
+                      </>
+                    )}
+                  </td>
+                  <td className="pay-num">
+                    {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                  </td>
+                  {/* <td>{line.fulfilment?.supplier_name ?? "—"}</td> */}
+                  <td>
+                    <LineFulfilmentCell
+                      line={line}
+                      coPhieu={selected.purchase_requests.length > 0}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {selected.purchase_requests.length > 0 && (
+            <>
+              <p className="eyebrow" style={{ marginTop: 16 }}>
+                Phiếu mua đã lập ({selected.purchase_requests.length})
+              </p>
+              <div className="purchase__lines">
+                {selected.purchase_requests.map((p) => (
+                  <div className="purchase__line" key={p.id}>
+                    <span>
+                      <strong>{p.code}</strong>
+                      {p.supplier_name && (
+                        <>
+                          <br />
+                          <small>{p.supplier_name}</small>
+                        </>
+                      )}
+                    </span>
+                    <StatusBadgePhieu status={p.status} />
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
         </DetailModal>
       )}
 
       {mode && (
         <div className="md-page__overlay" role="presentation">
           <div
-            className="card md-page__dialog purchase__dialog"
+            className="card md-page__dialog purchase__dialog purchase__dialog--request"
             role="dialog"
             aria-modal="true"
           >
             <div className="md-page__dialog-head">
-              <h2>Tạo yêu cầu mua hàng</h2>
+              <h2>{editing ? "Sửa yêu cầu mua hàng" : "Tạo yêu cầu mua hàng"}</h2>
               <button
                 type="button"
                 className="md-page__close"
-                onClick={() => setMode(false)}
+                onClick={closeForm}
               >
                 ×
               </button>
@@ -527,30 +708,17 @@ export function DepartmentPurchaseRequestsPage({
                 </div>
               )}
               <div className="md-page__form-grid">
-                <LocalField label="Bộ phận phát sinh" required>
-                  <select
-                    className="input"
-                    required
-                    value={form.source_type}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        source_type: e.target.value as DepartmentPurchaseSourceType,
-                      })
-                    }
-                  >
-                    {Object.entries(SOURCE_TYPE_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
+                <LocalField label="Phòng ban của bạn">
+                  <div className="input purchase__readonly-field">
+                    {departmentName || "Theo tài khoản đăng nhập"}
+                  </div>
                 </LocalField>
                 <LocalField label="Ngày cần hàng" required>
                   <input
                     className="input"
                     type="date"
                     required
+                    min={minNeededDate}
                     value={form.needed_date}
                     onChange={(e) =>
                       setForm({ ...form, needed_date: e.target.value })
@@ -609,19 +777,37 @@ export function DepartmentPurchaseRequestsPage({
                   </div>
                   {form.lines.map((line, index) => (
                     <div className="purchase__line-edit" key={index}>
-                      <input
+                      <select
                         className="input purchase__line-name"
                         required
-                        placeholder="VD: Giấy Duplex 350gsm"
                         value={line.item_name}
                         onChange={(e) =>
-                          setLine(index, { item_name: e.target.value })
+                          selectCatalogItem(index, e.target.value)
                         }
-                      />
+                      >
+                        <option value="">Chọn vật tư</option>
+                        {line.item_name &&
+                          !itemCatalog.some(
+                            (item) => item.item_name === line.item_name,
+                          ) && (
+                            <option value={line.item_name}>
+                              {line.item_name}
+                            </option>
+                          )}
+                        {itemCatalog.map((item) => (
+                          <option key={item.item_name} value={item.item_name}>
+                            {item.item_name} · {item.unit} · từ{" "}
+                            {item.supplier_count > 1
+                              ? ` · ${item.supplier_count} NCC`
+                              : ""}
+                          </option>
+                        ))}
+                      </select>
                       <input
                         className="input purchase__line-unit"
                         required
-                        placeholder="VD: tờ, kg"
+                        readOnly
+                        placeholder="Tự điền"
                         value={line.unit}
                         onChange={(e) => setLine(index, { unit: e.target.value })}
                       />
@@ -669,13 +855,13 @@ export function DepartmentPurchaseRequestsPage({
                 <button
                   type="button"
                   className="btn btn--ghost"
-                  onClick={() => setMode(false)}
+                  onClick={closeForm}
                   disabled={saving}
                 >
                   Hủy
                 </button>
                 <Button type="submit" variant="accent" loading={saving}>
-                  Lưu yêu cầu
+                  {editing ? "Cập nhật yêu cầu" : "Lưu yêu cầu"}
                 </Button>
               </div>
             </form>
@@ -707,6 +893,74 @@ function SourceStatusBadge({
     <span className={`purchase__status purchase__status--${meta.tone}`}>
       {meta.label}
     </span>
+  );
+}
+
+/** Nhãn trạng thái của một PHIẾU MUA. Dùng chung cho ô tình trạng dòng và danh sách phiếu. */
+const PHIEU_STATUS_META: Record<PurchaseRequestStatus, { label: string; tone: string }> = {
+  draft: { label: "Nháp", tone: "draft" },
+  pending_approval: { label: "Chờ duyệt", tone: "pending" },
+  approved: { label: "Đã duyệt", tone: "approved" },
+  rejected: { label: "Bị từ chối", tone: "rejected" },
+  purchased: { label: "Đã mua", tone: "purchased" },
+  received: { label: "Đã nhận", tone: "received" },
+  cancelled: { label: "Đã hủy", tone: "cancelled" },
+};
+
+function StatusBadgePhieu({ status }: { status: PurchaseRequestStatus }) {
+  const meta = PHIEU_STATUS_META[status];
+  return (
+    <span className={`purchase__status purchase__status--${meta.tone}`}>{meta.label}</span>
+  );
+}
+
+/**
+ * Tình trạng của MỘT DÒNG vật tư.
+ *
+ * Ba ca phải hiện KHÁC nhau, gộp lại là nói dối:
+ *   1. Chưa ai lập phiếu cho yêu cầu này ⇒ "Chờ thu mua lập phiếu".
+ *   2. Đã có phiếu nhưng dòng này không nối được ⇒ phiếu lập TRƯỚC 05/08/2026, hồi đó chưa có nối
+ *      dòng ↔ dòng. Nói thẳng "chưa rõ, xem danh sách phiếu bên dưới" — KHÔNG đoán theo tên hàng,
+ *      đoán trượt thì im lặng hiện sai và không ai biết.
+ *   3. Nối được ⇒ hiện trạng thái phiếu, kèm cảnh báo nếu NCC giao thiếu hoặc phiếu bị từ chối.
+ */
+function LineFulfilmentCell({
+  line,
+  coPhieu,
+}: {
+  line: DepartmentPurchaseRequestLineOut;
+  coPhieu: boolean;
+}) {
+  if (!line.fulfilment) {
+    return coPhieu ? (
+      <small>Chưa rõ — phiếu lập trước khi hệ ghi nhận theo dòng</small>
+    ) : (
+      <small>Chờ thu mua lập phiếu</small>
+    );
+  }
+  const f = line.fulfilment;
+  const nhan = f.received_quantity ?? f.ordered_quantity;
+  const thieu = f.purchase_status === "received" && nhan < f.ordered_quantity;
+  return (
+    <>
+      <StatusBadgePhieu status={f.purchase_status} />
+      <br />
+      <small>
+        {f.purchase_code}
+        {f.ordered_quantity !== line.quantity && (
+          // Bộ phận xin 1.000 tờ mà NCC bán theo ram thì thu mua đổi đơn vị — hiện cả hai con số
+          // ngay tại dòng, thay vì để hai nơi rời nhau không ai đối chiếu.
+          <> · mua {f.ordered_quantity.toLocaleString("vi-VN")} {f.ordered_unit}</>
+        )}
+        {f.purchase_status === "received" && (
+          <> · nhận {nhan.toLocaleString("vi-VN")} {f.ordered_unit}</>
+        )}
+      </small>
+      {thieu && <small className="pay-short">Giao thiếu so với số đặt</small>}
+      {f.purchase_status === "rejected" && (
+        <small className="pay-short">Cần lập phiếu lại cho dòng này</small>
+      )}
+    </>
   );
 }
 

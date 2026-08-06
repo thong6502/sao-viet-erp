@@ -184,7 +184,7 @@ button.ns__kpi {
 
 .ns__kpi.is-active .ns__kpival,
 .ns__kpi.is-active .ns__kpilabel {
-  color: #ffffff;
+  /* color: #ffffff; */
 }
 
 .ns__kpi.is-active svg {

@@ -1,6 +1,7 @@
 """Phiếu chi/UNC — file chứng từ đính kèm (upload/list/delete + giới hạn)."""
 from __future__ import annotations
 
+from datetime import date, timedelta
 from pathlib import Path
 
 from app.db import SessionLocal
@@ -34,11 +35,52 @@ def _supplier(client, headers) -> dict:
             "address": "7 Trần Phú, Hà Nội",
             "contact_name": "Trần Hoa",
             "supplier_group": "paper",
+            # Dòng vật tư phải có trong danh mục mặt hàng của một NCC đang hoạt động
+            # (`purchase_service._clean_department_lines` → `suppliers.has_active_item`), nếu không
+            # thì YCMH bị chặn 422 ngay từ bước đầu. Tên phải khớp đúng tên dùng ở `_voucher`.
+            "items": [
+                {"item_name": "Giấy Duplex", "unit": "tờ", "unit_price": 2200, "vat_percent": 8}
+            ],
         },
         headers=headers,
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def _needed_date(days: int = 30) -> str:
+    """Ngày cần hàng phải >= hôm nay (`purchase_service._business_today`, giờ VN). Cắm cứng một
+    ngày cụ thể là tự hẹn giờ cho test vỡ — cả file này từng đỏ vì `2026-07-20` trôi vào quá khứ.
+    Đệm 30 ngày nên chênh múi giờ CI (UTC) với VN không đụng tới."""
+    return (date.today() + timedelta(days=days)).isoformat()
+
+
+def _duyet(client, purchase_id: int) -> None:
+    """Duyệt PMH bằng tài khoản KHÁC người lập.
+
+    Từ 04/08/2026: (a) đường gộp "duyệt + lập phiếu chi một cú bấm" đã bỏ — kế toán chỉ lập phiếu
+    chi cho PMH ĐÃ DUYỆT; (b) người lập không tự duyệt được phiếu của mình. Nên test phải có người
+    duyệt riêng, đúng như ngoài đời: giám đốc duyệt, kế toán mới viết phiếu chi.
+    """
+    db = SessionLocal()
+    try:
+        users = UserRepository(db)
+        u = users.get_by_username("acct-approver")
+        if u is None:
+            bgd = DepartmentRepository(db).get_by_name("Ban giám đốc")
+            roles = RoleRepository(db)
+            role = roles.create(name="Duyet PMH cho ke toan", department_id=bgd.id)
+            roles.set_permission(role_id=role.id, module_key="thu_mua",
+                                 can_read=True, can_approve=True, scope=SCOPE_ALL)
+            u = users.create(username="acct-approver", name="GD Duyet",
+                             password_hash=hash_password("x"))
+            users.set_assignment(u, department_id=bgd.id, role_id=role.id, is_active=True)
+        token = create_access_token(str(u.id))
+    finally:
+        db.close()
+    r = client.post(f"/api/purchase-requests/{purchase_id}/approve",
+                    headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
 
 
 def _voucher(client, headers, supplier_id: int) -> dict:
@@ -47,7 +89,7 @@ def _voucher(client, headers, supplier_id: int) -> dict:
         json={
             "source_type": "kinh_doanh",
             "purpose": "Mua giấy cần chứng từ",
-            "needed_date": "2026-07-20",
+            "needed_date": _needed_date(),
             "lines": [{"item_name": "Giấy Duplex", "unit": "tờ", "quantity": 1000}],
         },
         headers=headers,
@@ -59,7 +101,7 @@ def _voucher(client, headers, supplier_id: int) -> dict:
             "supplier_id": supplier_id,
             "source_request_ids": [source.json()["id"]],
             "purpose": "Mua giấy cần chứng từ",
-            "needed_date": "2026-07-20",
+            "needed_date": _needed_date(),
             "lines": [
                 {
                     "item_name": "Giấy Duplex",
@@ -78,12 +120,16 @@ def _voucher(client, headers, supplier_id: int) -> dict:
         f"/api/purchase-requests/{purchase.json()['id']}/submit", headers=headers
     )
     assert submitted.status_code == 200, submitted.text
+    _duyet(client, purchase.json()["id"])
     created = client.post(
-        f"/api/accounting/purchase-requests/{purchase.json()['id']}/approve-and-create-voucher",
+        "/api/accounting/payment-vouchers",
         json={
+            "purchase_request_id": purchase.json()["id"],
             "voucher_type": "cash",
             "payment_stage": "advance",
             "voucher_date": "2026-07-13",
+            # Hạn trả BẮT BUỘC từ 05/08/2026 — không có hạn thì phiếu không bao giờ bị báo quá hạn.
+            "planned_payment_date": "2026-07-28",
             "amount": 1_000_000,
             "currency": "VND",
             "exchange_rate": 1,

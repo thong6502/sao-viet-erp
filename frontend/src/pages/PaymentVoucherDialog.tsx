@@ -15,6 +15,9 @@ import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { UNC_ENABLED } from "../constants/features";
 
+/** Hôm nay dạng `yyyy-mm-dd` — trần cho ngày chứng từ và ngày hoá đơn (không cho chọn tương lai). */
+const HOM_NAY = new Date().toISOString().slice(0, 10);
+
 const STAGE_LABELS: Record<PaymentStage, string> = {
   advance: "Tạm ứng / đặt cọc",
   partial: "Thanh toán một phần",
@@ -24,7 +27,6 @@ const STAGE_LABELS: Record<PaymentStage, string> = {
 
 interface PaymentVoucherDialogProps {
   purchase: PurchaseRequestRow;
-  combined?: boolean;
   voucher?: PaymentVoucherRow | null;
   onClose: () => void;
   onSaved: (voucher: PaymentVoucherRow) => void;
@@ -95,7 +97,6 @@ function initialForm(
 
 export function PaymentVoucherDialog({
   purchase,
-  combined = false,
   voucher = null,
   onClose,
   onSaved,
@@ -342,14 +343,11 @@ export function PaymentVoucherDialog({
     setSaving(true);
     setError(null);
     try {
+      // Đường "duyệt + lập phiếu chi trong một cú bấm" đã BỎ HẲN (chủ 04/08/2026): giám đốc duyệt
+      // ở màn Đơn mua hàng trước, kế toán mới lập phiếu chi. Hai chữ ký, hai người — một người
+      // vừa duyệt khoản chi vừa viết phiếu chi là phá tách vai.
       let saved: PaymentVoucherRow;
-      if (combined) {
-        saved = await api.accounting.approveAndCreateVoucher(
-          token,
-          purchase.id,
-          payload,
-        );
-      } else if (voucher) {
+      if (voucher) {
         const input: PaymentVoucherInput = {
           ...payload,
           purchase_request_id: purchase.id,
@@ -396,11 +394,7 @@ export function PaymentVoucherDialog({
         <header className="acct-modal__head">
           <div>
             <p className="eyebrow">
-              {combined
-                ? "Duyệt PMH và lập chứng từ"
-                : voucher
-                  ? "Sửa chứng từ"
-                  : "Lập chứng từ thanh toán"}
+              {voucher ? "Sửa chứng từ" : "Lập chứng từ thanh toán"}
             </p>
             <h2 id="payment-voucher-title">
               {purchase.code} · {purchase.supplier_name}
@@ -502,18 +496,30 @@ export function PaymentVoucherDialog({
               <span>
                 Ngày chứng từ <b>*</b>
               </span>
+              {/* Chặn TƯƠNG LAI, KHÔNG chặn quá khứ: hoá đơn về muộn là chuyện thường, phiếu phải
+                  mang ngày chi tiêu thật mới vào đúng kỳ kế toán. */}
               <input
                 className="input"
                 type="date"
+                max={HOM_NAY}
                 value={form.voucher_date}
                 onChange={(e) => set("voucher_date", e.target.value)}
               />
             </label>
             <label className="acct-field">
-              <span>Ngày dự kiến chi</span>
+              {/* Tên cũ "Ngày dự kiến chi" nghe như tuỳ ý, mà đây là HẠN TRẢ — cột "Quá hạn" ở màn
+                  Công nợ so đúng ngày này. Bỏ trống thì phiếu KHÔNG BAO GIỜ bị báo quá hạn, kế
+                  toán nhìn bảng thấy sạch trong khi đang trễ. Server cũng chặn, đây chỉ chặn sớm. */}
+              <span>
+                Hạn trả tiền <b>*</b>
+              </span>
+              {/* Hạn trả QUÁ KHỨ vẫn hợp lệ — nhập bù khoản đã trễ thì phải giữ đúng ngày để nó
+                  hiện đỏ ngay; ép sang tương lai là làm giả nợ. Chỉ chặn hạn TRƯỚC ngày chứng từ. */}
               <input
                 className="input"
                 type="date"
+                required
+                min={form.voucher_date || undefined}
                 value={form.planned_payment_date ?? ""}
                 onChange={(e) =>
                   set("planned_payment_date", e.target.value || null)
@@ -774,6 +780,7 @@ export function PaymentVoucherDialog({
                 <input
                   className="input"
                   type="date"
+                  max={HOM_NAY}
                   value={form.invoice_date ?? ""}
                   onChange={(e) => set("invoice_date", e.target.value || null)}
                 />
@@ -808,11 +815,7 @@ export function PaymentVoucherDialog({
             Hủy
           </Button>
           <Button type="submit" variant="accent" loading={saving}>
-            {combined
-              ? "Duyệt & lập chứng từ"
-              : voucher
-                ? "Lưu thay đổi"
-                : "Lập chứng từ"}
+            {voucher ? "Lưu thay đổi" : "Lập chứng từ"}
           </Button>
         </footer>
       </form>

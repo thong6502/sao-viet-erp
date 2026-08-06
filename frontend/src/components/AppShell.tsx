@@ -37,10 +37,13 @@ import { REBUILD_CONFIGS } from "../pages/rebuildCatalogConfigs";
 import { DepartmentPurchaseRequestsPage } from "../pages/DepartmentPurchaseRequestsPage";
 import { PurchaseRequestsPage } from "../pages/PurchaseRequestsPage";
 import { SuppliersPage } from "../pages/SuppliersPage";
+import { AccountingPayablesPage } from "../pages/AccountingPayablesPage";
 import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPage";
 import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
 import { PaymentReceiptsPage } from "../pages/PaymentReceiptsPage";
-import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
+// Màn "Tài khoản ngân hàng" đã gỡ khỏi menu 04/08/2026 và không còn ai liên kết tới. File màn vẫn
+// giữ để đợt kế toán sau dựng lại; bật lại chỉ cần bỏ comment dòng này và thêm lại `case`.
+// import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
 import {
   AUTHENTICATED_NAV_IDS,
   MODULES_BY_NAV_ID,
@@ -283,7 +286,7 @@ export function AppShell() {
   // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
-    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("di_muon"))) return;
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("di_muon") || readable.has("thu_mua") || readable.has("ke_toan"))) return;
 
     const close = connectQuoteEvents(token, (e) => {
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
@@ -311,12 +314,8 @@ export function AppShell() {
             lastPending.current = s.pending_approval_count;
           })
           .catch(() => {});
-      } else if (readable.has("don_hang_ban") && e.type === "order_decision") {
-        pushToast(
-          e.decision === "approved" ? `✓ Đơn ${e.code} đã được duyệt` : `✕ Đơn ${e.code} bị từ chối`,
-          e.decision === "approved" ? "ok" : "warn",
-        );
-        reloadBadges();
+      // Nhánh `order_decision` (duyệt/từ chối đơn đặc thù) đã gỡ cùng luồng duyệt — backend
+      // không còn publish event này nữa.
       } else if (readable.has("don_hang_ban") && e.type === "order_deposit_ok") {
         pushToast(`🔔 Đơn ${e.code} đã đủ cọc — chuyển xuống sản xuất được rồi`, "info");
         reloadBadges();
@@ -624,33 +623,51 @@ export function AppShell() {
       case "yeu-cau-mua-hang":
         return (
           <DepartmentPurchaseRequestsPage
+            eventTick={quoteTick}
             focusRequestCode={navParams?.focusRequestCode ?? null}
             seedLines={navParams?.purchaseSeedLines ?? null}
             seedPurpose={navParams?.purchaseSeedPurpose ?? null}
           />
         );
       case "mua-hang":
-        return <PurchaseRequestsPage navigate={navigate} />;
+        return <PurchaseRequestsPage navigate={navigate} eventTick={quoteTick} />;
       case "nha-cung-cap":
-        return <SuppliersPage />;
-      case "ke-toan-yeu-cau-mua":
-        return <AccountingPurchaseInboxPage navigate={navigate} />;
+        return <SuppliersPage eventTick={quoteTick} />;
+      // Bấm vào chính "Kế toán thu mua" thì rơi vào con đầu tiên — đừng để nó ra màn trắng.
+      case "ke-toan-thu-mua":
+      case "ke-toan-don-mua-hang":
+        return (
+          <AccountingPurchaseInboxPage
+            navigate={navigate}
+            eventTick={quoteTick}
+            focusRequestCode={navParams?.focusRequestCode ?? null}
+          />
+        );
       case "ke-toan-phieu-chi":
         return (
           <PaymentVouchersPage
             navigate={navigate}
+            eventTick={quoteTick}
             focusQuery={navParams?.focusVoucherQuery ?? null}
           />
         );
+      case "ke-toan-cong-no":
+        return <AccountingPayablesPage navigate={navigate} eventTick={quoteTick} />;
+      // "Phiếu thu" và "Tài khoản ngân hàng" đã GỠ KHỎI MENU (chủ 04/08/2026).
+      //
+      // Nhưng `case` của Phiếu thu vẫn GIỮ, vì hai màn khác đang nhảy sang nó bằng liên kết:
+      // `DonHangBanPage` (theo dấu tiền khách đặt cọc) và `PaymentVouchersPage`. Gỡ `case` thì hai
+      // liên kết đó rơi về Dashboard — người dùng bấm vào thấy nhảy lung tung, tưởng hỏng.
+      // Muốn bỏ HẲN Phiếu thu thì phải gỡ hai liên kết kia trước, và như vậy là cắt luôn đường
+      // theo dõi tiền cọc của Đơn hàng bán — việc đó cần chủ chốt riêng.
       case "ke-toan-phieu-thu":
         return (
           <PaymentReceiptsPage
             navigate={navigate}
+            eventTick={quoteTick}
             focusQuery={navParams?.focusReceiptQuery ?? null}
           />
         );
-      case "ke-toan-tai-khoan":
-        return <AccountingBankAccountsPage />;
       case "nhat-ky":
         return <ActivityLogPage />;
       default:

@@ -29,8 +29,130 @@ import re
 from math import ceil, floor
 
 from .routing_engine import basis_qty, compute_step_cost
-from ..models.lsx import DV_CAI, DV_TO, DV_TO_NGUYEN
+from ..models.lsx import DV_CAI, DV_CON, DV_TAY, DV_TO, DV_TO_NGUYEN
 from .bu_hao_engine import chuoi_nguoc_dv
+
+
+def cau_to_sang_cai(*, trang_moi_tay, so_trang, con) -> float:
+    """Hệ số cầu `tờ in → cái` của MỘT sản phẩm. NGUỒN SỰ THẬT DUY NHẤT cho cả tính giá, lệnh sản
+    xuất và bài ghép — ba tầng tự suy riêng thì ba số khác nhau cho cùng một cuốn sách.
+
+    HAI KIỂU LÀM khác hẳn nhau, `trang_moi_tay` là thứ phân biệt (không cần thêm cờ nào):
+
+    - **GẤP TAY** (sách, trang mỗi tay > 1): tờ in gấp NGUYÊN VẸN thành một tay → 1 tờ = 1 tay,
+      một cuốn cần `so_tay` tờ. Hệ số **`1/so_tay`**, NHỎ HƠN 1. Tờ không bị cắt rời nên `con`
+      KHÔNG vào công thức — nó chỉ để vẽ sơ đồ bình bài và kiểm khổ có vừa tờ.
+    - **CẮT RỜI** (tờ rơi, danh thiếp, hộp): một tờ cắt ra `con` cái.
+
+    Lấy `con` cho cả hai kiểu là sai hẳn với sách: 10 tờ mới ra 1 cuốn mà tính thành 1 tờ ra N
+    cuốn thì số giấy hụt đúng `con × so_tay` lần, và hụt một chiều (không bao giờ thừa).
+
+    `so_tay` TÍNH LẠI từ `so_trang / trang_moi_tay`; đừng nhận `so_to_per_sp` đã lưu — đó là số
+    engine GHI RA, snapshot của nó thiu ngay khi ai sửa số trang mà không chạy lại.
+    """
+    tmt = max(int(_f(trang_moi_tay) or 1), 1)
+    if tmt > 1:
+        return 1.0 / so_tay_moi_cuon(trang_moi_tay=trang_moi_tay, so_trang=so_trang)
+    return float(max(int(_f(con) or 0), 1))
+
+
+def so_tay_moi_cuon(*, trang_moi_tay, so_trang) -> int:
+    """Số TAY (= số tờ in) của một cuốn. `ceil(số trang / trang mỗi tay)`, tối thiểu 1."""
+    tmt = max(int(_f(trang_moi_tay) or 1), 1)
+    return max(ceil(max(_f(so_trang), 1.0) / tmt), 1)
+
+
+def la_gap_tay(quy_cach) -> bool:
+    """Sản phẩm GẤP TAY (sách) hay CẮT RỜI?
+
+    Dùng ĐÚNG tiêu chí `cau_to_sang_cai` dùng để chọn nhánh `1/so_tay` — hai chỗ hỏi cùng một câu
+    thì không thể trả lời lệch nhau. Ai cần biết "lệnh này có phải sách không" thì gọi hàm này,
+    đừng tự gõ lại `trang_moi_tay > 1` ở chỗ khác.
+    """
+    return max(int(_f((quy_cach or {}).get("trang_moi_tay")) or 1), 1) > 1
+
+
+MUC_PROCESS = ("C", "M", "Y", "K")
+
+
+def tap_muc(v) -> list[str]:
+    """Chuẩn hoá tập mực của MỘT mặt: viết hoa, bỏ khoảng trắng thừa, bỏ trùng, GIỮ THỨ TỰ khai.
+
+    Không có danh mục mực nên chuẩn hoá chuỗi là hàng rào duy nhất chống `185C` / `185 c` /
+    ` 185C ` thành ba mực khác nhau. An toàn vì hợp `A ∪ B` chỉ tính trong phạm vi MỘT thành phần
+    (ruột và bìa là hai bộ bản riêng), tức mã chỉ cần khớp trong tầm một cái form — và UI cho bấm
+    lại mã của mặt kia thay vì gõ lại.
+    """
+    if not isinstance(v, (list, tuple)):
+        return []
+    out: list[str] = []
+    for x in v:
+        ma = " ".join(str(x or "").split()).upper()
+        if ma and ma not in out:
+            out.append(ma)
+    return out
+
+
+def tap_muc_tu_so(so_mau_a, so_mau_b, so_mau_pha) -> tuple[list[str], list[str]]:
+    """Dựng tập mực TỪ ba con số cũ — luật DUY NHẤT để đọc dữ liệu chưa khai mực.
+
+    Dùng ở hai chỗ và phải giống hệt nhau: migration `0154` backfill DB, và engine đọc thành phần
+    do seed/script dựng tay (chúng bơm số chứ không bơm tập). Viết hai bản là hai chỗ để lệch.
+
+    `N màu process` → tiền tố `[K, C, M, Y]` (đen trước — xưởng gọi "1 màu" là đen), màu pha gắn
+    vào mặt A. Hệ quả CỐ Ý: tập bên ít màu luôn là con của bên nhiều màu, nên `|A ∪ B| = max` —
+    đúng bằng số kẽm tự trở mà engine cũ tính, và ba số dẫn xuất quay về y hệt giá trị vào.
+    Nói cách khác: dữ liệu chỉ-có-số KHÔNG đổi giá; chỉ ai khai mực thật mới thấy số kẽm khác.
+    """
+    n_a = max(int(_f(so_mau_a)), 0)
+    n_b = max(int(_f(so_mau_b)), 0)
+    n_pha = max(int(_f(so_mau_pha)), 0)
+    proc = list(("K", "C", "M", "Y"))
+    # Quá 4 là dữ liệu lạ (process chỉ có 4) — phần dư thành mực chưa rõ tên nhưng vẫn đếm đủ bản.
+    # Đặt tên theo MẶT để hai bên không vô tình gộp làm một khi hợp tập.
+    a = proc[:n_a] + [f"MỰC A{i}" for i in range(5, n_a + 1)]
+    b = proc[:n_b] + [f"MỰC B{i}" for i in range(5, n_b + 1)]
+    a += [f"PHA {i}" for i in range(1, n_pha + 1)]
+    return a, b
+
+
+def so_kem_moi_tay(muc_a, muc_b, quy_cach_in: str) -> int:
+    """Số bản kẽm cho MỘT tay (một bài in). NGUỒN SỰ THẬT DUY NHẤT của công thức kẽm.
+
+    - **AB** (sheetwise): hai mặt hai bộ bản riêng → `|A| + |B|`. Cùng một Pantone dùng ở cả hai
+      mặt vẫn phải ra hai bản, nên cộng chứ không hợp.
+    - **Tự trở / trở nhíp** (work-and-turn / work-and-tumble): cả hai mặt nằm CHUNG một bộ bản,
+      in xong lật tờ chạy lại chính bản đó → `|A ∪ B|`. Mỗi mực riêng biệt vẫn cần một bản riêng.
+      Hai kiểu này khác nhau ở TRỤC LẬT (rủi ro chồng màu, khổ giấy), không khác số bản.
+    - **1 mặt**: `|A|`.
+
+    `max(|A|, |B|)` là rút gọn SAI cho nhánh tự trở — nó chỉ đúng khi tập mặt ít màu nằm gọn trong
+    tập mặt kia. Mặt A `CMYK` với mặt B `185C` phải ra 5 bản, `max` ra 4 và thiếu đúng bản Pantone.
+    """
+    a, b = tap_muc(muc_a), tap_muc(muc_b)
+    if quy_cach_in == "mot_mat":
+        return len(a)
+    if quy_cach_in in ("tu_tro", "tro_nhip"):
+        return len(set(a) | set(b))
+    return len(a) + len(b)
+
+
+def so_mau_dan_xuat(muc_a, muc_b) -> tuple[int, int, int]:
+    """`(so_mau_a, so_mau_b, so_mau_pha)` suy từ tập mực — GIỮ ĐÚNG NGHĨA CŨ của ba cột đó.
+
+    `so_mau_a/b` đếm mực PROCESS mỗi mặt; `so_mau_pha` đếm mực pha PHÂN BIỆT của cả hai mặt gộp
+    lại (một Pantone dùng ở hai mặt vẫn là một màu pha phải pha). Giữ nguyên nghĩa để công thức
+    mực `so_mau_a + so_mau_b + so_mau_pha`, `_may_fit`, lệnh SX, bài ghép và báo giá không phải
+    sửa dòng nào — và để phiếu cũ sau backfill ra y hệt số đang lưu.
+    """
+    a, b = tap_muc(muc_a), tap_muc(muc_b)
+    proc = set(MUC_PROCESS)
+    pha = {m for m in a + b if m not in proc}
+    return (
+        sum(1 for m in a if m in proc),
+        sum(1 for m in b if m in proc),
+        len(pha),
+    )
 
 
 def _f(v, d: float = 0.0) -> float:
@@ -381,7 +503,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     #  · CẮT RỜI (tờ rơi, danh thiếp, hộp): một tờ cắt ra `con` cái.
     # `cai_moi_to` dùng lại làm HỆ SỐ quy đổi tờ↔cái cho chuỗi bù hao ngược ở dưới — một nguồn duy
     # nhất, khỏi hai chỗ tính lệch nhau.
-    cai_moi_to = (1.0 / so_tay) if trang_moi_tay > 1 else float(con)
+    cai_moi_to = cau_to_sang_cai(trang_moi_tay=trang_moi_tay, so_trang=so_trang, con=con)
     to_net = ceil(sl / cai_moi_to) if sl > 0 and cai_moi_to > 0 else 0
 
     # --- Bù hao NGƯỢC theo công đoạn: đi từ CUỐI chuỗi lên, mỗi bước tra bậc theo số đi qua CHÍNH
@@ -409,7 +531,22 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     # Ranh giới tờ in → cái: cắt rời thì 1 tờ ra `con` cái; GẤP TAY thì ngược chiều — phải gom
     # `so_tay` tờ mới ra 1 cuốn (hệ số 1/so_tay). Không có nó, chuỗi ngược chạy 1:1 và mỗi cuốn
     # hỏng ở bước xén chỉ đòi bù 1 tờ thay vì `so_tay` tờ.
-    he_so_dv = {(DV_TO, DV_CAI): cai_moi_to, (DV_TO_NGUYEN, DV_TO): float(xa)}
+    # Sách còn đi ĐƯỜNG DÀI qua TAY: gấp (tờ in → tay) rồi bắt tay + vào keo (tay → cuốn). Cầu
+    # đầu là 1 — gấp không sinh không mất tờ; cầu sau vì thế phải gánh trọn `cai_moi_to`, và lấy
+    # THẲNG biến đó chứ không gõ lại `1/so_tay`: tích hai cầu buộc phải bằng đúng cầu tắt
+    # `to → cai`, hai công thức song song là hai chỗ để lệch nhau.
+    # Tờ rời cũng có ĐƯỜNG DÀI qua CON, tuỳ người khai đặt đầu ra bước bế/cắt là `con` hay thẳng
+    # `thành phẩm`: 1 tờ cắt ra 49 con, mỗi con là một thẻ nên `con → thành phẩm` = 1. Viết dạng
+    # CHIA thay vì hằng số 1 để tích hai cầu luôn khoá bằng cầu tắt — mai kia có hàng cần 2 con
+    # ghép thành 1 thành phẩm (thân hộp + nắp) thì `cai_moi_to` đổi là cầu này tự đổi theo.
+    # Số giấy hai đường ra như nhau; khác nhau ở chỗ bù hao tra bậc theo CON hay theo TỜ.
+    # Thiếu hai cầu này thì lệnh sản xuất (đã có đủ) và phiếu tính giá ra hai số giấy khác nhau.
+    so_con_qd = float(max(int(con or 0), 1))
+    he_so_dv = {
+        (DV_TO, DV_CAI): cai_moi_to, (DV_TO_NGUYEN, DV_TO): float(xa),
+        (DV_TO, DV_TAY): 1.0, (DV_TAY, DV_CAI): cai_moi_to,
+        (DV_TO, DV_CON): so_con_qd, (DV_CON, DV_CAI): cai_moi_to / so_con_qd,
+    }
     buoc_in = []
     for i in idx_giay:
         cd = chain[i].get("cong_doan") or {}
@@ -488,11 +625,14 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     else:
         so_tp_ra = floor(to_ra_cuoi * cai_moi_to)   # còn đang đếm tờ in → × số cái mỗi tờ
 
-    so_mau_a = _i(tp.get("so_mau_a"))     # màu PROCESS mặt A (CMYK…)
-    so_mau_b = _i(tp.get("so_mau_b"))     # màu PROCESS mặt B
-    # Màu pha (Pantone) CỘNG THÊM — mỗi màu mực chạy 1 đơn vị máy là 1 bản kẽm, màu pha cũng vậy.
-    # 4 màu CMYK + 1 Pantone = 5 kẽm. Ô "Số màu mặt A/B" là màu process, KHÔNG gồm màu pha.
-    so_mau_pha = max(_i(tp.get("so_mau_pha")), 0)
+    # --- Mực in: TẬP mã mỗi mặt là nguồn sự thật; ba số màu là dẫn xuất ---
+    muc_a, muc_b = tap_muc(tp.get("muc_a")), tap_muc(tp.get("muc_b"))
+    if not muc_a and not muc_b:
+        # Thành phần chỉ có ba con số (seed/script dựng tay, phiếu chưa qua backfill) → dựng tập
+        # theo ĐÚNG luật migration `0154` dùng. Không có nhánh này thì chúng ra 0 kẽm lặng lẽ.
+        muc_a, muc_b = tap_muc_tu_so(
+            tp.get("so_mau_a"), tp.get("so_mau_b"), tp.get("so_mau_pha"))
+    so_mau_a, so_mau_b, so_mau_pha = so_mau_dan_xuat(muc_a, muc_b)
     so_mau = so_mau_a + so_mau_b + so_mau_pha
     co_in = bool(tp.get("co_in", True))
 
@@ -505,10 +645,8 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     rong_in_m = kho_in_r / 1000.0
     dinh_luong = _f(tp.get("gsm")) / 1000.0  # gsm / 1000 -> kg/m2 (0.25)
 
-    # --- Số kẽm ---
-    # 1 bộ kẽm mang cả 2 mặt (mot_mat / tự trở / trở nhíp) → chỉ màu A; AB (hai_mat) = 2 bộ riêng A+B.
-    kem_mau = so_mau_a if qc in ("mot_mat", "tu_tro", "tro_nhip") else (so_mau_a + so_mau_b)
-    kem_mau += so_mau_pha        # màu pha = mực riêng, chạy đơn vị riêng → bản kẽm riêng
+    # --- Số kẽm --- mỗi TAY một bộ bản (mỗi tay một nội dung khác), xem `so_kem_moi_tay`.
+    kem_mau = so_kem_moi_tay(muc_a, muc_b, qc)
     so_kem = kem_mau * so_to_per_sp
     so_luot = to_dau_vao * passes
 
@@ -717,6 +855,10 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             "con": con, "con_auto": bool(con_auto), "so_manh_xa": xa,
             "to_net": to_net, "to_gross": to_dau_vao, "to_nguyen": to_nguyen,
             "so_kem": so_kem, "so_luot": so_luot,
+            # Mực + ba số dẫn xuất trả ngược lên UI: người dùng gõ TẬP, engine chốt SỐ — client
+            # khỏi phải cài lại luật đếm process/pha rồi lệch với backend.
+            "muc_a": muc_a, "muc_b": muc_b, "kem_moi_tay": kem_mau,
+            "so_mau_a": so_mau_a, "so_mau_b": so_mau_b, "so_mau_pha": so_mau_pha,
             "to_dau_vao": to_dau_vao, "to_sau_in": to_sau_in,
             "bu_hao_auto": _r(finishing_spoilage_sum),   # Σ bù hao công đoạn (chuỗi ngược)
             "bu_hao_chi_tiet": bu_hao_chi_tiet,          # phân rã: bước nào ăn bao nhiêu tờ

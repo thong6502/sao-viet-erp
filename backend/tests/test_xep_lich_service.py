@@ -61,7 +61,7 @@ def _to_san_xuat(db) -> Department:
 def _may_in(db) -> MayThietBi:
     may = MayThietBi(
         ma="MAY-IN-XL", ten="Máy in 4 màu", loai_may="press_offset_sheet",
-        toc_do=5_000, don_vi_toc_do="to_gio", thoi_gian_rua_muc=15, makeready_time_default=30,
+        toc_do=5_000, don_vi_toc_do="to_gio", makeready_time_default=30,
         kho_max_dai=1020, kho_max_rong=720,
     )
     db.add(may)
@@ -245,8 +245,8 @@ def test_gan_tinh_gio_ket_thuc_va_da_xep(db, orders, lsx_svc, xl_svc, admin, cus
 
     assert res.trang_thai == "da_xep"
     # Bước In gán vào máy `_may_in` (to_gio) → THEO MÁY (HM3): makeready 30 + chạy 5000/5000*60=60 +
-    # rửa mực 15 = 105 phút (setup/vệ-sinh của máy THẮNG snapshot bước). SQLite trả naive → 09:45.
-    assert res.finish_at.replace(tzinfo=None) == datetime(2026, 7, 27, 9, 45)
+    # = 90 phút (setup của máy THẮNG snapshot bước). SQLite trả naive → 09:30.
+    assert res.finish_at.replace(tzinfo=None) == datetime(2026, 7, 27, 9, 30)
 
 
 def test_xung_dot_may_khi_chong_gio(db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch):
@@ -278,6 +278,82 @@ def test_go_ke_hoach_xoa_dong_va_mo_routing(db, orders, lsx_svc, xl_svc, admin, 
     assert XepLichRepository(db).by_lsx(lsx.id) == []
 
 
+def _gop_in_va_san_sang(db, bg_svc, bg, admin, keys=None):
+    """Gộp bước in của các thành viên + lập kế hoạch cho lượt chung → bài đủ điều kiện sẵn sàng.
+
+    Bài ghép KHÔNG tự gộp bước nào: chưa gộp thì đó là N lệnh rời, gate `san_sang` chặn.
+    """
+    from app.models.department import Department
+
+    tvs = bg_svc._get(bg.id).thanh_viens
+    bg_svc.gop(
+        bai_ghep_id=bg.id, actor=admin,
+        step_keys=keys or [_in_step(db, tv.lsx_id).step_key for tv in tvs],
+    )
+    mau = _in_step(db, tvs[0].lsx_id)
+    to_id = mau.department_id or db.query(Department.id).scalar()
+    for c in bg_svc._buoc_chungs(bg_svc._get(bg.id)):
+        bg_svc.lap_ke_hoach_buoc_chung(
+            bai_ghep_id=bg.id, gang_step_key=c.step_key, actor=admin,
+            patch={"department_id": to_id, "may_id": mau.may_id},
+        )
+    return bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
+
+
+def test_moi_buoc_chung_mot_dong_lich_khong_bi_boc_hoi(
+    db, orders, lsx_svc, bg_svc, xl_svc, admin, customer
+):
+    """Gộp NHIỀU công đoạn → mỗi bước chung một dòng lịch, dùng máy của chính bước đó.
+
+    `_sinh_dong` loại MỌI bước bị đè khỏi routing lệnh. Nếu bài chỉ đẻ đúng một dòng "in ghép" thì
+    gộp thêm một công đoạn nữa là bước đó **bốc hơi khỏi board**: không đặt chỗ máy, không tính
+    thời lượng, không ai báo.
+    """
+    from app.models.department import Department
+
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    # Mỗi lệnh thêm bước "Xả tờ" để có công đoạn thứ hai gộp được.
+    for lsx in created:
+        db.add(LsxCongDoan(
+            lsx_id=lsx.id, thu_tu=1, ten="Xả tờ", nhom="finishing", loai_buoc=LB_MAY,
+            cong_doan_id=_in_step(db, lsx.id).cong_doan_id,
+            may_id=_in_step(db, lsx.id).may_id, so_luong_vao=5000, nang_suat=3000,
+            don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to",
+        ))
+    db.commit()
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+
+    tvs = bg_svc._get(bg.id).thanh_viens
+    bg_svc.gop(bai_ghep_id=bg.id, actor=admin,
+               step_keys=[_in_step(db, tv.lsx_id).step_key for tv in tvs])
+    bg_svc.gop(bai_ghep_id=bg.id, actor=admin, step_keys=[
+        next(c.step_key for c in lsx_svc.get(tv.lsx_id).cong_doans if c.ten == "Xả tờ")
+        for tv in tvs
+    ])
+    mau = _in_step(db, tvs[0].lsx_id)
+    to_id = mau.department_id or db.query(Department.id).scalar()
+    for c in bg_svc._buoc_chungs(bg_svc._get(bg.id)):
+        bg_svc.lap_ke_hoach_buoc_chung(
+            bai_ghep_id=bg.id, gang_step_key=c.step_key, actor=admin,
+            patch={"department_id": to_id, "may_id": mau.may_id},
+        )
+    bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
+    xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)
+
+    gang = XepLichRepository(db).by_bai_ghep(bg.id)
+    assert len(gang) == 2, "gộp 2 công đoạn phải ra 2 dòng lịch, không phải 1"
+    assert all(r.bai_ghep_cong_doan_id for r in gang), "dòng phải neo đích danh bước chung"
+    # Máy lấy từ bước chung người dùng vừa khai, KHÔNG phải `bg.may_id` (bài chưa chọn máy).
+    assert bg.may_id is None and all(r.may_id == mau.may_id for r in gang)
+    # Thời lượng suy từ MÁY của chính bước chung (bài chưa chọn máy) — mọi dòng đều ra số > 0
+    # bằng đúng công thức chung, không còn ô `chay_phut` gõ đè để ghim số cứng.
+    assert all(xl_svc._thoi_luong(r)["chay_phut"] > 0 for r in gang)
+    assert all(xl_svc._thoi_luong(r)["theo_may"] is True for r in gang)
+    # Không lệnh nào còn giữ dòng riêng cho hai bước đã gộp.
+    for lsx in created:
+        assert XepLichRepository(db).by_lsx(lsx.id) == []
+
+
 def test_bai_ghep_in_chung_mot_dong_loai_tru_in(db, orders, lsx_svc, bg_svc, xl_svc, admin, customer):
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     # Mỗi LSX thêm bước xả tờ (sau in) để thành viên còn công đoạn xếp riêng sau khi in chung.
@@ -289,7 +365,7 @@ def test_bai_ghep_in_chung_mot_dong_loai_tru_in(db, orders, lsx_svc, bg_svc, xl_
         ))
     db.commit()
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
-    bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
+    bg = _gop_in_va_san_sang(db, bg_svc, bg, admin)
 
     xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)
     repo = XepLichRepository(db)
@@ -338,6 +414,12 @@ def test_dag_buoc_ghep_lay_moc_muon_nhat_cua_nhieu_tien_nhiem(
                         lambda: datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc))
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    # `som_nhat` còn bị chặn dưới bởi mốc BÀN GIAO SX (`_san_thoi_gian`), mà mốc đó do
+    # `order_service.release_production` đóng dấu bằng giờ THẬT — nó không đi qua `_utcnow` vừa
+    # patch ở trên. Không ghim lại thì hễ chạy sau 11:00 UTC là sàn giờ thật vượt mốc tiền nhiệm,
+    # `som_nhat` thành "bây giờ" và test đỏ theo đồng hồ chứ không theo logic đang đo.
+    lsx.ban_giao_at = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
+    db.commit()
     a = _in_step(db, lsx.id)
     b = LsxCongDoan(lsx_id=lsx.id, thu_tu=1, ten="Nhánh B", loai_buoc=LB_MAY,
                     may_id=a.may_id, so_luong_vao=100, nang_suat=100,
@@ -381,7 +463,7 @@ def test_gan_lai_mot_phan_tren_dong_da_co_gio(db, orders, lsx_svc, xl_svc, admin
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
     step.setup_phut, step.nang_suat, step.so_luong_vao = 0, 5000, 5000
-    step.chay_phut, step.ve_sinh_phut, step.so_luot_chay = None, 0, 1  # theo máy: 30+60+15 = 105 phút
+    step.chay_phut, step.ve_sinh_phut, step.so_luot_chay = None, 0, 1  # theo máy: 30+60 = 90 phút
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dong = XepLichRepository(db).by_lsx(lsx.id)[0]
@@ -392,7 +474,7 @@ def test_gan_lai_mot_phan_tren_dong_da_co_gio(db, orders, lsx_svc, xl_svc, admin
     res = xl_svc.gan(dong_id=dong.id, patch={"may_id": step.may_id}, actor=admin)
     assert res.trang_thai == "da_xep"
     assert res.start_at.replace(tzinfo=None) == datetime(2026, 7, 27, 8, 0)   # giờ giữ nguyên
-    assert res.finish_at.replace(tzinfo=None) == datetime(2026, 7, 27, 9, 45)  # 08:00 + 105 (theo máy)
+    assert res.finish_at.replace(tzinfo=None) == datetime(2026, 7, 27, 9, 30)  # 08:00 + 90 (theo máy)
 
 
 # --- LichXuong: lịch máy theo CA THẬT (nghỉ trưa / ca đêm / fallback) ---------
@@ -481,8 +563,8 @@ def test_gan_ne_vung_khoa(db, orders, lsx_svc, xl_svc, admin, customer, monkeypa
                          ly_do="bao_tri", note=None, actor=admin)
     res = xl_svc.gan(dong_id=dong.id, patch={"may_id": step.may_id,
                      "start_at": datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)}, actor=admin)
-    # 225' (theo máy) né khóa 10–12: 08→10 (120') + 12→13:45 (105') = 13:45.
-    assert res.finish_at.replace(tzinfo=None) == datetime(2026, 7, 27, 13, 45)
+    # 210' (theo máy) né khóa 10–12: 08→10 (120') + 12→13:30 (90') = 13:30.
+    assert res.finish_at.replace(tzinfo=None) == datetime(2026, 7, 27, 13, 30)
 
 
 def test_vung_khoa_crud_va_lich_nen(db, xl_svc, admin, monkeypatch):
@@ -525,25 +607,30 @@ def test_thoi_luong_theo_may_khop_don_vi(db, orders, lsx_svc, xl_svc, admin, cus
     dong = XepLichRepository(db).by_lsx(lsx.id)[0]
     d = xl_svc._thoi_luong(dong)
     assert d["theo_may"] is True and d["canh_bao"] is None
-    # makeready 30 + 5000/5000*60=60 + rửa mực 15 = 105 (KHÔNG lấy snapshot 999).
-    assert d["setup_phut"] == 30 and d["chay_phut"] == 60 and d["ve_sinh_phut"] == 15
-    assert d["chiem_may_phut"] == 105
+    # makeready 30 + 5000/5000*60=60 = 90 (KHÔNG lấy snapshot 999). Vệ sinh đã gỡ khỏi hệ nên
+    # `ve_sinh_phut=999` của bước bị bỏ qua hoàn toàn — breakdown cũng không còn khoá đó.
+    assert d["setup_phut"] == 30 and d["chay_phut"] == 60
+    assert "ve_sinh_phut" not in d
+    assert d["chiem_may_phut"] == 90
 
 
-def test_thoi_luong_fallback_don_vi_lech(db, orders, lsx_svc, xl_svc, admin, customer):
-    """Máy khai tốc độ `m2_gio` (không khớp bước vào `tờ`) → KHÔNG tính-theo-máy, fallback snapshot
-    bước + cảnh báo `don_vi_lech` để UI nhắc số đang là snapshot."""
+def test_thoi_luong_khong_phu_thuoc_nhan_don_vi_may(db, orders, lsx_svc, xl_svc, admin, customer):
+    """Máy khai nhãn `m2_gio` vẫn tính bình thường — công thức chỉ lấy con số (chốt 2026-08-05).
+
+    Guard "lệch đơn vị ⇒ chạy = 0" đã gỡ: nó chặn oan bước đã gán máy đàng hoàng."""
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    step.setup_phut, step.nang_suat, step.so_luong_vao = 40, 5000, 5000
-    step.chay_phut, step.ve_sinh_phut, step.so_luot_chay = None, 0, 1
-    db.get(MayThietBi, step.may_id).don_vi_toc_do = "m2_gio"
+    step.so_luong_vao, step.so_luot_chay = 5000, 1
+    may = db.get(MayThietBi, step.may_id)
+    may.don_vi_toc_do = "m2_gio"
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dong = XepLichRepository(db).by_lsx(lsx.id)[0]
     d = xl_svc._thoi_luong(dong)
-    assert d["theo_may"] is False and d["canh_bao"] == "don_vi_lech"
-    assert d["setup_phut"] == 40 and d["chiem_may_phut"] == 100   # snapshot: 40 + 60 + 0
+    assert d["theo_may"] is True and d["canh_bao"] is None
+    assert d["chay_phut"] == 60                      # 5.000 × 60 ÷ 5.000, kệ nhãn m2/h
+    assert d["setup_phut"] == float(may.makeready_time_default or 0)
+    assert d["chiem_may_phut"] == d["setup_phut"] + 60
 
 
 # --- HM4: kiểm KHẢ NĂNG máy (mềm — máy đề xuất, người quyết) -------------------
@@ -562,6 +649,40 @@ def test_kiem_kha_nang_may_util():
     thieu = SimpleNamespace(kho_max_dai=None, kho_max_rong=None, so_units=None,
                             min_stock_gsm=None, max_stock_gsm=None)
     assert kiem_kha_nang(qc, thieu) == []
+
+
+def test_dau_muc_can_dem_theo_tap_muc_khong_theo_so_mau_process():
+    """Số đầu mực máy phải có = đếm TẬP MỰC, không phải `max` hai số màu process.
+
+    `so_mau_a/b` chỉ đếm CMYK nên "CMYK + 1 Pantone" ra 4 — máy 4 đơn vị lọt cửa trong khi thợ ra
+    máy mới biết thiếu một đầu mực.
+    """
+    from app.services._may_fit import LY_DO_SO_MAU, dau_muc_can, kiem_kha_nang
+
+    cmyk = ["C", "M", "Y", "K"]
+    may4 = SimpleNamespace(kho_max_dai=1200, kho_max_rong=1000, so_units=4,
+                           min_stock_gsm=50, max_stock_gsm=400)
+    kho = {"kho_in_dai": 650, "kho_in_rong": 900, "gsm": 300}
+
+    # AB: mỗi lượt chạy MỘT mặt → max(|A|,|B|). CMYK/K vừa máy 4 đơn vị.
+    ab = {**kho, "quy_cach_in": "hai_mat", "muc_a": cmyk, "muc_b": ["K"]}
+    assert dau_muc_can(ab) == 4
+    assert LY_DO_SO_MAU not in kiem_kha_nang(ab, may4)
+    # Thêm Pantone vào mặt A → 5 đầu mực, máy 4 đơn vị KHÔNG kham. Bản cũ im lặng ca này.
+    ab5 = {**ab, "muc_a": cmyk + ["185C"]}
+    assert dau_muc_can(ab5) == 5
+    assert LY_DO_SO_MAU in kiem_kha_nang(ab5, may4)
+
+    # Tự trở: một lượt chạy CẢ HAI mặt trên chung bản → hợp tập, không phải max.
+    tu = {**kho, "quy_cach_in": "tu_tro", "muc_a": cmyk, "muc_b": ["185C"]}
+    assert dau_muc_can(tu) == 5                       # max sẽ ra 4
+    assert LY_DO_SO_MAU in kiem_kha_nang(tu, may4)
+    # Cùng bộ mực hai mặt thì hợp lại vẫn 4 — không đẻ cảnh báo giả.
+    assert dau_muc_can({**tu, "muc_b": ["K"]}) == 4
+
+    # Lệnh CŨ chưa có tập mực → rơi về hai số như trước.
+    assert dau_muc_can({**kho, "so_mau_a": 6, "so_mau_b": 2}) == 6
+    assert dau_muc_can({}) == 0
 
 
 def test_can_xac_nhan_khi_gan_may_nho(db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch):
@@ -594,7 +715,7 @@ def test_xem_truoc_khong_commit(db, orders, lsx_svc, xl_svc, admin, customer, mo
     dong_id = XepLichRepository(db).by_lsx(lsx.id)[0].id
     res = xl_svc.xem_truoc(dong_id=dong_id, may_id=step.may_id,
                            start_at=datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc))
-    assert res["finish_at"].replace(tzinfo=None) == datetime(2026, 7, 27, 9, 45)  # theo máy 105'
+    assert res["finish_at"].replace(tzinfo=None) == datetime(2026, 7, 27, 9, 30)  # theo máy 90'
     assert res["finish_at"].tzinfo is None                                        # wall-clock naive
     db.expire_all()
     fresh = XepLichRepository(db).get(dong_id)
@@ -621,7 +742,7 @@ def test_xem_truoc_day_buoc_sau(db, orders, lsx_svc, xl_svc, admin, customer, mo
     res = xl_svc.xem_truoc(dong_id=in_id, may_id=step.may_id,
                            start_at=datetime(2026, 7, 28, 8, 0, tzinfo=timezone.utc))
     xa = next((x for x in res["day_doi"] if x["id"] == xa_id), None)
-    assert xa is not None and xa["som_nhat"].replace(tzinfo=None) >= datetime(2026, 7, 28, 9, 45)
+    assert xa is not None and xa["som_nhat"].replace(tzinfo=None) >= datetime(2026, 7, 28, 9, 30)
 
 
 def test_xem_truoc_bao_xung_dot(db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch):
@@ -647,7 +768,7 @@ def test_xem_truoc_bao_xung_dot(db, orders, lsx_svc, xl_svc, admin, customer, mo
 def test_lenh_in_hai_luot_chi_loai_dung_luot_duoc_ghep(
     db, orders, lsx_svc, bg_svc, xl_svc, admin, customer
 ):
-    """Quét cả nhóm `print` sẽ làm BỐC HƠI cả hai lượt in khỏi board — neo `step_key` mới đúng."""
+    """Quét cả nhóm `print` sẽ làm BỐC HƠI cả hai lượt in khỏi board — lớp đè theo `step_key` mới đúng."""
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
     for lsx in created:
         db.add(LsxCongDoan(
@@ -658,14 +779,9 @@ def test_lenh_in_hai_luot_chi_loai_dung_luot_duoc_ghep(
     db.commit()
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
 
-    # Hai lượt in → máy không đoán, bài thiếu dữ liệu cho tới khi người chọn.
-    assert "thieu_buoc_in" in bg_svc.thieu_cua(bg_svc._get(bg.id))
-    for tv in bg_svc._get(bg.id).thanh_viens:
-        mat_truoc = _in_step(db, tv.lsx_id)
-        bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv.id,
-                              so_con_tren_to=tv.so_con_tren_to,
-                              buoc_in_step_key=mat_truoc.step_key, actor=admin)
-    bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
+    # Hai lượt in → máy không đoán, bài chưa có gì chạy chung cho tới khi người gộp.
+    assert "thieu_buoc_chung" in bg_svc.thieu_cua(bg_svc._get(bg.id))
+    bg = _gop_in_va_san_sang(db, bg_svc, bg, admin)   # gộp ĐÚNG lượt mặt trước
 
     xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)
     member = XepLichRepository(db).by_lsx(created[0].id)

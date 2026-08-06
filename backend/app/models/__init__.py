@@ -64,6 +64,7 @@ from .purchase import (
     PurchaseRequestLine,
     PurchaseRequestSource,
     Supplier,
+    SupplierItem,
 )
 from .accounting import (
     CompanyBankAccount,
@@ -87,7 +88,7 @@ from .unit_level import UnitLevel
 from .user import User
 from .plate_die_rate import PlateDieRate
 from .norm import Norm
-from .may_thiet_bi import MayThietBi
+from .may_thiet_bi import MayThietBi, NhomMay
 from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
 from .cong_doan import CongDoan, CongDoanDauViec
 from .bu_hao import BuHao
@@ -101,6 +102,7 @@ from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
 from .lsx import Lsx, LsxCongDoan, LsxCongDoanVatTu, LsxCongDoanPhuThuoc
 from .bai_ghep import BaiGhep, BaiGhepThanhVien
+from .bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCongDoanVatTu
 from .xep_lich import XepLichCongDoan
 from .xep_lich_van_de import XepLichVanDe
 from .machine_unavailable import MachineUnavailablePeriod
@@ -108,6 +110,9 @@ from .document_sequence import DocumentSequence
 from .estimate import Estimate, EstimateOption, EstimateCostLine
 
 __all__ = [
+    "BaiGhepCongDoan",
+    "BaiGhepCongDoanMap",
+    "BaiGhepCongDoanVatTu",
     "User",
     "Department",
     "Role",
@@ -145,6 +150,7 @@ __all__ = [
     "ProductComponent",
     "ProductTypeCatalog",
     "Supplier",
+    "SupplierItem",
     "DepartmentPurchaseRequest",
     "DepartmentPurchaseRequestLine",
     "PurchaseRequest",

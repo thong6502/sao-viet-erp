@@ -832,7 +832,7 @@ export function DagRoutingCanvas({
                 toRefs={toRefs}
                 mayRefs={mayRefs}
                 warnings={[]}
-                maBaiGhep={baiGhep?.buoc_in_step_key === r.key ? baiGhep.ma : null}
+                maBaiGhep={baiGhep?.buoc_bi_de?.[r.key] ? baiGhep.ma : null}
                 canUpdate={canUpdate}
                 onMouseEnter={() => setHoveredKey(r.key)}
                 onMouseLeave={() => setHoveredKey(null)}

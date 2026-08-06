@@ -288,6 +288,11 @@
   border-radius: var(--r-2);
   background: var(--rule-hair);
   color: var(--ink);
+  /* Tên công đoạn KHÔNG được ngắt giữa cụm. Thiếu dòng này thì khi cột bị bóp, thuật toán chia
+     cột của bảng kéo chip về min-content = TỪ dài nhất, "Bát tay + vào keo (đóng cuốn)" vỡ
+     thành cột chữ dọc 6 dòng và đẩy chiều cao hàng lên gấp ba. Hẹp thì để bảng CUỘN NGANG
+     (`.khsx__tablewrap` đã có `overflow-x: auto`), đừng bẻ chữ. */
+  white-space: nowrap;
 }
 /* Chuỗi công đoạn chỉ tô bước NGOẠI LỆ, dùng đúng bảng màu của badge loại bước để hai chỗ
    nói cùng một thứ tiếng. Bước máy/tổ (phần lớn routing) để trơn. */
@@ -485,6 +490,10 @@
 .khsx-prev__row--con > td:nth-child(2) { padding-left: 20px; }
 .khsx-prev__row--conCuoi > td { border-bottom: 1px solid var(--rust); }
 .khsx-prev__tickcol { width: 40px; }
+/* Sàn cho cột "Công đoạn" (cột 9) để 5-6 chip routing xếp được ~2 chip/dòng thay vì 1 chip/dòng.
+   Đặt ở THEAD chứ không phải tbody: dải nhóm ở tbody có `colSpan={9}` nên `nth-child` trên td
+   sẽ trỏ nhầm cột, còn thead luôn đủ 10 `th` một-đối-một với cột. */
+.khsx-prev thead th:nth-child(9) { min-width: 200px; }
 .khsx-prev__tick { display: block; padding: var(--sp-2); cursor: pointer; }
 .khsx-prev__name { font-weight: var(--fw-bold); }
 .khsx-prev__nameSub { margin-top: 2px; }
@@ -606,18 +615,24 @@
   min-width: 0;
 }
 
-/* --- Top Summary Bar (Horizontal Top Bar - Option 1) --- */
+/* --- Top Summary Bar (Hero Readiness Card 2 Tầng) --- */
 .khsx-topbar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-top: 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.khsx-topbar__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  background: #ffffff;
-  border: 1px solid var(--rule-soft, #e2e8f0);
-  border-radius: 10px;
-  padding: 10px 16px;
-  margin-top: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   flex-wrap: wrap;
 }
 
@@ -632,7 +647,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
+  padding: 5px 12px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
@@ -703,41 +718,72 @@
   color: #d97706;
 }
 
-.khsx-topbar__metrics {
+/* Bottom Grid Row for KPI Tiles */
+.khsx-topbar__metrics-grid {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: stretch;
+  gap: 10px;
   flex-wrap: wrap;
-  font-size: 12px;
 }
 
-.khsx-metric-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.khsx-kpi-tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
-  padding: 3px 10px;
-  border-radius: 6px;
+  border-radius: 8px;
+  padding: 7px 13px;
+  min-width: 105px;
+  flex: 1 1 0;
+  transition: all 0.15s ease;
 }
 
-.khsx-metric-pill__label {
+.khsx-kpi-tile:hover {
+  border-color: #cbd5e1;
+  background: #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.03);
+}
+
+.khsx-kpi-tile--hero {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.khsx-kpi-tile--rust {
+  background: #fdf6f0;
+  border-color: #f6d8c3;
+}
+
+.khsx-kpi-tile__label {
   color: #64748b;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.khsx-kpi-tile__val {
+  color: #0f172a;
+  font-weight: 600;
+  font-size: 13.5px;
+  font-family: var(--ff-sans, sans-serif);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.khsx-kpi-tile__val small {
   font-size: 11px;
   font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
+  color: #64748b;
+  margin-left: 3px;
 }
 
-.khsx-metric-pill__val {
-  color: #0f172a;
+.khsx-kpi-tile__val--rust {
+  color: var(--rust, #e05638);
   font-weight: 700;
-  font-family: var(--ff-mono, monospace);
-}
-
-.khsx-metric-sep {
-  color: #cbd5e1;
-  font-weight: bold;
 }
 
 .khsx-topbar__action {
@@ -826,6 +872,39 @@
   color: var(--ink);
   letter-spacing: 0.01em;
 }
+/* Nhãn phân biệt khối THÔNG SỐ (sửa được) với khối MÁY TỰ TÍNH (không sửa). Bày lẫn lộn rồi số
+   tự nhảy khi sửa thì người dùng tưởng máy hỏng — nhãn này là thứ nói ra đâu là nhân, đâu là quả. */
+.khsx-spec__hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ash-2);
+  white-space: nowrap;
+}
+/* Ngả 1 ĐÈ số gõ tay — nhưng đè có báo trước. */
+.khsx-spec__canhbao {
+  margin: 10px 0 0;
+  padding: 7px 10px;
+  border-radius: var(--r-2);
+  background: var(--rust-soft);
+  color: var(--rust);
+  font-size: 11.5px;
+}
+/* Số dẫn xuất: giá trị cũ gạch ngang, giá trị mới đứng sau + chip "tính lại". */
+.khsx-kv--deriv .khsx-kv__cu {
+  color: var(--ash-2);
+  margin-right: 6px;
+  font-weight: var(--fw-regular);
+}
+.khsx-kv__moi {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--rust-soft);
+  color: var(--rust);
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+}
 .khsx-spec__card-body {
   padding: 16px;
 }
@@ -836,6 +915,9 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--sp-3) var(--sp-4);
 }
+/* Ba mốc định mức nhân lực (tối thiểu · tiêu chuẩn · tối đa) đứng cạnh nhau: chúng là MỘT khai
+   báo ba phần, tách mỗi ô một hàng thì mắt không đọc ra bộ. */
+.khsx-form--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2) var(--sp-3); }
 .khsx-field { display: flex; flex-direction: column; gap: 6px; }
 .khsx-field--wide { grid-column: 1 / -1; }
 .khsx-field--check {
@@ -1327,6 +1409,9 @@
 /* Con/tờ là ô DUY NHẤT sửa được trong khối Quy cách (hệ số cầu tờ in → con) — viền cam mảnh để
    mắt thấy ngay giữa một lưới toàn số chỉ-đọc. */
 .khsx-kv--edit { border-color: var(--rust-soft, var(--rule-soft)); }
+/* Dòng giải thích trải hết chiều ngang lưới — câu "sách gấp tay, con/tờ không chi phối giấy" mà
+   bị bó trong một ô 220px thì xuống dòng vụn, đọc không ra. */
+.khsx-kv--span { grid-column: 1 / -1; margin: 0; }
 .khsx-kv__input {
   width: 100%;
   min-height: 30px;
@@ -2453,6 +2538,75 @@
   grid-column: 1 / -1 !important;
 }
 
+/* --- Phép tính thời lượng xổ ra từng dòng (tab Thời gian, drawer bước) ------------------
+   Thay thanh phân-bổ-%-cũ: người kế hoạch cần thấy PHÉP TÍNH (số nào cộng vào đâu, chuẩn bị
+   gồm những khoản gì của máy), không cần biết setup chiếm bao nhiêu phần trăm. Chuẩn bị + tốc
+   độ kế thừa từ máy nên đây là khối ĐỌC, chỉ hai ô trên nó còn gõ được. */
+.khsx-tinh-gio {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  font-size: 13px;
+}
+.khsx-tinh-gio__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  color: var(--ash);
+}
+.khsx-tinh-gio__row b {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+/* Các khoản chuẩn bị của máy — thụt vào, chữ nhỏ: chúng GIẢI THÍCH dòng ngay trên. */
+.khsx-tinh-gio__khoan {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0 0 0 16px;
+  border-left: 2px solid var(--rule-soft);
+}
+.khsx-tinh-gio__khoan li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+  font-size: 12px;
+  color: var(--ash-2);
+}
+.khsx-tinh-gio__row--tong {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+}
+.khsx-tinh-gio__row--tong b {
+  font-size: 15px;
+}
+/* Dải nhanh–chậm: cùng ngôn ngữ với râu trên Gantt. */
+.khsx-tinh-gio__dai {
+  display: flex;
+  gap: 18px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ash);
+}
+.khsx-tinh-gio__dai b {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.khsx-tinh-gio__dai--trong {
+  display: block;
+  color: var(--ash-2);
+  font-style: italic;
+}
+
 .khsx-input-unit-combine {
   display: flex !important;
   align-items: center !important;
@@ -2540,7 +2694,6 @@
 }
 .khsx-time-bar__seg--setup { background: #f59e0b !important; }
 .khsx-time-bar__seg--chay { background: #3b82f6 !important; }
-.khsx-time-bar__seg--vesinh { background: #10b981 !important; }
 .khsx-time-bar__seg--cho { background: #8b5cf6 !important; }
 
 .khsx-time-legend {
@@ -2567,7 +2720,6 @@
 }
 .khsx-legend-item--setup::before { background: #f59e0b !important; }
 .khsx-legend-item--chay::before { background: #3b82f6 !important; }
-.khsx-legend-item--vesinh::before { background: #10b981 !important; }
 .khsx-legend-item--cho::before { background: #8b5cf6 !important; }
 
 .khsx-legend-item strong {
@@ -2635,7 +2787,6 @@
 .khsx-time-bar__seg { height: 100%; transition: width 0.3s ease; }
 .khsx-time-bar__seg--setup { background: #f59e0b; }
 .khsx-time-bar__seg--chay { background: #3b82f6; }
-.khsx-time-bar__seg--vesinh { background: #10b981; }
 .khsx-time-bar__seg--cho { background: #8b5cf6; }
 
 .khsx-time-legend {
@@ -2656,7 +2807,6 @@
 }
 .khsx-legend-item--setup::before { background: #f59e0b; }
 .khsx-legend-item--chay::before { background: #3b82f6; }
-.khsx-legend-item--vesinh::before { background: #10b981; }
 .khsx-legend-item--cho::before { background: #8b5cf6; }
 
 /* Formula Box */
@@ -2734,3 +2884,40 @@
   line-height: 1.5;
 }
 .khsx-ghep-bang svg { flex: 0 0 auto; margin-top: 2px; color: #7c5cbf; }
+
+/* ---------- Technical Note Callout Banner (Vị trí Đầu Tab Quy Cách) ---------- */
+.khsx-spec__note {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  color: #92400e;
+  box-shadow: 0 1px 3px rgba(217, 119, 6, 0.08);
+}
+
+.khsx-spec__note svg {
+  flex-shrink: 0;
+  color: #d97706;
+  margin-top: 2px;
+}
+
+.khsx-spec__note-title {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #b45309;
+  letter-spacing: 0.04em;
+  margin-bottom: 3px;
+  text-transform: uppercase;
+}
+
+.khsx-spec__note-content {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #78350f;
+  font-weight: 500;
+}

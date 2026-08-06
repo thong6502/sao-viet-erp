@@ -168,8 +168,28 @@ class PayrollParams(Base):
     # `0` = TẮT TRẦN: ghi phạt bao nhiêu trừ bấy nhiêu (thực nhận vẫn có sàn 0, không âm).
     # Màn Cấu hình lương cảnh báo khi đặt 0 hoặc > 30%. Thêm qua migration 0126.
     phat_cap_pct: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.30, server_default="0.3")
+    # SỐ NGÀY nghỉ không lương trong tháng mà từ đó tháng đó KHÔNG ĐÓNG BHXH.
+    #
+    # ⚠️ MỨC LUẬT, không phải chính sách công ty: QĐ 595/QĐ-BHXH Đ42.4 — người lao động không làm
+    # việc và không hưởng tiền lương từ 14 ngày làm việc trở lên trong tháng thì tháng đó không
+    # đóng BHXH. Khai được vì luật đổi thì gõ lại, đừng viết cứng trong engine (cùng lý do với
+    # `phat_cap_pct` và `pit_flat_rate`).
+    #
+    # `0` = TẮT LUẬT: tháng nào cũng trừ BHXH, như hành vi trước 04/08/2026. Engine PHẢI kiểm
+    # `> 0` trước khi so — không thì `ngay_khong_luong >= 0` luôn đúng và CẢ XƯỞNG mất sạch BHXH.
+    # Thêm qua migration 0158.
+    bhxh_mien_tu_so_ngay: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=14, server_default="14")
     # Phụ cấp cơm/ca ĐÃ CHUYỂN sang khai theo TỪNG CA (`work_shifts.meal_allowance` ·
     # `.shift_allowance`) — chủ đổi ý 2026-07-21: gắn vào ca thì NV được gán ca đó tự cộng.
+    #
+    # NGƯỠNG CÔNG để được hưởng phụ cấp cơm/ca của một ngày (chủ chốt 03/08/2026): đủ ngưỡng thì
+    # hưởng TRỌN, dưới ngưỡng thì KHÔNG có — cố ý KHÔNG nhân theo tỷ lệ. Một suất ăn là có hoặc
+    # không; nhân tỷ lệ thì đi muộn 15 phút (công 0,97) ra 24.250đ tiền cơm, vô lý.
+    # 0,5 = nghỉ nửa buổi vẫn được hưởng. Khai được để mỗi xưởng tự đặt, đừng viết cứng.
+    phu_cap_ca_min_cong: Mapped[float] = mapped_column(
+        Numeric(5, 2), nullable=False, default=0.5, server_default="0.5"
+    )
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
@@ -380,10 +400,17 @@ class PayrollLine(Base):
     ot_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # tổng phút tăng ca (Pha 4a)
     ot_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")          # tiền tăng ca (Pha 4a)
     night_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # số ngày ca đêm (từ Chấm công)
-    # PHỤ CẤP CA của kỳ = số KHAI TAY ở `employee_salaries.phu_cap_ca` (cộng phẳng, không
-    # prorate). Giữ TÊN CỘT cũ vì đã nối sẵn gross/miễn TNCN/export/phiếu lương — không đẻ cột
-    # thứ hai cùng nghĩa (API phơi thêm alias `ca_pay`).
+    # ⚠️ NGƯNG TỪ 03/08/2026 — luôn 0. Trước đây = số KHAI TAY ở `employee_salaries.phu_cap_ca`
+    # (cộng phẳng mỗi tháng). Nay phụ cấp cơm/ca tính THEO CA THỰC LÀM (hai cột ngay dưới), nên
+    # đường này phải tắt CÙNG LƯỢT — để cả hai cùng chạy là TRẢ HAI LẦN.
+    # Giữ cột (không drop) vì kỳ lương cũ đã chốt còn số ở đây; xoá là mất lịch sử.
     night_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # Phụ cấp CƠM CA + PHỤ CẤP CA, tính từ `work_shifts.meal_allowance` / `.shift_allowance` ×
+    # số ngày THỰC LÀM ca đó (ngày đủ ngưỡng `payroll_params.phu_cap_ca_min_cong`).
+    # HAI CỘT RIÊNG, cố ý không gộp: phiếu lương phải nói rõ khoản nào, và tiền ăn giữa ca có trần
+    # miễn thuế riêng (730k/tháng) nên gộp là mất đường tách sau này.
+    meal_allowance_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    shift_allowance_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     # Premium CA ĐÊM theo GIỜ (giờ đêm × hệ số + tăng ca đêm) — tự tính từ chấm công, DÒNG RIÊNG, miễn TNCN.
     night_premium_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     vi_pham: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")        # tay — giảm trừ khác (RAW; gộp trần 30% Đ102)

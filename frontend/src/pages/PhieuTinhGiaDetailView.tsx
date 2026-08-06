@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent a
 import {
   api,
   ApiError,
-  LSX_DON_VI_LABELS,
   type PhieuTinhGiaOut,
   type PhieuTinhGiaColOut,
   type PtgActivity,
@@ -21,7 +20,9 @@ import {
 import { congDoan, giay, loaiSanPham, mayThietBi, vatTu, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
+import { MucInHang } from "../components/MucIn";
 import { ImpositionDiagram } from "./ImpositionDiagram";
+import { heSoChu, nhanDonVi } from "./lsxBuoc";
 import { PhieuTinhGiaPrint, type PhieuTinhGia, type PhieuTinhGiaColumn } from "./PhieuTinhGiaPrint";
 import "./rebuild-catalog.css";
 import "./tinh-gia.css";
@@ -42,6 +43,59 @@ const numOf = (v: unknown): number => (typeof v === "number" ? v : Number(v) || 
  *  hiện lại cho người khai thấy ngay, không gửi lên. */
 const soBaiIn = (c: { so_trang: number; trang_moi_tay: number }): number =>
   Math.max(1, Math.ceil((c.so_trang || 1) / (c.trang_moi_tay || 1)));
+
+/** SÁCH (gấp tay) hay TỜ RỜI? Cùng một tiêu chí `la_gap_tay` của engine — `trang mỗi tay > 1`,
+ *  không cần thêm cờ nào. Sách thì tờ in được gấp NGUYÊN TỜ thành một tay, không cắt rời, nên
+ *  "số con" vô nghĩa: engine đã không dùng nó tính giá (`cau_to_sang_cai` rẽ nhánh `1/so_tay`),
+ *  UI cũng đừng hỏi. */
+const laSach = (c: { trang_moi_tay: number }): boolean => (c.trang_moi_tay || 1) > 1;
+/** Số vị trí TRANG trên MỘT mặt tờ in. Tay bắt buộc in 2 mặt nên chia đôi. */
+const trangMoiMat = (c: { trang_moi_tay: number }): number =>
+  Math.max(1, Math.ceil((c.trang_moi_tay || 1) / 2));
+
+// ---------------------------------- MỰC IN ----------------------------------
+/** Chuẩn hoá y hệt `tap_muc` của server: viết hoa, gộp khoảng trắng, bỏ trùng, giữ thứ tự. */
+const chuanHoaMuc = (v: unknown): string[] => {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const x of v) {
+    const ma = String(x ?? "").trim().replace(/\s+/g, " ").toUpperCase();
+    if (ma && !out.includes(ma)) out.push(ma);
+  }
+  return out;
+};
+/** Dựng tập mực TỪ ba số cũ — cùng luật `tap_muc_tu_so` của server (migration 0154 dùng chung). */
+const tapMucCuaComp = (c: {
+  muc_a?: string[] | null; muc_b?: string[] | null;
+  so_mau_a?: number | null; so_mau_b?: number | null; so_mau_pha?: number | null;
+}): { muc_a: string[]; muc_b: string[] } => {
+  const a = chuanHoaMuc(c.muc_a);
+  const b = chuanHoaMuc(c.muc_b);
+  if (a.length || b.length) return { muc_a: a, muc_b: b };
+  const proc = ["K", "C", "M", "Y"];
+  const nA = Math.max(c.so_mau_a ?? 0, 0);
+  const nB = Math.max(c.so_mau_b ?? 0, 0);
+  const nPha = Math.max(c.so_mau_pha ?? 0, 0);
+  const mk = (n: number, mat: string) => [
+    ...proc.slice(0, n),
+    ...Array.from({ length: Math.max(n - 4, 0) }, (_, i) => `MỰC ${mat}${i + 5}`),
+  ];
+  return {
+    muc_a: [...mk(nA, "A"), ...Array.from({ length: nPha }, (_, i) => `PHA ${i + 1}`)],
+    muc_b: mk(nB, "B"),
+  };
+};
+/** Kẽm cho MỘT tay — bản sao công thức `so_kem_moi_tay` của server, để chip bấm là số nhảy ngay
+ *  chứ không đợi vòng /preview. Sai lệch giữa hai bên sẽ lộ ngay ở dòng tổng của engine. */
+const soKemMoiTay = (muc_a: string[], muc_b: string[], quyCach: string): number => {
+  if (quyCach === "mot_mat") return muc_a.length;
+  // Tự trở / trở nhíp: hai mặt CHUNG một bộ bản → hợp tập. `max(|A|,|B|)` chỉ đúng khi tập bên
+  // ít màu nằm gọn trong bên kia; mặt A CMYK với mặt B 185C phải ra 5 bản, `max` ra 4.
+  if (quyCach === "tu_tro" || quyCach === "tro_nhip") {
+    return new Set([...muc_a, ...muc_b]).size;
+  }
+  return muc_a.length + muc_b.length;
+};
 
 /** Chừa TÁCH THEO CHIỀU — khớp `chua_theo_chieu` của engine (đừng để hai bên lệch nhau).
  *
@@ -121,7 +175,9 @@ function cellValue(v: string | number | null): string {
 // Đơn vị bước ở bảng phân rã bù hao PHẢI đọc y hệt tên đã khai trong danh mục Công đoạn — người
 // lập phiếu đối chiếu hai màn với nhau, nhãn lệch một chữ là mất dấu. Nên KHÔNG khai bộ nhãn
 // riêng ở đây, dùng thẳng `LSX_DON_VI_LABELS` (một nguồn cho cả danh mục · lệnh SX · tính giá).
-const dvNgan = (v: string | null | undefined) => (v ? (LSX_DON_VI_LABELS[v] ?? v) : "");
+// Dùng lại bản chung ở `pages/lsxBuoc` — trước đây chỗ này chép y hệt một dòng tra
+// `LSX_DON_VI_LABELS`, thêm một đơn vị mới là phải nhớ sửa hai nơi.
+const dvNgan = nhanDonVi;
 
 const FORMULA_UNIT: Record<string, string> = {
   to_nguyen: "tờ", to_dau_vao: "tờ", so_to: "tờ",
@@ -202,7 +258,10 @@ interface EditableComponent {
   so_con: number; // ④
   con_auto: boolean;
   may_id: number | null;
-  // Màu (gộp)
+  /** TẬP mã mực mỗi mặt — nguồn sự thật của số kẽm (xem `soKemMoiTay`). */
+  muc_a: string[];
+  muc_b: string[];
+  /** DẪN XUẤT server chốt, giữ để gửi lại nguyên vẹn cho phiếu cũ chưa khai mực. */
   so_mau_a: number;
   so_mau_b: number;
   so_mau_pha: number;
@@ -263,6 +322,8 @@ function blankComponent(ten = ""): EditableComponent {
     so_con: 1,
     con_auto: true,
     may_id: null,
+    muc_a: ["K"],   // hàng nào cũng chạy đen; 4 màu chỉ cách ba cú bấm
+    muc_b: [],
     so_mau_a: 0,
     so_mau_b: 0,
     so_mau_pha: 0,
@@ -331,6 +392,9 @@ function fromComponent(c: ThanhPhanOut): EditableComponent {
     so_con: c.so_con ?? 1,
     con_auto: c.con_auto ?? true,
     may_id: c.may_id ?? null,
+    // Phiếu mở từ DB LUÔN có tập mực (migration 0154 backfill hết), nhưng vẫn dựng lại từ ba số
+    // khi rỗng — dùng đúng luật của server để client không hiện khác phiếu.
+    ...tapMucCuaComp(c),
     so_mau_a: c.so_mau_a ?? 0,
     so_mau_b: c.so_mau_b ?? 0,
     so_mau_pha: c.so_mau_pha ?? 0,
@@ -372,6 +436,10 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
     so_con: c.so_con,
     con_auto: c.con_auto,
     may_id: c.may_id,
+    muc_a: c.muc_a,
+    muc_b: c.muc_b,
+    // Ba số này server tính lại từ tập mực rồi ghi đè — gửi kèm chỉ để không rơi mất khi phiếu
+    // chưa từng khai mực.
     so_mau_a: c.so_mau_a,
     so_mau_b: c.so_mau_b,
     so_mau_pha: c.so_mau_pha,
@@ -488,6 +556,40 @@ function Seg({
           {o.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** Khối MỰC IN — mỗi mặt một hàng chip, số kẽm chốt ở tiêu đề.
+ *
+ *  Thay ba ô số cũ (mặt A · mặt B · màu pha) vì số kẽm của tự trở là `|A ∪ B|`: con số không
+ *  mang đủ thông tin để hợp hai tập. Mặt B hiện CẢ khi tự trở/trở nhíp — bản cũ giấu ô đó đi,
+ *  tức coi tự trở là "không có mặt B", trong khi nó chỉ là mặt B không có bản kẽm riêng.
+ */
+function MucInBlock({
+  comp,
+  soTay,
+  onChange,
+}: {
+  comp: EditableComponent;
+  soTay: number;
+  onChange: (patch: Partial<EditableComponent>) => void;
+}) {
+  const kemMoiTay = soKemMoiTay(comp.muc_a, comp.muc_b, comp.quy_cach_in);
+  return (
+    <div className="tg-muc">
+      <div className="tg-muc__head">
+        <span className="tg-microlabel">Mực in</span>
+        <span className="tg-muc__kem">
+          <b>{kemMoiTay * Math.max(soTay, 1)}</b> kẽm
+        </span>
+      </div>
+      <MucInHang
+        mucA={comp.muc_a}
+        mucB={comp.muc_b}
+        quyCachIn={comp.quy_cach_in}
+        onChange={(a, b) => onChange({ muc_a: a, muc_b: b })}
+      />
     </div>
   );
 }
@@ -960,7 +1062,9 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       kd: c.kho_in_dai, kr: c.kho_in_rong, d: c.dai_thanh_pham, r: c.rong_thanh_pham,
       knd: c.kho_nguyen_dai, knr: c.kho_nguyen_rong,
       ca: c.con_auto, sc: c.so_con, tr: c.so_trang, tmt: c.trang_moi_tay, qc: c.quy_cach_in,
-      ma: c.so_mau_a, mb: c.so_mau_b, mp: c.so_mau_pha, bu: c.bu_hao_so_to, hao: c.hao_so_to,
+      // Ký theo TẬP mực, không theo ba số dẫn xuất: server ghi đè ba số đó nên chúng không đổi
+      // ngay khi bấm chip, ký nhầm vào chúng là preview đứng im trong khi số kẽm đã khác.
+      ma: c.muc_a, mb: c.muc_b, bu: c.bu_hao_so_to, hao: c.hao_so_to,
       tbh: c.tinh_bu_hao_cd,
       ch: c.chua_nhip,
       bl: c.bleed_mm, ke: c.khe_cat_mm,
@@ -2018,7 +2122,9 @@ function ComponentModal({
                 <span className="tg-step-badge">3</span> Kỹ thuật in &amp; Màu in
               </div>
               <div className="tg-grid">
-                <label className="tg-field tg-span-8">
+                {/* 7 + 5 chứ không phải 8 + 4: bốn nút quy cách nhồi trong span-4 thì "Tự trở" /
+                    "Trở nhíp" gãy làm hai dòng. Tên máy là <select> nên hụt chỗ chỉ bị cắt đuôi. */}
+                <label className="tg-field tg-span-7">
                   <span className="tg-microlabel">
                     Máy in <span className="tg-microlabel__opt">→ khổ tờ in</span>
                   </span>
@@ -2035,19 +2141,36 @@ function ComponentModal({
                     ))}
                   </select>
                 </label>
-                <div className="tg-field tg-span-4">
-                  <span className="tg-microlabel">Quy cách in</span>
+                <div className="tg-field tg-span-5">
+                  <span className="tg-microlabel">
+                    <span>Quy cách in</span>
+                    {/* Lý do "1 mặt" biến mất phải nói ra ngay đây. Trước đó tôi để nút gạch
+                        ngang mờ đi: gạch ngang đọc thành "đã bỏ/lỗi thời", không phải "không
+                        dùng được cho hàng này", mà lại ăn 1/4 bề ngang làm hai nút kia gãy chữ. */}
+                    {laSach(c) && (
+                      <span className="tg-tag tg-tag--auto" title="Tay gấp lại thì cả hai mặt tờ đều là trang ruột">
+                        sách · in 2 mặt
+                      </span>
+                    )}
+                  </span>
                   <Seg
                     ariaLabel="Quy cách in"
                     value={c.quy_cach_in}
                     onChange={(v) => patchComp(c.uid, { quy_cach_in: v })}
                     options={[
-                      { val: "mot_mat", label: "1 mặt" },
+                      ...(laSach(c) ? [] : [{ val: "mot_mat", label: "1 mặt" }]),
                       { val: "hai_mat", label: "AB" },
                       { val: "tu_tro", label: "Tự trở" },
                       { val: "tro_nhip", label: "Trở nhíp" },
                     ]}
                   />
+                  {/* Phiếu CŨ đã lỡ lưu "1 mặt" rồi mới khai tay — không nút nào sáng, phải nói
+                      rõ vì sao, không thì trông như hỏng. */}
+                  {laSach(c) && c.quy_cach_in === "mot_mat" && (
+                    <span className="tg-hint" style={{ marginTop: "2px", color: "var(--rust)" }}>
+                      Phiếu đang để 1 mặt — chọn lại AB / Tự trở / Trở nhíp.
+                    </span>
+                  )}
                 </div>
                 <div className="tg-span-3">
                   <NumField
@@ -2065,6 +2188,31 @@ function ComponentModal({
                     suffix="mm"
                   />
                 </div>
+                {/* SÁCH → ô "Số con" biến mất. Nó vẫn được engine tính ngầm (vẽ sơ đồ + kiểm khổ
+                    có vừa tờ) nhưng KHÔNG vào tiền giấy, nên hỏi người dùng là hỏi thừa và gây
+                    hiểu nhầm "tờ này cắt ra 16 cuốn". Thay bằng con số thật sự có nghĩa. */}
+                {laSach(c) ? (
+                  <div className="tg-field tg-span-6">
+                    <span className="tg-microlabel">
+                      <span>Trang mỗi mặt</span>
+                      <span
+                        className="tg-tag tg-tag--auto"
+                        title="Sách gấp nguyên tờ, không cắt rời — không có số con"
+                      >
+                        <AutoIcon /> theo tay
+                      </span>
+                    </span>
+                    {/* KHÔNG dùng <input readOnly>: nó giống hệt ô "Số màu mặt A" ngay dưới, mời
+                        người ta gõ rồi không nhận. Đây là số DẪN XUẤT nên mượn `.tg-readout` —
+                        viền nét đứt, đã là ngôn ngữ "máy tự tính" sẵn có của màn này. Phép chia
+                        nằm luôn trong ô, khỏi hai dòng chữ nghiêng bên dưới. */}
+                    <div className="tg-readout tg-readout--derive">
+                      <b className="tg-readout__val">{trangMoiMat(c)}</b>
+                      <span className="tg-readout__unit">trang</span>
+                      <em className="tg-readout__how">tay {c.trang_moi_tay} ÷ 2 mặt</em>
+                    </div>
+                  </div>
+                ) : (
                 <div className="tg-field tg-span-6">
                   <span className="tg-microlabel">
                     <span>Số con</span>
@@ -2105,33 +2253,14 @@ function ComponentModal({
                     </span>
                   )}
                 </div>
-                <div className={c.quy_cach_in === "hai_mat" ? "tg-span-6" : "tg-span-12"}>
-                  <NumField
-                    label="Số màu mặt A"
-                    value={c.so_mau_a}
-                    step="1"
-                    onChange={(n) => patchComp(c.uid, { so_mau_a: n })}
-                  />
-                </div>
-                {c.quy_cach_in === "hai_mat" && (
-                  <div className="tg-span-6">
-                    <NumField
-                      label="Số màu mặt B"
-                      value={c.so_mau_b}
-                      step="1"
-                      onChange={(n) => patchComp(c.uid, { so_mau_b: n })}
-                    />
-                  </div>
                 )}
-                {/* Màu pha = mực riêng, chạy 1 đơn vị máy riêng → CỘNG THÊM bản kẽm.
-                    Ô "Số màu mặt A/B" ở trên là màu PROCESS, không gồm màu pha. */}
+                {/* Ba ô số cũ (mặt A · mặt B · màu pha) đổi thành TẬP MỰC — số kẽm của tự trở là
+                    `|A ∪ B|`, không suy được từ con số. Xem `soKemMoiTay`. */}
                 <div className="tg-span-12">
-                  <NumField
-                    label="Màu pha (Pantone)"
-                    value={c.so_mau_pha}
-                    step="1"
-                    onChange={(n) => patchComp(c.uid, { so_mau_pha: n })}
-                    opt="cộng thêm kẽm · 0 = chỉ in màu process"
+                  <MucInBlock
+                    comp={c}
+                    soTay={soBaiIn(c)}
+                    onChange={(p) => patchComp(c.uid, p)}
                   />
                 </div>
               </div>
@@ -2278,7 +2407,9 @@ function ComponentModal({
           <div className="rc-modal__right-col">
             {/* SƠ ĐỒ BÌNH BÀI CARD */}
             <div className="tg-imp-card">
-              <div className="tg-imp-card__title">Sơ đồ bình bài live</div>
+              <div className="tg-imp-card__title">
+                {laSach(c) ? "Sơ đồ tay sách live" : "Sơ đồ bình bài live"}
+              </div>
               <ImpositionDiagram
                 khoInDai={c.kho_in_dai}
                 khoInRong={c.kho_in_rong}
@@ -2290,6 +2421,7 @@ function ComponentModal({
                 bleedMm={c.bleed_mm}
                 kheCatMm={c.khe_cat_mm}
                 soCon={c.so_con}
+                trangMoiTay={c.trang_moi_tay}
               />
             </div>
 
@@ -2305,14 +2437,23 @@ function ComponentModal({
               <div className="tg-sheetrow">
                 <span className="tg-sheetrow__stack">
                   = Tờ in cần (chưa hao)
-                  {liveMeta && liveMeta.con > 0 && (
-                    <em className="tg-sheetrow__derive">
-                      ⌈{fmt(liveMeta.so_luong)}
-                      {(liveMeta.so_trang ?? 1) > 1 ? ` × ${fmt(liveMeta.so_trang ?? 1)} trang` : ""}
-                      {" ÷ "}
-                      {fmt(liveMeta.con)} con/tờ⌉
-                    </em>
-                  )}
+                  {/* SÁCH đi đường NHÂN, không phải đường chia: engine gom `so_tay` tờ mới ra 1
+                      cuốn (`cau_to_sang_cai` → 1/so_tay), `con` không dính vào. Dòng cũ chia cho
+                      `con` chỉ tình cờ ra đúng khi con == trang mỗi tay; đổi tay 16 → 32 là lệch. */}
+                  {liveMeta &&
+                    ((liveMeta.trang_moi_tay ?? 1) > 1 ? (
+                      <em className="tg-sheetrow__derive">
+                        {fmt(liveMeta.so_luong)} {c.don_vi_tinh || "cuốn"} ×{" "}
+                        {fmt(liveMeta.so_to_per_sp ?? 1)} tay
+                      </em>
+                    ) : liveMeta.con > 0 ? (
+                      <em className="tg-sheetrow__derive">
+                        ⌈{fmt(liveMeta.so_luong)}
+                        {(liveMeta.so_trang ?? 1) > 1 ? ` × ${fmt(liveMeta.so_trang ?? 1)} trang` : ""}
+                        {" ÷ "}
+                        {fmt(liveMeta.con)} con/tờ⌉
+                      </em>
+                    ) : null)}
                 </span>
                 <b>{liveMeta ? `${fmt(liveMeta.to_net)} tờ` : "…"}</b>
               </div>
@@ -2336,13 +2477,13 @@ function ComponentModal({
               {moPhanRa && (liveMeta?.bu_hao_chi_tiet?.length ?? 0) > 0 && (
                 <ul className="tg-sheetbreak">
                   {liveMeta!.bu_hao_chi_tiet!.map((b, i) => {
-                    const doiTiLe = b.dv_vao !== b.dv_ra && !!b.he_so && b.he_so !== 1;
                     const coHao = b.hao > 0;
                     const dvV = dvNgan(b.dv_vao);
                     const dvR = dvNgan(b.dv_ra);
-                    const heSoText = doiTiLe
-                      ? (b.he_so! < 1 ? `${fmt(1 / b.he_so!)} ${dvV} = 1 ${dvR}` : `1 ${dvV} = ${fmt(b.he_so!)} ${dvR}`)
-                      : null;
+                    // Câu quy đổi dùng CHUNG với màn lệnh + bài ghép (`pages/lsxBuoc`) — luật lật
+                    // hệ số khi < 1 bắt nguồn từ đây, giữ ba bản chép là ba chỗ để lệch.
+                    const heSoText = heSoChu(b.he_so, b.dv_vao, b.dv_ra);
+                    const doiTiLe = !!heSoText;
                     const haoText = coHao
                       ? `cần ${fmt(b.ra_quy ?? 0)} ${dvV} tốt + ${fmt(b.hao)} hao = ${fmt(b.vao)} ${dvV}`
                       : null;
@@ -2448,9 +2589,14 @@ function ComponentModal({
                 </span>
                 <b>{liveMeta ? `${fmt(liveMeta.to_nguyen)} tờ` : "…"}</b>
               </div>
+              {/* Ẩn "số con" ở ô nhập mà để nó lòi ra ở chân khối thì coi như chưa ẩn. */}
               <div className="tg-sheetbox__foot">
                 {liveMeta
-                  ? `${fmt(liveMeta.con)} con/tờ · ${fmt(liveMeta.so_kem)} kẽm`
+                  ? `${
+                      (liveMeta.trang_moi_tay ?? 1) > 1
+                        ? `${fmt(Math.ceil((liveMeta.trang_moi_tay ?? 2) / 2))} trang/mặt`
+                        : `${fmt(liveMeta.con)} con/tờ`
+                    } · ${fmt(liveMeta.so_kem)} kẽm`
                   : "Nhập đủ khổ + số lượng để tính"}
               </div>
             </div>

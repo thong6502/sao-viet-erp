@@ -67,7 +67,10 @@ _TP_SCALAR_FIELDS = (
     "chua_nhip", "bleed_mm", "khe_cat_mm",
     "co_in", "che_ban_loai", "che_ban_don_gia", "quy_cach_in",
     "kho_in_dai", "kho_in_rong", "so_con", "con_auto", "may_id", "don_gia_cong_in",
-    "so_mau_a", "so_mau_b", "so_mau_pha",
+    # `muc_a`/`muc_b` là TẬP mã mực người dùng khai — nguồn sự thật của số kẽm. Ba số `so_mau_*`
+    # đi cùng ở đây chỉ để đọc lại phiếu cũ chưa backfill; engine LUÔN tính lại chúng từ tập rồi
+    # ghi đè xuống DB (`_ghi_so_mau_dan_xuat`), nên đừng tin số client gửi lên.
+    "muc_a", "muc_b", "so_mau_a", "so_mau_b", "so_mau_pha",
 )
 _ROW_SCALAR_FIELDS = (
     "thu_tu", "cong_doan_id", "ten", "don_gia", "so_luong", "bu_hao",
@@ -80,7 +83,9 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
     d: dict = {}
     for k in _TP_SCALAR_FIELDS:
         v = getattr(tp, k, None)
-        if isinstance(v, (int, str, bool)) or v is None:
+        # `list` cho `muc_a`/`muc_b` (cột JSON) — không có nhánh này thì nó rơi xuống `_f()` và
+        # một danh sách mực thành 0.0 trong im lặng, kéo số kẽm về 0.
+        if isinstance(v, (int, str, bool, list)) or v is None:
             d[k] = v
         else:
             d[k] = _f(v)  # Decimal → float
@@ -186,6 +191,12 @@ def compute_phieu_snapshot(db: Session, phieu) -> dict:
             tps[idx].gia_von_tp = comp["gia_von_tp"]
             if comp.get("so_to_per_sp"):
                 tps[idx].so_to_per_sp = int(comp["so_to_per_sp"])
+            # Ba số màu là DẪN XUẤT của tập mực — engine chốt, DB chép lại. Nhờ vậy ~28 chỗ đang
+            # đọc `so_mau_a/b/pha` (công thức mực, `_may_fit`, lệnh SX, bài ghép, báo giá) không
+            # phải biết gì về tập mực, mà cũng không thể lệch với nó.
+            tps[idx].so_mau_a = int(comp.get("so_mau_a") or 0)
+            tps[idx].so_mau_b = int(comp.get("so_mau_b") or 0)
+            tps[idx].so_mau_pha = int(comp.get("so_mau_pha") or 0)
 
     tong = float(result.get("grand_total") or 0)
     phieu.tong_gia_von = tong

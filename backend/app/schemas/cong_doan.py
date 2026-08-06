@@ -8,7 +8,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class CongDoanDauViecIn(BaseModel):
     piece_rate_id: int
+    # `nang_suat_nguoi_gio` = mức TRUNG BÌNH (số chảy vào công thức thời lượng); min/max chỉ để ra
+    # khoảng nhanh–chậm, để trống thì ba mức bằng nhau. `don_vi_nang_suat` là nhãn khai báo.
     nang_suat_nguoi_gio: float = Field(gt=0)
+    nang_suat_nguoi_gio_min: float | None = Field(default=None, gt=0)
+    nang_suat_nguoi_gio_max: float | None = Field(default=None, gt=0)
+    don_vi_nang_suat: str | None = Field(default=None, max_length=32)
+    # Ba mốc nhân lực phải xếp đúng thứ tự: tối thiểu ≤ tiêu chuẩn ≤ tối đa (service kiểm).
+    so_nguoi_toi_thieu: int = Field(default=1, ge=1)
     so_nguoi_tieu_chuan: int = Field(ge=1)
     so_nguoi_toi_da: int = Field(ge=1)
     is_default: bool = False

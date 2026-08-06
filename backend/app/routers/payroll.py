@@ -503,7 +503,7 @@ def create_advance(body: AdvanceIn, svc: Service, employees: Employees, departme
 @router.post("/advances/{advance_id}/approve", response_model=AdvanceOut)
 def approve_advance(advance_id: int, body: AdvanceDecisionIn, svc: Service, employees: Employees,
                     departments: Departments, authz: Authz,
-                    user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> AdvanceOut:
+                    user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> AdvanceOut:
     try:
         a = svc.decide_advance(advance_id=advance_id, actor=user, approve=True, note=body.note,
                                scope=_emp_scope_for(authz, user))
@@ -516,7 +516,7 @@ def approve_advance(advance_id: int, body: AdvanceDecisionIn, svc: Service, empl
 @router.post("/advances/{advance_id}/reject", response_model=AdvanceOut)
 def reject_advance(advance_id: int, body: AdvanceDecisionIn, svc: Service, employees: Employees,
                    departments: Departments, authz: Authz,
-                   user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> AdvanceOut:
+                   user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> AdvanceOut:
     try:
         a = svc.decide_advance(advance_id=advance_id, actor=user, approve=False, note=body.note,
                                scope=_emp_scope_for(authz, user))
@@ -528,7 +528,7 @@ def reject_advance(advance_id: int, body: AdvanceDecisionIn, svc: Service, emplo
 
 @router.post("/advances/{advance_id}/cancel", response_model=AdvanceOut)
 def cancel_advance(advance_id: int, svc: Service, employees: Employees, departments: Departments,
-                   user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> AdvanceOut:
+                   user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> AdvanceOut:
     try:
         a = svc.cancel_advance(advance_id=advance_id, actor=user)
     except PayrollError as exc:
@@ -567,8 +567,8 @@ def create_my_advance(body: MyAdvanceIn, svc: Service, employees: Employees,
 @router.get("/advances/notify-summary")
 def advance_notify_summary(svc: Service, authz: Authz, user: CurrentUser) -> dict:
     """Badge real-time cho Tạm ứng: `pending_approval_count` = số đề nghị đang chờ duyệt.
-    Chỉ >0 với người có quyền duyệt (luong:update); nhân viên thường → 0 (chỉ nhận toast quyết định)."""
-    can_approve = authz.can(user, MODULE, "update")
+    Chỉ >0 với người có quyền duyệt (luong:approve); nhân viên thường → 0 (chỉ nhận toast quyết định)."""
+    can_approve = authz.can(user, MODULE, "approve")
     return {"pending_approval_count": svc.count_pending_advances() if can_approve else 0}
 
 
@@ -622,7 +622,7 @@ def update_line(line_id: int, body: LineUpdateIn, svc: Service, employees: Emplo
 
 @router.post("/lock", response_model=PeriodOut)
 def lock_period(body: GenerateIn, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PeriodOut:
+                user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> PeriodOut:
     try:
         p = svc.lock_period(year=body.year, month=body.month, actor=user)
     except PayrollError as exc:
@@ -632,7 +632,7 @@ def lock_period(body: GenerateIn, svc: Service,
 
 @router.post("/reopen", response_model=PeriodOut)
 def reopen_period(body: GenerateIn, svc: Service,
-                  user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PeriodOut:
+                  user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> PeriodOut:
     try:
         p = svc.reopen_period(year=body.year, month=body.month, actor=user)
     except PayrollError as exc:
@@ -642,7 +642,7 @@ def reopen_period(body: GenerateIn, svc: Service,
 
 @router.post("/pay", response_model=PeriodOut)
 def pay_period(body: PeriodPayIn, svc: Service,
-               user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PeriodOut:
+               user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> PeriodOut:
     try:
         p = svc.pay_period(year=body.year, month=body.month, actor=user, note=body.note)
     except PayrollError as exc:
@@ -652,7 +652,7 @@ def pay_period(body: PeriodPayIn, svc: Service,
 
 @router.post("/unpay", response_model=PeriodOut)
 def unpay_period(body: PeriodPayIn, svc: Service,
-                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PeriodOut:
+                 user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> PeriodOut:
     try:
         p = svc.unpay_period(year=body.year, month=body.month, actor=user, note=body.note)
     except PayrollError as exc:
@@ -689,14 +689,20 @@ def _build_table_xlsx(year: int, month: int, lines) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = f"Luong {month:02d}-{year}"
+    # ⚠️ Các cột khoản CỘNG LẠI phải ra đúng cột "Tổng" (= `gross`). Thêm khoản mới vào engine mà
+    # quên thêm cột ở đây thì file xuất ra không khớp và kế toán không dò ra chênh ở đâu — đúng
+    # chuyện đã xảy ra với "Cơm ca"/"Phụ cấp ca" khi nối hai khoản đó ngày 03/08/2026.
     ws.append(["Mã", "Họ tên", "Phòng/Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
-               "Khoán", "Tăng ca", "Ca đêm", "Ca đêm (giờ×hệ số)", "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN",
+               "Khoán", "Tăng ca", "Ca đêm", "Ca đêm (giờ×hệ số)", "Cơm ca", "Phụ cấp ca",
+               "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN",
                "Tạm ứng", "Thực lĩnh"])
     for l in lines:
         ws.append([l.employee_code or "", l.employee_name or "", l.department_name or "",
                    "Thử việc" if l.is_probation else "Chính thức", float(l.actual_cong),
                    int(l.luong_cong), int(l.chuyen_can), int(l.allowance), int(l.khoan),
                    int(l.ot_pay), int(l.night_pay), int(getattr(l, "night_premium_pay", 0) or 0),
+                   int(getattr(l, "meal_allowance_pay", 0) or 0),
+                   int(getattr(l, "shift_allowance_pay", 0) or 0),
                    int(l.vi_pham), int(_bonus_total(l)),
                    int(l.gross), int(l.bhxh), int(l.pit), int(l.advance_total), int(l.net_pay)])
     buf = BytesIO()
@@ -724,7 +730,7 @@ def _build_bank_xlsx(year: int, month: int, lines) -> bytes:
 
 @router.get("/export.xlsx")
 def export_table_xlsx(svc: Service, employees: Employees, departments: Departments,
-                      user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                      user: Annotated[User, Depends(require_permission(MODULE, "export"))],
                       year: int = Query(...), month: int = Query(ge=1, le=12)) -> Response:
     data = svc.get_table(year=year, month=month)
     if data is None:
@@ -737,7 +743,7 @@ def export_table_xlsx(svc: Service, employees: Employees, departments: Departmen
 
 @router.get("/bank.xlsx")
 def export_bank_xlsx(svc: Service, employees: Employees, departments: Departments,
-                     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                     user: Annotated[User, Depends(require_permission(MODULE, "export"))],
                      year: int = Query(...), month: int = Query(ge=1, le=12)) -> Response:
     data = svc.get_table(year=year, month=month)
     if data is None:

@@ -11,6 +11,8 @@ from ..deps import (
     require_any_permission,
     require_permission,
 )
+from ..models.purchase import PR_DRAFT
+from ..realtime import hub
 from ..models.user import User
 from ..schemas.accounting import (
     ApproveAndCreateVoucherIn,
@@ -30,6 +32,8 @@ from ..schemas.accounting import (
     PaymentVoucherIn,
     PaymentVoucherListOut,
     PaymentVoucherOut,
+    PayablesDetailOut,
+    PayablesSummaryOut,
     SupplierBankAccountIn,
     SupplierBankAccountOut,
 )
@@ -47,6 +51,11 @@ router = APIRouter(tags=["accounting"])
 MODULE = "ke_toan"
 
 
+def _notify_accounting_changed(code: str | None = None) -> None:
+    """Tín hiệu nhẹ cho các màn Kế toán/Thu mua tự refetch qua SSE."""
+    hub.broadcast({"type": "accounting_changed", "code": code})
+
+
 def _map_error(exc: Exception) -> HTTPException:
     if isinstance(exc, AccountingNotFound):
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
@@ -60,7 +69,7 @@ def _map_error(exc: Exception) -> HTTPException:
 @router.get("/api/accounting/inbox", response_model=PurchaseRequestListOut)
 def accounting_inbox(
     purchases: Annotated[PurchaseService, Depends(get_purchase_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     q: str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
     supplier_id: int | None = Query(default=None),
@@ -68,10 +77,42 @@ def accounting_inbox(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ) -> PurchaseRequestListOut:
+    # Kế toán có `ke_toan` scope `all` ⇒ `_purchase_scope` trả `all` ⇒ thấy HẾT đơn mua, đúng như
+    # họ cần để lập phiếu chi. Truyền `actor` để chính lối này không thành lỗ nhìn xuyên phạm vi.
     rows, total = purchases.list_requests(
-        q=q, status=status_, supplier_id=supplier_id, sort=sort, page=page, size=size
+        q=q, status=status_, supplier_id=supplier_id, sort=sort, page=page, size=size,
+        actor=user,
+        # Đơn NHÁP là thu mua còn đang sửa, CHƯA gửi duyệt — không thuộc hộp thư kế toán (chủ
+        # 04/08/2026). Chặn ở API chứ không chỉ giấu ở giao diện.
+        exclude_statuses=[PR_DRAFT],
     )
     return PurchaseRequestListOut(items=rows, total=total, page=page, size=size)
+
+
+@router.get("/api/accounting/payables", response_model=PayablesSummaryOut)
+def accounting_payables(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    q: str | None = Query(default=None),
+) -> PayablesSummaryOut:
+    # Chỉ ĐỌC — không đẻ ô quyền mới, `ke_toan:read` là đủ. Không phân trang: cắt trang là ra
+    # TỔNG sai.
+    #
+    # `q` lọc ở SERVER chứ không lọc trên danh sách đã trả về: NCC đã trả hết và im lặng lâu thì
+    # KHÔNG có dòng nào trong danh sách để mà lọc — phải để service lôi họ ra.
+    return PayablesSummaryOut(**svc.payables_summary(q=q))
+
+
+@router.get("/api/accounting/payables/{supplier_id}", response_model=PayablesDetailOut)
+def accounting_payables_detail(
+    supplier_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    all_history: bool = Query(default=False),
+) -> PayablesDetailOut:
+    # `all_history` bỏ mốc kỳ cho riêng rổ "đã chi" — nút "Xem lịch sử cũ hơn". Chỉ nới cho MỘT
+    # NCC nên vẫn nhẹ; đừng bao giờ nới cho bảng tổng hợp.
+    return PayablesDetailOut(**svc.payables_detail(supplier_id, all_history=all_history))
 
 
 @router.get("/api/accounting/company-bank-accounts", response_model=list[CompanyBankAccountOut])
@@ -236,9 +277,11 @@ def create_payment_voucher(
     user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
 ):
     try:
-        return PaymentVoucherOut(**svc.create_voucher(actor=user, **payload.model_dump()))
+        row = svc.create_voucher(actor=user, **payload.model_dump())
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+    _notify_accounting_changed(row.get("code"))
+    return PaymentVoucherOut(**row)
 
 
 @router.put("/api/accounting/payment-vouchers/{voucher_id}", response_model=PaymentVoucherOut)
@@ -249,30 +292,17 @@ def update_payment_voucher(
     user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
 ):
     try:
-        return PaymentVoucherOut(
-            **svc.update_voucher(voucher_id, actor=user, **payload.model_dump())
-        )
+        row = svc.update_voucher(voucher_id, actor=user, **payload.model_dump())
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+    _notify_accounting_changed(row.get("code"))
+    return PaymentVoucherOut(**row)
 
 
-@router.post(
-    "/api/accounting/purchase-requests/{request_id}/approve-and-create-voucher",
-    response_model=PaymentVoucherOut,
-    status_code=status.HTTP_201_CREATED,
-)
-def approve_and_create_payment_voucher(
-    request_id: int,
-    payload: ApproveAndCreateVoucherIn,
-    svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
-):
-    try:
-        return PaymentVoucherOut(
-            **svc.approve_and_create_voucher(request_id, actor=user, **payload.model_dump())
-        )
-    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
-        raise _map_error(exc) from None
+# ĐÃ GỠ 04/08/2026 — `POST .../approve-and-create-voucher` (duyệt PMH và lập phiếu chi trong
+# MỘT cú bấm). Nó cho kế toán tự duyệt khoản chi rồi tự viết phiếu chi, phá tách vai. Nay đúng
+# hai bước: giám đốc duyệt ở `/api/purchase-requests/{id}/approve`, kế toán lập phiếu chi ở
+# `POST /api/accounting/payment-vouchers` (vốn đã đòi PMH từ 'đã duyệt' trở lên).
 
 
 @router.post("/api/accounting/payment-vouchers/{voucher_id}/mark-paid", response_model=PaymentVoucherOut)
@@ -283,11 +313,11 @@ def mark_payment_voucher_paid(
     user: Annotated[User, Depends(require_permission(MODULE, "manage_status"))],
 ):
     try:
-        return PaymentVoucherOut(
-            **svc.mark_paid(voucher_id, actor=user, bank_reference=payload.bank_reference)
-        )
+        row = svc.mark_paid(voucher_id, actor=user, bank_reference=payload.bank_reference)
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+    _notify_accounting_changed(row.get("code"))
+    return PaymentVoucherOut(**row)
 
 
 @router.post("/api/accounting/payment-vouchers/{voucher_id}/cancel", response_model=PaymentVoucherOut)
@@ -298,11 +328,11 @@ def cancel_payment_voucher(
     user: Annotated[User, Depends(require_permission(MODULE, "cancel"))],
 ):
     try:
-        return PaymentVoucherOut(
-            **svc.cancel_voucher(voucher_id, actor=user, reason=payload.reason)
-        )
+        row = svc.cancel_voucher(voucher_id, actor=user, reason=payload.reason)
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+    _notify_accounting_changed(row.get("code"))
+    return PaymentVoucherOut(**row)
 
 
 @router.get(
@@ -336,17 +366,17 @@ def upload_payment_voucher_attachment(
 ):
     data = file.file.read()
     try:
-        return PaymentVoucherAttachmentOut(
-            **svc.add_voucher_attachment(
-                voucher_id,
-                actor=user,
-                file_name=file.filename,
-                content_type=file.content_type,
-                data=data,
-            )
+        row = svc.add_voucher_attachment(
+            voucher_id,
+            actor=user,
+            file_name=file.filename,
+            content_type=file.content_type,
+            data=data,
         )
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+    _notify_accounting_changed()
+    return PaymentVoucherAttachmentOut(**row)
 
 
 @router.delete(
@@ -364,6 +394,7 @@ def delete_payment_voucher_attachment(
         svc.delete_voucher_attachment(voucher_id, attachment_id, actor=user)
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+    _notify_accounting_changed()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -401,9 +432,11 @@ def create_payment_receipt(
     user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
 ):
     try:
-        return PaymentReceiptOut(**svc.create_receipt(voucher_id, actor=user, **payload.model_dump()))
+        row = svc.create_receipt(voucher_id, actor=user, **payload.model_dump())
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+    _notify_accounting_changed(row.get("code"))
+    return PaymentReceiptOut(**row)
 
 
 @router.put("/api/accounting/payment-receipts/{receipt_id}", response_model=PaymentReceiptOut)
@@ -414,11 +447,11 @@ def update_payment_receipt(
     user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
 ):
     try:
-        return PaymentReceiptOut(
-            **svc.update_receipt(receipt_id, actor=user, **payload.model_dump())
-        )
+        row = svc.update_receipt(receipt_id, actor=user, **payload.model_dump())
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+    _notify_accounting_changed(row.get("code"))
+    return PaymentReceiptOut(**row)
 
 
 @router.post(
@@ -432,13 +465,13 @@ def mark_payment_receipt_received(
     user: Annotated[User, Depends(require_permission(MODULE, "manage_status"))],
 ):
     try:
-        return PaymentReceiptOut(
-            **svc.mark_receipt_received(
-                receipt_id, actor=user, bank_reference=payload.bank_reference
-            )
+        row = svc.mark_receipt_received(
+            receipt_id, actor=user, bank_reference=payload.bank_reference
         )
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+    _notify_accounting_changed(row.get("code"))
+    return PaymentReceiptOut(**row)
 
 
 @router.post("/api/accounting/payment-receipts/{receipt_id}/cancel", response_model=PaymentReceiptOut)
@@ -449,11 +482,11 @@ def cancel_payment_receipt(
     user: Annotated[User, Depends(require_permission(MODULE, "cancel"))],
 ):
     try:
-        return PaymentReceiptOut(
-            **svc.cancel_receipt(receipt_id, actor=user, reason=payload.reason)
-        )
+        row = svc.cancel_receipt(receipt_id, actor=user, reason=payload.reason)
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+    _notify_accounting_changed(row.get("code"))
+    return PaymentReceiptOut(**row)
 
 
 @router.get(
@@ -487,17 +520,17 @@ def upload_payment_receipt_attachment(
 ):
     data = file.file.read()
     try:
-        return PaymentReceiptAttachmentOut(
-            **svc.add_receipt_attachment(
-                receipt_id,
-                actor=user,
-                file_name=file.filename,
-                content_type=file.content_type,
-                data=data,
-            )
+        row = svc.add_receipt_attachment(
+            receipt_id,
+            actor=user,
+            file_name=file.filename,
+            content_type=file.content_type,
+            data=data,
         )
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+    _notify_accounting_changed()
+    return PaymentReceiptAttachmentOut(**row)
 
 
 @router.delete(
@@ -515,4 +548,5 @@ def delete_payment_receipt_attachment(
         svc.delete_receipt_attachment(receipt_id, attachment_id, actor=user)
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+    _notify_accounting_changed()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

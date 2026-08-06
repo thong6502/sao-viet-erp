@@ -369,7 +369,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
   const can = useCan();
   const canCreate = can("nhan_su", "create");
   const canApprove = can("nhan_su", "approve");
-  const canSalary = can("luong", "update"); // có quyền khai lương → hiện bước "Lương" khi thêm NV
+  const canSalary = can("nhan_su", "edit_salary"); // có quyền khai lương → hiện bước "Lương" khi thêm NV
 
   const [data, setData] = useState<{
     items: EmployeeRow[];
@@ -565,7 +565,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
               <Search className="ns-search-icon" size={16} />
               <input
                 className="ns__search"
-                placeholder="Tìm tên / mã / CCCD / SĐT…"
+                placeholder="Tìm tên / mã…"
                 value={q}
                 onChange={(e) => {
                   setPage(1);
@@ -1082,9 +1082,7 @@ function KpiStrip({
       {/* Tách sang phải: đây là ô DUY NHẤT đòi người làm gì đó, không xếp lẫn 3 ô đếm kia. */}
       <button
         type="button"
-        className={`ns__kpi ns__kpi--action${isEndingSoonActive ? " is-active" : ""}${
-          endingSoonCount === 0 ? " is-quiet" : ""
-        }`}
+        className={`ns__kpi ${isEndingSoonActive ? " is-active" : ""}`}
         onClick={onPickEndingSoon}
         aria-pressed={isEndingSoonActive}
         title={
@@ -1985,7 +1983,11 @@ function EmployeeDetailPanel({
 }) {
   const can = useCan();
   const canUpdate = can("nhan_su", "update");
-  const canViewSalary = can("nhan_su", "view_salary");
+  const canEditSalaryFields = can("nhan_su", "edit_salary");
+  const canViewSalary =
+    can("nhan_su", "view_salary") || canEditSalaryFields;
+  const canManageStatus = can("nhan_su", "manage_status");
+  const canTransfer = can("nhan_su", "transfer");
   const canViewAccount = can("nguoi_dung", "read");
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
   const [tab, setTab] = useState<Tab>("info");
@@ -2069,7 +2071,7 @@ function EmployeeDetailPanel({
         </div>
       </header>
 
-      {(navigate || canUpdate) && (
+      {(navigate || canUpdate || canManageStatus || canTransfer) && (
         <div className="ns-detail__actions">
           <div className="ns-detail__shortcuts">
             {navigate && (
@@ -2116,7 +2118,11 @@ function EmployeeDetailPanel({
                 {editInfo ? "Hủy sửa" : "Sửa thông tin"}
               </button>
             )}
-            {canUpdate && tab === "salary" && canViewSalary && !resigned && (
+            {canUpdate &&
+              canEditSalaryFields &&
+              tab === "salary" &&
+              canViewSalary &&
+              !resigned && (
               <button
                 type="button"
                 className="btn btn--ghost btn--sm"
@@ -2126,7 +2132,7 @@ function EmployeeDetailPanel({
                 {editSalary ? "Hủy sửa" : "Sửa lương & BHXH"}
               </button>
             )}
-            {canUpdate && (
+            {(canManageStatus || canTransfer) && (
               <div className="ns-dropdown">
                 <button
                   type="button"
@@ -2138,7 +2144,7 @@ function EmployeeDetailPanel({
                 </button>
                 {dropdownOpen && (
                   <div className="ns-dropdown-menu">
-                    {emp.status === "probation" && (
+                    {canManageStatus && emp.status === "probation" && (
                       <button
                         type="button"
                         className="ns-dropdown-item"
@@ -2150,7 +2156,7 @@ function EmployeeDetailPanel({
                         <UserCheck size={14} /> Chuyển chính thức
                       </button>
                     )}
-                    {emp.status === "active" && (
+                    {canManageStatus && emp.status === "active" && (
                       <button
                         type="button"
                         className="ns-dropdown-item"
@@ -2162,7 +2168,7 @@ function EmployeeDetailPanel({
                         <UserMinus size={14} /> Cho nghỉ dài hạn
                       </button>
                     )}
-                    {emp.status === "on_leave" && (
+                    {canManageStatus && emp.status === "on_leave" && (
                       <button
                         type="button"
                         className="ns-dropdown-item"
@@ -2174,7 +2180,7 @@ function EmployeeDetailPanel({
                         <UserCheck size={14} /> Đi làm lại
                       </button>
                     )}
-                    {!resigned && (
+                    {canTransfer && !resigned && (
                       <button
                         type="button"
                         className="ns-dropdown-item"
@@ -2186,7 +2192,7 @@ function EmployeeDetailPanel({
                         <TrendingUp size={14} /> Điều chuyển tổ
                       </button>
                     )}
-                    {!resigned && (
+                    {canTransfer && !resigned && (
                       <button
                         type="button"
                         className="ns-dropdown-item"
@@ -2198,7 +2204,7 @@ function EmployeeDetailPanel({
                         <TrendingUp size={14} /> Nâng bậc / Chức danh
                       </button>
                     )}
-                    {!resigned && (
+                    {canManageStatus && !resigned && (
                       <button
                         type="button"
                         className="ns-dropdown-item"
@@ -2210,7 +2216,7 @@ function EmployeeDetailPanel({
                         <AlertTriangle size={14} /> Đình chỉ công tác
                       </button>
                     )}
-                    {!resigned && (
+                    {canManageStatus && !resigned && (
                       <button
                         type="button"
                         className="ns-dropdown-item ns-danger"
@@ -2222,7 +2228,7 @@ function EmployeeDetailPanel({
                         <UserMinus size={14} /> Thôi việc / Nghỉ việc
                       </button>
                     )}
-                    {resigned && (
+                    {canManageStatus && resigned && (
                       <button
                         type="button"
                         className="ns-dropdown-item"

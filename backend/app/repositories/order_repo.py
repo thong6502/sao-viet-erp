@@ -170,7 +170,6 @@ class OrderRepository:
         q: str | None = None,
         status: str | None = None,
         order_kind: str | None = None,
-        approval_state: str | None = None,
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
@@ -199,8 +198,6 @@ class OrderRepository:
             conditions.append(Order.status == status)
         if order_kind:
             conditions.append(Order.order_kind == order_kind)
-        if approval_state:
-            conditions.append(Order.approval_state == approval_state)
 
         for c in conditions:
             base = base.where(c)
@@ -301,7 +298,6 @@ class OrderRepository:
             "draft": cnt(Order.status == STATUS_DRAFT),
             "ordered": cnt(Order.status == STATUS_ORDERED),
             "cancelled": cnt(Order.status == STATUS_CANCELLED),
-            "pending_approval": cnt(Order.status == STATUS_DRAFT, Order.approval_state == "pending"),
         }
 
     def value_rows(self, *, scope: str, actor, statuses: tuple[str, ...]) -> dict[int, dict]:

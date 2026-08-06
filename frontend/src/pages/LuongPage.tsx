@@ -4,7 +4,7 @@
 //   • Tạm ứng — ghi nhiều lần → duyệt → tự trừ.
 //   • Cấu hình lương — 3 tab con: bậc lương & KPI · cơ chế theo bộ phận · phụ cấp & bảo hiểm.
 //   • Phiếu lương của tôi — self-service.
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Calendar,
   DollarSign,
@@ -138,11 +138,20 @@ export function LuongPage({
   const { token } = useAuth();
   const can = useCan();
   const canManage = can("luong", "update");
+  const canReadPayroll = can("luong", "read");
+  const canCreateAdvance = can("luong", "create");
+  const canApproveAdvance = can("luong", "approve");
+  const canLockPeriod = can("luong", "lock");
+  const canExportPayroll = can("luong", "export");
+  const canOpenBangLuong =
+    canReadPayroll || canManage || canLockPeriod || canExportPayroll;
+  const canOpenTamUng =
+    canReadPayroll || canCreateAdvance || canApproveAdvance;
   // Cấu hình lương là dữ liệu nhạy cảm: quyền đọc module không đủ.
   // Người có quyền sửa luôn được xem để tránh ma trận quyền cũ khóa nhầm quản trị viên.
   const canReadConfig = can("luong", "view_salary") || canManage;
   const [tab, setTab] = useState<Tab>(
-    canManage ? "bang" : canReadConfig ? "cauhinh" : "phieu",
+    canOpenBangLuong ? "bang" : canReadConfig ? "cauhinh" : "phieu",
   );
   // Cấu hình lương đang có thay đổi chưa lưu → chặn rời tab (S5).
   const [cfgDirty, setCfgDirty] = useState(false);
@@ -174,7 +183,7 @@ export function LuongPage({
 
       <nav className="ns-tabs cc-tabs lg-tabs" aria-label="Phân hệ Lương">
         <div className="lg-tabs__group">
-          {canManage && (
+          {canOpenBangLuong && (
             <button
               className={`lg-tab-btn ${tab === "bang" ? "is-active" : ""}`}
               onClick={() => go("bang")}
@@ -204,7 +213,7 @@ export function LuongPage({
               <span>Lương khoán</span>
             </button>
           )}
-          {canManage && (
+          {canOpenTamUng && (
             <button
               className={`lg-tab-btn ${tab === "tamung" ? "is-active" : ""}`}
               onClick={() => go("tamung")}
@@ -229,7 +238,9 @@ export function LuongPage({
           )}
         </div>
 
-        {canManage && <div className="lg-tabs__divider" aria-hidden="true" />}
+        {(canOpenBangLuong || canManage || canOpenTamUng) && (
+          <div className="lg-tabs__divider" aria-hidden="true" />
+        )}
 
         <div className="lg-tabs__group lg-tabs__group--personal">
           <button
@@ -251,13 +262,25 @@ export function LuongPage({
         </div>
       </nav>
 
-      {tab === "bang" && canManage && <BangLuongTab token={token!} />}
+      {tab === "bang" && canOpenBangLuong && (
+        <BangLuongTab
+          token={token!}
+          canManage={canManage}
+          canLockPeriod={canLockPeriod}
+          canExportPayroll={canExportPayroll}
+        />
+      )}
       {tab === "nhanvien" && canManage && (
         <NhanVienTab token={token!} focusEmployeeId={focusEmployeeId} />
       )}
       {tab === "khoan" && canManage && <KhoanTab token={token!} />}
-      {tab === "tamung" && canManage && (
-        <TamUngTab token={token!} eventTick={eventTick} />
+      {tab === "tamung" && canOpenTamUng && (
+        <TamUngTab
+          token={token!}
+          eventTick={eventTick}
+          canCreateAdvance={canCreateAdvance}
+          canApproveAdvance={canApproveAdvance}
+        />
       )}
       {tab === "cauhinh" && canReadConfig && (
         <CauHinhLuongTab
@@ -287,11 +310,23 @@ export function LuongPage({
 
 // --- Tab: Bảng lương tháng --------------------------------------------------
 
-function BangLuongTab({ token }: { token: string }) {
+function BangLuongTab({
+  token,
+  canManage,
+  canLockPeriod,
+  canExportPayroll,
+}: {
+  token: string;
+  canManage: boolean;
+  canLockPeriod: boolean;
+  canExportPayroll: boolean;
+}) {
   const [ym, setYm] = useState(curYm);
   const [period, setPeriod] = useState<PayrollPeriod | null>(null);
   const [lines, setLines] = useState<PayrollLine[]>([]);
   const [filter, setFilter] = useState<"all" | "ct" | "tv">("all");
+  const [q, setQ] = useState("");
+  const [dept, setDept] = useState("all");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<PayrollLine | null>(null);
@@ -335,10 +370,28 @@ function BangLuongTab({ token }: { token: string }) {
     }
   }
 
-  const shown = lines.filter(
-    (l) =>
-      filter === "all" || (filter === "tv" ? l.is_probation : !l.is_probation),
+  // Danh sách Phòng/Tổ lấy từ CHÍNH các dòng lương đang có, không gọi thêm API: kỳ lương nào
+  // cũng chỉ gồm người có mặt trong kỳ đó, nên đổ cả cây phòng ban ra là bày cả những tổ không
+  // có ai để lọc.
+  const dsPhong = useMemo(
+    () =>
+      Array.from(
+        new Set(lines.map((l) => (l.department_name ?? "").trim()).filter(Boolean)),
+      ).sort((a, b) => a.localeCompare(b, "vi")),
+    [lines],
   );
+
+  const kw = q.trim().toLowerCase();
+  const shown = lines.filter((l) => {
+    if (filter !== "all" && (filter === "tv") !== l.is_probation) return false;
+    if (dept !== "all" && (l.department_name ?? "").trim() !== dept) return false;
+    if (!kw) return true;
+    // Tìm theo CẢ mã lẫn họ tên — người trả lương gõ mã, người soát gõ tên.
+    return (
+      (l.employee_name ?? "").toLowerCase().includes(kw) ||
+      (l.employee_code ?? "").toLowerCase().includes(kw)
+    );
+  });
   const totalNet = shown.reduce((s, l) => s + l.net_pay, 0);
   const totalStaff = shown.length;
   const officialCount = shown.filter((l) => !l.is_probation).length;
@@ -391,6 +444,30 @@ function BangLuongTab({ token }: { token: string }) {
             onChange={(e) => setYm(e.target.value)}
           />
         </div>
+        <div className="lg-search-wrapper">
+          <span className="lg-search-icon">
+            <Search size={14} />
+          </span>
+          <input
+            className="lg-search-input"
+            placeholder="Tìm theo tên / mã…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+        </div>
+        {dsPhong.length > 1 && (
+          <select
+            className="lg-dept-filter"
+            value={dept}
+            onChange={(e) => setDept(e.target.value)}
+            title="Lọc theo Phòng / Tổ"
+          >
+            <option value="all">Tất cả phòng / tổ</option>
+            {dsPhong.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        )}
         <div className="lg-seg">
           {(["all", "ct", "tv"] as const).map((f) => (
             <button
@@ -402,7 +479,7 @@ function BangLuongTab({ token }: { token: string }) {
             </button>
           ))}
         </div>
-        {isDraft && period && (
+        {canManage && isDraft && period && (
           <button
             className="btn btn--primary"
             onClick={() => run(() => api.luong.generate(token, year, month))}
@@ -411,7 +488,7 @@ function BangLuongTab({ token }: { token: string }) {
             {busy ? "Đang tính…" : "↻ Tính lại"}
           </button>
         )}
-        {period && isDraft && (
+        {canLockPeriod && period && isDraft && (
           <button
             className="btn btn--ghost"
             onClick={() => run(() => api.luong.lock(token, year, month))}
@@ -420,7 +497,7 @@ function BangLuongTab({ token }: { token: string }) {
             🔒 Chốt
           </button>
         )}
-        {locked && (
+        {canLockPeriod && locked && (
           <button
             className="btn btn--ghost"
             onClick={() => run(() => api.luong.reopen(token, year, month))}
@@ -429,7 +506,7 @@ function BangLuongTab({ token }: { token: string }) {
             Mở lại
           </button>
         )}
-        {locked && (
+        {canLockPeriod && locked && (
           <button
             className="btn btn--primary"
             onClick={() => run(() => api.luong.pay(token, year, month))}
@@ -438,7 +515,7 @@ function BangLuongTab({ token }: { token: string }) {
             💵 Đã chi
           </button>
         )}
-        {paid && (
+        {canLockPeriod && paid && (
           <button
             className="btn btn--ghost"
             onClick={() =>
@@ -449,7 +526,7 @@ function BangLuongTab({ token }: { token: string }) {
             ↩ Hủy đã chi
           </button>
         )}
-        {period && (
+        {canExportPayroll && period && (
           <button
             className="btn btn--ghost"
             onClick={() => downloadXlsx("table")}
@@ -458,7 +535,7 @@ function BangLuongTab({ token }: { token: string }) {
             ⬇ Xuất Excel
           </button>
         )}
-        {(locked || paid) && (
+        {canExportPayroll && (locked || paid) && (
           <button
             className="btn btn--ghost"
             onClick={() => downloadXlsx("bank")}
@@ -650,7 +727,7 @@ function BangLuongTab({ token }: { token: string }) {
                 tiến hành khởi tạo.
               </p>
             </div>
-            {isDraft && (
+            {canManage && isDraft && (
               <button
                 className="btn btn--accent btn--large"
                 onClick={() =>
@@ -759,7 +836,7 @@ function BangLuongTab({ token }: { token: string }) {
                   </td>
                   <td className="lg-num lg-net">{money(l.net_pay)}</td>
                   <td className="lg-rowact">
-                    {!locked && (
+                    {canManage && !locked && (
                       <button
                         className="btn btn--ghost"
                         onClick={() => setEditing(l)}
@@ -1612,6 +1689,8 @@ type SysRow = {
   taxable: boolean;
   value: number;
   set: (v: number) => void;
+  /** Khoản đã NGƯNG: cho xem số cũ để tra lịch sử nhưng không cho sửa (sửa cũng không ra tiền). */
+  readOnly?: boolean;
 };
 
 function SalaryModal({
@@ -2032,11 +2111,15 @@ function SalaryModal({
     },
     {
       key: "phu_cap_ca",
-      name: "Phụ cấp ca",
-      note: "Cộng phẳng mỗi tháng — engine miễn TNCN như tiền tăng ca / ca đêm",
-      taxable: false,
+      name: "Phụ cấp ca (đã ngưng)",
+      // Chú thích cũ ghi "engine miễn TNCN như tiền tăng ca / ca đêm" — câu đó KHẲNG ĐỊNH SAI:
+      // phần miễn thuế là di sản từ hồi ô này là tiền ca đêm ĐƯỢC TÍNH, còn TT 111/2013 Đ3.1.i
+      // chỉ miễn phần trả CAO HƠN gắn với giờ đêm/tăng ca THỰC TẾ.
+      note: "KHÔNG còn ra tiền từ 03/08/2026 — cơm & phụ cấp ca nay tính theo CA THỰC LÀM (khai ở từng ca, màn Chấm công). Số cũ giữ lại để tra lịch sử.",
+      taxable: true,
       value: phuCapCa,
       set: setPhuCapCa,
+      readOnly: true,
     },
     {
       key: "phu_cap_tham_nien",
@@ -2057,6 +2140,14 @@ function SalaryModal({
   const pitKnown = detail != null && detail.pit_mode != null;
   const pitEff = pitMode ?? "luy_tien";
   const hasDeduction = pitEff === "luy_tien"; // 2 nhánh còn lại KHÔNG có giảm trừ gia cảnh
+
+  // Khối "Cấu hình tính thuế TNCN" trong modal này ĐANG TẮT (JSX bị comment ở ~2494–2616). Giữ
+  // nguyên phần tính ở trên để bật lại chỉ cần bỏ comment khối JSX. Mấy dòng `void` dưới đây chỉ
+  // để TypeScript thôi báo "khai mà không dùng" — không chạy gì, không đổi hành vi.
+  void PIT_MODE_ORDER;
+  void detailErr;
+  void pitKnown;
+  void hasDeduction;
   const deductionSelf = params ? params.deduction_self : null;
   const deductionDependent = params ? params.deduction_dependent : null;
   const deductionTotal =
@@ -2094,7 +2185,8 @@ function SalaryModal({
                       ? "theo quy tắc"
                       : "chưa có"}
               </span>
-              {" · "}phụ cấp {money(preview.allowance)} · đóng BH trên{" "}
+              {/* {" · "}phụ cấp {money(preview.allowance)} */}
+               · đóng BH trên{" "}
               {money(preview.insurance_base)}
             </div>
           )}
@@ -2134,6 +2226,10 @@ function SalaryModal({
                     step={100000}
                     aria-label={`Số tiền ${r.name}`}
                     value={r.value}
+                    // Ô đã ngưng: cho XEM số cũ nhưng KHÔNG cho sửa. Ẩn hẳn thì người ta không
+                    // tra được lịch sử; để sửa được thì lại hứa suông vì số đó không ra tiền nữa.
+                    readOnly={r.readOnly}
+                    disabled={r.readOnly}
                     onChange={(e) => r.set(Number(e.target.value))}
                   />
                 </div>
@@ -2437,7 +2533,7 @@ function SalaryModal({
           {/* Cấu hình tính thuế TNCN theo TỪNG NGƯỜI. Mọi con số (giảm trừ, tỷ lệ khấu trừ,
               ngưỡng) LẤY TỪ `GET /api/luong/params` — viết cứng vào chuỗi là màn hình nói dối
               ngay lần luật đổi mức. */}
-          <h4 className="ns-section__title" style={{ marginTop: 16 }}>
+          {/* <h4 className="ns-section__title" style={{ marginTop: 16 }}>
             Cấu hình tính thuế TNCN
           </h4>
           {detailErr && (
@@ -2450,8 +2546,6 @@ function SalaryModal({
           <div className="lg-pit">
             <label className="ns-field lg-pit__mode">
               <span className="ns-field__label">Cách tính thuế TNCN</span>
-              {/* Chưa đọc được hồ sơ thì ĐỂ TRỐNG, đừng hiện sẵn "Luỹ tiến" — người dùng sẽ
-                  đọc thành "người này đang tính luỹ tiến" trong khi mình chưa biết gì. */}
               <select
                 value={pitKnown ? pitEff : ""}
                 disabled={!canEditPit || !pitKnown}
@@ -2561,7 +2655,7 @@ function SalaryModal({
                 )}
               </p>
             </div>
-          </div>
+          </div> */}
 
           <div className="ns-grid" style={{ marginTop: 12 }}>
             <div
@@ -2799,9 +2893,13 @@ function advPrintData(a: SalaryAdvance) {
 function TamUngTab({
   token,
   eventTick,
+  canCreateAdvance,
+  canApproveAdvance,
 }: {
   token: string;
   eventTick?: number;
+  canCreateAdvance: boolean;
+  canApproveAdvance: boolean;
 }) {
   const [ym, setYm] = useState(curYm);
   const [items, setItems] = useState<SalaryAdvance[]>([]);
@@ -2861,18 +2959,22 @@ function TamUngTab({
             onChange={(e) => setYm(e.target.value)}
           />
         </div>
-        <button
-          className="btn btn--primary"
-          onClick={() => setAdding("tam_ung")}
-        >
-          + Thêm ứng
-        </button>
-        <button
-          className="btn btn--ghost"
-          onClick={() => setAdding("luong_dot_1")}
-        >
-          + Phiếu lương đợt 1
-        </button>
+        {canCreateAdvance && (
+          <button
+            className="btn btn--primary"
+            onClick={() => setAdding("tam_ung")}
+          >
+            + Thêm ứng
+          </button>
+        )}
+        {canCreateAdvance && (
+          <button
+            className="btn btn--ghost"
+            onClick={() => setAdding("luong_dot_1")}
+          >
+            + Phiếu lương đợt 1
+          </button>
+        )}
         <span className="lg-approved-badge">
           Đã duyệt: <b>{money(totalApproved)}đ</b>
         </span>
@@ -2935,7 +3037,7 @@ function TamUngTab({
                       >
                         🖨 In phiếu
                       </button>
-                      {a.status === "pending" && (
+                      {canApproveAdvance && a.status === "pending" && (
                         <>
                           <button
                             className="btn btn--ghost"
@@ -2955,7 +3057,7 @@ function TamUngTab({
                           </button>
                         </>
                       )}
-                      {a.status === "approved" && (
+                      {canApproveAdvance && a.status === "approved" && (
                         <button
                           className="btn btn--ghost ns-danger"
                           onClick={() =>
@@ -3205,7 +3307,13 @@ function PayslipCard({
 
   const income = [
     ["Lương theo công", l.luong_cong],
-    ["Phụ cấp ca", pcCa],
+    // Hai khoản theo CA THỰC LÀM (từ 03/08/2026) — mỗi khoản MỘT DÒNG, không gộp: phiếu lương
+    // phải nói rõ ăn bao nhiêu cơm, bao nhiêu phụ cấp.
+    ["Cơm ca", l.meal_allowance_pay ?? 0],
+    ["Phụ cấp ca (theo ca làm)", l.shift_allowance_pay ?? 0],
+    // Ô cũ per-người đã ngưng ⇒ chỉ còn hiện ở kỳ CŨ đã chốt (còn số thì mới in dòng), để phiếu
+    // lương tháng trước in lại vẫn đúng y nguyên.
+    ...(pcCa ? ([["Phụ cấp ca (khai tay — đã ngưng)", pcCa]] as [string, number][]) : []),
     ["Phụ cấp ca đêm (giờ × hệ số)", l.night_premium_pay ?? 0],
     ["Phụ cấp thâm niên", pcThamNien],
     ["Phụ cấp khác", pcKhac],
@@ -3337,7 +3445,7 @@ function PayslipCard({
       {/* 2 dòng thuế (chủ 27/07/2026). `pit_taxable` là thu nhập TÍNH thuế — đã trừ bảo hiểm
           + giảm trừ gia cảnh, KHÔNG phải "tổng thu nhập chịu thuế"; backend không snapshot số
           đó nên gọi đúng tên, đừng dán nhãn "chịu thuế" lên số đã trừ giảm trừ. */}
-      <div className="lg-payslip2__tax">
+      {/* <div className="lg-payslip2__tax">
         <span className="lg-payslip2__taxcell">
           <span>Thu nhập tính thuế TNCN</span>
           <b>{money(l.pit_taxable)}đ</b>
@@ -3351,7 +3459,7 @@ function PayslipCard({
           giảm trừ gia cảnh — thuế TNCN bấm trên số này. Thu nhập miễn thuế gồm
           tăng ca, ca đêm và các khoản không tích “Chịu thuế” trong danh mục.
         </span>
-      </div>
+      </div> */}
       <div className="lg-payslip2__net">
         <span>THỰC NHẬN</span>
         <span>{money(l.net_pay)}đ</span>

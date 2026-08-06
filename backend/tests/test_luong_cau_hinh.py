@@ -186,9 +186,12 @@ def test_chuyen_can_tien_chi_khai_o_ho_so_nv(client):
 
 
 def test_manual_allowances_add_flat(client):
-    """Chủ chốt: phụ cấp ca · thâm niên · khác KHAI TAY theo từng NV, một số cố định — engine
-    cộng PHẲNG (không prorate theo công, không vào gốc tính tăng ca) và KHÔNG tự tính gì thêm.
-    (Trách nhiệm KHÔNG còn khai tay — nó là `luong_trach_nhiem` trong mức nền.)"""
+    """Phụ cấp thâm niên · khác KHAI TAY theo từng NV, một số cố định — engine cộng PHẲNG (không
+    prorate theo công, không vào gốc tính tăng ca).
+
+    ⚠️ `phu_cap_ca` KHÔNG còn ra tiền từ 03/08/2026: phụ cấp cơm/ca nay tính theo CA THỰC LÀM
+    (`work_shifts.meal_allowance` / `.shift_allowance`). Đường per-người phải tắt CÙNG LƯỢT với
+    việc bật đường theo ca — để cả hai cùng chạy là TRẢ HAI LẦN."""
     client
     db = SessionLocal()
     try:
@@ -203,14 +206,16 @@ def test_manual_allowances_add_flat(client):
         assert full["monthly_salary"] == 26_000_000                  # vị trí + trách nhiệm
         assert full["allowance"] == 400_000 + 900_000                # khác + thâm niên
         assert full["phu_cap_tham_nien"] == 900_000
-        assert full["night_pay"] == 1_200_000                        # phụ cấp CA khai tay
+        # ⭐ Số `phu_cap_ca` cũ của hồ sơ KHÔNG được chảy vào lương nữa — đây là chốt chống trả
+        # hai lần khi đường "phụ cấp theo ca" đã bật.
+        assert full["night_pay"] == 0
         # Chuyên cần = 0 vì hồ sơ NV chưa khai (từ 2026-07-23 không còn mức mặc định công ty).
-        assert full["gross"] == (26_000_000 + 1_300_000 + 1_200_000)
+        assert full["gross"] == (26_000_000 + 1_300_000)
 
         # Nửa công: lương công prorate, phụ cấp khai tay giữ NGUYÊN số (cộng phẳng).
         half = svc._compute(actual_cong=13, **kw)
         assert half["luong_cong"] == 13_000_000
-        assert half["allowance"] == 1_300_000 and half["night_pay"] == 1_200_000
+        assert half["allowance"] == 1_300_000 and half["night_pay"] == 0
 
         # Tăng ca tính trên MỨC NỀN — phụ cấp không làm tiền tăng ca nhảy.
         base_only = _salary_ns(base_amount=None, luong_vi_tri=20_000_000, luong_trach_nhiem=6_000_000)
@@ -244,7 +249,10 @@ def test_manual_allowances_roundtrip_through_api(client):
     gen = client.post("/api/luong/generate", json={"year": 2026, "month": 11},
                       headers=_h(token)).json()
     ln = next(l for l in gen["lines"] if l["employee_id"] == eid)
-    assert ln["night_pay"] == 1_500_000 and ln["ca_pay"] == 1_500_000
+    # ⭐ Hồ sơ VẪN GIỮ số `phu_cap_ca` (kiểm ở trên) nhưng nó KHÔNG còn ra tiền từ 03/08/2026 —
+    # phụ cấp cơm/ca tính theo CA THỰC LÀM. Giữ cột để không mất lịch sử, tắt đường tiền để không
+    # trả hai lần.
+    assert ln["night_pay"] == 0 and ln["ca_pay"] == 0
     assert ln["allowance"] == 300_000 + 600_000
     assert ln["phu_cap_khac"] == 300_000
     assert ln["insurance_base"] == 8_000_000
@@ -256,7 +264,9 @@ def test_manual_allowances_roundtrip_through_api(client):
     gen2 = client.post("/api/luong/generate", json={"year": 2026, "month": 11},
                        headers=_h(token)).json()
     l2 = next(l for l in gen2["lines"] if l["employee_id"] == eid)
-    assert l2["night_pay"] == 0 and l2["gross"] == ln["gross"] - 1_500_000
+    # ⭐ Đổi `phu_cap_ca` từ 1.500.000 về 0 mà GROSS KHÔNG NHÚC NHÍCH — bằng chứng ô này đã thật
+    # sự ngắt khỏi đường tiền, không phải chỉ hiện 0 trên một cột.
+    assert l2["night_pay"] == 0 and l2["gross"] == ln["gross"]
 
 
 def test_removed_shift_rate_and_allowance_type_endpoints_are_gone(client):
@@ -317,6 +327,118 @@ def test_update_line_matches_generate_after_edit(client):
         assert edited["cong_doan"] == round(edited["insurance_base"] * 0.005) > 0
     finally:
         client.put("/api/luong/params", json={"cong_doan_rate": 0}, headers=_h(token))
+
+
+def _nv_co_ca_lam(client, token, *, name, ca_ten, com, ca, ngay=15):
+    """NV làm ĐÚNG MỘT ngày ca có mức cơm + phụ cấp ca → dòng lương chắc chắn có 2 khoản đó.
+
+    Test canh `test_update_line_matches_generate_after_edit` ở trên dùng NV KHÔNG làm ca nào, nên
+    `meal_allowance_pay`/`shift_allowance_pay` = 0 ở cả hai vế và nó không thể bắt được lệch của
+    hai cột này. Phải có ca thật mới có răng — đó là lý do helper này tồn tại.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    from app.repositories.attendance_repo import AttendanceRepository
+
+    eid = _make_emp(client, token, name=name)
+    client.post(f"/api/luong/salaries/{eid}", json={"effective_from": "2026-01-01",
+                "luong_vi_tri": 10_000_000}, headers=_h(token))
+    db = SessionLocal()
+    try:
+        arepo = AttendanceRepository(db)
+        shift = arepo.create_shift(name=ca_ten, start_minute=480, end_minute=1020,
+                                   is_overnight=False, grace_minutes=5,
+                                   meal_allowance=com, shift_allowance=ca)
+        EmployeeRepository(db).get_by_id(eid).default_shift_id = shift.id
+        db.commit()
+        # 2026-06-15 là Thứ Hai. Vào 08:00 VN (01:00 UTC) đúng giờ, ra 17:00 VN (10:00 UTC) → đủ
+        # 1 công, không đi trễ (nếu trễ thì `generate` tự điền ô phạt và làm nhiễu phép so sánh).
+        for kind, hour in (("in", 1), ("out", 10)):
+            arepo.create_log(employee_id=eid, check_type=kind,
+                             checked_at=_dt(2026, 6, ngay, hour, 0, tzinfo=_tz.utc),
+                             within_range=True)
+    finally:
+        db.close()
+    return eid
+
+
+def _tinh_lai(client, token, eid):
+    """Chạy lại `generate` rồi lấy dòng của NV — đây là đường TÍNH LẠI."""
+    gen = client.post("/api/luong/generate", json={"year": 2026, "month": 6},
+                      headers=_h(token)).json()
+    return next(l for l in gen["lines"] if l["employee_id"] == eid)
+
+
+def _doc_dong(client, token, eid):
+    """ĐỌC dòng đang lưu, KHÔNG tính lại.
+
+    Quan trọng: `generate` tính lại từ đầu nên nó XOÁ DẤU VẾT của bệnh "sửa 1 ô làm hụt tiền" —
+    dùng nó để kiểm tra sau khi sửa là tự chữa lành, test xanh mà bệnh còn nguyên.
+    """
+    tbl = client.get("/api/luong/table", params={"year": 2026, "month": 6},
+                     headers=_h(token)).json()
+    return next(l for l in tbl["lines"] if l["employee_id"] == eid)
+
+
+def test_sua_1_o_khong_duoc_lam_bay_com_ca_va_phu_cap_ca(client):
+    """⭐ NV CÓ ca làm: sửa một ô rồi Tính lại phải ra CÙNG số.
+
+    Bệnh thật (03/08/2026): `_compute` cộng `meal_allowance_pay + shift_allowance_pay` vào gross
+    còn `update_line` thì không ⇒ chạm vào dòng một cái là hai khoản bay mất, trong khi phiếu
+    lương vẫn in đủ hai dòng nên cộng lại không ra tổng.
+    """
+    token = _admin_token(client)
+    eid = _nv_co_ca_lam(client, token, name="NV Có Ca", ca_ten="HC cơm", com=30_000, ca=50_000)
+    line = _tinh_lai(client, token, eid)
+    # Chốt răng: hỏng dữ liệu dựng thì test này thành vô nghĩa mà vẫn xanh.
+    assert line["meal_allowance_pay"] == 30_000 and line["shift_allowance_pay"] == 50_000
+
+    edited = client.put(f"/api/luong/lines/{line['id']}",
+                        json={"vi_pham": 100_000}, headers=_h(token)).json()
+    l2 = _tinh_lai(client, token, eid)
+    for k in ("gross", "net_pay", "thu_nhap_chiu_thue", "thu_nhap_mien_thue", "pit"):
+        assert edited[k] == l2[k], f"lệch ở {k}: sửa 1 ô {edited[k]} vs tính lại {l2[k]}"
+
+
+def test_them_khoan_phat_sinh_khong_duoc_lam_tut_gross(client):
+    """Đường người dùng hay đi nhất: thêm một khoản thưởng nóng. `add_line_component` gọi
+    `_recompute_line` → `update_line`, nên nó dính CÙNG bệnh với test trên."""
+    token = _admin_token(client)
+    eid = _nv_co_ca_lam(client, token, name="NV Thưởng Nóng", ca_ten="HC thưởng",
+                        com=25_000, ca=40_000)
+    line = _tinh_lai(client, token, eid)
+    truoc = line["gross"]
+
+    comps = client.get("/api/luong/components", headers=_h(token)).json()["items"]
+    khoan_thu = next(c for c in comps if c["kind"] != "tru")
+    res = client.post(f"/api/luong/lines/{line['id']}/components",
+                      json={"component_id": khoan_thu["id"], "amount": 200_000},
+                      headers=_h(token))
+    assert res.status_code == 201, res.text
+
+    # ĐỌC, không tính lại — xem `_doc_dong`.
+    sau = _doc_dong(client, token, eid)["gross"]
+    assert sau == truoc + 200_000, (
+        f"thêm 200.000đ mà gross đi từ {truoc} sang {sau} — cơm ca + phụ cấp ca bị nuốt mất")
+
+
+def test_xuat_excel_co_cot_com_ca_va_phu_cap_ca(client):
+    """File xuất liệt kê từng khoản rồi tới cột "Tổng" — thiếu cột nào là kế toán dò mãi không ra
+    chênh ở đâu. Hai khoản theo ca từng bị bỏ quên đúng kiểu đó."""
+    from io import BytesIO
+    from openpyxl import load_workbook
+
+    token = _admin_token(client)
+    eid = _nv_co_ca_lam(client, token, name="NV Xuất Ca", ca_ten="HC xuất",
+                        com=35_000, ca=45_000, ngay=16)
+    _tinh_lai(client, token, eid)
+
+    r = client.get("/api/luong/export.xlsx?year=2026&month=6", headers=_h(token))
+    assert r.status_code == 200, r.text
+    ws = load_workbook(BytesIO(r.content)).active
+    head = [c.value for c in ws[1]]
+    row = next(x for x in ws.iter_rows(min_row=2, values_only=True) if x[1] == "NV Xuất Ca")
+    assert row[head.index("Cơm ca")] == 35_000
+    assert row[head.index("Phụ cấp ca")] == 45_000
 
 
 # --- Tab 2 (đọc/ghi thành phần) + Tab 1 (điều kiện thăng bậc) ---------------
@@ -1045,3 +1167,248 @@ def test_sua_1_o_va_tinh_lai_ra_CUNG_so_khi_doi_tran(client):
             assert sua[k] == tinh_lai[k], f"lệch ở {k}: sửa 1 ô {sua[k]} vs tính lại {tinh_lai[k]}"
     finally:
         client.put("/api/luong/params", json={"phat_cap_pct": 0.30}, headers=_h(token))
+
+
+# --- Phụ cấp CƠM CA + PHỤ CẤP CA theo CA THỰC LÀM ---------------------------
+#
+# Chủ chốt 03/08/2026. Trước đó hai ô này khai trên `work_shifts` nhưng engine KHÔNG đọc — form
+# hứa "nhân viên được gán ca này sẽ tự cộng khi tính lương" mà thực trả 0đ. Nay nối thật.
+#
+# Luật: mỗi NGÀY THỰC LÀM ca đó, nếu công của ngày ĐỦ NGƯỠNG thì hưởng TRỌN mức của ca; dưới
+# ngưỡng thì KHÔNG có gì. Cố ý KHÔNG nhân theo tỷ lệ — một suất ăn là có hoặc không.
+
+
+def _ca_ns(shift_id, *, com, ca):
+    return SimpleNamespace(id=shift_id, meal_allowance=com, shift_allowance=ca)
+
+
+def _svc_pc_ca(db, ten):
+    """Mỗi test một tên tổ RIÊNG — `departments.name` là unique, dùng chung là vỡ ở test thứ hai."""
+    return _cfg_svc(db, f"Tổ phụ cấp ca {ten}")
+
+
+def test_phu_cap_theo_ca_cong_dung_tung_ca():
+    """⭐ Ca chính: 20 ngày ca ngày + 6 ngày ca đêm, mỗi ca một mức riêng."""
+    db = SessionLocal()
+    try:
+        svc, dept = _svc_pc_ca(db, "cong_dung")
+        params, emp, on = svc.get_params(), _emp_ns(dept.id), date(2026, 6, 1)
+        sal = _salary_ns(base_amount=None, luong_vi_tri=10_000_000, luong_trach_nhiem=0)
+        ca_ngay, ca_dem = _ca_ns(1, com=25_000, ca=50_000), _ca_ns(2, com=30_000, ca=80_000)
+
+        v = svc._compute(
+            employee=emp, salary=sal, params=params, standard_cong=26, on=on, actual_cong=26,
+            ca_lam={1: [1.0] * 20, 2: [1.0] * 6},
+            shift_by_id={1: ca_ngay, 2: ca_dem},
+        )
+        assert v["meal_allowance_pay"] == 25_000 * 20 + 30_000 * 6      # 500k + 180k
+        assert v["shift_allowance_pay"] == 50_000 * 20 + 80_000 * 6     # 1.000k + 480k
+
+
+    finally:
+        db.close()
+
+
+def test_nguong_cong_du_thi_TRON_duoi_thi_KHONG_CO():
+    """⭐ Chốt chủ đã cân nhắc kỹ (03/08/2026) — canh CẢ BA mốc.
+
+    Không nhân tỷ lệ: đi muộn 15 phút (công 0,97) vẫn ăn trọn suất; nghỉ nửa buổi (0,5 = ngưỡng
+    mặc định) vẫn ăn trọn; vắng quá nửa ca (0,25) thì không có gì. Đây là chỗ dễ bị ai đó 'tiện
+    tay' đổi sang nhân tỷ lệ nhất."""
+    db = SessionLocal()
+    try:
+        svc, dept = _svc_pc_ca(db, "nguong")
+        params, emp, on = svc.get_params(), _emp_ns(dept.id), date(2026, 6, 1)
+        sal = _salary_ns(base_amount=None, luong_vi_tri=10_000_000, luong_trach_nhiem=0)
+        kw = dict(employee=emp, salary=sal, params=params, standard_cong=26, on=on,
+                  actual_cong=26, shift_by_id={1: _ca_ns(1, com=25_000, ca=50_000)})
+
+        # 1 ngày đủ công · 1 ngày nghỉ nửa buổi · 1 ngày đi muộn · 1 ngày vắng quá nửa
+        v = svc._compute(ca_lam={1: [1.0, 0.5, 0.97, 0.25]}, **kw)
+        assert v["meal_allowance_pay"] == 25_000 * 3, "0,25 phai bi loai; 3 ngay kia an TRON"
+        assert v["shift_allowance_pay"] == 50_000 * 3
+
+        # Đổi ngưỡng lên 1,0 ⇒ chỉ ngày đủ công mới được.
+        params.phu_cap_ca_min_cong = 1.0
+        v2 = svc._compute(ca_lam={1: [1.0, 0.5, 0.97, 0.25]}, **kw)
+        assert v2["meal_allowance_pay"] == 25_000 and v2["shift_allowance_pay"] == 50_000
+    finally:
+        db.close()
+
+
+def test_khong_co_ca_lam_thi_khong_co_phu_cap():
+    """Nghỉ phép / nghỉ lễ / không đi làm ⇒ Chấm công không đếm ngày nào ⇒ không đồng nào."""
+    db = SessionLocal()
+    try:
+        svc, dept = _svc_pc_ca(db, "khong_ca")
+        params, emp, on = svc.get_params(), _emp_ns(dept.id), date(2026, 6, 1)
+        sal = _salary_ns(base_amount=None, luong_vi_tri=10_000_000, luong_trach_nhiem=0)
+        v = svc._compute(employee=emp, salary=sal, params=params, standard_cong=26, on=on,
+                         actual_cong=0, ca_lam={}, shift_by_id={1: _ca_ns(1, com=25_000, ca=50_000)})
+        assert v["meal_allowance_pay"] == 0 and v["shift_allowance_pay"] == 0
+    finally:
+        db.close()
+
+
+def test_ca_da_xoa_khoi_danh_muc_thi_BO_QUA_khong_doan_muc():
+    """Ca không còn trong danh mục ⇒ bỏ qua, KHÔNG đoán mức. Đoán bừa là đẻ tiền từ hư không."""
+    db = SessionLocal()
+    try:
+        svc, dept = _svc_pc_ca(db, "ca_xoa")
+        params, emp, on = svc.get_params(), _emp_ns(dept.id), date(2026, 6, 1)
+        sal = _salary_ns(base_amount=None, luong_vi_tri=10_000_000, luong_trach_nhiem=0)
+        v = svc._compute(employee=emp, salary=sal, params=params, standard_cong=26, on=on,
+                         actual_cong=26, ca_lam={99: [1.0] * 10}, shift_by_id={})
+        assert v["meal_allowance_pay"] == 0 and v["shift_allowance_pay"] == 0
+    finally:
+        db.close()
+
+
+def test_phu_cap_theo_ca_MIEN_thue_TNCN():
+    """⭐ Canh chốt 04/08/2026: cơm ca + phụ cấp ca **MIỄN** TNCN.
+
+    Bản 03/08 để hai khoản này CHỊU thuế với lý do "muốn miễn thì khai ở danh mục khoản thu nhập"
+    — nhưng khai ở đó nữa là TRẢ HAI LẦN, nên thực tế không có đường nào miễn. Kế toán đang xếp
+    "Tiền ăn ca/CN/GH" vào nhóm miễn (`docs/prd-thu-nhap-chiu-thue.md §1`). Chủ chốt miễn cả hai.
+
+    Mức lương để cao (30tr) cho vượt giảm trừ gia cảnh, nếu không thuế = 0 ở cả hai vế và test
+    không có răng.
+    """
+    db = SessionLocal()
+    try:
+        svc, dept = _svc_pc_ca(db, "mien_thue")
+        params, emp, on = svc.get_params(), _emp_ns(dept.id), date(2026, 6, 1)
+        sal = _salary_ns(base_amount=None, luong_vi_tri=30_000_000, luong_trach_nhiem=0)
+        kw = dict(employee=emp, salary=sal, params=params, standard_cong=26, on=on,
+                  actual_cong=26, shift_by_id={1: _ca_ns(1, com=100_000, ca=200_000)})
+
+        khong = svc._compute(ca_lam={}, **kw)
+        co = svc._compute(ca_lam={1: [1.0] * 10}, **kw)
+        them = (100_000 + 200_000) * 10
+        assert khong["pit"] > 0, "lương phải đủ cao để có thuế, không thì test vô nghĩa"
+
+        assert co["gross"] == khong["gross"] + them, "tiền vẫn phải cộng vào tổng lương"
+        # MIỄN thuế ⇒ thu nhập chịu thuế KHÔNG đổi, phần miễn tăng đúng bằng khoản vừa cộng,
+        # và thuế phải GIỮ NGUYÊN — đây là vế có răng nhất.
+        assert co["thu_nhap_chiu_thue"] == khong["thu_nhap_chiu_thue"]
+        assert co["thu_nhap_mien_thue"] == khong["thu_nhap_mien_thue"] + them
+        assert co["pit"] == khong["pit"], "miễn thuế mà thuế vẫn tăng ⇒ `ca_exempt` chưa vào _auto_pit"
+    finally:
+        db.close()
+
+
+# --- BHXH: luật 14 ngày (QĐ 595 Đ42.4) --------------------------------------
+
+
+def _bhxh_theo_cong(svc, dept_id, *, actual_cong, plain_cong=0.0):
+    return svc._compute(
+        employee=_emp_ns(dept_id), salary=_salary_ns(base_amount=None, luong_vi_tri=10_000_000,
+                                                     luong_trach_nhiem=0),
+        params=svc.get_params(), standard_cong=26, on=date(2026, 6, 1),
+        actual_cong=actual_cong, plain_cong=plain_cong,
+    )
+
+
+def test_bhxh_mien_khi_nghi_khong_luong_tu_14_ngay():
+    """⭐ QĐ 595 Đ42.4: nghỉ không làm việc & không hưởng lương từ 14 ngày làm việc trở lên trong
+    tháng thì tháng đó KHÔNG đóng BHXH. Phủ luôn người vào/nghỉ việc giữa tháng."""
+    db = SessionLocal()
+    try:
+        svc, dept = _svc_pc_ca(db, "bhxh_14_ngay")
+
+        du_cong = _bhxh_theo_cong(svc, dept.id, actual_cong=26)
+        assert du_cong["bhxh"] > 0, "làm đủ tháng thì phải đóng BHXH"
+
+        # 26 − 13 = 13 ngày không lương → CHƯA tới ngưỡng, vẫn đóng.
+        assert _bhxh_theo_cong(svc, dept.id, actual_cong=13)["bhxh"] > 0
+
+        # 26 − 12 = 14 ngày → chạm ngưỡng, không đóng. Nhưng vẫn hiện mức đóng để phiếu lương
+        # không trông như chưa khai lương cơ bản.
+        it_cong = _bhxh_theo_cong(svc, dept.id, actual_cong=12)
+        assert it_cong["bhxh"] == 0
+        assert it_cong["insurance_base"] == 10_000_000
+    finally:
+        db.close()
+
+
+def test_nguong_bhxh_khai_duoc_va_so_0_la_TAT_luat():
+    """⭐ Ngưỡng 14 ngày là THAM SỐ, không phải số cắm cứng (chủ 04/08/2026: *"đang hard code à,
+    vậy sao đổi luật thì sao"*). Luật đổi thì gõ lại ở Cấu hình lương, không phải sửa code.
+
+    🔴 Vế `0` = TẮT luật là vế có răng nhất: engine phải kiểm `nguong > 0` TRƯỚC khi so, không thì
+    `ngay_khong_luong >= 0` luôn đúng và CẢ XƯỞNG mất sạch BHXH mà bảng lương trông vẫn bình thường.
+    """
+    db = SessionLocal()
+    svc, dept = _svc_pc_ca(db, "nguong_bhxh_khai_duoc")
+    try:
+        assert svc.get_params().bhxh_mien_tu_so_ngay == 14, "mặc định phải là mức luật"
+        # 26 − 15 = 11 ngày không lương → dưới mức 14, vẫn đóng.
+        assert _bhxh_theo_cong(svc, dept.id, actual_cong=15)["bhxh"] > 0
+
+        # Hạ ngưỡng xuống 10 → CHÍNH người đó mất BHXH. Đây là vế chứng minh "đổi luật gõ được".
+        svc.update_params(bhxh_mien_tu_so_ngay=10)
+        assert _bhxh_theo_cong(svc, dept.id, actual_cong=15)["bhxh"] == 0
+
+        # 0 = TẮT luật ⇒ người KHÔNG có công nào VẪN đóng BHXH (hành vi trước 04/08/2026).
+        svc.update_params(bhxh_mien_tu_so_ngay=0)
+        v = _bhxh_theo_cong(svc, dept.id, actual_cong=0)
+        assert v["bhxh"] > 0, "số 0 phải là TẮT LUẬT, không phải 'miễn cho tất cả mọi người'"
+    finally:
+        svc.update_params(bhxh_mien_tu_so_ngay=14)   # trả mặc định cho các test sau
+        db.close()
+
+
+def test_params_nhan_2_tham_so_luat_qua_api(client):
+    """`update_params` lọc theo ALLOWLIST — tên nào không có trong rổ đó thì PUT trả 200 nhưng số
+    KHÔNG đổi, tức một ô cấu hình giả. `phu_cap_ca_min_cong` (thêm 03/08) đã bị sót đúng kiểu đó."""
+    token = _admin_token(client)
+    goc = client.get("/api/luong/params", headers=_h(token)).json()
+    try:
+        upd = client.put("/api/luong/params",
+                         json={"bhxh_mien_tu_so_ngay": 10, "phu_cap_ca_min_cong": 0.75},
+                         headers=_h(token)).json()
+        assert upd["bhxh_mien_tu_so_ngay"] == 10
+        assert upd["phu_cap_ca_min_cong"] == 0.75
+        doc_lai = client.get("/api/luong/params", headers=_h(token)).json()
+        assert doc_lai["bhxh_mien_tu_so_ngay"] == 10, "PUT xong đọc lại phải còn — không thì ô giả"
+        assert doc_lai["phu_cap_ca_min_cong"] == 0.75
+    finally:
+        client.put("/api/luong/params",
+                   json={"bhxh_mien_tu_so_ngay": goc["bhxh_mien_tu_so_ngay"],
+                         "phu_cap_ca_min_cong": goc["phu_cap_ca_min_cong"]},
+                   headers=_h(token))
+
+
+def test_ngay_off1x_khong_bi_dem_la_nghi_khong_luong():
+    """Ngày off1x là ngày CÓ đi làm và CÓ trả 1×, nhưng Chấm công đã trừ nó khỏi `total_cong`
+    (`attendance_service.py:1195`). Không cộng trả lại thì người làm ngày off1x bị đếm thành nghỉ
+    không lương và MẤT BHXH oan."""
+    db = SessionLocal()
+    try:
+        svc, dept = _svc_pc_ca(db, "off1x_bhxh")
+        # 10 công nền + 4 ngày off1x = thực tế nghỉ 12 ngày → dưới ngưỡng, PHẢI còn đóng BHXH.
+        v = _bhxh_theo_cong(svc, dept.id, actual_cong=10, plain_cong=4)
+        assert v["bhxh"] > 0, "ngày off1x bị đếm nhầm thành nghỉ không lương"
+        # Bỏ 4 ngày off1x ra thì thành 16 ngày nghỉ → vượt ngưỡng, không đóng.
+        assert _bhxh_theo_cong(svc, dept.id, actual_cong=10)["bhxh"] == 0
+    finally:
+        db.close()
+
+
+def test_nv_khong_lam_ca_nao_khong_bi_anh_huong():
+    """Hồi quy: người KHÔNG làm ca nào (không có `ca_lam`) thì cả 3 thay đổi 04/08 đều không được
+    đụng tới một đồng — cơm/phụ cấp ca = 0, phần miễn thuế chỉ còn OT/ca đêm."""
+    db = SessionLocal()
+    try:
+        svc, dept = _svc_pc_ca(db, "hoi_quy_khong_ca")
+        v = svc._compute(
+            employee=_emp_ns(dept.id),
+            salary=_salary_ns(base_amount=None, luong_vi_tri=30_000_000, luong_trach_nhiem=0),
+            params=svc.get_params(), standard_cong=26, on=date(2026, 6, 1), actual_cong=26,
+        )
+        assert v["meal_allowance_pay"] == 0 and v["shift_allowance_pay"] == 0
+        assert v["thu_nhap_mien_thue"] == 0
+        assert v["thu_nhap_chiu_thue"] == v["gross"]
+        assert v["bhxh"] > 0
+    finally:
+        db.close()

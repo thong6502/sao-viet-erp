@@ -14,12 +14,16 @@ from ..models.purchase import (
     DPR_PENDING_APPROVAL,
     DepartmentPurchaseRequest,
     DepartmentPurchaseRequestLine,
+    PR_APPROVED,
     PR_DRAFT,
+    PR_PURCHASED,
+    PR_RECEIVED,
     SUPPLIER_ACTIVE,
     PurchaseRequest,
     PurchaseRequestLine,
     PurchaseRequestSource,
     Supplier,
+    SupplierItem,
 )
 
 
@@ -49,7 +53,11 @@ class SupplierRepository:
         self.db = db
 
     def get_by_id(self, supplier_id: int) -> Supplier | None:
-        return self.db.get(Supplier, supplier_id)
+        return self.db.execute(
+            select(Supplier)
+            .options(selectinload(Supplier.items))
+            .where(Supplier.id == supplier_id)
+        ).scalars().first()
 
     def find_by_name(self, name: str) -> Supplier | None:
         name = (name or "").strip()
@@ -84,7 +92,7 @@ class SupplierRepository:
         if supplier_group:
             conditions.append(Supplier.supplier_group == supplier_group)
 
-        stmt = select(Supplier)
+        stmt = select(Supplier).options(selectinload(Supplier.items))
         count_stmt = select(func.count()).select_from(Supplier)
         for c in conditions:
             stmt = stmt.where(c)
@@ -115,6 +123,7 @@ class SupplierRepository:
         payment_terms: str | None = None,
         status: str = SUPPLIER_ACTIVE,
         note: str | None = None,
+        items: Sequence["SupplierItemInput"] | None = None,
     ) -> Supplier:
         row = Supplier(
             name=name,
@@ -128,6 +137,17 @@ class SupplierRepository:
             status=status,
             note=note,
         )
+        row.items = [
+            SupplierItem(
+                item_name=item.item_name,
+                unit=item.unit,
+                unit_price=item.unit_price,
+                vat_percent=item.vat_percent,
+                is_active=True,
+                note=item.note,
+            )
+            for item in (items or [])
+        ]
         self.db.add(row)
         try:
             self.db.commit()
@@ -138,8 +158,21 @@ class SupplierRepository:
         return row
 
     def update(self, supplier: Supplier, **values) -> Supplier:
+        items = values.pop("items", None)
         for key, value in values.items():
             setattr(supplier, key, value)
+        if items is not None:
+            supplier.items = [
+                SupplierItem(
+                    item_name=item.item_name,
+                    unit=item.unit,
+                    unit_price=item.unit_price,
+                    vat_percent=item.vat_percent,
+                    is_active=True,
+                    note=item.note,
+                )
+                for item in items
+            ]
         try:
             self.db.commit()
         except Exception:
@@ -147,6 +180,101 @@ class SupplierRepository:
             raise
         self.db.refresh(supplier)
         return supplier
+
+    def list_item_catalog(self) -> list[dict]:
+        rows = list(
+            self.db.execute(
+                select(SupplierItem)
+                .join(Supplier, Supplier.id == SupplierItem.supplier_id)
+                .where(Supplier.status == SUPPLIER_ACTIVE)
+                .order_by(func.lower(SupplierItem.item_name), SupplierItem.unit_price.asc(), SupplierItem.id.asc())
+            ).scalars()
+        )
+        grouped: dict[str, dict] = {}
+        suppliers_by_key: dict[str, set[int]] = {}
+        for row in rows:
+            key = (row.item_name or "").strip().lower()
+            if not key:
+                continue
+            current = grouped.get(key)
+            if current is None:
+                grouped[key] = {
+                    "item_name": row.item_name,
+                    "unit": row.unit,
+                    "min_unit_price": int(row.unit_price),
+                }
+                suppliers_by_key[key] = set()
+            elif int(row.unit_price) < int(current["min_unit_price"]):
+                current["min_unit_price"] = int(row.unit_price)
+                current["unit"] = row.unit
+                current["item_name"] = row.item_name
+            suppliers_by_key[key].add(row.supplier_id)
+        return [
+            {
+                **value,
+                "supplier_count": len(suppliers_by_key[key]),
+            }
+            for key, value in grouped.items()
+        ]
+
+    def has_active_item(self, item_name: str) -> bool:
+        """CÓ NCC NÀO đang hoạt động bán thứ này không — dùng lúc lập YÊU CẦU mua, khi chưa biết
+        sẽ mua của ai. Muốn hỏi "NCC CỤ THỂ này có bán không" thì dùng `supplier_sells`."""
+        clean_name = (item_name or "").strip().lower()
+        if not clean_name:
+            return False
+        return (
+            self.db.execute(
+                select(SupplierItem.id)
+                .join(Supplier, Supplier.id == SupplierItem.supplier_id)
+                .where(
+                    Supplier.status == SUPPLIER_ACTIVE,
+                    func.lower(SupplierItem.item_name) == clean_name,
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            is not None
+        )
+
+    def supplier_sells(self, supplier_id: int, item_name: str) -> bool:
+        """NCC CỤ THỂ này có bán mặt hàng đó không — dùng lúc lập PHIẾU MUA, khi đã chọn NCC.
+
+        Khác `has_active_item` ở hai chỗ: bó theo đúng một NCC, và có xét `SupplierItem.is_active`
+        (mặt hàng đã ngưng bán thì không đặt mới được nữa). Khớp tên theo chuỗi viết thường đã cắt
+        khoảng trắng — đúng cách `list_item_catalog` gom danh mục, để hai nơi không hiểu khác nhau.
+        """
+        clean_name = (item_name or "").strip().lower()
+        if not clean_name or not supplier_id:
+            return False
+        return (
+            self.db.execute(
+                select(SupplierItem.id)
+                .where(
+                    SupplierItem.supplier_id == int(supplier_id),
+                    SupplierItem.is_active.is_(True),
+                    func.lower(SupplierItem.item_name) == clean_name,
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            is not None
+        )
+
+
+class SupplierItemInput:
+    def __init__(
+        self,
+        *,
+        item_name: str,
+        unit: str,
+        unit_price: int,
+        vat_percent: float = 0,
+        note: str | None = None,
+    ) -> None:
+        self.item_name = item_name
+        self.unit = unit
+        self.unit_price = unit_price
+        self.vat_percent = vat_percent
+        self.note = note
 
 
 class PurchaseRequestLineInput:
@@ -160,6 +288,7 @@ class PurchaseRequestLineInput:
         discount_percent: float = 0,
         vat_percent: float = 0,
         note: str | None = None,
+        department_request_line_id: int | None = None,
     ) -> None:
         self.item_name = item_name
         self.unit = unit
@@ -168,6 +297,7 @@ class PurchaseRequestLineInput:
         self.discount_percent = discount_percent
         self.vat_percent = vat_percent
         self.note = note
+        self.department_request_line_id = department_request_line_id
 
 
 class DepartmentPurchaseRequestLineInput:
@@ -187,6 +317,20 @@ class DepartmentPurchaseRequestLineInput:
         self.note = note
 
 
+# Phiếu mua sinh ra từ yêu cầu, kèm dòng + NCC. Cần cho HAI việc, cả hai đều chạy trên MỌI yêu
+# cầu được đọc ra: suy trạng thái (`_tinh_lai_trang_thai_ycmh`) và hiện tình trạng TỪNG SẢN PHẨM ở
+# chi tiết. Không nạp sẵn thì mỗi yêu cầu trong danh sách bắn thêm mấy query — danh sách 20 dòng
+# thành cả trăm lượt hỏi DB.
+_NAP_PHIEU_CON = (
+    selectinload(DepartmentPurchaseRequest.purchase_links)
+    .selectinload(PurchaseRequestSource.purchase_request)
+    .selectinload(PurchaseRequest.lines),
+    selectinload(DepartmentPurchaseRequest.purchase_links)
+    .selectinload(PurchaseRequestSource.purchase_request)
+    .selectinload(PurchaseRequest.supplier),
+)
+
+
 class DepartmentPurchaseRequestRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -198,6 +342,7 @@ class DepartmentPurchaseRequestRepository:
                 selectinload(DepartmentPurchaseRequest.lines),
                 selectinload(DepartmentPurchaseRequest.requesting_department),
                 selectinload(DepartmentPurchaseRequest.requested_by),
+                *_NAP_PHIEU_CON,
             )
             .where(DepartmentPurchaseRequest.id == request_id)
         ).scalars().first()
@@ -228,6 +373,8 @@ class DepartmentPurchaseRequestRepository:
         q: str | None = None,
         status: str | None = None,
         source_type: str | None = None,
+        requesting_department_id: int | None = None,
+        filter_by_department: bool = False,
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
@@ -247,11 +394,14 @@ class DepartmentPurchaseRequestRepository:
             conditions.append(DepartmentPurchaseRequest.status == status)
         if source_type:
             conditions.append(DepartmentPurchaseRequest.source_type == source_type)
+        if filter_by_department:
+            conditions.append(DepartmentPurchaseRequest.requesting_department_id == requesting_department_id)
 
         stmt = select(DepartmentPurchaseRequest).options(
             selectinload(DepartmentPurchaseRequest.lines),
             selectinload(DepartmentPurchaseRequest.requesting_department),
             selectinload(DepartmentPurchaseRequest.requested_by),
+            *_NAP_PHIEU_CON,
         )
         count_stmt = select(func.count()).select_from(DepartmentPurchaseRequest)
         for c in conditions:
@@ -327,6 +477,36 @@ class DepartmentPurchaseRequestRepository:
         self.db.refresh(request)
         return self.get_by_id(request.id) or request
 
+    def update(
+        self,
+        request: DepartmentPurchaseRequest,
+        *,
+        purpose: str,
+        needed_date: date,
+        note: str | None,
+        lines: Sequence[DepartmentPurchaseRequestLineInput],
+    ) -> DepartmentPurchaseRequest:
+        request.purpose = purpose
+        request.needed_date = needed_date
+        request.note = note
+        request.lines = [
+            DepartmentPurchaseRequestLine(
+                item_name=line.item_name,
+                unit=line.unit,
+                quantity=line.quantity,
+                expected_unit_price=line.expected_unit_price,
+                note=line.note,
+            )
+            for line in lines
+        ]
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        self.db.refresh(request)
+        return self.get_by_id(request.id) or request
+
 
 class PurchaseRequestRepository:
     def __init__(self, db: Session) -> None:
@@ -360,8 +540,15 @@ class PurchaseRequestRepository:
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
+        creator_ids: list[int] | None = None,
+        exclude_statuses: list[str] | None = None,
     ) -> tuple[list[PurchaseRequest], int]:
         conditions = []
+        # PHẠM VI NHÌN: None = thấy hết (giám đốc / kế toán). Danh sách RỖNG nghĩa là không thấy
+        # gì — phải phân biệt với None, `if creator_ids:` sẽ nuốt mất trường hợp rỗng và cho thấy
+        # cả công ty, đúng cái lỗ đang vá.
+        if creator_ids is not None:
+            conditions.append(PurchaseRequest.created_by_user_id.in_(creator_ids or [-1]))
         if q:
             like = f"%{q.strip().lower()}%"
             conditions.append(
@@ -377,6 +564,10 @@ class PurchaseRequestRepository:
             )
         if status:
             conditions.append(PurchaseRequest.status == status)
+        # Loại hẳn vài trạng thái khỏi một hộp thư nào đó (vd hộp Kế toán không nhận phiếu NHÁP).
+        # Chặn ở ĐÂY chứ không chỉ ở giao diện — lọc trên màn thì gọi thẳng API vẫn ra.
+        if exclude_statuses:
+            conditions.append(PurchaseRequest.status.notin_(exclude_statuses))
         if supplier_id is not None:
             conditions.append(PurchaseRequest.supplier_id == supplier_id)
 
@@ -405,19 +596,52 @@ class PurchaseRequestRepository:
         rows = list(self.db.execute(stmt.offset((page - 1) * size).limit(size)).scalars())
         return rows, total
 
-    def create(
+    def list_for_payables(self, *, supplier_id: int | None = None) -> list[PurchaseRequest]:
+        """Các phiếu mua CÓ THỂ đang nợ NCC — nguồn của màn Công nợ phải trả.
+
+        Lọc hẹp ngay ở SQL: chỉ phiếu `đã duyệt / đã mua / đã nhận`. Nháp, chờ duyệt, bị từ chối và
+        đã huỷ thì không nợ ai đồng nào nên không lôi ra. Ai còn nợ THẬT thì lọc tiếp bằng Python —
+        bắt buộc, vì giá trị đơn cộng từ các dòng (có chiết khấu + VAT) chứ không phải một cột SUM
+        được.
+
+        Không phân trang: màn công nợ phải cộng đúng TỔNG, cắt trang là ra số sai. Bù lại nạp sẵn
+        đúng những quan hệ `purchase_money` cần, để không đẻ ra N+1 query.
+
+        ⚠️ Tập này lớn dần theo thời gian (đơn đã trả xong vẫn mang trạng thái `received`). Ở quy mô
+        vài trăm phiếu/tháng thì chưa đáng lo; khi nào chậm thì cắt bằng mốc ngày, đừng bỏ Python
+        filter đi."""
+        stmt = (
+            select(PurchaseRequest)
+            .options(
+                selectinload(PurchaseRequest.lines),
+                selectinload(PurchaseRequest.supplier),
+                selectinload(PurchaseRequest.payment_vouchers).selectinload(PaymentVoucher.receipts),
+                # Badge "chưa có chứng từ" đọc `voucher.attachments`. Thiếu dòng này là mỗi phiếu
+                # chi bắn thêm một query — đúng cái N+1 mà eager load ở đây sinh ra để tránh.
+                selectinload(PurchaseRequest.payment_vouchers).selectinload(
+                    PaymentVoucher.attachments
+                ),
+            )
+            .where(PurchaseRequest.status.in_([PR_APPROVED, PR_PURCHASED, PR_RECEIVED]))
+        )
+        if supplier_id is not None:
+            stmt = stmt.where(PurchaseRequest.supplier_id == supplier_id)
+        return list(self.db.execute(stmt.order_by(PurchaseRequest.id.desc())).scalars())
+
+    def _build(
         self,
         *,
         code: str,
         supplier_id: int | None,
         purpose: str | None,
         needed_date: date | None,
-        expected_receipt_date: date | None = None,
+        expected_receipt_date: date | None,
         created_by_user_id: int | None,
         note: str | None,
         lines: Sequence[PurchaseRequestLineInput],
         source_requests: Sequence[DepartmentPurchaseRequest],
     ) -> PurchaseRequest:
+        """Dựng một phiếu trong bộ nhớ (CHƯA commit) — dùng chung cho `create` và `create_many`."""
         row = PurchaseRequest(
             code=code,
             status=PR_DRAFT,
@@ -437,11 +661,32 @@ class PurchaseRequestRepository:
                 discount_percent=line.discount_percent,
                 vat_percent=line.vat_percent,
                 note=line.note,
+                department_request_line_id=getattr(line, "department_request_line_id", None),
             )
             for line in lines
         ]
         self._replace_sources(row, source_requests)
         self.db.add(row)
+        return row
+
+    def create(
+        self,
+        *,
+        code: str,
+        supplier_id: int | None,
+        purpose: str | None,
+        needed_date: date | None,
+        expected_receipt_date: date | None = None,
+        created_by_user_id: int | None,
+        note: str | None,
+        lines: Sequence[PurchaseRequestLineInput],
+        source_requests: Sequence[DepartmentPurchaseRequest],
+    ) -> PurchaseRequest:
+        row = self._build(
+            code=code, supplier_id=supplier_id, purpose=purpose, needed_date=needed_date,
+            expected_receipt_date=expected_receipt_date, created_by_user_id=created_by_user_id,
+            note=note, lines=lines, source_requests=source_requests,
+        )
         try:
             self.db.commit()
         except Exception:
@@ -449,6 +694,19 @@ class PurchaseRequestRepository:
             raise
         self.db.refresh(row)
         return self.get_by_id(row.id) or row
+
+    def create_many(self, items: Sequence[dict]) -> list[PurchaseRequest]:
+        """Tạo NHIỀU phiếu trong MỘT commit — hoặc ra đủ, hoặc không ra cái nào.
+
+        Gọi `create` trong vòng lặp thì mỗi lần một commit: hỏng ở phiếu thứ hai là phiếu đầu đã
+        nằm lại trong DB và yêu cầu nguồn bị giữ chỗ dở dang, không ai dọn."""
+        rows = [self._build(**item) for item in items]
+        try:
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        return [self.get_by_id(row.id) or row for row in rows]
 
     def update_header_and_lines(
         self,
@@ -476,6 +734,7 @@ class PurchaseRequestRepository:
                 discount_percent=line.discount_percent,
                 vat_percent=line.vat_percent,
                 note=line.note,
+                department_request_line_id=getattr(line, "department_request_line_id", None),
             )
             for line in lines
         ]

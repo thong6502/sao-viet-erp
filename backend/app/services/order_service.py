@@ -1,7 +1,12 @@
 """Đơn hàng bán — OrderService (nghiệp vụ khâu ④ CHỐT ĐƠN), redesign-don-hang-ban.md P1.
 
-Tầng nghiệp vụ: tạo đơn (từ báo giá đã duyệt / nhập tay) + snapshot dòng copy-on-write + list/get/
-update (chỉ khi nháp). Chốt/cọc/duyệt/hủy = P2–P5. Đọc báo giá qua SEAM-04 (QuotationRepository).
+Tầng nghiệp vụ: tạo đơn TỪ BÁO GIÁ khách đã đồng ý + snapshot dòng copy-on-write + list/get/
+update (chỉ khi nháp). Chốt/cọc/hủy = P2–P5. Đọc báo giá qua SEAM-04 (QuotationRepository).
+
+ĐÃ GỠ: đường tạo đơn NHẬP TAY và toàn bộ luồng DUYỆT đơn đặc thù. `needs_approval` chỉ từng được
+bật bởi đúng đường nhập tay, nên bỏ nhập tay là luồng duyệt hết nguồn dữ liệu. Cột DB
+(`source_type`, `order_nature`, `invoice_entity_*`, `needs_approval`, `approval_state`) và bảng
+`order_approvals` GIỮ NGUYÊN — dự án không có Alembic, và đơn `nhap_tay` cũ vẫn phải đọc được.
 """
 from __future__ import annotations
 
@@ -11,27 +16,16 @@ from sqlalchemy.orm import Session
 
 from ..models.order import (
     ATTACH_KIND_CONSENT,
-    APPROVAL_DECISION_APPROVED,
-    APPROVAL_DECISION_REJECTED,
-    APPROVAL_STATE_APPROVED,
     APPROVAL_STATE_NONE,
-    APPROVAL_STATE_PENDING,
-    APPROVAL_STATE_REJECTED,
-    COST_BASIS_NONE,
     COST_BASIS_QUOTE,
-    EXC_NO_COST,
     FAULT_KHACH,
     FAULT_XUONG,
     ORDER_KIND_BO_SUNG,
-    ORDER_NATURES,
     SOURCE_BAO_GIA,
-    SOURCE_NHAP_TAY,
-    SOURCE_TYPES,
     STATUS_CANCELLED,
     STATUS_DRAFT,
     STATUS_ORDERED,
     Order,
-    OrderApproval,
     OrderAttachment,
 )
 from ..models.quotation import STATUS_ACCEPTED, Quote
@@ -45,7 +39,6 @@ from ..schemas.order import (
     OrderActivityItem,
     OrderActivityOut,
     AttachmentOut,
-    OrderApprovalOut,
     OrderDepositReceiptOut,
     OrderDetailOut,
     OrderEnumsOut,
@@ -83,8 +76,8 @@ _STATUS_LABELS = {
     STATUS_ORDERED: "Đã chốt",
     STATUS_CANCELLED: "Hủy",
 }
-_SOURCE_LABELS = {SOURCE_BAO_GIA: "Từ báo giá", SOURCE_NHAP_TAY: "Nhập giá tay"}
-_NATURE_LABELS = {"hang_hoa": "Hàng hóa", "gia_cong": "Gia công"}
+# Đơn mới chỉ có MỘT nguồn, nhưng nhãn giữ cả `nhap_tay` để đơn cũ trong DB còn đọc ra chữ đúng.
+_SOURCE_LABELS = {SOURCE_BAO_GIA: "Từ báo giá", "nhap_tay": "Nhập giá tay"}
 
 
 def _i(x) -> int:
@@ -212,14 +205,9 @@ class OrderService:
         # còn dòng chưa định giá → tổng/cọc bị thiếu, chặn chốt
         if self.repo.unpriced_line_count(order.id) > 0:
             blockers.append("Còn dòng chưa định giá")
-        # (d) chứng cứ khách đồng ý — đơn NHẬP TAY cần đính kèm (đơn báo giá dựa vào báo giá accepted)
-        if order.source_type == SOURCE_NHAP_TAY and not any(
-            a.kind == ATTACH_KIND_CONSENT for a in order.attachments
-        ):
-            blockers.append("Thiếu chứng cứ khách đồng ý (đính kèm)")
-        # (e/f) đặc thù đã duyệt
-        if order.needs_approval and order.approval_state != APPROVAL_STATE_APPROVED:
-            blockers.append("Đơn đặc thù chưa được duyệt")
+        # (d) chứng cứ khách đồng ý: đơn giờ LUÔN từ báo giá accepted — chính báo giá là chứng cứ,
+        #     nên cổng "thiếu đính kèm" (chỉ áp cho đơn nhập tay) đã bỏ cùng đường nhập tay.
+        # (e/f) cổng "đơn đặc thù chưa được duyệt" đã bỏ cùng luồng duyệt.
         return (len(blockers) == 0), blockers
 
     def _row(self, order: Order, customer_name: str | None, sale_name: str | None,
@@ -235,10 +223,7 @@ class OrderService:
             quotation_code=quotation_code,
             source_type=order.source_type,
             order_kind=order.order_kind,
-            order_nature=order.order_nature,
             status=order.status,
-            approval_state=order.approval_state,
-            needs_approval=order.needs_approval,
             cost_basis=order.cost_basis,
             total=m["total"],
             total_with_vat=m["total_with_vat"],
@@ -272,18 +257,6 @@ class OrderService:
             )
             for r in self.accounting_repo.list_order_receipts(order.id)
         ]
-        aps = (
-            self.db.query(OrderApproval)
-            .filter(OrderApproval.order_id == order.id)
-            .order_by(OrderApproval.decided_at.desc())
-            .all()
-        )
-        ap_names = self._user_names([a.decided_by for a in aps if a.decided_by])
-        approvals = []
-        for a in aps:
-            ao = OrderApprovalOut.model_validate(a)
-            ao.decided_by_name = ap_names.get(a.decided_by)
-            approvals.append(ao)
         consent_atts = [
             AttachmentOut(id=a.id, url=a.file_url, file_name=a.file_name,
                           content_type=a.content_type, uploaded_at=a.uploaded_at)
@@ -315,8 +288,6 @@ class OrderService:
             delivery_contact_phone=order.delivery_contact_phone,
             delivery_note=order.delivery_note,
             production_note=order.production_note,
-            invoice_entity_name=order.invoice_entity_name,
-            invoice_entity_tax_code=order.invoice_entity_tax_code,
             vat_pct_estimate=order.vat_pct_estimate,
             lines=[OrderLineOut.model_validate(ln) for ln in order.lines],
             order_cost=m["order_cost"],
@@ -324,7 +295,6 @@ class OrderService:
             cancel_reason=order.cancel_reason,
             cancel_fault=order.cancel_fault,
             deposits=deposits,
-            approvals=approvals,
             consent_attachments=consent_atts,
             can_confirm=can_confirm,
             confirm_blockers=blockers,
@@ -336,11 +306,10 @@ class OrderService:
     def list(
         self, *, actor, scope: str, q: str | None, status: str | None,
         order_kind: str | None, sort: str, page: int, size: int,
-        approval_state: str | None = None,
     ) -> OrderListOut:
         rows, total, names, _totals = self.repo.list(
             scope=scope, actor=actor, q=q, status=status, order_kind=order_kind,
-            approval_state=approval_state, sort=sort, page=page, size=size,
+            sort=sort, page=page, size=size,
         )
         sale_names = self._user_names([r.sale_user_id for r in rows])
         q_codes = self._quote_codes([r.quotation_id for r in rows])
@@ -406,26 +375,18 @@ class OrderService:
 
     def enums(self) -> OrderEnumsOut:
         return OrderEnumsOut(
-            source_types=[EnumOption(value=v, label=_SOURCE_LABELS[v]) for v in SOURCE_TYPES],
-            order_natures=[EnumOption(value=v, label=_NATURE_LABELS[v]) for v in ORDER_NATURES],
             statuses=[EnumOption(value=v, label=lb) for v, lb in _STATUS_LABELS.items()],
         )
 
     # --- writes -------------------------------------------------------------
     def create(self, *, actor, scope: str, payload) -> OrderDetailOut:
-        if payload.source_type not in SOURCE_TYPES:
-            raise OrderValidationError("Nguồn đơn không hợp lệ")
+        """Đơn CHỈ sinh từ báo giá khách đã đồng ý — không còn nhánh nào khác."""
         if payload.order_kind == ORDER_KIND_BO_SUNG and not payload.parent_order_id:
             raise OrderValidationError("Đơn bổ sung phải trỏ đơn gốc (giữ kẽm)")
-        if payload.order_nature not in ORDER_NATURES:
-            raise OrderValidationError("Bản chất đơn không hợp lệ")
         if payload.deposit_pct is not None and not 0 <= payload.deposit_pct <= 100:
             raise OrderValidationError("% cọc phải trong khoảng 0–100")
 
-        if payload.source_type == SOURCE_BAO_GIA:
-            order = self._create_from_quotation(actor=actor, payload=payload)
-        else:
-            order = self._create_manual(actor=actor, payload=payload)
+        order = self._create_from_quotation(actor=actor, payload=payload)
 
         self.audit.create(
             actor_user_id=actor.id,
@@ -483,7 +444,6 @@ class OrderService:
             quotation_effective_from=(version.created_at.date() if version.created_at else None),
             order_kind=payload.order_kind,
             parent_order_id=payload.parent_order_id,
-            order_nature=payload.order_nature,
             sale_user_id=(quote.salesperson_id or actor.id),
             status=STATUS_DRAFT,
             vat_pct_estimate=_i(version.vat_percent),
@@ -497,55 +457,6 @@ class OrderService:
             delivery_address=(payload.delivery_address or quote.delivery_address),
             customer_po_no=payload.customer_po_no,
             delivery_committed_date=payload.delivery_committed_date,
-            invoice_entity_name=payload.invoice_entity_name,
-            invoice_entity_tax_code=payload.invoice_entity_tax_code,
-            delivery_contact_name=payload.delivery_contact_name,
-            delivery_contact_phone=payload.delivery_contact_phone,
-            delivery_note=payload.delivery_note,
-            production_note=payload.production_note,
-            is_rush=payload.is_rush,
-        )
-        return order
-
-    def _create_manual(self, *, actor, payload) -> Order:
-        if not payload.customer_id:
-            raise OrderValidationError("Đơn nhập tay phải chọn khách hàng")
-        if not payload.lines:
-            raise OrderValidationError("Đơn nhập tay phải có ít nhất 1 dòng")
-        lines = []
-        for ln in payload.lines:
-            unit = ln.unit_price
-            lines.append(dict(
-                description=ln.description,
-                qty=ln.qty,
-                don_vi_tinh=(ln.don_vi_tinh or "cái"),
-                unit_price_snapshot=unit,
-                line_total=(ln.qty * unit if unit is not None else None),
-                vat_pct_estimate=ln.vat_pct,
-                cost_snapshot=None,  # nhập tay: không giá vốn
-            ))
-        order = self.repo.create(
-            lines=lines,
-            source_type=SOURCE_NHAP_TAY,
-            customer_id=payload.customer_id,
-            quotation_id=None,
-            quotation_version=None,
-            quotation_effective_from=None,
-            order_kind=payload.order_kind,
-            parent_order_id=payload.parent_order_id,
-            order_nature=payload.order_nature,
-            sale_user_id=actor.id,
-            status=STATUS_DRAFT,
-            vat_pct_estimate=payload.vat_pct_estimate,
-            deposit_pct=payload.deposit_pct,   # sale nhập trên đơn (nhập tay không có báo giá để ghim)
-            cost_basis=COST_BASIS_NONE,
-            needs_approval=True,   # nhập tay LUÔN cần duyệt (trình duyệt ở P3)
-            approval_state=APPROVAL_STATE_NONE,
-            delivery_address=payload.delivery_address,
-            customer_po_no=payload.customer_po_no,
-            delivery_committed_date=payload.delivery_committed_date,
-            invoice_entity_name=payload.invoice_entity_name,
-            invoice_entity_tax_code=payload.invoice_entity_tax_code,
             delivery_contact_name=payload.delivery_contact_name,
             delivery_contact_phone=payload.delivery_contact_phone,
             delivery_note=payload.delivery_note,
@@ -564,17 +475,12 @@ class OrderService:
         fields: dict = {}
         for f in (
             "customer_po_no", "delivery_committed_date", "delivery_address",
-            "invoice_entity_name", "invoice_entity_tax_code",
             "delivery_contact_name", "delivery_contact_phone", "delivery_note",
             "production_note", "is_rush",
         ):
             val = getattr(payload, f)
             if val is not None:
                 fields[f] = val
-        if payload.order_nature is not None:
-            if payload.order_nature not in ORDER_NATURES:
-                raise OrderValidationError("Bản chất đơn không hợp lệ")
-            fields["order_nature"] = payload.order_nature
         if payload.deposit_pct is not None:
             if not 0 <= payload.deposit_pct <= 100:
                 raise OrderValidationError("% cọc phải trong khoảng 0–100")
@@ -658,25 +564,24 @@ class OrderService:
         )
         return self._detail(self.repo.get_with_lines(order_id))
 
-    def notify_summary(self, *, actor, scope: str, can_approve: bool,
+    def notify_summary(self, *, actor, scope: str,
                        can_record_deposit: bool, can_manage_status: bool) -> dict:
         """Số nuôi badge/toast real-time — 'việc chờ TÔI xử lý' theo vai (đơn còn NHÁP trong phạm vi):
-        TP/GĐ = đơn chờ duyệt; Kế toán = đơn chờ ghi cọc; Sale = đơn đủ điều kiện chờ chốt. Tự giảm
-        khi người dùng thao tác (không cần cờ 'seen'). Đếm trên tập nháp nhỏ nên rẻ."""
-        approval_pending = deposit_pending = ready_to_confirm = 0
+        Kế toán = đơn chờ ghi cọc; Sale = đơn đủ điều kiện chờ chốt. Tự giảm khi người dùng thao tác
+        (không cần cờ 'seen'). Đếm trên tập nháp nhỏ nên rẻ.
+
+        `approval_pending` đã bỏ cùng luồng duyệt. Vẫn TRẢ khoá đó với giá trị 0 để client cũ
+        (tab đang mở, bản FE chưa nạp lại) không vỡ khi đọc thiếu khoá."""
+        deposit_pending = ready_to_confirm = 0
         for o in self.repo.drafts_in_scope(scope=scope, actor=actor):
             m = self._money(o)
-            if can_approve and o.approval_state == APPROVAL_STATE_PENDING:
-                approval_pending += 1
             if can_record_deposit and (o.deposit_pct or 0) > 0 and not m["deposit_ok"]:
                 deposit_pending += 1
-            if can_manage_status and m["deposit_ok"] and (
-                not o.needs_approval or o.approval_state == APPROVAL_STATE_APPROVED
-            ):
+            if can_manage_status and m["deposit_ok"]:
                 ready_to_confirm += 1
         return {
-            "action_count": approval_pending + deposit_pending + ready_to_confirm,
-            "approval_pending": approval_pending,
+            "action_count": deposit_pending + ready_to_confirm,
+            "approval_pending": 0,
             "deposit_pending": deposit_pending,
             "ready_to_confirm": ready_to_confirm,
         }
@@ -711,60 +616,6 @@ class OrderService:
             actor_user_id=actor.id, action="record_deposit", target=f"order:{order.id}",
             detail=f"Thu cọc {int(payload.amount):,}đ ({payload.receipt_method}) — đơn {order.order_no}",
         )
-        return self._detail(self.repo.get_with_lines(order_id))
-
-    # --- Duyệt đơn đặc thù (P3) — luật trình-duyệt --------------------------
-    def _load_approvable(self, order_id: int, actor, scope: str) -> Order:
-        order = self.repo.get_by_id(order_id)
-        if order is None or not self.repo.can_access(order=order, scope=scope, actor=actor):
-            raise OrderNotFound("Không tìm thấy đơn hàng")
-        if order.status != STATUS_DRAFT:
-            raise OrderConflict("Đơn đã chốt/hủy")
-        if not order.needs_approval:
-            raise OrderValidationError("Đơn này không cần duyệt")
-        return order
-
-    def submit_for_approval(self, *, order_id: int, actor, scope: str) -> OrderDetailOut:
-        order = self._load_approvable(order_id, actor, scope)
-        if order.approval_state == APPROVAL_STATE_APPROVED:
-            raise OrderConflict("Đơn đã được duyệt")
-        order.approval_state = APPROVAL_STATE_PENDING
-        self.db.commit()
-        self.audit.create(actor_user_id=actor.id, action="submit_order_approval",
-            target=f"order:{order.id}", detail=f"Trình duyệt đơn {order.order_no}")
-        return self._detail(self.repo.get_with_lines(order_id))
-
-    def _record_decision(self, order: Order, actor, decision: str, note: str | None) -> None:
-        m = self._money(order)
-        triggers = [EXC_NO_COST] if order.cost_basis == COST_BASIS_NONE else None
-        self.db.add(OrderApproval(
-            order_id=order.id, decision=decision, note=note, decided_by=actor.id,
-            triggers_json=triggers, order_total=m["total_with_vat"],
-            order_subtotal=(m["total"] or 0), order_cost=m["order_cost"],
-            margin_pct_snapshot=m["margin_pct"],
-        ))
-
-    def approve(self, *, order_id: int, actor, scope: str, note: str | None) -> OrderDetailOut:
-        order = self._load_approvable(order_id, actor, scope)
-        if not note or not note.strip():
-            raise OrderValidationError("Duyệt phải nêu ghi chú / lý do")
-        self._record_decision(order, actor, APPROVAL_DECISION_APPROVED, note)
-        order.approval_state = APPROVAL_STATE_APPROVED
-        self.db.commit()
-        self.audit.create(actor_user_id=actor.id, action="approve_order",
-            target=f"order:{order.id}",
-            detail=f"Duyệt đơn {order.order_no}" + (f" — {note}" if note else ""))
-        return self._detail(self.repo.get_with_lines(order_id))
-
-    def reject(self, *, order_id: int, actor, scope: str, note: str | None) -> OrderDetailOut:
-        order = self._load_approvable(order_id, actor, scope)
-        if not note or not note.strip():
-            raise OrderValidationError("Từ chối phải nêu lý do")
-        self._record_decision(order, actor, APPROVAL_DECISION_REJECTED, note)
-        order.approval_state = APPROVAL_STATE_REJECTED
-        self.db.commit()
-        self.audit.create(actor_user_id=actor.id, action="reject_order",
-            target=f"order:{order.id}", detail=f"Từ chối đơn {order.order_no} — {note}")
         return self._detail(self.repo.get_with_lines(order_id))
 
     # --- Chốt đơn (P4) — transaction compare-and-set + khóa báo giá ---------

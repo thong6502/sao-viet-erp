@@ -41,26 +41,40 @@ const PAYMENT_META = {
 
 export function AccountingPurchaseInboxPage({
   navigate,
+  eventTick = 0,
+  focusRequestCode,
 }: {
   navigate: NavigateFn;
+  eventTick?: number;
+  /** Mã PMH cần mở sẵn — màn Công nợ phải trả nhảy sang đây để lập phiếu chi cho đúng đơn đó.
+      Không có nó thì bấm "Lập phiếu chi" chỉ đổ ra danh sách trắng, người dùng phải tự đi tìm. */
+  focusRequestCode?: string | null;
 }) {
   const { token } = useAuth();
   const can = useCan();
-  const canApprove = can("ke_toan", "approve");
+  // DUYỆT đơn mua = quyết định CHI TIỀN ⇒ gác bằng `thu_mua:approve`, KHÔNG phải `ke_toan:approve`.
+  // Sáng 04/08/2026 đã gỡ ô này khỏi bộ phận Mua hàng nên giờ chỉ giám đốc và người được trao
+  // quyền còn. Để `ke_toan:approve` thì kế toán tự duyệt khoản chi rồi tự viết phiếu chi — đúng
+  // lỗi tách vai vừa vá bên thu mua.
+  const canApprove = can("thu_mua", "approve");
+  // LẬP PHIẾU CHI là việc của kế toán — quyền khác hẳn quyền duyệt. Kế toán không có quyền duyệt
+  // vẫn thấy đủ danh sách và trạng thái, chỉ không thấy nút Duyệt.
+  const canCreateVoucher = can("ke_toan", "approve");
   const openYcmh = (code: string) =>
     navigate("yeu-cau-mua-hang", { focusRequestCode: code });
   const [rows, setRows] = useState<PurchaseRequestRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [q, setQ] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("pending_approval");
+  const [q, setQ] = useState(focusRequestCode ?? "");
+  // Mới vào hiện TẤT CẢ (chủ 04/08/2026). Trước đây mặc định lọc "chờ duyệt" nên mở màn ra là
+  // giấu mất đơn đã duyệt, đã mua, đã nhận — kế toán tưởng chưa có gì để lập phiếu chi.
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [voucherMode, setVoucherMode] = useState<null | {
     purchase: PurchaseRequestRow;
-    combined: boolean;
   }>(null);
   const [rejecting, setRejecting] = useState<PurchaseRequestRow | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -100,6 +114,18 @@ export function AccountingPurchaseInboxPage({
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (eventTick <= 0) return;
+    load();
+  }, [eventTick, load]);
+
+  // Sang màn này từ nơi khác kèm mã PMH ⇒ nhét luôn vào ô tìm và về trang 1.
+  useEffect(() => {
+    if (!focusRequestCode) return;
+    setQ(focusRequestCode);
+    setPage(1);
+  }, [focusRequestCode]);
+
   const selected = useMemo(
     () => rows.find((row) => row.id === selectedId) ?? null,
     [rows, selectedId],
@@ -109,6 +135,27 @@ export function AccountingPurchaseInboxPage({
   function closeDetailThen(action: () => void) {
     setSelectedId(null);
     action();
+  }
+
+  /** DUYỆT đơn mua — một bước riêng, không kèm lập phiếu chi.
+   *
+   * Gọi thẳng API của Thu mua (`/purchase-requests/{id}/approve`) chứ không đẻ endpoint kế toán
+   * riêng: thứ đang duyệt là PHIẾU MUA, chỉ khác chỗ đứng bấm. Nhờ vậy chốt chống tự duyệt ở
+   * service (người lập không duyệt phiếu của chính mình) vẫn chạy nguyên. */
+  async function approve(row: PurchaseRequestRow) {
+    if (!token) return;
+    setBusy(`approve-${row.id}`);
+    setError(null);
+    try {
+      await api.purchaseRequests.approve(token, row.id);
+      load();
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "Không duyệt được đơn mua hàng.",
+      );
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function reject() {
@@ -143,16 +190,15 @@ export function AccountingPurchaseInboxPage({
       <div className={`acct-actions${compact ? " acct-actions--compact" : ""}`}>
         {canApprove && row.status === "pending_approval" && (
           <>
+            {/* HAI BƯỚC RỜI (chủ 04/08/2026): giám đốc duyệt trước, kế toán lập phiếu chi sau —
+                hai chữ ký, hai người. Nút "Duyệt & lập chứng từ" gộp cả hai vào một cú bấm đã bỏ. */}
             <Button
               type="button"
               variant="primary"
-              onClick={() =>
-                closeDetailThen(() =>
-                  setVoucherMode({ purchase: row, combined: true }),
-                )
-              }
+              loading={busy === `approve-${row.id}`}
+              onClick={() => closeDetailThen(() => approve(row))}
             >
-              Duyệt & lập chứng từ
+              Duyệt
             </Button>
             <Button
               type="button"
@@ -168,7 +214,10 @@ export function AccountingPurchaseInboxPage({
             </Button>
           </>
         )}
-        {canApprove &&
+        {/* Chỉ đơn ĐÃ DUYỆT mới lập được phiếu chi — và người lập là KẾ TOÁN, không cần quyền
+            duyệt. Backend cũng đã chặn (`accounting_service` chỉ nhận PMH từ approved trở lên),
+            đây là lớp hiển thị cho khớp. */}
+        {canCreateVoucher &&
           ["approved", "purchased", "received"].includes(row.status) &&
           row.available_amount > 0 && (
             <Button
@@ -176,7 +225,7 @@ export function AccountingPurchaseInboxPage({
               variant="primary"
               onClick={() =>
                 closeDetailThen(() =>
-                  setVoucherMode({ purchase: row, combined: false }),
+                  setVoucherMode({ purchase: row }),
                 )
               }
             >
@@ -190,12 +239,12 @@ export function AccountingPurchaseInboxPage({
   return (
     <main className="md-page">
       <header className="md-page__head">
-        <p className="eyebrow">Kế toán</p>
-        <h1 className="md-page__title">Yêu cầu mua hàng</h1>
+        <p className="eyebrow">Kế toán thu mua</p>
+        {/* Tên cũ "Yêu cầu mua hàng" SAI: màn này hiển thị PHIẾU MUA HÀNG (PMH), không phải YCMH. */}
+        <h1 className="md-page__title">Đơn mua hàng</h1>
         <p className="md-page__sub">
-          {UNC_ENABLED
-            ? "Duyệt PMH Thu mua gửi đến và lập Phiếu chi hoặc Ủy nhiệm chi từ cùng một chứng từ nguồn."
-            : "Duyệt PMH Thu mua gửi đến và lập Phiếu chi từ cùng một chứng từ nguồn."}
+          Giám đốc duyệt đơn Thu mua gửi đến; đơn đã duyệt thì Kế toán lập Phiếu chi
+          {UNC_ENABLED ? " hoặc Ủy nhiệm chi" : ""}. Hai bước, hai người.
         </p>
       </header>
 
@@ -220,9 +269,9 @@ export function AccountingPurchaseInboxPage({
             onChange={(event) => setQ(event.target.value)}
             placeholder="Tìm PMH, YCMH, nhà cung cấp..."
           />
-          <Button type="submit" variant="ghost">
+          {/* <Button type="submit" variant="ghost">
             Tìm
-          </Button>
+          </Button> */}
         </form>
         <select
           className="input acct-toolbar__select"
@@ -233,11 +282,15 @@ export function AccountingPurchaseInboxPage({
           }}
         >
           <option value="all">Tất cả trạng thái</option>
-          {Object.entries(STATUS_META).map(([value, meta]) => (
-            <option key={value} value={value}>
-              {meta.label}
-            </option>
-          ))}
+          {/* Bỏ "Nháp": đơn nháp là thu mua còn đang sửa, CHƯA gửi duyệt — kế toán không có việc
+              gì với nó. Backend cũng đã loại hẳn khỏi hộp thư này, để đây chỉ là cho khớp. */}
+          {Object.entries(STATUS_META)
+            .filter(([value]) => value !== "draft")
+            .map(([value, meta]) => (
+              <option key={value} value={value}>
+                {meta.label}
+              </option>
+            ))}
         </select>
       </section>
 
@@ -303,6 +356,12 @@ export function AccountingPurchaseInboxPage({
                     </td>
                     <td className="acct-amount-cell">
                       <strong>{money(row.total_estimate)}</strong>
+                      {/* NCC giao thiếu thì trần lập phiếu chi tụt theo giá trị THỰC NHẬN. Không
+                          nói ra ở đây thì kế toán viết phiếu bằng số trên đơn rồi bị chặn mà không
+                          hiểu vì sao. */}
+                      {row.received_total < row.total_estimate && (
+                        <small>Thực nhận {money(row.received_total)}</small>
+                      )}
                     </td>
                     <td>
                       <span
@@ -456,7 +515,6 @@ export function AccountingPurchaseInboxPage({
       {voucherMode && (
         <PaymentVoucherDialog
           purchase={voucherMode.purchase}
-          combined={voucherMode.combined}
           onClose={() => setVoucherMode(null)}
           onSaved={() => {
             setVoucherMode(null);

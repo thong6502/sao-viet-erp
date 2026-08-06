@@ -703,6 +703,9 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
           thắng mọi `padding` khai ở đây ⇒ bảng bị đệm 32px, thành khung-trong-khung.
           Báo giá làm đúng: chỉ `.q-card`, một khung bọc sát bảng. Xem UI_DESIGN §10. */}
       <div className="kh__tablewrap">
+        {/* Vùng cuộn ngang bọc RIÊNG bảng — pager nằm ngoài nên nút trang và Select
+            "số dòng" không trôi theo khi khung hẹp (xem khach-hang.css §RESPONSIVE). */}
+        <div className="kh__tablescroll">
         <table className="kh__table">
           <thead>
             <tr>
@@ -891,6 +894,7 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
             )}
           </tbody>
         </table>
+        </div>
 
         {!loading && !listError && rows.length > 0 && (
           <div className="kh__pager">

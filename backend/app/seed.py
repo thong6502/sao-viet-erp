@@ -50,7 +50,7 @@ MODULES: list[tuple[str, str]] = [
     # tính giá đọc thẳng repo, không qua ma trận quyền.
     ("dm_loai_san_pham", "Loại sản phẩm"),
     ("dm_giay_vat_tu", "Vật liệu & Giá"),
-    ("dm_thiet_bi", "Thiết bị & Máy in"),
+    ("dm_thiet_bi", "Thiết bị & Máy móc"),
     ("dm_cong_doan", "Công đoạn gia công"),
     ("nhan_su", "Nhân sự"),
     ("nghi_phep", "Nghỉ phép"),
@@ -470,6 +470,31 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_OWN),
             "kho": {**_read(SCOPE_OWN), "can_request": True},
+            # Scope `own` (chủ 04/08/2026: "tôi là nhân viên chỉ thấy đơn của tôi thôi"). Trước
+            # đây là `all` — nhân viên nhìn thấy phiếu của cả công ty. `can_cancel` giữ nguyên:
+            # service đã thu hẹp thành "chỉ huỷ được phiếu NHÁP do chính mình lập".
+            "thu_mua": {
+                **_rcu(SCOPE_OWN),
+                "can_cancel": True,
+                "can_approve": False,
+            },
+        },
+    ),
+    # TÁCH VAI (chủ 04/08/2026): bộ phận Mua hàng KHÔNG duyệt phiếu mua của chính mình — ai đề
+    # xuất chi tiền thì không được là người đồng ý chi. Duyệt là việc của giám đốc / người được
+    # trao quyền. Trước đây vai này có `can_approve: True` nên trưởng bộ phận tự duyệt được.
+    # DB đang chạy không tự nhận seed ⇒ có migration 0159 gỡ luôn cờ đó.
+    (
+        "Mua hàng",
+        "Trưởng bộ phận mua hàng",
+        {
+            "dashboard": _read(SCOPE_ALL),
+            "kho": {**_read(SCOPE_DEPARTMENT), "can_request": True},
+            # ⚠️ `_full` TỰ BẬT `can_approve` — phải ghi đè False chứ không phải chỉ bỏ dòng cấp
+            # thêm, nếu không quyền duyệt vẫn còn nguyên mà nhìn code lại tưởng đã gỡ.
+            # Scope `department`: trưởng bộ phận thấy phiếu của CẢ BỘ PHẬN mình, không chỉ của
+            # riêng mình — nhưng cũng không nhìn sang phiếu bộ phận khác.
+            "thu_mua": {**_full(SCOPE_DEPARTMENT), "can_approve": False},
         },
     ),
 ]
@@ -803,35 +828,35 @@ def seed_sales_history(db: Session) -> None:
         d = min(max(day, 1), 28)
         return datetime(y, m, d, 10, 0, 0, tzinfo=timezone.utc)
 
-    def _mk_order(customer, sale_id, months_ago, lines, status=STATUS_ORDERED, day=15,
-                  quote=None, qv=None, deposit_pct=30.0):
+    def _mk_order(customer, sale_id, months_ago, lines, quote, qv, status=STATUS_ORDERED, day=15,
+                  deposit_pct=30.0):
         """Đơn demo — CHỈ status draft/ordered/cancelled (không dùng dormant on_hold/change_order).
-        quote!=None → đơn TỪ BÁO GIÁ: ghim quotation + snapshot giá vốn (cost_basis=quote), đánh dấu
-        quote `converted_to_order`, và nếu đã chốt thì seed %cọc (đặt tại đơn) + 1 phiếu cọc đủ ngưỡng.
-        quote=None → đơn NHẬP TAY: không giá vốn → biên 'không xác định' (cost_basis=none)."""
+
+        LUÔN từ BÁO GIÁ: ghim quotation + snapshot giá vốn (cost_basis=quote), đánh dấu quote
+        `converted_to_order`, và nếu đã chốt thì seed %cọc + 1 phiếu cọc đủ ngưỡng. Nhánh
+        `quote=None` (đơn NHẬP TAY) đã bỏ cùng lúc gỡ đường tạo đơn tay khỏi hệ thống — seed
+        không được đẻ ra loại dữ liệu mà ứng dụng không còn tạo được."""
         created = _month_mid(months_ago, day)
-        from_quote = quote is not None
         o = Order(
             order_no=OrderRepository(db)._next_order_no(),
             customer_id=customer.id,
-            source_type="bao_gia" if from_quote else "nhap_tay",
+            source_type="bao_gia",
             order_kind="moi",
             sale_user_id=sale_id,
             status=status,
             has_customer_paper=False,
             vat_pct_estimate=8,
-            cost_basis="quote" if from_quote else "none",
-            deposit_pct=(deposit_pct if from_quote else None),
+            cost_basis="quote",
+            deposit_pct=deposit_pct,
             created_at=created,
         )
-        if from_quote:
-            o.quotation_id = quote.id
-            o.quotation_version = (qv.version_number if qv else 1)
-            o.quotation_effective_from = created.date()
-            quote.status = "converted_to_order"  # → báo giá tab "Đã lên đơn"
-            if status == STATUS_ORDERED:
-                o.ordered_at = created
-                o.ordered_by = sale_id
+        o.quotation_id = quote.id
+        o.quotation_version = (qv.version_number if qv else 1)
+        o.quotation_effective_from = created.date()
+        quote.status = "converted_to_order"  # → báo giá tab "Đã lên đơn"
+        if status == STATUS_ORDERED:
+            o.ordered_at = created
+            o.ordered_by = sale_id
         subtotal = 0
         for desc, qty, unit in lines:
             subtotal += qty * unit
@@ -840,16 +865,16 @@ def seed_sales_history(db: Session) -> None:
                     description=desc,
                     qty=qty,
                     unit_price_snapshot=unit,  # P0 snapshot: đơn kế thừa giá đã chốt
-                    cost_snapshot=(int(qty * unit * 0.8) if from_quote else None),
+                    cost_snapshot=int(qty * unit * 0.8),
                     line_total=qty * unit,
                     vat_pct_estimate=8,
                 )
             )
         db.add(o)
         db.flush()  # so the next _next_order_no() sees this row (unique DH###) + o.id cho phiếu thu
-        # V5: đơn báo giá đã chốt → seed 1 PHIẾU THU CỌC THẬT (PaymentReceipt nguồn đơn, received)
+        # V5: đơn đã chốt → seed 1 PHIẾU THU CỌC THẬT (PaymentReceipt nguồn đơn, received)
         # đủ ngưỡng — thay OrderDeposit cũ. Cổng đủ cọc đọc Σ phiếu thu received.
-        if from_quote and status == STATUS_ORDERED and deposit_pct:
+        if status == STATUS_ORDERED and deposit_pct:
             required = int(round(deposit_pct * subtotal * 1.08 / 100))
             db.add(PaymentReceipt(
                 code=f"PT-SEED-{o.id}",
@@ -981,13 +1006,17 @@ def seed_sales_history(db: Session) -> None:
         db.flush()
         return q, qv
 
-    def _mk_order_bg(customer, sale_id, months_ago, desc, qty, unit,
+    def _mk_order_bg(customer, sale_id, months_ago, lines,
                      status=STATUS_ORDERED, day=15, deposit_pct=30.0):
-        """Đơn TỪ BÁO GIÁ: tạo báo giá ĐÃ DUYỆT khớp SP rồi chốt thành đơn (ghim + snapshot)."""
-        q, qv = _mk_quote(customer, sale_id, months_ago, qty * unit, status=STATUS_ACCEPTED,
-                          product_name=desc, quantity=qty, day=max(day - 2, 1))
-        return _mk_order(customer, sale_id, months_ago, [(desc, qty, unit)],
-                         status=status, day=day, quote=q, qv=qv, deposit_pct=deposit_pct)
+        """Đơn TỪ BÁO GIÁ — đường DUY NHẤT sinh đơn: tạo báo giá ĐÃ DUYỆT rồi chốt thành đơn
+        (ghim + snapshot). `lines` = [(mô tả, SL, đơn giá)]; báo giá demo ghim DÒNG ĐẦU làm sản
+        phẩm đại diện + tổng tiền của cả đơn."""
+        total = sum(qty * unit for _, qty, unit in lines)
+        desc0, qty0, _unit0 = lines[0]
+        q, qv = _mk_quote(customer, sale_id, months_ago, total, status=STATUS_ACCEPTED,
+                          product_name=desc0, quantity=qty0, day=max(day - 2, 1))
+        return _mk_order(customer, sale_id, months_ago, lines, q, qv,
+                         status=status, day=day, deposit_pct=deposit_pct)
 
     sale1 = users.get_by_username("sale1")
     sale2 = users.get_by_username("sale2")
@@ -996,17 +1025,17 @@ def seed_sales_history(db: Session) -> None:
     # Sản phẩm in thật: catalogue / tờ rơi / name card / lịch. Spread mọi tháng để bar
     # chart 12T KHÔNG có lỗ, donut đủ 4 nhóm SP, heatmap rải nhiều thứ trong tuần.
     if an_phat is not None and sale1 is not None:
-        _mk_order_bg(an_phat, sale1.id, 11, "Catalogue A4 32 trang", 2000, 15_000, day=8)
-        _mk_order(an_phat, sale1.id, 10, [("Tờ rơi A5 4 màu", 10000, 1_200)], day=22)
-        _mk_order(an_phat, sale1.id, 9, [("Name card 4 màu", 5000, 900),
-                                         ("Tờ rơi A5 4 màu", 8000, 1_200)], day=5)
-        _mk_order_bg(an_phat, sale1.id, 7, "Catalogue A4 32 trang", 1500, 15_000, day=17)
-        _mk_order(an_phat, sale1.id, 6, [("Name card 4 màu", 3000, 900)], day=12)
-        _mk_order(an_phat, sale1.id, 4, [("Lịch tết 2026 (bộ 7 tờ)", 500, 45_000)], day=26)
-        _mk_order(an_phat, sale1.id, 3, [("Tờ rơi A5 4 màu", 12000, 1_200),
-                                         ("Name card 4 màu", 2000, 900)], day=9)
-        _mk_order_bg(an_phat, sale1.id, 1, "Catalogue A4 32 trang", 1000, 15_000, day=20)
-        _mk_order(an_phat, sale1.id, 0, [("Name card 4 màu", 4000, 900)], day=3)
+        _mk_order_bg(an_phat, sale1.id, 11, [("Catalogue A4 32 trang", 2000, 15_000)], day=8)
+        _mk_order_bg(an_phat, sale1.id, 10, [("Tờ rơi A5 4 màu", 10000, 1_200)], day=22)
+        _mk_order_bg(an_phat, sale1.id, 9, [("Name card 4 màu", 5000, 900),
+                                            ("Tờ rơi A5 4 màu", 8000, 1_200)], day=5)
+        _mk_order_bg(an_phat, sale1.id, 7, [("Catalogue A4 32 trang", 1500, 15_000)], day=17)
+        _mk_order_bg(an_phat, sale1.id, 6, [("Name card 4 màu", 3000, 900)], day=12)
+        _mk_order_bg(an_phat, sale1.id, 4, [("Lịch tết 2026 (bộ 7 tờ)", 500, 45_000)], day=26)
+        _mk_order_bg(an_phat, sale1.id, 3, [("Tờ rơi A5 4 màu", 12000, 1_200),
+                                            ("Name card 4 màu", 2000, 900)], day=9)
+        _mk_order_bg(an_phat, sale1.id, 1, [("Catalogue A4 32 trang", 1000, 15_000)], day=20)
+        _mk_order_bg(an_phat, sale1.id, 0, [("Name card 4 màu", 4000, 900)], day=3)
         # Báo giá: đủ trạng thái (duyệt / gửi / từ chối) cho lịch sử báo giá + win-rate.
         _mk_quote(an_phat, sale1.id, 11, 30_000_000, status=STATUS_ACCEPTED)
         _mk_quote(an_phat, sale1.id, 7, 22_500_000, status=STATUS_ACCEPTED)
@@ -1016,23 +1045,23 @@ def seed_sales_history(db: Session) -> None:
 
     # --- KH: Công ty CP Bao Bì Việt (sale2) — bao bì, đơn to thưa, có đơn hủy/nháp ---
     if bao_bi is not None and sale2 is not None:
-        _mk_order_bg(bao_bi, sale2.id, 10, "Hộp giấy cao cấp", 5000, 6_000, day=14)
-        _mk_order(bao_bi, sale2.id, 8, [("Túi giấy in offset", 20000, 3_500)], day=19)
-        _mk_order(bao_bi, sale2.id, 6, [("Tem nhãn decal", 50000, 500)],
-                  status=STATUS_CANCELLED, day=11)  # đã hủy → loại khỏi doanh số
-        _mk_order_bg(bao_bi, sale2.id, 5, "Hộp giấy cao cấp", 8000, 6_000, day=24)
-        _mk_order(bao_bi, sale2.id, 2, [("Túi giấy in offset", 15000, 3_500)], day=7)
-        _mk_order(bao_bi, sale2.id, 1, [("Hộp giấy cao cấp", 3000, 6_000)],
-                  status=STATUS_DRAFT, day=16)  # đang lập
+        _mk_order_bg(bao_bi, sale2.id, 10, [("Hộp giấy cao cấp", 5000, 6_000)], day=14)
+        _mk_order_bg(bao_bi, sale2.id, 8, [("Túi giấy in offset", 20000, 3_500)], day=19)
+        _mk_order_bg(bao_bi, sale2.id, 6, [("Tem nhãn decal", 50000, 500)],
+                     status=STATUS_CANCELLED, day=11)  # đã hủy → loại khỏi doanh số
+        _mk_order_bg(bao_bi, sale2.id, 5, [("Hộp giấy cao cấp", 8000, 6_000)], day=24)
+        _mk_order_bg(bao_bi, sale2.id, 2, [("Túi giấy in offset", 15000, 3_500)], day=7)
+        _mk_order_bg(bao_bi, sale2.id, 1, [("Hộp giấy cao cấp", 3000, 6_000)],
+                     status=STATUS_DRAFT, day=16)  # đang lập
         _mk_quote(bao_bi, sale2.id, 10, 30_000_000, status=STATUS_ACCEPTED)
         _mk_quote(bao_bi, sale2.id, 5, 48_000_000, status=STATUS_ACCEPTED)
         _mk_quote(bao_bi, sale2.id, 2, 52_500_000, status=STATUS_SENT)
 
     # --- KH: Nhà in Minh Khai (sale1) — khách vừa, vài đơn để không trống ------------
     if minh_khai is not None and sale1 is not None:
-        _mk_order(minh_khai, sale1.id, 9, [("Tờ rơi A5 4 màu", 5000, 1_200)], day=13)
-        _mk_order(minh_khai, sale1.id, 5, [("Name card 4 màu", 2000, 900)], day=21)
-        _mk_order_bg(minh_khai, sale1.id, 2, "Catalogue A4 32 trang", 800, 15_000, day=6)
+        _mk_order_bg(minh_khai, sale1.id, 9, [("Tờ rơi A5 4 màu", 5000, 1_200)], day=13)
+        _mk_order_bg(minh_khai, sale1.id, 5, [("Name card 4 màu", 2000, 900)], day=21)
+        _mk_order_bg(minh_khai, sale1.id, 2, [("Catalogue A4 32 trang", 800, 15_000)], day=6)
         _mk_quote(minh_khai, sale1.id, 5, 6_000_000, status=STATUS_ACCEPTED)
         _mk_quote(minh_khai, sale1.id, 2, 12_000_000, status=STATUS_SENT)
 
@@ -2202,6 +2231,10 @@ def seed_all(db: Session) -> None:
         # khách + sale + danh mục giấy/công đoạn + tổ SX + tài khoản kế hoạch ở trên.
         from .seed_luong_ban_sx import seed_luong_ban_sx
         seed_luong_ban_sx(db)
+    # Danh mục Nhóm máy — vận hành thật, KHÔNG gated demo (thiếu nó thì ô "Nhóm máy" trống trơn,
+    # không khai được máy nào). Chạy SAU khối demo để gom luôn nhóm của đám máy vừa seed.
+    from .seed_rebuild import seed_nhom_may
+    seed_nhom_may(db)
     backfill_user_codes(db)
     # Chạy NGOÀI khối demo: luật "mọi tài khoản phải có hồ sơ" áp cho mọi DB (dev/live),
     # và phải chạy SAU các seed tài khoản demo ở trên để dọn luôn đám vừa tạo.

@@ -83,8 +83,11 @@ function barTip(r: XepLichRow): string {
     `${r.lsx_ma ?? ""} · ${r.cong_doan_ten ?? ""}`,
     r.may_ten ?? r.department_ten ?? r.nha_cung_cap ?? "",
     `${ngayGio(r.start_at)} → ${ngayGio(r.finish_at)}`,
-    `Thiết lập ${thoiLuong(r.setup_phut)} + chạy ${thoiLuong(r.chay_phut)}${r.ve_sinh_phut > 0 ? ` + vệ sinh ${thoiLuong(r.ve_sinh_phut)}` : ""}`,
+    `Thiết lập ${thoiLuong(r.setup_phut)} + chạy ${thoiLuong(r.chay_phut)}`,
   ];
+  if ((r.chiem_may_phut_max || 0) - (r.chiem_may_phut_min || 0) > 0.5) {
+    lines.push(`Nhanh nhất ${thoiLuong(r.chiem_may_phut_min)} – chậm nhất ${thoiLuong(r.chiem_may_phut_max)}`);
+  }
   const lag = r.tong_phut - r.chiem_may_phut;
   if (lag > 0) lines.push(`Chờ / di chuyển ${thoiLuong(lag)} (không chiếm máy)`);
   if (r.theo_may) lines.push("Thời lượng tính theo tốc độ máy");
@@ -572,6 +575,17 @@ function GanttBar({
     const x1 = scale.xOf(fw + lag);
     if (x1 > x0 + 1) dry = { x: x0, w: x1 - x0 };
   }
+  // RÂU nhanh–chậm: thanh đặt theo thời lượng TRUNG BÌNH, râu nói "xong sớm nhất / muộn nhất"
+  // nếu máy chạy ở tốc độ tối đa / tối thiểu. Máy chưa khai dải ⇒ min = max = TB ⇒ không vẽ.
+  let rau: { x: number; w: number } | null = null;
+  const dMin = (r.chiem_may_phut_min || 0) - r.chiem_may_phut;
+  const dMax = (r.chiem_may_phut_max || 0) - r.chiem_may_phut;
+  if (r.finish_at && (dMin < -0.5 || dMax > 0.5)) {
+    const fw = wallMinutes(r.finish_at);
+    const x0 = scale.xOf(fw + Math.min(dMin, 0));
+    const x1 = scale.xOf(fw + Math.max(dMax, 0));
+    if (x1 > x0 + 1) rau = { x: x0, w: x1 - x0 };
+  }
   const flag = r.nhan_rui_ro === "da_tre" || r.nhan_rui_ro === "nguy_co_tre" ? "TRỄ" : r.is_rush ? "GẤP" : null;
   // Đoạn setup (đầu công đoạn) — chỉ vẽ trên thanh AN TOÀN (thanh rủi ro giữ FILL trạng thái).
   const setupFrac = !isRisky(r) && r.chiem_may_phut > 0 ? Math.min(r.setup_phut / r.chiem_may_phut, 0.85) : 0;
@@ -592,6 +606,14 @@ function GanttBar({
     <>
       {dry && (
         <span className="xlcd-gdry" style={{ left: dry.x, width: dry.w, top: top + BAR_H / 2 - 1 }} aria-hidden="true" />
+      )}
+      {rau && (
+        <span
+          className="xlcd-grau"
+          style={{ left: rau.x, width: rau.w, top: top + BAR_H / 2 - 4 }}
+          title={`Nhanh nhất ${thoiLuong(r.chiem_may_phut_min)} · chậm nhất ${thoiLuong(r.chiem_may_phut_max)}`}
+          aria-hidden="true"
+        />
       )}
       {pieces.map((p, i) => (
         <button
@@ -645,7 +667,9 @@ function GanttBar({
           <div className="xlcd-gtip-card__breakdown">
             <span>Thiết lập: {thoiLuong(r.setup_phut)}</span>
             <span>Chạy: {thoiLuong(r.chay_phut)}</span>
-            {r.ve_sinh_phut > 0 && <span>Vệ sinh: {thoiLuong(r.ve_sinh_phut)}</span>}
+            {(r.chiem_may_phut_max || 0) - (r.chiem_may_phut_min || 0) > 0.5 && (
+              <span>Nhanh–chậm: {thoiLuong(r.chiem_may_phut_min)} – {thoiLuong(r.chiem_may_phut_max)}</span>
+            )}
           </div>
           {(r.canh_bao_thoi_luong || r.ly_do_xac_nhan.length > 0) && (
             <div className="xlcd-gtip-card__warns">

@@ -32,6 +32,7 @@ from ..schemas.lsx import (
     LsxListItem,
     LsxListOut,
     LsxOut,
+    LsxQuyCachIn,
     LsxUpdateIn,
     PreviewOut,
     PhuThuocOption,
@@ -236,6 +237,29 @@ def update_item(
         raise _map(exc)
     hub.broadcast({"type": "lsx_changed", "order_id": lsx.order_id})
     return _out(svc, lsx)
+
+
+@router.post("/{lsx_id}/xem-truoc-quy-cach")
+def xem_truoc_quy_cach(
+    lsx_id: int,
+    payload: LsxQuyCachIn,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> dict:
+    """Sửa thông số này thì các số máy tự tính ra bao nhiêu? — KHÔNG ghi DB.
+
+    Có endpoint này để màn lệnh khỏi phải chép công thức engine sang JavaScript: hai bản công
+    thức là chỗ đẻ ra cảnh màn hiện một số còn DB lưu số khác. Cùng khuôn với khối "SỐ TỜ TỰ TÍNH
+    · ENGINE THẬT" bên phiếu tính giá.
+    """
+    svc = _svc(db)
+    try:
+        _guard_scope(db, svc.get(lsx_id), user, authz)
+        return svc.xem_truoc_quy_cach(
+            lsx_id=lsx_id, patch=payload.model_dump(exclude_unset=True))
+    except Exception as exc:
+        raise _map(exc)
 
 
 @router.put("/{lsx_id}/routing", response_model=LsxOut)

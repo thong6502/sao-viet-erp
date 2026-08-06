@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, aliased
 
 from ..models.don_vi_do import DonViDo, DonViQuyDoi
 
-_FIELDS = ("ten", "ho", "hieu_luc_tu", "ghi_chu", "active")
+_FIELDS = ("ten", "ho", "hieu_luc_tu", "ghi_chu", "active", "dung_lam_toc_do")
 _CAP_FIELDS = ("tu_id", "den_id", "he_so", "cong_thuc", "ghi_chu")
 
 

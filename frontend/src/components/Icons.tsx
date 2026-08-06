@@ -319,6 +319,14 @@ const ICONS = {
       <path d="M13.5 10.5a4 4 0 0 0-5.7 0l-2.6 2.6a4 4 0 0 0 5.66 5.66l1.3-1.3" />
     </>
   ),
+  // Mắt xích ĐỨT — tách lượt chạy chung, mỗi lệnh lấy lại bước của chính nó.
+  unlink: (
+    <>
+      <path d="M14.4 9.6a4 4 0 0 1 0 5.66l-2.1 2.1a4 4 0 0 1-5.66-5.66l1-1" />
+      <path d="M9.6 14.4a4 4 0 0 1 0-5.66l2.1-2.1a4 4 0 0 1 5.66 5.66l-1 1" />
+      <path d="M3.5 3.5 6 6M20.5 20.5 18 18" />
+    </>
+  ),
   // Mũi tên vòng ngược — dựng lại / xếp lại từ đầu.
   rotateCcw: (
     <>

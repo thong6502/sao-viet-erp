@@ -60,7 +60,7 @@ def test_de_khoa_may_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, custom
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
     step.setup_phut, step.nang_suat, step.so_luong_vao = 0, 5000, 5000
-    step.chay_phut, step.ve_sinh_phut, step.so_luot_chay = None, 0, 1  # theo máy 30+60+15 = 105'
+    step.chay_phut, step.ve_sinh_phut, step.so_luot_chay = None, 0, 1  # theo máy 30+60 = 90'
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dong = XepLichRepository(db).by_lsx(lsx.id)[0]
@@ -100,6 +100,26 @@ def test_sai_tien_nhiem_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, cus
     assert all(it["severity"] == "chan" for it in sai)
 
 
+def _gop_in_va_san_sang(db, bg_svc, bg, admin):
+    """Gộp bước in + lập kế hoạch lượt chung → bài đủ điều kiện sẵn sàng.
+
+    Bài ghép không tự gộp bước nào; chưa gộp thì đó là N lệnh rời và gate `san_sang` chặn.
+    """
+    from app.models.department import Department
+
+    tvs = bg_svc._get(bg.id).thanh_viens
+    bg_svc.gop(bai_ghep_id=bg.id, actor=admin,
+               step_keys=[_in_step(db, tv.lsx_id).step_key for tv in tvs])
+    mau = _in_step(db, tvs[0].lsx_id)
+    to_id = mau.department_id or db.query(Department.id).scalar()
+    for c in bg_svc._buoc_chungs(bg_svc._get(bg.id)):
+        bg_svc.lap_ke_hoach_buoc_chung(
+            bai_ghep_id=bg.id, gang_step_key=c.step_key, actor=admin,
+            patch={"department_id": to_id, "may_id": mau.may_id},
+        )
+    return bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai="san_sang", actor=admin)
+
+
 # --- Xả tờ là bước Máy bình thường, không còn detector theo tên ---------------
 def test_khong_con_detector_gang_thieu_xa_to(db, orders, lsx_svc, bg_svc, xl_svc, vd_svc, admin, customer, monkeypatch):
     _luon_lam(monkeypatch)
@@ -112,7 +132,7 @@ def test_khong_con_detector_gang_thieu_xa_to(db, orders, lsx_svc, bg_svc, xl_svc
                        don_vi_nang_suat="to_gio"))
     db.commit()
     bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
-    bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai="san_sang", actor=admin)
+    bg = _gop_in_va_san_sang(db, bg_svc, bg, admin)
     xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)
     gang = _cats(vd_svc.liet_ke(), "gang_thieu_xa_to")
     assert gang == []
@@ -198,9 +218,11 @@ def test_qua_tai_may_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, custom
     monkeypatch.setattr("app.services.xep_lich_van_de_service._utcnow", lambda: fixed)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    # chay_phut gõ đè 4000' (~66h) chiếm máy > 7×480' = 3360' khả dụng (nền fallback 8h/ngày) → >100% Cao.
-    step.setup_phut, step.ve_sinh_phut, step.so_luot_chay = 0, 0, 1
-    step.chay_phut, step.nang_suat, step.so_luong_vao = 4000, None, 5000
+    # Ô "Thời gian khác" 4000' (~66h) chiếm máy > 7×480' = 3360' khả dụng (nền fallback
+    # 8h/ngày) → >100% Cao. Dùng ô này vì `chay_phut` gõ đè đã bỏ (2026-08-04): thời gian
+    # chạy nay luôn suy từ tốc độ máy, không ghim cứng được nữa.
+    step.so_luot_chay, step.so_luong_vao = 1, 5000
+    step.phat_sinh_phut = 4000
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dong = XepLichRepository(db).by_lsx(lsx.id)[0]
@@ -223,7 +245,7 @@ def test_han_som_bai_ghep_detector(db, orders, lsx_svc, bg_svc, xl_svc, vd_svc, 
     b.han_hoan_thanh_sx = date(2026, 8, 30)   # xa → không bị bắt
     db.commit()
     bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
-    bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai="san_sang", actor=admin)
+    bg = _gop_in_va_san_sang(db, bg_svc, bg, admin)
     xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)
     in_dong = XepLichRepository(db).by_bai_ghep(bg.id)[0]
     xl_svc.gan(dong_id=in_dong.id, patch={"may_id": _in_step(db, a.id).may_id,

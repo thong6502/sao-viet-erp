@@ -23,6 +23,30 @@ def _f(v) -> float:
         return 0.0
 
 
+def dau_muc_can(quy_cach: dict | None) -> float:
+    """Số ĐẦU MỰC máy phải có để chạy được một lượt — đếm theo TẬP MỰC, không theo số màu process.
+
+    `so_mau_a/b` chỉ đếm CMYK nên job "CMYK + 1 Pantone" ra 4, máy 4 đơn vị lọt cửa trong khi thợ
+    ra máy mới biết thiếu một đầu mực. Đếm tập là hết đoán.
+
+    Rẽ nhánh theo quy cách in, ĐÚNG cái hợp tập của công thức kẽm:
+      · AB / 1 mặt        → `max(|A|, |B|)` — mỗi lượt chạy MỘT mặt, gá được từng mặt một.
+      · Tự trở / trở nhíp → `|A ∪ B|` — một lượt chạy CẢ HAI mặt trên chung bản, nên mọi mực của
+        hai mặt phải lên máy cùng lúc.
+
+    Lệnh cũ chưa có tập mực trong `quy_cach_json` → rơi về `max(so_mau_a, so_mau_b)` như trước,
+    không đẻ cảnh báo giả.
+    """
+    qc = quy_cach or {}
+    a = [m for m in (qc.get("muc_a") or []) if str(m or "").strip()]
+    b = [m for m in (qc.get("muc_b") or []) if str(m or "").strip()]
+    if not a and not b:
+        return max(_f(qc.get("so_mau_a")), _f(qc.get("so_mau_b")))
+    if qc.get("quy_cach_in") in ("tu_tro", "tro_nhip"):
+        return float(len({str(m).strip().upper() for m in a + b}))
+    return float(max(len(a), len(b)))
+
+
 def kho_khong_lot(dai: float, rong: float, max_dai: float, max_rong: float) -> bool:
     """Khổ (dai×rong) KHÔNG lọt máy dù xoay 90°. Thiếu số (≤0) → coi như lọt (bỏ tiêu chí)."""
     if dai <= 0 or rong <= 0 or max_dai <= 0 or max_rong <= 0:
@@ -42,7 +66,7 @@ def kiem_kha_nang(quy_cach: dict | None, may) -> list[str]:
                      _f(may.kho_max_dai), _f(may.kho_max_rong)):
         ly_do.append(LY_DO_KHO)
     so_units = _f(may.so_units)
-    so_mau = max(_f(qc.get("so_mau_a")), _f(qc.get("so_mau_b")))
+    so_mau = dau_muc_can(qc)
     if so_units > 0 and so_mau > so_units:
         ly_do.append(LY_DO_SO_MAU)
     gsm = _f(qc.get("gsm"))

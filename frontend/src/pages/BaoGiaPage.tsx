@@ -845,7 +845,7 @@ function QuotationDetailView({
     setBusy(true);
     setErr(null);
     try {
-      const order = await api.orders.create(token, { source_type: "bao_gia", quotation_id: d.id });
+      const order = await api.orders.create(token, { quotation_id: d.id });
       navigate?.("don-hang-ban", { openOrderId: order.id });
     } catch (e) {
       // BE trả 409 khi báo giá đã có đơn (message rõ) → hiện nguyên văn.

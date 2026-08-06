@@ -7,7 +7,13 @@ progress.md ĐÃ CŨ (dừng ở RBAC) — ĐỪNG tin nó để biết trạng 
 
 - Backend phân tầng `routers → services → repositories → DB`. Logic nghiệp vụ nằm ở services;
   router chỉ điều phối; truy vấn DB chỉ trong repositories. Engine tính giá ở services.
-- DB: SQLite `backend/dev.db` (dev) / PostgreSQL 16 (prod) — CHUNG một tầng SQLAlchemy.
+- DB — CHUNG một tầng SQLAlchemy, nhưng BA nơi khác nhau, đừng nhầm:
+  - **dev**: PostgreSQL local `127.0.0.1:5433/svn_erp_local` (xem `backend/.env`). Dòng
+    `sqlite:///./dev.db` vẫn còn nhưng ĐANG BỊ COMMENT — `backend/dev.db` không phải DB đang chạy.
+  - **prod**: PostgreSQL 16 trên VPS.
+  - **test**: `sqlite:///:memory:`, ép ở `backend/tests/conftest.py` TRƯỚC mọi import `app.*`.
+    Fixture `db` chạy `drop_all` + `create_all` mỗi test — nhờ dòng ép đó nó không đụng DB thật.
+  - `SEED_DEMO=true` trong `.env` ⇒ mỗi lần uvicorn khởi động là seeder ghi dữ liệu demo vào DB dev.
 
 ## Xác minh — LỆNH DUY NHẤT
 
@@ -17,7 +23,9 @@ progress.md ĐÃ CŨ (dừng ở RBAC) — ĐỪNG tin nó để biết trạng 
 ## Bẫy kỹ thuật — sai là vỡ DB thật (BẮT BUỘC nhớ)
 
 - KHÔNG có Alembic. `create_all` chỉ TẠO bảng, KHÔNG ALTER. Thêm/đổi cột phải viết vào
-  `backend/app/db_migrations.py` thì DB live/prod mới nhận; dev thì drop `backend/dev.db` để tạo lại.
+  `backend/app/db_migrations.py` thì DB live/prod mới nhận. **Dev cũng là Postgres** (không phải
+  file SQLite xoá là xong) nên migration là đường DUY NHẤT — muốn làm lại từ đầu thì phải
+  drop/create database `svn_erp_local`, và mất hết dữ liệu demo đang có.
 - Cột Boolean: server_default phải là `false`/`true` (Python bool), KHÔNG phải `"0"`/`"1"` —
   chuỗi "0"/"1" chạy SQLite nhưng VỠ khi Postgres create_all trên DB trắng.
 - `docs/DB_SCHEMA.md` có guard test: mọi bảng/cột trong model phải được ghi vào đó, nếu không
