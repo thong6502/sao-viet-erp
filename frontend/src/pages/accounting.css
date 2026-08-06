@@ -1,7 +1,7 @@
 .acct-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* justify-content: space-between; */
   gap: var(--sp-3);
   margin-bottom: var(--sp-4);
 }
@@ -13,7 +13,7 @@
 
 .acct-toolbar__select,
 .acct-toolbar__filters .input {
-  width: 220px;
+  width: 220px !important;
 }
 
 .acct-list {
@@ -43,7 +43,7 @@
    xuống dòng phụ — KHÔNG dùng flex trên <td> (phá hàng của bảng). */
 .acct-list th.acct-amount-cell,
 .acct-list td.acct-amount-cell {
-    font-family: var(--ff-num);
+    /* font-family: var(--ff-num); */
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;

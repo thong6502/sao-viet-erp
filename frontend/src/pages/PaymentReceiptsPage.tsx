@@ -75,9 +75,11 @@ function printReceipt(row: PaymentReceiptRow): boolean {
 
 export function PaymentReceiptsPage({
   navigate,
+  eventTick = 0,
   focusQuery = null,
 }: {
   navigate: NavigateFn;
+  eventTick?: number;
   /** Liên thông từ trang Phiếu chi: lọc theo mã PC/UNC khi mở trang. */
   focusQuery?: string | null;
 }) {
@@ -142,6 +144,11 @@ export function PaymentReceiptsPage({
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (eventTick <= 0) return;
+    load();
+  }, [eventTick, load]);
 
   useEffect(() => {
     if (!focusQuery) return;

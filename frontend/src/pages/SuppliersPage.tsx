@@ -147,12 +147,18 @@ function getPOStatusLabel(status: string): {
       return { label: "Từ chối", className: "purchase__status--rejected" };
     case "cancelled":
       return { label: "Đã hủy", className: "purchase__status--cancelled" };
+    case "pending_approval":
+      return { label: "Chờ phê duyệt", className: "purchase__status--pending" };
     default:
       return { label: status, className: "purchase__status--draft" };
   }
 }
 
-export function SuppliersPage() {
+export function SuppliersPage({
+  eventTick = 0,
+}: {
+  eventTick?: number;
+}) {
   const { token } = useAuth();
   const can = useCan();
   const canCreate = can("thu_mua", "create");
@@ -255,6 +261,24 @@ export function SuppliersPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (eventTick <= 0 || !token) return;
+    loadAll();
+    load();
+    let alive = true;
+    api.suppliers
+      .itemCatalog(token)
+      .then((res) => {
+        if (alive) setItemCatalog(res.items);
+      })
+      .catch(() => {
+        if (alive) setItemCatalog([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [eventTick, token, loadAll, load]);
 
   // Dynamic Supplier Group Pills — chỉ lấy từ data thực, KHÔNG hardcode
   const groupPills = useMemo(() => {
@@ -502,9 +526,9 @@ export function SuppliersPage() {
               setPage(1);
             }}
           />
-          <Button type="submit" variant="ghost">
+          {/* <Button type="submit" variant="ghost">
             Tìm
-          </Button>
+          </Button> */}
         </form>
 
         <select

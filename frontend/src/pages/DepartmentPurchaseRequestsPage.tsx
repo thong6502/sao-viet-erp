@@ -83,10 +83,12 @@ function todayInputValue(): string {
 }
 
 export function DepartmentPurchaseRequestsPage({
+  eventTick = 0,
   focusRequestCode = null,
   seedLines = null,
   seedPurpose = null,
 }: {
+  eventTick?: number;
   /** Liên thông từ PMH/Phiếu chi: lọc + tô sáng đúng mã YCMH này khi mở trang. */
   focusRequestCode?: string | null;
   /** Liên thông từ Kho: mở form tạo, điền sẵn dòng vật tư (Tên + ĐVT) — bỏ trống SL/ghi chú. */
@@ -156,6 +158,23 @@ export function DepartmentPurchaseRequestsPage({
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (eventTick <= 0 || !token) return;
+    load();
+    let alive = true;
+    api.suppliers
+      .itemCatalog(token)
+      .then((res) => {
+        if (alive) setItemCatalog(res.items);
+      })
+      .catch(() => {
+        if (alive) setItemCatalog([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [eventTick, load, token]);
 
   useEffect(() => {
     if (!token) return;
@@ -423,9 +442,9 @@ export function DepartmentPurchaseRequestsPage({
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
-          <Button type="submit" variant="ghost">
+          {/* <Button type="submit" variant="ghost">
             Tìm
-          </Button>
+          </Button> */}
         </form>
         <select
           className="input purchase__select"
@@ -608,7 +627,7 @@ export function DepartmentPurchaseRequestsPage({
               <tr>
                 <th>Vật tư</th>
                 <th className="pay-num">Yêu cầu</th>
-                <th>Nhà cung cấp</th>
+                {/* <th>Nhà cung cấp</th> */}
                 <th>Tình trạng</th>
               </tr>
             </thead>
@@ -627,7 +646,7 @@ export function DepartmentPurchaseRequestsPage({
                   <td className="pay-num">
                     {line.quantity.toLocaleString("vi-VN")} {line.unit}
                   </td>
-                  <td>{line.fulfilment?.supplier_name ?? "—"}</td>
+                  {/* <td>{line.fulfilment?.supplier_name ?? "—"}</td> */}
                   <td>
                     <LineFulfilmentCell
                       line={line}

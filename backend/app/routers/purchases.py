@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from ..deps import CurrentUser, get_purchase_service, require_any_permission, require_permission
 from ..models.user import User
+from ..realtime import hub
 from ..schemas.purchase import (
     DepartmentPurchaseRequestIn,
     DepartmentPurchaseRequestListOut,
@@ -44,6 +45,11 @@ MODULE = "thu_mua"
 DEPARTMENT_REQUEST_READERS = tuple(
     (module, "read") for module in DEPARTMENT_REQUEST_READER_MODULES
 )
+
+
+def _notify_purchase_changed(code: str | None = None) -> None:
+    """Tín hiệu nhẹ cho các màn Thu mua/Kế toán tự refetch qua SSE."""
+    hub.broadcast({"type": "purchase_changed", "code": code})
 
 
 def _map_error(exc: Exception) -> HTTPException:
@@ -106,11 +112,11 @@ def create_department_purchase_request(
     user: CurrentUser,
 ) -> DepartmentPurchaseRequestOut:
     try:
-        return DepartmentPurchaseRequestOut(
-            **svc.create_department_request(actor=user, **payload.model_dump())
-        )
+        row = svc.create_department_request(actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return DepartmentPurchaseRequestOut(**row)
 
 
 @router.put("/api/department-purchase-requests/{request_id}", response_model=DepartmentPurchaseRequestOut)
@@ -121,11 +127,11 @@ def update_department_purchase_request(
     user: CurrentUser,
 ) -> DepartmentPurchaseRequestOut:
     try:
-        return DepartmentPurchaseRequestOut(
-            **svc.update_department_request(request_id, actor=user, **payload.model_dump())
-        )
+        row = svc.update_department_request(request_id, actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return DepartmentPurchaseRequestOut(**row)
 
 
 @router.post("/api/department-purchase-requests/{request_id}/cancel", response_model=DepartmentPurchaseRequestOut)
@@ -136,11 +142,11 @@ def cancel_department_purchase_request(
     user: CurrentUser,
 ) -> DepartmentPurchaseRequestOut:
     try:
-        return DepartmentPurchaseRequestOut(
-            **svc.cancel_department_request(request_id, reason=payload.reason, actor=user)
-        )
+        row = svc.cancel_department_request(request_id, reason=payload.reason, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return DepartmentPurchaseRequestOut(**row)
 
 
 @router.get("/api/suppliers", response_model=SupplierListOut)
@@ -183,9 +189,11 @@ def create_supplier(
     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
 ) -> SupplierRow:
     try:
-        return SupplierRow.model_validate(svc.create_supplier(actor=user, **payload.model_dump()))
+        row = svc.create_supplier(actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed()
+    return SupplierRow.model_validate(row)
 
 
 @router.put("/api/suppliers/{supplier_id}", response_model=SupplierRow)
@@ -196,11 +204,11 @@ def update_supplier(
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> SupplierRow:
     try:
-        return SupplierRow.model_validate(
-            svc.update_supplier(supplier_id, actor=user, **payload.model_dump())
-        )
+        row = svc.update_supplier(supplier_id, actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed()
+    return SupplierRow.model_validate(row)
 
 
 @router.patch("/api/suppliers/{supplier_id}/toggle-active", response_model=SupplierRow)
@@ -210,9 +218,11 @@ def toggle_supplier(
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> SupplierRow:
     try:
-        return SupplierRow.model_validate(svc.toggle_supplier_active(supplier_id, actor=user))
+        row = svc.toggle_supplier_active(supplier_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed()
+    return SupplierRow.model_validate(row)
 
 
 @router.get("/api/purchase-requests", response_model=PurchaseRequestListOut)
@@ -259,9 +269,11 @@ def create_purchase_request(
     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
 ) -> PurchaseRequestOut:
     try:
-        return PurchaseRequestOut(**svc.create_request(actor=user, **payload.model_dump()))
+        row = svc.create_request(actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
 
 
 @router.post("/api/purchase-requests/batch", response_model=PurchaseRequestListOut,
@@ -279,6 +291,7 @@ def create_purchase_requests_batch(
         rows = svc.create_requests_batch(actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed()
     return PurchaseRequestListOut(items=[PurchaseRequestOut(**row) for row in rows],
                                   total=len(rows), page=1, size=len(rows) or 1)
 
@@ -291,11 +304,11 @@ def update_purchase_request(
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> PurchaseRequestOut:
     try:
-        return PurchaseRequestOut(
-            **svc.update_request(request_id, actor=user, **payload.model_dump())
-        )
+        row = svc.update_request(request_id, actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
 
 
 @router.delete("/api/purchase-requests/{request_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
@@ -308,6 +321,7 @@ def delete_purchase_request(
         svc.delete_request(request_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -318,9 +332,11 @@ def submit_purchase_request(
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> PurchaseRequestOut:
     try:
-        return PurchaseRequestOut(**svc.submit(request_id, actor=user))
+        row = svc.submit(request_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
 
 
 @router.post("/api/purchase-requests/{request_id}/approve", response_model=PurchaseRequestOut)
@@ -330,9 +346,11 @@ def approve_purchase_request(
     user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
 ) -> PurchaseRequestOut:
     try:
-        return PurchaseRequestOut(**svc.approve(request_id, actor=user))
+        row = svc.approve(request_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
 
 
 @router.post("/api/purchase-requests/{request_id}/reject", response_model=PurchaseRequestOut)
@@ -343,9 +361,11 @@ def reject_purchase_request(
     user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
 ) -> PurchaseRequestOut:
     try:
-        return PurchaseRequestOut(**svc.reject(request_id, reason=payload.reason, actor=user))
+        row = svc.reject(request_id, reason=payload.reason, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
 
 
 @router.post("/api/purchase-requests/{request_id}/mark-purchased", response_model=PurchaseRequestOut)
@@ -355,9 +375,11 @@ def mark_purchase_request_purchased(
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> PurchaseRequestOut:
     try:
-        return PurchaseRequestOut(**svc.mark_purchased(request_id, actor=user))
+        row = svc.mark_purchased(request_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
 
 
 @router.post("/api/purchase-requests/{request_id}/mark-received", response_model=PurchaseRequestOut)
@@ -370,9 +392,11 @@ def mark_purchase_request_received(
     # Body TUỲ CHỌN: gọi không kèm gì = nhận đủ như đặt, y hệt trước 05/08/2026.
     lines = [item.model_dump() for item in payload.lines] if payload is not None else None
     try:
-        return PurchaseRequestOut(**svc.mark_received(request_id, received_lines=lines, actor=user))
+        row = svc.mark_received(request_id, received_lines=lines, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
 
 
 @router.put(
@@ -386,13 +410,13 @@ def update_purchase_request_received_quantities(
 ) -> PurchaseRequestOut:
     # Cổng `update` để vào module; service thu về `thu_mua:approve` vì sửa số này là ĐỔI SỐ NỢ.
     try:
-        return PurchaseRequestOut(
-            **svc.update_received_quantities(
-                request_id, received_lines=[i.model_dump() for i in payload.lines], actor=user
-            )
+        row = svc.update_received_quantities(
+            request_id, received_lines=[i.model_dump() for i in payload.lines], actor=user
         )
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
 
 
 @router.post("/api/purchase-requests/{request_id}/undo-received", response_model=PurchaseRequestOut)
@@ -405,9 +429,11 @@ def undo_purchase_request_received(
     # Cổng ở đây chỉ là `update` (vào được module); service mới thu về `thu_mua:approve` — cùng lối
     # đã dùng cho `cancel`, để người thiếu quyền nhận đúng câu báo thay vì 403 trống.
     try:
-        return PurchaseRequestOut(**svc.undo_received(request_id, reason=payload.reason, actor=user))
+        row = svc.undo_received(request_id, reason=payload.reason, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
 
 
 @router.post("/api/purchase-requests/{request_id}/cancel", response_model=PurchaseRequestOut)
@@ -418,6 +444,8 @@ def cancel_purchase_request(
     user: Annotated[User, Depends(require_permission(MODULE, "cancel"))],
 ) -> PurchaseRequestOut:
     try:
-        return PurchaseRequestOut(**svc.cancel(request_id, reason=payload.reason, actor=user))
+        row = svc.cancel(request_id, reason=payload.reason, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)

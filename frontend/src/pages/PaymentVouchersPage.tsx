@@ -84,9 +84,11 @@ function printVoucher(row: PaymentVoucherRow): boolean {
 
 export function PaymentVouchersPage({
   navigate,
+  eventTick = 0,
   focusQuery = null,
 }: {
   navigate: NavigateFn;
+  eventTick?: number;
   /** Liên thông từ trang Phiếu thu: điền sẵn ô tìm kiếm (mã PC/UNC). */
   focusQuery?: string | null;
 }) {
@@ -159,6 +161,11 @@ export function PaymentVouchersPage({
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (eventTick <= 0) return;
+    load();
+  }, [eventTick, load]);
 
   // Liên thông từ trang Phiếu thu: điền mã vào ô tìm → load() tự chạy lại.
   useEffect(() => {
@@ -269,34 +276,34 @@ export function PaymentVouchersPage({
     }
   }
 
-  async function openTopUp(row: PaymentVoucherRow) {
-    if (!token) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const purchase = await api.purchaseRequests.get(
-        token,
-        row.purchase_request_id,
-      );
-      if (!["approved", "purchased", "received"].includes(purchase.status)) {
-        setError(
-          `PMH ${purchase.code} không còn ở trạng thái được lập chứng từ.`,
-        );
-        return;
-      }
-      if (purchase.available_amount <= 0) {
-        setError(`PMH ${purchase.code} đã được lập đủ chứng từ thanh toán.`);
-        return;
-      }
-      setEditState({ voucher: null, purchase });
-    } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Không tải được PMH nguồn.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
+  // async function openTopUp(row: PaymentVoucherRow) {
+  //   if (!token) return;
+  //   setBusy(true);
+  //   setError(null);
+  //   try {
+  //     const purchase = await api.purchaseRequests.get(
+  //       token,
+  //       row.purchase_request_id,
+  //     );
+  //     if (!["approved", "purchased", "received"].includes(purchase.status)) {
+  //       setError(
+  //         `PMH ${purchase.code} không còn ở trạng thái được lập chứng từ.`,
+  //       );
+  //       return;
+  //     }
+  //     if (purchase.available_amount <= 0) {
+  //       setError(`PMH ${purchase.code} đã được lập đủ chứng từ thanh toán.`);
+  //       return;
+  //     }
+  //     setEditState({ voucher: null, purchase });
+  //   } catch (err) {
+  //     setError(
+  //       err instanceof ApiError ? err.message : "Không tải được PMH nguồn.",
+  //     );
+  //   } finally {
+  //     setBusy(false);
+  //   }
+  // }
 
   async function confirmPaid() {
     if (!token || !marking) return;
@@ -372,7 +379,7 @@ export function PaymentVouchersPage({
             Sửa
           </Button>
         )}
-        {canApprove && row.status === "paid" && (
+        {/* {canApprove && row.status === "paid" && (
           <Button
             variant="ghost"
             onClick={() => closeDetailThen(() => openTopUp(row))}
@@ -392,7 +399,7 @@ export function PaymentVouchersPage({
             >
               Lập phiếu thu
             </Button>
-          )}
+          )} */}
         {canMarkPaid && row.status === "waiting_payment" && (
           <Button
             variant="accent"
@@ -455,9 +462,9 @@ export function PaymentVouchersPage({
               UNC_ENABLED ? "Tìm PC, UNC, PMH, YCMH..." : "Tìm PC, PMH, YCMH..."
             }
           />
-          <Button type="submit" variant="ghost">
+          {/* <Button type="submit" variant="ghost">
             Tìm
-          </Button>
+          </Button> */}
         </form>
         <div className="acct-toolbar__filters">
           {/* Tạm ẩn UNC: chỉ còn một loại thì "Tất cả loại" và "Phiếu chi" ra cùng
