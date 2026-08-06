@@ -1316,6 +1316,7 @@ export interface PermissionRow {
   can_toggle_active: boolean;
   can_reparent: boolean;
   can_view_salary: boolean;
+  can_edit_salary: boolean;
   can_adjust: boolean;
   can_approve_exception: boolean;
   can_set_credit_terms: boolean;

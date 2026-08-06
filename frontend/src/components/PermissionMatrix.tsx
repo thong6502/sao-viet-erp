@@ -43,6 +43,7 @@ export type ActionKey =
   | "can_toggle_active"
   | "can_reparent"
   | "can_view_salary"
+  | "can_edit_salary"
   | "can_adjust"
   | "can_approve_exception"
   | "can_set_credit_terms"
@@ -181,6 +182,11 @@ const FINE_ACTIONS: Record<
   dm_cong_doan: [{ key: "can_manage_price", label: "Cập nhật đơn giá" }],
   nhan_su: [
     { key: "can_view_salary", label: "Xem lương & BHXH (dữ liệu nhạy cảm)" },
+    {
+      key: "can_edit_salary",
+      label: "Sửa lương & BHXH",
+      hint: "Cho nhập/sửa các trường lương, bảo hiểm, thuế trên hồ sơ nhân sự và lúc tạo hồ sơ mới. Quyền này luôn phải đi cùng quyền xem lương.",
+    },
     { key: "can_manage_status", label: "Thao tác vòng đời (chính thức/nghỉ/đình chỉ)" },
     { key: "can_transfer", label: "Điều chuyển & nâng bậc" },
     { key: "can_approve", label: "Duyệt yêu cầu cập nhật" },
@@ -211,8 +217,24 @@ const FINE_ACTIONS: Record<
     { key: "can_lock", label: "Chốt kỳ lương" },
     { key: "can_export", label: "Xuất bảng lương / file chuyển khoản" },
   ],
+  thu_mua: [
+    {
+      key: "can_approve",
+      label: "Duyệt / từ chối PMH",
+      hint: "Duyệt hoặc từ chối phiếu mua hàng đã được Thu mua gửi lên. Đây là quyền quyết định phiếu có được đi tiếp sang kế toán hay không.",
+    },
+    {
+      key: "can_cancel",
+      label: "Hủy PMH",
+      hint: "Hủy phiếu mua hàng đã lập khi cần dừng hẳn nhu cầu mua.",
+    },
+  ],
   ke_toan: [
-    { key: "can_approve", label: "Duyệt PMH & lập Phiếu chi/UNC" },
+    {
+      key: "can_approve",
+      label: "Lập / sửa Phiếu chi-UNC / Phiếu thu",
+      hint: "Tạo, sửa và đính kèm chứng từ chi tiền hoặc thu tiền. Không phải quyền duyệt PMH.",
+    },
     { key: "can_manage_status", label: "Xác nhận đã chi" },
     { key: "can_cancel", label: "Hủy chứng từ chờ chi" },
     { key: "can_export", label: "In / xuất chứng từ" },
@@ -224,7 +246,7 @@ const FINE_ACTIONS: Record<
 // không hiện ⓘ — thà thiếu còn hơn mô tả sai.
 const MODULE_HINTS: Record<string, string> = {
   nhan_su:
-    "Xem: mở Hồ sơ nhân sự + Chấm công (danh sách NV, bảng công tháng). Chỉnh sửa: thêm/sửa/xóa hồ sơ nhân viên. Lương & BHXH của NV bị che riêng — muốn thấy phải bật quyền chi tiết “Xem lương & BHXH”.",
+    "Xem: mở Hồ sơ nhân sự + Chấm công (danh sách NV, bảng công tháng). Chỉnh sửa: thêm/sửa/xóa hồ sơ nhân viên. Lương & BHXH của NV là dữ liệu nhạy cảm nên tách riêng thành quyền xem và quyền sửa.",
   nghi_phep:
     "Xem: thấy đơn nghỉ trong phạm vi được cấp. Chỉnh sửa: quản danh mục loại nghỉ. Nhân viên tự gửi và tự hủy đơn của mình thì KHÔNG cần cấp gì thêm.",
   tang_ca:
@@ -233,6 +255,8 @@ const MODULE_HINTS: Record<string, string> = {
     "Xem: thấy danh sách phiếu đi muộn / về sớm / nghỉ nửa buổi trong phạm vi (tab nằm trong màn Chấm công). Nhân viên tự xin / tự hủy phiếu của CHÍNH MÌNH thì KHÔNG cần cấp quyền nào — tab luôn hiện. Muốn DUYỆT phiếu người khác (và khai hộ thợ) thì bật quyền chi tiết “Duyệt phiếu đi muộn / về sớm”.",
   luong:
     "Xem: mở màn Lương (bảng lương tháng, tạm ứng). Chỉnh sửa: tính lại lương, sửa dòng lương, khai cấu hình. Cấu hình lương + duyệt tạm ứng + chốt kỳ + xuất file nằm ở quyền chi tiết. Nhân viên xem “Phiếu lương của tôi” thì không cần quyền này.",
+  thu_mua:
+    "Xem: xem danh sách YCMH và PMH trong phạm vi được cấp. Chỉnh sửa: lập/sửa/gửi duyệt PMH, đánh dấu đã mua/đã nhận. Duyệt-từ chối PMH và hủy PMH nằm ở quyền chi tiết.",
   khach_hang:
     "Xem: danh bạ khách + lịch sử giao dịch. Chỉnh sửa: thêm/sửa/xóa khách. Điều chuyển sang sale khác, xuất file, xem công nợ, đặt chính sách tài chính nằm ở quyền chi tiết.",
   bao_gia:
@@ -248,7 +272,7 @@ const MODULE_HINTS: Record<string, string> = {
   phong_ban:
     "Xem: xem cây tổ chức phòng ban / tổ. Chỉnh sửa: thêm/sửa/xóa phòng ban. Đặt trưởng phòng và đổi cấp trên trong cây nằm ở quyền chi tiết.",
   ke_toan:
-    "Xem: xem chứng từ kế toán. Chỉnh sửa: nhập/sửa chứng từ. Duyệt PMH, lập phiếu chi/UNC, xác nhận đã chi, hủy chứng từ, in/xuất nằm ở quyền chi tiết.",
+    "Xem: xem chứng từ kế toán. Chỉnh sửa: nhập/sửa dữ liệu chung của module. Lập phiếu chi/UNC - phiếu thu, xác nhận đã chi, hủy chứng từ, in/xuất nằm ở quyền chi tiết.",
 };
 
 // Nghĩa CHUNG của 3 cột — luôn đúng với mọi module, hiện ở dòng tiêu đề.
@@ -317,6 +341,7 @@ export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
     can_toggle_active: false,
     can_reparent: false,
     can_view_salary: false,
+    can_edit_salary: false,
     can_adjust: false,
     can_approve_exception: false,
     can_set_credit_terms: false,
