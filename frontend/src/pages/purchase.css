@@ -1,5 +1,5 @@
 .purchase__select {
-  width: 220px;
+  width: 220px !important;
 }
 
 .purchase__field {
@@ -55,7 +55,7 @@
 
 .purchase__list .purchase__date-cell,
 .purchase__list .purchase__money-cell {
-    font-family: var(--ff-num);
+  font-family: var(--ff-num);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -280,7 +280,6 @@
   margin-left: 4px;
 }
 
-
 .supplier__items-section {
   display: flex;
   flex-direction: column;
@@ -449,7 +448,7 @@
 .purchase__source-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  /* justify-content: space-between; */
   gap: var(--sp-3);
 }
 
@@ -623,7 +622,10 @@
 .purchase__line-editor--tach-ncc .purchase__line-labels,
 .purchase__line-editor--tach-ncc .purchase__line-edit {
   grid-template-columns:
-    minmax(170px, 1.7fr) minmax(180px, 1.5fr) minmax(76px, 0.55fr) minmax(92px, 0.65fr)
+    minmax(170px, 1.7fr) minmax(180px, 1.5fr) minmax(76px, 0.55fr) minmax(
+      92px,
+      0.65fr
+    )
     minmax(112px, 0.75fr) minmax(78px, 0.55fr) minmax(112px, 0.75fr)
     minmax(78px, 0.55fr) minmax(130px, 1fr) minmax(118px, 0.75fr) 40px;
   min-width: 1240px;
@@ -648,13 +650,13 @@
 }
 
 .purchase__number-input {
-    font-family: var(--ff-num);
+  font-family: var(--ff-num);
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
 .purchase__line-sum {
-    font-family: var(--ff-num);
+  font-family: var(--ff-num);
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -930,8 +932,14 @@
 }
 
 @keyframes supplier-slide-in {
-  from { transform: translateX(32px); opacity: 0.5; }
-  to { transform: none; opacity: 1; }
+  from {
+    transform: translateX(32px);
+    opacity: 0.5;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
 }
 
 .supplier-drawer__head {
@@ -1035,4 +1043,3 @@
   display: flex;
   align-items: center;
 }
-

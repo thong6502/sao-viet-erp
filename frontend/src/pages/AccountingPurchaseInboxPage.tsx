@@ -41,9 +41,11 @@ const PAYMENT_META = {
 
 export function AccountingPurchaseInboxPage({
   navigate,
+  eventTick = 0,
   focusRequestCode,
 }: {
   navigate: NavigateFn;
+  eventTick?: number;
   /** Mã PMH cần mở sẵn — màn Công nợ phải trả nhảy sang đây để lập phiếu chi cho đúng đơn đó.
       Không có nó thì bấm "Lập phiếu chi" chỉ đổ ra danh sách trắng, người dùng phải tự đi tìm. */
   focusRequestCode?: string | null;
@@ -111,6 +113,11 @@ export function AccountingPurchaseInboxPage({
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (eventTick <= 0) return;
+    load();
+  }, [eventTick, load]);
 
   // Sang màn này từ nơi khác kèm mã PMH ⇒ nhét luôn vào ô tìm và về trang 1.
   useEffect(() => {
@@ -262,9 +269,9 @@ export function AccountingPurchaseInboxPage({
             onChange={(event) => setQ(event.target.value)}
             placeholder="Tìm PMH, YCMH, nhà cung cấp..."
           />
-          <Button type="submit" variant="ghost">
+          {/* <Button type="submit" variant="ghost">
             Tìm
-          </Button>
+          </Button> */}
         </form>
         <select
           className="input acct-toolbar__select"

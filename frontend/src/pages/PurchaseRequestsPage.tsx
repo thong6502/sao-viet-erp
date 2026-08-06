@@ -537,7 +537,13 @@ function printPurchaseRequest(row: PurchaseRequestRow): boolean {
   return true;
 }
 
-export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
+export function PurchaseRequestsPage({
+  navigate,
+  eventTick = 0,
+}: {
+  navigate: NavigateFn;
+  eventTick?: number;
+}) {
   const { token } = useAuth();
   const can = useCan();
   const canCreate = can("thu_mua", "create");
@@ -549,9 +555,6 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
   // ⚠️ Hộp "Lý do từ chối" (`reasonModal.kind === "reject"`) vẫn còn trong file nhưng KHÔNG CÒN AI
   // BẤM — chỉ nhánh `cancel` còn chạy. Giữ tạm để chép sang màn Đơn mua hàng; chép xong thì dọn,
   // đừng để nó nằm lại làm người đọc sau tưởng màn này vẫn từ chối được.
-  const canDelete = can("thu_mua", "delete");
-  const canCancel = can("thu_mua", "cancel");
-
   const [rows, setRows] = useState<PurchaseRequestRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -684,6 +687,13 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (eventTick <= 0) return;
+    loadSuppliers();
+    loadSources();
+    load();
+  }, [eventTick, loadSuppliers, loadSources, load]);
 
   const selected = useMemo(
     () => rows.find((row) => row.id === selectedId) ?? null,
@@ -1095,7 +1105,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
             }
           />
         )}
-        {canCancel &&
+        {/* {canCancel &&
           row.status !== "received" &&
           row.status !== "cancelled" && (
             <RowActionButton
@@ -1107,8 +1117,8 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                 setReasonModal({ kind: "cancel", row, reason: "", error: null })
               }
             />
-          )}
-        {canDelete && row.status === "draft" && (
+          )} */}
+        {/* {canDelete && row.status === "draft" && (
           <RowActionButton
             dense={dense}
             label="Xóa"
@@ -1116,7 +1126,7 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
             danger
             onClick={() => setDeleting(row)}
           />
-        )}
+        )} */}
       </div>
     );
   }
@@ -1167,9 +1177,9 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
                 setSourcePage(1);
               }}
             />
-            <Button type="submit" variant="ghost">
+            {/* <Button type="submit" variant="ghost">
               Tìm
-            </Button>
+            </Button> */}
           </form>
           <select
             className="input purchase__select"
@@ -1316,9 +1326,9 @@ export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
               setPage(1);
             }}
           />
-          <Button type="submit" variant="ghost">
+          {/* <Button type="submit" variant="ghost">
             Tìm
-          </Button>
+          </Button> */}
         </form>
         <select
           className="input purchase__select"

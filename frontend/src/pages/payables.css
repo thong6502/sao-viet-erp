@@ -118,7 +118,7 @@
 /* --- ô số bấm được trên bảng ngoài --- */
 
 .pay-cell {
-  font-family: var(--ff-num);
+  /* font-family: var(--ff-num); */
   font-variant-numeric: tabular-nums;
 }
 
@@ -133,15 +133,15 @@
   font-size: inherit;
   color: var(--ink);
   cursor: pointer;
-  text-decoration: underline;
+  /* text-decoration: underline; */
   text-decoration-color: var(--rule);
   text-underline-offset: 3px;
 }
 
-.pay-cell--link:hover {
+/* .pay-cell--link:hover {
   color: var(--rust);
   text-decoration-color: var(--rust);
-}
+} */
 
 .pay-cell--warn {
   color: var(--amber-deep);

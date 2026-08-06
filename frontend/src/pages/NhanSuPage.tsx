@@ -565,7 +565,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
               <Search className="ns-search-icon" size={16} />
               <input
                 className="ns__search"
-                placeholder="Tìm tên / mã / CCCD / SĐT…"
+                placeholder="Tìm tên / mã…"
                 value={q}
                 onChange={(e) => {
                   setPage(1);
@@ -1082,9 +1082,7 @@ function KpiStrip({
       {/* Tách sang phải: đây là ô DUY NHẤT đòi người làm gì đó, không xếp lẫn 3 ô đếm kia. */}
       <button
         type="button"
-        className={`ns__kpi ns__kpi--action${isEndingSoonActive ? " is-active" : ""}${
-          endingSoonCount === 0 ? " is-quiet" : ""
-        }`}
+        className={`ns__kpi ${isEndingSoonActive ? " is-active" : ""}`}
         onClick={onPickEndingSoon}
         aria-pressed={isEndingSoonActive}
         title={

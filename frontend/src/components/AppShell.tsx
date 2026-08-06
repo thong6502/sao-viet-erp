@@ -284,7 +284,7 @@ export function AppShell() {
   // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
-    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("di_muon"))) return;
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("di_muon") || readable.has("thu_mua") || readable.has("ke_toan"))) return;
 
     const close = connectQuoteEvents(token, (e) => {
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
@@ -621,21 +621,23 @@ export function AppShell() {
       case "yeu-cau-mua-hang":
         return (
           <DepartmentPurchaseRequestsPage
+            eventTick={quoteTick}
             focusRequestCode={navParams?.focusRequestCode ?? null}
             seedLines={navParams?.purchaseSeedLines ?? null}
             seedPurpose={navParams?.purchaseSeedPurpose ?? null}
           />
         );
       case "mua-hang":
-        return <PurchaseRequestsPage navigate={navigate} />;
+        return <PurchaseRequestsPage navigate={navigate} eventTick={quoteTick} />;
       case "nha-cung-cap":
-        return <SuppliersPage />;
+        return <SuppliersPage eventTick={quoteTick} />;
       // Bấm vào chính "Kế toán thu mua" thì rơi vào con đầu tiên — đừng để nó ra màn trắng.
       case "ke-toan-thu-mua":
       case "ke-toan-don-mua-hang":
         return (
           <AccountingPurchaseInboxPage
             navigate={navigate}
+            eventTick={quoteTick}
             focusRequestCode={navParams?.focusRequestCode ?? null}
           />
         );
@@ -643,11 +645,12 @@ export function AppShell() {
         return (
           <PaymentVouchersPage
             navigate={navigate}
+            eventTick={quoteTick}
             focusQuery={navParams?.focusVoucherQuery ?? null}
           />
         );
       case "ke-toan-cong-no":
-        return <AccountingPayablesPage navigate={navigate} />;
+        return <AccountingPayablesPage navigate={navigate} eventTick={quoteTick} />;
       // "Phiếu thu" và "Tài khoản ngân hàng" đã GỠ KHỎI MENU (chủ 04/08/2026).
       //
       // Nhưng `case` của Phiếu thu vẫn GIỮ, vì hai màn khác đang nhảy sang nó bằng liên kết:
@@ -659,6 +662,7 @@ export function AppShell() {
         return (
           <PaymentReceiptsPage
             navigate={navigate}
+            eventTick={quoteTick}
             focusQuery={navParams?.focusReceiptQuery ?? null}
           />
         );

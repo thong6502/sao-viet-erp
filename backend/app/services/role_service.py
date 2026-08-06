@@ -39,6 +39,46 @@ class RoleInUse(RoleError):
         )
 
 
+READ_IMPLYING_KEYS = (
+    "can_create",
+    "can_update",
+    "can_delete",
+    "can_reassign",
+    "can_export",
+    "can_view_debt",
+    "can_view_discount",
+    "can_approve",
+    "can_manage_status",
+    "can_reset_password",
+    "can_lock",
+    "can_revoke_sessions",
+    "can_assign_role",
+    "can_transfer",
+    "can_set_head",
+    "can_requote",
+    "can_manage_price",
+    "can_cancel",
+    "can_manage_permissions",
+    "can_clone",
+    "can_toggle_active",
+    "can_reparent",
+    "can_view_salary",
+    "can_edit_salary",
+    "can_adjust",
+    "can_approve_exception",
+    "can_set_credit_terms",
+    "can_record_deposit",
+    "can_assign_work",
+    "can_record_output",
+    "can_handover",
+    "can_request",
+    "can_view_stock",
+    "can_view_cost",
+    "can_set_threshold",
+    "can_post",
+)
+
+
 class RoleService:
     def __init__(
         self,
@@ -176,51 +216,56 @@ class RoleService:
         for row in rows:
             if row["module_key"] not in valid_keys:
                 continue  # ignore unknown modules rather than create dangling rows
-            can_approve = row.get("can_approve", False)
-            can_read = row.get("can_read", False) or (
-                row["module_key"] == "ke_toan" and can_approve
-            )
+            normalized = dict(row)
+            can_read = bool(normalized.get("can_read", False))
+            if not can_read:
+                for key in READ_IMPLYING_KEYS:
+                    if normalized.get(key, False):
+                        can_read = True
+                        break
+            normalized["can_read"] = can_read
+            can_approve = normalized.get("can_approve", False)
             self.roles.set_permission(
                 role_id=role_id,
-                module_key=row["module_key"],
+                module_key=normalized["module_key"],
                 can_read=can_read,
-                can_create=row.get("can_create", False),
-                can_update=row.get("can_update", False),
-                can_delete=row.get("can_delete", False),
-                scope=row.get("scope", "own"),
-                can_reassign=row.get("can_reassign", False),
-                can_export=row.get("can_export", False),
-                can_view_debt=row.get("can_view_debt", False),
-                can_view_discount=row.get("can_view_discount", False),
+                can_create=normalized.get("can_create", False),
+                can_update=normalized.get("can_update", False),
+                can_delete=normalized.get("can_delete", False),
+                scope=normalized.get("scope", "own"),
+                can_reassign=normalized.get("can_reassign", False),
+                can_export=normalized.get("can_export", False),
+                can_view_debt=normalized.get("can_view_debt", False),
+                can_view_discount=normalized.get("can_view_discount", False),
                 can_approve=can_approve,
-                can_manage_status=row.get("can_manage_status", False),
-                can_reset_password=row.get("can_reset_password", False),
-                can_lock=row.get("can_lock", False),
-                can_revoke_sessions=row.get("can_revoke_sessions", False),
-                can_assign_role=row.get("can_assign_role", False),
-                can_transfer=row.get("can_transfer", False),
-                can_set_head=row.get("can_set_head", False),
-                can_requote=row.get("can_requote", False),
-                can_manage_price=row.get("can_manage_price", False),
-                can_cancel=row.get("can_cancel", False),
-                can_manage_permissions=row.get("can_manage_permissions", False),
-                can_clone=row.get("can_clone", False),
-                can_toggle_active=row.get("can_toggle_active", False),
-                can_reparent=row.get("can_reparent", False),
-                can_view_salary=row.get("can_view_salary", False),
-                can_edit_salary=row.get("can_edit_salary", False),
-                can_adjust=row.get("can_adjust", False),
-                can_approve_exception=row.get("can_approve_exception", False),
-                can_set_credit_terms=row.get("can_set_credit_terms", False),
-                can_record_deposit=row.get("can_record_deposit", False),
-                can_assign_work=row.get("can_assign_work", False),
-                can_record_output=row.get("can_record_output", False),
-                can_handover=row.get("can_handover", False),
-                can_request=row.get("can_request", False),
-                can_view_stock=row.get("can_view_stock", False),
-                can_view_cost=row.get("can_view_cost", False),
-                can_set_threshold=row.get("can_set_threshold", False),
-                can_post=row.get("can_post", False),
+                can_manage_status=normalized.get("can_manage_status", False),
+                can_reset_password=normalized.get("can_reset_password", False),
+                can_lock=normalized.get("can_lock", False),
+                can_revoke_sessions=normalized.get("can_revoke_sessions", False),
+                can_assign_role=normalized.get("can_assign_role", False),
+                can_transfer=normalized.get("can_transfer", False),
+                can_set_head=normalized.get("can_set_head", False),
+                can_requote=normalized.get("can_requote", False),
+                can_manage_price=normalized.get("can_manage_price", False),
+                can_cancel=normalized.get("can_cancel", False),
+                can_manage_permissions=normalized.get("can_manage_permissions", False),
+                can_clone=normalized.get("can_clone", False),
+                can_toggle_active=normalized.get("can_toggle_active", False),
+                can_reparent=normalized.get("can_reparent", False),
+                can_view_salary=normalized.get("can_view_salary", False),
+                can_edit_salary=normalized.get("can_edit_salary", False),
+                can_adjust=normalized.get("can_adjust", False),
+                can_approve_exception=normalized.get("can_approve_exception", False),
+                can_set_credit_terms=normalized.get("can_set_credit_terms", False),
+                can_record_deposit=normalized.get("can_record_deposit", False),
+                can_assign_work=normalized.get("can_assign_work", False),
+                can_record_output=normalized.get("can_record_output", False),
+                can_handover=normalized.get("can_handover", False),
+                can_request=normalized.get("can_request", False),
+                can_view_stock=normalized.get("can_view_stock", False),
+                can_view_cost=normalized.get("can_view_cost", False),
+                can_set_threshold=normalized.get("can_set_threshold", False),
+                can_post=normalized.get("can_post", False),
             )
         self.audit.create(
             actor_user_id=actor_id,
