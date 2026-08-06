@@ -138,11 +138,20 @@ export function LuongPage({
   const { token } = useAuth();
   const can = useCan();
   const canManage = can("luong", "update");
+  const canReadPayroll = can("luong", "read");
+  const canCreateAdvance = can("luong", "create");
+  const canApproveAdvance = can("luong", "approve");
+  const canLockPeriod = can("luong", "lock");
+  const canExportPayroll = can("luong", "export");
+  const canOpenBangLuong =
+    canReadPayroll || canManage || canLockPeriod || canExportPayroll;
+  const canOpenTamUng =
+    canReadPayroll || canCreateAdvance || canApproveAdvance;
   // Cấu hình lương là dữ liệu nhạy cảm: quyền đọc module không đủ.
   // Người có quyền sửa luôn được xem để tránh ma trận quyền cũ khóa nhầm quản trị viên.
   const canReadConfig = can("luong", "view_salary") || canManage;
   const [tab, setTab] = useState<Tab>(
-    canManage ? "bang" : canReadConfig ? "cauhinh" : "phieu",
+    canOpenBangLuong ? "bang" : canReadConfig ? "cauhinh" : "phieu",
   );
   // Cấu hình lương đang có thay đổi chưa lưu → chặn rời tab (S5).
   const [cfgDirty, setCfgDirty] = useState(false);
@@ -174,7 +183,7 @@ export function LuongPage({
 
       <nav className="ns-tabs cc-tabs lg-tabs" aria-label="Phân hệ Lương">
         <div className="lg-tabs__group">
-          {canManage && (
+          {canOpenBangLuong && (
             <button
               className={`lg-tab-btn ${tab === "bang" ? "is-active" : ""}`}
               onClick={() => go("bang")}
@@ -204,7 +213,7 @@ export function LuongPage({
               <span>Lương khoán</span>
             </button>
           )}
-          {canManage && (
+          {canOpenTamUng && (
             <button
               className={`lg-tab-btn ${tab === "tamung" ? "is-active" : ""}`}
               onClick={() => go("tamung")}
@@ -229,7 +238,9 @@ export function LuongPage({
           )}
         </div>
 
-        {canManage && <div className="lg-tabs__divider" aria-hidden="true" />}
+        {(canOpenBangLuong || canManage || canOpenTamUng) && (
+          <div className="lg-tabs__divider" aria-hidden="true" />
+        )}
 
         <div className="lg-tabs__group lg-tabs__group--personal">
           <button
@@ -251,13 +262,25 @@ export function LuongPage({
         </div>
       </nav>
 
-      {tab === "bang" && canManage && <BangLuongTab token={token!} />}
+      {tab === "bang" && canOpenBangLuong && (
+        <BangLuongTab
+          token={token!}
+          canManage={canManage}
+          canLockPeriod={canLockPeriod}
+          canExportPayroll={canExportPayroll}
+        />
+      )}
       {tab === "nhanvien" && canManage && (
         <NhanVienTab token={token!} focusEmployeeId={focusEmployeeId} />
       )}
       {tab === "khoan" && canManage && <KhoanTab token={token!} />}
-      {tab === "tamung" && canManage && (
-        <TamUngTab token={token!} eventTick={eventTick} />
+      {tab === "tamung" && canOpenTamUng && (
+        <TamUngTab
+          token={token!}
+          eventTick={eventTick}
+          canCreateAdvance={canCreateAdvance}
+          canApproveAdvance={canApproveAdvance}
+        />
       )}
       {tab === "cauhinh" && canReadConfig && (
         <CauHinhLuongTab
@@ -287,7 +310,17 @@ export function LuongPage({
 
 // --- Tab: Bảng lương tháng --------------------------------------------------
 
-function BangLuongTab({ token }: { token: string }) {
+function BangLuongTab({
+  token,
+  canManage,
+  canLockPeriod,
+  canExportPayroll,
+}: {
+  token: string;
+  canManage: boolean;
+  canLockPeriod: boolean;
+  canExportPayroll: boolean;
+}) {
   const [ym, setYm] = useState(curYm);
   const [period, setPeriod] = useState<PayrollPeriod | null>(null);
   const [lines, setLines] = useState<PayrollLine[]>([]);
@@ -446,7 +479,7 @@ function BangLuongTab({ token }: { token: string }) {
             </button>
           ))}
         </div>
-        {isDraft && period && (
+        {canManage && isDraft && period && (
           <button
             className="btn btn--primary"
             onClick={() => run(() => api.luong.generate(token, year, month))}
@@ -455,7 +488,7 @@ function BangLuongTab({ token }: { token: string }) {
             {busy ? "Đang tính…" : "↻ Tính lại"}
           </button>
         )}
-        {period && isDraft && (
+        {canLockPeriod && period && isDraft && (
           <button
             className="btn btn--ghost"
             onClick={() => run(() => api.luong.lock(token, year, month))}
@@ -464,7 +497,7 @@ function BangLuongTab({ token }: { token: string }) {
             🔒 Chốt
           </button>
         )}
-        {locked && (
+        {canLockPeriod && locked && (
           <button
             className="btn btn--ghost"
             onClick={() => run(() => api.luong.reopen(token, year, month))}
@@ -473,7 +506,7 @@ function BangLuongTab({ token }: { token: string }) {
             Mở lại
           </button>
         )}
-        {locked && (
+        {canLockPeriod && locked && (
           <button
             className="btn btn--primary"
             onClick={() => run(() => api.luong.pay(token, year, month))}
@@ -482,7 +515,7 @@ function BangLuongTab({ token }: { token: string }) {
             💵 Đã chi
           </button>
         )}
-        {paid && (
+        {canLockPeriod && paid && (
           <button
             className="btn btn--ghost"
             onClick={() =>
@@ -493,7 +526,7 @@ function BangLuongTab({ token }: { token: string }) {
             ↩ Hủy đã chi
           </button>
         )}
-        {period && (
+        {canExportPayroll && period && (
           <button
             className="btn btn--ghost"
             onClick={() => downloadXlsx("table")}
@@ -502,7 +535,7 @@ function BangLuongTab({ token }: { token: string }) {
             ⬇ Xuất Excel
           </button>
         )}
-        {(locked || paid) && (
+        {canExportPayroll && (locked || paid) && (
           <button
             className="btn btn--ghost"
             onClick={() => downloadXlsx("bank")}
@@ -694,7 +727,7 @@ function BangLuongTab({ token }: { token: string }) {
                 tiến hành khởi tạo.
               </p>
             </div>
-            {isDraft && (
+            {canManage && isDraft && (
               <button
                 className="btn btn--accent btn--large"
                 onClick={() =>
@@ -803,7 +836,7 @@ function BangLuongTab({ token }: { token: string }) {
                   </td>
                   <td className="lg-num lg-net">{money(l.net_pay)}</td>
                   <td className="lg-rowact">
-                    {!locked && (
+                    {canManage && !locked && (
                       <button
                         className="btn btn--ghost"
                         onClick={() => setEditing(l)}
@@ -2860,9 +2893,13 @@ function advPrintData(a: SalaryAdvance) {
 function TamUngTab({
   token,
   eventTick,
+  canCreateAdvance,
+  canApproveAdvance,
 }: {
   token: string;
   eventTick?: number;
+  canCreateAdvance: boolean;
+  canApproveAdvance: boolean;
 }) {
   const [ym, setYm] = useState(curYm);
   const [items, setItems] = useState<SalaryAdvance[]>([]);
@@ -2922,18 +2959,22 @@ function TamUngTab({
             onChange={(e) => setYm(e.target.value)}
           />
         </div>
-        <button
-          className="btn btn--primary"
-          onClick={() => setAdding("tam_ung")}
-        >
-          + Thêm ứng
-        </button>
-        <button
-          className="btn btn--ghost"
-          onClick={() => setAdding("luong_dot_1")}
-        >
-          + Phiếu lương đợt 1
-        </button>
+        {canCreateAdvance && (
+          <button
+            className="btn btn--primary"
+            onClick={() => setAdding("tam_ung")}
+          >
+            + Thêm ứng
+          </button>
+        )}
+        {canCreateAdvance && (
+          <button
+            className="btn btn--ghost"
+            onClick={() => setAdding("luong_dot_1")}
+          >
+            + Phiếu lương đợt 1
+          </button>
+        )}
         <span className="lg-approved-badge">
           Đã duyệt: <b>{money(totalApproved)}đ</b>
         </span>
@@ -2996,7 +3037,7 @@ function TamUngTab({
                       >
                         🖨 In phiếu
                       </button>
-                      {a.status === "pending" && (
+                      {canApproveAdvance && a.status === "pending" && (
                         <>
                           <button
                             className="btn btn--ghost"
@@ -3016,7 +3057,7 @@ function TamUngTab({
                           </button>
                         </>
                       )}
-                      {a.status === "approved" && (
+                      {canApproveAdvance && a.status === "approved" && (
                         <button
                           className="btn btn--ghost ns-danger"
                           onClick={() =>

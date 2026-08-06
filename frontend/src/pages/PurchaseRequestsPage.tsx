@@ -550,6 +550,7 @@ export function PurchaseRequestsPage({
   const openYcmh = (code: string) =>
     navigate("yeu-cau-mua-hang", { focusRequestCode: code });
   const canUpdate = can("thu_mua", "update");
+  const canApprovePurchase = can("thu_mua", "approve");
   // KHÔNG còn `canApprove` ở màn này: duyệt đơn mua đã chuyển sang Kế toán thu mua (04/08/2026).
   //
   // ⚠️ Hộp "Lý do từ chối" (`reasonModal.kind === "reject"`) vẫn còn trong file nhưng KHÔNG CÒN AI
@@ -1086,7 +1087,7 @@ export function PurchaseRequestsPage({
         {/* Sau khi đã nhận: sửa lại số thực nhận (NCC giao nhiều đợt) và lùi trạng thái nếu bấm
             nhầm. Cả hai server đều đòi quyền DUYỆT — nút vẫn hiện, người thiếu quyền bấm sẽ nhận
             đúng câu báo thay vì im lặng không có lối. */}
-        {canUpdate && row.status === "received" && (
+        {canUpdate && canApprovePurchase && row.status === "received" && (
           <RowActionButton
             dense={dense}
             label="Sửa số nhận"
@@ -1094,7 +1095,7 @@ export function PurchaseRequestsPage({
             onClick={() => setReceiveModal({ row, mode: "edit" })}
           />
         )}
-        {canUpdate && row.status === "received" && (
+        {canUpdate && canApprovePurchase && row.status === "received" && (
           <RowActionButton
             dense={dense}
             label="Lùi đã nhận"

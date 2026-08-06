@@ -77,6 +77,7 @@ const READ_IMPLYING_ACTIONS: ActionKey[] = [
   "can_toggle_active",
   "can_reparent",
   "can_view_salary",
+  "can_edit_salary",
   "can_adjust",
   "can_approve_exception",
   "can_set_credit_terms",
@@ -100,6 +101,12 @@ function applyPermissionDependency(
   if (action === "can_read" && !value) {
     for (const key of READ_IMPLYING_ACTIONS) next[key] = false;
     return next;
+  }
+  if (action === "can_view_salary" && !value) {
+    next.can_edit_salary = false;
+  }
+  if (action === "can_edit_salary" && value) {
+    next.can_view_salary = true;
   }
   if (value && READ_IMPLYING_ACTIONS.includes(action)) next.can_read = true;
   return next;

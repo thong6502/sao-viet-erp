@@ -59,7 +59,7 @@ export function AccountingPurchaseInboxPage({
   const canApprove = can("thu_mua", "approve");
   // LẬP PHIẾU CHI là việc của kế toán — quyền khác hẳn quyền duyệt. Kế toán không có quyền duyệt
   // vẫn thấy đủ danh sách và trạng thái, chỉ không thấy nút Duyệt.
-  const canCreateVoucher = can("ke_toan", "create");
+  const canCreateVoucher = can("ke_toan", "approve");
   const openYcmh = (code: string) =>
     navigate("yeu-cau-mua-hang", { focusRequestCode: code });
   const [rows, setRows] = useState<PurchaseRequestRow[]>([]);

@@ -214,6 +214,12 @@ def _dup(employee) -> DuplicateRef | None:
     return DuplicateRef(id=employee.id, code=employee.code, full_name=employee.full_name)
 
 
+def _can_apply_transition(authz: AuthorizationService, user: User, kind: str) -> bool:
+    if kind in {"transfer", "promote"}:
+        return authz.can(user, MODULE, "transfer")
+    return authz.can(user, MODULE, "manage_status")
+
+
 # --- list + meta ------------------------------------------------------------
 
 
@@ -323,7 +329,7 @@ def create_employee(
     status_in = data.pop("status")
     hire_date = data.pop("hire_date")
     if initial_salary is not None:
-        if not authz.can(user, "luong", "update"):
+        if not authz.can(user, MODULE, "edit_salary"):
             raise HTTPException(
                 status_code=403,
                 detail="Ban khong co quyen khai muc luong ban dau cho nhan vien.",
@@ -687,9 +693,14 @@ def apply_transition(
     authz: Authz,
     depts: Depts,
     users: Users,
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> EmployeeOut:
     try:
+        if not _can_apply_transition(authz, user, body.kind):
+            raise HTTPException(
+                status_code=403,
+                detail="Ban khong co quyen thuc hien thao tac ho so nay.",
+            )
         current = svc.get_employee(
             employee_id=employee_id, scope=_scope_for(authz, user), actor=user
         )
