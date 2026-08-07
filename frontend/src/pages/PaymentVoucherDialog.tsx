@@ -14,6 +14,7 @@ import {
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { UNC_ENABLED } from "../constants/features";
+import { fmtDate, money } from "../utils/format";
 
 /** Hôm nay dạng `yyyy-mm-dd` — trần cho ngày chứng từ và ngày hoá đơn (không cho chọn tương lai). */
 const HOM_NAY = new Date().toISOString().slice(0, 10);
@@ -24,6 +25,12 @@ const STAGE_LABELS: Record<PaymentStage, string> = {
   final: "Thanh toán cuối",
   other: "Khác",
 };
+
+/** Hai LOẠI phiếu, khác nhau ở ba chỗ: có gắn đợt giao không, trần là số nào, và tiền chi ra khi
+ *  hàng đã về hay chưa. Bắt chọn ngay từ đầu thay vì suy từ số tiền — cách cũ (số tiền = trần thì
+ *  tự thành "thanh toán cuối") đoán mò, và đoán sai thì backend từ chối sau khi người dùng đã gõ
+ *  xong cả form. */
+type LoaiPhieu = "dat_coc" | "thanh_toan";
 
 interface PaymentVoucherDialogProps {
   purchase: PurchaseRequestRow;
@@ -41,6 +48,45 @@ function optional(value?: string | null): string | null {
   return cleaned || null;
 }
 
+/** Đợt giao CÒN NỢ đầu tiên — gợi ý mặc định khi lập phiếu thanh toán.
+ *
+ *  Dùng `con_no` (đã trừ cả tiền trả đích danh lẫn cọc bù) chứ không tự trừ tay: đợt được cọc phủ
+ *  hết thì không còn gì để trả, chọn sẵn nó là mời người dùng gõ một số rồi ăn lỗi. */
+function dotGoiY(purchase: PurchaseRequestRow): number | null {
+  const con_no = purchase.deliveries.filter((d) => d.con_no > 0);
+  const nguon = con_no.length ? con_no : purchase.deliveries;
+  return nguon[0]?.id ?? null;
+}
+
+/** Còn nợ của một đợt — cũng chính là TRẦN lập phiếu chi thanh toán cho đợt đó. */
+function conNoDot(purchase: PurchaseRequestRow, deliveryId: number | null): number {
+  if (deliveryId == null) return purchase.outstanding_amount;
+  return purchase.deliveries.find((d) => d.id === deliveryId)?.con_no ?? 0;
+}
+
+/** Số tiền điền sẵn cho phiếu ĐẶT CỌC.
+ *
+ * Ưu tiên **cọc dự kiến** thu mua đã khai trên phiếu mua — đó là con số đã thoả thuận với NCC và
+ * đã qua duyệt, kế toán không phải đi hỏi lại.
+ *
+ * Chưa khai (bằng 0) thì lấy **nửa giá trị đơn** (chủ chốt 06/08/2026) — mức cọc thông thường, để
+ * kế toán có sẵn một số hợp lý mà sửa, thay vì đối diện ô trống hoặc bị điền nguyên giá trị đơn
+ * (điền nguyên đơn là mời người ta bấm Lưu và ứng trước 100%).
+ *
+ * Luôn kẹp trong trần đặt cọc — gợi ý mà vượt trần thì bấm Lưu là ăn lỗi ngay. */
+/** Nội dung đơn để nhét vào nội dung phiếu chi. Phiếu CŨ chưa có ô gộp ⇒ lấy `purpose`. */
+function moTaDon(purchase: PurchaseRequestRow): string {
+  return (purchase.content ?? purchase.purpose ?? "").trim();
+}
+
+function cocGoiY(purchase: PurchaseRequestRow): number {
+  const mong_muon =
+    purchase.deposit_expected > 0
+      ? purchase.deposit_expected
+      : Math.round(purchase.total_estimate / 2);
+  return Math.min(mong_muon, purchase.tran_dat_coc);
+}
+
 function initialForm(
   purchase: PurchaseRequestRow,
   voucher?: PaymentVoucherRow | null,
@@ -49,6 +95,7 @@ function initialForm(
     return {
       voucher_type: voucher.voucher_type,
       payment_stage: voucher.payment_stage,
+      delivery_id: voucher.delivery_id,
       voucher_date: voucher.voucher_date,
       planned_payment_date: voucher.planned_payment_date,
       amount: voucher.amount,
@@ -69,17 +116,24 @@ function initialForm(
       note: voucher.note,
     };
   }
+  // Chưa có đợt giao nào ⇒ hàng chưa về ⇒ đây chỉ có thể là tiền ĐẶT CỌC. Có đợt rồi thì mặc định
+  // là THANH TOÁN, gắn sẵn đợt còn nợ và điền sẵn số công nợ.
+  const chuaCoDot = purchase.deliveries.length === 0;
   return {
     voucher_type: "cash",
-    // Số tiền mặc định = phần còn được lập, tức tất toán PMH → đợt "final";
-    // effect đồng bộ đợt sẽ tự hạ xuống "advance" khi người dùng giảm số tiền.
-    payment_stage: "final",
+    payment_stage: chuaCoDot ? "advance" : "final",
+    delivery_id: chuaCoDot ? null : dotGoiY(purchase),
     voucher_date: isoToday(),
+    // DORMANT: hạn trả đã chuyển lên đợt giao, phiếu chi không còn hạn.
     planned_payment_date: null,
-    amount: purchase.available_amount,
+    amount: chuaCoDot
+      ? cocGoiY(purchase)
+      : conNoDot(purchase, dotGoiY(purchase)),
     currency: "VND",
     exchange_rate: 1,
-    content: `Thanh toán ${purchase.code}${purchase.purpose ? ` - ${purchase.purpose}` : ""}`,
+    content: `Thanh toán ${purchase.code}${
+      moTaDon(purchase) ? ` - ${moTaDon(purchase)}` : ""
+    }`.slice(0, 500),
     invoice_number: null,
     invoice_date: null,
     contract_number: null,
@@ -117,16 +171,44 @@ export function PaymentVoucherDialog({
   // Chứng từ đã mua (hóa đơn/biên nhận) chọn lúc lập — upload sau khi create.
   const [files, setFiles] = useState<File[]>([]);
 
-  const maxAmountVnd = useMemo(
-    () =>
-      purchase.available_amount +
-      (voucher?.status === "waiting_payment" ? voucher.amount_vnd : 0),
-    [purchase.available_amount, voucher],
-  );
+  const loai: LoaiPhieu =
+    form.payment_stage === "advance" ? "dat_coc" : "thanh_toan";
+  const coDotGiao = purchase.deliveries.length > 0;
+
+  // TRẦN khác nhau theo loại phiếu (Đ1/§5.4) — đừng gộp làm một:
+  //   · ĐẶT CỌC   → `tran_dat_coc` (giá trị ĐƠN ĐẶT − đã chi ròng): cọc là chi khi hàng CHƯA về,
+  //                 nên không thể trói vào số hàng đã giao (= 0 lúc đó).
+  //   · THANH TOÁN → CÒN NỢ CỦA CHÍNH ĐỢT ĐANG CHỌN.
+  //
+  // ⚠️ Trần thanh toán KHÔNG được lấy công nợ cả đơn (lỗi 07/08/2026): kế toán chọn "Đợt 2" rồi
+  // gõ số của cả đơn thì phần thừa chảy vào rổ cọc chung và lặng lẽ trả hộ Đợt 1 — món nợ của đợt 1
+  // biến mất khỏi màn Công nợ mà không ai bấm gì. Trả cho nhiều đợt thì lập nhiều phiếu.
+  //
+  // Sửa một phiếu đã chi: số cũ của chính nó đang nằm trong `net_paid` nên đã bị trừ khỏi trần —
+  // cộng lại, nếu không mở phiếu ra sửa mỗi dòng nội dung cũng bị báo "vượt trần". Chỉ cộng khi
+  // phiếu cũ đóng góp vào ĐÚNG cái trần đang tính (server làm y hệt).
+  const maxAmountVnd = useMemo(() => {
+    const tran =
+      loai === "dat_coc"
+        ? purchase.tran_dat_coc
+        : conNoDot(purchase, form.delivery_id ?? null);
+    const cu = voucher?.status === "paid" ? voucher : null;
+    const cuLaCoc = cu?.payment_stage === "advance";
+    const cungDich =
+      cu != null &&
+      (loai === "dat_coc"
+        ? cuLaCoc
+        : !cuLaCoc && (cu.delivery_id ?? null) === (form.delivery_id ?? null));
+    return tran + (cungDich ? cu!.amount_vnd : 0);
+  }, [loai, purchase, form.delivery_id, voucher]);
   const amountVnd = useMemo(
     () =>
       Math.round(Number(form.amount || 0) * Number(form.exchange_rate || 0)),
     [form.amount, form.exchange_rate],
+  );
+  const dotDangChon = useMemo(
+    () => purchase.deliveries.find((d) => d.id === form.delivery_id) ?? null,
+    [purchase.deliveries, form.delivery_id],
   );
 
   useEffect(() => {
@@ -171,26 +253,35 @@ export function PaymentVoucherDialog({
       .finally(() => setLoadingAccounts(false));
   }, [token, purchase.supplier_id]);
 
-  // "Thanh toán cuối" = đợt chi tất toán phần còn lại của PMH: so bằng số
-  // quy đổi VND với "còn được lập" (không so tổng PMH — sai từ đợt 2 trở đi,
-  // và không so nguyên tệ — sai khi thanh toán ngoại tệ).
-  useEffect(() => {
-    setForm((current) => {
-      if (amountVnd === maxAmountVnd && current.payment_stage !== "final") {
-        return { ...current, payment_stage: "final" };
-      }
-      if (amountVnd !== maxAmountVnd && current.payment_stage === "final") {
-        return { ...current, payment_stage: "advance" };
-      }
-      return current;
-    });
-  }, [amountVnd, maxAmountVnd]);
-
   function set<K extends keyof PaymentVoucherBaseInput>(
     key: K,
     value: PaymentVoucherBaseInput[K],
   ) {
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  /** Đổi LOẠI phiếu là đổi cả ba thứ đi kèm: đợt giao, trần, và số tiền điền sẵn.
+   *
+   * Giữ nguyên số tiền cũ khi đổi loại là bẫy: người chọn "Đặt cọc" với số bằng công nợ rồi bấm
+   * lưu, backend nhận đúng nhưng con số không phải thứ họ định. Điền lại theo trần MỚI. */
+  function chonLoai(next: LoaiPhieu) {
+    if (voucher) return; // sửa phiếu cũ: loại đã chốt, đổi loại là đổi bản chất chứng từ
+    setForm((current) => {
+      if (next === "dat_coc") {
+        return {
+          ...current,
+          payment_stage: "advance",
+          delivery_id: null,
+          amount: cocGoiY(purchase),
+        };
+      }
+      return {
+        ...current,
+        payment_stage: "final",
+        delivery_id: coDotGiao ? dotGoiY(purchase) : null,
+        amount: conNoDot(purchase, coDotGiao ? dotGoiY(purchase) : null),
+      };
+    });
   }
 
   function addFiles(list: FileList | null) {
@@ -275,10 +366,26 @@ export function PaymentVoucherDialog({
       setError("Tỷ giá của VND phải bằng 1.");
       return;
     }
+    if (maxAmountVnd <= 0) {
+      setError(
+        loai === "dat_coc"
+          ? "Đơn này đã chi đủ giá trị đặt hàng — không còn chỗ để đặt cọc thêm."
+          : "Đơn này chưa phát sinh công nợ (hàng chưa về hoặc đã trả hết). Ghi đợt giao trước, hoặc lập phiếu Đặt cọc.",
+      );
+      return;
+    }
     if (amountVnd > maxAmountVnd) {
       setError(
-        `Số tiền quy đổi không được vượt quá ${maxAmountVnd.toLocaleString("vi-VN")} đ.`,
+        `Số tiền quy đổi không được vượt quá ${maxAmountVnd.toLocaleString("vi-VN")} đ ` +
+          `(${loai === "dat_coc" ? "trần đặt cọc theo giá trị đơn đặt" : "công nợ hiện tại"}).`,
       );
+      return;
+    }
+    // Đơn CÓ đợt giao thì phiếu thanh toán bắt buộc chỉ rõ trả cho đợt nào — không có nó thì công
+    // nợ biết TỔNG đã trả nhưng không biết đợt nào đã xong, và cột Quá hạn (tính theo hạn của từng
+    // đợt) không quy được về đâu. Server cũng chặn; đây chỉ chặn sớm cho đỡ một vòng gọi.
+    if (loai === "thanh_toan" && coDotGiao && !form.delivery_id) {
+      setError("Phiếu thanh toán phải chọn đợt giao.");
       return;
     }
     if (form.voucher_type === "cash" && !form.cash_recipient_name?.trim()) {
@@ -317,7 +424,11 @@ export function PaymentVoucherDialog({
       currency: form.currency.trim().toUpperCase(),
       exchange_rate: Number(form.exchange_rate),
       content: form.content.trim(),
-      planned_payment_date: optional(form.planned_payment_date),
+      // Cọc KHÔNG gắn đợt (server từ chối nếu gắn); đơn không có đợt nào cũng phải gửi null.
+      delivery_id:
+        loai === "dat_coc" || !coDotGiao ? null : (form.delivery_id ?? null),
+      // DORMANT — luôn gửi null. Hạn trả nay là `due_date` của đợt giao.
+      planned_payment_date: null,
       invoice_number: optional(form.invoice_number),
       invoice_date: optional(form.invoice_date),
       contract_number: optional(form.contract_number),
@@ -346,21 +457,18 @@ export function PaymentVoucherDialog({
       // Đường "duyệt + lập phiếu chi trong một cú bấm" đã BỎ HẲN (chủ 04/08/2026): giám đốc duyệt
       // ở màn Đơn mua hàng trước, kế toán mới lập phiếu chi. Hai chữ ký, hai người — một người
       // vừa duyệt khoản chi vừa viết phiếu chi là phá tách vai.
-      let saved: PaymentVoucherRow;
-      if (voucher) {
-        const input: PaymentVoucherInput = {
-          ...payload,
-          purchase_request_id: purchase.id,
-        };
-        saved = await api.accounting.updateVoucher(token, voucher.id, input);
-      } else {
-        const input: PaymentVoucherInput = {
-          ...payload,
-          purchase_request_id: purchase.id,
-        };
-        saved = await api.accounting.createVoucher(token, input);
-      }
-      if (!voucher && files.length) {
+      //
+      // Và KHÔNG có nhánh "sửa" (chủ chốt 07/08/2026): phiếu chi phát hành ra là tiền đã rời két.
+      // Sai thì huỷ rồi lập phiếu mới — endpoint PUT bên server cũng đã gỡ.
+      const input: PaymentVoucherInput = {
+        ...payload,
+        purchase_request_id: purchase.id,
+      };
+      const saved: PaymentVoucherRow = await api.accounting.createVoucher(
+        token,
+        input,
+      );
+      if (files.length) {
         try {
           for (const file of files) {
             await api.accounting.uploadVoucherAttachment(token, saved.id, file);
@@ -417,6 +525,9 @@ export function PaymentVoucherDialog({
             </div>
           )}
 
+          {/* Bốn số theo đúng công thức mới: nợ = HÀNG ĐÃ VỀ − đã chi ròng. Ô cuối đổi nghĩa theo
+              LOẠI phiếu đang chọn, nên nhãn của nó cũng phải đổi — để nguyên "Còn được lập" là
+              người dùng không biết con số đang đo cái gì. */}
           <div className="acct-summary-strip">
             <div>
               <span>Tổng PMH</span>
@@ -425,17 +536,19 @@ export function PaymentVoucherDialog({
               </strong>
             </div>
             <div>
-              <span>Đã chi</span>
-              <strong>{purchase.paid_amount.toLocaleString("vi-VN")} đ</strong>
-            </div>
-            <div>
-              <span>Đang chờ chi</span>
+              <span>Hàng đã giao</span>
               <strong>
-                {purchase.pending_amount.toLocaleString("vi-VN")} đ
+                {purchase.gia_tri_da_giao.toLocaleString("vi-VN")} đ
               </strong>
             </div>
             <div>
-              <span>Còn được lập</span>
+              <span>Đã chi ròng</span>
+              <strong>{purchase.net_paid.toLocaleString("vi-VN")} đ</strong>
+            </div>
+            <div>
+              <span>
+                {loai === "dat_coc" ? "Trần đặt cọc" : "Công nợ (trần chi)"}
+              </span>
               <strong>{maxAmountVnd.toLocaleString("vi-VN")} đ</strong>
             </div>
           </div>
@@ -466,32 +579,115 @@ export function PaymentVoucherDialog({
             </div>
           )}
 
+          {/* LOẠI PHIẾU đứng TRƯỚC mọi ô khác vì nó quyết định trần, đợt giao và số tiền điền
+              sẵn. Người dùng chọn sai ở đây thì mọi ô dưới đều sai theo. */}
+          <div className="acct-segment" aria-label="Loại phiếu">
+            <button
+              type="button"
+              className={loai === "dat_coc" ? "is-active" : ""}
+              onClick={() => chonLoai("dat_coc")}
+              disabled={!!voucher}
+            >
+              Đặt cọc / ứng trước
+            </button>
+            <button
+              type="button"
+              className={loai === "thanh_toan" ? "is-active" : ""}
+              onClick={() => chonLoai("thanh_toan")}
+              disabled={!!voucher || !coDotGiao}
+              title={
+                coDotGiao
+                  ? undefined
+                  : "Đơn chưa ghi đợt giao nào — hàng chưa về thì mọi khoản chi đều là đặt cọc."
+              }
+            >
+              Thanh toán
+            </button>
+          </div>
+          <p className="acct-loai-hint">
+            {loai === "dat_coc"
+              ? "Cọc là tiền chi khi hàng CHƯA về nên không gắn đợt giao. Trần tính theo giá trị đơn đặt; cọc trừ vào công nợ của cả đơn."
+              : "Trả cho một ĐỢT GIAO cụ thể. Trần đúng bằng công nợ đã phát sinh — chi quá là trả tiền cho hàng chưa về."}
+          </p>
+          {/* Đơn ĐÃ có phiếu cọc mà lại đang lập phiếu cọc nữa — CẢNH BÁO, không chặn.
+              Ứng thêm là ca có thật (cọc 30% rồi NCC đòi ứng thêm 20%), và mỗi lần tiền rời két
+              phải là một chứng từ riêng: sửa phiếu cọc cũ lên số to hơn là làm phiếu không khớp
+              lần chi thật. Nhưng bấm nhầm cũng là ca có thật, nên phải đập vào mắt. */}
+          {!voucher && loai === "dat_coc" && purchase.coc_da_lap.length > 0 && (
+            <div className="banner banner--warn" role="status">
+              Đơn này <strong>đã có {purchase.coc_da_lap.length} phiếu đặt cọc</strong> —{" "}
+              {purchase.coc_da_lap
+                .map(
+                  (c) =>
+                    `${c.doc_no ?? c.code} ${money(c.amount)} ngày ${fmtDate(c.voucher_date)}`,
+                )
+                .join(" · ")}
+              , tổng <strong>{money(purchase.coc_da_chi)}</strong>. Đây là phiếu cọc
+              thứ {purchase.coc_da_lap.length + 1}. Nếu chỉ muốn sửa số cọc cũ thì
+              đóng hộp này và sửa đúng phiếu đó.
+            </div>
+          )}
+
           <div className="acct-form-grid acct-form-grid--3">
-            <label className="acct-field">
-              <span>
-                Đợt thanh toán <b>*</b>
-              </span>
-              <select
-                className="input"
-                value={form.payment_stage}
-                onChange={(e) =>
-                  set("payment_stage", e.target.value as PaymentStage)
-                }
-              >
-                {Object.entries(STAGE_LABELS).map(([value, label]) => (
-                  <option
-                    key={value}
-                    value={value}
-                    disabled={
-                      (amountVnd === maxAmountVnd && value !== "final") ||
-                      (amountVnd !== maxAmountVnd && value === "final")
-                    }
-                  >
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {loai === "thanh_toan" && coDotGiao ? (
+              <label className="acct-field">
+                <span>
+                  Đợt giao <b>*</b>
+                </span>
+                <select
+                  className="input"
+                  value={form.delivery_id ?? ""}
+                  disabled={!!voucher}
+                  onChange={(e) => {
+                    // Đổi đợt là đổi TRẦN ⇒ điền lại số tiền theo đợt mới. Giữ số cũ là người dùng
+                    // bấm Lưu với con số của đợt trước rồi ăn lỗi mà không hiểu vì sao.
+                    const id = e.target.value ? Number(e.target.value) : null;
+                    setForm((current) => ({
+                      ...current,
+                      delivery_id: id,
+                      amount: conNoDot(purchase, id),
+                    }));
+                  }}
+                >
+                  <option value="">Chọn đợt giao</option>
+                  {purchase.deliveries.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      Đợt {d.seq_no} · {fmtDate(d.delivery_date)} ·{" "}
+                      {d.con_no > 0 ? `còn nợ ${money(d.con_no)}` : "đã trả xong"}
+                    </option>
+                  ))}
+                </select>
+                {dotDangChon && (
+                  <small>
+                    Giá trị đợt {money(dotDangChon.amount)} · đã trả{" "}
+                    {money(dotDangChon.paid_amount)}
+                    {dotDangChon.coc_bu > 0 && ` · cọc bù ${money(dotDangChon.coc_bu)}`}
+                    {` · còn nợ ${money(dotDangChon.con_no)}`}
+                    {dotDangChon.invoice_number
+                      ? ` · HĐ ${dotDangChon.invoice_number}`
+                      : " · chưa gán hóa đơn"}
+                  </small>
+                )}
+              </label>
+            ) : (
+              <label className="acct-field">
+                <span>Đợt thanh toán</span>
+                <select
+                  className="input"
+                  value={form.payment_stage}
+                  disabled={loai === "dat_coc"}
+                  onChange={(e) =>
+                    set("payment_stage", e.target.value as PaymentStage)
+                  }
+                >
+                  {Object.entries(STAGE_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="acct-field">
               <span>
                 Ngày chứng từ <b>*</b>
@@ -506,26 +702,9 @@ export function PaymentVoucherDialog({
                 onChange={(e) => set("voucher_date", e.target.value)}
               />
             </label>
-            <label className="acct-field">
-              {/* Tên cũ "Ngày dự kiến chi" nghe như tuỳ ý, mà đây là HẠN TRẢ — cột "Quá hạn" ở màn
-                  Công nợ so đúng ngày này. Bỏ trống thì phiếu KHÔNG BAO GIỜ bị báo quá hạn, kế
-                  toán nhìn bảng thấy sạch trong khi đang trễ. Server cũng chặn, đây chỉ chặn sớm. */}
-              <span>
-                Hạn trả tiền <b>*</b>
-              </span>
-              {/* Hạn trả QUÁ KHỨ vẫn hợp lệ — nhập bù khoản đã trễ thì phải giữ đúng ngày để nó
-                  hiện đỏ ngay; ép sang tương lai là làm giả nợ. Chỉ chặn hạn TRƯỚC ngày chứng từ. */}
-              <input
-                className="input"
-                type="date"
-                required
-                min={form.voucher_date || undefined}
-                value={form.planned_payment_date ?? ""}
-                onChange={(e) =>
-                  set("planned_payment_date", e.target.value || null)
-                }
-              />
-            </label>
+            {/* Ô "Hạn trả tiền" ĐÃ BỎ (06/08/2026). Phiếu chi là tiền đã ra thì nó không có hạn
+                trả; hạn nay thuộc về ĐỢT GIAO (`due_date`, suy từ số ngày cho nợ của NCC), khai ở
+                màn Mua hàng. Để lại ô này là đẻ hai nơi khai cùng một thứ. */}
             <label className="acct-field">
               <span>
                 Số tiền nguyên tệ <b>*</b>
@@ -538,6 +717,9 @@ export function PaymentVoucherDialog({
                 value={form.amount}
                 onChange={(e) => set("amount", Number(e.target.value))}
               />
+              <small>
+                Tối đa {maxAmountVnd.toLocaleString("vi-VN")} đ
+              </small>
             </label>
             <label className="acct-field">
               <span>

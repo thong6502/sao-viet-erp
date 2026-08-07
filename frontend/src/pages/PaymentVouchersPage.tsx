@@ -31,11 +31,13 @@ import "./purchase.css";
 
 const PAGE_SIZE = 20;
 
+/** Chỉ còn HAI trạng thái từ 06/08/2026 (Đ1): lập phiếu chi = tiền đã ra. Bậc "Chờ chi" và nút
+ *  "Xác nhận đã chi" đã bỏ hẳn — bên nghiệp vụ nói thẳng *"tạo phiếu chi là đã chi tiền rồi còn
+ *  công nợ cái gì"*. Phiếu ghi nhận nhầm thì HUỶ (bắt lý do), không lùi về chờ. */
 const STATUS_META: Record<
   PaymentVoucherStatus,
   { label: string; tone: string }
 > = {
-  waiting_payment: { label: "Chờ chi", tone: "waiting" },
   paid: { label: "Đã chi", tone: "paid" },
   cancelled: { label: "Đã hủy", tone: "cancelled" },
 };
@@ -99,7 +101,7 @@ export function PaymentVouchersPage({
     navigate("yeu-cau-mua-hang", { focusRequestCode: code });
   const openReceipts = (query: string) =>
     navigate("ke-toan-phieu-thu", { focusReceiptQuery: query });
-  const canMarkPaid = can("ke_toan", "manage_status");
+  // KHÔNG còn `canMarkPaid`: bước "Xác nhận đã chi" đã bỏ cùng với trạng thái Chờ chi (Đ1).
   const canCancel = can("ke_toan", "cancel");
   const canExport = can("ke_toan", "export");
   const [rows, setRows] = useState<PaymentVoucherRow[]>([]);
@@ -116,8 +118,6 @@ export function PaymentVouchersPage({
     voucher: PaymentVoucherRow | null;
     purchase: PurchaseRequestRow;
   }>(null);
-  const [marking, setMarking] = useState<PaymentVoucherRow | null>(null);
-  const [bankReference, setBankReference] = useState("");
   const [cancelling, setCancelling] = useState<PaymentVoucherRow | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [receiptFor, setReceiptFor] = useState<PaymentVoucherRow | null>(null);
@@ -258,23 +258,7 @@ export function PaymentVouchersPage({
   }
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  async function openEdit(row: PaymentVoucherRow) {
-    if (!token) return;
-    setBusy(true);
-    try {
-      const purchase = await api.purchaseRequests.get(
-        token,
-        row.purchase_request_id,
-      );
-      setEditState({ voucher: row, purchase });
-    } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Không tải được PMH nguồn.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
+  // ĐÃ GỠ 07/08/2026 — `openEdit`. Không còn đường sửa phiếu chi đã lập.
 
   // async function openTopUp(row: PaymentVoucherRow) {
   //   if (!token) return;
@@ -285,13 +269,16 @@ export function PaymentVouchersPage({
   //       token,
   //       row.purchase_request_id,
   //     );
-  //     if (!["approved", "purchased", "received"].includes(purchase.status)) {
+  //     if (!["approved", "purchased", "partially_received", "received"]
+  //           .includes(purchase.status)) {
   //       setError(
   //         `PMH ${purchase.code} không còn ở trạng thái được lập chứng từ.`,
   //       );
   //       return;
   //     }
-  //     if (purchase.available_amount <= 0) {
+  //     // `available_amount` ĐÃ BỎ (06/08/2026). Trần nay có HAI mức theo loại phiếu:
+  //     // `tran_dat_coc` (đặt cọc) và `outstanding_amount` = công nợ (thanh toán).
+  //     if (Math.max(purchase.tran_dat_coc, purchase.outstanding_amount) <= 0) {
   //       setError(`PMH ${purchase.code} đã được lập đủ chứng từ thanh toán.`);
   //       return;
   //     }
@@ -304,31 +291,6 @@ export function PaymentVouchersPage({
   //     setBusy(false);
   //   }
   // }
-
-  async function confirmPaid() {
-    if (!token || !marking) return;
-    if (marking.voucher_type === "bank_transfer" && !bankReference.trim()) {
-      setError("UNC phải có mã giao dịch hoặc số báo nợ.");
-      return;
-    }
-    setBusy(true);
-    try {
-      await api.accounting.markVoucherPaid(
-        token,
-        marking.id,
-        bankReference.trim() || null,
-      );
-      setMarking(null);
-      setBankReference("");
-      load();
-    } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Không xác nhận được chứng từ.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function confirmCancel() {
     if (!token || !cancelling) return;
@@ -370,15 +332,10 @@ export function PaymentVouchersPage({
             In phiếu
           </Button>
         )}
-        {canApprove && row.status === "waiting_payment" && (
-          <Button
-            variant="ghost"
-            onClick={() => closeDetailThen(() => openEdit(row))}
-            disabled={busy}
-          >
-            Sửa
-          </Button>
-        )}
+        {/* KHÔNG có nút SỬA (chủ chốt 07/08/2026): phiếu chi phát hành ra là TIỀN ĐÃ RỜI KÉT,
+            sửa nó là làm tờ giấy đang nằm ở chỗ nhà cung cấp khác với bản trong máy. Sai thì HUỶ
+            (giữ số chứng từ, có lý do) rồi lập phiếu mới — dấu vết còn đủ hai bản.
+            Thứ duy nhất còn sửa được là ĐÍNH KÈM tài liệu: hoá đơn / UNC thường về sau khi chi. */}
         {/* {canApprove && row.status === "paid" && (
           <Button
             variant="ghost"
@@ -400,32 +357,24 @@ export function PaymentVouchersPage({
               Lập phiếu thu
             </Button>
           )} */}
-        {canMarkPaid && row.status === "waiting_payment" && (
-          <Button
-            variant="accent"
-            onClick={() =>
-              closeDetailThen(() => {
-                setMarking(row);
-                setBankReference("");
-              })
-            }
-          >
-            Xác nhận đã chi
-          </Button>
-        )}
-        {canCancel && row.status === "waiting_payment" && (
-          <Button
-            variant="danger"
-            onClick={() =>
-              closeDetailThen(() => {
-                setCancelling(row);
-                setCancelReason("");
-              })
-            }
-          >
-            Hủy
-          </Button>
-        )}
+        {/* HUỶ nay áp cho phiếu ĐÃ CHI — dùng cho ca ghi nhận nhầm. Bắt lý do; server chặn nếu
+            phiếu đã có phiếu thu gắn vào (tiền đã hoàn về thì không xoá dấu vết được nữa), nên
+            nút vẫn hiện và người dùng nhận đúng câu báo thay vì im lặng không có lối. */}
+        {canCancel &&
+          row.status === "paid" &&
+          row.receipt_received_amount + row.receipt_pending_amount === 0 && (
+            <Button
+              variant="danger"
+              onClick={() =>
+                closeDetailThen(() => {
+                  setCancelling(row);
+                  setCancelReason("");
+                })
+              }
+            >
+              Hủy
+            </Button>
+          )}
       </div>
     );
   }
@@ -436,8 +385,9 @@ export function PaymentVouchersPage({
         <p className="eyebrow">Kế toán</p>
         <h1 className="md-page__title">{VOUCHER_PAGE_LABEL}</h1>
         <p className="md-page__sub">
-          Theo dõi chứng từ chờ chi, đã chi và truy ngược về PMH cùng YCMH
-          nguồn.
+          Lập phiếu chi là tiền đã ra khỏi két — phiếu sinh ra đã là "Đã chi".
+          Ghi nhận nhầm thì hủy phiếu (bắt lý do), truy ngược được về PMH và
+          YCMH nguồn.
         </p>
       </header>
       {error && (
@@ -695,6 +645,18 @@ export function PaymentVouchersPage({
               <dd>{STAGE_LABELS[selected.payment_stage]}</dd>
             </div>
             <div>
+              <dt>Trả cho đợt giao</dt>
+              {/* Không có đợt là hai ca KHÁC nhau, phải nói ra: phiếu đặt cọc (hàng chưa về nên
+                  chưa có đợt nào để gắn) và phiếu cũ lập trước khi có khái niệm đợt giao. */}
+              <dd>
+                {selected.delivery_seq_no != null
+                  ? `Đợt ${selected.delivery_seq_no}`
+                  : selected.payment_stage === "advance"
+                    ? "Không gắn đợt (đặt cọc)"
+                    : "Đơn không theo dõi theo đợt"}
+              </dd>
+            </div>
+            <div>
               <dt>Người lập</dt>
               <dd>{selected.created_by_name || "—"}</dd>
             </div>
@@ -875,48 +837,8 @@ export function PaymentVouchersPage({
           }}
         />
       )}
-      {marking && (
-        <div className="acct-modal" role="dialog" aria-modal="true">
-          <div className="acct-modal__box">
-            <header className="acct-modal__head">
-              <h2>Xác nhận đã chi {marking.code}</h2>
-              <button
-                type="button"
-                className="acct-modal__x"
-                onClick={() => setMarking(null)}
-              >
-                ×
-              </button>
-            </header>
-            <div className="acct-modal__body">
-              <p>
-                Số tiền: <strong>{money(marking.amount_vnd)}</strong>
-              </p>
-              {marking.voucher_type === "bank_transfer" && (
-                <label className="acct-field">
-                  <span>
-                    Mã giao dịch / Số báo nợ <b>*</b>
-                  </span>
-                  <input
-                    autoFocus
-                    className="input"
-                    value={bankReference}
-                    onChange={(event) => setBankReference(event.target.value)}
-                  />
-                </label>
-              )}
-            </div>
-            <footer className="acct-modal__foot">
-              <Button variant="ghost" onClick={() => setMarking(null)}>
-                Hủy
-              </Button>
-              <Button variant="accent" loading={busy} onClick={confirmPaid}>
-                Xác nhận đã chi
-              </Button>
-            </footer>
-          </div>
-        </div>
-      )}
+      {/* ĐÃ GỠ 06/08/2026 — hộp "Xác nhận đã chi". Phiếu lập ra đã là tiền ra khỏi két, không còn
+          bước xác nhận nào ở giữa (Đ1). Endpoint `mark-paid` cũng đã gỡ khỏi backend. */}
       {cancelling && (
         <div className="acct-modal" role="dialog" aria-modal="true">
           <div className="acct-modal__box">

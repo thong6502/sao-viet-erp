@@ -16,6 +16,9 @@ interface RowActionButtonProps {
   variant?: "accent" | "ghost";
   loading?: boolean;
   danger?: boolean;
+  /** Nút thấy được nhưng bấm không được. Tooltip vẫn hiện vì nó nằm ở `<span>` bọc ngoài —
+   *  `:hover` trên chính nút disabled thì trình duyệt nuốt mất sự kiện. */
+  disabled?: boolean;
   onClick: () => void;
 }
 
@@ -26,6 +29,7 @@ export function RowActionButton({
   variant = "ghost",
   loading = false,
   danger = false,
+  disabled = false,
   onClick,
 }: RowActionButtonProps) {
   const tooltipId = useId();
@@ -43,6 +47,7 @@ export function RowActionButton({
       variant={variant}
       className={className}
       loading={loading}
+      disabled={disabled}
       aria-label={dense ? label : undefined}
       aria-describedby={dense ? tooltipId : undefined}
       onClick={onClick}

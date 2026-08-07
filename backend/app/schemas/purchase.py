@@ -16,6 +16,30 @@ class SupplierItemIn(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
 
 
+class SupplierItemImportRow(BaseModel):
+    """Một mặt hàng ĐỌC ĐƯỢC từ file — chưa vào DB, mới chỉ nạp vào form."""
+
+    item_name: str
+    unit: str
+    unit_price: int
+    vat_percent: float
+    note: str | None = None
+
+
+class SupplierItemImportError(BaseModel):
+    #: Số dòng trong file EXCEL (đã tính cả dòng tiêu đề) — người dùng mở file là nhảy đúng chỗ.
+    row: int
+    message: str
+
+
+class SupplierItemImportOut(BaseModel):
+    """Kết quả ĐỌC file. Dòng hỏng không huỷ dòng lành: `items` và `errors` cùng có mặt."""
+
+    items: list[SupplierItemImportRow] = Field(default_factory=list)
+    errors: list[SupplierItemImportError] = Field(default_factory=list)
+    total_rows: int = 0
+
+
 class SupplierIn(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     tax_code: str = Field(min_length=1, max_length=20)
@@ -25,6 +49,11 @@ class SupplierIn(BaseModel):
     contact_name: str = Field(min_length=1, max_length=255)
     supplier_group: str = Field(min_length=1, max_length=32)
     payment_terms: str | None = Field(default=None, max_length=255)
+    # HẠN MỨC công nợ (VNĐ). 0 = không đặt hạn mức ⇒ không bao giờ báo vượt.
+    credit_limit: int = Field(default=0, ge=0)
+    # ĐỊNH MỨC = số NGÀY cho nợ kể từ ngày giao. 0 = trả ngay · None = CHƯA ĐẶT hạn (đợt giao của
+    # NCC này không vào cột Quá hạn). Hai thứ khác nhau, đừng ép None thành 0.
+    credit_days: int | None = Field(default=None, ge=0)
     status: str = Field(default="active", max_length=16)
     note: str | None = Field(default=None, max_length=2000)
     items: list[SupplierItemIn] = Field(default_factory=list)
@@ -59,6 +88,8 @@ class SupplierRow(BaseModel):
     contact_name: str | None = None
     supplier_group: str | None = None
     payment_terms: str | None = None
+    credit_limit: int = 0
+    credit_days: int | None = None
     status: str
     note: str | None = None
     created_at: datetime
@@ -108,9 +139,12 @@ class DepartmentPurchaseRequestLineIn(BaseModel):
 
 class DepartmentPurchaseRequestIn(BaseModel):
     source_type: str | None = Field(default=None, max_length=32)
+    # Ô GỘP "Nội dung / mục đích" (07/08/2026). Client cũ còn gửi `purpose` + `note`, server nối
+    # lại — bắt mọi nơi gọi API đổi cùng lúc với giao diện là chuyện không xảy ra được.
+    content: str | None = Field(default=None, max_length=4000)
     related_document_type: str | None = Field(default=None, max_length=64)
     related_document_code: str | None = Field(default=None, max_length=64)
-    purpose: str = Field(min_length=1, max_length=500)
+    purpose: str | None = Field(default=None, max_length=500)
     needed_date: date
     note: str | None = Field(default=None, max_length=2000)
     lines: list[DepartmentPurchaseRequestLineIn] = Field(min_length=1)
@@ -118,8 +152,9 @@ class DepartmentPurchaseRequestIn(BaseModel):
 
 class PurchaseRequestIn(BaseModel):
     supplier_id: int = Field(gt=0)
+    content: str | None = Field(default=None, max_length=4000)
     source_request_ids: list[int] = Field(min_length=1)
-    purpose: str = Field(min_length=1, max_length=500)
+    purpose: str | None = Field(default=None, max_length=500)
     needed_date: date
     expected_receipt_date: date | None = None
     note: str | None = Field(default=None, max_length=2000)
@@ -143,11 +178,24 @@ class PurchaseRequestBatchIn(BaseModel):
     không để lại phiếu mồ côi."""
 
     source_request_ids: list[int] = Field(min_length=1)
-    purpose: str = Field(min_length=1, max_length=500)
+    content: str | None = Field(default=None, max_length=4000)
+    purpose: str | None = Field(default=None, max_length=500)
     needed_date: date
     expected_receipt_date: date | None = None
     note: str | None = Field(default=None, max_length=2000)
     lines: list[PurchaseRequestBatchLineIn] = Field(min_length=1)
+
+
+class StatusHistoryOut(BaseModel):
+    """Một lần đổi trạng thái. `source='may'` ⇒ hệ TỰ SUY, `changed_by_name` để trống."""
+
+    id: int
+    from_status: str | None = None
+    to_status: str
+    source: str
+    changed_by_name: str | None = None
+    reason: str | None = None
+    created_at: datetime
 
 
 class PurchaseRequestLineOut(BaseModel):
@@ -211,6 +259,9 @@ class DepartmentPurchaseRequestOut(BaseModel):
     related_document_type: str | None = None
     related_document_code: str | None = None
     purpose: str
+    content: str | None = None
+    reject_reason: str | None = None
+    status_history: list[StatusHistoryOut] = Field(default_factory=list)
     needed_date: date
     note: str | None = None
     created_at: datetime
@@ -234,10 +285,104 @@ class PurchaseRequestSourceOut(BaseModel):
     code: str
     status: str | None = None
     source_type: str | None = None
+    content: str | None = None
     purpose: str | None = None
     needed_date: date | None = None
     requesting_department_name: str | None = None
     requested_by_name: str | None = None
+
+
+class PurchaseDeliveryLineOut(BaseModel):
+    id: int
+    purchase_request_line_id: int
+    item_name: str
+    unit: str
+    quantity: float
+    note: str | None = None
+
+
+class PurchaseDeliveryOut(BaseModel):
+    id: int
+    seq_no: int
+    delivery_date: date
+    due_date: date | None = None
+    # True = NCC chưa khai số ngày cho nợ ⇒ đợt này không bao giờ vào cột Quá hạn. Màn hình phải
+    # đẩy nó lên đầu kèm badge, không để chìm — im lặng ở đây là một món nợ không ai canh.
+    chua_dat_han: bool = False
+    invoice_number: str | None = None
+    invoice_date: date | None = None
+    note: str | None = None
+    # Thành tiền của đợt — MÁY TÍNH từ số lượng × đơn giá/CK/VAT đã chốt trên phiếu, không ai gõ
+    # tay (chủ chốt 07/08/2026, đảo lại quyết định 06/08).
+    amount: int
+    paid_amount: int = 0
+    # Cọc của cả đơn chiếu xuống đợt này, và phần CÒN NỢ sau khi trừ cả hai.
+    # `con_no` là TRẦN lập phiếu chi thanh toán cho đợt — form phải bám nó, KHÔNG bám công nợ cả
+    # đơn (lỗi 07/08/2026: trả thừa cho đợt 2 xoá sổ luôn nợ của đợt 1).
+    coc_bu: int = 0
+    con_no: int = 0
+    # Đợt giao đẻ ra công nợ ⇒ phải truy được ai khai, lúc nào.
+    created_by_name: str | None = None
+    created_at: datetime | None = None
+    lines: list[PurchaseDeliveryLineOut] = Field(default_factory=list)
+
+
+class PurchaseAttachmentOut(BaseModel):
+    id: int
+    delivery_id: int | None = None
+    kind: str
+    file_name: str
+    file_url: str
+    file_type: str | None = None
+    uploaded_by_name: str | None = None
+    uploaded_at: datetime
+
+
+class PurchaseDeliveryLineIn(BaseModel):
+    purchase_request_line_id: int
+    quantity: float = Field(gt=0)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class PurchaseDeliveryIn(BaseModel):
+    delivery_date: date
+    due_date: date | None = None
+    invoice_number: str | None = Field(default=None, max_length=64)
+    invoice_date: date | None = None
+    note: str | None = Field(default=None, max_length=2000)
+    # None khi SỬA = giữ nguyên các dòng hàng, chỉ đổi phần đầu đợt (ngày, hạn, hoá đơn).
+    lines: list[PurchaseDeliveryLineIn] | None = None
+
+
+class PurchaseInvoiceAssignIn(BaseModel):
+    """Gán MỘT hoá đơn cho NHIỀU đợt giao — ca NCC giao 3 đợt rồi mới xuất một hoá đơn chung."""
+
+    delivery_ids: list[int] = Field(min_length=1)
+    invoice_number: str | None = Field(default=None, max_length=64)
+    invoice_date: date | None = None
+
+
+class PurchaseContractIn(BaseModel):
+    contract_number: str | None = Field(default=None, max_length=64)
+    # Cọc DỰ KIẾN — chỉ để đối chiếu, KHÔNG vào công thức công nợ (cọc thật là phiếu chi).
+    deposit_expected: int = Field(default=0, ge=0)
+
+
+class SupplierCreditOut(BaseModel):
+    credit_limit: int = 0
+    credit_days: int | None = None
+    no_hien_tai: int = 0
+    vuot_han_muc: bool = False
+    vuot_bao_nhieu: int = 0
+
+
+class PurchaseDepositVoucherOut(BaseModel):
+    """Một phiếu ĐẶT CỌC đã lập cho phiếu mua — chỉ để form phiếu chi cảnh báo trùng."""
+
+    code: str
+    doc_no: str | None = None
+    amount: int
+    voucher_date: date
 
 
 class PurchaseRequestOut(BaseModel):
@@ -258,18 +403,33 @@ class PurchaseRequestOut(BaseModel):
     note: str | None = None
     created_at: datetime
     updated_at: datetime
+    content: str | None = None
+    reject_reason: str | None = None
+    status_history: list[StatusHistoryOut] = Field(default_factory=list)
+    contract_number: str | None = None
+    deposit_expected: int = 0
     total_estimate: int
-    # Giá trị hàng THỰC NHẬN — công nợ và trần lập phiếu chi bám số này, không bám `total_estimate`.
+    # Giá trị hàng THỰC NHẬN (theo số đã khai / Σ đợt giao).
     received_total: int = 0
-    pending_amount: int
+    # Giá trị hàng ĐÃ VỀ — số đẻ ra công nợ. Đơn chưa giao đợt nào thì = 0 dù đơn to bao nhiêu.
+    gia_tri_da_giao: int = 0
     paid_amount: int
     receipt_received_amount: int = 0
+    net_paid: int = 0
+    # = CÔNG NỢ của phiếu, và cũng là trần lập phiếu chi THANH TOÁN.
     outstanding_amount: int
-    available_amount: int
+    # Trần lập phiếu ĐẶT CỌC — theo giá trị đơn đặt, vì cọc là chi khi hàng chưa về.
+    tran_dat_coc: int = 0
+    # Phiếu đặt cọc ĐÃ lập cho đơn này. Dùng để CẢNH BÁO khi lập phiếu cọc thứ hai — không chặn:
+    # ứng thêm là ca có thật, và mỗi lần tiền rời két phải có chứng từ riêng.
+    coc_da_lap: list[PurchaseDepositVoucherOut] = Field(default_factory=list)
+    coc_da_chi: int = 0
     payment_status: str
     payment_voucher_count: int
     sources: list[PurchaseRequestSourceOut]
     lines: list[PurchaseRequestLineOut]
+    deliveries: list[PurchaseDeliveryOut] = Field(default_factory=list)
+    attachments: list[PurchaseAttachmentOut] = Field(default_factory=list)
 
 
 class PurchaseRequestListOut(BaseModel):

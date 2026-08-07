@@ -153,14 +153,7 @@ def _upload(client, headers, voucher_id: int, *, name="hoa-don.jpg", data=b"anh-
 def _paid_receipt(client, headers, supplier_id: int) -> dict:
     """Phiếu chi đã chi → lập 1 phiếu thu 300k (chờ thu)."""
     voucher = _voucher(client, headers, supplier_id)
-    assert (
-        client.post(
-            f"/api/accounting/payment-vouchers/{voucher['id']}/mark-paid",
-            json={"bank_reference": None},
-            headers=headers,
-        ).status_code
-        == 200
-    )
+    assert voucher["status"] == "paid"
     created = client.post(
         f"/api/accounting/payment-vouchers/{voucher['id']}/receipts",
         json={
@@ -245,14 +238,7 @@ def test_upload_allowed_after_paid_blocked_after_cancelled(client):
     headers = _headers(client)
     supplier = _supplier(client, headers)
     paid = _voucher(client, headers, supplier["id"])
-    assert (
-        client.post(
-            f"/api/accounting/payment-vouchers/{paid['id']}/mark-paid",
-            json={"bank_reference": None},
-            headers=headers,
-        ).status_code
-        == 200
-    )
+    assert paid["status"] == "paid"
     after_paid = _upload(client, headers, paid["id"])
     assert after_paid.status_code == 201, after_paid.text  # hóa đơn về sau khi chi
 

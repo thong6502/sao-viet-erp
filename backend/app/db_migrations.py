@@ -5603,3 +5603,155 @@ def _migrate_noi_dong_phieu_mua_voi_dong_yeu_cau(db: Session) -> None:
 MIGRATIONS.append(
     ("0167_noi_dong_phieu_mua_voi_dong_yeu_cau", _migrate_noi_dong_phieu_mua_voi_dong_yeu_cau)
 )
+
+
+def _migrate_dot_giao_va_han_muc_ncc(db: Session) -> None:
+    """Cột nền cho ĐỢT GIAO + HẠN MỨC công nợ NCC (chủ chốt 06/08/2026 — docs/prd-mua-hang-cong-no.md).
+
+    Ba bảng MỚI (`purchase_deliveries`, `purchase_delivery_lines`, `purchase_attachments`) do
+    `create_all` lo — chúng đã được export ở `models/__init__.py`. Migration này chỉ lo phần
+    `create_all` KHÔNG làm được: thêm cột vào bảng đã tồn tại.
+
+    - `suppliers.credit_limit` — trần tiền được nợ NCC. DEFAULT 0 = "không đặt hạn mức", nên mọi NCC
+      cũ không tự dưng bị gắn cờ vượt hạn mức.
+    - `suppliers.credit_days` — số ngày cho nợ. Để **NULL** (không DEFAULT 0) có chủ ý: 0 nghĩa là
+      "trả ngay" ⇒ đơn giao hôm nay mai đã đỏ Quá hạn. Đặt DEFAULT 0 là qua một đêm cả bảng công nợ
+      đỏ rực vì một quyết định không ai ra.
+    - `purchase_requests.contract_number` / `deposit_expected` — số hợp đồng + cọc dự kiến.
+      `deposit_expected` KHÔNG vào công thức công nợ (cọc thật là phiếu chi), chỉ để nhắc.
+    - `payment_vouchers.delivery_id` — phiếu chi trả cho đợt giao nào. NULL = phiếu đặt cọc, và cũng
+      là giá trị của mọi phiếu cũ ⇒ chúng tiếp tục được hiểu là "chi chung cho đơn", không phiếu nào
+      đổi ý nghĩa sau nâng cấp.
+
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+    them = (
+        ("suppliers", "credit_limit", "BIGINT NOT NULL DEFAULT 0"),
+        ("suppliers", "credit_days", "INTEGER"),
+        ("purchase_requests", "contract_number", "VARCHAR(64)"),
+        ("purchase_requests", "deposit_expected", "BIGINT NOT NULL DEFAULT 0"),
+        ("payment_vouchers", "delivery_id", "INTEGER"),
+    )
+    for bang, cot, kieu in them:
+        if bang not in ten_bang:
+            continue
+        if cot in _existing_columns(insp, bang):
+            continue
+        db.execute(text(f"ALTER TABLE {bang} ADD COLUMN {cot} {kieu}"))
+    if "payment_vouchers" in ten_bang:
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_delivery_id "
+            "ON payment_vouchers (delivery_id)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0168_dot_giao_va_han_muc_ncc", _migrate_dot_giao_va_han_muc_ncc))
+
+
+def _migrate_bo_trang_thai_cho_chi(db: Session) -> None:
+    """Bỏ trạng thái 'Chờ chi' của phiếu chi — lập phiếu chi = tiền ĐÃ RA (chủ chốt 06/08/2026, Đ1).
+
+    Bên nghiệp vụ nói thẳng: *"tạo phiếu chi là đã chi tiền rồi còn công nợ cái gì"*. Từ bản này
+    `create_voucher` sinh phiếu ở `paid` luôn, đường `waiting_payment` bị gỡ khỏi service lẫn UI.
+    Phiếu cũ đang treo ở `waiting_payment` mà để nguyên thì thành trạng thái mồ côi: không màn nào
+    chuyển tiếp được, và công nợ mới (chỉ trừ tiền ĐÃ chi) sẽ lờ chúng đi ⇒ nợ phình lên so với thật.
+
+    ⚠️ RỦI RO ĐÃ BIẾT, CHỦ CHẤP NHẬN: phiếu nào thực sự CHƯA chi cũng bị ghi nhận là đã chi, làm
+    công nợ tụt thấp hơn thật đúng bằng số đó. Vì thế mỗi phiếu bị chuyển đều được **đánh dấu vào
+    `note`** để kế toán lọc ra rà lại — không có dấu thì sau này không ai lần ngược nổi.
+
+    `paid_at` lấy `voucher_date` (ngày chứng từ) chứ không lấy giờ chạy migration: ngày chi phải rơi
+    đúng kỳ kế toán của phiếu, không phải kỳ của lần nâng cấp.
+
+    Chạy lần hai là no-op tự nhiên — không còn dòng `waiting_payment` nào để bắt."""
+    insp = inspect(db.get_bind())
+    if "payment_vouchers" not in insp.get_table_names():
+        return
+    cot = _existing_columns(insp, "payment_vouchers")
+    if not {"status", "paid_at", "voucher_date"} <= cot:
+        return
+    dau = "[MIGRATION 06/08/2026] Tu chuyen tu Cho chi — ke toan ra lai."
+    db.execute(
+        text(
+            "UPDATE payment_vouchers SET "
+            "  status = 'paid', "
+            "  paid_at = COALESCE(paid_at, voucher_date), "
+            "  paid_by_user_id = COALESCE(paid_by_user_id, created_by_user_id), "
+            "  note = CASE WHEN note IS NULL OR note = '' THEN :dau "
+            "              ELSE note || ' | ' || :dau END "
+            "WHERE status = 'waiting_payment'"
+        ),
+        {"dau": dau},
+    )
+    db.commit()
+
+
+MIGRATIONS.append(("0169_bo_trang_thai_cho_chi", _migrate_bo_trang_thai_cho_chi))
+
+
+def _migrate_so_tien_dot_giao_theo_hoa_don(db: Session) -> None:
+    """Đợt giao mang SỐ TIỀN theo hoá đơn, gõ tay (chủ 06/08/2026 — sửa Đ4 của PRD).
+
+    Thiết kế đầu để máy tự tính tiền đợt từ đơn giá đã chốt trên phiếu, cố ý KHÔNG có cột tiền.
+    Chủ bác bỏ: NCC xuất hoá đơn với số tiền không suy được từ đơn giá đặt (giao 500 cái mà hoá đơn
+    ghi 5tr). Máy tính ra một số không khớp chứng từ thì lúc đối chiếu với NCC là sai — mà chứng từ
+    mới là thứ đi đối chiếu.
+
+    Cột để **NULL** (không DEFAULT 0): null = chưa khai ⇒ lùi về số máy tính từ đơn giá. Đặt
+    DEFAULT 0 thì mọi đợt ghi trước thay đổi này hoá thành "trị giá 0đ" và công nợ của chúng biến
+    mất sạch.
+
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if ("purchase_deliveries" in insp.get_table_names()
+            and "amount" not in _existing_columns(insp, "purchase_deliveries")):
+        db.execute(text("ALTER TABLE purchase_deliveries ADD COLUMN amount BIGINT"))
+    db.commit()
+
+
+MIGRATIONS.append(("0170_so_tien_dot_giao_theo_hoa_don", _migrate_so_tien_dot_giao_theo_hoa_don))
+
+
+def _migrate_gop_noi_dung_va_lich_su_trang_thai(db: Session) -> None:
+    """Gộp `purpose` + `note` thành `content`, tách `reject_reason` (chủ chốt 07/08/2026).
+
+    Bảng `purchase_status_history` là bảng MỚI ⇒ `create_all` lo (đã export ở `models/__init__.py`).
+    Migration này chỉ lo phần `create_all` không làm được: thêm cột vào bảng đã tồn tại, và DỒN dữ
+    liệu cũ sang cột mới.
+
+    Vì sao phải dồn ngay trong migration: `content` là cột mà màn hình đọc từ bản này trở đi. Không
+    dồn thì mọi phiếu cũ mở ra hiện nội dung TRỐNG — nhìn như mất dữ liệu, trong khi chữ vẫn nằm
+    nguyên ở `purpose`/`note`.
+
+    `purpose` và `note` KHÔNG xoá: dự án không có Alembic, và `department_purchase_requests.purpose`
+    còn là NOT NULL. Chúng thành cột chết — service vẫn ghi `purpose` một bản sao cắt 500 ký tự để
+    ràng buộc cũ không vỡ, nhưng không ai ĐỌC nó nữa.
+
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+    for bang in ("department_purchase_requests", "purchase_requests"):
+        if bang not in ten_bang:
+            continue
+        cot = _existing_columns(insp, bang)
+        if "content" not in cot:
+            db.execute(text(f"ALTER TABLE {bang} ADD COLUMN content TEXT"))
+        if "reject_reason" not in cot:
+            db.execute(text(f"ALTER TABLE {bang} ADD COLUMN reject_reason TEXT"))
+        # Dồn: nội dung = mục đích, nối ghi chú nếu có. Chỉ dồn hàng CHƯA có content — chạy lần hai
+        # không được ghi đè thứ người dùng đã sửa ở bản mới.
+        db.execute(
+            text(
+                f"UPDATE {bang} SET content = CASE "
+                "  WHEN note IS NULL OR note = '' THEN purpose "
+                "  ELSE COALESCE(purpose, '') || ' — ' || note END "
+                "WHERE content IS NULL OR content = ''"
+            )
+        )
+    db.commit()
+
+
+MIGRATIONS.append(
+    ("0171_gop_noi_dung_va_lich_su_trang_thai", _migrate_gop_noi_dung_va_lich_su_trang_thai)
+)
