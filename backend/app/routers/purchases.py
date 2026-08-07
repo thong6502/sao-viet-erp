@@ -3,7 +3,16 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 
 from ..deps import CurrentUser, get_purchase_service, require_any_permission, require_permission
 from ..models.user import User
@@ -12,14 +21,19 @@ from ..schemas.purchase import (
     DepartmentPurchaseRequestIn,
     DepartmentPurchaseRequestListOut,
     DepartmentPurchaseRequestOut,
+    PurchaseContractIn,
+    PurchaseDeliveryIn,
+    PurchaseInvoiceAssignIn,
     PurchaseRequestBatchIn,
     PurchaseRequestIn,
     PurchaseRequestListOut,
     PurchaseRequestOut,
     ReasonIn,
     ReceivedLinesIn,
+    SupplierCreditOut,
     SupplierIn,
     SupplierItemCatalogOut,
+    SupplierItemImportOut,
     SupplierListOut,
     SupplierRow,
 )
@@ -180,6 +194,60 @@ def supplier_item_catalog(
     _: CurrentUser,
 ) -> SupplierItemCatalogOut:
     return SupplierItemCatalogOut(items=svc.list_supplier_item_catalog())
+
+
+def _xlsx_response(data: bytes, filename: str) -> Response:
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# Mẫu + xuất dùng quyền ĐỌC, nhập dùng quyền SỬA: hai file kia chỉ bày lại đúng thứ người ta đã
+# nhìn thấy trên màn, còn nhập là thay bảng giá của NCC.
+@router.get("/api/suppliers/items/template.xlsx")
+def supplier_items_template(
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> Response:
+    return _xlsx_response(svc.mau_vat_tu_xlsx(), "mau-vat-tu-nha-cung-cap.xlsx")
+
+
+@router.get("/api/suppliers/{supplier_id}/items/export.xlsx")
+def supplier_items_export(
+    supplier_id: int,
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> Response:
+    try:
+        data, filename = svc.xuat_vat_tu_xlsx(supplier_id)
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+    return _xlsx_response(data, filename)
+
+
+@router.post("/api/suppliers/items/import", response_model=SupplierItemImportOut)
+async def supplier_items_import(
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    file: UploadFile = File(...),
+) -> SupplierItemImportOut:
+    """ĐỌC file .xlsx → trả danh sách mặt hàng + lỗi từng dòng. KHÔNG ghi DB.
+
+    Không nhận `supplier_id`: bảng giá được lưu bằng cú `PUT /api/suppliers/{id}` của form, nên
+    ghi ở đây là đẻ đường ghi thứ hai — và NCC chưa lưu (đang tạo mới) thì cũng chưa có id để mà
+    nhập vào."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="File rỗng."
+        )
+    try:
+        ket_qua = svc.doc_vat_tu_xlsx(data)
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+    return SupplierItemImportOut(**ket_qua)
 
 
 @router.post("/api/suppliers", response_model=SupplierRow, status_code=status.HTTP_201_CREATED)
@@ -445,6 +513,191 @@ def cancel_purchase_request(
 ) -> PurchaseRequestOut:
     try:
         row = svc.cancel(request_id, reason=payload.reason, actor=user)
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
+
+
+# --- đợt giao ---------------------------------------------------------------
+#
+# Cổng ở router là `thu_mua:update` cho mọi thao tác ghi đợt giao. Riêng "Đóng đơn" service tự thu
+# về `thu_mua:approve` — nó cắt phần hàng chưa về ra khỏi công nợ nên là quyết định về TIỀN, cùng
+# lằn ranh đã áp cho `undo-received` và `cancel`.
+
+
+@router.post("/api/purchase-requests/{request_id}/deliveries", response_model=PurchaseRequestOut)
+def create_purchase_delivery(
+    request_id: int,
+    payload: PurchaseDeliveryIn,
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> PurchaseRequestOut:
+    body = payload.model_dump()
+    lines = body.pop("lines") or []
+    try:
+        row = svc.ghi_dot_giao(request_id, lines=lines, actor=user, **body)
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
+
+
+@router.put(
+    "/api/purchase-requests/{request_id}/deliveries/{delivery_id}",
+    response_model=PurchaseRequestOut,
+)
+def update_purchase_delivery(
+    request_id: int,
+    delivery_id: int,
+    payload: PurchaseDeliveryIn,
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> PurchaseRequestOut:
+    body = payload.model_dump()
+    lines = body.pop("lines")
+    try:
+        row = svc.sua_dot_giao(request_id, delivery_id, lines=lines, actor=user, **body)
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
+
+
+@router.delete(
+    "/api/purchase-requests/{request_id}/deliveries/{delivery_id}",
+    response_model=PurchaseRequestOut,
+)
+def delete_purchase_delivery(
+    request_id: int,
+    delivery_id: int,
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> PurchaseRequestOut:
+    try:
+        row = svc.xoa_dot_giao(request_id, delivery_id, actor=user)
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
+
+
+@router.post("/api/purchase-requests/{request_id}/invoice", response_model=PurchaseRequestOut)
+def assign_purchase_invoice(
+    request_id: int,
+    payload: PurchaseInvoiceAssignIn,
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> PurchaseRequestOut:
+    try:
+        row = svc.gan_hoa_don(
+            request_id,
+            delivery_ids=payload.delivery_ids,
+            invoice_number=payload.invoice_number,
+            invoice_date=payload.invoice_date,
+            actor=user,
+        )
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
+
+
+@router.post("/api/purchase-requests/{request_id}/close", response_model=PurchaseRequestOut)
+def close_purchase_request(
+    request_id: int,
+    payload: ReasonIn,
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> PurchaseRequestOut:
+    # Cổng `update` chỉ để vào module; service thu về `thu_mua:approve` + bắt lý do.
+    try:
+        row = svc.dong_don(request_id, reason=payload.reason, actor=user)
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
+
+
+@router.put("/api/purchase-requests/{request_id}/contract", response_model=PurchaseRequestOut)
+def update_purchase_contract(
+    request_id: int,
+    payload: PurchaseContractIn,
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> PurchaseRequestOut:
+    try:
+        row = svc.cap_nhat_hop_dong(
+            request_id,
+            contract_number=payload.contract_number,
+            deposit_expected=payload.deposit_expected,
+            actor=user,
+        )
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
+
+
+@router.get(
+    "/api/purchase-requests/{request_id}/supplier-credit", response_model=SupplierCreditOut
+)
+def get_purchase_supplier_credit(
+    request_id: int,
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> SupplierCreditOut:
+    """Nợ hiện tại của NCC so với hạn mức — CẢNH BÁO MỀM, không chặn gì (Đ6)."""
+    try:
+        row = svc.get_request(request_id, actor=user)
+        data = svc.han_muc_ncc(row.get("supplier_id"))
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+    return SupplierCreditOut(**data)
+
+
+@router.post(
+    "/api/purchase-requests/{request_id}/attachments",
+    response_model=PurchaseRequestOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def upload_purchase_attachment(
+    request_id: int,
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    kind: str = Query(default="khac"),
+    delivery_id: int | None = Query(default=None),
+    file: UploadFile = File(...),
+) -> PurchaseRequestOut:
+    data = file.file.read()
+    try:
+        row = svc.them_dinh_kem(
+            request_id,
+            delivery_id=delivery_id,
+            kind=kind,
+            file_name=file.filename,
+            content_type=file.content_type,
+            data=data,
+            actor=user,
+        )
+    except PurchaseError as exc:
+        raise _map_error(exc) from None
+    _notify_purchase_changed(row.get("code"))
+    return PurchaseRequestOut(**row)
+
+
+@router.delete(
+    "/api/purchase-requests/{request_id}/attachments/{attachment_id}",
+    response_model=PurchaseRequestOut,
+)
+def delete_purchase_attachment(
+    request_id: int,
+    attachment_id: int,
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> PurchaseRequestOut:
+    try:
+        row = svc.xoa_dinh_kem(request_id, attachment_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
     _notify_purchase_changed(row.get("code"))

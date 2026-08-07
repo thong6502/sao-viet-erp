@@ -526,6 +526,15 @@
   margin-bottom: var(--sp-4);
 }
 
+/* Câu giải thích dưới dải chọn LOẠI PHIẾU (Đặt cọc / Thanh toán). Hai loại khác nhau ở trần và ở
+   việc có gắn đợt giao hay không — không nói ra thì người lập chọn theo cảm tính. */
+.acct-loai-hint {
+  margin: calc(-1 * var(--sp-1)) 0 0;
+  color: var(--ash-2);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
+
 .acct-field {
   display: flex;
   flex-direction: column;
@@ -806,4 +815,17 @@
   .odq__btn {
     width: 100%;
   }
+}
+
+/* Hợp đồng + cọc dự kiến trong drawer Đơn mua hàng của kế toán.
+   Đứng SAU dải bốn con số tiền: nó là ghi chú cho việc lập phiếu chi, không phải một con số công
+   nợ — để lẫn vào dải trên là người đọc tưởng cọc dự kiến đã trừ vào nợ (nó không). */
+.acct-contract-facts {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--rule-soft);
+}
+
+.acct-contract-facts dd small {
+  color: var(--ash-2);
 }

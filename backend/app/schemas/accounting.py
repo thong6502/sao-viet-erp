@@ -46,7 +46,12 @@ class SupplierBankAccountOut(BankAccountBaseIn):
 class PaymentVoucherBaseIn(BaseModel):
     voucher_type: str = Field(min_length=1, max_length=24)
     payment_stage: str = Field(min_length=1, max_length=16)
+    # Đợt giao mà phiếu này trả cho. BẮT BUỘC với phiếu thanh toán; phải BỎ TRỐNG với phiếu đặt cọc
+    # (cọc là tiền chi khi hàng chưa về nên chưa có đợt nào để gắn).
+    delivery_id: int | None = Field(default=None, gt=0)
     voucher_date: date
+    # DORMANT từ 06/08/2026: phiếu chi là tiền đã ra nên không có hạn trả. Hạn trả nay thuộc về
+    # đợt giao (`purchase_deliveries.due_date`). Giữ khoá để client cũ không vỡ.
     planned_payment_date: date | None = None
     amount: int = Field(gt=0)
     currency: str = Field(default="VND", min_length=3, max_length=3)
@@ -75,8 +80,7 @@ class ApproveAndCreateVoucherIn(PaymentVoucherBaseIn):
     pass
 
 
-class MarkPaymentVoucherPaidIn(BaseModel):
-    bank_reference: str | None = Field(default=None, max_length=64)
+# ĐÃ GỠ 06/08/2026: `MarkPaymentVoucherPaidIn` — không còn bước "xác nhận đã chi" (Đ1).
 
 
 class CancelPaymentVoucherIn(BaseModel):
@@ -97,6 +101,9 @@ class PaymentVoucherOut(BaseModel):
     receipt_received_amount: int = 0
     receipt_pending_amount: int = 0
     attachment_count: int = 0
+    # NULL = phiếu đặt cọc, hoặc phiếu cũ lập trước khi có khái niệm đợt giao.
+    delivery_id: int | None = None
+    delivery_seq_no: int | None = None
     source_request_codes: list[str]
     supplier_id: int | None = None
     supplier_name: str
@@ -273,9 +280,14 @@ class PayableSupplierOut(BaseModel):
     # Số đơn CÒN NỢ (🔴 + 🟡). Đơn đã trả xong không đếm ở đây, nếu không cột này chửi nhau với
     # `total_due` — nhìn "12 đơn / còn nợ 5tr" là không hiểu đơn nào đang nợ.
     order_count: int
-    unrecorded_amount: int
-    waiting_amount: int
+    # Nợ đã QUÁ HẠN trả (theo hạn của từng đợt giao) và phần chưa tới hạn. Cộng lại = `total_due`.
     overdue_amount: int
+    no_han_amount: int = 0
+    credit_limit: int = 0
+    credit_days: int | None = None
+    # Cảnh báo MỀM: chỉ gắn cờ, không chặn lập/duyệt phiếu ở đâu cả (Đ6).
+    vuot_han_muc: bool = False
+    vuot_bao_nhieu: int = 0
     # Tiền ĐÃ CHI trong kỳ. NCC trả hết vẫn giữ được dòng nhờ số này ⇒ "đã trả hết" là thứ NHÌN
     # THẤY, không phải suy ra từ việc không thấy gì.
     paid_in_period: int = 0
@@ -285,44 +297,39 @@ class PayableSupplierOut(BaseModel):
 class PayablesSummaryOut(BaseModel):
     items: list[PayableSupplierOut]
     total_due: int
-    unrecorded_amount: int
-    waiting_amount: int
     overdue_amount: int
     paid_in_period: int = 0
+    vuot_han_muc_count: int = 0
     period_months: int = 3
     as_of: date
 
 
-class PayableUnrecordedOut(BaseModel):
-    """🔴 Hàng đã nhận mà chưa có phiếu chi phủ hết — nợ có thật, chưa vào sổ."""
+class PayableItemOut(BaseModel):
+    """Một khoản CÒN NỢ — thường là một ĐỢT GIAO chưa trả hết.
+
+    Phiếu cũ (lập trước 06/08/2026, không theo dõi theo đợt) hiện ở mức PHIẾU: `delivery_id` NULL,
+    `chua_dat_han` True. Không có hạn trả nên không bao giờ vào cột Quá hạn — vì thế nó phải nổi
+    lên đầu danh sách chứ không được chìm."""
 
     purchase_request_id: int
     code: str
     status: str
-    total_estimate: int
-    received_total: int
-    amount: int
-    expected_receipt_date: date | None = None
-
-
-class PayableWaitingOut(BaseModel):
-    """🟡 Đã lập phiếu, tiền chưa ra."""
-
-    voucher_id: int
-    code: str
-    doc_no: str | None = None
-    voucher_type: str
-    purchase_request_id: int
-    purchase_code: str
-    amount: int
-    # Số hoá đơn phân biệt các ĐỢT GIAO của cùng một đơn — thiếu nó thì ba đợt trông y hệt nhau.
+    delivery_id: int | None = None
+    seq_no: int | None = None
+    delivery_date: date | None = None
+    due_date: date | None = None
+    chua_dat_han: bool = False
+    overdue_days: int = 0
     invoice_number: str | None = None
     invoice_date: date | None = None
-    # None = phiếu cũ lập trước khi hạn trả thành bắt buộc ⇒ KHÔNG BAO GIỜ vào cột Quá hạn.
-    # Giao diện phải gắn badge "Chưa đặt hạn", đừng để nó lặng lẽ biến mất.
-    planned_payment_date: date | None = None
-    overdue_days: int = 0
-    has_attachment: bool = False
+    amount: int
+    # Tiền trả ĐÍCH DANH đợt này (phiếu chi có `delivery_id` trỏ đúng đợt) — cột này phải khớp
+    # sao kê NCC theo từng đợt.
+    paid: int = 0
+    # Phần CỌC của cả đơn chiếu xuống đợt này. Cố ý tách khỏi `paid`: không ai trả riêng cho đợt
+    # này số đó. Nhưng `con_no` thì đã trừ CẢ HAI.
+    coc_bu: int = 0
+    con_no: int
 
 
 class PayablePaidOut(BaseModel):
@@ -332,25 +339,51 @@ class PayablePaidOut(BaseModel):
     code: str
     doc_no: str | None = None
     voucher_type: str
+    payment_stage: str | None = None
+    delivery_id: int | None = None
+    # Số đợt (1, 2, 3…) để màn hình ghi "Đợt 2" thay vì "trả theo đợt" chung chung — cầm sao kê
+    # NCC đối chiếu thì phải biết dòng nào là đợt mấy.
+    delivery_seq_no: int | None = None
     purchase_request_id: int
     purchase_code: str
     amount: int
     invoice_number: str | None = None
     invoice_date: date | None = None
+    has_attachment: bool = False
     paid_date: date
+
+
+class PayableCocOut(BaseModel):
+    """Một khoản ĐẶT CỌC / ứng trước cho cả đơn — không gắn đợt giao nào."""
+
+    purchase_request_id: int
+    code: str
+    status: str
+    amount: int
+    # Phần cọc đã CHIẾU xuống các đợt của chính đơn này (giao trước bù trước) và phần còn dôi.
+    # Không có hai số này thì màn hình chỉ nói "trừ 100.000" mà không nói trừ vào đâu.
+    da_dung: int = 0
+    con_du: int = 0
 
 
 class PayablesDetailOut(BaseModel):
     supplier_id: int
     supplier_name: str
-    unrecorded: list[PayableUnrecordedOut]
-    waiting: list[PayableWaitingOut]
+    credit_limit: int = 0
+    credit_days: int | None = None
+    vuot_han_muc: bool = False
+    vuot_bao_nhieu: int = 0
+    items: list[PayableItemOut]
+    # CỌC / ứng trước của CẢ ĐƠN — không thuộc đợt nào nên hiện thành dòng riêng, KHÔNG nhét vào
+    # cột "đã trả" của một đợt (chủ chốt 06/08/2026). Nhét vào là bảng nói dối: người đối chiếu
+    # với NCC theo từng đợt sẽ không khớp được với sao kê.
+    coc_chung: list[PayableCocOut] = Field(default_factory=list)
+    coc_chung_amount: int = 0
     paid: list[PayablePaidOut]
     period_months: int
     # True = đã bỏ mốc kỳ, rổ "đã chi" đang hiện TOÀN BỘ lịch sử (nút "Xem lịch sử cũ hơn").
     all_history: bool = False
-    unrecorded_amount: int
-    waiting_amount: int
+    total_due: int
     overdue_amount: int
     paid_in_period: int
     as_of: date

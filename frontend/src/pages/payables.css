@@ -1,84 +1,96 @@
 /* Công nợ phải trả — bám tokens.css, không cắm giá trị thô (UI_DESIGN §1).
-   Ba màu nghĩa dùng đúng thang có sẵn: signal = quá hạn, amber = chưa vào sổ, moss = đã xong. */
+   Ba màu nghĩa dùng đúng thang có sẵn: signal = quá hạn, amber = cảnh báo, moss = đã xong. */
 
-.pay-kpis {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+/* --- Dải chỉ số (UI_DESIGN §4) ---
+   MỘT dải pill cao ~38px, KHÔNG phải 4 thẻ cao 80px+. Thẻ KPI cũ chiếm gần một phần tư màn hình
+   laptop cho thứ đọc mất một giây, đẩy bảng dữ liệu — nội dung thật của màn — xuống dưới nếp gấp.
+   Bản mẫu: `.rdx-compact-kpi` trong redesign-phong-ban.css. */
+.pay-kpibar {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--sp-3);
   margin-bottom: var(--sp-4);
-}
-
-.pay-kpis--4 {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-/* Laptop 1280–1440 vẫn đủ 4 cột; 1100 xuống 2 cột; hẹp nữa mới xếp dọc. */
-@media (max-width: 1100px) {
-  .pay-kpis--4 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 900px) {
-  .pay-kpis,
-  .pay-kpis--4 {
-    grid-template-columns: 1fr;
-  }
-}
-
-.pay-kpi {
-  background: var(--canvas);
+  padding: 5px var(--sp-4);
   border: 1px solid var(--rule-soft);
-  border-radius: var(--radius-2);
-  padding: var(--sp-3) var(--sp-4);
-  border-left: 3px solid var(--steel);
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  box-shadow: var(--shadow-1);
 }
 
-.pay-kpi--danger {
-  border-left-color: var(--signal);
+.pay-kpibar__item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 26px;
 }
 
-.pay-kpi--warn {
-  border-left-color: var(--amber);
+.pay-kpibar__sep {
+  width: 1px;
+  height: 18px;
+  background: var(--rule-soft);
 }
 
-.pay-kpi--ok {
-  border-left-color: var(--moss);
+/* Vòng icon 26px — liều màu NHỎ, đúng hạn mức của UI_DESIGN §3. */
+.pay-kpibar__icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
-.pay-kpi__label {
-  display: block;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--ash-2);
+.pay-kpibar__icon--steel {
+  color: var(--steel);
+  background: var(--steel-soft);
 }
 
-.pay-kpi__value {
-  display: block;
-  margin-top: 2px;
+.pay-kpibar__icon--danger {
+  color: var(--signal);
+  background: var(--signal-soft);
+}
+
+.pay-kpibar__icon--warn {
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+}
+
+.pay-kpibar__icon--ok {
+  color: var(--moss-deep);
+  background: var(--moss-soft);
+}
+
+.pay-kpibar__val {
   font-family: var(--ff-num);
   font-variant-numeric: tabular-nums;
-  font-size: 24px;
-  line-height: 1.2;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
   color: var(--ink);
+  white-space: nowrap;
 }
 
-.pay-kpi--danger .pay-kpi__value {
+.pay-kpibar__val--danger {
   color: var(--signal);
 }
 
-.pay-kpi--warn .pay-kpi__value {
-  color: var(--amber-deep);
-}
-
-.pay-kpi--ok .pay-kpi__value {
-  color: var(--moss-deep);
-}
-
-.pay-kpi small {
+.pay-kpibar__label {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
   color: var(--ash-2);
-  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Màn hẹp: dải xuống dòng chứ không cuộn ngang — vạch chia lúc đó vô nghĩa nên ẩn đi. */
+@media (max-width: 900px) {
+  .pay-kpibar {
+    display: flex;
+    border-radius: var(--r-5);
+  }
+
+  .pay-kpibar__sep {
+    display: none;
+  }
 }
 
 /* --- pill lọc --- */
@@ -156,9 +168,66 @@
   color: var(--moss-deep);
 }
 
+/* Cột "Còn nợ" — con số chính của cả bảng, phải nặng hơn các cột phân tách quanh nó. */
+.pay-cell--strong {
+  font-weight: var(--fw-bold);
+}
+
+/* --- Hạn mức NCC trong drawer ---
+   Bốn ô đứng ngay dưới tiêu đề: hạn mức · đang nợ · còn được nợ · số ngày cho nợ. Đây là khung để
+   đọc mọi con số bên dưới, nên nó phải đứng TRƯỚC danh sách khoản nợ. */
+.pay-credit {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  background: var(--paper);
+}
+
+.pay-credit dt {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ash-2);
+}
+
+.pay-credit dd {
+  margin: 2px 0 0;
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+@media (max-width: 900px) {
+  .pay-credit {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* Nhãn "Đã trả hết" — NCC còn nợ 0đ nhưng vẫn nằm trên bảng nhờ tiền đã chi trong kỳ. */
 .pay-ok {
   color: var(--moss-deep);
+}
+
+/* Ô tên NCC ở bảng ngoài. Phải CHO XUỐNG DÒNG vì nó còn đeo pill "Vượt hạn mức" — cảnh báo bị
+   cắt cụt thì thà không có. Tên dài vẫn gọn nhờ trần 280px + ngắt từ. */
+.pay-supplier-cell {
+  max-width: 280px;
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.pay-supplier-cell .pay-badge {
+  display: block;
+  width: fit-content;
+  margin-left: 0;
+  margin-top: 4px;
 }
 
 /* --- khối trong drawer --- */
@@ -290,4 +359,43 @@
 
 .pay-toggle:hover {
   color: var(--rust);
+}
+
+/* Một ĐƠN MUA trong drawer công nợ (07/08/2026). Trước đây mọi đợt của mọi đơn đổ phẳng vào một
+   bảng — có 3 đơn là ba nhóm đợt trộn lẫn, và dòng cọc ở đáy gộp cọc của cả ba. Gom lại thì mỗi
+   đơn tự mang cọc và tổng nợ của chính nó. */
+.pay-don + .pay-don {
+  margin-top: var(--sp-4);
+}
+
+.pay-don__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-2);
+}
+
+.pay-don__code {
+  font-family: var(--ff-num);
+  font-size: var(--fs-sm);
+}
+
+/* Cọc của CHÍNH đơn này. Tông dịu — nó là thông tin nền, không phải con số phải hành động. */
+.pay-don__coc {
+  color: var(--moss-deep);
+  font-size: var(--fs-xs);
+}
+
+/* Tổng nợ của đơn, đẩy sang phải để mắt chạy dọc mép phải giữa các đơn. */
+.pay-don__due {
+  margin-left: auto;
+  color: var(--ash);
+  font-size: var(--fs-xs);
+}
+
+.pay-don__due b {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--signal);
 }

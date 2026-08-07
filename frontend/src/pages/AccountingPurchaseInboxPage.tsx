@@ -4,6 +4,7 @@ import {
   api,
   type PurchaseRequestRow,
   type PurchaseRequestStatus,
+  type SupplierCredit,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
@@ -29,6 +30,7 @@ const STATUS_META: Record<
   approved: { label: "Đã duyệt", tone: "approved" },
   rejected: { label: "Từ chối", tone: "rejected" },
   purchased: { label: "Đã mua", tone: "purchased" },
+  partially_received: { label: "Giao một phần", tone: "partial" },
   received: { label: "Đã nhận", tone: "received" },
   cancelled: { label: "Đã hủy", tone: "cancelled" },
 };
@@ -130,6 +132,31 @@ export function AccountingPurchaseInboxPage({
     () => rows.find((row) => row.id === selectedId) ?? null,
     [rows, selectedId],
   );
+
+  // HẠN MỨC CÔNG NỢ của NCC trên đơn đang mở — CẢNH BÁO MỀM (Đ6): chỉ nhắc, KHÔNG chặn duyệt.
+  // Chặn cứng ở đây là đúng lúc gấp nhất (hết giấy, phải mua ngay) thì hệ khoá đường mua.
+  // Gọi riêng chứ không nhét vào danh sách: một lần một đơn, chỉ khi người ta thật sự mở ra xem.
+  const [credit, setCredit] = useState<SupplierCredit | null>(null);
+  useEffect(() => {
+    if (!token || selected == null) {
+      setCredit(null);
+      return;
+    }
+    let bo = false;
+    api.purchaseRequests
+      .supplierCredit(token, selected.id)
+      .then((data) => {
+        if (!bo) setCredit(data);
+      })
+      // Nuốt lỗi có chủ đích: đây là cảnh báo phụ, hỏng nó không được chặn màn chi tiết.
+      .catch(() => {
+        if (!bo) setCredit(null);
+      });
+    return () => {
+      bo = true;
+    };
+  }, [token, selected]);
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   /** Đóng popup rồi mới mở form — không chồng hai lớp cửa sổ. */
   function closeDetailThen(action: () => void) {
@@ -217,9 +244,15 @@ export function AccountingPurchaseInboxPage({
         {/* Chỉ đơn ĐÃ DUYỆT mới lập được phiếu chi — và người lập là KẾ TOÁN, không cần quyền
             duyệt. Backend cũng đã chặn (`accounting_service` chỉ nhận PMH từ approved trở lên),
             đây là lớp hiển thị cho khớp. */}
+        {/* Trần lập phiếu nay có HAI mức khác nhau (Đ1/§5.4): `tran_dat_coc` cho phiếu đặt cọc
+            (theo giá trị đơn đặt — cọc là chi khi hàng chưa về) và `outstanding_amount` = CÔNG NỢ
+            cho phiếu thanh toán. Còn chỗ ở một trong hai là còn lập được, nên nút hiện khi tổng
+            hai đường còn > 0; hộp thoại mới là chỗ chốt trần theo loại phiếu đã chọn. */}
         {canCreateVoucher &&
-          ["approved", "purchased", "received"].includes(row.status) &&
-          row.available_amount > 0 && (
+          ["approved", "purchased", "partially_received", "received"].includes(
+            row.status,
+          ) &&
+          Math.max(row.tran_dat_coc, row.outstanding_amount) > 0 && (
             <Button
               type="button"
               variant="primary"
@@ -298,12 +331,15 @@ export function AccountingPurchaseInboxPage({
         <table className="md-page__table">
           <thead>
             <tr>
+              {/* HAI cột trạng thái (đơn + thanh toán) đứng cạnh nhau, NGAY TRƯỚC Thao tác —
+                  thống nhất với các màn Thu mua / Kế toán khác. Trước đây "Trạng thái" nằm ở cột 2
+                  còn "Thanh toán" ở cột 5, mắt phải nhảy hai chỗ để đọc cùng một câu chuyện. */}
               <th>Mã phiếu</th>
-              <th>Trạng thái</th>
               <th>Nhà cung cấp</th>
               <th className="acct-amount-cell">Tổng PMH</th>
-              <th>Thanh toán</th>
               <th>Ngày cần</th>
+              <th>Trạng thái</th>
+              <th>Thanh toán</th>
               <th className="acct-action-cell">Thao tác</th>
             </tr>
           </thead>
@@ -341,13 +377,6 @@ export function AccountingPurchaseInboxPage({
                         ))}
                       </div>
                     </td>
-                    <td>
-                      <span
-                        className={`purchase__status purchase__status--${status.tone}`}
-                      >
-                        {status.label}
-                      </span>
-                    </td>
                     <td
                       className="acct-supplier-cell"
                       title={row.supplier_name ?? undefined}
@@ -356,12 +385,27 @@ export function AccountingPurchaseInboxPage({
                     </td>
                     <td className="acct-amount-cell">
                       <strong>{money(row.total_estimate)}</strong>
-                      {/* NCC giao thiếu thì trần lập phiếu chi tụt theo giá trị THỰC NHẬN. Không
-                          nói ra ở đây thì kế toán viết phiếu bằng số trên đơn rồi bị chặn mà không
-                          hiểu vì sao. */}
-                      {row.received_total < row.total_estimate && (
-                        <small>Thực nhận {money(row.received_total)}</small>
+                      {/* Trần lập phiếu chi THANH TOÁN bám giá trị hàng ĐÃ GIAO (tổng tiền hoá
+                          đơn các đợt). Không nói ra ở đây thì kế toán viết phiếu bằng số trên đơn
+                          rồi bị chặn mà không hiểu vì sao.
+
+                          CỐ Ý dùng `gia_tri_da_giao` chứ KHÔNG dùng `received_total`: cái sau tính
+                          theo ĐƠN GIÁ × số lượng, còn công nợ bám HOÁ ĐƠN. Hai số lệch nhau là
+                          bình thường, nhưng phơi cả hai ra thì người đọc so rồi hoang mang — mở
+                          chi tiết thấy "Hàng đã giao 1.000.000" mà ngoài bảng ghi 1.100.000. */}
+                      {row.gia_tri_da_giao < row.total_estimate && (
+                        <small>Đã giao {money(row.gia_tri_da_giao)}</small>
                       )}
+                    </td>
+                    <td className="acct-code-cell">
+                      {fmtDate(row.needed_date)}
+                    </td>
+                    <td>
+                      <span
+                        className={`purchase__status purchase__status--${status.tone}`}
+                      >
+                        {status.label}
+                      </span>
                     </td>
                     <td>
                       <span
@@ -370,9 +414,6 @@ export function AccountingPurchaseInboxPage({
                         {payment.label}
                       </span>
                       <small>{money(row.outstanding_amount)} còn lại</small>
-                    </td>
-                    <td className="acct-code-cell">
-                      {fmtDate(row.needed_date)}
                     </td>
                     <td className="acct-action-cell">
                       <button
@@ -431,6 +472,16 @@ export function AccountingPurchaseInboxPage({
           footer={actions(selected)}
           onClose={() => setSelectedId(null)}
         >
+          {/* Nhắc TRƯỚC khi bấm Duyệt, nhưng không khoá nút — người duyệt cầm số liệu rồi tự
+              quyết. Chỉ hiện khi NCC thật sự đã vượt: bày cả lúc bình thường là nhiễu. */}
+          {credit?.vuot_han_muc && (
+            <div className="banner banner--warn" role="status">
+              Nhà cung cấp này đang nợ {money(credit.no_hien_tai)} — vượt hạn
+              mức {money(credit.credit_limit)} là{" "}
+              <strong>{money(credit.vuot_bao_nhieu)}</strong>. Đây là cảnh báo,
+              không chặn duyệt.
+            </div>
+          )}
           <dl className="purchase__facts">
             <div>
               <dt>Nhà cung cấp</dt>
@@ -473,9 +524,21 @@ export function AccountingPurchaseInboxPage({
             </div>
           </dl>
           <div className="acct-purpose">
-            <span>Mục đích</span>
-            <strong>{selected.purpose}</strong>
+            <span>Nội dung / mục đích</span>
+            <strong>
+              {selected.content?.trim() ||
+                [selected.purpose, selected.note]
+                  .map((x) => (x ?? "").trim())
+                  .filter(Boolean)
+                  .join(" — ") ||
+                "—"}
+            </strong>
           </div>
+          {selected.reject_reason && (
+            <div className="purchase__note purchase__note--reject">
+              <strong>Lý do từ chối / huỷ:</strong> {selected.reject_reason}
+            </div>
+          )}
           <div className="purchase__lines">
             {selected.lines.map((line) => (
               <div className="purchase__line" key={line.id}>
@@ -491,24 +554,48 @@ export function AccountingPurchaseInboxPage({
               </div>
             ))}
           </div>
+          {/* Bốn con số theo đúng công thức mới: nợ = HÀNG ĐÃ VỀ − đã chi ròng. "Đang chờ chi" đã
+              bỏ (không còn phiếu chờ chi), thay bằng "Hàng đã giao" — số thật sự đẻ ra công nợ. */}
           <div className="acct-payment-grid">
             <div>
               <span>Tổng PMH</span>
               <strong>{money(selected.total_estimate)}</strong>
             </div>
             <div>
-              <span>Đang chờ chi</span>
-              <strong>{money(selected.pending_amount)}</strong>
+              <span>Hàng đã giao</span>
+              <strong>{money(selected.gia_tri_da_giao)}</strong>
             </div>
             <div>
-              <span>Đã chi</span>
-              <strong>{money(selected.paid_amount)}</strong>
+              <span>Đã chi ròng</span>
+              <strong>{money(selected.net_paid)}</strong>
             </div>
             <div>
-              <span>Còn được lập</span>
-              <strong>{money(selected.available_amount)}</strong>
+              <span>Còn nợ</span>
+              <strong>{money(selected.outstanding_amount)}</strong>
             </div>
           </div>
+          {/* Hợp đồng + CỌC DỰ KIẾN — kế toán phải thấy ở đây, vì đây là màn họ lập phiếu chi.
+              Thiếu nó thì thu mua khai cọc bên Mua hàng mà kế toán không hề biết, rồi lập phiếu
+              cọc bằng một số tự nghĩ ra. Chỉ ĐỌC: cọc là con số người duyệt đã đồng ý. */}
+          {(selected.contract_number || selected.deposit_expected > 0) && (
+            <dl className="purchase__facts acct-contract-facts">
+              {selected.contract_number && (
+                <div>
+                  <dt>Số hợp đồng</dt>
+                  <dd>{selected.contract_number}</dd>
+                </div>
+              )}
+              {selected.deposit_expected > 0 && (
+                <div>
+                  <dt>Cọc dự kiến</dt>
+                  <dd>
+                    <strong>{money(selected.deposit_expected)}</strong>
+                    <small> — điền sẵn khi lập phiếu Đặt cọc</small>
+                  </dd>
+                </div>
+              )}
+            </dl>
+          )}
         </DetailModal>
       )}
 

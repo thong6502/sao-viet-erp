@@ -16,15 +16,30 @@ from ..models.purchase import (
     DepartmentPurchaseRequestLine,
     PR_APPROVED,
     PR_DRAFT,
+    PR_PARTIALLY_RECEIVED,
     PR_PURCHASED,
     PR_RECEIVED,
     SUPPLIER_ACTIVE,
+    PurchaseDelivery,
     PurchaseRequest,
     PurchaseRequestLine,
     PurchaseRequestSource,
+    PurchaseStatusHistory,
     Supplier,
     SupplierItem,
 )
+
+
+# Quan hệ mà `purchase_money` cần để tính TIỀN. Khai một chỗ rồi dùng lại ở cả ba cửa đọc phiếu —
+# thiếu ở cửa nào thì cửa đó vừa N+1 vừa (với `deliveries`) tính RA SỐ KHÁC: không thấy đợt giao
+# nghĩa là rơi về nhánh phiếu-cũ, công nợ hiện sai mà không có lỗi nào bắn ra.
+def _quan_he_tien():
+    return (
+        selectinload(PurchaseRequest.lines),
+        selectinload(PurchaseRequest.supplier),
+        selectinload(PurchaseRequest.deliveries).selectinload(PurchaseDelivery.lines),
+        selectinload(PurchaseRequest.payment_vouchers).selectinload(PaymentVoucher.receipts),
+    )
 
 
 _SUPPLIER_SORTABLE = {
@@ -121,6 +136,8 @@ class SupplierRepository:
         contact_name: str | None = None,
         supplier_group: str | None = None,
         payment_terms: str | None = None,
+        credit_limit: int = 0,
+        credit_days: int | None = None,
         status: str = SUPPLIER_ACTIVE,
         note: str | None = None,
         items: Sequence["SupplierItemInput"] | None = None,
@@ -134,6 +151,8 @@ class SupplierRepository:
             contact_name=contact_name,
             supplier_group=supplier_group,
             payment_terms=payment_terms,
+            credit_limit=credit_limit,
+            credit_days=credit_days,
             status=status,
             note=note,
         )
@@ -387,7 +406,7 @@ class DepartmentPurchaseRequestRepository:
                     func.lower(DepartmentPurchaseRequest.code).like(like),
                     func.lower(DepartmentPurchaseRequest.purpose).like(like),
                     func.lower(DepartmentPurchaseRequest.related_document_code).like(like),
-                    func.lower(DepartmentPurchaseRequest.note).like(like),
+                    func.lower(DepartmentPurchaseRequest.content).like(like),
                 )
             )
         if status:
@@ -433,9 +452,10 @@ class DepartmentPurchaseRequestRepository:
         related_document_type: str | None,
         related_document_code: str | None,
         purpose: str,
-        needed_date: date,
-        note: str | None,
-        lines: Sequence[DepartmentPurchaseRequestLineInput],
+        content: str | None = None,
+        needed_date: date = None,
+        note: str | None = None,
+        lines: Sequence[DepartmentPurchaseRequestLineInput] = (),
     ) -> DepartmentPurchaseRequest:
         row = DepartmentPurchaseRequest(
             code=code,
@@ -445,7 +465,10 @@ class DepartmentPurchaseRequestRepository:
             requested_by_user_id=requested_by_user_id,
             related_document_type=related_document_type,
             related_document_code=related_document_code,
+            # `purpose` là BẢN SAO CHẾT của `content`, cắt 500 ký tự — cột cũ NOT NULL nên vẫn
+            # phải có giá trị, nhưng KHÔNG đọc nó nữa (07/08/2026).
             purpose=purpose,
+            content=content if content is not None else purpose,
             needed_date=needed_date,
             note=note,
         )
@@ -482,13 +505,14 @@ class DepartmentPurchaseRequestRepository:
         request: DepartmentPurchaseRequest,
         *,
         purpose: str,
-        needed_date: date,
-        note: str | None,
-        lines: Sequence[DepartmentPurchaseRequestLineInput],
+        content: str | None = None,
+        needed_date: date = None,
+        note: str | None = None,
+        lines: Sequence[DepartmentPurchaseRequestLineInput] = (),
     ) -> DepartmentPurchaseRequest:
         request.purpose = purpose
+        request.content = content if content is not None else purpose
         request.needed_date = needed_date
-        request.note = note
         request.lines = [
             DepartmentPurchaseRequestLine(
                 item_name=line.item_name,
@@ -516,12 +540,9 @@ class PurchaseRequestRepository:
         return self.db.execute(
             select(PurchaseRequest)
             .options(
-                selectinload(PurchaseRequest.lines),
-                selectinload(PurchaseRequest.supplier),
+                *_quan_he_tien(),
                 selectinload(PurchaseRequest.sources).selectinload(PurchaseRequestSource.department_request),
-                selectinload(PurchaseRequest.payment_vouchers).selectinload(
-                    PaymentVoucher.receipts
-                ),
+                selectinload(PurchaseRequest.attachments),
             )
             .where(PurchaseRequest.id == request_id)
         ).scalars().first()
@@ -572,12 +593,8 @@ class PurchaseRequestRepository:
             conditions.append(PurchaseRequest.supplier_id == supplier_id)
 
         stmt = select(PurchaseRequest).options(
-            selectinload(PurchaseRequest.lines),
-            selectinload(PurchaseRequest.supplier),
+            *_quan_he_tien(),
             selectinload(PurchaseRequest.sources).selectinload(PurchaseRequestSource.department_request),
-            selectinload(PurchaseRequest.payment_vouchers).selectinload(
-                PaymentVoucher.receipts
-            ),
         )
         count_stmt = select(func.count()).select_from(PurchaseRequest)
         for c in conditions:
@@ -613,16 +630,18 @@ class PurchaseRequestRepository:
         stmt = (
             select(PurchaseRequest)
             .options(
-                selectinload(PurchaseRequest.lines),
-                selectinload(PurchaseRequest.supplier),
-                selectinload(PurchaseRequest.payment_vouchers).selectinload(PaymentVoucher.receipts),
+                *_quan_he_tien(),
                 # Badge "chưa có chứng từ" đọc `voucher.attachments`. Thiếu dòng này là mỗi phiếu
                 # chi bắn thêm một query — đúng cái N+1 mà eager load ở đây sinh ra để tránh.
                 selectinload(PurchaseRequest.payment_vouchers).selectinload(
                     PaymentVoucher.attachments
                 ),
             )
-            .where(PurchaseRequest.status.in_([PR_APPROVED, PR_PURCHASED, PR_RECEIVED]))
+            .where(
+                PurchaseRequest.status.in_(
+                    [PR_APPROVED, PR_PURCHASED, PR_PARTIALLY_RECEIVED, PR_RECEIVED]
+                )
+            )
         )
         if supplier_id is not None:
             stmt = stmt.where(PurchaseRequest.supplier_id == supplier_id)
@@ -634,6 +653,7 @@ class PurchaseRequestRepository:
         code: str,
         supplier_id: int | None,
         purpose: str | None,
+        content: str | None = None,
         needed_date: date | None,
         expected_receipt_date: date | None,
         created_by_user_id: int | None,
@@ -647,6 +667,7 @@ class PurchaseRequestRepository:
             status=PR_DRAFT,
             supplier_id=supplier_id,
             purpose=purpose,
+            content=content if content is not None else purpose,
             needed_date=needed_date,
             expected_receipt_date=expected_receipt_date,
             created_by_user_id=created_by_user_id,
@@ -675,6 +696,7 @@ class PurchaseRequestRepository:
         code: str,
         supplier_id: int | None,
         purpose: str | None,
+        content: str | None = None,
         needed_date: date | None,
         expected_receipt_date: date | None = None,
         created_by_user_id: int | None,
@@ -683,7 +705,8 @@ class PurchaseRequestRepository:
         source_requests: Sequence[DepartmentPurchaseRequest],
     ) -> PurchaseRequest:
         row = self._build(
-            code=code, supplier_id=supplier_id, purpose=purpose, needed_date=needed_date,
+            code=code, supplier_id=supplier_id, purpose=purpose, content=content,
+            needed_date=needed_date,
             expected_receipt_date=expected_receipt_date, created_by_user_id=created_by_user_id,
             note=note, lines=lines, source_requests=source_requests,
         )
@@ -714,6 +737,7 @@ class PurchaseRequestRepository:
         *,
         supplier_id: int | None,
         purpose: str | None,
+        content: str | None = None,
         needed_date: date | None,
         expected_receipt_date: date | None = None,
         note: str | None,
@@ -722,6 +746,7 @@ class PurchaseRequestRepository:
     ) -> PurchaseRequest:
         request.supplier_id = supplier_id
         request.purpose = purpose
+        request.content = content if content is not None else purpose
         request.needed_date = needed_date
         request.expected_receipt_date = expected_receipt_date
         request.note = note
@@ -783,3 +808,53 @@ class PurchaseRequestRepository:
             )
             for source in source_requests
         ]
+
+
+class PurchaseStatusHistoryRepository:
+    """Lịch sử đổi trạng thái của YCMH + PMH.
+
+    Bảng dùng SOFT REF (`doc_type` + `doc_id`) nên không gắn được relationship — mọi truy vấn phải
+    đi qua đây, đừng để màn nào tự join tay."""
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    def them(
+        self,
+        *,
+        doc_type: str,
+        doc_id: int,
+        from_status: str | None,
+        to_status: str,
+        changed_by_user_id: int | None,
+        source: str,
+        reason: str | None = None,
+    ) -> PurchaseStatusHistory:
+        """Ghi MỘT dòng lịch sử.
+
+        KHÔNG commit: hàm gọi đang ở giữa một giao dịch (đổi trạng thái + suy lại YCMH + lưu phiếu).
+        Commit ở đây là lịch sử ghi rồi mà phiếu rollback — sổ nói một đằng, chứng từ một nẻo."""
+        row = PurchaseStatusHistory(
+            doc_type=doc_type,
+            doc_id=doc_id,
+            from_status=from_status,
+            to_status=to_status,
+            changed_by_user_id=changed_by_user_id,
+            source=source,
+            reason=reason,
+        )
+        self.db.add(row)
+        return row
+
+    def cua(self, doc_type: str, doc_id: int) -> list[PurchaseStatusHistory]:
+        """Lịch sử của MỘT chứng từ, MỚI NHẤT TRƯỚC — đúng thứ tự màn hình đọc."""
+        return list(
+            self.db.execute(
+                select(PurchaseStatusHistory)
+                .where(
+                    PurchaseStatusHistory.doc_type == doc_type,
+                    PurchaseStatusHistory.doc_id == doc_id,
+                )
+                .order_by(PurchaseStatusHistory.id.desc())
+            ).scalars()
+        )

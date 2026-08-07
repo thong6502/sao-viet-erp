@@ -31,6 +31,8 @@ _PREFIX_PERMISSION: dict[str, str] = {
     "ke-toan-thu": "ke_toan",
     "don-hang": "don_hang_ban",
     "san-xuat": "san_xuat",
+    # Hợp đồng / hoá đơn / biên bản giao nhận của phiếu mua (06/08/2026).
+    "mua-hang": "thu_mua",
 }
 
 

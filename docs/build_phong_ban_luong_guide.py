@@ -11,13 +11,13 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
 
-OUT_PATH = Path("docs/Huong_dan_su_dung_Phong_ban_va_Luong.docx")
+OUT_PATH = Path("docs/Huong_dan_su_dung_Phong_ban_Luong_Thu_mua.docx")
 
 
-TITLE = "HƯỚNG DẪN SỬ DỤNG PHÂN HỆ PHÒNG BAN VÀ LƯƠNG"
+TITLE = "HƯỚNG DẪN SỬ DỤNG PHÂN HỆ PHÒNG BAN, LƯƠNG VÀ THU MUA"
 SUBTITLE = (
     "Tài liệu này mô tả chức năng, công dụng, trạng thái, vai trò và cách vận hành "
-    "của 2 phân hệ Phòng ban và Lương theo hệ thống hiện tại."
+    "của 3 phân hệ Phòng ban, Lương và Thu mua theo hệ thống hiện tại."
 )
 
 
@@ -41,9 +41,11 @@ SCOPE_ROWS = [
 ]
 
 ROLE_ROWS = [
-    ("Admin", "Xem và thao tác toàn bộ, gồm cơ cấu, quyền, lương, tạm ứng, chốt kỳ, xuất file."),
+    ("Admin", "Xem và thao tác toàn bộ, gồm cơ cấu, quyền, lương, tạm ứng, thu mua, duyệt và xuất file."),
     ("HCNS / C&B", "Quản lý hồ sơ, khai lương, tính lương, soát bảng lương, cấu hình lương."),
     ("Kế toán lương", "Duyệt tạm ứng, theo dõi chi trả, xác nhận đã chi, xuất dữ liệu chuyển khoản."),
+    ("Thu mua", "Nhận yêu cầu mua hàng từ các phòng ban, lập phiếu mua hàng, theo dõi đã mua và đã nhận."),
+    ("Người duyệt / kế toán mua hàng", "Duyệt hoặc từ chối phiếu mua hàng, lập chứng từ chi ở phân hệ kế toán khi cần."),
     ("Trưởng phòng / trưởng bộ phận", "Quản lý nhân sự trong phạm vi được cấp, có thể được giao thêm quyền vận hành hoặc duyệt."),
     ("Nhân viên", "Xem phiếu lương của mình, theo dõi và tạo đề nghị tạm ứng của mình."),
 ]
@@ -62,6 +64,253 @@ PAYROLL_TABS = [
     ("Cấu hình lương", "Quản lý tham số chung, cấu hình theo bộ phận, bảo hiểm, thuế, phụ cấp."),
     ("Phiếu lương của tôi", "Nhân viên tự xem phiếu lương cá nhân."),
     ("Tạm ứng của tôi", "Nhân viên tự tạo và theo dõi đề nghị tạm ứng của chính mình."),
+]
+
+PURCHASE_AREAS = [
+    ("Yêu cầu mua hàng", "Nơi các phòng ban tạo YCMH, theo dõi yêu cầu của chính mình và chỉnh sửa khi chưa được Thu mua lập PMH."),
+    ("Mua hàng", "Nơi bộ phận Thu mua nhận YCMH, tạo PMH từ từng yêu cầu, theo dõi trạng thái đã mua và đã nhận."),
+    ("Nhà cung cấp", "Quản lý danh sách nhà cung cấp, thông tin liên hệ và mặt hàng - đơn giá mà từng nhà cung cấp đang bán."),
+]
+
+PURCHASE_STATUS = [
+    ("Nháp", "draft", "Phiếu mua hàng mới tạo, còn chỉnh sửa được."),
+    ("Chờ duyệt", "pending_approval", "Phiếu đã gửi lên người có quyền duyệt, chưa được quyết định."),
+    ("Đã duyệt", "approved", "Phiếu hợp lệ để đi tiếp sang bước mua và/hoặc kế toán."),
+    ("Từ chối", "rejected", "Phiếu không được duyệt, có thể cần sửa lại theo lý do phản hồi."),
+    ("Đã mua", "purchased", "Thu mua xác nhận đã đặt hoặc đã mua xong với nhà cung cấp."),
+    ("Đã nhận", "received", "Hàng đã nhận thực tế, có thể là đủ hoặc có số nhận thực tế khác số đặt."),
+    ("Đã hủy", "cancelled", "Phiếu dừng hẳn, không còn hiệu lực."),
+]
+
+THU_MUA_PERMISSION_ROWS = [
+    (
+        "Xem",
+        "Menu Thu mua xuất hiện; mở được màn Yêu cầu mua hàng, Mua hàng và danh sách liên quan trong phạm vi được cấp.",
+        "Theo dõi YCMH từ các phòng ban, xem PMH đã lập, xem trạng thái duyệt, đã mua, đã nhận.",
+        "Chỉ có Xem thì chưa tạo được yêu cầu và chưa lập được phiếu.",
+    ),
+    (
+        "Thao tác",
+        "Hiện nút tạo YCMH, tạo PMH, sửa phiếu nháp hoặc phiếu bị từ chối, gửi duyệt, đánh dấu đã mua, đánh dấu đã nhận ở nơi phù hợp.",
+        "Vận hành luồng thu mua hằng ngày từ lúc nhận yêu cầu tới lúc xác nhận hàng về.",
+        "Không tự bao gồm quyền duyệt hoặc hủy PMH nếu chưa bật quyền chi tiết.",
+    ),
+    (
+        "Duyệt / từ chối PMH",
+        "Hiện các nút Duyệt và Từ chối trên các phiếu đang chờ duyệt.",
+        "Quyết định phiếu mua hàng nào được đi tiếp sang bước chi tiền hoặc mua hàng thực tế.",
+        "Đây là quyền quyết định nghiệp vụ, nên tách khỏi người chỉ lập phiếu.",
+    ),
+    (
+        "Hủy PMH",
+        "Hiện thao tác hủy phiếu mua hàng còn hợp lệ.",
+        "Dùng khi nhu cầu mua dừng hẳn hoặc phiếu lập sai và không muốn tiếp tục dùng.",
+        "Nên yêu cầu nhập lý do để truy vết vì hủy sẽ dừng cả luồng phía sau.",
+    ),
+]
+
+PERMISSION_MATRIX_OVERVIEW = [
+    (
+        "Xem",
+        "Khi bật thì module xuất hiện trên menu hoặc cho phép mở màn hình tương ứng, nhìn thấy danh sách, bộ lọc, tab và chi tiết dữ liệu trong phạm vi được cấp.",
+    ),
+    (
+        "Thao tác",
+        "Khi bật thì người dùng được thêm, sửa, xóa hoặc thực hiện các thao tác nghiệp vụ chính của module đó. Nếu chỉ có Xem mà không có Thao tác thì chỉ đọc được dữ liệu.",
+    ),
+    (
+        "Phạm vi",
+        "Quy định người dùng được đụng tới dữ liệu của ai: chỉ của chính mình, của cả phòng mình, hay toàn công ty.",
+    ),
+]
+
+PHONG_BAN_PERMISSION_ROWS = [
+    (
+        "Xem",
+        "Menu Phòng ban xuất hiện; mở được màn Tổng quan, cây tổ chức, danh sách phòng, tab Nhân sự và tab Vai trò & Quyền của đơn vị nằm trong phạm vi.",
+        "Theo dõi cơ cấu tổ chức, số lượng nhân sự, trạng thái trưởng phòng, xem các phòng con và người thuộc từng phòng.",
+        "Tắt quyền này thì các quyền khác của module Phòng ban cũng không còn giá trị sử dụng.",
+    ),
+    (
+        "Thao tác",
+        "Hiện các nút thêm, sửa, xóa phòng ban ở nơi người dùng được phép thao tác.",
+        "Tạo phòng ban mới, chỉnh tên/mã/ghi chú, xóa đơn vị không còn dùng.",
+        "Không tự bao gồm quyền đổi cấp trên hay đặt trưởng phòng nếu chưa bật quyền chi tiết tương ứng.",
+    ),
+    (
+        "Đặt trưởng phòng",
+        "Hiện phần chọn hoặc thay đổi người đứng đầu đơn vị.",
+        "Gán trưởng phòng, thay trưởng phòng, bỏ gán người đứng đầu cũ.",
+        "Nên cấp cho Admin hoặc HCNS phụ trách cơ cấu tổ chức.",
+    ),
+    (
+        "Đổi cấp trên",
+        "Hiện thao tác đổi phòng cha trong cây tổ chức.",
+        "Di chuyển một phòng hoặc tổ sang nhánh khác trong sơ đồ công ty.",
+        "Nên dùng cẩn thận vì sẽ ảnh hưởng cách nhìn dữ liệu theo cây phòng ban.",
+    ),
+]
+
+VAI_TRO_PERMISSION_ROWS = [
+    (
+        "Xem",
+        "Mở được danh sách vai trò của phòng, xem ma trận quyền đã gán cho từng vai trò.",
+        "Dùng khi cần kiểm tra một vai trò hiện có quyền gì mà chưa cần sửa.",
+        "Không có quyền này thì người dùng không thấy cấu trúc vai trò của phòng.",
+    ),
+    (
+        "Thao tác",
+        "Hiện nút thêm, sửa tên, xóa vai trò.",
+        "Tạo chỗ ngồi quyền mới cho từng phòng ban, ví dụ Trưởng nhóm, Kế toán lương, C&B.",
+        "Thao tác này chưa có nghĩa là sửa được ma trận quyền chi tiết bên trong.",
+    ),
+    (
+        "Sửa ma trận phân quyền",
+        "Cho phép bật/tắt các ô quyền, đổi phạm vi của từng module trong vai trò.",
+        "Đây là quyền mạnh nhất của phần Vai trò vì nó quyết định người khác nhìn thấy và làm được gì trong hệ thống.",
+        "Nên chỉ cấp cho Admin hoặc người được ủy quyền quản trị phân quyền.",
+    ),
+]
+
+NGUOI_DUNG_PERMISSION_ROWS = [
+    (
+        "Xem",
+        "Thấy tab Tài khoản & Quyền trong hồ sơ nhân sự và các thông tin đăng nhập liên quan.",
+        "Kiểm tra nhân viên đã có tài khoản hay chưa, đang giữ vai trò nào.",
+        "Không bao gồm đổi mật khẩu hay đổi vai trò nếu chưa bật quyền chi tiết tương ứng.",
+    ),
+    (
+        "Thao tác",
+        "Hiện các nút tạo hoặc cập nhật tài khoản ở nơi hệ thống cho phép.",
+        "Tạo tài khoản đăng nhập, chỉnh thông tin tài khoản cơ bản.",
+        "Các thao tác nhạy cảm vẫn tách riêng bằng quyền chi tiết bên dưới.",
+    ),
+    (
+        "Gán vai trò",
+        "Hiện ô chọn vai trò cho tài khoản nhân viên.",
+        "Đổi người dùng sang vai trò đúng của phòng ban đó.",
+        "Vai trò phải thuộc đúng phòng của nhân viên, hệ thống không cho gán chéo phòng bừa bãi.",
+    ),
+    (
+        "Chuyển phòng ban",
+        "Hiện thao tác chuyển nhân sự sang phòng khác trong các công cụ gán hàng loạt hoặc hồ sơ.",
+        "Phục vụ điều chuyển tổ chức.",
+        "Sau khi chuyển phòng cần rà lại vai trò vì vai trò cũ có thể không còn hợp lệ.",
+    ),
+    (
+        "Đặt lại mật khẩu",
+        "Hiện nút tạo mật khẩu mới cho tài khoản nhân viên.",
+        "Dùng khi nhân viên quên mật khẩu hoặc bàn giao tài khoản.",
+        "Nên đi kèm quy trình thông báo mật khẩu tạm và yêu cầu đổi sau lần đăng nhập đầu.",
+    ),
+    (
+        "Khóa / mở khóa tài khoản",
+        "Hiện công tắc khóa đăng nhập của tài khoản.",
+        "Ngăn đăng nhập tạm thời khi nhân viên nghỉ việc, bị đình chỉ hoặc cần chặn truy cập.",
+        "Khóa tài khoản không xóa hồ sơ nhân sự.",
+    ),
+    (
+        "Thu hồi phiên",
+        "Hiện thao tác ép đăng xuất khỏi các thiết bị đang còn đăng nhập.",
+        "Dùng khi nghi ngờ lộ phiên hoặc cần buộc người dùng đăng nhập lại.",
+        "Rất hữu ích sau khi đổi mật khẩu hoặc khi nhân sự nghỉ việc.",
+    ),
+]
+
+NHAN_SU_PERMISSION_ROWS = [
+    (
+        "Xem",
+        "Menu Hồ sơ nhân sự và các danh sách nhân viên xuất hiện; mở được hồ sơ, quá trình công tác, đính kèm, nhật ký trong phạm vi được cấp.",
+        "Theo dõi thông tin nhân viên, tìm kiếm, lọc trạng thái, xem lịch sử làm việc.",
+        "Chỉ có Xem thì chưa chỉnh hồ sơ, chưa đổi trạng thái và chưa sửa dữ liệu nhạy cảm.",
+    ),
+    (
+        "Thao tác",
+        "Hiện nút Thêm nhân viên, Sửa thông tin, xóa hoặc cập nhật các trường hồ sơ thông thường.",
+        "Tạo hồ sơ nhân viên, sửa thông tin cá nhân, liên hệ, địa chỉ, ghi chú.",
+        "Không tự bao gồm sửa lương, đổi trạng thái hay điều chuyển nếu chưa bật quyền chi tiết.",
+    ),
+    (
+        "Xem lương & BHXH",
+        "Hiện tab Lương & BHXH trong hồ sơ nhân sự; cho xem số sổ BHXH, MST cá nhân, người phụ thuộc, tài khoản ngân hàng, hoa hồng và các dữ liệu nhạy cảm liên quan.",
+        "Dùng khi cần đọc dữ liệu nhạy cảm để kiểm tra hồ sơ hoặc đối chiếu lương.",
+        "Nên cấp hạn chế vì đây là nhóm dữ liệu nhạy cảm.",
+    ),
+    (
+        "Sửa lương & BHXH",
+        "Bật được chế độ sửa trong tab Lương & BHXH và hiện bước Lương khi tạo nhân viên mới.",
+        "Khai ban đầu hoặc cập nhật số sổ BHXH, MST, người phụ thuộc, tài khoản ngân hàng, lương khởi tạo và các trường nhạy cảm mà backend cho phép.",
+        "Quyền này phải đi cùng quyền xem lương; khi tắt Xem lương thì quyền sửa cũng bị tắt theo.",
+    ),
+    (
+        "Thao tác vòng đời",
+        "Hiện các nút chuyển chính thức, cho nghỉ dài hạn, đi làm lại, đình chỉ, thôi việc, tuyển lại trong menu Thao tác hồ sơ.",
+        "Quản lý trạng thái làm việc của nhân viên theo thực tế ngoài đời.",
+        "Mỗi thao tác đều sinh mốc trong quá trình công tác để truy vết lịch sử.",
+    ),
+    (
+        "Điều chuyển & nâng bậc",
+        "Hiện các nút Điều chuyển phòng/tổ và Nâng bậc / Đổi chức danh trong menu Thao tác hồ sơ.",
+        "Đổi phòng ban, đổi bậc tay nghề, đổi chức danh của nhân viên.",
+        "Không dùng quyền này để sửa tiền lương; đổi tiền lương làm ở phân hệ Lương.",
+    ),
+    (
+        "Duyệt yêu cầu cập nhật",
+        "Hiện danh sách Yêu cầu cập nhật của nhân viên và nút duyệt/từ chối.",
+        "Dùng để HCNS duyệt các yêu cầu nhân viên tự gửi từ Hồ sơ của tôi.",
+        "Nếu người duyệt không có quyền sửa lương thì backend cũng không cho ghi đè nhóm field nhạy cảm.",
+    ),
+    (
+        "Xuất Excel danh sách",
+        "Hiện nút xuất danh sách nhân viên ra file.",
+        "Phục vụ báo cáo nhanh, kiểm tra hoặc gửi nội bộ.",
+        "Nên cấp cho người thật sự cần kéo dữ liệu ra ngoài hệ thống.",
+    ),
+    (
+        "Chấm bù / sửa công",
+        "Hiện các thao tác sửa công, chấm bù hoặc điều chỉnh chấm công ở các màn liên quan.",
+        "Dùng khi dữ liệu chấm công thực tế cần hiệu chỉnh có kiểm soát.",
+        "Quyền này ảnh hưởng gián tiếp đến lương nên nên cấp hạn chế.",
+    ),
+]
+
+LUONG_PERMISSION_ROWS = [
+    (
+        "Xem",
+        "Menu Lương xuất hiện; mở được Bảng lương tháng và Tạm ứng để xem dữ liệu trong phạm vi cho phép.",
+        "Theo dõi bảng lương, xem các dòng lương, xem danh sách tạm ứng mà chưa cần sửa hay chốt.",
+        "Chỉ có Xem thì chưa mở được tab Lương nhân viên hay thao tác sửa sâu.",
+    ),
+    (
+        "Thao tác",
+        "Hiện các tab Lương nhân viên, Lương khoán và các nút sửa dữ liệu lương ở nơi phù hợp.",
+        "Tính lại bảng lương nháp, sửa dòng lương, khai hồ sơ lương từng người, cập nhật dữ liệu vận hành lương.",
+        "Đây là quyền vận hành mạnh, thường cấp cho C&B hoặc người trực tiếp làm lương.",
+    ),
+    (
+        "Xem cấu hình lương",
+        "Hiện tab Cấu hình lương ngay cả khi người dùng không có quyền sửa vận hành lương.",
+        "Cho xem các tham số, thuế, bảo hiểm, cấu hình theo bộ phận để kiểm tra hoặc đối chiếu.",
+        "Chỉ xem, không tự lưu thay đổi nếu thiếu quyền Thao tác.",
+    ),
+    (
+        "Duyệt tạm ứng",
+        "Hiện các nút Duyệt, Từ chối, Hủy trên danh sách phiếu tạm ứng và hiện badge chờ duyệt.",
+        "Quyết định phiếu tạm ứng nào hợp lệ để đưa vào phần khấu trừ lương.",
+        "Tách riêng với quyền tạo phiếu để giữ kiểm soát 2 bước.",
+    ),
+    (
+        "Chốt kỳ lương",
+        "Hiện các nút Chốt, Mở lại, Đã chi, Hủy đã chi trên bảng lương tháng.",
+        "Khóa số liệu lương của tháng và xác nhận trạng thái chi trả.",
+        "Chỉ nên cấp cho người chịu trách nhiệm chốt cuối cùng vì đây là mốc nghiệp vụ quan trọng.",
+    ),
+    (
+        "Xuất bảng lương / file chuyển khoản",
+        "Hiện nút Xuất Excel và File chuyển khoản ngân hàng.",
+        "Dùng để gửi kế toán hoặc tạo file chi lương qua ngân hàng.",
+        "Nên cấp riêng thay vì mặc định ai xem lương cũng được xuất file.",
+    ),
 ]
 
 
@@ -118,6 +367,22 @@ def add_table(doc: Document, headers: list[str], rows: list[tuple[str, ...]], wi
             for p in cell.paragraphs:
                 p.paragraph_format.space_before = Pt(0)
                 p.paragraph_format.space_after = Pt(2)
+
+
+def add_permission_table(
+    doc: Document,
+    title: str,
+    intro: str,
+    rows: list[tuple[str, str, str, str]],
+) -> None:
+    add_heading(doc, title, 3)
+    add_para(doc, intro)
+    add_table(
+        doc,
+        ["Quyền / nút", "Khi bật sẽ thấy gì", "Làm được gì / công dụng", "Lưu ý"],
+        rows,
+        [3.0, 5.0, 5.0, 3.5],
+    )
 
 
 def add_bullet(doc: Document, text: str, level: int = 0) -> None:
@@ -223,8 +488,8 @@ def add_title_block(doc: Document) -> None:
     info.autofit = False
     widths = [3.4, 12.0]
     rows = [
-        ("Phạm vi", "Phân hệ Phòng ban và phân hệ Lương"),
-        ("Mục tiêu", "Giúp quản trị, HCNS, kế toán và nhân viên hiểu đúng cách dùng hệ thống hiện tại"),
+        ("Phạm vi", "Phân hệ Phòng ban, phân hệ Lương và phân hệ Thu mua"),
+        ("Mục tiêu", "Giúp quản trị, HCNS, kế toán, Thu mua và nhân viên hiểu đúng cách dùng hệ thống hiện tại"),
     ]
     for ridx, row in enumerate(rows):
         for cidx, val in enumerate(row):
@@ -243,11 +508,11 @@ def build_doc() -> Path:
     add_para(
         doc,
         "Tài liệu này giải thích rõ chức năng, công dụng, trạng thái, vai trò và cách vận hành của "
-        "hai phân hệ Phòng ban và Lương theo đúng luồng hiện có trong hệ thống."
+        "ba phân hệ Phòng ban, Lương và Thu mua theo đúng luồng hiện có trong hệ thống."
     )
     add_para(
         doc,
-        "Nội dung ưu tiên cách dùng thực tế cho quản trị hệ thống, HCNS, kế toán, trưởng bộ phận và nhân viên."
+        "Nội dung ưu tiên cách dùng thực tế cho quản trị hệ thống, HCNS, kế toán, Thu mua, trưởng bộ phận và nhân viên."
     )
 
     add_heading(doc, "2. Phân hệ Phòng ban", 1)
@@ -471,30 +736,154 @@ def build_doc() -> Path:
     add_number(doc, "Kỳ đã chốt hoặc đã chi phải giữ nguyên để bảo toàn lịch sử.")
     add_number(doc, "Phân hệ có cả số liệu tự tính và số liệu sửa tay, nên phải xem đúng trạng thái trước khi thao tác.")
 
-    add_heading(doc, "4. Vai trò thường gặp", 1)
+    add_heading(doc, "4. Phân hệ Thu mua", 1)
+    add_heading(doc, "4.1. Mục đích", 2)
+    add_para(
+        doc,
+        "Phân hệ Thu mua dùng để tiếp nhận nhu cầu mua hàng từ các phòng ban, lập phiếu mua hàng gửi duyệt, "
+        "theo dõi quá trình đã mua và xác nhận hàng đã nhận."
+    )
+    add_para(
+        doc,
+        "Luồng hiện tại được tách rõ: phòng ban tạo YCMH, bộ phận Thu mua lập PMH, người có quyền duyệt quyết định "
+        "duyệt hay từ chối PMH, sau đó mới đi tiếp sang các bước tài chính ở phân hệ kế toán."
+    )
+
+    add_heading(doc, "4.2. Các khu vực chính", 2)
+    add_table(doc, ["Khu vực", "Công dụng"], PURCHASE_AREAS, [4.2, 12.3])
+
+    add_heading(doc, "4.3. Luồng nghiệp vụ chính", 2)
+    add_number(doc, "Phòng ban tạo Yêu cầu mua hàng (YCMH) với ngày cần hàng, mục đích và danh sách vật tư.")
+    add_number(doc, "Thu mua vào màn Mua hàng để xem danh sách YCMH chờ xử lý.")
+    add_number(doc, "Mỗi Phiếu mua hàng (PMH) hiện tạo từ một YCMH nguồn để dễ truy vết.")
+    add_number(doc, "Thu mua chọn nhà cung cấp phù hợp dựa trên dữ liệu mặt hàng và đơn giá đã quản lý.")
+    add_number(doc, "Thu mua gửi PMH lên người có quyền duyệt.")
+    add_number(doc, "Sau khi PMH được duyệt, Thu mua theo dõi phiếu đã mua và sau đó xác nhận đã nhận hàng.")
+    add_number(doc, "Nếu hàng nhận thiếu, hệ thống vẫn ghi số nhận thực tế để làm căn cứ công nợ và thanh toán về sau.")
+
+    add_heading(doc, "4.4. Trạng thái phiếu mua hàng", 2)
+    add_table(doc, ["Tên hiển thị", "Mã trạng thái", "Ý nghĩa"], PURCHASE_STATUS, [3.5, 3.2, 9.8])
+    add_para(
+        doc,
+        "Điểm quan trọng là YCMH và PMH là hai lớp chứng từ khác nhau: YCMH phản ánh nhu cầu từ phòng ban, "
+        "PMH phản ánh quyết định mua thực tế của bộ phận Thu mua với nhà cung cấp."
+    )
+
+    add_heading(doc, "4.5. Nhà cung cấp và mặt hàng", 2)
+    add_para(
+        doc,
+        "Danh mục Nhà cung cấp không chỉ lưu thông tin liên hệ mà còn lưu các mặt hàng, đơn vị tính, đơn giá và VAT "
+        "mà từng nhà cung cấp đang bán."
+    )
+    add_bullet(doc, "Thu mua dùng dữ liệu này để so sánh nhanh giá giữa các nhà cung cấp cho cùng một vật tư.")
+    add_bullet(doc, "Khi tạo PMH, hệ thống có thể gợi ý nhà cung cấp phù hợp theo mặt hàng đã quản lý.")
+    add_bullet(doc, "Việc thương lượng thực tế với nhà cung cấp vẫn có thể diễn ra ngoài hệ thống; hệ thống chủ yếu ghi nhận kết quả cuối cùng.")
+
+    add_heading(doc, "4.6. Những điều cần nhớ ở phân hệ Thu mua", 2)
+    add_bullet(doc, "YCMH là nhu cầu phát sinh; PMH là phiếu mua thực tế do Thu mua lập.")
+    add_bullet(doc, "Người lập PMH không nhất thiết là người duyệt PMH.")
+    add_bullet(doc, "Đã nhận hàng là mốc quan trọng vì nó làm căn cứ cho đối chiếu công nợ và thanh toán phía sau.")
+    add_bullet(doc, "Nên quản lý tốt danh mục mặt hàng theo nhà cung cấp để việc chọn nhà cung cấp nhanh và ít sai hơn.")
+
+    add_heading(doc, "5. Diễn giải quyền chi tiết", 1)
+    add_para(
+        doc,
+        "Phần này diễn giải theo đúng cách người dùng cuối hay hỏi: bật một quyền lên thì màn nào hiện ra, "
+        "nút nào xuất hiện, và quyền đó phục vụ việc gì trong vận hành hằng ngày."
+    )
+    add_heading(doc, "5.1. Cách đọc ma trận quyền", 2)
+    add_table(
+        doc,
+        ["Thành phần", "Giải thích thực tế"],
+        PERMISSION_MATRIX_OVERVIEW,
+        [4.2, 12.3],
+    )
+    add_para(
+        doc,
+        "Ví dụ: nếu một vai trò được bật quyền Xem của module Lương nhưng chưa bật Thao tác, người đó vẫn mở được "
+        "màn Lương để xem bảng lương và tạm ứng, nhưng sẽ không sửa được dòng lương, không tính lại, không chốt kỳ."
+    )
+
+    add_heading(doc, "5.2. Quyền chi tiết của nhóm Phòng ban", 2)
+    add_permission_table(
+        doc,
+        "5.2.1. Module Phòng ban",
+        "Đây là module quản trị cơ cấu tổ chức. Người dùng thường gặp nhất ở đây là Admin và HCNS.",
+        PHONG_BAN_PERMISSION_ROWS,
+    )
+    add_permission_table(
+        doc,
+        "5.2.2. Module Vai trò",
+        "Module này nằm trong luồng Phòng ban vì vai trò luôn gắn với từng phòng cụ thể.",
+        VAI_TRO_PERMISSION_ROWS,
+    )
+    add_permission_table(
+        doc,
+        "5.2.3. Module Người dùng",
+        "Các quyền này thường được dùng ngay trong tab Tài khoản & Quyền của hồ sơ nhân sự hoặc khi điều phối nhân sự giữa các phòng.",
+        NGUOI_DUNG_PERMISSION_ROWS,
+    )
+
+    add_heading(doc, "5.3. Quyền chi tiết của nhóm Nhân sự", 2)
+    add_permission_table(
+        doc,
+        "5.3.1. Module Nhân sự",
+        "Đây là nhóm quyền quan trọng nhất cho HCNS vì nó quyết định ai được xem và ai được sửa hồ sơ nhân sự tới mức nào.",
+        NHAN_SU_PERMISSION_ROWS,
+    )
+
+    add_heading(doc, "5.4. Quyền chi tiết của nhóm Lương", 2)
+    add_permission_table(
+        doc,
+        "5.4.1. Module Lương",
+        "Nhóm quyền này điều khiển việc nhìn bảng lương, vận hành lương, duyệt tạm ứng, chốt kỳ và xuất file chi lương.",
+        LUONG_PERMISSION_ROWS,
+    )
+    add_para(
+        doc,
+        "Điểm cần nhớ là phân hệ Lương đã tách quyền khá rõ: quyền xem không đồng nghĩa với quyền sửa, "
+        "quyền duyệt tạm ứng không đồng nghĩa với quyền chốt kỳ, và quyền xuất file cũng tách riêng để tránh phát tán dữ liệu."
+    )
+
+    add_heading(doc, "5.5. Quyền chi tiết của nhóm Thu mua", 2)
+    add_permission_table(
+        doc,
+        "5.5.1. Module Thu mua",
+        "Nhóm quyền này điều khiển việc nhìn YCMH - PMH, lập phiếu mua hàng, duyệt hoặc hủy PMH.",
+        THU_MUA_PERMISSION_ROWS,
+    )
+    add_para(
+        doc,
+        "Ở phân hệ Thu mua, cần phân biệt rõ người lập phiếu với người duyệt phiếu. Quyền Duyệt / từ chối PMH nên cấp rất chọn lọc để tránh tự lập rồi tự duyệt."
+    )
+
+    add_heading(doc, "6. Vai trò thường gặp", 1)
     add_para(
         doc,
         "Dưới đây là cách hiểu ngắn gọn theo nhóm người dùng phổ biến trong doanh nghiệp."
     )
     add_table(doc, ["Vai trò", "Mô tả thực tế"], ROLE_ROWS, [4.2, 12.3])
 
-    add_heading(doc, "5. Các lưu ý vận hành quan trọng", 1)
+    add_heading(doc, "7. Các lưu ý vận hành quan trọng", 1)
     add_bullet(doc, "Không sửa dữ liệu lương nếu chưa xác định kỳ đó đang là nháp, đã chốt hay đã chi.")
     add_bullet(doc, "Không xem Phòng ban là nơi khai chính sách tiền lương; đó là việc của phân hệ Lương.")
     add_bullet(doc, "Sau khi chuyển phòng phải kiểm tra lại vai trò, vì vai trò cũ có thể không còn hợp lệ.")
     add_bullet(doc, "Dữ liệu cấu hình lương là dữ liệu nhạy cảm, không nên cấp tràn lan.")
     add_bullet(doc, "Phiếu lương đợt 1 và tạm ứng đều là khoản sẽ được trừ lại khi tính lương tháng.")
+    add_bullet(doc, "Ở Thu mua cần quản lý chặt người nào được lập PMH, người nào được duyệt PMH và người nào chỉ được theo dõi.")
+    add_bullet(doc, "Danh mục nhà cung cấp nên được cập nhật đúng mặt hàng và đơn giá để tránh chọn nhầm nhà cung cấp khi lập phiếu.")
 
-    add_heading(doc, "6. Kết luận", 1)
+    add_heading(doc, "8. Kết luận", 1)
     add_para(
         doc,
         "Phân hệ Phòng ban giúp doanh nghiệp quản lý cơ cấu, đầu mối chịu trách nhiệm, vai trò và phạm vi quyền hạn. "
-        "Phân hệ Lương giúp doanh nghiệp quản lý tiền lương, tham số tính lương, bảng lương tháng và phiếu lương cá nhân."
+        "Phân hệ Lương giúp doanh nghiệp quản lý tiền lương, tham số tính lương, bảng lương tháng và phiếu lương cá nhân. "
+        "Phân hệ Thu mua giúp doanh nghiệp ghi nhận nhu cầu mua, lập phiếu mua thực tế, theo dõi duyệt mua và xác nhận nhận hàng."
     )
     add_para(
         doc,
         "Khi người dùng hiểu rõ ai thuộc phòng nào, ai giữ vai trò gì và ai được phép thao tác đến đâu, "
-        "việc vận hành nhân sự và lương sẽ rõ ràng, dễ truy vết và ít sai sót hơn."
+        "việc vận hành nhân sự, lương và thu mua sẽ rõ ràng, dễ truy vết và ít sai sót hơn."
     )
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)

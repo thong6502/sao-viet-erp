@@ -100,6 +100,13 @@
   color: var(--ink);
 }
 
+/* Lý do từ chối / huỷ. Vạch màu ở mép trái chứ không tô nền đỏ cả khối: đây là thông tin người
+   khai PHẢI đọc, không phải lỗi hệ thống — tô như báo lỗi thì lần sau họ lướt qua. */
+.purchase__note--reject {
+  border-left: 3px solid var(--signal);
+  background: color-mix(in srgb, var(--signal) 8%, var(--canvas));
+}
+
 .purchase__lines {
   display: flex;
   flex-direction: column;
@@ -149,6 +156,15 @@
 
 .supplier__dialog {
   max-width: min(980px, calc(100vw - 48px));
+}
+
+/* Chú thích dưới ô nhập. Dùng cho cặp Hạn mức / Số ngày cho nợ: "để trống" và "0" là HAI nghĩa
+   khác hẳn nhau, không viết ra thì người khai không thể đoán được. */
+.supplier__hint {
+  color: var(--ash-2);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-regular);
+  line-height: 1.35;
 }
 
 .supplier__item-preview {
@@ -296,6 +312,48 @@
   padding-bottom: 8px;
 }
 
+/* Bốn nút (mẫu · xuất · nhập · thêm) — cho xuống dòng khi drawer hẹp thay vì bóp chữ nút. */
+.supplier__items-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* Kết quả nhập Excel. Nền nhạt chứ không phải hộp lỗi: nhập được là chuyện BÌNH THƯỜNG, chỗ đỏ
+   duy nhất là danh sách dòng hỏng bên dưới. */
+.supplier__import-result {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  border-radius: var(--r-2);
+  border: 1px solid var(--rule-soft);
+  background: var(--rule-hair);
+  font-size: 13px;
+}
+
+.supplier__import-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.supplier__import-result p {
+  margin: 4px 0 0;
+}
+
+.supplier__import-errors {
+  margin: var(--sp-2) 0 0;
+  padding-left: 18px;
+  max-height: 180px;
+  overflow-y: auto;
+  color: var(--signal);
+}
+
+.supplier__import-errors li {
+  margin-bottom: 2px;
+}
+
 .supplier__items-head h3 {
   margin: 0;
   font-size: 15px;
@@ -407,6 +465,13 @@
 .purchase__status--purchased {
   background: #dff0ff;
   color: #165b8c;
+}
+
+/* "Giao một phần" — bậc giữa "Đã mua" và "Đã nhận". Amber vì đây là việc CHƯA XONG: hàng còn
+   thiếu, và phần đã về đã đẻ ra công nợ. Dùng token, không cắm hex như mấy tone cũ phía trên. */
+.purchase__status--partial {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
 }
 
 .purchase__status--received {
@@ -1042,4 +1107,638 @@
   white-space: nowrap;
   display: flex;
   align-items: center;
+}
+
+/* ==========================================================================
+   Đợt giao & hợp đồng trong drawer chi tiết PMH  (tiền tố .pdot__)
+   --------------------------------------------------------------------------
+   Tiền tố RIÊNG, không dùng lại .purchase__ vì hai khối này sống trong drawer
+   chứ không phải trên bảng danh sách — trộn tiền tố là sau này sửa một chỗ vỡ
+   chỗ kia. Bảng bên trong mượn `.pay-table` (payables.css) đã có sẵn spec bảng
+   phụ trong hộp thoại; ở đây chỉ chỉnh những gì riêng của đợt giao.
+   ========================================================================== */
+
+.pdot {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--rule-soft);
+}
+
+.pdot__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+.pdot__head h3 {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--ink);
+}
+
+.pdot__headbtns {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* --- Hợp đồng --- */
+
+.pdot__contract {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+/* Khai đủ, KHÔNG gộp với .pdot__contract rồi đè lại số cột: khai một selector hai lần trong cùng
+   file là cách `khach-hang.css` từng đẻ ra 98 `!important` (UI_DESIGN §11). */
+.pdot__form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+@media (max-width: 1100px) {
+  .pdot__form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.pdot__hint {
+  color: var(--ash-2);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-regular);
+  line-height: 1.35;
+}
+
+.pdot__muted {
+  color: var(--ash-2);
+}
+
+.pdot__empty {
+  margin: 0;
+  color: var(--ash-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.pdot__empty strong {
+  color: var(--ink);
+}
+
+.pdot__files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* Gap = --sp-3, KHÔNG nhỏ hơn: nút × của mỗi ô lệch ra ngoài 6px, gap 8px là nó chồm sang ô bên
+   cạnh và người dùng bấm nhầm ô mình không định bỏ. */
+.pdot__filegrid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+
+/* `display: flex` để ô ôm sát ảnh: <a> mặc định là inline nên ăn thêm ~4px khoảng chân chữ, ô
+   khác cao hơn ô khác, và pill "chờ tải lên" (neo đáy ô) rơi xuống dưới mép ảnh. */
+.pdot__file {
+  position: relative;
+  display: flex;
+}
+
+.pdot__thumb {
+  display: block;
+  width: 76px;
+  height: 76px;
+  object-fit: cover;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+}
+
+/* PDF không dựng được trong <img> — ô nền giấy + icon, tên file nằm ở `title`. */
+.pdot__thumb--pdf {
+  display: grid;
+  place-items: center;
+  color: var(--ash);
+  background: var(--paper);
+}
+
+/* File CHƯA tải lên — đợt phải lưu xong mới có chỗ để gắn. Viền đứt bên TRONG ảnh (không phải
+   border, kẻo lệch mất 2px kích thước) để phân biệt với ảnh đã nằm trên máy chủ: hai thứ trông
+   giống nhau thì người dùng đóng hộp giữa chừng và tưởng ảnh đã lưu. */
+.pdot__thumb--cho {
+  outline: 2px dashed var(--rust);
+  outline-offset: -2px;
+}
+
+.pdot__tilebadge {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  left: 3px;
+  overflow: hidden;
+  padding: 1px 4px;
+  border-radius: var(--r-pill);
+  background: var(--rust);
+  color: var(--paper-contrast);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  line-height: 1.4;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.pdot__filename {
+  display: inline-block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: var(--sp-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--paper);
+  font-size: var(--fs-xs);
+  color: var(--ash);
+}
+
+.pdot__filex {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--rule);
+  border-radius: 50%;
+  background: var(--canvas);
+  color: var(--signal);
+  font-size: var(--fs-xs);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pdot__filex:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* --- Bảng đợt giao --- */
+
+.pdot__tablewrap {
+  overflow-x: auto;
+}
+
+/* Cột "Hàng nhận" là cột duy nhất được xuống dòng; các cột còn lại giữ một dòng
+   để mắt quét dọc theo số không bị so le. */
+.pdot__table td {
+  white-space: nowrap;
+}
+
+/* Chú thích trong ô (đơn giá, "…và N mặt hàng nữa", ngày hoá đơn) xuống dòng riêng — để lẫn cùng
+   dòng với nội dung chính là hai thứ dính vào nhau, đọc ra một chuỗi vô nghĩa. */
+.pdot__table td small,
+.pdot__linetable td small {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-2xs);
+}
+
+.pdot__table td:nth-child(3) {
+  white-space: normal;
+  min-width: 200px;
+}
+
+.pdot__rowbtns {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-1);
+}
+
+/* Nút CHỜ NỐI (Nhập kho) — cùng cỡ, cùng hình với hai nút thao tác bên cạnh, chỉ mờ đi.
+   Nút chữ giữa hai nút icon làm cụm thao tác so le, đó là lý do đổi sang icon. */
+.pdot__rowbtns .md-page__rowbtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Đợt đã có phiếu chi: khoá sửa/xoá. Pill r99 + chữ nhỏ, cùng ngôn ngữ với các badge khác. */
+.pdot__locked {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  background: var(--steel-soft);
+  color: var(--steel);
+  font-family: var(--ff-sans);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+  cursor: help;
+}
+
+/* ==========================================================================
+   Hộp "Ghi / Sửa đợt giao"  (.pdot__sec · .pdot__moneybar · .pdot__pick)
+   --------------------------------------------------------------------------
+   Khung là `.cdlg--wide` (780px) ⇒ bề rộng nội dung thật 738px. `.cdlg__body`
+   đã tự giãn các con bằng `gap: var(--sp-3)`, nên KHÔNG khối nào ở đây được
+   thêm margin-top / padding-top / border-top — thêm là cộng dồn hai lần.
+   Khoảng TRONG một nhóm dùng --sp-2 để luôn nhỏ hơn khoảng QUANH nhóm.
+
+   BẪY CASCADE (UI_DESIGN §10): global.css bundle SAU file này, nên rule một
+   class ở đây KHÔNG thắng `.input { width: 100% }`. Mọi ô cần cỡ riêng phải
+   viết selector HAI class. Đừng chữa bằng `!important`.
+   ========================================================================== */
+
+.pdot__sec {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.pdot__sechead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.pdot__sectitle {
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+
+.pdot__secnote {
+  color: var(--ash-2);
+  font-size: var(--fs-2xs);
+}
+
+/* Nhãn + ô ngày nằm cùng dòng tiêu đề vùng, đẩy sang phải. */
+.pdot__inline {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-left: auto;
+  color: var(--ash);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+
+.pdot__inline .input {
+  width: 150px;
+  padding: 6px 10px;
+  font-size: var(--fs-sm);
+}
+
+.pdot__tablecard {
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+}
+
+/* Bảng khai số thực nhận. Tự khai đủ spec (UI_DESIGN §6) thay vì mượn `.pay-table`: rule
+   `.pay-table .pay-num` gắn --ff-num cho CẢ th, nên dải tiêu đề chạy ra chữ mono. */
+.pdot__linetable {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--fs-sm);
+}
+
+.pdot__linetable th {
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--paper);
+  border-bottom: 1.5px solid var(--rule);
+  color: var(--ash);
+  font-family: var(--ff-sans);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.07em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.pdot__linetable td {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--rule-hair);
+  color: var(--ink);
+  vertical-align: middle;
+}
+
+.pdot__linetable tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Tên vật tư là cột duy nhất được xuống dòng — `table-layout: fixed` không tự co cột. */
+.pdot__linetable td:first-child {
+  overflow-wrap: anywhere;
+}
+
+.pdot__linetable .pdot__c2 {
+  width: 92px;
+}
+
+.pdot__linetable .pdot__c3 {
+  width: 120px;
+}
+
+.pdot__linetable .pdot__c4 {
+  width: 180px;
+}
+
+.pdot__linetable .pdot__num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Mono CHỈ cho ô dữ liệu. Gắn lên cả th là lặp lại đúng lỗi của `.pay-table .pay-num`. */
+.pdot__linetable td.pdot__num {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ô nhập + đơn vị nằm chung một ô, gói trong span — KHÔNG flex trên td (phá hàng của bảng). */
+.pdot__qtywrap {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.pdot__linetable .pdot__qty {
+  width: 110px;
+  flex: none;
+  padding: 7px 10px;
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Đơn vị nhường chỗ cho ô nhập: đơn vị dài ("thùng", "cuộn") thì cắt bớt chứ không đẩy ô số
+   tràn ra khỏi cột. */
+.pdot__unit {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ash-2);
+  font-family: var(--ff-sans);
+  font-size: var(--fs-2xs);
+  text-overflow: ellipsis;
+}
+
+/* --- Dòng tổng: Đã giao · Đã chi · Còn nợ --- */
+
+.pdot__totals {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--sp-4);
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--rule-soft);
+  font-size: var(--fs-sm);
+  color: var(--ash);
+}
+
+.pdot__totals b {
+  margin-left: 6px;
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.pdot__totals small {
+  margin-left: 6px;
+  color: var(--ash-2);
+  font-size: var(--fs-2xs);
+}
+
+/* "Còn nợ" là kết luận của cả khối — nó phải nổi hơn hai số dùng để tính ra nó. */
+.pdot__totals-due b {
+  color: var(--signal);
+  font-size: var(--fs-lg);
+}
+
+/* --- Vùng TIỀN của hộp ghi đợt: ô gõ bên trái, số vào công nợ bên phải --- */
+
+.pdot__moneybar {
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+}
+
+.pdot__moneycell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--ash);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+
+.pdot__moneybox {
+  position: relative;
+  display: block;
+  width: 220px;
+}
+
+/* HAI class: `.input { padding: 10px 12px }` của global.css bundle sau file này, rule một class
+   ở đây không chừa được chỗ cho hậu tố "đ". */
+.pdot__moneybar .pdot__moneyinput {
+  width: 100%;
+  padding-right: 26px;
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.pdot__moneysuffix {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  color: var(--ash-2);
+  font-size: var(--fs-sm);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.pdot__result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--sp-1);
+  text-align: right;
+}
+
+.pdot__resultlabel {
+  color: var(--ash);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.pdot__resultrow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+/* Màu --ink, KHÔNG phải --signal: đây là kết quả BÌNH THƯỜNG của thao tác đang làm. Tô đỏ con số
+   mà mọi đợt giao đều sinh ra là báo động vô cớ, và làm mất nghĩa của màu đỏ ở chỗ thật sự hỏng. */
+.pdot__resultnum {
+  color: var(--ink);
+  font-family: var(--ff-num);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Con số vừa hiện lấy từ đâu: hoá đơn (người gõ) hay đơn giá (máy tính hộ). */
+.pdot__src {
+  padding: 2px 9px;
+  background: var(--steel-soft);
+  border-radius: var(--r-pill);
+  color: var(--steel);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+}
+
+/* Lệch với số theo đơn giá KHÔNG phải lỗi (hoá đơn có cước, có bù chênh) — nên dùng tông cảnh báo
+   chứ không phải tông lỗi, và đứng ngay dưới con số để không ai phải đi tìm lý do. */
+.pdot__lech {
+  color: var(--amber-deep);
+  font-size: var(--fs-xs);
+}
+
+/* --- Vùng HOÁ ĐƠN: số · ngày · nút chọn file trên MỘT hàng --- */
+
+.pdot__invgrid {
+  display: grid;
+  grid-template-columns: 220px 180px minmax(0, 1fr);
+  align-items: end;
+  gap: var(--sp-3);
+}
+
+/* Ô chọn file bám mẫu `.nqr-picker` (noi-quy.css): nút CŨNG là vùng thả, nên trạng thái kéo-qua
+   phải khác hẳn trạng thái nghỉ — viền liền + nền đào, nhìn là biết thả được. */
+.pdot__pick {
+  display: flex;
+  width: 100%;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-3);
+  background: var(--paper);
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-3);
+  color: var(--ash);
+  font-family: var(--ff-sans);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-base) var(--easing-standard),
+    background var(--duration-base) var(--easing-standard),
+    color var(--duration-base) var(--easing-standard);
+}
+
+.pdot__pick > svg {
+  flex: none;
+}
+
+.pdot__pick:hover {
+  background: color-mix(in srgb, var(--rust-soft) 35%, var(--canvas));
+  border-color: var(--rust);
+  color: var(--ink);
+}
+
+/* Bàn phím: cùng bộ màu như hover, cộng vành focus. Khai riêng chứ KHÔNG gộp chung selector rồi
+   thêm rule thứ hai — khai một selector hai lần trong cùng file là bẫy đã ghi ở UI_DESIGN §11. */
+.pdot__pick:focus-visible {
+  background: color-mix(in srgb, var(--rust-soft) 35%, var(--canvas));
+  border-color: var(--rust);
+  color: var(--ink);
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+
+.pdot__pick.is-drop {
+  background: var(--rust-soft);
+  border-style: solid;
+  border-color: var(--rust);
+  color: var(--rust-deep);
+}
+
+.pdot__pick:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* --- Ghi chú đợt: mặc định thu về một nút chữ --- */
+
+.pdot__notebtn {
+  align-self: flex-start;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--ash);
+  font-family: var(--ff-sans);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.pdot__notebtn:hover {
+  color: var(--rust);
+}
+
+.pdot__notebtn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+.pdot__notewrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--ash);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+
+.pdot__notewrap .input {
+  width: 480px;
+  max-width: 100%;
+}
+
+/* Số ảnh hoá đơn đã đính, hiện ngay cạnh số hoá đơn trong bảng đợt. */
+.pdot__clip {
+  margin-left: var(--sp-1);
+  color: var(--ash-2);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+/* Dải TIỀN ở dạng CHỈ ĐỌC (07/08/2026 — tiền đợt do máy tính, bỏ ô nhập).
+   Vẫn giữ khung riêng thay vì rút thành một dòng chữ: đây là con số đi vào công nợ, nó phải nặng
+   hơn mọi thứ khác trong hộp. */
+.pdot__moneybar--auto {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.pdot__moneynote {
+  color: var(--ash-2);
+  font-size: var(--fs-xs);
 }
