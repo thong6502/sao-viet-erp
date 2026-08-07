@@ -5632,3 +5632,37 @@ def _migrate_noi_dong_phieu_mua_voi_dong_yeu_cau(db: Session) -> None:
 MIGRATIONS.append(
     ("0167_noi_dong_phieu_mua_voi_dong_yeu_cau", _migrate_noi_dong_phieu_mua_voi_dong_yeu_cau)
 )
+
+
+def _migrate_de_nghi_kho_bo_buoc_duyet(db: Session) -> None:
+    """Bỏ bước DUYỆT đề nghị kho (chủ 06/08/2026): tổ trưởng tạo đề nghị là **approved NGAY**, kho
+    cấp liền — không còn "Chờ duyệt". `service.create` đã sửa cho đề nghị MỚI; đây là vá DỮ LIỆU cho
+    đề nghị CŨ còn kẹt ở `draft`/`pending` trên DB đang chạy:
+
+      * header: `draft`/`pending` → `approved`; người duyệt = người tạo; mốc duyệt = lúc tạo.
+      * mọi DÒNG của chúng: `sl_duyet = sl_de_nghi` (duyệt nguyên số đã xin) — để kho ứng được đúng
+        số, khớp ràng buộc "không ứng vượt sl_duyet".
+
+    DATA migration THUẦN (chỉ UPDATE) — KHÔNG đổi schema, an toàn. Cập nhật DÒNG TRƯỚC header: sau khi
+    header đổi khỏi draft/pending thì subquery lọc dòng sẽ rỗng. Guard theo bảng → idempotent, no-op
+    trên DB `create_all` mới (chưa có đề nghị nào)."""
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if not {"stock_requests", "stock_request_lines"} <= tables:
+        return
+    db.execute(text(
+        "UPDATE stock_request_lines SET sl_duyet = sl_de_nghi "
+        "WHERE request_id IN ("
+        "  SELECT id FROM stock_requests WHERE trang_thai IN ('draft', 'pending'))"
+    ))
+    db.execute(text(
+        "UPDATE stock_requests SET "
+        "  trang_thai = 'approved', "
+        "  nguoi_duyet_id = COALESCE(nguoi_duyet_id, nguoi_tao_id), "
+        "  duyet_luc = COALESCE(duyet_luc, created_at) "
+        "WHERE trang_thai IN ('draft', 'pending')"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0168_de_nghi_kho_bo_buoc_duyet", _migrate_de_nghi_kho_bo_buoc_duyet))

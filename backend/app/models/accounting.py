@@ -135,6 +135,12 @@ class PaymentVoucher(Base):
     purchase_request_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("purchase_requests.id", ondelete="RESTRICT"), nullable=False, index=True
     )
+    # Phiếu này trả cho ĐỢT GIAO nào (chủ chốt 06/08/2026).
+    #   NULL  = phiếu ĐẶT CỌC / ứng trước — chi khi hàng chưa về nên chưa có đợt nào để gắn.
+    #   có id = phiếu THANH TOÁN cho đúng một đợt giao.
+    # Soft ref (không FK) có chủ ý: xoá đợt giao đã bị chặn ở tầng service khi đợt còn phiếu chi,
+    # nên FK RESTRICT chỉ thêm một chỗ vỡ ở DB mà không thêm an toàn nào.
+    delivery_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     supplier_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True, index=True
     )

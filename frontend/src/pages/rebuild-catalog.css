@@ -2400,3 +2400,25 @@ select.rc-input:focus {
   background: var(--signal-soft, #efd5d5);
   padding: 6px 10px; border-radius: var(--r-3, 6px);
 }
+
+/* ── Dialog xóa kho (KhoDeleteDialog) ─────────────────────────────────────── */
+.kho-del__muted { font-size: 13px; color: var(--ash, #6b6b6b); margin: 0; }
+.kho-del__block { display: grid; gap: 8px; }
+.kho-del__warn { margin: 0; font-weight: var(--fw-bold, 600); color: var(--signal, #8a1f1f); }
+.kho-del__list {
+  margin: 0; padding: 8px 10px 8px 26px; list-style: disc;
+  background: var(--signal-soft, #efd5d5); border-radius: var(--r-3, 6px);
+  color: var(--ink, #1a1a1a); font-size: 13.5px; display: grid; gap: 3px;
+}
+.kho-del__ok { display: grid; gap: 12px; font-size: 13.5px; color: var(--ink, #1a1a1a); }
+.kho-del__ok p { margin: 0; }
+.kho-del__field { display: grid; gap: 6px; font-size: 13px; color: var(--ash, #6b6b6b); }
+.kho-del__input {
+  font: inherit; font-family: var(--ff-num, monospace); letter-spacing: 0.04em;
+  padding: 9px 12px; border: 1px solid var(--rule, #d8d5cd);
+  border-radius: var(--r-3, 6px); background: var(--paper, #fff); color: var(--ink, #1a1a1a);
+}
+.kho-del__input:focus {
+  outline: none; border-color: var(--signal, #8a1f1f);
+  box-shadow: 0 0 0 3px var(--signal-soft, #efd5d5);
+}

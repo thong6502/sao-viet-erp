@@ -186,6 +186,9 @@ class StockVoucherLineOut(BaseModel):
     dvt: str | None = None
     lot_id: int | None = None
     ma_lo: str | None = None
+    # SL người đề nghị XIN trên dòng đề nghị gốc (đọc-nối từ StockRequestLine, không lưu cột).
+    # Để phiếu đối chiếu "đề nghị vs thực nhận/xuất". None nếu không nối được dòng đề nghị.
+    sl_de_nghi: float | None = None
     so_luong: float
     ghi_chu: str | None = None
     # Hai trường tiền — router xóa khi thiếu `can_view_cost`.
@@ -268,10 +271,14 @@ class StockLotOut(BaseModel):
     sl_con_lai: float
     hsd: date | None = None
     trang_thai: str
-    # Phiếu NHẬP đã tạo ra lô này — để màn Tồn kho link mã lô → phiếu. Null với tồn đầu kỳ.
+    # Phiếu NHẬP đã tạo ra lô này — màn Tồn kho hiển thị lô THEO MÃ PHIẾU (link mở phiếu). Null = đầu kỳ.
     voucher_id: int | None = None
+    voucher_ma: str | None = None
     # Giá vốn của lô — chỉ có khi `can_view_cost`. Thủ kho chọn lô mà không thấy giá.
     don_gia_nhap: int | None = None
+    # SL đề nghị đã sinh ra lô (đọc-nối qua dòng phiếu NHẬP tạo lô → dòng đề nghị). Không lưu cột.
+    # Không phải tiền → luôn hiện được. None = lô đầu kỳ / không nối được dòng đề nghị.
+    sl_de_nghi: float | None = None
 
 
 class AllocationLineOut(BaseModel):
@@ -301,6 +308,8 @@ class MaterialXuatRow(BaseModel):
     voucher_ma: str | None = None
     lot_id: int | None = None
     ma_lo: str | None = None
+    # SL đề nghị đã sinh ra dòng xuất (đọc-nối qua dòng phiếu XUẤT → dòng đề nghị). Không lưu cột.
+    sl_de_nghi: float | None = None
     so_luong: float
     # Giá vốn ĐÍCH DANH của lô đã xuất — router XÓA khi thiếu `can_view_cost`.
     don_gia: int | None = None

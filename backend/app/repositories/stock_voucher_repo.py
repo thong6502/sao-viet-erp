@@ -21,6 +21,15 @@ class StockVoucherRepository:
     def get(self, voucher_id: int) -> StockVoucher | None:
         return self.db.get(StockVoucher, voucher_id)
 
+    def ma_by_ids(self, ids: list[int]) -> dict[int, str]:
+        """Map voucher_id → mã phiếu — cho chỗ hiển thị lô THEO PHIẾU (nạp 1 lượt, tránh N+1)."""
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            select(StockVoucher.id, StockVoucher.ma).where(StockVoucher.id.in_(ids))
+        ).all()
+        return {r.id: r.ma for r in rows}
+
     def get_by_ma(self, ma: str) -> StockVoucher | None:
         return self.db.execute(
             select(StockVoucher).where(func.upper(StockVoucher.ma) == ma.strip().upper())
@@ -105,8 +114,12 @@ class StockVoucherRepository:
 
         Giá vốn của dòng xuất = giá của lô bị trừ (`don_gia_nhap`), không phải `line.don_gia`
         (phiếu xuất không khai giá). Router ẩn giá nếu người gọi thiếu `can_view_cost`.
+
+        `sl_de_nghi` = SL xin trên dòng đề nghị gốc (nối qua `request_line_id` → StockRequestLine)
+        — không phải tiền, luôn hiện được; None nếu dòng phiếu không nối được đề nghị.
         """
         from ..models.stock_lot import StockLot
+        from ..models.stock_request import StockRequestLine
         from ..models.stock_voucher import VOUCHER_POSTED, VOUCHER_XUAT
 
         stmt = (
@@ -114,9 +127,15 @@ class StockVoucherRepository:
                 StockVoucher.id, StockVoucher.ma, StockVoucher.ngay,
                 StockVoucherLine.lot_id, StockVoucherLine.so_luong,
                 StockLot.ma_lo, StockLot.don_gia_nhap,
+                StockRequestLine.sl_de_nghi.label("sl_de_nghi"),
             )
             .join(StockVoucher, StockVoucher.id == StockVoucherLine.voucher_id)
             .join(StockLot, StockLot.id == StockVoucherLine.lot_id, isouter=True)
+            .join(
+                StockRequestLine,
+                StockRequestLine.id == StockVoucherLine.request_line_id,
+                isouter=True,
+            )
             .where(
                 StockVoucherLine.material_id == material_id,
                 StockVoucher.kho_id == kho_id,
@@ -130,9 +149,41 @@ class StockVoucherRepository:
                 "voucher_id": r.id, "voucher_ma": r.ma, "ngay": r.ngay,
                 "lot_id": r.lot_id, "ma_lo": r.ma_lo,
                 "so_luong": float(r.so_luong), "don_gia": int(r.don_gia_nhap or 0),
+                "sl_de_nghi": float(r.sl_de_nghi) if r.sl_de_nghi is not None else None,
             }
             for r in self.db.execute(stmt).all()
         ]
+
+    def sl_de_nghi_by_lot(self, lots) -> dict[int, float]:
+        """Map lot_id → `sl_de_nghi` của dòng đề nghị đã sinh ra lô NHẬP.
+
+        Lô NHẬP có `voucher_id` (phiếu tạo lô); dòng phiếu NHẬP tạo lô là dòng có
+        `voucher_id == lot.voucher_id` và `lot_id == lot.id` (ghi sổ gán lot_id về dòng).
+        Từ dòng đó lấy `request_line_id` → `StockRequestLine.sl_de_nghi`. Lọc theo cả
+        (voucher_id, lot_id) nên chỉ bắt dòng NHẬP tạo lô, không dính dòng XUẤT trừ lô.
+        """
+        from ..models.stock_request import StockRequestLine
+
+        voucher_ids = list({lot.voucher_id for lot in lots if lot.voucher_id is not None})
+        lot_ids = list({lot.id for lot in lots if lot.voucher_id is not None})
+        if not voucher_ids or not lot_ids:
+            return {}
+        stmt = (
+            select(StockVoucherLine.lot_id, StockRequestLine.sl_de_nghi)
+            .join(
+                StockRequestLine,
+                StockRequestLine.id == StockVoucherLine.request_line_id,
+            )
+            .where(
+                StockVoucherLine.voucher_id.in_(voucher_ids),
+                StockVoucherLine.lot_id.in_(lot_ids),
+            )
+        )
+        return {
+            lot_id: float(sl)
+            for lot_id, sl in self.db.execute(stmt).all()
+            if lot_id is not None and sl is not None
+        }
 
     def create(self, *, ma: str, loai: str, request_id: int, nguoi_lap_id: int,
                lines: list[dict], **header) -> StockVoucher:

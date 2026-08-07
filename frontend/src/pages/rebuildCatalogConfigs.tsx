@@ -2,9 +2,13 @@
 // `showIf` (ẩn/hiện theo kiểu), `ref`/`ref-multi` (chọn theo TÊN thay vì gõ id),
 // `default` (prefill khi tạo), `jsonKey` (lưu lồng vào fields_theo_loai).
 // Enum hiển thị bằng thuật ngữ in ấn thuần Việt — dùng chung 1 bảng nhãn cho cả dropdown lẫn cột.
+import { useEffect, useState } from "react";
 import type { CatalogConfig, ChuanBiKhoanRow } from "./RebuildCatalogPage";
 import { ClockIcon, DON_VI_TOC_DO, isMayIn, tongChuanBi } from "./RebuildCatalogPage";
 import { QuyDoiCuaDonVi } from "./QuyDoiCuaDonVi";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { ApiError, authed } from "../api/client";
+import { crud, type Row } from "../api/rebuildCatalog";
 
 // ── Bảng nhãn thuần Việt (in ấn) — 1 nguồn cho options + column render ──────────
 type Lbls = Record<string, string>;
@@ -469,6 +473,83 @@ export const CFG_VAT_TU: CatalogConfig = {
   ],
 };
 
+// Xóa kho KHÔNG dùng luồng ẩn-mềm mặc định: kho là gốc của lô/phiếu/đề nghị nên phải CHẶN nếu còn
+// dính, và bắt gõ mã xác nhận (thao tác nặng). Gọi /delete-check để soi rồi mới cho xóa qua DELETE
+// (backend xóa mềm + tự chặn lần nữa). Chỉ role có quyền kho:delete mới thấy nút Xóa.
+function KhoDeleteDialog({ row, token, onClose, onDone }: {
+  row: Row; token: string; onClose: () => void; onDone: () => void;
+}) {
+  const [checking, setChecking] = useState(true);
+  const [blockers, setBlockers] = useState<string[]>([]);
+  const [confirmMa, setConfirmMa] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    authed<{ can_delete: boolean; blockers: string[] }>(`/api/kho/${row.id}/delete-check`, token)
+      .then((r) => { if (alive) setBlockers(r.blockers); })
+      .catch((e) => { if (alive) setErr(e instanceof ApiError ? e.message : "Không kiểm tra được kho."); })
+      .finally(() => { if (alive) setChecking(false); });
+    return () => { alive = false; };
+  }, [row.id, token]);
+
+  const blocked = blockers.length > 0;
+  const maOk = confirmMa.trim().toUpperCase() === row.ma.trim().toUpperCase();
+
+  async function doDelete() {
+    setBusy(true); setErr(null);
+    try {
+      await crud("/api/kho").remove(token, row.id);
+      onDone();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Không xóa được kho.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ConfirmDialog
+      open
+      danger
+      busy={busy}
+      error={err}
+      title={<>Xóa kho “{row.ten}”</>}
+      confirmLabel="Xóa kho"
+      confirmDisabled={checking || blocked || !maOk}
+      hideConfirm={checking || blocked}
+      onCancel={onClose}
+      onConfirm={doDelete}
+    >
+      {checking ? (
+        <p className="kho-del__muted">Đang kiểm tra kho…</p>
+      ) : blocked ? (
+        <div className="kho-del__block">
+          <p className="kho-del__warn">Không thể xóa — kho đang được dùng:</p>
+          <ul className="kho-del__list">
+            {blockers.map((b, i) => <li key={i}>{b}</li>)}
+          </ul>
+          <p className="kho-del__muted">Hãy xử lý xong tồn / phiếu / đề nghị của kho này rồi mới xóa.</p>
+        </div>
+      ) : (
+        <div className="kho-del__ok">
+          <p>Kho <b>{row.ma}</b> sẽ được <b>ẩn (xóa mềm)</b> — lịch sử phiếu đã ghi sổ vẫn giữ nguyên.</p>
+          <label className="kho-del__field">
+            <span>Gõ lại mã <b>{row.ma}</b> để xác nhận xóa</span>
+            <input
+              className="kho-del__input"
+              value={confirmMa}
+              onChange={(e) => setConfirmMa(e.target.value)}
+              placeholder={row.ma}
+              autoFocus
+            />
+          </label>
+        </div>
+      )}
+    </ConfirmDialog>
+  );
+}
+
 // Khai báo kho — master data NHẸ (chỉ tên / vị trí / ghi chú). Kho tạo ở đây tự đổ
 // ra navbar (mục "Kho hàng"). Mã KHO-xxxx tự gợi ý (suggestNextCode). Xóa mềm để giữ dấu vết.
 export const CFG_KHO_HANG: CatalogConfig = {
@@ -486,6 +567,7 @@ export const CFG_KHO_HANG: CatalogConfig = {
       hint: "Nơi đặt kho, vd: Tầng 1 — xưởng A" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Thông tin" },
   ],
+  renderDeleteDialog: (row, ctx) => <KhoDeleteDialog row={row} {...ctx} />,
 };
 
 // Tình trạng khuôn bế — record-only (con người phán, máy chỉ ghi nhận).

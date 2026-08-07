@@ -1,6 +1,11 @@
 """Danh mục Kho hàng — service CRUD (chỉ khai báo, validate nhẹ)."""
 from __future__ import annotations
 
+from sqlalchemy import func, select
+
+from ..models.stock_lot import StockLot
+from ..models.stock_request import REQUEST_FULFILLABLE, StockRequest
+from ..models.stock_voucher import VOUCHER_DRAFT, StockVoucher
 from ..repositories.kho_hang_repo import KhoHangRepository
 
 
@@ -17,6 +22,11 @@ class KhoHangDuplicate(KhoHangError):
 
 
 class KhoHangNotFound(KhoHangError):
+    pass
+
+
+class KhoHangInUse(KhoHangError):
+    """Kho còn tồn / phiếu chờ ghi sổ / đề nghị đang xử lý → chặn xóa."""
     pass
 
 
@@ -62,5 +72,38 @@ class KhoHangService:
                 raise KhoHangDuplicate("Mã kho đã tồn tại.")
         return self.repo.update(obj, data)
 
+    def _blockers(self, obj) -> list[str]:
+        """Lý do CHẶN xóa: lô còn tồn / phiếu chờ ghi sổ / đề nghị đang xử lý.
+        Phiếu ĐÃ ghi sổ (lịch sử) KHÔNG chặn — xóa mềm giữ nguyên FK để tra cứu."""
+        db = self.repo.db
+        out: list[str] = []
+        ton = db.execute(
+            select(func.count()).select_from(StockLot)
+            .where(StockLot.kho_id == obj.id, StockLot.sl_con_lai > 0)
+        ).scalar_one()
+        if ton:
+            out.append(f"{ton} lô còn tồn")
+        draft = db.execute(
+            select(func.count()).select_from(StockVoucher)
+            .where(StockVoucher.kho_id == obj.id, StockVoucher.trang_thai == VOUCHER_DRAFT)
+        ).scalar_one()
+        if draft:
+            out.append(f"{draft} phiếu chờ ghi sổ")
+        pending = db.execute(
+            select(func.count()).select_from(StockRequest)
+            .where(StockRequest.kho_id == obj.id, StockRequest.trang_thai.in_(REQUEST_FULFILLABLE))
+        ).scalar_one()
+        if pending:
+            out.append(f"{pending} đề nghị đang xử lý")
+        return out
+
+    def delete_blockers(self, item_id: int) -> list[str]:
+        return self._blockers(self.get(item_id))
+
     def delete(self, item_id: int) -> None:
-        self.repo.delete(self.get(item_id))
+        obj = self.get(item_id)
+        blockers = self._blockers(obj)
+        if blockers:
+            raise KhoHangInUse("Không xóa được — kho đang dùng: " + "; ".join(blockers) + ".")
+        # XÓA MỀM: giữ FK cho lịch sử phiếu đã ghi sổ; create() sẽ tái dùng nếu trùng mã.
+        self.repo.update(obj, {"active": False})

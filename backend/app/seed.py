@@ -145,16 +145,16 @@ def _read(scope: str) -> dict:
     )
 
 
-# Cụm quyền KHO — TÁCH "Ghi sổ" (can_post) khỏi "Xem kho" để giữ SoD (BRD §3.19, khớp model
-# RolePermission.can_post): Thủ kho LẬP phiếu + xem kho NHƯNG KHÔNG ghi sổ; QL kho / Kế toán kho
-# mới ghi sổ (chốt tồn). Trên ma trận là 2 công tắc riêng.
+# Cụm quyền KHO — ĐÃ GỘP (bỏ SoD): người có quyền LẬP PHIẾU (can_create) tự GHI SỔ + HỦY luôn.
+# Không còn tách "thủ kho lập" và "QL/kế toán ghi sổ" (theo vận hành). `can_post` KHÔNG còn gác ở
+# endpoint nào nữa — giữ cột trong DB cho tương thích nhưng là quyền chết.
 #   _KHO_VIEW = xem tồn + xem giá vốn/giá trị tồn + khai ngưỡng tồn.
-#   _KHO_QL   = _KHO_VIEW + ghi sổ phiếu (can_post).
+#   _KHO_QL   = _KHO_VIEW (không còn khác biệt — giữ tên cho các chỗ gọi cũ).
 # KHÔNG kèm `can_approve` — DUYỆT đề nghị là việc của quản lý bộ phận đề nghị, kho KHÔNG tự duyệt.
 _KHO_VIEW = {
     "can_view_stock": True, "can_view_cost": True, "can_set_threshold": True,
 }
-_KHO_QL = {**_KHO_VIEW, "can_post": True}
+_KHO_QL = {**_KHO_VIEW}
 
 
 def _leave_self(scope: str = SCOPE_OWN) -> dict:

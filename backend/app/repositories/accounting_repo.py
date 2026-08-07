@@ -8,7 +8,6 @@ from ..models.accounting import (
     PAYMENT_RECEIPT_RECEIVED,
     PAYMENT_RECEIPT_WAITING,
     PAYMENT_VOUCHER_PAID,
-    PAYMENT_VOUCHER_WAITING,
     RECEIPT_SOURCE_ORDER,
     CompanyBankAccount,
     PaymentReceipt,
@@ -212,24 +211,17 @@ class AccountingRepository:
 
     def _voucher_totals(self, conditions) -> dict:
         """Tổng tiền trên TOÀN BỘ kết quả khớp bộ lọc (không chỉ trang hiện tại) —
-        kế toán chi nhiều đợt không phải cộng tay."""
+        kế toán chi nhiều đợt không phải cộng tay.
+
+        `total_waiting_amount` giữ lại và luôn = 0 kể từ khi bỏ trạng thái "Chờ chi" (06/08/2026):
+        phiếu cũ đã được migration `0169` chuyển hết sang `paid`, và không đường nào sinh phiếu
+        `waiting` nữa. Giữ khoá để hợp đồng API không vỡ, KHÔNG giữ phép cộng — cộng một thứ luôn
+        rỗng chỉ tốn một lần quét bảng mỗi lần mở màn."""
         sums_stmt = select(
             func.coalesce(
                 func.sum(
                     case(
                         (PaymentVoucher.status == PAYMENT_VOUCHER_PAID, PaymentVoucher.amount_vnd),
-                        else_=0,
-                    )
-                ),
-                0,
-            ),
-            func.coalesce(
-                func.sum(
-                    case(
-                        (
-                            PaymentVoucher.status == PAYMENT_VOUCHER_WAITING,
-                            PaymentVoucher.amount_vnd,
-                        ),
                         else_=0,
                     )
                 ),
@@ -244,24 +236,17 @@ class AccountingRepository:
         for condition in conditions:
             sums_stmt = sums_stmt.where(condition)
             receipts_stmt = receipts_stmt.where(condition)
-        paid_sum, waiting_sum = self.db.execute(sums_stmt).one()
+        (paid_sum,) = self.db.execute(sums_stmt).one()
         received_sum = self.db.execute(receipts_stmt).scalar_one()
         return {
             "total_paid_amount": int(paid_sum),
-            "total_waiting_amount": int(waiting_sum),
+            "total_waiting_amount": 0,
             "total_receipt_received_amount": int(received_sum),
         }
 
-    def reserved_amount(self, purchase_request_id: int, *, exclude_id: int | None = None) -> int:
-        stmt = select(func.coalesce(func.sum(PaymentVoucher.amount_vnd), 0)).where(
-            PaymentVoucher.purchase_request_id == purchase_request_id,
-            PaymentVoucher.status.in_((PAYMENT_VOUCHER_WAITING, PAYMENT_VOUCHER_PAID)),
-        )
-        if exclude_id is not None:
-            stmt = stmt.where(PaymentVoucher.id != exclude_id)
-        vouchers = int(self.db.execute(stmt).scalar_one())
-        # Tiền ĐÃ THU về mở lại hạn mức lập chứng từ của PMH.
-        return max(0, vouchers - self.receipt_received_amount(purchase_request_id))
+    # `reserved_amount` ĐÃ GỠ 06/08/2026: trần lập phiếu chi nay tính trong `purchase_money`
+    # (`outstanding_amount` / `tran_dat_coc`) trên đúng tập quan hệ đã eager-load, nên không cần
+    # query riêng — và quan trọng hơn: một nguồn số, không phải hai chỗ tự cộng lấy.
 
     # --- payment receipts ---------------------------------------------------
 

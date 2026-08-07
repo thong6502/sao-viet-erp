@@ -6,22 +6,42 @@
 //
 // Không tách bảng DB — vẫn 1 bảng `stock_requests`/`stock_vouchers` cột `loai`, chỉ lọc theo
 // chiều. `key={loai}` để đổi chiều là remount màn con với state sạch (khỏi lẫn dữ liệu 2 chiều).
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { StockRequestKind } from "../api/client";
 import { useCan } from "../auth/permissions";
-import { KhoDeNghiPage } from "./KhoDeNghiPage";
+import { KhoDeNghiPage, type KhoNhapSeed } from "./KhoDeNghiPage";
 import { KhoYeuCauPage } from "./KhoYeuCauPage";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
 
 type FnTab = "denghi" | "yeucau";
 
-export function KhoPage({ eventTick = 0 }: { eventTick?: number }) {
+export function KhoPage({
+  eventTick = 0,
+  nhapSeed,
+}: {
+  eventTick?: number;
+  /** Điều hướng từ "Nhập kho" (đợt giao đơn mua) → ép về tab Đề nghị · Nhập, mở sẵn form đã điền. */
+  nhapSeed?: KhoNhapSeed | null;
+}) {
   const can = useCan();
-  const canDeNghi = can("kho", "request") || can("kho", "approve");
+  // BỎ BƯỚC DUYỆT: màn Đề nghị chỉ cho người TẠO đề nghị (can_request); `can_approve` không còn
+  // dùng cho kho nữa (mọi vai duyệt cũ đều đã có can_request nên không ai mất truy cập).
+  const canDeNghi = can("kho", "request");
   const canYeuCau = can("kho", "create") || can("kho", "view_stock");
   const [fn, setFn] = useState<FnTab>(canDeNghi ? "denghi" : "yeucau");
   const [loai, setLoai] = useState<StockRequestKind>("NHAP");
+  // Seed đang chờ đổ vào form (từ "Nhập kho" ở đơn mua). Effect ép tab Đề nghị · Nhập; KhoDeNghiPage
+  // tiêu thụ rồi gọi onSeedConsumed để xoá — tránh mở lại form khi bấm sang tab khác.
+  const [pendingSeed, setPendingSeed] = useState<KhoNhapSeed | null>(null);
+  useEffect(() => {
+    if (nhapSeed?.seed?.length) {
+      setFn("denghi");
+      setLoai("NHAP");
+      setPendingSeed(nhapSeed);
+    }
+  }, [nhapSeed]);
+  const consumeSeed = useCallback(() => setPendingSeed(null), []);
   const activeFn: FnTab =
     fn === "denghi" && !canDeNghi
       ? "yeucau"
@@ -70,7 +90,13 @@ export function KhoPage({ eventTick = 0 }: { eventTick?: number }) {
       </div>
 
       {activeFn === "denghi" ? (
-        <KhoDeNghiPage key={`dn-${loai}`} loai={loai} eventTick={eventTick} />
+        <KhoDeNghiPage
+          key={`dn-${loai}`}
+          loai={loai}
+          eventTick={eventTick}
+          initialSeed={loai === "NHAP" ? pendingSeed : null}
+          onSeedConsumed={consumeSeed}
+        />
       ) : (
         <KhoYeuCauPage key={`yc-${loai}`} loai={loai} eventTick={eventTick} />
       )}

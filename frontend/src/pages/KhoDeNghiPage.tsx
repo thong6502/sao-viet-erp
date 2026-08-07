@@ -16,13 +16,12 @@ import {
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
-import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { MaterialCombobox } from "../components/MaterialCombobox";
 import { PrintSheet } from "../components/PrintSheet";
 import { Select } from "../components/Select";
 import { fmtDate, fmtDateISO } from "../utils/format";
-import { RequestStatusBadge, fmtQty, isOverdue } from "./khoShared";
+import { RequestStatusBadge, fmtQty, isOverdue, todayISO } from "./khoShared";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
 
@@ -31,11 +30,11 @@ const PAGE_SIZE = 8;
 // với bảng. Backend chặn `size` ở 200 nên đây cũng là trần thật của endpoint.
 const FETCH_SIZE = 200;
 
-type TabId = "cho-toi-duyet" | "all" | "pending" | "dang-cap" | "done" | "khong-thanh";
+type TabId = "all" | "dang-cap" | "done" | "khong-thanh";
 
-const TAB_STATUSES: Record<Exclude<TabId, "all" | "cho-toi-duyet">, StockRequestStatus[]> = {
-  // Đề nghị nháp gộp vào "pending": bỏ bước Lưu nháp → tạo là trình duyệt luôn, không còn nháp.
-  pending: ["draft", "pending"],
+// BỎ BƯỚC DUYỆT: tạo đề nghị là 'approved' NGAY → không còn 'draft'/'pending' để lọc, bỏ luôn tab
+// "Chờ duyệt". Đề nghị mới rơi thẳng vào "Đang cấp".
+const TAB_STATUSES: Record<Exclude<TabId, "all">, StockRequestStatus[]> = {
   "dang-cap": ["approved", "received", "preparing", "partial"],
   done: ["done"],
   "khong-thanh": ["rejected", "cancelled"],
@@ -51,14 +50,19 @@ function sortRequests(a: StockRequest, b: StockRequest): number {
 export function KhoDeNghiPage({
   eventTick = 0,
   loai,
+  initialSeed = null,
+  onSeedConsumed,
 }: {
   eventTick?: number;
   /** Khoá chiều theo tab (Nhập/Xuất): lọc danh sách + cố định loại khi tạo mới. */
   loai: StockRequestKind;
+  /** Điều hướng kèm dữ liệu → mở sẵn form TẠO đã điền (vd "Nhập kho" từ đợt giao đơn mua). */
+  initialSeed?: KhoNhapSeed | null;
+  /** Báo cha đã tiêu thụ seed (xoá đi để không mở lại khi remount). */
+  onSeedConsumed?: () => void;
 }) {
   const { token, user } = useAuth();
   const can = useCan();
-  const canApprove = can("kho", "approve");
   const canRequest = can("kho", "request");
 
   const [rows, setRows] = useState<StockRequest[]>([]);
@@ -72,8 +76,26 @@ export function KhoDeNghiPage({
   const [page, setPage] = useState(1);
   // null = đóng; "new" = soạn mới; {id} = mở đề nghị đã có; {seed} = tạo lại từ đề nghị cũ.
   const [drawer, setDrawer] = useState<
-    null | { mode: "new"; seed?: SeedLine[]; loai?: StockRequestKind } | { mode: "open"; id: number }
+    | null
+    | { mode: "new"; seed?: SeedLine[]; loai?: StockRequestKind; ghiChu?: string; ngayCan?: string; locked?: boolean }
+    | { mode: "open"; id: number }
   >(null);
+
+  // Mở sẵn form TẠO khi được điều hướng kèm seed (bấm "Nhập kho" ở đợt giao đơn mua). Tiêu thụ
+  // một lần: báo cha xoá seed để lần remount sau (đổi chiều Nhập/Xuất) không tự bật lại form.
+  useEffect(() => {
+    if (initialSeed?.seed?.length) {
+      setDrawer({
+        mode: "new",
+        seed: initialSeed.seed,
+        loai: "NHAP",
+        ghiChu: initialSeed.ghi_chu,
+        ngayCan: initialSeed.ngay_can,
+        locked: initialSeed.locked,
+      });
+      onSeedConsumed?.();
+    }
+  }, [initialSeed, onSeedConsumed]);
 
   const load = useCallback(() => {
     if (!token) return;
@@ -101,24 +123,15 @@ export function KhoDeNghiPage({
   }, [eventTick]);
 
   const meId = user?.id ?? -1;
-  const pendingForMe = useMemo(
-    () => rows.filter((r) => r.trang_thai === "pending" && r.nguoi_tao_id !== meId),
-    [rows, meId],
-  );
 
   function countOf(id: TabId): number {
     if (id === "all") return rows.length;
-    if (id === "cho-toi-duyet") return pendingForMe.length;
     return rows.filter((r) => TAB_STATUSES[id].includes(r.trang_thai)).length;
   }
 
   const filtered = useMemo(() => {
     const base =
-      tab === "all"
-        ? rows
-        : tab === "cho-toi-duyet"
-          ? pendingForMe
-          : rows.filter((r) => TAB_STATUSES[tab].includes(r.trang_thai));
+      tab === "all" ? rows : rows.filter((r) => TAB_STATUSES[tab].includes(r.trang_thai));
     // Lọc theo khoảng Ngày cần. Đề nghị chưa đặt ngày cần → ẩn khi có áp bộ lọc ngày.
     const byDate = base.filter((r) => {
       if (!dateFrom && !dateTo) return true;
@@ -128,7 +141,7 @@ export function KhoDeNghiPage({
       return true;
     });
     return [...byDate].sort(sortRequests);
-  }, [rows, tab, pendingForMe, dateFrom, dateTo]);
+  }, [rows, tab, dateFrom, dateTo]);
 
   useEffect(() => {
     setPage(1);
@@ -138,10 +151,8 @@ export function KhoDeNghiPage({
   const shown = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const tabs: { id: TabId; label: string; alert?: boolean }[] = [
-    ...(canApprove ? [{ id: "cho-toi-duyet" as TabId, label: "Chờ tôi duyệt", alert: true }] : []),
+  const tabs: { id: TabId; label: string }[] = [
     { id: "all", label: "Tất cả" },
-    { id: "pending", label: "Chờ duyệt" },
     { id: "dang-cap", label: "Đang cấp" },
     { id: "done", label: "Hoàn tất" },
     { id: "khong-thanh", label: "Không thành" },
@@ -149,7 +160,7 @@ export function KhoDeNghiPage({
 
   // Đề nghị KHÔNG gắn kho nên không có tồn để soi → bỏ hẳn cột đèn. Cột "Người" thay vào để
   // mỗi công đoạn hiện rõ AI đề nghị → AI duyệt ngay trên bảng.
-  const colCount = 6;
+  const colCount = 7;
 
   return (
     <div className="kho-list">
@@ -244,12 +255,13 @@ export function KhoDeNghiPage({
         <table className="rc__table rc__table--fixed">
           <thead>
             <tr>
-              <th style={{ width: "15%" }}>Mã</th>
-              <th style={{ width: "8%" }}>Loại</th>
+              <th style={{ width: "13%" }}>Mã</th>
+              <th style={{ width: "7%" }}>Loại</th>
               <th>Vật tư</th>
-              <th style={{ width: "18%" }}>Người</th>
-              <th style={{ width: "12%" }}>Cần ngày</th>
-              <th style={{ width: "14%" }}>Trạng thái</th>
+              <th style={{ width: "15%" }}>Người</th>
+              <th style={{ width: "12%" }}>Ngày đề nghị</th>
+              <th style={{ width: "12%" }}>{loai === "NHAP" ? "Ngày cần nhập" : "Ngày cần xuất"}</th>
+              <th style={{ width: "13%" }}>Trạng thái</th>
             </tr>
           </thead>
           <tbody>
@@ -298,15 +310,11 @@ export function KhoDeNghiPage({
                 {shown.map((r) => {
                 const overdue = isOverdue(r.ngay_can, r.trang_thai);
                 const first = r.lines[0];
-                // "Người" = trọn chuỗi trách nhiệm: ai đề nghị → ai duyệt. Đề nghị chưa duyệt
-                // thì hiện "Chờ duyệt"; bị từ chối thì nêu người từ chối để không mập mờ.
+                // "Người" = người đề nghị (dòng trên) + phản hồi: bị từ chối thì nêu người từ chối.
+                // Đề nghị nay tạo là 'approved' luôn nên không còn nhánh "Chờ duyệt".
                 const decided = r.nguoi_duyet_ten;
                 const reply =
-                  r.trang_thai === "rejected"
-                    ? `Từ chối: ${decided ?? "—"}`
-                    : decided
-                      ? `Duyệt: ${decided}`
-                      : "Chờ duyệt";
+                  r.trang_thai === "rejected" ? `Từ chối: ${decided ?? "—"}` : "";
                 return (
                   <tr
                     key={r.id}
@@ -324,7 +332,10 @@ export function KhoDeNghiPage({
                       </span>
                     </td>
                     <td>
-                      <div className="rc__name">
+                      <div
+                        className="rc__name kho-name-clamp"
+                        title={first?.material_name ?? first?.ten_tu_do ?? undefined}
+                      >
                         {first?.material_name ?? first?.ten_tu_do ?? "—"}
                       </div>
                       {r.lines.length > 1 && (
@@ -335,6 +346,7 @@ export function KhoDeNghiPage({
                       <div className="rc__name">{r.nguoi_tao_ten ?? "—"}</div>
                       <div className="rc__muted kho-hint">{reply}</div>
                     </td>
+                    <td className="rc__nowrap">{fmtDate(r.created_at)}</td>
                     <td className={`rc__nowrap${overdue ? " kho-overdue" : ""}`}>
                       {r.ngay_can ? fmtDateISO(r.ngay_can) : "—"}
                     </td>
@@ -392,8 +404,10 @@ export function KhoDeNghiPage({
           requestId={drawer.mode === "open" ? drawer.id : null}
           seed={drawer.mode === "new" ? drawer.seed : undefined}
           seedLoai={drawer.mode === "new" ? drawer.loai : undefined}
+          seedGhiChu={drawer.mode === "new" ? drawer.ghiChu : undefined}
+          seedNgayCan={drawer.mode === "new" ? drawer.ngayCan : undefined}
+          seedLocked={drawer.mode === "new" ? drawer.locked : undefined}
           canRequest={canRequest}
-          canApprove={canApprove}
           onClone={(lines, loai) => setDrawer({ mode: "new", seed: lines, loai })}
           onClose={() => setDrawer(null)}
           onSaved={() => {
@@ -423,6 +437,18 @@ export interface SeedLine {
   don_vi_phu: string | null;
   he_so_quy_doi: number | null;
   ghi_chu: string | null;
+}
+
+/** Gói dữ liệu điều hướng-kèm để mở sẵn form TẠO đề nghị NHẬP đã điền — dùng khi bấm "Nhập kho"
+ *  ở một đợt giao đơn mua (đợt giao ↔ phiếu nhập kho là CÙNG sự kiện hàng về). */
+export interface KhoNhapSeed {
+  seed: SeedLine[];
+  /** Ghi chú cấp phiếu, thường trỏ về mã đơn mua + số đợt để truy vết. */
+  ghi_chu?: string;
+  /** Ngày nhập điền sẵn (yyyy-mm-dd) — lấy từ ngày giao của đợt. */
+  ngay_can?: string;
+  /** true = số liệu lấy từ đơn mua → KHOÁ, không cho sửa dòng (phải khớp hàng đã nhận). */
+  locked?: boolean;
 }
 
 interface DraftLine extends SeedLine {
@@ -463,8 +489,10 @@ interface RequestDrawerProps {
   requestId: number | null;
   seed?: SeedLine[];
   seedLoai?: StockRequestKind;
+  seedGhiChu?: string;
+  seedNgayCan?: string;
+  seedLocked?: boolean;
   canRequest: boolean;
-  canApprove: boolean;
   onClone: (lines: SeedLine[], loai: StockRequestKind) => void;
   onClose: () => void;
   onSaved: () => void;
@@ -476,8 +504,10 @@ function RequestDrawer({
   requestId,
   seed,
   seedLoai,
+  seedGhiChu,
+  seedNgayCan,
+  seedLocked,
   canRequest,
-  canApprove,
   onClone,
   onClose,
   onSaved,
@@ -488,20 +518,14 @@ function RequestDrawer({
   const [error, setError] = useState<string | null>(null);
 
   const [loai, setLoai] = useState<StockRequestKind>(seedLoai ?? "XUAT");
-  const [ngayCan, setNgayCan] = useState("");
-  const [ghiChu, setGhiChu] = useState("");
+  const [ngayCan, setNgayCan] = useState(seedNgayCan ?? "");
+  const [ghiChu, setGhiChu] = useState(seedGhiChu ?? "");
   const [lines, setLines] = useState<DraftLine[]>(() =>
     seed?.length ? seed.map((s) => newLine(s)) : [newLine()],
   );
 
   const [dirty, setDirty] = useState(false);
   const [askDiscard, setAskDiscard] = useState(false);
-  const [askCancel, setAskCancel] = useState(false);
-  const [rejecting, setRejecting] = useState(false);
-  const [rejectReason, setRejectReason] = useState("");
-  // SL duyệt từng dòng, điền sẵn = SL đề nghị (mặc định duyệt nguyên số). Duyệt-cắt = sửa số
-  // rồi bấm Duyệt — GỘP 1 bước, không còn "Duyệt → Xác nhận duyệt".
-  const [approveQty, setApproveQty] = useState<Record<number, string>>({});
   const [printing, setPrinting] = useState(false);
 
   useEffect(() => {
@@ -551,10 +575,9 @@ function RequestDrawer({
   const status: StockRequestStatus = req?.trang_thai ?? "draft";
   const isNew = requestId == null;
   const isOwner = isNew || req?.nguoi_tao_id === meId;
-  const editable = (isNew || status === "draft" || status === "pending") && isOwner && canRequest;
-  // Người này có thể duyệt đề nghị ĐANG mở: chờ duyệt + có quyền + KHÔNG phải người tạo.
-  // Bật cột "SL duyệt" inline + nút Duyệt (không còn bước trung gian).
-  const canApproveNow = status === "pending" && canApprove && !isOwner;
+  // BỎ BƯỚC DUYỆT: chỉ đề nghị MỚI còn sửa được; tạo xong là 'approved' = khoá (BRD §1.5).
+  // Seed từ đơn mua (locked) → khoá mọi ô dòng: số liệu phải khớp hàng đã nhận, chỉ được Tạo.
+  const editable = isNew && canRequest && !seedLocked;
   const showReply = ["approved", "received", "preparing", "partial", "done"].includes(status);
 
   function touch<T>(setter: (v: T) => void) {
@@ -627,7 +650,9 @@ function RequestDrawer({
       });
   }
 
-  async function save(thenSubmit: boolean) {
+  // BỎ BƯỚC DUYỆT: tạo đề nghị là 'approved' NGAY (backend tự set), không còn "trình duyệt".
+  // Chỉ có luồng TẠO MỚI; đề nghị đã tạo là khoá nên không có nhánh update ở đây.
+  async function save() {
     const body = payloadLines();
     if (!body.length) {
       setError("Thêm ít nhất một dòng vật tư có số lượng lớn hơn 0.");
@@ -636,23 +661,13 @@ function RequestDrawer({
     setBusy(true);
     setError(null);
     try {
-      let saved: StockRequest;
-      if (req == null) {
-        saved = await api.kho.deNghi.create(token, {
-          loai,
-          // Số đề nghị LUÔN tự sinh (DNN/DNX####) — không cho tự nhập.
-          ngay_can: ngayCan || null,
-          ghi_chu: ghiChu || null,
-          lines: body,
-        });
-      } else {
-        saved = await api.kho.deNghi.update(token, req.id, {
-          ngay_can: ngayCan || null,
-          ghi_chu: ghiChu || null,
-          lines: body,
-        });
-      }
-      if (thenSubmit) await api.kho.deNghi.submit(token, saved.id);
+      await api.kho.deNghi.create(token, {
+        loai,
+        // Số đề nghị LUÔN tự sinh (DNN/DNX####) — không cho tự nhập.
+        ngay_can: ngayCan || null,
+        ghi_chu: ghiChu || null,
+        lines: body,
+      });
       setDirty(false);
       onSaved();
     } catch (e) {
@@ -660,37 +675,6 @@ function RequestDrawer({
     } finally {
       setBusy(false);
     }
-  }
-
-  async function act(fn: () => Promise<unknown>, fallback: string) {
-    setBusy(true);
-    setError(null);
-    try {
-      await fn();
-      setDirty(false);
-      onSaved();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : fallback);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  // --- Duyệt (1 bước, sửa SL duyệt inline) — ô trống = giữ nguyên SL đề nghị ---
-  const approveTotal = lines.reduce(
-    (s, l) => s + (l.lineId != null ? Number(approveQty[l.lineId] ?? l.sl_de_nghi) : 0),
-    0,
-  );
-
-  async function confirmApprove() {
-    if (!req) return;
-    const map: Record<number, number> = {};
-    for (const l of lines) {
-      if (l.lineId == null) continue;
-      const raw = Number(approveQty[l.lineId] ?? l.sl_de_nghi);
-      map[l.lineId] = Math.max(0, Math.min(Number.isFinite(raw) ? raw : 0, l.sl_de_nghi));
-    }
-    await act(() => api.kho.deNghi.approve(token, req.id, map), "Không duyệt được đề nghị.");
   }
 
   function requestClose() {
@@ -722,11 +706,6 @@ function RequestDrawer({
         {req && (
           <div className="kho-meta">
             Đề nghị: {req.nguoi_tao_ten ?? "—"} · {fmtDate(req.created_at)}
-            {req.nguoi_duyet_ten
-              ? ` → Duyệt: ${req.nguoi_duyet_ten} · ${fmtDate(req.duyet_luc)}`
-              : req.trang_thai === "pending"
-                ? " → Chờ duyệt"
-                : ""}
           </div>
         )}
 
@@ -770,13 +749,14 @@ function RequestDrawer({
                   </div>
                   <div className="rc-field">
                     <label className="rc-field__label" htmlFor="kho-ngay-can">
-                      Ngày cần
+                      {loai === "NHAP" ? "Ngày cần nhập" : "Ngày cần xuất"}
                     </label>
                     <input
                       id="kho-ngay-can"
                       type="date"
                       className="rc-input"
                       value={ngayCan}
+                      min={todayISO()}
                       disabled={!editable}
                       onChange={(e) => touch(setNgayCan)(e.target.value)}
                     />
@@ -796,10 +776,11 @@ function RequestDrawer({
                         <th className="kho-num" style={{ width: 100 }}>
                           SL đề nghị
                         </th>
-                        {/* SL đã cấp (sl_da_ung) — chỉ hiện khi đề nghị đã vào luồng cấp phát. */}
+                        {/* SL đã cấp (sl_da_ung) — chỉ hiện khi đề nghị đã vào luồng cấp phát.
+                            NHẬP = "SL thực nhận" · XUẤT = "SL thực cấp" (phân biệt với SL đề nghị). */}
                         {showReply && (
                           <th className="kho-num" style={{ width: 90 }}>
-                            SL cấp
+                            {loai === "NHAP" ? "SL thực nhận" : "SL thực cấp"}
                           </th>
                         )}
                         {/* Đơn giá CHỈ ở đề nghị NHẬP — người đề nghị khai (họ biết giá NCC);
@@ -809,20 +790,11 @@ function RequestDrawer({
                             Đơn giá
                           </th>
                         )}
-                        {canApproveNow && (
-                          <th className="kho-num" style={{ width: 118 }}>
-                            SL duyệt
-                          </th>
-                        )}
                         {editable && <th style={{ width: 32 }} aria-label="Xóa" />}
                       </tr>
                     </thead>
                     <tbody>
                       {lines.map((l, i) => {
-                        const cut =
-                          canApproveNow && l.lineId != null
-                            ? l.sl_de_nghi - (Number(approveQty[l.lineId] ?? l.sl_de_nghi) || 0)
-                            : 0;
                         return (
                           <Fragment key={l.key}>
                           <tr>
@@ -833,16 +805,22 @@ function RequestDrawer({
                                   token={token}
                                   materialName={l.material_name}
                                   onPick={(m) => pickMaterial(l.key, m)}
-                                  // Gõ tên rồi "＋ Thêm" = ghi thẳng tên vật tư, KHÔNG tạo mã.
+                                  // NHẬP: gõ tên là TỰ thành tên vật tư ngay (onText mỗi keystroke),
+                                  // ẩn dòng "＋ Thêm" cho gọn — vẫn bấm chọn được hàng có sẵn từ gợi ý.
                                   // Thủ kho gắn/tạo mã ở bước lập phiếu (người đề nghị không cần biết).
                                   // XUẤT: chỉ lĩnh hàng ĐÃ có trong kho → không cho tạo hàng mới.
                                   createLabel="Thêm"
                                   allowCreate={loai === "NHAP"}
                                   onCreate={(nm) => nameFreeText(l.key, nm)}
+                                  onText={loai === "NHAP" ? (txt) => nameFreeText(l.key, txt) : undefined}
+                                  hideCreate={loai === "NHAP"}
                                 />
                               ) : (
                                 <>
-                                  <div className="kho-lines__name">
+                                  <div
+                                    className="kho-lines__name kho-name-clamp"
+                                    title={l.material_name ?? l.ten_tu_do ?? undefined}
+                                  >
                                     {l.material_name ?? l.ten_tu_do ?? "—"}
                                   </div>
                                   <div className="kho-lines__code">
@@ -911,39 +889,6 @@ function RequestDrawer({
                                 )}
                               </td>
                             )}
-                            {canApproveNow && (
-                              <td className="kho-num">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={l.sl_de_nghi}
-                                  step="any"
-                                  className="rc-input kho-num"
-                                  value={
-                                    l.lineId != null
-                                      ? (approveQty[l.lineId] ?? String(l.sl_de_nghi))
-                                      : ""
-                                  }
-                                  onChange={(e) => {
-                                    if (l.lineId == null) return;
-                                    const raw = Number(e.target.value);
-                                    const clamped = Number.isFinite(raw)
-                                      ? Math.max(0, Math.min(raw, l.sl_de_nghi))
-                                      : 0;
-                                    setApproveQty((prev) => ({
-                                      ...prev,
-                                      [l.lineId as number]: String(clamped),
-                                    }));
-                                  }}
-                                  aria-label="Số lượng duyệt"
-                                />
-                                {cut > 0 && (
-                                  <span className="badge-sem badge-sem--amber">
-                                    cắt {fmtQty(cut)}
-                                  </span>
-                                )}
-                              </td>
-                            )}
                             {editable && (
                               <td>
                                 <button
@@ -981,11 +926,6 @@ function RequestDrawer({
                   >
                     + Thêm dòng
                   </button>
-                )}
-                {canApproveNow && approveTotal === 0 && (
-                  <p className="kho-hint kho-hint--amber">
-                    Duyệt 0 cho tất cả — hãy dùng Từ chối.
-                  </p>
                 )}
               </section>
 
@@ -1025,16 +965,8 @@ function RequestDrawer({
             isNew={isNew}
             isOwner={!!isOwner}
             canRequest={canRequest}
-            canApprove={canApprove}
             busy={busy}
-            // Duyệt 0 cho mọi dòng → ẩn nút Duyệt (buộc dùng Từ chối); hint đã hiện ở bảng.
-            approveDisabled={approveTotal === 0}
-            onCancelRequest={() => setAskCancel(true)}
-            onSaveDraft={() => save(false)}
-            onSubmit={() => save(true)}
-            onSave={() => save(false)}
-            onReject={() => setRejecting(true)}
-            onApprove={confirmApprove}
+            onSave={() => save()}
             onPrint={() => setPrinting(true)}
             onClone={() =>
               onClone(
@@ -1070,52 +1002,6 @@ function RequestDrawer({
         onKeepEditing={() => setAskDiscard(false)}
       />
 
-      <ConfirmDialog
-        open={askCancel}
-        title="Hủy đề nghị này?"
-        message="Đề nghị đã hủy không dùng lại được. Muốn xin tiếp thì tạo đề nghị mới."
-        confirmLabel="Hủy đề nghị"
-        cancelLabel="Giữ lại"
-        danger
-        busy={busy}
-        onCancel={() => setAskCancel(false)}
-        onConfirm={() => {
-          setAskCancel(false);
-          if (req) void act(() => api.kho.deNghi.cancel(token, req.id), "Không hủy được đề nghị.");
-        }}
-      />
-
-      <ConfirmDialog
-        open={rejecting}
-        title="Từ chối đề nghị?"
-        confirmLabel="Từ chối đề nghị"
-        danger
-        busy={busy}
-        confirmDisabled={!rejectReason.trim()}
-        onCancel={() => setRejecting(false)}
-        onConfirm={() => {
-          if (!req) return;
-          setRejecting(false);
-          void act(
-            () => api.kho.deNghi.reject(token, req.id, rejectReason.trim()),
-            "Không từ chối được đề nghị.",
-          );
-        }}
-      >
-        <div className="rc-field">
-          <label className="rc-field__label" htmlFor="kho-reject">
-            Lý do từ chối <em>*</em>
-          </label>
-          <textarea
-            id="kho-reject"
-            className="rc-textarea"
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-            placeholder="Vì sao không duyệt? Người đề nghị sẽ đọc câu này."
-          />
-        </div>
-      </ConfirmDialog>
-
       {printing && req && (
         <RequestPrint req={req} lines={lines} onClose={() => setPrinting(false)} />
       )}
@@ -1130,67 +1016,21 @@ function RequestFooter(props: {
   isNew: boolean;
   isOwner: boolean;
   canRequest: boolean;
-  canApprove: boolean;
   busy: boolean;
-  approveDisabled?: boolean;
-  onCancelRequest: () => void;
-  onSaveDraft: () => void;
-  onSubmit: () => void;
   onSave: () => void;
-  onReject: () => void;
-  onApprove: () => void;
   onPrint: () => void;
   onClone: () => void;
   onClose: () => void;
 }) {
-  const { status, isNew, isOwner, canRequest, canApprove, busy } = props;
+  const { status, isNew, isOwner, canRequest, busy } = props;
 
-  if ((isNew || status === "draft") && isOwner && canRequest) {
-    // Bỏ "Lưu nháp": tạo đề nghị là trình duyệt luôn, không giữ bước nháp trung gian.
+  // BỎ BƯỚC DUYỆT: chỉ còn luồng TẠO. Tạo xong đề nghị là 'approved' (khoá) — không còn nút
+  // Lưu nháp / Trình duyệt / Duyệt / Từ chối / Lưu thay đổi.
+  if (isNew && isOwner && canRequest) {
     return (
-      <>
-        {!isNew && (
-          <button type="button" className="btn btn--ghost" onClick={props.onCancelRequest}>
-            Hủy đề nghị
-          </button>
-        )}
-        <Button variant="accent" onClick={props.onSubmit} loading={busy}>
-          Lưu &amp; Trình duyệt
-        </Button>
-      </>
-    );
-  }
-
-  if (status === "pending" && isOwner && canRequest) {
-    return (
-      <>
-        <button type="button" className="btn btn--ghost" onClick={props.onCancelRequest}>
-          Hủy đề nghị
-        </button>
-        <Button variant="accent" onClick={props.onSave} loading={busy}>
-          Lưu thay đổi
-        </Button>
-        {/* Người duyệt kiêm người tạo: nút Duyệt ẨN HẲN, không disable — bấm-rồi-lỗi là cách
-            tệ nhất để dạy một luật. */}
-        {canApprove && <span className="kho-hint">Không tự duyệt đề nghị của mình.</span>}
-      </>
-    );
-  }
-
-  if (status === "pending" && canApprove && !isOwner) {
-    return (
-      <>
-        <button type="button" className="btn btn--danger" onClick={props.onReject}>
-          Từ chối
-        </button>
-        {/* Duyệt trực tiếp với SL duyệt đang hiện inline (mặc định = SL đề nghị). Ẩn khi tổng
-            duyệt = 0 — lúc đó phải Từ chối. */}
-        {!props.approveDisabled && (
-          <Button variant="accent" onClick={props.onApprove} loading={busy}>
-            Duyệt
-          </Button>
-        )}
-      </>
+      <Button variant="accent" onClick={props.onSave} loading={busy}>
+        Tạo đề nghị
+      </Button>
     );
   }
 
@@ -1253,7 +1093,7 @@ function RequestPrint({
           <b>Người duyệt:</b>{" "}
           {req.nguoi_duyet_ten
             ? `${req.nguoi_duyet_ten}${req.duyet_luc ? ` · ${fmtDate(req.duyet_luc)}` : ""}`
-            : "Chờ duyệt"}
+            : "…"}
         </span>
         <span>
           <b>Lý do:</b> {req.ghi_chu ?? "…"}
