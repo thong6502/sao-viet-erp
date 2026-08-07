@@ -1,0 +1,290 @@
+/* Trang TRA KHO CÔNG KHAI (quét tem QR) — đứng riêng ngoài AppShell.
+   Tự chứa toàn bộ style (không dựa chunk CSS khác); dùng token ERP + fallback hex cho chắc. */
+
+.pscan {
+  min-height: 100vh;
+  background: var(--canvas, #f1f5f9);
+  color: var(--ink, #0f172a);
+  font-family: var(--ff-sans, "Be Vietnam Pro", system-ui, sans-serif);
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Brand bar --- */
+.pscan__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  background: var(--paper, #fff);
+  border-bottom: 1px solid var(--rule-soft, #e2e8f0);
+}
+.pscan__brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--rust, #c5400a);
+  color: #fff;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+.pscan__brand-text {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink, #0f172a);
+}
+
+/* --- Khung nội dung --- */
+.pscan__main {
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 20px 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1;
+}
+
+/* --- Thẻ tóm tắt --- */
+.pscan__card {
+  background: var(--paper, #fff);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.pscan__titlerow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.pscan__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.25;
+  color: var(--ink, #0f172a);
+}
+.pscan__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--ash, #64748b);
+}
+.pscan__meta b {
+  color: var(--ink, #0f172a);
+  font-weight: 700;
+}
+.pscan__total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--rule-soft, #e2e8f0);
+}
+.pscan__total-num {
+  font-family: var(--ff-num, ui-monospace, monospace);
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--ink, #0f172a);
+}
+.pscan__total-lbl {
+  font-size: 12px;
+  color: var(--ash, #64748b);
+}
+
+/* --- Pill trạng thái + chấm --- */
+.pscan__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.pscan__pill--du {
+  background: #dcfce7;
+  color: #15803d;
+}
+.pscan__pill--sap_het {
+  background: #fef3c7;
+  color: #b45309;
+}
+.pscan__pill--het {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.pscan__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.pscan__dot--du {
+  background: var(--moss, #16a34a);
+}
+.pscan__dot--sap_het {
+  background: var(--amber, #d97706);
+}
+.pscan__dot--het {
+  background: var(--signal, #dc2626);
+}
+
+/* --- Section + bảng --- */
+.pscan__sec {
+  background: var(--paper, #fff);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 16px;
+  padding: 6px 4px 4px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.pscan__sec-title {
+  margin: 0;
+  padding: 12px 16px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--ash, #64748b);
+}
+.pscan__tablewrap {
+  overflow-x: auto;
+}
+.pscan__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.pscan__table th {
+  text-align: left;
+  padding: 8px 16px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--ash-2, #94a3b8);
+  border-bottom: 1px solid var(--rule-soft, #e2e8f0);
+  white-space: nowrap;
+}
+.pscan__table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rule-hair, #f1f5f9);
+  color: var(--ink, #0f172a);
+  vertical-align: middle;
+}
+.pscan__table tr:last-child td {
+  border-bottom: none;
+}
+.pscan__num {
+  text-align: right;
+  font-family: var(--ff-num, ui-monospace, monospace);
+  white-space: nowrap;
+}
+.pscan__strong {
+  font-weight: 700;
+}
+.pscan__unit {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--ash, #64748b);
+}
+.pscan__loc {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.pscan__code {
+  font-family: var(--ff-num, ui-monospace, monospace);
+  font-size: 13px;
+  font-weight: 600;
+}
+.pscan__hsd {
+  font-family: var(--ff-num, ui-monospace, monospace);
+  font-size: 13px;
+}
+.pscan__muted {
+  color: var(--ash-2, #94a3b8);
+}
+
+/* --- Trạng thái tải / rỗng / lỗi --- */
+.pscan__state {
+  background: var(--paper, #fff);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 16px;
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--ash, #64748b);
+  font-size: 14px;
+}
+.pscan__state--error {
+  color: var(--signal, #dc2626);
+}
+.pscan__state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-weight: 800;
+  font-size: 20px;
+}
+.pscan__card--skel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pscan__skel {
+  display: block;
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #eef2f7 25%, #e2e8f0 50%, #eef2f7 75%);
+  background-size: 200% 100%;
+  animation: pscan-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes pscan-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* --- Footer --- */
+.pscan__foot {
+  padding: 20px 16px 28px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ash-2, #94a3b8);
+}
+
+/* --- Điện thoại hẹp --- */
+@media (max-width: 480px) {
+  .pscan__title {
+    font-size: 19px;
+  }
+  .pscan__total-num {
+    font-size: 30px;
+  }
+  .pscan__card {
+    padding: 16px;
+  }
+  .pscan__table th,
+  .pscan__table td {
+    padding: 10px 12px;
+  }
+}

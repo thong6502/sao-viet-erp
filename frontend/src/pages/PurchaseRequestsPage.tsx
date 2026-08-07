@@ -25,6 +25,7 @@ import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import type { NavigateFn } from "../components/AppShell";
+import type { SeedLine } from "./KhoDeNghiPage";
 import { CodeLink } from "../components/CodeLink";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailModal } from "../components/DetailModal";
@@ -568,6 +569,34 @@ export function PurchaseRequestsPage({
   const canCreate = can("thu_mua", "create");
   const openYcmh = (code: string) =>
     navigate("yeu-cau-mua-hang", { focusRequestCode: code });
+  // Đợt giao ↔ phiếu nhập kho = CÙNG sự kiện hàng về: bấm "Nhập kho" ở một đợt → nhảy sang màn
+  // Yêu cầu kho, mở sẵn form NHẬP điền theo hàng đã nhận. Hàng để TÊN TỰ DO (material_id=0) — thủ
+  // kho gắn/tạo mã ở bước phiếu. Ghi chú trỏ về mã đơn mua + số đợt để truy vết.
+  const nhapKhoTuDot = (row: PurchaseRequestRow, dot: PurchaseDeliveryRow) => {
+    // Đơn giá lấy từ ĐÚNG dòng đơn mua đẻ ra dòng giao này (khớp qua purchase_request_line_id).
+    const giaTheoDong = new Map(row.lines.map((pl) => [pl.id, pl.expected_unit_price]));
+    const seed: SeedLine[] = dot.lines.map((dl) => ({
+      material_id: 0,
+      material_code: null,
+      // Điền CẢ material_name (ô vật tư đọc field này để hiện) LẪN ten_tu_do (dữ liệu lưu).
+      material_name: dl.item_name,
+      ten_tu_do: dl.item_name,
+      dvt: dl.unit,
+      sl_de_nghi: dl.quantity,
+      don_gia: giaTheoDong.get(dl.purchase_request_line_id) ?? null,
+      don_vi_phu: null,
+      he_so_quy_doi: null,
+      ghi_chu: dl.note,
+    }));
+    navigate("kho-main", {
+      khoNhapSeed: {
+        seed,
+        ngay_can: (dot.delivery_date || "").slice(0, 10),   // ngày nhập = ngày giao của đợt
+        ghi_chu: `Nhập từ đơn mua ${row.code} — đợt ${dot.seq_no}`,
+        locked: true,   // số liệu từ đơn mua → khoá, không cho sửa dòng
+      },
+    });
+  };
   const canUpdate = can("thu_mua", "update");
   const canApprovePurchase = can("thu_mua", "approve");
   // KHÔNG còn `canApprove` ở màn này: duyệt đơn mua đã chuyển sang Kế toán thu mua (04/08/2026).
@@ -1652,6 +1681,7 @@ export function PurchaseRequestsPage({
             onDongDon={() =>
               setCloseModal({ row: selected, reason: "", error: null })
             }
+            onNhapKho={(dot) => nhapKhoTuDot(selected, dot)}
           />
 
           <p className="eyebrow" style={{ marginTop: 16 }}>
@@ -2570,6 +2600,7 @@ function DeliveriesBlock({
   onGanHoaDon,
   onXoaDot,
   onDongDon,
+  onNhapKho,
 }: {
   row: PurchaseRequestRow;
   canUpdate: boolean;
@@ -2578,6 +2609,7 @@ function DeliveriesBlock({
   onGanHoaDon: () => void;
   onXoaDot: (delivery: PurchaseDeliveryRow) => void;
   onDongDon: () => void;
+  onNhapKho: (delivery: PurchaseDeliveryRow) => void;
 }) {
   const ghiDuoc = canUpdate && GHI_DOT_DUOC.includes(row.status);
   const dots = row.deliveries;
@@ -2720,28 +2752,17 @@ function DeliveriesBlock({
                           đổi số hàng dưới chân nó. Hiện KHOÁ ngay ở đây chứ không bày nút rồi để
                           người dùng gõ xong cả form mới ăn lỗi. */}
                       <div className="pdot__rowbtns">
-                        {/* 🔌 CHỖ NEO CHO PHÂN HỆ KHO — nút đặt sẵn, CHƯA NỐI GÌ (chủ 07/08/2026:
-                            *"cho tôi cái nút Nhập kho, điền nút thôi, để dev bên kho nó tự nối"*).
-
-                            HIỆN Ở MỌI ĐỢT, không riêng đợt đã chi (chủ chốt 07/08/2026: *"lỡ đâu
-                            hàng về mà chưa trả nợ thì sao, cứ có đợt về là cho nhập kho"*). Nhận
-                            hàng vào kho là sự kiện VẬT LÝ, không phụ thuộc đã trả tiền hay chưa —
-                            trói nó vào phiếu chi là hàng nằm ngoài sân mà kho không ghi sổ được.
-
-                            Đợt giao và phiếu nhập kho là CÙNG một sự kiện (hàng về tới cửa), nên
-                            chỗ nối đúng là ở đây chứ không phải đẻ một màn thứ ba. Bảng
-                            `purchase_deliveries` đã chừa sẵn cột `stock_voucher_id` cho việc đó —
-                            xem docs/prd-mua-hang-cong-no.md §11.
-
-                            Để `disabled` có chủ ý: nút bấm được mà không làm gì là hứa suông; ai
-                            mở màn cũng thấy ngay đây là chỗ chờ nối. Bỏ `disabled` + gắn onClick
-                            là xong phần giao diện. */}
+                        {/* 🔌 NỐI SANG PHÂN HỆ KHO (chủ 07/08/2026: *"cho tôi cái nút Nhập kho…
+                            để dev bên kho nó tự nối"*). HIỆN Ở MỌI ĐỢT, không riêng đợt đã chi
+                            (*"cứ có đợt về là cho nhập kho"*): nhận hàng vào kho là sự kiện VẬT LÝ,
+                            không phụ thuộc đã trả tiền. Bấm → nhảy sang màn Yêu cầu kho, mở sẵn form
+                            NHẬP điền theo hàng đã nhận của đợt này. (Nối cứng qua `stock_voucher_id`
+                            khi lập phiếu là bước sau — xem docs/prd-mua-hang-cong-no.md §11.) */}
                         <RowActionButton
                           dense
-                          disabled
-                          label="Nhập kho — chờ phân hệ Kho nối"
+                          label="Nhập kho"
                           icon="warehouse"
-                          onClick={() => {}}
+                          onClick={() => onNhapKho(dot)}
                         />
                         {/* Đợt ĐÃ CÓ PHIẾU CHI thì server cấm sửa/xoá — tiền đã ra thì không được
                             đổi số hàng dưới chân nó. Hiện KHOÁ ngay ở đây chứ không bày nút rồi để

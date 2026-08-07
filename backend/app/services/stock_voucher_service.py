@@ -32,9 +32,10 @@ from ..models.stock_voucher import (
     StockVoucherAttachment,
 )
 
-# Đính kèm phiếu kho: bytes dưới <backend>/static/kho/<voucher_id>/ (cùng gốc mount /static
-# của main.py) — /static public nên giới hạn loại + cỡ file. Mirror accounting_service.
-_STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
+from ..storage import get_storage, key_from_url, url_from_key
+
+# Đính kèm phiếu kho: byte đi qua storage.py (LocalStorage <backend>/static hoặc MinIO) rồi phục vụ
+# qua /api/files/<key> (đăng nhập mới đọc) — KHÔNG dùng mount /static (đã gỡ vì lộ file). key = "kho/<id>/..".
 _ATTACHMENT_SUBDIR = "kho"
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 MAX_ATTACHMENTS_PER_VOUCHER = 20
@@ -139,6 +140,8 @@ class StockVoucherService:
                 "material_id": mat_id,
                 "so_luong": qty,
                 "ghi_chu": ln.get("ghi_chu"),
+                # Vị trí cất lô — CHỈ phiếu NHẬP; ghi sổ chép sang lô. XUẤT không tạo lô → None.
+                "vi_tri": ((ln.get("vi_tri") or "").strip() or None) if loai == VOUCHER_NHAP else None,
             }
             if loai == VOUCHER_NHAP:
                 # Giá của lô sắp tạo = ĐƠN GIÁ KHAI Ở ĐỀ NGHỊ (người đề nghị nhập). Kho KHÔNG sửa
@@ -280,6 +283,7 @@ class StockVoucherService:
                     don_gia_nhap=int(ln.don_gia or 0),
                     sl_ban_dau=float(ln.so_luong),
                     sl_con_lai=float(ln.so_luong),
+                    vi_tri=ln.vi_tri,
                 )
                 ln.lot_id = lot.id
         else:
@@ -320,6 +324,13 @@ class StockVoucherService:
             if not any(x.trang_thai != VOUCHER_CANCELLED for x in rows):
                 self.request_service.cancel_by_kho(req, ly_do)
         return v
+
+    def set_lot_vi_tri(self, lot_id: int, vi_tri: str | None):
+        """Thủ kho sửa VỊ TRÍ cất lô (kệ/ô) trong kho — người cầm hàng quản vị trí vật lý."""
+        lot = self.lots.set_vi_tri(lot_id, (vi_tri or "").strip() or None)
+        if lot is None:
+            raise StockVoucherError("Không tìm thấy lô.")
+        return lot
 
     # --- Gợi ý phân bổ lô ----------------------------------------------------
 
@@ -396,14 +407,12 @@ class StockVoucherService:
                 f"Mỗi phiếu tối đa {MAX_ATTACHMENTS_PER_VOUCHER} file đính kèm."
             )
         safe_name = _safe_attachment_name(file_name)
-        token = secrets.token_hex(4)
-        dest_dir = _STATIC_DIR / _ATTACHMENT_SUBDIR / str(v.id)
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        (dest_dir / f"{token}_{safe_name}").write_bytes(data)
+        key = f"{_ATTACHMENT_SUBDIR}/{v.id}/{secrets.token_hex(4)}_{safe_name}"
+        get_storage().save(key, data, content_type)
         row = StockVoucherAttachment(
             stock_voucher_id=v.id,
             file_name=safe_name,
-            file_url=f"/static/{_ATTACHMENT_SUBDIR}/{v.id}/{token}_{safe_name}",
+            file_url=url_from_key(key),  # "/api/files/kho/<id>/.." — đọc qua router có đăng nhập
             file_type=content_type,
             uploaded_by=getattr(actor, "id", None),
         )
@@ -414,10 +423,9 @@ class StockVoucherService:
         att = self.vouchers.get_attachment(attachment_id)
         if att is None or att.stock_voucher_id != voucher_id:
             raise StockVoucherError("Không tìm thấy file đính kèm.")
-        try:
-            (_STATIC_DIR.parent / att.file_url.lstrip("/")).unlink(missing_ok=True)
-        except OSError:
-            pass  # gỡ file đĩa best-effort — row vẫn phải xóa
+        key = key_from_url(att.file_url)
+        if key:
+            get_storage().delete(key)  # best-effort; row vẫn phải xoá dù file đã mất
         self.vouchers.delete_attachment(att)
 
     @staticmethod

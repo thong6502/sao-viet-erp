@@ -4,11 +4,11 @@
  *  thứ tự ô ký nên dùng chung một builder — cùng cách làm với printTT200 (phiếu thu/chi).
  *  Bố cục bám biểu mẫu giấy: không logo, font Times New Roman, A4.
  *
- *  Hai chỗ lệch có chủ ý so với mẫu chuẩn:
- *   1. Thêm cột **Mã lô** — giá xuất tính ĐÍCH DANH theo lô (BRD §3.19), không có cột này
- *      thì kế toán không đối chiếu được giá vốn về đúng lần nhập nào.
- *   2. Dòng "Theo ... số ... ngày ..." điền **số đề nghị**, vì mọi phiếu đều phải ứng theo
- *      một đề nghị đã duyệt (spec-kho-de-nghi §5).
+ *  Chỗ lệch có chủ ý so với mẫu chuẩn:
+ *   • Dòng "Theo ... số ... ngày ..." điền **số đề nghị**, vì mọi phiếu đều phải ứng theo
+ *     một đề nghị đã duyệt (spec-kho-de-nghi §5).
+ *  (Trước có thêm cột "Mã lô" cho giá xuất đích danh — đã BỎ: lô định danh qua chính phiếu
+ *   nhập nguồn nên cột riêng thừa.)
  *
  *  Cột Đơn giá + Thành tiền TỰ ẨN khi người in không có quyền `can_view_cost`: API không
  *  trả số (`don_gia === null`) nên ở đây chỉ cần dò null, không cần truyền thêm cờ quyền.
@@ -20,7 +20,6 @@ import { amountInWords, dmyParts, escapeHtml, money } from "./format";
 export interface StockVoucherPrintLine {
   materialCode: string | null;
   materialName: string | null;
-  maLo: string | null;
   dvt: string | null;
   /** Số lượng ghi trên chứng từ (đề nghị đã duyệt). */
   soLuongChungTu: number | null;
@@ -109,14 +108,13 @@ export function printStockVoucher(data: StockVoucherPrintData): boolean {
   const showMoney = data.lines.some((l) => l.donGia !== null && l.donGia !== undefined);
   const words = showMoney && data.tongTien !== null ? amountInWords(data.tongTien) : "";
 
-  const colCount = showMoney ? 9 : 7;
+  const colCount = showMoney ? 8 : 6;
   const body = data.lines
     .map(
       (l, i) => `<tr>
         <td class="c">${i + 1}</td>
         <td>${escapeHtml(l.materialName ?? "")}</td>
         <td class="c">${escapeHtml(l.materialCode ?? "")}</td>
-        <td class="c">${escapeHtml(l.maLo ?? "")}</td>
         <td class="c">${escapeHtml(l.dvt ?? "")}</td>
         <td class="r">${qty(l.soLuongChungTu)}</td>
         <td class="r">${qty(l.soLuong)}</td>
@@ -126,7 +124,7 @@ export function printStockVoucher(data: StockVoucherPrintData): boolean {
     .join("");
 
   const totalRow = showMoney
-    ? `<tr class="tot"><td colspan="8" class="r"><b>Cộng</b></td><td class="r"><b>${money(data.tongTien ?? 0)}</b></td></tr>`
+    ? `<tr class="tot"><td colspan="7" class="r"><b>Cộng</b></td><td class="r"><b>${money(data.tongTien ?? 0)}</b></td></tr>`
     : `<tr class="tot"><td colspan="${colCount}" class="r"><b>Cộng</b></td></tr>`;
 
   const signers = form.signers
@@ -220,7 +218,6 @@ ${data.cancelled ? '<div class="stamp">ĐÃ HỦY</div>' : ""}
       <th rowspan="2" style="width:28px">STT</th>
       <th rowspan="2">Tên, nhãn hiệu, quy cách, phẩm chất vật tư</th>
       <th rowspan="2" style="width:76px">Mã số</th>
-      <th rowspan="2" style="width:118px">Mã lô</th>
       <th rowspan="2" style="width:52px">ĐVT</th>
       <th colspan="2" style="width:150px">Số lượng</th>
       ${showMoney ? '<th rowspan="2" style="width:92px">Đơn giá</th><th rowspan="2" style="width:104px">Thành tiền</th>' : ""}

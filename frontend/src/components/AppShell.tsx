@@ -31,6 +31,7 @@ import { NhanSuPage } from "../pages/NhanSuPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
 import { KhoTonKhoPage } from "../pages/KhoTonKhoPage";
 import { KhoPage } from "../pages/KhoPage";
+import type { KhoNhapSeed } from "../pages/KhoDeNghiPage";
 
 // Danh mục rebuild (config .tsx — render pill JSX)
 import { REBUILD_CONFIGS } from "../pages/rebuildCatalogConfigs";
@@ -85,6 +86,10 @@ export interface NavParams {
   openLsxId?: number;
   /** Liên thông Phòng ban → Lương: mở thẳng tab "Cấu hình lương" (bảng lương của tổ). */
   luongTab?: "cauhinh";
+  /** Deep-link QR tem kho: mở thẳng drawer lô + vị trí của đúng vật tư này trên màn Tồn kho. */
+  openMaterialId?: number;
+  /** Liên thông Đơn mua → Kho: bấm "Nhập kho" ở một đợt giao → mở form Yêu cầu NHẬP điền sẵn. */
+  khoNhapSeed?: KhoNhapSeed;
 }
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
@@ -481,10 +486,9 @@ export function AppShell() {
   // Vai chỉ có `kho:read` (để tạo đề nghị) KHÔNG được thấy — chặn bằng `can_view_stock`, để
   // ông sản xuất không nhìn thấy tồn/giá/lô của kho.
   const canViewStock = !!caps.get("kho")?.can_view_stock;
-  // "kho-item:<id>" = màn 1 kho (menu con động) — gác quyền `kho` + `view_stock`.
-  const moduleKeys =
-    MODULES_BY_NAV_ID[baseId] ??
-    (baseId === "kho-item" ? ["kho"] : undefined);
+  // "kho-item:<id>" = màn Tồn kho của 1 kho — gác `kho` + `view_stock`.
+  const isKhoView = baseId === "kho-item";
+  const moduleKeys = MODULES_BY_NAV_ID[baseId] ?? (isKhoView ? ["kho"] : undefined);
   const allowed =
     AUTHENTICATED_NAV_IDS.has(baseId) ||
     (moduleKeys != null &&
@@ -529,7 +533,7 @@ export function AppShell() {
     // Kho — MỘT module, chia tab (Đề nghị · Hộp yêu cầu) × (Nhập · Xuất). `quoteTick` là tick
     // CHUNG của kênh SSE: mọi sự kiện kho đều đẩy tick nên bảng tự tươi, không mở EventSource riêng.
     if (baseId === "kho-main") {
-      return <KhoPage eventTick={quoteTick} />;
+      return <KhoPage eventTick={quoteTick} nhapSeed={navParams?.khoNhapSeed} />;
     }
     // Màn TỒN KHO của 1 kho đã khai báo (bấm item "kho-item:<id>" dưới section "Kho hàng").
     if (baseId === "kho-item") {
@@ -543,6 +547,7 @@ export function AppShell() {
           ma={w?.ma}
           token={token ?? ""}
           navigate={navigate}
+          openMaterialId={navParams?.openMaterialId ?? null}
         />
       );
     }

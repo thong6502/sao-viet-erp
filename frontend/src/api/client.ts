@@ -5072,6 +5072,8 @@ export interface StockVoucherLine {
   dvt: string | null;
   lot_id: number | null;
   ma_lo: string | null;
+  /** SL đề nghị gốc của dòng (đọc-nối) — đối chiếu "đề nghị vs thực nhận/xuất". null = không nối được. */
+  sl_de_nghi: number | null;
   so_luong: number;
   ghi_chu: string | null;
   don_gia: number | null;
@@ -5147,6 +5149,8 @@ export interface StockVoucherLineInput {
   /** Lý do cấp/nhập THIẾU (khi SL < còn phải cấp) — bắt buộc nếu thiếu; ghi vào đề nghị. */
   ly_do?: string | null;
   ghi_chu?: string | null;
+  /** Phiếu NHẬP: vị trí cất lô (kệ/ô) — thủ kho khai; ghi sổ chép sang lô. */
+  vi_tri?: string | null;
 }
 
 export interface StockVoucherInput {
@@ -5176,10 +5180,13 @@ export interface StockLot {
   sl_con_lai: number;
   hsd: string | null;
   trang_thai: string;
-  /** Phiếu NHẬP đã tạo ra lô (để link mã lô → phiếu). Null với tồn đầu kỳ. */
+  /** Phiếu NHẬP đã tạo ra lô — hiển thị lô THEO MÃ PHIẾU (link mở phiếu). Null với tồn đầu kỳ. */
   voucher_id: number | null;
+  voucher_ma: string | null;
   /** Chỉ có khi `can_view_cost` — thủ kho chọn lô mà không thấy giá. */
   don_gia_nhap: number | null;
+  /** SL đề nghị đã sinh ra lô (đọc-nối). Không phải tiền → luôn có. null = lô đầu kỳ / không nối được. */
+  sl_de_nghi: number | null;
 }
 
 export interface StockAllocationLine {
@@ -5215,6 +5222,8 @@ export interface StockMaterialXuatRow {
   voucher_ma: string | null;
   lot_id: number | null;
   ma_lo: string | null;
+  /** SL đề nghị đã sinh ra dòng xuất (đọc-nối). Không phải tiền → luôn có. null = không nối được. */
+  sl_de_nghi: number | null;
   so_luong: number;
   /** Giá vốn đích danh của lô đã xuất — chỉ có khi `can_view_cost`. */
   don_gia: number | null;
@@ -7857,6 +7866,13 @@ export const api = {
       cancel(token: string, id: number): Promise<StockRequest> {
         return authed<StockRequest>(`/api/kho/de-nghi/${id}/huy`, token, { method: "POST" });
       },
+      /** Kho HỦY đề nghị (quyết định KHÔNG lập phiếu) — kèm lý do; gác `create`. */
+      cancelByKho(token: string, id: number, lyDo: string): Promise<StockRequest> {
+        return authed<StockRequest>(`/api/kho/de-nghi/${id}/huy-kho`, token, {
+          method: "POST",
+          body: JSON.stringify({ ly_do: lyDo }),
+        });
+      },
       /** Kho bấm "Tiếp nhận" (gác bằng `create`, không phải `approve` — kho không duyệt). */
       receive(token: string, id: number): Promise<StockRequest> {
         return authed<StockRequest>(`/api/kho/de-nghi/${id}/tiep-nhan`, token, { method: "POST" });
@@ -7939,6 +7955,18 @@ export const api = {
           body: JSON.stringify({ ly_do: lyDo }),
         });
       },
+      /** Sửa VỊ TRÍ cất lô (kệ/ô) — từ drawer Lịch sử của sản phẩm. Quyền `create` (thủ kho). */
+      suaViTriLo(
+        token: string,
+        lotId: number,
+        viTri: string | null,
+      ): Promise<{ id: number; vi_tri: string | null }> {
+        return authed<{ id: number; vi_tri: string | null }>(
+          `/api/kho/phieu/lo/${lotId}/vi-tri`,
+          token,
+          { method: "PATCH", body: JSON.stringify({ vi_tri: viTri }) },
+        );
+      },
       /** Gợi ý lấy hàng từ lô nào (FEFO → FIFO). `thieu` > 0 = kho không đủ hàng. */
       goiYLo(
         token: string,
@@ -7973,6 +8001,14 @@ export const api = {
           token,
         );
       },
+      /** Mã QR đã ký cho tem dán kệ (in tem CẦN đăng nhập). FE nhúng vào link `#s=<token>`. */
+      qrToken(token: string, khoId: number, materialId: number): Promise<{ token: string }> {
+        const qs = new URLSearchParams({ kho_id: String(khoId) });
+        return authed<{ token: string }>(
+          `/api/kho/phieu/vat-tu/${materialId}/qr-token?${qs.toString()}`,
+          token,
+        );
+      },
       // --- Đính kèm hóa đơn/chứng từ gốc (ảnh hoặc PDF, ≤10MB) ---
       attachments(token: string, id: number): Promise<{ items: StockVoucherAttachment[] }> {
         return authed<{ items: StockVoucherAttachment[] }>(`/api/kho/phieu/${id}/attachments`, token);
@@ -7990,6 +8026,23 @@ export const api = {
           method: "DELETE",
         });
       },
+      /** Xuất Excel báo cáo tồn kho chi tiết (kế toán) — fetch as blob (bearer + refresh-aware). */
+      async exportXlsxBlobUrl(token: string, khoId?: number | null, conHang = true): Promise<string> {
+        const qs = new URLSearchParams();
+        if (khoId != null) qs.set("kho_id", String(khoId));
+        qs.set("con_hang", String(conHang));
+        const doFetch = (bearer: string) =>
+          fetch(`${BASE_URL}/api/kho/phieu/lo/export.xlsx?${qs.toString()}`, {
+            credentials: "include", cache: "no-store", headers: authHeader(bearer),
+          });
+        let resp = await doFetch(token);
+        if (resp.status === 401) {
+          const fresh = await refreshAccessToken();
+          if (fresh) resp = await doFetch(fresh);
+        }
+        if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
+        return URL.createObjectURL(await resp.blob());
+      },
     },
 
     nguongTon: {
@@ -8004,6 +8057,14 @@ export const api = {
       },
     },
   },
+
+  /** Endpoint CÔNG KHAI — tra kho khi quét tem QR (KHÔNG đăng nhập, KHÔNG giá vốn). */
+  public: {
+    khoScan(scanToken: string): Promise<PublicScan> {
+      const qs = new URLSearchParams({ t: scanToken });
+      return request<PublicScan>(`/api/public/kho-scan?${qs.toString()}`);
+            },
+    },
 
   // --- Danh mục tài liệu nội quy: chỉ Xem / Thêm / Xóa ----------------------
   noiQuy: {
@@ -8028,6 +8089,24 @@ export const api = {
   },
 
 };
+
+/** Dữ liệu tra kho CÔNG KHAI (quét tem QR). KHÔNG có trường tiền (giá vốn/đơn giá). */
+export interface PublicScanLot {
+  ma_lo: string | null;
+  ngay_nhap: string;
+  hsd: string | null;
+  vi_tri: string | null;
+  sl_con_lai: number;
+}
+
+export interface PublicScan {
+  material_code: string | null;
+  material_name: string | null;
+  dvt: string | null;
+  kho_ten: string | null;
+  on_hand: number;
+  lots: PublicScanLot[];
+}
 
 export interface PlateDieRateRow {
   id: number;
