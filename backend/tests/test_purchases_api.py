@@ -492,7 +492,12 @@ def test_department_purchase_request_update_before_purchase_request(client, auth
     body = resp.json()
     assert body["id"] == source["id"]
     assert body["code"] == source["code"]
-    assert body["purpose"] == "Cap nhat vat tu cho don hang carton"
+    # GỘP mục đích + ghi chú thành MỘT nội dung (chủ chốt 07/08/2026). Client cũ vẫn gửi hai ô
+    # `purpose` + `note`, server nối lại — bắt mọi nơi gọi API đổi cùng lúc với giao diện là
+    # chuyện không xảy ra được.
+    assert body["purpose"] == (
+        "Cap nhat vat tu cho don hang carton — Da sua truoc khi thu mua lap PMH"
+    )
     assert body["needed_date"] == payload["needed_date"]
     assert body["lines"][0]["item_name"] == "Keo can mang"
     assert body["lines"][0]["quantity"] == 500
@@ -1012,6 +1017,181 @@ def test_purchase_request_delete_only_draft(client, auth_headers):
     assert client.delete(f"/api/purchase-requests/{pending['id']}", headers=auth_headers).status_code == 409
 
 
+def test_o_gop_con_ghi_chu_thi_van_hop_le(client, auth_headers):
+    """Mục đích + ghi chú nay là MỘT ô. Xoá mục đích mà còn ghi chú ⇒ nội dung vẫn có chữ."""
+    supplier = _supplier(client, auth_headers)
+    source = _create_department_request(client, auth_headers)
+    payload = _request_payload(supplier["id"])
+    payload["source_request_ids"] = [source["id"]]
+    payload["purpose"] = " "
+    payload["note"] = "Can bao gia truoc khi mua"
+    resp = client.post("/api/purchase-requests", json=payload, headers=auth_headers)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["content"] == "Can bao gia truoc khi mua"
+
+
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _file_vat_tu(rows, header=("Tên hàng*", "Đơn vị*", "Đơn giá*", "VAT %", "Ghi chú")) -> bytes:
+    from io import BytesIO
+
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    if header:
+        ws.append(list(header))
+    for row in rows:
+        ws.append(list(row))
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _nhap(client, headers, data: bytes):
+    return client.post(
+        "/api/suppliers/items/import",
+        files={"file": ("vat-tu.xlsx", data, XLSX_MIME)},
+        headers=headers,
+    )
+
+
+def test_mau_va_xuat_vat_tu_ra_file_xlsx(client, auth_headers):
+    """Mẫu tải về phải ĐỌC LẠI ĐƯỢC bằng chính đường nhập — mẫu mà sai tiêu đề là vô dụng."""
+    mau = client.get("/api/suppliers/items/template.xlsx", headers=auth_headers)
+    assert mau.status_code == 200, mau.text
+    assert mau.headers["content-type"].startswith(XLSX_MIME)
+    assert mau.content[:2] == b"PK"  # .xlsx là zip
+
+    doc_lai = _nhap(client, auth_headers, mau.content)
+    assert doc_lai.status_code == 200, doc_lai.text
+    ten = [i["item_name"] for i in doc_lai.json()["items"]]
+    assert "Giấy Duplex 350gsm" in ten
+
+    supplier = _supplier(client, auth_headers)
+    xuat = client.get(
+        f"/api/suppliers/{supplier['id']}/items/export.xlsx", headers=auth_headers
+    )
+    assert xuat.status_code == 200, xuat.text
+    assert "attachment" in xuat.headers["content-disposition"]
+    vong_lai = _nhap(client, auth_headers, xuat.content)
+    assert vong_lai.status_code == 200, vong_lai.text
+    # Xuất ra rồi nhập lại phải ra ĐÚNG danh mục cũ — đây là đường người dùng hay đi nhất
+    # (xuất về sửa giá trong Excel rồi nhập lại).
+    assert {(i["item_name"], i["unit"]) for i in vong_lai.json()["items"]} == {
+        (i["item_name"], i["unit"]) for i in supplier["items"]
+    }
+
+
+def test_nhap_vat_tu_dong_hong_khong_huy_dong_lanh(client, auth_headers):
+    data = _file_vat_tu([
+        ("Giay Couche 150gsm", "to", 1500, 8, "OK"),
+        ("", "to", 1000, 8, "thieu ten"),
+        ("Muc in đen", "", 500000, 10, "thieu don vi"),
+        ("Muc in xanh", "kg", "khong-phai-so", 10, ""),
+        ("Muc in do", "kg", 0, 10, "gia 0"),
+        ("Bang keo", "cuon", 12000, 200, "VAT qua 100"),
+        ("Pallet go", "cai", 250000, 5, ""),
+    ])
+    resp = _nhap(client, auth_headers, data)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert [i["item_name"] for i in body["items"]] == ["Giay Couche 150gsm", "Pallet go"]
+    assert body["total_rows"] == 7
+    # Số dòng phải là số dòng NGƯỜI DÙNG thấy trong Excel (tính cả dòng tiêu đề).
+    assert [e["row"] for e in body["errors"]] == [3, 4, 5, 6, 7]
+
+
+def test_nhap_vat_tu_trung_trong_file_thi_lay_dong_duoi(client, auth_headers):
+    data = _file_vat_tu([
+        ("Giay Duplex 350gsm", "to", 2200, 8, "gia cu"),
+        ("  giay duplex 350GSM ", "TO", 2500, 8, "gia moi"),
+    ])
+    body = _nhap(client, auth_headers, data).json()
+    assert len(body["items"]) == 1, "cùng tên cùng ĐVT thì KHÔNG được đẻ dòng thứ hai"
+    assert body["items"][0]["unit_price"] == 2500
+    assert body["errors"] and body["errors"][0]["row"] == 3
+
+
+def test_nhap_vat_tu_chan_file_hong_thieu_cot_va_qua_tran(client, auth_headers):
+    hong = _nhap(client, auth_headers, b"day khong phai file excel")
+    assert hong.status_code == 422
+    assert "Excel" in hong.json()["detail"]
+
+    thieu_cot = _file_vat_tu([("Giay", "to", 1000, 8, "")], header=("A", "B", "C", "D", "E"))
+    resp = _nhap(client, auth_headers, thieu_cot)
+    assert resp.status_code == 422
+    assert "Tên hàng" in resp.json()["detail"]
+
+    chi_tieu_de = _file_vat_tu([])
+    resp = _nhap(client, auth_headers, chi_tieu_de)
+    assert resp.status_code == 422
+
+    qua_tran = _file_vat_tu([(f"Vat tu {i}", "cai", 1000 + i, 8, "") for i in range(501)])
+    resp = _nhap(client, auth_headers, qua_tran)
+    assert resp.status_code == 422
+    assert "500" in resp.json()["detail"]
+
+
+def test_nhap_vat_tu_chap_gia_co_dau_phan_cach(client, auth_headers):
+    """Excel trả về đủ kiểu tuỳ ô định dạng gì — chặn ở đây là người dùng phải sửa tay 200 dòng."""
+    data = _file_vat_tu([
+        ("Giay Ford A4", "ram", "2.200", "8", ""),
+        ("Giay Ford A3", "ram", "4,400", "8,5", ""),
+        ("Giay Ford A2", "ram", 8800.0, "10%", ""),
+    ])
+    body = _nhap(client, auth_headers, data).json()
+    assert body["errors"] == []
+    assert [i["unit_price"] for i in body["items"]] == [2200, 4400, 8800]
+    assert [i["vat_percent"] for i in body["items"]] == [8, 8.5, 10]
+
+
+def test_o_gop_khong_bi_cat_500_ky_tu(client, auth_headers):
+    """Giao dien MOI chi gui `content`, KHONG gui `purpose`.
+
+    Cot `purpose` chi con giu ban cat 500 ky tu cho phieu cu, nen tran cua no khong duoc phep
+    chan noi dung dai — nguoi khai go het 600 chu roi an 422 la mat trang."""
+    dai = ("Thieu giay cho don hang carton. " * 30).strip()  # ~960 ky tu
+    assert len(dai) > 500
+
+    ycmh_payload = _department_request_payload()
+    ycmh_payload.pop("purpose")
+    ycmh_payload.pop("note")
+    ycmh_payload["content"] = dai
+    ycmh = client.post(
+        "/api/department-purchase-requests", json=ycmh_payload, headers=auth_headers
+    )
+    assert ycmh.status_code == 201, ycmh.text
+    assert ycmh.json()["content"] == dai
+
+    supplier = _supplier(client, auth_headers)
+    pmh_payload = _request_payload(supplier["id"])
+    pmh_payload.pop("purpose")
+    pmh_payload.pop("note")
+    pmh_payload["content"] = dai
+    pmh_payload["source_request_ids"] = [ycmh.json()["id"]]
+    pmh = client.post("/api/purchase-requests", json=pmh_payload, headers=auth_headers)
+    assert pmh.status_code == 201, pmh.text
+    assert pmh.json()["content"] == dai
+    # Phieu mua lap tu YCMH: nguon phai tra ve NGUYEN VAN noi dung, khong phai ban cat.
+    assert pmh.json()["sources"][0]["content"] == dai
+
+
+def test_o_gop_trong_ca_hai_thi_bao_loi(client, auth_headers):
+    """Bo `purpose` khoi schema roi thi cho trong van phai bi chan — o nay VAN bat buoc."""
+    payload = _department_request_payload()
+    payload.pop("purpose")
+    payload.pop("note")
+    payload["content"] = "   "
+    resp = client.post(
+        "/api/department-purchase-requests", json=payload, headers=auth_headers
+    )
+    assert resp.status_code == 422, resp.text
+    assert "Noi dung" in resp.json()["detail"]
+
+
 def test_purchase_request_required_header_and_line_fields(client, auth_headers):
     supplier = _supplier(client, auth_headers)
     source = _create_department_request(client, auth_headers)
@@ -1028,12 +1208,16 @@ def test_purchase_request_required_header_and_line_fields(client, auth_headers):
     resp = client.post("/api/purchase-requests", json=missing_source, headers=auth_headers)
     assert resp.status_code == 422
 
+    # Ô GỘP (07/08/2026): mục đích + ghi chú nay là MỘT nội dung ⇒ phải trống CẢ HAI mới là trống.
+    # (Ca "xoá mục đích nhưng còn ghi chú vẫn qua" test riêng ở dưới — ở đây tạo phiếu thành công
+    # sẽ GIỮ CHỖ yêu cầu nguồn, làm hỏng các vế kiểm còn lại của chính test này.)
     blank_purpose = _request_payload(supplier["id"])
     blank_purpose["source_request_ids"] = [source["id"]]
     blank_purpose["purpose"] = " "
+    blank_purpose["note"] = " "
     resp = client.post("/api/purchase-requests", json=blank_purpose, headers=auth_headers)
     assert resp.status_code == 422
-    assert "Mục đích" in resp.json()["detail"]
+    assert "Nội dung" in resp.json()["detail"]
 
     missing_needed_date = _request_payload(supplier["id"])
     missing_needed_date["source_request_ids"] = [source["id"]]
@@ -1159,3 +1343,97 @@ def test_purchase_permissions(client, auth_headers):
     assert client.post(f"/api/purchase-requests/{buyer_pr['id']}/submit", headers=buyer_headers).status_code == 200
     assert client.post(f"/api/purchase-requests/{buyer_pr['id']}/approve", headers=buyer_headers).status_code == 403
     assert client.post(f"/api/purchase-requests/{buyer_pr['id']}/approve", headers=approver_headers).status_code == 200
+
+
+# --- lịch sử trạng thái (đợt 2, chủ chốt 07/08/2026) -------------------------
+
+
+def test_lich_su_ghi_dong_khi_nguoi_bam(client, auth_headers):
+    """Người bấm ⇒ dòng lịch sử có TÊN và `source='nguoi'`."""
+    supplier = _supplier(client, auth_headers)
+    source = _create_department_request(client, auth_headers)
+    payload = _request_payload(supplier["id"])
+    payload["source_request_ids"] = [source["id"]]
+    pmh = client.post("/api/purchase-requests", json=payload, headers=auth_headers).json()
+
+    assert client.post(
+        f"/api/purchase-requests/{pmh['id']}/submit", headers=auth_headers
+    ).status_code == 200
+
+    body = client.get(f"/api/purchase-requests/{pmh['id']}", headers=auth_headers).json()
+    ls = body["status_history"]
+    assert ls[0]["from_status"] == "draft"
+    assert ls[0]["to_status"] == "pending_approval"
+    assert ls[0]["source"] == "nguoi"
+    assert ls[0]["changed_by_name"]
+
+
+def test_lich_su_ghi_dong_MAY_khi_ycmh_tu_suy(client, auth_headers):
+    """YCMH đổi trạng thái do MÁY suy từ phiếu con ⇒ `source='may'`, không tên người.
+
+    Không phân biệt người/máy thì lịch sử hiện một dòng đổi trạng thái không tên ai, người đọc
+    tưởng mất dữ liệu."""
+    supplier = _supplier(client, auth_headers)
+    source = _create_department_request(client, auth_headers)
+    payload = _request_payload(supplier["id"])
+    payload["source_request_ids"] = [source["id"]]
+    client.post("/api/purchase-requests", json=payload, headers=auth_headers)
+
+    ycmh = client.get(
+        f"/api/department-purchase-requests/{source['id']}", headers=auth_headers
+    ).json()
+    may = [h for h in ycmh["status_history"] if h["source"] == "may"]
+    assert may, "YCMH bị giữ chỗ khi thu mua lập phiếu — phải có dòng do MÁY đổi"
+    assert may[0]["changed_by_name"] is None
+
+
+def test_lich_su_khong_de_dong_rac_khi_trang_thai_khong_doi(client, auth_headers):
+    """Suy lại mà ra TRÙNG trạng thái cũ thì không ghi gì.
+
+    YCMH được suy lại ở MỌI thao tác chạm phiếu con; ghi cả lần không đổi thì mỗi cú bấm đẻ một
+    dòng rác và lịch sử thành vô dụng."""
+    supplier = _supplier(client, auth_headers)
+    source = _create_department_request(client, auth_headers)
+    payload = _request_payload(supplier["id"])
+    payload["source_request_ids"] = [source["id"]]
+    pmh = client.post("/api/purchase-requests", json=payload, headers=auth_headers).json()
+
+    truoc = len(
+        client.get(
+            f"/api/department-purchase-requests/{source['id']}", headers=auth_headers
+        ).json()["status_history"]
+    )
+    # Sửa phiếu mua: KHÔNG đụng trạng thái ⇒ YCMH suy lại ra trùng, không được đẻ dòng nào.
+    sua = dict(payload)
+    sua["purpose"] = "Doi noi dung, khong doi trang thai"
+    client.put(f"/api/purchase-requests/{pmh['id']}", json=sua, headers=auth_headers)
+    sau = len(
+        client.get(
+            f"/api/department-purchase-requests/{source['id']}", headers=auth_headers
+        ).json()["status_history"]
+    )
+    assert sau == truoc
+
+
+def test_ly_do_huy_khong_de_len_noi_dung(client, auth_headers):
+    """Lý do huỷ vào cột RIÊNG. Trước 07/08/2026 `cancel()` chạy `row.note = reason` — GHI ĐÈ mất
+    ghi chú của người lập."""
+    supplier = _supplier(client, auth_headers)
+    source = _create_department_request(client, auth_headers)
+    payload = _request_payload(supplier["id"])
+    payload["source_request_ids"] = [source["id"]]
+    pmh = client.post("/api/purchase-requests", json=payload, headers=auth_headers).json()
+    noi_dung_goc = client.get(
+        f"/api/purchase-requests/{pmh['id']}", headers=auth_headers
+    ).json()["content"]
+
+    r = client.post(
+        f"/api/purchase-requests/{pmh['id']}/cancel",
+        json={"reason": "Doi nha cung cap khac"},
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+    body = client.get(f"/api/purchase-requests/{pmh['id']}", headers=auth_headers).json()
+    assert body["content"] == noi_dung_goc, "nội dung gốc KHÔNG được bị đè"
+    assert body["reject_reason"] == "Doi nha cung cap khac"
+    assert body["status_history"][0]["reason"] == "Doi nha cung cap khac"

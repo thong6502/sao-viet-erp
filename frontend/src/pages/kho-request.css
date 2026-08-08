@@ -54,6 +54,20 @@ input.kho-num,
   font-size: 11.5px;
 }
 
+/* Tên vật tư dài: cắt còn 2 dòng + "…" để KHÔNG đội cao cả hàng (hover `title` xem đủ). Dùng ở bảng
+   Tồn kho + danh sách/chi tiết Đề nghị. */
+.kho-ton__name,
+.kho-name-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* Chặn cứng ~2 dòng: phòng khi -webkit-line-clamp không kẹp chiều cao trong ô <td>
+     (quirk webkit-box). max-height + overflow:hidden luôn ăn → hàng không bị đội cao. */
+  line-height: 1.4;
+  max-height: 2.9em;
+}
+
 /* --- Hint một dòng dưới ô nhập / trong khối ------------------------------- */
 .kho-hint {
   font-size: 11.5px;
@@ -208,6 +222,14 @@ input.kho-num,
   color: var(--ink);
 }
 
+/* Danh sách khối cấp: >2 dòng thì CUỘN (giới hạn chiều cao) thay vì đổ hết ra drawer. */
+.kho-alloc-list--scroll {
+  max-height: 58vh;
+  overflow-y: auto;
+  /* chừa mép phải để thanh cuộn không đè viền khối .kho-alloc */
+  padding-right: var(--sp-1);
+}
+
 /* --- Khối phân bổ lô (signature element màn Hộp yêu cầu) ----------------- */
 .kho-alloc {
   border: 1px solid var(--rule-soft);
@@ -360,6 +382,25 @@ input.kho-num,
 .kho-alloc__spacer {
   flex: 1;
 }
+/* --- Bảng XUẤT trong drawer lập phiếu (mỗi vật tư = 1 dòng, bấm để xổ lô chỉ đọc) ---
+   Dùng chung khung .kho-lines. Cột caret hẹp; dòng bấm được → con trỏ tay + hover nền
+   nhạt (như dòng list Tồn kho). Dòng chi tiết xổ bảng lô chỉ đọc, nền chìm để tách. */
+.kho-xuat__caret {
+  width: 28px;
+  text-align: center;
+  color: var(--ash);
+}
+.kho-xuat__row {
+  cursor: pointer;
+}
+.kho-xuat__row:hover td {
+  background: var(--rust-soft);
+}
+.kho-xuat__detail > td {
+  padding: 0 var(--sp-3) var(--sp-2);
+  background: var(--paper);
+}
+
 .kho-alloc__lots {
   overflow-x: auto;
   border-top: 1px dashed var(--rule-soft);
@@ -576,7 +617,7 @@ input.kho-num,
 .kho-filter__pop {
   position: absolute;
   top: calc(100% + 6px);
-  right: 0;
+  left: 0;
   z-index: 40;
   width: min(360px, 92vw);
   display: flex;
@@ -671,20 +712,53 @@ input.kho-num,
   text-decoration: underline;
 }
 
-/* ─── Bảng kho (Tồn kho + Phiếu kho): gọn cột + vằn nền xen kẽ dễ dò dòng ──── */
-/* Padding ngang gọn hơn bảng .rc chung (sp-4 → sp-3) để bảng đỡ thưa. */
+/* ─── Bảng kho (Tồn kho + Phiếu kho): gọn cột ─────────────────────────────── */
+/* Padding ngang gọn cho ô đệm/skeleton; hàng thật + thead theo §6 (.kho-list). */
 .kho-table th,
 .kho-table td {
   padding-left: var(--sp-3);
   padding-right: var(--sp-3);
 }
-/* Zebra rất nhẹ (tông ash 4%) — chừa dòng skeleton lúc tải. */
-.kho-table tbody tr:nth-child(even):not(.rc-skel__row) {
-  background: color-mix(in srgb, var(--ash) 4%, transparent);
+
+/* ─── §6 Hệ thiết kế — bảng chuẩn cho 3 màn danh sách Kho ──────────────────────
+   Scope bằng .kho-list (thêm ở root mỗi trang) để KHÔNG đụng .rc__table dùng chung
+   với RebuildCatalog. th: nền paper + kẻ dưới 1.5px rule; nhãn 11/700 HOA .07em ash.
+   td: padding 12/14 + kẻ hair (hàng cuối vẫn bỏ kẻ theo .rc). Hover: nền rust-soft. */
+.kho-list .rc__table thead th {
+  padding: 10px 14px;
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ash);
+  background: var(--paper);
+  border-bottom: 1.5px solid var(--rule);
 }
-/* Hover phải thắng vằn nền → đặt sau, đặc thù cao hơn. */
-.kho-table tbody tr.rc__row:hover {
-  background: var(--rule-hair);
+/* Cột số căn phải (khớp ô số tbody) — không ép nhãn số sang trái. */
+.kho-list .rc__table thead th.kho-num {
+  text-align: right;
+}
+.kho-list .rc__row td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--rule-hair);
+}
+.kho-list .rc__row:hover td {
+  background: var(--rust-soft);
+}
+/* Bảng Tồn/Phiếu kho: chặn chiều cao, dài thì cuộn TRONG khung (không đẩy trang dài ra);
+   header dính lại khi cuộn để luôn thấy tên cột. Chỉ áp cho .kho-tablewrap (2 bảng này),
+   không đụng bảng Đề nghị/Hộp yêu cầu (dùng .rc__table--fixed). */
+.kho-list .kho-tablewrap {
+  max-height: calc(100vh - 20rem);
+  overflow: auto;
+}
+.kho-list .kho-tablewrap .rc__table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* border-collapse có thể làm rơi viền dưới header khi sticky → giữ kẻ bằng shadow. */
+  box-shadow: inset 0 -1.5px 0 var(--rule);
 }
 /* Bảng lô lồng trong dòng vật tư — nền chìm hơn để tách khỏi bảng chính. */
 .kho-ton__detailrow > td {
@@ -878,6 +952,44 @@ input.kho-num,
   gap: var(--sp-1);
 }
 
+/* --- Bảng NHẬP trong drawer lập phiếu (mỗi vật tư = 1 dòng) --------------- */
+/* Dùng chung khung .kho-lines; canh TOP để ô số/đơn giá thẳng với đỉnh control khi
+   ô Vật tư cao (combobox + hint). Hint nằm TRONG ô, giữ đúng "mỗi vật tư 1 dòng". */
+.kho-nhap td {
+  vertical-align: top;
+}
+.kho-nhap__stt {
+  width: 34px;
+  color: var(--ash);
+}
+.kho-nhap__dvt {
+  width: 78px;
+  padding: 6px 8px;
+}
+.kho-nhap__sl {
+  width: 84px;
+}
+.kho-nhap__vitri {
+  width: 110px;
+  padding: 6px 8px;
+}
+.kho-nhap__lydo {
+  width: 100%;
+  min-width: 150px;
+}
+/* Ô SL + nút gạt ĐVT tồn/phụ trên cùng một ô; hẹp thì xuống dòng, vẫn dồn phải. */
+.kho-nhap__slwrap {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+/* Hint trong ô (quy đổi / tạo mã): sát control, cỡ nhỏ như các hint khác. */
+.kho-nhap .kho-hint {
+  margin-top: 4px;
+}
+
 /* Ô sửa NGƯỠNG TỒN / TỐI ĐA ngay trên dòng Tồn kho. */
 .kho-ton__thin {
   width: 82px;
@@ -1012,3 +1124,285 @@ input.kho-num,
   border-radius: var(--r-pill);
 }
 
+
+/* --- Tem QR vật tư (drawer Tồn kho): quét ra deep-link lô + vị trí --- */
+.rc__link-btn.is-active {
+  color: var(--rust, #c5400a);
+  background: var(--rust-soft, #f4e2d6);
+}
+.kho-qr {
+  display: flex;
+  gap: var(--sp-4);
+  align-items: center;
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+.kho-qr__img {
+  flex: none;
+  width: 148px;
+  height: 148px;
+  padding: 8px;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+}
+.kho-qr__img svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.kho-qr__img--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--ash);
+}
+.kho-qr__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.kho-qr__note {
+  font-size: 12px;
+  color: var(--ash);
+  line-height: 1.4;
+}
+.kho-qr__url {
+  font-family: var(--ff-num);
+  font-size: 11px;
+  color: var(--ash-2);
+  word-break: break-all;
+  line-height: 1.35;
+}
+
+/* --- Màn kết quả quét QR (KhoScanPage): trang riêng list lô + vị trí của 1 vật tư --- */
+.kho-scan__bar {
+  display: flex;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-3);
+}
+/* Điện thoại hẹp: cho cuộn NGANG bảng thay vì vỡ layout (ghi đè overflow:hidden của .rc__tablewrap). */
+.kho-scan__tablewrap {
+  overflow-x: auto;
+}
+.kho-vitri {
+  font-family: var(--ff-num);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* ─── Tồn kho: ô Tồn khả dụng (số + ĐVT) & ô Vị trí (cắt +K) ───────────────── */
+/* ĐVT đi ngay sau số trong cùng ô — xám nhạt, nhỏ hơn số (không phải cột riêng). */
+.kho-ton__dvt {
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  font-weight: var(--fw-regular, 400);
+  color: var(--ash);
+  margin-left: 3px;
+}
+/* Ô Vị trí: 1 dòng, dài thì "…" (title ô = đủ danh sách distinct). */
+.kho-ton__vitri {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  color: var(--ink);
+}
+.kho-ton__vtmore {
+  color: var(--ash);
+  font-size: 11.5px;
+  font-family: var(--ff-num);
+}
+
+/* ─── Drawer vật tư · tab Tổng quan ──────────────────────────────────────────
+   Chỉ đọc: hero (tồn lớn + chip), thanh gauge Min–Max, lưới chỉ số 2 cột. */
+.kho-ov {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.kho-ov__hero {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.kho-ov__big {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 30px;
+  font-weight: var(--fw-bold);
+  line-height: 1.05;
+  color: var(--ink);
+}
+.kho-ov__dvt {
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  font-weight: var(--fw-regular, 400);
+  color: var(--ash);
+  margin-left: 4px;
+}
+
+/* Thanh gauge Min–Max — cùng phong cách .kho-prog nhưng cao hơn (8px) + có mốc Min/Max. */
+.kho-gauge {
+  padding-top: 2px;
+}
+.kho-gauge__track {
+  position: relative;
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: var(--rule-soft);
+  overflow: hidden;
+}
+/* Vùng an toàn Min→Max (chìm) để mắt bắt được khoảng ngưỡng. */
+.kho-gauge__band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--moss) 14%, transparent);
+}
+/* Cột tồn hiện tại — tô theo mức (đồng bộ StockLevelChip). */
+.kho-gauge__fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--r-pill);
+  background: var(--steel);
+}
+.kho-gauge__fill--du_ton { background: var(--steel); }
+.kho-gauge__fill--du { background: var(--moss); }
+.kho-gauge__fill--can_mua { background: var(--rust); }
+.kho-gauge__fill--het { background: var(--signal); }
+/* Mốc Min & Max — vạch mảnh xuyên qua track. */
+.kho-gauge__tick {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  transform: translateX(-1px);
+  background: var(--ink);
+  opacity: 0.55;
+  border-radius: var(--r-pill);
+}
+
+/* Lưới chỉ số 2 cột (nhãn xám + giá trị đậm). */
+.kho-ov__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3) var(--sp-4);
+  margin: 0;
+}
+.kho-ov__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.kho-ov__cell--wide {
+  grid-column: 1 / -1;
+}
+.kho-ov__cell dt {
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+.kho-ov__cell dd {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+/* Ô Min/Max & badge Trạng thái bấm được → mở popup đặt ngưỡng (chỉ khi có set_threshold).
+   Gạch chân rust khi hover để phân biệt với hover-nền của cả dòng. */
+.kho-ton__setth {
+  cursor: pointer;
+}
+.kho-ton__setth:hover {
+  background: var(--rust-soft);
+  box-shadow: inset 0 -2px 0 var(--rust);
+}
+
+/* Popup đặt ngưỡng: toggle "Bật cảnh báo" chiếm trọn hàng dưới Min/Max cho gọn trong modal hẹp. */
+.kho-setth .rc-field--check {
+  grid-column: 1 / -1;
+}
+
+/* ─── Biểu đồ nhập/xuất 12 tháng (tab Tổng quan drawer vật tư) ──────────────── */
+.kho-ov__chart-wrap {
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  padding: var(--sp-3) var(--sp-4) var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.kho-ov__chart-title {
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+.kho-ov__chart-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: 11px;
+  color: var(--ash);
+}
+.kho-ov__legend-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.kho-ov__legend-dot--nhap { background: var(--moss); }
+.kho-ov__legend-dot--xuat { background: var(--rust); }
+
+/* --- Xuất Excel button --------------------------------------------------- */
+.kho-export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 6px 14px;
+  font-size: .8125rem;
+  font-weight: 600;
+  border-radius: 6px;
+  background: var(--moss, #2e7d46);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: background .15s, opacity .15s, transform .1s;
+  white-space: nowrap;
+}
+.kho-export-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--moss, #2e7d46) 85%, #000);
+  transform: translateY(-1px);
+}
+.kho-export-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+.kho-export-btn:disabled {
+  opacity: .55;
+  cursor: wait;
+}
+.kho-export-btn svg {
+  flex-shrink: 0;
+}

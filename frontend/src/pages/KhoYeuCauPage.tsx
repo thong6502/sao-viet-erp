@@ -337,7 +337,10 @@ export function KhoYeuCauPage({
                         <div className="rc__muted">{r.bo_phan_ten ?? "—"}</div>
                       </td>
                       <td>
-                        <div className="rc__name">
+                        <div
+                          className="rc__name kho-name-clamp"
+                          title={r.lines[0]?.hang_ten ?? undefined}
+                        >
                           {r.lines[0]?.hang_ten ?? "—"}
                         </div>
                         {r.lines.length > 1 && (
@@ -588,7 +591,12 @@ export function InboxRequestDrawer({
                       {req.lines.map((l) => (
                         <tr key={l.id}>
                           <td>
-                            <div className="kho-lines__name">{l.hang_ten ?? "—"}</div>
+                            <div
+                              className="kho-lines__name kho-name-clamp"
+                              title={l.hang_ten ?? undefined}
+                            >
+                              {l.hang_ten ?? "—"}
+                            </div>
                             <div className="kho-lines__code">{l.hang_ma ?? ""}</div>
                           </td>
                           <td className="kho-lines__code">{l.dvt}</td>

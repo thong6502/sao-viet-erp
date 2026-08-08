@@ -143,13 +143,13 @@ const FINE_ACTIONS: Record<
     { key: "can_set_head", label: "Đặt trưởng phòng" },
     { key: "can_reparent", label: "Đổi cấp trên (cây tổ chức)" },
   ],
-  // Kho: 3 ô chi tiết + công tắc chung Xem (can_read) + Chỉnh sửa (= LẬP PHIẾU).
+  // Kho: 2 ô chi tiết + công tắc chung Xem (can_read) + Lập phiếu (= TẠO + GHI SỔ + HỦY, can_create).
   //   · Tạo đề nghị (can_request) — người XIN nhập/lĩnh vật tư.
-  //   · Duyệt đề nghị (can_approve) — quản lý bộ phận ĐỀ NGHỊ (KHÔNG phải kho).
   //   · Xem kho (1 công tắc = 3 cột): xem tồn + xem giá vốn + khai ngưỡng.
-  //   · Ghi sổ phiếu (can_post) — TÁCH riêng để giữ SoD: Thủ kho lập phiếu NHƯNG KHÔNG ghi sổ.
-  // Vai KHO (cấp phát) bật "Xem kho" + Lập phiếu; chỉ QL kho / Kế toán kho thêm "Ghi sổ".
-  // KHÔNG có Duyệt (kho không tự duyệt).
+  // ĐÃ GỘP (bỏ SoD): "Ghi sổ" + "Hủy" nhập chung vào "Lập phiếu" — KHÔNG còn công tắc Ghi sổ riêng.
+  // Ai có Lập phiếu là tạo + ghi sổ + hủy được. KHÔNG có Duyệt: ĐÃ BỎ BƯỚC DUYỆT đề nghị kho
+  // (chủ 06/08/2026) — tạo đề nghị là 'approved' luôn, không ai duyệt nữa (cột `can_approve` giữ
+  // trong DB vì dùng chung HR/nơi khác, chỉ gỡ mục "Duyệt đề nghị" của KHO khỏi UI).
   kho: [
     {
       key: "can_request",
@@ -157,20 +157,15 @@ const FINE_ACTIONS: Record<
       hint: "Lập ĐỀ NGHỊ nhập/xuất kho (tổ SX xin lĩnh vật tư, mua hàng xin nhập bổ sung). Người đề nghị nên để phạm vi \"Của tôi\".",
     },
     {
-      key: "can_approve",
-      label: "Duyệt đề nghị",
-      hint: "Duyệt / từ chối đề nghị kho (được cắt bớt số lượng khi duyệt). Của QUẢN LÝ BỘ PHẬN đề nghị (vd Quản lý sản xuất duyệt đề nghị của tổ), KHÔNG phải kho — kho chỉ nhận đề nghị đã duyệt rồi cấp. Không ai tự duyệt đề nghị của chính mình.",
-    },
-    {
       key: "can_view_stock",
       keys: ["can_view_stock", "can_view_cost", "can_set_threshold"],
-      label: "Xem kho (xem tồn/giá vốn · ngưỡng)",
-      hint: "MỘT công tắc gộp 3 quyền XEM/QUẢN của kho: XEM số tồn · XEM giá vốn & giá trị tồn · KHAI ngưỡng tồn. Thủ kho / QL kho / Kế toán kho bật ô này. KHÔNG gồm Ghi sổ (tách riêng bên dưới) và KHÔNG kèm Duyệt đề nghị.",
+      label: "Xem tồn kho, giá vốn & ngưỡng tồn",
+      hint: "MỘT công tắc gộp 3 quyền XEM/QUẢN của kho: XEM số tồn · XEM giá vốn & giá trị tồn · KHAI ngưỡng tồn. Ai làm kho bật ô này.",
     },
     {
-      key: "can_post",
-      label: "Ghi sổ phiếu (chốt tồn)",
-      hint: "GHI SỔ phiếu nhập/xuất → tồn kho THAY ĐỔI THẬT (và Hủy phiếu). TÁCH khỏi Lập phiếu để giữ SoD: Thủ kho lập phiếu nháp, QL kho / Kế toán kho vào xem rồi Ghi sổ hoặc Hủy. Người cầm hàng khác người chốt sổ.",
+      key: "can_export",
+      label: "Xuất Excel báo cáo kho (kế toán)",
+      hint: "Cho phép xuất Excel báo cáo tồn kho chi tiết, bao gồm toàn bộ mã hàng, số lượng, giá vốn và vị trí của các kho.",
     },
   ],
   dm_giay_vat_tu: [

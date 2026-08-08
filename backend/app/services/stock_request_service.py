@@ -107,9 +107,23 @@ class StockRequestService:
                 raise StockRequestError(f"Số đề nghị '{ma_clean}' đã tồn tại.")
         else:
             ma_clean = self.sequence.generate_flat_code(doc_type)
-        return self.requests.create(
+        req = self.requests.create(
             ma=ma_clean, loai=loai, nguoi_tao_id=user.id, lines=lines, **header
         )
+        # BỎ BƯỚC DUYỆT (chủ 06/08/2026): tạo đề nghị là DUYỆT LUÔN — bộ phận xin là kho cấp ngay,
+        # không còn "Chờ duyệt". `approved` cũng là trạng thái KHOÁ (BRD §1.5) nên đề nghị vừa tạo
+        # đã chốt, đúng ý "tạo xong khoá luôn". KHÔNG tái dùng self.approve(): nó chặn tự-duyệt
+        # (approver == người tạo) và đòi trạng thái pending — ở đây người tạo CHÍNH là người duyệt,
+        # nên set thẳng cho đúng ngữ nghĩa. Mỗi dòng duyệt nguyên số đã xin (sl_duyet = sl_de_nghi).
+        for line in req.lines:
+            line.sl_duyet = line.sl_de_nghi
+        req.trang_thai = REQ_APPROVED
+        req.nguoi_duyet_id = user.id
+        req.duyet_luc = datetime.now(timezone.utc)
+        req = self.requests.save(req)
+        # Đẩy real-time để Hộp yêu cầu kho thấy đề nghị mới ngay (badge nhảy), không bắt F5.
+        self._notify(req, "Đề nghị mới — chờ kho cấp")
+        return req
 
     def update(self, req: StockRequest, *, lines: list[dict] | None = None, **header) -> StockRequest:
         self._require_editable(req)
@@ -256,9 +270,11 @@ class StockRequestService:
         return req
 
     def cancel_by_kho(self, req: StockRequest, ly_do: str) -> StockRequest:
-        """Kho HỦY đề nghị khi hủy phiếu nháp — đề nghị KẾT THÚC ở 'Đã hủy' kèm lý do (thay
-        revert_if_untouched: KHÔNG trả về 'Chờ cấp', không cấp lại). Số đã cấp bởi phiếu ĐÃ GHI SỔ
+        """Kho HỦY đề nghị (hủy phiếu nháp, HOẶC quyết định không lập phiếu) — đề nghị KẾT THÚC ở
+        'Đã hủy' kèm lý do (KHÔNG trả về 'Chờ cấp', không cấp lại). Số đã cấp bởi phiếu ĐÃ GHI SỔ
         trước đó (nếu có) vẫn nằm ở kho — phiếu ghi sổ không đảo; đề nghị vẫn đóng."""
+        if req.trang_thai in (REQ_DONE, REQ_CANCELLED):
+            raise StockRequestError("Đề nghị đã kết thúc — không hủy được.")
         req.trang_thai = REQ_CANCELLED
         req.ly_do_huy = ly_do
         req = self.requests.save(req)

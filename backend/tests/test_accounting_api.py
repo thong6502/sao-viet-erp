@@ -176,30 +176,23 @@ def test_approve_and_create_cash_voucher_tracks_partial_payment(client):
     assert created.status_code == 201, created.text
     voucher = created.json()
     assert re.fullmatch(r"PC-\d{6}-[A-Z0-9]{4}", voucher["code"])
-    assert voucher["status"] == "waiting_payment"
+    assert voucher["status"] == "paid"
     assert voucher["amount_vnd"] == 1_000_000
     assert voucher["purchase_request_code"] == purchase["code"]
     assert voucher["purchase_created_by_name"] == "Admin"
     assert voucher["source_request_codes"] == [source["code"]]
 
+    # Lập phiếu chi ĐÃ LÀ hành vi chi tiền (06/08/2026) — không còn bước "xác nhận đã chi",
+    # nên tiền vào `paid_amount` ngay chứ không nằm ở rổ "chờ chi" nào cả.
     refreshed = client.get(f"/api/purchase-requests/{purchase['id']}", headers=headers).json()
     assert refreshed["status"] == "approved"
-    assert refreshed["pending_amount"] == 1_000_000
-    assert refreshed["paid_amount"] == 0
-    assert refreshed["available_amount"] == 1_200_000
-    assert refreshed["payment_status"] == "partial"
-
-    paid = client.post(
-        f"/api/accounting/payment-vouchers/{voucher['id']}/mark-paid",
-        json={"bank_reference": None},
-        headers=headers,
-    )
-    assert paid.status_code == 200, paid.text
-    assert paid.json()["status"] == "paid"
-    refreshed = client.get(f"/api/purchase-requests/{purchase['id']}", headers=headers).json()
-    assert refreshed["pending_amount"] == 0
     assert refreshed["paid_amount"] == 1_000_000
-    assert refreshed["outstanding_amount"] == 1_200_000
+    assert refreshed["net_paid"] == 1_000_000
+    # Hàng CHƯA về ⇒ chưa nợ ai đồng nào, dù đã ứng trước 1 triệu.
+    assert refreshed["gia_tri_da_giao"] == 0
+    assert refreshed["outstanding_amount"] == 0
+    # Trần ĐẶT CỌC còn lại = giá trị đơn − đã chi ròng.
+    assert refreshed["tran_dat_coc"] == 1_200_000
 
     found = client.get(f"/api/accounting/payment-vouchers?q={source['code']}", headers=headers)
     assert found.status_code == 200
@@ -241,18 +234,7 @@ def test_unc_requires_bank_accounts_reference_and_blocks_overpayment(client):
     assert voucher["company_account_number"] == "123456789"
     assert voucher["beneficiary_account_number"] == "987654321"
 
-    missing_reference = client.post(
-        f"/api/accounting/payment-vouchers/{voucher['id']}/mark-paid",
-        json={"bank_reference": None},
-        headers=headers,
-    )
-    assert missing_reference.status_code == 422
-    paid = client.post(
-        f"/api/accounting/payment-vouchers/{voucher['id']}/mark-paid",
-        json={"bank_reference": "VCB-20260710-001"},
-        headers=headers,
-    )
-    assert paid.status_code == 200, paid.text
+    assert voucher["status"] == "paid"
 
     too_much = {**payload, "amount": 700_001}
     over = client.post("/api/accounting/payment-vouchers", json=too_much, headers=headers)
@@ -260,19 +242,42 @@ def test_unc_requires_bank_accounts_reference_and_blocks_overpayment(client):
     assert "vượt quá" in over.json()["detail"]
 
 
-def test_final_payment_allowed_before_received_purchase(client):
+def test_tra_truoc_khi_hang_ve_phai_di_duong_dat_coc(client):
+    """Hàng chưa về thì CHƯA NỢ ai — phiếu THANH TOÁN bị chặn, phải đi đường ĐẶT CỌC.
+
+    Trần của hai loại phiếu khác nhau có chủ ý (06/08/2026 §5.4): thanh toán trần theo CÔNG NỢ đã
+    phát sinh, đặt cọc trần theo GIÁ TRỊ ĐƠN. Nhập nhèm hai đường là kế toán trả đủ tiền cho đơn mà
+    hàng còn nằm ở kho NCC, rồi màn Công nợ báo nợ 0 trong khi phiếu chi đã viết đủ — hai con số
+    chửi nhau."""
     headers = _headers(client)
     supplier = _supplier(client, headers)
     purchase, _ = _purchase(client, headers, supplier["id"])
-    # `_purchase()` đã duyệt sẵn (bằng tài khoản khác người lập) — duyệt lại là 409.
-    payload = {
-        "purchase_request_id": purchase["id"],
-        **_cash_payload(2_200_000),
-        "payment_stage": "final",
-    }
-    created = client.post("/api/accounting/payment-vouchers", json=payload, headers=headers)
-    assert created.status_code == 201, created.text
-    assert created.json()["payment_stage"] == "final"
+
+    chan = client.post(
+        "/api/accounting/payment-vouchers",
+        json={
+            "purchase_request_id": purchase["id"],
+            **_cash_payload(2_200_000),
+            "payment_stage": "final",
+        },
+        headers=headers,
+    )
+    assert chan.status_code == 422
+    assert "thanh toán" in chan.json()["detail"]
+
+    # Cùng số tiền, đi đường đặt cọc thì qua — và ra thẳng trạng thái "đã chi".
+    coc = client.post(
+        "/api/accounting/payment-vouchers",
+        json={
+            "purchase_request_id": purchase["id"],
+            **_cash_payload(2_200_000),
+            "payment_stage": "advance",
+        },
+        headers=headers,
+    )
+    assert coc.status_code == 201, coc.text
+    assert coc.json()["payment_stage"] == "advance"
+    assert coc.json()["status"] == "paid"
 
 
 def test_foreign_currency_reserves_vnd_and_blocks_purchase_cancellation(client):
@@ -294,8 +299,8 @@ def test_foreign_currency_reserves_vnd_and_blocks_purchase_cancellation(client):
     assert voucher["amount_vnd"] == 2_000_000
 
     refreshed = client.get(f"/api/purchase-requests/{purchase['id']}", headers=headers).json()
-    assert refreshed["pending_amount"] == 2_000_000
-    assert refreshed["available_amount"] == 200_000
+    assert refreshed["paid_amount"] == 2_000_000
+    assert refreshed["tran_dat_coc"] == 200_000
 
     blocked = client.post(
         f"/api/purchase-requests/{purchase['id']}/cancel",
@@ -373,9 +378,9 @@ def test_doc_no_shared_counter_across_voucher_types(client):
         json={
             "purchase_request_id": purchase["id"],
             "voucher_type": "bank_transfer",
-            "payment_stage": "partial",
+            # Hàng chưa về ⇒ vẫn là tiền ứng trước. `partial` bị chặn vì chưa phát sinh nợ.
+            "payment_stage": "advance",
             "voucher_date": "2026-07-10",
-            "planned_payment_date": "2026-07-25",
             "amount": 400_000,
             "currency": "VND",
             "exchange_rate": 1,
@@ -463,20 +468,27 @@ def test_search_by_doc_no_and_debit_credit_roundtrip(client):
         assert found.status_code == 200
         assert [row["id"] for row in found.json()["items"]] == [voucher["id"]]
 
-    # Sửa phiếu: đổi được định khoản, GIỮ NGUYÊN số phiếu.
+    # PHIẾU ĐÃ LẬP THÌ KHÔNG SỬA (chủ chốt 07/08/2026): phiếu chi phát hành ra là tiền đã rời két,
+    # sửa nó là làm tờ giấy đang nằm ở chỗ NCC khác với bản trong máy. Sai thì HUỶ rồi lập lại —
+    # dấu vết còn đủ hai bản. Endpoint PUT đã gỡ hẳn.
     updated = client.put(
         f"/api/accounting/payment-vouchers/{voucher['id']}",
         json={
             "purchase_request_id": purchase["id"],
             **_cash_payload(500_000),
             "debit_account": "156",
-            "credit_account": "1111",
         },
         headers=headers,
     )
-    assert updated.status_code == 200, updated.text
-    assert updated.json()["doc_no"] == voucher["doc_no"]
-    assert updated.json()["debit_account"] == "156"
+    assert updated.status_code == 405, updated.text
+
+    # Còn sửa được đúng một thứ: ĐÍNH KÈM tài liệu — hoá đơn/UNC thường về sau khi chi.
+    tep = client.post(
+        f"/api/accounting/payment-vouchers/{voucher['id']}/attachments",
+        files={"file": ("hd.png", b"anh-hoa-don", "image/png")},
+        headers=headers,
+    )
+    assert tep.status_code == 201, tep.text
 
 
 def test_voucher_accepts_payload_without_accounts_and_rejects_too_long(client):
@@ -576,32 +588,38 @@ def _paid_cash_voucher(client, headers, purchase_id: int, amount: int) -> dict:
     )
     assert created.status_code == 201, created.text
     voucher = created.json()
-    paid = client.post(
-        f"/api/accounting/payment-vouchers/{voucher['id']}/mark-paid",
-        json={"bank_reference": None},
-        headers=headers,
-    )
-    assert paid.status_code == 200, paid.text
-    return paid.json()
+    assert voucher["status"] == "paid"
+    return voucher
 
 
-def test_receipt_requires_paid_voucher(client):
+def test_khong_lap_duoc_phieu_thu_tren_phieu_chi_da_huy(client):
+    """Phiếu thu là tiền chi ra tiêu không hết nộp về — phải có phiếu chi GỐC còn hiệu lực.
+
+    Trước 06/08/2026 luật này được canh bằng "chỉ phiếu `paid` mới lập phiếu thu được", vì phiếu mới
+    lập nằm ở `waiting`. Nay phiếu lập ra ĐÃ LÀ `paid` nên ca cần canh chỉ còn phiếu đã HUỶ: gắn
+    phiếu thu vào đó là đẻ một khoản thu không có gốc, cộng ngược thành nợ ảo."""
     headers = _headers(client)
     supplier = _supplier(client, headers)
     purchase, _ = _purchase(client, headers, supplier["id"])
-    waiting = client.post(
+    voucher = client.post(
         "/api/accounting/payment-vouchers",
         json={**_cash_payload(1_000_000), "purchase_request_id": purchase['id']},
         headers=headers,
     )
-    assert waiting.status_code == 201, waiting.text
+    assert voucher.status_code == 201, voucher.text
+    vid = voucher.json()["id"]
+    assert client.post(
+        f"/api/accounting/payment-vouchers/{vid}/cancel",
+        json={"reason": "Lập nhầm"},
+        headers=headers,
+    ).status_code == 200
+
     blocked = client.post(
-        f"/api/accounting/payment-vouchers/{waiting.json()['id']}/receipts",
+        f"/api/accounting/payment-vouchers/{vid}/receipts",
         json=_receipt_payload(100_000),
         headers=headers,
     )
     assert blocked.status_code == 409
-    assert "đã chi" in blocked.json()["detail"]
 
 
 def test_receipt_cannot_exceed_voucher_amount(client):
@@ -655,8 +673,8 @@ def test_receipt_received_reopens_purchase_available(client):
     voucher = _paid_cash_voucher(client, headers, purchase["id"], 2_200_000)
 
     before = client.get(f"/api/purchase-requests/{purchase['id']}", headers=headers).json()
-    assert before["payment_status"] == "paid"
-    assert before["available_amount"] == 0
+    # Đơn chưa về hàng nên chưa nợ; tiền ứng ra đã lấp trọn trần đặt cọc.
+    assert before["tran_dat_coc"] == 0
 
     receipt = client.post(
         f"/api/accounting/payment-vouchers/{voucher['id']}/receipts",
@@ -665,7 +683,7 @@ def test_receipt_received_reopens_purchase_available(client):
     ).json()
 
     waiting_state = client.get(f"/api/purchase-requests/{purchase['id']}", headers=headers).json()
-    assert waiting_state["available_amount"] == 0  # chờ thu: tiền chưa về
+    assert waiting_state["tran_dat_coc"] == 0  # chờ thu: tiền chưa về
     assert waiting_state["receipt_received_amount"] == 0
 
     received = client.post(
@@ -679,9 +697,13 @@ def test_receipt_received_reopens_purchase_available(client):
     after = client.get(f"/api/purchase-requests/{purchase['id']}", headers=headers).json()
     assert after["paid_amount"] == 2_200_000  # số thô giữ nguyên
     assert after["receipt_received_amount"] == 300_000
-    assert after["available_amount"] == 300_000
-    assert after["outstanding_amount"] == 300_000
-    assert after["payment_status"] == "partial"
+    assert after["net_paid"] == 1_900_000
+    # Tiền THU VỀ mở lại trần đặt cọc đúng bằng số đã nộp lại.
+    assert after["tran_dat_coc"] == 300_000
+    # Hàng vẫn chưa về nên vẫn chưa nợ ai — đây chính là ca "nợ ảo" của bản cũ:
+    # trước 06/08/2026 chỗ này ra 300.000đ "còn nợ NCC" trong khi tiền đã về két.
+    assert after["gia_tri_da_giao"] == 0
+    assert after["outstanding_amount"] == 0
 
     voucher_after = client.get(
         f"/api/accounting/payment-vouchers/{voucher['id']}", headers=headers
@@ -893,7 +915,7 @@ def test_vouchers_group_sort_keeps_same_pmh_adjacent(client):
     assert all("T" in row["created_at"] for row in listed.json()["items"])
 
     filtered = client.get(
-        "/api/accounting/payment-vouchers?sort=-group&status=waiting_payment&size=50",
+        "/api/accounting/payment-vouchers?sort=-group&status=paid&size=50",
         headers=headers,
     )
     assert filtered.status_code == 200
@@ -941,11 +963,12 @@ def test_accounting_approve_permission_also_allows_voucher_creation(client):
     )
     assert allowed.status_code == 201, allowed.text
     assert allowed.json()["created_by_name"] == "Kế toán duyệt"
+    # `mark-paid` đã bị GỠ HẲN 06/08/2026 — lập phiếu chi là chi luôn, không còn bước xác nhận.
     assert (
         client.post(
             f"/api/accounting/payment-vouchers/{allowed.json()['id']}/mark-paid",
             json={"bank_reference": None},
             headers=approver_headers,
         ).status_code
-        == 403
+        == 404
     )

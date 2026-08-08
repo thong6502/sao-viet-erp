@@ -150,6 +150,8 @@ class StockVoucherLineIn(BaseModel):
     # Lý do cấp/nhập THIẾU (khi SL < còn phải cấp) — bắt buộc nếu thiếu; ghi vào đề nghị (kho phản hồi).
     ly_do: str | None = Field(default=None, max_length=500)
     ghi_chu: str | None = Field(default=None, max_length=500)
+    # Phiếu NHẬP: vị trí cất lô trong kho (kệ/ô) — thủ kho khai; ghi sổ chép sang lô.
+    vi_tri: str | None = Field(default=None, max_length=100)
 
 
 class StockVoucherCreate(BaseModel):
@@ -175,6 +177,9 @@ class StockVoucherLineOut(BaseModel):
     dvt: str | None = None
     lot_id: int | None = None
     ma_lo: str | None = None
+    # SL người đề nghị XIN trên dòng đề nghị gốc (đọc-nối từ StockRequestLine, không lưu cột).
+    # Để phiếu đối chiếu "đề nghị vs thực nhận/xuất". None nếu không nối được dòng đề nghị.
+    sl_de_nghi: float | None = None
     so_luong: float
     # Số đã quy về đơn vị gốc (số thật sự chạy vào lô) + đơn vị đó — để bản in và màn phiếu nói rõ
     # "10 ram (= 419,25 kg)" thay vì để người đọc tự đoán con số nào vào tồn.
@@ -237,6 +242,12 @@ class StockVoucherAttachmentListOut(BaseModel):
 
 # --- Lô & phân bổ ------------------------------------------------------------
 
+class StockLotViTriIn(BaseModel):
+    """Sửa vị trí cất lô (kệ/ô) trong kho."""
+
+    vi_tri: str | None = Field(default=None, max_length=100)
+
+
 class StockLotOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -256,10 +267,14 @@ class StockLotOut(BaseModel):
     sl_con_lai: float
     hsd: date | None = None
     trang_thai: str
-    # Phiếu NHẬP đã tạo ra lô này — để màn Tồn kho link mã lô → phiếu. Null với tồn đầu kỳ.
+    # Phiếu NHẬP đã tạo ra lô này — màn Tồn kho hiển thị lô THEO MÃ PHIẾU (link mở phiếu). Null = đầu kỳ.
     voucher_id: int | None = None
+    voucher_ma: str | None = None
     # Giá vốn của lô — chỉ có khi `can_view_cost`. Thủ kho chọn lô mà không thấy giá.
     don_gia_nhap: int | None = None
+    # SL đề nghị đã sinh ra lô (đọc-nối qua dòng phiếu NHẬP tạo lô → dòng đề nghị). Không lưu cột.
+    # Không phải tiền → luôn hiện được. None = lô đầu kỳ / không nối được dòng đề nghị.
+    sl_de_nghi: float | None = None
 
 
 class AllocationLineOut(BaseModel):
@@ -289,6 +304,8 @@ class MaterialXuatRow(BaseModel):
     voucher_ma: str | None = None
     lot_id: int | None = None
     ma_lo: str | None = None
+    # SL đề nghị đã sinh ra dòng xuất (đọc-nối qua dòng phiếu XUẤT → dòng đề nghị). Không lưu cột.
+    sl_de_nghi: float | None = None
     so_luong: float
     # Giá vốn ĐÍCH DANH của lô đã xuất — router XÓA khi thiếu `can_view_cost`.
     don_gia: int | None = None
@@ -305,6 +322,28 @@ class MaterialHistoryOut(BaseModel):
     on_hand: float
     nhap: list[StockLotOut] = []
     xuat: list[MaterialXuatRow] = []
+
+
+# --- Tra kho CÔNG KHAI (quét tem QR, không đăng nhập) -------------------------
+# TUYỆT ĐỐI không có trường tiền (giá vốn/đơn giá): trang này ai có link cũng xem được.
+
+class PublicScanLot(BaseModel):
+    ma_lo: str | None = None
+    ngay_nhap: date
+    hsd: date | None = None
+    vi_tri: str | None = None
+    sl_con_lai: float
+
+
+class PublicScanOut(BaseModel):
+    """Dữ liệu tra kho công khai: tên vật tư · ĐVT · kho · tổng tồn · các lô (vị trí)."""
+
+    material_code: str | None = None
+    material_name: str | None = None
+    dvt: str | None = None
+    kho_ten: str | None = None
+    on_hand: float
+    lots: list[PublicScanLot] = []
 
 
 # --- Ngưỡng tồn ---------------------------------------------------------------

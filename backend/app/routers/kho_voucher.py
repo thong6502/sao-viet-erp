@@ -40,6 +40,7 @@ from ..schemas.stock import (
     MaterialHistoryOut,
     MaterialXuatRow,
     StockLotOut,
+    StockLotViTriIn,
     StockThresholdIn,
     StockThresholdOut,
     StockVoucherAttachmentListOut,
@@ -50,6 +51,7 @@ from ..schemas.stock import (
     StockVoucherOut,
     StockVoucherPage,
 )
+from ..services.qr_token import sign_scan
 from ..services.vat_lieu_kho_service import HANG_NHAN, VatLieuKhoService
 from ..services.rbac_service import AuthorizationService
 from ..services.sequence_service import SequenceService
@@ -104,41 +106,94 @@ def _serialize(v, *, svc: StockVoucherService, db: Session, can_view_cost: bool,
         lot_map = svc.lots.by_ids([ln.lot_id for ln in v.lines])
 
     req = req_map.get(v.request_id)
-    line_dvt = {ln.id: ln.dvt for ln in (req.lines if req is not None else [])}
+    req_lines = req.lines if req is not None else []
+    line_dvt = {ln.id: ln.dvt for ln in req_lines}
+    # SL đề nghị theo dòng đề nghị (request_line_id) — nối vào mỗi dòng phiếu để đối chiếu
+    # "đề nghị vs thực nhận/xuất". Đọc-nối, không lưu cột.
+    line_sl_de_nghi = {ln.id: float(ln.sl_de_nghi) for ln in req_lines}
     goc_map = svc.hang.don_vi_goc_map([(ln.hang_loai, ln.hang_id) for ln in v.lines])
 
     lines: list[StockVoucherLineOut] = []
     gia_von_total = 0
-    for ln in v.lines:
-        key = (ln.hang_loai, ln.hang_id)
-        m = hang_map.get(key)
-        lot = lot_map.get(ln.lot_id) if ln.lot_id else None
-        # NHẬP: đơn giá và `so_luong` cùng ở đơn vị người khai. XUẤT: giá của lô theo ĐƠN VỊ GỐC
-        # nên phải nhân `sl_goc` — nhân nhầm `so_luong` là lệch đúng bằng hệ số quy đổi.
-        if v.loai == VOUCHER_NHAP:
-            unit, sl_tien = int(ln.don_gia or 0), float(ln.so_luong)
-        else:
-            unit, sl_tien = int(getattr(lot, "don_gia_nhap", 0) or 0), float(ln.sl_goc)
-        thanh_tien = int(round(unit * sl_tien))
-        gia_von_total += thanh_tien
-        lines.append(StockVoucherLineOut(
-            id=ln.id,
-            request_line_id=ln.request_line_id,
-            hang_loai=ln.hang_loai,
-            hang_id=ln.hang_id,
-            hang_ma=getattr(m, "ma", None),
-            hang_ten=getattr(m, "ten", None),
-            dvt=line_dvt.get(ln.request_line_id),
-            lot_id=ln.lot_id,
-            ma_lo=getattr(lot, "ma_lo", None),
-            so_luong=float(ln.so_luong),
-            sl_goc=float(ln.sl_goc),
-            don_vi_goc=goc_map.get(key),
-            ghi_chu=ln.ghi_chu,
-            don_gia=unit if can_view_cost else None,
-            thanh_tien=thanh_tien if can_view_cost else None,
-        ))
-
+    if v.loai == VOUCHER_NHAP:
+        # NHẬP: mỗi dòng = 1 lô sắp tạo, giá lấy TRÊN DÒNG → giữ nguyên 1 dòng/lô. Đơn giá và
+        # `so_luong` cùng ở đơn vị NGƯỜI KHAI nên nhân thẳng với nhau.
+        for ln in v.lines:
+            key = (ln.hang_loai, ln.hang_id)
+            m = hang_map.get(key)
+            lot = lot_map.get(ln.lot_id) if ln.lot_id else None
+            unit = int(ln.don_gia or 0)
+            thanh_tien = int(round(unit * float(ln.so_luong)))
+            gia_von_total += thanh_tien
+            lines.append(StockVoucherLineOut(
+                id=ln.id,
+                request_line_id=ln.request_line_id,
+                hang_loai=ln.hang_loai,
+                hang_id=ln.hang_id,
+                hang_ma=getattr(m, "ma", None),
+                hang_ten=getattr(m, "ten", None),
+                dvt=line_dvt.get(ln.request_line_id),
+                lot_id=ln.lot_id,
+                ma_lo=getattr(lot, "ma_lo", None),
+                sl_de_nghi=line_sl_de_nghi.get(ln.request_line_id),
+                so_luong=float(ln.so_luong),
+                sl_goc=float(ln.sl_goc),
+                don_vi_goc=goc_map.get(key),
+                ghi_chu=ln.ghi_chu,
+                don_gia=unit if can_view_cost else None,
+                thanh_tien=thanh_tien if can_view_cost else None,
+            ))
+    else:
+        # XUẤT: đích danh trừ lô per-lô GIỮ NGUYÊN ở DB; chỉ ở tầng ĐỌC gộp các dòng lô lẻ theo
+        # `request_line_id` (giữ thứ tự xuất hiện) → 1 dòng/mặt hàng với ĐƠN GIÁ BÌNH QUÂN gia
+        # quyền. `lot_id`/`ma_lo` = None vì đã gộp nhiều lô.
+        #
+        # TIỀN TÍNH THEO `sl_goc`, KHÔNG theo `so_luong`: giá lô (`don_gia_nhap`) là giá trên ĐƠN
+        # VỊ GỐC, còn `so_luong` là đơn vị người khai. Nhân nhầm thì lệch đúng bằng hệ số quy đổi
+        # (khai 10 ram sẽ ra tiền của 10 kg) mà không có gì báo.
+        groups: dict[int, list] = {}
+        order: list[int] = []
+        for ln in v.lines:
+            k = ln.request_line_id
+            if k not in groups:
+                groups[k] = []
+                order.append(k)
+            groups[k].append(ln)
+        for k in order:
+            grp = groups[k]
+            first = grp[0]
+            key = (first.hang_loai, first.hang_id)
+            m = hang_map.get(key)
+            qty = sum(float(ln.so_luong) for ln in grp)          # hiển thị: đơn vị người khai
+            qty_goc = sum(float(ln.sl_goc) for ln in grp)        # tiền: đơn vị gốc
+            raw_cost = sum(
+                int(round(
+                    int(getattr(lot_map.get(ln.lot_id), "don_gia_nhap", 0) or 0) * float(ln.sl_goc)
+                ))
+                for ln in grp
+            )
+            blended = int(round(raw_cost / qty_goc)) if qty_goc > 0 else 0
+            thanh_tien = int(round(blended * qty_goc))  # tổng thành tiền QUA đơn giá bình quân
+            gia_von_total += thanh_tien
+            ghi_chu = next((ln.ghi_chu for ln in grp if (ln.ghi_chu or "").strip()), None)
+            lines.append(StockVoucherLineOut(
+                id=first.id,
+                request_line_id=k,
+                hang_loai=first.hang_loai,
+                hang_id=first.hang_id,
+                hang_ma=getattr(m, "ma", None),
+                hang_ten=getattr(m, "ten", None),
+                dvt=line_dvt.get(k),
+                lot_id=None,
+                ma_lo=None,
+                sl_de_nghi=line_sl_de_nghi.get(k),
+                so_luong=qty,
+                sl_goc=qty_goc,
+                don_vi_goc=goc_map.get(key),
+                ghi_chu=ghi_chu,
+                don_gia=blended if can_view_cost else None,
+                thanh_tien=thanh_tien if can_view_cost else None,
+            ))
     kho = khos.get(v.kho_id)
     lap = users.get_by_id(v.nguoi_lap_id) if v.nguoi_lap_id else None
     ghi_so_u = users.get_by_id(v.nguoi_ghi_so_id) if getattr(v, "nguoi_ghi_so_id", None) else None
@@ -226,9 +281,9 @@ def create_voucher(
 @router.post("/{voucher_id}/ghi-so", response_model=StockVoucherOut)
 def post_voucher(
     voucher_id: int, svc: Service, db: Db, authz: Authz,
-    # GHI SỔ gác quyền RIÊNG `post` (SoD): thủ kho lập nháp (create) không tự ghi sổ được;
-    # Kế toán kho / QL kho (có can_post) mới chốt tồn.
-    user: Annotated[User, Depends(require_permission(MODULE, "post"))],
+    # ĐÃ GỘP quyền (bỏ SoD): người có quyền lập phiếu (create) tự ghi sổ luôn — không tách "thủ kho
+    # lập" & "QL/kế toán chốt sổ" nữa (yêu cầu vận hành: tạo phiếu + ghi sổ cùng 1 quyền).
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
 ) -> StockVoucherOut:
     """Ghi sổ — điểm DUY NHẤT tồn kho thay đổi."""
     try:
@@ -241,16 +296,29 @@ def post_voucher(
 @router.post("/{voucher_id}/huy", response_model=StockVoucherOut)
 def cancel_voucher(
     voucher_id: int, payload: StockVoucherCancel, svc: Service, db: Db, authz: Authz,
-    # Hủy phiếu = quyền của người GHI SỔ (kế toán kho / QL kho), KHÔNG phải người lập. Người lập
-    # tạo phiếu là gửi luôn, không tự rút lại được (SoD: tách người cầm hàng & người chốt sổ).
-    # BẮT BUỘC lý do → đề nghị chuyển 'Đã hủy' kèm lý do (kết thúc, không cấp lại).
-    user: Annotated[User, Depends(require_permission(MODULE, "post"))],
+    # ĐÃ GỘP quyền: hủy phiếu = cùng quyền lập phiếu (create), không tách người lập & người chốt sổ.
+    # Chỉ hủy được phiếu CHƯA ghi sổ. BẮT BUỘC lý do → đề nghị chuyển 'Đã hủy' kèm lý do (kết thúc).
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
 ) -> StockVoucherOut:
     try:
         v = svc.cancel(voucher_id, ly_do=payload.ly_do)
     except StockVoucherError as e:
         raise _err(e) from None
     return _serialize(v, svc=svc, db=db, can_view_cost=authz.can(user, MODULE, "view_cost"))
+
+
+@router.patch("/lo/{lot_id}/vi-tri")
+def update_lot_vi_tri(
+    lot_id: int, payload: StockLotViTriIn, svc: Service,
+    # Vị trí VẬT LÝ (kệ/ô) do người CẦM HÀNG (thủ kho) quản → gate `create`.
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+):
+    """Sửa VỊ TRÍ cất lô trong kho (sửa từ drawer Lịch sử của sản phẩm)."""
+    try:
+        lot = svc.set_lot_vi_tri(lot_id, payload.vi_tri)
+    except StockVoucherError as e:
+        raise _err(e) from None
+    return {"id": lot.id, "vi_tri": lot.vi_tri}
 
 
 # --- Lô & gợi ý phân bổ ------------------------------------------------------
@@ -278,6 +346,165 @@ def suggest_allocation(
         ],
         thieu=thieu,
     )
+
+# --- Xuất Excel Báo cáo Kho ---
+_XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _xlsx_response(content: bytes, filename: str) -> Response:
+    return Response(
+        content=content,
+        media_type=_XLSX_MEDIA,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+def _build_stock_xlsx(rows) -> bytes:
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Bao cao ton kho"
+
+    headers = [
+        "Mã Kho", "Tên Kho", "Mã Vật Tư", "Tên Vật Tư", "Nhóm Vật Tư",
+        "Đơn Vị Tính", "Mã Lô", "Ngày Nhập", "Hạn Sử Dụng", "Vị Trí Kệ/Ô",
+        "Trạng Thái Lô", "Số Lượng Ban Đầu", "Số Lượng Còn Lại", "Đơn Giá Nhập", "Thành Tiền"
+    ]
+    ws.append(headers)
+
+    header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")
+    center_align = Alignment(horizontal="center", vertical="center")
+    left_align = Alignment(horizontal="left", vertical="center")
+    right_align = Alignment(horizontal="right", vertical="center")
+
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = center_align
+
+    thin_border = Border(
+        left=Side(style='thin', color='DDDDDD'),
+        right=Side(style='thin', color='DDDDDD'),
+        top=Side(style='thin', color='DDDDDD'),
+        bottom=Side(style='thin', color='DDDDDD')
+    )
+
+    group_map = {
+        "paper": "Giấy",
+        "ink": "Mực",
+        "film": "Màng/Film",
+        "glue": "Keo",
+        "packaging": "Bao bì",
+        "auxiliary": "Phụ trợ/Khác"
+    }
+
+    status_map = {
+        "available": "Sẵn sàng",
+        "hold": "Giữ chỗ",
+        "qc_wait": "Chờ KCS",
+        "defect": "Lỗi",
+        "empty": "Hết hàng"
+    }
+
+    for r_num, row_data in enumerate(rows, 2):
+        lot, mat, kho = row_data
+
+        group_vn = group_map.get(mat.material_group, mat.material_group or "")
+        status_vn = status_map.get(lot.trang_thai, lot.trang_thai or "")
+
+        qty_rem = float(lot.sl_con_lai)
+        qty_orig = float(lot.sl_ban_dau)
+        price = int(lot.don_gia_nhap or 0)
+        value = int(round(qty_rem * price))
+
+        hsd_str = lot.hsd.strftime("%d/%m/%Y") if lot.hsd else ""
+        ngay_nhap_str = lot.ngay_nhap.strftime("%d/%m/%Y") if lot.ngay_nhap else ""
+
+        values = [
+            kho.ma,
+            kho.ten,
+            mat.code,
+            mat.name,
+            group_vn,
+            mat.unit,
+            lot.ma_lo,
+            ngay_nhap_str,
+            hsd_str,
+            lot.vi_tri or "",
+            status_vn,
+            qty_orig,
+            qty_rem,
+            price,
+            value
+        ]
+
+        for col_num, val in enumerate(values, 1):
+            cell = ws.cell(row=r_num, column=col_num, value=val)
+            cell.border = thin_border
+
+            if col_num in [1, 3, 6, 7, 8, 9, 10, 11]:
+                cell.alignment = center_align
+            elif col_num in [2, 4, 5]:
+                cell.alignment = left_align
+            else:
+                cell.alignment = right_align
+
+            if col_num in [12, 13]:
+                cell.number_format = '#,##0.00'
+            elif col_num in [14, 15]:
+                cell.number_format = '#,##0'
+
+    for col in ws.columns:
+        max_len = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            val_str = str(cell.value or '')
+            if len(val_str) > max_len:
+                max_len = len(val_str)
+        ws.column_dimensions[col_letter].width = max(max_len + 3, 10)
+
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@router.get("/lo/export.xlsx")
+def export_stock_xlsx(
+    db: Db,
+    user: Annotated[User, Depends(require_permission(MODULE, "export"))],
+    kho_id: int | None = Query(default=None),
+    con_hang: bool = Query(default=True),
+) -> Response:
+    from sqlalchemy import select
+    from ..models.kho_hang import KhoHang
+    from ..models.material import Material
+    from ..models.stock_lot import StockLot
+
+    stmt = (
+        select(StockLot, Material, KhoHang)
+        .join(Material, StockLot.material_id == Material.id)
+        .join(KhoHang, StockLot.kho_id == KhoHang.id)
+    )
+    if kho_id is not None:
+        stmt = stmt.where(StockLot.kho_id == kho_id)
+    if con_hang:
+        stmt = stmt.where(StockLot.sl_con_lai > 0)
+
+    stmt = stmt.order_by(KhoHang.ten.asc(), Material.name.asc(), StockLot.ngay_nhap.asc())
+    rows = db.execute(stmt).all()
+
+    filename = "bao-cao-ton-kho.xlsx"
+    if kho_id is not None:
+        kho = db.get(KhoHang, kho_id)
+        if kho:
+            filename = f"bao-cao-ton-kho-{kho.ma}.xlsx"
+
+    return _xlsx_response(_build_stock_xlsx(rows), filename)
 
 
 @router.get("/lo/danh-sach", response_model=list[StockLotOut])
@@ -322,20 +549,32 @@ def material_history(
     dvt = getattr(m, "don_vi_gia", None)
 
     # NHẬP = mọi lô của mặt hàng tại kho (con_hang=False để giữ cả lô đã xuất hết), FIFO theo ngày.
+    lots = svc.lots.list_lots(hang=hang, kho_id=kho_id, con_hang=False)
+    # Mã phiếu NHẬP của từng lô (hiển thị lô THEO PHIẾU thay mã lô kỹ thuật) — nạp 1 lượt, tránh N+1.
+    voucher_ma_map = svc.vouchers.ma_by_ids(
+        list({lot.voucher_id for lot in lots if lot.voucher_id is not None})
+    )
+    # SL đề nghị của từng lô NHẬP (nối lô → dòng phiếu NHẬP → dòng đề nghị) — nạp 1 lượt, tránh N+1.
+    sl_de_nghi_map = svc.vouchers.sl_de_nghi_by_lot(lots)
     nhap: list[StockLotOut] = []
-    for lot in svc.lots.list_lots(hang=hang, kho_id=kho_id, con_hang=False):
+    for lot in lots:
         row = StockLotOut.model_validate(lot)
         row.hang_ma = getattr(m, "ma", None)
         row.hang_ten = getattr(m, "ten", None)
         row.dvt = dvt
+        row.voucher_ma = voucher_ma_map.get(lot.voucher_id) if lot.voucher_id else None
         row.don_gia_nhap = int(lot.don_gia_nhap or 0) if can_view_cost else None
+        # SL đề nghị KHÔNG phải tiền → luôn hiện (không gate theo can_view_cost).
+        row.sl_de_nghi = sl_de_nghi_map.get(lot.id)
         nhap.append(row)
 
     # XUẤT = dòng phiếu xuất đã ghi sổ (đích danh lô); giá vốn = giá lô, ẩn nếu thiếu quyền.
+    # `sl_de_nghi` nối qua dòng phiếu xuất → dòng đề nghị (không phải tiền → luôn hiện).
     xuat = [
         MaterialXuatRow(
             ngay=r["ngay"], voucher_id=r["voucher_id"], voucher_ma=r["voucher_ma"],
             lot_id=r["lot_id"], ma_lo=r["ma_lo"], so_luong=r["so_luong"],
+            sl_de_nghi=r["sl_de_nghi"],
             don_gia=r["don_gia"] if can_view_cost else None,
         )
         for r in svc.vouchers.xuat_history(hang, kho_id)
@@ -350,6 +589,17 @@ def material_history(
         on_hand=svc.lots.on_hand(hang, kho_id),
         nhap=nhap, xuat=xuat,
     )
+
+
+@router.get("/mat-hang/{hang_loai}/{hang_id}/qr-token")
+def material_qr_token(
+    hang_loai: str, hang_id: int,
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    kho_id: int = Query(...),
+) -> dict[str, str]:
+    """Mã QR đã ký cho tem dán kệ (in tem CẦN đăng nhập; trang quét công khai thì KHÔNG).
+    FE nhúng vào link `#s=<token>` rồi vẽ QR. Path nhiều đoạn nên không đụng route `/{voucher_id}`."""
+    return {"token": sign_scan(kho_id, hang_loai, hang_id)}
 
 
 # --- Đính kèm hóa đơn/chứng từ gốc --------------------------------------------

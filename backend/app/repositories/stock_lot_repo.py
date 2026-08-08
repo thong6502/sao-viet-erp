@@ -27,6 +27,16 @@ class StockLotRepository:
     def get(self, lot_id: int) -> StockLot | None:
         return self.db.get(StockLot, lot_id)
 
+    def set_vi_tri(self, lot_id: int, vi_tri: str | None) -> StockLot | None:
+        """Sửa vị trí cất lô. Trả None nếu không có lô."""
+        lot = self.get(lot_id)
+        if lot is None:
+            return None
+        lot.vi_tri = vi_tri
+        self.db.commit()
+        self.db.refresh(lot)
+        return lot
+
     def by_ids(self, ids) -> dict[int, StockLot]:
         """Nạp NHIỀU lô trong 1 query — tránh N+1 khi serialize danh sách phiếu xuất."""
         ids = [i for i in set(ids) if i is not None]

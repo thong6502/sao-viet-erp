@@ -29,7 +29,6 @@ from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.user_repo import UserRepository
 from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..schemas.stock import (
-    StockRequestApprove,
     StockRequestCreate,
     StockRequestLineOut,
     StockRequestOut,
@@ -291,18 +290,9 @@ def submit(request_id: int, svc: Service, db: Db, authz: Authz,
     return _act(svc, request_id, user, authz, db, svc.submit)
 
 
-@router.post("/{request_id}/duyet", response_model=StockRequestOut)
-def approve(request_id: int, payload: StockRequestApprove, svc: Service, db: Db, authz: Authz,
-            user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
-    return _act(svc, request_id, user, authz, db,
-                lambda r: svc.approve(r, approver=user, approved_qty=payload.approved_qty))
-
-
-@router.post("/{request_id}/tu-choi", response_model=StockRequestOut)
-def reject(request_id: int, payload: StockRequestReject, svc: Service, db: Db, authz: Authz,
-           user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
-    return _act(svc, request_id, user, authz, db,
-                lambda r: svc.reject(r, approver=user, ly_do=payload.ly_do))
+# Đề nghị BỎ BƯỚC DUYỆT (chủ 06/08/2026): tạo là 'approved' luôn (xem service.create). Không còn
+# ai duyệt/từ chối → gỡ 2 endpoint `/duyet` và `/tu-choi`. Service `approve`/`reject` GIỮ lại (không
+# gọi từ đâu nữa) để khỏi đụng thêm; nhưng KHÔNG để endpoint mồ côi require `approve`.
 
 
 @router.post("/{request_id}/huy", response_model=StockRequestOut)
@@ -313,6 +303,15 @@ def cancel(request_id: int, svc: Service, db: Db, authz: Authz,
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Chỉ người tạo mới hủy được đề nghị")
     return _act(svc, request_id, user, authz, db, svc.cancel)
+
+
+@router.post("/{request_id}/huy-kho", response_model=StockRequestOut)
+def cancel_kho(request_id: int, payload: StockRequestReject, svc: Service, db: Db, authz: Authz,
+               user: Annotated[User, Depends(require_permission(MODULE, "create"))]):
+    """Kho HỦY đề nghị (quyết định KHÔNG lập phiếu) — kèm lý do; gate bằng `create` (quyền lập
+    phiếu), KHÔNG cần là người tạo. Đề nghị chuyển 'Đã hủy'; số đã cấp bởi phiếu đã ghi sổ (nếu
+    có) vẫn giữ nguyên trong kho."""
+    return _act(svc, request_id, user, authz, db, lambda r: svc.cancel_by_kho(r, payload.ly_do))
 
 
 @router.post("/{request_id}/tiep-nhan", response_model=StockRequestOut)

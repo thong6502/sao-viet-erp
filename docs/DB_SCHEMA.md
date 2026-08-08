@@ -1875,6 +1875,8 @@ vật tư/dịch vụ, dùng để chọn vào phiếu yêu cầu mua hàng.
 | `contact_name`   | `String(255)` → `VARCHAR(255)`                         | —      | yes  | —              | Người liên hệ chính.                                 |
 | `supplier_group` | `String(32)` → `VARCHAR(32)`                           | **IX** | yes  | —              | Nhóm nhà cung cấp (giấy, mực, gia công, dịch vụ...). |
 | `payment_terms`  | `String(255)` → `VARCHAR(255)`                         | —      | yes  | —              | Điều khoản thanh toán tham khảo.                     |
+| `credit_limit`   | `BigInteger` → `BIGINT`                                | —      | no   | `0`            | HẠN MỨC công nợ (VNĐ) — trần tiền được nợ NCC này. `0` = không đặt hạn mức. Chỉ CẢNH BÁO MỀM, không chặn ở đâu. Migration 0168. |
+| `credit_days`    | `Integer` → `INTEGER`                                  | —      | yes  | —              | ĐỊNH MỨC công nợ = số NGÀY cho nợ từ ngày giao; dùng suy hạn trả của đợt giao. `0` = trả ngay · `NULL` = CHƯA đặt hạn (đợt giao không vào cột Quá hạn). Migration 0168. |
 | `status`         | `String(16)` → `VARCHAR(16)`                           | —      | no   | `"active"`     | Trạng thái `active`/`inactive`.                      |
 | `note`           | `Text` → `TEXT`                                        | —      | yes  | —              | Ghi chú.                                             |
 | `created_at`     | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —      | no   | now (UTC)      | Khi tạo.                                             |
@@ -1926,6 +1928,112 @@ vật tư/dịch vụ, dùng để chọn vào phiếu yêu cầu mua hàng.
 
 ---
 
+### `purchase_deliveries`
+
+**Purpose:** ĐỢT GIAO — một lần NCC giao hàng cho một phiếu mua. One row = một lần hàng về.
+Có bảng này thì **nợ phát sinh theo từng đợt** (hàng về tới đâu nợ tới đó); trước đó số thực nhận
+chỉ là một con số cộng dồn trên dòng nên công nợ chỉ biết "chưa nhận gì" và "nhận cả đơn" — giao
+1/3 đợt là màn công nợ hiện 0đ (giấu nợ), bấm "Đã nhận hàng" sớm là ghi nợ đủ 100% (thừa nợ).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `purchase_request_id` | `Integer` → `INTEGER` | **FK→purchase_requests.id** (CASCADE), **IX** | no | — | Phiếu mua chứa đợt giao này. |
+| `seq_no` | `Integer` → `INTEGER` | **U** cùng `purchase_request_id` | no | — | Đợt 1, 2, 3… trong phạm vi MỘT phiếu mua. Cố ý không cấp mã chứng từ toàn hệ. |
+| `delivery_date` | `Date` → `DATE` | — | no | — | Ngày hàng về — gốc tính hạn trả. |
+| `due_date` | `Date` → `DATE` | — | yes | — | Hạn trả riêng của đợt. `NULL` ⇒ suy `delivery_date + suppliers.credit_days`; NCC chưa khai số ngày thì đợt KHÔNG có hạn ⇒ không vào cột Quá hạn. |
+| `invoice_number` | `String(64)` → `VARCHAR(64)` | **IX** | yes | — | Số hoá đơn. Nhiều đợt mang CÙNG số = cùng MỘT hoá đơn (NCC hay giao 3 đợt rồi mới xuất một hoá đơn chung). |
+| `invoice_date` | `Date` → `DATE` | — | yes | — | Ngày hoá đơn. |
+| `amount` | `BigInteger` → `BIGINT` | — | yes | — | SỐ TIỀN của đợt **theo hoá đơn**, người khai gõ tay — công nợ bám con số này. `NULL` = chưa khai ⇒ lùi về số máy tính từ đơn giá đã chốt trên phiếu (cũng là số form điền sẵn). Cố ý KHÔNG ràng buộc khớp đơn giá và KHÔNG chặn vượt giá trị đơn: hoá đơn là chứng từ, ghi sao nhập vậy; lệch thì `purchase_money` gắn cờ `vuot_gia_tri_don`. Migration 0170. |
+| `note` | `Text` → `TEXT` | — | yes | — | Ghi chú. |
+| `stock_voucher_id` | `Integer` → `INTEGER` | **IX** (soft ref) | yes | — | 🔌 Chỗ neo cho Phiếu nhập kho — đợt giao và phiếu nhập kho là CÙNG một sự kiện vật lý. Luôn NULL cho tới khi build Kho ↔ Mua hàng. |
+| `created_by_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Người ghi đợt giao. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Cập nhật cuối. |
+
+**Keys & indexes**
+
+- `UNIQUE (purchase_request_id, seq_no)` — số đợt không trùng trong một phiếu.
+- Bảng MỚI 06/08/2026 ⇒ `create_all` dựng; không có migration ADD COLUMN cho chính bảng này.
+
+---
+
+### `purchase_delivery_lines`
+
+**Purpose:** dòng của một đợt giao — mặt hàng nào, đợt này nhận bao nhiêu.
+
+**CỐ Ý KHÔNG CÓ CỘT TIỀN.** Tiền của đợt = `quantity` × đơn giá/CK/VAT đã chốt ở
+`purchase_request_lines`. Mở ô tiền ở đây là đẻ nguồn sự thật thứ hai: tổng các đợt sẽ lệch với giá
+trị đơn mà không ai phát hiện cho tới lúc đối chiếu với NCC.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `delivery_id` | `Integer` → `INTEGER` | **FK→purchase_deliveries.id** (CASCADE), **IX** | no | — | Đợt giao chứa dòng này. |
+| `purchase_request_line_id` | `Integer` → `INTEGER` | **FK→purchase_request_lines.id** (RESTRICT), **IX** | no | — | Dòng ĐẶT mà đợt này giao vào. |
+| `quantity` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | Số thực nhận của RIÊNG đợt này. Tổng các đợt không được vượt số đặt. |
+| `note` | `Text` → `TEXT` | — | yes | — | Ghi chú dòng. |
+
+**Keys & indexes**
+
+- `UNIQUE (delivery_id, purchase_request_line_id)` — một đợt không khai một mặt hàng hai dòng.
+
+---
+
+### `purchase_attachments`
+
+**Purpose:** ảnh/file của mua hàng — hợp đồng (treo ở PMH) hoặc hoá đơn/biên bản giao nhận (treo ở
+một đợt giao). Bytes nằm ở `mua-hang/<purchase_request_id>/` trong kho file; DB chỉ giữ metadata.
+
+⚠️ Tiền tố `mua-hang` PHẢI có trong `_PREFIX_PERMISSION` (`routers/files.py`) — bảng đó fail-MỞ:
+tiền tố không khai thì chỉ cần đăng nhập là đọc được, tức hợp đồng NCC lộ cho toàn công ty.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `purchase_request_id` | `Integer` → `INTEGER` | **FK→purchase_requests.id** (CASCADE), **IX** | no | — | Phiếu mua sở hữu file. |
+| `delivery_id` | `Integer` → `INTEGER` | **FK→purchase_deliveries.id** (CASCADE), **IX** | yes | — | `NULL` = file của cả phiếu mua (hợp đồng); có giá trị = file của riêng một đợt giao. |
+| `kind` | `String(24)` → `VARCHAR(24)` | — | no | `"khac"` | `hop_dong` · `hoa_don` · `bien_ban_giao` · `khac`. |
+| `file_name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên file đã chuẩn hoá chống traversal. |
+| `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | Đường dẫn đọc lại qua `/api/files/...`. |
+| `file_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | Content type (ảnh hoặc PDF). |
+| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người tải lên. |
+| `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tải lên. |
+
+---
+
+### `purchase_status_history`
+
+**Purpose:** LỊCH SỬ ĐỔI TRẠNG THÁI của yêu cầu mua hàng (YCMH) và phiếu mua hàng (PMH).
+One row = một lần trạng thái đổi. Chủ chốt 07/08/2026.
+
+Vì sao KHÔNG dùng `audit_logs`: cột `detail` bên đó là **chữ tự do** (`"PMH-x — lý do y"`). Suy
+ngược ra *"trạng thái TRƯỚC ĐÓ là gì"* từ chữ tự do là đoán — đoán trượt thì màn hiện sai mà không
+có gì báo lỗi.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `doc_type` | `String(8)` → `VARCHAR(8)` | **IX** | no | — | `ycmh` · `pmh`. |
+| `doc_id` | `Integer` → `INTEGER` | **IX** (soft ref) | no | — | id của YCMH **hoặc** PMH tuỳ `doc_type`. Hai bảng khác nhau nên **không khai được khoá ngoại**. |
+| `from_status` | `String(24)` → `VARCHAR(24)` | — | yes | — | `NULL` = dòng đầu tiên (lúc chứng từ ra đời). |
+| `to_status` | `String(24)` → `VARCHAR(24)` | — | no | — | Trạng thái mới. |
+| `changed_by_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | `NULL` = **MÁY tự suy**, không ai bấm. |
+| `source` | `String(8)` → `VARCHAR(8)` | — | no | `"nguoi"` | `nguoi` · `may`. Trạng thái YCMH là số SUY RA từ các phiếu con — duyệt một PMH thì YCMH tự nhảy. Không phân biệt thì lịch sử hiện dòng không tên ai, người đọc tưởng mất dữ liệu. |
+| `reason` | `Text` → `TEXT` | — | yes | — | Lý do từ chối/huỷ/đóng đơn/mở lại. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | **IX** | no | now (UTC) | Khi đổi. |
+
+**Keys & indexes**
+
+- Bảng MỚI 07/08/2026 ⇒ `create_all` dựng; không có migration `ADD COLUMN` cho chính bảng này.
+- ⚠️ **Chỉ ghi khi trạng thái THỰC SỰ đổi** và **chỉ ghi đổi trạng thái**. YCMH được suy lại ở mọi
+  thao tác chạm phiếu con; suy ra trùng trạng thái cũ mà vẫn ghi thì mỗi cú bấm đẻ một dòng rác.
+  Sửa nội dung/dòng hàng vẫn thuộc `audit_logs`.
+- Mọi lệnh đổi trạng thái đi qua **một cửa** `PurchaseService._dat_trang_thai` — trước đợt này có
+  13 chỗ gán thẳng `row.status`, rải lệnh ghi ra 13 chỗ thì chắc chắn sót.
+
+---
+
 ### `department_purchase_requests`
 
 **Purpose:** phiếu yêu cầu mua do các phòng ban phát sinh trước khi Thu mua lập phiếu mua. One row = một nhu cầu mua cần Thu mua xử lý.
@@ -1940,7 +2048,9 @@ vật tư/dịch vụ, dùng để chọn vào phiếu yêu cầu mua hàng.
 | `requested_by_user_id`     | `Integer` → `INTEGER`                                  | **FK→users.id**, **IX**       | yes  | —              | Người tạo yêu cầu mua.                                                                           |
 | `related_document_type`    | `String(64)` → `VARCHAR(64)`                           | —                             | yes  | —              | Loại chứng từ liên quan, vd `sales_order`, `production_order`.                                   |
 | `related_document_code`    | `String(64)` → `VARCHAR(64)`                           | **IX**                        | yes  | —              | Mã đơn/lệnh liên quan để truy vết nghiệp vụ.                                                     |
-| `purpose`                  | `String(500)` → `VARCHAR(500)`                         | —                             | no   | —              | Mục đích yêu cầu mua.                                                                            |
+| `purpose`                | `String(500)` → `VARCHAR(500)`                         | —      | no   | —              | ⚠️ **DORMANT** từ 07/08/2026 — gộp vào `content`. Service vẫn ghi một bản sao cắt 500 ký tự vì cột này còn ràng buộc NOT NULL, nhưng **không ai đọc nó nữa**. |
+| `content`                  | `Text` → `TEXT`                                        | —      | yes  | —              | Ô GỘP **"Nội dung / mục đích"** (07/08/2026). Migration 0171. |
+| `reject_reason`            | `Text` → `TEXT`                                        | —      | yes  | —              | Lý do huỷ yêu cầu — tách khỏi `content`. Migration 0171. |
 | `needed_date`              | `Date` → `DATE`                                        | —                             | no   | —              | Ngày phòng ban cần hàng/vật tư/dịch vụ.                                                          |
 | `note`                     | `Text` → `TEXT`                                        | —                             | yes  | —              | Ghi chú yêu cầu.                                                                                 |
 | `created_at`               | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                             | no   | now (UTC)      | Khi tạo.                                                                                         |
@@ -1994,11 +2104,15 @@ duyệt trực tiếp trên phiếu này trước khi Thu mua mua hàng.
 | --------------------- | ------------------------------------------------------ | --------------------------- | ---- | -------------- | ------------------------------------------------------------------------------------------------------ |
 | `id`                  | `Integer` → `INTEGER` / `SERIAL`                       | **PK**                      | no   | auto-increment | Surrogate primary key.                                                                                 |
 | `code`                | `String(32)` → `VARCHAR(32)`                           | **U**, **IX**               | no   | generated      | Mã phiếu mua do backend sinh, vd `PMH-260710-K8P2`.                                                    |
-| `status`              | `String(24)` → `VARCHAR(24)`                           | **IX**                      | no   | `"draft"`      | Trạng thái: `draft`, `pending_approval`, `approved`, `rejected`, `purchased`, `received`, `cancelled`. |
+| `status`              | `String(24)` → `VARCHAR(24)`                           | **IX**                      | no   | `"draft"`      | Trạng thái: `draft`, `pending_approval`, `approved`, `rejected`, `purchased`, `partially_received`, `received`, `cancelled`. `partially_received` SUY từ `purchase_deliveries` (06/08/2026). |
 | `supplier_id`         | `Integer` → `INTEGER`                                  | **FK→suppliers.id**, **IX** | yes  | —              | Nhà cung cấp dự kiến; null nếu chưa chốt NCC.                                                          |
-| `purpose`             | `String(500)` → `VARCHAR(500)`                         | —                           | yes  | —              | Mục đích mua.                                                                                          |
+| `purpose`             | `String(500)` → `VARCHAR(500)`                         | —                           | yes  | —              | ⚠️ **DORMANT** từ 07/08/2026 — gộp vào `content`. Service vẫn ghi một bản sao cắt 500 ký tự vì cột này còn ràng buộc NOT NULL, nhưng **không ai đọc nó nữa**. |
+| `content`             | `Text` → `TEXT`                                        | —                           | yes  | —              | Ô GỘP **"Nội dung / mục đích"** — thay cặp `purpose` + `note` (07/08/2026). Migration 0171 dồn dữ liệu cũ sang. |
+| `reject_reason`       | `Text` → `TEXT`                                        | —                           | yes  | —              | Lý do **từ chối · huỷ · đóng đơn · mở lại**. Tách hẳn khỏi `content`: trước đây `cancel()` chạy `row.note = reason` ⇒ **ghi đè mất** ghi chú của người lập. Migration 0171. |
 | `needed_date`         | `Date` → `DATE`                                        | —                           | yes  | —              | Ngày cần hàng.                                                                                         |
 | `expected_receipt_date` | `Date` → `DATE`                                        | —                           | yes  | —              | Ngày dự kiến nhận hàng (NCC hẹn giao) — migration 0038.                                                |
+| `contract_number`     | `String(64)` → `VARCHAR(64)`                           | —                           | yes  | —              | Số hợp đồng mua. Bản thân hợp đồng là ảnh ở `purchase_attachments` (`kind='hop_dong'`) — cố ý không dựng danh mục hợp đồng. Migration 0168. |
+| `deposit_expected`    | `BigInteger` → `BIGINT`                                | —                           | no   | `0`            | Cọc DỰ KIẾN theo hợp đồng — chỉ để NHẮC, **KHÔNG** vào công thức công nợ. Tiền cọc thật là một Phiếu chi `payment_stage='advance'`; cho số này vào công thức là trừ cọc HAI LẦN. Migration 0168. |
 | `created_by_user_id`  | `Integer` → `INTEGER`                                  | **FK→users.id**, **IX**     | yes  | —              | Người tạo phiếu.                                                                                       |
 | `submitted_at`        | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                           | yes  | —              | Khi gửi duyệt.                                                                                         |
 | `approved_by_user_id` | `Integer` → `INTEGER`                                  | **FK→users.id**, **IX**     | yes  | —              | Người duyệt/từ chối.                                                                                   |
@@ -2141,6 +2255,7 @@ thể có nhiều chứng từ để hỗ trợ tạm ứng, thanh toán từng 
 | `code`                                | `String(32)` → `VARCHAR(32)`                           | **U**, **IX**                            | no   | generated           | Mã `PC-YYMMDD-XXXX` hoặc `UNC-YYMMDD-XXXX`.                                    |
 | `doc_no`                              | `String(16)` → `VARCHAR(16)`                           | **U**, **IX**                            | yes  | generated           | Số IN trên mẫu 02-TT (`PC00445`) — thứ tự LẬP phiếu, chạy liên tục không reset theo năm; dùng chung bộ đếm cho tiền mặt lẫn UNC; phiếu hủy vẫn giữ số. Migration 0040. |
 | `purchase_request_id`                 | `Integer` → `INTEGER`                                  | **FK→purchase_requests.id**, **IX**      | no   | —                   | PMH nguồn; không được xóa khi còn chứng từ.                                    |
+| `delivery_id`                         | `Integer` → `INTEGER`                                  | **IX** (soft ref → `purchase_deliveries.id`) | yes  | —                   | Đợt giao mà phiếu này trả cho. `NULL` = phiếu ĐẶT CỌC/ứng trước (chi khi hàng chưa về), hoặc phiếu lập trước 06/08/2026. Soft ref có chủ ý: xoá đợt còn phiếu chi đã bị chặn ở service. Migration 0168. |
 | `supplier_id`                         | `Integer` → `INTEGER`                                  | **FK→suppliers.id**, **IX**              | yes  | —                   | Nhà cung cấp hiện tại; thông tin pháp lý còn được snapshot bên dưới.           |
 | `voucher_type`                        | `String(24)` → `VARCHAR(24)`                           | **IX**                                   | no   | —                   | `cash` hoặc `bank_transfer`.                                                   |
 | `payment_stage`                       | `String(16)` → `VARCHAR(16)`                           | —                                        | no   | —                   | `advance`, `partial`, `final`, `other`.                                        |
@@ -4133,6 +4248,7 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 | `sl_goc` | `Numeric(14,4)` → `NUMERIC(14,4)` | — | no | — | Cùng số đó QUY VỀ ĐƠN VỊ GỐC — đây mới là số chạy vào lô/tồn (mg 0171). LƯU chứ không tính-lúc-đọc: hệ số quy đổi là dữ liệu sống, tính lại thì lô nhập 3 tháng trước tự đổi số. CHECK `> 0`. |
 | `don_gia` | `BigInteger` → `BIGINT` | — | yes | — | Chỉ phiếu NHẬP: giá của lô sắp tạo, theo ĐƠN VỊ NGƯỜI KHAI (đ/ram nếu nhập theo ram). `post()` quy về đ/đơn-vị-gốc trước khi ghi vào lô. CHECK `IS NULL OR >= 0`. |
 | `ghi_chu` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú riêng cho DÒNG (mặt hàng) — vd tình trạng bao gói, lô hàng lỗi lẻ. Thêm qua migration 0094. |
+| `vi_tri` | `String(100)` → `VARCHAR(100)` | — | yes | — | Phiếu NHẬP: vị trí cất lô trong kho (kệ/ô) — thủ kho khai; ghi sổ chép sang `stock_lots.vi_tri`. Null với XUẤT. Thêm qua migration 0115. |
 
 **Keys & indexes**
 

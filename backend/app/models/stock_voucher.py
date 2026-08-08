@@ -149,6 +149,9 @@ class StockVoucherLine(Base):
     )
     # Ghi chú riêng cho DÒNG (mặt hàng) trên phiếu — vd tình trạng bao gói, lô hàng lỗi lẻ…
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Phiếu NHẬP: VỊ TRÍ cất lô trong kho (kệ/ô) do thủ kho khai lúc lập; ghi sổ chép sang
+    # `stock_lots.vi_tri`. Null với phiếu XUẤT (không tạo lô). Thêm qua migration 0115.
+    vi_tri: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     voucher: Mapped[StockVoucher] = relationship("StockVoucher", back_populates="lines")
 

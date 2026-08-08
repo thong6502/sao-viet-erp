@@ -4246,6 +4246,17 @@ def _migrate_stock_request_ly_do_huy(db: Session) -> None:
     db.commit()
 
 
+def _migrate_stock_voucher_line_vi_tri(db: Session) -> None:
+    """Vị trí cất lô (NHẬP) khai ở dòng phiếu: thêm stock_voucher_lines.vi_tri (VARCHAR(100)
+    nullable). Ghi sổ chép sang stock_lots.vi_tri. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "stock_voucher_lines" not in insp.get_table_names():
+        return
+    if "vi_tri" not in _existing_columns(insp, "stock_voucher_lines"):
+        db.execute(text("ALTER TABLE stock_voucher_lines ADD COLUMN vi_tri VARCHAR(100)"))
+    db.commit()
+
+
 def _migrate_stock_voucher_nguoi_ghi_so(db: Session) -> None:
     """Lưu AI GHI SỔ phiếu (duyệt/chốt): thêm `stock_vouchers.nguoi_ghi_so_id` (INTEGER nullable,
     soft → users.id). Null cho phiếu cũ. No-op DB fresh / bảng chưa có / cột đã có."""
@@ -4293,6 +4304,19 @@ def _migrate_stock_request_line_quy_doi(db: Session) -> None:
     db.commit()
 
 
+def _migrate_stock_attachment_urls(db: Session) -> None:
+    """Đính kèm phiếu kho từng lưu file_url `/static/kho/..` (mount /static đã gỡ vì lộ file) nên
+    không mở được. Đổi sang `/api/files/kho/..` (router có đăng nhập). File trên đĩa vẫn đúng chỗ
+    (LocalStorage gốc = <backend>/static) → chỉ cần sửa URL. `/static/` = 8 ký tự → substr từ vị trí 9."""
+    insp = inspect(db.get_bind())
+    if not insp.has_table("stock_voucher_attachments"):
+        return
+    db.execute(text(
+        "UPDATE stock_voucher_attachments "
+        "SET file_url = '/api/files/' || substr(file_url, 9) "
+        "WHERE file_url LIKE '/static/%'"
+    ))
+    db.commit()
 def _migrate_piece_rate_cong_doan_mas(db: Session) -> None:
     """Đầu việc khoán dùng cho NHIỀU công đoạn + trục quy đổi: thêm `piece_rates.cong_doan_mas`
     (JSON list mã) và `tinh_theo` (VARCHAR(32)), nullable. Backfill `cong_doan_mas = [cong_doan]`
@@ -5056,6 +5080,11 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0113_kho_post_thukho_off", _migrate_kho_post_thukho_off),
     # Lý do kho hủy đề nghị (hủy phiếu → đề nghị 'Đã hủy' kèm lý do).
     ("0114_stock_request_ly_do_huy", _migrate_stock_request_ly_do_huy),
+        # Vị trí cất lô (NHẬP) khai ở dòng phiếu; ghi sổ chép sang lô.
+    ("0151_stock_voucher_line_vi_tri", _migrate_stock_voucher_line_vi_tri),
+    # Đính kèm phiếu kho: đổi file_url /static/kho/.. → /api/files/kho/.. (mount /static đã gỡ).
+    ("0152_stock_attachment_url_api_files", _migrate_stock_attachment_urls),
+
     # Chừa tờ in về MỘT nguồn: danh mục Máy. Phiếu chỉ còn ô đè `chua_nhip`.
     ("0139_ptg_drop_chua_thua", _migrate_ptg_drop_chua_thua),
     # Lệnh cũ còn ôm chừa mồ côi trong snapshot → chuyển sang khoá máy, kẻo lệch với phiếu.
@@ -5937,3 +5966,36 @@ def _migrate_don_cum_tinh_gia_doi_cu(db: Session) -> None:
 MIGRATIONS.append(
     ("0173_don_cum_tinh_gia_doi_cu", _migrate_don_cum_tinh_gia_doi_cu)
 )
+
+def _migrate_de_nghi_kho_bo_buoc_duyet(db: Session) -> None:
+    """Bỏ bước DUYỆT đề nghị kho (chủ 06/08/2026): tổ trưởng tạo đề nghị là **approved NGAY**, kho
+    cấp liền — không còn "Chờ duyệt". `service.create` đã sửa cho đề nghị MỚI; đây là vá DỮ LIỆU cho
+    đề nghị CŨ còn kẹt ở `draft`/`pending` trên DB đang chạy:
+
+      * header: `draft`/`pending` → `approved`; người duyệt = người tạo; mốc duyệt = lúc tạo.
+      * mọi DÒNG của chúng: `sl_duyet = sl_de_nghi` (duyệt nguyên số đã xin) — để kho ứng được đúng
+        số, khớp ràng buộc "không ứng vượt sl_duyet".
+
+    DATA migration THUẦN (chỉ UPDATE) — KHÔNG đổi schema, an toàn. Cập nhật DÒNG TRƯỚC header: sau khi
+    header đổi khỏi draft/pending thì subquery lọc dòng sẽ rỗng. Guard theo bảng → idempotent, no-op
+    trên DB `create_all` mới (chưa có đề nghị nào)."""
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if not {"stock_requests", "stock_request_lines"} <= tables:
+        return
+    db.execute(text(
+        "UPDATE stock_request_lines SET sl_duyet = sl_de_nghi "
+        "WHERE request_id IN ("
+        "  SELECT id FROM stock_requests WHERE trang_thai IN ('draft', 'pending'))"
+    ))
+    db.execute(text(
+        "UPDATE stock_requests SET "
+        "  trang_thai = 'approved', "
+        "  nguoi_duyet_id = COALESCE(nguoi_duyet_id, nguoi_tao_id), "
+        "  duyet_luc = COALESCE(duyet_luc, created_at) "
+        "WHERE trang_thai IN ('draft', 'pending')"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0168_de_nghi_kho_bo_buoc_duyet", _migrate_de_nghi_kho_bo_buoc_duyet))

@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
@@ -11,6 +12,7 @@ import {
   api,
   type PurchaseRequestRow,
   type SupplierInput,
+  type SupplierItemImportError,
   type SupplierItemInput,
   type SupplierRow,
 } from "../api/client";
@@ -22,6 +24,43 @@ import "./master-data.css";
 import "./purchase.css";
 
 const PAGE_SIZE = 12;
+
+/** Khoá TRÙNG của một mặt hàng = tên + đơn vị, bỏ hoa/thường và khoảng trắng thừa.
+ *  Phải khớp `_khoa_vat_tu` bên service — lệch nhau thì máy nói trùng mà màn hình nói không. */
+function khoaVatTu(item: { item_name: string; unit: string }): string {
+  return `${item.item_name.trim().replace(/\s+/g, " ").toLowerCase()}|${item.unit
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase()}`;
+}
+
+/** Gộp danh sách vừa đọc từ Excel VÀO danh sách đang có trong form.
+ *
+ *  THÊM VÀO, không thay thế (chủ chốt 07/08/2026): thay cả danh mục là một cú bấm xoá sạch bảng
+ *  giá mà không ai lường trước. Trùng tên + đơn vị ⇒ cập nhật dòng đó, không đẻ dòng thứ hai —
+ *  hai dòng cùng tên cùng ĐVT khác giá thì form phiếu mua không biết chọn cái nào. */
+function gopVatTu(
+  dangCo: SupplierItemInput[],
+  doc: SupplierItemInput[],
+): { items: SupplierItemInput[]; them: number; capNhat: number } {
+  // Bỏ dòng trống mà form vẫn luôn chừa sẵn — giữ lại là danh mục có một dòng rác.
+  const ket = dangCo.filter((it) => it.item_name.trim() || it.unit.trim());
+  const viTri = new Map(ket.map((it, i) => [khoaVatTu(it), i]));
+  let them = 0;
+  let capNhat = 0;
+  for (const moi of doc) {
+    const i = viTri.get(khoaVatTu(moi));
+    if (i === undefined) {
+      viTri.set(khoaVatTu(moi), ket.length);
+      ket.push(moi);
+      them += 1;
+    } else {
+      ket[i] = { ...ket[i], ...moi };
+      capNhat += 1;
+    }
+  }
+  return { items: ket.length ? ket : [emptySupplierItem()], them, capNhat };
+}
 
 function emptySupplierItem(): SupplierItemInput {
   return {
@@ -43,6 +82,10 @@ function emptySupplier(): SupplierInput {
     contact_name: "",
     supplier_group: "",
     payment_terms: "",
+    // 0 = chưa đặt hạn mức · null = chưa đặt số ngày cho nợ. Hai mặc định này KHÁC nhau về nghĩa,
+    // xem hint trên form.
+    credit_limit: 0,
+    credit_days: null,
     status: "active",
     note: "",
     items: [emptySupplierItem()],
@@ -59,6 +102,8 @@ function fromSupplier(row: SupplierRow): SupplierInput {
     contact_name: row.contact_name ?? "",
     supplier_group: row.supplier_group ?? "",
     payment_terms: row.payment_terms ?? "",
+    credit_limit: row.credit_limit ?? 0,
+    credit_days: row.credit_days ?? null,
     status: row.status,
     note: row.note ?? "",
     items: row.items.length
@@ -108,6 +153,12 @@ function cleanSupplier(input: SupplierInput): SupplierInput {
     contact_name: (input.contact_name ?? "").trim(),
     supplier_group: (input.supplier_group ?? "").trim(),
     payment_terms: trimOptional(input.payment_terms),
+    credit_limit: Math.max(0, Math.round(Number(input.credit_limit) || 0)),
+    // `?? null` chứ KHÔNG `|| null`: `credit_days = 0` là "trả ngay", một giá trị có thật.
+    credit_days:
+      input.credit_days == null
+        ? null
+        : Math.max(0, Math.round(Number(input.credit_days) || 0)),
     status: input.status ?? "active",
     note: trimOptional(input.note),
     items: cleanSupplierItems(input.items),
@@ -149,6 +200,8 @@ function getPOStatusLabel(status: string): {
       return { label: "Đã hủy", className: "purchase__status--cancelled" };
     case "pending_approval":
       return { label: "Chờ phê duyệt", className: "purchase__status--pending" };
+    case "partially_received":
+      return { label: "Đã nhập kho một phần", className: "purchase__status--received" };
     default:
       return { label: status, className: "purchase__status--draft" };
   }
@@ -192,6 +245,63 @@ export function SuppliersPage({
   // Gợi ý tên vật tư gộp-mọi-NCC (`api.suppliers.itemCatalog`) ĐÃ BỎ: ô Tên vật tư giờ chọn từ
   // DANH MỤC GỐC qua `MaterialCombobox`, nên tên không còn cơ hội trượt ("Couche 150" vs
   // "Couché 150") — thứ mà gợi ý kia sinh ra để chữa.
+  // Nhập / xuất Excel bảng giá vật tư.
+  //
+  // File ĐỌC XONG chỉ nạp vào form, CHƯA vào DB — bảng giá được lưu bằng chính cú "Lưu nhà cung
+  // cấp". Nhập thẳng DB thì cú lưu form đó (đang giữ danh sách cũ) sẽ xoá mất phần vừa nhập.
+  const fileVatTuRef = useRef<HTMLInputElement | null>(null);
+  const [nhapDang, setNhapDang] = useState(false);
+  const [nhapKetQua, setNhapKetQua] = useState<
+    { them: number; capNhat: number; errors: SupplierItemImportError[] } | null
+  >(null);
+
+  async function taiFile(lay: () => Promise<string>, ten: string) {
+    if (!token) return;
+    try {
+      const url = await lay();
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = ten;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setFormError(
+        err instanceof ApiError ? err.message : "Không tải được file Excel.",
+      );
+    }
+  }
+
+  async function nhapExcel(file: File) {
+    if (!token) return;
+    setNhapDang(true);
+    setFormError(null);
+    try {
+      const res = await api.suppliers.itemsImport(token, file);
+      const gop = gopVatTu(
+        form.items ?? [],
+        res.items.map((r) => ({
+          item_name: r.item_name,
+          unit: r.unit,
+          unit_price: r.unit_price,
+          vat_percent: r.vat_percent,
+          note: r.note,
+        })),
+      );
+      setForm((current) => ({ ...current, items: gop.items }));
+      setNhapKetQua({
+        them: gop.them,
+        capNhat: gop.capNhat,
+        errors: res.errors,
+      });
+    } catch (err) {
+      setNhapKetQua(null);
+      setFormError(
+        err instanceof ApiError ? err.message : "Không đọc được file Excel.",
+      );
+    } finally {
+      setNhapDang(false);
+    }
+  }
 
   // Tab 3 Purchase Orders History State
   const [poList, setPoList] = useState<PurchaseRequestRow[]>([]);
@@ -324,6 +434,7 @@ export function SuppliersPage({
     setFormError(null);
     setActiveTab("info");
     setItemSearchQ("");
+    setNhapKetQua(null);
     setPoList([]);
     setMode("create");
   }
@@ -334,6 +445,7 @@ export function SuppliersPage({
     setFormError(null);
     setActiveTab("info");
     setItemSearchQ("");
+    setNhapKetQua(null);
     setPoList([]);
     setMode("edit");
   }
@@ -341,6 +453,7 @@ export function SuppliersPage({
   function closeDrawer() {
     setMode(null);
     setSelected(null);
+    setNhapKetQua(null);
   }
 
   function setSupplierItem(index: number, patch: Partial<SupplierItemInput>) {
@@ -971,6 +1084,62 @@ export function SuppliersPage({
                       />
                     </LocalField>
 
+                    {/* HẠN MỨC + SỐ NGÀY CHO NỢ — nền của cảnh báo "Vượt hạn mức" và cột "Quá
+                        hạn" ở màn Công nợ. Cả hai là CẢNH BÁO MỀM: hệ nói cho người biết, người
+                        quyết — không chặn lập/duyệt phiếu ở đâu cả. */}
+                    <LocalField label="Hạn mức công nợ (VNĐ)">
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step={1000}
+                        value={form.credit_limit ? form.credit_limit : ""}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            credit_limit: Math.max(
+                              0,
+                              Math.round(Number(e.target.value) || 0),
+                            ),
+                          })
+                        }
+                        placeholder="Để trống = không đặt hạn mức"
+                      />
+                      <small className="supplier__hint">
+                        Để trống hoặc 0 = không đặt hạn mức, sẽ không bao giờ
+                        báo vượt.
+                      </small>
+                    </LocalField>
+
+                    <LocalField label="Số ngày cho nợ">
+                      {/* Hai ca KHÁC HẲN NHAU, đừng ép null thành 0: để trống = chưa đặt hạn (đợt
+                          giao không vào cột Quá hạn) · 0 = trả ngay (quá hạn ngay hôm sau). */}
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={form.credit_days ?? ""}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            credit_days:
+                              e.target.value === ""
+                                ? null
+                                : Math.max(
+                                    0,
+                                    Math.round(Number(e.target.value) || 0),
+                                  ),
+                          })
+                        }
+                        placeholder="Để trống = chưa đặt hạn"
+                      />
+                      <small className="supplier__hint">
+                        Để trống = <strong>chưa đặt hạn</strong>, đợt giao không
+                        vào cột Quá hạn. Nhập <strong>0</strong> = trả ngay.
+                      </small>
+                    </LocalField>
+
                     <LocalField label="Trạng thái">
                       <select
                         className="input"
@@ -1025,22 +1194,112 @@ export function SuppliersPage({
                           khi lập Phiếu Mua Hàng.
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        className="btn btn--ghost"
-                        onClick={() =>
-                          setForm((current) => ({
-                            ...current,
-                            items: [
-                              ...(current.items ?? []),
-                              emptySupplierItem(),
-                            ],
-                          }))
-                        }
-                      >
-                        + Thêm mặt hàng
-                      </button>
+                      <div className="supplier__items-actions">
+                        {/* Tải mẫu đứng TRƯỚC Nhập: thứ tự nút là thứ tự việc phải làm. */}
+                        <button
+                          type="button"
+                          className="btn btn--ghost"
+                          onClick={() =>
+                            taiFile(
+                              () => api.suppliers.itemsTemplateBlobUrl(token!),
+                              "mau-vat-tu-nha-cung-cap.xlsx",
+                            )
+                          }
+                        >
+                          Tải mẫu
+                        </button>
+                        {/* Xuất chỉ có nghĩa với NCC ĐÃ LƯU — NCC đang tạo mới chưa có id. */}
+                        {mode === "edit" && selected && (
+                          <button
+                            type="button"
+                            className="btn btn--ghost"
+                            onClick={() =>
+                              taiFile(
+                                () =>
+                                  api.suppliers.itemsExportBlobUrl(
+                                    token!,
+                                    selected.id,
+                                  ),
+                                `vat-tu-${selected.id}.xlsx`,
+                              )
+                            }
+                          >
+                            Xuất Excel
+                          </button>
+                        )}
+                        <input
+                          ref={fileVatTuRef}
+                          type="file"
+                          accept=".xlsx"
+                          style={{ display: "none" }}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            // Xoá value ngay: chọn LẠI đúng file vừa chọn vẫn phải bắn onChange.
+                            e.target.value = "";
+                            if (file) void nhapExcel(file);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn--ghost"
+                          disabled={nhapDang}
+                          onClick={() => fileVatTuRef.current?.click()}
+                        >
+                          {nhapDang ? "Đang đọc..." : "Nhập Excel"}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--ghost"
+                          onClick={() =>
+                            setForm((current) => ({
+                              ...current,
+                              items: [
+                                ...(current.items ?? []),
+                                emptySupplierItem(),
+                              ],
+                            }))
+                          }
+                        >
+                          + Thêm mặt hàng
+                        </button>
+                      </div>
                     </div>
+
+                    {nhapKetQua && (
+                      <div className="supplier__import-result">
+                        <div className="supplier__import-head">
+                          <strong>
+                            Đã nạp {nhapKetQua.them} mặt hàng mới
+                            {nhapKetQua.capNhat > 0
+                              ? `, cập nhật ${nhapKetQua.capNhat} mặt hàng`
+                              : ""}
+                            .
+                          </strong>
+                          <button
+                            type="button"
+                            className="btn btn--ghost"
+                            onClick={() => setNhapKetQua(null)}
+                          >
+                            Đóng
+                          </button>
+                        </div>
+                        {/* Nói rõ CHƯA vào sổ: người dùng đóng drawer là mất sạch phần vừa nhập. */}
+                        <p className="md-page__muted">
+                          Chưa lưu — kiểm lại bảng dưới rồi bấm{" "}
+                          <strong>Lưu nhà cung cấp</strong>. Tối đa 500 dòng /
+                          file, mỗi file cho một nhà cung cấp.
+                        </p>
+                        {nhapKetQua.errors.length > 0 && (
+                          <ul className="supplier__import-errors">
+                            {nhapKetQua.errors.map((e) => (
+                              <li key={`${e.row}-${e.message}`}>
+                                <strong>Dòng {e.row}:</strong> {e.message}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
 
                     {/* Toolbar tìm kiếm vật tư trong drawer */}
                     <div

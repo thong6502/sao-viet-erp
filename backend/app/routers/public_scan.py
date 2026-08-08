@@ -1,0 +1,61 @@
+"""Router CÔNG KHAI (KHÔNG đăng nhập) — trang tra kho khi quét tem QR dán kệ.
+
+Chỉ trả dữ liệu vị trí/tồn tối thiểu, TUYỆT ĐỐI không giá vốn/đơn giá. Mã trong QR là chữ
+ký HMAC (services/qr_token) nên không dò id tuần tự được. Không dùng require_permission —
+đây là router công khai DUY NHẤT của phân hệ kho.
+"""
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
+
+from ..db import get_db
+from ..repositories.don_vi_do_repo import DonViDoRepository
+from ..repositories.kho_hang_repo import KhoHangRepository
+from ..repositories.stock_lot_repo import StockLotRepository
+from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+from ..schemas.stock import PublicScanLot, PublicScanOut
+from ..services.qr_token import verify_scan
+from ..services.vat_lieu_kho_service import VatLieuKhoService
+
+router = APIRouter(prefix="/api/public", tags=["public"])
+
+Db = Annotated[Session, Depends(get_db)]
+
+
+@router.get("/kho-scan", response_model=PublicScanOut)
+def public_kho_scan(db: Db, t: Annotated[str, Query(description="Mã QR đã ký")]) -> PublicScanOut:
+    parsed = verify_scan(t)
+    if parsed is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mã QR không hợp lệ")
+    kho_id, hang_loai, hang_id = parsed
+    hang = (hang_loai, hang_id)
+
+    hang_svc = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    m = hang_svc.map_theo_cap([hang]).get(hang)
+    if m is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy vật tư")
+
+    kho = KhoHangRepository(db).get(kho_id)
+    lots_repo = StockLotRepository(db)
+    lots = lots_repo.list_lots(hang=hang, kho_id=kho_id, con_hang=False)
+
+    return PublicScanOut(
+        material_code=getattr(m, "ma", None),
+        material_name=getattr(m, "ten", None),
+        dvt=getattr(m, "don_vi_gia", None),
+        kho_ten=getattr(kho, "ten", None),
+        on_hand=lots_repo.on_hand(hang, kho_id),
+        lots=[
+            PublicScanLot(
+                ma_lo=lot.ma_lo,
+                ngay_nhap=lot.ngay_nhap,
+                hsd=lot.hsd,
+                vi_tri=lot.vi_tri,
+                sl_con_lai=lot.sl_con_lai,
+            )
+            for lot in lots
+        ],
+    )

@@ -21,7 +21,6 @@ from ..schemas.accounting import (
     CompanyBankAccountIn,
     CompanyBankAccountOut,
     MarkPaymentReceiptReceivedIn,
-    MarkPaymentVoucherPaidIn,
     PaymentReceiptAttachmentListOut,
     PaymentReceiptAttachmentOut,
     PaymentReceiptIn,
@@ -284,40 +283,8 @@ def create_payment_voucher(
     return PaymentVoucherOut(**row)
 
 
-@router.put("/api/accounting/payment-vouchers/{voucher_id}", response_model=PaymentVoucherOut)
-def update_payment_voucher(
-    voucher_id: int,
-    payload: PaymentVoucherIn,
-    svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
-):
-    try:
-        row = svc.update_voucher(voucher_id, actor=user, **payload.model_dump())
-    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
-        raise _map_error(exc) from None
-    _notify_accounting_changed(row.get("code"))
-    return PaymentVoucherOut(**row)
-
-
-# ĐÃ GỠ 04/08/2026 — `POST .../approve-and-create-voucher` (duyệt PMH và lập phiếu chi trong
-# MỘT cú bấm). Nó cho kế toán tự duyệt khoản chi rồi tự viết phiếu chi, phá tách vai. Nay đúng
-# hai bước: giám đốc duyệt ở `/api/purchase-requests/{id}/approve`, kế toán lập phiếu chi ở
-# `POST /api/accounting/payment-vouchers` (vốn đã đòi PMH từ 'đã duyệt' trở lên).
-
-
-@router.post("/api/accounting/payment-vouchers/{voucher_id}/mark-paid", response_model=PaymentVoucherOut)
-def mark_payment_voucher_paid(
-    voucher_id: int,
-    payload: MarkPaymentVoucherPaidIn,
-    svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "manage_status"))],
-):
-    try:
-        row = svc.mark_paid(voucher_id, actor=user, bank_reference=payload.bank_reference)
-    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
-        raise _map_error(exc) from None
-    _notify_accounting_changed(row.get("code"))
-    return PaymentVoucherOut(**row)
+# ĐÃ GỠ 07/08/2026 — `PUT /api/accounting/payment-vouchers/{id}`. Phiếu chi phát hành ra là tiền
+# đã rời két, không sửa. Sai thì huỷ rồi lập lại; chỉ còn đính kèm tài liệu là sửa được.
 
 
 @router.post("/api/accounting/payment-vouchers/{voucher_id}/cancel", response_model=PaymentVoucherOut)

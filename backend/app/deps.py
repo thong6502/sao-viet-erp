@@ -34,6 +34,7 @@ from .repositories.product_type_catalog_repo import ProductTypeCatalogRepository
 from .repositories.purchase_repo import (
     DepartmentPurchaseRequestRepository,
     PurchaseRequestRepository,
+    PurchaseStatusHistoryRepository,
     SupplierRepository,
 )
 from .repositories.quotation_repo import QuotationRepository
@@ -549,6 +550,12 @@ def get_purchase_request_repository(
     return PurchaseRequestRepository(db)
 
 
+def get_purchase_status_history_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> PurchaseStatusHistoryRepository:
+    return PurchaseStatusHistoryRepository(db)
+
+
 def get_purchase_service(
     suppliers: Annotated[SupplierRepository, Depends(get_supplier_repository)],
     department_requests: Annotated[
@@ -560,6 +567,9 @@ def get_purchase_service(
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
+    lich_su: Annotated[
+        PurchaseStatusHistoryRepository, Depends(get_purchase_status_history_repository)
+    ],
     db: Annotated[Session, Depends(get_db)] = None,  # type: ignore[assignment]
 ) -> PurchaseService:
     # `hang` = danh mục gốc (Giấy + Vật tư khác): bảng giá NCC gắn về mặt hàng và so giá qua đó.
@@ -569,7 +579,8 @@ def get_purchase_service(
 
     hang = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
     return PurchaseService(
-        suppliers, department_requests, requests, users, departments, audit, authz, hang=hang,
+        suppliers, department_requests, requests, users, departments, audit, authz, lich_su,
+        hang=hang,
     )
 
 

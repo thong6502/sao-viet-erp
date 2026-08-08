@@ -76,6 +76,10 @@ export interface CatalogConfig {
     form: Record<string, unknown>,
     existing: Row | null,
   ) => Record<string, unknown>;
+  /** Ghi đè luồng XÓA mặc định (window.confirm + ẩn mềm) bằng dialog riêng — vd Kho: kiểm kho
+   *  còn tồn / phiếu chờ ghi sổ / đề nghị dở rồi bắt gõ mã mới cho xóa. Dialog tự gọi API; xong
+   *  gọi ctx.onDone (đóng + reload), hủy thì ctx.onClose. */
+  renderDeleteDialog?: (row: Row, ctx: { token: string; onClose: () => void; onDone: () => void }) => ReactNode;
 }
 
 export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig; onMutate?: () => void }) {
@@ -86,6 +90,7 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Row | "new" | null>(null);
   const [pricingRow, setPricingRow] = useState<Row | null>(null);  // hasVersions: mở drawer Lịch sử giá
+  const [deleting, setDeleting] = useState<Row | null>(null);      // renderDeleteDialog: dialog xóa riêng
   const [q, setQ] = useState("");
   const [facet, setFacet] = useState("all");
 
@@ -122,6 +127,7 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
 
   async function remove(r: Row) {
     if (!token) return;
+    if (config.renderDeleteDialog) { setDeleting(r); return; }   // luồng xóa riêng (vd Kho)
     if (config.softDelete) {
       if (!window.confirm(`Ẩn "${r.ten}" (${r.ma})? Dữ liệu vẫn giữ (xóa mềm), có thể khôi phục sau.`)) return;
       try { await api.update(token, r.id, { ...r, active: false }); load(); onMutate?.(); }
@@ -296,6 +302,12 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
           onClose={() => setPricingRow(null)}
           onSaved={() => { setPricingRow(null); load(); }} />
       )}
+
+      {deleting && token && config.renderDeleteDialog?.(deleting, {
+        token,
+        onClose: () => setDeleting(null),
+        onDone: () => { setDeleting(null); load(); onMutate?.(); },
+      })}
     </main>
   );
 }

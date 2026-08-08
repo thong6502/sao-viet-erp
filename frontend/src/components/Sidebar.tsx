@@ -144,7 +144,7 @@ const NAV: NavSection[] = [
       // Tab "Hộp yêu cầu" tự ẩn nếu vai không có create/view_stock (gate trong KhoPage).
       // Tên "Đề nghị & Cấp phát": đúng việc của module (xin vật tư → kho cấp), phân biệt với
       // section "Kho hàng" (kho vật lý: tồn/phiếu/ngưỡng).
-      { id: "kho-main", label: "Đề nghị nhập xuất", icon: "warehouse", module: "kho" },
+      { id: "kho-main", label: "Yêu cầu nhập xuất", icon: "warehouse", module: "kho" },
     ],
   },
   {

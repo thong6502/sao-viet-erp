@@ -23,6 +23,7 @@ import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailModal } from "../components/DetailModal";
+import { StatusHistoryTimeline } from "../components/StatusHistoryTimeline";
 import { RowActionButton } from "../components/RowActionButton";
 import { fmtDate } from "../utils/format";
 import "./master-data.css";
@@ -69,11 +70,20 @@ function emptyRequest(
     source_type: sourceType,
     related_document_type: null,
     related_document_code: null,
-    purpose: "",
+    content: "",
     needed_date: "",
-    note: "",
+    note: null,
     lines: [emptyLine()],
   };
+}
+
+/** Nội dung để HIỆN. Phiếu lập trước 07/08/2026 chưa có ô gộp ⇒ nối lại hai ô cũ. */
+function noiDungCu(purpose: string | null, note: string | null): string {
+  return [purpose, note].map((x) => (x ?? "").trim()).filter(Boolean).join(" — ");
+}
+
+function noiDung(row: DepartmentPurchaseRequestRow): string {
+  return row.content?.trim() || noiDungCu(row.purpose, row.note);
 }
 
 function todayInputValue(): string {
@@ -238,7 +248,7 @@ export function DepartmentPurchaseRequestsPage({
     if (!seedLines || seedLines.length === 0) return;
     setForm({
       ...emptyRequest("kho"),
-      purpose: seedPurpose ?? "",
+      content: seedPurpose ?? "",
       lines: seedLines,
     });
     setFormError(null);
@@ -259,9 +269,9 @@ export function DepartmentPurchaseRequestsPage({
       source_type: row.source_type,
       related_document_type: row.related_document_type,
       related_document_code: row.related_document_code,
-      purpose: row.purpose,
+      content: row.content ?? noiDungCu(row.purpose, row.note),
       needed_date: row.needed_date,
-      note: row.note ?? "",
+      note: null,
       lines: row.lines.map((line) => ({
         item_name: line.item_name,
         unit: line.unit,
@@ -310,9 +320,9 @@ export function DepartmentPurchaseRequestsPage({
       source_type: input.source_type ?? null,
       related_document_type: null,
       related_document_code: null,
-      purpose: (input.purpose ?? "").trim(),
+      content: (input.content ?? "").trim(),
       needed_date: (input.needed_date ?? "").trim(),
-      note: trimOptional(input.note),
+      note: null,
       lines: input.lines.map((line) => ({
         item_name: (line.item_name ?? "").trim(),
         unit: (line.unit ?? "").trim(),
@@ -328,7 +338,7 @@ export function DepartmentPurchaseRequestsPage({
     const payload = cleanRequest(form);
     const missingHeader = [
       !payload.needed_date ? "Ngày cần hàng" : "",
-      !payload.purpose ? "Mục đích" : "",
+      !payload.content ? "Nội dung / mục đích" : "",
     ].filter(Boolean);
     if (missingHeader.length > 0) {
       setFormError(`Vui lòng nhập đầy đủ: ${missingHeader.join(", ")}.`);
@@ -476,12 +486,14 @@ export function DepartmentPurchaseRequestsPage({
         <table className="md-page__table">
           <thead>
             <tr>
+              {/* TRẠNG THÁI luôn đứng NGAY TRƯỚC Thao tác — thống nhất ở mọi màn Thu mua /
+                  Kế toán, để mắt không phải đi tìm lại ở từng màn. */}
               <th>Mã yêu cầu</th>
               <th>Bộ phận</th>
               <th>Cần hàng</th>
               <th>Vật tư</th>
-              <th>Trạng thái</th>
               <th>Người tạo</th>
+              <th>Trạng thái</th>
               <th>Thao tác</th>
             </tr>
           </thead>
@@ -511,7 +523,7 @@ export function DepartmentPurchaseRequestsPage({
                 >
                   <td>
                     <strong className="md-page__mono">{row.code}</strong>
-                    <div className="md-page__muted">{row.purpose}</div>
+                    <div className="md-page__muted">{noiDung(row)}</div>
                   </td>
                   <td>
                     {row.requesting_department_name || "Nội bộ"}
@@ -533,11 +545,11 @@ export function DepartmentPurchaseRequestsPage({
                     </div>
                   </td>
                   <td>
-                    <SourceStatusBadge status={row.status} />
-                  </td>
-                  <td>
                     {row.requested_by_name || "—"}
                     <div className="md-page__muted">{fmtDate(row.created_at)}</div>
+                  </td>
+                  <td>
+                    <SourceStatusBadge status={row.status} />
                   </td>
                   <td
                     className="md-page__actions-col"
@@ -587,7 +599,7 @@ export function DepartmentPurchaseRequestsPage({
         <DetailModal
           kicker="Chi tiết yêu cầu"
           title={selected.code}
-          subtitle={selected.purpose}
+          subtitle={noiDung(selected)}
           badge={<SourceStatusBadge status={selected.status} />}
           onClose={() => setSelectedId(null)}
         >
@@ -613,8 +625,10 @@ export function DepartmentPurchaseRequestsPage({
               <dd>{fmtDate(selected.created_at)}</dd>
             </div>
           </dl>
-          {selected.note && (
-            <div className="purchase__note">{selected.note}</div>
+          {selected.reject_reason && (
+            <div className="purchase__note purchase__note--reject">
+              <strong>Lý do từ chối / huỷ:</strong> {selected.reject_reason}
+            </div>
           )}
           <p className="eyebrow">
             Vật tư đã yêu cầu ({selected.lines.length} dòng)
@@ -681,6 +695,10 @@ export function DepartmentPurchaseRequestsPage({
               </div>
             </>
           )}
+          <p className="eyebrow" style={{ marginTop: 16 }}>
+            Lịch sử trạng thái
+          </p>
+          <StatusHistoryTimeline items={selected.status_history} />
         </DetailModal>
       )}
 
@@ -725,22 +743,18 @@ export function DepartmentPurchaseRequestsPage({
                     }
                   />
                 </LocalField>
-                <LocalField label="Mục đích" wide required>
-                  <input
-                    className="input"
-                    required
-                    value={form.purpose}
-                    onChange={(e) =>
-                      setForm({ ...form, purpose: e.target.value })
-                    }
-                    placeholder="VD: thiếu giấy cho lệnh sản xuất..."
-                  />
-                </LocalField>
-                <LocalField label="Ghi chú" wide>
+                {/* MỘT ô thay cho cặp "Mục đích" + "Ghi chú" (chủ chốt 07/08/2026). Hai ô cho
+                    cùng một ý khiến người khai phân vân chữ nào bỏ vào đâu, rồi mỗi người điền một
+                    kiểu. Dữ liệu cũ đã được migration 0171 dồn sang một ô. */}
+                <LocalField label="Nội dung / mục đích" wide required>
                   <textarea
                     className="input purchase__textarea"
-                    value={form.note ?? ""}
-                    onChange={(e) => setForm({ ...form, note: e.target.value })}
+                    required
+                    value={form.content}
+                    onChange={(e) =>
+                      setForm({ ...form, content: e.target.value })
+                    }
+                    placeholder="VD: thiếu giấy cho lệnh sản xuất SX-2026-014, cần trước ngày đóng gói"
                   />
                 </LocalField>
               </div>
@@ -903,6 +917,7 @@ const PHIEU_STATUS_META: Record<PurchaseRequestStatus, { label: string; tone: st
   approved: { label: "Đã duyệt", tone: "approved" },
   rejected: { label: "Bị từ chối", tone: "rejected" },
   purchased: { label: "Đã mua", tone: "purchased" },
+  partially_received: { label: "Giao một phần", tone: "partial" },
   received: { label: "Đã nhận", tone: "received" },
   cancelled: { label: "Đã hủy", tone: "cancelled" },
 };
