@@ -181,6 +181,7 @@ export function DonViChonTheoHang({
   hangId,
   value,
   onChange,
+  onQuyDoi,
   disabled = false,
 }: {
   token: string;
@@ -188,10 +189,17 @@ export function DonViChonTheoHang({
   hangId: number | null;
   value: string;
   onChange: (ma: string, heSoVeGoc: number | null) => void;
+  /** Hệ số quy đổi của ĐƠN VỊ ĐANG CHỌN về đơn vị gốc — bắn cả khi dòng nạp sẵn từ DB, không chỉ
+   *  lúc người dùng bấm đổi (`onChange`). Thiếu nó thì dòng cũ không có gì để quy đổi hiển thị.
+   *  `heSoVeGoc` = 1 đơn vị này bằng bao nhiêu đơn vị gốc (dùng CHIA để ra giá/đơn-vị-gốc). */
+  onQuyDoi?: (info: { donViGocTen: string; heSoVeGoc: number } | null) => void;
   disabled?: boolean;
 }) {
   const [ds, setDs] = useState<{ ma: string; ten: string; he_so_ve_goc: number; la_goc: boolean }[]>([]);
   const [lyDo, setLyDo] = useState<string | null>(null);
+  // Callback giữ trong ref: nơi gọi hay truyền arrow inline, đưa thẳng vào deps là vòng lặp render.
+  const quyDoiRef = useRef(onQuyDoi);
+  quyDoiRef.current = onQuyDoi;
 
   useEffect(() => {
     if (!hangLoai || !hangId) {
@@ -225,6 +233,18 @@ export function DonViChonTheoHang({
     // mỗi lần người dùng đổi đơn vị.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, hangLoai, hangId]);
+
+  // Báo hệ số của đơn vị ĐANG chọn mỗi khi danh sách hoặc lựa chọn đổi.
+  useEffect(() => {
+    if (!quyDoiRef.current) return;
+    const goc = ds.find((d) => d.la_goc);
+    const dv = ds.find((d) => d.ma === value);
+    quyDoiRef.current(
+      goc && dv && dv.he_so_ve_goc > 0
+        ? { donViGocTen: goc.ten, heSoVeGoc: dv.he_so_ve_goc }
+        : null,
+    );
+  }, [ds, value]);
 
   if (lyDo) {
     return (

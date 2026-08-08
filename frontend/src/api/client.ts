@@ -1693,7 +1693,8 @@ export interface EnumOption {
   label: string;
 }
 
-// Phiếu tính giá 4 nhóm (BE: estimate_to_phieu) — snake_case y hệt JSON trả về.
+// Phiếu tính giá 4 nhóm — snake_case y hệt JSON trả về. (Nguồn cũ `estimate_to_phieu` đã xoá ở
+// Đợt 5; hai type này giờ do engine đang chạy nuôi — xem PhieuTinhGiaDetailView.)
 export interface PhieuTinhGiaColOut {
   key: string;
   label: string;
@@ -1708,20 +1709,6 @@ export interface PhieuTinhGiaGroupOut {
   rows: Array<Record<string, string | number | null>>;
   subtotal: number;
 }
-export interface PhieuTinhGiaPrintOut {
-  header: {
-    so_phieu: string;
-    ngay_lap: string | null;
-    ten_an_pham: string;
-    so_luong: number;
-    kho_thanh_pham: string;
-    dvt: string;
-  };
-  noi_dung: Array<{ label: string; text: string }>;
-  groups: PhieuTinhGiaGroupOut[];
-  grand_total: number;
-}
-
 /** Số [Hiện] read-only của 1 thành phần (từ result.meta.components) — soi số cho KTV. */
 export interface TinhGiaComponentMeta {
   idx: number;

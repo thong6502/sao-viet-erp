@@ -11,7 +11,6 @@ import {
   api,
   type PurchaseRequestRow,
   type SupplierInput,
-  type SupplierItemCatalogRow,
   type SupplierItemInput,
   type SupplierRow,
 } from "../api/client";
@@ -190,20 +189,9 @@ export function SuppliersPage({
   // Tab 2 internal item search filter
   const [itemSearchQ, setItemSearchQ] = useState("");
 
-  // Danh mục vật tư GỘP của mọi NCC — dùng để gợi ý tên khi khai mặt hàng.
-  //
-  // Vì sao cần: hệ nhận diện "cùng một vật tư" bằng CHÍNH CHUỖI TÊN (viết thường, cắt khoảng
-  // trắng). NCC A khai "Giấy Duplex 350gsm", NCC B khai "Giay Duplex 350" là hai vật tư khác nhau
-  // ⇒ không so được giá giữa hai bên, và lúc gom mua hàng máy không bao giờ gợi ý B thay cho A.
-  // Gợi ý ở đây để tên tự hội tụ, thay vì dựng một bảng vật tư trung tâm.
-  const [itemCatalog, setItemCatalog] = useState<SupplierItemCatalogRow[]>([]);
-  useEffect(() => {
-    if (!token) return;
-    api.suppliers
-      .itemCatalog(token)
-      .then((res) => setItemCatalog(res.items))
-      .catch(() => setItemCatalog([])); // không chặn: mất gợi ý thì vẫn gõ tay được
-  }, [token]);
+  // Gợi ý tên vật tư gộp-mọi-NCC (`api.suppliers.itemCatalog`) ĐÃ BỎ: ô Tên vật tư giờ chọn từ
+  // DANH MỤC GỐC qua `MaterialCombobox`, nên tên không còn cơ hội trượt ("Couche 150" vs
+  // "Couché 150") — thứ mà gợi ý kia sinh ra để chữa.
 
   // Tab 3 Purchase Orders History State
   const [poList, setPoList] = useState<PurchaseRequestRow[]>([]);
@@ -267,18 +255,6 @@ export function SuppliersPage({
     if (eventTick <= 0 || !token) return;
     loadAll();
     load();
-    let alive = true;
-    api.suppliers
-      .itemCatalog(token)
-      .then((res) => {
-        if (alive) setItemCatalog(res.items);
-      })
-      .catch(() => {
-        if (alive) setItemCatalog([]);
-      });
-    return () => {
-      alive = false;
-    };
   }, [eventTick, token, loadAll, load]);
 
   // Dynamic Supplier Group Pills — chỉ lấy từ data thực, KHÔNG hardcode
@@ -374,6 +350,25 @@ export function SuppliersPage({
         i === index ? { ...item, ...patch } : item,
       ),
     }));
+  }
+
+  // Hệ số quy đổi về đơn vị gốc của TỪNG DÒNG bảng giá (server trả theo mặt hàng + đơn vị đã chọn).
+  // Chỉ để HIỂN THỊ cột "Giá quy về gốc" — không lưu, không gửi lên: hệ số là dữ liệu sống, đóng
+  // băng nó vào bảng giá NCC là mời sai số vào giữa việc so giá.
+  const [quyDoiDong, setQuyDoiDong] = useState<
+    Record<number, { donViGocTen: string; heSoVeGoc: number } | null>
+  >({});
+
+  function ghiQuyDoiDong(
+    index: number,
+    info: { donViGocTen: string; heSoVeGoc: number } | null,
+  ) {
+    setQuyDoiDong((cur) =>
+      cur[index]?.donViGocTen === info?.donViGocTen &&
+      cur[index]?.heSoVeGoc === info?.heSoVeGoc
+        ? cur
+        : { ...cur, [index]: info },
+    );
   }
 
   async function save(e: FormEvent) {
@@ -1071,18 +1066,6 @@ export function SuppliersPage({
                       </span>
                     </div>
 
-                    {/* Nguồn gợi ý dùng chung cho MỌI dòng — khai một lần, đừng lặp trong map. */}
-                    <datalist id="supplier-item-name-suggestions">
-                      {itemCatalog.map((c) => (
-                        <option key={c.item_name} value={c.item_name}>
-                          {c.unit}
-                          {c.supplier_count > 1
-                            ? ` · ${c.supplier_count} NCC đang bán`
-                            : ""}
-                        </option>
-                      ))}
-                    </datalist>
-
                     {/* Table Editor */}
                     <div className="supplier__item-editor">
                       <div
@@ -1090,12 +1073,15 @@ export function SuppliersPage({
                         aria-hidden="true"
                         style={{
                           gridTemplateColumns:
-                            "minmax(180px, 1.4fr) minmax(70px, 0.5fr) minmax(110px, 0.8fr) minmax(65px, 0.5fr) minmax(120px, 0.8fr) minmax(130px, 1fr) 36px",
+                            "minmax(170px, 1.3fr) minmax(70px, 0.5fr) minmax(105px, 0.75fr) minmax(120px, 0.85fr) minmax(60px, 0.45fr) minmax(110px, 0.75fr) minmax(110px, 0.85fr) 36px",
                         }}
                       >
                         <span>Tên vật tư *</span>
                         <span>ĐVT *</span>
                         <span>Đơn giá (chưa VAT) *</span>
+                        <span title="Quy giá về đơn vị gốc của mặt hàng để so ngang giữa các NCC (ông báo đ/ram, ông báo đ/kg).">
+                          Giá quy về gốc
+                        </span>
                         <span>VAT %</span>
                         <span>Giá sau VAT</span>
                         <span>Ghi chú</span>
@@ -1106,6 +1092,14 @@ export function SuppliersPage({
                         const priceAfterVAT =
                           (item.unit_price || 0) *
                           (1 + (item.vat_percent || 0) / 100);
+                        // Cùng công thức server dùng ở `/api/supplier-items/so-gia`: 1 đơn vị NCC
+                        // bán bằng `heSoVeGoc` đơn vị gốc ⇒ giá/đơn-vị-gốc = giá ÷ hệ số. Hệ số
+                        // lấy TỪ SERVER (không tự suy ở FE) nên hai nơi không thể lệch.
+                        const quyDoi = quyDoiDong[originalIndex];
+                        const giaVeGoc =
+                          quyDoi && item.unit_price > 0
+                            ? Math.round(item.unit_price / quyDoi.heSoVeGoc)
+                            : null;
 
                         return (
                           <div
@@ -1113,7 +1107,7 @@ export function SuppliersPage({
                             key={originalIndex}
                             style={{
                               gridTemplateColumns:
-                                "minmax(180px, 1.4fr) minmax(70px, 0.5fr) minmax(110px, 0.8fr) minmax(65px, 0.5fr) minmax(120px, 0.8fr) minmax(130px, 1fr) 36px",
+                                "minmax(170px, 1.3fr) minmax(70px, 0.5fr) minmax(105px, 0.75fr) minmax(120px, 0.85fr) minmax(60px, 0.45fr) minmax(110px, 0.75fr) minmax(110px, 0.85fr) 36px",
                             }}
                           >
                             {/* CHỌN từ danh mục gốc, không gõ tự do nữa: ghép NCC với kho bằng
@@ -1142,6 +1136,7 @@ export function SuppliersPage({
                                 onChange={(ma) =>
                                   setSupplierItem(originalIndex, { unit: ma })
                                 }
+                                onQuyDoi={(info) => ghiQuyDoiDong(originalIndex, info)}
                               />
                             ) : (
                               // Chưa gắn mặt hàng (dịch vụ / gia công) → vẫn cho gõ đơn vị tự do,
@@ -1168,6 +1163,18 @@ export function SuppliersPage({
                                 })
                               }
                             />
+                            <div
+                              className="supplier-item-vat-calculated"
+                              title={
+                                giaVeGoc
+                                  ? `${formatVND(item.unit_price)} / ${item.unit} ÷ ${quyDoi!.heSoVeGoc} = ${formatVND(giaVeGoc)} / ${quyDoi!.donViGocTen}`
+                                  : "Gắn mặt hàng gốc + chọn đơn vị đổi được thì mới quy đổi được."
+                              }
+                            >
+                              {giaVeGoc
+                                ? `${formatVND(giaVeGoc)}/${quyDoi!.donViGocTen}`
+                                : "—"}
+                            </div>
                             <input
                               className="input purchase__number-input"
                               type="number"
