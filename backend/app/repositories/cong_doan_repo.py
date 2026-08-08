@@ -9,7 +9,7 @@ from ..models.piece_work import PieceRate
 
 ASSIGNABLE = (
     "ten", "ten_hien_thi", "don_vi_vao", "don_vi_ra",
-    "kieu_bu_hao", "bu_hao_id", "so_to_bu_hao", "nhom", "department_id", "khoan_ghi_theo",
+    "kieu_bu_hao", "bu_hao_id", "so_to_bu_hao", "nhom", "nhom_may_cho_phep", "department_id", "khoan_ghi_theo",
     "allowed_defect_pct", "allowed_defect_abs",
     "che_do_tinh", "pricing_basis", "setup_cost", "setup_time", "nang_suat",
     "run_rate", "rate_tiers", "size_tiers", "first_unit_floor", "min_charge", "requires_tooling",

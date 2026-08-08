@@ -1169,7 +1169,7 @@ export function LsxBuocDrawer({
                         }
                       }}
                     >
-                      <option value="">— chọn từ danh mục vật tư in ấn —</option>
+                      <option value="">— chọn từ danh mục vật tư khác —</option>
                       {vatTuRefs
                         .filter((x) => !row.vat_tus.some((v) => v.vat_tu_id === x.id))
                         .map((x) => (

@@ -945,7 +945,7 @@ export function LsxDetailView({
                     <div className="khsx-spec__card-icon">
                       <Icon name="layers" size={16} />
                     </div>
-                    <h4 className="khsx-spec__title">Vật tư in ấn</h4>
+                    <h4 className="khsx-spec__title">Vật tư khác</h4>
                   </div>
                   <div className="khsx-spec__card-body">
                     <div className="khsx-kvgrid">

@@ -153,6 +153,9 @@ def chuoi_nguoc_dv(buoc: list[dict], *, rows: list[dict], to_can: float,
         ra_quy = ra / hs
         fixed, pct = hao_buoc(b.get("cd") or {}, rows=rows, sl=ra)
         pct = min(max(pct, 0.0), 99.0)          # chặn chia cho 0 và hao âm
+        # `fixed` khai ở ĐƠN VỊ VÀO của bước — bước "Xả giấy" (`to_nguyen → to`) thì hao xả là số
+        # TỜ NGUYÊN phí khi pha, cộng thẳng (KHÔNG chia hs). Đừng "sửa" thành fixed/hs: mô hình tách
+        # xả giấy khỏi in, In thật là `to → to`. Xem test_chuoi_nguoc_dv_cau_to_nguyen_sang_to_in.
         vao = (ra_quy + fixed) / (1.0 - pct / 100.0)
         out.append({"vao": vao, "ra": ra, "hao": vao - ra_quy,
                     "dv_vao": dv_vao, "dv_ra": dv_ra})

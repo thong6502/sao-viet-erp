@@ -387,10 +387,6 @@ class NormService:
             raise NormNotFoundError("Không tìm thấy định mức.")
         return norm
 
-    def estimate_counts(self) -> dict[int, int]:
-        """{norm_id: số phiếu tính giá đang dùng} — cho cột 'Đang dùng trong'."""
-        return self.repo.estimate_norm_counts()
-
     def detect_conflicts(self) -> dict:
         """Tìm các cặp định mức cùng loại (norm_key) có thể cùng khớp một ca mà engine
         KHÔNG phân xử rõ được: phạm vi giao nhau + độ cụ thể BẰNG nhau (specificity ngang
@@ -414,20 +410,6 @@ class NormService:
                         conflicts.setdefault(b.id, []).append(a.id)
         labels = {r.id: (r.code or r.name or r.norm_key) for r in rows if r.id in conflicts}
         return {"conflicts": conflicts, "labels": labels}
-
-    def usage(self, norm_id: int) -> dict:
-        """Danh sách phiếu tính giá đang dùng một định mức — cho drill-down."""
-        norm = self.repo.get_by_id(norm_id)
-        if not norm:
-            raise NormNotFoundError("Không tìm thấy định mức.")
-        estimates = self.repo.list_estimates_by_norm(norm_id)
-        count = self.repo.estimate_norm_counts().get(norm_id, len(estimates))
-        return {
-            "norm_id": norm_id,
-            "code": norm.code or norm.norm_key,
-            "estimate_count": count,
-            "estimates": estimates,
-        }
 
     def get_history(self, norm_id: int) -> list[Norm]:
         norm = self.repo.get_by_id(norm_id)
@@ -467,114 +449,6 @@ class NormService:
             note=src.note,
             actor=actor,
         )
-
-    def simulate(self, params: Any) -> dict:
-        """Test nhanh (§4.2 Khối 5): chạy chuỗi số tờ theo định mức hiện hành, không ghi DB.
-
-        Tái dùng đúng công thức engine qua các helper _compute_* để số Test khớp màn Tính giá.
-        """
-        import math
-        from .pricing_engine import _compute_setup_sheets, _compute_running_sheets, _compute_paper_extra
-
-        at_date = params.at_date or date.today()
-        colors = int(params.colors)
-        sides = int(params.sides)
-        forms = int(params.forms)
-        pps = max(1, int(params.pieces_per_sheet))
-        steps: list[dict] = []
-        warnings: list[str] = []
-
-        theoretical = int(math.ceil(params.quantity / pps))
-
-        # Chuỗi ngược qua công đoạn (đảo thứ tự sản xuất).
-        current = int(params.quantity)
-        for op_key in reversed(params.operation_keys or []):
-            ctx = NormLookupContext(
-                product_type=params.product_type, operation_key=op_key,
-                quantity=current, at_date=at_date,
-            )
-            yrec = self._candidate_op("yield_rate", ctx)
-            yv = float(yrec.value) if yrec else 1.0
-            srec = self._candidate_op("makeready_per_color_side", ctx)
-            setup = int(round(_compute_setup_sheets(srec, colors, sides))) if srec else 0
-            before = int(math.ceil(current / yv)) + setup
-            steps.append({
-                "label": f"Công đoạn {op_key}",
-                "detail": f"ceil({current} / {yv:g}) + setup {setup} = {before} sản phẩm",
-                "rule_code": (yrec.code if yrec else None),
-                "value": yv,
-            })
-            current = before
-
-        required_before_print = current
-        printed = int(math.ceil(required_before_print / pps))
-
-        print_ctx = NormLookupContext(
-            product_type=params.product_type, machine_id=params.machine_id,
-            colors=colors, sides=sides, quantity=params.quantity, at_date=at_date,
-        )
-        # Tỷ lệ đạt in (không gắn CĐ).
-        yrec = self._candidate_noop("yield_rate", print_ctx)
-        print_yield = float(yrec.value) if yrec else 1.0
-        after_yield = int(math.ceil(printed / print_yield))
-        steps.append({
-            "label": "Tỷ lệ đạt in", "detail": f"ceil({printed} / {print_yield:g}) = {after_yield} tờ",
-            "rule_code": (yrec.code if yrec else None), "value": print_yield,
-        })
-
-        mrec = self._candidate_noop("makeready_per_color_side", print_ctx)
-        makeready = int(math.ceil(_compute_setup_sheets(mrec, colors, sides) * forms)) if mrec else 0
-        steps.append({
-            "label": "Makeready", "detail": f"{makeready} tờ",
-            "rule_code": (mrec.code if mrec else None),
-        })
-
-        rrec = self._candidate_noop("running_waste_pct", print_ctx)
-        running = int(_compute_running_sheets(rrec, after_yield)) if rrec else 0
-        steps.append({
-            "label": "Running waste", "detail": f"ceil({after_yield} × {float(rrec.value) if rrec else 0:g}) = {running} tờ",
-            "rule_code": (rrec.code if rrec else None), "value": float(rrec.value) if rrec else 0.0,
-        })
-
-        production = after_yield + makeready + running
-        steps.append({"label": "Số tờ sản xuất", "detail": f"{after_yield} + {makeready} + {running} = {production} tờ"})
-
-        prec = self._candidate_noop("paper_extra_waste", print_ctx)
-        paper_extra = int(_compute_paper_extra(prec, production)) if prec and bool(prec.paper_add_to_purchase) else 0
-        purchase = production + paper_extra
-        steps.append({
-            "label": "Số tờ mua giấy", "detail": f"{production} + hao giấy {paper_extra} = {purchase} tờ",
-            "rule_code": (prec.code if prec else None),
-        })
-
-        return {
-            "theoretical_sheets": theoretical,
-            "required_before_print": required_before_print,
-            "sheets_after_yield": after_yield,
-            "makeready_sheets": makeready,
-            "running_sheets": after_yield + running,
-            "production_sheets": production,
-            "paper_extra_sheets": paper_extra,
-            "purchase_sheets": purchase,
-            "steps": steps,
-            "warnings": warnings,
-        }
-
-    def _candidate_op(self, key: str, ctx: NormLookupContext):
-        """Ứng viên gắn công đoạn (bỏ norm chung) — cho Test nhanh."""
-        rec = self._find_norm_candidate(key, ctx)
-        if rec is None or (rec.operation_id is None and rec.operation_key is None):
-            return None
-        return rec
-
-    def _candidate_noop(self, key: str, ctx: NormLookupContext):
-        """Ứng viên KHÔNG gắn công đoạn (norm khâu in / chung) — cho Test nhanh."""
-        rec = self._find_norm_candidate(key, ctx)
-        if rec is None:
-            return None
-        if key != "running_waste_pct" and (rec.operation_id is not None or rec.operation_key is not None):
-            return None
-        return rec
 
     def close_norm(
         self,

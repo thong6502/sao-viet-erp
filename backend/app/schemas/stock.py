@@ -15,25 +15,16 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # --- Đề nghị ----------------------------------------------------------------
 
 class StockRequestLineIn(BaseModel):
-    # Hàng đã có mã → material_id. Hàng MỚI → bỏ material_id, gõ `ten_tu_do`. Đúng 1 trong 2.
-    material_id: int | None = None
-    ten_tu_do: str | None = Field(default=None, max_length=255)
-    dvt: str = Field(min_length=1, max_length=16)
+    # MẶT HÀNG GỐC — bắt buộc chọn từ danh mục Giấy / Vật tư khác (siết 2026-08-08). Không còn
+    # đường gõ tên tự do rồi kho gắn mã sau.
+    hang_loai: str = Field(pattern="^(giay|vat_tu)$")
+    hang_id: int = Field(gt=0)
+    # Đơn vị người đề nghị chọn — phải nằm trong tập đổi được của chính mặt hàng đó (service kiểm).
+    dvt: str = Field(min_length=1, max_length=24)
     sl_de_nghi: float = Field(gt=0)
-    # Đơn giá NHẬP do người đề nghị khai (chỉ đề nghị NHẬP). Phiếu kế thừa; kho không sửa.
+    # Đơn giá NHẬP do người đề nghị khai (chỉ đề nghị NHẬP), theo `dvt`. Phiếu kế thừa; kho không sửa.
     don_gia: int | None = Field(default=None, ge=0)
-    # Quy đổi đơn vị do người đề nghị khai (1 don_vi_phu = he_so_quy_doi × dvt tồn).
-    don_vi_phu: str | None = Field(default=None, max_length=16)
-    he_so_quy_doi: float | None = Field(default=None, gt=0)
     ghi_chu: str | None = Field(default=None, max_length=500)
-
-    @model_validator(mode="after")
-    def _one_of(self):
-        has_id = self.material_id is not None
-        has_name = bool((self.ten_tu_do or "").strip())
-        if has_id == has_name:
-            raise ValueError("Mỗi dòng phải có ĐÚNG một: mã hàng có sẵn HOẶC tên hàng mới.")
-        return self
 
 
 class StockRequestCreate(BaseModel):
@@ -69,15 +60,19 @@ class StockRequestLineOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    material_id: int | None = None
-    material_code: str | None = None
-    material_name: str | None = None
-    # Hàng mới chưa có mã: tên gõ tự do. Kho gắn/tạo mã ở phiếu.
-    ten_tu_do: str | None = None
+    hang_loai: str
+    hang_id: int
+    # Mã · tên · nhóm của mặt hàng gốc — router gán để FE khỏi gọi thêm danh mục.
+    hang_ma: str | None = None
+    hang_ten: str | None = None
+    hang_nhom: str | None = None
     dvt: str
-    # Quy đổi KHO của mặt hàng (để phiếu NHẬP cho nhập theo đơn vị phụ). None = không quy đổi.
-    don_vi_phu: str | None = None
-    he_so_quy_doi: float | None = None
+    # Số đã quy về ĐƠN VỊ GỐC + câu diễn giải ("1 ram = 41,93 kg") — FE hiện dòng nhắc dưới ô SL
+    # để người khai thấy trước con số sẽ vào tồn. None = không đổi được (kèm `canh_bao_dv`).
+    don_vi_goc: str | None = None
+    sl_quy_doi: float | None = None
+    quy_doi_dien_giai: str | None = None
+    canh_bao_dv: str | None = None
     sl_de_nghi: float
     sl_duyet: float
     sl_da_ung: float
@@ -144,14 +139,9 @@ class StockVoucherCancel(BaseModel):
 # --- Phiếu -------------------------------------------------------------------
 
 class StockVoucherLineIn(BaseModel):
+    # Mặt hàng KẾ THỪA từ dòng đề nghị (kho không đổi được), nên phiếu chỉ gửi `request_line_id`.
+    # Bỏ `material_id` + cụm `new_*`: đường "kho tạo hàng mới lúc lập phiếu" đã đóng (siết).
     request_line_id: int
-    # Dòng đề nghị là HÀNG MỚI (chưa có mã): kho CHỌN mã có sẵn → điền `material_id`; hoặc TẠO
-    # MỚI → bỏ material_id, khai `new_*` (backend tạo mã khi LƯU/GHI SỔ, không tạo eager ở FE).
-    material_id: int | None = None
-    new_name: str | None = Field(default=None, max_length=255)
-    new_unit: str | None = Field(default=None, max_length=16)
-    new_don_vi_phu: str | None = Field(default=None, max_length=16)
-    new_he_so_quy_doi: float | None = Field(default=None, gt=0)
     so_luong: float = Field(gt=0)
     # Phiếu NHẬP: giá của lô sắp tạo. Phiếu XUẤT: bỏ qua (giá lấy từ lô).
     don_gia: int | None = Field(default=None, ge=0)
@@ -178,13 +168,18 @@ class StockVoucherLineOut(BaseModel):
 
     id: int
     request_line_id: int
-    material_id: int
-    material_code: str | None = None
-    material_name: str | None = None
+    hang_loai: str
+    hang_id: int
+    hang_ma: str | None = None
+    hang_ten: str | None = None
     dvt: str | None = None
     lot_id: int | None = None
     ma_lo: str | None = None
     so_luong: float
+    # Số đã quy về đơn vị gốc (số thật sự chạy vào lô) + đơn vị đó — để bản in và màn phiếu nói rõ
+    # "10 ram (= 419,25 kg)" thay vì để người đọc tự đoán con số nào vào tồn.
+    sl_goc: float | None = None
+    don_vi_goc: str | None = None
     ghi_chu: str | None = None
     # Hai trường tiền — router xóa khi thiếu `can_view_cost`.
     don_gia: int | None = None
@@ -247,10 +242,11 @@ class StockLotOut(BaseModel):
 
     id: int
     ma_lo: str
-    material_id: int
-    material_code: str | None = None
-    material_name: str | None = None
-    # Đơn vị tính của mã hàng — để màn Tồn kho tạo dòng "Yêu cầu mua" có sẵn ĐVT.
+    hang_loai: str
+    hang_id: int
+    hang_ma: str | None = None
+    hang_ten: str | None = None
+    # ĐƠN VỊ GỐC của mặt hàng — `sl_ban_dau`/`sl_con_lai` của lô đều theo đơn vị này.
     dvt: str | None = None
     kho_id: int
     vi_tri: str | None = None
@@ -301,9 +297,10 @@ class MaterialXuatRow(BaseModel):
 class MaterialHistoryOut(BaseModel):
     """Lịch sử 1 mã hàng tại 1 kho: NHẬP = các lô (kể cả đã hết) · XUẤT = dòng phiếu xuất."""
 
-    material_id: int
-    material_code: str | None = None
-    material_name: str | None = None
+    hang_loai: str
+    hang_id: int
+    hang_ma: str | None = None
+    hang_ten: str | None = None
     dvt: str | None = None
     on_hand: float
     nhap: list[StockLotOut] = []
@@ -313,7 +310,8 @@ class MaterialHistoryOut(BaseModel):
 # --- Ngưỡng tồn ---------------------------------------------------------------
 
 class StockThresholdIn(BaseModel):
-    material_id: int
+    hang_loai: str = Field(pattern="^(giay|vat_tu)$")
+    hang_id: int = Field(gt=0)
     kho_id: int
     nguong_ton: float = Field(ge=0)
     # Bỏ trống → service suy ra = nguong_ton × 1.3 (spec §7).
@@ -326,7 +324,10 @@ class StockThresholdOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    material_id: int
+    hang_loai: str
+    hang_id: int
+    hang_ma: str | None = None
+    hang_ten: str | None = None
     kho_id: int
     nguong_ton: float
     nguong_can_ton: float | None = None
@@ -338,27 +339,12 @@ class StockLevelOut(BaseModel):
     """Mức tồn của 1 mã hàng. `ton_kha_dung` chỉ có khi `can_view_stock` — thiếu quyền thì
     người dùng vẫn thấy `muc_ton` (đèn 5 màu) để biết sắp hết mà không biết còn bao nhiêu."""
 
-    material_id: int
+    hang_loai: str
+    hang_id: int
     muc_ton: str
     ton_kha_dung: float | None = None
 
 
-class StockMaterialCreate(BaseModel):
-    """Thêm nhanh mặt hàng ngay ở đề nghị — tên + ĐVT (giá nhập ở bước phiếu).
-
-    `code` tuỳ chọn: người dùng tự đặt mã; bỏ trống → hệ thống tự sinh (HH###).
-    """
-
-    name: str = Field(min_length=1, max_length=255)
-    unit: str = Field(min_length=1, max_length=16)
-    code: str | None = Field(default=None, max_length=20)
-    # Quy đổi đơn vị KHO (tuỳ chọn): 1 don_vi_phu = he_so_quy_doi × unit (đơn vị tồn).
-    don_vi_phu: str | None = Field(default=None, max_length=16)
-    he_so_quy_doi: float | None = Field(default=None, gt=0)
-
-
-class StockMaterialQuyDoi(BaseModel):
-    """Khai/sửa quy đổi cho hàng đã có — nút 'Quy đổi' trên dòng phiếu. Cả hai trống = bỏ quy đổi."""
-
-    don_vi_phu: str | None = Field(default=None, max_length=16)
-    he_so_quy_doi: float | None = Field(default=None, gt=0)
+# GỠ 2026-08-08: `StockMaterialCreate` + `StockMaterialQuyDoi` — hai cửa cho kho tự đẻ mặt
+# hàng và tự khai quy đổi cho từng dòng. Nay mặt hàng phải có sẵn trong danh mục Giấy / Vật
+# tư khác, còn quy đổi lấy từ đồ thị đơn vị dùng chung.

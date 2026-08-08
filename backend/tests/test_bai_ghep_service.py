@@ -312,16 +312,28 @@ def test_xoa_lsx_dang_ghep_bi_chan(db, orders, lsx_svc, bg_svc, admin, customer)
         lsx_svc.xoa(lsx_id=created[0].id, actor=admin)
 
 
-def test_tao_chan_lsx_khong_co_cong_doan_in(db, orders, lsx_svc, bg_svc, admin, customer):
+def test_ghep_khong_bat_buoc_co_buoc_in(db, orders, lsx_svc, bg_svc, admin, customer):
+    """§5(b): bỏ chặn "phải có bước IN" — bài chỉ gộp CTP/cán vẫn hợp lệ. CHỈ chặn lệnh KHÔNG có
+    công đoạn nào (không ghép được gì với ai)."""
     from app.models.lsx import LsxCongDoan
     created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
-    # Gỡ công đoạn IN của 1 LSX (giả lập lệnh không có bước in) → không được ghép.
+
+    # Lệnh chỉ có công đoạn SAU IN (đổi bước in thành finishing) → NAY được ghép (trước đây chặn).
     db.query(LsxCongDoan).filter(
         LsxCongDoan.lsx_id == created[0].id, LsxCongDoan.nhom == "print"
+    ).update({LsxCongDoan.nhom: "finishing"}, synchronize_session=False)
+    db.commit()
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    assert bg.id
+
+    # Nhưng lệnh KHÔNG còn công đoạn nào thì vẫn chặn.
+    bg_svc.xoa(bai_ghep_id=bg.id, actor=admin)
+    db.query(LsxCongDoan).filter(
+        LsxCongDoan.lsx_id == created[0].id
     ).delete(synchronize_session=False)
     db.commit()
     with pytest.raises(BaiGhepValidationError):
-        bg_svc.tao(lsx_ids=[created[0].id, created[1].id], actor=admin)
+        bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
 
 
 # ============ Số tờ theo NHU CẦU THẬT + neo bước in ============
@@ -606,6 +618,58 @@ def test_so_luong_buoc_chung_duoc_GHI_xuong_db(db, orders, lsx_svc, bg_svc, admi
     bg_svc.sua_thanh_vien(bai_ghep_id=bg.id, thanh_vien_id=tv.id,
                           so_con_tren_to=max(1, tv.so_con_tren_to // 2), actor=admin)
     assert float(bg_svc._buoc_chungs(bg_svc._get(bg.id))[0].so_luong_vao) != truoc
+
+
+def test_ty_le_hao_va_breakdown_hao_theo_buoc(
+    db, orders, lsx_svc, bg_svc, admin, customer,
+):
+    """T1+T4: `ty_le_hao` = hao/tốt (cảnh báo makeready nuốt sản lượng), breakdown per bước khớp tổng."""
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    cd_in = db.get(CongDoan, sorted(
+        lsx_svc.get(created[0].id).cong_doans, key=lambda c: c.thu_tu)[0].cong_doan_id)
+    cd_in.kieu_bu_hao, cd_in.so_to_bu_hao = "co_dinh", 250
+    db.commit()
+
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+    so_to = bg_svc.detail_dict(bg_svc._get(bg.id))["so_to"]
+
+    assert so_to["hao_de_xuat"] == 250
+    assert so_to["ty_le_hao"] == round(
+        (so_to["tong_to"] - so_to["so_to_tot"]) / so_to["so_to_tot"] * 100, 1
+    )
+    assert so_to["ty_le_hao"] > 0, "hao 250 trên lô nhỏ phải cho tỷ lệ > 0"
+    # T4: breakdown có mặt bước In và cộng lại đúng bằng tổng đề xuất.
+    assert so_to["hao_theo_buoc"], "phải liệt kê hao từng bước chung"
+    assert sum(b["hao"] for b in so_to["hao_theo_buoc"]) == so_to["hao_de_xuat"]
+
+
+def test_may_hop_cong_doan_bat_may_sai_loai(db, bg_svc):
+    """T3: máy Bế gán cho công đoạn In (chỉ cho "Máy in"/"In ngoài") → cảnh báo mềm; máy đúng loại
+    thì không. Chưa khai `nhom_may_cho_phep` → không ràng buộc (không đẻ cảnh báo giả)."""
+    cd_in = CongDoan(ma="CD-T3", ten="In test", nhom="print",
+                     nhom_may_cho_phep=["Máy in", "In ngoài"])
+    may_be = MayThietBi(ma="BE-T3", ten="Máy bế test", loai_may="Bế", trang_thai="active")
+    may_in = MayThietBi(ma="IN-T3", ten="Máy in test", loai_may="Máy in", trang_thai="active")
+
+    assert bg_svc._may_hop_cong_doan(may_be, cd_in, {}), "máy Bế cho công đoạn In phải bị cảnh báo"
+    assert bg_svc._may_hop_cong_doan(may_in, cd_in, {}) == [], "máy In hợp công đoạn In → im"
+
+    cd_khong_khai = CongDoan(ma="CD-T3b", ten="X", nhom="print", nhom_may_cho_phep=None)
+    assert bg_svc._may_hop_cong_doan(may_be, cd_khong_khai, {}) == [], "chưa khai ràng buộc → im"
+
+
+def test_con_toi_da_theo_kho_xoay_90(db, bg_svc):
+    """D3: con/tờ tối đa = khổ tờ in ÷ khổ thành phẩm, lấy hướng xếp được NHIỀU hơn (xoay 90°)."""
+    from app.models.bai_ghep import BaiGhep
+    from app.models.lsx import Lsx
+
+    bg = BaiGhep(ma="GB-T3", kho_in_dai=860, kho_in_rong=650)
+    l = Lsx(quy_cach_json={"dai_thanh_pham": 86, "rong_thanh_pham": 54})
+    # thẳng floor(860/86)*floor(650/54)=10*12=120 ; xoay floor(860/54)*floor(650/86)=15*7=105 → 120
+    assert bg_svc._con_toi_da(l, bg) == 120
+    assert bg_svc._con_toi_da(None, bg) == 0, "thiếu lệnh → 0 (không đoán)"
+    assert bg_svc._con_toi_da(Lsx(quy_cach_json={}), bg) == 0, "thiếu khổ thành phẩm → 0"
 
 
 def test_khoi_bai_ghep_cua_lenh_khong_bi_response_model_nuot(

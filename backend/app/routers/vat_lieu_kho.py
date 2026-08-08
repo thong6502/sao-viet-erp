@@ -1,4 +1,8 @@
-"""Vật liệu Kho router (module MỚI) — CRUD giấy/mực/bản. Chưa đăng ký main.py (unwired).
+"""Danh mục Giấy & Vật tư khác — DANH MỤC GỐC của mặt hàng (Kho + NCC đều trỏ về đây).
+
+Ngoài CRUD ba danh mục, router này phơi hai cửa dùng chung:
+  · `GET /mat-hang`                      — tìm gộp Giấy + Vật tư khác (picker mặt hàng)
+  · `GET /mat-hang/{loai}/{id}/don-vi`   — đơn vị gốc + mọi đơn vị đổi được (dropdown ĐVT)
 
 Dependency INLINE để không đụng deps.py. MODULE quyền = "kho" (thuộc Kho hàng).
 """
@@ -12,10 +16,11 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import require_any_permission, require_permission
 from ..models.user import User
+from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..schemas.vat_lieu_kho import (
-    ChungLoaiGiayIn, ChungLoaiGiayRow, GiayGiaVersionIn, GiayGiaVersionRow, GiayIn, GiayRow,
-    ListOut, VatTuIn, VatTuRow,
+    ChungLoaiGiayIn, ChungLoaiGiayRow, DonViCuaMatHangOut, GiayGiaVersionIn, GiayGiaVersionRow,
+    GiayIn, GiayRow, ListOut, MatHangRow, VatTuIn, VatTuRow,
 )
 from ..services.vat_lieu_kho_service import (
     VatLieuKhoDuplicate, VatLieuKhoNotFound, VatLieuKhoService, VatLieuKhoValidationError,
@@ -26,7 +31,7 @@ MODULE = "kho"
 
 
 def get_service(db: Annotated[Session, Depends(get_db)]) -> VatLieuKhoService:
-    return VatLieuKhoService(VatLieuKhoRepository(db))
+    return VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
 
 
 Service = Annotated[VatLieuKhoService, Depends(get_service)]
@@ -57,7 +62,10 @@ def _make_crud(kind: str, InModel, RowModel, path: str):
         size: int = Query(default=50, ge=1, le=200),
     ) -> ListOut:
         rows, total = svc.list(kind, q=q, active=active, page=page, size=size)
-        return ListOut(items=[RowModel.model_validate(r) for r in rows], total=total, page=page, size=size)
+        items = [RowModel.model_validate(r) for r in rows]
+        if kind in ("giay", "vat_tu"):
+            svc.gan_ten_don_vi(items)      # mã → tên đọc được, 1 truy vấn cho cả trang
+        return ListOut(items=items, total=total, page=page, size=size)
 
     def _create(payload, svc: Service,
                 _: Annotated[User, Depends(require_permission(MODULE, "create"))]):
@@ -94,6 +102,44 @@ def _make_crud(kind: str, InModel, RowModel, path: str):
 _make_crud("chung_loai_giay", ChungLoaiGiayIn, ChungLoaiGiayRow, "chung-loai-giay")
 _make_crud("giay", GiayIn, GiayRow, "giay")
 _make_crud("vat_tu", VatTuIn, VatTuRow, "vat-tu-in-an")
+
+
+# -- MẶT HÀNG GỐC: hai cửa Kho + NCC dùng để chọn hàng và chọn đơn vị --
+#
+# Quyền rộng hơn CRUD (thêm `thu_mua`): người lập đề nghị kho và người khai bảng giá NCC đều phải
+# CHỌN được mặt hàng, nhưng không được sửa danh mục. Chỉ trả mã · tên · đơn vị — không có giá.
+_doc_mat_hang = require_any_permission(
+    (MODULE, "read"), ("thu_mua", "read"), ("tinh_gia_thanh", "read"), ("san_xuat", "read"))
+
+
+@router.get("/mat-hang", response_model=list[MatHangRow], name="tim_mat_hang")
+def tim_mat_hang(
+    svc: Service,
+    _: Annotated[User, Depends(_doc_mat_hang)],
+    q: str | None = Query(default=None),
+    size: int = Query(default=20, ge=1, le=50),
+) -> list[MatHangRow]:
+    """Tìm gộp Giấy + Vật tư khác. Thay `GET /api/kho/de-nghi/vat-tu` (đọc bảng `materials` cũ)."""
+    return [MatHangRow(**r) for r in svc.tim_mat_hang(q=q, size=size)]
+
+
+@router.get("/mat-hang/{hang_loai}/{hang_id}/don-vi", response_model=DonViCuaMatHangOut,
+            name="don_vi_cua_mat_hang")
+def don_vi_cua_mat_hang(
+    hang_loai: str,
+    hang_id: int,
+    svc: Service,
+    _: Annotated[User, Depends(_doc_mat_hang)],
+) -> DonViCuaMatHangOut:
+    """Đơn vị gốc + mọi đơn vị đổi được với nó, TÍNH THEO CHÍNH MẶT HÀNG.
+
+    Giấy có khổ + định lượng nên thấy cả tờ/ram/m²; hoá chất chỉ khai kg thì chỉ thấy kg/g/tấn.
+    Chưa khai đơn vị gốc → `ds` rỗng kèm `ly_do` để UI khoá ô và chỉ đường về danh mục.
+    """
+    try:
+        return DonViCuaMatHangOut(**svc.don_vi_cua_mat_hang(hang_loai, hang_id))
+    except (VatLieuKhoNotFound, VatLieuKhoValidationError) as e:
+        raise _err(e) from None
 
 
 # -- Phiên bản giá giấy (lịch sử) — route custom (không theo factory CRUD) --

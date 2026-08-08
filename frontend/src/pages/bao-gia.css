@@ -1395,7 +1395,6 @@ select.input {
 .rdx-quote .ptg svg { color: var(--rust); flex: none; }
 .rdx-quote .ptg:hover { color: var(--ink); }
 /* Tham chiếu ước tính hệ cũ (Estimate) — KHÔNG mở được: mờ, không gạch chân, không con trỏ tay. */
-.rdx-quote .ptg-legacy { font-family: var(--ff-sans); font-size: 11.5px; color: var(--ash-2); cursor: default; white-space: nowrap; }
 
 /* ---- Pager foot ------------------------------------------------------------ */
 .rdx-quote .foot { color: var(--ash); font-size: 12.5px; margin-top: 12px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }

@@ -10,6 +10,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   api,
+  type HangLoai,
+  type SoGiaRow,
   type StockLevel,
   type StockLot,
   type StockMaterialHistory,
@@ -36,7 +38,11 @@ import "./rebuild-catalog.css";
 import "./kho-request.css";
 
 interface MaterialGroup {
-  material_id: number;
+  /** Khoá GỘP của bảng tồn: cặp trỏ danh mục gốc. Chuỗi `"giay:12"` dùng làm key của Map/JSX
+   *  vì tuple không so sánh được bằng `===` trong Map. */
+  hang_loai: HangLoai;
+  hang_id: number;
+  key: string;
   code: string | null;
   name: string | null;
   dvt: string | null;
@@ -81,7 +87,8 @@ export function KhoTonKhoPage({
 
   const [tab, setTab] = useState<TonTab>("ton");
   const [lots, setLots] = useState<StockLot[]>([]);
-  const [thresholds, setThresholds] = useState<Record<number, StockThreshold>>({});
+  // Khoá `"giay:12"` — cặp (hang_loai, hang_id) dẹp thành chuỗi để dùng làm key Record/JSX.
+  const [thresholds, setThresholds] = useState<Record<string, StockThreshold>>({});
   const [vouchers, setVouchers] = useState<StockVoucher[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingV, setLoadingV] = useState(true);
@@ -90,7 +97,7 @@ export function KhoTonKhoPage({
   // Vật tư đang mở popup lịch sử Nhập/Xuất (thay cho bung inline).
   const [openMaterial, setOpenMaterial] = useState<MaterialGroup | null>(null);
   // Mã đã tick để tạo Yêu cầu mua hàng (chỉ tab Tồn kho).
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [voucherFilter, setVoucherFilter] = useState<"all" | StockVoucherStatus>("all");
   const [voucherLoai, setVoucherLoai] = useState<"all" | StockRequestKind>("all");
   const [page, setPage] = useState(1);
@@ -121,8 +128,8 @@ export function KhoTonKhoPage({
     ])
       .then(([r, ths]) => {
         setLots(r);
-        const map: Record<number, StockThreshold> = {};
-        for (const t of ths) if (t.kho_id === khoId) map[t.material_id] = t;
+        const map: Record<string, StockThreshold> = {};
+        for (const t of ths) if (t.kho_id === khoId) map[`${t.hang_loai}:${t.hang_id}`] = t;
         setThresholds(map);
         setError(null);
       })
@@ -171,21 +178,24 @@ export function KhoTonKhoPage({
   }, [filterOpen]);
 
   const groups = useMemo<MaterialGroup[]>(() => {
-    const m = new Map<number, MaterialGroup>();
+    const m = new Map<string, MaterialGroup>();
     for (const lot of lots) {
-      let g = m.get(lot.material_id);
+      const key = `${lot.hang_loai}:${lot.hang_id}`;
+      let g = m.get(key);
       if (!g) {
         g = {
-          material_id: lot.material_id,
-          code: lot.material_code,
-          name: lot.material_name,
+          hang_loai: lot.hang_loai,
+          hang_id: lot.hang_id,
+          key,
+          code: lot.hang_ma,
+          name: lot.hang_ten,
           dvt: lot.dvt,
           total: 0,
           value: 0,
           lots: [],
           level: null,
         };
-        m.set(lot.material_id, g);
+        m.set(key, g);
       }
       g.total += lot.sl_con_lai;
       g.value += lot.sl_con_lai * (lot.don_gia_nhap ?? 0);
@@ -195,7 +205,7 @@ export function KhoTonKhoPage({
     for (const g of arr) {
       // Lô trong mỗi nhóm: nhập trước lên trước (FIFO), để đọc lịch sử nhập tự nhiên.
       g.lots.sort((a, b) => a.ngay_nhap.localeCompare(b.ngay_nhap));
-      g.level = levelOf(g.total, thresholds[g.material_id]);
+      g.level = levelOf(g.total, thresholds[g.key]);
     }
     return arr.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? "", "vi"));
   }, [lots, thresholds]);
@@ -240,13 +250,13 @@ export function KhoTonKhoPage({
           // Tìm cả theo TÊN / MÃ vật tư đi trong phiếu (khớp bất kỳ dòng nào).
           v.lines.some(
             (l) =>
-              (l.material_name ?? "").toLowerCase().includes(s) ||
-              (l.material_code ?? "").toLowerCase().includes(s),
+              (l.hang_ten ?? "").toLowerCase().includes(s) ||
+              (l.hang_ma ?? "").toLowerCase().includes(s),
           ),
       );
   }, [vouchers, voucherLoai, voucherFilter, q]);
 
-  function toggleSel(id: number) {
+  function toggleSel(id: string) {
     setSelected((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
@@ -275,10 +285,14 @@ export function KhoTonKhoPage({
   // Tạo Yêu cầu mua hàng từ các mã đã tick: mở form YCMH (nguồn Kho) điền sẵn Tên + ĐVT,
   // để trống SL + ghi chú cho người dùng nhập.
   function createPurchaseFromSelected() {
-    const chosen = groups.filter((g) => selected.has(g.material_id));
+    const chosen = groups.filter((g) => selected.has(g.key));
     if (chosen.length === 0) return;
     navigate("yeu-cau-mua-hang", {
       purchaseSeedLines: chosen.map((g) => ({
+        // Mang theo CẶP chứ không chỉ tên: phía mua hàng nối được về đúng mặt hàng gốc,
+        // thay vì ghép mù bằng chuỗi tên (ghép trượt thì im lặng sai).
+        hang_loai: g.hang_loai,
+        hang_id: g.hang_id,
         item_name: g.name ?? g.code ?? "",
         unit: g.dvt ?? "",
         quantity: 0,
@@ -554,7 +568,7 @@ export function KhoTonKhoPage({
               type="button"
               className="btn btn--ghost"
               style={{ padding: "4px 12px", fontSize: "12px" }}
-              onClick={() => setSelected(new Set(canMua.map((g) => g.material_id)))}
+              onClick={() => setSelected(new Set(canMua.map((g) => g.key)))}
             >
               Chọn hết
             </button>
@@ -588,11 +602,11 @@ export function KhoTonKhoPage({
                     <input
                       type="checkbox"
                       aria-label="Chọn tất cả"
-                      checked={filtered.length > 0 && filtered.every((g) => selected.has(g.material_id))}
+                      checked={filtered.length > 0 && filtered.every((g) => selected.has(g.key))}
                       onChange={(e) =>
                         setSelected(
                           e.target.checked
-                            ? new Set(filtered.map((g) => g.material_id))
+                            ? new Set(filtered.map((g) => g.key))
                             : new Set(),
                         )
                       }
@@ -669,15 +683,15 @@ export function KhoTonKhoPage({
               ) : (
                 pagedGroups.map((g) => (
                   <MaterialRow
-                    key={g.material_id}
+                    key={g.key}
                     g={g}
                     canViewCost={canViewCost}
                     selectable={canCreate}
-                    checked={selected.has(g.material_id)}
-                    onToggleSel={() => toggleSel(g.material_id)}
+                    checked={selected.has(g.key)}
+                    onToggleSel={() => toggleSel(g.key)}
                     onOpen={() => setOpenMaterial(g)}
                     canSetThreshold={canSetThreshold}
-                    threshold={thresholds[g.material_id]}
+                    threshold={thresholds[g.key]}
                   />
                 ))
               )}
@@ -821,7 +835,7 @@ export function KhoTonKhoPage({
         // Popup lịch sử Nhập/Xuất của 1 vật tư. Bấm mã lô / số phiếu bên trong → mở VoucherDrawer
         // (render SAU khối này nên chồng lên trên). Vẫn giữ "bấm mã lô ra phiếu".
         <MaterialHistoryDrawer
-          key={`mat-${openMaterial.material_id}`}
+          key={`mat-${openMaterial.key}`}
           token={token}
           khoId={khoId}
           material={openMaterial}
@@ -986,7 +1000,7 @@ function MaterialHistoryDrawer({
     let alive = true;
     setLoading(true);
     api.kho.phieu
-      .lichSuVatTu(token, material.material_id, khoId)
+      .lichSuVatTu(token, material.hang_loai, material.hang_id, khoId)
       .then((d) => {
         if (!alive) return;
         setData(d);
@@ -1001,7 +1015,26 @@ function MaterialHistoryDrawer({
     return () => {
       alive = false;
     };
-  }, [token, khoId, material.material_id]);
+  }, [token, khoId, material.hang_loai, material.hang_id]);
+
+  // NCC bán mặt hàng này + giá đã quy về đơn vị gốc (Đợt 4). Gộp vào ĐÂY chứ không dựng màn
+  // so-giá riêng: đây là lúc người ta vừa thấy hàng sắp hết, câu hỏi tiếp theo luôn là "mua của
+  // ai" — bắt họ đi sang màn khác rồi tìm lại đúng mặt hàng là thao tác thừa.
+  const [soGia, setSoGia] = useState<SoGiaRow[]>([]);
+  useEffect(() => {
+    let alive = true;
+    api.matHang
+      .soGia(token, material.hang_loai, material.hang_id)
+      .then((d) => {
+        if (alive) setSoGia(d.items);
+      })
+      .catch(() => {
+        if (alive) setSoGia([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token, material.hang_loai, material.hang_id]);
 
   // Mỗi tab phân trang riêng, 10 dòng/trang; đổi tab → về trang 1.
   useEffect(() => {
@@ -1035,6 +1068,53 @@ function MaterialHistoryDrawer({
           Tồn khả dụng: <b>{fmtQty(data?.on_hand ?? material.total)}</b>
           {material.dvt ? ` ${material.dvt}` : ""}
         </div>
+
+        {/* NCC bán mặt hàng này — giá đã quy về ĐƠN VỊ GỐC nên so ngang được, rẻ nhất đứng đầu.
+            "1.020.000 đ/ram" và "24.500 đ/kg" nhìn thẳng thì không so nổi. */}
+        {soGia.length > 0 && (
+          <div className="kho-meta" style={{ paddingTop: 0 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>NCC bán mặt hàng này</div>
+            <table className="rc__table rc__table--tight">
+              <thead>
+                <tr>
+                  <th>Nhà cung cấp</th>
+                  <th>Giá NCC báo</th>
+                  <th style={{ textAlign: "right" }}>
+                    Quy về {material.dvt ?? "đơn vị gốc"}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {soGia.map((s, i) => (
+                  <tr key={s.supplier_item_id}>
+                    <td>
+                      {s.supplier_name}
+                      {/* Chỉ gắn nhãn khi CÓ ít nhất 2 giá so được — một mình một chợ mà gọi
+                          "rẻ nhất" là gợi ý sai. */}
+                      {i === 0 && s.gia_quy_doi != null && soGia.length > 1 && (
+                        <span className="badge-sem badge-sem--moss" style={{ marginLeft: 6 }}>
+                          rẻ nhất
+                        </span>
+                      )}
+                    </td>
+                    <td className="rc__muted">
+                      {s.unit_price.toLocaleString("vi-VN")} đ/{s.unit}
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      {s.gia_quy_doi != null ? (
+                        <b>{s.gia_quy_doi.toLocaleString("vi-VN")} đ</b>
+                      ) : (
+                        <span className="rc__muted" title={s.ly_do ?? ""}>
+                          — chưa quy đổi được
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {/* Tab Nhập / Xuất — theo dõi nhập và xuất RIÊNG (spec màn Tồn kho). */}
         <div

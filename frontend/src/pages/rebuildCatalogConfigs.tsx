@@ -2,6 +2,7 @@
 // `showIf` (ẩn/hiện theo kiểu), `ref`/`ref-multi` (chọn theo TÊN thay vì gõ id),
 // `default` (prefill khi tạo), `jsonKey` (lưu lồng vào fields_theo_loai).
 // Enum hiển thị bằng thuật ngữ in ấn thuần Việt — dùng chung 1 bảng nhãn cho cả dropdown lẫn cột.
+import type { Row } from "../api/rebuildCatalog";
 import type { CatalogConfig, ChuanBiKhoanRow } from "./RebuildCatalogPage";
 import { ClockIcon, DON_VI_TOC_DO, isMayIn, tongChuanBi } from "./RebuildCatalogPage";
 import { QuyDoiCuaDonVi } from "./QuyDoiCuaDonVi";
@@ -54,11 +55,29 @@ const KIEU_BU_HAO: Lbls = {
 };
 
 const THO: Lbls = { canh_dai: "Thớ dọc (canh dài)", canh_ngan: "Thớ ngang (canh ngắn)" };
-const DV_GIA_GIAY: Lbls = { kg: "KG", cai: "CÁI", ram: "Ram", to: "Tờ", tan: "Tấn" };
 const BE_MAT: Lbls = { bong: "Bóng", mo: "Mờ", nham: "Nhám" };
-const DV_GIA_VAT_TU: Lbls = {
-  kg: "KG", lit: "LÍT", ban: "BẢN", cai: "CÁI", bo: "BỘ", thung: "THÙNG",
-  nghin_luot: "1.000 lượt", met: "MÉT", m2: "M²", cuon: "CUỘN",
+
+// GỠ 2026-08-08: `DV_GIA_GIAY` / `DV_GIA_VAT_TU` — hai danh sách đơn vị CỨNG. Đơn vị giờ chọn từ
+// danh mục Đơn vị & quy đổi (`/api/don-vi`), là NGUỒN DUY NHẤT dùng chung cho Kho · NCC · khoán ·
+// tính giá. Thêm đơn vị = khai ở màn Đơn vị, không phải sửa code rồi build lại.
+
+/** Ô ĐVT của mặt hàng gốc: gõ để tìm trong danh mục Đơn vị, lưu MÃ (`kg`, `to`…) chứ không lưu id
+ *  — quy đổi làm việc trên mã. Bỏ trống = chưa chọn (bảng hiện badge "Chưa chọn đơn vị").
+ *  `active: true` — không lọc thì picker mời cả đơn vị đã ngừng dùng, chọn xong bấm Lưu mới ăn lỗi. */
+const F_DON_VI = {
+  type: "ref-search-ma" as const,
+  refPrefix: "/api/don-vi",
+  refParams: { active: true },
+  hint: "Gõ mã / tên đơn vị để tìm…",
+};
+
+/** Chưa chọn đơn vị là trạng thái THẬT (hàng cũ có mã lạ bị xoá trắng) — phải nhìn ra ngay ở bảng,
+ *  vì thiếu nó thì kho không nhập được mặt hàng đó.
+ *  Hiện TÊN (`don_vi_ten` server gán) chứ không hiện mã: `kem` không ai đoán ra "bản kẽm". */
+const dvCell = (r: Row) => {
+  const ma = r.don_vi_gia ? String(r.don_vi_gia) : "";
+  if (!ma) return <span className="rc__chip-muted">Chưa chọn đơn vị</span>;
+  return <span className="rc__formula-pill">{r.don_vi_ten ? String(r.don_vi_ten) : ma}</span>;
 };
 
 
@@ -338,6 +357,9 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "setup_time", label: "Thời gian chuẩn bị (phút)", type: "number", group: "Lệnh sản xuất" },
     { key: "dau_viec_dinh_muc", label: "Đầu việc và định mức của tổ", type: "dau-viec-dinh-muc",
       refPrefix: "/api/cong-doan/dau-viec", group: "Lệnh sản xuất" },
+    // Chặn gán máy SAI LOẠI ở bài ghép (vd Ghi kẽm CTP không cho máy Bế). Lưu mảng TÊN nhóm máy.
+    { key: "nhom_may_cho_phep", label: "Máy làm được công đoạn này", type: "nhom_may-multi",
+      refPrefix: "/api/nhom-may", group: "Lệnh sản xuất" },
 
     // CHỈ TÍNH THEO CÔNG THỨC: đã bỏ ô 'Cách tính giá' / 'Đơn giá' / 'Bậc kích thước'.
     // Đơn giá nhập per-phiếu (mỗi dòng phiếu tính giá tự mang don_gia); công đoạn chỉ khai CÔNG THỨC.
@@ -435,7 +457,7 @@ export const CFG_GIAY: CatalogConfig = {
   facet: KHO_FACET,
   columns: [
     { key: "gsm", label: "Định lượng", render: (r) => `${r.gsm} g/m²` },
-    { key: "don_vi_gia", label: "ĐVT", render: (r) => lbl(DV_GIA_GIAY)(r.don_vi_gia) },
+    { key: "don_vi_gia", label: "ĐVT", render: (r) => dvCell(r) },
     { key: "don_gia", label: "Đơn giá (đ/kg)", render: (r) => (Number(r.don_gia) ? Number(r.don_gia).toLocaleString("vi-VN") : "—") },
     { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
   ],
@@ -443,7 +465,9 @@ export const CFG_GIAY: CatalogConfig = {
     { key: "chung_loai_giay_id", label: "Chủng loại giấy", type: "ref", required: true,
       refPrefix: "/api/vat-lieu-kho/chung-loai-giay", group: "Phân loại" },
     { key: "gsm", label: "Định lượng (g/m²)", type: "number", required: true, group: "Thông số" },
-    { key: "don_vi_gia", label: "ĐVT", type: "select", group: "Thông số", options: mapOpt(DV_GIA_GIAY), default: "kg" },
+    // Đơn vị GỐC: tồn kho cộng dồn theo đơn vị này. Giấy để `kg` thì kho đếm theo cân; muốn đếm
+    // theo tờ thì chọn `tờ` — cặp cố định "1 ram = 500 tờ" chạy sẵn, không cần khai khổ.
+    { key: "don_vi_gia", label: "ĐVT", ...F_DON_VI, group: "Thông số" },
     // Đơn giá theo cân — CHỐT CỨNG ở danh mục (engine lấy thẳng, phiếu không sửa).
     { key: "don_gia", label: "Đơn giá (đ/kg)", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn (mặc định đ/kg)" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
@@ -452,20 +476,49 @@ export const CFG_GIAY: CatalogConfig = {
 };
 
 export const CFG_VAT_TU: CatalogConfig = {
-  title: "Vật tư in ấn",
-  subtitle: "Mực, bản kẽm, hoá chất, màng, keo… — mã · tên · ĐVT · công thức · ghi chú.",
+  title: "Vật tư khác",
+  subtitle: "Mực, bản kẽm, hoá chất, màng, keo… — mã · tên · ĐVT · quy cách đóng gói · công thức.",
   prefix: "/api/vat-lieu-kho/vat-tu-in-an",
   columns: [
-    { key: "don_vi_gia", label: "ĐVT", render: (r) => lbl(DV_GIA_VAT_TU)(r.don_vi_gia) },
+    { key: "don_vi_gia", label: "ĐVT", render: (r) => dvCell(r) },
+    {
+      key: "don_vi_dong_goi",
+      label: "Quy cách",
+      // Hiện thành CÂU chứ không hai ô số rời: "1 thùng = 3 kg" là thứ thủ kho đọc rồi đối chiếu
+      // được với thùng hàng trước mặt.
+      render: (r) => (r.don_vi_dong_goi && Number(r.he_so_dong_goi)
+        ? <span className="rc__formula-pill">
+            1 {String(r.don_vi_dong_goi_ten ?? r.don_vi_dong_goi)}
+            {" = "}{Number(r.he_so_dong_goi).toLocaleString("vi-VN")}
+            {" "}{String(r.don_vi_ten ?? r.don_vi_gia ?? "")}
+          </span>
+        : "—"),
+    },
     { key: "don_gia", label: "Đơn giá", render: (r) => (Number(r.don_gia) ? Number(r.don_gia).toLocaleString("vi-VN") : "—") },
     { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
   ],
   fields: [
-    { key: "don_vi_gia", label: "Đơn vị tính (ĐVT)", type: "select", group: "Giá", options: mapOpt(DV_GIA_VAT_TU) },
+    { key: "don_vi_gia", label: "Đơn vị tính (ĐVT)", ...F_DON_VI, group: "Thông số" },
+    // Quy cách đóng gói: hệ số RIÊNG của món ("1 thùng keo = 3 kg" ≠ "1 thùng mực = 5 kg") nên khai
+    // ở đây chứ không khai vào bảng cặp quy đổi chung. Có nó thì kho nhập "2 thùng" ra đúng 6 kg.
+    { key: "don_vi_dong_goi", label: "Đơn vị đóng gói", ...F_DON_VI, group: "Quy cách",
+      hint: "Đơn vị NCC giao / kho nhận (thùng, cuộn…) — bỏ trống nếu chỉ dùng ĐVT" },
+    // Hint ĐỘNG: ghép câu từ chính 3 ô đang gõ. Hai ô số rời không nói lên nghĩa gì, còn
+    // "1 thùng = 3 kg" thì thủ kho đọc rồi đối chiếu ngay với thùng hàng trước mặt.
+    { key: "he_so_dong_goi", label: "Hệ số quy đổi", type: "number", group: "Quy cách",
+      hint: (f) => {
+        const goi = String(f.don_vi_dong_goi ?? "").trim();
+        const goc = String(f.don_vi_gia ?? "").trim();
+        const hs = Number(f.he_so_dong_goi);
+        if (!goi) return "Chọn đơn vị đóng gói trước, rồi điền hệ số ở đây.";
+        if (!goc) return `Chọn ĐVT trước — hệ số là “1 ${goi} = ? <ĐVT>”.`;
+        if (!hs) return `Điền hệ số: 1 ${goi} = ? ${goc}`;
+        return `1 ${goi} = ${hs.toLocaleString("vi-VN")} ${goc}`;
+      } },
     // Đơn giá chốt ở danh mục — engine phơi thành biến `don_gia` (+ don_gia_kg/m²) cho công thức vật tư.
     { key: "don_gia", label: "Đơn giá", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn — dùng làm biến don_gia trong công thức" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
-    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Giá" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
 };
 
@@ -555,6 +608,23 @@ export const CFG_DON_VI: CatalogConfig = {
                 </span>
               );
             })}
+          </div>
+        );
+      },
+    },
+    {
+      // `canh_bao` server vẫn trả từ lâu nhưng KHÔNG màn nào hiện — cảnh báo "số cố định đè lên
+      // công thức" (thứ để lọt `1 tờ = 1.000 g` vào DB) vì thế mà vô hình. Cho nó một cột.
+      key: "canh_bao",
+      label: "Lưu ý",
+      render: (r) => {
+        const ds = Array.isArray(r.canh_bao) ? (r.canh_bao as string[]) : [];
+        if (ds.length === 0) return "—";
+        return (
+          <div className="rc__formula-chips">
+            {ds.map((c, i) => (
+              <span key={i} className="rc__warn-pill" title={c}>⚠ {c}</span>
+            ))}
           </div>
         );
       },

@@ -303,6 +303,35 @@ export function BaiGhepDetailView({
             <span className="bghep-uh-m-label">Giấy lĩnh kho:</span>
             <strong className="bghep-uh-m-val">{num(d.so_to.to_nguyen_can)}</strong>
           </div>
+          {/* T1: tỷ lệ hao/tốt — makeready cố định nuốt lô nhỏ (230 tờ hao cho 20 tờ tốt = ×11,5).
+              Tô cảnh báo khi hao ≥ số tờ tốt → gợi ý gộp thêm lệnh cùng giấy để chia canh máy. */}
+          {d.so_to.so_buoc_chung > 0 && (
+            <>
+              <span className="bghep-uh-m-sep">•</span>
+              <div
+                className="bghep-uh-metric-item"
+                title={
+                  `Hao ${num(d.so_to.hao_ap_dung)} tờ trên ${num(d.so_to.so_to_tot)} tờ tốt` +
+                  (d.so_to.hao_theo_buoc.length
+                    ? " — gồm " +
+                      d.so_to.hao_theo_buoc.map((b) => `${b.ten} ${num(b.hao)}`).join(" + ")
+                    : "") +
+                  (d.so_to.ty_le_hao >= 100
+                    ? ". Makeready lớn hơn sản lượng — cân nhắc gộp thêm lệnh cùng giấy."
+                    : "")
+                }
+              >
+                <span className="bghep-uh-m-label">Hao:</span>
+                <strong
+                  className={`bghep-uh-m-val${
+                    d.so_to.ty_le_hao >= 100 ? " bghep-uh-m-val--canh" : ""
+                  }`}
+                >
+                  {num(d.so_to.hao_ap_dung)} tờ (×{(d.so_to.ty_le_hao / 100).toFixed(1)})
+                </strong>
+              </div>
+            </>
+          )}
           <span className="bghep-uh-m-sep">•</span>
           <div className="bghep-uh-metric-item">
             <span className="bghep-uh-m-label">Tờ dùng:</span>

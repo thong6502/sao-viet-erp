@@ -2057,8 +2057,10 @@ class LsxService:
             for pos, item in enumerate(vat_tus):
                 mat = mats[int(item["vat_tu_id"])]
                 row.vat_tus.append(LsxCongDoanVatTu(
+                    # `or ""`: đơn vị gốc có thể CHƯA KHAI (nullable từ 2026-08-08) còn cột
+                    # snapshot NOT NULL — không chặn thì IntegrityError 500.
                     vat_tu_id=mat.id, vat_tu_ma_snapshot=mat.ma,
-                    vat_tu_ten_snapshot=mat.ten, don_vi_snapshot=mat.don_vi_gia,
+                    vat_tu_ten_snapshot=mat.ten, don_vi_snapshot=mat.don_vi_gia or "",
                     so_luong=float(item["so_luong"]), thu_tu=pos,
                 ))
 

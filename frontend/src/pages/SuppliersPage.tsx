@@ -18,6 +18,7 @@ import {
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
+import { DonViChonTheoHang, MaterialCombobox } from "../components/MaterialCombobox";
 import "./master-data.css";
 import "./purchase.css";
 
@@ -1115,40 +1116,45 @@ export function SuppliersPage({
                                 "minmax(180px, 1.4fr) minmax(70px, 0.5fr) minmax(110px, 0.8fr) minmax(65px, 0.5fr) minmax(120px, 0.8fr) minmax(130px, 1fr) 36px",
                             }}
                           >
-                            {/* `datalist` chứ không phải `select`: tên MỚI phải gõ được, vì đây
-                                chính là chỗ vật tư mới vào danh mục. Gợi ý chỉ để tên hội tụ. */}
-                            <input
-                              className="input"
-                              list="supplier-item-name-suggestions"
-                              placeholder="VD: Giấy Duplex 350gsm"
-                              value={item.item_name}
-                              onChange={(e) => {
-                                const ten = e.target.value;
-                                // Gõ/chọn trúng tên đã có mà chưa khai ĐVT thì điền hộ — đơn vị
-                                // lệch nhau cũng làm hai bên không so được với nhau.
-                                const trung = itemCatalog.find(
-                                  (c) =>
-                                    c.item_name.trim().toLowerCase() ===
-                                    ten.trim().toLowerCase(),
-                                );
+                            {/* CHỌN từ danh mục gốc, không gõ tự do nữa: ghép NCC với kho bằng
+                                chuỗi tên là trượt thầm lặng ("Couche 150" ≠ "Couché 150 79×109"),
+                                mà trượt thì mãi không so được giá. Đổi mặt hàng → xoá đơn vị cũ,
+                                vì đơn vị dùng được phụ thuộc chính mặt hàng. */}
+                            <MaterialCombobox
+                              token={token ?? ""}
+                              hangTen={item.item_name || null}
+                              onPick={(m) =>
                                 setSupplierItem(originalIndex, {
-                                  item_name: ten,
-                                  ...(trung && !item.unit
-                                    ? { unit: trung.unit }
-                                    : {}),
-                                });
-                              }}
-                            />
-                            <input
-                              className="input"
-                              placeholder="tờ, kg..."
-                              value={item.unit}
-                              onChange={(e) =>
-                                setSupplierItem(originalIndex, {
-                                  unit: e.target.value,
+                                  hang_loai: m.hang_loai,
+                                  hang_id: m.hang_id,
+                                  item_name: m.ten,
+                                  unit: "",
                                 })
                               }
+                              placeholder="Gõ tên vật tư…"
                             />
+                            {item.hang_loai && item.hang_id ? (
+                              <DonViChonTheoHang
+                                token={token ?? ""}
+                                hangLoai={item.hang_loai}
+                                hangId={item.hang_id}
+                                value={item.unit}
+                                onChange={(ma) =>
+                                  setSupplierItem(originalIndex, { unit: ma })
+                                }
+                              />
+                            ) : (
+                              // Chưa gắn mặt hàng (dịch vụ / gia công) → vẫn cho gõ đơn vị tự do,
+                              // dòng đó không vào bảng so giá nên không cần đơn vị chuẩn.
+                              <input
+                                className="input"
+                                placeholder="tờ, kg..."
+                                value={item.unit}
+                                onChange={(e) =>
+                                  setSupplierItem(originalIndex, { unit: e.target.value })
+                                }
+                              />
+                            )}
                             <input
                               className="input purchase__number-input"
                               type="number"

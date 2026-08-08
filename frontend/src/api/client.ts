@@ -374,6 +374,8 @@ export interface BaiGhepThanhVien {
   nhu_cau_to: number;
   du_to: number;
   phan_giay_to: number; ty_le_giay: number;
+  /** D3: gợi ý con/tờ — tối đa theo khổ (ước lượng) + gợi ý cân sản lượng để giảm dư. 0 = không có. */
+  con_toi_da: number; con_goi_y: number;
   giay_id: number | null; giay_ten: string | null;
   so_mau_a: number | null; so_mau_b: number | null; quy_cach_in: string | null;
   muc_a: string[]; muc_b: string[];
@@ -401,6 +403,8 @@ export interface BaiGhepSoDoNode {
 export interface BaiGhepSoDoBuocChung {
   step_key: string; ten: string; nhom: string | null; cong_doan_id: number | null;
   loai_buoc: LsxLoaiBuoc; thu_tu: number;
+  /** `false` = bước chế bản (chung BẢN/kẽm), KHÔNG trên dòng giấy → thẻ ẩn số tờ vào/ra. */
+  tren_giay: boolean;
   /** Số của CẢ LƯỢT. Đơn vị lấy từ khai báo công đoạn — bước bế nhả `cai` thì `so_luong_ra` đếm con. */
   so_luong_vao: number; so_luong_ra: number;
   don_vi_vao: string | null; don_vi_ra: string | null;
@@ -411,6 +415,10 @@ export interface BaiGhepSoDoBuocChung {
   hao_hut: number; hao_hut_pct: number;
   /** Chuỗi đứt đơn vị / thiếu hệ số — phải lộ ra, đừng lặng lẽ chạy hệ số 1. */
   canh_bao_don_vi: string[];
+  /** T3: cảnh báo mềm máy không hợp công đoạn (sai loại / vượt khổ-màu-gsm). */
+  may_khong_hop: string[];
+  /** T3: nhóm máy (loai_may) làm được công đoạn này — FE lọc dropdown máy theo đây. [] = không ràng buộc. */
+  nhom_may_cho_phep: string[];
   /** Đã khai gì đó cho lượt chung chưa → tách ra là mất. Cờ THẬT của server, đừng dò chuỗi `thieu`. */
   da_lap_ke_hoach: boolean;
   /** ID + TÊN: `<select>` cần id để chọn đúng, nhãn cần tên. Chỉ có tên là form phải lấy tên làm
@@ -496,6 +504,10 @@ export interface BaiGhepSoTo {
   so_to_tot: number; tong_to: number; fill_pct: number | null; han_in_muon_nhat: string | null;
   /** Hao của các lượt chạy chung (tách setup/chạy), và giấy phải lĩnh kho (= tờ in + hao). */
   hao_de_xuat: number; hao_setup_de_xuat: number; hao_chay_de_xuat: number;
+  /** T1: hao THẬT đang áp (tôn trọng khai tay/khai 0) + tỷ lệ hao/tốt (cảnh báo makeready nuốt sản lượng). */
+  hao_ap_dung: number; ty_le_hao: number;
+  /** T4: breakdown hao đề xuất per bước chung — để tooltip "Giấy lĩnh kho" nối tổng với thẻ. */
+  hao_theo_buoc: { ten: string; hao: number }[];
   to_nguyen_can: number; so_buoc_chung: number;
   rows: { thanh_vien_id: number; lsx_id: number; can: number; con: number; co_gop: boolean;
           toa_step_key: string | null;
@@ -2036,7 +2048,6 @@ export interface QuotationRow {
   version_count?: number;
   sent_at?: string | null;
   margin_percent?: number | null;
-  estimate_refs?: string[];
   product_summary?: string | null;
   updated_at?: string | null;
   salesperson_name?: string | null;
@@ -2071,12 +2082,6 @@ export interface QuotationActivity {
   at: string;
 }
 
-/** 1 phiếu tính giá + các mức SL được pick vào báo giá. */
-export interface QuotePick {
-  estimate_id: number;
-  option_ids: number[];
-}
-
 export interface CustomerDisplay {
   customer_id: number;
   name: string;
@@ -2098,9 +2103,6 @@ export interface VersionRow {
 
 export interface QuoteItemDetail {
   id: number;
-  estimate_id?: number | null;
-  estimate_number?: string | null;
-  estimate_option_id: number | null;
   line_no: number;
   product_type: string;
   product_name: string;
@@ -2130,7 +2132,6 @@ export interface QuotationDetail {
   version: number;
   customer_id: number | null;
   customer: CustomerDisplay | null;
-  estimate_id: number | null;
   phieu_tinh_gia_id: number | null;
   phieu_tinh_gia_ma: string | null;
   valid_until: string | null;
@@ -2178,12 +2179,8 @@ export interface QuotationDetail {
 
 export interface QuotationInput {
   customer_id: number | null;
-  /** BG-1 (nguồn MỚI): 1 Phiếu tính giá (PTG) → 1 báo giá. */
+  /** BG-1: 1 Phiếu tính giá (PTG) → 1 báo giá. Nguồn DUY NHẤT (đường Estimate đã gỡ ở Đợt 5). */
   phieu_tinh_gia_id?: number | null;
-  estimate_id?: number | null;
-  selected_option_ids?: number[] | null;
-  /** Đường đa phiếu (cũ): mỗi pick = 1 phiếu tính giá + option đã tick. */
-  picks?: QuotePick[] | null;
   /** Gói biên áp chung khi tạo (per dòng chỉnh sau). */
   margin_percent?: number | null;
   valid_until: string | null;
@@ -3801,6 +3798,10 @@ export type SupplierStatus = "active" | "inactive";
 export interface SupplierItemRow {
   id: number;
   supplier_id: number;
+  /** Mặt hàng gốc dòng này bán. null = thứ ngoài danh mục vật tư (dịch vụ, gia công) —
+   *  vẫn khai được, chỉ không vào bảng so giá. */
+  hang_loai: HangLoai | null;
+  hang_id: number | null;
   item_name: string;
   unit: string;
   unit_price: number;
@@ -3814,11 +3815,39 @@ export interface SupplierItemRow {
 }
 
 export interface SupplierItemInput {
+  hang_loai?: HangLoai | null;
+  hang_id?: number | null;
   item_name: string;
   unit: string;
   unit_price: number;
   vat_percent?: number;
   note?: string | null;
+}
+
+/** 1 NCC trong bảng SO GIÁ của một mặt hàng. */
+export interface SoGiaRow {
+  supplier_id: number;
+  supplier_name: string;
+  supplier_item_id: number;
+  unit: string;
+  unit_price: number;
+  vat_percent: number;
+  /** Giá quy về ĐƠN VỊ GỐC — cột duy nhất so được giữa các NCC. null = không quy đổi được
+   *  (xem `ly_do`); dòng đó xếp cuối, đừng xếp hạng nó. */
+  gia_quy_doi: number | null;
+  gia_quy_doi_vat: number | null;
+  dien_giai: string | null;
+  ly_do: string | null;
+}
+
+export interface SoGiaOut {
+  hang_loai: HangLoai;
+  hang_id: number;
+  hang_ma: string | null;
+  hang_ten: string | null;
+  don_vi_goc: string | null;
+  don_vi_goc_ten: string | null;
+  items: SoGiaRow[];
 }
 
 export interface SupplierRow {
@@ -4745,16 +4774,21 @@ export type StockVoucherStatus = "draft" | "posted" | "cancelled";
 
 export interface StockRequestLine {
   id: number;
-  /** null = hàng mới chưa gắn mã; xem `ten_tu_do`. Kho gắn/tạo mã ở bước phiếu. */
-  material_id: number | null;
-  material_code: string | null;
-  material_name: string | null;
-  /** Tên hàng mới do người đề nghị gõ tự do (khi chưa có mã). */
-  ten_tu_do: string | null;
+  /** MẶT HÀNG GỐC — cặp trỏ danh mục Giấy / Vật tư khác. Không còn hàng gõ tay (siết 2026-08-08). */
+  hang_loai: HangLoai;
+  hang_id: number;
+  hang_ma: string | null;
+  hang_ten: string | null;
+  /** Nhãn nhóm ("Giấy" / "Vật tư khác") — chip phân biệt hai nguồn khi tên gần giống. */
+  hang_nhom: string | null;
+  /** Đơn vị NGƯỜI ĐỀ NGHỊ chọn; mọi `sl_*` của dòng theo đơn vị này. */
   dvt: string;
-  /** Quy đổi KHO của mặt hàng (1 don_vi_phu = he_so_quy_doi × dvt tồn). null = không quy đổi. */
-  don_vi_phu: string | null;
-  he_so_quy_doi: number | null;
+  /** Số quy về ĐƠN VỊ GỐC + câu diễn giải — dòng nhắc "10 ram ≈ 419,25 kg" dưới ô SL.
+   *  `canh_bao_dv` khác null = không đổi được (kèm nguyên văn lý do), FE phải chặn lưu. */
+  don_vi_goc: string | null;
+  sl_quy_doi: number | null;
+  quy_doi_dien_giai: string | null;
+  canh_bao_dv: string | null;
   sl_de_nghi: number;
   sl_duyet: number;
   sl_da_ung: number;
@@ -4810,16 +4844,13 @@ export interface StockRequestListParams {
 }
 
 export interface StockRequestLineInput {
-  // Hàng đã có mã → material_id. Hàng MỚI (gõ tên tự do) → bỏ material_id, gửi ten_tu_do.
-  material_id?: number | null;
-  ten_tu_do?: string | null;
+  // Mặt hàng BẮT BUỘC chọn từ danh mục gốc — không còn đường gõ tên tự do.
+  hang_loai: HangLoai;
+  hang_id: number;
   dvt: string;
   sl_de_nghi: number;
-  /** Đơn giá NHẬP người đề nghị khai (chỉ đề nghị NHẬP). Phiếu kế thừa; kho không sửa. */
+  /** Đơn giá NHẬP người đề nghị khai (chỉ đề nghị NHẬP), theo `dvt`. Phiếu kế thừa; kho không sửa. */
   don_gia?: number | null;
-  /** Quy đổi đơn vị người đề nghị khai (1 don_vi_phu = he_so_quy_doi × dvt tồn). */
-  don_vi_phu?: string | null;
-  he_so_quy_doi?: number | null;
   ghi_chu?: string | null;
 }
 
@@ -4842,26 +4873,56 @@ export interface StockRequestUpdateInput {
   lines?: StockRequestLineInput[];
 }
 
-/** Ô chọn vật tư khi lập đề nghị — 4 trường tối thiểu, KHÔNG có giá. */
-export interface StockMaterialOption {
-  id: number;
-  code: string | null;
-  name: string | null;
-  unit: string | null;
-  don_vi_phu?: string | null;
-  he_so_quy_doi?: number | null;
+/** Loại mặt hàng gốc — hai danh mục, hai dãy id riêng nên luôn đi theo CẶP với `hang_id`. */
+export type HangLoai = "giay" | "vat_tu";
+
+/** 1 dòng trong picker mặt hàng (gộp Giấy + Vật tư khác). KHÔNG có giá. */
+export interface MatHangOption {
+  hang_loai: HangLoai;
+  hang_id: number;
+  nhom: string;
+  ma: string;
+  ten: string;
+  don_vi_goc: string | null;
+}
+
+/** 1 đơn vị dùng được cho mặt hàng đang chọn. `he_so_ve_goc` = 1 đơn vị này bằng bao nhiêu
+ *  đơn vị gốc — nhân với số người dùng gõ ra số sẽ vào tồn. */
+export interface DonViDungDuoc {
+  ma: string;
+  ten: string;
+  he_so: number;
+  he_so_ve_goc: number;
+  la_goc: boolean;
+  dien_giai: string;
+}
+
+export interface DonViCuaMatHang {
+  hang_loai: HangLoai;
+  hang_id: number;
+  ma: string;
+  ten: string;
+  don_vi_goc: string | null;
+  don_vi_goc_ten: string | null;
+  ds: DonViDungDuoc[];
+  /** Vì sao `ds` rỗng — UI hiện nguyên câu này thay vì im lặng khoá ô. */
+  ly_do: string | null;
 }
 
 export interface StockVoucherLine {
   id: number;
   request_line_id: number;
-  material_id: number;
-  material_code: string | null;
-  material_name: string | null;
+  hang_loai: HangLoai;
+  hang_id: number;
+  hang_ma: string | null;
+  hang_ten: string | null;
   dvt: string | null;
   lot_id: number | null;
   ma_lo: string | null;
   so_luong: number;
+  /** Số đã quy về đơn vị gốc — số THẬT SỰ chạy vào lô/tồn. */
+  sl_goc: number | null;
+  don_vi_goc: string | null;
   ghi_chu: string | null;
   don_gia: number | null;
   thanh_tien: number | null;
@@ -4920,14 +4981,8 @@ export interface StockVoucherListParams {
 }
 
 export interface StockVoucherLineInput {
+  /** Mặt hàng KẾ THỪA từ dòng đề nghị (kho không đổi được) nên phiếu chỉ gửi `request_line_id`. */
   request_line_id: number;
-  /** Hàng mới: CHỌN mã có sẵn → material_id; hoặc TẠO MỚI → bỏ material_id, khai new_* (backend
-   *  tạo mã khi lưu/ghi sổ, không tạo eager). */
-  material_id?: number | null;
-  new_name?: string | null;
-  new_unit?: string | null;
-  new_don_vi_phu?: string | null;
-  new_he_so_quy_doi?: number | null;
   so_luong: number;
   /** Phiếu NHẬP: giá của lô sắp tạo. Phiếu XUẤT: bỏ qua (giá lấy đích danh từ lô). */
   don_gia?: number | null;
@@ -4952,10 +5007,11 @@ export interface StockVoucherInput {
 export interface StockLot {
   id: number;
   ma_lo: string;
-  material_id: number;
-  material_code: string | null;
-  material_name: string | null;
-  /** Đơn vị tính của mã hàng (để tạo dòng Yêu cầu mua có sẵn ĐVT). */
+  hang_loai: HangLoai;
+  hang_id: number;
+  hang_ma: string | null;
+  hang_ten: string | null;
+  /** ĐƠN VỊ GỐC — `sl_ban_dau`/`sl_con_lai` của lô đều theo đơn vị này. */
   dvt: string | null;
   kho_id: number;
   vi_tri: string | null;
@@ -4989,7 +5045,10 @@ export interface StockAllocation {
 
 export interface StockThreshold {
   id: number;
-  material_id: number;
+  hang_loai: HangLoai;
+  hang_id: number;
+  hang_ma: string | null;
+  hang_ten: string | null;
   kho_id: number;
   nguong_ton: number;
   nguong_can_ton: number | null;
@@ -5011,9 +5070,10 @@ export interface StockMaterialXuatRow {
 
 /** Lịch sử 1 mã hàng tại 1 kho: NHẬP = các lô (cả đã hết) · XUẤT = dòng phiếu xuất. */
 export interface StockMaterialHistory {
-  material_id: number;
-  material_code: string | null;
-  material_name: string | null;
+  hang_loai: HangLoai;
+  hang_id: number;
+  hang_ma: string | null;
+  hang_ten: string | null;
   dvt: string | null;
   on_hand: number;
   nhap: StockLot[];
@@ -5021,7 +5081,8 @@ export interface StockMaterialHistory {
 }
 
 export interface StockThresholdInput {
-  material_id: number;
+  hang_loai: HangLoai;
+  hang_id: number;
   kho_id: number;
   nguong_ton: number;
   /** Bỏ trống → backend tự suy ra = nguong_ton × 1.3. */
@@ -7462,6 +7523,27 @@ export const api = {
   // Gom 3 prefix `/api/kho/de-nghi`, `/api/kho/phieu`, `/api/kho/nguong-ton` vào một
   // namespace vì chúng là MỘT luồng (đề nghị → phiếu → lô). Khai báo kho (`/api/kho`) vẫn
   // đi qua `crud()` của rebuildCatalog — đó là danh mục, không phải chứng từ.
+  /** DANH MỤC GỐC — hai cửa Kho + NCC dùng chung để chọn mặt hàng và chọn đơn vị.
+   *  Thay `kho.deNghi.vatTu` cũ (đọc bảng `materials` riêng của kho). */
+  matHang: {
+    tim(token: string, q?: string | null, size = 20): Promise<MatHangOption[]> {
+      const qs = new URLSearchParams({ size: String(size) });
+      if (q) qs.set("q", q);
+      return authed<MatHangOption[]>(`/api/vat-lieu-kho/mat-hang?${qs.toString()}`, token);
+    },
+    /** Đơn vị gốc + mọi đơn vị đổi được — danh sách TỰ THÍCH NGHI theo từng mặt hàng. */
+    donVi(token: string, hangLoai: HangLoai, hangId: number): Promise<DonViCuaMatHang> {
+      return authed<DonViCuaMatHang>(
+        `/api/vat-lieu-kho/mat-hang/${hangLoai}/${hangId}/don-vi`, token,
+      );
+    },
+    /** Các NCC bán mặt hàng này, giá đã quy về đơn vị gốc — rẻ nhất đứng đầu. */
+    soGia(token: string, hangLoai: HangLoai, hangId: number): Promise<SoGiaOut> {
+      const qs = new URLSearchParams({ hang_loai: hangLoai, hang_id: String(hangId) });
+      return authed<SoGiaOut>(`/api/supplier-items/so-gia?${qs.toString()}`, token);
+    },
+  },
+
   kho: {
     deNghi: {
       list(token: string, params: StockRequestListParams = {}): Promise<StockRequestPage> {
@@ -7518,44 +7600,13 @@ export const api = {
       prepare(token: string, id: number): Promise<StockRequest> {
         return authed<StockRequest>(`/api/kho/de-nghi/${id}/chuan-bi`, token, { method: "POST" });
       },
-      /** Tìm vật tư cho ô chọn dòng đề nghị — gác `kho:read`, chỉ trả 4 trường (không giá). */
-      vatTu(token: string, q?: string | null, size = 30): Promise<StockMaterialOption[]> {
-        const qs = new URLSearchParams({ size: String(size) });
-        if (q) qs.set("q", q);
-        return authed<StockMaterialOption[]>(`/api/kho/de-nghi/vat-tu?${qs.toString()}`, token);
-      },
-      /** Thêm nhanh mặt hàng ngay ở đề nghị (tên + ĐVT + mã + quy đổi tuỳ chọn). 409 nếu trùng. */
-      taoVatTu(
-        token: string,
-        body: {
-          name: string;
-          unit: string;
-          code?: string | null;
-          don_vi_phu?: string | null;
-          he_so_quy_doi?: number | null;
-        },
-      ): Promise<StockMaterialOption> {
-        return authed<StockMaterialOption>("/api/kho/de-nghi/vat-tu", token, {
-          method: "POST",
-          body: JSON.stringify(body),
-        });
-      },
-      /** Khai/sửa quy đổi cho hàng đã có (nút 'Quy đổi' trên dòng phiếu). Cả hai null = bỏ quy đổi. */
-      quyDoi(
-        token: string,
-        materialId: number,
-        body: { don_vi_phu: string | null; he_so_quy_doi: number | null },
-      ): Promise<StockMaterialOption> {
-        return authed<StockMaterialOption>(`/api/kho/de-nghi/vat-tu/${materialId}/quy-doi`, token, {
-          method: "PUT",
-          body: JSON.stringify(body),
-        });
-      },
       /** Gợi ý SL từ lịch sử đề nghị của bộ phận; `so_luong === null` = chưa đủ dữ liệu. */
-      goiYSoLuong(token: string, materialId: number): Promise<{ so_luong: number | null }> {
+      goiYSoLuong(
+        token: string, hangLoai: HangLoai, hangId: number,
+      ): Promise<{ so_luong: number | null }> {
+        const qs = new URLSearchParams({ hang_loai: hangLoai, hang_id: String(hangId) });
         return authed<{ so_luong: number | null }>(
-          `/api/kho/de-nghi/goi-y/so-luong?material_id=${materialId}`,
-          token,
+          `/api/kho/de-nghi/goi-y/so-luong?${qs.toString()}`, token,
         );
       },
     },
@@ -7596,10 +7647,12 @@ export const api = {
       /** Gợi ý lấy hàng từ lô nào (FEFO → FIFO). `thieu` > 0 = kho không đủ hàng. */
       goiYLo(
         token: string,
-        params: { material_id: number; kho_id: number; so_luong: number },
+        params: { hang_loai: HangLoai; hang_id: number; kho_id: number; so_luong: number },
       ): Promise<StockAllocation> {
+        // `so_luong` ở ĐƠN VỊ GỐC — lô lưu theo đơn vị đó, gửi số theo đơn vị người khai là lệch.
         const qs = new URLSearchParams({
-          material_id: String(params.material_id),
+          hang_loai: params.hang_loai,
+          hang_id: String(params.hang_id),
           kho_id: String(params.kho_id),
           so_luong: String(params.so_luong),
         });
@@ -7607,10 +7660,13 @@ export const api = {
       },
       danhSachLo(
         token: string,
-        params: { material_id?: number | null; kho_id?: number | null; con_hang?: boolean },
+        params: { hang_loai?: HangLoai | null; hang_id?: number | null; kho_id?: number | null; con_hang?: boolean },
       ): Promise<StockLot[]> {
         const qs = new URLSearchParams();
-        if (params.material_id != null) qs.set("material_id", String(params.material_id));
+        if (params.hang_loai && params.hang_id != null) {
+          qs.set("hang_loai", params.hang_loai);
+          qs.set("hang_id", String(params.hang_id));
+        }
         if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
         qs.set("con_hang", String(params.con_hang ?? true));
         return authed<StockLot[]>(`/api/kho/phieu/lo/danh-sach?${qs.toString()}`, token);
@@ -7618,12 +7674,13 @@ export const api = {
       /** Lịch sử Nhập (lô) + Xuất (dòng phiếu xuất đã ghi sổ) của 1 mã hàng tại 1 kho. */
       lichSuVatTu(
         token: string,
-        materialId: number,
+        hangLoai: HangLoai,
+        hangId: number,
         khoId: number,
       ): Promise<StockMaterialHistory> {
         const qs = new URLSearchParams({ kho_id: String(khoId) });
         return authed<StockMaterialHistory>(
-          `/api/kho/phieu/vat-tu/${materialId}/lich-su?${qs.toString()}`,
+          `/api/kho/phieu/mat-hang/${hangLoai}/${hangId}/lich-su?${qs.toString()}`,
           token,
         );
       },

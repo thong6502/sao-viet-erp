@@ -18,6 +18,10 @@ LIST_ENDPOINTS = [
     "/api/may-thiet-bi",
     "/api/cong-doan",
     "/api/vat-lieu-kho/giay",
+    # Thêm 2026-08-08: ô ĐVT của Giấy / Vật tư khác chọn từ danh mục Đơn vị, mà danh mục ấy gate
+    # bằng `dm_cong_doan`. Thiếu OR-gate thì mở drawer Giấy là ăn 403, và `RebuildCatalogPage` nuốt
+    # lỗi thành danh sách rỗng (`.catch(() => [])`) — người dùng chỉ thấy ô tìm không ra gì.
+    "/api/don-vi",
 ]
 
 
@@ -110,6 +114,53 @@ def test_nhom_may_them_roi_xoa_qua_API(client):
     assert client.post("/api/nhom-may", json={"ten": "Ép kim"}, headers=h).status_code == 409
     assert client.delete(f"/api/nhom-may/{row['id']}", headers=h).status_code == 204
     assert all(x["ten"] != "Ép kim" for x in client.get("/api/nhom-may", headers=h).json()["items"])
+
+
+# --- Danh mục Đơn vị (/api/don-vi) — nguồn ô ĐVT của mọi mặt hàng gốc ---------
+#
+# Từ 2026-08-08 ĐVT của Giấy · Vật tư khác · Kho · NCC đều chọn từ đây, mà bốn màn đó gate bằng bốn
+# module khác nhau. Không nới OR-gate thì mỗi màn là một cái bẫy 403 câm.
+
+
+def test_don_vi_doc_duoc_boi_nguoi_lam_kho(client):
+    """Thủ kho mở drawer Giấy/Vật tư khác → phải đổ được ô ĐVT dù không có quyền cấu hình đơn vị."""
+    token = _token_for_role("kho-only", [("kho", "all")])
+    r = client.get("/api/don-vi", headers=_h(token))
+    assert r.status_code == 200 and "items" in r.json()
+
+
+def test_don_vi_doc_duoc_boi_nguoi_thu_mua(client):
+    """Người khai bảng giá NCC cũng phải chọn được đơn vị NCC bán."""
+    token = _token_for_role("thumua-only", [("thu_mua", "all")])
+    assert client.get("/api/don-vi", headers=_h(token)).status_code == 200
+
+
+def test_don_vi_nguoi_la_van_403(client):
+    token = _token_for_role("nobody", [("dashboard", "own")])
+    assert client.get("/api/don-vi", headers=_h(token)).status_code == 403
+
+
+def test_don_vi_doc_duoc_nhung_KHONG_khai_duoc(client):
+    """OR-gate chỉ nới ĐỌC. Thủ kho chọn được đơn vị nhưng không được đẻ đơn vị mới —
+    khai đơn vị là việc của người cấu hình, mở ra là mỗi kho một bộ đơn vị riêng."""
+    token = _token_for_role("kho-only", [("kho", "all")])
+    r = client.post("/api/don-vi", json={"ma": "xyz", "ten": "xyz"}, headers=_h(token))
+    assert r.status_code == 403, r.text
+
+
+def test_don_vi_loc_active_bo_don_vi_da_ngung_dung(client):
+    """Picker gọi kèm `active=true`. Không lọc thì nó mời cả đơn vị đã ngừng dùng, người ta chọn
+    xong bấm Lưu mới ăn lỗi từ server — chọn-rồi-mới-báo là kiểu bẫy tệ nhất."""
+    h = _admin(client)
+    tao = client.post("/api/don-vi", json={"ma": "zz_thu", "ten": "đơn vị thử"}, headers=h)
+    assert tao.status_code == 201, tao.text
+    dv_id = tao.json()["id"]
+    assert any(x["ma"] == "zz_thu" for x in client.get("/api/don-vi?active=true", headers=h).json()["items"])
+
+    client.put(f"/api/don-vi/{dv_id}",
+               json={"ma": "zz_thu", "ten": "đơn vị thử", "active": False}, headers=h)
+    con = client.get("/api/don-vi?active=true", headers=h).json()["items"]
+    assert all(x["ma"] != "zz_thu" for x in con), "đơn vị đã ngừng dùng vẫn lọt vào picker"
 
 
 def test_nhom_may_xoa_khi_con_may_dung_thi_409_kem_so_may(client):

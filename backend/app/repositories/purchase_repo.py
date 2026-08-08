@@ -139,6 +139,8 @@ class SupplierRepository:
         )
         row.items = [
             SupplierItem(
+                hang_loai=item.hang_loai,
+                hang_id=item.hang_id,
                 item_name=item.item_name,
                 unit=item.unit,
                 unit_price=item.unit_price,
@@ -164,6 +166,8 @@ class SupplierRepository:
         if items is not None:
             supplier.items = [
                 SupplierItem(
+                    hang_loai=item.hang_loai,
+                    hang_id=item.hang_id,
                     item_name=item.item_name,
                     unit=item.unit,
                     unit_price=item.unit_price,
@@ -217,6 +221,25 @@ class SupplierRepository:
             for key, value in grouped.items()
         ]
 
+    def items_for_hang(self, hang_loai: str, hang_id: int) -> list[tuple]:
+        """Mọi dòng bảng-giá đang bán MỘT mặt hàng gốc, kèm NCC — nguồn của bảng so giá (mg 0172).
+
+        Chỉ NCC đang hoạt động và dòng còn `is_active`: so giá với NCC đã ngưng hợp tác là mời
+        người ta chọn một đường không đi được.
+        """
+        rows = self.db.execute(
+            select(Supplier, SupplierItem)
+            .join(SupplierItem, SupplierItem.supplier_id == Supplier.id)
+            .where(
+                Supplier.status == SUPPLIER_ACTIVE,
+                SupplierItem.is_active.is_(True),
+                SupplierItem.hang_loai == hang_loai,
+                SupplierItem.hang_id == hang_id,
+            )
+            .order_by(Supplier.name.asc())
+        ).all()
+        return [(r[0], r[1]) for r in rows]
+
     def has_active_item(self, item_name: str) -> bool:
         """CÓ NCC NÀO đang hoạt động bán thứ này không — dùng lúc lập YÊU CẦU mua, khi chưa biết
         sẽ mua của ai. Muốn hỏi "NCC CỤ THỂ này có bán không" thì dùng `supplier_sells`."""
@@ -269,12 +292,17 @@ class SupplierItemInput:
         unit_price: int,
         vat_percent: float = 0,
         note: str | None = None,
+        hang_loai: str | None = None,
+        hang_id: int | None = None,
     ) -> None:
         self.item_name = item_name
         self.unit = unit
         self.unit_price = unit_price
         self.vat_percent = vat_percent
         self.note = note
+        # Mặt hàng gốc (mg 0172) — None với thứ NCC bán ngoài danh mục vật tư.
+        self.hang_loai = hang_loai
+        self.hang_id = hang_id
 
 
 class PurchaseRequestLineInput:

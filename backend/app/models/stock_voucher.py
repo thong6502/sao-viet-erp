@@ -121,18 +121,29 @@ class StockVoucherLine(Base):
     request_line_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("stock_request_lines.id"), index=True, nullable=False
     )
-    material_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("materials.id"), index=True, nullable=False
-    )
+    # Mặt hàng gốc — kế thừa từ dòng đề nghị, kho KHÔNG đổi được (mg 0171).
+    hang_loai: Mapped[str] = mapped_column(String(8), nullable=False)
+    hang_id: Mapped[int] = mapped_column(Integer, nullable=False)
     # Phiếu XUẤT: bắt buộc, trỏ vào lô bị trừ. Phiếu NHẬP: null lúc nháp, được gán khi
     # ghi sổ (lúc đó lô mới được sinh ra).
     lot_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("stock_lots.id"), index=True, nullable=True
     )
+    # Số theo ĐƠN VỊ NGƯỜI ĐỀ NGHỊ chọn (`stock_request_lines.dvt`) — giữ nguyên để phiếu in ra
+    # đúng con số họ đọc, và để so với `sl_duyet` mà không phải quy đổi hai đầu.
     so_luong: Mapped[float] = mapped_column(
         Numeric(14, 2), CheckConstraint("so_luong > 0"), nullable=False
     )
-    # Chỉ phiếu NHẬP: giá của lô sắp tạo. Phiếu xuất lấy giá từ lô nên để trống.
+    # Cùng số đó QUY VỀ ĐƠN VỊ GỐC của mặt hàng — đây mới là số chạy vào lô/tồn (mg 0171).
+    #
+    # Lưu chứ không tính-lúc-đọc: hệ số quy đổi là dữ liệu SỐNG (sửa quy cách đóng gói của vật tư
+    # là đổi hệ số). Tính lại sau đó thì lô nhập 3 tháng trước tự đổi số — sổ kho phải bất biến,
+    # nên chốt hệ số ngay lúc lập phiếu.
+    sl_goc: Mapped[float] = mapped_column(
+        Numeric(14, 4), CheckConstraint("sl_goc > 0"), nullable=False
+    )
+    # Chỉ phiếu NHẬP: giá của lô sắp tạo, theo ĐƠN VỊ NGƯỜI KHAI (đ/ram nếu nhập theo ram).
+    # `post()` quy về đ/đơn-vị-gốc trước khi ghi vào lô.
     don_gia: Mapped[int | None] = mapped_column(
         BigInteger, CheckConstraint("don_gia IS NULL OR don_gia >= 0"), nullable=True
     )

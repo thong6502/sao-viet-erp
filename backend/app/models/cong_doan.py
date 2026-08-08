@@ -86,6 +86,10 @@ class CongDoan(Base):
     don_vi_vao: Mapped[str | None] = mapped_column(String(12), nullable=True)
     don_vi_ra: Mapped[str | None] = mapped_column(String(12), nullable=True)
     nhom: Mapped[str] = mapped_column(String(12), index=True, nullable=False)  # prepress|print|finishing
+    # Nhóm MÁY làm được công đoạn này — tên nhóm ở danh mục `nhom_may` ("Máy in"/"Bế"/"Cán màng / UV"…).
+    # Chặn gán máy SAI LOẠI ở bước (vd bước Ghi kẽm CTP không cho gán máy Bế). NULL/[] = chưa khai =
+    # không ràng buộc. Trục `loai_may` mịn hơn `nhom(3)`: phân biệt được Bế với Cán màng (cùng finishing).
+    nhom_may_cho_phep: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # Phòng ban / tổ phụ trách công đoạn (soft-ref → departments.id). Khi phát Lệnh SX, mỗi bước
     # công đoạn đẩy xuống đúng tổ này. Nullable: công đoạn cũ chưa gán vẫn hợp lệ.
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → departments.id (soft)

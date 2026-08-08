@@ -16,7 +16,6 @@ from .db import get_db
 from .models.user import User
 from .repositories.audit_repo import AuditLogRepository
 from .repositories.accounting_repo import AccountingRepository
-from .repositories.costing_repo import CostingRepository
 from .repositories.attendance_repo import AttendanceRepository
 from .repositories.calendar_repo import CalendarRepository
 from .repositories.late_early_repo import LateEarlyRepository
@@ -30,9 +29,7 @@ from .repositories.customer_repo import CustomerRepository
 from .repositories.employee_repo import EmployeeRepository
 from .repositories.noi_quy_repo import NoiQuyRepository
 from .repositories.machine_repo import MachineRepository
-from .repositories.material_repo import MaterialRepository
 from .repositories.operation_repo import OperationRepository
-from .repositories.product_repo import ProductRepository
 from .repositories.product_type_catalog_repo import ProductTypeCatalogRepository
 from .repositories.purchase_repo import (
     DepartmentPurchaseRequestRepository,
@@ -52,13 +49,10 @@ from .repositories.user_repo import UserRepository
 from .repositories.plate_die_rate_repo import PlateDieRateRepository
 from .repositories.norm_repo import NormRepository
 from .repositories.document_sequence_repo import DocumentSequenceRepository
-from .repositories.estimate_repo import EstimateRepository
 from .security import decode_access_token, decode_file_token
 from .services.auth_service import AuthError, AuthService
 from .services.accounting_service import AccountingService
 from .services.activity_service import ActivityService
-from .services.costing_service import CostingService
-from .services.estimate_service import EstimateService
 from .services.customer_analytics import CustomerAnalyticsService
 from .services.attendance_service import AttendanceService
 from .services.calendar_service import CalendarService
@@ -73,7 +67,6 @@ from .services.department_service import DepartmentService
 from .services.employee_service import EmployeeService
 from .services.noi_quy_service import NoiQuyService
 from .services.machine_service import MachineService
-from .services.material_service import MaterialService
 from .services.operation_service import OperationService
 from .services.product_type_catalog_service import ProductTypeCatalogService
 from .services.purchase_service import PurchaseService
@@ -457,19 +450,6 @@ def get_payroll_service(
                           departments=departments, components=components)
 
 
-def get_costing_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> CostingRepository:
-    return CostingRepository(db)
-
-
-def get_costing_service(
-    costings: Annotated[CostingRepository, Depends(get_costing_repository)],
-    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
-) -> CostingService:
-    return CostingService(costings, audit)
-
-
 def get_quotation_repository(
     db: Annotated[Session, Depends(get_db)],
 ) -> QuotationRepository:
@@ -480,13 +460,12 @@ def get_quotation_service(
     quotations: Annotated[QuotationRepository, Depends(get_quotation_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     customers: Annotated[CustomerRepository, Depends(get_customer_repository)],
-    estimates: Annotated[EstimateRepository, Depends(get_estimate_repository)],
     sequence: Annotated[SequenceService, Depends(get_sequence_service)],
 ) -> QuotationService:
     # SEAM-14 CLOSED: the CRM repo is injected so the quotation can resolve the customer
-    # display name (read-only). SEAM-13 CLOSED: the Tính giá (Estimate) repo is injected so
-    # a quotation referencing a calculated estimate pulls the frozen giá vốn + snapshots.
-    return QuotationService(quotations, audit, customers=customers, estimates=estimates, sequence=sequence)
+    # display name (read-only). Nguồn giá vốn giờ CHỈ còn Phiếu tính giá (PhieuTinhGia) —
+    # QuotationService đọc thẳng qua session của `quotations`, không cần repo riêng.
+    return QuotationService(quotations, audit, customers=customers, sequence=sequence)
 
 
 def get_order_repository(
@@ -581,8 +560,17 @@ def get_purchase_service(
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
+    db: Annotated[Session, Depends(get_db)] = None,  # type: ignore[assignment]
 ) -> PurchaseService:
-    return PurchaseService(suppliers, department_requests, requests, users, departments, audit, authz)
+    # `hang` = danh mục gốc (Giấy + Vật tư khác): bảng giá NCC gắn về mặt hàng và so giá qua đó.
+    from .repositories.don_vi_do_repo import DonViDoRepository
+    from .repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+    from .services.vat_lieu_kho_service import VatLieuKhoService
+
+    hang = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    return PurchaseService(
+        suppliers, department_requests, requests, users, departments, audit, authz, hang=hang,
+    )
 
 
 def get_accounting_repository(
@@ -629,19 +617,6 @@ def get_order_service(
     return OrderService(repo, audit, quotations, db, accounting_repo, accounting)
 
 
-def get_material_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> MaterialRepository:
-    return MaterialRepository(db)
-
-
-def get_material_service(
-    repo: Annotated[MaterialRepository, Depends(get_material_repository)],
-    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
-) -> MaterialService:
-    return MaterialService(repo, audit)
-
-
 def get_machine_repository(
     db: Annotated[Session, Depends(get_db)],
 ) -> MachineRepository:
@@ -669,22 +644,9 @@ def get_operation_service(
 
 
 # Gỡ 2026-07-16: get_{product,plate_die_rate,norm}_{repository,service} — chỉ nuôi 3 router
-# products/plate_die_rates/norms đã gỡ. Engine tính giá tự dựng NormService từ db (pricing_engine),
-# không đi qua DI, nên bảng + logic vẫn chạy.
-
-
-def get_estimate_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> EstimateRepository:
-    return EstimateRepository(db)
-
-
-def get_estimate_service(
-    db: Annotated[Session, Depends(get_db)],
-    repo: Annotated[EstimateRepository, Depends(get_estimate_repository)],
-    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
-    sequence: Annotated[SequenceService, Depends(get_sequence_service)],
-) -> EstimateService:
-    return EstimateService(db, repo, audit, sequence)
+# products/plate_die_rates/norms đã gỡ. Bảng norms/plate_die_rates GIỮ: engine tính giá đang chạy
+# (thanh_phan_engine) vẫn đọc, tự dựng từ db chứ không đi qua DI.
+# Gỡ 2026-08-08 (Đợt 5): get_{costing,material,estimate}_{repository,service} — cụm tính giá đời cũ
+# đã xoá hẳn cùng 3 router costings/materials/estimates.
 
 

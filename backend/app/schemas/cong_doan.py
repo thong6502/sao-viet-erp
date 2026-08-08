@@ -38,6 +38,9 @@ class CongDoanIn(BaseModel):
     bu_hao_id: int | None = None
     so_to_bu_hao: int = Field(default=50, ge=0)
     nhom: str
+    # Nhóm máy (tên ở danh mục `nhom_may`) làm được công đoạn này — chặn gán máy sai loại ở bài
+    # ghép. None/[] = không ràng buộc.
+    nhom_may_cho_phep: list[str] | None = None
     department_id: int | None = None
     khoan_ghi_theo: str = "khong"
     allowed_defect_pct: float = Field(default=0, ge=0, le=1)
@@ -75,6 +78,7 @@ class CongDoanRow(BaseModel):
     bu_hao_id: int | None = None
     so_to_bu_hao: int = 50
     nhom: str
+    nhom_may_cho_phep: list[str] | None = None
     department_id: int | None = None
     khoan_ghi_theo: str = "khong"
     allowed_defect_pct: float = 0

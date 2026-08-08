@@ -14,19 +14,18 @@ _HEADER_FIELDS = ("bo_phan_id", "kho_id", "ngay_can", "uu_tien", "ghi_chu")
 
 
 def _build_line(ln: dict, loai: str) -> StockRequestLine:
-    """Dựng 1 dòng đề nghị từ dict payload. Đơn giá + QUY ĐỔI chỉ áp cho đề nghị NHẬP
-    (người đề nghị khai); XUẤT → null (giá vốn/đơn vị lấy đích danh từ lô)."""
-    is_nhap = loai == "NHAP"
-    dvp = ((ln.get("don_vi_phu") or "").strip() or None) if is_nhap else None
-    hs = ln.get("he_so_quy_doi")
+    """Dựng 1 dòng đề nghị từ dict payload. Đơn giá chỉ áp cho đề nghị NHẬP (người đề nghị biết
+    giá NCC); XUẤT → null (giá vốn lấy đích danh từ lô).
+
+    Không còn `ten_tu_do`/`don_vi_phu`/`he_so_quy_doi` (mg 0171): mặt hàng bắt buộc chọn từ danh
+    mục gốc, còn quy đổi lấy từ đồ thị đơn vị dùng chung.
+    """
     return StockRequestLine(
-        material_id=ln.get("material_id"),
-        ten_tu_do=(ln.get("ten_tu_do") or "").strip() or None,
+        hang_loai=ln["hang_loai"],
+        hang_id=ln["hang_id"],
         dvt=ln["dvt"],
         sl_de_nghi=ln["sl_de_nghi"],
-        don_gia=ln.get("don_gia") if is_nhap else None,
-        don_vi_phu=dvp,
-        he_so_quy_doi=(hs if (dvp and hs and float(hs) > 0) else None),
+        don_gia=ln.get("don_gia") if loai == "NHAP" else None,
         ghi_chu=ln.get("ghi_chu"),
     )
 

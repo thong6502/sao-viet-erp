@@ -15,6 +15,7 @@ import { crud } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { BaiGhepDagCanvas } from "../components/BaiGhepDagCanvas";
 import { BangLoi, ChipGap, Skeleton, ngay, num } from "./keHoachSxShared";
 import { nhanDonVi, phut } from "./lsxBuoc";
@@ -410,6 +411,30 @@ export function BaiGhepSoDo({
                                     +
                                   </button>
                                 </div>
+                                {/* D3: gợi ý con/tờ — tối đa theo khổ (ước lượng) + gợi ý cân sản
+                                    lượng (bấm để áp). Con/tờ vẫn do người bình bài quyết. */}
+                                {(t.con_toi_da > 0 || t.con_goi_y > 0) && (
+                                  <div className="bgsd-ups-hint">
+                                    {t.con_toi_da > 0 && <span>tối đa ~{num(t.con_toi_da)}</span>}
+                                    {t.con_goi_y > 0 && t.con_goi_y !== t.so_con_tren_to && (
+                                      <>
+                                        {t.con_toi_da > 0 && " · "}
+                                        {canUpdate ? (
+                                          <button
+                                            type="button"
+                                            className="bgsd-ups-goiy"
+                                            onClick={() => onSuaThanhVien(t.thanh_vien_id, t.con_goi_y)}
+                                            title="Áp số gợi ý để cân sản lượng giữa các lệnh"
+                                          >
+                                            gợi ý {num(t.con_goi_y)}
+                                          </button>
+                                        ) : (
+                                          <span>gợi ý {num(t.con_goi_y)}</span>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+                                )}
                               </td>
                               <td className="khsx-num">{num(t.nhu_cau_to)}</td>
                               <td className="khsx-num">
@@ -424,8 +449,18 @@ export function BaiGhepSoDo({
                                 )}
                               </td>
                               <td className="khsx-num">
+                                {/* D3: cờ DƯ LỚN — ghép lệch sản lượng (dư > 30% so với SL đặt). */}
                                 {t.du > 0 ? (
-                                  <span className="bgsd-chip-surplus">+{num(t.du)}</span>
+                                  t.so_luong_dat > 0 && t.du / t.so_luong_dat > 0.3 ? (
+                                    <span
+                                      className="bgsd-chip-surplus bgsd-chip-surplus--warn"
+                                      title="Ghép lệch sản lượng — lệnh này dư nhiều; cân lại con/tờ để giảm dư"
+                                    >
+                                      +{num(t.du)} ⚠
+                                    </span>
+                                  ) : (
+                                    <span className="bgsd-chip-surplus">+{num(t.du)}</span>
+                                  )
                                 ) : (
                                   num(t.du)
                                 )}
@@ -626,10 +661,11 @@ function BuocChungForm({
 }) {
   const { token } = useAuth();
   const [toRefs, setToRefs] = useState<{ id: number; ten: string }[] | null>(null);
-  const [mayRefs, setMayRefs] = useState<{ id: number; ten: string }[] | null>(null);
+  const [mayRefs, setMayRefs] = useState<{ id: number; ten: string; loaiMay: string | null }[] | null>(null);
   const [vtRefs, setVtRefs] = useState<{ id: number; ma: string; ten: string; donVi: string }[] | null>(null);
   const [f, setF] = useState<BaiGhepBuocChungBody>({});
   const [dangLuu, setDangLuu] = useState(false);
+  const [confirmTach, setConfirmTach] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -637,7 +673,10 @@ function BuocChungForm({
       .then((r) => setToRefs(r.items.map((t) => ({ id: t.id, ten: String(t.ten) }))))
       .catch(() => setToRefs(null));
     crud("/api/may-thiet-bi").list(token)
-      .then((r) => setMayRefs(r.items.map((m) => ({ id: m.id, ten: String(m.ten) }))))
+      .then((r) => setMayRefs(r.items.map((m) => ({
+        id: m.id, ten: String(m.ten),
+        loaiMay: (m as { loai_may?: string | null }).loai_may ?? null,
+      }))))
       .catch(() => setMayRefs(null));
     crud("/api/vat-lieu-kho/vat-tu-in-an").list(token, { active: true })
       .then((r) => setVtRefs(r.items.map((v) => ({
@@ -715,10 +754,25 @@ function BuocChungForm({
               onChange={(e) => setF({ ...f, may_id: e.target.value ? Number(e.target.value) : null })}
             >
               <option value="">— chọn máy —</option>
-              {(mayRefs ?? []).map((m) => (
-                <option key={m.id} value={m.id}>{m.ten}</option>
-              ))}
+              {(mayRefs ?? [])
+                .filter((m) => {
+                  // T3: lọc máy theo NHÓM công đoạn (bước Bế chỉ thấy máy Bế). Chưa khai ràng buộc
+                  // → hiện tất cả. Giữ máy ĐANG CHỌN dù sai loại, để select không rơi về trống.
+                  const allow = g.nhom_may_cho_phep ?? [];
+                  if (allow.length === 0) return true;
+                  if (m.id === val("may_id", g.may_id)) return true;
+                  return m.loaiMay != null && allow.includes(m.loaiMay);
+                })
+                .map((m) => (
+                  <option key={m.id} value={m.id}>{m.ten}</option>
+                ))}
             </select>
+            {(g.nhom_may_cho_phep?.length ?? 0) > 0 && (
+              <span className="bgsd-field-hint">Chỉ máy nhóm: {g.nhom_may_cho_phep.join(", ")}</span>
+            )}
+            {g.may_khong_hop.length > 0 && (
+              <span className="bgsd-field-warn">⚠ {g.may_khong_hop.join("; ")}</span>
+            )}
           </label>
           <label className="khsx-field">
             <span>Số người</span>
@@ -1008,7 +1062,6 @@ function BuocChungForm({
           />
         </label>
       </div>
-
       {canUpdate && (
         <div className="bgsd-gang-actions">
           <Button variant="primary" disabled={!dirty} loading={dangLuu} onClick={() => void luu()}>
@@ -1016,13 +1069,23 @@ function BuocChungForm({
           </Button>
           <button
             type="button" className="khsx-xlink" style={{ color: "var(--signal)" }}
-            onClick={() => {
-              if (window.confirm(`Tách "${g.ten}"? Kế hoạch của lượt chung sẽ mất, số riêng của từng lệnh quay lại.`))
-                void onTach();
-            }}
+            onClick={() => setConfirmTach(true)}
           >
             Tách lượt chung
           </button>
+          <ConfirmDialog
+            open={confirmTach}
+            title={`Tách "${g.ten}"?`}
+            message="Kế hoạch của lượt chung sẽ mất, số riêng của từng lệnh quay lại."
+            confirmLabel="Tách lượt chung"
+            cancelLabel="Hủy"
+            danger
+            onConfirm={() => {
+              setConfirmTach(false);
+              void onTach();
+            }}
+            onCancel={() => setConfirmTach(false)}
+          />
         </div>
       )}
     </div>

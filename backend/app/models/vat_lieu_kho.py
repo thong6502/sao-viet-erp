@@ -23,9 +23,18 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ..db import Base
 
 THO = ("canh_dai", "canh_ngan")
-DON_VI_GIA_GIAY = ("kg", "cai", "ram", "to", "tan")
 BE_MAT_GIAY = ("bong", "mo", "nham")
-DON_VI_GIA_VAT_TU = ("kg", "lit", "nghin_luot", "ban", "cai", "bo", "thung", "met", "m2", "cuon")
+
+# MẶT HÀNG GỐC nằm ở HAI bảng với hai dãy id riêng, nên mọi nơi trỏ tới nó (kho, NCC) phải mang
+# CẶP `(hang_loai, hang_id)` chứ không mang mỗi id. Khoá cặp thay vì hai cột `giay_id`/`vat_tu_id`
+# rời: tồn kho phải GỘP NHÓM theo mặt hàng (`GROUP BY hang_loai, hang_id`), mà hai cột nullable thì
+# mọi truy vấn gộp đều phải COALESCE và unique constraint phải tách làm hai.
+HANG_GIAY = "giay"
+HANG_VAT_TU = "vat_tu"
+HANG_LOAI = (HANG_GIAY, HANG_VAT_TU)
+# GỠ 2026-08-08: `DON_VI_GIA_GIAY` / `DON_VI_GIA_VAT_TU` — hai danh sách đơn vị CỨNG. Đơn vị giờ
+# lấy từ danh mục `don_vi_do` (nguồn duy nhất, dùng chung cho Kho · NCC · khoán · tính giá); thêm
+# đơn vị là việc khai ở màn Đơn vị & quy đổi, không phải sửa code.
 
 
 def _utcnow() -> datetime:
@@ -64,7 +73,11 @@ class GiayNguyen(Base):
     gsm: Mapped[int] = mapped_column(Integer, nullable=False)       # định lượng
     caliper_micron: Mapped[int | None] = mapped_column(Integer, nullable=True)  # độ dày (spine/creep; ≠ gsm)
     tho: Mapped[str | None] = mapped_column(String(12), nullable=True)          # canh_dai|canh_ngan
-    don_vi_gia: Mapped[str] = mapped_column(String(8), nullable=False, server_default="kg", default="kg")
+    # ĐƠN VỊ GỐC của mặt hàng — mã trong `don_vi_do`, KHÔNG còn là enum cứng ở frontend. Tồn kho
+    # cộng dồn theo đơn vị này; nhập bằng đơn vị nào cũng được rồi quy về đây (xem `quy_doi_service.
+    # don_vi_dung_duoc`). NULL = chưa chọn: không mặc định "kg" nữa vì đoán sai một lần là sai
+    # vĩnh viễn — màn danh mục hiện "Chưa chọn đơn vị" để người khai tự chọn.
+    don_vi_gia: Mapped[str | None] = mapped_column(String(24), nullable=True)
     don_gia: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
     gia_thi_truong: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)   # giá tham khảo thị trường
     kho_tinh_gia: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)  # khổ này dùng để tính giá?
@@ -117,7 +130,19 @@ class VatTuInAn(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
     ten: Mapped[str] = mapped_column(String(150), nullable=False)
-    don_vi_gia: Mapped[str] = mapped_column(String(16), nullable=False, server_default="cai", default="cai")
+    # ĐƠN VỊ GỐC — mã trong `don_vi_do`. NULL = chưa chọn (xem ghi chú ở `GiayNguyen.don_vi_gia`).
+    don_vi_gia: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    # QUY CÁCH ĐÓNG GÓI riêng của món: "1 <don_vi_dong_goi> = <he_so_dong_goi> <don_vi_gia>".
+    #
+    # Vì sao không khai vào bảng cặp chung `don_vi_quy_doi`: "1 thùng = 3 kg" đúng với keo nhưng
+    # sai với mực — hệ số này thuộc về MÓN, không thuộc về cặp đơn vị. Lúc chạy nó được nối vào đồ
+    # thị quy đổi như một cạnh cục bộ (`quy_doi_service.canh_quy_cach`), nên vẫn đi chung một
+    # đường tính với mọi quy đổi khác.
+    #
+    # Mỗi món CHỈ MỘT quy cách. Xưởng cần hai (vừa thùng vừa cuộn) thì nâng thành bảng con — chưa
+    # gặp nhu cầu nên chưa đẻ bảng.
+    don_vi_dong_goi: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    he_so_dong_goi: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
     don_gia: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
     cong_thuc_gia: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)

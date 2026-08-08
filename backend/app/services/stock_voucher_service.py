@@ -51,43 +51,27 @@ class StockVoucherError(Exception):
 
 
 class StockVoucherService:
-    def __init__(self, vouchers, requests, lots, materials, sequence, request_service,
-                 material_service=None) -> None:
+    def __init__(self, vouchers, requests, lots, sequence, request_service, hang) -> None:
         self.vouchers = vouchers
         self.requests = requests
         self.lots = lots
-        self.materials = materials
         self.sequence = sequence
         self.request_service = request_service
-        # Tạo mã cho HÀNG MỚI ngay khi lập/ghi sổ phiếu (không tạo eager ở FE). None → tính năng
-        # tạo-mới tắt (chỉ chấp nhận mã có sẵn) — router luôn truyền vào nên nhánh này chỉ là chốt an toàn.
-        self.material_service = material_service
+        # `VatLieuKhoService` — tra danh mục gốc + quy đổi đơn vị.
+        #
+        # GỠ 2026-08-08: `materials` + `material_service` + `_create_new_material()`. Phiếu từng tự
+        # đẻ mặt hàng mới (mã HH###) khi dòng đề nghị là hàng gõ tay. Nay siết: mọi thứ nhập kho
+        # phải có sẵn trong danh mục Giấy / Vật tư khác, nên cửa đẻ hàng đó đóng hẳn.
+        self.hang = hang
 
-    def _create_new_material(self, user, rl):
-        """Tạo sản phẩm mới (loại hang_khac, mã tự sinh HH###) từ khai báo TRÊN ĐỀ NGHỊ: tên
-        (`ten_tu_do`), ĐVT (`dvt`), QUY ĐỔI (`don_vi_phu`/`he_so_quy_doi`) — kho KHÔNG khai lại.
-        Tên trùng hàng đã có → dùng luôn mã cũ, khỏi chặn cứng lúc ghi sổ."""
-        from ..services.material_service import MaterialDuplicate
+    def _quy_doi(self, rl, qty: float) -> dict:
+        """Số trên phiếu (theo `dvt` của dòng đề nghị) → số theo ĐƠN VỊ GỐC để ghi vào lô."""
+        from .vat_lieu_kho_service import VatLieuKhoError
 
-        if self.material_service is None:
-            raise StockVoucherError("Chưa cấu hình tạo sản phẩm mới ở phiếu.")
-        name = (getattr(rl, "ten_tu_do", None) or "").strip()
-        unit = (rl.dvt or "").strip() or "cái"
-        dvp = (getattr(rl, "don_vi_phu", None) or "").strip() or None
-        hs = getattr(rl, "he_so_quy_doi", None)
-        hs_val = float(hs) if (dvp and hs and float(hs) > 0) else None
         try:
-            return self.material_service.create_material(
-                name=name, material_type="hang_khac", unit=unit, actor=user,
-                don_vi_phu=dvp, he_so_quy_doi=hs_val,
-            )
-        except MaterialDuplicate:
-            existing = self.materials.find_by_name(name)
-            if existing is not None:
-                return existing
-            raise StockVoucherError(
-                f"Tên vật tư '{name}' đã tồn tại — chọn mã có sẵn thay vì tạo mới."
-            )
+            return self.hang.quy_ve_goc(rl.hang_loai, rl.hang_id, rl.dvt, qty)
+        except VatLieuKhoError as e:
+            raise StockVoucherError(str(e)) from None
 
     # --- Lập phiếu ----------------------------------------------------------
 
@@ -115,9 +99,6 @@ class StockVoucherService:
         wanted: dict[int, float] = {}
         # Lý do CẤP/NHẬP THIẾU theo từng dòng đề nghị (kho phản hồi). Lấy từ dòng phiếu đầu có lý do.
         ly_do_by_rl: dict[int, str] = {}
-        # Dòng HÀNG MỚI chưa có mã: (chỉ số trong `prepared`, dòng đề nghị `rl`). TẠO SẢN PHẨM SAU
-        # khi mọi kiểm tra đã qua (repo.create commit ngay) → phiếu lỗi thì không rác danh mục.
-        to_create: list[tuple[int, object]] = []
 
         for ln in lines:
             rl = lines_by_id.get(ln.get("request_line_id"))
@@ -131,32 +112,26 @@ class StockVoucherService:
             if ld and rl.id not in ly_do_by_rl:
                 ly_do_by_rl[rl.id] = ld
 
-            # Hàng đã có mã (đề nghị đã có, hoặc kho CHỌN mã có sẵn). None = hàng mới chờ tạo.
-            mat_id = rl.material_id if rl.material_id is not None else ln.get("material_id")
+            # Mặt hàng KẾ THỪA từ dòng đề nghị, kho không đổi được: đề nghị đã duyệt là khoá, đổi
+            # mặt hàng ở phiếu tức là cấp thứ khác với thứ người ta duyệt.
+            hang = (rl.hang_loai, rl.hang_id)
+            # Chốt hệ số quy đổi NGAY LÚC NÀY (xem `StockVoucherLine.sl_goc`).
+            qd = self._quy_doi(rl, qty)
 
             item = {
                 "request_line_id": rl.id,
-                "material_id": mat_id,
+                "hang_loai": hang[0],
+                "hang_id": hang[1],
                 "so_luong": qty,
+                "sl_goc": qd["sl_goc"],
                 "ghi_chu": ln.get("ghi_chu"),
             }
             if loai == VOUCHER_NHAP:
                 # Giá của lô sắp tạo = ĐƠN GIÁ KHAI Ở ĐỀ NGHỊ (người đề nghị nhập). Kho KHÔNG sửa
                 # giá — bỏ qua `don_gia` client gửi. Lô chưa tồn tại nên `lot_id` trống tới ghi sổ.
                 item["don_gia"] = int(rl.don_gia or 0)
-                if mat_id is None:
-                    # Hàng mới: TÊN + ĐVT + QUY ĐỔI lấy từ ĐỀ NGHỊ (rl). Tạo mã ở lượt sau (sau validate).
-                    if not (rl.ten_tu_do or "").strip():
-                        raise StockVoucherError(
-                            "Hàng mới trên đề nghị chưa có tên vật tư — không tạo được mã."
-                        )
-                    to_create.append((len(prepared), rl))
             else:
-                if mat_id is None:
-                    raise StockVoucherError(
-                        f"Hàng \"{rl.ten_tu_do or ''}\" chưa có mã — không xuất được hàng chưa nhập."
-                    )
-                lot = self._require_lot(ln.get("lot_id"), mat_id, kho_id)
+                lot = self._require_lot(ln.get("lot_id"), hang, kho_id)
                 item["lot_id"] = lot.id
             prepared.append(item)
 
@@ -178,12 +153,6 @@ class StockVoucherService:
             else:
                 rl.ly_do_thieu = None  # cấp đủ đợt này → xoá lý do thiếu cũ (nếu có)
 
-        # Validate xong → giờ mới TẠO sản phẩm mới + set mã về dòng đề nghị (đề nghị + lô trỏ mã thật).
-        for idx, rl in to_create:
-            mat = self._create_new_material(user, rl)
-            prepared[idx]["material_id"] = mat.id
-            rl.material_id = mat.id
-
         doc_type = (
             SEQ_DOC_TYPE_STOCK_VOUCHER_IN if loai == VOUCHER_NHAP
             else SEQ_DOC_TYPE_STOCK_VOUCHER_OUT
@@ -203,7 +172,7 @@ class StockVoucherService:
         self.request_service.mark_in_progress(req)
         return voucher
 
-    def _require_lot(self, lot_id, material_id: int, kho_id: int):
+    def _require_lot(self, lot_id, hang: tuple[str, int], kho_id: int):
         if not lot_id:
             raise StockVoucherError(
                 "Phiếu xuất phải chọn lô — giá vốn tính đích danh theo lô."
@@ -211,8 +180,8 @@ class StockVoucherService:
         lot = self.lots.get(lot_id)
         if lot is None:
             raise StockVoucherError("Không tìm thấy lô.")
-        if lot.material_id != material_id:
-            raise StockVoucherError("Lô đã chọn không thuộc mã hàng của dòng đề nghị.")
+        if (lot.hang_loai, lot.hang_id) != tuple(hang):
+            raise StockVoucherError("Lô đã chọn không thuộc mặt hàng của dòng đề nghị.")
         if lot.kho_id != kho_id:
             raise StockVoucherError("Lô đã chọn không nằm trong kho xuất.")
         return lot
@@ -251,11 +220,13 @@ class StockVoucherService:
 
         if v.loai == VOUCHER_XUAT:
             # Gộp theo lô: 2 dòng cùng ăn một lô thì phải cộng lại mới biết có đủ không.
+            # Cộng theo `sl_goc`: lô lưu ở ĐƠN VỊ GỐC, còn `so_luong` ở đơn vị người ta khai.
+            # So hai thang khác nhau là cho xuất âm mà không hay (xuất "10 ram" khỏi lô 100 kg).
             per_lot: dict[int, float] = {}
             for ln in v.lines:
                 if not ln.lot_id:
                     raise StockVoucherError("Dòng xuất thiếu lô.")
-                per_lot[ln.lot_id] = per_lot.get(ln.lot_id, 0.0) + float(ln.so_luong)
+                per_lot[ln.lot_id] = per_lot.get(ln.lot_id, 0.0) + float(ln.sl_goc)
             for lot_id, qty in per_lot.items():
                 lot = self.lots.get(lot_id)
                 if lot is None:
@@ -269,22 +240,26 @@ class StockVoucherService:
         # --- Pha 2: ghi ---
         if v.loai == VOUCHER_NHAP:
             for ln in v.lines:
-                material = self.materials.get_by_id(ln.material_id)
-                code = getattr(material, "code", None) or str(ln.material_id)
+                mh = self.hang.get(ln.hang_loai, ln.hang_id)
+                sl_goc = float(ln.sl_goc)
+                # Đơn giá khai theo ĐƠN VỊ NGƯỜI NHẬP (đ/ram), lô lưu theo đơn vị gốc (đ/kg) —
+                # quy theo đúng tỉ lệ của chính dòng này: 1.020.000 đ/ram ÷ 41,93 kg/ram ≈ 24.325 đ/kg.
+                gia_goc = round(float(ln.don_gia or 0) * float(ln.so_luong) / sl_goc) if sl_goc else 0
                 lot = self.lots.create(
-                    ma_lo=self.lots.next_ma_lo(code, v.ngay),
-                    material_id=ln.material_id,
+                    ma_lo=self.lots.next_ma_lo(mh.ma, v.ngay),
+                    hang_loai=ln.hang_loai,
+                    hang_id=ln.hang_id,
                     voucher_id=v.id,
                     kho_id=v.kho_id,
                     ngay_nhap=v.ngay,
-                    don_gia_nhap=int(ln.don_gia or 0),
-                    sl_ban_dau=float(ln.so_luong),
-                    sl_con_lai=float(ln.so_luong),
+                    don_gia_nhap=gia_goc,
+                    sl_ban_dau=sl_goc,
+                    sl_con_lai=sl_goc,
                 )
                 ln.lot_id = lot.id
         else:
             for ln in v.lines:
-                self.lots.consume(self.lots.get(ln.lot_id), float(ln.so_luong))
+                self.lots.consume(self.lots.get(ln.lot_id), float(ln.sl_goc))
 
         for rl_id, qty in wanted.items():
             rl = lines_by_id[rl_id]
@@ -324,9 +299,9 @@ class StockVoucherService:
     # --- Gợi ý phân bổ lô ----------------------------------------------------
 
     def suggest_allocation(
-        self, material_id: int, kho_id: int, qty: float
+        self, hang: tuple[str, int], kho_id: int, qty: float
     ) -> tuple[list[dict], float]:
-        """Gợi ý lấy `qty` từ những lô nào (FEFO → FIFO): `(dòng phân bổ, số còn thiếu)`.
+        """Gợi ý lấy `qty` (ĐƠN VỊ GỐC) từ những lô nào (FEFO → FIFO): `(dòng phân bổ, còn thiếu)`.
 
         Chỉ là GỢI Ý: thủ kho sửa được, vì BRD §3.19 chốt giá xuất đích danh — người cầm
         hàng mới biết lô nào đang ở đầu kệ. Không đủ hàng thì trả phần lấy được kèm
@@ -334,7 +309,7 @@ class StockVoucherService:
         """
         remaining = float(qty)
         out: list[dict] = []
-        for lot in self.lots.issuable_lots(material_id, kho_id):
+        for lot in self.lots.issuable_lots(hang, kho_id):
             if remaining <= 0:
                 break
             take = min(remaining, float(lot.sl_con_lai))
@@ -361,11 +336,14 @@ class StockVoucherService:
         total = 0
         for ln in voucher.lines:
             if voucher.loai == VOUCHER_NHAP:
-                unit = int(ln.don_gia or 0)
+                # NHẬP: đơn giá và số lượng CÙNG ở đơn vị người khai — nhân thẳng, khỏi quy đổi.
+                total += int(round(int(ln.don_gia or 0) * float(ln.so_luong)))
             else:
+                # XUẤT: giá của lô theo ĐƠN VỊ GỐC nên phải nhân với `sl_goc`, không phải
+                # `so_luong` — nhân nhầm là giá vốn lệch đúng bằng hệ số quy đổi.
                 lot = self.lots.get(ln.lot_id) if ln.lot_id else None
                 unit = int(lot.don_gia_nhap or 0) if lot else 0
-            total += int(round(unit * float(ln.so_luong)))
+                total += int(round(unit * float(ln.sl_goc)))
         return total
 
     # --- Đính kèm hóa đơn/chứng từ gốc (mirror accounting) ------------------

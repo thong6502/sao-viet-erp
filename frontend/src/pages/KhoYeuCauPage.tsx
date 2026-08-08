@@ -12,9 +12,9 @@ import {
   ApiError,
   api,
   assetUrl,
+  type HangLoai,
   type StockAllocationLine,
   type StockLot,
-  type StockMaterialOption,
   type StockRequest,
   type StockRequestKind,
   type StockRequestLine,
@@ -338,7 +338,7 @@ export function KhoYeuCauPage({
                       </td>
                       <td>
                         <div className="rc__name">
-                          {r.lines[0]?.material_name ?? r.lines[0]?.ten_tu_do ?? "—"}
+                          {r.lines[0]?.hang_ten ?? "—"}
                         </div>
                         {r.lines.length > 1 && (
                           <div className="rc__muted">+{r.lines.length - 1} mã</div>
@@ -588,12 +588,8 @@ export function InboxRequestDrawer({
                       {req.lines.map((l) => (
                         <tr key={l.id}>
                           <td>
-                            <div className="kho-lines__name">
-                              {l.material_name ?? l.ten_tu_do ?? "—"}
-                            </div>
-                            <div className="kho-lines__code">
-                              {l.material_code ?? (l.ten_tu_do ? "Hàng mới" : "")}
-                            </div>
+                            <div className="kho-lines__name">{l.hang_ten ?? "—"}</div>
+                            <div className="kho-lines__code">{l.hang_ma ?? ""}</div>
                           </td>
                           <td className="kho-lines__code">{l.dvt}</td>
                           <td className="kho-num">{fmtQty(l.sl_de_nghi)}</td>
@@ -658,14 +654,12 @@ interface LotPick {
 
 interface AllocBlock {
   line: StockRequestLine;
-  // Mã đã gắn cho dòng. Hàng đã có mã = line.material_id; hàng mới CHỌN mã có sẵn = id đó.
-  // null = hàng mới CHƯA có mã → gửi `newProd` (backend tạo khi lưu/ghi sổ, không tạo eager).
-  matId: number | null;
+  // Mặt hàng KẾ THỪA từ dòng đề nghị — kho không đổi được, và không còn khối "hàng mới"
+  // (siết 2026-08-08: mọi thứ nhập kho phải có sẵn trong danh mục gốc).
   matLabel: string;
   matCode: string | null;
-  // Tên/ĐVT hàng mới (khi matId null) — hiển thị + tương thích. Quy đổi khai ở ĐỀ NGHỊ.
-  newName: string;
-  newUnit: string;
+  /** Hệ số về đơn vị gốc — để đổi số kho gõ (theo `line.dvt`) sang số tra lô/gợi ý phân bổ. */
+  heSoVeGoc: number;
   cap: number;
   lots: LotPick[];
   thieu: number;
@@ -724,7 +718,7 @@ function VoucherCreateDrawer({
   const [nguoiGiaoNhan, setNguoiGiaoNhan] = useState("");
   const [ghiChu, setGhiChu] = useState("");
   const [blocks, setBlocks] = useState<AllocBlock[]>([]);
-  const [catalog, setCatalog] = useState<Record<number, StockLot[]>>({});
+  const [catalog, setCatalog] = useState<Record<string, StockLot[]>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -739,12 +733,10 @@ function VoucherCreateDrawer({
     setLoading(true);
     const base: AllocBlock[] = request.lines.map((l) => ({
       line: l,
-      matId: l.material_id,
-      matLabel: l.material_name ?? l.ten_tu_do ?? "—",
-      matCode: l.material_code,
-      // Hàng mới: điền sẵn form tạo (tên = tên đề nghị, ĐVT = ĐVT đề nghị) — backend tạo khi lưu.
-      newName: l.material_id == null ? l.ten_tu_do ?? "" : "",
-      newUnit: l.material_id == null ? l.dvt ?? "" : "",
+      matLabel: l.hang_ten ?? "—",
+      matCode: l.hang_ma,
+      // Server đã quy sẵn cho SL đề nghị — suy ngược ra hệ số, khỏi gọi thêm API.
+      heSoVeGoc: l.sl_quy_doi && l.sl_de_nghi ? l.sl_quy_doi / l.sl_de_nghi : 1,
       cap: l.sl_con_lai,
       lots: [],
       thieu: 0,
@@ -762,17 +754,24 @@ function VoucherCreateDrawer({
       setLoading(false);
       return;
     }
-    // XUẤT: chỉ tra lô cho hàng ĐÃ CÓ MÃ. Hàng mới chưa gắn mã thì không có lô để xuất.
-    const targets = request.lines.filter((l) => l.sl_con_lai > 0 && l.material_id != null);
+    // XUẤT: tra lô theo ĐƠN VỊ GỐC — lô lưu theo đơn vị đó, gửi số theo đơn vị đề nghị là lệch
+    // đúng bằng hệ số quy đổi (xin 10 ram mà đi tìm 10 kg).
+    const targets = request.lines.filter((l) => l.sl_con_lai > 0);
     Promise.all(
       targets.map(async (l) => {
-        const mid = l.material_id as number;
+        const hs = l.sl_quy_doi && l.sl_de_nghi ? l.sl_quy_doi / l.sl_de_nghi : 1;
+        const mid = `${l.hang_loai}:${l.hang_id}`;
         const [lots, alloc] = await Promise.all([
           api.kho.phieu
-            .danhSachLo(token, { material_id: mid, kho_id: khoId, con_hang: true })
+            .danhSachLo(token, {
+              hang_loai: l.hang_loai, hang_id: l.hang_id, kho_id: khoId, con_hang: true,
+            })
             .catch(() => [] as StockLot[]),
           api.kho.phieu
-            .goiYLo(token, { material_id: mid, kho_id: khoId, so_luong: l.sl_con_lai })
+            .goiYLo(token, {
+              hang_loai: l.hang_loai, hang_id: l.hang_id, kho_id: khoId,
+              so_luong: l.sl_con_lai * hs,
+            })
             .catch(() => null),
         ]);
         return { l, mid, lots, alloc };
@@ -780,7 +779,7 @@ function VoucherCreateDrawer({
     )
       .then((results) => {
         if (cancelled) return;
-        const cat: Record<number, StockLot[]> = {};
+        const cat: Record<string, StockLot[]> = {};
         for (const r of results) {
           cat[r.mid] = r.lots;
           const b = base.find((x) => x.line.id === r.l.id);
@@ -839,8 +838,8 @@ function VoucherCreateDrawer({
 
   function addLot(lineId: number, lotId: number) {
     const b = blocks.find((x) => x.line.id === lineId);
-    if (!b || b.matId == null) return;
-    const lot = (catalog[b.matId] ?? []).find((x) => x.id === lotId);
+    if (!b) return;
+    const lot = (catalog[`${b.line.hang_loai}:${b.line.hang_id}`] ?? []).find((x) => x.id === lotId);
     if (!lot) return;
     patch(lineId, (cur) => ({
       ...cur,
@@ -861,39 +860,8 @@ function VoucherCreateDrawer({
     }));
   }
 
-  // HÀNG MỚI ở phiếu: kho CHỌN mã có sẵn (nếu trùng tên) → gắn ngay. KHÔNG tạo mã eager nữa;
-  // hàng thật sự mới thì chỉ điền form, backend tạo mã khi LƯU/GHI SỔ.
-  function resolvePick(lineId: number, m: StockMaterialOption) {
-    // Không cho hai dòng cùng trỏ một mã đã có (backend cũng chặn); nhắc ngay ở FE.
-    if (blocks.some((b) => b.line.id !== lineId && b.matId === m.id)) {
-      setError("Mã này đã gắn cho dòng khác trên phiếu.");
-      return;
-    }
-    setError(null);
-    patch(lineId, (cur) => ({
-      ...cur,
-      matId: m.id,
-      matLabel: m.name ?? cur.matLabel,
-      matCode: m.code ?? null,
-      // Chọn hàng có sẵn → kéo quy đổi của nó vào để nút đổi đơn vị nhập hiện ngay.
-      line: {
-        ...cur.line,
-        don_vi_phu: m.don_vi_phu ?? null,
-        he_so_quy_doi: m.he_so_quy_doi ?? null,
-      },
-    }));
-  }
-  // Quay lại "tạo mới" (bỏ mã đã chọn) — trả dòng về trạng thái hàng mới.
-  function resetToNew(lineId: number) {
-    setError(null);
-    patch(lineId, (cur) => ({
-      ...cur,
-      matId: null,
-      matCode: null,
-      matLabel: cur.newName || cur.line.ten_tu_do || "—",
-      line: { ...cur.line, don_vi_phu: null, he_so_quy_doi: null },
-    }));
-  }
+  // GỠ 2026-08-08: `resolvePick` + `resetToNew` — kho gắn/tạo mã cho hàng gõ tay. Mặt hàng nay
+  // kế thừa từ dòng đề nghị và đã có sẵn trong danh mục gốc, không còn gì để gắn.
 
   const payload = useMemo<StockVoucherLineInput[]>(() => {
     const out: StockVoucherLineInput[] = [];
@@ -901,45 +869,26 @@ function VoucherCreateDrawer({
       if (b.line.sl_con_lai <= 0) continue;
       const ghi = b.ghiChu.trim() || null;
       const ly = b.lyDo.trim() || null; // lý do cấp thiếu (backend bắt buộc khi SL < còn phải cấp)
-      const isNew = b.matId == null; // hàng mới chưa có mã → gửi new_* để backend tạo khi lưu
       if (isNhap) {
         if (b.cap <= 0) continue;
-        if (isNew) {
-          // Hàng mới: TÊN + ĐVT + QUY ĐỔI đã khai Ở ĐỀ NGHỊ → backend tạo mã từ dòng đề nghị.
-          // (Gửi new_name/new_unit để tương thích; backend ưu tiên dữ liệu đề nghị.) SL theo ĐVT tồn.
-          if (!b.newName.trim()) continue; // submit đã chặn; đây là lưới an toàn
-          out.push({
-            request_line_id: b.line.id,
-            new_name: b.newName.trim(),
-            new_unit: b.newUnit.trim() || b.line.dvt,
-            so_luong: b.cap,
-            don_gia: canViewCost ? Math.round(Number(b.donGia) || 0) : undefined,
-            ly_do: ly,
-            ghi_chu: ghi,
-          });
-        } else {
-          // Nhập theo đơn vị PHỤ → quy về đơn vị TỒN để lưu lô: SL ×hệ số, đơn giá ÷hệ số.
-          const hs = b.line.he_so_quy_doi ?? 0;
-          const factor = b.unit === "phu" && hs > 0 ? hs : 1;
-          out.push({
-            request_line_id: b.line.id,
-            material_id: b.matId,
-            so_luong: b.cap * factor,
-            don_gia: canViewCost ? Math.round((Number(b.donGia) || 0) / factor) : undefined,
-            ly_do: ly,
-            ghi_chu: ghi,
-          });
-        }
+        // SL + đơn giá gửi theo ĐƠN VỊ CỦA DÒNG ĐỀ NGHỊ; server tự quy về đơn vị gốc và chốt hệ
+        // số vào `sl_goc`. FE KHÔNG tự nhân hệ số nữa — hai nơi cùng quy đổi là hai nơi lệch nhau.
+        out.push({
+          request_line_id: b.line.id,
+          so_luong: b.cap,
+          don_gia: canViewCost ? Math.round(Number(b.donGia) || 0) : undefined,
+          ly_do: ly,
+          ghi_chu: ghi,
+        });
       } else {
-        // XUẤT hàng mới (chưa có mã) không xuất được — bỏ qua. Còn lại tách theo lô.
-        if (isNew) continue;
+        // XUẤT: tách theo lô. `lot.so_luong` ở ĐƠN VỊ GỐC (lô lưu theo đơn vị đó) → đổi ngược về
+        // đơn vị dòng đề nghị trước khi gửi, vì server so `so_luong` với `sl_duyet`.
         let first = true;
         for (const lot of b.lots) {
           if (lot.so_luong > 0) {
             out.push({
               request_line_id: b.line.id,
-              material_id: b.matId,
-              so_luong: lot.so_luong,
+              so_luong: b.heSoVeGoc > 0 ? lot.so_luong / b.heSoVeGoc : lot.so_luong,
               lot_id: lot.lot_id,
               ly_do: first ? ly : null,
               ghi_chu: first ? ghi : null,
@@ -964,21 +913,6 @@ function VoucherCreateDrawer({
   }, [blocks, isNhap, canViewCost]);
 
   async function submit(post: boolean) {
-    // Hàng mới đang cấp (NHẬP, SL>0) mà CHƯA nhập tên → chặn (backend sẽ tạo mã khi lưu, cần tên).
-    const missingName = blocks.find(
-      (b) =>
-        b.matId == null &&
-        b.line.sl_con_lai > 0 &&
-        isNhap &&
-        b.cap > 0 &&
-        !b.newName.trim(),
-    );
-    if (missingName) {
-      setError(
-        `Hàng mới "${missingName.line.ten_tu_do ?? ""}" chưa nhập tên vật tư — điền tên (hoặc chọn mã có sẵn).`,
-      );
-      return;
-    }
     if (!payload.length) {
       setError("Chưa có dòng nào để cấp. Nhập số lượng hoặc chọn lô trước khi lưu.");
       return;
@@ -986,9 +920,10 @@ function VoucherCreateDrawer({
     // Cấp/nhập ÍT HƠN còn phải cấp → bắt buộc LÝ DO (kho phản hồi). Chặn ngay ở FE cho rõ.
     const shortNoReason = blocks.find((b) => {
       if (b.line.sl_con_lai <= 0) return false;
+      // Cả hai vế quy về ĐƠN VỊ DÒNG ĐỀ NGHỊ để so với `sl_con_lai` — lô đếm theo đơn vị gốc.
       const capped = isNhap
-        ? b.cap * (b.unit === "phu" && (b.line.he_so_quy_doi ?? 0) > 0 ? b.line.he_so_quy_doi! : 1)
-        : b.lots.reduce((s, x) => s + x.so_luong, 0);
+        ? b.cap
+        : b.lots.reduce((s, x) => s + x.so_luong, 0) / (b.heSoVeGoc || 1);
       return capped > 0 && capped < b.line.sl_con_lai - 1e-9 && !b.lyDo.trim();
     });
     if (shortNoReason) {
@@ -1143,15 +1078,10 @@ function VoucherCreateDrawer({
                     block={b}
                     isNhap={isNhap}
                     canViewCost={canViewCost}
-                    catalog={catalog[b.matId ?? -1] ?? []}
-                    onResolvePick={(m) => resolvePick(b.line.id, m)}
-                    onResetToNew={() => resetToNew(b.line.id)}
-                    onNewName={(v) => patch(b.line.id, (cur) => ({ ...cur, newName: v }))}
-                    onNewUnit={(v) => patch(b.line.id, (cur) => ({ ...cur, newUnit: v }))}
+                    catalog={catalog[`${b.line.hang_loai}:${b.line.hang_id}`] ?? []}
                     onCap={(v) => patch(b.line.id, (cur) => ({ ...cur, touched: true, cap: v }))}
                     onLyDo={(v) => patch(b.line.id, (cur) => ({ ...cur, lyDo: v }))}
                     onGhiChu={(v) => patch(b.line.id, (cur) => ({ ...cur, ghiChu: v }))}
-                    onUnit={(u) => patch(b.line.id, (cur) => ({ ...cur, unit: u }))}
                     onLotQty={(lotId, v) => setLotQty(b.line.id, lotId, v)}
                     onAddLot={(lotId) => addLot(b.line.id, lotId)}
                     onRemoveLot={(lotId) =>
@@ -1239,14 +1169,9 @@ function AllocCard({
   isNhap,
   canViewCost,
   catalog,
-  onResolvePick,
-  onResetToNew,
-  onNewName,
-  onNewUnit,
   onCap,
   onLyDo,
   onGhiChu,
-  onUnit,
   onLotQty,
   onAddLot,
   onRemoveLot,
@@ -1257,33 +1182,26 @@ function AllocCard({
   isNhap: boolean;
   canViewCost: boolean;
   catalog: StockLot[];
-  onResolvePick: (m: StockMaterialOption) => void;
-  onResetToNew: () => void;
-  onNewName: (v: string) => void;
-  onNewUnit: (v: string) => void;
   onCap: (v: number) => void;
   onLyDo: (v: string) => void;
   onGhiChu: (v: string) => void;
-  onUnit: (u: "ton" | "phu") => void;
   onLotQty: (lotId: number, v: number) => void;
   onAddLot: (lotId: number) => void;
   onRemoveLot: (lotId: number) => void;
 }) {
   const l = block.line;
-  // Hàng mới (đề nghị gõ tên tự do) chưa có mã. KHÔNG tạo eager: điền form → backend tạo mã khi
-  // LƯU/GHI SỔ. Hoặc chuyển sang tìm & chọn mã có sẵn nếu hàng thực ra đã có trong kho.
-  const needsCode = block.matId == null;
-  // Phiếu NHẬP + hàng ĐÃ có mã (chọn/tạo xong): hiện tồn hiện tại + giá nhập gần nhất trong kho
-  // này để biết đang thêm vào đâu. Hàng mới tạo → tồn 0. Chỉ chạy khi đã có mã.
+  // Phiếu NHẬP: hiện tồn hiện tại + giá nhập gần nhất trong kho này để biết đang thêm vào đâu.
   const [tonInfo, setTonInfo] = useState<{ ton: number; gia: number | null } | null>(null);
   useEffect(() => {
-    if (!isNhap || block.matId == null) {
+    if (!isNhap) {
       setTonInfo(null);
       return;
     }
     let cancelled = false;
     api.kho.phieu
-      .danhSachLo(token, { material_id: block.matId, kho_id: khoId, con_hang: true })
+      .danhSachLo(token, {
+        hang_loai: l.hang_loai, hang_id: l.hang_id, kho_id: khoId, con_hang: true,
+      })
       .then((lots) => {
         if (cancelled) return;
         const ton = lots.reduce((s, x) => s + x.sl_con_lai, 0);
@@ -1294,15 +1212,14 @@ function AllocCard({
     return () => {
       cancelled = true;
     };
-  }, [isNhap, block.matId, khoId, token]);
+  }, [isNhap, l.hang_loai, l.hang_id, khoId, token]);
 
   const chosen = block.lots.reduce((s, x) => s + x.so_luong, 0);
   const target = block.cap;
   const matched = Math.abs(chosen - target) < 1e-9;
-  // Cấp/nhập ÍT HƠN còn phải cấp → bắt buộc LÝ DO (kho phản hồi). SL quy về ĐVT tồn để so.
-  const qdFactor =
-    isNhap && block.unit === "phu" && (l.he_so_quy_doi ?? 0) > 0 ? l.he_so_quy_doi! : 1;
-  const cappedTon = isNhap ? block.cap * qdFactor : chosen;
+  // Cấp/nhập ÍT HƠN còn phải cấp → bắt buộc LÝ DO (kho phản hồi). Quy cả hai vế về ĐƠN VỊ DÒNG
+  // ĐỀ NGHỊ (lô đếm theo đơn vị gốc) rồi mới so với `sl_con_lai`.
+  const cappedTon = isNhap ? block.cap : chosen / (block.heSoVeGoc || 1);
   const isShort = l.sl_con_lai > 0 && cappedTon > 0 && cappedTon < l.sl_con_lai - 1e-9;
   const settled = l.sl_con_lai <= 0;
   // Lô đã dùng trong khối thì loại khỏi dropdown — chọn trùng chỉ tạo hai dòng cùng một lô.
@@ -1330,22 +1247,7 @@ function AllocCard({
       <div className="kho-alloc__head">
         <div className="kho-alloc__title">
           {block.matLabel}
-          {block.matCode ? (
-            <small>{block.matCode}</small>
-          ) : needsCode ? (
-            <span className="badge-sem badge-sem--amber kho-alloc__newbadge">Hàng mới</span>
-          ) : null}
-          {/* Dòng vốn là hàng mới nhưng đã trót CHỌN mã có sẵn → cho đổi lại (tạo mới / chọn khác). */}
-          {l.material_id == null && block.matId != null && (
-            <button
-              type="button"
-              className="rc__link-btn"
-              style={{ marginLeft: 8 }}
-              onClick={onResetToNew}
-            >
-              đổi
-            </button>
-          )}
+          {block.matCode ? <small>{block.matCode}</small> : null}
         </div>
         {settled ? (
           <span className="badge-sem badge-sem--moss">Đã cấp đủ</span>
@@ -1358,50 +1260,8 @@ function AllocCard({
         )}
       </div>
 
-      {/* HÀNG MỚI — 1 mạch phẳng: ô "Vật tư" vừa tìm/chọn hàng có sẵn, vừa gõ tên hàng mới.
-          Quy đổi ẩn sau nút. KHÔNG có nút "Tạo" — sản phẩm tạo vào kho khi LƯU/GHI SỔ. */}
-      {needsCode && (
-        <div className="kho-alloc__new">
-          <div className="kho-alloc__newrow">
-            <div className="rc-field kho-alloc__vt">
-              <label className="rc-field__label">Vật tư <em>*</em></label>
-              <MaterialCombobox
-                token={token}
-                materialName={block.newName}
-                onText={onNewName}
-                onPick={onResolvePick}
-                onCreate={onNewName}
-                hideCreate
-                placeholder="Gõ tên — chọn hàng có sẵn nếu trùng"
-              />
-            </div>
-            <div className="rc-field kho-alloc__dvt">
-              <label className="rc-field__label" htmlFor={`nu-${l.id}`}>ĐVT <em>*</em></label>
-              <input
-                id={`nu-${l.id}`}
-                className="rc-input"
-                value={block.newUnit}
-                onChange={(e) => onNewUnit(e.target.value)}
-                placeholder="cái…"
-              />
-            </div>
-          </div>
-
-          {/* Quy đổi khai Ở ĐỀ NGHỊ (kho không khai lại). Có quy đổi → nhắc để đối chiếu. */}
-          {l.don_vi_phu && l.he_so_quy_doi ? (
-            <p className="kho-hint">
-              Quy đổi (theo đề nghị): 1 {l.don_vi_phu} = {fmtQty(l.he_so_quy_doi)}{" "}
-              {block.newUnit.trim() || "ĐVT tồn"}.
-            </p>
-          ) : null}
-
-          <p className="kho-hint">Chưa có mã → tạo vào kho khi Lưu/Ghi sổ (mã HH###).</p>
-        </div>
-      )}
-
-      {/* NHẬP: luôn cho nhập SL + đơn giá (kể cả hàng mới chưa có mã). XUẤT: chỉ khi đã có mã
-          (phải chọn lô). Hàng mới NHẬP: material + lô tạo lúc lưu/ghi sổ. */}
-      {!settled && (isNhap || !needsCode) && (
+      {/* Mặt hàng luôn có sẵn trong danh mục (siết) nên không còn nhánh "chưa có mã". */}
+      {!settled && (
         <>
           {isNhap && tonInfo && (
             <p className="kho-hint">
@@ -1430,25 +1290,9 @@ function AllocCard({
               // thì chọn ít lô hơn; phần còn lại chờ đợt sau hoặc tạo đề nghị mới.
               <b className="kho-alloc__capfixed">{fmtQty(l.sl_con_lai)}</b>
             )}
-            <span className="kho-alloc__unit">
-              {isNhap && block.unit === "phu" ? l.don_vi_phu : l.dvt}
-            </span>
-            {/* NHẬP + hàng có quy đổi (khai Ở ĐỀ NGHỊ) → kho chọn nhập theo tồn / phụ. Kho KHÔNG
-                khai quy đổi ở phiếu nữa — chưa có thì chỉ nhập theo ĐVT tồn. */}
-            {isNhap && l.don_vi_phu && l.he_so_quy_doi ? (
-              <div className="kho-alloc__uswitch">
-                {(["ton", "phu"] as const).map((u) => (
-                  <button
-                    key={u}
-                    type="button"
-                    className={`seg${block.unit === u ? " is-active" : ""}`}
-                    onClick={() => onUnit(u)}
-                  >
-                    {u === "ton" ? l.dvt : l.don_vi_phu}
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            {/* MỘT đơn vị duy nhất: đơn vị người đề nghị đã chọn. Nút gạt "tồn / phụ" cũ đã bỏ —
+                kho gõ theo đúng đơn vị trên đề nghị, server lo quy về đơn vị gốc. */}
+            <span className="kho-alloc__unit">{l.dvt}</span>
             {/* Đơn giá LẤY TỪ ĐỀ NGHỊ (người đề nghị khai) — kho CHỈ ĐỌC, không sửa. */}
             {isNhap && (
               <>
@@ -1460,10 +1304,11 @@ function AllocCard({
             )}
             <div className="kho-alloc__spacer" />
           </div>
-          {isNhap && block.unit === "phu" && l.he_so_quy_doi ? (
+          {/* Con số THẬT SỰ vào tồn — nhập "10 ram" mà lô ghi 419,25 kg thì phải nói ra ngay đây. */}
+          {isNhap && block.heSoVeGoc !== 1 && block.cap > 0 && l.don_vi_goc ? (
             <p className="kho-hint">
-              = {fmtQty(block.cap * l.he_so_quy_doi)} {l.dvt} (lưu tồn theo {l.dvt})
-              {l.don_vi_phu ? ` · 1 ${l.don_vi_phu} = ${fmtQty(l.he_so_quy_doi)} ${l.dvt}` : ""}
+              = {fmtQty(block.cap * block.heSoVeGoc)} {l.don_vi_goc} (lô lưu theo {l.don_vi_goc})
+              {l.quy_doi_dien_giai ? ` · ${l.quy_doi_dien_giai}` : ""}
             </p>
           ) : null}
           {/* Cấp/nhập ÍT HƠN còn phải cấp → BẮT BUỘC nhập lý do; hiện ở "Kho phản hồi" của đề nghị. */}
@@ -1699,8 +1544,8 @@ export function VoucherDrawer({
       tongTien: v.gia_von,
       cancelled: v.trang_thai === "cancelled",
       lines: v.lines.map((l) => ({
-        materialCode: l.material_code,
-        materialName: l.material_name,
+        materialCode: l.hang_ma,
+        materialName: l.hang_ten,
         maLo: l.ma_lo,
         dvt: l.dvt,
         soLuongChungTu: req?.lines.find((x) => x.id === l.request_line_id)?.sl_duyet ?? null,
@@ -1819,8 +1664,8 @@ export function VoucherDrawer({
                         {v.lines.map((l) => (
                           <tr key={l.id}>
                             <td>
-                              <div className="kho-lines__name">{l.material_name ?? "—"}</div>
-                              <div className="kho-lines__code">{l.material_code ?? ""}</div>
+                              <div className="kho-lines__name">{l.hang_ten ?? "—"}</div>
+                              <div className="kho-lines__code">{l.hang_ma ?? ""}</div>
                             </td>
                             <td className="kho-lines__code">{l.ma_lo ?? "—"}</td>
                             <td className="kho-lines__code">{l.dvt ?? "—"}</td>
@@ -2007,9 +1852,8 @@ export function ThresholdDrawer({
   onClose: () => void;
 }) {
   const [khoId, setKhoId] = useState<number | null>(initialKhoId);
-  const [materialId, setMaterialId] = useState<number | null>(null);
-  const [matQuery, setMatQuery] = useState("");
-  const [matOpts, setMatOpts] = useState<StockMaterialOption[]>([]);
+  // Mặt hàng gốc đang khai ngưỡng. Giữ cả `ten` để ô chọn hiện lại tên sau khi chọn.
+  const [hang, setHang] = useState<{ loai: HangLoai; id: number; ten: string } | null>(null);
   const [nguongTon, setNguongTon] = useState("");
   const [nguongToiDa, setNguongToiDa] = useState("");
   const [canhBao, setCanhBao] = useState(true);
@@ -2024,40 +1868,24 @@ export function ThresholdDrawer({
       .list(token)
       .then((ths) => {
         const m: Record<string, StockThreshold> = {};
-        for (const t of ths) m[`${t.kho_id}:${t.material_id}`] = t;
+        for (const t of ths) m[`${t.kho_id}:${t.hang_loai}:${t.hang_id}`] = t;
         setThByKey(m);
       })
       .catch(() => {});
   }, [token]);
 
-  // Chọn vật tư (+ kho) → nạp ngưỡng đã khai của vật tư đó; chưa khai thì để trống (khai mới).
+  // Chọn mặt hàng (+ kho) → nạp ngưỡng đã khai của món đó; chưa khai thì để trống (khai mới).
   useEffect(() => {
-    if (materialId == null || khoId == null) return;
-    const t = thByKey[`${khoId}:${materialId}`];
+    if (hang == null || khoId == null) return;
+    const t = thByKey[`${khoId}:${hang.loai}:${hang.id}`];
     setNguongTon(t?.nguong_ton != null ? String(t.nguong_ton) : "");
     setNguongToiDa(t?.nguong_toi_da != null ? String(t.nguong_toi_da) : "");
     setCanhBao(t?.canh_bao ?? true);
     setOk(false);
-  }, [materialId, khoId, thByKey]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const t = setTimeout(() => {
-      api.kho.deNghi
-        .vatTu(token, matQuery || null, 30)
-        .then((r) => {
-          if (!cancelled) setMatOpts(r);
-        })
-        .catch(() => {});
-    }, 250);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [token, matQuery]);
+  }, [hang, khoId, thByKey]);
 
   async function save() {
-    if (materialId == null || khoId == null) {
+    if (hang == null || khoId == null) {
       setError("Chọn vật tư và kho trước khi lưu.");
       return;
     }
@@ -2075,14 +1903,15 @@ export function ThresholdDrawer({
     setError(null);
     try {
       const t = await api.kho.nguongTon.upsert(token, {
-        material_id: materialId,
+        hang_loai: hang.loai,
+        hang_id: hang.id,
         kho_id: khoId,
         nguong_ton: ton,
         nguong_can_ton: null,
         nguong_toi_da: max,
         canh_bao: canhBao,
       });
-      setThByKey((prev) => ({ ...prev, [`${khoId}:${materialId}`]: t }));
+      setThByKey((prev) => ({ ...prev, [`${khoId}:${hang.loai}:${hang.id}`]: t }));
       setOk(true);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Không lưu được ngưỡng tồn.");
@@ -2121,23 +1950,16 @@ export function ThresholdDrawer({
             <div className="rc-grid">
               <div className="rc-field">
                 <span className="rc-field__label">Vật tư</span>
-                <Select
-                  portal
-                  searchable
-                  options={matOpts.map((m) => ({
-                    value: m.id,
-                    label: m.name ?? String(m.id),
-                    hint: m.code ?? undefined,
-                  }))}
-                  value={materialId}
-                  onChange={(v) => {
-                    setMaterialId(v == null ? null : Number(v));
+                {/* Cùng ô chọn với dòng đề nghị — một cách chọn mặt hàng cho cả module, khỏi hai
+                    kiểu tìm khác nhau cho cùng một danh mục. Ngưỡng khai theo ĐƠN VỊ GỐC. */}
+                <MaterialCombobox
+                  token={token}
+                  hangTen={hang?.ten ?? null}
+                  onPick={(m) => {
+                    setHang({ loai: m.hang_loai, id: m.hang_id, ten: m.ten });
                     setOk(false);
                   }}
-                  onSearch={setMatQuery}
-                  placeholder="Chọn vật tư"
-                  searchPlaceholder="Tìm mã / tên vật tư…"
-                  ariaLabel="Vật tư"
+                  placeholder="Tìm mã / tên vật tư…"
                 />
               </div>
               <div className="rc-field">

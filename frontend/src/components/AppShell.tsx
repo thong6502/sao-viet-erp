@@ -62,10 +62,6 @@ export interface NavParams {
   openQuoteId?: number;
   /** Open this order's detail on the Đơn hàng bán screen. */
   openOrderId?: number;
-  /** Pre-select this estimate when creating a quotation. */
-  estimateId?: number;
-  /** Open this estimate's detail on the Tính giá screen. */
-  openEstimateId?: number | null;
   /** Liên thông: mở Chấm công / Nghỉ phép / Lương lọc theo đúng nhân viên này. */
   focusEmployeeId?: number;
   /** Liên thông: mở màn Yêu cầu mua hàng (YCMH) lọc + tô sáng đúng mã phiếu này. */

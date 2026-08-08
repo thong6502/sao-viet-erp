@@ -9,6 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field
 class SupplierItemIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    # Gắn về MẶT HÀNG GỐC (mg 0172). Để trống với thứ NCC bán ngoài danh mục vật tư (dịch vụ,
+    # gia công) — dòng đó vẫn lưu được, chỉ không vào bảng so giá.
+    hang_loai: str | None = Field(default=None, pattern="^(giay|vat_tu)$")
+    hang_id: int | None = Field(default=None, gt=0)
     item_name: str = Field(min_length=1, max_length=255)
     unit: str = Field(min_length=1, max_length=32)
     unit_price: int = Field(gt=0)
@@ -35,6 +39,9 @@ class SupplierItemRow(BaseModel):
 
     id: int
     supplier_id: int
+    # Mặt hàng gốc dòng này bán. None = thứ ngoài danh mục vật tư (dịch vụ, gia công).
+    hang_loai: str | None = None
+    hang_id: int | None = None
     item_name: str
     unit: str
     unit_price: int
@@ -82,6 +89,36 @@ class SupplierItemCatalogRow(BaseModel):
 
 class SupplierItemCatalogOut(BaseModel):
     items: list[SupplierItemCatalogRow]
+
+
+# --- So giá NCC theo MẶT HÀNG GỐC (mg 0172) ----------------------------------
+
+class SoGiaRow(BaseModel):
+    """1 NCC bán mặt hàng đang xét, giá đã QUY VỀ ĐƠN VỊ GỐC để so ngang."""
+
+    supplier_id: int
+    supplier_name: str
+    supplier_item_id: int
+    unit: str                 # đơn vị NCC bán (ram, thùng…)
+    unit_price: int           # giá theo đơn vị đó
+    vat_percent: float
+    # Giá quy về ĐƠN VỊ GỐC của mặt hàng — cột duy nhất so được giữa các NCC. None = không quy
+    # đổi được (đơn vị NCC nằm ngoài tập đổi được); UI phải hiện lý do chứ đừng xếp hạng bừa.
+    gia_quy_doi: int | None = None
+    gia_quy_doi_vat: int | None = None
+    dien_giai: str | None = None
+    ly_do: str | None = None
+
+
+class SoGiaOut(BaseModel):
+    hang_loai: str
+    hang_id: int
+    hang_ma: str | None = None
+    hang_ten: str | None = None
+    don_vi_goc: str | None = None
+    don_vi_goc_ten: str | None = None
+    # Sắp xếp tăng dần theo `gia_quy_doi`; dòng không quy đổi được xếp cuối.
+    items: list[SoGiaRow] = []
 
 
 class PurchaseRequestLineIn(BaseModel):

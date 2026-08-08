@@ -81,12 +81,10 @@ class ProductTypeCatalog(Base):
     pages_per_signature: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     has_cover_body_split: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
-    # --- §E Vật tư mặc định (ID cụ thể) -----------------------------------
+    # --- §E Vật tư mặc định --------------------------------------------------
+    # 4 cột `default_*_material_id` GỠ 2026-08-08 (Đợt 5): trỏ tới `materials` — bảng đã xoá,
+    # và đo được 0 dòng non-null nên không có dữ liệu nào phải chuyển.
     allowed_materials: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)  # material TYPE
-    default_paper_material_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    default_cover_material_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    default_body_material_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    default_ink_material_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     has_packaging: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     default_pack_qty: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 

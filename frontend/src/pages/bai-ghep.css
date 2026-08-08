@@ -293,17 +293,22 @@
   border: 1px solid rgba(226, 232, 240, 0.9);
   border-radius: 16px;
   background-color: #f8fafc;
+  background-image: 
+    radial-gradient(circle at 10% 15%, rgba(56, 189, 248, 0.06), transparent 45%),
+    radial-gradient(circle at 90% 85%, rgba(99, 102, 241, 0.06), transparent 45%),
+    linear-gradient(180deg, #fafbfc 0%, #f1f5f9 100%);
   overflow: hidden;
   margin-bottom: var(--sp-4);
   user-select: none;
-  box-shadow: inset 0 2px 8px rgba(15, 23, 42, 0.03), 0 8px 28px rgba(15, 23, 42, 0.06);
+  box-shadow: inset 0 2px 8px rgba(15, 23, 42, 0.03), 0 10px 30px rgba(15, 23, 42, 0.06);
 }
 .bgsd-canvas-wrap.has-dot-grid {
   background-image: 
-    radial-gradient(rgba(2, 132, 199, 0.22) 1.5px, transparent 1.5px),
-    radial-gradient(rgba(99, 102, 241, 0.08) 1px, transparent 1px);
-  background-size: 26px 26px, 13px 13px;
-  background-position: 0 0, 6.5px 6.5px;
+    radial-gradient(circle at 10% 15%, rgba(56, 189, 248, 0.08), transparent 45%),
+    radial-gradient(circle at 90% 85%, rgba(99, 102, 241, 0.08), transparent 45%),
+    radial-gradient(rgba(148, 163, 184, 0.35) 1.2px, transparent 1.2px);
+  background-size: 100% 100%, 100% 100%, 22px 22px;
+  background-position: 0 0, 0 0, 0 0;
 }
 
 .bgsd-canvas__toolbar {
@@ -314,13 +319,16 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.92);
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.88);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(2, 132, 199, 0.25);
+  border: 1px solid rgba(226, 232, 240, 0.9);
   border-radius: 999px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.09), 0 2px 6px rgba(2, 132, 199, 0.06);
+  box-shadow: 
+    0 10px 30px -5px rgba(15, 23, 42, 0.1), 
+    0 2px 6px rgba(2, 132, 199, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .bgsd-tb-btn {
@@ -333,15 +341,15 @@
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: #1e293b;
+  color: #334155;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .bgsd-tb-btn:hover { background: #e0f2fe; color: #0284c7; transform: translateY(-1px); }
-.bgsd-tb-btn.is-active { background: #0284c7; color: #ffffff; box-shadow: 0 2px 8px rgba(2, 132, 199, 0.35); }
-.bgsd-tb-zoom { font-size: 12px; font-family: var(--ff-mono, monospace); font-weight: 700; min-width: 46px; text-align: center; color: #0284c7; }
+.bgsd-tb-btn.is-active { background: #0284c7; color: #ffffff; box-shadow: 0 3px 10px rgba(2, 132, 199, 0.38); }
+.bgsd-tb-zoom { font-size: 12px; font-family: var(--ff-mono, monospace); font-weight: 800; min-width: 46px; text-align: center; color: #0284c7; }
 .bgsd-tb-divider { width: 1px; height: 16px; background: #cbd5e1; margin: 0 4px; }
 /* Phép xếp cột chưa hội tụ → vị trí thẻ có thể lệch. Cảnh báo về LAYOUT, không phải về số liệu. */
 .bgsd-tb-canhbao {
@@ -404,6 +412,8 @@
   width: 100%;
   height: 100%;
   pointer-events: none;
+  overflow: visible;
+  z-index: 2;
 }
 
 /* Animation đường flow hạt sáng neon chạy dọc dây nối */
@@ -433,96 +443,6 @@
   min-width: 280px;
 }
 
-/* --- Thẻ Master Node IN CHUNG TỜ (Central Cyber Core Hub) --- */
-.bgsd-card-in {
-  position: absolute;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  width: 260px !important;
-  height: 116px !important;
-  box-sizing: border-box !important;
-  padding: 12px 16px;
-  border-radius: 18px;
-  background: linear-gradient(135deg, #0b1329 0%, #1e1b4b 50%, #0f172a 100%);
-  border: 2px solid #0284c7;
-  color: #ffffff;
-  cursor: move;
-  box-shadow: 
-    0 16px 36px rgba(2, 132, 199, 0.32), 
-    0 0 20px rgba(56, 189, 248, 0.2),
-    inset 0 1px 1px rgba(255, 255, 255, 0.25);
-  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-  z-index: 6;
-  overflow: hidden;
-}
-.bgsd-card-in::before {
-  content: "";
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.15), transparent 60%);
-  pointer-events: none;
-}
-.bgsd-card-in:hover {
-  transform: translateY(-4px) scale(1.03);
-  box-shadow: 
-    0 22px 48px rgba(2, 132, 199, 0.42), 
-    0 0 28px rgba(56, 189, 248, 0.55),
-    inset 0 1px 2px rgba(255, 255, 255, 0.4);
-}
-.bgsd-card-in.is-chon {
-  border-color: #38bdf8;
-  box-shadow: 
-    0 0 0 4px rgba(56, 189, 248, 0.4), 
-    0 22px 50px rgba(15, 23, 42, 0.6),
-    0 0 32px rgba(56, 189, 248, 0.6);
-}
-
-.bgsd-card-in__head { display: flex; align-items: center; justify-content: space-between; z-index: 1; }
-.bgsd-card-in__ma { font-family: var(--ff-mono, monospace); font-size: 12px; color: #38bdf8; font-weight: 800; letter-spacing: 0.05em; }
-.bgsd-card-in__pill { 
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 10px; 
-  font-weight: 800; 
-  color: #38bdf8; 
-  background: rgba(56, 189, 248, 0.15);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  padding: 2px 8px;
-  border-radius: 999px;
-  letter-spacing: 0.04em; 
-}
-.bgsd-card-in__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #38bdf8;
-  box-shadow: 0 0 8px #38bdf8;
-  animation: bgsdPulseDot 1.5s infinite;
-}
-@keyframes bgsdPulseDot {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.5); opacity: 0.5; }
-}
-
-.bgsd-card-in__title { 
-  font-size: 16px; 
-  font-weight: 900; 
-  letter-spacing: 0.08em; 
-  color: #ffffff; 
-  text-align: center; 
-  margin: 3px 0; 
-  text-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
-  z-index: 1;
-}
-
-.bgsd-card-in__foot { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: #cbd5e1; z-index: 1; }
-.bgsd-card-in__may { display: inline-flex; align-items: center; gap: 5px; color: #94a3b8; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
-.bgsd-card-in__badge { padding: 3px 10px; background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(2, 132, 199, 0.35)); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 999px; color: #e0f2fe; font-weight: 800; font-family: var(--ff-num, monospace); }
 
 /* Điểm cắm dây Cyber Ports (Port Pins) */
 .bgsd-port {
@@ -907,6 +827,13 @@
   border-radius: 5px;
 }
 
+/* T1: hao ≥ số tờ tốt — makeready nuốt sản lượng, tô đỏ để planner cân nhắc gộp thêm lệnh. */
+.bghep-uh-m-val--canh {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
 .bghep-uh-m-sep {
   color: #cbd5e1;
   font-size: 10px;
@@ -1249,6 +1176,33 @@
   border: 1px solid #bbf7d0;
 }
 
+/* D3: dư LỚN — ghép lệch sản lượng, đổi chip xanh sang hổ phách cảnh báo. */
+.bgsd-chip-surplus--warn {
+  background: #fef3c7;
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+/* D3: gợi ý con/tờ dưới stepper — tối đa theo khổ (ước lượng) + số gợi ý cân (bấm áp). */
+.bgsd-ups-hint {
+  margin-top: 4px;
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+  color: var(--ink-soft, #64748b);
+}
+.bgsd-ups-goiy {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  color: #2563eb;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.bgsd-ups-goiy:hover { color: #1d4ed8; }
+
 /* Chip + icon "Kiểm tương thích": màu THEO mức xấu nhất của dữ liệu, không tô cứng. Dùng token
    hệ (moss/amber/signal) thay hex thô — xem quy ước ở đầu file. */
 .bgsd-chip-compat-count {
@@ -1422,20 +1376,36 @@
 .bgsd-du-to {
   position: absolute;
   z-index: 4;
-  padding: 2px 9px;
+  padding: 3px 10px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 800;
+  font-family: var(--ff-mono, monospace);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  pointer-events: none;
+  pointer-events: auto;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.bgsd-du-to.is-thua { background: var(--amber-soft, #fef3c7); color: var(--amber-deep, #92400e); }
-.bgsd-du-to.is-vua { background: var(--rule-soft, #e2e8f0); color: var(--ash, #64748b); }
+.bgsd-du-to:hover {
+  transform: scale(1.08);
+}
+.bgsd-du-to.is-thua { 
+  background: rgba(254, 243, 199, 0.95); 
+  color: #92400e; 
+  border: 1px solid #fde68a;
+  box-shadow: 0 4px 12px rgba(146, 64, 14, 0.12);
+}
+.bgsd-du-to.is-vua { 
+  background: rgba(248, 250, 252, 0.95); 
+  color: #475569; 
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+}
 /* Bước gộp là bước CUỐI routing → không còn thẻ riêng nào để neo chip, nó về khối tổng kết cuối
    nhánh. Ở đó chip phải nằm TRONG dòng chảy (xếp trên "dư con"), không thả nổi tuyệt đối. */
 .bgsd-du-to--tong { position: static; display: inline-flex; align-items: center; }
-.bgsd-card-in__badge--giay { opacity: 0.85; }
 
 /* ===================================================================
    GỘP BƯỚC — thẻ chung, thẻ ứng viên, thanh chọn
@@ -1475,6 +1445,22 @@
 
 /* Lệnh nào đang nằm trên tờ này. Dấu * = lệnh đó có ghi chú kỹ thuật riêng — thợ chạy chung một
    lượt phải đọc được yêu cầu của mọi khách, nên gom lên thẻ chứ không giấu trong drawer. */
+/* Bước chế bản chạy chung = chung bản (1 bộ kẽm), không trên dòng giấy → thẻ ghi 1 dòng dịu thay
+   cho số tờ vào/ra. */
+.bgsd-gang__chungban {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 4px 0;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--ink-soft, #64748b);
+}
+
+/* T3: gợi ý lọc máy + cảnh báo máy không hợp công đoạn, dưới ô "Máy chạy" của drawer bước chung. */
+.bgsd-field-hint { display: block; margin-top: 3px; font-size: 10.5px; color: var(--ink-soft, #64748b); }
+.bgsd-field-warn { display: block; margin-top: 3px; font-size: 11px; font-weight: 600; color: #b91c1c; }
+
 .bgsd-gang__lenh { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .bgsd-gang__lenh-chip {
   padding: 1px 7px;
@@ -1503,51 +1489,66 @@
 .bgsd-selbar {
   position: absolute;
   left: 50%;
-  bottom: 18px;
+  bottom: 20px;
   transform: translateX(-50%);
   z-index: 30;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: 12px;
+  padding: 8px 16px;
   border-radius: 999px;
-  background: var(--ink, #14130f);
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   color: #f8fafc;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
-  font-size: 12.5px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 
+    0 20px 45px -10px rgba(15, 23, 42, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  font-size: 13px;
+  animation: bgsdSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.bgsd-selbar__info b { font-variant-numeric: tabular-nums; }
+@keyframes bgsdSlideUp {
+  from { transform: translate(-50%, 20px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+.bgsd-selbar__info b { font-variant-numeric: tabular-nums; color: #38bdf8; }
 .bgsd-selbar__gop {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 14px;
+  padding: 6px 16px;
   border: none;
   border-radius: 999px;
-  background: var(--rust, #c25e38);
+  background: linear-gradient(135deg, #c25e38 0%, #ea580c 100%);
   color: #fff;
   font-size: 12.5px;
-  font-weight: 700;
+  font-weight: 800;
   cursor: pointer;
+  box-shadow: 0 4px 14px rgba(194, 94, 56, 0.4);
+  transition: all 0.18s ease;
 }
-.bgsd-selbar__gop:disabled { opacity: 0.45; cursor: not-allowed; }
-.bgsd-selbar__gop:not(:disabled):hover { filter: brightness(1.08); }
+.bgsd-selbar__gop:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+.bgsd-selbar__gop:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(194, 94, 56, 0.55); }
 .bgsd-selbar__huy {
-  padding: 5px 10px;
+  padding: 5px 12px;
   border: none;
-  background: none;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
   color: #cbd5e1;
   font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
-.bgsd-selbar__huy:hover { color: #fff; text-decoration: underline; }
+.bgsd-selbar__huy:hover { color: #fff; background: rgba(255, 255, 255, 0.2); }
 /* Lý do thẻ mờ không nhận: hiện ngay trên thanh chọn, không bắt người dùng rê chuột tìm tooltip. */
 .bgsd-selbar__chan {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   max-width: 420px;
-  padding: 4px 10px;
+  padding: 4px 12px;
   border-radius: 999px;
   background: rgba(251, 191, 36, 0.16);
   color: #fcd34d;

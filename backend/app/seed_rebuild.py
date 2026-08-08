@@ -303,13 +303,17 @@ def seed_rebuild_catalog(db: Session) -> None:
             VatTuInAn(ma="MUC-CMYK", ten="Mực process CMYK", don_vi_gia="kg", don_gia=250000,
                       cong_thuc_gia="so_mau * dai_in * rong_in * don_gia_kg * to_dau_vao * 0.0003"),
             VatTuInAn(ma="MUC-PANTONE", ten="Mực pha Pantone", don_vi_gia="kg", don_gia=15000),
-            VatTuInAn(ma="KEM-74", ten="Bản kẽm khổ 74", don_vi_gia="ban", don_gia=100000),
-            VatTuInAn(ma="KEM-102", ten="Bản kẽm khổ 102", don_vi_gia="ban", don_gia=180000),
-            VatTuInAn(ma="KEM-52", ten="Bản kẽm khổ 52", don_vi_gia="ban", don_gia=70000),
+            # `kem` chứ không phải `ban`: đơn vị PHẢI là mã có thật trong `don_vi_do` (xem
+            # `_DON_VI_SEED`) — mã lạ thì mọi quy đổi của món đó tắt lặng lẽ.
+            VatTuInAn(ma="KEM-74", ten="Bản kẽm khổ 74", don_vi_gia="kem", don_gia=100000),
+            VatTuInAn(ma="KEM-102", ten="Bản kẽm khổ 102", don_vi_gia="kem", don_gia=180000),
+            VatTuInAn(ma="KEM-52", ten="Bản kẽm khổ 52", don_vi_gia="kem", don_gia=70000),
             VatTuInAn(ma="MANG-BONG", ten="Màng cán bóng", don_vi_gia="m2", don_gia=3000,
                       cong_thuc_gia="dai_in * rong_in * don_gia_m2 * to_sau_in"),
+            # Quy cách đóng gói khai thành SỐ (1 thùng = 3 kg) thay vì nằm trong ghi chú — có vậy
+            # kho mới nhập được "2 thùng" và tồn tự ra 6 kg.
             VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45000,
-                      ghi_chu="UV định hình 1 thùng = 3kg"),
+                      don_vi_dong_goi="thung", he_so_dong_goi=3),
         ])
         db.commit()
 
@@ -318,26 +322,33 @@ def seed_rebuild_catalog(db: Session) -> None:
         db.add_all([
             # Giá CHỈ theo CÔNG THỨC (đơn giá nhét sẵn trong công thức, nhân biến số lượng tương ứng).
             # pricing_basis=per_other để hợp validate; run_rate giữ làm tham chiếu (engine ưu tiên công thức).
+            # `nhom_may_cho_phep`: nhóm máy (danh mục `nhom_may`) làm được công đoạn — chặn gán máy
+            # sai loại ở bước bài ghép. Chế bản chưa có máy seed nên để ["Chế bản"] (mọi máy in/sau-in
+            # đều bị coi là sai → khớp vụ CTP gán máy bế).
             CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_other", run_rate=95000,
+                     pricing_basis="per_other", run_rate=95000, nhom_may_cho_phep=["Chế bản"],
                      cong_thuc_gia="so_kem * 95000", setup_time=10, kieu_bu_hao="khong"),
             CongDoan(ma="CD-0002", ten="In offset", nhom="print", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=350, kieu_bu_hao="tra_bang",  # → BH nối bên dưới
+                     nhom_may_cho_phep=["Máy in", "In ngoài"],
                      cong_thuc_gia="to_dau_vao * so_mat * 350"),
             CongDoan(ma="CD-0003", ten="Cán màng bóng", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=2.2, min_charge=110000,
-                     kieu_bu_hao="co_dinh", so_to_bu_hao=50,
+                     kieu_bu_hao="co_dinh", so_to_bu_hao=50, nhom_may_cho_phep=["Cán màng / UV"],
                      cong_thuc_gia="max(dai_in * rong_in * 10000 * so_mat * to_dau_vao * 2.2, 110000)"),
             CongDoan(ma="CD-0004", ten="Bồi sóng", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=200, kieu_bu_hao="tra_bang",  # → BH nối bên dưới
+                     nhom_may_cho_phep=["Bồi"],
                      cong_thuc_gia="to_dau_vao * 200"),
             CongDoan(ma="CD-0005", ten="Ép kim", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=400, requires_tooling=True,
                      tooling_type="khuon_ep", kieu_bu_hao="co_dinh", so_to_bu_hao=50,
+                     nhom_may_cho_phep=["Bế"],
                      cong_thuc_gia="so_vi_tri * so_luong * 400"),
             CongDoan(ma="CD-0006", ten="Bế nổi", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=20, requires_tooling=True,
                      tooling_type="khuon_be", kieu_bu_hao="co_dinh", so_to_bu_hao=30,
+                     nhom_may_cho_phep=["Bế"],
                      cong_thuc_gia="so_luong * 20"),
         ])
         db.commit()

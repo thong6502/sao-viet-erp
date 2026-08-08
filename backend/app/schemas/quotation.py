@@ -24,21 +24,10 @@ class QuoteItemUpdate(BaseModel):
 
 # --- create / update ----------------------------------------------------------
 
-class QuotePick(BaseModel):
-    """1 phiếu tính giá + các mức số lượng (option) được chọn vào báo giá."""
-    estimate_id: int
-    option_ids: list[int] = Field(min_length=1)
-
-
 class QuotationCreate(BaseModel):
     customer_id: int | None = None
-    # BG-1 (nguồn MỚI): 1 Phiếu tính giá (PTG) → 1 báo giá. Ưu tiên nếu có.
+    # BG-1: 1 Phiếu tính giá (PTG) → 1 báo giá. Nguồn DUY NHẤT từ Đợt 5 (đường Estimate đã gỡ).
     phieu_tinh_gia_id: int | None = None
-    # Đường cũ (1 phiếu): estimate_id + selected_option_ids — giữ tương thích (gỡ ở BG-4).
-    estimate_id: int | None = None
-    selected_option_ids: list[int] | None = None
-    # Đường cũ (đa phiếu): mỗi pick = 1 phiếu tính giá + option đã tick.
-    picks: list[QuotePick] | None = None
     margin_percent: float | None = None  # gói biên áp chung khi tạo (per dòng chỉnh sau)
     valid_until: date | None = None
     # Bỏ trống → backend điền DEFAULT_TERMS (models.quotation).
@@ -91,7 +80,6 @@ class QuotationRow(BaseModel):
     version_count: int = 1
     sent_at: datetime | None = None          # tính tuổi phiếu "đã gửi N ngày"
     margin_percent: float | None = None      # % biên dòng đầu (hiển thị markup)
-    estimate_refs: list[str] = []            # các mã phiếu tính giá tham chiếu (↳ TG26-xxxx)
     product_summary: str | None = None       # "Catalogue A4 + 2 SP khác"
     updated_at: datetime | None = None
     salesperson_name: str | None = None
@@ -133,9 +121,6 @@ class VersionRow(BaseModel):
 
 class QuoteItemOut(BaseModel):
     id: int
-    estimate_id: int | None = None
-    estimate_number: str | None = None   # mã phiếu tính giá gốc của dòng (↳ link)
-    estimate_option_id: int | None
     line_no: int
     po_code: str | None = None
     product_type: str
@@ -167,7 +152,6 @@ class QuotationDetailOut(BaseModel):
     version: int  # maps to current version_number
     customer_id: int | None
     customer: CustomerDisplayOut | None = None
-    estimate_id: int | None
     phieu_tinh_gia_id: int | None = None
     phieu_tinh_gia_ma: str | None = None
     valid_until: date | None
@@ -264,25 +248,6 @@ class QuotationEnumsOut(BaseModel):
     statuses: list[EnumOption]
 
 
-class CostingQtyOption(BaseModel):
-    id: int
-    quantity: int
-    total_cost: int
-    margin_percent: float
-    selling_price: float
-    discount_amount: float
-    vat_percent: float
-    final_price: float
-    unit_price: float
-    actual_margin: float
-
-
-class CostingPickerOut(BaseModel):
-    available: bool
-    message: str | None = None
-    options: list[CostingQtyOption] | None = None
-
-
 __all__ = [
     "QuotationCreate",
     "QuotationUpdate",
@@ -295,6 +260,4 @@ __all__ = [
     "QuotationDetailOut",
     "EnumOption",
     "QuotationEnumsOut",
-    "CostingQtyOption",
-    "CostingPickerOut",
 ]

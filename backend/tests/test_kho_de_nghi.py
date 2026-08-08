@@ -10,8 +10,9 @@ Kiểm đúng những luật mà spec hứa, bằng HTTP thật chứ không g�
 from __future__ import annotations
 
 from app.db import SessionLocal
+from app.models.don_vi_do import DonViDo, DonViQuyDoi
 from app.models.role import SCOPE_ALL, SCOPE_OWN
-from app.models.material import Material
+from app.models.vat_lieu_kho import VatTuInAn
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import hash_password
@@ -48,13 +49,27 @@ def _mk_user(username: str, dept_name: str, perms: dict) -> int:
         db.close()
 
 
-def _mk_material(code: str) -> int:
+def _mk_material(code: str) -> tuple[str, int]:
+    """1 mặt hàng trong DANH MỤC GỐC (Vật tư khác) + đơn vị `to` để quy đổi chạy được.
+
+    Kho không còn sổ hàng riêng (`materials`) từ mg 0171 — mọi thứ nhập kho phải có sẵn ở đây.
+    Trả CẶP `(hang_loai, hang_id)` vì hai danh mục có hai dãy id riêng.
+    """
     db = SessionLocal()
     try:
-        m = Material(code=code, name=f"Vật tư {code}", material_type="paper", unit="to")
-        db.add(m)
+        if db.query(DonViDo).filter(DonViDo.ma == "to").first() is None:
+            to = DonViDo(ma="to", ten="tờ", ho="to")
+            ram = DonViDo(ma="ram", ten="ram", ho="to")
+            db.add_all([to, ram])
+            db.flush()
+            # 1 ram = 500 tờ — cặp SỐ CỐ ĐỊNH, không cần khổ giấy nên luôn chạy được.
+            db.add(DonViQuyDoi(tu_id=ram.id, den_id=to.id, he_so=500))
+        m = db.query(VatTuInAn).filter(VatTuInAn.ma == code).first()
+        if m is None:
+            m = VatTuInAn(ma=code, ten=f"Vật tư {code}", don_vi_gia="to")
+            db.add(m)
         db.commit()
-        return m.id
+        return ("vat_tu", m.id)
     finally:
         db.close()
 
@@ -95,7 +110,7 @@ def _approved_request(client, *, kho_id: int, loai: str, mat_id: int, qty: float
     """Tạo đề nghị → trình → duyệt. Trả JSON đề nghị đã duyệt.
     `gia` = đơn giá NHẬP người đề nghị khai (phiếu kế thừa; kho không sửa)."""
     dn = _login(client, "t_denghi")
-    line = {"material_id": mat_id, "dvt": "to", "sl_de_nghi": qty}
+    line = {"hang_loai": mat_id[0], "hang_id": mat_id[1], "dvt": "to", "sl_de_nghi": qty}
     if gia is not None:
         line["don_gia"] = gia
     r = client.post("/api/kho/de-nghi", headers=dn, json={
@@ -132,7 +147,7 @@ def test_khong_co_de_nghi_duyet_thi_khong_lap_duoc_phieu(client):
     kho_id, mat_id = _setup(client)
     dn = _login(client, "t_denghi")
     r = client.post("/api/kho/de-nghi", headers=dn, json={
-        "loai": "NHAP", "kho_id": kho_id, "lines": [{"material_id": mat_id, "dvt": "to", "sl_de_nghi": 10}],
+        "loai": "NHAP", "kho_id": kho_id, "lines": [{"hang_loai": mat_id[0], "hang_id": mat_id[1], "dvt": "to", "sl_de_nghi": 10}],
     })
     req = r.json()  # còn ở trạng thái Nháp, CHƯA duyệt
 
@@ -162,7 +177,7 @@ def test_duyet_cat_bot_so_luong_thi_chan_theo_so_duyet(client):
     kho_id, mat_id = _setup(client)
     dn = _login(client, "t_denghi")
     r = client.post("/api/kho/de-nghi", headers=dn, json={
-        "loai": "NHAP", "kho_id": kho_id, "lines": [{"material_id": mat_id, "dvt": "to", "sl_de_nghi": 10}],
+        "loai": "NHAP", "kho_id": kho_id, "lines": [{"hang_loai": mat_id[0], "hang_id": mat_id[1], "dvt": "to", "sl_de_nghi": 10}],
     })
     req = r.json()
     line_id = req["lines"][0]["id"]
@@ -185,7 +200,7 @@ def test_khong_duyet_vuot_so_de_nghi(client):
     kho_id, mat_id = _setup(client)
     dn = _login(client, "t_denghi")
     r = client.post("/api/kho/de-nghi", headers=dn, json={
-        "loai": "XUAT", "kho_id": kho_id, "lines": [{"material_id": mat_id, "dvt": "to", "sl_de_nghi": 5}],
+        "loai": "XUAT", "kho_id": kho_id, "lines": [{"hang_loai": mat_id[0], "hang_id": mat_id[1], "dvt": "to", "sl_de_nghi": 5}],
     })
     req = r.json()
     client.post(f"/api/kho/de-nghi/{req['id']}/trinh-duyet", headers=dn)
@@ -201,7 +216,7 @@ def test_khong_tu_duyet_de_nghi_cua_minh(client):
     kho_id, mat_id = _setup(client)
     duyet = _login(client, "t_duyet")
     r = client.post("/api/kho/de-nghi", headers=duyet, json={
-        "loai": "XUAT", "kho_id": kho_id, "lines": [{"material_id": mat_id, "dvt": "to", "sl_de_nghi": 3}],
+        "loai": "XUAT", "kho_id": kho_id, "lines": [{"hang_loai": mat_id[0], "hang_id": mat_id[1], "dvt": "to", "sl_de_nghi": 3}],
     })
     req = r.json()
     client.post(f"/api/kho/de-nghi/{req['id']}/trinh-duyet", headers=duyet)
@@ -220,7 +235,7 @@ def test_moi_lan_nhap_tao_lo_rieng_voi_gia_rieng(client):
 
     kt = _login(client, "t_ketoan")
     r = client.get("/api/kho/phieu/lo/danh-sach",
-                   params={"material_id": mat_id, "kho_id": kho_id}, headers=kt)
+                   params={"hang_loai": mat_id[0], "hang_id": mat_id[1], "kho_id": kho_id}, headers=kt)
     assert r.status_code == 200, r.text
     lots = r.json()
     assert len(lots) == 2
@@ -240,7 +255,7 @@ def test_xuat_an_nhieu_lo_thi_gia_von_tinh_dich_danh(client):
 
     # Gợi ý phân bổ FEFO→FIFO: lô nhập trước đi trước.
     r = client.get("/api/kho/phieu/lo/goi-y", headers=tk,
-                   params={"material_id": mat_id, "kho_id": kho_id, "so_luong": 15})
+                   params={"hang_loai": mat_id[0], "hang_id": mat_id[1], "kho_id": kho_id, "so_luong": 15})
     assert r.status_code == 200, r.text
     alloc = r.json()
     assert alloc["thieu"] == 0
@@ -265,7 +280,7 @@ def test_xuat_an_nhieu_lo_thi_gia_von_tinh_dich_danh(client):
 
     # Tồn còn đúng 5 (lô 200k), lô 100k đã rỗng.
     lots = client.get("/api/kho/phieu/lo/danh-sach", headers=kt,
-                      params={"material_id": mat_id, "kho_id": kho_id}).json()
+                      params={"hang_loai": mat_id[0], "hang_id": mat_id[1], "kho_id": kho_id}).json()
     assert sum(x["sl_con_lai"] for x in lots) == 5
 
 
@@ -276,7 +291,7 @@ def test_khong_cho_xuat_am_kho(client):
     req = _approved_request(client, kho_id=kho_id, loai="XUAT", mat_id=mat_id, qty=10)
     tk = _login(client, "t_thukho")
     lot_id = client.get("/api/kho/phieu/lo/danh-sach", headers=tk,
-                        params={"material_id": mat_id, "kho_id": kho_id}).json()[0]["id"]
+                        params={"hang_loai": mat_id[0], "hang_id": mat_id[1], "kho_id": kho_id}).json()[0]["id"]
     r = client.post("/api/kho/phieu", headers=tk, json={
         "request_id": req["id"], "kho_id": kho_id,
         "lines": [{"request_line_id": req["lines"][0]["id"], "so_luong": 10, "lot_id": lot_id}],
@@ -341,7 +356,7 @@ def test_thu_kho_thay_ton_nhung_khong_thay_gia_von(client):
     assert got["lines"][0]["thanh_tien"] is None
     # Nhưng lô thì vẫn chọn được (có mã lô + số còn lại), chỉ thiếu cột giá.
     lots = client.get("/api/kho/phieu/lo/danh-sach", headers=tk,
-                      params={"material_id": mat_id}).json()
+                      params={"hang_loai": mat_id[0], "hang_id": mat_id[1]}).json()
     assert lots[0]["ma_lo"] and lots[0]["sl_con_lai"] == 10
     assert lots[0]["don_gia_nhap"] is None
 
@@ -351,7 +366,7 @@ def test_thu_kho_khong_duyet_duoc_de_nghi(client):
     kho_id, mat_id = _setup(client)
     dn = _login(client, "t_denghi")
     r = client.post("/api/kho/de-nghi", headers=dn, json={
-        "loai": "XUAT", "kho_id": kho_id, "lines": [{"material_id": mat_id, "dvt": "to", "sl_de_nghi": 2}],
+        "loai": "XUAT", "kho_id": kho_id, "lines": [{"hang_loai": mat_id[0], "hang_id": mat_id[1], "dvt": "to", "sl_de_nghi": 2}],
     })
     req = r.json()
     client.post(f"/api/kho/de-nghi/{req['id']}/trinh-duyet", headers=dn)
@@ -378,7 +393,7 @@ def test_nguoi_de_nghi_chi_thay_de_nghi_cua_minh(client):
 
     duyet = _login(client, "t_duyet")
     r = client.post("/api/kho/de-nghi", headers=duyet, json={
-        "loai": "XUAT", "kho_id": kho_id, "lines": [{"material_id": mat_id, "dvt": "to", "sl_de_nghi": 7}],
+        "loai": "XUAT", "kho_id": kho_id, "lines": [{"hang_loai": mat_id[0], "hang_id": mat_id[1], "dvt": "to", "sl_de_nghi": 7}],
     })
     assert r.status_code == 201
 
@@ -397,7 +412,7 @@ def test_nguong_ton_doi_mau_den_tin_hieu(client):
     _nhap(client, kho_id=kho_id, mat_id=mat_id, qty=10, gia=100_000)
     tk = _login(client, "t_thukho")
     r = client.put("/api/kho/nguong-ton", headers=tk, json={
-        "material_id": mat_id, "kho_id": kho_id,
+        "hang_loai": mat_id[0], "hang_id": mat_id[1], "kho_id": kho_id,
         "nguong_ton": 12, "nguong_can_ton": 20,
     })
     assert r.status_code == 200, r.text
@@ -413,7 +428,7 @@ def test_nguong_can_ton_phai_lon_hon_nguong_ton(client):
     kho_id, mat_id = _setup(client)
     tk = _login(client, "t_thukho")
     r = client.put("/api/kho/nguong-ton", headers=tk, json={
-        "material_id": mat_id, "kho_id": kho_id, "nguong_ton": 50, "nguong_can_ton": 10,
+        "hang_loai": mat_id[0], "hang_id": mat_id[1], "kho_id": kho_id, "nguong_ton": 50, "nguong_can_ton": 10,
     })
     assert r.status_code == 400
 
@@ -422,7 +437,7 @@ def test_khong_co_quyen_thi_khong_khai_duoc_nguong(client):
     kho_id, mat_id = _setup(client)
     kt = _login(client, "t_ketoan")  # có view_cost nhưng KHÔNG có set_threshold
     r = client.put("/api/kho/nguong-ton", headers=kt, json={
-        "material_id": mat_id, "kho_id": kho_id, "nguong_ton": 5,
+        "hang_loai": mat_id[0], "hang_id": mat_id[1], "kho_id": kho_id, "nguong_ton": 5,
     })
     assert r.status_code == 403
 
@@ -495,46 +510,73 @@ def test_cap_thieu_bat_buoc_ly_do_va_hien_o_de_nghi(client):
     assert got["lines"][0]["ly_do_thieu"] == "NCC giao thiếu 3"
 
 
-def test_quy_doi_va_gia_khai_o_de_nghi_theo_vao_phieu(client):
-    """Quy đổi + đơn giá khai Ở ĐỀ NGHỊ (hàng mới) → phiếu KHÔNG khai lại, kho tạo mã kèm quy đổi
-    và lô mang đúng giá đề nghị."""
-    kho_id, _ = _setup(client)
+def test_nhap_theo_don_vi_khac_thi_ton_quy_ve_don_vi_goc(client):
+    """Nhập "2 ram" của mặt hàng đếm theo TỜ → lô phải ghi 1.000 tờ, giá quy về đ/tờ.
+
+    Đây là luật xương sống của việc đổi gốc (mg 0171): người ta khai theo đơn vị tiện tay, còn
+    tồn kho chỉ có MỘT thang — đơn vị gốc của mặt hàng. Cộng nhầm hai thang là "10 ram + 500 tờ"
+    ra một con số vô nghĩa mà không ai thấy dòng lỗi nào.
+    """
+    kho_id, mat_id = _setup(client)
     dn = _login(client, "t_denghi")
+    # 1 ram = 500 tờ (cặp cố định trong `_mk_material`). Giá khai 250.000 đ/ram.
     r = client.post("/api/kho/de-nghi", headers=dn, json={
         "loai": "NHAP", "kho_id": kho_id,
-        "lines": [{"ten_tu_do": "Giấy Ream QĐ", "dvt": "to", "sl_de_nghi": 1000,
-                   "don_gia": 500, "don_vi_phu": "ream", "he_so_quy_doi": 500}],
+        "lines": [{"hang_loai": mat_id[0], "hang_id": mat_id[1], "dvt": "ram",
+                   "sl_de_nghi": 2, "don_gia": 250_000}],
     })
     assert r.status_code == 201, r.text
     body = r.json()
-    rid, line_id = body["id"], body["lines"][0]["id"]
-    # Đề nghị GIỮ lại giá + quy đổi người đề nghị khai.
-    assert body["lines"][0]["don_gia"] == 500
-    assert body["lines"][0]["don_vi_phu"] == "ream"
-    assert float(body["lines"][0]["he_so_quy_doi"]) == 500
+    ln = body["lines"][0]
+    # Đề nghị GIỮ đúng con số người ta khai, kèm số đã quy đổi để họ thấy trước cái sẽ vào tồn.
+    assert ln["dvt"] == "ram" and ln["sl_de_nghi"] == 2
+    assert ln["sl_quy_doi"] == 1000 and ln["don_vi_goc"] == "tờ"
+    assert ln["canh_bao_dv"] is None
+
+    rid, line_id = body["id"], ln["id"]
     client.post(f"/api/kho/de-nghi/{rid}/trinh-duyet", headers=dn)
     client.post(f"/api/kho/de-nghi/{rid}/duyet", headers=_login(client, "t_duyet"), json={})
-    # Kho lập phiếu: KHÔNG gửi giá/quy đổi — chỉ SL. Backend lấy hết từ đề nghị.
     tk = _login(client, "t_thukho")
     r = client.post("/api/kho/phieu", headers=tk, json={
         "request_id": rid, "kho_id": kho_id,
-        "lines": [{"request_line_id": line_id, "so_luong": 1000}],
+        "lines": [{"request_line_id": line_id, "so_luong": 2}],
     })
     assert r.status_code == 201, r.text
     vid = r.json()["id"]
     assert client.post(f"/api/kho/phieu/{vid}/ghi-so", headers=tk).status_code == 200
-    # Mã tự tạo mang đúng QUY ĐỔI khai ở đề nghị (đọc thẳng DB cho chắc).
-    db = SessionLocal()
-    try:
-        m = db.query(Material).filter(Material.name == "Giấy Ream QĐ").first()
-        assert m is not None and m.don_vi_phu == "ream" and float(m.he_so_quy_doi) == 500
-    finally:
-        db.close()
-    # Lô mang đúng GIÁ khai ở đề nghị (xem qua vai có view_cost).
+
+    # LÔ ghi theo đơn vị gốc: 2 ram = 1.000 tờ, và 250.000 đ/ram = 500 đ/tờ.
     kt = _login(client, "t_ketoan")
     lots = client.get(f"/api/kho/phieu/lo/danh-sach?kho_id={kho_id}", headers=kt).json()
-    lot = [x for x in lots if x["material_name"] == "Giấy Ream QĐ"][0]
+    lot = [x for x in lots if x["hang_id"] == mat_id[1]][0]
+    assert lot["sl_con_lai"] == 1000
     assert lot["don_gia_nhap"] == 500
+
+
+def test_don_vi_khong_doi_duoc_thi_chan_ngay_luc_khai(client):
+    """Đơn vị ngoài tập đổi được của mặt hàng → CHẶN, kèm lý do nói rõ dùng được đơn vị nào.
+
+    Thà từ chối còn hơn lấy hệ số 1: hệ số 1 sai thì tồn kho sai mà không có dòng lỗi nào.
+    """
+    kho_id, mat_id = _setup(client)
+    dn = _login(client, "t_denghi")
+    r = client.post("/api/kho/de-nghi", headers=dn, json={
+        "loai": "NHAP", "kho_id": kho_id,
+        "lines": [{"hang_loai": mat_id[0], "hang_id": mat_id[1], "dvt": "kg", "sl_de_nghi": 5}],
+    })
+    assert r.status_code == 400, r.text
+    assert "không đổi được" in r.json()["detail"]
+
+
+def test_khong_con_duong_de_nghi_hang_go_tay(client):
+    """SIẾT: bỏ hẳn `ten_tu_do`. Dòng không trỏ mặt hàng trong danh mục thì không lưu được."""
+    kho_id, _ = _setup(client)
+    dn = _login(client, "t_denghi")
+    r = client.post("/api/kho/de-nghi", headers=dn, json={
+        "loai": "NHAP", "kho_id": kho_id,
+        "lines": [{"ten_tu_do": "Giấy lạ", "dvt": "to", "sl_de_nghi": 10}],
+    })
+    assert r.status_code == 422, r.text
 
 
 def test_lich_su_nhap_xuat_theo_vat_tu(client):
@@ -549,7 +591,7 @@ def test_lich_su_nhap_xuat_theo_vat_tu(client):
     line_id = req["lines"][0]["id"]
     tk = _login(client, "t_thukho")
     alloc = client.get("/api/kho/phieu/lo/goi-y", headers=tk,
-                       params={"material_id": mat_id, "kho_id": kho_id, "so_luong": 15}).json()
+                       params={"hang_loai": mat_id[0], "hang_id": mat_id[1], "kho_id": kho_id, "so_luong": 15}).json()
     r = client.post("/api/kho/phieu", headers=tk, json={
         "request_id": req["id"], "kho_id": kho_id,
         "lines": [
@@ -562,7 +604,7 @@ def test_lich_su_nhap_xuat_theo_vat_tu(client):
 
     # Kế toán (view_cost) → thấy đủ giá.
     kt = _login(client, "t_ketoan")
-    h = client.get(f"/api/kho/phieu/vat-tu/{mat_id}/lich-su", headers=kt,
+    h = client.get(f"/api/kho/phieu/mat-hang/{mat_id[0]}/{mat_id[1]}/lich-su", headers=kt,
                    params={"kho_id": kho_id})
     assert h.status_code == 200, h.text
     data = h.json()
@@ -579,7 +621,7 @@ def test_lich_su_nhap_xuat_theo_vat_tu(client):
     assert sorted(x["don_gia"] for x in data["xuat"]) == [100_000, 200_000]
 
     # Thủ kho (KHÔNG view_cost) → giá bị ẩn cả hai phía (không lọt qua response).
-    h2 = client.get(f"/api/kho/phieu/vat-tu/{mat_id}/lich-su", headers=tk,
+    h2 = client.get(f"/api/kho/phieu/mat-hang/{mat_id[0]}/{mat_id[1]}/lich-su", headers=tk,
                     params={"kho_id": kho_id}).json()
     assert all(l["don_gia_nhap"] is None for l in h2["nhap"])
     assert all(x["don_gia"] is None for x in h2["xuat"])

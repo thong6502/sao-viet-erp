@@ -5603,3 +5603,337 @@ def _migrate_noi_dong_phieu_mua_voi_dong_yeu_cau(db: Session) -> None:
 MIGRATIONS.append(
     ("0167_noi_dong_phieu_mua_voi_dong_yeu_cau", _migrate_noi_dong_phieu_mua_voi_dong_yeu_cau)
 )
+
+
+def _migrate_cong_doan_nhom_may_cho_phep(db: Session) -> None:
+    """Cột `nhom_may_cho_phep` (JSON list tên nhóm máy) cho `cong_doan` — chặn gán máy SAI LOẠI ở
+    bước (vd Ghi kẽm CTP không cho gán máy Bế). NULL = chưa khai = không ràng buộc.
+
+    ADD COLUMN kiểu `JSON` chạy trên cả Postgres (json) lẫn SQLite (TEXT affinity). Backfill qua
+    ORM để SQLAlchemy tự serialize đúng dialect (tránh cast text→json thủ công); chỉ đụng hàng NULL
+    nên idempotent (DB create_all mới đã có cột + seed set sẵn → loop không tìm thấy hàng nào)."""
+    from .models.cong_doan import CongDoan
+
+    insp = inspect(db.get_bind())
+    if "cong_doan" not in insp.get_table_names():
+        return
+    if "nhom_may_cho_phep" not in _existing_columns(insp, "cong_doan"):
+        db.execute(text("ALTER TABLE cong_doan ADD COLUMN nhom_may_cho_phep JSON"))
+        db.commit()
+        _bf = {
+            "Ghi kẽm CTP": ["Chế bản"],
+            "In offset": ["Máy in", "In ngoài"],
+            "Cán màng bóng": ["Cán màng / UV"],
+            "Bồi sóng": ["Bồi"],
+            "Ép kim": ["Bế"],
+            "Bế nổi": ["Bế"],
+        }
+        for cd in db.query(CongDoan).filter(CongDoan.nhom_may_cho_phep.is_(None)).all():
+            if cd.ten in _bf:
+                cd.nhom_may_cho_phep = _bf[cd.ten]
+    db.commit()
+
+
+MIGRATIONS.append(
+    ("0168_cong_doan_nhom_may_cho_phep", _migrate_cong_doan_nhom_may_cho_phep)
+)
+
+
+def _migrate_xoa_cap_quy_doi_ngang_loai_do(db: Session) -> None:
+    """Xoá cặp quy đổi SỐ CỐ ĐỊNH nối tờ với đơn vị KHỐI LƯỢNG — dữ liệu sai khai tay qua UI.
+
+    DB dev đang có `1 tờ = 1.000 g`, tức mọi tờ giấy nặng đúng 1 kg. Thực tế tờ 65×86 Couché 150
+    nặng 0,084 kg còn tờ 79×109 Couché 300 nặng 0,258 kg — con số này TUỲ khổ + định lượng, nên
+    danh mục đã có sẵn cặp ĐỘNG `1 tờ = dinh_luong * dai * rong kg`. Hai dòng cùng trả lời một câu
+    hỏi mà khác nhau; dòng cố định lại NGẮN đường hơn nên BFS chọn nó trước ⇒ mọi phép đổi tờ↔cân
+    (tồn kho, tiền khoán cắt giấy theo tấn) đều sai mà không báo gì.
+
+    Chỉ xoá cặp TĨNH ngang loại đo (`ho` khác nhau) có một đầu là `to`; cặp cùng loại đo
+    ("1 tấn = 1.000 kg") và cặp động đều giữ nguyên. Idempotent: DB sạch thì không xoá gì.
+    """
+    insp = inspect(db.get_bind())
+    if not {"don_vi_quy_doi", "don_vi_do"} <= set(insp.get_table_names()):
+        return
+    db.execute(text("""
+        DELETE FROM don_vi_quy_doi
+        WHERE (cong_thuc IS NULL OR cong_thuc = '')
+          AND id IN (
+            SELECT q.id FROM don_vi_quy_doi q
+            JOIN don_vi_do a ON a.id = q.tu_id
+            JOIN don_vi_do b ON b.id = q.den_id
+            WHERE a.ho <> b.ho AND (a.ma = 'to' OR b.ma = 'to')
+          )
+    """))
+    db.commit()
+
+
+MIGRATIONS.append(
+    ("0169_xoa_cap_quy_doi_ngang_loai_do", _migrate_xoa_cap_quy_doi_ngang_loai_do)
+)
+
+
+def _migrate_mat_hang_don_vi_goc(db: Session) -> None:
+    """Đơn vị của Giấy / Vật tư khác lấy từ danh mục `don_vi_do` thay vì danh sách cứng trong FE.
+
+    Ba việc:
+    1. `vat_tu_in_an` thêm `don_vi_dong_goi` + `he_so_dong_goi` — quy cách đóng gói RIÊNG của từng
+       món ("1 thùng = 3 kg"). Không khai vào bảng cặp chung được vì thùng keo ≠ thùng mực.
+    2. Nới `giay_nguyen.don_vi_gia` lên 24 ký tự cho khớp `don_vi_do.ma`.
+    3. Mã đơn vị không có trong `don_vi_do` thì XOÁ TRẮNG (dev đang có `ban` ở vật tư). Chủ chốt:
+       không map cứng sang đơn vị gần giống — máy đoán sai một lần là sai vĩnh viễn; để trống thì
+       màn danh mục hiện "Chưa chọn đơn vị" và người khai tự chọn đúng.
+    """
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+    if "vat_tu_in_an" in ten_bang:
+        cols = _existing_columns(insp, "vat_tu_in_an")
+        if "don_vi_dong_goi" not in cols:
+            db.execute(text("ALTER TABLE vat_tu_in_an ADD COLUMN don_vi_dong_goi VARCHAR(24)"))
+        if "he_so_dong_goi" not in cols:
+            db.execute(text("ALTER TABLE vat_tu_in_an ADD COLUMN he_so_dong_goi NUMERIC(18,6)"))
+        db.commit()
+
+    # Nới kiểu + BỎ NOT NULL/DEFAULT: "chưa chọn đơn vị" giờ là trạng thái THẬT, mà default cũ
+    # ("kg"/"cai") lại lặng lẽ điền một đơn vị không ai chọn. SQLite không ALTER được kiểu cột;
+    # dev/prod đều Postgres, còn DB test dựng bằng create_all nên đã đúng model mới.
+    if db.get_bind().dialect.name == "postgresql":
+        for bang in ("giay_nguyen", "vat_tu_in_an"):
+            if bang not in ten_bang:
+                continue
+            db.execute(text(f"ALTER TABLE {bang} ALTER COLUMN don_vi_gia TYPE VARCHAR(24)"))
+            db.execute(text(f"ALTER TABLE {bang} ALTER COLUMN don_vi_gia DROP NOT NULL"))
+            db.execute(text(f"ALTER TABLE {bang} ALTER COLUMN don_vi_gia DROP DEFAULT"))
+        db.commit()
+
+    if "don_vi_do" not in ten_bang:
+        return
+    for bang in ("giay_nguyen", "vat_tu_in_an"):
+        if bang not in ten_bang:
+            continue
+        db.execute(text(
+            f"UPDATE {bang} SET don_vi_gia = NULL "
+            f"WHERE don_vi_gia IS NOT NULL AND don_vi_gia <> '' "
+            f"  AND lower(don_vi_gia) NOT IN (SELECT lower(ma) FROM don_vi_do)"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(
+    ("0170_mat_hang_don_vi_goc", _migrate_mat_hang_don_vi_goc)
+)
+
+
+# Bốn bảng kho đổi khoá mặt hàng: `material_id` (→ `materials`) thành cặp `(hang_loai, hang_id)`
+# trỏ thẳng danh mục gốc `giay_nguyen` / `vat_tu_in_an`.
+_KHO_BANG_HANG = ("stock_lots", "stock_request_lines", "stock_voucher_lines", "stock_thresholds")
+
+
+def _migrate_kho_doi_goc_mat_hang(db: Session) -> None:
+    """Kho thôi giữ sổ hàng riêng — trỏ thẳng vào danh mục Giấy / Vật tư khác.
+
+    Vì sao đổi được thẳng, không cần backfill: cả bốn bảng kho đang TRỐNG (đo trên DB dev
+    2026-08-08: stock_lots/stock_vouchers/stock_requests/… đều 0 dòng). Kho chưa từng nhập hàng
+    thật, nên không có link nào để giữ.
+
+    ⚠️ Đây là migration PHÁ HUỶ (drop cột). Nếu môi trường nào ĐÃ có dữ liệu kho thì `material_id`
+    là thứ duy nhất nối lô với mặt hàng — drop đi là mất vĩnh viễn, mà mất im lặng thì tới lúc phát
+    hiện đã không lần lại được. Nên gặp dữ liệu là DỪNG HẲN (raise): app không khởi động còn hơn
+    khởi động với sổ kho đứt gốc. Người vận hành sẽ phải viết backfill map `materials` → danh mục
+    gốc rồi mới chạy tiếp.
+    """
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+    co = [t for t in _KHO_BANG_HANG if t in ten_bang]
+    if not co:
+        return
+    # Đã đổi rồi (DB mới dựng bằng create_all) → không làm gì.
+    if all("hang_loai" in _existing_columns(insp, t) for t in co):
+        return
+
+    con_du_lieu = {t: db.execute(text(f"SELECT COUNT(*) FROM {t}")).scalar() or 0 for t in co}
+    if any(con_du_lieu.values()):
+        raise RuntimeError(
+            "Migration 0171 DỪNG: bảng kho đang có dữ liệu "
+            f"({', '.join(f'{t}={n}' for t, n in con_du_lieu.items() if n)}). "
+            "Đổi gốc mặt hàng sẽ drop `material_id` — hãy backfill sang (hang_loai, hang_id) "
+            "trước, hoặc dọn dữ liệu kho thử nghiệm, rồi chạy lại."
+        )
+
+    la_pg = db.get_bind().dialect.name == "postgresql"
+    for t in co:
+        cols = _existing_columns(insp, t)
+        if "hang_loai" not in cols:
+            db.execute(text(f"ALTER TABLE {t} ADD COLUMN hang_loai VARCHAR(8)"))
+        if "hang_id" not in cols:
+            db.execute(text(f"ALTER TABLE {t} ADD COLUMN hang_id INTEGER"))
+        db.commit()
+        # Bảng rỗng nên SET NOT NULL chạy được ngay, khỏi cần giá trị mặc định giả.
+        if la_pg:
+            db.execute(text(f"ALTER TABLE {t} ALTER COLUMN hang_loai SET NOT NULL"))
+            db.execute(text(f"ALTER TABLE {t} ALTER COLUMN hang_id SET NOT NULL"))
+        for cu in ("material_id",):
+            if cu in cols:
+                db.execute(text(f"ALTER TABLE {t} DROP COLUMN {cu}"))
+        db.commit()
+
+    # Dòng đề nghị: bỏ hàng gõ tay + quy đổi khai tay từng dòng (nay lấy từ đồ thị đơn vị chung).
+    if "stock_request_lines" in co:
+        cols = _existing_columns(insp, "stock_request_lines")
+        for cu in ("ten_tu_do", "don_vi_phu", "he_so_quy_doi"):
+            if cu in cols:
+                db.execute(text(f"ALTER TABLE stock_request_lines DROP COLUMN {cu}"))
+        if la_pg:
+            db.execute(text("ALTER TABLE stock_request_lines ALTER COLUMN dvt TYPE VARCHAR(24)"))
+        db.commit()
+
+    # Dòng phiếu: thêm số đã quy về đơn vị gốc (chốt hệ số lúc lập phiếu, xem model).
+    if "stock_voucher_lines" in co and "sl_goc" not in _existing_columns(insp, "stock_voucher_lines"):
+        db.execute(text("ALTER TABLE stock_voucher_lines ADD COLUMN sl_goc NUMERIC(14,4)"))
+        db.commit()
+        if la_pg:
+            db.execute(text("ALTER TABLE stock_voucher_lines ALTER COLUMN sl_goc SET NOT NULL"))
+            db.commit()
+
+    # Ngưỡng tồn: khoá duy nhất theo (mặt hàng × kho) — đổi theo cặp khoá mới.
+    if "stock_thresholds" in co and la_pg:
+        db.execute(text(
+            "ALTER TABLE stock_thresholds DROP CONSTRAINT IF EXISTS uq_stock_thresholds_material_kho"))
+        db.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_stock_thresholds_hang_kho "
+            "ON stock_thresholds (hang_loai, hang_id, kho_id)"))
+        db.commit()
+
+    if "stock_lots" in co:
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_stock_lots_hang ON stock_lots (hang_loai, hang_id)"))
+        db.commit()
+
+
+MIGRATIONS.append(
+    ("0171_kho_doi_goc_mat_hang", _migrate_kho_doi_goc_mat_hang)
+)
+
+
+def _migrate_ncc_tro_ve_mat_hang_goc(db: Session) -> None:
+    """`supplier_items` gắn được vào MẶT HÀNG GỐC — nền cho bảng so giá giữa các NCC.
+
+    NULLABLE, không backfill: NCC vẫn bán được thứ ngoài danh mục vật tư (dịch vụ, gia công), và
+    ghép ngược từ `item_name` bằng chuỗi chính là cái sai ta đang đi chữa — đoán sai một dòng là
+    so giá ra kết quả sai mà không ai biết. Người dùng gắn tay từng dòng ở màn NCC.
+    """
+    insp = inspect(db.get_bind())
+    if "supplier_items" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "supplier_items")
+    if "hang_loai" not in cols:
+        db.execute(text("ALTER TABLE supplier_items ADD COLUMN hang_loai VARCHAR(8)"))
+    if "hang_id" not in cols:
+        db.execute(text("ALTER TABLE supplier_items ADD COLUMN hang_id INTEGER"))
+    db.commit()
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_supplier_items_hang ON supplier_items (hang_loai, hang_id)"))
+    db.commit()
+
+
+MIGRATIONS.append(
+    ("0172_ncc_tro_ve_mat_hang_goc", _migrate_ncc_tro_ve_mat_hang_goc)
+)
+
+
+# Bảng của cụm tính giá đời cũ — DROP theo đúng thứ tự FK (con trước, cha sau).
+_BANG_TINH_GIA_CU = (
+    "estimate_cost_lines",
+    "estimate_options",
+    "estimates",
+    "costing_operations",
+    "costing_paper_options",
+    "costings",
+    "product_components",
+    "products",
+    "material_costs",
+    "materials",
+)
+
+
+def _migrate_don_cum_tinh_gia_doi_cu(db: Session) -> None:
+    """Đợt 5 — dọn hẳn cụm tính giá đời CŨ (`estimates`/`costings`/`products`/`materials`).
+
+    Vì sao xoá được: engine đang chạy là `phieu_tinh_gia`/`thanh_phan_engine`, còn cụm này đã
+    CHẾT trên UI từ lâu (không màn nào gọi /api/estimates · /api/costings · /api/materials), và
+    Kho đã rời `materials` ở Đợt 3 nên 4 FK giữ nó lại đã biến mất.
+
+    Phần ĐỘNG VÀO DỮ LIỆU THẬT (chủ đã chốt): báo giá đi đường Estimate cũ không còn nguồn giá
+    vốn nên xoá hẳn, kèm đơn hàng bán ghim vào chúng.
+      - `orders.quotation_id` là soft-ref (KHÔNG FK) nên xoá báo giá mà bỏ quên đơn thì đơn trỏ
+        vào khoảng không, im lặng — phải xoá đơn TRƯỚC, tường minh.
+      - Đơn đã đẻ LSX / đã có phiếu thu tiền / có đơn bổ sung con thì DỪNG HẲN (raise): đó là
+        dữ liệu vận hành thật, không được xoá mù. Người vận hành xử tay rồi chạy lại.
+    """
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+
+    # --- 1. Dọn báo giá đường cũ + đơn hàng ghim vào chúng ---------------------
+    if "quotes" in ten_bang and "estimate_id" in _existing_columns(insp, "quotes"):
+        bg = "SELECT id FROM quotes WHERE estimate_id IS NOT NULL"
+        dh = f"SELECT id FROM orders WHERE quotation_id IN ({bg})" if "orders" in ten_bang else None
+
+        if dh:
+            # Chặn: đơn đã chạy tiếp xuống sản xuất / kế toán thì không tự xoá.
+            vuong: list[str] = []
+            for bang, cot, nhan in (
+                ("lsx", "order_id", "lệnh sản xuất"),
+                ("payment_receipts", "order_id", "phiếu thu"),
+                ("orders", "parent_order_id", "đơn bổ sung"),
+            ):
+                if bang not in ten_bang:
+                    continue
+                n = db.execute(text(f"SELECT COUNT(*) FROM {bang} WHERE {cot} IN ({dh})")).scalar() or 0
+                if n:
+                    vuong.append(f"{nhan}={n}")
+            if vuong:
+                raise RuntimeError(
+                    "Migration 0173 DỪNG: đơn hàng ghim vào báo giá đường Estimate cũ đang có "
+                    f"{', '.join(vuong)}. Đây là dữ liệu vận hành thật — xử tay (huỷ/tách nguồn) "
+                    "rồi chạy lại, đừng để migration xoá mù."
+                )
+            # order_lines / order_approvals / order_attachments đi theo FK ON DELETE CASCADE.
+            db.execute(text(f"DELETE FROM orders WHERE id IN ({dh})"))
+
+        # quote_versions → quote_items, cùng activity_logs/approvals/attachments: đều CASCADE.
+        db.execute(text(f"DELETE FROM quotes WHERE id IN ({bg})"))
+        db.commit()
+
+    # --- 2. Gỡ 3 cột neo Estimate khỏi bộ bảng Báo giá (bảng vẫn sống) ---------
+    for bang, cot in (
+        ("quotes", "estimate_id"),
+        ("quote_items", "estimate_id"),
+        ("quote_items", "estimate_option_id"),
+        ("quote_versions", "estimate_snapshot_json"),
+    ):
+        if bang in ten_bang and cot in _existing_columns(insp, bang):
+            db.execute(text(f"ALTER TABLE {bang} DROP COLUMN {cot}"))
+    db.commit()
+
+    # --- 3. Loại sản phẩm: 4 cột vật tư mặc định trỏ `materials` (đã đo 0 dòng non-null) ---
+    if "product_types_catalog" in ten_bang:
+        cols = _existing_columns(insp, "product_types_catalog")
+        for cot in (
+            "default_paper_material_id",
+            "default_cover_material_id",
+            "default_body_material_id",
+            "default_ink_material_id",
+        ):
+            if cot in cols:
+                db.execute(text(f"ALTER TABLE product_types_catalog DROP COLUMN {cot}"))
+        db.commit()
+
+    # --- 4. DROP 10 bảng, con trước cha sau ------------------------------------
+    for bang in _BANG_TINH_GIA_CU:
+        if bang in ten_bang:
+            db.execute(text(f"DROP TABLE {bang}"))
+    db.commit()
+
+
+MIGRATIONS.append(
+    ("0173_don_cum_tinh_gia_doi_cu", _migrate_don_cum_tinh_gia_doi_cu)
+)

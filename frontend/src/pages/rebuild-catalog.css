@@ -201,6 +201,23 @@
   font-family: 'JetBrains Mono', Consolas, monospace;
 }
 
+/* Cảnh báo MỀM (không chặn lưu) — vd cặp số cố định đè lên đường công thức. Hổ phách chứ không đỏ:
+   đỏ dành cho lỗi chặn, dùng đỏ cho thứ vẫn lưu được thì người ta quen mắt rồi bỏ qua cả hai. */
+.rc__warn-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 340px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
 .rc__chip-muted {
   display: inline-flex;
   align-items: center;

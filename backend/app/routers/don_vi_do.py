@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import require_permission
+from ..deps import require_any_permission, require_permission
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
@@ -59,10 +59,19 @@ def _cap_row(c) -> CapRowOut:
     return row
 
 
+# ĐỌC danh sách đơn vị: quyền RỘNG hơn phần khai (`MODULE`). Từ 2026-08-08 ô ĐVT của Giấy · Vật tư
+# khác · Kho · NCC đều chọn từ danh mục này, mà mấy màn đó gác bằng module KHÁC — để nguyên
+# `dm_cong_doan` thì người dùng kho mở drawer sẽ ăn 403, và `RebuildCatalogPage` NUỐT lỗi thành
+# danh sách rỗng (`.catch(() => [])`) nên họ chỉ thấy ô tìm không ra gì, không thấy báo lỗi nào.
+_doc_don_vi = require_any_permission(
+    (MODULE, "read"), ("kho", "read"), ("thu_mua", "read"),
+    ("tinh_gia_thanh", "read"), ("san_xuat", "read"))
+
+
 @router.get("", response_model=DonViDoListOut)
 def list_items(
     svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(_doc_don_vi)],
     q: str | None = Query(default=None),
     ho: str | None = Query(default=None),
     active: bool | None = Query(default=None),

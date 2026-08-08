@@ -253,6 +253,7 @@ class PurchaseService:
         departments: DepartmentRepository,
         audit: AuditLogRepository,
         authz: AuthorizationService,
+        hang=None,
     ) -> None:
         self.suppliers = suppliers
         self.department_requests = department_requests
@@ -261,8 +262,54 @@ class PurchaseService:
         self.departments = departments
         self.audit = audit
         self.authz = authz
+        # `VatLieuKhoService` — tra danh mục gốc + quy đổi đơn vị, để bảng giá NCC gắn được về
+        # mặt hàng và so được giá. None → bỏ qua phần gắn (giữ tương thích với test cũ).
+        self.hang = hang
 
     # --- suppliers ---------------------------------------------------------
+
+    def so_gia_ncc(self, hang_loai: str, hang_id: int) -> dict:
+        """Các NCC bán MỘT mặt hàng, giá quy về ĐƠN VỊ GỐC để so ngang.
+
+        Vì sao phải quy đổi mới so được: NCC A báo 1.020.000 đ/ram, NCC B báo 24.500 đ/kg — hai
+        con số này không so trực tiếp được. Đưa cả hai về đ/<đơn vị gốc> thì mới biết ai rẻ.
+
+        Dòng không quy đổi được KHÔNG bị loại (người dùng vẫn cần thấy NCC đó có bán) nhưng xếp
+        CUỐI kèm lý do — xếp hạng một dòng chưa biết giá thật là mời chọn nhầm.
+        """
+        from .vat_lieu_kho_service import VatLieuKhoError
+
+        info = self.hang.don_vi_cua_mat_hang(hang_loai, hang_id)
+        rows: list[dict] = []
+        for sup, it in self.suppliers.items_for_hang(hang_loai, hang_id):
+            r = {
+                "supplier_id": sup.id, "supplier_name": sup.name,
+                "supplier_item_id": it.id, "unit": it.unit,
+                "unit_price": int(it.unit_price or 0),
+                "vat_percent": float(it.vat_percent or 0),
+                "gia_quy_doi": None, "gia_quy_doi_vat": None,
+                "dien_giai": None, "ly_do": None,
+            }
+            try:
+                # 1 đơn vị NCC bán bằng `he_so_ve_goc` đơn vị gốc → giá/đơn-vị-gốc = giá ÷ hệ số.
+                qd = self.hang.quy_ve_goc(hang_loai, hang_id, it.unit, 1)
+                hs = qd["he_so_ve_goc"]
+                if hs > 0:
+                    gia = int(round(int(it.unit_price or 0) / hs))
+                    r["gia_quy_doi"] = gia
+                    r["gia_quy_doi_vat"] = int(round(gia * (1 + float(it.vat_percent or 0) / 100)))
+                    r["dien_giai"] = qd["dien_giai"]
+            except VatLieuKhoError as e:
+                r["ly_do"] = str(e)
+            rows.append(r)
+        # `float("inf")` cho dòng chưa quy đổi được → luôn nằm cuối, không lẫn vào xếp hạng.
+        rows.sort(key=lambda x: (x["gia_quy_doi"] if x["gia_quy_doi"] is not None else float("inf")))
+        return {
+            "hang_loai": hang_loai, "hang_id": hang_id,
+            "hang_ma": info.get("ma"), "hang_ten": info.get("ten"),
+            "don_vi_goc": info.get("don_vi_goc"), "don_vi_goc_ten": info.get("don_vi_goc_ten"),
+            "items": rows,
+        }
 
     def list_suppliers(
         self,
@@ -346,8 +393,20 @@ class PurchaseService:
             vat_percent = float(raw_vat)
             if vat_percent < 0 or vat_percent > 100:
                 raise PurchaseValidationError("VAT mat hang nha cung cap phai tu 0 den 100.")
+            hang_loai = (get("hang_loai") or "").strip() or None
+            hang_id = get("hang_id") or None
+            if (hang_loai is None) != (hang_id is None):
+                raise PurchaseValidationError(
+                    "Mat hang goc phai co ca loai lan ma — chon lai o o Vat tu."
+                )
+            if hang_loai is not None:
+                # Đơn vị NCC bán phải nằm trong tập đổi được của mặt hàng, nếu không thì cột "giá
+                # quy về đơn vị gốc" vĩnh viễn trống và dòng này không bao giờ so giá được.
+                self._kiem_don_vi_ncc(hang_loai, int(hang_id), unit)
             items.append(
                 SupplierItemInput(
+                    hang_loai=hang_loai,
+                    hang_id=int(hang_id) if hang_id else None,
                     item_name=item_name,
                     unit=unit,
                     unit_price=unit_price,
@@ -356,6 +415,16 @@ class PurchaseService:
                 )
             )
         return items
+
+    def _kiem_don_vi_ncc(self, hang_loai: str, hang_id: int, unit: str) -> None:
+        from .vat_lieu_kho_service import VatLieuKhoError
+
+        if self.hang is None:
+            return
+        try:
+            self.hang.quy_ve_goc(hang_loai, hang_id, unit, 1)
+        except VatLieuKhoError as e:
+            raise PurchaseValidationError(str(e)) from None
 
     def create_supplier(self, *, actor, **values) -> Supplier:
         cleaned = self._clean_supplier_values(**values)

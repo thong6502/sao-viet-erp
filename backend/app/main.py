@@ -24,13 +24,10 @@ from .routers import (
     late_early,
     overtime,
     payroll,
-    costings,
-    estimates,
     customers,
     employees,
     files,
     machines,
-    materials,
     operations,
     product_types_catalog,
     purchases,
@@ -127,18 +124,16 @@ app.include_router(leaves.router)
 app.include_router(overtime.router)
 app.include_router(late_early.router)
 app.include_router(payroll.router)
-app.include_router(costings.router)
-app.include_router(estimates.router)
 app.include_router(quotations.router)
 app.include_router(orders.router)
 app.include_router(product_types_catalog.router)
 app.include_router(purchases.router)
 app.include_router(accounting.router)
-app.include_router(materials.router)
 app.include_router(machines.router)
 app.include_router(operations.router)
 # Gỡ (2026-07-16): products · plate_die_rates · norms — không màn nào gọi, module quyền đã bỏ
-# (migration 0069). Bảng + repo GIỮ: engine tính giá vẫn đọc norms/plate_die_rates.
+# (migration 0069). Gỡ (2026-08-08, Đợt 5): materials · costings · estimates — cụm tính giá đời cũ
+# đã xoá hẳn. Bảng norms/plate_die_rates GIỮ: engine tính giá đang chạy vẫn đọc.
 app.include_router(may_thiet_bi.router)
 app.include_router(may_thiet_bi.nhom_may_router)   # danh mục Nhóm máy (cùng module quyền)
 app.include_router(vat_lieu_kho.router)

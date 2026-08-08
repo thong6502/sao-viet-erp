@@ -118,7 +118,17 @@ class SupplierItem(Base):
     supplier_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("suppliers.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    # MẶT HÀNG GỐC mà dòng này bán (mg 0172). NULLABLE có chủ ý: NCC còn bán thứ ngoài danh mục
+    # vật tư (dịch vụ, gia công thuê ngoài) — bắt buộc gắn thì không khai nổi mấy dòng đó. Dòng
+    # nào CÓ gắn mới vào được bảng so giá.
+    #
+    # Trước đây ghép NCC với kho bằng CHUỖI `item_name`: thu mua gõ "Couche 150" còn danh mục ghi
+    # "Couché 150 79×109" là trượt, mà trượt thì im lặng — không báo lỗi, chỉ là mãi không so được giá.
+    hang_loai: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    hang_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     item_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    # Đơn vị NCC BÁN theo — phải nằm trong tập đổi được của mặt hàng (nếu đã gắn), để quy giá về
+    # đơn vị gốc mà so ngang giữa các NCC.
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
     unit_price: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     vat_percent: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0)

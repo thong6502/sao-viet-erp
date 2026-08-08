@@ -237,6 +237,8 @@ class SoDoBuocChung(BaseModel):
     cong_doan_id: int | None = None
     loai_buoc: str
     thu_tu: int
+    # `False` = bước chế bản (chung BẢN/kẽm), KHÔNG nằm trên dòng giấy → thẻ ẩn số tờ vào/ra.
+    tren_giay: bool = True
     # Số của CẢ LƯỢT, tính bằng TỜ ghép: một lượt chạy thì đếm tờ, con là chuyện của điểm toả.
     so_luong_vao: float = 0
     so_luong_ra: float = 0
@@ -255,6 +257,10 @@ class SoDoBuocChung(BaseModel):
     to_ten: str | None = None
     may_id: int | None = None
     may_ten: str | None = None
+    # T3: cảnh báo MỀM máy không hợp công đoạn (sai loại / vượt khổ-màu-gsm); và nhóm máy cho phép
+    # để FE lọc dropdown máy theo công đoạn (bước Bế chỉ thấy máy Bế).
+    may_khong_hop: list[str] = Field(default_factory=list)
+    nhom_may_cho_phep: list[str] = Field(default_factory=list)
     nha_cung_cap: str | None = None
     tong_phut: float = 0
     chiem_may_phut: float = 0

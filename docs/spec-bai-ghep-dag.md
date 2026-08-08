@@ -1,8 +1,13 @@
 # SPEC — SƠ ĐỒ BÀI GHÉP & THÔNG SỐ IN DẪN XUẤT
 
 > **Bài ghép là chỗ tập trung của khúc tờ** — xuyên LSX và xuyên đơn hàng. Mỗi lệnh giữ chuỗi
-> công đoạn riêng cả trước lẫn sau in, chỉ gặp nhau tại **một node IN duy nhất**.
-> Anh em với `spec-quy-tac-binh-bai.md`, `spec-cong-doan.md`, `spec-thue-ngoai-giao-nhan.md`.
+> công đoạn riêng cả trước lẫn sau in; NGƯỜI khai bước nào chạy chung (CTP/in/cán/bế), điểm TOẢ
+> nằm sau bước gộp CUỐI. Anh em với `spec-quy-tac-binh-bai.md`, `spec-cong-doan.md`, `spec-thue-ngoai-giao-nhan.md`.
+
+> ⚠️ **CẬP NHẬT (2026-08) — đọc trước:** mô hình "một node IN duy nhất" + cột `buoc_in_step_key`
+> (§2.1, §3.2) ĐÃ BỊ THAY bằng lớp đè ĐA-CÔNG-ĐOẠN: `bai_ghep_cong_doan` + `bai_ghep_cong_doan_map`
+> (neo `lsx_step_key`), người dùng tự gộp bước nào chung. Bước chế bản (prepress) bị loại khỏi
+> chuỗi giấy. Các mục dưới mô tả THIẾT KẾ CŨ — giữ để tra lịch sử, KHÔNG phải hiện trạng.
 
 ---
 

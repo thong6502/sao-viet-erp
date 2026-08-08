@@ -343,11 +343,6 @@ export function BaoGiaPage({
                     <td>
                       <div className="prod">
                         <span className="nm">{r.product_summary ?? "—"}</span>
-                        {r.estimate_refs && r.estimate_refs.length > 0 && (
-                          <span className="ptg">
-                            <CornerDownLeft size={12} /> {r.estimate_refs.join(", ")}
-                          </span>
-                        )}
                       </div>
                     </td>
                     <td className="num">
@@ -677,7 +672,6 @@ function QuotationDetailView({
 
   // Tên tóm tắt: dòng đầu thuộc nhóm thì lấy TÊN NHÓM (khách mua "quyển sách", không mua "ruột").
   const productSummary = d.items[0]?.nhom?.trim() || d.items[0]?.product_name || "—";
-  const ptgRefs = Array.from(new Set(d.items.map((it) => it.estimate_number).filter(Boolean)));
 
   // ---- Persist margin/VAT --------------------------------------------------
   // Patch theo dòng: bỏ trống field nào thì GIỮ giá trị hiện tại của dòng đó (dùng ?? để 0 vẫn áp).
@@ -1443,11 +1437,7 @@ function QuotationDetailView({
               <div className="irow"><span className="k">MST</span><span className="v mono">{d.customer?.tax_code ?? "—"}</span></div>
               <div className="irow"><span className="k">Tín dụng</span><span className="v">{d.customer?.credit_status_display ?? "—"}</span></div>
               <div className="irow">
-                {/* Hệ mới (PhieuTinhGia) → link mở được. Hệ cũ (Estimate, UI đã ngừng) → chỉ là
-                    tham chiếu, KHÔNG mở được: đổi nhãn + làm mờ + bỏ vẻ-như-link để không hiểu nhầm. */}
-                <span className="k">
-                  {!d.phieu_tinh_gia_id && ptgRefs.length ? "Ước tính (hệ cũ)" : "Phiếu tính giá"}
-                </span>
+                <span className="k">Phiếu tính giá</span>
                 <span className="v ptgs">
                   {d.phieu_tinh_gia_id ? (
                     <button
@@ -1457,10 +1447,6 @@ function QuotationDetailView({
                     >
                       <CornerDownLeft size={13} /> {d.phieu_tinh_gia_ma ?? `#${d.phieu_tinh_gia_id}`}
                     </button>
-                  ) : ptgRefs.length ? (
-                    ptgRefs.map((r, i) => (
-                      <span key={i} className="ptg-legacy" title="Ước tính hệ cũ — không mở được">{r}</span>
-                    ))
                   ) : (
                     "—"
                   )}

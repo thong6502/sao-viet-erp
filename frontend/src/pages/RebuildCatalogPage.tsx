@@ -12,11 +12,19 @@ import "./rebuild-catalog.css";
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "date" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "ref-search" | "bands" | "size_tiers" | "nhom_may" | "formula" | "dau-viec-dinh-muc" | "chuan_bi_khoan" | "don_vi_toc_do";
+  // `ref-search-ma` = như `ref-search` nhưng lưu MÃ (chuỗi) thay vì id — cho cột trỏ danh mục bằng
+  // mã như `don_vi_gia` (quy đổi làm việc trên mã `kg`/`to`, không trên id).
+  type?: "text" | "number" | "date" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "size_tiers" | "nhom_may" | "nhom_may-multi" | "formula" | "dau-viec-dinh-muc" | "chuan_bi_khoan" | "don_vi_toc_do";
   options?: { value: string; label: string }[];
   refPrefix?: string;           // ref / ref-multi / ref-search: endpoint danh mục nguồn (đổ theo TÊN/MÃ)
+  /** Query thêm khi nạp danh mục nguồn, vd `{ active: true }` — không lọc thì picker mời cả dòng
+   *  đã ngừng dùng, người ta chọn xong bấm Lưu mới ăn lỗi từ server. */
+  refParams?: Record<string, unknown>;
   required?: boolean;
-  hint?: string;
+  /** Chuỗi tĩnh, HOẶC hàm dựng câu từ chính form đang gõ — vd quy cách đóng gói hiện
+   *  "1 thùng = 3 kg" ghép từ ô đơn vị đóng gói + ô hệ số + ĐVT. Câu đọc được kiểm bằng mắt
+   *  ngay lúc khai, đỡ hơn hẳn hai ô số rời không nói lên nghĩa gì. */
+  hint?: string | ((form: Record<string, unknown>) => string);
   group?: string;               // nhóm section trong drawer
   showIf?: (form: Record<string, unknown>) => boolean;  // ẩn/hiện field theo giá trị khác
   default?: unknown;            // prefill khi TẠO MỚI (giá trị thật, không phải placeholder "0")
@@ -976,7 +984,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
       ten: existing?.ten ?? ""
     };
     for (const f of config.fields) {
-      if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers" || f.type === "dau-viec-dinh-muc") {
+      if (f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "size_tiers" || f.type === "dau-viec-dinh-muc") {
         const ev = existing?.[f.key];
         init[f.key] = Array.isArray(ev) ? ev : [];
       } else if (f.jsonKey) {
@@ -1015,12 +1023,18 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
   const onRefChanged = useCallback(() => setRefTick((t) => t + 1), []);
   useEffect(() => {
     if (!token) return;
-    const prefixes = [...new Set(
-      config.fields.filter((f) => f.type === "ref" || f.type === "ref-multi" || f.type === "ref-search" || f.type === "dau-viec-dinh-muc" || f.type === "don_vi_toc_do" || f.type === "nhom_may").map((f) => f.refPrefix).filter(Boolean) as string[],
-    )];
-    if (prefixes.length === 0) return;
+    // Gộp `refParams` theo prefix: nhiều field có thể cùng trỏ một danh mục (vd ĐVT và Đơn vị đóng
+    // gói đều lấy `/api/don-vi`) — nạp một lần, query là hợp của các field đó.
+    const theoPrefix = new Map<string, Record<string, unknown>>();
+    for (const f of config.fields) {
+      if (!f.refPrefix) continue;
+      if (!(f.type === "ref" || f.type === "ref-multi" || f.type === "ref-search" || f.type === "ref-search-ma" || f.type === "dau-viec-dinh-muc" || f.type === "don_vi_toc_do" || f.type === "nhom_may" || f.type === "nhom_may-multi")) continue;
+      theoPrefix.set(f.refPrefix, { ...(theoPrefix.get(f.refPrefix) ?? {}), ...(f.refParams ?? {}) });
+    }
+    if (theoPrefix.size === 0) return;
     let alive = true;
-    Promise.all(prefixes.map((p) => crud(p).list(token).then((r) => [p, r.items] as const).catch(() => [p, [] as Row[]] as const)))
+    Promise.all([...theoPrefix].map(([p, params]) =>
+      crud(p).list(token, params).then((r) => [p, r.items] as const).catch(() => [p, [] as Row[]] as const)))
       .then((entries) => { if (alive) setRefData(Object.fromEntries(entries)); });
     return () => { alive = false; };
   }, [token, config.fields, refTick]);
@@ -1034,7 +1048,8 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
 
   const renderField = (f: FieldDef) => {
     const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
-    const isFullWidth = f.type === "bands" || f.type === "size_tiers" || f.type === "chuan_bi_khoan" || f.type === "ref-multi" || f.type === "dau-viec-dinh-muc" || f.type === "json" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
+    const hint = typeof f.hint === "function" ? f.hint(form) : f.hint;
+    const isFullWidth = f.type === "bands" || f.type === "size_tiers" || f.type === "chuan_bi_khoan" || f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "dau-viec-dinh-muc" || f.type === "json" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
     // "div" chứ không "label": khối này chứa NHIỀU input, bọc trong <label> là bấm đâu cũng nhảy
     // focus vào ô đầu tiên.
     const Tag = f.type === "formula" || f.type === "bands" || f.type === "size_tiers" || f.type === "chuan_bi_khoan" ? "div" : "label";
@@ -1070,6 +1085,12 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
             options={refData[f.refPrefix ?? ""] ?? []}
             onCatalogChanged={onRefChanged}
           />
+        ) : f.type === "nhom_may-multi" ? (
+          <NhomMayMultiField
+            value={Array.isArray(form[f.key]) ? (form[f.key] as string[]) : []}
+            options={refData[f.refPrefix ?? ""] ?? []}
+            onChange={(v) => set(f.key, v)}
+          />
         ) : f.type === "don_vi_toc_do" ? (
           <DonViTocDoField value={String(form[f.key] ?? "")} onChange={(v) => set(f.key, v)} />
         ) : f.type === "ref" ? (
@@ -1085,7 +1106,15 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
           <RefSearchField
             value={form[f.key] == null || form[f.key] === "" ? null : Number(form[f.key])}
             options={refData[f.refPrefix ?? ""] ?? []}
-            placeholder={f.hint ?? "Gõ mã / tên để tìm…"}
+            placeholder={hint ?? "Gõ mã / tên để tìm…"}
+            onChange={(v) => set(f.key, v)}
+          />
+        ) : f.type === "ref-search-ma" ? (
+          <RefSearchField
+            value={form[f.key] == null || form[f.key] === "" ? null : String(form[f.key])}
+            options={refData[f.refPrefix ?? ""] ?? []}
+            placeholder={hint ?? "Gõ mã / tên để tìm…"}
+            byMa
             onChange={(v) => set(f.key, v)}
           />
         ) : f.type === "ref-multi" ? (
@@ -1119,7 +1148,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
             {suffix && <span className="rc-input-suffix">{suffix}</span>}
           </div>
         )}
-        {f.hint && <span className="rc-field__hint">{f.hint}</span>}
+        {hint && <span className="rc-field__hint">{hint}</span>}
       </Tag>
     );
   };
@@ -1132,7 +1161,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     if (!config.autoCode || isEdit) body.ma = form.ma;
     for (const f of visibleFields) {
       let v = form[f.key];
-      if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers" || f.type === "dau-viec-dinh-muc") { body[f.key] = Array.isArray(v) ? v : []; continue; }
+      if (f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "size_tiers" || f.type === "dau-viec-dinh-muc") { body[f.key] = Array.isArray(v) ? v : []; continue; }
       if (v === "" || v === undefined) {
         const kieuChu = !f.type || f.type === "text" || f.type === "date" || f.type === "nhom_may";
         const voonCoGiaTri = isEdit && existing != null && existing[f.key] != null
@@ -1306,6 +1335,47 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
 }
 
 // ── TIMELINE MULTI-PICKER ────────────────────────────────────────────────────────
+/** Multi-select nhóm máy → lưu mảng TÊN (khớp `may_thiet_bi.loai_may`). Khác `RefMultiField` (lưu
+ *  id) và `NhomMayField` (single). Dùng cho `cong_doan.nhom_may_cho_phep` — chặn gán máy sai loại. */
+function NhomMayMultiField({ value, options, onChange }: {
+  value: string[]; options: Row[]; onChange: (v: string[]) => void;
+}) {
+  const chon = Array.isArray(value) ? value : [];
+  const toggle = (ten: string) =>
+    onChange(chon.includes(ten) ? chon.filter((t) => t !== ten) : [...chon, ten]);
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      {options.length === 0 ? (
+        <div className="rc-timeline__empty">Chưa có nhóm máy nào trong danh mục.</div>
+      ) : (
+        options.map((o) => {
+          const ten = String(o.ten);
+          const on = chon.includes(ten);
+          return (
+            <label
+              key={o.id}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "4px 10px", borderRadius: 999, cursor: "pointer",
+                border: `1px solid ${on ? "#2563eb" : "var(--rule-hair, #e2e8f0)"}`,
+                background: on ? "#eff6ff" : "var(--paper, #fff)",
+                color: on ? "#1d4ed8" : "var(--ink-soft, #475569)",
+                fontSize: 12, fontWeight: 600,
+              }}
+            >
+              <input type="checkbox" checked={on} onChange={() => toggle(ten)} />
+              {ten}
+            </label>
+          );
+        })
+      )}
+      <div style={{ flexBasis: "100%", fontSize: 11, color: "var(--ink-soft, #64748b)" }}>
+        Bỏ trống = mọi máy (không ràng buộc). Chọn nhóm nào thì chỉ máy nhóm đó được gán cho công đoạn này ở bài ghép.
+      </div>
+    </div>
+  );
+}
+
 function RefMultiField({ value, options, onChange }: {
   value: number[]; options: Row[]; onChange: (v: number[]) => void;
 }) {
@@ -1360,20 +1430,39 @@ function RefMultiField({ value, options, onChange }: {
 }
 
 // Ô tìm-chọn 1 danh mục theo MÃ (typeahead, bỏ dấu vẫn khớp) — vd chọn bù hao cho công đoạn.
-function RefSearchField({ value, options, placeholder, onChange }: {
-  value: number | null; options: Row[]; placeholder?: string; onChange: (v: number | null) => void;
+function RefSearchField({ value, options, placeholder, byMa, onChange }: {
+  value: number | string | null; options: Row[]; placeholder?: string;
+  /** Lưu MÃ (chuỗi) thay vì id — cho cột trỏ danh mục bằng mã, vd `don_vi_gia`. */
+  byMa?: boolean;
+  onChange: (v: number | string | null) => void;
 }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const norm = (s: string) =>
     s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d");
-  const selected = value == null ? null : options.find((o) => o.id === value) ?? null;
+  const rong = value == null || value === "";
+  const selected = rong ? null : options.find(
+    (o) => (byMa ? String(o.ma ?? "").toLowerCase() === String(value).toLowerCase() : o.id === value)
+  ) ?? null;
   const nq = norm(q.trim());
   const matches = (nq
     ? options.filter((o) => norm(`${o.ma} ${o.ten}`).includes(nq))
     : options
   ).slice(0, 20);
 
+  // Có giá trị nhưng KHÔNG khớp danh mục (đơn vị đã ngừng dùng / mã cũ). Hiện nguyên mã + báo đỏ:
+  // để ô trắng như chưa chọn thì người dùng tưởng trống, bấm Lưu và giá trị hỏng vẫn nằm nguyên đó.
+  if (!rong && !selected) {
+    return (
+      <div className="rc-input-wrapper" style={{ display: "flex", gap: "6px", alignItems: "stretch" }}>
+        <span className="rc-input" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", color: "var(--danger, #b3261e)" }}>
+          <span><b style={{ fontFamily: "var(--ff-num)" }}>{String(value)}</b> · không có trong danh mục</span>
+          <button type="button" className="rc-timeline__btn rc-timeline__btn--danger" title="Bỏ chọn — tìm lại"
+            onClick={() => { onChange(null); setQ(""); setOpen(true); }}>✕</button>
+        </span>
+      </div>
+    );
+  }
   if (selected) {
     return (
       <div className="rc-input-wrapper" style={{ display: "flex", gap: "6px", alignItems: "stretch" }}>
@@ -1403,7 +1492,7 @@ function RefSearchField({ value, options, placeholder, onChange }: {
               style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px",
                 background: "transparent", border: "none", cursor: "pointer" }}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => { onChange(o.id); setQ(""); setOpen(false); }}>
+              onClick={() => { onChange(byMa ? String(o.ma) : o.id); setQ(""); setOpen(false); }}>
               <b style={{ fontFamily: "var(--ff-num)" }}>{o.ma}</b> · {o.ten}
             </button>
           ))}

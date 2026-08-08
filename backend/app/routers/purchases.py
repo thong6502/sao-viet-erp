@@ -19,6 +19,7 @@ from ..schemas.purchase import (
     ReasonIn,
     ReceivedLinesIn,
     SupplierIn,
+    SoGiaOut,
     SupplierItemCatalogOut,
     SupplierListOut,
     SupplierRow,
@@ -180,6 +181,24 @@ def supplier_item_catalog(
     _: CurrentUser,
 ) -> SupplierItemCatalogOut:
     return SupplierItemCatalogOut(items=svc.list_supplier_item_catalog())
+
+
+@router.get("/api/supplier-items/so-gia", response_model=SoGiaOut)
+def so_gia_ncc(
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    _: CurrentUser,
+    hang_loai: str = Query(..., pattern="^(giay|vat_tu)$"),
+    hang_id: int = Query(..., gt=0),
+) -> SoGiaOut:
+    """Các NCC bán mặt hàng này, GIÁ QUY VỀ ĐƠN VỊ GỐC để so ngang.
+
+    "1.020.000 đ/ram" và "24.500 đ/kg" không so trực tiếp được — quy về cùng đơn vị mới biết ai
+    rẻ. Dòng không quy đổi được vẫn hiện (NCC đó có bán thật) nhưng xếp cuối kèm lý do.
+    """
+    try:
+        return SoGiaOut(**svc.so_gia_ncc(hang_loai, hang_id))
+    except VatLieuKhoError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
 
 
 @router.post("/api/suppliers", response_model=SupplierRow, status_code=status.HTTP_201_CREATED)

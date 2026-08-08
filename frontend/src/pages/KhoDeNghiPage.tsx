@@ -2,12 +2,14 @@
 //
 // Ranh giới của màn này là ranh giới QUYỀN: người đề nghị KHÔNG thấy số tồn, KHÔNG thấy giá,
 // KHÔNG thấy lô, KHÔNG chọn kho. Đề nghị chỉ nói "xin cái gì, bao nhiêu"; kho nào là quyết định
-// ở BƯỚC LẬP PHIẾU (thủ kho). Hàng mới thì gõ tên tự do — thủ kho gắn/tạo mã khi lập phiếu.
+// ở BƯỚC LẬP PHIẾU (thủ kho). SIẾT 2026-08-08: mặt hàng phải có sẵn trong danh mục Giấy / Vật
+// tư khác — không còn gõ tên tự do rồi kho gắn mã sau.
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   api,
-  type StockMaterialOption,
+  type HangLoai,
+  type MatHangOption,
   type StockRequest,
   type StockRequestKind,
   type StockRequestLineInput,
@@ -18,7 +20,7 @@ import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
-import { MaterialCombobox } from "../components/MaterialCombobox";
+import { DonViChonTheoHang, MaterialCombobox } from "../components/MaterialCombobox";
 import { PrintSheet } from "../components/PrintSheet";
 import { Select } from "../components/Select";
 import { fmtDate, fmtDateISO } from "../utils/format";
@@ -335,7 +337,7 @@ export function KhoDeNghiPage({
                     </td>
                     <td>
                       <div className="rc__name">
-                        {first?.material_name ?? first?.ten_tu_do ?? "—"}
+                        {first?.hang_ten ?? "—"}
                       </div>
                       {r.lines.length > 1 && (
                         <div className="rc__muted kho-hint">+{r.lines.length - 1} mã</div>
@@ -419,19 +421,18 @@ export function KhoDeNghiPage({
 // ── DRAWER ────────────────────────────────────────────────────────────────────
 
 export interface SeedLine {
-  /** 0 = hàng mới chưa gắn mã (dùng `ten_tu_do`); >0 = hàng đã có mã. */
-  material_id: number;
-  material_code: string | null;
-  material_name: string | null;
-  /** Tên hàng mới gõ tự do (khi material_id = 0). Thủ kho gắn/tạo mã ở bước phiếu. */
-  ten_tu_do: string | null;
+  /** MẶT HÀNG GỐC — null = dòng trống chưa chọn. Không còn khái niệm "hàng chưa có mã". */
+  hang_loai: HangLoai | null;
+  hang_id: number | null;
+  hang_ma: string | null;
+  hang_ten: string | null;
+  /** Đơn vị người đề nghị chọn (trong tập đổi được của mặt hàng) + hệ số về đơn vị gốc để
+   *  hiện trước con số sẽ vào tồn. */
   dvt: string;
+  he_so_ve_goc: number | null;
   sl_de_nghi: number;
-  /** Đơn giá NHẬP người đề nghị khai (chỉ đề nghị NHẬP). Phiếu kế thừa; kho không sửa. */
+  /** Đơn giá NHẬP người đề nghị khai (chỉ đề nghị NHẬP), theo `dvt`. Phiếu kế thừa; kho không sửa. */
   don_gia: number | null;
-  /** Quy đổi đơn vị người đề nghị khai (1 don_vi_phu = he_so_quy_doi × dvt tồn). */
-  don_vi_phu: string | null;
-  he_so_quy_doi: number | null;
   ghi_chu: string | null;
 }
 
@@ -451,15 +452,14 @@ function newLine(seed?: Partial<SeedLine>): DraftLine {
   return {
     key: `l${lineSeq}`,
     lineId: null,
-    material_id: seed?.material_id ?? 0,
-    material_code: seed?.material_code ?? null,
-    material_name: seed?.material_name ?? null,
-    ten_tu_do: seed?.ten_tu_do ?? null,
+    hang_loai: seed?.hang_loai ?? null,
+    hang_id: seed?.hang_id ?? null,
+    hang_ma: seed?.hang_ma ?? null,
+    hang_ten: seed?.hang_ten ?? null,
     dvt: seed?.dvt ?? "",
+    he_so_ve_goc: seed?.he_so_ve_goc ?? null,
     sl_de_nghi: seed?.sl_de_nghi ?? 0,
     don_gia: seed?.don_gia ?? null,
-    don_vi_phu: seed?.don_vi_phu ?? null,
-    he_so_quy_doi: seed?.he_so_quy_doi ?? null,
     ghi_chu: seed?.ghi_chu ?? null,
     sl_duyet: 0,
     sl_da_ung: 0,
@@ -530,15 +530,15 @@ function RequestDrawer({
           r.lines.map((l) => ({
             key: `s${l.id}`,
             lineId: l.id,
-            material_id: l.material_id ?? 0,
-            material_code: l.material_code,
-            material_name: l.material_name,
-            ten_tu_do: l.ten_tu_do,
+            hang_loai: l.hang_loai,
+            hang_id: l.hang_id,
+            hang_ma: l.hang_ma,
+            hang_ten: l.hang_ten,
             dvt: l.dvt,
+            // Suy ngược từ số server đã quy đổi — khỏi gọi thêm API chỉ để lấy hệ số.
+            he_so_ve_goc: l.sl_quy_doi && l.sl_de_nghi ? l.sl_quy_doi / l.sl_de_nghi : null,
             sl_de_nghi: l.sl_de_nghi,
             don_gia: l.don_gia,
-            don_vi_phu: l.don_vi_phu,
-            he_so_quy_doi: l.he_so_quy_doi,
             ghi_chu: l.ghi_chu,
             sl_duyet: l.sl_duyet,
             sl_da_ung: l.sl_da_ung,
@@ -579,62 +579,39 @@ function RequestDrawer({
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   }
 
-  function pickMaterial(key: string, m: StockMaterialOption) {
-    // Trùng mã hàng: chặn ngay ở FE với ĐÚNG câu backend trả, để người dùng không gặp
+  function pickMaterial(key: string, m: MatHangOption) {
+    // Trùng mặt hàng: chặn ngay ở FE với ĐÚNG câu backend trả, để người dùng không gặp
     // hai cách diễn đạt khác nhau cho cùng một luật.
-    if (lines.some((l) => l.key !== key && l.material_id === m.id)) {
-      setError("Một mã hàng chỉ được xuất hiện 1 dòng — gộp số lượng lại.");
+    if (lines.some((l) => l.key !== key && l.hang_loai === m.hang_loai && l.hang_id === m.hang_id)) {
+      setError("Một mặt hàng chỉ được xuất hiện 1 dòng — gộp số lượng lại.");
       return;
     }
     setError(null);
+    // Đổi mặt hàng → XOÁ đơn vị cũ: đơn vị dùng được phụ thuộc chính mặt hàng, giữ lại đơn vị của
+    // món trước là mời một dòng không quy đổi được. `DonViChonTheoHang` sẽ tự điền đơn vị gốc.
     patchLine(key, {
-      material_id: m.id,
-      material_code: m.code,
-      material_name: m.name,
-      // Đã chọn mã sẵn → xoá cờ hàng-mới.
-      ten_tu_do: null,
-      dvt: m.unit ?? "",
-      // Prefill quy đổi từ mặt hàng (nếu mã đã khai) để người đề nghị thấy/sửa được.
-      don_vi_phu: m.don_vi_phu ?? null,
-      he_so_quy_doi: m.he_so_quy_doi ?? null,
+      hang_loai: m.hang_loai,
+      hang_id: m.hang_id,
+      hang_ma: m.ma,
+      hang_ten: m.ten,
+      dvt: "",
+      he_so_ve_goc: null,
     });
-  }
-
-  // Hàng MỚI: người đề nghị KHÔNG tạo mã — chỉ gõ tên tự do, thủ kho gắn/tạo mã ở phiếu.
-  function nameFreeText(key: string, name: string) {
-    setDirty(true);
-    setError(null);
-    setLines((prev) =>
-      prev.map((l) =>
-        l.key === key
-          ? { ...l, material_id: 0, material_code: null, material_name: name, ten_tu_do: name }
-          : l,
-      ),
-    );
   }
 
   function payloadLines(): StockRequestLineInput[] {
     const isNhap = loai === "NHAP";
     return lines
-      .filter(
-        (l) =>
-          (l.material_id > 0 || (l.ten_tu_do ?? "").trim()) && Number(l.sl_de_nghi) > 0,
-      )
-      .map((l) => {
-        // Đơn giá + QUY ĐỔI chỉ gửi cho đề nghị NHẬP (người đề nghị khai). XUẤT không có.
-        const dvp = isNhap ? (l.don_vi_phu ?? "").trim() || null : null;
-        const base = {
-          dvt: l.dvt || "cái",
-          sl_de_nghi: Number(l.sl_de_nghi),
-          don_gia: isNhap && l.don_gia != null ? Number(l.don_gia) : null,
-          don_vi_phu: dvp,
-          he_so_quy_doi: dvp && l.he_so_quy_doi ? Number(l.he_so_quy_doi) : null,
-          ghi_chu: l.ghi_chu || null,
-        };
-        return l.material_id > 0
-          ? { material_id: l.material_id, ...base }
-          : { ten_tu_do: (l.ten_tu_do ?? "").trim(), ...base };
-      });
+      .filter((l) => l.hang_loai && l.hang_id && l.dvt && Number(l.sl_de_nghi) > 0)
+      .map((l) => ({
+        hang_loai: l.hang_loai as HangLoai,
+        hang_id: l.hang_id as number,
+        dvt: l.dvt,
+        sl_de_nghi: Number(l.sl_de_nghi),
+        // Đơn giá chỉ gửi cho đề nghị NHẬP (người đề nghị biết giá NCC). XUẤT lấy giá vốn từ lô.
+        don_gia: isNhap && l.don_gia != null ? Number(l.don_gia) : null,
+        ghi_chu: l.ghi_chu || null,
+      }));
   }
 
   async function save(thenSubmit: boolean) {
@@ -839,36 +816,28 @@ function RequestDrawer({
                               {editable ? (
                                 <MaterialCombobox
                                   token={token}
-                                  materialName={l.material_name}
+                                  hangTen={l.hang_ten}
                                   onPick={(m) => pickMaterial(l.key, m)}
-                                  // Gõ tên rồi "＋ Thêm" = ghi thẳng tên vật tư, KHÔNG tạo mã.
-                                  // Thủ kho gắn/tạo mã ở bước lập phiếu (người đề nghị không cần biết).
-                                  // XUẤT: chỉ lĩnh hàng ĐÃ có trong kho → không cho tạo hàng mới.
-                                  createLabel="Thêm"
-                                  allowCreate={loai === "NHAP"}
-                                  onCreate={(nm) => nameFreeText(l.key, nm)}
                                 />
                               ) : (
                                 <>
-                                  <div className="kho-lines__name">
-                                    {l.material_name ?? l.ten_tu_do ?? "—"}
-                                  </div>
-                                  <div className="kho-lines__code">
-                                    {l.material_code ?? (l.ten_tu_do ? "Hàng mới" : "")}
-                                  </div>
+                                  <div className="kho-lines__name">{l.hang_ten ?? "—"}</div>
+                                  <div className="kho-lines__code">{l.hang_ma ?? ""}</div>
                                 </>
                               )}
                             </td>
                             <td>
-                              {/* Hàng có mã → ĐVT khoá theo mã. Hàng mới → người đề nghị tự gõ. */}
-                              {editable && l.material_id === 0 ? (
-                                <input
-                                  className="rc-input"
-                                  style={{ width: 68 }}
+                              {/* ĐVT KHÔNG gõ tự do nữa: chỉ chọn trong tập đổi được của chính
+                                  mặt hàng — đơn vị lạ thì tồn kho không cộng được. */}
+                              {editable && l.hang_loai && l.hang_id ? (
+                                <DonViChonTheoHang
+                                  token={token}
+                                  hangLoai={l.hang_loai}
+                                  hangId={l.hang_id}
                                   value={l.dvt}
-                                  onChange={(e) => patchLine(l.key, { dvt: e.target.value })}
-                                  placeholder="cái…"
-                                  aria-label="Đơn vị tính"
+                                  onChange={(ma, hs) =>
+                                    patchLine(l.key, { dvt: ma, he_so_ve_goc: hs })
+                                  }
                                 />
                               ) : (
                                 <span className="kho-lines__code">{l.dvt || "—"}</span>
@@ -889,6 +858,15 @@ function RequestDrawer({
                                 />
                               ) : (
                                 fmtQty(l.sl_de_nghi)
+                              )}
+                              {/* Con số THẬT SỰ vào tồn. Nhập "10 ram" mà tồn cộng 419,25 kg thì
+                                  phải nói ra ngay tại đây, đừng để bấm Lưu xong mới ngã ngửa. */}
+                              {l.he_so_ve_goc != null
+                                && l.he_so_ve_goc !== 1
+                                && Number(l.sl_de_nghi) > 0 && (
+                                <div className="kho-hint">
+                                  ≈ {fmtQty(Number(l.sl_de_nghi) * l.he_so_ve_goc)} (đơn vị gốc)
+                                </div>
                               )}
                             </td>
                             {showReply && (
@@ -1007,7 +985,7 @@ function RequestDrawer({
                       const cls = none ? "no" : done ? "ok" : "wait";
                       return (
                         <div key={l.key} className={`kho-reply__item kho-reply__item--${cls}`}>
-                          <span className="kho-reply__name">{l.material_name ?? "—"}</span> — Duyệt{" "}
+                          <span className="kho-reply__name">{l.hang_ten ?? "—"}</span> — Duyệt{" "}
                           {fmtQty(l.sl_duyet)}/{fmtQty(l.sl_de_nghi)}
                           {none
                             ? " · Không duyệt"
@@ -1047,15 +1025,14 @@ function RequestDrawer({
             onClone={() =>
               onClone(
                 lines.map((l) => ({
-                  material_id: l.material_id,
-                  material_code: l.material_code,
-                  material_name: l.material_name,
-                  ten_tu_do: l.ten_tu_do,
+                  hang_loai: l.hang_loai,
+                  hang_id: l.hang_id,
+                  hang_ma: l.hang_ma,
+                  hang_ten: l.hang_ten,
                   dvt: l.dvt,
+                  he_so_ve_goc: l.he_so_ve_goc,
                   sl_de_nghi: l.sl_de_nghi,
                   don_gia: l.don_gia,
-                  don_vi_phu: l.don_vi_phu,
-                  he_so_quy_doi: l.he_so_quy_doi,
                   ghi_chu: l.ghi_chu,
                 })),
                 loai,
@@ -1282,8 +1259,8 @@ function RequestPrint({
           {lines.map((l, i) => (
             <tr key={l.key}>
               <td>{i + 1}</td>
-              <td>{l.material_name ?? l.ten_tu_do ?? ""}</td>
-              <td>{l.material_code ?? (l.ten_tu_do ? "(hàng mới)" : "")}</td>
+              <td>{l.hang_ten ?? ""}</td>
+              <td>{l.hang_ma ?? ""}</td>
               <td>{l.dvt}</td>
               <td style={{ textAlign: "right" }}>{fmtQty(l.sl_de_nghi)}</td>
               <td style={{ textAlign: "right" }}>{l.sl_duyet > 0 ? fmtQty(l.sl_duyet) : ""}</td>

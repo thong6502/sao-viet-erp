@@ -30,8 +30,6 @@ from ..models.quotation import (
 )
 from ..models.user import User
 from ..schemas.quotation import (
-    CostingPickerOut,
-    CostingQtyOption,
     CustomerDisplayOut,
     EnumOption,
     QuotationCreate,
@@ -52,7 +50,6 @@ from ..schemas.quotation import (
     QuoteItemOut,
 )
 from ..services.quotation_service import (
-    CostingUnavailable,
     QuotationConflict,
     QuotationForbidden,
     QuotationLocked,
@@ -107,7 +104,6 @@ def _allowed_transitions(current_status: str) -> list[str]:
 def _row(
     q: Quote,
     customer_name: str | None,
-    est_numbers: dict[int, str] | None = None,
     user_names: dict[int, str] | None = None,
 ) -> QuotationRow:
     active_version = None
@@ -116,18 +112,7 @@ def _row(
             active_version = v
             break
 
-    est_numbers = est_numbers or {}
     items = list(active_version.items) if active_version else []
-
-    # ↳ các mã phiếu tính giá tham chiếu (item-level trước, header fallback)
-    ref_ids: list[int] = []
-    for it in items:
-        eid = it.estimate_id or q.estimate_id
-        if eid and eid not in ref_ids:
-            ref_ids.append(eid)
-    if not ref_ids and q.estimate_id:
-        ref_ids.append(q.estimate_id)
-    estimate_refs = [est_numbers[i] for i in ref_ids if i in est_numbers]
 
     # "Catalogue A4 + 2 SP khác"
     product_summary = None
@@ -150,7 +135,6 @@ def _row(
         version_count=len(q.versions),
         sent_at=active_version.sent_at if active_version else None,
         margin_percent=float(items[0].margin_percent) if items else None,
-        estimate_refs=estimate_refs,
         product_summary=product_summary,
         updated_at=q.updated_at,
         salesperson_name=(user_names or {}).get(q.salesperson_id),
@@ -193,17 +177,10 @@ def _detail(
         vat_amount = float(active_version.vat_amount or 0.0)
         total = float(active_version.final_amount or 0.0)
 
-        est_numbers = svc.estimate_numbers(
-            {it.estimate_id or q.estimate_id for it in active_version.items} | ({q.estimate_id} if q.estimate_id else set())
-        )
         for item in active_version.items:
-            item_est_id = item.estimate_id or q.estimate_id
             items_out.append(
                 QuoteItemOut(
                     id=item.id,
-                    estimate_id=item_est_id,
-                    estimate_number=est_numbers.get(item_est_id),
-                    estimate_option_id=item.estimate_option_id,
                     line_no=item.line_no,
                     po_code=item.po_code,
                     product_type=item.product_type,
@@ -263,7 +240,6 @@ def _detail(
         salesperson_name=salesperson_name,
         customer_id=q.customer_id,
         customer=customer,
-        estimate_id=q.estimate_id,
         phieu_tinh_gia_id=q.phieu_tinh_gia_id,
         phieu_tinh_gia_ma=svc.phieu_tinh_gia_ref(q)["ma"],
         valid_until=q.valid_until,
@@ -313,51 +289,6 @@ def quotation_enums(
     )
 
 
-@router.get("/costings/{costing_id}", response_model=CostingPickerOut)
-def read_costing(
-    costing_id: int,
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> CostingPickerOut:
-    """Reference an Estimate result. Returns the details of all calculated options."""
-    try:
-        if svc._estimates is None:
-            return CostingPickerOut(available=False, message="Module Tính giá chưa sẵn sàng.")
-        est = svc._estimates.get_by_id(costing_id)
-        if est is None:
-            return CostingPickerOut(available=False, message="Không tìm thấy phương án tính giá.")
-        if est.status != "calculated":
-            return CostingPickerOut(available=False, message="Phương án tính giá chưa được tính toán.")
-
-        options_out = []
-        for opt in est.options:
-            pricing = svc.calculate_pricing(
-                total_cost=float(opt.total_cost),
-                margin_percent=float(opt.margin_percent or 20.0),
-                vat_percent=float(opt.vat_percent or 10.0),
-                quantity=opt.quantity
-            )
-            options_out.append(
-                CostingQtyOption(
-                    id=opt.id,
-                    quantity=opt.quantity,
-                    total_cost=int(opt.total_cost),
-                    margin_percent=float(opt.margin_percent or 20.0),
-                    selling_price=pricing["selling_price"],
-                    discount_amount=pricing["discount_amount"],
-                    vat_percent=float(opt.vat_percent or 10.0),
-                    final_price=pricing["final_amount"],
-                    unit_price=pricing["unit_price"],
-                    actual_margin=pricing["actual_margin"],
-                )
-            )
-        return CostingPickerOut(available=True, options=options_out)
-    except CostingUnavailable as e:
-        return CostingPickerOut(available=False, message=str(e))
-    except Exception as e:
-        return CostingPickerOut(available=False, message=f"Không tải được phương án: {e}")
-
-
 # --- list ---------------------------------------------------------------------
 
 @router.get("", response_model=QuotationListOut)
@@ -376,24 +307,12 @@ def list_quotations(
         scope=scope, actor=user, q=q, status=status_filter, sort=sort, page=page, size=size
     )
 
-    # Bulk map cho hiển thị 2 tầng: mã phiếu tính giá + tên người phụ trách
-    est_ids: set[int] = set()
-    user_ids: set[int] = set()
-    for r in rows:
-        if r.estimate_id:
-            est_ids.add(r.estimate_id)
-        if r.salesperson_id:
-            user_ids.add(r.salesperson_id)
-        for v in r.versions:
-            if v.id == r.current_version_id:
-                for it in v.items:
-                    if it.estimate_id:
-                        est_ids.add(it.estimate_id)
-    est_numbers = svc.estimate_numbers(est_ids)
+    # Bulk map cho hiển thị 2 tầng: tên người phụ trách
+    user_ids: set[int] = {r.salesperson_id for r in rows if r.salesperson_id}
     user_names = svc.user_names(user_ids)
 
     return QuotationListOut(
-        items=[_row(r, names.get(r.id), est_numbers, user_names) for r in rows],
+        items=[_row(r, names.get(r.id), user_names) for r in rows],
         total=total,
         page=page,
         size=size,
@@ -526,9 +445,6 @@ def create_quotation(
         q = svc.create_quotation(
             customer_id=payload.customer_id,
             phieu_tinh_gia_id=payload.phieu_tinh_gia_id,
-            estimate_id=payload.estimate_id,
-            selected_option_ids=payload.selected_option_ids,
-            picks=[p.model_dump() for p in payload.picks] if payload.picks else None,
             margin_percent=payload.margin_percent,
             valid_until=payload.valid_until,
             terms_text=payload.terms_text,

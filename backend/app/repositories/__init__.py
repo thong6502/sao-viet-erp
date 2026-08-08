@@ -5,7 +5,6 @@ from .user_repo import UserRepository
 from .plate_die_rate_repo import PlateDieRateRepository
 from .norm_repo import NormRepository
 from .document_sequence_repo import DocumentSequenceRepository
-from .estimate_repo import EstimateRepository
 
 __all__ = [
     "UserRepository",
@@ -16,6 +15,5 @@ __all__ = [
     "PlateDieRateRepository",
     "NormRepository",
     "DocumentSequenceRepository",
-    "EstimateRepository",
 ]
 

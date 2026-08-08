@@ -7,32 +7,6 @@ from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 from ..models.norm import Norm
 
-# Các khóa chứa norm_id trong calculation_snapshot_json của một dòng chi phí.
-_SNAPSHOT_NORM_KEYS = (
-    "print_yield_norm_id",
-    "makeready_norm_id",
-    "print_waste_norm_id",
-    "paper_extra_norm_id",
-)
-
-
-def _norm_ids_in_snapshot(snap) -> set[int]:
-    """Rút mọi norm_id mà một calculation_snapshot_json tham chiếu (kể cả chuỗi hao ngược)."""
-    ids: set[int] = set()
-    if not isinstance(snap, dict):
-        return ids
-    for key in _SNAPSHOT_NORM_KEYS:
-        v = snap.get(key)
-        if isinstance(v, int):
-            ids.add(v)
-    for step in snap.get("reverse_waste_chain") or []:
-        if isinstance(step, dict):
-            for k in ("norm_id", "setup_norm_id"):
-                v = step.get(k)
-                if isinstance(v, int):
-                    ids.add(v)
-    return ids
-
 
 class NormRepository:
     def __init__(self, db: Session) -> None:
@@ -343,44 +317,3 @@ class NormRepository:
             self.db.rollback()
             raise
         return new_norm
-
-    # --- "Đang dùng trong" — quét snapshot tính giá tìm định mức đã dùng (chỉ đọc) --------
-    # Định mức chỉ được ghi trong EstimateCostLine.calculation_snapshot_json (không có cột FK),
-    # nên đếm bằng cách quét Python-side như Kiểu bình bài — tránh JSON query khác nhau giữa
-    # SQLite (dev) và Postgres (prod). Không đụng engine/QuotationService.
-    def _scan_norm_usage(self, *, include_cancelled: bool = False) -> dict[int, set[int]]:
-        from ..models.estimate import Estimate, EstimateOption, EstimateCostLine
-
-        stmt = (
-            select(EstimateCostLine.calculation_snapshot_json, EstimateOption.estimate_id)
-            .join(EstimateOption, EstimateCostLine.estimate_option_id == EstimateOption.id)
-            .join(Estimate, EstimateOption.estimate_id == Estimate.id)
-        )
-        if not include_cancelled:
-            stmt = stmt.where(Estimate.status != "cancelled")
-        by_norm: dict[int, set[int]] = {}
-        for snap, est_id in self.db.execute(stmt):
-            for nid in _norm_ids_in_snapshot(snap):
-                by_norm.setdefault(nid, set()).add(est_id)
-        return by_norm
-
-    def estimate_norm_counts(self, *, include_cancelled: bool = False) -> dict[int, int]:
-        """{norm_id: số phiếu tính giá (distinct) đang dùng} cho cột 'Đang dùng trong'."""
-        return {nid: len(ids) for nid, ids in self._scan_norm_usage(include_cancelled=include_cancelled).items()}
-
-    def list_estimates_by_norm(
-        self, norm_id: int, *, include_cancelled: bool = False, limit: int = 100
-    ) -> list:
-        """Liệt kê phiếu tính giá dùng một định mức (mới nhất trước) — cho drill-down."""
-        from ..models.estimate import Estimate
-
-        est_ids = self._scan_norm_usage(include_cancelled=include_cancelled).get(norm_id, set())
-        if not est_ids:
-            return []
-        stmt = (
-            select(Estimate)
-            .where(Estimate.id.in_(est_ids))
-            .order_by(Estimate.created_at.desc(), Estimate.id.desc())
-            .limit(limit)
-        )
-        return list(self.db.execute(stmt).scalars())
