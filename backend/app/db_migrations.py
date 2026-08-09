@@ -18,6 +18,7 @@ has shipped.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -5756,6 +5757,18 @@ MIGRATIONS.append(
 # trỏ thẳng danh mục gốc `giay_nguyen` / `vat_tu_in_an`.
 _KHO_BANG_HANG = ("stock_lots", "stock_request_lines", "stock_voucher_lines", "stock_thresholds")
 
+# Thứ tự xoá tôn trọng FK: attachment → dòng phiếu → lô → phiếu → dòng đề nghị → đề nghị → ngưỡng.
+# DELETE chứ không TRUNCATE để chạy được cả trên SQLite (test / máy dev không Postgres).
+_KHO_XOA_THEO_THU_TU = (
+    "stock_voucher_attachments", "stock_voucher_lines", "stock_lots",
+    "stock_vouchers", "stock_request_lines", "stock_requests", "stock_thresholds",
+)
+
+
+def _co_phep(bien: str) -> bool:
+    """Cờ xác nhận của NGƯỜI VẬN HÀNH, đọc từ env. Mặc định TẮT — không có cờ thì migration dừng."""
+    return (os.getenv(bien) or "").strip().lower() in ("1", "true", "yes")
+
 
 def _migrate_kho_doi_goc_mat_hang(db: Session) -> None:
     """Kho thôi giữ sổ hàng riêng — trỏ thẳng vào danh mục Giấy / Vật tư khác.
@@ -5781,12 +5794,29 @@ def _migrate_kho_doi_goc_mat_hang(db: Session) -> None:
 
     con_du_lieu = {t: db.execute(text(f"SELECT COUNT(*) FROM {t}")).scalar() or 0 for t in co}
     if any(con_du_lieu.values()):
-        raise RuntimeError(
-            "Migration 0171 DỪNG: bảng kho đang có dữ liệu "
-            f"({', '.join(f'{t}={n}' for t, n in con_du_lieu.items() if n)}). "
-            "Đổi gốc mặt hàng sẽ drop `material_id` — hãy backfill sang (hang_loai, hang_id) "
-            "trước, hoặc dọn dữ liệu kho thử nghiệm, rồi chạy lại."
-        )
+        # ĐƯỜNG THOÁT TƯỜNG MINH (2026-08-09): trước đó guard chỉ raise, nên môi trường nào có dữ
+        # liệu kho là app không khởi động được và người vận hành phải vào psql gõ tay — staging đã
+        # crash-loop 21 giờ đúng vì thế. Nay ai đã backup và chấp nhận mất sổ kho thử nghiệm thì
+        # đặt cờ, migration tự dọn rồi đi tiếp.
+        #
+        # Cố ý KHÔNG làm cờ "bỏ qua migration": bỏ qua để schema đứng lại ở giữa (cột
+        # `material_id` còn nguyên trong khi model đã đổi sang cặp khoá) còn tệ hơn dừng hẳn.
+        if _co_phep("MIGRATION_0171_XOA_DU_LIEU_KHO"):
+            for t in _KHO_XOA_THEO_THU_TU:
+                if t in ten_bang:
+                    db.execute(text(f"DELETE FROM {t}"))
+            db.commit()
+        else:
+            raise RuntimeError(
+                "Migration 0171 DỪNG: bảng kho đang có dữ liệu "
+                f"({', '.join(f'{t}={n}' for t, n in con_du_lieu.items() if n)}). "
+                "Đổi gốc mặt hàng sẽ drop `material_id`. Hai cách đi tiếp: "
+                "(1) backfill sang (hang_loai, hang_id) rồi chạy lại; hoặc "
+                "(2) nếu đây là dữ liệu THỬ NGHIỆM — backup trước (`pg_dump -t 'stock_*'`), rồi "
+                "đặt MIGRATION_0171_XOA_DU_LIEU_KHO=true để migration tự dọn bảy bảng kho và đổi "
+                "khoá. ⚠️ BỎ cờ đó khỏi .env ngay sau khi lên được, kẻo lần deploy sau có dữ liệu "
+                "thật lại bị xoá âm thầm."
+            )
 
     la_pg = db.get_bind().dialect.name == "postgresql"
     for t in co:

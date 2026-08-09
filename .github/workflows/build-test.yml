@@ -50,3 +50,41 @@ jobs:
         run: |
           pip install -r backend/requirements.txt
           pytest -q
+
+  migration:
+    name: Migration trên Postgres trắng
+    runs-on: ubuntu-latest
+    # Vì sao cần job RIÊNG: pytest chạy SQLite in-memory và dựng bảng bằng `create_all` — KHÔNG đi
+    # qua chuỗi migration lần nào. Nên lỗi chỉ-có-ở-Postgres (server_default "0"/"1" cho Boolean,
+    # ALTER ... TYPE, DROP CONSTRAINT) không ai bắt được cho tới lúc deploy vào DB thật.
+    services:
+      db:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: svn
+          POSTGRES_PASSWORD: svn
+          POSTGRES_DB: svn_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U svn" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      # Gọi ĐÚNG entrypoint mà deploy dùng (`app.migrate`), không viết lại logic ở đây — hai bản
+      # rời nhau thì CI và deploy sẽ kiểm hai thứ khác nhau mà không ai biết.
+      # Lượt 2 là phần đáng giá: `schema_migrations` đã ghi id nên lượt này phải là no-op. Migration
+      # nào không idempotent sẽ nổ ở đây, thay vì nổ ở lần deploy kế tiếp trên DB thật.
+      - name: Chạy app.migrate hai lượt (lượt 2 phải là no-op)
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://svn:svn@127.0.0.1:5432/svn_ci
+          JWT_SECRET: ci-only-not-a-real-secret
+        run: |
+          pip install -r requirements.txt
+          python -m app.migrate
+          python -m app.migrate
