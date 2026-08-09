@@ -1482,12 +1482,12 @@ export function SuppliersPage({
                               className="supplier-item-vat-calculated"
                               title={
                                 giaVeGoc
-                                  ? `${formatVND(item.unit_price)} / ${item.unit} ÷ ${quyDoi!.heSoVeGoc} = ${formatVND(giaVeGoc)} / ${quyDoi!.donViGocTen}`
+                                  ? `${money(item.unit_price)} / ${item.unit} ÷ ${quyDoi!.heSoVeGoc} = ${money(giaVeGoc)} / ${quyDoi!.donViGocTen}`
                                   : "Gắn mặt hàng gốc + chọn đơn vị đổi được thì mới quy đổi được."
                               }
                             >
                               {giaVeGoc
-                                ? `${formatVND(giaVeGoc)}/${quyDoi!.donViGocTen}`
+                                ? `${money(giaVeGoc)}/${quyDoi!.donViGocTen}`
                                 : "—"}
                             </div>
                             <input
