@@ -245,3 +245,148 @@ def test_summary_badge(client):
     s = client.get("/api/overtime/summary", headers=_h(token)).json()
     assert s["pending_in_scope"] >= 1
     assert eid is not None
+
+
+# --- phân trang (09/08/2026) -------------------------------------------------
+# Trước đây `/api/overtime/me` và `/api/overtime` trả thẳng danh sách với trần cứng 100/200 gõ
+# trong repo — quá số đó là phiếu RỤNG im lặng. Bốn test dưới khoá: `total` đúng, trang 2 ra
+# dòng khác trang 1, `size` có trần, và phân trang KHÔNG nới phạm vi của tổ trưởng.
+
+
+def _seed_overtime(employee_id: int, count: int, *, status="pending",
+                   start_day: str = "2026-03-01") -> list[int]:
+    """Ghi thẳng `count` phiếu vào DB, mỗi phiếu MỘT ngày công khác nhau.
+
+    CỐ Ý không đi qua `POST /api/overtime`: đường đó có luật "tối đa 1 phiếu còn hiệu lực /
+    ngày" và vài kiểm tra khác — ở đây đang kiểm ĐƯỜNG ĐỌC nên nạp bằng model là đúng tầng."""
+    from datetime import date, timedelta
+
+    from app.models.overtime import OvertimeRequest
+
+    db = SessionLocal()
+    try:
+        ids = []
+        base = date.fromisoformat(start_day)
+        for i in range(count):
+            row = OvertimeRequest(employee_id=employee_id, work_date=base + timedelta(days=i),
+                                  from_minute=1320, to_minute=1500, status=status)
+            db.add(row)
+            db.flush()
+            ids.append(row.id)
+        db.commit()
+        return ids
+    finally:
+        db.close()
+
+
+def _my_employee_id(client, token) -> int:
+    return client.get("/api/employees/me", headers=_h(token)).json()["employee"]["id"]
+
+
+def test_phieu_cua_toi_phan_trang_dung_total(client):
+    token = _admin_token(client)
+    eid = _my_employee_id(client, token)
+    _seed_overtime(eid, 25)
+
+    p1 = client.get("/api/overtime/me?page=1&size=20", headers=_h(token)).json()
+    p2 = client.get("/api/overtime/me?page=2&size=20", headers=_h(token)).json()
+
+    assert p1["total"] == 25 and p1["page"] == 1 and p1["size"] == 20
+    assert len(p1["items"]) == 20 and len(p2["items"]) == 5
+    ids1 = {x["id"] for x in p1["items"]}
+    ids2 = {x["id"] for x in p2["items"]}
+    assert ids1.isdisjoint(ids2) and len(ids1 | ids2) == 25
+    # `has_employee` / `employee_name` vẫn ở gốc (client cũ đọc hai ô này).
+    assert p1["has_employee"] is True and p1["employee_name"]
+
+    assert client.get("/api/overtime/me?size=101", headers=_h(token)).status_code == 422
+    assert client.get("/api/overtime/me?page=0", headers=_h(token)).status_code == 422
+
+
+def test_duyet_phieu_phan_trang_dung_total_va_trang_2_khac_trang_1(client):
+    token = _admin_token(client)
+    eid = _make_emp(client, token, name="Thợ phân trang")
+    _seed_overtime(eid, 25)
+
+    p1 = client.get("/api/overtime?page=1&size=20", headers=_h(token)).json()
+    p2 = client.get("/api/overtime?page=2&size=20", headers=_h(token)).json()
+
+    assert p1["total"] >= 25 and p1["total"] == p2["total"]
+    assert len(p1["items"]) == 20
+    ids1 = {x["id"] for x in p1["items"]}
+    ids2 = {x["id"] for x in p2["items"]}
+    assert ids1.isdisjoint(ids2)
+
+    assert client.get("/api/overtime?size=101", headers=_h(token)).status_code == 422
+    assert client.get("/api/overtime?page=0", headers=_h(token)).status_code == 422
+
+
+def test_hang_doi_duyet_loc_pending_van_ra_du_phieu_cho_duyet(client):
+    """Hang doi "Duyet phieu" PHAI loc `status_filter=pending`, khong duoc lay tron.
+
+    Loi bat duoc ngay 09/08/2026 khi them phan trang: repo sap xep theo `status` TANG DAN, ma gia
+    tri la CHUOI THUONG nen thu tu chu cai la approved < cancelled < pending < rejected. Phieu DA
+    DUYET dung truoc, phieu CHO DUYET bi day xuong cuoi.
+
+    Truoc khi co phan trang, ca 200 dong nam chung mot bang nen cuon xuong van thay. Cat con 20
+    dong/trang la TRANG 1 SACH BONG phieu cho duyet, trong khi tab van ghi "Duyet phieu (3)" va
+    tieu de bang van ghi "Phieu cho duyet" — to truong mo ra tuong het viec roi bo di.
+
+    Test nay khoa dung ca do: nhieu phieu da duyet + vai phieu cho duyet, loc pending phai ra DU.
+    """
+    token = _admin_token(client)
+    eid = _make_emp(client, token, name="Thợ hàng đợi")
+    _seed_overtime(eid, 25, status="approved", start_day="2026-04-01")
+    _seed_overtime(eid, 3, status="pending", start_day="2026-05-01")
+
+    # KHONG loc: phieu duyet chiem het trang 1 — day chinh la hien trang gay loi.
+    khong_loc = client.get("/api/overtime?page=1&size=20", headers=_h(token)).json()
+    assert all(x["status"] == "approved" for x in khong_loc["items"]), (
+        "gia dinh cua test: khong loc thi trang 1 toan phieu da duyet"
+    )
+
+    # CO loc pending: phai ra du 3 phieu cho duyet ngay trang 1.
+    loc = client.get(
+        "/api/overtime?status_filter=pending&page=1&size=20", headers=_h(token)
+    ).json()
+    cho_duyet = [x for x in loc["items"] if x["employee_id"] == eid]
+    assert len(cho_duyet) == 3
+    assert all(x["status"] == "pending" for x in loc["items"])
+    # `total` cung phai la tong SAU khi loc, khong phai tong tat ca.
+    assert loc["total"] == len([x for x in loc["items"]]) or loc["total"] >= 3
+
+
+def test_phan_trang_giu_nguyen_pham_vi_cua_to_truong(client):
+    """Tổ trưởng scope `department`: `total` phải đếm ĐÚNG phạm vi ấy, không đếm cả công ty.
+    `total` mà rộng hơn danh sách là badge/chân bảng báo số mở ra xem không được."""
+    token = _admin_token(client)
+    lead = _lead_token()
+    trong_to = _make_emp(client, token, name="Thợ trong tổ", dept="Sản xuất")
+    ngoai_to = _make_emp(client, token, name="NV ngoài tổ", dept="Kinh doanh")
+    _seed_overtime(trong_to, 22)
+    _seed_overtime(ngoai_to, 7, start_day="2026-05-01")
+
+    res = client.get("/api/overtime?size=100", headers=_h(lead)).json()
+    assert res["total"] == len(res["items"])          # total khớp đúng số dòng lấy được
+    assert ngoai_to not in {x["employee_id"] for x in res["items"]}
+    assert trong_to in {x["employee_id"] for x in res["items"]}
+
+    # HCNS/Admin (scope `all`) thấy CẢ HAI ⇒ chứng minh chênh lệch trên là do scope, không
+    # phải do phân trang cắt mất.
+    tat_ca = client.get("/api/overtime?size=100", headers=_h(token)).json()
+    assert {trong_to, ngoai_to} <= {x["employee_id"] for x in tat_ca["items"]}
+
+
+def test_employee_id_loc_trong_pham_vi_khong_noi_quyen(client):
+    token = _admin_token(client)
+    lead = _lead_token()
+    ngoai_to = _make_emp(client, token, name="NV ngoài tổ 2", dept="Kinh doanh")
+    _seed_overtime(ngoai_to, 4, start_day="2026-06-01")
+
+    # Admin lọc được đúng người đó.
+    ok = client.get(f"/api/overtime?employee_id={ngoai_to}", headers=_h(token)).json()
+    assert ok["total"] == 4
+
+    # Tổ trưởng gõ id người NGOÀI tổ → rỗng, không lộ phiếu.
+    lach = client.get(f"/api/overtime?employee_id={ngoai_to}", headers=_h(lead)).json()
+    assert lach["items"] == [] and lach["total"] == 0

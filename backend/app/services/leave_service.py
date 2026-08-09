@@ -203,14 +203,27 @@ class LeaveService:
                           detail=f"{emp.code} {lt.name} {start_date}→{end_date} ({days}n)")
         return r
 
-    def my_requests(self, *, user, limit: int = 100) -> list[LeaveRequest]:
+    def my_requests(self, *, user, page: int = 1, size: int = 20) -> tuple[list[LeaveRequest], int]:
+        """Trả `(rows, total)` — `total` là TỔNG đơn của NV, không phải số dòng của trang."""
         emp = self._employee_for_user(user)
-        return self.leaves.list_by_employee(emp.id, limit=limit)
+        total = self.leaves.count_by_employee(emp.id)
+        rows = self.leaves.list_by_employee(emp.id, limit=size, offset=max(0, (page - 1) * size))
+        return rows, total
 
-    def list_requests(self, *, scope: str, actor, status: str | None = None, limit: int = 200) -> list[LeaveRequest]:
+    def list_requests(self, *, scope: str, actor, status: str | None = None,
+                      employee_id: int | None = None, page: int = 1,
+                      size: int = 20) -> tuple[list[LeaveRequest], int]:
         """Danh sách đơn theo DATA-SCOPE người gọi (own = của mình / department = của phòng /
-        all = tất cả). Duyệt tập trung: HCNS/Admin scope=all thấy mọi đơn."""
-        return self.leaves.list_scoped(scope=scope, actor=actor, status=status, limit=limit)
+        all = tất cả). Duyệt tập trung: HCNS/Admin scope=all thấy mọi đơn.
+
+        `employee_id` chỉ THU HẸP thêm bên trong phạm vi đã có — không mở rộng quyền: gõ id của
+        người ngoài phạm vi thì `_scope_condition` vẫn cắt, kết quả rỗng chứ không lộ đơn."""
+        total = self.leaves.count_scoped(scope=scope, actor=actor, status=status,
+                                         employee_id=employee_id)
+        rows = self.leaves.list_scoped(scope=scope, actor=actor, status=status,
+                                       employee_id=employee_id, limit=size,
+                                       offset=max(0, (page - 1) * size))
+        return rows, total
 
     def count_pending(self, *, scope: str, actor) -> int:
         """Số đơn chờ duyệt trong scope — nuôi badge sidebar."""

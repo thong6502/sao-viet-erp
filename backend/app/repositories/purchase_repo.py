@@ -19,6 +19,7 @@ from ..models.purchase import (
     PR_PARTIALLY_RECEIVED,
     PR_PURCHASED,
     PR_RECEIVED,
+    PR_REJECTED,
     SUPPLIER_ACTIVE,
     PurchaseDelivery,
     PurchaseRequest,
@@ -470,6 +471,22 @@ class DepartmentPurchaseRequestRepository:
         rows = list(self.db.execute(stmt.offset((page - 1) * size).limit(size)).scalars())
         return rows, total
 
+    def count_open(
+        self, *, requesting_department_id: int | None = None, filter_by_department: bool = False
+    ) -> int:
+        """Số YCMH đang **Chờ mua** — nuôi badge Thu mua (COUNT ở DB, không tải danh sách).
+
+        Nhận ĐÚNG hai tham số lọc mà `list` dùng, để badge và màn hình không thể lệch nhau: badge
+        báo 5 mà mở màn ra thấy 1 thì người dùng thôi tin con số, badge thành vô dụng."""
+        stmt = select(func.count(DepartmentPurchaseRequest.id)).where(
+            DepartmentPurchaseRequest.status == DPR_OPEN
+        )
+        if filter_by_department:
+            stmt = stmt.where(
+                DepartmentPurchaseRequest.requesting_department_id == requesting_department_id
+            )
+        return int(self.db.execute(stmt).scalar_one())
+
     def create(
         self,
         *,
@@ -640,6 +657,38 @@ class PurchaseRequestRepository:
         size = max(1, min(size, 200))
         rows = list(self.db.execute(stmt.offset((page - 1) * size).limit(size)).scalars())
         return rows, total
+
+    def count_rejected_with_open_source(self, *, creator_ids: list[int] | None = None) -> int:
+        """Số PMH **bị từ chối** mà YCMH nguồn VẪN đang *Chờ mua* — việc dễ bị bỏ quên nhất.
+
+        PMH bị từ chối kéo YCMH nguồn rơi về `open` (`_BAC_PHIEU` → `_BAC_SANG_TRANG_THAI`), tức
+        phần hàng đó vẫn chưa ai mua được và phải lập phiếu khác. Còn PMH bị từ chối mà YCMH đã
+        sang trạng thái khác (có phiếu thay thế đang chạy, hoặc yêu cầu đã huỷ) thì KHÔNG còn việc
+        gì phải làm — đếm vào là badge kêu suốt đời cho một phiếu đã xong chuyện.
+
+        `COUNT(DISTINCT ...)` vì một PMH gom được nhiều YCMH nguồn: không DISTINCT thì phiếu gom 3
+        yêu cầu bị đếm 3 lần.
+
+        `creator_ids`: None = KHÔNG lọc (thấy toàn công ty). List rỗng = không thấy gì — phải phân
+        biệt với None, đúng nếp `list` ở trên.
+        """
+        stmt = (
+            select(func.count(func.distinct(PurchaseRequest.id)))
+            .select_from(PurchaseRequest)
+            .join(
+                PurchaseRequestSource,
+                PurchaseRequestSource.purchase_request_id == PurchaseRequest.id,
+            )
+            .join(
+                DepartmentPurchaseRequest,
+                DepartmentPurchaseRequest.id == PurchaseRequestSource.department_request_id,
+            )
+            .where(PurchaseRequest.status == PR_REJECTED)
+            .where(DepartmentPurchaseRequest.status == DPR_OPEN)
+        )
+        if creator_ids is not None:
+            stmt = stmt.where(PurchaseRequest.created_by_user_id.in_(creator_ids or [-1]))
+        return int(self.db.execute(stmt).scalar_one())
 
     def list_for_payables(self, *, supplier_id: int | None = None) -> list[PurchaseRequest]:
         """Các phiếu mua CÓ THỂ đang nợ NCC — nguồn của màn Công nợ phải trả.

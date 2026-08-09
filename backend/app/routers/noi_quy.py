@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import (
+    APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status,
+)
 
 from ..deps import CurrentUser, get_noi_quy_service, get_user_repository, require_permission
 from ..models.user import User
@@ -70,8 +72,21 @@ def _out(users: UserRepository, row) -> NoiQuyRecordOut:
 
 
 @router.get("", response_model=NoiQuyRecordsOut)
-def list_records(svc: Service, users: Users, user: CurrentUser) -> NoiQuyRecordsOut:
-    return NoiQuyRecordsOut(items=[_out(users, row) for row in svc.list_records()])
+def list_records(
+    svc: Service,
+    users: Users,
+    user: CurrentUser,
+    q: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    # TRẦN 100: `_out` gọi `users.get_by_id` cho TỪNG dòng (N+1). Cỡ trang chuẩn của hệ là 20;
+    # trần 100 để ai cần xuất/đối chiếu vẫn kéo được một mẻ lớn mà không mở cửa cho `size=100000`
+    # kéo sập máy chủ bằng một lời gọi.
+    size: int = Query(default=20, ge=1, le=100),
+) -> NoiQuyRecordsOut:
+    rows, total = svc.list_records(q=q, page=page, size=size)
+    return NoiQuyRecordsOut(
+        items=[_out(users, row) for row in rows], total=total, page=page, size=size,
+    )
 
 
 @router.post("", response_model=NoiQuyRecordOut, status_code=status.HTTP_201_CREATED)

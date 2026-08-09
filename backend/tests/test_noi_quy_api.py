@@ -198,3 +198,66 @@ def test_giam_doc_mac_dinh_khong_co_quyen_sua_noi_quy(client):
         db.close()
     assert permission.can_read and permission.can_create and permission.can_delete
     assert permission.can_update is False
+
+
+# --- phân trang (09/08/2026) -------------------------------------------------
+# Màn Nội quy trước đây tải TRỌN bảng, không cả `limit`. Ba test dưới khoá đúng ba điều dễ vỡ
+# nhất khi phân trang: `total` phải là tổng TOÀN BẢNG, trang 2 phải ra dòng KHÁC trang 1, và
+# `size` phải có trần (không cho một lời gọi kéo cả bảng).
+
+
+def _create_many(client, token, count: int) -> list[int]:
+    """Tạo `count` tài liệu, trả id theo thứ tự tạo (mới nhất = phần tử cuối)."""
+    return [_create(client, token, name=f"Nội quy {i:02d}").json()["id"] for i in range(count)]
+
+
+def test_phan_trang_tra_dung_total_va_trang_2_khac_trang_1(client):
+    token = _admin_token(client)
+    _create_many(client, token, 25)
+
+    p1 = client.get("/api/noi-quy?page=1&size=20", headers=_h(token)).json()
+    p2 = client.get("/api/noi-quy?page=2&size=20", headers=_h(token)).json()
+
+    # `total` = tổng TOÀN BẢNG, KHÔNG phải số dòng của trang.
+    assert p1["total"] == 25 and p2["total"] == 25
+    assert p1["page"] == 1 and p1["size"] == 20
+    assert len(p1["items"]) == 20 and len(p2["items"]) == 5
+
+    ids1 = [x["id"] for x in p1["items"]]
+    ids2 = [x["id"] for x in p2["items"]]
+    # Hai trang KHÔNG được giẫm lên nhau, và gộp lại phải đủ 25 bản ghi (không sót, không lặp).
+    assert set(ids1).isdisjoint(ids2)
+    assert len(set(ids1) | set(ids2)) == 25
+
+
+def test_phan_trang_size_co_tran_va_page_phai_duong(client):
+    token = _admin_token(client)
+    _create(client, token)
+    # Trần 100: `size` lớn hơn bị 422 chứ không im lặng kéo cả bảng.
+    assert client.get("/api/noi-quy?size=101", headers=_h(token)).status_code == 422
+    assert client.get("/api/noi-quy?size=100", headers=_h(token)).status_code == 200
+    # page phải ≥ 1 (page=0 sẽ ra offset âm).
+    assert client.get("/api/noi-quy?page=0", headers=_h(token)).status_code == 422
+
+
+def test_tim_kiem_chay_o_may_chu_va_total_theo_bo_loc(client):
+    """`q` lọc ở MÁY CHỦ trên toàn bảng, và `total` phải là tổng SAU LỌC — không thì chân bảng
+    báo 25 trong khi chỉ có 1 dòng khớp."""
+    token = _admin_token(client)
+    _create_many(client, token, 22)
+    _create(client, token, name="Quy chế lương thưởng riêng")
+
+    hit = client.get("/api/noi-quy?q=lương thưởng", headers=_h(token)).json()
+    assert hit["total"] == 1
+    assert [x["name"] for x in hit["items"]] == ["Quy chế lương thưởng riêng"]
+
+    # Tìm theo TÊN NGƯỜI UPLOAD vẫn phải chạy (trước đây lọc ở client có cột này). Lấy tên
+    # từ chính response chứ đừng gõ cứng — tên tài khoản admin do seeder quyết, đổi lúc nào
+    # không biết, gõ cứng là test hỏng vì lý do chẳng liên quan gì tới phân trang.
+    uploader = hit["items"][0]["uploaded_by_name"]
+    by_uploader = client.get("/api/noi-quy", params={"q": uploader}, headers=_h(token)).json()
+    assert by_uploader["total"] == 23
+
+    # Từ khoá không khớp gì → rỗng và total=0, KHÔNG rơi về "trả hết".
+    miss = client.get("/api/noi-quy?q=zzz-khong-co-that", headers=_h(token)).json()
+    assert miss["total"] == 0 and miss["items"] == []

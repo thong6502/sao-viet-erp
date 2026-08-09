@@ -1169,13 +1169,7 @@ class PurchaseService:
         # PHẠM VI NHÌN (chủ 04/08/2026: "nhân viên chỉ thấy đơn của tôi thôi, trưởng bộ phận hoặc
         # giám đốc mới thấy cả"). Trước đây hàm này KHÔNG nhận `actor` — ai có `thu_mua:read` là
         # thấy phiếu của cả công ty, bất kể vai được khai scope gì.
-        creator_ids: list[int] | None = None
-        if actor is not None:
-            scope = self._purchase_scope(actor)
-            if scope == SCOPE_DEPARTMENT:
-                creator_ids = self._nguoi_cung_phong(actor)
-            elif scope != SCOPE_ALL:
-                creator_ids = [actor.id]
+        creator_ids = None if actor is None else self._creator_ids_theo_scope(actor)
         rows, total = self.requests.list(
             q=q, status=status, supplier_id=supplier_id, sort=sort, page=page, size=size,
             creator_ids=creator_ids, exclude_statuses=exclude_statuses,
@@ -1196,6 +1190,21 @@ class PurchaseService:
                 best = sc
         return best
 
+    def _creator_ids_theo_scope(self, actor) -> list[int] | None:
+        """Những `created_by_user_id` mà actor được nhìn. **None = không lọc** (thấy toàn công ty).
+
+        Tách riêng để DANH SÁCH và BADGE dùng CHUNG một phép lọc. Badge mà tự đếm lấy theo luật
+        khác danh sách thì con số nó báo không mở ra xem được: báo 5 mà màn hiện 1: người dùng
+        thôi tin badge, và badge thành thứ trang trí. Đây cũng chính là ràng buộc "đếm theo phạm
+        vi của NGƯỜI XEM" — nhân viên scope `own` phải đếm đúng việc của mình, không đếm cả công
+        ty."""
+        scope = self._purchase_scope(actor)
+        if scope == SCOPE_ALL:
+            return None
+        if scope == SCOPE_DEPARTMENT:
+            return self._nguoi_cung_phong(actor)
+        return [actor.id]
+
     def _nguoi_cung_phong(self, actor) -> list[int]:
         """id của những người CÙNG PHÒNG BAN với actor — dùng cho scope `department`.
 
@@ -1204,6 +1213,71 @@ class PurchaseService:
         if getattr(actor, "department_id", None) is None:
             return [actor.id]
         return [u.id for u in self.users.list_by_department(actor.department_id)] or [actor.id]
+
+    # --- badge thông báo Thu mua (notify-summary) --------------------------
+
+    def dem_dot_giao_qua_han(self) -> int:
+        """Số ĐỢT GIAO đã quá hạn trả mà CÒN NỢ.
+
+        ⚠️ Cố ý đếm bằng PYTHON, dù mọi con số khác của badge đều COUNT ở DB. `con_no` của một đợt
+        KHÔNG phải một cột: nó là kết quả của một chuỗi phép tính có trạng thái —
+        (1) giá trị đợt cộng từ SL nhận × đơn giá/CK/VAT trên dòng đặt (`gia_tri_dot_giao`),
+        (2) phiếu chi không trỏ đợt nào là CỌC CHUNG, trả thừa một đợt chảy ngược vào cọc, tiền
+            nộp lại trừ vào cọc,
+        (3) cọc chiếu xuống các đợt theo thứ tự GIAO TRƯỚC BÙ TRƯỚC.
+        Viết lại bằng SQL là dựng nguồn sự thật THỨ HAI cho tiền — hai chỗ lệch nhau thì badge và
+        màn Công nợ nói hai kiểu, mà lệch tiền chỉ lòi ra lúc đối chiếu với NCC. Nên dùng lại đúng
+        `phan_bo_tien_dot` + `han_tra_dot` mà màn Công nợ đang dùng.
+
+        `list_for_payables` đã lọc hẹp ở SQL còn 4 trạng thái có thể nợ và eager-load sẵn quan hệ
+        (không N+1). Tập này vẫn lớn dần theo thời gian — khi nào chậm thì cắt bằng mốc ngày ở
+        repo, đừng bỏ phần Python này đi.
+
+        Đợt không có hạn (`han_tra_dot` trả None vì NCC chưa khai `credit_days`) KHÔNG vào đây —
+        đúng luật màn Công nợ; nó được canh bằng badge 'Chưa đặt hạn' ở màn đó.
+        """
+        hom_nay = _business_today()
+        so_dot = 0
+        for row in self.requests.list_for_payables():
+            phan_bo, _coc, _coc_du = phan_bo_tien_dot(row)
+            for m in phan_bo:
+                if m["con_no"] <= 0:
+                    continue
+                han = han_tra_dot(m["delivery"], row.supplier)
+                if han is not None and han < hom_nay:
+                    so_dot += 1
+        return so_dot
+
+    def notify_summary(self, *, actor) -> dict:
+        """Ba con số nuôi badge Thu mua trên sidebar. Mỗi con số ĐẾM THEO PHẠM VI NGƯỜI XEM.
+
+        HAI phép lọc KHÁC NHAU, đừng gộp lại cho gọn:
+
+        · `ycmh_cho_lap_phieu` theo `_sees_all_department_requests` — YCMH là HỘP VIỆC của thu mua,
+          nhân viên scope `own` vẫn phải thấy đủ yêu cầu mọi phòng gửi tới. Đếm bằng `_purchase_scope`
+          ở đây là lặp lại đúng sự cố 04/08/2026: hạ scope xuống `own` làm mù hộp việc, badge báo 0
+          trong khi màn YCMH của họ đầy việc.
+        · `pmh_bi_tu_choi` theo `_purchase_scope` — đây đúng là PHIẾU MUA do chính họ lập, mà luật
+          phiếu mua là "nhân viên chỉ thấy đơn của tôi, trưởng bộ phận/giám đốc mới thấy cả".
+
+        `dot_giao_qua_han` là số CÔNG NỢ: chỉ trả cho người có `ke_toan:read`. Người chỉ có quyền
+        thu mua nhận 0 — không rò tình hình nợ NCC cho người không được xem, và con số đó cũng
+        không cộng vào badge của họ (FE cộng thẳng ba số nên trả 0 là đủ, không cần luật riêng ở
+        giao diện). Đây cũng là lý do không gộp cả ba vào một câu đếm chung.
+        """
+        ycmh = self.department_requests.count_open(
+            requesting_department_id=getattr(actor, "department_id", None),
+            filter_by_department=not self._sees_all_department_requests(actor),
+        )
+        pmh = self.requests.count_rejected_with_open_source(
+            creator_ids=self._creator_ids_theo_scope(actor)
+        )
+        qua_han = self.dem_dot_giao_qua_han() if self.authz.can(actor, "ke_toan", "read") else 0
+        return {
+            "ycmh_cho_lap_phieu": ycmh,
+            "pmh_bi_tu_choi": pmh,
+            "dot_giao_qua_han": qua_han,
+        }
 
     def _co_duoc_xem(self, row: PurchaseRequest, actor) -> bool:
         scope = self._purchase_scope(actor)
@@ -2651,6 +2725,8 @@ class PurchaseService:
             phieu = link.purchase_request
             if phieu is None:
                 continue
+            # Σ theo đợt giao — tính MỘT LẦN cho mỗi phiếu, không lặp trong vòng dòng.
+            da_giao = da_giao_theo_dong(phieu)
             for pl in phieu.lines:
                 src_line_id = getattr(pl, "department_request_line_id", None)
                 if src_line_id is None:
@@ -2667,8 +2743,17 @@ class PurchaseService:
                     "supplier_name": phieu.supplier.name if phieu.supplier else None,
                     "ordered_quantity": float(pl.quantity),
                     "ordered_unit": pl.unit,
+                    # ĐI QUA `qty_thuc_nhan`, đừng đọc thẳng `pl.received_quantity`: cột đó
+                    # DORMANT với mọi phiếu có đợt giao (từ 06/08/2026). Đọc thẳng là chi tiết
+                    # yêu cầu báo "chưa nhận gì" trong khi hàng đã về mấy đợt — bộ phận tưởng thu
+                    # mua chưa làm, gọi điện giục nhầm.
+                    #
+                    # `None` chỉ còn đúng MỘT nghĩa: phiếu CHƯA có đợt giao nào VÀ chưa ai khai số
+                    # thực nhận ⇒ giao diện hiểu là "chưa có tin", không phải "nhận 0".
                     "received_quantity": (
-                        float(pl.received_quantity) if pl.received_quantity is not None else None
+                        qty_thuc_nhan(pl, da_giao)
+                        if (da_giao is not None or pl.received_quantity is not None)
+                        else None
                     ),
                 }
         for muc in theo_dong.values():

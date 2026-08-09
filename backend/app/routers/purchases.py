@@ -24,6 +24,7 @@ from ..schemas.purchase import (
     PurchaseContractIn,
     PurchaseDeliveryIn,
     PurchaseInvoiceAssignIn,
+    PurchaseNotifySummaryOut,
     PurchaseRequestBatchIn,
     PurchaseRequestIn,
     PurchaseRequestListOut,
@@ -329,6 +330,21 @@ def list_purchase_requests(
         actor=user,
     )
     return PurchaseRequestListOut(items=rows, total=total, page=page, size=size)
+
+
+@router.get("/api/purchase-requests/notify-summary", response_model=PurchaseNotifySummaryOut)
+def purchase_notify_summary(
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> PurchaseNotifySummaryOut:
+    """Badge Thu mua trên sidebar — ba con số việc-phải-làm, đã lọc theo phạm vi người gọi.
+
+    ⚠️ PHẢI khai TRƯỚC `/{request_id}`: FastAPI khớp route theo thứ tự đăng ký, để sau thì
+    "notify-summary" rơi vào `{request_id}` và chết 422 vì không ép được về int.
+
+    Rẻ: hai con số YCMH/PMH là COUNT ở DB. Con số công nợ chỉ chạy cho người có `ke_toan:read`
+    (xem `notify_summary`)."""
+    return PurchaseNotifySummaryOut(**svc.notify_summary(actor=user))
 
 
 @router.get("/api/purchase-requests/{request_id}", response_model=PurchaseRequestOut)

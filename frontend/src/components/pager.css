@@ -1,0 +1,48 @@
+/* Chân bảng phân trang dùng chung (components/Pager.tsx).
+   Bám đúng dáng `.ns__pager` của nhóm màn Nhân sự & Lương để ba màn Nghỉ phép · Tăng ca ·
+   Nội quy trông liền một khối với Hồ sơ nhân sự ngay cạnh — chỉ khác nhãn nút: hệ đã chốt
+   "Trước / Sau" (chữ) thay cho cặp ‹ › vì hai mũi tên trần không nói được là đi đâu. */
+.pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 6px 12px;
+  margin-top: 6px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  color: var(--ash);
+  font-size: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.pager__total {
+  min-width: 0;
+}
+
+.pager__note {
+  color: var(--ash);
+  opacity: 0.85;
+}
+
+.pager__btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* Dưới 900px chân bảng xếp dọc: một dòng chữ tổng + hàng nút bên dưới, thay vì bóp chữ
+   "Tổng 1234 phiếu · Trang 12/62" thành ba dòng vỡ. */
+@media (max-width: 900px) {
+  .pager {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--sp-2);
+  }
+
+  .pager__btns {
+    justify-content: flex-end;
+  }
+}

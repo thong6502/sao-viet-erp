@@ -11,7 +11,9 @@
 // Quyền: `luong:view_salary` xem được; `luong:update` được xem và sửa. `luong:read` riêng lẻ
 // không được xem dữ liệu cấu hình nhạy cảm.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Info, Trash2 } from "lucide-react";
+// `Trash2` (lucide) đã bỏ: mọi nút xoá trên dòng nay đi qua `RowActionButton` — nút dùng icon
+// `trash` của bộ `components/Icons.tsx` kèm tooltip + tín hiệu nguy hiểm.
+import { Info } from "lucide-react";
 import {
   api,
   type ComponentHolders,
@@ -29,6 +31,7 @@ import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { KhoanRatesEditor } from "../components/KhoanRatesEditor";
+import { RowActionButton } from "../components/RowActionButton";
 import { money } from "../utils/format";
 import "./luong.css";
 import "./rebuild-catalog.css";
@@ -685,8 +688,12 @@ export function CauHinhLuongTab({
             >
               Hủy thay đổi
             </Button>
+            {/* Việc CHÍNH của cả tab này là GHI cấu hình ⇒ nút cam (`accent`). `primary` trong
+                bộ CSS này ra màu NAVY, không phải cam — đừng đổi ngược lại vì đọc tên lớp.
+                Đây là nút cam DUY NHẤT của tab Cấu hình lương (các nút "+ Thêm…" đều ghost);
+                thêm nút cam thứ hai là phá luật một-nút-cam-mỗi-màn. */}
             <Button
-              variant="primary"
+              variant="accent"
               loading={saving}
               disabled={blocked}
               onClick={saveTab}
@@ -738,6 +745,8 @@ const PARAMS_INS = [
 const PARAMS_TAX = [
   "deduction_self",
   "deduction_dependent",
+  "pit_flat_rate",
+  "pit_flat_threshold",
 ] as const satisfies readonly (keyof PayrollParams)[];
 
 function pick(
@@ -1439,7 +1448,14 @@ function LeaderBonusEditor({
                     <th style={{ width: 190 }}>Tỷ lệ lỗi tới</th>
                     <th style={{ width: 210 }}>Thưởng (+) / Phạt (−)</th>
                     <th>Ghi chú</th>
-                    {!readOnly && <th style={{ width: 56 }} aria-label="Thao tác" />}
+                    {/* Ô tiêu đề trống (chỉ có aria-label) đọc được bằng máy nhưng người nhìn
+                        bảng không biết cột cuối làm gì — cho CHỮ "Thao tác" như mọi bảng khác.
+                        Nới 56 → 96 để chữ không ép cột "Ghi chú" xuống dòng. */}
+                    {!readOnly && (
+                      <th className="act" style={{ width: 96 }}>
+                        Thao tác
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -1501,14 +1517,15 @@ function LeaderBonusEditor({
                       </td>
                       {!readOnly && (
                         <td className="act">
-                          <button
-                            type="button"
-                            className="btn btn--ghost"
-                            aria-label={`Xoá bậc ${i + 1}`}
-                            onClick={() => setRows((rs) => (rs ?? []).filter((_, k) => k !== i))}
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          <RowActionButton
+                            dense
+                            danger
+                            label={`Xoá bậc ${i + 1}`}
+                            icon="trash"
+                            onClick={() =>
+                              setRows((rs) => (rs ?? []).filter((_, k) => k !== i))
+                            }
+                          />
                         </td>
                       )}
                     </tr>
@@ -1830,8 +1847,13 @@ function DanhMucTab({ token, readOnly }: { token: string; readOnly: boolean }) {
                     <th className="num" style={{ width: 176 }}>
                       Đang dùng
                     </th>
+                    {/* Cho CHỮ "Thao tác" thay vì ô trống chỉ có aria-label. Nút chữ đã thu về
+                        icon dense (32px/nút) nên 150 → 132 vẫn đủ cho 3 nút, trả lại chỗ cho
+                        cột "Tên khoản". */}
                     {!readOnly && (
-                      <th style={{ width: 150 }} aria-label="Thao tác" />
+                      <th className="act" style={{ width: 132 }}>
+                        Thao tác
+                      </th>
                     )}
                   </tr>
                 </thead>
@@ -1903,11 +1925,14 @@ function DanhMucTab({ token, readOnly }: { token: string; readOnly: boolean }) {
                           <span className="cl-muted">chưa dùng</span>
                         )}
                       </td>
+                      {/* Nút chữ trên dòng → `RowActionButton` dense: icon + tooltip, nhãn cũ
+                          thành aria-label nên không mất nghĩa cho người đọc màn hình. */}
                       {!readOnly && (
                         <td className="act">
-                          <button
-                            type="button"
-                            className="btn btn--ghost"
+                          <RowActionButton
+                            dense
+                            label="Sửa khoản"
+                            icon="pencil"
                             disabled={busyId === c.id}
                             onClick={() => {
                               setFormErr(null);
@@ -1920,40 +1945,36 @@ function DanhMucTab({ token, readOnly }: { token: string; readOnly: boolean }) {
                                 },
                               });
                             }}
-                          >
-                            Sửa
-                          </button>
+                          />
                           {/* Gán hàng loạt (chủ 28/07/2026): tạo khoản xong mà phải mở hồ sơ
                               từng người thì nhà máy 40–100 người không dùng được. Khoản đã
                               ngừng áp dụng thì không gán mới (luật sẵn có ở backend). */}
                           {c.is_active && (
-                            <button
-                              type="button"
-                              className="btn btn--ghost"
+                            <RowActionButton
+                              dense
+                              label="Gán cho nhân viên"
+                              icon="users"
                               disabled={busyId === c.id}
                               onClick={() => openBulk(c)}
-                            >
-                              Gán cho nhân viên
-                            </button>
+                            />
                           )}
                           {c.is_active ? (
-                            <button
-                              type="button"
-                              className="btn btn--ghost"
-                              title="Xoá khoản này"
-                              aria-label={`Xoá khoản ${c.name}`}
+                            <RowActionButton
+                              dense
+                              danger
+                              label={`Xoá khoản ${c.name}`}
+                              icon="trash"
                               disabled={busyId === c.id}
                               onClick={() => {
                                 setDelErr(null);
                                 setDel(c);
                               }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            />
                           ) : (
-                            <button
-                              type="button"
-                              className="btn btn--ghost"
+                            <RowActionButton
+                              dense
+                              label={`Bật lại khoản ${c.name}`}
+                              icon="rotateCcw"
                               disabled={busyId === c.id}
                               onClick={() =>
                                 patch(
@@ -1962,9 +1983,7 @@ function DanhMucTab({ token, readOnly }: { token: string; readOnly: boolean }) {
                                   `Đã bật lại khoản “${c.name}”.`,
                                 )
                               }
-                            >
-                              Bật lại
-                            </button>
+                            />
                           )}
                         </td>
                       )}
@@ -2705,6 +2724,15 @@ function PhuCapTab({
           cảnh. Biểu lũy tiến từng phần, tính theo tháng. Sửa khi luật đổi (mặc
           định 2026: Luật 109/2025).
         </p>
+        {/* Hai ô "khấu trừ tại nguồn" nằm CHUNG khối này vì cùng là số đổi theo luật, nhưng
+            chúng đi đường thuế KHÁC HẲN: không giảm trừ gia cảnh, không trừ bảo hiểm. Không nói
+            rõ thì người khai tưởng nó cộng thêm vào đường lũy tiến ở trên. */}
+        <p className="cl-card__desc">
+          Riêng hai ô <b>khấu trừ tại nguồn</b> chỉ áp cho người có cách tính
+          thuế là <b>Khấu trừ 10%</b> (hợp đồng dưới 3 tháng · thời vụ · thực
+          tập). Nhóm đó <b>không</b> được giảm trừ gia cảnh và <b>không</b> trừ
+          bảo hiểm khi tính thuế — hai ô ở trên không ảnh hưởng tới họ.
+        </p>
         <div className="cl-card__body">
           <section className="rc-sec">
             <div className="rc-grid">
@@ -2728,6 +2756,40 @@ function PhuCapTab({
                 value={p.deduction_dependent}
                 onChange={(v) => setP("deduction_dependent", v)}
               />
+              {/* Cảnh báo MỀM (vẫn lưu được) theo đúng kiểu ô "% lương thử việc": khai 0 là một
+                  con số hợp lệ, nhưng hậu quả của nó im lặng — cả nhóm hợp đồng ngắn ra thuế 0đ
+                  mà bảng lương trông vẫn bình thường. */}
+              <ParamField
+                label="Thuế suất khấu trừ tại nguồn"
+                hint="Áp cho hợp đồng dưới 3 tháng · thời vụ · thực tập. Luật hiện hành: 10%."
+                warn={
+                  p.pit_flat_rate <= 0
+                    ? "Khai 0% nghĩa là nhóm hợp đồng ngắn ra thuế 0đ — KHÔNG phải miễn thuế, và hệ thống không báo gì thêm."
+                    : null
+                }
+                suffix="%"
+                step={1}
+                min={0}
+                max={100}
+                readOnly={readOnly}
+                value={toPct(p.pit_flat_rate)}
+                onChange={(v) => setP("pit_flat_rate", v / 100)}
+              />
+              <ParamField
+                label="Ngưỡng bắt đầu khấu trừ tại nguồn"
+                hint={`${money(p.pit_flat_threshold)} — dưới ngưỡng thì chưa khấu trừ. Tính trên TỔNG thu nhập chịu thuế cả tháng.`}
+                warn={
+                  p.pit_flat_threshold <= 0
+                    ? "Khai 0 nghĩa là khấu trừ ngay từ đồng đầu tiên."
+                    : null
+                }
+                suffix="đ"
+                step={100000}
+                min={0}
+                readOnly={readOnly}
+                value={p.pit_flat_threshold}
+                onChange={(v) => setP("pit_flat_threshold", v)}
+              />
             </div>
           </section>
 
@@ -2740,7 +2802,12 @@ function PhuCapTab({
                   <th className="num" style={{ width: 160 }}>
                     Thuế suất
                   </th>
-                  {!readOnly && <th style={{ width: 56 }} aria-label="Xóa" />}
+                  {/* Tên cột thống nhất là "Thao tác" (không phải "Xóa"), và có chữ hẳn hoi. */}
+                  {!readOnly && (
+                    <th className="act" style={{ width: 96 }}>
+                      Thao tác
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -2793,16 +2860,15 @@ function PhuCapTab({
                     </td>
                     {!readOnly && (
                       <td className="act">
-                        <button
-                          type="button"
-                          className="btn btn--ghost"
-                          title="Xóa bậc này"
+                        <RowActionButton
+                          dense
+                          danger
+                          label={`Xoá bậc ${i + 1}`}
+                          icon="trash"
                           onClick={() =>
                             setBrackets((bs) => bs.filter((_, j) => j !== i))
                           }
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        />
                       </td>
                     )}
                   </tr>
@@ -2845,7 +2911,12 @@ function PhuCapTab({
                   <th className="num" style={{ width: 200 }}>
                     Số tiền / lần
                   </th>
-                  {!readOnly && <th style={{ width: 56 }} aria-label="Xóa" />}
+                  {/* Tên cột thống nhất là "Thao tác" (không phải "Xóa"), và có chữ hẳn hoi. */}
+                  {!readOnly && (
+                    <th className="act" style={{ width: 96 }}>
+                      Thao tác
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -2896,16 +2967,15 @@ function PhuCapTab({
                     </td>
                     {!readOnly && (
                       <td className="act">
-                        <button
-                          type="button"
-                          className="btn btn--ghost"
-                          title="Xóa bậc này"
+                        <RowActionButton
+                          dense
+                          danger
+                          label={`Xoá bậc ${i + 1}`}
+                          icon="trash"
                           onClick={() =>
                             setPenalties((bs) => bs.filter((_, j) => j !== i))
                           }
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        />
                       </td>
                     )}
                   </tr>

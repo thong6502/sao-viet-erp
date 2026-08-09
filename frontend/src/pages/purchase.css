@@ -92,6 +92,12 @@
   color: var(--ink);
 }
 
+/* Dòng tiến độ dưới tiêu đề danh sách vật tư — sát tiêu đề, không đẩy bảng xuống. */
+.purchase__tien-do {
+  margin: -4px 0 8px;
+  font-size: 12px;
+}
+
 .purchase__note {
   padding: var(--sp-3);
   border-radius: var(--r-2);
@@ -188,12 +194,12 @@
 }
 
 .supplier__col-name {
-  width: 32%;
+  width: 36%;
 }
 
 /* Cột dài nhất sau tên NCC: chứa người liên hệ + điện thoại + email. */
 .supplier__col-contact {
-  width: 26%;
+  width: 29%;
 }
 
 .supplier__col-items {
@@ -205,10 +211,12 @@
   width: 13%;
 }
 
-/* Chứa 2 nút (Xem/Sửa · Ngừng) không xuống dòng. 150px cũ không đủ nên ô tràn ra ngoài bảng,
-   kéo theo thanh cuộn ngang. */
+/* Chứa 2 nút ICON dense (Xem/sửa · Ngừng-Mở) không xuống dòng — từ 09/08/2026 không còn nút chữ
+   nên 17% cũ (đủ cho "Xem/Sửa" + "Ngừng") thành thừa; phần dôi ra trả về cột tên NCC và cột liên
+   hệ, hai chỗ hay bị cắt chữ nhất. Bộ % của bảng phải cộng tròn 100% (36+29+12+13+10) — sửa một
+   cột thì bù ở cột khác, đừng để tổng lệch, table-layout: fixed sẽ chia phần thừa vào cột đầu. */
 .supplier__col-actions {
-  width: 17%;
+  width: 10%;
 }
 
 .supplier__table thead th,
@@ -292,9 +300,10 @@
   vertical-align: middle;
 }
 
-.supplier__actions-cell .md-page__rowbtn {
-  margin-left: 4px;
-}
+/* KHÔNG thêm margin cho nút trong ô này. Khoảng cách đã do `.purchase__actions--dense` (gap 4px)
+   cộng margin-left toàn cục của `.md-page__rowbtn` (master-data.css) lo — đúng bằng hai màn Thu
+   mua kia. Luật riêng cũ (margin-left 4px cho .md-page__rowbtn trong ô này) đã bỏ 09/08/2026:
+   cộng thêm một lớp nữa là riêng bảng NCC giãn rộng hơn mọi bảng khác. */
 
 .supplier__items-section {
   display: flex;
@@ -535,6 +544,66 @@
 .purchase__source-foot {
   padding-top: var(--sp-3);
   border-top: 1px solid var(--rule-soft);
+  /* Tổng bên trái, nút chuyển trang dồn sang phải — chân bảng chuẩn của hệ. Khối gộp phía trên
+     có `justify-content` bị comment nên phải khai lại ở đây, đừng gỡ. */
+  justify-content: space-between;
+}
+
+/* ---- Màn Mua hàng: hai tab con (08/08/2026) ------------------------------ */
+.purchase__tabs {
+  margin: var(--sp-4) 0 var(--sp-4);
+}
+
+/* Đầu thẻ "Phiếu mua hàng": tiêu đề trái, bộ tìm + lọc dồn phải. `.purchase__source-head` cố ý
+   KHÔNG khai `justify-content` (dùng chung với thẻ yêu cầu), nên đẩy bằng margin-left ở khối
+   công cụ — không sửa khối gộp kia để khỏi kéo theo bảng yêu cầu. */
+.purchase__list-head {
+  flex-wrap: wrap;
+}
+
+.purchase__list-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-left: auto;
+}
+
+/* Dải nhắc "có yêu cầu quá hạn" ở đầu tab Phiếu mua hàng. Mỏng (~36px) và CHỈ hiện khi thật sự
+   quá hạn — nó là cảnh báo, không phải thanh trạng thái thường trực. */
+.purchase__nhac {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 36px;
+  padding: 0 var(--sp-4);
+  margin-bottom: var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  background: var(--canvas);
+  color: var(--ash);
+  font-size: 13px;
+}
+
+.purchase__nhac b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.purchase__nhac-xem {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--moss-deep);
+  font: inherit;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.purchase__nhac-xem:hover {
+  color: var(--ink);
 }
 
 .purchase__source-codes {
@@ -825,80 +894,84 @@
   }
 }
 
-/* Metric Stats Cards */
-.supplier-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--sp-4);
-  margin-bottom: var(--sp-5);
-}
-
-.supplier-stat-card {
-  display: flex;
+/* --- Dải chỉ số nhà cung cấp ---
+   MỘT dải pill cao ~38px, KHÔNG phải 3 thẻ cao ~78px (bộ `.supplier-stat-*` cũ đã xoá cùng lúc
+   với markup emoji ở SuppliersPage.tsx, 09/08/2026). Cùng khuôn với `.pay-kpibar` (Công nợ) và
+   `.rdx-compact-kpi` (Phòng ban) — ba màn dùng chung một ngôn ngữ dải chỉ số.
+   Màu lấy từ tokens, KHÔNG cắm mã hex thô: bộ cũ cắm #e5f6ed / #fef3c7 / #b45309 nên đổi thang
+   màu ở tokens.css thì riêng màn này đứng im. */
+.supplier__kpi {
+  display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--sp-4);
-  padding: var(--sp-4) var(--sp-5);
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+  padding: 5px var(--sp-4);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
   background: var(--canvas);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-3);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  box-shadow: var(--shadow-1);
 }
 
-.supplier-stat-icon {
+.supplier__kpi-item {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: var(--r-2);
-  background: var(--rule-hair);
-  font-size: 18px;
-  font-weight: var(--fw-bold);
-  color: var(--ash);
+  gap: var(--sp-2);
+  min-height: 26px;
+}
+
+.supplier__kpi-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--rule-soft);
+}
+
+/* Vòng icon 26px — liều màu NHỎ, đủ để phân biệt ba con số mà không biến dải thành đèn giao thông. */
+.supplier__kpi-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
   flex-shrink: 0;
 }
 
-.supplier-stat-icon--green {
-  background: #e5f6ed;
-  color: var(--moss-deep, #1e6e45);
-  font-size: 20px;
+.supplier__kpi-icon--steel {
+  color: var(--steel);
+  background: var(--steel-soft);
 }
 
-.supplier-stat-icon--amber {
-  background: #fef3c7;
-  color: #b45309;
-  font-size: 20px;
+.supplier__kpi-icon--ok {
+  color: var(--moss-deep);
+  background: var(--moss-soft);
 }
 
-.supplier-stat-info {
+.supplier__kpi-icon--warn {
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+}
+
+.supplier__kpi-body {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: baseline;
+  gap: 5px;
+  line-height: 1;
 }
 
-.supplier-stat-val {
+.supplier__kpi-val {
   font-family: var(--ff-num);
-  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-md);
   font-weight: var(--fw-bold);
   color: var(--ink);
-  line-height: 1.1;
+  white-space: nowrap;
 }
 
-.supplier-stat-val--green {
-  color: var(--moss-deep, #1e6e45);
-}
-
-.supplier-stat-val--amber {
-  color: #b45309;
-}
-
-.supplier-stat-label {
-  font-family: var(--ff-sans);
-  font-size: 11px;
+.supplier__kpi-lbl {
+  font-size: var(--fs-2xs);
   font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ash);
+  color: var(--ash-2);
+  white-space: nowrap;
 }
 
 /* Filter Pills */

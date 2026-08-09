@@ -21,6 +21,7 @@ import {
   type PurchaseRequestStatus,
   type SupplierRow,
 } from "../api/client";
+import { useDebounced } from "../utils/useDebounced";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
@@ -29,17 +30,21 @@ import type { SeedLine } from "./KhoDeNghiPage";
 import { CodeLink } from "../components/CodeLink";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailModal } from "../components/DetailModal";
+import { EmptyRow } from "../components/EmptyState";
 import { StatusHistoryTimeline } from "../components/StatusHistoryTimeline";
+import { StatusTabs } from "../components/StatusTabs";
 import { Icon } from "../components/Icons";
 import { RowActionButton } from "../components/RowActionButton";
-import { fmtDate, money } from "../utils/format";
+// `escapeHtml` nhập dưới tên `html` để không phải sửa ~30 chỗ gọi trong mẫu in. Bản chép tay cũ
+// trong file này đã xoá — hai bản escape song song là kiểu lỗi chỉ lộ ra ở một ký tự hiếm.
+import { escapeHtml as html, fmtDate, money } from "../utils/format";
 import "./master-data.css";
 // Hộp khai số thực nhận mượn bảng gọn `.pay-table` của màn Công nợ — cùng một loại bảng phụ trong
 // hộp thoại, không dựng bộ lớp thứ hai cho y hệt một việc.
 import "./payables.css";
 import "./purchase.css";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 20;
 const SOURCE_PAGE_SIZE = 20;
 
 const STATUS_META: Record<
@@ -63,6 +68,14 @@ const GHI_DOT_DUOC: PurchaseRequestStatus[] = ["purchased", "partially_received"
 
 type StatusFilter = "all" | PurchaseRequestStatus;
 type SourceStatusFilter = "all" | DepartmentPurchaseRequestStatus;
+
+/** Hai tab con của màn Mua hàng (chốt 08/08/2026).
+ *
+ * Trước đó hai bảng XẾP DỌC trong cùng một màn: đo thật ở 1440×900 (vùng nhìn 843px) thì dòng đầu
+ * của bảng phiếu mua bắt đầu ở y≈812 — người dùng chỉ thấy 34% một dòng, và mỗi yêu cầu mới ở
+ * bảng trên lại đẩy bảng dưới xuống thêm 68px (5 yêu cầu chờ là bảng phiếu biến mất hẳn).
+ * Tách tab để mỗi bảng có nguyên khung nhìn. ĐỪNG gộp lại thành một trang cuộn dọc. */
+type PurchaseTab = "yeu-cau" | "phieu";
 
 const SOURCE_STATUS_META: Record<
   DepartmentPurchaseRequestStatus,
@@ -331,15 +344,6 @@ function bestSupplierIdForLines(
   return best?.supplierId ?? null;
 }
 
-function html(value: unknown): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
 function printPurchaseRequest(row: PurchaseRequestRow): boolean {
   const win = window.open("", "_blank", "width=980,height=720");
   if (!win) return false;
@@ -560,9 +564,14 @@ function printPurchaseRequest(row: PurchaseRequestRow): boolean {
 export function PurchaseRequestsPage({
   navigate,
   eventTick = 0,
+  focusRequestCode = null,
 }: {
   navigate: NavigateFn;
   eventTick?: number;
+  /** Liên thông từ màn khác (Công nợ / Kế toán thu mua / Phiếu chi): mã tài liệu cần soi.
+   *  Mã `PMH-…` = phiếu mua → tab "phieu"; mã `YCMH-…` = yêu cầu → tab "yeu-cau".
+   *  Xem effect "BẪY LIÊN THÔNG" bên dưới trước khi đụng vào. */
+  focusRequestCode?: string | null;
 }) {
   const { token } = useAuth();
   const can = useCan();
@@ -605,6 +614,10 @@ export function PurchaseRequestsPage({
   // ⚠️ Hộp "Lý do từ chối" (`reasonModal.kind === "reject"`) vẫn còn trong file nhưng KHÔNG CÒN AI
   // BẤM — chỉ nhánh `cancel` còn chạy. Giữ tạm để chép sang màn Đơn mua hàng; chép xong thì dọn,
   // đừng để nó nằm lại làm người đọc sau tưởng màn này vẫn từ chối được.
+  // Tab đang mở. CỐ Ý mở màn ở "yeu-cau" và CỐ Ý không nhớ qua lần vào (không localStorage,
+  // không nâng lên URL): hai người mở cùng màn phải thấy giống nhau, và việc của Thu mua luôn
+  // bắt đầu từ hộp yêu cầu. Đừng "cải tiến" thành ghi nhớ lựa chọn.
+  const [tab, setTab] = useState<PurchaseTab>("yeu-cau");
   const [rows, setRows] = useState<PurchaseRequestRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -616,15 +629,38 @@ export function PurchaseRequestsPage({
     [],
   );
   const [sourceTotal, setSourceTotal] = useState(0);
+  // Số đếm trên TAB — CỐ Ý KHÁC số dòng của bảng bên trong, đừng "sửa cho khớp".
+  //
+  // Bảng yêu cầu mặc định lọc "Tất cả" (chủ chốt 08/08/2026) nên `sourceTotal` gồm cả phiếu đã
+  // Hoàn tất / Đã huỷ. Con số trên tab là TÍN HIỆU CÓ VIỆC, nên nó chỉ đếm yêu cầu đang `open`
+  // (chờ Thu mua xử lý). `somNhat` = ngày cần hàng sớm nhất trong nhóm đó — dùng cho dải nhắc và
+  // cho tone đỏ của tab.
+  const [choMua, setChoMua] = useState<{ soLuong: number; somNhat: string | null }>({
+    soLuong: 0,
+    somNhat: null,
+  });
   const [sourceQ, setSourceQ] = useState("");
   const [sourceStatus, setSourceStatus] = useState<SourceStatusFilter>("all");
   const [sourceLoading, setSourceLoading] = useState(true);
+  // Ô nhập vẫn bám state gốc (gõ tới đâu hiện tới đó); chỉ lời gọi máy chủ đọc bản đã
+  // chậm 300ms — xem `utils/useDebounced`.
+  const qDebounced = useDebounced(q);
+  const sourceQDebounced = useDebounced(sourceQ);
+  const [sourceError, setSourceError] = useState<string | null>(null);
   const [sourcePage, setSourcePage] = useState(1);
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Lỗi TẢI DANH SÁCH — tách hẳn khỏi `error` (lỗi THAO TÁC).
+   *
+   *  Vì sao phải hai ô nhớ riêng: `error` bị hàng chục handler thao tác ghi vào (huỷ phiếu, ghi
+   *  đợt giao, gán hoá đơn, thậm chí trình duyệt chặn cửa sổ in). Nếu ô rỗng của bảng đọc chung
+   *  `error` thì chỉ cần bấm "In phiếu" mà bị chặn pop-up là CẢ BẢNG biến mất, thay bằng "Không
+   *  đọc được dữ liệu" — dữ liệu còn nguyên trên máy chủ, chỉ là bảng tự xoá mình vì một lỗi in.
+   *  Ô này CHỈ được ghi trong `catch` của hàm tải danh sách. */
+  const [listError, setListError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
 
   const [mode, setMode] = useState<null | "create" | "edit">(null);
@@ -695,12 +731,34 @@ export function PurchaseRequestsPage({
       .catch(() => setSuppliers([]));
   }, [token]);
 
+  /** Đếm yêu cầu ĐANG CHỜ MUA + ngày cần sớm nhất của nhóm đó.
+   *
+   * Phải hỏi riêng chứ không suy từ `sourceRows`: bảng đang lọc "Tất cả" và chỉ giữ 1 trang, nên
+   * đếm tại chỗ sẽ ra số của trang hiện tại. `size: 1` + `sort: needed_date` là đủ: `total` cho số
+   * lượng, dòng đầu cho ngày sớm nhất — không kéo cả danh sách về chỉ để lấy hai con số. */
+  const loadChoMua = useCallback(() => {
+    if (!token) return;
+    api.departmentPurchaseRequests
+      .list(token, { status: "open", sort: "needed_date", page: 1, size: 1 })
+      .then((res) =>
+        setChoMua({
+          soLuong: res.total,
+          somNhat: res.items[0]?.needed_date ?? null,
+        }),
+      )
+      .catch(() => setChoMua({ soLuong: 0, somNhat: null }));
+  }, [token]);
+
   const loadSources = useCallback(() => {
     if (!token) return;
+    // Bám theo mọi lần nạp lại danh sách yêu cầu (mọi thao tác chạm YCMH đều gọi `loadSources`)
+    // ⇒ số trên tab và dải nhắc không bao giờ đứng hình sau khi lập phiếu / huỷ / đóng đơn.
+    loadChoMua();
     setSourceLoading(true);
+    setSourceError(null);
     api.departmentPurchaseRequests
       .list(token, {
-        q: sourceQ.trim() || undefined,
+        q: sourceQDebounced.trim() || undefined,
         status: sourceStatus === "all" ? null : sourceStatus,
         sort: "-created_at",
         page: sourcePage,
@@ -713,17 +771,19 @@ export function PurchaseRequestsPage({
       .catch(() => {
         setSourceRows([]);
         setSourceTotal(0);
+        setSourceError("Không tải được danh sách yêu cầu mua hàng.");
       })
       .finally(() => setSourceLoading(false));
-  }, [token, sourceQ, sourceStatus, sourcePage]);
+  }, [token, loadChoMua, sourceQDebounced, sourceStatus, sourcePage]);
 
   const load = useCallback(() => {
     if (!token) return;
     setLoading(true);
     setError(null);
+    setListError(null);
     api.purchaseRequests
       .list(token, {
-        q: q.trim() || undefined,
+        q: qDebounced.trim() || undefined,
         status: status === "all" ? null : status,
         sort: "-created_at",
         page,
@@ -740,10 +800,10 @@ export function PurchaseRequestsPage({
       })
       .catch((err) => {
         if (err instanceof ApiError && err.isForbidden) setForbidden(true);
-        else setError("Không tải được danh sách phiếu mua hàng.");
+        else setListError("Không tải được danh sách phiếu mua hàng.");
       })
       .finally(() => setLoading(false));
-  }, [token, q, status, page]);
+  }, [token, qDebounced, status, page]);
 
   useEffect(() => {
     loadSuppliers();
@@ -764,6 +824,32 @@ export function PurchaseRequestsPage({
     load();
   }, [eventTick, loadSuppliers, loadSources, load]);
 
+  // ⚠️ ĐƯỜNG PHÒNG THỦ — HIỆN CHƯA CÓ AI GỌI, ĐỪNG GỠ.
+  //
+  // Tình trạng thật (kiểm 08/08/2026): KHÔNG màn nào đang `navigate("mua-hang", …)` kèm mã. Các
+  // màn Kế toán / Công nợ bấm mã thì nhảy sang `ke-toan-don-mua-hang` hoặc `yeu-cau-mua-hang`,
+  // không vào đây. Nên đoạn dưới CHƯA chạy lần nào.
+  //
+  // Vì sao vẫn giữ: từ 08/08/2026 màn này mở mặc định ở tab "Yêu cầu chờ xử lý". Ngày nào có
+  // người nối một đường nhảy vào đây kèm mã phiếu mà thiếu đoạn này, người dùng sẽ rơi vào tab
+  // yêu cầu và KHÔNG THẤY GÌ — trông y hệt như phiếu đã bị xoá. Mã yêu cầu là `YCMH-…`, mã phiếu
+  // mua là `PMH-…` (xem `purchase_service.py`), nên phân nhánh theo tiền tố.
+  useEffect(() => {
+    const code = (focusRequestCode ?? "").trim();
+    if (!code) return;
+    if (code.toUpperCase().startsWith("YCMH")) {
+      setSourceQ(code);
+      setSourceStatus("all");
+      setSourcePage(1);
+      setTab("yeu-cau");
+    } else {
+      setQ(code);
+      setStatus("all");
+      setPage(1);
+      setTab("phieu");
+    }
+  }, [focusRequestCode]);
+
   const selected = useMemo(
     () => rows.find((row) => row.id === selectedId) ?? null,
     [rows, selectedId],
@@ -774,6 +860,12 @@ export function PurchaseRequestsPage({
     1,
     Math.ceil(sourceTotal / SOURCE_PAGE_SIZE),
   );
+  // CÓ YÊU CẦU QUÁ HẠN chưa? — điều kiện DUY NHẤT bật tone đỏ ở tab và bật dải nhắc ở tab phiếu.
+  // Ngày thường (còn hạn) thì không tô đỏ, không render dải nhắc: không tốn một pixel nào.
+  // `minPurchaseDate` chính là HÔM NAY dạng yyyy-mm-dd (memo 1 lần) — dùng lại để khỏi có hai
+  // cách tính "hôm nay" trong cùng một file.
+  const coYcQuaHan =
+    choMua.somNhat !== null && choMua.somNhat < minPurchaseDate;
   // Chỉ thay dòng trong danh sách, KHÔNG đụng selectedId: các nút thao tác nằm ở
   // bảng, chọn dòng ở đây sẽ tự bung popup chi tiết. Popup đang mở thì `selected`
   // tự lấy lại dòng mới từ `rows`.
@@ -970,6 +1062,11 @@ export function PurchaseRequestsPage({
         });
         setRows((current) => [...items, ...current]);
         setTotal((t) => t + items.length);
+        // ⚠️ BẪY THỨ HAI — ĐỪNG GỠ. Nút "Tạo phiếu" nằm ở tab YÊU CẦU; lưu xong mà đứng nguyên
+        // tại đó thì người dùng không thấy phiếu vừa lập (nó nằm ở tab kia), tưởng bấm hụt và bấm
+        // lại — lần hai bị server chặn vì yêu cầu nguồn đã bị giữ chỗ. Kể cả đường tách nhiều
+        // phiếu theo NCC cũng đi qua đây, nên một chỗ này là đủ cho cả hai.
+        setTab("phieu");
       }
       setMode(null);
       loadSuppliers();
@@ -1273,6 +1370,16 @@ export function PurchaseRequestsPage({
     );
   }
 
+  // Banner lỗi dùng CHUNG cho cả hai tab, vì `error` là MỘT state và cả hai tab đều ghi vào nó:
+  // tab yêu cầu ghi khi lập phiếu từ một yêu cầu không còn chờ xử lý, tab phiếu ghi khi thao tác
+  // trên phiếu / in phiếu hỏng. Nếu chỉ treo banner ở một tab thì lời báo lỗi của tab kia biến mất
+  // trong im lặng — người dùng bấm mà không hiểu vì sao không có gì xảy ra.
+  const bannerLoi = error ? (
+    <div className="banner banner--error" role="alert">
+      {error}
+    </div>
+  ) : null;
+
   return (
     <main className="md-page">
       <header className="md-page__head">
@@ -1284,6 +1391,27 @@ export function PurchaseRequestsPage({
         </p>
       </header>
 
+      {/* Hai tab con: mỗi bảng một khung nhìn riêng. Số trên tab yêu cầu là số ĐANG CHỜ MUA
+          (`open`), KHÁC số dòng bảng bên trong (bảng lọc "Tất cả") — xem chú thích ở `choMua`. */}
+      <div className="purchase__tabs">
+        <StatusTabs
+          active={tab}
+          onChange={(key) => setTab(key as PurchaseTab)}
+          tabs={[
+            {
+              key: "yeu-cau",
+              label: "Yêu cầu chờ xử lý",
+              count: choMua.soLuong,
+              tone: coYcQuaHan ? "alert" : "default",
+            },
+            { key: "phieu", label: "Phiếu mua hàng", count: total },
+          ]}
+        />
+      </div>
+
+      {/* Chỉ dựng nội dung của tab ĐANG MỞ (bảng kia không nằm dưới mép màn nữa, nó không tồn tại).
+          Nhưng DỮ LIỆU vẫn tải cả hai ngay từ đầu — số đếm trên tab kia phải đúng ngay. */}
+      {tab === "yeu-cau" && (
       <section className="card md-page__tablewrap purchase__source-inbox">
         <div className="purchase__source-head">
           <div>
@@ -1291,6 +1419,8 @@ export function PurchaseRequestsPage({
             <h2>Danh sách chờ Thu mua xử lý</h2>
           </div>
         </div>
+
+        {bannerLoi}
 
         <div className="purchase__source-toolbar">
           <form
@@ -1345,17 +1475,21 @@ export function PurchaseRequestsPage({
           </thead>
           <tbody>
             {sourceLoading ? (
-              <tr>
-                <td colSpan={6} className="md-page__status">
-                  Đang tải yêu cầu...
-                </td>
-              </tr>
+              <EmptyRow colSpan={6} trangThai="dang-tai" />
+            ) : sourceError ? (
+              <EmptyRow
+                colSpan={6}
+                trangThai="loi"
+                loi={sourceError}
+                onThuLai={loadSources}
+              />
             ) : sourceRows.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="md-page__empty">
-                  Chưa có yêu cầu mua từ phòng ban.
-                </td>
-              </tr>
+              <EmptyRow
+                colSpan={6}
+                icon="clipboard"
+                title="Chưa có yêu cầu mua từ phòng ban"
+                sub="Phiếu mua hàng luôn bắt đầu từ một yêu cầu của bộ phận — chờ họ gửi sang."
+              />
             ) : (
               sourceRows.map((row) => {
                 const disabled = row.status !== "open";
@@ -1415,22 +1549,20 @@ export function PurchaseRequestsPage({
         <div className="purchase__source-foot">
           <span className="md-page__muted">
             Tổng {sourceTotal} yêu cầu
+            {sourceTotalPages > 1 ? ` · Trang ${sourcePage}/${sourceTotalPages}` : ""}
           </span>
           {sourceTotalPages > 1 && (
             <div className="md-page__pager-btns">
               <Button
                 variant="ghost"
-                disabled={sourcePage <= 1}
+                disabled={sourcePage <= 1 || sourceLoading}
                 onClick={() => setSourcePage((value) => value - 1)}
               >
                 Trước
               </Button>
-              <span className="md-page__muted">
-                Trang {sourcePage}/{sourceTotalPages}
-              </span>
               <Button
                 variant="ghost"
-                disabled={sourcePage >= sourceTotalPages}
+                disabled={sourcePage >= sourceTotalPages || sourceLoading}
                 onClick={() => setSourcePage((value) => value + 1)}
               >
                 Sau
@@ -1439,54 +1571,79 @@ export function PurchaseRequestsPage({
           )}
         </div>
       </section>
+      )}
 
-      <div className="md-page__toolbar">
-        <form
-          className="md-page__search"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setPage(1);
-            load();
-          }}
-        >
-          <input
-            className="input"
-            placeholder="Tìm mã phiếu, mục đích, ghi chú..."
-            value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setPage(1);
-            }}
-          />
-          {/* <Button type="submit" variant="ghost">
-            Tìm
-          </Button> */}
-        </form>
-        <select
-          className="input purchase__select"
-          value={status}
-          onChange={(e) => {
-            setStatus(e.target.value as StatusFilter);
-            setPage(1);
-          }}
-        >
-          <option value="all">Tất cả</option>
-          {Object.entries(STATUS_META).map(([value, meta]) => (
-            <option key={value} value={value}>
-              {meta.label}
-            </option>
-          ))}
-        </select>
-        <div className="md-page__toolbar-spacer" />
-      </div>
-
-      {error && (
-        <div className="banner banner--error" role="alert">
-          {error}
+      {tab === "phieu" && (
+      <>
+      {/* Dải nhắc CHỈ hiện khi có yêu cầu đã quá ngày cần hàng — nó là lời cảnh báo, không phải
+          thanh trạng thái. Ngày bình thường không render gì cả (xem `coYcQuaHan`). */}
+      {coYcQuaHan && (
+        <div className="purchase__nhac" role="status">
+          <Icon name="alert" size={14} />
+          <span>
+            <b>{choMua.soLuong}</b> yêu cầu đang chờ, sớm nhất cần{" "}
+            {fmtDate(choMua.somNhat)}
+          </span>
+          <button
+            type="button"
+            className="purchase__nhac-xem"
+            onClick={() => setTab("yeu-cau")}
+          >
+            Xem
+          </button>
         </div>
       )}
 
       <section className="card md-page__tablewrap purchase__list">
+        {/* Thẻ này TRƯỚC 08/08/2026 không có tiêu đề, còn ô tìm + ô lọc thì trôi lơ lửng ngoài thẻ.
+            Nay tiêu đề bên trái, bộ lọc bên phải, tất cả nằm TRONG thẻ — cùng khuôn đầu thẻ với
+            bảng yêu cầu. Đừng kéo bộ lọc ra ngoài lại. */}
+        <div className="purchase__source-head purchase__list-head">
+          <div>
+            <p className="eyebrow">Thu mua</p>
+            <h2>Phiếu mua hàng</h2>
+          </div>
+          <div className="purchase__list-tools">
+            <form
+              className="md-page__search"
+              onSubmit={(e) => {
+                // KHÔNG gọi load() ở đây: `load` đóng gói từ khoá ĐÃ CHẬM 300ms, bấm Enter ngay
+                // sau khi gõ sẽ bắn lượt với từ khoá CŨ, rồi 300ms sau mới bắn lượt mới — lượt cũ
+                // về sau là đè kết quả sai lên bảng. Cứ để bộ chờ tự bắn.
+                e.preventDefault();
+                setPage(1);
+              }}
+            >
+              <input
+                className="input"
+                placeholder="Tìm mã phiếu, mục đích, ghi chú..."
+                value={q}
+                onChange={(e) => {
+                  setQ(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </form>
+            <select
+              className="input purchase__select"
+              value={status}
+              onChange={(e) => {
+                setStatus(e.target.value as StatusFilter);
+                setPage(1);
+              }}
+            >
+              <option value="all">Tất cả</option>
+              {Object.entries(STATUS_META).map(([value, meta]) => (
+                <option key={value} value={value}>
+                  {meta.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {bannerLoi}
+
         <table className="md-page__table">
           <thead>
             <tr>
@@ -1498,22 +1655,42 @@ export function PurchaseRequestsPage({
               <th>Tổng dự kiến</th>
               <th>Người tạo / duyệt</th>
               <th>Trạng thái</th>
-              <th>Thao tác</th>
+              {/* `md-page__actions-col` canh tiêu đề THEO NÚT (nút dense nằm sát phải). Thiếu lớp
+                  này thì chữ "Thao tác" đứng một nơi, cụm nút đứng một nẻo. */}
+              <th className="md-page__actions-col">Thao tác</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr>
-                <td colSpan={7} className="md-page__status">
-                  Đang tải dữ liệu...
-                </td>
-              </tr>
+              <EmptyRow colSpan={7} trangThai="dang-tai" />
+            ) : listError ? (
+              <EmptyRow colSpan={7} trangThai="loi" loi={listError} onThuLai={load} />
             ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="md-page__empty">
-                  Chưa có phiếu mua hàng phù hợp.
-                </td>
-              </tr>
+              <EmptyRow
+                colSpan={7}
+                icon="cart"
+                title="Chưa có phiếu mua hàng nào khớp"
+                sub={
+                  q.trim() || status !== "all"
+                    ? "Thử bỏ bớt bộ lọc hoặc xoá từ khoá tìm kiếm."
+                    : "Sang tab Yêu cầu chờ xử lý để chọn một yêu cầu rồi lập phiếu mua."
+                }
+                action={
+                  q.trim() || status !== "all" ? (
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      onClick={() => {
+                        setQ("");
+                        setStatus("all");
+                        setPage(1);
+                      }}
+                    >
+                      Xoá bộ lọc
+                    </button>
+                  ) : undefined
+                }
+              />
             ) : (
               rows.map((row) => (
                 <tr
@@ -1583,8 +1760,41 @@ export function PurchaseRequestsPage({
             )}
           </tbody>
         </table>
+        {/* Chân bảng CÙNG KHUÔN với bảng yêu cầu phía trên: tổng bên trái, nút chuyển trang bên
+            phải, và CHỈ hiện nút khi thật sự có nhiều hơn một trang. Trước 08/08/2026 khối này
+            nằm ngoài thẻ và luôn in "Trang 1/1" kèm hai nút mờ — nhiễu mà không nói thêm gì. */}
+        <div className="purchase__source-foot">
+          <span className="md-page__muted">
+            Tổng {total} phiếu
+            {totalPages > 1 ? ` · Trang ${page}/${totalPages}` : ""}
+          </span>
+          {totalPages > 1 && (
+            <div className="md-page__pager-btns">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                Trước
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={page >= totalPages || loading}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Sau
+              </button>
+            </div>
+          )}
+        </div>
       </section>
+      </>
+      )}
 
+      {/* Hộp thoại nằm NGOÀI hai tab: mở từ tab nào cũng phải sống tiếp khi tab đổi (lập phiếu
+          xong là màn tự nhảy sang tab phiếu — kéo hộp vào trong tab thì nó bị gỡ giữa chừng). */}
       {selected && (
         <DetailModal
           kicker="Chi tiết phiếu"
@@ -1690,32 +1900,6 @@ export function PurchaseRequestsPage({
           </p>
           <StatusHistoryTimeline items={selected.status_history} />
         </DetailModal>
-      )}
-
-      {!loading && rows.length > 0 && (
-        <div className="md-page__pager">
-          <span className="md-page__muted">
-            Tổng số: {total} phiếu · Trang {page}/{totalPages}
-          </span>
-          <div className="md-page__pager-btns">
-            <button
-              type="button"
-              className="btn btn--ghost"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              Trước
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Sau
-            </button>
-          </div>
-        </div>
       )}
 
       {mode && (
@@ -2467,6 +2651,12 @@ function ContractBlock({
       <header className="pdot__head">
         <h3>Hợp đồng &amp; chứng từ</h3>
         {canUpdate && (
+          // ⚠️ GIỮ `ghost`, ĐỪNG nâng lên `accent`. Nút này nằm CÙNG hộp thoại Chi tiết phiếu với
+          // "Ghi đợt giao" (DeliveriesBlock) — luật là TỐI ĐA MỘT nút cam mỗi hộp thoại, và suất
+          // cam đó thuộc về "Ghi đợt giao": đó là việc làm gần như mỗi lần hàng về và là đường
+          // DUY NHẤT sinh công nợ, còn hợp đồng khai một lần rồi thôi. Hai nút cam cạnh nhau là
+          // mắt không biết nhìn đâu.
+          // `disabled={banDau}` giữ nguyên: chưa sửa gì thì không có gì để lưu.
           <Button
             type="button"
             variant="ghost"
@@ -2633,6 +2823,8 @@ function DeliveriesBlock({
             </Button>
           )}
           {ghiDuoc && (
+            // Nút CAM DUY NHẤT của hộp thoại Chi tiết phiếu (xem chú thích ở ContractBlock):
+            // ghi đợt giao là việc chính của màn và là đường duy nhất sinh công nợ.
             <Button
               type="button"
               variant="accent"
@@ -2667,7 +2859,9 @@ function DeliveriesBlock({
               <th>Hóa đơn</th>
               <th>Hạn trả</th>
               <th className="pay-num">Đã trả</th>
-              {canUpdate && <th />}
+              {/* Cột nút không có nhãn nhìn thấy được, nhưng `<th>` rỗng thì trình đọc màn hình
+                  đọc ra một ô câm — phải có `aria-label`. */}
+              {canUpdate && <th aria-label="Thao tác" />}
             </tr>
           </thead>
           <tbody>
@@ -3475,7 +3669,8 @@ function InvoiceDialog({
       <table className="pay-table">
         <thead>
           <tr>
-            <th />
+            {/* Cột ô chọn — `<th>` rỗng là ô câm với trình đọc màn hình, phải có `aria-label`. */}
+            <th aria-label="Chọn đợt giao" />
             <th>Đợt</th>
             <th>Ngày giao</th>
             <th>Hóa đơn hiện tại</th>
