@@ -4083,12 +4083,18 @@ def _migrate_stock_request_line_ten_tu_do(db: Session) -> None:
     insp = inspect(db.get_bind())
     if "stock_request_lines" not in insp.get_table_names():
         return
-    if "ten_tu_do" not in _existing_columns(insp, "stock_request_lines"):
+    cols = _existing_columns(insp, "stock_request_lines")
+    if "ten_tu_do" not in cols:
         db.execute(text("ALTER TABLE stock_request_lines ADD COLUMN ten_tu_do VARCHAR(255)"))
     # Nới material_id (hàng free-text để rỗng). Postgres nới tại chỗ; SQLite không ALTER được
     # NOT NULL cũ → dev drop dev.db để create_all dựng lại theo model (đã nullable). Tests dùng
     # DB in-memory nên luôn theo model mới.
-    if db.get_bind().dialect.name == "postgresql":
+    #
+    # PHẢI kiểm cột còn tồn tại: mg 0171 đã DROP `material_id` (kho đổi sang cặp `hang_loai/hang_id`)
+    # và DB dựng mới bằng `create_all` cũng không có cột này, nên ALTER thẳng là nổ
+    # `column "material_id" does not exist`. Chỉ Postgres mới chạy nhánh này nên SQLite (test) không
+    # thấy — job CI "Migration trên Postgres trắng" bắt đúng ca đó 2026-08-09, lần chạy đầu tiên.
+    if "material_id" in cols and db.get_bind().dialect.name == "postgresql":
         db.execute(text("ALTER TABLE stock_request_lines ALTER COLUMN material_id DROP NOT NULL"))
     db.commit()
 
