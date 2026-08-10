@@ -2,7 +2,12 @@
 // On entry it loads the current user's readable modules (feat-010) to gate both
 // the sidebar (handled in Sidebar) and the content (a forbidden module → 403).
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, connectQuoteEvents, type PinnedCustomer } from "../api/client";
+import {
+  api,
+  connectQuoteEvents,
+  type PinnedCustomer,
+  type PurchaseNotifySummary,
+} from "../api/client";
 import { crud } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import {
@@ -91,6 +96,14 @@ export interface NavParams {
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
 
+/** Badge "Mua hàng" = TỔNG các việc người đó ĐƯỢC THẤY.
+ *
+ *  Cộng thẳng cả ba: server đã lọc theo phạm vi người gọi VÀ đã trả 0 cho phần công nợ khi người
+ *  gọi không có `ke_toan:read`. Che thêm một lần nữa ở đây là để hai nơi cùng giữ một luật quyền —
+ *  sửa một bên quên bên kia thì badge và màn hình nói hai kiểu. */
+const tongViecThuMua = (s: PurchaseNotifySummary): number =>
+  s.ycmh_cho_lap_phieu + s.pmh_bi_tu_choi + s.dot_giao_qua_han;
+
 export function AppShell() {
   const { token } = useAuth();
   const [activeId, setActiveId] = useState("dashboard");
@@ -118,6 +131,9 @@ export function AppShell() {
   const lastAdvancePending = useRef(0);
   const lastOtPending = useRef(0);
   const lastElPending = useRef(0);
+  // Badge Thu mua: tổng 3 việc phải làm. Chỉ toast khi số TĂNG (có việc mới tới bàn thu mua),
+  // không toast lại mỗi lần refetch — `purchase_changed` bắn ra từ MỌI đường ghi thu mua.
+  const lastMuaHang = useRef(0);
   const pushToast = useCallback((text: string, tone: "ok" | "warn" | "info") => {
     const id = ++toastSeq.current;
     setToasts((prev) => [...prev, { id, text, tone }]);
@@ -254,6 +270,20 @@ export function AppShell() {
       api.xepLich
         .hangCho(token)
         .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan": r.total })))
+        .catch(() => {});
+    }
+    // Badge Thu mua treo ở nav "mua-hang" — nhóm "Thu mua" là SECTION, `NavRow` chỉ vẽ badge ở cấp
+    // ITEM. Chọn "Mua hàng" chứ không "Yêu cầu mua hàng": cả 3 con số đều là việc của người thu
+    // mua (lập PMH, lập lại PMH bị từ chối, đòi/trả nợ đợt giao), mà màn YCMH còn mở cho 5 vai đề
+    // nghị khác — treo ở đó là nhét việc của thu mua lên sidebar của kho/sản xuất/báo giá.
+    if (readable.has("thu_mua")) {
+      api.purchaseRequests
+        .notifySummary(token)
+        .then((s) => {
+          const n = tongViecThuMua(s);
+          setBadges((prev) => ({ ...prev, "mua-hang": n }));
+          lastMuaHang.current = n;
+        })
         .catch(() => {});
     }
     // Badge Lương = số đề nghị tạm ứng đang chờ TÔI duyệt (0 với người không có quyền duyệt).
@@ -429,6 +459,60 @@ export function AppShell() {
               pushToast("🔔 Có phiếu đi muộn / về sớm chờ bạn duyệt", "info");
             }
             lastElPending.current = n;
+          })
+          .catch(() => {});
+      } else if (readable.has("ke_toan") && e.type === "purchase_pending_approval") {
+        pushToast(`Có đơn mua hàng${e.code ? " " + e.code : ""} chờ xử lý`, "info");
+        reloadBadges();
+      } else if (readable.has("thu_mua") && e.type === "purchase_decision") {
+        pushToast(
+          e.decision === "approved"
+            ? `Đơn mua hàng${e.code ? " " + e.code : ""} đã được duyệt`
+            : `Đơn mua hàng${e.code ? " " + e.code : ""} bị từ chối`,
+          e.decision === "approved" ? "ok" : "warn",
+        );
+        reloadBadges();
+      } else if (readable.has("ke_toan") && e.type === "purchase_delivery_created") {
+        pushToast(
+          `Đơn mua hàng${e.code ? " " + e.code : ""} có đợt giao mới${
+            e.seq_no ? ` số ${e.seq_no}` : ""
+          }`,
+          "info",
+        );
+        reloadBadges();
+      } else if (readable.has("thu_mua") && e.type === "payment_voucher_created") {
+        pushToast(
+          `Kế toán đã lập chứng từ${e.voucher_code ? " " + e.voucher_code : ""}${
+            e.code ? ` cho đơn ${e.code}` : ""
+          }`,
+          "ok",
+        );
+        reloadBadges();
+      } else if (readable.has("thu_mua") && e.type === "payment_voucher_cancelled") {
+        pushToast(
+          `Kế toán đã hủy chứng từ${e.voucher_code ? " " + e.voucher_code : ""}${
+            e.code ? ` của đơn ${e.code}` : ""
+          }`,
+          "warn",
+        );
+        reloadBadges();
+      } else if (
+        readable.has("thu_mua") &&
+        (e.type === "purchase_changed" || e.type === "accounting_changed")
+      ) {
+        // Việc thu mua đổi (YCMH/PMH/đợt giao) hoặc kế toán động vào phiếu chi → refetch badge
+        // NGAY, không bắt đổi màn. Hai event này backend đã broadcast sẵn từ trước; ở đây chỉ nối.
+        // Toast chỉ khi TĂNG: `purchase_changed` bắn ra từ mọi đường ghi, trong đó phần lớn là
+        // thao tác của chính người đang xem.
+        api.purchaseRequests
+          .notifySummary(token)
+          .then((s) => {
+            const n = tongViecThuMua(s);
+            setBadges((prev) => ({ ...prev, "mua-hang": n }));
+            if (n > lastMuaHang.current) {
+              pushToast("🔔 Có việc mới ở Mua hàng", "info");
+            }
+            lastMuaHang.current = n;
           })
           .catch(() => {});
       } else if (readable.has("luong") && e.type === "advance_pending_changed") {
@@ -630,7 +714,17 @@ export function AppShell() {
           />
         );
       case "mua-hang":
-        return <PurchaseRequestsPage navigate={navigate} eventTick={quoteTick} />;
+        // `focusRequestCode` nối sang cả màn Mua hàng: từ 08/08/2026 màn này có hai tab con và
+        // mở mặc định ở tab "Yêu cầu chờ xử lý". Màn nào bấm mã nhảy sang đây (mã `PMH-…` hay
+        // `YCMH-…`) thì trang tự chọn đúng tab + đổ mã vào ô tìm — không có dòng này thì người
+        // dùng rơi vào tab yêu cầu, không thấy phiếu, tưởng phiếu đã bị xoá.
+        return (
+          <PurchaseRequestsPage
+            navigate={navigate}
+            eventTick={quoteTick}
+            focusRequestCode={navParams?.focusRequestCode ?? null}
+          />
+        );
       case "nha-cung-cap":
         return <SuppliersPage eventTick={quoteTick} />;
       // Bấm vào chính "Kế toán thu mua" thì rơi vào con đầu tiên — đừng để nó ra màn trắng.

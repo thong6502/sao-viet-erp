@@ -15,7 +15,7 @@ const NHAN_TRANG_THAI: Record<string, string> = {
   draft: "Nháp",
   approved: "Đã duyệt",
   rejected: "Từ chối",
-  purchased: "Đã mua",
+  purchased: "Đang mua",
   partially_received: "Giao một phần",
   received: "Đã nhận",
   // Chung

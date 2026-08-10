@@ -68,6 +68,11 @@ class LeaveRequestOut(BaseModel):
 
 class LeaveRequestsOut(BaseModel):
     items: list[LeaveRequestOut]
+    # Ba ô phân trang THÊM VÀO (09/08/2026). Thêm trường = tương thích ngược; mọi client cũ
+    # chỉ đọc `items` vẫn chạy nguyên.
+    total: int = 0     # tổng đơn khớp phạm vi + bộ lọc (KHÔNG phải số dòng của trang)
+    page: int = 1
+    size: int = 20
 
 
 class LeaveQuotaOut(BaseModel):
@@ -84,7 +89,14 @@ class MyLeaveOut(BaseModel):
     has_employee: bool
     employee_name: str | None = None
     items: list[LeaveRequestOut]
+    # ⚠ `quotas` / `has_employee` PHẢI Ở GỐC, đừng bọc chung vào một khối "page" cho gọn:
+    # màn Chấm công (`ChamCongPage`, hộp thoại phiếu Đi muộn/Về sớm) gọi CHÍNH endpoint này chỉ
+    # để lấy `quotas` (số dư phép năm). Bọc lại là ô "trừ vào phép năm" bên đó mất số dư.
     quotas: list[LeaveQuotaOut] = []
+    # Phân trang chỉ áp cho `items`. `quotas` luôn trả ĐỦ (tính theo cả năm, không phân trang).
+    total: int = 0
+    page: int = 1
+    size: int = 20
 
 
 class LeaveBulkIn(BaseModel):

@@ -45,14 +45,8 @@ const NAV: NavSection[] = [
     items: [
       { id: "dashboard", label: "Dashboard", icon: "grid", module: "dashboard" },
       { id: "ho-so-cua-toi", label: "Hồ sơ của tôi", icon: "users", module: "dashboard" },
-      // Danh mục dùng chung: mọi tài khoản đã đăng nhập đều thấy và mở được.
-      {
-        id: "noi-quy",
-        label: "Nội quy công ty",
-        icon: "book",
-        module: "noi_quy",
-        modules: ["noi_quy"],
-      },
+      // "Nội quy công ty" ĐÃ DỜI xuống section "Nhân sự & Lương" (chốt của chủ 09/08/2026):
+      // nội quy lao động là tài liệu của HCNS, để ở "Tổng quan" thì không ai đoán ra chỗ tìm.
     ],
   },
   {
@@ -193,6 +187,17 @@ const NAV: NavSection[] = [
         icon: "calculator",
         module: "luong",
         modules: ["luong", SELF_SERVICE_MODULE],
+      },
+      // Danh mục dùng chung: mọi tài khoản đã đăng nhập đều thấy và mở được (id nằm trong
+      // AUTHENTICATED_NAV_IDS nên bộ lọc quyền bên dưới cho qua bất kể `modules`).
+      // ⚠ ĐỪNG dời lại lên "Tổng quan" và ĐỪNG đổi `id`/`module`: id là khoá route + khoá
+      // MODULE_BY_NAV_ID, đổi là gãy cả điều hướng lẫn cổng quyền.
+      {
+        id: "noi-quy",
+        label: "Nội quy công ty",
+        icon: "book",
+        module: "noi_quy",
+        modules: ["noi_quy"],
       },
     ],
   },

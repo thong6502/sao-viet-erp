@@ -1,0 +1,51 @@
+/* Ô chọn kỳ có nhãn tiếng Việt — xem `MonthPicker.tsx` để biết vì sao phải giấu ô gốc. */
+
+.month-picker {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Ô gốc CHỈ ẩn khỏi mắt, KHÔNG dùng `display:none` cũng KHÔNG dùng `visibility:hidden`:
+   hai cách đó làm trình duyệt từ chối mở lịch và bỏ ô khỏi thứ tự bàn phím. */
+.month-picker__native {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  padding: 0;
+  pointer-events: none;
+}
+
+.month-picker__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.month-picker__label:hover {
+  border-color: var(--rust);
+}
+
+/* Ô gốc vẫn nhận được focus bằng bàn phím ⇒ phải vẽ viền focus lên NHÃN, không thì người dùng
+   bàn phím không biết mình đang đứng ở đâu. */
+.month-picker__native:focus-visible + .month-picker__label {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+
+.month-picker__native:disabled + .month-picker__label {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

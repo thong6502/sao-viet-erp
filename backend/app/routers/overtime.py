@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..deps import (
     CurrentUser,
@@ -129,14 +129,17 @@ def create_my_request(body: OvertimeRequestIn, svc: Service, employees: Employee
 
 
 @router.get("/me", response_model=MyOvertimeOut)
-def my_requests(svc: Service, employees: Employees, user: CurrentUser):
+def my_requests(svc: Service, employees: Employees, user: CurrentUser,
+                page: int = Query(default=1, ge=1),
+                size: int = Query(default=20, ge=1, le=100)):
     if not svc.has_employee(user=user):
-        return MyOvertimeOut(has_employee=False)
-    reqs = svc.my_requests(user=user)
+        return MyOvertimeOut(has_employee=False, page=page, size=size)
+    reqs, total = svc.my_requests(user=user, page=page, size=size)
     emp = employees.get_by_user_id(user.id)
     return MyOvertimeOut(has_employee=True,
                          employee_name=emp.full_name if emp is not None else None,
-                         items=_resolve(employees, reqs))
+                         items=_resolve(employees, reqs),
+                         total=total, page=page, size=size)
 
 
 @router.get("/summary", response_model=OvertimeSummaryOut)
@@ -175,10 +178,16 @@ def create_for_employee(body: OvertimeRequestForIn, svc: Service, employees: Emp
 @router.get("", response_model=OvertimeRequestsOut)
 def list_requests(svc: Service, employees: Employees, authz: Authz,
                   user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-                  status_filter: str | None = None):
+                  status_filter: str | None = None,
+                  employee_id: int | None = Query(default=None),
+                  page: int = Query(default=1, ge=1),
+                  size: int = Query(default=20, ge=1, le=100)):
+    # `employee_id` KHÔNG nới phạm vi — chỉ lọc THÊM bên trong phạm vi đã có (xem service).
     scope = authz.scope_for(user, MODULE) or "own"
-    reqs = svc.list_requests(scope=scope, actor=user, status=status_filter)
-    return OvertimeRequestsOut(items=_resolve(employees, reqs))
+    reqs, total = svc.list_requests(scope=scope, actor=user, status=status_filter,
+                                    employee_id=employee_id, page=page, size=size)
+    return OvertimeRequestsOut(items=_resolve(employees, reqs),
+                               total=total, page=page, size=size)
 
 
 @router.post("/bulk-approve", response_model=OvertimeBulkResultOut)

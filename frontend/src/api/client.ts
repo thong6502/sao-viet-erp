@@ -107,6 +107,35 @@ function authHeader(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
+/** Khuôn CHUNG của mọi endpoint danh sách có phân trang.
+ *
+ *  `total` = tổng dòng KHỚP BỘ LỌC trên toàn bảng, KHÁC `items.length` (số dòng của trang đang
+ *  xem). Chân bảng phải in `total`; in `items.length` thì màn nào cũng báo "Tổng 20". */
+export interface Paged<T> {
+  items: T[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+/** Dựng chuỗi query, BỎ QUA ô rỗng (`undefined` / `null` / chuỗi rỗng).
+ *
+ *  Vì sao phải bỏ: gửi `?q=` (rỗng) lên là backend nhận chuỗi rỗng chứ không phải "không lọc" —
+ *  tuỳ endpoint mà ra bảng trắng. Trả về "" khi không có ô nào, để nối thẳng vào path được.
+ *
+ *  ⚠ Đừng đổi tên thành `qs`: trong file này `qs` đang là tên BIẾN CỤC BỘ ở hàng chục hàm
+ *  (`const qs = new URLSearchParams()`), đặt trùng là người đọc sau tưởng hai thứ là một. */
+function qs(params?: Record<string, string | number | boolean | undefined | null>): string {
+  if (!params) return "";
+  const sp = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === "") continue;
+    sp.set(key, String(value));
+  }
+  const text = sp.toString();
+  return text ? `?${text}` : "";
+}
+
 export async function authed<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
   try {
     return await request<T>(path, {
@@ -178,6 +207,15 @@ export interface AdvanceNotifySummary {
   pending_approval_count: number;
 }
 
+/** Badge Thu mua. Ba số đã lọc theo phạm vi người gọi ở SERVER — FE chỉ việc cộng.
+ *  `dot_giao_qua_han` là số CÔNG NỢ: server trả 0 cho người không có `ke_toan:read`, nên đừng
+ *  thêm luật che ở đây (hai nơi cùng giữ một luật là hai nơi lệch nhau). */
+export interface PurchaseNotifySummary {
+  ycmh_cho_lap_phieu: number;
+  pmh_bi_tu_choi: number;
+  dot_giao_qua_han: number;
+}
+
 export type QuoteEvent =
   | { type: "quote_decision"; quote_id: number; code: string; decision: "approved" | "rejected" }
   | { type: "quote_pending_changed"; code?: string }
@@ -225,6 +263,16 @@ export type QuoteEvent =
   | { type: "xep_lich_changed" }
   // Chốt (thông tin) → báo KẾ TOÁN "đơn chờ ghi cọc" (popup module Phiếu thu). amount = cần thu.
   | { type: "order_deposit_needed"; code?: string; order_id: number; amount: number }
+  // Thu mua / Kế toán: tín hiệu NHẸ (danh sách đổi) → refetch badge Thu mua. Backend đã broadcast
+  // sẵn hai event này từ mọi đường ghi (`_notify_purchase_changed` / `_notify_accounting_changed`),
+  // đợt này chỉ NỐI vào — không mở kênh SSE thứ hai.
+  | { type: "purchase_changed"; code?: string | null }
+  | { type: "accounting_changed"; code?: string | null }
+  | { type: "purchase_pending_approval"; code?: string | null }
+  | { type: "purchase_decision"; code?: string | null; decision: "approved" | "rejected" }
+  | { type: "purchase_delivery_created"; code?: string | null; seq_no?: number | null }
+  | { type: "payment_voucher_created"; code?: string | null; voucher_code?: string | null }
+  | { type: "payment_voucher_cancelled"; code?: string | null; voucher_code?: string | null }
   // Kho (spec-kho-de-nghi §10): `stock_request` = tin đích danh có sẵn câu chữ để toast;
   // `stock_request_pending_changed` = tín hiệu NHẸ (danh sách chờ đổi) → chỉ refetch badge.
   | { type: "stock_request"; code?: string; message: string }
@@ -2835,6 +2883,10 @@ export interface MyOvertime {
   has_employee: boolean;
   employee_name: string | null;
   items: OvertimeRequest[];
+  /** Tổng phiếu của tôi trên TOÀN BẢNG — không phải `items.length` (đó là số dòng của trang). */
+  total: number;
+  page: number;
+  size: number;
 }
 export interface OvertimeSummary {
   pending_in_scope: number | null;
@@ -2938,7 +2990,12 @@ export interface MyLeave {
   has_employee: boolean;
   employee_name: string | null;
   items: LeaveRequest[];
+  /** Số dư phép năm — trả ĐỦ, KHÔNG bị phân trang (màn Chấm công đọc đúng ô này). */
   quotas: LeaveQuota[];
+  /** Tổng đơn của tôi trên TOÀN BẢNG — không phải `items.length`. */
+  total: number;
+  page: number;
+  size: number;
 }
 
 export interface LeaveSummary {
@@ -5962,6 +6019,20 @@ export const api = {
 
   // --- Nhân sự · Hồ sơ nhân sự (nhan_su), lát #1 ----------------------------
   employees: {
+    /** Danh sách nhân sự ra .xlsx THẬT (blob URL). Máy chủ lấy TRỌN theo phạm vi quyền + đúng
+     *  bộ lọc đang chọn — không phụ thuộc trang đang xem, không cắt ở 200 người. */
+    exportXlsxBlobUrl(
+      token: string,
+      params: { q?: string; status?: string | null; department_id?: number | null; sort?: string } = {},
+    ): Promise<string> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.status) qs.set("status", params.status);
+      if (params.department_id != null) qs.set("department_id", String(params.department_id));
+      if (params.sort) qs.set("sort", params.sort);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return blobUrl(`/api/employees/export.xlsx${suffix}`, token);
+    },
     list(token: string, params: EmployeeListParams = {}): Promise<EmployeeListOut> {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
@@ -6307,8 +6378,8 @@ export const api = {
 
   // --- Tăng ca (tang_ca) ----------------------------------------------------
   overtime: {
-    mine(token: string): Promise<MyOvertime> {
-      return authed<MyOvertime>("/api/overtime/me", token);
+    mine(token: string, params?: { page?: number; size?: number }): Promise<MyOvertime> {
+      return authed<MyOvertime>(`/api/overtime/me${qs(params)}`, token);
     },
     createMine(token: string, input: OvertimeInput): Promise<OvertimeRequest> {
       return authed<OvertimeRequest>("/api/overtime/me", token,
@@ -6322,9 +6393,16 @@ export const api = {
       return authed<OvertimeRequest>("/api/overtime", token,
         { method: "POST", body: JSON.stringify(input) });
     },
-    list(token: string, statusFilter?: string): Promise<{ items: OvertimeRequest[] }> {
-      const q = statusFilter ? `?status_filter=${encodeURIComponent(statusFilter)}` : "";
-      return authed<{ items: OvertimeRequest[] }>(`/api/overtime${q}`, token);
+    /** `statusFilter` giữ ĐÚNG tên tham số backend (`status_filter`), đừng đổi thành `status`. */
+    list(token: string, params?: {
+      statusFilter?: string; employeeId?: number; page?: number; size?: number;
+    }): Promise<Paged<OvertimeRequest>> {
+      return authed<Paged<OvertimeRequest>>(`/api/overtime${qs({
+        status_filter: params?.statusFilter,
+        employee_id: params?.employeeId,
+        page: params?.page,
+        size: params?.size,
+      })}`, token);
     },
     approve(token: string, id: number, note?: string): Promise<OvertimeRequest> {
       return authed<OvertimeRequest>(`/api/overtime/${id}/approve`, token,
@@ -6420,8 +6498,10 @@ export const api = {
     deleteType(token: string, id: number): Promise<void> {
       return authed<void>(`/api/leaves/types/${id}`, token, { method: "DELETE" });
     },
-    me(token: string): Promise<MyLeave> {
-      return authed<MyLeave>("/api/leaves/me", token);
+    /** Không truyền `params` = trang 1, cỡ 20. Màn Chấm công gọi kiểu đó và chỉ đọc `quotas`
+     *  (số dư phép năm) — `quotas` KHÔNG bị phân trang nên vẫn đúng. */
+    me(token: string, params?: { page?: number; size?: number }): Promise<MyLeave> {
+      return authed<MyLeave>(`/api/leaves/me${qs(params)}`, token);
     },
     create(token: string, input: LeaveRequestInput): Promise<LeaveRequest> {
       return authed<LeaveRequest>("/api/leaves", token, { method: "POST", body: JSON.stringify(input) });
@@ -6429,9 +6509,17 @@ export const api = {
     cancel(token: string, id: number): Promise<LeaveRequest> {
       return authed<LeaveRequest>(`/api/leaves/${id}/cancel`, token, { method: "POST" });
     },
-    list(token: string, status?: string): Promise<{ items: LeaveRequest[] }> {
-      const suffix = status ? `?status=${encodeURIComponent(status)}` : "";
-      return authed<{ items: LeaveRequest[] }>(`/api/leaves${suffix}`, token);
+    list(token: string, params?: {
+      status?: string; employeeId?: number; page?: number; size?: number;
+    }): Promise<Paged<LeaveRequest>> {
+      return authed<Paged<LeaveRequest>>(`/api/leaves${qs({
+        status: params?.status,
+        // Lọc theo 1 nhân viên chạy Ở MÁY CHỦ (từ 09/08/2026). Trước đây lọc ở client trên mảng
+        // đã tải — sang phân trang thì đơn của người đó rơi ngoài trang là màn báo "chưa có đơn".
+        employee_id: params?.employeeId,
+        page: params?.page,
+        size: params?.size,
+      })}`, token);
     },
     approve(token: string, id: number, note?: string): Promise<LeaveRequest> {
       return authed<LeaveRequest>(`/api/leaves/${id}/approve`, token, { method: "POST", body: JSON.stringify({ note: note ?? null }) });
@@ -7388,13 +7476,36 @@ export const api = {
   purchaseRequests: {
     list(
       token: string,
-      params: { q?: string; status?: string | null; supplier_id?: number | null; sort?: string; page?: number; size?: number } = {},
+      params: {
+        q?: string;
+        status?: string | null;
+        supplier_id?: number | null;
+        created_from?: string | null;
+        created_to?: string | null;
+        needed_from?: string | null;
+        needed_to?: string | null;
+        expected_receipt_from?: string | null;
+        expected_receipt_to?: string | null;
+        deposit_status?: string | null;
+        sort?: string;
+        page?: number;
+        size?: number;
+      } = {},
     ): Promise<PurchaseRequestListOut> {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
       if (params.status) qs.set("status", params.status);
       if (params.supplier_id !== undefined && params.supplier_id !== null)
         qs.set("supplier_id", String(params.supplier_id));
+      if (params.created_from) qs.set("created_from", params.created_from);
+      if (params.created_to) qs.set("created_to", params.created_to);
+      if (params.needed_from) qs.set("needed_from", params.needed_from);
+      if (params.needed_to) qs.set("needed_to", params.needed_to);
+      if (params.expected_receipt_from)
+        qs.set("expected_receipt_from", params.expected_receipt_from);
+      if (params.expected_receipt_to)
+        qs.set("expected_receipt_to", params.expected_receipt_to);
+      if (params.deposit_status) qs.set("deposit_status", params.deposit_status);
       if (params.sort) qs.set("sort", params.sort);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
@@ -7403,6 +7514,10 @@ export const api = {
     },
     get(token: string, id: number): Promise<PurchaseRequestRow> {
       return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}`, token);
+    },
+    // Badge sidebar "Mua hàng". Rẻ (COUNT ở DB) nên gọi lại được sau mỗi sự kiện SSE.
+    notifySummary(token: string): Promise<PurchaseNotifySummary> {
+      return authed<PurchaseNotifySummary>("/api/purchase-requests/notify-summary", token);
     },
     create(token: string, input: PurchaseRequestInput): Promise<PurchaseRequestRow> {
       return authed<PurchaseRequestRow>("/api/purchase-requests", token, {
@@ -7593,12 +7708,35 @@ export const api = {
   accounting: {
     inbox(
       token: string,
-      params: { q?: string; status?: string | null; supplier_id?: number | null; sort?: string; page?: number; size?: number } = {},
+      params: {
+        q?: string;
+        status?: string | null;
+        supplier_id?: number | null;
+        created_from?: string | null;
+        created_to?: string | null;
+        needed_from?: string | null;
+        needed_to?: string | null;
+        expected_receipt_from?: string | null;
+        expected_receipt_to?: string | null;
+        deposit_status?: string | null;
+        sort?: string;
+        page?: number;
+        size?: number;
+      } = {},
     ): Promise<PurchaseRequestListOut> {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
       if (params.status) qs.set("status", params.status);
       if (params.supplier_id != null) qs.set("supplier_id", String(params.supplier_id));
+      if (params.created_from) qs.set("created_from", params.created_from);
+      if (params.created_to) qs.set("created_to", params.created_to);
+      if (params.needed_from) qs.set("needed_from", params.needed_from);
+      if (params.needed_to) qs.set("needed_to", params.needed_to);
+      if (params.expected_receipt_from)
+        qs.set("expected_receipt_from", params.expected_receipt_from);
+      if (params.expected_receipt_to)
+        qs.set("expected_receipt_to", params.expected_receipt_to);
+      if (params.deposit_status) qs.set("deposit_status", params.deposit_status);
       if (params.sort) qs.set("sort", params.sort);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
@@ -8117,8 +8255,11 @@ export const api = {
 
   // --- Danh mục tài liệu nội quy: chỉ Xem / Thêm / Xóa ----------------------
   noiQuy: {
-    list(token: string): Promise<{ items: NoiQuyRecord[] }> {
-      return authed<{ items: NoiQuyRecord[] }>("/api/noi-quy", token);
+    /** `q` tìm ở MÁY CHỦ (mã / tên / tên file / ghi chú / người upload) — trước 09/08/2026 lọc
+     *  ở client trên trọn bảng, nay bảng đã phân trang nên lọc client chỉ soi được 1 trang. */
+    list(token: string, params?: { q?: string; page?: number; size?: number }):
+      Promise<Paged<NoiQuyRecord>> {
+      return authed<Paged<NoiQuyRecord>>(`/api/noi-quy${qs(params)}`, token);
     },
     create(token: string, input: { name: string; note?: string; file: File }): Promise<NoiQuyRecord> {
       const form = new FormData();

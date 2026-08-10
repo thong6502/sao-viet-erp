@@ -223,6 +223,108 @@ def _can_apply_transition(authz: AuthorizationService, user: User, kind: str) ->
 # --- list + meta ------------------------------------------------------------
 
 
+#: Nhãn trạng thái trong file xuất — phải khớp nhãn trên màn, nếu không kế toán đối chiếu là lệch.
+_NHAN_TRANG_THAI = {
+    "probation": "Thử việc",
+    "active": "Chính thức",
+    "on_leave": "Nghỉ dài hạn",
+    "suspended": "Đình chỉ",
+    "resigned": "Đã nghỉ",
+}
+
+#: Nhãn cột file xuất — GIỮ ĐÚNG 8 cột đang hiện trên màn. Đổi cột là việc khác, đừng nhét vào đây.
+_COT_XUAT = ("Mã", "Họ tên", "Phòng/Tổ", "Chức danh", "Bậc tay nghề", "Trạng thái",
+             "Ngày vào", "Tài khoản")
+
+#: Lấy theo mẻ khi xuất. KHÔNG phải trần kết quả — vòng lặp chạy tới khi đủ `total`.
+_ME_XUAT = 200
+
+
+@router.get("/export.xlsx")
+def export_employees_xlsx(
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    depts: Depts,
+    roles: Roles,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    q: str | None = Query(default=None),
+    department_id: int | None = Query(default=None),
+    status_filter: str | None = Query(default=None, alias="status"),
+    has_account: bool | None = Query(default=None),
+    sort: str = Query(default="code"),
+) -> Response:
+    """Xuất danh sách nhân sự ra .xlsx THẬT (chủ chốt 08/08/2026).
+
+    Trước đây giao diện tự nối chuỗi CSV rồi đặt tên nút là "Xuất Excel" — nhãn nói dối, và tệ hơn
+    là nó chỉ lấy **200 người đầu** rồi im lặng, ai đứng thứ 201 trở đi biến mất khỏi file.
+
+    Hai ràng buộc BẮT BUỘC, đừng tối giản đi:
+
+    1. **Cùng phạm vi quyền và cùng bộ lọc với màn danh sách.** Dùng lại `_scope_for` và đúng các
+       tham số của `list_employees`. Bỏ qua là người có phạm vi `own` tải được cả công ty — rò dữ
+       liệu nhân sự, không phải lỗi giao diện.
+    2. **Không dùng trần `size` của endpoint danh sách** (`le=200`). Ở đây lặp theo mẻ tới khi đủ
+       `total`, nên thêm người không phải sửa lại số nào.
+    """
+    from io import BytesIO
+
+    from openpyxl import Workbook  # lazy import: thiếu dep chỉ hỏng endpoint này, không sập app
+    from openpyxl.styles import Font
+
+    scope = _scope_for(authz, user)
+    rows: list = []
+    page = 1
+    while True:
+        batch, total = svc.list_employees(
+            scope=scope, actor=user, q=q, department_id=department_id, status=status_filter,
+            has_account=has_account, sort=sort, page=page, size=_ME_XUAT,
+        )
+        rows.extend(batch)
+        if len(rows) >= total or not batch:
+            break
+        page += 1
+
+    dept_ids = {e.department_id for e in rows if e.department_id is not None}
+    user_ids = {e.user_id for e in rows if e.user_id is not None}
+    names = _dept_names(depts, dept_ids)
+    unames = _user_names(users, user_ids)
+    rnames = _role_names(users, roles, user_ids)
+    gnames = {g.id: g.name for g in svc.list_job_grades()}
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Nhan su"
+    ws.append(list(_COT_XUAT))
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for e in rows:
+        r = _row(e, names, unames, rnames, gnames)
+        ws.append([
+            r.code or "",
+            r.full_name or "",
+            r.department_name or "",
+            r.role_name or r.position or "",
+            r.job_grade_name or "",
+            _NHAN_TRANG_THAI.get(r.status, r.status or ""),
+            # Ngày vào ghi dạng chuỗi dd/mm/yyyy: để nguyên kiểu ngày thì Excel mỗi máy hiện một
+            # định dạng theo vùng, kế toán đối chiếu là lệch.
+            r.hire_date.strftime("%d/%m/%Y") if r.hire_date else "",
+            r.account_username or "",
+        ])
+    for idx, width in enumerate((14, 26, 22, 22, 16, 14, 12, 18), start=1):
+        ws.column_dimensions[ws.cell(row=1, column=idx).column_letter].width = width
+    ws.freeze_panes = "A2"
+
+    buf = BytesIO()
+    wb.save(buf)
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="danh-sach-nhan-vien.xlsx"'},
+    )
+
+
 @router.get("", response_model=EmployeeListOut)
 def list_employees(
     svc: Service,

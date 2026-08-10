@@ -70,61 +70,32 @@
   font-weight: 400;
 }
 
-.ns-head-actions {
+/* ── Cụm nút ở đầu màn ───────────────────────────────────────────────────
+   `.ns-btn-primary` (gradient cam tự chế) và `.ns-btn-secondary` ĐÃ BỎ: mọi nút giờ dùng
+   `<Button variant="accent|ghost">` của components/Button.tsx. Đừng dựng lại nút riêng ở
+   đây — hai hệ nút song song là hai chiều cao, hai bán kính bo, và mỗi lần đổi thiết kế
+   phải sửa hai chỗ. */
+.ns-head-actions,
+.ns2__headact {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
-.ns-btn-primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 18px;
-  border: none;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #c5400a 0%, #ea580c 100%);
-  color: #ffffff;
-  font-weight: 600;
-  font-size: 13.5px;
-  cursor: pointer;
-  box-shadow: 0 2px 10px rgba(197, 64, 10, 0.28);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+/* Có yêu cầu chờ duyệt → viền đậm hơn cho nút phụ (KHÔNG tô cam: cam là vai nút hành
+   động chính, mỗi màn chỉ được một). */
+.ns2-reqbtn--on {
+  border-color: var(--amber, #9c7714);
+  color: var(--amber-deep, #7a5c0f);
+  font-weight: var(--fw-bold, 600);
 }
 
-.ns-btn-primary:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(197, 64, 10, 0.38);
-  background: linear-gradient(135deg, #b33808 0%, #d97706 100%);
-}
-
-.ns-btn-primary:active {
-  transform: translateY(0);
-}
-
-.ns-btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 16px;
-  border: 1px solid var(--rule-soft, #e8e3d3);
-  border-radius: 10px;
-  background: #ffffff;
-  color: var(--ink, #14130f);
-  font-weight: 600;
-  font-size: 13px;
-  cursor: pointer;
-  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.04);
-  transition: all 0.18s ease;
-}
-
-.ns-btn-secondary:hover {
-  background: #fff5f0;
-  border-color: #fdecde;
-  color: #c5400a;
-  box-shadow: 0 3px 8px rgba(197, 64, 10, 0.1);
+/* Dáng nút CTA gọn — CHỈ dáng, KHÔNG màu. Thay cho `cc-btn-cta-compact` (lớp cũ ép navy
+   bằng 6 dòng `!important`, đặt cạnh `variant="accent"` là nút cam bị đè về navy). */
+.ns-btn-cta {
+  font-weight: var(--fw-bold, 600);
+  white-space: nowrap;
 }
 
 /* ── Dải lọc nhanh theo trạng thái ──────────────────────────────────────
@@ -166,51 +137,42 @@ button.ns__kpi {
 
 .ns__kpi:hover {
   border-color: var(--rule, #d8d2c0);
-  background: #fffaf7;
+  /* Nền hover TRUNG TÍNH (xám giấy), không phải ánh cam — xem ghi chú màu ở `.is-active`. */
+  background: var(--rule-hair, #f1f5f9);
   color: var(--ink, #14130f);
 }
 
 .ns__kpi:focus-visible {
-  outline: 2px solid var(--rust, #c5400a);
+  outline: 2px solid var(--charcoal, #0f172a);
   outline-offset: 2px;
 }
 
-/* Đang chọn = nền cam đặc: đọc được ngay đang lọc cái gì, không cần dò viền mảnh. */
+/* Đang chọn = nền THAN CHÌ đặc: đọc được ngay đang lọc cái gì, không cần dò viền mảnh.
+   ⚠ TRƯỚC ĐÂY nền CAM. Đổi vì cam là vai của NÚT HÀNH ĐỘNG ("Thêm nhân viên") — để cam ở
+   cả chip lọc thì trên cùng một màn có hai vệt cam, mắt không biết đâu là nút bấm để LÀM,
+   đâu là chỗ đang bật bộ lọc. Đừng "trả lại màu thương hiệu" cho dải này.
+   Đây là BỘ LỌC, không phải thẻ thống kê — xem ghi chú ở `.ns2__kpis` phía trên. */
 .ns__kpi.is-active {
-  background: var(--rust, #c5400a);
-  border-color: var(--rust, #c5400a);
-  color: #ffffff;
+  background: var(--charcoal, #0f172a);
+  border-color: var(--charcoal, #0f172a);
+  color: var(--on-charcoal, #f8fafc);
 }
 
+/* Chữ số bên trong khai màu riêng (`--ink`, đen trên nền trắng) nên KHÔNG tự kế thừa —
+   phải ép lại, không thì số gần như tàng hình trên nền than chì. */
 .ns__kpi.is-active .ns__kpival,
 .ns__kpi.is-active .ns__kpilabel {
-  /* color: #ffffff; */
+  color: var(--on-charcoal, #f8fafc);
+}
+
+.ns__kpi.is-active:hover {
+  background: var(--charcoal-2, #1e293b);
+  border-color: var(--charcoal-2, #1e293b);
+  color: var(--on-charcoal, #f8fafc);
 }
 
 .ns__kpi.is-active svg {
   opacity: 1;
-}
-
-/* Ô "Sắp hết thử việc": đẩy sang phải, tách khỏi 3 ô đếm — đây là VIỆC CẦN LÀM,
-   không phải một con số thống kê nữa. */
-.ns__kpi--action {
-  margin-left: auto;
-  background: var(--amber-soft, #fdf6e3);
-  border-color: rgba(156, 119, 20, 0.28);
-  color: var(--amber-deep, #7a5c0f);
-}
-
-.ns__kpi--action:hover {
-  background: #f9edd2;
-  border-color: rgba(156, 119, 20, 0.45);
-  color: var(--amber-deep, #7a5c0f);
-}
-
-/* Không có ai sắp hết thử việc → tắt màu. Màu chỉ bật khi thật sự có việc. */
-.ns__kpi--action.is-quiet {
-  background: #ffffff;
-  border-color: var(--rule-soft, #e8e3d3);
-  color: var(--ash, #6b665b);
 }
 
 .ns__kpival {
@@ -1634,6 +1596,61 @@ button.ns__kpi {
   padding: 4px 10px;
   font-size: 12.5px;
   border-radius: var(--r-3);
+}
+
+/* ── Cột trong bảng: lớp thay cho `style={{ textAlign: "center" }}` rải khắp JSX ──────
+   Gom về CSS để đổi canh lề một lần là ăn mọi bảng, và để dòng JSX đọc ra ý nghĩa của cột
+   thay vì một mẩu style. Đặt ở nhan-su.css vì cả Hồ sơ nhân sự · Nghỉ phép · Tăng ca ·
+   Nội quy đều import file này. */
+
+/* Cột THAO TÁC: co sát nội dung (`width:1%` + nowrap) nên cột chỉ rộng bằng cụm nút.
+   Canh GIỮA chứ không phải phải: bảng ở Nghỉ phép nằm trong `.cc-timesheet-table`, mà lớp
+   đó đã ép `th { text-align: center }` với cùng độ ưu tiên và được nạp SAU nhan-su.css —
+   ghi `right` ở đây thì tiêu đề vẫn giữa còn nút chạy sang phải, lệch nhau. */
+.ns-col-act {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
+
+/* Cột canh giữa (số ngày, trạng thái, badge…). */
+.ns-col-mid {
+  text-align: center;
+}
+
+/* Cột ô tích chọn: hẹp, canh giữa. */
+.ns-col-pick {
+  width: 36px;
+  text-align: center;
+}
+
+/* Cụm nút trên một dòng. Dùng KÈM lớp sẵn có của màn (vd `.cc-approve-actions-cell`,
+   `.cc-rowact`) nên chỉ ghi đè canh lề + khoảng cách; phải đặt SAU hai lớp kia trong file
+   này thì mới thắng (cùng độ ưu tiên, hơn nhau ở thứ tự). */
+.ns-rowact {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: center;
+}
+
+/* Ô chứa khối rỗng (`EmptyRow`) nằm trong bảng của Chấm công/Nghỉ phép, mà lớp
+   `.cc-timesheet-table td` ép `white-space: nowrap` + padding cho ô dữ liệu — áp lên khối
+   rỗng thì câu gợi ý dài không xuống dòng, kéo bảng rộng ra ngang màn. Trả lại nếp thường.
+   Phải viết kèm `.cc-timesheet-table` mới đủ ưu tiên: file này được nạp TRƯỚC cham-cong.css. */
+.cc-timesheet-table td.empty-state__cell {
+  white-space: normal;
+  padding: 0;
+}
+
+/* `RowActionButton` gắn sẵn lớp `md-page__rowbtn--danger` cho tín hiệu NGUY HIỂM (xoá / từ
+   chối / hủy), nhưng phần khai MÀU của lớp đó nằm ở `master-data.css` — nhóm màn Nhân sự
+   KHÔNG import file ấy (import vào là kéo nguyên bộ `.md-page__*` của màn danh mục sang).
+   Khai lại đúng phần cần, giới hạn trong gốc `.ns` (Hồ sơ NV · Nghỉ phép · Tăng ca) và
+   `.nqr` (Nội quy). GỠ DÒNG NÀY là nút Xoá trông y hệt nút thường — bấm nhầm như chơi. */
+.ns .md-page__rowbtn--danger,
+.nqr .md-page__rowbtn--danger {
+  color: var(--signal);
 }
 
 /* Alerts Banners */
