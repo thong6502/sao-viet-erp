@@ -1160,6 +1160,13 @@ class PurchaseService:
         q: str | None = None,
         status: str | None = None,
         supplier_id: int | None = None,
+        created_from: date | None = None,
+        created_to: date | None = None,
+        needed_from: date | None = None,
+        needed_to: date | None = None,
+        expected_receipt_from: date | None = None,
+        expected_receipt_to: date | None = None,
+        deposit_status: str | None = None,
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
@@ -1171,7 +1178,19 @@ class PurchaseService:
         # thấy phiếu của cả công ty, bất kể vai được khai scope gì.
         creator_ids = None if actor is None else self._creator_ids_theo_scope(actor)
         rows, total = self.requests.list(
-            q=q, status=status, supplier_id=supplier_id, sort=sort, page=page, size=size,
+            q=q,
+            status=status,
+            supplier_id=supplier_id,
+            created_from=created_from,
+            created_to=created_to,
+            needed_from=needed_from,
+            needed_to=needed_to,
+            expected_receipt_from=expected_receipt_from,
+            expected_receipt_to=expected_receipt_to,
+            deposit_status=deposit_status,
+            sort=sort,
+            page=page,
+            size=size,
             creator_ids=creator_ids, exclude_statuses=exclude_statuses,
         )
         return [self._to_request_out(r) for r in rows], total

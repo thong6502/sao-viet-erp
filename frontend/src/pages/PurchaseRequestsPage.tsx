@@ -55,7 +55,7 @@ const STATUS_META: Record<
   pending_approval: { label: "Chờ duyệt", tone: "pending" },
   approved: { label: "Đã duyệt", tone: "approved" },
   rejected: { label: "Từ chối", tone: "rejected" },
-  purchased: { label: "Đã mua", tone: "purchased" },
+  purchased: { label: "Đang mua", tone: "purchased" },
   // Bậc SUY RA từ đợt giao: có ≥1 đợt nhưng tổng thực nhận chưa đủ số đặt. Không ai gõ tay được
   // trạng thái này — nó đổi theo đợt giao, và phần hàng đã về đã đẻ ra công nợ.
   partially_received: { label: "Giao một phần", tone: "partial" },
@@ -68,6 +68,7 @@ const GHI_DOT_DUOC: PurchaseRequestStatus[] = ["purchased", "partially_received"
 
 type StatusFilter = "all" | PurchaseRequestStatus;
 type SourceStatusFilter = "all" | DepartmentPurchaseRequestStatus;
+type DepositFilter = "all" | "none" | "unpaid" | "partial" | "enough";
 
 /** Hai tab con của màn Mua hàng (chốt 08/08/2026).
  *
@@ -344,6 +345,21 @@ function bestSupplierIdForLines(
   return best?.supplierId ?? null;
 }
 
+function DepositCell({ row }: { row: PurchaseRequestRow }) {
+  if ((row.deposit_expected ?? 0) <= 0) {
+    return <span className="md-page__muted">-</span>;
+  }
+  const paid = row.coc_da_chi ?? 0;
+  const expected = row.deposit_expected ?? 0;
+  const tone = paid >= expected ? "ok" : paid > 0 ? "warn" : "empty";
+  return (
+    <div className={`purchase__deposit purchase__deposit--${tone}`}>
+      <strong>{money(paid)}</strong>
+      <span>/ {money(expected)}</span>
+    </div>
+  );
+}
+
 function printPurchaseRequest(row: PurchaseRequestRow): boolean {
   const win = window.open("", "_blank", "width=980,height=720");
   if (!win) return false;
@@ -397,7 +413,7 @@ function printPurchaseRequest(row: PurchaseRequestRow): boolean {
 <html lang="vi">
 <head>
   <meta charset="utf-8" />
-  <title>In phiếu mua hàng ${html(row.code)}</title>
+  <title>In đơn mua hàng ${html(row.code)}</title>
   <style>
     @page { size: A4; margin: 14mm; }
     * { box-sizing: border-box; }
@@ -511,8 +527,8 @@ function printPurchaseRequest(row: PurchaseRequestRow): boolean {
     </div>
   </div>
 
-  <h1>Phiếu mua hàng</h1>
-  <div class="code">Mã phiếu: ${html(row.code)}</div>
+  <h1>Đơn mua hàng</h1>
+  <div class="code">Mã đơn: ${html(row.code)}</div>
 
   <section class="info">
     <div><span class="label">Nhà cung cấp</span>${html(row.supplier_name || "Chưa chọn")}</div>
@@ -623,6 +639,12 @@ export function PurchaseRequestsPage({
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [supplierFilter, setSupplierFilter] = useState<number | "all">("all");
+  const [depositFilter, setDepositFilter] = useState<DepositFilter>("all");
+  const [createdFrom, setCreatedFrom] = useState("");
+  const [createdTo, setCreatedTo] = useState("");
+  const [neededFrom, setNeededFrom] = useState("");
+  const [neededTo, setNeededTo] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const [sourceRows, setSourceRows] = useState<DepartmentPurchaseRequestRow[]>(
@@ -785,6 +807,12 @@ export function PurchaseRequestsPage({
       .list(token, {
         q: qDebounced.trim() || undefined,
         status: status === "all" ? null : status,
+        supplier_id: supplierFilter === "all" ? null : supplierFilter,
+        deposit_status: depositFilter === "all" ? null : depositFilter,
+        created_from: createdFrom || null,
+        created_to: createdTo || null,
+        needed_from: neededFrom || null,
+        needed_to: neededTo || null,
         sort: "-created_at",
         page,
         size: PAGE_SIZE,
@@ -800,10 +828,21 @@ export function PurchaseRequestsPage({
       })
       .catch((err) => {
         if (err instanceof ApiError && err.isForbidden) setForbidden(true);
-        else setListError("Không tải được danh sách phiếu mua hàng.");
+        else setListError("Không tải được danh sách đơn mua hàng.");
       })
       .finally(() => setLoading(false));
-  }, [token, qDebounced, status, page]);
+  }, [
+    token,
+    qDebounced,
+    status,
+    supplierFilter,
+    depositFilter,
+    createdFrom,
+    createdTo,
+    neededFrom,
+    neededTo,
+    page,
+  ]);
 
   useEffect(() => {
     loadSuppliers();
@@ -877,7 +916,7 @@ export function PurchaseRequestsPage({
 
   function openCreatePurchaseRequest(pickedSource: DepartmentPurchaseRequestRow) {
     if (pickedSource.status !== "open") {
-      setError("Chỉ lập phiếu mua hàng từ yêu cầu đang chờ Thu mua xử lý.");
+      setError("Chỉ lập đơn mua hàng từ yêu cầu đang chờ Thu mua xử lý.");
       return;
     }
     const source = pickedSource;
@@ -984,7 +1023,7 @@ export function PurchaseRequestsPage({
       return;
     }
     if (payload.source_request_ids.length !== 1) {
-      setFormError("Mỗi phiếu mua hàng chỉ được lập từ 1 yêu cầu mua hàng.");
+      setFormError("Mỗi đơn mua hàng chỉ được lập từ 1 yêu cầu mua hàng.");
       return;
     }
     if (
@@ -1073,7 +1112,7 @@ export function PurchaseRequestsPage({
       loadSources();
     } catch (err) {
       if (err instanceof ApiError) setFormError(err.message);
-      else setFormError("Không lưu được phiếu mua hàng.");
+      else setFormError("Không lưu được đơn mua hàng.");
     } finally {
       setSaving(false);
     }
@@ -1273,7 +1312,7 @@ export function PurchaseRequestsPage({
         {canUpdate && row.status === "approved" && (
           <RowActionButton
             dense={dense}
-            label="Đã mua"
+            label="Đang mua"
             icon="bag"
             loading={busy("purchased")}
             onClick={() =>
@@ -1386,8 +1425,8 @@ export function PurchaseRequestsPage({
         <p className="eyebrow">Thu mua</p>
         <h1 className="md-page__title">Mua hàng</h1>
         <p className="md-page__sub">
-          Bộ phận mua hàng lập PMH từ YCMH, gửi người có quyền duyệt, sau đó
-          theo dõi đã mua và đã nhận hàng.
+          Bộ phận mua hàng lập đơn mua từ YCMH, gửi người có quyền duyệt, sau đó
+          theo dõi đang mua và đã nhận hàng.
         </p>
       </header>
 
@@ -1404,7 +1443,7 @@ export function PurchaseRequestsPage({
               count: choMua.soLuong,
               tone: coYcQuaHan ? "alert" : "default",
             },
-            { key: "phieu", label: "Phiếu mua hàng", count: total },
+            { key: "phieu", label: "Đơn mua hàng", count: total },
           ]}
         />
       </div>
@@ -1488,7 +1527,7 @@ export function PurchaseRequestsPage({
                 colSpan={6}
                 icon="clipboard"
                 title="Chưa có yêu cầu mua từ phòng ban"
-                sub="Phiếu mua hàng luôn bắt đầu từ một yêu cầu của bộ phận — chờ họ gửi sang."
+                sub="Đơn mua hàng luôn bắt đầu từ một yêu cầu của bộ phận — chờ họ gửi sang."
               />
             ) : (
               sourceRows.map((row) => {
@@ -1534,7 +1573,7 @@ export function PurchaseRequestsPage({
                           variant="ghost"
                           onClick={() => openCreatePurchaseRequest(row)}
                         >
-                          Tạo phiếu
+                          Tạo đơn
                         </Button>
                       ) : (
                         <span className="md-page__muted">—</span>
@@ -1601,7 +1640,7 @@ export function PurchaseRequestsPage({
         <div className="purchase__source-head purchase__list-head">
           <div>
             <p className="eyebrow">Thu mua</p>
-            <h2>Phiếu mua hàng</h2>
+            <h2>Đơn mua hàng</h2>
           </div>
           <div className="purchase__list-tools">
             <form
@@ -1639,6 +1678,81 @@ export function PurchaseRequestsPage({
                 </option>
               ))}
             </select>
+            <select
+              className="input purchase__select"
+              value={supplierFilter}
+              onChange={(e) => {
+                setSupplierFilter(e.target.value === "all" ? "all" : Number(e.target.value));
+                setPage(1);
+              }}
+            >
+              <option value="all">Tất cả nhà cung cấp</option>
+              {suppliers.map((supplier) => (
+                <option key={supplier.id} value={supplier.id}>
+                  {supplier.name}
+                </option>
+              ))}
+            </select>
+            <select
+              className="input purchase__select"
+              value={depositFilter}
+              onChange={(e) => {
+                setDepositFilter(e.target.value as DepositFilter);
+                setPage(1);
+              }}
+            >
+              <option value="all">Tất cả tiền cọc</option>
+              <option value="none">Không yêu cầu cọc</option>
+              <option value="unpaid">Chưa cọc</option>
+              <option value="partial">Cọc thiếu</option>
+              <option value="enough">Cọc đủ</option>
+            </select>
+            <div className="purchase__date-group">
+              <span>Ngày tạo</span>
+              <input
+                className="input purchase__date-filter"
+                type="date"
+                title="Ngày tạo từ"
+                value={createdFrom}
+                onChange={(e) => {
+                  setCreatedFrom(e.target.value);
+                  setPage(1);
+                }}
+              />
+              <input
+                className="input purchase__date-filter"
+                type="date"
+                title="Ngày tạo đến"
+                value={createdTo}
+                onChange={(e) => {
+                  setCreatedTo(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
+            <div className="purchase__date-group">
+              <span>Ngày cần hàng</span>
+              <input
+                className="input purchase__date-filter"
+                type="date"
+                title="Ngày cần từ"
+                value={neededFrom}
+                onChange={(e) => {
+                  setNeededFrom(e.target.value);
+                  setPage(1);
+                }}
+              />
+              <input
+                className="input purchase__date-filter"
+                type="date"
+                title="Ngày cần đến"
+                value={neededTo}
+                onChange={(e) => {
+                  setNeededTo(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
           </div>
         </div>
 
@@ -1649,10 +1763,12 @@ export function PurchaseRequestsPage({
             <tr>
               {/* TRẠNG THÁI luôn đứng NGAY TRƯỚC Thao tác — thống nhất ở mọi màn Thu mua /
                   Kế toán. Mỗi màn để một chỗ khác nhau thì người dùng phải đi tìm lại từng lần. */}
-              <th>Mã phiếu</th>
+              <th>Mã đơn</th>
               <th>Nhà cung cấp</th>
+              <th>Ngày tạo</th>
               <th>Cần / Dự kiến nhận</th>
               <th>Tổng dự kiến</th>
+              <th>Tiền cọc</th>
               <th>Người tạo / duyệt</th>
               <th>Trạng thái</th>
               {/* `md-page__actions-col` canh tiêu đề THEO NÚT (nút dense nằm sát phải). Thiếu lớp
@@ -1662,27 +1778,47 @@ export function PurchaseRequestsPage({
           </thead>
           <tbody>
             {loading ? (
-              <EmptyRow colSpan={7} trangThai="dang-tai" />
+              <EmptyRow colSpan={9} trangThai="dang-tai" />
             ) : listError ? (
-              <EmptyRow colSpan={7} trangThai="loi" loi={listError} onThuLai={load} />
+              <EmptyRow colSpan={9} trangThai="loi" loi={listError} onThuLai={load} />
             ) : rows.length === 0 ? (
               <EmptyRow
-                colSpan={7}
+                colSpan={9}
                 icon="cart"
-                title="Chưa có phiếu mua hàng nào khớp"
+                title="Chưa có đơn mua hàng nào khớp"
                 sub={
-                  q.trim() || status !== "all"
+                  q.trim() ||
+                  status !== "all" ||
+                  supplierFilter !== "all" ||
+                  depositFilter !== "all" ||
+                  createdFrom ||
+                  createdTo ||
+                  neededFrom ||
+                  neededTo
                     ? "Thử bỏ bớt bộ lọc hoặc xoá từ khoá tìm kiếm."
-                    : "Sang tab Yêu cầu chờ xử lý để chọn một yêu cầu rồi lập phiếu mua."
+                    : "Sang tab Yêu cầu chờ xử lý để chọn một yêu cầu rồi lập đơn mua."
                 }
                 action={
-                  q.trim() || status !== "all" ? (
+                  q.trim() ||
+                  status !== "all" ||
+                  supplierFilter !== "all" ||
+                  depositFilter !== "all" ||
+                  createdFrom ||
+                  createdTo ||
+                  neededFrom ||
+                  neededTo ? (
                     <button
                       type="button"
                       className="btn btn--ghost"
                       onClick={() => {
                         setQ("");
                         setStatus("all");
+                        setSupplierFilter("all");
+                        setDepositFilter("all");
+                        setCreatedFrom("");
+                        setCreatedTo("");
+                        setNeededFrom("");
+                        setNeededTo("");
                         setPage(1);
                       }}
                     >
@@ -1726,6 +1862,9 @@ export function PurchaseRequestsPage({
                     )}
                   </td>
                   <td className="purchase__date-cell">
+                    {fmtDate(row.created_at)}
+                  </td>
+                  <td className="purchase__date-cell">
                     {fmtDate(row.needed_date)}
                     {row.expected_receipt_date && (
                       <div className="md-page__muted">
@@ -1735,6 +1874,9 @@ export function PurchaseRequestsPage({
                   </td>
                   <td className="md-page__price purchase__money-cell">
                     {money(row.total_estimate)}
+                  </td>
+                  <td className="md-page__price purchase__money-cell">
+                    <DepositCell row={row} />
                   </td>
                   <td>
                     <div>
@@ -1765,7 +1907,7 @@ export function PurchaseRequestsPage({
             nằm ngoài thẻ và luôn in "Trang 1/1" kèm hai nút mờ — nhiễu mà không nói thêm gì. */}
         <div className="purchase__source-foot">
           <span className="md-page__muted">
-            Tổng {total} phiếu
+            Tổng {total} đơn
             {totalPages > 1 ? ` · Trang ${page}/${totalPages}` : ""}
           </span>
           {totalPages > 1 && (
@@ -1797,7 +1939,7 @@ export function PurchaseRequestsPage({
           xong là màn tự nhảy sang tab phiếu — kéo hộp vào trong tab thì nó bị gỡ giữa chừng). */}
       {selected && (
         <DetailModal
-          kicker="Chi tiết phiếu"
+          kicker="Chi tiết đơn"
           title={selected.code}
           subtitle={noiDung(selected)}
           badge={<StatusBadge status={selected.status} />}
@@ -1911,7 +2053,7 @@ export function PurchaseRequestsPage({
           >
             <div className="md-page__dialog-head">
               <h2>
-                {mode === "edit" ? "Sửa phiếu mua hàng" : "Tạo phiếu mua hàng"}
+                {mode === "edit" ? "Sửa đơn mua hàng" : "Tạo đơn mua hàng"}
               </h2>
               <button
                 type="button"
@@ -2192,7 +2334,7 @@ export function PurchaseRequestsPage({
                     dòng là bất ngờ không đáng có — và người dùng cần biết để còn đổi NCC. */}
                 {mode !== "edit" && phieuSeTao.length > 0 && (
                   <p className="md-page__muted" style={{ marginTop: 4 }}>
-                    Sẽ tạo <strong>{phieuSeTao.length} phiếu</strong> —{" "}
+                    Sẽ tạo <strong>{phieuSeTao.length} đơn</strong> —{" "}
                     {phieuSeTao
                       .map(
                         (p) =>
@@ -2213,7 +2355,7 @@ export function PurchaseRequestsPage({
                   Hủy
                 </button>
                 <Button type="submit" variant="accent" loading={saving}>
-                  Lưu phiếu
+                  Lưu đơn
                 </Button>
               </div>
             </form>
@@ -2240,25 +2382,25 @@ export function PurchaseRequestsPage({
         open={Boolean(reasonModal)}
         title={
           reasonModal?.kind === "reject"
-            ? "Từ chối phiếu?"
+            ? "Từ chối đơn?"
             : reasonModal?.kind === "undo_received"
-              ? "Lùi về 'Đã mua'?"
-              : "Hủy phiếu?"
+              ? "Lùi về 'Đang mua'?"
+            : "Hủy đơn?"
         }
         message={
           reasonModal
             ? reasonModal.kind === "undo_received"
-              ? `Phiếu ${reasonModal.row.code} — công nợ của đơn này sẽ mất khỏi màn Kế toán, và yêu cầu của bộ phận quay về "Đang mua".`
-              : `Phiếu ${reasonModal.row.code}`
+              ? `Đơn ${reasonModal.row.code} — công nợ của đơn này sẽ mất khỏi màn Kế toán, và yêu cầu của bộ phận quay về "Đang mua".`
+              : `Đơn ${reasonModal.row.code}`
             : undefined
         }
         danger
         confirmLabel={
           reasonModal?.kind === "reject"
-            ? "Từ chối phiếu"
+            ? "Từ chối đơn"
             : reasonModal?.kind === "undo_received"
               ? "Lùi trạng thái"
-              : "Hủy phiếu"
+              : "Hủy đơn"
         }
         busy={
           reasonModal
@@ -2843,7 +2985,7 @@ function DeliveriesBlock({
             ? "Hàng về đợt nào thì ghi đợt đó — công nợ chỉ phát sinh theo số đã ghi ở đây."
             : row.status === "received"
               ? "Đơn này đã chốt nhận hàng theo đường cũ (không theo dõi theo đợt)."
-              : "Đơn phải ở trạng thái Đã mua thì mới ghi được đợt giao."}
+              : "Đơn phải ở trạng thái Đang mua thì mới ghi được đợt giao."}
         </p>
       ) : (
         // Cuộn ngang trong KHUNG RIÊNG của bảng: 8 cột trên drawer 960px là chật, nhưng để cả

@@ -1,6 +1,7 @@
 """Accounting API: purchase inbox, bank accounts, Phiếu chi and UNC."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
@@ -50,9 +51,9 @@ router = APIRouter(tags=["accounting"])
 MODULE = "ke_toan"
 
 
-def _notify_accounting_changed(code: str | None = None) -> None:
+def _notify_accounting_changed(code: str | None = None, *, event_type: str = "accounting_changed", **extra) -> None:
     """Tín hiệu nhẹ cho các màn Kế toán/Thu mua tự refetch qua SSE."""
-    hub.broadcast({"type": "accounting_changed", "code": code})
+    hub.broadcast({"type": event_type, "code": code, **extra})
 
 
 def _map_error(exc: Exception) -> HTTPException:
@@ -72,6 +73,13 @@ def accounting_inbox(
     q: str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
     supplier_id: int | None = Query(default=None),
+    created_from: date | None = Query(default=None),
+    created_to: date | None = Query(default=None),
+    needed_from: date | None = Query(default=None),
+    needed_to: date | None = Query(default=None),
+    expected_receipt_from: date | None = Query(default=None),
+    expected_receipt_to: date | None = Query(default=None),
+    deposit_status: str | None = Query(default=None),
     sort: str = Query(default="-created_at"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
@@ -79,7 +87,19 @@ def accounting_inbox(
     # Kế toán có `ke_toan` scope `all` ⇒ `_purchase_scope` trả `all` ⇒ thấy HẾT đơn mua, đúng như
     # họ cần để lập phiếu chi. Truyền `actor` để chính lối này không thành lỗ nhìn xuyên phạm vi.
     rows, total = purchases.list_requests(
-        q=q, status=status_, supplier_id=supplier_id, sort=sort, page=page, size=size,
+        q=q,
+        status=status_,
+        supplier_id=supplier_id,
+        created_from=created_from,
+        created_to=created_to,
+        needed_from=needed_from,
+        needed_to=needed_to,
+        expected_receipt_from=expected_receipt_from,
+        expected_receipt_to=expected_receipt_to,
+        deposit_status=deposit_status,
+        sort=sort,
+        page=page,
+        size=size,
         actor=user,
         # Đơn NHÁP là thu mua còn đang sửa, CHƯA gửi duyệt — không thuộc hộp thư kế toán (chủ
         # 04/08/2026). Chặn ở API chứ không chỉ giấu ở giao diện.
@@ -279,7 +299,11 @@ def create_payment_voucher(
         row = svc.create_voucher(actor=user, **payload.model_dump())
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
-    _notify_accounting_changed(row.get("code"))
+    _notify_accounting_changed(
+        row.get("purchase_request_code") or row.get("code"),
+        event_type="payment_voucher_created",
+        voucher_code=row.get("code"),
+    )
     return PaymentVoucherOut(**row)
 
 
@@ -298,7 +322,11 @@ def cancel_payment_voucher(
         row = svc.cancel_voucher(voucher_id, actor=user, reason=payload.reason)
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
-    _notify_accounting_changed(row.get("code"))
+    _notify_accounting_changed(
+        row.get("purchase_request_code") or row.get("code"),
+        event_type="payment_voucher_cancelled",
+        voucher_code=row.get("code"),
+    )
     return PaymentVoucherOut(**row)
 
 

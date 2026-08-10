@@ -7,7 +7,7 @@ from typing import Sequence
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..models.accounting import PaymentVoucher
+from ..models.accounting import PAYMENT_VOUCHER_PAID, PaymentVoucher
 from ..models.purchase import (
     DPR_IN_PURCHASE,
     DPR_OPEN,
@@ -603,6 +603,13 @@ class PurchaseRequestRepository:
         q: str | None = None,
         status: str | None = None,
         supplier_id: int | None = None,
+        created_from: date | None = None,
+        created_to: date | None = None,
+        needed_from: date | None = None,
+        needed_to: date | None = None,
+        expected_receipt_from: date | None = None,
+        expected_receipt_to: date | None = None,
+        deposit_status: str | None = None,
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
@@ -636,6 +643,41 @@ class PurchaseRequestRepository:
             conditions.append(PurchaseRequest.status.notin_(exclude_statuses))
         if supplier_id is not None:
             conditions.append(PurchaseRequest.supplier_id == supplier_id)
+        if created_from is not None:
+            conditions.append(func.date(PurchaseRequest.created_at) >= created_from)
+        if created_to is not None:
+            conditions.append(func.date(PurchaseRequest.created_at) <= created_to)
+        if needed_from is not None:
+            conditions.append(PurchaseRequest.needed_date >= needed_from)
+        if needed_to is not None:
+            conditions.append(PurchaseRequest.needed_date <= needed_to)
+        if expected_receipt_from is not None:
+            conditions.append(PurchaseRequest.expected_receipt_date >= expected_receipt_from)
+        if expected_receipt_to is not None:
+            conditions.append(PurchaseRequest.expected_receipt_date <= expected_receipt_to)
+        if deposit_status:
+            advance_paid = (
+                select(func.coalesce(func.sum(PaymentVoucher.amount_vnd), 0))
+                .where(
+                    PaymentVoucher.purchase_request_id == PurchaseRequest.id,
+                    PaymentVoucher.status == PAYMENT_VOUCHER_PAID,
+                    PaymentVoucher.payment_stage == "advance",
+                )
+                .correlate(PurchaseRequest)
+                .scalar_subquery()
+            )
+            if deposit_status == "none":
+                conditions.append(func.coalesce(PurchaseRequest.deposit_expected, 0) <= 0)
+            elif deposit_status == "unpaid":
+                conditions.append(func.coalesce(PurchaseRequest.deposit_expected, 0) > 0)
+                conditions.append(advance_paid <= 0)
+            elif deposit_status == "partial":
+                conditions.append(func.coalesce(PurchaseRequest.deposit_expected, 0) > 0)
+                conditions.append(advance_paid > 0)
+                conditions.append(advance_paid < func.coalesce(PurchaseRequest.deposit_expected, 0))
+            elif deposit_status == "enough":
+                conditions.append(func.coalesce(PurchaseRequest.deposit_expected, 0) > 0)
+                conditions.append(advance_paid >= func.coalesce(PurchaseRequest.deposit_expected, 0))
 
         stmt = select(PurchaseRequest).options(
             *_quan_he_tien(),

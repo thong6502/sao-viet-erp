@@ -1,6 +1,7 @@
 """Thu mua API — suppliers + purchase requests."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import (
@@ -63,9 +64,9 @@ DEPARTMENT_REQUEST_READERS = tuple(
 )
 
 
-def _notify_purchase_changed(code: str | None = None) -> None:
+def _notify_purchase_changed(code: str | None = None, *, event_type: str = "purchase_changed", **extra) -> None:
     """Tín hiệu nhẹ cho các màn Thu mua/Kế toán tự refetch qua SSE."""
-    hub.broadcast({"type": "purchase_changed", "code": code})
+    hub.broadcast({"type": event_type, "code": code, **extra})
 
 
 def _map_error(exc: Exception) -> HTTPException:
@@ -321,12 +322,31 @@ def list_purchase_requests(
     q: str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
     supplier_id: int | None = Query(default=None),
+    created_from: date | None = Query(default=None),
+    created_to: date | None = Query(default=None),
+    needed_from: date | None = Query(default=None),
+    needed_to: date | None = Query(default=None),
+    expected_receipt_from: date | None = Query(default=None),
+    expected_receipt_to: date | None = Query(default=None),
+    deposit_status: str | None = Query(default=None),
     sort: str = Query(default="-created_at"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ) -> PurchaseRequestListOut:
     rows, total = svc.list_requests(
-        q=q, status=status_, supplier_id=supplier_id, sort=sort, page=page, size=size,
+        q=q,
+        status=status_,
+        supplier_id=supplier_id,
+        created_from=created_from,
+        created_to=created_to,
+        needed_from=needed_from,
+        needed_to=needed_to,
+        expected_receipt_from=expected_receipt_from,
+        expected_receipt_to=expected_receipt_to,
+        deposit_status=deposit_status,
+        sort=sort,
+        page=page,
+        size=size,
         actor=user,
     )
     return PurchaseRequestListOut(items=rows, total=total, page=page, size=size)
@@ -373,7 +393,7 @@ def create_purchase_request(
         row = svc.create_request(actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(row.get("code"), event_type="purchase_pending_approval")
     return PurchaseRequestOut(**row)
 
 
@@ -392,7 +412,7 @@ def create_purchase_requests_batch(
         rows = svc.create_requests_batch(actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed()
+    _notify_purchase_changed(event_type="purchase_pending_approval")
     return PurchaseRequestListOut(items=[PurchaseRequestOut(**row) for row in rows],
                                   total=len(rows), page=1, size=len(rows) or 1)
 
@@ -436,7 +456,7 @@ def submit_purchase_request(
         row = svc.submit(request_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(row.get("code"), event_type="purchase_pending_approval")
     return PurchaseRequestOut(**row)
 
 
@@ -450,7 +470,7 @@ def approve_purchase_request(
         row = svc.approve(request_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(row.get("code"), event_type="purchase_decision", decision="approved")
     return PurchaseRequestOut(**row)
 
 
@@ -465,7 +485,7 @@ def reject_purchase_request(
         row = svc.reject(request_id, reason=payload.reason, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(row.get("code"), event_type="purchase_decision", decision="rejected")
     return PurchaseRequestOut(**row)
 
 
@@ -572,7 +592,8 @@ def create_purchase_delivery(
         row = svc.ghi_dot_giao(request_id, lines=lines, actor=user, **body)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    seq_no = row.get("deliveries", [{}])[-1].get("seq_no") if row.get("deliveries") else None
+    _notify_purchase_changed(row.get("code"), event_type="purchase_delivery_created", seq_no=seq_no)
     return PurchaseRequestOut(**row)
 
 

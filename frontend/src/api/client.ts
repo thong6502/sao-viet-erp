@@ -268,6 +268,11 @@ export type QuoteEvent =
   // đợt này chỉ NỐI vào — không mở kênh SSE thứ hai.
   | { type: "purchase_changed"; code?: string | null }
   | { type: "accounting_changed"; code?: string | null }
+  | { type: "purchase_pending_approval"; code?: string | null }
+  | { type: "purchase_decision"; code?: string | null; decision: "approved" | "rejected" }
+  | { type: "purchase_delivery_created"; code?: string | null; seq_no?: number | null }
+  | { type: "payment_voucher_created"; code?: string | null; voucher_code?: string | null }
+  | { type: "payment_voucher_cancelled"; code?: string | null; voucher_code?: string | null }
   // Kho (spec-kho-de-nghi §10): `stock_request` = tin đích danh có sẵn câu chữ để toast;
   // `stock_request_pending_changed` = tín hiệu NHẸ (danh sách chờ đổi) → chỉ refetch badge.
   | { type: "stock_request"; code?: string; message: string }
@@ -7471,13 +7476,36 @@ export const api = {
   purchaseRequests: {
     list(
       token: string,
-      params: { q?: string; status?: string | null; supplier_id?: number | null; sort?: string; page?: number; size?: number } = {},
+      params: {
+        q?: string;
+        status?: string | null;
+        supplier_id?: number | null;
+        created_from?: string | null;
+        created_to?: string | null;
+        needed_from?: string | null;
+        needed_to?: string | null;
+        expected_receipt_from?: string | null;
+        expected_receipt_to?: string | null;
+        deposit_status?: string | null;
+        sort?: string;
+        page?: number;
+        size?: number;
+      } = {},
     ): Promise<PurchaseRequestListOut> {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
       if (params.status) qs.set("status", params.status);
       if (params.supplier_id !== undefined && params.supplier_id !== null)
         qs.set("supplier_id", String(params.supplier_id));
+      if (params.created_from) qs.set("created_from", params.created_from);
+      if (params.created_to) qs.set("created_to", params.created_to);
+      if (params.needed_from) qs.set("needed_from", params.needed_from);
+      if (params.needed_to) qs.set("needed_to", params.needed_to);
+      if (params.expected_receipt_from)
+        qs.set("expected_receipt_from", params.expected_receipt_from);
+      if (params.expected_receipt_to)
+        qs.set("expected_receipt_to", params.expected_receipt_to);
+      if (params.deposit_status) qs.set("deposit_status", params.deposit_status);
       if (params.sort) qs.set("sort", params.sort);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
@@ -7680,12 +7708,35 @@ export const api = {
   accounting: {
     inbox(
       token: string,
-      params: { q?: string; status?: string | null; supplier_id?: number | null; sort?: string; page?: number; size?: number } = {},
+      params: {
+        q?: string;
+        status?: string | null;
+        supplier_id?: number | null;
+        created_from?: string | null;
+        created_to?: string | null;
+        needed_from?: string | null;
+        needed_to?: string | null;
+        expected_receipt_from?: string | null;
+        expected_receipt_to?: string | null;
+        deposit_status?: string | null;
+        sort?: string;
+        page?: number;
+        size?: number;
+      } = {},
     ): Promise<PurchaseRequestListOut> {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
       if (params.status) qs.set("status", params.status);
       if (params.supplier_id != null) qs.set("supplier_id", String(params.supplier_id));
+      if (params.created_from) qs.set("created_from", params.created_from);
+      if (params.created_to) qs.set("created_to", params.created_to);
+      if (params.needed_from) qs.set("needed_from", params.needed_from);
+      if (params.needed_to) qs.set("needed_to", params.needed_to);
+      if (params.expected_receipt_from)
+        qs.set("expected_receipt_from", params.expected_receipt_from);
+      if (params.expected_receipt_to)
+        qs.set("expected_receipt_to", params.expected_receipt_to);
+      if (params.deposit_status) qs.set("deposit_status", params.deposit_status);
       if (params.sort) qs.set("sort", params.sort);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));

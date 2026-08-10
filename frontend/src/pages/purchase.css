@@ -564,8 +564,31 @@
 .purchase__list-tools {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--sp-3);
   margin-left: auto;
+}
+
+.purchase__date-filter {
+  width: 138px !important;
+}
+
+.purchase__date-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 40px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-6);
+  background: var(--surface);
+}
+
+.purchase__date-group > span {
+  color: var(--ash);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 /* Dải nhắc "có yêu cầu quá hạn" ở đầu tab Phiếu mua hàng. Mỏng (~36px) và CHỈ hiện khi thật sự
@@ -611,6 +634,37 @@
   font-family: var(--ff-sans);
   font-size: 11px;
   color: var(--moss-deep);
+}
+
+.purchase__deposit {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  min-width: 92px;
+  font-size: 12px;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.purchase__deposit > strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.purchase__deposit > span {
+  color: var(--ash);
+  font-size: 12px;
+}
+
+.purchase__deposit--ok > strong {
+  color: var(--moss-deep);
+}
+
+.purchase__deposit--warn > strong,
+.purchase__deposit--empty > strong {
+  color: var(--amber-deep);
 }
 
 /* Mã chứng từ bấm được (CodeLink) — kế thừa font/cỡ chữ của chỗ chứa nó. */

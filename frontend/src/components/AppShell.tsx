@@ -461,6 +461,41 @@ export function AppShell() {
             lastElPending.current = n;
           })
           .catch(() => {});
+      } else if (readable.has("ke_toan") && e.type === "purchase_pending_approval") {
+        pushToast(`Có đơn mua hàng${e.code ? " " + e.code : ""} chờ xử lý`, "info");
+        reloadBadges();
+      } else if (readable.has("thu_mua") && e.type === "purchase_decision") {
+        pushToast(
+          e.decision === "approved"
+            ? `Đơn mua hàng${e.code ? " " + e.code : ""} đã được duyệt`
+            : `Đơn mua hàng${e.code ? " " + e.code : ""} bị từ chối`,
+          e.decision === "approved" ? "ok" : "warn",
+        );
+        reloadBadges();
+      } else if (readable.has("ke_toan") && e.type === "purchase_delivery_created") {
+        pushToast(
+          `Đơn mua hàng${e.code ? " " + e.code : ""} có đợt giao mới${
+            e.seq_no ? ` số ${e.seq_no}` : ""
+          }`,
+          "info",
+        );
+        reloadBadges();
+      } else if (readable.has("thu_mua") && e.type === "payment_voucher_created") {
+        pushToast(
+          `Kế toán đã lập chứng từ${e.voucher_code ? " " + e.voucher_code : ""}${
+            e.code ? ` cho đơn ${e.code}` : ""
+          }`,
+          "ok",
+        );
+        reloadBadges();
+      } else if (readable.has("thu_mua") && e.type === "payment_voucher_cancelled") {
+        pushToast(
+          `Kế toán đã hủy chứng từ${e.voucher_code ? " " + e.voucher_code : ""}${
+            e.code ? ` của đơn ${e.code}` : ""
+          }`,
+          "warn",
+        );
+        reloadBadges();
       } else if (
         readable.has("thu_mua") &&
         (e.type === "purchase_changed" || e.type === "accounting_changed")
