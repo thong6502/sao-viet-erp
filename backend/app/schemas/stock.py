@@ -19,6 +19,11 @@ class StockRequestLineIn(BaseModel):
     # đường gõ tên tự do rồi kho gắn mã sau.
     hang_loai: str = Field(pattern="^(giay|vat_tu)$")
     hang_id: int = Field(gt=0)
+    # XIN CHO LỆNH NÀO (mg 0175). Bỏ trống được — xin lặt vặt (băng dính, giẻ lau) không thuộc lệnh
+    # nào, bắt buộc gắn là chặn luôn luồng kho đang chạy. Khai rồi thì bảng cân đối vật tư trừ phần
+    # đã cấp vào ĐÚNG dòng nhu cầu, thay vì để mọi lệnh dùng chung loại giấy cùng báo thiếu.
+    lsx_id: int | None = Field(default=None, gt=0)
+    bai_ghep_id: int | None = Field(default=None, gt=0)
     # Đơn vị người đề nghị chọn — phải nằm trong tập đổi được của chính mặt hàng đó (service kiểm).
     dvt: str = Field(min_length=1, max_length=24)
     sl_de_nghi: float = Field(gt=0)
@@ -66,6 +71,11 @@ class StockRequestLineOut(BaseModel):
     hang_ma: str | None = None
     hang_ten: str | None = None
     hang_nhom: str | None = None
+    # "Cho lệnh nào" (mg 0175) + MÃ để FE hiện thẳng, khỏi gọi thêm một vòng /api/lsx cho mỗi dòng.
+    lsx_id: int | None = None
+    bai_ghep_id: int | None = None
+    lsx_ma: str | None = None
+    bai_ghep_ma: str | None = None
     dvt: str
     # Số đã quy về ĐƠN VỊ GỐC + câu diễn giải ("1 ram = 41,93 kg") — FE hiện dòng nhắc dưới ô SL
     # để người khai thấy trước con số sẽ vào tồn. None = không đổi được (kèm `canh_bao_dv`).

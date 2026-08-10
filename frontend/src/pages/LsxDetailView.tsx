@@ -814,7 +814,8 @@ export function LsxDetailView({
                   <div className="khsx-kvgrid">
                     <KV k="Giấy" v={s("giay_ten")} />
                     <KV k="Định lượng (gsm)" v={qc.gsm ? num(n("gsm")) : "—"} mono />
-                    <KV k="Nguồn giấy" v={qc.nguon_giay === "khach" ? "Khách cấp" : "Công ty"} badge />
+                    {/* GỠ 2026-08-09 (Đợt 4 · K): dòng "Nguồn giấy". Công ty luôn cấp giấy nên
+                        dòng này chỉ còn là một ô luôn ghi "Công ty" — chiếm chỗ, không nói gì. */}
                     <KVNum k="Khổ giấy nguyên dài" suffix="mm" disabled={!canUpdate}
                       v={form.qc.kho_nguyen_dai} onChange={(x) => setQc({ kho_nguyen_dai: x })} />
                     <KVNum k="Khổ giấy nguyên rộng" suffix="mm" disabled={!canUpdate}

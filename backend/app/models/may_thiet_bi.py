@@ -77,6 +77,11 @@ class MayThietBi(Base):
     )
     ghi_chu: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu_2: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # DORMANT 2026-08-10 — ca làm riêng của máy đã BỎ: máy là thiết bị, bàn xếp lịch cho chạy
+    # LIÊN TỤC (chỉ dừng vì ngày nghỉ/lễ và vùng khoá); ca là chuyện của người, khai một chỗ ở
+    # Nhân sự → Ca kíp. Không còn ô nhập, engine thôi đọc. Cột giữ để không mất số cũ (dự án
+    # không có Alembic, `create_all` không ALTER).
+    ca_lam_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     # ---- §3.3 Tài sản / tài chính ----
     ma_tai_san: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -130,6 +135,19 @@ class MayThietBi(Base):
     # SQLite bỏ qua độ dài nên test vẫn xanh, Postgres thật thì lỗi lúc lưu — nới lên 32 (mg 0153).
     don_vi_toc_do: Mapped[str | None] = mapped_column(String(32), nullable=True)
     makeready_time_default: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)  # phút
+    # CHỜ KỸ THUẬT sau khi chạy xong trên máy này — mực khô · màng nguội (mg 0182). Tính bằng GIỜ
+    # (người khai nghĩ "mực khô 4 tiếng"), khác `makeready_time_default` tính bằng PHÚT — nhãn ở
+    # form phải ghi rõ đơn vị.
+    #
+    # Vì sao khai ở MÁY chứ không ở công đoạn (chủ chốt 10/08/2026): bốn máy CM-01…CM-04 cùng công
+    # đoạn "Cán màng / UV" nhưng hai máy UV khô dưới đèn (≈0) còn hai máy cán màng phải để nguội
+    # vài giờ. Một số cho cả công đoạn là chắc chắn sai một trong hai vế, mà không có gì báo.
+    #
+    # ⚠️ KHÔNG chiếm máy: tờ nằm chờ khô thì máy chạy job khác. Nó vào `tong_phut` của bước chứ
+    # KHÔNG vào `chiem_may_phut` — cộng nhầm là khoá oan cái máy mấy tiếng.
+    cho_ky_thuat_gio: Mapped[float] = mapped_column(
+        Numeric(6, 2), nullable=False, default=0, server_default="0"
+    )
     # DORMANT 2026-08-04 — vệ sinh/rửa mực đã bỏ khỏi hệ: KHÔNG còn ô nhập, engine xếp lịch
     # thôi cộng. Cột giữ để không mất số cũ (dự án không có Alembic, `create_all` không ALTER).
     thoi_gian_rua_muc: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)       # phút

@@ -244,7 +244,9 @@ interface EditableComponent {
   kho_nguyen_rong: number; // ①
   don_gia_giay: number;
   don_gia_don_vi: string; // kg | to | tan | ram | cai (theo danh mục giấy)
-  nguon_giay: string; // cong_ty | khach
+  /** DORMANT từ 2026-08-09 (Đợt 4 · K): ô chọn đã gỡ, engine thôi đọc. FE luôn gửi `cong_ty`.
+   *  Giữ field để không phải sửa DTO hai đầu — cột vẫn còn trong DB theo lệ dự án (không drop cột). */
+  nguon_giay: string;
   bu_hao_so_to: number;
   hao_so_to: number;
   tinh_bu_hao_cd: boolean; // bật/tắt tính bù hao công đoạn tự
@@ -611,6 +613,37 @@ function NumField({
   opt?: string;
   suffix?: string;
 }) {
+  const [valStr, setValStr] = useState<string>(String(value ?? 0));
+
+  useEffect(() => {
+    if (Number(valStr) !== value) {
+      setValStr(String(value ?? 0));
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setValStr(raw);
+    if (raw === "") {
+      onChange(min);
+    } else {
+      const parsed = Number(raw);
+      if (!isNaN(parsed)) {
+        onChange(Math.max(min, parsed));
+      }
+    }
+  };
+
+  const handleBlur = () => {
+    const num = Math.max(min, Number(valStr) || min);
+    setValStr(String(num));
+    onChange(num);
+  };
+
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    e.target.select();
+  };
+
   return (
     <label className="tg-field">
       <span className="tg-microlabel">
@@ -623,8 +656,10 @@ function NumField({
           type="number"
           min={min}
           step={step}
-          value={value}
-          onChange={(e) => onChange(Math.max(min, Number(e.target.value)))}
+          value={valStr}
+          onChange={handleChange}
+          onBlur={handleBlur}
+          onFocus={handleFocus}
         />
         {suffix ? <span className="tg-suffix">{suffix}</span> : null}
       </div>
@@ -2052,7 +2087,7 @@ function ComponentModal({
                 <span className="tg-step-badge">2</span> Giấy in
               </div>
               <div className="tg-grid">
-                <label className="tg-field tg-span-8">
+                <label className="tg-field tg-span-6">
                   <span className="tg-microlabel">Loại giấy</span>
                   <select
                     className="tg-input"
@@ -2067,18 +2102,10 @@ function ComponentModal({
                     ))}
                   </select>
                 </label>
-                <div className="tg-field tg-span-4">
-                  <span className="tg-microlabel">Nguồn giấy</span>
-                  <Seg
-                    ariaLabel="Nguồn giấy"
-                    value={c.nguon_giay}
-                    onChange={(v) => patchComp(c.uid, { nguon_giay: v })}
-                    options={[
-                      { val: "cong_ty", label: "Công ty" },
-                      { val: "khach", label: "Khách cấp" },
-                    ]}
-                  />
-                </div>
+                {/* GỠ 2026-08-09 (Đợt 4 · K): ô chọn "Nguồn giấy — Công ty / Khách cấp".
+                    Công ty luôn cấp giấy, và engine đã thôi đọc cờ đó. Để lại ô mà engine không
+                    nghe là tệ hơn không có ô: người tính giá tick "Khách cấp", nhìn thấy nó lưu
+                    được, rồi phiếu vẫn tính đủ tiền giấy. */}
                 <div className="tg-span-3">
                   <NumField
                     label="Dài nguyên"
@@ -2109,9 +2136,6 @@ function ComponentModal({
                       return `${fmt(numOf(g.don_gia))} đ / ${uL}`;
                     })()}
                   </div>
-                  {c.nguon_giay === "khach" && (
-                    <span className="tg-hint" style={{ marginTop: "-4px" }}>Khách cấp giấy — không tính tiền giấy.</span>
-                  )}
                 </div>
               </div>
             </section>

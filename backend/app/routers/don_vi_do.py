@@ -1,7 +1,8 @@
 """Đơn vị & quy đổi router — CRUD đơn vị + CRUD cặp quy đổi + thử một phép đổi.
 
-Dependency INLINE (bám `routers/bu_hao.py`). MODULE quyền = "dm_cong_doan": đơn vị là cấu hình sản
-xuất, ai khai được công đoạn/bù hao thì khai được đơn vị — không đẻ ô quyền mới cho một danh mục.
+Dependency INLINE (bám `routers/bu_hao.py`). MODULE quyền = "dm_don_vi" — quyền RIÊNG. Trước đây
+đi ké `dm_cong_doan`, nghĩa là muốn cho kế toán khai "1 thùng = 24 hộp" thì phải mở luôn cho họ
+danh mục công đoạn. Đơn vị dùng chung cho kho · mua hàng · khoán lương, không thuộc riêng ai.
 """
 from __future__ import annotations
 
@@ -25,7 +26,7 @@ from ..services.don_vi_do_service import (
 from ..services.quy_doi_service import BIEN, _so, don_vi_map, doi_theo_quy_cach
 
 router = APIRouter(prefix="/api/don-vi", tags=["don-vi"])
-MODULE = "dm_cong_doan"
+MODULE = "dm_don_vi"
 
 
 def get_service(db: Annotated[Session, Depends(get_db)]) -> DonViDoService:
@@ -65,7 +66,9 @@ def _cap_row(c) -> CapRowOut:
 # danh sách rỗng (`.catch(() => [])`) nên họ chỉ thấy ô tìm không ra gì, không thấy báo lỗi nào.
 _doc_don_vi = require_any_permission(
     (MODULE, "read"), ("kho", "read"), ("thu_mua", "read"),
-    ("tinh_gia_thanh", "read"), ("san_xuat", "read"))
+    ("tinh_gia_thanh", "read"), ("san_xuat", "read"),
+    # Các màn danh mục có ô ĐVT trong form: Giấy · Vật tư khác · Công đoạn (đơn vị năng suất).
+    ("dm_giay", "read"), ("dm_vat_tu", "read"), ("dm_cong_doan", "read"))
 
 
 @router.get("", response_model=DonViDoListOut)

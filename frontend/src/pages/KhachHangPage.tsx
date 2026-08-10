@@ -31,7 +31,7 @@ import {
 } from "../api/client";
 import type { NavigateFn } from "../components/AppShell";
 import { useAuth } from "../auth/useAuth";
-import { useCan } from "../auth/permissions";
+import { useCan, useScopeOf } from "../auth/permissions";
 import { CareCalendar } from "./CareCalendar";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -89,6 +89,9 @@ import "./khach-hang.css";
 
 const MST_RE = /^(\d{10}|\d{13})$/;
 const PAGE_SIZES = [25, 50, 100];
+// Giá trị SENTINEL cho hộp lọc NV phụ trách: "" = tất cả, id NV = người cụ thể, còn giá trị này
+// = khách CHƯA có người phụ trách (map sang query `chua_gan=true`, KHÔNG phải một id NV).
+const SALE_CHUA_GAN = "__chua_gan__";
 
 /* money() đầy-đủ-đồng đã bỏ: mọi chỗ hiển thị tiền dùng moneyStat/moneyCompact theo prototype.
    (Hàm cũ chỉ còn được nhắc trong khối PaymentGauge đã comment.) */
@@ -255,6 +258,13 @@ const DUP_FIELD_LABELS: Record<DuplicateWarn["field"], string> = {
   email: "email",
 };
 
+/** Dòng phụ dưới tên người trong mọi hộp chọn NV: "NV Sales · Kinh doanh". Thiếu vế nào thì bỏ
+ *  vế đó (tài khoản chưa gán vai trò / chưa gắn phòng) — không hiện dấu chấm giữa lơ lửng. */
+function moTaSale(s: SaleOption): string | undefined {
+  const phan = [s.vai_tro, s.phong_ban].filter((x): x is string => !!x && x.trim() !== "");
+  return phan.length ? phan.join(" · ") : undefined;
+}
+
 // =============================================================================
 // List-Report page
 // =============================================================================
@@ -268,6 +278,7 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState("code");
   const [q, setQ] = useState("");
+  // "" = tất cả; CHUA_GAN = khách chưa có người phụ trách; còn lại là id NV.
   const [saleFilter, setSaleFilter] = useState<string>("");
   // Redesign spec-06 v2: bỏ lọc trạng thái/tier; chỉ còn lọc theo THẺ + tab "Cần theo dõi".
   const [followupFilter, setFollowupFilter] = useState<boolean>(false);
@@ -275,10 +286,23 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
   const [tagLabels, setTagLabels] = useState<string[]>([]);
   const [pageSize, setPageSize] = useState(25);
   const [sales, setSales] = useState<SaleOption[]>([]);
+  // id NV → "Vai trò · Phòng", để cột NV phụ trách của bảng hiện chức danh dưới tên.
+  const saleMeta = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const s of sales) {
+      const t = moTaSale(s);
+      if (t) m.set(s.id, t);
+    }
+    return m;
+  }, [sales]);
 
   // Điều chuyển khách hàng: gated bằng quyền chi tiết `reassign` (Cách B) — cấu hình trong
   // ma trận phân quyền, tách khỏi quyền Sửa thông thường.
   const can = useCan();
+  const scopeOf = useScopeOf();
+  // Option "Chưa gán" chỉ có nghĩa với người phạm vi `all`: own/department lọc theo chủ sổ nên
+  // khách vô chủ tự rơi ra ngoài tầm nhìn — thêm option cho họ chỉ ra danh sách rỗng, gây bối rối.
+  const canSeeUnassigned = scopeOf("khach_hang") === "all";
   const canReassign = can("khach_hang", "reassign");
   const canExport = can("khach_hang", "export");
   const canCreate = can("khach_hang", "create");
@@ -352,7 +376,8 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
     api.customers
       .list(token, {
         q: q.trim() || undefined,
-        sale: saleFilter ? Number(saleFilter) : null,
+        sale: saleFilter && saleFilter !== SALE_CHUA_GAN ? Number(saleFilter) : null,
+        chua_gan: saleFilter === SALE_CHUA_GAN || undefined,
         followup: followupFilter || undefined,
         tag: tagFilter || null,
         sort,
@@ -645,13 +670,23 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
               ariaLabel="Lọc theo NV phụ trách"
               value={saleFilter}
               placeholder="Tất cả NV phụ trách"
+              align="right"
               onChange={(v) => {
                 setSaleFilter(v ?? "");
                 setPage(1);
               }}
               options={[
                 { value: "", label: "Tất cả NV phụ trách" },
-                ...sales.map((s) => ({ value: String(s.id), label: s.name })),
+                // Khách chưa có người phụ trách — chỉ hiện cho người phạm vi `all` (xem canSeeUnassigned).
+                ...(canSeeUnassigned ? [{ value: SALE_CHUA_GAN, label: "Chưa gán ai" }] : []),
+                // Hộp LỌC lấy CẢ người không còn đủ tư cách nhận khách mới (`co_the_gan=false`):
+                // khách của họ vẫn hiện trong bảng, thiếu tên ở đây là có dòng không lọc ra được.
+                ...sales.map((s) => ({
+                  value: String(s.id),
+                  label: s.name,
+                  sub: moTaSale(s),
+                  hint: s.so_kh ? `${s.so_kh} KH` : undefined,
+                })),
               ]}
             />
           </div>
@@ -661,6 +696,7 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
                 ariaLabel="Lọc theo nhãn"
                 value={tagFilter}
                 placeholder="Tất cả nhãn"
+                align="right"
                 onChange={(v) => {
                   setTagFilter(v ?? "");
                   setPage(1);
@@ -879,7 +915,18 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
                     <td>
                       {c.sale_name ? (
                         <span className="kh__sale-chip">
-                          <User size={12} /> {c.sale_name}
+                          <User size={12} />
+                          <span className="kh__sale-chip__txt">
+                            <span className="kh__sale-chip__ten">{c.sale_name}</span>
+                            {/* Vai trò + phòng ngay dưới tên: nhìn bảng là biết ai trưởng ai
+                                nhân viên, không phải mở từng hồ sơ. Người không còn trong danh
+                                sách NV (đã nghỉ/đổi phòng) thì không có dòng phụ. */}
+                            {saleMeta.get(c.sale_user_id ?? -1) && (
+                              <span className="kh__sale-chip__vt">
+                                {saleMeta.get(c.sale_user_id ?? -1)}
+                              </span>
+                            )}
+                          </span>
                         </span>
                       ) : (
                         <span className="kh__muted">Chưa gán</span>
@@ -1032,7 +1079,16 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
             onChange={(v) => setFromSale(v)}
             options={[
               { value: null, label: "— Chọn nhân viên nguồn —" },
-              ...sales.map((s) => ({ value: s.id, label: s.name })),
+              // NGUỒN = ai đang thực sự giữ khách (kèm số lượng). Người chưa có khách nào thì
+              // chuyển đi từ họ là thao tác vô nghĩa.
+              ...sales
+                .filter((s) => (s.so_kh ?? 0) > 0)
+                .map((s) => ({
+                  value: s.id,
+                  label: s.name,
+                  sub: moTaSale(s),
+                  hint: `${s.so_kh} KH`,
+                })),
             ]}
           />
         </label>
@@ -1046,9 +1102,10 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
             onChange={(v) => setToSale(v)}
             options={[
               { value: null, label: "— Chọn nhân viên đích —" },
+              // ĐÍCH = người đủ tư cách nhận khách.
               ...sales
-                .filter((s) => s.id !== fromSale)
-                .map((s) => ({ value: s.id, label: s.name })),
+                .filter((s) => s.id !== fromSale && s.co_the_gan !== false)
+                .map((s) => ({ value: s.id, label: s.name, sub: moTaSale(s) })),
             ]}
           />
         </label>
@@ -1077,7 +1134,9 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
             onChange={(v) => setBulkTarget(v)}
             options={[
               { value: null, label: "— Chọn nhân viên đích —" },
-              ...sales.map((s) => ({ value: s.id, label: s.name })),
+              ...sales
+                .filter((s) => s.co_the_gan !== false)
+                .map((s) => ({ value: s.id, label: s.name, sub: moTaSale(s) })),
             ]}
           />
         </label>
@@ -4494,6 +4553,40 @@ function CustomerFormDialog({
   const [savedWarns, setSavedWarns] = useState<DuplicateWarn[] | null>(null);
   // Check trùng tức thời khi rời ô nhập (#8) — chỉ là gợi ý, không chặn Lưu.
   const [liveWarns, setLiveWarns] = useState<DuplicateWarn[]>([]);
+  // Tra cứu tự động tên & địa chỉ công ty theo MST (VietQR public tax API)
+  const [fetchingTax, setFetchingTax] = useState(false);
+  const [taxLookupNote, setTaxLookupNote] = useState<string | null>(null);
+
+  async function handleTaxLookup(overrideCode?: string) {
+    const code = (overrideCode ?? form.tax_code).trim();
+    if (!code || code.length < 10) {
+      setErrors((e) => ({ ...e, tax_code: "Nhập MST 10 hoặc 13 số để tra cứu." }));
+      return;
+    }
+    setFetchingTax(true);
+    setTaxLookupNote(null);
+    try {
+      const res = await fetch(`https://api.vietqr.io/v2/business/${code}`);
+      const json = await res.json();
+      if (json.code === "00" && json.data) {
+        const { name, address } = json.data;
+        setForm((f) => ({
+          ...f,
+          name: name ? name : f.name,
+          address: address ? address : f.address,
+        }));
+        setTaxLookupNote(`✓ Đã tra cứu thành công: ${name}`);
+        setErrors((e) => ({ ...e, name: undefined, tax_code: undefined }));
+        liveCheck();
+      } else {
+        setTaxLookupNote(json.desc || "Không tìm thấy dữ liệu doanh nghiệp từ MST này.");
+      }
+    } catch {
+      setTaxLookupNote("Không kết nối được dịch vụ tra cứu MST. Vui lòng tự điền Tên & Địa chỉ.");
+    } finally {
+      setFetchingTax(false);
+    }
+  }
 
   async function liveCheck() {
     if (!token) return;
@@ -4576,11 +4669,17 @@ function CustomerFormDialog({
 
   return (
     <div className="kh__overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="kh__dialog card" role="dialog" aria-modal="true" aria-label={title}>
-        <div className="kh__dialog-head">
-          <h2>{title}</h2>
+      <div className="kh__dialog card kh__dialog--hero" role="dialog" aria-modal="true" aria-label={title}>
+        {/* Sleek Minimalist Header */}
+        <div className="kh__dialog-head kh__dialog-head--hero">
+          <div className="kh__dialog-title-wrap">
+            <h2 className="kh__dialog-title">{title}</h2>
+            <span className="kh__dialog-kind-chip">
+              {form.customer_kind === "cong_ty" ? "Doanh nghiệp" : "Cá nhân"}
+            </span>
+          </div>
           <button type="button" className="kh__close" aria-label="Đóng" onClick={onClose}>
-            <X size={14} strokeWidth={2} />
+            <X size={16} strokeWidth={2} />
           </button>
         </div>
 
@@ -4609,11 +4708,15 @@ function CustomerFormDialog({
           </div>
         ) : (
           <form className="kh__dialog-body" onSubmit={onSubmit}>
-            <div className="kh__form-grid">
-              <label className="field kh__form-wide">
-                <span className="field__label">Tên khách hàng *</span>
+            <div className="kh__form-grid kh__form-grid--2col">
+              {/* Hàng 1: Tên khách hàng (Left) & MST + Tra cứu (Right) */}
+              <label className="field">
+                <span className="field__label">
+                  {form.customer_kind === "cong_ty" ? "Tên công ty / Tên khách hàng *" : "Họ và tên khách hàng *"}
+                </span>
                 <input
                   className="input"
+                  placeholder={form.customer_kind === "cong_ty" ? "VD: Công ty TNHH Bao bì An Phát" : "VD: Nguyễn Văn A"}
                   value={form.name}
                   onChange={(e) => set("name", e.target.value)}
                   onBlur={liveCheck}
@@ -4622,6 +4725,55 @@ function CustomerFormDialog({
                 />
                 {errors.name && <span className="kh__err" role="alert">{errors.name}</span>}
               </label>
+
+              {form.customer_kind === "cong_ty" ? (
+                <label className="field">
+                  <div className="kh__field-label-bar">
+                    <span className="field__label">Mã số thuế (MST)</span>
+                    <button
+                      type="button"
+                      className="kh__tax-lookup-btn"
+                      disabled={fetchingTax || !form.tax_code.trim()}
+                      title="Tự động tra cứu Tên công ty & Địa chỉ từ dữ liệu Thuế công khai"
+                      onClick={() => handleTaxLookup()}
+                    >
+                      {fetchingTax && <Loader2 size={12} className="kh__spin" />}
+                      <span>{fetchingTax ? "Đang tra cứu…" : "Tra cứu MST"}</span>
+                    </button>
+                  </div>
+                  <input
+                    className="input"
+                    placeholder="10 hoặc 13 chữ số MST (VD: 0101234567)"
+                    value={form.tax_code}
+                    onChange={(e) => set("tax_code", e.target.value)}
+                    onBlur={() => {
+                      liveCheck();
+                      if (form.tax_code.trim().length >= 10 && !form.name.trim()) {
+                        handleTaxLookup();
+                      }
+                    }}
+                    aria-invalid={!!errors.tax_code}
+                  />
+                  {errors.tax_code && <span className="kh__err" role="alert">{errors.tax_code}</span>}
+                  {taxLookupNote && (
+                    <span className={`kh__tax-note${taxLookupNote.startsWith("✓") ? " is-success" : " is-warn"}`}>
+                      {taxLookupNote}
+                    </span>
+                  )}
+                </label>
+              ) : (
+                <label className="field">
+                  <span className="field__label">Mã số thuế (nếu có)</span>
+                  <input
+                    className="input"
+                    placeholder="Không bắt buộc đối với khách lẻ"
+                    value={form.tax_code}
+                    onChange={(e) => set("tax_code", e.target.value)}
+                  />
+                </label>
+              )}
+
+              {/* Hàng 2: Loại khách hàng (Left) & NV phụ trách (Right) */}
               <label className="field">
                 <span className="field__label">Loại khách hàng</span>
                 <div className="kh__seg" role="radiogroup" aria-label="Loại khách hàng">
@@ -4645,48 +4797,54 @@ function CustomerFormDialog({
                   </button>
                 </div>
               </label>
+
               <label className="field">
                 <span className="field__label">NV phụ trách</span>
-                <select
-                  className="input"
-                  value={form.sale_user_id}
+                <Select
+                  ariaLabel="NV phụ trách"
+                  portal
+                  align="right"
                   disabled={saleLocked}
-                  onChange={(e) => set("sale_user_id", e.target.value)}
-                >
-                  <option value="">— Mặc định (tôi) —</option>
-                  {sales.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                  value={form.sale_user_id}
+                  placeholder="— Mặc định (tôi) —"
+                  onChange={(v) => set("sale_user_id", v ?? "")}
+                  options={[
+                    { value: "", label: "— Mặc định (tôi) —" },
+                    ...sales
+                      .filter((s) => s.co_the_gan !== false)
+                      .map((s) => ({
+                        value: String(s.id),
+                        label: s.name,
+                        sub: moTaSale(s),
+                      })),
+                  ]}
+                />
                 {saleLocked && (
                   <span className="kh__muted">
                     Mặc định là bạn; cần quyền “Điều chuyển” để gán cấp dưới.
                   </span>
                 )}
               </label>
-              {form.customer_kind === "cong_ty" && (
-                <label className="field">
-                  <span className="field__label">MST</span>
-                  <input
-                    className="input"
-                    value={form.tax_code}
-                    onChange={(e) => set("tax_code", e.target.value)}
-                    onBlur={liveCheck}
-                    aria-invalid={!!errors.tax_code}
-                  />
-                  {errors.tax_code && <span className="kh__err" role="alert">{errors.tax_code}</span>}
-                </label>
-              )}
-              <label className="field kh__form-wide">
-                <span className="field__label">Địa chỉ (đăng ký / xuất hóa đơn)</span>
-                <input className="input" value={form.address} onChange={(e) => set("address", e.target.value)} />
+
+              {/* Hàng 3: Địa chỉ (Left) & Email (Right) */}
+              <label className="field">
+                <span className="field__label">
+                  {form.customer_kind === "cong_ty" ? "Địa chỉ đăng ký thuế / xuất hóa đơn" : "Địa chỉ giao hàng / liên hệ"}
+                </span>
+                <input
+                  className="input"
+                  placeholder="Địa chỉ ghi trên hóa đơn tài chính…"
+                  value={form.address}
+                  onChange={(e) => set("address", e.target.value)}
+                />
               </label>
-              <label className="field kh__form-wide">
+
+              <label className="field">
                 <span className="field__label">Email nhận hóa đơn điện tử</span>
                 <input
                   className="input"
+                  type="email"
+                  placeholder="email@doanhnghiep.com"
                   value={form.email}
                   onChange={(e) => set("email", e.target.value)}
                   onBlur={liveCheck}
@@ -4720,10 +4878,10 @@ function CustomerFormDialog({
 
             <div className="kh__dialog-actions">
               <Button type="button" variant="ghost" onClick={onClose}>
-                Huỷ
+                Huỷ <kbd className="kh__kbd">Esc</kbd>
               </Button>
               <Button type="submit" variant="primary" loading={saving}>
-                Lưu
+                {isEdit ? "Cập nhật khách hàng" : "Tạo khách hàng"}
               </Button>
             </div>
           </form>

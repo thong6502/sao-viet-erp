@@ -5,12 +5,14 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import {
   ApiError,
   api,
+  assetUrl,
   type EnumOption,
   type QuotationActivity,
   type QuotationDetail,
   type QuotationEnumsOut,
   type QuotationRow,
   type QuotationStats,
+  type QuoteAttachment,
   type QuoteItemDetail,
 } from "../api/client";
 import { gopTheoNhom, nhomLechSoLuong } from "../utils/gop-nhom";
@@ -32,10 +34,15 @@ import {
   ChevronLeft,
   CornerDownLeft,
   DollarSign,
+  Download,
+  ExternalLink,
+  File as FileIcon,
   FileText,
   GitBranch,
   History,
+  Image as ImageIcon,
   Lock,
+  Paperclip,
   Pencil,
   Plus,
   Printer,
@@ -44,7 +51,9 @@ import {
   Send,
   ShieldCheck,
   Table,
+  Trash2,
   TriangleAlert,
+  UploadCloud,
   X,
   Zap,
 } from "lucide-react";
@@ -485,6 +494,8 @@ const ACT_META: Record<string, [LucideIcon, string, string]> = {
   transition_expired: [AlertCircle, "ash", "Hết hiệu lực"],
   transition_cancelled: [Ban, "ash", "Hủy báo giá"],
   transition_converted_to_order: [ArrowRight, "moss", "Lên đơn hàng"],
+  quote_attach_add: [Paperclip, "steel", "Đính kèm tài liệu"],
+  quote_attach_delete: [X, "ash", "Xóa tài liệu đính kèm"],
 };
 
 // Ngày + giờ cho feed Hoạt động ("ai làm gì · khi nào").
@@ -523,6 +534,221 @@ function gomDongTheoNhom(items: QuoteItemDetail[]): NodeBaoGia[] {
   return out;
 }
 
+
+// ============================================================================
+// Tài liệu đính kèm (NỘI BỘ) — file khách gửi / mẫu thiết kế / ảnh tham khảo.
+// Neo vào báo giá, KHÔNG in ra bản gửi khách. Ảnh: thumbnail + phóng to; PDF: mở
+// xem trong khung; file thiết kế (.ai/.cdr/.psd/.zip): icon + tải về.
+// ============================================================================
+const MAX_ATTACH_MB = 25;
+
+function isImageAtt(a: QuoteAttachment): boolean {
+  return (a.file_type?.startsWith("image/") ?? false) || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(a.file_name);
+}
+function isPdfAtt(a: QuoteAttachment): boolean {
+  return a.file_type === "application/pdf" || /\.pdf$/i.test(a.file_name);
+}
+
+function AttachmentsPanel({
+  token,
+  quoteId,
+  canEdit,
+}: {
+  token: string | null;
+  quoteId: number;
+  canEdit: boolean;
+}) {
+  const [items, setItems] = useState<QuoteAttachment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [drag, setDrag] = useState(false);
+  const [preview, setPreview] = useState<QuoteAttachment | null>(null);
+  const [pendingDel, setPendingDel] = useState<QuoteAttachment | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const load = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const r = await api.quotations.attachments(token, quoteId);
+      setItems(r.items);
+    } catch {
+      setErr("Không tải được danh sách tài liệu.");
+    } finally {
+      setLoading(false);
+    }
+  }, [token, quoteId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function doUpload(files: FileList | File[]) {
+    if (!token || !canEdit) return;
+    const list = Array.from(files);
+    if (!list.length) return;
+    setErr(null);
+    const tooBig = list.find((f) => f.size > MAX_ATTACH_MB * 1024 * 1024);
+    if (tooBig) {
+      setErr(`Tệp "${tooBig.name}" vượt quá ${MAX_ATTACH_MB}MB.`);
+      return;
+    }
+    setUploading(true);
+    try {
+      for (const f of list) {
+        await api.quotations.uploadAttachment(token, quoteId, f);
+      }
+      await load();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Tải tệp lên thất bại.");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  async function confirmDelete() {
+    if (!token || !pendingDel) return;
+    setDeleting(true);
+    try {
+      await api.quotations.deleteAttachment(token, quoteId, pendingDel.id);
+      setPendingDel(null);
+      await load();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Xóa tệp thất bại.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="panel att-panel">
+      <div className="panel__hd">
+        <h3><Paperclip size={16} /> Tài liệu đính kèm</h3>
+        <span className="tag">{items.length} tệp</span>
+      </div>
+      <div className="att-body">
+        {canEdit && (
+          <label
+            className={`att-drop${drag ? " drag" : ""}${uploading ? " busy" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={(e) => { e.preventDefault(); setDrag(false); doUpload(e.dataTransfer.files); }}
+          >
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => { if (e.target.files) doUpload(e.target.files); }}
+            />
+            <UploadCloud size={22} />
+            <span className="att-drop__lead">
+              {uploading ? "Đang tải lên…" : <>Kéo-thả tệp vào đây, hoặc <b>bấm chọn</b></>}
+            </span>
+            <span className="att-drop__hint">Ảnh, PDF, AI/CDR/PSD, ZIP… tối đa {MAX_ATTACH_MB}MB/tệp</span>
+          </label>
+        )}
+        {err && <div className="att-err"><TriangleAlert size={14} /> {err}</div>}
+        {loading ? (
+          <div className="att-empty">Đang tải…</div>
+        ) : items.length === 0 ? (
+          <div className="att-empty">
+            Chưa có tài liệu.{canEdit ? " Đính kèm tệp khách gửi, mẫu thiết kế, ảnh tham khảo…" : ""}
+          </div>
+        ) : (
+          <ul className="att-list">
+            {items.map((a) => {
+              const img = isImageAtt(a);
+              const pdf = isPdfAtt(a);
+              const canPreview = img || pdf;
+              const href = assetUrl(a.file_url) ?? "#";
+              return (
+                <li key={a.id} className="att-item">
+                  <button
+                    type="button"
+                    className={`att-thumb${canPreview ? " ok" : ""}`}
+                    onClick={() => { if (canPreview) setPreview(a); }}
+                    disabled={!canPreview}
+                    title={canPreview ? "Xem trước" : a.file_name}
+                  >
+                    {img ? (
+                      <img src={href} alt={a.file_name} loading="lazy" />
+                    ) : pdf ? (
+                      <FileText size={20} />
+                    ) : (
+                      <FileIcon size={20} />
+                    )}
+                  </button>
+                  <div className="att-meta">
+                    <div className="att-name" title={a.file_name}>{a.file_name}</div>
+                    <div className="att-sub">{fmtDateTime(a.uploaded_at)}</div>
+                  </div>
+                  <div className="att-actions">
+                    {canPreview && (
+                      <button type="button" className="att-act" onClick={() => setPreview(a)} title="Xem trước" aria-label="Xem trước"><ImageIcon size={15} /></button>
+                    )}
+                    <a className="att-act" href={href} download={a.file_name} title="Tải về" aria-label="Tải về"><Download size={15} /></a>
+                    {canEdit && (
+                      <button type="button" className="att-act danger" onClick={() => setPendingDel(a)} title="Xóa" aria-label="Xóa"><Trash2 size={15} /></button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {preview && (
+        <div
+          className="att-lightbox"
+          role="presentation"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setPreview(null); }}
+        >
+          <div className="att-lightbox__box" role="dialog" aria-modal="true" aria-label={preview.file_name}>
+            <header className="att-lightbox__head">
+              <span className="att-lightbox__name">{preview.file_name}</span>
+              <div className="att-lightbox__acts">
+                <a href={assetUrl(preview.file_url) ?? "#"} target="_blank" rel="noreferrer" title="Mở tab mới"><ExternalLink size={17} /></a>
+                <button type="button" onClick={() => setPreview(null)} aria-label="Đóng"><X size={18} /></button>
+              </div>
+            </header>
+            <div className="att-lightbox__body">
+              {isImageAtt(preview) ? (
+                <img src={assetUrl(preview.file_url) ?? ""} alt={preview.file_name} />
+              ) : (
+                <iframe src={assetUrl(preview.file_url) ?? ""} title={preview.file_name} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDel && (
+        <div className="bg__overlay" onClick={() => { if (!deleting) setPendingDel(null); }}>
+          <div className="card bg__dialog" style={{ maxWidth: "420px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="bg__dialog-head">
+              <h2>Xóa tài liệu?</h2>
+              <button type="button" className="bg__close" onClick={() => setPendingDel(null)} aria-label="Đóng"><X size={18} /></button>
+            </div>
+            <div style={{ padding: "16px" }}>
+              <p style={{ margin: "0 0 14px", color: "var(--ash)", fontSize: "13px" }}>
+                “{pendingDel.file_name}” sẽ bị xóa khỏi báo giá này. Không thể hoàn tác.
+              </p>
+              <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                <Button variant="ghost" disabled={deleting} onClick={() => setPendingDel(null)}>Giữ lại</Button>
+                <Button variant="danger" disabled={deleting} onClick={confirmDelete}><Trash2 size={15} /> Xóa</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function QuotationDetailView({
   quotationId,
@@ -1544,6 +1770,12 @@ function QuotationDetailView({
             })}
           </div>
         </div>
+      </div>
+
+      {/* Tài liệu đính kèm (nội bộ) — file khách gửi / mẫu thiết kế / ảnh tham khảo. Xem thêm/xóa
+          khi có quyền sửa và báo giá chưa hủy; ai đọc được báo giá đều xem/tải được tệp. */}
+      <div style={{ marginTop: "18px" }}>
+        <AttachmentsPanel token={token} quoteId={d.id} canEdit={canRequote && d.status !== "cancelled"} />
       </div>
 
       {requoteOpen && (

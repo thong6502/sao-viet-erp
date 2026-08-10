@@ -282,7 +282,9 @@ export const LSX_THIEU_LABELS: Record<string, string> = {
   thieu_kho: "Thiếu kích thước",
   thieu_routing: "Chưa có công đoạn",
   thieu_ngay_giao: "Thiếu ngày giao",
-  thieu_khuon: "Chưa gán khuôn bế",
+  // KHÔNG ghi cứng "khuôn bế": cờ `tooling_type` bắt cả `khuon_ep` (ép kim), nên nhãn phải phủ
+  // được mọi loại khuôn người dùng khai trong danh mục Công đoạn.
+  thieu_khuon: "Chưa gán khuôn",
   thieu_to_may: "Có công đoạn chưa gán tổ / máy",
   thieu_ncc: "Công đoạn thuê ngoài chưa có nhà gia công",
   thieu_tg_thue_ngoai: "Công đoạn thuê ngoài chưa có ngày gửi / nhận",
@@ -618,10 +620,23 @@ export interface XepLichRow {
   is_locked: boolean;
   co_xung_dot: boolean;
   blocked_reason: string | null; // thieu_may | thieu_thoi_luong | cho_tien_de | …
-  // Kiểm khả năng máy (HM4) — soft, KHÔNG chặn (khổ/số màu/định lượng vượt spec máy đang gán).
+  // Kiểm khả năng máy (HM4) — soft, KHÔNG chặn. Từ 2026-08-09 CHỈ CÒN KIỂM KHỔ: số màu thì thợ
+  // chạy 2 lượt là qua, còn khoảng gsm ở danh mục máy phần lớn chưa khai đúng nên nó loại nhầm.
   can_xac_nhan: boolean;
-  ly_do_xac_nhan: string[];      // kho_vuot_may | so_mau_vuot_units | gsm_ngoai_khoang
+  ly_do_xac_nhan: string[];      // kho_vuot_may
   is_rush: boolean;
+  // --- Đợt 2 ---
+  /** Bước có cần DỤNG CỤ không (`cong_doan.requires_tooling`) + khuôn của lệnh — nền cho hai
+   *  detector khuôn bế. Đọc CỜ ở danh mục, KHÔNG đoán bước bế theo tên. */
+  can_dung_cu: boolean;
+  khuon_be_id: number | null;
+  so_nhan_cong: number | null;
+  so_nhan_cong_toi_thieu: number | null;
+  /** Chờ kỹ thuật (mực khô/keo đông) — đẩy bước sau, KHÔNG chiếm máy. */
+  cho_phut: number;
+  /** Khoá GOM việc cùng loại (giấy · khổ · bộ mực). "Tự xếp" sắp theo khoá này trong cùng mức ưu
+   *  tiên để việc cùng setup nằm liền nhau. null = chưa đủ quy cách ⇒ không gom với ai. */
+  gom_key: string | null;
 }
 export interface XepLichRowListOut { items: XepLichRow[]; total: number }
 
@@ -636,17 +651,129 @@ export interface XepLichGanBody {
 /** 1 dòng trong gán-loạt (bulk) — kèm id dòng. */
 export type XepLichGanLoatRow = XepLichGanBody & { id: number };
 
+/** Một khoảng giờ có mức dùng người KHÔNG ĐỔI trong một tổ (mục I) — nền để Gantt tô lane.
+ *  Cùng nguồn với detector `qua_tai_to`: Gantt tô đỏ chỗ nào thì cửa phát hành chặn đúng chỗ đó. */
+export interface XepLichTaiToKhoang {
+  department_id: number;
+  department_ten: string | null;
+  start: string;
+  finish: string;
+  dung: number;
+  quan_so: number;
+  qua_tai: boolean;
+  dong_ids: number[];
+}
+
+/** Người thuộc khối SX nhưng gắn ở TẦNG GIỮA — không nằm trong tổ lá nào (mục I). */
+export interface XepLichNguoiTangGiua {
+  department_id: number;
+  department_ten: string;
+  so_nguoi: number;
+}
+export interface XepLichTaiToOut {
+  items: XepLichTaiToKhoang[];
+  tang_giua: XepLichNguoiTangGiua[];
+}
+
+/** Quân số + quỹ giờ-người của một TỔ trong một ngày (mục I).
+ *  `tu_tinh` = suy từ hồ sơ nhân sự trừ phép đã duyệt; `so_nguoi` = số ĐANG DÙNG (gõ đè nếu có). */
+export interface XepLichQuanSo {
+  department_id: number;
+  ngay: string;
+  so_nguoi: number;
+  tu_tinh: number;
+  go_de: boolean;
+  ly_do: string | null;
+  gio_ca: number;
+  quy_gio_nguoi: number;
+}
+
+/** Một ô của bảng tuần (mục J): một tài nguyên × một tuần. Tính lúc đọc, không lưu gì. */
+export interface XepLichTuanO {
+  tuan: string;
+  iso_tuan: number;
+  loai: "may" | "to";
+  /** Máy gom theo NHÓM ⇒ `res_id` null, dùng `nhom`. Tổ thì `res_id` = id phòng ban. */
+  res_id: number | null;
+  nhom: string | null;
+  ten: string;
+  can_gio: number;
+  kha_dung_gio: number;
+  pct: number;
+  mau: "xanh" | "vang" | "do";
+}
+export interface XepLichKeHoachTuan {
+  tu: string;
+  so_tuan: number;
+  items: XepLichTuanO[];
+}
+
+/** Một dòng trong bảng xem trước "Chèn lệnh gấp" (G1) — *giờ cũ → giờ mới*. */
+export interface XepLichChenDong {
+  id: number;
+  lsx_ma: string | null;
+  cong_doan_ten: string | null;
+  may_id: number | null;
+  may_ten: string | null;
+  cu: string | null;
+  moi: string | null;
+  finish_moi: string | null;
+  /** Chính việc đang chèn — UI tô khác để phân biệt với việc BỊ đẩy. */
+  la_viec_chen: boolean;
+  tre_han: boolean;
+  /** Mã lệnh/bài mà dòng này sẽ ĐÈ lên sau khi dời — chỉ cảnh báo, KHÔNG đẩy tiếp (đúng một tầng). */
+  dung_do: string[];
+  is_locked: boolean;
+}
+
+/** Kết quả mô phỏng chèn — CHƯA ghi gì; UI áp bằng `ganLoat` khi người dùng bấm Lưu. */
+export interface XepLichChen {
+  dong_id: number;
+  may_id: number;
+  start_at: string | null;
+  finish_at: string | null;
+  chiem_may_phut: number;
+  /** `gap_khoa` = dừng lan vì gặp dòng đã khóa. null = lan hết tự nhiên (khe trống nuốt vừa). */
+  chan: string | null;
+  rows: XepLichChenDong[];
+}
+
+/** Một MÁY ứng viên trong bảng gợi ý — tên máy · khe sớm nhất · GIỜ XONG · cờ khổ.
+ *
+ *  Sắp theo `finish`, KHÔNG theo `khe_trong`: tốc độ khai theo từng máy nên máy rảnh sớm hơn chưa
+ *  chắc xong sớm hơn. `chiem_may_phut` tính lại theo chính máy này. */
+export interface XepLichGoiYMay {
+  may_id: number;
+  may_ten: string | null;
+  khe_trong: string | null;
+  finish: string | null;
+  chiem_may_phut: number;
+  /** Khổ giấy vượt khổ máy — vẫn liệt kê (xếp cuối) chứ không giấu: máy đề xuất, người quyết. */
+  khong_hop_kho: boolean;
+  /** Việc liền trước trên máy này cùng giấy · khổ · bộ mực (mục E) — đổi việc gần như khỏi canh
+   *  lại máy. Tiêu chí PHỤ khi hoà giờ xong. */
+  cung_gom: boolean;
+}
+
 /** Gợi ý xếp (chỉ đọc): máy trống sớm nhất + kết thúc nếu xếp + hạn lùi còn kịp giao. */
 export interface XepLichGoiY {
   may_id: number | null;
   khe_trong: string | null;
   finish_neu_xep: string | null;
   han_lui: string | null;
+  /** Top 3 máy làm được công đoạn, sắp theo GIỜ XONG. Chạy CẢ KHI dòng chưa gán máy — lúc đó bốn
+   *  field trên đều rỗng vì chúng bám "máy đang gán". */
+  goi_y_may: XepLichGoiYMay[];
 }
 
 /** Nền lịch máy cho Gantt: khoảng LÀM VIỆC theo ca của xưởng + vùng KHÓA máy (bảo trì/khóa). */
 export interface XepLichLichKhoang { start: string; finish: string }
-export interface XepLichVungKhoa { start: string; finish: string; ly_do: string | null }
+export interface XepLichVungKhoa {
+  start: string; finish: string; ly_do: string | null;
+  /** `chan` = máy nghỉ · `mo_them` = máy chạy thêm ngoài ca (mục G3). Hai chuyện NGƯỢC nhau nên
+   *  Gantt vẽ khác màu — cùng màu là đọc ngược ý. */
+  kieu: XepLichKieuKhoang;
+}
 export interface XepLichLichNen {
   may_id: number;
   khoang_lam: XepLichLichKhoang[];
@@ -673,17 +800,24 @@ export interface XepLichPreview {
   ly_do_xac_nhan: string[];
 }
 
-/** 1 khoảng khóa máy (bảo trì/hỏng/nghỉ) — CRUD + Gantt overlay. */
+/** Kiểu khoảng giờ RIÊNG của một máy (mục G3) — cùng hình dạng dữ liệu, khác DẤU:
+ *  `chan` máy không chạy · `mo_them` máy chạy thêm ngoài ca ("tối thứ Tư máy in 2 chạy thêm 3 tiếng"). */
+export type XepLichKieuKhoang = "chan" | "mo_them";
+
+/** 1 khoảng giờ riêng của máy (nghỉ hoặc chạy thêm) — CRUD + Gantt overlay. */
 export interface XepLichVungKhoaItem {
   id: number;
   may_id: number;
   start: string;
   finish: string;
   ly_do: string;   // bao_tri | hong_hoc | nghi | khac
+  kieu: XepLichKieuKhoang;
   note: string | null;
 }
 export interface XepLichVungKhoaListOut { items: XepLichVungKhoaItem[] }
-export interface XepLichVungKhoaIn { tu: string; den: string; ly_do?: string; note?: string | null }
+export interface XepLichVungKhoaIn {
+  tu: string; den: string; ly_do?: string; kieu?: XepLichKieuKhoang; note?: string | null;
+}
 
 // --- Vấn đề kế hoạch (xung đột & nguy cơ trễ) — dẫn xuất lúc đọc + state người xử lý ---
 export type XepLichSeverity = "chan" | "nghiem_trong" | "cao" | "canh_bao";
@@ -696,7 +830,14 @@ export type XepLichVanDeCategory =
   | "may_khong_kham"
   | "qua_tai_may"
   | "han_bai_ghep"
-  | "thue_ngoai";
+  | "thue_ngoai"
+  // --- Đợt 2 (2026-08-09) ---
+  | "trung_khuon"            // hai lệnh dùng chung MỘT khuôn, trùng giờ
+  | "khuon_chua_san_sang"    // khuôn hỏng / chưa gán / về sau giờ bế
+  | "thieu_vat_tu"           // bảng cân đối báo thiếu — chặn PHÁT HÀNH, không chặn lúc xếp
+  | "thieu_nguoi"            // tổ bố trí dưới số người tối thiểu
+  // --- Đợt 3 ---
+  | "qua_tai_to";            // Σ người các việc cùng lúc trong tổ > quân số có mặt hôm đó
 export type XepLichVanDeTrangThai =
   | "moi"
   | "tiep_nhan"
@@ -755,7 +896,14 @@ export interface XepLichVanDeState {
   tai_phat: number;
 }
 export interface XepLichPhatHanhOut { id: number; ma: string; trang_thai: string }
-export interface XepLichSanSangItem { nguon: XepLichNguon; id: number; ma: string; blocking: number }
+export interface XepLichSanSangItem {
+  nguon: XepLichNguon;
+  id: number;
+  ma: string;
+  blocking: number;
+  /** ĐÃ phát hành chưa (G2) — true thì hiện nút "Gỡ phát hành" thay cho "Phát hành". */
+  da_phat_hanh: boolean;
+}
 export interface XepLichSanSangOut { items: XepLichSanSangItem[]; total: number }
 export interface XepLichVanDeParams {
   severity?: XepLichSeverity;
@@ -902,6 +1050,9 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   setup_phut: number; nang_suat: number | null; don_vi_nang_suat: string | null;
   chay_phut: number | null;
   phat_sinh_phut: number;
+  /** CHỜ KỸ THUẬT (mực khô · keo đông · màng nguội) — kế thừa từ danh mục Công đoạn theo cặp
+   *  (công đoạn × loại SP), SỬA ĐÈ được tại bước. Vào `tong_phut` nhưng KHÔNG vào `chiem_may_phut`. */
+  cho_phut: number;
   // derived: chiếm máy theo tốc độ TB (Gantt đặt lịch) + dải nhanh/chậm nhất của máy.
   chiem_may_phut: number; chiem_may_phut_min: number; chiem_may_phut_max: number;
   tong_phut: number;
@@ -937,6 +1088,8 @@ export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   so_nhan_cong_toi_thieu?: number; so_nhan_cong_tieu_chuan?: number; so_nhan_cong_toi_da?: number;
   setup_phut?: number; nang_suat?: number | null; don_vi_nang_suat?: string | null;
   phat_sinh_phut?: number;
+  /** Chờ kỹ thuật — KHÔNG gửi = giữ số server đã kế thừa; gửi số = sửa đè tại bước (mục B). */
+  cho_phut?: number;
   phu_thuoc_step_keys?: string[];
   vat_tus?: { vat_tu_id: number; so_luong: number }[];
   ghi_chu?: string | null;
@@ -1157,6 +1310,9 @@ export interface Department {
   has_piece_work?: boolean;
   /** Đánh dấu khối SẢN XUẤT (spec §13.1). Effective tính theo cây ở FE (self hoặc tổ tiên tick). */
   la_san_xuat?: boolean;
+  /** Đánh dấu khối KINH DOANH (mg 0181) — cùng luật kế thừa cây con. Nền cho danh sách
+   *  "NV phụ trách" ở màn Khách hàng; chưa tick phòng nào thì backend lùi về quy tắc theo quyền. */
+  la_kinh_doanh?: boolean;
 }
 
 /** Cơ chế ra mức lương của một phòng ban (Pha 1). */
@@ -1641,6 +1797,14 @@ export interface CustomerDetailOut {
 export interface SaleOption {
   id: number;
   name: string;
+  /** Vai trò + phòng, để hộp chọn hiện 2 tầng: "Lê Sale Một" / "NV Sales · Kinh doanh". */
+  vai_tro?: string | null;
+  phong_ban?: string | null;
+  /** `false` = KHÔNG đủ tư cách nhận khách mới (ngoài khối Kinh doanh / tài khoản đã khoá) nhưng
+   *  vẫn đang giữ khách trong tầm nhìn ⇒ hộp LỌC hiện, ô GÁN ẩn. */
+  co_the_gan?: boolean;
+  /** Số khách người này đang phụ trách trong tầm nhìn của người xem. */
+  so_kh?: number;
 }
 
 /** Form Thêm/Sửa — THÔNG TIN ĐỊNH DANH (redesign spec-06 v2). Không đụng tài chính. */
@@ -1681,6 +1845,8 @@ export interface CustomerNote {
 export interface CustomerListParams {
   q?: string;
   sale?: number | null;
+  /** Lọc "Chưa gán ai" — khách chưa có NV phụ trách. Đè lên `sale` khi bật. */
+  chua_gan?: boolean;
   followup?: boolean;
   tag?: string | null;
   sort?: string;
@@ -2111,6 +2277,15 @@ export interface QuoteItemDetail {
   note: string | null;
   /** Khách chốt một phần: true = khách ưng (kéo lên đơn), false = không lấy. Chỉ có nghĩa khi báo giá đã accepted. */
   accepted: boolean;
+}
+
+/** Tài liệu đính kèm NỘI BỘ của báo giá (file khách gửi / mẫu thiết kế / ảnh tham khảo). */
+export interface QuoteAttachment {
+  id: number;
+  file_name: string;
+  file_url: string;
+  file_type: string | null;
+  uploaded_at: string;
 }
 
 export interface QuotationDetail {
@@ -4080,6 +4255,10 @@ export interface PurchaseRequestBatchInput {
 }
 
 export interface DepartmentPurchaseRequestLineInput {
+  /** MẶT HÀNG GỐC của dòng — chọn từ danh mục Giấy + Vật tư khác, KHÔNG gõ tay. Thiếu cặp này
+   *  thì phiếu mua sinh ra sau đó phải ghép bằng tên, mà ghép trượt thì im lặng sai. */
+  hang_loai?: HangLoai | null;
+  hang_id?: number | null;
   item_name: string;
   unit: string;
   quantity: number;
@@ -4979,6 +5158,12 @@ export interface StockRequestLine {
   hang_ten: string | null;
   /** Nhãn nhóm ("Giấy" / "Vật tư khác") — chip phân biệt hai nguồn khi tên gần giống. */
   hang_nhom: string | null;
+  /** "Xin cho lệnh nào" (mg 0175). Cả hai null = xin lặt vặt, không thuộc lệnh nào — hợp lệ.
+   *  Có giá trị thì bảng cân đối vật tư trừ phần đã cấp vào ĐÚNG dòng nhu cầu của lệnh đó. */
+  lsx_id: number | null;
+  bai_ghep_id: number | null;
+  lsx_ma: string | null;
+  bai_ghep_ma: string | null;
   /** Đơn vị NGƯỜI ĐỀ NGHỊ chọn; mọi `sl_*` của dòng theo đơn vị này. */
   dvt: string;
   /** Số quy về ĐƠN VỊ GỐC + câu diễn giải — dòng nhắc "10 ram ≈ 419,25 kg" dưới ô SL.
@@ -5045,6 +5230,9 @@ export interface StockRequestLineInput {
   // Mặt hàng BẮT BUỘC chọn từ danh mục gốc — không còn đường gõ tên tự do.
   hang_loai: HangLoai;
   hang_id: number;
+  /** Xin CHO LỆNH NÀO (mg 0175) — bỏ trống được (xin lặt vặt). Server kiểm id có thật. */
+  lsx_id?: number | null;
+  bai_ghep_id?: number | null;
   dvt: string;
   sl_de_nghi: number;
   /** Đơn giá NHẬP người đề nghị khai (chỉ đề nghị NHẬP), theo `dvt`. Phiếu kế thừa; kho không sửa. */
@@ -5073,6 +5261,81 @@ export interface StockRequestUpdateInput {
 
 /** Loại mặt hàng gốc — hai danh mục, hai dãy id riêng nên luôn đi theo CẶP với `hang_id`. */
 export type HangLoai = "giay" | "vat_tu";
+
+// --- Kế hoạch vật tư: bảng CÂN ĐỐI -----------------------------------------
+// ⚠️ KHÔNG có trường tiền nào ở đây, và đừng thêm: bảng mở cho vai Kế hoạch SX, còn giá vốn lô
+// hàng thuộc quyền Kho/Kế toán (`view_cost`).
+
+/** Màu của một dòng cân đối. `khong_ro` = KHÔNG quy đổi được đơn vị ⇒ máy chưa đánh giá được —
+ *  cố ý tách khỏi `xam` ("đã cấp đủ"), vì dán nhãn đủ lên dòng chưa ai tính nổi là nói ngược. */
+export type CanDoiMau = "xam" | "xanh" | "vang" | "do" | "khong_ro";
+
+export interface CanDoiDong {
+  /** `vat_tu` = so tồn · `cong_cu` = khuôn bế, KHÔNG so tồn (chỉ hỏi sẵn sàng đúng lúc chưa). */
+  loai: "vat_tu" | "cong_cu";
+  lsx_id: number | null;
+  bai_ghep_id: number | null;
+  ma: string;
+  ten_viec: string | null;
+  ngay_can: string | null;
+  /** true = bước CHƯA xếp lịch ⇒ ngày cần là mốc SUY (hạn SX − tổng thời gian dẫn). Phải hiện
+   *  khác mốc thật, không thì người dùng tin vào một con số chưa ai chốt. */
+  moc_tam: boolean;
+  /** Mọi số theo ĐƠN VỊ GỐC của mặt hàng. null ở dòng công cụ. */
+  nhu_cau: number | null;
+  /** Hai đơn vị cùng lúc: "2.961 tờ ≈ 116 kg". */
+  nhu_cau_hien_thi: string;
+  da_cap: number | null;
+  /** CHỈ LÀ NHÃN — hàng chưa ra khỏi kho thì tồn vẫn còn, không vào phép trừ nào. */
+  dang_linh: number | null;
+  con_phai_co: number | null;
+  con_lai_sau: number | null;
+  /** Phần thiếu RIÊNG của dòng (không phải luỹ kế) — tick nhiều dòng rồi cộng vẫn đúng. */
+  thieu: number | null;
+  trang_thai: CanDoiMau;
+  /** Hạn chót phải đặt = ngày cần − số ngày kiểm nhập. Không còn trừ "số ngày NCC giao" (ô đó đã
+   *  bỏ 10/08/2026 — khai tay là số đoán). */
+  han_dat: string | null;
+  dat_muon: boolean;
+  canh_bao: string[];
+  ly_do_canh_bao: string | null;
+}
+
+export interface CanDoiNhom {
+  loai_nhom: "vat_tu" | "cong_cu";
+  hang_loai: string;
+  hang_id: number;
+  hang_ma: string | null;
+  hang_ten: string | null;
+  don_vi_goc: string | null;
+  ton: number | null;
+  tong_can: number | null;
+  so_dong_do: number;
+  /** Số dòng KHÔNG đánh giá được. Bộ lọc "chỉ mặt hàng đang thiếu" GIỮ LẠI nhóm có số này > 0. */
+  so_dong_khong_ro: number;
+  khuon_tinh_trang: string | null;
+  khuon_ngay_ve: string | null;
+  dong: CanDoiDong[];
+}
+
+/** Lệnh/bài KHÔNG cân đối được — hiện thẳng ra thay vì im lặng bỏ. */
+export interface CanDoiBoQua {
+  ma: string;
+  ly_do: string;
+}
+
+export interface CanDoiOut {
+  items: CanDoiNhom[];
+  bo_qua: CanDoiBoQua[];
+}
+
+/** Khoá của một dòng trên bảng — đủ để server tìm lại và TỰ tính phần thiếu. */
+export interface CanDoiKhoaDong {
+  hang_loai: HangLoai;
+  hang_id: number;
+  lsx_id: number | null;
+  bai_ghep_id: number | null;
+}
 
 /** 1 dòng trong picker mặt hàng (gộp Giấy + Vật tư khác). KHÔNG có giá. */
 export interface MatHangOption {
@@ -5447,6 +5710,9 @@ export const api = {
       parentId: number | null = null,
       salary: DepartmentSalaryPolicy | null = null,
       laSanXuat: boolean = false,
+      /** Cờ khối Kinh doanh. `undefined` = KHÔNG gửi ⇒ backend giữ nguyên — luồng đổi trưởng
+       *  phòng không được âm thầm gỡ khối Kinh doanh của phòng. */
+      laKinhDoanh?: boolean,
     ): Promise<Department> {
       return authed<Department>(`/api/departments/${id}`, token, {
         method: "PUT",
@@ -5458,6 +5724,7 @@ export const api = {
           parent_id: parentId,
           ...(salary ?? {}),
           la_san_xuat: laSanXuat,
+          ...(laKinhDoanh === undefined ? {} : { la_kinh_doanh: laKinhDoanh }),
         }),
       });
     },
@@ -5612,7 +5879,8 @@ export const api = {
     list(token: string, params: CustomerListParams = {}): Promise<CustomerListOut> {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
-      if (params.sale != null) qs.set("sale", String(params.sale));
+      if (params.chua_gan) qs.set("chua_gan", "true");
+      else if (params.sale != null) qs.set("sale", String(params.sale));
       if (params.followup) qs.set("followup", "true");
       if (params.tag) qs.set("tag", params.tag);
       if (params.sort) qs.set("sort", params.sort);
@@ -6945,6 +7213,32 @@ export const api = {
     },
   },
 
+  // --- Kế hoạch vật tư — bảng cân đối "cần · có · thiếu · bao giờ phải đặt" ---
+  keHoachVatTu: {
+    canDoi(
+      token: string,
+      params: { q?: string; chi_thieu?: boolean } = {},
+    ): Promise<CanDoiOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.chi_thieu) qs.set("chi_thieu", "true");
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<CanDoiOut>(`/api/ke-hoach-vat-tu/can-doi${suffix}`, token);
+    },
+    /** Gộp các dòng đã tick thành MỘT yêu cầu mua bộ phận. Server tự tính lại phần thiếu —
+     *  client CỐ Ý không gửi số lượng (bản chụp trên màn có thể đã cũ). */
+    deNghiMua(
+      token: string,
+      dong: CanDoiKhoaDong[],
+      ghiChu?: string | null,
+    ): Promise<{ id: number; code: string }> {
+      return authed<{ id: number; code: string }>("/api/ke-hoach-vat-tu/de-nghi-mua", token, {
+        method: "POST",
+        body: JSON.stringify({ dong, ghi_chu: ghiChu ?? null }),
+      });
+    },
+  },
+
   // --- Xếp lịch công đoạn — bàn xếp lịch (máy + giờ) của Kế hoạch sản xuất ----
   xepLich: {
     /** Order-pool "Chờ xếp": LSX độc lập + bài ghép đã sẵn sàng, CHƯA đưa vào kế hoạch. */
@@ -6975,6 +7269,35 @@ export const api = {
     gan(token: string, dongId: number, body: XepLichGanBody): Promise<XepLichRow> {
       return authed<XepLichRow>(`/api/xep-lich/dong/${dongId}/gan`, token, {
         method: "PUT", body: JSON.stringify(body),
+      });
+    },
+    /** Mức dùng người của từng tổ theo khoảng giờ — Gantt tô nền lane tổ theo đây (mục I).
+     *  `tang_giua` = người thuộc khối SX chưa gắn tổ lá nào; họ KHÔNG vào quỹ giờ-người của tổ
+     *  nào cả, nên phải hiện dòng nhắc, không thì quỹ hụt mà không ai biết vì sao. */
+    taiTo(token: string): Promise<XepLichTaiToOut> {
+      return authed<XepLichTaiToOut>("/api/xep-lich/to/tai", token);
+    },
+    /** Quân số + quỹ giờ-người của một tổ trong một ngày (mục I). */
+    quanSo(token: string, deptId: number, ngay: string): Promise<XepLichQuanSo> {
+      return authed<XepLichQuanSo>(`/api/xep-lich/to/${deptId}/quan-so?ngay=${ngay}`, token);
+    },
+    /** Gõ đè quân số một ngày. `soNguoi = null` = BỎ gõ đè, quay về số tự tính. */
+    datQuanSo(token: string, deptId: number, ngay: string, soNguoi: number | null, lyDo: string) {
+      return authed<XepLichQuanSo>(`/api/xep-lich/to/${deptId}/quan-so`, token, {
+        method: "PUT", body: JSON.stringify({ ngay, so_nguoi: soNguoi, ly_do: lyDo }),
+      });
+    },
+    /** Tải theo TUẦN của từng máy / tổ (mục J). `tu` = ngày bất kỳ trong tuần đầu. */
+    keHoachTuan(token: string, tu: string, soTuan = 4): Promise<XepLichKeHoachTuan> {
+      return authed<XepLichKeHoachTuan>(
+        `/api/xep-lich/ke-hoach-tuan?tu=${tu}&so_tuan=${soTuan}`, token,
+      );
+    },
+    /** Xem trước CHÈN lệnh gấp vào máy tại một mốc giờ (G1) — CHỈ ĐỌC, chưa ghi gì.
+     *  Áp thật bằng `ganLoat` với đúng các dòng trong `rows` khi người dùng bấm Lưu. */
+    chen(token: string, dongId: number, body: { may_id?: number | null; tai: string }): Promise<XepLichChen> {
+      return authed<XepLichChen>(`/api/xep-lich/dong/${dongId}/chen`, token, {
+        method: "POST", body: JSON.stringify(body),
       });
     },
     /** Gán hàng loạt (bulk) — mỗi dòng kèm id + field cần sửa. */
@@ -7074,11 +7397,17 @@ export const api = {
     phatHanhBaiGhep(token: string, baiGhepId: number): Promise<XepLichPhatHanhOut> {
       return authed<XepLichPhatHanhOut>(`/api/xep-lich/phat-hanh/bai-ghep/${baiGhepId}`, token, { method: "POST" });
     },
-    goPhatHanhLsx(token: string, lsxId: number): Promise<XepLichPhatHanhOut> {
-      return authed<XepLichPhatHanhOut>(`/api/xep-lich/phat-hanh/lsx/${lsxId}`, token, { method: "DELETE" });
+    /** Gỡ phát hành (G2) — BẮT BUỘC có lý do, ghi thẳng vào AuditLog.
+     *  Lệnh đã xuống xưởng mà hệ chưa có lớp thực thi ⇒ nó không biết thợ chạy tới đâu; thứ duy
+     *  nhất còn lại là vết ai-gỡ-lúc-nào-vì-sao. Lý do đi qua QUERY vì DELETE có body hay bị
+     *  client/proxy nuốt im lặng. */
+    goPhatHanhLsx(token: string, lsxId: number, lyDo: string): Promise<XepLichPhatHanhOut> {
+      const qs = `?ly_do=${encodeURIComponent(lyDo)}`;
+      return authed<XepLichPhatHanhOut>(`/api/xep-lich/phat-hanh/lsx/${lsxId}${qs}`, token, { method: "DELETE" });
     },
-    goPhatHanhBaiGhep(token: string, baiGhepId: number): Promise<XepLichPhatHanhOut> {
-      return authed<XepLichPhatHanhOut>(`/api/xep-lich/phat-hanh/bai-ghep/${baiGhepId}`, token, { method: "DELETE" });
+    goPhatHanhBaiGhep(token: string, baiGhepId: number, lyDo: string): Promise<XepLichPhatHanhOut> {
+      const qs = `?ly_do=${encodeURIComponent(lyDo)}`;
+      return authed<XepLichPhatHanhOut>(`/api/xep-lich/phat-hanh/bai-ghep/${baiGhepId}${qs}`, token, { method: "DELETE" });
     },
   },
 
@@ -7190,6 +7519,23 @@ export const api = {
       if (!resp.ok) throw new ApiError(`PDF failed (${resp.status}).`, resp.status);
       const blob = await resp.blob();
       return URL.createObjectURL(blob);
+    },
+    // --- Tài liệu đính kèm nội bộ (file khách gửi / mẫu thiết kế / ảnh tham khảo) ---
+    attachments(token: string, id: number): Promise<{ items: QuoteAttachment[] }> {
+      return authed<{ items: QuoteAttachment[] }>(`/api/quotations/${id}/attachments`, token);
+    },
+    uploadAttachment(token: string, id: number, file: File): Promise<QuoteAttachment> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<QuoteAttachment>(`/api/quotations/${id}/attachments`, token, {
+        method: "POST",
+        body: form,
+      });
+    },
+    deleteAttachment(token: string, id: number, attachmentId: number): Promise<void> {
+      return authed<void>(`/api/quotations/${id}/attachments/${attachmentId}`, token, {
+        method: "DELETE",
+      });
     },
   },
 

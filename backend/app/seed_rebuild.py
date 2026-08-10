@@ -300,6 +300,14 @@ def seed_rebuild_catalog(db: Session) -> None:
 
     if _empty(db, VatTuInAn):
         db.add_all([
+            # ⚠️ CÔNG THỨC NÀY SAI THANG 10⁶ — biết và CỐ Ý để nguyên (chủ chốt 2026-08-09).
+            # Hệ số 0,0003 viết cho diện tích tính bằng MÉT ("0,3 g mực / m² / màu"), nhưng
+            # `dai_in`/`rong_in` engine đưa vào là MILIMÉT ⇒ diện tích to gấp 1.000.000 lần.
+            #   1.000 tờ 650×900, in 4 màu → ra 702.000 kg mực = 175,5 TỶ đồng.
+            #   Đúng ra:                     0,702 kg          = 175.500 đồng.
+            # Không sửa vì xưởng tính giá KHOÁN THEO CÔNG ĐOẠN, không thêm dòng vật tư rời — công
+            # thức này hiện không chảy vào phiếu nào. Ai thêm một dòng mực vào phiếu tính giá thì
+            # PHẢI sửa hệ số (÷ 1.000.000) trước, không thì ra báo giá 175 tỷ.
             VatTuInAn(ma="MUC-CMYK", ten="Mực process CMYK", don_vi_gia="kg", don_gia=250000,
                       cong_thuc_gia="so_mau * dai_in * rong_in * don_gia_kg * to_dau_vao * 0.0003"),
             VatTuInAn(ma="MUC-PANTONE", ten="Mực pha Pantone", don_vi_gia="kg", don_gia=15000),
@@ -308,12 +316,12 @@ def seed_rebuild_catalog(db: Session) -> None:
             VatTuInAn(ma="KEM-74", ten="Bản kẽm khổ 74", don_vi_gia="kem", don_gia=100000),
             VatTuInAn(ma="KEM-102", ten="Bản kẽm khổ 102", don_vi_gia="kem", don_gia=180000),
             VatTuInAn(ma="KEM-52", ten="Bản kẽm khổ 52", don_vi_gia="kem", don_gia=70000),
+            # ⚠️ SAI THANG 10⁶ y như MUC-CMYK ở trên — `dai_in`/`rong_in` là MILIMÉT, mà đơn giá
+            # khai đ/m². 1.000 tờ 650×900 → 585.000.000 m² = 1.755 TỶ đồng; đúng ra 585 m² =
+            # 1.755.000 đồng. Cố ý để nguyên, cùng lý do: xưởng khoán theo công đoạn.
             VatTuInAn(ma="MANG-BONG", ten="Màng cán bóng", don_vi_gia="m2", don_gia=3000,
                       cong_thuc_gia="dai_in * rong_in * don_gia_m2 * to_sau_in"),
-            # Quy cách đóng gói khai thành SỐ (1 thùng = 3 kg) thay vì nằm trong ghi chú — có vậy
-            # kho mới nhập được "2 thùng" và tồn tự ra 6 kg.
-            VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45000,
-                      don_vi_dong_goi="thung", he_so_dong_goi=3),
+            VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45000),
         ])
         db.commit()
 

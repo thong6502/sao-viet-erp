@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 
 from ..models.may_thiet_bi import KHOA_CLASS, MayThietBi, NhomMay
 from ..repositories.may_thiet_bi_repo import MayThietBiRepository
+from . import nhat_ky_danh_muc as nk
 
 
 class MayThietBiError(Exception):
@@ -102,8 +103,9 @@ def compute_bhr_preview(data: dict) -> dict:
 
 
 class MayThietBiService:
-    def __init__(self, repo: MayThietBiRepository) -> None:
+    def __init__(self, repo: MayThietBiRepository, audit=None) -> None:
         self.repo = repo
+        self.audit = audit
 
     # -- validate (§8) --
     def _validate(self, data: dict, *, self_id: int | None = None) -> None:
@@ -163,22 +165,28 @@ class MayThietBiService:
         return self.repo.list(**kw)
 
     # -- writes --
-    def create(self, data: dict) -> MayThietBi:
+    def create(self, data: dict, actor_id: int | None = None) -> MayThietBi:
         self._validate(data)
         if self.repo.find_by_ma(data["ma"]) is not None:
             raise MayThietBiDuplicate("Mã máy đã tồn tại.")
-        return self.repo.create(data)
+        m = self.repo.create(data)
+        nk.ghi_tao(self.audit, actor_id=actor_id, loai="may_thiet_bi", obj=m)
+        return m
 
-    def update(self, may_id: int, data: dict) -> MayThietBi:
+    def update(self, may_id: int, data: dict, actor_id: int | None = None) -> MayThietBi:
         m = self.get(may_id)
         self._validate(data, self_id=m.id)
         dup = self.repo.find_by_ma(data["ma"])
         if dup is not None and dup.id != m.id:
             raise MayThietBiDuplicate("Mã máy đã tồn tại.")
-        return self.repo.update(m, data)
+        truoc = nk.anh_chup(m)
+        m = self.repo.update(m, data)
+        nk.ghi_sua(self.audit, actor_id=actor_id, loai="may_thiet_bi", obj=m, truoc=truoc)
+        return m
 
-    def delete(self, may_id: int) -> None:
+    def delete(self, may_id: int, actor_id: int | None = None) -> None:
         m = self.get(may_id)
+        nk.ghi_xoa(self.audit, actor_id=actor_id, loai="may_thiet_bi", obj=m)
         self.repo.delete(m)
 
     def bhr(self, may_id: int) -> dict:

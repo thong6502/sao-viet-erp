@@ -44,6 +44,9 @@ class DepartmentSummaryOut(BaseModel):
     head_title: str | None = None
     # Đánh dấu khối SẢN XUẤT (spec §13.1). FE tính "effective" theo cây (self hoặc tổ tiên tick).
     la_san_xuat: bool = False
+    # Đánh dấu khối KINH DOANH — cùng luật kế thừa cây con. Nền cho danh sách "NV phụ trách" ở
+    # màn Khách hàng (chip KHỐI KD trên danh sách phòng ban dùng "effective" y như khối SX).
+    la_kinh_doanh: bool = False
     role_count: int = 0
     user_count: int = 0
     employee_count: int = 0
@@ -94,6 +97,8 @@ class DepartmentCreate(BaseModel):
     has_piece_work: bool = False
     # Khối SẢN XUẤT (spec §13.1) — mặc định không phải sản xuất.
     la_san_xuat: bool = False
+    # Khối KINH DOANH — mặc định không phải kinh doanh.
+    la_kinh_doanh: bool = False
 
 
 class DepartmentUpdate(BaseModel):
@@ -109,6 +114,11 @@ class DepartmentUpdate(BaseModel):
     has_piece_work: bool = False
     # Khối SẢN XUẤT (spec §13.1). FE gửi cả object nên luôn kèm cờ này.
     la_san_xuat: bool = False
+    # Khối KINH DOANH. KHÔNG gửi = giữ nguyên (router lọc theo `model_fields_set`): màn Phòng ban
+    # có nhiều luồng sửa chỉ đụng tên/trưởng phòng, ghi đè mặc định ở đó là âm thầm gỡ cờ khối.
+    la_kinh_doanh: bool = False
+    # `ca_lam_ids` ĐÃ BỎ (2026-08-10): ca khai một chỗ duy nhất ở Nhân sự → Ca kíp, không lặp lại
+    # ở từng tổ. Cột còn trong DB nhưng không nhận/không trả.
 
 
 class UnitLevelOut(BaseModel):

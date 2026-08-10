@@ -48,10 +48,19 @@ MODULES: list[tuple[str, str]] = [
     # không đổi gì. Đã gỡ (migration 0069): san_pham · dm_gia_click · dm_gia_khuon_ban ·
     # dm_dinh_muc · dm_binh_bai. Dữ liệu norms/plate_die_rates/products GIỮ NGUYÊN — engine
     # tính giá đọc thẳng repo, không qua ma trận quyền.
+    # MỘT MÀN = MỘT QUYỀN. Thứ tự bám đúng menu "Cấu hình danh mục" để người cấp quyền dò theo
+    # màn hình chứ không phải dò theo tên kỹ thuật. Trước đây 10 mục menu chỉ có 5 dòng quyền:
+    # bật đủ 5/5 vẫn không mở được Giấy (nó mượn quyền `kho`), Bù hao và Đơn vị thì đi ké
+    # `dm_cong_doan` — cấp cho kế toán khai đơn vị là hở luôn danh mục công đoạn.
     ("dm_loai_san_pham", "Loại sản phẩm"),
-    ("dm_giay_vat_tu", "Vật liệu & Giá"),
     ("dm_thiet_bi", "Thiết bị & Máy móc"),
-    ("dm_cong_doan", "Công đoạn gia công"),
+    ("dm_cong_doan", "Công đoạn"),
+    ("dm_bu_hao", "Bù hao"),
+    ("dm_don_vi", "Đơn vị & quy đổi"),
+    ("dm_chung_loai_giay", "Chủng loại giấy"),
+    ("dm_giay", "Giấy"),
+    ("dm_vat_tu", "Vật tư khác"),
+    ("dm_kho_hang", "Khai báo kho"),
     ("nhan_su", "Nhân sự"),
     ("nghi_phep", "Nghỉ phép"),
     ("tang_ca", "Tăng ca"),
@@ -132,6 +141,17 @@ def _full(scope: str, *, can_approve_exception: bool = False) -> dict:
         can_view_cost=True,
         can_set_threshold=True,
         can_post=True,  # GĐ toàn quyền kho → được GHI SỔ (chốt tồn)
+    )
+
+
+def _dm_full() -> dict:
+    """Toàn quyền một module DANH MỤC: 4 bit CRUD, scope luôn `all`.
+
+    Danh mục là dữ liệu dùng chung toàn công ty — không có "của tôi \ cả phòng" (xem
+    `SCOPELESS_MODULES` ở role_service, UI cũng đã bỏ cột Phạm vi ở nhóm này).
+    """
+    return dict(
+        can_read=True, can_create=True, can_update=True, can_delete=True, scope=SCOPE_ALL,
     )
 
 
@@ -296,6 +316,11 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # can_approve = phát hành kế hoạch; can_approve_exception = duyệt ngoại lệ (bỏ qua cảnh
             # báo khi phát hành) — Kế hoạch SX (trưởng điều độ) cầm cả hai.
             "san_xuat": {**_rcu(SCOPE_ALL), "can_approve": True, "can_approve_exception": True},
+            # Bảng cân đối vật tư có nút "Đề nghị mua" cho dòng thiếu — nút đó gác bằng
+            # `thu_mua:request`. KHÔNG cấp thì nút tự ẩn và người điều độ nhìn thấy lệnh sắp
+            # thiếu giấy mà không làm gì được ngay tại chỗ. Chỉ `request` + đọc phiếu của mình:
+            # điều độ ĐỀ NGHỊ mua, còn đặt hàng và duyệt chi vẫn là việc bộ phận Mua hàng.
+            "thu_mua": {**_read(SCOPE_OWN), "can_request": True},
             "khuon_be": _read(SCOPE_ALL),  # ③ điều độ đọc danh mục khuôn để gán vào lệnh có bế
             # Sửa routing của lệnh cần ĐỌC danh mục: công đoạn (thêm bước), máy (gán máy), tổ
             # (đổi tổ phụ trách). Chỉ READ — cấu hình danh mục vẫn là việc của phòng khác.
@@ -402,6 +427,10 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
                 "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
                 "scope": SCOPE_ALL, **_KHO_VIEW,
             },
+            # Danh mục hàng + khai báo kho: GIỮ NGUYÊN khả năng cũ (hồi chúng còn gác bằng quyền
+            # `kho`) — tách module không phải để âm thầm rút quyền của người đang làm việc. Muốn
+            # siết "thủ kho không đặt đơn giá giấy" thì tắt công tắc Thao tác ở ma trận.
+            **{k: _dm_full() for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "dm_kho_hang")},
             "san_xuat": _read(SCOPE_ALL),    # xem kế hoạch SX để tham chiếu khi lập phiếu
         },
     ),
@@ -416,6 +445,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
                 "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
                 "scope": SCOPE_ALL, **_KHO_QL,
             },
+            **{k: _dm_full() for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "dm_kho_hang")},
             "san_xuat": _read(SCOPE_ALL),
         },
     ),
@@ -436,6 +466,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_ALL),
             "kho": {**_read(SCOPE_ALL), **_KHO_QL},
+            # Đối chiếu giá vốn cần TRA danh mục, không sửa.
+            **{k: _read(SCOPE_ALL) for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu")},
         },
     ),
     # --- Phía ĐỀ NGHỊ: scope `own` (chỉ thấy đề nghị CỦA MÌNH), KHÔNG `can_view_stock`,
@@ -520,6 +552,12 @@ def seed_departments(db: Session) -> None:
     for name in DEPARTMENTS:
         if depts.get_by_name(name) is None:
             depts.create(name=name)
+    # Khối KINH DOANH: đánh dấu phòng "Kinh doanh" của bộ dữ liệu mẫu (cả cây con kế thừa). Chỉ là
+    # DỮ LIỆU MẪU — thực tế người dùng tự tick trong màn Phòng ban, tên phòng do họ đặt. Chưa tick
+    # phòng nào thì danh sách NV phụ trách lùi về quy tắc theo quyền `khach_hang`.
+    kd = depts.get_by_name("Kinh doanh")
+    if kd is not None and not kd.la_kinh_doanh:
+        depts.set_la_kinh_doanh(kd, True)
 
 
 def seed_unit_levels(db: Session) -> None:

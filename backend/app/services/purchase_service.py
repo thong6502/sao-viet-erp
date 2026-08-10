@@ -52,6 +52,7 @@ from ..models.accounting import (
     PAYMENT_VOUCHER_CANCELLED,
     PAYMENT_VOUCHER_PAID,
 )
+from ..models.vat_lieu_kho import HANG_LOAI
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.purchase_repo import (
     DepartmentPurchaseRequestLineInput,
@@ -88,7 +89,7 @@ DEPARTMENT_REQUEST_READER_MODULES = (
     "bao_gia",
     "kho",
     "san_xuat",
-    "dm_giay_vat_tu",
+    "dm_giay",
     "ke_toan",
 )
 
@@ -170,6 +171,31 @@ def _business_today() -> date:
 
 def _money_round(value: Decimal) -> int:
     return int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def _doc_mat_hang(get) -> tuple[str | None, int | None]:
+    """Đọc cặp `(hang_loai, hang_id)` của một dòng hàng (mg 0174).
+
+    PHẢI ĐỦ CẶP hoặc TRỐNG CẢ HAI. Nửa cặp thì **báo lỗi**, không im lặng bỏ: `hang_loai='giay'`
+    mà thiếu id là một con trỏ hỏng, và hậu quả của nó im re — dòng mua mất liên kết mặt hàng, bảng
+    cân đối không cộng lô đó vào "hàng đang về", kế hoạch giục mua thêm một lô giấy nữa. Đúng cái
+    bug mg 0174 sinh ra để chữa.
+
+    "Không đoán" nghĩa là không tự bịa nửa còn thiếu — KHÔNG có nghĩa là nuốt lỗi. Cùng cách xử lý
+    với dòng mặt hàng NCC (`_clean_supplier_items`), để một khái niệm chỉ có một luật.
+    """
+    loai = (get("hang_loai") or "").strip() or None
+    raw_id = get("hang_id")
+    hid = int(raw_id) if raw_id not in (None, "") else None
+    if (loai is None) != (hid is None):
+        raise PurchaseValidationError(
+            "Mặt hàng gốc phải có cả loại lẫn mã — chọn lại ở ô Vật tư."
+        )
+    if loai is None:
+        return None, None
+    if loai not in HANG_LOAI:
+        raise PurchaseValidationError(f'Loại mặt hàng "{loai}" không hợp lệ.')
+    return loai, hid
 
 
 def _purchase_line_amounts(
@@ -925,7 +951,7 @@ class PurchaseService:
           của họ: công việc của thu mua chính là biến đơn của phòng khác thành phiếu mua. Không
           phụ thuộc scope: nhân viên thu mua scope `own` (chỉ thấy PHIẾU MUA của mình) vẫn phải
           thấy đủ yêu cầu gửi đến, nếu không thì ngồi nhìn màn hình trống.
-        · **Người ĐỀ NGHỊ** (bao_gia · kho · san_xuat · dm_giay_vat_tu) — chỉ thấy yêu cầu của
+        · **Người ĐỀ NGHỊ** (bao_gia · kho · san_xuat · dm_giay) — chỉ thấy yêu cầu của
           phòng mình, trừ khi được cấp scope `all`.
 
         ⚠️ Ngày 04/08/2026 tôi hạ scope `thu_mua` của nhân viên mua hàng xuống `own` để họ chỉ
@@ -1017,8 +1043,20 @@ class PurchaseService:
             item_name = (get("item_name") or "").strip()
             if not item_name:
                 raise PurchaseValidationError("Ten vat tu khong duoc trong.")
-            if not self.suppliers.has_active_item(item_name):
-                raise PurchaseValidationError("Vat tu chua co trong danh muc mat hang nha cung cap.")
+            hang_loai, hang_id = _doc_mat_hang(get)
+            # Dòng ĐÃ GẮN MẶT HÀNG GỐC (mg 0174) thì thôi kiểm theo TÊN: cặp `(hang_loai, hang_id)`
+            # là bằng chứng mạnh hơn hẳn — món đó đang nằm trong danh mục gốc, không phải chữ gõ
+            # tay. Giữ lại phép so tên ở đây là chặn oan đúng luồng vừa dựng: bảng cân đối gửi
+            # "Couché 150 79×109" (tên danh mục) trong khi NCC khai "Couche 150" ⇒ không lập nổi
+            # yêu cầu mua, mà lý do báo ra lại là "vật tư chưa có trong danh mục" — sai và khó hiểu.
+            # Dòng KHÔNG gắn mặt hàng gốc: chỉ còn chấp nhận nếu tên trùng bảng giá NCC — đó là
+            # đường lùi cho DỮ LIỆU CŨ (phiếu lập trước khi ô chọn danh mục ra đời) và cho client
+            # cũ. Giao diện hiện tại luôn gửi kèm cặp `(hang_loai, hang_id)`: ô Vật tư ở màn Yêu
+            # cầu mua hàng là combobox tra thẳng danh mục Giấy + Vật tư khác, không gõ tự do.
+            if hang_loai is None and not self.suppliers.has_active_item(item_name):
+                raise PurchaseValidationError(
+                    "Vat tu phai chon tu danh muc (Giay / Vat tu khac)."
+                )
             unit = (get("unit") or "").strip()
             if not unit:
                 raise PurchaseValidationError("Don vi tinh khong duoc trong.")
@@ -1032,6 +1070,8 @@ class PurchaseService:
                     quantity=quantity,
                     expected_unit_price=0,
                     note=(get("note") or "").strip() or None,
+                    hang_loai=hang_loai,
+                    hang_id=hang_id,
                 )
             )
         return lines
@@ -1295,21 +1335,34 @@ class PurchaseService:
 
     @staticmethod
     def _chot_noi_dong(cleaned_lines, source_requests) -> None:
-        """Dòng phiếu chỉ được trỏ về dòng của CHÍNH yêu cầu nguồn nó gắn.
+        """Dòng phiếu chỉ được trỏ về dòng của CHÍNH yêu cầu nguồn nó gắn — VÀ kế thừa mặt hàng gốc.
 
         Không chốt thì phiếu trỏ được sang dòng của yêu cầu khác, và chi tiết YCMH hiện nhầm tiến
         độ của người khác — im lặng, không báo lỗi.
 
         Chạy RIÊNG sau khi đã gỡ yêu cầu nguồn, không nhét vào `_clean_lines`: nhét vào thì phải
         gỡ nguồn trước khi làm sạch dòng, và thứ tự báo lỗi đảo ngược — người dùng gõ thiếu đơn vị
-        tính lại nhận câu "yêu cầu không còn ở trạng thái chờ mua"."""
-        hop_le = {line.id for src in source_requests for line in getattr(src, "lines", [])}
+        tính lại nhận câu "yêu cầu không còn ở trạng thái chờ mua".
+
+        KẾ THỪA `(hang_loai, hang_id)` (mg 0174): đây là chỗ DUY NHẤT vừa cầm dòng phiếu vừa cầm
+        dòng yêu cầu nguồn, nên cũng là chỗ duy nhất nối được mặt hàng gốc mà không phải đoán từ
+        tên hàng. Thiếu bước này thì bảng cân đối vật tư không thấy "hàng đang về" của chính lô
+        giấy nó vừa bảo đi mua ⇒ nó giục mua thêm lần nữa. Client CÓ gửi thì tôn trọng client
+        (thu mua đổi mặt hàng khi lập phiếu là hợp lệ); chỉ điền khi đang trống.
+        """
+        dong_nguon = {line.id: line for src in source_requests for line in getattr(src, "lines", [])}
         for line in cleaned_lines:
             src_line_id = getattr(line, "department_request_line_id", None)
-            if src_line_id is not None and src_line_id not in hop_le:
+            if src_line_id is None:
+                continue
+            if src_line_id not in dong_nguon:
                 raise PurchaseValidationError(
                     f'Dòng "{line.item_name}" trỏ tới một dòng không thuộc yêu cầu nguồn của phiếu này.'
                 )
+            goc = dong_nguon[src_line_id]
+            if getattr(line, "hang_loai", None) is None and getattr(line, "hang_id", None) is None:
+                line.hang_loai = getattr(goc, "hang_loai", None)
+                line.hang_id = getattr(goc, "hang_id", None)
 
     def _clean_lines(
         self, raw_lines, *, supplier_id: int | None = None
@@ -1354,6 +1407,7 @@ class PurchaseService:
                 raise PurchaseValidationError("Thuế GTGT (%) phải trong khoảng 0 đến 100.")
             raw_src = get("department_request_line_id")
             src_line_id = int(raw_src) if raw_src not in (None, "") else None
+            hang_loai, hang_id = _doc_mat_hang(get)
             lines.append(
                 PurchaseRequestLineInput(
                     item_name=item_name,
@@ -1364,6 +1418,8 @@ class PurchaseService:
                     vat_percent=vat_percent,
                     note=(get("note") or "").strip() or None,
                     department_request_line_id=src_line_id,
+                    hang_loai=hang_loai,
+                    hang_id=hang_id,
                 )
             )
         return lines

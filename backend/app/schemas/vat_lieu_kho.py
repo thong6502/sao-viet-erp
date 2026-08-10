@@ -107,9 +107,6 @@ class VatTuIn(BaseModel):
     ma: str = Field(min_length=1, max_length=30)
     ten: str = Field(min_length=1, max_length=150)
     don_vi_gia: str | None = None
-    # Quy cách đóng gói: "1 <don_vi_dong_goi> = <he_so_dong_goi> <don_vi_gia>". Hai ô đi cùng nhau.
-    don_vi_dong_goi: str | None = None
-    he_so_dong_goi: float | None = Field(default=None, ge=0)
     don_gia: float = Field(default=0, ge=0)
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
@@ -124,9 +121,6 @@ class VatTuRow(BaseModel):
     don_vi_gia: str | None = None
     # Tên đơn vị cho BẢNG đọc được — router gán, không có trong DB.
     don_vi_ten: str | None = None
-    don_vi_dong_goi: str | None = None
-    don_vi_dong_goi_ten: str | None = None
-    he_so_dong_goi: float | None = None
     don_gia: float
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None

@@ -40,10 +40,13 @@ export interface EditRow {
   so_nhan_cong_toi_da: number | null;
   nang_suat: string;
   don_vi_nang_suat: string;
-  /** Ô DUY NHẤT còn gõ được ở tab Thời gian (2026-08-04): chuẩn bị + tốc độ kế thừa từ máy.
-   *  `setup_phut`/`chay_phut`/`cho_phut`/`di_chuyen_phut` đã rời form — số hiển thị lấy từ
-   *  `thoi_luong_dien_giai` (server tính), không còn ô nào ghi ngược vào bước. */
+  /** Hai ô gõ được ở tab Thời gian: `phat_sinh_phut` ("Thời gian khác") và `cho_phut`.
+   *  `setup_phut`/`chay_phut`/`di_chuyen_phut` vẫn kế thừa từ máy — số hiển thị lấy từ
+   *  `thoi_luong_dien_giai` (server tính), không có ô nào ghi ngược vào bước. */
   phat_sinh_phut: string;
+  /** CHỜ KỸ THUẬT (mực khô · keo đông · màng nguội) — kế thừa từ danh mục Công đoạn theo cặp
+   *  (công đoạn × loại SP), sửa đè được tại bước. Vào `tong_phut` nhưng KHÔNG vào chiếm máy. */
+  cho_phut: string;
   thoi_luong_dien_giai: Record<string, unknown>;
   phu_thuoc_step_keys: string[];
   vat_tus: { vat_tu_id: number; vat_tu_ma: string; vat_tu_ten: string; don_vi: string; so_luong: string }[];
@@ -142,6 +145,7 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     nang_suat: s(cd.nang_suat),
     don_vi_nang_suat: cd.don_vi_nang_suat ?? "",
     phat_sinh_phut: s(cd.phat_sinh_phut),
+    cho_phut: s(cd.cho_phut),
     thoi_luong_dien_giai: cd.thoi_luong_dien_giai ?? {},
     phu_thuoc_step_keys: cd.phu_thuoc_step_keys ?? [],
     vat_tus: (cd.vat_tus ?? []).map((v) => ({ ...v, so_luong: String(v.so_luong) })),
@@ -185,7 +189,7 @@ export function emptyRow(): EditRow {
     department_id: null, may_id: null,
     so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to", he_so_quy_doi: "",
     hao_hut: "", hao_hut_pct: "", so_luot_chay: "", so_nhan_cong: "",
-    nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "",
+    nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "", cho_phut: "",
     so_nhan_cong_toi_thieu: null, so_nhan_cong_tieu_chuan: 1, so_nhan_cong_toi_da: null,
     thoi_luong_dien_giai: {},
     phu_thuoc_step_keys: [], vat_tus: [],
@@ -248,6 +252,9 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
         : {}),
       // Ô trống = để máy tính từ năng suất (KHÔNG phải 0 phút).
       phat_sinh_phut: on(r.phat_sinh_phut),
+      // Chờ kỹ thuật: ô trống = giữ số server đã kế thừa (từ MÁY nếu bước máy, từ ĐẦU VIỆC nếu
+      // bước tổ — xem `_cho_ky_thuat_phut`); gõ số = sửa đè tại bước.
+      cho_phut: on(r.cho_phut),
       phu_thuoc_step_keys: r.phu_thuoc_step_keys,
       vat_tus: r.vat_tus.map((v) => ({ vat_tu_id: v.vat_tu_id, so_luong: n(v.so_luong) })),
       // Khối gia công ngoài chỉ gửi khi bước ĐANG là thuê ngoài — đổi loại bước rồi thì
@@ -348,6 +355,10 @@ export function thoiLuongLive(r: EditRow, may?: MayTinhGio | null): Record<strin
   }
 
   const chiemTaiNguyen = khac + setup + chay;
+  // CHỜ KỸ THUẬT — cộng vào TỔNG nhưng KHÔNG vào chiếm tài nguyên (mục B). Cùng luật với
+  // `lsx_service.thoi_luong_buoc`: tờ nằm trên pallet chờ mực khô thì máy vẫn chạy job khác, bàn
+  // lịch chỉ đẩy BƯỚC SAU. Cộng nhầm vào chiếm máy là khoá oan cái máy suốt mấy tiếng.
+  const cho = f(r.cho_phut);
   return {
     phuong_phap: phuongPhap,
     so_luong_vao: tron(vao),
@@ -371,7 +382,8 @@ export function thoiLuongLive(r: EditRow, may?: MayTinhGio | null): Record<strin
     toc_do_max: coMay ? (may?.tocDoMax ?? null) : (dgServer.toc_do_max ?? null),
     co_dai_toc_do: tron(chayNhanh) !== tron(chayCham),
     chiem_tai_nguyen_phut: tron(chiemTaiNguyen),
-    tong_phut: tron(chiemTaiNguyen),
+    cho_phut: tron(cho),
+    tong_phut: tron(chiemTaiNguyen + cho),
     canh_bao: canhBao,
   };
 }

@@ -23,6 +23,16 @@ LY_DO_NGHI = "nghi"          # nghỉ theo lịch riêng máy (khác ngày ngh�
 LY_DO_KHAC = "khac"
 LY_DO_KHOA = (LY_DO_BAO_TRI, LY_DO_HONG_HOC, LY_DO_NGHI, LY_DO_KHAC)
 
+# KIỂU khoảng (mg 0179). Cùng một khái niệm "khoảng giờ riêng của MỘT máy", chỉ khác DẤU:
+#   `chan`     — máy KHÔNG chạy trong khoảng này (bảo trì/hỏng/nghỉ). Mặc định, nghĩa cũ.
+#   `mo_them`  — máy CHẠY THÊM ngoài ca ("tối thứ Tư máy in 2 chạy thêm 3 tiếng"). Trước đây chỉ
+#                khai được "làm bù cho CẢ nhà máy" ở lịch xưởng, không có chỗ cho một máy.
+# Cố ý KHÔNG đẻ bảng thứ hai: hai bảng là hai nơi phải nhớ khi vẽ Gantt và khi cộng giờ, quên một
+# nơi thì lịch lệch mà không ai báo.
+KIEU_CHAN = "chan"
+KIEU_MO_THEM = "mo_them"
+KIEU_KHOANG = (KIEU_CHAN, KIEU_MO_THEM)
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -39,6 +49,9 @@ class MachineUnavailablePeriod(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     may_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)  # soft → may_thiet_bi.id
+    kieu: Mapped[str] = mapped_column(
+        String(8), nullable=False, server_default=KIEU_CHAN, default=KIEU_CHAN
+    )
     reason: Mapped[str] = mapped_column(String(16), nullable=False, default=LY_DO_BAO_TRI)
     unavailable_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     unavailable_to: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

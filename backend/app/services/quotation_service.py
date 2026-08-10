@@ -79,7 +79,9 @@ def dien_giai_tu_thanh_phan(db, tp) -> str | None:
     if _kho_tp(tp):
         dong.append(f"KT: {_kho_tp(tp)}")
 
-    # Giấy: tên + định lượng từ danh mục. Khách cấp giấy thì nói rõ (ảnh hưởng giá — khách cần biết).
+    # Giấy: tên + định lượng từ danh mục.
+    # GỠ 2026-08-09 (Đợt 4 · K): hậu tố "(khách cấp)". Công ty luôn cấp giấy, nên nhãn đó chỉ còn
+    # là câu thừa trên báo giá — và tệ hơn, nó hứa với khách một điều giá không còn phản ánh.
     if getattr(tp, "giay_id", None) is not None:
         giay = db.get(GiayNguyen, tp.giay_id)
         if giay is not None:
@@ -87,8 +89,6 @@ def dien_giai_tu_thanh_phan(db, tp) -> str | None:
             if giay.gsm:
                 g = f"{g} {giay.gsm}g".strip()
             if g:
-                if getattr(tp, "nguon_giay", None) == "khach":
-                    g += " (khách cấp)"
                 dong.append(g)
 
     # In: số màu + quy cách. 2 mặt khác số màu → "4+1 màu"; bằng nhau → "4 màu".
@@ -736,6 +736,46 @@ class QuotationService:
     def list_approvals(self, *, quotation_id: int, scope: str, actor) -> list:
         quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
         return self.quotations.list_approvals(quote.id)
+
+    # --- Tài liệu đính kèm (NỘI BỘ: file khách gửi / mẫu thiết kế / ảnh tham khảo) ---
+    # Lớp tài liệu tách khỏi dữ liệu giá: cho thêm/xóa ở MỌI trạng thái trừ Hủy (chủ đầu tư chốt).
+    # Mọi thao tác để lại vết ai-gì-lúc-nào ở feed Hoạt động (audit theo target quote:{id}).
+    def list_attachments(self, *, quotation_id: int, scope: str, actor) -> list:
+        quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
+        return self.quotations.list_attachments(quote.id)
+
+    def add_attachment(
+        self, *, quotation_id: int, scope: str, actor,
+        file_name: str, file_url: str, file_type: str | None,
+    ):
+        quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
+        if quote.status == STATUS_CANCELLED:
+            raise QuotationLocked("Báo giá đã hủy — không đính kèm tài liệu được.")
+        att = self.quotations.add_attachment(
+            quote.id, file_name=file_name, file_url=file_url,
+            file_type=file_type, uploaded_by=actor.id,
+        )
+        self.audit.create(
+            actor_user_id=actor.id, action="quote_attach_add", target=f"quote:{quote.id}",
+            detail=f"{quote.quote_number}: đính kèm tài liệu {file_name}",
+        )
+        return att
+
+    def delete_attachment(self, *, quotation_id: int, attachment_id: int, scope: str, actor) -> str | None:
+        """Xóa 1 đính kèm. Trả `file_url` để router dọn object trong storage (tránh file rác)."""
+        quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
+        if quote.status == STATUS_CANCELLED:
+            raise QuotationLocked("Báo giá đã hủy — không sửa tài liệu đính kèm được.")
+        att = self.quotations.get_attachment(attachment_id)
+        if att is None or att.quote_id != quote.id:
+            raise QuotationNotFound("Không tìm thấy tài liệu đính kèm.")
+        file_url = att.file_url
+        self.quotations.delete_attachment(att)
+        self.audit.create(
+            actor_user_id=actor.id, action="quote_attach_delete", target=f"quote:{quote.id}",
+            detail=f"{quote.quote_number}: xóa tài liệu {att.file_name}",
+        )
+        return file_url
 
     def update_quotation(
         self,

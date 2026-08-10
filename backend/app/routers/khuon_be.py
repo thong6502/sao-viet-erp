@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import require_permission
 from ..models.user import User
+from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.khuon_be_repo import KhuonBeRepository
 from ..schemas.khuon_be import KhuonBeIn, KhuonBeListOut, KhuonBeRow
 from ..services.khuon_be_service import (
@@ -24,7 +25,7 @@ MODULE = "khuon_be"
 
 
 def get_service(db: Annotated[Session, Depends(get_db)]) -> KhuonBeService:
-    return KhuonBeService(KhuonBeRepository(db))
+    return KhuonBeService(KhuonBeRepository(db), AuditLogRepository(db))
 
 
 Service = Annotated[KhuonBeService, Depends(get_service)]
@@ -69,17 +70,18 @@ def create_item(payload: KhuonBeIn, svc: Service, current_user: Annotated[User, 
 
 @router.put("/{item_id}", response_model=KhuonBeRow)
 def update_item(item_id: int, payload: KhuonBeIn, svc: Service,
-                _: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+                user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
     try:
-        return KhuonBeRow.model_validate(svc.update(item_id, payload.model_dump(exclude_unset=True)))
+        return KhuonBeRow.model_validate(svc.update(item_id, payload.model_dump(exclude_unset=True), actor_id=user.id))
     except (KhuonBeNotFound, KhuonBeDuplicate, KhuonBeValidationError) as e:
         raise _err(e) from None
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-def delete_item(item_id: int, svc: Service, _: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
+def delete_item(item_id: int, svc: Service,
+                user: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
     try:
-        svc.delete(item_id)
+        svc.delete(item_id, actor_id=user.id)
     except KhuonBeNotFound as e:
         raise _err(e) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)

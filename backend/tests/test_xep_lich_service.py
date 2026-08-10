@@ -510,12 +510,17 @@ def test_tap_ca_rong_fallback_phang():
     assert _cong_gio_lam(t, 600, lich) == datetime(2026, 7, 28, 10, 0, tzinfo=timezone.utc)
 
 
-def test_lich_nen_may_fallback(db, xl_svc, monkeypatch):
+def test_lich_nen_may_lien_tuc(db, xl_svc, monkeypatch):
+    """Nền Gantt của MÁY = trọn ngày làm việc (2026-08-10: máy chạy liên tục, bỏ ca của máy).
+
+    Trước đây là 8h/ngày theo ca. Nay 24h — thanh việc xếp lúc 22h phải nằm TRONG nền, không thì
+    người xem tưởng lịch sai.
+    """
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     res = xl_svc.lich_nen_may(may_id=1, tu=date(2026, 7, 27), den=date(2026, 7, 28))
     assert res["may_id"] == 1 and res["khoang_khoa"] == []
-    assert len(res["khoang_lam"]) == 2  # seed chưa tick ca → fallback 1 khoảng 8h/ngày × 2 ngày
-    assert all((k["finish"] - k["start"]).total_seconds() / 3600 == 8 for k in res["khoang_lam"])
+    assert len(res["khoang_lam"]) == 2  # 1 khoảng/ngày × 2 ngày
+    assert all((k["finish"] - k["start"]).total_seconds() / 3600 == 24 for k in res["khoang_lam"])
 
 
 def test_gan_ghi_audit(db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch):
@@ -634,17 +639,27 @@ def test_thoi_luong_khong_phu_thuoc_nhan_don_vi_may(db, orders, lsx_svc, xl_svc,
 
 
 # --- HM4: kiểm KHẢ NĂNG máy (mềm — máy đề xuất, người quyết) -------------------
-def test_kiem_kha_nang_may_util():
-    """Util thuần: khổ vượt (xoay 90° vẫn không lọt) · số màu vượt units · gsm ngoài khoảng."""
+def test_kiem_kha_nang_chi_con_kiem_kho():
+    """CHỈ CÒN KIỂM KHỔ (chốt 2026-08-09) — bỏ số màu và định lượng.
+
+    Khổ là tiêu chí VẬT LÝ tuyệt đối: tờ không lọt máy thì không có cách nào chạy. Số màu thì thợ
+    chạy 2 lượt là qua (chuyện thường ngày, không phải sự cố), còn khoảng gsm ở danh mục máy phần
+    lớn chưa khai đúng nên nó loại nhầm máy chạy được — cảnh báo mà sai thì người ta thôi tin nó.
+    """
     from app.services._may_fit import kiem_kha_nang
     qc = {"kho_in_dai": 650, "kho_in_rong": 900, "so_mau_a": 4, "so_mau_b": 0, "gsm": 350}
     nho = SimpleNamespace(kho_max_dai=520, kho_max_rong=360, so_units=2,
                           min_stock_gsm=80, max_stock_gsm=250)
-    assert set(kiem_kha_nang(qc, nho)) == {"kho_vuot_may", "so_mau_vuot_units", "gsm_ngoai_khoang"}
+    # Máy nhỏ: vẫn nêu KHỔ, KHÔNG còn nêu số màu / gsm dù cả hai đều ngoài ngưỡng.
+    assert kiem_kha_nang(qc, nho) == ["kho_vuot_may"]
     big = SimpleNamespace(kho_max_dai=1200, kho_max_rong=1000, so_units=8,
                           min_stock_gsm=50, max_stock_gsm=400)
     assert kiem_kha_nang(qc, big) == []          # đủ lớn → không nghi ngờ
     assert kiem_kha_nang(qc, None) == []          # chưa gán máy → bỏ qua
+    # Máy 2 đầu mực + khoảng gsm hẹp nhưng khổ VỪA ⇒ im lặng, đúng ý chốt.
+    hep = SimpleNamespace(kho_max_dai=1200, kho_max_rong=1000, so_units=2,
+                          min_stock_gsm=80, max_stock_gsm=250)
+    assert kiem_kha_nang(qc, hep) == []
     # Thiếu spec máy (None) → BỎ tiêu chí, không dựng cảnh báo giả.
     thieu = SimpleNamespace(kho_max_dai=None, kho_max_rong=None, so_units=None,
                             min_stock_gsm=None, max_stock_gsm=None)
@@ -667,18 +682,21 @@ def test_dau_muc_can_dem_theo_tap_muc_khong_theo_so_mau_process():
     # AB: mỗi lượt chạy MỘT mặt → max(|A|,|B|). CMYK/K vừa máy 4 đơn vị.
     ab = {**kho, "quy_cach_in": "hai_mat", "muc_a": cmyk, "muc_b": ["K"]}
     assert dau_muc_can(ab) == 4
-    assert LY_DO_SO_MAU not in kiem_kha_nang(ab, may4)
-    # Thêm Pantone vào mặt A → 5 đầu mực, máy 4 đơn vị KHÔNG kham. Bản cũ im lặng ca này.
+    # Thêm Pantone vào mặt A → 5 đầu mực (max hai số màu process sẽ ra 4).
     ab5 = {**ab, "muc_a": cmyk + ["185C"]}
     assert dau_muc_can(ab5) == 5
-    assert LY_DO_SO_MAU in kiem_kha_nang(ab5, may4)
 
     # Tự trở: một lượt chạy CẢ HAI mặt trên chung bản → hợp tập, không phải max.
     tu = {**kho, "quy_cach_in": "tu_tro", "muc_a": cmyk, "muc_b": ["185C"]}
     assert dau_muc_can(tu) == 5                       # max sẽ ra 4
-    assert LY_DO_SO_MAU in kiem_kha_nang(tu, may4)
-    # Cùng bộ mực hai mặt thì hợp lại vẫn 4 — không đẻ cảnh báo giả.
+    # Cùng bộ mực hai mặt thì hợp lại vẫn 4.
     assert dau_muc_can({**tu, "muc_b": ["K"]}) == 4
+
+    # ⚠️ Từ 2026-08-09 `dau_muc_can` KHÔNG còn chỗ gọi nào trong app (chủ chốt "cảnh báo khả năng
+    # máy chỉ theo KHỔ") — chỉ test này còn dùng. GIỮ hàm + test vì công thức số đầu mực là thứ
+    # module kẽm sẽ cần; nhưng đừng đọc mấy dòng trên thành "đang chạy trong sản phẩm".
+    assert LY_DO_SO_MAU not in kiem_kha_nang(ab5, may4)
+    assert LY_DO_SO_MAU not in kiem_kha_nang(tu, may4)
 
     # Lệnh CŨ chưa có tập mực → rơi về hai số như trước.
     assert dau_muc_can({**kho, "so_mau_a": 6, "so_mau_b": 2}) == 6
@@ -700,7 +718,8 @@ def test_can_xac_nhan_khi_gan_may_nho(db, orders, lsx_svc, xl_svc, admin, custom
     assert res.trang_thai == "da_xep"           # vẫn gán được (soft-check, không chặn)
     it = {x["id"]: x for x in xl_svc.danh_sach()["items"]}[dong.id]
     assert it["can_xac_nhan"] is True
-    assert "kho_vuot_may" in it["ly_do_xac_nhan"] and "so_mau_vuot_units" in it["ly_do_xac_nhan"]
+    # Chỉ còn KHỔ — máy 2 đầu mực không còn là lý do (chốt 2026-08-09).
+    assert it["ly_do_xac_nhan"] == ["kho_vuot_may"]
 
 
 # --- HM5: xem trước ảnh hưởng khi kéo-thả (KHÔNG commit) ----------------------

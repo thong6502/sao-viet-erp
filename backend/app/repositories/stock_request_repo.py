@@ -8,7 +8,13 @@ from __future__ import annotations
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..models.stock_request import StockRequest, StockRequestLine
+from ..models.stock_request import (
+    REQ_CANCELLED,
+    REQ_REJECTED,
+    REQ_XUAT,
+    StockRequest,
+    StockRequestLine,
+)
 
 _HEADER_FIELDS = ("bo_phan_id", "kho_id", "ngay_can", "uu_tien", "ghi_chu")
 
@@ -23,6 +29,8 @@ def _build_line(ln: dict, loai: str) -> StockRequestLine:
     return StockRequestLine(
         hang_loai=ln["hang_loai"],
         hang_id=ln["hang_id"],
+        lsx_id=ln.get("lsx_id"),
+        bai_ghep_id=ln.get("bai_ghep_id"),
         dvt=ln["dvt"],
         sl_de_nghi=ln["sl_de_nghi"],
         don_gia=ln.get("don_gia") if loai == "NHAP" else None,
@@ -36,6 +44,20 @@ class StockRequestRepository:
 
     def get(self, request_id: int) -> StockRequest | None:
         return self.db.get(StockRequest, request_id)
+
+    def lenh_ton_tai(self, lsx_id: int | None, bai_ghep_id: int | None) -> tuple[bool, bool]:
+        """`(lệnh có thật, bài ghép có thật)` cho ô "cho lệnh nào" (mg 0175).
+
+        Truy vấn nằm ở ĐÂY chứ không ở service: service từng mượn `self.requests.db` để tự
+        `db.get(...)` — thò tay qua repo lấy session là phá đúng ranh giới mà lớp repo dựng ra.
+        Id để trống ⇒ `True` (không gắn lệnh là hợp lệ: xin lặt vặt).
+        """
+        from ..models.bai_ghep import BaiGhep
+        from ..models.lsx import Lsx
+
+        co_lsx = lsx_id in (None, "") or self.db.get(Lsx, int(lsx_id)) is not None
+        co_bg = bai_ghep_id in (None, "") or self.db.get(BaiGhep, int(bai_ghep_id)) is not None
+        return co_lsx, co_bg
 
     def get_by_ma(self, ma: str) -> StockRequest | None:
         return self.db.execute(
@@ -97,6 +119,30 @@ class StockRequestRepository:
         page, size = max(1, page), max(1, min(size, 200))
         base = base.order_by(StockRequest.id.desc()).offset((page - 1) * size).limit(size)
         return list(self.db.execute(base).scalars()), total
+
+    def dong_xuat_theo_lenh(self) -> list[tuple[StockRequestLine, str]]:
+        """Dòng đề nghị XUẤT đã gắn lệnh/bài — nguồn "đã cấp" + "đang lĩnh" của bảng cân đối vật tư.
+
+        Trả kèm `trang_thai` của header để phía gọi khỏi lazy-load từng cái (N+1 trên màn cân đối
+        là hàng trăm query). CHỈ đề nghị XUẤT: đề nghị NHẬP là hàng ĐI VÀO kho, trừ nó vào nhu cầu
+        sản xuất là trừ ngược dấu.
+
+        Bỏ đề nghị đã HỦY / BỊ TỪ CHỐI: chúng không còn sinh ra phiếu nào nên `sl_duyet` của chúng
+        không phải hàng "đang lĩnh".
+        """
+        stmt = (
+            select(StockRequestLine, StockRequest.trang_thai)
+            .join(StockRequest, StockRequest.id == StockRequestLine.request_id)
+            .where(
+                StockRequest.loai == REQ_XUAT,
+                StockRequest.trang_thai.notin_([REQ_REJECTED, REQ_CANCELLED]),
+                or_(
+                    StockRequestLine.lsx_id.is_not(None),
+                    StockRequestLine.bai_ghep_id.is_not(None),
+                ),
+            )
+        )
+        return [(ln, tt) for ln, tt in self.db.execute(stmt)]
 
     def create(self, *, ma: str, loai: str, nguoi_tao_id: int, lines: list[dict],
                **header) -> StockRequest:

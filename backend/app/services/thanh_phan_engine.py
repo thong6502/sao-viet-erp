@@ -245,6 +245,45 @@ def safe_eval(expr_str: str, variables: dict) -> float:
         raise ValueError(f"Lỗi công thức: {e}")
 
 
+# Biến ĐƠN GIÁ mà công thức vật tư / giấy có thể dùng. Đặt cả ba = 1 thì công thức tiền nhả ra
+# chính LƯỢNG — xem `luong_tu_cong_thuc`.
+_BIEN_DON_GIA = ("don_gia", "don_gia_kg", "don_gia_m2")
+
+
+def luong_tu_cong_thuc(formula_str: str, eval_ctx: dict) -> float | None:
+    """LƯỢNG tiêu thụ suy ngược từ công thức TIỀN — đặt mọi biến đơn giá = 1 (Đợt 4 · L).
+
+    Công thức tiền của vật tư luôn có dạng *lượng × đơn giá* (tiền bắt buộc tỉ lệ thuận với giá),
+    nên thay đơn giá bằng 1 thì kết quả chính là lượng, theo đúng đơn vị của đơn giá::
+
+        mực CMYK  `so_mau * dai_in * rong_in * don_gia_kg * to_dau_vao * 0.0003` → ra **kg**
+        màng bóng `dai_in * rong_in * don_gia_m2 * to_sau_in`                    → ra **m²**
+
+    ⚠️ Hai công thức trích trên là DỮ LIỆU SEED THẬT và cả hai đang SAI THANG 10⁶ (hệ số viết cho
+    mét, `dai_in`/`rong_in` là milimét) — trích ở đây để nói HÌNH DẠNG công thức, KHÔNG phải để
+    nói chúng đúng. Xem `db_migrations._migrate_seed_pricing_formulas`. Hàm này trả đúng cái công
+    thức nói, kể cả khi công thức sai: nó không có cách nào biết xưởng định lấy đơn vị gì.
+
+    Cách này KHÔNG đụng công thức tính giá và KHÔNG bắt khai định mức riêng — đúng ranh giới plan
+    chốt: kế hoạch chỉ *hỏi* "lệnh này cần bao nhiêu" rồi đọc con số.
+
+    Trả `None` (KHÔNG đoán) khi công thức không hề nhắc tới đơn giá — vd một khoản phí phẳng
+    `50000`: đặt đơn giá = 1 sẽ ra "50000 kg", một con số vô nghĩa mà lại trông như thật.
+    """
+    if not formula_str or not formula_str.strip():
+        return None
+    if not any(re.search(rf"\b{b}\b", formula_str) for b in _BIEN_DON_GIA):
+        return None
+    ctx = dict(eval_ctx)
+    for b in _BIEN_DON_GIA:
+        ctx[b] = 1.0
+    try:
+        luong = safe_eval(formula_str, ctx)
+    except Exception:
+        return None
+    return luong if luong > 0 else None
+
+
 def format_substituted_formula(formula_str: str, variables: dict) -> str:
     if not formula_str or not formula_str.strip():
         return ""
@@ -674,48 +713,40 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     rows: dict[str, list[dict]] = {"nvl": [], "cong_doan": []}
 
     # --- Giấy (Nguyên vật liệu) ---
-    nguon = tp.get("nguon_giay", "cong_ty")
+    # GỠ 2026-08-09 (Đợt 4 · K): nhánh "khách cấp giấy → 0đ". Cột `nguon_giay` còn trong DB nhưng
+    # engine KHÔNG đọc nữa — mọi thành phần đều tính tiền giấy theo công thức.
+    # ⚠️ Phiếu CŨ có `nguon_giay='khach'` mở ra tính lại sẽ NHẢY GIÁ TĂNG (trước không tính tiền
+    # giấy, nay có). Báo giá đã chốt không ảnh hưởng — chúng đã chụp giá tại thời điểm gửi.
     don_gia_giay = _f(tp.get("don_gia_giay"))
     don_vi = tp.get("don_gia_don_vi", "to")
     giay_ten = tp.get("giay_ten") or tp.get("kho_nguyen") or "Giấy"
 
-    if nguon == "khach":
-        rows["nvl"].append({
-            "ten": _pre(name, giay_ten),
-            "so_to": to_nguyen,
-            "don_gia": 0.0,
-            "thanh_tien": 0.0,
-            "gia_don_sp": 0.0,
-            "ghi_chu": "Khách cấp giấy",
-            "cong_thuc": "Khách cấp giấy — 0đ"
-        })
-    else:
-        formula = tp.get("cong_thuc_gia")
-        if not formula or not formula.strip():
-            if don_vi in ("kg", "tan"):   # giấy bán theo CÂN → tiền = khối lượng × đ/kg
-                formula = "dinh_luong * dai_nguyen * rong_nguyen * don_gia_kg * to_nguyen"
-            else:                          # to | ram | cai → tính theo tờ
-                formula = "don_gia * to_nguyen"
-        
-        eval_ctx = dict(ctx_vars)
-        eval_ctx["don_gia"] = don_gia_giay
-        # don_gia_kg: quy về đ/kg cho công thức theo kg. tan (đ/tấn) → ÷1000; kg/khác → thẳng.
-        eval_ctx["don_gia_kg"] = don_gia_giay / 1000.0 if don_vi == "tan" else don_gia_giay
+    formula = tp.get("cong_thuc_gia")
+    if not formula or not formula.strip():
+        if don_vi in ("kg", "tan"):   # giấy bán theo CÂN → tiền = khối lượng × đ/kg
+            formula = "dinh_luong * dai_nguyen * rong_nguyen * don_gia_kg * to_nguyen"
+        else:                          # to | ram | cai → tính theo tờ
+            formula = "don_gia * to_nguyen"
 
-        try:
-            gia_giay = safe_eval(formula, eval_ctx)
-        except Exception as e:
-            warnings.append(f"Thành phần '{name}': lỗi công thức giấy ({e}) — tính 0đ.")
-            gia_giay = 0.0
+    eval_ctx = dict(ctx_vars)
+    eval_ctx["don_gia"] = don_gia_giay
+    # don_gia_kg: quy về đ/kg cho công thức theo kg. tan (đ/tấn) → ÷1000; kg/khác → thẳng.
+    eval_ctx["don_gia_kg"] = don_gia_giay / 1000.0 if don_vi == "tan" else don_gia_giay
 
-        rows["nvl"].append({
-            "ten": _pre(name, giay_ten),
-            "so_to": to_nguyen,
-            "don_gia": _r(don_gia_giay),
-            "thanh_tien": _r(gia_giay),
-            "gia_don_sp": _r(gia_giay / sl) if sl > 0 else 0.0,
-            "cong_thuc": format_substituted_formula(formula, eval_ctx)
-        })
+    try:
+        gia_giay = safe_eval(formula, eval_ctx)
+    except Exception as e:
+        warnings.append(f"Thành phần '{name}': lỗi công thức giấy ({e}) — tính 0đ.")
+        gia_giay = 0.0
+
+    rows["nvl"].append({
+        "ten": _pre(name, giay_ten),
+        "so_to": to_nguyen,
+        "don_gia": _r(don_gia_giay),
+        "thanh_tien": _r(gia_giay),
+        "gia_don_sp": _r(gia_giay / sl) if sl > 0 else 0.0,
+        "cong_thuc": format_substituted_formula(formula, eval_ctx)
+    })
 
     # --- Vật tư in ấn thêm (mực/màng/keo…) → Nguyên vật liệu: thế biến vào CÔNG THỨC của vật tư
     # (HỆT giấy — công thức nằm ở danh mục vật tư, engine chỉ thế số). don_gia/don_gia_kg/m² phơi sẵn. ---
@@ -723,11 +754,12 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         vt_ten = vt.get("ten") or "Vật tư"
         vt_formula = vt.get("cong_thuc_gia")
         vt_don_gia = _f(vt.get("don_gia"))
+        vt_don_vi = vt.get("don_vi_gia", "kg")
+        luong_vt = None
         if not vt_formula or not vt_formula.strip():
             warnings.append(f"Vật tư '{vt_ten}' (thành phần '{name}'): chưa có công thức — tính 0đ.")
             tien_vt, dan_vt = 0.0, "thiếu công thức — 0đ"
         else:
-            vt_don_vi = vt.get("don_vi_gia", "kg")
             eval_ctx = dict(ctx_vars)
             eval_ctx["don_gia"] = vt_don_gia
             eval_ctx["don_gia_kg"] = vt_don_gia / 1000.0 if vt_don_vi == "tan" else vt_don_gia
@@ -738,6 +770,9 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             except Exception as e:
                 warnings.append(f"Vật tư '{vt_ten}': lỗi công thức ({e}) — tính 0đ.")
                 tien_vt, dan_vt = 0.0, "lỗi công thức — 0đ"
+            # LƯỢNG tiêu thụ (Đợt 4 · L) — suy từ chính công thức tiền, không khai định mức riêng.
+            # `don_gia_kg` đã quy về đ/kg ở trên, nên lượng ra theo kg kể cả khi giá khai đ/tấn.
+            luong_vt = luong_tu_cong_thuc(vt_formula, eval_ctx)
         rows["nvl"].append({
             "ten": _pre(name, vt_ten),
             "so_to": to_dau_vao,
@@ -745,6 +780,13 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             "thanh_tien": _r(tien_vt),
             "gia_don_sp": _r(tien_vt / sl) if sl > 0 else 0.0,
             "cong_thuc": dan_vt,
+            # Kế hoạch vật tư đọc hai field này. `None` = công thức không suy được lượng ⇒ KHÔNG
+            # có dòng cân đối, thà thiếu còn hơn bịa một con số để đi mua hàng theo.
+            # 4 số lẻ chứ KHÔNG dùng `_r` (2 số lẻ như tiền): lượng mực cho một lệnh nhỏ có thể là
+            # 0,003 kg — làm tròn 2 số lẻ là biến nó thành 0 và dòng cân đối biến mất.
+            "luong": round(luong_vt, 4) if luong_vt is not None else None,
+            "luong_don_vi": vt_don_vi if luong_vt is not None else None,
+            "vat_tu_id": vt.get("vat_tu_id"),
         })
 
     # Chuỗi công đoạn là NGUỒN DUY NHẤT: In / Chế bản phải nằm trong routing như mọi công đoạn

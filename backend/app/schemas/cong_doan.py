@@ -18,6 +18,8 @@ class CongDoanDauViecIn(BaseModel):
     so_nguoi_toi_thieu: int = Field(default=1, ge=1)
     so_nguoi_tieu_chuan: int = Field(ge=1)
     so_nguoi_toi_da: int = Field(ge=1)
+    # Giờ chờ kỹ thuật SAU đầu việc này (keo đông…). Vế TỔ; vế MÁY ở `may_thiet_bi.cho_ky_thuat_gio`.
+    cho_ky_thuat_gio: float = Field(default=0, ge=0, le=720)
     is_default: bool = False
 
 

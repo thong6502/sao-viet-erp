@@ -69,11 +69,32 @@ def _err(e: StockRequestError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
+def _lenh_map(db: Session, reqs) -> dict[tuple[str, int], str]:
+    """`{("lsx"|"bai_ghep", id): mã}` cho CẢ TRANG trong 2 query (mg 0175).
+
+    Tra từng dòng là N+1 ngay trên màn Hộp yêu cầu — nơi đúng ra phải mở nhanh nhất.
+    """
+    from ..models.bai_ghep import BaiGhep
+    from ..models.lsx import Lsx
+
+    lsx_ids = {ln.lsx_id for r in reqs for ln in r.lines if ln.lsx_id}
+    bg_ids = {ln.bai_ghep_id for r in reqs for ln in r.lines if ln.bai_ghep_id}
+    ra: dict[tuple[str, int], str] = {}
+    if lsx_ids:
+        for i, ma in db.query(Lsx.id, Lsx.ma).filter(Lsx.id.in_(lsx_ids)):
+            ra[("lsx", i)] = ma
+    if bg_ids:
+        for i, ma in db.query(BaiGhep.id, BaiGhep.ma).filter(BaiGhep.id.in_(bg_ids)):
+            ra[("bai_ghep", i)] = ma
+    return ra
+
+
 def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
                on_hand: dict | None,
                open_voucher_id: int | None = None,
                hang_map: dict | None = None,
-               hang_svc: VatLieuKhoService | None = None) -> StockRequestOut:
+               hang_svc: VatLieuKhoService | None = None,
+               lenh_map: dict | None = None) -> StockRequestOut:
     """Dựng payload + ÁP quyền hiển thị.
 
     `muc_ton` (đèn 5 màu) trả cho mọi vai vì không kèm con số; `ton_kha_dung` chỉ set khi
@@ -88,6 +109,8 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
     cap = [(ln.hang_loai, ln.hang_id) for ln in req.lines]
     if hang_map is None:
         hang_map = hang_svc.map_theo_cap(cap)
+    if lenh_map is None:
+        lenh_map = _lenh_map(db, [req])
     lines: list[StockRequestLineOut] = []
     for ln in req.lines:
         key = (ln.hang_loai, ln.hang_id)
@@ -107,6 +130,10 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
             hang_ma=getattr(m, "ma", None),
             hang_ten=getattr(m, "ten", None),
             hang_nhom=HANG_NHAN.get(ln.hang_loai),
+            lsx_id=ln.lsx_id,
+            bai_ghep_id=ln.bai_ghep_id,
+            lsx_ma=lenh_map.get(("lsx", ln.lsx_id)),
+            bai_ghep_ma=lenh_map.get(("bai_ghep", ln.bai_ghep_id)),
             dvt=ln.dvt,
             don_vi_goc=(qd or {}).get("don_vi_goc_ten"),
             sl_quy_doi=(qd or {}).get("sl_goc"),
@@ -201,12 +228,13 @@ def list_requests(
     hang_map = hang_svc.map_theo_cap(
         [(ln.hang_loai, ln.hang_id) for r in rows for ln in r.lines]
     )
+    lenh_map = _lenh_map(db, rows)
     items = []
     for r in rows:
         # Đèn tồn tính theo KHO của chính đề nghị (r.kho_id), không phải theo bộ lọc.
         levels, on_hand = _levels(svc, r)
         items.append(_serialize(r, db=db, can_view_stock=can_view_stock,
-                                levels=levels, on_hand=on_hand,
+                                levels=levels, on_hand=on_hand, lenh_map=lenh_map,
                                 open_voucher_id=draft_map.get(r.id), hang_map=hang_map, hang_svc=hang_svc))
     return StockRequestPage(items=items, total=total)
 

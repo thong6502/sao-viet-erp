@@ -2,7 +2,7 @@
 // On entry it loads the current user's readable modules (feat-010) to gate both
 // the sidebar (handled in Sidebar) and the content (a forbidden module → 403).
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, connectQuoteEvents, type PinnedCustomer } from "../api/client";
+import { api, connectQuoteEvents, type HangLoai, type PinnedCustomer } from "../api/client";
 import { crud } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import {
@@ -74,7 +74,14 @@ export interface NavParams {
   /** P3 (redesign-bao-gia §6): mở thẳng 1 Phiếu tính giá (link "↳ PTG" từ Báo giá). */
   focusPhieuId?: number;
   /** Liên thông Kho → YCMH: mở form Yêu cầu mua hàng điền sẵn dòng vật tư (Tên + ĐVT). */
-  purchaseSeedLines?: { item_name: string; unit: string; quantity: number; note?: string | null }[];
+  purchaseSeedLines?: {
+    hang_loai?: HangLoai | null;
+    hang_id?: number | null;
+    item_name: string;
+    unit: string;
+    quantity: number;
+    note?: string | null;
+  }[];
   purchaseSeedPurpose?: string;
   /** Liên thông Đơn hàng → bàn Kế hoạch SX: mở thẳng đơn này ở hàng chờ / danh sách lệnh. */
   openSxOrderId?: number;

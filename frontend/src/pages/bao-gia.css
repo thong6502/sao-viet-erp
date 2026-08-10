@@ -1519,6 +1519,83 @@ select.input {
 .rdx-quote .tlb .a b { font-weight: 600; }
 .rdx-quote .tlb .m { color: var(--ash); font-size: 12px; margin-top: 1px; }
 
+/* ---- DETAIL: tài liệu đính kèm (nội bộ) ------------------------------------ */
+.rdx-quote .att-body { padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+.rdx-quote .att-drop {
+  display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center;
+  padding: 18px 16px; border: 1.5px dashed var(--rule); border-radius: var(--r-3);
+  background: var(--paper); color: var(--ash); cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+.rdx-quote .att-drop:hover { border-color: var(--rust); color: var(--rust-deep); }
+.rdx-quote .att-drop.drag { border-color: var(--rust); background: var(--rust-soft); color: var(--rust-deep); }
+.rdx-quote .att-drop.busy { opacity: 0.65; pointer-events: none; }
+.rdx-quote .att-drop svg { color: var(--rust); }
+.rdx-quote .att-drop__lead { font-size: 13px; color: var(--ink); }
+.rdx-quote .att-drop__lead b { color: var(--rust-deep); font-weight: 600; }
+.rdx-quote .att-drop__hint { font-size: 11.5px; color: var(--ash); }
+
+.rdx-quote .att-err {
+  display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--signal);
+  background: var(--signal-soft); border-radius: var(--r-3); padding: 8px 11px;
+}
+.rdx-quote .att-err svg { flex: none; }
+.rdx-quote .att-empty { font-size: 12.5px; color: var(--ash); padding: 6px 2px; line-height: 1.5; }
+
+.rdx-quote .att-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rdx-quote .att-item {
+  display: flex; align-items: center; gap: 12px; padding: 8px 10px;
+  border: 1px solid var(--rule-soft); border-radius: var(--r-3); background: var(--paper);
+}
+.rdx-quote .att-thumb {
+  width: 44px; height: 44px; flex: none; border-radius: var(--r-2); overflow: hidden;
+  border: 1px solid var(--rule-soft); background: var(--canvas); color: var(--ash);
+  display: grid; place-items: center; padding: 0; cursor: default;
+}
+.rdx-quote .att-thumb.ok { cursor: zoom-in; }
+.rdx-quote .att-thumb.ok:hover { border-color: var(--rust); }
+.rdx-quote .att-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.rdx-quote .att-meta { flex: 1; min-width: 0; }
+.rdx-quote .att-name {
+  font-size: 13px; color: var(--ink); font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rdx-quote .att-sub { font-size: 11.5px; color: var(--ash); margin-top: 2px; }
+.rdx-quote .att-actions { display: flex; gap: 4px; flex: none; }
+.rdx-quote .att-act {
+  width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--r-2);
+  border: 1px solid transparent; background: none; color: var(--ash); cursor: pointer;
+  text-decoration: none; transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+.rdx-quote .att-act:hover { background: var(--rust-soft); color: var(--rust-deep); border-color: var(--rule-soft); }
+.rdx-quote .att-act.danger:hover { background: var(--signal-soft); color: var(--signal); }
+
+/* Lightbox xem trước ảnh / PDF */
+.rdx-quote .att-lightbox {
+  position: fixed; inset: 0; z-index: 60; background: rgba(20, 19, 15, 0.72);
+  display: grid; place-items: center; padding: 32px;
+}
+.rdx-quote .att-lightbox__box {
+  display: flex; flex-direction: column; width: min(920px, 96vw); height: min(88vh, 900px);
+  background: var(--canvas); border-radius: var(--r-5); overflow: hidden; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+.rdx-quote .att-lightbox__head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 14px; border-bottom: 1px solid var(--rule-soft); flex: none;
+}
+.rdx-quote .att-lightbox__name { font-size: 13.5px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rdx-quote .att-lightbox__acts { display: flex; gap: 4px; flex: none; }
+.rdx-quote .att-lightbox__acts a,
+.rdx-quote .att-lightbox__acts button {
+  width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--r-2);
+  border: 0; background: none; color: var(--ash); cursor: pointer; text-decoration: none;
+}
+.rdx-quote .att-lightbox__acts a:hover,
+.rdx-quote .att-lightbox__acts button:hover { background: var(--rust-soft); color: var(--rust-deep); }
+.rdx-quote .att-lightbox__body { flex: 1; min-height: 0; background: var(--paper); display: grid; place-items: center; }
+.rdx-quote .att-lightbox__body img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.rdx-quote .att-lightbox__body iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+
 /* ---- REDESIGNED TERMS & CONDITIONS PANEL ---- */
 .rdx-quote .terms-redesign-panel {
   border-radius: var(--r-5, 12px);

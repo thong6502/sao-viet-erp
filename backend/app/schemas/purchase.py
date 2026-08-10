@@ -153,6 +153,10 @@ class SoGiaOut(BaseModel):
 
 
 class PurchaseRequestLineIn(BaseModel):
+    # Mặt hàng gốc (mg 0174). Client thường KHÔNG gửi — server tự kế thừa từ dòng YCMH nguồn
+    # (`_chot_noi_dong`). Gửi thì thắng, vì thu mua đổi mặt hàng khi lập phiếu là hợp lệ.
+    hang_loai: str | None = Field(default=None, pattern="^(giay|vat_tu)$")
+    hang_id: int | None = Field(default=None, gt=0)
     item_name: str = Field(min_length=1, max_length=255)
     unit: str = Field(min_length=1, max_length=32)
     quantity: float = Field(gt=0)
@@ -168,6 +172,10 @@ class PurchaseRequestLineIn(BaseModel):
 class DepartmentPurchaseRequestLineIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    # Mặt hàng gốc (mg 0174) — bảng cân đối vật tư gửi kèm khi bấm "Đề nghị mua", nhờ đó phiếu mua
+    # sinh ra sau đó biết mình đang mua đúng lô giấy nào mà không phải ghép bằng tên.
+    hang_loai: str | None = Field(default=None, pattern="^(giay|vat_tu)$")
+    hang_id: int | None = Field(default=None, gt=0)
     item_name: str = Field(min_length=1, max_length=255)
     unit: str = Field(min_length=1, max_length=32)
     quantity: float = Field(gt=0)

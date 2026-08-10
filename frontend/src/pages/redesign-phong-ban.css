@@ -3767,3 +3767,16 @@
 
 
 
+
+/* Khối `.depts__ca-chip*` (ô "Ca làm việc của tổ") ĐÃ XOÁ 2026-08-10 cùng ô ca ở màn Máy —
+   ca chỉ khai ở Nhân sự → Ca kíp. */
+
+/* Nhãn KHỐI KINH DOANH — cặp với nhãn "Khối SX" (nền rust đặc). Cùng MỘT accent, phân biệt bằng
+   ĐỘ ĐẬM chứ không đẻ màu thứ hai (UI_DESIGN §2: một accent ấm duy nhất): SX = nền đặc, KD = nền
+   nhạt + chữ đậm. Đặt CUỐI FILE có chủ ý — file này từng bị lặp cả khối, bản nằm sau mới thắng. */
+.rdx-tree__pill--kd,
+.rdx-drawer__pill--kd {
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--rust) 22%, transparent);
+}

@@ -108,6 +108,11 @@ function fromSupplier(row: SupplierRow): SupplierInput {
     note: row.note ?? "",
     items: row.items.length
       ? row.items.map((item) => ({
+          // PHẢI mang theo cặp mặt hàng gốc: form ghi kiểu replace-all, bỏ sót là mỗi lần mở NCC
+          // ra sửa số điện thoại lại XOÁ SẠCH liên kết mặt hàng của cả bảng giá — im lặng, kéo
+          // theo bảng so giá trống.
+          hang_loai: item.hang_loai,
+          hang_id: item.hang_id,
           item_name: item.item_name,
           unit: item.unit,
           unit_price: item.unit_price,
@@ -123,6 +128,8 @@ function cleanSupplierItems(
 ): SupplierItemInput[] {
   return items
     .map((item) => ({
+      hang_loai: item.hang_loai ?? null,
+      hang_id: item.hang_id ?? null,
       item_name: (item.item_name ?? "").trim(),
       unit: (item.unit ?? "").trim(),
       unit_price: Number(item.unit_price || 0),
@@ -1332,7 +1339,7 @@ export function SuppliersPage({
                         aria-hidden="true"
                         style={{
                           gridTemplateColumns:
-                            "minmax(170px, 1.3fr) minmax(70px, 0.5fr) minmax(105px, 0.75fr) minmax(120px, 0.85fr) minmax(60px, 0.45fr) minmax(110px, 0.75fr) minmax(110px, 0.85fr) 36px",
+                            "minmax(170px, 1.3fr) minmax(70px, 0.5fr) minmax(105px, 0.75fr) minmax(120px, 0.85fr) minmax(60px, 0.45fr) minmax(110px, 0.75fr) minmax(78px, 0.5fr) minmax(110px, 0.85fr) 36px",
                         }}
                       >
                         <span>Tên vật tư *</span>
@@ -1343,6 +1350,10 @@ export function SuppliersPage({
                         </span>
                         <span>VAT %</span>
                         <span>Giá sau VAT</span>
+                        {/* BỎ 10/08/2026 cột "Giao (ngày)" (mg 0176): lúc khai danh mục NCC thì
+                            chưa ai biết ông ấy giao mấy ngày — số gõ vào là số đoán, mà kế hoạch
+                            lại dựa vào đó để báo trễ. Cần lại thì SUY từ lịch sử mua (ngày đặt →
+                            ngày nhận thật), đừng bắt khai tay. */}
                         <span>Ghi chú</span>
                         <span></span>
                       </div>
@@ -1366,7 +1377,7 @@ export function SuppliersPage({
                             key={originalIndex}
                             style={{
                               gridTemplateColumns:
-                                "minmax(170px, 1.3fr) minmax(70px, 0.5fr) minmax(105px, 0.75fr) minmax(120px, 0.85fr) minmax(60px, 0.45fr) minmax(110px, 0.75fr) minmax(110px, 0.85fr) 36px",
+                                "minmax(170px, 1.3fr) minmax(70px, 0.5fr) minmax(105px, 0.75fr) minmax(120px, 0.85fr) minmax(60px, 0.45fr) minmax(110px, 0.75fr) minmax(78px, 0.5fr) minmax(110px, 0.85fr) 36px",
                             }}
                           >
                             {/* CHỌN từ danh mục gốc, không gõ tự do nữa: ghép NCC với kho bằng
@@ -1398,15 +1409,15 @@ export function SuppliersPage({
                                 onQuyDoi={(info) => ghiQuyDoiDong(originalIndex, info)}
                               />
                             ) : (
-                              // Chưa gắn mặt hàng (dịch vụ / gia công) → vẫn cho gõ đơn vị tự do,
-                              // dòng đó không vào bảng so giá nên không cần đơn vị chuẩn.
+                              // Chưa chọn mặt hàng → KHOÁ ô đơn vị. Trước đây cho gõ tự do; gõ tự
+                              // do là mở đường cho đơn vị lạ ("thùg") lọt vào, quy đổi tắt lặng lẽ
+                              // và giá không quy về gốc được để so giữa các NCC.
                               <input
                                 className="input"
-                                placeholder="tờ, kg..."
+                                placeholder="Chọn vật tư trước"
                                 value={item.unit}
-                                onChange={(e) =>
-                                  setSupplierItem(originalIndex, { unit: e.target.value })
-                                }
+                                readOnly
+                                disabled
                               />
                             )}
                             <input

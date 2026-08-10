@@ -47,11 +47,13 @@ from .routers import (
     public_scan,
     khuon_be,
     loai_san_pham,
+    nhat_ky_danh_muc,
     tinh_gia,
     phieu_tinh_gia,
     lsx,
     bai_ghep,
     xep_lich,
+    ke_hoach_vat_tu,
 )
 from .seed import seed_all
 
@@ -152,11 +154,13 @@ app.include_router(public_scan.router)
 app.include_router(kho.router)
 app.include_router(khuon_be.router)
 app.include_router(loai_san_pham.router)
+app.include_router(nhat_ky_danh_muc.router)   # nhật ký 1 bản ghi — chung cho 10 màn danh mục
 app.include_router(tinh_gia.router)
 app.include_router(phieu_tinh_gia.router)
 app.include_router(lsx.router)
 app.include_router(bai_ghep.router)
 app.include_router(xep_lich.router)
+app.include_router(ke_hoach_vat_tu.router)   # bảng cân đối vật tư (cùng module quyền `san_xuat`)
 
 
 

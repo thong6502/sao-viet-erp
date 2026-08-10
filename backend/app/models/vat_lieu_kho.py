@@ -132,17 +132,10 @@ class VatTuInAn(Base):
     ten: Mapped[str] = mapped_column(String(150), nullable=False)
     # ĐƠN VỊ GỐC — mã trong `don_vi_do`. NULL = chưa chọn (xem ghi chú ở `GiayNguyen.don_vi_gia`).
     don_vi_gia: Mapped[str | None] = mapped_column(String(24), nullable=True)
-    # QUY CÁCH ĐÓNG GÓI riêng của món: "1 <don_vi_dong_goi> = <he_so_dong_goi> <don_vi_gia>".
-    #
-    # Vì sao không khai vào bảng cặp chung `don_vi_quy_doi`: "1 thùng = 3 kg" đúng với keo nhưng
-    # sai với mực — hệ số này thuộc về MÓN, không thuộc về cặp đơn vị. Lúc chạy nó được nối vào đồ
-    # thị quy đổi như một cạnh cục bộ (`quy_doi_service.canh_quy_cach`), nên vẫn đi chung một
-    # đường tính với mọi quy đổi khác.
-    #
-    # Mỗi món CHỈ MỘT quy cách. Xưởng cần hai (vừa thùng vừa cuộn) thì nâng thành bảng con — chưa
-    # gặp nhu cầu nên chưa đẻ bảng.
-    don_vi_dong_goi: Mapped[str | None] = mapped_column(String(24), nullable=True)
-    he_so_dong_goi: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
+    # BỎ quy cách đóng gói (`don_vi_dong_goi` / `he_so_dong_goi`, mg 0170 → gỡ 10/08/2026): khai
+    # quy đổi hai nơi (ở đây và ở danh mục Đơn vị & quy đổi) là bắt người dùng nhớ luật vô ích.
+    # Cần "thùng keo 20 kg" thì khai thẳng một đơn vị như vậy trong danh mục Đơn vị & quy đổi.
+    # Hai cột cũ để nguyên trong DB (không drop, dự án không có Alembic) nhưng không còn ai đọc.
     don_gia: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
     cong_thuc_gia: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)

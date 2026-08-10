@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from ..models.bu_hao import DON_VI_BAC
 from ..repositories.bu_hao_repo import BuHaoRepository
+from . import nhat_ky_danh_muc as nk
 
 
 class BuHaoError(Exception):
@@ -22,8 +23,9 @@ class BuHaoNotFound(BuHaoError):
 
 
 class BuHaoService:
-    def __init__(self, repo: BuHaoRepository) -> None:
+    def __init__(self, repo: BuHaoRepository, audit=None) -> None:
         self.repo = repo
+        self.audit = audit
 
     def _validate(self, data: dict) -> None:
         if not (data.get("ma") or "").strip():
@@ -50,15 +52,22 @@ class BuHaoService:
         self._validate(data)
         if self.repo.find_by_ma(data["ma"]) is not None:
             raise BuHaoDuplicate("Mã đã tồn tại.")
-        return self.repo.create(data)
+        obj = self.repo.create(data)
+        nk.ghi_tao(self.audit, actor_id=created_by, loai="bu_hao", obj=obj)
+        return obj
 
-    def update(self, item_id: int, data: dict):
+    def update(self, item_id: int, data: dict, actor_id: int | None = None):
         obj = self.get(item_id)
         self._validate(data)
         dup = self.repo.find_by_ma(data["ma"])
         if dup is not None and dup.id != obj.id:
             raise BuHaoDuplicate("Mã đã tồn tại.")
-        return self.repo.update(obj, data)
+        truoc = nk.anh_chup(obj)
+        obj = self.repo.update(obj, data)
+        nk.ghi_sua(self.audit, actor_id=actor_id, loai="bu_hao", obj=obj, truoc=truoc)
+        return obj
 
-    def delete(self, item_id: int) -> None:
-        self.repo.delete(self.get(item_id))
+    def delete(self, item_id: int, actor_id: int | None = None) -> None:
+        obj = self.get(item_id)
+        nk.ghi_xoa(self.audit, actor_id=actor_id, loai="bu_hao", obj=obj)
+        self.repo.delete(obj)

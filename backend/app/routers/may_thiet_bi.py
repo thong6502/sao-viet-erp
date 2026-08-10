@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import require_any_permission, require_permission
 from ..models.user import User
+from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.may_thiet_bi_repo import MayThietBiRepository
 from ..schemas.may_thiet_bi import (
     BhrBreakdownOut,
@@ -37,7 +38,7 @@ MODULE = "dm_thiet_bi"
 
 
 def get_service(db: Annotated[Session, Depends(get_db)]) -> MayThietBiService:
-    return MayThietBiService(MayThietBiRepository(db))
+    return MayThietBiService(MayThietBiRepository(db), AuditLogRepository(db))
 
 
 Service = Annotated[MayThietBiService, Depends(get_service)]
@@ -105,10 +106,11 @@ def bhr_preview(
 def create_item(
     payload: MayThietBiIn,
     svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "create"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
 ) -> MayThietBiRow:
     try:
-        return MayThietBiRow.model_validate(svc.create(payload.model_dump(exclude_unset=True)))
+        return MayThietBiRow.model_validate(
+            svc.create(payload.model_dump(exclude_unset=True), actor_id=user.id))
     except MayThietBiDuplicate as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
     except MayThietBiValidationError as e:
@@ -120,10 +122,11 @@ def update_item(
     may_id: int,
     payload: MayThietBiIn,
     svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> MayThietBiRow:
     try:
-        return MayThietBiRow.model_validate(svc.update(may_id, payload.model_dump(exclude_unset=True)))
+        return MayThietBiRow.model_validate(
+            svc.update(may_id, payload.model_dump(exclude_unset=True), actor_id=user.id))
     except MayThietBiNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     except MayThietBiDuplicate as e:
@@ -136,10 +139,10 @@ def update_item(
 def delete_item(
     may_id: int,
     svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "delete"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "delete"))],
 ) -> Response:
     try:
-        svc.delete(may_id)
+        svc.delete(may_id, actor_id=user.id)
     except MayThietBiNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)

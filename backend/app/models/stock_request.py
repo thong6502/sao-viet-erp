@@ -145,6 +145,12 @@ class StockRequestLine(Base):
     # nguồn đẻ ra mã trùng/tên lệch, mà đúng thứ đó làm MRP không nối được kho với mua hàng.
     hang_loai: Mapped[str] = mapped_column(String(8), nullable=False)
     hang_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    # XIN CHO LỆNH NÀO (mg 0175) — soft ref `lsx.id` / `bai_ghep.id`, CẢ HAI để trống là hợp lệ
+    # (xin lặt vặt: băng dính, giẻ lau). Bảng cân đối vật tư đọc hai cột này để trừ phần "đã cấp"
+    # vào ĐÚNG dòng nhu cầu; không có nó thì kho cấp cho lệnh A mà mọi lệnh dùng chung loại giấy
+    # đều tiếp tục hiện "còn thiếu".
+    lsx_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    bai_ghep_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     # Đơn vị NGƯỜI ĐỀ NGHỊ chọn — phải nằm trong tập đổi được của mặt hàng
     # (`quy_doi_service.don_vi_dung_duoc`). Số lượng lưu THEO ĐƠN VỊ NÀY; quy về đơn vị gốc chỉ
     # xảy ra lúc ghi sổ, để phiếu in ra vẫn đúng con số người ta đề nghị.

@@ -239,6 +239,22 @@ class QuoteActivityOut(BaseModel):
     items: list[QuoteActivityItem]
 
 
+class QuoteAttachmentOut(BaseModel):
+    """1 tài liệu đính kèm NỘI BỘ của báo giá (file khách gửi, mẫu thiết kế, ảnh tham khảo).
+    Không phân loại (doc_kind) — đính kèm tự do; không in ra bản gửi khách."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    file_name: str
+    file_url: str
+    file_type: str | None = None
+    uploaded_at: datetime
+
+
+class QuoteAttachmentsOut(BaseModel):
+    items: list[QuoteAttachmentOut]
+
+
 class EnumOption(BaseModel):
     value: str
     label: str
@@ -258,6 +274,8 @@ __all__ = [
     "VersionRow",
     "QuoteItemOut",
     "QuotationDetailOut",
+    "QuoteAttachmentOut",
+    "QuoteAttachmentsOut",
     "EnumOption",
     "QuotationEnumsOut",
 ]

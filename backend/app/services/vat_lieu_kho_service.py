@@ -14,9 +14,11 @@ from __future__ import annotations
 from decimal import Decimal
 
 from ..models.vat_lieu_kho import BE_MAT_GIAY, HANG_LOAI, THO
+from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.vat_lieu_kho_repo import VERSION_SNAPSHOT, VatLieuKhoRepository
-from .quy_doi_service import canh_quy_cach, don_vi_dung_duoc, don_vi_map
+from . import nhat_ky_danh_muc as nk
+from .quy_doi_service import don_vi_dung_duoc, don_vi_map
 
 # Nhãn nhóm hiện trên picker — người chọn phải phân biệt được hai nguồn khi tên gần giống nhau.
 # Tên khác `HANG_LOAI` (tuple mã hợp lệ, ở models) để không ai nhầm "danh sách mã" với "bảng nhãn".
@@ -44,9 +46,12 @@ def _f(v) -> float:
 
 
 class VatLieuKhoService:
-    def __init__(self, repo: VatLieuKhoRepository, don_vi_repo: DonViDoRepository) -> None:
+    def __init__(self, repo: VatLieuKhoRepository, don_vi_repo: DonViDoRepository,
+                 audit: AuditLogRepository | None = None) -> None:
         self.repo = repo
         self.don_vi = don_vi_repo
+        # `audit` để None được: engine tính giá dựng service này chỉ để ĐỌC danh mục, không ghi vết.
+        self.audit = audit
 
     # --- đơn vị tính ---------------------------------------------------------
     def _kiem_don_vi(self, ma, nhan: str) -> None:
@@ -62,25 +67,6 @@ class VatLieuKhoService:
             raise VatLieuKhoValidationError(
                 f"{nhan} “{ma}” không có trong danh mục Đơn vị & quy đổi — khai ở đó trước."
             )
-
-    def _kiem_quy_cach(self, data: dict) -> None:
-        """Quy cách đóng gói: hai ô phải đi CÙNG NHAU, và phải khác đơn vị gốc."""
-        dv_goi = (data.get("don_vi_dong_goi") or "").strip()
-        he_so = _f(data.get("he_so_dong_goi"))
-        if not dv_goi and he_so <= 0:
-            return
-        goc = (data.get("don_vi_gia") or "").strip()
-        if not dv_goi:
-            raise VatLieuKhoValidationError("Có hệ số quy cách thì phải chọn đơn vị đóng gói.")
-        if he_so <= 0:
-            raise VatLieuKhoValidationError(
-                f"Khai hệ số quy cách: 1 {dv_goi} = ? {goc or 'đơn vị gốc'}."
-            )
-        if not goc:
-            raise VatLieuKhoValidationError("Chọn đơn vị gốc trước rồi mới khai quy cách đóng gói.")
-        if dv_goi.lower() == goc.lower():
-            raise VatLieuKhoValidationError("Đơn vị đóng gói phải khác đơn vị gốc.")
-        self._kiem_don_vi(dv_goi, "Đơn vị đóng gói")
 
     def _validate(self, kind: str, data: dict) -> None:
         if not (data.get("ma") or "").strip():
@@ -102,7 +88,6 @@ class VatLieuKhoService:
                 raise VatLieuKhoValidationError("Thớ không hợp lệ.")
         elif kind == "vat_tu":
             self._kiem_don_vi(data.get("don_vi_gia"), "Đơn vị tính")
-            self._kiem_quy_cach(data)
 
     def get(self, kind: str, item_id: int):
         obj = self.repo.get(kind, item_id)
@@ -113,22 +98,29 @@ class VatLieuKhoService:
     def list(self, kind: str, **kw):
         return self.repo.list(kind, **kw)
 
-    def create(self, kind: str, data: dict):
+    def create(self, kind: str, data: dict, actor_id: int | None = None):
         self._validate(kind, data)
         if self.repo.find_by_ma(kind, data["ma"]) is not None:
             raise VatLieuKhoDuplicate("Mã đã tồn tại.")
-        return self.repo.create(kind, data)
+        obj = self.repo.create(kind, data)
+        nk.ghi_tao(self.audit, actor_id=actor_id, loai=kind, obj=obj)
+        return obj
 
-    def update(self, kind: str, item_id: int, data: dict):
+    def update(self, kind: str, item_id: int, data: dict, actor_id: int | None = None):
         obj = self.get(kind, item_id)
         self._validate(kind, data)
         dup = self.repo.find_by_ma(kind, data["ma"])
         if dup is not None and dup.id != obj.id:
             raise VatLieuKhoDuplicate("Mã đã tồn tại.")
-        return self.repo.update(obj, kind, data)
+        truoc = nk.anh_chup(obj)          # chụp TRƯỚC khi repo ghi đè lên chính object này
+        obj = self.repo.update(obj, kind, data)
+        nk.ghi_sua(self.audit, actor_id=actor_id, loai=kind, obj=obj, truoc=truoc)
+        return obj
 
-    def delete(self, kind: str, item_id: int) -> None:
-        self.repo.delete(self.get(kind, item_id))
+    def delete(self, kind: str, item_id: int, actor_id: int | None = None) -> None:
+        obj = self.get(kind, item_id)
+        nk.ghi_xoa(self.audit, actor_id=actor_id, loai=kind, obj=obj)
+        self.repo.delete(obj)
 
     def gan_ten_don_vi(self, items) -> None:
         """Điền TÊN đơn vị cho cả trang bằng MỘT truy vấn.
@@ -142,9 +134,6 @@ class VatLieuKhoService:
             ma = (getattr(it, "don_vi_gia", None) or "").strip().lower()
             if ma:
                 it.don_vi_ten = ten.get(ma)
-            goi = (getattr(it, "don_vi_dong_goi", None) or "").strip().lower()
-            if goi:
-                it.don_vi_dong_goi_ten = ten.get(goi)
 
     # --- MẶT HÀNG GỐC: cửa dùng chung cho Kho + NCC ---------------------------
     @staticmethod
@@ -195,7 +184,7 @@ class VatLieuKhoService:
         return ra[:size]
 
     def _quy_cach_cua(self, loai: str, obj) -> tuple[dict | None, list[dict]]:
-        """Biến cho quy đổi ĐỘNG + cạnh riêng của món.
+        """Biến cho quy đổi ĐỘNG của món. Hiện KHÔNG món nào cần biến riêng.
 
         GIẤY: KHÔNG bơm khổ (chủ chốt 2026-08-08 — "giấy chỉ đếm theo kg"). Về kỹ thuật thì bơm
         được, vì `giay_nguyen` có sẵn `kho_dai`/`kho_rong`; nhưng form danh mục Giấy KHÔNG có ô khổ
@@ -206,11 +195,10 @@ class VatLieuKhoService:
         Muốn một loại giấy đếm theo TỜ thì chọn thẳng đơn vị gốc là `tờ` — khi đó `ram ↔ tờ` (cặp
         SỐ CỐ ĐỊNH, không cần khổ) vẫn chạy và kho nhập được "10 ram". Không cần khổ cho việc đó.
 
-        VẬT TƯ KHÁC: cạnh đóng gói riêng của món ("1 thùng = 3 kg").
+        VẬT TƯ KHÁC: quy cách đóng gói ĐÃ BỎ (10/08/2026) — cần "thùng keo = 20 kg" thì khai
+        thẳng đơn vị đó ở danh mục Đơn vị & quy đổi, một nơi duy nhất cho mọi quy đổi.
         """
-        if loai == "giay":
-            return None, []
-        return None, canh_quy_cach(obj.don_vi_dong_goi, obj.he_so_dong_goi, obj.don_vi_gia)
+        return None, []
 
     def quy_ve_goc(self, hang_loai: str, hang_id: int, dvt: str, so_luong: float) -> dict:
         """Quy `so_luong` từ đơn vị `dvt` về ĐƠN VỊ GỐC của mặt hàng.
@@ -286,6 +274,7 @@ class VatLieuKhoService:
             raise VatLieuKhoValidationError("GSM phải > 0.")
         self._kiem_don_vi(data.get("don_vi_gia"), "Đơn vị tính")
         self._ensure_v1(giay)
+        truoc = nk.anh_chup(giay)
         v = self.repo.create_version(
             giay_id, data, ngay_hieu_luc=data.get("ngay_hieu_luc"),
             ghi_chu=data.get("ghi_chu"), created_by=created_by,
@@ -296,4 +285,7 @@ class VatLieuKhoService:
                 setattr(giay, k, data[k])
         giay.version_no = v.version_no
         self.repo.db.commit()
+        # Nhập đơn giá mới là thao tác đáng soi nhất của màn Giấy → phải có trong nhật ký, và ghi
+        # y như một lần sửa (Đơn giá cũ → mới) chứ không phải dòng trống "đã thêm phiên bản".
+        nk.ghi_sua(self.audit, actor_id=created_by, loai="giay", obj=giay, truoc=truoc)
         return v

@@ -151,13 +151,30 @@ class StockRequestService:
                 raise StockRequestError(
                     "Mỗi dòng phải chọn một mặt hàng trong danh mục Giấy / Vật tư khác."
                 )
-            key = (loai, int(hid))
+            # Khoá trùng gồm CẢ lệnh/bài (mg 0175): cùng một loại giấy xin cho HAI lệnh khác nhau
+            # là hai dòng hợp lệ — gộp lại thì mất luôn thông tin "phần nào cho lệnh nào", mà đó
+            # đúng là thứ bảng cân đối cần để trừ đã-cấp vào đúng chỗ.
+            key = (loai, int(hid), ln.get("lsx_id"), ln.get("bai_ghep_id"))
             if key in seen:
                 raise StockRequestError(
-                    "Một mặt hàng chỉ được xuất hiện 1 dòng — gộp số lượng lại."
+                    "Một mặt hàng cho cùng một lệnh chỉ được xuất hiện 1 dòng — gộp số lượng lại."
                 )
             seen.add(key)
             self._kiem_hang_va_don_vi(loai, int(hid), ln.get("dvt"), ln["sl_de_nghi"])
+            self._kiem_lenh(ln.get("lsx_id"), ln.get("bai_ghep_id"))
+
+    def _kiem_lenh(self, lsx_id, bai_ghep_id) -> None:
+        """Lệnh / bài ghép được gắn phải CÓ THẬT (mg 0175).
+
+        Cả hai để trống là hợp lệ — xin lặt vặt không thuộc lệnh nào. Nhưng gắn một id KHÔNG tồn
+        tại thì phải báo lỗi, tuyệt đối không im lặng bỏ: dòng đó sẽ mãi không khớp lệnh nào trong
+        bảng cân đối, và triệu chứng duy nhất là "sao lệnh này cấp rồi mà vẫn báo thiếu".
+        """
+        co_lsx, co_bg = self.requests.lenh_ton_tai(lsx_id, bai_ghep_id)
+        if not co_lsx:
+            raise StockRequestError(f"Lệnh sản xuất #{lsx_id} không tồn tại — chọn lại.")
+        if not co_bg:
+            raise StockRequestError(f"Bài ghép #{bai_ghep_id} không tồn tại — chọn lại.")
 
     def _kiem_hang_va_don_vi(self, hang_loai: str, hang_id: int, dvt, so_luong) -> None:
         """Mặt hàng còn dùng được + đơn vị quy được về gốc. Lỗi trả nguyên văn lý do của danh mục

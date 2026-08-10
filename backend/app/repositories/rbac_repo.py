@@ -135,27 +135,62 @@ class DepartmentRepository:
                     queue.append(child.id)
         return result
 
+    def _khoi_theo_co(self, co: str, *, fallback_all: bool) -> list[Department]:
+        """Phòng/tổ thuộc một KHỐI: tự bật cờ `co` HOẶC có tổ tiên bật (đi ngược cây `parent_id`).
+        Dùng chung cho khối Sản xuất (`la_san_xuat`) và khối Kinh doanh (`la_kinh_doanh`) — cùng
+        một luật kế thừa, chỉ khác tên cờ."""
+        depts = self.list_all()
+        by_id = {d.id: d for d in depts}
+
+        def thuoc_khoi(d: Department) -> bool:
+            cur, seen = d, set()
+            while cur is not None and cur.id not in seen:
+                seen.add(cur.id)
+                if getattr(cur, co, False):
+                    return True
+                cur = by_id.get(cur.parent_id) if cur.parent_id is not None else None
+            return False
+
+        khoi = [d for d in depts if thuoc_khoi(d)]
+        if not khoi and fallback_all:
+            return depts
+        return khoi
+
     def production_departments(self, *, fallback_all: bool = True) -> list[Department]:
         """Phòng/tổ thuộc khối SẢN XUẤT (§13.1): tự `la_san_xuat` HOẶC có tổ tiên `la_san_xuat`
         (đi ngược cây `parent_id`). `fallback_all=True` (mặc định): chưa đánh dấu phòng nào → trả
         tất cả (an toàn cho dropdown Công đoạn không rỗng). `fallback_all=False`: trả ĐÚNG tập tổ
         khối SX (rỗng nếu chưa tick cờ) — navbar Sản xuất dùng cái này để không phun ra mọi phòng ban."""
-        depts = self.list_all()
-        by_id = {d.id: d for d in depts}
+        return self._khoi_theo_co("la_san_xuat", fallback_all=fallback_all)
 
-        def is_prod(d: Department) -> bool:
-            cur, seen = d, set()
-            while cur is not None and cur.id not in seen:
-                seen.add(cur.id)
-                if cur.la_san_xuat:
-                    return True
-                cur = by_id.get(cur.parent_id) if cur.parent_id is not None else None
-            return False
+    def kinh_doanh_departments(self) -> list[Department]:
+        """Phòng/tổ thuộc khối KINH DOANH: tự `la_kinh_doanh` HOẶC có tổ tiên bật cờ — tick phòng
+        Kinh doanh thì KD1/KD2 bên dưới cũng là kinh doanh, không phải tick lại từng tổ.
 
-        prod = [d for d in depts if is_prod(d)]
-        if not prod and fallback_all:
-            return depts
-        return prod
+        KHÔNG có fallback "trả tất cả": rỗng = **chưa khai khối kinh doanh**, và người gọi
+        (`customers.list_sale_options`) đọc cái rỗng đó để lùi về quy tắc theo quyền. Trả cả công
+        ty ở đây thì Thủ kho lại lọt vào danh sách NV phụ trách — đúng lỗi đang đi sửa."""
+        return self._khoi_theo_co("la_kinh_doanh", fallback_all=False)
+
+    def to_san_xuat(self) -> list[Department]:
+        """**ĐỊNH NGHĨA DÙNG CHUNG CỦA "TỔ"** — nút LÁ trong nhánh có cờ Khối Sản xuất.
+
+        Một chỗ duy nhất, vì "tổ" xuất hiện ở ba nơi và trước đây mỗi nơi hiểu một kiểu: dropdown
+        "Phòng ban / Tổ phụ trách" ở danh mục Công đoạn đổ CẢ CHA LẪN CON, còn quỹ giờ-người của
+        bàn xếp lịch mà cũng đếm cả cha lẫn con thì **quân số bị đếm chồng** (người của tổ con được
+        cộng thêm một lần ở phòng cha).
+
+        Hai luật:
+        · thuộc khối SX = tự `la_san_xuat` HOẶC có tổ tiên `la_san_xuat` (đã có ở `production_departments`);
+        · là LÁ = không có phòng ban con nào.
+
+        `fallback_all=False` có chủ ý: chưa tick cờ nào thì trả **RỖNG**, không phun ra mọi phòng
+        ban. Rỗng là một câu trả lời đọc được ("chưa khai khối sản xuất"); phun cả công ty ra thì
+        người dùng chọn nhầm phòng Kế toán làm tổ in mà không biết mình đang chọn sai.
+        """
+        khoi = self.production_departments(fallback_all=False)
+        co_con = {d.parent_id for d in self.list_all() if d.parent_id is not None}
+        return [d for d in khoi if d.id not in co_con]
 
     def set_head(self, dept: Department, head_user_id: int | None) -> Department:
         dept.head_user_id = head_user_id
@@ -181,6 +216,13 @@ class DepartmentRepository:
     def set_la_san_xuat(self, dept: Department, value: bool) -> Department:
         """Đánh dấu / bỏ dấu phòng ban thuộc khối SẢN XUẤT (nền phân tổ cho Kế hoạch SX)."""
         dept.la_san_xuat = bool(value)
+        self.db.commit()
+        self.db.refresh(dept)
+        return dept
+
+    def set_la_kinh_doanh(self, dept: Department, value: bool) -> Department:
+        """Đánh dấu / bỏ dấu phòng ban thuộc khối KINH DOANH (nền cho danh sách NV phụ trách)."""
+        dept.la_kinh_doanh = bool(value)
         self.db.commit()
         self.db.refresh(dept)
         return dept

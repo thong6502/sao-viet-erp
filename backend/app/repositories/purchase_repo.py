@@ -191,7 +191,7 @@ class SupplierRepository:
                     unit=item.unit,
                     unit_price=item.unit_price,
                     vat_percent=item.vat_percent,
-                    is_active=True,
+                        is_active=True,
                     note=item.note,
                 )
                 for item in items
@@ -336,6 +336,8 @@ class PurchaseRequestLineInput:
         vat_percent: float = 0,
         note: str | None = None,
         department_request_line_id: int | None = None,
+        hang_loai: str | None = None,
+        hang_id: int | None = None,
     ) -> None:
         self.item_name = item_name
         self.unit = unit
@@ -345,6 +347,9 @@ class PurchaseRequestLineInput:
         self.vat_percent = vat_percent
         self.note = note
         self.department_request_line_id = department_request_line_id
+        # Mặt hàng gốc (mg 0174) — KẾ THỪA từ dòng YCMH, không đoán từ `item_name`.
+        self.hang_loai = hang_loai
+        self.hang_id = hang_id
 
 
 class DepartmentPurchaseRequestLineInput:
@@ -356,12 +361,17 @@ class DepartmentPurchaseRequestLineInput:
         quantity: float,
         expected_unit_price: int = 0,
         note: str | None = None,
+        hang_loai: str | None = None,
+        hang_id: int | None = None,
     ) -> None:
         self.item_name = item_name
         self.unit = unit
         self.quantity = quantity
         self.expected_unit_price = expected_unit_price
         self.note = note
+        # Mặt hàng gốc (mg 0174) — bảng cân đối vật tư ghi vào đây khi bấm "Đề nghị mua".
+        self.hang_loai = hang_loai
+        self.hang_id = hang_id
 
 
 # Phiếu mua sinh ra từ yêu cầu, kèm dòng + NCC. Cần cho HAI việc, cả hai đều chạy trên MỌI yêu
@@ -507,6 +517,8 @@ class DepartmentPurchaseRequestRepository:
                 quantity=line.quantity,
                 expected_unit_price=line.expected_unit_price,
                 note=line.note,
+                hang_loai=getattr(line, "hang_loai", None),
+                hang_id=getattr(line, "hang_id", None),
             )
             for line in lines
         ]
@@ -548,6 +560,8 @@ class DepartmentPurchaseRequestRepository:
                 quantity=line.quantity,
                 expected_unit_price=line.expected_unit_price,
                 note=line.note,
+                hang_loai=getattr(line, "hang_loai", None),
+                hang_id=getattr(line, "hang_id", None),
             )
             for line in lines
         ]
@@ -675,6 +689,30 @@ class PurchaseRequestRepository:
             stmt = stmt.where(PurchaseRequest.supplier_id == supplier_id)
         return list(self.db.execute(stmt.order_by(PurchaseRequest.id.desc())).scalars())
 
+    def dong_dang_ve(self) -> list[PurchaseRequest]:
+        """Phiếu mua ĐANG TRÊN ĐƯỜNG VỀ — nguồn "hàng đang về" của bảng cân đối vật tư.
+
+        Lấy nguyên PHIẾU (kèm dòng + đợt giao) chứ không lấy dòng rời: số CÒN VỀ của một dòng =
+        `quantity − Σ các đợt đã giao`, mà đợt giao treo ở phiếu. Cắt sẵn ở tầng repo thì phía gọi
+        phải join lại bằng tay — đúng chỗ dễ tính thiếu một đợt rồi cộng dư hàng chưa về.
+
+        Bỏ `PR_RECEIVED` (đã nhận đủ ⇒ hàng nằm trong kho rồi, tồn đã cộng — đếm lại là ĐẾM HAI
+        LẦN), bỏ `draft`/`pending`/`rejected`/`cancelled` (chưa chắc có hàng, hứa suông).
+        """
+        stmt = (
+            select(PurchaseRequest)
+            .options(
+                selectinload(PurchaseRequest.lines),
+                selectinload(PurchaseRequest.deliveries).selectinload(PurchaseDelivery.lines),
+            )
+            .where(
+                PurchaseRequest.status.in_(
+                    [PR_APPROVED, PR_PURCHASED, PR_PARTIALLY_RECEIVED]
+                )
+            )
+        )
+        return list(self.db.execute(stmt.order_by(PurchaseRequest.id.asc())).scalars())
+
     def _build(
         self,
         *,
@@ -711,6 +749,8 @@ class PurchaseRequestRepository:
                 vat_percent=line.vat_percent,
                 note=line.note,
                 department_request_line_id=getattr(line, "department_request_line_id", None),
+                hang_loai=getattr(line, "hang_loai", None),
+                hang_id=getattr(line, "hang_id", None),
             )
             for line in lines
         ]
@@ -788,6 +828,8 @@ class PurchaseRequestRepository:
                 vat_percent=line.vat_percent,
                 note=line.note,
                 department_request_line_id=getattr(line, "department_request_line_id", None),
+                hang_loai=getattr(line, "hang_loai", None),
+                hang_id=getattr(line, "hang_id", None),
             )
             for line in lines
         ]

@@ -99,6 +99,20 @@ class XepLichDongOut(BaseModel):
     can_xac_nhan: bool = False
     ly_do_xac_nhan: list[str] = Field(default_factory=list)
     is_rush: bool = False
+    # --- Đợt 2 ---
+    # ⚠️ Service đã bơm sáu field dưới vào dict từ đầu, nhưng thiếu chúng ở ĐÂY thì pydantic
+    # NUỐT IM LẶNG: FE nhận `undefined`, không lỗi, không log. Cụ thể `gom_key` mất làm "Tự xếp"
+    # gom mọi dòng vào cùng một khoá ⇒ mục E (gom việc cùng loại) chạy y như chưa có.
+    #: Bước có cần DỤNG CỤ không (cờ `cong_doan.requires_tooling`) + khuôn của lệnh — nền cho hai
+    #: detector khuôn bế. Đọc CỜ ở danh mục, KHÔNG đoán bước bế theo tên.
+    can_dung_cu: bool = False
+    khuon_be_id: int | None = None
+    so_nhan_cong: int | None = None
+    so_nhan_cong_toi_thieu: int | None = None
+    #: Chờ kỹ thuật (mực khô · keo đông) — đẩy bước sau, KHÔNG chiếm máy.
+    cho_phut: float = 0
+    #: Khoá GOM việc cùng loại (giấy · khổ · bộ mực). null = chưa đủ quy cách ⇒ không gom với ai.
+    gom_key: str | None = None
 
 
 class XepLichDongListOut(BaseModel):
@@ -131,12 +145,157 @@ class XemTruocOut(BaseModel):
     ly_do_xac_nhan: list[str] = Field(default_factory=list)
 
 
+# ============================ Quân số tổ & tầng tuần (ĐỢT 3) ============================
+class QuanSoOut(BaseModel):
+    """Quân số CÓ HIỆU LỰC của một tổ trong một ngày + quỹ giờ-người suy ra từ đó.
+
+    Trả CẢ `tu_tinh` lẫn `so_nguoi`: người xem phải thấy số đang dùng lệch số suy-từ-hồ-sơ bao
+    nhiêu và vì sao (`ly_do`) — chỉ đưa con số cuối thì nó thành số trời cho.
+    """
+    department_id: int
+    ngay: date
+    so_nguoi: int
+    #: Suy từ hồ sơ nhân sự (đúng tổ lá) trừ phép đã duyệt — nền để so với số gõ đè.
+    tu_tinh: int
+    go_de: bool = False
+    ly_do: str | None = None
+    gio_ca: float = 0
+    quy_gio_nguoi: float = 0
+
+
+class QuanSoIn(BaseModel):
+    """Gõ đè quân số một ngày. `so_nguoi=None` = BỎ gõ đè (quay về số tự tính)."""
+    ngay: date
+    so_nguoi: int | None = Field(default=None, ge=0, le=500)
+    ly_do: str = Field(default="", max_length=300)
+
+
+class TaiToKhoangOut(BaseModel):
+    """Một khoảng giờ có mức dùng người KHÔNG ĐỔI trong một tổ — nền để Gantt tô lane.
+
+    Cùng nguồn với detector `qua_tai_to`, nên Gantt tô đỏ chỗ nào thì cửa phát hành chặn đúng chỗ
+    đó. Khoảng của tổ CHƯA KHAI nhân sự không xuất hiện ở đây (chưa biết thì không kết luận).
+    """
+    department_id: int
+    department_ten: str | None = None
+    start: datetime
+    finish: datetime
+    dung: int = 0
+    quan_so: int = 0
+    qua_tai: bool = False
+    dong_ids: list[int] = Field(default_factory=list)
+
+
+class NguoiTangGiuaOut(BaseModel):
+    """Người thuộc khối SX nhưng gắn ở TẦNG GIỮA — không nằm trong tổ lá nào (mục I).
+
+    KHÔNG được cộng vào tổ nào (cộng là đếm thừa người, lịch hứa năng lực không có thật), nhưng
+    cũng không được im lặng bỏ — quỹ giờ-người sẽ hụt mà không ai biết vì sao. Nên: không đếm,
+    nhưng NÓI RA để người quản lý đi gắn tổ.
+    """
+    department_id: int
+    department_ten: str
+    so_nguoi: int
+
+
+class TaiToListOut(BaseModel):
+    items: list[TaiToKhoangOut] = Field(default_factory=list)
+    tang_giua: list[NguoiTangGiuaOut] = Field(default_factory=list)
+
+
+class TuanOut(BaseModel):
+    """Một ô của bảng tuần: một tài nguyên × một tuần.
+
+    Máy gom theo **NHÓM** (`res_id=None`, `nhom` = tên nhóm) chứ không theo máy lẻ: xưởng có 3 máy
+    in thì câu hỏi thật là "khâu in tuần sau còn chỗ không". Tổ thì theo từng tổ (`res_id` = id).
+    """
+    tuan: date
+    iso_tuan: int
+    loai: str            # may | to
+    res_id: int | None = None
+    nhom: str | None = None
+    ten: str
+    can_gio: float = 0
+    kha_dung_gio: float = 0
+    pct: float = 0
+    mau: str = "xanh"    # xanh | vang | do
+
+
+class KeHoachTuanOut(BaseModel):
+    tu: date
+    so_tuan: int = 0
+    items: list[TuanOut] = Field(default_factory=list)
+
+
+# ============================ Chèn lệnh gấp & đẩy (G1) ============================
+class ChenIn(BaseModel):
+    """Chèn dòng vào máy tại mốc `tai`. `may_id=None` = giữ máy hiện tại của dòng.
+
+    `tai` là mốc RANH GIỚI người dùng chỉ trên Gantt; rơi vào giữa một việc thì service tự nhích tới
+    lúc việc đó xong (không cắt đôi việc đang xếp).
+    """
+    may_id: int | None = None
+    tai: datetime
+
+
+class ChenDongOut(BaseModel):
+    """Một dòng trong bảng xem trước — *giờ cũ → giờ mới* kèm hai cờ cần nhìn trước khi Lưu."""
+    id: int
+    lsx_ma: str | None = None
+    cong_doan_ten: str | None = None
+    may_id: int | None = None
+    may_ten: str | None = None
+    cu: datetime | None = None
+    moi: datetime | None = None
+    finish_moi: datetime | None = None
+    #: Chính việc đang chèn (dòng đầu bảng) — UI tô khác để phân biệt với việc BỊ đẩy.
+    la_viec_chen: bool = False
+    tre_han: bool = False
+    #: Mã lệnh/bài mà dòng này sẽ ĐÈ lên sau khi dời — chỉ cảnh báo, KHÔNG đẩy tiếp (đúng một tầng).
+    dung_do: list[str] = Field(default_factory=list)
+    is_locked: bool = False
+
+
+class ChenOut(BaseModel):
+    """Kết quả mô phỏng chèn — **chưa ghi gì vào DB**; UI áp bằng `gan-loat` khi người dùng bấm Lưu."""
+    dong_id: int
+    may_id: int
+    start_at: datetime | None = None
+    finish_at: datetime | None = None
+    chiem_may_phut: float = 0
+    #: `gap_khoa` = dừng lan vì gặp dòng đã khóa. None = lan hết tự nhiên (khe trống nuốt vừa).
+    chan: str | None = None
+    rows: list[ChenDongOut] = Field(default_factory=list)
+
+
 # ============================ Gợi ý ============================
+class GoiYMayOut(BaseModel):
+    """Một máy ứng viên — *tên máy · khe sớm nhất · **giờ xong** · cờ khổ*.
+
+    `finish` là thứ để SẮP, không phải `khe_trong`: tốc độ khai theo từng máy nên máy rảnh sớm hơn
+    chưa chắc xong sớm hơn. `chiem_may_phut` tính LẠI theo chính máy này (mỗi dòng một con số khác).
+    """
+
+    may_id: int
+    may_ten: str | None = None
+    khe_trong: datetime | None = None
+    finish: datetime | None = None
+    chiem_may_phut: float = 0
+    #: Khổ giấy vượt khổ máy — vẫn liệt kê (xếp cuối) chứ không giấu: máy đề xuất, người quyết.
+    khong_hop_kho: bool = False
+    #: Việc liền trước trên máy này CÙNG LOẠI (giấy · khổ · bộ mực) — mục E. Là tiêu chí PHỤ khi
+    #: hai máy hoà giờ xong; không bao giờ lật ngược thứ tự giờ.
+    cung_gom: bool = False
+
+
 class GoiYOut(BaseModel):
     may_id: int | None = None
     khe_trong: datetime | None = None       # khe trống sớm nhất trên máy
     finish_neu_xep: datetime | None = None  # kết thúc nếu xếp vào khe đó
     han_lui: datetime | None = None         # bắt đầu muộn nhất còn kịp hạn
+    #: Top 3 máy làm được công đoạn, sắp theo GIỜ XONG. Chạy cả khi dòng CHƯA gán máy — đúng lúc
+    #: cần gợi ý nhất; bốn field trên khi đó đều rỗng vì chúng bám "máy đang gán".
+    goi_y_may: list[GoiYMayOut] = Field(default_factory=list)
 
 
 # ============================ Lịch nền máy (Gantt) ============================
@@ -149,6 +308,9 @@ class VungKhoaOut(BaseModel):
     start: datetime
     finish: datetime
     ly_do: str | None = None
+    #: `chan` = máy nghỉ · `mo_them` = máy chạy thêm ngoài ca. Hai chuyện NGƯỢC nhau nên Gantt phải
+    #: vẽ khác màu; thiếu field này thì vùng tăng ca hiện y như vùng bảo trì — đọc ngược ý.
+    kieu: str = "chan"
 
 
 class LichNenMayOut(BaseModel):
@@ -160,10 +322,16 @@ class LichNenMayOut(BaseModel):
 
 # ============================ Vùng khóa máy (CRUD) ============================
 class VungKhoaIn(BaseModel):
-    """Tạo khoảng khóa 1 máy (bảo trì/hỏng/nghỉ). `tu`/`den` = giờ nhà máy (naive → coi giờ nhà máy)."""
+    """Khoảng giờ RIÊNG của 1 máy. `tu`/`den` = giờ nhà máy (naive → coi giờ nhà máy).
+
+    Hai kiểu dùng CHUNG một form (mục G3): `chan` = máy nghỉ (bảo trì/hỏng), `mo_them` = máy chạy
+    thêm ngoài ca. Cùng hình dạng dữ liệu, chỉ khác dấu — tách làm hai màn là hai nơi phải nhớ.
+    Kiểu `mo_them` thì `ly_do` không mang nghĩa nghỉ; service tự ép về `khac`.
+    """
     tu: datetime
     den: datetime
     ly_do: str = "bao_tri"          # bao_tri | hong_hoc | nghi | khac
+    kieu: str = "chan"              # chan | mo_them
     note: str | None = None
 
 
@@ -173,6 +341,7 @@ class VungKhoaItemOut(BaseModel):
     start: datetime
     finish: datetime
     ly_do: str
+    kieu: str = "chan"
     note: str | None = None
 
 
@@ -266,6 +435,10 @@ class SanSangItem(BaseModel):
     id: int
     ma: str
     blocking: int                        # số xung đột CHẶN còn lại (0 = phát hành được)
+    #: ĐÃ phát hành chưa (G2). True ⇒ UI hiện nút "Gỡ phát hành" thay cho nút "Phát hành".
+    #: Thiếu cờ này thì lệnh phát hành xong biến mất khỏi màn và ĐÓNG BĂNG: sửa thì bị chặn
+    #: "gỡ kế hoạch trước", mà gỡ kế hoạch lại đòi gỡ phát hành trước — không có cửa nào.
+    da_phat_hanh: bool = False
 
 
 class SanSangOut(BaseModel):

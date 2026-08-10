@@ -171,8 +171,28 @@ class CongDoanDauViec(Base):
     )
     so_nguoi_tieu_chuan: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     so_nguoi_toi_da: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # CHỜ KỸ THUẬT sau khi làm xong ĐẦU VIỆC này — keo đông, màng nguội (mg 0182). GIỜ, không phải
+    # phút. Vế TỔ của cặp với `may_thiet_bi.cho_ky_thuat_gio` (vế MÁY).
+    #
+    # Vì sao ở đầu việc chứ không ở công đoạn (chủ chốt 10/08/2026): cùng công đoạn "Bắt tay + vào
+    # keo", đầu việc *vào keo gáy vuông* phải chờ keo đông còn *khâu chỉ* thì không chờ gì. Một số
+    # cho cả công đoạn không tách được hai ca đó.
+    #
+    # Hai vế KHÔNG chồng nhau: một bước hoặc là Máy hoặc là Tổ, không bao giờ cả hai.
+    cho_ky_thuat_gio: Mapped[float] = mapped_column(
+        Numeric(6, 2), nullable=False, default=0, server_default="0"
+    )
     is_default: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False
     )
 
     cong_doan: Mapped["CongDoan"] = relationship("CongDoan", back_populates="dau_viec_dinh_muc")
+
+
+# 🔴 `CongDoanChoKyThuat` (bảng `cong_doan_cho_ky_thuat`) ĐÃ GỠ 10/08/2026 — chờ kỹ thuật nay khai
+# ở MÁY (`may_thiet_bi.cho_ky_thuat_gio`) và ở ĐẦU VIỆC (`CongDoanDauViec.cho_ky_thuat_gio`), xem
+# migration 0182. Khoá theo (công đoạn × loại sản phẩm) không tách được hai ca thật: bốn máy cùng
+# công đoạn "Cán màng / UV" mà UV khô ngay còn cán màng phải nguội; và cùng công đoạn "Bắt tay +
+# vào keo" thì vào-keo chờ còn khâu-chỉ không.
+#
+# Bảng cũ để NẰM IM trong DB (0 dòng lúc gỡ, dự án không có Alembic nên không drop).

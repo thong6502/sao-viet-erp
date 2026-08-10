@@ -6,6 +6,7 @@ from ..models.cong_doan import (
     TOOLING_TYPE, CongDoan,
 )
 from ..repositories.cong_doan_repo import CongDoanRepository
+from . import nhat_ky_danh_muc as nk
 
 
 class CongDoanError(Exception):
@@ -25,8 +26,9 @@ class CongDoanNotFound(CongDoanError):
 
 
 class CongDoanService:
-    def __init__(self, repo: CongDoanRepository) -> None:
+    def __init__(self, repo: CongDoanRepository, audit=None) -> None:
         self.repo = repo
+        self.audit = audit
 
     def _validate(self, data: dict) -> None:
         if not (data.get("ma") or "").strip():
@@ -116,19 +118,26 @@ class CongDoanService:
                  "don_gia": float(r.unit_price)}
                 for r in self.repo.piece_rates_active(department_id)]
 
-    def create(self, data: dict) -> CongDoan:
+    def create(self, data: dict, actor_id: int | None = None) -> CongDoan:
         self._validate(data)
         if self.repo.find_by_ma(data["ma"]) is not None:
             raise CongDoanDuplicate("Mã công đoạn đã tồn tại.")
-        return self.repo.create(data)
+        cd = self.repo.create(data)
+        nk.ghi_tao(self.audit, actor_id=actor_id, loai="cong_doan", obj=cd)
+        return cd
 
-    def update(self, cd_id: int, data: dict) -> CongDoan:
+    def update(self, cd_id: int, data: dict, actor_id: int | None = None) -> CongDoan:
         cd = self.get(cd_id)
         self._validate(data)
         dup = self.repo.find_by_ma(data["ma"])
         if dup is not None and dup.id != cd.id:
             raise CongDoanDuplicate("Mã công đoạn đã tồn tại.")
-        return self.repo.update(cd, data)
+        truoc = nk.anh_chup(cd)
+        cd = self.repo.update(cd, data)
+        nk.ghi_sua(self.audit, actor_id=actor_id, loai="cong_doan", obj=cd, truoc=truoc)
+        return cd
 
-    def delete(self, cd_id: int) -> None:
-        self.repo.delete(self.get(cd_id))
+    def delete(self, cd_id: int, actor_id: int | None = None) -> None:
+        cd = self.get(cd_id)
+        nk.ghi_xoa(self.audit, actor_id=actor_id, loai="cong_doan", obj=cd)
+        self.repo.delete(cd)

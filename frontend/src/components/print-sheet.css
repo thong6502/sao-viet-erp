@@ -1,6 +1,6 @@
 /* ===== Khuôn phiếu in dùng chung (.psheet) — CÙNG HỆ với bản in Báo giá (.qpdf): tài liệu A4
    đúng hai mực đen #000 + trắng #fff. Không xám, không màu nhấn, không bo góc, không đổ bóng;
-   phân cấp bằng cỡ chữ theo thang · độ dày nét kẻ · khoảng trắng. Dùng cho: Xác nhận đơn hàng,
+   phân cấp bằng cỡ chữ theo thang · độ dày nét kẻ · khoảng trắng. Dùng cho: Phiếu giao hàng,
    Lệnh sản xuất, và có thể mở rộng. File DUY NHẤT chứa @media print cho khuôn này. ===== */
 .psheet {
   --ps-ink: #000;
@@ -113,6 +113,15 @@
 .psheet .ps-deposit .ps-lbl { display: block; }
 .psheet .ps-deposit b { display: block; font-size: var(--ps-fs-lead); font-weight: 700; font-variant-numeric: tabular-nums; margin-top: var(--ps-sp-1); }
 
+/* dải thanh toán trên PHIẾU GIAO (2 ô): đã trả / còn nợ khi nhận hàng — chia đôi trải đủ hai lề */
+.psheet .ps-pay { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ps-sp-6); margin-top: var(--ps-sp-3); padding-top: var(--ps-sp-3); border-top: 0.75px solid var(--ps-ink); }
+.psheet .ps-pay > div:nth-child(2) { text-align: right; }
+.psheet .ps-pay .ps-lbl { display: block; }
+.psheet .ps-pay b { display: block; font-size: var(--ps-fs-lead); font-weight: 700; font-variant-numeric: tabular-nums; margin-top: var(--ps-sp-1); }
+
+/* ô điền tay trên phiếu (ngày giao chừa trống) — nét kẻ để biết ghi lên đâu */
+.psheet .ps-blank { display: inline-block; min-width: 110px; border-bottom: 0.75px solid var(--ps-ink); }
+
 /* grid quy cách (LSX) */
 .psheet .ps-specs { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--ps-sp-2) var(--ps-sp-4); margin-top: var(--ps-sp-2); font-size: var(--ps-fs-body); }
 .psheet .ps-specs > div .ps-lbl { display: block; }
@@ -128,6 +137,9 @@
 .psheet .ps-signs { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; margin-top: var(--ps-sp-6); text-align: center; }
 .psheet .ps-signs .ps-hint { font-size: var(--ps-fs-micro); font-style: italic; margin-top: var(--ps-sp-1); }
 .psheet .ps-signs .ps-sp { height: 20mm; border-bottom: 0.75px solid var(--ps-ink); margin: 0 10%; }
+/* biến thể 3 ô ký (phiếu giao: người giao · người nhận · người lập) — hẹp khoảng cách để đủ 3 cột */
+.psheet .ps-signs--3 { grid-template-columns: repeat(3, 1fr); gap: 24px; }
+.psheet .ps-signs--3 .ps-sp { margin: 0 6%; }
 
 /* chân trang */
 .psheet .ps-foot { margin-top: var(--ps-sp-6); padding-top: var(--ps-sp-2); border-top: 0.75px solid var(--ps-ink); display: flex; justify-content: space-between; gap: var(--ps-sp-3); font-size: var(--ps-fs-micro); }

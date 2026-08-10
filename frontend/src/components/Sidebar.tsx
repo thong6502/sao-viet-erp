@@ -98,7 +98,7 @@ const NAV: NavSection[] = [
           "bao_gia",
           "kho",
           "san_xuat",
-          "dm_giay_vat_tu",
+          "dm_giay",
           "ke_toan",
         ],
       },
@@ -161,18 +161,18 @@ const NAV: NavSection[] = [
       { id: "loai-san-pham", label: "Loại sản phẩm", icon: "clipboard", module: "dm_loai_san_pham" },
       { id: "may-thiet-bi", label: "Thiết bị & Máy móc", icon: "warehouse", module: "dm_thiet_bi" },
       { id: "cong-doan", label: "Công đoạn", icon: "activity", module: "dm_cong_doan" },
-      { id: "bu-hao", label: "Bù hao", icon: "fileText", module: "dm_cong_doan" },
+      { id: "bu-hao", label: "Bù hao", icon: "fileText", module: "dm_bu_hao" },
       // Đơn vị & quy đổi: dùng chung cho khoán · kho · mua hàng, nên nằm ở danh mục chứ không
       // chôn trong màn Lương. MỘT mục cho hai bảng (đơn vị · cặp "1 tấn = 1.000 kg") — tách hai
       // mục thì hai cái tên gần trùng nhau, không ai đoán được vào đâu làm gì.
-      { id: "don-vi", label: "Đơn vị & quy đổi", icon: "activity", module: "dm_cong_doan" },
-      { id: "chung-loai-giay", label: "Chủng loại giấy", icon: "fileText", module: "kho" },
-      { id: "giay", label: "Giấy", icon: "bag", module: "kho" },
-      { id: "vat-tu-in-an", label: "Vật tư khác", icon: "bag", module: "kho" },
+      { id: "don-vi", label: "Đơn vị & quy đổi", icon: "activity", module: "dm_don_vi" },
+      { id: "chung-loai-giay", label: "Chủng loại giấy", icon: "fileText", module: "dm_chung_loai_giay" },
+      { id: "giay", label: "Giấy", icon: "bag", module: "dm_giay" },
+      { id: "vat-tu-in-an", label: "Vật tư khác", icon: "bag", module: "dm_vat_tu" },
       // Khuôn bế: khai báo nơi lưu trữ khuôn (số kệ · ngày làm · tình trạng). Quyền RIÊNG `khuon_be`.
       { id: "khuon-be", label: "Khuôn bế", icon: "clipboard", module: "khuon_be" },
       // Khai báo kho: màn CRUD tạo/sửa kho. Kho tạo ở đây tự hiện thành mục dưới SECTION "Kho hàng".
-      { id: "khai-bao-kho", label: "Khai báo kho", icon: "warehouse", module: "kho" },
+      { id: "khai-bao-kho", label: "Khai báo kho", icon: "warehouse", module: "dm_kho_hang" },
     ],
   },
   {

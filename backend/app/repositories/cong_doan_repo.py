@@ -27,6 +27,18 @@ class CongDoanRepository:
             .options(selectinload(CongDoan.dau_viec_dinh_muc))
         ).scalar_one_or_none()
 
+    def department_ids_dang_dung(self) -> set[int]:
+        """Id phòng ban đang được CÔNG ĐOẠN nào đó trỏ tới.
+
+        Dùng cho dropdown "Tổ phụ trách": đổi định nghĩa Tổ (mục H) thì giá trị cũ vẫn phải chọn
+        lại được, không thì mở form ra là ô rỗng và bấm Lưu là mất tổ đang gán.
+        """
+        return {
+            i for (i,) in self.db.execute(
+                select(CongDoan.department_id).where(CongDoan.department_id.is_not(None)).distinct()
+            )
+        }
+
     def piece_rates(self, ids: set[int]) -> dict[int, PieceRate]:
         if not ids:
             return {}
