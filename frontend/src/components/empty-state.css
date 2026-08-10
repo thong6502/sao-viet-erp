@@ -1,0 +1,59 @@
+/* Khối "chưa có dữ liệu" dùng chung — bê nguyên dáng từ empty state của phân hệ Sản xuất
+   (`pages/ke-hoach-sx.css` .khsx-empty), là mẫu đã được duyệt và chạy ổn.
+
+   CỐ Ý chép thay vì nhấc bản của Sản xuất lên đây: nhấc lên là phải đổi đường gọi của 4 màn Sản
+   xuất đang chạy tốt, đổi lấy việc không được gì ngay. Khi nào Sản xuất vào phạm vi làm lại thì
+   hợp nhất — TODO có chủ đích, đừng "dọn" sớm. */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-10) var(--sp-6);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  color: var(--ash);
+  text-align: center;
+}
+
+/* Dùng khi đã nằm trong khung có viền sẵn (ô của bảng) — hai lớp viền lồng nhau trông như lỗi. */
+.empty-state--inline {
+  border: 0;
+  background: transparent;
+  padding: var(--sp-6);
+}
+
+.empty-state__title {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--ink);
+  font-weight: var(--fw-medium);
+}
+
+.empty-state__sub {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  max-width: 46ch;
+}
+
+/* Ca LỖI: chỉ tô icon và tiêu đề, KHÔNG tô đỏ cả khối.
+   Đây là chỗ người dùng cần đọc kỹ rồi bấm "Thử lại" — tô như báo động thì họ đóng đi cho khuất. */
+.empty-state--loi {
+  color: var(--ash);
+}
+
+.empty-state--loi .empty-state__title {
+  color: var(--signal);
+}
+
+.empty-state--loi svg {
+  color: var(--signal);
+}
+
+/* Ô bảng: bỏ padding mặc định của td để khối tự canh giữa theo chiều ngang bảng. */
+.empty-state__cell {
+  padding: 0;
+}

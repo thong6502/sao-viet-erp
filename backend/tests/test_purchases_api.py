@@ -1437,3 +1437,237 @@ def test_ly_do_huy_khong_de_len_noi_dung(client, auth_headers):
     assert body["content"] == noi_dung_goc, "nội dung gốc KHÔNG được bị đè"
     assert body["reject_reason"] == "Doi nha cung cap khac"
     assert body["status_history"][0]["reason"] == "Doi nha cung cap khac"
+
+
+# --- badge thông báo Thu mua (notify-summary, đợt 2) -------------------------
+
+
+def _notify(client, headers, expect: int = 200) -> dict:
+    r = client.get("/api/purchase-requests/notify-summary", headers=headers)
+    assert r.status_code == expect, r.text
+    return r.json() if expect == 200 else {}
+
+
+def _pmh_bi_tu_choi(client, headers, supplier_id: int) -> dict:
+    """PMH đi trọn đường tới BỊ TỪ CHỐI ⇒ YCMH nguồn tự rơi về 'Chờ mua' (bậc 0).
+
+    Không dựng thẳng trạng thái trong DB: chính cái LIÊN ĐỚI 'PMH bị từ chối kéo YCMH về Chờ mua'
+    là thứ con số `pmh_bi_tu_choi` đang đếm — bịa trạng thái là test rỗng."""
+    pr = _create_purchase_request(client, headers, supplier_id)
+    assert client.post(
+        f"/api/purchase-requests/{pr['id']}/submit", headers=headers
+    ).status_code == 200
+    r = client.post(
+        f"/api/purchase-requests/{pr['id']}/reject",
+        json={"reason": "Gia cao hon du toan"},
+        headers=_h_duyet(),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "rejected"
+    return r.json()
+
+
+def test_chi_tiet_ycmh_hien_so_da_giao_theo_dot(client, auth_headers):
+    """Chi tiet YEU CAU phai noi giao BAO NHIEU, khong chi noi "giao mot phan".
+
+    Loi truoc 09/08/2026: `_tinh_trang_tung_dong` doc THANG `pl.received_quantity` — cot DORMANT
+    voi moi phieu theo doi bang DOT GIAO. Hang ve 2/3 dot ma chi tiet yeu cau van bao "chua nhan
+    gi" ⇒ bo phan tuong thu mua chua lam, goi dien giuc nham. Phai di qua `qty_thuc_nhan` de ba
+    man (Yeu cau · Mua hang · Cong no) noi CUNG MOT so.
+    """
+    supplier = _supplier(client, auth_headers)
+    source = _create_department_request(client, auth_headers)
+
+    payload = _request_payload(supplier["id"])
+    payload["source_request_ids"] = [source["id"]]
+    payload["lines"][0]["department_request_line_id"] = source["lines"][0]["id"]
+    pr = client.post("/api/purchase-requests", json=payload, headers=auth_headers).json()
+    assert client.post(
+        f"/api/purchase-requests/{pr['id']}/submit", headers=auth_headers
+    ).status_code == 200
+    assert client.post(
+        f"/api/purchase-requests/{pr['id']}/approve", headers=_h_duyet()
+    ).status_code == 200
+    assert client.post(
+        f"/api/purchase-requests/{pr['id']}/mark-purchased", headers=auth_headers
+    ).status_code == 200
+
+    dong = pr["lines"][0]
+    assert dong["quantity"] == 1000
+
+    # Giao DO: 400/1000 — dung ca ma man dang khong noi duoc so.
+    r = client.post(
+        f"/api/purchase-requests/{pr['id']}/deliveries",
+        json={
+            "delivery_date": date.today().isoformat(),
+            "lines": [{"purchase_request_line_id": dong["id"], "quantity": 400}],
+        },
+        headers=auth_headers,
+    )
+    assert r.status_code == 200, r.text
+
+    ct = client.get(
+        f"/api/department-purchase-requests/{source['id']}", headers=auth_headers
+    ).json()
+    ff = next(l["fulfilment"] for l in ct["lines"] if l["fulfilment"] is not None)
+    assert ff["purchase_status"] == "partially_received"
+    assert ff["ordered_quantity"] == 1000
+    assert ff["received_quantity"] == 400, "phai la TONG cac dot, khong phai cot received_quantity"
+
+    # Giao them dot 2 ⇒ so phai CONG DON, khong phai de len.
+    assert client.post(
+        f"/api/purchase-requests/{pr['id']}/deliveries",
+        json={
+            "delivery_date": date.today().isoformat(),
+            "lines": [{"purchase_request_line_id": dong["id"], "quantity": 350}],
+        },
+        headers=auth_headers,
+    ).status_code == 200
+
+    ct2 = client.get(
+        f"/api/department-purchase-requests/{source['id']}", headers=auth_headers
+    ).json()
+    ff2 = next(l["fulfilment"] for l in ct2["lines"] if l["fulfilment"] is not None)
+    assert ff2["received_quantity"] == 750
+
+
+def test_chi_tiet_ycmh_phieu_khong_co_dot_giao_van_theo_luat_cu(client, auth_headers):
+    """Phieu CHUA co dot giao nao (moi phieu lap truoc 06/08/2026) phai giu nguyen luat cu.
+
+    `received_quantity` = None nghia la CHUA CO TIN, khong phai "nhan 0" — doi thanh 0 la moi don
+    cu tut ve nhan 0 va giao dien bao giao thieu hang loat.
+    """
+    supplier = _supplier(client, auth_headers)
+    source = _create_department_request(client, auth_headers)
+    payload = _request_payload(supplier["id"])
+    payload["source_request_ids"] = [source["id"]]
+    payload["lines"][0]["department_request_line_id"] = source["lines"][0]["id"]
+    pr = client.post("/api/purchase-requests", json=payload, headers=auth_headers).json()
+    assert pr["id"]
+
+    ct = client.get(
+        f"/api/department-purchase-requests/{source['id']}", headers=auth_headers
+    ).json()
+    ff = next(l["fulfilment"] for l in ct["lines"] if l["fulfilment"] is not None)
+    assert ff["received_quantity"] is None, "chua co dot giao + chua khai ⇒ CHUA CO TIN"
+    assert ff["ordered_quantity"] == 1000
+
+
+def _dot_giao_qua_han(client, headers, supplier_id: int) -> dict:
+    """Một đợt giao ĐÃ QUÁ HẠN trả và KHÔNG có phiếu chi nào ⇒ còn nợ nguyên."""
+    pr = _create_purchase_request(client, headers, supplier_id)
+    assert client.post(
+        f"/api/purchase-requests/{pr['id']}/submit", headers=headers
+    ).status_code == 200
+    assert client.post(
+        f"/api/purchase-requests/{pr['id']}/approve", headers=_h_duyet()
+    ).status_code == 200
+    assert client.post(
+        f"/api/purchase-requests/{pr['id']}/mark-purchased", headers=headers
+    ).status_code == 200
+    r = client.post(
+        f"/api/purchase-requests/{pr['id']}/deliveries",
+        json={
+            "delivery_date": (date.today() - timedelta(days=20)).isoformat(),
+            "due_date": (date.today() - timedelta(days=5)).isoformat(),
+            "lines": [{"purchase_request_line_id": pr["lines"][0]["id"], "quantity": 100}],
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _ha_scope_thu_mua_ve_own(username: str) -> None:
+    db = SessionLocal()
+    try:
+        u = UserRepository(db).get_by_username(username)
+        RoleRepository(db).get_permission(u.role_id, "thu_mua").scope = SCOPE_OWN
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_notify_summary_dem_dung_ba_con_so(client, auth_headers):
+    """Ba con số việc-phải-làm của Thu mua, dựng từ ca dữ liệu thật."""
+    supplier = _supplier(client, auth_headers, name="NCC Badge Thu Mua")
+
+    # a) Một YCMH để nguyên 'Chờ mua' — việc đang nằm trên bàn thu mua.
+    _create_department_request(client, auth_headers)
+    # b) Một PMH bị từ chối; YCMH nguồn của nó rơi về 'Chờ mua' ⇒ YCMH thành 2.
+    _pmh_bi_tu_choi(client, auth_headers, supplier["id"])
+    # c) Một đợt giao quá hạn còn nợ (YCMH nguồn của đơn này đã sang 'Đang mua', không đếm).
+    _dot_giao_qua_han(client, auth_headers, supplier["id"])
+
+    assert _notify(client, auth_headers) == {
+        "ycmh_cho_lap_phieu": 2,
+        "pmh_bi_tu_choi": 1,
+        "dot_giao_qua_han": 1,
+    }
+
+
+def test_notify_summary_ycmh_da_co_phieu_thay_the_thi_thoi_dem(client, auth_headers):
+    """PMH bị từ chối nhưng YCMH đã có phiếu KHÁC đang chạy ⇒ hết việc, không đếm nữa.
+
+    Đếm mọi PMH `rejected` là badge kêu vĩnh viễn cho một phiếu đã xử lý xong — người dùng học
+    cách phớt lờ badge, và badge chết."""
+    supplier = _supplier(client, auth_headers, name="NCC Badge Thay The")
+    tu_choi = _pmh_bi_tu_choi(client, auth_headers, supplier["id"])
+    assert _notify(client, auth_headers)["pmh_bi_tu_choi"] == 1
+
+    # Thu mua lập PHIẾU KHÁC cho đúng YCMH đó → YCMH rời 'Chờ mua'.
+    source_id = tu_choi["sources"][0]["id"]
+    _create_purchase_request(client, auth_headers, supplier["id"], [source_id])
+
+    s = _notify(client, auth_headers)
+    assert s["pmh_bi_tu_choi"] == 0
+    assert s["ycmh_cho_lap_phieu"] == 0
+
+
+def test_notify_summary_dem_theo_pham_vi_nguoi_xem(client, auth_headers):
+    """⭐ RÀNG BUỘC SỐ 1 — badge đếm theo PHẠM VI CỦA NGƯỜI XEM.
+
+    Đếm toàn công ty cho người chỉ thấy phiếu của mình thì badge báo 2 mà mở màn ra có 1: người
+    dùng mất tin vào con số. Test giữ CẢ HAI vế, vì chúng dùng hai phép lọc khác nhau:
+
+    · `pmh_bi_tu_choi` = PHIẾU MUA ⇒ theo `_purchase_scope`: nhân viên scope `own` đếm ít hơn admin.
+    · `ycmh_cho_lap_phieu` = HỘP VIỆC ⇒ nhân viên thu mua scope `own` vẫn phải đếm đủ mọi phòng.
+      Siết luôn cả số này theo `_purchase_scope` là lặp lại sự cố 04/08/2026 (badge 0 trong khi
+      màn YCMH đầy việc).
+    """
+    buyer_headers = {"Authorization": f"Bearer {_buyer_token()}"}
+    supplier = _supplier(client, auth_headers, name="NCC Badge Pham Vi")
+
+    _pmh_bi_tu_choi(client, auth_headers, supplier["id"])   # của admin
+    _pmh_bi_tu_choi(client, buyer_headers, supplier["id"])  # của nhân viên
+    _ha_scope_thu_mua_ve_own("buyer-no-approve")
+
+    cua_admin = _notify(client, auth_headers)
+    cua_buyer = _notify(client, buyer_headers)
+
+    assert cua_admin["pmh_bi_tu_choi"] == 2
+    assert cua_buyer["pmh_bi_tu_choi"] == 1, (
+        "nhân viên scope `own` đang đếm cả phiếu của người khác")
+    assert cua_buyer["ycmh_cho_lap_phieu"] == cua_admin["ycmh_cho_lap_phieu"] == 2, (
+        "hộp việc YCMH bị co theo scope phiếu mua ⇒ nhân viên thu mua nhìn badge 0 mà màn đầy việc")
+
+
+def test_notify_summary_khong_ro_cong_no_cho_nguoi_khong_co_ke_toan(client, auth_headers):
+    """⭐ RÀNG BUỘC SỐ 2 — `dot_giao_qua_han` là số CÔNG NỢ, chỉ người có `ke_toan:read` mới thấy.
+
+    Người chỉ có quyền thu mua nhận 0 (và vì FE cộng thẳng ba số, 0 nghĩa là không cộng vào badge
+    của họ)."""
+    buyer_headers = {"Authorization": f"Bearer {_buyer_token()}"}
+    supplier = _supplier(client, auth_headers, name="NCC Badge Cong No")
+    _dot_giao_qua_han(client, auth_headers, supplier["id"])
+
+    assert _notify(client, auth_headers)["dot_giao_qua_han"] == 1, (
+        "admin có `ke_toan:read` mà không thấy đợt quá hạn ⇒ test dưới đây rỗng")
+    assert _notify(client, buyer_headers)["dot_giao_qua_han"] == 0, (
+        "rò tình hình công nợ cho người chỉ có quyền thu mua")
+
+
+def test_notify_summary_can_quyen_thu_mua_read(client):
+    """Không có `thu_mua:read` thì không có badge — 403, đúng cổng của mọi đường đọc thu mua."""
+    sales_headers = {"Authorization": f"Bearer {_sales_token()}"}
+    _notify(client, sales_headers, expect=403)

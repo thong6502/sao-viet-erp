@@ -484,6 +484,18 @@ class PurchaseRequestListOut(BaseModel):
     size: int
 
 
+class PurchaseNotifySummaryOut(BaseModel):
+    """Badge Thu mua (sidebar `mua-hang`). FE cộng thẳng ba số — nên mọi con số người gọi KHÔNG
+    được thấy phải là 0, đừng để FE tự nhớ luật che."""
+
+    # YCMH đang *Chờ mua* — việc đang nằm trên bàn thu mua.
+    ycmh_cho_lap_phieu: int = 0
+    # PMH bị từ chối mà YCMH nguồn vẫn *Chờ mua* ⇒ phải lập lại. Dễ bị bỏ quên nhất.
+    pmh_bi_tu_choi: int = 0
+    # Đợt giao quá hạn trả mà còn nợ. 0 với người KHÔNG có `ke_toan:read` — không rò công nợ.
+    dot_giao_qua_han: int = 0
+
+
 class ReasonIn(BaseModel):
     reason: str | None = Field(default=None, max_length=2000)
 

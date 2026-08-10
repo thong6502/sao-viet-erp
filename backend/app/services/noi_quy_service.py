@@ -47,8 +47,12 @@ class NoiQuyService:
         self.noi_quy = noi_quy
         self.audit = audit
 
-    def list_records(self):
-        return self.noi_quy.list_all()
+    def list_records(self, *, q: str | None = None, page: int = 1, size: int = 20):
+        """Trả `(rows, total)` — `total` là số bản ghi KHỚP BỘ LỌC trên toàn bảng, không phải
+        số dòng của trang. Chân bảng đọc `total` để biết có sang trang được không."""
+        total = self.noi_quy.count(q=q)
+        rows = self.noi_quy.list_all(q=q, limit=size, offset=max(0, (page - 1) * size))
+        return rows, total
 
     def create_record(
         self,

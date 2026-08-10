@@ -24,3 +24,8 @@ class NoiQuyRecordOut(BaseModel):
 
 class NoiQuyRecordsOut(BaseModel):
     items: list[NoiQuyRecordOut]
+    # Ba ô phân trang THÊM VÀO (09/08/2026), có mặc định nên mọi nơi dựng `NoiQuyRecordsOut(items=…)`
+    # kiểu cũ vẫn chạy — thêm trường là tương thích ngược, ĐỔI/BỎ `items` thì không.
+    total: int = 0     # tổng bản ghi khớp bộ lọc trên TOÀN BẢNG (không phải số dòng của trang)
+    page: int = 1
+    size: int = 20

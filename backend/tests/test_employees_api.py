@@ -56,6 +56,74 @@ def _create(client, token, **over):
     return client.post("/api/employees", json=body, headers=_h(token))
 
 
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _doc_xlsx(data: bytes) -> list[list]:
+    """Doc lai file .xlsx thanh danh sach dong — de kiem NOI DUNG chu khong chi kiem status 200."""
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    wb = load_workbook(BytesIO(data), read_only=True, data_only=True)
+    try:
+        return [list(r) for r in wb.active.iter_rows(values_only=True)]
+    finally:
+        wb.close()
+
+
+def test_xuat_nhan_su_ra_file_xlsx_that(client):
+    """Nut "Xuat Excel" phai ra file .xlsx THAT, khong phai CSV doi ten (chu chot 08/08/2026)."""
+    token = _admin_token(client)
+    _create(client, token, full_name="Nguyen Thi Xuat", hire_date="2024-03-01")
+
+    resp = client.get("/api/employees/export.xlsx", headers=_h(token))
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"].startswith(XLSX_MIME)
+    assert "attachment" in resp.headers["content-disposition"]
+    assert resp.content[:2] == b"PK", "phai la file .xlsx (zip), khong phai chuoi CSV"
+
+    rows = _doc_xlsx(resp.content)
+    assert rows[0] == ["Mã", "Họ tên", "Phòng/Tổ", "Chức danh", "Bậc tay nghề", "Trạng thái",
+                       "Ngày vào", "Tài khoản"]
+    ten = [r[1] for r in rows[1:]]
+    assert "Nguyen Thi Xuat" in ten
+    # Ngay vao phai la chuoi dd/mm/yyyy — de nguyen kieu ngay thi moi may Excel hien mot kieu.
+    dong = next(r for r in rows[1:] if r[1] == "Nguyen Thi Xuat")
+    assert dong[6] == "01/03/2024"
+
+
+def test_xuat_nhan_su_khong_bi_cat_o_200_nguoi(client):
+    """Ban cu chi lay 200 nguoi dau roi IM LANG. File phai co DU so nguoi nhu o "Tong" tren man."""
+    token = _admin_token(client)
+    tong = client.get("/api/employees?size=1", headers=_h(token)).json()["total"]
+
+    rows = _doc_xlsx(client.get("/api/employees/export.xlsx", headers=_h(token)).content)
+    assert len(rows) - 1 == tong, "so dong trong file phai bang so Tong tren man"
+
+
+def test_xuat_nhan_su_theo_dung_bo_loc_cua_man(client):
+    """File xuat ra phai phan anh DUNG bo loc dang chon, khong phai ca danh sach."""
+    token = _admin_token(client)
+    _create(client, token, full_name="Loc Theo Phong", department_id=_dept_id("Kinh doanh"))
+    kd = _dept_id("Kinh doanh")
+
+    tong_kd = client.get(
+        f"/api/employees?size=1&department_id={kd}", headers=_h(token)
+    ).json()["total"]
+    rows = _doc_xlsx(
+        client.get(f"/api/employees/export.xlsx?department_id={kd}", headers=_h(token)).content
+    )
+    assert len(rows) - 1 == tong_kd
+    assert all(r[2] == "Kinh doanh" for r in rows[1:])
+
+
+def test_xuat_nhan_su_chan_nguoi_khong_co_quyen(client):
+    """Ro du lieu nhan su la rui ro lon nhat cua endpoint nay — nguoi khong co quyen phai bi chan."""
+    resp = client.get("/api/employees/export.xlsx", headers=_h(_sales_token()))
+    assert resp.status_code == 403
+
+
 # --- self-service "Hồ sơ của tôi" ------------------------------------------
 
 

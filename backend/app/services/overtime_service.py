@@ -137,15 +137,29 @@ class OvertimeService:
 
     # --- đọc ----------------------------------------------------------------
 
-    def my_requests(self, *, user, limit: int = 100) -> list[OvertimeRequest]:
+    def my_requests(self, *, user, page: int = 1,
+                    size: int = 20) -> tuple[list[OvertimeRequest], int]:
+        """Trả `(rows, total)` — `total` là TỔNG phiếu của NV, không phải số dòng của trang."""
         emp = self._employee_for_user(user)
-        return self.overtime.list_by_employee(emp.id, limit=limit)
+        total = self.overtime.count_by_employee(emp.id)
+        rows = self.overtime.list_by_employee(emp.id, limit=size,
+                                              offset=max(0, (page - 1) * size))
+        return rows, total
 
     def list_requests(self, *, scope: str, actor, status: str | None = None,
-                      limit: int = 200) -> list[OvertimeRequest]:
+                      employee_id: int | None = None, page: int = 1,
+                      size: int = 20) -> tuple[list[OvertimeRequest], int]:
         """Danh sách phiếu theo DATA-SCOPE người gọi (own = của mình / department = tổ mình +
-        cây con / all = tất cả) ⇒ tổ trưởng chỉ thấy & duyệt được người trong tổ."""
-        return self.overtime.list_scoped(scope=scope, actor=actor, status=status, limit=limit)
+        cây con / all = tất cả) ⇒ tổ trưởng chỉ thấy & duyệt được người trong tổ.
+
+        `employee_id` chỉ THU HẸP thêm bên trong phạm vi đã có — không nới quyền: gõ id người
+        ngoài tổ thì `_scope_condition` vẫn cắt, kết quả rỗng chứ không lộ phiếu."""
+        total = self.overtime.count_scoped(scope=scope, actor=actor, status=status,
+                                           employee_id=employee_id)
+        rows = self.overtime.list_scoped(scope=scope, actor=actor, status=status,
+                                         employee_id=employee_id, limit=size,
+                                         offset=max(0, (page - 1) * size))
+        return rows, total
 
     def count_pending(self, *, scope: str, actor) -> int:
         return self.overtime.count_pending_scoped(scope=scope, actor=actor)

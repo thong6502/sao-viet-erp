@@ -23,39 +23,6 @@
   margin: 0;
 }
 
-/* Stats dashboard */
-.md-page__stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: var(--sp-4);
-}
-.md-page__stat-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  padding: var(--sp-4) var(--sp-5);
-}
-.md-page__stat-label {
-  font-family: var(--ff-sans);
-  font-size: 10px;
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ash);
-}
-.md-page__stat-val {
-  font-size: 24px;
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-}
-.md-page__stat-card--warn {
-  border-color: #f7dcd0;
-  background: var(--rust-soft);
-}
-.md-page__stat-card--warn .md-page__stat-val {
-  color: var(--rust-deep);
-}
-
 /* Toolbar */
 .md-page__toolbar {
   display: flex;

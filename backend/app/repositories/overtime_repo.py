@@ -44,15 +44,25 @@ class OvertimeRepository:
         self.db.refresh(r)
         return r
 
-    def list_by_employee(self, employee_id: int, *, limit: int = 100) -> list[OvertimeRequest]:
+    def list_by_employee(self, employee_id: int, *, limit: int = 100,
+                         offset: int = 0) -> list[OvertimeRequest]:
         return list(
             self.db.execute(
                 select(OvertimeRequest)
                 .where(OvertimeRequest.employee_id == employee_id)
                 .order_by(OvertimeRequest.work_date.desc(), OvertimeRequest.id.desc())
                 .limit(limit)
+                .offset(offset)
             ).scalars()
         )
+
+    def count_by_employee(self, employee_id: int) -> int:
+        """Tổng phiếu của 1 NV — nuôi chân phân trang tab "Phiếu của tôi". COUNT ở DB, đừng
+        `len(list_by_employee())`: hàm kia đang bị `limit` cắt nên đếm ra số của TRANG."""
+        return int(self.db.execute(
+            select(func.count(OvertimeRequest.id))
+            .where(OvertimeRequest.employee_id == employee_id)
+        ).scalar_one())
 
     # --- scope-aware reads (own = phiếu của mình theo Employee.user_id; department =
     #     phiếu của phòng/tổ mình + cây con; all = tất cả). `overtime_requests` KHÔNG có cột
@@ -70,18 +80,41 @@ class OvertimeRepository:
             return Employee.department_id.in_(dept_ids)
         raise ValueError(f"Unknown scope: {scope!r}")
 
-    def list_scoped(self, *, scope: str, actor, status: str | None = None,
-                    limit: int = 200) -> list[OvertimeRequest]:
-        stmt = select(OvertimeRequest).join(Employee, OvertimeRequest.employee_id == Employee.id)
+    def _scoped_filters(self, stmt, *, scope: str, actor, status: str | None,
+                        employee_id: int | None):
+        """Bộ lọc DÙNG CHUNG cho `list_scoped` và `count_scoped` — hai hàm lọc lệch nhau thì
+        `total` ở chân bảng không mở ra xem được (báo 30, lật hết trang chỉ thấy 12)."""
         cond = self._scope_condition(scope=scope, actor=actor)
         if cond is not None:
             stmt = stmt.where(cond)
         if status is not None:
             stmt = stmt.where(OvertimeRequest.status == status)
+        if employee_id is not None:
+            stmt = stmt.where(OvertimeRequest.employee_id == employee_id)
+        return stmt
+
+    def list_scoped(self, *, scope: str, actor, status: str | None = None,
+                    employee_id: int | None = None, limit: int = 200,
+                    offset: int = 0) -> list[OvertimeRequest]:
+        stmt = select(OvertimeRequest).join(Employee, OvertimeRequest.employee_id == Employee.id)
+        stmt = self._scoped_filters(stmt, scope=scope, actor=actor, status=status,
+                                    employee_id=employee_id)
         stmt = stmt.order_by(
             OvertimeRequest.status.asc(), OvertimeRequest.work_date.desc(), OvertimeRequest.id.desc()
-        ).limit(limit)
+        ).limit(limit).offset(offset)
         return list(self.db.execute(stmt).scalars())
+
+    def count_scoped(self, *, scope: str, actor, status: str | None = None,
+                     employee_id: int | None = None) -> int:
+        """Tổng phiếu trong phạm vi + bộ lọc — chân phân trang tab "Duyệt phiếu"."""
+        stmt = (
+            select(func.count(OvertimeRequest.id))
+            .select_from(OvertimeRequest)
+            .join(Employee, OvertimeRequest.employee_id == Employee.id)
+        )
+        stmt = self._scoped_filters(stmt, scope=scope, actor=actor, status=status,
+                                    employee_id=employee_id)
+        return int(self.db.execute(stmt).scalar_one())
 
     def count_pending_scoped(self, *, scope: str, actor) -> int:
         """Số phiếu ĐANG CHỜ DUYỆT trong scope người gọi — nuôi badge sidebar (COUNT ở DB)."""

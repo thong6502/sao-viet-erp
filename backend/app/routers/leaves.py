@@ -156,17 +156,21 @@ def create_request(body: LeaveRequestIn, svc: Service, employees: Employees,
 
 @router.get("/me", response_model=MyLeaveOut)
 def my_requests(svc: Service, employees: Employees,
-                user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> MyLeaveOut:
+                user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                page: int = Query(default=1, ge=1),
+                size: int = Query(default=20, ge=1, le=100)) -> MyLeaveOut:
     if not svc.has_employee(user=user):
-        return MyLeaveOut(has_employee=False, employee_name=None, items=[], quotas=[])
-    reqs = svc.my_requests(user=user)
-    name = None
-    if reqs:
-        emp = employees.get_by_id(reqs[0].employee_id)
-        name = emp.full_name if emp is not None else None
+        return MyLeaveOut(has_employee=False, employee_name=None, items=[], quotas=[],
+                          total=0, page=page, size=size)
+    reqs, total = svc.my_requests(user=user, page=page, size=size)
+    # Tên lấy từ HỒ SƠ GẮN TÀI KHOẢN, không suy từ `reqs[0]` như trước: sang trang 2 mà trang đó
+    # rỗng (hoặc NV chưa có đơn nào) thì `reqs` rỗng ⇒ tên biến mất giữa chừng.
+    emp = employees.get_by_user_id(user.id)
+    name = emp.full_name if emp is not None else None
     quotas = svc.my_quotas(user=user, year=date.today().year)
     return MyLeaveOut(has_employee=True, employee_name=name,
-                      items=_resolve(svc, employees, reqs), quotas=quotas)
+                      items=_resolve(svc, employees, reqs), quotas=quotas,
+                      total=total, page=page, size=size)
 
 
 @router.get("/summary", response_model=LeaveSummaryOut)
@@ -217,11 +221,17 @@ def cancel_request(request_id: int, svc: Service, employees: Employees, authz: A
 @router.get("", response_model=LeaveRequestsOut)
 def list_requests(svc: Service, employees: Employees, authz: Authz,
                   user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-                  status_filter: str | None = Query(default=None, alias="status")) -> LeaveRequestsOut:
+                  status_filter: str | None = Query(default=None, alias="status"),
+                  employee_id: int | None = Query(default=None),
+                  page: int = Query(default=1, ge=1),
+                  size: int = Query(default=20, ge=1, le=100)) -> LeaveRequestsOut:
     # Data-scope: HCNS/Admin (scope=all) thấy mọi đơn; NV (scope=own) chỉ thấy đơn của mình.
+    # `employee_id` KHÔNG nới phạm vi — nó lọc THÊM bên trong phạm vi đã có (xem service).
     scope = authz.scope_for(user, MODULE) or "own"
-    reqs = svc.list_requests(scope=scope, actor=user, status=status_filter)
-    return LeaveRequestsOut(items=_resolve(svc, employees, reqs))
+    reqs, total = svc.list_requests(scope=scope, actor=user, status=status_filter,
+                                    employee_id=employee_id, page=page, size=size)
+    return LeaveRequestsOut(items=_resolve(svc, employees, reqs),
+                            total=total, page=page, size=size)
 
 
 @router.post("/{request_id}/approve", response_model=LeaveRequestOut)
