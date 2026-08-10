@@ -689,32 +689,31 @@ class KeHoachVatTuService:
             return []
         dong_theo_khuon: dict[int, list[dict]] = {}
         for l in lenh:
-            buoc = next(
-                (cd for cd in sorted(l.cong_doans, key=lambda c: c.thu_tu)
-                 if cd.cong_doan_id in can_khuon),
-                None,
-            )
-            if buoc is None:
-                continue
-            ngay = self._ngay_can_buoc(buoc.id)
-            moc_tam = ngay is None
-            if moc_tam:
-                ngay, _ = self._moc_tam(l)
-            dong_theo_khuon.setdefault(int(l.khuon_be_id or 0), []).append({
-                "loai": "cong_cu",
-                "lsx_id": l.id,
-                "bai_ghep_id": None,
-                "ma": l.ma,
-                "ten_viec": buoc.ten,
-                "ngay_can": ngay,
-                "moc_tam": moc_tam,
-                "nhu_cau": None,
-                "nhu_cau_hien_thi": "1 bộ khuôn",
-                "da_cap": None, "dang_linh": None, "con_phai_co": None, "con_lai_sau": None,
-                "thieu": None, "han_dat": None, "dat_muon": False,
-                "canh_bao": [], "ly_do_canh_bao": None,
-                "_khuon_id": int(l.khuon_be_id or 0),
-            })
+            # MỖI bước cần dụng cụ là MỘT dòng — không lấy mỗi bước đầu tiên nữa (11/08/2026).
+            # Hộp giấy vừa Bế vừa Ép nhũ là hai khuôn khác nhau, hai ngày cần khác nhau; gộp lại
+            # thì khuôn ép về muộn vẫn báo xanh vì đã canh theo ngày bế.
+            for buoc in sorted(l.cong_doans, key=lambda c: c.thu_tu):
+                if buoc.cong_doan_id not in can_khuon:
+                    continue
+                ngay = self._ngay_can_buoc(buoc.id)
+                moc_tam = ngay is None
+                if moc_tam:
+                    ngay, _ = self._moc_tam(l)
+                dong_theo_khuon.setdefault(int(buoc.khuon_be_id or 0), []).append({
+                    "loai": "cong_cu",
+                    "lsx_id": l.id,
+                    "bai_ghep_id": None,
+                    "ma": l.ma,
+                    "ten_viec": buoc.ten,
+                    "ngay_can": ngay,
+                    "moc_tam": moc_tam,
+                    "nhu_cau": None,
+                    "nhu_cau_hien_thi": "1 bộ khuôn",
+                    "da_cap": None, "dang_linh": None, "con_phai_co": None, "con_lai_sau": None,
+                    "thieu": None, "han_dat": None, "dat_muon": False,
+                    "canh_bao": [], "ly_do_canh_bao": None,
+                    "_khuon_id": int(buoc.khuon_be_id or 0),
+                })
         if not dong_theo_khuon:
             return []
         khuons = self.repo.khuon_theo_ids([i for i in dong_theo_khuon if i])

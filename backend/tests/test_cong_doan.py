@@ -45,6 +45,17 @@ def test_validate_basis():
         svc.create(dict(ma="X2", ten="x", nhom="prepress", che_do_tinh="theo_gio"))
 
 
+def test_nhom_other_hop_le_nhom_la_thi_khong():
+    """Giai đoạn 'Dịch vụ khác' (`other`) phải KHỚP FE (rebuildCatalogConfigs NHOM_CD) — tạo được;
+    nhóm ngoài danh sách vẫn bị loại."""
+    db, svc = _svc()
+    cd = svc.create(dict(ma="DV-KHAC", ten="Giao hàng", nhom="other",
+                         pricing_basis="per_finished_qty"))
+    assert cd.id and cd.nhom == "other"
+    with pytest.raises(CongDoanValidationError):          # nhóm không có trong NHOM
+        svc.create(dict(ma="ZZZ", ten="x", nhom="linh_tinh", pricing_basis="per_sheet"))
+
+
 def test_nang_suat_luu_va_sua_duoc():
     """`nang_suat` phải nằm trong whitelist `ASSIGNABLE` — thiếu là field bị NUỐT IM LẶNG:
     form gửi lên, API trả 200, mà giá trị không vào DB và không ai biết."""

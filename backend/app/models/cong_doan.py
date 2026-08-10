@@ -19,7 +19,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..db import Base
 from .lsx import DV_CAI, DV_CON, DV_TAY, DV_TO, DV_TO_NGUYEN
 
-NHOM = ("prepress", "print", "finishing")
+# prepress=Chế bản · print=In · finishing=Gia công sau in · other=Dịch vụ khác.
+# "other" = dịch vụ không thuộc dòng chế bản/in/sau-in (vd thuê ngoài đặc thù). Engine key theo
+# "print"/"prepress" cụ thể nên "other" rơi vào nhánh finishing-like (mặc định NẰM trên dòng giấy
+# như gia công sau in). Phải KHỚP `NHOM_CD` ở frontend/rebuildCatalogConfigs.tsx — mở ở CẢ HAI nơi.
+NHOM = ("prepress", "print", "finishing", "other")
 # Đơn vị của công đoạn trên DÒNG GIẤY — đúng ba mức, không hơn. Kẽm/bài KHÔNG ở đây: bước chế bản
 # không chạm giấy nên để TRỐNG (None), engine loại nó khỏi dòng giấy.
 DON_VI_DONG_GIAY = (DV_TO_NGUYEN, DV_TO, DV_CON, DV_TAY, DV_CAI)

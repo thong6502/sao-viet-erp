@@ -1038,6 +1038,10 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   ten: string; nhom: string | null; loai_buoc: LsxLoaiBuoc; bat_buoc: boolean;
   department_id: number | null; department_ten: string | null;
   may_id: number | null; may_ten: string | null;
+  /** Dụng cụ của bước. `requires_tooling`/`tooling_type` là CỜ đọc từ danh mục Công đoạn — form
+   *  dựa vào đó để hiện ô chọn khuôn, KHÔNG dò chữ "bế" trong tên bước. */
+  requires_tooling: boolean; tooling_type: string | null;
+  khuon_be_id: number | null; khuon_be_ten: string | null;
   // Đơn vị VÀO ≠ RA là chuyện thường ở bế/xén — hệ số quy đổi nối hai đầu.
   so_luong_vao: number; so_luong_ra: number;
   don_vi_vao: string; don_vi_ra: string; he_so_quy_doi: number;
@@ -1081,6 +1085,8 @@ export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   step_key?: string; thu_tu?: number; cong_doan_id?: number | null; ten?: string; nhom?: string | null;
   loai_buoc?: LsxLoaiBuoc; bat_buoc?: boolean;
   department_id?: number | null; may_id?: number | null;
+  /** Khuôn của bước (`khuon_be.id`) — chỉ gửi khi công đoạn nguồn bật `requires_tooling`. */
+  khuon_be_id?: number | null;
   so_luong_vao?: number; so_luong_ra?: number;
   don_vi_vao?: string; don_vi_ra?: string; he_so_quy_doi?: number;
   hao_hut?: number; hao_hut_pct?: number; so_luot_chay?: number; so_nhan_cong?: number;

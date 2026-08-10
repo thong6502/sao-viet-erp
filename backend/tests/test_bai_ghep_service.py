@@ -649,8 +649,8 @@ def test_may_hop_cong_doan_bat_may_sai_loai(db, bg_svc):
     thì không. Chưa khai `nhom_may_cho_phep` → không ràng buộc (không đẻ cảnh báo giả)."""
     cd_in = CongDoan(ma="CD-T3", ten="In test", nhom="print",
                      nhom_may_cho_phep=["Máy in", "In ngoài"])
-    may_be = MayThietBi(ma="BE-T3", ten="Máy bế test", loai_may="Bế", trang_thai="active")
-    may_in = MayThietBi(ma="IN-T3", ten="Máy in test", loai_may="Máy in", trang_thai="active")
+    may_be = MayThietBi(ma="BE-T3", ten="Máy bế test", loai_may="Bế")
+    may_in = MayThietBi(ma="IN-T3", ten="Máy in test", loai_may="Máy in")
 
     assert bg_svc._may_hop_cong_doan(may_be, cd_in, {}), "máy Bế cho công đoạn In phải bị cảnh báo"
     assert bg_svc._may_hop_cong_doan(may_in, cd_in, {}) == [], "máy In hợp công đoạn In → im"

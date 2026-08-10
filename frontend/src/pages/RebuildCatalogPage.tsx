@@ -18,7 +18,7 @@ export interface FieldDef {
   label: string;
   // `ref-search-ma` = như `ref-search` nhưng lưu MÃ (chuỗi) thay vì id — cho cột trỏ danh mục bằng
   // mã như `don_vi_gia` (quy đổi làm việc trên mã `kg`/`to`, không trên id).
-  type?: "text" | "number" | "date" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "size_tiers" | "nhom_may" | "nhom_may-multi" | "formula" | "dau-viec-dinh-muc" | "chuan_bi_khoan" | "don_vi_toc_do";
+  type?: "text" | "number" | "date" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "size_tiers" | "nhom_may" | "nhom_may-multi" | "formula" | "dau-viec-dinh-muc" | "chuan_bi_khoan" | "lich_bao_tri" | "don_vi_toc_do";
   options?: { value: string; label: string }[];
   refPrefix?: string;           // ref / ref-multi / ref-search: endpoint danh mục nguồn (đổ theo TÊN/MÃ)
   /** Query thêm khi nạp danh mục nguồn, vd `{ active: true }` — không lọc thì picker mời cả dòng
@@ -691,15 +691,17 @@ function BandsField({ value, onChange }: { value: BacRow[]; onChange: (v: BacRow
   );
 }
 
-// ── ĐƠN VỊ TỐC ĐỘ: danh sách CỐ ĐỊNH, không thêm/sửa/xoá ───────────────────────
+// ── ĐƠN VỊ TỐC ĐỘ: bảng NHÃN hiển thị cho cột danh sách (ô CHỌN lấy động — xem `DonViTocDoField`) ─
 //
-// Chủ chốt 04/08/2026: khoá cứng danh sách này. Trước đây nó suy từ cờ `dung_lam_toc_do` bên danh
-// mục `don_vi_do` và có nút "＋ Thêm / gỡ" ngay tại chỗ — ai bật thêm một đơn vị là ô này mọc thêm
-// lựa chọn, mà phần lớn lựa chọn đó Lệnh SX không dùng được.
+// Lịch sử: 04/08/2026 từng KHOÁ CỨNG danh sách này (bỏ nguồn động) vì đổ hết cờ `dung_lam_toc_do`
+// làm ô mọc nhiều lựa chọn Lệnh SX không dùng được. 11/08/2026 (theo yêu cầu chủ) ô chọn QUAY LẠI
+// lấy động từ `/api/don-vi` (lọc `dung_lam_toc_do`) để hết cảnh hai danh sách lệch nhau. Danh sách
+// dưới GIỜ chỉ còn là NHÃN hiển thị (fallback) cho cột danh sách máy, không phải nguồn của ô chọn.
 //
-// 🔴 Mã giữ khuôn `<đơn vị đếm>_gio`. Lệnh SX CHỈ khớp được `to_gio · cai_gio · kem_gio`
-// (`_DV_VAO_SANG_NS` trong `lsx_service.py`). Các mã còn lại vẫn LƯU được để ghi nhận năng lực
-// máy, nhưng bước sẽ không lấy tốc độ từ máy — thời gian chạy để trống và KHÔNG có cảnh báo.
+// 🔴 Mã giữ khuôn `<đơn vị đếm>_gio`. Lệnh SX CHỈ khớp thời lượng với `to_gio · cai_gio · kem_gio`
+// (`_DV_VAO_SANG_NS` trong `lsx_service.py`). Đơn vị khác vẫn LƯU được (ghi nhận năng lực máy) nhưng
+// bước KHÔNG lấy tốc độ từ máy — thời gian chạy để trống, KHÔNG cảnh báo. Muốn bớt lựa chọn thừa thì
+// BỎ TICK `dung_lam_toc_do` ở màn Đơn vị cho các đơn vị chưa chạy được (chỉ giữ tờ · cái · kẽm).
 export const DON_VI_TOC_DO: { ma: string; nhan: string }[] = [
   { ma: "ban_proof_gio", nhan: "bản proof/h" },
   { ma: "mau_gio", nhan: "mẫu/h" },
@@ -713,21 +715,29 @@ export const DON_VI_TOC_DO: { ma: string; nhan: string }[] = [
 ];
 
 function DonViTocDoField({
-  value, onChange,
+  value, onChange, donViList,
 }: {
   value: string;
   onChange: (v: string) => void;
+  donViList: Row[];
 }) {
-  // Máy khai từ trước bằng mã nay không còn trong danh sách (vd `cai_gio`, `cuon_gio`) vẫn phải
-  // hiện ra. Bỏ qua là mở form lên thấy trống, bấm Lưu một cái là xoá mất khai báo đang đúng.
-  const laKhaiCu = value !== "" && !DON_VI_TOC_DO.some((d) => d.ma === value);
+  // Đơn vị tốc độ lấy ĐỘNG từ danh mục Đơn vị (đơn vị có tick "dùng làm tốc độ"), KHÔNG còn danh
+  // sách viết cứng — thêm/bớt/đổi quản MỘT chỗ ở màn Đơn vị & quy đổi. Giá trị lưu vẫn là
+  // `<mã>_gio` để khớp máy đã khai + engine Lệnh SX (chỉ khớp thời lượng với to_gio/cai_gio/kem_gio).
+  const opts = donViList
+    .filter((d) => d.dung_lam_toc_do === true)
+    .map((d) => ({ ma: `${d.ma}_gio`, nhan: `${d.ten}/h` }));
+  // Máy khai từ trước bằng mã nay không còn bày (đơn vị bỏ tick / đơn vị cũ) vẫn phải hiện ra —
+  // bỏ qua là mở form thấy trống, bấm Lưu một cái là xoá mất khai báo đang đúng.
+  const laKhaiCu = value !== "" && !opts.some((d) => d.ma === value);
+  const nhanCu = value.endsWith("_gio") ? `${value.slice(0, -4)}/h` : value;
   return (
     <select className="rc-input" value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">— chọn —</option>
-      {DON_VI_TOC_DO.map((d) => (
+      {opts.map((d) => (
         <option key={d.ma} value={d.ma}>{d.nhan}</option>
       ))}
-      {laKhaiCu && <option value={value}>{value} — khai cũ</option>}
+      {laKhaiCu && <option value={value}>{nhanCu} — khai cũ</option>}
     </select>
   );
 }
@@ -898,6 +908,76 @@ function ChuanBiKhoanField({
   );
 }
 
+// ── LỊCH BẢO TRÌ ĐỊNH KỲ (đầu việc · chu kỳ số + đơn vị ngày/tuần/tháng/năm) ──────
+// Lưu LỒNG trong fields_theo_loai.lich_bao_tri (jsonKey) — không cột mới, không migration.
+// Cùng khuôn với ChuanBiKhoanField; khác ở cột đơn vị chu kỳ và không có dòng "Tổng".
+export interface LichBaoTriRow { viec?: string; so?: number; don_vi?: string }
+const DON_VI_CHU_KY = [
+  { v: "ngay", n: "ngày" }, { v: "tuan", n: "tuần" },
+  { v: "thang", n: "tháng" }, { v: "nam", n: "năm" },
+];
+function LichBaoTriField({
+  value,
+  onChange,
+}: { value: LichBaoTriRow[]; onChange: (v: LichBaoTriRow[]) => void }) {
+  const rows = value ?? [];
+  const setRow = (i: number, patch: Partial<LichBaoTriRow>) =>
+    onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const add = () => onChange([...rows, { viec: "", so: undefined, don_vi: "thang" }]);
+  const del = (i: number) => onChange(rows.filter((_, j) => j !== i));
+  return (
+    <div className="rc-bands">
+      <table className="rc-bands__table">
+        <thead>
+          <tr><th>Đầu việc bảo trì</th><th>Mỗi</th><th>Đơn vị</th><th></th></tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr><td colSpan={4} className="rc-bands__empty">Chưa có hạng mục — bấm “＋ Thêm hạng mục”.</td></tr>
+          )}
+          {rows.map((r, i) => (
+            <tr key={i}>
+              <td>
+                <input
+                  className="rc-input"
+                  value={r.viec ?? ""}
+                  placeholder="vd: Vệ sinh lô cao su"
+                  onChange={(e) => setRow(i, { viec: e.target.value })}
+                />
+              </td>
+              <td>
+                <input
+                  className="rc-input rc-input--num"
+                  type="number"
+                  step="any"
+                  inputMode="numeric"
+                  value={r.so === undefined || r.so === null ? "" : String(r.so)}
+                  onChange={(e) => setRow(i, { so: e.target.value === "" ? undefined : Number(e.target.value) })}
+                />
+              </td>
+              <td>
+                <select
+                  className="rc-input"
+                  value={r.don_vi ?? "thang"}
+                  onChange={(e) => setRow(i, { don_vi: e.target.value })}
+                >
+                  {DON_VI_CHU_KY.map((d) => <option key={d.v} value={d.v}>{d.n}</option>)}
+                </select>
+              </td>
+              <td style={{ textAlign: "center" }}>
+                <button type="button" className="rc-bands__del" onClick={() => del(i)} title="Xóa hạng mục">
+                  <TrashIcon />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button type="button" className="rc-bands__add" onClick={add}>＋ Thêm hạng mục</button>
+    </div>
+  );
+}
+
 // ── SIZE-TIER EDITOR (bậc đơn giá theo kích thước: Đến cỡ cm · Đơn giá đ) ─────────
 interface SizeTierRow { den_cm?: number | null; don_gia?: number }
 function SizeTiersField({ value, onChange }: { value: SizeTierRow[]; onChange: (v: SizeTierRow[]) => void }) {
@@ -1054,7 +1134,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
         const box = existing?.[f.jsonKey] as Record<string, unknown> | undefined;
         const raw = existing ? box?.[f.key] : undefined;
         // Field kiểu DANH SÁCH phải rơi về [] chứ không phải "" — đưa "" cho editor mảng là vỡ.
-        init[f.key] = f.type === "chuan_bi_khoan"
+        init[f.key] = f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri"
           ? (Array.isArray(raw) ? raw : [])
           : (existing ? raw ?? "" : f.default ?? "");
       } else {
@@ -1111,14 +1191,17 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
   const renderField = (f: FieldDef) => {
     const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
     const hint = typeof f.hint === "function" ? f.hint(form) : f.hint;
-    const isFullWidth = f.type === "bands" || f.type === "size_tiers" || f.type === "chuan_bi_khoan" || f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "dau-viec-dinh-muc" || f.type === "json" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
+    const isFullWidth = f.type === "bands" || f.type === "size_tiers" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "dau-viec-dinh-muc" || f.type === "json" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
     // "div" chứ không "label": khối này chứa NHIỀU input, bọc trong <label> là bấm đâu cũng nhảy
     // focus vào ô đầu tiên.
-    const Tag = f.type === "formula" || f.type === "bands" || f.type === "size_tiers" || f.type === "chuan_bi_khoan" ? "div" : "label";
+    const Tag = f.type === "formula" || f.type === "bands" || f.type === "size_tiers" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" ? "div" : "label";
     return (
       <Tag className={`rc-field${f.type === "checkbox" ? " rc-field--check" : ""}${isFullWidth ? " rc-field--full" : ""}`} key={f.key}>
         <span className="rc-field__label">{cleanLabel}{f.required ? " *" : ""}</span>
-        {f.type === "chuan_bi_khoan" ? (
+        {f.type === "lich_bao_tri" ? (
+          <LichBaoTriField value={Array.isArray(form[f.key]) ? (form[f.key] as LichBaoTriRow[]) : []}
+            onChange={(v) => set(f.key, v)} />
+        ) : f.type === "chuan_bi_khoan" ? (
           <ChuanBiKhoanField value={Array.isArray(form[f.key]) ? (form[f.key] as ChuanBiKhoanRow[]) : []}
             onChange={(v) => set(f.key, v)} />
         ) : f.type === "bands" ? (
@@ -1154,7 +1237,11 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
             onChange={(v) => set(f.key, v)}
           />
         ) : f.type === "don_vi_toc_do" ? (
-          <DonViTocDoField value={String(form[f.key] ?? "")} onChange={(v) => set(f.key, v)} />
+          <DonViTocDoField
+            value={String(form[f.key] ?? "")}
+            onChange={(v) => set(f.key, v)}
+            donViList={refData[f.refPrefix ?? ""] ?? []}
+          />
         ) : f.type === "ref" ? (
           <div className="rc-input-wrapper">
             <select className="rc-input" value={String(form[f.key] ?? "")} onChange={(e) => setRef(f.key, e.target.value)}>

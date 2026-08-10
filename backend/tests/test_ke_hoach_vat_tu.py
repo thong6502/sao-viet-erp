@@ -568,3 +568,100 @@ def test_dong_trong_nhom_sap_theo_NGAY_CAN(db, svc, customer):
     ngays = [d["ngay_can"] for d in dong]
     assert ngays == sorted(ngays), f"dòng phải xếp theo ngày cần tăng dần, thực tế {ngays}"
     assert [d["ma"] for d in dong] == ["LSX-SOM", "LSX-GIUA", "LSX-MUON"]
+
+
+# ── Dòng CÔNG CỤ (khuôn): đọc CỜ danh mục, KHÔNG dò tên công đoạn ───────────────
+# Chốt chặn này trước nằm ở `test_lsx_service` (checklist "thiếu khuôn" của lệnh). Checklist đó
+# đã bỏ 11/08/2026 cùng ô gán khuôn ở màn Kế hoạch, nhưng CÙNG cặp cờ vẫn quyết định bảng cân
+# đối có sinh dòng khuôn hay không — nên luật phải được ghim lại ở đây.
+#
+# Công đoạn là danh mục ĐỘNG: người dùng khai lúc chạy, đặt tên gì cũng được ("Ép kim",
+# "Die-cut", "Bế nổi"…). Dò chữ "bế" trong tên sai cả hai chiều.
+def _cong_doan_dung_cu(db, *, ma: str, ten: str, can_khuon: bool, loai: str | None = "khuon_be"):
+    from app.models.cong_doan import CongDoan
+
+    cd = CongDoan(
+        ma=ma, ten=ten, nhom="finishing", don_vi_vao="to", don_vi_ra="to",
+        requires_tooling=can_khuon, tooling_type=loai if can_khuon else None,
+    )
+    db.add(cd)
+    db.flush()
+    return cd
+
+
+def _gan_buoc(db, lsx: Lsx, cd, ten: str) -> None:
+    db.add(LsxCongDoan(
+        lsx_id=lsx.id, thu_tu=9, ten=ten, cong_doan_id=cd.id, loai_buoc="may",
+        may_id=_may(db).id, don_vi_vao="to", don_vi_ra="to",
+        so_luong_vao=100, so_luong_ra=100,
+    ))
+    db.commit()
+
+
+def test_dong_khuon_theo_CO_danh_muc_du_ten_khong_co_chu_be(db, svc, customer):
+    """Tên "Ép kim" — không có chữ "bế" — nhưng danh mục khai CẦN khuôn ⇒ vẫn phải có dòng khuôn."""
+    g = _giay(db)
+    l = _lenh(db, customer, ma="LSX-EPKIM", giay_id=g.id, so_to_nguyen=100)
+    _gan_buoc(db, l, _cong_doan_dung_cu(db, ma="CD-EP", ten="Ép kim", can_khuon=True,
+                                        loai="khuon_ep"), "Ép kim")
+
+    nhoms = [n for n in svc.can_doi()["items"] if n.get("loai_nhom") == "cong_cu"]
+    assert nhoms, "công đoạn khai requires_tooling=True phải sinh dòng công cụ"
+    assert any(d["ma"] == "LSX-EPKIM" for n in nhoms for d in n["dong"])
+
+
+def test_ten_co_chu_be_nhung_danh_muc_noi_khong_can_thi_KHONG_de_ra_dong_khuon(db, svc, customer):
+    """Chiều ngược lại: "Kiểm bế" có chữ "bế" nhưng không cần khuôn ⇒ không được báo oan."""
+    g = _giay(db)
+    l = _lenh(db, customer, ma="LSX-KIEMBE", giay_id=g.id, so_to_nguyen=100)
+    _gan_buoc(db, l, _cong_doan_dung_cu(db, ma="CD-KIEM", ten="Kiểm bế", can_khuon=False),
+              "Kiểm bế")
+
+    nhoms = [n for n in svc.can_doi()["items"] if n.get("loai_nhom") == "cong_cu"]
+    assert not any(d["ma"] == "LSX-KIEMBE" for n in nhoms for d in n["dong"])
+
+
+def test_hai_buoc_can_khuon_thi_RA_HAI_DONG_theo_tung_khuon(db, svc, customer):
+    """Hộp vừa Bế vừa Ép nhũ = hai khuôn khác nhau, hai ngày cần khác nhau.
+
+    Trước 11/08/2026 khuôn gán ở CẤP LỆNH nên chỉ giữ được một cái và bảng cân đối chỉ lấy bước
+    ĐẦU TIÊN cần khuôn — khuôn ép về muộn vẫn báo xanh vì đã canh theo ngày bế.
+    """
+    from app.models.khuon_be import KhuonBe
+
+    g = _giay(db)
+    l = _lenh(db, customer, ma="LSX-2KHUON", giay_id=g.id, so_to_nguyen=100)
+    kb = KhuonBe(ma="KB-01", ten="Khuôn bế hộp")
+    ke = KhuonBe(ma="KE-01", ten="Khuôn ép nhũ")
+    db.add_all([kb, ke])
+    db.flush()
+
+    cd_be = _cong_doan_dung_cu(db, ma="CD-BE2", ten="Die-cut", can_khuon=True, loai="khuon_be")
+    cd_ep = _cong_doan_dung_cu(db, ma="CD-EP2", ten="Ép nhũ", can_khuon=True, loai="khuon_ep")
+    db.add(LsxCongDoan(lsx_id=l.id, thu_tu=8, ten="Die-cut", cong_doan_id=cd_be.id,
+                       loai_buoc="may", may_id=_may(db).id, khuon_be_id=kb.id,
+                       don_vi_vao="to", don_vi_ra="to", so_luong_vao=100, so_luong_ra=100))
+    db.add(LsxCongDoan(lsx_id=l.id, thu_tu=9, ten="Ép nhũ", cong_doan_id=cd_ep.id,
+                       loai_buoc="may", may_id=_may(db).id, khuon_be_id=ke.id,
+                       don_vi_vao="to", don_vi_ra="to", so_luong_vao=100, so_luong_ra=100))
+    db.commit()
+
+    nhoms = [n for n in svc.can_doi()["items"] if n.get("loai_nhom") == "cong_cu"]
+    theo_ten = {n["hang_ten"]: n for n in nhoms}
+    assert "Khuôn bế hộp" in theo_ten and "Khuôn ép nhũ" in theo_ten, theo_ten.keys()
+    # Mỗi khuôn một dòng, và dòng nào cũng chỉ đích danh BƯỚC dùng nó.
+    assert [d["ten_viec"] for d in theo_ten["Khuôn bế hộp"]["dong"]] == ["Die-cut"]
+    assert [d["ten_viec"] for d in theo_ten["Khuôn ép nhũ"]["dong"]] == ["Ép nhũ"]
+
+
+def test_buoc_chua_gan_khuon_van_gom_rieng_va_bao_do(db, svc, customer):
+    """Chưa gán khuôn thì vẫn phải hiện (đỏ) — im lặng thì tới ngày bế mới biết là không có khuôn."""
+    g = _giay(db)
+    l = _lenh(db, customer, ma="LSX-CHUAGAN", giay_id=g.id, so_to_nguyen=100)
+    cd = _cong_doan_dung_cu(db, ma="CD-BE3", ten="Bế", can_khuon=True, loai="khuon_be")
+    _gan_buoc(db, l, cd, "Bế")
+
+    nhom = next(n for n in svc.can_doi()["items"]
+                if n.get("loai_nhom") == "cong_cu" and n["hang_id"] == 0)
+    assert nhom["hang_ten"] == "Chưa gán khuôn"
+    assert nhom["so_dong_do"] == 1

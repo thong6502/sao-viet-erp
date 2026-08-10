@@ -137,10 +137,9 @@ export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
 
 // Form MỞ (phẳng): mọi ô luôn hiện, không phân loại cứng. Chủ xưởng tự đặt "Nhóm máy"
 // (chữ tự do) rồi nhập khổ kẽm / nhíp / khổ giấy / vùng in / ghi chú.
-// Nhãn đơn vị tốc độ cho BẢNG DANH SÁCH — lấy ĐÚNG bảng mà ô chọn đang dùng (`DON_VI_TOC_DO`).
-// Trước đây đây là bảng nhãn RIÊNG, thiếu mã nào thì hiện trần phần mã: máy khai `tan_gio` ra
-// "tan/giờ" mất dấu, mà ô chọn ngay cạnh lại ghi "tấn/h". Hai bảng nhãn cho cùng một thứ thì kiểu
-// gì cũng lệch — nay một nguồn duy nhất.
+// Nhãn đơn vị tốc độ cho BẢNG DANH SÁCH (cột chỉ có mã, không fetch được danh mục). Ô CHỌN trong
+// form nay lấy động từ `/api/don-vi` nên nhãn ở đó là `ten` thật; bảng `DON_VI_TOC_DO` dưới đây chỉ
+// còn phủ nhãn đẹp cho các mã quen ở cột danh sách, mã lạ thì hiện trần `<mã>/h` (fallback).
 function nhanDonViTocDo(ma: string): string {
   if (!ma) return "";
   const co = DON_VI_TOC_DO.find((d) => d.ma === ma);
@@ -243,6 +242,10 @@ export const CFG_MAY: CatalogConfig = {
     // ── 1. Thông tin chung ──────────────────────────────────────────────────
     { key: "loai_may", label: "Nhóm máy", type: "nhom_may", required: true, group: "Thông tin chung",
       refPrefix: "/api/nhom-may" },
+    // Nhận diện tài sản — cột đã có sẵn trong DB (chỉ chưa bày ra form).
+    { key: "hang_san_xuat", label: "Hãng sản xuất", type: "text", group: "Thông tin chung" },
+    { key: "model", label: "Model", type: "text", group: "Thông tin chung" },
+    { key: "so_seri", label: "Số seri", type: "text", group: "Thông tin chung" },
     // ── 2. Khổ kẽm & Vùng in (chỉ Máy in) ───────────────────────────────────
     { key: "kho_kem_rong", label: "Khổ kẽm — rộng (mm)", type: "number", group: "Khổ kẽm & Vùng in",
       showIf: (f) => isMayIn(f.loai_may) },
@@ -269,6 +272,7 @@ export const CFG_MAY: CatalogConfig = {
     // ── 5. Tốc độ & Năng suất vận hành ───────────────────────────────────────
     { key: "toc_do", label: "Tốc độ trung bình", type: "number", group: "Tốc độ & Vận hành" },
     { key: "don_vi_toc_do", label: "Đơn vị tốc độ", type: "don_vi_toc_do",
+      refPrefix: "/api/don-vi", refParams: { active: true, size: 200 },
       group: "Tốc độ & Vận hành", default: "to_gio" },
     { key: "toc_do_min", label: "Tốc độ tối thiểu", type: "number", group: "Tốc độ & Vận hành" },
     { key: "toc_do_max", label: "Tốc độ tối đa", type: "number", group: "Tốc độ & Vận hành" },
@@ -295,7 +299,10 @@ export const CFG_MAY: CatalogConfig = {
     { key: "chuan_bi_khoan", label: "Các khoản chuẩn bị", type: "chuan_bi_khoan",
       group: "Tốc độ & Vận hành", jsonKey: "fields_theo_loai",
       showIf: (f) => f._chuan_bi_kieu === "khoan" },
-    // ── 6. Ghi chú ───────────────────────────────────────────────────────────
+    // ── 6. Bảo trì định kỳ (lưu lồng trong fields_theo_loai — KHÔNG cột mới, KHÔNG migration) ─
+    { key: "lich_bao_tri", label: "Lịch bảo trì định kỳ", type: "lich_bao_tri",
+      group: "Bảo trì định kỳ", jsonKey: "fields_theo_loai" },
+    // ── 7. Ghi chú ───────────────────────────────────────────────────────────
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
   // Đơn vị tốc độ là Ô CHỌN 2 giá trị, không suy từ `loai_may`: nhóm máy ở đây là CHỮ TỰ DO

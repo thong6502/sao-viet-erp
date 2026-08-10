@@ -83,11 +83,7 @@ export function nhatKyDanhMuc(
   return authed(`/api/nhat-ky-danh-muc/${loai}/${id}`, token);
 }
 
-// BHR preview cho Máy.
-export function mayBhr(token: string, id: number): Promise<{
-  gio_tinh_phi: number | null; breakdown: Record<string, number>; BHR: number; don_gia_ban_gio: number;
-}> {
-  return authed(`/api/may-thiet-bi/${id}/bhr`, token);
-}
+// `mayBhr` (BHR preview cho Máy) ĐÃ GỠ 11/08/2026 — không page nào gọi, và endpoint
+// `/api/may-thiet-bi/{id}/bhr` cũng đã gỡ cùng cả khối cột BHR (không có ô nhập nào).
 
 

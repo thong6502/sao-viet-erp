@@ -65,26 +65,10 @@ from ..services.tinh_gia_service import _bu_hao_to_dict, _resolve_thanh_phan
 # Công đoạn sau xén → đếm bằng CON (thành phẩm); còn lại đếm bằng TỜ. Heuristic theo tên để điền
 # MẶC ĐỊNH cho kế hoạch, không phải luật — mọi dòng sửa được.
 
-# Loại dụng cụ ĐƯỢC LƯU TRONG KHO KHUÔN (`khuon_be`) ⇒ mới hỏi được "đã gán chưa".
-#
-# `kem` cố ý ĐỨNG NGOÀI: kẽm là vật tư tiêu hao, mỗi bài phơi mới, không có dòng nào trong kho
-# khuôn để gán. Đưa vào đây là mọi lệnh in offset đỏ vĩnh viễn mà không ai gỡ được.
-#
-# ⚠️ Trước 10/08/2026 chỗ này dò TÊN công đoạn (`"bế" / "be " / "cấn"` in ten). Sai nền tảng:
-# công đoạn do người dùng khai lúc chạy, đặt tên gì cũng được. Hai chiều đều hỏng —
-#   · "Ép kim" khai `requires_tooling=True, tooling_type='khuon_ep'` (CẦN khuôn thật) nhưng tên
-#     không chứa "bế" ⇒ máy IM LẶNG, lệnh xuống xưởng không ai gán khuôn;
-#   · công đoạn đặt tên "Die-cut" cũng im, còn tên lỡ có chữ "bế" mà không cần khuôn thì báo oan.
-# Nay đọc CỜ người dùng khai trong danh mục Công đoạn.
-_TOOLING_CAN_GAN = ("khuon_be", "khuon_ep")
-
-
-def _can_khuon(routing: list[dict]) -> bool:
-    """Routing này có bước nào cần một khuôn lấy từ kho khuôn không."""
-    return any(
-        r.get("requires_tooling") and r.get("tooling_type") in _TOOLING_CAN_GAN
-        for r in routing
-    )
+# Checklist "thiếu khuôn bế" ĐÃ BỎ khỏi file này (11/08/2026) cùng ô gán khuôn ở màn Kế hoạch.
+# Luật ĐỌC CỜ (`requires_tooling` / `tooling_type` khai ở danh mục Công đoạn, KHÔNG dò chữ "bế"
+# trong tên) vẫn sống ở bảng cân đối vật tư — xem `KeHoachVatTuService._cong_doan_can_dung_cu`.
+# Đừng dựng lại kiểu dò tên ở đây: công đoạn là danh mục người dùng tự khai, đặt tên gì cũng được.
 
 # Trường KHÔNG chép sang quy cách lệnh sản xuất: toàn bộ là TIỀN (lệnh xuống xưởng không mang
 # giá vốn) + số lượng (đã có `so_luong_dat` của ĐƠN, chép lại chỉ gây mâu thuẫn).
@@ -793,8 +777,9 @@ class LsxService:
                 thieu.append("thieu_routing")
         if order.delivery_committed_date is None:
             thieu.append("thieu_ngay_giao")
-        if _can_khuon(routing) and not khuon_be_id:
-            thieu.append("thieu_khuon")
+        # "thiếu khuôn bế" ĐÃ BỎ khỏi checklist (chủ 11/08/2026): ô gán khuôn ở cấp lệnh đã gỡ
+        # khỏi màn Kế hoạch, nên giữ điều kiện này thì mọi lệnh có bước bế mắc kẹt ở CHỜ BỔ SUNG
+        # mà không ai gỡ được. Khuôn gắn với BƯỚC bế, không phải với cả lệnh.
         return thieu
 
     # ================= PREVIEW =================
@@ -1123,8 +1108,7 @@ class LsxService:
                 thieu.append("thieu_routing")
         if (order.delivery_committed_date if order else None) is None and lsx.han_giao_khach is None:
             thieu.append("thieu_ngay_giao")
-        if _can_khuon(routing) and not lsx.khuon_be_id:
-            thieu.append("thieu_khuon")
+        # (bỏ "thieu_khuon" — xem chú thích ở `_thieu`)
 
         # --- Điều kiện "sẵn sàng xếp lịch" của từng bước (§12) ---
         for cd in lsx.cong_doans:
@@ -1652,6 +1636,12 @@ class LsxService:
             "buoc_bi_de": de_len,
         }
 
+    def _khuon_ten(self, khuon_id: int | None) -> str | None:
+        if not khuon_id:
+            return None
+        k = self.db.get(KhuonBe, khuon_id)
+        return k.ten if k is not None else None
+
     def _cong_doan_dict(self, cd, dept_names: dict, may_names: dict,
                         quy_cach: dict | None = None) -> dict:
         vao = _f(cd.so_luong_vao)
@@ -1664,6 +1654,13 @@ class LsxService:
             "department_id": cd.department_id,
             "department_ten": dept_names.get(cd.department_id),
             "may_id": cd.may_id, "may_ten": may_names.get(cd.may_id),
+            # Dụng cụ của CHÍNH bước này. Hai cờ đi kèm để form biết có phải hỏi khuôn không —
+            # đọc CỜ ở danh mục Công đoạn, KHÔNG dò chữ "bế" trong tên bước (tên là chữ người
+            # dùng gõ). `khuon_be_ten` để hiện chữ khi người xem không có quyền đọc danh mục khuôn.
+            "requires_tooling": bool(getattr(cd_obj, "requires_tooling", False)),
+            "tooling_type": getattr(cd_obj, "tooling_type", None),
+            "khuon_be_id": cd.khuon_be_id,
+            "khuon_be_ten": self._khuon_ten(cd.khuon_be_id),
             "so_luong_vao": vao, "so_luong_ra": _f(cd.so_luong_ra),
             "don_vi_vao": cd.don_vi_vao, "don_vi_ra": cd.don_vi_ra,
             "he_so_quy_doi": _f(cd.he_so_quy_doi),
@@ -2027,7 +2024,7 @@ class LsxService:
     # và `cho_phut`. `setup_phut` · `chay_phut` · `di_chuyen_phut` · `ve_sinh_phut` đã rời bộ này:
     # còn cột trong DB nhưng không nhận từ client và engine không đọc.
     _ROUTING_FIELD_THUAN = (
-        "may_id", "bat_buoc", "so_luot_chay",
+        "may_id", "khuon_be_id", "bat_buoc", "so_luot_chay",
         # Ba mốc nhân lực: kế thừa từ định mức là MẶC ĐỊNH, người kế hoạch sửa được tại bước.
         "so_nhan_cong", "so_nhan_cong_toi_thieu", "so_nhan_cong_tieu_chuan",
         "so_nhan_cong_toi_da", "phat_sinh_phut",
@@ -2038,7 +2035,8 @@ class LsxService:
         "ghi_chu",
     )
     _ROUTING_FIELD_NULLABLE = {
-        "may_id", "chay_phut", "nha_cung_cap", "ngay_gui_dk", "ngay_nhan_dk", "ghi_chu",
+        "may_id", "khuon_be_id", "chay_phut", "nha_cung_cap", "ngay_gui_dk", "ngay_nhan_dk",
+        "ghi_chu",
     }
 
     def replace_routing(self, *, lsx_id: int, rows_in, actor, ly_do: str | None = None) -> Lsx:

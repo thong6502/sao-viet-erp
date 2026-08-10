@@ -1522,6 +1522,70 @@ function QuotationDetailView({
               <div className="hint" style={{ margin: "14px 16px", color: "var(--signal)" }}><span>{d.cancel_reason}</span></div>
             </div>
           )}
+          {/* Lịch sử phiên bản */}
+          <div className="panel">
+            <div className="panel__hd">
+              <h3><History size={16} /> Lịch sử phiên bản</h3>
+              <button type="button" className="viewall" onClick={() => setCompareOn((v) => !v)}><ArrowLeftRight size={14} /> So sánh</button>
+            </div>
+            <div className="vh scrollbox">
+              {d.versions.slice().sort((a, b) => b.version - a.version).map((v) => {
+                const isCur = v.version === latestVer;
+                const active = v.version === d.version;
+                return (
+                  <div
+                    key={v.id}
+                    className={`vrow${active ? " cur" : ""}${!isCur ? " old" : ""}`}
+                    onClick={() => v.id !== d.id && reload(v.id)}
+                    title={active ? "Đang xem phiên bản này" : "Bấm để xem phiên bản này"}
+                  >
+                    <span className="vtag">v{v.version}</span>
+                    {active && <span className="vnow">Đang xem</span>}
+                    <div className="vmid">
+                      <div className="a">{v.change_reason || "—"}</div>
+                      <div className="m">{fmtDate(v.created_at)}{isCur ? " · hiện tại" : ""}</div>
+                    </div>
+                    <div className="vright">
+                      <div className="p rust-num">{vnd(v.total ?? 0)}</div>
+                      <StatusPill status={v.status} statuses={statuses} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {compareOn && (
+              <div style={{ padding: "0 14px 14px" }}>
+                <div style={{ borderTop: "1px solid var(--rule-soft)", paddingTop: "12px", overflowX: "auto" }}>
+                  <table className="cmp-tbl">
+                    <thead>
+                      <tr><th>Chỉ tiêu</th>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <th key={v.id}>v{v.version}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      <tr><td>Giá vốn (khóa)</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{v.total_cost != null ? vnd(v.total_cost) : "—"}</td>)}</tr>
+                      <tr><td>Giá bán (đã VAT)</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{vnd(v.total ?? 0)}</td>)}</tr>
+                      <tr>
+                        <td>Chênh lệch</td>
+                        {d.versions.slice().sort((a, b) => a.version - b.version).map((v, i, arr) => {
+                          if (i === 0) return <td key={v.id}>—</td>;
+                          const diff = (v.total ?? 0) - (arr[i - 1].total ?? 0);
+                          if (diff === 0) return <td key={v.id}>0</td>;
+                          return <td key={v.id}><span className={diff > 0 ? "up" : "down"}>{diff > 0 ? "+" : ""}{vnd(diff)}</span></td>;
+                        })}
+                      </tr>
+                      <tr><td>Chiết khấu</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{v.discount ? vnd(v.discount) : "—"}</td>)}</tr>
+                      <tr><td>Lý do</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id} style={{ textAlign: "left", fontWeight: 400, whiteSpace: "normal" }}>{v.change_reason || "—"}</td>)}</tr>
+                      <tr><td>Trạng thái</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{labelOf(statuses, v.status)}</td>)}</tr>
+                      <tr><td>Ngày</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{fmtDate(v.created_at)}</td>)}</tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Tài liệu đính kèm — vùng kéo-thả cần bề rộng nên ở cột nội dung, không nhét sidebar. */}
+          <AttachmentsPanel token={token} quoteId={d.id} canEdit={canRequote && d.status !== "cancelled"} />
+
         </div>
 
         {/* ================= RIGHT: giá bán + khách hàng ================= */}
@@ -1680,103 +1744,42 @@ function QuotationDetailView({
               </div>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* ===== Khu dưới: Lịch sử phiên bản | Hoạt động — mỗi khối cuộn trong khối (chống dài) ===== */}
-      <div className="gg">
-        {/* Lịch sử phiên bản */}
-        <div className="panel">
-          <div className="panel__hd">
-            <h3><History size={16} /> Lịch sử phiên bản</h3>
-            <button type="button" className="viewall" onClick={() => setCompareOn((v) => !v)}><ArrowLeftRight size={14} /> So sánh</button>
-          </div>
-          <div className="vh scrollbox">
-            {d.versions.slice().sort((a, b) => b.version - a.version).map((v) => {
-              const isCur = v.version === latestVer;
-              const active = v.version === d.version;
-              return (
-                <div
-                  key={v.id}
-                  className={`vrow${active ? " cur" : ""}${!isCur ? " old" : ""}`}
-                  onClick={() => v.id !== d.id && reload(v.id)}
-                  title={active ? "Đang xem phiên bản này" : "Bấm để xem phiên bản này"}
-                >
-                  <span className="vtag">v{v.version}</span>
-                  {active && <span className="vnow">Đang xem</span>}
-                  <div className="vmid">
-                    <div className="a">{v.change_reason || "—"}</div>
-                    <div className="m">{fmtDate(v.created_at)}{isCur ? " · hiện tại" : ""}</div>
+          {/* Hoạt động — nhật ký tương tác THẬT: ai làm gì · khi nào (mọi vai trò đụng cùng phiếu).
+              Ở cột phụ nên xếp 2 dòng: hành động ở trên, người + thời điểm ở dưới — nhồi cả ba vào
+              một dòng thì tên dài ("Giám đốc · Giám đốc · Nguyễn Văn Giám") tự bẻ 3 dòng, rối. */}
+          <div className="panel">
+            <div className="panel__hd"><h3><Activity size={16} /> Hoạt động</h3><span className="tag">{acts.length} sự kiện</span></div>
+            <div className="tl scrollbox">
+              {acts.length === 0 ? (
+                <div className="tl-empty">Chưa có hoạt động.</div>
+              ) : acts.map((a, i) => {
+                const m = ACT_META[a.action] ?? [Zap, "ash", a.action];
+                const ActIcon = m[0];
+                const tone = a.action === "quote_exception_rejected" || a.action === "transition_rejected" || a.action === "transition_cancelled" || a.action === "transition_expired"
+                  ? "sig"
+                  : i > 0 ? "mut" : "";
+                return (
+                  <div className={`tlrow ${tone}`} key={i}>
+                    <span className="tlic"><ActIcon size={14} /></span>
+                    <div className="tlb">
+                      <div className="a">{m[2]}</div>
+                      <div className="m">
+                        {/* actor_name là "Phòng · Chức vụ · Tên" — cột phụ chỉ đủ chỗ cho TÊN,
+                            chức danh đầy đủ nằm ở tooltip. Không cắt thì mỗi sự kiện chiếm 3 dòng. */}
+                        {a.actor_name ? (
+                          <><span className="who" title={a.actor_name}>{a.actor_name.split(" · ").pop()}</span> · </>
+                        ) : null}
+                        {fmtDateTime(a.at)}
+                      </div>
+                    </div>
                   </div>
-                  <div className="vright">
-                    <div className="p rust-num">{vnd(v.total ?? 0)}</div>
-                    <StatusPill status={v.status} statuses={statuses} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          {compareOn && (
-            <div style={{ padding: "0 14px 14px" }}>
-              <div style={{ borderTop: "1px solid var(--rule-soft)", paddingTop: "12px", overflowX: "auto" }}>
-                <table className="cmp-tbl">
-                  <thead>
-                    <tr><th>Chỉ tiêu</th>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <th key={v.id}>v{v.version}</th>)}</tr>
-                  </thead>
-                  <tbody>
-                    <tr><td>Giá vốn (khóa)</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{v.total_cost != null ? vnd(v.total_cost) : "—"}</td>)}</tr>
-                    <tr><td>Giá bán (đã VAT)</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{vnd(v.total ?? 0)}</td>)}</tr>
-                    <tr>
-                      <td>Chênh lệch</td>
-                      {d.versions.slice().sort((a, b) => a.version - b.version).map((v, i, arr) => {
-                        if (i === 0) return <td key={v.id}>—</td>;
-                        const diff = (v.total ?? 0) - (arr[i - 1].total ?? 0);
-                        if (diff === 0) return <td key={v.id}>0</td>;
-                        return <td key={v.id}><span className={diff > 0 ? "up" : "down"}>{diff > 0 ? "+" : ""}{vnd(diff)}</span></td>;
-                      })}
-                    </tr>
-                    <tr><td>Chiết khấu</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{v.discount ? vnd(v.discount) : "—"}</td>)}</tr>
-                    <tr><td>Lý do</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id} style={{ textAlign: "left", fontWeight: 400, whiteSpace: "normal" }}>{v.change_reason || "—"}</td>)}</tr>
-                    <tr><td>Trạng thái</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{labelOf(statuses, v.status)}</td>)}</tr>
-                    <tr><td>Ngày</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{fmtDate(v.created_at)}</td>)}</tr>
-                  </tbody>
-                </table>
-              </div>
+                );
+              })}
             </div>
-          )}
-        </div>
-
-        {/* Hoạt động — nhật ký tương tác THẬT: ai làm gì · khi nào (mọi vai trò đụng cùng phiếu) */}
-        <div className="panel">
-          <div className="panel__hd"><h3><Activity size={16} /> Hoạt động</h3><span className="tag">{acts.length} sự kiện</span></div>
-          <div className="tl scrollbox">
-            {acts.length === 0 ? (
-              <div className="tl-empty">Chưa có hoạt động.</div>
-            ) : acts.map((a, i) => {
-              const m = ACT_META[a.action] ?? [Zap, "ash", a.action];
-              const ActIcon = m[0];
-              const tone = a.action === "quote_exception_rejected" || a.action === "transition_rejected" || a.action === "transition_cancelled" || a.action === "transition_expired"
-                ? "sig"
-                : i > 0 ? "mut" : "";
-              return (
-                <div className={`tlrow ${tone}`} key={i}>
-                  <span className="tlic"><ActIcon size={14} /></span>
-                  <div className="tlb">
-                    <div className="a">{m[2]}{a.actor_name && <> — <b>{a.actor_name}</b></>}</div>
-                    <div className="m">{fmtDateTime(a.at)}</div>
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </div>
       </div>
 
-      {/* Tài liệu đính kèm (nội bộ) — file khách gửi / mẫu thiết kế / ảnh tham khảo. Xem thêm/xóa
-          khi có quyền sửa và báo giá chưa hủy; ai đọc được báo giá đều xem/tải được tệp. */}
-      <div style={{ marginTop: "18px" }}>
-        <AttachmentsPanel token={token} quoteId={d.id} canEdit={canRequote && d.status !== "cancelled"} />
-      </div>
 
       {requoteOpen && (
         <div className="bg__overlay" onClick={() => setRequoteOpen(false)}>

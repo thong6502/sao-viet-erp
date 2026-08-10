@@ -23,6 +23,12 @@ export interface EditRow {
   bat_buoc: boolean;
   department_id: number | null;
   may_id: number | null;
+  /** Dụng cụ của bước. Hai cờ đầu đọc từ danh mục Công đoạn (chỉ để HIỆN ô, không gửi lên);
+   *  `khuon_be_id` là thứ người kế hoạch chọn. */
+  requires_tooling: boolean;
+  tooling_type: string | null;
+  khuon_be_id: number | null;
+  khuon_be_ten: string | null;
   // số lượng & hao hụt
   so_luong_vao: string;
   so_luong_ra: string;
@@ -130,6 +136,10 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     bat_buoc: cd.bat_buoc,
     department_id: cd.department_id,
     may_id: cd.may_id,
+    requires_tooling: !!cd.requires_tooling,
+    tooling_type: cd.tooling_type ?? null,
+    khuon_be_id: cd.khuon_be_id ?? null,
+    khuon_be_ten: cd.khuon_be_ten ?? null,
     so_luong_vao: s(cd.so_luong_vao),
     so_luong_ra: s(cd.so_luong_ra),
     don_vi_vao: cd.don_vi_vao || "to",
@@ -187,6 +197,7 @@ export function emptyRow(): EditRow {
     key: newKey(), id: null, cong_doan_id: null, ten: "", nhom: null, loai_buoc: "may",
     bat_buoc: true,
     department_id: null, may_id: null,
+    requires_tooling: false, tooling_type: null, khuon_be_id: null, khuon_be_ten: null,
     so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to", he_so_quy_doi: "",
     hao_hut: "", hao_hut_pct: "", so_luot_chay: "", so_nhan_cong: "",
     nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "", cho_phut: "",
@@ -232,6 +243,7 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       // Để TRỐNG tổ → server tự lấy tổ mặc định của công đoạn (không ép khai lại).
       department_id: r.department_id,
       may_id: r.may_id,
+      khuon_be_id: r.khuon_be_id,
       so_luong_vao: n(r.so_luong_vao),
       so_luong_ra: n(r.so_luong_ra),
       don_vi_vao: r.don_vi_vao,

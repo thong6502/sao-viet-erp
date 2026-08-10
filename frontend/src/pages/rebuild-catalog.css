@@ -2549,7 +2549,9 @@ select.rc-input:focus {
 .rc-nk__who {
   font-size: 12.5px;
   font-weight: 500;
-  color: var(--ink-soft, #334155);
+  /* `--ink-soft` KHÔNG có trong tokens.css — viết var(--ink-soft, #hex) là chạy bằng hex dự
+     phòng, màu rơi ra ngoài hệ. Dùng token có thật. */
+  color: var(--ink);
 }
 .rc-nk__at {
   margin-left: auto;

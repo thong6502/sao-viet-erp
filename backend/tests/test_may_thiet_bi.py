@@ -1,4 +1,8 @@
-"""Máy thiết bị — model + compute_bhr (§4.2/4.3) + validate (§8). Self-contained in-memory DB."""
+"""Máy thiết bị — model + validate (§8) + danh mục Nhóm máy. Self-contained in-memory DB.
+
+🔴 Test BHR (`compute_bhr` §4.2/4.3) ĐÃ GỠ 11/08/2026 cùng cả khối cột BHR: form Máy chưa bao giờ
+có ô nhập cho chúng ⇒ công thức luôn chạy trên dữ liệu rỗng. Xem `models/may_thiet_bi.py`.
+"""
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import create_engine
@@ -7,15 +11,12 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 import app.models  # noqa: F401 — đăng ký metadata
-from app.models.may_thiet_bi import MayThietBi
 from app.repositories.may_thiet_bi_repo import MayThietBiRepository
 from app.schemas.may_thiet_bi import MayThietBiIn
 from app.services.may_thiet_bi_service import (
     MayThietBiDuplicate,
     MayThietBiService,
     MayThietBiValidationError,
-    compute_bhr,
-    compute_bhr_preview,
 )
 
 
@@ -27,29 +28,25 @@ def _svc():
 
 
 def _off74(**over):
-    """Máy offset 74 theo ví dụ §4.3."""
+    """Máy offset 74 — chỉ còn field CÓ ô nhập trên form Máy."""
     base = dict(
         ma="OFF-74-4C", ten="Offset 74 4 màu", loai_may="press_offset_sheet",
         kho_max_dai=740, kho_max_rong=530, kho_min_dai=210, kho_min_rong=280,
-        gripper_mm=12, so_units=4, khoa_class="74",
-        von_dau_tu=4_000_000_000, gia_tri_thu_hoi=400_000_000, nam_khau_hao=8,
-        gio_lam_nam=2000, availability_pct=90, productivity_pct=83, lai_von_pct=10,
-        bao_hiem_nam=40_000_000, dien_tich_san_m2=40, don_gia_thue_m2_nam=1_200_000,
-        luong_gio=60_000, luong_burden_pct=30, so_nhan_cong=2, so_may_song_song=1,
-        bao_tri_gio=30_000, overhead_gio=50_000,
-        cong_suat_kW=80, he_so_tai_dien=0.65, don_gia_dien=3000, markup_pct=15,
+        gripper_mm=12, so_nhan_cong=2,
     )
     base.update(over)
     return base
 
 
-def test_create_and_active_from_trang_thai():
+def test_create_va_sua_may():
+    """`trang_thai` + property `active` đã GỠ 11/08/2026 — không có ô nhập nên mọi máy luôn
+    "active", cờ đó chưa bao giờ phân loại được gì. Máy dừng thì khoá theo KHOẢNG THỜI GIAN ở
+    `machine_unavailable_periods`, đó mới là thứ Xếp lịch đọc."""
     db, svc = _svc()
     m = svc.create(_off74())
     assert m.id and m.ma == "OFF-74-4C" and m.loai_may == "press_offset_sheet"
-    assert m.active is True                       # trang_thai=active → active
-    m2 = svc.update(m.id, _off74(trang_thai="retired"))
-    assert m2.active is False
+    m2 = svc.update(m.id, _off74(ten="Offset 74 đổi tên"))
+    assert m2.ten == "Offset 74 đổi tên" and m2.id == m.id
 
 
 def test_kip_van_hanh_tieu_chuan_la_du_lieu_khai_bao_cua_may():
@@ -67,28 +64,6 @@ def test_duplicate_ma_rejected():
         svc.create(_off74(ten="Khác tên"))
 
 
-def test_bhr_matches_spec_example():
-    db, svc = _svc()
-    m = svc.create(_off74())
-    r = compute_bhr(m)
-    # §4.3: gio_tinh_phi ≈ 1494 (spec làm tròn 1500), BHR ≈ 897–899k.
-    assert 1490 <= r["gio_tinh_phi"] <= 1500
-    assert 880_000 <= r["BHR"] <= 915_000, r
-    # điện là chi phí CHẠY = 80×0.65×3000 = 156.000
-    assert r["breakdown"]["dien_gio"] == 156_000
-    # lao động = 60k×1.3×2 = 156.000
-    assert r["breakdown"]["lao_dong_gio"] == 156_000
-    # don_gia_ban = BHR×1.15
-    assert abs(r["don_gia_ban_gio"] - r["BHR"] * 1.15) < 1
-
-
-def test_bhr_direct_source():
-    db, svc = _svc()
-    m = svc.create(_off74(nguon_bhr="nhap_truc_tiep", don_gia_gio_BHR=1_000_000, markup_pct=20))
-    r = compute_bhr(m)
-    assert r["BHR"] == 1_000_000 and r["don_gia_ban_gio"] == 1_200_000
-
-
 def test_validate_kho_and_nhip():
     db, svc = _svc()
     with pytest.raises(MayThietBiValidationError):      # E-MAY-KHO
@@ -97,19 +72,6 @@ def test_validate_kho_and_nhip():
         svc.create(_off74(ma="X2", gripper_mm=300, kho_min_rong=280))
     with pytest.raises(MayThietBiValidationError):      # nhóm máy để trống (loai_may free text nhưng bắt buộc)
         svc.create(_off74(ma="X3", loai_may="  "))
-
-
-def test_bhr_preview_from_form_payload():
-    # Payload form CHƯA lưu (string rỗng, field lạ) → vẫn ra đúng BHR §4.3 nhờ default preview.
-    payload = {**_off74(), "ghi_chu": "", "field_la": 123, "fields_theo_loai": {"x": 1}}
-    r = compute_bhr_preview(payload)
-    assert 880_000 <= r["BHR"] <= 915_000
-    # nhập trực tiếp: dùng thẳng đơn giá
-    r2 = compute_bhr_preview({"nguon_bhr": "nhap_truc_tiep", "don_gia_gio_BHR": 900_000})
-    assert r2["BHR"] == 900_000
-    # thiếu đơn giá khi nhập trực tiếp → E-MAY-BHR0
-    with pytest.raises(MayThietBiValidationError):
-        compute_bhr_preview({"nguon_bhr": "nhap_truc_tiep"})
 
 
 def test_fields_theo_loai_json_roundtrip():
@@ -173,7 +135,7 @@ def test_dai_toc_do_KHONG_dung_de_tinh_gi_ca():
 
     db, svc = _svc()
     may = svc.create(_off74(toc_do=6000, toc_do_min=1000, toc_do_max=60000,
-                            makeready_time_default=30, thoi_gian_rua_muc=0))
+                            makeready_time_default=30))
 
     class _BG:  # bai ghep gia - ham chi doc may + tong to
         pass
@@ -230,7 +192,7 @@ def test_chuan_bi_cua_MAY_khong_dinh_gi_toi_cong_doan():
     from app.services.xep_lich_service import _thoi_luong_in_ghep
 
     db, svc = _svc()
-    may = svc.create(_off74(toc_do=6000, makeready_time_default=33, thoi_gian_rua_muc=0))
+    may = svc.create(_off74(toc_do=6000, makeready_time_default=33))
 
     class _BG:
         pass

@@ -82,6 +82,7 @@ import {
   StickyNote,
   Pin,
   Clock3,
+  Loader2,          // spinner nút "Tra cứu MST" (.kh__spin quay nó)
 } from "lucide-react";
 import { MixDonut, MonthBars } from "../components/charts";
 import "./khach-hang.css";

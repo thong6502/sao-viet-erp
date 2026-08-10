@@ -67,8 +67,9 @@ def _cap_row(c) -> CapRowOut:
 _doc_don_vi = require_any_permission(
     (MODULE, "read"), ("kho", "read"), ("thu_mua", "read"),
     ("tinh_gia_thanh", "read"), ("san_xuat", "read"),
-    # Các màn danh mục có ô ĐVT trong form: Giấy · Vật tư khác · Công đoạn (đơn vị năng suất).
-    ("dm_giay", "read"), ("dm_vat_tu", "read"), ("dm_cong_doan", "read"))
+    # Các màn danh mục có ô ĐVT trong form: Giấy · Vật tư khác · Công đoạn (đơn vị năng suất) ·
+    # Máy (ô "Đơn vị tốc độ" nay đọc động từ danh mục này thay danh sách viết cứng).
+    ("dm_giay", "read"), ("dm_vat_tu", "read"), ("dm_cong_doan", "read"), ("dm_thiet_bi", "read"))
 
 
 @router.get("", response_model=DonViDoListOut)

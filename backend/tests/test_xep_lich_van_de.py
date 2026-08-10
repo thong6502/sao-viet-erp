@@ -206,7 +206,7 @@ def test_state_lifecycle_technical_no_exception_reopen(db, orders, lsx_svc, xl_s
     _luon_lam(monkeypatch)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]  # quy_cach kho_in 650×900, 4 màu
     nho = MayThietBi(ma="MAY-NHO-VD", ten="Máy con", loai_may="press_offset_sheet",
-                     toc_do=3000, don_vi_toc_do="to_gio", kho_max_dai=520, kho_max_rong=360, so_units=2)
+                     toc_do=3000, don_vi_toc_do="to_gio", kho_max_dai=520, kho_max_rong=360)
     db.add(nho)
     db.flush()
     step = _in_step(db, lsx.id)

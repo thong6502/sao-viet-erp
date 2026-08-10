@@ -229,10 +229,10 @@ def _to_san_xuat(db) -> Department:
 
 
 def _may_in(db) -> MayThietBi:
-    """Máy in có tốc độ + thời gian rửa mực → routing kế thừa được năng suất/vệ sinh."""
+    """Máy in có tốc độ → routing kế thừa được năng suất."""
     may = MayThietBi(
         ma="MAY-IN-T", ten="Máy in 4 màu", loai_may="press_offset_sheet",
-        toc_do=5_000, don_vi_toc_do="to_gio", thoi_gian_rua_muc=15,
+        toc_do=5_000, don_vi_toc_do="to_gio",
         kho_max_dai=1020, kho_max_rong=720,
     )
     db.add(may)
@@ -514,64 +514,23 @@ def test_san_sang_bi_chan_khi_con_thieu_va_mo_khi_du(db, orders, lsx_svc, admin,
     ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
     [hop, _tem] = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
 
-    # có công đoạn Bế mà chưa gán khuôn → CHỜ BỔ SUNG
-    assert hop.trang_thai == TT_CHO_BO_SUNG
-    assert "thieu_khuon" in lsx_svc.thieu_cua(hop)
+    # Bước nội bộ chưa biết TỔ/MÁY nào làm → CHỜ BỔ SUNG. (Mục "thiếu khuôn bế" đã bỏ khỏi
+    # checklist 11/08/2026: ô gán khuôn ở cấp lệnh không còn, giữ lại là khoá lệnh vĩnh viễn.)
+    buoc = hop.cong_doans[0]
+    buoc.department_id = None
+    buoc.may_id = None
+    db.commit()
+    hop = lsx_svc.get(hop.id)
+    assert "thieu_to_may" in lsx_svc.thieu_cua(hop)
     with pytest.raises(LsxConflict):
         lsx_svc.set_trang_thai(lsx_id=hop.id, trang_thai=TT_SAN_SANG, actor=admin)
 
-    from app.models.khuon_be import KhuonBe
-
-    khuon = KhuonBe(ma="KB-01", ten="Khuôn hộp 200x150")
-    db.add(khuon)
+    # Gán lại tổ cho bước đó → hết thiếu → mở cửa "Sẵn sàng".
+    lsx_svc.get(hop.id).cong_doans[0].department_id = _to_san_xuat(db).id
     db.commit()
-    hop = lsx_svc.update(lsx_id=hop.id, actor=admin, payload=LsxUpdateIn(khuon_be_id=khuon.id))
+    hop = lsx_svc.get(hop.id)
     assert lsx_svc.thieu_cua(hop) == [] and hop.trang_thai == TT_NHAP
     assert lsx_svc.set_trang_thai(lsx_id=hop.id, trang_thai=TT_SAN_SANG, actor=admin).trang_thai == TT_SAN_SANG
-
-
-def test_thieu_khuon_doc_CO_danh_muc_khong_do_ten_cong_doan(db, orders, lsx_svc, admin, customer):
-    """Checklist khuôn đọc `requires_tooling`/`tooling_type`, KHÔNG dò chữ trong tên công đoạn.
-
-    Công đoạn là danh mục ĐỘNG — người dùng khai lúc chạy, đặt tên gì cũng được. Luật cũ dò
-    `"bế"/"be "/"cấn"` trong tên nên sai cả hai chiều; ca dưới ghim đúng hai chiều đó.
-    """
-    ptg = _ptg_2_san_pham(db)
-    hop_tp = ptg.thanh_phans[0]
-
-    # (1) CẦN khuôn mà TÊN KHÔNG có chữ "bế" — luật cũ IM LẶNG, lệnh xuống xưởng không ai gán khuôn.
-    cd_ep = CongDoan(ma="CD-EPKIM-T", ten="Ép kim", nhom="finishing",
-                     cong_thuc_gia="so_luong * don_gia", department_id=_to_san_xuat(db).id,
-                     don_vi_vao="to", don_vi_ra="to",
-                     requires_tooling=True, tooling_type="khuon_ep")
-    # (2) TÊN có chữ "bế" nhưng danh mục khai KHÔNG cần khuôn — luật cũ báo đỏ oan.
-    cd_kiem = CongDoan(ma="CD-KIEMBE-T", ten="Kiểm bế", nhom="finishing",
-                       cong_thuc_gia="so_luong * don_gia", department_id=_to_san_xuat(db).id,
-                       don_vi_vao="cai", don_vi_ra="cai", requires_tooling=False)
-    db.add_all([cd_ep, cd_kiem])
-    db.flush()
-
-    # Thay routing của Hộp: bỏ bước "Bế" đi, chỉ còn In + Ép kim + Kiểm bế.
-    hop_tp.thanh_phams[1].cong_doan_id = cd_ep.id
-    hop_tp.thanh_phams[1].ten = "Ép kim"
-    hop_tp.thanh_phams[2].cong_doan_id = cd_kiem.id
-    hop_tp.thanh_phams[2].ten = "Kiểm bế"
-    db.commit()
-
-    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
-    dong = next(l for l in lsx_svc.preview(d.id)["lines"] if "thieu_khuon" in l["thieu"])
-    assert [r["ten"] for r in dong["routing"]] == ["In offset", "Ép kim", "Kiểm bế"]
-
-    [hop] = lsx_svc.tao(order_id=d.id, order_line_ids=[dong["order_line_id"]], actor=admin)
-    assert "thieu_khuon" in lsx_svc.thieu_cua(hop)
-
-    # Gỡ Ép kim ra: chỉ còn "Kiểm bế" — tên vẫn có chữ "bế" nhưng danh mục nói không cần khuôn
-    # ⇒ KHÔNG được báo thiếu nữa.
-    for cd in list(hop.cong_doans):
-        if cd.cong_doan_id == cd_ep.id:
-            hop.cong_doans.remove(cd)
-    db.commit()
-    assert "thieu_khuon" not in lsx_svc.thieu_cua(lsx_svc.get(hop.id))
 
 
 def test_don_vi_nang_suat_KHOA_theo_don_gia_khoan(db, lsx_svc):
@@ -1075,7 +1034,7 @@ def test_mac_dinh_ke_thua_tu_danh_muc_cong_doan_va_may(db, orders, lsx_svc, admi
 
     b = {cd.ten: cd for cd in hop.cong_doans}
     # setup ← cong_doan.setup_time; năng suất ← may_thiet_bi. Vệ sinh/rửa mực đã gỡ khỏi hệ nên
-    # bước sinh ra LUÔN 0, kể cả khi máy còn số cũ trong cột dormant `thoi_gian_rua_muc`.
+    # bước sinh ra LUÔN 0 (cột `thoi_gian_rua_muc` cũng đã gỡ khỏi model 11/08/2026).
     assert float(b["In offset"].setup_phut) == 45
     assert float(b["In offset"].nang_suat) == 5000 and b["In offset"].don_vi_nang_suat == "to_gio"
     assert float(b["In offset"].ve_sinh_phut) == 0

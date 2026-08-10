@@ -708,7 +708,7 @@ def test_can_xac_nhan_khi_gan_may_nho(db, orders, lsx_svc, xl_svc, admin, custom
     monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]   # quy_cach kho_in 650×900
     nho = MayThietBi(ma="MAY-NHO", ten="Máy con", loai_may="press_offset_sheet",
-                     toc_do=3000, don_vi_toc_do="to_gio", kho_max_dai=520, kho_max_rong=360, so_units=2)
+                     toc_do=3000, don_vi_toc_do="to_gio", kho_max_dai=520, kho_max_rong=360)
     db.add(nho)
     db.flush()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)

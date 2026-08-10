@@ -6498,3 +6498,52 @@ def _migrate_moi_man_danh_muc_mot_quyen(db: Session) -> None:
 
 
 MIGRATIONS.append(("0184_moi_man_danh_muc_mot_quyen", _migrate_moi_man_danh_muc_mot_quyen))
+
+
+def _migrate_khuon_theo_buoc(db: Session) -> None:
+    """Khuôn gán vào BƯỚC (`lsx_cong_doan.khuon_be_id`), không còn gán vào cả lệnh.
+
+    Ô "Khuôn bế" ở màn Kế hoạch (cấp lệnh) đã bỏ 11/08/2026. Một lệnh có thể cần NHIỀU khuôn —
+    hộp giấy vừa Bế (khuôn bế) vừa Ép nhũ (khuôn ép) — nên một ô cho cả lệnh là sai từ mô hình:
+    giữ được một cái, cái kia không ai biết lấy khuôn nào, và bảng cân đối chỉ canh được một mốc
+    thời gian trong khi hai bước chạy hai ngày khác nhau.
+
+    CHUYỂN dữ liệu cũ, không vứt: `lsx.khuon_be_id` chép xuống bước ĐẦU TIÊN của lệnh đó có công
+    đoạn bật `requires_tooling` với `tooling_type` là khuôn lưu kho (khuon_be · khuon_ep). `kem`
+    KHÔNG tính — kẽm là vật tư tiêu hao, mỗi bài phơi mới, không có dòng nào trong kho khuôn.
+
+    Cột `lsx.khuon_be_id` GIỮ NGUYÊN (dự án không có Alembic, không drop cột) nhưng thôi được đọc.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "lsx_cong_doan" not in tables:
+        return
+    if "khuon_be_id" not in _existing_columns(insp, "lsx_cong_doan"):
+        db.execute(text("ALTER TABLE lsx_cong_doan ADD COLUMN khuon_be_id INTEGER"))
+        db.commit()
+
+    if not {"lsx", "cong_doan"} <= tables:
+        return
+    if "khuon_be_id" not in _existing_columns(insp, "lsx"):
+        return
+
+    # Bước ĐẦU TIÊN (thu_tu nhỏ nhất) của mỗi lệnh mà công đoạn nguồn cần khuôn lưu kho.
+    db.execute(text(
+        "UPDATE lsx_cong_doan SET khuon_be_id = ("
+        "  SELECT l.khuon_be_id FROM lsx l WHERE l.id = lsx_cong_doan.lsx_id"
+        ") "
+        "WHERE khuon_be_id IS NULL "
+        "  AND id IN ("
+        "    SELECT MIN(cd.id) FROM lsx_cong_doan cd "
+        "    JOIN cong_doan c ON c.id = cd.cong_doan_id "
+        "    JOIN lsx l2 ON l2.id = cd.lsx_id "
+        "    WHERE c.requires_tooling = TRUE "
+        "      AND c.tooling_type IN ('khuon_be', 'khuon_ep') "
+        "      AND l2.khuon_be_id IS NOT NULL "
+        "    GROUP BY cd.lsx_id"
+        "  )"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0185_khuon_theo_buoc", _migrate_khuon_theo_buoc))
