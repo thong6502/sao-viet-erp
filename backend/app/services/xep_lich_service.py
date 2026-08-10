@@ -1359,8 +1359,12 @@ class XepLichService:
     def _may_lam_duoc(self, dong: XepLichCongDoan) -> list[MayThietBi]:
         """Máy LÀM ĐƯỢC công đoạn của dòng — theo `cong_doan.nhom_may_cho_phep` (khớp `may.loai_may`).
 
-        Chưa khai ràng buộc ⇒ MỌI máy đang hoạt động. Máy đang gán luôn có mặt kể cả khi sai loại,
-        không thì gợi ý tự loại chính lựa chọn hiện tại và người dùng tưởng mình gán bậy.
+        Chưa khai ràng buộc ⇒ MỌI máy. Máy đang gán luôn có mặt kể cả khi sai loại, không thì gợi
+        ý tự loại chính lựa chọn hiện tại và người dùng tưởng mình gán bậy.
+
+        KHÔNG lọc `trang_thai == "active"` nữa (cột đã gỡ 11/08/2026 — không có ô nhập nên mọi máy
+        luôn "active", lọc mà không loại được gì). Máy dừng vì bảo trì/hỏng đã bị loại đúng chỗ:
+        engine né `machine_unavailable_periods` khi tìm khe, nên máy đang khoá không ra khe sớm.
         """
         cd = None
         if dong.nguon == NGUON_LSX:
@@ -1370,9 +1374,7 @@ class XepLichService:
             bgcd = self.db.get(BaiGhepCongDoan, dong.bai_ghep_cong_doan_id)
             cd = self.db.get(CongDoan, bgcd.cong_doan_id) if bgcd and bgcd.cong_doan_id else None
         allow = (getattr(cd, "nhom_may_cho_phep", None) or []) if cd is not None else []
-        mays = list(self.db.execute(
-            select(MayThietBi).where(MayThietBi.trang_thai == "active")
-        ).scalars())
+        mays = list(self.db.execute(select(MayThietBi)).scalars())
         if allow:
             mays = [m for m in mays if m.loai_may in allow or m.id == dong.may_id]
         return mays
