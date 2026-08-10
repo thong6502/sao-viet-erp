@@ -783,7 +783,6 @@ export function AccountingPurchaseInboxPage({
                     <th>Hạn thanh toán</th>
                     <th>Giá trị</th>
                     <th>Đã chi</th>
-                    <th>Cọc bù</th>
                     <th>Còn nợ</th>
                     <th>Người ghi</th>
                   </tr>
@@ -796,7 +795,6 @@ export function AccountingPurchaseInboxPage({
                       <td>{dot.chua_dat_han ? "Chưa đặt hạn" : fmtDate(dot.due_date)}</td>
                       <td className="acct-amount-cell">{money(dot.amount)}</td>
                       <td className="acct-amount-cell">{money(dot.paid_amount)}</td>
-                      <td className="acct-amount-cell">{money(dot.coc_bu)}</td>
                       <td className="acct-amount-cell">{money(dot.con_no)}</td>
                       <td>
                         {dot.created_by_name || "—"}

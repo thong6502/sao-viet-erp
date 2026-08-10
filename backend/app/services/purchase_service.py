@@ -49,6 +49,7 @@ from ..models.purchase import (
 )
 from ..models.accounting import (
     PAYMENT_RECEIPT_RECEIVED,
+    PAYMENT_STAGE_ADVANCE,
     PAYMENT_VOUCHER_CANCELLED,
     PAYMENT_VOUCHER_PAID,
 )
@@ -364,8 +365,14 @@ def purchase_money(row) -> dict:
     Hai TRẦN lập phiếu chi, khác nhau theo loại phiếu:
       - `outstanding_amount` (= công nợ) — trần của phiếu THANH TOÁN. Không cho chi quá phần nợ đã
         phát sinh, nếu không kế toán trả tiền cho hàng chưa về.
-      - `tran_dat_coc` — trần của phiếu ĐẶT CỌC/ứng trước, tính theo giá trị ĐƠN ĐẶT vì bản chất cọc
-        là chi khi hàng chưa về.
+      - `tran_dat_coc` — trần của phiếu ĐẶT CỌC/ứng trước = **CỌC DỰ KIẾN đã khai trên phiếu mua**
+        trừ phần cọc đã chi (chủ chốt 09/08/2026). Chưa khai cọc dự kiến ⇒ trần 0 ⇒ không lập được
+        phiếu cọc nào.
+
+        Vì sao đổi gốc: trước 09/08 trần cọc lấy theo GIÁ TRỊ ĐƠN, nghĩa là đơn 500tr thì kế toán
+        ứng trước được tới 500tr trong khi hai bên chỉ thoả thuận cọc 50tr — hệ không có gì để đối
+        chiếu với thoả thuận. Nay số cọc phải được KHAI TRƯỚC, và chi bao nhiêu lần cũng được miễn
+        tổng không vượt số đã khai.
     """
     da_giao = da_giao_theo_dong(row)
     total = 0
@@ -412,7 +419,16 @@ def purchase_money(row) -> dict:
     )
     net_paid = paid_amount - receipt_received_amount
     outstanding_amount = max(0, gia_tri_da_giao - net_paid)
-    tran_dat_coc = max(0, total - net_paid)
+    # Trần CỌC = cọc dự kiến − cọc ĐÃ CHI (chỉ đếm phiếu đặt cọc còn hiệu lực, không đếm phiếu
+    # thanh toán). Cố ý KHÔNG trừ `net_paid`: tiền thanh toán cho hàng đã về không liên quan gì tới
+    # hạn mức cọc — trừ vào đây là càng trả tiền hàng càng hết quyền ứng trước.
+    coc_du_kien = int(getattr(row, "deposit_expected", 0) or 0)
+    coc_da_chi = sum(
+        int(v.amount_vnd)
+        for v in row.payment_vouchers
+        if v.status == PAYMENT_VOUCHER_PAID and v.payment_stage == PAYMENT_STAGE_ADVANCE
+    )
+    tran_dat_coc = max(0, coc_du_kien - coc_da_chi)
     if gia_tri_da_giao > 0 and net_paid >= gia_tri_da_giao:
         payment_status = "paid"
     elif net_paid > 0:

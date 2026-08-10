@@ -18,7 +18,8 @@ class BankAccountBaseIn(BaseModel):
 
 
 class CompanyBankAccountIn(BankAccountBaseIn):
-    pass
+    use_for_receipts: bool = True
+    use_for_payments: bool = True
 
 
 class SupplierBankAccountIn(BankAccountBaseIn):
@@ -29,6 +30,8 @@ class CompanyBankAccountOut(BankAccountBaseIn):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    use_for_receipts: bool
+    use_for_payments: bool
     created_at: datetime
     updated_at: datetime
 
@@ -44,6 +47,7 @@ class SupplierBankAccountOut(BankAccountBaseIn):
 
 
 class PaymentVoucherBaseIn(BaseModel):
+    source_type: str | None = Field(default=None, max_length=24)
     voucher_type: str = Field(min_length=1, max_length=24)
     payment_stage: str = Field(min_length=1, max_length=16)
     # Đợt giao mà phiếu này trả cho. BẮT BUỘC với phiếu thanh toán; phải BỎ TRỐNG với phiếu đặt cọc
@@ -65,6 +69,10 @@ class PaymentVoucherBaseIn(BaseModel):
     cash_recipient_name: str | None = Field(default=None, max_length=255)
     cash_recipient_address: str | None = Field(default=None, max_length=500)
     cash_recipient_identity: str | None = Field(default=None, max_length=64)
+    beneficiary_account_holder: str | None = Field(default=None, max_length=255)
+    beneficiary_account_number: str | None = Field(default=None, max_length=64)
+    beneficiary_bank_name: str | None = Field(default=None, max_length=255)
+    beneficiary_bank_branch: str | None = Field(default=None, max_length=255)
     bank_fee_bearer: str | None = Field(default=None, max_length=16)
     # Định khoản in trên mẫu 02-TT — nhập tay, không bắt buộc.
     debit_account: str | None = Field(default=None, max_length=64)
@@ -73,7 +81,7 @@ class PaymentVoucherBaseIn(BaseModel):
 
 
 class PaymentVoucherIn(PaymentVoucherBaseIn):
-    purchase_request_id: int = Field(gt=0)
+    purchase_request_id: int | None = Field(default=None, gt=0)
 
 
 class ApproveAndCreateVoucherIn(PaymentVoucherBaseIn):
@@ -93,7 +101,8 @@ class PaymentVoucherOut(BaseModel):
     doc_no: str | None = None
     debit_account: str | None = None
     credit_account: str | None = None
-    purchase_request_id: int
+    source_type: str = "purchase_request"
+    purchase_request_id: int | None = None
     purchase_request_code: str
     purchase_request_total: int | None = None
     purchase_paid_amount: int | None = None
@@ -189,6 +198,7 @@ class PaymentReceiptIn(BaseModel):
     exchange_rate: float | None = Field(default=None, gt=0)
     content: str = Field(min_length=1, max_length=500)
     company_bank_account_id: int | None = Field(default=None, gt=0)
+    bank_reference: str | None = Field(default=None, max_length=64)
     note: str | None = Field(default=None, max_length=2000)
 
 
@@ -204,8 +214,8 @@ class PaymentReceiptOut(BaseModel):
     id: int
     code: str
     doc_no: str | None = None
-    # Nguồn (V5): 'phieu_chi' (hoàn ứng NCC/NV) | 'don_hang_ban' (thu cọc khách).
-    source_type: str = "phieu_chi"
+    # Nguồn (V5): purchase_refund | order_deposit | other.
+    source_type: str = "purchase_refund"
     # Nhánh Phiếu chi — nullable từ V5 (phiếu thu cọc đơn không có phiếu chi/PMH/NCC).
     payment_voucher_id: int | None = None
     payment_voucher_code: str | None = None
@@ -386,4 +396,78 @@ class PayablesDetailOut(BaseModel):
     total_due: int
     overdue_amount: int
     paid_in_period: int
+    as_of: date
+
+
+# --- Công nợ phải thu ------------------------------------------------------
+
+
+class ReceivableCustomerOut(BaseModel):
+    customer_id: int | None = None
+    customer_name: str
+    order_count: int
+    total_amount: int = 0
+    received_amount: int = 0
+    total_due: int
+    overdue_amount: int
+    no_han_amount: int = 0
+    credit_limit: int = 0
+    payment_term_days: int | None = None
+    vuot_han_muc: bool = False
+    vuot_bao_nhieu: int = 0
+    received_in_period: int = 0
+
+
+class ReceivablesSummaryOut(BaseModel):
+    items: list[ReceivableCustomerOut]
+    total_due: int
+    overdue_amount: int
+    received_in_period: int = 0
+    vuot_han_muc_count: int = 0
+    period_months: int = 3
+    as_of: date
+
+
+class ReceivableItemOut(BaseModel):
+    order_id: int
+    order_code: str
+    customer_id: int | None = None
+    customer_name: str
+    base_date: date | None = None
+    due_date: date | None = None
+    chua_dat_han: bool = False
+    overdue_days: int = 0
+    total_amount: int
+    received_amount: int = 0
+    remaining_amount: int
+
+
+class ReceivableReceiptOut(BaseModel):
+    receipt_id: int
+    code: str
+    doc_no: str | None = None
+    order_id: int | None = None
+    order_code: str | None = None
+    receipt_method: str
+    amount: int
+    receipt_date: date
+    payer_name: str
+    bank_reference: str | None = None
+    created_by_name: str | None = None
+
+
+class ReceivablesDetailOut(BaseModel):
+    customer_id: int
+    customer_name: str
+    credit_limit: int = 0
+    payment_term_days: int | None = None
+    vuot_han_muc: bool = False
+    vuot_bao_nhieu: int = 0
+    items: list[ReceivableItemOut]
+    paid: list[ReceivableReceiptOut]
+    period_months: int
+    all_history: bool = False
+    total_due: int
+    overdue_amount: int
+    received_in_period: int
     as_of: date

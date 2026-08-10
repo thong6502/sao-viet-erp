@@ -634,9 +634,9 @@ function PayablesDrawer({
               <p className="pay-block__hint">
                 Hàng đã về tới đâu thì nợ tới đó, gom theo từng đơn mua. Cột{" "}
                 <strong>Đã trả</strong> chỉ đếm tiền trả{" "}
-                <strong>đích danh đợt đó</strong> (khớp sao kê nhà cung cấp); cột{" "}
-                <strong>Cọc bù</strong> là cọc của cả đơn chiếu xuống. Còn nợ đã
-                trừ cả hai.
+                <strong>đích danh đợt đó</strong> (khớp sao kê nhà cung cấp).{" "}
+                <strong>Còn nợ</strong> đã trừ cả tiền cọc của đơn — nên có đợt
+                chưa trả đồng nào mà còn nợ vẫn nhỏ hơn giá trị đợt.
                 {chuaDatHan > 0 && (
                   <>
                     {" "}
@@ -696,7 +696,6 @@ function PayablesDrawer({
                           <th>Hạn trả</th>
                           <th className="pay-num">Giá trị</th>
                           <th className="pay-num">Đã trả</th>
-                          <th className="pay-num">Cọc bù</th>
                           <th className="pay-num">Còn nợ</th>
                         </tr>
                       </thead>
@@ -718,13 +717,6 @@ function PayablesDrawer({
                             </td>
                             <td className="pay-num">{money(row.amount)}</td>
                             <td className="pay-num">{money(row.paid)}</td>
-                            <td className="pay-num">
-                              {row.coc_bu > 0 ? (
-                                money(row.coc_bu)
-                              ) : (
-                                <small className="pay-cell--zero">—</small>
-                              )}
-                            </td>
                             <td className="pay-num">
                               <strong>{money(row.con_no)}</strong>
                             </td>

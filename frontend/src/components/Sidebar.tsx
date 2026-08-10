@@ -111,8 +111,6 @@ const NAV: NavSection[] = [
       // Đây cũng là nơi DUYỆT đơn mua hàng (chủ 04/08/2026: "phải duyệt ở phần kế toán chứ") —
       // màn Mua hàng bên Thu mua không còn nút duyệt nữa.
       //
-      // "Phiếu thu" và "Tài khoản ngân hàng" tạm GỠ khỏi menu theo yêu cầu; file màn vẫn còn để
-      // dựng lại ở đợt kế toán sau.
       {
         id: "ke-toan-thu-mua",
         label: "Kế toán thu mua",
@@ -125,6 +123,24 @@ const NAV: NavSection[] = [
           // đến từ PMH + phiếu chi. Sau này có công nợ phải THU (khách hàng) thì đó là nhánh khác.
           { id: "ke-toan-cong-no", label: "Công nợ phải trả" },
         ],
+      },
+      {
+        id: "ke-toan-phieu-thu",
+        label: "Phiếu thu",
+        icon: "fileText",
+        module: "ke_toan",
+      },
+      {
+        id: "ke-toan-cong-no-phai-thu",
+        label: "Công nợ phải thu",
+        icon: "calculator",
+        module: "ke_toan",
+      },
+      {
+        id: "ke-toan-tai-khoan-ngan-hang",
+        label: "Tài khoản ngân hàng",
+        icon: "database",
+        module: "ke_toan",
       },
     ],
   },

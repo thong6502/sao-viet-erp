@@ -4119,6 +4119,78 @@ export interface PayablesDetail {
   as_of: string;
 }
 
+// --- Công nợ phải thu ------------------------------------------------------
+export interface ReceivableCustomerRow {
+  customer_id: number | null;
+  customer_name: string;
+  order_count: number;
+  total_amount: number;
+  received_amount: number;
+  total_due: number;
+  overdue_amount: number;
+  no_han_amount: number;
+  credit_limit: number;
+  payment_term_days: number | null;
+  vuot_han_muc: boolean;
+  vuot_bao_nhieu: number;
+  received_in_period: number;
+}
+
+export interface ReceivablesSummary {
+  items: ReceivableCustomerRow[];
+  total_due: number;
+  overdue_amount: number;
+  received_in_period: number;
+  vuot_han_muc_count: number;
+  period_months: number;
+  as_of: string;
+}
+
+export interface ReceivableItemRow {
+  order_id: number;
+  order_code: string;
+  customer_id: number | null;
+  customer_name: string;
+  base_date: string | null;
+  due_date: string | null;
+  chua_dat_han: boolean;
+  overdue_days: number;
+  total_amount: number;
+  received_amount: number;
+  remaining_amount: number;
+}
+
+export interface ReceivableReceiptRow {
+  receipt_id: number;
+  code: string;
+  doc_no: string | null;
+  order_id: number | null;
+  order_code: string | null;
+  receipt_method: PaymentVoucherType;
+  amount: number;
+  receipt_date: string;
+  payer_name: string;
+  bank_reference: string | null;
+  created_by_name: string | null;
+}
+
+export interface ReceivablesDetail {
+  customer_id: number;
+  customer_name: string;
+  credit_limit: number;
+  payment_term_days: number | null;
+  vuot_han_muc: boolean;
+  vuot_bao_nhieu: number;
+  items: ReceivableItemRow[];
+  paid: ReceivableReceiptRow[];
+  period_months: number;
+  all_history: boolean;
+  total_due: number;
+  overdue_amount: number;
+  received_in_period: number;
+  as_of: string;
+}
+
 /** Dòng hàng ĐÃ GÁN nhà cung cấp — chỉ dùng cho đường tạo cả mẻ. */
 export interface PurchaseRequestBatchLineInput extends PurchaseRequestLineInput {
   supplier_id: number;
@@ -4439,6 +4511,11 @@ export interface PurchaseRequestListOut {
 
 export type PaymentVoucherType = "cash" | "bank_transfer";
 export type PaymentStage = "advance" | "partial" | "final" | "other";
+export type PaymentVoucherSource =
+  | "purchase_request"
+  | "internal_expense"
+  | "customer_refund"
+  | "other";
 /** BỎ HẲN `waiting_payment` từ 06/08/2026 (Đ1): lập phiếu chi = tiền ĐÃ RA, phiếu sinh ra đã là
  *  `paid`. Migration đã chuyển mọi phiếu "chờ chi" cũ thành `paid` (có dấu trong `note`). */
 export type PaymentVoucherStatus = "paid" | "cancelled";
@@ -4454,7 +4531,12 @@ export interface BankAccountInput {
   note?: string | null;
 }
 
-export interface CompanyBankAccountRow extends BankAccountInput {
+export interface CompanyBankAccountInput extends BankAccountInput {
+  use_for_receipts: boolean;
+  use_for_payments: boolean;
+}
+
+export interface CompanyBankAccountRow extends CompanyBankAccountInput {
   id: number;
   created_at: string;
   updated_at: string;
@@ -4478,6 +4560,7 @@ export interface PaymentVoucherAccountsInput {
 }
 
 export interface PaymentVoucherBaseInput extends PaymentVoucherAccountsInput {
+  source_type?: PaymentVoucherSource | null;
   voucher_type: PaymentVoucherType;
   payment_stage: PaymentStage;
   /** Đợt giao mà phiếu này trả cho. BẮT BUỘC với phiếu thanh toán khi đơn CÓ đợt giao; phải để
@@ -4499,12 +4582,16 @@ export interface PaymentVoucherBaseInput extends PaymentVoucherAccountsInput {
   cash_recipient_name?: string | null;
   cash_recipient_address?: string | null;
   cash_recipient_identity?: string | null;
+  beneficiary_account_holder?: string | null;
+  beneficiary_account_number?: string | null;
+  beneficiary_bank_name?: string | null;
+  beneficiary_bank_branch?: string | null;
   bank_fee_bearer?: "payer" | "beneficiary" | "shared" | null;
   note?: string | null;
 }
 
 export interface PaymentVoucherInput extends PaymentVoucherBaseInput {
-  purchase_request_id: number;
+  purchase_request_id?: number | null;
 }
 
 export interface PaymentVoucherRow {
@@ -4514,7 +4601,8 @@ export interface PaymentVoucherRow {
   doc_no: string | null;
   debit_account: string | null;
   credit_account: string | null;
-  purchase_request_id: number;
+  source_type: PaymentVoucherSource;
+  purchase_request_id: number | null;
   purchase_request_code: string;
   purchase_request_total: number | null;
   purchase_paid_amount: number | null;
@@ -4595,6 +4683,7 @@ export interface PaymentVoucherAttachment {
 }
 
 export type PaymentReceiptStatus = "waiting_receipt" | "received" | "cancelled";
+export type PaymentReceiptSource = "purchase_refund" | "order_deposit" | "other";
 
 export interface PaymentReceiptInput extends PaymentVoucherAccountsInput {
   payer_name: string;
@@ -4606,6 +4695,7 @@ export interface PaymentReceiptInput extends PaymentVoucherAccountsInput {
   exchange_rate?: number | null;
   content: string;
   company_bank_account_id?: number | null;
+  bank_reference?: string | null;
   note?: string | null;
 }
 
@@ -4614,11 +4704,15 @@ export interface PaymentReceiptRow {
   code: string;
   /** Số IN trên mẫu 01-TT (PT00027). */
   doc_no: string | null;
-  payment_voucher_id: number;
-  payment_voucher_code: string;
-  purchase_request_id: number;
-  purchase_request_code: string;
-  supplier_name: string;
+  source_type: PaymentReceiptSource;
+  payment_voucher_id: number | null;
+  payment_voucher_code: string | null;
+  purchase_request_id: number | null;
+  purchase_request_code: string | null;
+  supplier_name: string | null;
+  order_id: number | null;
+  order_code: string | null;
+  customer_name: string | null;
   payer_name: string;
   payer_address: string | null;
   debit_account: string | null;
@@ -7758,19 +7852,40 @@ export const api = {
       const suffix = allHistory ? "?all_history=true" : "";
       return authed<PayablesDetail>(`/api/accounting/payables/${supplierId}${suffix}`, token);
     },
-    companyAccounts(token: string, activeOnly = false): Promise<CompanyBankAccountRow[]> {
+    receivables(token: string, q?: string): Promise<ReceivablesSummary> {
+      const qs = new URLSearchParams();
+      if (q?.trim()) qs.set("q", q.trim());
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<ReceivablesSummary>(`/api/accounting/receivables${suffix}`, token);
+    },
+    receivablesDetail(
+      token: string,
+      customerId: number,
+      allHistory = false,
+    ): Promise<ReceivablesDetail> {
+      const suffix = allHistory ? "?all_history=true" : "";
+      return authed<ReceivablesDetail>(`/api/accounting/receivables/${customerId}${suffix}`, token);
+    },
+    companyAccounts(
+      token: string,
+      activeOnly = false,
+      usage?: "receive" | "pay" | null,
+    ): Promise<CompanyBankAccountRow[]> {
+      const qs = new URLSearchParams();
+      qs.set("active_only", String(activeOnly));
+      if (usage) qs.set("usage", usage);
       return authed<CompanyBankAccountRow[]>(
-        `/api/accounting/company-bank-accounts?active_only=${activeOnly}`,
+        `/api/accounting/company-bank-accounts?${qs.toString()}`,
         token,
       );
     },
-    createCompanyAccount(token: string, input: BankAccountInput): Promise<CompanyBankAccountRow> {
+    createCompanyAccount(token: string, input: CompanyBankAccountInput): Promise<CompanyBankAccountRow> {
       return authed<CompanyBankAccountRow>("/api/accounting/company-bank-accounts", token, {
         method: "POST",
         body: JSON.stringify(input),
       });
     },
-    updateCompanyAccount(token: string, id: number, input: BankAccountInput): Promise<CompanyBankAccountRow> {
+    updateCompanyAccount(token: string, id: number, input: CompanyBankAccountInput): Promise<CompanyBankAccountRow> {
       return authed<CompanyBankAccountRow>(`/api/accounting/company-bank-accounts/${id}`, token, {
         method: "PUT",
         body: JSON.stringify(input),
@@ -7820,6 +7935,7 @@ export const api = {
       params: {
         q?: string;
         status?: string | null;
+        source_type?: PaymentVoucherSource | null;
         voucher_type?: string | null;
         supplier_id?: number | null;
         purchase_request_id?: number | null;
@@ -7831,6 +7947,7 @@ export const api = {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
       if (params.status) qs.set("status", params.status);
+      if (params.source_type) qs.set("source_type", params.source_type);
       if (params.voucher_type) qs.set("voucher_type", params.voucher_type);
       if (params.supplier_id != null) qs.set("supplier_id", String(params.supplier_id));
       if (params.purchase_request_id != null)
@@ -7867,6 +7984,7 @@ export const api = {
         q?: string;
         status?: string | null;
         payment_voucher_id?: number | null;
+        source_type?: PaymentReceiptSource | null;
         sort?: string;
         page?: number;
         size?: number;
@@ -7877,6 +7995,7 @@ export const api = {
       if (params.status) qs.set("status", params.status);
       if (params.payment_voucher_id != null)
         qs.set("payment_voucher_id", String(params.payment_voucher_id));
+      if (params.source_type) qs.set("source_type", params.source_type);
       if (params.sort) qs.set("sort", params.sort);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
@@ -7893,6 +8012,12 @@ export const api = {
         token,
         { method: "POST", body: JSON.stringify(input) },
       );
+    },
+    createOtherReceipt(token: string, input: PaymentReceiptInput): Promise<PaymentReceiptRow> {
+      return authed<PaymentReceiptRow>(`/api/accounting/payment-receipts`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
     },
     updateReceipt(
       token: string,

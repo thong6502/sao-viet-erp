@@ -83,6 +83,18 @@ def _duyet(client, purchase_id: int) -> None:
     assert r.status_code == 200, r.text
 
 
+def _khai_coc(client, headers, purchase_id: int, so_tien: int) -> dict:
+    """Khai CỌC DỰ KIẾN — bắt buộc trước khi lập phiếu ĐẶT CỌC (luật 09/08/2026), và phải khai lúc
+    phiếu còn NHÁP vì duyệt xong là khoá."""
+    r = client.put(
+        f"/api/purchase-requests/{purchase_id}/contract",
+        json={"contract_number": None, "deposit_expected": so_tien},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 def _voucher(client, headers, supplier_id: int) -> dict:
     source = client.post(
         "/api/department-purchase-requests",
@@ -116,6 +128,8 @@ def _voucher(client, headers, supplier_id: int) -> dict:
         headers=headers,
     )
     assert purchase.status_code == 201, purchase.text
+    # Phiếu dưới đây là phiếu ĐẶT CỌC 1tr ⇒ phải khai cọc dự kiến trước, lúc còn nháp.
+    _khai_coc(client, headers, purchase.json()["id"], 1_000_000)
     submitted = client.post(
         f"/api/purchase-requests/{purchase.json()['id']}/submit", headers=headers
     )

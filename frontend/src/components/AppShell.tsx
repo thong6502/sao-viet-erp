@@ -44,12 +44,11 @@ import { DepartmentPurchaseRequestsPage } from "../pages/DepartmentPurchaseReque
 import { PurchaseRequestsPage } from "../pages/PurchaseRequestsPage";
 import { SuppliersPage } from "../pages/SuppliersPage";
 import { AccountingPayablesPage } from "../pages/AccountingPayablesPage";
+import { AccountingReceivablesPage } from "../pages/AccountingReceivablesPage";
 import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPage";
 import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
 import { PaymentReceiptsPage } from "../pages/PaymentReceiptsPage";
-// Màn "Tài khoản ngân hàng" đã gỡ khỏi menu 04/08/2026 và không còn ai liên kết tới. File màn vẫn
-// giữ để đợt kế toán sau dựng lại; bật lại chỉ cần bỏ comment dòng này và thêm lại `case`.
-// import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
+import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
 import {
   AUTHENTICATED_NAV_IDS,
   MODULES_BY_NAV_ID,
@@ -747,13 +746,10 @@ export function AppShell() {
         );
       case "ke-toan-cong-no":
         return <AccountingPayablesPage navigate={navigate} eventTick={quoteTick} />;
-      // "Phiếu thu" và "Tài khoản ngân hàng" đã GỠ KHỎI MENU (chủ 04/08/2026).
-      //
-      // Nhưng `case` của Phiếu thu vẫn GIỮ, vì hai màn khác đang nhảy sang nó bằng liên kết:
-      // `DonHangBanPage` (theo dấu tiền khách đặt cọc) và `PaymentVouchersPage`. Gỡ `case` thì hai
-      // liên kết đó rơi về Dashboard — người dùng bấm vào thấy nhảy lung tung, tưởng hỏng.
-      // Muốn bỏ HẲN Phiếu thu thì phải gỡ hai liên kết kia trước, và như vậy là cắt luôn đường
-      // theo dõi tiền cọc của Đơn hàng bán — việc đó cần chủ chốt riêng.
+      case "ke-toan-cong-no-phai-thu":
+        return <AccountingReceivablesPage navigate={navigate} eventTick={quoteTick} />;
+      case "ke-toan-tai-khoan-ngan-hang":
+        return <AccountingBankAccountsPage />;
       case "ke-toan-phieu-thu":
         return (
           <PaymentReceiptsPage

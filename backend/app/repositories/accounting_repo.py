@@ -41,10 +41,16 @@ class AccountingRepository:
 
     # --- company bank accounts -------------------------------------------
 
-    def list_company_accounts(self, *, active_only: bool = False) -> list[CompanyBankAccount]:
+    def list_company_accounts(
+        self, *, active_only: bool = False, usage: str | None = None
+    ) -> list[CompanyBankAccount]:
         stmt = select(CompanyBankAccount)
         if active_only:
             stmt = stmt.where(CompanyBankAccount.is_active.is_(True))
+        if usage == "receive":
+            stmt = stmt.where(CompanyBankAccount.use_for_receipts.is_(True))
+        elif usage == "pay":
+            stmt = stmt.where(CompanyBankAccount.use_for_payments.is_(True))
         return list(
             self.db.execute(
                 stmt.order_by(CompanyBankAccount.is_default.desc(), CompanyBankAccount.bank_name, CompanyBankAccount.id)
@@ -140,6 +146,7 @@ class AccountingRepository:
         *,
         q: str | None = None,
         status: str | None = None,
+        source_type: str | None = None,
         voucher_type: str | None = None,
         supplier_id: int | None = None,
         purchase_request_id: int | None = None,
@@ -156,6 +163,8 @@ class AccountingRepository:
                     func.lower(func.coalesce(PaymentVoucher.doc_no, "")).like(like),
                     func.lower(PaymentVoucher.source_code_snapshot).like(like),
                     func.lower(PaymentVoucher.supplier_name_snapshot).like(like),
+                    func.lower(func.coalesce(PaymentVoucher.cash_recipient_name, "")).like(like),
+                    func.lower(func.coalesce(PaymentVoucher.beneficiary_account_holder_snapshot, "")).like(like),
                     func.lower(PaymentVoucher.content).like(like),
                     PaymentVoucher.purchase_request.has(func.lower(PurchaseRequest.code).like(like)),
                     PaymentVoucher.purchase_request.has(
@@ -167,6 +176,8 @@ class AccountingRepository:
             )
         if status:
             conditions.append(PaymentVoucher.status == status)
+        if source_type:
+            conditions.append(PaymentVoucher.source_type == source_type)
         if voucher_type:
             conditions.append(PaymentVoucher.voucher_type == voucher_type)
         if supplier_id is not None:
@@ -273,6 +284,8 @@ class AccountingRepository:
                     func.lower(PaymentReceipt.voucher_code_snapshot).like(like),
                     func.lower(PaymentReceipt.purchase_code_snapshot).like(like),
                     func.lower(PaymentReceipt.supplier_name_snapshot).like(like),
+                    func.lower(PaymentReceipt.order_no_snapshot).like(like),
+                    func.lower(PaymentReceipt.customer_name_snapshot).like(like),
                     func.lower(PaymentReceipt.payer_name).like(like),
                     func.lower(PaymentReceipt.content).like(like),
                 )

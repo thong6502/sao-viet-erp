@@ -6035,3 +6035,189 @@ def _migrate_de_nghi_kho_bo_buoc_duyet(db: Session) -> None:
 
 
 MIGRATIONS.append(("0168_de_nghi_kho_bo_buoc_duyet", _migrate_de_nghi_kho_bo_buoc_duyet))
+
+
+def _migrate_company_bank_account_usage(db: Session) -> None:
+    """Tài khoản ngân hàng công ty dùng chung cho tiền vào/ra.
+
+    Tài khoản cũ mặc định bật cả hai để UNC/Phiếu thu đang có không bị mất lựa chọn.
+    Sau đó kế toán có thể tắt bớt từng mục đích trên giao diện.
+    """
+    insp = inspect(db.get_bind())
+    if "company_bank_accounts" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "company_bank_accounts")
+    if "use_for_receipts" not in cols:
+        db.execute(
+            text(
+                "ALTER TABLE company_bank_accounts "
+                "ADD COLUMN use_for_receipts BOOLEAN NOT NULL DEFAULT TRUE"
+            )
+        )
+    if "use_for_payments" not in cols:
+        db.execute(
+            text(
+                "ALTER TABLE company_bank_accounts "
+                "ADD COLUMN use_for_payments BOOLEAN NOT NULL DEFAULT TRUE"
+            )
+        )
+    db.commit()
+
+
+MIGRATIONS.append(("0174_company_bank_account_usage", _migrate_company_bank_account_usage))
+
+
+def _migrate_bank_accounts_bo_mac_dinh(db: Session) -> None:
+    """Bỏ khái niệm tài khoản ngân hàng mặc định.
+
+    Kế toán tự chọn tài khoản khi lập Phiếu thu/UNC để tránh hệ thống tự điền nhầm tài khoản.
+    Cột `is_default` giữ lại để tương thích schema cũ, nhưng dữ liệu mới không còn dùng.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    for table in ("company_bank_accounts", "supplier_bank_accounts"):
+        if table in tables and "is_default" in _existing_columns(insp, table):
+            db.execute(text(f"UPDATE {table} SET is_default = FALSE WHERE is_default = TRUE"))
+    db.commit()
+
+
+MIGRATIONS.append(("0175_bank_accounts_bo_mac_dinh", _migrate_bank_accounts_bo_mac_dinh))
+
+
+def _migrate_payment_vouchers_da_nguon_chi(db: Session) -> None:
+    """Phiếu chi trở thành sổ chi chung: PMH chỉ là một nguồn chi.
+
+    - Thêm `source_type` để phân biệt: purchase_request / internal_expense /
+      customer_refund / other.
+    - Nới `purchase_request_id` nullable để lập phiếu chi độc lập.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "payment_vouchers" not in insp.get_table_names():
+        return
+    cols = {c["name"]: c for c in insp.get_columns("payment_vouchers")}
+    dialect = bind.dialect.name
+    if dialect == "postgresql":
+        if "source_type" not in cols:
+            db.execute(
+                text(
+                    "ALTER TABLE payment_vouchers "
+                    "ADD COLUMN source_type VARCHAR(24) NOT NULL DEFAULT 'purchase_request'"
+                )
+            )
+        if cols.get("purchase_request_id", {}).get("nullable") is False:
+            db.execute(text("ALTER TABLE payment_vouchers ALTER COLUMN purchase_request_id DROP NOT NULL"))
+        db.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_source_type "
+                "ON payment_vouchers (source_type)"
+            )
+        )
+        db.commit()
+        return
+
+    if dialect != "sqlite":
+        if "source_type" not in cols:
+            db.execute(
+                text(
+                    "ALTER TABLE payment_vouchers "
+                    "ADD COLUMN source_type VARCHAR(24) NOT NULL DEFAULT 'purchase_request'"
+                )
+            )
+        db.commit()
+        return
+
+    info = list(db.execute(text("PRAGMA table_info(payment_vouchers)")).mappings())
+    has_source = any(row["name"] == "source_type" for row in info)
+    purchase_not_null = any(row["name"] == "purchase_request_id" and row["notnull"] for row in info)
+    if has_source and not purchase_not_null:
+        return
+
+    new_columns = [
+        "id INTEGER PRIMARY KEY",
+        "code VARCHAR(32) NOT NULL",
+        "doc_no VARCHAR(16)",
+        "source_type VARCHAR(24) NOT NULL DEFAULT 'purchase_request'",
+        "purchase_request_id INTEGER",
+        "delivery_id INTEGER",
+        "supplier_id INTEGER",
+        "voucher_type VARCHAR(24) NOT NULL",
+        "payment_stage VARCHAR(16) NOT NULL",
+        "status VARCHAR(24) NOT NULL DEFAULT 'waiting_payment'",
+        "voucher_date DATE NOT NULL",
+        "planned_payment_date DATE",
+        "amount BIGINT NOT NULL",
+        "amount_vnd BIGINT NOT NULL",
+        "currency VARCHAR(3) NOT NULL DEFAULT 'VND'",
+        "exchange_rate NUMERIC(18, 6) NOT NULL DEFAULT 1",
+        "content VARCHAR(500) NOT NULL",
+        "invoice_number VARCHAR(64)",
+        "invoice_date DATE",
+        "contract_number VARCHAR(64)",
+        "company_bank_account_id INTEGER",
+        "supplier_bank_account_id INTEGER",
+        "cash_recipient_name VARCHAR(255)",
+        "cash_recipient_address VARCHAR(500)",
+        "cash_recipient_identity VARCHAR(64)",
+        "bank_fee_bearer VARCHAR(16)",
+        "bank_reference VARCHAR(64)",
+        "debit_account VARCHAR(64)",
+        "credit_account VARCHAR(64)",
+        "source_code_snapshot VARCHAR(32) NOT NULL",
+        "supplier_name_snapshot VARCHAR(255) NOT NULL",
+        "supplier_tax_code_snapshot VARCHAR(20)",
+        "supplier_address_snapshot VARCHAR(500)",
+        "company_account_holder_snapshot VARCHAR(255)",
+        "company_account_number_snapshot VARCHAR(64)",
+        "company_bank_name_snapshot VARCHAR(255)",
+        "company_bank_branch_snapshot VARCHAR(255)",
+        "beneficiary_account_holder_snapshot VARCHAR(255)",
+        "beneficiary_account_number_snapshot VARCHAR(64)",
+        "beneficiary_bank_name_snapshot VARCHAR(255)",
+        "beneficiary_bank_branch_snapshot VARCHAR(255)",
+        "created_by_user_id INTEGER",
+        "paid_by_user_id INTEGER",
+        "paid_at DATETIME",
+        "cancelled_by_user_id INTEGER",
+        "cancelled_at DATETIME",
+        "cancel_reason TEXT",
+        "note TEXT",
+        "created_at DATETIME NOT NULL",
+        "updated_at DATETIME NOT NULL",
+    ]
+    old_names = {row["name"] for row in info}
+    target_names = [col.split(" ", 1)[0] for col in new_columns]
+    select_exprs = []
+    for name in target_names:
+        if name in old_names:
+            select_exprs.append(name)
+        elif name == "source_type":
+            select_exprs.append("'purchase_request'")
+        else:
+            select_exprs.append("NULL")
+    db.execute(text("DROP TABLE IF EXISTS payment_vouchers_new"))
+    db.execute(text(f"CREATE TABLE payment_vouchers_new ({', '.join(new_columns)})"))
+    db.execute(
+        text(
+            "INSERT INTO payment_vouchers_new "
+            f"({', '.join(target_names)}) SELECT {', '.join(select_exprs)} "
+            "FROM payment_vouchers"
+        )
+    )
+    db.execute(text("DROP TABLE payment_vouchers"))
+    db.execute(text("ALTER TABLE payment_vouchers_new RENAME TO payment_vouchers"))
+    for ddl in (
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_payment_vouchers_code ON payment_vouchers (code)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_payment_vouchers_doc_no ON payment_vouchers (doc_no)",
+        "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_source_type ON payment_vouchers (source_type)",
+        "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_purchase_request_id ON payment_vouchers (purchase_request_id)",
+        "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_delivery_id ON payment_vouchers (delivery_id)",
+        "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_supplier_id ON payment_vouchers (supplier_id)",
+        "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_voucher_type ON payment_vouchers (voucher_type)",
+        "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_status ON payment_vouchers (status)",
+    ):
+        db.execute(text(ddl))
+    db.commit()
+
+
+MIGRATIONS.append(("0176_payment_vouchers_da_nguon_chi", _migrate_payment_vouchers_da_nguon_chi))

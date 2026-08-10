@@ -1,11 +1,15 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+﻿import { Fragment, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   ApiError,
   api,
   assetUrl,
+  type CompanyBankAccountRow,
   type PaymentVoucherAttachment,
+  type PaymentVoucherInput,
   type PaymentVoucherRow,
+  type PaymentVoucherSource,
   type PaymentVoucherStatus,
+  type PaymentVoucherType,
   type PurchaseRequestRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
@@ -15,7 +19,7 @@ import { Button } from "../components/Button";
 import { CodeLink } from "../components/CodeLink";
 import { DetailModal } from "../components/DetailModal";
 import { Icon } from "../components/Icons";
-import { UNC_ENABLED, VOUCHER_PAGE_LABEL } from "../constants/features";
+import { VOUCHER_PAGE_LABEL } from "../constants/features";
 import {
   amountInWords,
   fmtDate,
@@ -49,6 +53,27 @@ const STAGE_LABELS = {
   other: "Khác",
 } as const;
 
+const SOURCE_LABELS: Record<PaymentVoucherSource, string> = {
+  purchase_request: "Đơn mua hàng",
+  internal_expense: "Khác",
+  customer_refund: "Khác",
+  other: "Khác",
+};
+
+const VOUCHER_METHOD_LABELS: Record<PaymentVoucherType, string> = {
+  cash: "Tiền mặt",
+  bank_transfer: "Chuyển khoản",
+};
+
+function isoToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function optional(value?: string | null): string | null {
+  const cleaned = (value ?? "").trim();
+  return cleaned || null;
+}
+
 /** In Phiếu chi theo mẫu 02-TT. UNC cũng dùng mẫu này (chốt nghiệp vụ), chỉ ghi thêm
  *  dòng thông tin chuyển khoản. */
 function printVoucher(row: PaymentVoucherRow): boolean {
@@ -63,6 +88,7 @@ function printVoucher(row: PaymentVoucherRow): boolean {
     personAddress: isBank ? row.supplier_address : row.cash_recipient_address,
     reason: row.content,
     extraLines: [
+      { label: "Nguồn chi", value: SOURCE_LABELS[row.source_type] ?? row.source_type },
       { label: "Đợt thanh toán", value: STAGE_LABELS[row.payment_stage] },
       ...(isBank
         ? [
@@ -82,6 +108,325 @@ function printVoucher(row: PaymentVoucherRow): boolean {
     attachmentCount: row.attachment_count,
     cancelled: row.status === "cancelled",
   });
+}
+
+function StandaloneVoucherDialog({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: (voucher: PaymentVoucherRow) => void;
+}) {
+  const { token } = useAuth();
+  const [form, setForm] = useState<PaymentVoucherInput>({
+    source_type: "other",
+    voucher_type: "cash",
+    payment_stage: "other",
+    voucher_date: isoToday(),
+    amount: 0,
+    currency: "VND",
+    exchange_rate: 1,
+    content: "",
+    cash_recipient_name: "",
+    cash_recipient_address: null,
+    cash_recipient_identity: null,
+    company_bank_account_id: null,
+    beneficiary_account_holder: null,
+    beneficiary_account_number: null,
+    beneficiary_bank_name: null,
+    beneficiary_bank_branch: null,
+    bank_fee_bearer: "payer",
+    debit_account: null,
+    credit_account: "1111",
+    note: null,
+  });
+  const [companyAccounts, setCompanyAccounts] = useState<CompanyBankAccountRow[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isBank = form.voucher_type === "bank_transfer";
+
+  useEffect(() => {
+    if (!token) return;
+    setLoadingAccounts(true);
+    api.accounting
+      .companyAccounts(token, true, "pay")
+      .then((accounts) => setCompanyAccounts(accounts))
+      .catch(() => setError("Không tải được danh sách tài khoản ngân hàng."))
+      .finally(() => setLoadingAccounts(false));
+  }, [token]);
+
+  function set<K extends keyof PaymentVoucherInput>(key: K, value: PaymentVoucherInput[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!token || saving) return;
+    if (!form.voucher_date || !form.content.trim()) {
+      setError("Vui lòng nhập ngày chứng từ và nội dung chi.");
+      return;
+    }
+    if (!form.cash_recipient_name?.trim()) {
+      setError("Vui lòng nhập người nhận / đối tượng nhận tiền.");
+      return;
+    }
+    if (!Number.isFinite(form.amount) || form.amount <= 0) {
+      setError("Số tiền chi phải lớn hơn 0.");
+      return;
+    }
+    if (isBank && !form.company_bank_account_id) {
+      setError("UNC phải chọn tài khoản trích nợ.");
+      return;
+    }
+    if (
+      isBank &&
+      (!optional(form.beneficiary_account_holder) ||
+        !optional(form.beneficiary_account_number) ||
+        !optional(form.beneficiary_bank_name))
+    ) {
+      setError("UNC phải có tên, số tài khoản và ngân hàng thụ hưởng.");
+      return;
+    }
+
+    const payload: PaymentVoucherInput = {
+      ...form,
+      purchase_request_id: null,
+      source_type: "other",
+      voucher_type: form.voucher_type,
+      payment_stage: "other",
+      delivery_id: null,
+      planned_payment_date: null,
+      amount: Math.round(Number(form.amount)),
+      currency: form.currency.trim().toUpperCase(),
+      exchange_rate: Number(form.exchange_rate || 1),
+      content: form.content.trim(),
+      cash_recipient_name: form.cash_recipient_name.trim(),
+      cash_recipient_address: optional(form.cash_recipient_address),
+      cash_recipient_identity: optional(form.cash_recipient_identity),
+      company_bank_account_id: isBank ? form.company_bank_account_id ?? null : null,
+      supplier_bank_account_id: null,
+      beneficiary_account_holder: isBank ? optional(form.beneficiary_account_holder) : null,
+      beneficiary_account_number: isBank ? optional(form.beneficiary_account_number) : null,
+      beneficiary_bank_name: isBank ? optional(form.beneficiary_bank_name) : null,
+      beneficiary_bank_branch: isBank ? optional(form.beneficiary_bank_branch) : null,
+      bank_fee_bearer: isBank ? form.bank_fee_bearer ?? "payer" : null,
+      debit_account: optional(form.debit_account),
+      credit_account: optional(form.credit_account) ?? (isBank ? "1121" : "1111"),
+      invoice_number: optional(form.invoice_number),
+      invoice_date: optional(form.invoice_date),
+      contract_number: optional(form.contract_number),
+      note: optional(form.note),
+    };
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await api.accounting.createVoucher(token, payload);
+      onSaved(saved);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Không lập được phiếu chi.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="acct-modal" role="dialog" aria-modal="true">
+      <form className="acct-modal__box" onSubmit={submit}>
+        <header className="acct-modal__head">
+          <div>
+            <p className="eyebrow">Phiếu chi</p>
+            <h2>Tạo phiếu chi</h2>
+          </div>
+          <button type="button" className="acct-modal__x" onClick={onClose} aria-label="Đóng">
+            ×
+          </button>
+        </header>
+        <div className="acct-modal__body">
+          {error && (
+            <div className="banner banner--error" role="alert">
+              {error}
+            </div>
+          )}
+          <div className="acct-form-grid acct-form-grid--2">
+            <label className="acct-field">
+              <span>Ngày chứng từ <b>*</b></span>
+              <input
+                className="input"
+                type="date"
+                max={isoToday()}
+                value={form.voucher_date}
+                onChange={(event) => set("voucher_date", event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="acct-segment" aria-label="Hình thức chi">
+            <button
+              type="button"
+              className={form.voucher_type === "cash" ? "is-active" : ""}
+              onClick={() => {
+                set("voucher_type", "cash" as PaymentVoucherType);
+                set("company_bank_account_id", null);
+                set("credit_account", "1111");
+              }}
+            >
+              Tiền mặt
+            </button>
+            <button
+              type="button"
+              className={isBank ? "is-active" : ""}
+              onClick={() => {
+                set("voucher_type", "bank_transfer" as PaymentVoucherType);
+                set("credit_account", "1121");
+              }}
+            >
+              Chuyển khoản
+            </button>
+          </div>
+          <div className="acct-form-grid acct-form-grid--2">
+            <label className="acct-field">
+              <span>Người nhận / đối tượng <b>*</b></span>
+              <input
+                className="input"
+                value={form.cash_recipient_name ?? ""}
+                onChange={(event) => set("cash_recipient_name", event.target.value)}
+                placeholder="Tên người, khách hàng hoặc đơn vị nhận tiền"
+              />
+            </label>
+            <label className="acct-field">
+              <span>Số tiền (VND) <b>*</b></span>
+              <input
+                className="input acct-money-input"
+                type="number"
+                min="1"
+                step="1"
+                value={form.amount === 0 ? "" : form.amount}
+                onChange={(event) => set("amount", Number(event.target.value))}
+              />
+            </label>
+          </div>
+          <label className="acct-field">
+            <span>Địa chỉ / thông tin liên hệ</span>
+            <input
+              className="input"
+              value={form.cash_recipient_address ?? ""}
+              onChange={(event) => set("cash_recipient_address", event.target.value)}
+            />
+          </label>
+          {isBank && (
+            <section className="acct-form-section">
+              <h3>Thông tin chuyển khoản</h3>
+              <div className="acct-form-grid acct-form-grid--2">
+                <label className="acct-field">
+                  <span>Tài khoản trích nợ <b>*</b></span>
+                  <select
+                    className="input"
+                    value={form.company_bank_account_id ?? ""}
+                    disabled={loadingAccounts}
+                    onChange={(event) =>
+                      set(
+                        "company_bank_account_id",
+                        event.target.value ? Number(event.target.value) : null,
+                      )
+                    }
+                  >
+                    <option value="">Chọn tài khoản công ty</option>
+                    {companyAccounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.bank_name} · {account.account_number} · {account.currency}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="acct-field">
+                  <span>Tên thụ hưởng <b>*</b></span>
+                  <input
+                    className="input"
+                    value={form.beneficiary_account_holder ?? ""}
+                    onChange={(event) => set("beneficiary_account_holder", event.target.value)}
+                  />
+                </label>
+                <label className="acct-field">
+                  <span>Số tài khoản <b>*</b></span>
+                  <input
+                    className="input"
+                    value={form.beneficiary_account_number ?? ""}
+                    onChange={(event) => set("beneficiary_account_number", event.target.value)}
+                  />
+                </label>
+                <label className="acct-field">
+                  <span>Ngân hàng <b>*</b></span>
+                  <input
+                    className="input"
+                    value={form.beneficiary_bank_name ?? ""}
+                    onChange={(event) => set("beneficiary_bank_name", event.target.value)}
+                  />
+                </label>
+              </div>
+            </section>
+          )}
+          <label className="acct-field">
+            <span>Nội dung chi <b>*</b></span>
+            <input
+              className="input"
+              value={form.content}
+              onChange={(event) => set("content", event.target.value)}
+              placeholder="VD: Thanh toán tiền điện tháng 8"
+            />
+          </label>
+          <section className="acct-form-section">
+            <h3>Định khoản và tham chiếu</h3>
+            <div className="acct-form-grid acct-form-grid--2">
+              <label className="acct-field">
+                <span>Nợ</span>
+                <input
+                  className="input"
+                  value={form.debit_account ?? ""}
+                  onChange={(event) => set("debit_account", event.target.value)}
+                  placeholder="VD: 642, 1331"
+                />
+              </label>
+              <label className="acct-field">
+                <span>Có</span>
+                <input
+                  className="input"
+                  value={form.credit_account ?? ""}
+                  onChange={(event) => set("credit_account", event.target.value)}
+                  placeholder={isBank ? "1121" : "1111"}
+                />
+              </label>
+              <label className="acct-field">
+                <span>Số hóa đơn</span>
+                <input
+                  className="input"
+                  value={form.invoice_number ?? ""}
+                  onChange={(event) => set("invoice_number", event.target.value)}
+                />
+              </label>
+              <label className="acct-field">
+                <span>Ngày hóa đơn</span>
+                <input
+                  className="input"
+                  type="date"
+                  max={isoToday()}
+                  value={form.invoice_date ?? ""}
+                  onChange={(event) => set("invoice_date", event.target.value || null)}
+                />
+              </label>
+            </div>
+          </section>
+        </div>
+        <footer className="acct-modal__foot">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Hủy
+          </Button>
+          <Button type="submit" variant="primary" loading={saving}>
+            Lưu phiếu
+          </Button>
+        </footer>
+      </form>
+    </div>
+  );
 }
 
 export function PaymentVouchersPage({
@@ -121,6 +466,7 @@ export function PaymentVouchersPage({
   const [cancelling, setCancelling] = useState<PaymentVoucherRow | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [receiptFor, setReceiptFor] = useState<PaymentVoucherRow | null>(null);
+  const [standaloneOpen, setStandaloneOpen] = useState(false);
   const [attachments, setAttachments] = useState<PaymentVoucherAttachment[]>(
     [],
   );
@@ -386,8 +732,8 @@ export function PaymentVouchersPage({
         <h1 className="md-page__title">{VOUCHER_PAGE_LABEL}</h1>
         <p className="md-page__sub">
           Lập phiếu chi là tiền đã ra khỏi két — phiếu sinh ra đã là "Đã chi".
-          Ghi nhận nhầm thì hủy phiếu (bắt lý do), truy ngược được về PMH và
-          YCMH nguồn.
+          Ghi nhận nhầm thì hủy phiếu (bắt lý do), nguồn chi có thể là Đơn mua hàng,
+          chi phí nội bộ, hoàn tiền khách hàng hoặc khoản chi khác.
         </p>
       </header>
       {error && (
@@ -408,32 +754,25 @@ export function PaymentVouchersPage({
             className="input"
             value={q}
             onChange={(event) => setQ(event.target.value)}
-            placeholder={
-              UNC_ENABLED ? "Tìm PC, UNC, PMH, YCMH..." : "Tìm PC, PMH, YCMH..."
-            }
+            placeholder="Tìm PC, UNC, PMH, YCMH..."
           />
           {/* <Button type="submit" variant="ghost">
             Tìm
           </Button> */}
         </form>
         <div className="acct-toolbar__filters">
-          {/* Tạm ẩn UNC: chỉ còn một loại thì "Tất cả loại" và "Phiếu chi" ra cùng
-              kết quả — bỏ luôn bộ lọc thay vì để một ô vô nghĩa. typeFilter giữ
-              "all" nên UNC cũ vẫn nằm trong danh sách. */}
-          {UNC_ENABLED && (
-            <select
-              className="input"
-              value={typeFilter}
-              onChange={(event) => {
-                setTypeFilter(event.target.value);
-                setPage(1);
-              }}
-            >
-              <option value="all">Tất cả loại</option>
-              <option value="cash">Phiếu chi</option>
-              <option value="bank_transfer">Ủy nhiệm chi</option>
-            </select>
-          )}
+          <select
+            className="input"
+            value={typeFilter}
+            onChange={(event) => {
+              setTypeFilter(event.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="all">Tất cả hình thức</option>
+            <option value="cash">Tiền mặt</option>
+            <option value="bank_transfer">Chuyển khoản</option>
+          </select>
           <select
             className="input"
             value={statusFilter}
@@ -449,6 +788,11 @@ export function PaymentVouchersPage({
               </option>
             ))}
           </select>
+          {canApprove && (
+            <Button variant="primary" onClick={() => setStandaloneOpen(true)}>
+              + Tạo phiếu chi
+            </Button>
+          )}
         </div>
       </section>
       <section className="card md-page__tablewrap acct-list acct-list--voucher">
@@ -456,9 +800,8 @@ export function PaymentVouchersPage({
           <thead>
             <tr>
               <th>Mã chứng từ</th>
-              <th>Loại</th>
+              <th>Đối tượng</th>
               <th>Người lập</th>
-              <th>Lập lúc</th>
               <th className="acct-amount-cell">Số tiền</th>
               <th>Trạng thái</th>
               <th className="acct-action-cell">Thao tác</th>
@@ -467,48 +810,17 @@ export function PaymentVouchersPage({
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={7}>Đang tải...</td>
+                <td colSpan={6}>Đang tải...</td>
               </tr>
             )}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={7}>Chưa có chứng từ phù hợp.</td>
+                <td colSpan={6}>Chưa có chứng từ phù hợp.</td>
               </tr>
             )}
             {!loading &&
-              rows.map((row, rowIndex) => (
+              rows.map((row) => (
                 <Fragment key={row.id}>
-                  {(rowIndex === 0 ||
-                    rows[rowIndex - 1].purchase_request_id !==
-                      row.purchase_request_id) && (
-                    <tr className="acct-group-row">
-                      <td colSpan={7}>
-                        <div>
-                          <strong>{row.purchase_request_code}</strong>
-                          <span
-                            className="acct-group-row__supplier"
-                            title={row.supplier_name}
-                          >
-                            {row.supplier_name}
-                          </span>
-                          <span className="acct-group-row__total">
-                            {row.purchase_paid_amount != null && (
-                              <>
-                                Đã chi:{" "}
-                                <b>{money(row.purchase_paid_amount)}</b>
-                              </>
-                            )}
-                            {row.purchase_request_total != null && (
-                              <>
-                                {row.purchase_paid_amount != null && " / "}
-                                Tổng PMH: {money(row.purchase_request_total)}
-                              </>
-                            )}
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
                   <tr
                     className={
                       row.id === selected?.id ? "purchase__row--selected" : ""
@@ -517,17 +829,22 @@ export function PaymentVouchersPage({
                   >
                     <td className="acct-code-cell">
                       <strong>{row.code}</strong>
+                      <small>
+                        {VOUCHER_METHOD_LABELS[row.voucher_type] ?? row.voucher_type} ·{" "}
+                        {SOURCE_LABELS[row.source_type] ?? row.source_type}
+                      </small>
                     </td>
-                    <td>
-                      {row.voucher_type === "cash" ? "Phiếu chi" : "UNC"}
+                    <td className="acct-target-cell">
+                      <strong>{row.supplier_name}</strong>
+                      {row.source_type === "purchase_request" && row.purchase_request_code && (
+                        <small>{row.purchase_request_code}</small>
+                      )}
                     </td>
                     <td className="acct-user-cell">
                       <div title={row.created_by_name ?? undefined}>
                         {row.created_by_name || "—"}
                       </div>
-                    </td>
-                    <td className="acct-time-cell">
-                      {fmtDateTime(row.created_at)}
+                      <small>{fmtDateTime(row.created_at)}</small>
                     </td>
                     <td
                       className="acct-amount-cell"
@@ -615,47 +932,66 @@ export function PaymentVouchersPage({
           onClose={() => setSelectedId(null)}
         >
           <dl className="purchase__facts">
-            <div>
-              <dt>PMH nguồn</dt>
-              <dd>{selected.purchase_request_code}</dd>
-            </div>
-            <div>
-              <dt>YCMH nguồn</dt>
-              <dd>
-                {selected.source_request_codes.length
-                  ? selected.source_request_codes.map((code, index) => (
-                      <span key={code}>
-                        {index > 0 && ", "}
-                        <CodeLink code={code} onOpen={openYcmh} />
-                      </span>
-                    ))
-                  : "—"}
-              </dd>
-            </div>
-            <div>
-              <dt>Nhà cung cấp</dt>
-              <dd>{selected.supplier_name}</dd>
-            </div>
+            {selected.source_type === "purchase_request" ? (
+              <>
+                <div>
+                  <dt>PMH nguồn</dt>
+                  <dd>{selected.purchase_request_code}</dd>
+                </div>
+                <div>
+                  <dt>YCMH nguồn</dt>
+                  <dd>
+                    {selected.source_request_codes.length
+                      ? selected.source_request_codes.map((code, index) => (
+                          <span key={code}>
+                            {index > 0 && ", "}
+                            <CodeLink code={code} onOpen={openYcmh} />
+                          </span>
+                        ))
+                      : "—"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Nhà cung cấp</dt>
+                  <dd>{selected.supplier_name}</dd>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <dt>Nguồn chi</dt>
+                  <dd>{SOURCE_LABELS[selected.source_type] ?? selected.source_type}</dd>
+                </div>
+                <div>
+                  <dt>Đối tượng nhận</dt>
+                  <dd>{selected.supplier_name}</dd>
+                </div>
+              </>
+            )}
             <div>
               <dt>Ngày chứng từ</dt>
               <dd>{fmtDate(selected.voucher_date)}</dd>
             </div>
             <div>
               <dt>Đợt thanh toán</dt>
-              <dd>{STAGE_LABELS[selected.payment_stage]}</dd>
-            </div>
-            <div>
-              <dt>Trả cho đợt giao</dt>
-              {/* Không có đợt là hai ca KHÁC nhau, phải nói ra: phiếu đặt cọc (hàng chưa về nên
-                  chưa có đợt nào để gắn) và phiếu cũ lập trước khi có khái niệm đợt giao. */}
               <dd>
-                {selected.delivery_seq_no != null
-                  ? `Đợt ${selected.delivery_seq_no}`
-                  : selected.payment_stage === "advance"
-                    ? "Không gắn đợt (đặt cọc)"
-                    : "Đơn không theo dõi theo đợt"}
+                {selected.source_type === "purchase_request"
+                  ? STAGE_LABELS[selected.payment_stage]
+                  : SOURCE_LABELS[selected.source_type]}
               </dd>
             </div>
+            {selected.source_type === "purchase_request" && (
+              <div>
+                <dt>Trả cho đợt giao</dt>
+                <dd>
+                  {selected.delivery_seq_no != null
+                    ? `Đợt ${selected.delivery_seq_no}`
+                    : selected.payment_stage === "advance"
+                      ? "Không gắn đợt (đặt cọc)"
+                      : "Đơn không theo dõi theo đợt"}
+                </dd>
+              </div>
+            )}
             <div>
               <dt>Người lập</dt>
               <dd>{selected.created_by_name || "—"}</dd>
@@ -822,6 +1158,16 @@ export function PaymentVouchersPage({
           onClose={() => setEditState(null)}
           onSaved={() => {
             setEditState(null);
+            load();
+          }}
+        />
+      )}
+      {standaloneOpen && (
+        <StandaloneVoucherDialog
+          onClose={() => setStandaloneOpen(false)}
+          onSaved={(saved) => {
+            setStandaloneOpen(false);
+            setSelectedId(saved.id);
             load();
           }}
         />

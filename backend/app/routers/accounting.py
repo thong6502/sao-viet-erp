@@ -34,6 +34,8 @@ from ..schemas.accounting import (
     PaymentVoucherOut,
     PayablesDetailOut,
     PayablesSummaryOut,
+    ReceivablesDetailOut,
+    ReceivablesSummaryOut,
     SupplierBankAccountIn,
     SupplierBankAccountOut,
 )
@@ -134,13 +136,36 @@ def accounting_payables_detail(
     return PayablesDetailOut(**svc.payables_detail(supplier_id, all_history=all_history))
 
 
+@router.get("/api/accounting/receivables", response_model=ReceivablesSummaryOut)
+def accounting_receivables(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    q: str | None = Query(default=None),
+) -> ReceivablesSummaryOut:
+    return ReceivablesSummaryOut(**svc.receivables_summary(q=q))
+
+
+@router.get("/api/accounting/receivables/{customer_id}", response_model=ReceivablesDetailOut)
+def accounting_receivables_detail(
+    customer_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    all_history: bool = Query(default=False),
+) -> ReceivablesDetailOut:
+    return ReceivablesDetailOut(**svc.receivables_detail(customer_id, all_history=all_history))
+
+
 @router.get("/api/accounting/company-bank-accounts", response_model=list[CompanyBankAccountOut])
 def list_company_bank_accounts(
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
     _: Annotated[User, Depends(require_permission(MODULE, "read"))],
     active_only: bool = Query(default=False),
+    usage: str | None = Query(default=None),
 ):
-    return svc.list_company_accounts(active_only=active_only)
+    try:
+        return svc.list_company_accounts(active_only=active_only, usage=usage)
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
 
 
 @router.post(
@@ -253,6 +278,7 @@ def list_payment_vouchers(
     _: Annotated[User, Depends(require_permission(MODULE, "read"))],
     q: str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
+    source_type: str | None = Query(default=None),
     voucher_type: str | None = Query(default=None),
     supplier_id: int | None = Query(default=None),
     purchase_request_id: int | None = Query(default=None),
@@ -263,6 +289,7 @@ def list_payment_vouchers(
     rows, total, totals = svc.list_vouchers(
         q=q,
         status=status_,
+        source_type=source_type,
         voucher_type=voucher_type,
         supplier_id=supplier_id,
         purchase_request_id=purchase_request_id,
@@ -400,6 +427,7 @@ def list_payment_receipts(
     q: str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
     payment_voucher_id: int | None = Query(default=None),
+    source_type: str | None = Query(default=None),
     sort: str = Query(default="-created_at"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
@@ -408,11 +436,30 @@ def list_payment_receipts(
         q=q,
         status=status_,
         payment_voucher_id=payment_voucher_id,
+        source_type=source_type,
         sort=sort,
         page=page,
         size=size,
     )
     return PaymentReceiptListOut(items=rows, total=total, page=page, size=size)
+
+
+@router.post(
+    "/api/accounting/payment-receipts",
+    response_model=PaymentReceiptOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_other_payment_receipt(
+    payload: PaymentReceiptIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+):
+    try:
+        row = svc.create_other_receipt(actor=user, **payload.model_dump())
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+    _notify_accounting_changed(row.get("code"))
+    return PaymentReceiptOut(**row)
 
 
 @router.post(
