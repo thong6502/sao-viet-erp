@@ -23,7 +23,7 @@ const TONE: Record<StockLevel, string> = {
 /** Xấu dần: het > can_mua > du > du_ton. */
 const RANK: Record<StockLevel, number> = { het: 4, can_mua: 3, du: 1, du_ton: 0 };
 
-/** Mức XẤU NHẤT trong nhiều dòng — 1 đèn cho cả đề nghị ở màn danh sách. */
+/** Mức XẤU NHẤT trong nhiều dòng — 1 đèn cho cả yêu cầu ở màn danh sách. */
 export function worstStockLevel(levels: (StockLevel | null | undefined)[]): StockLevel | null {
   let worst: StockLevel | null = null;
   for (const lv of levels) {
@@ -34,7 +34,7 @@ export function worstStockLevel(levels: (StockLevel | null | undefined)[]): Stoc
 }
 
 interface StockLevelChipProps {
-  /** null/undefined → KHÔNG render gì (đề nghị NHẬP cố ý không có đèn). */
+  /** null/undefined → KHÔNG render gì (yêu cầu NHẬP cố ý không có đèn). */
   level: StockLevel | null | undefined;
   title?: string;
 }

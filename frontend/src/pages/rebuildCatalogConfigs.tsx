@@ -473,7 +473,7 @@ export const CFG_VAT_TU: CatalogConfig = {
   ],
 };
 
-// Xóa kho KHÔNG dùng luồng ẩn-mềm mặc định: kho là gốc của lô/phiếu/đề nghị nên phải CHẶN nếu còn
+// Xóa kho KHÔNG dùng luồng ẩn-mềm mặc định: kho là gốc của lô/phiếu/yêu cầu nên phải CHẶN nếu còn
 // dính, và bắt gõ mã xác nhận (thao tác nặng). Gọi /delete-check để soi rồi mới cho xóa qua DELETE
 // (backend xóa mềm + tự chặn lần nữa). Chỉ role có quyền kho:delete mới thấy nút Xóa.
 function KhoDeleteDialog({ row, token, onClose, onDone }: {
@@ -529,7 +529,7 @@ function KhoDeleteDialog({ row, token, onClose, onDone }: {
           <ul className="kho-del__list">
             {blockers.map((b, i) => <li key={i}>{b}</li>)}
           </ul>
-          <p className="kho-del__muted">Hãy xử lý xong tồn / phiếu / đề nghị của kho này rồi mới xóa.</p>
+          <p className="kho-del__muted">Hãy xử lý xong tồn / phiếu / yêu cầu của kho này rồi mới xóa.</p>
         </div>
       ) : (
         <div className="kho-del__ok">

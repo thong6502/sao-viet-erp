@@ -78,7 +78,7 @@ def update_item(kho_id: int, payload: KhoHangIn, svc: Service,
 
 @router.get("/{kho_id}/delete-check")
 def delete_check(kho_id: int, svc: Service, _: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
-    """Soi kho trước khi xóa: liệt kê lý do chặn (còn tồn / phiếu chờ ghi sổ / đề nghị dở)."""
+    """Soi kho trước khi xóa: liệt kê lý do chặn (còn tồn / phiếu chờ ghi sổ / yêu cầu dở)."""
     try:
         blockers = svc.delete_blockers(kho_id)
     except KhoHangNotFound as e:

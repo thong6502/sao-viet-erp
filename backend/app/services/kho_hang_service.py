@@ -26,7 +26,7 @@ class KhoHangNotFound(KhoHangError):
 
 
 class KhoHangInUse(KhoHangError):
-    """Kho còn tồn / phiếu chờ ghi sổ / đề nghị đang xử lý → chặn xóa."""
+    """Kho còn tồn / phiếu chờ ghi sổ / yêu cầu đang xử lý → chặn xóa."""
     pass
 
 
@@ -73,7 +73,7 @@ class KhoHangService:
         return self.repo.update(obj, data)
 
     def _blockers(self, obj) -> list[str]:
-        """Lý do CHẶN xóa: lô còn tồn / phiếu chờ ghi sổ / đề nghị đang xử lý.
+        """Lý do CHẶN xóa: lô còn tồn / phiếu chờ ghi sổ / yêu cầu đang xử lý.
         Phiếu ĐÃ ghi sổ (lịch sử) KHÔNG chặn — xóa mềm giữ nguyên FK để tra cứu."""
         db = self.repo.db
         out: list[str] = []
@@ -94,7 +94,7 @@ class KhoHangService:
             .where(StockRequest.kho_id == obj.id, StockRequest.trang_thai.in_(REQUEST_FULFILLABLE))
         ).scalar_one()
         if pending:
-            out.append(f"{pending} đề nghị đang xử lý")
+            out.append(f"{pending} yêu cầu đang xử lý")
         return out
 
     def delete_blockers(self, item_id: int) -> list[str]:

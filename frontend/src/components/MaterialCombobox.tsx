@@ -1,4 +1,4 @@
-// Ô NHẬP vật tư kiểu gõ-thẳng (combobox) cho dòng đề nghị kho.
+// Ô NHẬP vật tư kiểu gõ-thẳng (combobox) cho dòng yêu cầu kho.
 //
 // Khác `Select` (bấm mở rồi mới tìm): đây là input để GÕ NGAY. Gõ tới đâu, hàng cũ khớp
 // tên/mã hiện tới đó để chọn; không có hàng khớp thì hiện "＋ Tạo …" để thêm mới tại chỗ.
@@ -26,11 +26,11 @@ export function MaterialCombobox({
   onCreate: (name: string) => void;
   /** Báo text đang gõ ra ngoài — để dùng chính ô này làm tên hàng MỚI (không cần ô riêng). */
   onText?: (text: string) => void;
-  /** Nhãn dòng thêm mới. Đề nghị KHÔNG tạo mã → "Hàng mới"; phiếu tạo mã → "Tạo mã". */
+  /** Nhãn dòng thêm mới. Yêu cầu KHÔNG tạo mã → "Hàng mới"; phiếu tạo mã → "Tạo mã". */
   createLabel?: string;
   /** Ẩn dòng "＋ Tạo …": khi text gõ vào ĐÃ là tên hàng mới (qua onText) thì không cần dòng này. */
   hideCreate?: boolean;
-  /** Cho phép tạo hàng MỚI. False (vd đề nghị XUẤT) → KHÔNG có dòng "＋ Tạo", chỉ chọn hàng có sẵn. */
+  /** Cho phép tạo hàng MỚI. False (vd yêu cầu XUẤT) → KHÔNG có dòng "＋ Tạo", chỉ chọn hàng có sẵn. */
   allowCreate?: boolean;
   placeholder?: string;
   disabled?: boolean;

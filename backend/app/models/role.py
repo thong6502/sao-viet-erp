@@ -210,3 +210,7 @@ class RolePermission(Base):
     can_post: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # KHÓA KỲ (chốt sổ) kế toán kho: xem Báo cáo kho + export MISA + chốt/mở kỳ. Chỉ kế toán kho.
+    can_close_book: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )

@@ -45,6 +45,7 @@ from .routers import (
     bu_hao,
     don_vi_do,
     kho,
+    kho_baocao,
     kho_request,
     kho_voucher,
     public_scan,
@@ -152,6 +153,8 @@ app.include_router(don_vi_do.router)
 app.include_router(kho_request.router)
 app.include_router(kho_voucher.router)
 app.include_router(kho_voucher.threshold_router)
+# Báo cáo kho (kế toán): /api/kho/bao-cao/* + /api/kho/khoa-so — TRƯỚC kho.router (path 1 đoạn).
+app.include_router(kho_baocao.router)
 # Router CÔNG KHAI (không auth) — trang tra kho khi quét tem QR. Mã ký HMAC chống dò id.
 app.include_router(public_scan.router)
 app.include_router(kho.router)

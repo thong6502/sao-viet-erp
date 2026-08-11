@@ -55,7 +55,8 @@ export type ActionKey =
   | "can_view_stock"
   | "can_view_cost"
   | "can_set_threshold"
-  | "can_post";
+  | "can_post"
+  | "can_close_book";
 
 // UI gộp Thêm/Sửa/Xóa thành một công tắc "quyền chỉnh sửa": tick là bật cả ba.
 // Dữ liệu vẫn lưu tách (can_create/can_update/can_delete) nên backend không đổi.
@@ -144,28 +145,28 @@ const FINE_ACTIONS: Record<
     { key: "can_reparent", label: "Đổi cấp trên (cây tổ chức)" },
   ],
   // Kho: 2 ô chi tiết + công tắc chung Xem (can_read) + Lập phiếu (= TẠO + GHI SỔ + HỦY, can_create).
-  //   · Tạo đề nghị (can_request) — người XIN nhập/lĩnh vật tư.
+  //   · Tạo yêu cầu (can_request) — người XIN nhập/lĩnh vật tư.
   //   · Xem kho (1 công tắc = 3 cột): xem tồn + xem giá vốn + khai ngưỡng.
   // ĐÃ GỘP (bỏ SoD): "Ghi sổ" + "Hủy" nhập chung vào "Lập phiếu" — KHÔNG còn công tắc Ghi sổ riêng.
-  // Ai có Lập phiếu là tạo + ghi sổ + hủy được. KHÔNG có Duyệt: ĐÃ BỎ BƯỚC DUYỆT đề nghị kho
-  // (chủ 06/08/2026) — tạo đề nghị là 'approved' luôn, không ai duyệt nữa (cột `can_approve` giữ
-  // trong DB vì dùng chung HR/nơi khác, chỉ gỡ mục "Duyệt đề nghị" của KHO khỏi UI).
+  // Ai có Lập phiếu là tạo + ghi sổ + hủy được. KHÔNG có Duyệt: ĐÃ BỎ BƯỚC DUYỆT yêu cầu kho
+  // (chủ 06/08/2026) — tạo yêu cầu là 'approved' luôn, không ai duyệt nữa (cột `can_approve` giữ
+  // trong DB vì dùng chung HR/nơi khác, chỉ gỡ mục "Duyệt yêu cầu" của KHO khỏi UI).
   kho: [
     {
       key: "can_request",
-      label: "Tạo đề nghị nhập/xuất",
-      hint: "Lập ĐỀ NGHỊ nhập/xuất kho (tổ SX xin lĩnh vật tư, mua hàng xin nhập bổ sung). Người đề nghị nên để phạm vi \"Của tôi\".",
+      label: "Tạo yêu cầu nhập/xuất",
+      hint: "Lập YÊU CẦU nhập/xuất kho (tổ SX xin lĩnh vật tư, mua hàng xin nhập bổ sung). Người yêu cầu nên để phạm vi \"Của tôi\".",
     },
     {
       key: "can_view_stock",
       keys: ["can_view_stock", "can_view_cost", "can_set_threshold"],
-      label: "Xem tồn kho, giá vốn & ngưỡng tồn",
+      label: "Xem tất cả kho",
       hint: "MỘT công tắc gộp 3 quyền XEM/QUẢN của kho: XEM số tồn · XEM giá vốn & giá trị tồn · KHAI ngưỡng tồn. Ai làm kho bật ô này.",
     },
     {
-      key: "can_export",
-      label: "Xuất Excel báo cáo kho (kế toán)",
-      hint: "Cho phép xuất Excel báo cáo tồn kho chi tiết, bao gồm toàn bộ mã hàng, số lượng, giá vốn và vị trí của các kho.",
+      key: "can_close_book",
+      label: "Báo cáo kho + khóa kỳ (kế toán)",
+      hint: "Mở màn \"Báo cáo kho\": sổ nhập-xuất, xuất Excel theo mẫu MISA, và KHÓA KỲ (chốt sổ) toàn kho / từng kho. Chỉ kế toán kho.",
     },
   ],
   dm_giay_vat_tu: [
@@ -349,6 +350,7 @@ export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
     can_view_cost: false,
     can_set_threshold: false,
     can_post: false,
+    can_close_book: false,
   }));
 }
 

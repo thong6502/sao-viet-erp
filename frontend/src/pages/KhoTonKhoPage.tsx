@@ -4,7 +4,7 @@
 //   • Tồn kho:  gom lô theo VẬT TƯ, bung xem từng lô (tồn = Σ sl_con_lai, spec §6).
 //   • Phiếu kho: phiếu nhập/xuất ĐÃ LẬP tại kho này (chuyển vào đây thay vì ở Hộp yêu cầu — phiếu
 //     là chứng từ của kho, nên nằm cùng chỗ với tồn/ngưỡng).
-// Đặt ngưỡng tồn nằm ở đây (không ở màn đề nghị) vì ngưỡng gắn với kho vật lý: bấm ô Min/Max
+// Đặt ngưỡng tồn nằm ở đây (không ở màn yêu cầu) vì ngưỡng gắn với kho vật lý: bấm ô Min/Max
 // hoặc badge Trạng thái của 1 mã → popup đặt ngưỡng (chỉ khi có quyền set_threshold).
 // Giá vốn CHỈ hiện với `can_view_cost` — thiếu quyền thì cột giá biến mất (ẩn cột, không "—").
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
@@ -82,9 +82,6 @@ export function KhoTonKhoPage({
   // ĐÃ GỘP quyền: ghi sổ + hủy dùng CHUNG quyền lập phiếu (create) — không còn 'post' riêng.
   const canPost = canCreate;
   const canSetThreshold = can("kho", "set_threshold");
-  const canExport = can("kho", "export");
-
-  const [exporting, setExporting] = useState(false);
 
   const [tab, setTab] = useState<TonTab>("ton");
   const [lots, setLots] = useState<StockLot[]>([]);
@@ -367,39 +364,26 @@ export function KhoTonKhoPage({
     }
   }
 
-  // Tạo Yêu cầu mua hàng từ các mã đã tick: mở form YCMH (nguồn Kho) điền sẵn Tên + ĐVT,
-  // để trống SL + ghi chú cho người dùng nhập.
+  // Tạo Yêu cầu mua hàng từ các mã đã tick: mở form YCMH (nguồn Kho) điền sẵn Tên + ĐVT + SL cần
+  // mua; KHOÁ Tên + ĐVT (lấy từ mặt hàng đã có), chỉ cho sửa số lượng. SL cần mua = (ngưỡng tối đa
+  // nếu có, không thì ngưỡng tồn) − tồn hiện tại, kẹp ≥ 0. Người dùng chỉnh lại được.
   function createPurchaseFromSelected() {
     const chosen = groups.filter((g) => selected.has(g.material_id));
     if (chosen.length === 0) return;
     navigate("yeu-cau-mua-hang", {
-      purchaseSeedLines: chosen.map((g) => ({
-        item_name: g.name ?? g.code ?? "",
-        unit: g.dvt ?? "",
-        quantity: 0,
-        note: "",
-      })),
+      purchaseSeedLines: chosen.map((g) => {
+        const th = thresholds[g.material_id];
+        const target = th?.nguong_toi_da ?? th?.nguong_ton ?? 0;
+        return {
+          item_name: g.name ?? g.code ?? "",
+          unit: g.dvt ?? "",
+          quantity: Math.max(0, target - g.total),
+          note: "",
+          locked: true,
+        };
+      }),
       purchaseSeedPurpose: `Bổ sung tồn kho ${ten}`,
     });
-  }
-
-  async function handleExportExcel() {
-    if (exporting) return;
-    setExporting(true);
-    try {
-      const url = await api.kho.phieu.exportXlsxBlobUrl(token, khoId);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {
-      setError("Không thể xuất file Excel. Vui lòng thử lại.");
-    } finally {
-      setExporting(false);
-    }
   }
 
   const voucherCols = canViewCost ? 6 : 5;
@@ -425,18 +409,6 @@ export function KhoTonKhoPage({
               : `${shownVouchers.length} phiếu`}
             {ma ? ` · ${ma}` : ""}
           </span>
-          {canExport && (
-            <button
-              type="button"
-              className="btn btn--secondary kho-export-btn"
-              disabled={exporting}
-              onClick={handleExportExcel}
-              title="Xuất báo cáo tồn kho chi tiết ra file Excel"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              {exporting ? "Đang xuất…" : "Xuất Excel"}
-            </button>
-          )}
         </div>
         <p className="rc__sub">
           {tab === "ton"
@@ -474,7 +446,7 @@ export function KhoTonKhoPage({
           <input
             className="rc__search"
             placeholder={
-              tab === "ton" ? "Tìm mã / tên vật tư…" : "Tìm số phiếu / mã đề nghị / tên vật tư…"
+              tab === "ton" ? "Tìm mã / tên vật tư…" : "Tìm số phiếu / mã yêu cầu / tên vật tư…"
             }
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -884,7 +856,7 @@ export function KhoTonKhoPage({
             <thead>
               <tr>
                 <th style={{ width: "14%" }}>Số phiếu</th>
-                <th style={{ width: "13%" }}>Theo đề nghị</th>
+                <th style={{ width: "13%" }}>Theo yêu cầu</th>
                 <th style={{ width: "16%" }}>Người (lập · duyệt)</th>
                 <th style={{ width: "12%" }}>Ngày</th>
                 <th className="kho-num" style={{ width: "12%" }}>
@@ -916,7 +888,7 @@ export function KhoTonKhoPage({
                       <BoxIcon />
                       <p className="rc__empty-text">
                         {vouchers.length === 0
-                          ? "Chưa có phiếu kho nào ở kho này. Phiếu được lập từ một đề nghị đã duyệt."
+                          ? "Chưa có phiếu kho nào ở kho này. Phiếu được lập từ một yêu cầu đã duyệt."
                           : "Không có phiếu nào khớp bộ lọc."}
                       </p>
                       {vouchers.length > 0 && (
@@ -1043,7 +1015,7 @@ export function KhoTonKhoPage({
       )}
 
       {openRequest != null && (
-        // Chỉ ĐỌC: mở đề nghị gốc từ mã "Theo đề nghị". Lập phiếu vẫn làm ở Hộp yêu cầu, nên
+        // Chỉ ĐỌC: mở yêu cầu gốc từ mã "Theo yêu cầu". Lập phiếu vẫn làm ở Hộp yêu cầu, nên
         // canCreate=false (ẩn nút Lập phiếu / Tiếp nhận / Chuẩn bị).
         <InboxRequestDrawer
           key={`req-${openRequest}`}
@@ -1329,26 +1301,24 @@ function MaterialHistoryDrawer({
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
             {material.level && <StockLevelChip level={material.level} />}
-            {/* QR gắn với LÔ nhập (vị trí lô) → chỉ hiện ở tab Nhập. */}
-            {tab === "nhap" && (
-              <button
-                type="button"
-                className={`rc__link-btn${showQr ? " is-active" : ""}`}
-                onClick={() => setShowQr((v) => !v)}
-                aria-pressed={showQr}
-                title="Tem QR vật tư — quét ra lô & vị trí"
-              >
-                {showQr ? "▾ QR" : "▸ QR"}
-              </button>
-            )}
+            {/* Tem QR của vật tư — hiện ở MỌI tab (Tổng quan · Nhập · Xuất). */}
+            <button
+              type="button"
+              className={`rc__link-btn${showQr ? " is-active" : ""}`}
+              onClick={() => setShowQr((v) => !v)}
+              aria-pressed={showQr}
+              title="Tem QR vật tư — quét ra tồn & vị trí"
+            >
+              {showQr ? "▾ QR" : "▸ QR"}
+            </button>
             <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
               ✕
             </button>
           </div>
         </header>
 
-        {showQr && tab === "nhap" && (
-          // Tem QR: quét bằng điện thoại → mở TRANG TRA KHO CÔNG KHAI (lô + vị trí). In để dán kệ.
+        {showQr && (
+          // Tem QR: quét bằng điện thoại → mở TRANG TRA KHO CÔNG KHAI (tồn · vị trí · lịch sử). In dán kệ.
           <div className="kho-qr">
             {qrUrl ? (
               <div
@@ -1361,7 +1331,7 @@ function MaterialHistoryDrawer({
             )}
             <div className="kho-qr__side">
               <div className="kho-qr__note">
-                Quét để xem lô &amp; vị trí của vật tư này (không cần đăng nhập).
+                Quét để xem tồn, vị trí &amp; lịch sử nhập/xuất của vật tư này (không cần đăng nhập).
               </div>
               {qrUrl && <div className="kho-qr__url">{qrUrl}</div>}
               <button type="button" className="rc__link-btn" onClick={printQr}>
@@ -1430,8 +1400,8 @@ function MaterialHistoryDrawer({
                     <tr>
                       <th style={{ minWidth: 130 }}>Phiếu</th>
                       <th style={{ width: 96 }}>Ngày nhập</th>
-                      {/* SL đề nghị (số đã xin trên đề nghị sinh ra lô) đứng TRƯỚC SL nhập thực tế. */}
-                      <th className="kho-num">SL đề nghị</th>
+                      {/* SL yêu cầu (số đã xin trên yêu cầu sinh ra lô) đứng TRƯỚC SL nhập thực tế. */}
+                      <th className="kho-num">SL yêu cầu</th>
                       <th className="kho-num">SL nhập</th>
                       <th style={{ minWidth: 96 }}>Vị trí</th>
                       {canViewCost && <th className="kho-num">Đơn giá</th>}
@@ -1479,8 +1449,8 @@ function MaterialHistoryDrawer({
                     <th style={{ width: 96 }}>Ngày xuất</th>
                     <th style={{ width: 116 }}>Số phiếu</th>
                     <th style={{ minWidth: 140 }}>Từ lô</th>
-                    {/* SL đề nghị (số đã xin trên đề nghị sinh ra dòng xuất) đứng TRƯỚC SL xuất thực tế. */}
-                    <th className="kho-num">SL đề nghị</th>
+                    {/* SL yêu cầu (số đã xin trên yêu cầu sinh ra dòng xuất) đứng TRƯỚC SL xuất thực tế. */}
+                    <th className="kho-num">SL yêu cầu</th>
                     <th className="kho-num">SL xuất</th>
                     {canViewCost && <th className="kho-num">Giá vốn</th>}
                   </tr>

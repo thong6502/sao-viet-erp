@@ -91,7 +91,7 @@ class StockLotRepository:
         """**Tồn khả dụng** = Σ sl_con_lai của lô ở trạng thái xuất được.
 
         Cố tình KHÔNG trả tồn thực tế: hàng chờ KCS / hàng lỗi nằm trong kho nhưng không
-        dùng được, cộng vào là hứa suông với người đề nghị (BRD §1.5).
+        dùng được, cộng vào là hứa suông với người yêu cầu (BRD §1.5).
         """
         stmt = select(func.coalesce(func.sum(StockLot.sl_con_lai), 0)).where(
             StockLot.material_id == material_id,
@@ -103,7 +103,7 @@ class StockLotRepository:
 
     def on_hand_map(self, material_ids: list[int], kho_id: int | None = None) -> dict[int, float]:
         """Tồn khả dụng của NHIỀU mã hàng trong 1 query — dùng khi vẽ đèn tín hiệu cho cả
-        danh sách đề nghị (tránh N+1)."""
+        danh sách yêu cầu (tránh N+1)."""
         if not material_ids:
             return {}
         stmt = (

@@ -40,7 +40,9 @@ export type PermAction =
   | "view_stock"
   | "view_cost"
   | "set_threshold"
-  | "post";
+  | "post"
+  // Kho — kế toán: khóa kỳ (chốt sổ) + xem Báo cáo kho + export MISA.
+  | "close_book";
 
 export type Capabilities = Map<string, ModuleCapability>;
 
@@ -103,6 +105,7 @@ export function PermissionsProvider({
     if (action === "view_cost") return row.can_view_cost;
     if (action === "set_threshold") return row.can_set_threshold;
     if (action === "post") return row.can_post;
+    if (action === "close_book") return row.can_close_book;
     return false;
   }
   function scopeOf(moduleKey: string): Scope | null {

@@ -135,16 +135,18 @@ const NAV: NavSection[] = [
     ],
   },
   {
-    // SECTION "Nhập xuất kho" — nghiệp vụ chứng từ kho (đề nghị + phiếu nhập/xuất). TÁCH khỏi
+    // SECTION "Nhập xuất kho" — nghiệp vụ chứng từ kho (yêu cầu + phiếu nhập/xuất). TÁCH khỏi
     // "Kho hàng" vì section đó chỉ để LIỆT KÊ các kho vật lý đã khai báo, không chứa màn nghiệp vụ.
     id: "nhap-xuat-kho",
     label: "Nhập xuất kho",
     items: [
-      // MỘT mục — bên trong chia tab VIỆC (Đề nghị · Hộp yêu cầu) × CHIỀU (Nhập · Xuất).
+      // MỘT mục — bên trong chia tab VIỆC (Yêu cầu · Hộp yêu cầu) × CHIỀU (Nhập · Xuất).
       // Tab "Hộp yêu cầu" tự ẩn nếu vai không có create/view_stock (gate trong KhoPage).
-      // Tên "Đề nghị & Cấp phát": đúng việc của module (xin vật tư → kho cấp), phân biệt với
+      // Tên "Yêu cầu & Cấp phát": đúng việc của module (xin vật tư → kho cấp), phân biệt với
       // section "Kho hàng" (kho vật lý: tồn/phiếu/ngưỡng).
       { id: "kho-main", label: "Yêu cầu nhập xuất", icon: "warehouse", module: "kho" },
+      // Báo cáo kho (kế toán): sổ nhập-xuất + khóa kỳ + export MISA. AppShell ẩn nếu thiếu close_book.
+      { id: "kho-baocao", label: "Báo cáo kho", icon: "fileText", module: "kho" },
     ],
   },
   {

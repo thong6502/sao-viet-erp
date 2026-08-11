@@ -361,10 +361,13 @@ export function DepartmentPurchaseRequestsPage({
       );
       return;
     }
+    // Dòng KHOÁ (lấy từ mặt hàng Kho đã có) là nguồn tin cậy → KHÔNG bắt phải nằm trong danh mục
+    // NCC. Chỉ soi các dòng người dùng tự thêm.
     if (
-      payload.lines.some(
+      form.lines.some(
         (line) =>
-          !itemCatalog.some((item) => item.item_name === line.item_name),
+          !line.locked &&
+          !itemCatalog.some((item) => item.item_name === (line.item_name ?? "").trim()),
       )
     ) {
       setFormError("Vat tu yeu cau phai chon tu danh muc mat hang nha cung cap.");
@@ -794,6 +797,8 @@ export function DepartmentPurchaseRequestsPage({
                       <select
                         className="input purchase__line-name"
                         required
+                        disabled={line.locked}
+                        title={line.locked ? "Vật tư lấy từ kho — không sửa tên" : undefined}
                         value={line.item_name}
                         onChange={(e) =>
                           selectCatalogItem(index, e.target.value)

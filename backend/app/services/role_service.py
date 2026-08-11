@@ -76,6 +76,7 @@ READ_IMPLYING_KEYS = (
     "can_view_cost",
     "can_set_threshold",
     "can_post",
+    "can_close_book",
 )
 
 
@@ -204,6 +205,7 @@ class RoleService:
                     "can_view_cost": bool(p.can_view_cost) if p else False,
                     "can_set_threshold": bool(p.can_set_threshold) if p else False,
                     "can_post": bool(p.can_post) if p else False,
+                    "can_close_book": bool(p.can_close_book) if p else False,
                 }
             )
         return rows
@@ -266,6 +268,7 @@ class RoleService:
                 can_view_cost=normalized.get("can_view_cost", False),
                 can_set_threshold=normalized.get("can_set_threshold", False),
                 can_post=normalized.get("can_post", False),
+                can_close_book=normalized.get("can_close_book", False),
             )
         self.audit.create(
             actor_user_id=actor_id,

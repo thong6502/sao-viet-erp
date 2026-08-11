@@ -9,13 +9,15 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
+from ..models.stock_voucher import VOUCHER_POSTED, StockVoucher, StockVoucherLine
 from ..repositories.kho_hang_repo import KhoHangRepository
 from ..repositories.material_repo import MaterialRepository
 from ..repositories.stock_lot_repo import StockLotRepository
-from ..schemas.stock import PublicScanLot, PublicScanOut
+from ..schemas.stock import PublicScanLot, PublicScanMove, PublicScanOut
 from ..services.qr_token import verify_scan
 
 router = APIRouter(prefix="/api/public", tags=["public"])
@@ -38,6 +40,19 @@ def public_kho_scan(db: Db, t: Annotated[str, Query(description="Mã QR đã ký
     lots_repo = StockLotRepository(db)
     lots = lots_repo.list_lots(material_id=material_id, kho_id=kho_id, con_hang=False)
 
+    # Lịch sử nhập/xuất gần đây (phiếu ĐÃ GHI SỔ) — CÔNG KHAI, TUYỆT ĐỐI không kèm tiền.
+    moves_stmt = (
+        select(StockVoucher.loai, StockVoucher.ngay, StockVoucher.ma, StockVoucherLine.so_luong)
+        .join(StockVoucherLine, StockVoucherLine.voucher_id == StockVoucher.id)
+        .where(
+            StockVoucherLine.material_id == material_id,
+            StockVoucher.kho_id == kho_id,
+            StockVoucher.trang_thai == VOUCHER_POSTED,
+        )
+        .order_by(StockVoucher.ngay.desc(), StockVoucher.id.desc())
+        .limit(15)
+    )
+
     return PublicScanOut(
         material_code=getattr(m, "code", None),
         material_name=getattr(m, "name", None),
@@ -53,5 +68,9 @@ def public_kho_scan(db: Db, t: Annotated[str, Query(description="Mã QR đã ký
                 sl_con_lai=lot.sl_con_lai,
             )
             for lot in lots
+        ],
+        history=[
+            PublicScanMove(loai=loai, ngay=ngay, so_ct=ma, so_luong=float(sl or 0))
+            for loai, ngay, ma, sl in db.execute(moves_stmt).all()
         ],
     )

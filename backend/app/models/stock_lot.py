@@ -42,14 +42,14 @@ LOT_STATUSES = (LOT_AVAILABLE, LOT_HOLD, LOT_QC_WAIT, LOT_DEFECT, LOT_EMPTY)
 LOT_ISSUABLE = (LOT_AVAILABLE,)
 
 # Trạng thái tồn so với ngưỡng (spec §7). Dùng chung cho 3 chỗ: cảnh báo đẩy, đèn tín
-# hiệu ở màn đề nghị, dashboard kho — định nghĩa MỘT lần ở đây.
+# hiệu ở màn yêu cầu, dashboard kho — định nghĩa MỘT lần ở đây.
 STOCK_OVER = "du_ton"        # 🔵 > ngưỡng tối đa
 STOCK_OK = "du"              # 🟢 đủ
 STOCK_CRITICAL = "can_mua"   # 🟠 ≤ ngưỡng tồn
 STOCK_OUT = "het"            # 🔴 = 0
 # Bỏ mức "cận tồn/sắp hết" (2026-07-29) — chỉ còn 4 mức.
 STOCK_LEVELS = (STOCK_OVER, STOCK_OK, STOCK_CRITICAL, STOCK_OUT)
-# Hai mức này kích hoạt đẩy nhắc realtime cho người có quyền đề nghị (spec §8).
+# Hai mức này kích hoạt đẩy nhắc realtime cho người có quyền yêu cầu (spec §8).
 STOCK_ALERT_LEVELS = (STOCK_CRITICAL, STOCK_OUT)
 
 

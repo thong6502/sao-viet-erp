@@ -51,6 +51,7 @@ ACTION_VIEW_STOCK = "view_stock"  # kho: xem SỐ tồn (thiếu → chỉ thấ
 ACTION_VIEW_COST = "view_cost"  # kho: xem giá vốn & giá trị tồn (BRD §1.5 — chỉ KT + BGĐ)
 ACTION_SET_THRESHOLD = "set_threshold"  # kho: khai ngưỡng tồn / cận tồn / tối đa
 ACTION_POST = "post"  # kho: GHI SỔ phiếu (chốt tồn) — tách khỏi create (lập nháp) để giữ SoD
+ACTION_CLOSE_BOOK = "close_book"  # kho: KHÓA KỲ (chốt sổ) + xem Báo cáo kho kế toán + export MISA
 # Ghi chú: don_hang_ban tái dùng ACTION_APPROVE (= "Chốt đơn") và ACTION_CANCEL (= "Hủy đơn");
 # ACTION_APPROVE_EXCEPTION TÁCH RIÊNG (chỉ GĐ) — duyệt đơn đặc thù mới được chốt.
 
@@ -92,6 +93,7 @@ _ACTION_ATTR = {
     ACTION_VIEW_COST: "can_view_cost",
     ACTION_SET_THRESHOLD: "can_set_threshold",
     ACTION_POST: "can_post",
+    ACTION_CLOSE_BOOK: "can_close_book",
 }
 
 
@@ -166,6 +168,7 @@ class AuthorizationService:
                 "can_view_cost": p.can_view_cost,
                 "can_set_threshold": p.can_set_threshold,
                 "can_post": p.can_post,
+                "can_close_book": p.can_close_book,
             }
             for p in self.roles.permissions_for(user.role_id)
         ]

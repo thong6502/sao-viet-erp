@@ -179,6 +179,7 @@ gets on that module.
 | `can_view_cost` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (kho) — **XEM GIÁ VỐN** và giá trị tồn. Tồn ai cũng xem được, giá vốn chỉ Kế toán + BGĐ. Thiếu quyền → API ẩn đơn giá/thành tiền và bản in cũng bỏ 2 cột đó. Thêm qua migration 0092. |
 | `can_set_threshold` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (kho) — **KHAI NGƯỠNG** tồn / tối đa (`stock_thresholds`). Tách khỏi `can_update` vì đổi ngưỡng là đổi toàn bộ hệ cảnh báo mua hàng, không phải sửa dữ liệu thường. Thêm qua migration 0092. |
 | `can_post` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (kho) — **GHI SỔ** phiếu (chốt tồn). Tách khỏi `can_create` (= lập phiếu nháp) để giữ SoD: thủ kho lập nháp, Kế toán kho ghi sổ — người ghi sổ khác người cầm hàng. Thêm qua migration 0098. |
+| `can_close_book` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (kho) — **KHÓA KỲ** (chốt sổ) kế toán kho: xem **Báo cáo kho** + **export Excel MISA** + chốt/mở kỳ khóa sổ (`kho_khoa_so`). Chỉ Kế toán kho + Giám đốc. Thêm qua migration 0169. |
 
 **Keys & indexes**
 
@@ -4465,6 +4466,7 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 | `ngay_can` | `Date` → `DATE` | — | yes | — | Ngày cần hàng. |
 | `uu_tien` | `String(12)` → `VARCHAR(12)` | — | no | `binh_thuong` | `binh_thuong` / `gap`. |
 | `ghi_chu` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Đặc thù nghiệp vụ (nhập mua / xuất cấp bù / xuất bảo trì…) ghi ở đây — giai đoạn 1 chưa tách loại phiếu riêng nên đây là chỗ DUY NHẤT giữ ngữ cảnh. |
+| `loai_kho` | `String(50)` → `VARCHAR(50)` | — | yes | — | Loại nhập/xuất kho — TỰ DO người tạo gõ ở form yêu cầu (tên hoặc mã, vd "nhập mua" / "2"); Báo cáo kho kế toán đọc để xuất Excel MISA. NULL = chưa khai. Thêm `0169` (INT) → đổi VARCHAR ở `0170`. |
 | `trang_thai` | `String(16)` → `VARCHAR(16)` | **IX** | no | `draft` | Vòng đời: `draft` → `pending` → `approved` → `received` → `preparing` → `partial` → `done`; nhánh `rejected` / `cancelled`. `partial`/`done` do hệ thống tự set khi phiếu ứng số lượng. Người tạo chỉ sửa/hủy được ở `draft`/`pending`; kho chỉ lập phiếu ứng ở `approved`/`received`/`preparing`/`partial`. |
 | `nguoi_duyet_id` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Ai duyệt (tổ trưởng/quản lý bộ phận đề nghị — KHÔNG phải kho). |
 | `duyet_luc` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm duyệt. |
@@ -4483,7 +4485,34 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 
 - Một đề nghị có nhiều `stock_request_lines` (cascade delete-orphan) và được nhiều `stock_vouchers` ứng vào.
 
-**Tất cả cột:** `id`, `ma`, `loai`, `nguoi_tao_id`, `bo_phan_id`, `kho_id`, `ngay_can`, `uu_tien`, `ghi_chu`, `trang_thai`, `nguoi_duyet_id`, `duyet_luc`, `ly_do_tu_choi`, `ly_do_huy`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `loai`, `nguoi_tao_id`, `bo_phan_id`, `kho_id`, `ngay_can`, `uu_tien`, `ghi_chu`, `loai_kho`, `trang_thai`, `nguoi_duyet_id`, `duyet_luc`, `ly_do_tu_choi`, `ly_do_huy`, `created_at`, `updated_at`.
+
+---
+
+### `kho_khoa_so`
+
+**Purpose:** khóa/mở sổ kỳ kế toán kho (chốt sổ) — LOG APPEND-ONLY: mỗi lần khóa/mở ghi 1 bản ghi cho KHOẢNG `[tu_ngay, den_ngay]` + phạm vi (`kho_id` NULL = toàn kho). Phiếu tại (kho, ngày) bị khóa nếu bản ghi MỚI NHẤT phủ ngày đó (toàn kho hoặc kho này) có `hanh_dong='khoa'`. Bảng vừa là hiệu lực vừa là LỊCH SỬ thao tác.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `kho_id` | `Integer` → `INTEGER` | **FK→kho_hang.id**, **IX** | yes | — | Kho bị khóa. NULL = khóa TOÀN KHO (áp cho mọi kho). |
+| `tu_ngay` | `Date` → `DATE` | — | no | — | Đầu khoảng khóa/mở (bao gồm). Xét theo NGÀY CHỨNG TỪ phiếu. |
+| `den_ngay` | `Date` → `DATE` | — | no | — | Cuối khoảng khóa/mở (bao gồm). |
+| `hanh_dong` | `String(8)` → `VARCHAR(8)` | — | no | `khoa` | `khoa` = khóa kỳ; `mo` = mở lại. Bản ghi sau đè bản ghi trước ở các ngày giao nhau. |
+| `nguoi_khoa_id` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Kế toán kho thực hiện khóa/mở kỳ. |
+| `khoa_luc` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm ghi bản ghi khóa. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index trên `kho_id`.
+- Foreign keys: `kho_id FK→kho_hang.id`, `nguoi_khoa_id FK→users.id`.
+
+**Relationships**
+
+- Bảng độc lập (không quan hệ ORM). Do `create_all` dựng; cấu trúc chốt ở migration `0170` (đổi từ 1 ngày `ngay_khoa` sang khoảng + `hanh_dong`). Thêm cùng Báo cáo kho (docs/spec-bao-cao-kho.md).
+
+**Tất cả cột:** `id`, `kho_id`, `tu_ngay`, `den_ngay`, `hanh_dong`, `nguoi_khoa_id`, `khoa_luc`.
 
 ---
 
