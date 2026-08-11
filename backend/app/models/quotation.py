@@ -78,12 +78,9 @@ class Quote(Base):
     )
     customer_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
     
-    estimate_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("estimates.id", ondelete="SET NULL"), index=True, nullable=True
-    )
-    # BG-1: nguồn báo giá MỚI = 1 Phiếu tính giá (PTG). Soft link (plain int — PTG dùng FK mềm theo
+    # BG-1: nguồn báo giá = 1 Phiếu tính giá (PTG). Soft link (plain int — PTG dùng FK mềm theo
     # convention repo). 1 PTG → 1 BG đang hiệu lực: GUARD ở service (KHÔNG unique cứng — báo giá
-    # cancelled/rejected/expired nhả chỗ, cho báo giá lại / repeat order). estimate_id = hệ CŨ (gỡ ở BG-4).
+    # cancelled/rejected/expired nhả chỗ, cho báo giá lại / repeat order).
     phieu_tinh_gia_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
 
     salesperson_id: Mapped[int | None] = mapped_column(
@@ -145,7 +142,6 @@ class QuoteVersion(Base):
     change_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     
     # Snapshots
-    estimate_snapshot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     internal_cost_snapshot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     customer_output_snapshot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     pricing_snapshot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -181,13 +177,7 @@ class QuoteItem(Base):
     quote_version_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("quote_versions.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    # 1 báo giá pick từ NHIỀU phiếu tính giá → mỗi dòng giữ tham chiếu phiếu gốc của riêng nó
-    # (Quote.estimate_id ở header chỉ còn là "phiếu đầu tiên" cho tương thích cũ).
-    estimate_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("estimates.id", ondelete="SET NULL"), index=True, nullable=True
-    )
-    estimate_option_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # BG-1: dòng báo giá nguồn từ 1 "sản phẩm" (PhieuThanhPhan) của PTG. Soft ref (gỡ estimate_* ở BG-4).
+    # BG-1: dòng báo giá nguồn từ 1 "sản phẩm" (PhieuThanhPhan) của PTG. Soft ref.
     phieu_thanh_phan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     line_no: Mapped[int] = mapped_column(Integer, nullable=False)
     # Mã PO của khách cho dòng này (cột "MÃ PO" trên mẫu báo giá thật) — tùy chọn, nhập tay.

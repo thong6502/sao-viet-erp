@@ -139,6 +139,35 @@ def test_dong_cong_thuc_khong_bi_chan_mau_thuan(svc):
         svc.create_cap({"tu_id": tan.id, "den_id": g.id, "he_so": 999_000})
 
 
+def test_canh_bao_cap_so_co_dinh_de_len_duong_cong_thuc(svc):
+    """`1 tờ = 1.000 g` (⇒ mọi tờ nặng 1 kg) là dữ liệu SAI đã lọt vào DB thật.
+
+    `_kiem_mau_thuan` không bắt được vì nó chỉ so với đường HẰNG, mà tờ → kg là đường ĐỘNG. Không
+    chặn (cạnh động có thể thiếu biến) nhưng PHẢI nhắc, không thì BFS chọn đường ngắn hơn là số cố
+    định và mọi phép đổi tờ ↔ cân đều sai mà im lặng.
+    """
+    to = svc.create({"ma": "to", "ten": "tờ", "ho": "to"})
+    kg = svc.create({"ma": "kg", "ten": "kg", "ho": "khoi_luong"})
+    g = svc.create({"ma": "g", "ten": "g", "ho": "khoi_luong"})
+    svc.create_cap({"tu_id": to.id, "den_id": kg.id, "cong_thuc": "dinh_luong * dai * rong"})
+    svc.create_cap({"tu_id": kg.id, "den_id": g.id, "he_so": 1000})
+
+    svc.create_cap({"tu_id": to.id, "den_id": g.id, "he_so": 1000})   # cặp rác — vẫn lưu được
+    assert any("số cố định" in c for c in svc.canh_bao(to))
+
+
+def test_khong_canh_bao_cap_cung_loai_do(svc):
+    """"1 tấn = 1.000 kg" đúng với MỌI mặt hàng — cùng loại đo thì không bao giờ báo, kẻo cảnh báo
+    nhiều tới mức không ai đọc nữa."""
+    tan = svc.create({"ma": "tan", "ten": "tấn", "ho": "khoi_luong"})
+    kg = svc.create({"ma": "kg", "ten": "kg", "ho": "khoi_luong"})
+    to = svc.create({"ma": "to", "ten": "tờ", "ho": "to"})
+    svc.create_cap({"tu_id": tan.id, "den_id": kg.id, "he_so": 1000})
+    svc.create_cap({"tu_id": to.id, "den_id": kg.id, "cong_thuc": "dinh_luong * dai * rong"})
+    assert not [c for c in svc.canh_bao(tan) if "số cố định" in c]
+    assert not [c for c in svc.canh_bao(kg) if "số cố định" in c]
+
+
 # --- vòng đời -----------------------------------------------------------------
 
 

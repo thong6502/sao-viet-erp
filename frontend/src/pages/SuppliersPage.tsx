@@ -12,18 +12,25 @@ import {
   api,
   type PurchaseRequestRow,
   type SupplierInput,
-  type SupplierItemCatalogRow,
   type SupplierItemImportError,
   type SupplierItemInput,
   type SupplierRow,
 } from "../api/client";
+import { useDebounced } from "../utils/useDebounced";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
+import { DonViChonTheoHang, MaterialCombobox } from "../components/MaterialCombobox";
+import { EmptyRow, EmptyState } from "../components/EmptyState";
+import { Icon } from "../components/Icons";
+import { RowActionButton } from "../components/RowActionButton";
+// Định dạng tiền / ngày lấy từ helper CHUNG. Màn này trước 09/08/2026 tự chép lại `formatVND` và
+// gọi thẳng `toLocaleDateString("vi-VN")` — sửa cách hiện tiền một lần là phải đi sửa từng màn.
+import { fmtDate, money } from "../utils/format";
 import "./master-data.css";
 import "./purchase.css";
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 20;
 
 /** Khoá TRÙNG của một mặt hàng = tên + đơn vị, bỏ hoa/thường và khoảng trắng thừa.
  *  Phải khớp `_khoa_vat_tu` bên service — lệch nhau thì máy nói trùng mà màn hình nói không. */
@@ -108,6 +115,11 @@ function fromSupplier(row: SupplierRow): SupplierInput {
     note: row.note ?? "",
     items: row.items.length
       ? row.items.map((item) => ({
+          // PHẢI mang theo cặp mặt hàng gốc: form ghi kiểu replace-all, bỏ sót là mỗi lần mở NCC
+          // ra sửa số điện thoại lại XOÁ SẠCH liên kết mặt hàng của cả bảng giá — im lặng, kéo
+          // theo bảng so giá trống.
+          hang_loai: item.hang_loai,
+          hang_id: item.hang_id,
           item_name: item.item_name,
           unit: item.unit,
           unit_price: item.unit_price,
@@ -123,6 +135,8 @@ function cleanSupplierItems(
 ): SupplierItemInput[] {
   return items
     .map((item) => ({
+      hang_loai: item.hang_loai ?? null,
+      hang_id: item.hang_id ?? null,
       item_name: (item.item_name ?? "").trim(),
       unit: (item.unit ?? "").trim(),
       unit_price: Number(item.unit_price || 0),
@@ -175,10 +189,6 @@ const REQUIRED_SUPPLIER_FIELDS: Array<[keyof SupplierInput, string]> = [
   ["address", "Địa chỉ"],
 ];
 
-function formatVND(amount: number): string {
-  return new Intl.NumberFormat("vi-VN").format(Math.round(amount)) + " đ";
-}
-
 function getPOStatusLabel(status: string): {
   label: string;
   className: string;
@@ -228,6 +238,17 @@ export function SuppliersPage({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Lỗi TẢI DANH SÁCH — tách hẳn khỏi `error` (lỗi THAO TÁC).
+   *
+   *  Vì sao phải hai ô nhớ riêng: `error` bị hàng chục handler thao tác ghi vào (huỷ phiếu, ghi
+   *  đợt giao, gán hoá đơn, thậm chí trình duyệt chặn cửa sổ in). Nếu ô rỗng của bảng đọc chung
+   *  `error` thì chỉ cần bấm "In phiếu" mà bị chặn pop-up là CẢ BẢNG biến mất, thay bằng "Không
+   *  đọc được dữ liệu" — dữ liệu còn nguyên trên máy chủ, chỉ là bảng tự xoá mình vì một lỗi in.
+   *  Ô này CHỈ được ghi trong `catch` của hàm tải danh sách. */
+  const [listError, setListError] = useState<string | null>(null);
+  // Ô nhập vẫn bám state gốc (gõ tới đâu hiện tới đó); chỉ lời gọi máy chủ đọc bản đã
+  // chậm 300ms — xem `utils/useDebounced`.
+  const qDebounced = useDebounced(q);
   const [forbidden, setForbidden] = useState(false);
 
   // Side Drawer State
@@ -242,6 +263,9 @@ export function SuppliersPage({
   // Tab 2 internal item search filter
   const [itemSearchQ, setItemSearchQ] = useState("");
 
+  // Gợi ý tên vật tư gộp-mọi-NCC (`api.suppliers.itemCatalog`) ĐÃ BỎ: ô Tên vật tư giờ chọn từ
+  // DANH MỤC GỐC qua `MaterialCombobox`, nên tên không còn cơ hội trượt ("Couche 150" vs
+  // "Couché 150") — thứ mà gợi ý kia sinh ra để chữa.
   // Nhập / xuất Excel bảng giá vật tư.
   //
   // File ĐỌC XONG chỉ nạp vào form, CHƯA vào DB — bảng giá được lưu bằng chính cú "Lưu nhà cung
@@ -300,21 +324,6 @@ export function SuppliersPage({
     }
   }
 
-  // Danh mục vật tư GỘP của mọi NCC — dùng để gợi ý tên khi khai mặt hàng.
-  //
-  // Vì sao cần: hệ nhận diện "cùng một vật tư" bằng CHÍNH CHUỖI TÊN (viết thường, cắt khoảng
-  // trắng). NCC A khai "Giấy Duplex 350gsm", NCC B khai "Giay Duplex 350" là hai vật tư khác nhau
-  // ⇒ không so được giá giữa hai bên, và lúc gom mua hàng máy không bao giờ gợi ý B thay cho A.
-  // Gợi ý ở đây để tên tự hội tụ, thay vì dựng một bảng vật tư trung tâm.
-  const [itemCatalog, setItemCatalog] = useState<SupplierItemCatalogRow[]>([]);
-  useEffect(() => {
-    if (!token) return;
-    api.suppliers
-      .itemCatalog(token)
-      .then((res) => setItemCatalog(res.items))
-      .catch(() => setItemCatalog([])); // không chặn: mất gợi ý thì vẫn gõ tay được
-  }, [token]);
-
   // Tab 3 Purchase Orders History State
   const [poList, setPoList] = useState<PurchaseRequestRow[]>([]);
   const [poLoading, setPoLoading] = useState(false);
@@ -345,9 +354,10 @@ export function SuppliersPage({
     if (!token) return;
     setLoading(true);
     setError(null);
+    setListError(null);
     api.suppliers
       .list(token, {
-        q: q.trim() || undefined,
+        q: qDebounced.trim() || undefined,
         status: status === "all" ? null : status,
         supplier_group: selectedGroup === "all" ? null : selectedGroup,
         sort: "name",
@@ -360,10 +370,10 @@ export function SuppliersPage({
       })
       .catch((err) => {
         if (err instanceof ApiError && err.isForbidden) setForbidden(true);
-        else setError("Không tải được danh sách nhà cung cấp.");
+        else setListError("Không tải được danh sách nhà cung cấp.");
       })
       .finally(() => setLoading(false));
-  }, [token, q, status, selectedGroup, page]);
+  }, [token, qDebounced, status, selectedGroup, page]);
 
   useEffect(() => {
     loadAll();
@@ -377,18 +387,6 @@ export function SuppliersPage({
     if (eventTick <= 0 || !token) return;
     loadAll();
     load();
-    let alive = true;
-    api.suppliers
-      .itemCatalog(token)
-      .then((res) => {
-        if (alive) setItemCatalog(res.items);
-      })
-      .catch(() => {
-        if (alive) setItemCatalog([]);
-      });
-    return () => {
-      alive = false;
-    };
   }, [eventTick, token, loadAll, load]);
 
   // Dynamic Supplier Group Pills — chỉ lấy từ data thực, KHÔNG hardcode
@@ -487,6 +485,25 @@ export function SuppliersPage({
         i === index ? { ...item, ...patch } : item,
       ),
     }));
+  }
+
+  // Hệ số quy đổi về đơn vị gốc của TỪNG DÒNG bảng giá (server trả theo mặt hàng + đơn vị đã chọn).
+  // Chỉ để HIỂN THỊ cột "Giá quy về gốc" — không lưu, không gửi lên: hệ số là dữ liệu sống, đóng
+  // băng nó vào bảng giá NCC là mời sai số vào giữa việc so giá.
+  const [quyDoiDong, setQuyDoiDong] = useState<
+    Record<number, { donViGocTen: string; heSoVeGoc: number } | null>
+  >({});
+
+  function ghiQuyDoiDong(
+    index: number,
+    info: { donViGocTen: string; heSoVeGoc: number } | null,
+  ) {
+    setQuyDoiDong((cur) =>
+      cur[index]?.donViGocTen === info?.donViGocTen &&
+      cur[index]?.heSoVeGoc === info?.heSoVeGoc
+        ? cur
+        : { ...cur, [index]: info },
+    );
   }
 
   async function save(e: FormEvent) {
@@ -590,34 +607,46 @@ export function SuppliersPage({
         </p>
       </header>
 
-      {/* 3 Metric Stats Cards at top */}
-      <div className="supplier-stats">
-        <div className="supplier-stat-card">
-          <div className="supplier-stat-icon">🏢</div>
-          <div className="supplier-stat-info">
-            <span className="supplier-stat-val">{stats.totalCount}</span>
-            <span className="supplier-stat-label">Tổng Nhà cung cấp</span>
-          </div>
+      {/* DẢI CHỈ SỐ một hàng — bản mẫu `.rdx-compact-kpi` ở DepartmentsPage (và `.pay-kpibar` ở
+          màn Công nợ). Trước 09/08/2026 đây là 3 THẺ cao ~78px với emoji tự chế 🏢 ✓ – :
+            · emoji đổi hình theo font từng máy và không mang nghĩa cố định — "–" chẳng ai đọc ra
+              "tạm ngừng"; icon nay lấy từ bộ `<Icon>` dùng chung nên cùng nét với mọi màn khác.
+            · ba thẻ ăn gần một phần tư màn laptop cho thứ đọc mất một giây, đẩy BẢNG NCC (nội dung
+              thật của màn) xuống dưới nếp gấp.
+          Số ở đây đếm TOÀN BỘ nhà cung cấp (`allSuppliers`, tải riêng), không phải trang đang xem. */}
+      <div className="supplier__kpi" aria-label="Tóm tắt nhà cung cấp">
+        <div className="supplier__kpi-item">
+          <span className="supplier__kpi-icon supplier__kpi-icon--steel">
+            <Icon name="truck" size={15} />
+          </span>
+          <span className="supplier__kpi-body">
+            <b className="supplier__kpi-val">{stats.totalCount}</b>
+            <span className="supplier__kpi-lbl">Nhà cung cấp</span>
+          </span>
         </div>
 
-        <div className="supplier-stat-card">
-          <div className="supplier-stat-icon supplier-stat-icon--green">✓</div>
-          <div className="supplier-stat-info">
-            <span className="supplier-stat-val supplier-stat-val--green">
-              {stats.activeCount}
-            </span>
-            <span className="supplier-stat-label">Đang hợp tác</span>
-          </div>
+        <span className="supplier__kpi-sep" aria-hidden="true" />
+
+        <div className="supplier__kpi-item">
+          <span className="supplier__kpi-icon supplier__kpi-icon--ok">
+            <Icon name="check" size={15} />
+          </span>
+          <span className="supplier__kpi-body">
+            <b className="supplier__kpi-val">{stats.activeCount}</b>
+            <span className="supplier__kpi-lbl">Đang hợp tác</span>
+          </span>
         </div>
 
-        <div className="supplier-stat-card">
-          <div className="supplier-stat-icon supplier-stat-icon--amber">–</div>
-          <div className="supplier-stat-info">
-            <span className="supplier-stat-val supplier-stat-val--amber">
-              {stats.inactiveCount}
-            </span>
-            <span className="supplier-stat-label">Tạm ngừng</span>
-          </div>
+        <span className="supplier__kpi-sep" aria-hidden="true" />
+
+        <div className="supplier__kpi-item">
+          <span className="supplier__kpi-icon supplier__kpi-icon--warn">
+            <Icon name="ban" size={15} />
+          </span>
+          <span className="supplier__kpi-body">
+            <b className="supplier__kpi-val">{stats.inactiveCount}</b>
+            <span className="supplier__kpi-lbl">Tạm ngừng</span>
+          </span>
         </div>
       </div>
 
@@ -661,7 +690,11 @@ export function SuppliersPage({
         <div className="md-page__toolbar-spacer" />
 
         {canCreate && (
-          <Button variant="primary" onClick={openCreate}>
+          // ⚠️ TÊN LỚP ĐẶT NGƯỢC VỚI TÀI LIỆU: `variant="accent"` mới ra màu CAM thương hiệu,
+          // `variant="primary"` ra màu NAVY. Đây là hành động chính DUY NHẤT của màn nền; nút cam
+          // thứ hai của màn nằm trong DRAWER ("Lưu nhà cung cấp") — khác hộp nên không phạm luật
+          // "tối đa MỘT nút cam mỗi màn / mỗi hộp thoại". Đừng nâng thêm nút nào lên accent.
+          <Button variant="accent" onClick={openCreate}>
             + Thêm NCC
           </Button>
         )}
@@ -729,17 +762,21 @@ export function SuppliersPage({
           </thead>
           <tbody>
             {loading ? (
-              <tr>
-                <td colSpan={canUpdate ? 5 : 4} className="md-page__status">
-                  Đang tải dữ liệu...
-                </td>
-              </tr>
+              <EmptyRow colSpan={canUpdate ? 5 : 4} trangThai="dang-tai" />
+            ) : listError ? (
+              <EmptyRow
+                colSpan={canUpdate ? 5 : 4}
+                trangThai="loi"
+                loi={listError}
+                onThuLai={load}
+              />
             ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={canUpdate ? 5 : 4} className="md-page__empty">
-                  Chưa có nhà cung cấp phù hợp.
-                </td>
-              </tr>
+              <EmptyRow
+                colSpan={canUpdate ? 5 : 4}
+                icon="truck"
+                title="Chưa có nhà cung cấp nào khớp"
+                sub="Khai nhà cung cấp trước, rồi mới khai bảng giá vật tư của họ."
+              />
             ) : (
               rows.map((row) => (
                 <tr
@@ -847,26 +884,41 @@ export function SuppliersPage({
                     </span>
                   </td>
 
-                  {/* Column 6: Actions */}
+                  {/* Column 6: Actions — TOÀN icon dense (`RowActionButton`), thống nhất với hai
+                      màn Thu mua còn lại. Hai nút chữ cũ ngốn ~150px nên cột phải giữ 17% bề
+                      ngang chỉ để chứa chữ, cắt mất chỗ của tên NCC và người liên hệ.
+                      GIỮ `danger` cho nút Ngừng: nó cắt NCC khỏi mọi ô chọn ở phiếu mua — mất tín
+                      hiệu đỏ là bấm nhầm. Chiều ngược lại (Mở lại hợp tác) KHÔNG nguy hiểm nên
+                      không tô đỏ; nhãn/icon cũng đổi theo trạng thái, đừng gộp thành một. */}
                   {canUpdate && (
                     <td
                       className="md-page__actions-col supplier__actions-cell"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <button
-                        type="button"
-                        className="btn btn--ghost md-page__rowbtn"
-                        onClick={() => openEdit(row)}
-                      >
-                        Xem/Sửa
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--ghost md-page__rowbtn"
-                        onClick={() => toggle(row)}
-                      >
-                        {row.status === "active" ? "Ngừng" : "Mở"}
-                      </button>
+                      <div className="purchase__actions purchase__actions--dense">
+                        <RowActionButton
+                          dense
+                          label="Xem / sửa nhà cung cấp"
+                          icon="pencil"
+                          onClick={() => openEdit(row)}
+                        />
+                        {row.status === "active" ? (
+                          <RowActionButton
+                            dense
+                            danger
+                            label="Ngừng hợp tác"
+                            icon="ban"
+                            onClick={() => toggle(row)}
+                          />
+                        ) : (
+                          <RowActionButton
+                            dense
+                            label="Mở lại hợp tác"
+                            icon="check"
+                            onClick={() => toggle(row)}
+                          />
+                        )}
+                      </div>
                     </td>
                   )}
                 </tr>
@@ -876,30 +928,36 @@ export function SuppliersPage({
         </table>
       </div>
 
-      {/* Pagination */}
+      {/* Chân bảng chuẩn: tổng bên TRÁI, nút chuyển trang bên PHẢI, và CHỈ hiện nút khi thật sự
+          có nhiều hơn một trang (mẫu: `.purchase__source-foot` ở PurchaseRequestsPage). Danh mục
+          NCC thường gọn trong một trang — treo "Trang 1/1" kèm hai nút mờ là nhiễu mà không nói
+          thêm điều gì. */}
       {!loading && rows.length > 0 && (
         <div className="md-page__pager">
           <span className="md-page__muted">
-            Tổng số: {total} NCC · Trang {page}/{totalPages}
+            Tổng {total} NCC
+            {totalPages > 1 ? ` · Trang ${page}/${totalPages}` : ""}
           </span>
-          <div className="md-page__pager-btns">
-            <button
-              type="button"
-              className="btn btn--ghost"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              Trước
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost"
-              disabled={page >= totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Sau
-            </button>
-          </div>
+          {totalPages > 1 && (
+            <div className="md-page__pager-btns">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                Trước
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Sau
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1330,18 +1388,6 @@ export function SuppliersPage({
                       </span>
                     </div>
 
-                    {/* Nguồn gợi ý dùng chung cho MỌI dòng — khai một lần, đừng lặp trong map. */}
-                    <datalist id="supplier-item-name-suggestions">
-                      {itemCatalog.map((c) => (
-                        <option key={c.item_name} value={c.item_name}>
-                          {c.unit}
-                          {c.supplier_count > 1
-                            ? ` · ${c.supplier_count} NCC đang bán`
-                            : ""}
-                        </option>
-                      ))}
-                    </datalist>
-
                     {/* Table Editor */}
                     <div className="supplier__item-editor">
                       <div
@@ -1349,14 +1395,21 @@ export function SuppliersPage({
                         aria-hidden="true"
                         style={{
                           gridTemplateColumns:
-                            "minmax(180px, 1.4fr) minmax(70px, 0.5fr) minmax(110px, 0.8fr) minmax(65px, 0.5fr) minmax(120px, 0.8fr) minmax(130px, 1fr) 36px",
+                            "minmax(170px, 1.3fr) minmax(70px, 0.5fr) minmax(105px, 0.75fr) minmax(120px, 0.85fr) minmax(60px, 0.45fr) minmax(110px, 0.75fr) minmax(78px, 0.5fr) minmax(110px, 0.85fr) 36px",
                         }}
                       >
                         <span>Tên vật tư *</span>
                         <span>ĐVT *</span>
                         <span>Đơn giá (chưa VAT) *</span>
+                        <span title="Quy giá về đơn vị gốc của mặt hàng để so ngang giữa các NCC (ông báo đ/ram, ông báo đ/kg).">
+                          Giá quy về gốc
+                        </span>
                         <span>VAT %</span>
                         <span>Giá sau VAT</span>
+                        {/* BỎ 10/08/2026 cột "Giao (ngày)" (mg 0176): lúc khai danh mục NCC thì
+                            chưa ai biết ông ấy giao mấy ngày — số gõ vào là số đoán, mà kế hoạch
+                            lại dựa vào đó để báo trễ. Cần lại thì SUY từ lịch sử mua (ngày đặt →
+                            ngày nhận thật), đừng bắt khai tay. */}
                         <span>Ghi chú</span>
                         <span></span>
                       </div>
@@ -1365,6 +1418,14 @@ export function SuppliersPage({
                         const priceAfterVAT =
                           (item.unit_price || 0) *
                           (1 + (item.vat_percent || 0) / 100);
+                        // Cùng công thức server dùng ở `/api/supplier-items/so-gia`: 1 đơn vị NCC
+                        // bán bằng `heSoVeGoc` đơn vị gốc ⇒ giá/đơn-vị-gốc = giá ÷ hệ số. Hệ số
+                        // lấy TỪ SERVER (không tự suy ở FE) nên hai nơi không thể lệch.
+                        const quyDoi = quyDoiDong[originalIndex];
+                        const giaVeGoc =
+                          quyDoi && item.unit_price > 0
+                            ? Math.round(item.unit_price / quyDoi.heSoVeGoc)
+                            : null;
 
                         return (
                           <div
@@ -1372,43 +1433,49 @@ export function SuppliersPage({
                             key={originalIndex}
                             style={{
                               gridTemplateColumns:
-                                "minmax(180px, 1.4fr) minmax(70px, 0.5fr) minmax(110px, 0.8fr) minmax(65px, 0.5fr) minmax(120px, 0.8fr) minmax(130px, 1fr) 36px",
+                                "minmax(170px, 1.3fr) minmax(70px, 0.5fr) minmax(105px, 0.75fr) minmax(120px, 0.85fr) minmax(60px, 0.45fr) minmax(110px, 0.75fr) minmax(78px, 0.5fr) minmax(110px, 0.85fr) 36px",
                             }}
                           >
-                            {/* `datalist` chứ không phải `select`: tên MỚI phải gõ được, vì đây
-                                chính là chỗ vật tư mới vào danh mục. Gợi ý chỉ để tên hội tụ. */}
-                            <input
-                              className="input"
-                              list="supplier-item-name-suggestions"
-                              placeholder="VD: Giấy Duplex 350gsm"
-                              value={item.item_name}
-                              onChange={(e) => {
-                                const ten = e.target.value;
-                                // Gõ/chọn trúng tên đã có mà chưa khai ĐVT thì điền hộ — đơn vị
-                                // lệch nhau cũng làm hai bên không so được với nhau.
-                                const trung = itemCatalog.find(
-                                  (c) =>
-                                    c.item_name.trim().toLowerCase() ===
-                                    ten.trim().toLowerCase(),
-                                );
+                            {/* CHỌN từ danh mục gốc, không gõ tự do nữa: ghép NCC với kho bằng
+                                chuỗi tên là trượt thầm lặng ("Couche 150" ≠ "Couché 150 79×109"),
+                                mà trượt thì mãi không so được giá. Đổi mặt hàng → xoá đơn vị cũ,
+                                vì đơn vị dùng được phụ thuộc chính mặt hàng. */}
+                            <MaterialCombobox
+                              token={token ?? ""}
+                              hangTen={item.item_name || null}
+                              onPick={(m) =>
                                 setSupplierItem(originalIndex, {
-                                  item_name: ten,
-                                  ...(trung && !item.unit
-                                    ? { unit: trung.unit }
-                                    : {}),
-                                });
-                              }}
-                            />
-                            <input
-                              className="input"
-                              placeholder="tờ, kg..."
-                              value={item.unit}
-                              onChange={(e) =>
-                                setSupplierItem(originalIndex, {
-                                  unit: e.target.value,
+                                  hang_loai: m.hang_loai,
+                                  hang_id: m.hang_id,
+                                  item_name: m.ten,
+                                  unit: "",
                                 })
                               }
+                              placeholder="Gõ tên vật tư…"
                             />
+                            {item.hang_loai && item.hang_id ? (
+                              <DonViChonTheoHang
+                                token={token ?? ""}
+                                hangLoai={item.hang_loai}
+                                hangId={item.hang_id}
+                                value={item.unit}
+                                onChange={(ma) =>
+                                  setSupplierItem(originalIndex, { unit: ma })
+                                }
+                                onQuyDoi={(info) => ghiQuyDoiDong(originalIndex, info)}
+                              />
+                            ) : (
+                              // Chưa chọn mặt hàng → KHOÁ ô đơn vị. Trước đây cho gõ tự do; gõ tự
+                              // do là mở đường cho đơn vị lạ ("thùg") lọt vào, quy đổi tắt lặng lẽ
+                              // và giá không quy về gốc được để so giữa các NCC.
+                              <input
+                                className="input"
+                                placeholder="Chọn vật tư trước"
+                                value={item.unit}
+                                readOnly
+                                disabled
+                              />
+                            )}
                             <input
                               className="input purchase__number-input"
                               type="number"
@@ -1422,6 +1489,18 @@ export function SuppliersPage({
                                 })
                               }
                             />
+                            <div
+                              className="supplier-item-vat-calculated"
+                              title={
+                                giaVeGoc
+                                  ? `${money(item.unit_price)} / ${item.unit} ÷ ${quyDoi!.heSoVeGoc} = ${money(giaVeGoc)} / ${quyDoi!.donViGocTen}`
+                                  : "Gắn mặt hàng gốc + chọn đơn vị đổi được thì mới quy đổi được."
+                              }
+                            >
+                              {giaVeGoc
+                                ? `${money(giaVeGoc)}/${quyDoi!.donViGocTen}`
+                                : "—"}
+                            </div>
                             <input
                               className="input purchase__number-input"
                               type="number"
@@ -1441,9 +1520,7 @@ export function SuppliersPage({
                               }
                             />
                             <div className="supplier-item-vat-calculated">
-                              {item.unit_price > 0
-                                ? formatVND(priceAfterVAT)
-                                : "—"}
+                              {item.unit_price > 0 ? money(priceAfterVAT) : "—"}
                             </div>
                             <input
                               className="input"
@@ -1498,22 +1575,27 @@ export function SuppliersPage({
                       Danh sách các đơn mua hàng đã được giao cho NCC này xử lý.
                     </p>
 
+                    {/* Ba ca đang tải / rỗng / lỗi dùng CHUNG khối `EmptyState` như mọi danh sách
+                        khác (chuẩn đợt 2 §f) — trước đây chỗ này tự dựng ba kiểu riêng.
+                        Ca "chưa lưu NCC" KHÔNG phải một trong ba ca đó: nó là điều kiện chưa đủ để
+                        hỏi máy chủ, nên vẫn là banner hướng dẫn.
+                        `poError` là ô nhớ RIÊNG của bảng này (chỉ ghi trong catch của lượt tải
+                        lịch sử), không dùng chung với `error` thao tác — giữ nguyên như vậy. */}
                     {mode === "create" || !selected ? (
                       <div className="banner banner--info">
                         Vui lòng lưu thông tin nhà cung cấp trước khi xem lịch
                         sử mua hàng.
                       </div>
                     ) : poLoading ? (
-                      <div className="md-page__status">
-                        Đang tải lịch sử mua hàng...
-                      </div>
+                      <EmptyState trangThai="dang-tai" />
                     ) : poError ? (
-                      <div className="banner banner--error">{poError}</div>
+                      <EmptyState trangThai="loi" loi={poError} />
                     ) : poList.length === 0 ? (
-                      <div className="md-page__empty">
-                        Chưa có Phiếu Mua Hàng nào phát sinh với nhà cung cấp
-                        này.
-                      </div>
+                      <EmptyState
+                        icon="cart"
+                        title="Chưa có phiếu mua hàng nào với nhà cung cấp này"
+                        sub="Phiếu mua lập từ màn Mua hàng sẽ tự hiện ở đây."
+                      />
                     ) : (
                       <div className="card md-page__tablewrap">
                         <table className="md-page__table">
@@ -1540,9 +1622,7 @@ export function SuppliersPage({
                                     {po.code}
                                   </td>
                                   <td className="md-page__mono">
-                                    {new Date(po.created_at).toLocaleDateString(
-                                      "vi-VN",
-                                    )}
+                                    {fmtDate(po.created_at)}
                                   </td>
                                   <td>
                                     <div>{po.purpose || "Mua vật tư in"}</div>
@@ -1555,7 +1635,7 @@ export function SuppliersPage({
                                   </td>
                                   <td style={{ textAlign: "right" }}>
                                     <strong className="md-page__price">
-                                      {formatVND(po.total_estimate ?? 0)}
+                                      {money(po.total_estimate ?? 0)}
                                     </strong>
                                   </td>
                                   <td>

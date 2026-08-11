@@ -330,6 +330,76 @@ def doi_theo_quy_cach(gia_tri: float, tu: str, den: str, quy_cach: dict | None,
     return kq        # nguyên lỗi "chưa khai quy đổi giữa A và B"
 
 
+# --- Đơn vị dùng được cho MỘT mặt hàng ---------------------------------------------------------
+
+
+def canh_quy_cach(don_vi_dong_goi: str | None, he_so_dong_goi, don_vi_goc: str | None) -> list[dict]:
+    """Cạnh quy đổi RIÊNG của một mặt hàng: "1 <đóng gói> = <hệ số> <đơn vị gốc>".
+
+    Không khai vào bảng cặp chung được: "1 thùng = 3 kg" đúng với keo nhưng sai với mực — hệ số
+    này thuộc về MÓN, không thuộc về cặp đơn vị. Trả về đúng hình dạng dòng cặp (`tu_ma`/`den_ma`/
+    `he_so`) để nối thẳng vào `cap_rows` — `cap_map` nuốt được, khỏi đẻ đường code đồ thị thứ hai.
+    """
+    tu = (don_vi_dong_goi or "").strip().lower()
+    den = (don_vi_goc or "").strip().lower()
+    hs = _f(he_so_dong_goi)
+    if not tu or not den or tu == den or hs <= 0:
+        return []
+    return [{"tu_ma": tu, "den_ma": den, "he_so": hs, "cong_thuc": None}]
+
+
+def don_vi_dung_duoc(goc: str, dvs: dict[str, dict], cap_rows=None,
+                     quy_cach: dict | None = None) -> list[dict]:
+    """Mọi đơn vị đổi được từ `goc` — nguồn cho dropdown "chọn đơn vị" ở Kho / NCC.
+
+    `duong_di` chỉ trả lời "đi từ A tới B được không"; ở đây cần hỏi ngược lại "đứng ở A thì tới
+    được những đâu", nên BFS LOANG cả đồ thị thay vì tìm một đích.
+
+    Danh sách TỰ THÍCH NGHI THEO MÓN mà không cần cấu hình riêng: `cap_map` loại cạnh động thiếu
+    biến, nên giấy (có khổ + định lượng) thấy tờ/ram/m², còn hoá chất chỉ khai kg thì cạnh
+    `tờ → kg` tắt và nó chỉ thấy kg/g/tấn. Cạnh riêng của món (quy cách đóng gói) truyền vào bằng
+    `cap_rows` đã nối thêm `canh_quy_cach(...)`.
+
+    Trả list `{ma, ten, he_so, he_so_ve_goc, la_goc, dien_giai}`, thứ tự BFS nên đơn vị gốc đứng
+    đầu rồi tới các đơn vị gần nhất. Hai hệ số ngược nhau đều được trả vì hai phía dùng hai chiều:
+    hiện tồn theo đơn vị khác thì nhân `he_so`, còn quy số người dùng nhập về gốc thì nhân
+    `he_so_ve_goc` — bắt nơi gọi tự nghịch đảo là mời một lớp bug im lặng vào giữa số tồn kho.
+    """
+    goc_k = (goc or "").strip().lower()
+    g = dvs.get(goc_k)
+    if g is None:
+        return []
+    ma_goc = g["ma"]
+    cap = cap_map(list(cap_rows or []), ngu_canh(quy_cach))
+
+    he_so: dict[str, float] = {ma_goc: 1.0}
+    hang_doi = [ma_goc]
+    while hang_doi:
+        cur = hang_doi.pop(0)
+        for ke, hs in cap.get(cur, {}).items():
+            if ke in he_so:
+                continue
+            he_so[ke] = he_so[cur] * hs
+            hang_doi.append(ke)
+
+    out: list[dict] = []
+    for ma, hs in he_so.items():
+        dv = dvs.get(ma)
+        if dv is None or hs <= 0:
+            continue          # cặp trỏ tới đơn vị đã gỡ khỏi danh mục — bỏ, đừng hiện mã trần
+        la_goc = ma == ma_goc
+        out.append({
+            "ma": ma,
+            "ten": dv["ten"],
+            "he_so": hs,
+            "he_so_ve_goc": 1.0 / hs,
+            "la_goc": la_goc,
+            "dien_giai": ("Đơn vị gốc" if la_goc
+                          else f"1 {dv['ten']} = {_so(1.0 / hs)} {g['ten']}"),
+        })
+    return out
+
+
 def tien_khoan(sl_buoc: float, don_vi_buoc: str, don_vi_gia: str, don_gia: float,
                quy_cach: dict | None, dvs: dict[str, dict], cap_rows=None) -> dict:
     """Tiền khoán DỰ KIẾN của 1 bước = SL bước (đổi sang đơn vị đơn giá) × đơn giá.

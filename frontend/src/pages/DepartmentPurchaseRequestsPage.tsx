@@ -16,13 +16,15 @@ import {
   type DepartmentPurchaseRequestStatus,
   type DepartmentPurchaseSourceType,
   type PurchaseRequestStatus,
-  type SupplierItemCatalogRow,
 } from "../api/client";
 import { useCan } from "../auth/permissions";
+import { useDebounced } from "../utils/useDebounced";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { DonViChonTheoHang, MaterialCombobox } from "../components/MaterialCombobox";
 import { DetailModal } from "../components/DetailModal";
+import { EmptyRow } from "../components/EmptyState";
 import { StatusHistoryTimeline } from "../components/StatusHistoryTimeline";
 import { RowActionButton } from "../components/RowActionButton";
 import { fmtDate } from "../utils/format";
@@ -33,6 +35,11 @@ import "./payables.css";
 import "./purchase.css";
 
 type StatusFilter = "all" | DepartmentPurchaseRequestStatus;
+
+/** Số dòng mỗi trang. TRƯỚC 08/08/2026 màn này tải cứng 100 dòng và KHÔNG có phân trang: quá 100
+ *  yêu cầu là bảng cắt im lặng trong khi ô "Tổng" vẫn hiện đúng — người dùng không có cách nào
+ *  biết mình đang thiếu gì. */
+const PAGE_SIZE = 20;
 
 const SOURCE_TYPE_LABELS: Record<DepartmentPurchaseSourceType, string> = {
   kinh_doanh: "Kinh doanh",
@@ -110,15 +117,25 @@ export function DepartmentPurchaseRequestsPage({
   const canAdminCancel = can("thu_mua", "cancel");
   const [canCreate, setCanCreate] = useState(false);
   const [departmentName, setDepartmentName] = useState<string | null>(null);
-  const [itemCatalog, setItemCatalog] = useState<SupplierItemCatalogRow[]>([]);
 
   const [rows, setRows] = useState<DepartmentPurchaseRequestRow[]>([]);
   const [total, setTotal] = useState(0);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [page, setPage] = useState(1);
+  // Ô nhập vẫn bám `q` (gõ tới đâu hiện tới đó); chỉ lời gọi máy chủ đọc bản đã chậm 300ms.
+  const qDebounced = useDebounced(q);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Lỗi TẢI DANH SÁCH — tách hẳn khỏi `error` (lỗi THAO TÁC).
+   *
+   *  Vì sao phải hai ô nhớ riêng: `error` bị hàng chục handler thao tác ghi vào (huỷ phiếu, ghi
+   *  đợt giao, gán hoá đơn, thậm chí trình duyệt chặn cửa sổ in). Nếu ô rỗng của bảng đọc chung
+   *  `error` thì chỉ cần bấm "In phiếu" mà bị chặn pop-up là CẢ BẢNG biến mất, thay bằng "Không
+   *  đọc được dữ liệu" — dữ liệu còn nguyên trên máy chủ, chỉ là bảng tự xoá mình vì một lỗi in.
+   *  Ô này CHỈ được ghi trong `catch` của hàm tải danh sách. */
+  const [listError, setListError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [mode, setMode] = useState(false);
   const [form, setForm] = useState<DepartmentPurchaseRequestInput>(
@@ -142,17 +159,20 @@ export function DepartmentPurchaseRequestsPage({
     [rows, selectedId],
   );
 
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
   const load = useCallback(() => {
     if (!token) return;
     setLoading(true);
     setError(null);
+    setListError(null);
     api.departmentPurchaseRequests
       .list(token, {
-        q: q.trim() || undefined,
+        q: qDebounced.trim() || undefined,
         status: status === "all" ? null : status,
         sort: "-created_at",
-        page: 1,
-        size: 100,
+        page,
+        size: PAGE_SIZE,
       })
       .then((res) => {
         setRows(res.items);
@@ -160,10 +180,10 @@ export function DepartmentPurchaseRequestsPage({
       })
       .catch((err) => {
         if (err instanceof ApiError && err.isForbidden) setForbidden(true);
-        else setError("Không tải được danh sách yêu cầu mua hàng.");
+        else setListError("Không tải được danh sách yêu cầu mua hàng.");
       })
       .finally(() => setLoading(false));
-  }, [token, q, status]);
+  }, [token, qDebounced, status, page]);
 
   useEffect(() => {
     load();
@@ -172,18 +192,6 @@ export function DepartmentPurchaseRequestsPage({
   useEffect(() => {
     if (eventTick <= 0 || !token) return;
     load();
-    let alive = true;
-    api.suppliers
-      .itemCatalog(token)
-      .then((res) => {
-        if (alive) setItemCatalog(res.items);
-      })
-      .catch(() => {
-        if (alive) setItemCatalog([]);
-      });
-    return () => {
-      alive = false;
-    };
   }, [eventTick, load, token]);
 
   useEffect(() => {
@@ -218,28 +226,13 @@ export function DepartmentPurchaseRequestsPage({
     };
   }, [token]);
 
-  useEffect(() => {
-    if (!token) return;
-    let alive = true;
-    api.suppliers
-      .itemCatalog(token)
-      .then((res) => {
-        if (alive) setItemCatalog(res.items);
-      })
-      .catch(() => {
-        if (alive) setItemCatalog([]);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [token]);
-
   // Liên thông: đổ mã YCMH cần truy vết vào ô tìm kiếm → load() tự chạy lại
   // (q đổi làm useCallback tạo lại), danh sách chỉ còn đúng phiếu đó.
   useEffect(() => {
     if (!focusRequestCode) return;
     setQ(focusRequestCode);
     setStatus("all");
+    setPage(1);
   }, [focusRequestCode]);
 
   // Liên thông từ Kho: mở form tạo với dòng vật tư điền sẵn (nguồn = Kho). `seedLines` là object
@@ -301,13 +294,6 @@ export function DepartmentPurchaseRequestsPage({
     }));
   }
 
-  function selectCatalogItem(index: number, itemName: string) {
-    const picked = itemCatalog.find((item) => item.item_name === itemName);
-    setLine(index, {
-      item_name: itemName,
-      unit: picked?.unit ?? "",
-    });
-  }
 
   function cleanRequest(
     input: DepartmentPurchaseRequestInput,
@@ -324,6 +310,9 @@ export function DepartmentPurchaseRequestsPage({
       needed_date: (input.needed_date ?? "").trim(),
       note: null,
       lines: input.lines.map((line) => ({
+        // Cặp mặt hàng gốc đi kèm: phiếu mua sinh sau đó nối thẳng về đúng món, không ghép bằng tên.
+        hang_loai: line.hang_loai ?? null,
+        hang_id: line.hang_id ?? null,
         item_name: (line.item_name ?? "").trim(),
         unit: (line.unit ?? "").trim(),
         quantity: Number(line.quantity),
@@ -348,10 +337,6 @@ export function DepartmentPurchaseRequestsPage({
       setFormError("Ngày cần hàng không được nhỏ hơn hôm nay.");
       return;
     }
-    if (itemCatalog.length === 0) {
-      setFormError("Chua co vat tu nao trong danh muc mat hang nha cung cap.");
-      return;
-    }
     if (
       !payload.lines.length ||
       payload.lines.some((line) => !line.item_name || !line.unit)
@@ -361,16 +346,12 @@ export function DepartmentPurchaseRequestsPage({
       );
       return;
     }
-    // Dòng KHOÁ (lấy từ mặt hàng Kho đã có) là nguồn tin cậy → KHÔNG bắt phải nằm trong danh mục
-    // NCC. Chỉ soi các dòng người dùng tự thêm.
-    if (
-      form.lines.some(
-        (line) =>
-          !line.locked &&
-          !itemCatalog.some((item) => item.item_name === (line.item_name ?? "").trim()),
-      )
-    ) {
-      setFormError("Vat tu yeu cau phai chon tu danh muc mat hang nha cung cap.");
+    // Phải là mặt hàng CÓ THẬT trong danh mục Giấy / Vật tư khác. Dòng cũ (lập trước khi ô chọn
+    // này ra đời) mở ra sửa cũng phải chọn lại — tên chuỗi không nối được về đâu cả.
+    if (payload.lines.some((line) => !line.hang_loai || !line.hang_id)) {
+      setFormError(
+        "Mỗi dòng phải chọn vật tư từ danh mục (Giấy / Vật tư khác) — gõ tên để tìm.",
+      );
       return;
     }
     if (payload.lines.some((line) => line.quantity <= 0)) {
@@ -433,11 +414,19 @@ export function DepartmentPurchaseRequestsPage({
   return (
     <main className="md-page">
       <header className="md-page__head">
-        <p className="eyebrow">Phòng ban</p>
+        {/* Eyebrow = tên SECTION trên sidebar, chép NGUYÊN VĂN, MỘT cấp. Màn này nằm trong section
+            "Thu mua" (Sidebar.tsx: Thu mua → Yêu cầu mua hàng · Mua hàng · Nhà cung cấp), nên
+            eyebrow là "Thu mua". Trước 09/08/2026 ghi "Phòng ban" — đó là tên NGƯỜI DÙNG màn, KHÔNG
+            phải chỗ màn nằm; ai đọc xong đi tìm mục "Phòng ban" trên sidebar sẽ lạc sang Nhân sự.
+            ⚠️ Phải là className="eyebrow": lớp `ns__eyebrow` KHÔNG có CSS ở bất kỳ file nào, dùng
+            nó là ra chữ thường 15px. */}
+        <p className="eyebrow">Thu mua</p>
         <h1 className="md-page__title">Yêu cầu mua hàng</h1>
+        {/* Phụ đề nói rõ VAI của người đang đọc, vì màn mở cho 6 nhóm quyền (Sidebar.tsx: thu_mua ·
+            bao_gia · kho · san_xuat · dm_giay_vat_tu · ke_toan). Câu cũ tả cả hai đầu ("các phòng
+            ban… Thu mua dùng danh sách này…") nên người mở màn không biết mình là bên nào. */}
         <p className="md-page__sub">
-          Các phòng ban tạo yêu cầu vật tư cần mua; Thu mua dùng danh sách này
-          để lập phiếu mua hàng gửi kế toán duyệt.
+          Phòng ban của bạn gửi yêu cầu vật tư sang Thu mua.
         </p>
       </header>
 
@@ -453,7 +442,10 @@ export function DepartmentPurchaseRequestsPage({
             className="input"
             placeholder="Tìm mã yêu cầu, mục đích, vật tư..."
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setPage(1);
+            }}
           />
           {/* <Button type="submit" variant="ghost">
             Tìm
@@ -462,7 +454,10 @@ export function DepartmentPurchaseRequestsPage({
         <select
           className="input purchase__select"
           value={status}
-          onChange={(e) => setStatus(e.target.value as StatusFilter)}
+          onChange={(e) => {
+            setStatus(e.target.value as StatusFilter);
+            setPage(1);
+          }}
         >
           <option value="all">Tất cả trạng thái</option>
           {Object.entries(SOURCE_STATUS_META).map(([value, meta]) => (
@@ -473,7 +468,12 @@ export function DepartmentPurchaseRequestsPage({
         </select>
         <div className="md-page__toolbar-spacer" />
         {canCreate && (
-          <Button variant="primary" onClick={openCreate}>
+          // ⚠️ TÊN LỚP ĐẶT NGƯỢC VỚI TÀI LIỆU: `variant="accent"` mới ra màu CAM thương hiệu,
+          // `variant="primary"` ra màu NAVY. Ai đọc docs/UI_DESIGN.md rồi gõ "primary" sẽ được
+          // một nút navy — đúng lỗi của nút này trước 09/08/2026.
+          // Đây là hành động chính DUY NHẤT của màn; luật là TỐI ĐA MỘT nút cam mỗi màn, nên
+          // đừng nâng thêm nút nào khác (Xoá bộ lọc, Trước/Sau, nút trên dòng) lên accent.
+          <Button variant="accent" onClick={openCreate}>
             + Tạo yêu cầu mua
           </Button>
         )}
@@ -497,22 +497,47 @@ export function DepartmentPurchaseRequestsPage({
               <th>Vật tư</th>
               <th>Người tạo</th>
               <th>Trạng thái</th>
-              <th>Thao tác</th>
+              {/* `md-page__actions-col` canh tiêu đề THEO NÚT (cụm nút dense nằm sát phải). Thiếu
+                  lớp này thì chữ "Thao tác" đứng một nơi, cụm nút đứng một nẻo. */}
+              <th className="md-page__actions-col">Thao tác</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr>
-                <td colSpan={7} className="md-page__status">
-                  Đang tải yêu cầu mua hàng...
-                </td>
-              </tr>
+              <EmptyRow colSpan={7} trangThai="dang-tai" />
+            ) : listError ? (
+              <EmptyRow
+                colSpan={7}
+                trangThai="loi"
+                loi={listError}
+                onThuLai={load}
+              />
             ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="md-page__empty">
-                  Chưa có yêu cầu mua hàng phù hợp.
-                </td>
-              </tr>
+              <EmptyRow
+                colSpan={7}
+                icon="clipboard"
+                title="Chưa có yêu cầu mua hàng nào khớp"
+                sub={
+                  q.trim() || status !== "all"
+                    ? "Thử bỏ bớt bộ lọc hoặc xoá từ khoá tìm kiếm."
+                    : "Bộ phận gửi yêu cầu vật tư sang Thu mua tại đây."
+                }
+                action={
+                  q.trim() || status !== "all" ? (
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      onClick={() => {
+                        setQ("");
+                        setStatus("all");
+                        setPage(1);
+                      }}
+                    >
+                      Xoá bộ lọc
+                    </button>
+                  ) : undefined
+                }
+              />
             ) : (
               rows.map((row) => (
                 <tr
@@ -558,6 +583,11 @@ export function DepartmentPurchaseRequestsPage({
                     className="md-page__actions-col"
                     onClick={(event) => event.stopPropagation()}
                   >
+                    {/* Cột Thao tác dùng TOÀN icon dense (`RowActionButton`), không trộn icon với
+                        nút chữ: mỗi nút chữ chiếm ~64px nên ba nút là đẩy cột tiền/trạng thái ra
+                        khỏi tầm mắt ở 1440px, mà mắt cũng phải đọc hai kiểu ký hiệu trong cùng một
+                        ô. Tooltip của `RowActionButton` giữ nguyên phần chữ.
+                        GIỮ `danger` ở nút Hủy — mất tín hiệu đỏ là bấm nhầm sang huỷ yêu cầu. */}
                     <div className="purchase__actions purchase__actions--dense">
                       <RowActionButton
                         dense
@@ -567,24 +597,23 @@ export function DepartmentPurchaseRequestsPage({
                       />
                       {row.status === "open" &&
                         row.requested_by_user_id === user?.id && (
-                          <button
-                            type="button"
-                            className="btn btn--ghost md-page__rowbtn"
+                          <RowActionButton
+                            dense
+                            label="Sửa yêu cầu"
+                            icon="pencil"
                             onClick={() => openEdit(row)}
-                          >
-                            Sửa
-                          </button>
+                          />
                         )}
                       {row.status === "open" &&
                         (canAdminCancel ||
                           row.requested_by_user_id === user?.id) && (
-                          <button
-                            type="button"
-                            className="btn btn--ghost md-page__rowbtn"
+                          <RowActionButton
+                            dense
+                            danger
+                            label="Hủy yêu cầu"
+                            icon="ban"
                             onClick={() => setCanceling(row)}
-                          >
-                            Hủy
-                          </button>
+                          />
                         )}
                     </div>
                   </td>
@@ -593,8 +622,33 @@ export function DepartmentPurchaseRequestsPage({
             )}
           </tbody>
         </table>
+        {/* Chân bảng chuẩn: tổng bên trái, điều hướng trang bên phải. Chỉ hiện nút khi thật sự
+            có nhiều hơn một trang — bảng 3 dòng mà treo "Trang 1/1" là nhiễu. */}
         <div className="purchase__source-foot">
-          <span className="md-page__muted">Tổng {total} yêu cầu</span>
+          <span className="md-page__muted">
+            Tổng {total} yêu cầu
+            {totalPages > 1 ? ` · Trang ${page}/${totalPages}` : ""}
+          </span>
+          {totalPages > 1 && (
+            <div className="md-page__pager-btns">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                Trước
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={page >= totalPages || loading}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Sau
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -636,6 +690,21 @@ export function DepartmentPurchaseRequestsPage({
           <p className="eyebrow">
             Vật tư đã yêu cầu ({selected.lines.length} dòng)
           </p>
+          {(() => {
+            const veDu = selected.lines.filter((l) => {
+              const f = l.fulfilment;
+              if (!f) return false;
+              // Phiếu chưa có tin về số nhận (`null`) mà đã ở bậc "đã nhận" ⇒ luật cũ: coi như đủ.
+              const nhan = f.received_quantity ?? f.ordered_quantity;
+              return f.purchase_status === "received" && nhan >= f.ordered_quantity;
+            }).length;
+            if (veDu === 0) return null;
+            return (
+              <p className="md-page__muted purchase__tien-do">
+                {veDu}/{selected.lines.length} mặt hàng đã về đủ
+              </p>
+            );
+          })()}
           {/* Trạng thái ở đầu phiếu là bậc THẤP NHẤT của các dòng — nhìn danh sách biết "có gì đó
               chưa xong". Bảng dưới đây trả lời tiếp: chưa xong ở ĐÂU. Thiếu bảng thì biết kẹt mà
               không biết kẹt chỗ nào; thiếu trạng thái đầu phiếu thì phải mở từng yêu cầu mới biết. */}
@@ -794,41 +863,33 @@ export function DepartmentPurchaseRequestsPage({
                   </div>
                   {form.lines.map((line, index) => (
                     <div className="purchase__line-edit" key={index}>
-                      <select
-                        className="input purchase__line-name"
-                        required
-                        disabled={line.locked}
-                        title={line.locked ? "Vật tư lấy từ kho — không sửa tên" : undefined}
-                        value={line.item_name}
-                        onChange={(e) =>
-                          selectCatalogItem(index, e.target.value)
-                        }
-                      >
-                        <option value="">Chọn vật tư</option>
-                        {line.item_name &&
-                          !itemCatalog.some(
-                            (item) => item.item_name === line.item_name,
-                          ) && (
-                            <option value={line.item_name}>
-                              {line.item_name}
-                            </option>
-                          )}
-                        {itemCatalog.map((item) => (
-                          <option key={item.item_name} value={item.item_name}>
-                            {item.item_name} · {item.unit} · từ{" "}
-                            {item.supplier_count > 1
-                              ? ` · ${item.supplier_count} NCC`
-                              : ""}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        className="input purchase__line-unit"
-                        required
-                        readOnly
-                        placeholder="Tự điền"
+                      {/* Chọn từ DANH MỤC GỐC (Giấy + Vật tư khác) — cùng ô với đề nghị kho và
+                          bảng giá NCC. Trước đây đổ từ bảng giá NCC nên món chưa ai báo giá thì
+                          không đề nghị mua được, mà tên lưu dạng chuỗi cũng không nối về đâu. */}
+                      <div className="purchase__line-name">
+                        <MaterialCombobox
+                          token={token ?? ""}
+                          hangTen={line.item_name || null}
+                          onPick={(m) =>
+                            setLine(index, {
+                              hang_loai: m.hang_loai,
+                              hang_id: m.hang_id,
+                              item_name: m.ten,
+                              unit: "",
+                            })
+                          }
+                        />
+                      </div>
+                      {/* ĐVT theo CHÍNH mặt hàng vừa chọn (đơn vị gốc + những đơn vị đổi được
+                          với nó). Chưa chọn hàng thì khoá — gõ tự do là mở đường cho đơn vị lạ
+                          lọt vào, quy đổi tắt lặng lẽ và tồn kho lệch. */}
+                      <DonViChonTheoHang
+                        token={token ?? ""}
+                        hangLoai={line.hang_loai ?? null}
+                        hangId={line.hang_id ?? null}
                         value={line.unit}
-                        onChange={(e) => setLine(index, { unit: e.target.value })}
+                        onChange={(ma) => setLine(index, { unit: ma })}
+                        disabled={!line.hang_loai || !line.hang_id}
                       />
                       <input
                         className="input purchase__number-input"
@@ -961,6 +1022,9 @@ function LineFulfilmentCell({
   const f = line.fulfilment;
   const nhan = f.received_quantity ?? f.ordered_quantity;
   const thieu = f.purchase_status === "received" && nhan < f.ordered_quantity;
+  // "Giao một phần" mà không nói giao BAO NHIÊU thì bộ phận không biết còn thiếu mấy để tính
+  // đường xoay — đó là cả lý do của việc này. Hiện số ở cả hai bậc: đang giao dở và đã nhận đủ.
+  const dangGiaoDo = f.purchase_status === "partially_received";
   return (
     <>
       <StatusBadgePhieu status={f.purchase_status} />
@@ -972,11 +1036,21 @@ function LineFulfilmentCell({
           // ngay tại dòng, thay vì để hai nơi rời nhau không ai đối chiếu.
           <> · mua {f.ordered_quantity.toLocaleString("vi-VN")} {f.ordered_unit}</>
         )}
-        {f.purchase_status === "received" && (
-          <> · nhận {nhan.toLocaleString("vi-VN")} {f.ordered_unit}</>
+        {(f.purchase_status === "received" || dangGiaoDo) && (
+          <>
+            {" "}
+            · nhận {nhan.toLocaleString("vi-VN")}
+            {dangGiaoDo ? `/${f.ordered_quantity.toLocaleString("vi-VN")}` : ""}{" "}
+            {f.ordered_unit}
+          </>
         )}
       </small>
       {thieu && <small className="pay-short">Giao thiếu so với số đặt</small>}
+      {dangGiaoDo && nhan < f.ordered_quantity && (
+        <small className="pay-short">
+          Còn {(f.ordered_quantity - nhan).toLocaleString("vi-VN")} {f.ordered_unit} chưa về
+        </small>
+      )}
       {f.purchase_status === "rejected" && (
         <small className="pay-short">Cần lập phiếu lại cho dòng này</small>
       )}

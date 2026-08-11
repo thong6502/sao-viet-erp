@@ -18,7 +18,6 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import require_permission
 from ..models.kho_hang import KhoHang
-from ..models.material import Material
 from ..models.stock_lot import StockLot
 from ..models.stock_request import StockRequest
 from ..models.stock_voucher import (
@@ -29,9 +28,12 @@ from ..models.stock_voucher import (
     StockVoucherLine,
 )
 from ..models.user import User
+from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
 from ..repositories.kho_khoa_so_repo import KhoKhoaSoRepository
 from ..repositories.user_repo import UserRepository
+from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+from ..services.vat_lieu_kho_service import VatLieuKhoService
 from ..schemas.stock import (
     BaoCaoKhoPage,
     BaoCaoKhoRow,
@@ -56,9 +58,8 @@ def _report_rows(
     # `q` = tìm số CT / mã hàng / tên hàng (khớp ô Tìm ở màn) → để "lọc gì = xuất nấy".
     ql = (q or "").strip().lower()
     stmt = (
-        select(StockVoucher, StockVoucherLine, Material, StockRequest, KhoHang, StockLot)
+        select(StockVoucher, StockVoucherLine, StockRequest, KhoHang, StockLot)
         .join(StockVoucherLine, StockVoucherLine.voucher_id == StockVoucher.id)
-        .join(Material, Material.id == StockVoucherLine.material_id, isouter=True)
         .join(StockRequest, StockRequest.id == StockVoucher.request_id, isouter=True)
         .join(KhoHang, KhoHang.id == StockVoucher.kho_id, isouter=True)
         .join(StockLot, StockLot.id == StockVoucherLine.lot_id, isouter=True)
@@ -70,19 +71,31 @@ def _report_rows(
         stmt = stmt.where(StockVoucher.kho_id == kho_id)
     stmt = stmt.order_by(StockVoucher.ghi_so_luc, StockVoucher.id, StockVoucherLine.id)
 
+    results = db.execute(stmt).all()
+    # Mã / tên / ĐVT mặt hàng tra từ DANH MỤC GỐC theo (hang_loai, hang_id) — bảng `materials` đã bỏ.
+    hang_svc = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    hang_map = hang_svc.map_theo_cap(
+        list({(ln.hang_loai, ln.hang_id) for _v, ln, _req, _kho, _lot in results})
+    )
+
     rows: list[BaoCaoKhoRow] = []
-    for v, ln, m, req, kho, lot in db.execute(stmt).all():
+    for v, ln, req, kho, lot in results:
+        mh = hang_map.get((ln.hang_loai, ln.hang_id))
         # Lọc theo ngày GHI SỔ ở Python (tránh func.date lệ thuộc dialect + parse tz của SQLite).
         d = v.ghi_so_luc.date() if v.ghi_so_luc else None
         if tu and (d is None or d < tu):
             continue
         if den and (d is None or d > den):
             continue
-        qty = float(ln.so_luong or 0)
-        # NHẬP: đơn giá ở dòng phiếu. XUẤT: dòng phiếu không có đơn giá → lấy GIÁ VỐN của lô đã
-        # xuất (don_gia_nhap). Coalesce để cả 2 chiều đều ra tiền.
-        raw_price = ln.don_gia if ln.don_gia is not None else getattr(lot, "don_gia_nhap", None)
-        price = int(raw_price) if raw_price is not None else None
+        # SỐ LƯỢNG · ĐƠN GIÁ · THÀNH TIỀN đều theo ĐƠN VỊ GỐC — khớp tồn kho + ĐVT danh mục và
+        # khớp cách tính giá vốn phiếu (`cost_of`): NHẬP quy đơn giá về ĐV gốc, XUẤT lấy giá vốn
+        # lô (vốn đã theo ĐV gốc) × `sl_goc`. Nhân nhầm `so_luong` là lệch đúng bằng hệ số quy đổi.
+        qty = float(ln.sl_goc or 0)
+        if v.loai == VOUCHER_NHAP:
+            so = float(ln.so_luong or 0)
+            price = round(float(ln.don_gia) * so / qty) if (qty and ln.don_gia is not None) else None
+        else:
+            price = int(lot.don_gia_nhap) if (lot is not None and lot.don_gia_nhap is not None) else None
         row = BaoCaoKhoRow(
             voucher_id=v.id,
             ngay_ghi_so=d,
@@ -90,9 +103,9 @@ def _report_rows(
             so_ct=v.ma,
             loai=v.loai,
             loai_kho=req.loai_kho if req else None,
-            ma_hang=getattr(m, "code", None),
-            ten_hang=getattr(m, "name", None),
-            dvt=getattr(m, "unit", None),
+            ma_hang=getattr(mh, "ma", None),
+            ten_hang=getattr(mh, "ten", None),
+            dvt=getattr(mh, "don_vi_gia", None),
             so_luong=qty,
             don_gia=price,
             thanh_tien=round(price * qty) if price is not None else None,

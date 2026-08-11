@@ -14,11 +14,13 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models.stock_voucher import VOUCHER_POSTED, StockVoucher, StockVoucherLine
+from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
-from ..repositories.material_repo import MaterialRepository
 from ..repositories.stock_lot_repo import StockLotRepository
+from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..schemas.stock import PublicScanLot, PublicScanMove, PublicScanOut
 from ..services.qr_token import verify_scan
+from ..services.vat_lieu_kho_service import VatLieuKhoService
 
 router = APIRouter(prefix="/api/public", tags=["public"])
 
@@ -30,22 +32,25 @@ def public_kho_scan(db: Db, t: Annotated[str, Query(description="Mã QR đã ký
     parsed = verify_scan(t)
     if parsed is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mã QR không hợp lệ")
-    kho_id, material_id = parsed
+    kho_id, hang_loai, hang_id = parsed
+    hang = (hang_loai, hang_id)
 
-    m = MaterialRepository(db).by_ids([material_id]).get(material_id)
+    hang_svc = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    m = hang_svc.map_theo_cap([hang]).get(hang)
     if m is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy vật tư")
 
     kho = KhoHangRepository(db).get(kho_id)
     lots_repo = StockLotRepository(db)
-    lots = lots_repo.list_lots(material_id=material_id, kho_id=kho_id, con_hang=False)
+    lots = lots_repo.list_lots(hang=hang, kho_id=kho_id, con_hang=False)
 
     # Lịch sử nhập/xuất gần đây (phiếu ĐÃ GHI SỔ) — CÔNG KHAI, TUYỆT ĐỐI không kèm tiền.
     moves_stmt = (
         select(StockVoucher.loai, StockVoucher.ngay, StockVoucher.ma, StockVoucherLine.so_luong)
         .join(StockVoucherLine, StockVoucherLine.voucher_id == StockVoucher.id)
         .where(
-            StockVoucherLine.material_id == material_id,
+            StockVoucherLine.hang_loai == hang_loai,
+            StockVoucherLine.hang_id == hang_id,
             StockVoucher.kho_id == kho_id,
             StockVoucher.trang_thai == VOUCHER_POSTED,
         )
@@ -54,11 +59,11 @@ def public_kho_scan(db: Db, t: Annotated[str, Query(description="Mã QR đã ký
     )
 
     return PublicScanOut(
-        material_code=getattr(m, "code", None),
-        material_name=getattr(m, "name", None),
-        dvt=getattr(m, "unit", None),
+        material_code=getattr(m, "ma", None),
+        material_name=getattr(m, "ten", None),
+        dvt=getattr(m, "don_vi_gia", None),
         kho_ten=getattr(kho, "ten", None),
-        on_hand=lots_repo.on_hand(material_id, kho_id),
+        on_hand=lots_repo.on_hand(hang, kho_id),
         lots=[
             PublicScanLot(
                 ma_lo=lot.ma_lo,

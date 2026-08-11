@@ -440,11 +440,13 @@
   gap: 8px;
   flex: 1 1 auto;
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .kh__search {
-  flex: 0 1 320px;
-  min-width: 200px;
+  flex: 1 1 260px;
+  min-width: 180px;
+  max-width: 320px;
 }
 
 .kh__search-input-wrap {
@@ -480,12 +482,13 @@
 }
 
 .kh__filter {
-  width: 178px;
-  flex: 0 0 auto;
+  min-width: 170px;
+  flex: 0 1 auto;
 }
 
 .kh__filter .sel__trigger {
   font-size: 13px;
+  height: 34px;
   padding: 6px 10px;
   border-radius: 8px;
   border-color: var(--rule);
@@ -6010,3 +6013,228 @@
   }
 }
 
+
+/* Chip NV phụ trách 2 TẦNG: tên trên, "Vai trò · Phòng" dưới. Cùng một cái tên xuất hiện ở ba
+   chỗ (bảng, hộp lọc, ô gán) — không có chức danh thì không phân biệt được trưởng phòng với sale,
+   mà đó chính là thứ người xem cần khi chia lại khách. Chip giữ nguyên nền/viền cũ, chỉ đổi cách
+   xếp chữ bên trong nên hàng bảng không cao thêm đáng kể. */
+.kh__sale-chip__txt {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+.kh__sale-chip__ten {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* --ash chứ KHÔNG phải --ash-2: ở 11px trên nền --paper, ash-2 (#64748b) chỉ còn ~4,4:1 —
+   trượt WCAG AA cho chữ thường (UI_DESIGN §9). 11px khớp .sel__opt-sub để dòng phụ trong bảng
+   và trong hộp chọn đọc như một thứ. */
+.kh__sale-chip__vt {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ash, #475569);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kh__sale-chip:hover .kh__sale-chip__vt {
+  color: var(--ink);
+}
+
+/* ── CUSTOMER FORM DIALOG REDESIGN (HERO BADGE & SECTIONS) ───────────────── */
+.kh__dialog--hero {
+  max-width: 720px;
+  width: 94%;
+  max-height: min(90vh, 600px);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border-radius: var(--r-5, 16px);
+  overflow: hidden;
+  box-shadow: 0 20px 48px -8px rgba(0, 0, 0, 0.18), 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+
+.kh__form-grid--2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 18px;
+}
+
+.kh__dialog-head--hero {
+  padding: 12px 18px;
+  background: linear-gradient(135deg, #ffffff 0%, #faf8f5 100%);
+  border-bottom: 1px solid var(--rule-soft, #e7e5e4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.kh__dialog-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.kh__dialog-title {
+  font-size: 16px;
+  font-weight: var(--fw-bold, 700);
+  color: var(--ink, #1c1917);
+  margin: 0;
+}
+
+.kh__dialog-kind-chip {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rust-deep, #9a3412);
+  background: var(--rust-soft, #fdf4ef);
+  border: 1px solid rgba(194, 91, 41, 0.2);
+  padding: 2px 8px;
+  border-radius: var(--r-full, 9999px);
+}
+
+.kh__dialog--hero .kh__dialog-body {
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule) transparent;
+}
+
+.kh__dialog--hero .kh__dialog-body::-webkit-scrollbar {
+  width: 6px;
+}
+.kh__dialog--hero .kh__dialog-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.kh__dialog--hero .kh__dialog-body::-webkit-scrollbar-thumb {
+  background: var(--rule);
+  border-radius: 9999px;
+}
+
+.kh__form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--paper, #faf8f5);
+  padding: 10px 14px;
+  border-radius: var(--r-3, 10px);
+  border: 1px solid var(--rule-hair, rgba(0, 0, 0, 0.06));
+}
+
+.kh__section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: var(--fw-bold, 700);
+  color: var(--rust-deep, #9a3412);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.kh__field-label-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kh__tax-lookup-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: var(--fw-bold, 600);
+  color: #0284c7;
+  background: rgba(2, 132, 199, 0.1);
+  border: 1px solid rgba(2, 132, 199, 0.3);
+  padding: 2px 10px;
+  border-radius: var(--r-full, 9999px);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.kh__tax-lookup-btn:hover:not(:disabled) {
+  background: rgba(2, 132, 199, 0.2);
+  border-color: #0284c7;
+}
+
+.kh__tax-lookup-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kh__tax-note {
+  font-size: 11.5px;
+  margin-top: 3px;
+  display: block;
+}
+.kh__tax-note.is-success {
+  color: #15803d;
+  font-weight: 500;
+}
+.kh__tax-note.is-warn {
+  color: #b45309;
+}
+
+.kh__spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.kh__kbd {
+  font-family: var(--ff-mono, monospace);
+  font-size: 10px;
+  padding: 1px 4px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 4px;
+  color: var(--ash, #78716c);
+}
+
+/* ── RESPONSIVE MOBILE SHEET (<= 640px) ─────────────────────────────────── */
+@media (max-width: 640px) {
+  .kh__overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .kh__dialog--hero {
+    width: 100%;
+    max-width: 100vw;
+    max-height: 94vh;
+    border-radius: 16px 16px 0 0;
+    margin: 0;
+  }
+
+  .kh__form-grid {
+    grid-template-columns: 1fr !important;
+    gap: 8px;
+  }
+
+  .kh__form-wide {
+    grid-column: span 1 !important;
+  }
+
+  .kh__dialog--hero .kh__dialog-actions {
+    position: sticky;
+    bottom: 0;
+    background: var(--canvas, #ffffff);
+    margin: 0 -18px -14px;
+    padding: 12px 18px;
+    border-top: 1px solid var(--rule-soft, #e7e5e4);
+    z-index: 10;
+  }
+}
+  color: var(--ink, #0f172a);
+}

@@ -39,6 +39,14 @@ class RoleInUse(RoleError):
         )
 
 
+# Module DANH MỤC — dữ liệu dùng chung toàn công ty, KHÔNG có phạm vi own/department. UI đã bỏ
+# dropdown Phạm vi ở nhóm này; ép `all` khi lưu để vai mới (mặc định `own`) không bị bó âm thầm
+# nếu sau này có ai bật lọc theo scope.
+SCOPELESS_MODULES = frozenset({
+    "dm_loai_san_pham", "dm_thiet_bi", "dm_cong_doan", "dm_bu_hao", "dm_don_vi",
+    "dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "khuon_be", "dm_kho_hang",
+})
+
 READ_IMPLYING_KEYS = (
     "can_create",
     "can_update",
@@ -226,6 +234,8 @@ class RoleService:
                         can_read = True
                         break
             normalized["can_read"] = can_read
+            if normalized["module_key"] in SCOPELESS_MODULES:
+                normalized["scope"] = "all"
             can_approve = normalized.get("can_approve", False)
             self.roles.set_permission(
                 role_id=role_id,

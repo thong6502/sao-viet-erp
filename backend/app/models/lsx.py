@@ -207,6 +207,14 @@ class LsxCongDoan(Base):
     # Tổ nhận việc — snapshot `cong_doan.department_id` lúc copy (đổi danh mục sau không lay lệnh đã tạo).
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → may_thiet_bi.id
+    # Khuôn dùng cho CHÍNH BƯỚC NÀY (soft-ref → khuon_be.id). Chỉ có nghĩa khi công đoạn nguồn bật
+    # cờ `requires_tooling` với `tooling_type` là khuôn lưu kho (khuon_be · khuon_ep).
+    #
+    # Vì sao ở BƯỚC chứ không ở lệnh (11/08/2026): một lệnh hộp giấy có thể vừa Bế (khuôn bế) vừa
+    # Ép nhũ (khuôn ép) — ô khuôn ở cấp lệnh chỉ giữ được MỘT cái, cái còn lại không ai biết lấy
+    # khuôn nào. Gắn theo bước thì bảng cân đối còn canh được đúng mốc: khuôn bế phải có mặt ngày
+    # chạy bước bế, khuôn ép ngày chạy bước ép — hai ngày khác nhau.
+    khuon_be_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
 
     # --- Nhận diện bước ---
     loai_buoc: Mapped[str] = mapped_column(

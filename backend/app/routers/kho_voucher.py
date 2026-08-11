@@ -28,9 +28,10 @@ from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.document_sequence_repo import DocumentSequenceRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
-from ..repositories.material_repo import MaterialRepository
 from ..repositories.stock_lot_repo import StockLotRepository, StockThresholdRepository
+from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.stock_request_repo import StockRequestRepository
+from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..repositories.stock_voucher_repo import StockVoucherRepository
 from ..repositories.user_repo import UserRepository
 from ..schemas.stock import (
@@ -50,8 +51,8 @@ from ..schemas.stock import (
     StockVoucherOut,
     StockVoucherPage,
 )
-from ..services.material_service import MaterialService
 from ..services.qr_token import sign_scan
+from ..services.vat_lieu_kho_service import HANG_NHAN, VatLieuKhoService
 from ..services.rbac_service import AuthorizationService
 from ..services.sequence_service import SequenceService
 from ..services.stock_request_service import StockRequestService
@@ -64,17 +65,19 @@ threshold_router = APIRouter(prefix="/api/kho/nguong-ton", tags=["kho-nguong"])
 MODULE = "kho"
 
 
+def _hang_service(db: Session) -> VatLieuKhoService:
+    return VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+
+
 def get_service(db: Annotated[Session, Depends(get_db)]) -> StockVoucherService:
     sequence = SequenceService(DocumentSequenceRepository(db))
     requests = StockRequestRepository(db)
     lots = StockLotRepository(db)
-    materials = MaterialRepository(db)
-    request_service = StockRequestService(requests, lots, StockThresholdRepository(db), sequence)
-    # material_service để TẠO sản phẩm mới ngay khi lập/ghi sổ phiếu (hàng yêu cầu gõ tên tự do).
-    material_service = MaterialService(materials, AuditLogRepository(db))
+    hang = _hang_service(db)
+    request_service = StockRequestService(
+        requests, lots, StockThresholdRepository(db), sequence, hang=hang)
     return StockVoucherService(
-        StockVoucherRepository(db), requests, lots,
-        materials, sequence, request_service, material_service,
+        StockVoucherRepository(db), requests, lots, sequence, request_service, hang,
     )
 
 
@@ -97,18 +100,17 @@ def _can_see_cost(v, user, authz, db) -> bool:
 
 
 def _serialize(v, *, svc: StockVoucherService, db: Session, can_view_cost: bool,
-               mat_map: dict | None = None, lot_map: dict | None = None,
+               hang_map: dict | None = None, lot_map: dict | None = None,
                req_map: dict | None = None) -> StockVoucherOut:
-    """`mat_map`/`lot_map`/`req_map` dựng SẴN theo cả trang (list) để tránh N+1; gọi lẻ 1 phiếu
+    """`hang_map`/`lot_map`/`req_map` dựng SẴN theo cả trang (list) để tránh N+1; gọi lẻ 1 phiếu
     thì để None, hàm tự nạp mỗi map 1 query cho các dòng của phiếu đó."""
-    materials = MaterialRepository(db)
     users = UserRepository(db)
     khos = KhoHangRepository(db)
     requests = StockRequestRepository(db)
     if req_map is None:
         req_map = requests.by_ids_with_lines([v.request_id])
-    if mat_map is None:
-        mat_map = materials.by_ids([ln.material_id for ln in v.lines])
+    if hang_map is None:
+        hang_map = svc.hang.map_theo_cap([(ln.hang_loai, ln.hang_id) for ln in v.lines])
     if lot_map is None:
         lot_map = svc.lots.by_ids([ln.lot_id for ln in v.lines])
 
@@ -118,76 +120,89 @@ def _serialize(v, *, svc: StockVoucherService, db: Session, can_view_cost: bool,
     # SL yêu cầu theo dòng yêu cầu (request_line_id) — nối vào mỗi dòng phiếu để đối chiếu
     # "yêu cầu vs thực nhận/xuất". Đọc-nối, không lưu cột.
     line_sl_de_nghi = {ln.id: float(ln.sl_de_nghi) for ln in req_lines}
+    goc_map = svc.hang.don_vi_goc_map([(ln.hang_loai, ln.hang_id) for ln in v.lines])
 
     lines: list[StockVoucherLineOut] = []
     gia_von_total = 0
     if v.loai == VOUCHER_NHAP:
-        # NHẬP: mỗi dòng = 1 lô sắp tạo, giá lấy TRÊN DÒNG → giữ nguyên 1 dòng/lô.
+        # NHẬP: mỗi dòng = 1 lô sắp tạo, giá lấy TRÊN DÒNG → giữ nguyên 1 dòng/lô. Đơn giá và
+        # `so_luong` cùng ở đơn vị NGƯỜI KHAI nên nhân thẳng với nhau.
         for ln in v.lines:
-            m = mat_map.get(ln.material_id)
+            key = (ln.hang_loai, ln.hang_id)
+            m = hang_map.get(key)
             lot = lot_map.get(ln.lot_id) if ln.lot_id else None
             unit = int(ln.don_gia or 0)
-            gia_von_total += int(round(unit * float(ln.so_luong)))
+            thanh_tien = int(round(unit * float(ln.so_luong)))
+            gia_von_total += thanh_tien
             lines.append(StockVoucherLineOut(
                 id=ln.id,
                 request_line_id=ln.request_line_id,
-                material_id=ln.material_id,
-                material_code=getattr(m, "code", None),
-                material_name=getattr(m, "name", None),
+                hang_loai=ln.hang_loai,
+                hang_id=ln.hang_id,
+                hang_ma=getattr(m, "ma", None),
+                hang_ten=getattr(m, "ten", None),
                 dvt=line_dvt.get(ln.request_line_id),
                 lot_id=ln.lot_id,
                 ma_lo=getattr(lot, "ma_lo", None),
                 sl_de_nghi=line_sl_de_nghi.get(ln.request_line_id),
                 so_luong=float(ln.so_luong),
+                sl_goc=float(ln.sl_goc),
+                don_vi_goc=goc_map.get(key),
                 ghi_chu=ln.ghi_chu,
                 don_gia=unit if can_view_cost else None,
-                thanh_tien=int(round(unit * float(ln.so_luong))) if can_view_cost else None,
+                thanh_tien=thanh_tien if can_view_cost else None,
             ))
     else:
-        # XUẤT: đích danh trừ lô per-lô GIỮ NGUYÊN ở DB; chỉ ở tầng ĐỌC gộp các dòng lô lẻ
-        # theo `request_line_id` (giữ thứ tự xuất hiện) → 1 dòng/mặt hàng với ĐƠN GIÁ BÌNH QUÂN
-        # gia quyền. `lot_id`/`ma_lo` = None vì đã gộp nhiều lô.
+        # XUẤT: đích danh trừ lô per-lô GIỮ NGUYÊN ở DB; chỉ ở tầng ĐỌC gộp các dòng lô lẻ theo
+        # `request_line_id` (giữ thứ tự xuất hiện) → 1 dòng/mặt hàng với ĐƠN GIÁ BÌNH QUÂN gia
+        # quyền. `lot_id`/`ma_lo` = None vì đã gộp nhiều lô.
+        #
+        # TIỀN TÍNH THEO `sl_goc`, KHÔNG theo `so_luong`: giá lô (`don_gia_nhap`) là giá trên ĐƠN
+        # VỊ GỐC, còn `so_luong` là đơn vị người khai. Nhân nhầm thì lệch đúng bằng hệ số quy đổi
+        # (khai 10 ram sẽ ra tiền của 10 kg) mà không có gì báo.
         groups: dict[int, list] = {}
         order: list[int] = []
         for ln in v.lines:
-            key = ln.request_line_id
-            if key not in groups:
-                groups[key] = []
-                order.append(key)
-            groups[key].append(ln)
-        for key in order:
-            grp = groups[key]
+            k = ln.request_line_id
+            if k not in groups:
+                groups[k] = []
+                order.append(k)
+            groups[k].append(ln)
+        for k in order:
+            grp = groups[k]
             first = grp[0]
-            m = mat_map.get(first.material_id)
-            qty = sum(float(ln.so_luong) for ln in grp)
-            # Tổng thô đích danh: Σ (giá lô × SL dòng) — dùng để suy ra đơn giá bình quân.
+            key = (first.hang_loai, first.hang_id)
+            m = hang_map.get(key)
+            qty = sum(float(ln.so_luong) for ln in grp)          # hiển thị: đơn vị người khai
+            qty_goc = sum(float(ln.sl_goc) for ln in grp)        # tiền: đơn vị gốc
             raw_cost = sum(
                 int(round(
-                    int(getattr(lot_map.get(ln.lot_id), "don_gia_nhap", 0) or 0)
-                    * float(ln.so_luong)
+                    int(getattr(lot_map.get(ln.lot_id), "don_gia_nhap", 0) or 0) * float(ln.sl_goc)
                 ))
                 for ln in grp
             )
-            blended = int(round(raw_cost / qty)) if qty > 0 else 0
-            thanh_tien = int(round(blended * qty))  # tổng thành tiền QUA đơn giá bình quân
+            blended = int(round(raw_cost / qty_goc)) if qty_goc > 0 else 0
+            thanh_tien = int(round(blended * qty_goc))  # tổng thành tiền QUA đơn giá bình quân
             gia_von_total += thanh_tien
             ghi_chu = next((ln.ghi_chu for ln in grp if (ln.ghi_chu or "").strip()), None)
             lines.append(StockVoucherLineOut(
                 id=first.id,
-                request_line_id=key,
-                material_id=first.material_id,
-                material_code=getattr(m, "code", None),
-                material_name=getattr(m, "name", None),
-                dvt=line_dvt.get(key),
+                request_line_id=k,
+                hang_loai=first.hang_loai,
+                hang_id=first.hang_id,
+                hang_ma=getattr(m, "ma", None),
+                hang_ten=getattr(m, "ten", None),
+                dvt=line_dvt.get(k),
                 lot_id=None,
                 ma_lo=None,
-                sl_de_nghi=line_sl_de_nghi.get(key),
+                sl_de_nghi=line_sl_de_nghi.get(k),
                 so_luong=qty,
+                sl_goc=qty_goc,
+                don_vi_goc=goc_map.get(key),
                 ghi_chu=ghi_chu,
                 don_gia=blended if can_view_cost else None,
                 thanh_tien=thanh_tien if can_view_cost else None,
             ))
-
     kho = khos.get(v.kho_id)
     lap = users.get_by_id(v.nguoi_lap_id) if v.nguoi_lap_id else None
     ghi_so_u = users.get_by_id(v.nguoi_ghi_so_id) if getattr(v, "nguoi_ghi_so_id", None) else None
@@ -236,14 +251,15 @@ def list_vouchers(
         req0 = StockRequestRepository(db).get(request_id)
         if req0 is not None and req0.nguoi_tao_id == user.id:
             can_view_cost = True
-    # Nạp SẴN mã hàng / lô / yêu cầu của cả trang trong vài query (tránh N+1 trong _serialize).
-    mat_map = MaterialRepository(db).by_ids([ln.material_id for v in rows for ln in v.lines])
+    # Nạp SẴN mã hàng / lô / đề nghị của cả trang trong vài query (tránh N+1 trong _serialize).
+    hang_map = _hang_service(db).map_theo_cap(
+        [(ln.hang_loai, ln.hang_id) for v in rows for ln in v.lines])
     lot_map = svc.lots.by_ids([ln.lot_id for v in rows for ln in v.lines])
     req_map = StockRequestRepository(db).by_ids_with_lines([v.request_id for v in rows])
     return StockVoucherPage(
         items=[
             _serialize(v, svc=svc, db=db, can_view_cost=can_view_cost,
-                       mat_map=mat_map, lot_map=lot_map, req_map=req_map)
+                       hang_map=hang_map, lot_map=lot_map, req_map=req_map)
             for v in rows
         ],
         total=total,
@@ -326,12 +342,13 @@ def update_lot_vi_tri(
 def suggest_allocation(
     svc: Service, authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
-    material_id: int = Query(...),
+    hang_loai: str = Query(...),
+    hang_id: int = Query(..., gt=0),
     kho_id: int = Query(...),
-    so_luong: float = Query(..., gt=0),
+    so_luong: float = Query(..., gt=0, description="Số theo ĐƠN VỊ GỐC của mặt hàng"),
 ) -> AllocationOut:
     """Gợi ý lấy hàng từ lô nào (FEFO → FIFO). Thủ kho sửa được — giá xuất là ĐÍCH DANH."""
-    rows, thieu = svc.suggest_allocation(material_id, kho_id, so_luong)
+    rows, thieu = svc.suggest_allocation((hang_loai, hang_id), kho_id, so_luong)
     can_view_cost = authz.can(user, MODULE, "view_cost")
     return AllocationOut(
         lines=[
@@ -509,46 +526,45 @@ def export_stock_xlsx(
 def list_lots(
     svc: Service, db: Db, authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-    material_id: int | None = Query(default=None),
+    hang_loai: str | None = Query(default=None),
+    hang_id: int | None = Query(default=None),
     kho_id: int | None = Query(default=None),
     con_hang: bool = Query(default=True),
 ) -> list[StockLotOut]:
     can_view_cost = authz.can(user, MODULE, "view_cost")
-    lots = svc.lots.list_lots(material_id=material_id, kho_id=kho_id, con_hang=con_hang)
-    # Nạp SẴN mọi mã hàng của các lô trong 1 query (tránh N+1).
-    mat_map = MaterialRepository(db).by_ids([lot.material_id for lot in lots])
-    # Mã phiếu NHẬP của từng lô (hiển thị lô THEO PHIẾU) — nạp 1 lượt, tránh N+1. Giống lịch sử NX.
-    voucher_ma_map = svc.vouchers.ma_by_ids(
-        list({lot.voucher_id for lot in lots if lot.voucher_id is not None})
-    )
+    hang = (hang_loai, hang_id) if (hang_loai and hang_id) else None
+    lots = svc.lots.list_lots(hang=hang, kho_id=kho_id, con_hang=con_hang)
+    # Nạp SẴN mọi mặt hàng của các lô trong 1 lượt (tránh N+1).
+    hang_map = svc.hang.map_theo_cap([(lot.hang_loai, lot.hang_id) for lot in lots])
     out = []
     for lot in lots:
         row = StockLotOut.model_validate(lot)
-        m = mat_map.get(lot.material_id)
-        row.material_code = getattr(m, "code", None)
-        row.material_name = getattr(m, "name", None)
-        row.dvt = getattr(m, "unit", None)
-        row.voucher_ma = voucher_ma_map.get(lot.voucher_id) if lot.voucher_id else None
+        m = hang_map.get((lot.hang_loai, lot.hang_id))
+        row.hang_ma = getattr(m, "ma", None)
+        row.hang_ten = getattr(m, "ten", None)
+        row.dvt = getattr(m, "don_vi_gia", None)
         # Thủ kho chọn lô nhưng KHÔNG thấy giá (spec §6).
         row.don_gia_nhap = int(lot.don_gia_nhap or 0) if can_view_cost else None
         out.append(row)
     return out
 
 
-@router.get("/vat-tu/{material_id}/lich-su", response_model=MaterialHistoryOut)
+@router.get("/mat-hang/{hang_loai}/{hang_id}/lich-su", response_model=MaterialHistoryOut)
 def material_history(
-    material_id: int, svc: Service, db: Db, authz: Authz,
+    hang_loai: str, hang_id: int, svc: Service, db: Db, authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     kho_id: int = Query(...),
 ) -> MaterialHistoryOut:
-    """Lịch sử NHẬP (mọi lô, kể cả đã hết) + XUẤT (dòng phiếu xuất đã ghi sổ) của 1 mã hàng
+    """Lịch sử NHẬP (mọi lô, kể cả đã hết) + XUẤT (dòng phiếu xuất đã ghi sổ) của 1 mặt hàng
     tại 1 kho — cho popup màn Tồn kho, tách theo dõi nhập/xuất riêng. Giá vốn ẩn nếu thiếu
-    `can_view_cost` (đường path 3 đoạn nên không đụng route `/{voucher_id}`)."""
+    `can_view_cost` (đường path nhiều đoạn nên không đụng route `/{voucher_id}`)."""
     can_view_cost = authz.can(user, MODULE, "view_cost")
-    m = MaterialRepository(db).by_ids([material_id]).get(material_id)
+    hang = (hang_loai, hang_id)
+    m = svc.hang.map_theo_cap([hang]).get(hang)
+    dvt = getattr(m, "don_vi_gia", None)
 
-    # NHẬP = mọi lô của mã hàng tại kho (con_hang=False để giữ cả lô đã xuất hết), FIFO theo ngày.
-    lots = svc.lots.list_lots(material_id=material_id, kho_id=kho_id, con_hang=False)
+    # NHẬP = mọi lô của mặt hàng tại kho (con_hang=False để giữ cả lô đã xuất hết), FIFO theo ngày.
+    lots = svc.lots.list_lots(hang=hang, kho_id=kho_id, con_hang=False)
     # Mã phiếu NHẬP của từng lô (hiển thị lô THEO PHIẾU thay mã lô kỹ thuật) — nạp 1 lượt, tránh N+1.
     voucher_ma_map = svc.vouchers.ma_by_ids(
         list({lot.voucher_id for lot in lots if lot.voucher_id is not None})
@@ -558,9 +574,9 @@ def material_history(
     nhap: list[StockLotOut] = []
     for lot in lots:
         row = StockLotOut.model_validate(lot)
-        row.material_code = getattr(m, "code", None)
-        row.material_name = getattr(m, "name", None)
-        row.dvt = getattr(m, "unit", None)
+        row.hang_ma = getattr(m, "ma", None)
+        row.hang_ten = getattr(m, "ten", None)
+        row.dvt = dvt
         row.voucher_ma = voucher_ma_map.get(lot.voucher_id) if lot.voucher_id else None
         row.don_gia_nhap = int(lot.don_gia_nhap or 0) if can_view_cost else None
         # SL yêu cầu KHÔNG phải tiền → luôn hiện (không gate theo can_view_cost).
@@ -576,28 +592,29 @@ def material_history(
             sl_de_nghi=r["sl_de_nghi"],
             don_gia=r["don_gia"] if can_view_cost else None,
         )
-        for r in svc.vouchers.xuat_history(material_id, kho_id)
+        for r in svc.vouchers.xuat_history(hang, kho_id)
     ]
 
     return MaterialHistoryOut(
-        material_id=material_id,
-        material_code=getattr(m, "code", None),
-        material_name=getattr(m, "name", None),
-        dvt=getattr(m, "unit", None),
-        on_hand=svc.lots.on_hand(material_id, kho_id),
+        hang_loai=hang_loai,
+        hang_id=hang_id,
+        hang_ma=getattr(m, "ma", None),
+        hang_ten=getattr(m, "ten", None),
+        dvt=dvt,
+        on_hand=svc.lots.on_hand(hang, kho_id),
         nhap=nhap, xuat=xuat,
     )
 
 
-@router.get("/vat-tu/{material_id}/qr-token")
+@router.get("/mat-hang/{hang_loai}/{hang_id}/qr-token")
 def material_qr_token(
-    material_id: int,
+    hang_loai: str, hang_id: int,
     _: Annotated[User, Depends(require_permission(MODULE, "read"))],
     kho_id: int = Query(...),
 ) -> dict[str, str]:
     """Mã QR đã ký cho tem dán kệ (in tem CẦN đăng nhập; trang quét công khai thì KHÔNG).
-    FE nhúng vào link `#s=<token>` rồi vẽ QR. Path 3 đoạn nên không đụng route `/{voucher_id}`."""
-    return {"token": sign_scan(kho_id, material_id)}
+    FE nhúng vào link `#s=<token>` rồi vẽ QR. Path nhiều đoạn nên không đụng route `/{voucher_id}`."""
+    return {"token": sign_scan(kho_id, hang_loai, hang_id)}
 
 
 # --- Đính kèm hóa đơn/chứng từ gốc --------------------------------------------
@@ -682,7 +699,7 @@ def upsert_threshold(
             detail="Ngưỡng tối đa phải lớn hơn hoặc bằng ngưỡng tồn.",
         )
     obj = StockThresholdRepository(db).upsert(
-        material_id=payload.material_id, kho_id=payload.kho_id,
+        hang=(payload.hang_loai, payload.hang_id), kho_id=payload.kho_id,
         nguong_ton=payload.nguong_ton, nguong_can_ton=payload.nguong_can_ton,
         nguong_toi_da=payload.nguong_toi_da, canh_bao=payload.canh_bao,
     )

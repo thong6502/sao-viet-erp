@@ -878,6 +878,51 @@ def test_params_deduction_2026(client):
     assert p["deduction_self"] == 15_500_000 and p["deduction_dependent"] == 6_200_000
 
 
+def test_khau_tru_tai_nguon_sua_duoc_tu_man_cau_hinh(client):
+    """Hai so cua nhanh "khau tru 10%" phai KHAI DUOC — luat doi muc la sua tren man, khong doi code.
+
+    Truoc 08/08/2026 hai so nay chi nam trong DB, khong man nao pho ra ⇒ doi 10% thanh 8% phai nho
+    dev. Test nay giu duong khai do song."""
+    token = _admin_token(client)
+    p = client.get("/api/luong/params", headers=_h(token)).json()
+    assert p["pit_flat_rate"] == 0.10
+    assert p["pit_flat_threshold"] == 2_000_000
+
+    upd = client.put(
+        "/api/luong/params",
+        json={"pit_flat_rate": 0.08, "pit_flat_threshold": 3_000_000},
+        headers=_h(token),
+    )
+    assert upd.status_code == 200, upd.text
+    lai = client.get("/api/luong/params", headers=_h(token)).json()
+    assert lai["pit_flat_rate"] == 0.08
+    assert lai["pit_flat_threshold"] == 3_000_000
+
+    # Ty le phai nam trong 0..1 (0..100%). Go 110% la go nham 1.1 hay 110 — chan o schema.
+    assert client.put(
+        "/api/luong/params", json={"pit_flat_rate": 1.1}, headers=_h(token)
+    ).status_code == 422
+    assert client.put(
+        "/api/luong/params", json={"pit_flat_rate": -0.1}, headers=_h(token)
+    ).status_code == 422
+    assert client.put(
+        "/api/luong/params", json={"pit_flat_threshold": -1}, headers=_h(token)
+    ).status_code == 422
+
+    # 0% la so HOP LE (man hinh chi canh bao mem) — khong duoc chan, nhung phai luu dung.
+    assert client.put(
+        "/api/luong/params", json={"pit_flat_rate": 0}, headers=_h(token)
+    ).status_code == 200
+    assert client.get("/api/luong/params", headers=_h(token)).json()["pit_flat_rate"] == 0
+
+    # Tra lai mac dinh cho test khac khong bi anh huong (cung mot DB trong 1 test).
+    client.put(
+        "/api/luong/params",
+        json={"pit_flat_rate": 0.10, "pit_flat_threshold": 2_000_000},
+        headers=_h(token),
+    )
+
+
 def test_pit_brackets_seeded_and_editable(client):
     """Biểu thuế TNCN seed 5 bậc 2026 + sửa được."""
     token = _admin_token(client)

@@ -79,34 +79,6 @@ def test_header_version_item_roundtrip(db):
     assert float(fresh.versions[0].items[0].total_cost_snapshot) == 800_000
 
 
-def test_items_carry_per_line_estimate_reference(db):
-    """1 báo giá pick từ NHIỀU phiếu tính giá — mỗi dòng giữ estimate_id riêng."""
-    from app.models.estimate import Estimate
-
-    e1 = Estimate(estimate_number="TGT-1", product_type="brochure", product_name="SP1",
-                  status="calculated", input_spec_json={}, quantity_list_json=[1000])
-    e2 = Estimate(estimate_number="TGT-2", product_type="box", product_name="SP2",
-                  status="calculated", input_spec_json={}, quantity_list_json=[500])
-    db.add_all([e1, e2])
-    db.flush()
-
-    q = _mk_quote(db, number="BGT-0002")
-    v = db.get(QuoteVersion, q.current_version_id)
-    for i, est in enumerate((e1, e2), start=1):
-        db.add(QuoteItem(
-            quote_version_id=v.id, estimate_id=est.id, line_no=i,
-            product_type=est.product_type, product_name=est.product_name,
-            quantity=100, unit="cái", total_cost_snapshot=1, margin_percent=0,
-            selling_price=1, unit_price=1, discount_amount=0, vat_percent=0,
-            vat_amount=0, final_amount=1,
-        ))
-    db.commit()
-
-    fresh = db.get(Quote, q.id)
-    refs = {it.estimate_id for it in fresh.versions[0].items}
-    assert refs == {e1.id, e2.id}
-
-
 def test_cascade_delete_versions_items_activity(db):
     q = _mk_quote(db, number="BGT-0003")
     v = db.get(QuoteVersion, q.current_version_id)

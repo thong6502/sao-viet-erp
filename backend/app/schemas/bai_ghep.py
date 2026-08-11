@@ -51,8 +51,11 @@ class BuocChungUpdateIn(BaseModel):
     piece_rate_id: int | None = None
     nang_suat: float | None = None
     don_vi_nang_suat: str | None = None
-    # Ô DUY NHẤT còn gõ được: chuẩn bị + tốc độ kế thừa SỐNG từ máy (2026-08-04).
+    # Hai ô gõ được: chuẩn bị + tốc độ vẫn kế thừa SỐNG từ máy (2026-08-04).
     phat_sinh_phut: float | None = None
+    # Chờ kỹ thuật của lượt chạy chung (mục B) — lúc gộp lấy MỨC LỚN NHẤT của các bước gộp làm mặc
+    # định (cả bài chờ theo lệnh khô lâu nhất), người lập kế hoạch sửa đè được. Không chiếm máy.
+    cho_phut: float | None = Field(default=None, ge=0, le=4320)
     so_luot_chay: int | None = None
     ghi_chu: str | None = None
     vat_tus: list[dict] | None = None
@@ -237,6 +240,8 @@ class SoDoBuocChung(BaseModel):
     cong_doan_id: int | None = None
     loai_buoc: str
     thu_tu: int
+    # `False` = bước chế bản (chung BẢN/kẽm), KHÔNG nằm trên dòng giấy → thẻ ẩn số tờ vào/ra.
+    tren_giay: bool = True
     # Số của CẢ LƯỢT, tính bằng TỜ ghép: một lượt chạy thì đếm tờ, con là chuyện của điểm toả.
     so_luong_vao: float = 0
     so_luong_ra: float = 0
@@ -255,6 +260,10 @@ class SoDoBuocChung(BaseModel):
     to_ten: str | None = None
     may_id: int | None = None
     may_ten: str | None = None
+    # T3: cảnh báo MỀM máy không hợp công đoạn (sai loại / vượt khổ-màu-gsm); và nhóm máy cho phép
+    # để FE lọc dropdown máy theo công đoạn (bước Bế chỉ thấy máy Bế).
+    may_khong_hop: list[str] = Field(default_factory=list)
+    nhom_may_cho_phep: list[str] = Field(default_factory=list)
     nha_cung_cap: str | None = None
     tong_phut: float = 0
     chiem_may_phut: float = 0
@@ -268,6 +277,8 @@ class SoDoBuocChung(BaseModel):
     chay_phut: float | None = None      # dẫn xuất: SL vào × 60 ÷ tốc độ máy × số lượt
     setup_phut: float = 0               # kế thừa từ máy (read-only)
     phat_sinh_phut: float = 0
+    #: Chờ kỹ thuật — vào tổng thời gian dẫn, KHÔNG vào chiếm máy (mục B).
+    cho_phut: float = 0
     so_luot_chay: int = 1
     # Khoán: phần GHIM (đầu việc đã chọn, ảnh chụp) + danh sách chọn được của TỔ đang gán + phần
     # DẪN XUẤT (SL quy đổi · tiền · diễn giải) — cùng hợp đồng với bước lệnh ở màn KHSX.

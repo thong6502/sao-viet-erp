@@ -2,15 +2,22 @@
 
 Nguyên tắc: **không có bảng "tồn"**. Tồn luôn được TÍNH bằng Σ `sl_con_lai` của các lô,
 nên tồn không thể lệch với lịch sử nhập/xuất. Mọi câu hỏi về tồn đều đi qua đây.
+
+Mặt hàng được nhận diện bằng CẶP `(hang_loai, hang_id)` trỏ `giay_nguyen`/`vat_tu_in_an`
+(mg 0171) — dùng nguyên cặp làm khoá dict luôn, tuple hashable nên khỏi bịa chuỗi khoá.
+Mọi `sl_*` ở đây đã ở ĐƠN VỊ GỐC của mặt hàng; quy đổi xảy ra ở service trước khi ghi.
 """
 from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session
 
 from ..models.stock_lot import LOT_EMPTY, LOT_ISSUABLE, StockLot, StockThreshold
+
+# (hang_loai, hang_id) — một mặt hàng gốc.
+Hang = tuple[str, int]
 
 
 class StockLotRepository:
@@ -38,10 +45,13 @@ class StockLotRepository:
         rows = self.db.execute(select(StockLot).where(StockLot.id.in_(ids))).scalars()
         return {lot.id: lot for lot in rows}
 
-    def next_ma_lo(self, material_code: str, ngay: date) -> str:
+    def next_ma_lo(self, ma_hang: str, ngay: date) -> str:
         """Mã lô LOT-<mã hàng>-<yymmdd>-<seq>. `seq` đếm trong NGÀY của mã hàng đó nên
-        mã đọc được bằng mắt; `ma_lo` unique nên va chạm sẽ nổ ở DB chứ không âm thầm."""
-        prefix = f"LOT-{material_code.strip().upper()}-{ngay:%y%m%d}-"
+        mã đọc được bằng mắt; `ma_lo` unique nên va chạm sẽ nổ ở DB chứ không âm thầm.
+
+        `ma_hang` giờ là mã trong danh mục gốc (GY001 / VT004), không phải mã `materials` cũ.
+        """
+        prefix = f"LOT-{ma_hang.strip().upper()}-{ngay:%y%m%d}-"
         n = self.db.execute(
             select(func.count()).select_from(StockLot).where(StockLot.ma_lo.like(f"{prefix}%"))
         ).scalar_one()
@@ -53,7 +63,7 @@ class StockLotRepository:
         self.db.flush()
         return lot
 
-    def issuable_lots(self, material_id: int, kho_id: int) -> list[StockLot]:
+    def issuable_lots(self, hang: Hang, kho_id: int) -> list[StockLot]:
         """Các lô còn hàng và được phép xuất, xếp theo gợi ý **FEFO rồi FIFO**: lô có hạn
         dùng gần nhất đi trước (tránh để quá date), hết hạn dùng thì tới lô nhập trước.
 
@@ -62,7 +72,8 @@ class StockLotRepository:
         stmt = (
             select(StockLot)
             .where(
-                StockLot.material_id == material_id,
+                StockLot.hang_loai == hang[0],
+                StockLot.hang_id == hang[1],
                 StockLot.kho_id == kho_id,
                 StockLot.sl_con_lai > 0,
                 StockLot.trang_thai.in_(LOT_ISSUABLE),
@@ -87,43 +98,47 @@ class StockLotRepository:
             lot.sl_con_lai = 0
             lot.trang_thai = LOT_EMPTY
 
-    def on_hand(self, material_id: int, kho_id: int | None = None) -> float:
-        """**Tồn khả dụng** = Σ sl_con_lai của lô ở trạng thái xuất được.
+    def on_hand(self, hang: Hang, kho_id: int | None = None) -> float:
+        """**Tồn khả dụng** = Σ sl_con_lai của lô ở trạng thái xuất được, theo ĐƠN VỊ GỐC.
 
         Cố tình KHÔNG trả tồn thực tế: hàng chờ KCS / hàng lỗi nằm trong kho nhưng không
         dùng được, cộng vào là hứa suông với người yêu cầu (BRD §1.5).
         """
         stmt = select(func.coalesce(func.sum(StockLot.sl_con_lai), 0)).where(
-            StockLot.material_id == material_id,
+            StockLot.hang_loai == hang[0],
+            StockLot.hang_id == hang[1],
             StockLot.trang_thai.in_(LOT_ISSUABLE),
         )
         if kho_id is not None:
             stmt = stmt.where(StockLot.kho_id == kho_id)
         return float(self.db.execute(stmt).scalar_one() or 0)
 
-    def on_hand_map(self, material_ids: list[int], kho_id: int | None = None) -> dict[int, float]:
-        """Tồn khả dụng của NHIỀU mã hàng trong 1 query — dùng khi vẽ đèn tín hiệu cho cả
-        danh sách yêu cầu (tránh N+1)."""
-        if not material_ids:
+    def on_hand_map(self, hangs: list[Hang], kho_id: int | None = None) -> dict[Hang, float]:
+        """Tồn khả dụng của NHIỀU mặt hàng trong 1 query — dùng khi vẽ đèn tín hiệu cho cả
+        danh sách đề nghị (tránh N+1). Khoá dict là chính cặp `(hang_loai, hang_id)`."""
+        if not hangs:
             return {}
         stmt = (
-            select(StockLot.material_id, func.coalesce(func.sum(StockLot.sl_con_lai), 0))
+            select(StockLot.hang_loai, StockLot.hang_id,
+                   func.coalesce(func.sum(StockLot.sl_con_lai), 0))
             .where(
-                StockLot.material_id.in_(material_ids),
+                # `tuple_(...).in_(...)` để lọc đúng CẶP: lọc rời hai cột sẽ quét nhầm sang tổ hợp
+                # không ai hỏi (giay#3 hỏi cùng vat_tu#7 thì kéo luôn vat_tu#3).
+                tuple_(StockLot.hang_loai, StockLot.hang_id).in_([tuple(h) for h in hangs]),
                 StockLot.trang_thai.in_(LOT_ISSUABLE),
             )
-            .group_by(StockLot.material_id)
+            .group_by(StockLot.hang_loai, StockLot.hang_id)
         )
         if kho_id is not None:
             stmt = stmt.where(StockLot.kho_id == kho_id)
-        found = {mid: float(total or 0) for mid, total in self.db.execute(stmt)}
-        return {mid: found.get(mid, 0.0) for mid in material_ids}
+        found = {(loai, hid): float(total or 0) for loai, hid, total in self.db.execute(stmt)}
+        return {tuple(h): found.get(tuple(h), 0.0) for h in hangs}
 
-    def list_lots(self, *, material_id: int | None = None, kho_id: int | None = None,
+    def list_lots(self, *, hang: Hang | None = None, kho_id: int | None = None,
                   con_hang: bool = True) -> list[StockLot]:
         stmt = select(StockLot)
-        if material_id is not None:
-            stmt = stmt.where(StockLot.material_id == material_id)
+        if hang is not None:
+            stmt = stmt.where(StockLot.hang_loai == hang[0], StockLot.hang_id == hang[1])
         if kho_id is not None:
             stmt = stmt.where(StockLot.kho_id == kho_id)
         if con_hang:
@@ -135,24 +150,26 @@ class StockThresholdRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def get_for(self, material_id: int, kho_id: int) -> StockThreshold | None:
+    def get_for(self, hang: Hang, kho_id: int) -> StockThreshold | None:
         return self.db.execute(
             select(StockThreshold).where(
-                StockThreshold.material_id == material_id,
+                StockThreshold.hang_loai == hang[0],
+                StockThreshold.hang_id == hang[1],
                 StockThreshold.kho_id == kho_id,
             )
         ).scalars().first()
 
-    def map_for(self, material_ids: list[int], kho_id: int) -> dict[int, StockThreshold]:
-        if not material_ids:
+    def map_for(self, hangs: list[Hang], kho_id: int) -> dict[Hang, StockThreshold]:
+        if not hangs:
             return {}
         rows = self.db.execute(
             select(StockThreshold).where(
-                StockThreshold.material_id.in_(material_ids),
+                tuple_(StockThreshold.hang_loai, StockThreshold.hang_id)
+                .in_([tuple(h) for h in hangs]),
                 StockThreshold.kho_id == kho_id,
             )
         ).scalars()
-        return {r.material_id: r for r in rows}
+        return {(r.hang_loai, r.hang_id): r for r in rows}
 
     def list_active(self) -> list[StockThreshold]:
         """Mọi ngưỡng đang bật cảnh báo — nguồn quét để đẩy nhắc realtime (spec §8)."""
@@ -160,10 +177,10 @@ class StockThresholdRepository:
             select(StockThreshold).where(StockThreshold.canh_bao.is_(True))
         ).scalars())
 
-    def upsert(self, *, material_id: int, kho_id: int, **data) -> StockThreshold:
-        obj = self.get_for(material_id, kho_id)
+    def upsert(self, *, hang: Hang, kho_id: int, **data) -> StockThreshold:
+        obj = self.get_for(hang, kho_id)
         if obj is None:
-            obj = StockThreshold(material_id=material_id, kho_id=kho_id, nguong_ton=0)
+            obj = StockThreshold(hang_loai=hang[0], hang_id=hang[1], kho_id=kho_id, nguong_ton=0)
             self.db.add(obj)
         for k, v in data.items():
             setattr(obj, k, v)

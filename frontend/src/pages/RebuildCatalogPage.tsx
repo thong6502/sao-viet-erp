@@ -5,18 +5,30 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ApiError } from "../api/client";
-import { crud, giayVersions, addGiayVersion, type GiayGiaVersion, type Row } from "../api/rebuildCatalog";
+import {
+  crud, giayVersions, addGiayVersion, nhatKyDanhMuc,
+  type GiayGiaVersion, type NhatKyItem, type Row,
+} from "../api/rebuildCatalog";
 import "./rebuild-catalog.css";
 
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "date" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "ref-search" | "bands" | "size_tiers" | "nhom_may" | "formula" | "dau-viec-dinh-muc" | "chuan_bi_khoan" | "don_vi_toc_do";
+  // `ref-search-ma` = như `ref-search` nhưng lưu MÃ (chuỗi) thay vì id — cho cột trỏ danh mục bằng
+  // mã như `don_vi_gia` (quy đổi làm việc trên mã `kg`/`to`, không trên id).
+  type?: "text" | "number" | "date" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "size_tiers" | "nhom_may" | "nhom_may-multi" | "formula" | "dau-viec-dinh-muc" | "chuan_bi_khoan" | "lich_bao_tri" | "don_vi_toc_do";
   options?: { value: string; label: string }[];
   refPrefix?: string;           // ref / ref-multi / ref-search: endpoint danh mục nguồn (đổ theo TÊN/MÃ)
+  /** Query thêm khi nạp danh mục nguồn, vd `{ active: true }` — không lọc thì picker mời cả dòng
+   *  đã ngừng dùng, người ta chọn xong bấm Lưu mới ăn lỗi từ server. */
+  refParams?: Record<string, unknown>;
   required?: boolean;
-  hint?: string;
+  /** Chuỗi tĩnh, HOẶC hàm dựng câu từ chính form đang gõ — vd quy cách đóng gói hiện
+   *  "1 thùng = 3 kg" ghép từ ô đơn vị đóng gói + ô hệ số + ĐVT. Câu đọc được kiểm bằng mắt
+   *  ngay lúc khai, đỡ hơn hẳn hai ô số rời không nói lên nghĩa gì. */
+  hint?: string | ((form: Record<string, unknown>) => string);
   group?: string;               // nhóm section trong drawer
   showIf?: (form: Record<string, unknown>) => boolean;  // ẩn/hiện field theo giá trị khác
   default?: unknown;            // prefill khi TẠO MỚI (giá trị thật, không phải placeholder "0")
@@ -47,6 +59,9 @@ export interface CatalogConfig {
   subtitle?: string;
   showCount?: boolean;
   prefix: string;
+  /** Khoá loại của bản ghi trong nhật ký (`"{loai}:{id}"` — khớp `LOAI_MODULE` ở backend).
+   *  Có khoá này thì drawer mọc thêm tab "Nhật ký" khi đang SỬA một bản ghi đã lưu. */
+  nhatKyLoai?: string;
   columns: ColumnDef[];
   fields: FieldDef[];
   facet?: FacetDef;             // tab lọc phía trên (tùy chọn)
@@ -117,18 +132,12 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
     });
   }, [rows, q, facet, config.facet]);
 
+  const [confirmDeleteRow, setConfirmDeleteRow] = useState<Row | null>(null);
+
   async function remove(r: Row) {
     if (!token) return;
     if (config.renderDeleteDialog) { setDeleting(r); return; }   // luồng xóa riêng (vd Kho)
-    if (config.softDelete) {
-      if (!window.confirm(`Ẩn "${r.ten}" (${r.ma})? Dữ liệu vẫn giữ (xóa mềm), có thể khôi phục sau.`)) return;
-      try { await api.update(token, r.id, { ...r, active: false }); load(); onMutate?.(); }
-      catch (e) { setError(e instanceof ApiError ? e.message : "Không ẩn được."); }
-    } else {
-      if (!window.confirm(`Xóa "${r.ten}" (${r.ma})?`)) return;
-      try { await api.remove(token, r.id); load(); onMutate?.(); }
-      catch (e) { setError(e instanceof ApiError ? e.message : "Không xóa được."); }
-    }
+    setConfirmDeleteRow(r);
   }
 
   const facetCount = (v: string) =>
@@ -204,7 +213,7 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
               <th style={{ width: "20%" }}>Tên</th>
               {config.columns.map((c) => {
                 const isCenter = c.key === "bac" || c.key === "dai" || c.key === "active";
-                const w = c.key === "quy_doi_text" ? "45%" : c.key === "ghi_chu" ? "15%" : undefined;
+                const w = c.key === "quy_doi_text" ? "35%" : c.key === "canh_bao" ? "20%" : c.key === "ghi_chu" ? "15%" : undefined;
                 return <th key={c.key} style={w ? { width: w } : undefined} className={isCenter ? "text-center" : ""}>{c.label}</th>;
               })}
               <th className="rc__actcol" style={{ width: "10%" }}>Hành động</th>
@@ -300,6 +309,43 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
         onClose: () => setDeleting(null),
         onDone: () => { setDeleting(null); load(); onMutate?.(); },
       })}
+
+      {confirmDeleteRow && (
+        <ConfirmDialog
+          open={!!confirmDeleteRow}
+          title="Xóa danh mục"
+          message={
+            config.softDelete
+              ? `Xóa "${confirmDeleteRow.ten}" (${confirmDeleteRow.ma})? Bản ghi sẽ được ẩn khỏi danh sách và có thể khôi phục lại khi cần.`
+              : `Xóa "${confirmDeleteRow.ten}" (${confirmDeleteRow.ma})? Hành động này sẽ xóa hoàn toàn bản ghi khỏi hệ thống.`
+          }
+          confirmLabel="Xóa danh mục"
+          danger
+          onConfirm={async () => {
+            if (!token) return;
+            const r = confirmDeleteRow;
+            setConfirmDeleteRow(null);
+            if (config.softDelete) {
+              try {
+                await api.update(token, r.id, { ...r, active: false });
+                load();
+                onMutate?.();
+              } catch (e) {
+                setError(e instanceof ApiError ? e.message : "Không xóa được danh mục.");
+              }
+            } else {
+              try {
+                await api.remove(token, r.id);
+                load();
+                onMutate?.();
+              } catch (e) {
+                setError(e instanceof ApiError ? e.message : "Không xóa được.");
+              }
+            }
+          }}
+          onCancel={() => setConfirmDeleteRow(null)}
+        />
+      )}
     </main>
   );
 }
@@ -645,15 +691,17 @@ function BandsField({ value, onChange }: { value: BacRow[]; onChange: (v: BacRow
   );
 }
 
-// ── ĐƠN VỊ TỐC ĐỘ: danh sách CỐ ĐỊNH, không thêm/sửa/xoá ───────────────────────
+// ── ĐƠN VỊ TỐC ĐỘ: bảng NHÃN hiển thị cho cột danh sách (ô CHỌN lấy động — xem `DonViTocDoField`) ─
 //
-// Chủ chốt 04/08/2026: khoá cứng danh sách này. Trước đây nó suy từ cờ `dung_lam_toc_do` bên danh
-// mục `don_vi_do` và có nút "＋ Thêm / gỡ" ngay tại chỗ — ai bật thêm một đơn vị là ô này mọc thêm
-// lựa chọn, mà phần lớn lựa chọn đó Lệnh SX không dùng được.
+// Lịch sử: 04/08/2026 từng KHOÁ CỨNG danh sách này (bỏ nguồn động) vì đổ hết cờ `dung_lam_toc_do`
+// làm ô mọc nhiều lựa chọn Lệnh SX không dùng được. 11/08/2026 (theo yêu cầu chủ) ô chọn QUAY LẠI
+// lấy động từ `/api/don-vi` (lọc `dung_lam_toc_do`) để hết cảnh hai danh sách lệch nhau. Danh sách
+// dưới GIỜ chỉ còn là NHÃN hiển thị (fallback) cho cột danh sách máy, không phải nguồn của ô chọn.
 //
-// 🔴 Mã giữ khuôn `<đơn vị đếm>_gio`. Lệnh SX CHỈ khớp được `to_gio · cai_gio · kem_gio`
-// (`_DV_VAO_SANG_NS` trong `lsx_service.py`). Các mã còn lại vẫn LƯU được để ghi nhận năng lực
-// máy, nhưng bước sẽ không lấy tốc độ từ máy — thời gian chạy để trống và KHÔNG có cảnh báo.
+// 🔴 Mã giữ khuôn `<đơn vị đếm>_gio`. Lệnh SX CHỈ khớp thời lượng với `to_gio · cai_gio · kem_gio`
+// (`_DV_VAO_SANG_NS` trong `lsx_service.py`). Đơn vị khác vẫn LƯU được (ghi nhận năng lực máy) nhưng
+// bước KHÔNG lấy tốc độ từ máy — thời gian chạy để trống, KHÔNG cảnh báo. Muốn bớt lựa chọn thừa thì
+// BỎ TICK `dung_lam_toc_do` ở màn Đơn vị cho các đơn vị chưa chạy được (chỉ giữ tờ · cái · kẽm).
 export const DON_VI_TOC_DO: { ma: string; nhan: string }[] = [
   { ma: "ban_proof_gio", nhan: "bản proof/h" },
   { ma: "mau_gio", nhan: "mẫu/h" },
@@ -667,21 +715,29 @@ export const DON_VI_TOC_DO: { ma: string; nhan: string }[] = [
 ];
 
 function DonViTocDoField({
-  value, onChange,
+  value, onChange, donViList,
 }: {
   value: string;
   onChange: (v: string) => void;
+  donViList: Row[];
 }) {
-  // Máy khai từ trước bằng mã nay không còn trong danh sách (vd `cai_gio`, `cuon_gio`) vẫn phải
-  // hiện ra. Bỏ qua là mở form lên thấy trống, bấm Lưu một cái là xoá mất khai báo đang đúng.
-  const laKhaiCu = value !== "" && !DON_VI_TOC_DO.some((d) => d.ma === value);
+  // Đơn vị tốc độ lấy ĐỘNG từ danh mục Đơn vị (đơn vị có tick "dùng làm tốc độ"), KHÔNG còn danh
+  // sách viết cứng — thêm/bớt/đổi quản MỘT chỗ ở màn Đơn vị & quy đổi. Giá trị lưu vẫn là
+  // `<mã>_gio` để khớp máy đã khai + engine Lệnh SX (chỉ khớp thời lượng với to_gio/cai_gio/kem_gio).
+  const opts = donViList
+    .filter((d) => d.dung_lam_toc_do === true)
+    .map((d) => ({ ma: `${d.ma}_gio`, nhan: `${d.ten}/h` }));
+  // Máy khai từ trước bằng mã nay không còn bày (đơn vị bỏ tick / đơn vị cũ) vẫn phải hiện ra —
+  // bỏ qua là mở form thấy trống, bấm Lưu một cái là xoá mất khai báo đang đúng.
+  const laKhaiCu = value !== "" && !opts.some((d) => d.ma === value);
+  const nhanCu = value.endsWith("_gio") ? `${value.slice(0, -4)}/h` : value;
   return (
     <select className="rc-input" value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">— chọn —</option>
-      {DON_VI_TOC_DO.map((d) => (
+      {opts.map((d) => (
         <option key={d.ma} value={d.ma}>{d.nhan}</option>
       ))}
-      {laKhaiCu && <option value={value}>{value} — khai cũ</option>}
+      {laKhaiCu && <option value={value}>{nhanCu} — khai cũ</option>}
     </select>
   );
 }
@@ -852,6 +908,76 @@ function ChuanBiKhoanField({
   );
 }
 
+// ── LỊCH BẢO TRÌ ĐỊNH KỲ (đầu việc · chu kỳ số + đơn vị ngày/tuần/tháng/năm) ──────
+// Lưu LỒNG trong fields_theo_loai.lich_bao_tri (jsonKey) — không cột mới, không migration.
+// Cùng khuôn với ChuanBiKhoanField; khác ở cột đơn vị chu kỳ và không có dòng "Tổng".
+export interface LichBaoTriRow { viec?: string; so?: number; don_vi?: string }
+const DON_VI_CHU_KY = [
+  { v: "ngay", n: "ngày" }, { v: "tuan", n: "tuần" },
+  { v: "thang", n: "tháng" }, { v: "nam", n: "năm" },
+];
+function LichBaoTriField({
+  value,
+  onChange,
+}: { value: LichBaoTriRow[]; onChange: (v: LichBaoTriRow[]) => void }) {
+  const rows = value ?? [];
+  const setRow = (i: number, patch: Partial<LichBaoTriRow>) =>
+    onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const add = () => onChange([...rows, { viec: "", so: undefined, don_vi: "thang" }]);
+  const del = (i: number) => onChange(rows.filter((_, j) => j !== i));
+  return (
+    <div className="rc-bands">
+      <table className="rc-bands__table">
+        <thead>
+          <tr><th>Đầu việc bảo trì</th><th>Mỗi</th><th>Đơn vị</th><th></th></tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr><td colSpan={4} className="rc-bands__empty">Chưa có hạng mục — bấm “＋ Thêm hạng mục”.</td></tr>
+          )}
+          {rows.map((r, i) => (
+            <tr key={i}>
+              <td>
+                <input
+                  className="rc-input"
+                  value={r.viec ?? ""}
+                  placeholder="vd: Vệ sinh lô cao su"
+                  onChange={(e) => setRow(i, { viec: e.target.value })}
+                />
+              </td>
+              <td>
+                <input
+                  className="rc-input rc-input--num"
+                  type="number"
+                  step="any"
+                  inputMode="numeric"
+                  value={r.so === undefined || r.so === null ? "" : String(r.so)}
+                  onChange={(e) => setRow(i, { so: e.target.value === "" ? undefined : Number(e.target.value) })}
+                />
+              </td>
+              <td>
+                <select
+                  className="rc-input"
+                  value={r.don_vi ?? "thang"}
+                  onChange={(e) => setRow(i, { don_vi: e.target.value })}
+                >
+                  {DON_VI_CHU_KY.map((d) => <option key={d.v} value={d.v}>{d.n}</option>)}
+                </select>
+              </td>
+              <td style={{ textAlign: "center" }}>
+                <button type="button" className="rc-bands__del" onClick={() => del(i)} title="Xóa hạng mục">
+                  <TrashIcon />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button type="button" className="rc-bands__add" onClick={add}>＋ Thêm hạng mục</button>
+    </div>
+  );
+}
+
 // ── SIZE-TIER EDITOR (bậc đơn giá theo kích thước: Đến cỡ cm · Đơn giá đ) ─────────
 interface SizeTierRow { den_cm?: number | null; don_gia?: number }
 function SizeTiersField({ value, onChange }: { value: SizeTierRow[]; onChange: (v: SizeTierRow[]) => void }) {
@@ -908,6 +1034,8 @@ interface DinhMucRow {
   piece_rate_id: number; nang_suat_nguoi_gio: number;
   nang_suat_nguoi_gio_min?: number | null; nang_suat_nguoi_gio_max?: number | null;
   don_vi_nang_suat?: string | null;
+  /** Giờ chờ kỹ thuật sau đầu việc này (keo đông…). 0 = không chờ. */
+  cho_ky_thuat_gio?: number;
   // Ba mốc nhân lực: tối thiểu ≤ chuẩn ≤ tối đa. Tối thiểu mới là KHAI BÁO, chưa vào công thức.
   so_nguoi_toi_thieu?: number;
   so_nguoi_tieu_chuan: number; so_nguoi_toi_da: number; is_default: boolean;
@@ -930,6 +1058,10 @@ function DinhMucDauViecField({ value, options, departmentId, onChange }: {
               <th rowSpan={2} className="rc-col--left">Đầu việc chi tiết</th>
               <th colSpan={4} className="rc-col--group rc-group--ns">Năng suất khoán</th>
               <th colSpan={3} className="rc-col--group rc-group--nl">Định mức nhân lực (người)</th>
+              {/* Chờ kỹ thuật của bước TỔ khai ở ĐÂY (10/08/2026) — keo đông thì chờ, khâu chỉ thì
+                  không, nên nó thuộc về từng đầu việc chứ không phải cả công đoạn. Vế MÁY khai ở
+                  màn Thiết bị & Máy móc. */}
+              <th rowSpan={2} className="rc-col--num" title="Chờ sau khi làm xong đầu việc này — keo đông, màng nguội. KHÔNG chiếm máy.">Chờ (giờ)</th>
               <th rowSpan={2} className="rc-col--center">Mặc định</th>
               <th rowSpan={2} className="rc-col--center" style={{ width: 36 }} />
             </tr>
@@ -943,7 +1075,7 @@ function DinhMucDauViecField({ value, options, departmentId, onChange }: {
               <th className="rc-col--num">Tối đa</th>
             </tr>
           </thead>
-          <tbody>{value.length === 0 && <tr><td colSpan={10} className="rc-bands__empty">
+          <tbody>{value.length === 0 && <tr><td colSpan={11} className="rc-bands__empty">
             {allowed.length === 0 ? "Tổ này chưa có đầu việc khoán để liên kết." : "Chưa chọn đầu việc định mức."}
           </td></tr>}{value.map((r, i) => { const opt = options.find((o) => o.id === r.piece_rate_id); return <tr key={r.piece_rate_id}>
             <td className="rc-col--left rc-dinh-muc-name">{opt ? `${opt.ma} · ${opt.ten}` : `#${r.piece_rate_id}`}</td>
@@ -954,17 +1086,23 @@ function DinhMucDauViecField({ value, options, departmentId, onChange }: {
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="0.01" step="any" placeholder="—"
               value={r.nang_suat_nguoi_gio_max ?? ""}
               onChange={(e) => patch(i, { nang_suat_nguoi_gio_max: e.target.value === "" ? null : Number(e.target.value) })} /></td>
-            <td className="rc-col--unit"><DonViTocDoField value={r.don_vi_nang_suat ?? ""} onChange={(v) => patch(i, { don_vi_nang_suat: v || null })} /></td>
+            {/* KHOÁ theo đơn vị của ĐƠN GIÁ KHOÁN (chủ chốt 10/08/2026) — chữ, không phải ô chọn.
+                Cùng một đầu việc thì tính tiền và đếm năng suất bằng cùng một thứ; khai ở Lương
+                khoán rồi thì đừng bắt chọn lại. Đổi đơn vị ⇒ sửa ở màn Lương khoán. */}
+            <td className="rc-col--unit rc-dinh-muc-unit">{opt?.don_vi ? `${opt.don_vi}/h` : "—"}</td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_toi_thieu ?? 1} onChange={(e) => patch(i, { so_nguoi_toi_thieu: Number(e.target.value) })} /></td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_tieu_chuan} onChange={(e) => patch(i, { so_nguoi_tieu_chuan: Number(e.target.value) })} /></td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_toi_da} onChange={(e) => patch(i, { so_nguoi_toi_da: Number(e.target.value) })} /></td>
+            <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="0" step="any" placeholder="0"
+              value={r.cho_ky_thuat_gio ?? ""}
+              onChange={(e) => patch(i, { cho_ky_thuat_gio: e.target.value === "" ? 0 : Number(e.target.value) })} /></td>
             <td className="rc-col--center"><input type="radio" name="dinh-muc-default" checked={r.is_default} onChange={() => onChange(value.map((x, j) => ({ ...x, is_default: j === i })))} /></td>
             <td className="rc-col--center"><button type="button" className="rc-bands__del" onClick={() => onChange(value.filter((_, j) => j !== i))}><TrashIcon /></button></td>
           </tr>; })}</tbody>
         </table>
       </div>
       <div className="rc-dinh-muc-add">
-        <select className="rc-dinh-muc-add__select" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onChange([...value, { piece_rate_id: id, nang_suat_nguoi_gio: 1, nang_suat_nguoi_gio_min: null, nang_suat_nguoi_gio_max: null, don_vi_nang_suat: null, so_nguoi_toi_thieu: 1, so_nguoi_tieu_chuan: 1, so_nguoi_toi_da: 1, is_default: value.length === 0 }]); }}>
+        <select className="rc-dinh-muc-add__select" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onChange([...value, { piece_rate_id: id, nang_suat_nguoi_gio: 1, nang_suat_nguoi_gio_min: null, nang_suat_nguoi_gio_max: null, don_vi_nang_suat: null, cho_ky_thuat_gio: 0, so_nguoi_toi_thieu: 1, so_nguoi_tieu_chuan: 1, so_nguoi_toi_da: 1, is_default: value.length === 0 }]); }}>
           <option value="">＋ Chọn đầu việc của tổ</option>{allowed.filter((o) => !selected.has(o.id)).map((o) => <option key={o.id} value={o.id}>{o.ma} · {o.ten}</option>)}
         </select>
       </div>
@@ -988,7 +1126,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
       ten: existing?.ten ?? ""
     };
     for (const f of config.fields) {
-      if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers" || f.type === "dau-viec-dinh-muc") {
+      if (f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "size_tiers" || f.type === "dau-viec-dinh-muc") {
         const ev = existing?.[f.key];
         init[f.key] = Array.isArray(ev) ? ev : [];
       } else if (f.jsonKey) {
@@ -996,7 +1134,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
         const box = existing?.[f.jsonKey] as Record<string, unknown> | undefined;
         const raw = existing ? box?.[f.key] : undefined;
         // Field kiểu DANH SÁCH phải rơi về [] chứ không phải "" — đưa "" cho editor mảng là vỡ.
-        init[f.key] = f.type === "chuan_bi_khoan"
+        init[f.key] = f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri"
           ? (Array.isArray(raw) ? raw : [])
           : (existing ? raw ?? "" : f.default ?? "");
       } else {
@@ -1027,12 +1165,18 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
   const onRefChanged = useCallback(() => setRefTick((t) => t + 1), []);
   useEffect(() => {
     if (!token) return;
-    const prefixes = [...new Set(
-      config.fields.filter((f) => f.type === "ref" || f.type === "ref-multi" || f.type === "ref-search" || f.type === "dau-viec-dinh-muc" || f.type === "don_vi_toc_do" || f.type === "nhom_may").map((f) => f.refPrefix).filter(Boolean) as string[],
-    )];
-    if (prefixes.length === 0) return;
+    // Gộp `refParams` theo prefix: nhiều field có thể cùng trỏ một danh mục (vd ĐVT và Đơn vị đóng
+    // gói đều lấy `/api/don-vi`) — nạp một lần, query là hợp của các field đó.
+    const theoPrefix = new Map<string, Record<string, unknown>>();
+    for (const f of config.fields) {
+      if (!f.refPrefix) continue;
+      if (!(f.type === "ref" || f.type === "ref-multi" || f.type === "ref-search" || f.type === "ref-search-ma" || f.type === "dau-viec-dinh-muc" || f.type === "don_vi_toc_do" || f.type === "nhom_may" || f.type === "nhom_may-multi")) continue;
+      theoPrefix.set(f.refPrefix, { ...(theoPrefix.get(f.refPrefix) ?? {}), ...(f.refParams ?? {}) });
+    }
+    if (theoPrefix.size === 0) return;
     let alive = true;
-    Promise.all(prefixes.map((p) => crud(p).list(token).then((r) => [p, r.items] as const).catch(() => [p, [] as Row[]] as const)))
+    Promise.all([...theoPrefix].map(([p, params]) =>
+      crud(p).list(token, params).then((r) => [p, r.items] as const).catch(() => [p, [] as Row[]] as const)))
       .then((entries) => { if (alive) setRefData(Object.fromEntries(entries)); });
     return () => { alive = false; };
   }, [token, config.fields, refTick]);
@@ -1042,18 +1186,22 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     [config.fields, form],
   );
 
-  const [formulaTab, setFormulaTab] = useState<"info" | "formula">("info");
+  const [formulaTab, setFormulaTab] = useState<"info" | "formula" | "nhatky">("info");
 
   const renderField = (f: FieldDef) => {
     const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
-    const isFullWidth = f.type === "bands" || f.type === "size_tiers" || f.type === "chuan_bi_khoan" || f.type === "ref-multi" || f.type === "dau-viec-dinh-muc" || f.type === "json" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
+    const hint = typeof f.hint === "function" ? f.hint(form) : f.hint;
+    const isFullWidth = f.type === "bands" || f.type === "size_tiers" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "dau-viec-dinh-muc" || f.type === "json" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
     // "div" chứ không "label": khối này chứa NHIỀU input, bọc trong <label> là bấm đâu cũng nhảy
     // focus vào ô đầu tiên.
-    const Tag = f.type === "formula" || f.type === "bands" || f.type === "size_tiers" || f.type === "chuan_bi_khoan" ? "div" : "label";
+    const Tag = f.type === "formula" || f.type === "bands" || f.type === "size_tiers" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" ? "div" : "label";
     return (
       <Tag className={`rc-field${f.type === "checkbox" ? " rc-field--check" : ""}${isFullWidth ? " rc-field--full" : ""}`} key={f.key}>
         <span className="rc-field__label">{cleanLabel}{f.required ? " *" : ""}</span>
-        {f.type === "chuan_bi_khoan" ? (
+        {f.type === "lich_bao_tri" ? (
+          <LichBaoTriField value={Array.isArray(form[f.key]) ? (form[f.key] as LichBaoTriRow[]) : []}
+            onChange={(v) => set(f.key, v)} />
+        ) : f.type === "chuan_bi_khoan" ? (
           <ChuanBiKhoanField value={Array.isArray(form[f.key]) ? (form[f.key] as ChuanBiKhoanRow[]) : []}
             onChange={(v) => set(f.key, v)} />
         ) : f.type === "bands" ? (
@@ -1082,8 +1230,18 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
             options={refData[f.refPrefix ?? ""] ?? []}
             onCatalogChanged={onRefChanged}
           />
+        ) : f.type === "nhom_may-multi" ? (
+          <NhomMayMultiField
+            value={Array.isArray(form[f.key]) ? (form[f.key] as string[]) : []}
+            options={refData[f.refPrefix ?? ""] ?? []}
+            onChange={(v) => set(f.key, v)}
+          />
         ) : f.type === "don_vi_toc_do" ? (
-          <DonViTocDoField value={String(form[f.key] ?? "")} onChange={(v) => set(f.key, v)} />
+          <DonViTocDoField
+            value={String(form[f.key] ?? "")}
+            onChange={(v) => set(f.key, v)}
+            donViList={refData[f.refPrefix ?? ""] ?? []}
+          />
         ) : f.type === "ref" ? (
           <div className="rc-input-wrapper">
             <select className="rc-input" value={String(form[f.key] ?? "")} onChange={(e) => setRef(f.key, e.target.value)}>
@@ -1097,7 +1255,15 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
           <RefSearchField
             value={form[f.key] == null || form[f.key] === "" ? null : Number(form[f.key])}
             options={refData[f.refPrefix ?? ""] ?? []}
-            placeholder={f.hint ?? "Gõ mã / tên để tìm…"}
+            placeholder={hint ?? "Gõ mã / tên để tìm…"}
+            onChange={(v) => set(f.key, v)}
+          />
+        ) : f.type === "ref-search-ma" ? (
+          <RefSearchField
+            value={form[f.key] == null || form[f.key] === "" ? null : String(form[f.key])}
+            options={refData[f.refPrefix ?? ""] ?? []}
+            placeholder={hint ?? "Gõ mã / tên để tìm…"}
+            byMa
             onChange={(v) => set(f.key, v)}
           />
         ) : f.type === "ref-multi" ? (
@@ -1131,7 +1297,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
             {suffix && <span className="rc-input-suffix">{suffix}</span>}
           </div>
         )}
-        {f.hint && <span className="rc-field__hint">{f.hint}</span>}
+        {hint && <span className="rc-field__hint">{hint}</span>}
       </Tag>
     );
   };
@@ -1144,7 +1310,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     if (!config.autoCode || isEdit) body.ma = form.ma;
     for (const f of visibleFields) {
       let v = form[f.key];
-      if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers" || f.type === "dau-viec-dinh-muc") { body[f.key] = Array.isArray(v) ? v : []; continue; }
+      if (f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "bands" || f.type === "size_tiers" || f.type === "dau-viec-dinh-muc") { body[f.key] = Array.isArray(v) ? v : []; continue; }
       if (v === "" || v === undefined) {
         const kieuChu = !f.type || f.type === "text" || f.type === "date" || f.type === "nhom_may";
         const voonCoGiaTri = isEdit && existing != null && existing[f.key] != null
@@ -1183,6 +1349,9 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     () => visibleFields.some((f) => f.type === "formula") || config.renderExtra != null,
     [visibleFields, config.renderExtra]
   );
+  // Nhật ký chỉ có nghĩa với bản ghi ĐÃ LƯU — đang thêm mới thì chưa có gì để xem.
+  const coNhatKy = isEdit && !!config.nhatKyLoai && !!existing?.id;
+  const coTabs = hasFormulaField || coNhatKy;
 
   const renderFieldsContent = () => {
     const fieldsToRender = visibleFields.filter((f) => f.type !== "formula");
@@ -1273,7 +1442,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
         <form className="rc-drawer__body" onSubmit={submit}>
           {err && <div className="banner banner--error" style={{ marginBottom: "var(--sp-4)" }}>{err}</div>}
           
-          {hasFormulaField ? (
+          {coTabs ? (
             <div>
               <div className="rc-drawer__tabs" style={{ marginBottom: "var(--sp-4)" }}>
                 <button
@@ -1283,22 +1452,37 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                 >
                   Khai báo thông tin
                 </button>
-                <button
-                  type="button"
-                  className={`rc-drawer__tab${formulaTab === "formula" ? " is-active" : ""}`}
-                  onClick={() => setFormulaTab("formula")}
-                >
-                  {config.renderExtra ? "Công thức quy đổi" : "Công thức tính giá"}
-                </button>
+                {hasFormulaField && (
+                  <button
+                    type="button"
+                    className={`rc-drawer__tab${formulaTab === "formula" ? " is-active" : ""}`}
+                    onClick={() => setFormulaTab("formula")}
+                  >
+                    {config.renderExtra ? "Công thức quy đổi" : "Công thức tính giá"}
+                  </button>
+                )}
+                {coNhatKy && (
+                  <button
+                    type="button"
+                    className={`rc-drawer__tab${formulaTab === "nhatky" ? " is-active" : ""}`}
+                    onClick={() => setFormulaTab("nhatky")}
+                  >
+                    Nhật ký
+                  </button>
+                )}
               </div>
 
-              {formulaTab === "info" ? renderFieldsContent() : (
+              {formulaTab === "info" && renderFieldsContent()}
+              {formulaTab === "formula" && (
                 <div>
                   {visibleFields
                     .filter((f) => f.type === "formula")
                     .map(renderField)}
                   {config.renderExtra?.(form, existing)}
                 </div>
+              )}
+              {formulaTab === "nhatky" && coNhatKy && (
+                <NhatKyTab loai={config.nhatKyLoai!} id={Number(existing!.id)} />
               )}
             </div>
           ) : (
@@ -1317,7 +1501,251 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
   );
 }
 
+// ── TAB NHẬT KÝ ──────────────────────────────────────────────────────────────────
+/** Ai đổi gì, lúc nào — cho MỘT bản ghi danh mục. Mỗi lần bấm Lưu là MỘT mục, các trường đổi
+ *  nằm bên trong mục đó (backend nối bằng " · ") chứ không tách thành nhiều mục rời. */
+const NK_NHAN: Record<string, string> = {
+  dm_tao: "Tạo mới",
+  dm_sua: "Cập nhật",
+  dm_xoa: "Xoá",
+};
+
+/** "13:44 05/08/2026", riêng trong 48h gần nhất thì thay ngày bằng hôm nay/hôm qua — ba tháng
+ *  sau mở lại "3 ngày trước" thì vô nghĩa, nên tuyệt đối vẫn là mặc định. */
+function nhanThoiGian(iso: string): string {
+  const d = new Date(iso);
+  const gio = d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const ngay0 = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const homNay = new Date();
+  const moc = new Date(homNay.getFullYear(), homNay.getMonth(), homNay.getDate()).getTime();
+  const lech = Math.round((moc - ngay0) / 86400000);
+  if (lech === 0) return `${gio} hôm nay`;
+  if (lech === 1) return `${gio} hôm qua`;
+  return `${gio} ${d.toLocaleDateString("vi-VN")}`;
+}
+
+const NK_FIELD_LABELS: Record<string, string> = {
+  fields_theo_loai: "Thông số theo loại máy",
+  machine_group: "Nhóm máy",
+  machine_type: "Loại máy",
+  process_type: "Công đoạn máy",
+  status: "Trạng thái",
+  note: "Ghi chú",
+  code: "Mã",
+  name: "Tên",
+  max_width_cm: "Khổ rộng tối đa",
+  max_height_cm: "Khổ dài tối đa",
+  min_width_cm: "Khổ rộng tối thiểu",
+  min_height_cm: "Khổ dài tối thiểu",
+  speed: "Tốc độ",
+  setup_time_mins: "Thời gian chuẩn bị (phút)",
+  changeover_time_mins: "Thời gian chuyển đổi (phút)",
+  setup_waste_sheets: "Tờ bù hao chuẩn bị",
+  supported_materials: "Vật liệu hỗ trợ",
+  num_ink_units: "Số đơn vị in",
+  supports_perfecting: "In 2 mặt cùng lúc",
+};
+
+const NK_SUB_LABELS: Record<string, string> = {
+  chuan_bi_khoan: "Chuẩn bị khoan",
+  so_luong_dao: "Số lượng dao",
+  duong_kinh: "Đường kính",
+  khoan_lo: "Khoan lỗ",
+  can_mang: "Cán màng",
+  be_noi: "Bế nổi",
+  ep_kim: "Ép kim",
+};
+
+function formatNkVal(valStr: string): string {
+  let s = valStr.trim();
+  if (s === "{}" || s === "dict()") return "Trống";
+
+  if (s.includes("{") && s.includes("}")) {
+    try {
+      const jsonStr = s
+        .replace(/'/g, '"')
+        .replace(/True/g, 'true')
+        .replace(/False/g, 'false')
+        .replace(/None/g, 'null');
+      const parsed = JSON.parse(jsonStr);
+      if (typeof parsed === "object" && parsed !== null) {
+        const keys = Object.keys(parsed);
+        if (keys.length === 0) return "Trống";
+        const items: string[] = [];
+        for (const [k, v] of Object.entries(parsed)) {
+          const kLbl = NK_SUB_LABELS[k] || k.replace(/_/g, " ");
+          let vLbl = "";
+          if (Array.isArray(v)) {
+            vLbl = v.length > 0 ? v.join(", ") : "Chưa thiết lập";
+          } else if (v === null || v === "") {
+            vLbl = "Trống";
+          } else if (typeof v === "boolean") {
+            vLbl = v ? "Có" : "Không";
+          } else {
+            vLbl = String(v);
+          }
+          items.push(`${kLbl}: ${vLbl}`);
+        }
+        return items.join("; ");
+      }
+    } catch {
+      s = s.replace(/'([^']+)':\s*\[\]/g, (_, k) => `${NK_SUB_LABELS[k] || k}: Chưa thiết lập`);
+      s = s.replace(/'([^']+)':\s*'([^']*)'/g, (_, k, v) => `${NK_SUB_LABELS[k] || k}: ${v || "Trống"}`);
+      s = s.replace(/'([^']+)':\s*(\d+)/g, (_, k, v) => `${NK_SUB_LABELS[k] || k}: ${v}`);
+      s = s.replace(/'([^']+)':\s*(True|False)/g, (_, k, v) => `${NK_SUB_LABELS[k] || k}: ${v === "True" ? "Có" : "Không"}`);
+      s = s.replace(/[{}]/g, "");
+    }
+  }
+  return s;
+}
+
+function formatNkLine(item: string): { left: string; right?: string } {
+  const parts = item.split(" → ");
+  if (parts.length === 2) {
+    let [left, right] = parts;
+    for (const [key, label] of Object.entries(NK_FIELD_LABELS)) {
+      if (left.startsWith(key + " ")) {
+        left = label + ": " + left.slice(key.length + 1);
+      } else if (left === key) {
+        left = label;
+      }
+    }
+    left = formatNkVal(left);
+    right = formatNkVal(right);
+    return { left, right };
+  }
+
+  let s = item;
+  for (const [key, label] of Object.entries(NK_FIELD_LABELS)) {
+    if (s.startsWith(key + " ")) {
+      s = label + ": " + s.slice(key.length + 1);
+    } else if (s === key) {
+      s = label;
+    }
+  }
+  s = formatNkVal(s);
+  return { left: s };
+}
+
+function NhatKyChangeItem({ item }: { item: string }) {
+  const isTien = /đ\/|Đơn giá/.test(item);
+  const { left, right } = formatNkLine(item);
+  if (right !== undefined) {
+    return (
+      <li className={`rc-nk__change-row${isTien ? " is-tien" : ""}`}>
+        <span className="rc-nk__change-left">{left}</span>
+        <span className="rc-nk__arrow" aria-hidden="true">→</span>
+        <span className="rc-nk__change-right">{right}</span>
+      </li>
+    );
+  }
+  return <li className={`rc-nk__change-row${isTien ? " is-tien" : ""}`}>{left}</li>;
+}
+
+function NhatKyTab({ loai, id }: { loai: string; id: number }) {
+  const { token } = useAuth();
+  const [rows, setRows] = useState<NhatKyItem[] | null>(null);
+  const [loi, setLoi] = useState<string | null>(null);
+
+  useEffect(() => {
+    let huy = false;
+    setRows(null);
+    setLoi(null);
+    nhatKyDanhMuc(token!, loai, id)
+      .then((r) => { if (!huy) setRows(r.items); })
+      .catch((e) => { if (!huy) setLoi(e instanceof ApiError ? e.message : "Không tải được nhật ký."); });
+    return () => { huy = true; };
+  }, [token, loai, id]);
+
+  if (loi) return <div className="banner banner--error">{loi}</div>;
+  if (rows === null) return <div className="rc-nk__empty">Đang tải nhật ký…</div>;
+  if (rows.length === 0) {
+    return (
+      <div className="rc-nk__empty">
+        Chưa có thay đổi nào được ghi. Nhật ký bắt đầu từ lần sửa tiếp theo.
+      </div>
+    );
+  }
+
+  return (
+    <ol className="rc-nk">
+      {rows.map((r, i) => {
+        const dong = r.detail ? r.detail.split(" · ").filter(Boolean) : [];
+        const laTao = r.action === "dm_tao";
+        const laXoa = r.action === "dm_xoa";
+        return (
+          <li key={i} className={`rc-nk__item${laTao ? " is-tao" : laXoa ? " is-xoa" : " is-sua"}`}>
+            <span className="rc-nk__dot" aria-hidden="true">
+              {laTao ? "+" : laXoa ? "×" : "✎"}
+            </span>
+            <div className="rc-nk__body">
+              <div className="rc-nk__head">
+                <span className={`rc-nk__badge rc-nk__badge--${r.action}`}>{NK_NHAN[r.action] ?? r.action}</span>
+                <span className="rc-nk__who">{r.actor_name ?? "—"}</span>
+                <time className="rc-nk__at" dateTime={r.at}>{nhanThoiGian(r.at)}</time>
+              </div>
+              {/* Tạo mới / Xoá: detail chỉ là tên bản ghi → đã có ở tiêu đề drawer, không lặp lại. */}
+              {r.action === "dm_sua" && dong.length > 0 && (
+                <ul className="rc-nk__changes">
+                  {dong.map((d, k) => (
+                    <NhatKyChangeItem key={k} item={d} />
+                  ))}
+                </ul>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 // ── TIMELINE MULTI-PICKER ────────────────────────────────────────────────────────
+/** Multi-select nhóm máy → lưu mảng TÊN (khớp `may_thiet_bi.loai_may`). Khác `RefMultiField` (lưu
+ *  id) và `NhomMayField` (single). Dùng cho `cong_doan.nhom_may_cho_phep` — chặn gán máy sai loại. */
+function NhomMayMultiField({ value, options, onChange }: {
+  value: string[]; options: Row[]; onChange: (v: string[]) => void;
+}) {
+  const chon = Array.isArray(value) ? value : [];
+  const toggle = (ten: string) =>
+    onChange(chon.includes(ten) ? chon.filter((t) => t !== ten) : [...chon, ten]);
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      {options.length === 0 ? (
+        <div className="rc-timeline__empty">Chưa có nhóm máy nào trong danh mục.</div>
+      ) : (
+        options.map((o) => {
+          const ten = String(o.ten);
+          const on = chon.includes(ten);
+          return (
+            <label
+              key={o.id}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "4px 10px", borderRadius: 999, cursor: "pointer",
+                border: `1px solid ${on ? "#2563eb" : "var(--rule-hair, #e2e8f0)"}`,
+                background: on ? "#eff6ff" : "var(--paper, #fff)",
+                color: on ? "#1d4ed8" : "var(--ink-soft, #475569)",
+                fontSize: 12, fontWeight: 600,
+              }}
+            >
+              <input type="checkbox" checked={on} onChange={() => toggle(ten)} />
+              {ten}
+            </label>
+          );
+        })
+      )}
+      <div style={{ flexBasis: "100%", fontSize: 11, color: "var(--ink-soft, #64748b)" }}>
+        Bỏ trống = mọi máy (không ràng buộc). Chọn nhóm nào thì chỉ máy nhóm đó được gán cho công đoạn này ở bài ghép.
+      </div>
+    </div>
+  );
+}
+
+// `CaLamField` (ô "Ca làm việc của máy này") ĐÃ XOÁ 2026-08-10 — máy chạy liên tục, ca chỉ khai ở
+// Nhân sự → Ca kíp. Nếu cần lại một ô chọn nhiều mục dạng chip thì viết mới, đừng dựng lại ô ca.
+
+
 function RefMultiField({ value, options, onChange }: {
   value: number[]; options: Row[]; onChange: (v: number[]) => void;
 }) {
@@ -1372,20 +1800,39 @@ function RefMultiField({ value, options, onChange }: {
 }
 
 // Ô tìm-chọn 1 danh mục theo MÃ (typeahead, bỏ dấu vẫn khớp) — vd chọn bù hao cho công đoạn.
-function RefSearchField({ value, options, placeholder, onChange }: {
-  value: number | null; options: Row[]; placeholder?: string; onChange: (v: number | null) => void;
+function RefSearchField({ value, options, placeholder, byMa, onChange }: {
+  value: number | string | null; options: Row[]; placeholder?: string;
+  /** Lưu MÃ (chuỗi) thay vì id — cho cột trỏ danh mục bằng mã, vd `don_vi_gia`. */
+  byMa?: boolean;
+  onChange: (v: number | string | null) => void;
 }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const norm = (s: string) =>
     s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d");
-  const selected = value == null ? null : options.find((o) => o.id === value) ?? null;
+  const rong = value == null || value === "";
+  const selected = rong ? null : options.find(
+    (o) => (byMa ? String(o.ma ?? "").toLowerCase() === String(value).toLowerCase() : o.id === value)
+  ) ?? null;
   const nq = norm(q.trim());
   const matches = (nq
     ? options.filter((o) => norm(`${o.ma} ${o.ten}`).includes(nq))
     : options
   ).slice(0, 20);
 
+  // Có giá trị nhưng KHÔNG khớp danh mục (đơn vị đã ngừng dùng / mã cũ). Hiện nguyên mã + báo đỏ:
+  // để ô trắng như chưa chọn thì người dùng tưởng trống, bấm Lưu và giá trị hỏng vẫn nằm nguyên đó.
+  if (!rong && !selected) {
+    return (
+      <div className="rc-input-wrapper" style={{ display: "flex", gap: "6px", alignItems: "stretch" }}>
+        <span className="rc-input" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", color: "var(--danger, #b3261e)" }}>
+          <span><b style={{ fontFamily: "var(--ff-num)" }}>{String(value)}</b> · không có trong danh mục</span>
+          <button type="button" className="rc-timeline__btn rc-timeline__btn--danger" title="Bỏ chọn — tìm lại"
+            onClick={() => { onChange(null); setQ(""); setOpen(true); }}>✕</button>
+        </span>
+      </div>
+    );
+  }
   if (selected) {
     return (
       <div className="rc-input-wrapper" style={{ display: "flex", gap: "6px", alignItems: "stretch" }}>
@@ -1415,7 +1862,7 @@ function RefSearchField({ value, options, placeholder, onChange }: {
               style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px",
                 background: "transparent", border: "none", cursor: "pointer" }}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => { onChange(o.id); setQ(""); setOpen(false); }}>
+              onClick={() => { onChange(byMa ? String(o.ma) : o.id); setQ(""); setOpen(false); }}>
               <b style={{ fontFamily: "var(--ff-num)" }}>{o.ma}</b> · {o.ten}
             </button>
           ))}

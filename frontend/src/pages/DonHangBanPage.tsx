@@ -16,7 +16,7 @@ import {
   type OrderRow,
   type OrderStatsOut,
 } from "../api/client";
-import { OrderConfirmPrint } from "./OrderConfirmPrint";
+import { DeliveryNotePrint } from "./DeliveryNotePrint";
 import { gopTheoNhom } from "../utils/gop-nhom";
 import "./don-hang-ban.css";
 
@@ -844,7 +844,7 @@ function OrderDrawer({
             onSaved={(d) => { setCancelling(false); onSaved(d); }}
           />
         )}
-        {showPrint && <OrderConfirmPrint d={order} onClose={() => setShowPrint(false)} />}
+        {showPrint && <DeliveryNotePrint d={order} onClose={() => setShowPrint(false)} />}
       </aside>
     </div>
   );

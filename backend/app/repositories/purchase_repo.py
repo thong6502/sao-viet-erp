@@ -7,7 +7,7 @@ from typing import Sequence
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..models.accounting import PaymentVoucher
+from ..models.accounting import PAYMENT_VOUCHER_PAID, PaymentVoucher
 from ..models.purchase import (
     DPR_IN_PURCHASE,
     DPR_OPEN,
@@ -19,6 +19,7 @@ from ..models.purchase import (
     PR_PARTIALLY_RECEIVED,
     PR_PURCHASED,
     PR_RECEIVED,
+    PR_REJECTED,
     SUPPLIER_ACTIVE,
     PurchaseDelivery,
     PurchaseRequest,
@@ -158,6 +159,8 @@ class SupplierRepository:
         )
         row.items = [
             SupplierItem(
+                hang_loai=item.hang_loai,
+                hang_id=item.hang_id,
                 item_name=item.item_name,
                 unit=item.unit,
                 unit_price=item.unit_price,
@@ -183,11 +186,13 @@ class SupplierRepository:
         if items is not None:
             supplier.items = [
                 SupplierItem(
+                    hang_loai=item.hang_loai,
+                    hang_id=item.hang_id,
                     item_name=item.item_name,
                     unit=item.unit,
                     unit_price=item.unit_price,
                     vat_percent=item.vat_percent,
-                    is_active=True,
+                        is_active=True,
                     note=item.note,
                 )
                 for item in items
@@ -235,6 +240,25 @@ class SupplierRepository:
             }
             for key, value in grouped.items()
         ]
+
+    def items_for_hang(self, hang_loai: str, hang_id: int) -> list[tuple]:
+        """Mọi dòng bảng-giá đang bán MỘT mặt hàng gốc, kèm NCC — nguồn của bảng so giá (mg 0172).
+
+        Chỉ NCC đang hoạt động và dòng còn `is_active`: so giá với NCC đã ngưng hợp tác là mời
+        người ta chọn một đường không đi được.
+        """
+        rows = self.db.execute(
+            select(Supplier, SupplierItem)
+            .join(SupplierItem, SupplierItem.supplier_id == Supplier.id)
+            .where(
+                Supplier.status == SUPPLIER_ACTIVE,
+                SupplierItem.is_active.is_(True),
+                SupplierItem.hang_loai == hang_loai,
+                SupplierItem.hang_id == hang_id,
+            )
+            .order_by(Supplier.name.asc())
+        ).all()
+        return [(r[0], r[1]) for r in rows]
 
     def has_active_item(self, item_name: str) -> bool:
         """CÓ NCC NÀO đang hoạt động bán thứ này không — dùng lúc lập YÊU CẦU mua, khi chưa biết
@@ -288,12 +312,17 @@ class SupplierItemInput:
         unit_price: int,
         vat_percent: float = 0,
         note: str | None = None,
+        hang_loai: str | None = None,
+        hang_id: int | None = None,
     ) -> None:
         self.item_name = item_name
         self.unit = unit
         self.unit_price = unit_price
         self.vat_percent = vat_percent
         self.note = note
+        # Mặt hàng gốc (mg 0172) — None với thứ NCC bán ngoài danh mục vật tư.
+        self.hang_loai = hang_loai
+        self.hang_id = hang_id
 
 
 class PurchaseRequestLineInput:
@@ -308,6 +337,8 @@ class PurchaseRequestLineInput:
         vat_percent: float = 0,
         note: str | None = None,
         department_request_line_id: int | None = None,
+        hang_loai: str | None = None,
+        hang_id: int | None = None,
     ) -> None:
         self.item_name = item_name
         self.unit = unit
@@ -317,6 +348,9 @@ class PurchaseRequestLineInput:
         self.vat_percent = vat_percent
         self.note = note
         self.department_request_line_id = department_request_line_id
+        # Mặt hàng gốc (mg 0174) — KẾ THỪA từ dòng YCMH, không đoán từ `item_name`.
+        self.hang_loai = hang_loai
+        self.hang_id = hang_id
 
 
 class DepartmentPurchaseRequestLineInput:
@@ -328,12 +362,17 @@ class DepartmentPurchaseRequestLineInput:
         quantity: float,
         expected_unit_price: int = 0,
         note: str | None = None,
+        hang_loai: str | None = None,
+        hang_id: int | None = None,
     ) -> None:
         self.item_name = item_name
         self.unit = unit
         self.quantity = quantity
         self.expected_unit_price = expected_unit_price
         self.note = note
+        # Mặt hàng gốc (mg 0174) — bảng cân đối vật tư ghi vào đây khi bấm "Đề nghị mua".
+        self.hang_loai = hang_loai
+        self.hang_id = hang_id
 
 
 # Phiếu mua sinh ra từ yêu cầu, kèm dòng + NCC. Cần cho HAI việc, cả hai đều chạy trên MỌI yêu
@@ -442,6 +481,22 @@ class DepartmentPurchaseRequestRepository:
         rows = list(self.db.execute(stmt.offset((page - 1) * size).limit(size)).scalars())
         return rows, total
 
+    def count_open(
+        self, *, requesting_department_id: int | None = None, filter_by_department: bool = False
+    ) -> int:
+        """Số YCMH đang **Chờ mua** — nuôi badge Thu mua (COUNT ở DB, không tải danh sách).
+
+        Nhận ĐÚNG hai tham số lọc mà `list` dùng, để badge và màn hình không thể lệch nhau: badge
+        báo 5 mà mở màn ra thấy 1 thì người dùng thôi tin con số, badge thành vô dụng."""
+        stmt = select(func.count(DepartmentPurchaseRequest.id)).where(
+            DepartmentPurchaseRequest.status == DPR_OPEN
+        )
+        if filter_by_department:
+            stmt = stmt.where(
+                DepartmentPurchaseRequest.requesting_department_id == requesting_department_id
+            )
+        return int(self.db.execute(stmt).scalar_one())
+
     def create(
         self,
         *,
@@ -479,6 +534,8 @@ class DepartmentPurchaseRequestRepository:
                 quantity=line.quantity,
                 expected_unit_price=line.expected_unit_price,
                 note=line.note,
+                hang_loai=getattr(line, "hang_loai", None),
+                hang_id=getattr(line, "hang_id", None),
             )
             for line in lines
         ]
@@ -520,6 +577,8 @@ class DepartmentPurchaseRequestRepository:
                 quantity=line.quantity,
                 expected_unit_price=line.expected_unit_price,
                 note=line.note,
+                hang_loai=getattr(line, "hang_loai", None),
+                hang_id=getattr(line, "hang_id", None),
             )
             for line in lines
         ]
@@ -558,6 +617,13 @@ class PurchaseRequestRepository:
         q: str | None = None,
         status: str | None = None,
         supplier_id: int | None = None,
+        created_from: date | None = None,
+        created_to: date | None = None,
+        needed_from: date | None = None,
+        needed_to: date | None = None,
+        expected_receipt_from: date | None = None,
+        expected_receipt_to: date | None = None,
+        deposit_status: str | None = None,
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
@@ -591,6 +657,41 @@ class PurchaseRequestRepository:
             conditions.append(PurchaseRequest.status.notin_(exclude_statuses))
         if supplier_id is not None:
             conditions.append(PurchaseRequest.supplier_id == supplier_id)
+        if created_from is not None:
+            conditions.append(func.date(PurchaseRequest.created_at) >= created_from)
+        if created_to is not None:
+            conditions.append(func.date(PurchaseRequest.created_at) <= created_to)
+        if needed_from is not None:
+            conditions.append(PurchaseRequest.needed_date >= needed_from)
+        if needed_to is not None:
+            conditions.append(PurchaseRequest.needed_date <= needed_to)
+        if expected_receipt_from is not None:
+            conditions.append(PurchaseRequest.expected_receipt_date >= expected_receipt_from)
+        if expected_receipt_to is not None:
+            conditions.append(PurchaseRequest.expected_receipt_date <= expected_receipt_to)
+        if deposit_status:
+            advance_paid = (
+                select(func.coalesce(func.sum(PaymentVoucher.amount_vnd), 0))
+                .where(
+                    PaymentVoucher.purchase_request_id == PurchaseRequest.id,
+                    PaymentVoucher.status == PAYMENT_VOUCHER_PAID,
+                    PaymentVoucher.payment_stage == "advance",
+                )
+                .correlate(PurchaseRequest)
+                .scalar_subquery()
+            )
+            if deposit_status == "none":
+                conditions.append(func.coalesce(PurchaseRequest.deposit_expected, 0) <= 0)
+            elif deposit_status == "unpaid":
+                conditions.append(func.coalesce(PurchaseRequest.deposit_expected, 0) > 0)
+                conditions.append(advance_paid <= 0)
+            elif deposit_status == "partial":
+                conditions.append(func.coalesce(PurchaseRequest.deposit_expected, 0) > 0)
+                conditions.append(advance_paid > 0)
+                conditions.append(advance_paid < func.coalesce(PurchaseRequest.deposit_expected, 0))
+            elif deposit_status == "enough":
+                conditions.append(func.coalesce(PurchaseRequest.deposit_expected, 0) > 0)
+                conditions.append(advance_paid >= func.coalesce(PurchaseRequest.deposit_expected, 0))
 
         stmt = select(PurchaseRequest).options(
             *_quan_he_tien(),
@@ -612,6 +713,38 @@ class PurchaseRequestRepository:
         size = max(1, min(size, 200))
         rows = list(self.db.execute(stmt.offset((page - 1) * size).limit(size)).scalars())
         return rows, total
+
+    def count_rejected_with_open_source(self, *, creator_ids: list[int] | None = None) -> int:
+        """Số PMH **bị từ chối** mà YCMH nguồn VẪN đang *Chờ mua* — việc dễ bị bỏ quên nhất.
+
+        PMH bị từ chối kéo YCMH nguồn rơi về `open` (`_BAC_PHIEU` → `_BAC_SANG_TRANG_THAI`), tức
+        phần hàng đó vẫn chưa ai mua được và phải lập phiếu khác. Còn PMH bị từ chối mà YCMH đã
+        sang trạng thái khác (có phiếu thay thế đang chạy, hoặc yêu cầu đã huỷ) thì KHÔNG còn việc
+        gì phải làm — đếm vào là badge kêu suốt đời cho một phiếu đã xong chuyện.
+
+        `COUNT(DISTINCT ...)` vì một PMH gom được nhiều YCMH nguồn: không DISTINCT thì phiếu gom 3
+        yêu cầu bị đếm 3 lần.
+
+        `creator_ids`: None = KHÔNG lọc (thấy toàn công ty). List rỗng = không thấy gì — phải phân
+        biệt với None, đúng nếp `list` ở trên.
+        """
+        stmt = (
+            select(func.count(func.distinct(PurchaseRequest.id)))
+            .select_from(PurchaseRequest)
+            .join(
+                PurchaseRequestSource,
+                PurchaseRequestSource.purchase_request_id == PurchaseRequest.id,
+            )
+            .join(
+                DepartmentPurchaseRequest,
+                DepartmentPurchaseRequest.id == PurchaseRequestSource.department_request_id,
+            )
+            .where(PurchaseRequest.status == PR_REJECTED)
+            .where(DepartmentPurchaseRequest.status == DPR_OPEN)
+        )
+        if creator_ids is not None:
+            stmt = stmt.where(PurchaseRequest.created_by_user_id.in_(creator_ids or [-1]))
+        return int(self.db.execute(stmt).scalar_one())
 
     def list_for_payables(self, *, supplier_id: int | None = None) -> list[PurchaseRequest]:
         """Các phiếu mua CÓ THỂ đang nợ NCC — nguồn của màn Công nợ phải trả.
@@ -646,6 +779,30 @@ class PurchaseRequestRepository:
         if supplier_id is not None:
             stmt = stmt.where(PurchaseRequest.supplier_id == supplier_id)
         return list(self.db.execute(stmt.order_by(PurchaseRequest.id.desc())).scalars())
+
+    def dong_dang_ve(self) -> list[PurchaseRequest]:
+        """Phiếu mua ĐANG TRÊN ĐƯỜNG VỀ — nguồn "hàng đang về" của bảng cân đối vật tư.
+
+        Lấy nguyên PHIẾU (kèm dòng + đợt giao) chứ không lấy dòng rời: số CÒN VỀ của một dòng =
+        `quantity − Σ các đợt đã giao`, mà đợt giao treo ở phiếu. Cắt sẵn ở tầng repo thì phía gọi
+        phải join lại bằng tay — đúng chỗ dễ tính thiếu một đợt rồi cộng dư hàng chưa về.
+
+        Bỏ `PR_RECEIVED` (đã nhận đủ ⇒ hàng nằm trong kho rồi, tồn đã cộng — đếm lại là ĐẾM HAI
+        LẦN), bỏ `draft`/`pending`/`rejected`/`cancelled` (chưa chắc có hàng, hứa suông).
+        """
+        stmt = (
+            select(PurchaseRequest)
+            .options(
+                selectinload(PurchaseRequest.lines),
+                selectinload(PurchaseRequest.deliveries).selectinload(PurchaseDelivery.lines),
+            )
+            .where(
+                PurchaseRequest.status.in_(
+                    [PR_APPROVED, PR_PURCHASED, PR_PARTIALLY_RECEIVED]
+                )
+            )
+        )
+        return list(self.db.execute(stmt.order_by(PurchaseRequest.id.asc())).scalars())
 
     def _build(
         self,
@@ -683,6 +840,8 @@ class PurchaseRequestRepository:
                 vat_percent=line.vat_percent,
                 note=line.note,
                 department_request_line_id=getattr(line, "department_request_line_id", None),
+                hang_loai=getattr(line, "hang_loai", None),
+                hang_id=getattr(line, "hang_id", None),
             )
             for line in lines
         ]
@@ -760,6 +919,8 @@ class PurchaseRequestRepository:
                 vat_percent=line.vat_percent,
                 note=line.note,
                 department_request_line_id=getattr(line, "department_request_line_id", None),
+                hang_loai=getattr(line, "hang_loai", None),
+                hang_id=getattr(line, "hang_id", None),
             )
             for line in lines
         ]

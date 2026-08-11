@@ -141,13 +141,23 @@ class StockRequestLine(Base):
     request_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("stock_requests.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    # Hàng ĐÃ có mã → material_id. Hàng MỚI (yêu cầu gõ tên tự do) → material_id rỗng + ten_tu_do;
-    # kho gắn/tạo mã ở bước lập phiếu (BRD §3.4: chỉ kho khai mã). Đúng 1 trong 2 phải có.
-    material_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("materials.id"), index=True, nullable=True
-    )
-    ten_tu_do: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    dvt: Mapped[str] = mapped_column(String(16), nullable=False)
+    # MẶT HÀNG GỐC — bắt buộc, trỏ `giay_nguyen`/`vat_tu_in_an` (mg 0171).
+    #
+    # Trước đây dòng đề nghị cho gõ TÊN TỰ DO (`ten_tu_do`) rồi kho gắn mã sau. Bỏ hẳn từ
+    # 2026-08-08 (chủ chốt "siết"): mọi thứ nhập kho phải có sẵn trong danh mục, vì hàng gõ tay là
+    # nguồn đẻ ra mã trùng/tên lệch, mà đúng thứ đó làm MRP không nối được kho với mua hàng.
+    hang_loai: Mapped[str] = mapped_column(String(8), nullable=False)
+    hang_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    # XIN CHO LỆNH NÀO (mg 0175) — soft ref `lsx.id` / `bai_ghep.id`, CẢ HAI để trống là hợp lệ
+    # (xin lặt vặt: băng dính, giẻ lau). Bảng cân đối vật tư đọc hai cột này để trừ phần "đã cấp"
+    # vào ĐÚNG dòng nhu cầu; không có nó thì kho cấp cho lệnh A mà mọi lệnh dùng chung loại giấy
+    # đều tiếp tục hiện "còn thiếu".
+    lsx_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    bai_ghep_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    # Đơn vị NGƯỜI ĐỀ NGHỊ chọn — phải nằm trong tập đổi được của mặt hàng
+    # (`quy_doi_service.don_vi_dung_duoc`). Số lượng lưu THEO ĐƠN VỊ NÀY; quy về đơn vị gốc chỉ
+    # xảy ra lúc ghi sổ, để phiếu in ra vẫn đúng con số người ta đề nghị.
+    dvt: Mapped[str] = mapped_column(String(24), nullable=False)
     sl_de_nghi: Mapped[float] = mapped_column(
         Numeric(14, 2), CheckConstraint("sl_de_nghi > 0"), nullable=False
     )
@@ -162,10 +172,10 @@ class StockRequestLine(Base):
     # Đơn giá NHẬP do NGƯỜI YÊU CẦU khai (chỉ yêu cầu NHẬP — họ biết giá NCC). Phiếu KẾ THỪA
     # giá này khi ghi sổ; kho KHÔNG sửa. Null với yêu cầu XUẤT (giá = giá vốn đích danh của lô).
     don_gia: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Quy đổi đơn vị do NGƯỜI YÊU CẦU khai (1 don_vi_phu = he_so_quy_doi × dvt tồn). Hàng mới →
-    # kho tạo mã kèm quy đổi này; hàng có mã → prefill từ mặt hàng. Kho KHÔNG khai lại ở phiếu.
-    don_vi_phu: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    he_so_quy_doi: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True)
+    # GỠ mg 0171: `don_vi_phu` + `he_so_quy_doi` — người đề nghị tự khai hệ số quy đổi cho từng
+    # dòng. Nay quy đổi lấy từ đồ thị đơn vị dùng chung (`don_vi_quy_doi` + quy cách đóng gói của
+    # mặt hàng), nên khai tay ở đây chỉ tạo ra nguồn số thứ hai — mà hai nguồn thì sớm muộn lệch,
+    # và lệch ở đây là lệch TỒN KHO.
     # KHO PHẢN HỒI: lý do kho cấp/nhập ÍT HƠN số còn phải cấp (vd NCC giao thiếu). Kho khai lúc
     # lập phiếu khi SL < còn phải cấp; hiện ở mục "Kho phản hồi" của yêu cầu.
     ly_do_thieu: Mapped[str | None] = mapped_column(String(500), nullable=True)

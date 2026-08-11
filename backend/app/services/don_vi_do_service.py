@@ -14,7 +14,9 @@ from datetime import date
 
 from ..models.don_vi_do import HO_GOI_Y
 from ..repositories.don_vi_do_repo import DonViDoRepository
-from .quy_doi_service import BIEN, _so, bien_trong, cap_map, duong_di, he_so_duong
+from .quy_doi_service import (
+    BIEN, _dong_tren_duong, _so, bien_trong, cap_map, duong_di, he_so_duong,
+)
 from .thanh_phan_engine import safe_eval
 
 # Biến → chữ người đọc, dùng khi in công thức ra bảng ("1 tờ = định lượng × dài × rộng kg").
@@ -90,6 +92,7 @@ class DonViDoService:
             raise DonViDoDuplicate("Mã đơn vị đã tồn tại.")
         data.setdefault("hieu_luc_tu", date.today())
         obj = self.repo.create(data)
+        self._quen_cache()
         self._log(actor_id, "create_don_vi", obj.id, f"Thêm đơn vị {obj.ma} ({obj.ten})")
         return obj
 
@@ -101,6 +104,7 @@ class DonViDoService:
         if dup is not None and dup.id != obj.id:
             raise DonViDoDuplicate("Mã đơn vị đã tồn tại.")
         obj = self.repo.update(obj, data)
+        self._quen_cache()
         self._log(actor_id, "update_don_vi", obj.id, f"Sửa đơn vị {obj.ma}")
         return obj
 
@@ -108,6 +112,7 @@ class DonViDoService:
         obj = self.get(item_id)
         self._log(actor_id, "delete_don_vi", obj.id, f"Xoá đơn vị {obj.ma}")
         self.repo.delete(obj)
+        self._quen_cache()
 
     # --- cặp quy đổi ---------------------------------------------------------
     def list_cap(self, **kw):
@@ -178,6 +183,7 @@ class DonViDoService:
             # kiểm nó là lúc dùng, kèm diễn giải. Chỉ chặn được cái so được.
             self._kiem_mau_thuan(tu.ma, den.ma, he_so)
         obj = self.repo.create_cap(data)
+        self._quen_cache()
         self._log(actor_id, "create_don_vi_cap", obj.id,
                   f"Khai quy đổi 1 {tu.ten} = {ct or _so(he_so)} {den.ten}")
         return obj
@@ -194,6 +200,7 @@ class DonViDoService:
             # Bỏ qua CHÍNH cặp đang sửa khi dò đường, không thì nó tự mâu thuẫn với bản cũ của mình.
             self._kiem_mau_thuan(tu.ma, den.ma, he_so, bo_qua_cap_id=obj.id)
         obj = self.repo.update_cap(obj, data)
+        self._quen_cache()
         self._log(actor_id, "update_don_vi_cap", obj.id,
                   f"Sửa quy đổi 1 {tu.ten} = {ct or _so(he_so)} {den.ten}")
         return obj
@@ -204,6 +211,7 @@ class DonViDoService:
             raise DonViDoNotFound("Không tìm thấy dòng quy đổi.")
         self._log(actor_id, "delete_don_vi_cap", obj.id, f"Xoá quy đổi #{obj.id}")
         self.repo.delete_cap(obj)
+        self._quen_cache()
 
     # --- mô tả cho màn hình --------------------------------------------------
     def quy_doi_text(self, obj) -> str:
@@ -214,11 +222,11 @@ class DonViDoService:
         này là vế PHẢI thì viết "10.000 cm² = 1 m²" chứ không đổi thành "1 cm² = 0,0001 m²": số
         thập phân lẻ khó đọc hơn hẳn số nguyên.
         """
-        caps = [c for c in self.repo.cap_rows() if c.tu_ma == obj.ma or c.den_ma == obj.ma]
+        caps = [c for c in self._cap_cache() if c.tu_ma == obj.ma or c.den_ma == obj.ma]
         if not caps:
             return "Chưa khai quy đổi"
         cau: list[str] = []
-        ten = {d.ma: d.ten for d in self.repo.all_active()}
+        ten = {d.ma: d.ten for d in self._dv_cache()}
         for c in caps:
             kia = ten.get(c.den_ma, c.den_ma) if c.tu_ma == obj.ma else ten.get(c.tu_ma, c.tu_ma)
             if c.cong_thuc:
@@ -238,13 +246,68 @@ class DonViDoService:
                 cau.append(f"{_so(1.0 / hs)} {obj.ten} = 1 {kia}" if hs else f"1 {obj.ten} = ? {kia}")
         return " · ".join(cau)
 
+    def _cap_de_cong_thuc(self, obj, rows) -> list[str]:
+        """Cặp SỐ CỐ ĐỊNH nối hai LOẠI ĐO khác nhau, trong khi hai loại đó vốn đã nối được bằng
+        đường CÔNG THỨC.
+
+        Vì sao đáng ngờ: đổi ngang loại đo (tờ → kg, tờ → m²) phụ thuộc khổ + định lượng của TỪNG
+        mặt hàng — đó chính là lý do nó được khai bằng công thức. Chốt thêm một con số cố định cho
+        cùng cặp ấy là ghi đè công thức bằng con số chỉ đúng với đúng một mặt hàng.
+
+        Đây là cách `1 tờ = 1.000 g` (⇒ mọi tờ giấy nặng 1 kg) lọt được vào DB: `_kiem_mau_thuan`
+        chỉ so với đường HẰNG, mà tờ → kg lại là đường ĐỘNG nên nó không có gì để so.
+
+        Chỉ CẢNH BÁO chứ không chặn: cạnh động có thể thiếu biến, và xưởng có thể có cặp ngang loại
+        hợp lệ thật (1 lượt = 1 tờ). Cùng loại đo thì không bao giờ báo — "1 tấn = 1.000 kg" đúng
+        với mọi mặt hàng.
+        """
+        ho = {d.ma: (d.ho or "khac") for d in self._dv_cache()}
+        out: list[str] = []
+        for r in rows:
+            if r.cong_thuc or obj.ma not in (r.tu_ma, r.den_ma):
+                continue
+            if ho.get(r.tu_ma) == ho.get(r.den_ma):
+                continue
+            con_lai = [x for x in rows if x is not r]
+            # `gia_dinh_du_bien` để cạnh động vào được đồ thị dù chưa có mặt hàng nào thay biến —
+            # ở đây chỉ hỏi "có đường không", không lấy số.
+            duong = duong_di(r.tu_ma, r.den_ma, cap_map(con_lai, {}, gia_dinh_du_bien=True))
+            if duong and _dong_tren_duong(con_lai, duong):
+                out.append(
+                    f"“1 {r.tu_ten} = {_so(float(r.he_so))} {r.den_ten}” là số cố định, nhưng "
+                    f"{r.tu_ten} → {r.den_ten} vốn đổi bằng công thức (tuỳ khổ · định lượng của "
+                    f"từng mặt hàng). Số cố định này chỉ đúng với một mặt hàng — nên xoá."
+                )
+        return out
+
+    # Màn Đơn vị gọi `canh_bao` + `quy_doi_text` cho TỪNG dòng (18 đơn vị → 18 lượt). Không cache
+    # thì mỗi dòng lại quét cả bảng đơn vị và bảng cặp — service sống đúng một request nên cache ở
+    # đây an toàn, và dữ liệu không đổi giữa chừng.
+    def _dv_cache(self):
+        if getattr(self, "_dv_rows", None) is None:
+            self._dv_rows = list(self.repo.all_active())
+        return self._dv_rows
+
+    def _cap_cache(self):
+        if getattr(self, "_cap_rows_c", None) is None:
+            self._cap_rows_c = list(self.repo.cap_rows())
+        return self._cap_rows_c
+
+    def _quen_cache(self) -> None:
+        """Gọi sau MỌI thao tác ghi — cùng một request có thể ghi rồi đọc lại (tạo đơn vị xong
+        router dựng ngay dòng trả về), đọc trúng cache cũ là hiện sai ngay màn vừa bấm."""
+        self._dv_rows = None
+        self._cap_rows_c = None
+
     def canh_bao(self, obj) -> list[str]:
         """Cảnh báo mềm — hiện ở màn khai, KHÔNG chặn lưu."""
+        rows = self._cap_cache()
         out: list[str] = []
-        if not any(c.tu_ma == obj.ma or c.den_ma == obj.ma for c in self.repo.cap_rows()):
+        if not any(c.tu_ma == obj.ma or c.den_ma == obj.ma for c in rows):
             out.append(
                 f"Chưa khai quy đổi — {obj.ten} chưa đổi qua lại được với đơn vị nào."
             )
+        out.extend(self._cap_de_cong_thuc(obj, rows))
         return out
 
     def _log(self, actor_id: int | None, action: str, target_id: int, detail: str) -> None:

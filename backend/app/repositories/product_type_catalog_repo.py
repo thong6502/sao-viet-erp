@@ -35,10 +35,6 @@ _PT_CONFIG_FIELDS = (
     "pages_per_signature",
     "has_cover_body_split",
     "allowed_materials",
-    "default_paper_material_id",
-    "default_cover_material_id",
-    "default_body_material_id",
-    "default_ink_material_id",
     "has_packaging",
     "default_pack_qty",
     "default_operations",
@@ -163,12 +159,6 @@ class ProductTypeCatalogRepository:
             self.db.rollback()
             raise
         return item
-
-    def count_estimate_refs(self, product_type: str) -> int:
-        from ..models.estimate import Estimate
-        return self.db.execute(
-            select(func.count()).select_from(Estimate).where(Estimate.product_type == product_type)
-        ).scalar_one()
 
     def delete(self, item: ProductTypeCatalog) -> None:
         self.db.delete(item)

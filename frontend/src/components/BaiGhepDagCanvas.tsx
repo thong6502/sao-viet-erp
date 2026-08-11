@@ -3,6 +3,7 @@ import type { BaiGhepSoDo as SoDo } from "../api/client";
 import { LSX_LOAI_BUOC_META } from "../api/client";
 import "../pages/dag-routing.css";
 import { Icon, type IconName } from "./Icons";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { ChipGap, classHan, ngay, num } from "../pages/keHoachSxShared";
 import { heSoChu, nhanDonVi, phut } from "../pages/lsxBuoc";
 
@@ -251,6 +252,8 @@ export function BaiGhepDagCanvas({
   const [dangGop, setDangGop] = useState(false);
   /** Vì sao thẻ vừa bấm không gộp được — thẻ mờ mà bấm vào không nói gì là màn hình câm. */
   const [lyDoChan, setLyDoChan] = useState<string | null>(null);
+  /** Thẻ gộp đang mở popup xác nhận tách. */
+  const [tachTarget, setTachTarget] = useState<BuocChung | null>(null);
   /** Số thứ tự lượt hỏi ứng viên: chỉ lượt MỚI NHẤT được ghi kết quả. */
   const seqUngVienRef = useRef(0);
 
@@ -533,13 +536,13 @@ export function BaiGhepDagCanvas({
     }
   };
 
-  const tachNgay = async (g: BuocChung) => {
+  const tachNgay = (g: BuocChung) => {
     if (!onTach) return;
-    // Cờ do SERVER cấp. Trước đây suy bằng `!g.thieu.includes("Chưa chọn tổ")` — đổi câu chữ bên
-    // Python là chỗ này lặng lẽ tách không hỏi, và ai đã khai máy + năng suất nhưng chưa chọn tổ
-    // thì mất trắng kế hoạch.
-    if (g.da_lap_ke_hoach && !window.confirm(`Kế hoạch của bước chung "${g.ten}" sẽ mất. Tách?`)) return;
-    await onTach(g.step_key);
+    if (g.da_lap_ke_hoach) {
+      setTachTarget(g);
+    } else {
+      void onTach(g.step_key);
+    }
   };
 
   const tenDangChon = dangChon.length ? nodeMap.get(dangChon[0])?.ten ?? "" : "";
@@ -602,21 +605,24 @@ export function BaiGhepDagCanvas({
     return `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${p2.x - dx} ${p2.y}, ${p2.x} ${p2.y}`;
   };
 
-  /** Mép phải / mép trái của một bước ở ĐÚNG độ cao nhánh của nó.
-   *  Bước đã gộp thì mép nằm ở thẻ chung — nhờ vậy dây tụ vào một điểm rồi toả ra. */
+  /** Mép phải / mép trái của một bước ở ĐÚNG toạ độ hiển thị thực tế của thẻ.
+   *  Bước đã gộp thì mép nằm ở thẻ chung theo đúng hàng của nhánh đó trên thẻ chung. */
   const mep = useCallback(
-    (stepKey: string, ben: "trai" | "phai", yNhanh: number): Point | null => {
+    (stepKey: string, ben: "trai" | "phai", _yNhanh: number): Point | null => {
       const g = deLen.get(stepKey);
       if (g) {
         const p = positions[`gop_${g.step_key}`];
         if (!p) return null;
-        return { x: ben === "trai" ? p.x : p.x + GANG_W, y: yNhanh + CARD_H / 2 };
+        const minHang = Math.min(...g.thanh_vien.map((tv) => hangCuaLsx.get(tv.lsx_id) ?? 0));
+        const currentHang = hangCuaBuoc.get(stepKey) ?? minHang;
+        const yOffset = (currentHang - minHang) * ROW_H + CARD_H / 2;
+        return { x: ben === "trai" ? p.x : p.x + GANG_W, y: p.y + yOffset };
       }
       const p = positions[`node_${stepKey}`];
       if (!p) return null;
       return { x: ben === "trai" ? p.x : p.x + CARD_W, y: p.y + CARD_H / 2 };
     },
-    [deLen, positions],
+    [deLen, positions, hangCuaLsx, hangCuaBuoc],
   );
 
   return (
@@ -685,7 +691,7 @@ export function BaiGhepDagCanvas({
             <svg className="bgsd-canvas__svg">
               <defs>
                 <filter id="bgsdGlowFilter" x="-30%" y="-30%" width="160%" height="160%">
-                  <feGaussianBlur stdDeviation="3.5" result="blur" />
+                  <feGaussianBlur stdDeviation="3" result="blur" />
                   <feComposite in="SourceGraphic" in2="blur" operator="over" />
                 </filter>
               </defs>
@@ -693,8 +699,8 @@ export function BaiGhepDagCanvas({
               {sd.nhanh.map((n) => {
                 const c = mau(n.mau);
                 const isSelected = lsxDangChon === n.lsx_id;
-                const strokeWidth = isSelected ? 3.6 : 2.2;
-                const opacity = lsxDangChon !== null && !isSelected ? 0.24 : 0.88;
+                const strokeWidth = isSelected ? 4 : 2.8;
+                const opacity = lsxDangChon !== null && !isSelected ? 0.25 : 0.95;
                 const filterAttr = isSelected ? "url(#bgsdGlowFilter)" : undefined;
                 const hang = hangCua(n.lsx_id);
                 const yNhanh = PAD + hang * ROW_H;
@@ -713,10 +719,10 @@ export function BaiGhepDagCanvas({
                     const d = drawBezier(prev, vao);
                     lines.push(
                       <g key={`e_${b.step_key}`}>
-                        <path d={d} stroke={c} strokeWidth={strokeWidth} strokeOpacity={opacity} fill="none" filter={filterAttr} />
-                        <path d={d} className="bgsd-flow-line" stroke="#ffffff" strokeWidth={Math.max(1.2, strokeWidth - 1)} strokeDasharray="7,9" fill="none" />
+                        <path d={d} stroke={c} strokeWidth={strokeWidth} strokeOpacity={opacity} fill="none" filter={filterAttr} strokeLinecap="round" />
+                        <path d={d} className="bgsd-flow-line" stroke="rgba(255, 255, 255, 0.85)" strokeWidth={Math.max(1.2, strokeWidth - 1.2)} strokeDasharray="6,8" fill="none" />
                         {deLen.has(b.step_key) && (
-                          <circle cx={vao.x} cy={vao.y} r={4.5} fill={c} stroke="#ffffff" strokeWidth={1} />
+                          <circle cx={vao.x} cy={vao.y} r={5} fill={c} stroke="#ffffff" strokeWidth={1.5} />
                         )}
                       </g>,
                     );
@@ -755,6 +761,19 @@ export function BaiGhepDagCanvas({
                     );
                   });
                 });
+
+                // Dây nối tới thẻ kết quả tổng kết cuối nhánh (Right Result Node: "vừa đủ" / "dư +100 con")
+                if (n.toa_step_key && prev) {
+                  const maxCot = Math.max(0, ...n.buoc.map((b) => cot[b.step_key] ?? 0)) + 1;
+                  const rightPos = { x: xCuaCot(maxCot), y: yNhanh + CARD_H / 2 };
+                  const dRight = drawBezier(prev, rightPos);
+                  lines.push(
+                    <g key={`right_${n.lsx_id}`}>
+                      <path d={dRight} stroke={c} strokeWidth={strokeWidth} strokeOpacity={opacity} fill="none" filter={filterAttr} strokeLinecap="round" />
+                      <path d={dRight} className="bgsd-flow-line" stroke="rgba(255, 255, 255, 0.85)" strokeWidth={Math.max(1.2, strokeWidth - 1.2)} strokeDasharray="6,8" fill="none" />
+                    </g>,
+                  );
+                }
 
                 return <g key={`g_${n.lsx_id}`}>{lines}</g>;
               })}
@@ -830,42 +849,53 @@ export function BaiGhepDagCanvas({
                       <span className="dag-node__badge" title={meta.label}>{meta.label}</span>
                     </div>
 
-                    {/* Số của CẢ LƯỢT, tính bằng tờ ghép — hao đếm ĐÚNG MỘT LẦN, không phải mỗi
-                        lệnh một bộ cho cùng một lần lên máy. */}
-                    <LuongSoLuong vao={g.so_luong_vao} ra={g.so_luong_ra} dvVao={g.don_vi_vao} dvRa={g.don_vi_ra} />
-                    {/* Bước ĐỔI đơn vị (bế, đóng cuốn) thì phải nói rõ cầu, không thì "20.500 tờ →
-                        2.050 cuốn" đọc lên vô lý — đúng cách panel bù hao bên tính giá trình bày. */}
-                    {heSoChu(g.he_so_quy_doi, g.don_vi_vao, g.don_vi_ra) && (
-                      <div className="dag-node__row">
-                        <span className="dag-node__label"><Icon name="rotateCcw" size={11} /></span>
-                        <span className="dag-node__value">
-                          {heSoChu(g.he_so_quy_doi, g.don_vi_vao, g.don_vi_ra)}
-                        </span>
+                    {/* Bước chế bản (prepress) chạy chung = CHUNG BẢN (1 bộ kẽm) — không nằm trên
+                        dòng giấy nên KHÔNG có số tờ vào/ra (trước đây hiện "250→250" vô nghĩa). */}
+                    {!g.tren_giay ? (
+                      <div className="bgsd-gang__chungban">
+                        <Icon name="layers" size={11} /> Chung bản — 1 bộ kẽm cho cả lượt
                       </div>
-                    )}
-                    {g.hao_hut > 0 && (
-                      <div className="dag-node__row">
-                        <span className="dag-node__label">Hao cả lượt:</span>
-                        {/* Hao đo ở ĐƠN VỊ VÀO — bước bế vào tờ ra con thì hao là TỜ. Đóng đinh
-                            chữ "tờ" ở đây từng đúng vì mọi bước chung đều đếm tờ; nay không còn. */}
-                        <span
-                          className="dag-node__value"
-                          title={
-                            g.so_luong_ra_quy != null
-                              ? `cần ${num(g.so_luong_ra_quy)} ${nhanDonVi(g.don_vi_vao)} tốt `
-                                + `+ ${num(g.hao_hut)} hao = ${num(g.so_luong_vao)} ${nhanDonVi(g.don_vi_vao)}`
-                              : "Một lần lên máy thì canh máy một lần"
-                          }
-                        >
-                          {num(g.hao_hut)} {nhanDonVi(g.don_vi_vao)}
-                          {g.hao_hut_pct > 0 ? ` (${g.hao_hut_pct}%)` : ""}
-                        </span>
-                      </div>
-                    )}
-                    {g.canh_bao_don_vi.length > 0 && (
-                      <div className="dag-node__warn" title={g.canh_bao_don_vi.join("\n")}>
-                        <Icon name="alert" size={11} /> Chuỗi đơn vị có vấn đề
-                      </div>
+                    ) : (
+                      <>
+                        {/* Số của CẢ LƯỢT, tính bằng tờ ghép — hao đếm ĐÚNG MỘT LẦN, không phải mỗi
+                            lệnh một bộ cho cùng một lần lên máy. */}
+                        <LuongSoLuong vao={g.so_luong_vao} ra={g.so_luong_ra} dvVao={g.don_vi_vao} dvRa={g.don_vi_ra} />
+                        {/* Bước ĐỔI đơn vị (bế, đóng cuốn) thì phải nói rõ cầu, không thì "20.500 tờ →
+                            2.050 cuốn" đọc lên vô lý — đúng cách panel bù hao bên tính giá trình bày. */}
+                        {heSoChu(g.he_so_quy_doi, g.don_vi_vao, g.don_vi_ra) && (
+                          <div className="dag-node__row">
+                            <span className="dag-node__label"><Icon name="rotateCcw" size={11} /></span>
+                            <span className="dag-node__value">
+                              {heSoChu(g.he_so_quy_doi, g.don_vi_vao, g.don_vi_ra)}
+                            </span>
+                          </div>
+                        )}
+                        {g.hao_hut > 0 && (
+                          <div className="dag-node__row">
+                            {/* T4: "bước này" — phân biệt với TỔNG hao ở header (Σ mọi bước chung). */}
+                            <span className="dag-node__label">Hao bước này:</span>
+                            <span
+                              className="dag-node__value"
+                              title={
+                                g.so_luong_ra_quy != null
+                                  ? `cần ${num(g.so_luong_ra_quy)} ${nhanDonVi(g.don_vi_vao)} tốt `
+                                    + `+ ${num(g.hao_hut)} hao = ${num(g.so_luong_vao)} ${nhanDonVi(g.don_vi_vao)}`
+                                  : "Một lần lên máy thì canh máy một lần"
+                              }
+                            >
+                              {num(g.hao_hut)} {nhanDonVi(g.don_vi_vao)}
+                              {g.hao_hut_pct > 0 ? ` (${g.hao_hut_pct}%)` : ""}
+                            </span>
+                          </div>
+                        )}
+                        {/* T2b: hiện ĐÍCH DANH bước + đơn vị lệch (server đã gắn per-thẻ), không còn
+                            câu chung "Chuỗi đơn vị có vấn đề" dán lên mọi thẻ. */}
+                        {g.canh_bao_don_vi.length > 0 && (
+                          <div className="dag-node__warn" title={g.canh_bao_don_vi.join("\n")}>
+                            <Icon name="alert" size={11} /> {g.canh_bao_don_vi.join("; ")}
+                          </div>
+                        )}
+                      </>
                     )}
                     <div className="dag-node__row">
                       <span className="dag-node__label">Thời lượng:</span>
@@ -884,6 +914,14 @@ export function BaiGhepDagCanvas({
                     {g.thieu.length > 0 && (
                       <div className="dag-node__warnings">
                         {g.thieu.map((w) => (
+                          <span key={w} className="dag-node__warning-chip dag-node__warning-chip--err">⚠️ {w}</span>
+                        ))}
+                      </div>
+                    )}
+                    {/* T3: máy gán không hợp công đoạn (sai loại / vượt khổ-màu-gsm) — cảnh báo mềm. */}
+                    {g.may_khong_hop.length > 0 && (
+                      <div className="dag-node__warnings">
+                        {g.may_khong_hop.map((w) => (
                           <span key={w} className="dag-node__warning-chip dag-node__warning-chip--err">⚠️ {w}</span>
                         ))}
                       </div>
@@ -1154,6 +1192,24 @@ export function BaiGhepDagCanvas({
           <button type="button" className="bgsd-selbar__huy" onClick={huyChon}>Huỷ (Esc)</button>
         </div>
       )}
+
+      {/* Modal xác nhận tách lượt chung */}
+      <ConfirmDialog
+        open={tachTarget !== null}
+        title={`Tách lượt chung "${tachTarget?.ten}"?`}
+        message="Kế hoạch của lượt chung sẽ mất, số riêng của từng lệnh quay lại."
+        confirmLabel="Tách lượt chung"
+        cancelLabel="Hủy"
+        danger
+        onConfirm={() => {
+          if (tachTarget && onTach) {
+            const g = tachTarget;
+            setTachTarget(null);
+            void onTach(g.step_key);
+          }
+        }}
+        onCancel={() => setTachTarget(null)}
+      />
     </div>
   );
 }

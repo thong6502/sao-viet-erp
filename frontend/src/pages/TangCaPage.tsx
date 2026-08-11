@@ -4,15 +4,31 @@
 //                     trưởng CHỈ thấy người trong tổ mình.
 // Nguyên tắc (chốt với chủ 23/07/2026): phiếu = GIẤY PHÉP + MỨC TRẦN. Lượt bấm RA mới quyết tiền,
 // nên màn này KHÔNG nhập giờ làm thực — chỉ khai khoảng được phép tăng ca.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, type EmployeeRow, type OvertimeRequest } from "../api/client";
 import { useCan } from "../auth/permissions";
 import { useAuth } from "../auth/useAuth";
-import { fmtDateTime } from "../utils/format";
+import { Button } from "../components/Button";
+import { EmptyRow } from "../components/EmptyState";
+import { Pager, trangHopLe } from "../components/Pager";
+import { RowActionButton } from "../components/RowActionButton";
+// `fmtDateISO` = bản dùng chung của `fmtYmd` cũ (ISO yyyy-mm-dd → dd/mm/yyyy, giữ số 0 đệm,
+// KHÔNG qua `new Date()` nên không lệch múi giờ). Đừng chép lại bản cục bộ.
+import { fmtDateISO, fmtDateTime } from "../utils/format";
 import "./nhan-su.css";
 import "./tang-ca.css";
 
 type Tab = "mine" | "approve";
+
+/** Cỡ trang chuẩn toàn hệ (prd-dong-bo-ui-thu-mua-nhan-su §2). */
+const PAGE_SIZE = 20;
+
+/** Cỡ mẻ nạp danh sách thợ cho dropdown "Tạo hộ thợ".
+ *
+ *  200 = TRẦN `size` của `GET /api/employees` (`routers/employees.py`). Trước 09/08/2026 chỗ này
+ *  gọi `api.employees.list(token, {})` không truyền gì, mà endpoint đó mặc định `size=20` ⇒ ô
+ *  chọn thợ chỉ có 20 người đầu, tổ trưởng không tìm thấy thợ của mình mà cũng không biết vì sao. */
+const EMPLOYEE_PICKER_SIZE = 200;
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "Chờ duyệt",
@@ -46,11 +62,6 @@ function hhmmToMin(v: string): number | null {
   const mi = Number(m[2]);
   if (h > 23 || mi > 59) return null;
   return h * 60 + mi;
-}
-
-function fmtYmd(v: string): string {
-  const [y, m, d] = v.split("-");
-  return y && m && d ? `${d}/${m}/${y}` : v;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -91,7 +102,7 @@ function OvertimeFormModal({
   useEffect(() => {
     if (!forEmployee) return;
     api.employees
-      .list(token, {})
+      .list(token, { size: EMPLOYEE_PICKER_SIZE })
       .then((r) => setEmps(r.items))
       .catch(() => setEmps([]));
   }, [forEmployee, token]);
@@ -219,7 +230,7 @@ function OvertimeFormModal({
               <span className="tc-muted">
                 Tổng: {Math.floor(minutes / 60)}h
                 {minutes % 60 ? ` ${minutes % 60}'` : ""} — ngày công{" "}
-                {workDate ? fmtYmd(workDate) : "…"}
+                {workDate ? fmtDateISO(workDate) : "…"}
               </span>
             )}
           </label>
@@ -236,13 +247,14 @@ function OvertimeFormModal({
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>
             Hủy
           </button>
-          <button className="btn btn--primary" onClick={save} disabled={busy}>
+          {/* Hành động chính của hộp thoại → cam (một nút cam mỗi hộp thoại). */}
+          <Button variant="accent" onClick={save} loading={busy}>
             {busy
               ? "Đang lưu…"
               : forEmployee
                 ? "Tạo & duyệt luôn"
                 : "Gửi phiếu"}
-          </button>
+          </Button>
         </footer>
       </div>
     </div>
@@ -306,6 +318,11 @@ function RequestTable({
   selected,
   onToggle,
   actions,
+  loading,
+  listError,
+  onRetry,
+  emptyTitle,
+  emptySub,
 }: {
   rows: OvertimeRequest[];
   showEmployee: boolean;
@@ -313,13 +330,23 @@ function RequestTable({
   selected: Set<number>;
   onToggle: (id: number) => void;
   actions: (r: OvertimeRequest) => React.ReactNode;
+  /** Ba ca rỗng do NƠI GỌI cấp — bảng này không tự gọi máy chủ. `listError` CHỈ nhận lỗi
+   *  TẢI DANH SÁCH, đừng truyền lỗi duyệt/hủy vào. */
+  loading?: boolean;
+  listError?: string | null;
+  onRetry?: () => void;
+  emptyTitle?: string;
+  emptySub?: string;
 }) {
+  // ⚠ Số cột ĐANG hiện: 8 cột cố định + 2 cột bật/tắt theo ngữ cảnh. Trước đây gõ cứng 10 nên
+  // ở tab "Phiếu của tôi" (8 cột) ô rỗng thừa 2 cột, kéo bảng rộng ra.
+  const cols = 8 + (selectable ? 1 : 0) + (showEmployee ? 1 : 0);
   return (
     <div className="ns__tablewrap">
       <table className="ns__table tc-table">
         <thead>
           <tr>
-            {selectable && <th style={{ width: 36 }}></th>}
+            {selectable && <th style={{ width: 36 }} aria-label="Chọn phiếu" />}
             {showEmployee && <th>Nhân viên</th>}
             <th>Ngày công</th>
             <th>Khoảng tăng ca</th>
@@ -328,11 +355,21 @@ function RequestTable({
             <th>Trạng thái</th>
             <th>Người duyệt</th>
             <th>Ghi chú duyệt</th>
-            <th className="tc-col-act"></th>
+            {/* `<th>` rỗng phải có aria-label, không thì trình đọc màn hình đọc ra một ô câm. */}
+            <th className="tc-col-act" aria-label="Thao tác" />
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {loading && <EmptyRow colSpan={cols} trangThai="dang-tai" />}
+          {!loading && listError && (
+            <EmptyRow
+              colSpan={cols}
+              trangThai="loi"
+              loi={listError}
+              onThuLai={onRetry}
+            />
+          )}
+          {!loading && !listError && rows.map((r) => (
             <tr key={r.id}>
               {selectable && (
                 <td>
@@ -346,7 +383,7 @@ function RequestTable({
                 </td>
               )}
               {showEmployee && <td>{r.employee_name ?? "—"}</td>}
-              <td>{fmtYmd(r.work_date)}</td>
+              <td>{fmtDateISO(r.work_date)}</td>
               <td>
                 {minToHhmm(r.from_minute)} → {minToHhmm(r.to_minute)}
               </td>
@@ -376,12 +413,13 @@ function RequestTable({
               </td>
             </tr>
           ))}
-          {rows.length === 0 && (
-            <tr>
-              <td colSpan={10} className="ns__empty">
-                Chưa có phiếu tăng ca nào.
-              </td>
-            </tr>
+          {!loading && !listError && rows.length === 0 && (
+            <EmptyRow
+              colSpan={cols}
+              icon="clock"
+              title={emptyTitle ?? "Chưa có phiếu tăng ca nào"}
+              sub={emptySub}
+            />
           )}
         </tbody>
       </table>
@@ -405,41 +443,83 @@ export function TangCaPage({
   const canApprove = can("tang_ca", "approve");
   const [tab, setTab] = useState<Tab>(canApprove ? "approve" : "mine");
   const [mine, setMine] = useState<OvertimeRequest[]>([]);
+  const [mineTotal, setMineTotal] = useState(0);
+  const [minePage, setMinePage] = useState(1);
   const [hasEmployee, setHasEmployee] = useState(true);
   const [queue, setQueue] = useState<OvertimeRequest[]>([]);
+  const [queueTotal, setQueueTotal] = useState(0);
+  const [queuePage, setQueuePage] = useState(1);
+  /** Số phiếu CHỜ DUYỆT trong phạm vi — đếm ở DB qua `/api/overtime/summary`, KHÔNG đếm mảng
+   *  `queue` đã tải. Sau phân trang mảng đó chỉ còn 20 dòng của trang, đếm nó ra số của trang
+   *  và cái nhãn "Duyệt phiếu (N)" thành nói dối (badge sidebar báo 47, tab báo 20). */
+  const [pendingCount, setPendingCount] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [creating, setCreating] = useState<null | "mine" | "for">(null);
   const [editing, setEditing] = useState<OvertimeRequest | null>(null);
   const [rejecting, setRejecting] = useState<null | number[]>(null);
+  /** Lỗi THAO TÁC (duyệt / hủy / từ chối) → băng đỏ trên đầu màn, bảng vẫn còn dữ liệu. */
   const [err, setErr] = useState<string | null>(null);
+  // Hai bảng = hai lần gọi máy chủ ĐỘC LẬP ⇒ mỗi bảng một cặp "đang tải / lỗi tải" riêng.
+  // Dùng chung một ô nhớ thì hàng đợi duyệt hỏng cũng làm bảng phiếu của tôi biến mất.
+  const [loadingMine, setLoadingMine] = useState(true);
+  const [errMine, setErrMine] = useState<string | null>(null);
+  const [loadingQueue, setLoadingQueue] = useState(true);
+  const [errQueue, setErrQueue] = useState<string | null>(null);
 
   const load = useCallback(() => {
+    setLoadingMine(true);
+    setErrMine(null);
     api.overtime
-      .mine(token)
+      .mine(token, { page: minePage, size: PAGE_SIZE })
       .then((r) => {
         setHasEmployee(r.has_employee);
         setMine(r.items ?? []);
+        setMineTotal(r.total);
+        // Hủy nốt phiếu cuối của trang 3 ⇒ chỉ còn 2 trang: nhảy về trang cuối còn thật.
+        const trangCanVe = trangHopLe(minePage, r.total, PAGE_SIZE);
+        if (trangCanVe !== null) setMinePage(trangCanVe);
       })
-      .catch((e) => setErr(errText(e)));
+      .catch((e) => setErrMine(errText(e)))
+      .finally(() => setLoadingMine(false));
     if (canApprove) {
+      setLoadingQueue(true);
+      setErrQueue(null);
+      // ⚠️ PHẢI truyền `statusFilter: "pending"` — bỏ ra là hàng đợi này VÔ DỤNG.
+      //
+      // Backend sắp xếp theo `status` tăng dần, mà giá trị là CHUỖI THƯỜNG nên thứ tự chữ cái là
+      // approved < cancelled < pending < rejected: phiếu ĐÃ DUYỆT đứng trước, phiếu CHỜ DUYỆT bị
+      // đẩy xuống cuối. Trước khi có phân trang thì cả 200 dòng nằm chung một bảng nên cuộn xuống
+      // vẫn thấy; cắt còn 20 dòng/trang là trang 1 sạch bóng phiếu chờ duyệt, trong khi tab vẫn
+      // ghi "Duyệt phiếu (3)" và tiêu đề bảng vẫn ghi "Phiếu chờ duyệt".
+      // Tổ trưởng mở ra thấy toàn phiếu đã duyệt, tưởng hết việc rồi bỏ đi.
       api.overtime
-        .list(token)
-        .then((r) => setQueue(r.items))
-        .catch((e) => setErr(errText(e)));
+        .list(token, {
+          statusFilter: "pending",
+          page: queuePage,
+          size: PAGE_SIZE,
+        })
+        .then((r) => {
+          setQueue(r.items);
+          setQueueTotal(r.total);
+          const trangCanVe = trangHopLe(queuePage, r.total, PAGE_SIZE);
+          if (trangCanVe !== null) setQueuePage(trangCanVe);
+        })
+        .catch((e) => setErrQueue(errText(e)))
+        .finally(() => setLoadingQueue(false));
+      // Số trên nút tab lấy từ CÙNG nguồn với badge sidebar ⇒ hai chỗ không bao giờ vênh nhau.
+      api.overtime
+        .summary(token)
+        .then((s) => setPendingCount(s.pending_in_scope ?? 0))
+        .catch(() => undefined);
     }
     api.overtime.markSeen(token).catch(() => undefined);
     onChanged?.(); // badge sidebar + chuông cập nhật ngay sau mỗi thao tác
-  }, [token, canApprove, onChanged]);
+  }, [token, canApprove, onChanged, minePage, queuePage]);
 
   // `eventTick` đổi = có sự kiện real-time → tải lại bảng, khỏi bắt người dùng F5.
   useEffect(() => {
     load();
   }, [load, eventTick]);
-
-  const pending = useMemo(
-    () => queue.filter((r) => r.status === "pending"),
-    [queue],
-  );
 
   function toggle(id: number) {
     setSelected((s) => {
@@ -463,12 +543,18 @@ export function TangCaPage({
 
   return (
     <div className="ns">
+      {/* `.ns__head` là flex ngang: để `h1` và đoạn mô tả làm HAI con trực tiếp thì chúng
+          nằm cạnh nhau, không phải trên–dưới. Bọc chung một `<div>` cho khớp mọi màn khác
+          trong nhóm (Hồ sơ nhân sự / Nghỉ phép / Nội quy) rồi mới thêm eyebrow. */}
       <header className="ns__head">
-        <h1 className="ns__title">Tăng ca</h1>
-        <p className="ns__desc">
-          Muốn tính tiền tăng ca thì phải có phiếu được duyệt. Không có phiếu
-          vẫn <b>đủ công ca chính</b> — chỉ phần giờ vượt ca là không ra tiền.
-        </p>
+        <div>
+          <p className="eyebrow">Nhân sự &amp; Lương</p>
+          <h1 className="ns__title">Tăng ca</h1>
+          <p className="ns__sub">
+            Muốn tính tiền tăng ca thì phải có phiếu được duyệt. Không có phiếu
+            vẫn <b>đủ công ca chính</b> — chỉ phần giờ vượt ca là không ra tiền.
+          </p>
+        </div>
       </header>
 
       {err && <div className="banner banner--error">{err}</div>}
@@ -485,7 +571,7 @@ export function TangCaPage({
             className={`btn ${tab === "approve" ? "btn--primary" : "btn--ghost"}`}
             onClick={() => setTab("approve")}
           >
-            Duyệt phiếu{pending.length ? ` (${pending.length})` : ""}
+            Duyệt phiếu{pendingCount ? ` (${pendingCount})` : ""}
           </button>
         )}
       </div>
@@ -496,13 +582,12 @@ export function TangCaPage({
             <h4 className="ns-section__title" style={{ margin: 0, flex: 1 }}>
               Phiếu tăng ca của tôi
             </h4>
+            {/* Hành động chính của tab → cam. Hai tab không bao giờ hiện cùng lúc nên màn
+                vẫn chỉ có ĐÚNG một nút cam. */}
             {hasEmployee && (
-              <button
-                className="btn btn--primary"
-                onClick={() => setCreating("mine")}
-              >
+              <Button variant="accent" onClick={() => setCreating("mine")}>
                 + Gửi phiếu
-              </button>
+              </Button>
             )}
           </div>
           {!hasEmployee ? (
@@ -519,26 +604,45 @@ export function TangCaPage({
               selectable={false}
               selected={selected}
               onToggle={toggle}
+              loading={loadingMine}
+              listError={errMine}
+              onRetry={load}
+              emptyTitle="Chưa có phiếu tăng ca nào"
+              emptySub="Bấm “+ Gửi phiếu” để xin khoảng được phép tăng ca."
               actions={(r) =>
                 r.status === "pending" || r.status === "approved" ? (
                   <>
                     {r.status === "pending" && (
-                      <button
-                        className="btn btn--ghost"
+                      <RowActionButton
+                        dense
+                        label="Sửa phiếu"
+                        icon="pencil"
                         onClick={() => setEditing(r)}
-                      >
-                        Sửa
-                      </button>
+                      />
                     )}
-                    <button
-                      className="btn btn--ghost ns-danger"
+                    {/* GIỮ `danger`: hủy phiếu đã duyệt là mất luôn giấy phép tăng ca. */}
+                    <RowActionButton
+                      dense
+                      danger
+                      label="Hủy phiếu"
+                      icon="x"
                       onClick={() => run(() => api.overtime.cancel(token, r.id))}
-                    >
-                      Hủy
-                    </button>
+                    />
                   </>
                 ) : null
               }
+            />
+          )}
+          {/* Chân bảng CHỈ hiện khi có dòng (chuẩn §2.7) — lúc tải/lỗi/rỗng thì khối trong
+              bảng đã nói hết rồi. */}
+          {hasEmployee && !loadingMine && !errMine && mine.length > 0 && (
+            <Pager
+              total={mineTotal}
+              page={minePage}
+              size={PAGE_SIZE}
+              loading={loadingMine}
+              unit="phiếu"
+              onPage={setMinePage}
             />
           )}
         </>
@@ -550,12 +654,9 @@ export function TangCaPage({
             <h4 className="ns-section__title" style={{ margin: 0, flex: 1 }}>
               Phiếu chờ duyệt trong phạm vi của bạn
             </h4>
-            <button
-              className="btn btn--primary"
-              onClick={() => setCreating("for")}
-            >
+            <Button variant="accent" onClick={() => setCreating("for")}>
               + Tạo hộ thợ
-            </button>
+            </Button>
           </div>
           {selected.size > 0 && (
             <div className="tc-bulkbar">
@@ -582,25 +683,45 @@ export function TangCaPage({
             selectable
             selected={selected}
             onToggle={toggle}
+            loading={loadingQueue}
+            listError={errQueue}
+            onRetry={load}
+            emptyTitle="Chưa có phiếu nào trong phạm vi của bạn"
+            emptySub="Thợ gửi phiếu tăng ca thì việc sẽ hiện ở đây."
             actions={(r) =>
               r.status === "pending" ? (
                 <>
-                  <button
-                    className="btn btn--ghost"
+                  <RowActionButton
+                    dense
+                    label="Duyệt"
+                    icon="check"
                     onClick={() => run(() => api.overtime.approve(token, r.id))}
-                  >
-                    Duyệt
-                  </button>
-                  <button
-                    className="btn btn--ghost ns-danger"
+                  />
+                  <RowActionButton
+                    dense
+                    danger
+                    label="Từ chối"
+                    icon="ban"
                     onClick={() => setRejecting([r.id])}
-                  >
-                    Từ chối
-                  </button>
+                  />
                 </>
               ) : null
             }
           />
+          {!loadingQueue && !errQueue && queue.length > 0 && (
+            <Pager
+              total={queueTotal}
+              page={queuePage}
+              size={PAGE_SIZE}
+              loading={loadingQueue}
+              unit="phiếu"
+              onPage={setQueuePage}
+              // "Duyệt tất cả / Từ chối tất cả" chạy trên `selected`, mà ô tick chỉ có ở dòng
+              // của trang đang xem ⇒ nói thẳng giới hạn đó, đừng để tổ trưởng tưởng đã dọn
+              // sạch cả hàng đợi.
+              note={queueTotal > PAGE_SIZE ? "duyệt hàng loạt chỉ áp cho trang đang xem" : undefined}
+            />
+          )}
         </>
       )}
 

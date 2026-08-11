@@ -7,7 +7,6 @@ from .attendance import (
     WorkShift,
 )
 from .audit import AuditLog
-from .costing import Costing, CostingOperation, CostingPaperOption
 from .customer import Customer
 from .department import Department
 from .employee import (
@@ -31,7 +30,6 @@ from .leave import LeaveRequest, LeaveType
 from .late_early import LateEarlyRequest
 from .overtime import OvertimeRequest
 from .work_calendar import SpecialDay, WorkCalendarConfig
-from .material import Material, MaterialCost
 from .machine import Machine, MachineRate
 from .module import Module
 from .operation import Operation, OperationRate
@@ -55,7 +53,6 @@ from .payroll import (
     SalaryRateRule,
 )
 from .piece_work import PieceLeaderBonusBracket, PieceLeaderBonusSetting, PieceRate
-from .product import Product, ProductComponent
 from .product_type_catalog import ProductTypeCatalog
 from .purchase import (
     DepartmentPurchaseRequest,
@@ -111,8 +108,10 @@ from .bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCong
 from .xep_lich import XepLichCongDoan
 from .xep_lich_van_de import XepLichVanDe
 from .machine_unavailable import MachineUnavailablePeriod
+# Bảng MỚI phải import Ở ĐÂY thì `create_all` mới dựng: module không được import thì class không
+# chạy, không đăng ký lên `Base.metadata`, và bảng lặng lẽ không tồn tại (không lỗi nào bật ra).
+from .to_quan_so import ToQuanSoNgay
 from .document_sequence import DocumentSequence
-from .estimate import Estimate, EstimateOption, EstimateCostLine
 
 __all__ = [
     "BaiGhepCongDoan",
@@ -151,8 +150,6 @@ __all__ = [
     "WorkCalendarConfig",
     "SpecialDay",
     "Customer",
-    "Product",
-    "ProductComponent",
     "ProductTypeCatalog",
     "Supplier",
     "SupplierItem",
@@ -171,8 +168,6 @@ __all__ = [
     "PaymentReceipt",
     "PaymentVoucherAttachment",
     "PaymentReceiptAttachment",
-    "Material",
-    "MaterialCost",
     "Machine",
     "MachineRate",
     "Operation",
@@ -183,9 +178,6 @@ __all__ = [
     "QuoteAttachment",
     "QuoteActivityLog",
     "QuoteApproval",
-    "Costing",
-    "CostingPaperOption",
-    "CostingOperation",
     "Order",
     "OrderLine",
     "OrderApproval",
@@ -207,9 +199,6 @@ __all__ = [
     "PlateDieRate",
     "Norm",
     "DocumentSequence",
-    "Estimate",
-    "EstimateOption",
-    "EstimateCostLine",
     "PhieuTinhGia",
     "PhieuThanhPhan",
     "PhieuThanhPham",
@@ -233,6 +222,7 @@ __all__ = [
     "XepLichCongDoan",
     "XepLichVanDe",
     "MachineUnavailablePeriod",
+    "ToQuanSoNgay",
     "DonViDo",
     "DonViQuyDoi",
 ]

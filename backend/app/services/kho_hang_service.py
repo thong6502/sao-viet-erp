@@ -7,6 +7,7 @@ from ..models.stock_lot import StockLot
 from ..models.stock_request import REQUEST_FULFILLABLE, StockRequest
 from ..models.stock_voucher import VOUCHER_DRAFT, StockVoucher
 from ..repositories.kho_hang_repo import KhoHangRepository
+from . import nhat_ky_danh_muc as nk
 
 
 class KhoHangError(Exception):
@@ -31,8 +32,9 @@ class KhoHangInUse(KhoHangError):
 
 
 class KhoHangService:
-    def __init__(self, repo: KhoHangRepository) -> None:
+    def __init__(self, repo: KhoHangRepository, audit=None) -> None:
         self.repo = repo
+        self.audit = audit
 
     def _validate(self, data: dict) -> None:
         if not (data.get("ten") or "").strip():
@@ -60,17 +62,24 @@ class KhoHangService:
                 raise KhoHangDuplicate("Mã kho đã tồn tại.")
             # Trùng với kho ĐÃ XÓA MỀM (chỉ xảy ra khi mã truyền tay qua API) → tái dùng
             # đúng chỗ: ghi đè dữ liệu mới + bật lại active, không đẻ hàng rác.
-            return self.repo.update(dup, {**data, "active": True})
-        return self.repo.create(data)
+            obj = self.repo.update(dup, {**data, "active": True})
+            nk.ghi_tao(self.audit, actor_id=created_by, loai="kho_hang", obj=obj)
+            return obj
+        obj = self.repo.create(data)
+        nk.ghi_tao(self.audit, actor_id=created_by, loai="kho_hang", obj=obj)
+        return obj
 
-    def update(self, item_id: int, data: dict):
+    def update(self, item_id: int, data: dict, actor_id: int | None = None):
         obj = self.get(item_id)
         self._validate(data)
         if (data.get("ma") or "").strip():          # mã bất biến, nhưng nếu có gửi thì canh trùng
             dup = self.repo.find_by_ma(data["ma"])
             if dup is not None and dup.id != obj.id:
                 raise KhoHangDuplicate("Mã kho đã tồn tại.")
-        return self.repo.update(obj, data)
+        truoc = nk.anh_chup(obj)
+        obj = self.repo.update(obj, data)
+        nk.ghi_sua(self.audit, actor_id=actor_id, loai="kho_hang", obj=obj, truoc=truoc)
+        return obj
 
     def _blockers(self, obj) -> list[str]:
         """Lý do CHẶN xóa: lô còn tồn / phiếu chờ ghi sổ / yêu cầu đang xử lý.
@@ -100,10 +109,11 @@ class KhoHangService:
     def delete_blockers(self, item_id: int) -> list[str]:
         return self._blockers(self.get(item_id))
 
-    def delete(self, item_id: int) -> None:
+    def delete(self, item_id: int, actor_id: int | None = None) -> None:
         obj = self.get(item_id)
         blockers = self._blockers(obj)
         if blockers:
             raise KhoHangInUse("Không xóa được — kho đang dùng: " + "; ".join(blockers) + ".")
         # XÓA MỀM: giữ FK cho lịch sử phiếu đã ghi sổ; create() sẽ tái dùng nếu trùng mã.
+        nk.ghi_xoa(self.audit, actor_id=actor_id, loai="kho_hang", obj=obj)
         self.repo.update(obj, {"active": False})

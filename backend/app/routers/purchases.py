@@ -1,6 +1,7 @@
 """Thu mua API — suppliers + purchase requests."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import (
@@ -24,6 +25,7 @@ from ..schemas.purchase import (
     PurchaseContractIn,
     PurchaseDeliveryIn,
     PurchaseInvoiceAssignIn,
+    PurchaseNotifySummaryOut,
     PurchaseRequestBatchIn,
     PurchaseRequestIn,
     PurchaseRequestListOut,
@@ -32,6 +34,7 @@ from ..schemas.purchase import (
     ReceivedLinesIn,
     SupplierCreditOut,
     SupplierIn,
+    SoGiaOut,
     SupplierItemCatalogOut,
     SupplierItemImportOut,
     SupplierListOut,
@@ -61,9 +64,9 @@ DEPARTMENT_REQUEST_READERS = tuple(
 )
 
 
-def _notify_purchase_changed(code: str | None = None) -> None:
+def _notify_purchase_changed(code: str | None = None, *, event_type: str = "purchase_changed", **extra) -> None:
     """Tín hiệu nhẹ cho các màn Thu mua/Kế toán tự refetch qua SSE."""
-    hub.broadcast({"type": "purchase_changed", "code": code})
+    hub.broadcast({"type": event_type, "code": code, **extra})
 
 
 def _map_error(exc: Exception) -> HTTPException:
@@ -196,6 +199,23 @@ def supplier_item_catalog(
     return SupplierItemCatalogOut(items=svc.list_supplier_item_catalog())
 
 
+@router.get("/api/supplier-items/so-gia", response_model=SoGiaOut)
+def so_gia_ncc(
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    _: CurrentUser,
+    hang_loai: str = Query(..., pattern="^(giay|vat_tu)$"),
+    hang_id: int = Query(..., gt=0),
+) -> SoGiaOut:
+    """Các NCC bán mặt hàng này, GIÁ QUY VỀ ĐƠN VỊ GỐC để so ngang.
+
+    "1.020.000 đ/ram" và "24.500 đ/kg" không so trực tiếp được — quy về cùng đơn vị mới biết ai
+    rẻ. Dòng không quy đổi được vẫn hiện (NCC đó có bán thật) nhưng xếp cuối kèm lý do.
+    """
+    try:
+        return SoGiaOut(**svc.so_gia_ncc(hang_loai, hang_id))
+    except VatLieuKhoError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+
 def _xlsx_response(data: bytes, filename: str) -> Response:
     return Response(
         content=data,
@@ -248,7 +268,6 @@ async def supplier_items_import(
     except PurchaseError as exc:
         raise _map_error(exc) from None
     return SupplierItemImportOut(**ket_qua)
-
 
 @router.post("/api/suppliers", response_model=SupplierRow, status_code=status.HTTP_201_CREATED)
 def create_supplier(
@@ -303,15 +322,49 @@ def list_purchase_requests(
     q: str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
     supplier_id: int | None = Query(default=None),
+    created_from: date | None = Query(default=None),
+    created_to: date | None = Query(default=None),
+    needed_from: date | None = Query(default=None),
+    needed_to: date | None = Query(default=None),
+    expected_receipt_from: date | None = Query(default=None),
+    expected_receipt_to: date | None = Query(default=None),
+    deposit_status: str | None = Query(default=None),
     sort: str = Query(default="-created_at"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ) -> PurchaseRequestListOut:
     rows, total = svc.list_requests(
-        q=q, status=status_, supplier_id=supplier_id, sort=sort, page=page, size=size,
+        q=q,
+        status=status_,
+        supplier_id=supplier_id,
+        created_from=created_from,
+        created_to=created_to,
+        needed_from=needed_from,
+        needed_to=needed_to,
+        expected_receipt_from=expected_receipt_from,
+        expected_receipt_to=expected_receipt_to,
+        deposit_status=deposit_status,
+        sort=sort,
+        page=page,
+        size=size,
         actor=user,
     )
     return PurchaseRequestListOut(items=rows, total=total, page=page, size=size)
+
+
+@router.get("/api/purchase-requests/notify-summary", response_model=PurchaseNotifySummaryOut)
+def purchase_notify_summary(
+    svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> PurchaseNotifySummaryOut:
+    """Badge Thu mua trên sidebar — ba con số việc-phải-làm, đã lọc theo phạm vi người gọi.
+
+    ⚠️ PHẢI khai TRƯỚC `/{request_id}`: FastAPI khớp route theo thứ tự đăng ký, để sau thì
+    "notify-summary" rơi vào `{request_id}` và chết 422 vì không ép được về int.
+
+    Rẻ: hai con số YCMH/PMH là COUNT ở DB. Con số công nợ chỉ chạy cho người có `ke_toan:read`
+    (xem `notify_summary`)."""
+    return PurchaseNotifySummaryOut(**svc.notify_summary(actor=user))
 
 
 @router.get("/api/purchase-requests/{request_id}", response_model=PurchaseRequestOut)
@@ -340,7 +393,7 @@ def create_purchase_request(
         row = svc.create_request(actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(row.get("code"), event_type="purchase_pending_approval")
     return PurchaseRequestOut(**row)
 
 
@@ -359,7 +412,7 @@ def create_purchase_requests_batch(
         rows = svc.create_requests_batch(actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed()
+    _notify_purchase_changed(event_type="purchase_pending_approval")
     return PurchaseRequestListOut(items=[PurchaseRequestOut(**row) for row in rows],
                                   total=len(rows), page=1, size=len(rows) or 1)
 
@@ -403,7 +456,7 @@ def submit_purchase_request(
         row = svc.submit(request_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(row.get("code"), event_type="purchase_pending_approval")
     return PurchaseRequestOut(**row)
 
 
@@ -417,7 +470,7 @@ def approve_purchase_request(
         row = svc.approve(request_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(row.get("code"), event_type="purchase_decision", decision="approved")
     return PurchaseRequestOut(**row)
 
 
@@ -432,7 +485,7 @@ def reject_purchase_request(
         row = svc.reject(request_id, reason=payload.reason, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(row.get("code"), event_type="purchase_decision", decision="rejected")
     return PurchaseRequestOut(**row)
 
 
@@ -539,7 +592,8 @@ def create_purchase_delivery(
         row = svc.ghi_dot_giao(request_id, lines=lines, actor=user, **body)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    seq_no = row.get("deliveries", [{}])[-1].get("seq_no") if row.get("deliveries") else None
+    _notify_purchase_changed(row.get("code"), event_type="purchase_delivery_created", seq_no=seq_no)
     return PurchaseRequestOut(**row)
 
 

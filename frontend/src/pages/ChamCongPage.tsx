@@ -48,6 +48,8 @@ import {
   type ShiftPlanPatchItem,
 } from "../api/client";
 import type { NavigateFn } from "../components/AppShell";
+import { EmptyState } from "../components/EmptyState";
+import { MonthPicker } from "../components/MonthPicker";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import {
@@ -1429,7 +1431,7 @@ function MyTimesheetTab({ token }: { token: string }) {
   const [reqDate, setReqDate] = useState<string | null>(null); // ngày đang xin chỉnh (mở modal)
   const [year, month] = ym.split("-").map(Number);
 
-  useEffect(() => {
+  const taiBieuCong = useCallback(() => {
     setLoading(true);
     api.attendance
       .myTimesheet(token, year, month)
@@ -1437,6 +1439,10 @@ function MyTimesheetTab({ token }: { token: string }) {
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, [token, year, month]);
+
+  useEffect(() => {
+    taiBieuCong();
+  }, [taiBieuCong]);
 
   const loadReqs = useCallback(() => {
     api.attendance
@@ -1620,15 +1626,25 @@ function MyTimesheetTab({ token }: { token: string }) {
           </div>
         </div>
       </div>
-      {loading && <p className="ns__empty">Đang tải biểu công…</p>}
+      {loading && <EmptyState trangThai="dang-tai" inline />}
       {!loading && !data && (
-        <p className="ns__empty">Không tải được biểu công tháng này.</p>
+        <EmptyState
+          trangThai="loi"
+          loi="Không tải được biểu công tháng này."
+          onThuLai={taiBieuCong}
+          inline
+        />
       )}
       {/* Có `data` mà không có hàng: từ 31/07/2026 backend luôn trả hàng của chính người đăng nhập
           (kể cả chưa chấm buổi nào) nên nhánh này gần như không còn xảy ra. Giữ làm lưới an toàn —
           màn trắng trơn không một lời nào là thứ tệ nhất. */}
       {!loading && data && !row && (
-        <p className="ns__empty">Tháng này bạn chưa có dữ liệu chấm công.</p>
+        <EmptyState
+          icon="calendar"
+          title="Tháng này bạn chưa có dữ liệu chấm công"
+          sub="Bấm vào ô ngày trên lịch để gửi yêu cầu chỉnh công."
+          inline
+        />
       )}
       {!loading && row && data && (
         <div
@@ -2107,14 +2123,13 @@ function LocationsTab({ token }: { token: string }) {
 
       {/* 2. Location Cards Grid */}
       {items === null ? (
-        <div className="ns__empty cc-calendar-loading">
-          <div className="cc-loading-spinner" />
-          <span>Đang tải danh sách điểm chấm công...</span>
-        </div>
+        <EmptyState trangThai="dang-tai" />
       ) : items.length === 0 ? (
-        <div className="ns__empty" style={{ padding: 40 }}>
-          Chưa có điểm chấm công nào được cấu hình. Bấm "+ Thêm điểm chấm công" để tạo mới.
-        </div>
+        <EmptyState
+          icon="building"
+          title="Chưa khai điểm chấm công nào"
+          sub='Bấm "+ Thêm điểm chấm công" để tạo điểm đầu tiên. Chưa có điểm thì nhân viên bấm ở đâu cũng được tính là ngoài vùng.'
+        />
       ) : (
         <div className="cc-locations-grid">
           {items.map((l) => {
@@ -2651,7 +2666,7 @@ function LogsTab({
       )}
 
       {!items ? (
-        <p className="ns__empty">Đang tải lịch sử chấm công…</p>
+        <EmptyState trangThai="dang-tai" inline />
       ) : (
         <>
           <AttendanceTable logs={items} showEmployee={focus == null} />
@@ -4255,7 +4270,7 @@ function ShiftPlanPanel({ token }: { token: string }) {
         <span className="cc-sp-lg cc-sp-lg--dirty">Chưa lưu</span>
       </div>
 
-      {loading && <p className="ns__empty">Đang tải lưới phân ca…</p>}
+      {loading && <EmptyState trangThai="dang-tai" inline />}
       {!loading && data && (
         <div className="cc-timesheet-scroll-container cc-sp-scroll">
           <table
@@ -6276,11 +6291,11 @@ function TimesheetTab({
       {/* 2. Redesigned Filter & Actions Bar */}
       <div className="cc-ts-header-actions">
         <div className="cc-ts-filters">
-          <input
-            type="month"
+          <MonthPicker
             value={ym}
-            onChange={(e) => setYm(e.target.value)}
+            onChange={setYm}
             className="cc-ts-input-month"
+            ariaLabel="Kỳ chấm công"
           />
           <select
             value={deptId}

@@ -10,7 +10,8 @@ import pytest
 
 from app.seed_rebuild import _DON_VI_SEED, _QUY_DOI_SEED
 from app.services.quy_doi_service import (
-    cap_map, don_vi_map, doi, doi_theo_quy_cach, ngu_canh, tien_khoan,
+    canh_quy_cach, cap_map, don_vi_dung_duoc, don_vi_map, doi, doi_theo_quy_cach,
+    ngu_canh, tien_khoan,
 )
 
 DVS = don_vi_map([{"ma": m, "ten": t, "ho": h} for m, t, h, _gc in _DON_VI_SEED])
@@ -183,3 +184,66 @@ def test_tien_khoan_cat_giay_theo_tan():
 def test_tien_khoan_thieu_so_thi_khong_ra_tien():
     kq = tien_khoan(241, "to", "m²", 150, {}, DVS, CAP_ROWS)
     assert "tien" not in kq and kq["thieu"]
+
+
+# --- đơn vị dùng được cho MỘT mặt hàng (nguồn dropdown ở Kho / NCC) --------------
+
+# Giấy Couché 150 khổ 65×86 — quy cách lấy từ chính bản ghi giấy trong danh mục.
+QC_GIAY = {"dai": 0.86, "rong": 0.65, "gsm": 150}
+
+
+def _ma(ds) -> set[str]:
+    return {d["ma"] for d in ds}
+
+
+def test_don_vi_dung_duoc_giay_co_kho_thi_thay_to_va_ram():
+    """Giấy khai đủ khổ + định lượng → cạnh động `tờ → kg` sống, kéo theo cả ram/m²/cm²."""
+    ds = don_vi_dung_duoc("kg", DVS, CAP_ROWS, QC_GIAY)
+    assert {"kg", "g", "tan", "to", "ram", "m2", "cm2"} <= _ma(ds)
+
+
+def test_don_vi_dung_duoc_thieu_kho_thi_tat_canh_dong():
+    """Hoá chất chỉ khai kg, không có khổ/định lượng → cạnh động tắt, KHÔNG được hiện tờ/ram.
+
+    Đây là chỗ dễ sai nhất: hiện `tờ` cho can hoá chất thì thủ kho nhập "10 tờ" và tồn ra số vô
+    nghĩa."""
+    ds = don_vi_dung_duoc("kg", DVS, CAP_ROWS, None)
+    assert {"kg", "g", "tan"} <= _ma(ds)
+    assert "to" not in _ma(ds) and "ram" not in _ma(ds)
+
+
+def test_don_vi_dung_duoc_he_so_hai_chieu_khop_nhau():
+    """1 kg = 1.000 g và ngược lại 1 g = 0,001 kg — nơi gọi lấy đúng chiều mình cần."""
+    g = next(d for d in don_vi_dung_duoc("kg", DVS, CAP_ROWS, QC_GIAY) if d["ma"] == "g")
+    assert g["he_so"] == pytest.approx(1_000)
+    assert g["he_so_ve_goc"] == pytest.approx(0.001)
+
+
+def test_don_vi_dung_duoc_giay_10_ram_ra_dung_can():
+    """Số thật của xưởng: giấy Couché 150 khổ 65×86 → 1 tờ = 0,0839 kg, 1 ram (500 tờ) = 41,93 kg.
+    Đây chính là con số tồn kho sẽ cộng khi thủ kho nhập "10 ram"."""
+    ram = next(d for d in don_vi_dung_duoc("kg", DVS, CAP_ROWS, QC_GIAY) if d["ma"] == "ram")
+    assert 10 * ram["he_so_ve_goc"] == pytest.approx(419.25, abs=0.5)
+
+
+def test_don_vi_dung_duoc_goc_dung_dau_va_khong_lap():
+    ds = don_vi_dung_duoc("kg", DVS, CAP_ROWS, QC_GIAY)
+    assert ds[0]["ma"] == "kg" and ds[0]["la_goc"] and ds[0]["he_so"] == 1.0
+    assert len(_ma(ds)) == len(ds)              # loang BFS không được trả trùng đơn vị
+
+
+def test_don_vi_dung_duoc_canh_quy_cach_rieng_cua_mon():
+    """Vật tư khác: "1 thùng = 3 kg" là hệ số của RIÊNG món đó — nối vào cap_rows lúc chạy, không
+    khai vào bảng cặp chung (thùng keo ≠ thùng mực)."""
+    rows = CAP_ROWS + canh_quy_cach("thung", 3, "kg")
+    ds = don_vi_dung_duoc("kg", DVS, rows, None)
+    thung = next(d for d in ds if d["ma"] == "thung")
+    assert thung["he_so_ve_goc"] == pytest.approx(3)
+    # Không có cạnh riêng thì thùng KHÔNG tự xuất hiện.
+    assert "thung" not in _ma(don_vi_dung_duoc("kg", DVS, CAP_ROWS, None))
+
+
+def test_don_vi_dung_duoc_goc_chua_khai_thi_rong():
+    """Mặt hàng chưa chọn đơn vị gốc → trả rỗng để UI chặn, KHÔNG đoán bừa một đơn vị."""
+    assert don_vi_dung_duoc("", DVS, CAP_ROWS, QC_GIAY) == []
+    assert don_vi_dung_duoc("khong_co_ma_nay", DVS, CAP_ROWS, QC_GIAY) == []

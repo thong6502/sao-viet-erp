@@ -90,6 +90,7 @@ belongs to exactly one, and roles are defined per department.
 | `probation_ratio` | `Numeric(5,4)` → `NUMERIC(5,4)` | — | no | `0.80` | % lương thử việc của phòng (công ty dùng 0.80). |
 | `has_piece_work` | `Boolean` → `BOOLEAN` | — | no | `false` | Phòng sản xuất có lương khoán theo sản lượng (nối engine khoán ở pha sau). |
 | `la_san_xuat`  | `Boolean` → `BOOLEAN`                                  | —                             | no   | `false`        | Đánh dấu phòng ban thuộc khối SẢN XUẤT (spec-ke-hoach-san-xuat §13.1). Tick ở 1 nút cha ⇒ cả cây con (theo `parent_id`) coi như sản xuất; phân hệ Sản xuất liệt kê đúng subtree. "Effective sản xuất" = cột này true HOẶC có tổ tiên true (tính ở service, không cascade lưu). |
+| `la_kinh_doanh` | `Boolean` → `BOOLEAN`                                 | —                             | no   | `false`        | Đánh dấu phòng ban thuộc khối KINH DOANH (mg 0181) — cùng luật kế thừa cây con như `la_san_xuat`: tick phòng cha ⇒ KD1/KD2 bên dưới cũng là kinh doanh. Trả lời "ai được giao phụ trách khách hàng": hộp chọn NV phụ trách ở màn Khách hàng đổ theo khối này, giao với phạm vi dữ liệu của người xem. **Chưa tick phòng nào ⇒ lùi về quy tắc "ai có quyền module `khach_hang`"** nên DB cũ không cần khai lại. |
 | `created_at`   | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                             | no   | now (UTC)      | When the department row was created.                                                                                                                                                                                                                                           |
 
 **Keys & indexes**
@@ -98,6 +99,8 @@ belongs to exactly one, and roles are defined per department.
 - Unique index: `ix_departments_name` on `name`, `ix_departments_code` on `code`.
 - Indexes: `ix_departments_parent_id` on `parent_id`, `ix_departments_level_id` on `level_id`.
 - Foreign keys: `parent_id FK→departments.id` (self-reference); `level_id FK→unit_levels.id`; `head_user_id` is a logical reference to `users.id` (no enforced FK).
+
+**`ca_lam_ids`** (`JSON`, nullable, mg 0178) — **DORMANT từ 10/08/2026**. Từng là tập ca riêng của TỔ; nay đã bỏ cùng ô ca ở màn Máy: ca khai MỘT chỗ duy nhất ở Nhân sự → Ca kíp (cờ `work_shifts.dung_cho_lich_may`), bàn xếp lịch dùng tập chung đó cho các bước KHÔNG có máy. Không còn ô nhập, không còn trong API, engine thôi đọc. Cột giữ lại để không mất số cũ (không có Alembic, `create_all` không ALTER) — **đừng khai lại ô này**.
 
 **Relationships**
 
@@ -470,76 +473,6 @@ migration. KHÔNG ghi audit (giữ tách khỏi Nhật ký).
 
 ---
 
-### `products`
-
-**Purpose:** the Sản phẩm in catalog head (Product) — spec-07-san-pham. One row per
-reusable commercial product ("cái khách mua"); đơn hàng / job reference it, never the
-reverse (DOMAIN §29 L701, §34 L865). Khổ/giấy/màu live on `product_components`, NOT here —
-a multi-component product (sách: bìa≠ruột) has no single trim size (§34 L894, spec-07
-out-of-scope). Price / snapshot giá are NOT stored (snapshotted at order-close copy-on-write,
-P0 #5, §34 L877). Portable across SQLite and Postgres.
-
-| Column         | Type (SQLAlchemy → SQLite / Postgres)                  | Key           | Null | Default        | Meaning                                                                                                          |
-| -------------- | ------------------------------------------------------ | ------------- | ---- | -------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `id`           | `Integer` → `INTEGER` / `SERIAL`                       | **PK**        | no   | auto-increment | Surrogate primary key.                                                                                           |
-| `code`         | `String(20)` → `VARCHAR(20)`                           | **U**, **IX** | no   | —              | System-generated sequential code (SP001, SP002…); read-only, never user-entered (§34 L865, KH###/PB### pattern). |
-| `name`         | `String(255)` → `VARCHAR(255)`                         | —             | no   | —              | Product name (required, non-blank, unique case-insensitive).                                                     |
-| `product_type` | `String(32)` → `VARCHAR(32)`                           | —             | no   | —              | Loại SP (enum §7): catalogue, brochure, tem_nhan, hop, sach, to_roi, name_card.                                  |
-| `binding_type` | `String(16)` → `VARCHAR(16)`                           | —             | yes  | —              | Kiểu đóng (enum §5, nullable — chỉ SP có gáy): perfect / saddle / sewn. Null = không gáy.                        |
-| `note`         | `String(1000)` → `VARCHAR(1000)`                       | —             | yes  | —              | Ghi chú tự do.                                                                                                   |
-| `created_at`   | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —             | no   | now (UTC)      | When the product row was created.                                                                                |
-
-**Keys & indexes**
-
-- Primary key: `id`.
-- Unique index: `ix_products_code` on `code`.
-
-**Relationships**
-
-- One product has many `product_components` (bìa/ruột/tay đệm), cascade-deleted with it.
-- Đơn/job reference the product (SP là master dùng lại) — those reverse FKs live on the
-  Kinh doanh/Job side, not here (§29 L701). No reverse FK exists at P0.
-
----
-
-### `product_components`
-
-**Purpose:** one component (cấu phần) of a product (Sản phẩm in) — spec-07-san-pham. A
-product with a spine (sách/hộp) breaks into ordered components; each carries its OWN khổ
-thành phẩm, giấy, số màu 2 mặt, số trang, bleed, canh thớ (§34 L893–894) so báo giá / job /
-bình bản read them back exactly. `paper_master_id` is an FK-nullable **SEAM-03** seam to
-PaperMaster (module `dm_giay_vat_tu`, Danh mục Giấy) — a plain nullable Integer (no FK
-constraint) until that catalog exists.
-
-| Column            | Type (SQLAlchemy → SQLite / Postgres) | Key                        | Null | Default        | Meaning                                                                                  |
-| ----------------- | ------------------------------------- | -------------------------- | ---- | -------------- | ---------------------------------------------------------------------------------------- |
-| `id`              | `Integer` → `INTEGER` / `SERIAL`      | **PK**                     | no   | auto-increment | Surrogate primary key.                                                                   |
-| `product_id`      | `Integer` → `INTEGER`                 | **FK→products.id**, **IX** | no   | —              | Parent product; `ON DELETE CASCADE` (component deleted with the product).                |
-| `sequence`        | `Integer` → `INTEGER`                 | —                          | no   | `0`            | Display / print order (bìa trước ruột…).                                                 |
-| `component_type`  | `String(16)` → `VARCHAR(16)`          | —                          | no   | —              | cover / body / insert (§34 L893).                                                        |
-| `paper_master_id` | `Integer` → `INTEGER`                 | —                          | yes  | —              | **SEAM-03** FK-nullable to PaperMaster (Danh mục Giấy chưa build); no FK constraint yet. |
-| `colors_front`    | `Integer` → `INTEGER`                 | —                          | no   | `0`            | Số màu mặt trước (0..8, §23 L532).                                                       |
-| `colors_back`     | `Integer` → `INTEGER`                 | —                          | no   | `0`            | Số màu mặt sau (0..8).                                                                   |
-| `page_count`      | `Integer` → `INTEGER`                 | —                          | no   | `0`            | Số trang. body của SP có gáy phải % 4 == 0 (tay sách, §31).                              |
-| `finished_w`      | `Numeric(10,2)` → `NUMERIC(10,2)`     | —                          | no   | `0`            | Khổ thành phẩm rộng (>0).                                                                |
-| `finished_h`      | `Numeric(10,2)` → `NUMERIC(10,2)`     | —                          | no   | `0`            | Khổ thành phẩm cao (>0).                                                                 |
-| `bleed`           | `Numeric(10,2)` → `NUMERIC(10,2)`     | —                          | no   | `0`            | Bleed (mm, ≥0).                                                                          |
-| `grain_direction` | `String(8)` → `VARCHAR(8)`            | —                          | yes  | —              | Canh thớ: long / short.                                                                  |
-
-**Keys & indexes**
-
-- Primary key: `id`.
-- Index: `ix_product_components_product_id` on `product_id`.
-- Foreign keys: `product_id FK→products.id ON DELETE CASCADE`.
-
-**Relationships**
-
-- Many components belong to one `products` row; deleting the product cascades to its
-  components (delete-orphan on the ORM side + `ON DELETE CASCADE` at the DB).
-- `paper_master_id` → PaperMaster once Danh mục Giấy (`dm_giay_vat_tu`) is built (SEAM-03).
-
----
-
 ### `quotes`
 
 **Purpose:** Báo giá header — mô hình **Header-Version-Item (H-V-I)** thay bảng `quotations`
@@ -547,8 +480,8 @@ phẳng cũ (bảng cũ còn trong dev.db như orphan, model đã gỡ). Header 
 (`quote_number` BG26-xxxx duy nhất), khách hàng, trạng thái lifecycle
 `draft → sent → accepted/rejected/expired → converted_to_order` (+ `cancelled`), và con trỏ
 `current_version_id` tới phiên bản đang hiệu lực. Nội dung giá nằm ở `quote_versions` /
-`quote_items`. Logic **pick từ phiếu tính giá**: 1 báo giá pick từ NHIỀU phiếu (per-item
-`quote_items.estimate_id`); header `estimate_id` chỉ là phiếu đầu tiên (tương thích cũ).
+`quote_items`. Nguồn DUY NHẤT = 1 **Phiếu tính giá** (`phieu_tinh_gia_id`), mỗi "sản phẩm"
+(`PhieuThanhPhan`) thành 1 dòng — đường Estimate cũ đã gỡ hẳn ở migration 0173.
 
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
@@ -556,7 +489,6 @@ phẳng cũ (bảng cũ còn trong dev.db như orphan, model đã gỡ). Header 
 | `quote_number` | `String(20)` | **UQ**, **IX** | no | — | Mã phiếu (BG26-0001…) — duy nhất; version nằm ở `quote_versions.version_number`. |
 | `customer_id` | `Integer` | **FK→customers.id** (SET NULL), **IX** | yes | — | Khách hàng (SEAM-14 CRM read). |
 | `customer_name_snapshot` | `String(255)` | — | yes | — | Tên KH chốt tại thời điểm tạo (copy-on-write hiển thị). |
-| `estimate_id` | `Integer` | **FK→estimates.id** (SET NULL), **IX** | yes | — | Phiếu tính giá ĐẦU TIÊN (tương thích cũ); tham chiếu thật per dòng ở `quote_items.estimate_id`. Gỡ ở BG-4. |
 | `phieu_tinh_gia_id` | `Integer` → `INTEGER` | **IX** (soft) | yes | — | **BG-1**: nguồn MỚI = 1 Phiếu tính giá (PTG). Soft link (plain int). 1 PTG → 1 BG đang hiệu lực — guard ở service (KHÔNG unique cứng; cancelled/rejected/expired nhả chỗ). Migration 0051. |
 | `salesperson_id` | `Integer` | **FK→users.id** (SET NULL), **IX** | yes | — | Sale phụ trách — RBAC data-scope owner. |
 | `status` | `String(20)` | — | no | `draft` | draft/**pending_approval**/sent/accepted/rejected/expired/converted_to_order/cancelled (redesign-bao-gia §3). |
@@ -581,8 +513,8 @@ phẳng cũ (bảng cũ còn trong dev.db như orphan, model đã gỡ). Header 
 
 **Purpose:** một phiên bản chào giá (v1, v2…) của 1 quote — re-quote sinh version mới, phiếu cũ
 `superseded` giữ nguyên lịch sử. Khi **Gửi khách** (draft→sent) version đóng băng
-copy-on-write: `estimate_snapshot_json` (spec phiếu tính giá) + `internal_cost_snapshot_json`
-(phân rã giá vốn per mức SL) — đổi bảng giá sau này không rewrite phiếu đã gửi (P0 §34).
+copy-on-write: `internal_cost_snapshot_json` (phân rã giá vốn theo các dòng đã khóa lúc tạo)
+— sửa Phiếu tính giá sau này không rewrite phiếu đã gửi (P0 §34).
 
 | Column                          | Type            | Key                                | Null | Default | Meaning                                                                 |
 | ------------------------------- | --------------- | ---------------------------------- | ---- | ------- | ----------------------------------------------------------------------- |
@@ -591,7 +523,6 @@ copy-on-write: `estimate_snapshot_json` (spec phiếu tính giá) + `internal_co
 | `version_number`                | `Integer`       | —                                  | no   | `1`     | v1, v2… trong 1 quote.                                                  |
 | `status`                        | `String(20)`    | —                                  | no   | `draft` | draft/locked/sent/accepted/rejected/superseded/cancelled (per-version). |
 | `change_reason`                 | `String(255)`   | —                                  | yes  | —       | "Lý do/ghi chú phiên bản này" (đổi giấy, khách ép giá…).                |
-| `estimate_snapshot_json`        | `JSON`          | —                                  | yes  | —       | **Copy-on-write** spec phiếu tính giá tại lúc gửi.                      |
 | `internal_cost_snapshot_json`   | `JSON`          | —                                  | yes  | —       | **Copy-on-write** phân rã giá vốn (options → lines).                    |
 | `customer_output_snapshot_json` | `JSON`          | —                                  | yes  | —       | Bản chốt nội dung đối ngoại (PDF data) nếu render.                      |
 | `pricing_snapshot_json`         | `JSON`          | —                                  | yes  | —       | Tham số pricing đã áp (gói biên, rounding…).                            |
@@ -610,18 +541,16 @@ copy-on-write: `estimate_snapshot_json` (spec phiếu tính giá) + `internal_co
 
 ### `quote_items`
 
-**Purpose:** một dòng hàng của version — **mỗi dòng = 1 phiếu tính giá + 1 mức số lượng đã
-pick** (logic chốt: báo giá không soạn tay, chỉ pick từ phiếu tính giá `calculated`). Giá vốn
-đóng băng per dòng (`total_cost_snapshot`); markup/VAT per dòng.
+**Purpose:** một dòng hàng của version — **mỗi dòng = 1 "sản phẩm" (`PhieuThanhPhan`) của
+Phiếu tính giá nguồn** (báo giá không soạn tay). Giá vốn đóng băng per dòng
+(`total_cost_snapshot`); markup/VAT per dòng.
 
 | Column | Type | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
 | `id` | `Integer` | **PK** | no | auto | PK. |
 | `quote_version_id` | `Integer` | **FK→quote_versions.id** (CASCADE), **IX** | no | — | Version cha. |
-| `estimate_id` | `Integer` | **FK→estimates.id** (SET NULL), **IX** | yes | — | Phiếu tính giá gốc của DÒNG NÀY (đa phiếu/1 báo giá — hệ cũ, gỡ ở BG-4). |
 | `phieu_thanh_phan_id` | `Integer` → `INTEGER` | (soft) | yes | — | **BG-1**: dòng báo giá nguồn từ 1 "sản phẩm" (`PhieuThanhPhan`) của PTG. Soft ref. Migration 0051. |
 | `nhom` | `String(120)` → `VARCHAR(120)` | — | yes | — | Nhãn NHÓM GỘP KHI IN (migration 0111) — đông cứng từ `phieu_thanh_phan.nhom_bao_gia` lúc tạo dòng. Bản in gửi khách gom các dòng cùng nhãn thành 1 dòng (ruột + bìa → "quyển sách"); dữ liệu vẫn 1 dòng/thành phần. |
-| `estimate_option_id` | `Integer` | — | yes | — | Mức số lượng (option) đã pick trong phiếu. |
 | `line_no` | `Integer` | — | no | — | Thứ tự dòng. |
 | `po_code` | `String(60)` | — | yes | — | Mã PO của khách cho dòng (cột "MÃ PO" mẫu báo giá thật). Migration 0052. |
 | `product_type` | `String(50)` | — | no | — | Loại SP (snapshot từ phiếu). |
@@ -892,193 +821,6 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 
 ---
 
-### `costings`
-
-**Purpose:** the Tính giá (Costing / giá thành nội bộ) header — spec-08-tinh-gia. One row per
-phương án tính giá for a product + số lượng; Báo giá đọc lại kết quả (§43 L1217–1219). This
-screen reads **live versioned** đơn giá/định mức and does NOT snapshot (snapshot P0
-copy-on-write = chốt Đơn hàng, §34 L877-878). No bậc SL / lãi / chiết khấu here (thuộc Báo
-giá). `product_id` is read via **SEAM-11** (ProductRead · `san_pham`). Portable across SQLite
-and Postgres.
-
-| Column       | Type (SQLAlchemy → SQLite / Postgres)                  | Key                        | Null | Default        | Meaning                                                                                                                        |
-| ------------ | ------------------------------------------------------ | -------------------------- | ---- | -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `id`         | `Integer` → `INTEGER` / `SERIAL`                       | **PK**                     | no   | auto-increment | Surrogate primary key.                                                                                                         |
-| `code`       | `String(20)` → `VARCHAR(20)`                           | **U**, **IX**              | no   | —              | System-generated sequential code (CG001, CG002…); read-only, never user-entered (SP###/KH###/PB### pattern).                   |
-| `product_id` | `Integer` → `INTEGER`                                  | **FK→products.id**, **IX** | yes  | —              | **SEAM-11** the product this costing is for; `ON DELETE SET NULL`. Nullable so a draft can start before the product is picked. |
-| `qty_final`  | `Integer` → `INTEGER`                                  | —                          | no   | `0`            | Số lượng cần giao (bắt buộc >0, validated in the service). KHÔNG bậc SL (A1).                                                  |
-| `status`     | `String(16)` → `VARCHAR(16)`                           | —                          | no   | `draft`        | Vòng đời: draft (đang lập) / ready (đủ input để Báo giá đọc). No snapshot.                                                     |
-| `note`       | `String(1000)` → `VARCHAR(1000)`                       | —                          | yes  | —              | Ghi chú tự do.                                                                                                                 |
-| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                          | no   | now (UTC)      | When the costing row was created.                                                                                              |
-
-**Keys & indexes**
-
-- Primary key: `id`.
-- Unique index: `ix_costings_code` on `code`.
-- Index: `ix_costings_product_id` on `product_id`.
-- Foreign keys: `product_id FK→products.id ON DELETE SET NULL`.
-
-**Relationships**
-
-- One costing has many `costing_paper_options` (phương án giấy) + `costing_operations` (công
-  đoạn gia công), cascade-deleted with it.
-- Báo giá references a costing (đọc lại giá vốn) — that reverse FK lives on the `bao_gia` side
-  once built, not here. No reverse FK exists at P0.
-
----
-
-### `costing_paper_options`
-
-**Purpose:** one phương án giấy & bình bản of a costing (Khối B) — spec-08. Estimator may lập
-
-> 1 phương án giấy per costing để so sánh giá vốn. `sheet_paper_master_id` is an FK-nullable
-> **SEAM-07** seam to PaperMaster (Danh mục Giấy / Kho · `dm_giay_vat_tu`/`kho`) — a plain
-> nullable Integer (no FK) until that catalog exists; giá per-ram/kg + lot_type + ownership are
-> looked up via the raising port stub, never fabricated.
-
-| Column                  | Type (SQLAlchemy → SQLite / Postgres) | Key                        | Null | Default        | Meaning                                                                                  |
-| ----------------------- | ------------------------------------- | -------------------------- | ---- | -------------- | ---------------------------------------------------------------------------------------- |
-| `id`                    | `Integer` → `INTEGER` / `SERIAL`      | **PK**                     | no   | auto-increment | Surrogate primary key.                                                                   |
-| `costing_id`            | `Integer` → `INTEGER`                 | **FK→costings.id**, **IX** | no   | —              | Parent costing; `ON DELETE CASCADE`.                                                     |
-| `sheet_paper_master_id` | `Integer` → `INTEGER`                 | —                          | yes  | —              | **SEAM-07** FK-nullable to PaperMaster (Danh mục Giấy chưa build); no FK constraint yet. |
-| `sheet_w`               | `Numeric(10,2)` → `NUMERIC(10,2)`     | —                          | no   | `0`            | Khổ tờ in rộng (cm).                                                                     |
-| `sheet_h`               | `Numeric(10,2)` → `NUMERIC(10,2)`     | —                          | no   | `0`            | Khổ tờ in cao (cm).                                                                      |
-| `pieces_per_sheet`      | `Integer` → `INTEGER`                 | —                          | no   | `0`            | Số con/khổ NHẬP TAY (>0); gợi ý song song là hình học (§31a), giá trị nhập là chuẩn.     |
-| `grain_locked`          | `Boolean` → `BOOLEAN`                 | —                          | no   | `false`        | Ràng buộc thớ: khi true gợi ý bỏ nhánh xoay (§31 L782).                                  |
-| `selected`              | `Boolean` → `BOOLEAN`                 | —                          | no   | `false`        | Phương án giấy được chọn để "dùng" (so sánh — F7).                                       |
-
-**Keys & indexes**
-
-- Primary key: `id`.
-- Index: `ix_costing_paper_options_costing_id` on `costing_id`.
-- Foreign keys: `costing_id FK→costings.id ON DELETE CASCADE`.
-
-**Relationships**
-
-- Many phương án giấy belong to one `costings` row; deleting the costing cascades.
-- `sheet_paper_master_id` → PaperMaster once Danh mục Giấy (`dm_giay_vat_tu`) is built (SEAM-07).
-
----
-
-### `costing_operations`
-
-**Purpose:** one công đoạn gia công of a costing (Khối E) — spec-08. Each carries an
-`execution_mode` ∈ {internal, outsourced} (§14 L389–390, §23 L537): internal → đơn giá khoán
-(SEAM-08), outsourced → đơn giá NCC (SEAM-12); cost pool "Gia công" phân đôi nguồn. Đơn giá is
-NOT stored here — it is pulled versioned at cost time (feat-041).
-
-| Column           | Type (SQLAlchemy → SQLite / Postgres) | Key                        | Null | Default        | Meaning                                                         |
-| ---------------- | ------------------------------------- | -------------------------- | ---- | -------------- | --------------------------------------------------------------- |
-| `id`             | `Integer` → `INTEGER` / `SERIAL`      | **PK**                     | no   | auto-increment | Surrogate primary key.                                          |
-| `costing_id`     | `Integer` → `INTEGER`                 | **FK→costings.id**, **IX** | no   | —              | Parent costing; `ON DELETE CASCADE`.                            |
-| `sequence`       | `Integer` → `INTEGER`                 | —                          | no   | `0`            | Display / process order.                                        |
-| `name`           | `String(255)` → `VARCHAR(255)`        | —                          | no   | —              | Tên công đoạn gia công (cán màng, bế, đóng cuốn…).              |
-| `execution_mode` | `String(16)` → `VARCHAR(16)`          | —                          | no   | `internal`     | internal (khoán nội bộ · SEAM-08) / outsourced (NCC · SEAM-12). |
-
-**Keys & indexes**
-
-- Primary key: `id`.
-- Index: `ix_costing_operations_costing_id` on `costing_id`.
-- Foreign keys: `costing_id FK→costings.id ON DELETE CASCADE`.
-
-**Relationships**
-
-- Many công đoạn belong to one `costings` row; deleting the costing cascades.
-- `execution_mode` routes the đơn giá source: SEAM-08 (internal) or SEAM-12 (outsourced).
-
----
-
-### `estimates`
-
-**Purpose:** internal cost estimates (headers) for product pricing, replacing the legacy `costings` logically.
-
-| Column               | Type (SQLAlchemy → SQLite / Postgres)                  | Key                                       | Null | Default        | Meaning                                                                       |
-| -------------------- | ------------------------------------------------------ | ----------------------------------------- | ---- | -------------- | ----------------------------------------------------------------------------- |
-| `id`                 | `Integer` → `INTEGER` / `SERIAL`                       | **PK**                                    | no   | auto-increment | Surrogate primary key.                                                        |
-| `estimate_number`    | `String(20)` → `VARCHAR(20)`                           | **U**, **IX**                             | no   | —              | Auto-generated sequential code (TG26-0001, TG26-0002...).                     |
-| `customer_id`        | `Integer` → `INTEGER`                                  | **IX**                                    | yes  | —              | Optional CRM customer reference.                                              |
-| `product_type`       | `String(50)` → `VARCHAR(50)`                           | **FK→product_types_catalog.product_type** | no   | —              | Reference to product type strategy configuration.                             |
-| `product_name`       | `String(255)` → `VARCHAR(255)`                         | —                                         | no   | —              | Name of product being estimated.                                              |
-| `status`             | `String(20)` → `VARCHAR(20)`                           | —                                         | no   | `draft`        | Status (draft, calculated, cancelled).                                        |
-| `input_spec_json`    | `JSON` → `JSON`                                        | —                                         | no   | —              | Complete input specification configuration.                                   |
-| `quantity_list_json` | `JSON` → `JSON`                                        | —                                         | no   | —              | List of quantity points calculated.                                           |
-| `created_by`         | `Integer` → `INTEGER`                                  | **FK→users.id**                           | yes  | —              | User who created the estimate.                                                |
-| `created_at`         | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                                         | no   | now (UTC)      | Creation timestamp.                                                           |
-| `updated_at`         | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                                         | no   | now (UTC)      | Last updated timestamp.                                                       |
-| `locked_at`          | `DateTime` → `TIMESTAMP`                               | —                                         | yes  | —              | §9 lifecycle: khi phiếu bị khóa (đông cứng để Báo giá đọc); null = chưa khóa. |
-| `version`            | `Integer` → `INTEGER`                                  | —                                         | no   | `1`            | §9 lifecycle: số phiên bản phiếu tính giá (re-estimate sinh version mới).     |
-| `parent_id`          | `Integer` → `INTEGER`                                  | —                                         | yes  | —              | §9 lifecycle: phiếu cha (phiếu gốc khi tạo phiên bản mới); null = phiếu gốc.  |
-| `superseded_by_id`   | `Integer` → `INTEGER`                                  | —                                         | yes  | —              | §9 lifecycle: phiếu kế thừa thay thế phiếu này; null = chưa bị thay.          |
-
-**Keys & indexes**
-
-- Primary key: `id`.
-- Unique index: `ix_estimates_estimate_number` on `estimate_number`.
-- Index: `ix_estimates_customer_id` on `customer_id`.
-- Foreign keys: `product_type FK→product_types_catalog.product_type`, `created_by FK→users.id`.
-
----
-
-### `estimate_options`
-
-**Purpose:** calculated estimate results for a specific quantity point.
-
-| Column              | Type (SQLAlchemy → SQLite / Postgres) | Key                         | Null | Default        | Meaning                              |
-| ------------------- | ------------------------------------- | --------------------------- | ---- | -------------- | ------------------------------------ |
-| `id`                | `Integer` → `INTEGER` / `SERIAL`      | **PK**                      | no   | auto-increment | Surrogate primary key.               |
-| `estimate_id`       | `Integer` → `INTEGER`                 | **FK→estimates.id**, **IX** | no   | —              | Parent estimate ID.                  |
-| `quantity`          | `Integer` → `INTEGER`                 | —                           | no   | —              | Quantity point calculated.           |
-| `total_cost`        | `Numeric(15,2)` → `NUMERIC(15,2)`     | —                           | no   | `0`            | Total internal estimated cost.       |
-| `warnings_json`     | `JSON` → `JSON`                       | —                           | yes  | —              | List of warnings or blocking errors. |
-| `margin_percent`    | `Numeric(5,2)` → `NUMERIC(5,2)`       | —                           | no   | `0`            | Desired profit margin (%).           |
-| `selling_price`     | `Numeric(15,2)` → `NUMERIC(15,2)`     | —                           | no   | `0`            | Base selling price.                  |
-| `discount_amount`   | `Numeric(15,2)` → `NUMERIC(15,2)`     | —                           | no   | `0`            | Absolute discount.                   |
-| `vat_percent`       | `Numeric(5,2)` → `NUMERIC(5,2)`       | —                           | no   | `0`            | VAT rate (%).                        |
-| `vat_amount`        | `Numeric(15,2)` → `NUMERIC(15,2)`     | —                           | no   | `0`            | Calculated VAT amount.               |
-| `final_price`       | `Numeric(15,2)` → `NUMERIC(15,2)`     | —                           | no   | `0`            | Selling price after discount + VAT.  |
-| `unit_price`        | `Numeric(15,2)` → `NUMERIC(15,2)`     | —                           | no   | `0`            | Per unit final price.                |
-| `actual_margin`     | `Numeric(5,2)` → `NUMERIC(5,2)`       | —                           | no   | `0`            | Actual margin calculated.            |
-| `included_in_quote` | `Boolean` → `BOOLEAN`                 | —                           | no   | `false`        | Selected for inclusion in quotation. |
-
-**Keys & indexes**
-
-- Primary key: `id`.
-- Unique index: `uix_estimate_options_estimate_qty` on `(estimate_id, quantity)`.
-- Index: `ix_estimate_options_estimate_id` on `estimate_id`.
-- Foreign keys: `estimate_id FK→estimates.id ON DELETE CASCADE`.
-
----
-
-### `estimate_cost_lines`
-
-**Purpose:** detail breakdown of costs for an estimate option.
-
-| Column                      | Type (SQLAlchemy → SQLite / Postgres) | Key                                | Null | Default        | Meaning                                 |
-| --------------------------- | ------------------------------------- | ---------------------------------- | ---- | -------------- | --------------------------------------- |
-| `id`                        | `Integer` → `INTEGER` / `SERIAL`      | **PK**                             | no   | auto-increment | Surrogate primary key.                  |
-| `estimate_option_id`        | `Integer` → `INTEGER`                 | **FK→estimate_options.id**, **IX** | no   | —              | Parent estimate option ID.              |
-| `category`                  | `String(32)` → `VARCHAR(32)`          | —                                  | no   | —              | Cost pool category.                     |
-| `description`               | `String(255)` → `VARCHAR(255)`        | —                                  | no   | —              | Text description.                       |
-| `source_type`               | `String(50)` → `VARCHAR(50)`          | —                                  | yes  | —              | DB table for source rate.               |
-| `source_id`                 | `Integer` → `INTEGER`                 | —                                  | yes  | —              | ID of source rate.                      |
-| `source_snapshot_json`      | `JSON` → `JSON`                       | —                                  | yes  | —              | Copy of source configuration rate/norm. |
-| `calculation_snapshot_json` | `JSON` → `JSON`                       | —                                  | yes  | —              | Interim parameters and math formula.    |
-| `quantity`                  | `Numeric(12,2)` → `NUMERIC(12,2)`     | —                                  | no   | —              | Quantity of resource used.              |
-| `unit`                      | `String(16)` → `VARCHAR(16)`          | —                                  | no   | —              | Unit of resource.                       |
-| `unit_cost`                 | `Numeric(15,2)` → `NUMERIC(15,2)`     | —                                  | no   | —              | Rate per resource unit.                 |
-| `setup_cost`                | `Numeric(15,2)` → `NUMERIC(15,2)`     | —                                  | no   | `0`            | Setup fee of operation or machine.      |
-| `min_charge_applied`        | `Boolean` → `BOOLEAN`                 | —                                  | no   | `false`        | Whether minimum charge was triggered.   |
-| `total_cost`                | `Numeric(15,2)` → `NUMERIC(15,2)`     | —                                  | no   | —              | Final computed line cost.               |
-| `note`                      | `String(500)` → `VARCHAR(500)`        | —                                  | yes  | —              | Ghi chú.                                |
-
-**Keys & indexes**
-
-- Primary key: `id`.
-- Index: `ix_estimate_cost_lines_estimate_option_id` on `estimate_option_id`.
-- Foreign keys: `estimate_option_id FK→estimate_options.id ON DELETE CASCADE`.
-
----
-
 ### `audit_logs`
 
 **Purpose:** one row per privilege-changing action (gán phòng, gán vai trò, sửa khuôn
@@ -1168,10 +910,6 @@ client's httpOnly cookie.
 | `page_multiple`             | `Integer` → `INTEGER`                                  | —             | no   | `0`            | §D Số trang chia hết cho (0 = không ràng buộc).                                                          |
 | `pages_per_signature`       | `Integer` → `INTEGER`                                  | —             | no   | `0`            | §D Số trang mỗi tay.                                                                                     |
 | `has_cover_body_split`      | `Boolean` → `BOOLEAN`                                  | —             | no   | `false`        | §D Tính bìa/ruột riêng.                                                                                  |
-| `default_paper_material_id` | `Integer` → `INTEGER`                                  | —             | yes  | —              | §E Giấy mặc định (materials.id).                                                                         |
-| `default_cover_material_id` | `Integer` → `INTEGER`                                  | —             | yes  | —              | §E Giấy bìa mặc định.                                                                                    |
-| `default_body_material_id`  | `Integer` → `INTEGER`                                  | —             | yes  | —              | §E Giấy ruột mặc định.                                                                                   |
-| `default_ink_material_id`   | `Integer` → `INTEGER`                                  | —             | yes  | —              | §E Mực mặc định.                                                                                         |
 | `has_packaging`             | `Boolean` → `BOOLEAN`                                  | —             | no   | `false`        | §E Có bao bì.                                                                                            |
 | `default_pack_qty`          | `Integer` → `INTEGER`                                  | —             | no   | `0`            | §E Quy cách đóng gói (cái/thùng).                                                                        |
 | `required_operations`       | `JSON` → `TEXT` / `JSONB`                              | —             | yes  | —              | §F Công đoạn bắt buộc (⊆ default_operations).                                                            |
@@ -1194,93 +932,6 @@ client's httpOnly cookie.
 **Relationships**
 
 - Referenced as a foreign key by `norms.product_type`.
-
----
-
-### `materials`
-
-**Purpose:** unified catalog of raw materials and consumables (Paper, Decal, PP, canvas, carton, film, formex, lamination film, glue, chemical...).
-
-| Column              | Type (SQLAlchemy → SQLite / Postgres)                  | Key           | Null | Default        | Meaning                                                                                                        |
-| ------------------- | ------------------------------------------------------ | ------------- | ---- | -------------- | -------------------------------------------------------------------------------------------------------------- |
-| `id`                | `Integer` → `INTEGER` / `SERIAL`                       | **PK**        | no   | auto-increment | Surrogate primary key.                                                                                         |
-| `code`              | `String(20)` → `VARCHAR(20)`                           | **U**, **IX** | no   | —              | Unique master code (GY### for paper, VT### for other materials).                                               |
-| `name`              | `String(255)` → `VARCHAR(255)`                         | —             | no   | —              | Master material name.                                                                                          |
-| `material_type`     | `String(32)` → `VARCHAR(32)`                           | **IX**        | no   | —              | Material category (e.g. `paper`, `decal`, `pp`, `canvas`, `carton`, `film`, `lamination`, `glue`, `chemical`). |
-| `unit`              | `String(16)` → `VARCHAR(16)`                           | —             | no   | —              | Unit of measurement (e.g. `to`, `m2`, `kg`, `cuon`, `cai`).                                                    |
-| `min_fee`           | `BigInteger` → `BIGINT`                                | —             | no   | `0`            | Minimum usage fee (VND).                                                                                       |
-| `width_cm`          | `Numeric(10,2)` → `NUMERIC(10,2)`                      | —             | yes  | —              | Width dimensions (cm) for sheets and rolls.                                                                    |
-| `height_cm`         | `Numeric(10,2)` → `NUMERIC(10,2)`                      | —             | yes  | —              | Height/length dimensions (cm) for sheets. Null for rolls.                                                      |
-| `gsm`               | `Integer` → `INTEGER`                                  | —             | yes  | —              | Paper grammage / density weight (gsm).                                                                         |
-| `thickness_mm`      | `Numeric(10,2)` → `NUMERIC(10,2)`                      | —             | yes  | —              | Thickness dimensions (mm).                                                                                     |
-| `default_waste_pct` | `Numeric(5,2)` → `NUMERIC(5,2)`                        | —             | no   | `0.0`          | Default waste percentage.                                                                                      |
-| `min_purchase_qty`  | `Numeric(10,2)` → `NUMERIC(10,2)`                      | —             | no   | `0.0`          | Minimum quantity required for purchase.                                                                        |
-| `paper_family`      | `String(32)` → `VARCHAR(32)`                           | —             | yes  | —              | Paper family family designation (Couche, Ivory, Ford, Bristol, Duplex...).                                     |
-| `surface`           | `String(32)` → `VARCHAR(32)`                           | —             | yes  | —              | Surface tráng/bề mặt description (bong, mo, trang-1-mat...).                                                   |
-| `material_group`    | `String(20)` → `VARCHAR(20)`                           | **IX**        | yes  | —              | Nhóm vật tư trục UI (`paper`/`ink`/`film`/`glue`/`packaging`/`auxiliary`); `material_type` vẫn là trục engine. |
-| `default_supplier`  | `String(150)` → `VARCHAR(150)`                         | —             | yes  | —              | Nhà cung cấp mặc định.                                                                                         |
-| `base_uom`          | `String(16)` → `VARCHAR(16)`                           | —             | yes  | —              | Đơn vị cơ sở (base UoM).                                                                                       |
-| `purchase_uom`      | `String(16)` → `VARCHAR(16)`                           | —             | yes  | —              | Đơn vị mua hàng (purchase UoM).                                                                                |
-| `consumption_uom`   | `String(16)` → `VARCHAR(16)`                           | —             | yes  | —              | Đơn vị tiêu hao (consumption UoM).                                                                             |
-| `conversion_method` | `String(24)` → `VARCHAR(24)`                           | —             | yes  | —              | Cách quy đổi UoM (`gsm_area`/`ream_500`/`area_m2`/`fixed_factor`/`none`).                                      |
-| `conversion_factor` | `Numeric(12,4)` → `NUMERIC(12,4)`                      | —             | yes  | —              | Hệ số quy đổi UoM.                                                                                             |
-| `ink_type`          | `String(32)` → `VARCHAR(32)`                           | —             | yes  | —              | Loại mực (nhóm ink).                                                                                           |
-| `ink_color_system`  | `String(32)` → `VARCHAR(32)`                           | —             | yes  | —              | Hệ màu mực (nhóm ink).                                                                                         |
-| `ink_color_code`    | `String(32)` → `VARCHAR(32)`                           | —             | yes  | —              | Mã màu mực (nhóm ink).                                                                                         |
-| `film_type`         | `String(32)` → `VARCHAR(32)`                           | —             | yes  | —              | Loại film (nhóm film).                                                                                         |
-| `don_vi_phu`        | `String(16)` → `VARCHAR(16)`                           | —             | yes  | —              | **Quy đổi đơn vị KHO** — đơn vị phụ khi nhập (ream/kg…), trong khi lô vẫn lưu theo `unit` (đơn vị tồn). Bỏ trống = không quy đổi, chỉ nhập theo đơn vị tồn. TÁCH khỏi `purchase_uom`/`conversion_*` của engine giá — hai hệ khác nhau, đừng dùng lẫn. |
-| `he_so_quy_doi`     | `Numeric(14,4)` → `NUMERIC(14,4)`                      | —             | yes  | —              | Hệ số cố định đi kèm `don_vi_phu`: 1 `don_vi_phu` = `he_so_quy_doi` × `unit`. Người ĐỀ NGHỊ khai (hàng mới) hoặc prefill từ mặt hàng; kho không khai lại ở phiếu.                                    |
-| `version`           | `Integer` → `INTEGER`                                  | —             | no   | `1`            | Số phiên bản bản ghi (optimistic lock).                                                                        |
-| `is_active`         | `Boolean` → `BOOLEAN`                                  | —             | no   | `true`         | Active status in selection pickers.                                                                            |
-| `created_at`        | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —             | no   | now (UTC)      | When the material was created.                                                                                 |
-| `updated_at`        | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —             | no   | now (UTC)      | When the material was last updated.                                                                            |
-
-**Keys & indexes**
-
-- Primary key: `id`.
-- Unique index: `ix_materials_code` on `code`.
-- Index: `ix_materials_material_type` on `material_type`.
-
-**Relationships**
-
-- One material has many historical `material_costs`.
-
----
-
-### `material_costs`
-
-**Purpose:** time-versioned unit cost prices for materials.
-
-| Column           | Type (SQLAlchemy → SQLite / Postgres)                  | Key                         | Null | Default        | Meaning                                                           |
-| ---------------- | ------------------------------------------------------ | --------------------------- | ---- | -------------- | ----------------------------------------------------------------- |
-| `id`             | `Integer` → `INTEGER` / `SERIAL`                       | **PK**                      | no   | auto-increment | Surrogate primary key.                                            |
-| `material_id`    | `Integer` → `INTEGER`                                  | **FK→materials.id**, **IX** | no   | —              | Reference to target material.                                     |
-| `price_unit`     | `String(16)` → `VARCHAR(16)`                           | —                           | no   | —              | Unit this price corresponds to (e.g. `to`, `ram`, `kg`, `m2`).    |
-| `unit_price`     | `BigInteger` → `BIGINT`                                | —                           | no   | `0`            | Cost price (VND).                                                 |
-| `supplier`       | `String(150)` → `VARCHAR(150)`                         | —                           | yes  | —              | Nhà cung cấp của mức giá này.                                     |
-| `price_type`     | `String(20)` → `VARCHAR(20)`                           | —                           | no   | `standard`     | Loại giá (`standard`...).                                         |
-| `vat_included`   | `Boolean` → `BOOLEAN`                                  | —                           | no   | `false`        | Giá đã bao gồm VAT hay chưa.                                      |
-| `transport_fee`  | `BigInteger` → `BIGINT`                                | —                           | no   | `0`            | Phí vận chuyển (VND).                                             |
-| `moq`            | `Numeric(12,2)` → `NUMERIC(12,2)`                      | —                           | no   | `0.0`          | Số lượng đặt hàng tối thiểu (MOQ).                                |
-| `lead_time_days` | `Integer` → `INTEGER`                                  | —                           | no   | `0`            | Thời gian giao hàng (ngày).                                       |
-| `quantity_from`  | `Numeric(14,2)` → `NUMERIC(14,2)`                      | —                           | yes  | —              | Cận dưới bậc số lượng (price tier).                               |
-| `quantity_to`    | `Numeric(14,2)` → `NUMERIC(14,2)`                      | —                           | yes  | —              | Cận trên bậc số lượng (price tier).                               |
-| `version`        | `Integer` → `INTEGER`                                  | —                           | no   | `1`            | Số phiên bản bản ghi (optimistic lock).                           |
-| `effective_from` | `Date` → `DATE`                                        | —                           | no   | —              | Date pricing becomes active.                                      |
-| `effective_to`   | `Date` → `DATE`                                        | —                           | yes  | —              | Date pricing stops being active. Null means current active price. |
-| `created_at`     | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                           | no   | now (UTC)      | Creation timestamp.                                               |
-| `updated_at`     | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                           | no   | now (UTC)      | Last updated timestamp.                                           |
-
-**Keys & indexes**
-
-- Primary key: `id`.
-- Index: `ix_material_costs_material_id` on `material_id`.
-- Unique index: `uix_material_costs_current` on `(material_id, price_unit) WHERE effective_to IS NULL`.
-- Foreign key: `material_id FK→materials.id`.
-
-**Relationships**
-
-- Belongs to one `materials`.
 
 ---
 
@@ -2250,17 +1901,22 @@ vật tư/dịch vụ, dùng để chọn vào phiếu yêu cầu mua hàng.
 
 ### `supplier_items`
 
-**Purpose:** danh sách mặt hàng/bảng giá hiện tại mà từng nhà cung cấp có thể cung ứng. One row = một mặt hàng của một NCC, dùng để gợi ý ĐVT/đơn giá/VAT khi lập phiếu mua.
+**Purpose:** danh sách mặt hàng/bảng giá hiện tại mà từng nhà cung cấp có thể cung ứng. One row = một mặt hàng của một NCC, dùng để gợi ý ĐVT/đơn giá/VAT khi lập phiếu mua, và (mg 0172) để **so giá giữa các NCC** qua `GET /api/supplier-items/so-gia`.
+
+> Cặp `(hang_loai, hang_id)` NULLABLE có chủ ý: NCC còn bán thứ ngoài danh mục vật tư (dịch vụ, gia công) — bắt buộc gắn thì không khai nổi mấy dòng đó. Dòng nào CÓ gắn mới vào được bảng so giá. Không backfill từ `item_name`: ghép bằng chuỗi chính là cái sai đang đi chữa (thu mua gõ "Couche 150", danh mục ghi "Couché 150 79×109" là trượt, mà trượt thì im lặng).
 
 | Column        | Type (SQLAlchemy → SQLite / Postgres)                  | Key                  | Null | Default        | Meaning                                      |
 | ------------- | ------------------------------------------------------ | -------------------- | ---- | -------------- | -------------------------------------------- |
 | `id`          | `Integer` → `INTEGER` / `SERIAL`                       | **PK**               | no   | auto-increment | Surrogate primary key.                       |
 | `supplier_id` | `Integer` → `INTEGER`                                  | **FK→suppliers.id**, **IX** | no   | —              | Nhà cung cấp sở hữu mặt hàng/bảng giá.       |
+| `hang_loai`   | `String(8)` → `VARCHAR(8)`                             | **IX** (cặp)         | yes  | —              | Mặt hàng gốc dòng này bán: `giay` \| `vat_tu` (mg 0172). |
+| `hang_id`     | `Integer` → `INTEGER`                                  | **IX** (cặp)         | yes  | —              | Id trong `giay_nguyen` / `vat_tu_in_an`. Soft ref. |
 | `item_name`   | `String(255)` → `VARCHAR(255)`                         | **IX**               | no   | —              | Tên vật tư/sản phẩm/dịch vụ NCC cung cấp.    |
-| `unit`        | `String(32)` → `VARCHAR(32)`                           | —                    | no   | —              | Đơn vị tính.                                 |
+| `unit`        | `String(32)` → `VARCHAR(32)`                           | —                    | no   | —              | Đơn vị NCC BÁN theo. Nếu đã gắn mặt hàng thì phải nằm trong tập đổi được của nó (service chặn) — không thì cột "giá quy về đơn vị gốc" vĩnh viễn trống và dòng đó biến mất khỏi so giá. |
 | `unit_price`  | `BigInteger` → `BIGINT`                                | —                    | no   | `0`            | Đơn giá hiện tại của NCC.                    |
 | `vat_percent` | `Numeric(6,2)` → `NUMERIC(6,2)`                        | —                    | no   | `0`            | Thuế GTGT tham khảo theo mặt hàng.           |
 | `is_active`   | `Boolean` → `BOOLEAN`                                  | —                    | no   | `true`         | Cột kỹ thuật ẩn để tương thích DB cũ; UI không dùng trạng thái mặt hàng. |
+| `lead_time_days` | `Integer` → `INTEGER`                               | —                    | no   | `0`            | **CỘT CHẾT — bỏ 10/08/2026** (thêm ở mg 0176). Số ngày NCC giao, phải khai tay ở bảng giá; lúc dựng danh mục chưa ai biết ông ấy giao mấy ngày nên số gõ vào là số đoán, mà kế hoạch lại dựa vào đó bật đèn "đặt muộn". Nay **hạn chót phải đặt = ngày cần − đệm kiểm nhập**, không phụ thuộc NCC. Cần chính xác hơn thì suy từ lịch sử mua (ngày đặt → ngày nhận thật), đừng bắt khai tay. Cột để nguyên trong DB, không code nào đọc/ghi. |
 | `note`        | `Text` → `TEXT`                                        | —                    | yes  | —              | Ghi chú báo giá/điều kiện mua.               |
 | `created_at`  | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                    | no   | now (UTC)      | Khi tạo.                                     |
 | `updated_at`  | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                    | no   | now (UTC)      | Cập nhật cuối.                               |
@@ -2426,6 +2082,8 @@ có gì báo lỗi.
 | ----------------------- | ------------------------------------- | ---------------------------------------------- | ---- | -------------- | -------------------------------------------------------------------------------------------- |
 | `id`                    | `Integer` → `INTEGER` / `SERIAL`      | **PK**                                         | no   | auto-increment | Surrogate primary key.                                                                       |
 | `department_request_id` | `Integer` → `INTEGER`                 | **FK→department_purchase_requests.id**, **IX** | no   | —              | Phiếu yêu cầu nguồn cha.                                                                     |
+| `hang_loai`             | `String(8)` → `VARCHAR(8)`            | **IX** (cặp)                                   | yes  | —              | Mặt hàng gốc: `giay` \| `vat_tu` (mg 0174). Nút "Đề nghị mua" ở bảng cân đối vật tư ghi thẳng vào đây. |
+| `hang_id`               | `Integer` → `INTEGER`                 | **IX** (cặp)                                   | yes  | —              | Id trong `giay_nguyen` / `vat_tu_in_an`. Soft ref. `NULL` = khai tay ngoài danh mục.          |
 | `item_name`             | `String(255)` → `VARCHAR(255)`        | —                                              | no   | —              | Tên vật tư/dịch vụ cần mua.                                                                  |
 | `unit`                  | `String(32)` → `VARCHAR(32)`          | —                                              | no   | —              | Đơn vị tính.                                                                                 |
 | `quantity`              | `Numeric(14,2)` → `NUMERIC(14,2)`     | —                                              | no   | `0`            | Số lượng cần mua.                                                                            |
@@ -2495,6 +2153,8 @@ cần mua trong phiếu.
 | `id`                  | `Integer` → `INTEGER` / `SERIAL`      | **PK**                              | no   | auto-increment | Surrogate primary key.                             |
 | `purchase_request_id` | `Integer` → `INTEGER`                 | **FK→purchase_requests.id**, **IX** | no   | —              | Phiếu cha.                                         |
 | `department_request_line_id` | `Integer` → `INTEGER`          | **FK→department_purchase_request_lines.id**, **IX** | yes | — | Dòng YCMH đã đẻ ra dòng này (nối DÒNG↔DÒNG, khác `purchase_request_sources` nối PHIẾU↔YÊU CẦU). Nền cho "trạng thái từng sản phẩm" ở chi tiết YCMH. `NULL` = phiếu lập trước 05/08/2026 hoặc dòng thu mua tự thêm. ⚠️ Khoá ngoại CHỈ có trên DB dựng bằng `create_all`; migration 0163 chỉ thêm cột (SQLite không ALTER được constraint) nên DB live có thể có id mồ côi — chỗ đọc phải chịu được. |
+| `hang_loai`           | `String(8)` → `VARCHAR(8)`            | **IX** (cặp)                        | yes  | —              | Mặt hàng gốc dòng này mua: `giay` \| `vat_tu` (mg 0174). KẾ THỪA từ dòng YCMH qua `department_request_line_id` lúc lập phiếu. |
+| `hang_id`             | `Integer` → `INTEGER`                 | **IX** (cặp)                        | yes  | —              | Id trong `giay_nguyen` / `vat_tu_in_an`. Soft ref. `NULL` = mua thứ ngoài danh mục (dịch vụ, gia công) ⇒ bảng cân đối vật tư **không** cộng dòng này vào "hàng đang về" (không đoán ngược từ `item_name`). |
 | `item_name`           | `String(255)` → `VARCHAR(255)`        | —                                   | no   | —              | Tên vật tư/dịch vụ cần mua.                        |
 | `unit`                | `String(32)` → `VARCHAR(32)`          | —                                   | no   | `"cái"`        | Đơn vị tính.                                       |
 | `quantity`            | `Numeric(14,2)` → `NUMERIC(14,2)`     | —                                   | no   | `0`            | Số lượng cần mua.                                  |
@@ -3355,22 +3015,32 @@ Bảng MỚI → `create_all` tự dựng, **không cần migration cho bảng**
 
 ### `may_thiet_bi`
 
-**Purpose:** máy sản xuất = cost center (BHR) + spec năng lực (khổ/nhíp/units). Một row = một máy. Field theo `loai_may` gói trong JSON `fields_theo_loai`; các field engine dùng nhiều được promote thành cột thật.
+**Purpose:** máy sản xuất = **spec năng lực** (khổ/nhíp/vùng in/tốc độ/chuẩn bị). Một row = một máy. Field đặc thù theo `loai_may` + khối con của form gói trong JSON `fields_theo_loai`.
 
-| Column                                                                                  | Type           | Meaning                                                                       |
-| --------------------------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------- |
-| `id`                                                                                    | `Integer` PK   | khóa chính.                                                                   |
-| `ma`                                                                                    | `String(30)` U | mã máy (VD `OFF-74-4C`).                                                      |
-| `ten`                                                                                   | `String(150)`  | tên.                                                                          |
-| `loai_may`                                                                              | `String` IX    | discriminator (press_offset_sheet / digital / ctp / finishing / thue_ngoai…). |
-| `trang_thai`                                                                            | `String`       | active / maintenance / retired (không có cột `active` riêng).                 |
-| `khoa_class`                                                                            | `String`       | lớp khổ máy → tra giá kẽm (`ban_kem.khoa_class`).                             |
-| `gripper_mm` `so_units` `kho_max_dai/rong` `kho_min_dai/rong`                           |                | seam bình bài.                                                                |
-| `so_nhan_cong`                                                                          | `Numeric(5,2)` | Số người vận hành tiêu chuẩn (kíp chuẩn); dùng hoạch định nhân lực, không nhân tốc độ máy. |
-| BHR (`von_dau_tu` `nam_khau_hao` `gio_lam_nam` `availability_pct` `productivity_pct` …) |                | công thức đơn giá giờ máy (spec §4).                                          |
-| `fields_theo_loai`                                                                      | `JSON`         | field đặc thù theo `loai_may`.                                                |
+🔴 **DỌN LỚN 11/08/2026 — gỡ ~50 cột khỏi model.** Chủ chốt: *"không nhập liệu được thì là rác"*. Đã gỡ khỏi model/schema/repo (cột nằm lại **orphan** trong Postgres — dự án không có Alembic nên không drop, nhưng **không còn code nào đọc/ghi**): cả khối **BHR** (`nguon_bhr` `don_gia_gio_BHR` `von_dau_tu` `gia_tri_thu_hoi` `nam_khau_hao` `lai_von_pct` `gio_lam_nam` `availability_pct` `productivity_pct` `efficiency_pct` `luong_gio` `luong_burden_pct` `cong_suat_kW` `he_so_tai_dien` `don_gia_dien` `bao_hiem_nam` `dien_tich_san_m2` `don_gia_thue_m2_nam` `bao_tri_gio` `overhead_gio` `markup_pct` `ngay_cap_nhat_bhr`) kèm `compute_bhr` + endpoint `/bhr` · `/bhr-preview`; **tài sản** (`ma_tai_san` `ma_TK_cost_center` `nha_cung_cap` `ngay_dua_vao_su_dung` `het_han_bao_hanh` `phuong_phap_khau_hao`); **nhận diện thừa** (`dia_diem` `phong_ban_id` `ghi_chu_2` `nhom_cost_center` `finishing_subtype`); **năng lực không nối** (`min_stock_gsm` `max_stock_gsm` `vat_lieu_ho_tro_class` `so_ca` `chi_so_dem_luot` `so_may_song_song`); **offset chưa nối engine** (`so_units` `units_truoc` `units_sau` `khoa_class` `co_tro_mat` `cho_phep_tu_tro` `cho_phep_tro_dau_duoi` `bu_hao_canh_may_per_mau` `bu_hao_chay_pct` `ho_tro_cip3`); **bảo trì thô** (`ngay_bao_tri_gan_nhat` `chu_ky_bao_tri` `chu_ky_bao_tri_don_vi` `ngay_bao_tri_ke_tiep`); **dormant** (`ca_lam_ids` `thoi_gian_rua_muc`); và **`trang_thai` + property `active`** (bỏ ô "Tình trạng" khỏi form ⇒ mọi máy luôn `active`, cờ đó chưa bao giờ phân loại được gì — máy dừng thì khoá theo KHOẢNG THỜI GIAN ở `machine_unavailable_periods`, đó mới là thứ Xếp lịch đọc). BHR có spec §4 + test xanh nhưng **chưa bao giờ có ô nhập** và không engine giá nào gọi ⇒ luôn chạy trên dữ liệu rỗng. Bù hao canh máy vẫn tính được: `routing_engine.so_to_in_gross` nhận qua **tham số**, không đọc máy. **Thêm cột lại chỉ khi có ô nhập đi kèm** — đừng dựng cột trước rồi hẹn form sau.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `loai_may`, `finishing_subtype`, `nhom_cost_center`, `phong_ban_id`, `dia_diem`, `hang_san_xuat`, `model`, `so_seri`, `trang_thai`, `ghi_chu`, `ghi_chu_2`, `ma_tai_san`, `ma_TK_cost_center`, `nha_cung_cap`, `ngay_dua_vao_su_dung`, `het_han_bao_hanh`, `phuong_phap_khau_hao`, `nguon_bhr`, `don_gia_gio_BHR`, `von_dau_tu`, `gia_tri_thu_hoi`, `nam_khau_hao`, `lai_von_pct`, `gio_lam_nam`, `availability_pct`, `productivity_pct`, `efficiency_pct`, `so_nhan_cong`, `luong_gio`, `luong_burden_pct`, `cong_suat_kW`, `he_so_tai_dien`, `don_gia_dien`, `bao_hiem_nam`, `dien_tich_san_m2`, `don_gia_thue_m2_nam`, `bao_tri_gio`, `overhead_gio`, `markup_pct`, `ngay_cap_nhat_bhr`, `toc_do`, `toc_do_min`, `toc_do_max`, `don_vi_toc_do`, `makeready_time_default`, `thoi_gian_rua_muc`, `min_stock_gsm`, `max_stock_gsm`, `vat_lieu_ho_tro_class`, `so_may_song_song`, `so_ca`, `chi_so_dem_luot`, `ngay_bao_tri_gan_nhat`, `chu_ky_bao_tri`, `chu_ky_bao_tri_don_vi`, `ngay_bao_tri_ke_tiep`, `kho_max_dai`, `kho_max_rong`, `kho_min_dai`, `kho_min_rong`, `kho_kem_dai`, `kho_kem_rong`, `vung_in_dai`, `vung_in_rong`, `gripper_mm`, `nhip_giay_mm`, `le_hong_mm`, `duoi_thang_mau_mm`, `so_units`, `units_truoc`, `units_sau`, `khoa_class`, `co_tro_mat`, `cho_phep_tu_tro`, `cho_phep_tro_dau_duoi`, `bu_hao_canh_may_per_mau`, `bu_hao_chay_pct`, `ho_tro_cip3`, `fields_theo_loai`, `created_at`, `updated_at`. **Hai loại nhíp — ĐỪNG LẪN:** `gripper_mm` = mép nhíp trên BẢN KẼM (~44mm, nhãn UI "Nhíp kẽm"); `nhip_giay_mm` (INTEGER nullable, migration 0107) = cạnh máy KẸP TỜ GIẤY (~8–12mm) → bình bài trừ vào chiều DÀI tờ in. `le_hong_mm` trừ MỖI BÊN chiều rộng, `duoi_thang_mau_mm` trừ chiều dài; cả hai đã có cột từ trước nhưng tới migration 0107 mới có ô nhập trên UI. **Ba cột tốc độ — chỉ MỘT cột chảy vào tính toán:** `toc_do` = tốc độ TRUNG BÌNH, là số duy nhất Tính giá / Lệnh SX / Xếp lịch đọc (tên cột giữ nguyên dù nhãn UI đã đổi thành "Tốc độ trung bình"); `toc_do_min` / `toc_do_max` (NUMERIC(12,2) nullable, migration 0152) là dải năng lực **CHỈ ĐỂ KHAI** theo chốt của chủ 03/08/2026 — không nối vào công thức nào. Cho lịch chạy bằng khoảng [sớm–muộn] là việc viết lại lõi xếp lịch, không phải chỉ đọc thêm hai cột này. **`don_vi_toc_do`** (VARCHAR(32) sau migration 0153, trước là 16) mang mã dạng `<đơn vị đếm>_gio` **suy ra từ danh mục `don_vi_do`** — chủ tự thêm/xoá đơn vị ở màn "Đơn vị & quy đổi" là danh sách chọn tự đổi theo, không có bảng riêng. `don_vi_do.ma` rộng 24 nên mã ở đây tới 28 ký tự; SQLite không ép độ dài (test không bắt được) nhưng Postgres thật thì lỗi lúc lưu — đó là lý do nới cột. Lệnh SX so khớp mã này với thứ công đoạn ĐẾM (`_DV_VAO_SANG_NS`); lệch là bỏ qua tốc độ trong im lặng, nên **đừng đổi quy ước đặt mã**.
+| Column                                                       | Type           | Meaning                                                                       |
+| ------------------------------------------------------------ | -------------- | ----------------------------------------------------------------------------- |
+| `id`                                                         | `Integer` PK   | khóa chính.                                                                   |
+| `ma`                                                         | `String(30)` U | mã máy (VD `OFF-74-4C`).                                                      |
+| `ten`                                                        | `String(150)`  | tên.                                                                          |
+| `loai_may`                                                   | `String` IX    | nhóm máy — **chữ TỰ DO**, khớp danh mục `nhom_may` (không FK).                |
+| `hang_san_xuat` `model` `so_seri`                            | `String(100)`  | nhận diện thiết bị (bày ra form 11/08/2026).                                  |
+| `gripper_mm` `nhip_giay_mm` `le_hong_mm` `duoi_thang_mau_mm` |                | chừa lề tờ in — engine bình bài.                                              |
+| `kho_max_dai/rong` `kho_min_dai/rong` `kho_kem_dai/rong` `vung_in_dai/rong` | `Integer` | khổ giấy máy nhận · khổ kẽm · vùng in (mm).                          |
+| `so_nhan_cong`                                               | `Numeric(5,2)` | Số người vận hành tiêu chuẩn (kíp chuẩn); dùng hoạch định nhân lực, không nhân tốc độ máy. |
+| `fields_theo_loai`                                           | `JSON`         | field đặc thù theo `loai_may` + khối con của form: `chuan_bi_khoan` (các khoản chuẩn bị) và **`lich_bao_tri`** (Lịch bảo trì định kỳ). |
+
+**Tất cả cột:** `id`, `ma`, `ten`, `loai_may`, `hang_san_xuat`, `model`, `so_seri`, `ghi_chu`, `toc_do`, `toc_do_min`, `toc_do_max`, `don_vi_toc_do`, `makeready_time_default`, `cho_ky_thuat_gio`, `so_nhan_cong`, `kho_max_dai`, `kho_max_rong`, `kho_min_dai`, `kho_min_rong`, `kho_kem_dai`, `kho_kem_rong`, `vung_in_dai`, `vung_in_rong`, `gripper_mm`, `nhip_giay_mm`, `le_hong_mm`, `duoi_thang_mau_mm`, `fields_theo_loai`, `created_at`, `updated_at`. **Hai loại nhíp — ĐỪNG LẪN:** `gripper_mm` = mép nhíp trên BẢN KẼM (~44mm, nhãn UI "Nhíp kẽm"); `nhip_giay_mm` (INTEGER nullable, migration 0107) = cạnh máy KẸP TỜ GIẤY (~8–12mm) → bình bài trừ vào chiều DÀI tờ in. `le_hong_mm` trừ MỖI BÊN chiều rộng, `duoi_thang_mau_mm` trừ chiều dài; cả hai đã có cột từ trước nhưng tới migration 0107 mới có ô nhập trên UI. **Ba cột tốc độ — chỉ MỘT cột chảy vào tính toán:** `toc_do` = tốc độ TRUNG BÌNH, là số duy nhất Tính giá / Lệnh SX / Xếp lịch đọc (tên cột giữ nguyên dù nhãn UI đã đổi thành "Tốc độ trung bình"); `toc_do_min` / `toc_do_max` (NUMERIC(12,2) nullable, migration 0152) là dải năng lực **CHỈ ĐỂ KHAI** theo chốt của chủ 03/08/2026 — không nối vào công thức nào. Cho lịch chạy bằng khoảng [sớm–muộn] là việc viết lại lõi xếp lịch, không phải chỉ đọc thêm hai cột này. **`don_vi_toc_do`** (VARCHAR(32) sau migration 0153, trước là 16) mang mã dạng `<đơn vị đếm>_gio` **suy ra từ danh mục `don_vi_do`** — chủ tự thêm/xoá đơn vị ở màn "Đơn vị & quy đổi" là danh sách chọn tự đổi theo, không có bảng riêng. `don_vi_do.ma` rộng 24 nên mã ở đây tới 28 ký tự; SQLite không ép độ dài (test không bắt được) nhưng Postgres thật thì lỗi lúc lưu — đó là lý do nới cột. Lệnh SX so khớp mã này với thứ công đoạn ĐẾM (`_DV_VAO_SANG_NS`); lệch là bỏ qua tốc độ trong im lặng, nên **đừng đổi quy ước đặt mã**.
+
+**`ca_lam_ids`** (`JSON`, nullable, mg 0178) — **ĐÃ GỠ KHỎI MODEL 11/08/2026** (trước đó dormant từ 10/08). Từng là tập ca riêng của MÁY; nay đã bỏ: **máy là thiết bị, bàn xếp lịch cho chạy LIÊN TỤC** (`XepLichService._lich_may` → `LichXuong(lien_tuc=True)`), chỉ dừng vì ngày nghỉ/lễ của xưởng và vùng KHOÁ máy (`machine_unavailable_periods` kiểu `chan`). Ca là chuyện của người: cần tăng ca thì cứ xếp việc vào giờ đó, không phải sửa danh mục máy. Không còn ô nhập, không còn trong API. Hệ quả đã biết: trần giờ máy/ngày thành 24h nên đèn "quá tải máy" gần như không sáng — trần thật nằm ở quỹ giờ-NGƯỜI của tổ. Cột giữ lại để không mất số cũ — **đừng khai lại ô này**.
+
+
+`cho_ky_thuat_gio` (NUMERIC(6,2) NOT NULL DEFAULT 0, mg 0182): **CHỜ KỸ THUẬT của bước MÁY** — số GIỜ hàng nằm chờ sau khi chạy xong trên máy này (mực khô, màng nguội). Tính bằng GIỜ, khác `makeready_time_default` tính bằng PHÚT — nhãn form phải ghi rõ đơn vị.
+
+**Vì sao khoá theo MÁY chứ không theo công đoạn** (chủ chốt 10/08/2026): CM-01/CM-02 là máy UV (khô dưới đèn, ≈0) còn CM-03/CM-04 là máy cán màng (phải để nguội vài giờ) — bốn máy CÙNG công đoạn "Cán màng / UV" mà chờ khác hẳn. Một số cho cả công đoạn là sai một trong hai vế, im lặng. Kéo lệnh sang máy khác ⇒ chờ tính lại.
+
+⚠️ **KHÔNG chiếm máy** — xem `cong_doan_dau_viec.cho_ky_thuat_gio` (vế TỔ).
 
 ### `chung_loai_giay`
 
@@ -3384,6 +3054,10 @@ Bảng MỚI → `create_all` tự dựng, **không cần migration cho bảng**
 
 **Tất cả cột:** `id`, `ma`, `ten`, `chung_loai_giay_id`, `kho_dai`, `kho_rong`, `gsm`, `caliper_micron`, `tho`, `don_vi_gia`, `don_gia`, `gia_thi_truong`, `kho_tinh_gia`, `cong_thuc_gia`, `ghi_chu`, `version_no`, `active`, `created_at`, `updated_at`.
 
+`don_vi_gia` (mg 0170) là **ĐƠN VỊ GỐC** của mặt hàng: mã trong `don_vi_do`, không còn enum cứng ở frontend. Tồn kho cộng dồn theo đơn vị này; nhập bằng đơn vị nào cũng được rồi quy về đây. NULL = chưa chọn (mg 0170 xoá trắng mã không có trong `don_vi_do`) — không mặc định `kg` nữa vì đơn vị gốc quyết định cách cộng tồn, điền hộ một lần là sai vĩnh viễn.
+
+`kho_dai`/`kho_rong` KHÔNG có ô nhập ở màn danh mục (bỏ 2026-07-21, khổ nhập ở phiếu tính giá) — chỉ seed ghi. Kho cố tình KHÔNG dùng hai cột này để quy đổi (chủ chốt 2026-08-08 "giấy chỉ đếm theo kg"): bơm khổ vào thì giấy seed đếm được tờ/ram còn giấy người dùng tự tạo (khổ = 0) thì không, cùng một màn hai cách cư xử. Muốn một loại giấy đếm theo tờ thì đặt `don_vi_gia = 'to'`, cặp cố định `1 ram = 500 tờ` chạy mà không cần khổ.
+
 ### `giay_gia_version`
 
 **Purpose:** phiên bản giá giấy (lịch sử) — ẢNH CHỤP toàn bản ghi `giay_nguyen` tại 1 mốc hiệu lực. Mỗi lần "Thêm phiên bản" đẻ 1 row; `is_current` = mốc đang áp dụng (mirror giá lên `giay_nguyen`). Bảng mới do create_all tạo (không migration). `giay_id` soft int → `giay_nguyen`.
@@ -3394,7 +3068,11 @@ Bảng MỚI → `create_all` tự dựng, **không cần migration cho bảng**
 
 **Purpose:** vật tư in ấn — danh mục PHẲNG (mực/kẽm/hoá chất/màng/keo… chung 1 bảng, phân biệt bằng tên) theo bảng xưởng: Mã · Tên · ĐVT · Giá · Ghi chú. Thay 2 bảng cũ `muc`+`ban_kem`.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `don_vi_gia`, `don_gia`, `cong_thuc_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `don_vi_gia`, `don_vi_dong_goi`, `he_so_dong_goi`, `don_gia`, `cong_thuc_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+
+`don_vi_gia` (mg 0170): **ĐƠN VỊ GỐC** — mã trong `don_vi_do`, NULL = chưa chọn. Xem ghi chú ở `giay_nguyen`.
+
+`don_vi_dong_goi` + `he_so_dong_goi` (mg 0170) — **ĐÃ BỎ 10/08/2026, cột chết**: quy cách đóng gói riêng của món ("1 thùng = 3 kg"). Gỡ vì khai quy đổi ở hai nơi (đây và danh mục Đơn vị & quy đổi) là bắt người dùng nhớ luật vô ích; cần "thùng keo 20 kg" thì khai thẳng một đơn vị như vậy ở `don_vi_do` rồi chọn làm ĐVT. Đã gỡ khỏi model · schema · form · đồ thị quy đổi; hai cột để nguyên trong DB (dự án không có Alembic, không drop) nhưng KHÔNG còn code nào đọc/ghi.
 
 ### `cong_doan`
 
@@ -3404,19 +3082,27 @@ Bảng MỚI → `create_all` tự dựng, **không cần migration cho bảng**
 
 `spoilage_pct` là cột CŨ, chỉ `routing_engine` của hệ tính giá cũ dùng; không có ô nhập và Lệnh SX KHÔNG đọc — hao hụt đi qua module `bu_hao` (mỗi bậc tự chọn `to`|`pct`).
 
-**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `don_vi_vao`, `don_vi_ra`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `department_id`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `nang_suat`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `don_vi_vao`, `don_vi_ra`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `nhom_may_cho_phep`, `department_id`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `nang_suat`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+
+`nhom_may_cho_phep` (JSON list, nullable, mg 0168): tên nhóm máy (`may_thiet_bi.loai_may`) làm được công đoạn này — chặn gán máy sai loại ở bước bài ghép (vd Ghi kẽm CTP không cho gán máy Bế). NULL/`[]` = chưa khai = không ràng buộc. Trục `loai_may` mịn hơn `nhom(3)` nên phân biệt được Bế với Cán màng.
 
 ### `cong_doan_dau_viec`
 
 **Purpose:** quan hệ nhiều-nhiều giữa công đoạn loại Tổ và đầu việc khoán của đúng tổ, đồng thời giữ định mức thời gian. Tối đa một dòng `is_default=true` mỗi công đoạn (service kiểm).
 
-**Tất cả cột:** `id`, `cong_doan_id`, `piece_rate_id`, `nang_suat_nguoi_gio`, `nang_suat_nguoi_gio_min`, `nang_suat_nguoi_gio_max`, `don_vi_nang_suat`, `so_nguoi_toi_thieu`, `so_nguoi_tieu_chuan`, `so_nguoi_toi_da`, `is_default`.
+**Tất cả cột:** `id`, `cong_doan_id`, `piece_rate_id`, `nang_suat_nguoi_gio`, `nang_suat_nguoi_gio_min`, `nang_suat_nguoi_gio_max`, `don_vi_nang_suat`, `so_nguoi_toi_thieu`, `so_nguoi_tieu_chuan`, `so_nguoi_toi_da`, `cho_ky_thuat_gio`, `is_default`.
 
 **Ba mốc nhân lực:** `so_nguoi_tieu_chuan` là số điền sẵn vào bước lúc bung lệnh; `so_nguoi_toi_da` là TRẦN tính thời gian (`so_nguoi_tinh = min(kế hoạch, tối đa)` — thêm người nữa không rút ngắn thời gian, chỉ đẻ cảnh báo mềm). `so_nguoi_toi_thieu` (mg 0160, NOT NULL DEFAULT 1) hiện là **KHAI BÁO thuần** — ghim vào `lsx_cong_doan.khoan_json` để không mất, nhưng CHƯA vào công thức thời lượng và CHƯA chặn gì. Service chỉ kiểm thứ tự 1 ≤ tối thiểu ≤ tiêu chuẩn ≤ tối đa.
 
 **Dải năng suất (mg 0158):** `nang_suat_nguoi_gio` là mức **TRUNG BÌNH** — số duy nhất chảy vào công thức thời lượng bước Tổ (`thời lượng = thời gian khác + SL vào ÷ (năng suất người × số người tính) × 60`); `nang_suat_nguoi_gio_min`/`_max` chỉ dùng để ra khoảng nhanh–chậm (râu Gantt), đúng lối `may_thiet_bi.toc_do` + `toc_do_min`/`toc_do_max`. Nullable — chưa khai thì ba mức bằng nhau, KHÔNG bịa min=max=TB. Service chặn min > TB và max < TB.
 
 `don_vi_nang_suat` (VARCHAR(32), nullable): đơn vị người khai chọn, cùng bảng mã với ô "Đơn vị tốc độ" của máy (`<đơn vị>_gio`). Đây là **NHÃN KHAI BÁO** — engine chia thẳng SL vào cho năng suất, KHÔNG quy đổi và KHÔNG kiểm khớp với đơn vị bước (bước quy đổi làm sau). Trống = giữ lối cũ, suy theo `cong_doan.don_vi_vao`.
+
+`cho_ky_thuat_gio` (NUMERIC(6,2) NOT NULL DEFAULT 0, mg 0182): **CHỜ KỸ THUẬT của bước TỔ** — số GIỜ hàng phải nằm chờ SAU khi làm xong đầu việc này (keo đông, màng nguội). Vế TỔ của cặp với `may_thiet_bi.cho_ky_thuat_gio` (vế MÁY); hai vế không chồng nhau vì một bước hoặc Máy hoặc Tổ.
+
+**Vì sao khoá theo ĐẦU VIỆC chứ không theo công đoạn** (chủ chốt 10/08/2026): cùng công đoạn "Bắt tay + vào keo", đầu việc *vào keo gáy vuông* phải chờ keo đông còn *khâu chỉ* thì không chờ gì — một số cho cả công đoạn không tách được. Bảng cũ `cong_doan_cho_ky_thuat` (khoá công đoạn × loại sản phẩm) đã GỠ vì cùng lý do.
+
+⚠️ **KHÔNG chiếm máy**: `LsxService._cho_ky_thuat_phut` đổi giờ → phút rồi ghim vào `lsx_cong_doan.cho_phut`; số đó vào `tong_phut` chứ KHÔNG vào `chiem_may_phut`. Chưa khai = 0, KHÔNG đoán. Đổi đầu việc ⇒ tính lại (`_ke_thua`), người kế hoạch vẫn sửa đè được tại bước.
 
 `don_vi_vao` / `don_vi_ra` (VARCHAR(12), **nullable**): đơn vị đếm ĐẦU VÀO / ĐẦU RA của bước trên DÒNG GIẤY — **KHAI**, không suy từ tên. Chảy MỘT CHIỀU: `to_nguyen` --(xả: ÷ số mảnh xả)--> `to` (tờ in) --(bế/xén: × con/tờ)--> `cai` (tờ thành phẩm). **Từ 2026-08-05 thêm khâu SÁCH**: `to` --(gấp)--> `tay` (tay sách) --(bắt tay/vào keo)--> `cai` --(đóng bộ)--> `bo`. Cặp hợp lệ = cùng đơn vị, hoặc `to_nguyen→to` · `to→cai` · `to→tay` · `tay→cai` · `cai→bo` (`cong_doan.CAP_DON_VI_HOP_LE`, service chặn `[E-CD-DONVI]`); phải khai cả hai hoặc để trống cả hai. **`tay`/`bo` CHƯA có cầu quy đổi** — `_he_so_cau` thiếu key nên `he_so.get(..., 1.0)` rơi về hệ số 1 (chuỗi ngược vẫn chạy, chưa nhân/chia). Chốt công thức thì thêm vào `CAU_QUY_DOI` + `_he_so_cau`.
 
@@ -3429,6 +3115,44 @@ Bảng MỚI → `create_all` tự dựng, **không cần migration cho bảng**
 `khoan_ghi_theo`: công đoạn có tính khoán không — `nguoi` (ghi Phiếu sản lượng theo từng người → cột Khoán bảng lương) / `khong`. `allowed_defect_pct`/`allowed_defect_abs`: ngưỡng hao cho phép (max của 2), phần vượt mới trừ lỗi.
 
 `kieu_bu_hao`: nối bù hao — `khong` / `tra_bang` (trỏ 1 mã bù hao qua `bu_hao_id` → tra bậc theo SL) / `co_dinh` (cộng `so_to_bu_hao` tờ). `bu_hao_id`: soft int → `bu_hao.id` (dùng khi `kieu_bu_hao='tra_bang'`).
+
+### `cong_doan_cho_ky_thuat`
+
+> 🔴 **BẢNG ĐÃ GỠ KHỎI MODEL 10/08/2026** (mg 0182) — chờ kỹ thuật nay khai ở `may_thiet_bi.cho_ky_thuat_gio` (bước Máy) và `cong_doan_dau_viec.cho_ky_thuat_gio` (bước Tổ). Bảng còn nằm im trong DB đang chạy (0 dòng lúc gỡ, dự án không có Alembic nên không drop). Mục này giữ để tra dữ liệu cũ.
+
+**Purpose:** CHỜ KỸ THUẬT của một công đoạn theo LOẠI SẢN PHẨM — mực khô, keo đông, màng nguội. Bảng MỚI → `create_all` tự dựng (migration chỉ để ALTER bảng cũ). Bám precedent `cong_doan_dau_viec`.
+
+**Tất cả cột:** `id`, `cong_doan_id`, `loai_san_pham_id`, `gio_cho`, `ghi_chu`.
+
+**Khác hẳn "thời gian chuẩn bị máy"** (`may_thiet_bi.makeready_time_default`, đã có): chuẩn bị máy **CHIẾM MÁY**, còn chờ kỹ thuật thì **KHÔNG** — tờ nằm trên pallet chờ khô, máy in vẫn chạy job khác. Gộp hai thứ vào một số là hoặc khoá oan cái máy, hoặc xếp cán chồng lên lúc mực chưa khô.
+
+**Vì sao theo CẶP (công đoạn × loại sản phẩm):** mực trên giấy couché bóng khô lâu hơn trên ford, keo gáy sách dày đông lâu hơn sách mỏng. Một con số cho mọi loại là con số sai với gần hết.
+
+⚠️ **Khai đủ từng cặp; cặp CHƯA KHAI = 0, KHÔNG đoán** — không nội suy từ cặp gần giống. `gio_cho` tính bằng GIỜ (cho số lẻ 0,5); engine đổi sang phút khi ghim vào `lsx_cong_doan.cho_phut` lúc tạo lệnh / đổi loại SP, và **người kế hoạch sửa đè được tại bước** (kế thừa = mặc định, không read-only). Bài ghép mirror sang `bai_ghep_cong_doan.cho_phut`.
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique: (`cong_doan_id`, `loai_san_pham_id`). Index: `cong_doan_id`, `loai_san_pham_id`.
+- FK: `cong_doan_id FK→cong_doan.id` (CASCADE). `loai_san_pham_id` soft-ref theo convention repo.
+
+### `to_quan_so_ngay`
+
+**Purpose:** quân số CÓ MẶT của một TỔ trong một NGÀY, do người dùng **gõ đè** — nền cho quỹ giờ-người ở bàn xếp lịch (mục I). Bảng MỚI → `create_all` tự dựng (migration chỉ để ALTER bảng cũ). Bám precedent `cong_doan_cho_ky_thuat`.
+
+**Tất cả cột:** `id`, `department_id`, `ngay`, `so_nguoi`, `ly_do`, `nguoi_sua_id`, `updated_at`.
+
+**Vì sao cần bảng này khi đã có `employees` + `leaves`:** quân số TỰ TÍNH (nhân sự gắn đúng tổ lá, trạng thái `active`/`probation`, trừ đơn phép **đã duyệt** phủ ngày đó) đúng cho ngày bình thường, nhưng sai đúng những hôm cần chính xác nhất — mượn 3 người tổ Bế sang phụ tổ Dán, hai người ốm báo miệng buổi sáng. Tổ trưởng biết con số thật; đây là chỗ họ gõ đè.
+
+⚠️ **KHÔNG lưu số tự tính vào đây.** Không có dòng gõ đè ⇒ engine tự tính lại mỗi lần đọc. Lưu cả hai là đẻ hai nguồn sự thật, rồi ảnh chụp cũ đứng im khi nhân sự đổi tổ. `so_nguoi = 0` (cả tổ nghỉ) KHÁC với "chưa gõ đè" — cái sau là KHÔNG có dòng. `ly_do` bắt buộc ≥ 3 ký tự ở service: một con số đè lên dữ liệu nhân sự mà không nói vì sao thì tháng sau không ai giải thích nổi hôm đó lịch tính ra như vậy.
+
+**Người ở TẦNG GIỮA không tính vào tổ nào:** ai gắn ở "Xưởng in" (không thuộc tổ lá) thì không cộng vào tổ con — cộng vào là đếm thừa người và lịch hứa một năng lực không có thật. Định nghĩa Tổ = nút LÁ trong nhánh `la_san_xuat` (dùng chung `rbac_repo.to_san_xuat()`).
+
+**Quỹ giờ-người ngày** = `so_nguoi` × giờ ca CHUNG của xưởng (tập `work_shifts.dung_cho_lich_may`; ca riêng của tổ đã bỏ 10/08/2026 — chưa tick ca nào thì rơi về 8h phẳng 08:00–16:00). Ràng buộc dùng nó: tại mọi thời điểm, Σ số người các việc đang chạy trong tổ ≤ quân số → vượt là vấn đề **Chặn** (`qua_tai_to`). Đây là thứ THAY cho luật "trùng giờ = xung đột" ở dòng tổ: tổ Dán 8 người chia được 5 người việc A + 3 người việc B cùng lúc.
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique: (`department_id`, `ngay`). Index: `department_id`, `ngay`.
+- FK: `nguoi_sua_id FK→users.id` (SET NULL). `department_id` **soft-ref** — FK cứng sẽ chặn xoá phòng vì một dòng quân số của ngày nào đó năm ngoái.
 
 ### `bu_hao`
 
@@ -3481,7 +3205,10 @@ Thứ phụ thuộc từng mặt hàng ("1 thùng keo = 3 kg" khác "1 thùng m�
 
 **Purpose:** danh mục KHAI BÁO nơi lưu trữ khuôn bế (master data nhẹ) — mỗi khuôn làm riêng cho hình bế của 1 ấn phẩm; đơn lặp lại thì lôi khuôn cũ ra dùng. Khai TAY để tìm lại: `ma` (KB-#### sinh ngầm) / `ten` (tên khuôn / ấn phẩm) / `khach_hang` (khai tay, đấu ref sau) / `so_ke` (số kệ, vị trí lưu — lõi) / `ngay_lam_khuon` / `tinh_trang` (dang_dung·hong·thanh_ly) / `ghi_chu`. Bảng mới → `create_all` tự dựng (không migration). Xóa mềm (`active=false`) giữ dấu vết. Gác quyền module RIÊNG `khuon_be`.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `khach_hang`, `so_ke`, `ngay_lam_khuon`, `tinh_trang`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `khach_hang`, `so_ke`, `ngay_lam_khuon`, `tinh_trang`, `ngay_ve_du_kien`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+
+- `tinh_trang` (mg 0177) nhận thêm giá trị **`dang_dat_lam`** — khuôn CHƯA có trong tay, đang đặt thợ làm. Không phải DDL (`tinh_trang` là VARCHAR tự do, service kiểm giá trị theo hằng `TINH_TRANG`).
+- `ngay_ve_du_kien` (`Date`, nullable, mg 0177) — chỉ có nghĩa với `dang_dat_lam`. Bàn xếp lịch so ngày này với giờ bắt đầu bước bế: về SAU giờ bế ⇒ vấn đề mức **Chặn**; về kịp ⇒ cảnh báo vàng. Không có nó thì `dang_dat_lam` chỉ là một chữ, không chặn được gì.
 
 ### `loai_san_pham`
 
@@ -3721,6 +3448,7 @@ Trả về BA số bằng cách thay `toc_do` bằng `toc_do_max` / `toc_do` / `
 | `nhom` | `String(12)` | — | yes | — | `prepress`/`print`/`finishing` (snapshot). |
 | `department_id` | `Integer` | IX | yes | — | Soft → `departments.id` = tổ nhận việc (snapshot `cong_doan.department_id`). Cũng là "trung tâm sản xuất" — KHÔNG có bảng work_center riêng. |
 | `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id` cho bước này. |
+| `khuon_be_id` | `Integer` | IX | yes | — | Soft → `khuon_be.id` — khuôn dùng cho CHÍNH bước này (chỉ có nghĩa khi công đoạn nguồn bật `requires_tooling` với `tooling_type` là `khuon_be`/`khuon_ep`). Trước 11/08/2026 khuôn gán ở cấp lệnh (`lsx.khuon_be_id`) nên lệnh vừa Bế vừa Ép nhũ chỉ giữ được một khuôn — mg `0185` chuyển xuống bước. |
 | `loai_buoc` | `String(12)` | — | no | `may` | Snapshot `may|to|thue_ngoai`. |
 | `bat_buoc` | `Boolean` → `BOOLEAN` | — | no | `true` | Bước bắt buộc hay tùy chọn (§4.1). |
 | `so_luong_vao` | `Numeric(14,2)` | — | no | `0` | SL đầu vào bước. |
@@ -4004,6 +3732,7 @@ Trả về BA số bằng cách thay `toc_do` bằng `toc_do_max` / `toc_do` / `
 | ------------------ | ----------------------------------------------------- | ------ | ---- | -------------- | -------------------------------------------------------------------------- |
 | `id`               | `Integer` → `INTEGER` / `SERIAL`                      | **PK** | no   | auto-increment | Surrogate primary key.                                                     |
 | `may_id`           | `Integer` → `INTEGER`                                 | **IX** | no   | —              | Soft → `may_thiet_bi.id` (không FK cứng) — máy bị khóa.                    |
+| `kieu`             | `String(8)` → `VARCHAR(8)`                            | —      | no   | `chan`         | **Dấu của khoảng** (mg 0179). `chan` = máy KHÔNG chạy (nghĩa cũ, mọi hàng cũ giữ nguyên). `mo_them` = máy CHẠY THÊM ngoài ca ("tối thứ Tư máy in 2 chạy thêm 3 tiếng"). Cố ý KHÔNG đẻ bảng thứ hai cho vùng mở thêm: hai bảng là hai nơi phải nhớ khi vẽ Gantt và khi cộng giờ, quên một nơi thì lịch lệch mà không ai báo. Gantt vẽ hai kiểu KHÁC MÀU. |
 | `reason`           | `String(16)` → `VARCHAR(16)`                          | —      | no   | `bao_tri`      | `bao_tri` / `hong_hoc` / `nghi` / `khac`.                                  |
 | `unavailable_from` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ`| —      | no   | —              | Đầu khoảng khóa (giờ nhà máy).                                             |
 | `unavailable_to`   | `DateTime(timezone=True)`                             | —      | no   | —              | Cuối khoảng khóa. Validate `from < to`.                                    |
@@ -4528,9 +4257,11 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 |---|---|---|---|---|---|
 | `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
 | `request_id` | `Integer` → `INTEGER` | **FK→stock_requests.id** (CASCADE), **IX** | no | — | Đề nghị chứa dòng này. |
-| `material_id` | `Integer` → `INTEGER` | **FK→materials.id**, **IX** | yes | — | Hàng ĐÃ có mã. Hàng MỚI để rỗng và khai `ten_tu_do`; kho gắn/tạo mã ở bước lập phiếu (BRD: chỉ kho khai mã). **Đúng 1 trong 2 phải có.** |
-| `ten_tu_do` | `String(255)` → `VARCHAR(255)` | — | yes | — | Tên hàng gõ tay khi chưa có mã. Thêm qua migration 0096; `material_id` được nới NULL ở 0097. |
-| `dvt` | `String(16)` → `VARCHAR(16)` | — | no | — | Đơn vị tính của dòng. |
+| `hang_loai` | `String(8)` → `VARCHAR(8)` | **IX** (cặp) | no | — | Loại mặt hàng gốc: `giay` \| `vat_tu`. |
+| `hang_id` | `Integer` → `INTEGER` | **IX** (cặp) | no | — | Id trong `giay_nguyen` / `vat_tu_in_an`. Soft ref (2 bảng đích nên không FK thật được). |
+| `lsx_id` | `Integer` → `INTEGER` | **IX** | yes | — | **Xin cho LỆNH nào** (mg 0175) — soft ref `lsx.id`. Bảng cân đối vật tư đọc cột này để trừ phần "đã cấp" vào ĐÚNG dòng nhu cầu; thiếu nó thì kho cấp cho lệnh A mà mọi lệnh dùng chung loại giấy vẫn hiện "còn thiếu". |
+| `bai_ghep_id` | `Integer` → `INTEGER` | **IX** | yes | — | Xin cho BÀI GHÉP nào (mg 0175) — soft ref `bai_ghep.id`. Cả hai cột để trống là hợp lệ (xin lặt vặt: băng dính, giẻ lau); khai cả hai cũng được nhưng service kiểm id có tồn tại, không im lặng bỏ. |
+| `dvt` | `String(24)` → `VARCHAR(24)` | — | no | — | Đơn vị NGƯỜI ĐỀ NGHỊ chọn — phải nằm trong tập đổi được của mặt hàng (`quy_doi_service.don_vi_dung_duoc`). Mọi `sl_*` của dòng theo đơn vị này; quy về đơn vị gốc chỉ xảy ra lúc ghi sổ. |
 | `sl_de_nghi` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | — | Số người đề nghị xin. CHECK `> 0`. |
 | `sl_duyet` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | Số người duyệt CHO. CHECK `>= 0`. |
 | `sl_da_ung` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | Số kho ĐÃ cấp/nhập qua các phiếu. CHECK `>= 0`; service chặn vượt `sl_duyet`. |
@@ -4608,10 +4339,12 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 | `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
 | `voucher_id` | `Integer` → `INTEGER` | **FK→stock_vouchers.id** (CASCADE), **IX** | no | — | Phiếu chứa dòng này. |
 | `request_line_id` | `Integer` → `INTEGER` | **FK→stock_request_lines.id**, **IX** | no | — | Dòng đề nghị mà dòng phiếu này ứng vào — nền cho chặn "ứng vượt SL duyệt". |
-| `material_id` | `Integer` → `INTEGER` | **FK→materials.id**, **IX** | no | — | Mặt hàng. |
+| `hang_loai` | `String(8)` → `VARCHAR(8)` | **IX** (cặp) | no | — | Mặt hàng KẾ THỪA từ dòng đề nghị (kho không đổi được). Loại: `giay` \| `vat_tu`. |
+| `hang_id` | `Integer` → `INTEGER` | **IX** (cặp) | no | — | Id trong `giay_nguyen` / `vat_tu_in_an`. Soft ref (2 bảng đích nên không FK thật được). |
 | `lot_id` | `Integer` → `INTEGER` | **FK→stock_lots.id**, **IX** | yes | — | Phiếu XUẤT: bắt buộc, trỏ vào lô bị trừ. Phiếu NHẬP: null lúc nháp, được gán khi ghi sổ (lúc đó lô mới được sinh ra). |
-| `so_luong` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | — | Số lượng của dòng. CHECK `> 0`. |
-| `don_gia` | `BigInteger` → `BIGINT` | — | yes | — | Chỉ phiếu NHẬP: giá của lô sắp tạo. Phiếu xuất lấy giá từ lô nên để trống. CHECK `IS NULL OR >= 0`. |
+| `so_luong` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | — | Số theo ĐƠN VỊ NGƯỜI KHAI (`stock_request_lines.dvt`) — giữ để phiếu in đúng con số họ đọc và so thẳng với `sl_duyet`. CHECK `> 0`. |
+| `sl_goc` | `Numeric(14,4)` → `NUMERIC(14,4)` | — | no | — | Cùng số đó QUY VỀ ĐƠN VỊ GỐC — đây mới là số chạy vào lô/tồn (mg 0171). LƯU chứ không tính-lúc-đọc: hệ số quy đổi là dữ liệu sống, tính lại thì lô nhập 3 tháng trước tự đổi số. CHECK `> 0`. |
+| `don_gia` | `BigInteger` → `BIGINT` | — | yes | — | Chỉ phiếu NHẬP: giá của lô sắp tạo, theo ĐƠN VỊ NGƯỜI KHAI (đ/ram nếu nhập theo ram). `post()` quy về đ/đơn-vị-gốc trước khi ghi vào lô. CHECK `IS NULL OR >= 0`. |
 | `ghi_chu` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú riêng cho DÒNG (mặt hàng) — vd tình trạng bao gói, lô hàng lỗi lẻ. Thêm qua migration 0094. |
 | `vi_tri` | `String(100)` → `VARCHAR(100)` | — | yes | — | Phiếu NHẬP: vị trí cất lô trong kho (kệ/ô) — thủ kho khai; ghi sổ chép sang `stock_lots.vi_tri`. Null với XUẤT. Thêm qua migration 0115. |
 
@@ -4671,7 +4404,10 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 |---|---|---|---|---|---|
 | `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
 | `ma_lo` | `String(60)` → `VARCHAR(60)` | **U**, **IX** | no | — | Mã lô người dùng đọc được: `LOT-<mã hàng>-<yymmdd>-<seq>`. |
-| `material_id` | `Integer` → `INTEGER` | **FK→materials.id**, **IX** | no | — | Mặt hàng của lô. |
+| `hang_loai` | `String(8)` → `VARCHAR(8)` | **IX** (cặp) | no | — | Loại mặt hàng gốc: `giay` \| `vat_tu`. |
+| `hang_id` | `Integer` → `INTEGER` | **IX** (cặp) | no | — | Id trong `giay_nguyen` / `vat_tu_in_an`. Soft ref (2 bảng đích nên không FK thật được). |
+> ⚠️ `sl_ban_dau`/`sl_con_lai`/`don_gia_nhap` của lô LUÔN theo **đơn vị gốc** của mặt hàng (`don_vi_gia`) — nhập bằng ram/thùng gì cũng quy về gốc trước khi ghi, nếu không thì `SUM(sl_con_lai)` là cộng táo với cam.
+
 | `voucher_id` | `Integer` → `INTEGER` | **FK→stock_vouchers.id**, **IX** | yes | — | Phiếu nhập sinh ra lô. Nullable vì tồn đầu kỳ (giai đoạn sau) không có phiếu. |
 | `kho_id` | `Integer` → `INTEGER` | **FK→kho_hang.id**, **IX** | no | — | Kho chứa lô. |
 | `vi_tri` | `String(100)` → `VARCHAR(100)` | — | yes | — | Vị trí trong kho (kệ/ô). |
@@ -4701,7 +4437,7 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 
 ### `stock_thresholds`
 
-**Purpose:** ngưỡng tồn theo cặp (mã hàng × kho). 1 dòng = 1 cặp.
+**Purpose:** ngưỡng tồn theo cặp (mặt hàng × kho). 1 dòng = 1 cặp. Khoá duy nhất `(hang_loai, hang_id, kho_id)` (mg 0171).
 
 > So sánh chạy trên **TỒN KHẢ DỤNG** (chỉ lô `available`), không phải tồn thực tế: hàng chờ
 > KCS / hàng lỗi nằm trong kho nhưng không dùng được nên không được tính.
@@ -4712,7 +4448,10 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
 | `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
-| `material_id` | `Integer` → `INTEGER` | **FK→materials.id** (CASCADE), **IX** | no | — | Mặt hàng. |
+| `hang_loai` | `String(8)` → `VARCHAR(8)` | **U** (cùng `kho_id`) | no | — | Loại mặt hàng gốc: `giay` \| `vat_tu`. |
+| `hang_id` | `Integer` → `INTEGER` | **U** (cùng `kho_id`) | no | — | Id trong `giay_nguyen` / `vat_tu_in_an`. Soft ref (2 bảng đích nên không FK thật được). |
+> Ngưỡng khai theo ĐƠN VỊ GỐC của mặt hàng — cùng thang với `stock_lots.sl_con_lai`, nếu khác thang thì so ngưỡng với tồn là so hai đơn vị khác nhau.
+
 | `kho_id` | `Integer` → `INTEGER` | **FK→kho_hang.id** (CASCADE), **IX** | no | — | Kho áp ngưỡng. |
 | `nguong_ton` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | — | Dưới mức này = 🟠 phải mua ngay. CHECK `>= 0`. |
 | `nguong_can_ton` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | yes | — | ⚠️ **ĐÃ BỎ** mức "cận tồn/sắp hết" (2026-07-29). Cột giữ lại và LUÔN NULL để tránh migration phá DB; không còn dùng khi tính mức tồn. FE không khai nữa; endpoint vẫn nhận optional cho tương thích. CHECK `>= 0`. |

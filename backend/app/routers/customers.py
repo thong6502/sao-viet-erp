@@ -30,12 +30,16 @@ from ..deps import (
     get_authorization_service,
     get_customer_analytics_service,
     get_customer_service,
+    get_department_repository,
+    get_role_repository,
     get_user_repository,
     require_permission,
 )
 from ..models.customer import Customer
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
+from ..repositories.org_scope import dept_subtree_ids
+from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
 from ..repositories.user_repo import UserRepository
 from ..schemas.customer import (
     AddressIn,
@@ -116,6 +120,8 @@ Analytics = Annotated[CustomerAnalyticsService, Depends(get_customer_analytics_s
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Audit = Annotated[AuditLogRepository, Depends(get_audit_repository)]
+Depts = Annotated[DepartmentRepository, Depends(get_department_repository)]
+Roles = Annotated[RoleRepository, Depends(get_role_repository)]
 
 
 def _scope_for(authz: AuthorizationService, user: User) -> str:
@@ -174,6 +180,9 @@ def list_customers(
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     q: str | None = Query(default=None),
     sale: int | None = Query(default=None),
+    # "Chưa gán ai" — khách chưa có NV phụ trách. Chỉ người phạm vi `all` mới có khách loại này
+    # trong tầm nhìn (phạm vi own/department lọc theo chủ sổ nên khách vô chủ tự rơi ra ngoài).
+    chua_gan: bool = Query(default=False),
     followup: bool = Query(default=False),
     tag: str | None = Query(default=None),
     sort: str = Query(default="code"),
@@ -197,7 +206,9 @@ def list_customers(
             or needle in (c.tax_code or "").lower()
             or needle in (c.phone or "").lower()
         ]
-    if sale is not None:
+    if chua_gan:
+        filtered = [c for c in filtered if c.sale_user_id is None]
+    elif sale is not None:
         filtered = [c for c in filtered if c.sale_user_id == sale]
     if followup:  # tab "Cần theo dõi" — việc chăm sóc đến/quá hạn (số thật, care-task)
         due_followups = svc.list_due_followups(scope=scope, actor=user)
@@ -256,22 +267,105 @@ def _min_date():
     return date.min
 
 
+def _thuoc_khoi_kinh_doanh(depts: DepartmentRepository) -> set[int] | None:
+    """Id phòng thuộc khối KINH DOANH (`departments.la_kinh_doanh`, kế thừa cây con).
+
+    `None` = **chưa khai khối nào** ⇒ người gọi lùi về quy tắc theo QUYỀN. Không tự đoán theo tên
+    phòng: danh mục phòng ban là do người dùng khai, "Kinh doanh" có thể tên là "Phòng Bán hàng"."""
+    khoi = depts.kinh_doanh_departments()
+    return {d.id for d in khoi} if khoi else None
+
+
 @router.get("/sales", response_model=list[SaleOption])
 def list_sale_options(
+    svc: Service,
     authz: Authz,
     users: Users,
+    depts: Depts,
+    roles: Roles,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> list[SaleOption]:
-    """Sales selectable as the "phụ trách" owner / list filter, scoped to what the
-    caller may see (own → just themselves; department → the KD dept; all → everyone)."""
+    """Danh sách NGƯỜI dùng cho hộp lọc "NV phụ trách" và ô gán chủ khách hàng.
+
+    Hai tập hợp, cố ý khác nhau (`co_the_gan` phân biệt):
+
+    · **ĐỦ TƯ CÁCH NHẬN KHÁCH** — người thuộc khối Kinh doanh (`departments.la_kinh_doanh`), hoặc
+      nếu chưa khai khối nào thì người có quyền đọc module `khach_hang`. Ô gán khi tạo/sửa chỉ
+      lấy tập này: không để lỡ tay gán khách cho Thủ kho.
+    · **ĐANG GIỮ KHÁCH** trong tầm nhìn của người xem — kể cả người ngoài khối (khách cũ gán cho
+      Admin, sale vừa chuyển sang phòng khác). Hộp LỌC phải có họ, nếu không sẽ có dòng hiện trong
+      bảng mà không cách nào lọc ra.
+
+    Cả hai đều cắt theo PHẠM VI dữ liệu của người xem (own/department/all) — cùng luật cây con với
+    `CustomerRepository._scope_condition`, để hộp chọn không bao giờ lệch với bảng bên dưới."""
     scope = _scope_for(authz, user)
+
+    # 1) Phạm vi: những user-id mà người xem được thấy sổ khách của họ. None = không giới hạn.
+    trong_pham_vi: set[int] | None
     if scope == "all":
-        candidates = users.list_all()
-    elif scope == "department" and user.department_id is not None:
-        candidates = users.list_by_department(user.department_id)
+        trong_pham_vi = None
+    elif scope == "department":
+        dept_ids = dept_subtree_ids(svc.customers.db, user.department_id)
+        trong_pham_vi = (
+            {u.id for d in dept_ids for u in users.list_by_department(d)}
+            if dept_ids
+            else {user.id}
+        )
     else:
-        candidates = [user]
-    return [SaleOption(id=u.id, name=u.name or u.username) for u in candidates]
+        trong_pham_vi = {user.id}
+
+    # 2) Ai đang thực sự giữ khách trong tầm nhìn (kèm số khách — hộp Điều chuyển cần con số này).
+    book = svc.list_scoped_all(scope=scope, actor=user)
+    so_kh: dict[int, int] = {}
+    for c in book:
+        if c.sale_user_id is not None:
+            so_kh[c.sale_user_id] = so_kh.get(c.sale_user_id, 0) + 1
+
+    # 3) Ai đủ tư cách nhận khách.
+    khoi_kd = _thuoc_khoi_kinh_doanh(depts)
+
+    def du_tu_cach(u: User) -> bool:
+        if not u.is_active:
+            return False
+        if khoi_kd is not None:
+            return u.department_id in khoi_kd
+        perm = roles.get_permission(u.role_id, MODULE) if u.role_id is not None else None
+        return perm is not None and perm.can_read
+
+    ung_vien: dict[int, User] = {}
+    gan_duoc: dict[int, bool] = {}
+    for u in users.list_all():
+        if trong_pham_vi is not None and u.id not in trong_pham_vi:
+            continue
+        gan_duoc[u.id] = du_tu_cach(u)
+        if gan_duoc[u.id] or u.id in so_kh:
+            ung_vien[u.id] = u
+    # Người xem luôn có mặt: sale scope `own` phải chọn được chính mình dù chưa có khách nào.
+    if user.id not in ung_vien:
+        ung_vien[user.id] = user
+        gan_duoc.setdefault(user.id, du_tu_cach(user))
+
+    ten_phong = {d.id: d.name for d in depts.list_all()}
+    out: list[SaleOption] = []
+    for u in ung_vien.values():
+        vai_tro = None
+        if u.role_id is not None:
+            role = roles.get_by_id(u.role_id)
+            vai_tro = role.name if role is not None else None
+        out.append(
+            SaleOption(
+                id=u.id,
+                name=u.name or u.username,
+                vai_tro=vai_tro,
+                phong_ban=ten_phong.get(u.department_id) if u.department_id else None,
+                co_the_gan=gan_duoc.get(u.id, False),
+                so_kh=so_kh.get(u.id, 0),
+            )
+        )
+    # Người trong khối lên trước (đó là danh sách người ta chọn hằng ngày), rồi tới người chỉ còn
+    # giữ khách cũ; trong mỗi nhóm xếp theo tên.
+    out.sort(key=lambda o: (not o.co_the_gan, o.name.lower()))
+    return out
 
 
 @router.post("/reassign", response_model=CustomerReassignOut)

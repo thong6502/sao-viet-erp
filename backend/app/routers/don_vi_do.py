@@ -1,7 +1,8 @@
 """Đơn vị & quy đổi router — CRUD đơn vị + CRUD cặp quy đổi + thử một phép đổi.
 
-Dependency INLINE (bám `routers/bu_hao.py`). MODULE quyền = "dm_cong_doan": đơn vị là cấu hình sản
-xuất, ai khai được công đoạn/bù hao thì khai được đơn vị — không đẻ ô quyền mới cho một danh mục.
+Dependency INLINE (bám `routers/bu_hao.py`). MODULE quyền = "dm_don_vi" — quyền RIÊNG. Trước đây
+đi ké `dm_cong_doan`, nghĩa là muốn cho kế toán khai "1 thùng = 24 hộp" thì phải mở luôn cho họ
+danh mục công đoạn. Đơn vị dùng chung cho kho · mua hàng · khoán lương, không thuộc riêng ai.
 """
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import require_permission
+from ..deps import require_any_permission, require_permission
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
@@ -25,7 +26,7 @@ from ..services.don_vi_do_service import (
 from ..services.quy_doi_service import BIEN, _so, don_vi_map, doi_theo_quy_cach
 
 router = APIRouter(prefix="/api/don-vi", tags=["don-vi"])
-MODULE = "dm_cong_doan"
+MODULE = "dm_don_vi"
 
 
 def get_service(db: Annotated[Session, Depends(get_db)]) -> DonViDoService:
@@ -59,10 +60,22 @@ def _cap_row(c) -> CapRowOut:
     return row
 
 
+# ĐỌC danh sách đơn vị: quyền RỘNG hơn phần khai (`MODULE`). Từ 2026-08-08 ô ĐVT của Giấy · Vật tư
+# khác · Kho · NCC đều chọn từ danh mục này, mà mấy màn đó gác bằng module KHÁC — để nguyên
+# `dm_cong_doan` thì người dùng kho mở drawer sẽ ăn 403, và `RebuildCatalogPage` NUỐT lỗi thành
+# danh sách rỗng (`.catch(() => [])`) nên họ chỉ thấy ô tìm không ra gì, không thấy báo lỗi nào.
+_doc_don_vi = require_any_permission(
+    (MODULE, "read"), ("kho", "read"), ("thu_mua", "read"),
+    ("tinh_gia_thanh", "read"), ("san_xuat", "read"),
+    # Các màn danh mục có ô ĐVT trong form: Giấy · Vật tư khác · Công đoạn (đơn vị năng suất) ·
+    # Máy (ô "Đơn vị tốc độ" nay đọc động từ danh mục này thay danh sách viết cứng).
+    ("dm_giay", "read"), ("dm_vat_tu", "read"), ("dm_cong_doan", "read"), ("dm_thiet_bi", "read"))
+
+
 @router.get("", response_model=DonViDoListOut)
 def list_items(
     svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(_doc_don_vi)],
     q: str | None = Query(default=None),
     ho: str | None = Query(default=None),
     active: bool | None = Query(default=None),

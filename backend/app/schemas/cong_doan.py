@@ -18,6 +18,8 @@ class CongDoanDauViecIn(BaseModel):
     so_nguoi_toi_thieu: int = Field(default=1, ge=1)
     so_nguoi_tieu_chuan: int = Field(ge=1)
     so_nguoi_toi_da: int = Field(ge=1)
+    # Giờ chờ kỹ thuật SAU đầu việc này (keo đông…). Vế TỔ; vế MÁY ở `may_thiet_bi.cho_ky_thuat_gio`.
+    cho_ky_thuat_gio: float = Field(default=0, ge=0, le=720)
     is_default: bool = False
 
 
@@ -38,6 +40,9 @@ class CongDoanIn(BaseModel):
     bu_hao_id: int | None = None
     so_to_bu_hao: int = Field(default=50, ge=0)
     nhom: str
+    # Nhóm máy (tên ở danh mục `nhom_may`) làm được công đoạn này — chặn gán máy sai loại ở bài
+    # ghép. None/[] = không ràng buộc.
+    nhom_may_cho_phep: list[str] | None = None
     department_id: int | None = None
     khoan_ghi_theo: str = "khong"
     allowed_defect_pct: float = Field(default=0, ge=0, le=1)
@@ -75,6 +80,7 @@ class CongDoanRow(BaseModel):
     bu_hao_id: int | None = None
     so_to_bu_hao: int = 50
     nhom: str
+    nhom_may_cho_phep: list[str] | None = None
     department_id: int | None = None
     khoan_ghi_theo: str = "khong"
     allowed_defect_pct: float = 0

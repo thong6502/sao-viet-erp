@@ -125,9 +125,10 @@ def so_do(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> SoDoOut:
-    """Đồ thị của bài: N nhánh vào → MỘT node IN → N nhánh ra.
+    """Đồ thị của bài: routing ĐẦY ĐỦ của từng lệnh + các bước NGƯỜI khai là chạy chung.
 
-    DẪN XUẤT, không lưu cạnh nào — xem `docs/spec-bai-ghep-dag.md` §2.1.
+    KHÔNG còn mô hình "một node IN duy nhất": người gộp bước nào chung (CTP/in/cán/bế) thì đó là
+    điểm tụ; điểm TOẢ nằm sau bước gộp CUỐI. DẪN XUẤT, không lưu cạnh nào (xem `bai_ghep_cong_doan`).
     """
     svc = _svc(db)
     try:

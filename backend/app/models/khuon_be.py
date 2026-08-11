@@ -16,7 +16,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ..db import Base
 
 # Tình trạng khuôn — record-only (con người phán, máy chỉ ghi nhận).
-TINH_TRANG = ("dang_dung", "hong", "thanh_ly")
+# `dang_dat_lam` (mg 0177): khuôn CHƯA có trong tay, đang đặt thợ làm. Đi kèm `ngay_ve_du_kien` —
+# bàn xếp lịch so ngày đó với giờ bắt đầu bước bế để biết khuôn có KỊP không.
+TINH_TRANG = ("dang_dung", "dang_dat_lam", "hong", "thanh_ly")
 
 
 def _utcnow() -> datetime:
@@ -36,7 +38,9 @@ class KhuonBe(Base):
     ngay_lam_khuon: Mapped[date | None] = mapped_column(Date, nullable=True)  # ngày làm khuôn mới
     tinh_trang: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="dang_dung", default="dang_dung"
-    )  # dang_dung|hong|thanh_ly
+    )  # dang_dung|dang_dat_lam|hong|thanh_ly
+    # Ngày khuôn ĐANG ĐẶT LÀM dự kiến về (mg 0177). Chỉ có nghĩa với `tinh_trang='dang_dat_lam'`.
+    ngay_ve_du_kien: Mapped[date | None] = mapped_column(Date, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)

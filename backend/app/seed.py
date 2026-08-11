@@ -48,10 +48,19 @@ MODULES: list[tuple[str, str]] = [
     # không đổi gì. Đã gỡ (migration 0069): san_pham · dm_gia_click · dm_gia_khuon_ban ·
     # dm_dinh_muc · dm_binh_bai. Dữ liệu norms/plate_die_rates/products GIỮ NGUYÊN — engine
     # tính giá đọc thẳng repo, không qua ma trận quyền.
+    # MỘT MÀN = MỘT QUYỀN. Thứ tự bám đúng menu "Cấu hình danh mục" để người cấp quyền dò theo
+    # màn hình chứ không phải dò theo tên kỹ thuật. Trước đây 10 mục menu chỉ có 5 dòng quyền:
+    # bật đủ 5/5 vẫn không mở được Giấy (nó mượn quyền `kho`), Bù hao và Đơn vị thì đi ké
+    # `dm_cong_doan` — cấp cho kế toán khai đơn vị là hở luôn danh mục công đoạn.
     ("dm_loai_san_pham", "Loại sản phẩm"),
-    ("dm_giay_vat_tu", "Vật liệu & Giá"),
     ("dm_thiet_bi", "Thiết bị & Máy móc"),
-    ("dm_cong_doan", "Công đoạn gia công"),
+    ("dm_cong_doan", "Công đoạn"),
+    ("dm_bu_hao", "Bù hao"),
+    ("dm_don_vi", "Đơn vị & quy đổi"),
+    ("dm_chung_loai_giay", "Chủng loại giấy"),
+    ("dm_giay", "Giấy"),
+    ("dm_vat_tu", "Vật tư khác"),
+    ("dm_kho_hang", "Khai báo kho"),
     ("nhan_su", "Nhân sự"),
     ("nghi_phep", "Nghỉ phép"),
     ("tang_ca", "Tăng ca"),
@@ -133,6 +142,17 @@ def _full(scope: str, *, can_approve_exception: bool = False) -> dict:
         can_set_threshold=True,
         can_post=True,  # GĐ toàn quyền kho → được GHI SỔ (chốt tồn)
         can_close_book=True,  # GĐ: xem Báo cáo kho kế toán + khóa kỳ (chốt sổ) + export MISA
+    )
+
+
+def _dm_full() -> dict:
+    """Toàn quyền một module DANH MỤC: 4 bit CRUD, scope luôn `all`.
+
+    Danh mục là dữ liệu dùng chung toàn công ty — không có "của tôi \ cả phòng" (xem
+    `SCOPELESS_MODULES` ở role_service, UI cũng đã bỏ cột Phạm vi ở nhóm này).
+    """
+    return dict(
+        can_read=True, can_create=True, can_update=True, can_delete=True, scope=SCOPE_ALL,
     )
 
 
@@ -297,6 +317,11 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # can_approve = phát hành kế hoạch; can_approve_exception = duyệt ngoại lệ (bỏ qua cảnh
             # báo khi phát hành) — Kế hoạch SX (trưởng điều độ) cầm cả hai.
             "san_xuat": {**_rcu(SCOPE_ALL), "can_approve": True, "can_approve_exception": True},
+            # Bảng cân đối vật tư có nút "Đề nghị mua" cho dòng thiếu — nút đó gác bằng
+            # `thu_mua:request`. KHÔNG cấp thì nút tự ẩn và người điều độ nhìn thấy lệnh sắp
+            # thiếu giấy mà không làm gì được ngay tại chỗ. Chỉ `request` + đọc phiếu của mình:
+            # điều độ ĐỀ NGHỊ mua, còn đặt hàng và duyệt chi vẫn là việc bộ phận Mua hàng.
+            "thu_mua": {**_read(SCOPE_OWN), "can_request": True},
             "khuon_be": _read(SCOPE_ALL),  # ③ điều độ đọc danh mục khuôn để gán vào lệnh có bế
             # Sửa routing của lệnh cần ĐỌC danh mục: công đoạn (thêm bước), máy (gán máy), tổ
             # (đổi tổ phụ trách). Chỉ READ — cấu hình danh mục vẫn là việc của phòng khác.
@@ -403,6 +428,10 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
                 "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
                 "scope": SCOPE_ALL, **_KHO_VIEW,
             },
+            # Danh mục hàng + khai báo kho: GIỮ NGUYÊN khả năng cũ (hồi chúng còn gác bằng quyền
+            # `kho`) — tách module không phải để âm thầm rút quyền của người đang làm việc. Muốn
+            # siết "thủ kho không đặt đơn giá giấy" thì tắt công tắc Thao tác ở ma trận.
+            **{k: _dm_full() for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "dm_kho_hang")},
             "san_xuat": _read(SCOPE_ALL),    # xem kế hoạch SX để tham chiếu khi lập phiếu
         },
     ),
@@ -417,6 +446,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
                 "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
                 "scope": SCOPE_ALL, **_KHO_QL,
             },
+            **{k: _dm_full() for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "dm_kho_hang")},
             "san_xuat": _read(SCOPE_ALL),
         },
     ),
@@ -438,6 +468,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_ALL),
             # Kế toán kho: thêm KHÓA KỲ (chốt sổ) + Báo cáo kho + export MISA (can_close_book).
             "kho": {**_read(SCOPE_ALL), **_KHO_QL, "can_close_book": True},
+            # Đối chiếu giá vốn cần TRA danh mục, không sửa.
+            **{k: _read(SCOPE_ALL) for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu")},
         },
     ),
     # --- Phía ĐỀ NGHỊ: scope `own` (chỉ thấy đề nghị CỦA MÌNH), KHÔNG `can_view_stock`,
@@ -522,6 +554,12 @@ def seed_departments(db: Session) -> None:
     for name in DEPARTMENTS:
         if depts.get_by_name(name) is None:
             depts.create(name=name)
+    # Khối KINH DOANH: đánh dấu phòng "Kinh doanh" của bộ dữ liệu mẫu (cả cây con kế thừa). Chỉ là
+    # DỮ LIỆU MẪU — thực tế người dùng tự tick trong màn Phòng ban, tên phòng do họ đặt. Chưa tick
+    # phòng nào thì danh sách NV phụ trách lùi về quy tắc theo quyền `khach_hang`.
+    kd = depts.get_by_name("Kinh doanh")
+    if kd is not None and not kd.la_kinh_doanh:
+        depts.set_la_kinh_doanh(kd, True)
 
 
 def seed_unit_levels(db: Session) -> None:
@@ -695,58 +733,6 @@ class _SeedActor:
     department_id = None
 
 
-# --- Sample products (spec-07 demo data) -----------------------------------
-
-# (name, product_type, binding_type|None, [components]) where each component is
-# (component_type, colors_front, colors_back, page_count, finished_w, finished_h,
-#  bleed, grain_direction). paper_master_id stays None (SEAM-03 — Danh mục Giấy chưa build).
-KD_PRODUCTS: list[tuple[str, str, str | None, list[tuple]]] = [
-    ("Name card công ty", "name_card", None, []),
-    ("Tờ rơi khuyến mãi A5", "to_roi", None, []),
-    (
-        "Sách giới thiệu 32 trang",
-        "sach",
-        "saddle",
-        [
-            ("cover", 4, 4, 4, 20.5, 29.0, 3.0, "short"),
-            ("body", 4, 4, 32, 20.0, 28.5, 3.0, "long"),
-        ],
-    ),
-]
-
-
-def seed_products(db: Session) -> None:
-    """Seed a few sample products (spec-07). Idempotent: skips once any product exists."""
-    from .repositories.product_repo import ComponentInput, ProductRepository
-
-    products = ProductRepository(db)
-    if products.list(size=1)[1] > 0:
-        return
-    for name, product_type, binding_type, comps in KD_PRODUCTS:
-        components = [
-            ComponentInput(
-                component_type=ctype,
-                paper_master_id=None,
-                colors_front=cf,
-                colors_back=cb,
-                page_count=pc,
-                finished_w=fw,
-                finished_h=fh,
-                bleed=bl,
-                grain_direction=gd,
-                sequence=i,
-            )
-            for i, (ctype, cf, cb, pc, fw, fh, bl, gd) in enumerate(comps)
-        ]
-        products.create(
-            name=name,
-            product_type=product_type,
-            binding_type=binding_type,
-            note=None,
-            components=components,
-        )
-
-
 # --- Sample sales history (spec-06 CRM-360 demo data) ----------------------
 # Real orders + quotations tied to seeded customers so the Object-page Dashboard
 # has genuine 12-month revenue / product-mix / frequency to render (never faked).
@@ -788,7 +774,6 @@ def seed_sales_history(db: Session) -> None:
         QuoteVersion,
         QuoteItem,
     )
-    from .models.estimate import Estimate, EstimateOption
 
     # Spec mẫu cho phiếu tính giá seed (khổ thành phẩm A4, 4 màu 2 mặt).
     _CATALOGUE_SPEC = {"finished_width": 21, "finished_height": 29.7, "colors": 4, "sides": 2}
@@ -908,35 +893,6 @@ def seed_sales_history(db: Session) -> None:
 
     _seq = SequenceService(DocumentSequenceRepository(db))
 
-    def _mk_estimate(customer, sale_id, product_name, product_type, spec, quantity,
-                     total_cost, created, status="converted_to_quote"):
-        """Phiếu tính giá (Estimate) + 1 mức SL — nguồn giá vốn KHÓA cho báo giá.
-        status='converted_to_quote' = đã pick vào báo giá (khóa khỏi picker); mã TG26 sinh
-        qua SequenceService như báo giá. Trả (estimate, option)."""
-        est = Estimate(
-            estimate_number=_seq.generate_code("costing", at_date=created.date()),
-            customer_id=customer.id if customer else None,
-            product_type=product_type,
-            product_name=product_name,
-            status=status,
-            input_spec_json=spec,
-            quantity_list_json=[quantity],
-            created_by=sale_id,
-            created_at=created,
-        )
-        db.add(est)
-        db.flush()
-        selling = total_cost / 0.8  # biên 20% trên giá vốn → giữ số khớp báo giá
-        opt = EstimateOption(
-            estimate_id=est.id, quantity=quantity, total_cost=total_cost, warnings_json=[],
-            margin_percent=20.0, selling_price=selling, vat_percent=10.0,
-            vat_amount=selling * 0.10, final_price=selling * 1.10,
-            unit_price=selling / quantity, actual_margin=20.0, included_in_quote=True,
-        )
-        db.add(opt)
-        db.flush()
-        return est, opt
-
     def _mk_quote(customer, sale_id, months_ago, total, status=STATUS_SENT, day=10,
                   product_name="Catalogue A4 in offset", product_type="brochure",
                   spec=None, spec_text=None, quantity=1000):
@@ -948,10 +904,6 @@ def seed_sales_history(db: Session) -> None:
         spec_text = spec_text or _CATALOGUE_SPEC_TEXT
         cost = int(total * 0.8)
 
-        # Phiếu tính giá NGUỒN — báo giá khóa giá vốn từ đây (↳ tham chiếu + "Xem phiếu tính giá").
-        est, opt = _mk_estimate(customer, sale_id, product_name, product_type, spec,
-                                quantity, cost, created)
-
         # Sinh mã qua SequenceService (KHÔNG đếm tay) — giữ counter đồng bộ để
         # báo giá tạo sau seed không đụng UNIQUE quote_number.
         quote_number = _seq.generate_code("quotation", at_date=created.date())
@@ -959,7 +911,6 @@ def seed_sales_history(db: Session) -> None:
             quote_number=quote_number,
             customer_id=customer.id,
             customer_name_snapshot=customer.name,
-            estimate_id=est.id,  # phiếu đầu tiên ở header (tương thích 1-phiếu)
             salesperson_id=sale_id,
             status="accepted" if status == STATUS_ACCEPTED else status,
             valid_until=valid,
@@ -986,8 +937,6 @@ def seed_sales_history(db: Session) -> None:
 
         qi = QuoteItem(
             quote_version_id=qv.id,
-            estimate_id=est.id,
-            estimate_option_id=opt.id,
             line_no=1,
             product_type=product_type,
             product_name=product_name,
@@ -1094,13 +1043,10 @@ def seed_sales_history(db: Session) -> None:
         q.current_version_id = qv.id
         sub = disc = vat = fin = tc = 0.0
         for i, (pname, ptype, spec, stext, qty, cost, dgiai) in enumerate(ml_lines, start=1):
-            est, opt = _mk_estimate(an_phat, sale1.id, pname, ptype, spec, qty, cost, created)
-            if i == 1:
-                q.estimate_id = est.id
             selling = cost / 0.88  # markup 12% (gói "Cạnh tranh") → khớp demo cũ
             v = selling * 0.10
             db.add(QuoteItem(
-                quote_version_id=qv.id, estimate_id=est.id, estimate_option_id=opt.id,
+                quote_version_id=qv.id,
                 line_no=i, product_type=ptype, product_name=pname, product_spec_text=stext,
                 dien_giai=dgiai,
                 product_spec_snapshot_json=spec, quantity=qty, unit="cái",
@@ -1116,15 +1062,8 @@ def seed_sales_history(db: Session) -> None:
         qv.final_amount = fin
         db.flush()
 
-    # --- Phiếu tính giá ĐỘC LẬP (chưa pick) — để "Báo giá mới" luôn có phiếu để chọn ---
-    if an_phat is not None and sale1 is not None:
-        now0 = _month_mid(0, day=17)
-        _mk_estimate(an_phat, sale1.id, "Name card 4 màu 2 mặt", "business_card",
-                     {"finished_width": 9, "finished_height": 5.5, "colors": 4, "sides": 2},
-                     5000, 1_200_000, now0, status="calculated")
-        _mk_estimate(an_phat, sale1.id, "Tờ rơi A5 quảng cáo", "flyer",
-                     _FLYER_SPEC, 10000, 4_800_000, now0, status="calculated")
-
+    # Phiếu tính giá cho picker "Báo giá mới" do `seed_phieu_tinh_gia` sinh (engine đang chạy) —
+    # khối Estimate độc lập ở đây đã gỡ cùng cụm tính giá đời cũ (Đợt 5).
     db.commit()
 
 
@@ -1190,75 +1129,6 @@ def seed_product_types(db: Session) -> None:
                 has_packaging=has_packaging, default_pack_qty=(50 if has_packaging else 0),
                 is_active=True,
             ))
-    db.commit()
-
-
-def seed_materials(db: Session) -> None:
-    from sqlalchemy import select
-    from .models.material import Material, MaterialCost, GROUP_FROM_TYPE
-    from .repositories.material_repo import MaterialRepository
-    from datetime import date
-
-    repo = MaterialRepository(db)
-    if db.execute(select(Material)).first() is not None:
-        return
-
-    eff = date(2026, 1, 1)
-
-    def mk(*, name, material_type, unit, price_unit, unit_price, group=None, **extra):
-        """Tạo vật tư + 1 dòng giá (dữ liệu mẫu §10 — docs/VAT_TU_DON_GIA.md)."""
-        m = repo.create(
-            name=name, material_type=material_type, unit=unit,
-            width_cm=extra.pop("width_cm", None), height_cm=extra.pop("height_cm", None),
-            gsm=extra.pop("gsm", None), paper_family=extra.pop("paper_family", None),
-            surface=extra.pop("surface", None),
-            default_waste_pct=extra.pop("default_waste_pct", 0.0),
-        )
-        m.material_group = group or GROUP_FROM_TYPE.get(material_type)
-        m.base_uom = extra.pop("base_uom", unit)
-        m.purchase_uom = extra.pop("purchase_uom", price_unit)
-        m.consumption_uom = extra.pop("consumption_uom", unit)
-        m.conversion_method = extra.pop("conversion_method", None)
-        for k, v in extra.items():
-            setattr(m, k, v)
-        db.add(m)
-        db.flush()
-        db.add(MaterialCost(material_id=m.id, price_unit=price_unit, unit_price=unit_price, effective_from=eff))
-        return m
-
-    # ── Bộ vật tư nền (luôn seed) — giữ đúng bộ test cũ để golden/stat không đổi ──
-    mk(name="Couche 150gsm 65x86", material_type="paper", unit="to", price_unit="ram", unit_price=750000,
-       width_cm=65, height_cm=86, gsm=150, paper_family="Couche", surface="bong",
-       conversion_method="ream_500", consumption_uom="to")
-    mk(name="Couche 300gsm 79x109", material_type="paper", unit="to", price_unit="ram", unit_price=1200000,
-       width_cm=79, height_cm=109, gsm=300, paper_family="Couche", surface="mo",
-       conversion_method="ream_500", consumption_uom="to")
-    mk(name="Decal giấy đế vàng", material_type="decal", unit="m2", price_unit="m2", unit_price=15000,
-       conversion_method="area_m2", default_waste_pct=2.0)
-    mk(name="Màng mờ nhiệt", material_type="lamination", unit="m2", price_unit="m2", unit_price=2500,
-       group="film", film_type="matt", conversion_method="area_m2", default_waste_pct=1.0)
-
-    # ── Mẫu mở rộng §10 (gồm MỰC) — demo-gate. Mực làm phát sinh dòng chi phí mực cho mọi job offset
-    # nên KHÔNG seed trong test (golden đóng băng không có mực), giống seed_norms ink trước đây. ──
-    if settings.seed_demo:
-        mk(name="Ivory 300gsm 79x109", material_type="paper", unit="to", price_unit="kg", unit_price=31000,
-           width_cm=79, height_cm=109, gsm=300, paper_family="Ivory", surface="bong",
-           conversion_method="gsm_area", consumption_uom="to")
-        mk(name="Duplex 350gsm 79x109", material_type="carton", unit="to", price_unit="kg", unit_price=25000,
-           width_cm=79, height_cm=109, gsm=350, paper_family="Duplex",
-           conversion_method="gsm_area", consumption_uom="to")
-        # Mực (đ/1.000 lượt-màu — engine đọc TỪ ĐÂY). INK_CMYK = mực offset mặc định (id nhỏ nhất nhóm ink).
-        mk(name="Mực offset CMYK", material_type="chemical", unit="kg", price_unit="nghin_luot", unit_price=500,
-           group="ink", ink_type="offset", ink_color_system="CMYK", consumption_uom="luot", conversion_method="none")
-        mk(name="Mực Pantone", material_type="chemical", unit="kg", price_unit="nghin_luot", unit_price=1200,
-           group="ink", ink_type="pantone", ink_color_system="spot", consumption_uom="luot", conversion_method="none")
-        mk(name="Màng bóng nhiệt", material_type="lamination", unit="m2", price_unit="m2", unit_price=2000,
-           group="film", film_type="gloss", conversion_method="area_m2", default_waste_pct=1.0)
-        mk(name="Keo dán hộp", material_type="glue", unit="kg", price_unit="kg", unit_price=45000,
-           group="glue", consumption_uom="gram", conversion_method="none")
-        mk(name="Thùng carton đóng gói", material_type="chemical", unit="cai", price_unit="cai", unit_price=8000,
-           group="packaging", conversion_method="none")
-
     db.commit()
 
 
@@ -2195,7 +2065,6 @@ def seed_all(db: Session) -> None:
     seed_admin(db)
     link_admin(db)
     seed_product_types(db)
-    seed_materials(db)
     seed_machines(db)
     seed_operations(db)
     seed_special_days(db)  # dữ liệu vận hành thật (không gated demo) — nền lịch/lễ dùng chung
@@ -2219,7 +2088,6 @@ def seed_all(db: Session) -> None:
         # `department_id` nên bước lệnh sản xuất không bao giờ thấy. Bảng khoán thật do
         # `seed_luong_ban_sx` sinh, có tổ đầy đủ.
         seed_customers(db)
-        seed_products(db)
         seed_sales_history(db)
         seed_plate_die_rates(db)
         seed_norms(db)

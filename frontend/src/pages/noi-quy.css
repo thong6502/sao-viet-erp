@@ -30,10 +30,8 @@
 .nqr__file b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
 .nqr__file small { color: var(--ash-2); font-family: var(--ff-mono); font-size: 10px; }
 .nqr__file:hover b { text-decoration: underline; }
-.nqr__file:focus-visible, .nqr__delete:focus-visible, .nqr-modal__head button:focus-visible, .nqr-preview__actions a:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+.nqr__file:focus-visible, .nqr-modal__head button:focus-visible, .nqr-preview__actions a:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
 .nqr__action { text-align: center; }
-.nqr__delete { display: inline-grid; width: 32px; height: 32px; padding: 0; place-items: center; color: var(--ash-2); background: transparent; border: 1px solid transparent; border-radius: var(--r-3); cursor: pointer; }
-.nqr__delete:hover { color: var(--signal); background: var(--signal-soft); border-color: color-mix(in srgb, var(--signal) 22%, transparent); }
 .nqr__state { height: 180px; color: var(--ash) !important; text-align: center; }
 
 .nqr-modal { position: fixed; inset: 0; z-index: 450; display: grid; place-items: center; padding: 20px; background: rgba(20, 19, 15, .58); }

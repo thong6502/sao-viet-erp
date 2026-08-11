@@ -1,6 +1,8 @@
 """Bù hao router — CRUD danh mục bù hao (bảng tra số tờ theo bài in × bậc SL).
 
-Dependency INLINE. MODULE quyền = "dm_cong_doan" (bù hao thuộc cấu hình sản xuất).
+Dependency INLINE. MODULE quyền = "dm_bu_hao" — quyền RIÊNG, không đi ké `dm_cong_doan` nữa:
+bù hao là % hao giấy, đổi một con số là giá thành đổi theo, nên phải cấp được tách khỏi việc
+thêm/sửa bước công đoạn.
 """
 from __future__ import annotations
 
@@ -13,6 +15,7 @@ from ..db import get_db
 from ..deps import require_permission
 from datetime import date
 from ..models.user import User
+from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.bu_hao_repo import BuHaoRepository
 from ..schemas.bu_hao import BuHaoIn, BuHaoListOut, BuHaoRow
 from ..services.bu_hao_service import (
@@ -20,11 +23,11 @@ from ..services.bu_hao_service import (
 )
 
 router = APIRouter(prefix="/api/bu-hao", tags=["bu-hao"])
-MODULE = "dm_cong_doan"
+MODULE = "dm_bu_hao"
 
 
 def get_service(db: Annotated[Session, Depends(get_db)]) -> BuHaoService:
-    return BuHaoService(BuHaoRepository(db))
+    return BuHaoService(BuHaoRepository(db), AuditLogRepository(db))
 
 
 Service = Annotated[BuHaoService, Depends(get_service)]
@@ -69,17 +72,18 @@ def create_item(payload: BuHaoIn, svc: Service, current_user: Annotated[User, De
 
 @router.put("/{bh_id}", response_model=BuHaoRow)
 def update_item(bh_id: int, payload: BuHaoIn, svc: Service,
-                _: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+                user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
     try:
-        return BuHaoRow.model_validate(svc.update(bh_id, payload.model_dump(exclude_unset=True)))
+        return BuHaoRow.model_validate(svc.update(bh_id, payload.model_dump(exclude_unset=True), actor_id=user.id))
     except (BuHaoNotFound, BuHaoDuplicate, BuHaoValidationError) as e:
         raise _err(e) from None
 
 
 @router.delete("/{bh_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-def delete_item(bh_id: int, svc: Service, _: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
+def delete_item(bh_id: int, svc: Service,
+                user: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
     try:
-        svc.delete(bh_id)
+        svc.delete(bh_id, actor_id=user.id)
     except BuHaoNotFound as e:
         raise _err(e) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)

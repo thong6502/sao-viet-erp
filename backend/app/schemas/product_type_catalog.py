@@ -31,10 +31,6 @@ class _ProductTypeConfig(BaseModel):
     has_cover_body_split: bool = False
     # §E
     allowed_materials: list[str] | None = None
-    default_paper_material_id: int | None = None
-    default_cover_material_id: int | None = None
-    default_body_material_id: int | None = None
-    default_ink_material_id: int | None = None
     has_packaging: bool = False
     default_pack_qty: int = Field(default=0, ge=0)
     # §F
@@ -110,10 +106,6 @@ class ProductTypeCatalogDetailOut(ProductTypeCatalogRow):
     allow_custom_size: bool = True
     page_multiple: int = 0
     pages_per_signature: int = 0
-    default_paper_material_id: int | None = None
-    default_cover_material_id: int | None = None
-    default_body_material_id: int | None = None
-    default_ink_material_id: int | None = None
     default_pack_qty: int = 0
     allow_extra_operations: bool = True
     default_tooling_type: str | None = None

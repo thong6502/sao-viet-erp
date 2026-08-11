@@ -125,6 +125,10 @@ def list_shifts(
     return WorkShiftsOut(items=[_shift_out(s) for s in svc.list_shifts()])
 
 
+# Endpoint `/ca-lam` ĐÃ BỎ (2026-08-10) cùng hai ô "Ca làm riêng" ở màn Máy / Phòng ban: máy chạy
+# liên tục, ca khai một chỗ duy nhất tại danh mục Ca kíp bên dưới.
+
+
 @router.post("/shifts", response_model=WorkShiftOut, status_code=status.HTTP_201_CREATED)
 def create_shift(
     body: WorkShiftIn,

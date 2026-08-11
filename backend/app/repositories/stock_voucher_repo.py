@@ -109,8 +109,8 @@ class StockVoucherRepository:
             stmt = stmt.where(StockVoucher.id != exclude_voucher_id)
         return float(self.db.execute(stmt).scalar_one() or 0)
 
-    def xuat_history(self, material_id: int, kho_id: int) -> list[dict]:
-        """Lịch sử XUẤT của 1 mã hàng tại 1 kho — mỗi dòng phiếu XUẤT ĐÃ GHI SỔ, đích danh lô.
+    def xuat_history(self, hang: tuple[str, int], kho_id: int) -> list[dict]:
+        """Lịch sử XUẤT của 1 mặt hàng tại 1 kho — mỗi dòng phiếu XUẤT ĐÃ GHI SỔ, đích danh lô.
 
         Giá vốn của dòng xuất = giá của lô bị trừ (`don_gia_nhap`), không phải `line.don_gia`
         (phiếu xuất không khai giá). Router ẩn giá nếu người gọi thiếu `can_view_cost`.
@@ -137,7 +137,8 @@ class StockVoucherRepository:
                 isouter=True,
             )
             .where(
-                StockVoucherLine.material_id == material_id,
+                StockVoucherLine.hang_loai == hang[0],
+                StockVoucherLine.hang_id == hang[1],
                 StockVoucher.kho_id == kho_id,
                 StockVoucher.loai == VOUCHER_XUAT,
                 StockVoucher.trang_thai == VOUCHER_POSTED,
@@ -194,9 +195,11 @@ class StockVoucherRepository:
         for ln in lines:
             obj.lines.append(StockVoucherLine(
                 request_line_id=ln["request_line_id"],
-                material_id=ln["material_id"],
+                hang_loai=ln["hang_loai"],
+                hang_id=ln["hang_id"],
                 lot_id=ln.get("lot_id"),
                 so_luong=ln["so_luong"],
+                sl_goc=ln["sl_goc"],          # số đã quy về đơn vị gốc — chốt lúc lập phiếu
                 don_gia=ln.get("don_gia"),
                 ghi_chu=ln.get("ghi_chu"),
                 vi_tri=ln.get("vi_tri"),

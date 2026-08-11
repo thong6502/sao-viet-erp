@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError,
   api,
+  type PaymentVoucherRow,
   type PurchaseRequestRow,
   type PurchaseRequestStatus,
   type SupplierCredit,
+  type SupplierRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
@@ -13,6 +15,7 @@ import { Button } from "../components/Button";
 import { CodeLink } from "../components/CodeLink";
 import { DetailModal } from "../components/DetailModal";
 import { Icon } from "../components/Icons";
+import { StatusHistoryTimeline } from "../components/StatusHistoryTimeline";
 import { UNC_ENABLED } from "../constants/features";
 import { fmtDate, money } from "../utils/format";
 import { PaymentVoucherDialog } from "./PaymentVoucherDialog";
@@ -29,7 +32,7 @@ const STATUS_META: Record<
   pending_approval: { label: "Chờ duyệt", tone: "pending" },
   approved: { label: "Đã duyệt", tone: "approved" },
   rejected: { label: "Từ chối", tone: "rejected" },
-  purchased: { label: "Đã mua", tone: "purchased" },
+  purchased: { label: "Đang mua", tone: "purchased" },
   partially_received: { label: "Giao một phần", tone: "partial" },
   received: { label: "Đã nhận", tone: "received" },
   cancelled: { label: "Đã hủy", tone: "cancelled" },
@@ -40,6 +43,40 @@ const PAYMENT_META = {
   partial: { label: "Thanh toán một phần", tone: "partial" },
   paid: { label: "Đã thanh toán", tone: "paid" },
 } as const;
+
+const VOUCHER_TYPE_LABEL: Record<PaymentVoucherRow["voucher_type"], string> = {
+  cash: "Phiếu chi",
+  bank_transfer: "UNC",
+};
+
+const PAYMENT_STAGE_LABEL: Record<PaymentVoucherRow["payment_stage"], string> = {
+  advance: "Đặt cọc",
+  partial: "Thanh toán một phần",
+  final: "Thanh toán cuối",
+  other: "Khác",
+};
+
+const VOUCHER_STATUS_LABEL: Record<PaymentVoucherRow["status"], string> = {
+  paid: "Đã chi",
+  cancelled: "Đã hủy",
+};
+
+type DepositFilter = "all" | "none" | "unpaid" | "partial" | "enough";
+
+function DepositCell({ row }: { row: PurchaseRequestRow }) {
+  if ((row.deposit_expected ?? 0) <= 0) {
+    return <span className="md-page__muted">-</span>;
+  }
+  const paid = row.coc_da_chi ?? 0;
+  const expected = row.deposit_expected ?? 0;
+  const tone = paid >= expected ? "ok" : paid > 0 ? "warn" : "empty";
+  return (
+    <div className={`purchase__deposit purchase__deposit--${tone}`}>
+      <strong>{money(paid)}</strong>
+      <span>/ {money(expected)}</span>
+    </div>
+  );
+}
 
 export function AccountingPurchaseInboxPage({
   navigate,
@@ -71,7 +108,14 @@ export function AccountingPurchaseInboxPage({
   // Mới vào hiện TẤT CẢ (chủ 04/08/2026). Trước đây mặc định lọc "chờ duyệt" nên mở màn ra là
   // giấu mất đơn đã duyệt, đã mua, đã nhận — kế toán tưởng chưa có gì để lập phiếu chi.
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [supplierFilter, setSupplierFilter] = useState<number | "all">("all");
+  const [depositFilter, setDepositFilter] = useState<DepositFilter>("all");
+  const [createdFrom, setCreatedFrom] = useState("");
+  const [createdTo, setCreatedTo] = useState("");
+  const [neededFrom, setNeededFrom] = useState("");
+  const [neededTo, setNeededTo] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +133,12 @@ export function AccountingPurchaseInboxPage({
       .inbox(token, {
         q: q.trim() || undefined,
         status: statusFilter === "all" ? null : statusFilter,
+        supplier_id: supplierFilter === "all" ? null : supplierFilter,
+        deposit_status: depositFilter === "all" ? null : depositFilter,
+        created_from: createdFrom || null,
+        created_to: createdTo || null,
+        needed_from: neededFrom || null,
+        needed_to: neededTo || null,
         sort: "-created_at",
         page,
         size: PAGE_SIZE,
@@ -110,7 +160,30 @@ export function AccountingPurchaseInboxPage({
         ),
       )
       .finally(() => setLoading(false));
-  }, [token, q, statusFilter, page]);
+  }, [
+    token,
+    q,
+    statusFilter,
+    supplierFilter,
+    depositFilter,
+    createdFrom,
+    createdTo,
+    neededFrom,
+    neededTo,
+    page,
+  ]);
+
+  const loadSuppliers = useCallback(() => {
+    if (!token) return;
+    api.suppliers
+      .list(token, { status: "active", sort: "name", page: 1, size: 200 })
+      .then((res) => setSuppliers(res.items))
+      .catch(() => setSuppliers([]));
+  }, [token]);
+
+  useEffect(() => {
+    loadSuppliers();
+  }, [loadSuppliers]);
 
   useEffect(() => {
     load();
@@ -132,6 +205,37 @@ export function AccountingPurchaseInboxPage({
     () => rows.find((row) => row.id === selectedId) ?? null,
     [rows, selectedId],
   );
+  const [vouchers, setVouchers] = useState<PaymentVoucherRow[]>([]);
+  const [vouchersLoading, setVouchersLoading] = useState(false);
+
+  useEffect(() => {
+    if (!token || selected == null) {
+      setVouchers([]);
+      setVouchersLoading(false);
+      return;
+    }
+    let ignore = false;
+    setVouchersLoading(true);
+    api.accounting
+      .vouchers(token, {
+        purchase_request_id: selected.id,
+        sort: "-created_at",
+        page: 1,
+        size: 50,
+      })
+      .then((data) => {
+        if (!ignore) setVouchers(data.items);
+      })
+      .catch(() => {
+        if (!ignore) setVouchers([]);
+      })
+      .finally(() => {
+        if (!ignore) setVouchersLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [token, selected, eventTick]);
 
   // HẠN MỨC CÔNG NỢ của NCC trên đơn đang mở — CẢNH BÁO MỀM (Đ6): chỉ nhắc, KHÔNG chặn duyệt.
   // Chặn cứng ở đây là đúng lúc gấp nhất (hết giấy, phải mua ngay) thì hệ khoá đường mua.
@@ -205,7 +309,7 @@ export function AccountingPurchaseInboxPage({
       setError(
         err instanceof ApiError
           ? err.message
-          : "Không từ chối được phiếu mua hàng.",
+          : "Không từ chối được đơn mua hàng.",
       );
     } finally {
       setBusy(null);
@@ -300,7 +404,7 @@ export function AccountingPurchaseInboxPage({
             className="input"
             value={q}
             onChange={(event) => setQ(event.target.value)}
-            placeholder="Tìm PMH, YCMH, nhà cung cấp..."
+            placeholder="Tìm mã đơn, YCMH, nhà cung cấp..."
           />
           {/* <Button type="submit" variant="ghost">
             Tìm
@@ -325,6 +429,81 @@ export function AccountingPurchaseInboxPage({
               </option>
             ))}
         </select>
+        <select
+          className="input acct-toolbar__select"
+          value={supplierFilter}
+          onChange={(event) => {
+            setSupplierFilter(event.target.value === "all" ? "all" : Number(event.target.value));
+            setPage(1);
+          }}
+        >
+          <option value="all">Tất cả nhà cung cấp</option>
+          {suppliers.map((supplier) => (
+            <option key={supplier.id} value={supplier.id}>
+              {supplier.name}
+            </option>
+          ))}
+        </select>
+        <select
+          className="input acct-toolbar__select"
+          value={depositFilter}
+          onChange={(event) => {
+            setDepositFilter(event.target.value as DepositFilter);
+            setPage(1);
+          }}
+        >
+          <option value="all">Tất cả tiền cọc</option>
+          <option value="none">Không yêu cầu cọc</option>
+          <option value="unpaid">Chưa cọc</option>
+          <option value="partial">Cọc thiếu</option>
+          <option value="enough">Cọc đủ</option>
+        </select>
+        <div className="acct-toolbar__date-group">
+          <span>Ngày tạo</span>
+          <input
+            className="input acct-toolbar__date"
+            type="date"
+            title="Ngày tạo từ"
+            value={createdFrom}
+            onChange={(event) => {
+              setCreatedFrom(event.target.value);
+              setPage(1);
+            }}
+          />
+          <input
+            className="input acct-toolbar__date"
+            type="date"
+            title="Ngày tạo đến"
+            value={createdTo}
+            onChange={(event) => {
+              setCreatedTo(event.target.value);
+              setPage(1);
+            }}
+          />
+        </div>
+        <div className="acct-toolbar__date-group">
+          <span>Ngày cần hàng</span>
+          <input
+            className="input acct-toolbar__date"
+            type="date"
+            title="Ngày cần từ"
+            value={neededFrom}
+            onChange={(event) => {
+              setNeededFrom(event.target.value);
+              setPage(1);
+            }}
+          />
+          <input
+            className="input acct-toolbar__date"
+            type="date"
+            title="Ngày cần đến"
+            value={neededTo}
+            onChange={(event) => {
+              setNeededTo(event.target.value);
+              setPage(1);
+            }}
+          />
+        </div>
       </section>
 
       <section className="card md-page__tablewrap acct-list">
@@ -334,9 +513,11 @@ export function AccountingPurchaseInboxPage({
               {/* HAI cột trạng thái (đơn + thanh toán) đứng cạnh nhau, NGAY TRƯỚC Thao tác —
                   thống nhất với các màn Thu mua / Kế toán khác. Trước đây "Trạng thái" nằm ở cột 2
                   còn "Thanh toán" ở cột 5, mắt phải nhảy hai chỗ để đọc cùng một câu chuyện. */}
-              <th>Mã phiếu</th>
+              <th>Mã đơn</th>
               <th>Nhà cung cấp</th>
-              <th className="acct-amount-cell">Tổng PMH</th>
+              <th>Ngày tạo</th>
+              <th className="acct-amount-cell">Tổng đơn</th>
+              <th className="acct-amount-cell">Tiền cọc</th>
               <th>Ngày cần</th>
               <th>Trạng thái</th>
               <th>Thanh toán</th>
@@ -346,12 +527,12 @@ export function AccountingPurchaseInboxPage({
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={7}>Đang tải...</td>
+                <td colSpan={9}>Đang tải...</td>
               </tr>
             )}
             {!loading && rows.length === 0 && (
               <tr>
-                <td colSpan={7}>Không có phiếu mua hàng phù hợp.</td>
+                <td colSpan={9}>Không có đơn mua hàng phù hợp.</td>
               </tr>
             )}
             {!loading &&
@@ -383,19 +564,12 @@ export function AccountingPurchaseInboxPage({
                     >
                       {row.supplier_name || "—"}
                     </td>
+                    <td className="acct-code-cell">{fmtDate(row.created_at)}</td>
                     <td className="acct-amount-cell">
                       <strong>{money(row.total_estimate)}</strong>
-                      {/* Trần lập phiếu chi THANH TOÁN bám giá trị hàng ĐÃ GIAO (tổng tiền hoá
-                          đơn các đợt). Không nói ra ở đây thì kế toán viết phiếu bằng số trên đơn
-                          rồi bị chặn mà không hiểu vì sao.
-
-                          CỐ Ý dùng `gia_tri_da_giao` chứ KHÔNG dùng `received_total`: cái sau tính
-                          theo ĐƠN GIÁ × số lượng, còn công nợ bám HOÁ ĐƠN. Hai số lệch nhau là
-                          bình thường, nhưng phơi cả hai ra thì người đọc so rồi hoang mang — mở
-                          chi tiết thấy "Hàng đã giao 1.000.000" mà ngoài bảng ghi 1.100.000. */}
-                      {row.gia_tri_da_giao < row.total_estimate && (
-                        <small>Đã giao {money(row.gia_tri_da_giao)}</small>
-                      )}
+                    </td>
+                    <td className="acct-amount-cell">
+                      <DepositCell row={row} />
                     </td>
                     <td className="acct-code-cell">
                       {fmtDate(row.needed_date)}
@@ -435,7 +609,7 @@ export function AccountingPurchaseInboxPage({
           </tbody>
         </table>
         <div className="md-page__pager">
-          <span>{total} phiếu</span>
+          <span>{total} đơn</span>
           <div>
             <Button
               variant="ghost"
@@ -460,7 +634,7 @@ export function AccountingPurchaseInboxPage({
 
       {selected && (
         <DetailModal
-          kicker="Chi tiết PMH"
+          kicker="Chi tiết đơn"
           title={selected.code}
           badge={
             <span
@@ -558,7 +732,7 @@ export function AccountingPurchaseInboxPage({
               bỏ (không còn phiếu chờ chi), thay bằng "Hàng đã giao" — số thật sự đẻ ra công nợ. */}
           <div className="acct-payment-grid">
             <div>
-              <span>Tổng PMH</span>
+              <span>Tổng đơn</span>
               <strong>{money(selected.total_estimate)}</strong>
             </div>
             <div>
@@ -596,6 +770,106 @@ export function AccountingPurchaseInboxPage({
               )}
             </dl>
           )}
+          <section className="acct-deliveries">
+            <p className="eyebrow">Đợt giao hàng</p>
+            {selected.deliveries.length === 0 ? (
+              <div className="md-page__muted">Chưa có đợt giao nào.</div>
+            ) : (
+              <table className="md-page__table acct-deliveries__table">
+                <thead>
+                  <tr>
+                    <th>Đợt</th>
+                    <th>Ngày giao</th>
+                    <th>Hạn thanh toán</th>
+                    <th>Giá trị</th>
+                    <th>Đã chi</th>
+                    <th>Cọc bù</th>
+                    <th>Còn nợ</th>
+                    <th>Người ghi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selected.deliveries.map((dot) => (
+                    <tr key={dot.id}>
+                      <td>Đợt {dot.seq_no}</td>
+                      <td>{fmtDate(dot.delivery_date)}</td>
+                      <td>{dot.chua_dat_han ? "Chưa đặt hạn" : fmtDate(dot.due_date)}</td>
+                      <td className="acct-amount-cell">{money(dot.amount)}</td>
+                      <td className="acct-amount-cell">{money(dot.paid_amount)}</td>
+                      <td className="acct-amount-cell">{money(dot.coc_bu)}</td>
+                      <td className="acct-amount-cell">{money(dot.con_no)}</td>
+                      <td>
+                        {dot.created_by_name || "—"}
+                        {dot.created_at && (
+                          <small>{fmtDate(dot.created_at)}</small>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+          <section className="acct-vouchers">
+            <p className="eyebrow">Chứng từ chi / UNC</p>
+            {vouchersLoading ? (
+              <div className="md-page__muted">Đang tải chứng từ...</div>
+            ) : vouchers.length === 0 ? (
+              <div className="md-page__muted">Chưa lập chứng từ chi nào.</div>
+            ) : (
+              <table className="md-page__table acct-vouchers__table">
+                <thead>
+                  <tr>
+                    <th>Mã chứng từ</th>
+                    <th>Loại</th>
+                    <th>Đợt thanh toán</th>
+                    <th>Ngày chứng từ</th>
+                    <th>Số tiền</th>
+                    <th>Trạng thái</th>
+                    <th>Người lập / chi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vouchers.map((voucher) => (
+                    <tr key={voucher.id}>
+                      <td className="acct-code-cell">
+                        <strong>{voucher.doc_no || voucher.code}</strong>
+                        {voucher.delivery_seq_no && (
+                          <small>Đợt giao {voucher.delivery_seq_no}</small>
+                        )}
+                      </td>
+                      <td>{VOUCHER_TYPE_LABEL[voucher.voucher_type]}</td>
+                      <td>{PAYMENT_STAGE_LABEL[voucher.payment_stage]}</td>
+                      <td>{fmtDate(voucher.voucher_date)}</td>
+                      <td className="acct-amount-cell">
+                        {money(voucher.amount_vnd)}
+                      </td>
+                      <td>
+                        <span
+                          className={`acct-payment-status acct-payment-status--${voucher.status}`}
+                        >
+                          {VOUCHER_STATUS_LABEL[voucher.status]}
+                        </span>
+                      </td>
+                      <td>
+                        {voucher.created_by_name || "—"}
+                        <small>
+                          {fmtDate(voucher.created_at)}
+                          {voucher.paid_by_name
+                            ? ` · Chi bởi ${voucher.paid_by_name}`
+                            : ""}
+                        </small>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+          <section className="acct-history">
+            <p className="eyebrow">Lịch sử trạng thái</p>
+            <StatusHistoryTimeline items={selected.status_history} />
+          </section>
         </DetailModal>
       )}
 
@@ -645,7 +919,7 @@ export function AccountingPurchaseInboxPage({
                 loading={busy === `reject:${rejecting.id}`}
                 onClick={reject}
               >
-                Từ chối phiếu
+                Từ chối đơn
               </Button>
             </footer>
           </div>

@@ -169,13 +169,9 @@ const FINE_ACTIONS: Record<
       hint: "Mở màn \"Báo cáo kho\": sổ nhập-xuất, xuất Excel theo mẫu MISA, và KHÓA KỲ (chốt sổ) toàn kho / từng kho. Chỉ kế toán kho.",
     },
   ],
-  dm_giay_vat_tu: [
-    { key: "can_manage_price", label: "Cập nhật bảng giá" },
-    { key: "can_clone", label: "Nhân bản" },
-    { key: "can_toggle_active", label: "Bật/tắt hoạt động" },
-  ],
-  dm_thiet_bi: [{ key: "can_manage_price", label: "Cập nhật đơn giá" }],
-  dm_cong_doan: [{ key: "can_manage_price", label: "Cập nhật đơn giá" }],
+  // DANH MỤC: KHÔNG có quyền chi tiết — mỗi màn danh mục chỉ Xem + Thao tác.
+  // (Trước đây bày 5 ô `manage_price` / `clone` / `toggle_active` nhưng KHÔNG endpoint nào kiểm
+  //  → tick vào không đổi gì, mà người cấp quyền lại tưởng đã siết được việc sửa giá.)
   nhan_su: [
     { key: "can_view_salary", label: "Xem lương & BHXH (dữ liệu nhạy cảm)" },
     {
@@ -286,7 +282,15 @@ export const SCOPES: { value: Scope; label: string }[] = [
 
 // Gom module theo PHÂN HỆ để ma trận quyền đọc được (thu gọn từng nhóm). Module không nằm trong
 // nhóm nào rơi vào "Khác" (fallback an toàn khi backend thêm module mới chưa map).
-const MODULE_GROUPS: { key: string; label: string; modules: string[] }[] = [
+const MODULE_GROUPS: {
+  key: string;
+  label: string;
+  modules: string[];
+  /** Nhóm KHÔNG có cột Phạm vi: dữ liệu dùng chung toàn công ty, không có "của tôi \ cả phòng".
+   *  Danh mục là nhóm duy nhất như vậy — `scope` của nó không service nào đọc, để dropdown ở đó
+   *  chỉ khiến người cấp quyền tưởng mình vừa giới hạn được cái gì. Backend ép `all` khi lưu. */
+  noScope?: boolean;
+}[] = [
   {
     key: "kinh_doanh",
     label: "Kinh doanh",
@@ -299,7 +303,21 @@ const MODULE_GROUPS: { key: string; label: string; modules: string[] }[] = [
   {
     key: "danh_muc",
     label: "Danh mục",
-    modules: ["dm_loai_san_pham", "dm_giay_vat_tu", "dm_thiet_bi", "dm_cong_doan", "khuon_be"],
+    // MỘT MÀN = MỘT DÒNG, xếp đúng thứ tự menu "Cấu hình danh mục" để người cấp quyền dò theo
+    // màn hình. 10 mục menu → 10 dòng; trước đây chỉ có 5, bật đủ 5/5 vẫn thiếu màn.
+    modules: [
+      "dm_loai_san_pham",
+      "dm_thiet_bi",
+      "dm_cong_doan",
+      "dm_bu_hao",
+      "dm_don_vi",
+      "dm_chung_loai_giay",
+      "dm_giay",
+      "dm_vat_tu",
+      "khuon_be",
+      "dm_kho_hang",
+    ],
+    noScope: true,
   },
   {
     key: "he_thong",
@@ -391,6 +409,7 @@ export function PermissionMatrix({
     ...MODULE_GROUPS.map((g) => ({
       key: g.key,
       label: g.label,
+      noScope: g.noScope === true,
       rows: g.modules.map((k) => byKey.get(k)).filter((r): r is PermissionRow => !!r),
     })),
     ...(orphans.length
@@ -398,6 +417,7 @@ export function PermissionMatrix({
           {
             key: "khac",
             label: "Khác",
+            noScope: false,
             rows: orphans.map((k) => byKey.get(k)!).filter(Boolean),
           },
         ]
@@ -437,7 +457,11 @@ export function PermissionMatrix({
             </button>
 
             {open && (
-              <div className="rdx-perm__rows" role="group" aria-label={g.label}>
+              <div
+                className={`rdx-perm__rows${g.noScope ? " rdx-perm__rows--noscope" : ""}`}
+                role="group"
+                aria-label={g.label}
+              >
                 <div className="rdx-perm__colhead" aria-hidden="true">
                   <span className="rdx-perm__c-mod">Module</span>
                   <span className="rdx-perm__c-act">
@@ -452,12 +476,14 @@ export function PermissionMatrix({
                       <Icon name="help" size={13} />
                     </span>
                   </span>
-                  <span className="rdx-perm__c-scope">
-                    Phạm vi
-                    <span className="rdx-perm__fine-hint" title={COL_HINTS.scope}>
-                      <Icon name="help" size={13} />
+                  {!g.noScope && (
+                    <span className="rdx-perm__c-scope">
+                      Phạm vi
+                      <span className="rdx-perm__fine-hint" title={COL_HINTS.scope}>
+                        <Icon name="help" size={13} />
+                      </span>
                     </span>
-                  </span>
+                  )}
                 </div>
                 {g.rows.map((row) => {
                   const label = moduleLabel.get(row.module_key) ?? row.module_key;
@@ -544,23 +570,25 @@ export function PermissionMatrix({
                           }
                         />
                       </div>
-                      <div className="rdx-perm__cell rdx-perm__cell--scope">
-                        <select
-                          className="rdx-perm__scope"
-                          value={row.scope}
-                          disabled={readOnly}
-                          aria-label={`Phạm vi — ${label}`}
-                          onChange={(e) =>
-                            onScope(row.module_key, e.target.value as Scope)
-                          }
-                        >
-                          {SCOPES.map((s) => (
-                            <option key={s.value} value={s.value}>
-                              {s.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                      {!g.noScope && (
+                        <div className="rdx-perm__cell rdx-perm__cell--scope">
+                          <select
+                            className="rdx-perm__scope"
+                            value={row.scope}
+                            disabled={readOnly}
+                            aria-label={`Phạm vi — ${label}`}
+                            onChange={(e) =>
+                              onScope(row.module_key, e.target.value as Scope)
+                            }
+                          >
+                            {SCOPES.map((s) => (
+                              <option key={s.value} value={s.value}>
+                                {s.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
 
                       {fineActs && fineIsOpen && (
                         <div className="rdx-perm__fine" role="group" aria-label={`Quyền chi tiết — ${label}`}>

@@ -283,8 +283,24 @@
   display: flex; justify-content: space-around; margin-top: 28px; text-align: center;
   font-size: 12.5px; font-weight: var(--fw-medium);
 }
-.lg-rowact { white-space: nowrap; }
-.lg-rowact .btn { margin-left: 4px; }
+/* --- Ô "Thao tác" trên dòng bảng --------------------------------------------
+   Nút trong ô này là `RowActionButton` dạng dense: mỗi nút được BỌC trong
+   `<span class="rowact__tip">` (bong bóng tooltip), nên `margin` đặt trên `.btn` nằm BÊN TRONG
+   span và phụ thuộc thứ tự bundle với `.btn.rowact__icon-btn{margin-left:0}` — khoảng cách phải
+   đặt trên chính SPAN thì mới chắc.
+   Và KHÔNG dùng `display:flex` trên chính `<td>`: flex trên ô bảng phá vertical-align + độ cao
+   dòng (cùng luật với `.cl-table td .rc-switch` ngay dưới). Căn phải bằng `text-align` là đủ. */
+.lg-rowact { white-space: nowrap; text-align: right; }
+/* `.lg-emp-table-wrapper .ns__table td` (0,2,1) ép canh TRÁI cho mọi ô — thêm lớp thứ ba để
+   riêng ô Thao tác canh phải, không thì tiêu đề đứng bên phải mà nút đứng bên trái. */
+.lg-emp-table-wrapper .ns__table td.lg-rowact { text-align: right; }
+.lg-rowact .rowact__tip + .rowact__tip { margin-left: 4px; }
+/* Tiêu đề cột Thao tác phải canh PHẢI theo nút. `.ns__table th` (nhan-su.css) và
+   `.lg-emp-table-wrapper .ns__table th` đều canh trái nên phải nâng độ ưu tiên bằng chính lớp
+   bọc — KHÔNG dùng !important. */
+.lg-emp-table-wrapper .ns__table th.lg-actcol,
+.lg-table .ns__table th.lg-actcol,
+.ns__table th.lg-actcol { text-align: right; }
 
 /* In phiếu lương: chỉ in card, ẩn phần còn lại */
 @media print {
@@ -669,26 +685,6 @@
   color: var(--signal);
 }
 
-.lg-edit-salary-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
-  padding: 6px 12px;
-  font-size: 12.5px;
-  font-weight: var(--fw-medium);
-  border-radius: var(--r-3);
-  border: 1px solid var(--rule);
-  background: var(--canvas);
-  color: var(--ink);
-  cursor: pointer;
-  transition: all var(--duration-fast) var(--easing-standard);
-}
-.lg-edit-salary-btn:hover {
-  background: var(--rust-soft);
-  border-color: var(--rust);
-  color: var(--rust-deep);
-}
-
 /* Custom selects in toolbar */
 .lg-select-wrapper {
   position: relative;
@@ -956,8 +952,19 @@
 .cl-table td.num .rc-input-wrapper { margin-left: auto; max-width: 140px; }
 /* Công tắc trong bảng (Đơn giá ca) — căn giữa theo chiều dọc, KHÔNG flex trên <td>. */
 .cl-table td .rc-switch { vertical-align: middle; }
-.cl-table td.act { text-align: right; white-space: nowrap; }
-.cl-table td.act .btn { margin-left: 4px; }
+.cl-table td.act, .cl-table th.act { text-align: right; white-space: nowrap; }
+/* Khoảng cách giữa các nút thao tác đặt trên SPAN bọc tooltip của `RowActionButton`, không đặt
+   trên `.btn` — nút dense có `margin-left:0` riêng, để trên `.btn` là dính cuộc đọ độ ưu tiên
+   phụ thuộc thứ tự bundle. */
+.cl-table td.act .rowact__tip + .rowact__tip { margin-left: 4px; }
+
+/* `RowActionButton` gắn sẵn lớp `md-page__rowbtn--danger` cho tín hiệu NGUY HIỂM (xoá / ngừng),
+   nhưng phần khai màu của lớp đó nằm ở `master-data.css` — hai màn Lương KHÔNG import file ấy
+   (import vào là kéo cả bộ `.md-page__*` của màn danh mục sang đây). Khai lại đúng phần cần,
+   giới hạn trong gốc `.ns` (màn Lương) và `.cl` (tab Cấu hình lương). Gỡ dòng này là nút Xoá
+   trông y hệt nút thường. */
+.ns .md-page__rowbtn--danger,
+.cl .md-page__rowbtn--danger { color: var(--signal); }
 .cl-cell__sub {
   display: block;
   margin-top: 2px;

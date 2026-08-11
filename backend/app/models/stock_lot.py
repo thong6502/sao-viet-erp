@@ -20,6 +20,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -69,9 +70,14 @@ class StockLot(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # Mã lô người dùng đọc được: LOT-<mã hàng>-<yymmdd>-<seq>.
     ma_lo: Mapped[str] = mapped_column(String(60), unique=True, index=True, nullable=False)
-    material_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("materials.id"), index=True, nullable=False
-    )
+    # MẶT HÀNG GỐC — cặp `(hang_loai, hang_id)` trỏ `giay_nguyen` hoặc `vat_tu_in_an` (soft ref:
+    # hai bảng đích nên không đặt FK thật được). Thay `material_id` cũ trỏ `materials` — kho không
+    # còn giữ sổ hàng riêng nữa (mg 0171).
+    #
+    # SỐ LƯỢNG của lô luôn tính theo ĐƠN VỊ GỐC của mặt hàng (`don_vi_gia`): nhập bằng ram hay
+    # thùng gì cũng quy về gốc trước khi ghi, nếu không thì `SUM(sl_con_lai)` là cộng táo với cam.
+    hang_loai: Mapped[str] = mapped_column(String(8), nullable=False)
+    hang_id: Mapped[int] = mapped_column(Integer, nullable=False)
     # Phiếu nhập sinh ra lô. Nullable vì tồn đầu kỳ (giai đoạn sau) không có phiếu.
     voucher_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("stock_vouchers.id"), index=True, nullable=True
@@ -111,6 +117,8 @@ class StockLot(Base):
 
     __table_args__ = (
         CheckConstraint("sl_con_lai <= sl_ban_dau", name="chk_stock_lots_con_lai"),
+        # Mọi câu hỏi về tồn đều lọc/gộp theo cặp này — không có index thì quét cả bảng lô.
+        Index("ix_stock_lots_hang", "hang_loai", "hang_id"),
     )
 
 
@@ -124,9 +132,10 @@ class StockThreshold(Base):
     __tablename__ = "stock_thresholds"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    material_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("materials.id", ondelete="CASCADE"), index=True, nullable=False
-    )
+    # Mặt hàng gốc — xem ghi chú ở `StockLot.hang_loai`. Ngưỡng khai theo ĐƠN VỊ GỐC của mặt hàng,
+    # cùng đơn vị với `sl_con_lai` của lô, nếu không thì so ngưỡng với tồn là so hai thang khác nhau.
+    hang_loai: Mapped[str] = mapped_column(String(8), nullable=False)
+    hang_id: Mapped[int] = mapped_column(Integer, nullable=False)
     kho_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("kho_hang.id", ondelete="CASCADE"), index=True, nullable=False
     )
@@ -155,5 +164,5 @@ class StockThreshold(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("material_id", "kho_id", name="uq_stock_thresholds_material_kho"),
+        UniqueConstraint("hang_loai", "hang_id", "kho_id", name="uq_stock_thresholds_hang_kho"),
     )

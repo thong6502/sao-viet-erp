@@ -79,7 +79,9 @@ def dien_giai_tu_thanh_phan(db, tp) -> str | None:
     if _kho_tp(tp):
         dong.append(f"KT: {_kho_tp(tp)}")
 
-    # Giấy: tên + định lượng từ danh mục. Khách cấp giấy thì nói rõ (ảnh hưởng giá — khách cần biết).
+    # Giấy: tên + định lượng từ danh mục.
+    # GỠ 2026-08-09 (Đợt 4 · K): hậu tố "(khách cấp)". Công ty luôn cấp giấy, nên nhãn đó chỉ còn
+    # là câu thừa trên báo giá — và tệ hơn, nó hứa với khách một điều giá không còn phản ánh.
     if getattr(tp, "giay_id", None) is not None:
         giay = db.get(GiayNguyen, tp.giay_id)
         if giay is not None:
@@ -87,8 +89,6 @@ def dien_giai_tu_thanh_phan(db, tp) -> str | None:
             if giay.gsm:
                 g = f"{g} {giay.gsm}g".strip()
             if g:
-                if getattr(tp, "nguon_giay", None) == "khach":
-                    g += " (khách cấp)"
                 dong.append(g)
 
     # In: số màu + quy cách. 2 mặt khác số màu → "4+1 màu"; bằng nhau → "4 màu".
@@ -141,40 +141,18 @@ class QuotationLocked(QuotationError):
     pass
 
 
-class CostingUnavailable(QuotationError):
-    """The referenced Estimate is not available or not calculated."""
-    pass
-
-
 class QuotationService:
     def __init__(
         self,
         quotations: QuotationRepository,
         audit: AuditLogRepository,
         customers=None,
-        estimates=None,
         sequence: SequenceService | None = None,
     ) -> None:
         self.quotations = quotations
         self.audit = audit
         self._customers = customers
-        self._estimates = estimates
         self.sequence = sequence
-
-    def _bump_used_counts(self, estimate) -> None:
-        """Increment used_count of resources an estimate resolves to, at snapshot time.
-        Advisory only (mutated in the shared session, committed by the quote flow) — never blocks."""
-        try:
-            spec = estimate.input_spec_json or {}
-            # Nuôi used_count của Máy đã dùng (khóa xóa/sửa thông số ảnh hưởng giá).
-            mid = spec.get("machine_id")
-            if mid:
-                from ..models.machine import Machine
-                machine = self.quotations.db.get(Machine, int(mid))
-                if machine is not None:
-                    machine.used_count = int(getattr(machine, "used_count", 0) or 0) + 1
-        except Exception:
-            pass
 
     def _customer_display_name(self, customer_id: int | None) -> str | None:
         if customer_id is None or self._customers is None:
@@ -324,19 +302,6 @@ class QuotationService:
         """Người soạn xác nhận đã xem các quyết định duyệt/từ chối → đóng badge/toast phía Sale."""
         self.quotations.mark_my_decisions_seen(actor.id)
 
-    def estimate_numbers(self, estimate_ids: set[int]) -> dict[int, str]:
-        """Map estimate_id → estimate_number cho hiển thị ↳ tham chiếu (bulk, tránh N+1)."""
-        ids = {i for i in estimate_ids if i}
-        if not ids:
-            return {}
-        from sqlalchemy import select as _select
-        from ..models.estimate import Estimate
-        return dict(
-            self.quotations.db.execute(
-                _select(Estimate.id, Estimate.estimate_number).where(Estimate.id.in_(ids))
-            ).all()
-        )
-
     def user_names(self, user_ids: set[int]) -> dict[int, str]:
         """Map user_id → tên hiển thị (người phụ trách trên list)."""
         ids = {i for i in user_ids if i}
@@ -395,7 +360,7 @@ class QuotationService:
 
     def phieu_tinh_gia_ref(self, quote: Quote) -> dict:
         """Tham chiếu Phiếu tính giá NGUỒN (redesign-bao-gia §6, link mở phiếu). {id, ma} — id=None
-        cho báo giá đường Estimate cũ (không có phieu_tinh_gia_id)."""
+        cho báo giá cũ chưa neo phiếu nào."""
         if quote.phieu_tinh_gia_id is None:
             return {"id": None, "ma": None}
         from ..models.phieu_tinh_gia import PhieuTinhGia
@@ -403,32 +368,10 @@ class QuotationService:
         return {"id": quote.phieu_tinh_gia_id, "ma": ptg.ma if ptg else None}
 
     # --- writes ---------------------------------------------------------------
-    @staticmethod
-    def _spec_text(spec: dict | None) -> str | None:
-        """Dòng spec đọc được cho item ('21×29,7 cm · 4 màu/2 mặt') thay vì dump JSON."""
-        if not spec:
-            return None
-        parts: list[str] = []
-        try:
-            w, h = spec.get("finished_width"), spec.get("finished_height")
-            if w and h:
-                fmt = lambda v: (str(int(float(v))) if float(v).is_integer() else f"{float(v):g}".replace(".", ","))  # noqa: E731
-                parts.append(f"{fmt(w)}×{fmt(h)} cm")
-        except (TypeError, ValueError):
-            pass
-        colors = spec.get("colors")
-        if colors:
-            sides = spec.get("sides")
-            parts.append(f"{colors} màu" + (f"/{sides} mặt" if sides else ""))
-        return " · ".join(parts) or None
-
     def create_quotation(
         self,
         *,
         customer_id: int | None,
-        estimate_id: int | None,
-        selected_option_ids: list[int] | None = None,
-        picks: list[dict] | None = None,
         phieu_tinh_gia_id: int | None = None,
         margin_percent: float | None = None,
         valid_until: date | None = None,
@@ -437,6 +380,12 @@ class QuotationService:
         internal_note: str | None = None,
         actor,
     ) -> Quote:
+        """Tạo báo giá TỪ 1 Phiếu tính giá. Từ Đợt 5 đây là nguồn DUY NHẤT — đường Estimate
+        (cụm tính giá đời cũ) đã gỡ hẳn, không còn `estimate_id`/`picks`."""
+        if phieu_tinh_gia_id is None:
+            raise QuotationValidationError(
+                "Báo giá phải xuất phát từ một Phiếu tính giá — chọn phiếu trước khi tạo."
+            )
         if valid_until and valid_until < date.today():
             raise QuotationValidationError("Hạn hiệu lực không được ở quá khứ.")
         # Mặc định hạn hiệu lực = 30 ngày kể từ hôm nay (ngày tạo phiên bản mới nhất). Để trống chủ ý
@@ -447,152 +396,16 @@ class QuotationService:
         # Điều khoản: caller bỏ trống → điền sẵn bộ mặc định để sale sửa ngay trên màn báo giá.
         terms_text = (terms_text or "").strip() or DEFAULT_TERMS
 
-        # BG-1: nguồn MỚI = 1 Phiếu tính giá (PTG) → 1 báo giá (dòng = từng "sản phẩm" PhieuThanhPhan,
-        # giá vốn khóa = gia_von_tp). Ưu tiên nếu có. Đường Estimate cũ giữ tới BG-4.
-        if phieu_tinh_gia_id is not None:
-            return self._create_from_ptg(
-                phieu_tinh_gia_id=phieu_tinh_gia_id,
-                customer_id=customer_id,
-                margin_percent=margin_percent,
-                valid_until=valid_until,
-                terms_text=terms_text,
-                customer_note=customer_note,
-                internal_note=internal_note,
-                actor=actor,
-            )
-
-        # Chuẩn hóa: đường mới `picks` (đa phiếu) ưu tiên; đường cũ 1 phiếu = 1 pick.
-        pick_list: list[tuple[int, list[int] | None]] = []
-        if picks:
-            pick_list = [(int(p["estimate_id"]), list(p["option_ids"])) for p in picks]
-        elif estimate_id:
-            pick_list = [(estimate_id, selected_option_ids)]
-
-        # Header giữ phiếu đầu tiên cho tương thích cũ; tham chiếu thật nằm per dòng item.
-        header_estimate_id = estimate_id or (pick_list[0][0] if pick_list else None)
-
-        # Generate unique code
-        quote_number = self.sequence.generate_code("quotation") if self.sequence else "BG26-0001"
-        cust_name = self._customer_display_name(customer_id)
-        defaults = self._customer_defaults(customer_id)  # auto-fill liên hệ + ĐC giao (redesign-bao-gia §4)
-
-        # Create Header
-        quote = Quote(
-            quote_number=quote_number,
+        return self._create_from_ptg(
+            phieu_tinh_gia_id=phieu_tinh_gia_id,
             customer_id=customer_id,
-            customer_name_snapshot=cust_name,
-            estimate_id=header_estimate_id,
-            salesperson_id=actor.id,
-            status=STATUS_DRAFT,
+            margin_percent=margin_percent,
             valid_until=valid_until,
             terms_text=terms_text,
-            delivery_address=defaults["delivery_address"],
-            contact_name_snapshot=defaults["contact_name"],
-            contact_phone_snapshot=defaults["contact_phone"],
-            contact_title_snapshot=defaults["contact_title"],
             customer_note=customer_note,
             internal_note=internal_note,
-            created_by=actor.id,
+            actor=actor,
         )
-        self.quotations.create(quote)
-
-        # Create Version 1
-        version = QuoteVersion(
-            quote_id=quote.id,
-            version_number=1,
-            status=VERSION_STATUS_DRAFT,
-            created_by=actor.id,
-        )
-        self.quotations.db.add(version)
-        self.quotations.db.flush()
-
-        # Build Items from Estimate Options — mỗi pick = 1 phiếu tính giá
-        subtotal = 0.0
-        discount = 0.0
-        vat = 0.0
-        final = 0.0
-        total_cost = 0.0
-        line_no = 1
-        strict = picks is not None  # đường mới: phiếu không hợp lệ phải chặn, không im lặng
-
-        for est_id, option_ids in pick_list:
-            if not self._estimates:
-                break
-            estimate = self._estimates.get_by_id(est_id)
-            if not estimate or estimate.status != "calculated":
-                if strict:
-                    raise QuotationValidationError(
-                        f"Phiếu tính giá #{est_id} không tồn tại hoặc chưa ở trạng thái 'Đã tính' — không thể đưa vào báo giá."
-                    )
-                continue
-
-            matched = 0
-            for opt in estimate.options:
-                if option_ids is None or opt.id in option_ids:
-                    m_pct = float(margin_percent) if margin_percent is not None else float(opt.margin_percent or 20.0)
-                    pricing = self.calculate_pricing(
-                        total_cost=float(opt.total_cost),
-                        margin_percent=m_pct,
-                        vat_percent=float(opt.vat_percent or 10.0),
-                        quantity=opt.quantity,
-                    )
-
-                    item = QuoteItem(
-                        quote_version_id=version.id,
-                        estimate_id=estimate.id,
-                        estimate_option_id=opt.id,
-                        line_no=line_no,
-                        product_type=estimate.product_type,
-                        product_name=estimate.product_name,
-                        product_spec_text=self._spec_text(estimate.input_spec_json),
-                        product_spec_snapshot_json=estimate.input_spec_json,
-                        quantity=opt.quantity,
-                        unit="cái",
-                        total_cost_snapshot=float(opt.total_cost),
-                        margin_percent=m_pct,
-                        selling_price=pricing["selling_price"],
-                        unit_price=pricing["unit_price"],
-                        discount_amount=pricing["discount_amount"],
-                        vat_percent=opt.vat_percent or 10.0,
-                        vat_amount=pricing["vat_amount"],
-                        final_amount=pricing["final_amount"],
-                    )
-                    self.quotations.db.add(item)
-                    subtotal += pricing["selling_price"]
-                    discount += pricing["discount_amount"]
-                    vat += pricing["vat_amount"]
-                    final += pricing["final_amount"]
-                    total_cost += float(opt.total_cost)
-                    line_no += 1
-                    matched += 1
-
-            if strict and matched == 0:
-                raise QuotationValidationError(
-                    f"Phiếu {estimate.estimate_number}: không mức số lượng nào khớp lựa chọn."
-                )
-
-            # Lock the estimate to quote
-            estimate.status = "converted_to_quote"
-            # Nuôi used_count của Máy đã dùng (báo giá snapshot). Không commit riêng: theo transaction quote.
-            self._bump_used_counts(estimate)
-
-        # Update Version Totals
-        version.total_cost_snapshot = total_cost
-        version.subtotal_amount = subtotal
-        version.discount_amount = discount
-        version.vat_amount = vat
-        version.final_amount = final
-
-        quote.current_version_id = version.id
-        self.quotations.update(quote)
-
-        self.audit.create(
-            actor_user_id=actor.id,
-            action="create_quote",
-            target=f"quote:{quote.id}",
-            detail=f"Tạo báo giá {quote.quote_number} v1 (KH={customer_id}, {line_no - 1} dòng từ {len(pick_list)} phiếu tính giá)",
-        )
-        return quote
 
     def _create_from_ptg(
         self, *, phieu_tinh_gia_id: int, customer_id: int | None, margin_percent: float | None,
@@ -924,6 +737,46 @@ class QuotationService:
         quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
         return self.quotations.list_approvals(quote.id)
 
+    # --- Tài liệu đính kèm (NỘI BỘ: file khách gửi / mẫu thiết kế / ảnh tham khảo) ---
+    # Lớp tài liệu tách khỏi dữ liệu giá: cho thêm/xóa ở MỌI trạng thái trừ Hủy (chủ đầu tư chốt).
+    # Mọi thao tác để lại vết ai-gì-lúc-nào ở feed Hoạt động (audit theo target quote:{id}).
+    def list_attachments(self, *, quotation_id: int, scope: str, actor) -> list:
+        quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
+        return self.quotations.list_attachments(quote.id)
+
+    def add_attachment(
+        self, *, quotation_id: int, scope: str, actor,
+        file_name: str, file_url: str, file_type: str | None,
+    ):
+        quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
+        if quote.status == STATUS_CANCELLED:
+            raise QuotationLocked("Báo giá đã hủy — không đính kèm tài liệu được.")
+        att = self.quotations.add_attachment(
+            quote.id, file_name=file_name, file_url=file_url,
+            file_type=file_type, uploaded_by=actor.id,
+        )
+        self.audit.create(
+            actor_user_id=actor.id, action="quote_attach_add", target=f"quote:{quote.id}",
+            detail=f"{quote.quote_number}: đính kèm tài liệu {file_name}",
+        )
+        return att
+
+    def delete_attachment(self, *, quotation_id: int, attachment_id: int, scope: str, actor) -> str | None:
+        """Xóa 1 đính kèm. Trả `file_url` để router dọn object trong storage (tránh file rác)."""
+        quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
+        if quote.status == STATUS_CANCELLED:
+            raise QuotationLocked("Báo giá đã hủy — không sửa tài liệu đính kèm được.")
+        att = self.quotations.get_attachment(attachment_id)
+        if att is None or att.quote_id != quote.id:
+            raise QuotationNotFound("Không tìm thấy tài liệu đính kèm.")
+        file_url = att.file_url
+        self.quotations.delete_attachment(att)
+        self.audit.create(
+            actor_user_id=actor.id, action="quote_attach_delete", target=f"quote:{quote.id}",
+            detail=f"{quote.quote_number}: xóa tài liệu {att.file_name}",
+        )
+        return file_url
+
     def update_quotation(
         self,
         *,
@@ -1042,26 +895,7 @@ class QuotationService:
             version.status = VERSION_STATUS_SENT
             version.sent_at = datetime.now(timezone.utc)
             # Freeze cost breakdown lúc gửi khách (copy-on-write, P0 §34).
-            if quote.estimate_id and self._estimates:
-                # Đường Estimate cũ: phân rã theo option/cost_lines của Tính giá.
-                est = self._estimates.get_by_id(quote.estimate_id)
-                if est:
-                    version.estimate_snapshot_json = est.input_spec_json
-                    lines_data = []
-                    for opt in est.options:
-                        opt_items = []
-                        for line in opt.cost_lines:
-                            opt_items.append({
-                                "category": line.category,
-                                "description": line.description,
-                                "total_cost": float(line.total_cost),
-                                "quantity": float(line.quantity),
-                                "unit": line.unit,
-                                "unit_cost": float(line.unit_cost),
-                            })
-                        lines_data.append({"quantity": opt.quantity, "lines": opt_items})
-                    version.internal_cost_snapshot_json = {"options": lines_data}
-            elif version.internal_cost_snapshot_json is None:
+            if version.internal_cost_snapshot_json is None:
                 # B5 (redesign-bao-gia §8): đường PhieuTinhGia — freeze phân rã giá vốn theo các DÒNG đã
                 # khóa lúc tạo (total_cost_snapshot per PhieuThanhPhan) để bản gửi không đổi khi PTG sửa.
                 version.internal_cost_snapshot_json = {
@@ -1226,7 +1060,6 @@ class QuotationService:
             vat_percent=current_version.vat_percent if current_version else 0.0,
             vat_amount=current_version.vat_amount if current_version else 0.0,
             final_amount=current_version.final_amount if current_version else 0.0,
-            estimate_snapshot_json=current_version.estimate_snapshot_json if current_version else None,
             internal_cost_snapshot_json=current_version.internal_cost_snapshot_json if current_version else None,
             change_reason=reason,
             created_by=actor.id,
@@ -1239,7 +1072,7 @@ class QuotationService:
             for item in current_version.items:
                 new_item = QuoteItem(
                     quote_version_id=new_version.id,
-                    estimate_option_id=item.estimate_option_id,
+                    phieu_thanh_phan_id=item.phieu_thanh_phan_id,
                     line_no=item.line_no,
                     product_type=item.product_type,
                     product_name=item.product_name,

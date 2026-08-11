@@ -21,15 +21,14 @@ from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.document_sequence_repo import DocumentSequenceRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
-from ..repositories.material_repo import MaterialRepository
 from ..repositories.rbac_repo import DepartmentRepository
 from ..repositories.stock_lot_repo import StockLotRepository, StockThresholdRepository
 from ..repositories.stock_request_repo import StockRequestRepository
 from ..repositories.stock_voucher_repo import StockVoucherRepository
+from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.user_repo import UserRepository
+from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..schemas.stock import (
-    StockMaterialCreate,
-    StockMaterialQuyDoi,
     StockRequestCreate,
     StockRequestLineOut,
     StockRequestOut,
@@ -37,13 +36,18 @@ from ..schemas.stock import (
     StockRequestReject,
     StockRequestUpdate,
 )
-from ..services.material_service import MaterialDuplicate, MaterialError, MaterialService
 from ..services.rbac_service import AuthorizationService
 from ..services.sequence_service import SequenceService
 from ..services.stock_request_service import StockRequestError, StockRequestService
+from ..services.vat_lieu_kho_service import HANG_NHAN, VatLieuKhoError, VatLieuKhoService
 
 router = APIRouter(prefix="/api/kho/de-nghi", tags=["kho-de-nghi"])
 MODULE = "kho"
+
+
+def _hang_service(db: Session) -> VatLieuKhoService:
+    """Danh mục gốc (Giấy + Vật tư khác) — nguồn mặt hàng và nguồn quy đổi đơn vị của kho."""
+    return VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
 
 
 def get_service(db: Annotated[Session, Depends(get_db)]) -> StockRequestService:
@@ -52,6 +56,7 @@ def get_service(db: Annotated[Session, Depends(get_db)]) -> StockRequestService:
         StockLotRepository(db),
         StockThresholdRepository(db),
         SequenceService(DocumentSequenceRepository(db)),
+        hang=_hang_service(db),
     )
 
 
@@ -64,40 +69,76 @@ def _err(e: StockRequestError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict[int, str] | None,
-               on_hand: dict[int, float] | None,
+def _lenh_map(db: Session, reqs) -> dict[tuple[str, int], str]:
+    """`{("lsx"|"bai_ghep", id): mã}` cho CẢ TRANG trong 2 query (mg 0175).
+
+    Tra từng dòng là N+1 ngay trên màn Hộp yêu cầu — nơi đúng ra phải mở nhanh nhất.
+    """
+    from ..models.bai_ghep import BaiGhep
+    from ..models.lsx import Lsx
+
+    lsx_ids = {ln.lsx_id for r in reqs for ln in r.lines if ln.lsx_id}
+    bg_ids = {ln.bai_ghep_id for r in reqs for ln in r.lines if ln.bai_ghep_id}
+    ra: dict[tuple[str, int], str] = {}
+    if lsx_ids:
+        for i, ma in db.query(Lsx.id, Lsx.ma).filter(Lsx.id.in_(lsx_ids)):
+            ra[("lsx", i)] = ma
+    if bg_ids:
+        for i, ma in db.query(BaiGhep.id, BaiGhep.ma).filter(BaiGhep.id.in_(bg_ids)):
+            ra[("bai_ghep", i)] = ma
+    return ra
+
+
+def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
+               on_hand: dict | None,
                open_voucher_id: int | None = None,
-               mat_map: dict | None = None) -> StockRequestOut:
+               hang_map: dict | None = None,
+               hang_svc: VatLieuKhoService | None = None,
+               lenh_map: dict | None = None) -> StockRequestOut:
     """Dựng payload + ÁP quyền hiển thị.
 
     `muc_ton` (đèn 5 màu) trả cho mọi vai vì không kèm con số; `ton_kha_dung` chỉ set khi
     có `can_view_stock`. Ẩn ở đây chứ không chỉ ẩn trên UI — ẩn cột ở FE thì số vẫn nằm
     trong response.
 
-    `mat_map` (id → Material) dựng SẴN theo cả trang để tránh N+1 khi list; gọi lẻ 1 yêu cầu
-    thì để None, hàm tự nạp 1 query cho các dòng của yêu cầu đó.
+    `hang_map` ((loai,id) → bản ghi danh mục) dựng SẴN theo cả trang để tránh N+1 khi list;
+    gọi lẻ 1 đề nghị thì để None, hàm tự nạp.
     """
-    materials = MaterialRepository(db)
+    hang_svc = hang_svc or _hang_service(db)
     users = UserRepository(db)
-    if mat_map is None:
-        mat_map = materials.by_ids([ln.material_id for ln in req.lines])
+    cap = [(ln.hang_loai, ln.hang_id) for ln in req.lines]
+    if hang_map is None:
+        hang_map = hang_svc.map_theo_cap(cap)
+    if lenh_map is None:
+        lenh_map = _lenh_map(db, [req])
     lines: list[StockRequestLineOut] = []
     for ln in req.lines:
-        m = mat_map.get(ln.material_id) if ln.material_id else None
+        key = (ln.hang_loai, ln.hang_id)
+        m = hang_map.get(key)
+        # Quy đổi để FE hiện "10 ram ≈ 419,25 kg" ngay dưới ô SL — người khai thấy TRƯỚC con số
+        # sẽ vào tồn, thay vì bấm Lưu rồi mới biết. Không đổi được thì trả `canh_bao_dv` nguyên
+        # văn lý do chứ không im lặng.
+        qd, canh_bao = None, None
+        try:
+            qd = hang_svc.quy_ve_goc(ln.hang_loai, ln.hang_id, ln.dvt, float(ln.sl_de_nghi))
+        except VatLieuKhoError as e:
+            canh_bao = str(e)
         lines.append(StockRequestLineOut(
             id=ln.id,
-            material_id=ln.material_id,
-            material_code=getattr(m, "code", None),
-            # Hàng chưa có mã → hiển thị tên gõ tự do (kèm dấu để phân biệt ở FE).
-            material_name=getattr(m, "name", None) or ln.ten_tu_do,
-            ten_tu_do=ln.ten_tu_do,
+            hang_loai=ln.hang_loai,
+            hang_id=ln.hang_id,
+            hang_ma=getattr(m, "ma", None),
+            hang_ten=getattr(m, "ten", None),
+            hang_nhom=HANG_NHAN.get(ln.hang_loai),
+            lsx_id=ln.lsx_id,
+            bai_ghep_id=ln.bai_ghep_id,
+            lsx_ma=lenh_map.get(("lsx", ln.lsx_id)),
+            bai_ghep_ma=lenh_map.get(("bai_ghep", ln.bai_ghep_id)),
             dvt=ln.dvt,
-            # Quy đổi ưu tiên khai TRÊN DÒNG (người yêu cầu); hàng có mã chưa khai → lấy của mặt hàng.
-            don_vi_phu=ln.don_vi_phu or getattr(m, "don_vi_phu", None),
-            he_so_quy_doi=(
-                float(ln.he_so_quy_doi) if ln.he_so_quy_doi is not None
-                else (float(m.he_so_quy_doi) if getattr(m, "he_so_quy_doi", None) is not None else None)
-            ),
+            don_vi_goc=(qd or {}).get("don_vi_goc_ten"),
+            sl_quy_doi=(qd or {}).get("sl_goc"),
+            quy_doi_dien_giai=(qd or {}).get("dien_giai"),
+            canh_bao_dv=canh_bao,
             sl_de_nghi=float(ln.sl_de_nghi),
             sl_duyet=float(ln.sl_duyet),
             sl_da_ung=float(ln.sl_da_ung),
@@ -105,8 +146,8 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict[int, str]
             don_gia=ln.don_gia,
             ly_do_thieu=ln.ly_do_thieu,
             ghi_chu=ln.ghi_chu,
-            muc_ton=(levels or {}).get(ln.material_id),
-            ton_kha_dung=(on_hand or {}).get(ln.material_id) if can_view_stock else None,
+            muc_ton=(levels or {}).get(key),
+            ton_kha_dung=(on_hand or {}).get(key) if can_view_stock else None,
         ))
     creator = users.get_by_id(req.nguoi_tao_id) if req.nguoi_tao_id else None
     approver = users.get_by_id(req.nguoi_duyet_id) if req.nguoi_duyet_id else None
@@ -135,8 +176,8 @@ def _levels(svc: StockRequestService, req):
     chỉ gây nhiễu). Yêu cầu cũ chưa có kho → không có đèn."""
     if req.kho_id is None or req.loai != REQ_XUAT:
         return None, None
-    ids = [ln.material_id for ln in req.lines]
-    return svc.levels_and_on_hand(ids, req.kho_id)
+    cap = [(ln.hang_loai, ln.hang_id) for ln in req.lines]
+    return svc.levels_and_on_hand(cap, req.kho_id)
 
 
 def _scoped_filters(user: User, authz: AuthorizationService) -> dict:
@@ -183,16 +224,18 @@ def list_requests(
     can_view_stock = authz.can(user, MODULE, "view_stock")
     draft_map = StockVoucherRepository(db).draft_ids_by_request([r.id for r in rows])
     # Nạp SẴN mọi mã hàng của cả trang trong 1 query (tránh N+1 trong _serialize).
-    mat_map = MaterialRepository(db).by_ids(
-        [ln.material_id for r in rows for ln in r.lines]
+    hang_svc = _hang_service(db)
+    hang_map = hang_svc.map_theo_cap(
+        [(ln.hang_loai, ln.hang_id) for r in rows for ln in r.lines]
     )
+    lenh_map = _lenh_map(db, rows)
     items = []
     for r in rows:
         # Đèn tồn tính theo KHO của chính yêu cầu (r.kho_id), không phải theo bộ lọc.
         levels, on_hand = _levels(svc, r)
         items.append(_serialize(r, db=db, can_view_stock=can_view_stock,
-                                levels=levels, on_hand=on_hand,
-                                open_voucher_id=draft_map.get(r.id), mat_map=mat_map))
+                                levels=levels, on_hand=on_hand, lenh_map=lenh_map,
+                                open_voucher_id=draft_map.get(r.id), hang_map=hang_map, hang_svc=hang_svc))
     return StockRequestPage(items=items, total=total)
 
 
@@ -207,70 +250,9 @@ def request_counts(
     return {"nhap": counts.get(REQ_NHAP, 0), "xuat": counts.get(REQ_XUAT, 0)}
 
 
-@router.get("/vat-tu")
-def search_materials(
-    db: Db,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
-    q: str | None = Query(default=None),
-    size: int = Query(default=20, ge=1, le=50),
-):
-    """Tìm vật tư để chọn khi lập yêu cầu.
-
-    Có endpoint riêng vì `/api/materials` gác bằng module `dm_giay_vat_tu` — không vai kho
-    nào có quyền đó, mà cấp thêm thì lộ luôn bảng giá (`MaterialRow.costs`). Ở đây gác bằng
-    `kho:read` và CHỈ trả 4 trường tối thiểu: người yêu cầu thấy tên + ĐVT, không thấy giá.
-    """
-    rows, _total = MaterialRepository(db).list(q=q, is_active=True, size=size)
-    return [_material_out(m) for m in rows]
-
-
-def _material_out(m) -> dict:
-    return {
-        "id": m.id, "code": m.code, "name": m.name, "unit": m.unit,
-        "don_vi_phu": m.don_vi_phu,
-        "he_so_quy_doi": float(m.he_so_quy_doi) if m.he_so_quy_doi is not None else None,
-    }
-
-
-@router.post("/vat-tu", status_code=status.HTTP_201_CREATED)
-def create_material(
-    body: StockMaterialCreate,
-    db: Db,
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
-):
-    """Tạo mã hàng — CHỈ KHO (vai lập phiếu) làm, ở bước lập phiếu khi gặp hàng mới (BRD §3.4).
-    Người yêu cầu KHÔNG tạo mã: họ gõ tên tự do, kho gắn/tạo mã sau. Chống trùng theo tên/mã."""
-    svc = MaterialService(MaterialRepository(db), AuditLogRepository(db))
-    try:
-        m = svc.create_material(
-            name=body.name, material_type="hang_khac", unit=body.unit,
-            code=body.code, actor=user,
-            don_vi_phu=body.don_vi_phu, he_so_quy_doi=body.he_so_quy_doi,
-        )
-    except MaterialDuplicate as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
-    except MaterialError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    return _material_out(m)
-
-
-@router.put("/vat-tu/{material_id}/quy-doi")
-def set_material_quy_doi(
-    material_id: int,
-    body: StockMaterialQuyDoi,
-    db: Db,
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
-):
-    """Khai/sửa quy đổi đơn vị cho hàng đã có — nút 'Quy đổi' trên dòng phiếu (vai lập phiếu)."""
-    svc = MaterialService(MaterialRepository(db), AuditLogRepository(db))
-    try:
-        m = svc.set_quy_doi(
-            material_id=material_id, don_vi_phu=body.don_vi_phu,
-            he_so_quy_doi=body.he_so_quy_doi, actor=user,
-        )
-    except MaterialError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
-    return _material_out(m)
+# GỠ 2026-08-08 — ba cửa cũ: `GET /vat-tu` (tìm trong bảng `materials`), `POST /vat-tu` (kho tự
+# tạo mã hàng), `PUT /vat-tu/{id}/quy-doi` (khai hệ số riêng cho kho). Picker mặt hàng giờ dùng
+# `GET /api/vat-lieu-kho/mat-hang`, đơn vị dùng `.../mat-hang/{loai}/{id}/don-vi`.
 
 
 @router.get("/{request_id}", response_model=StockRequestOut)
@@ -390,8 +372,9 @@ def prepare(request_id: int, svc: Service, db: Db, authz: Authz,
 def suggest_qty(
     svc: Service, user: CurrentUser,
     _: Annotated[User, Depends(require_permission(MODULE, "request"))],
-    material_id: int = Query(...),
+    hang_loai: str = Query(...),
+    hang_id: int = Query(..., gt=0),
 ):
-    """Gợi ý số lượng từ lịch sử yêu cầu của bộ phận (spec §8). Không đụng tới tồn nên
-    người yêu cầu gọi được mà không lộ gì."""
-    return {"so_luong": svc.suggest_quantity(material_id, user.department_id)}
+    """Gợi ý số lượng từ lịch sử đề nghị của bộ phận (spec §8). Không đụng tới tồn nên
+    người đề nghị gọi được mà không lộ gì."""
+    return {"so_luong": svc.suggest_quantity((hang_loai, hang_id), user.department_id)}

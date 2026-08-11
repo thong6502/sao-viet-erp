@@ -173,85 +173,87 @@ def seed_rebuild_catalog(db: Session) -> None:
         _CHUA_IN = {"nhip_giay_mm": 10, "le_hong_mm": 5, "duoi_thang_mau_mm": 5}
         db.add_all([
             # ── MÁY IN nội bộ — kẽm / nhíp / khổ giấy / vùng in ───────────────────────
-            MayThietBi(ma="IN-01", ten="Máy 2 màu Mitsubishi 72×102", loai_may=_IN, trang_thai="active",
+            MayThietBi(ma="IN-01", ten="Máy 2 màu Mitsubishi 72×102", loai_may=_IN,
                        kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=390, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
-                       vung_in_rong=710, vung_in_dai=1010, ghi_chu="Có in UV được",
-                       ghi_chu_2="Hàng bồi sóng phải chạy in tay kề nghịch, đặt tay kề sẵn trên bài in"),
-            MayThietBi(ma="IN-02", ten="Máy 4 màu Mitsubishi 79×109", loai_may=_IN, trang_thai="active",
+                       vung_in_rong=710, vung_in_dai=1010,
+                       ghi_chu="Có in UV được. Hàng bồi sóng phải chạy in tay kề nghịch, "
+                               "đặt tay kề sẵn trên bài in"),
+            MayThietBi(ma="IN-02", ten="Máy 4 màu Mitsubishi 79×109", loai_may=_IN,
                        kho_kem_rong=930, kho_kem_dai=1130, gripper_mm=60, **_CHUA_IN,
                        kho_min_rong=540, kho_min_dai=750, kho_max_rong=800, kho_max_dai=1090,
                        vung_in_rong=780, vung_in_dai=1080),
-            MayThietBi(ma="IN-03", ten="Máy 5 màu Mitsubishi 54×79", loai_may=_IN, trang_thai="active",
+            MayThietBi(ma="IN-03", ten="Máy 5 màu Mitsubishi 54×79", loai_may=_IN,
                        kho_kem_rong=645, kho_kem_dai=830, gripper_mm=50, **_CHUA_IN,
                        kho_min_rong=320, kho_min_dai=420, kho_max_rong=540, kho_max_dai=790,
                        vung_in_rong=535, vung_in_dai=780),
-            MayThietBi(ma="IN-04", ten="Máy 6 màu Mitsubishi 72×102", loai_may=_IN, trang_thai="active",
+            MayThietBi(ma="IN-04", ten="Máy 6 màu Mitsubishi 72×102", loai_may=_IN,
                        kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=710, vung_in_dai=1010, ghi_chu="Có in UV được"),
-            MayThietBi(ma="IN-05", ten="Máy 6 màu Heidelberg 72×102", loai_may=_IN, trang_thai="active",
+            MayThietBi(ma="IN-05", ten="Máy 6 màu Heidelberg 72×102", loai_may=_IN,
                        kho_kem_rong=765, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=560, kho_max_rong=720, kho_max_dai=1020,
-                       vung_in_rong=690, vung_in_dai=1000, ghi_chu="Có in UV được",
-                       ghi_chu_2="Vùng in lớn hơn 69cm thì nhíp kẽm 38mm; chỉ in được giấy từ 150g trở lên"),
-            MayThietBi(ma="IN-06", ten="Máy 7 màu Heidelberg 72×102", loai_may=_IN, trang_thai="active",
+                       vung_in_rong=690, vung_in_dai=1000,
+                       ghi_chu="Có in UV được. Vùng in lớn hơn 69cm thì nhíp kẽm 38mm; "
+                               "chỉ in được giấy từ 150g trở lên"),
+            MayThietBi(ma="IN-06", ten="Máy 7 màu Heidelberg 72×102", loai_may=_IN,
                        kho_kem_rong=765, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=560, kho_max_rong=720, kho_max_dai=1020,
                        vung_in_rong=690, vung_in_dai=1000),
             # ── IN ngoài (xưởng in ngoài) ────────────────────────────────────────────
-            MayThietBi(ma="IN-07", ten="Minh Tiến 72×102 - 5 màu", loai_may=_INX, trang_thai="active",
+            MayThietBi(ma="IN-07", ten="Minh Tiến 72×102 - 5 màu", loai_may=_INX,
                        kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=48, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
-                       vung_in_rong=710, vung_in_dai=1010, ghi_chu_2="Xưởng in ngoài"),
-            MayThietBi(ma="IN-08", ten="Hoàng Anh 1020×1420 - 6 màu", loai_may=_INX, trang_thai="active",
+                       vung_in_rong=710, vung_in_dai=1010, ghi_chu="Xưởng in ngoài"),
+            MayThietBi(ma="IN-08", ten="Hoàng Anh 1020×1420 - 6 màu", loai_may=_INX,
                        kho_min_rong=575, kho_min_dai=810, kho_max_rong=1020, kho_max_dai=1420,
-                       vung_in_rong=1000, vung_in_dai=1400, ghi_chu_2="Xưởng in ngoài", **_CHUA_IN),
-            MayThietBi(ma="IN-09", ten="Bảo Tiến 72×102 - 6 màu", loai_may=_INX, trang_thai="active",
+                       vung_in_rong=1000, vung_in_dai=1400, ghi_chu="Xưởng in ngoài", **_CHUA_IN),
+            MayThietBi(ma="IN-09", ten="Bảo Tiến 72×102 - 6 màu", loai_may=_INX,
                        kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=50, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
-                       vung_in_rong=710, vung_in_dai=1010, ghi_chu="Có in UV", ghi_chu_2="Xưởng in ngoài"),
-            MayThietBi(ma="IN-10", ten="Đỉnh Việt 72×102 - 5 màu", loai_may=_INX, trang_thai="active",
+                       vung_in_rong=710, vung_in_dai=1010, ghi_chu="Xưởng in ngoài. Có in UV"),
+            MayThietBi(ma="IN-10", ten="Đỉnh Việt 72×102 - 5 màu", loai_may=_INX,
                        kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44, **_CHUA_IN,
                        kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
-                       vung_in_rong=710, vung_in_dai=1010, ghi_chu_2="Xưởng in ngoài"),
+                       vung_in_rong=710, vung_in_dai=1010, ghi_chu="Xưởng in ngoài"),
             # ── MÁY CÁN MÀNG + UV ĐỊNH HÌNH — chỉ khổ giấy min/max ────────────────────
-            MayThietBi(ma="CM-01", ten="Máy UV toàn phần 790×1090", loai_may=_CM, trang_thai="active",
+            MayThietBi(ma="CM-01", ten="Máy UV toàn phần 790×1090", loai_may=_CM,
                        kho_min_rong=280, kho_min_dai=380, kho_max_rong=790, kho_max_dai=1090,
                        ghi_chu="Lớn hơn nửa thì thả tay dọc được"),
-            MayThietBi(ma="CM-02", ten="Máy UV định hình 720×1020", loai_may=_CM, trang_thai="active",
+            MayThietBi(ma="CM-02", ten="Máy UV định hình 720×1020", loai_may=_CM,
                        kho_min_rong=360, kho_min_dai=440, kho_max_rong=720, kho_max_dai=1020,
-                       ghi_chu="Xuất film để chụp lụa kéo",
-                       ghi_chu_2="Phim đế 100k để chụp nét nội dung"),
-            MayThietBi(ma="CM-03", ten="Máy cán màng 800×1080", loai_may=_CM, trang_thai="active",
+                       ghi_chu="Xuất film để chụp lụa kéo. Phim đế 100k để chụp nét nội dung"),
+            MayThietBi(ma="CM-03", ten="Máy cán màng 800×1080", loai_may=_CM,
                        kho_min_rong=300, kho_min_dai=300, kho_max_rong=800, kho_max_dai=1080),
-            MayThietBi(ma="CM-04", ten="Máy cán màng 1250×1500", loai_may=_CM, trang_thai="active",
+            MayThietBi(ma="CM-04", ten="Máy cán màng 1250×1500", loai_may=_CM,
                        kho_min_rong=300, kho_min_dai=300, kho_max_rong=1250, kho_max_dai=1500),
             # ── MÁY BỒI SÓNG + BỒI DUPLEX ────────────────────────────────────────────
-            MayThietBi(ma="BOI-01", ten="Bồi sóng 1450×1450", loai_may=_BOI, trang_thai="active",
+            MayThietBi(ma="BOI-01", ten="Bồi sóng 1450×1450", loai_may=_BOI,
                        kho_min_rong=395, kho_min_dai=395, kho_max_rong=1450, kho_max_dai=1450,
-                       ghi_chu="Sóng luôn ghi chiều khổ trước",
-                       ghi_chu_2="Tem luôn lớn hơn sóng mỗi chiều 5mm; trừ khi ăn gian giấy thì bằng ĐC nhưng phải báo"),
-            MayThietBi(ma="BOI-02", ten="Bồi sóng 1700×1700", loai_may=_BOI, trang_thai="active",
+                       ghi_chu="Sóng luôn ghi chiều khổ trước. Tem luôn lớn hơn sóng mỗi chiều 5mm; "
+                               "trừ khi ăn gian giấy thì bằng ĐC nhưng phải báo"),
+            MayThietBi(ma="BOI-02", ten="Bồi sóng 1700×1700", loai_may=_BOI,
                        kho_min_rong=395, kho_min_dai=395, kho_max_rong=1700, kho_max_dai=1700),
-            MayThietBi(ma="BOI-03", ten="Bồi duplex với duplex 1100", loai_may=_BOI, trang_thai="active",
+            MayThietBi(ma="BOI-03", ten="Bồi duplex với duplex 1100", loai_may=_BOI,
                        kho_min_rong=280, kho_min_dai=380, kho_max_rong=700, kho_max_dai=1000),
-            MayThietBi(ma="BOI-04", ten="Bồi thủ công 1100", loai_may=_BOI, trang_thai="active",
+            MayThietBi(ma="BOI-04", ten="Bồi thủ công 1100", loai_may=_BOI,
                        kho_min_rong=200, kho_min_dai=200, kho_max_rong=700, kho_max_dai=1000),
             # ── MÁY BẾ TỰ ĐỘNG + BẾ TAY ──────────────────────────────────────────────
-            MayThietBi(ma="BE-01", ten="Máy bế tự động Yawa 1050", loai_may=_BE, trang_thai="active",
+            MayThietBi(ma="BE-01", ten="Máy bế tự động Yawa 1050", loai_may=_BE,
                        kho_min_rong=380, kho_min_dai=380, kho_max_rong=720, kho_max_dai=1050,
-                       ghi_chu="Tự động trừ nhíp bế 8mm; chỉ ăn gian được tại dán ở nhíp thì phải tháo dao lạng hoặc tháo bớt nhíp gấp, phải hỏi thợ trước",
-                       ghi_chu_2="Ván min 450×650, ván thực lỗ min 450×450"),
-            MayThietBi(ma="BE-02", ten="Máy ép kim bế tự động Aoer 1050", loai_may=_BE, trang_thai="active",
+                       ghi_chu="Tự động trừ nhíp bế 8mm; chỉ ăn gian được tại dán ở nhíp thì phải tháo "
+                               "dao lạng hoặc tháo bớt nhíp gấp, phải hỏi thợ trước. "
+                               "Ván min 450×650, ván thực lỗ min 450×450"),
+            MayThietBi(ma="BE-02", ten="Máy ép kim bế tự động Aoer 1050", loai_may=_BE,
                        kho_min_rong=380, kho_min_dai=380, kho_max_rong=720, kho_max_dai=1050),
-            MayThietBi(ma="BE-03", ten="Máy bế tự động Aoer 1500", loai_may=_BE, trang_thai="active",
+            MayThietBi(ma="BE-03", ten="Máy bế tự động Aoer 1500", loai_may=_BE,
                        kho_min_rong=400, kho_min_dai=420, kho_max_rong=1100, kho_max_dai=1500),
-            MayThietBi(ma="BE-04", ten="Máy bế tự động Brouse 145", loai_may=_BE, trang_thai="active",
+            MayThietBi(ma="BE-04", ten="Máy bế tự động Brouse 145", loai_may=_BE,
                        kho_min_rong=400, kho_min_dai=420, kho_max_rong=1050, kho_max_dai=1450),
-            MayThietBi(ma="BE-05", ten="Máy ép kim bế tự động Diamon 1020", loai_may=_BE, trang_thai="active",
+            MayThietBi(ma="BE-05", ten="Máy ép kim bế tự động Diamon 1020", loai_may=_BE,
                        kho_min_rong=380, kho_min_dai=380, kho_max_rong=720, kho_max_dai=1020),
-            MayThietBi(ma="BE-06", ten="Máy bế tay 720/930/1100/1500", loai_may=_BE, trang_thai="active",
+            MayThietBi(ma="BE-06", ten="Máy bế tay 720/930/1100/1500", loai_may=_BE,
                        kho_min_rong=150, kho_min_dai=150, kho_max_rong=1050, kho_max_dai=1450,
                        ghi_chu="Bế tay bế SL ít, bế hàng ăn gian nhíp"),
         ])
@@ -300,16 +302,28 @@ def seed_rebuild_catalog(db: Session) -> None:
 
     if _empty(db, VatTuInAn):
         db.add_all([
+            # ⚠️ CÔNG THỨC NÀY SAI THANG 10⁶ — biết và CỐ Ý để nguyên (chủ chốt 2026-08-09).
+            # Hệ số 0,0003 viết cho diện tích tính bằng MÉT ("0,3 g mực / m² / màu"), nhưng
+            # `dai_in`/`rong_in` engine đưa vào là MILIMÉT ⇒ diện tích to gấp 1.000.000 lần.
+            #   1.000 tờ 650×900, in 4 màu → ra 702.000 kg mực = 175,5 TỶ đồng.
+            #   Đúng ra:                     0,702 kg          = 175.500 đồng.
+            # Không sửa vì xưởng tính giá KHOÁN THEO CÔNG ĐOẠN, không thêm dòng vật tư rời — công
+            # thức này hiện không chảy vào phiếu nào. Ai thêm một dòng mực vào phiếu tính giá thì
+            # PHẢI sửa hệ số (÷ 1.000.000) trước, không thì ra báo giá 175 tỷ.
             VatTuInAn(ma="MUC-CMYK", ten="Mực process CMYK", don_vi_gia="kg", don_gia=250000,
                       cong_thuc_gia="so_mau * dai_in * rong_in * don_gia_kg * to_dau_vao * 0.0003"),
             VatTuInAn(ma="MUC-PANTONE", ten="Mực pha Pantone", don_vi_gia="kg", don_gia=15000),
-            VatTuInAn(ma="KEM-74", ten="Bản kẽm khổ 74", don_vi_gia="ban", don_gia=100000),
-            VatTuInAn(ma="KEM-102", ten="Bản kẽm khổ 102", don_vi_gia="ban", don_gia=180000),
-            VatTuInAn(ma="KEM-52", ten="Bản kẽm khổ 52", don_vi_gia="ban", don_gia=70000),
+            # `kem` chứ không phải `ban`: đơn vị PHẢI là mã có thật trong `don_vi_do` (xem
+            # `_DON_VI_SEED`) — mã lạ thì mọi quy đổi của món đó tắt lặng lẽ.
+            VatTuInAn(ma="KEM-74", ten="Bản kẽm khổ 74", don_vi_gia="kem", don_gia=100000),
+            VatTuInAn(ma="KEM-102", ten="Bản kẽm khổ 102", don_vi_gia="kem", don_gia=180000),
+            VatTuInAn(ma="KEM-52", ten="Bản kẽm khổ 52", don_vi_gia="kem", don_gia=70000),
+            # ⚠️ SAI THANG 10⁶ y như MUC-CMYK ở trên — `dai_in`/`rong_in` là MILIMÉT, mà đơn giá
+            # khai đ/m². 1.000 tờ 650×900 → 585.000.000 m² = 1.755 TỶ đồng; đúng ra 585 m² =
+            # 1.755.000 đồng. Cố ý để nguyên, cùng lý do: xưởng khoán theo công đoạn.
             VatTuInAn(ma="MANG-BONG", ten="Màng cán bóng", don_vi_gia="m2", don_gia=3000,
                       cong_thuc_gia="dai_in * rong_in * don_gia_m2 * to_sau_in"),
-            VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45000,
-                      ghi_chu="UV định hình 1 thùng = 3kg"),
+            VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45000),
         ])
         db.commit()
 
@@ -318,26 +332,33 @@ def seed_rebuild_catalog(db: Session) -> None:
         db.add_all([
             # Giá CHỈ theo CÔNG THỨC (đơn giá nhét sẵn trong công thức, nhân biến số lượng tương ứng).
             # pricing_basis=per_other để hợp validate; run_rate giữ làm tham chiếu (engine ưu tiên công thức).
+            # `nhom_may_cho_phep`: nhóm máy (danh mục `nhom_may`) làm được công đoạn — chặn gán máy
+            # sai loại ở bước bài ghép. Chế bản chưa có máy seed nên để ["Chế bản"] (mọi máy in/sau-in
+            # đều bị coi là sai → khớp vụ CTP gán máy bế).
             CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_other", run_rate=95000,
+                     pricing_basis="per_other", run_rate=95000, nhom_may_cho_phep=["Chế bản"],
                      cong_thuc_gia="so_kem * 95000", setup_time=10, kieu_bu_hao="khong"),
             CongDoan(ma="CD-0002", ten="In offset", nhom="print", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=350, kieu_bu_hao="tra_bang",  # → BH nối bên dưới
+                     nhom_may_cho_phep=["Máy in", "In ngoài"],
                      cong_thuc_gia="to_dau_vao * so_mat * 350"),
             CongDoan(ma="CD-0003", ten="Cán màng bóng", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=2.2, min_charge=110000,
-                     kieu_bu_hao="co_dinh", so_to_bu_hao=50,
+                     kieu_bu_hao="co_dinh", so_to_bu_hao=50, nhom_may_cho_phep=["Cán màng / UV"],
                      cong_thuc_gia="max(dai_in * rong_in * 10000 * so_mat * to_dau_vao * 2.2, 110000)"),
             CongDoan(ma="CD-0004", ten="Bồi sóng", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=200, kieu_bu_hao="tra_bang",  # → BH nối bên dưới
+                     nhom_may_cho_phep=["Bồi"],
                      cong_thuc_gia="to_dau_vao * 200"),
             CongDoan(ma="CD-0005", ten="Ép kim", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=400, requires_tooling=True,
                      tooling_type="khuon_ep", kieu_bu_hao="co_dinh", so_to_bu_hao=50,
+                     nhom_may_cho_phep=["Bế"],
                      cong_thuc_gia="so_vi_tri * so_luong * 400"),
             CongDoan(ma="CD-0006", ten="Bế nổi", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=20, requires_tooling=True,
                      tooling_type="khuon_be", kieu_bu_hao="co_dinh", so_to_bu_hao=30,
+                     nhom_may_cho_phep=["Bế"],
                      cong_thuc_gia="so_luong * 20"),
         ])
         db.commit()

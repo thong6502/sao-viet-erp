@@ -260,6 +260,11 @@
   gap: var(--sp-3);
   padding: var(--sp-2) var(--sp-4);
 }
+/* Nhóm không có Phạm vi (Danh mục): bỏ cột thứ 4, hai công tắc giữ nguyên bề rộng. */
+.rdx-perm__rows--noscope .rdx-perm__colhead,
+.rdx-perm__rows--noscope .rdx-perm__row {
+  grid-template-columns: minmax(0, 1fr) 92px 92px;
+}
 .rdx-perm__colhead {
   padding-top: var(--sp-3);
   padding-bottom: var(--sp-3);

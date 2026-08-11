@@ -9,7 +9,7 @@ from ..models.piece_work import PieceRate
 
 ASSIGNABLE = (
     "ten", "ten_hien_thi", "don_vi_vao", "don_vi_ra",
-    "kieu_bu_hao", "bu_hao_id", "so_to_bu_hao", "nhom", "department_id", "khoan_ghi_theo",
+    "kieu_bu_hao", "bu_hao_id", "so_to_bu_hao", "nhom", "nhom_may_cho_phep", "department_id", "khoan_ghi_theo",
     "allowed_defect_pct", "allowed_defect_abs",
     "che_do_tinh", "pricing_basis", "setup_cost", "setup_time", "nang_suat",
     "run_rate", "rate_tiers", "size_tiers", "first_unit_floor", "min_charge", "requires_tooling",
@@ -26,6 +26,18 @@ class CongDoanRepository:
             select(CongDoan).where(CongDoan.id == cd_id)
             .options(selectinload(CongDoan.dau_viec_dinh_muc))
         ).scalar_one_or_none()
+
+    def department_ids_dang_dung(self) -> set[int]:
+        """Id phòng ban đang được CÔNG ĐOẠN nào đó trỏ tới.
+
+        Dùng cho dropdown "Tổ phụ trách": đổi định nghĩa Tổ (mục H) thì giá trị cũ vẫn phải chọn
+        lại được, không thì mở form ra là ô rỗng và bấm Lưu là mất tổ đang gán.
+        """
+        return {
+            i for (i,) in self.db.execute(
+                select(CongDoan.department_id).where(CongDoan.department_id.is_not(None)).distinct()
+            )
+        }
 
     def piece_rates(self, ids: set[int]) -> dict[int, PieceRate]:
         if not ids:

@@ -52,6 +52,7 @@ from ..models.accounting import (
     PAYMENT_VOUCHER_CANCELLED,
     PAYMENT_VOUCHER_PAID,
 )
+from ..models.vat_lieu_kho import HANG_LOAI
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.purchase_repo import (
     DepartmentPurchaseRequestLineInput,
@@ -88,7 +89,7 @@ DEPARTMENT_REQUEST_READER_MODULES = (
     "bao_gia",
     "kho",
     "san_xuat",
-    "dm_giay_vat_tu",
+    "dm_giay",
     "ke_toan",
 )
 
@@ -170,6 +171,31 @@ def _business_today() -> date:
 
 def _money_round(value: Decimal) -> int:
     return int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def _doc_mat_hang(get) -> tuple[str | None, int | None]:
+    """Đọc cặp `(hang_loai, hang_id)` của một dòng hàng (mg 0174).
+
+    PHẢI ĐỦ CẶP hoặc TRỐNG CẢ HAI. Nửa cặp thì **báo lỗi**, không im lặng bỏ: `hang_loai='giay'`
+    mà thiếu id là một con trỏ hỏng, và hậu quả của nó im re — dòng mua mất liên kết mặt hàng, bảng
+    cân đối không cộng lô đó vào "hàng đang về", kế hoạch giục mua thêm một lô giấy nữa. Đúng cái
+    bug mg 0174 sinh ra để chữa.
+
+    "Không đoán" nghĩa là không tự bịa nửa còn thiếu — KHÔNG có nghĩa là nuốt lỗi. Cùng cách xử lý
+    với dòng mặt hàng NCC (`_clean_supplier_items`), để một khái niệm chỉ có một luật.
+    """
+    loai = (get("hang_loai") or "").strip() or None
+    raw_id = get("hang_id")
+    hid = int(raw_id) if raw_id not in (None, "") else None
+    if (loai is None) != (hid is None):
+        raise PurchaseValidationError(
+            "Mặt hàng gốc phải có cả loại lẫn mã — chọn lại ở ô Vật tư."
+        )
+    if loai is None:
+        return None, None
+    if loai not in HANG_LOAI:
+        raise PurchaseValidationError(f'Loại mặt hàng "{loai}" không hợp lệ.')
+    return loai, hid
 
 
 def _purchase_line_amounts(
@@ -446,6 +472,7 @@ class PurchaseService:
         audit: AuditLogRepository,
         authz: AuthorizationService,
         lich_su: PurchaseStatusHistoryRepository,
+        hang=None,
     ) -> None:
         self.lich_su = lich_su
         self.suppliers = suppliers
@@ -455,8 +482,54 @@ class PurchaseService:
         self.departments = departments
         self.audit = audit
         self.authz = authz
+        # `VatLieuKhoService` — tra danh mục gốc + quy đổi đơn vị, để bảng giá NCC gắn được về
+        # mặt hàng và so được giá. None → bỏ qua phần gắn (giữ tương thích với test cũ).
+        self.hang = hang
 
     # --- suppliers ---------------------------------------------------------
+
+    def so_gia_ncc(self, hang_loai: str, hang_id: int) -> dict:
+        """Các NCC bán MỘT mặt hàng, giá quy về ĐƠN VỊ GỐC để so ngang.
+
+        Vì sao phải quy đổi mới so được: NCC A báo 1.020.000 đ/ram, NCC B báo 24.500 đ/kg — hai
+        con số này không so trực tiếp được. Đưa cả hai về đ/<đơn vị gốc> thì mới biết ai rẻ.
+
+        Dòng không quy đổi được KHÔNG bị loại (người dùng vẫn cần thấy NCC đó có bán) nhưng xếp
+        CUỐI kèm lý do — xếp hạng một dòng chưa biết giá thật là mời chọn nhầm.
+        """
+        from .vat_lieu_kho_service import VatLieuKhoError
+
+        info = self.hang.don_vi_cua_mat_hang(hang_loai, hang_id)
+        rows: list[dict] = []
+        for sup, it in self.suppliers.items_for_hang(hang_loai, hang_id):
+            r = {
+                "supplier_id": sup.id, "supplier_name": sup.name,
+                "supplier_item_id": it.id, "unit": it.unit,
+                "unit_price": int(it.unit_price or 0),
+                "vat_percent": float(it.vat_percent or 0),
+                "gia_quy_doi": None, "gia_quy_doi_vat": None,
+                "dien_giai": None, "ly_do": None,
+            }
+            try:
+                # 1 đơn vị NCC bán bằng `he_so_ve_goc` đơn vị gốc → giá/đơn-vị-gốc = giá ÷ hệ số.
+                qd = self.hang.quy_ve_goc(hang_loai, hang_id, it.unit, 1)
+                hs = qd["he_so_ve_goc"]
+                if hs > 0:
+                    gia = int(round(int(it.unit_price or 0) / hs))
+                    r["gia_quy_doi"] = gia
+                    r["gia_quy_doi_vat"] = int(round(gia * (1 + float(it.vat_percent or 0) / 100)))
+                    r["dien_giai"] = qd["dien_giai"]
+            except VatLieuKhoError as e:
+                r["ly_do"] = str(e)
+            rows.append(r)
+        # `float("inf")` cho dòng chưa quy đổi được → luôn nằm cuối, không lẫn vào xếp hạng.
+        rows.sort(key=lambda x: (x["gia_quy_doi"] if x["gia_quy_doi"] is not None else float("inf")))
+        return {
+            "hang_loai": hang_loai, "hang_id": hang_id,
+            "hang_ma": info.get("ma"), "hang_ten": info.get("ten"),
+            "don_vi_goc": info.get("don_vi_goc"), "don_vi_goc_ten": info.get("don_vi_goc_ten"),
+            "items": rows,
+        }
 
     def list_suppliers(
         self,
@@ -553,8 +626,20 @@ class PurchaseService:
             vat_percent = float(raw_vat)
             if vat_percent < 0 or vat_percent > 100:
                 raise PurchaseValidationError("VAT mat hang nha cung cap phai tu 0 den 100.")
+            hang_loai = (get("hang_loai") or "").strip() or None
+            hang_id = get("hang_id") or None
+            if (hang_loai is None) != (hang_id is None):
+                raise PurchaseValidationError(
+                    "Mat hang goc phai co ca loai lan ma — chon lai o o Vat tu."
+                )
+            if hang_loai is not None:
+                # Đơn vị NCC bán phải nằm trong tập đổi được của mặt hàng, nếu không thì cột "giá
+                # quy về đơn vị gốc" vĩnh viễn trống và dòng này không bao giờ so giá được.
+                self._kiem_don_vi_ncc(hang_loai, int(hang_id), unit)
             items.append(
                 SupplierItemInput(
+                    hang_loai=hang_loai,
+                    hang_id=int(hang_id) if hang_id else None,
                     item_name=item_name,
                     unit=unit,
                     unit_price=unit_price,
@@ -563,6 +648,16 @@ class PurchaseService:
                 )
             )
         return items
+
+    def _kiem_don_vi_ncc(self, hang_loai: str, hang_id: int, unit: str) -> None:
+        from .vat_lieu_kho_service import VatLieuKhoError
+
+        if self.hang is None:
+            return
+        try:
+            self.hang.quy_ve_goc(hang_loai, hang_id, unit, 1)
+        except VatLieuKhoError as e:
+            raise PurchaseValidationError(str(e)) from None
 
     def create_supplier(self, *, actor, **values) -> Supplier:
         cleaned = self._clean_supplier_values(**values)
@@ -856,7 +951,7 @@ class PurchaseService:
           của họ: công việc của thu mua chính là biến đơn của phòng khác thành phiếu mua. Không
           phụ thuộc scope: nhân viên thu mua scope `own` (chỉ thấy PHIẾU MUA của mình) vẫn phải
           thấy đủ yêu cầu gửi đến, nếu không thì ngồi nhìn màn hình trống.
-        · **Người ĐỀ NGHỊ** (bao_gia · kho · san_xuat · dm_giay_vat_tu) — chỉ thấy yêu cầu của
+        · **Người ĐỀ NGHỊ** (bao_gia · kho · san_xuat · dm_giay) — chỉ thấy yêu cầu của
           phòng mình, trừ khi được cấp scope `all`.
 
         ⚠️ Ngày 04/08/2026 tôi hạ scope `thu_mua` của nhân viên mua hàng xuống `own` để họ chỉ
@@ -948,8 +1043,20 @@ class PurchaseService:
             item_name = (get("item_name") or "").strip()
             if not item_name:
                 raise PurchaseValidationError("Ten vat tu khong duoc trong.")
-            if not self.suppliers.has_active_item(item_name):
-                raise PurchaseValidationError("Vat tu chua co trong danh muc mat hang nha cung cap.")
+            hang_loai, hang_id = _doc_mat_hang(get)
+            # Dòng ĐÃ GẮN MẶT HÀNG GỐC (mg 0174) thì thôi kiểm theo TÊN: cặp `(hang_loai, hang_id)`
+            # là bằng chứng mạnh hơn hẳn — món đó đang nằm trong danh mục gốc, không phải chữ gõ
+            # tay. Giữ lại phép so tên ở đây là chặn oan đúng luồng vừa dựng: bảng cân đối gửi
+            # "Couché 150 79×109" (tên danh mục) trong khi NCC khai "Couche 150" ⇒ không lập nổi
+            # yêu cầu mua, mà lý do báo ra lại là "vật tư chưa có trong danh mục" — sai và khó hiểu.
+            # Dòng KHÔNG gắn mặt hàng gốc: chỉ còn chấp nhận nếu tên trùng bảng giá NCC — đó là
+            # đường lùi cho DỮ LIỆU CŨ (phiếu lập trước khi ô chọn danh mục ra đời) và cho client
+            # cũ. Giao diện hiện tại luôn gửi kèm cặp `(hang_loai, hang_id)`: ô Vật tư ở màn Yêu
+            # cầu mua hàng là combobox tra thẳng danh mục Giấy + Vật tư khác, không gõ tự do.
+            if hang_loai is None and not self.suppliers.has_active_item(item_name):
+                raise PurchaseValidationError(
+                    "Vat tu phai chon tu danh muc (Giay / Vat tu khac)."
+                )
             unit = (get("unit") or "").strip()
             if not unit:
                 raise PurchaseValidationError("Don vi tinh khong duoc trong.")
@@ -963,6 +1070,8 @@ class PurchaseService:
                     quantity=quantity,
                     expected_unit_price=0,
                     note=(get("note") or "").strip() or None,
+                    hang_loai=hang_loai,
+                    hang_id=hang_id,
                 )
             )
         return lines
@@ -1091,6 +1200,13 @@ class PurchaseService:
         q: str | None = None,
         status: str | None = None,
         supplier_id: int | None = None,
+        created_from: date | None = None,
+        created_to: date | None = None,
+        needed_from: date | None = None,
+        needed_to: date | None = None,
+        expected_receipt_from: date | None = None,
+        expected_receipt_to: date | None = None,
+        deposit_status: str | None = None,
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
@@ -1100,15 +1216,21 @@ class PurchaseService:
         # PHẠM VI NHÌN (chủ 04/08/2026: "nhân viên chỉ thấy đơn của tôi thôi, trưởng bộ phận hoặc
         # giám đốc mới thấy cả"). Trước đây hàm này KHÔNG nhận `actor` — ai có `thu_mua:read` là
         # thấy phiếu của cả công ty, bất kể vai được khai scope gì.
-        creator_ids: list[int] | None = None
-        if actor is not None:
-            scope = self._purchase_scope(actor)
-            if scope == SCOPE_DEPARTMENT:
-                creator_ids = self._nguoi_cung_phong(actor)
-            elif scope != SCOPE_ALL:
-                creator_ids = [actor.id]
+        creator_ids = None if actor is None else self._creator_ids_theo_scope(actor)
         rows, total = self.requests.list(
-            q=q, status=status, supplier_id=supplier_id, sort=sort, page=page, size=size,
+            q=q,
+            status=status,
+            supplier_id=supplier_id,
+            created_from=created_from,
+            created_to=created_to,
+            needed_from=needed_from,
+            needed_to=needed_to,
+            expected_receipt_from=expected_receipt_from,
+            expected_receipt_to=expected_receipt_to,
+            deposit_status=deposit_status,
+            sort=sort,
+            page=page,
+            size=size,
             creator_ids=creator_ids, exclude_statuses=exclude_statuses,
         )
         return [self._to_request_out(r) for r in rows], total
@@ -1127,6 +1249,21 @@ class PurchaseService:
                 best = sc
         return best
 
+    def _creator_ids_theo_scope(self, actor) -> list[int] | None:
+        """Những `created_by_user_id` mà actor được nhìn. **None = không lọc** (thấy toàn công ty).
+
+        Tách riêng để DANH SÁCH và BADGE dùng CHUNG một phép lọc. Badge mà tự đếm lấy theo luật
+        khác danh sách thì con số nó báo không mở ra xem được: báo 5 mà màn hiện 1: người dùng
+        thôi tin badge, và badge thành thứ trang trí. Đây cũng chính là ràng buộc "đếm theo phạm
+        vi của NGƯỜI XEM" — nhân viên scope `own` phải đếm đúng việc của mình, không đếm cả công
+        ty."""
+        scope = self._purchase_scope(actor)
+        if scope == SCOPE_ALL:
+            return None
+        if scope == SCOPE_DEPARTMENT:
+            return self._nguoi_cung_phong(actor)
+        return [actor.id]
+
     def _nguoi_cung_phong(self, actor) -> list[int]:
         """id của những người CÙNG PHÒNG BAN với actor — dùng cho scope `department`.
 
@@ -1135,6 +1272,71 @@ class PurchaseService:
         if getattr(actor, "department_id", None) is None:
             return [actor.id]
         return [u.id for u in self.users.list_by_department(actor.department_id)] or [actor.id]
+
+    # --- badge thông báo Thu mua (notify-summary) --------------------------
+
+    def dem_dot_giao_qua_han(self) -> int:
+        """Số ĐỢT GIAO đã quá hạn trả mà CÒN NỢ.
+
+        ⚠️ Cố ý đếm bằng PYTHON, dù mọi con số khác của badge đều COUNT ở DB. `con_no` của một đợt
+        KHÔNG phải một cột: nó là kết quả của một chuỗi phép tính có trạng thái —
+        (1) giá trị đợt cộng từ SL nhận × đơn giá/CK/VAT trên dòng đặt (`gia_tri_dot_giao`),
+        (2) phiếu chi không trỏ đợt nào là CỌC CHUNG, trả thừa một đợt chảy ngược vào cọc, tiền
+            nộp lại trừ vào cọc,
+        (3) cọc chiếu xuống các đợt theo thứ tự GIAO TRƯỚC BÙ TRƯỚC.
+        Viết lại bằng SQL là dựng nguồn sự thật THỨ HAI cho tiền — hai chỗ lệch nhau thì badge và
+        màn Công nợ nói hai kiểu, mà lệch tiền chỉ lòi ra lúc đối chiếu với NCC. Nên dùng lại đúng
+        `phan_bo_tien_dot` + `han_tra_dot` mà màn Công nợ đang dùng.
+
+        `list_for_payables` đã lọc hẹp ở SQL còn 4 trạng thái có thể nợ và eager-load sẵn quan hệ
+        (không N+1). Tập này vẫn lớn dần theo thời gian — khi nào chậm thì cắt bằng mốc ngày ở
+        repo, đừng bỏ phần Python này đi.
+
+        Đợt không có hạn (`han_tra_dot` trả None vì NCC chưa khai `credit_days`) KHÔNG vào đây —
+        đúng luật màn Công nợ; nó được canh bằng badge 'Chưa đặt hạn' ở màn đó.
+        """
+        hom_nay = _business_today()
+        so_dot = 0
+        for row in self.requests.list_for_payables():
+            phan_bo, _coc, _coc_du = phan_bo_tien_dot(row)
+            for m in phan_bo:
+                if m["con_no"] <= 0:
+                    continue
+                han = han_tra_dot(m["delivery"], row.supplier)
+                if han is not None and han < hom_nay:
+                    so_dot += 1
+        return so_dot
+
+    def notify_summary(self, *, actor) -> dict:
+        """Ba con số nuôi badge Thu mua trên sidebar. Mỗi con số ĐẾM THEO PHẠM VI NGƯỜI XEM.
+
+        HAI phép lọc KHÁC NHAU, đừng gộp lại cho gọn:
+
+        · `ycmh_cho_lap_phieu` theo `_sees_all_department_requests` — YCMH là HỘP VIỆC của thu mua,
+          nhân viên scope `own` vẫn phải thấy đủ yêu cầu mọi phòng gửi tới. Đếm bằng `_purchase_scope`
+          ở đây là lặp lại đúng sự cố 04/08/2026: hạ scope xuống `own` làm mù hộp việc, badge báo 0
+          trong khi màn YCMH của họ đầy việc.
+        · `pmh_bi_tu_choi` theo `_purchase_scope` — đây đúng là PHIẾU MUA do chính họ lập, mà luật
+          phiếu mua là "nhân viên chỉ thấy đơn của tôi, trưởng bộ phận/giám đốc mới thấy cả".
+
+        `dot_giao_qua_han` là số CÔNG NỢ: chỉ trả cho người có `ke_toan:read`. Người chỉ có quyền
+        thu mua nhận 0 — không rò tình hình nợ NCC cho người không được xem, và con số đó cũng
+        không cộng vào badge của họ (FE cộng thẳng ba số nên trả 0 là đủ, không cần luật riêng ở
+        giao diện). Đây cũng là lý do không gộp cả ba vào một câu đếm chung.
+        """
+        ycmh = self.department_requests.count_open(
+            requesting_department_id=getattr(actor, "department_id", None),
+            filter_by_department=not self._sees_all_department_requests(actor),
+        )
+        pmh = self.requests.count_rejected_with_open_source(
+            creator_ids=self._creator_ids_theo_scope(actor)
+        )
+        qua_han = self.dem_dot_giao_qua_han() if self.authz.can(actor, "ke_toan", "read") else 0
+        return {
+            "ycmh_cho_lap_phieu": ycmh,
+            "pmh_bi_tu_choi": pmh,
+            "dot_giao_qua_han": qua_han,
+        }
 
     def _co_duoc_xem(self, row: PurchaseRequest, actor) -> bool:
         scope = self._purchase_scope(actor)
@@ -1226,21 +1428,34 @@ class PurchaseService:
 
     @staticmethod
     def _chot_noi_dong(cleaned_lines, source_requests) -> None:
-        """Dòng phiếu chỉ được trỏ về dòng của CHÍNH yêu cầu nguồn nó gắn.
+        """Dòng phiếu chỉ được trỏ về dòng của CHÍNH yêu cầu nguồn nó gắn — VÀ kế thừa mặt hàng gốc.
 
         Không chốt thì phiếu trỏ được sang dòng của yêu cầu khác, và chi tiết YCMH hiện nhầm tiến
         độ của người khác — im lặng, không báo lỗi.
 
         Chạy RIÊNG sau khi đã gỡ yêu cầu nguồn, không nhét vào `_clean_lines`: nhét vào thì phải
         gỡ nguồn trước khi làm sạch dòng, và thứ tự báo lỗi đảo ngược — người dùng gõ thiếu đơn vị
-        tính lại nhận câu "yêu cầu không còn ở trạng thái chờ mua"."""
-        hop_le = {line.id for src in source_requests for line in getattr(src, "lines", [])}
+        tính lại nhận câu "yêu cầu không còn ở trạng thái chờ mua".
+
+        KẾ THỪA `(hang_loai, hang_id)` (mg 0174): đây là chỗ DUY NHẤT vừa cầm dòng phiếu vừa cầm
+        dòng yêu cầu nguồn, nên cũng là chỗ duy nhất nối được mặt hàng gốc mà không phải đoán từ
+        tên hàng. Thiếu bước này thì bảng cân đối vật tư không thấy "hàng đang về" của chính lô
+        giấy nó vừa bảo đi mua ⇒ nó giục mua thêm lần nữa. Client CÓ gửi thì tôn trọng client
+        (thu mua đổi mặt hàng khi lập phiếu là hợp lệ); chỉ điền khi đang trống.
+        """
+        dong_nguon = {line.id: line for src in source_requests for line in getattr(src, "lines", [])}
         for line in cleaned_lines:
             src_line_id = getattr(line, "department_request_line_id", None)
-            if src_line_id is not None and src_line_id not in hop_le:
+            if src_line_id is None:
+                continue
+            if src_line_id not in dong_nguon:
                 raise PurchaseValidationError(
                     f'Dòng "{line.item_name}" trỏ tới một dòng không thuộc yêu cầu nguồn của phiếu này.'
                 )
+            goc = dong_nguon[src_line_id]
+            if getattr(line, "hang_loai", None) is None and getattr(line, "hang_id", None) is None:
+                line.hang_loai = getattr(goc, "hang_loai", None)
+                line.hang_id = getattr(goc, "hang_id", None)
 
     def _clean_lines(
         self, raw_lines, *, supplier_id: int | None = None
@@ -1285,6 +1500,7 @@ class PurchaseService:
                 raise PurchaseValidationError("Thuế GTGT (%) phải trong khoảng 0 đến 100.")
             raw_src = get("department_request_line_id")
             src_line_id = int(raw_src) if raw_src not in (None, "") else None
+            hang_loai, hang_id = _doc_mat_hang(get)
             lines.append(
                 PurchaseRequestLineInput(
                     item_name=item_name,
@@ -1295,6 +1511,8 @@ class PurchaseService:
                     vat_percent=vat_percent,
                     note=(get("note") or "").strip() or None,
                     department_request_line_id=src_line_id,
+                    hang_loai=hang_loai,
+                    hang_id=hang_id,
                 )
             )
         return lines
@@ -2582,6 +2800,8 @@ class PurchaseService:
             phieu = link.purchase_request
             if phieu is None:
                 continue
+            # Σ theo đợt giao — tính MỘT LẦN cho mỗi phiếu, không lặp trong vòng dòng.
+            da_giao = da_giao_theo_dong(phieu)
             for pl in phieu.lines:
                 src_line_id = getattr(pl, "department_request_line_id", None)
                 if src_line_id is None:
@@ -2598,8 +2818,17 @@ class PurchaseService:
                     "supplier_name": phieu.supplier.name if phieu.supplier else None,
                     "ordered_quantity": float(pl.quantity),
                     "ordered_unit": pl.unit,
+                    # ĐI QUA `qty_thuc_nhan`, đừng đọc thẳng `pl.received_quantity`: cột đó
+                    # DORMANT với mọi phiếu có đợt giao (từ 06/08/2026). Đọc thẳng là chi tiết
+                    # yêu cầu báo "chưa nhận gì" trong khi hàng đã về mấy đợt — bộ phận tưởng thu
+                    # mua chưa làm, gọi điện giục nhầm.
+                    #
+                    # `None` chỉ còn đúng MỘT nghĩa: phiếu CHƯA có đợt giao nào VÀ chưa ai khai số
+                    # thực nhận ⇒ giao diện hiểu là "chưa có tin", không phải "nhận 0".
                     "received_quantity": (
-                        float(pl.received_quantity) if pl.received_quantity is not None else None
+                        qty_thuc_nhan(pl, da_giao)
+                        if (da_giao is not None or pl.received_quantity is not None)
+                        else None
                     ),
                 }
         for muc in theo_dong.values():

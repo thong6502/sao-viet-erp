@@ -9,7 +9,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import {
   api, XEP_LICH_CANH_BAO_TL_LABELS, XEP_LICH_KHOA_LABELS, XEP_LICH_XAC_NHAN_LABELS,
   type XepLichGanBody, type XepLichLichNen, type XepLichPreview, type XepLichPreviewBody,
-  type XepLichRow, type XepLichVungKhoaItem,
+  type XepLichKieuKhoang, type XepLichNguoiTangGiua, type XepLichRow,
+  type XepLichTaiToKhoang, type XepLichVungKhoaItem,
 } from "../api/client";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
@@ -90,6 +91,8 @@ function barTip(r: XepLichRow): string {
   }
   const lag = r.tong_phut - r.chiem_may_phut;
   if (lag > 0) lines.push(`Chờ / di chuyển ${thoiLuong(lag)} (không chiếm máy)`);
+  // Tổ tiêu thụ NGƯỜI chứ không chiếm trọn khoảng giờ — số này là thứ quyết định quá tải hay không.
+  if (r.department_id != null && (r.so_nhan_cong ?? 0) > 0) lines.push(`Bố trí ${r.so_nhan_cong} người`);
   if (r.theo_may) lines.push("Thời lượng tính theo tốc độ máy");
   else if (r.canh_bao_thoi_luong) lines.push(`⚠ ${XEP_LICH_CANH_BAO_TL_LABELS[r.canh_bao_thoi_luong] ?? r.canh_bao_thoi_luong}`);
   for (const ld of r.ly_do_xac_nhan) lines.push(`⚠ ${XEP_LICH_XAC_NHAN_LABELS[ld] ?? ld}`);
@@ -110,7 +113,10 @@ function packRows(items: { r: XepLichRow; x0: number; x1: number }[]): { r: XepL
 
 type KhoaPop =
   | { kind: "tao"; mayId: number; rect: DOMRect }
-  | { kind: "xoa"; item: XepLichVungKhoaItem; rect: DOMRect };
+  | { kind: "xoa"; item: XepLichVungKhoaItem; rect: DOMRect }
+  // Mục I — sửa quân số tổ NGÀY ĐÓ. Mở từ chính khoảng đang đỏ trên lane tổ: người dùng bấm vào
+  // đúng chỗ đang báo thiếu người, không phải đi tìm màn khác rồi tự nhớ hôm đó là ngày mấy.
+  | { kind: "quan_so"; tai: XepLichTaiToKhoang; rect: DOMRect };
 
 // Trạng thái kéo LIVE (ref — không gây re-render mỗi pixel); ghost render qua state riêng.
 interface DragLive {
@@ -144,6 +150,11 @@ export function GanttBoard({
   const [lichNen, setLichNen] = useState<XepLichLichNen | null>(null);
   const [khoas, setKhoas] = useState<XepLichVungKhoaItem[]>([]);
   const [khoaTick, setKhoaTick] = useState(0);
+  // Mức dùng NGƯỜI của từng tổ theo khoảng giờ (mục I). Lấy từ server chứ không tự cộng ở FE:
+  // tô đỏ ở đây phải trùng khít với cái detector chặn phát hành, hai nơi tự tính là có ngày lệch.
+  const [taiTo, setTaiTo] = useState<XepLichTaiToKhoang[]>([]);
+  // Người khối SX chưa gắn tổ lá — KHÔNG vào quỹ giờ-người của tổ nào, nên phải nhắc ra mặt.
+  const [tangGiua, setTangGiua] = useState<XepLichNguoiTangGiua[]>([]);
   const [pop, setPop] = useState<KhoaPop | null>(null);
   const [ghost, setGhost] = useState<Ghost | null>(null);
   const [impact, setImpact] = useState<Impact | null>(null);
@@ -163,7 +174,20 @@ export function GanttBoard({
     api.xepLich.vungKhoaRange(token, isoDay(winStart), isoDay(winEnd))
       .then((r) => setKhoas(r.items))
       .catch(() => setKhoas([]));
+    api.xepLich.taiTo(token)
+      .then((r) => { setTaiTo(r.items); setTangGiua(r.tang_giua ?? []); })
+      .catch(() => { setTaiTo([]); setTangGiua([]); });
   }, [token, winStart, winEnd, bands, khoaTick]);
+
+  const taiByTo = useMemo(() => {
+    const m = new Map<number, XepLichTaiToKhoang[]>();
+    for (const k of taiTo) {
+      const a = m.get(k.department_id) ?? [];
+      a.push(k);
+      m.set(k.department_id, a);
+    }
+    return m;
+  }, [taiTo]);
 
   const khoaByMay = useMemo(() => {
     const m = new Map<number, XepLichVungKhoaItem[]>();
@@ -323,9 +347,11 @@ export function GanttBoard({
     onOpenRow(id);
   }, [onOpenRow]);
 
-  async function taoKhoa(mayId: number, tu: string, den: string, ly_do: string): Promise<void> {
+  async function taoKhoa(
+    mayId: number, tu: string, den: string, ly_do: string, kieu: XepLichKieuKhoang,
+  ): Promise<void> {
     if (!token) return;
-    await api.xepLich.taoVungKhoa(token, mayId, { tu: `${tu}:00`, den: `${den}:00`, ly_do });
+    await api.xepLich.taoVungKhoa(token, mayId, { tu: `${tu}:00`, den: `${den}:00`, ly_do, kieu });
     setPop(null);
     setKhoaTick((t) => t + 1);
   }
@@ -334,6 +360,14 @@ export function GanttBoard({
     await api.xepLich.xoaVungKhoa(token, pid);
     setPop(null);
     setKhoaTick((t) => t + 1);
+  }
+
+  /** Gõ đè quân số tổ một ngày (mục I). `soNguoi = null` = bỏ gõ đè, quay về số tự tính. */
+  async function luuQuanSo(deptId: number, ngay: string, soNguoi: number | null, lyDo: string) {
+    if (!token) return;
+    await api.xepLich.datQuanSo(token, deptId, ngay, soNguoi, lyDo);
+    setPop(null);
+    setKhoaTick((t) => t + 1);   // nạp lại nền lane: sửa quân số là đổi kết luận quá tải
   }
 
   return (
@@ -363,6 +397,17 @@ export function GanttBoard({
         <div className="khsx__spacer" />
         <GanttLegend />
       </div>
+
+      {/* Mục I — người khối SX gắn ở TẦNG GIỮA. Họ KHÔNG được cộng vào tổ nào (cộng là đếm thừa,
+          lịch hứa năng lực không có thật), nhưng im lặng bỏ thì quỹ giờ-người hụt mà không ai
+          hiểu vì sao. Nói ra để người quản lý đi gắn tổ — máy không tự đoán hộ. */}
+      {tangGiua.length > 0 && (
+        <p className="xlcd-gnhac">
+          <Icon name="help" size={13} />
+          {tangGiua.map((t) => `${t.so_nguoi} người thuộc ${t.department_ten}`).join(" · ")}
+          {" "}chưa gắn tổ — chưa tính vào quỹ giờ-người của tổ nào.
+        </p>
+      )}
 
       <div className="xlcd-gantt__scroll">
         <div className="xlcd-gantt__inner" style={{ width: totalW }}>
@@ -409,6 +454,7 @@ export function GanttBoard({
               availMin={availMin}
               isMachine={groupBy === "may" && !b.noMay}
               maint={khoaByMay.get(b.rows[0]?.may_id ?? -1) ?? []}
+              tai={taiByTo.get(b.rows[0]?.department_id ?? -1) ?? []}
               canUpdate={canUpdate}
               ghost={ghost?.key === b.key ? ghost : null}
               dragId={dragRef.current?.dongId ?? null}
@@ -418,6 +464,7 @@ export function GanttBoard({
               onBarKey={onBarKey}
               onOpenKhoaForm={(mayId, rect) => setPop({ kind: "tao", mayId, rect })}
               onOpenKhoaDel={(item, rect) => setPop({ kind: "xoa", item, rect })}
+              onOpenQuanSo={(t, rect) => setPop({ kind: "quan_so", tai: t, rect })}
             />
           ))}
         </div>
@@ -425,17 +472,30 @@ export function GanttBoard({
 
       {pop?.kind === "tao" && (
         <KhoaForm winStart={winStart} rect={pop.rect} onClose={() => setPop(null)}
-          onSave={(tu, den, ly_do) => taoKhoa(pop.mayId, tu, den, ly_do)} />
+          onSave={(tu, den, ly_do, kieu) => taoKhoa(pop.mayId, tu, den, ly_do, kieu)} />
+      )}
+      {pop?.kind === "quan_so" && (
+        <QuanSoForm
+          tai={pop.tai}
+          rect={pop.rect}
+          onClose={() => setPop(null)}
+          onSave={(so, lyDo) =>
+            luuQuanSo(pop.tai.department_id, isoDay(wallMinutes(pop.tai.start)), so, lyDo)}
+        />
       )}
       {pop?.kind === "xoa" && (
         <div className="xlcd-pop xlcd-gkhoa" style={fixedPop(pop.rect)} role="dialog">
           <p className="xlcd-gkhoa__t">
-            {XEP_LICH_KHOA_LABELS[pop.item.ly_do] ?? pop.item.ly_do} ·{" "}
+            {pop.item.kieu === "mo_them"
+              ? "Máy chạy thêm"
+              : (XEP_LICH_KHOA_LABELS[pop.item.ly_do] ?? pop.item.ly_do)} ·{" "}
             {ngayGio(pop.item.start)} → {ngayGio(pop.item.finish)}
           </p>
           <div className="xlcd-gkhoa__row">
             <Button variant="secondary" onClick={() => setPop(null)}>Huỷ</Button>
-            <Button variant="danger" onClick={() => xoaKhoa(pop.item.id)}>Bỏ khóa</Button>
+            <Button variant="danger" onClick={() => xoaKhoa(pop.item.id)}>
+              {pop.item.kieu === "mo_them" ? "Bỏ giờ mở thêm" : "Bỏ khóa"}
+            </Button>
           </div>
         </div>
       )}
@@ -456,8 +516,8 @@ export function GanttBoard({
 }
 
 function GanttLane({
-  band, scale, trackW, offRects, nowX, availMin, isMachine, maint, canUpdate, ghost, dragId,
-  registerTrack, onOpenRow, onBarDown, onBarKey, onOpenKhoaForm, onOpenKhoaDel,
+  band, scale, trackW, offRects, nowX, availMin, isMachine, maint, tai, canUpdate, ghost, dragId,
+  registerTrack, onOpenRow, onBarDown, onBarKey, onOpenKhoaForm, onOpenKhoaDel, onOpenQuanSo,
 }: {
   band: Band;
   scale: TimeScale;
@@ -476,6 +536,9 @@ function GanttLane({
   onBarKey: (r: XepLichRow, e: React.KeyboardEvent) => void;
   onOpenKhoaForm: (mayId: number, rect: DOMRect) => void;
   onOpenKhoaDel: (item: XepLichVungKhoaItem, rect: DOMRect) => void;
+  /** Mức dùng người theo khoảng giờ của TỔ ở lane này (mục I). Rỗng với lane máy. */
+  tai: XepLichTaiToKhoang[];
+  onOpenQuanSo: (tai: XepLichTaiToKhoang, rect: DOMRect) => void;
 }) {
   const mayId = band.rows[0]?.may_id ?? null;
   const scheduled = band.rows.filter((r) => r.start_at && r.finish_at);
@@ -522,14 +585,43 @@ function GanttLane({
         {offRects.map((o, i) => (
           <div key={`o${i}`} className="xlcd-gback xlcd-gback--off" style={{ left: o.x, width: o.w }} />
         ))}
+        {/* Mục I — NỀN MỨC DÙNG của lane TỔ. Tổ không chiếm trọn khoảng giờ như máy: ràng buộc
+            thật nằm ở NGƯỜI. Nền cao dần theo tỉ lệ dùng/quân số, vượt thì đỏ — liếc một cái là
+            thấy đoạn nào tổ đang gánh quá sức, không phải bấm sang tab Vấn đề mới biết.
+            Số do SERVER quét (cùng nguồn với detector chặn phát hành), FE chỉ vẽ. */}
+        {tai.map((k, i) => {
+          const x = scale.xOf(wallMinutes(k.start));
+          const w = Math.max(2, scale.xOf(wallMinutes(k.finish)) - x);
+          const pct = k.quan_so > 0 ? Math.min(1, k.dung / k.quan_so) : 1;
+          return (
+            <div
+              key={`t${i}`}
+              className={`xlcd-gtai${k.qua_tai ? " is-over" : ""}${canUpdate ? " is-click" : ""}`}
+              style={{ left: x, width: w, height: `${Math.round(pct * 100)}%` }}
+              role={canUpdate ? "button" : undefined}
+              title={
+                `${k.dung}/${k.quan_so} người${k.qua_tai ? " — QUÁ TẢI" : ""}`
+                + (canUpdate ? " · bấm để sửa quân số ngày này" : "")
+              }
+              onClick={canUpdate
+                ? (e) => onOpenQuanSo(k, e.currentTarget.getBoundingClientRect())
+                : undefined}
+            />
+          );
+        })}
+        {/* Hai kiểu khoảng riêng của máy (mục G3) vẽ KHÁC MÀU: `chan` = máy nghỉ (xám gạch),
+            `mo_them` = máy chạy thêm ngoài ca (xanh). Cùng một màu thì vùng tăng ca đọc thành
+            vùng bảo trì — đúng nghĩa ngược nhau. */}
         {maint.map((k) => {
           const x = scale.xOf(wallMinutes(k.start));
           const w = Math.max(3, scale.xOf(wallMinutes(k.finish)) - x);
+          const them = k.kieu === "mo_them";
           return (
-            <div key={`k${k.id}`} className={`xlcd-gback xlcd-gback--maint ${canUpdate ? "is-click" : ""}`}
+            <div key={`k${k.id}`}
+              className={`xlcd-gback xlcd-gback--${them ? "mothem" : "maint"} ${canUpdate ? "is-click" : ""}`}
               style={{ left: x, width: w }}
               role={canUpdate ? "button" : undefined}
-              title={`${XEP_LICH_KHOA_LABELS[k.ly_do] ?? k.ly_do}: ${ngayGio(k.start)} → ${ngayGio(k.finish)}`}
+              title={`${them ? "Máy chạy thêm" : (XEP_LICH_KHOA_LABELS[k.ly_do] ?? k.ly_do)}: ${ngayGio(k.start)} → ${ngayGio(k.finish)}`}
               onClick={canUpdate ? (e) => onOpenKhoaDel(k, e.currentTarget.getBoundingClientRect()) : undefined} />
           );
         })}
@@ -639,6 +731,12 @@ function GanttBar({
               {r.nguon === "in_ghep" && p.w >= 40 && <span className="xlcd-gbadge xlcd-gbadge--bg">BG</span>}
               {r.is_locked && <Icon name="lock" size={10} />}
               {p.w >= 64 && <span className="xlcd-gbar__ma">{r.lsx_ma}</span>}
+              {/* Mục I — lane TỔ cho thanh CHỒNG NHAU (tổ 8 người chạy 2 việc cùng lúc là bình
+                  thường), nên phải ghi SỐ NGƯỜI trên từng thanh: nhìn hai thanh chồng nhau mà
+                  không biết mỗi cái ăn mấy người thì không đọc ra tổ có quá tải hay không. */}
+              {r.department_id != null && p.w >= 96 && (r.so_nhan_cong ?? 0) > 0 && (
+                <span className="xlcd-gbar__nguoi">{r.so_nhan_cong} người</span>
+              )}
             </span>
           )}
         </button>
@@ -757,34 +855,110 @@ function PreviewImpactDialog({
   );
 }
 
+/** Form khoảng giờ riêng của MỘT máy — dùng chung cho hai kiểu (mục G3).
+ *
+ *  Trước đây chỉ khai được "máy nghỉ"; *"tối thứ Tư máy in 2 chạy thêm 3 tiếng"* không có chỗ nào
+ *  ghi (lịch xưởng chỉ khai làm bù cho CẢ nhà máy). Cùng một form, đổi ô "Loại khoảng" là đủ —
+ *  tách hai màn thì thành hai nơi phải nhớ khi vẽ Gantt và khi cộng giờ.
+ *
+ *  Ô "Lý do" chỉ có nghĩa với kiểu `chan`: một khoảng CHẠY THÊM mà mang lý do "bảo trì" thì đọc
+ *  lại là hiểu ngược, nên ẩn hẳn (server cũng tự ép về `khac`).
+ */
 function KhoaForm({
   winStart, rect, onClose, onSave,
 }: {
   winStart: number;
   rect: DOMRect;
   onClose: () => void;
-  onSave: (tu: string, den: string, ly_do: string) => void;
+  onSave: (tu: string, den: string, ly_do: string, kieu: XepLichKieuKhoang) => void;
 }) {
   const [tu, setTu] = useState(() => isoLocal(winStart + 8 * 60));      // ~08:00 ngày đầu
   const [den, setDen] = useState(() => isoLocal(winStart + 10 * 60));   // ~10:00
   const [lyDo, setLyDo] = useState("bao_tri");
+  const [kieu, setKieu] = useState<XepLichKieuKhoang>("chan");
+  const moThem = kieu === "mo_them";
   const ok = tu.length === 16 && den.length === 16 && tu < den;
   return (
-    <div className="xlcd-pop xlcd-gkhoa" style={fixedPop(rect)} role="dialog" aria-label="Thêm khoảng khóa máy">
-      <label className="xlcd-gkhoa__f">Lý do
-        <select value={lyDo} onChange={(e) => setLyDo(e.target.value)}>
-          {KHOA_REASONS.map((k) => <option key={k} value={k}>{XEP_LICH_KHOA_LABELS[k]}</option>)}
+    <div className="xlcd-pop xlcd-gkhoa" style={fixedPop(rect)} role="dialog"
+      aria-label="Thêm khoảng giờ riêng của máy">
+      <label className="xlcd-gkhoa__f">Loại khoảng
+        <select value={kieu} onChange={(e) => setKieu(e.target.value as XepLichKieuKhoang)}>
+          <option value="chan">Máy nghỉ — không xếp việc vào</option>
+          <option value="mo_them">Máy chạy thêm — làm cả ngoài ca</option>
         </select>
       </label>
+      {!moThem && (
+        <label className="xlcd-gkhoa__f">Lý do
+          <select value={lyDo} onChange={(e) => setLyDo(e.target.value)}>
+            {KHOA_REASONS.map((k) => <option key={k} value={k}>{XEP_LICH_KHOA_LABELS[k]}</option>)}
+          </select>
+        </label>
+      )}
       <label className="xlcd-gkhoa__f">Từ
         <input type="datetime-local" value={tu} onChange={(e) => setTu(e.target.value)} />
       </label>
       <label className="xlcd-gkhoa__f">Đến
         <input type="datetime-local" value={den} onChange={(e) => setDen(e.target.value)} />
       </label>
+      {moThem && (
+        <p className="xlcd-gkhoa__hint">
+          Máy được xếp việc trong khoảng này kể cả ngoài ca thường của nó.
+        </p>
+      )}
       <div className="xlcd-gkhoa__row">
         <Button variant="secondary" onClick={onClose}>Huỷ</Button>
-        <Button variant="accent" disabled={!ok} onClick={() => onSave(tu, den, lyDo)}>Khóa máy</Button>
+        <Button variant="accent" disabled={!ok} onClick={() => onSave(tu, den, lyDo, kieu)}>
+          {moThem ? "Mở thêm giờ" : "Khóa máy"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Gõ đè QUÂN SỐ của một tổ trong MỘT NGÀY (mục I).
+ *
+ *  Mở từ chính khoảng đang đỏ trên lane tổ, nên không phải hỏi "ngày nào, tổ nào" — hai thứ đó đã
+ *  nằm trong cái người dùng vừa bấm.
+ *
+ *  Bắt gõ LÝ DO: con số này ĐÈ lên dữ liệu nhân sự (hồ sơ + đơn phép đã duyệt). Không có lý do thì
+ *  tháng sau không ai giải thích nổi vì sao hôm đó lịch tính theo 6 người trong khi hồ sơ nói 3.
+ *
+ *  Nút "Bỏ gõ đè" trả về số tự tính — cần có, không thì gõ nhầm một lần là con số sai nằm lại mãi.
+ */
+function QuanSoForm({ tai, rect, onClose, onSave }: {
+  tai: XepLichTaiToKhoang;
+  rect: DOMRect;
+  onClose: () => void;
+  onSave: (soNguoi: number | null, lyDo: string) => void;
+}) {
+  const [so, setSo] = useState(String(tai.quan_so));
+  const [lyDo, setLyDo] = useState("");
+  const n = Number(so);
+  const ok = so !== "" && Number.isFinite(n) && n >= 0 && lyDo.trim().length >= 3;
+  return (
+    <div className="xlcd-pop xlcd-gkhoa" style={fixedPop(rect)} role="dialog"
+      aria-label="Sửa quân số tổ">
+      <p className="xlcd-gkhoa__t">
+        {tai.department_ten ?? "Tổ"} · {ngay(tai.start)}
+        <br />
+        <span className={tai.qua_tai ? "xlcd-drawer-rush" : ""}>
+          Đang cần {tai.dung} người, có mặt {tai.quan_so}
+        </span>
+      </p>
+      <label className="xlcd-gkhoa__f">Số người có mặt hôm nay
+        <input type="number" min="0" value={so} onChange={(e) => setSo(e.target.value)} />
+      </label>
+      <label className="xlcd-gkhoa__f">Lý do
+        <input value={lyDo} onChange={(e) => setLyDo(e.target.value)}
+          placeholder="Vd: mượn 3 người tổ Bế" />
+      </label>
+      <p className="xlcd-gkhoa__hint">
+        Số này đè lên hồ sơ nhân sự cho RIÊNG ngày này. Bỏ gõ đè để quay về số tự tính từ hồ sơ.
+      </p>
+      <div className="xlcd-gkhoa__row">
+        <Button variant="secondary" onClick={onClose}>Huỷ</Button>
+        <Button variant="ghost" onClick={() => onSave(null, "bỏ gõ đè")}>Bỏ gõ đè</Button>
+        <Button variant="accent" disabled={!ok} onClick={() => onSave(n, lyDo.trim())}>Lưu</Button>
       </div>
     </div>
   );
@@ -810,6 +984,10 @@ function GanttLegend() {
     { type: "late", label: "Nguy cơ / trễ" },
     { type: "conflict", label: "Xung đột" },
     { type: "locked", label: "Đã khóa" },
+    // Hai kiểu nền của mục G3 — chú giải phải có, không thì hai mảng màu lạ trên lane không ai đọc ra.
+    { type: "maint", label: "Máy nghỉ" },
+    { type: "mothem", label: "Chạy thêm ngoài ca" },
+    { type: "taito", label: "Tổ quá tải người" },
   ];
   return (
     <div className="xlcd-glegend" aria-hidden="true">

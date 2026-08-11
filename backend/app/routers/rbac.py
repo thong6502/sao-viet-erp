@@ -154,6 +154,7 @@ def create_department(
             probation_ratio=payload.probation_ratio,
             has_piece_work=payload.has_piece_work,
             la_san_xuat=payload.la_san_xuat,
+            la_kinh_doanh=payload.la_kinh_doanh,
             actor_id=user.id,
         )
     except DepartmentNameTaken as e:
@@ -187,6 +188,13 @@ def update_department(
             for k in ("salary_mechanism", "probation_ratio", "has_piece_work")
             if k in payload.model_fields_set
         }
+        # Cờ khối Kinh doanh: KHÔNG gửi = giữ nguyên — màn Phòng ban có nhiều luồng sửa chỉ đụng
+        # tên/trưởng phòng, ghi đè mặc định ở đó là âm thầm gỡ khối Kinh doanh của phòng.
+        kd_kw = (
+            {"la_kinh_doanh": payload.la_kinh_doanh}
+            if "la_kinh_doanh" in payload.model_fields_set
+            else {}
+        )
         dept = depts.update(
             dept_id=dept_id,
             name=payload.name,
@@ -199,6 +207,7 @@ def update_department(
             allow_reparent=authz.can(user, "phong_ban", "reparent"),
             **parent_kw,
             **salary_kw,
+            **kd_kw,
         )
     except (SetHeadForbidden, ReparentForbidden) as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None

@@ -426,30 +426,40 @@
   position: absolute;
   width: 240px;
   background: #ffffff;
-  border: 1px solid #e2e8f0;
-  border-top: 3px solid #64748b;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-top: 4px solid var(--mau-nhanh, #64748b);
+  border-radius: 14px;
+  box-shadow: 
+    0 4px 18px -2px rgba(15, 23, 42, 0.06), 
+    0 1px 3px rgba(15, 23, 42, 0.03);
   z-index: 2;
   cursor: move;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease, box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .dag-node:hover {
-  border-color: #cbd5e1;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.09);
-  z-index: 10;
+  transform: translateY(-3px) scale(1.015);
+  border-color: rgba(203, 213, 225, 0.9);
+  box-shadow: 
+    0 14px 32px -4px rgba(15, 23, 42, 0.12), 
+    0 0 0 1.5px var(--mau-nhanh, #0284c7),
+    0 6px 20px color-mix(in srgb, var(--mau-nhanh, #0284c7) 20%, transparent);
+  z-index: 15;
 }
 
 .dag-node--selected {
-  border-color: #2563eb;
-  border-top-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18), 0 4px 12px rgba(0, 0, 0, 0.08);
-  z-index: 12;
+  border-color: var(--mau-nhanh, #2563eb);
+  border-top-color: var(--mau-nhanh, #2563eb);
+  box-shadow: 
+    0 0 0 3px color-mix(in srgb, var(--mau-nhanh, #2563eb) 35%, transparent), 
+    0 16px 36px -4px rgba(15, 23, 42, 0.18);
+  z-index: 16;
 }
 
 .dag-node--has-error {
-  border-color: #e63946;
+  border-color: #ef4444;
+  border-top-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2), 0 4px 18px rgba(239, 68, 68, 0.15);
 }
 
 .dag-node--has-warning {

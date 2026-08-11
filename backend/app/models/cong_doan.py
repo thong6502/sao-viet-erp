@@ -19,7 +19,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..db import Base
 from .lsx import DV_CAI, DV_CON, DV_TAY, DV_TO, DV_TO_NGUYEN
 
-NHOM = ("prepress", "print", "finishing")
+# prepress=Chế bản · print=In · finishing=Gia công sau in · other=Dịch vụ khác.
+# "other" = dịch vụ không thuộc dòng chế bản/in/sau-in (vd thuê ngoài đặc thù). Engine key theo
+# "print"/"prepress" cụ thể nên "other" rơi vào nhánh finishing-like (mặc định NẰM trên dòng giấy
+# như gia công sau in). Phải KHỚP `NHOM_CD` ở frontend/rebuildCatalogConfigs.tsx — mở ở CẢ HAI nơi.
+NHOM = ("prepress", "print", "finishing", "other")
 # Đơn vị của công đoạn trên DÒNG GIẤY — đúng ba mức, không hơn. Kẽm/bài KHÔNG ở đây: bước chế bản
 # không chạm giấy nên để TRỐNG (None), engine loại nó khỏi dòng giấy.
 DON_VI_DONG_GIAY = (DV_TO_NGUYEN, DV_TO, DV_CON, DV_TAY, DV_CAI)
@@ -86,6 +90,10 @@ class CongDoan(Base):
     don_vi_vao: Mapped[str | None] = mapped_column(String(12), nullable=True)
     don_vi_ra: Mapped[str | None] = mapped_column(String(12), nullable=True)
     nhom: Mapped[str] = mapped_column(String(12), index=True, nullable=False)  # prepress|print|finishing
+    # Nhóm MÁY làm được công đoạn này — tên nhóm ở danh mục `nhom_may` ("Máy in"/"Bế"/"Cán màng / UV"…).
+    # Chặn gán máy SAI LOẠI ở bước (vd bước Ghi kẽm CTP không cho gán máy Bế). NULL/[] = chưa khai =
+    # không ràng buộc. Trục `loai_may` mịn hơn `nhom(3)`: phân biệt được Bế với Cán màng (cùng finishing).
+    nhom_may_cho_phep: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # Phòng ban / tổ phụ trách công đoạn (soft-ref → departments.id). Khi phát Lệnh SX, mỗi bước
     # công đoạn đẩy xuống đúng tổ này. Nullable: công đoạn cũ chưa gán vẫn hợp lệ.
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → departments.id (soft)
@@ -167,8 +175,28 @@ class CongDoanDauViec(Base):
     )
     so_nguoi_tieu_chuan: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     so_nguoi_toi_da: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # CHỜ KỸ THUẬT sau khi làm xong ĐẦU VIỆC này — keo đông, màng nguội (mg 0182). GIỜ, không phải
+    # phút. Vế TỔ của cặp với `may_thiet_bi.cho_ky_thuat_gio` (vế MÁY).
+    #
+    # Vì sao ở đầu việc chứ không ở công đoạn (chủ chốt 10/08/2026): cùng công đoạn "Bắt tay + vào
+    # keo", đầu việc *vào keo gáy vuông* phải chờ keo đông còn *khâu chỉ* thì không chờ gì. Một số
+    # cho cả công đoạn không tách được hai ca đó.
+    #
+    # Hai vế KHÔNG chồng nhau: một bước hoặc là Máy hoặc là Tổ, không bao giờ cả hai.
+    cho_ky_thuat_gio: Mapped[float] = mapped_column(
+        Numeric(6, 2), nullable=False, default=0, server_default="0"
+    )
     is_default: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False
     )
 
     cong_doan: Mapped["CongDoan"] = relationship("CongDoan", back_populates="dau_viec_dinh_muc")
+
+
+# 🔴 `CongDoanChoKyThuat` (bảng `cong_doan_cho_ky_thuat`) ĐÃ GỠ 10/08/2026 — chờ kỹ thuật nay khai
+# ở MÁY (`may_thiet_bi.cho_ky_thuat_gio`) và ở ĐẦU VIỆC (`CongDoanDauViec.cho_ky_thuat_gio`), xem
+# migration 0182. Khoá theo (công đoạn × loại sản phẩm) không tách được hai ca thật: bốn máy cùng
+# công đoạn "Cán màng / UV" mà UV khô ngay còn cán màng phải nguội; và cùng công đoạn "Bắt tay +
+# vào keo" thì vào-keo chờ còn khâu-chỉ không.
+#
+# Bảng cũ để NẰM IM trong DB (0 dòng lúc gỡ, dự án không có Alembic nên không drop).

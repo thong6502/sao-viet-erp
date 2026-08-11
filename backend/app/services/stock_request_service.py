@@ -73,12 +73,15 @@ def needs_alert(level: str) -> bool:
 
 
 class StockRequestService:
-    def __init__(self, requests, lots, thresholds, sequence, audit=None) -> None:
+    def __init__(self, requests, lots, thresholds, sequence, audit=None, hang=None) -> None:
         self.requests = requests
         self.lots = lots
         self.thresholds = thresholds
         self.sequence = sequence
         self.audit = audit
+        # `VatLieuKhoService` — cửa duy nhất tra danh mục gốc + quy đổi đơn vị. Không có nó thì
+        # không siết được (mặt hàng lạ, đơn vị không đổi được vẫn lọt), nên router LUÔN truyền.
+        self.hang = hang
 
     # --- Tạo / sửa ---------------------------------------------------------
 
@@ -132,25 +135,62 @@ class StockRequestService:
         return self.requests.save(req)
 
     def _validate_lines(self, lines: list[dict]) -> None:
+        """SIẾT (chủ chốt 2026-08-08): mỗi dòng phải trỏ một mặt hàng CÓ THẬT trong danh mục gốc,
+        và đơn vị phải đổi được về đơn vị gốc của chính mặt hàng đó.
+
+        Không còn đường "gõ tên hàng mới rồi kho gắn mã sau" — đó là nguồn đẻ mã trùng/tên lệch,
+        đúng thứ làm kho và mua hàng không nối được với nhau.
+        """
         if not lines:
             raise StockRequestError("Yêu cầu phải có ít nhất 1 dòng vật tư.")
         seen: set = set()
         for ln in lines:
             if float(ln.get("sl_de_nghi") or 0) <= 0:
-                raise StockRequestError("Số lượng yêu cầu phải lớn hơn 0.")
-            mid = ln.get("material_id")
-            name = (ln.get("ten_tu_do") or "").strip().lower()
-            if (mid is None) == (not name):
+                raise StockRequestError("Số lượng đề nghị phải lớn hơn 0.")
+            loai, hid = ln.get("hang_loai"), ln.get("hang_id")
+            if not loai or not hid:
                 raise StockRequestError(
-                    "Mỗi dòng phải có ĐÚNG một: mã hàng có sẵn HOẶC tên hàng mới."
+                    "Mỗi dòng phải chọn một mặt hàng trong danh mục Giấy / Vật tư khác."
                 )
-            # Dedup: hàng đã có mã theo id, hàng mới theo tên (không trùng trong cùng yêu cầu).
-            key = ("id", mid) if mid is not None else ("ten", name)
+            # Khoá trùng gồm CẢ lệnh/bài (mg 0175): cùng một loại giấy xin cho HAI lệnh khác nhau
+            # là hai dòng hợp lệ — gộp lại thì mất luôn thông tin "phần nào cho lệnh nào", mà đó
+            # đúng là thứ bảng cân đối cần để trừ đã-cấp vào đúng chỗ.
+            key = (loai, int(hid), ln.get("lsx_id"), ln.get("bai_ghep_id"))
             if key in seen:
                 raise StockRequestError(
-                    "Một mặt hàng chỉ được xuất hiện 1 dòng — gộp số lượng lại."
+                    "Một mặt hàng cho cùng một lệnh chỉ được xuất hiện 1 dòng — gộp số lượng lại."
                 )
             seen.add(key)
+            self._kiem_hang_va_don_vi(loai, int(hid), ln.get("dvt"), ln["sl_de_nghi"])
+            self._kiem_lenh(ln.get("lsx_id"), ln.get("bai_ghep_id"))
+
+    def _kiem_lenh(self, lsx_id, bai_ghep_id) -> None:
+        """Lệnh / bài ghép được gắn phải CÓ THẬT (mg 0175).
+
+        Cả hai để trống là hợp lệ — xin lặt vặt không thuộc lệnh nào. Nhưng gắn một id KHÔNG tồn
+        tại thì phải báo lỗi, tuyệt đối không im lặng bỏ: dòng đó sẽ mãi không khớp lệnh nào trong
+        bảng cân đối, và triệu chứng duy nhất là "sao lệnh này cấp rồi mà vẫn báo thiếu".
+        """
+        co_lsx, co_bg = self.requests.lenh_ton_tai(lsx_id, bai_ghep_id)
+        if not co_lsx:
+            raise StockRequestError(f"Lệnh sản xuất #{lsx_id} không tồn tại — chọn lại.")
+        if not co_bg:
+            raise StockRequestError(f"Bài ghép #{bai_ghep_id} không tồn tại — chọn lại.")
+
+    def _kiem_hang_va_don_vi(self, hang_loai: str, hang_id: int, dvt, so_luong) -> None:
+        """Mặt hàng còn dùng được + đơn vị quy được về gốc. Lỗi trả nguyên văn lý do của danh mục
+        (vd "chưa chọn đơn vị tính", "không đổi được từ tờ về kg") để người khai biết sửa ở đâu."""
+        if self.hang is None:
+            raise StockRequestError("Thiếu danh mục mặt hàng — không kiểm được dòng đề nghị.")
+        from .vat_lieu_kho_service import VatLieuKhoError
+
+        try:
+            obj = self.hang.get(hang_loai, hang_id)
+            if not getattr(obj, "active", True):
+                raise StockRequestError(f"“{obj.ten}” đã ngừng dùng — chọn mặt hàng khác.")
+            self.hang.quy_ve_goc(hang_loai, hang_id, dvt, so_luong)
+        except VatLieuKhoError as e:
+            raise StockRequestError(str(e)) from None
 
     def _require_editable(self, req: StockRequest) -> None:
         if req.trang_thai not in REQUEST_EDITABLE:
@@ -271,23 +311,24 @@ class StockRequestService:
 
     # --- Tồn & đèn tín hiệu -------------------------------------------------
 
-    def levels_for(self, material_ids: list[int], kho_id: int) -> dict[int, str]:
+    def levels_for(self, hangs: list[tuple[str, int]], kho_id: int) -> dict[tuple[str, int], str]:
         """Mức tồn (đèn) của từng mã hàng — an toàn để trả cho MỌI vai, kể cả người
         không có `can_view_stock`, vì không kèm con số nào."""
-        return self.levels_and_on_hand(material_ids, kho_id)[0]
+        return self.levels_and_on_hand(hangs, kho_id)[0]
 
     def levels_and_on_hand(
-        self, material_ids: list[int], kho_id: int
-    ) -> tuple[dict[int, str], dict[int, float]]:
+        self, hangs: list[tuple[str, int]], kho_id: int
+    ) -> tuple[dict[tuple[str, int], str], dict[tuple[str, int], float]]:
         """Trả CẢ mức tồn lẫn tồn khả dụng trong MỘT lượt (2 query) — router cần cả hai, tránh
-        gọi `on_hand_map` hai lần."""
-        on_hand = self.lots.on_hand_map(material_ids, kho_id)
-        th = self.thresholds.map_for(material_ids, kho_id)
-        levels = {mid: stock_level(on_hand.get(mid, 0.0), th.get(mid)) for mid in material_ids}
+        gọi `on_hand_map` hai lần. Khoá là cặp `(hang_loai, hang_id)`."""
+        hangs = [tuple(h) for h in hangs]
+        on_hand = self.lots.on_hand_map(hangs, kho_id)
+        th = self.thresholds.map_for(hangs, kho_id)
+        levels = {h: stock_level(on_hand.get(h, 0.0), th.get(h)) for h in hangs}
         return levels, on_hand
 
-    def suggest_quantity(self, material_id: int, department_id: int | None) -> float | None:
-        """Gợi ý số lượng = trung bình 3 lần yêu cầu gần nhất cùng mã hàng + cùng bộ phận.
+    def suggest_quantity(self, hang: tuple[str, int], department_id: int | None) -> float | None:
+        """Gợi ý số lượng = trung bình 3 lần đề nghị gần nhất cùng mặt hàng + cùng bộ phận.
 
         Chưa có bảng định mức nên đây là nguồn rule-based duy nhất lấy được từ data sẵn có
         (spec §8). Chưa đủ lịch sử thì trả None — thà không gợi ý còn hơn gợi ý bừa.
@@ -296,7 +337,7 @@ class StockRequestService:
         qtys = [
             float(ln.sl_de_nghi)
             for r in rows for ln in r.lines
-            if ln.material_id == material_id
+            if (ln.hang_loai, ln.hang_id) == tuple(hang)
         ][:3]
         if not qtys:
             return None

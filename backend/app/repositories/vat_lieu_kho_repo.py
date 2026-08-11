@@ -35,6 +35,14 @@ class VatLieuKhoRepository:
         model, _ = self._cfg(kind)
         return self.db.get(model, item_id)
 
+    def by_ids(self, kind: str, ids) -> list:
+        """Nạp NHIỀU bản ghi trong 1 query — kho serialize cả trang nên tra lẻ là N+1."""
+        model, _ = self._cfg(kind)
+        ids = [int(i) for i in set(ids or []) if i]
+        if not ids:
+            return []
+        return list(self.db.execute(select(model).where(model.id.in_(ids))).scalars())
+
     def find_by_ma(self, kind: str, ma: str):
         model, _ = self._cfg(kind)
         ma = (ma or "").strip().upper()

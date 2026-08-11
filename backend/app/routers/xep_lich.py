@@ -23,14 +23,22 @@ from ..realtime import hub
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.xep_lich_repo import XepLichRepository
 from ..schemas.xep_lich import (
+    ChenIn,
+    ChenOut,
     GanIn,
     GanLoatIn,
     GoiYOut,
     HangChoOut,
+    KeHoachTuanOut,
     KhoaIn,
     LichNenMayOut,
+    NguoiTangGiuaOut,
     PhatHanhOut,
+    QuanSoIn,
+    QuanSoOut,
     SanSangOut,
+    TaiToKhoangOut,
+    TaiToListOut,
     VanDeActionIn,
     VanDeGhiChuIn,
     VanDeGiaoIn,
@@ -274,6 +282,85 @@ def goi_y(
         raise _map(exc)
 
 
+@router.get("/to/{dept_id}/quan-so", response_model=QuanSoOut)
+def quan_so_to(
+    dept_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    ngay: date = Query(..., description="Ngày cần xem quân số"),
+) -> QuanSoOut:
+    """Quân số + quỹ giờ-người của một TỔ trong một ngày (mục I). Dẫn xuất, trừ dòng gõ đè."""
+    return QuanSoOut.model_validate(_svc(db).quy_gio_nguoi(dept_id, ngay))
+
+
+@router.put("/to/{dept_id}/quan-so", response_model=QuanSoOut)
+def dat_quan_so_to(
+    dept_id: int,
+    payload: QuanSoIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> QuanSoOut:
+    """Gõ đè quân số một ngày (mượn người / ốm đột xuất). `so_nguoi=null` = bỏ gõ đè."""
+    svc = _svc(db)
+    try:
+        svc.dat_quan_so(department_id=dept_id, ngay=payload.ngay,
+                        so_nguoi=payload.so_nguoi, ly_do=payload.ly_do, actor=user)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "xep_lich_changed"})
+    return QuanSoOut.model_validate(svc.quy_gio_nguoi(dept_id, payload.ngay))
+
+
+@router.get("/to/tai", response_model=TaiToListOut)
+def tai_to(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> TaiToListOut:
+    """Mức dùng NGƯỜI của từng tổ theo khoảng giờ (mục I) — Gantt tô nền lane tổ theo đây.
+
+    Kèm `tang_giua`: người thuộc khối SX chưa gắn tổ lá nào. Họ KHÔNG vào quỹ giờ-người của tổ nào
+    (đếm vào là đếm thừa), nên phải nói ra ở đây — không thì quỹ hụt mà không ai biết vì sao.
+    """
+    svc = _svc(db)
+    return TaiToListOut(
+        items=[TaiToKhoangOut.model_validate(k) for k in svc.khoang_tai_to()],
+        tang_giua=[NguoiTangGiuaOut.model_validate(x) for x in svc.nguoi_tang_giua()],
+    )
+
+
+@router.get("/ke-hoach-tuan", response_model=KeHoachTuanOut)
+def ke_hoach_tuan(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    tu: date = Query(..., description="Ngày bất kỳ trong tuần đầu — service tự về thứ Hai"),
+    so_tuan: int = Query(default=4, ge=1, le=12),
+) -> KeHoachTuanOut:
+    """Tải theo TUẦN của từng máy / tổ (mục J) — tính lúc đọc, không lưu gì."""
+    return KeHoachTuanOut.model_validate(_svc(db).ke_hoach_tuan(tu=tu, so_tuan=so_tuan))
+
+
+@router.post("/dong/{dong_id}/chen", response_model=ChenOut)
+def chen_xem_truoc(
+    dong_id: int,
+    payload: ChenIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> ChenOut:
+    """Xem trước CHÈN lệnh gấp vào máy tại một mốc giờ (G1) — bảng *giờ cũ → giờ mới*.
+
+    Quyền `read` chứ không `update`: hàm này **không ghi gì**. Ghi thật đi qua `PUT /gan-loat` khi
+    người dùng bấm Lưu — chỗ đó mới đòi `update`. Gộp hai thứ vào một quyền là chặn oan người chỉ
+    muốn thử xem chèn được không.
+    """
+    svc = _svc(db)
+    try:
+        return ChenOut.model_validate(
+            svc.chen_xem_truoc(dong_id=dong_id, may_id=payload.may_id, tai=payload.tai)
+        )
+    except Exception as exc:
+        raise _map(exc)
+
+
 @router.post("/dong/{dong_id}/xem-truoc", response_model=XemTruocOut)
 def xem_truoc(
     dong_id: int,
@@ -337,7 +424,7 @@ def tao_vung_khoa(
     svc = _svc(db)
     try:
         x = svc.tao_vung_khoa(may_id=may_id, tu=payload.tu, den=payload.den,
-                              ly_do=payload.ly_do, note=payload.note, actor=user)
+                              ly_do=payload.ly_do, kieu=payload.kieu, note=payload.note, actor=user)
     except Exception as exc:
         raise _map(exc)
     hub.broadcast({"type": "xep_lich_changed"})
@@ -499,10 +586,12 @@ def go_phat_hanh_lsx(
     lsx_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    # Lý do đi qua QUERY chứ không body: DELETE có body là chỗ nhiều client/proxy nuốt im lặng.
+    ly_do: str = Query(default="", max_length=500, description="Bắt buộc — ghi vào AuditLog"),
 ) -> PhatHanhOut:
     svc = _svc_vd(db)
     try:
-        lsx = svc.go_phat_hanh_lsx(lsx_id=lsx_id, actor=user)
+        lsx = svc.go_phat_hanh_lsx(lsx_id=lsx_id, actor=user, ly_do=ly_do)
     except Exception as exc:
         raise _map(exc)
     hub.broadcast({"type": "xep_lich_changed"})
@@ -515,10 +604,11 @@ def go_phat_hanh_bai_ghep(
     bai_ghep_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    ly_do: str = Query(default="", max_length=500, description="Bắt buộc — ghi vào AuditLog"),
 ) -> PhatHanhOut:
     svc = _svc_vd(db)
     try:
-        bg = svc.go_phat_hanh_bai_ghep(bai_ghep_id=bai_ghep_id, actor=user)
+        bg = svc.go_phat_hanh_bai_ghep(bai_ghep_id=bai_ghep_id, actor=user, ly_do=ly_do)
     except Exception as exc:
         raise _map(exc)
     hub.broadcast({"type": "xep_lich_changed"})
