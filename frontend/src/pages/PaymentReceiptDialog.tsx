@@ -109,20 +109,12 @@ export function PaymentReceiptDialog({
     if (!token) return;
     setLoadingAccounts(true);
     api.accounting
-      .companyAccounts(token, true)
+      .companyAccounts(token, true, "receive")
       .then((accounts) => {
         const matching = accounts.filter(
           (row) => row.currency === voucher.currency,
         );
         setCompanyAccounts(matching);
-        setForm((current) => ({
-          ...current,
-          company_bank_account_id:
-            current.company_bank_account_id ??
-            matching.find((row) => row.is_default)?.id ??
-            matching[0]?.id ??
-            null,
-        }));
       })
       .catch(() => setError("Không tải được danh sách tài khoản ngân hàng."))
       .finally(() => setLoadingAccounts(false));

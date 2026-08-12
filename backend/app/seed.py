@@ -34,8 +34,22 @@ MODULES: list[tuple[str, str]] = [
     ("bao_gia", "Báo giá in ấn"),
     ("don_hang_ban", "Đơn hàng bán"),
     ("tinh_gia_thanh", "Tính giá thành"),
-    ("thu_mua", "Thu mua"),
-    ("ke_toan", "Kế toán"),
+    # TÁCH THEO MÀN (chủ chốt 10/08/2026, đường A): mỗi màn một ô quyền + phạm vi riêng.
+    # `thu_mua` GIỮ NGUYÊN KHOÁ nhưng thu hẹp nghĩa còn đúng màn "Mua hàng" — đổi khoá là mọi hàng
+    # `role_permissions` cũ trỏ vào hư không, mất quyền hàng loạt. Hai màn kia tách ra khoá mới,
+    # và migration 0177 SAO CHÉP quyền `thu_mua` cũ sang để không ai mất đường làm việc.
+    ("thu_mua", "Mua hàng"),
+    ("nha_cung_cap", "Nhà cung cấp"),
+    ("yeu_cau_mua_hang", "Yêu cầu mua hàng"),
+    # TÁCH THEO MÀN (10/08/2026, đường A) — giống Thu mua. `ke_toan` GIỮ KHOÁ nhưng thu hẹp nghĩa
+    # còn đúng màn "Đơn mua hàng" của kế toán; 5 màn kia tách ra khoá riêng, migration 0178 sao
+    # chép quyền `ke_toan` cũ sang.
+    ("ke_toan", "Đơn mua hàng (Kế toán)"),
+    ("phieu_chi", "Phiếu chi / UNC"),
+    ("phieu_thu", "Phiếu thu"),
+    ("cong_no_phai_tra", "Công nợ phải trả"),
+    ("cong_no_phai_thu", "Công nợ phải thu"),
+    ("tk_ngan_hang", "Tài khoản ngân hàng"),
     ("san_xuat", "Sản xuất"),
     ("kho", "Kho hàng"),
     ("khuon_be", "Khuôn bế"),
@@ -61,7 +75,20 @@ MODULES: list[tuple[str, str]] = [
     ("dm_giay", "Giấy"),
     ("dm_vat_tu", "Vật tư khác"),
     ("dm_kho_hang", "Khai báo kho"),
-    ("nhan_su", "Nhân sự"),
+    # ⚠️ ĐỪNG thêm lại `("nhan_su", "Nhân sự")` và `("dm_cong_doan", "Công đoạn gia công")` vào đây.
+    # Hai dòng đó là VẾT HOÀ CODE (12/08/2026): nhánh danh mục và nhánh nhân sự cùng sửa danh sách
+    # này, lúc gỡ conflict giữ cả HAI bản. Hậu quả kép — 41 dòng mà chỉ 39 module vào DB (khoá trùng
+    # bị bỏ qua), và bản trùng đứng TRƯỚC còn cướp luôn nhãn: ma trận hiện "Nhân sự" thay vì
+    # "Hồ sơ nhân sự". `test_rbac_seed.py::test_modules_seeded` canh đúng chỗ này.
+    # TÁCH THEO MÀN (10/08/2026): `nhan_su` GIỮ KHOÁ nhưng nay chỉ còn màn Hồ sơ nhân sự.
+    ("nhan_su", "Hồ sơ nhân sự"),
+    ("cham_cong", "Chấm công"),
+    # Tách khỏi `cham_cong` ngày 11/08/2026: duyệt yêu cầu chỉnh công là việc của người QUẢN,
+    # còn xem bảng công là việc của cả người bị quản — hai mức khác nhau, hai ô khác nhau.
+    ("yeu_cau_chinh_cong", "Yêu cầu chỉnh công"),
+    # TỰ PHỤC VỤ: việc người lao động làm với hồ sơ của CHÍNH MÌNH. Trước đây là luật ngầm
+    # (chỉ cần đăng nhập) nên không tắt được cho ai — nay là một ô nhìn thấy được.
+    ("self_service", "Tự phục vụ"),
     ("nghi_phep", "Nghỉ phép"),
     ("tang_ca", "Tăng ca"),
     ("di_muon", "Đi muộn / về sớm"),
@@ -129,6 +156,8 @@ def _full(scope: str, *, can_approve_exception: bool = False) -> dict:
         can_view_salary=True,
         can_edit_salary=True,
         can_adjust=True,
+        # cham_cong: xem tab Nhật ký chấm công (tách khỏi `can_read` 11/08/2026).
+        can_view_log=True,
         can_approve_exception=can_approve_exception,
         # khach_hang: thiết lập điều khoản tín dụng khách — bật cho vai quản lý (_full dùng chung
         # cho Giám đốc + GĐ KD + Trưởng phòng KD). NV Sales dùng _rcu → KHÔNG có (chỉ xem read-only).
@@ -157,6 +186,18 @@ def _dm_full() -> dict:
 
 
 def _rcu(scope: str) -> dict:
+    return dict(can_read=True, can_create=True, can_update=True, can_delete=False, scope=scope)
+
+
+def _ycmh_lap(scope: str = SCOPE_DEPARTMENT) -> dict:
+    """Quyền LẬP yêu cầu mua hàng cho bộ phận đề nghị (màn "Yêu cầu mua hàng").
+
+    Tách khoá riêng 10/08/2026: trước đó BA endpoint tạo/sửa/huỷ YCMH chỉ đòi ĐĂNG NHẬP — ai có tài
+    khoản cũng đẩy được yêu cầu chi tiền vào hàng đợi của bộ phận mua hàng. Từ nay phải được cấp
+    đúng ô này. Vai nào ngoài đời có đi xin vật tư thì seed cấp sẵn, còn lại quản trị tự bật.
+
+    KHÔNG có `can_delete`: yêu cầu đã gửi thì huỷ (để lại vết), không xoá trắng.
+    """
     return dict(can_read=True, can_create=True, can_update=True, can_delete=False, scope=scope)
 
 
@@ -281,8 +322,15 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
                 "can_transfer": True,
                 "can_approve": True,
                 "can_export": True,
-                "can_adjust": True,   # Chấm công: chấm bù / sửa công qua punch nguồn
+                "can_adjust": True,   # (cờ cũ — chấm bù nay nằm ở khoá `cham_cong` bên dưới)
             },
+            # Màn CHẤM CÔNG tách khoá riêng 10/08/2026 — trước đây ăn ké `nhan_su`, nên cấp quyền
+            # xem hồ sơ là mở luôn bảng công cả công ty. `_full` bật cả `can_adjust` (chấm bù) lẫn
+            # `can_lock` (Chốt kỳ / Mở lại kỳ) — đúng vai TP HCNS, và phạm vi `all` khớp hàng rào
+            # "chốt kỳ là việc của cả công ty".
+            "cham_cong": _full(SCOPE_ALL),
+            # Ô riêng từ 11/08/2026 — duyệt yêu cầu chỉnh công của cả công ty.
+            "yeu_cau_chinh_cong": {**_read(SCOPE_ALL), "can_approve": True},   # `_full` bật cả `can_view_log` (tab Nhật ký)
             # Nghỉ phép: HCNS là nơi DUYỆT tập trung (mọi đơn toàn công ty) + quản loại nghỉ.
             "nghi_phep": _leave_admin(SCOPE_ALL),
             "tang_ca": _ot_lead(SCOPE_ALL),
@@ -328,6 +376,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dm_cong_doan": _read(SCOPE_ALL),
             "dm_thiet_bi": _read(SCOPE_ALL),
             "phong_ban": _read(SCOPE_ALL),
+            "yeu_cau_mua_hang": _ycmh_lap(SCOPE_ALL),
             "nghi_phep": _leave_self(),
             "tang_ca": _ot_self(),
             "di_muon": _el_self(),
@@ -344,6 +393,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # "Tổ trưởng/Quản lý duyệt đề xuất cấp phát"). Scope DEPARTMENT: phải thấy đề nghị của
             # NV trong phòng mới duyệt được (own chỉ thấy của mình → không có gì để duyệt).
             "kho": {**_read(SCOPE_DEPARTMENT), "can_request": True, "can_approve": True},
+            "yeu_cau_mua_hang": _ycmh_lap(SCOPE_DEPARTMENT),
             # "nghi_phep": _leave_self(),
             # Tổ trưởng DUYỆT phiếu tăng ca của tổ mình (scope department = tổ + cây con).
             # Tổ trưởng DUYỆT đơn nghỉ phép + phiếu tăng ca + đi muộn CỦA TỔ MÌNH
@@ -433,6 +483,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # siết "thủ kho không đặt đơn giá giấy" thì tắt công tắc Thao tác ở ma trận.
             **{k: _dm_full() for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "dm_kho_hang")},
             "san_xuat": _read(SCOPE_ALL),    # xem kế hoạch SX để tham chiếu khi lập phiếu
+            # Kho là nơi phát hiện tồn chạm ngưỡng ⇒ nơi đề nghị mua bù.
+            "yeu_cau_mua_hang": _ycmh_lap(SCOPE_ALL),
         },
     ),
     # Quản lý kho: LẬP PHIẾU + Quản lý kho (ghi sổ + xem tồn/giá vốn + ngưỡng). KHÔNG duyệt đề nghị
@@ -448,6 +500,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             },
             **{k: _dm_full() for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "dm_kho_hang")},
             "san_xuat": _read(SCOPE_ALL),
+            "yeu_cau_mua_hang": _ycmh_lap(SCOPE_ALL),
         },
     ),
     # Kế toán bán hàng: xem mọi đơn + GHI PHIẾU THU CỌC (can_record_deposit). Không đụng thương mại.
@@ -483,6 +536,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_OWN),
             "kho": {**_read(SCOPE_OWN), "can_request": True},
             "san_xuat": _rcu(SCOPE_ALL),
+            "yeu_cau_mua_hang": _ycmh_lap(SCOPE_OWN),
         },
     ),
     # Quản lý sản xuất: như NV sản xuất + duyệt (cấp leo thang khi vượt ngưỡng/gấp).
@@ -495,6 +549,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_ALL),
             "kho": {**_read(SCOPE_DEPARTMENT), "can_request": True, "can_approve": True},
             "san_xuat": _full(SCOPE_ALL),
+            "yeu_cau_mua_hang": _ycmh_lap(SCOPE_DEPARTMENT),
         },
     ),
     # Nhân viên mua hàng: đề nghị NHẬP khi tồn chạm ngưỡng (nguồn của phiếu nhập mua NCC).
@@ -505,13 +560,17 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_OWN),
             "kho": {**_read(SCOPE_OWN), "can_request": True},
             # Scope `own` (chủ 04/08/2026: "tôi là nhân viên chỉ thấy đơn của tôi thôi"). Trước
-            # đây là `all` — nhân viên nhìn thấy phiếu của cả công ty. `can_cancel` giữ nguyên:
-            # service đã thu hẹp thành "chỉ huỷ được phiếu NHÁP do chính mình lập".
+            # đây là `all` — nhân viên nhìn thấy phiếu của cả công ty.
+            # `can_cancel` ĐÃ BỎ 11/08/2026: ô "Hủy PMH" gỡ cùng endpoint (không dùng tới).
             "thu_mua": {
                 **_rcu(SCOPE_OWN),
-                "can_cancel": True,
                 "can_approve": False,
             },
+            # Hai màn tách ra từ `thu_mua` (10/08/2026). Phạm vi ALL chứ không `own` như màn Mua
+            # hàng: Nhà cung cấp là DANH MỤC dùng chung, còn Yêu cầu mua hàng là hàng đợi việc của
+            # cả công ty gửi sang — lọc theo "của tôi" thì bộ phận mua hàng không còn gì để làm.
+            "nha_cung_cap": _rcu(SCOPE_ALL),
+            "yeu_cau_mua_hang": _ycmh_lap(SCOPE_ALL),
         },
     ),
     # TÁCH VAI (chủ 04/08/2026): bộ phận Mua hàng KHÔNG duyệt phiếu mua của chính mình — ai đề
@@ -528,7 +587,12 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # thêm, nếu không quyền duyệt vẫn còn nguyên mà nhìn code lại tưởng đã gỡ.
             # Scope `department`: trưởng bộ phận thấy phiếu của CẢ BỘ PHẬN mình, không chỉ của
             # riêng mình — nhưng cũng không nhìn sang phiếu bộ phận khác.
+            # `_full` bật sẵn `can_manage_status` = ô "Sửa / đảo trạng thái đơn sau khi nhận
+            # hàng" (tách khỏi `can_approve` ngày 11/08/2026) — đúng việc của trưởng bộ phận.
             "thu_mua": {**_full(SCOPE_DEPARTMENT), "can_approve": False},
+            # ⚠️ `_full` tự bật `can_approve` — ghi đè False cho khớp luật tách vai ở trên.
+            "nha_cung_cap": {**_full(SCOPE_ALL), "can_approve": False},
+            "yeu_cau_mua_hang": {**_full(SCOPE_ALL), "can_approve": False},
         },
     ),
 ]
@@ -580,8 +644,25 @@ def seed_roles(db: Session) -> None:
         role = roles.get_by_name_and_department(role_name, dept.id)
         if role is None:
             role = roles.create(name=role_name, department_id=dept.id)
+        # HAI Ô MẶC ĐỊNH cho MỌI vai (10/08/2026), khai ở đây chứ không chép tay vào từng preset —
+        # chép tay 17 chỗ thì thêm vai mới là quên.
+        #   self_service — việc người lao động làm với hồ sơ CỦA CHÍNH MÌNH (tự chấm công, xem
+        #     phiếu lương của mình, tự gửi đơn nghỉ / tăng ca / tạm ứng). Trước đây là luật ngầm
+        #     "ai đăng nhập cũng làm được"; nay là ô thật, cấp sẵn nên không ai mất việc hằng ngày
+        #     nhưng quản trị TẮT ĐƯỢC cho vai nào cần siết.
+        #   noi_quy — nội quy lao động thì ai cũng phải đọc. Cùng lý do: phải là một ô nhìn thấy
+        #     được, không phải luật ngầm.
+        # Preset nào khai riêng hai khoá này thì bản khai riêng THẮNG (dict sau đè dict trước).
+        du = {
+            # `_rcu` chứ không `_read`: từ 11/08/2026 ô THAO TÁC (`can_create`) mới là thứ
+            # cho chấm công / gửi đơn nghỉ · phiếu tăng ca · xin tạm ứng. Chỉ cấp Xem là
+            # thợ mở màn ra mà không bấm được gì.
+            "self_service": _rcu(SCOPE_OWN),
+            "noi_quy": _read(SCOPE_ALL),
+            **perms,
+        }
         # Upsert permissions (no-op row-count on re-run; keeps the matrix in sync).
-        for module_key, perm in perms.items():
+        for module_key, perm in du.items():
             roles.set_permission(role_id=role.id, module_key=module_key, **perm)
 
 

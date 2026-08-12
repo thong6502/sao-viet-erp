@@ -51,7 +51,7 @@ import type { NavigateFn } from "../components/AppShell";
 import { EmptyState } from "../components/EmptyState";
 import { MonthPicker } from "../components/MonthPicker";
 import { useAuth } from "../auth/useAuth";
-import { useCan } from "../auth/permissions";
+import { useCan, useSelfService, useSelfServiceWrite } from "../auth/permissions";
 import {
   UserCheck,
   CalendarDays,
@@ -250,15 +250,34 @@ export function ChamCongPage({
 }) {
   const { token } = useAuth();
   const can = useCan();
-  const canConfig = can("nhan_su", "update"); // cấu hình điểm/ca
-  const canView = can("nhan_su", "read"); // xem toàn xưởng (theo scope)
+  // Khoá RIÊNG của màn Chấm công (10/08/2026) — không mượn quyền màn Hồ sơ nhân sự nữa.
+  // `update` = ô "Cấu hình chấm công": gác cả ĐỌC lẫn GHI ba tab Điểm chấm công / Khai ca /
+  // Lịch & Ngày lễ (trước đây đường đọc chỉ đòi `read` nên ẩn tab mà API vẫn trả dữ liệu).
+  const canConfig = can("cham_cong", "update"); // cấu hình điểm/ca
+  const canView = can("cham_cong", "read"); // xem toàn xưởng (theo scope)
+  // Ô RIÊNG (11/08/2026): Bảng công tháng là số công đã tổng hợp; NHẬT KÝ là từng lượt bấm
+  // kèm giờ + toạ độ của cả xưởng — ai đi sớm về muộn hôm nào, đọc là biết. Hai mức nhạy cảm
+  // khác nhau nên hai ô khác nhau.
+  const canViewLog = can("cham_cong", "view_log");
+  // Tab "Yêu cầu chỉnh công" có KHOÁ RIÊNG từ 11/08/2026 — không còn ăn theo `cham_cong`.
+  // Xem danh sách = ô Xem của màn đó; duyệt / từ chối = ô Duyệt riêng.
+  const canViewYcch = can("yeu_cau_chinh_cong", "read");
+  const canApproveYcch = can("yeu_cau_chinh_cong", "approve");
+  // Ô TỰ PHỤC VỤ (đợt 3) — quản trị TẮT ĐƯỢC. Không hỏi thì tắt xong nút vẫn bày ra, bấm
+  // mới ăn 403: trông như hệ thống hỏng chứ không như "anh không có quyền".
+  const tuPhucVu = useSelfService();
+  // Ô THAO TÁC của Tự phục vụ — TÁCH khỏi ô Xem ngày 11/08/2026. Tab/danh sách đi theo ô
+  // Xem; còn nút GỬI · SỬA · HUỶ thì đi theo ô này.
+  const tuPhucVuGhi = useSelfServiceWrite();
   const canApproveEl = can("di_muon", "approve"); // duyệt phiếu đi muộn / về sớm
+  // Mặc định vào tab của mình; ai bị gỡ ô Tự phục vụ thì mở thẳng tab xem được — không thì
+  // vào màn là thấy một tab trống trơn không hiểu vì sao.
   const [tab, setTab] = useState<Tab>("me");
 
   // Liên thông từ Hồ sơ NV → mở "Nhật ký chấm công" lọc đúng NV đó.
   useEffect(() => {
-    if (focusEmployeeId && canView) setTab("logs");
-  }, [focusEmployeeId, canView]);
+    if (focusEmployeeId && canViewLog) setTab("logs");
+  }, [focusEmployeeId, canViewLog]);
 
   return (
     <main className="ns">
@@ -272,25 +291,33 @@ export function ChamCongPage({
       </header>
 
       <nav className="cc-tabs">
-        <button
-          className={tab === "me" ? "is-active" : ""}
-          onClick={() => setTab("me")}
-        >
-          <UserCheck size={14} /> Chấm công của tôi
-        </button>
-        <button
-          className={tab === "my-timesheet" ? "is-active" : ""}
-          onClick={() => setTab("my-timesheet")}
-        >
-          <CalendarDays size={14} /> Công của tôi
-        </button>
-        {/* LUÔN hiện: ai vào được màn Chấm công cũng phải xin đi muộn/về sớm cho CHÍNH MÌNH được. */}
-        <button
-          className={tab === "di-muon" ? "is-active" : ""}
-          onClick={() => setTab("di-muon")}
-        >
-          <Clock3 size={14} /> Đi muộn / về sớm / nghỉ nửa buổi
-        </button>
+        {tuPhucVu && (
+          <button
+            className={tab === "me" ? "is-active" : ""}
+            onClick={() => setTab("me")}
+          >
+            <UserCheck size={14} /> Chấm công của tôi
+          </button>
+        )}
+        {tuPhucVu && (
+          <button
+            className={tab === "my-timesheet" ? "is-active" : ""}
+            onClick={() => setTab("my-timesheet")}
+          >
+            <CalendarDays size={14} /> Công của tôi
+          </button>
+        )}
+        {/* Hiện với người CÓ ô Tự phục vụ (ai cũng phải xin đi muộn/về sớm cho CHÍNH MÌNH được) —
+            hoặc với người DUYỆT phiếu của tổ. Trước đây "LUÔN hiện", nhưng từ khi Tự phục vụ thành
+            ô tắt được thì luôn-hiện nghĩa là bày nút cho người không bấm được. */}
+        {(tuPhucVu || canApproveEl) && (
+          <button
+            className={tab === "di-muon" ? "is-active" : ""}
+            onClick={() => setTab("di-muon")}
+          >
+            <Clock3 size={14} /> Đi muộn / về sớm / nghỉ nửa buổi
+          </button>
+        )}
         {canConfig && (
           <button
             className={tab === "locations" ? "is-active" : ""}
@@ -315,7 +342,7 @@ export function ChamCongPage({
             <Calendar size={14} /> Lịch & Ngày lễ
           </button>
         )}
-        {canView && (
+        {canViewLog && (
           <button
             className={tab === "logs" ? "is-active" : ""}
             onClick={() => setTab("logs")}
@@ -331,7 +358,7 @@ export function ChamCongPage({
             <Table size={14} /> Bảng công tháng
           </button>
         )}
-        {canView && (
+        {canViewYcch && (
           <button
             className={tab === "yeu-cau" ? "is-active" : ""}
             onClick={() => setTab("yeu-cau")}
@@ -342,9 +369,14 @@ export function ChamCongPage({
       </nav>
 
       {tab === "me" && (
-        <MyCheckIn token={token!} canConfig={canConfig} navigate={navigate} />
+        <MyCheckIn
+          token={token!}
+          canConfig={canConfig}
+          coQuyenGhi={tuPhucVuGhi}
+          navigate={navigate}
+        />
       )}
-      {tab === "my-timesheet" && <MyTimesheetTab token={token!} />}
+      {tab === "my-timesheet" && tuPhucVu && <MyTimesheetTab token={token!} />}
       {tab === "di-muon" && (
         <LateEarlyTab
           token={token!}
@@ -356,17 +388,18 @@ export function ChamCongPage({
       {tab === "locations" && canConfig && <LocationsTab token={token!} />}
       {tab === "khai-ca" && canConfig && <ShiftsTab token={token!} />}
       {tab === "lich-le" && canConfig && <CalendarTab token={token!} />}
-      {tab === "logs" && canView && (
+      {tab === "logs" && canViewLog && (
         <LogsTab token={token!} focusEmployeeId={focusEmployeeId} />
       )}
       {tab === "timesheet" && canView && (
-        <TimesheetTab token={token!} canAdjust={can("nhan_su", "adjust")} />
-      )}
-      {tab === "yeu-cau" && canView && (
-        <AdjustRequestsTab
+        <TimesheetTab
           token={token!}
-          canAdjust={can("nhan_su", "adjust")}
+          canAdjust={can("cham_cong", "adjust")}
+          canLock={can("cham_cong", "lock")}
         />
+      )}
+      {tab === "yeu-cau" && canViewYcch && (
+        <AdjustRequestsTab token={token!} canAdjust={canApproveYcch} />
       )}
     </main>
   );
@@ -701,10 +734,13 @@ function GpsRadarMap2D({
 function MyCheckIn({
   token,
   canConfig,
+  coQuyenGhi,
   navigate,
 }: {
   token: string;
   canConfig: boolean;
+  /** Ô THAO TÁC của Tự phục vụ — bấm chấm công là GHI dữ liệu (tách 11/08/2026). */
+  coQuyenGhi: boolean;
   navigate?: NavigateFn;
 }) {
   const [status, setStatus] = useState<AttendanceStatus | null>(null);
@@ -872,6 +908,8 @@ function MyCheckIn({
   const showTimer =
     status.next_action === "out" && status.last_check?.check_type === "in";
   const btnDisabled =
+    // Chưa được cấp ô Thao tác thì nút khoá luôn — máy chủ cũng chặn, đừng để bấm rồi ăn 403.
+    !coQuyenGhi ||
     checking ||
     locating ||
     !status.can_check ||
@@ -6067,9 +6105,16 @@ function EmployeeCalendarModal({
 function TimesheetTab({
   token,
   canAdjust,
+  canLock,
 }: {
   token: string;
   canAdjust: boolean;
+  /** Ô "Chốt kỳ công / Mở lại kỳ" — TÁCH khỏi ô Chấm bù từ đợt 4 (10/08/2026).
+   *
+   *  ⚠️ Trước 11/08/2026 hai nút này gác bằng `canAdjust` (ô Chấm bù) trong khi máy chủ đòi
+   *  `cham_cong:lock` ⇒ sai CẢ HAI CHIỀU: có Chấm bù mà không có Chốt kỳ thì vẫn thấy nút rồi bấm
+   *  ăn 403; có Chốt kỳ mà không có Chấm bù thì không thấy nút dù máy chủ cho phép. */
+  canLock: boolean;
 }) {
   const [ym, setYm] = useState(() => {
     const d = new Date();
@@ -6344,7 +6389,7 @@ function TimesheetTab({
             <span>{downloading ? "Đang xuất…" : "Xuất CSV"}</span>
           </button>
 
-          {canAdjust && period && (
+          {canLock && period && (
             <div className="cc-ts-action-lock-wrapper">
               {period.status === "draft" ? (
                 <button

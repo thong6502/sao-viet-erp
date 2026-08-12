@@ -13,7 +13,7 @@ import {
   type LeaveTypeInput,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
-import { useCan } from "../auth/permissions";
+import { useCan, useSelfService, useSelfServiceWrite } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { EmptyRow, EmptyState } from "../components/EmptyState";
 import { Pager, trangHopLe } from "../components/Pager";
@@ -96,11 +96,18 @@ export function NghiPhepPage({ onChanged, focusEmployeeId }: { onChanged?: () =>
   // Quyền DUYỆT đơn — HCNS/Admin, VÀ tổ trưởng (chủ chốt 29/07/2026: tổ trưởng duyệt đơn trong
   // tổ mình). Dùng cho tab "Duyệt đơn" + "Lịch nghỉ".
   const canManage = can("nghi_phep", "approve");
+  // Ô TỰ PHỤC VỤ (đợt 3) — quản trị TẮT ĐƯỢC. Không hỏi thì tắt xong nút vẫn bày ra, bấm
+  // mới ăn 403: trông như hệ thống hỏng chứ không như "anh không có quyền".
+  const tuPhucVu = useSelfService();
+  // Ô THAO TÁC của Tự phục vụ — TÁCH khỏi ô Xem ngày 11/08/2026. Tab/danh sách đi theo ô
+  // Xem; còn nút GỬI · SỬA · HUỶ thì đi theo ô này.
+  const tuPhucVuGhi = useSelfServiceWrite();
   // Danh mục LOẠI NGHỈ là chính sách TOÀN CÔNG TY, chỉ HCNS/Admin. Phải gác bằng `update` cho
   // KHỚP backend (`routers/leaves.py` gác 3 endpoint /types bằng `update`) — gác bằng `approve`
   // là tổ trưởng (approve=true, update=false) nhìn thấy tab, mở ra, bấm lưu rồi ăn 403: màn
   // mời-rồi-đuổi, người dùng tưởng mình có quyền.
   const canTypes = can("nghi_phep", "update");
+  // Ai bị gỡ ô Tự phục vụ thì mở thẳng tab Duyệt — không thì vào màn là thấy tab trống.
   const [tab, setTab] = useState<Tab>("me");
 
   // Liên thông từ Hồ sơ NV → mở "Duyệt đơn" lọc đúng NV đó.
@@ -121,10 +128,12 @@ export function NghiPhepPage({ onChanged, focusEmployeeId }: { onChanged?: () =>
       </header>
       <nav className="ns-tabs cc-tabs lg-tabs" aria-label="Phân hệ Nghỉ phép">
         <div className="lg-tabs__group">
-          <button className={`lg-tab-btn ${tab === "me" ? "is-active" : ""}`} onClick={() => setTab("me")} title="Đơn xin nghỉ cá nhân">
-            <FileText className="lg-tab-btn__icon" />
-            <span>Đơn của tôi</span>
-          </button>
+          {tuPhucVu && (
+            <button className={`lg-tab-btn ${tab === "me" ? "is-active" : ""}`} onClick={() => setTab("me")} title="Đơn xin nghỉ cá nhân">
+              <FileText className="lg-tab-btn__icon" />
+              <span>Đơn của tôi</span>
+            </button>
+          )}
           {canManage && (
             <button className={`lg-tab-btn ${tab === "approve" ? "is-active" : ""}`} onClick={() => setTab("approve")} title="Duyệt đơn xin nghỉ nhân viên">
               <ClipboardCheck className="lg-tab-btn__icon" />
@@ -147,7 +156,9 @@ export function NghiPhepPage({ onChanged, focusEmployeeId }: { onChanged?: () =>
           )}
         </div>
       </nav>
-      {tab === "me" && <MyLeaveTab token={token!} onChanged={onChanged} />}
+      {tab === "me" && tuPhucVu && (
+        <MyLeaveTab token={token!} onChanged={onChanged} coQuyenGhi={tuPhucVuGhi} />
+      )}
       {tab === "approve" && canManage && <ApproveTab token={token!} onChanged={onChanged} focusEmployeeId={focusEmployeeId} />}
       {tab === "calendar" && canManage && <CalendarTab token={token!} />}
       {tab === "types" && canTypes && <LeaveTypesTab token={token!} />}
@@ -326,7 +337,12 @@ function LeaveRequestDetailModal({
   );
 }
 
-function MyLeaveTab({ token, onChanged }: { token: string; onChanged?: () => void }) {
+function MyLeaveTab({ token, onChanged, coQuyenGhi }: {
+  token: string;
+  onChanged?: () => void;
+  /** Ô THAO TÁC của Tự phục vụ — gửi / huỷ đơn của chính mình (tách 11/08/2026). */
+  coQuyenGhi: boolean;
+}) {
   const [hasEmp, setHasEmp] = useState<boolean | null>(null);
   const [items, setItems] = useState<LeaveRequest[]>([]);
   const [total, setTotal] = useState(0);
@@ -458,10 +474,12 @@ function MyLeaveTab({ token, onChanged }: { token: string; onChanged?: () => voi
             {/* Hành động chính của tab → cam. Lớp cũ `cc-btn-cta-compact` ép navy bằng 6
                 dòng `!important`, gỡ nó ra là mất luôn hình dạng nút ⇒ thay bằng
                 `ns-btn-cta` (chỉ giữ dáng: đậm chữ + không rớt dòng, KHÔNG khai màu). */}
-            <Button variant="accent" className="ns-btn-cta" onClick={() => { setIsCreateOpen(true); setError(null); }}>
-              <Plus size={15} />
-              <span>Xin nghỉ phép</span>
-            </Button>
+            {coQuyenGhi && (
+              <Button variant="accent" className="ns-btn-cta" onClick={() => { setIsCreateOpen(true); setError(null); }}>
+                <Plus size={15} />
+                <span>Xin nghỉ phép</span>
+              </Button>
+            )}
           </div>
         </div>
       ) : (
@@ -470,10 +488,12 @@ function MyLeaveTab({ token, onChanged }: { token: string; onChanged?: () => voi
             <Info size={13} className="cc-note-inline-icon" />
             <span>Click vào dòng bản ghi để xem chi tiết tiến trình đơn</span>
           </span>
-          <Button variant="accent" className="ns-btn-cta" onClick={() => { setIsCreateOpen(true); setError(null); }}>
-            <Plus size={15} />
-            <span>Xin nghỉ phép</span>
-          </Button>
+          {coQuyenGhi && (
+            <Button variant="accent" className="ns-btn-cta" onClick={() => { setIsCreateOpen(true); setError(null); }}>
+              <Plus size={15} />
+              <span>Xin nghỉ phép</span>
+            </Button>
+          )}
         </div>
       )}
 

@@ -186,7 +186,53 @@
    dòng cao). Chi tiết phụ (YCMH, đã thu, nguyên tệ) đã có đủ trong popup.
    Khoanh bằng --voucher để KHÔNG đụng Phiếu thu / YC kế toán cùng dùng .acct-list. */
 .acct-list--voucher tbody tr {
-  height: 52px;
+  height: 64px;
+}
+
+.acct-list--voucher table {
+  table-layout: fixed;
+}
+
+.acct-list--voucher th:nth-child(1),
+.acct-list--voucher td:nth-child(1) {
+  width: 190px;
+}
+
+.acct-list--voucher th:nth-child(3),
+.acct-list--voucher td:nth-child(3) {
+  width: 180px;
+}
+
+.acct-list--voucher th:nth-child(4),
+.acct-list--voucher td:nth-child(4) {
+  width: 150px;
+}
+
+.acct-list--voucher th:nth-child(5),
+.acct-list--voucher td:nth-child(5) {
+  width: 210px;
+}
+
+.acct-list--voucher th:nth-child(6),
+.acct-list--voucher td:nth-child(6) {
+  width: 64px;
+}
+
+.acct-list--voucher td.acct-code-cell strong,
+.acct-list--voucher td.acct-target-cell strong {
+  display: block;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.acct-list--voucher td.acct-code-cell small,
+.acct-list--voucher td.acct-target-cell small,
+.acct-list--voucher td.acct-user-cell small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
 }
 
 /* Dải nhóm PMH cố tình thấp — miễn trừ khỏi sàn 52px. */
@@ -214,7 +260,7 @@
 }
 
 .acct-list td.acct-user-cell > div {
-  max-width: 140px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -653,6 +699,24 @@
   font-size: 9px;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
+}
+
+.acct-purpose-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.acct-purpose-tags span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: #eef3f7;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
 }
 
 .acct-checks {

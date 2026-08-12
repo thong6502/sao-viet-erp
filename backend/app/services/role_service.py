@@ -6,7 +6,8 @@ matrix (CRUD + scope per module), writing an audit row on every change.
 """
 from __future__ import annotations
 
-from ..models.role import Role
+from ..models.role import Role, RolePermission
+from .role_templates import danh_sach_mau
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.rbac_repo import DepartmentRepository, ModuleRepository, RoleRepository
 from ..repositories.user_repo import UserRepository
@@ -73,6 +74,7 @@ READ_IMPLYING_KEYS = (
     "can_view_salary",
     "can_edit_salary",
     "can_adjust",
+    "can_view_log",
     "can_approve_exception",
     "can_set_credit_terms",
     "can_record_deposit",
@@ -86,6 +88,14 @@ READ_IMPLYING_KEYS = (
     "can_post",
     "can_close_book",
 )
+
+
+#: Mọi cột boolean của `role_permissions`, lấy thẳng từ model — thêm cột quyền mới là bảng vai mẫu
+#: tự biết, không phải nhớ sửa thêm chỗ này.
+_COT_QUYEN = [
+    c.name for c in RolePermission.__table__.columns
+    if c.name not in ("id", "role_id", "module_key", "scope")
+]
 
 
 class RoleService:
@@ -102,9 +112,6 @@ class RoleService:
         self.departments = departments
         self.audit = audit
         self.users = users
-
-    def list_modules(self):
-        return self.modules.list_all()
 
     def list_departments(self):
         return self.departments.list_all()
@@ -162,6 +169,58 @@ class RoleService:
             detail=name,
         )
 
+    def list_modules(self) -> list[dict]:
+        """Danh mục module, kèm những "việc" ĐÃ XÁC MINH là chết ở màn đó.
+
+        Ma trận tắt + khoá + hover cảnh báo đúng mấy ô này. KHÔNG suy ngược từ "cái gì máy chủ
+        không gác thì chết" — bản đầu làm vậy và khoá nhầm hàng loạt ô chỉ thi hành ở giao diện
+        (In/xuất phiếu · Đặt trưởng phòng · Xem lương…). Xem `deps.O_CHET_DA_XAC_MINH`.
+        """
+        from ..deps import O_CHET_DA_XAC_MINH
+
+        return [
+            {
+                "key": m.key,
+                "label": m.label,
+                "viec_chet": sorted(a for (k, a) in O_CHET_DA_XAC_MINH if k == m.key),
+            }
+            for m in self.modules.list_all()
+        ]
+
+    def role_templates(self) -> list[dict]:
+        """Bảng vai mẫu, mỗi mẫu kèm ma trận ĐẦY ĐỦ theo danh mục module hiện có.
+
+        Trả đủ mọi module (cờ ngoài mẫu = tắt) chứ không chỉ phần mẫu khai: giao diện thay thẳng
+        state là xong, không phải trộn với quyền cũ của vai — trộn nửa vời thì áp mẫu "Công nhân"
+        lên một vai đang có đầy quyền vẫn còn nguyên quyền cũ, đúng thứ vai mẫu sinh ra để tránh.
+
+        Khoá module nào mẫu khai mà DB chưa có (mẫu đi trước migration) thì BỎ QUA — thà thiếu một
+        dòng còn hơn trả về khoá không tồn tại rồi lưu xuống làm vỡ khoá ngoại.
+        """
+        khoa_co_that = [m.key for m in self.modules.list_all()]
+        ket: list[dict] = []
+        for mau in danh_sach_mau():
+            rows = []
+            for khoa in khoa_co_that:
+                cai_dat = mau["quyen"].get(khoa, {})
+                dong = {"module_key": khoa, "scope": cai_dat.get("scope", "own")}
+                for cot in _COT_QUYEN:
+                    dong[cot] = bool(cai_dat.get(cot, False))
+                # HAI Ô MẶC ĐỊNH luôn BẬT trong mọi mẫu.
+                # ⚠️ Không có mấy dòng này thì áp mẫu = GỠ chúng: ma trận trả về là bản ĐẦY ĐỦ và
+                # giao diện thay sạch, nên khoá nào mẫu không khai sẽ về tắt. Áp mẫu "Công nhân"
+                # cho một vai thợ là thợ hết tự chấm công được — đúng loại hồi quy mà cả đợt phân
+                # quyền này sinh ra để chặn. Đo được khi soi giao diện thật 11/08/2026.
+                # Ép ở ĐÂY chứ không bắt từng mẫu tự khai: thêm mẫu thứ sáu là quên ngay.
+                if khoa in RoleRepository.O_MAC_DINH:
+                    dong["can_read"] = True
+                rows.append(dong)
+            ket.append({
+                "key": mau["key"], "label": mau["label"], "mo_ta": mau["mo_ta"],
+                "permissions": rows,
+            })
+        return ket
+
     def get_matrix(self, role_id: int) -> list[dict]:
         """Full matrix for a role: one row per module, merged with stored permissions
         (modules with no stored row default to all-false / own scope)."""
@@ -186,6 +245,15 @@ class RoleService:
                     "can_view_discount": bool(p.can_view_discount) if p else False,
                     "can_approve": bool(p.can_approve) if p else False,
                     "can_manage_status": bool(p.can_manage_status) if p else False,
+                    "can_view_log": bool(p.can_view_log) if p else False,
+                    # ⚠️ BA CỘT NÀY TỪNG BỊ SÓT Ở ĐÂY (vá 11/08/2026). `save_matrix` lưu đúng,
+                    # máy chủ gác đúng, chỉ đường ĐỌC không trả về ⇒ công tắc trên ma trận luôn
+                    # hiện TẮT dù quản trị đã bật và đã Lưu. Người cấp quyền tick đi tick lại,
+                    # tưởng hệ thống không nhận. Guard `test_moi_cot_quyen_deu_di_het_duong_ong`
+                    # nay soi RIÊNG hàm này nên bỏ sót lần nữa là test đỏ.
+                    "can_view_salary": bool(p.can_view_salary) if p else False,
+                    "can_edit_salary": bool(p.can_edit_salary) if p else False,
+                    "can_adjust": bool(p.can_adjust) if p else False,
                     "can_reset_password": bool(p.can_reset_password) if p else False,
                     "can_lock": bool(p.can_lock) if p else False,
                     "can_revoke_sessions": bool(p.can_revoke_sessions) if p else False,
@@ -267,6 +335,7 @@ class RoleService:
                 can_view_salary=normalized.get("can_view_salary", False),
                 can_edit_salary=normalized.get("can_edit_salary", False),
                 can_adjust=normalized.get("can_adjust", False),
+                can_view_log=normalized.get("can_view_log", False),
                 can_approve_exception=normalized.get("can_approve_exception", False),
                 can_set_credit_terms=normalized.get("can_set_credit_terms", False),
                 can_record_deposit=normalized.get("can_record_deposit", False),

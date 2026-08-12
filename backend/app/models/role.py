@@ -151,6 +151,13 @@ class RolePermission(Base):
     can_adjust: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # cham_cong: XEM TAB "Nhật ký chấm công" — tách khỏi `can_read` (chỉ mở Bảng công tháng)
+    # ngày 11/08/2026. Bảng công tháng là số công đã tổng hợp; nhật ký là TỪNG LƯỢT BẤM của từng
+    # người kèm giờ và toạ độ — ai đi sớm về muộn hôm nào, cả xưởng, đọc là biết. Hai mức nhạy cảm
+    # khác nhau nên hai ô khác nhau. Thêm qua migration 0181.
+    can_view_log: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     # don_hang_ban (A2): DUYỆT "đơn đặc thù" (giá trị cao / biên thấp / dưới giá vốn) — CHỈ Giám đốc.
     # TÁCH khỏi `can_approve` (= chốt đơn thường, Trưởng phòng KD cũng có): đơn đặc thù chỉ GĐ ký,
     # Sales/TP KD không tự miễn cho mình. Mặc định tắt.

@@ -42,7 +42,7 @@ import {
 } from "../api/client";
 import { MonthPicker } from "../components/MonthPicker";
 import { useAuth } from "../auth/useAuth";
-import { useCan } from "../auth/permissions";
+import { useCan, useSelfService } from "../auth/permissions";
 import { fmtDateTime } from "../utils/format";
 import { printAdvanceRequest } from "../utils/printAdvanceRequest";
 import { CauHinhLuongTab } from "./CauHinhLuongTab";
@@ -146,14 +146,24 @@ export function LuongPage({
   const canCreateAdvance = can("luong", "create");
   const canApproveAdvance = can("luong", "approve");
   const canLockPeriod = can("luong", "lock");
+  // Ô TỰ PHỤC VỤ (đợt 3) — quản trị TẮT ĐƯỢC. Không hỏi thì tắt xong nút vẫn bày ra, bấm
+  // mới ăn 403: trông như hệ thống hỏng chứ không như "anh không có quyền".
+  const tuPhucVu = useSelfService();
+  // Ô RIÊNG (10/08/2026): "Đã chi" tuyên bố TIỀN ĐÃ RA TỚI TAY người lao động và khoá kỳ —
+  // khác hẳn "Chốt" (số đã tính xong). Ngoài đời hai người: người tính lương chốt số, kế toán
+  // mới xác nhận đã trả.
+  const canMarkPaid = can("luong", "manage_status");
   const canExportPayroll = can("luong", "export");
   const canOpenBangLuong =
-    canReadPayroll || canManage || canLockPeriod || canExportPayroll;
+    canReadPayroll || canManage || canLockPeriod || canMarkPaid || canExportPayroll;
   const canOpenTamUng =
     canReadPayroll || canCreateAdvance || canApproveAdvance;
   // Cấu hình lương là dữ liệu nhạy cảm: quyền đọc module không đủ.
   // Người có quyền sửa luôn được xem để tránh ma trận quyền cũ khóa nhầm quản trị viên.
-  const canReadConfig = can("luong", "view_salary") || canManage;
+  // Tab "Cấu hình lương" đi theo ĐÚNG ô của nó (`Xem cấu hình lương`). Trước 11/08/2026 còn
+  // `|| canManage`: ai bật ô Thao tác là tab cấu hình tự bung ra — mà sửa một dòng lương và sửa
+  // thang bậc / hệ số / thuế của cả công ty là hai mức khác hẳn nhau.
+  const canReadConfig = can("luong", "view_salary");
   const [tab, setTab] = useState<Tab>(
     canOpenBangLuong ? "bang" : canReadConfig ? "cauhinh" : "phieu",
   );
@@ -250,24 +260,26 @@ export function LuongPage({
           <div className="lg-tabs__divider" aria-hidden="true" />
         )}
 
-        <div className="lg-tabs__group lg-tabs__group--personal">
-          <button
-            className={`lg-tab-btn ${tab === "phieu" ? "is-active" : ""}`}
-            onClick={() => go("phieu")}
-            title="Xem phiếu lương cá nhân"
-          >
-            <Receipt className="lg-tab-btn__icon" />
-            <span>Phiếu lương của tôi</span>
-          </button>
-          <button
-            className={`lg-tab-btn ${tab === "tamung-me" ? "is-active" : ""}`}
-            onClick={() => go("tamung-me")}
-            title="Đề nghị & theo dõi tạm ứng cá nhân"
-          >
-            <HandCoins className="lg-tab-btn__icon" />
-            <span>Tạm ứng của tôi</span>
-          </button>
-        </div>
+        {tuPhucVu && (
+          <div className="lg-tabs__group lg-tabs__group--personal">
+            <button
+              className={`lg-tab-btn ${tab === "phieu" ? "is-active" : ""}`}
+              onClick={() => go("phieu")}
+              title="Xem phiếu lương cá nhân"
+            >
+              <Receipt className="lg-tab-btn__icon" />
+              <span>Phiếu lương của tôi</span>
+            </button>
+            <button
+              className={`lg-tab-btn ${tab === "tamung-me" ? "is-active" : ""}`}
+              onClick={() => go("tamung-me")}
+              title="Đề nghị & theo dõi tạm ứng cá nhân"
+            >
+              <HandCoins className="lg-tab-btn__icon" />
+              <span>Tạm ứng của tôi</span>
+            </button>
+          </div>
+        )}
       </nav>
 
       {tab === "bang" && canOpenBangLuong && (
@@ -275,6 +287,7 @@ export function LuongPage({
           token={token!}
           canManage={canManage}
           canLockPeriod={canLockPeriod}
+          canMarkPaid={canMarkPaid}
           canExportPayroll={canExportPayroll}
         />
       )}
@@ -297,8 +310,8 @@ export function LuongPage({
           onDirtyChange={setCfgDirty}
         />
       )}
-      {tab === "phieu" && <PhieuLuongTab token={token!} />}
-      {tab === "tamung-me" && (
+      {tab === "phieu" && tuPhucVu && <PhieuLuongTab token={token!} />}
+      {tab === "tamung-me" && tuPhucVu && (
         <TamUngCuaToiTab token={token!} eventTick={eventTick} />
       )}
 
@@ -322,11 +335,13 @@ function BangLuongTab({
   token,
   canManage,
   canLockPeriod,
+  canMarkPaid,
   canExportPayroll,
 }: {
   token: string;
   canManage: boolean;
   canLockPeriod: boolean;
+  canMarkPaid: boolean;
   canExportPayroll: boolean;
 }) {
   const [ym, setYm] = useState(curYm);
@@ -529,7 +544,7 @@ function BangLuongTab({
             Mở lại
           </button>
         )}
-        {canLockPeriod && locked && (
+        {canMarkPaid && locked && (
           <button
             className="btn btn--primary"
             onClick={() => run(() => api.luong.pay(token, year, month))}
@@ -538,7 +553,7 @@ function BangLuongTab({
             💵 Đã chi
           </button>
         )}
-        {canLockPeriod && paid && (
+        {canMarkPaid && paid && (
           <button
             className="btn btn--ghost"
             onClick={() =>

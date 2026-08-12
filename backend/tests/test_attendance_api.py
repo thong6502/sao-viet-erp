@@ -41,6 +41,66 @@ def _ghim_hom_nay(monkeypatch):
     monkeypatch.setattr(_att_svc, "_today_vn", _ngay_cuoi_thang)
 
 
+def _vai_cham_bu_pham_vi(pham_vi: str, ten_vai: str) -> str:
+    """Tao mot vai CO quyen cham bu nhung PHAM VI hep, tra token.
+
+    Dung cho test chot ky: hom nay chi Giam doc va TP HCNS co `adjust`, ca hai deu pham vi ca cong
+    ty — nen khong the dung tai khoan seed de kiem hang rao pham vi."""
+    from app.models.role import SCOPE_ALL  # noqa: F401  (giu import gan cho de doc)
+
+    db = SessionLocal()
+    try:
+        depts, roles, users = DepartmentRepository(db), RoleRepository(db), UserRepository(db)
+        dept = depts.get_by_name("Sản xuất")
+        role = roles.get_by_name_and_department(ten_vai, dept.id)
+        if role is None:
+            role = roles.create(name=ten_vai, department_id=dept.id)
+        # Màn Chấm công có khoá RIÊNG từ 10/08/2026 (`cham_cong`), và CHỐT KỲ tách sang ô
+        # `can_lock` chứ không còn đi kèm `can_adjust` — cấp cả hai để test kiểm đúng hàng rào
+        # PHẠM VI chứ không vô tình kiểm nhầm hàng rào "chưa cấp ô nào".
+        roles.set_permission(
+            role_id=role.id, module_key="cham_cong",
+            can_read=True, can_adjust=True, can_lock=True, scope=pham_vi,
+        )
+        uname = f"probe-{ten_vai.lower().replace(' ', '-')}"
+        u = users.get_by_username(uname)
+        if u is None:
+            u = users.create(username=uname, name=ten_vai, password_hash=hash_password("x"))
+        users.set_assignment(u, department_id=dept.id, role_id=role.id, is_active=True)
+        db.commit()
+        return create_access_token(str(u.id))
+    finally:
+        db.close()
+
+
+def test_chot_ky_cong_doi_pham_vi_toan_cong_ty(client):
+    """CHOT KY / MO LAI KY la viec TOAN CONG TY — pham vi hep phai bi chan.
+
+    Lo hong do duoc ngay 10/08/2026: endpoint chi hoi "co quyen cham bu khong", KHONG hoi nguoi bam
+    quan ai. Vai pham vi `own` bam Chot ky ⇒ CHOT DUOC, va anh chup ra 2 dong thuoc 2 phong ban —
+    tuc dong bang dau vao luong cua CA NHA MAY. `Mo lai ky` con nang hon: no XOA SACH anh chup do.
+
+    Hom nay chua ai no vi chi Giam doc va TP HCNS co quyen cham bu, ca hai deu pham vi ca cong ty.
+    Test nay giu hang rao cho ngay phan quyen hep lai.
+    """
+    thang_truoc = date.today().replace(day=1) - timedelta(days=1)
+    kỳ = {"year": thang_truoc.year, "month": thang_truoc.month}
+
+    for pham_vi, ten in (("own", "Probe Chot Own"), ("department", "Probe Chot Dept")):
+        tok = _vai_cham_bu_pham_vi(pham_vi, ten)
+        r = client.post("/api/attendance/period/lock", json=kỳ, headers=_h(tok))
+        assert r.status_code == 403, f"pham vi {pham_vi} KHONG duoc chot ky: {r.text}"
+        assert "cả công ty" in r.json()["detail"]
+
+        r2 = client.post("/api/attendance/period/reopen", json=kỳ, headers=_h(tok))
+        assert r2.status_code == 403, f"pham vi {pham_vi} KHONG duoc mo lai ky: {r2.text}"
+
+    # Nguoi pham vi CA CONG TY van chot binh thuong — hang rao khong duoc chan nham nguoi dung that.
+    admin = _admin_token(client)
+    ok = client.post("/api/attendance/period/lock", json=kỳ, headers=_h(admin))
+    assert ok.status_code == 200, ok.text
+
+
 def _admin_token(client) -> str:
     return client.post("/api/auth/login", json=ADMIN).json()["access_token"]
 
@@ -361,13 +421,22 @@ def test_timesheet_forbidden_without_permission(client):
 
 
 def _make_worker(username: str, dept_id: int) -> int:
-    """User active, KHÔNG có quyền module — chấm công tự phục vụ sau khi nối hồ sơ NV."""
+    """Thợ: vai TRỐNG TRƠN (không ô quản trị nào) — chỉ tự phục vụ sau khi nối hồ sơ NV.
+
+    Từ 10/08/2026 tự phục vụ là MỘT Ô QUYỀN chứ không còn là luật ngầm "ai đăng nhập cũng làm
+    được". Vai mới sinh ra đã có sẵn ô đó (xem `RoleRepository.O_MAC_DINH`), nên ở đây chỉ cần gán
+    một vai trống — giống ngoài đời, mọi người lao động đều thuộc một vai nào đó.
+
+    Trước đây fixture để `role_id=None` (không vai): nay không vai = không ô nào = không tự chấm
+    công được, đúng ý đồ Luật 1."""
     db = SessionLocal()
     try:
-        users = UserRepository(db)
+        users, roles = UserRepository(db), RoleRepository(db)
+        vai = roles.get_by_name_and_department("Thợ trống quyền", dept_id) or roles.create(
+            name="Thợ trống quyền", department_id=dept_id)
         u = users.get_by_username(username) or users.create(
             username=username, name=username, password_hash=hash_password("x"))
-        users.set_assignment(u, department_id=dept_id, role_id=None, is_active=True)
+        users.set_assignment(u, department_id=dept_id, role_id=vai.id, is_active=True)
         return u.id
     finally:
         db.close()
@@ -381,7 +450,11 @@ def _dept_hr_token(dept_name: str) -> str:
         roles = RoleRepository(db)
         role = roles.get_by_name_and_department("HR-scope", dept.id) or roles.create(
             name="HR-scope", department_id=dept.id)
-        roles.set_permission(role_id=role.id, module_key="nhan_su", can_read=True, scope="department")
+        # Đọc nhật ký + bảng công là màn Chấm công ⇒ khoá `cham_cong`.
+        # `can_view_log`: tab Nhật ký chấm công tách thành ô riêng 11/08/2026 — HR của phòng
+        # vẫn phải đọc được nhật ký của phòng mình.
+        roles.set_permission(role_id=role.id, module_key="cham_cong", can_read=True,
+                             can_view_log=True, scope="department")
         users = UserRepository(db)
         u = users.get_by_username(f"hr-{dept.id}") or users.create(
             username=f"hr-{dept.id}", name="HR", password_hash=hash_password("x"))

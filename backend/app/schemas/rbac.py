@@ -12,6 +12,10 @@ class ModuleOut(BaseModel):
 
     key: str
     label: str
+    #: Những "việc" ĐÃ XÁC MINH là chết — bật cũng không mở thêm gì. Ma trận tắt sẵn + khoá + hover
+    #: cảnh báo đúng mấy ô này, KHÔNG suy ngược từ "cái gì máy chủ không gác thì chết": rất nhiều ô
+    #: được thi hành ở giao diện (ẩn/hiện nút) nên máy chủ không thấy mà vẫn có tác dụng thật.
+    viec_chet: list[str] = []
 
 
 class DepartmentOut(BaseModel):
@@ -275,6 +279,18 @@ class RoleRename(BaseModel):
     name: str = Field(min_length=1, max_length=255)
 
 
+class RoleTemplateOut(BaseModel):
+    """Một VAI MẪU: mô tả + bộ quyền điền sẵn cho ma trận (đợt 6, 11/08/2026).
+
+    `permissions` là ma trận ĐẦY ĐỦ (mọi module, cờ nào không thuộc mẫu thì tắt) để giao diện chỉ
+    việc thay thẳng state — không phải trộn nửa vời rồi lẫn với quyền cũ của vai."""
+
+    key: str
+    label: str
+    mo_ta: str
+    permissions: list["PermissionRow"]
+
+
 class PermissionRow(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -307,6 +323,7 @@ class PermissionRow(BaseModel):
     can_view_salary: bool = False
     can_edit_salary: bool = False
     can_adjust: bool = False
+    can_view_log: bool = False  # cham_cong: xem tab Nhật ký chấm công (tách khỏi `can_read` 11/08/2026).
     can_approve_exception: bool = False
     can_set_credit_terms: bool = False
     can_record_deposit: bool = False   # don_hang_ban — Kế toán ghi phiếu thu cọc

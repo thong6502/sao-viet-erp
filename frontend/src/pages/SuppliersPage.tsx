@@ -224,8 +224,9 @@ export function SuppliersPage({
 }) {
   const { token } = useAuth();
   const can = useCan();
-  const canCreate = can("thu_mua", "create");
-  const canUpdate = can("thu_mua", "update");
+  // Khoá RIÊNG của màn Nhà cung cấp (tách 10/08/2026) — không mượn quyền màn Mua hàng nữa.
+  const canCreate = can("nha_cung_cap", "create");
+  const canUpdate = can("nha_cung_cap", "update");
 
   const [allSuppliers, setAllSuppliers] = useState<SupplierRow[]>([]);
   const [rows, setRows] = useState<SupplierRow[]>([]);

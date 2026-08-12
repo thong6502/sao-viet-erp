@@ -63,8 +63,13 @@ def _token_duyet(username: str, *, scope: str = SCOPE_ALL, phong: str = "Ban gi�
             dept = DepartmentRepository(db).get_by_name(phong)
             roles = RoleRepository(db)
             role = roles.create(name=f"Vai {username}", department_id=dept.id)
+            # 11/08/2026: DUYỆT PMH dời sang khoá `ke_toan`; còn "đánh dấu nhận hàng / lùi phiếu"
+            # tách thành ô riêng `thu_mua:manage_status`. Cấp CÙNG phạm vi ở cả hai khoá — test này
+            # kiểm hàng rào PHẠM VI, nên phải giữ phạm vi giống nhau, đừng để lệch.
             roles.set_permission(role_id=role.id, module_key="thu_mua", scope=scope,
-                                 can_read=True, can_update=True, can_approve=True)
+                                 can_read=True, can_update=True, can_manage_status=True)
+            roles.set_permission(role_id=role.id, module_key="ke_toan", scope=scope,
+                                 can_read=True, can_approve=True)
             u = users.create(username=username, name=username, password_hash=hash_password("x"))
             users.set_assignment(u, department_id=dept.id, role_id=role.id, is_active=True)
         return {"Authorization": f"Bearer {create_access_token(str(u.id))}"}

@@ -10,6 +10,7 @@ import {
   type ModuleDef,
   type PermissionRow,
   type Role,
+  type RoleTemplate,
   type Scope,
   type UserBrief,
 } from "../api/client";
@@ -290,6 +291,9 @@ export function DepartmentsPage({
   const [empMeta, setEmpMeta] = useState<EmployeeMeta | null>(null);
   const [roles, setRoles] = useState<Role[]>([]);
   const [modules, setModules] = useState<ModuleDef[]>([]);
+  // Bảng VAI MẪU (đợt 6). Lỗi khi nạp ⇒ để rỗng: thanh chọn mẫu tự ẩn, ma trận vẫn cấp tay
+  // được như cũ — mẫu là tiện ích, không phải điều kiện để cấp quyền.
+  const [roleTemplates, setRoleTemplates] = useState<RoleTemplate[]>([]);
   // Who may head the selected unit (its subtree, PBI-4004).
   const [headCandidates, setHeadCandidates] = useState<UserBrief[]>([]);
   // Modal chỉ định Trưởng phòng nhanh trực tiếp từ Head Hero Card
@@ -687,11 +691,13 @@ export function DepartmentsPage({
     Promise.all([
       loadDepartments(),
       api.rbac.modules(token).catch(() => [] as ModuleDef[]),
+      api.rbac.roleTemplates(token).catch(() => [] as RoleTemplate[]),
     ])
-      .then(([list, mods]) => {
+      .then(([list, mods, mau]) => {
         if (cancelled) return;
         setDepartments(list);
         setModules(mods);
+        setRoleTemplates(mau);
         // Tự động chọn phòng gốc hàng đầu (Root department) khi nạp màn hình để hiển thị ngay chi tiết
         const { roots: rts } = buildTree(list);
         const defaultId = rts[0]?.id ?? list[0]?.id ?? null;
@@ -1114,6 +1120,19 @@ export function DepartmentsPage({
     setEditRoleId(null);
     setEditRoleConfirmDelete(false);
     setEditRoleError(null);
+  }
+
+  /** Áp mẫu vào ma trận SỬA vai — THAY SẠCH, không trộn với quyền cũ.
+   *  Trộn thì áp mẫu "Công nhân" lên một vai đang đầy quyền vẫn còn nguyên quyền cũ — đúng thứ
+   *  vai mẫu sinh ra để tránh. Chỉ đổi state; chưa bấm Lưu thì chưa có gì xuống DB. */
+  function apMauSuaVai(t: RoleTemplate) {
+    setEditRoleMatrix(t.permissions.map((r) => ({ ...r })));
+    setEditRoleError(null);
+  }
+
+  /** Áp mẫu vào ma trận THÊM vai mới. */
+  function apMauThemVai(t: RoleTemplate) {
+    setAddRoleMatrix(t.permissions.map((r) => ({ ...r })));
   }
 
   function toggleEditRole(moduleKey: string, action: ActionKey, value: boolean) {
@@ -2428,6 +2447,8 @@ export function DepartmentsPage({
                             onToggle={toggleEditRole}
                             onScope={scopeEditRole}
                             readOnly={!canManagePerms}
+                            templates={roleTemplates}
+                            onApplyTemplate={apMauSuaVai}
                           />
                         )}
 
@@ -2944,6 +2965,8 @@ export function DepartmentsPage({
             matrix={addRoleMatrix}
             onToggle={toggleAddRole}
             onScope={scopeAddRole}
+            templates={roleTemplates}
+            onApplyTemplate={apMauThemVai}
           />
         ) : (
           <p className="depts__status">

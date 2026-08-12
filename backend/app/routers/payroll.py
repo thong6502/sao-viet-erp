@@ -28,6 +28,7 @@ from ..deps import (
     require_permission,
 )
 from ..models.user import User
+from ..models.role import SCOPE_ALL
 from ..realtime import hub
 from ..services.payroll_component_service import (
     ComponentError,
@@ -119,6 +120,19 @@ from ..services.piece_work_service import (
 router = APIRouter(prefix="/api/luong", tags=["luong"])
 
 MODULE = "luong"
+
+# TỰ PHỤC VỤ (tách 10/08/2026) — một ô quyền cho MỌI việc người lao động làm với hồ sơ của CHÍNH
+# MÌNH: tự chấm công, xem công/phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng.
+# Trước đây nhóm này không gác gì (chỉ cần đăng nhập) nên không có cách nào tắt cho một vai.
+# Ba hàng rào cũ GIỮ NGUYÊN (phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công · đúng
+# khung giờ ca) — chúng chống lạm dụng, còn ô này chống truy cập.
+MODULE_TU_PHUC_VU = "self_service"
+SelfUser = Annotated[User, Depends(require_permission(MODULE_TU_PHUC_VU, "read"))]
+
+# Ô THAO TÁC của Tự phục vụ (tách 11/08/2026). `SelfUser` (= `read`) chỉ cho XEM công / phiếu /
+# đơn của chính mình; mọi đường GHI — chấm công, gửi · sửa · huỷ đơn nghỉ, phiếu tăng ca, xin đi
+# muộn, xin tạm ứng, sửa hồ sơ của mình — đòi ô này.
+SelfWriter = Annotated[User, Depends(require_permission(MODULE_TU_PHUC_VU, "create"))]
 ConfigViewer = Annotated[
     User,
     Depends(require_any_permission((MODULE, "view_salary"), (MODULE, "update"))),
@@ -135,6 +149,30 @@ CompRepo = Annotated[PayrollComponentRepository, Depends(get_payroll_component_r
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
 
 
+def _chan_neu_khong_toan_cong_ty(authz: AuthorizationService, user: User, viec: str) -> None:
+    """CHỐT / MỞ LẠI / ĐÁNH DẤU ĐÃ CHI kỳ lương đòi phạm vi `all`, không nhận `own`/`department`.
+
+    Vì sao chặn chứ không thu hẹp theo phạm vi: kỳ lương là MỘT bản ghi cho cả công ty
+    (`payroll_periods` khoá theo năm+tháng, xem `get_period_by_ym`). Không có cách nào "chốt phần
+    của tổ mình" — bấm một cái là đổi trạng thái của cả kỳ.
+
+    ⚠️ LỖ HỔNG ĐÃ ĐO ĐƯỢC 10/08/2026: trước bản vá này endpoint chỉ hỏi "có ô Chốt kỳ lương
+    không", KHÔNG hỏi người bấm quản ai. Dựng vai phạm vi `own` bấm chốt ⇒ kỳ chuyển `locked`;
+    bấm tiếp ⇒ chuyển `paid` (đánh dấu ĐÃ TRẢ TIỀN cho toàn bộ người lao động). Giống hệt lỗ hổng
+    Chốt kỳ công đã vá ở đợt 1 — cùng một khuôn sai, ở hai phân hệ.
+
+    Giữ nguyên hàng rào này. Muốn cho tổ trưởng chốt lương tổ mình thì phải đổi mô hình dữ liệu
+    (kỳ lương theo phòng ban) chứ không phải nới quyền."""
+    if authz.scope_for(user, MODULE) != SCOPE_ALL:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"{viec} là việc của cả công ty — tài khoản của bạn chỉ có phạm vi trong "
+                "tổ/phòng. Nhờ người có phạm vi toàn công ty thực hiện."
+            ),
+        )
+
+
 def _emp_scope_for(authz: AuthorizationService, user: User) -> str:
     """Phạm vi DỮ LIỆU NHÂN VIÊN của người gọi. Quyền `luong:update` chỉ trả lời "được làm
     không"; "làm cho AI" là trục `nhan_su` (department_id) — hai chuyện khác nhau.
@@ -142,7 +180,7 @@ def _emp_scope_for(authz: AuthorizationService, user: User) -> str:
     Mặc định `own` (an toàn): vai nào có `luong` mà chưa khai scope `nhan_su` thì bị thu về
     chính mình chứ không rơi vào 'all'. Hiện chỉ Giám đốc và Trưởng phòng HCNS có `luong`, cả
     hai đều `nhan_su=all` nên không ai bị vướng."""
-    return authz.scope_for(user, "nhan_su") or "own"
+    return authz.scope_for(user, MODULE) or "own"
 
 
 def _raise(exc: Exception) -> None:
@@ -538,7 +576,7 @@ def cancel_advance(advance_id: int, svc: Service, employees: Employees, departme
 
 @router.get("/advances/me", response_model=MyAdvancesOut)
 def my_advances(svc: Service, employees: Employees, departments: Departments,
-                user: CurrentUser) -> MyAdvancesOut:
+                user: SelfUser) -> MyAdvancesOut:
     res = svc.my_advances(user=user)
     return MyAdvancesOut(has_employee=res["has_employee"],
                          items=_adv_out(res["items"], employees, departments),
@@ -547,7 +585,7 @@ def my_advances(svc: Service, employees: Employees, departments: Departments,
 
 @router.post("/advances/me", response_model=AdvanceOut, status_code=status.HTTP_201_CREATED)
 def create_my_advance(body: MyAdvanceIn, svc: Service, employees: Employees,
-                      departments: Departments, user: CurrentUser) -> AdvanceOut:
+                      departments: Departments, user: SelfWriter) -> AdvanceOut:
     """Nhân viên TỰ lập đề nghị tạm ứng cho chính mình → pending → kế toán duyệt.
     Chỉ cần đăng nhập + có hồ sơ (không cần quyền luong:create)."""
     emp = employees.get_by_user_id(user.id)
@@ -565,7 +603,7 @@ def create_my_advance(body: MyAdvanceIn, svc: Service, employees: Employees,
 
 
 @router.get("/advances/notify-summary")
-def advance_notify_summary(svc: Service, authz: Authz, user: CurrentUser) -> dict:
+def advance_notify_summary(svc: Service, authz: Authz, user: SelfUser) -> dict:
     """Badge real-time cho Tạm ứng: `pending_approval_count` = số đề nghị đang chờ duyệt.
     Chỉ >0 với người có quyền duyệt (luong:approve); nhân viên thường → 0 (chỉ nhận toast quyết định)."""
     can_approve = authz.can(user, MODULE, "approve")
@@ -621,8 +659,9 @@ def update_line(line_id: int, body: LineUpdateIn, svc: Service, employees: Emplo
 
 
 @router.post("/lock", response_model=PeriodOut)
-def lock_period(body: GenerateIn, svc: Service,
+def lock_period(body: GenerateIn, svc: Service, authz: Authz,
                 user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> PeriodOut:
+    _chan_neu_khong_toan_cong_ty(authz, user, "Chốt bảng lương")
     try:
         p = svc.lock_period(year=body.year, month=body.month, actor=user)
     except PayrollError as exc:
@@ -631,8 +670,9 @@ def lock_period(body: GenerateIn, svc: Service,
 
 
 @router.post("/reopen", response_model=PeriodOut)
-def reopen_period(body: GenerateIn, svc: Service,
+def reopen_period(body: GenerateIn, svc: Service, authz: Authz,
                   user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> PeriodOut:
+    _chan_neu_khong_toan_cong_ty(authz, user, "Mở lại kỳ lương")
     try:
         p = svc.reopen_period(year=body.year, month=body.month, actor=user)
     except PayrollError as exc:
@@ -641,8 +681,14 @@ def reopen_period(body: GenerateIn, svc: Service,
 
 
 @router.post("/pay", response_model=PeriodOut)
-def pay_period(body: PeriodPayIn, svc: Service,
-               user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> PeriodOut:
+# Ô RIÊNG (10/08/2026) — KHÔNG dùng chung với "Chốt bảng lương".
+# Chốt = số đã tính xong, còn Đánh dấu đã chi = tuyên bố TIỀN ĐÃ RA TỚI TAY người lao động, và nó
+# khoá luôn kỳ (muốn mở lại phải huỷ đã chi trước). Hai việc hai người thường khác nhau: người
+# tính lương chốt số, kế toán mới xác nhận đã trả. Gộp một ô là ai chốt được thì tự tuyên bố đã
+# trả — không còn ai đối chiếu.
+def pay_period(body: PeriodPayIn, svc: Service, authz: Authz,
+               user: Annotated[User, Depends(require_permission(MODULE, "manage_status"))]) -> PeriodOut:
+    _chan_neu_khong_toan_cong_ty(authz, user, "Đánh dấu đã chi lương")
     try:
         p = svc.pay_period(year=body.year, month=body.month, actor=user, note=body.note)
     except PayrollError as exc:
@@ -651,8 +697,9 @@ def pay_period(body: PeriodPayIn, svc: Service,
 
 
 @router.post("/unpay", response_model=PeriodOut)
-def unpay_period(body: PeriodPayIn, svc: Service,
-                 user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> PeriodOut:
+def unpay_period(body: PeriodPayIn, svc: Service, authz: Authz,
+                 user: Annotated[User, Depends(require_permission(MODULE, "manage_status"))]) -> PeriodOut:
+    _chan_neu_khong_toan_cong_ty(authz, user, "Huỷ đánh dấu đã chi lương")
     try:
         p = svc.unpay_period(year=body.year, month=body.month, actor=user, note=body.note)
     except PayrollError as exc:
@@ -756,7 +803,7 @@ def export_bank_xlsx(svc: Service, employees: Employees, departments: Department
 
 
 @router.get("/payslip/me", response_model=PayslipOut)
-def my_payslip(svc: Service, employees: Employees, departments: Departments, user: CurrentUser) -> PayslipOut:
+def my_payslip(svc: Service, employees: Employees, departments: Departments, user: SelfUser) -> PayslipOut:
     res = svc.my_payslip(user=user)
     line = None
     if res["line"] is not None:

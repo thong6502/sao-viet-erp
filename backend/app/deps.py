@@ -9,10 +9,13 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
+from sqlalchemy import BigInteger, cast, func, select
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from .db import get_db
+from .models.accounting import PAYMENT_RECEIPT_RECEIVED, RECEIPT_SOURCE_ORDER, PaymentReceipt
+from .models.order import Order, OrderLine, STATUS_ORDERED
 from .models.user import User
 from .repositories.audit_repo import AuditLogRepository
 from .repositories.accounting_repo import AccountingRepository
@@ -267,12 +270,40 @@ def get_customer_repository(
     return CustomerRepository(db)
 
 
+class AccountingReceivablePort:
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    def get_ar_balance(self, customer_id: int) -> int:
+        total_x100 = self.db.execute(
+            select(func.coalesce(func.sum(cast(OrderLine.line_total, BigInteger) * (100 + OrderLine.vat_pct_estimate)), 0))
+            .select_from(Order)
+            .join(OrderLine, OrderLine.order_id == Order.id)
+            .where(Order.customer_id == customer_id, Order.status == STATUS_ORDERED)
+        ).scalar_one()
+        order_ids = list(
+            self.db.execute(
+                select(Order.id).where(Order.customer_id == customer_id, Order.status == STATUS_ORDERED)
+            ).scalars()
+        )
+        if not order_ids:
+            return 0
+        received = self.db.execute(
+            select(func.coalesce(func.sum(PaymentReceipt.amount_vnd), 0)).where(
+                PaymentReceipt.order_id.in_(order_ids),
+                PaymentReceipt.source_type == RECEIPT_SOURCE_ORDER,
+                PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
+            )
+        ).scalar_one()
+        return max(0, int(total_x100 or 0) // 100 - int(received or 0))
+
+
 def get_customer_service(
+    db: Annotated[Session, Depends(get_db)],
     customers: Annotated[CustomerRepository, Depends(get_customer_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
 ) -> CustomerService:
-    # The receivable port defaults to the raising SEAM-16 stub inside the service.
-    return CustomerService(customers, audit)
+    return CustomerService(customers, audit, receivable_port=AccountingReceivablePort(db))
 
 
 def get_customer_analytics_service(
@@ -479,10 +510,78 @@ def get_order_repository(
 # tên ở thời điểm định nghĩa hàm (xem ghi chú get_sequence_service ↔ get_accounting_service).
 
 
+#: Mọi cặp (màn, việc) mà MÁY CHỦ thật sự gác. Tự gom khi các router được nạp — mỗi lần
+#: `require_permission(...)` / `require_any_permission(...)` chạy là ghi vào đây.
+#:
+#: Dùng để ma trận quyền TẮT + KHOÁ những ô không nối vào chức năng nào ("công tắc chết"). Bật một
+#: công tắc mà không mở thêm được gì còn tệ hơn không có công tắc: người cấp quyền tưởng đã cấp.
+#:
+#: TỰ SINH chứ không chép tay — chép tay thì ba tháng nữa nó lệch, mà lệch kiểu đó không ai thấy.
+#: Thêm cổng mới ⇒ ô tự sống lại; gỡ cổng ⇒ ô tự chết.
+O_QUYEN_DUOC_GAC: set[tuple[str, str]] = set()
+
+#: Chỗ máy chủ hỏi quyền ở TẦNG SERVICE (`authz.can(...)`), không đi qua cổng của router nên
+#: registry ở trên không thấy. Khai tay — và có test đối chiếu với mã nguồn để không sót.
+O_QUYEN_GAC_O_SERVICE: set[tuple[str, str]] = {
+    ("yeu_cau_mua_hang", "create"),   # purchase_service.can_create_department_request
+    ("yeu_cau_mua_hang", "cancel"),   # purchase_service.cancel_department_request (huỷ hộ)
+    ("thu_mua", "manage_status"),     # sửa số nhận · mở lại đơn · đóng đơn
+    ("ke_toan", "approve"),           # huỷ PMH đã gửi duyệt (purchase_service.cancel)
+    ("ke_toan", "read"),              # đếm đợt giao quá hạn cho badge Thu mua
+}
+
+
+#: Ô ĐÃ XÁC MINH là chết — ma trận tắt sẵn + khoá + hover cảnh báo.
+#:
+#: ⚠️ VÌ SAO LÀ DANH SÁCH ĐEN CHỨ KHÔNG PHẢI "cái gì không có trong registry thì chết":
+#: bản đầu tiên (11/08/2026) làm kiểu suy ngược đó và **khoá nhầm hàng loạt ô đang dùng được** —
+#: *In / xuất phiếu chi* · *In / xuất phiếu thu* · *Đặt trưởng phòng* · *Đổi cấp trên* ·
+#: *Xem lương & BHXH* · *Sửa lương & BHXH* · *Thao tác vòng đời* · *Điều chuyển & nâng bậc*.
+#: Lý do: registry chỉ thấy cổng ở ROUTER, còn rất nhiều ô được thi hành ở **giao diện** (ẩn/hiện
+#: nút) hoặc ở **tầng service**. Không thấy ≠ không có tác dụng.
+#:
+#: Hướng an toàn phải là ngược lại: mặc định coi mọi ô còn sống, chỉ tắt cái nào ĐÃ SOI cả ba nơi
+#: (cổng router · `authz.can` ở service · `can(...)` ở giao diện) và chắc chắn không nơi nào hỏi.
+#: Sai theo hướng này thì tệ nhất là để thừa một ô vô hại; sai theo hướng kia là chặn việc thật.
+#:
+#: `test_o_quyen_chet_tu_sinh.py` soi đủ ba nơi và đối chiếu với danh sách này — thêm bừa một dòng
+#: mà chỗ nào đó vẫn đang hỏi thì test đỏ.
+O_CHET_DA_XAC_MINH: set[tuple[str, str]] = {
+    ("yeu_cau_mua_hang", "delete"),
+    ("nha_cung_cap", "delete"),
+    ("ke_toan", "create"), ("ke_toan", "update"), ("ke_toan", "delete"),
+    ("phieu_chi", "update"), ("phieu_chi", "delete"),
+    ("phieu_thu", "update"), ("phieu_thu", "delete"),
+    ("cong_no_phai_tra", "create"), ("cong_no_phai_tra", "update"), ("cong_no_phai_tra", "delete"),
+    ("cong_no_phai_thu", "create"), ("cong_no_phai_thu", "update"), ("cong_no_phai_thu", "delete"),
+    ("tk_ngan_hang", "create"), ("tk_ngan_hang", "delete"),
+    ("self_service", "update"), ("self_service", "delete"), ("self_service", "approve"),
+    ("nghi_phep", "delete"),
+    ("tang_ca", "create"), ("tang_ca", "update"), ("tang_ca", "delete"),
+    # `di_muon:read` chết từ 11/08/2026: danh sách đổi sang đòi `approve` (màn chỉ còn một việc).
+    ("di_muon", "read"),
+    ("di_muon", "create"), ("di_muon", "update"), ("di_muon", "delete"),
+    ("noi_quy", "update"),
+    # Màn Yêu cầu chỉnh công chỉ có BA cửa: xem danh sách (`read`), duyệt và từ chối (cùng
+    # `approve`). NGƯỜI GỬI yêu cầu đi cửa khác hẳn — nhân viên tự gửi qua ô Tự phục vụ ·
+    # Thao tác (`self_service:create`, attendance.py:716), không phải ô này.
+    # Sót ở đợt E vì module sinh sau (đợt D, migration 0185) mà danh sách khai tay.
+    ("yeu_cau_chinh_cong", "create"), ("yeu_cau_chinh_cong", "update"),
+    ("yeu_cau_chinh_cong", "delete"),
+}
+
+
+def o_quyen_co_tac_dung() -> set[tuple[str, str]]:
+    """Tập (màn, việc) mà MÁY CHỦ gác. KHÔNG phải "tập ô còn sống" — nhiều ô chỉ thi hành ở giao
+    diện vẫn có tác dụng thật. Dùng cho test đối chiếu, đừng dùng để suy ra ô chết."""
+    return O_QUYEN_DUOC_GAC | O_QUYEN_GAC_O_SERVICE
+
+
 def require_permission(module_key: str, action: str):
     """Build a dependency that allows the request only if the current user's role
     grants `action` on `module_key`. 401 if unauthenticated/locked is handled by
     `get_current_user`; this adds the 403 for a missing permission."""
+    O_QUYEN_DUOC_GAC.add((module_key, action))
 
     def dependency(
         user: CurrentUser,
@@ -502,6 +601,7 @@ def require_any_permission(*grants: tuple[str, str]):
     """Like `require_permission`, but allows the request if ANY of the
     (module_key, action) pairs is granted — for read endpoints that legitimately
     serve more than one screen (e.g. role names shown inside the department view)."""
+    O_QUYEN_DUOC_GAC.update(grants)
 
     def dependency(
         user: CurrentUser,
@@ -659,5 +759,4 @@ def get_operation_service(
 # (thanh_phan_engine) vẫn đọc, tự dựng từ db chứ không đi qua DI.
 # Gỡ 2026-08-08 (Đợt 5): get_{costing,material,estimate}_{repository,service} — cụm tính giá đời cũ
 # đã xoá hẳn cùng 3 router costings/materials/estimates.
-
 

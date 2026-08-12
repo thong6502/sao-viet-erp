@@ -48,6 +48,17 @@ PAYMENT_VOUCHER_STATUSES = (
     PAYMENT_VOUCHER_CANCELLED,
 )
 
+VOUCHER_SOURCE_PURCHASE = "purchase_request"
+VOUCHER_SOURCE_INTERNAL = "internal_expense"
+VOUCHER_SOURCE_CUSTOMER_REFUND = "customer_refund"
+VOUCHER_SOURCE_OTHER = "other"
+VOUCHER_SOURCES = (
+    VOUCHER_SOURCE_PURCHASE,
+    VOUCHER_SOURCE_INTERNAL,
+    VOUCHER_SOURCE_CUSTOMER_REFUND,
+    VOUCHER_SOURCE_OTHER,
+)
+
 BANK_FEE_PAYER = "payer"
 BANK_FEE_BENEFICIARY = "beneficiary"
 BANK_FEE_SHARED = "shared"
@@ -67,7 +78,8 @@ PAYMENT_RECEIPT_STATUSES = (
 # order_deposit:   khách đặt cọc đơn bán (đường mới, gắn đơn hàng) — không phiếu chi.
 RECEIPT_SOURCE_PURCHASE = "purchase_refund"
 RECEIPT_SOURCE_ORDER = "order_deposit"
-RECEIPT_SOURCES = (RECEIPT_SOURCE_PURCHASE, RECEIPT_SOURCE_ORDER)
+RECEIPT_SOURCE_OTHER = "other"
+RECEIPT_SOURCES = (RECEIPT_SOURCE_PURCHASE, RECEIPT_SOURCE_ORDER, RECEIPT_SOURCE_OTHER)
 
 
 def _utcnow() -> datetime:
@@ -88,6 +100,8 @@ class CompanyBankAccount(Base):
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="VND")
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    use_for_receipts: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    use_for_payments: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -132,8 +146,11 @@ class PaymentVoucher(Base):
     # (voucher_date sửa được sau khi đã cấp số). Phiếu hủy vẫn giữ số. Dùng chung một bộ
     # đếm cho tiền mặt lẫn UNC — cùng quyển phiếu chi.
     doc_no: Mapped[str | None] = mapped_column(String(16), nullable=True, unique=True, index=True)
-    purchase_request_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("purchase_requests.id", ondelete="RESTRICT"), nullable=False, index=True
+    source_type: Mapped[str] = mapped_column(
+        String(24), nullable=False, default=VOUCHER_SOURCE_PURCHASE, index=True
+    )
+    purchase_request_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("purchase_requests.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     # Phiếu này trả cho ĐỢT GIAO nào (chủ chốt 06/08/2026).
     #   NULL  = phiếu ĐẶT CỌC / ứng trước — chi khi hàng chưa về nên chưa có đợt nào để gắn.

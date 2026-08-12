@@ -263,11 +263,36 @@ class RoleRepository:
             select(Role).where(Role.name == name, Role.department_id == department_id)
         ).scalar_one_or_none()
 
+    #: Hai ô bật SẴN cho MỌI vai mới (10/08/2026).
+    #:   self_service — việc người lao động làm với hồ sơ CỦA CHÍNH MÌNH: tự chấm công, xem công
+    #:     và phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng.
+    #:   noi_quy      — đọc nội quy lao động.
+    #: Vì sao bật sẵn dù luật chung là "không cấp thì không được": hai thứ này là quyền của MỌI
+    #: người lao động, không phải đặc quyền của một vai. Vai mới mà không có chúng thì người vừa
+    #: được gán vai không tự chấm công nổi, và mỗi lần thêm vai lại phải nhớ tick tay — nhớ được
+    #: một lần, quên từ lần thứ hai. Khác trước ở chỗ: nay chúng HIỆN trên ma trận và GỠ ĐƯỢC,
+    #: chứ không phải luật ngầm "ai đăng nhập cũng làm được".
+    O_MAC_DINH: tuple[str, ...] = ("self_service", "noi_quy")
+
     def create(self, *, name: str, department_id: int) -> Role:
         role = Role(name=name, department_id=department_id)
         self.db.add(role)
         self.db.commit()
         self.db.refresh(role)
+        for khoa in self.O_MAC_DINH:
+            # Module chưa tồn tại (DB cũ chưa chạy migration) thì bỏ qua — khoá ngoại sẽ vỡ.
+            # ⚠️ Tra theo CỘT `key`, không dùng `db.get(Module, khoa)`: khoá chính của bảng là `id`
+            # (số), nên `get` bằng chuỗi luôn trả None và nhánh này lặng lẽ bỏ qua MỌI lần.
+            co = self.db.execute(select(Module).where(Module.key == khoa)).scalar_one_or_none()
+            if co is None:
+                continue
+            # `self_service` cần CẢ ô Thao tác (`can_create`) — nếu không thì vai mới gán
+            # xong, thợ mở màn Chấm công ra mà không bấm được nút nào (đổi 11/08/2026).
+            self.db.add(RolePermission(
+                role_id=role.id, module_key=khoa, can_read=True,
+                can_create=(khoa == "self_service"),
+            ))
+        self.db.commit()
         return role
 
     def update_name(self, role: Role, name: str) -> Role:
@@ -369,6 +394,8 @@ class RoleRepository:
         can_view_salary: bool = False,
         can_edit_salary: bool = False,
         can_adjust: bool = False,
+        # cham_cong: xem tab "Nhật ký chấm công" — tách khỏi `can_read` 11/08/2026.
+        can_view_log: bool = False,
         can_approve_exception: bool = False,
         can_set_credit_terms: bool = False,
         can_record_deposit: bool = False,
@@ -398,6 +425,7 @@ class RoleRepository:
         perm.can_view_discount = can_view_discount
         perm.can_approve = can_approve
         perm.can_manage_status = can_manage_status
+        perm.can_view_log = can_view_log
         perm.can_reset_password = can_reset_password
         perm.can_lock = can_lock
         perm.can_revoke_sessions = can_revoke_sessions

@@ -39,6 +39,8 @@ export type PermAction =
   | "request"
   | "view_stock"
   | "view_cost"
+  // cham_cong: xem tab "Nhật ký chấm công" (tách khỏi "read" 11/08/2026).
+  | "view_log"
   | "set_threshold"
   | "post"
   // Kho — kế toán: khóa kỳ (chốt sổ) + xem Báo cáo kho + export MISA.
@@ -103,6 +105,7 @@ export function PermissionsProvider({
     if (action === "request") return row.can_request;
     if (action === "view_stock") return row.can_view_stock;
     if (action === "view_cost") return row.can_view_cost;
+    if (action === "view_log") return row.can_view_log;
     if (action === "set_threshold") return row.can_set_threshold;
     if (action === "post") return row.can_post;
     if (action === "close_book") return row.can_close_book;
@@ -114,6 +117,26 @@ export function PermissionsProvider({
   return (
     <PermissionsContext.Provider value={{ can, scopeOf }}>{children}</PermissionsContext.Provider>
   );
+}
+
+/** Có ô TỰ PHỤC VỤ hay không — việc người lao động làm với hồ sơ của CHÍNH MÌNH: tự chấm công,
+ *  xem công / phiếu lương của mình, tự gửi đơn nghỉ · phiếu tăng ca · xin tạm ứng.
+ *
+ *  Từ 10/08/2026 đây là ô quyền THẬT (`self_service`), bật sẵn cho mọi vai mới nhưng quản trị tắt
+ *  được. Màn nào có nút tự phục vụ thì phải hỏi hàm này — không thì tắt ô xong nút vẫn bày ra, bấm
+ *  mới ăn 403 (đợt 5). */
+export function useSelfService(): boolean {
+  return useCan()("self_service", "read");
+}
+
+/** Có ô THAO TÁC của Tự phục vụ không — được GHI với hồ sơ của chính mình: chấm công, gửi · sửa ·
+ *  huỷ đơn nghỉ · phiếu tăng ca · xin đi muộn · xin tạm ứng, sửa thông tin liên hệ của mình.
+ *
+ *  Tách khỏi `useSelfService()` ngày 11/08/2026: trước đó `self_service` chỉ dùng động từ `read`
+ *  nên cột "Thao tác" của nó là ô chết — gỡ tick đi thì thợ vẫn chấm công, vẫn gửi phiếu. Chủ chốt
+ *  báo đúng chỗ này ở ba màn khác nhau (Tự phục vụ · Tăng ca · Nghỉ phép), cùng một gốc. */
+export function useSelfServiceWrite(): boolean {
+  return useCan()("self_service", "create");
 }
 
 /** Returns `can(module, action)`. Defaults to deny until the provider is mounted. */

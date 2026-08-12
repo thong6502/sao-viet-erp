@@ -34,6 +34,8 @@ from ..schemas.accounting import (
     PaymentVoucherOut,
     PayablesDetailOut,
     PayablesSummaryOut,
+    ReceivablesDetailOut,
+    ReceivablesSummaryOut,
     SupplierBankAccountIn,
     SupplierBankAccountOut,
 )
@@ -48,7 +50,22 @@ from ..services.purchase_service import PurchaseService
 
 
 router = APIRouter(tags=["accounting"])
-MODULE = "ke_toan"
+# TÁCH THEO MÀN (10/08/2026, đường A). Trước đây CẢ phân hệ treo trên một khoá `ke_toan`:
+# bật `read` là mở luôn 6 màn, còn `approve` bị dùng làm cờ vạn năng cho "lập phiếu chi", "lập
+# phiếu thu" và "gán chứng từ" — bật một ô là tiền ra được. Đúng bệnh tester ghi.
+#
+# `MODULE` giữ khoá `ke_toan` (đổi khoá là mọi hàng `role_permissions` cũ trỏ vào hư không) nhưng
+# nay chỉ còn nghĩa MÀN ĐƠN MUA HÀNG. Năm màn kia có khoá riêng.
+#
+# ĐỘNG TỪ cũng được gọi đúng tên: LẬP phiếu nay là `create` chứ không phải `approve`.
+# Migration 0178 ánh xạ `create = create OR approve` khi sao chép, nếu không kế toán đang lập
+# phiếu bằng ô `approve` sẽ mất quyền ngay khi bản này lên.
+MODULE = "ke_toan"                    # màn Đơn mua hàng (hộp thư kế toán)
+MODULE_PC = "phieu_chi"               # màn Phiếu chi / UNC
+MODULE_PT = "phieu_thu"               # màn Phiếu thu
+MODULE_CN_TRA = "cong_no_phai_tra"    # màn Công nợ phải trả
+MODULE_CN_THU = "cong_no_phai_thu"    # màn Công nợ phải thu
+MODULE_TKNH = "tk_ngan_hang"          # màn Tài khoản ngân hàng
 
 
 def _notify_accounting_changed(code: str | None = None, *, event_type: str = "accounting_changed", **extra) -> None:
@@ -111,7 +128,7 @@ def accounting_inbox(
 @router.get("/api/accounting/payables", response_model=PayablesSummaryOut)
 def accounting_payables(
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(require_permission(MODULE_CN_TRA, "read"))],
     q: str | None = Query(default=None),
 ) -> PayablesSummaryOut:
     # Chỉ ĐỌC — không đẻ ô quyền mới, `ke_toan:read` là đủ. Không phân trang: cắt trang là ra
@@ -126,7 +143,7 @@ def accounting_payables(
 def accounting_payables_detail(
     supplier_id: int,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(require_permission(MODULE_CN_TRA, "read"))],
     all_history: bool = Query(default=False),
 ) -> PayablesDetailOut:
     # `all_history` bỏ mốc kỳ cho riêng rổ "đã chi" — nút "Xem lịch sử cũ hơn". Chỉ nới cho MỘT
@@ -134,13 +151,36 @@ def accounting_payables_detail(
     return PayablesDetailOut(**svc.payables_detail(supplier_id, all_history=all_history))
 
 
+@router.get("/api/accounting/receivables", response_model=ReceivablesSummaryOut)
+def accounting_receivables(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE_CN_THU, "read"))],
+    q: str | None = Query(default=None),
+) -> ReceivablesSummaryOut:
+    return ReceivablesSummaryOut(**svc.receivables_summary(q=q))
+
+
+@router.get("/api/accounting/receivables/{customer_id}", response_model=ReceivablesDetailOut)
+def accounting_receivables_detail(
+    customer_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE_CN_THU, "read"))],
+    all_history: bool = Query(default=False),
+) -> ReceivablesDetailOut:
+    return ReceivablesDetailOut(**svc.receivables_detail(customer_id, all_history=all_history))
+
+
 @router.get("/api/accounting/company-bank-accounts", response_model=list[CompanyBankAccountOut])
 def list_company_bank_accounts(
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(require_permission(MODULE_TKNH, "read"))],
     active_only: bool = Query(default=False),
+    usage: str | None = Query(default=None),
 ):
-    return svc.list_company_accounts(active_only=active_only)
+    try:
+        return svc.list_company_accounts(active_only=active_only, usage=usage)
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
 
 
 @router.post(
@@ -151,7 +191,7 @@ def list_company_bank_accounts(
 def create_company_bank_account(
     payload: CompanyBankAccountIn,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE_TKNH, "update"))],
 ):
     try:
         return svc.create_company_account(actor=user, **payload.model_dump())
@@ -164,7 +204,7 @@ def update_company_bank_account(
     account_id: int,
     payload: CompanyBankAccountIn,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE_TKNH, "update"))],
 ):
     try:
         return svc.update_company_account(account_id, actor=user, **payload.model_dump())
@@ -176,7 +216,7 @@ def update_company_bank_account(
 def toggle_company_bank_account(
     account_id: int,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE_TKNH, "update"))],
 ):
     try:
         return svc.toggle_company_account(account_id, actor=user)
@@ -189,7 +229,7 @@ def list_supplier_bank_accounts(
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
     _: Annotated[
         User,
-        Depends(require_any_permission((MODULE, "read"), ("thu_mua", "read"))),
+        Depends(require_any_permission((MODULE_TKNH, "read"), ("nha_cung_cap", "read"))),
     ],
     supplier_id: int | None = Query(default=None),
     active_only: bool = Query(default=False),
@@ -207,7 +247,7 @@ def create_supplier_bank_account(
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
     user: Annotated[
         User,
-        Depends(require_any_permission((MODULE, "approve"), ("thu_mua", "update"))),
+        Depends(require_any_permission((MODULE_TKNH, "update"), ("nha_cung_cap", "update"))),
     ],
 ):
     try:
@@ -223,7 +263,7 @@ def update_supplier_bank_account(
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
     user: Annotated[
         User,
-        Depends(require_any_permission((MODULE, "approve"), ("thu_mua", "update"))),
+        Depends(require_any_permission((MODULE_TKNH, "update"), ("nha_cung_cap", "update"))),
     ],
 ):
     try:
@@ -238,7 +278,7 @@ def toggle_supplier_bank_account(
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
     user: Annotated[
         User,
-        Depends(require_any_permission((MODULE, "approve"), ("thu_mua", "update"))),
+        Depends(require_any_permission((MODULE_TKNH, "update"), ("nha_cung_cap", "update"))),
     ],
 ):
     try:
@@ -250,9 +290,10 @@ def toggle_supplier_bank_account(
 @router.get("/api/accounting/payment-vouchers", response_model=PaymentVoucherListOut)
 def list_payment_vouchers(
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(require_permission(MODULE_PC, "read"))],
     q: str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
+    source_type: str | None = Query(default=None),
     voucher_type: str | None = Query(default=None),
     supplier_id: int | None = Query(default=None),
     purchase_request_id: int | None = Query(default=None),
@@ -263,6 +304,7 @@ def list_payment_vouchers(
     rows, total, totals = svc.list_vouchers(
         q=q,
         status=status_,
+        source_type=source_type,
         voucher_type=voucher_type,
         supplier_id=supplier_id,
         purchase_request_id=purchase_request_id,
@@ -277,7 +319,7 @@ def list_payment_vouchers(
 def get_payment_voucher(
     voucher_id: int,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(require_permission(MODULE_PC, "read"))],
 ):
     try:
         return PaymentVoucherOut(**svc.get_voucher(voucher_id))
@@ -293,7 +335,7 @@ def get_payment_voucher(
 def create_payment_voucher(
     payload: PaymentVoucherIn,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    user: Annotated[User, Depends(require_permission(MODULE_PC, "create"))],
 ):
     try:
         row = svc.create_voucher(actor=user, **payload.model_dump())
@@ -316,7 +358,7 @@ def cancel_payment_voucher(
     voucher_id: int,
     payload: CancelPaymentVoucherIn,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "cancel"))],
+    user: Annotated[User, Depends(require_permission(MODULE_PC, "cancel"))],
 ):
     try:
         row = svc.cancel_voucher(voucher_id, actor=user, reason=payload.reason)
@@ -337,7 +379,7 @@ def cancel_payment_voucher(
 def list_payment_voucher_attachments(
     voucher_id: int,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(require_permission(MODULE_PC, "read"))],
 ):
     try:
         items = svc.list_voucher_attachments(voucher_id)
@@ -356,7 +398,7 @@ def list_payment_voucher_attachments(
 def upload_payment_voucher_attachment(
     voucher_id: int,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    user: Annotated[User, Depends(require_permission(MODULE_PC, "create"))],
     file: UploadFile = File(...),
 ):
     data = file.file.read()
@@ -383,7 +425,7 @@ def delete_payment_voucher_attachment(
     voucher_id: int,
     attachment_id: int,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    user: Annotated[User, Depends(require_permission(MODULE_PC, "create"))],
 ) -> Response:
     try:
         svc.delete_voucher_attachment(voucher_id, attachment_id, actor=user)
@@ -396,10 +438,11 @@ def delete_payment_voucher_attachment(
 @router.get("/api/accounting/payment-receipts", response_model=PaymentReceiptListOut)
 def list_payment_receipts(
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(require_permission(MODULE_PT, "read"))],
     q: str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
     payment_voucher_id: int | None = Query(default=None),
+    source_type: str | None = Query(default=None),
     sort: str = Query(default="-created_at"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
@@ -408,11 +451,30 @@ def list_payment_receipts(
         q=q,
         status=status_,
         payment_voucher_id=payment_voucher_id,
+        source_type=source_type,
         sort=sort,
         page=page,
         size=size,
     )
     return PaymentReceiptListOut(items=rows, total=total, page=page, size=size)
+
+
+@router.post(
+    "/api/accounting/payment-receipts",
+    response_model=PaymentReceiptOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_other_payment_receipt(
+    payload: PaymentReceiptIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE_PT, "create"))],
+):
+    try:
+        row = svc.create_other_receipt(actor=user, **payload.model_dump())
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+    _notify_accounting_changed(row.get("code"))
+    return PaymentReceiptOut(**row)
 
 
 @router.post(
@@ -424,7 +486,7 @@ def create_payment_receipt(
     voucher_id: int,
     payload: PaymentReceiptIn,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    user: Annotated[User, Depends(require_permission(MODULE_PT, "create"))],
 ):
     try:
         row = svc.create_receipt(voucher_id, actor=user, **payload.model_dump())
@@ -439,7 +501,7 @@ def update_payment_receipt(
     receipt_id: int,
     payload: PaymentReceiptIn,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    user: Annotated[User, Depends(require_permission(MODULE_PT, "create"))],
 ):
     try:
         row = svc.update_receipt(receipt_id, actor=user, **payload.model_dump())
@@ -457,7 +519,7 @@ def mark_payment_receipt_received(
     receipt_id: int,
     payload: MarkPaymentReceiptReceivedIn,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "manage_status"))],
+    user: Annotated[User, Depends(require_permission(MODULE_PT, "manage_status"))],
 ):
     try:
         row = svc.mark_receipt_received(
@@ -474,7 +536,7 @@ def cancel_payment_receipt(
     receipt_id: int,
     payload: CancelPaymentReceiptIn,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "cancel"))],
+    user: Annotated[User, Depends(require_permission(MODULE_PT, "cancel"))],
 ):
     try:
         row = svc.cancel_receipt(receipt_id, actor=user, reason=payload.reason)
@@ -491,7 +553,7 @@ def cancel_payment_receipt(
 def list_payment_receipt_attachments(
     receipt_id: int,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(require_permission(MODULE_PT, "read"))],
 ):
     try:
         items = svc.list_receipt_attachments(receipt_id)
@@ -510,7 +572,7 @@ def list_payment_receipt_attachments(
 def upload_payment_receipt_attachment(
     receipt_id: int,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    user: Annotated[User, Depends(require_permission(MODULE_PT, "create"))],
     file: UploadFile = File(...),
 ):
     data = file.file.read()
@@ -537,7 +599,7 @@ def delete_payment_receipt_attachment(
     receipt_id: int,
     attachment_id: int,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    user: Annotated[User, Depends(require_permission(MODULE_PT, "create"))],
 ) -> Response:
     try:
         svc.delete_receipt_attachment(receipt_id, attachment_id, actor=user)

@@ -433,6 +433,10 @@ class DepartmentPurchaseRequestRepository:
         source_type: str | None = None,
         requesting_department_id: int | None = None,
         filter_by_department: bool = False,
+        # Phạm vi `own` — CHỈ yêu cầu do chính người này gửi. Trước 11/08/2026 không có tham số
+        # này: `own` rơi xuống dùng chung nhánh lọc theo phòng, tức thấy luôn yêu cầu của đồng
+        # nghiệp cùng phòng. Đo được: vai phạm vi `own` thấy 1 dòng do NGƯỜI KHÁC tạo.
+        requested_by_user_id: int | None = None,
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
@@ -452,7 +456,9 @@ class DepartmentPurchaseRequestRepository:
             conditions.append(DepartmentPurchaseRequest.status == status)
         if source_type:
             conditions.append(DepartmentPurchaseRequest.source_type == source_type)
-        if filter_by_department:
+        if requested_by_user_id is not None:
+            conditions.append(DepartmentPurchaseRequest.requested_by_user_id == requested_by_user_id)
+        elif filter_by_department:
             conditions.append(DepartmentPurchaseRequest.requesting_department_id == requesting_department_id)
 
         stmt = select(DepartmentPurchaseRequest).options(

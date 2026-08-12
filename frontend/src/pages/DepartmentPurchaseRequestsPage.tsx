@@ -114,7 +114,10 @@ export function DepartmentPurchaseRequestsPage({
 }) {
   const { token, user } = useAuth();
   const can = useCan();
-  const canAdminCancel = can("thu_mua", "cancel");
+  // Huỷ HỘ người khác = quyền quản trị trên chính màn này; người tạo vẫn tự huỷ đơn của mình.
+  const canAdminCancel = can("yeu_cau_mua_hang", "cancel");
+  // Sửa / huỷ yêu cầu CỦA CHÍNH MÌNH — máy chủ gác `yeu_cau_mua_hang:update`.
+  const canUpdate = can("yeu_cau_mua_hang", "update");
   const [canCreate, setCanCreate] = useState(false);
   const [departmentName, setDepartmentName] = useState<string | null>(null);
 
@@ -595,7 +598,11 @@ export function DepartmentPurchaseRequestsPage({
                         icon="eye"
                         onClick={() => setSelectedId(row.id)}
                       />
+                      {/* Sửa/Huỷ đòi ĐỦ HAI thứ: là người tạo VÀ có ô Thao tác. Trước 11/08/2026
+                          chỉ xét "có phải người tạo không", nên gỡ ô Thao tác rồi hai nút vẫn bày
+                          ra — bấm mới ăn 403. Máy chủ vốn chặn đúng; đây là phần giao diện. */}
                       {row.status === "open" &&
+                        canUpdate &&
                         row.requested_by_user_id === user?.id && (
                           <RowActionButton
                             dense
@@ -606,7 +613,7 @@ export function DepartmentPurchaseRequestsPage({
                         )}
                       {row.status === "open" &&
                         (canAdminCancel ||
-                          row.requested_by_user_id === user?.id) && (
+                          (canUpdate && row.requested_by_user_id === user?.id)) && (
                           <RowActionButton
                             dense
                             danger

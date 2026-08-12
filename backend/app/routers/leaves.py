@@ -16,6 +16,7 @@ from ..deps import (
     get_employee_repository,
     get_leave_service,
     require_permission,
+    require_any_permission,
 )
 from ..models.user import User
 from ..repositories.employee_repo import EmployeeRepository
@@ -50,6 +51,22 @@ router = APIRouter(prefix="/api/leaves", tags=["leaves"])
 # cancel để tự phục vụ; HCNS/Admin thêm `approve` = "leave admin" (duyệt + quản loại nghỉ +
 # xem mọi đơn theo scope). Duyệt TẬP TRUNG: chỉ HCNS/Admin có `approve`.
 MODULE = "nghi_phep"
+
+# TỰ PHỤC VỤ (tách 10/08/2026) — một ô quyền cho MỌI việc người lao động làm với hồ sơ của CHÍNH
+# MÌNH: tự chấm công, xem công/phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng.
+# Trước đây nhóm này không gác gì (chỉ cần đăng nhập) nên không có cách nào tắt cho một vai.
+# Ba hàng rào cũ GIỮ NGUYÊN (phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công · đúng
+# khung giờ ca) — chúng chống lạm dụng, còn ô này chống truy cập.
+MODULE_TU_PHUC_VU = "self_service"
+SelfUser = Annotated[User, Depends(require_permission(MODULE_TU_PHUC_VU, "read"))]
+# Sửa / huỷ phiếu: người TẠO tự làm với phiếu của mình, hoặc NGƯỜI DUYỆT làm hộ ⇒ nhận
+# cả hai ô. Ai không có ô nào trong hai ô này thì không đụng được — trước đây chỉ cần
+# đăng nhập là gọi được, đúng chỗ tester bắt.
+SelfOrApprover = Annotated[
+    # Người TẠO huỷ đơn của mình ⇒ ô THAO TÁC của Tự phục vụ (`create`), không phải ô Xem
+    # (đổi 11/08/2026). Người DUYỆT huỷ hộ thì đi bằng ô duyệt của phân hệ.
+    User, Depends(require_any_permission((MODULE_TU_PHUC_VU, "create"), (MODULE, "approve")))
+]
 
 Service = Annotated[LeaveService, Depends(get_leave_service)]
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
@@ -145,7 +162,13 @@ def delete_type(type_id: int, svc: Service,
 
 @router.post("", response_model=LeaveRequestOut, status_code=status.HTTP_201_CREATED)
 def create_request(body: LeaveRequestIn, svc: Service, employees: Employees,
-                   user: Annotated[User, Depends(require_permission(MODULE, "create"))]) -> LeaveRequestOut:
+                   # XIN NGHỈ CHO CHÍNH MÌNH ⇒ ô Thao tác của **Tự phục vụ**, cùng chỗ với xin
+                   # tăng ca · đi muộn · tạm ứng (đổi 11/08/2026). Trước đó đòi `nghi_phep:create`
+                   # — riêng nghỉ phép một kiểu, nên chủ chốt tắt ô Thao tác của Tự phục vụ mà vẫn
+                   # xin nghỉ được. Vẫn nhận `nghi_phep:create` cho ca HCNS **nhập đơn hộ** thợ
+                   # không dùng máy.
+                   user: Annotated[User, Depends(require_any_permission(
+                       (MODULE_TU_PHUC_VU, "create"), (MODULE, "create")))]) -> LeaveRequestOut:
     try:
         r = svc.create_request(actor=user, leave_type_id=body.leave_type_id,
                                start_date=body.start_date, end_date=body.end_date, reason=body.reason)
@@ -205,7 +228,7 @@ def leave_calendar(svc: Service, authz: Authz,
 
 
 @router.post("/{request_id}/cancel", response_model=LeaveRequestOut)
-def cancel_request(request_id: int, svc: Service, employees: Employees, authz: Authz, user: CurrentUser) -> LeaveRequestOut:
+def cancel_request(request_id: int, svc: Service, employees: Employees, authz: Authz, user: SelfOrApprover) -> LeaveRequestOut:
     is_hr = authz.can(user, MODULE, "approve")
     try:
         r = svc.cancel(actor=user, request_id=request_id, is_hr=is_hr,

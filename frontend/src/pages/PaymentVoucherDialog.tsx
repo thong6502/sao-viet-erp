@@ -13,7 +13,6 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
-import { UNC_ENABLED } from "../constants/features";
 import { fmtDate, money } from "../utils/format";
 
 /** Hôm nay dạng `yyyy-mm-dd` — trần cho ngày chứng từ và ngày hoá đơn (không cho chọn tương lai). */
@@ -215,7 +214,7 @@ export function PaymentVoucherDialog({
     if (!token) return;
     setLoadingAccounts(true);
     Promise.all([
-      api.accounting.companyAccounts(token, true),
+      api.accounting.companyAccounts(token, true, "pay"),
       purchase.supplier_id
         ? api.accounting.supplierAccounts(token, purchase.supplier_id, true)
         : Promise.resolve([]),
@@ -224,11 +223,7 @@ export function PaymentVoucherDialog({
         setCompanyAccounts(company);
         setSupplierAccounts(supplier);
         setForm((current) => {
-          const companyAccountId =
-            current.company_bank_account_id ??
-            company.find((row) => row.is_default)?.id ??
-            company[0]?.id ??
-            null;
+          const companyAccountId = current.company_bank_account_id ?? null;
           const companyAccount = company.find(
             (row) => row.id === companyAccountId,
           );
@@ -239,11 +234,7 @@ export function PaymentVoucherDialog({
           return {
             ...current,
             company_bank_account_id: companyAccountId,
-            supplier_bank_account_id:
-              current.supplier_bank_account_id ??
-              supplier.find((row) => row.is_default)?.id ??
-              supplier[0]?.id ??
-              null,
+            supplier_bank_account_id: current.supplier_bank_account_id ?? null,
             currency,
             exchange_rate: currency === "VND" ? 1 : current.exchange_rate,
           };
@@ -553,31 +544,26 @@ export function PaymentVoucherDialog({
             </div>
           </div>
 
-          {/* Tạm ẩn UNC: lập mới thì không cho chọn loại (mặc định tiền mặt). Vẫn
-              hiện khi MỞ SỬA một UNC cũ để người dùng biết đây là chứng từ gì —
-              lúc đó hai nút vốn đã khóa. */}
-          {(UNC_ENABLED || form.voucher_type === "bank_transfer") && (
-            <div className="acct-segment" aria-label="Loại chứng từ">
-              <button
-                type="button"
-                className={form.voucher_type === "cash" ? "is-active" : ""}
-                onClick={() => selectType("cash")}
-                disabled={!!voucher}
-              >
-                Phiếu chi
-              </button>
-              <button
-                type="button"
-                className={
-                  form.voucher_type === "bank_transfer" ? "is-active" : ""
-                }
-                onClick={() => selectType("bank_transfer")}
-                disabled={!!voucher}
-              >
-                Ủy nhiệm chi
-              </button>
-            </div>
-          )}
+          <div className="acct-segment" aria-label="Hình thức chi">
+            <button
+              type="button"
+              className={form.voucher_type === "cash" ? "is-active" : ""}
+              onClick={() => selectType("cash")}
+              disabled={!!voucher}
+            >
+              Tiền mặt
+            </button>
+            <button
+              type="button"
+              className={
+                form.voucher_type === "bank_transfer" ? "is-active" : ""
+              }
+              onClick={() => selectType("bank_transfer")}
+              disabled={!!voucher}
+            >
+              Chuyển khoản
+            </button>
+          </div>
 
           {/* LOẠI PHIẾU đứng TRƯỚC mọi ô khác vì nó quyết định trần, đợt giao và số tiền điền
               sẵn. Người dùng chọn sai ở đây thì mọi ô dưới đều sai theo. */}
@@ -661,7 +647,7 @@ export function PaymentVoucherDialog({
                   <small>
                     Giá trị đợt {money(dotDangChon.amount)} · đã trả{" "}
                     {money(dotDangChon.paid_amount)}
-                    {dotDangChon.coc_bu > 0 && ` · cọc bù ${money(dotDangChon.coc_bu)}`}
+
                     {` · còn nợ ${money(dotDangChon.con_no)}`}
                     {dotDangChon.invoice_number
                       ? ` · HĐ ${dotDangChon.invoice_number}`

@@ -127,11 +127,31 @@ def test_xuat_nhan_su_chan_nguoi_khong_co_quyen(client):
 # --- self-service "Hồ sơ của tôi" ------------------------------------------
 
 
+def _vai_tho(client, token) -> int:
+    """Vai TRỐNG QUYỀN cho thợ — chỉ có hai ô mặc định (Tự phục vụ + Nội quy).
+
+    Từ 10/08/2026 tự phục vụ là MỘT Ô QUYỀN. Tài khoản KHÔNG GÁN VAI thì không có ô nào, nên
+    cũng không mở được "Hồ sơ của tôi" — giống hệt mọi module khác của hệ thống. Vai mới sinh ra
+    đã kèm sẵn hai ô đó (xem `RoleRepository.O_MAC_DINH`)."""
+    meta = client.get("/api/employees/meta", headers=_h(token)).json()
+    dept = next(d["id"] for d in meta["departments"] if d["name"] == "Hành chính nhân sự")
+    from app.db import SessionLocal
+    from app.repositories.rbac_repo import RoleRepository
+    db = SessionLocal()
+    try:
+        roles = RoleRepository(db)
+        vai = roles.get_by_name_and_department("Tho trong quyen", dept) or roles.create(
+            name="Tho trong quyen", department_id=dept)
+        return vai.id
+    finally:
+        db.close()
+
+
 def test_my_profile_self_service(client):
     token = _admin_token(client)
     _create(client, token, full_name="NV Tự", phone="0900", note="ghi chú nội bộ",
             payroll_group="van_phong",
-            account={"username": "nvtu", "password": "nvtu12345"})
+            account={"username": "nvtu", "password": "nvtu12345", "role_id": _vai_tho(client, token)})
     me_tok = client.post("/api/auth/login", json={"username": "nvtu", "password": "nvtu12345"}).json()["access_token"]
 
     me = client.get("/api/employees/me", headers=_h(me_tok)).json()
@@ -152,7 +172,7 @@ def test_profile_update_request_flow(client):
     → áp thật vào hồ sơ; duyệt lại đơn đã xử lý → 400."""
     admin = _admin_token(client)
     _create(client, admin, full_name="NV Yêu Cầu", bank_account="111",
-            account={"username": "nvyc", "password": "nvyc12345"})
+            account={"username": "nvyc", "password": "nvyc12345", "role_id": _vai_tho(client, admin)})
     me_tok = client.post("/api/auth/login", json={"username": "nvyc", "password": "nvyc12345"}).json()["access_token"]
 
     # đề nghị đổi số TK (được) + phone (không whitelist → bị loại)

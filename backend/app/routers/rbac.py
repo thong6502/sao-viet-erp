@@ -21,6 +21,7 @@ from ..deps import (
     require_permission,
 )
 from ..schemas.rbac import (
+    RoleTemplateOut,
     ActiveUpdate,
     AuditRow,
     DepartmentCreate,
@@ -589,6 +590,23 @@ def delete_role(
     except RoleNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/roles/templates", response_model=list[RoleTemplateOut])
+def list_role_templates(
+    svc: Service,
+    _: Annotated[object, Depends(require_permission("vai_tro", "read"))],
+) -> list[RoleTemplateOut]:
+    """Bảng VAI MẪU — bộ quyền dựng sẵn cho các vai điển hình.
+
+    ⚠️ ĐƯỜNG DẪN PHẢI ĐỨNG TRƯỚC `/roles/{role_id}/permissions`: FastAPI khớp route theo thứ tự
+    khai báo, để sau thì "templates" bị nuốt làm `role_id` và trả 422.
+
+    CHỈ ĐỌC — không có đường nào ghi thẳng vào DB từ đây. Giao diện điền mẫu vào ma trận đang mở,
+    quản trị xem lại rồi mới bấm Lưu (đi qua `PUT /roles/{id}/permissions`, vẫn gác
+    `vai_tro:manage_permissions` như cũ). Nhờ vậy chọn nhầm mẫu cũng không hỏng gì.
+    """
+    return [RoleTemplateOut(**m) for m in svc.role_templates()]
 
 
 @router.get("/roles/{role_id}/permissions", response_model=list[PermissionRow])
