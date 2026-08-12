@@ -27,6 +27,7 @@ from ..models.late_early import (
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.late_early_repo import LateEarlyRepository
+from .ky_cong_guard import ly_do_ky_cong_da_chot
 
 # Trần độ dài MỘT phiếu: 1 ngày. (Vắng cả ngày thì dùng đơn NGHỈ PHÉP, không dùng phiếu này.)
 MAX_ABSENT_MINUTES = 1440
@@ -191,6 +192,10 @@ class LateEarlyService:
         )
 
         approved = bool(auto_approve)
+        if approved:
+            # Khai HỘ = duyệt luôn, không đi qua `_decide` — phải chặn ở đây nữa, nếu không
+            # "khai hộ" thành đường vòng miễn phạt / trừ phép cho tháng đã chốt.
+            self._chan_neu_ky_cong_da_chot(work_date, "khai phiếu đi muộn / về sớm đã duyệt")
         r = self.late_early.create_request(
             employee_id=emp.id, work_date=work_date, from_minute=from_minute,
             to_minute=to_minute, reason=_clean(reason),
@@ -234,6 +239,15 @@ class LateEarlyService:
 
     # --- duyệt / từ chối / hủy ----------------------------------------------
 
+    def _chan_neu_ky_cong_da_chot(self, ngay: date, viec: str) -> None:
+        """Phiếu đi muộn/về sớm duyệt xong là MIỄN PHẠT + có thể TRỪ PHÉP — cả hai đều ra tiền,
+        nên tháng đã chốt thì không đụng nữa."""
+        if self.attendance is None:
+            return
+        loi = ly_do_ky_cong_da_chot(self.attendance, ngay, viec=viec)
+        if loi:
+            raise LateEarlyValidationError(loi)
+
     def _decide(self, *, actor, request_id: int, new_status: str, note,
                 scope: str | None = None) -> LateEarlyRequest:
         r = self.late_early.get_request(request_id)
@@ -244,6 +258,8 @@ class LateEarlyService:
             self._guard_scope(emp, scope=scope, actor=actor)
         if r.status != STATUS_PENDING:
             raise LateEarlyValidationError("Chỉ duyệt/từ chối được phiếu đang chờ.")
+        if new_status == STATUS_APPROVED:
+            self._chan_neu_ky_cong_da_chot(r.work_date, "duyệt phiếu đi muộn / về sớm")
         self.late_early.update_request(
             r, status=new_status, decided_by=actor.id,
             decided_at=datetime.now(timezone.utc), decision_note=_clean(note),
@@ -333,6 +349,8 @@ class LateEarlyService:
             raise LateEarlyForbidden("Bạn chỉ hủy được phiếu do mình tạo.")
         if r.status not in (STATUS_PENDING, STATUS_APPROVED):
             raise LateEarlyValidationError("Phiếu này không còn để hủy.")
+        if r.status == STATUS_APPROVED:
+            self._chan_neu_ky_cong_da_chot(r.work_date, "hủy phiếu đi muộn / về sớm đã duyệt")
         self.late_early.update_request(r, status=STATUS_CANCELLED)
         self.audit.create(actor_user_id=actor.id, action="late_early_cancelled",
                           target=f"late_early_request:{r.id}", detail="→ cancelled")

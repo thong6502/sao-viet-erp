@@ -19,6 +19,7 @@ from ..models.overtime import (
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.overtime_repo import OvertimeRepository
+from .ky_cong_guard import ly_do_ky_cong_da_chot
 
 # Trần độ dài MỘT phiếu (phút). Đ107 BLLĐ: tổng giờ làm + tăng ca ≤ 12h/ngày → 12h là trần rộng rãi.
 MAX_OT_MINUTES = 12 * 60
@@ -62,10 +63,20 @@ def hhmm(minute: int) -> str:
 
 class OvertimeService:
     def __init__(self, overtime: OvertimeRepository, employees: EmployeeRepository,
-                 audit: AuditLogRepository) -> None:
+                 audit: AuditLogRepository, attendance=None) -> None:
         self.overtime = overtime
         self.employees = employees
         self.audit = audit
+        # AttendanceRepository | None — hỏi "kỳ công tháng đó chốt chưa" trước khi duyệt/hủy phiếu
+        # ĐÃ DUYỆT. Phiếu tăng ca duyệt xong là RA PHÚT TĂNG CA trong bảng công. Chỉ đọc REPO.
+        self._attendance = attendance
+
+    def _chan_neu_ky_cong_da_chot(self, ngay: date, viec: str) -> None:
+        if self._attendance is None:
+            return
+        loi = ly_do_ky_cong_da_chot(self._attendance, ngay, viec=viec)
+        if loi:
+            raise OvertimeValidationError(loi)
 
     # --- helpers ------------------------------------------------------------
 
@@ -119,6 +130,10 @@ class OvertimeService:
         from_minute, to_minute = self._validate_window(emp.id, work_date, from_minute, to_minute)
 
         approved = bool(auto_approve)
+        if approved:
+            # Tổ trưởng tạo hộ = DUYỆT LUÔN, không qua `_decide`. Thiếu cửa này thì "tạo hộ"
+            # thành đường vòng ghi thẳng phút tăng ca vào tháng đã chốt.
+            self._chan_neu_ky_cong_da_chot(work_date, "tạo phiếu tăng ca đã duyệt")
         r = self.overtime.create_request(
             employee_id=emp.id, work_date=work_date, from_minute=from_minute,
             to_minute=to_minute, reason=_clean(reason),
@@ -199,6 +214,9 @@ class OvertimeService:
         self._guard_scope(r.employee_id, scope=scope, actor=actor)
         if r.status != STATUS_PENDING:
             raise OvertimeValidationError("Chỉ duyệt/từ chối được phiếu đang chờ.")
+        # Chỉ chặn chiều DUYỆT: phiếu chờ chưa ra phút tăng ca nào, từ chối nó không đổi số.
+        if new_status == STATUS_APPROVED:
+            self._chan_neu_ky_cong_da_chot(r.work_date, "duyệt phiếu tăng ca")
         self.overtime.update_request(
             r, status=new_status, decided_by=actor.id,
             decided_at=datetime.now(timezone.utc), decision_note=_clean(note),
@@ -280,6 +298,9 @@ class OvertimeService:
             raise OvertimeForbidden("Bạn chỉ hủy được phiếu do mình tạo.")
         if r.status not in (STATUS_PENDING, STATUS_APPROVED):
             raise OvertimeValidationError("Phiếu này không còn để hủy.")
+        # Hủy phiếu ĐÃ DUYỆT của tháng đã chốt = rút phút tăng ca đã đóng băng.
+        if r.status == STATUS_APPROVED:
+            self._chan_neu_ky_cong_da_chot(r.work_date, "hủy phiếu tăng ca đã duyệt")
         self.overtime.update_request(r, status=STATUS_CANCELLED)
         self.audit.create(actor_user_id=actor.id, action="overtime_cancelled",
                           target=f"overtime_request:{r.id}", detail="→ cancelled")

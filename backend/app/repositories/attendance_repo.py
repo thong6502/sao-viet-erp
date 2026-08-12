@@ -167,6 +167,20 @@ class AttendanceRepository:
             ).scalars()
         )
 
+    def count_logs_created_after(self, start, end, moc) -> int:
+        """Số lượt bấm của khoảng [start, end) mà được GHI VÀO sau mốc `moc` (UTC).
+
+        Dùng để biết kỳ công đã chốt còn "phát sinh" gì không. Lọc theo HAI trục khác nhau, cố ý:
+        `checked_at` nói lượt bấm thuộc THÁNG nào, `created_at` nói nó được ghi LÚC nào. Chỉ nhìn
+        một trục là hỏng — người chấm công hôm nay cho tháng này (created mới, checked mới) khác
+        hẳn HCNS ghi bù hôm nay cho tháng trước.
+        """
+        return int(self.db.execute(
+            select(func.count()).select_from(AttendanceLog)
+            .where(AttendanceLog.checked_at >= start, AttendanceLog.checked_at < end,
+                   AttendanceLog.created_at > moc)
+        ).scalar() or 0)
+
     # --- attendance_adjust_requests (yêu cầu chỉnh công) --------------------
 
     def create_request(self, **fields) -> AttendanceAdjustRequest:

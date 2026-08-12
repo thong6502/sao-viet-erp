@@ -396,10 +396,14 @@ def get_leave_service(
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     calendar: Annotated[CalendarService, Depends(get_calendar_service)],
     late_early: Annotated[LateEarlyRepository, Depends(get_late_early_repository)],
+    attendance: Annotated[AttendanceRepository, Depends(get_attendance_repository)],
 ) -> LeaveService:
     # calendar → loại ngày lễ khỏi quota + tuần T2–T7 (Thứ 7 nay trừ phép).
     # late_early (REPO) → phiếu đi muộn/về sớm có tick "trừ phép" cũng tiêu quỹ phép năm.
-    return LeaveService(leaves, employees, audit, calendar=calendar, late_early=late_early)
+    # attendance (REPO) → chặn duyệt/hủy đơn của tháng ĐÃ CHỐT CÔNG (12/08/2026). Thiếu dây này
+    # thì duyệt đơn nghỉ cho tháng đã chốt vẫn lọt, bảng công đổi mà bảng lương giữ số cũ.
+    return LeaveService(leaves, employees, audit, calendar=calendar, late_early=late_early,
+                        attendance=attendance)
 
 
 def get_late_early_service(
@@ -424,8 +428,10 @@ def get_overtime_service(
     overtime: Annotated[OvertimeRepository, Depends(get_overtime_repository)],
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    attendance: Annotated[AttendanceRepository, Depends(get_attendance_repository)],
 ) -> OvertimeService:
-    return OvertimeService(overtime, employees, audit)
+    # attendance (REPO) → chặn duyệt/hủy phiếu của tháng ĐÃ CHỐT CÔNG (12/08/2026).
+    return OvertimeService(overtime, employees, audit, attendance=attendance)
 
 
 def get_payroll_repository(

@@ -19,6 +19,7 @@ from datetime import date, datetime, timezone
 # Mã tạm ứng: TU-YYMMDD-XXXX (4 ký tự ngẫu nhiên). Bỏ ký tự dễ nhầm (0/O, 1/I) cho dễ đọc tay.
 _ADV_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
+from .attendance_service import _as_utc   # dán nhãn UTC cho mốc SQLite đọc ra naive
 from ..models.employee import (
     PIT_CAM_KET_08,
     PIT_KHAU_TRU_10,
@@ -106,6 +107,16 @@ _DEFAULT_LATE_PENALTY_BRACKETS = [
 # cột (cùng idiom `getattr(params, "phat_cap_pct", 0.30)`). Số thật khai ở màn Cấu hình lương:
 # luật đổi thì gõ lại, KHÔNG sửa code. Xem QĐ 595/QĐ-BHXH Đ42.4.
 BHXH_MIEN_TU_SO_NGAY_MAC_DINH = 14
+
+#: Từ tháng này trở đi mới đòi CHỐT CÔNG trước khi chốt lương (chủ chốt 12/08/2026).
+#:
+#: Vì sao có mốc chứ không áp cho mọi tháng: hệ thống đang chạy có những tháng ĐÃ CHỐT / ĐÃ CHI
+#: lương mà chưa hề tồn tại dòng kỳ công (kỳ công chỉ sinh khi có người đụng vào tháng đó). Áp
+#: ngược lại quá khứ thì ai mở lại một kỳ lương cũ để sửa sẽ KHÔNG CHỐT LẠI ĐƯỢC — muốn chốt công
+#: tháng đó phải đi duyệt sạch đơn treo từ đời nào, có khi của người đã nghỉ việc.
+#:
+#: Đổi mốc = đổi đúng dòng này. Đừng gỡ hẳn điều kiện: gỡ là mất luôn hàng rào cho tháng mới.
+AP_DUNG_CHOT_CONG_TRUOC_TU = (2026, 8)
 
 
 def _chuyen_can_ratio(actual_cong, standard_cong) -> float:
@@ -1241,6 +1252,10 @@ class PayrollService:
                     for c in comp_rows
                 ])
                 self.components.commit()
+        # Đóng dấu "engine vừa chạy xong" — cột này là thứ DUY NHẤT phân biệt "đã tính lại" với
+        # "có người sửa tay một ô thưởng" (xem chú thích ở `PayrollPeriod.generated_at`).
+        # Đặt Ở CUỐI, sau khi mọi dòng đã ghi: đặt ở đầu mà giữa chừng vỡ là dấu nói dối.
+        self.payroll.update_period(period, generated_at=datetime.now(timezone.utc))
         self._audit(actor, "payroll_generate", f"payroll_period:{period.id}", f"{int(month)}/{int(year)}")
         return period
 
@@ -1466,12 +1481,86 @@ class PayrollService:
         self._audit(actor, "payroll_update_line", f"payroll_line:{ln.id}", "sửa ô tay")
         return saved
 
+    def ly_do_chua_chot_duoc(self, year: int, month: int) -> str | None:
+        """Vì sao CHƯA chốt được bảng lương tháng này. `None` = chốt được.
+
+        NGUỒN DUY NHẤT của luật: `lock_period` hỏi để chặn, `GET /table` hỏi để giao diện tắt nút
+        + hiện băng cảnh báo. Trả thẳng CÂU CHỮ chứ không trả cờ bool, vì số lý do sẽ còn tăng —
+        mỗi lý do thêm một bool là giao diện phải if/else lại từ đầu, và câu chữ trôi khác nhau
+        giữa hai nơi. Máy chủ nói một câu, màn hình chỉ việc hiện.
+
+        HAI LÝ DO HIỆN CÓ, cả hai đều là mắt xích của vòng khoá công ⇄ lương:
+
+        **L1 — kỳ công chưa chốt.** Trước 12/08/2026 chuỗi chỉ chặn chiều LÙI (lương đã chốt thì
+        không mở lại kỳ công); chiều ĐI TẮT bỏ ngỏ — tính lương → chốt → chi tiền mà kỳ công chưa
+        từng chốt, tức lương chạy trên số LIVE, và số live vẫn sửa được SAU KHI TIỀN ĐÃ RA.
+
+        **L4 — bảng lương cũ hơn ảnh chụp.** Kẽ hở còn lại của L1::
+
+            9h tính lương → 10h ai đó chấm bù → 11h chốt công → 12h chốt lương
+
+        Dòng lương lúc 12h VẪN là số của 9h. KHÔNG tự tính lại hộ ở bước chốt: tự tính lại là khoá
+        con số mà HCNS chưa từng nhìn thấy. Bắt họ bấm "Tính lại" rồi tự đọc lại.
+
+        Mốc miễn trừ (`AP_DUNG_CHOT_CONG_TRUOC_TU`) tính sẵn ở đây, giao diện không chép lại luật.
+        """
+        year, month = int(year), int(month)
+        if (year, month) < AP_DUNG_CHOT_CONG_TRUOC_TU or self.attendance is None:
+            return None
+
+        chot_luc = self.attendance.ky_cong_chot_luc(year, month)
+        if chot_luc is None:
+            return (f"Kỳ công {month:02d}/{year} chưa chốt — số công còn sửa được thì chưa khoá "
+                    "bảng lương. Sang màn Chấm công → Bảng công tháng → Chốt kỳ công trước.")
+
+        period = self.payroll.get_period_by_ym(year, month)
+        if period is None:
+            return None          # chưa có bảng lương thì cũng chưa có gì để chốt
+        tinh_luc = getattr(period, "generated_at", None)
+        if tinh_luc is None or _as_utc(tinh_luc) < chot_luc:
+            return (f"Bảng lương đang là số tính TRƯỚC lúc chốt kỳ công {month:02d}/{year} — "
+                    "bấm “Tính lại” rồi mới chốt, nếu không là khoá con số đã lạc hậu.")
+
+        # L7 — có người ĂN LƯƠNG mà KHÔNG có trong ảnh chụp kỳ công.
+        # Ảnh chụp lấy danh sách NV tại THỜI ĐIỂM chốt công. Hồ sơ nhập sau đó (HCNS vào sổ muộn
+        # cho người đã đi làm cả tháng) không có dòng nào ⇒ `metrics_map` rỗng ⇒ 0 công ⇒ tháng đó
+        # họ mất trắng. Chặn ở đây vì đường sửa DUY NHẤT là mở lại rồi chốt lại kỳ công — Tính lại
+        # bao nhiêu lần cũng không sinh thêm dòng vào ảnh chụp.
+        thieu = self._nguoi_thieu_trong_anh_chup(period, year, month)
+        if thieu:
+            ten = ", ".join(thieu[:3]) + (f" và {len(thieu) - 3} người nữa" if len(thieu) > 3 else "")
+            return (f"{len(thieu)} người có bảng lương nhưng KHÔNG có trong ảnh chụp kỳ công "
+                    f"{month:02d}/{year} nên đang tính 0 công ({ten}). Hồ sơ vào sổ sau lúc chốt "
+                    "công — mở lại kỳ công rồi chốt lại, sau đó Tính lại bảng lương.")
+        return None
+
+    def _nguoi_thieu_trong_anh_chup(self, period, year: int, month: int) -> list[str]:
+        """Tên những NV có dòng lương mà ảnh chụp kỳ công không có.
+
+        LỌC THEO `hire_date`: người tuyển tháng SAU vẫn có thể đã nằm trong hồ sơ và được
+        `generate` sinh dòng 0 công — họ vắng mặt trong ảnh chụp là ĐÚNG, không phải lỗi. Bỏ bộ
+        lọc này là chặn nhầm mỗi lần HCNS nhập trước hồ sơ người sắp vào làm."""
+        co_trong_anh = set(self.attendance.metrics_map(year, month))
+        cuoi_thang = date(year, month, monthrange(year, month)[1])
+        thieu: list[str] = []
+        for ln in self.payroll.list_lines(period.id):
+            if ln.employee_id in co_trong_anh:
+                continue
+            emp = self.employees.get_by_id(ln.employee_id)
+            if emp is None or (emp.hire_date is not None and emp.hire_date > cuoi_thang):
+                continue
+            thieu.append(emp.full_name or f"NV #{emp.id}")
+        return thieu
+
     def lock_period(self, *, year, month, actor):
         period = self.payroll.get_period_by_ym(year, month)
         if period is None:
             raise PayrollNotFound("Chưa có bảng lương tháng này.")
         if period.status != PERIOD_DRAFT:
             raise PayrollValidationError("Chỉ chốt được kỳ đang nháp.")
+        ly_do = self.ly_do_chua_chot_duoc(year, month)
+        if ly_do:
+            raise PayrollValidationError(ly_do)
         p = self.payroll.update_period(
             period, status=PERIOD_LOCKED, locked_at=datetime.now(timezone.utc),
             locked_by=getattr(actor, "id", None),

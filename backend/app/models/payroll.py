@@ -353,6 +353,13 @@ class PayrollPeriod(Base):
     paid_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    #: Lần CHẠY ENGINE gần nhất cho kỳ này (mỗi lần "Tính lại" ghi đè). So với
+    #: `attendance_periods.locked_at` để biết bảng lương có đang là số tính TRƯỚC lúc chốt công không.
+    #:
+    #: Vì sao không dùng `payroll_lines.updated_at`: ô đó cũng nhảy khi HCNS gõ tay một khoản
+    #: thưởng/phạt, nên "mới hơn" KHÔNG có nghĩa là "đã tính lại". Cần một dấu chỉ do engine đặt.
+    #: NULL = kỳ có từ trước migration `0186` (không biết tính lúc nào) — cố ý KHÔNG đoán.
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PayrollLine(Base):

@@ -6324,6 +6324,23 @@ function TimesheetTab({
           </div>
         )}
 
+      {/* L3 — kỳ ĐÃ CHỐT nhưng vẫn có lượt bấm mới. Băng này là thứ DUY NHẤT cho người dùng biết:
+          ảnh chụp không có mấy lượt đó, nên Bảng lương cũng không tính. Không chặn thợ bấm giờ —
+          chỉ nhắc HCNS chốt lại kỳ. */}
+      {period && period.status === "locked" && (period.phat_sinh_sau_chot ?? 0) > 0 && (
+        <div
+          className="banner banner--warn cc-ts-warn-banner"
+          style={{ marginBottom: "16px" }}
+        >
+          <AlertTriangle size={14} style={{ marginRight: "6px" }} />
+          <span>
+            Kỳ công đã chốt nhưng có <strong>{period.phat_sinh_sau_chot}</strong> lượt bấm ghi
+            vào sau đó — <strong>ảnh chụp không có mấy lượt này</strong>, nên Bảng lương cũng
+            không tính. Mở lại kỳ công rồi chốt lại để cập nhật.
+          </span>
+        </div>
+      )}
+
       {periodMsg && (
         <div
           className={`banner ${periodMsg.type === "error" ? "banner--error" : "banner--ok"} cc-ts-msg-banner`}
