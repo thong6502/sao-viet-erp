@@ -187,7 +187,13 @@ TEMPLATES: list[dict] = [
                 "scope": SCOPE_ALL,
             },
             "kho": {"can_read": True, "can_request": True, "scope": SCOPE_DEPARTMENT},
-            "dm_giay_vat_tu": _xem(SCOPE_ALL),
+            # Tra bảng giá vật liệu trước khi lập phiếu mua — CHỈ XEM, không sửa danh mục.
+            # Khoá cũ `dm_giay_vat_tu` ĐÃ BỊ XOÁ HẲN (migration `0184_moi_man_danh_muc_mot_quyen`
+            # tách "mỗi màn một quyền"), nên phải khai đủ ba khoá con. Để nguyên khoá cũ thì dòng
+            # quyền RƠI MẤT lúc dựng ma trận — mẫu trông vẫn đủ, vai được cấp lại thiếu.
+            "dm_chung_loai_giay": _xem(SCOPE_ALL),
+            "dm_giay": _xem(SCOPE_ALL),
+            "dm_vat_tu": _xem(SCOPE_ALL),
         },
     },
 ]

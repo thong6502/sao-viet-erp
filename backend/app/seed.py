@@ -75,8 +75,11 @@ MODULES: list[tuple[str, str]] = [
     ("dm_giay", "Giấy"),
     ("dm_vat_tu", "Vật tư khác"),
     ("dm_kho_hang", "Khai báo kho"),
-    ("nhan_su", "Nhân sự"),
-    ("dm_cong_doan", "Công đoạn gia công"),
+    # ⚠️ ĐỪNG thêm lại `("nhan_su", "Nhân sự")` và `("dm_cong_doan", "Công đoạn gia công")` vào đây.
+    # Hai dòng đó là VẾT HOÀ CODE (12/08/2026): nhánh danh mục và nhánh nhân sự cùng sửa danh sách
+    # này, lúc gỡ conflict giữ cả HAI bản. Hậu quả kép — 41 dòng mà chỉ 39 module vào DB (khoá trùng
+    # bị bỏ qua), và bản trùng đứng TRƯỚC còn cướp luôn nhãn: ma trận hiện "Nhân sự" thay vì
+    # "Hồ sơ nhân sự". `test_rbac_seed.py::test_modules_seeded` canh đúng chỗ này.
     # TÁCH THEO MÀN (10/08/2026): `nhan_su` GIỮ KHOÁ nhưng nay chỉ còn màn Hồ sơ nhân sự.
     ("nhan_su", "Hồ sơ nhân sự"),
     ("cham_cong", "Chấm công"),
