@@ -171,11 +171,13 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
 
 
 def _levels(svc: StockRequestService, req):
-    """TỒN KHẢ DỤNG cho các dòng của yêu cầu. Yêu cầu KHÔNG gắn kho (kho quyết ở bước lập phiếu)
-    nên `req.kho_id` luôn None → `on_hand_map` cộng tồn khả dụng TRÊN MỌI KHO — đúng ý "hàng đã
-    có trong kho chưa, bất kể kho nào". Đèn (levels) bỏ vì UI đã gỡ cột đèn (tránh nhiễu)."""
+    """TỒN KHẢ DỤNG + đèn (`muc_ton`) cho các dòng của yêu cầu. Yêu cầu KHÔNG gắn kho (kho quyết ở
+    bước lập phiếu) → `req.kho_id` thường None → `on_hand_map` cộng tồn khả dụng TRÊN MỌI KHO.
+    `levels_and_on_hand` tính CẢ đèn lẫn tồn trong 1 lượt: đèn theo ngưỡng của kho (kho_id None thì
+    chưa có ngưỡng → chỉ phân biệt hết/còn). UI đã bỏ cột đèn nên không nhiễu, nhưng GIỮ `muc_ton`
+    cho API/test (bỏ hẳn làm vỡ test đèn + mất tín hiệu cho ai còn dùng)."""
     cap = [(ln.hang_loai, ln.hang_id) for ln in req.lines]
-    return None, svc.lots.on_hand_map(cap, req.kho_id)
+    return svc.levels_and_on_hand(cap, req.kho_id)
 
 
 def _scoped_filters(user: User, authz: AuthorizationService) -> dict:
