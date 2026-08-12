@@ -1385,6 +1385,10 @@ class AttendanceService:
             "line_count": len(self.attendance.list_period_lines(p.id)) if p is not None else 0,
             "employee_count": len(ts["rows"]),
             "hanging_days": hanging,
+            # L3 — kỳ ĐÃ CHỐT rồi mà vẫn có lượt bấm mới ghi vào. Chấm công GPS cố ý KHÔNG bị
+            # chặn (chặn thợ bấm giờ là họ đứng ở cổng bấm mãi không xong, nhất là ca đêm qua nửa
+            # đêm), nên phải ĐÁNH DẤU: ảnh chụp không có mấy lượt này, Bảng lương cũng không.
+            "phat_sinh_sau_chot": self._dem_phat_sinh_sau_chot(p, year, month),
             "pending_leaves": blockers["pending_leaves"],
             "pending_late_early": blockers["pending_late_early"],
             "pending_adjusts": blockers["pending_adjusts"],
@@ -1413,6 +1417,17 @@ class AttendanceService:
                 f"Còn {' và '.join(parts)} chưa duyệt — duyệt hết trước khi chốt công."
             )
         ts = self.monthly_timesheet(year=year, month=month)
+        # NGÀY TREO = bấm VÀO mà không có bấm RA. `period_status` vẫn đếm và trả về cho giao diện
+        # từ lâu, nhưng chỗ QUYẾT ĐỊNH này lại không dùng tới — đếm để hiển thị rồi bỏ qua lúc
+        # chốt là kiểu bẫy khó thấy nhất: nhìn màn thấy có cảnh báo, tưởng hệ thống đang canh.
+        # Chốt khi còn ngày treo = ĐÓNG BĂNG LUÔN CÁI SAI: ngày đó vào ảnh chụp với 0 giờ, lương
+        # trả thiếu, mà sau đó không sửa được nữa (`_require_period_open` khoá đường chấm bù).
+        treo = sum(r.get("hanging_days", 0) for r in ts["rows"])
+        if treo:
+            raise AttendanceValidationError(
+                f"Còn {treo} ngày treo (bấm VÀO nhưng thiếu bấm RA) — chấm bù cho đủ trước khi "
+                "chốt công. Chốt bây giờ là đóng băng luôn số công thiếu, sau đó không sửa được."
+            )
         self.attendance.delete_period_lines(p.id)
         for r in ts["rows"]:
             self.attendance.create_period_line(
@@ -1465,6 +1480,40 @@ class AttendanceService:
         self.audit.create(actor_user_id=getattr(actor, "id", None), action="reopen_attendance_period",
                           target=f"attendance_period:{p.id}", detail=f"{month}/{year}")
         return self.period_status(year=year, month=month)
+
+    def _dem_phat_sinh_sau_chot(self, p, year: int, month: int) -> int:
+        """Số lượt bấm của tháng được GHI VÀO sau khi kỳ đã chốt. 0 nếu kỳ chưa chốt."""
+        if p is None or p.status != APERIOD_LOCKED or p.locked_at is None:
+            return 0
+        # Cùng biên ±12h với `monthly_timesheet`: lượt RA rạng sáng ngày 1 tháng sau vẫn thuộc ca
+        # VÀO của ngày cuối tháng này. Lệch biên là đếm sót đúng ca đêm — chỗ hay phát sinh nhất.
+        start_vn = datetime(year, month, 1, tzinfo=VN_TZ)
+        end_vn = (datetime(year + 1, 1, 1, tzinfo=VN_TZ) if month == 12
+                  else datetime(year, month + 1, 1, tzinfo=VN_TZ))
+        return self.attendance.count_logs_created_after(
+            (start_vn - timedelta(hours=12)).astimezone(timezone.utc),
+            (end_vn + timedelta(hours=12)).astimezone(timezone.utc),
+            _as_utc(p.locked_at),
+        )
+
+    def ky_cong_chot_luc(self, year: int, month: int) -> datetime | None:
+        """Thời điểm chốt kỳ công (UTC aware), None nếu chưa chốt.
+
+        Lương so mốc này với `payroll_periods.generated_at` để biết bảng lương có đang là số tính
+        TRƯỚC lúc đóng băng bảng công không. Trả AWARE vì SQLite đọc lại ra naive — so hai kiểu
+        khác nhau là `TypeError` giữa lúc người ta đang bấm chốt lương."""
+        p = self.attendance.get_period_by_ym(year, month)
+        if p is None or p.status != APERIOD_LOCKED or p.locked_at is None:
+            return None
+        return _as_utc(p.locked_at)
+
+    def ky_cong_da_chot(self, year: int, month: int) -> bool:
+        """Kỳ công tháng này đã chốt chưa — cho Lương hỏi trước khi chốt bảng lương.
+
+        CHƯA CÓ DÒNG KỲ = CHƯA CHỐT. Kỳ công chỉ sinh ra khi có người đụng tới tháng đó
+        (`get_or_create_period`), nên tháng cũ của hệ thống hoàn toàn không có dòng nào."""
+        p = self.attendance.get_period_by_ym(year, month)
+        return p is not None and p.status == APERIOD_LOCKED
 
     def metrics_map(self, year: int, month: int) -> dict[int, dict]:
         """{emp_id → {cong, ot_minutes, night_days}} cho Lương (Pha 4a): đọc SNAPSHOT nếu kỳ

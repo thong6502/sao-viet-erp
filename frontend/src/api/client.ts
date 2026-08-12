@@ -3702,6 +3702,11 @@ export interface LineComponentPatch {
 export interface PayrollTable {
   period: PayrollPeriod | null;
   lines: PayrollLine[];
+  /** Vì sao CHƯA chốt được bảng lương — `null` = chốt được. Máy chủ soạn sẵn CÂU CHỮ (kỳ công
+   *  chưa chốt · bảng lương cũ hơn ảnh chụp · …) và đã tính cả mốc miễn trừ. ĐỪNG tự suy lại luật
+   *  ở đây: số lý do còn tăng, suy lại là nút sáng mà bấm vào ăn lỗi — hoặc tệ hơn, tắt nút của
+   *  tháng thật ra chốt được. Xem `PayrollService.ly_do_chua_chot_duoc`. */
+  chan_chot_ly_do?: string | null;
 }
 export interface MyPayslip {
   has_employee: boolean;
@@ -3841,6 +3846,10 @@ export interface AttendancePeriod {
   line_count: number;
   employee_count: number;
   hanging_days: number;      // ngày treo (thiếu chấm RA) — xử trước khi Chốt
+  /** Lượt bấm ghi vào SAU khi kỳ đã chốt. Chấm công GPS cố ý KHÔNG bị chặn (chặn thợ bấm
+   *  giờ là họ đứng ở cổng bấm mãi không xong, nhất là ca đêm qua nửa đêm) nên chỉ đánh
+   *  dấu: ảnh chụp không có mấy lượt này, Bảng lương cũng không ⇒ >0 là phải chốt lại kỳ. */
+  phat_sinh_sau_chot?: number;
   pending_leaves: number;    // đơn nghỉ phép chưa duyệt của tháng
   /** Phiếu đi muộn/về sớm chưa duyệt — CHẶN chốt công y như đơn nghỉ: snapshot đóng băng lúc
    *  chốt, phiếu duyệt sau đó không vào được nữa ⇒ NLĐ vẫn ăn phạt dù đã xin phép đúng luật. */

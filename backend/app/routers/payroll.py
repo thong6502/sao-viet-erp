@@ -622,11 +622,15 @@ def list_periods(svc: Service, user: Annotated[User, Depends(require_permission(
 def get_table(svc: Service, employees: Employees, departments: Departments,
               user: Annotated[User, Depends(require_permission(MODULE, "read"))],
               year: int = Query(...), month: int = Query(...)) -> TableOut:
+    # Trả cờ NGAY CẢ KHI chưa có kỳ lương: màn phải cảnh báo được "chốt công trước" từ trước lúc
+    # bấm Khởi tạo, chứ không đợi tới lúc bấm Chốt mới báo.
+    ly_do = svc.ly_do_chua_chot_duoc(year, month)
     data = svc.get_table(year=year, month=month)
     if data is None:
-        return TableOut(period=None, lines=[])
+        return TableOut(period=None, lines=[], chan_chot_ly_do=ly_do)
     return TableOut(period=PeriodOut.model_validate(data["period"]),
-                    lines=_lines_out(data["lines"], employees, departments, svc))
+                    lines=_lines_out(data["lines"], employees, departments, svc),
+                    chan_chot_ly_do=ly_do)
 
 
 @router.post("/generate", response_model=TableOut)
@@ -638,7 +642,8 @@ def generate(body: GenerateIn, svc: Service, employees: Employees, departments: 
         _raise(exc)
     data = svc.get_table(year=body.year, month=body.month)
     return TableOut(period=PeriodOut.model_validate(data["period"]),
-                    lines=_lines_out(data["lines"], employees, departments, svc))
+                    lines=_lines_out(data["lines"], employees, departments, svc),
+                    chan_chot_ly_do=svc.ly_do_chua_chot_duoc(body.year, body.month))
 
 
 @router.put("/lines/{line_id}", response_model=LineOut)

@@ -457,6 +457,10 @@ class LineOut(BaseModel):
 class TableOut(BaseModel):
     period: PeriodOut | None = None
     lines: list[LineOut] = []
+    #: Vì sao CHƯA chốt được bảng lương — `None` = chốt được. Giao diện chỉ việc hiện câu này và
+    #: tắt nút "Chốt"; KHÔNG tự suy lại luật (số lý do còn tăng, suy lại là hai bên trôi khác nhau).
+    #: Xem `PayrollService.ly_do_chua_chot_duoc`.
+    chan_chot_ly_do: str | None = None
 
 
 class LineUpdateIn(BaseModel):

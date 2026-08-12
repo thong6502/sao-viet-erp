@@ -347,6 +347,9 @@ function BangLuongTab({
   const [ym, setYm] = useState(curYm);
   const [period, setPeriod] = useState<PayrollPeriod | null>(null);
   const [lines, setLines] = useState<PayrollLine[]>([]);
+  // Lý do CHƯA chốt được bảng lương, do máy chủ soạn. null = chốt được. Màn chỉ hiện lại,
+  // không tự suy luật — xem chú thích ở `PayrollTable.chan_chot_ly_do`.
+  const [chanChotLyDo, setChanChotLyDo] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "ct" | "tv">("all");
   const [q, setQ] = useState("");
   const [dept, setDept] = useState("all");
@@ -377,6 +380,7 @@ function BangLuongTab({
       .then((t) => {
         setPeriod(t.period);
         setLines(t.lines);
+        setChanChotLyDo(t.chan_chot_ly_do ?? null);
         setListErr(null);
       })
       .catch((e) => {
@@ -527,10 +531,13 @@ function BangLuongTab({
           </button>
         )}
         {canLockPeriod && period && isDraft && (
+          // Kỳ công chưa chốt ⇒ KHOÁ nút chứ không để bấm rồi ăn lỗi đỏ (luật đợt 5). `title` là
+          // chỗ DUY NHẤT nói được lý do khi nút đã xám, nên phải nói rõ phải làm gì tiếp.
           <button
             className="btn btn--ghost"
             onClick={() => run(() => api.luong.lock(token, year, month))}
-            disabled={busy}
+            disabled={busy || Boolean(chanChotLyDo)}
+            title={chanChotLyDo ?? undefined}
           >
             🔒 Chốt
           </button>
@@ -602,6 +609,15 @@ function BangLuongTab({
       {err && (
         <div className="banner banner--error" style={{ marginBottom: 12 }}>
           {err}
+        </div>
+      )}
+
+      {/* Kỳ công chưa chốt: hiện NGAY CẢ KHI chưa khởi tạo bảng lương, để người tính lương biết
+          trước chứ không phải bấm Chốt rồi mới bị chặn. Nút "Chốt" cũng đã xám (xem thanh trên).
+          Chỉ nhắc, KHÔNG chặn Tính lại — xem thử quỹ lương giữa tháng vẫn là việc bình thường. */}
+      {chanChotLyDo && isDraft && (
+        <div className="banner banner--warn" style={{ marginBottom: 12 }}>
+          {chanChotLyDo}
         </div>
       )}
 

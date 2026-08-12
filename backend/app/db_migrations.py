@@ -7283,3 +7283,29 @@ def _migrate_tach_o_yeu_cau_chinh_cong(db) -> None:
 
 
 MIGRATIONS.append(("0185_tach_o_yeu_cau_chinh_cong", _migrate_tach_o_yeu_cau_chinh_cong))
+
+
+def _migrate_them_generated_at_cho_ky_luong(db) -> None:
+    """Thêm `payroll_periods.generated_at` — dấu "engine chạy lần cuối lúc nào" (12/08/2026).
+
+    `create_all` chỉ TẠO bảng, KHÔNG ALTER ⇒ cột mới phải thêm ở đây thì DB đang chạy mới nhận.
+
+    DÙNG ĐỂ LÀM GÌ: bịt khe hở L4 của vòng khoá công ⇄ lương. Chuỗi mới bắt chốt công trước khi
+    chốt lương, nhưng vẫn còn kẽ:
+
+        9h  tính lương (số live)  →  10h  ai đó chấm bù  →  11h  chốt công  →  12h  chốt lương
+
+    Dòng lương lúc 12h VẪN là số của 9h. So `generated_at` với `attendance_periods.locked_at` là
+    biết ngay, rồi bắt bấm "Tính lại" trước khi cho chốt.
+
+    KHÔNG ĐOÁN cho kỳ cũ: để NULL. Đoán bừa (vd gán `created_at`) là tự tay khẳng định một điều
+    mình không biết — kỳ cũ nào lỡ rơi vào diện phải chặn thì cứ bấm Tính lại một lần là xong,
+    rẻ hơn nhiều so với cho lọt một kỳ đáng ra phải chặn.
+    """
+    insp = inspect(db.get_bind())
+    if "generated_at" not in _existing_columns(insp, "payroll_periods"):
+        db.execute(text("ALTER TABLE payroll_periods ADD COLUMN generated_at TIMESTAMP NULL"))
+        db.commit()
+
+
+MIGRATIONS.append(("0186_them_generated_at_cho_ky_luong", _migrate_them_generated_at_cho_ky_luong))

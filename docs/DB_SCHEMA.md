@@ -2706,6 +2706,7 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `paid_by` | `Integer` | **FK→users.id** | yes | — | Người đánh dấu đã chi. Thêm qua migration 0045. |
 | `created_by` | `Integer` | **FK→users.id** | yes | — | Người tạo kỳ. |
 | `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+| `generated_at` | `DateTime(tz)` | — | yes | — | Lần chạy engine (Tính lại) gần nhất. So với `attendance_periods.locked_at` để chặn chốt lương trên số tính TRƯỚC lúc chốt công. NULL = kỳ có từ trước migration `0186`. |
 
 ---
 
