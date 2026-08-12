@@ -117,28 +117,36 @@ const NAV: NavSection[] = [
     id: "ke-toan",
     label: "Kế toán",
     items: [
+      // BỎ NHÓM CON "Kế toán thu mua" (chủ chốt 12/08/2026): ba màn dưới nay đứng NGANG HÀNG với
+      // Phiếu thu · Công nợ phải thu · Tài khoản ngân hàng. Lý do gộp cũ (số liệu công nợ phải trả
+      // đến từ PMH + phiếu chi) đúng về dữ liệu nhưng sai về thao tác: bên THU đã phẳng, để bên CHI
+      // thụt thêm một cấp thì hai vế đối xứng của cùng một việc lại nằm hai độ sâu khác nhau.
+      //
+      // Icon đi theo CẶP cho dễ đọc: hai phiếu dùng `fileText`, hai công nợ dùng `calculator`.
+      //
       // "Đơn mua hàng" TRƯỚC ĐÂY mang nhãn "Yêu cầu mua hàng" — nhãn SAI: màn này hiển thị PHIẾU
       // MUA HÀNG (`/api/accounting/inbox` trả `PurchaseRequestListOut`), không phải YCMH. Nhìn
       // menu cũ tưởng có hai chỗ xem YCMH, thật ra một chỗ là PMH.
       //
       // Đây cũng là nơi DUYỆT đơn mua hàng (chủ 04/08/2026: "phải duyệt ở phần kế toán chứ") —
       // màn Mua hàng bên Thu mua không còn nút duyệt nữa.
-      //
       {
-        id: "ke-toan-thu-mua",
-        label: "Kế toán thu mua",
-        icon: "calculator",
+        id: "ke-toan-don-mua-hang",
+        label: "Đơn mua hàng",
+        icon: "clipboard",
         module: "ke_toan",
-        // Cha hiện khi có quyền BẤT KỲ màn con nào — thiếu dòng này thì ai chỉ được cấp Phiếu chi
-        // sẽ không thấy nhóm, dù màn của họ nằm trong đó.
-        modules: ["ke_toan", "phieu_chi", "cong_no_phai_tra"],
-        children: [
-          { id: "ke-toan-don-mua-hang", label: "Đơn mua hàng", module: "ke_toan" },
-          { id: "ke-toan-phieu-chi", label: VOUCHER_PAGE_LABEL, module: "phieu_chi" },
-          // Công nợ phải trả nằm ở ĐÂY chứ không đứng riêng dưới "Kế toán": 100% số liệu của nó
-          // đến từ PMH + phiếu chi. Sau này có công nợ phải THU (khách hàng) thì đó là nhánh khác.
-          { id: "ke-toan-cong-no", label: "Công nợ phải trả", module: "cong_no_phai_tra" },
-        ],
+      },
+      {
+        id: "ke-toan-phieu-chi",
+        label: VOUCHER_PAGE_LABEL,
+        icon: "fileText",
+        module: "phieu_chi",
+      },
+      {
+        id: "ke-toan-cong-no",
+        label: "Công nợ phải trả",
+        icon: "calculator",
+        module: "cong_no_phai_tra",
       },
       {
         id: "ke-toan-phieu-thu",

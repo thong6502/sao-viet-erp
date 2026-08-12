@@ -783,8 +783,8 @@ export function AppShell() {
         );
       case "nha-cung-cap":
         return <SuppliersPage eventTick={quoteTick} />;
-      // Bấm vào chính "Kế toán thu mua" thì rơi vào con đầu tiên — đừng để nó ra màn trắng.
-      case "ke-toan-thu-mua":
+      // Nhóm con "Kế toán thu mua" đã BỎ ngày 12/08/2026 — ba màn của nó nay đứng ngang hàng với
+      // Phiếu thu / Công nợ phải thu. Không còn id cha nên cũng không cần nhánh rơi-vào-con-đầu.
       case "ke-toan-don-mua-hang":
         return (
           <AccountingPurchaseInboxPage
