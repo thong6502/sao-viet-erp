@@ -4392,6 +4392,11 @@ export interface PurchaseRequestLineOut {
   vat_amount: number;
   line_total: number;
   note: string | null;
+  /** Liên kết mặt hàng gốc (mg 0174) — Nhập kho từ đợt giao auto-điền vật tư. Null = chỉ tên chữ. */
+  hang_loai: HangLoai | null;
+  hang_id: number | null;
+  hang_ma: string | null;
+  hang_ten: string | null;
 }
 
 /** Một dòng yêu cầu đã vào phiếu nào, của NCC nào, tới đâu rồi. */

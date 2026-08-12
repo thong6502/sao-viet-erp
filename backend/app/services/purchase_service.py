@@ -2599,6 +2599,9 @@ class PurchaseService:
         money = purchase_money(row)
         total = money["total"]
         lines = []
+        # Mã/tên mặt hàng gốc (mg 0174) cho các dòng có liên kết danh mục — tra 1 lượt, tránh N+1.
+        _pairs = [(l.hang_loai, l.hang_id) for l in row.lines if l.hang_loai and l.hang_id]
+        _hmap = self.hang.map_theo_cap(_pairs) if (_pairs and self.hang is not None) else {}
         for line in row.lines:
             qty = float(line.quantity)
             unit_price = int(line.expected_unit_price)
@@ -2626,6 +2629,10 @@ class PurchaseService:
                     "vat_amount": vat_amount,
                     "line_total": line_total,
                     "note": line.note,
+                    "hang_loai": line.hang_loai,
+                    "hang_id": line.hang_id,
+                    "hang_ma": getattr(_hmap.get((line.hang_loai, line.hang_id)), "ma", None),
+                    "hang_ten": getattr(_hmap.get((line.hang_loai, line.hang_id)), "ten", None),
                 }
             )
         sources = []

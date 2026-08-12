@@ -171,13 +171,11 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
 
 
 def _levels(svc: StockRequestService, req):
-    """Mức tồn cho các dòng của yêu cầu, tính theo KHO ĐÍCH của chính yêu cầu (`req.kho_id`).
-    Chỉ có nghĩa với yêu cầu XUẤT (yêu cầu NHẬP thì tồn thấp là chuyện đương nhiên, tô đèn đỏ
-    chỉ gây nhiễu). Yêu cầu cũ chưa có kho → không có đèn."""
-    if req.kho_id is None or req.loai != REQ_XUAT:
-        return None, None
+    """TỒN KHẢ DỤNG cho các dòng của yêu cầu. Yêu cầu KHÔNG gắn kho (kho quyết ở bước lập phiếu)
+    nên `req.kho_id` luôn None → `on_hand_map` cộng tồn khả dụng TRÊN MỌI KHO — đúng ý "hàng đã
+    có trong kho chưa, bất kể kho nào". Đèn (levels) bỏ vì UI đã gỡ cột đèn (tránh nhiễu)."""
     cap = [(ln.hang_loai, ln.hang_id) for ln in req.lines]
-    return svc.levels_and_on_hand(cap, req.kho_id)
+    return None, svc.lots.on_hand_map(cap, req.kho_id)
 
 
 def _scoped_filters(user: User, authz: AuthorizationService) -> dict:
@@ -231,8 +229,8 @@ def list_requests(
     lenh_map = _lenh_map(db, rows)
     items = []
     for r in rows:
-        # Đèn tồn tính theo KHO của chính yêu cầu (r.kho_id), không phải theo bộ lọc.
-        levels, on_hand = _levels(svc, r)
+        # List KHÔNG hiện tồn khả dụng/đèn (chỉ drawer chi tiết hiện) → khỏi tính, tránh N+1 query.
+        levels, on_hand = None, None
         items.append(_serialize(r, db=db, can_view_stock=can_view_stock,
                                 levels=levels, on_hand=on_hand, lenh_map=lenh_map,
                                 open_voucher_id=draft_map.get(r.id), hang_map=hang_map, hang_svc=hang_svc))
@@ -241,12 +239,17 @@ def list_requests(
 
 @router.get("/counts")
 def request_counts(
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    svc: Service, authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> dict[str, int]:
-    """Số yêu cầu ĐÃ DUYỆT chờ kho lập phiếu, theo chiều (Nhập/Xuất) — cho badge + toast real-time.
-    Toàn kho (không lọc phạm vi): đây là 'hộp việc chờ cấp' của kho, ai xem cũng cùng số."""
-    counts = svc.requests.count_by_loai([REQ_APPROVED])
+    """Số yêu cầu ĐÃ DUYỆT chờ kho lập phiếu, theo chiều. Badge "chờ cấp" là VIỆC CỦA KHO nên CHỈ
+    hiện cho người XỬ LÝ (can_create=lập phiếu / can_view_stock) — khớp đúng người nhận thông báo;
+    người chỉ TẠO yêu cầu (vd tổ trưởng SX) KHÔNG thấy badge. Trong tầm thì lọc theo SCOPE như list:
+    kho trung tâm (all) thấy tổng; phòng ban thấy của phòng; scope own thấy của mình."""
+    is_kho_worker = authz.can(user, MODULE, "create") or authz.can(user, MODULE, "view_stock")
+    if not is_kho_worker:
+        return {"nhap": 0, "xuat": 0}
+    counts = svc.requests.count_by_loai([REQ_APPROVED], **_scoped_filters(user, authz))
     return {"nhap": counts.get(REQ_NHAP, 0), "xuat": counts.get(REQ_XUAT, 0)}
 
 

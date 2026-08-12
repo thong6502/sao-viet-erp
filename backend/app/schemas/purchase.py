@@ -257,6 +257,12 @@ class PurchaseRequestLineOut(BaseModel):
     vat_amount: int
     line_total: int
     note: str | None = None
+    # Liên kết MẶT HÀNG GỐC (mg 0174) — để Nhập kho từ đợt giao TỰ ĐIỀN vật tư thay vì bỏ trống.
+    # None khi dòng mua chỉ có tên chữ (không link danh mục) → kho phải chọn tay.
+    hang_loai: str | None = None
+    hang_id: int | None = None
+    hang_ma: str | None = None
+    hang_ten: str | None = None
 
 
 class LineFulfilmentOut(BaseModel):

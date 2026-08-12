@@ -536,6 +536,11 @@ def list_lots(
     lots = svc.lots.list_lots(hang=hang, kho_id=kho_id, con_hang=con_hang)
     # Nạp SẴN mọi mặt hàng của các lô trong 1 lượt (tránh N+1).
     hang_map = svc.hang.map_theo_cap([(lot.hang_loai, lot.hang_id) for lot in lots])
+    # Mã phiếu NHẬP sinh ra từng lô — để hiển thị lô THEO MÃ PHIẾU (đợt hàng vào kho) thay mã lô
+    # kỹ thuật. Nạp 1 lượt tránh N+1.
+    voucher_ma_map = svc.vouchers.ma_by_ids(
+        list({lot.voucher_id for lot in lots if lot.voucher_id is not None})
+    )
     out = []
     for lot in lots:
         row = StockLotOut.model_validate(lot)
@@ -543,6 +548,7 @@ def list_lots(
         row.hang_ma = getattr(m, "ma", None)
         row.hang_ten = getattr(m, "ten", None)
         row.dvt = getattr(m, "don_vi_gia", None)
+        row.voucher_ma = voucher_ma_map.get(lot.voucher_id) if lot.voucher_id else None
         # Thủ kho chọn lô nhưng KHÔNG thấy giá (spec §6).
         row.don_gia_nhap = int(lot.don_gia_nhap or 0) if can_view_cost else None
         out.append(row)

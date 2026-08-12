@@ -637,6 +637,30 @@ input.kho-num,
 .kho-alloc__sum--ok { color: var(--moss-deep); }
 .kho-alloc__sum--off { color: var(--amber-deep); }
 
+/* Hàng CHI TIẾT (colspan) của một dòng cấp trong drawer LẬP phiếu: nền chìm, GẮN LIỀN dòng
+   chính (bỏ viền giữa hai hàng), thụt theo cột Vật tư nhờ ô STT rỗng ở đầu. Cùng ngôn ngữ
+   với .kho-xuat__detail của drawer xem phiếu. */
+.kho-lines tbody tr:has(+ .kho-alloc__detailrow) > td {
+  border-bottom: none;
+}
+.kho-alloc__detailrow > td {
+  padding: 0 var(--sp-2) var(--sp-3);
+  background: var(--paper);
+  vertical-align: top;
+}
+.kho-alloc__detailrow > td:first-child {
+  padding: 0;
+  background: transparent;
+}
+.kho-alloc__detailrow .kho-hint {
+  margin: 2px 0 0;
+}
+.kho-alloc__detailrow .banner,
+.kho-alloc__detailrow .kho-alloc__note,
+.kho-alloc__detailrow .kho-alloc__sum {
+  margin-top: var(--sp-2);
+}
+
 /* --- Pager --------------------------------------------------------------- */
 .kho-pager {
   display: flex;

@@ -202,6 +202,19 @@ def set_khoa_so(payload: KhoKhoaSoIn, db: Db, user: CloseBookUser) -> KhoKhoaSoR
                     f"{cutoff.strftime('%d/%m/%Y')} (chọn 'Từ ngày' tùy ý để mở phần đuôi kỳ khóa)."
                 ),
             )
+        # KHÔNG cho mở VẮT QUA kẽ hở / ôm luôn kỳ cũ hơn: [tu_ngay, cutoff] phải LIỀN MẠCH đang khóa.
+        # → muốn mở kỳ cũ thì phải mở kỳ mới hơn TRƯỚC (mở lần lượt từ đuôi về).
+        run_start = repo.locked_run_start(payload.kho_id, cutoff)
+        if payload.tu_ngay < run_start:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Khoảng mở vắt qua kỳ khác hoặc ngày chưa khóa — chỉ mở được phần ĐUÔI LIỀN MẠCH "
+                    f"của kỳ đang khóa (đặt 'Từ ngày' ≥ {run_start.strftime('%d/%m/%Y')}). Muốn mở kỳ "
+                    f"cũ hơn thì phải mở kỳ mới hơn ({run_start.strftime('%d/%m/%Y')}–"
+                    f"{cutoff.strftime('%d/%m/%Y')}) TRƯỚC."
+                ),
+            )
     row = repo.add(
         kho_id=payload.kho_id, tu_ngay=payload.tu_ngay, den_ngay=payload.den_ngay,
         hanh_dong=payload.hanh_dong, nguoi_khoa_id=user.id,

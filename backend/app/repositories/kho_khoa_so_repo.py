@@ -65,6 +65,15 @@ class KhoKhoaSoRepository:
                 return rec.den_ngay
         return None
 
+    def locked_run_start(self, kho_id: int | None, cutoff: date) -> date:
+        """Ngày ĐẦU của vùng khóa LIỀN MẠCH kết thúc tại `cutoff` — mọi ngày trong [start, cutoff]
+        đều đang khóa. Dùng cho luật MỞ: chỉ được mở phần đuôi LIỀN MẠCH, KHÔNG vắt qua kẽ hở hay
+        ôm luôn kỳ cũ hơn phía trước. (Muốn mở kỳ cũ thì phải mở kỳ mới hơn TRƯỚC — cutoff lùi dần.)"""
+        day = cutoff
+        while self.is_locked(kho_id, day - timedelta(days=1)):
+            day -= timedelta(days=1)
+        return day
+
     def overlaps_locked(self, kho_id: int | None, tu: date, den: date) -> bool:
         """Khoảng [tu, den] có CHỒNG LẤN ngày nào ĐANG KHÓA không (cho phạm vi)? Dùng để CẤM khóa
         đè: kỳ mới phải bắt đầu sau ngày đã khóa gần nhất, không giẫm lên kỳ cũ."""
