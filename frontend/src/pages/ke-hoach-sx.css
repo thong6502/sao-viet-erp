@@ -765,6 +765,22 @@ td.khsx-num > .khsx-unit {
   border-color: #f6d8c3;
 }
 
+/* Thẻ đang hiện số của THÔNG SỐ ĐANG SỬA (chưa bấm Lưu) — cùng con số với khối "Máy tự tính" ở
+   dưới, nhưng phải nói ra là chưa ghi vào DB. Viền đứt: đủ để mắt bắt được, không hét lên như
+   màu cảnh báo — đây không phải lỗi, chỉ là trạng thái tạm. */
+.khsx-kpi-tile--tam {
+  border-style: dashed;
+  border-color: var(--rust, #e05638);
+  background: var(--rust-soft, #fdf6f0);
+}
+.khsx-kpi-tile--tam .khsx-kpi-tile__label::after {
+  content: " · chưa lưu";
+  font-weight: var(--fw-regular);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--rust, #e05638);
+}
+
 /* Nhãn thẻ KPI nay là TÊN ĐƠN VỊ do xưởng khai ("TỜ CHẠY MÁY", "SẢN PHẨM XONG / TỜ CHẠY MÁY"),
    không còn là hằng hai chữ. Cho xuống dòng thoải mái — thẻ `flex: 1 1 0` nên nó tự cao thêm,
    và `align-items: stretch` ở hàng giữ mọi thẻ bằng nhau. Cắt chữ ở đây là giấu mất cái tên

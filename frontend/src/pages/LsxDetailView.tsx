@@ -434,6 +434,18 @@ export function LsxDetailView({
   const hanTre =
     !!form.han_hoan_thanh_sx && !!d.han_giao_khach && form.han_hoan_thanh_sx >= d.han_giao_khach;
 
+  // XEM TRƯỚC thông số: thanh KPI phải nói CÙNG con số với khối "Máy tự tính" ngay dưới nó. Trước
+  // đây KPI đọc số ĐÃ LƯU còn khối kia hiện số mới kèm chip "tính lại" — sửa khổ tờ in xong là một
+  // màn hiện hai con số cho cùng một thứ, người dùng không biết tin cái nào.
+  // `tam = true` ⇒ số CHƯA LƯU, thẻ tự gắn dấu hiệu (viền đứt) để không ai tưởng đã ghi vào DB.
+  const kpiSo = (cu: number, moi: number | undefined) => ({
+    so: moi ?? cu,
+    tam: moi != null && moi !== cu,
+  });
+  const kpiToIn = kpiSo(d.so_to_ke_hoach, xemTruoc?.so_to_ke_hoach);
+  const kpiToNguyen = kpiSo(d.so_to_nguyen, xemTruoc?.so_to_nguyen);
+  const kpiCon = kpiSo(d.so_con, xemTruoc?.so_con);
+
   return (
     <div className="khsx-detail">
       <header className="khsx-detail__head">
@@ -591,17 +603,23 @@ export function LsxDetailView({
             </span>
           </div>
 
-          <div className="khsx-kpi-tile khsx-kpi-tile--hero">
+          <div
+            className={`khsx-kpi-tile khsx-kpi-tile--hero${kpiToIn.tam ? " khsx-kpi-tile--tam" : ""}`}
+            title={kpiToIn.tam ? "Số theo thông số đang sửa — chưa lưu" : undefined}
+          >
             <span className="khsx-kpi-tile__label">Vào máy</span>
             <span className="khsx-kpi-tile__val">
-              {num(d.so_to_ke_hoach)} <small>{dvTo}</small>
+              {num(kpiToIn.so)} <small>{dvTo}</small>
             </span>
           </div>
 
-          <div className="khsx-kpi-tile">
+          <div
+            className={`khsx-kpi-tile${kpiToNguyen.tam ? " khsx-kpi-tile--tam" : ""}`}
+            title={kpiToNguyen.tam ? "Số theo thông số đang sửa — chưa lưu" : undefined}
+          >
             <span className="khsx-kpi-tile__label">Giấy nguyên</span>
             <span className="khsx-kpi-tile__val">
-              {num(d.so_to_nguyen)} <small>{dvToNguyen}</small>
+              {num(kpiToNguyen.so)} <small>{dvToNguyen}</small>
             </span>
           </div>
 
@@ -614,12 +632,18 @@ export function LsxDetailView({
             </div>
           ) : (
             <div
-              className="khsx-kpi-tile"
-              title={dvTp && dvTo ? `${num(d.so_con)} ${dvTp} trên 1 ${dvTo}` : undefined}
+              className={`khsx-kpi-tile${kpiCon.tam ? " khsx-kpi-tile--tam" : ""}`}
+              title={
+                kpiCon.tam
+                  ? "Số theo thông số đang sửa — chưa lưu"
+                  : dvTp && dvTo
+                    ? `${num(kpiCon.so)} ${dvTp} trên 1 ${dvTo}`
+                    : undefined
+              }
             >
               <span className="khsx-kpi-tile__label">Bình bài</span>
               <span className="khsx-kpi-tile__val">
-                {num(d.so_con)} <small>{dvTp}</small>
+                {num(kpiCon.so)} <small>{dvTp}</small>
               </span>
             </div>
           )}
@@ -763,21 +787,16 @@ export function LsxDetailView({
                 </div>
                 <div className="khsx-spec__card-body">
                   <div className="khsx-kvgrid">
-                    {/* Nhận diện sản phẩm — tên · loại · ĐVT kế thừa từ PHIẾU TÍNH GIÁ (cùng nguồn
-                        với quy cách). Ba dòng "Khổ thành phẩm / Khổ mở rộng / Tay gấp" đã bỏ
-                        (mig 0144): cột không còn ô nhập nên vĩnh viễn hiện "—". */}
+                    {/* Khối này giữ đúng phần NHẬN DIỆN sản phẩm. Hai ô đã gỡ (12/08/2026):
+                        · "Dài × rộng (mm)" — trùng cặp ô nhập "Khổ thành phẩm dài/rộng" ở khối
+                          Giấy, mà tệ hơn là LỆCH ĐƯỢC: ô này đọc ảnh chụp đã lưu còn ô kia đọc
+                          form đang gõ, nên sửa khổ xong hai chỗ hiện hai số cho tới lúc bấm Lưu.
+                        · "Số bài in" — trùng ô cùng tên ở khối "Máy tự tính". Với hàng cắt rời nó
+                          chỉ hiện "1" (không nói gì), còn với sách thì câu diễn giải đầy đủ
+                          ("5 TỜ CHẠY MÁY = 1 cuốn") đã nằm sẵn dưới ô Bình bài — xem `giaiThichSach`. */}
                     <KV k="Tên sản phẩm" v={s("ten")} />
                     <KV k="Loại sản phẩm" v={s("loai_san_pham_ten")} />
                     <KV k="Đơn vị tính" v={s("don_vi_tinh")} />
-                    <KV k="Dài × rộng (mm)" v={`${num(n("dai_thanh_pham"))} × ${num(n("rong_thanh_pham"))}`} mono />
-                    {/* Số bài in = SỐ TAY mỗi cuốn, TÍNH TẠI CHỖ từ `so_trang / trang_moi_tay`.
-                        `so_to_per_sp` trong ảnh chụp là thứ engine GHI RA, thiu ngay khi ai sửa số
-                        trang mà không chạy lại — chính engine ghi cảnh báo đó trong docstring. */}
-                    <KV
-                      k="Số bài in"
-                      v={laSach ? `${num(soTay)} ${dvTo} = 1 ${s("don_vi_tinh")}` : num(n("so_to_per_sp"))}
-                      mono
-                    />
                     {/* Hai số PHÂN BIỆT sách với hàng cắt rời. Có sẵn trong ảnh chụp quy cách nhưng
                         trước đây không màn nào render → nhìn lệnh không biết đây là loại gì. */}
                     {laSach && (
@@ -901,7 +920,12 @@ export function LsxDetailView({
                       className={`khsx-kv ${laSach ? "" : "khsx-kv--edit"}`}
                       title={giaiThichSach}
                     >
-                      <span className="khsx-kv__key">{dvTp} / {dvTo}</span>
+                      <span
+                        className="khsx-kv__key"
+                        title={dvTp && dvTo ? `Số ${dvTp} trên 1 ${dvTo}` : undefined}
+                      >
+                        Bình bài{dvTp ? ` · ${dvTp} mỗi ${dvTo}` : ""}
+                      </span>
                       <input
                         className="khsx-kv__input"
                         type="number"
@@ -917,10 +941,15 @@ export function LsxDetailView({
                     <KVDeriv k="Số mảnh xả" cu={n("so_manh_xa")} moi={xemTruoc?.so_manh_xa} />
                     <KVDeriv k="Số kẽm" cu={n("so_kem")} moi={xemTruoc?.so_kem} />
                     <KVDeriv k="Số lượt in" cu={n("so_luot")} moi={xemTruoc?.so_luot} />
-                    <KVDeriv k={`Số ${dvTo} kế hoạch`} cu={d.so_to_ke_hoach} moi={xemTruoc?.so_to_ke_hoach} />
-                    <KVDeriv k={`Số ${dvToNguyen}`} cu={d.so_to_nguyen} moi={xemTruoc?.so_to_nguyen} />
+                    {/* NHÃN nói CHẶNG, ĐƠN VỊ đi với con số — cùng luật với thanh KPI. Trước đây
+                        nhãn lấy thẳng tên đơn vị nên lệnh KHÔNG có bước xả (tờ nguyên = tờ in) đẻ
+                        ra hai dòng "SỐ TỜ CHẠY MÁY KẾ HOẠCH" và "SỐ TỜ CHẠY MÁY" cùng một con số —
+                        nhìn như một chỗ bị lặp, trong khi chúng là hai chặng khác nhau. */}
+                    <KVDeriv k="Vào máy" dv={dvTo} cu={d.so_to_ke_hoach} moi={xemTruoc?.so_to_ke_hoach} />
+                    <KVDeriv k="Giấy nguyên" dv={dvToNguyen} cu={d.so_to_nguyen} moi={xemTruoc?.so_to_nguyen} />
                     <KVDeriv
-                      k={`Số bài in${dvTay ? ` (${dvTay})` : ""}`}
+                      k="Số bài in"
+                      dv={dvTay}
                       cu={n("so_to_per_sp") || 1}
                       moi={xemTruoc?.so_to_per_sp}
                     />
@@ -1114,7 +1143,9 @@ function KVNum({
 
 /** Số MÁY TỰ TÍNH. Đổi thì hiện số cũ gạch ngang bên cạnh — thấy hệ quả TRƯỚC khi bấm Lưu,
  *  đúng nguyên tắc "thay đổi gì là thay trên UI luôn, nhấn lưu mới vào DB". */
-function KVDeriv({ k, cu, moi }: { k: string; cu: number; moi: number | undefined }) {
+function KVDeriv(
+  { k, cu, moi, dv }: { k: string; cu: number; moi: number | undefined; dv?: string },
+) {
   const doi = moi != null && moi !== cu;
   return (
     <div className="khsx-kv khsx-kv--deriv">
@@ -1122,6 +1153,9 @@ function KVDeriv({ k, cu, moi }: { k: string; cu: number; moi: number | undefine
       <span className="khsx-kv__val khsx-num">
         {doi && <s className="khsx-kv__cu">{cu.toLocaleString("vi-VN")}</s>}
         {(doi ? (moi as number) : cu).toLocaleString("vi-VN")}
+        {/* ĐƠN VỊ đi với con số, không nằm trong nhãn — nhãn để dành nói CHẶNG. Rỗng thì không
+            hiện gì: routing chưa nói tới chặng đó, bịa một chữ vào đây là quay lại lối cũ. */}
+        {dv ? <small className="khsx-unit">{dv}</small> : null}
         {doi && <span className="khsx-kv__moi">tính lại</span>}
       </span>
     </div>

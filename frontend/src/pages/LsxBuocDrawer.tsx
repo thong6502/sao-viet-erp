@@ -18,6 +18,7 @@ import {
   type EditRow,
   heSoChu,
   n,
+  nhanDonVi,
   phut,
   thoiLuong,
   thoiLuongLive,
@@ -178,7 +179,10 @@ export function LsxBuocDrawer({
     }
   }
   // Nhãn đơn vị dùng CHUNG với bảng routing — hai nơi tự viết là sớm muộn lệch chữ.
-  const dvNhan = (dv: string | null | undefined) => dvNhanChung(dv, row.nhom);
+  // Nhãn đơn vị CỦA BƯỚC (có bộ lọc ảnh chụp legacy). Đơn vị của VẬT TƯ / ĐẦU VIỆC thì KHÔNG đi
+  // qua đây — chúng là đơn vị danh mục, chẳng liên quan gì tới bước, mà lọt vào bộ lọc thì "kg"
+  // của thùng keo cũng hoá "—" chỉ vì bước đang mở là chế bản.
+  const dvNhan = (dv: string | null | undefined) => dvNhanChung(dv, row);
   // Máy đang chọn TRÊN FORM (chưa lưu) — nguồn tốc độ + chuẩn bị để số nhảy NGAY khi đổi máy,
   // không phải bấm Lưu rồi mới biết. Khai trước `mayDaChon` bên dưới vì hai memo cần nó.
   const mayForm = mayRefs?.find((m) => m.id === row.may_id) ?? null;
@@ -1220,7 +1224,7 @@ export function LsxBuocDrawer({
                             )
                           }
                         />
-                        <span className="khsx-vattu-unit-tag">{dvNhan(v.don_vi)}</span>
+                        <span className="khsx-vattu-unit-tag">{nhanDonVi(v.don_vi)}</span>
                       </div>
 
                       {canUpdate && (
@@ -1272,7 +1276,7 @@ export function LsxBuocDrawer({
                         .filter((x) => !row.vat_tus.some((v) => v.vat_tu_id === x.id))
                         .map((x) => (
                           <option key={x.id} value={x.id}>
-                            {x.ma} · {x.ten} ({dvNhan(x.donVi)})
+                            {x.ma} · {x.ten} ({nhanDonVi(x.donVi)})
                           </option>
                         ))}
                     </select>

@@ -54,14 +54,23 @@ export interface RefRow {
   chuanBiKhoan?: { ten?: string; phut?: number }[];
 }
 
-/** Nhãn đơn vị của bước. Đơn vị TRỐNG = bước ngoài dòng giấy, hiển thị “—”. */
-export function dvNhan(dv: string | null | undefined, nhom?: string | null): string {
-  // Lệnh cũ có thể còn snapshot `to → to` ở bước chế bản; về nghiệp vụ prepress vẫn đứng ngoài
-  // dòng giấy nên tuyệt đối không trình bày các đơn vị legacy đó cho người lập kế hoạch.
-  if (nhom === "prepress") return "—";
-  // Tên lấy từ DANH MỤC (12/08/2026), không còn bảng nhãn cứng: `LSX_DON_VI_LABELS` nói `to` là
-  // "Tờ in" và `cai` là "Thành phẩm", trong khi danh mục ghi "tờ" và "cái" — cùng một bước hiện
-  // hai tên ở hai màn. Chưa nạp xong thì rơi về MÃ TRẦN, không bịa tên.
+/** Nhãn đơn vị CỦA MỘT BƯỚC. Chưa khai đơn vị ⇒ “—”.
+ *
+ *  Tên lấy từ DANH MỤC, không còn bảng nhãn cứng. Chưa nạp xong ⇒ rơi về MÃ TRẦN, không bịa tên.
+ *
+ *  Bộ lọc legacy hẹp lại (12/08/2026): trước đây cứ `nhom === "prepress"` là trả “—”, bất kể bước
+ *  khai đơn vị gì. Từ khi công đoạn khai đơn vị TỰ DO, bước ghi kẽm khai `m² → bài in` cho tử tế
+ *  vẫn bị nuốt sạch nhãn — trong khi thẻ trên sơ đồ DAG (không đi qua hàm này) lại hiện đúng
+ *  "m² → bài in". Cùng một bước, hai màn hai kiểu.
+ *
+ *  Thứ ĐÁNG giấu chỉ là ảnh chụp cũ `to → to` còn sót ở bước chế bản — nhận ra nó bằng "prepress
+ *  MÀ lại đứng trên dòng giấy", chứ không phải bằng mỗi `nhom`. Bước khai đơn vị ngoài dòng giấy
+ *  (`m² → bài in`) là dữ liệu THẬT, phải hiện. */
+export function dvNhan(
+  dv: string | null | undefined,
+  buoc?: { nhom?: string | null; tren_dong_giay?: boolean } | null,
+): string {
+  if (buoc?.nhom === "prepress" && buoc?.tren_dong_giay) return "—";
   if (dv) return tenDonVi(dv) ?? dv;
   return "—";
 }
@@ -550,10 +559,10 @@ export function LsxRoutingTable({
                     ) : (
                       <>
                         <span className="khsx-num">{num(n(r.so_luong_vao))}</span>
-                        <span className="khsx-rt__dv">{dvNhan(r.don_vi_vao, r.nhom)}</span>
+                        <span className="khsx-rt__dv">{dvNhan(r.don_vi_vao, r)}</span>
                         <span className="khsx-rt__arrow" aria-label="ra">→</span>
                         <span className="khsx-num">{num(n(r.so_luong_ra))}</span>
-                        <span className="khsx-rt__dv">{dvNhan(r.don_vi_ra, r.nhom)}</span>
+                        <span className="khsx-rt__dv">{dvNhan(r.don_vi_ra, r)}</span>
                         {/* Bước ĐỔI ĐƠN VỊ: nói luôn hệ số, không thì "59 tờ in → 5.201 con" là số
                             từ trên trời (59 × 180 = 10.620, không phải 5.201 — chuỗi đi NGƯỢC).
                             `heSoChu` LẬT lại khi hệ số < 1 (sách gấp tay) → "10 Tờ in = 1 Thành
