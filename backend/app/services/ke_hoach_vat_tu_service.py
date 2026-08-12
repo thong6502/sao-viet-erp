@@ -33,10 +33,10 @@ from sqlalchemy.orm import Session
 
 from ..models.bai_ghep import BaiGhep
 from ..models.bai_ghep_cong_doan import BaiGhepCongDoan
+from ..models.don_vi_do import TRAM_TO, TRAM_TO_NGUYEN
+from ..services.dong_giay import ban_do_tram, don_vi_chuoi, ma_cua_tram, tram_cua
 from ..models.lsx import (
-    DV_TO,
     LB_MAY,
-    DV_TO_NGUYEN,
     TT_DA_LAP_KE_HOACH,
     TT_DA_PHAT_HANH,
     TT_SAN_SANG,
@@ -46,6 +46,7 @@ from ..models.lsx import (
 from ..models.stock_request import REQ_DONE
 from ..models.vat_lieu_kho import HANG_GIAY
 from ..repositories.ke_hoach_vat_tu_repo import KeHoachVatTuRepository
+from .bien_cong_thuc import quy_cach_bien, quy_cach_bien_bai
 from .quy_doi_service import _so, doi_theo_quy_cach, don_vi_map
 
 # Lệnh ở ba trạng thái này là thứ kế hoạch phải lo giấy: đã chốt kỹ thuật, chỉ còn chờ chạy.
@@ -142,6 +143,18 @@ class KeHoachVatTuService:
         """Nạp danh mục đơn vị + bảng cặp MỘT lần cho cả bảng (không N+1 theo dòng)."""
         self._dvs = don_vi_map(self.don_vi.all_active())
         self._cap_rows = list(self.don_vi.cap_rows())
+        self._tram_cache = None
+
+    def _tram(self) -> dict[str, str]:
+        """Bản đồ `{mã đơn vị: trạm}` — CACHE.
+
+        `getattr` chứ không đọc thẳng thuộc tính: `_nap_don_vi` mới là nơi khởi tạo cache, mà
+        `_buoc_dau_dong_giay` có thể được gọi trước nó. Bảng cân đối duyệt cả trăm lệnh nên hỏi lại
+        danh mục theo từng lệnh là đúng bài N+1.
+        """
+        if getattr(self, "_tram_cache", None) is None:
+            self._tram_cache = ban_do_tram(self.db)
+        return self._tram_cache
 
     def _quy_cach_cua(self, hang_loai: str, obj, qc_lenh: dict | None = None) -> dict | None:
         """Biến cho quy đổi ĐỘNG của mặt hàng đang xét.
@@ -161,11 +174,18 @@ class KeHoachVatTuService:
         """
         if hang_loai != HANG_GIAY:
             return None
-        qc = qc_lenh or {}
-        dai = _f(qc.get("kho_in_dai")) or _f(getattr(obj, "kho_dai", 0))
-        rong = _f(qc.get("kho_in_rong")) or _f(getattr(obj, "kho_rong", 0))
-        gsm = _f(qc.get("gsm")) or _f(getattr(obj, "gsm", 0))
-        return {"dai": dai / 1000.0, "rong": rong / 1000.0, "gsm": gsm}
+        qc = dict(qc_lenh or {})
+        # Bơm TRỌN quy cách lệnh rồi chèn khổ đã chốt lên trên: từ 11/08/2026 công thức quy đổi
+        # dùng tên khổ CỤ THỂ (`dai_in`/`dai_nguyen`) thay cho biến vai trò `dai`/`rong`, nên phải
+        # đưa cả hai mức. Thiếu khổ nguyên thì dòng `1 tờ nguyên = … kg` không dùng được — và đó
+        # đúng là câu trả lời thật, hơn là cân bằng khổ tờ in.
+        qc["dai_in"] = (_f(qc.get("kho_in_dai")) or _f(getattr(obj, "kho_dai", 0))) / 1000.0
+        qc["rong_in"] = (_f(qc.get("kho_in_rong")) or _f(getattr(obj, "kho_rong", 0))) / 1000.0
+        qc["dai_nguyen"] = (_f(qc.get("kho_nguyen_dai")) or _f(getattr(obj, "kho_dai", 0))) / 1000.0
+        qc["rong_nguyen"] = (_f(qc.get("kho_nguyen_rong"))
+                             or _f(getattr(obj, "kho_rong", 0))) / 1000.0
+        qc["dinh_luong"] = (_f(qc.get("gsm")) or _f(getattr(obj, "gsm", 0))) / 1000.0
+        return qc
 
     def _ve_goc(self, hang: tuple[str, int], dvt: str, so_luong: float,
                 qc_lenh: dict | None = None) -> dict:
@@ -223,12 +243,36 @@ class KeHoachVatTuService:
 
         Neo vào bước tiêu thụ chứ không vào bước cuối: giấy cần ở ĐẦU chuỗi. Neo nhầm vào cuối là
         đặt hàng muộn đúng bằng độ dài cả chuỗi sản xuất.
+
+        Nhận diện theo TRẠM (`don_vi_do.tram_dong_giay`), không theo mã: `don_vi_vao` là mã xưởng
+        tự đặt. So mã với `("to_nguyen","to")` thì lệnh nào khai `to_chay` cũng trượt hết vòng lặp
+        rồi rơi về `buoc[0]` — thường là bước GHI KẼM, tức neo ngày cần giấy vào nhầm bước.
         """
+        bd = self._tram()
         buoc = sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
         for cd in buoc:
-            if (cd.don_vi_vao or "") in (DV_TO_NGUYEN, DV_TO):
+            if tram_cua(cd.don_vi_vao, bd) in (TRAM_TO_NGUYEN, TRAM_TO):
                 return cd
         return buoc[0] if buoc else None
+
+    def _dv_giay(self, buocs, buoc_neo=None) -> str | None:
+        """MÃ đơn vị để ĐẾM số giấy của một lệnh/bài — đọc từ routing, không đóng đinh `to`.
+
+        Đây KHÔNG phải nhãn trang trí: `_ve_goc` lấy nó đi quy đổi sang đơn vị gốc của giấy
+        (tờ → kg), sai đơn vị là sai số giấy đi mua.
+
+        Lấy chặng TỜ IN — giữ đúng ngữ nghĩa cũ, chỉ thay mã cứng bằng mã đọc từ routing. (Số đi
+        kèm là `so_to_nguyen` trong khi đơn vị là chặng tờ in: chỗ lệch này CÓ SẴN từ trước, sửa nó
+        là đổi lượng giấy trên bảng cân đối nên phải hỏi chủ trước, không gộp vào đây.)
+
+        Lệnh chưa khai công đoạn nào ⇒ routing không nói gì ⇒ hỏi danh mục Đơn vị: đơn vị nào đứng
+        ở trạm tờ in. Danh mục có nhiều hơn một thì KHÔNG đoán — trả None để dòng đeo cảnh báo
+        "chưa đối chiếu được", thà báo còn hơn quy đổi bằng một mã bịa.
+        """
+        tram = self._tram()
+        dv = don_vi_chuoi(buocs, tram)
+        return (dv["to"] or ma_cua_tram(TRAM_TO, tram)
+                or getattr(buoc_neo, "don_vi_vao", None))
 
     def _nap_lich(self, lsx_ids: set[int], bai_ids: set[int]) -> None:
         """Giờ bắt đầu đã xếp, tra theo bước — nguồn chính của NGÀY CẦN."""
@@ -429,23 +473,31 @@ class KeHoachVatTuService:
             if so_to <= 0:
                 continue
             buoc = self._buoc_dau_dong_giay(l)
-            tho.append(self._dong_lenh(l, ("giay", int(giay_id)), DV_TO, so_to, buoc))
+            tho.append(self._dong_lenh(l, ("giay", int(giay_id)),
+                                       self._dv_giay(l.cong_doans, buoc), so_to, buoc))
 
         # --- giấy của BÀI GHÉP: MỘT dòng cho cả bài ------------------------
+        # Thành viên + ba số tờ nạp MỘT lần cho mỗi bài rồi dùng lại ở vòng vật tư dưới: cả hai
+        # vòng đều cần chúng để dựng ngữ cảnh biến, mà `tinh_so_to` chạy cả chuỗi ngược của từng
+        # thành viên — gọi hai lần là trả giá hai lần cho cùng một con số.
+        self._bai_ctx: dict[int, tuple[dict, dict, dict]] = {}
         for bg in bais:
             ids = [tv.lsx_id for tv in bg.thanh_viens]
             lsx_map = {i: lenh_map[i] for i in ids if i in lenh_map}
             lsx_map.update(self.bai_ghep_repo.lsx_by_ids([i for i in ids if i not in lsx_map]))
+            so_to_dict = self._tinh_so_to(bg, lsx_map)
+            self._bai_ctx[bg.id] = (lsx_map, so_to_dict, self._muc_gop(bg, lsx_map))
             if not bg.giay_id:
                 bo_qua.append({"ma": bg.ma, "ly_do": "Bài ghép chưa chọn giấy chung."})
                 continue
-            so_to = int(self._tinh_so_to(bg, lsx_map).get("to_nguyen_can") or 0)
+            so_to = int(so_to_dict.get("to_nguyen_can") or 0)
             if so_to <= 0:
                 continue
             buoc = sorted(self._buoc_chung(bg.id), key=lambda c: c.thu_tu)
+            neo = buoc[0] if buoc else None
             tho.append(
-                self._dong_bai(bg, ("giay", int(bg.giay_id)), DV_TO, so_to,
-                               buoc[0] if buoc else None, lsx_map)
+                self._dong_bai(bg, ("giay", int(bg.giay_id)),
+                               self._dv_giay(buoc, neo), so_to, neo)
             )
 
         # --- vật tư khai tay ở bước lệnh ------------------------------------
@@ -470,12 +522,23 @@ class KeHoachVatTuService:
                     continue
                 tho.append(
                     self._dong_bai(bg, ("vat_tu", int(vt.vat_tu_id)), vt.don_vi_snapshot,
-                                   _f(vt.so_luong), chung[vt.bai_ghep_cong_doan_id], None)
+                                   _f(vt.so_luong), chung[vt.bai_ghep_cong_doan_id])
                 )
         return tho, bo_qua
 
     def _buoc_chung(self, bai_ghep_id: int) -> list[BaiGhepCongDoan]:
         return self.repo.buoc_chung(bai_ghep_id)
+
+    def _bg(self):
+        """Engine bài ghép, dựng một lần cho cả request. `sequence=None`: đường này chỉ ĐỌC."""
+        if getattr(self, "_bg_svc", None) is None:
+            from ..repositories.audit_repo import AuditLogRepository
+            from .bai_ghep_service import BaiGhepService
+
+            self._bg_svc = BaiGhepService(
+                self.db, self.bai_ghep_repo, AuditLogRepository(self.db), None
+            )
+        return self._bg_svc
 
     def _tinh_so_to(self, bg: BaiGhep, lsx_map: dict) -> dict:
         """Số tờ NGUYÊN của cả bài — gọi thẳng engine bài ghép, KHÔNG tự cộng lại.
@@ -484,15 +547,11 @@ class KeHoachVatTuService:
         qua đúng cầu `to_nguyen → to` (số mảnh xả) và cộng hao TRƯỚC khi chia — cộng sau là đòi
         giấy gấp mấy lần. Một engine, một kết quả.
         """
-        if getattr(self, "_bg_svc", None) is None:
-            from ..repositories.audit_repo import AuditLogRepository
-            from .bai_ghep_service import BaiGhepService
+        return self._bg().tinh_so_to(bg, lsx_map)
 
-            # `sequence=None`: chỉ đọc, không cấp mã chứng từ nào ở đường này.
-            self._bg_svc = BaiGhepService(
-                self.db, self.bai_ghep_repo, AuditLogRepository(self.db), None
-            )
-        return self._bg_svc.tinh_so_to(bg, lsx_map)
+    def _muc_gop(self, bg: BaiGhep, lsx_map: dict) -> dict:
+        """Số màu/kẽm của cả bài — hợp tập mực các thành viên. Engine bài ghép giữ luật, không chép."""
+        return self._bg().muc_gop(bg, lsx_map)
 
     def _dong_lenh(self, l: Lsx, hang, dvt, sl, buoc) -> dict:
         ngay = self._ngay_can_buoc(getattr(buoc, "id", None))
@@ -505,11 +564,14 @@ class KeHoachVatTuService:
             "ma": l.ma, "ten_viec": getattr(buoc, "ten", None),
             "ngay_can": ngay, "moc_tam": moc_tam, "dvt": dvt, "sl": sl,
             "moc_suy_duoc": suy_duoc,
-            # Khổ tờ in + định lượng của CHÍNH lệnh này — nguồn ưu tiên để đổi tờ → kg.
-            "qc": l.quy_cach_json or {},
+            # Quy cách của CHÍNH lệnh này — nguồn ưu tiên để đổi tờ → kg. Lấy qua `quy_cach_bien`
+            # (không phải `quy_cach_json` trần) để công thức quy đổi dùng được cả năm số dẫn xuất
+            # nằm ở cột: SL đặt · con/tờ · tờ in · tờ nguyên · tờ sau in.
+            "qc": quy_cach_bien(l),
         }
 
-    def _dong_bai(self, bg: BaiGhep, hang, dvt, sl, buoc, lsx_map) -> dict:
+    def _dong_bai(self, bg: BaiGhep, hang, dvt, sl, buoc) -> dict:
+        lsx_map, so_to, muc = getattr(self, "_bai_ctx", {}).get(bg.id, ({}, {}, {}))
         ngay = self._ngay_can_buoc(getattr(buoc, "id", None), cua_bai=True)
         moc_tam = ngay is None
         suy_duoc = True
@@ -526,17 +588,11 @@ class KeHoachVatTuService:
             "ma": bg.ma, "ten_viec": getattr(buoc, "ten", None),
             "ngay_can": ngay, "moc_tam": moc_tam, "dvt": dvt, "sl": sl,
             "moc_suy_duoc": suy_duoc,
-            # Bài ghép: khổ tờ in là khổ CỦA BÀI (`kho_in_dai/rong` trên chính bài), còn định lượng
-            # lấy từ thành viên — cả bài in trên một loại giấy nên gsm nào cũng như nhau; lấy cái
-            # đầu tiên có khai. Thiếu thì ngã về danh mục như cũ.
-            "qc": {
-                "kho_in_dai": bg.kho_in_dai, "kho_in_rong": bg.kho_in_rong,
-                "gsm": next(
-                    (g for l in (lsx_map or {}).values()
-                     if (g := (l.quy_cach_json or {}).get("gsm"))),
-                    None,
-                ),
-            },
+            # Ngữ cảnh biến của BÀI — cùng bộ 16 biến với lệnh và với phiếu tính giá, xem
+            # `bien_cong_thuc`. Trước 11/08/2026 chỗ này dựng tay ba khoá (khổ in + gsm) nên 13/16
+            # biến bằng 0 trong im lặng: công thức quy đổi nào chạm `to_dau_vao` hay `so_kem` là
+            # cạnh tắt, dòng bài ghép nhận "chưa đánh giá được" mà không ai biết vì sao.
+            "qc": quy_cach_bien_bai(bg, thanh_vien=(lsx_map or {}).values(), so_to=so_to, muc=muc),
         }
 
     # ---- (c) ----------------------------------------------------------------

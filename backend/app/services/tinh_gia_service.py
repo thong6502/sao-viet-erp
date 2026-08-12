@@ -13,6 +13,7 @@ from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan
 from ..models.may_thiet_bi import MayThietBi
 from ..models.vat_lieu_kho import GiayNguyen, VatTuInAn
+from .dong_giay import ban_do_tram
 from .thanh_phan_engine import compute_phieu
 
 
@@ -25,7 +26,7 @@ def _f(v, d: float = 0.0) -> float:
         return d
 
 
-def _cong_doan_to_dict(cd: CongDoan) -> dict:
+def _cong_doan_to_dict(cd: CongDoan, tram: dict[str, str] | None = None) -> dict:
     return {
         "id": cd.id,
         "ma": cd.ma,
@@ -49,6 +50,11 @@ def _cong_doan_to_dict(cd: CongDoan) -> dict:
         # ranh giới quy đổi. Hệ số thì engine tự có (`con`, `so_manh_xa` của chính phiếu).
         "don_vi_vao": cd.don_vi_vao,
         "don_vi_ra": cd.don_vi_ra,
+        # TRẠM dòng giấy của hai đơn vị đó (None = ngoài dòng giấy). Engine là hàm THUẦN nên không
+        # tự tra danh mục được — tầng này có `db` thì tra hộ. Thiếu hai khoá này thì engine lùi về
+        # luật cũ "có khai đơn vị = trên dòng giấy", đúng với dữ liệu thời chỉ 5 mã khai được.
+        "tram_vao": tram.get(cd.don_vi_vao) if tram else None,
+        "tram_ra": tram.get(cd.don_vi_ra) if tram else None,
     }
 
 
@@ -131,17 +137,32 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
             d["vung_in_dai"] = may.vung_in_dai or 0
             d["vung_in_rong"] = may.vung_in_rong or 0
 
-    # Dòng gia công sau in: bơm cấu hình công đoạn khi dòng KHÔNG có đơn giá phẳng.
+    # Dòng gia công sau in: bơm cấu hình công đoạn cho MỌI dòng có gắn danh mục.
+    #
+    # 🔴 GỠ ĐIỀU KIỆN `not _f(rd.get("don_gia"))` (11/08/2026). Nó là tàn dư thời công đoạn còn
+    # tính được bằng ĐƠN GIÁ PHẲNG: dòng nào gõ giá tay thì khỏi cần cấu hình danh mục. Nhưng
+    # công đoạn đã **formula-only** từ 22/07 (siết trọn 11/08) — engine không đọc `don_gia` của
+    # dòng nữa, xem `thanh_phan_engine`. Điều kiện ở lại chẳng còn tiết kiệm gì, chỉ còn gây hại:
+    #
+    #   dòng có đơn giá phẳng ⇒ không nạp `cong_doan` ⇒ mất `tram_vao`/`tram_ra` ⇒ bước RƠI khỏi
+    #   dòng giấy ⇒ **bù hao của bước biến mất khỏi báo giá**, mà LỆNH thì vẫn tính đủ (nó đọc
+    #   routing thẳng từ `cong_doan_id`). Đo trên ca sách 2.000 cuốn 10 tay có bước xén hao 50
+    #   cuốn: phiếu ra 20.000 tờ, lệnh ra 20.500 tờ — báo giá hụt 500 tờ giấy, không cảnh báo nào
+    #   chỉ đúng chỗ (engine chỉ kêu chung "chưa khai đơn vị vào/ra").
+    #
+    # "Lấy giá ở đâu" và "bước này đứng đâu trên dòng giấy, hao bao nhiêu" là HAI câu hỏi khác
+    # nhau; buộc chung vào một `if` là chỗ sinh ra lệch. Cấu hình danh mục nay luôn nạp.
+    tram = ban_do_tram(db)   # đọc MỘT lần cho cả phiếu, không hỏi lại từng dòng
     rows: list[dict] = []
     for row in sorted(tp.thanh_phams, key=lambda r: (r.thu_tu or 0, r.id or 0)):
         rd: dict = {}
         for k in _ROW_SCALAR_FIELDS:
             v = getattr(row, k, None)
             rd[k] = v if (isinstance(v, (int, str, bool)) or v is None) else _f(v)
-        if not _f(rd.get("don_gia")) and row.cong_doan_id is not None:
+        if row.cong_doan_id is not None:
             cd = db.get(CongDoan, row.cong_doan_id)
             if cd is not None:
-                rd["cong_doan"] = _cong_doan_to_dict(cd)
+                rd["cong_doan"] = _cong_doan_to_dict(cd, tram)
         rows.append(rd)
     d["thanh_phams"] = rows
 

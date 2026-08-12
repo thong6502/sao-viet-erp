@@ -2,7 +2,8 @@ import React, { useMemo } from "react";
 import { nhanGiaoNhan, type RefRow } from "../pages/LsxRoutingTable";
 import { type EditRow, n, phut, thoiLuong } from "../pages/lsxBuoc";
 import { Icon } from "./Icons";
-import { LSX_DON_VI_LABELS, LSX_LOAI_BUOC_META } from "../api/client";
+import { LSX_LOAI_BUOC_META } from "../api/client";
+import { tenDonVi } from "../pages/tenDonVi";
 
 export interface DagNodeCardProps {
   row: EditRow;
@@ -173,12 +174,12 @@ export function DagNodeCard({
         <div className="dag-node__flow">
           <span>
             {n(row.so_luong_vao) > 0 ? n(row.so_luong_vao).toLocaleString("vi-VN") : "—"}{" "}
-            <small>{LSX_DON_VI_LABELS[row.don_vi_vao] ?? row.don_vi_vao}</small>
+            <small>{tenDonVi(row.don_vi_vao) ?? row.don_vi_vao}</small>
           </span>
           <span className="dag-node__flow-arrow">➔</span>
           <span>
             {n(row.so_luong_ra) > 0 ? n(row.so_luong_ra).toLocaleString("vi-VN") : "—"}{" "}
-            <small>{LSX_DON_VI_LABELS[row.don_vi_ra] ?? row.don_vi_ra}</small>
+            <small>{tenDonVi(row.don_vi_ra) ?? row.don_vi_ra}</small>
           </span>
         </div>
 

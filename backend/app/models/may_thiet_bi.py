@@ -131,7 +131,11 @@ class MayThietBi(Base):
 
     # ---- Túi JSON: field đặc thù theo loai_may + khối con của form ----
     # Khoá đang dùng: `chuan_bi_khoan` (các khoản chuẩn bị → cộng ra makeready_time_default) và
-    # `lich_bao_tri` (Lịch bảo trì định kỳ: [{viec, so, don_vi}] với don_vi ∈ ngay|tuan|thang|nam).
+    # `lich_bao_tri` — Lịch bảo trì định kỳ, mỗi phần tử là một GÓI:
+    #   {id, viec, so, don_vi ∈ ngay|tuan|thang|nam, ngay_bat_dau, hang_muc: [{id, ten}]}
+    # `id` (dạng `hm-...`) là NEO của phiếu bảo trì (`bao_tri_phieu.goi_id`) — đổi tên gói không mất
+    # mốc. `ngay_bat_dau` (ISO date) là mốc cho kỳ ĐẦU; từ kỳ 2 hạn tính từ ngày hoàn thành phiếu
+    # gần nhất, xem `services/ky_thuat_may_service.py::han_ke_tiep`.
     fields_theo_loai: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

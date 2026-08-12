@@ -9,6 +9,7 @@ import {
   ApiError,
   LSX_CANH_BAO_LABELS,
   LSX_THIEU_LABELS,
+  nhanMa,
   api,
   type LsxActivity,
   type LsxCongDoanBody,
@@ -27,6 +28,8 @@ import { MucInHang } from "../components/MucIn";
 import { Timeline } from "../components/Timeline";
 import { ImpositionDiagram } from "./ImpositionDiagram";
 import { LsxRoutingTable, type RefRow } from "./LsxRoutingTable";
+import { donViChuoi } from "./lsxBuoc";
+import { useNapTenDonVi } from "./tenDonVi";
 import {
   BangLoi,
   ChipGap,
@@ -127,6 +130,8 @@ export function LsxDetailView({
 }) {
   const { token } = useAuth();
   const canUpdate = useCan()("san_xuat", "update");
+  // Nhãn đơn vị đọc từ DANH MỤC (không bảng nhãn cứng) — cùng nguồn với bảng routing và Tính giá.
+  useNapTenDonVi();
   const [d, setD] = useState<LsxDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -404,6 +409,13 @@ export function LsxDetailView({
   // Nhãn cách in nay nằm trong chính ô <select> của khối thông số — không dựng thêm biến nhãn
   // thứ hai. Khổ tờ in 0 × 0 (in thẳng khổ giấy nguyên) được nói bằng dòng hint dưới hai ô nhập.
   const vatTus = (Array.isArray(qc.vat_tus) ? qc.vat_tus : []) as { ten?: string; so_luong?: number }[];
+  // ĐƠN VỊ CỦA CHÍNH LỆNH NÀY (12/08/2026) — trước đó thanh KPI và khối "Máy tự tính" gọi cứng
+  // "Tờ in" · "Tờ nguyên" · "con/tờ", trong khi xưởng khai đơn vị riêng trong danh mục: lệnh chạy
+  // `to_chay` ("TỜ CHẠY MÁY") mà màn vẫn ghi "TỜ IN". Luật đọc-từ-routing nằm ở `donViChuoi`
+  // (lsxBuoc.ts) — dùng chung với bảng routing, đừng chép lại ở đây.
+  const dvChuoi = donViChuoi(d, d.don_vi_tinh);
+  const { to: dvTo, tp: dvTp, tay: dvTay, toNguyen: dvToNguyen } = dvChuoi;
+
   // SÁCH GẤP TAY vs CẮT RỜI — cùng tiêu chí backend dùng để chọn nhánh hệ số (`la_gap_tay`).
   // Sách: tờ in gấp NGUYÊN VẸN thành một tay, một cuốn cần `soTay` TỜ → giấy nhân lên theo số tay,
   // và `con/tờ` KHÔNG vào công thức giấy (nó chỉ để bình bài + kiểm khổ có vừa tờ).
@@ -411,8 +423,8 @@ export function LsxDetailView({
   const laSach = trangMoiTay > 1;
   const soTay = laSach ? Math.max(Math.ceil(Math.max(n("so_trang"), 1) / trangMoiTay), 1) : 1;
   const giaiThichSach = laSach
-    ? `Sách gấp tay — con/tờ chỉ để bình bài và kiểm khổ, KHÔNG chi phối số giấy. `
-      + `Giấy tính theo ${num(soTay)} tờ in = 1 ${d.don_vi_tinh || "cuốn"}.`
+    ? `Sách gấp tay — ${dvTp}/${dvTo} chỉ để bình bài và kiểm khổ, KHÔNG chi phối số giấy. `
+      + `Giấy tính theo ${num(soTay)} ${dvTo} = 1 ${d.don_vi_tinh || "cuốn"}.`
     : undefined;
   // Ảnh chụp quy cách của lệnh CŨ không có các khoá thêm sau (bleed, khe cắt, cách bình…).
   // Thiếu khoá thì phải hiện "—", KHÔNG được để `n()` trả 0 rồi bày ra như số thật của phiếu.
@@ -505,7 +517,7 @@ export function LsxDetailView({
                   <ul>
                     {d.thieu.map((code) => (
                       <li key={code}>
-                        <span>• {LSX_THIEU_LABELS[code] ?? code}</span>
+                        <span>• {nhanMa(LSX_THIEU_LABELS, code, dvChuoi)}</span>
                         {code === "thieu_routing" && (
                           <button type="button" className="khsx-xlink" onClick={() => setTab("routing")}>Sửa →</button>
                         )}
@@ -526,7 +538,7 @@ export function LsxDetailView({
             {d.canh_bao.length > 0 && (
               <span
                 className="khsx-topbar__tag khsx-topbar__tag--info"
-                title={d.canh_bao.map((c) => LSX_CANH_BAO_LABELS[c] ?? c).join("; ")}
+                title={d.canh_bao.map((c) => nhanMa(LSX_CANH_BAO_LABELS, c, dvChuoi)).join("; ")}
               >
                 <Icon name="help" size={13} /> {d.canh_bao.length} lưu ý
               </span>
@@ -567,34 +579,48 @@ export function LsxDetailView({
             </span>
           </div>
 
+          {/* NHÃN nói CHẶNG, ĐƠN VỊ đi với con số (12/08/2026) — cùng luật với bảng danh sách lệnh
+              và bảng lệnh dự kiến. Bản trước lấy tên đơn vị làm nhãn thẻ, nên chặng nào routing
+              không nói tới là phải bịa một chữ ("TỜ NGUYÊN") rồi bày cạnh chữ đọc thật.
+              Ngoại lệ có chủ ý: các ô KÍCH THƯỚC ("Khổ … dài") vẫn mang tên đơn vị trong nhãn —
+              giá trị ở đó là mm, không có cặp số+đơn vị nào để tách. */}
           <div className="khsx-kpi-tile">
             <span className="khsx-kpi-tile__label">Bù hao</span>
             <span className="khsx-kpi-tile__val">
-              {num(d.bu_hao_to)} <small>tờ</small>
+              {num(d.bu_hao_to)} <small>{dvTo}</small>
             </span>
           </div>
 
           <div className="khsx-kpi-tile khsx-kpi-tile--hero">
-            <span className="khsx-kpi-tile__label">Tờ in</span>
-            <span className="khsx-kpi-tile__val">{num(d.so_to_ke_hoach)}</span>
+            <span className="khsx-kpi-tile__label">Vào máy</span>
+            <span className="khsx-kpi-tile__val">
+              {num(d.so_to_ke_hoach)} <small>{dvTo}</small>
+            </span>
           </div>
 
           <div className="khsx-kpi-tile">
-            <span className="khsx-kpi-tile__label">Tờ nguyên</span>
-            <span className="khsx-kpi-tile__val">{num(d.so_to_nguyen)}</span>
+            <span className="khsx-kpi-tile__label">Giấy nguyên</span>
+            <span className="khsx-kpi-tile__val">
+              {num(d.so_to_nguyen)} <small>{dvToNguyen}</small>
+            </span>
           </div>
 
           {laSach ? (
             <div className="khsx-kpi-tile" title={giaiThichSach}>
-              <span className="khsx-kpi-tile__label">Sách · tay</span>
+              <span className="khsx-kpi-tile__label">Gấp tay</span>
               <span className="khsx-kpi-tile__val">
-                {num(soTay)} <small>tờ/cuốn</small>
+                {num(soTay)} <small>{dvTay || dvTo}{d.don_vi_tinh ? ` / ${d.don_vi_tinh}` : ""}</small>
               </span>
             </div>
           ) : (
-            <div className="khsx-kpi-tile">
-              <span className="khsx-kpi-tile__label">Con / tờ</span>
-              <span className="khsx-kpi-tile__val">{num(d.so_con)}</span>
+            <div
+              className="khsx-kpi-tile"
+              title={dvTp && dvTo ? `${num(d.so_con)} ${dvTp} trên 1 ${dvTo}` : undefined}
+            >
+              <span className="khsx-kpi-tile__label">Bình bài</span>
+              <span className="khsx-kpi-tile__val">
+                {num(d.so_con)} <small>{dvTp}</small>
+              </span>
             </div>
           )}
 
@@ -749,7 +775,7 @@ export function LsxDetailView({
                         trang mà không chạy lại — chính engine ghi cảnh báo đó trong docstring. */}
                     <KV
                       k="Số bài in"
-                      v={laSach ? `${num(soTay)} tờ in = 1 ${s("don_vi_tinh")}` : num(n("so_to_per_sp"))}
+                      v={laSach ? `${num(soTay)} ${dvTo} = 1 ${s("don_vi_tinh")}` : num(n("so_to_per_sp"))}
                       mono
                     />
                     {/* Hai số PHÂN BIỆT sách với hàng cắt rời. Có sẵn trong ảnh chụp quy cách nhưng
@@ -769,7 +795,10 @@ export function LsxDetailView({
                   <div className="khsx-spec__card-icon">
                     <Icon name="printer" size={16} />
                   </div>
-                  <h4 className="khsx-spec__title">Giấy &amp; tờ in</h4>
+                  {/* "Khổ giấy nguyên" là kích thước TỜ GIẤY MUA VỀ — thuộc tính của giấy trong
+                      danh mục, không phải đơn vị đếm của routing, nên giữ nguyên chữ. Còn "tờ in"
+                      chính là đơn vị bước in đang đếm ⇒ lấy tên từ danh mục. */}
+                  <h4 className="khsx-spec__title">Giấy &amp; {dvTo}</h4>
                   {/* Ảnh chụp từ phiếu, nhưng SỬA ĐƯỢC tại chỗ — kế hoạch khỏi phải quay về phiếu
                       rồi tạo lại lệnh (tạo lại là mất sạch routing đã chỉnh). Lệnh vẫn KHÔNG tự
                       bám theo phiếu. Nói rõ ở nhãn vì ngay khối dưới là số máy tự tính, không sửa
@@ -786,9 +815,9 @@ export function LsxDetailView({
                       v={form.qc.kho_nguyen_dai} onChange={(x) => setQc({ kho_nguyen_dai: x })} />
                     <KVNum k="Khổ giấy nguyên rộng" suffix="mm" disabled={!canUpdate}
                       v={form.qc.kho_nguyen_rong} onChange={(x) => setQc({ kho_nguyen_rong: x })} />
-                    <KVNum k="Khổ tờ in dài" suffix="mm" disabled={!canUpdate}
+                    <KVNum k={`Khổ ${dvTo} dài`} suffix="mm" disabled={!canUpdate}
                       v={form.qc.kho_in_dai} onChange={(x) => setQc({ kho_in_dai: x })} />
-                    <KVNum k="Khổ tờ in rộng" suffix="mm" disabled={!canUpdate}
+                    <KVNum k={`Khổ ${dvTo} rộng`} suffix="mm" disabled={!canUpdate}
                       v={form.qc.kho_in_rong} onChange={(x) => setQc({ kho_in_rong: x })} />
                     {/* 0 × 0 = CHƯA khai khổ tờ in — engine chạy thẳng trên khổ giấy nguyên. Nói
                         ra chứ để hai số 0 trần thì trông như thiếu dữ liệu. */}
@@ -872,7 +901,7 @@ export function LsxDetailView({
                       className={`khsx-kv ${laSach ? "" : "khsx-kv--edit"}`}
                       title={giaiThichSach}
                     >
-                      <span className="khsx-kv__key">Con / tờ</span>
+                      <span className="khsx-kv__key">{dvTp} / {dvTo}</span>
                       <input
                         className="khsx-kv__input"
                         type="number"
@@ -888,9 +917,13 @@ export function LsxDetailView({
                     <KVDeriv k="Số mảnh xả" cu={n("so_manh_xa")} moi={xemTruoc?.so_manh_xa} />
                     <KVDeriv k="Số kẽm" cu={n("so_kem")} moi={xemTruoc?.so_kem} />
                     <KVDeriv k="Số lượt in" cu={n("so_luot")} moi={xemTruoc?.so_luot} />
-                    <KVDeriv k="Số tờ kế hoạch" cu={d.so_to_ke_hoach} moi={xemTruoc?.so_to_ke_hoach} />
-                    <KVDeriv k="Số tờ nguyên" cu={d.so_to_nguyen} moi={xemTruoc?.so_to_nguyen} />
-                    <KVDeriv k="Số bài in (tay)" cu={n("so_to_per_sp") || 1} moi={xemTruoc?.so_to_per_sp} />
+                    <KVDeriv k={`Số ${dvTo} kế hoạch`} cu={d.so_to_ke_hoach} moi={xemTruoc?.so_to_ke_hoach} />
+                    <KVDeriv k={`Số ${dvToNguyen}`} cu={d.so_to_nguyen} moi={xemTruoc?.so_to_nguyen} />
+                    <KVDeriv
+                      k={`Số bài in${dvTay ? ` (${dvTay})` : ""}`}
+                      cu={n("so_to_per_sp") || 1}
+                      moi={xemTruoc?.so_to_per_sp}
+                    />
                     <KV
                       k="Cách bình"
                       v={co("con_auto") ? (qc.con_auto === false ? "Ép số con" : "Máy tự bình") : "—"}
@@ -965,6 +998,8 @@ export function LsxDetailView({
                       kheCatMm={form.qc.khe_cat_mm ?? 0}
                       soCon={xemTruoc?.so_con ?? n("so_con")}
                       trangMoiTay={form.qc.trang_moi_tay ?? 1}
+                      dvCon={dvTp}
+                      dvTo={dvTo}
                     />
                   </div>
                 </div>
@@ -1003,6 +1038,7 @@ export function LsxDetailView({
                     onDauViecOptions={dauViecOptions}
                     onGiaoNhan={ghiGiaoNhan}
                     onDirtyChange={setRoutingDirty}
+                    dvChuoi={dvChuoi}
                   />
                 </div>
               </div>

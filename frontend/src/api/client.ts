@@ -228,6 +228,9 @@ export type QuoteEvent =
   // "care_assigned" khi giao hẹn cho người khác — gửi riêng người phụ trách.
   | { type: "care_due"; customer: string; customer_id: number; note: string }
   | { type: "care_assigned"; customer: string; customer_id: number; note: string }
+  // Phiếu bảo trì tới ngày (ticker `bao_tri_reminders.py`): gửi riêng người NHẬN việc, phiếu chưa
+  // ai nhận thì gửi mọi tài khoản có quyền sửa `ky_thuat_may` (tổ sửa chữa).
+  | { type: "bao_tri_due"; phieu_id: number; ma: string; may: string; goi: string; qua_han: boolean }
   // Tạm ứng lương: NV gửi đề nghị → 'pending_changed' (người duyệt refetch badge); kế toán
   // duyệt/từ chối → 'decision' gửi riêng nhân viên đề nghị.
   | { type: "advance_pending_changed"; code?: string }
@@ -291,29 +294,15 @@ export type LsxDonVi = "to_nguyen" | "to" | "cai" | "kem" | "bai";
 export type LsxLoaiBuoc = "may" | "to" | "thue_ngoai";
 export type LsxDonViNangSuat = "to_gio" | "cai_gio" | "kem_gio";
 
-export const LSX_DON_VI_LABELS: Record<string, string> = {
-  to_nguyen: "Tờ nguyên (giấy to)",
-  to: "Tờ in",
-  tay: "Tay sách",
-  cai: "Thành phẩm",
-  kem: "Kẽm",
-  bai: "Bài",
-  ban: "Bản",
-  kg: "kg",
-  m2: "m²",
-  m3: "m³",
-  met: "Mét",
-  m: "m",
-  cuon: "Cuộn",
-  hop: "Hộp",
-  ram: "Ram",
-  bo: "Bộ",
-  khuon: "Khuôn",
-  lo: "Lô",
-  thung: "Thùng",
-  bao: "Bao",
-  kg_giay: "kg",
-};
+// 🔴 `LSX_DON_VI_LABELS` ĐÃ GỠ 12/08/2026 — bảng nhãn đơn vị khai cứng ở đây.
+//
+// Nó nói `to` = "Tờ in" và `cai` = "Thành phẩm", trong khi DANH MỤC Đơn vị ghi "tờ" và "cái". Hệ quả
+// thấy được trên màn: bảng Công đoạn hiện "Tờ in → Thành phẩm" nhưng mở drawer ra lại là "tờ → cái"
+// — cùng một giá trị, hai cái tên. Còn `lsxBuoc.DON_VI` thì gọi `cai` là "Con": ba tên cho một thứ.
+//
+// Đơn vị là danh mục ĐỘNG, xưởng tự khai và tự đổi tên. Nhãn nay đọc từ chính danh mục:
+// `pages/tenDonVi.ts` (nạp một lần cho cả phiên) và `CongDoanRow.don_vi_vao_ten` (server gán).
+// Đừng dựng lại bảng thứ hai ở đây.
 
 
 /** Nhãn + màu của loại bước. `tone` map sang class `.khsx-lb--{tone}` trong ke-hoach-sx.css. */
@@ -323,8 +312,21 @@ export const LSX_LOAI_BUOC_META: Record<LsxLoaiBuoc, { label: string; tone: stri
   thue_ngoai: { label: "Thuê ngoài", tone: "ngoai", hint: "Nhà gia công làm — không chiếm máy nội bộ" },
 };
 
-/** Mã checklist "thiếu gì" → nhãn hiển thị (server trả mã, FE dịch). CHẶN nút Sẵn sàng. */
-export const LSX_THIEU_LABELS: Record<string, string> = {
+/** Đơn vị bốn chặng của lệnh đang xét — xem `pages/lsxBuoc.donViChuoi`. Khai lại hình dạng tối
+ *  thiểu ở đây để `client.ts` không phải import ngược từ `pages/`. */
+export interface DonViNhan { to: string; tp: string; tay: string; toNguyen: string }
+const DV_TRONG: DonViNhan = { to: "", tp: "", tay: "", toNguyen: "" };
+
+/** Nhãn checklist: chuỗi cố định, hoặc HÀM khi câu cần gọi tên đơn vị của chính lệnh đó. */
+type NhanMa = string | ((dv: DonViNhan) => string);
+
+/** Mã checklist "thiếu gì" → nhãn hiển thị (server trả mã, FE dịch). CHẶN nút Sẵn sàng.
+ *
+ *  Bốn câu nhắc tới ĐƠN VỊ là HÀM, không phải chuỗi (12/08/2026): tên đơn vị do xưởng đặt trong
+ *  danh mục, viết cứng "tờ in → con" thì lệnh khai `to_chay`/`sp_xong` đọc lên là hai chữ KHÔNG
+ *  tồn tại trên màn hình — người dùng đi tìm không thấy. Không đọc được đơn vị (routing chưa khai)
+ *  thì hàm tự lùi về câu chung, KHÔNG bịa tên. */
+export const LSX_THIEU_LABELS: Record<string, NhanMa> = {
   khong_co_ptg: "Chưa có bài tính giá",
   thieu_giay: "Thiếu loại giấy",
   thieu_kho: "Thiếu kích thước",
@@ -337,27 +339,48 @@ export const LSX_THIEU_LABELS: Record<string, string> = {
   thieu_ncc: "Công đoạn thuê ngoài chưa có nhà gia công",
   thieu_tg_thue_ngoai: "Công đoạn thuê ngoài chưa có ngày gửi / nhận",
   // Hệ số quy đổi nay do server suy, không ai khai — chỉ thiếu NGUỒN của nó mới là lỗi thật.
-  // Hai cầu, hai nguồn: `tờ in → con` lấy con/tờ, `tờ nguyên → tờ in` lấy số mảnh xả.
-  thieu_con_tren_to: "Có công đoạn đổi tờ in → con nhưng chưa khai Con/tờ",
-  thieu_manh_xa: "Có công đoạn đổi tờ nguyên → tờ in nhưng chưa có số mảnh xả",
-  // Cầu thứ ba, nguồn thứ ba: `tay → cuốn` của sách suy từ số trang / trang mỗi tay, KHÔNG
-  // dùng con/tờ — nên lệnh sách thiếu dữ liệu ở chỗ khác hẳn lệnh tờ rời.
-  thieu_trang_moi_tay: "Có công đoạn đổi tay → cuốn nhưng chưa khai Số trang / Trang mỗi tay",
+  // Ba cầu, ba nguồn KHÁC NHAU: đổi mức lấy Con/tờ, xả giấy lấy số mảnh xả, còn sách thì lấy
+  // số trang / trang mỗi tay (KHÔNG dùng con/tờ) — nên lệnh sách thiếu ở chỗ khác lệnh tờ rời.
+  thieu_con_tren_to: (dv) =>
+    dv.to && dv.tp
+      ? `Chưa khai Con/tờ — có công đoạn đổi ${dv.to} → ${dv.tp}`
+      : "Chưa khai Con/tờ — có công đoạn đổi cách đếm",
+  thieu_manh_xa: (dv) =>
+    dv.toNguyen && dv.to
+      ? `Chưa có số mảnh xả — có công đoạn đổi ${dv.toNguyen} → ${dv.to}`
+      : "Chưa có số mảnh xả — có công đoạn xả giấy",
+  thieu_trang_moi_tay: (dv) =>
+    dv.tay && dv.tp
+      ? `Chưa khai Số trang / Trang mỗi tay — có công đoạn đổi ${dv.tay} → ${dv.tp}`
+      : "Chưa khai Số trang / Trang mỗi tay — có công đoạn gom tay thành cuốn",
 };
 
 /** Cảnh báo MỀM — chỉ tô màu, không chặn lưu và không chặn Sẵn sàng. */
-export const LSX_CANH_BAO_LABELS: Record<string, string> = {
+export const LSX_CANH_BAO_LABELS: Record<string, NhanMa> = {
   ra_lon_hon_vao: "Có công đoạn ra nhiều hơn vào",
   dut_chuyen: "Đứt chuyền — bước sau đòi nhiều hơn bước trước giao",
   vuot_han_giao: "Tổng thời gian dẫn vượt hạn giao khách",
   khac_bai_tinh_gia: "Routing đã đổi so với bài tính giá",
-  may_khong_hop_kho: "Khổ tờ in vượt khổ tối đa của máy",
+  may_khong_hop_kho: (dv) => `Khổ ${dv.to || "tờ in"} vượt khổ tối đa của máy`,
   // Chuỗi 3 đơn vị (tờ nguyên → tờ in → tờ thành phẩm) — kiểm trên các bước CÓ đơn vị, bước
   // không chạm giấy (chế bản) đứng ngoài.
+  // Bước khai đơn vị hợp lệ nhưng KHÔNG nằm trên dòng giấy (vd `lượt → lượt`): nó rơi khỏi chuỗi
+  // bù hao nên số lượng đứng im ở 0 và hao của nó biến mất khỏi số giấy — phải nói ra.
+  buoc_ngoai_dong_giay: "Có công đoạn khai đơn vị ngoài dòng giấy — số lượng và bù hao của nó không được tính",
   cap_don_vi_sai: "Có công đoạn khai đơn vị đi ngược dòng giấy",
   dut_don_vi: "Chuỗi đứt đơn vị — bước sau ăn đơn vị khác bước trước nhả",
   lech_sl_don: "Bước cuối ra khác số lượng đơn đặt",
 };
+
+/** Mã → câu, đã thế tên đơn vị của CHÍNH lệnh đang xét. Mã lạ ⇒ trả mã trần (thà thấy mã còn hơn
+ *  nuốt mất). `dv` bỏ trống ⇒ câu lùi về bản chung, không có tên đơn vị nào. */
+export function nhanMa(
+  bang: Record<string, NhanMa>, ma: string, dv?: DonViNhan | null,
+): string {
+  const n = bang[ma];
+  if (n === undefined) return ma;
+  return typeof n === "function" ? n(dv || DV_TRONG) : n;
+}
 
 // --- Bài ghép (print gang) — gom công đoạn in nhiều LSX chạy chung 1 tờ --------
 export type BaiGhepTrangThai = "nhap" | "san_sang";
@@ -1027,6 +1050,12 @@ export interface LsxPreviewLine {
   so_con: number | null;
   so_kem: number | null;
   so_luot: number | null;
+  /** MÃ đơn vị từng chặng dòng giấy của DÒNG NÀY. null = routing không nói tới chặng đó (vd không
+   *  có bước xả giấy) ⇒ dùng nhãn mặc định. Tên lấy bằng `tenDonVi(ma)`. */
+  don_vi_to: string | null;
+  don_vi_to_nguyen: string | null;
+  don_vi_tp: string | null;
+  don_vi_tay: string | null;
   routing: LsxPreviewRouting[];
   quy_cach: Record<string, unknown> | null;
   thieu: string[];
@@ -1093,6 +1122,9 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   // Đơn vị VÀO ≠ RA là chuyện thường ở bế/xén — hệ số quy đổi nối hai đầu.
   so_luong_vao: number; so_luong_ra: number;
   don_vi_vao: string; don_vi_ra: string; he_so_quy_doi: number;
+  /** Bước có nằm trên DÒNG GIẤY không (server quyết theo cờ trạm của danh mục Đơn vị — FE không
+   *  tự suy từ mã được). `false` ⇒ số lượng KHÔNG tự tính và bù hao không cộng vào số giấy. */
+  tren_dong_giay: boolean;
   hao_hut: number; hao_hut_pct: number; ty_le_hao_hut: number; so_luot_chay: number;
   so_nhan_cong: number; so_nhan_cong_tieu_chuan: number; so_nhan_cong_toi_da: number | null;
   /** Mốc thứ ba của định mức nhân lực — khai báo, chưa vào công thức thời lượng. */
@@ -1110,7 +1142,10 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   tong_phut: number;
   thoi_luong_dien_giai: Record<string, unknown>;
   phu_thuoc_step_keys: string[];
-  vat_tus: { id: number; vat_tu_id: number; vat_tu_ma: string; vat_tu_ten: string; don_vi: string; so_luong: number }[];
+  /** `tu_dong` = dòng máy bung khi chọn công việc khoán (mg 0191) ⇒ lần bung sau thay được.
+   *  false = người tự thêm / đã sửa số ⇒ máy chừa ra. */
+  vat_tus: { id: number; vat_tu_id: number; vat_tu_ma: string; vat_tu_ten: string;
+             don_vi: string; so_luong: number; tu_dong?: boolean }[];
   ghi_chu: string | null;
   // --- Khoán theo đầu việc: phần GHIM (đã chọn) + phần DẪN XUẤT (server tính lúc đọc) ---
   khoan_rate_id: number | null;
@@ -1184,7 +1219,18 @@ export interface LsxDauViecOption {
   /** `so_nguoi_toi_thieu` mới là KHAI BÁO — chưa vào công thức thời lượng. */
   so_nguoi_toi_thieu?: number;
   so_nguoi_tieu_chuan: number; so_nguoi_toi_da: number;
-  is_default: boolean; don_vi_nang_suat: string | null;
+  /** `is_default` GỠ 12/08/2026 (mg 0190): đầu việc điền sẵn nay chỉ suy từ "công đoạn có đúng
+   *  MỘT đầu việc", không còn cờ khai ở danh mục. */
+  don_vi_nang_suat: string | null;
+  /** VẬT TƯ đầu việc này tiêu thụ, ĐÃ tính số cho đúng bước đang mở (nền BOM, mg 0191). Chỉ có khi
+   *  đọc lệnh — đường đổi tổ (`dau-viec-options`) không có bước nên trả rỗng. */
+  vat_tus?: {
+    vat_tu_id: number; ma: string; ten: string; don_vi: string;
+    so_luong: number; dien_giai?: string | null;
+  }[];
+  /** Vật tư khai ở danh mục nhưng KHÔNG quy đổi được sang đơn vị của nó — máy không đoán, chỉ nói
+   *  thiếu gì để người kế hoạch tự thêm. */
+  canh_bao_vat_tu?: string[];
 }
 export interface LsxListItem {
   id: number; ma: string; loai: string; ten: string; trang_thai: LsxTrangThai;
@@ -1194,6 +1240,10 @@ export interface LsxListItem {
   so_luong_dat: number; don_vi_tinh: string; so_to_ke_hoach: number;
   han_giao_khach: string | null; han_hoan_thanh_sx: string | null;
   is_rush: boolean; to_dau_ten: string | null; so_cong_doan: number;
+  /** MÃ đơn vị chặng TỜ IN của lệnh này (server đọc từ routing). Bảng liệt kê nhiều lệnh, mỗi lệnh
+   *  có thể đếm bằng đơn vị xưởng tự đặt — nên đơn vị đi theo DÒNG, không nằm ở tiêu đề cột.
+   *  Tên lấy bằng `tenDonVi(ma)`; null = lệnh chưa có bước nào trên dòng giấy. */
+  don_vi_to: string | null;
 }
 export interface LsxListOut { items: LsxListItem[]; total: number }
 export interface LsxDetail {
@@ -1207,6 +1257,13 @@ export interface LsxDetail {
   phieu_thanh_phan_id: number | null; ptg_id: number | null; ptg_ma: string | null;
   so_luong_dat: number; don_vi_tinh: string; bu_hao_to: number;
   so_to_ke_hoach: number; so_to_nguyen: number; so_con: number;
+  /** MÃ đơn vị bốn chặng dòng giấy — SERVER chấm (`dong_giay.don_vi_chuoi`), client chỉ tra TÊN.
+   *  Đừng suy lại ở FE: bản chép tay thứ hai đã từng cùng sai với bản server ở chặng `tay`.
+   *  null = routing không nói tới chặng đó ⇒ hiện mỗi con số, không bịa nhãn. */
+  don_vi_to: string | null;
+  don_vi_to_nguyen: string | null;
+  don_vi_tp: string | null;
+  don_vi_tay: string | null;
   ban_giao_at: string | null; han_giao_khach: string | null; han_hoan_thanh_sx: string | null;
   is_rush: boolean;
   quy_cach_json: Record<string, unknown> | null;
@@ -2543,6 +2600,11 @@ export interface EmployeeDetail extends EmployeeRow {
   resign_date: string | null;
   resign_reason: string | null;
   note: string | null;
+  /** Thâm niên đã có TRƯỚC khi vào làm (tháng) — cộng với thời gian từ `hire_date` mới ra
+   *  thâm niên tổng. Bỏ vế này là tính hụt với người chuyển từ nơi khác sang. */
+  prior_seniority_months?: number;
+  /** Trưởng bộ phận. CHỈ `/api/employees/me` điền (màn HCNS để null — tránh N+1). */
+  department_head_name?: string | null;
 }
 
 export interface EmployeeKpis {
@@ -2741,8 +2803,12 @@ export interface UpdateRequest {
   employee_name: string | null;
   changes: Record<string, string | number | null>;
   reason: string | null;
+  /** pending | approved | rejected | cancelled (`cancelled` = NV tự rút lại). */
   status: string;
   decision_note: string | null;
+  /** Lúc HCNS quyết — hoặc lúc chính NV rút lại đề nghị. */
+  decided_at: string | null;
+  decided_by_name: string | null;
   created_at: string;
 }
 export interface UpdateRequestInput {
@@ -6423,6 +6489,10 @@ export const api = {
     },
     myRequests(token: string): Promise<{ items: UpdateRequest[] }> {
       return authed<{ items: UpdateRequest[] }>("/api/employees/me/update-requests", token);
+    },
+    /** NV tự rút lại đề nghị của mình khi HCNS chưa xử lý. Dòng vẫn còn (status `cancelled`). */
+    cancelMyRequest(token: string, id: number): Promise<UpdateRequest> {
+      return authed<UpdateRequest>(`/api/employees/me/update-requests/${id}/cancel`, token, { method: "POST" });
     },
     updateRequests(token: string, status?: string): Promise<{ items: UpdateRequest[] }> {
       const s = status ? `?status=${encodeURIComponent(status)}` : "";

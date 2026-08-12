@@ -37,6 +37,9 @@ MODULES: list[tuple[str, str]] = [
     ("thu_mua", "Thu mua"),
     ("ke_toan", "Kế toán"),
     ("san_xuat", "Sản xuất"),
+    # Kỹ thuật máy (12/08/2026): MỘT module cho cả hai màn Sửa chữa máy + Phiếu bảo trì — cùng một
+    # người làm cả hai việc, tách hai dòng quyền chỉ tổ bắt người cấp quyền tick hai lần.
+    ("ky_thuat_may", "Kỹ thuật máy"),
     ("kho", "Kho hàng"),
     ("khuon_be", "Khuôn bế"),
     ("phong_ban", "Phòng ban"),
@@ -316,6 +319,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # can_approve = phát hành kế hoạch; can_approve_exception = duyệt ngoại lệ (bỏ qua cảnh
             # báo khi phát hành) — Kế hoạch SX (trưởng điều độ) cầm cả hai.
             "san_xuat": {**_rcu(SCOPE_ALL), "can_approve": True, "can_approve_exception": True},
+            # Điều độ XEM phiếu kỹ thuật để biết máy nào sắp/đang nằm mà né khi xếp lịch.
+            "ky_thuat_may": _read(SCOPE_ALL),
             # Bảng cân đối vật tư có nút "Đề nghị mua" cho dòng thiếu — nút đó gác bằng
             # `thu_mua:request`. KHÔNG cấp thì nút tự ẩn và người điều độ nhìn thấy lệnh sắp
             # thiếu giấy mà không làm gì được ngay tại chỗ. Chỉ `request` + đọc phiếu của mình:
@@ -339,6 +344,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_OWN),
             "san_xuat": {**_read(SCOPE_OWN), "can_assign_work": True, "can_record_output": True, "can_handover": True},
+            # Tổ trưởng vẫn cần ĐỌC danh mục máy (đổ danh sách máy ở màn của tổ), không sửa.
+            "dm_thiet_bi": _read(SCOPE_ALL),
             # Kho: đề nghị lĩnh vật tư cho tổ + DUYỆT cấp 1 đề nghị của tổ mình (BRD §2.8 b5 —
             # "Tổ trưởng/Quản lý duyệt đề xuất cấp phát"). Scope DEPARTMENT: phải thấy đề nghị của
             # NV trong phòng mới duyệt được (own chỉ thấy của mình → không có gì để duyệt).
@@ -351,6 +358,20 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "nghi_phep": _leave_lead(SCOPE_DEPARTMENT),
             "tang_ca": _ot_lead(SCOPE_DEPARTMENT),
             "di_muon": _el_lead(SCOPE_DEPARTMENT),
+        },
+    ),
+    # Thợ sửa chữa (12/08/2026): vai DUY NHẤT thao tác module Kỹ thuật máy — ghi nhận máy hỏng, ghi
+    # đã sửa gì, làm phiếu bảo trì định kỳ. Cấp full `ky_thuat_may` vì cùng một người mở phiếu và
+    # đóng phiếu; cái gác cửa là ẢNH chứng thực (chặn ở service), không phải chữ ký người thứ hai.
+    # Kèm ĐỌC danh mục máy: không có nó thì ô chọn máy trên phiếu rỗng.
+    (
+        "Sản xuất",
+        "Thợ sửa chữa",
+        {
+            "dashboard": _read(SCOPE_OWN),
+            "ky_thuat_may": _full(SCOPE_ALL),
+            "dm_thiet_bi": _read(SCOPE_ALL),
+            "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self(),
         },
     ),
     # Thợ SX: CHỈ xem việc được gán (read scope own, không gán) → hộp việc lọc theo bước được gán.
@@ -493,6 +514,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_ALL),
             "kho": {**_read(SCOPE_DEPARTMENT), "can_request": True, "can_approve": True},
             "san_xuat": _full(SCOPE_ALL),
+            # Quản lý XEM được phiếu sửa chữa / bảo trì (máy nào đang nằm, ai đang sửa) nhưng KHÔNG
+            # nhập hộ — nhập hộ là mở đường cho phiếu ghi sai người làm.
+            "ky_thuat_may": _read(SCOPE_ALL),
         },
     ),
     # Nhân viên mua hàng: đề nghị NHẬP khi tồn chạm ngưỡng (nguồn của phiếu nhập mua NCC).
@@ -2099,6 +2123,10 @@ def seed_all(db: Session) -> None:
         # khách + sale + danh mục giấy/công đoạn + tổ SX + tài khoản kế hoạch ở trên.
         from .seed_luong_ban_sx import seed_luong_ban_sx
         seed_luong_ban_sx(db)
+        # Kỹ thuật máy: lịch bảo trì trên máy + phiếu sửa chữa + phiếu bảo trì. CHẠY SAU vì cần
+        # danh mục máy (`_ensure_may_nang_luc` ở trên) và vai "Thợ sửa chữa" từ seed RBAC.
+        from .seed_ky_thuat_may import seed_ky_thuat_may
+        seed_ky_thuat_may(db)
     # Danh mục Nhóm máy — vận hành thật, KHÔNG gated demo (thiếu nó thì ô "Nhóm máy" trống trơn,
     # không khai được máy nào). Chạy SAU khối demo để gom luôn nhóm của đám máy vừa seed.
     from .seed_rebuild import seed_nhom_may

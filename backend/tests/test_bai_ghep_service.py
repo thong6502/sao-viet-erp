@@ -1096,7 +1096,7 @@ def test_khoan_luot_chung_ghim_theo_id_va_chan_dau_viec_la(
     db.flush()
     db.add(CongDoanDauViec(
         cong_doan_id=cd_in_id, piece_rate_id=rate.id,
-        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2, so_nguoi_toi_da=3, is_default=True,
+        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2, so_nguoi_toi_da=3,
     ))
     db.commit()
 

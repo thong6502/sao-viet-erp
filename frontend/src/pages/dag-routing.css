@@ -90,6 +90,46 @@
   border-color: #adb5bd;
 }
 
+/* Cụm zoom gom thành một viên: 3 nút rời cạnh nhau đọc như 3 lệnh không liên quan. */
+.dag-zoom {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.dag-zoom__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: #343a40;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.dag-zoom__btn:hover {
+  background: #f1f3f5;
+}
+
+.dag-zoom__val {
+  min-width: 44px;
+  text-align: center;
+  font-family: var(--ff-mono, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  color: #343a40;
+  border-left: 1px solid #e9ecef;
+  border-right: 1px solid #e9ecef;
+  line-height: 30px;
+}
+
 /* Hàng ngang: ngăn "Bước LSX khác" + canvas */
 .dag-main {
   display: flex;
@@ -348,12 +388,12 @@
   cursor: grabbing;
 }
 
+/* Kích thước thật do DagRoutingCanvas đặt inline (rộng/cao nội dung × zoom) để vùng cuộn của
+   viewport ôm đúng node ngoài cùng — đừng khai width/height ở đây, chỉ là rule chết. */
 .dag-canvas {
   position: absolute;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
   transform-origin: 0 0;
 }
 
@@ -406,15 +446,34 @@
   }
 }
 
-/* Nút xóa dây nối SVG */
+/* Nút xóa dây nối SVG — nằm ở trung điểm dây nên luôn rơi vào giữa canvas, hiện thường trực thì
+   thành mấy cục tròn xám vô nghĩa (lại còn bị card đè vì lớp SVG nằm dưới node). Chỉ hiện khi
+   trỏ đúng sợi dây. */
 .dag-wire-delete {
   cursor: pointer;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.dag-svg-layer g:hover > .dag-wire-delete {
+  opacity: 1;
   pointer-events: all;
-  transition: transform 0.15s ease;
+}
+
+.dag-wire-delete circle {
+  fill: #ffffff;
+  stroke: #94a3b8;
+  stroke-width: 1.5px;
+}
+
+.dag-wire-delete text {
+  fill: #64748b;
 }
 
 .dag-wire-delete:hover circle {
   fill: #e63946;
+  stroke: #e63946;
 }
 
 .dag-wire-delete:hover text {
@@ -437,11 +496,12 @@
   transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease, box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* KHÔNG dịch/phóng card khi hover: dây nối neo theo toạ độ node, card nhích một chút là dây
+   tưởng đứt khỏi cổng. Hover chỉ đổi viền + bóng. */
 .dag-node:hover {
-  transform: translateY(-3px) scale(1.015);
   border-color: rgba(203, 213, 225, 0.9);
-  box-shadow: 
-    0 14px 32px -4px rgba(15, 23, 42, 0.12), 
+  box-shadow:
+    0 14px 32px -4px rgba(15, 23, 42, 0.12),
     0 0 0 1.5px var(--mau-nhanh, #0284c7),
     0 6px 20px color-mix(in srgb, var(--mau-nhanh, #0284c7) 20%, transparent);
   z-index: 15;
@@ -523,8 +583,9 @@
   background: #f8fafc;
   color: #0f172a;
   border-bottom: 1px solid #f1f5f9;
-  border-top-left-radius: 5px;
-  border-top-right-radius: 5px;
+  /* Khớp bo góc 14px của .dag-node (trừ viền) — để 5px là nền header lòi ra ngoài góc card. */
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
 }
 
 .dag-node__seq {
@@ -744,6 +805,15 @@
 .dag-port--out {
   right: -8px;
   border-color: #c25e38;
+}
+
+/* Sơ đồ routing: dây nối neo cứng ở `pos.y + 60` (getPortInPos/getPortOutPos trong
+   DagRoutingCanvas.tsx) trong khi card cao thấp tuỳ nội dung → để `top: 50%` là chấm cổng lệch
+   khỏi đầu dây cả chục px. Trừ 4px viền trên vì con tuyệt đối neo theo padding-box.
+   CHỈ áp trong .dag-canvas — sơ đồ bài ghép (.bgsd-canvas__viewport) card cao cố định và neo dây
+   ở CARD_H/2 nên vẫn dùng 50%. */
+.dag-canvas .dag-port {
+  top: 56px;
 }
 
 .dag-port--out:hover {

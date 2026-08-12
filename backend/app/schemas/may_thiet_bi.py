@@ -95,6 +95,25 @@ class MayThietBiListOut(BaseModel):
     size: int
 
 
+# --- Trạng thái máy LÚC NÀY (dẫn xuất) ---------------------------------------
+# Cố ý KHÔNG nhét vào `MayThietBiRow`: hàng loạt màn khác đang đổ dropdown máy bằng chính schema
+# đó (Tính giá, Lệnh SX, Công đoạn), thêm số phải-tính-mỗi-lần-đọc vào đấy là bắt cả chục chỗ
+# không cần trả giá. Màn Thiết bị gọi riêng endpoint này rồi ghép theo id.
+
+
+class TrangThaiMayRow(BaseModel):
+    trang_thai: str          # may_dung | bao_tri | khoa | dang_chay | ranh
+    nhan: str                # nhãn tiếng Việt dựng sẵn ở backend — hai màn khỏi tự đặt tên khác nhau
+    chi_tiet: str | None = None    # "đứng 3 giờ 20 · dao bế" / "LSX26-0142 · xong 14:30"
+    phieu_id: int | None = None    # phiếu sự cố đang mở (mở thẳng drawer bên màn Bảo trì)
+    den: datetime | None = None    # lúc máy chạy lại / lệnh chạy xong
+
+
+class TrangThaiMayOut(BaseModel):
+    # Máy KHÔNG có mặt trong map = đang rảnh. Chỉ trả máy có chuyện, khỏi tải cả bảng.
+    items: dict[int, TrangThaiMayRow]
+
+
 # --- Danh mục Nhóm máy -------------------------------------------------------
 
 

@@ -62,6 +62,58 @@ HO_NHAN = {
     "khac": "Khác",
 }
 
+# --- DÒNG GIẤY: những TRẠM mà tờ giấy đi qua trong xưởng ----------------------------------------
+# Cùng MỘT đống giấy nhưng mỗi chặng đếm một kiểu: mua về đếm TỜ NGUYÊN, xả xong đếm TỜ IN, bế ra
+# đếm CON (hoặc gấp thành TAY), đóng xong đếm CÁI. Đây là thứ DUY NHẤT engine cần biết về đơn vị
+# để chạy chuỗi bù hao ngược; mọi đơn vị khác (kg · m² · thùng · kẽm · lượt) đứng NGOÀI dòng và
+# không cần cờ — NULL là trạng thái bình thường của gần hết danh mục.
+#
+# Vì sao là CỜ TRÊN DANH MỤC chứ không phải danh sách mã cứng trong code (trước 2026-08-11 nằm ở
+# `cong_doan.DON_VI_DONG_GIAY`): công đoạn khai đơn vị nào là việc của xưởng, đơn vị mới thêm ở màn
+# Đơn vị phải dùng được ngay. Code chỉ hỏi "đơn vị này đứng ở TRẠM nào", không hỏi "tên nó là gì".
+TRAM_TO_NGUYEN = "to_nguyen"
+TRAM_TO = "to"
+TRAM_CON = "con"
+TRAM_TAY = "tay"
+TRAM_CAI = "cai"
+TRAM_DONG_GIAY = (TRAM_TO_NGUYEN, TRAM_TO, TRAM_CON, TRAM_TAY, TRAM_CAI)
+TRAM_NHAN = {
+    TRAM_TO_NGUYEN: "Tờ nguyên (giấy mua về)",
+    TRAM_TO: "Tờ in",
+    TRAM_CON: "Con (mảnh bế ra)",
+    TRAM_TAY: "Tay sách",
+    TRAM_CAI: "Thành phẩm",
+}
+# CẦU giữa hai trạm — dòng giấy chảy MỘT CHIỀU và chỉ qua những nhịp CÓ HỆ SỐ:
+#     tờ nguyên ──(số mảnh xả)──▶ tờ in ──┬─(con/tờ)─▶ con ─(1/số con)─▶ thành phẩm
+#                                         ├─(1)──────▶ tay ─(số tay)──▶ thành phẩm   (khâu sách)
+#                                         └─(con hoặc 1/số tay)───────▶ thành phẩm   (lối đi tắt)
+#
+# Đây là chỗ DUY NHẤT còn liệt kê tay, và nó ĐÚNG chỗ: mỗi nhịp cần một hệ số lấy từ quy cách lệnh
+# (bình bài · số mảnh xả · số tay), hệ số đó là CÔNG THỨC nằm ở `lsx_service._he_so_cau`. Thêm đơn
+# vị mới vào danh mục thì KHÔNG phải sửa đây; chỉ khi xưởng đẻ ra một nhịp dòng giấy mới thì mới
+# phải khai cả hệ số của nó — và lúc đó buộc phải sửa code, đúng ra là thế.
+#
+# `to_nguyen → cai` KHÔNG có trong danh sách: nhảy cóc qua khâu in thì chẳng ai biết một tờ nguyên
+# ra mấy thành phẩm, để lọt là engine lấy hệ số 1 rồi cấp thiếu giấy trong im lặng.
+CAU_TRAM = frozenset({
+    (TRAM_TO_NGUYEN, TRAM_TO),
+    (TRAM_TO, TRAM_CON), (TRAM_CON, TRAM_CAI),
+    (TRAM_TO, TRAM_TAY), (TRAM_TAY, TRAM_CAI),
+    (TRAM_TO, TRAM_CAI),
+})
+
+
+def tram_chay_xuoi(tram_vao: str | None, tram_ra: str | None) -> bool:
+    """Cặp trạm có chảy ĐÚNG CHIỀU dòng giấy không. Cùng trạm = bước không đổi cách đếm (in, KCS).
+
+    Thay `cong_doan.CAP_DON_VI_HOP_LE`: bản cũ liệt kê tay theo MÃ ĐƠN VỊ nên thêm đơn vị là phải
+    sửa code. Bản này liệt kê theo TRẠM — đơn vị nào gắn cờ trạm nào thì tự khớp.
+    """
+    if tram_vao is None or tram_ra is None:
+        return False
+    return tram_vao == tram_ra or (tram_vao, tram_ra) in CAU_TRAM
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -105,6 +157,23 @@ class DonViDo(Base):
     dung_lam_toc_do: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False
     )
+    # Đơn vị này đứng ở TRẠM nào trên dòng giấy — xem khối `TRAM_DONG_GIAY` đầu file. NULL = ngoài
+    # dòng giấy (kg · thùng · kẽm · lượt…), là trạng thái của gần hết danh mục.
+    #
+    # String chứ không Boolean: engine cần biết trạm NÀO để kiểm chiều chảy (tờ nguyên → tờ in →
+    # con/tay → cái); Boolean chỉ nói được "có nằm trên dòng hay không" nên không chặn nổi `cai → to`.
+    tram_dong_giay: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    # CÁCH ĐO — công thức ĐỊNH NGHĨA chính đơn vị này (mg 0192, nền BOM). Đọc là:
+    #
+    #     "một <đơn vị này> đo bằng <công thức>", biến lấy từ quy cách của việc đang làm.
+    #     vd  m² tờ in  :=  dai_in * rong_in * to_sau_in
+    #
+    # KHÁC HẲN `don_vi_quy_doi.cong_thuc`: dòng bên kia nối HAI đơn vị ("1 tờ = … kg"), còn cột này
+    # là đơn vị TỰ ĐỊNH NGHĨA, không đổi sang cái gì. Nhờ vậy mỗi đơn vị có đúng MỘT cách đo —
+    # không có gì để chọn nhầm lúc bung vật tư ở bước lệnh.
+    #
+    # Cũng KHÁC công thức ở Giấy · Vật tư khác · Công đoạn: ba ô đó ra TIỀN, ô này ra LƯỢNG.
+    cong_thuc: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

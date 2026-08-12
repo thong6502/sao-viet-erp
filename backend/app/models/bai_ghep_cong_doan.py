@@ -81,8 +81,10 @@ class BaiGhepCongDoan(Base):
     # --- Số lượng & hao hụt: tính ở ĐƠN VỊ TỜ GHÉP, hao đếm ĐÚNG MỘT LẦN cho cả lượt ---
     so_luong_vao: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     so_luong_ra: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
-    don_vi_vao: Mapped[str | None] = mapped_column(String(12), nullable=True)
-    don_vi_ra: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    # String(24) khớp `don_vi_do.ma`: `gop()` chép thẳng đơn vị của bước mẫu xuống đây, mã dài hơn
+    # 12 ký tự là Postgres ném lỗi độ dài ngay lúc gộp bài.
+    don_vi_vao: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    don_vi_ra: Mapped[str | None] = mapped_column(String(24), nullable=True)
     he_so_quy_doi: Mapped[float] = mapped_column(
         Numeric(12, 4), nullable=False, server_default="1", default=1
     )

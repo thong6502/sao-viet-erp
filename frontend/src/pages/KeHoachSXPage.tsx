@@ -15,6 +15,8 @@ import { StatusTabs } from "../components/StatusTabs";
 import { LsxDetailView } from "./LsxDetailView";
 import { LsxPreviewDrawer } from "./LsxPreviewDrawer";
 import { VatTuKeHoachView } from "./VatTuKeHoachView";
+import { nhanDonVi } from "./lsxBuoc";
+import { useNapTenDonVi } from "./tenDonVi";
 import {
   BangLoi,
   ChipGap,
@@ -51,6 +53,8 @@ export function KeHoachSXPage({
   const can = useCan();
   const scopeOf = useScopeOf();
   const canCreate = can("san_xuat", "create");
+  // Nhãn đơn vị đọc từ DANH MỤC — nạp một lần cho cả phiên (bảng lệnh + drawer lệnh dự kiến).
+  useNapTenDonVi();
 
   const [view, setView] = useState<View>({ mode: "list" });
   const [tab, setTab] = useState<"hang-cho" | "lenh" | "vat-tu">("hang-cho");
@@ -448,7 +452,10 @@ function LenhTable({
                 <th scope="col">Sản phẩm</th>
                 <th scope="col">Đơn · Khách</th>
                 <th scope="col" className="khsx-th--num">SL</th>
-                <th scope="col" className="khsx-th--num">Tờ in</th>
+                {/* Tiêu đề nói CHẶNG, không nói đơn vị: bảng liệt kê nhiều lệnh, lệnh sách có thể
+                    đếm "TỜ CHẠY MÁY" còn lệnh bao bì đếm "TẤM" — một chữ ở đây không gánh nổi hai.
+                    Đơn vị nằm trong từng ô, đọc từ `don_vi_to` server gửi kèm mỗi dòng. */}
+                <th scope="col" className="khsx-th--num">Vào máy</th>
                 <th scope="col" className="khsx-th--num">CĐ</th>
                 <th scope="col" className="khsx__col--opt">Tổ đầu</th>
                 <th scope="col">Hạn</th>
@@ -491,7 +498,10 @@ function LenhTable({
                     <td className="khsx-num">
                       {num(l.so_luong_dat)} <span className="khsx-unit">{l.don_vi_tinh}</span>
                     </td>
-                    <td className="khsx-num">{num(l.so_to_ke_hoach)}</td>
+                    <td className="khsx-num">
+                      {num(l.so_to_ke_hoach)}{" "}
+                      <span className="khsx-unit">{nhanDonVi(l.don_vi_to)}</span>
+                    </td>
                     <td className={`khsx-num ${l.so_cong_doan === 0 ? "khsx__bad" : ""}`}>
                       {l.so_cong_doan}
                     </td>

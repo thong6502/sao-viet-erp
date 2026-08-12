@@ -3,7 +3,7 @@
 // Tách riêng khỏi cả hai để không vòng import, và để chỗ nào cũng nhìn cùng một hình dạng dòng.
 // Mọi ô số giữ dạng CHUỖI: ô trống ("") khác 0 — trống nghĩa là "chưa khai, dùng gợi ý", còn 0 là
 // người dùng cố tình khai bằng 0. Ép sang number quá sớm sẽ xoá mất sự khác nhau đó.
-import { LSX_DON_VI_LABELS } from "../api/client";
+import { tenDonVi } from "./tenDonVi";
 import type {
   LsxCongDoan,
   LsxCongDoanBody,
@@ -34,6 +34,9 @@ export interface EditRow {
   so_luong_ra: string;
   don_vi_vao: string;
   don_vi_ra: string;
+  /** Bước có nằm trên DÒNG GIẤY không — CHỈ ĐỌC, server quyết theo cờ trạm của danh mục Đơn vị.
+   *  `false` ⇒ số lượng không tự tính ngược, bù hao không cộng vào số giấy (drawer nói tại chỗ). */
+  tren_dong_giay: boolean;
   he_so_quy_doi: string;
   hao_hut: string;
   hao_hut_pct: string;
@@ -55,7 +58,10 @@ export interface EditRow {
   cho_phut: string;
   thoi_luong_dien_giai: Record<string, unknown>;
   phu_thuoc_step_keys: string[];
-  vat_tus: { vat_tu_id: number; vat_tu_ma: string; vat_tu_ten: string; don_vi: string; so_luong: string }[];
+  /** `tu_dong` = dòng MÁY bung khi chọn công việc khoán ⇒ lần bung sau thay được. Người tự thêm
+   *  hoặc đã sửa số thì về `false` và máy chừa ra — không thì đổi công việc khoán là mất số vừa gõ. */
+  vat_tus: { vat_tu_id: number; vat_tu_ma: string; vat_tu_ten: string; don_vi: string;
+             so_luong: string; tu_dong: boolean }[];
   // gia công ngoài (§8)
   nha_cung_cap: string;
   sl_gui: string;
@@ -94,24 +100,21 @@ export interface KhoanChon {
   so_nguoi_toi_thieu?: number;
   so_nguoi_tieu_chuan?: number;
   so_nguoi_toi_da?: number;
-  is_default?: boolean;
   don_vi_nang_suat?: string | null;
+  /** VẬT TƯ đầu việc này tiêu thụ, ĐÃ tính số cho đúng bước đang mở (nền BOM, mg 0191). Server
+   *  quy đổi từ số lượng vào của bước sang đơn vị của vật tư — client chỉ việc bung ra. */
+  vat_tus?: {
+    vat_tu_id: number; ma: string; ten: string; don_vi: string;
+    so_luong: number; dien_giai?: string | null;
+  }[];
+  /** Vật tư khai ở danh mục nhưng chưa quy đổi được — nói thiếu gì, KHÔNG đoán số. */
+  canh_bao_vat_tu?: string[];
 }
 
-export const DON_VI: { key: string; label: string }[] = [
-  { key: "to", label: "Tờ" },
-  { key: "cai", label: "Con" },
-  { key: "kem", label: "Kẽm" },
-  { key: "bai", label: "Bài" },
-];
-
-// KHÔNG có `bai_gio`: máy CTP nhả ra BẢN KẼM, không nhả ra "bài" — bài 4 màu tốn 4 lượt ghi,
-// bài 1 màu tốn 1, nên "bài/giờ" là con số không đo được. Xem `models/lsx.py` cùng lý do.
-export const DON_VI_NANG_SUAT: { key: string; label: string }[] = [
-  { key: "to_gio", label: "tờ/giờ" },
-  { key: "cai_gio", label: "con/giờ" },
-  { key: "kem_gio", label: "kẽm/giờ" },
-];
+// 🔴 GỠ `DON_VI` + `DON_VI_NANG_SUAT` 12/08/2026 — hai bảng nhãn cứng, cả hai đã CHẾT (export mà
+// không nơi nào import). `DON_VI` chính là bảng bị `client.ts` và `tenDonVi.ts` nêu đích danh: nó
+// gọi `cai` là "Con" trong khi danh mục ghi "cái" và bảng thứ ba gọi "Thành phẩm" — ba tên cho một
+// thứ. Nhãn đơn vị đọc từ danh mục qua `nhanDonVi` bên dưới; đừng dựng lại bảng nào ở đây.
 
 /** Điều kiện bắt đầu (§4.5) — "công đoạn trước xong" là mặc định nên không có ô riêng. */
 let seq = 0;
@@ -144,6 +147,9 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     so_luong_ra: s(cd.so_luong_ra),
     don_vi_vao: cd.don_vi_vao || "to",
     don_vi_ra: cd.don_vi_ra || cd.don_vi_vao || "to",
+    // Server cũ chưa gửi cờ ⇒ coi như TRÊN dòng giấy: im lặng đúng với hành vi trước đây, hơn là
+    // đột nhiên dán chú giải "ngoài dòng giấy" lên mọi bước.
+    tren_dong_giay: cd.tren_dong_giay !== false,
     he_so_quy_doi: s(cd.he_so_quy_doi),
     hao_hut: s(cd.hao_hut),
     hao_hut_pct: s(cd.hao_hut_pct),
@@ -158,7 +164,9 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     cho_phut: s(cd.cho_phut),
     thoi_luong_dien_giai: cd.thoi_luong_dien_giai ?? {},
     phu_thuoc_step_keys: cd.phu_thuoc_step_keys ?? [],
-    vat_tus: (cd.vat_tus ?? []).map((v) => ({ ...v, so_luong: String(v.so_luong) })),
+    vat_tus: (cd.vat_tus ?? []).map((v) => ({
+      ...v, so_luong: String(v.so_luong), tu_dong: Boolean(v.tu_dong),
+    })),
     nha_cung_cap: cd.nha_cung_cap ?? "",
     sl_gui: s(cd.sl_gui),
     ngay_gui_dk: cd.ngay_gui_dk ?? "",
@@ -198,7 +206,8 @@ export function emptyRow(): EditRow {
     bat_buoc: true,
     department_id: null, may_id: null,
     requires_tooling: false, tooling_type: null, khuon_be_id: null, khuon_be_ten: null,
-    so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to", he_so_quy_doi: "",
+    so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to",
+    tren_dong_giay: true, he_so_quy_doi: "",
     hao_hut: "", hao_hut_pct: "", so_luot_chay: "", so_nhan_cong: "",
     nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "", cho_phut: "",
     so_nhan_cong_toi_thieu: null, so_nhan_cong_tieu_chuan: 1, so_nhan_cong_toi_da: null,
@@ -268,7 +277,9 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
       // bước tổ — xem `_cho_ky_thuat_phut`); gõ số = sửa đè tại bước.
       cho_phut: on(r.cho_phut),
       phu_thuoc_step_keys: r.phu_thuoc_step_keys,
-      vat_tus: r.vat_tus.map((v) => ({ vat_tu_id: v.vat_tu_id, so_luong: n(v.so_luong) })),
+      vat_tus: r.vat_tus.map((v) => ({
+        vat_tu_id: v.vat_tu_id, so_luong: n(v.so_luong), tu_dong: v.tu_dong,
+      })),
       // Khối gia công ngoài chỉ gửi khi bước ĐANG là thuê ngoài — đổi loại bước rồi thì
       // không kéo theo dữ liệu NCC cũ làm checklist hiểu nhầm.
       nha_cung_cap: ngoai ? ot(r.nha_cung_cap) : null,
@@ -432,9 +443,53 @@ export function phut(v: number): string {
   return du ? `${gio} giờ ${du} phút` : `${gio} giờ`;
 }
 
-/** Mã đơn vị → nhãn người đọc (`to` → "Tờ in", `cai` → "Thành phẩm"…). */
+/** Mã đơn vị → TÊN trong danh mục (`to` → "tờ"). Chưa nạp xong / mã lạ ⇒ trả mã trần.
+ *  Không còn bảng nhãn cứng — xem `tenDonVi.ts`. */
 export function nhanDonVi(dv: string | null | undefined): string {
-  return dv ? LSX_DON_VI_LABELS[dv] ?? dv : "";
+  return dv ? tenDonVi(dv) ?? dv : "";
+}
+
+export interface DonViChuoi {
+  /** Chặng TỜ IN — thứ bước in đếm. */
+  to: string;
+  /** Chặng THÀNH PHẨM — đầu ra của bước đổi mức cuối. */
+  tp: string;
+  /** Chặng GIỮA (tay sách) — chỉ có khi chuỗi đổi mức từ 2 lần trở lên. "" = không có. */
+  tay: string;
+  /** Chặng TỜ NGUYÊN. Routing KHÔNG có bước xả giấy ⇒ tờ nguyên đếm bằng chính đơn vị tờ in
+   *  (không xả thì một tờ nguyên đúng là một tờ in), nên trả luôn `to` — KHÔNG bịa chữ khác. */
+  toNguyen: string;
+}
+
+/** Hình dạng SERVER gửi mã bốn chặng — `LsxDetail` và mỗi dòng "lệnh dự kiến" đều có bộ này. */
+export interface MaDonViChuoi {
+  don_vi_to?: string | null;
+  don_vi_tp?: string | null;
+  don_vi_tay?: string | null;
+  don_vi_to_nguyen?: string | null;
+}
+
+/** MÃ bốn chặng (server) → TÊN bốn chặng (danh mục).
+ *
+ *  LUẬT SUY CHẶNG NẰM Ở SERVER, đúng một bản: `services/dong_giay.don_vi_chuoi`. Hàm này chỉ dịch
+ *  mã sang tên. Trước 12/08/2026 frontend giữ bản chép tay thứ hai của cùng luật đó — và cả hai
+ *  bản đã CÙNG SAI y hệt nhau ở chặng "tay" (lấy bước đổi mức đầu tiên, vốn là bước xả giấy chứ
+ *  không phải bước gấp). Hai bản cùng luật không giúp bắt lỗi, chỉ nhân đôi chỗ phải sửa.
+ *
+ *  Hai lối lùi ở đây là DẪN XUẤT chứ không phải nhãn bịa:
+ *   · `tp` rỗng → ĐVT của chính sản phẩm (người dùng khai ở đơn/phiếu).
+ *   · `toNguyen` rỗng → dùng `to`: routing không có bước xả thì một tờ nguyên đúng là một tờ in.
+ *  Ngoài hai lối đó, chặng nào server không nói thì trả RỖNG — nơi gọi hiện mỗi con số. Nhãn khối
+ *  đã nói CHẶNG ("Vào máy" · "Giấy nguyên") nên rỗng cũng không mất nghĩa.
+ */
+export function donViChuoi(src: MaDonViChuoi, dvSanPham?: string | null): DonViChuoi {
+  const to = nhanDonVi(src.don_vi_to);
+  return {
+    to,
+    tp: nhanDonVi(src.don_vi_tp) || dvSanPham || "",
+    tay: nhanDonVi(src.don_vi_tay),
+    toNguyen: nhanDonVi(src.don_vi_to_nguyen) || to,
+  };
 }
 
 /** Câu quy đổi của MỘT bước: `"10 Tờ in = 1 Thành phẩm"`. `null` khi bước không đổi đơn vị.

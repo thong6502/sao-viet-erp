@@ -6,6 +6,8 @@ import { Icon, type IconName } from "../components/Icons";
 import {
   LSX_LOAI_BUOC_META,
   LSX_THIEU_LABELS,
+  nhanMa,
+  type DonViNhan,
   type LsxLoaiBuoc,
   type LsxTrangThai,
   type XepLichSeverity,
@@ -256,29 +258,35 @@ export function ChipNgoai({ ncc }: { ncc?: string | null }) {
   );
 }
 
-/** Chip THIẾU — bo vuông (khác pill trạng thái bo tròn) để không lẫn. */
-export function ChipThieu({ code }: { code: string }) {
+/** Chip THIẾU — bo vuông (khác pill trạng thái bo tròn) để không lẫn.
+ *
+ *  `dv` = đơn vị bốn chặng của CHÍNH lệnh/dòng đang xét. Bốn câu checklist có nhắc đơn vị sẽ gọi
+ *  tên xưởng đặt thay vì chữ cứng "tờ in → con" (xem `LSX_THIEU_LABELS`). Không truyền cũng chạy:
+ *  câu lùi về bản chung. */
+export function ChipThieu({ code, dv }: { code: string; dv?: DonViNhan | null }) {
   return (
     <span className="khsx-need">
-      <Icon name="x" size={10} /> {LSX_THIEU_LABELS[code] ?? code}
+      <Icon name="x" size={10} /> {nhanMa(LSX_THIEU_LABELS, code, dv)}
     </span>
   );
 }
 
 /** Xếp chồng chip thiếu, tối đa `max` rồi gộp phần dư → chiều cao hàng không giật. */
-export function ThieuStack({ codes, max = 2 }: { codes: string[]; max?: number }) {
+export function ThieuStack(
+  { codes, max = 2, dv }: { codes: string[]; max?: number; dv?: DonViNhan | null },
+) {
   if (!codes.length) return <span className="khsx-muted">—</span>;
   const hien = codes.slice(0, max);
   const du = codes.slice(max);
   return (
     <span className="khsx-need-stack">
       {hien.map((c) => (
-        <ChipThieu key={c} code={c} />
+        <ChipThieu key={c} code={c} dv={dv} />
       ))}
       {du.length > 0 && (
         <span
           className="khsx-need khsx-need--more"
-          title={du.map((c) => LSX_THIEU_LABELS[c] ?? c).join(" · ")}
+          title={du.map((c) => nhanMa(LSX_THIEU_LABELS, c, dv)).join(" · ")}
         >
           +{du.length}
         </span>

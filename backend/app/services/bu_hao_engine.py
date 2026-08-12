@@ -109,10 +109,15 @@ def chuoi_nguoc_dv(buoc: list[dict], *, rows: list[dict], to_can: float,
                    he_so: dict | None = None) -> tuple[list[dict], list[str]]:
     """Như `chuoi_nguoc` nhưng CÓ QUY ĐỔI ĐƠN VỊ ở từng bước — bản engine thật dùng.
 
-    `buoc` = `[{cd, dv_vao, dv_ra, ten}]` theo thứ tự XUÔI. `he_so` = `{(dv_vao, dv_ra): số}` do
-    CALLER cấp, vì hệ số thuộc về PHIẾU chứ không thuộc danh mục công đoạn (`con` từ bình bài,
-    `so_manh_xa` từ khổ giấy). Cặp đổi đơn vị mà thiếu hệ số → tạm 1 và kêu warning, thà lộ ra
-    còn hơn chia bằng số đoán.
+    `buoc` = `[{cd, dv_vao, dv_ra, ten}]` theo thứ tự XUÔI, thêm hai khoá TUỲ CHỌN
+    `tram_vao`/`tram_ra`. `he_so` = `{(trạm_vào, trạm_ra): số}` do CALLER cấp, vì hệ số thuộc về
+    PHIẾU chứ không thuộc danh mục công đoạn (`con` từ bình bài, `so_manh_xa` từ khổ giấy). Cặp đổi
+    đơn vị mà thiếu hệ số → tạm 1 và kêu warning, thà lộ ra còn hơn chia bằng số đoán.
+
+    ⚠️ TRA HỆ SỐ VÀ SO LIỀN MẠCH ĐỀU THEO **TRẠM**, không theo mã đơn vị (11/08/2026). Xưởng khai
+    được đơn vị riêng cho từng chặng dòng giấy (mã `to_in` gắn cờ trạm *tờ in*), mà bảng hệ số thì
+    chỉ có 5 trạm — tra theo mã là cặp không khớp, ăn hệ số 1 và số giấy sai. Không truyền trạm thì
+    lùi về chính mã, giữ nguyên hành vi cho caller cũ. Giá trị TRẢ RA vẫn là MÃ để hiển thị/ghi DB.
 
     Mỗi bước hỏi "để nhả ra `ra` (đơn vị RA) thì phải nhận vào bao nhiêu (đơn vị VÀO)?":
 
@@ -128,10 +133,17 @@ def chuoi_nguoc_dv(buoc: list[dict], *, rows: list[dict], to_can: float,
     canh = list(buoc or [])
     warnings: list[str] = []
 
-    # Chuỗi phải LIỀN MẠCH đơn vị: ra của bước trước = vào của bước sau. Lệch là dữ liệu sai và
-    # engine KHÔNG được tự bắc cầu — chỉ nói ra để người khai đi sửa.
+    def _tv(b: dict) -> str | None:
+        return b.get("tram_vao") or b.get("dv_vao")
+
+    def _tr(b: dict) -> str | None:
+        return b.get("tram_ra") or b.get("dv_ra")
+
+    # Chuỗi phải LIỀN MẠCH: chặng ra của bước trước = chặng vào của bước sau. So bằng TRẠM chứ
+    # không bằng mã — hai bước khai hai mã khác nhau cho cùng một chặng là chuyện hợp lệ. Lệch thật
+    # thì engine KHÔNG được tự bắc cầu, chỉ nói ra để người khai đi sửa.
     for truoc, sau in zip(canh, canh[1:]):
-        if truoc.get("dv_ra") != sau.get("dv_vao"):
+        if _tr(truoc) != _tv(sau):
             warnings.append(
                 f"Bước '{truoc.get('ten') or '?'}' ra {truoc.get('dv_ra')} nhưng bước "
                 f"'{sau.get('ten') or '?'}' vào {sau.get('dv_vao')} — chuỗi đứt đơn vị."
@@ -141,9 +153,10 @@ def chuoi_nguoc_dv(buoc: list[dict], *, rows: list[dict], to_can: float,
     out: list[dict] = []
     for b in reversed(canh):
         dv_vao, dv_ra = b.get("dv_vao"), b.get("dv_ra")
+        tram_vao, tram_ra = _tv(b), _tr(b)
         hs = 1.0
-        if dv_vao != dv_ra:
-            hs = _f(hs_map.get((dv_vao, dv_ra)))
+        if tram_vao != tram_ra:
+            hs = _f(hs_map.get((tram_vao, tram_ra)))
             if hs <= 0:
                 hs = 1.0
                 warnings.append(
@@ -157,8 +170,11 @@ def chuoi_nguoc_dv(buoc: list[dict], *, rows: list[dict], to_can: float,
         # TỜ NGUYÊN phí khi pha, cộng thẳng (KHÔNG chia hs). Đừng "sửa" thành fixed/hs: mô hình tách
         # xả giấy khỏi in, In thật là `to → to`. Xem test_chuoi_nguoc_dv_cau_to_nguyen_sang_to_in.
         vao = (ra_quy + fixed) / (1.0 - pct / 100.0)
+        # Trả kèm TRẠM: caller đọc số ra khỏi chuỗi tại một ranh giới (số tờ in, số tờ nguyên) và
+        # phải hỏi theo trạm — dò theo mã thì đơn vị riêng của xưởng không khớp, mốc rơi về 0.
         out.append({"vao": vao, "ra": ra, "hao": vao - ra_quy,
-                    "dv_vao": dv_vao, "dv_ra": dv_ra})
+                    "dv_vao": dv_vao, "dv_ra": dv_ra,
+                    "tram_vao": tram_vao, "tram_ra": tram_ra})
         ra = vao
     out.reverse()
     return out, warnings

@@ -196,6 +196,15 @@
   white-space: nowrap;
 }
 .khsx-unit { color: var(--ash); font-size: var(--fs-xs); }
+/* Số + ĐƠN VỊ trong ô bảng. Tên đơn vị do xưởng đặt nên dài ngắn tuỳ ("thẻ" hay "TỜ CHẠY MÁY"),
+   mà `.khsx-num` là `nowrap` để con số không bao giờ vỡ — để nguyên thì tên dài nong rộng cả cột.
+   Cho đơn vị xuống dòng riêng ngay dưới số: cột giữ bề rộng, và con số vẫn là thứ đọc thấy trước. */
+td.khsx-num > .khsx-unit {
+  display: block;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
 .khsx-muted { color: var(--ash); }
 .khsx-date--soon { color: var(--amber-deep); }
 .khsx-date--late { color: var(--signal); font-weight: var(--fw-bold); }
@@ -756,29 +765,45 @@
   border-color: #f6d8c3;
 }
 
+/* Nhãn thẻ KPI nay là TÊN ĐƠN VỊ do xưởng khai ("TỜ CHẠY MÁY", "SẢN PHẨM XONG / TỜ CHẠY MÁY"),
+   không còn là hằng hai chữ. Cho xuống dòng thoải mái — thẻ `flex: 1 1 0` nên nó tự cao thêm,
+   và `align-items: stretch` ở hàng giữ mọi thẻ bằng nhau. Cắt chữ ở đây là giấu mất cái tên
+   người dùng vừa đặt. */
 .khsx-kpi-tile__label {
   color: #64748b;
   font-size: 10.5px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+  line-height: 1.3;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
+/* SỐ và ĐƠN VỊ là hai vai khác nhau: số phải đọc được trước tiên và không bao giờ vỡ; đơn vị nhỏ
+   hơn, nhạt hơn, tụt xuống dòng dưới khi tên dài. `nowrap` cũ làm cả cụm tràn khỏi thẻ. */
 .khsx-kpi-tile__val {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 4px;
+  row-gap: 0;
+  min-width: 0;
   color: #0f172a;
   font-weight: 600;
   font-size: 13.5px;
   font-family: var(--ff-sans, sans-serif);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
-  white-space: nowrap;
+  line-height: 1.3;
 }
 
 .khsx-kpi-tile__val small {
+  min-width: 0;
   font-size: 11px;
   font-weight: 500;
   color: #64748b;
-  margin-left: 3px;
+  overflow-wrap: anywhere;
 }
 
 .khsx-kpi-tile__val--rust {
@@ -1003,6 +1028,8 @@
   transform: translateY(-1px);
   box-shadow: 0 3px 6px rgba(0, 0, 0, 0.04);
 }
+/* Nhãn ô THÔNG SỐ cũng mang tên đơn vị của xưởng ("SỐ TỜ CHẠY MÁY KẾ HOẠCH") — cho xuống dòng,
+   ô lưới rộng 220px nên hai dòng vẫn gọn. */
 .khsx-kv__key {
   font-size: 11px;
   font-weight: var(--fw-bold);
@@ -1010,6 +1037,7 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 .khsx-kv__val {
   font-size: 13px;
@@ -2166,6 +2194,21 @@
 }
 
 /* Wastage Bar & Chips */
+/* Chú giải TẠI CHỖ trong drawer bước — dùng khi hai con số bên dưới đứng im và người xem cần biết
+   vì sao (bước ngoài dòng giấy). Đứng TRƯỚC hai thẻ số nên bám tông giấy như thanh hao hụt, không
+   dùng màu cảnh báo: đây là trạng thái hợp lệ cần giải thích, không phải lỗi cần sửa. */
+.khsx-note {
+  margin: 0 0 12px !important;
+  padding: 10px 14px !important;
+  font-size: 12.5px !important;
+  line-height: 1.5 !important;
+  color: var(--ink-2, #4a4a4a) !important;
+  background: var(--paper-contrast, #f8f9fa) !important;
+  border: 1px solid var(--rule-soft) !important;
+  border-left: 3px solid var(--ash-2, #888) !important;
+  border-radius: 8px !important;
+}
+
 .khsx-wastage-bar {
   display: flex !important;
   align-items: center !important;
@@ -2397,6 +2440,39 @@
   white-space: nowrap !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
+}
+
+/* Nguồn của con số: máy tính từ quy cách, hay người đã gõ đè (mg 0191). Nhạt hơn tên vật tư —
+   đây là chú thích, không phải nội dung. Đổi công việc khoán thì chỉ dòng "tự tính" bị thay. */
+.khsx-vattu-card__src {
+  flex: none !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em !important;
+  padding: 2px 7px !important;
+  border-radius: 5px !important;
+  white-space: nowrap !important;
+  color: var(--ash) !important;
+  background: var(--paper, #f6f6f4) !important;
+  border: 1px solid var(--hairline, #e8e6e1) !important;
+}
+.khsx-vattu-card__src.is-auto {
+  color: #0f766e !important;
+  background: #ecfdf5 !important;
+  border-color: #d1fae5 !important;
+}
+
+/* Vật tư khai ở đầu việc mà chưa quy đổi được sang đơn vị của nó — máy KHÔNG đoán số, chỉ nói
+   thiếu gì. Thiếu dòng này thì vật tư "biến mất" khỏi khối mà không ai hiểu vì sao. */
+.khsx-vattu-warn {
+  margin: 0 0 8px !important;
+  padding: 7px 10px !important;
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+  color: #92400e !important;
+  background: #fffbeb !important;
+  border: 1px solid #fde68a !important;
+  border-radius: 7px !important;
 }
 
 .khsx-vattu-card__actions {

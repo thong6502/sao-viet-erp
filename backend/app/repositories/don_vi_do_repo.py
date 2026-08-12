@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session, aliased
 
 from ..models.don_vi_do import DonViDo, DonViQuyDoi
 
-_FIELDS = ("ten", "ho", "hieu_luc_tu", "ghi_chu", "active", "dung_lam_toc_do")
+_FIELDS = ("ten", "ho", "hieu_luc_tu", "ghi_chu", "active", "dung_lam_toc_do",
+           "tram_dong_giay", "cong_thuc")
 _CAP_FIELDS = ("tu_id", "den_id", "he_so", "cong_thuc", "ghi_chu")
 
 
@@ -150,6 +151,22 @@ class DonViDoRepository:
                 )
             )
         ).scalars().first()
+
+    def dong_ve(self, den_id: int, *, bo_qua_id: int | None = None) -> CapRow | None:
+        """Dòng CÔNG THỨC đang trỏ về `den_id` — mỗi đơn vị chỉ được TÍNH RA bằng một cách.
+
+        Luật này sinh ra cho BOM (12/08/2026): vật tư khai ĐVT là kg thì phải có đúng MỘT công thức
+        ra kg, không thì lúc bung vật tư ở bước lệnh máy không biết lấy công thức nào. Chỉ chặn theo
+        đơn vị ĐÍCH — một đơn vị vẫn được khai nhiều công thức ĐI RA (`tờ → cái`, `tờ → kg`,
+        `tờ → m²`) vì ba đích khác nhau là ba câu hỏi khác nhau.
+
+        Lọc trên `cap_rows()` (đã nạp cả bảng, bảng nhỏ) thay vì query riêng.
+        """
+        return next(
+            (r for r in self.cap_rows(bo_qua_id=bo_qua_id)
+             if (r.cong_thuc or "").strip() and r.den_id == den_id),
+            None,
+        )
 
     def create_cap(self, data: dict):
         obj = DonViQuyDoi(tu_id=data["tu_id"], den_id=data["den_id"], he_so=data["he_so"])

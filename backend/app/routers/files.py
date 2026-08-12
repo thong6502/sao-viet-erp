@@ -36,6 +36,9 @@ _PREFIX_PERMISSION: dict[str, str] = {
     "mua-hang": "thu_mua",
     # Tài liệu đính kèm nội bộ của báo giá (file khách gửi / mẫu thiết kế / ảnh tham khảo).
     "bao-gia": "bao_gia",
+    # Ảnh hiện trạng hỏng + ảnh chứng thực sau sửa/bảo trì (12/08/2026). Gác quyền vì ảnh máy móc
+    # cho thấy tình trạng nhà xưởng, không phải thứ ai đăng nhập cũng nên xem.
+    "ky-thuat-may": "ky_thuat_may",
 }
 
 

@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from ..models.cong_doan import (
-    CAP_DON_VI_HOP_LE, CHE_DO_TINH, DON_VI_DONG_GIAY, KIEU_BU_HAO, NHOM, PRICING_BASIS,
-    TOOLING_TYPE, CongDoan,
+    CHE_DO_TINH, KIEU_BU_HAO, NHOM, PRICING_BASIS, TOOLING_TYPE, CongDoan,
 )
+from ..models.don_vi_do import tram_chay_xuoi
 from ..repositories.cong_doan_repo import CongDoanRepository
 from . import nhat_ky_danh_muc as nk
 
@@ -44,8 +44,6 @@ class CongDoanService:
             ids = [int(r.get("piece_rate_id") or 0) for r in dinh_muc]
             if len(ids) != len(set(ids)):
                 raise CongDoanValidationError("Một đầu việc không được chọn trùng.")
-            if sum(bool(r.get("is_default")) for r in dinh_muc) > 1:
-                raise CongDoanValidationError("Mỗi công đoạn chỉ có một đầu việc mặc định.")
             rates = self.repo.piece_rates(set(ids))
             for r in dinh_muc:
                 rid = int(r.get("piece_rate_id") or 0)
@@ -73,6 +71,7 @@ class CongDoanService:
                 if ns_max is not None and float(ns_max) < ns:
                     raise CongDoanValidationError(
                         "Năng suất tối đa không được nhỏ hơn năng suất trung bình.")
+            self._kiem_vat_tu_dau_viec(dinh_muc)
         che_do = data.get("che_do_tinh", "theo_san_luong")
         if che_do not in CHE_DO_TINH:
             raise CongDoanValidationError("Chế độ tính không hợp lệ.")
@@ -82,9 +81,12 @@ class CongDoanService:
             raise CongDoanValidationError("Loại khuôn/kẽm không hợp lệ.")
         if data.get("kieu_bu_hao", "khong") not in KIEU_BU_HAO:
             raise CongDoanValidationError("Kiểu bù hao không hợp lệ. [E-CD-BUHAO]")
-        # Đơn vị vào/ra: TRỐNG = bước không chạm giấy (chế bản) → engine loại khỏi dòng giấy.
-        # Khai thì phải khai CẢ HAI, và đúng chiều — dòng giấy chảy một chiều tờ nguyên → tờ in →
-        # tờ thành phẩm, nên `cai → to` hay nhảy cóc là vô nghĩa.
+        # Đơn vị vào/ra lấy từ DANH MỤC Đơn vị & quy đổi (không còn danh sách cứng 5 mã dòng giấy).
+        # Ba ca hợp lệ:
+        #   - cùng để TRỐNG          → bước chưa khai đơn vị (dữ liệu cũ), engine lùi về luật nhóm
+        #   - hai đầu đều là TRẠM     → bước trên dòng giấy, phải đúng chiều (`tram_chay_xuoi`)
+        #   - hai đầu đều NGOÀI trạm  → bước không chạm giấy (`bai → kem`, `cai → me`), tự do
+        # Ca một-trong-một-ngoài (`cai → thung`) CHẶN ở lát này — xem `dong_giay.tren_dong_giay`.
         dv_vao = (data.get("don_vi_vao") or "").strip() or None
         dv_ra = (data.get("don_vi_ra") or "").strip() or None
         data["don_vi_vao"], data["don_vi_ra"] = dv_vao, dv_ra
@@ -92,16 +94,65 @@ class CongDoanService:
             raise CongDoanValidationError(
                 "Đơn vị đầu vào và đầu ra phải cùng khai, hoặc cùng để trống. [E-CD-DONVI]")
         if dv_vao is not None:
-            if dv_vao not in DON_VI_DONG_GIAY or dv_ra not in DON_VI_DONG_GIAY:
-                raise CongDoanValidationError("Đơn vị vào/ra không hợp lệ. [E-CD-DONVI]")
-            if (dv_vao, dv_ra) not in CAP_DON_VI_HOP_LE:
+            tram = self.repo.don_vi_tram({dv_vao, dv_ra})
+            if thieu := [m for m in dict.fromkeys((dv_vao, dv_ra)) if m not in tram]:
+                raise CongDoanValidationError(
+                    f"Đơn vị {' · '.join(thieu)} không có trong danh mục Đơn vị & quy đổi. "
+                    f"Khai đơn vị ở màn Đơn vị trước. [E-CD-DONVI]")
+            t_vao, t_ra = tram[dv_vao], tram[dv_ra]
+            if (t_vao is None) != (t_ra is None):
+                tren = dv_vao if t_vao else dv_ra
+                ngoai = dv_ra if t_vao else dv_vao
+                raise CongDoanValidationError(
+                    f"Bước đổi từ {tren} (trên dòng giấy) sang {ngoai} (ngoài dòng giấy) chưa hỗ "
+                    f"trợ — hệ số của cặp này là sức chứa của từng đơn, chưa có chỗ khai. "
+                    f"[E-CD-DONVI]")
+            if t_vao is not None and not tram_chay_xuoi(t_vao, t_ra):
                 raise CongDoanValidationError(
                     f"Không quy đổi được {dv_vao} → {dv_ra}. Dòng giấy chỉ chảy một chiều: "
-                    f"tờ nguyên → tờ in → tờ thành phẩm. [E-CD-DONVI]"
+                    f"tờ nguyên → tờ in → con/tay → thành phẩm. [E-CD-DONVI]"
                 )
         # W-CD-PRINT-SPOIL: bước in không nên có spoilage (bù hao lấy từ máy) — ép 0.
         if data.get("nhom") == "print" and data.get("spoilage_pct"):
             data["spoilage_pct"] = 0
+
+    def _kiem_vat_tu_dau_viec(self, dinh_muc: list[dict]) -> None:
+        """Vật tư gắn vào đầu việc (nền BOM, mg 0191) — id phải có thật và còn dùng.
+
+        Vật tư đã ngừng dùng mà lọt vào đây thì tới lúc bung ở bước lệnh nó sẽ rơi im lặng (query
+        bung lọc `active`), và người khai không hiểu vì sao dòng mình khai không hiện ra.
+        Chỉ kiểm DANH SÁCH — không có số lượng ở tầng này, số suy lúc bung theo quy cách lệnh.
+        """
+        can = {int(v) for r in dinh_muc for v in (r.get("vat_tu_ids") or [])}
+        if not can:
+            return
+        for r in dinh_muc:
+            ids = [int(v) for v in (r.get("vat_tu_ids") or [])]
+            if len(ids) != len(set(ids)):
+                raise CongDoanValidationError("Một vật tư không được chọn trùng trong cùng đầu việc.")
+        co = self.repo.vat_tus(can)
+        for vid in sorted(can):
+            vt = co.get(vid)
+            if vt is None or not vt.active:
+                raise CongDoanValidationError("Vật tư không tồn tại hoặc đã ngừng sử dụng.")
+            if not (vt.don_vi_gia or "").strip():
+                raise CongDoanValidationError(
+                    f"Vật tư “{vt.ten}” chưa chọn đơn vị tính — chưa quy đổi ra số lượng được. "
+                    f"Khai đơn vị ở màn Vật tư khác trước.")
+
+    def gan_ten_don_vi(self, items) -> None:
+        """Điền TÊN đơn vị vào/ra cho cả trang bằng MỘT truy vấn.
+
+        Bảng chỉ lưu MÃ (`to`, `cai`) mà mã không phải lúc nào cũng đọc được. Gán ở server chứ
+        không để frontend tự tra: nó từng có bảng nhãn cứng riêng, và bảng đó **lệch với danh mục**
+        (`to` = "Tờ in" ở danh sách nhưng "tờ" ở drawer). Một nguồn thì hết lệch, và xưởng đổi tên
+        đơn vị là cả hai chỗ đổi theo.
+        """
+        ten = self.repo.don_vi_ten()
+        for it in items:
+            for dau in ("vao", "ra"):
+                ma = (getattr(it, f"don_vi_{dau}", None) or "").strip().lower()
+                setattr(it, f"don_vi_{dau}_ten", ten.get(ma) if ma else None)
 
     def get(self, cd_id: int) -> CongDoan:
         cd = self.repo.get(cd_id)

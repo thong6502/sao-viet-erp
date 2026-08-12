@@ -52,6 +52,7 @@ def list_items(
     size: int = Query(default=50, ge=1, le=200),
 ) -> CongDoanListOut:
     rows, total = svc.list(q=q, nhom=nhom, active=active, page=page, size=size)
+    svc.gan_ten_don_vi(rows)   # tên đơn vị đọc từ danh mục — xem `gan_ten_don_vi`
     return CongDoanListOut(items=[CongDoanRow.model_validate(r) for r in rows], total=total, page=page, size=size)
 
 
@@ -97,7 +98,9 @@ def list_dau_viec_options(
 @router.get("/{cd_id}", response_model=CongDoanRow)
 def get_item(cd_id: int, svc: Service, _: Annotated[User, Depends(require_permission(MODULE, "read"))]):
     try:
-        return CongDoanRow.model_validate(svc.get(cd_id))
+        cd = svc.get(cd_id)
+        svc.gan_ten_don_vi([cd])
+        return CongDoanRow.model_validate(cd)
     except CongDoanNotFound as e:
         raise _err(e) from None
 
@@ -106,7 +109,9 @@ def get_item(cd_id: int, svc: Service, _: Annotated[User, Depends(require_permis
 def create_item(payload: CongDoanIn, svc: Service,
                 user: Annotated[User, Depends(require_permission(MODULE, "create"))]):
     try:
-        return CongDoanRow.model_validate(svc.create(payload.model_dump(exclude_unset=True), actor_id=user.id))
+        cd = svc.create(payload.model_dump(exclude_unset=True), actor_id=user.id)
+        svc.gan_ten_don_vi([cd])
+        return CongDoanRow.model_validate(cd)
     except (CongDoanDuplicate, CongDoanValidationError) as e:
         raise _err(e) from None
 
@@ -115,7 +120,9 @@ def create_item(payload: CongDoanIn, svc: Service,
 def update_item(cd_id: int, payload: CongDoanIn, svc: Service,
                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
     try:
-        return CongDoanRow.model_validate(svc.update(cd_id, payload.model_dump(exclude_unset=True), actor_id=user.id))
+        cd = svc.update(cd_id, payload.model_dump(exclude_unset=True), actor_id=user.id)
+        svc.gan_ten_don_vi([cd])
+        return CongDoanRow.model_validate(cd)
     except (CongDoanNotFound, CongDoanDuplicate, CongDoanValidationError) as e:
         raise _err(e) from None
 

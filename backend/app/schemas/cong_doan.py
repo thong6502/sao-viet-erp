@@ -20,12 +20,16 @@ class CongDoanDauViecIn(BaseModel):
     so_nguoi_toi_da: int = Field(ge=1)
     # Giờ chờ kỹ thuật SAU đầu việc này (keo đông…). Vế TỔ; vế MÁY ở `may_thiet_bi.cho_ky_thuat_gio`.
     cho_ky_thuat_gio: float = Field(default=0, ge=0, le=720)
-    is_default: bool = False
+    # VẬT TƯ đầu việc này tiêu thụ (mg 0191) — chỉ DANH SÁCH, không có số lượng: định mức tuỳ quy
+    # cách từng lệnh, số khai ở danh mục là số chết. Số lượng suy lúc bung ở bước lệnh.
+    vat_tu_ids: list[int] = Field(default_factory=list)
 
 
 class CongDoanDauViecRow(CongDoanDauViecIn):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    # Chỉ trả ID, không trả mã/tên/đơn vị: form đã nạp sẵn danh mục Vật tư khác cho dropdown nên tự
+    # tra được — trả kèm ở đây là N+1 query cho mỗi đầu việc của mỗi công đoạn trong danh sách.
 
 
 class CongDoanIn(BaseModel):
@@ -76,6 +80,12 @@ class CongDoanRow(BaseModel):
     ten_hien_thi: str | None = None
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
+    # TÊN đơn vị đọc từ DANH MỤC (12/08/2026). Trước đó frontend có bảng nhãn cứng riêng nói
+    # `to` = "Tờ in", `cai` = "Thành phẩm" — trong khi danh mục ghi "tờ" và "cái", nên cùng một
+    # giá trị hiện HAI TÊN ở hai chỗ trên cùng một màn (danh sách vs drawer). Server trả tên là
+    # hết chuyện: một nguồn duy nhất, xưởng đổi tên đơn vị là bảng đổi theo.
+    don_vi_vao_ten: str | None = None
+    don_vi_ra_ten: str | None = None
     kieu_bu_hao: str = "khong"
     bu_hao_id: int | None = None
     so_to_bu_hao: int = 50

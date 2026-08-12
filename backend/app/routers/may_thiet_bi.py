@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -15,6 +16,7 @@ from ..deps import require_any_permission, require_permission
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.may_thiet_bi_repo import MayThietBiRepository
+from ..models.may_thiet_bi import MayThietBi
 from ..schemas.may_thiet_bi import (
     MayThietBiIn,
     MayThietBiListOut,
@@ -22,6 +24,8 @@ from ..schemas.may_thiet_bi import (
     NhomMayIn,
     NhomMayListOut,
     NhomMayRow,
+    TrangThaiMayOut,
+    TrangThaiMayRow,
 )
 from ..services.may_thiet_bi_service import (
     MayThietBiDuplicate,
@@ -30,6 +34,7 @@ from ..services.may_thiet_bi_service import (
     MayThietBiValidationError,
     NhomMayService,
 )
+from ..services.may_trang_thai import trang_thai_may
 
 router = APIRouter(prefix="/api/may-thiet-bi", tags=["may-thiet-bi"])
 MODULE = "dm_thiet_bi"
@@ -56,6 +61,22 @@ def list_items(
     rows, total = svc.list(q=q, loai_may=loai_may, page=page, size=size)
     return MayThietBiListOut(
         items=[MayThietBiRow.model_validate(r) for r in rows], total=total, page=page, size=size
+    )
+
+
+@router.get("/trang-thai", response_model=TrangThaiMayOut)
+def trang_thai(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> TrangThaiMayOut:
+    """Máy nào đang nằm / đang chạy NGAY LÚC NÀY — cột "Trạng thái" của màn Thiết bị.
+
+    ⚠️ Phải khai TRƯỚC `GET /{may_id}`: FastAPI khớp route theo thứ tự, để sau thì "trang-thai"
+    rơi vào `{may_id}` và ăn 422 vì không ép được sang int.
+    """
+    may_ids = [int(i) for i in db.execute(select(MayThietBi.id)).scalars()]
+    return TrangThaiMayOut(
+        items={k: TrangThaiMayRow(**v) for k, v in trang_thai_may(db, may_ids).items()}
     )
 
 

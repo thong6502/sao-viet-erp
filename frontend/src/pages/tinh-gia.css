@@ -1927,9 +1927,13 @@ select.tg-input--sm {
   color: var(--rust);
   font-variant-numeric: tabular-nums;
 }
+/* "con/tờ" nay là TÊN ĐƠN VỊ đọc từ danh mục — có thể dài ("SẢN PHẨM XONG/TỜ CHẠY MÁY"). Caption
+   đã `flex-wrap`, chỉ cần cho phép ngắt trong chính chuỗi tên. */
 .tg-imp__con-unit {
+  min-width: 0;
   font-size: 11px;
   color: var(--ash);
+  overflow-wrap: anywhere;
 }
 .tg-imp__sep {
   color: var(--rule);
@@ -1969,7 +1973,10 @@ select.tg-input--sm {
   border: 1px solid var(--rule);
   border-radius: 999px;
   background: var(--paper-contrast);
-  white-space: nowrap;
+  /* `nowrap` cũ hợp lý khi chip là "con 58×90"; nay chữ "con" là tên đơn vị của xưởng nên chip
+     phải co được, không thì nó chọc ra khỏi thẻ. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .tg-imp__param b {
   color: var(--ink);
@@ -2354,6 +2361,46 @@ select.tg-input--sm {
   font-weight: 700;
   font-size: 14.5px;
 }
+
+/* ── SỐ + ĐƠN VỊ ─────────────────────────────────────────────────────────────
+   Tên đơn vị do XƯỞNG đặt trong danh mục (12/08/2026): có thể là "tờ", cũng có thể là
+   "TỜ CHẠY MÁY". Nên bố cục phải chịu được mọi độ dài mà KHÔNG cắt chữ và KHÔNG để tên nuốt
+   mất con số:
+     · số  — cỡ lớn, đậm, `white-space: nowrap` (số không bao giờ bị bẻ giữa chừng);
+     · đơn vị — nhỏ hơn, nhạt hơn, tự XUỐNG DÒNG dưới số khi hết chỗ.
+   Nhãn trái `min-width: 0` để nó nhường chỗ trước, thay vì cả hàng cùng phình. */
+.rc-modal__right-col .tg-sheetrow > span {
+  min-width: 0;
+}
+.rc-modal__right-col .tg-val {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  column-gap: 5px;
+  row-gap: 0;
+  min-width: 0;
+  max-width: 62%;
+  text-align: right;
+  line-height: 1.25;
+}
+.rc-modal__right-col .tg-val__so {
+  font-style: normal;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.rc-modal__right-col .tg-val__dv {
+  font-style: normal;
+  font-size: 0.72em;
+  font-weight: 600;
+  color: var(--ash);
+  overflow-wrap: anywhere;
+}
+/* Dòng tổng: số to hơn, nhưng đơn vị KHÔNG to theo — không thì tên dài lại chiếm hết hàng. */
+.rc-modal__right-col .tg-sheetrow--total .tg-val__dv {
+  font-size: 11.5px;
+  color: color-mix(in srgb, var(--rust-deep) 55%, var(--ash));
+}
 .rc-modal__right-col .tg-sheetrow--total {
   border-top: 1.5px solid var(--rule);
   border-bottom: 1.5px solid var(--rule);
@@ -2429,7 +2476,9 @@ select.tg-input--sm {
 }
 .rc-modal__right-col .tg-step-card__head {
   display: flex;
-  align-items: center;
+  /* Pill hao cao lên khi tên đơn vị xuống dòng — neo hai vế theo ĐỈNH để tên bước không bị đẩy
+     xuống giữa thẻ. */
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--sp-2);
 }
@@ -2453,6 +2502,13 @@ select.tg-input--sm {
 .rc-modal__right-col .tg-hao-pill {
   display: inline-flex;
   align-items: center;
+  /* Pill mang cả tên đơn vị ("+150 TỜ CHẠY MÁY") nên phải cho xuống dòng và co lại, không thì nó
+     đẩy tên bước sang trái rồi tràn khỏi thẻ. */
+  flex: 0 1 auto;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
   padding: 2px 7px;
   background: rgba(224, 86, 56, 0.1);
   border: 1px solid rgba(224, 86, 56, 0.25);
@@ -2467,8 +2523,9 @@ select.tg-input--sm {
 }
 .rc-modal__right-col .tg-step-card__flow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 8px;
   padding: 4px 8px;
   background: var(--paper);
   border: 1px solid var(--rule-soft);
@@ -2482,16 +2539,27 @@ select.tg-input--sm {
   color: var(--ash);
   opacity: 0.6;
   font-size: 12px;
+  flex: none;
+  align-self: center;
 }
+/* Hai vế vào/ra chia đôi chỗ và tự xuống dòng — tên đơn vị dài thì đơn vị tụt xuống dưới số,
+   KHÔNG đẩy mũi tên đi hay tràn ra ngoài thẻ. */
 .rc-modal__right-col .tg-step-card__qty {
   font-weight: 600;
   color: var(--ink);
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rc-modal__right-col .tg-step-card__flow > .tg-step-card__qty:last-of-type {
+  text-align: right;
 }
 .rc-modal__right-col .tg-step-card__qty small {
   font-size: 10.5px;
   font-weight: 400;
   color: var(--ash);
   margin-left: 2px;
+  overflow-wrap: anywhere;
 }
 .rc-modal__right-col .tg-step-card__details {
   display: flex;
@@ -2506,11 +2574,20 @@ select.tg-input--sm {
   color: var(--ash);
   font-variant-numeric: tabular-nums;
 }
+/* Câu diễn giải mang tên đơn vị hai lần ("cần 91 TỜ CHẠY MÁY tốt + 150 hao = 241 TỜ CHẠY MÁY") —
+   icon giữ nguyên ở đầu, chữ xuống dòng bên phải nó. `flex-start` để icon không trôi xuống giữa. */
 .rc-modal__right-col .tg-ratio-tag,
 .rc-modal__right-col .tg-math-tag {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  align-items: flex-start;
   gap: 5px;
+  min-width: 0;
+  line-height: 1.4;
+}
+.rc-modal__right-col .tg-ratio-tag > span,
+.rc-modal__right-col .tg-math-tag > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .rc-modal__right-col .tg-ratio-tag svg,
 .rc-modal__right-col .tg-math-tag svg {
@@ -2564,6 +2641,8 @@ select.tg-input--sm {
   color: var(--ash);
   text-align: center;
   line-height: 1.4;
+  /* "99 cái/TỜ CHẠY MÁY · 5 kẽm" — cho xuống dòng thay vì bị cắt cụt ở mép phải. */
+  overflow-wrap: anywhere;
 }
 
 /* Auto/Revert styles inside fields */

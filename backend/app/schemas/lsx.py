@@ -62,6 +62,14 @@ class PreviewLine(BaseModel):
     so_con: int | None = None
     so_kem: int | None = None
     so_luot: int | None = None
+    # MÃ đơn vị từng chặng dòng giấy của DÒNG NÀY (`don_vi_chuoi`). Bảng hàng chờ xếp nhiều dòng
+    # đơn cạnh nhau, mỗi dòng có thể đếm bằng đơn vị khác — nên đơn vị đi theo dòng, không nằm ở
+    # tiêu đề cột. Gửi MÃ, client tra tên trong danh mục Đơn vị. None = routing không nói tới chặng
+    # đó (vd không có bước xả giấy) ⇒ client dùng nhãn mặc định.
+    don_vi_to: str | None = None
+    don_vi_to_nguyen: str | None = None
+    don_vi_tp: str | None = None
+    don_vi_tay: str | None = None
     routing: list[PreviewRouting] = Field(default_factory=list)
     quy_cach: dict | None = None
     thieu: list[str] = Field(default_factory=list)
@@ -102,6 +110,9 @@ class LeadTimeOut(BaseModel):
 class LsxBuocVatTuIn(BaseModel):
     vat_tu_id: int
     so_luong: float = Field(gt=0)
+    # True = dòng MÁY bung khi chọn công việc khoán ⇒ lần bung sau thay được. False = người tự thêm
+    # hoặc đã sửa số ⇒ máy chừa ra. Mặc định False: client cũ không gửi thì coi như người khai.
+    tu_dong: bool = False
 
 
 class LsxBuocVatTuOut(BaseModel):
@@ -111,6 +122,7 @@ class LsxBuocVatTuOut(BaseModel):
     vat_tu_ten: str
     don_vi: str
     so_luong: float
+    tu_dong: bool = False
 
 
 class PhuThuocOption(BaseModel):
@@ -209,6 +221,9 @@ class LsxCongDoanOut(BaseModel):
     # cứng thì mọi lần mở chi tiết lệnh có bước chế bản là 500.
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
+    # Bước có nằm trên DÒNG GIẤY không — quyết định bởi CỜ TRẠM của danh mục Đơn vị, FE không tự
+    # suy được từ mã. Sai/thiếu field này thì màn hiện hai số 0 (số lượng + hao) mà không nói vì sao.
+    tren_dong_giay: bool = True
     he_so_quy_doi: float
     hao_hut: float
     hao_hut_pct: float
@@ -317,6 +332,9 @@ class LsxListItem(BaseModel):
     is_rush: bool = False
     to_dau_ten: str | None = None   # tổ của bước đầu (nhìn biết ai bắt việc)
     so_cong_doan: int = 0
+    # MÃ đơn vị chặng TỜ IN của lệnh này — cột "Tờ in" liệt kê nhiều lệnh, mỗi lệnh có thể đếm
+    # bằng đơn vị xưởng tự đặt. Client tra tên ở danh mục Đơn vị.
+    don_vi_to: str | None = None
 
 
 class LsxListOut(BaseModel):
@@ -355,6 +373,13 @@ class LsxOut(BaseModel):
     so_to_ke_hoach: int
     so_to_nguyen: int
     so_con: int
+    # MÃ đơn vị bốn CHẶNG dòng giấy của lệnh này (`dong_giay.don_vi_chuoi`). Server chấm MỘT chỗ
+    # rồi gửi cho cả ba màn; client chỉ tra TÊN trong danh mục Đơn vị. None = routing không nói tới
+    # chặng đó — client hiện mỗi con số, KHÔNG bịa nhãn.
+    don_vi_to: str | None = None
+    don_vi_to_nguyen: str | None = None
+    don_vi_tp: str | None = None
+    don_vi_tay: str | None = None
 
     ban_giao_at: datetime | None = None
     han_giao_khach: date | None = None

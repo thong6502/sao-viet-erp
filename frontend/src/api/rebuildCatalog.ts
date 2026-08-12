@@ -50,6 +50,20 @@ export const muc = crud("/api/vat-lieu-kho/muc");
 export const banKem = crud("/api/vat-lieu-kho/ban-kem");
 export const vatTu = crud("/api/vat-lieu-kho/vat-tu-in-an"); // vật tư in ấn gộp (mực/kẽm/màng/keo)
 
+// -- Trạng thái máy LÚC NÀY (dẫn xuất: sự cố · vùng khoá · lệnh đang chạy) --------------------
+/** Máy KHÔNG có mặt trong map = đang rảnh — backend chỉ trả máy có chuyện. */
+export interface TrangThaiMay {
+  trang_thai: "may_dung" | "bao_tri" | "khoa" | "dang_chay" | "ranh";
+  nhan: string;                 // nhãn tiếng Việt dựng ở backend — hai màn khỏi tự đặt tên lệch nhau
+  chi_tiet: string | null;
+  phieu_id: number | null;      // phiếu sự cố đang mở
+  den: string | null;
+}
+export function trangThaiMay(token: string): Promise<Record<string, TrangThaiMay>> {
+  return authed<{ items: Record<string, TrangThaiMay> }>("/api/may-thiet-bi/trang-thai", token)
+    .then((r) => r.items ?? {});
+}
+
 // -- Lịch sử giá Giấy (phiên bản) — GET danh sách + POST thêm phiên bản (mirror đơn giá hiện hành) --
 export interface GiayGiaVersion {
   id: number; giay_id: number; version_no: number; ngay_hieu_luc: string | null;

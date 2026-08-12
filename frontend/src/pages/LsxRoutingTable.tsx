@@ -11,7 +11,6 @@
 // Các kiểm tra (chưa gán tổ, thuê ngoài thiếu NCC, đứt đơn vị) chỉ TÔ MÀU, không chặn lưu.
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
-  LSX_DON_VI_LABELS,
   LSX_LOAI_BUOC_META,
   type LsxBuocMacDinh,
   type LsxCongDoan,
@@ -23,7 +22,9 @@ import { Icon } from "../components/Icons";
 import { DagRoutingCanvas } from "../components/DagRoutingCanvas";
 import { LsxBuocDrawer, type TabKey as DrawerTabKey } from "./LsxBuocDrawer";
 import { ChuoiCongDoan, ngay, num } from "./keHoachSxShared";
+import { tenDonVi, useNapTenDonVi } from "./tenDonVi";
 import {
+  type DonViChuoi,
   type EditRow,
   emptyRow,
   heSoChu,
@@ -58,7 +59,10 @@ export function dvNhan(dv: string | null | undefined, nhom?: string | null): str
   // Lệnh cũ có thể còn snapshot `to → to` ở bước chế bản; về nghiệp vụ prepress vẫn đứng ngoài
   // dòng giấy nên tuyệt đối không trình bày các đơn vị legacy đó cho người lập kế hoạch.
   if (nhom === "prepress") return "—";
-  if (dv) return LSX_DON_VI_LABELS[dv] ?? dv;
+  // Tên lấy từ DANH MỤC (12/08/2026), không còn bảng nhãn cứng: `LSX_DON_VI_LABELS` nói `to` là
+  // "Tờ in" và `cai` là "Thành phẩm", trong khi danh mục ghi "tờ" và "cái" — cùng một bước hiện
+  // hai tên ở hai màn. Chưa nạp xong thì rơi về MÃ TRẦN, không bịa tên.
+  if (dv) return tenDonVi(dv) ?? dv;
   return "—";
 }
 
@@ -119,6 +123,7 @@ export function LsxRoutingTable({
   onDauViecOptions,
   onGiaoNhan,
   onDirtyChange,
+  dvChuoi,
 }: {
   congDoans: LsxCongDoan[];
   soLuongDat: number;
@@ -146,7 +151,14 @@ export function LsxRoutingTable({
     buocId: number, body: { su_kien: "giao" | "nhan"; luc?: string; so_luong?: number },
   ) => Promise<void>;
   onDirtyChange: (dirty: boolean) => void;
+  /** Đơn vị bốn chặng của lệnh — SERVER chấm, cha truyền xuống. Bảng KHÔNG tự suy lại từ `rows`:
+   *  luật suy chặng chỉ có một bản, ở `dong_giay.don_vi_chuoi`. Đánh đổi: đổi công đoạn của một
+   *  bước thì nhãn ở băng bài ghép cập nhật sau khi bấm Lưu, không tức thì. */
+  dvChuoi: DonViChuoi;
 }) {
+  // Nhãn đơn vị đọc từ DANH MỤC — nạp một lần cho cả phiên. Hook ở ĐÂY (gốc của bảng + DAG +
+  // drawer) nên mọi chỗ gọi `dvNhan` vẽ lại khi danh mục về, khỏi phải truyền prop qua 22 chỗ.
+  useNapTenDonVi();
   const [rows, setRows] = useState<EditRow[]>(() => congDoans.map(toEdit));
   const [viewMode, setViewMode] = useState<"dag" | "table">("dag");
   const [undo, setUndo] = useState<{ row: EditRow; at: number } | null>(null);
@@ -169,6 +181,7 @@ export function LsxRoutingTable({
 
   const dirty = JSON.stringify(toBody(rows)) !== goc.current;
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
+
 
   // Dải "hoàn tác" tự tắt sau 6s — xoá dòng chưa lưu không cần hỏi han.
   useEffect(() => {
@@ -235,8 +248,10 @@ export function LsxRoutingTable({
     try {
       const options = await onDauViecOptions(row.cong_doan_id, departmentId);
       if (seq !== doiToSeq.current) return;
-      const defaults = options.filter((x) => x.is_default);
-      const chosen = defaults.length === 1 ? defaults[0] : (options.length === 1 ? options[0] : null);
+      // Đúng MỘT đầu việc thì điền sẵn (không có gì để chọn nhầm); từ hai trở lên để TRỐNG cho
+      // người lập lệnh quyết theo hàng. Cờ `is_default` khai ở danh mục đã gỡ 12/08/2026 (mg 0190)
+      // — luật này phải khớp `lsx_service._khoan_mac_dinh`, lệch là FE điền một đằng BE một nẻo.
+      const chosen = options.length === 1 ? options[0] : null;
       patch(key, {
         ...reset,
         khoan_chon_duoc: options,
@@ -405,11 +420,11 @@ export function LsxRoutingTable({
           <span>
             Bước in do bài ghép <strong>{baiGhep.ma}</strong> điều phối —{" "}
             {baiGhep.may_ten ? `chạy máy ${baiGhep.may_ten}` : "chưa chọn máy"} ·{" "}
-            {baiGhep.so_con_tren_to} con/tờ
+            {baiGhep.so_con_tren_to} {dvChuoi.tp}/{dvChuoi.to}
             {baiGhep.kho_in_dai && baiGhep.kho_in_rong
               ? ` · khổ ${baiGhep.kho_in_dai}×${baiGhep.kho_in_rong}`
               : ""}
-            . Máy, giấy, khổ tờ in và số con sửa tại bài.
+            . Máy, giấy, khổ {dvChuoi.to} và số {dvChuoi.tp} sửa tại bài.
           </span>
         </div>
       )}
@@ -716,6 +731,7 @@ export function LsxRoutingTable({
           vatTuRefs={vatTuRefs}
           phuThuocRefs={phuThuocRefs}
           baiGhep={baiGhep}
+          dvChuoi={dvChuoi}
           canUpdate={canUpdate}
           onPatch={(p) => patch(rows[moBuoc].key, p)}
           onPatchLsx={onPatchLsx}

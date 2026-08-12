@@ -1,16 +1,17 @@
 // Trang danh mục GENERIC (rebuild) — list + drawer form theo SECTION + search + filter tab.
 // 1 component cho 6 module (Máy · Vật liệu · Công đoạn · Loại SP) qua `config`. On-brand với
 // design system app (tokens rust/ink/paper). Form lean nhưng có nhóm; đủ theo spec là follow-up.
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { ApiError } from "../api/client";
+import { ApiError, authed } from "../api/client";
 import {
   crud, giayVersions, addGiayVersion, nhatKyDanhMuc,
   type GiayGiaVersion, type NhatKyItem, type Row,
 } from "../api/rebuildCatalog";
+import { kyThuatMay } from "../api/kyThuatMay";
 import "./rebuild-catalog.css";
 
 export interface FieldDef {
@@ -37,7 +38,9 @@ export interface FieldDef {
 export interface ColumnDef {
   key: string;
   label: string;
-  render?: (r: Row) => ReactNode;
+  /** `extra` = dữ liệu PHỤ của chính dòng này, do `config.loadExtra` nạp song song (vd trạng thái
+   *  máy lúc này). `undefined` khi chưa nạp xong hoặc dòng không có gì để nói. */
+  render?: (r: Row, extra?: unknown) => ReactNode;
 }
 export interface FacetDef {
   key: string;                  // field lọc (vd "nhom")
@@ -65,6 +68,16 @@ export interface CatalogConfig {
   columns: ColumnDef[];
   fields: FieldDef[];
   facet?: FacetDef;             // tab lọc phía trên (tùy chọn)
+  /** Dữ liệu PHỤ nạp SONG SONG danh sách, khoá theo id bản ghi — cột nào cần thì đọc ở tham số
+   *  thứ hai của `render`. Dùng cho số DẪN XUẤT không thuộc bản ghi (vd trạng thái máy suy từ sự
+   *  cố + vùng khoá + lệnh đang chạy). Cố ý KHÔNG nhét vào schema CRUD dùng chung: schema đó
+   *  đang đổ dropdown cho cả chục màn khác, bắt họ trả giá cho số chỉ một màn cần là sai chỗ.
+   *  Hỏng thì NUỐT (trả `{}`) — mất cột phụ không được phép làm trắng cả bảng danh mục. */
+  loadExtra?: (token: string) => Promise<Record<string, unknown>>;
+  /** Chia phần khai báo thành nhiều TAB theo `group`. Chỉ màn khai dài mới cần (Máy có 7 nhóm,
+   *  cuộn một mạch rất mệt). Không khai thì render một mạch như cũ. Nhóm không liệt kê ở đây rơi
+   *  vào tab ĐẦU TIÊN — quên khai một nhóm thì nó vẫn hiện, không biến mất im lặng. */
+  tabsKhai?: { id: string; label: string; groups: string[] }[];
   // Block phụ cuối drawer (preview BHR của Máy · bảng quy đổi của Đơn vị). `existing` = null khi
   // đang TẠO — block nào cần id thì tự nhắc "lưu trước đã".
   renderExtra?: (form: Record<string, unknown>, existing: Row | null) => ReactNode;
@@ -101,6 +114,13 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
   const [q, setQ] = useState("");
   const [facet, setFacet] = useState("all");
 
+  // Dữ liệu phụ theo dòng (vd trạng thái máy). Nạp SONG SONG, không nối tiếp: cột phụ chậm không
+  // được phép giữ cả bảng ở trạng thái skeleton.
+  // `null` = CHƯA BIẾT (đang nạp, hoặc nạp hỏng) — khác hẳn "đã nạp xong, dòng này không có gì".
+  // Gộp hai cái làm một là trong lúc chờ API, máy đang hỏng hiện "Rảnh" — sai đúng thứ người ta
+  // mở bảng ra để tìm.
+  const [extra, setExtra] = useState<Record<string, unknown> | null>(null);
+
   const load = useCallback(() => {
     if (!token) return;
     setLoading(true);
@@ -108,7 +128,9 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
       .then((r) => setRows(r.items))
       .catch((e) => setError(e instanceof ApiError ? e.message : "Không tải được danh sách."))
       .finally(() => setLoading(false));
-  }, [token, api, config.softDelete]);
+    // Hỏng thì để nguyên `null` — cột phụ sẽ nói "chưa biết" chứ không bịa ra trạng thái đẹp.
+    config.loadExtra?.(token).then(setExtra).catch(() => setExtra(null));
+  }, [token, api, config.softDelete, config.loadExtra]);
   useEffect(() => { load(); }, [load]);
 
   // Tab lọc: giữ THỨ TỰ khai sẵn, nối thêm giá trị tự do có trong dữ liệu (facet.dynamic).
@@ -265,7 +287,7 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
                     ].filter(Boolean).join(" ");
                     return (
                       <td key={c.key} className={classes || undefined}>
-                        {c.render ? c.render(r) : (r[c.key] == null || r[c.key] === "" ? "—" : String(r[c.key]))}
+                        {c.render ? c.render(r, extra ? (extra[String(r.id)] ?? null) : undefined) : (r[c.key] == null || r[c.key] === "" ? "—" : String(r[c.key]))}
                       </td>
                     );
                   })}
@@ -908,54 +930,98 @@ function ChuanBiKhoanField({
   );
 }
 
-// ── LỊCH BẢO TRÌ ĐỊNH KỲ (đầu việc · chu kỳ số + đơn vị ngày/tuần/tháng/năm) ──────
+// ── LỊCH BẢO TRÌ ĐỊNH KỲ — GÓI (có chu kỳ + hạn) → VIỆC CON (nội dung phải làm) ──
 // Lưu LỒNG trong fields_theo_loai.lich_bao_tri (jsonKey) — không cột mới, không migration.
-// Cùng khuôn với ChuanBiKhoanField; khác ở cột đơn vị chu kỳ và không có dòng "Tổng".
-export interface LichBaoTriRow { viec?: string; so?: number; don_vi?: string }
+// Chỉ GÓI mới có chu kỳ: một lần dừng máy 4 tiếng mà mỗi việc con một hạn riêng thì bảng việc của
+// thợ cả đỏ rực 5 dòng cùng nội dung, nhìn vài hôm là hết tin.
+export interface HangMucConRow { id?: string; ten?: string }
+export interface LichBaoTriRow {
+  id?: string; viec?: string; so?: number; don_vi?: string;
+  // Mốc cho kỳ ĐẦU TIÊN: kỳ 1 rơi đúng vào ngày này. Từ kỳ 2 trở đi hạn = ngày HOÀN THÀNH phiếu
+  // gần nhất + chu kỳ, nên ô này khai MỘT LẦN rồi thôi.
+  // ⚠️ KHÁC hẳn ô "Lần cuối làm" đã bỏ 12/08/2026: ô đó bắt sửa lại sau MỖI lần bảo trì nên không
+  // ai sửa, còn ô này chỉ để mồi lần đầu. Đừng gộp/gỡ nhầm hai thứ.
+  ngay_bat_dau?: string;  // ISO date (yyyy-mm-dd)
+  lan_cuoi?: string;      // (đã bỏ khỏi form) giá trị cũ vẫn giữ nguyên trong JSON khi lưu
+  dung_phut?: number;     // 0/trống = không phải dừng máy
+  hang_muc?: HangMucConRow[];   // việc con trong gói — không có cũng chạy (gói khai từ trước)
+}
 const DON_VI_CHU_KY = [
   { v: "ngay", n: "ngày" }, { v: "tuan", n: "tuần" },
   { v: "thang", n: "tháng" }, { v: "nam", n: "năm" },
 ];
+
+/** `id` ỔN ĐỊNH cho mỗi hạng mục — phiếu bảo trì neo vào đây. Neo theo TÊN thì đổi tên là mất
+ *  sạch mốc; neo theo THỨ TỰ thì xoá một dòng là mọi phiếu trỏ nhầm hạng mục, im lặng. */
+function _hangMucId(): string {
+  return `hm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
 function LichBaoTriField({
   value,
   onChange,
-}: { value: LichBaoTriRow[]; onChange: (v: LichBaoTriRow[]) => void }) {
+  mayId = null,
+}: { value: LichBaoTriRow[]; onChange: (v: LichBaoTriRow[]) => void; mayId?: number | null }) {
+  const { token } = useAuth();
   const rows = value ?? [];
+  // Hạn kế tiếp từng gói — CHỈ ĐỌC, tính ở backend từ phiếu bảo trì gần nhất (hoặc "Bắt đầu từ"
+  // khi chưa có phiếu nào). Máy chưa lưu (`mayId` null) thì chưa có gì để hỏi.
+  const [han, setHan] = useState<Record<string, { han: string | null; nguon: string }>>({});
+  useEffect(() => {
+    if (!token || !mayId) return;
+    let huy = false;
+    kyThuatMay.hanCuaMay(token, mayId)
+      .then((items) => {
+        if (huy) return;
+        const m: Record<string, { han: string | null; nguon: string }> = {};
+        for (const it of items) if (it.goi_id) m[it.goi_id] = { han: it.han, nguon: it.nguon };
+        setHan(m);
+      })
+      // Nuốt lỗi có chủ đích: dòng "Kỳ tới" là thông tin PHỤ, thiếu quyền đọc module Kỹ thuật máy
+      // thì vẫn phải khai được lịch bảo trì như thường.
+      .catch(() => setHan({}));
+    return () => { huy = true; };
+  }, [token, mayId]);
   const setRow = (i: number, patch: Partial<LichBaoTriRow>) =>
     onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-  const add = () => onChange([...rows, { viec: "", so: undefined, don_vi: "thang" }]);
+  const add = () => onChange([...rows, { id: _hangMucId(), viec: "", so: undefined, don_vi: "thang", hang_muc: [] }]);
   const del = (i: number) => onChange(rows.filter((_, j) => j !== i));
+
+  const setViecCon = (i: number, list: HangMucConRow[]) => setRow(i, { hang_muc: list });
+
   return (
-    <div className="rc-bands">
-      <table className="rc-bands__table">
-        <thead>
-          <tr><th>Đầu việc bảo trì</th><th>Mỗi</th><th>Đơn vị</th><th></th></tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 && (
-            <tr><td colSpan={4} className="rc-bands__empty">Chưa có hạng mục — bấm “＋ Thêm hạng mục”.</td></tr>
-          )}
-          {rows.map((r, i) => (
-            <tr key={i}>
-              <td>
-                <input
-                  className="rc-input"
-                  value={r.viec ?? ""}
-                  placeholder="vd: Vệ sinh lô cao su"
-                  onChange={(e) => setRow(i, { viec: e.target.value })}
-                />
-              </td>
-              <td>
+    <div className="rc-goi-list">
+      {rows.length === 0 && (
+        <p className="rc-goi__empty">
+          Chưa có gói bảo trì nào. Một gói = một lần dừng máy theo chu kỳ (vd “Bảo trì 3 tháng”),
+          bên trong liệt kê những việc phải làm trong lần đó.
+        </p>
+      )}
+      {rows.map((r, i) => {
+        const viecCon = r.hang_muc ?? [];
+        return (
+          <section className="rc-goi" key={r.id ?? i}>
+            <div className="rc-goi__head">
+              <input
+                className="rc-input rc-goi__ten"
+                value={r.viec ?? ""}
+                placeholder="Tên gói — vd: Bảo trì 3 tháng"
+                onChange={(e) => setRow(i, { viec: e.target.value })}
+              />
+              <button type="button" className="rc-bands__del" onClick={() => del(i)} title="Xoá gói bảo trì">
+                <TrashIcon />
+              </button>
+            </div>
+
+            <div className="rc-goi__so">
+              <label className="rc-goi__o">
+                <span>Mỗi</span>
                 <input
                   className="rc-input rc-input--num"
-                  type="number"
-                  step="any"
-                  inputMode="numeric"
+                  type="number" step="any" min={1} inputMode="numeric"
                   value={r.so === undefined || r.so === null ? "" : String(r.so)}
                   onChange={(e) => setRow(i, { so: e.target.value === "" ? undefined : Number(e.target.value) })}
                 />
-              </td>
-              <td>
                 <select
                   className="rc-input"
                   value={r.don_vi ?? "thang"}
@@ -963,17 +1029,83 @@ function LichBaoTriField({
                 >
                   {DON_VI_CHU_KY.map((d) => <option key={d.v} value={d.v}>{d.n}</option>)}
                 </select>
-              </td>
-              <td style={{ textAlign: "center" }}>
-                <button type="button" className="rc-bands__del" onClick={() => del(i)} title="Xóa hạng mục">
-                  <TrashIcon />
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <button type="button" className="rc-bands__add" onClick={add}>＋ Thêm hạng mục</button>
+              </label>
+              {/* Mốc kỳ ĐẦU. Không có nó thì màn Phiếu bảo trì không biết gói này tới hạn chưa —
+                  đành coi là tới hạn ngay hôm nay, nên bấm "Sinh phiếu từ lịch" là ra một loạt
+                  phiếu cùng ngày. Khai một lần ở đây là hết cảnh đó. */}
+              <label className="rc-goi__o rc-goi__o--ngay">
+                <span>Bắt đầu từ</span>
+                <input
+                  className="rc-input"
+                  type="date"
+                  value={r.ngay_bat_dau ?? ""}
+                  onChange={(e) => setRow(i, { ngay_bat_dau: e.target.value || undefined })}
+                />
+              </label>
+              {/* "Lần cuối làm" + "Dừng máy (phút)" đã BỎ khỏi form 12/08/2026 (chủ xưởng chốt).
+                  Giá trị cũ trong JSON vẫn được giữ nguyên khi lưu (xem transformSubmit) — chỉ là
+                  không khai ở đây nữa. Mốc các kỳ SAU đi ra từ PHIẾU bảo trì, đúng một nguồn;
+                  "Bắt đầu từ" ở trên chỉ mồi cho kỳ 1, không phải ô đó sống lại. */}
+            </div>
+            {(r.so ?? 0) > 0 && !r.ngay_bat_dau && !han[r.id ?? ""]?.han && (
+              <p className="rc-goi__nhac">
+                Chưa có ngày bắt đầu — gói này sẽ bị coi là tới hạn ngay khi sinh phiếu.
+              </p>
+            )}
+            {/* Kỳ tới: CHỈ ĐỌC. Nó đi ra từ phiếu bảo trì gần nhất nên khai tay ở đây là đẻ ra hai
+                nguồn sự thật — mốc thật nằm ở phiếu, không nằm trong ô. */}
+            {han[r.id ?? ""]?.han && (
+              <p className="rc-goi__ky">
+                Kỳ tới: <strong>{new Date(`${han[r.id!]!.han}T00:00:00`).toLocaleDateString("vi-VN")}</strong>
+                <span className="rc-goi__ky-nguon">
+                  {han[r.id!]!.nguon === "phieu"
+                    ? "tính từ phiếu bảo trì gần nhất"
+                    : han[r.id!]!.nguon === "ngay_bat_dau"
+                      ? "kỳ đầu, theo ngày bắt đầu"
+                      : "chưa có mốc — coi như tới hạn"}
+                </span>
+              </p>
+            )}
+
+            <div className="rc-goi__viec">
+              <div className="rc-goi__viec-head">
+                Việc phải làm trong gói
+                {/* Đếm việc ĐÃ CÓ TÊN, không đếm dòng trống vừa bấm thêm — "4 việc" trong khi cả
+                    4 ô còn trắng là con số nói dối ngay trước mắt người đang gõ. */}
+                <span className="rc-goi__dem">
+                  {viecCon.filter((h) => (h.ten ?? "").trim()).length || "chưa khai"}
+                  {viecCon.some((h) => (h.ten ?? "").trim()) ? " việc" : ""}
+                </span>
+              </div>
+              <ol className="rc-goi__ol">
+                {viecCon.map((h, j) => (
+                  <li key={h.id ?? j}>
+                    <input
+                      className="rc-input"
+                      value={h.ten ?? ""}
+                      placeholder="vd: Thay set dao bế (4 dao)"
+                      onChange={(e) => setViecCon(i, viecCon.map((x, k) => (k === j ? { ...x, ten: e.target.value } : x)))}
+                    />
+                    <button
+                      type="button" className="rc-bands__del" title="Xoá việc"
+                      onClick={() => setViecCon(i, viecCon.filter((_, k) => k !== j))}
+                    >
+                      <TrashIcon />
+                    </button>
+                  </li>
+                ))}
+              </ol>
+              <button
+                type="button" className="rc-bands__add"
+                onClick={() => setViecCon(i, [...viecCon, { id: _hangMucId(), ten: "" }])}
+              >
+                ＋ Thêm việc
+              </button>
+            </div>
+          </section>
+        );
+      })}
+      <button type="button" className="rc-bands__add rc-goi__add" onClick={add}>＋ Thêm gói bảo trì</button>
     </div>
   );
 }
@@ -1038,7 +1170,10 @@ interface DinhMucRow {
   cho_ky_thuat_gio?: number;
   // Ba mốc nhân lực: tối thiểu ≤ chuẩn ≤ tối đa. Tối thiểu mới là KHAI BÁO, chưa vào công thức.
   so_nguoi_toi_thieu?: number;
-  so_nguoi_tieu_chuan: number; so_nguoi_toi_da: number; is_default: boolean;
+  so_nguoi_tieu_chuan: number; so_nguoi_toi_da: number;
+  /** VẬT TƯ đầu việc này tiêu thụ (nền BOM, mg 0191) — chỉ DANH SÁCH, không có số lượng: định mức
+   *  tuỳ quy cách từng lệnh nên số khai ở đây là số chết. Số suy lúc bung ở bước lệnh. */
+  vat_tu_ids?: number[];
 }
 // `donViVao` vẫn nằm trong props (chỗ gọi truyền vào) nhưng KHÔNG dùng nữa: đơn vị năng suất
 // giờ do người khai chọn ở từng dòng, không còn suy theo đơn vị vào của công đoạn.
@@ -1046,9 +1181,26 @@ function DinhMucDauViecField({ value, options, departmentId, onChange }: {
   value: DinhMucRow[]; options: Row[]; departmentId: number | null; donViVao: string;
   onChange: (v: DinhMucRow[]) => void;
 }) {
+  const { token } = useAuth();
   const allowed = options.filter((o) => Number(o.department_id) === departmentId);
   const selected = new Set(value.map((r) => r.piece_rate_id));
   const patch = (i: number, p: Partial<DinhMucRow>) => onChange(value.map((r, j) => j === i ? { ...r, ...p } : r));
+
+  // Danh mục Vật tư khác cho dropdown gắn vật tư. Nạp TẠI ĐÂY chứ không qua `refData` chung: cột
+  // này là danh mục thứ HAI của cùng một field, mà bộ nạp chung khoá theo một `refPrefix` mỗi field.
+  const [vatTu, setVatTu] = useState<Row[]>([]);
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    crud("/api/vat-lieu-kho/vat-tu-in-an").list(token, { active: true })
+      .then((r) => { if (alive) setVatTu(r.items); })
+      .catch(() => { if (alive) setVatTu([]); });
+    return () => { alive = false; };
+  }, [token]);
+  const vatTuTheoId = useMemo(() => new Map(vatTu.map((v) => [Number(v.id), v])), [vatTu]);
+  // Hàng phụ đang mở — mỗi lúc một dòng, mở cái khác thì cái cũ đóng (bảng đã 10 cột, bung hai
+  // hàng cùng lúc là mất dấu dòng nào của ai).
+  const [moVatTu, setMoVatTu] = useState<number | null>(null);
   return <div className="rc-bands rc-bands--dinh-muc">
     {!departmentId ? <div className="rc-bands__empty">Chọn Tổ phụ trách trước.</div> : <>
       <div className="rc-dinh-muc-wrapper">
@@ -1062,7 +1214,11 @@ function DinhMucDauViecField({ value, options, departmentId, onChange }: {
                   không, nên nó thuộc về từng đầu việc chứ không phải cả công đoạn. Vế MÁY khai ở
                   màn Thiết bị & Máy móc. */}
               <th rowSpan={2} className="rc-col--num" title="Chờ sau khi làm xong đầu việc này — keo đông, màng nguội. KHÔNG chiếm máy.">Chờ (giờ)</th>
-              <th rowSpan={2} className="rc-col--center">Mặc định</th>
+              {/* Cột "Mặc định" (radio chọn đầu việc điền sẵn) GỠ 12/08/2026 — xem mg 0190. Bế tay
+                  hay bế máy là quyết định theo HÀNG, không khai một lần ở danh mục được. */}
+              {/* VẬT TƯ đầu việc tiêu thụ (mg 0191) — nền BOM. Chỉ danh sách, KHÔNG có số lượng. */}
+              <th rowSpan={2} className="rc-col--center"
+                title="Vật tư đầu việc này tiêu thụ. Số lượng tính ở lệnh theo quy cách.">Vật tư</th>
               <th rowSpan={2} className="rc-col--center" style={{ width: 36 }} />
             </tr>
             <tr className="rc-dinh-muc-table__sub-row">
@@ -1077,7 +1233,7 @@ function DinhMucDauViecField({ value, options, departmentId, onChange }: {
           </thead>
           <tbody>{value.length === 0 && <tr><td colSpan={11} className="rc-bands__empty">
             {allowed.length === 0 ? "Tổ này chưa có đầu việc khoán để liên kết." : "Chưa chọn đầu việc định mức."}
-          </td></tr>}{value.map((r, i) => { const opt = options.find((o) => o.id === r.piece_rate_id); return <tr key={r.piece_rate_id}>
+          </td></tr>}{value.map((r, i) => { const opt = options.find((o) => o.id === r.piece_rate_id); const vtIds = r.vat_tu_ids ?? []; const mo = moVatTu === r.piece_rate_id; return <Fragment key={r.piece_rate_id}><tr>
             <td className="rc-col--left rc-dinh-muc-name">{opt ? `${opt.ma} · ${opt.ten}` : `#${r.piece_rate_id}`}</td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="0.01" step="any" value={r.nang_suat_nguoi_gio} onChange={(e) => patch(i, { nang_suat_nguoi_gio: Number(e.target.value) })} /></td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="0.01" step="any" placeholder="—"
@@ -1096,13 +1252,46 @@ function DinhMucDauViecField({ value, options, departmentId, onChange }: {
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="0" step="any" placeholder="0"
               value={r.cho_ky_thuat_gio ?? ""}
               onChange={(e) => patch(i, { cho_ky_thuat_gio: e.target.value === "" ? 0 : Number(e.target.value) })} /></td>
-            <td className="rc-col--center"><input type="radio" name="dinh-muc-default" checked={r.is_default} onChange={() => onChange(value.map((x, j) => ({ ...x, is_default: j === i })))} /></td>
+            {/* Bấm để bung HÀNG PHỤ ngay dưới — không mở drawer lồng drawer, người khai vẫn thấy
+                cả bảng để so các dòng với nhau. */}
+            <td className="rc-col--center">
+              <button type="button" className={`rc-dm-vt__pill ${mo ? "is-open" : ""} ${vtIds.length ? "" : "is-empty"}`}
+                title="Vật tư đầu việc này tiêu thụ"
+                onClick={() => setMoVatTu(mo ? null : r.piece_rate_id)}>
+                {vtIds.length ? `${vtIds.length} vật tư` : "＋ gắn"}
+              </button>
+            </td>
             <td className="rc-col--center"><button type="button" className="rc-bands__del" onClick={() => onChange(value.filter((_, j) => j !== i))}><TrashIcon /></button></td>
-          </tr>; })}</tbody>
+          </tr>{mo && <tr className="rc-dm-vt__row"><td colSpan={11}>
+            <div className="rc-dm-vt">
+              {vtIds.length === 0 && <div className="rc-dm-vt__empty">Chưa gắn vật tư nào.</div>}
+              {vtIds.map((vid) => { const vt = vatTuTheoId.get(vid); return (
+                <div className="rc-dm-vt__item" key={vid}>
+                  <span className="rc-dm-vt__ma">{String(vt?.ma ?? `#${vid}`)}</span>
+                  <span className="rc-dm-vt__ten">{String(vt?.ten ?? "(đã gỡ khỏi danh mục)")}</span>
+                  <span className="rc-dm-vt__dv">{String(vt?.don_vi_gia ?? "—")}</span>
+                  <button type="button" className="rc-bands__del" title="Bỏ vật tư khỏi đầu việc"
+                    onClick={() => patch(i, { vat_tu_ids: vtIds.filter((x) => x !== vid) })}>
+                    <TrashIcon />
+                  </button>
+                </div>
+              ); })}
+              <select className="rc-dinh-muc-add__select" value=""
+                onChange={(e) => { const id = Number(e.target.value); if (id) patch(i, { vat_tu_ids: [...vtIds, id] }); }}>
+                <option value="">＋ chọn từ danh mục vật tư khác</option>
+                {vatTu.filter((v) => !vtIds.includes(Number(v.id))).map((v) => (
+                  <option key={v.id} value={v.id}>{String(v.ma)} · {String(v.ten)} ({String(v.don_vi_gia ?? "—")})</option>
+                ))}
+              </select>
+              <p className="rc-dm-vt__note">
+                Số lượng tính ở lệnh theo quy cách — chỗ này chỉ khai <b>dùng những gì</b>.
+              </p>
+            </div>
+          </td></tr>}</Fragment>; })}</tbody>
         </table>
       </div>
       <div className="rc-dinh-muc-add">
-        <select className="rc-dinh-muc-add__select" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onChange([...value, { piece_rate_id: id, nang_suat_nguoi_gio: 1, nang_suat_nguoi_gio_min: null, nang_suat_nguoi_gio_max: null, don_vi_nang_suat: null, cho_ky_thuat_gio: 0, so_nguoi_toi_thieu: 1, so_nguoi_tieu_chuan: 1, so_nguoi_toi_da: 1, is_default: value.length === 0 }]); }}>
+        <select className="rc-dinh-muc-add__select" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onChange([...value, { piece_rate_id: id, nang_suat_nguoi_gio: 1, nang_suat_nguoi_gio_min: null, nang_suat_nguoi_gio_max: null, don_vi_nang_suat: null, cho_ky_thuat_gio: 0, so_nguoi_toi_thieu: 1, so_nguoi_tieu_chuan: 1, so_nguoi_toi_da: 1, vat_tu_ids: [] }]); }}>
           <option value="">＋ Chọn đầu việc của tổ</option>{allowed.filter((o) => !selected.has(o.id)).map((o) => <option key={o.id} value={o.id}>{o.ma} · {o.ten}</option>)}
         </select>
       </div>
@@ -1186,7 +1375,10 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     [config.fields, form],
   );
 
-  const [formulaTab, setFormulaTab] = useState<"info" | "formula" | "nhatky">("info");
+  // Tab đang mở. Màn không chia tab khai báo thì vẫn là "info" như trước; màn có chia (Máy) thì
+  // giá trị là id của tab khai. Dùng chung một state với tab "formula"/"nhatky" — hai bộ state
+  // song song là sớm muộn có lúc cả hai cùng "đang mở".
+  const [formulaTab, setFormulaTab] = useState<string>(config.tabsKhai?.[0]?.id ?? "info");
 
   const renderField = (f: FieldDef) => {
     const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
@@ -1200,6 +1392,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
         <span className="rc-field__label">{cleanLabel}{f.required ? " *" : ""}</span>
         {f.type === "lich_bao_tri" ? (
           <LichBaoTriField value={Array.isArray(form[f.key]) ? (form[f.key] as LichBaoTriRow[]) : []}
+            mayId={isEdit && existing ? Number(existing.id) : null}
             onChange={(v) => set(f.key, v)} />
         ) : f.type === "chuan_bi_khoan" ? (
           <ChuanBiKhoanField value={Array.isArray(form[f.key]) ? (form[f.key] as ChuanBiKhoanRow[]) : []}
@@ -1273,7 +1466,14 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
             onChange={(v) => set(f.key, v)}
           />
         ) : f.type === "formula" ? (
-          <FormulaField value={String(form[f.key] ?? "")} onChange={(v) => set(f.key, v)} configPrefix={config.prefix} />
+          <FormulaField value={String(form[f.key] ?? "")} onChange={(v) => set(f.key, v)}
+            configPrefix={config.prefix}
+            // Màn Đơn vị: ô này ra LƯỢNG, không ra tiền — nhãn phải nói đúng, không thì người khai
+            // tưởng đang gõ công thức giá rồi nhét đơn giá vào.
+            {...(config.prefix.includes("don-vi")
+              ? { nhanO: "Cách đo của đơn vị này",
+                  goY: "vd: dai_in * rong_in * to_sau_in  (một m² tờ in đo thế nào)" }
+              : {})} />
         ) : f.type === "checkbox" ? (
           <label className="rc-switch">
             <input type="checkbox" checked={!!form[f.key]} onChange={(e) => set(f.key, e.target.checked)} />
@@ -1297,7 +1497,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
             {suffix && <span className="rc-input-suffix">{suffix}</span>}
           </div>
         )}
-        {hint && <span className="rc-field__hint">{hint}</span>}
+        {hint && !(f.type === "ref-search" || f.type === "ref-search-ma") && <span className="rc-field__hint">{hint}</span>}
       </Tag>
     );
   };
@@ -1330,13 +1530,21 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
       }
       body[f.key] = v;
     }
-    const finalBody = config.transformSubmit ? config.transformSubmit(body, form, existing) : body;
     try {
+      // transformSubmit nằm TRONG try: nó ném thì trước đây thoát khỏi hàm async mà cờ `saving`
+      // vẫn bật ⇒ nút quay mãi, không một chữ báo lỗi.
+      const finalBody = config.transformSubmit ? config.transformSubmit(body, form, existing) : body;
       const moi = isEdit && existing
         ? await api.update(token, existing.id, finalBody)
         : await api.create(token, finalBody);
       onSaved(moi);
-    } catch (e2) { setErr(e2 instanceof ApiError ? e2.message : "Lưu thất bại."); setSaving(false); }
+    } catch (e2) {
+      setErr(e2 instanceof ApiError ? e2.message : "Lưu thất bại.");
+    } finally {
+      // Lưu xong drawer KHÔNG chắc đóng: `config.moLaiSauKhiTao` (màn Đơn vị) giữ nó lại để khai
+      // quy đổi ngay. Tắt cờ ở nhánh lỗi thôi là tạo xong nút kẹt vĩnh viễn ở trạng thái quay.
+      setSaving(false);
+    }
   }
 
   const typedMa = String(form.ma ?? "").trim().toUpperCase();
@@ -1351,10 +1559,34 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
   );
   // Nhật ký chỉ có nghĩa với bản ghi ĐÃ LƯU — đang thêm mới thì chưa có gì để xem.
   const coNhatKy = isEdit && !!config.nhatKyLoai && !!existing?.id;
-  const coTabs = hasFormulaField || coNhatKy;
 
-  const renderFieldsContent = () => {
-    const fieldsToRender = visibleFields.filter((f) => f.type !== "formula");
+  /** Tab khai báo có field THẬT ĐỂ HIỆN. Nhóm nào không được tab nào nhận thì dồn vào tab đầu —
+   *  quên khai một nhóm trong config thì nó vẫn hiện chứ không biến mất im lặng. Tab rỗng (vd
+   *  máy Bế không có nhóm "Khổ kẽm & Vùng in") bị bỏ hẳn, không bày ra rồi mở ra trắng trơn. */
+  const tabsKhai = useMemo(() => {
+    if (!config.tabsKhai?.length) return null;
+    const daKhai = new Set(config.tabsKhai.flatMap((t) => t.groups));
+    const conLai = [...new Set(visibleFields.map((f) => f.group || "Thông tin khác"))]
+      .filter((g) => !daKhai.has(g));
+    const coField = (groups: string[]) =>
+      visibleFields.some((f) => f.type !== "formula" && groups.includes(f.group || "Thông tin khác"));
+    return config.tabsKhai
+      .map((t, i) => ({ ...t, groups: i === 0 ? [...t.groups, ...conLai] : t.groups, laDau: i === 0 }))
+      .filter((t) => t.laDau || coField(t.groups));
+  }, [config.tabsKhai, visibleFields]);
+
+  // Tab đang chọn có thể vừa bị ẩn (đổi nhóm máy làm cả nhóm field biến mất) → rơi về tab đầu.
+  const tabKhaiHienTai = tabsKhai
+    ? (tabsKhai.find((t) => t.id === formulaTab) ?? tabsKhai[0])
+    : null;
+  const dangOTabKhai = !tabsKhai
+    ? formulaTab === "info"
+    : formulaTab !== "formula" && formulaTab !== "nhatky";
+  const coTabs = hasFormulaField || coNhatKy || (tabsKhai?.length ?? 0) > 1;
+
+  const renderFieldsContent = (chiNhom?: string[], keoTheoMaTen = true) => {
+    const fieldsToRender = visibleFields.filter((f) => f.type !== "formula")
+      .filter((f) => !chiNhom || chiNhom.includes(f.group || "Thông tin khác"));
     const hasGroups = fieldsToRender.some((f) => f.group);
 
     const baseFields = !(config.autoCode && !isEdit) ? (
@@ -1391,7 +1623,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
       return (
         <section className="rc-card-section" style={{ padding: "16px 20px" }}>
           <div className="rc-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "12px 16px" }}>
-            {baseFields}
+            {keoTheoMaTen && baseFields}
             {fieldsToRender.map(renderField)}
           </div>
         </section>
@@ -1414,7 +1646,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
             <section className="rc-card-section" style={{ padding: "16px 20px" }} key={gName}>
               <div className="rc-card-section__title">{gName}</div>
               <div className="rc-grid" style={{ gridTemplateColumns: `repeat(${colCount}, 1fr)`, gap: "12px 16px" }}>
-                {isFirst && baseFields}
+                {keoTheoMaTen && isFirst && baseFields}
                 {fields.map(renderField)}
               </div>
             </section>
@@ -1445,13 +1677,24 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
           {coTabs ? (
             <div>
               <div className="rc-drawer__tabs" style={{ marginBottom: "var(--sp-4)" }}>
-                <button
-                  type="button"
-                  className={`rc-drawer__tab${formulaTab === "info" ? " is-active" : ""}`}
-                  onClick={() => setFormulaTab("info")}
-                >
-                  Khai báo thông tin
-                </button>
+                {tabsKhai ? tabsKhai.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={`rc-drawer__tab${tabKhaiHienTai?.id === t.id && dangOTabKhai ? " is-active" : ""}`}
+                    onClick={() => setFormulaTab(t.id)}
+                  >
+                    {t.label}
+                  </button>
+                )) : (
+                  <button
+                    type="button"
+                    className={`rc-drawer__tab${formulaTab === "info" ? " is-active" : ""}`}
+                    onClick={() => setFormulaTab("info")}
+                  >
+                    Khai báo thông tin
+                  </button>
+                )}
                 {hasFormulaField && (
                   <button
                     type="button"
@@ -1472,7 +1715,9 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                 )}
               </div>
 
-              {formulaTab === "info" && renderFieldsContent()}
+              {dangOTabKhai && (tabKhaiHienTai
+                ? renderFieldsContent(tabKhaiHienTai.groups, tabKhaiHienTai.laDau)
+                : renderFieldsContent())}
               {formulaTab === "formula" && (
                 <div>
                   {visibleFields
@@ -1834,21 +2079,17 @@ function RefSearchField({ value, options, placeholder, byMa, onChange }: {
     );
   }
   if (selected) {
+    const displayName = selected.ten ? String(selected.ten) : String(selected.ma ?? value);
     return (
       <div className="rc-input-wrapper" style={{ display: "flex", gap: "6px", alignItems: "stretch" }}>
-        <span className="rc-input" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span><b style={{ fontFamily: "var(--ff-num)" }}>{selected.ma}</b> · {selected.ten}</span>
+        <span className="rc-input" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between", fontWeight: 500 }}>
+          <span>{displayName}</span>
           <button type="button" className="rc-timeline__btn rc-timeline__btn--danger" title="Bỏ chọn — tìm lại"
             onClick={() => { onChange(null); setQ(""); setOpen(true); }}>✕</button>
         </span>
       </div>
     );
   }
-  const panel: CSSProperties = {
-    position: "absolute", top: "100%", left: 0, right: 0, zIndex: 30, marginTop: "2px",
-    background: "var(--rc-surface, #fffdf7)", border: "1px solid rgba(0,0,0,0.15)",
-    borderRadius: "8px", maxHeight: "240px", overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.14)",
-  };
   return (
     <div className="rc-input-wrapper" style={{ position: "relative" }}>
       <input className="rc-input" value={q} placeholder={placeholder ?? "Gõ mã / tên để tìm…"}
@@ -1856,20 +2097,26 @@ function RefSearchField({ value, options, placeholder, byMa, onChange }: {
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)} />
       {open && matches.length > 0 && (
-        <div style={panel}>
-          {matches.map((o) => (
-            <button type="button" key={o.id}
-              style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px",
-                background: "transparent", border: "none", cursor: "pointer" }}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => { onChange(byMa ? String(o.ma) : o.id); setQ(""); setOpen(false); }}>
-              <b style={{ fontFamily: "var(--ff-num)" }}>{o.ma}</b> · {o.ten}
-            </button>
-          ))}
+        <div className="rc-ref-search-panel">
+          {matches.map((o) => {
+            const showCode = o.ma && o.ma.toLowerCase() !== String(o.ten).toLowerCase();
+            return (
+              <button
+                type="button"
+                key={o.id}
+                className="rc-ref-search-item"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { onChange(byMa ? String(o.ma) : o.id); setQ(""); setOpen(false); }}
+              >
+                <span className="rc-ref-search-item__name">{o.ten || o.ma}</span>
+                {showCode && <span className="rc-ref-search-item__code">{o.ma}</span>}
+              </button>
+            );
+          })}
         </div>
       )}
       {open && nq && matches.length === 0 && (
-        <div style={{ ...panel, padding: "8px 10px", color: "var(--ash, #8a8577)" }}>
+        <div className="rc-ref-search-panel" style={{ padding: "10px 12px", color: "var(--ash, #64748b)", fontSize: "12.5px" }}>
           Không thấy mã/tên khớp “{q}”.
         </div>
       )}
@@ -1878,86 +2125,58 @@ function RefSearchField({ value, options, placeholder, byMa, onChange }: {
 }
 
 // ── FORMULA FIELD EDITOR AND VALIDATOR (Live math preview + click-to-insert variable tags) ──
-// PALETTE gợi ý CHỈ 14 biến TỪ PHIẾU (kích thước + sản lượng). Đơn giá/định lượng KHÔNG làm chip —
-// chúng kéo từ field của mục (ô "Đơn giá", ô "Định lượng"); nhưng vẫn GÕ được trong công thức và
-// validator chấp nhận (xem EXTRA_VALID_VARS) nên công thức mặc định (giấy theo cân) vẫn chạy.
-const PHIEU_VARS = [
-  "dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in",
-  "so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in", "to_nguyen",
-];
-// Giấy: ngoài 14 biến phiếu, phơi thêm `dinh_luong` (lấy từ ô Định lượng) + `don_gia_kg`
-// (lấy từ ô Đơn giá/kg) — công thức theo cân: dinh_luong * dai_nguyen * rong_nguyen * don_gia_kg * to_nguyen.
-const GIAY_VARS = [...PHIEU_VARS, "dinh_luong", "don_gia_kg"];
-const WHITELIST_VARS = {
-  cong_doan: PHIEU_VARS,
-  giay: GIAY_VARS,
-  // Vật tư: ngoài 14 biến phiếu, chỉ phơi thêm 1 biến `don_gia` (engine bơm từ ô Đơn giá danh mục)
-  // — công thức nhân ra thành tiền, vd: so_luong * don_gia. KHÔNG thêm don_gia_kg (nhãn "giấy") /
-  // don_gia_m2 (alias trùng don_gia với vật tư) → gây rối.
-  vat_tu: [...PHIEU_VARS, "don_gia"],
+// 🔴 GỠ 11/08/2026: `PHIEU_VARS` · `GIAY_VARS` · `WHITELIST_VARS` · `VAR_DESC` · `FRIENDLY_NAMES` ·
+// `EXTRA_VALID_VARS` — sáu mảng CỨNG quyết định chip nào hiện và validator nhận biến nào.
+//
+// Chúng là MỘT NỬA của sự thật: nửa kia (biến nào có GIÁ TRỊ thật) nằm ở backend, và không gì ép
+// hai nửa khớp. Đã lệch thật: `so_mau_pha` backend có mà đây không cho gõ; `so_vi_tri`/`dien_tich`
+// đây cho gõ ở mọi ô mà backend chỉ bơm cho công đoạn; `don_gia_luot`/`don_gia_kem` đây nhận mà
+// backend không hề có.
+//
+// Nay hỏi `/api/bien-cong-thuc` — một từ điển ở `services/bien_cong_thuc.py`, có test canh hai
+// tầng. Thêm biến thì sửa ĐÚNG chỗ đó, đừng dựng lại danh sách ở đây.
+export type BienCongThuc = {
+  ma: string;
+  nhan: string;
+  mo_ta: string;
+  don_vi: string;
+  /** "Số này ở đâu ra" — câu người khai công thức luôn hỏi. Hiện khi hover chip. */
+  nguon: string;
+  loai: string[];
 };
 
-// Giải thích ngắn từng biến — hiện khi hover chip. Kích thước ở đơn vị MÉT trong công thức.
-const VAR_DESC: Record<string, string> = {
-  dai_tp: "Dài sản phẩm (vd 0,21)",
-  rong_tp: "Rộng sản phẩm",
-  dai_nguyen: "Dài tờ giấy nguyên (khổ to, chưa cắt)",
-  rong_nguyen: "Rộng tờ giấy nguyên",
-  dai_in: "Dài tờ chạy máy in (vd 0,64)",
-  rong_in: "Rộng tờ chạy máy in",
-  so_luong: "Số cái cần làm (số lượng đặt)",
-  so_tp: "Số con/tờ — 1 tờ in ra mấy cái",
-  so_mau: "Tổng số màu in (mặt A + mặt B)",
-  so_mat: "Số mặt qua máy (1 mặt = 1 · 2 mặt/tự trở = 2)",
-  so_kem: "Số bản kẽm (bằng số màu)",
-  to_dau_vao: "Số tờ vào máy = tờ cần in + bù hao",
-  to_sau_in: "Số tờ tốt sau in (dùng cho gia công)",
-  to_nguyen: "Số tờ giấy nguyên tiêu hao (giấy to chưa cắt)",
-  dinh_luong: "Định lượng giấy, kg/m² (= gsm ÷ 1.000)",
-  dai: "Dài của tờ ĐANG ĐẾM, mét — nơi gọi đưa (mua giấy: khổ nguyên · chạy máy: khổ in)",
-  rong: "Rộng của tờ đang đếm, mét",
-  so_con: "Số con trên tờ — 1 tờ bế ra mấy con",
-  don_gia: "Đơn giá — lấy từ ô Giá / Lịch sử giá của mục",
-  don_gia_kg: "Đơn giá theo cân (đ/kg)",
-  don_gia_m2: "Đơn giá theo diện tích (đ/m²)",
-};
-// Biến engine VẪN chấp nhận trong công thức (KHÔNG gợi ý chip, nhưng gõ tay vẫn hợp lệ) — để
-// công thức cũ (dùng đơn giá / ép kim theo vị trí・diện tích) không bị validator báo đỏ oan.
-const EXTRA_VALID_VARS = [
-  "dinh_luong", "don_gia", "don_gia_kg", "don_gia_m2", "don_gia_luot", "don_gia_kem",
-  "so_vi_tri", "dien_tich",
-];
+// Từ điển tĩnh → nạp MỘT lần cho cả phiên, mọi ô công thức dùng chung. Không cache thì mở drawer
+// nào cũng gọi lại API cho một danh sách không bao giờ đổi.
+let _bienCache: BienCongThuc[] | null = null;
+let _bienChoDoi: Promise<BienCongThuc[]> | null = null;
 
-const FRIENDLY_NAMES: Record<string, string> = {
-  dai_tp: "Dài sản phẩm",
-  rong_tp: "Rộng sản phẩm",
-  dai_nguyen: "Dài tờ nguyên",
-  rong_nguyen: "Rộng tờ nguyên",
-  dai_in: "Dài tờ in",
-  rong_in: "Rộng tờ in",
-  so_luong: "Số lượng đặt",
-  so_tp: "Số con/tờ in",
-  so_mau: "Số màu in",
-  so_mat: "Số mặt in",
-  so_kem: "Số bản kẽm",
-  to_dau_vao: "Tờ vào máy",
-  to_sau_in: "Tờ tốt sau in",
-  to_nguyen: "Tờ giấy nguyên",
-  dinh_luong: "Định lượng giấy",
-  don_gia: "Đơn giá",
-  don_gia_kg: "Đơn giá giấy (kg)",
-  don_gia_m2: "Đơn giá (m²)",
-  don_gia_luot: "Đơn giá lượt in",
-  don_gia_kem: "Đơn giá kẽm",
-  so_vi_tri: "Số vị trí",
-  dien_tich: "Diện tích",
-  // Biến của công thức QUY ĐỔI đơn vị — tên là VAI TRÒ ("tờ đang đếm"), không neo vào khổ nào.
-  dai: "Dài tờ đang đếm",
-  rong: "Rộng tờ đang đếm",
-  so_con: "Số con/tờ",
-};
+export function useBienCongThuc(): BienCongThuc[] {
+  const { token } = useAuth();
+  const [bien, setBien] = useState<BienCongThuc[]>(_bienCache ?? []);
+  useEffect(() => {
+    if (!token || _bienCache) return;
+    const cho = (_bienChoDoi ??= authed<{ items: BienCongThuc[] }>("/api/bien-cong-thuc", token)
+      .then((r) => (_bienCache = r.items))
+      .catch((): BienCongThuc[] => []));
+    let song = true;
+    cho.then((ds) => { if (song) setBien(ds); });
+    return () => { song = false; };
+  }, [token]);
+  return bien;
+}
 
-function translateFormula(formula: string): ReactNode[] {
+// Nhãn + mô tả biến nay lấy từ `useBienCongThuc()`. Ba bảng cứng cũ (`VAR_DESC` · `FRIENDLY_NAMES` ·
+// `EXTRA_VALID_VARS`) đã gỡ cùng lý do nêu ở trên — chúng là danh sách thứ hai không ai đối chiếu.
+export type TraBien = (ma: string) => BienCongThuc | undefined;
+
+/** Bản tra theo mã. Biến lạ (công thức cũ, hoặc từ điển chưa nạp xong) trả undefined để nơi gọi
+ *  hiện MÃ TRẦN — thà thấy `so_mau_pha` còn hơn nuốt mất rồi đoán. */
+export function traBien(ds: BienCongThuc[]): TraBien {
+  const theoMa = new Map(ds.map((b) => [b.ma, b]));
+  return (ma) => theoMa.get(ma);
+}
+
+function translateFormula(formula: string, tra: TraBien): ReactNode[] {
   if (!formula.trim()) return [<span key="empty" style={{ color: "var(--ash, #8a8676)", fontStyle: "italic" }}>Trống (trả về 0đ)</span>];
   let s = formula.replace(/×/g, "*").replace(/÷/g, "/").replace(/−/g, "-");
   const regex = /([a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[\+\-\*\/\(\)\,])/g;
@@ -1970,10 +2189,10 @@ function translateFormula(formula: string): ReactNode[] {
     const trimmed = m.trim();
     if (!trimmed) continue;
     
-    if (FRIENDLY_NAMES[trimmed]) {
+    if (tra(trimmed)) {
       elements.push(
         <span key={index++} className="rc-formula__trans-token rc-formula__trans-token--var">
-          {FRIENDLY_NAMES[trimmed]}
+          {tra(trimmed)!.nhan}
         </span>
       );
     } else if (MATH_FUNCS.includes(trimmed)) {
@@ -2033,13 +2252,25 @@ export function FormulaField({
 }) {
   const isCd = configPrefix.includes("cong-doan");
   const isGiay = configPrefix.endsWith("/giay");   // "/api/vat-lieu-kho/giay"
-  const whitelist = bienGoiY ?? (isCd ? WHITELIST_VARS.cong_doan
-    : isGiay ? WHITELIST_VARS.giay : WHITELIST_VARS.vat_tu); // chip gợi ý
-  // Bộ biến riêng thì KHÔNG nới thêm biến engine tính giá — gõ `don_gia` vào công thức quy đổi
-  // phải báo đỏ ngay, không thì để đó tới lúc chạy mới biết.
+  // Màn Đơn vị: ô "Cách đo" ra LƯỢNG, không ra tiền — bộ chip của nó là bộ quy đổi (có Định lượng
+  // giấy, không có đơn giá). Thiếu nhánh này thì nó ăn bộ Vật tư và chip lệch với thứ backend bơm.
+  const isDonVi = configPrefix.includes("don-vi");
+  const loaiO = isDonVi ? "quy_doi" : isCd ? "cong_doan" : isGiay ? "giay" : "vat_tu";
+  // Từ điển biến — MỘT nguồn với backend. Trước đây whitelist là mảng cứng ở file này, còn giá trị
+  // thật nằm bên engine; hai bên lệch thì công thức "hợp lệ" vẫn ra 0đ mà không ai biết.
+  const tuDien = useBienCongThuc();
+  const tra = useMemo(() => traBien(tuDien), [tuDien]);
+  // Chip GỢI Ý: đúng bộ biến của ô đang gõ. `bienGoiY` (quy đổi đơn vị) thay hẳn — ngữ cảnh đó
+  // không có phiếu tính giá nào để lấy số.
+  const whitelist = useMemo(
+    () => bienGoiY ?? tuDien.filter((b) => b.loai.includes(loaiO)).map((b) => b.ma),
+    [bienGoiY, tuDien, loaiO],
+  );
+  // Validator: gõ `don_gia` vào công thức quy đổi phải báo đỏ NGAY, không để tới lúc chạy mới biết.
+  // Từ điển chưa nạp xong (mảng rỗng) thì KHÔNG chấm đỏ gì cả — chấm đỏ lúc đó là báo oan.
   const validVars = useMemo(
-    () => (bienGoiY ? [...bienGoiY] : [...whitelist, ...EXTRA_VALID_VARS]),
-    [whitelist, bienGoiY],
+    () => (whitelist.length ? [...whitelist] : null),
+    [whitelist],
   );
   // Real-time formula validation
 
@@ -2085,7 +2316,9 @@ export function FormulaField({
       "dai", "rong"];
     const qtyVars = ["so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in",
       "to_nguyen", "so_con"];
-    const priceVars = ["dinh_luong", "don_gia", "don_gia_m2", "don_gia_luot", "don_gia_kem", "don_gia_kg"];
+    // Mỗi ô một biến đơn giá, tên nói rõ của ai (11/08/2026). Ô Công đoạn KHÔNG có biến tiền —
+    // không có chỗ nào nhập đơn giá công đoạn, đơn giá gõ thẳng vào công thức.
+    const priceVars = ["dinh_luong", "don_gia_giay", "don_gia_vat_tu"];
     const daXep = new Set([...sizeVars, ...qtyVars, ...priceVars]);
 
     return [
@@ -2151,13 +2384,17 @@ export function FormulaField({
       return { valid: false, error: "Thiếu dấu đóng hoặc mở ngoặc đơn" };
     }
 
+    // Từ điển chưa nạp xong → BỎ QUA kiểm biến (vẫn kiểm ngoặc/toán tử ở trên). Chấm đỏ lúc chưa
+    // biết biến nào hợp lệ là báo oan công thức đang đúng.
+    if (!validVars) return { valid: true, error: null };
+
     const tokenRegex = /[a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[\+\-\*\/\(\)]|\s+/g;
     const tokens = value.match(tokenRegex) || [];
-    
+
     for (const token of tokens) {
       const trimmed = token.trim();
       if (!trimmed) continue;
-      
+
       if (
         !validVars.includes(trimmed) &&
         !MATH_FUNCS.includes(trimmed) &&
@@ -2254,7 +2491,7 @@ export function FormulaField({
       <div className="rc-formula__trans-container">
         <div className="rc-formula__trans-title">Dịch nghĩa công thức (tiếng Việt):</div>
         <div className="rc-formula__trans-content">
-          {translateFormula(value)}
+          {translateFormula(value, tra)}
         </div>
       </div>
 
@@ -2282,9 +2519,14 @@ export function FormulaField({
             type="button"
             className={`rc-formula__var-tag ${colorClass}`}
             onClick={() => insertVar(v)}
-            title={VAR_DESC[v] || v}
+            // Hover nói đủ BA thứ: ý nghĩa · đơn vị · số ở đâu ra. Thiếu đơn vị thì người khai
+            // không biết `dai_in` là mét hay milimét (chỗ đẻ ra công thức lệch thang); thiếu nguồn
+            // thì không biết `to_dau_vao` đã gồm bù hao chưa rồi nhân hao thêm lần nữa.
+            title={tra(v)
+              ? `${tra(v)!.mo_ta}\nĐơn vị: ${tra(v)!.don_vi}\nNguồn: ${tra(v)!.nguon}`
+              : v}
           >
-            <span className="rc-formula__var-name">{FRIENDLY_NAMES[v] || v}</span>
+            <span className="rc-formula__var-name">{tra(v)?.nhan ?? v}</span>
             <code className="rc-formula__var-code">{v}</code>
           </button>
         ))}

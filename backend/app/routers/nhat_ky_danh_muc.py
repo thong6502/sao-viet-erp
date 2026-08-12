@@ -38,6 +38,11 @@ LOAI_MODULE: dict[str, str] = {
     "vat_tu": "dm_vat_tu",
     "khuon_be": "khuon_be",
     "kho_hang": "dm_kho_hang",
+    # Kỹ thuật máy (12/08/2026) — KHÔNG phải danh mục, nhưng cùng một câu hỏi "ai đổi gì, lúc nào"
+    # và cùng cách lưu (`audit_logs` theo target). Dựng endpoint thứ hai chỉ để đổi tiền tố URL là
+    # chép lại y nguyên đoạn này.
+    "ky_thuat_sua_chua": "ky_thuat_may",
+    "ky_thuat_bao_tri": "ky_thuat_may",
 }
 
 

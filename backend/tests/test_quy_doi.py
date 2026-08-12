@@ -85,8 +85,9 @@ def test_dong_to_sang_m2():
     kq = doi_theo_quy_cach(241, "to", "m2", QC_THE, DVS, CAP_ROWS)
     assert kq["gia_tri"] == pytest.approx(134.719, rel=1e-4)
     assert "241 tờ" in kq["dien_giai"] and "m²" in kq["dien_giai"]
-    # Hệ số động phải KHOE nó từ đâu ra, không thì là số trên trời rơi xuống.
-    assert "dài" in kq["dien_giai"] and "rộng" in kq["dien_giai"]
+    # Hệ số động phải KHOE nó từ đâu ra, không thì là số trên trời rơi xuống. Nhãn biến lấy từ
+    # từ điển chung `bien_cong_thuc`; từ 11/08/2026 là khổ CỤ THỂ chứ không còn biến vai trò.
+    assert "Dài tờ in" in kq["dien_giai"] and "Rộng tờ in" in kq["dien_giai"]
 
 
 def test_dong_to_sang_kg_va_tan():
@@ -123,8 +124,9 @@ def test_dong_to_sang_con():
 def test_thieu_kho_thi_bao_thieu_chu_khong_doan():
     kq = doi_theo_quy_cach(241, "to", "m2", {"gsm": 300}, DVS, CAP_ROWS)
     assert "gia_tri" not in kq
-    assert set(kq["thieu"]) == {"dai", "rong"}
-    assert "khổ tờ" in kq["ly_do"]
+    assert set(kq["thieu"]) == {"dai_in", "rong_in"}
+    # Lý do phải gọi tên biến bằng CHỮ NGƯỜI ĐỌC, không phơi mã `dai_in`/`rong_in`.
+    assert "Dài tờ in" in kq["ly_do"]
 
 
 def test_thieu_dinh_luong_thi_khong_ra_kg():
@@ -148,16 +150,22 @@ def test_don_vi_chua_khai():
 def test_khong_co_duong_con_sang_cuon_chia_so_tay():
     """CỐ Ý không có quy đổi "con → cuốn ÷ số tay": bước lệnh đếm `cai` nghĩa là đếm THÀNH PHẨM
     (1.000 cuốn), chia thêm số tay là sai 5 lần. Mọi dòng ĐỘNG đều xuất phát từ TỜ."""
+    # Mọi dòng ĐỘNG xuất phát từ một mức TỜ (tờ in hoặc tờ nguyên) — không có dòng nào đi từ
+    # `cai`/`con` ngược lên, vì đó mới là chỗ đẻ ra phép chia số tay sai.
     dong = [(a, b) for a, b, _h, ct in _QUY_DOI_SEED if ct]
-    assert all(nguon == "to" for nguon, _ in dong)
+    assert all(nguon in ("to", "to_nguyen") for nguon, _ in dong), dong
     kq = doi_theo_quy_cach(1_000, "cai", "cuon", QC_THE, DVS, CAP_ROWS)
     assert kq["gia_tri"] == 1_000
 
 
 def test_ngu_canh_nhan_ca_khoa_moi_lan_cu():
-    """Lệnh sản xuất vẫn truyền `kho_in_dai` (mm) như cũ; nơi gọi mới truyền thẳng `dai` (m)."""
-    assert ngu_canh({"kho_in_dai": 860, "gsm": 300})["dai"] == pytest.approx(0.86)
-    assert ngu_canh({"dai": 1.09})["dai"] == pytest.approx(1.09)
+    """Lệnh vẫn truyền `kho_in_dai` (mm) như cũ; khoá CŨ `dai` (m) hiểu là khổ tờ IN.
+
+    Giữ nhận khoá cũ để `ke_hoach_vat_tu` (đang bơm `{dai, rong, gsm}`) khỏi phải sửa cùng lúc —
+    bỏ đột ngột là bảng so tồn giấy im lặng mất cạnh tờ→kg.
+    """
+    assert ngu_canh({"kho_in_dai": 860, "gsm": 300})["dai_in"] == pytest.approx(0.86)
+    assert ngu_canh({"dai": 1.09})["dai_in"] == pytest.approx(1.09)
     assert ngu_canh({"gsm": 300})["dinh_luong"] == pytest.approx(0.3)
 
 

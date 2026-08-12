@@ -23,6 +23,10 @@ import { Button } from "../components/Button";
 import { MucInHang } from "../components/MucIn";
 import { ImpositionDiagram } from "./ImpositionDiagram";
 import { heSoChu, nhanDonVi } from "./lsxBuoc";
+import { useNapTenDonVi } from "./tenDonVi";
+// Nhãn ĐƠN VỊ của biến công thức lấy từ TỪ ĐIỂN BIẾN (`/api/bien-cong-thuc`), không khai lại ở đây —
+// xem ghi chú chỗ `humanizeFormula`.
+import { traBien, useBienCongThuc, type TraBien } from "./RebuildCatalogPage";
 import { PhieuTinhGiaPrint, type PhieuTinhGia, type PhieuTinhGiaColumn } from "./PhieuTinhGiaPrint";
 import "./rebuild-catalog.css";
 import "./tinh-gia.css";
@@ -173,26 +177,49 @@ function cellValue(v: string | number | null): string {
 // Token lạ → chỉ giữ giá trị. Không match gì → trả nguyên chuỗi (an toàn).
 // Đơn vị bước ở bảng phân rã bù hao PHẢI đọc y hệt tên đã khai trong danh mục Công đoạn — người
 // lập phiếu đối chiếu hai màn với nhau, nhãn lệch một chữ là mất dấu. Nên KHÔNG khai bộ nhãn
-// riêng ở đây, dùng thẳng `LSX_DON_VI_LABELS` (một nguồn cho cả danh mục · lệnh SX · tính giá).
-// Dùng lại bản chung ở `pages/lsxBuoc` — trước đây chỗ này chép y hệt một dòng tra
-// `LSX_DON_VI_LABELS`, thêm một đơn vị mới là phải nhớ sửa hai nơi.
+// riêng ở đây. `nhanDonVi` nay đọc TÊN từ chính danh mục Đơn vị (xem `pages/tenDonVi.ts`), nên
+// xưởng đổi tên là cả ba màn đổi theo — không còn bảng nhãn cứng nào để lệch.
 const dvNgan = nhanDonVi;
 
-const FORMULA_UNIT: Record<string, string> = {
-  to_nguyen: "tờ", to_dau_vao: "tờ", so_to: "tờ",
-  don_gia: "đ", don_gia_kg: "đ/kg", don_gia_luot: "đ/lượt", don_gia_kem: "đ/kẽm",
-  dinh_luong: "gsm", dai_nguyen: "cm", rong_nguyen: "cm",
-  so_mat: "mặt", so_kem: "kẽm", so_luong: "cái",
-};
+/** Số + đơn vị ở cột phải khối "Số tờ tự tính".
+ *
+ *  TÁCH HAI PHẦN (12/08/2026) vì tên đơn vị nay do XƯỞNG đặt trong danh mục — có thể là "tờ" mà
+ *  cũng có thể là "TỜ CHẠY MÁY". Gộp thành một chuỗi `<b>` thì cả cụm cùng cỡ 17px đậm, tên dài
+ *  nuốt mất con số và đẩy vỡ hàng. Tách ra: SỐ giữ cỡ lớn và không bao giờ xuống dòng, ĐƠN VỊ nhỏ
+ *  hơn, nhạt hơn, tự xuống dòng khi hết chỗ — dài bao nhiêu cũng đọc được con số trước tiên. */
+function SoDv({ so, dv }: { so: string; dv?: string | null }) {
+  return (
+    <b className="tg-val">
+      <i className="tg-val__so">{so}</i>
+      {dv ? <i className="tg-val__dv">{dv}</i> : null}
+    </b>
+  );
+}
+
+// 🔴 GỠ `FORMULA_UNIT` (12/08/2026) — bảng nhãn đơn vị của biến khai cứng ở đây. Nó là BẢN SAO của
+// cột `don_vi` trong từ điển biến (`services/bien_cong_thuc`, phơi qua `/api/bien-cong-thuc`), và đã
+// lệch bốn chỗ:
+//   · `don_gia` — biến này đã tách thành `don_gia_giay` / `don_gia_vat_tu` (mg 0189), nên hai biến
+//     MỚI không có nhãn nào, còn cái tên cũ thì không công thức nào dùng nữa;
+//   · `dai_nguyen`/`rong_nguyen` ghi "cm" trong khi engine bơm MÉT;
+//   · `dinh_luong` ghi "gsm" trong khi engine bơm kg/m² (gsm ÷ 1.000);
+//   · thiếu hẳn `dai_in` · `rong_in` · `so_tp` · `to_sau_in` · `so_mau` · `so_mau_pha`.
+// Nay tra thẳng từ điển: thêm/đổi biến ở backend là màn này theo ngay, không phải nhớ sửa hai nơi.
+
 // Tên hàm toán (max/min/ceil/floor/round) — GIỮ NGUYÊN trong diễn giải, không humanize như biến.
 const MATH_FN = new Set(["max", "min", "ceil", "floor", "round"]);
-function humanizeFormula(s: string): string {
+
+/** `"don_gia_giay(32.000) × to_nguyen(210)"` → `"32.000 đ × 210 tờ"`.
+ *
+ *  `tra` là bản tra từ điển biến (`traBien(useBienCongThuc())`). Từ điển chưa nạp xong ⇒ `tra` trả
+ *  undefined ⇒ hiện số trần, KHÔNG bịa đơn vị. */
+function humanizeFormula(s: string, tra: TraBien): string {
   if (!s) return s;
   // Chỉ match token biến-thế-số dạng name(SỐ) — inner chỉ gồm chữ số/dấu . , khoảng trắng.
   // Nhờ vậy KHÔNG "nuốt" lời gọi hàm max(so_kem(4) × …) (inner của hàm có chữ + toán tử).
   return s.replace(/([a-zA-Z_][a-zA-Z0-9_]*)\(([\d.,\s]*)\)/g, (m, name: string, val: string) => {
     if (MATH_FN.has(name)) return m;   // giữ nguyên vd max(380.000, 999.000)
-    const unit = FORMULA_UNIT[name];
+    const unit = tra(name)?.don_vi;
     const v = val.trim();
     return unit ? `${v} ${unit}` : v;
   });
@@ -479,6 +506,7 @@ function toPhieu(
   soLuong: number,
   khoThanhPham: string,
   sanPhams: { ten: string; soLuong: number; dvt: string }[],
+  tra: TraBien,
 ): PhieuTinhGia {
   const now = new Date();
   return {
@@ -510,7 +538,7 @@ function toPhieu(
             out[c.key] = isNumCol(c)
               ? vnd(val as number)
               : c.kind === "formula"
-                ? humanizeFormula((val ?? "").toString())  // bản in cũng dễ đọc: "2.000 đ × 283 tờ"
+                ? humanizeFormula((val ?? "").toString(), tra)  // bản in cũng dễ đọc: "32.000 đ × 210 tờ"
                 : (val ?? "").toString();
           }
           return out;
@@ -804,6 +832,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   navigate?: (pageId: string, params?: { openQuoteId?: number }) => void;
 }) {
   const { token } = useAuth();
+  // Nhãn đơn vị ở bảng phân rã bù hao đọc từ danh mục — nạp một lần cho cả phiên.
+  useNapTenDonVi();
   const [quoting, setQuoting] = useState(false);
 
   // --- Danh mục nguồn ---
@@ -811,6 +841,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const [giays, setGiays] = useState<Row[]>([]);
   const [mays, setMays] = useState<Row[]>([]);
   const [congDoans, setCongDoans] = useState<Row[]>([]);
+  // Từ điển biến công thức — dùng để lấy nhãn ĐƠN VỊ khi diễn giải công thức đã thế số.
+  // Cache theo phiên trong `useBienCongThuc`, nên nhiều màn mở cùng lúc vẫn một lượt gọi.
+  const bienCt = useBienCongThuc();
+  const traDv = useMemo(() => traBien(bienCt), [bienCt]);
 
   // --- Header phiếu đã lưu ---
   const [ma, setMa] = useState("");
@@ -1231,8 +1265,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       dvt: c.don_vi_tinh,
       nhom: c.nhom_bao_gia.trim() || null,
     }));
-    return toPhieu(result, ma || "(chưa lưu)", tenAnPham, slPhieu, khoThanhPham, sanPhams);
-  }, [result, ma, khoThanhPham, comps, danhSachHienThi, phieuSL]);
+    return toPhieu(result, ma || "(chưa lưu)", tenAnPham, slPhieu, khoThanhPham, sanPhams, traDv);
+  }, [result, ma, khoThanhPham, comps, danhSachHienThi, phieuSL, traDv]);
 
   // Số [Hiện] chốt từ engine, index theo vị trí thành phần.
   const metaByIdx = useMemo(() => {
@@ -1629,7 +1663,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                                   return (
                                     <td key={col.key} className={cellClass(col) || undefined}>
                                       {col.kind === "formula" && val ? (
-                                        <span className="derive">{humanizeFormula(val)}</span>
+                                        <span className="derive">{humanizeFormula(val, traDv)}</span>
                                       ) : (
                                         val
                                       )}
@@ -1855,6 +1889,29 @@ function ComponentModal({
   const [moPhanRa, setMoPhanRa] = useState(false);
   // "Tờ sau in" là tờ tốt ra khỏi bước IN — neo vào đúng bước đó để không phải đoán con số ở đâu ra.
   const buocIn = liveMeta?.bu_hao_chi_tiet?.find((b) => b.nhom === "print") ?? null;
+  // ĐƠN VỊ CỦA CHÍNH CHUỖI NÀY (12/08/2026) — trước đó khối này gọi cứng "tờ" và "con/tờ", trong
+  // khi công đoạn khai `tờ → cái` / `tờ → tay sách`. Hệ quả thấy ngay trên màn: cùng số 99 mà dòng
+  // trên ghi "99 con/tờ" còn dòng bù hao ghi "1 tờ = 99 cái" — mà `con` và `cái` là HAI đơn vị khác
+  // nhau trong danh mục. Nay đọc từ chuỗi: đầu vào của bước đầu, đầu ra của bước cuối.
+  //
+  // `dvDauChuoi` cố ý lấy đầu vào của bước ĐẦU TIÊN chứ không tra mã `to`: xưởng khai mã riêng cho
+  // chặng tờ in (vd `to_in`) thì dò mã là trượt, còn đọc từ chuỗi thì luôn ra đúng thứ bước đang đếm.
+  const chuoiHao = liveMeta?.bu_hao_chi_tiet ?? [];
+  const buocDauChuoi = chuoiHao.find((b) => b.dv_vao);
+  const dvDauChuoi =
+    dvNgan(buocIn?.dv_vao) || dvNgan(buocDauChuoi?.dv_vao) || "tờ";
+  // `so_tp` là số THÀNH PHẨM trên một tờ, nên mẫu số phải là đơn vị thành phẩm — lấy ở bước ĐỔI
+  // MỨC (dv_ra ≠ dv_vao). Lấy bừa `dv_ra` của bước cuối là sai khi chuỗi KHÔNG có bước đổi mức
+  // (bìa sách: In → Cán màng, cả hai `tờ → tờ`) — ra "8 tờ/tờ", vô nghĩa. Không có bước đổi mức
+  // thì dùng đơn vị tính của chính sản phẩm, đúng thứ dòng "Thành phẩm cần" đang hiện.
+  const buocDoiMuc = [...chuoiHao].reverse().find((b) => b.dv_ra && b.dv_ra !== b.dv_vao);
+  const dvCuoiChuoi = dvNgan(buocDoiMuc?.dv_ra) || c.don_vi_tinh || "cái";
+  // Bước ĐẦU chuỗi đếm khác bước in ⇒ nó đứng ở chặng TỜ NGUYÊN (bước xả giấy). Không có bước xả
+  // thì tờ nguyên chỉ là số suy ra, dùng nhãn mặc định.
+  const dvToNguyen =
+    buocDauChuoi && buocDauChuoi.dv_vao !== buocIn?.dv_vao
+      ? dvNgan(buocDauChuoi.dv_vao) || "tờ nguyên"
+      : "tờ nguyên";
   const chuaCh = chuaTheoChieu(c, c.may_id ? mays.find((x) => x.id === c.may_id) : null);
   // Ô này chọn MÁY IN — engine lấy khổ giấy máy nhận + vùng in + nhíp giấy để bình bài. Máy bế,
   // máy bồi sóng, máy cán màng KHÔNG có mấy thông số đó, đổ vào chỉ tổ chọn nhầm (chúng thuộc
@@ -2093,17 +2150,14 @@ function ComponentModal({
                   />
                 </div>
                 <div className="tg-field tg-span-6">
-                  <span className="tg-microlabel">
-                    Đơn giá giấy <span className="tg-microlabel__opt">theo danh mục</span>
-                  </span>
                   <div className="tg-readout" style={{ minHeight: "36px", display: "flex", alignItems: "center" }}>
                     {(() => {
                       const g = c.giay_id ? giays.find((x) => x.id === c.giay_id) : null;
                       if (!g) return "— chọn giấy để lấy giá —";
-                      const u = g.don_vi_gia;
-                      const uL =
-                        u === "tan" ? "tấn" : u === "kg" ? "kg" : u === "ram" ? "ram" : u === "cai" ? "cái" : "tờ";
-                      return `${fmt(numOf(g.don_gia))} đ / ${uL}`;
+                      // Tên đơn vị đọc từ DANH MỤC, không phải chuỗi ba nhánh khai cứng ở đây —
+                      // giấy bán theo đơn vị nào là việc của danh mục, thêm đơn vị mới thì dòng
+                      // này tự hiện đúng thay vì rơi hết về "tờ".
+                      return `${fmt(numOf(g.don_gia))} đ / ${dvNgan(String(g.don_vi_gia ?? "")) || "—"}`;
                     })()}
                   </div>
                 </div>
@@ -2366,6 +2420,8 @@ function ComponentModal({
                 kheCatMm={c.khe_cat_mm}
                 soCon={c.so_con}
                 trangMoiTay={c.trang_moi_tay}
+                dvCon={dvCuoiChuoi}
+                dvTo={dvDauChuoi}
               />
             </div>
 
@@ -2376,7 +2432,9 @@ function ComponentModal({
               </div>
               <div className="tg-sheetrow">
                 <span>Thành phẩm cần</span>
-                <b>{liveMeta ? `${fmt(liveMeta.so_luong)} ${c.don_vi_tinh || "cái"}` : "…"}</b>
+                {liveMeta
+                  ? <SoDv so={fmt(liveMeta.so_luong)} dv={c.don_vi_tinh || "cái"} />
+                  : <b className="tg-val">…</b>}
               </div>
               <div className="tg-sheetrow">
                 <span className="tg-sheetrow__stack">
@@ -2395,11 +2453,13 @@ function ComponentModal({
                         ⌈{fmt(liveMeta.so_luong)}
                         {(liveMeta.so_trang ?? 1) > 1 ? ` × ${fmt(liveMeta.so_trang ?? 1)} trang` : ""}
                         {" ÷ "}
-                        {fmt(liveMeta.con)} con/tờ⌉
+                        {fmt(liveMeta.con)} {dvCuoiChuoi}/{dvDauChuoi}⌉
                       </em>
                     ) : null)}
                 </span>
-                <b>{liveMeta ? `${fmt(liveMeta.to_net)} tờ` : "…"}</b>
+                {liveMeta
+                  ? <SoDv so={fmt(liveMeta.to_net)} dv={dvDauChuoi} />
+                  : <b className="tg-val">…</b>}
               </div>
               <div className="tg-sheetrow">
                 <span>+ Bù hao công đoạn</span>
@@ -2411,11 +2471,13 @@ function ComponentModal({
                     title={moPhanRa ? "Thu gọn" : "Xem bước nào ăn bao nhiêu tờ"}
                     onClick={() => setMoPhanRa((v) => !v)}
                   >
-                    <b>{fmt(liveMeta?.bu_hao_auto ?? 0)} tờ</b>
+                    <SoDv so={fmt(liveMeta?.bu_hao_auto ?? 0)} dv={dvDauChuoi} />
                     <ChevronIcon open={moPhanRa} />
                   </button>
                 ) : (
-                  <b>{liveMeta ? `${fmt(liveMeta.bu_hao_auto ?? 0)} tờ` : "…"}</b>
+                  liveMeta
+                    ? <SoDv so={fmt(liveMeta.bu_hao_auto ?? 0)} dv={dvDauChuoi} />
+                    : <b className="tg-val">…</b>
                 )}
               </div>
               {moPhanRa && (liveMeta?.bu_hao_chi_tiet?.length ?? 0) > 0 && (
@@ -2493,18 +2555,24 @@ function ComponentModal({
               </div>
               <div className="tg-sheetrow tg-sheetrow--total">
                 <span>= Tờ vào máy</span>
-                <b>{liveMeta ? `${fmt(liveMeta.to_dau_vao)} tờ` : "…"}</b>
+                {liveMeta
+                  ? <SoDv so={fmt(liveMeta.to_dau_vao)} dv={dvDauChuoi} />
+                  : <b className="tg-val">…</b>}
               </div>
               <div className="tg-sheetrow tg-sheetrow--total">
                 <span className="tg-sheetrow__stack">
                   = Tờ sau in
                   {liveMeta && (
                     <em className="tg-sheetrow__derive">
-                      {buocIn ? `tờ tốt ra khỏi "${buocIn.ten}"` : "chuỗi chưa có bước in → giữ tờ vào máy"}
+                      {buocIn
+                        ? `${dvDauChuoi} tốt ra khỏi "${buocIn.ten}"`
+                        : `chuỗi chưa có bước in → giữ ${dvDauChuoi} vào máy`}
                     </em>
                   )}
                 </span>
-                <b>{liveMeta ? `${fmt(liveMeta.to_sau_in)} tờ` : "…"}</b>
+                {liveMeta
+                  ? <SoDv so={fmt(liveMeta.to_sau_in)} dv={dvDauChuoi} />
+                  : <b className="tg-val">…</b>}
               </div>
               <div className="tg-sheetrow tg-sheetrow--total">
                 <span className="tg-sheetrow__stack">
@@ -2526,12 +2594,15 @@ function ComponentModal({
                     }
                     return liveMeta && liveMeta.so_manh_xa > 0 ? (
                       <em className="tg-sheetrow__derive">
-                        ⌈{fmt(liveMeta.to_dau_vao)} ÷ {fmt(liveMeta.so_manh_xa)} tờ in/tờ nguyên⌉
+                        ⌈{fmt(liveMeta.to_dau_vao)} ÷ {fmt(liveMeta.so_manh_xa)}{" "}
+                        {dvDauChuoi}/{dvToNguyen}⌉
                       </em>
                     ) : null;
                   })()}
                 </span>
-                <b>{liveMeta ? `${fmt(liveMeta.to_nguyen)} tờ` : "…"}</b>
+                {liveMeta
+                  ? <SoDv so={fmt(liveMeta.to_nguyen)} dv={dvToNguyen} />
+                  : <b className="tg-val">…</b>}
               </div>
               {/* Ẩn "số con" ở ô nhập mà để nó lòi ra ở chân khối thì coi như chưa ẩn. */}
               <div className="tg-sheetbox__foot">
@@ -2539,7 +2610,7 @@ function ComponentModal({
                   ? `${
                       (liveMeta.trang_moi_tay ?? 1) > 1
                         ? `${fmt(Math.ceil((liveMeta.trang_moi_tay ?? 2) / 2))} trang/mặt`
-                        : `${fmt(liveMeta.con)} con/tờ`
+                        : `${fmt(liveMeta.con)} ${dvCuoiChuoi}/${dvDauChuoi}`
                     } · ${fmt(liveMeta.so_kem)} kẽm`
                   : "Nhập đủ khổ + số lượng để tính"}
               </div>

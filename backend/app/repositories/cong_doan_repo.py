@@ -4,8 +4,10 @@ from __future__ import annotations
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..models.cong_doan import CongDoan, CongDoanDauViec
+from ..models.cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu
+from ..models.don_vi_do import DonViDo
 from ..models.piece_work import PieceRate
+from ..models.vat_lieu_kho import VatTuInAn
 
 ASSIGNABLE = (
     "ten", "ten_hien_thi", "don_vi_vao", "don_vi_ra",
@@ -24,8 +26,31 @@ class CongDoanRepository:
     def get(self, cd_id: int) -> CongDoan | None:
         return self.db.execute(
             select(CongDoan).where(CongDoan.id == cd_id)
-            .options(selectinload(CongDoan.dau_viec_dinh_muc))
+            .options(selectinload(CongDoan.dau_viec_dinh_muc)
+                     .selectinload(CongDoanDauViec.vat_tus))
         ).scalar_one_or_none()
+
+    def don_vi_tram(self, mas: set[str]) -> dict[str, str | None]:
+        """`{mã đơn vị: trạm dòng giấy}` cho các mã CÓ THẬT trong danh mục Đơn vị.
+
+        Mã không có trong danh mục thì VẮNG key (khác với có key mà giá trị None = có trong danh
+        mục nhưng đứng ngoài dòng giấy) — service phân biệt hai ca đó để báo lỗi cho đúng.
+        """
+        if not mas:
+            return {}
+        return {ma: tram for ma, tram in self.db.execute(
+            select(DonViDo.ma, DonViDo.tram_dong_giay).where(DonViDo.ma.in_(mas))
+        ).all()}
+
+    def don_vi_ten(self) -> dict[str, str]:
+        """`{mã đơn vị: tên}` cho CẢ danh mục — một truy vấn cho cả trang, không N+1.
+
+        Bảng nhỏ (20 dòng) nên nạp hết rẻ hơn lọc theo mã đang dùng.
+        """
+        return {
+            (ma or "").strip().lower(): ten
+            for ma, ten in self.db.execute(select(DonViDo.ma, DonViDo.ten)).all()
+        }
 
     def department_ids_dang_dung(self) -> set[int]:
         """Id phòng ban đang được CÔNG ĐOẠN nào đó trỏ tới.
@@ -43,6 +68,14 @@ class CongDoanRepository:
         if not ids:
             return {}
         rows = self.db.execute(select(PieceRate).where(PieceRate.id.in_(ids))).scalars()
+        return {r.id: r for r in rows}
+
+    def vat_tus(self, ids: set[int]) -> dict[int, VatTuInAn]:
+        """Vật tư theo id — service dùng để chặn id không tồn tại / đã ngừng dùng, và để chụp
+        mã·tên·đơn vị vào dòng trả về."""
+        if not ids:
+            return {}
+        rows = self.db.execute(select(VatTuInAn).where(VatTuInAn.id.in_(ids))).scalars()
         return {r.id: r for r in rows}
 
     def piece_rates_active(self, department_id: int | None = None) -> list[PieceRate]:
@@ -67,7 +100,8 @@ class CongDoanRepository:
             conds.append(CongDoan.nhom == nhom)
         if active is not None:
             conds.append(CongDoan.active.is_(active))
-        base = select(CongDoan).options(selectinload(CongDoan.dau_viec_dinh_muc))
+        base = select(CongDoan).options(selectinload(CongDoan.dau_viec_dinh_muc)
+                     .selectinload(CongDoanDauViec.vat_tus))
         count_stmt = select(func.count()).select_from(CongDoan)
         for c in conds:
             base = base.where(c)
@@ -94,7 +128,16 @@ class CongDoanRepository:
             cd.dau_viec_dinh_muc.clear()
             if cd.id is not None:          # công đoạn mới chưa có id thì chưa có gì để xoá
                 self.db.flush()
-        cd.dau_viec_dinh_muc.extend(CongDoanDauViec(**r) for r in rows)
+        for r in rows:
+            # `vat_tu_ids` là DANH SÁCH CON, không phải cột — tách ra trước khi dựng model.
+            r = dict(r)
+            ids = r.pop("vat_tu_ids", None) or []
+            r.pop("vat_tus", None)         # khoá chỉ-đọc của schema Row, client có thể gửi ngược lên
+            dv = CongDoanDauViec(**r)
+            dv.vat_tus.extend(
+                CongDoanDauViecVatTu(vat_tu_id=int(v), thu_tu=i) for i, v in enumerate(ids)
+            )
+            cd.dau_viec_dinh_muc.append(dv)
 
     def create(self, data: dict) -> CongDoan:
         cd = CongDoan(ma=data["ma"].strip().upper())

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 
+from .bien_cong_thuc import LOAI_QUY_DOI, bien_cho, ngu_canh_lenh
 from .thanh_phan_engine import MATH_FUNCS, safe_eval
 
 # --- Mã đơn vị mà CODE tham chiếu (danh mục có thể thêm đơn vị khác thoải mái) ----------------
@@ -32,14 +33,12 @@ DV_KG = "kg"
 DV_TAN = "tan"
 
 # Biến dùng được trong công thức quy đổi — tên là VAI TRÒ ("khổ của tờ đang đếm"), không phải tên
-# cột của giấy. Nhãn hiện nguyên văn cho người dùng khi thiếu. Cùng bộ từ vựng với công thức công
-# đoạn (`thanh_phan_engine`): dài/rộng tính bằng MÉT, định lượng bằng kg/m².
-BIEN = {
-    "dai": "khổ tờ — chiều dài",
-    "rong": "khổ tờ — chiều rộng",
-    "dinh_luong": "định lượng giấy (g/m²)",
-    "so_con": "số con trên tờ",
-}
+# cột của giấy. Nhãn hiện nguyên văn cho người dùng khi thiếu. Dài/rộng tính bằng MÉT, định lượng
+# bằng kg/m².
+#
+# LẤY TỪ TỪ ĐIỂN CHUNG (`bien_cong_thuc`) — trước đây khai riêng ở đây, thành ra hệ có hai bộ từ
+# vựng công thức không ai đối chiếu. Thêm biến thì sửa từ điển, không sửa chỗ này.
+BIEN = {b["ma"]: b["nhan"] for b in bien_cho(LOAI_QUY_DOI)}
 
 _TU = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*")
 
@@ -110,23 +109,11 @@ def ten_dv(ma: str, dvs: dict[str, dict]) -> str:
 def ngu_canh(quy_cach: dict | None) -> dict[str, float]:
     """Quy cách của việc đang làm → BIẾN cho công thức quy đổi.
 
-    Nơi gọi quyết định khổ nào (chốt 2026-07-31): truyền thẳng `dai`/`rong` tính bằng MÉT khi đã
-    biết mình đang đếm tờ gì. Hai khoá cũ `kho_in_dai`/`kho_in_rong` (mm) vẫn nhận để lệnh sản xuất
-    khỏi phải sửa — mặc định là khổ tờ IN.
+    Thân hàm đã CHUYỂN sang `bien_cong_thuc.ngu_canh_lenh` (11/08/2026) để nằm cạnh
+    `ngu_canh_phieu` — hai hàm bơm số cho cùng một bộ biến phải nhìn thấy nhau. Giữ tên này làm
+    cửa vào cho quy đổi vì đây là chỗ mọi lối quy đổi đi qua.
     """
-    qc = quy_cach or {}
-
-    def _met(khoa_m: str, khoa_mm: str) -> float:
-        v = _f(qc.get(khoa_m))
-        return v if v > 0 else _f(qc.get(khoa_mm)) / 1000.0
-
-    return {
-        "dai": _met("dai", "kho_in_dai"),
-        "rong": _met("rong", "kho_in_rong"),
-        # kg/m² — cùng đơn vị với `dinh_luong` của công thức công đoạn, khỏi hai nghĩa cho một chữ.
-        "dinh_luong": _f(qc.get("dinh_luong")) or _f(qc.get("gsm")) / 1000.0,
-        "so_con": _f(qc.get("so_con")),
-    }
+    return ngu_canh_lenh(quy_cach)
 
 
 def bien_trong(cong_thuc: str) -> list[str]:

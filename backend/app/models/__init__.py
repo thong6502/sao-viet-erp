@@ -91,7 +91,7 @@ from .plate_die_rate import PlateDieRate
 from .norm import Norm
 from .may_thiet_bi import MayThietBi, NhomMay
 from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
-from .cong_doan import CongDoan, CongDoanDauViec
+from .cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu
 from .bu_hao import BuHao
 from .don_vi_do import DonViDo, DonViQuyDoi
 from .kho_hang import KhoHang
@@ -111,6 +111,7 @@ from .machine_unavailable import MachineUnavailablePeriod
 # chạy, không đăng ký lên `Base.metadata`, và bảng lặng lẽ không tồn tại (không lỗi nào bật ra).
 from .to_quan_so import ToQuanSoNgay
 from .document_sequence import DocumentSequence
+from .ky_thuat_may import BaoTriMay, KyThuatMayAnh, SuaChuaMay
 
 __all__ = [
     "BaiGhepCongDoan",
@@ -215,11 +216,15 @@ __all__ = [
     "LsxCongDoanVatTu",
     "LsxCongDoanPhuThuoc",
     "CongDoanDauViec",
+    "CongDoanDauViecVatTu",
     "BaiGhep",
     "BaiGhepThanhVien",
     "XepLichCongDoan",
     "XepLichVanDe",
     "MachineUnavailablePeriod",
+    "SuaChuaMay",
+    "BaoTriMay",
+    "KyThuatMayAnh",
     "ToQuanSoNgay",
     "DonViDo",
     "DonViQuyDoi",

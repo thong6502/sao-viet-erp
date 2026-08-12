@@ -89,14 +89,15 @@ LOAI_BUOC = (LB_MAY, LB_TO, LB_THUE_NGOAI)
 LOAI_BUOC_THEO_TO = (LB_TO,)
 
 # --- Đơn vị năng suất (output/giờ). Khớp `may_thiet_bi.don_vi_toc_do` ở phần dùng được.
+# Mã năng suất nay sinh theo LUẬT CHUNG `<mã đơn vị>_gio` (xem `_nang_suat_buoc` ở lsx_service):
+# xưởng khai đơn vị `me`/`thung` thì máy khai `me_gio`/`thung_gio` là khớp. Ba hằng dưới chỉ còn
+# là mã của mấy đơn vị quen, dùng trong bảng NGOẠI LỆ `_DV_VAO_SANG_NS` (tay sách đo bằng tờ/giờ).
 NS_TO_GIO = "to_gio"
 NS_CAI_GIO = "cai_gio"
 NS_KEM_GIO = "kem_gio"
-# KHÔNG có `bai_gio`. Máy CTP nhả ra BẢN KẼM chứ không nhả ra "bài": một bài 4 màu tốn 4 lượt ghi,
-# bài 1 màu tốn 1 — khai "20 bài/giờ" là con số không đo được. Thứ đo ổn định là `kem_gio`.
-# (Mã cũ sinh ra từ thời `DON_VI_CONG_DOAN` cho công đoạn khai 5 đơn vị; nay `DON_VI_DONG_GIAY`
-# chỉ còn `to_nguyen · to · cai` nên không bước nào khớp được `bai` — nó chết hẳn, đã gỡ.)
-DON_VI_NANG_SUAT = (NS_TO_GIO, NS_CAI_GIO, NS_KEM_GIO)
+# 🔴 GỠ `DON_VI_NANG_SUAT = (to_gio, cai_gio, kem_gio)` 12/08/2026 — DANH SÁCH CỨNG còn sót của lối
+# cũ, đã KHÔNG nơi nào đọc: service Máy không validate theo nó và `_nang_suat_buoc` chuyển sang luật
+# chung từ 11/08. Để lại chỉ mời người sau dựng lại cái khoá ba-đơn-vị vừa gỡ. Đừng khai lại.
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -230,10 +231,11 @@ class LsxCongDoan(Base):
     so_luong_ra: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     # KẾ THỪA từ `cong_doan.don_vi_vao/ra`, server ghi — client KHÔNG gửi, drawer không có ô chọn.
     # Đơn vị vào/ra là bản chất của công đoạn (bế luôn là tờ in → con), không đổi theo từng đơn.
-    # NULL = bước KHÔNG CHẠM GIẤY (chế bản đếm kẽm) → đứng ngoài chuỗi tính ngược.
-    # String(12): mã `to_nguyen` dài 9 — VARCHAR(8) cũ CHẬT, Postgres ném lỗi độ dài lúc ghi.
-    don_vi_vao: Mapped[str | None] = mapped_column(String(12), nullable=True)
-    don_vi_ra: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    # NULL = CHƯA KHAI đơn vị (dữ liệu cũ / bước kế hoạch tự thêm). Bước có nằm trên dòng giấy hay
+    # không nay hỏi cờ `don_vi_do.tram_dong_giay` — xem `services/dong_giay.py`.
+    # String(24) khớp `don_vi_do.ma` (VARCHAR(8) rồi (12) đều đã chật một lần).
+    don_vi_vao: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    don_vi_ra: Mapped[str | None] = mapped_column(String(24), nullable=True)
     he_so_quy_doi: Mapped[float] = mapped_column(
         Numeric(12, 4), nullable=False, server_default="1", default=1
     )
@@ -345,6 +347,12 @@ class LsxCongDoanVatTu(Base):
     don_vi_snapshot: Mapped[str] = mapped_column(String(16), nullable=False)
     so_luong: Mapped[float] = mapped_column(Numeric(14, 3), nullable=False)
     thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # MÁY BUNG hay NGƯỜI KHAI (mg 0191). True = dòng máy tự thêm khi chọn công việc khoán ⇒ lần bung
+    # sau được thay bộ mới. False = người tự thêm, hoặc đã sửa số lượng ⇒ máy CHỪA RA, không ghi đè.
+    # Không có cờ này thì đổi công việc khoán một cái là mất sạch số người vừa chỉnh.
+    tu_dong: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
     buoc: Mapped["LsxCongDoan"] = relationship("LsxCongDoan", back_populates="vat_tus")
 
 

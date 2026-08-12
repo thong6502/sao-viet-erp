@@ -198,7 +198,10 @@ def test_dag_co_thanh_keo_ngang_va_van_giu_sap_xep_tu_dong() -> None:
     assert "computeCanvasHeight" in source
     assert "computeViewportHeight" in source
     assert "handleAutoLayout" in source
-    assert "setZoom(1)" in source
+    # Xếp lại là trả tầm nhìn về mặc định. Mặc định nay là THU VỪA KHUNG chứ không phải 100%:
+    # chuỗi 5 bước đã rộng hơn khung nên để 100% là xếp gọn xong vẫn phải cuộn mới thấy bước cuối.
+    assert "thuVuaKhung(auto)" in source
+    assert "tinhZoomVua" in source
     assert "scrollLeft = 0" in source
     assert "overflow: auto" in css
     assert "height: 580px" not in css

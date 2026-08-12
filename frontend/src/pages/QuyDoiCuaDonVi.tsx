@@ -97,7 +97,18 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
     chay(() => apiCap.remove(token!, c.id));
   };
 
+  // MỖI ĐƠN VỊ CHỈ TÍNH RA BẰNG MỘT CÔNG THỨC (12/08/2026) — luật cho BOM: vật tư khai ĐVT là kg thì
+  // lúc bung ở bước lệnh phải có đúng một cách ra kg, hai cái là máy không biết chọn. Chặn theo đơn
+  // vị ĐÍCH: `tờ` vẫn đi ra được nhiều đường (→ cái · → kg · → m²) vì ba đích khác nhau.
+  // Lọc ngay ở dropdown thay vì để 422 bật ra sau khi bấm — server vẫn chặn, đây chỉ là cửa sớm.
+  const dichDaCoCongThuc = useMemo(
+    () => new Set(caps.filter((c) => (c.cong_thuc ?? "").trim()).map((c) => c.den_id)),
+    [caps],
+  );
   const conLai = dvs.filter((d) => d.id !== donVi.id);
+  const conLaiChoDong = conLai.filter((d) => !dichDaCoCongThuc.has(Number(d.id)));
+  const dsDich = them.dong ? conLaiChoDong : conLai;
+  const hetChoDong = conLaiChoDong.length === 0;
   const bienQuyDoi = bien.map((b) => b.ma);
 
   return (
@@ -280,7 +291,16 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
               <button
                 type="button"
                 className={`dvqd__type-btn ${them.dong ? "is-active" : ""}`}
-                onClick={() => setThem((p) => ({ ...p, dong: true, gia: "" }))}
+                disabled={hetChoDong && !them.dong}
+                title={hetChoDong
+                  ? "Mọi đơn vị còn lại đều đã có công thức động — mỗi đơn vị chỉ tính ra bằng một công thức."
+                  : undefined}
+                // Đổi sang chế độ động thì bỏ luôn đích đã chọn nếu đích đó không còn hợp lệ —
+                // không thì select giữ value cũ mà danh sách không có, trông như chưa chọn gì.
+                onClick={() => setThem((p) => ({
+                  ...p, dong: true, gia: "",
+                  den_id: dichDaCoCongThuc.has(Number(p.den_id)) ? "" : p.den_id,
+                }))}
               >
                 Công thức động
               </button>
@@ -323,7 +343,7 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
               onChange={(e) => setThem((p) => ({ ...p, den_id: e.target.value }))}
             >
               <option value="">— Đơn vị quy đổi về —</option>
-              {conLai.map((d) => (
+              {dsDich.map((d) => (
                 <option key={d.id} value={d.id}>
                   {String(d.ten)}
                 </option>
@@ -342,6 +362,16 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
               </svg>
               Thêm quy đổi
             </button>
+
+            {/* Nút khoá thì phải NÓI THIẾU GÌ. Không có dòng này người dùng bấm mãi không ăn rồi
+                tưởng hỏng — đúng cái vừa dính 12/08/2026. */}
+            {!ban && (!them.gia || !them.den_id) && (
+              <p className="dvqd__hint">
+                {!them.gia
+                  ? (them.dong ? "Gõ công thức đã" : "Nhập số quy đổi đã")
+                  : "Còn thiếu: chọn đơn vị quy đổi về"}
+              </p>
+            )}
 
             {them.dong && (
               <button

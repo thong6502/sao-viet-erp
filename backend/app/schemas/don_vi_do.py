@@ -18,6 +18,12 @@ class DonViDoIn(BaseModel):
     # Bày trong ô "Đơn vị tốc độ" của màn Máy hay không. Mặc định KHÔNG: bảng này dùng chung cho
     # kho/khoán/mua hàng, đơn vị mới thêm chưa chắc là tốc độ máy.
     dung_lam_toc_do: bool = False
+    # Trạm trên DÒNG GIẤY (`to_nguyen · to · con · tay · cai`) — None = ngoài dòng giấy, đúng cho
+    # gần hết danh mục. Đây là thứ duy nhất engine bù hao cần biết về một đơn vị.
+    tram_dong_giay: str | None = Field(default=None, max_length=12)
+    # CÁCH ĐO: công thức định nghĩa chính đơn vị này ("m² tờ in = dai_in × rong_in × to_sau_in").
+    # Ra LƯỢNG, không phải tiền. Không nối với đơn vị nào — khác hẳn `CapIn.cong_thuc`.
+    cong_thuc: str | None = Field(default=None, max_length=200)
 
 
 class DonViDoRow(BaseModel):
@@ -31,6 +37,11 @@ class DonViDoRow(BaseModel):
     ghi_chu: str | None = None
     active: bool
     dung_lam_toc_do: bool = False
+    tram_dong_giay: str | None = None
+    cong_thuc: str | None = None
+    # Cách đo bằng CHỮ NGƯỜI ĐỌC ("Dài tờ in × Rộng tờ in × Tờ tốt sau in") — server dịch, để màn
+    # danh sách khỏi phải nhúng bảng nhãn biến thứ hai.
+    cong_thuc_text: str | None = None
     updated_at: datetime | None = None
     # Cảnh báo mềm (chưa khai quy đổi với ai) — hiện ở màn khai, không chặn lưu.
     canh_bao: list[str] = Field(default_factory=list)

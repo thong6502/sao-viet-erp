@@ -22,7 +22,7 @@ from ..models.cong_doan import CongDoan
 from ..models.customer import Customer
 from ..models.khuon_be import KhuonBe
 from ..models.lsx import (
-    DV_CAI, DV_TAY, DV_TO, DV_TO_NGUYEN, LB_MAY,
+    LB_MAY,
     TT_DA_LAP_KE_HOACH as LSX_DA_LAP, TT_SAN_SANG as LSX_SAN_SANG,
     Lsx, LsxCongDoan, LsxCongDoanPhuThuoc,
 )
@@ -35,8 +35,13 @@ from .bai_ghep_graph import (
 )
 from ._may_fit import LY_DO_GSM, LY_DO_KHO, LY_DO_SO_MAU, kiem_kha_nang
 from .bu_hao_engine import chuoi_nguoc_dv, hao_buoc
+from ..models.don_vi_do import TRAM_CAI, TRAM_TAY, TRAM_TO, TRAM_TO_NGUYEN
+from .dong_giay import ban_do_tram, don_vi_chuoi, tram_cua, tren_dong_giay
 from .piece_work_service import khoan_snapshot
-from .thanh_phan_engine import cau_to_sang_cai, la_gap_tay, so_tay_moi_cuon, tap_muc
+from .thanh_phan_engine import (
+    cau_to_sang_cai, la_gap_tay, so_kem_moi_tay, so_mau_dan_xuat, so_tay_moi_cuon, tap_muc,
+    tap_muc_tu_so,
+)
 from .tinh_gia_service import _bu_hao_to_dict
 
 NHOM_PRINT = "print"
@@ -114,6 +119,13 @@ class BaiGhepService:
         self.sequence = sequence
         self._lsx_service = None   # dựng trễ, xem `_lsx_svc`
         self._bu_hao_cache: list[dict] | None = None
+        self._tram_cache: dict[str, str] | None = None
+
+    def _tram(self) -> dict[str, str]:
+        """Bản đồ `{mã đơn vị: trạm}` — CACHE. Hỏi lại danh mục trong vòng lặp thành viên là N+1."""
+        if self._tram_cache is None:
+            self._tram_cache = ban_do_tram(self.db)
+        return self._tram_cache
 
     # ================= tra cứu phụ trợ =================
 
@@ -886,16 +898,17 @@ class BaiGhepService:
             if l is not None:
                 xa = _f(self._lsx_svc()._he_so_cau(
                     l, so_con=int(tv.so_con_tren_to or 0) or None
-                ).get((DV_TO_NGUYEN, DV_TO)))
+                ).get((TRAM_TO_NGUYEN, TRAM_TO)))
                 break
         to_cai = tong if tong > 0 else 1.0
+        # Khoá theo TRẠM (giống `LsxService._he_so_cau`) — nơi tra phải dịch mã qua `tram_cua`.
         return {
-            (DV_TO, DV_CAI): to_cai,
-            (DV_TO_NGUYEN, DV_TO): max(xa, 1.0),
+            (TRAM_TO, TRAM_CAI): to_cai,
+            (TRAM_TO_NGUYEN, TRAM_TO): max(xa, 1.0),
             # Đường DÀI của sách (gấp → bắt tay + vào keo). Gấp không sinh không mất tờ nên cầu
             # đầu là 1, cầu sau lấy lại nguyên cầu tắt — tích hai cầu luôn bằng `to → cai`.
-            (DV_TO, DV_TAY): 1.0,
-            (DV_TAY, DV_CAI): to_cai,
+            (TRAM_TO, TRAM_TAY): 1.0,
+            (TRAM_TAY, TRAM_CAI): to_cai,
         }
 
     def _nhu_cau_to(self, lsx: Lsx | None, so_con: int, bo_hao: set[str] | None = None) -> int:
@@ -918,9 +931,13 @@ class BaiGhepService:
             lsx, so_con=so_con, bo_hao_step_keys=set(bo_hao) if bo_hao else None,
         )}
         buoc = sorted(lsx.cong_doans, key=lambda c: c.thu_tu)
+        # Bước đếm TỜ IN = bước có đơn vị đứng ở TRẠM `to`, không phải bước có mã bằng "to":
+        # `don_vi_vao` là mã do xưởng đặt (`to_chay`…), so mã là trượt hết rồi rơi về `can/so_con`
+        # — số tờ của bài lệch trong im lặng ngay khi xưởng đổi tên đơn vị.
+        bd = self._tram()
         vao_to = next(
             (r["so_luong_vao"] for i, cd in enumerate(buoc)
-             if cd.don_vi_vao == DV_TO and (r := rows.get(i))),
+             if tram_cua(cd.don_vi_vao, bd) == TRAM_TO and (r := rows.get(i))),
             None,
         )
         return ceil(_f(vao_to)) if vao_to else ceil(can / so_con)
@@ -1031,7 +1048,8 @@ class BaiGhepService:
             l = lsx_map.get(r["lsx_id"])
             if l is None:
                 continue
-            xa = _f(self._lsx_svc()._he_so_cau(l, so_con=r["con"] or None).get((DV_TO_NGUYEN, DV_TO)))
+            xa = _f(self._lsx_svc()._he_so_cau(
+                l, so_con=r["con"] or None).get((TRAM_TO_NGUYEN, TRAM_TO)))
             if xa > 0:
                 to_nguyen_can = ceil(tong_to / xa)
             break
@@ -1242,23 +1260,32 @@ class BaiGhepService:
         """
         if not chungs:
             return {}, []
-        # Bước chế bản (prepress) KHÔNG chạm dòng giấy — loại khỏi chuỗi hao theo NHÓM công đoạn
-        # (KHÔNG theo `don_vi` NULL: danh mục chưa backfill đơn vị thì bước IN cũng NULL, loại nhầm
-        # là hao về 0). Prepress giữ lại thì `or DV_TO` coerce nó về `to`, thành nút `to→to` giả đá
-        # vào `to_nguyen` của bước in → cảnh báo "đứt đơn vị" GIẢ và số tờ vô nghĩa (CTP 250→250).
-        tren_giay = [c for c in chungs if c.nhom != "prepress"]
+        # Bước KHÔNG chạm dòng giấy (ghi kẽm…) — loại khỏi chuỗi hao bằng CỜ TRẠM của đơn vị, và
+        # bước CHƯA khai đơn vị thì lùi về luật cũ theo `nhom` (danh mục chưa backfill thì bước IN
+        # cũng NULL, loại nhầm là hao về 0). Giữ lại thì lối lùi coerce nó về đơn vị tờ in, thành nút
+        # `to→to` giả đá vào `to_nguyen` của bước in → cảnh báo "đứt đơn vị" GIẢ và số tờ vô nghĩa.
+        tram = self._tram()
+        tren_giay = [c for c in chungs
+                     if tren_dong_giay(c.don_vi_vao, c.don_vi_ra, tram, nhom=c.nhom)]
         if not tren_giay:
             return {}, []
-        # Đơn vị hiệu dụng: bước chưa backfill đơn vị (danh mục NULL) vẫn nối tiếp bằng `to` như cũ.
-        dvs = [(c, c.don_vi_vao or DV_TO, c.don_vi_ra or DV_TO) for c in tren_giay]
+        # Đơn vị hiệu dụng: bước chưa backfill đơn vị (danh mục NULL) nối tiếp bằng đơn vị chặng TỜ
+        # IN CỦA CHÍNH BÀI NÀY — đọc từ routing chứ KHÔNG đóng đinh mã `to`. Xưởng khai `to_chay`
+        # mà ở đây coerce về `to` là đẻ nút `to→to` giả, đá vào chặng tờ in thật của bước in.
+        # Kèm TRẠM: bảng cầu `cau` khoá theo trạm, tra bằng mã là xưởng khai mã riêng cho một chặng
+        # thì không khớp — ăn hệ số 1 và số tờ của cả bài sai (xem `bu_hao_engine.chuoi_nguoc_dv`).
+        dv_to_bai = don_vi_chuoi(tren_giay, tram)["to"]
+        dvs = [(c, c.don_vi_vao or dv_to_bai, c.don_vi_ra or dv_to_bai) for c in tren_giay]
         buoc = [
-            {"cd": self._quy_tac_hao(c.cong_doan_id), "ten": c.ten, "dv_vao": dv_v, "dv_ra": dv_r}
+            {"cd": self._quy_tac_hao(c.cong_doan_id), "ten": c.ten, "dv_vao": dv_v, "dv_ra": dv_r,
+             "tram_vao": tram_cua(dv_v, tram) or dv_v, "tram_ra": tram_cua(dv_r, tram) or dv_r}
             for (c, dv_v, dv_r) in dvs
         ]
         # Đích của chuỗi chung: điểm toả phải nhận đủ `so_to_tot` TỜ. Bước chung cuối nhả đơn vị
         # gì thì quy đích về đơn vị đó trước — giống `to_can` của engine tính giá.
-        dv_cuoi = buoc[-1]["dv_ra"]
-        to_can = float(so_to_tot) * (1.0 if dv_cuoi == DV_TO else _f(cau.get((DV_TO, dv_cuoi))) or 1.0)
+        tram_cuoi = buoc[-1]["tram_ra"]
+        to_can = float(so_to_tot) * (
+            1.0 if tram_cuoi == TRAM_TO else _f(cau.get((TRAM_TO, tram_cuoi))) or 1.0)
         hang, canh_bao = chuoi_nguoc_dv(
             buoc, rows=self._bu_hao_rows(), to_can=to_can, he_so=cau,
         )
@@ -1268,7 +1295,8 @@ class BaiGhepService:
         # không, hai màn cùng một phép tính lại lệch nhau một đơn vị ở đúng chỗ người dùng soi kỹ.
         ket: dict[int, dict] = {}
         for (c, dv_v, dv_r), h in zip(dvs, hang):
-            hs = 1.0 if dv_v == dv_r else (_f(cau.get((dv_v, dv_r))) or 1.0)
+            tv, tr = h.get("tram_vao") or dv_v, h.get("tram_ra") or dv_r
+            hs = 1.0 if tv == tr else (_f(cau.get((tv, tr))) or 1.0)
             vao, ra_quy = ceil(h["vao"]), ceil(h["ra"] / hs)
             ket[c.id] = {
                 **h, "vao": float(vao), "ra": float(ceil(h["ra"])),
@@ -1354,6 +1382,8 @@ class BaiGhepService:
 
         from .lsx_service import thoi_luong_buoc
 
+        # Nhãn đơn vị cho bước CHƯA khai đơn vị: lấy chặng tờ in của chính bài, không đóng đinh `to`.
+        dv_to_bai = don_vi_chuoi(chungs, self._tram())["to"]
         out: list[dict] = []
         for c in chungs:
             hh = hang.get(c.id)
@@ -1375,7 +1405,7 @@ class BaiGhepService:
                 "tren_giay": tren_giay,
                 "so_luong_vao": h["vao"], "so_luong_ra": h["ra"],
                 # Đơn vị lấy từ KHAI BÁO của công đoạn, không đóng đinh.
-                "don_vi_vao": c.don_vi_vao or DV_TO, "don_vi_ra": c.don_vi_ra or DV_TO,
+                "don_vi_vao": c.don_vi_vao or dv_to_bai, "don_vi_ra": c.don_vi_ra or dv_to_bai,
                 # `ra` quy về đơn vị VÀO + hệ số đã dùng — cùng bộ số `bu_hao_chi_tiet` của tính
                 # giá trả ra, để thẻ nói được "10 tờ = 1 cuốn" thay vì để người xem tự đoán.
                 "he_so_quy_doi": h.get("he_so", 1.0), "so_luong_ra_quy": h.get("ra_quy"),
@@ -1455,6 +1485,36 @@ class BaiGhepService:
             "so_mau_a": so_mau_a, "so_mau_b": so_mau_b, "gsm": gsm,
             "muc_a": sorted(muc_a), "muc_b": sorted(muc_b),
         }
+
+    def muc_gop(self, bg: BaiGhep, lsx_map: dict[int, Lsx]) -> dict:
+        """Số màu + số kẽm của CẢ BÀI — `{so_mau_a, so_mau_b, so_mau_pha, so_kem}`.
+
+        Bài ghép in MỘT lượt trên MỘT bộ bản, nên bản phải mang HỢP tập mực của mọi thành viên:
+        thẻ CMYK ghép với bìa CMYK + Pantone 185C ⇒ form 5 bản, không phải 4. Đây không phải suy
+        đoán — `_qc_bai` đã hợp tập mực sẵn cho việc kiểm khả năng máy; hàm này chỉ đếm ra số.
+
+        Đếm bằng ĐÚNG hàm của engine tính giá (`so_mau_dan_xuat` · `so_kem_moi_tay`) chứ không tự
+        cộng: luật kẽm khác nhau theo cách in (AB cộng hai mặt, tự trở hợp hai mặt), viết lại ở đây
+        là chỗ thứ hai để lệch. Số tay = 1 vì bài ghép LÀ một tay in.
+
+        Thành viên chưa khai mực (dữ liệu trước mig `0154`) → dựng tập từ ba con số cũ, đúng luật
+        migration dùng. Không có gì để đếm thì trả rỗng, nơi gọi để 0 chứ không bịa.
+        """
+        qc = self._qc_bai(bg, lsx_map)
+        a, b = tap_muc(qc.get("muc_a")), tap_muc(qc.get("muc_b"))
+        if not a and not b:
+            a, b = tap_muc_tu_so(qc.get("so_mau_a"), qc.get("so_mau_b"), 0)
+        if not a and not b:
+            return {}
+        kieu = next(
+            (k for tv in bg.thanh_viens
+             if (k := ((lsx_map.get(tv.lsx_id).quy_cach_json or {}) if lsx_map.get(tv.lsx_id)
+                       else {}).get("quy_cach_in"))),
+            "mot_mat",
+        )
+        sa, sb, sp = so_mau_dan_xuat(a, b)
+        return {"so_mau_a": sa, "so_mau_b": sb, "so_mau_pha": sp,
+                "so_kem": so_kem_moi_tay(a, b, str(kieu))}
 
     def _may_hop_cong_doan(self, may, cd, qc_bai: dict) -> list[str]:
         """Cảnh báo MỀM khi máy của bước chung không hợp công đoạn — máy chỉ ghi nhận, không chặn.

@@ -34,6 +34,8 @@ const GAP_Y = 160;
 const START_X = 50;
 const START_Y = 50;
 const GRAPH_PADDING = 32;
+/** Chừa mép khi thu vừa khung để node ngoài cùng không dính sát viền viewport. */
+const VIEW_PADDING = 24;
 const MIN_VIEWPORT_HEIGHT = 320;
 const MAX_VIEWPORT_HEIGHT = 580;
 
@@ -128,6 +130,18 @@ export function computeCanvasHeight(
   if (!keys.length) return MIN_VIEWPORT_HEIGHT;
   const maxY = Math.max(...keys.map((key) => positions[key]?.y ?? START_Y));
   return maxY + NODE_HEIGHT + GRAPH_PADDING;
+}
+
+/** Tỉ lệ thu để TRỌN sơ đồ (w×h) lọt vào khung nhìn.
+ *
+ * Chuỗi tuyến tính 5 bước đã rộng ~1.500px trong khi khung chỉ ~1.150px, nên mặc định phải thu
+ * lại — không thì bước cuối nằm ngoài tầm mắt và người dùng phải mò thanh cuộn mới biết còn gì.
+ * Không phóng quá 100% (chữ vỡ) và không thu dưới 35% (hết đọc nổi).
+ */
+function tinhZoomVua(vp: HTMLDivElement, w: number, h: number): number {
+  if (w <= 0 || h <= 0) return 1;
+  const vua = Math.min(1, (vp.clientWidth - VIEW_PADDING) / w, (vp.clientHeight - VIEW_PADDING) / h);
+  return Math.max(0.35, Math.floor(vua * 100) / 100);
 }
 
 /** Đặt chỗ cho một node ngoài LSX ở cột trái, đẩy cả sơ đồ sang phải nếu cột đó đang bị chiếm. */
@@ -269,11 +283,12 @@ export function DagRoutingCanvas({
   const [positions, setPositions] = useState<Record<string, Point>>(() => computeAutoLayout(rows));
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
-  // State Zoom & Pan canvas
+  // State Zoom & Pan canvas. Pan = CUỘN THẬT của viewport, không phải transform: kéo nền bằng
+  // transform thì không có biên, đẩy quá tay là node ra ngoài khung và không còn thanh cuộn nào
+  // kéo về (hàng node bị cụt mất header).
   const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
-  const panStartRef = useRef<Point>({ x: 0, y: 0 });
+  const panStartRef = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
 
   // State kéo node
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
@@ -296,6 +311,9 @@ export function DagRoutingCanvas({
   const [railMo, setRailMo] = useState(false);
 
   const viewportRef = useRef<HTMLDivElement>(null);
+  // Người dùng đã tự chỉnh tầm nhìn (zoom / kéo nền / kéo node) thì thôi tự thu vừa khung —
+  // giật tầm nhìn dưới tay người đang thao tác còn khó chịu hơn là thấy thiếu một bước.
+  const daTuChinhRef = useRef(false);
   const ghostKeys = useMemo(() => {
     const ds = ghostKeysCua(rows);
     if (ghostDangKeo && !ds.includes(ghostDangKeo) && !rows.some((r) => r.key === ghostDangKeo)) {
@@ -358,22 +376,41 @@ export function DagRoutingCanvas({
     });
   }, [rows, ghostKeys]);
 
+  /** Thu cả sơ đồ vào vừa khung nhìn — nhìn một phát ra trọn chuỗi, khỏi cuộn ngang đoán mò. */
+  const thuVuaKhung = useCallback(
+    (viTri: Record<string, Point> = positions) => {
+      const vp = viewportRef.current;
+      if (!vp) return;
+      setZoom(
+        tinhZoomVua(vp, computeCanvasWidth(viTri, allKeys), computeCanvasHeight(viTri, allKeys)),
+      );
+      vp.scrollLeft = 0;
+      vp.scrollTop = 0;
+    },
+    [positions, allKeys],
+  );
+
+  // Mở sơ đồ / thêm–bớt bước: tự thu vừa khung, trừ khi người dùng đã tự chỉnh tầm nhìn.
+  useEffect(() => {
+    if (daTuChinhRef.current) return;
+    thuVuaKhung();
+  }, [thuVuaKhung]);
+
   // Nút Sắp xếp tự động (Auto Layout)
   const handleAutoLayout = useCallback(() => {
     const auto = computeAutoLayout(rows, ghostKeys);
     setPositions(auto);
-    setPan({ x: 0, y: 0 });
-    setZoom(1);
-    if (viewportRef.current) {
-      viewportRef.current.scrollLeft = 0;
-      viewportRef.current.scrollTop = 0;
-    }
-  }, [rows, ghostKeys]);
+    // Xếp lại là trả tầm nhìn về mặc định luôn: xếp gọn mà vẫn phải cuộn tìm thì xếp làm gì.
+    daTuChinhRef.current = false;
+    thuVuaKhung(auto);
+  }, [rows, ghostKeys, thuVuaKhung]);
 
   // Tính toán đường cong Bezier giữa 2 cổng kết nối
+  // Độ cong bám khoảng cách thật: ép tối thiểu 50px trong khi hai cột chỉ cách 56px thì dây
+  // phình ra rồi thắt lại thành chữ S — nhìn như dây điện. Chặn trên để dây đi xa khỏi vòng quá.
   const calculateBezier = useCallback(
     (p1: Point, p2: Point) => {
-      const dx = Math.max(50, Math.abs(p2.x - p1.x) / 2);
+      const dx = Math.min(90, Math.max(24, Math.abs(p2.x - p1.x) / 2));
       return `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${p2.x - dx} ${p2.y}, ${p2.x} ${p2.y}`;
     },
     []
@@ -400,8 +437,14 @@ export function DagRoutingCanvas({
   // Sự kiện Bắt đầu Pan canvas khi click vào nền
   const handleViewportMouseDown = (e: React.MouseEvent) => {
     if (e.button !== 0) return; // Chỉ bắt chuột trái
+    const vp = viewportRef.current;
     setIsPanning(true);
-    panStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+    panStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      scrollLeft: vp?.scrollLeft ?? 0,
+      scrollTop: vp?.scrollTop ?? 0,
+    };
     setSelectedKey(null);
   };
 
@@ -420,15 +463,18 @@ export function DagRoutingCanvas({
     (e: React.MouseEvent) => {
       // Khi đang Pan canvas
       if (isPanning) {
-        setPan({
-          x: e.clientX - panStartRef.current.x,
-          y: e.clientY - panStartRef.current.y,
-        });
+        const vp = viewportRef.current;
+        if (vp) {
+          daTuChinhRef.current = true;
+          vp.scrollLeft = panStartRef.current.scrollLeft - (e.clientX - panStartRef.current.x);
+          vp.scrollTop = panStartRef.current.scrollTop - (e.clientY - panStartRef.current.y);
+        }
         return;
       }
 
       // Khi đang Drag 1 Node
       if (draggingKey) {
+        daTuChinhRef.current = true;
         const dx = (e.clientX - dragStartRef.current.x) / zoom;
         const dy = (e.clientY - dragStartRef.current.y) / zoom;
         const newX = Math.max(10, Math.round((nodeStartPosRef.current.x + dx) / 10) * 10);
@@ -440,15 +486,18 @@ export function DagRoutingCanvas({
         return;
       }
 
-      // Khi đang Kéo dây nối
+      // Khi đang Kéo dây nối. PHẢI cộng scrollLeft/scrollTop: canvas cuộn được nên góc trái
+      // viewport không còn là gốc toạ độ — thiếu nó là dây nháp bay lệch khỏi con trỏ đúng bằng
+      // quãng đã cuộn.
       if (connectingSourceKey && viewportRef.current) {
-        const rect = viewportRef.current.getBoundingClientRect();
-        const canvasX = (e.clientX - rect.left - pan.x) / zoom;
-        const canvasY = (e.clientY - rect.top - pan.y) / zoom;
+        const vp = viewportRef.current;
+        const rect = vp.getBoundingClientRect();
+        const canvasX = (e.clientX - rect.left + vp.scrollLeft) / zoom;
+        const canvasY = (e.clientY - rect.top + vp.scrollTop) / zoom;
         setMousePos({ x: canvasX, y: canvasY });
       }
     },
-    [isPanning, draggingKey, connectingSourceKey, pan, zoom]
+    [isPanning, draggingKey, connectingSourceKey, zoom]
   );
 
   // Thả chuột
@@ -634,22 +683,39 @@ export function DagRoutingCanvas({
           <button
             type="button"
             className="dag-btn-icon"
-            onClick={() => setZoom((z) => Math.max(0.2, z - 0.1))}
-            title="Thu nhỏ"
+            onClick={() => {
+              daTuChinhRef.current = false;
+              thuVuaKhung();
+            }}
+            title="Thu cả sơ đồ vừa khung nhìn"
           >
-            <Icon name="minus" size={13} />
+            <Icon name="maximize" size={13} /> Vừa khung
           </button>
-          <span style={{ fontSize: 12, fontWeight: 600, minWidth: 40, textAlign: "center" }}>
-            {Math.round(zoom * 100)}%
-          </span>
-          <button
-            type="button"
-            className="dag-btn-icon"
-            onClick={() => setZoom((z) => Math.min(1.8, z + 0.1))}
-            title="Phóng to"
-          >
-            <Icon name="plus" size={13} />
-          </button>
+          <div className="dag-zoom">
+            <button
+              type="button"
+              className="dag-zoom__btn"
+              onClick={() => {
+                daTuChinhRef.current = true;
+                setZoom((z) => Math.max(0.2, Math.round((z - 0.1) * 100) / 100));
+              }}
+              title="Thu nhỏ"
+            >
+              <Icon name="minus" size={13} />
+            </button>
+            <span className="dag-zoom__val">{Math.round(zoom * 100)}%</span>
+            <button
+              type="button"
+              className="dag-zoom__btn"
+              onClick={() => {
+                daTuChinhRef.current = true;
+                setZoom((z) => Math.min(1.8, Math.round((z + 0.1) * 100) / 100));
+              }}
+              title="Phóng to"
+            >
+              <Icon name="plus" size={13} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -741,10 +807,15 @@ export function DagRoutingCanvas({
         <div
           className="dag-canvas"
           style={{
-            width: canvasWidth,
+            // Nhân zoom vào chính hộp canvas: scale() không làm vùng cuộn to ra, phóng to mà
+            // không nhân là node ngoài cùng nằm ngoài tầm cuộn.
+            width: canvasWidth * zoom,
             minWidth: "100%",
-            height: Math.max(canvasHeight, viewportHeight),
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            // Trước đây ép cao bằng cả viewport nên luôn tràn đúng bề dày thanh cuộn ngang →
+            // đẻ ra một thanh cuộn dọc vô nghĩa. minHeight lo phần nền, height lo vùng cuộn.
+            height: canvasHeight * zoom,
+            minHeight: "100%",
+            transform: `scale(${zoom})`,
           }}
         >
           {/* Lớp SVG vẽ Dây nối */}

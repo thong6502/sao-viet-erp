@@ -447,6 +447,23 @@
   color: #0f172a;
 }
 
+/* Nút KHOÁ phải NHÌN RA là khoá. Trước 12/08/2026 không có luật này: "Thêm quy đổi" thiếu đơn vị
+   đích vẫn tím rực và con trỏ vẫn là bàn tay — người dùng bấm mãi không ăn, không có gì giải thích. */
+.dvqd__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.35);
+}
+
+/* Nói THIẾU GÌ, đừng bắt đoán. Đứng cạnh nút, mất đi khi đã đủ điều kiện. */
+.dvqd__hint {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #b45309;
+  white-space: nowrap;
+}
+
 .dvqd__btn--primary {
   background: #4f46e5;
   color: #ffffff;
@@ -1062,6 +1079,63 @@
   width: 100%;
 }
 
+/* Panel & Items dropdown RefSearchField */
+.rc-ref-search-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  background: var(--canvas, #ffffff);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: 10px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  box-sizing: border-box;
+}
+
+.rc-ref-search-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8.5px 12px;
+  border-radius: 6px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background-color var(--duration-fast, 120ms) var(--easing-standard, ease);
+}
+.rc-ref-search-item:hover,
+.rc-ref-search-item:focus-visible {
+  background: var(--rust-soft, #f4e2d6);
+  outline: none;
+}
+.rc-ref-search-item__name {
+  font-size: 13px;
+  font-weight: var(--fw-medium, 500);
+  color: var(--ink);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rc-ref-search-item__code {
+  font-family: var(--ff-num);
+  font-size: 11px;
+  color: var(--ash-2);
+  background: var(--rule-hair, #f1f5f9);
+  padding: 2px 7px;
+  border-radius: 4px;
+  flex: none;
+  border: 1px solid var(--rule-soft, #e2e8f0);
+}
+
 .rc-input {
   padding: 8px 12px;
   font: inherit;
@@ -1562,6 +1636,91 @@ select.rc-input:focus {
   margin: 0;
   vertical-align: middle;
 }
+/* ── Vật tư của đầu việc (mg 0191, nền BOM) ──
+   Pill ở cột "Vật tư" bung một HÀNG PHỤ ngay dưới dòng. Không mở drawer lồng drawer: bảng đã 11
+   cột, người khai cần nhìn được cả các dòng khác để so. Mỗi lúc một hàng phụ. */
+.rc-dm-vt__pill {
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--ink, #14130f);
+  background: color-mix(in srgb, var(--rust, #c5400a) 8%, #fff);
+  border: 1px solid color-mix(in srgb, var(--rust, #c5400a) 22%, transparent);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.rc-dm-vt__pill:hover { background: color-mix(in srgb, var(--rust, #c5400a) 14%, #fff); }
+.rc-dm-vt__pill.is-empty {
+  color: var(--ash, #7c766a);
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--rule, #d8d2c0);
+}
+.rc-dm-vt__pill.is-open {
+  color: #fff;
+  background: var(--rust, #c5400a);
+  border-color: var(--rust, #c5400a);
+}
+.rc-dm-vt__row td {
+  padding: 0 !important;
+  background: var(--paper, #faf8f5);
+}
+.rc-dm-vt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--rust, #c5400a);
+}
+.rc-dm-vt__empty {
+  font-size: 12.5px;
+  color: var(--ash, #7c766a);
+}
+.rc-dm-vt__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  background: #fff;
+  border: 1px solid var(--rule-hair, #efebde);
+  border-radius: var(--r-3, 6px);
+}
+.rc-dm-vt__ma {
+  font-family: var(--ff-mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--ash, #7c766a);
+}
+.rc-dm-vt__ten {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink, #14130f);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rc-dm-vt__dv {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 5px;
+  color: var(--ash, #7c766a);
+  background: var(--paper, #faf8f5);
+  border: 1px solid var(--rule-hair, #efebde);
+}
+.rc-dm-vt__note {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ash, #7c766a);
+}
+
 .rc-dinh-muc-add {
   margin-top: 2px;
 }
@@ -2608,3 +2767,101 @@ select.rc-input:focus {
   font-size: 13px;
   color: var(--ash, #8a8676);
 }
+
+/* ── LỊCH BẢO TRÌ: gói (có chu kỳ) → việc con (nội dung phải làm) ────────
+   Gói là một CÁI THẺ chứ không phải một dòng bảng: mỗi gói mang theo danh sách việc con, nhét
+   danh sách vào một ô của bảng thì hàng cao thấp so le, đọc không ra đâu vào đâu.            */
+.rc-goi-list { display: flex; flex-direction: column; gap: 16px; }
+
+.rc-goi {
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-radius: var(--r-5, 10px);
+  background: var(--paper-contrast, #fff);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color var(--duration-fast, 120ms) var(--easing-standard, ease);
+}
+.rc-goi:focus-within { border-color: rgba(197, 64, 10, 0.35); }
+
+.rc-goi__head { display: flex; align-items: center; gap: 8px; }
+.rc-goi__ten { flex: 1; font-weight: 600; }
+
+.rc-goi__so { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
+.rc-goi__o { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ash, #475569); }
+.rc-goi__o > span:first-child { white-space: nowrap; }
+.rc-goi__o .rc-input { padding: 6px 8px; font-size: 13px; }
+.rc-goi__o .rc-input--num { width: 74px; text-align: right; }
+.rc-goi__o select.rc-input { width: auto; }
+/* Ô ngày trình bày dài hơn ô số — để `auto` thì Chrome/Firefox mỗi nơi một bề rộng. */
+.rc-goi__o--ngay .rc-input { width: 148px; }
+
+/* Kỳ tới — CHỈ ĐỌC, đi ra từ phiếu bảo trì gần nhất (màn Phiếu bảo trì). Ghi kèm "tính từ đâu" vì
+   một cái ngày trần không kiểm lại được, còn biết nguồn thì người khai tự soi ra sai ở chỗ nào. */
+.rc-goi__ky {
+  margin: 0; font-size: 12px; line-height: 1.5;
+  color: var(--ash, #475569);
+}
+.rc-goi__ky-nguon { margin-left: 8px; font-size: 11px; color: var(--ash-2, #94a3b8); }
+
+/* Nhắc TẠI CHỖ khi gói có chu kỳ mà chưa có ngày bắt đầu: hệ quả (phiếu coi như tới hạn ngay)
+   chỉ lộ ra ở màn khác, nên không nói ở đây thì người khai không bao giờ biết. */
+.rc-goi__nhac {
+  margin: 0; font-size: 12px; line-height: 1.5;
+  color: var(--amber-deep, #7a5c0f);
+  background: var(--amber-soft, #efe4c4);
+  border-radius: var(--r-3, 6px);
+  padding: 6px 10px;
+}
+
+.rc-goi__viec {
+  border-top: 1px dashed var(--rule-soft, #e2e8f0);
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rc-goi__viec-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ash, #475569);
+}
+.rc-goi__dem {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0;
+  text-transform: none; color: var(--ash-2, #64748b);
+  background: var(--rule-hair, #f1f5f9);
+  border-radius: 999px; padding: 1px 8px;
+}
+.rc-goi__ol { list-style: decimal; margin: 0; padding-left: 24px; display: flex; flex-direction: column; gap: 8px; }
+.rc-goi__ol li { display: flex; align-items: center; gap: 6px; }
+.rc-goi__ol li::marker { color: var(--ash-2, #64748b); font-size: 11.5px; }
+.rc-goi__ol .rc-input { flex: 1; padding: 6px 8px; font-size: 13px; }
+
+.rc-goi__empty {
+  margin: 0; font-size: 12.5px; line-height: 1.5;
+  color: var(--ash, #475569);
+  background: var(--rule-hair, #f1f5f9);
+  border-radius: var(--r-3, 6px);
+  padding: 12px;
+}
+.rc-goi__add { align-self: flex-start; }
+
+/* ── Cột TRẠNG THÁI máy (dẫn xuất) ──────────────────────────────────────
+   Chỉ trạng thái CẦN XỬ LÝ mới có nền. Tô nền cả "đang chạy" thì cả cột rực lên và mắt không
+   còn bắt được cái máy đang nằm — đúng thứ duy nhất người ta mở bảng này để tìm.             */
+.rc-tt { display: inline-flex; align-items: flex-start; gap: 6px; padding: 3px 8px 3px 6px; border-radius: 999px; }
+.rc-tt__dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 5px; flex: none; background: currentColor; }
+.rc-tt__body { display: flex; flex-direction: column; line-height: 1.25; }
+.rc-tt__nhan { font-size: 12.5px; font-weight: 600; }
+.rc-tt__chi-tiet { font-size: 11px; opacity: .78; font-weight: 500; }
+
+.rc-tt--may_dung { color: var(--signal-deep, #6b1717); background: var(--signal-soft, #efd5d5); }
+.rc-tt--bao_tri  { color: var(--amber-deep, #7a5c0f); background: var(--amber-soft, #efe4c4); }
+.rc-tt--khoa     { color: var(--ash, #475569); background: var(--rule-hair, #f1f5f9); }
+.rc-tt--dang_chay { color: var(--ink, #0f172a); }
+.rc-tt--dang_chay .rc-tt__dot { background: var(--moss, #2f5d3a); }
+.rc-tt--ranh { color: var(--ash-2, #64748b); }
+.rc-tt--ranh .rc-tt__dot { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
+/* Chưa nạp xong / nạp hỏng: nói "chưa biết", KHÔNG mượn tạm nhãn "Rảnh". */
+.rc-tt--chua-biet { color: var(--ash-2, #64748b); opacity: .6; }

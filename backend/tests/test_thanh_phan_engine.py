@@ -300,7 +300,7 @@ def test_hao_o_buoc_tay_sang_cuon_doi_du_so_tay():
 
 def test_formula_engine_ast_and_bu_them():
     tp = _component()
-    tp["cong_thuc_gia"] = "dinh_luong * dai_nguyen * rong_nguyen * don_gia_kg * to_nguyen"
+    tp["cong_thuc_gia"] = "dinh_luong * dai_nguyen * rong_nguyen * don_gia_giay * to_nguyen"
     tp["bu_hao_so_to"] = 250
     tp["hao_so_to"] = 150   # ô "− Hao" ĐÃ BỎ — engine phải lờ đi, không trừ vào to_sau_in
 
@@ -317,7 +317,7 @@ def test_formula_engine_ast_and_bu_them():
     assert m["to_nguyen"] == 166
 
     # Verify formula calculation
-    # dinh_luong = 0.3, dai_nguyen = 0.86, rong_nguyen = 0.65, don_gia_kg = 5000, to_nguyen = 166
+    # dinh_luong = 0.3, dai_nguyen = 0.86, rong_nguyen = 0.65, don_gia_giay = 5000, to_nguyen = 166
     # 0.3 * 0.86 * 0.65 * 5000 * 166 = 139191.0
     assert _grp(res, "nvl")["subtotal"] == 139191.0
 
@@ -327,7 +327,7 @@ def test_formula_engine_ast_and_bu_them():
 
 
 def test_giay_don_vi_tan_quy_ve_kg():
-    """Giấy bán theo TẤN: đơn giá đ/tấn phải ÷1000 khi công thức dùng don_gia_kg (chống lệch 1000×).
+    """Giấy bán theo TẤN: đơn giá đ/tấn phải ÷1000 khi công thức dùng don_gia_giay (chống lệch 1000×).
 
     Neo theo phiếu hộp đôi: giấy D250, khổ nguyên 445×640, gsm 250, 17.100.000 đ/tấn,
     con=2, SL 4.000, bù 250 → to_nguyen 2.250 → tiền giấy = 0,25×0,445×0,64×17.100×2.250.
@@ -339,7 +339,7 @@ def test_giay_don_vi_tan_quy_ve_kg():
         "gsm": 250, "giay_ten": "Duplex D250",
         "don_gia_giay": 17_100_000, "don_gia_don_vi": "tan", "nguon_giay": "cong_ty",
         "bu_hao_so_to": 250, "co_in": False,
-        "cong_thuc_gia": "dinh_luong * dai_nguyen * rong_nguyen * don_gia_kg * to_nguyen",
+        "cong_thuc_gia": "dinh_luong * dai_nguyen * rong_nguyen * don_gia_giay * to_nguyen",
     }
     res = compute_phieu(so_luong=4000, thanh_phans=[tp])
     m = res["meta"]["components"][0]
@@ -347,7 +347,7 @@ def test_giay_don_vi_tan_quy_ve_kg():
     assert m["to_dau_vao"] == 2250
     assert m["so_manh_xa"] == 1          # khổ in = khổ nguyên → không xả
     assert m["to_nguyen"] == 2250
-    # 0.25 × 0.445 × 0.64 × 17100 × 2250 = 2.739.420 (don_gia_kg = 17.100.000 ÷ 1000)
+    # 0.25 × 0.445 × 0.64 × 17100 × 2250 = 2.739.420 (don_gia_giay = 17.100.000 ÷ 1000)
     assert _grp(res, "nvl")["subtotal"] == 2739420.0
     # ≈ 685 đ/thành phẩm (đúng phiếu tay)
     assert round(2739420.0 / 4000) == 685
@@ -359,9 +359,9 @@ def test_in_kem_la_cong_doan_trong_chuoi():
     tp = _component()   # field cứng: don_gia_cong_in=100, che_ban_don_gia=100000
     tp["thanh_phams"] = [
         {"ten": "In offset", "don_gia": 200,
-         "cong_doan": {"nhom": "print", "cong_thuc_gia": "to_dau_vao * so_mat * don_gia"}},
+         "cong_doan": {"nhom": "print", "cong_thuc_gia": "to_dau_vao * so_mat * 200"}},
         {"ten": "Chế bản kẽm", "don_gia": 90000,
-         "cong_doan": {"nhom": "prepress", "cong_thuc_gia": "so_kem * don_gia"}},
+         "cong_doan": {"nhom": "prepress", "cong_thuc_gia": "so_kem * 90000"}},
     ]
     res = compute_phieu(so_luong=5000, thanh_phans=[tp])
     m = res["meta"]["components"][0]
@@ -389,25 +389,28 @@ def test_giay_kg_default_theo_can():
     assert _grp(res, "nvl")["subtotal"] == round(expected, 2)
 
 
-def test_cong_doan_default_theo_nhom_khong_can_khai_cong_thuc():
-    """In (print) & Kẽm (prepress) KHÔNG khai cong_thuc_gia → engine tự dùng công thức mặc định theo nhom."""
+def test_cong_doan_chua_khai_cong_thuc_thi_KEU_chu_khong_bia_tien():
+    """Bỏ hai công thức MẶC ĐỊNH theo nhóm (11/08/2026) — chúng dựa vào `don_gia` của công đoạn,
+    một biến CHẾT (không có ô nhập ở phiếu lẫn danh mục) nên vẫn ra 0đ, chỉ là 0đ trông như đã tính.
+
+    Nay chưa khai công thức thì engine nói thẳng và tính 0đ — bắt người ta viết một công thức.
+    """
     tp = _component()
     tp["thanh_phams"] = [
-        {"ten": "In offset", "don_gia": 200, "cong_doan": {"nhom": "print"}},        # không cong_thuc_gia
-        {"ten": "Ghi kẽm", "don_gia": 90000, "cong_doan": {"nhom": "prepress"}},      # không cong_thuc_gia
+        {"ten": "In offset", "don_gia": 200, "cong_doan": {"nhom": "print"}},
+        {"ten": "Ghi kẽm", "don_gia": 90000, "cong_doan": {"nhom": "prepress"}},
     ]
     res = compute_phieu(so_luong=5000, thanh_phans=[tp])
-    m = res["meta"]["components"][0]
-    # In (print → to_dau_vao × so_mat × don_gia) + Kẽm (prepress → so_kem × don_gia), gộp nhóm 'Công đoạn'.
-    tien_in = m["to_dau_vao"] * 2 * 200
-    tien_kem = m["so_kem"] * 90000
-    assert _grp(res, "cong_doan")["subtotal"] == tien_in + tien_kem
+    assert _grp(res, "cong_doan")["subtotal"] == 0
+    w = " ".join(res["warnings"])
+    assert "In offset" in w and "Ghi kẽm" in w and "chưa khai công thức tính giá" in w
 
 
 def _fin_row(**kw) -> dict:
-    """1 dòng công đoạn gia công có công thức phẳng: tiền = so_luong × don_gia."""
+    """1 dòng công đoạn gia công có công thức phẳng. Đơn giá GÕ THẲNG vào công thức — ô Công đoạn
+    không có biến tiền (gỡ 11/08/2026: không có chỗ nào nhập đơn giá công đoạn)."""
     return {"ten": "Bế", "don_gia": 300, "cong_doan": {
-        "ten": "Bế", "nhom": "finishing", "cong_thuc_gia": "so_luong * don_gia"}, **kw}
+        "ten": "Bế", "nhom": "finishing", "cong_thuc_gia": "so_luong * 300"}, **kw}
 
 
 def _tp_co_cong_doan(**kw) -> dict:
@@ -645,17 +648,17 @@ def test_luong_suy_tu_cong_thuc_giu_dung_bat_bien_tien_bang_luong_nhan_don_gia()
     """
     from app.services.thanh_phan_engine import luong_tu_cong_thuc, safe_eval
 
-    ct = "so_mau * dai_in * rong_in * don_gia_kg * to_dau_vao * 0.0003"
+    ct = "so_mau * dai_in * rong_in * don_gia_vat_tu * to_dau_vao * 0.0003"
     for gia in (250_000, 123_456, 1):
         ctx = {"so_mau": 4, "dai_in": 650, "rong_in": 900, "to_dau_vao": 1_000,
-               "don_gia": gia, "don_gia_kg": gia, "don_gia_m2": gia}
+               "don_gia_vat_tu": gia}
         luong = luong_tu_cong_thuc(ct, ctx)
         tien = safe_eval(ct, ctx)
         assert luong is not None
         assert abs(tien - luong * gia) <= abs(tien) * 1e-9   # tolerance TƯƠNG ĐỐI: số cỡ 1e11
     # Lượng KHÔNG đổi theo giá — nó là lượng, không phải tiền.
-    a = luong_tu_cong_thuc(ct, {**ctx, "don_gia_kg": 1})
-    b = luong_tu_cong_thuc(ct, {**ctx, "don_gia_kg": 9_999_999})
+    a = luong_tu_cong_thuc(ct, {**ctx, "don_gia": 1})
+    b = luong_tu_cong_thuc(ct, {**ctx, "don_gia": 9_999_999})
     assert a == b
 
 
@@ -666,7 +669,7 @@ def test_cong_thuc_khong_nhac_don_gia_thi_KHONG_suy_luong():
     """
     from app.services.thanh_phan_engine import luong_tu_cong_thuc
 
-    ctx = {"to_dau_vao": 1_000, "don_gia": 5, "don_gia_kg": 5, "don_gia_m2": 5}
+    ctx = {"to_dau_vao": 1_000, "don_gia_vat_tu": 5}
     assert luong_tu_cong_thuc("50000", ctx) is None
     assert luong_tu_cong_thuc("", ctx) is None
     assert luong_tu_cong_thuc(None, ctx) is None
@@ -679,7 +682,7 @@ def test_dong_vat_tu_phoi_luong_va_don_vi_ra_ngoai():
     tp = _component()
     tp["vat_tus"] = [{
         "vat_tu_id": 77, "ten": "Màng bóng", "don_gia": 3_000, "don_vi_gia": "m2",
-        "cong_thuc_gia": "dai_in * rong_in * don_gia_m2 * to_sau_in",
+        "cong_thuc_gia": "dai_in * rong_in * don_gia_vat_tu * to_sau_in",
     }]
     res = compute_phieu(so_luong=1000, thanh_phans=[tp])
     dong = [r for r in _grp(res, "nvl")["rows"] if "Màng bóng" in r["ten"]]

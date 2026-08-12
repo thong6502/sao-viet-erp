@@ -12,15 +12,17 @@ from __future__ import annotations
 import re
 from datetime import date
 
-from ..models.don_vi_do import HO_GOI_Y
+from ..models.don_vi_do import HO_GOI_Y, TRAM_DONG_GIAY
+from .bien_cong_thuc import LOAI_QUY_DOI, bien_cho
 from ..repositories.don_vi_do_repo import DonViDoRepository
 from .quy_doi_service import (
     BIEN, _dong_tren_duong, _so, bien_trong, cap_map, duong_di, he_so_duong,
 )
 from .thanh_phan_engine import safe_eval
 
-# Biến → chữ người đọc, dùng khi in công thức ra bảng ("1 tờ = định lượng × dài × rộng kg").
-BIEN_CHU = {"dinh_luong": "định lượng", "dai": "dài", "rong": "rộng", "so_con": "số con"}
+# 🔴 `BIEN_CHU` (bảng nhãn riêng thứ ba) ĐÃ GỠ 11/08/2026 — nhãn nay lấy từ TỪ ĐIỂN CHUNG
+# `bien_cong_thuc.nhan()`. Giữ bảng riêng ở đây là đúng cái bệnh đang chữa: thêm biến mới thì bảng
+# này không biết, công thức in ra hiện mã trần (`dai_in`) giữa những chữ tiếng Việt.
 
 # Sai số tương đối cho phép khi so hai đường quy đổi. Không so tuyệt đối vì hệ số trải từ 0,001
 # tới 1.000.000 — tuyệt đối thì hoặc quá chặt với số nhỏ, hoặc quá lỏng với số lớn.
@@ -28,10 +30,11 @@ SAI_SO = 1e-6
 
 
 def cong_thuc_chu(cong_thuc: str) -> str:
-    """Công thức → chữ đọc được: `dinh_luong * dai * rong` → "định lượng × dài × rộng"."""
+    """Công thức → chữ đọc được: `dinh_luong * dai_in * rong_in` → "Định lượng giấy × Dài tờ in ×
+    Rộng tờ in". Nhãn lấy từ TỪ ĐIỂN CHUNG nên thêm biến mới là câu này tự đọc được."""
     ra = cong_thuc or ""
-    for bien, chu in BIEN_CHU.items():
-        ra = re.sub(rf"\b{bien}\b", chu, ra)
+    for b in bien_cho(LOAI_QUY_DOI):
+        ra = re.sub(rf"\b{b['ma']}\b", b["nhan"], ra)
     return ra.replace("*", "×").replace("/", "÷")
 
 
@@ -62,6 +65,21 @@ class DonViDoService:
             raise DonViDoValidationError("Mã đơn vị không được trống.")
         if not (data.get("ten") or "").strip():
             raise DonViDoValidationError("Tên đơn vị không được trống.")
+        # Trạm dòng giấy là MENU đóng: engine chạy chuỗi bù hao theo đúng 5 mức này, gõ mức lạ thì
+        # `TRAM_THU_TU` không có bậc và bước rơi khỏi chuỗi trong im lặng.
+        tram = (data.get("tram_dong_giay") or "").strip() or None
+        data["tram_dong_giay"] = tram
+        if tram is not None and tram not in TRAM_DONG_GIAY:
+            raise DonViDoValidationError(
+                f"Trạm dòng giấy phải là một trong: {' · '.join(TRAM_DONG_GIAY)}.")
+        # CÁCH ĐO (mg 0192): công thức định nghĩa chính đơn vị này, ra LƯỢNG. Kiểm bằng đúng bộ luật
+        # của công thức quy đổi — biến lạ thì cách đo nằm chết, mọi vật tư dùng đơn vị này im lặng
+        # không ra số. Để trống = đơn vị thường, không đo bằng công thức.
+        if "cong_thuc" in data:
+            ct = (data.get("cong_thuc") or "").strip()
+            data["cong_thuc"] = ct or None
+            if ct:
+                self._kiem_cong_thuc(ct)
 
     @staticmethod
     def _chuan_hoa(data: dict) -> dict:
@@ -153,6 +171,32 @@ class DonViDoService:
         except (ValueError, ZeroDivisionError) as e:
             raise DonViDoValidationError(f"Công thức không chạy được: {e}") from None
 
+    def _kiem_mot_cong_thuc_moi_dich(
+        self, ct: str, den_id: int, den, *, bo_qua_cap_id: int | None = None
+    ) -> None:
+        """MỖI ĐƠN VỊ CHỈ ĐƯỢC TÍNH RA BẰNG MỘT CÔNG THỨC (12/08/2026).
+
+        Luật sinh ra cho BOM. Vật tư khai ĐVT là kg thì lúc bung ở bước lệnh máy phải đổi số lượng
+        của bước sang kg — có hai công thức cùng ra kg thì không có cách nào chọn, và chọn bừa nghĩa
+        là số vật tư sai mà nhìn vẫn hợp lý.
+
+        CHỈ chặn theo đơn vị ĐÍCH. Một đơn vị vẫn được khai nhiều công thức ĐI RA
+        (`tờ → cái` · `tờ → kg` · `tờ → m²`) — ba đích là ba câu hỏi khác nhau, không tranh nhau.
+
+        Không đụng dữ liệu cũ: dòng đã lưu trước luật này vẫn nằm nguyên, `canh_bao` nhắc để người
+        dùng tự dọn. Chặn ở đây chỉ ngăn khai thêm cái thứ hai.
+        """
+        if not ct:
+            return
+        cu = self.repo.dong_ve(den_id, bo_qua_id=bo_qua_cap_id)
+        if cu is None:
+            return
+        raise DonViDoValidationError(
+            f"{den.ten} đã có công thức động: 1 {cu.tu_ten} = "
+            f"{cong_thuc_chu(cu.cong_thuc)} {den.ten}. "
+            f"Mỗi đơn vị chỉ tính ra bằng MỘT công thức — sửa dòng đó thay vì khai thêm."
+        )
+
     def _tach_the(self, data: dict, he_so_cu: float = 0.0) -> tuple[dict, float, str]:
         """Chuẩn hoá dữ liệu một dòng quy đổi: số HAY công thức, không phải cả hai.
 
@@ -178,6 +222,7 @@ class DonViDoService:
         tu, den = self.get(tu_id), self.get(den_id)
         if self.repo.find_cap(tu_id, den_id) is not None:
             raise DonViDoDuplicate(f"Đã có quy đổi {tu.ten} → {den.ten}.")
+        self._kiem_mot_cong_thuc_moi_dich(ct, den_id, den)
         if not ct:
             # Dòng ĐỘNG không so được với đường hằng lúc khai (chưa có giấy nào để thay biến) —
             # kiểm nó là lúc dùng, kèm diễn giải. Chỉ chặn được cái so được.
@@ -196,6 +241,7 @@ class DonViDoService:
             data = {**data, "cong_thuc": obj.cong_thuc}
         data, he_so, ct = self._tach_the(data, he_so_cu=float(obj.he_so or 0))
         tu, den = self.get(obj.tu_id), self.get(obj.den_id)
+        self._kiem_mot_cong_thuc_moi_dich(ct, obj.den_id, den, bo_qua_cap_id=obj.id)
         if not ct:
             # Bỏ qua CHÍNH cặp đang sửa khi dò đường, không thì nó tự mâu thuẫn với bản cũ của mình.
             self._kiem_mau_thuan(tu.ma, den.ma, he_so, bo_qua_cap_id=obj.id)
@@ -306,6 +352,16 @@ class DonViDoService:
         if not any(c.tu_ma == obj.ma or c.den_ma == obj.ma for c in rows):
             out.append(
                 f"Chưa khai quy đổi — {obj.ten} chưa đổi qua lại được với đơn vị nào."
+            )
+        # Dữ liệu khai TRƯỚC luật "một công thức mỗi đích" (12/08/2026) vẫn nằm nguyên — chặn chỉ áp
+        # cho lần khai mới. Nhắc ở đây để người dùng tự dọn: còn hai công thức cùng ra một đơn vị thì
+        # BOM bung vật tư sẽ vớ phải cái nào không ai đoán được.
+        nhieu = [c for c in rows if (c.cong_thuc or "").strip() and c.den_ma == obj.ma]
+        if len(nhieu) > 1:
+            out.append(
+                f"Có {len(nhieu)} công thức động cùng ra {obj.ten} "
+                f"({' · '.join(c.tu_ten for c in nhieu)}) — BOM sẽ không biết chọn cái nào. "
+                f"Giữ lại một."
             )
         out.extend(self._cap_de_cong_thuc(obj, rows))
         return out

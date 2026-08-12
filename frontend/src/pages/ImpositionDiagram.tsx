@@ -25,6 +25,12 @@ interface Props {
   soCon: number; // Số con hiện tại (có thể được đè tay)
   /** > 1 = SÁCH (gấp tay) → vẽ lưới TAY thay cho lưới con. Xem `luoiTay` bên dưới. */
   trangMoiTay?: number;
+  /** TÊN đơn vị cho câu "99 con/tờ" dưới hình. Component này dùng chung Tính giá ↔ Lệnh SX, mà tên
+   *  đơn vị do XƯỞNG khai trong danh mục (có thể là "cái/tờ" hay "SẢN PHẨM XONG/TỜ CHẠY MÁY") —
+   *  nên nơi gọi đã đọc được đơn vị của chuỗi thì truyền xuống, hình không tự đi tra danh mục.
+   *  Bỏ trống ⇒ chữ mặc định, để nơi gọi cũ không vỡ. */
+  dvCon?: string;
+  dvTo?: string;
 }
 
 /** Lưới của một TAY SÁCH — hỏi câu khác hẳn bình bài, nên không dùng chung đáp án được:
@@ -68,6 +74,7 @@ function luoiTay(
 export function ImpositionDiagram({
   khoInDai, khoInRong, daiTP, rongTP, chuaMm,
   chuaDai, chuaRong, chuaTho, bleedMm = 0, kheCatMm = 0, soCon, trangMoiTay = 1,
+  dvCon = "con", dvTo = "tờ",
 }: Props) {
   const { token } = useAuth();
   const [lay, setLay] = useState<BinhBaiOut | null>(null);
@@ -210,11 +217,11 @@ export function ImpositionDiagram({
           aria-label={
             laTay
               ? con > 0
-                ? `Sơ đồ tay sách: ${oMoiMat} trang mỗi mặt tờ in, lưới ${cols}×${rows}`
-                : `Khổ tờ in không xếp nổi ${oMoiMat} trang mỗi mặt`
+                ? `Sơ đồ tay sách: ${oMoiMat} trang mỗi mặt ${dvTo}, lưới ${cols}×${rows}`
+                : `Khổ ${dvTo} không xếp nổi ${oMoiMat} trang mỗi mặt`
               : con > 0
-                ? `Sơ đồ bình bài: ${soCon} con mỗi tờ in (tổng ${con})`
-                : "Khổ thành phẩm lớn hơn khổ tờ in — không vừa"
+                ? `Sơ đồ bình bài: ${soCon} ${dvCon} mỗi ${dvTo} (tổng ${con})`
+                : `Khổ thành phẩm lớn hơn khổ ${dvTo} — không vừa`
           }
         >
           {/* Tờ in */}
@@ -302,13 +309,13 @@ export function ImpositionDiagram({
             </>
           ) : (
             <span className="tg-imp__warn">
-              Khổ tờ in không xếp nổi {oMoiMat} trang mỗi mặt.
+              Khổ {dvTo} không xếp nổi {oMoiMat} trang mỗi mặt.
             </span>
           )
         ) : con > 0 ? (
           <>
             <span className="tg-imp__con">{soCon}</span>
-            <span className="tg-imp__con-unit">con/tờ</span>
+            <span className="tg-imp__con-unit">{dvCon}/{dvTo}</span>
             {/* Đè số con LỚN HƠN sức chứa lưới → giá vốn thiếu tờ. Chỉ NHẮC, không tự sửa. */}
             {soCon > con ? (
               <span className="tg-imp__over">đè vượt bình bài · engine xếp được {con}</span>
@@ -326,7 +333,7 @@ export function ImpositionDiagram({
             </span>
           </>
         ) : lay ? (
-          <span className="tg-imp__warn">Khổ thành phẩm lớn hơn khổ tờ in — không vừa.</span>
+          <span className="tg-imp__warn">Khổ thành phẩm lớn hơn khổ {dvTo} — không vừa.</span>
         ) : (
           <span className="tg-imp__loading">{pending ? "Đang tính bình bài…" : "—"}</span>
         )}
@@ -337,7 +344,7 @@ export function ImpositionDiagram({
         <div className="tg-imp__params">
           {bleed > 0 && (
             <span className="tg-imp__param">
-              bleed <b>{bleed}</b> · con {cellW}×{cellH}
+              bleed <b>{bleed}</b> · {dvCon} {cellW}×{cellH}
             </span>
           )}
           {khe > 0 && (

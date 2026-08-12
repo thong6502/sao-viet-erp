@@ -87,9 +87,19 @@ _CONG_DOAN_MOI: list[tuple] = [
 # rồi `to → cai`, tức nhảy cóc qua mức TAY: gấp xong vẫn gọi là tờ in, tới vào keo mới đổi thẳng
 # tờ → cuốn. Số giấy vẫn đúng (cầu tắt `to → cai` gánh cả 1/so_tay) nhưng bù hao của bước gấp và
 # bước bắt tay bị tra bậc ở SAI ĐƠN VỊ, và người đọc lệnh không thấy tay ở đâu ra.
+#
+# 🔴 MỞ RỘNG 12/08/2026 cho CẢ BẢY công đoạn file này tạo. Trước đó chỉ khai hai bước sách, năm
+# bước còn lại nhận đơn vị từ MIGRATION — mà trên DB TRẮNG migration chạy TRƯỚC seed nên không có
+# dòng nào để gán: công đoạn ra đời với đơn vị rỗng ⇒ rơi khỏi dòng giấy ⇒ **mọi lệnh 0 tờ, im
+# lặng**. Lỗi chỉ lộ khi dựng DB từ đầu nên nằm im rất lâu.
 _DON_VI_KHAU_SACH: dict[str, tuple[str, str]] = {
     "CD-0007": ("to", "tay"),    # gấp tay: 1 tờ in gấp nguyên thành 1 tay (hệ số 1)
     "CD-0008": ("tay", "cai"),   # bắt tay + vào keo: gom `so_tay` tay → 1 cuốn
+    "CD-0009": ("cai", "cai"),   # xén 3 mặt: đếm cuốn thành phẩm, không đổi mức
+    "CD-0010": ("to", "to"),     # cán màng mờ: chạy tờ, ra tờ
+    "CD-0011": ("to", "cai"),    # bế thành phẩm: 1 tờ ra `so_tp` con → thành phẩm
+    "CD-0012": ("cai", "cai"),   # đóng gói: đếm thành phẩm
+    "CD-0013": ("to", "to"),     # ghép màng metalize: chạy tờ, ra tờ
 }
 
 # --- Bảng CÔNG KHOÁN của tổ (số hoá đúng tờ Excel xưởng đang dùng) ------------------------------
@@ -97,6 +107,10 @@ _DON_VI_KHAU_SACH: dict[str, tuple[str, str]] = {
 # Đơn giá chỉ treo vào TỔ. Danh sách công đoạn ở đây KHÔNG được lưu vào bảng: nó chỉ dùng để tìm
 # `department_id` đúng của tổ, vì tên tổ trong Excel và tên phòng ban trong hệ có thể lệch nhau.
 _DON_GIA_KHOAN: list[tuple] = [
+    # Bước IN là bước chính của mọi lệnh — thiếu đơn giá khoán ở đây thì màn bước hiện "chưa có
+    # bảng khoán" và tiền công của cả lệnh hụt mất phần lớn nhất. Thêm 12/08/2026 (trước đó dev
+    # phải gõ tay `KH-0001`, làm sạch DB một cái là mất).
+    ("Tổ In offset", "IN-01K", "In 2 màu", ["CD-0002"], "tờ", 600, None),
     ("Tổ Cán màng", "CP-01", "Cán bóng · cán mờ · phủ UV nước · UV mờ",
      ["CD-0003", "CD-0010"], "m²", 150,
      "Làm theo nhóm; tổ trưởng lấy 5%/tổng doanh thu, phần còn lại nhóm tự chia và báo kế toán."),
@@ -208,20 +222,43 @@ def _ensure_don_gia_khoan(db: Session) -> None:
 
 
 def _ensure_dinh_muc_to(db: Session) -> None:
-    """Mồi định mức cho demo từ chính đầu việc của tổ; không ghép đầu việc khác tổ."""
+    """Gắn đầu việc vào công đoạn theo ĐÚNG bản đồ khai ở `_DON_GIA_KHOAN`.
+
+    🔴 SỬA 12/08/2026. Bản cũ gắn MỌI đầu việc của tổ vào MỌI công đoạn của tổ đó — bỏ qua chính
+    cột `[CD-…]` đã khai ngay trên đầu file. Hậu quả trên DB dev: 25 dòng nối thay vì 10, và những
+    cặp vô nghĩa như công đoạn *Bồi sóng* mang đầu việc *Gấp tay sách máy* · *Bắt tay + vào keo*.
+
+    Sai này không chỉ xấu mắt: từ khi đầu việc mang theo VẬT TƯ (BOM, mg 0191), gắn nhầm đầu việc là
+    bung nhầm vật tư xuống lệnh. Bản đồ phải là nguồn sự thật duy nhất.
+
+    Vẫn idempotent: công đoạn đã có định mức thì không đụng — người dùng khai tay không bị đè.
+    """
     from .models.piece_work import PieceRate
-    rates = list(db.execute(select(PieceRate).where(PieceRate.is_active.is_(True))).scalars())
-    by_dept: dict[int, list[PieceRate]] = {}
-    for r in rates:
-        if r.department_id:
-            by_dept.setdefault(r.department_id, []).append(r)
-    for cd in db.execute(select(CongDoan)).scalars():
-        if cd.dau_viec_dinh_muc or not cd.department_id:
+
+    rate_theo_ma = {
+        r.code: r for r in db.execute(
+            select(PieceRate).where(PieceRate.is_active.is_(True))
+        ).scalars() if r.code
+    }
+    cd_rows = {c.ma: c for c in db.execute(select(CongDoan)).scalars()}
+    # Lật bản đồ: công đoạn → các đầu việc THẬT SỰ làm ở đó.
+    theo_cd: dict[str, list[str]] = {}
+    for _to, ma_rate, _ten, cds, *_ in _DON_GIA_KHOAN:
+        for cd_ma in cds:
+            theo_cd.setdefault(cd_ma, []).append(ma_rate)
+    for cd_ma, ma_rates in theo_cd.items():
+        cd = cd_rows.get(cd_ma)
+        if cd is None or cd.dau_viec_dinh_muc:
             continue
-        for i, rate in enumerate(by_dept.get(cd.department_id, [])):
+        for ma_rate in ma_rates:
+            rate = rate_theo_ma.get(ma_rate)
+            # Đầu việc phải thuộc ĐÚNG tổ của công đoạn — service kiểm luật này, seed cũng phải
+            # theo, không thì dữ liệu mồi vào rồi sửa ở form là bị chặn không lưu lại được.
+            if rate is None or rate.department_id != cd.department_id:
+                continue
             cd.dau_viec_dinh_muc.append(CongDoanDauViec(
                 piece_rate_id=rate.id, nang_suat_nguoi_gio=float(cd.nang_suat or 500),
-                so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3, is_default=i == 0,
+                so_nguoi_tieu_chuan=1, so_nguoi_toi_da=3,
             ))
     db.commit()
 
@@ -292,16 +329,22 @@ def _tao_phieu_tinh_gia(db: Session, *, cd: dict[str, int], sale_id: int | None,
     ruot = PhieuThanhPhan(
         thu_tu=0, loai_thanh_phan="ruot", ten="Ruột sách 160 trang",
         dai_thanh_pham=205, rong_thanh_pham=145,
-        so_to_per_sp=5,              # 160 trang ÷ 32 trang/tay = 5 bài in, mỗi bài 1 bộ kẽm
+        # 🔴 HAI SỐ NÀY LÀ THỨ QUYẾT ĐỊNH cả giấy lẫn công in của sách — thiếu là engine tính cuốn
+        # 160 trang y như một tờ rời. `so_tay = ceil(so_trang / trang_moi_tay)` = 160/32 = 5, và
+        # với sách thì 1 tờ in = 1 TAY (xem `thanh_phan_engine.cau_to_sang_cai`) ⇒ 1.000 cuốn cần
+        # 5.000 tờ in, không phải 1.000. Bản seed đầu bỏ trống hai ô này (cột thêm sau) nên giá vốn
+        # ruột hụt đúng 5 lần.
+        so_trang=160, trang_moi_tay=32,
         so_luong=SL_SACH, don_vi_tinh="cuốn", nhom_bao_gia=NHOM_SACH,
         loai_san_pham_id=lsp_sach_id,
         giay_id=(ford70.id if ford70 else None), kho_nguyen="650×860",
         kho_nguyen_dai=860, kho_nguyen_rong=650, nguon_giay="cong_ty",
         # Chừa tờ in KHÔNG khai ở phiếu nữa — engine lấy theo danh mục Máy (nhíp/lề hông/đuôi).
         co_in=True, quy_cach_in="hai_mat", kho_in_dai=860, kho_in_rong=650,
-        # 1 TAY/tờ — KHÔNG để engine nhồi tối đa con/tờ như tờ rời: 16 con/mặt của 1 tờ là 32
-        # TRANG của cùng một cuốn, không phải 16 cuốn.
-        so_con=1, con_auto=False,
+        # 16 con/mặt trên tờ 65×86 (A5 145×205: 4 ngang × 4 dọc) = 32 trang/tay. Với sách, `so_con`
+        # KHÔNG vào công thức giấy (tờ gấp nguyên vẹn thành tay) — nó để vẽ sơ đồ bình bài và kiểm
+        # khổ có vừa tờ, nên phải là số THẬT chứ đừng để 1.
+        so_con=16, con_auto=False,
         may_id=may_2mau, so_mau_a=1, so_mau_b=1,
         ghi_chu_ky_thuat="Bình tay 32 trang (16 con/mặt) trên tờ 65×86 → 5 tay/cuốn. "
                          "In đen 1+1 màu máy 2 màu. Gấp máy, bắt tay, keo gáy vuông.",

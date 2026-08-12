@@ -37,7 +37,12 @@ _DON_VI_SEED: list[tuple[str, str, str, str]] = [
     ("g", "g", "khoi_luong", ""),
     ("m", "mét", "do_dai", ""),
     ("mm", "mm", "do_dai", ""),
+    # Bốn mã dưới đây là TRẠM trên dòng giấy (cùng `con` và `cai` bên dưới) — cờ `tram_dong_giay`
+    # suy từ mã, xem `seed_don_vi_do`. Thiếu `to_nguyen`/`tay` thì công đoạn Xả giấy / Gấp không
+    # chọn được đơn vị của chính mình (trước 11/08/2026 hai mã này chỉ sống trong hằng số của code).
+    ("to_nguyen", "tờ nguyên", "to", "Tờ giấy khổ mua về, CHƯA xả ra tờ in."),
     ("to", "tờ", "to", "Tờ giấy chạy qua máy in."),
+    ("tay", "tay sách", "to", "Tờ in đã gấp lại thành một tay, mang nhiều trang."),
     ("ram", "ram", "to", "Cách nhà cung cấp đóng gói giấy: 1 ram = 500 tờ."),
     # Loại THÀNH PHẨM — mọi cách đếm "một sản phẩm xong": bước lệnh gọi `cai`, bảng khoán của tổ gọi
     # "cuốn" (sách) / "hộp" (gỡ hàng) / "con" (tem). Chúng đếm như nhau nên có cặp quy đổi 1-1 bên
@@ -72,9 +77,12 @@ _QUY_DOI_SEED: list[tuple[str, str, float, str]] = [
     # Ba dòng này trước nằm CỨNG trong code (`quy_doi_service.CAU`) nên xưởng không sửa được.
     # Biến do nơi gọi bơm: `dai`/`rong` là khổ của TỜ ĐANG ĐẾM (m), `dinh_luong` kg/m².
     # tờ → cm² KHÔNG cần dòng riêng: đi tiếp bằng cặp m² → cm² đã khai ở trên.
-    ("to", "m2", 0, "dai * rong"),
-    ("to", "kg", 0, "dinh_luong * dai * rong"),
-    ("to", "cai", 0, "so_con"),
+    ("to", "m2", 0, "dai_in * rong_in"),
+    ("to", "kg", 0, "dinh_luong * dai_in * rong_in"),
+    ("to", "cai", 0, "so_tp"),
+    # Tờ NGUYÊN cân theo khổ nguyên — khổ khác tờ in nên phải là dòng riêng. Trước 11/08/2026 không
+    # khai được: biến `dai`/`rong` là "khổ của tờ đang đếm", một dòng phải gánh cả hai ca.
+    ("to_nguyen", "kg", 0, "dinh_luong * dai_nguyen * rong_nguyen"),
 ]
 
 
@@ -90,10 +98,15 @@ def seed_don_vi_do(db: Session) -> None:
     """
     from .db_migrations import DON_VI_TOC_DO_MAC_DINH   # một nguồn duy nhất, đừng chép danh sách
 
+    from .models.don_vi_do import TRAM_DONG_GIAY   # 5 trạm dòng giấy, mã trùng tên trạm
+
     co = {d.ma for d in db.execute(select(DonViDo)).scalars()}
     moi = [
         DonViDo(ma=ma, ten=ten, ho=ho, ghi_chu=gc or None,
-                dung_lam_toc_do=ma in DON_VI_TOC_DO_MAC_DINH)
+                dung_lam_toc_do=ma in DON_VI_TOC_DO_MAC_DINH,
+                # Cờ TRẠM suy từ mã (5 mã dòng giấy trùng đúng tên trạm) — đừng chép tay danh sách
+                # thứ hai ở đây. DB đang chạy nhận cờ này qua migration 0186.
+                tram_dong_giay=ma if ma in TRAM_DONG_GIAY else None)
         for ma, ten, ho, gc in _DON_VI_SEED if ma not in co
     ]
     if moi:
@@ -302,33 +315,40 @@ def seed_rebuild_catalog(db: Session) -> None:
 
     if _empty(db, VatTuInAn):
         db.add_all([
-            # ⚠️ CÔNG THỨC NÀY SAI THANG 10⁶ — biết và CỐ Ý để nguyên (chủ chốt 2026-08-09).
-            # Hệ số 0,0003 viết cho diện tích tính bằng MÉT ("0,3 g mực / m² / màu"), nhưng
-            # `dai_in`/`rong_in` engine đưa vào là MILIMÉT ⇒ diện tích to gấp 1.000.000 lần.
-            #   1.000 tờ 650×900, in 4 màu → ra 702.000 kg mực = 175,5 TỶ đồng.
-            #   Đúng ra:                     0,702 kg          = 175.500 đồng.
-            # Không sửa vì xưởng tính giá KHOÁN THEO CÔNG ĐOẠN, không thêm dòng vật tư rời — công
-            # thức này hiện không chảy vào phiếu nào. Ai thêm một dòng mực vào phiếu tính giá thì
-            # PHẢI sửa hệ số (÷ 1.000.000) trước, không thì ra báo giá 175 tỷ.
+            # Hệ số 0,0003 = ĐỊNH MỨC MỰC: 0,3 g trên mỗi m², mỗi màu. `dai_in`/`rong_in` engine
+            # bơm vào đã là MÉT (chia 1.000 trước khi bơm), nên công thức CHẠY ĐÚNG:
+            #   1.000 tờ 650×900, in 4 màu → 585 m² → 0,702 kg mực = 175.500 đ (≈1,2 g/m² cho 4 màu).
+            #
+            # (Chú thích cũ ở đây cảnh báo "SAI THANG 10⁶ · ra 175 tỷ" — ĐÃ GỠ 11/08/2026 vì SAI:
+            # nó tưởng biến truyền vào là milimét. Ai tin mà đi chia 10⁶ mới thật sự làm hỏng số.)
+            #
+            # Còn lại: 0,3 g/m²/màu là SỐ MỒI của bộ cài, không phải định mức đo được của xưởng.
+            # Trước khi số này chảy vào đơn MUA HÀNG thật thì phải thay bằng số thật (cân mực tiêu
+            # thụ một tháng ÷ tổng m² đã in) — hiện nó chưa vào phiếu nào vì xưởng tính giá KHOÁN
+            # theo công đoạn, không thêm dòng vật tư rời.
             VatTuInAn(ma="MUC-CMYK", ten="Mực process CMYK", don_vi_gia="kg", don_gia=250000,
-                      cong_thuc_gia="so_mau * dai_in * rong_in * don_gia_kg * to_dau_vao * 0.0003"),
+                      cong_thuc_gia="so_mau * dai_in * rong_in * don_gia_vat_tu * to_dau_vao * 0.0003"),
             VatTuInAn(ma="MUC-PANTONE", ten="Mực pha Pantone", don_vi_gia="kg", don_gia=15000),
             # `kem` chứ không phải `ban`: đơn vị PHẢI là mã có thật trong `don_vi_do` (xem
             # `_DON_VI_SEED`) — mã lạ thì mọi quy đổi của món đó tắt lặng lẽ.
             VatTuInAn(ma="KEM-74", ten="Bản kẽm khổ 74", don_vi_gia="kem", don_gia=100000),
             VatTuInAn(ma="KEM-102", ten="Bản kẽm khổ 102", don_vi_gia="kem", don_gia=180000),
             VatTuInAn(ma="KEM-52", ten="Bản kẽm khổ 52", don_vi_gia="kem", don_gia=70000),
-            # ⚠️ SAI THANG 10⁶ y như MUC-CMYK ở trên — `dai_in`/`rong_in` là MILIMÉT, mà đơn giá
-            # khai đ/m². 1.000 tờ 650×900 → 585.000.000 m² = 1.755 TỶ đồng; đúng ra 585 m² =
-            # 1.755.000 đồng. Cố ý để nguyên, cùng lý do: xưởng khoán theo công đoạn.
+            # Đơn giá khai đ/m², công thức nhân thẳng diện tích × số tờ nên ra đúng m² tiêu thụ:
+            # 1.000 tờ 650×900 → 585 m² = 1.755.000 đ. (Chú thích cũ ở đây nói "SAI THANG 10⁶ ·
+            # 1.755 TỶ" — GỠ 11/08/2026 vì SAI: engine bơm khổ đã quy về MÉT.)
             VatTuInAn(ma="MANG-BONG", ten="Màng cán bóng", don_vi_gia="m2", don_gia=3000,
-                      cong_thuc_gia="dai_in * rong_in * don_gia_m2 * to_sau_in"),
+                      cong_thuc_gia="dai_in * rong_in * don_gia_vat_tu * to_sau_in"),
             VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45000),
         ])
         db.commit()
 
     # --- Công đoạn: seed ÍT (6 mẫu) đủ minh hoạ 3 kiểu bù hao (khong/tra_bang/cố định) ---
     if _empty(db, CongDoan):
+        # ĐƠN VỊ VÀO/RA phải khai NGAY Ở ĐÂY (sửa 12/08/2026). Trước nay chúng do MIGRATION gán, mà
+        # trên DB TRẮNG migration chạy TRƯỚC seed nên không có dòng nào để gán → 11/13 công đoạn ra
+        # đời với đơn vị rỗng ⇒ mọi bước rơi khỏi dòng giấy ⇒ **mọi lệnh 0 tờ, im lặng**.
+        # Chỉ lộ khi dựng DB từ đầu, nên nằm im suốt — vỡ ra lúc làm sạch DB dev.
         db.add_all([
             # Giá CHỈ theo CÔNG THỨC (đơn giá nhét sẵn trong công thức, nhân biến số lượng tương ứng).
             # pricing_basis=per_other để hợp validate; run_rate giữ làm tham chiếu (engine ưu tiên công thức).
@@ -341,24 +361,29 @@ def seed_rebuild_catalog(db: Session) -> None:
             CongDoan(ma="CD-0002", ten="In offset", nhom="print", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=350, kieu_bu_hao="tra_bang",  # → BH nối bên dưới
                      nhom_may_cho_phep=["Máy in", "In ngoài"],
+                     don_vi_vao="to", don_vi_ra="to",
                      cong_thuc_gia="to_dau_vao * so_mat * 350"),
             CongDoan(ma="CD-0003", ten="Cán màng bóng", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=2.2, min_charge=110000,
                      kieu_bu_hao="co_dinh", so_to_bu_hao=50, nhom_may_cho_phep=["Cán màng / UV"],
+                     don_vi_vao="to", don_vi_ra="to",
                      cong_thuc_gia="max(dai_in * rong_in * 10000 * so_mat * to_dau_vao * 2.2, 110000)"),
             CongDoan(ma="CD-0004", ten="Bồi sóng", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=200, kieu_bu_hao="tra_bang",  # → BH nối bên dưới
                      nhom_may_cho_phep=["Bồi"],
+                     don_vi_vao="to", don_vi_ra="to",
                      cong_thuc_gia="to_dau_vao * 200"),
             CongDoan(ma="CD-0005", ten="Ép kim", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=400, requires_tooling=True,
                      tooling_type="khuon_ep", kieu_bu_hao="co_dinh", so_to_bu_hao=50,
                      nhom_may_cho_phep=["Bế"],
-                     cong_thuc_gia="so_vi_tri * so_luong * 400"),
+                     don_vi_vao="to", don_vi_ra="to",
+                     cong_thuc_gia="so_luong * 400"),
             CongDoan(ma="CD-0006", ten="Bế nổi", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=20, requires_tooling=True,
                      tooling_type="khuon_be", kieu_bu_hao="co_dinh", so_to_bu_hao=30,
                      nhom_may_cho_phep=["Bế"],
+                     don_vi_vao="to", don_vi_ra="cai",
                      cong_thuc_gia="so_luong * 20"),
         ])
         db.commit()

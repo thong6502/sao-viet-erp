@@ -68,6 +68,7 @@ export function LsxBuocDrawer({
   vatTuRefs,
   phuThuocRefs,
   baiGhep,
+  dvChuoi,
   canUpdate,
   onPatch,
   onPatchLsx,
@@ -93,6 +94,9 @@ export function LsxBuocDrawer({
   phuThuocRefs: import("../api/client").LsxPhuThuocOption[];
   /** Lệnh đang ghép chung tờ — bước in của nó do BÀI điều phối, khoá máy ở đây. */
   baiGhep: import("../api/client").LsxBaiGhep | null;
+  /** Đơn vị bốn chặng của cả chuỗi (bảng routing suy ra bằng `donViChuoi`). Drawer chỉ thấy MỘT
+   *  bước nên không tự suy được chặng thành phẩm — mà câu "số con sửa tại bài" cần đúng chặng đó. */
+  dvChuoi: import("./lsxBuoc").DonViChuoi;
   canUpdate: boolean;
   onPatch: (p: Partial<EditRow>) => void;
   /** Sửa thẳng CẤP LỆNH — chỉ bước CUỐI dùng: SL thành phẩm cần giao (`so_luong_dat`) và hao
@@ -259,9 +263,30 @@ export function LsxBuocDrawer({
     };
   }
 
+  /** Vật tư của đầu việc → khối "Vật tư cần dùng" (nền BOM, mg 0191).
+   *
+   *  GIỮ NGUYÊN dòng người: `tu_dong === false` là người tự thêm hoặc đã sửa số — máy chừa ra.
+   *  Chỉ dòng máy bung lần trước mới bị thay bộ mới. Không thế thì đổi công việc khoán một cái là
+   *  mất sạch số người kế hoạch vừa gõ.
+   *
+   *  Lọc trùng theo `vat_tu_id` vì DB có UNIQUE (bước, vật tư) — người đã tự thêm mực rồi thì máy
+   *  không chèn thêm một dòng mực nữa, tôn trọng số họ khai.
+   */
+  function bungVatTu(chon: (typeof dsKhoan)[number] | undefined): Partial<EditRow> {
+    const giu = row.vat_tus.filter((v) => !v.tu_dong);
+    const moi = (chon?.vat_tus ?? [])
+      .filter((v) => !giu.some((g) => g.vat_tu_id === v.vat_tu_id))
+      .map((v) => ({
+        vat_tu_id: v.vat_tu_id, vat_tu_ma: v.ma, vat_tu_ten: v.ten,
+        don_vi: v.don_vi, so_luong: String(v.so_luong), tu_dong: true,
+      }));
+    return { vat_tus: [...giu, ...moi] };
+  }
+
   function chonDauViec(rawId: string) {
     const id = rawId ? Number(rawId) : null;
-    onPatch({ khoan_rate_id: id, ...tuDinhMuc(dsKhoan.find((x) => x.id === id)) });
+    const chon = dsKhoan.find((x) => x.id === id);
+    onPatch({ khoan_rate_id: id, ...tuDinhMuc(chon), ...bungVatTu(chon) });
   }
 
   /** Đổi loại bước. Sang TỔ: gỡ máy (bước tay không chiếm máy) và kéo định mức của đầu việc
@@ -275,7 +300,7 @@ export function LsxBuocDrawer({
     onPatch({
       loai_buoc: k,
       may_id: null,
-      ...(chon ? { khoan_rate_id: chon.id, ...tuDinhMuc(chon) } : {}),
+      ...(chon ? { khoan_rate_id: chon.id, ...tuDinhMuc(chon), ...bungVatTu(chon) } : {}),
     });
   }
 
@@ -516,6 +541,17 @@ export function LsxBuocDrawer({
 
           {/* --- 2. Số lượng --- */}
           <Nhom id="sec-so-luong" title="Số lượng & hao hụt">
+            {/* Bước NGOÀI dòng giấy (ghi kẽm `bài → bản kẽm`, trộn keo `cái → mẻ`…) đứng ngoài
+                chuỗi bù hao: số lượng không tự tính ngược và hao của nó không cộng vào số giấy
+                phải mua. Nói NGAY TẠI ĐÂY, cạnh đúng hai con số đang đứng im — trước 11/08/2026
+                lời giải thích chỉ nằm trong tooltip chip "N lưu ý" tít trên thanh tiêu đề. */}
+            {row.tren_dong_giay === false && (
+              <p className="khsx-note khsx-note--info">
+                Bước này <strong>không nằm trên dòng giấy</strong> (đếm bằng{" "}
+                {dvNhan(row.don_vi_vao)}) nên số lượng không tự tính ngược từ bước cuối, và bù hao
+                của nó không cộng vào số giấy phải mua. Nhập tay số lượng nếu cần theo dõi.
+              </p>
+            )}
             <div className="khsx-metric-cards-container">
               {/* Card Vào */}
               <div className="khsx-mcard">
@@ -659,13 +695,21 @@ export function LsxBuocDrawer({
                       </span>
                       {/* CẢ HAI số: lượt chung chạy bao nhiêu, và phần của riêng lệnh này là bao
                           nhiêu. Chỉ hiện một số là người đọc không biết mình đang nhìn cái nào. */}
+                      {/* Đơn vị lấy từ CHÍNH bước này: lượt chung của bài và phần của lệnh chạy
+                          cùng một thứ tờ, nên `row.don_vi_vao` đúng cho cả hai số (`buoc_bi_de`
+                          không gửi đơn vị riêng). Ghi cứng "tờ" ở đây là dán nhãn sai lên số thật
+                          khi xưởng khai đơn vị tên khác. */}
                       <span className="khsx-field__hint">
                         Bước "{deLen.ten}" chạy chung ở bài <strong>{buocGhep.ma}</strong> —
-                        bài cấp {deLen.so_luong_vao.toLocaleString("vi-VN")} tờ
+                        bài cấp {deLen.so_luong_vao.toLocaleString("vi-VN")}{" "}
+                        {dvNhanChung(row.don_vi_vao)}
                         {n(row.so_luong_vao) > 0 && (
-                          <> · phần lệnh này {n(row.so_luong_vao).toLocaleString("vi-VN")} tờ</>
+                          <>
+                            {" "}· phần lệnh này {n(row.so_luong_vao).toLocaleString("vi-VN")}{" "}
+                            {dvNhanChung(row.don_vi_vao)}
+                          </>
                         )}
-                        . Đổi máy, giấy, khổ tờ in và số con tại bài.
+                        . Đổi máy, giấy, khổ {dvChuoi.to} và số {dvChuoi.tp} tại bài.
                       </span>
                     </>
                   ) : mayRefs ? (
@@ -1128,7 +1172,13 @@ export function LsxBuocDrawer({
           <Nhom id="sec-vat-tu" title="Vật tư cần dùng">
             <div className="khsx-vattu-section">
               <p className="khsx-nhom__sub">Nhu cầu vật tư riêng biệt của công đoạn này.</p>
-              
+
+              {/* Vật tư khai ở đầu việc nhưng KHÔNG quy đổi được sang đơn vị của nó — máy không
+                  đoán, chỉ nói thiếu gì. Không có dòng này thì vật tư "biến mất" mà không ai hiểu. */}
+              {(dsKhoan.find((x) => x.id === row.khoan_rate_id)?.canh_bao_vat_tu ?? []).map((c) => (
+                <p className="khsx-vattu-warn" key={c}>⚠ {c}</p>
+              ))}
+
               {row.vat_tus.length > 0 && (
                 <div className="khsx-vattu-table-head">
                   <span>VẬT TƯ & QUY CÁCH</span>
@@ -1142,6 +1192,12 @@ export function LsxBuocDrawer({
                     <div className="khsx-vattu-card__info">
                       <span className="khsx-vattu-card__code">{v.vat_tu_ma}</span>
                       <span className="khsx-vattu-card__name">{v.vat_tu_ten}</span>
+                      {/* Cho biết số này ở đâu ra: máy tính từ quy cách, hay người đã gõ đè. Không
+                          có dấu này thì đổi công việc khoán xong người ta không biết dòng nào vừa
+                          bị thay, dòng nào còn giữ. */}
+                      <span className={`khsx-vattu-card__src ${v.tu_dong ? "is-auto" : ""}`}>
+                        {v.tu_dong ? "tự tính" : "đã sửa"}
+                      </span>
                     </div>
 
                     <div className="khsx-vattu-card__actions">
@@ -1154,11 +1210,12 @@ export function LsxBuocDrawer({
                           value={v.so_luong}
                           placeholder="0"
                           disabled={!canUpdate}
+                          // Gõ đè ⇒ dòng thành CỦA NGƯỜI: lần bung sau máy chừa ra, không ghi đè.
                           onChange={(e) =>
                             set(
                               "vat_tus",
                               row.vat_tus.map((x, j) =>
-                                j === i ? { ...x, so_luong: e.target.value } : x,
+                                j === i ? { ...x, so_luong: e.target.value, tu_dong: false } : x,
                               ),
                             )
                           }
@@ -1204,6 +1261,7 @@ export function LsxBuocDrawer({
                               vat_tu_ten: item.ten,
                               don_vi: item.donVi ?? "",
                               so_luong: "",
+                              tu_dong: false,   // người tự thêm ⇒ máy không đụng tới
                             },
                           ]);
                         }

@@ -8,7 +8,7 @@ import { ClockIcon, DON_VI_TOC_DO, isMayIn, tongChuanBi } from "./RebuildCatalog
 import { QuyDoiCuaDonVi } from "./QuyDoiCuaDonVi";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ApiError, authed } from "../api/client";
-import { crud, type Row } from "../api/rebuildCatalog";
+import { crud, trangThaiMay, type Row, type TrangThaiMay } from "../api/rebuildCatalog";
 
 // ── Bảng nhãn thuần Việt (in ấn) — 1 nguồn cho options + column render ──────────
 type Lbls = Record<string, string>;
@@ -26,30 +26,32 @@ const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia c�
 // (`khuon_be` · `khuon_ep` · `kem`), service chặn giá trị ngoài danh sách.
 const TOOLING_TYPE: Lbls = { khuon_be: "Khuôn bế", khuon_ep: "Khuôn ép nhũ / dập nổi", kem: "Bản kẽm" };
 
-// Đơn vị đếm của công đoạn. Dòng giấy chảy MỘT CHIỀU qua ba đơn vị, đổi ở hai chỗ:
-//   tờ nguyên ──(xả)──▶ tờ in ──(bế/xén)──▶ tờ thành phẩm
-// Hệ số quy đổi KHÔNG khai ở đây — phiếu tính giá đã có con/tờ và số mảnh xả.
-// Ba mức của DÒNG GIẤY — hết. Bước không chạm giấy (chế bản) thì để TRỐNG ô đơn vị, chứ không
-// đẻ thêm lựa chọn cho nó: trống = "không nằm trên dòng giấy", engine bỏ qua khi tính bù hao.
-// Danh sách CỐ ĐỊNH (chủ chốt 04/08/2026) — ô chọn, không thêm/sửa/xoá.
+// NHÃN đọc cho mã đơn vị hay gặp ở công đoạn — KHÔNG còn là danh sách chọn (11/08/2026).
 //
-// BỐN mã đầu nằm trên DÒNG GIẤY và có cầu quy đổi thật:
-//     tờ nguyên ──(số mảnh xả)──▶ tờ in ──(con/tờ)──▶ con ──(1/số tay)──▶ thành phẩm
-// `con` KHÁC `thành phẩm`: sách gấp tay thì nhiều tờ mới gom thành MỘT cuốn, còn con chỉ là số
-// mảnh cắt ra từ một tờ. Hệ số hai cầu này SUY ra ở `_he_so_cau`, không khai tay.
+// Ô đơn vị vào/ra nay là picker vào danh mục Đơn vị & quy đổi (`F_DON_VI`): xưởng khai đơn vị nào
+// thì công đoạn chọn được đơn vị đó, khỏi sửa code. Trước đây đây là 5 mã CỨNG phải khớp
+// `cong_doan.DON_VI_DONG_GIAY` bên backend — chính nó bắt bước ghi kẽm phải bỏ trống ô đơn vị.
 //
-// 🔴 Các mã còn lại (bản · mẫu · tấn · mẻ · m² · nhịp · hộp) KHÔNG có cầu quy đổi. Bước khai
-// chúng vẫn lưu được, nhưng engine bù hao lấy hệ số 1 kèm warning — tức "1 tấn = 1 tờ" khi tính
-// ngược số tờ cấp. Chỉ dùng cho bước KHÔNG nằm trên dòng giấy.
-// CHỈ các mức trên DÒNG GIẤY — phải khớp `cong_doan.DON_VI_DONG_GIAY` ở backend, vì service
-// chặn mọi đơn vị ngoài danh sách đó (`[E-CD-DONVI]`). Bỏ 2026-08-05: `Bản · Mẫu · Tấn · Mẻ ·
-// m² · Nhịp · Hộp` — chúng chưa bao giờ lưu được (backend đã chặn từ trước) nên chỉ là bẫy cho
-// người khai. Thêm đơn vị mới thì phải mở ở CẢ HAI nơi, đừng chỉ thêm nhãn ở đây.
-//   tờ nguyên --(xả)--> tờ in --(gấp)--> tay sách --(bắt tay/vào keo)--> thành phẩm (ĐÍCH CUỐI)
-const DON_VI_CD: Lbls = {
-  to_nguyen: "Tờ nguyên (giấy to)",
+// Năm mã đầu là TRẠM trên dòng giấy (backend đánh cờ `don_vi_do.tram_dong_giay`), chảy một chiều:
+//   tờ nguyên ──(số mảnh xả)──▶ tờ in ──(con/tờ)──▶ con ──▶ thành phẩm
+//                                     └─(gấp)────▶ tay sách ──(bắt tay/vào keo)──▶ thành phẩm
+// `con` KHÁC `thành phẩm`: sách gấp tay thì nhiều tờ mới gom thành MỘT cuốn. Hệ số các cầu này
+// SUY ở `_he_so_cau` từ quy cách lệnh, không khai tay.
+//
+// 🔴 BẢNG NHÃN `DON_VI_CD` ĐÃ GỠ 12/08/2026. Nó khai cứng `to` = "Tờ in", `cai` = "Thành phẩm",
+// trong khi danh mục Đơn vị ghi "tờ" và "cái" — nên CÙNG MỘT GIÁ TRỊ hiện HAI TÊN ở hai chỗ trên
+// cùng một màn: danh sách ghi "Tờ in → Thành phẩm", mở drawer ra lại là "tờ → cái".
+//
+// Nay server trả `don_vi_vao_ten`/`don_vi_ra_ten` đọc thẳng từ danh mục (`gan_ten_don_vi`). Đơn vị
+// là danh mục ĐỘNG — xưởng đổi tên là bảng đổi theo, không phải đi sửa hằng trong code.
+
+// 5 TRẠM của dòng giấy — ô chọn ở màn Đơn vị, khớp `models/don_vi_do.TRAM_DONG_GIAY` bên backend
+// (service chặn giá trị lạ). Đây là menu ĐÓNG thật sự: engine chạy chuỗi bù hao theo đúng 5 mức
+// này, thêm mức thứ 6 là phải khai cả hệ số cầu của nó trong code.
+const TRAM_DONG_GIAY: Lbls = {
+  to_nguyen: "Tờ nguyên (giấy mua về)",
   to: "Tờ in",
-  con: "Con",
+  con: "Con (mảnh bế ra)",
   tay: "Tay sách",
   cai: "Thành phẩm",
 };
@@ -223,7 +225,34 @@ export const CFG_MAY: CatalogConfig = {
     },
     { key: "so_nhan_cong", label: "Kíp chuẩn",
       render: (r) => `${Math.max(1, Math.ceil(Number(r.so_nhan_cong) || 1))} người` },
+    // Trạng thái LÚC NÀY — dẫn xuất từ sự cố + vùng khoá + lệnh đang chạy (`loadExtra` bên dưới).
+    // Cố ý KHÔNG đẻ lại cột `trang_thai` trên máy: cột đó từng có và bị gỡ 11/08/2026 vì là ô khai
+    // tay không ai vào sửa, nên máy đang nằm vẫn hiện "đang hoạt động".
+    { key: "trang_thai", label: "Trạng thái",
+      render: (_r, extra) => {
+        // `undefined` = CHƯA BIẾT (đang nạp / nạp hỏng). Nói "Rảnh" lúc đó là bịa — cái máy đang
+        // hỏng cũng sẽ hiện Rảnh cho tới khi API về.
+        if (extra === undefined) {
+          return <span className="rc-tt rc-tt--chua-biet" title="Đang lấy trạng thái máy…">—</span>;
+        }
+        const tt = extra as TrangThaiMay | null;
+        const kieu = tt?.trang_thai ?? "ranh";
+        return (
+          <span className={`rc-tt rc-tt--${kieu}`}>
+            {/* Chấm + CHỮ, không chỉ dựa màu — xưởng có người phân biệt màu kém, mà đây đúng là
+                thứ họ cần đọc nhanh nhất. */}
+            <span className="rc-tt__dot" aria-hidden="true" />
+            <span className="rc-tt__body">
+              {/* Fallback phải KHỚP `NHAN[TT_RANH]` bên backend (`services/may_trang_thai.py`):
+                  máy rảnh không có mặt trong map nên nhãn của nó chỉ tồn tại ở đây. */}
+              <span className="rc-tt__nhan">{tt?.nhan ?? "Xếp được"}</span>
+              {tt?.chi_tiet && <span className="rc-tt__chi-tiet">{tt.chi_tiet}</span>}
+            </span>
+          </span>
+        );
+      } },
   ],
+  loadExtra: (token) => trangThaiMay(token),
   // Lọc theo Nhóm máy. `dynamic` vì ô này gõ TỰ DO: nhóm chủ xưởng tự đặt vẫn có tab riêng,
   // không bị rơi ra ngoài như khi khai cứng 5 giá trị gợi ý.
   facet: {
@@ -237,6 +266,15 @@ export const CFG_MAY: CatalogConfig = {
     ],
     dynamic: true,
   },
+  // Khai máy là form DÀI (7 nhóm). Cuộn một mạch thì khối Lịch bảo trì nằm tít dưới đáy, ai vào
+  // sửa chu kỳ cũng phải lướt qua cả đống ô khổ giấy không liên quan. Chia 3 tab theo việc.
+  tabsKhai: [
+    { id: "chung", label: "Thông tin chung", groups: ["Thông tin chung"] },
+    { id: "ky-thuat", label: "Thông số kỹ thuật",
+      groups: ["Khổ kẽm & Vùng in", "Thông số chừa lề tờ in", "Khổ giấy máy nhận",
+               "Tốc độ & Vận hành", "Ghi chú"] },
+    { id: "bao-tri", label: "Lịch bảo trì", groups: ["Bảo trì định kỳ"] },
+  ],
   fields: [
     // ── Nhóm máy (chữ gợi ý + tự do) ──────────────────────────────────────────
     // ── 1. Thông tin chung ──────────────────────────────────────────────────
@@ -359,8 +397,13 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   columns: [
     { key: "nhom", label: "Giai đoạn", render: (r) => lbl(NHOM_CD)(r.nhom) },
     // Nhìn ra ngay bước nào ĐỔI ĐƠN VỊ, và bước nào để trống (không nằm trên dòng giấy).
-    { key: "don_vi_vao", label: "Đơn vị", render: (r) =>
-        `${lbl(DON_VI_CD)(r.don_vi_vao)} → ${lbl(DON_VI_CD)(r.don_vi_ra)}` },
+    // Tên đọc từ DANH MỤC (server gán) — không có bảng nhãn thứ hai trong code. Chưa khai đơn vị
+    // thì hiện "—", đúng nghĩa "bước không chạm giấy", chứ không bịa tên.
+    { key: "don_vi_vao", label: "Đơn vị", render: (r) => {
+        const vao = r.don_vi_vao_ten ?? r.don_vi_vao;
+        const ra = r.don_vi_ra_ten ?? r.don_vi_ra;
+        return vao || ra ? `${String(vao ?? "—")} → ${String(ra ?? "—")}` : "—";
+      } },
     { key: "kieu_bu_hao", label: "Bù hao", render: (r) =>
         r.kieu_bu_hao === "co_dinh" ? `Cố định ${r.so_to_bu_hao ?? 50} tờ` : lbl(KIEU_BU_HAO)(r.kieu_bu_hao ?? "khong") },
     // Nhìn ra công đoạn nào chưa khai số cho Lệnh sản xuất (giống cột Tốc độ bên màn Máy).
@@ -417,10 +460,10 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // Đơn giá nhập per-phiếu (mỗi dòng phiếu tính giá tự mang don_gia); công đoạn chỉ khai CÔNG THỨC.
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
     // ── Đơn vị đứng TRƯỚC Bù hao: nó quyết định bù hao được tra theo số gì (tờ hay con) ────────
-    { key: "don_vi_vao", label: "Đơn vị đầu vào", type: "select", group: "Đơn vị",
-      options: mapOpt(DON_VI_CD), default: "to" },
-    { key: "don_vi_ra", label: "Đơn vị đầu ra", type: "select", group: "Đơn vị",
-      options: mapOpt(DON_VI_CD), default: "to" },
+    // Chọn từ DANH MỤC Đơn vị & quy đổi (không còn 5 mã cứng): bước không chạm giấy khai đơn vị
+    // THẬT của nó — ghi kẽm `bài in → bản kẽm` — thay vì phải bỏ trống như trước 11/08/2026.
+    { key: "don_vi_vao", label: "Đơn vị đầu vào", ...F_DON_VI, group: "Đơn vị", default: "to" },
+    { key: "don_vi_ra", label: "Đơn vị đầu ra", ...F_DON_VI, group: "Đơn vị", default: "to" },
     { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong" },
     { key: "bu_hao_id", label: "Mã bù hao (gõ để tìm)", type: "ref-search", refPrefix: "/api/bu-hao", group: "Bù hao",
       showIf: (f) => f.kieu_bu_hao === "tra_bang" },
@@ -550,7 +593,8 @@ export const CFG_VAT_TU: CatalogConfig = {
     // người dùng nhớ luật vô ích. Cần "1 thùng keo = 20 kg" thì khai thẳng đơn vị đó trong danh
     // mục Đơn vị & quy đổi rồi chọn ở ô ĐVT — một nơi duy nhất cho mọi quy đổi.
     { key: "don_vi_gia", label: "Đơn vị tính (ĐVT)", ...F_DON_VI, group: "Thông số" },
-    // Đơn giá chốt ở danh mục — engine phơi thành biến `don_gia` (+ don_gia_kg/m²) cho công thức vật tư.
+    // Đơn giá chốt ở danh mục — engine phơi thành ĐÚNG MỘT biến `don_gia` cho công thức vật tư
+    // (đã quy về đơn vị cơ sở; `don_gia_kg`/`don_gia_m2` gỡ 11/08/2026 vì trùng nghĩa).
     { key: "don_gia", label: "Đơn giá", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn — dùng làm biến don_gia trong công thức" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
@@ -759,6 +803,24 @@ export const CFG_DON_VI: CatalogConfig = {
   ],
   fields: [
     { key: "ghi_chu", label: "Ghi chú", type: "text" },
+    // Cờ TRẠM: thứ duy nhất engine bù hao cần biết về một đơn vị. Năm mã dòng giấy đã gắn sẵn khi
+    // cài, nên ô này gần như không ai phải đụng — chỉ dùng khi xưởng đẻ ra một cách gọi mới cho
+    // một chặng của tờ giấy. Để trống = ngoài dòng giấy, đúng cho gần hết danh mục.
+    // Ô select của RebuildCatalogPage đã tự chèn sẵn một dòng rỗng "—" (= ngoài dòng giấy), nên
+    // ĐỪNG khai thêm option rỗng ở đây — hai dòng rỗng chồng nhau, người khai không biết chọn cái nào.
+    { key: "tram_dong_giay", label: "Trạm trên dòng giấy", type: "select",
+      options: mapOpt(TRAM_DONG_GIAY),
+      hint: "Để trống = ngoài dòng giấy (đúng cho gần hết danh mục). Chỉ đặt cho đơn vị đếm chính TỜ GIẤY qua từng chặng — sai một dòng là số giấy của mọi lệnh lệch theo." },
+    // CÁCH ĐO — công thức định nghĩa CHÍNH đơn vị này, ra LƯỢNG. Nằm ở tab "Công thức quy đổi"
+    // (mọi field type `formula` đều rơi vào đó), phía TRÊN bảng cặp.
+    //
+    // Khác hai thứ dễ nhầm:
+    //   · bảng CẶP ở dưới nối HAI đơn vị ("1 tấn = 1.000 kg") — lo đổi đơn vị lúc lĩnh kho;
+    //   · ô công thức ở Giấy · Vật tư khác · Công đoạn ra TIỀN.
+    // Ô này không nối với ai, và mỗi đơn vị chỉ có MỘT — nên lúc bung vật tư ở bước lệnh không có
+    // gì để chọn nhầm.
+    { key: "cong_thuc", label: "Cách đo (công thức)", type: "formula",
+      hint: "Định nghĩa chính đơn vị này bằng quy cách của lệnh, vd “m² tờ in = dai_in * rong_in * to_sau_in”. Vật tư nào khai đơn vị này thì ở lệnh máy tính số theo đây. Để trống = đơn vị thường, số lượng đi qua bảng quy đổi bên dưới." },
   ],
   // Quy đổi khai NGAY TẠI ĐÂY, dưới ô Ghi chú — một chỗ nhập, không màn thứ hai.
   renderExtra: (_form, existing) => <QuyDoiCuaDonVi donVi={existing} />,

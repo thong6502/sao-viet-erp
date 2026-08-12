@@ -17,28 +17,17 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
-from .lsx import DV_CAI, DV_CON, DV_TAY, DV_TO, DV_TO_NGUYEN
 
 # prepress=Chế bản · print=In · finishing=Gia công sau in · other=Dịch vụ khác.
 # "other" = dịch vụ không thuộc dòng chế bản/in/sau-in (vd thuê ngoài đặc thù). Engine key theo
 # "print"/"prepress" cụ thể nên "other" rơi vào nhánh finishing-like (mặc định NẰM trên dòng giấy
 # như gia công sau in). Phải KHỚP `NHOM_CD` ở frontend/rebuildCatalogConfigs.tsx — mở ở CẢ HAI nơi.
 NHOM = ("prepress", "print", "finishing", "other")
-# Đơn vị của công đoạn trên DÒNG GIẤY — đúng ba mức, không hơn. Kẽm/bài KHÔNG ở đây: bước chế bản
-# không chạm giấy nên để TRỐNG (None), engine loại nó khỏi dòng giấy.
-DON_VI_DONG_GIAY = (DV_TO_NGUYEN, DV_TO, DV_CON, DV_TAY, DV_CAI)
-# Cặp vào→ra hợp lệ. Dòng giấy chảy MỘT CHIỀU (tờ nguyên → tờ in → tờ thành phẩm), nên `cai → to`
-# hay `to → to_nguyen` là vô nghĩa — chặn ở service, đừng để khai rồi engine tính bậy.
-# Khâu SÁCH nối thêm mức TAY (2026-08-05): tờ in → tay → cuốn. Vẫn MỘT CHIỀU, và vẫn cho
-# `to → cai` đi tắt vì phần lớn routing khai thẳng như vậy (sách mới đi qua `tay`).
-CAP_DON_VI_HOP_LE = frozenset(
-    [(d, d) for d in DON_VI_DONG_GIAY]
-    + [(DV_TO_NGUYEN, DV_TO), (DV_TO, DV_CAI),
-       # `con` có cầu THẬT trong engine (`CAU_QUY_DOI`: to→con, con→cai) từ trước, chỉ bị cổng
-       # khai báo này bỏ quên — mở ra chứ đừng xoá khỏi danh sách chọn.
-       (DV_TO, DV_CON), (DV_CON, DV_CAI),
-       (DV_TO, DV_TAY), (DV_TAY, DV_CAI)]
-)
+# 🔴 `DON_VI_DONG_GIAY` (5 mã cứng) + `CAP_DON_VI_HOP_LE` (6 cặp liệt kê tay) ĐÃ GỠ 11/08/2026.
+# Đơn vị vào/ra nay trỏ vào DANH MỤC `don_vi_do` — xưởng khai đơn vị nào cũng dùng được, và câu
+# "đơn vị này có nằm trên dòng giấy không" đọc từ cờ `don_vi_do.tram_dong_giay` (xem
+# `models/don_vi_do.TRAM_DONG_GIAY` + `services/dong_giay.py`). Đừng dựng lại danh sách cứng ở
+# đây: nó chính là thứ chặn bước ghi kẽm khai `bai → kem` và bắt nó để trống đơn vị.
 CHE_DO_TINH = ("theo_san_luong",)  # "theo_gio" đã gỡ — công đoạn chỉ tính theo công thức/sản lượng
 # Đơn vị tính giá công đoạn (bao trùm chế bản + in + sau in). Engine `routing_engine.basis_qty`
 # quy đổi mỗi key → số lượng tính tiền từ ctx job.
@@ -78,17 +67,22 @@ class CongDoan(Base):
     kieu_bu_hao: Mapped[str] = mapped_column(String(16), nullable=False, server_default="khong", default="khong")
     bu_hao_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → bu_hao.id (soft) khi kieu=tra_bang
     so_to_bu_hao: Mapped[int] = mapped_column(Integer, nullable=False, server_default="50", default=50)  # +tờ hao khi kieu_bu_hao=co_dinh
-    # Đơn vị VÀO / RA của công đoạn trên DÒNG GIẤY — KHAI, không đoán theo tên. Chỉ ba mức:
-    # `to_nguyen` → `to` (tờ in) → `cai` (tờ thành phẩm). Khác nhau = bước ĐỔI ĐƠN VỊ (bế: tờ in →
-    # tờ thành phẩm · xả giấy: tờ nguyên → tờ in).
+    # Đơn vị VÀO / RA của công đoạn — KHAI, không đoán theo tên. MÃ trong danh mục `don_vi_do`
+    # (soft-ref như mọi chỗ khác dùng đơn vị), không còn bó trong 5 mã dòng giấy:
+    #   - bước trên dòng giấy khai `to_nguyen → to`, `to → con`, `to → cai`… (chảy một chiều)
+    #   - bước KHÔNG chạm giấy khai đơn vị THẬT của nó: ghi kẽm `bai → kem`, trộn keo `cai → me`
+    # Cờ `don_vi_do.tram_dong_giay` mới là thứ nói bước có nằm trên dòng giấy hay không.
     #
-    # NULL = bước KHÔNG CHẠM GIẤY (chế bản ghi kẽm) → engine loại khỏi dòng giấy. Không đẻ mã đơn
-    # vị riêng cho nó: kẽm là đơn vị của khâu chế bản, không phải một mức trên dòng giấy.
+    # NULL = CHƯA KHAI (dữ liệu cũ, hoặc bước kế hoạch tự thêm) → engine lùi về luật theo `nhom`.
+    # Đây là trạng thái tạm, không phải cách khai bước ngoài dòng giấy nữa.
     #
     # Hệ số quy đổi KHÔNG lưu ở đây: phiếu tính giá đã có `con` (bình bài) và `so_manh_xa` (khổ
     # giấy) — khai lại là đẻ nguồn sự thật thứ hai.
-    don_vi_vao: Mapped[str | None] = mapped_column(String(12), nullable=True)
-    don_vi_ra: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    #
+    # String(24) khớp `don_vi_do.ma` — VARCHAR(12) cũ vừa đủ `to_nguyen` (9) nhưng chật ngay khi
+    # xưởng khai mã dài hơn, và Postgres ném lỗi độ dài lúc ghi chứ không cắt bớt.
+    don_vi_vao: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    don_vi_ra: Mapped[str | None] = mapped_column(String(24), nullable=True)
     nhom: Mapped[str] = mapped_column(String(12), index=True, nullable=False)  # prepress|print|finishing
     # Nhóm MÁY làm được công đoạn này — tên nhóm ở danh mục `nhom_may` ("Máy in"/"Bế"/"Cán màng / UV"…).
     # Chặn gán máy SAI LOẠI ở bước (vd bước Ghi kẽm CTP không cho gán máy Bế). NULL/[] = chưa khai =
@@ -186,11 +180,59 @@ class CongDoanDauViec(Base):
     cho_ky_thuat_gio: Mapped[float] = mapped_column(
         Numeric(6, 2), nullable=False, default=0, server_default="0"
     )
-    is_default: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=sa_false(), default=False
-    )
+    # 🔴 `is_default` ĐÃ GỠ 12/08/2026 (mg 0190) — cột radio "Mặc định" trong bảng đầu việc.
+    # Nó chọn hộ đầu việc nào điền sẵn khi lập lệnh. Chủ chốt bỏ: cùng một công đoạn mà hai đầu
+    # việc khác nhau thật sự (bế TAY / bế MÁY · vào keo / khâu chỉ) thì chọn cái nào là quyết định
+    # của người lập lệnh theo hàng cụ thể, không phải hằng số khai một lần ở danh mục.
+    # Nay: công đoạn có ĐÚNG MỘT đầu việc thì vẫn tự điền (không có gì để chọn nhầm); từ hai trở
+    # lên thì để TRỐNG. Xem `lsx_service._khoan_mac_dinh`.
 
     cong_doan: Mapped["CongDoan"] = relationship("CongDoan", back_populates="dau_viec_dinh_muc")
+    # VẬT TƯ đầu việc này tiêu thụ — nền của BOM (12/08/2026). Khai một lần ở danh mục, đến lệnh thì
+    # chọn công việc khoán là bung sẵn vào khối "Vật tư cần dùng" của bước.
+    vat_tus: Mapped[list["CongDoanDauViecVatTu"]] = relationship(
+        "CongDoanDauViecVatTu", back_populates="dau_viec",
+        order_by="CongDoanDauViecVatTu.thu_tu", cascade="all, delete-orphan",
+    )
+
+    @property
+    def vat_tu_ids(self) -> list[int]:
+        """Danh sách id vật tư — hình dạng API dùng (`CongDoanDauViecRow` đọc qua from_attributes).
+        Giữ ở đây để schema khỏi phải biết bảng nối, và để nơi gọi khỏi tự `.vat_tus` rồi map."""
+        return [v.vat_tu_id for v in self.vat_tus]
+
+
+class CongDoanDauViecVatTu(Base):
+    """Vật tư mà MỘT đầu việc của công đoạn tiêu thụ — danh sách thuần, KHÔNG có số lượng.
+
+    Vì sao không có số lượng: định mức tuỳ quy cách của từng lệnh (khổ tờ, số màu, số tờ chạy), nên
+    một con số khai ở danh mục là số chết. Số lượng suy lúc bung ở bước lệnh, bằng cách đổi số lượng
+    của bước sang đơn vị của vật tư qua QUY ĐỔI ĐỘNG (`quy_doi_service.doi_theo_quy_cach`). Đổi
+    không được thì KHÔNG bung dòng đó kèm câu lý do — không đoán.
+
+    Vì sao neo vào `cong_doan_dau_viec` chứ không vào `piece_rates`: đây đúng là dòng người dùng
+    nhìn thấy trong bảng "Đầu việc và định mức của tổ" ở drawer Công đoạn, và cho phép cùng một đầu
+    việc dùng vật tư khác nhau ở hai công đoạn khác nhau.
+    """
+
+    __tablename__ = "cong_doan_dau_viec_vat_tu"
+    __table_args__ = (
+        UniqueConstraint("cong_doan_dau_viec_id", "vat_tu_id", name="uq_cd_dau_viec_vat_tu"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    cong_doan_dau_viec_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("cong_doan_dau_viec.id", ondelete="CASCADE"),
+        index=True, nullable=False,
+    )
+    # Soft-ref tới `vat_tu_in_an` — cùng lối với `piece_rate_id` ở trên: danh mục vật tư có vòng đời
+    # riêng, service chặn id không tồn tại hoặc đã ngừng dùng.
+    vat_tu_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    dau_viec: Mapped["CongDoanDauViec"] = relationship(
+        "CongDoanDauViec", back_populates="vat_tus"
+    )
 
 
 # 🔴 `CongDoanChoKyThuat` (bảng `cong_doan_cho_ky_thuat`) ĐÃ GỠ 10/08/2026 — chờ kỹ thuật nay khai
