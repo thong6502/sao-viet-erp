@@ -1,5 +1,5 @@
 // Trang TRA KHO CÔNG KHAI — mở khi quét tem QR dán kệ (`#s=<token>`), KHÔNG cần đăng nhập.
-// Đứng RIÊNG (ngoài AppShell): brand bar + thẻ tóm tắt vật tư + 2 bảng (theo vị trí · chi tiết lô).
+// Đứng RIÊNG (ngoài AppShell): brand bar + thẻ tóm tắt vật tư + 2 bảng (theo vị trí · lịch sử nhập/xuất).
 // Chỉ đọc dữ liệu công khai từ /api/public/kho-scan (đã bỏ mọi trường tiền ở backend).
 import { useEffect, useMemo, useState } from "react";
 import { ApiError, api, type PublicScan, type PublicScanLot } from "../api/client";
@@ -37,14 +37,6 @@ function daysToHsd(hsd: string | null): number | null {
       Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())) /
       day,
   );
-}
-
-/** So chuỗi ISO (yyyy-mm-dd) tăng dần; null xuống cuối khi nullLast. */
-function cmpIso(a: string | null, b: string | null, nullLast: boolean): number {
-  if (a === b) return 0;
-  if (a == null) return nullLast ? 1 : -1;
-  if (b == null) return nullLast ? -1 : 1;
-  return a < b ? -1 : 1;
 }
 
 /** Đọc token QR đã ký từ URL (`#s=<payload>.<sig>`). Trả null nếu không phải link tra kho. */
@@ -94,7 +86,7 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
   const dvt = data?.dvt ?? "";
 
   // Gom lô → các ô (theo vị trí): tổng còn, số lô còn>0, HSD gần nhất, trạng thái ô.
-  const { bins, lotRows, overall } = useMemo(() => {
+  const { bins, overall } = useMemo(() => {
     const lots = data?.lots ?? [];
     const groups = new Map<string, PublicScanLot[]>();
     for (const lot of lots) {
@@ -124,14 +116,6 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
       return av !== bv ? av - bv : b.totalRemain - a.totalRemain;
     });
 
-    // Chi tiết lô — FEFO (HSD gần trước, không HSD xuống cuối); chỉ lô còn hàng.
-    const rows = lots
-      .filter((l) => l.sl_con_lai > 0)
-      .sort((a, b) => {
-        const byHsd = cmpIso(a.hsd, b.hsd, true);
-        return byHsd !== 0 ? byHsd : cmpIso(a.ngay_nhap, b.ngay_nhap, true);
-      });
-
     const onHand = data?.on_hand ?? 0;
     let ov: BinStatus;
     if (onHand <= 0) ov = "het";
@@ -143,8 +127,10 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
       ov = "sap_het";
     else ov = "du";
 
-    return { bins: list, lotRows: rows, overall: ov };
+    return { bins: list, overall: ov };
   }, [data]);
+
+  const history = data?.history ?? [];
 
   return (
     <div className="pscan">
@@ -200,91 +186,104 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
               </div>
             </section>
 
-            {lotRows.length === 0 ? (
+            {bins.length === 0 && history.length === 0 ? (
               <div className="pscan__state">
-                <p>Vật tư này hiện chưa có tồn tại kho.</p>
+                <p>Vật tư này hiện chưa có tồn và chưa có phát sinh nhập/xuất tại kho.</p>
               </div>
             ) : (
               <>
-                <section className="pscan__sec">
-                  <h2 className="pscan__sec-title">Vị trí trong kho</h2>
-                  <div className="pscan__tablewrap">
-                    <table className="pscan__table">
-                      <thead>
-                        <tr>
-                          <th>Ô / vị trí</th>
-                          <th className="pscan__num">SL còn</th>
-                          <th className="pscan__num">Số lô</th>
-                          <th>HSD gần nhất</th>
-                          <th>Trạng thái</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bins.map((bin) => (
-                          <tr key={bin.key}>
-                            <td className="pscan__loc">
-                              <span className={`pscan__dot pscan__dot--${bin.status}`} />
-                              {bin.key}
-                            </td>
-                            <td className="pscan__num pscan__strong">
-                              {fmtQty(bin.totalRemain)}
-                              {dvt && <span className="pscan__unit"> {dvt}</span>}
-                            </td>
-                            <td className="pscan__num">{bin.activeLots}</td>
-                            <td>
-                              {bin.minHsd ? (
-                                <span className="pscan__hsd">{fmtDateISO(bin.minHsd)}</span>
-                              ) : (
-                                <span className="pscan__muted">—</span>
-                              )}
-                            </td>
-                            <td>
-                              <span className={`pscan__pill pscan__pill--${bin.status}`}>
-                                {STATUS_META[bin.status].label}
-                              </span>
-                            </td>
+                {bins.length > 0 && (
+                  <section className="pscan__sec">
+                    <h2 className="pscan__sec-title">Vị trí trong kho</h2>
+                    <div className="pscan__tablewrap">
+                      <table className="pscan__table">
+                        <thead>
+                          <tr>
+                            <th>Ô / vị trí</th>
+                            <th className="pscan__num">SL còn</th>
+                            <th className="pscan__num">Số lô</th>
+                            <th>HSD gần nhất</th>
+                            <th>Trạng thái</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
+                        </thead>
+                        <tbody>
+                          {bins.map((bin) => (
+                            <tr key={bin.key}>
+                              <td className="pscan__loc">
+                                <span className={`pscan__dot pscan__dot--${bin.status}`} />
+                                {bin.key}
+                              </td>
+                              <td className="pscan__num pscan__strong">
+                                {fmtQty(bin.totalRemain)}
+                                {dvt && <span className="pscan__unit"> {dvt}</span>}
+                              </td>
+                              <td className="pscan__num">{bin.activeLots}</td>
+                              <td>
+                                {bin.minHsd ? (
+                                  <span className="pscan__hsd">{fmtDateISO(bin.minHsd)}</span>
+                                ) : (
+                                  <span className="pscan__muted">—</span>
+                                )}
+                              </td>
+                              <td>
+                                <span className={`pscan__pill pscan__pill--${bin.status}`}>
+                                  {STATUS_META[bin.status].label}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                )}
 
-                <section className="pscan__sec">
-                  <h2 className="pscan__sec-title">Chi tiết lô còn hàng</h2>
-                  <div className="pscan__tablewrap">
-                    <table className="pscan__table">
-                      <thead>
-                        <tr>
-                          <th>Mã lô</th>
-                          <th>Vị trí</th>
-                          <th>Ngày nhập</th>
-                          <th>HSD</th>
-                          <th className="pscan__num">Còn</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {lotRows.map((lot, i) => (
-                          <tr key={`${lot.ma_lo ?? "lo"}-${i}`}>
-                            <td className="pscan__code">{lot.ma_lo ?? "—"}</td>
-                            <td>{lot.vi_tri?.trim() || <span className="pscan__muted">—</span>}</td>
-                            <td>{fmtDateISO(lot.ngay_nhap)}</td>
-                            <td>
-                              {lot.hsd ? (
-                                fmtDateISO(lot.hsd)
-                              ) : (
-                                <span className="pscan__muted">—</span>
-                              )}
-                            </td>
-                            <td className="pscan__num pscan__strong">
-                              {fmtQty(lot.sl_con_lai)}
-                            </td>
+                {history.length > 0 && (
+                  <section className="pscan__sec">
+                    <h2 className="pscan__sec-title">Lịch sử nhập / xuất gần đây</h2>
+                    <div className="pscan__tablewrap">
+                      <table className="pscan__table">
+                        <thead>
+                          <tr>
+                            <th>Loại</th>
+                            <th>Ngày</th>
+                            <th>Số chứng từ</th>
+                            <th className="pscan__num">Số lượng</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
+                        </thead>
+                        <tbody>
+                          {history.map((mv, i) => {
+                            const isNhap = mv.loai === "NHAP";
+                            return (
+                              <tr key={`${mv.so_ct}-${i}`}>
+                                <td>
+                                  <span
+                                    className={`pscan__pill pscan__pill--${isNhap ? "du" : "sap_het"}`}
+                                  >
+                                    {isNhap ? "Nhập" : "Xuất"}
+                                  </span>
+                                </td>
+                                <td>
+                                  {mv.ngay ? (
+                                    fmtDateISO(mv.ngay)
+                                  ) : (
+                                    <span className="pscan__muted">—</span>
+                                  )}
+                                </td>
+                                <td className="pscan__code">{mv.so_ct || "—"}</td>
+                                <td className="pscan__num pscan__strong">
+                                  {isNhap ? "+" : "−"}
+                                  {fmtQty(mv.so_luong)}
+                                  {dvt && <span className="pscan__unit"> {dvt}</span>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                )}
               </>
             )}
           </>

@@ -160,6 +160,10 @@ class SupplierItem(Base):
     unit_price: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     vat_percent: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    # BỎ `lead_time_days` (mg 0176 → gỡ 10/08/2026): số ngày NCC giao phải KHAI TAY lúc dựng danh
+    # mục, mà lúc đó chưa ai biết ông ấy giao mấy ngày — số đoán lại đi bật đèn "đặt muộn" của kế
+    # hoạch vật tư. Cần lại thì SUY từ lịch sử mua (ngày đặt → ngày nhận thật). Cột để nguyên
+    # trong DB (không có Alembic, không drop) nhưng không còn code nào đọc/ghi.
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -265,6 +269,11 @@ class PurchaseRequestLine(Base):
         nullable=True,
         index=True,
     )
+    # MẶT HÀNG GỐC của dòng (mg 0174) — kế thừa từ dòng YCMH qua `department_request_line_id`.
+    # NULL = dòng mua thứ ngoài danh mục vật tư (dịch vụ, gia công) hoặc phiếu lập trước 08/08/2026.
+    # Bảng cân đối CHỈ cộng "hàng đang về" cho dòng CÓ gắn — không đoán ngược từ `item_name`.
+    hang_loai: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    hang_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     item_name: Mapped[str] = mapped_column(String(255), nullable=False)
     unit: Mapped[str] = mapped_column(String(32), nullable=False, default="cái")
     quantity: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
@@ -518,6 +527,10 @@ class DepartmentPurchaseRequestLine(Base):
     department_request_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("department_purchase_requests.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    # MẶT HÀNG GỐC của dòng (mg 0174) — nút "Đề nghị mua" ở bảng cân đối vật tư ghi thẳng vào đây,
+    # nên phiếu mua sinh ra sau đó kế thừa được mà không phải đoán tên. NULL = khai tay ngoài danh mục.
+    hang_loai: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    hang_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     item_name: Mapped[str] = mapped_column(String(255), nullable=False)
     unit: Mapped[str] = mapped_column(String(32), nullable=False)
     quantity: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)

@@ -75,7 +75,10 @@ def _out(users: UserRepository, row) -> NoiQuyRecordOut:
 def list_records(
     svc: Service,
     users: Users,
-    user: CurrentUser,
+    # ĐÓNG CỬA HỞ 10/08/2026: trước đây chỉ cần ĐĂNG NHẬP là đọc được toàn bộ nội quy.
+    # Nội quy thì ai cũng phải đọc thật — nên migration 0179 cấp ô này cho MỌI vai đang có;
+    # khác ở chỗ từ nay nó HIỆN trên ma trận và gỡ được, chứ không phải luật ngầm.
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     q: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     # TRẦN 100: `_out` gọi `users.get_by_id` cho TỪNG dòng (N+1). Cỡ trang chuẩn của hệ là 20;

@@ -1412,10 +1412,24 @@ select.input {
 .rdx-quote .acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 
 /* ---- DETAIL: grids --------------------------------------------------------- */
-.rdx-quote .g2 { display: grid; grid-template-columns: minmax(0, 1fr) 322px; gap: 18px; align-items: start; margin-top: 16px; }
-.rdx-quote .gg { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
-@media (max-width: 900px) { .rdx-quote .g2, .rdx-quote .gg { grid-template-columns: 1fr; } }
+/* MỘT nhịp cột cho cả trang: nội dung | cột phụ. Trước đây khu dưới đổi sang lưới 1fr|1fr rồi
+   khối đính kèm lại full-width — ba nhịp khác nhau trên cùng một trang nên các mép dọc không
+   thẳng hàng, nhìn "xếp kì". Nay mọi khối nằm trong đúng hai cột này:
+     · trái  — thứ phải ĐỌC/LÀM: bảng giá · điều khoản · lịch sử phiên bản · tệp đính kèm
+     · phải  — thứ để TRA: tổng tiền · khách hàng · hoạt động
+   340px (thay vì 322) để dòng "Giám đốc · Giám đốc · Nguyễn Văn Giám" trong feed đỡ gãy. */
+.rdx-quote .g2 { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; margin-top: 16px; }
+@media (max-width: 1180px) { .rdx-quote .g2 { grid-template-columns: minmax(0, 1fr) 300px; } }
+/* Một cột: cột phụ lên TRƯỚC. Xếp theo thứ tự DOM thì tổng tiền + khách hàng nằm sau bảng giá,
+   điều khoản, lịch sử và tệp đính kèm — mở báo giá trên máy hẹp phải cuộn hết trang mới thấy
+   con số, trong khi đó mới là thứ người ta mở ra để xem. */
+@media (max-width: 900px) {
+  .rdx-quote .g2 { grid-template-columns: 1fr; }
+  .rdx-quote .g2 > .stack:last-child { order: -1; }
+}
 .rdx-quote .stack { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+
+/* Card tổng tiền cuộn theo trang như mọi khối khác — KHÔNG ghim (chủ 11/08/2026). */
 
 /* ---- DETAIL: panel --------------------------------------------------------- */
 .rdx-quote .panel { background: var(--canvas); border: 1px solid var(--rule); border-radius: var(--r-5); overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
@@ -1515,9 +1529,90 @@ select.input {
 .rdx-quote .tlrow.mut .tlic { background: var(--rule-soft); color: var(--ash); }
 .rdx-quote .tlrow.sig .tlic { background: var(--signal-soft); color: var(--signal); }
 .rdx-quote .tlb { padding-top: 2px; min-width: 0; }
-.rdx-quote .tlb .a { color: var(--ink); font-size: 13px; }
+.rdx-quote .tlb .a { color: var(--ink); font-size: 13px; font-weight: 600; }
 .rdx-quote .tlb .a b { font-weight: 600; }
-.rdx-quote .tlb .m { color: var(--ash); font-size: 12px; margin-top: 1px; }
+.rdx-quote .tlb .m { color: var(--ash); font-size: 12px; margin-top: 2px; line-height: 1.45; }
+/* Tên người đậm hơn phần thời gian để đọc lướt ra ngay "ai". Dùng `--ink` chứ KHÔNG phải
+   `--ink-soft` — token đó không tồn tại trong tokens.css, mọi chỗ viết `var(--ink-soft, #hex)`
+   đều đang chạy bằng hex dự phòng, tức là màu nằm ngoài hệ. */
+.rdx-quote .tlb .m .who { color: var(--ink); }
+
+/* ---- DETAIL: tài liệu đính kèm (nội bộ) ------------------------------------ */
+.rdx-quote .att-body { padding: 12px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+.rdx-quote .att-drop {
+  display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center;
+  padding: 18px 16px; border: 1.5px dashed var(--rule); border-radius: var(--r-3);
+  background: var(--paper); color: var(--ash); cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+.rdx-quote .att-drop:hover { border-color: var(--rust); color: var(--rust-deep); }
+.rdx-quote .att-drop.drag { border-color: var(--rust); background: var(--rust-soft); color: var(--rust-deep); }
+.rdx-quote .att-drop.busy { opacity: 0.65; pointer-events: none; }
+.rdx-quote .att-drop svg { color: var(--rust); }
+.rdx-quote .att-drop__lead { font-size: 13px; color: var(--ink); }
+.rdx-quote .att-drop__lead b { color: var(--rust-deep); font-weight: 600; }
+.rdx-quote .att-drop__hint { font-size: 11.5px; color: var(--ash); }
+
+.rdx-quote .att-err {
+  display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--signal);
+  background: var(--signal-soft); border-radius: var(--r-3); padding: 8px 11px;
+}
+.rdx-quote .att-err svg { flex: none; }
+.rdx-quote .att-empty { font-size: 12.5px; color: var(--ash); padding: 6px 2px; line-height: 1.5; }
+
+.rdx-quote .att-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.rdx-quote .att-item {
+  display: flex; align-items: center; gap: 12px; padding: 8px 10px;
+  border: 1px solid var(--rule-soft); border-radius: var(--r-3); background: var(--paper);
+}
+.rdx-quote .att-thumb {
+  width: 44px; height: 44px; flex: none; border-radius: var(--r-2); overflow: hidden;
+  border: 1px solid var(--rule-soft); background: var(--canvas); color: var(--ash);
+  display: grid; place-items: center; padding: 0; cursor: default;
+}
+.rdx-quote .att-thumb.ok { cursor: zoom-in; }
+.rdx-quote .att-thumb.ok:hover { border-color: var(--rust); }
+.rdx-quote .att-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.rdx-quote .att-meta { flex: 1; min-width: 0; }
+.rdx-quote .att-name {
+  font-size: 13px; color: var(--ink); font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.rdx-quote .att-sub { font-size: 11.5px; color: var(--ash); margin-top: 2px; }
+.rdx-quote .att-actions { display: flex; gap: 4px; flex: none; }
+.rdx-quote .att-act {
+  width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--r-2);
+  border: 1px solid transparent; background: none; color: var(--ash); cursor: pointer;
+  text-decoration: none; transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+.rdx-quote .att-act:hover { background: var(--rust-soft); color: var(--rust-deep); border-color: var(--rule-soft); }
+.rdx-quote .att-act.danger:hover { background: var(--signal-soft); color: var(--signal); }
+
+/* Lightbox xem trước ảnh / PDF */
+.rdx-quote .att-lightbox {
+  position: fixed; inset: 0; z-index: 60; background: rgba(20, 19, 15, 0.72);
+  display: grid; place-items: center; padding: 32px;
+}
+.rdx-quote .att-lightbox__box {
+  display: flex; flex-direction: column; width: min(920px, 96vw); height: min(88vh, 900px);
+  background: var(--canvas); border-radius: var(--r-5); overflow: hidden; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+.rdx-quote .att-lightbox__head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 14px; border-bottom: 1px solid var(--rule-soft); flex: none;
+}
+.rdx-quote .att-lightbox__name { font-size: 13.5px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rdx-quote .att-lightbox__acts { display: flex; gap: 4px; flex: none; }
+.rdx-quote .att-lightbox__acts a,
+.rdx-quote .att-lightbox__acts button {
+  width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--r-2);
+  border: 0; background: none; color: var(--ash); cursor: pointer; text-decoration: none;
+}
+.rdx-quote .att-lightbox__acts a:hover,
+.rdx-quote .att-lightbox__acts button:hover { background: var(--rust-soft); color: var(--rust-deep); }
+.rdx-quote .att-lightbox__body { flex: 1; min-height: 0; background: var(--paper); display: grid; place-items: center; }
+.rdx-quote .att-lightbox__body img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.rdx-quote .att-lightbox__body iframe { width: 100%; height: 100%; border: 0; background: #fff; }
 
 /* ---- REDESIGNED TERMS & CONDITIONS PANEL ---- */
 .rdx-quote .terms-redesign-panel {

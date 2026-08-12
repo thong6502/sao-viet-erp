@@ -1,32 +1,44 @@
-"""Thiết bị / Máy (Machine · Cost Center) — master data, spec `docs/spec-may-thiet-bi.md`.
+"""Thiết bị / Máy (Machine) — master data, spec `docs/spec-may-thiet-bi.md`.
 
-1 bảng master `may_thiet_bi`, phân biệt bằng `loai_may` (discriminator §3.2). Mỗi máy vừa là
-**cost center** (mang BHR — đơn giá giờ giá vốn, §3.4/§4) vừa là **spec năng lực** (khổ, tốc độ…).
+1 bảng master `may_thiet_bi`, phân biệt bằng `loai_may` (chữ TỰ DO, khớp danh mục `nhom_may`).
+Máy là **spec năng lực**: khổ giấy/kẽm, vùng in, chừa lề, tốc độ, thời gian chuẩn bị — những số
+Tính giá · Lệnh SX · Xếp lịch · Bình bài thật sự đọc.
 
-Chiến lược cột: các field CHUNG (§3.1/3.3–3.6) + các field engine hay đọc nhất của
-`press_offset_sheet` (§3.7A: gripper_mm, kho_max/min, so_units, khoa_class, tự trở, bù hao…)
-là **cột thật** (nullable — chỉ offset dùng). Các field đặc thù còn lại theo từng `loai_may`
-(web/digital/flexo/gravure/wide/finishing/thue_ngoai + offset phụ) gói trong JSON
-`fields_theo_loai` để tránh 100 cột chết. `active` KHÔNG có cột riêng — suy từ `trang_thai`.
-
-Module MỚI theo kiến trúc rebuild (strangler): song song với `machine.py` cũ tới khi engine
-mới thay xong. Chưa wired vào main.py/models __init__ (wiring gom 1 pass sau).
+🔴 **DỌN LỚN 11/08/2026 — bỏ ~50 cột không có ô nhập.** Chủ chốt: *"không nhập liệu được thì là
+rác"*. Đã gỡ khỏi model (cột nằm lại orphan trong Postgres — dự án không có Alembic, không drop,
+nhưng KHÔNG còn code nào đọc/ghi):
+  · **BHR** (`von_dau_tu` `nam_khau_hao` `gio_lam_nam` `availability_pct` `luong_gio` `markup_pct`…)
+    — cả khối giá vốn giờ máy + `compute_bhr` + endpoint `/bhr`, `/bhr-preview`. Có spec §4 và test
+    xanh, NHƯNG chưa bao giờ có ô nhập trên form Máy và không engine giá nào gọi ⇒ luôn null.
+  · **Tài sản** `ma_tai_san` `ma_TK_cost_center` `nha_cung_cap` `ngay_dua_vao_su_dung`
+    `het_han_bao_hanh` `phuong_phap_khau_hao`.
+  · **Nhận diện thừa** `dia_diem` `phong_ban_id` `ghi_chu_2` `nhom_cost_center` `finishing_subtype`.
+  · **Năng lực không nối** `min_stock_gsm` `max_stock_gsm` `vat_lieu_ho_tro_class` `so_ca`
+    `chi_so_dem_luot` `so_may_song_song`.
+  · **Offset chưa nối engine** `so_units` `units_truoc` `units_sau` `khoa_class` `co_tro_mat`
+    `cho_phep_tu_tro` `cho_phep_tro_dau_duoi` `bu_hao_canh_may_per_mau` `bu_hao_chay_pct`
+    `ho_tro_cip3` (hàm `routing_engine.so_to_in_gross` nhận bù hao qua THAM SỐ, không đọc máy).
+  · **Bảo trì thô** `ngay_bao_tri_gan_nhat` `chu_ky_bao_tri` `chu_ky_bao_tri_don_vi`
+    `ngay_bao_tri_ke_tiep` — thay bằng khối **Lịch bảo trì định kỳ** (`fields_theo_loai.lich_bao_tri`:
+    đầu việc + chu kỳ ngày/tuần/tháng/năm, nhiều hạng mục/máy).
+  · **Dormant** `ca_lam_ids` `thoi_gian_rua_muc`.
+  · **`trang_thai` + property `active`** — bỏ ô "Tình trạng" khỏi form ⇒ mọi máy luôn `active`,
+    cờ đó chưa bao giờ phân loại được gì. Máy dừng vì bảo trì/hỏng thì khoá theo KHOẢNG THỜI GIAN
+    ở `machine_unavailable_periods` (Xếp lịch đọc cái đó), không phải một cờ mức-máy.
+Thêm cột lại chỉ khi có ô nhập đi kèm — đừng dựng cột trước rồi hẹn form sau.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
-    Date,
     DateTime,
     Integer,
     JSON,
     Numeric,
     String,
     Text,
-    false as sa_false,
     true as sa_true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -38,10 +50,10 @@ LOAI_MAY = (
     "press_offset_sheet", "press_offset_web", "press_digital", "press_flexo_label",
     "press_gravure", "wide_format", "prepress_ctp", "finishing", "thue_ngoai", "other",
 )
-TRANG_THAI = ("active", "maintenance", "retired")          # active mới cho báo giá
-NGUON_BHR = ("nhap_truc_tiep", "dung_tu_von")
-KHAU_HAO = ("duong_thang", "so_du_giam_dan")
-KHOA_CLASS = ("52", "74", "79", "102", "custom")           # lớp khổ máy → tra giá kẽm
+# `TRANG_THAI` (active/maintenance/retired) ĐÃ GỠ 11/08/2026 cùng cột `trang_thai`: không có ô
+# nhập nào trên form Máy ⇒ mọi máy luôn "active", cái cờ chưa bao giờ phân loại được gì. Máy dừng
+# vì bảo trì/hỏng thì khoá theo KHOẢNG THỜI GIAN ở `machine_unavailable_periods` — đó mới là thứ
+# Xếp lịch thật sự đọc.
 # Danh sách CỐ ĐỊNH, khớp ô chọn ở `DonViTocDoField` (FE). Chủ chốt 04/08/2026.
 # CẢNH BÁO: chỉ `to_gio · cai_gio · kem_gio` là Lệnh SX khớp được để ra thời lượng
 # (`_DV_VAO_SANG_NS` trong `lsx_service.py`); phần còn lại chỉ để GHI NHẬN năng lực máy.
@@ -61,61 +73,16 @@ class MayThietBi(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
-    # ---- §3.1 Nhận diện (mọi máy) ----
+    # ---- Nhận diện ----
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
     ten: Mapped[str] = mapped_column(String(150), nullable=False)
     loai_may: Mapped[str] = mapped_column(String(24), index=True, nullable=False)
-    finishing_subtype: Mapped[str | None] = mapped_column(String(24), nullable=True)
-    nhom_cost_center: Mapped[str | None] = mapped_column(String(30), nullable=True)  # in/che_ban/sau_in
-    phong_ban_id: Mapped[int | None] = mapped_column(Integer, nullable=True)         # FK mềm (no DB FK)
-    dia_diem: Mapped[str | None] = mapped_column(String(100), nullable=True)
     hang_san_xuat: Mapped[str | None] = mapped_column(String(100), nullable=True)
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     so_seri: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    trang_thai: Mapped[str] = mapped_column(
-        String(16), nullable=False, server_default="active", default="active"
-    )
     ghi_chu: Mapped[str | None] = mapped_column(Text, nullable=True)
-    ghi_chu_2: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # ---- §3.3 Tài sản / tài chính ----
-    ma_tai_san: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    ma_TK_cost_center: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    nha_cung_cap: Mapped[str | None] = mapped_column(String(150), nullable=True)
-    ngay_dua_vao_su_dung: Mapped[date | None] = mapped_column(Date, nullable=True)
-    het_han_bao_hanh: Mapped[date | None] = mapped_column(Date, nullable=True)
-    phuong_phap_khau_hao: Mapped[str] = mapped_column(
-        String(20), nullable=False, server_default="duong_thang", default="duong_thang"
-    )
-
-    # ---- §3.4 Chi phí — BHR (giá vốn giờ máy) ----
-    nguon_bhr: Mapped[str] = mapped_column(
-        String(20), nullable=False, server_default="dung_tu_von", default="dung_tu_von"
-    )
-    don_gia_gio_BHR: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)  # nếu nhập trực tiếp
-    von_dau_tu: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    gia_tri_thu_hoi: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
-    nam_khau_hao: Mapped[int] = mapped_column(Integer, nullable=False, server_default="8", default=8)
-    lai_von_pct: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
-    gio_lam_nam: Mapped[int] = mapped_column(Integer, nullable=False, server_default="2000", default=2000)
-    availability_pct: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, server_default="85", default=85)
-    productivity_pct: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, server_default="85", default=85)
-    efficiency_pct: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, server_default="80", default=80)
-    so_nhan_cong: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, server_default="1", default=1)
-    luong_gio: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    luong_burden_pct: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, server_default="30", default=30)
-    cong_suat_kW: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
-    he_so_tai_dien: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, server_default="0.65", default=0.65)
-    don_gia_dien: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
-    bao_hiem_nam: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
-    dien_tich_san_m2: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
-    don_gia_thue_m2_nam: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    bao_tri_gio: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    overhead_gio: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
-    markup_pct: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
-    ngay_cap_nhat_bhr: Mapped[date | None] = mapped_column(Date, nullable=True)
-
-    # ---- §3.5 Năng lực / tốc độ ----
+    # ---- Năng lực / tốc độ ----
     # `toc_do` = tốc độ TRUNG BÌNH (nhãn màn hình đổi 03/08/2026). Tên cột GIỮ NGUYÊN: Tính giá,
     # Lệnh SX, Xếp lịch và Chọn-máy-hợp-khổ đều đang đọc `toc_do`, đổi tên là gãy cả bốn.
     toc_do: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
@@ -130,23 +97,23 @@ class MayThietBi(Base):
     # SQLite bỏ qua độ dài nên test vẫn xanh, Postgres thật thì lỗi lúc lưu — nới lên 32 (mg 0153).
     don_vi_toc_do: Mapped[str | None] = mapped_column(String(32), nullable=True)
     makeready_time_default: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)  # phút
-    # DORMANT 2026-08-04 — vệ sinh/rửa mực đã bỏ khỏi hệ: KHÔNG còn ô nhập, engine xếp lịch
-    # thôi cộng. Cột giữ để không mất số cũ (dự án không có Alembic, `create_all` không ALTER).
-    thoi_gian_rua_muc: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)       # phút
-    min_stock_gsm: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    max_stock_gsm: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    vat_lieu_ho_tro_class: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    so_may_song_song: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)
-    so_ca: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    chi_so_dem_luot: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # CHỜ KỸ THUẬT sau khi chạy xong trên máy này — mực khô · màng nguội (mg 0182). Tính bằng GIỜ
+    # (người khai nghĩ "mực khô 4 tiếng"), khác `makeready_time_default` tính bằng PHÚT — nhãn ở
+    # form phải ghi rõ đơn vị.
+    #
+    # Vì sao khai ở MÁY chứ không ở công đoạn (chủ chốt 10/08/2026): bốn máy CM-01…CM-04 cùng công
+    # đoạn "Cán màng / UV" nhưng hai máy UV khô dưới đèn (≈0) còn hai máy cán màng phải để nguội
+    # vài giờ. Một số cho cả công đoạn là chắc chắn sai một trong hai vế, mà không có gì báo.
+    #
+    # ⚠️ KHÔNG chiếm máy: tờ nằm chờ khô thì máy chạy job khác. Nó vào `tong_phut` của bước chứ
+    # KHÔNG vào `chiem_may_phut` — cộng nhầm là khoá oan cái máy mấy tiếng.
+    cho_ky_thuat_gio: Mapped[float] = mapped_column(
+        Numeric(6, 2), nullable=False, default=0, server_default="0"
+    )
+    # Kíp chuẩn cần để vận hành máy — hoạch định nhân lực, KHÔNG nhân tốc độ máy.
+    so_nhan_cong: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, server_default="1", default=1)
 
-    # ---- §3.6 Bảo trì ----
-    ngay_bao_tri_gan_nhat: Mapped[date | None] = mapped_column(Date, nullable=True)
-    chu_ky_bao_tri: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    chu_ky_bao_tri_don_vi: Mapped[str | None] = mapped_column(String(8), nullable=True)  # gio|luot
-    ngay_bao_tri_ke_tiep: Mapped[date | None] = mapped_column(Date, nullable=True)
-
-    # ---- §3.7A press_offset_sheet — field engine hay đọc (promoted, nullable) ----
+    # ---- Khổ · vùng in · chừa lề (★ = engine bình bài đọc) ----
     kho_max_dai: Mapped[int | None] = mapped_column(Integer, nullable=True)   # ★ bình bài
     kho_max_rong: Mapped[int | None] = mapped_column(Integer, nullable=True)  # ★
     kho_min_dai: Mapped[int | None] = mapped_column(Integer, nullable=True)   # ★
@@ -161,30 +128,16 @@ class MayThietBi(Base):
     nhip_giay_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)
     le_hong_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)          # ★ trừ MỖI BÊN chiều rộng
     duoi_thang_mau_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)   # ★ trừ chiều dài (đuôi tờ)
-    so_units: Mapped[int | None] = mapped_column(Integer, nullable=True)      # ★ đếm lượt/kẽm
-    units_truoc: Mapped[int | None] = mapped_column(Integer, nullable=True)   # perfector
-    units_sau: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    khoa_class: Mapped[str | None] = mapped_column(String(16), index=True, nullable=True)  # → giá kẽm
-    co_tro_mat: Mapped[bool | None] = mapped_column(Boolean, nullable=True)   # perfector
-    cho_phep_tu_tro: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # work-and-turn
-    cho_phep_tro_dau_duoi: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    bu_hao_canh_may_per_mau: Mapped[int | None] = mapped_column(Integer, nullable=True)   # tờ/màu
-    bu_hao_chay_pct: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)   # %
-    ho_tro_cip3: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
-    # ---- Field đặc thù còn lại theo loai_may (web/digital/flexo/gravure/wide/finishing/
-    #      thue_ngoai + offset phụ: so_zone_muc, co_thap_phu, loai_phu, chi_phi_phu_per_m2…) ----
+    # ---- Túi JSON: field đặc thù theo loai_may + khối con của form ----
+    # Khoá đang dùng: `chuan_bi_khoan` (các khoản chuẩn bị → cộng ra makeready_time_default) và
+    # `lich_bao_tri` (Lịch bảo trì định kỳ: [{viec, so, don_vi}] với don_vi ∈ ngay|tuan|thang|nam).
     fields_theo_loai: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
-
-    @property
-    def active(self) -> bool:
-        """`active` suy từ trang_thai — chỉ máy đang hoạt động mới cho báo giá (§3.1)."""
-        return self.trang_thai == "active"
 
 
 # Tên nhóm máy MẶC ĐỊNH — nguồn DUY NHẤT cho cả migration backfill lẫn seed.

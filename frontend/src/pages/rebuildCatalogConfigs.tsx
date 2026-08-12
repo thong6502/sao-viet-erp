@@ -22,6 +22,10 @@ export const BINDING: Lbls = { ghim: "Đóng ghim", keo: "Vào keo", khau: "Khâ
 
 const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia công sau in", other: "Dịch vụ khác" };
 
+// Dụng cụ DÙNG CHUNG mà bước cần (mục C) — phải khớp `cong_doan.TOOLING_TYPE` ở backend
+// (`khuon_be` · `khuon_ep` · `kem`), service chặn giá trị ngoài danh sách.
+const TOOLING_TYPE: Lbls = { khuon_be: "Khuôn bế", khuon_ep: "Khuôn ép nhũ / dập nổi", kem: "Bản kẽm" };
+
 // Đơn vị đếm của công đoạn. Dòng giấy chảy MỘT CHIỀU qua ba đơn vị, đổi ở hai chỗ:
 //   tờ nguyên ──(xả)──▶ tờ in ──(bế/xén)──▶ tờ thành phẩm
 // Hệ số quy đổi KHÔNG khai ở đây — phiếu tính giá đã có con/tờ và số mảnh xả.
@@ -88,6 +92,7 @@ export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
   title: "Loại sản phẩm",
   subtitle: "Khuôn mẫu sản phẩm — gán cách dàn khuôn (bình bài) + chuỗi công đoạn mặc định.",
   prefix: "/api/loai-san-pham",
+  nhatKyLoai: "loai_san_pham",
   columns: [
     {
       key: "routing_template",
@@ -132,10 +137,9 @@ export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
 
 // Form MỞ (phẳng): mọi ô luôn hiện, không phân loại cứng. Chủ xưởng tự đặt "Nhóm máy"
 // (chữ tự do) rồi nhập khổ kẽm / nhíp / khổ giấy / vùng in / ghi chú.
-// Nhãn đơn vị tốc độ cho BẢNG DANH SÁCH — lấy ĐÚNG bảng mà ô chọn đang dùng (`DON_VI_TOC_DO`).
-// Trước đây đây là bảng nhãn RIÊNG, thiếu mã nào thì hiện trần phần mã: máy khai `tan_gio` ra
-// "tan/giờ" mất dấu, mà ô chọn ngay cạnh lại ghi "tấn/h". Hai bảng nhãn cho cùng một thứ thì kiểu
-// gì cũng lệch — nay một nguồn duy nhất.
+// Nhãn đơn vị tốc độ cho BẢNG DANH SÁCH (cột chỉ có mã, không fetch được danh mục). Ô CHỌN trong
+// form nay lấy động từ `/api/don-vi` nên nhãn ở đó là `ten` thật; bảng `DON_VI_TOC_DO` dưới đây chỉ
+// còn phủ nhãn đẹp cho các mã quen ở cột danh sách, mã lạ thì hiện trần `<mã>/h` (fallback).
 function nhanDonViTocDo(ma: string): string {
   if (!ma) return "";
   const co = DON_VI_TOC_DO.find((d) => d.ma === ma);
@@ -148,6 +152,7 @@ export const CFG_MAY: CatalogConfig = {
   title: "Thiết bị & Máy móc",
   subtitle: "Nhập tự do mọi loại máy (in, cán màng/UV, bồi, bế…). Tự đặt Nhóm máy rồi điền khổ kẽm, nhíp kẽm, khổ giấy, vùng in.",
   prefix: "/api/may-thiet-bi",
+  nhatKyLoai: "may_thiet_bi",
   columns: [
     { key: "loai_may", label: "Nhóm máy", render: (r) => (r.loai_may ? String(r.loai_may) : "—") },
     { key: "thong_so_kho", label: "Khổ máy & Vùng in",
@@ -237,6 +242,10 @@ export const CFG_MAY: CatalogConfig = {
     // ── 1. Thông tin chung ──────────────────────────────────────────────────
     { key: "loai_may", label: "Nhóm máy", type: "nhom_may", required: true, group: "Thông tin chung",
       refPrefix: "/api/nhom-may" },
+    // Nhận diện tài sản — cột đã có sẵn trong DB (chỉ chưa bày ra form).
+    { key: "hang_san_xuat", label: "Hãng sản xuất", type: "text", group: "Thông tin chung" },
+    { key: "model", label: "Model", type: "text", group: "Thông tin chung" },
+    { key: "so_seri", label: "Số seri", type: "text", group: "Thông tin chung" },
     // ── 2. Khổ kẽm & Vùng in (chỉ Máy in) ───────────────────────────────────
     { key: "kho_kem_rong", label: "Khổ kẽm — rộng (mm)", type: "number", group: "Khổ kẽm & Vùng in",
       showIf: (f) => isMayIn(f.loai_may) },
@@ -263,11 +272,15 @@ export const CFG_MAY: CatalogConfig = {
     // ── 5. Tốc độ & Năng suất vận hành ───────────────────────────────────────
     { key: "toc_do", label: "Tốc độ trung bình", type: "number", group: "Tốc độ & Vận hành" },
     { key: "don_vi_toc_do", label: "Đơn vị tốc độ", type: "don_vi_toc_do",
+      refPrefix: "/api/don-vi", refParams: { active: true, size: 200 },
       group: "Tốc độ & Vận hành", default: "to_gio" },
     { key: "toc_do_min", label: "Tốc độ tối thiểu", type: "number", group: "Tốc độ & Vận hành" },
     { key: "toc_do_max", label: "Tốc độ tối đa", type: "number", group: "Tốc độ & Vận hành" },
     { key: "so_nhan_cong", label: "Số người vận hành tiêu chuẩn", type: "number", required: true,
       default: 1, group: "Tốc độ & Vận hành" },
+    // Ô "Ca làm việc của máy này" ĐÃ BỎ (2026-08-10): máy là thiết bị, bàn xếp lịch cho chạy
+    // LIÊN TỤC (chỉ dừng vì ngày nghỉ/lễ + vùng khoá máy). Ca là chuyện của người và khai một chỗ
+    // ở Nhân sự → Ca kíp; tăng ca thì cứ xếp việc vào giờ đó, khỏi sửa danh mục máy.
     // Ô "Thời gian rửa mực" ĐÃ BỎ (2026-08-04): vệ sinh/rửa mực gỡ khỏi hệ, engine xếp lịch
     // thôi cộng vào thời gian chiếm máy. Cột DB giữ dormant — đừng khai lại ô này.
     { key: "_chuan_bi_kieu", label: "Thời gian chuẩn bị", type: "select", group: "Tốc độ & Vận hành",
@@ -277,13 +290,19 @@ export const CFG_MAY: CatalogConfig = {
         { value: "tong", label: "Điền tổng — gõ thẳng một số" },
         { value: "khoan", label: "Theo từng khoản — máy tự cộng" },
       ] },
+    { key: "cho_ky_thuat_gio", label: "Chờ kỹ thuật sau khi chạy (giờ)", type: "number",
+      group: "Tốc độ & Vận hành",
+      hint: "Mực khô · màng nguội. KHÔNG chiếm máy — máy chạy job khác trong lúc chờ, chỉ bước SAU phải lùi. Máy UV khô dưới đèn thì để 0." },
     { key: "makeready_time_default", label: "Tổng thời gian chuẩn bị (phút)", type: "number",
       group: "Tốc độ & Vận hành",
       showIf: (f) => f._chuan_bi_kieu === "tong" },
     { key: "chuan_bi_khoan", label: "Các khoản chuẩn bị", type: "chuan_bi_khoan",
       group: "Tốc độ & Vận hành", jsonKey: "fields_theo_loai",
       showIf: (f) => f._chuan_bi_kieu === "khoan" },
-    // ── 6. Ghi chú ───────────────────────────────────────────────────────────
+    // ── 6. Bảo trì định kỳ (lưu lồng trong fields_theo_loai — KHÔNG cột mới, KHÔNG migration) ─
+    { key: "lich_bao_tri", label: "Lịch bảo trì định kỳ", type: "lich_bao_tri",
+      group: "Bảo trì định kỳ", jsonKey: "fields_theo_loai" },
+    // ── 7. Ghi chú ───────────────────────────────────────────────────────────
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
   // Đơn vị tốc độ là Ô CHỌN 2 giá trị, không suy từ `loai_may`: nhóm máy ở đây là CHỮ TỰ DO
@@ -335,6 +354,7 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   subtitle: "",
   showCount: false,
   prefix: "/api/cong-doan",
+  nhatKyLoai: "cong_doan",
   facet: { key: "nhom", values: mapOpt(NHOM_CD) },
   columns: [
     { key: "nhom", label: "Giai đoạn", render: (r) => lbl(NHOM_CD)(r.nhom) },
@@ -344,12 +364,28 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "kieu_bu_hao", label: "Bù hao", render: (r) =>
         r.kieu_bu_hao === "co_dinh" ? `Cố định ${r.so_to_bu_hao ?? 50} tờ` : lbl(KIEU_BU_HAO)(r.kieu_bu_hao ?? "khong") },
     // Nhìn ra công đoạn nào chưa khai số cho Lệnh sản xuất (giống cột Tốc độ bên màn Máy).
-    { key: "setup_time", label: "Chuẩn bị",
-      render: (r) => (Number(r.setup_time) > 0 ? (
-        <span style={{ color: "var(--rust, #c5400a)", fontWeight: 500, display: "flex", alignItems: "center" }}>
-          <ClockIcon width={12} height={12} /> {Number(r.setup_time)} phút
-        </span>
-      ) : "—") },
+    // Ba thứ ĐI CÙNG NHAU ở một cột vì chúng cùng trả lời "bước này ăn bao nhiêu thời gian, và có
+    // vướng dụng cụ không" — tách ba cột thì bảng dài mà vẫn phải đọc cả ba mới hiểu.
+    { key: "dau_viec_dinh_muc", label: "Chờ & ràng buộc",
+      render: (r) => {
+        const dv = (r.dau_viec_dinh_muc ?? []) as { cho_ky_thuat_gio?: number }[];
+        const gioMax = Array.isArray(dv) ? Math.max(0, ...dv.map((c) => Number(c.cho_ky_thuat_gio) || 0)) : 0;
+        if (!gioMax && !r.requires_tooling) return "—";
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: "12px" }}>
+            {gioMax > 0 && (
+              <span style={{ color: "var(--rust, #c5400a)", fontWeight: 500, display: "flex", alignItems: "center" }}>
+                <ClockIcon width={12} height={12} /> Chờ kỹ thuật tới {gioMax}h ({dv.length} đầu việc)
+              </span>
+            )}
+            {!!r.requires_tooling && (
+              <span className="rc__formula-pill">
+                Cần {lbl(TOOLING_TYPE)(r.tooling_type).toLowerCase()}
+              </span>
+            )}
+          </div>
+        );
+      } },
     { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
   ],
   fields: [
@@ -357,7 +393,20 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "department_id", label: "Phòng ban / Tổ phụ trách", type: "ref", refPrefix: "/api/cong-doan/phong-ban", group: "Thông tin" },
 
     // ── Nguồn nuôi thẳng thời lượng bước ở Lệnh sản xuất ──────────────────────────────────────
-    { key: "setup_time", label: "Thời gian chuẩn bị (phút)", type: "number", group: "Lệnh sản xuất" },
+    // 🔴 Ô "Thời gian chuẩn bị (phút)" ĐÃ GỠ 10/08/2026. Công thức thời lượng lấy chuẩn bị TỪ MÁY
+    // (`may_thiet_bi.makeready_time_default`), KHÔNG đọc `cong_doan.setup_time` — cột đó dormant từ
+    // trước. Để ô lại là mời người ta gõ một số không đổi phút nào, mà bước TỔ thì càng luôn = 0
+    // (tổ không có máy). Chuẩn bị là chuyện của MÁY, khai ở màn Thiết bị & Máy móc.
+    // Chờ kỹ thuật KHÔNG khai ở đây nữa (10/08/2026): bước MÁY khai ở màn Máy, bước TỔ khai ở
+    // từng đầu việc bên dưới. Khoá theo công đoạn không tách được máy UV với máy cán màng (cùng
+    // công đoạn, chờ khác hẳn), cũng không tách được vào-keo với khâu-chỉ.
+    // Mục C — bật hai cờ có sẵn. KHÔNG đoán bước bế theo tên công đoạn: đặt tên là việc của người
+    // dùng, mà lịch thì khoá khuôn theo cờ này.
+    { key: "requires_tooling", label: "Bước này cần khuôn / kẽm riêng", type: "checkbox",
+      group: "Lệnh sản xuất",
+      hint: "Bật ⇒ lệnh phải gán khuôn, và hai lệnh dùng chung một khuôn không được xếp trùng giờ." },
+    { key: "tooling_type", label: "Loại dụng cụ", type: "select", group: "Lệnh sản xuất",
+      options: mapOpt(TOOLING_TYPE), showIf: (f) => !!f.requires_tooling },
     { key: "dau_viec_dinh_muc", label: "Đầu việc và định mức của tổ", type: "dau-viec-dinh-muc",
       refPrefix: "/api/cong-doan/dau-viec", group: "Lệnh sản xuất" },
     // Chặn gán máy SAI LOẠI ở bài ghép (vd Ghi kẽm CTP không cho máy Bế). Lưu mảng TÊN nhóm máy.
@@ -384,6 +433,11 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   transformSubmit: (body) => {
     body.department_id = body.department_id ?? null;
     body.dau_viec_dinh_muc = body.dau_viec_dinh_muc ?? [];
+    // Bỏ tick "cần khuôn" thì ô Loại dụng cụ bị `showIf` ẩn ⇒ không nằm trong body ⇒ backend giữ
+    // giá trị cũ. Xoá thẳng ở đây, không thì công đoạn hiện "không cần khuôn" mà vẫn đeo nhãn
+    // "Khuôn bế" trong dữ liệu.
+    body.requires_tooling = !!body.requires_tooling;
+    if (!body.requires_tooling) body.tooling_type = null;
     body.che_do_tinh = "theo_san_luong";
     body.pricing_basis = "per_other";
     body.run_rate = null;
@@ -396,6 +450,7 @@ export const CFG_BU_HAO: CatalogConfig = {
   title: "Bù hao",
   subtitle: "Mỗi mã bù hao = danh sách bậc số lượng → số tờ / %. Công đoạn trỏ mã bù hao để tra bậc theo SL.",
   prefix: "/api/bu-hao",
+  nhatKyLoai: "bu_hao",
   columns: [
     {
       key: "bac",
@@ -440,6 +495,7 @@ export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
   title: "Chủng loại giấy",
   subtitle: "Phân loại giấy (Couché / Ford / Bristol / Ivory / Duplex / Kraft…). Giấy chọn theo đây.",
   prefix: "/api/vat-lieu-kho/chung-loai-giay",
+  nhatKyLoai: "chung_loai_giay",
   columns: [
     { key: "be_mat", label: "Bề mặt", render: (r) => lbl(BE_MAT)(r.be_mat) },
     { key: "tho_mac_dinh", label: "Thớ mặc định", render: (r) => lbl(THO)(r.tho_mac_dinh) },
@@ -455,6 +511,7 @@ export const CFG_GIAY: CatalogConfig = {
   title: "Giấy",
   subtitle: "Từng loại giấy cụ thể — thuộc 1 Chủng loại giấy. Khai định lượng + đơn giá theo cân (đ/kg); khổ giấy nhập ở phiếu tính giá.",
   prefix: "/api/vat-lieu-kho/giay",
+  nhatKyLoai: "giay",
   softDelete: true,
   hasVersions: false,
   facet: KHO_FACET,
@@ -480,44 +537,19 @@ export const CFG_GIAY: CatalogConfig = {
 
 export const CFG_VAT_TU: CatalogConfig = {
   title: "Vật tư khác",
-  subtitle: "Mực, bản kẽm, hoá chất, màng, keo… — mã · tên · ĐVT · quy cách đóng gói · công thức.",
+  subtitle: "Mực, bản kẽm, hoá chất, màng, keo… — mã · tên · ĐVT · công thức.",
   prefix: "/api/vat-lieu-kho/vat-tu-in-an",
+  nhatKyLoai: "vat_tu",
   columns: [
     { key: "don_vi_gia", label: "ĐVT", render: (r) => dvCell(r) },
-    {
-      key: "don_vi_dong_goi",
-      label: "Quy cách",
-      // Hiện thành CÂU chứ không hai ô số rời: "1 thùng = 3 kg" là thứ thủ kho đọc rồi đối chiếu
-      // được với thùng hàng trước mặt.
-      render: (r) => (r.don_vi_dong_goi && Number(r.he_so_dong_goi)
-        ? <span className="rc__formula-pill">
-            1 {String(r.don_vi_dong_goi_ten ?? r.don_vi_dong_goi)}
-            {" = "}{Number(r.he_so_dong_goi).toLocaleString("vi-VN")}
-            {" "}{String(r.don_vi_ten ?? r.don_vi_gia ?? "")}
-          </span>
-        : "—"),
-    },
     { key: "don_gia", label: "Đơn giá", render: (r) => (Number(r.don_gia) ? Number(r.don_gia).toLocaleString("vi-VN") : "—") },
     { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
   ],
   fields: [
+    // Quy cách đóng gói (đơn vị đóng gói + hệ số) ĐÃ BỎ 10/08/2026: khai quy đổi ở hai nơi là bắt
+    // người dùng nhớ luật vô ích. Cần "1 thùng keo = 20 kg" thì khai thẳng đơn vị đó trong danh
+    // mục Đơn vị & quy đổi rồi chọn ở ô ĐVT — một nơi duy nhất cho mọi quy đổi.
     { key: "don_vi_gia", label: "Đơn vị tính (ĐVT)", ...F_DON_VI, group: "Thông số" },
-    // Quy cách đóng gói: hệ số RIÊNG của món ("1 thùng keo = 3 kg" ≠ "1 thùng mực = 5 kg") nên khai
-    // ở đây chứ không khai vào bảng cặp quy đổi chung. Có nó thì kho nhập "2 thùng" ra đúng 6 kg.
-    { key: "don_vi_dong_goi", label: "Đơn vị đóng gói", ...F_DON_VI, group: "Quy cách",
-      hint: "Đơn vị NCC giao / kho nhận (thùng, cuộn…) — bỏ trống nếu chỉ dùng ĐVT" },
-    // Hint ĐỘNG: ghép câu từ chính 3 ô đang gõ. Hai ô số rời không nói lên nghĩa gì, còn
-    // "1 thùng = 3 kg" thì thủ kho đọc rồi đối chiếu ngay với thùng hàng trước mặt.
-    { key: "he_so_dong_goi", label: "Hệ số quy đổi", type: "number", group: "Quy cách",
-      hint: (f) => {
-        const goi = String(f.don_vi_dong_goi ?? "").trim();
-        const goc = String(f.don_vi_gia ?? "").trim();
-        const hs = Number(f.he_so_dong_goi);
-        if (!goi) return "Chọn đơn vị đóng gói trước, rồi điền hệ số ở đây.";
-        if (!goc) return `Chọn ĐVT trước — hệ số là “1 ${goi} = ? <ĐVT>”.`;
-        if (!hs) return `Điền hệ số: 1 ${goi} = ? ${goc}`;
-        return `1 ${goi} = ${hs.toLocaleString("vi-VN")} ${goc}`;
-      } },
     // Đơn giá chốt ở danh mục — engine phơi thành biến `don_gia` (+ don_gia_kg/m²) cho công thức vật tư.
     { key: "don_gia", label: "Đơn giá", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn — dùng làm biến don_gia trong công thức" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
@@ -525,7 +557,7 @@ export const CFG_VAT_TU: CatalogConfig = {
   ],
 };
 
-// Xóa kho KHÔNG dùng luồng ẩn-mềm mặc định: kho là gốc của lô/phiếu/đề nghị nên phải CHẶN nếu còn
+// Xóa kho KHÔNG dùng luồng ẩn-mềm mặc định: kho là gốc của lô/phiếu/yêu cầu nên phải CHẶN nếu còn
 // dính, và bắt gõ mã xác nhận (thao tác nặng). Gọi /delete-check để soi rồi mới cho xóa qua DELETE
 // (backend xóa mềm + tự chặn lần nữa). Chỉ role có quyền kho:delete mới thấy nút Xóa.
 function KhoDeleteDialog({ row, token, onClose, onDone }: {
@@ -581,11 +613,11 @@ function KhoDeleteDialog({ row, token, onClose, onDone }: {
           <ul className="kho-del__list">
             {blockers.map((b, i) => <li key={i}>{b}</li>)}
           </ul>
-          <p className="kho-del__muted">Hãy xử lý xong tồn / phiếu / đề nghị của kho này rồi mới xóa.</p>
+          <p className="kho-del__muted">Hãy xử lý xong tồn / phiếu / yêu cầu của kho này rồi mới xóa.</p>
         </div>
       ) : (
         <div className="kho-del__ok">
-          <p>Kho <b>{row.ma}</b> sẽ được <b>ẩn (xóa mềm)</b> — lịch sử phiếu đã ghi sổ vẫn giữ nguyên.</p>
+          <p>Kho <b>{row.ma}</b> sẽ được <b>xóa</b> — lịch sử phiếu đã ghi sổ vẫn giữ nguyên.</p>
           <label className="kho-del__field">
             <span>Gõ lại mã <b>{row.ma}</b> để xác nhận xóa</span>
             <input
@@ -608,6 +640,7 @@ export const CFG_KHO_HANG: CatalogConfig = {
   title: "Kho hàng",
   subtitle: "Khai báo kho (tên · vị trí · ghi chú). Kho tạo ở đây tự hiện dưới mục “Kho hàng” trên thanh điều hướng.",
   prefix: "/api/kho",
+  nhatKyLoai: "kho_hang",
   softDelete: true,
   autoCode: true,          // mã KHO-#### sinh ngầm ở backend, ẩn ô nhập mã
   columns: [
@@ -623,7 +656,15 @@ export const CFG_KHO_HANG: CatalogConfig = {
 };
 
 // Tình trạng khuôn bế — record-only (con người phán, máy chỉ ghi nhận).
-export const TINH_TRANG_KHUON: Lbls = { dang_dung: "Đang dùng", hong: "Hỏng", thanh_ly: "Thanh lý" };
+// `dang_dat_lam` (mg 0177): khuôn CHƯA có trong tay, đang đặt thợ làm — đi kèm NGÀY VỀ DỰ KIẾN.
+// Bàn xếp lịch so ngày đó với giờ bắt đầu bước bế để biết khuôn có kịp không; không có nó thì
+// "đang đặt làm" chỉ là một chữ, không chặn được lệnh xếp bế vào ngày mai.
+export const TINH_TRANG_KHUON: Lbls = {
+  dang_dung: "Đang dùng",
+  dang_dat_lam: "Đang đặt làm",
+  hong: "Hỏng",
+  thanh_ly: "Thanh lý",
+};
 
 // Ngày ISO (yyyy-mm-dd) → dd/mm/yyyy để đọc; rỗng → "—".
 const fmtDate = (v: unknown): string => {
@@ -639,6 +680,7 @@ export const CFG_KHUON_BE: CatalogConfig = {
   title: "Khuôn bế",
   subtitle: "Khai báo nơi lưu trữ khuôn bế (số kệ · ngày làm · tình trạng). Mỗi khuôn làm riêng cho 1 ấn phẩm — đơn lặp lại lôi khuôn cũ ra dùng.",
   prefix: "/api/khuon-be",
+  nhatKyLoai: "khuon_be",
   softDelete: true,
   autoCode: true,          // mã KB-#### sinh ngầm ở backend, ẩn ô nhập mã
   facet: { key: "tinh_trang", values: mapOpt(TINH_TRANG_KHUON) },
@@ -656,6 +698,8 @@ export const CFG_KHUON_BE: CatalogConfig = {
     { key: "ngay_lam_khuon", label: "Ngày làm khuôn", type: "date", group: "Lưu trữ" },
     { key: "tinh_trang", label: "Tình trạng", type: "select", group: "Lưu trữ",
       options: mapOpt(TINH_TRANG_KHUON), default: "dang_dung" },
+    { key: "ngay_ve_du_kien", label: "Ngày về dự kiến", type: "date", group: "Lưu trữ",
+      hint: "Bắt buộc khi tình trạng là “Đang đặt làm” — bàn xếp lịch cần số này để biết khuôn có kịp giờ bế không" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Lưu trữ" },
   ],
 };
@@ -666,6 +710,7 @@ export const CFG_KHUON_BE: CatalogConfig = {
 export const CFG_DON_VI: CatalogConfig = {
   title: "Đơn vị & quy đổi",
   prefix: "/api/don-vi",
+  nhatKyLoai: "don_vi_do",
   softDelete: true,
   // Tạo xong giữ drawer mở để khai quy đổi ngay — khối quy đổi phải có id mới gắn vào được.
   moLaiSauKhiTao: true,

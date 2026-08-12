@@ -427,10 +427,21 @@ class CustomerDetailOut(BaseModel):
 
 
 class SaleOption(BaseModel):
-    """A selectable Sale (owner) for the create/edit form filters."""
+    """Một người trong hộp chọn "NV phụ trách" (hộp lọc, ô gán khi tạo/sửa, hộp điều chuyển).
+
+    `co_the_gan=False` = người này KHÔNG đủ tư cách nhận khách mới (ngoài khối Kinh doanh / đã
+    khoá tài khoản) nhưng vẫn đang giữ khách trong tầm nhìn ⇒ hộp LỌC hiện, ô GÁN ẩn."""
 
     id: int
     name: str
+    # Vai trò + phòng để hộp chọn hiện 2 tầng ("Lê Sale Một" / "NV Sales · Kinh doanh") — cùng một
+    # cái tên xuất hiện ở 3 chỗ, không có chức danh thì không biết ai là trưởng ai là nhân viên.
+    vai_tro: str | None = None
+    phong_ban: str | None = None
+    co_the_gan: bool = True
+    # Số khách người này đang phụ trách TRONG TẦM NHÌN của người xem (hộp Điều chuyển cần con số
+    # này để biết chuyển bao nhiêu; 0 = chưa giữ khách nào).
+    so_kh: int = 0
 
 
 class CustomerReassignIn(BaseModel):

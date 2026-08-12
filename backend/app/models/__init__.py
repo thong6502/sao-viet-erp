@@ -95,6 +95,7 @@ from .cong_doan import CongDoan, CongDoanDauViec
 from .bu_hao import BuHao
 from .don_vi_do import DonViDo, DonViQuyDoi
 from .kho_hang import KhoHang
+from .kho_khoa_so import KhoKhoaSo
 from .stock_request import StockRequest, StockRequestLine
 from .stock_lot import StockLot, StockThreshold
 from .stock_voucher import StockVoucher, StockVoucherAttachment, StockVoucherLine
@@ -107,6 +108,9 @@ from .bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCong
 from .xep_lich import XepLichCongDoan
 from .xep_lich_van_de import XepLichVanDe
 from .machine_unavailable import MachineUnavailablePeriod
+# Bảng MỚI phải import Ở ĐÂY thì `create_all` mới dựng: module không được import thì class không
+# chạy, không đăng ký lên `Base.metadata`, và bảng lặng lẽ không tồn tại (không lỗi nào bật ra).
+from .to_quan_so import ToQuanSoNgay
 from .document_sequence import DocumentSequence
 
 __all__ = [
@@ -199,6 +203,7 @@ __all__ = [
     "PhieuThanhPhan",
     "PhieuThanhPham",
     "KhoHang",
+    "KhoKhoaSo",
     "StockRequest",
     "StockRequestLine",
     "StockVoucher",
@@ -217,6 +222,7 @@ __all__ = [
     "XepLichCongDoan",
     "XepLichVanDe",
     "MachineUnavailablePeriod",
+    "ToQuanSoNgay",
     "DonViDo",
     "DonViQuyDoi",
 ]

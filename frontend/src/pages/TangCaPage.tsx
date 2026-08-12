@@ -6,7 +6,7 @@
 // nên màn này KHÔNG nhập giờ làm thực — chỉ khai khoảng được phép tăng ca.
 import { useCallback, useEffect, useState } from "react";
 import { api, type EmployeeRow, type OvertimeRequest } from "../api/client";
-import { useCan } from "../auth/permissions";
+import { useCan, useSelfService, useSelfServiceWrite } from "../auth/permissions";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { EmptyRow } from "../components/EmptyState";
@@ -441,7 +441,13 @@ export function TangCaPage({
   const token = authToken ?? ""; // AppShell chỉ render màn này sau khi đăng nhập
   const can = useCan();
   const canApprove = can("tang_ca", "approve");
-  const [tab, setTab] = useState<Tab>(canApprove ? "approve" : "mine");
+  // Ô TỰ PHỤC VỤ (đợt 3) — quản trị TẮT ĐƯỢC. Không hỏi thì tắt xong nút vẫn bày ra, bấm
+  // mới ăn 403: trông như hệ thống hỏng chứ không như "anh không có quyền".
+  const tuPhucVu = useSelfService();
+  // Ô THAO TÁC của Tự phục vụ — TÁCH khỏi ô Xem ngày 11/08/2026. Tab/danh sách đi theo ô
+  // Xem; còn nút GỬI · SỬA · HUỶ thì đi theo ô này.
+  const tuPhucVuGhi = useSelfServiceWrite();
+  const [tab, setTab] = useState<Tab>(canApprove && !tuPhucVu ? "approve" : "mine");
   const [mine, setMine] = useState<OvertimeRequest[]>([]);
   const [mineTotal, setMineTotal] = useState(0);
   const [minePage, setMinePage] = useState(1);
@@ -560,12 +566,14 @@ export function TangCaPage({
       {err && <div className="banner banner--error">{err}</div>}
 
       <div className="tc-tabs">
-        <button
-          className={`btn ${tab === "mine" ? "btn--primary" : "btn--ghost"}`}
-          onClick={() => setTab("mine")}
-        >
-          Phiếu của tôi
-        </button>
+        {tuPhucVu && (
+          <button
+            className={`btn ${tab === "mine" ? "btn--primary" : "btn--ghost"}`}
+            onClick={() => setTab("mine")}
+          >
+            Phiếu của tôi
+          </button>
+        )}
         {canApprove && (
           <button
             className={`btn ${tab === "approve" ? "btn--primary" : "btn--ghost"}`}
@@ -576,7 +584,7 @@ export function TangCaPage({
         )}
       </div>
 
-      {tab === "mine" && (
+      {tab === "mine" && tuPhucVu && (
         <>
           <div className="cc-toolbar">
             <h4 className="ns-section__title" style={{ margin: 0, flex: 1 }}>
@@ -584,7 +592,7 @@ export function TangCaPage({
             </h4>
             {/* Hành động chính của tab → cam. Hai tab không bao giờ hiện cùng lúc nên màn
                 vẫn chỉ có ĐÚNG một nút cam. */}
-            {hasEmployee && (
+            {hasEmployee && tuPhucVuGhi && (
               <Button variant="accent" onClick={() => setCreating("mine")}>
                 + Gửi phiếu
               </Button>

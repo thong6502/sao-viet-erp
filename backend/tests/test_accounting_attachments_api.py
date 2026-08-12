@@ -70,8 +70,11 @@ def _duyet(client, purchase_id: int) -> None:
             bgd = DepartmentRepository(db).get_by_name("Ban giám đốc")
             roles = RoleRepository(db)
             role = roles.create(name="Duyet PMH cho ke toan", department_id=bgd.id)
-            roles.set_permission(role_id=role.id, module_key="thu_mua",
+            # Duyệt PMH dời sang khoá `ke_toan` (11/08/2026); giữ `thu_mua:read` để đọc phiếu.
+            roles.set_permission(role_id=role.id, module_key="ke_toan",
                                  can_read=True, can_approve=True, scope=SCOPE_ALL)
+            roles.set_permission(role_id=role.id, module_key="thu_mua",
+                                 can_read=True, scope=SCOPE_ALL)
             u = users.create(username="acct-approver", name="GD Duyet",
                              password_hash=hash_password("x"))
             users.set_assignment(u, department_id=bgd.id, role_id=role.id, is_active=True)
@@ -197,9 +200,10 @@ def _reader_token() -> str:
         department = DepartmentRepository(db).get_by_name("Kế toán")
         roles = RoleRepository(db)
         role = roles.create(name="Kế toán xem chứng từ", department_id=department.id)
-        roles.set_permission(
-            role_id=role.id, module_key="ke_toan", can_read=True, scope=SCOPE_ALL
-        )
+        # CHỈ XEM, không được gán/gỡ chứng từ — cấp `can_read` trên đủ 6 màn kế toán.
+        for khoa in ("ke_toan", "phieu_chi", "phieu_thu", "cong_no_phai_tra",
+                     "cong_no_phai_thu", "tk_ngan_hang"):
+            roles.set_permission(role_id=role.id, module_key=khoa, can_read=True, scope=SCOPE_ALL)
         users = UserRepository(db)
         user = users.create(
             username="attachment-reader",

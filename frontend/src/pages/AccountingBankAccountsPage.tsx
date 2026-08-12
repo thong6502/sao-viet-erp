@@ -42,8 +42,11 @@ function emptyAccount(): AccountForm {
 export function AccountingBankAccountsPage() {
   const { token } = useAuth();
   const can = useCan();
-  const canManageCompany = can("ke_toan", "update");
-  const canManageSupplier = can("ke_toan", "approve");
+  // Khoá RIÊNG của màn Tài khoản ngân hàng (tách 10/08/2026). TK của nhà cung cấp là dữ liệu
+  // gốc của NCC nên người quản danh mục NCC cũng sửa được — cùng luật với máy chủ.
+  const canManageCompany = can("tk_ngan_hang", "update");
+  const canManageSupplier =
+    can("tk_ngan_hang", "update") || can("nha_cung_cap", "update");
   const [tab, setTab] = useState<AccountTab>("company");
   const [companyRows, setCompanyRows] = useState<CompanyBankAccountRow[]>([]);
   const [supplierRows, setSupplierRows] = useState<SupplierBankAccountRow[]>([]);

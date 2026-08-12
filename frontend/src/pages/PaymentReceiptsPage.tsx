@@ -374,10 +374,12 @@ export function PaymentReceiptsPage({
 }) {
   const { token } = useAuth();
   const can = useCan();
-  const canApprove = can("ke_toan", "approve");
-  const canMarkReceived = can("ke_toan", "manage_status");
-  const canCancel = can("ke_toan", "cancel");
-  const canExport = can("ke_toan", "export");
+  // Khoá RIÊNG của màn Phiếu thu (tách 10/08/2026). `create` = LẬP/SỬA phiếu + gán chứng từ;
+  // trước đây gọi là `approve` nên nhìn ma trận tưởng là quyền duyệt.
+  const canApprove = can("phieu_thu", "create");
+  const canMarkReceived = can("phieu_thu", "manage_status");
+  const canCancel = can("phieu_thu", "cancel");
+  const canExport = can("phieu_thu", "export");
   // B3: quyền "Ghi phiếu thu cọc" (module Đơn hàng bán) — chỉ người này thấy hàng chờ + nghe popup cọc.
   const canRecordDeposit = can("don_hang_ban", "record_deposit");
   const [rows, setRows] = useState<PaymentReceiptRow[]>([]);

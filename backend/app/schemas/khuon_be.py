@@ -13,6 +13,9 @@ class KhuonBeIn(BaseModel):
     so_ke: str | None = None
     ngay_lam_khuon: date | None = None
     tinh_trang: str = "dang_dung"
+    # Chỉ có nghĩa với `tinh_trang='dang_dat_lam'` (mg 0177). Bàn xếp lịch so ngày này với giờ bắt
+    # đầu bước bế: về SAU giờ bế ⇒ vấn đề mức Chặn.
+    ngay_ve_du_kien: date | None = None
     ghi_chu: str | None = None
     active: bool = True
 
@@ -26,6 +29,7 @@ class KhuonBeRow(BaseModel):
     so_ke: str | None = None
     ngay_lam_khuon: date | None = None
     tinh_trang: str
+    ngay_ve_du_kien: date | None = None
     ghi_chu: str | None = None
     active: bool
     updated_at: datetime | None = None

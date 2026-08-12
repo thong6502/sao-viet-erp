@@ -8,7 +8,18 @@ import json
 import unicodedata
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
@@ -25,6 +36,7 @@ from ..services.auth_service import AuthError, AuthService
 from ..models.quotation import (
     DEFAULT_TERMS,
     QUOTE_STATUSES,
+    STATUS_CANCELLED,
     Quote,
     QuoteVersion,
 )
@@ -44,6 +56,8 @@ from ..schemas.quotation import (
     QuotationUpdate,
     QuoteActivityItem,
     QuoteActivityOut,
+    QuoteAttachmentOut,
+    QuoteAttachmentsOut,
     RequoteRequest,
     TransitionRequest,
     VersionRow,
@@ -59,6 +73,7 @@ from ..services.quotation_service import (
 )
 from ..services.quotation_state import TRANSITIONS
 from ..services.rbac_service import AuthorizationService
+from ..storage import get_storage, key_from_url, make_key, url_from_key
 
 router = APIRouter(prefix="/api/quotations", tags=["quotations"])
 
@@ -802,3 +817,93 @@ def _render_pdf(q: Quote, ref) -> bytes:
     c.showPage()
     c.save()
     return buf.getvalue()
+
+
+# --- Tài liệu đính kèm (NỘI BỘ) -----------------------------------------------
+# File khách gửi / mẫu thiết kế / ảnh tham khảo — neo vào báo giá, KHÔNG in ra bản gửi khách.
+# Lưu qua storage (đọc lại qua /api/files/bao-gia/... có kiểm quyền `bao_gia`), mẫu = đính kèm KH.
+
+_BAO_GIA_SUBDIR = "bao-gia"
+_MAX_ATTACH_BYTES = 25 * 1024 * 1024   # 25MB/tệp (chặn ở cả FE lẫn BE)
+
+
+def _quote_404():
+    return HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy báo giá.")
+
+
+@router.get("/{quotation_id}/attachments", response_model=QuoteAttachmentsOut)
+def list_quote_attachments(
+    quotation_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> QuoteAttachmentsOut:
+    try:
+        items = svc.list_attachments(
+            quotation_id=quotation_id, scope=_scope_for(authz, user), actor=user
+        )
+    except (QuotationNotFound, QuotationForbidden):
+        raise _quote_404() from None
+    return QuoteAttachmentsOut(items=[QuoteAttachmentOut.model_validate(a) for a in items])
+
+
+@router.post("/{quotation_id}/attachments", response_model=QuoteAttachmentOut, status_code=201)
+def upload_quote_attachment(
+    quotation_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    file: UploadFile = File(...),
+) -> QuoteAttachmentOut:
+    scope = _scope_for(authz, user)
+    # Kiểm quyền truy cập + trạng thái TRƯỚC khi ghi file (né ghi rác cho phiếu ngoài phạm vi / đã hủy).
+    try:
+        quote = svc.get_quotation(quotation_id=quotation_id, scope=scope, actor=user)
+    except (QuotationNotFound, QuotationForbidden):
+        raise _quote_404() from None
+    if quote.status == STATUS_CANCELLED:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Báo giá đã hủy — không đính kèm tài liệu được.")
+
+    data = file.file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Tệp rỗng.")
+    if len(data) > _MAX_ATTACH_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Tệp vượt quá 25MB.")
+
+    key, safe = make_key(_BAO_GIA_SUBDIR, quotation_id, file.filename)
+    get_storage().save(key, data, file.content_type)
+    try:
+        att = svc.add_attachment(
+            quotation_id=quotation_id, scope=scope, actor=user,
+            file_name=safe, file_url=url_from_key(key), file_type=file.content_type,
+        )
+    except (QuotationNotFound, QuotationForbidden):
+        get_storage().delete(key)
+        raise _quote_404() from None
+    except QuotationLocked as exc:
+        get_storage().delete(key)
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+    return QuoteAttachmentOut.model_validate(att)
+
+
+@router.delete("/{quotation_id}/attachments/{attachment_id}", status_code=204)
+def delete_quote_attachment(
+    quotation_id: int,
+    attachment_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+):
+    try:
+        file_url = svc.delete_attachment(
+            quotation_id=quotation_id, attachment_id=attachment_id,
+            scope=_scope_for(authz, user), actor=user,
+        )
+    except (QuotationNotFound, QuotationForbidden):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy tài liệu.") from None
+    except QuotationLocked as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+    # Dọn object trong storage (best-effort) — xóa row mới là việc chính.
+    key = key_from_url(file_url)
+    if key:
+        get_storage().delete(key)

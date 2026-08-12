@@ -36,9 +36,8 @@ def _buyer_token() -> str:
         kd = DepartmentRepository(db).get_by_name("Kinh doanh")
         roles = RoleRepository(db)
         role = roles.create(name="Nhan vien mua hang", department_id=kd.id)
-        roles.set_permission(
-            role_id=role.id,
-            module_key="thu_mua",
+        _cap_ba_man_thu_mua(
+            roles, role.id,
             can_read=True,
             can_create=True,
             can_update=True,
@@ -64,15 +63,20 @@ def _buyer_approver_token() -> str:
         kd = DepartmentRepository(db).get_by_name("Kinh doanh")
         roles = RoleRepository(db)
         role = roles.create(name="Truong mua hang", department_id=kd.id)
-        roles.set_permission(
-            role_id=role.id,
-            module_key="thu_mua",
+        # Duyệt PMH dời sang khoá `ke_toan` (11/08/2026) — fixture này mô tả người VỪA làm thu mua
+        # VỪA được trao quyền duyệt, nên phải cấp cả hai bên.
+        roles.set_permission(role_id=role.id, module_key="ke_toan",
+                             can_read=True, can_approve=True, scope=SCOPE_ALL)
+        _cap_ba_man_thu_mua(
+            roles, role.id,
             can_read=True,
             can_create=True,
             can_update=True,
             can_delete=False,
             can_cancel=True,
             can_approve=True,
+            # Ô mới (11/08/2026): sửa số nhận · mở lại đơn · đóng đơn — tách khỏi `can_approve`.
+            can_manage_status=True,
             can_request=True,
             scope=SCOPE_ALL,
         )
@@ -115,6 +119,89 @@ def _sales2_token() -> str:
         db.close()
 
 
+# Từ 10/08/2026 phân hệ Thu mua tách làm BA MÀN, mỗi màn một ô quyền riêng:
+#   thu_mua = Mua hàng · nha_cung_cap = Nhà cung cấp · yeu_cau_mua_hang = Yêu cầu mua hàng.
+# Vai "nhân viên/trưởng bộ phận mua hàng" ngoài đời chạm cả ba nên test cấp cả ba với CÙNG bộ cờ —
+# đúng như migration 0177 sao chép quyền cũ sang. Test nào muốn kiểm từng màn ĐỘC LẬP thì cấp tay
+# đúng một khoá (xem test_ba_man_thu_mua_gac_bang_ba_khoa_doc_lap).
+_MODULE_THU_MUA_DU_BA_MAN = ("thu_mua", "nha_cung_cap", "yeu_cau_mua_hang")
+
+
+def _cap_ba_man_thu_mua(roles, role_id: int, **co) -> None:
+    for khoa in _MODULE_THU_MUA_DU_BA_MAN:
+        roles.set_permission(role_id=role_id, module_key=khoa, **co)
+
+
+def _vai_dung_mot_man(khoa: str, uname: str, **co) -> str:
+    """Tạo tài khoản chỉ được cấp ĐÚNG MỘT màn của phân hệ Thu mua, trả token."""
+    db = SessionLocal()
+    try:
+        users = UserRepository(db)
+        existing = users.get_by_username(uname)
+        if existing is not None:
+            return create_access_token(str(existing.id))
+        kd = DepartmentRepository(db).get_by_name("Kinh doanh")
+        roles = RoleRepository(db)
+        role = roles.create(name=f"Chi man {khoa}", department_id=kd.id)
+        roles.set_permission(role_id=role.id, module_key=khoa, scope=SCOPE_ALL, **co)
+        u = users.create(username=uname, name=uname, password_hash=hash_password("x"))
+        users.set_assignment(u, department_id=kd.id, role_id=role.id, is_active=True)
+        return create_access_token(str(u.id))
+    finally:
+        db.close()
+
+
+def test_ba_man_thu_mua_gac_bang_ba_khoa_doc_lap(client):
+    """Mỗi màn Thu mua một ô quyền RIENG — cấp màn này KHONG mo cua man kia.
+
+    Y chu chot 10/08/2026: "cu cap quyen la duoc phep". Truoc do ca phan he dung chung mot khoa
+    `thu_mua`, nen bat NCC cho ke toan la ho co luon quyen tren phieu mua; con man Yeu cau mua hang
+    thi nguoc lai — BA endpoint tao/sua/huy chi doi DANG NHAP, ai cung day duoc yeu cau chi tien vao
+    hang doi cua bo phan mua hang.
+
+    Test nay giu ca hai chieu cua hang rao: co khoa dung man thi VAO duoc, khong co thi 403.
+    """
+    chi_ncc = _vai_dung_mot_man("nha_cung_cap", "chi-man-ncc",
+                                can_read=True, can_create=True, can_update=True)
+    chi_ycmh = _vai_dung_mot_man("yeu_cau_mua_hang", "chi-man-ycmh",
+                                 can_read=True, can_create=True, can_update=True)
+
+    h_ncc = {"Authorization": f"Bearer {chi_ncc}"}
+    h_ycmh = {"Authorization": f"Bearer {chi_ycmh}"}
+
+    # 1) Nguoi CHI co man Nha cung cap: vao duoc danh muc NCC...
+    assert client.get("/api/suppliers", headers=h_ncc).status_code == 200
+    # ...nhung KHONG cham duoc man Mua hang (phieu mua) va KHONG lap duoc yeu cau.
+    assert client.get("/api/purchase-requests", headers=h_ncc).status_code == 403
+    r = client.post("/api/department-purchase-requests",
+                    json=_department_request_payload(), headers=h_ncc)
+    assert r.status_code == 403, r.text
+
+    # 2) Nguoi CHI co man Yeu cau mua hang: lap duoc yeu cau...
+    r2 = client.post("/api/department-purchase-requests",
+                     json=_department_request_payload(), headers=h_ycmh)
+    assert r2.status_code == 201, r2.text
+    # ...nhung KHONG mo duoc danh muc NCC va KHONG cham duoc phieu mua.
+    assert client.get("/api/suppliers", headers=h_ycmh).status_code == 403
+    assert client.get("/api/purchase-requests", headers=h_ycmh).status_code == 403
+
+
+def test_khong_co_quyen_thi_khong_lap_duoc_yeu_cau_mua_hang(client):
+    """Tai khoan chi DANG NHAP, khong duoc cap gi: khong lap/sua/huy duoc yeu cau mua hang.
+
+    Day dung la lo hong da vá: truoc 10/08/2026 ba endpoint nay nhan moi tai khoan dang nhap.
+    """
+    tok = _vai_dung_mot_man("dashboard", "chi-dang-nhap", can_read=True)
+    h = {"Authorization": f"Bearer {tok}"}
+
+    assert client.post("/api/department-purchase-requests",
+                       json=_department_request_payload(), headers=h).status_code == 403
+    assert client.put("/api/department-purchase-requests/1",
+                      json=_department_request_payload(), headers=h).status_code == 403
+    assert client.post("/api/department-purchase-requests/1/cancel",
+                       json={"reason": "x"}, headers=h).status_code == 403
+
+
 def _requester_token() -> str:
     db = SessionLocal()
     try:
@@ -130,6 +217,16 @@ def _requester_token() -> str:
             module_key="thu_mua",
             can_read=True,
             can_request=True,
+            scope=SCOPE_ALL,
+        )
+        # Bộ phận đề nghị: LẬP + SỬA yêu cầu trên màn Yêu cầu mua hàng. Trước 10/08/2026 ba endpoint
+        # này chỉ đòi đăng nhập nên fixture không cần cấp gì — nay phải cấp mới gọi được.
+        roles.set_permission(
+            role_id=role.id,
+            module_key="yeu_cau_mua_hang",
+            can_read=True,
+            can_create=True,
+            can_update=True,
             scope=SCOPE_ALL,
         )
         u = users.create(username="purchase-requester", name="Requester", password_hash=hash_password("x"))
@@ -158,12 +255,21 @@ def _nguoi_duyet_token() -> str:
         bgd = DepartmentRepository(db).get_by_name("Ban giám đốc")
         roles = RoleRepository(db)
         role = roles.create(name="Nguoi duyet phieu mua", department_id=bgd.id)
+        # DUYỆT / TỪ CHỐI PMH dời sang khoá `ke_toan` ngày 11/08/2026 — nút chỉ có ở màn
+        # "Đơn mua hàng (Kế toán)", nên ô quyền cũng nằm ở đó. `thu_mua` giữ lại phần đọc + huỷ.
+        roles.set_permission(
+            role_id=role.id,
+            module_key="ke_toan",
+            can_read=True,
+            can_approve=True,
+            scope=SCOPE_ALL,
+        )
         roles.set_permission(
             role_id=role.id,
             module_key="thu_mua",
             can_read=True,
-            can_approve=True,
             can_cancel=True,
+            can_manage_status=True,
             scope=SCOPE_ALL,
         )
         u = users.create(username="purchase-approver", name="Nguoi duyet",
@@ -1671,3 +1777,77 @@ def test_notify_summary_can_quyen_thu_mua_read(client):
     """Không có `thu_mua:read` thì không có badge — 403, đúng cổng của mọi đường đọc thu mua."""
     sales_headers = {"Authorization": f"Bearer {_sales_token()}"}
     _notify(client, sales_headers, expect=403)
+
+
+def test_vai_trong_tron_khong_doc_duoc_yeu_cau_mua_hang(client, auth_headers):
+    """CỬA HỞ đo được 10/08/2026: vai không cấp ô nào vẫn đọc được YCMH.
+
+    Màn này cố ý mở cho 6 nhóm đề nghị vật tư (báo giá · kho · sản xuất · vật tư · kế toán · thu
+    mua) nên KHÔNG gác riêng `thu_mua`. Nhưng "mở cho 6 nhóm" khác hẳn "mở cho mọi tài khoản đăng
+    nhập" — đó là chỗ hở, và đây là test canh."""
+    from app.db import SessionLocal
+    from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
+    from app.repositories.user_repo import UserRepository
+    from app.security import create_access_token, hash_password
+
+    db = SessionLocal()
+    try:
+        depts, roles, users = DepartmentRepository(db), RoleRepository(db), UserRepository(db)
+        dept = depts.get_by_name("Sản xuất")
+        role = roles.get_by_name_and_department("Vai Trong Tron YCMH", dept.id)
+        if role is None:
+            role = roles.create(name="Vai Trong Tron YCMH", department_id=dept.id)
+        u = users.get_by_username("trong-tron-ycmh")
+        if u is None:
+            u = users.create(username="trong-tron-ycmh", name="Trong Tron",
+                             password_hash=hash_password("x"))
+        users.set_assignment(u, department_id=dept.id, role_id=role.id, is_active=True)
+        db.commit()
+        tok = create_access_token(str(u.id))
+    finally:
+        db.close()
+
+    r = client.get("/api/department-purchase-requests?size=1",
+                   headers={"Authorization": f"Bearer {tok}"})
+    assert r.status_code == 403, f"vai trống trơn KHÔNG được đọc YCMH: {r.text}"
+
+    # Người CÓ quyền vẫn đọc bình thường — hàng rào không được chặn nhầm.
+    assert client.get(
+        "/api/department-purchase-requests?size=1", headers=auth_headers
+    ).status_code == 200
+
+
+def test_ba_viec_sau_khi_nhan_hang_doi_o_rieng_khong_phai_o_duyet(client, auth_headers):
+    """`thu_mua:manage_status` — ô mới (11/08/2026) cho: Sửa số nhận · Mở lại đơn · Đóng đơn.
+
+    Trước đó ba việc này mượn cờ `can_approve`, và ba câu báo lỗi còn ghi "chỉ người có quyền
+    duyệt" — đọc lên tưởng đúng, thật ra sai nghĩa: chúng là việc sửa/đảo trạng thái đơn SAU KHI
+    hàng về, của bộ phận mua hàng, chẳng liên quan tới duyệt chi tiền.
+    """
+    supplier = _supplier(client, auth_headers, name="NCC Trang Thai")
+    pr = _create_purchase_request(client, auth_headers, supplier["id"])
+    client.post(f"/api/purchase-requests/{pr['id']}/submit", headers=auth_headers)
+    client.post(f"/api/purchase-requests/{pr['id']}/approve", headers=_h_duyet())
+    client.post(f"/api/purchase-requests/{pr['id']}/receive", headers=auth_headers)
+
+    # Người có `thu_mua` đủ CRUD nhưng KHÔNG có ô mới ⇒ không lùi được trạng thái.
+    db = SessionLocal()
+    try:
+        kd = DepartmentRepository(db).get_by_name("Kinh doanh")
+        roles, users = RoleRepository(db), UserRepository(db)
+        vai = roles.create(name="Thu mua khong doi trang thai", department_id=kd.id)
+        roles.set_permission(role_id=vai.id, module_key="thu_mua", can_read=True,
+                             can_create=True, can_update=True, scope=SCOPE_ALL)
+        u = users.create(username="tm-khong-doi-tt", name="TM", password_hash=hash_password("x"))
+        users.set_assignment(u, department_id=kd.id, role_id=vai.id, is_active=True)
+        db.commit()
+        thieu_o = {"Authorization": f"Bearer {create_access_token(str(u.id))}"}
+    finally:
+        db.close()
+
+    r = client.post(f"/api/purchase-requests/{pr['id']}/undo-received",
+                    json={"reason": "dem lai"}, headers=thieu_o)
+    assert r.status_code == 403, f"thiếu ô mới mà vẫn lùi được trạng thái: {r.status_code}"
+    assert "duyệt" not in r.json()["detail"].lower(), (
+        "câu báo lỗi vẫn nói 'quyền duyệt' — sai nghĩa, đây là ô sửa/đảo trạng thái đơn"
+    )

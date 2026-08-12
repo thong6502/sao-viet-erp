@@ -55,7 +55,13 @@ from ..services.purchase_service import (
 )
 
 router = APIRouter(tags=["purchases"])
-MODULE = "thu_mua"
+# TÁCH THEO MÀN (chủ chốt 10/08/2026, đường A). `MODULE` giữ nguyên khoá `thu_mua` nhưng nay chỉ
+# còn nghĩa MÀN MUA HÀNG — đổi khoá là mọi hàng `role_permissions` cũ trỏ vào hư không.
+# Migration 0177 sao chép quyền `thu_mua` cũ sang hai khoá mới nên không ai mất đường làm việc.
+MODULE = "thu_mua"            # màn Mua hàng (phiếu mua)
+MODULE_NCC = "nha_cung_cap"   # màn Nhà cung cấp
+MODULE_YCMH = "yeu_cau_mua_hang"  # màn Yêu cầu mua hàng
+MODULE_KE_TOAN = "ke_toan"    # màn Đơn mua hàng (Kế toán) — nơi DUYỆT / TỪ CHỐI PMH
 # Cổng quyền đọc YCMH dựng từ CHÍNH danh sách mà service dùng để quyết định có co danh sách về
 # phòng ban hay không — thêm/bớt một vai chỉ phải sửa một chỗ, không còn cảnh cấp quyền vào được
 # màn nhưng lại bị lọc ra rỗng. (Kế toán truy vết YCMH nguồn khi duyệt PMH / lập Phiếu chi: SEAM-25.)
@@ -84,7 +90,19 @@ def _map_error(exc: Exception) -> HTTPException:
 @router.get("/api/department-purchase-requests", response_model=DepartmentPurchaseRequestListOut)
 def list_department_purchase_requests(
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: CurrentUser,
+    # CỬA HỞ ĐÃ ĐO ĐƯỢC 10/08/2026: trước đây chỉ đòi `CurrentUser` — vai TRỐNG TRƠN, không cấp một
+    # ô quyền nào, vẫn đọc được toàn bộ yêu cầu mua hàng. Đây là màn DUY NHẤT của Thu mua bị hở
+    # (7 endpoint còn lại đều chặn 403).
+    #
+    # Gác bằng `DEPARTMENT_REQUEST_READER_MODULES` chứ không bằng riêng `thu_mua`: màn này cố ý mở
+    # cho 6 nhóm đề nghị vật tư (báo giá · kho · sản xuất · vật tư · kế toán · thu mua), đúng như
+    # `Sidebar.tsx` khai. Gác riêng `thu_mua` là khoá đường xin vật tư của 5 nhóm còn lại.
+    user: Annotated[
+        User,
+        Depends(require_any_permission(
+            *((m, "read") for m in DEPARTMENT_REQUEST_READER_MODULES)
+        )),
+    ],
     q: str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
     source_type: str | None = Query(default=None),
@@ -110,7 +128,13 @@ def can_create_department_purchase_request(
 def get_department_purchase_request(
     request_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: CurrentUser,
+    # Cùng luật đọc với danh sách: 6 nhóm đề nghị vật tư, KHÔNG phải mọi tài khoản đăng nhập.
+    user: Annotated[
+        User,
+        Depends(require_any_permission(
+            *((m, "read") for m in DEPARTMENT_REQUEST_READER_MODULES)
+        )),
+    ],
 ) -> DepartmentPurchaseRequestOut:
     try:
         return DepartmentPurchaseRequestOut(**svc.get_department_request(request_id, actor=user))
@@ -126,7 +150,7 @@ def get_department_purchase_request(
 def create_department_purchase_request(
     payload: DepartmentPurchaseRequestIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: CurrentUser,
+    user: Annotated[User, Depends(require_permission(MODULE_YCMH, "create"))],
 ) -> DepartmentPurchaseRequestOut:
     try:
         row = svc.create_department_request(actor=user, **payload.model_dump())
@@ -141,7 +165,7 @@ def update_department_purchase_request(
     request_id: int,
     payload: DepartmentPurchaseRequestIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: CurrentUser,
+    user: Annotated[User, Depends(require_permission(MODULE_YCMH, "update"))],
 ) -> DepartmentPurchaseRequestOut:
     try:
         row = svc.update_department_request(request_id, actor=user, **payload.model_dump())
@@ -156,7 +180,7 @@ def cancel_department_purchase_request(
     request_id: int,
     payload: ReasonIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: CurrentUser,
+    user: Annotated[User, Depends(require_permission(MODULE_YCMH, "update"))],
 ) -> DepartmentPurchaseRequestOut:
     try:
         row = svc.cancel_department_request(request_id, reason=payload.reason, actor=user)
@@ -171,7 +195,7 @@ def list_suppliers(
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
     _: Annotated[
         User,
-        Depends(require_any_permission((MODULE, "read"), ("ke_toan", "read"))),
+        Depends(require_any_permission((MODULE_NCC, "read"), ("ke_toan", "read"))),
     ],
     q: str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
@@ -229,7 +253,7 @@ def _xlsx_response(data: bytes, filename: str) -> Response:
 @router.get("/api/suppliers/items/template.xlsx")
 def supplier_items_template(
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(require_permission(MODULE_NCC, "read"))],
 ) -> Response:
     return _xlsx_response(svc.mau_vat_tu_xlsx(), "mau-vat-tu-nha-cung-cap.xlsx")
 
@@ -238,7 +262,7 @@ def supplier_items_template(
 def supplier_items_export(
     supplier_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(require_permission(MODULE_NCC, "read"))],
 ) -> Response:
     try:
         data, filename = svc.xuat_vat_tu_xlsx(supplier_id)
@@ -250,7 +274,7 @@ def supplier_items_export(
 @router.post("/api/suppliers/items/import", response_model=SupplierItemImportOut)
 async def supplier_items_import(
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    _: Annotated[User, Depends(require_permission(MODULE_NCC, "update"))],
     file: UploadFile = File(...),
 ) -> SupplierItemImportOut:
     """ĐỌC file .xlsx → trả danh sách mặt hàng + lỗi từng dòng. KHÔNG ghi DB.
@@ -273,7 +297,7 @@ async def supplier_items_import(
 def create_supplier(
     payload: SupplierIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+    user: Annotated[User, Depends(require_permission(MODULE_NCC, "create"))],
 ) -> SupplierRow:
     try:
         row = svc.create_supplier(actor=user, **payload.model_dump())
@@ -288,7 +312,7 @@ def update_supplier(
     supplier_id: int,
     payload: SupplierIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE_NCC, "update"))],
 ) -> SupplierRow:
     try:
         row = svc.update_supplier(supplier_id, actor=user, **payload.model_dump())
@@ -302,7 +326,7 @@ def update_supplier(
 def toggle_supplier(
     supplier_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE_NCC, "update"))],
 ) -> SupplierRow:
     try:
         row = svc.toggle_supplier_active(supplier_id, actor=user)
@@ -460,11 +484,18 @@ def submit_purchase_request(
     return PurchaseRequestOut(**row)
 
 
+# DUYỆT / TỪ CHỐI PMH gác bằng khoá của MÀN CÓ NÚT — là màn "Đơn mua hàng" bên Kế toán
+# (`ke_toan`), không phải màn Mua hàng (chủ chốt 11/08/2026). Trước đây gác `thu_mua:approve`:
+# ô hiện dưới phân hệ Mua hàng mà tác dụng lại ở màn Kế toán, nhìn ma trận không đoán ra.
+#
+# Tách vai VẪN CÒN NGUYÊN, chỉ là nó nằm ở hai ô rõ ràng thay vì trốn trong tên khoá: LẬP PHIẾU CHI
+# từ đợt 3 là `phieu_chi:create`, một ô khác hẳn. Ai được cấp `ke_toan:approve` mà không có
+# `phieu_chi:create` thì duyệt xong vẫn không tự viết được phiếu chi.
 @router.post("/api/purchase-requests/{request_id}/approve", response_model=PurchaseRequestOut)
 def approve_purchase_request(
     request_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    user: Annotated[User, Depends(require_permission(MODULE_KE_TOAN, "approve"))],
 ) -> PurchaseRequestOut:
     try:
         row = svc.approve(request_id, actor=user)
@@ -479,7 +510,7 @@ def reject_purchase_request(
     request_id: int,
     payload: ReasonIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    user: Annotated[User, Depends(require_permission(MODULE_KE_TOAN, "approve"))],
 ) -> PurchaseRequestOut:
     try:
         row = svc.reject(request_id, reason=payload.reason, actor=user)

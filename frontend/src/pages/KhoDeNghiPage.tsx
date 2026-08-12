@@ -422,6 +422,63 @@ export function KhoDeNghiPage({
   );
 }
 
+// ── Ô "Cho lệnh nào" (mg 0175) ───────────────────────────────────────────────
+// MỘT ô cho cả lệnh lẫn bài ghép: người đề nghị không nghĩ theo hai khái niệm, họ nghĩ "đợt hàng
+// này". Giá trị mã hoá `lsx:<id>` / `bg:<id>` rồi tách ra lúc gửi, nên payload vẫn là hai cột rõ ràng.
+
+interface LenhOption {
+  kind: "lsx" | "bai_ghep";
+  id: number;
+  ma: string;
+  ten: string;
+}
+
+function lenhNhan(opts: LenhOption[], lsxId: number | null, bgId: number | null): string {
+  const o = opts.find(
+    (x) => (x.kind === "lsx" && x.id === lsxId) || (x.kind === "bai_ghep" && x.id === bgId),
+  );
+  if (o) return o.ma;
+  // Có id mà không còn trong danh sách (lệnh đã đóng) — vẫn phải hiện, đừng nuốt mất.
+  if (lsxId) return `Lệnh #${lsxId}`;
+  if (bgId) return `Bài #${bgId}`;
+  return "—";
+}
+
+function LenhChon({
+  options,
+  lsxId,
+  baiGhepId,
+  onChange,
+}: {
+  options: LenhOption[];
+  lsxId: number | null;
+  baiGhepId: number | null;
+  onChange: (lsxId: number | null, baiGhepId: number | null) => void;
+}) {
+  const value = lsxId ? `lsx:${lsxId}` : baiGhepId ? `bg:${baiGhepId}` : "";
+  return (
+    <select
+      className="rc-input"
+      value={value}
+      aria-label="Xin cho lệnh sản xuất nào (bỏ trống nếu xin lặt vặt)"
+      onChange={(e) => {
+        const v = e.target.value;
+        if (!v) onChange(null, null);
+        else if (v.startsWith("lsx:")) onChange(Number(v.slice(4)), null);
+        else onChange(null, Number(v.slice(3)));
+      }}
+    >
+      <option value="">— không thuộc lệnh nào —</option>
+      {options.map((o) => (
+        <option key={`${o.kind}:${o.id}`} value={`${o.kind === "lsx" ? "lsx" : "bg"}:${o.id}`}>
+          {o.ma}
+          {o.ten ? ` — ${o.ten}` : ""}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 // ── DRAWER ────────────────────────────────────────────────────────────────────
 
 export interface SeedLine {
@@ -437,6 +494,10 @@ export interface SeedLine {
   sl_de_nghi: number;
   /** Đơn giá NHẬP người đề nghị khai (chỉ đề nghị NHẬP), theo `dvt`. Phiếu kế thừa; kho không sửa. */
   don_gia: number | null;
+  /** XIN CHO LỆNH NÀO (mg 0175). Bỏ trống được — xin lặt vặt (băng dính, giẻ lau) không thuộc lệnh
+   *  nào. Khai rồi thì bảng cân đối vật tư của Kế hoạch trừ phần đã cấp vào ĐÚNG dòng nhu cầu. */
+  lsx_id?: number | null;
+  bai_ghep_id?: number | null;
   ghi_chu: string | null;
 }
 
@@ -476,6 +537,8 @@ function newLine(seed?: Partial<SeedLine>): DraftLine {
     he_so_ve_goc: seed?.he_so_ve_goc ?? null,
     sl_de_nghi: seed?.sl_de_nghi ?? 0,
     don_gia: seed?.don_gia ?? null,
+    lsx_id: seed?.lsx_id ?? null,
+    bai_ghep_id: seed?.bai_ghep_id ?? null,
     ghi_chu: seed?.ghi_chu ?? null,
     sl_duyet: 0,
     sl_da_ung: 0,
@@ -527,6 +590,29 @@ function RequestDrawer({
   const [dirty, setDirty] = useState(false);
   const [askDiscard, setAskDiscard] = useState(false);
   const [printing, setPrinting] = useState(false);
+  // Danh sách lệnh/bài để chọn ở ô "Cho lệnh" (mg 0175). Nạp MỘT lần cho cả drawer — mỗi dòng tự
+  // gọi là N+1 request ngay lúc người ta đang gõ số lượng.
+  const [lenhOptions, setLenhOptions] = useState<LenhOption[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const [ls, bg] = await Promise.all([api.lsx.list(token), api.baiGhep.list(token)]);
+        if (!alive) return;
+        setLenhOptions([
+          ...ls.items.map((l) => ({ kind: "lsx" as const, id: l.id, ma: l.ma, ten: l.ten })),
+          ...bg.items.map((b) => ({ kind: "bai_ghep" as const, id: b.id, ma: b.ma, ten: "" })),
+        ]);
+      } catch {
+        // Không lấy được danh sách lệnh KHÔNG được chặn việc lập đề nghị — ô này vốn bỏ trống được.
+        if (alive) setLenhOptions([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [token]);
 
   useEffect(() => {
     if (requestId == null) return;
@@ -553,6 +639,8 @@ function RequestDrawer({
             he_so_ve_goc: l.sl_quy_doi && l.sl_de_nghi ? l.sl_quy_doi / l.sl_de_nghi : null,
             sl_de_nghi: l.sl_de_nghi,
             don_gia: l.don_gia,
+            lsx_id: l.lsx_id,
+            bai_ghep_id: l.bai_ghep_id,
             ghi_chu: l.ghi_chu,
             sl_duyet: l.sl_duyet,
             sl_da_ung: l.sl_da_ung,
@@ -595,8 +683,21 @@ function RequestDrawer({
   function pickMaterial(key: string, m: MatHangOption) {
     // Trùng mặt hàng: chặn ngay ở FE với ĐÚNG câu backend trả, để người dùng không gặp
     // hai cách diễn đạt khác nhau cho cùng một luật.
-    if (lines.some((l) => l.key !== key && l.hang_loai === m.hang_loai && l.hang_id === m.hang_id)) {
-      setError("Một mặt hàng chỉ được xuất hiện 1 dòng — gộp số lượng lại.");
+    //
+    // Khoá trùng gồm CẢ lệnh/bài (mg 0175): cùng loại giấy xin cho HAI lệnh khác nhau là hai dòng
+    // hợp lệ — gộp lại thì mất thông tin "phần nào cho lệnh nào", đúng thứ bảng cân đối cần.
+    const dong = lines.find((l) => l.key === key);
+    if (
+      lines.some(
+        (l) =>
+          l.key !== key &&
+          l.hang_loai === m.hang_loai &&
+          l.hang_id === m.hang_id &&
+          (l.lsx_id ?? null) === (dong?.lsx_id ?? null) &&
+          (l.bai_ghep_id ?? null) === (dong?.bai_ghep_id ?? null),
+      )
+    ) {
+      setError("Một mặt hàng cho cùng một lệnh chỉ được xuất hiện 1 dòng — gộp số lượng lại.");
       return;
     }
     setError(null);
@@ -623,6 +724,8 @@ function RequestDrawer({
         sl_de_nghi: Number(l.sl_de_nghi),
         // Đơn giá chỉ gửi cho đề nghị NHẬP (người đề nghị biết giá NCC). XUẤT lấy giá vốn từ lô.
         don_gia: isNhap && l.don_gia != null ? Number(l.don_gia) : null,
+        lsx_id: l.lsx_id ?? null,
+        bai_ghep_id: l.bai_ghep_id ?? null,
         ghi_chu: l.ghi_chu || null,
       }));
   }
@@ -749,6 +852,9 @@ function RequestDrawer({
                       <tr>
                         <th style={{ width: 40 }}>STT</th>
                         <th style={{ minWidth: 180 }}>Vật tư</th>
+                        {/* mg 0175 — "xin cho lệnh nào". Bỏ trống được: xin lặt vặt không thuộc
+                            lệnh nào. Khai thì Kế hoạch trừ đúng phần đã cấp vào lệnh đó. */}
+                        <th style={{ width: 150 }}>Cho lệnh</th>
                         <th style={{ width: 76 }}>ĐVT</th>
                         <th className="kho-num" style={{ width: 100 }}>
                           SL đề nghị
@@ -793,6 +899,22 @@ function RequestDrawer({
                                   </div>
                                   <div className="kho-lines__code">{l.hang_ma ?? ""}</div>
                                 </>
+                              )}
+                            </td>
+                            <td>
+                              {editable ? (
+                                <LenhChon
+                                  options={lenhOptions}
+                                  lsxId={l.lsx_id ?? null}
+                                  baiGhepId={l.bai_ghep_id ?? null}
+                                  onChange={(lsxId, bgId) =>
+                                    patchLine(l.key, { lsx_id: lsxId, bai_ghep_id: bgId })
+                                  }
+                                />
+                              ) : (
+                                <span className="kho-lines__code">
+                                  {lenhNhan(lenhOptions, l.lsx_id ?? null, l.bai_ghep_id ?? null)}
+                                </span>
                               )}
                             </td>
                             <td>

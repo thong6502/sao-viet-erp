@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from math import ceil
 
+import pytest
+
 from app.services.thanh_phan_engine import (
     binh_bai_con, binh_bai_layout, compute_phieu,
 )
@@ -155,11 +157,23 @@ def test_san_pham_khong_nhap_sl_thi_lay_mac_dinh_phieu():
     assert res["meta"]["components"][0]["so_luong"] == 2000   # rơi về SL mặc định phiếu
 
 
-def test_khach_cap_giay_thi_giay_0():
+def test_co_nguon_giay_khach_van_TINH_TIEN_giay():
+    """Đợt 4 · K — nguồn giấy "khách cấp" ĐÃ GỠ: engine không đọc cờ đó nữa.
+
+    Test cũ ghim `subtotal == 0`; nay ngược lại. Phiếu CŨ còn cờ trong dữ liệu mở ra tính lại sẽ
+    NHẢY GIÁ TĂNG — đó là hệ quả đã biết và chấp nhận (báo giá đã chốt không đổi, chúng chụp giá
+    tại thời điểm gửi). Giữ test này ở chiều ngược để lần sau không ai lặng lẽ khôi phục nhánh cũ.
+    """
     tp = _component()
     tp["nguon_giay"] = "khach"
     res = compute_phieu(so_luong=1000, thanh_phans=[tp])
-    assert _grp(res, "nvl")["subtotal"] == 0
+    assert _grp(res, "nvl")["subtotal"] > 0
+
+    # Và ra ĐÚNG bằng phiếu không mang cờ — cờ đó nay hoàn toàn vô hiệu.
+    sach = _component()
+    assert _grp(res, "nvl")["subtotal"] == _grp(
+        compute_phieu(so_luong=1000, thanh_phans=[sach]), "nvl"
+    )["subtotal"]
 
 
 def test_che_ban_khong_nam_trong_dong_giay():
@@ -619,3 +633,62 @@ def test_binh_bai_the_nhan_vien_ra_99_con():
     sai = binh_bai_layout(kho_in_dai=860, kho_in_rong=650, dai_tp=86, rong_tp=54,
                           chua_mm=20, bleed_mm=0)
     assert sai["con"] == 105
+
+
+# ============================ Đợt 4 · L — LƯỢNG vật tư ============================
+def test_luong_suy_tu_cong_thuc_giu_dung_bat_bien_tien_bang_luong_nhan_don_gia():
+    """Đặt mọi biến đơn giá = 1 thì công thức TIỀN nhả ra chính LƯỢNG.
+
+    Không ghim con số tuyệt đối: nó phụ thuộc cách xưởng hiệu chỉnh công thức (mã seed chỉ là
+    minh hoạ). Thứ PHẢI đúng ở mọi hiệu chỉnh là bất biến `tiền = lượng × đơn giá` — và nó đúng
+    với mọi mức giá, vì tiền bắt buộc tỉ lệ thuận với giá.
+    """
+    from app.services.thanh_phan_engine import luong_tu_cong_thuc, safe_eval
+
+    ct = "so_mau * dai_in * rong_in * don_gia_kg * to_dau_vao * 0.0003"
+    for gia in (250_000, 123_456, 1):
+        ctx = {"so_mau": 4, "dai_in": 650, "rong_in": 900, "to_dau_vao": 1_000,
+               "don_gia": gia, "don_gia_kg": gia, "don_gia_m2": gia}
+        luong = luong_tu_cong_thuc(ct, ctx)
+        tien = safe_eval(ct, ctx)
+        assert luong is not None
+        assert abs(tien - luong * gia) <= abs(tien) * 1e-9   # tolerance TƯƠNG ĐỐI: số cỡ 1e11
+    # Lượng KHÔNG đổi theo giá — nó là lượng, không phải tiền.
+    a = luong_tu_cong_thuc(ct, {**ctx, "don_gia_kg": 1})
+    b = luong_tu_cong_thuc(ct, {**ctx, "don_gia_kg": 9_999_999})
+    assert a == b
+
+
+def test_cong_thuc_khong_nhac_don_gia_thi_KHONG_suy_luong():
+    """Phí phẳng `50000`: đặt đơn giá = 1 sẽ ra "50000 kg" — con số vô nghĩa mà trông như thật.
+
+    Thà KHÔNG có dòng cân đối còn hơn bịa một số để bộ phận mua đi mua theo.
+    """
+    from app.services.thanh_phan_engine import luong_tu_cong_thuc
+
+    ctx = {"to_dau_vao": 1_000, "don_gia": 5, "don_gia_kg": 5, "don_gia_m2": 5}
+    assert luong_tu_cong_thuc("50000", ctx) is None
+    assert luong_tu_cong_thuc("", ctx) is None
+    assert luong_tu_cong_thuc(None, ctx) is None
+    assert luong_tu_cong_thuc("to_dau_vao * 0", ctx) is None       # ra 0 ⇒ không có nhu cầu
+    assert luong_tu_cong_thuc("khong_ton_tai * don_gia", ctx) is None  # lỗi công thức ⇒ im, không nổ
+
+
+def test_dong_vat_tu_phoi_luong_va_don_vi_ra_ngoai():
+    """Engine trả `luong` + `luong_don_vi` + `vat_tu_id` để kế hoạch đọc mà không phải tính lại."""
+    tp = _component()
+    tp["vat_tus"] = [{
+        "vat_tu_id": 77, "ten": "Màng bóng", "don_gia": 3_000, "don_vi_gia": "m2",
+        "cong_thuc_gia": "dai_in * rong_in * don_gia_m2 * to_sau_in",
+    }]
+    res = compute_phieu(so_luong=1000, thanh_phans=[tp])
+    dong = [r for r in _grp(res, "nvl")["rows"] if "Màng bóng" in r["ten"]]
+    assert len(dong) == 1
+    assert dong[0]["vat_tu_id"] == 77
+    assert dong[0]["luong_don_vi"] == "m2"
+    assert dong[0]["luong"] > 0
+    # Hai field làm tròn ĐỘC LẬP (tiền 2 số lẻ, lượng 4 số lẻ) nên tích không khớp tuyệt đối —
+    # sai số trần = nửa bậc làm tròn của lượng × đơn giá. Bất biến chính xác kiểm ở test trên.
+    assert dong[0]["thanh_tien"] == pytest.approx(
+        dong[0]["luong"] * 3_000, abs=0.5e-4 * 3_000 + 0.01,
+    )

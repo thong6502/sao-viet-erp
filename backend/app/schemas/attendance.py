@@ -75,6 +75,10 @@ class WorkShiftsOut(BaseModel):
     items: list[WorkShiftOut]
 
 
+# `CaLamRefRow` / `CaLamRefListOut` ĐÃ XOÁ (2026-08-10) cùng endpoint `/ca-lam` và hai ô "Ca làm
+# riêng" ở màn Máy / Phòng ban — ca chỉ còn khai ở danh mục Ca kíp (`WorkShiftOut` ở trên).
+
+
 # --- attendance logs --------------------------------------------------------
 
 

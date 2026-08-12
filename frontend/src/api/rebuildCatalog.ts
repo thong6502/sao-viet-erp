@@ -68,11 +68,22 @@ export function addGiayVersion(
   });
 }
 
-// BHR preview cho Máy.
-export function mayBhr(token: string, id: number): Promise<{
-  gio_tinh_phi: number | null; breakdown: Record<string, number>; BHR: number; don_gia_ban_gio: number;
-}> {
-  return authed(`/api/may-thiet-bi/${id}/bhr`, token);
+// -- Nhật ký của MỘT bản ghi danh mục (ai đổi gì, lúc nào) — một cửa chung cho 10 màn --
+export interface NhatKyItem {
+  at: string;
+  /** "Phòng ban · Chức vụ · Tên"; null khi do hệ thống/seed sinh ra. */
+  actor_name: string | null;
+  action: string;
+  /** Các thay đổi trong cùng một lần lưu, nối bằng " · ". */
+  detail: string;
 }
+export function nhatKyDanhMuc(
+  token: string, loai: string, id: number,
+): Promise<{ items: NhatKyItem[] }> {
+  return authed(`/api/nhat-ky-danh-muc/${loai}/${id}`, token);
+}
+
+// `mayBhr` (BHR preview cho Máy) ĐÃ GỠ 11/08/2026 — không page nào gọi, và endpoint
+// `/api/may-thiet-bi/{id}/bhr` cũng đã gỡ cùng cả khối cột BHR (không có ô nhập nào).
 
 

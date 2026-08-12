@@ -9,7 +9,7 @@ Cổng chốt = Chốt kỳ lương (payroll_lines đóng băng số khoán khi 
 """
 from __future__ import annotations
 
-from ..models.piece_work import DEFAULT_PIECE_UNITS, UNIT_KHAC
+from ..models.piece_work import UNIT_KHAC
 
 
 class PieceWorkError(Exception):
@@ -65,11 +65,6 @@ class PieceWorkService:
 
     def list_rates(self, department_id: int | None = None):
         return self.piece.list_rates(department_id=department_id)
-
-    def unit_suggestions(self) -> list[str]:
-        """Gợi ý cho ô "Đơn vị" = mồi mặc định ∪ đơn vị nhà máy ĐÃ dùng. Không phải whitelist —
-        người dùng gõ đơn vị ngoài danh sách này vẫn lưu bình thường."""
-        return sorted(set(DEFAULT_PIECE_UNITS) | set(self.piece.distinct_units()))
 
     def _sinh_ma(self) -> str:
         """Mã dòng đơn giá — máy sinh, người dùng không gõ (chủ 2026-07-31). Chạy số theo dòng đã

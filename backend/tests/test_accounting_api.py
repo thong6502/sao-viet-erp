@@ -132,8 +132,12 @@ def _duyet(client, purchase_id: int) -> None:
             bgd = DepartmentRepository(db).get_by_name("Ban giám đốc")
             roles = RoleRepository(db)
             role = roles.create(name="Duyet PMH cho ke toan", department_id=bgd.id)
-            roles.set_permission(role_id=role.id, module_key="thu_mua",
+            # Duyệt PMH dời sang khoá `ke_toan` ngày 11/08/2026 (nút chỉ có ở màn Đơn mua hàng
+            # bên Kế toán). Vẫn cấp `thu_mua:read` để người duyệt đọc được phiếu trước khi ký.
+            roles.set_permission(role_id=role.id, module_key="ke_toan",
                                  can_read=True, can_approve=True, scope=SCOPE_ALL)
+            roles.set_permission(role_id=role.id, module_key="thu_mua",
+                                 can_read=True, scope=SCOPE_ALL)
             u = users.create(username="acct-approver", name="GD Duyet",
                              password_hash=hash_password("x"))
             users.set_assignment(u, department_id=bgd.id, role_id=role.id, is_active=True)
@@ -391,14 +395,24 @@ def _accounting_user_token(*, approve: bool, manage_status: bool = False) -> str
             name="Kế toán duyệt" if approve else "Kế toán chỉ xem",
             department_id=department.id,
         )
-        roles.set_permission(
-            role_id=role.id,
-            module_key="ke_toan",
-            can_read=True,
-            can_approve=approve,
-            can_manage_status=manage_status,
-            scope=SCOPE_ALL,
-        )
+        # Từ 10/08/2026 phân hệ Kế toán tách 6 màn, mỗi màn một khoá. Một người kế toán ngoài đời
+        # chạm cả 6 nên fixture cấp cả 6 — đúng như migration 0178 sao chép quyền cũ sang.
+        # ⚠️ Động từ ĐỔI TÊN: LẬP phiếu nay là `can_create` (trước núp dưới `can_approve`), nên
+        # `approve=True` của fixture phải đổ vào `can_create` chứ không thì test dựng ra một
+        # người "được duyệt mà không lập được phiếu" — không mô tả ai ngoài đời.
+        for khoa in ("ke_toan", "cong_no_phai_tra", "cong_no_phai_thu", "tk_ngan_hang"):
+            roles.set_permission(role_id=role.id, module_key=khoa, can_read=True,
+                                 can_update=approve, scope=SCOPE_ALL)
+        for khoa in ("phieu_chi", "phieu_thu"):
+            roles.set_permission(
+                role_id=role.id,
+                module_key=khoa,
+                can_read=True,
+                can_create=approve,
+                can_approve=approve,
+                can_manage_status=manage_status,
+                scope=SCOPE_ALL,
+            )
         users = UserRepository(db)
         user = users.create(
             username="accounting-approver" if approve else "accounting-reader",

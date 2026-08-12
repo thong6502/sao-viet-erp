@@ -287,8 +287,19 @@ def test_update_requires_update_permission_scope(client):
 # --- KH-04 receivable card (SEAM-16) ---------------------------------------
 
 
-def test_detail_receivable_card_unavailable_no_fake_zero(client):
-    """SEAM-16 not built → card available=False + message, balance None (NOT 0)."""
+def test_detail_receivable_card_doc_so_that_khong_bia(client):
+    """Thẻ công nợ đọc SỐ THẬT từ Công nợ phải thu — và số 0 ở đây là số đọc được, không phải bịa.
+
+    ĐỔI 11/08/2026. Trước đó test tên `..._unavailable_no_fake_zero` và khẳng định
+    `available is False`, `balance is None` — đúng với thời SEAM-16 còn là chỗ nối để trống, cố ý
+    NÉM LỖI thay vì trả 0 giả (thà nói "chưa có" còn hơn nói sai một con số tiền).
+
+    Ngày 10/08/2026 SEAM-16 đã được nối: `deps.py` tiêm `AccountingReceivablePort` thật. Test cũ
+    trở thành thứ canh giữ một hành vi đã cố ý bỏ, và đỏ liên tục từ hôm đó.
+
+    Ý đồ gốc KHÔNG đổi — vẫn là "không bịa số". Chỉ khác: nay đọc được thật thì phải nói ra.
+    Khách trong ca này chưa có hoá đơn nào ⇒ dư nợ đúng bằng 0.
+    """
     token = _admin_token(client)
     created = client.post(
         "/api/customers", json={"name": "Có Thẻ Công Nợ"},
@@ -301,7 +312,9 @@ def test_detail_receivable_card_unavailable_no_fake_zero(client):
     )
     detail = client.get(f"/api/customers/{created['id']}", headers=_h(token)).json()
     card = detail["receivable"]
-    assert card["available"] is False
-    assert card["balance"] is None  # KHÔNG bịa 0
+    assert card["available"] is True
+    assert card["balance"] == 0          # số THẬT (chưa có hoá đơn), không phải 0 bịa
     assert card["credit_limit"] == 5000
-    assert "Công nợ" in (card["message"] or "")
+    assert card["over_limit"] is False
+    # Hết "chưa có Công nợ" — còn message là còn đang báo thiếu chỗ nối.
+    assert card["message"] is None

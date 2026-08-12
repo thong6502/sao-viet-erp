@@ -194,7 +194,7 @@ export function VanDeView({
     list.sort((a, b) => a.blocking - b.blocking || a.ma.localeCompare(b.ma, "vi"));
     return list;
   }, [sanSang]);
-  const readyItems = releaseItems.filter((r) => r.blocking === 0);
+  const readyItems = releaseItems.filter((r) => r.blocking === 0 && !r.da_phat_hanh);
 
   const doRelease = async (item: XepLichSanSangItem) => {
     if (!token) return;
@@ -223,6 +223,34 @@ export function VanDeView({
     } finally {
       setReleaseBusy(false);
       setAskReleaseAll(false);
+    }
+  };
+
+  // BẮT GÕ LÝ DO (G2): gỡ phát hành là đảo một quyết định đã thả xuống xưởng, mà hệ chưa có lớp
+  // thực thi nên không biết thợ đã chạy tới đâu. Thứ duy nhất còn lại là VẾT.
+  // Dùng ConfirmDialog như mọi cửa duyệt khác trên màn này, không `window.prompt`: hộp trình duyệt
+  // không style được, không đọc được bằng trình đọc màn hình, và không chặn được lý do quá ngắn
+  // trước khi gọi API — server đòi tối thiểu 3 ký tự, để người dùng ăn lỗi rồi mới hiểu là dở.
+  const [goItem, setGoItem] = useState<XepLichSanSangItem | null>(null);
+  const [goLyDo, setGoLyDo] = useState("");
+  const [goBusy, setGoBusy] = useState(false);
+
+  const doUnrelease = async () => {
+    const item = goItem;
+    const lyDo = goLyDo.trim();
+    if (!token || !item || lyDo.length < 3) return;
+    setGoBusy(true);
+    try {
+      if (item.nguon === "lsx") await api.xepLich.goPhatHanhLsx(token, item.id, lyDo);
+      else await api.xepLich.goPhatHanhBaiGhep(token, item.id, lyDo);
+      onToast(`Đã gỡ phát hành ${item.ma} — kế hoạch quay lại trạng thái sửa được`);
+      setGoItem(null);
+      setGoLyDo("");
+      onRefetch();
+    } catch (e: unknown) {
+      onToast(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setGoBusy(false);
     }
   };
 
@@ -308,6 +336,7 @@ export function VanDeView({
         items={releaseItems}
         canApprove={canApprove}
         onRelease={doRelease}
+        onUnrelease={(it) => { setGoItem(it); setGoLyDo(""); }}
         onShowIssues={showIssuesFor}
       />
 
@@ -349,6 +378,31 @@ export function VanDeView({
         onConfirm={doReleaseAll}
         onCancel={() => setAskReleaseAll(false)}
       />
+
+      {/* G2 — gỡ phát hành: bắt gõ lý do, ghi thẳng vào nhật ký cùng người bấm. */}
+      <ConfirmDialog
+        open={goItem != null}
+        title={`Gỡ phát hành ${goItem?.ma ?? ""}?`}
+        message="Kế hoạch quay lại trạng thái sửa được. Hệ chưa có lớp thực thi nên KHÔNG biết xưởng đã chạy tới đâu — báo cho tổ trưởng trước khi gỡ. Lý do sẽ lưu vào nhật ký."
+        confirmLabel="Gỡ phát hành"
+        confirmDisabled={goLyDo.trim().length < 3}
+        busy={goBusy}
+        onConfirm={doUnrelease}
+        onCancel={() => { setGoItem(null); setGoLyDo(""); }}
+      >
+        <div className="xlcd-vd-excform">
+          <label className="khsx-field">
+            <span className="khsx-field__label">Lý do gỡ</span>
+            <input
+              value={goLyDo}
+              onChange={(e) => setGoLyDo(e.target.value)}
+              placeholder="Vd: khách đổi số lượng, phải tính lại lệnh"
+              autoFocus
+            />
+            <span className="khsx-field__hint">Tối thiểu 3 ký tự — đây là vết duy nhất còn lại.</span>
+          </label>
+        </div>
+      </ConfirmDialog>
     </div>
   );
 }
@@ -763,11 +817,12 @@ function DrawerVanDe({
 
 // ============================ panel "Sẵn sàng phát hành" =====================
 function ReleasePanel({
-  items, canApprove, onRelease, onShowIssues,
+  items, canApprove, onRelease, onUnrelease, onShowIssues,
 }: {
   items: XepLichSanSangItem[];
   canApprove: boolean;
   onRelease: (item: XepLichSanSangItem) => void;
+  onUnrelease: (item: XepLichSanSangItem) => void;
   onShowIssues: (ma: string) => void;
 }) {
   return (
@@ -786,7 +841,22 @@ function ReleasePanel({
                 <Icon name={it.nguon === "in_ghep" ? "layers" : "clipboard"} size={13} />
                 {it.ma}
               </span>
-              {it.blocking === 0 ? (
+              {it.da_phat_hanh ? (
+                <span className="xlcd-release__done">
+                  <span className="khsx-pill khsx-pill--phathanh">
+                    <span className="khsx-pill__dot" aria-hidden="true" />
+                    Đã phát hành
+                  </span>
+                  <Button
+                    variant="secondary"
+                    disabled={!canApprove}
+                    onClick={() => onUnrelease(it)}
+                    title={canApprove ? "Thu hồi để sửa lại kế hoạch (bắt buộc ghi lý do)" : "Cần quyền phát hành"}
+                  >
+                    Gỡ phát hành
+                  </Button>
+                </span>
+              ) : it.blocking === 0 ? (
                 <Button variant="primary" disabled={!canApprove} onClick={() => onRelease(it)} title={canApprove ? undefined : "Cần quyền phát hành"}>
                   <Icon name="send" size={13} /> Phát hành
                 </Button>

@@ -5,12 +5,14 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import {
   ApiError,
   api,
+  assetUrl,
   type EnumOption,
   type QuotationActivity,
   type QuotationDetail,
   type QuotationEnumsOut,
   type QuotationRow,
   type QuotationStats,
+  type QuoteAttachment,
   type QuoteItemDetail,
 } from "../api/client";
 import { gopTheoNhom, nhomLechSoLuong } from "../utils/gop-nhom";
@@ -32,10 +34,15 @@ import {
   ChevronLeft,
   CornerDownLeft,
   DollarSign,
+  Download,
+  ExternalLink,
+  File as FileIcon,
   FileText,
   GitBranch,
   History,
+  Image as ImageIcon,
   Lock,
+  Paperclip,
   Pencil,
   Plus,
   Printer,
@@ -44,7 +51,9 @@ import {
   Send,
   ShieldCheck,
   Table,
+  Trash2,
   TriangleAlert,
+  UploadCloud,
   X,
   Zap,
 } from "lucide-react";
@@ -485,6 +494,8 @@ const ACT_META: Record<string, [LucideIcon, string, string]> = {
   transition_expired: [AlertCircle, "ash", "Hết hiệu lực"],
   transition_cancelled: [Ban, "ash", "Hủy báo giá"],
   transition_converted_to_order: [ArrowRight, "moss", "Lên đơn hàng"],
+  quote_attach_add: [Paperclip, "steel", "Đính kèm tài liệu"],
+  quote_attach_delete: [X, "ash", "Xóa tài liệu đính kèm"],
 };
 
 // Ngày + giờ cho feed Hoạt động ("ai làm gì · khi nào").
@@ -523,6 +534,221 @@ function gomDongTheoNhom(items: QuoteItemDetail[]): NodeBaoGia[] {
   return out;
 }
 
+
+// ============================================================================
+// Tài liệu đính kèm (NỘI BỘ) — file khách gửi / mẫu thiết kế / ảnh tham khảo.
+// Neo vào báo giá, KHÔNG in ra bản gửi khách. Ảnh: thumbnail + phóng to; PDF: mở
+// xem trong khung; file thiết kế (.ai/.cdr/.psd/.zip): icon + tải về.
+// ============================================================================
+const MAX_ATTACH_MB = 25;
+
+function isImageAtt(a: QuoteAttachment): boolean {
+  return (a.file_type?.startsWith("image/") ?? false) || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(a.file_name);
+}
+function isPdfAtt(a: QuoteAttachment): boolean {
+  return a.file_type === "application/pdf" || /\.pdf$/i.test(a.file_name);
+}
+
+function AttachmentsPanel({
+  token,
+  quoteId,
+  canEdit,
+}: {
+  token: string | null;
+  quoteId: number;
+  canEdit: boolean;
+}) {
+  const [items, setItems] = useState<QuoteAttachment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [drag, setDrag] = useState(false);
+  const [preview, setPreview] = useState<QuoteAttachment | null>(null);
+  const [pendingDel, setPendingDel] = useState<QuoteAttachment | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const load = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const r = await api.quotations.attachments(token, quoteId);
+      setItems(r.items);
+    } catch {
+      setErr("Không tải được danh sách tài liệu.");
+    } finally {
+      setLoading(false);
+    }
+  }, [token, quoteId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function doUpload(files: FileList | File[]) {
+    if (!token || !canEdit) return;
+    const list = Array.from(files);
+    if (!list.length) return;
+    setErr(null);
+    const tooBig = list.find((f) => f.size > MAX_ATTACH_MB * 1024 * 1024);
+    if (tooBig) {
+      setErr(`Tệp "${tooBig.name}" vượt quá ${MAX_ATTACH_MB}MB.`);
+      return;
+    }
+    setUploading(true);
+    try {
+      for (const f of list) {
+        await api.quotations.uploadAttachment(token, quoteId, f);
+      }
+      await load();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Tải tệp lên thất bại.");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  }
+
+  async function confirmDelete() {
+    if (!token || !pendingDel) return;
+    setDeleting(true);
+    try {
+      await api.quotations.deleteAttachment(token, quoteId, pendingDel.id);
+      setPendingDel(null);
+      await load();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Xóa tệp thất bại.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="panel att-panel">
+      <div className="panel__hd">
+        <h3><Paperclip size={16} /> Tài liệu đính kèm</h3>
+        <span className="tag">{items.length} tệp</span>
+      </div>
+      <div className="att-body">
+        {canEdit && (
+          <label
+            className={`att-drop${drag ? " drag" : ""}${uploading ? " busy" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={(e) => { e.preventDefault(); setDrag(false); doUpload(e.dataTransfer.files); }}
+          >
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => { if (e.target.files) doUpload(e.target.files); }}
+            />
+            <UploadCloud size={22} />
+            <span className="att-drop__lead">
+              {uploading ? "Đang tải lên…" : <>Kéo-thả tệp vào đây, hoặc <b>bấm chọn</b></>}
+            </span>
+            <span className="att-drop__hint">Ảnh, PDF, AI/CDR/PSD, ZIP… tối đa {MAX_ATTACH_MB}MB/tệp</span>
+          </label>
+        )}
+        {err && <div className="att-err"><TriangleAlert size={14} /> {err}</div>}
+        {loading ? (
+          <div className="att-empty">Đang tải…</div>
+        ) : items.length === 0 ? (
+          <div className="att-empty">
+            Chưa có tài liệu.{canEdit ? " Đính kèm tệp khách gửi, mẫu thiết kế, ảnh tham khảo…" : ""}
+          </div>
+        ) : (
+          <ul className="att-list">
+            {items.map((a) => {
+              const img = isImageAtt(a);
+              const pdf = isPdfAtt(a);
+              const canPreview = img || pdf;
+              const href = assetUrl(a.file_url) ?? "#";
+              return (
+                <li key={a.id} className="att-item">
+                  <button
+                    type="button"
+                    className={`att-thumb${canPreview ? " ok" : ""}`}
+                    onClick={() => { if (canPreview) setPreview(a); }}
+                    disabled={!canPreview}
+                    title={canPreview ? "Xem trước" : a.file_name}
+                  >
+                    {img ? (
+                      <img src={href} alt={a.file_name} loading="lazy" />
+                    ) : pdf ? (
+                      <FileText size={20} />
+                    ) : (
+                      <FileIcon size={20} />
+                    )}
+                  </button>
+                  <div className="att-meta">
+                    <div className="att-name" title={a.file_name}>{a.file_name}</div>
+                    <div className="att-sub">{fmtDateTime(a.uploaded_at)}</div>
+                  </div>
+                  <div className="att-actions">
+                    {canPreview && (
+                      <button type="button" className="att-act" onClick={() => setPreview(a)} title="Xem trước" aria-label="Xem trước"><ImageIcon size={15} /></button>
+                    )}
+                    <a className="att-act" href={href} download={a.file_name} title="Tải về" aria-label="Tải về"><Download size={15} /></a>
+                    {canEdit && (
+                      <button type="button" className="att-act danger" onClick={() => setPendingDel(a)} title="Xóa" aria-label="Xóa"><Trash2 size={15} /></button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {preview && (
+        <div
+          className="att-lightbox"
+          role="presentation"
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setPreview(null); }}
+        >
+          <div className="att-lightbox__box" role="dialog" aria-modal="true" aria-label={preview.file_name}>
+            <header className="att-lightbox__head">
+              <span className="att-lightbox__name">{preview.file_name}</span>
+              <div className="att-lightbox__acts">
+                <a href={assetUrl(preview.file_url) ?? "#"} target="_blank" rel="noreferrer" title="Mở tab mới"><ExternalLink size={17} /></a>
+                <button type="button" onClick={() => setPreview(null)} aria-label="Đóng"><X size={18} /></button>
+              </div>
+            </header>
+            <div className="att-lightbox__body">
+              {isImageAtt(preview) ? (
+                <img src={assetUrl(preview.file_url) ?? ""} alt={preview.file_name} />
+              ) : (
+                <iframe src={assetUrl(preview.file_url) ?? ""} title={preview.file_name} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDel && (
+        <div className="bg__overlay" onClick={() => { if (!deleting) setPendingDel(null); }}>
+          <div className="card bg__dialog" style={{ maxWidth: "420px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="bg__dialog-head">
+              <h2>Xóa tài liệu?</h2>
+              <button type="button" className="bg__close" onClick={() => setPendingDel(null)} aria-label="Đóng"><X size={18} /></button>
+            </div>
+            <div style={{ padding: "16px" }}>
+              <p style={{ margin: "0 0 14px", color: "var(--ash)", fontSize: "13px" }}>
+                “{pendingDel.file_name}” sẽ bị xóa khỏi báo giá này. Không thể hoàn tác.
+              </p>
+              <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                <Button variant="ghost" disabled={deleting} onClick={() => setPendingDel(null)}>Giữ lại</Button>
+                <Button variant="danger" disabled={deleting} onClick={confirmDelete}><Trash2 size={15} /> Xóa</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function QuotationDetailView({
   quotationId,
@@ -1296,6 +1522,70 @@ function QuotationDetailView({
               <div className="hint" style={{ margin: "14px 16px", color: "var(--signal)" }}><span>{d.cancel_reason}</span></div>
             </div>
           )}
+          {/* Lịch sử phiên bản */}
+          <div className="panel">
+            <div className="panel__hd">
+              <h3><History size={16} /> Lịch sử phiên bản</h3>
+              <button type="button" className="viewall" onClick={() => setCompareOn((v) => !v)}><ArrowLeftRight size={14} /> So sánh</button>
+            </div>
+            <div className="vh scrollbox">
+              {d.versions.slice().sort((a, b) => b.version - a.version).map((v) => {
+                const isCur = v.version === latestVer;
+                const active = v.version === d.version;
+                return (
+                  <div
+                    key={v.id}
+                    className={`vrow${active ? " cur" : ""}${!isCur ? " old" : ""}`}
+                    onClick={() => v.id !== d.id && reload(v.id)}
+                    title={active ? "Đang xem phiên bản này" : "Bấm để xem phiên bản này"}
+                  >
+                    <span className="vtag">v{v.version}</span>
+                    {active && <span className="vnow">Đang xem</span>}
+                    <div className="vmid">
+                      <div className="a">{v.change_reason || "—"}</div>
+                      <div className="m">{fmtDate(v.created_at)}{isCur ? " · hiện tại" : ""}</div>
+                    </div>
+                    <div className="vright">
+                      <div className="p rust-num">{vnd(v.total ?? 0)}</div>
+                      <StatusPill status={v.status} statuses={statuses} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {compareOn && (
+              <div style={{ padding: "0 14px 14px" }}>
+                <div style={{ borderTop: "1px solid var(--rule-soft)", paddingTop: "12px", overflowX: "auto" }}>
+                  <table className="cmp-tbl">
+                    <thead>
+                      <tr><th>Chỉ tiêu</th>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <th key={v.id}>v{v.version}</th>)}</tr>
+                    </thead>
+                    <tbody>
+                      <tr><td>Giá vốn (khóa)</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{v.total_cost != null ? vnd(v.total_cost) : "—"}</td>)}</tr>
+                      <tr><td>Giá bán (đã VAT)</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{vnd(v.total ?? 0)}</td>)}</tr>
+                      <tr>
+                        <td>Chênh lệch</td>
+                        {d.versions.slice().sort((a, b) => a.version - b.version).map((v, i, arr) => {
+                          if (i === 0) return <td key={v.id}>—</td>;
+                          const diff = (v.total ?? 0) - (arr[i - 1].total ?? 0);
+                          if (diff === 0) return <td key={v.id}>0</td>;
+                          return <td key={v.id}><span className={diff > 0 ? "up" : "down"}>{diff > 0 ? "+" : ""}{vnd(diff)}</span></td>;
+                        })}
+                      </tr>
+                      <tr><td>Chiết khấu</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{v.discount ? vnd(v.discount) : "—"}</td>)}</tr>
+                      <tr><td>Lý do</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id} style={{ textAlign: "left", fontWeight: 400, whiteSpace: "normal" }}>{v.change_reason || "—"}</td>)}</tr>
+                      <tr><td>Trạng thái</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{labelOf(statuses, v.status)}</td>)}</tr>
+                      <tr><td>Ngày</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{fmtDate(v.created_at)}</td>)}</tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Tài liệu đính kèm — vùng kéo-thả cần bề rộng nên ở cột nội dung, không nhét sidebar. */}
+          <AttachmentsPanel token={token} quoteId={d.id} canEdit={canRequote && d.status !== "cancelled"} />
+
         </div>
 
         {/* ================= RIGHT: giá bán + khách hàng ================= */}
@@ -1454,97 +1744,42 @@ function QuotationDetailView({
               </div>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* ===== Khu dưới: Lịch sử phiên bản | Hoạt động — mỗi khối cuộn trong khối (chống dài) ===== */}
-      <div className="gg">
-        {/* Lịch sử phiên bản */}
-        <div className="panel">
-          <div className="panel__hd">
-            <h3><History size={16} /> Lịch sử phiên bản</h3>
-            <button type="button" className="viewall" onClick={() => setCompareOn((v) => !v)}><ArrowLeftRight size={14} /> So sánh</button>
-          </div>
-          <div className="vh scrollbox">
-            {d.versions.slice().sort((a, b) => b.version - a.version).map((v) => {
-              const isCur = v.version === latestVer;
-              const active = v.version === d.version;
-              return (
-                <div
-                  key={v.id}
-                  className={`vrow${active ? " cur" : ""}${!isCur ? " old" : ""}`}
-                  onClick={() => v.id !== d.id && reload(v.id)}
-                  title={active ? "Đang xem phiên bản này" : "Bấm để xem phiên bản này"}
-                >
-                  <span className="vtag">v{v.version}</span>
-                  {active && <span className="vnow">Đang xem</span>}
-                  <div className="vmid">
-                    <div className="a">{v.change_reason || "—"}</div>
-                    <div className="m">{fmtDate(v.created_at)}{isCur ? " · hiện tại" : ""}</div>
+          {/* Hoạt động — nhật ký tương tác THẬT: ai làm gì · khi nào (mọi vai trò đụng cùng phiếu).
+              Ở cột phụ nên xếp 2 dòng: hành động ở trên, người + thời điểm ở dưới — nhồi cả ba vào
+              một dòng thì tên dài ("Giám đốc · Giám đốc · Nguyễn Văn Giám") tự bẻ 3 dòng, rối. */}
+          <div className="panel">
+            <div className="panel__hd"><h3><Activity size={16} /> Hoạt động</h3><span className="tag">{acts.length} sự kiện</span></div>
+            <div className="tl scrollbox">
+              {acts.length === 0 ? (
+                <div className="tl-empty">Chưa có hoạt động.</div>
+              ) : acts.map((a, i) => {
+                const m = ACT_META[a.action] ?? [Zap, "ash", a.action];
+                const ActIcon = m[0];
+                const tone = a.action === "quote_exception_rejected" || a.action === "transition_rejected" || a.action === "transition_cancelled" || a.action === "transition_expired"
+                  ? "sig"
+                  : i > 0 ? "mut" : "";
+                return (
+                  <div className={`tlrow ${tone}`} key={i}>
+                    <span className="tlic"><ActIcon size={14} /></span>
+                    <div className="tlb">
+                      <div className="a">{m[2]}</div>
+                      <div className="m">
+                        {/* actor_name là "Phòng · Chức vụ · Tên" — cột phụ chỉ đủ chỗ cho TÊN,
+                            chức danh đầy đủ nằm ở tooltip. Không cắt thì mỗi sự kiện chiếm 3 dòng. */}
+                        {a.actor_name ? (
+                          <><span className="who" title={a.actor_name}>{a.actor_name.split(" · ").pop()}</span> · </>
+                        ) : null}
+                        {fmtDateTime(a.at)}
+                      </div>
+                    </div>
                   </div>
-                  <div className="vright">
-                    <div className="p rust-num">{vnd(v.total ?? 0)}</div>
-                    <StatusPill status={v.status} statuses={statuses} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          {compareOn && (
-            <div style={{ padding: "0 14px 14px" }}>
-              <div style={{ borderTop: "1px solid var(--rule-soft)", paddingTop: "12px", overflowX: "auto" }}>
-                <table className="cmp-tbl">
-                  <thead>
-                    <tr><th>Chỉ tiêu</th>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <th key={v.id}>v{v.version}</th>)}</tr>
-                  </thead>
-                  <tbody>
-                    <tr><td>Giá vốn (khóa)</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{v.total_cost != null ? vnd(v.total_cost) : "—"}</td>)}</tr>
-                    <tr><td>Giá bán (đã VAT)</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{vnd(v.total ?? 0)}</td>)}</tr>
-                    <tr>
-                      <td>Chênh lệch</td>
-                      {d.versions.slice().sort((a, b) => a.version - b.version).map((v, i, arr) => {
-                        if (i === 0) return <td key={v.id}>—</td>;
-                        const diff = (v.total ?? 0) - (arr[i - 1].total ?? 0);
-                        if (diff === 0) return <td key={v.id}>0</td>;
-                        return <td key={v.id}><span className={diff > 0 ? "up" : "down"}>{diff > 0 ? "+" : ""}{vnd(diff)}</span></td>;
-                      })}
-                    </tr>
-                    <tr><td>Chiết khấu</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{v.discount ? vnd(v.discount) : "—"}</td>)}</tr>
-                    <tr><td>Lý do</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id} style={{ textAlign: "left", fontWeight: 400, whiteSpace: "normal" }}>{v.change_reason || "—"}</td>)}</tr>
-                    <tr><td>Trạng thái</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{labelOf(statuses, v.status)}</td>)}</tr>
-                    <tr><td>Ngày</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{fmtDate(v.created_at)}</td>)}</tr>
-                  </tbody>
-                </table>
-              </div>
+                );
+              })}
             </div>
-          )}
-        </div>
-
-        {/* Hoạt động — nhật ký tương tác THẬT: ai làm gì · khi nào (mọi vai trò đụng cùng phiếu) */}
-        <div className="panel">
-          <div className="panel__hd"><h3><Activity size={16} /> Hoạt động</h3><span className="tag">{acts.length} sự kiện</span></div>
-          <div className="tl scrollbox">
-            {acts.length === 0 ? (
-              <div className="tl-empty">Chưa có hoạt động.</div>
-            ) : acts.map((a, i) => {
-              const m = ACT_META[a.action] ?? [Zap, "ash", a.action];
-              const ActIcon = m[0];
-              const tone = a.action === "quote_exception_rejected" || a.action === "transition_rejected" || a.action === "transition_cancelled" || a.action === "transition_expired"
-                ? "sig"
-                : i > 0 ? "mut" : "";
-              return (
-                <div className={`tlrow ${tone}`} key={i}>
-                  <span className="tlic"><ActIcon size={14} /></span>
-                  <div className="tlb">
-                    <div className="a">{m[2]}{a.actor_name && <> — <b>{a.actor_name}</b></>}</div>
-                    <div className="m">{fmtDateTime(a.at)}</div>
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </div>
       </div>
+
 
       {requoteOpen && (
         <div className="bg__overlay" onClick={() => setRequoteOpen(false)}>

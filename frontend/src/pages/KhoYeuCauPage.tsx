@@ -86,6 +86,23 @@ function sortInbox(a: StockRequest, b: StockRequest): number {
   return a.ma.localeCompare(b.ma);
 }
 
+/** Mã lệnh/bài của một đề nghị (mg 0175) — gộp các dòng, hiện tối đa 2 rồi "+n".
+ *
+ * Một đề nghị thường xin cho MỘT lệnh, nhưng không cấm xin cho nhiều — nên vẫn phải gộp thay vì
+ * lấy dòng đầu. Không dòng nào gắn lệnh (xin lặt vặt) thì để gạch, đó cũng là một câu trả lời. */
+function maLenhCuaDeNghi(r: StockRequest) {
+  const mas = [...new Set(
+    r.lines.map((l) => l.lsx_ma ?? l.bai_ghep_ma).filter((m): m is string => !!m),
+  )];
+  if (!mas.length) return <span className="rc__muted">—</span>;
+  return (
+    <>
+      <div className="kho-lines__code">{mas.slice(0, 2).join(", ")}</div>
+      {mas.length > 2 && <div className="rc__muted">+{mas.length - 2} lệnh</div>}
+    </>
+  );
+}
+
 function progressOf(r: StockRequest): { done: number; total: number; pct: number } {
   const total = r.lines.reduce((s, l) => s + l.sl_duyet, 0);
   const done = r.lines.reduce((s, l) => s + l.sl_da_ung, 0);
@@ -215,7 +232,8 @@ export function KhoYeuCauPage({
   ];
 
   // Cột đề nghị: 8 khi có nút Lập phiếu, 7 khi không (đã bỏ cột Tồn — đề nghị không gắn kho).
-  const reqCols = canCreate ? 8 : 7;
+  // Mã · Loại · Bộ phận · Vật tư · Cho lệnh · Tiến độ · Cần ngày · Trạng thái (+ cột thao tác).
+  const reqCols = canCreate ? 9 : 8;
 
   return (
     <>
@@ -292,6 +310,9 @@ export function KhoYeuCauPage({
                 <th style={{ width: "7%" }}>Loại</th>
                 <th style={{ width: "15%" }}>Bộ phận · Người</th>
                 <th>Vật tư</th>
+                {/* mg 0175 — soạn hàng theo LỆNH: thủ kho gom được các đề nghị của cùng một lệnh
+                    thay vì soạn rời từng phiếu. Cột thay cho việc dựng một màn "soạn hàng" riêng. */}
+                <th style={{ width: "11%" }}>Cho lệnh</th>
                 <th style={{ width: "12%" }}>Tiến độ</th>
                 <th style={{ width: "11%" }}>Cần ngày</th>
                 <th style={{ width: "12%" }}>Trạng thái</th>
@@ -347,6 +368,7 @@ export function KhoYeuCauPage({
                           <div className="rc__muted">+{r.lines.length - 1} mã</div>
                         )}
                       </td>
+                      <td>{maLenhCuaDeNghi(r)}</td>
                       <td>
                         <div className="kho-prog">
                           <span className="kho-prog__track">

@@ -624,7 +624,10 @@ export function PurchaseRequestsPage({
     });
   };
   const canUpdate = can("thu_mua", "update");
-  const canApprovePurchase = can("thu_mua", "approve");
+  // Ba nút "Sửa số nhận · Mở lại đơn · Đóng đơn" nay gác bằng ô RIÊNG `manage_status`
+  // ("Sửa / đảo trạng thái đơn sau khi nhận hàng"), không còn mượn cờ duyệt. Cùng lỗi với màn
+  // Đơn mua hàng (Kế toán): lần trước đổi máy chủ mà quên dòng này nên bật ô mới không thấy gì.
+  const canApprovePurchase = can("thu_mua", "manage_status");
   // KHÔNG còn `canApprove` ở màn này: duyệt đơn mua đã chuyển sang Kế toán thu mua (04/08/2026).
   //
   // ⚠️ Hộp "Lý do từ chối" (`reasonModal.kind === "reject"`) vẫn còn trong file nhưng KHÔNG CÒN AI
@@ -715,7 +718,8 @@ export function PurchaseRequestsPage({
   const [deleting, setDeleting] = useState<PurchaseRequestRow | null>(null);
   // Dùng CHUNG một hộp "nhập lý do" cho cả huỷ / từ chối / lùi đã nhận — không dựng hộp thứ ba.
   const [reasonModal, setReasonModal] = useState<null | {
-    kind: "cancel" | "reject" | "undo_received";
+    // Chỉ còn "undo_received" — xem chú thích ở chỗ gọi API.
+    kind: "undo_received";
     row: PurchaseRequestRow;
     reason: string;
     error: string | null;
@@ -1159,10 +1163,6 @@ export function PurchaseRequestsPage({
   async function confirmReason() {
     if (!token || !reasonModal) return;
     const { row, kind, reason } = reasonModal;
-    if (kind === "reject" && !reason.trim()) {
-      setReasonModal({ ...reasonModal, error: "Vui lòng nhập lý do từ chối." });
-      return;
-    }
     // Lùi "Đã nhận hàng" XOÁ một món nợ khỏi màn Kế toán ⇒ bắt buộc ghi lý do, để nhật ký còn truy
     // được. Server cũng chặn lý do rỗng; đây chỉ là chặn sớm cho đỡ một vòng gọi.
     if (kind === "undo_received" && !reason.trim()) {
@@ -1172,12 +1172,9 @@ export function PurchaseRequestsPage({
     setActionBusy(`${kind}:${row.id}`);
     setReasonModal({ ...reasonModal, error: null });
     try {
-      const next =
-        kind === "reject"
-          ? await api.purchaseRequests.reject(token, row.id, reason.trim())
-          : kind === "undo_received"
-            ? await api.purchaseRequests.undoReceived(token, row.id, reason.trim())
-            : await api.purchaseRequests.cancel(token, row.id, reason || null);
+      // Chỉ còn MỘT nhánh: lùi trạng thái đã nhận. Hai nhánh cũ đã gỡ (11/08/2026) —
+      // "reject" chuyển hẳn sang màn Đơn mua hàng (Kế toán), "cancel" bỏ vì không dùng tới.
+      const next = await api.purchaseRequests.undoReceived(token, row.id, reason.trim());
       updateRow(next);
       setReasonModal(null);
       loadSources();
@@ -1373,28 +1370,6 @@ export function PurchaseRequestsPage({
             }
           />
         )}
-        {/* {canCancel &&
-          row.status !== "received" &&
-          row.status !== "cancelled" && (
-            <RowActionButton
-              dense={dense}
-              label="Hủy"
-              icon="ban"
-              danger
-              onClick={() =>
-                setReasonModal({ kind: "cancel", row, reason: "", error: null })
-              }
-            />
-          )} */}
-        {/* {canDelete && row.status === "draft" && (
-          <RowActionButton
-            dense={dense}
-            label="Xóa"
-            icon="trash"
-            danger
-            onClick={() => setDeleting(row)}
-          />
-        )} */}
       </div>
     );
   }
@@ -2380,28 +2355,16 @@ export function PurchaseRequestsPage({
 
       <ConfirmDialog
         open={Boolean(reasonModal)}
-        title={
-          reasonModal?.kind === "reject"
-            ? "Từ chối đơn?"
-            : reasonModal?.kind === "undo_received"
-              ? "Lùi về 'Đang mua'?"
-            : "Hủy đơn?"
-        }
+        // Hộp thoại này nay CHỈ dùng cho một việc: lùi trạng thái đã nhận. Hai nhánh cũ
+        // (từ chối / huỷ đơn) đã gỡ 11/08/2026 — xem chú thích ở `confirmReason`.
+        title="Lùi về 'Đang mua'?"
         message={
           reasonModal
-            ? reasonModal.kind === "undo_received"
-              ? `Đơn ${reasonModal.row.code} — công nợ của đơn này sẽ mất khỏi màn Kế toán, và yêu cầu của bộ phận quay về "Đang mua".`
-              : `Đơn ${reasonModal.row.code}`
+            ? `Đơn ${reasonModal.row.code} — công nợ của đơn này sẽ mất khỏi màn Kế toán, và yêu cầu của bộ phận quay về "Đang mua".`
             : undefined
         }
         danger
-        confirmLabel={
-          reasonModal?.kind === "reject"
-            ? "Từ chối đơn"
-            : reasonModal?.kind === "undo_received"
-              ? "Lùi trạng thái"
-              : "Hủy đơn"
-        }
+        confirmLabel="Lùi trạng thái"
         busy={
           reasonModal
             ? actionBusy === `${reasonModal.kind}:${reasonModal.row.id}`
@@ -2413,11 +2376,7 @@ export function PurchaseRequestsPage({
       >
         <label className="purchase__field">
           <span>
-            {reasonModal?.kind === "reject"
-              ? "Lý do từ chối"
-              : reasonModal?.kind === "undo_received"
-                ? "Lý do lùi (bắt buộc)"
-                : "Lý do / ghi chú"}
+            Lý do lùi (bắt buộc)
           </span>
           <textarea
             className="input purchase__textarea"
@@ -2945,6 +2904,10 @@ function DeliveriesBlock({
   onNhapKho: (delivery: PurchaseDeliveryRow) => void;
 }) {
   const ghiDuoc = canUpdate && GHI_DOT_DUOC.includes(row.status);
+  // "Nhập kho" nhảy sang màn Kho, tab ĐỀ NGHỊ · Nhập với form điền sẵn ⇒ hỏi đúng ô mở tab đó
+  // (`kho:request`), KHÔNG phải `kho:create` — bộ phận mua hàng có `request` mà không có `create`,
+  // gác nhầm là giấu nút của chính người cần dùng nó nhiều nhất.
+  const coQuyenNhapKho = useCan()("kho", "request");
   const dots = row.deliveries;
 
   return (
@@ -3095,16 +3058,21 @@ function DeliveriesBlock({
                             không phụ thuộc đã trả tiền. Bấm → nhảy sang màn Yêu cầu kho, mở sẵn form
                             NHẬP điền theo hàng đã nhận của đợt này. (Nối cứng qua `stock_voucher_id`
                             khi lập phiếu là bước sau — xem docs/prd-mua-hang-cong-no.md §11.) */}
-                        <RowActionButton
-                          dense
-                          label="Nhập kho"
-                          icon="warehouse"
-                          onClick={() => onNhapKho(dot)}
-                        />
+                        {coQuyenNhapKho && (
+                          <RowActionButton
+                            dense
+                            label="Nhập kho"
+                            icon="warehouse"
+                            onClick={() => onNhapKho(dot)}
+                          />
+                        )}
                         {/* Đợt ĐÃ CÓ PHIẾU CHI thì server cấm sửa/xoá — tiền đã ra thì không được
                             đổi số hàng dưới chân nó. Hiện KHOÁ ngay ở đây chứ không bày nút rồi để
                             người dùng gõ xong cả form mới ăn lỗi. Nhưng NHẬP KHO thì vẫn cho. */}
-                        {khoa ? (
+                        {/* CHỈ hiện với người có quyền GHI (đợt 5). Trước đây mọi người xem đơn
+                            đều thấy "Sửa/Xoá đợt giao", bấm mới ăn 403 — máy chủ chặn đúng, giao
+                            diện thì bày ra. `ghiDuoc` = canUpdate + đơn đang ở trạng thái ghi được. */}
+                        {!ghiDuoc ? null : khoa ? (
                           <span
                             className="pdot__locked"
                             title="Đợt này đã có phiếu chi — huỷ phiếu chi trước rồi mới sửa/xoá được."

@@ -24,7 +24,10 @@ import {
   type LsxLoaiBuoc,
   type XepLichGanBody,
   type XepLichGanLoatRow,
+  type XepLichChen,
   type XepLichGoiY,
+  type XepLichKeHoachTuan,
+  type XepLichTuanO,
   type XepLichHangChoItem,
   type XepLichNguon,
   type XepLichRow,
@@ -44,6 +47,7 @@ import {
   EmptyState,
   LichTrangThaiPill,
   NguyCoTreChip,
+  Skeleton,
   classHan,
   ngay,
   ngayGio,
@@ -83,11 +87,11 @@ const COL_GROUPS: { key: string; label: string }[] = [
 const COLS_LS_KEY = "xlcd.cols";
 const VIEW_LS_KEY = "xlcd.view";
 
-type ViewMode = "bang" | "gantt" | "van-de";
+type ViewMode = "bang" | "gantt" | "van-de" | "tuan";
 function loadViewLS(): ViewMode {
   try {
     const v = localStorage.getItem(VIEW_LS_KEY);
-    return v === "gantt" || v === "van-de" ? v : "bang";
+    return v === "gantt" || v === "van-de" || v === "tuan" ? v : "bang";
   } catch { return "bang"; }
 }
 
@@ -259,16 +263,26 @@ export function XepLichPage({
 
   // ---- lọc + tìm client-side ----
   const coLoc = filters.thueNgoai || filters.chiXungDot || q.trim() !== "";
+  // Lọc theo NHÓM MÁY — đích của cú bấm ô đỏ ở bảng Tuần (mục J: "bấm ô đỏ → nhảy Gantt đã lọc
+  // nhóm máy đó"). Ô tìm kiếm `q` không làm được việc này: nó chỉ dò mã lệnh và tên công đoạn.
+  const [nhomMay, setNhomMay] = useState<string | null>(null);
+  const mayTheoNhom = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const x of mays) m.set(x.id, String(x.loai_may ?? "").trim() || String(x.ten));
+    return m;
+  }, [mays]);
+
   const filtered = useMemo(() => {
     if (!rows) return [];
     const nq = norm(q.trim());
     return rows.filter((r) => {
       if (filters.thueNgoai && r.loai_buoc !== "thue_ngoai") return false;
       if (filters.chiXungDot && !r.co_xung_dot) return false;
+      if (nhomMay && (r.may_id == null || mayTheoNhom.get(r.may_id) !== nhomMay)) return false;
       if (nq && !norm(`${r.lsx_ma ?? ""} ${r.cong_doan_ten ?? ""}`).includes(nq)) return false;
       return true;
     });
-  }, [rows, filters, q]);
+  }, [rows, filters, q, nhomMay, mayTheoNhom]);
 
   const summary = useMemo(() => {
     const all = rows ?? [];
@@ -483,7 +497,24 @@ export function XepLichPage({
 
   const bulkAuto = useCallback(async () => {
     if (!token) return;
-    const targets = (rows ?? []).filter((r) => picked.has(r.id) && r.may_id != null && !r.is_locked && !r.blocked_reason);
+    const targets = (rows ?? [])
+      .filter((r) => picked.has(r.id) && r.may_id != null && !r.is_locked && !r.blocked_reason)
+      // (E) GOM VIỆC CÙNG LOẠI: trong cùng mức ưu tiên (hạn giao), xếp liền các việc cùng giấy ·
+      // cùng khổ · cùng bộ mực (`gom_key` do server cấp). Vì `bulkAuto` gán TUẦN TỰ — dòng sau lấy
+      // khe ngay sau dòng trước — nên chỉ cần đổi THỨ TỰ là chúng nằm cạnh nhau trên máy, thợ khỏi
+      // rửa mực / thay giấy giữa chừng.
+      //
+      // Chỉ đổi thứ tự ĐỀ XUẤT: không đụng công thức thời gian, không khai thêm gì. Hạn giao vẫn
+      // là trục ưu tiên NGOÀI — gom mà đẩy một lệnh gấp xuống sau là tối ưu nhầm thứ.
+      .sort((a, b) => {
+        const ha = a.muon_nhat ?? "9999";
+        const hb = b.muon_nhat ?? "9999";
+        if (ha !== hb) return ha < hb ? -1 : 1;
+        const ga = a.gom_key ?? "~";        // "~" > mọi khoá thật ⇒ dòng chưa đủ quy cách xuống cuối
+        const gb = b.gom_key ?? "~";
+        if (ga !== gb) return ga < gb ? -1 : 1;
+        return a.id - b.id;
+      });
     if (!targets.length) { setToast({ text: "Chọn dòng đã có máy (chưa khóa) để tự xếp" }); return; }
     const before = new Map(targets.map((r) => [r.id, r.start_at] as const));
     try {
@@ -509,6 +540,60 @@ export function XepLichPage({
       setErr(e instanceof ApiError ? e.message : String(e));
     }
   }, [token, rows, picked, applyRows, onBadgeStale]);
+
+  // ---- G1: chèn lệnh gấp & đẩy -------------------------------------------
+  // Hai pha TÁCH HẲN: `moChen` chỉ TÍNH (server không ghi gì, thoát ra là mất), `apChen` mới ghi
+  // bằng đúng `ganLoat` mà kéo-thả đang dùng — nên có sẵn Hoàn tác, không phải đẻ đường ghi thứ hai.
+  const [chen, setChen] = useState<XepLichChen | null>(null);
+  const [chenBusy, setChenBusy] = useState(false);
+
+  const moChen = useCallback(async (dongId: number, mayId: number | null, dtStr: string) => {
+    const tai = fromLocalInput(dtStr);
+    if (!token || !tai) return;
+    setChenBusy(true);
+    try {
+      setChen(await api.xepLich.chen(token, dongId, { may_id: mayId, tai }));
+    } catch (e: unknown) {
+      setErr(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setChenBusy(false);
+    }
+  }, [token]);
+
+  const apChen = useCallback(async () => {
+    if (!token || !chen) return;
+    const truoc = new Map((rows ?? []).map((r) => [r.id, r.start_at] as const));
+    const payload: XepLichGanLoatRow[] = chen.rows
+      .filter((r) => r.moi)
+      .map((r) => ({
+        id: r.id,
+        start_at: r.moi,
+        // Chỉ dòng ĐANG CHÈN mới đổi máy; các dòng bị đẩy giữ nguyên máy của chúng.
+        ...(r.la_viec_chen ? { may_id: chen.may_id } : {}),
+      }));
+    if (!payload.length) { setChen(null); return; }
+    setChenBusy(true);
+    try {
+      const res = await api.xepLich.ganLoat(token, payload);
+      applyRows(res.items);
+      onBadgeStale?.();
+      setChen(null);
+      setToast({
+        text: `Đã chèn và dời ${payload.length - 1} việc phía sau`,
+        undo: async () => {
+          const undo: XepLichGanLoatRow[] = payload.map((p) => ({
+            id: p.id, start_at: truoc.get(p.id) ?? null,
+          }));
+          try { applyRows((await api.xepLich.ganLoat(token, undo)).items); onBadgeStale?.(); setToast(null); }
+          catch (e) { setErr(e instanceof ApiError ? e.message : String(e)); }
+        },
+      });
+    } catch (e: unknown) {
+      setErr(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setChenBusy(false);
+    }
+  }, [token, chen, rows, applyRows, onBadgeStale]);
 
   // ---- cột hiện ----
   const show = {
@@ -619,11 +704,34 @@ export function XepLichPage({
                   <span className="xlcd-segbadge">{num(tongVanDe)}</span>
                 ) : null}
               </button>
+              {/* Mục J — TẦNG TUẦN. Trả lời "tuần sau còn nhận thêm việc được không", nên cố tình
+                  KHÔNG có lịch giờ: ba view kia đã lo chuyện việc nào chạy lúc mấy giờ. */}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === "tuan"}
+                className={viewMode === "tuan" ? "is-active" : ""}
+                onClick={() => setViewMode("tuan")}
+              >
+                <Icon name="calendar" size={13} /> Tuần
+              </button>
             </div>
 
-            {/* Gom-nhóm + 2 chip lọc chỉ có nghĩa với Bảng/Gantt — ẩn ở view Vấn đề. */}
-            {viewMode !== "van-de" && (
+            {/* Gom-nhóm + 2 chip lọc chỉ có nghĩa với Bảng/Gantt — ẩn ở view Vấn đề / Tuần. */}
+            {viewMode !== "van-de" && viewMode !== "tuan" && (
               <>
+                {/* Đang lọc theo nhóm máy (bấm từ bảng Tuần sang) — PHẢI có chip gỡ, không thì
+                    người dùng ngồi nhìn một bảng thiếu dòng mà không biết vì sao. */}
+                {nhomMay && (
+                  <button
+                    type="button"
+                    className="khsx-pill xlcd-pill-loc"
+                    onClick={() => setNhomMay(null)}
+                    title="Bỏ lọc nhóm máy"
+                  >
+                    Nhóm: {nhomMay} ✕
+                  </button>
+                )}
                 <div className="khsx-seg" role="tablist" aria-label="Gom nhóm theo">
                   {GROUP_TABS.map((g) => (
                     <button
@@ -722,6 +830,12 @@ export function XepLichPage({
               onPhuongAn={onPhuongAn}
               onToast={(text) => setToast({ text })}
               onSetSearch={setQ}
+            />
+          ) : viewMode === "tuan" ? (
+            <TuanView
+              token={token}
+              eventTick={eventTick}
+              onMoGantt={(nhom) => { setNhomMay(nhom); setGroupBy("may"); setViewMode("gantt"); }}
             />
           ) : rows === null ? (
             <BoardSkeleton colCount={colCount} />
@@ -900,6 +1014,17 @@ export function XepLichPage({
           fetchMembers={async () =>
             token && openRow.bai_ghep_id ? (await api.baiGhep.get(token, openRow.bai_ghep_id)).thanh_vien : []
           }
+          onChen={moChen}
+          chenBusy={chenBusy}
+        />
+      )}
+
+      {chen && (
+        <ChenPreviewDialog
+          data={chen}
+          busy={chenBusy}
+          onHuy={() => setChen(null)}
+          onLuu={apChen}
         />
       )}
 
@@ -1924,6 +2049,7 @@ function BulkBar({
 // ============================ drawer 1 công đoạn ============================
 function DrawerBuoc({
   row, siblings, mays, phongBans, canUpdate, hasPrev, hasNext, onPrev, onNext, onClose, onGan, onKhoa, fetchGoiY, fetchMembers,
+  onChen, chenBusy,
 }: {
   row: XepLichRow;
   siblings: XepLichRow[];
@@ -1939,6 +2065,9 @@ function DrawerBuoc({
   onKhoa: (khoa: boolean) => void;
   fetchGoiY: (id: number) => Promise<XepLichGoiY>;
   fetchMembers: () => Promise<{ lsx_id: number; lsx_ma: string | null; lsx_ten: string | null }[]>;
+  /** G1 — mở bảng xem trước chèn (không ghi). `dt` là giá trị ô giờ đang gõ trên drawer. */
+  onChen: (dongId: number, mayId: number | null, dt: string) => void;
+  chenBusy: boolean;
 }) {
   const kind = resKind(row.loai_buoc);
   const [mayId, setMayId] = useState<number | null>(row.may_id);
@@ -2052,6 +2181,16 @@ function DrawerBuoc({
                     {(kind === "to" ? phongBans : mays).map((o) => (
                       <option key={o.id} value={o.id}>{o.ma} · {o.ten}</option>
                     ))}
+                    {/* Bước đang trỏ một phòng KHÔNG còn trong danh sách Tổ (mục H siết định nghĩa
+                        Tổ = nút lá trong nhánh Sản xuất). Không thêm dòng này thì `<select>` hiện
+                        TRỐNG dù bước vẫn đang gán tổ đó, và bấm Lưu là xoá mất tổ của lệnh đang
+                        chạy. Giữ nguyên giá trị, chỉ dán nhãn để người xếp biết mà sửa dần. */}
+                    {kind === "to" && row.department_id != null
+                      && !phongBans.some((o) => o.id === row.department_id) && (
+                      <option value={row.department_id}>
+                        {row.department_ten ?? `#${row.department_id}`} (không còn là tổ)
+                      </option>
+                    )}
                   </select>
                 )}
               </label>
@@ -2072,6 +2211,28 @@ function DrawerBuoc({
               <span className="khsx-field__label">Bắt đầu</span>
               <input type="datetime-local" value={dt} disabled={readOnly} onChange={(e) => setDt(e.target.value)} />
             </label>
+
+            {/* G1 — CHÈN LỆNH GẤP. Đặt ngay dưới ô giờ vì nó dùng đúng giờ đang gõ ở trên: "chèn
+                vào đây" = chèn vào mốc này trên máy này. Bấm chỉ MỞ BẢNG XEM TRƯỚC, chưa ghi gì —
+                người xếp nhìn trọn dây bị đẩy rồi mới quyết, thay vì kéo tay từng việc và mỗi lần
+                một lần ăn báo đỏ trùng máy. */}
+            {kind === "may" && !readOnly && (
+              <div className="khsx-goiy" style={{ marginTop: "var(--sp-3)" }}>
+                <p className="khsx-goiy__text">
+                  Ngày đã kín? <b>Chèn vào đây</b> sẽ lùi các việc phía sau trên máy này vừa đủ hết
+                  chồng lấn — và cho xem trước toàn bộ trước khi ghi.
+                </p>
+                <div className="khsx-goiy__acts">
+                  <Button
+                    variant="accent"
+                    disabled={!mayId || !dt || chenBusy}
+                    onClick={() => onChen(row.id, mayId, dt)}
+                  >
+                    {chenBusy ? "Đang tính…" : "Chèn vào đây"}
+                  </Button>
+                </div>
+              </div>
+            )}
 
             <div className="khsx-tinh">
               <div className="khsx-tinh__row">
@@ -2106,6 +2267,66 @@ function DrawerBuoc({
                   </Button>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Mục D — TOP 3 MÁY, sắp theo GIỜ XONG.
+              Vì sao không sắp theo "máy trống sớm nhất": tốc độ khai theo từng máy, nên máy chậm
+              rảnh lúc 8h vẫn có thể xong SAU máy nhanh rảnh lúc 10h. Sắp theo giờ trống là đưa ra
+              lời khuyên sai đúng lúc người ta tin nó nhất.
+              Bảng này chạy CẢ KHI dòng chưa gán máy — đúng lúc cần gợi ý nhất. */}
+          {kind === "may" && goiY && goiY.goi_y_may.length > 0 && !readOnly && (
+            <div className="khsx-goiy khsx-goiy--may">
+              <p className="khsx-goiy__text">
+                Máy làm được công đoạn này, xếp theo <b>giờ xong</b> — bấm một dòng là gán luôn máy
+                và giờ bắt đầu.
+              </p>
+              <table className="xlcd-topmay">
+                <thead>
+                  <tr>
+                    <th>Máy</th>
+                    <th>Bắt đầu được</th>
+                    <th>Xong lúc</th>
+                    <th>Chiếm máy</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {goiY.goi_y_may.map((g) => (
+                    <tr
+                      key={g.may_id}
+                      className={`xlcd-topmay__row${g.may_id === mayId ? " is-current" : ""}`}
+                    >
+                      <td>
+                        <button
+                          type="button"
+                          className="xlcd-topmay__pick"
+                          onClick={() => {
+                            setMayId(g.may_id);
+                            if (g.khe_trong) setDt(toLocalInput(g.khe_trong));
+                          }}
+                        >
+                          {g.may_ten ?? `Máy #${g.may_id}`}
+                        </button>
+                        {g.khong_hop_kho && (
+                          <span className="xlcd-topmay__canh" title="Khổ giấy vượt khổ máy — vẫn gán được, cần xác nhận">
+                            khổ vượt máy
+                          </span>
+                        )}
+                        {/* Mục E — nói ra vì sao máy này đáng chọn khi hoà giờ: việc liền trước
+                            cùng giấy/khổ/mực nên đổi việc gần như khỏi canh lại máy. */}
+                        {g.cung_gom && (
+                          <span className="xlcd-topmay__gom" title="Việc liền trước cùng giấy · khổ · bộ mực — đỡ canh máy">
+                            nối việc cùng loại
+                          </span>
+                        )}
+                      </td>
+                      <td>{ngayGio(g.khe_trong)}</td>
+                      <td className="xlcd-topmay__finish">{ngayGio(g.finish)}</td>
+                      <td>{thoiLuong(g.chiem_may_phut)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 
@@ -2201,4 +2422,202 @@ function undoFields(patch: XepLichGanBody, prev: XepLichRow): XepLichGanBody {
   if ("work_shift_id" in patch) out.work_shift_id = prev.work_shift_id;
   if ("start_at" in patch) out.start_at = prev.start_at;
   return out;
+}
+
+// ============================ J — tầng kế hoạch tuần ========================
+/** Bảng tải theo TUẦN của từng máy / tổ. Tính lúc đọc ở server, **không lưu gì**.
+ *
+ *  Câu hỏi màn này trả lời: *"tuần sau còn nhận thêm việc được không"* — nên nó cố tình không có
+ *  lịch giờ. Điểm dễ hiểu sai nhất: **Cần** gồm CẢ việc chưa xếp (việc chưa có giờ tính vào tuần
+ *  chứa hạn của nó). Chỉ đếm việc đã xếp thì bảng báo "còn rỗng" trong khi hàng chờ đang đầy, và
+ *  người ta nhận thêm đơn rồi vỡ trận.
+ */
+function TuanView({ token, eventTick, onMoGantt }: {
+  token: string | null;
+  eventTick?: number;
+  /** Bấm ô MÁY → mở Gantt đã lọc đúng NHÓM máy đó (mục J). */
+  onMoGantt: (nhom: string) => void;
+}) {
+  const [data, setData] = useState<XepLichKeHoachTuan | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [soTuan, setSoTuan] = useState(4);
+
+  const load = useCallback(() => {
+    if (!token) return;
+    const hom_nay = new Date();
+    const tu = `${hom_nay.getFullYear()}-${String(hom_nay.getMonth() + 1).padStart(2, "0")}-${String(hom_nay.getDate()).padStart(2, "0")}`;
+    api.xepLich.keHoachTuan(token, tu, soTuan)
+      .then((r) => { setData(r); setErr(null); })
+      .catch((e) => setErr(e instanceof ApiError ? e.message : String(e)));
+  }, [token, soTuan]);
+
+  useEffect(() => load(), [load, eventTick]);
+
+  if (err) return <BangLoi text={err} onRetry={load} />;
+  if (!data) return <Skeleton rows={6} cols={5} />;
+  if (data.items.length === 0) {
+    return (
+      <EmptyState
+        icon="calendar"
+        title="Chưa có việc nào trong các tuần này"
+        sub="Đưa lệnh vào kế hoạch ở tab Hàng chờ, hoặc mở rộng số tuần."
+      />
+    );
+  }
+
+  const tuans = [...new Set(data.items.map((i) => i.tuan))];
+  // Khoá dòng: máy gom theo NHÓM (`res_id` null) nên phải lấy `nhom`; tổ lấy id. Dùng `res_id`
+  // cho cả hai thì mọi nhóm máy dồn chung một khoá "may:null" và bảng còn đúng một dòng máy.
+  const khoaRes = (i: XepLichTuanO) => `${i.loai}:${i.res_id ?? i.nhom ?? i.ten}`;
+  const res = [...new Map(data.items.map((i) => [khoaRes(i), i])).values()];
+
+  return (
+    <div className="xlcd-tuan">
+      <div className="khsx__toolbar">
+        <span className="xlcd-tuan__hint">
+          <b>Cần</b> tính cả việc <b>chưa xếp</b> (dồn vào tuần chứa hạn của nó) — không thì bảng
+          báo còn rỗng trong khi hàng chờ đang đầy. Tổ tính theo <b>giờ-người</b>.
+        </span>
+        <div className="khsx-seg khsx-seg--sm" role="tablist" aria-label="Số tuần">
+          {[2, 4, 8].map((n) => (
+            <button key={n} type="button" className={soTuan === n ? "is-active" : ""}
+              onClick={() => setSoTuan(n)}>
+              {n} tuần
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="xlcd-tuan__scroll">
+        <table className="xlcd-tuan__tbl">
+          <thead>
+            <tr>
+              <th>Tài nguyên</th>
+              {tuans.map((t) => {
+                const o = data.items.find((i) => i.tuan === t);
+                return <th key={t} className="xlcd-tuan__th">Tuần {o?.iso_tuan ?? ""}<span>{ngay(t)}</span></th>;
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {res.map((r) => (
+              <tr key={khoaRes(r)}>
+                <td className="xlcd-tuan__res">
+                  <span className={`xlcd-tuan__kind xlcd-tuan__kind--${r.loai}`}>
+                    {r.loai === "may" ? "Máy" : "Tổ"}
+                  </span>
+                  {r.ten}
+                </td>
+                {tuans.map((t) => {
+                  const o = data.items.find((i) => i.tuan === t && khoaRes(i) === khoaRes(r));
+                  if (!o) return <td key={t} className="xlcd-tuan__o">—</td>;
+                  const donVi = r.loai === "to" ? "giờ-người" : "giờ";
+                  return (
+                    <td key={t} className={`xlcd-tuan__o xlcd-tuan__o--${o.mau}`}>
+                      {/* Bấm ô MÁY → nhảy Gantt đã lọc đúng NHÓM máy đó. Ô tổ chưa có lane riêng
+                          nên không gắn hành động — thà không bấm được còn hơn bấm ra màn lạc đề. */}
+                      <button
+                        type="button"
+                        className="xlcd-tuan__btn"
+                        disabled={o.loai !== "may"}
+                        onClick={() => o.loai === "may" && o.nhom && onMoGantt(o.nhom)}
+                        title={o.loai === "may" ? "Mở Gantt của máy này" : undefined}
+                      >
+                        <b>{o.pct >= 999 ? "—" : `${o.pct}%`}</b>
+                        <span>{num(o.can_gio)}/{num(o.kha_dung_gio)} {donVi}</span>
+                      </button>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ============================ G1 — bảng xem trước CHÈN ======================
+/** Bảng *giờ cũ → giờ mới* của một lần chèn. **Chưa ghi gì** cho tới khi bấm Lưu.
+ *
+ *  Vì sao phải có bảng chứ không chèn thẳng: chèn một việc gấp vào ngày kín kéo theo cả dây việc
+ *  phía sau, và hai hậu quả thật sự đau chỉ lộ ra khi nhìn TỔNG THỂ — lệnh nào vì thế mà trễ hạn,
+ *  và việc nào lùi tới thì đè lên máy của lệnh khác. Chèn xong mới thấy là đã muộn.
+ */
+function ChenPreviewDialog({ data, busy, onHuy, onLuu }: {
+  data: XepLichChen;
+  busy: boolean;
+  onHuy: () => void;
+  onLuu: () => void;
+}) {
+  const biDay = data.rows.filter((r) => !r.la_viec_chen).length;
+  const soTre = new Set(data.rows.filter((r) => r.tre_han).map((r) => r.lsx_ma)).size;
+  const soDungDo = data.rows.filter((r) => r.dung_do.length > 0).length;
+  return (
+    <ConfirmDialog
+      open
+      title="Chèn vào đây?"
+      message={
+        biDay === 0
+          ? "Lọt vừa khe trống — không việc nào phải lùi."
+          : `${biDay} việc phía sau sẽ lùi vừa đủ để hết chồng lấn. Chưa ghi gì cho tới khi bấm Lưu.`
+      }
+      confirmLabel="Lưu"
+      busy={busy}
+      onConfirm={onLuu}
+      onCancel={onHuy}
+    >
+      <div className="xlcd-chen">
+        {data.chan === "gap_khoa" && (
+          <p className="xlcd-chen__chan">
+            Gặp việc đã khóa — dừng đẩy tại đó. Các việc sau nó giữ nguyên giờ; mở khóa nếu muốn dời tiếp.
+          </p>
+        )}
+        {(soTre > 0 || soDungDo > 0) && (
+          <p className="xlcd-chen__canh">
+            {soTre > 0 && <>{soTre} lệnh sẽ <b>trễ hạn</b>. </>}
+            {soDungDo > 0 && (
+              <>{soDungDo} việc lùi tới sẽ <b>đè việc của lệnh khác</b> — hệ KHÔNG đẩy tiếp, bạn tự xử.</>
+            )}
+          </p>
+        )}
+        <div className="xlcd-chen__scroll">
+          <table className="xlcd-chen__tbl">
+            <thead>
+              <tr>
+                <th>Lệnh · công đoạn</th>
+                <th>Máy</th>
+                <th>Giờ cũ</th>
+                <th>Giờ mới</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map((r) => (
+                <tr
+                  key={r.id}
+                  className={`${r.la_viec_chen ? "is-chen" : ""} ${r.tre_han ? "is-tre" : ""}`.trim()}
+                >
+                  <td>
+                    <span className="xlcd-chen__ma">{r.lsx_ma ?? "—"}</span>{" "}
+                    <span className="xlcd-chen__ten">{r.cong_doan_ten ?? ""}</span>
+                    {r.la_viec_chen && <span className="xlcd-chen__tag">việc chèn</span>}
+                    {r.tre_han && <span className="xlcd-chen__tag xlcd-chen__tag--tre">trễ hạn</span>}
+                    {r.dung_do.length > 0 && (
+                      <span className="xlcd-chen__tag xlcd-chen__tag--do"
+                        title={`Đè lên: ${r.dung_do.join(", ")}`}>
+                        đụng {r.dung_do.join(", ")}
+                      </span>
+                    )}
+                  </td>
+                  <td>{r.may_ten ?? "—"}</td>
+                  <td className="xlcd-chen__cu">{ngayGio(r.cu)}</td>
+                  <td className="xlcd-chen__moi">{ngayGio(r.moi)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </ConfirmDialog>
+  );
 }

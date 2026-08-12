@@ -441,14 +441,15 @@ export function PaymentVouchersPage({
 }) {
   const { token } = useAuth();
   const can = useCan();
-  const canApprove = can("ke_toan", "approve");
+  // Khoá RIÊNG của màn Phiếu chi (tách 10/08/2026). `create` = LẬP phiếu + gán chứng từ.
+  const canApprove = can("phieu_chi", "create");
   const openYcmh = (code: string) =>
     navigate("yeu-cau-mua-hang", { focusRequestCode: code });
   const openReceipts = (query: string) =>
     navigate("ke-toan-phieu-thu", { focusReceiptQuery: query });
   // KHÔNG còn `canMarkPaid`: bước "Xác nhận đã chi" đã bỏ cùng với trạng thái Chờ chi (Đ1).
-  const canCancel = can("ke_toan", "cancel");
-  const canExport = can("ke_toan", "export");
+  const canCancel = can("phieu_chi", "cancel");
+  const canExport = can("phieu_chi", "export");
   const [rows, setRows] = useState<PaymentVoucherRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);

@@ -204,18 +204,20 @@
 /* Cảnh báo MỀM (không chặn lưu) — vd cặp số cố định đè lên đường công thức. Hổ phách chứ không đỏ:
    đỏ dành cho lỗi chặn, dùng đỏ cho thứ vẫn lưu được thì người ta quen mắt rồi bỏ qua cả hai. */
 .rc__warn-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 340px;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   font-size: 11.5px;
-  font-weight: 600;
-  line-height: 1.35;
+  font-weight: 500;
+  line-height: 1.45;
   color: #92400e;
   background: #fffbeb;
   border: 1px solid #fde68a;
-  padding: 3px 8px;
+  padding: 5px 8px;
   border-radius: 6px;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
 }
 
 .rc__chip-muted {
@@ -1524,6 +1526,14 @@ select.rc-input:focus {
   min-width: 160px;
 }
 
+/* Đơn vị năng suất: CHỮ, không phải ô nhập — nó khoá theo đơn giá khoán, sửa ở màn Lương khoán.
+   Để mực nhạt + không viền cho khỏi trông như ô bỏ trống chờ điền. */
+.rc-dinh-muc-table .rc-dinh-muc-unit {
+  color: var(--ink-soft, #6b6455);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .rc-dinh-muc-table td {
   padding: 5px 6px;
   border-bottom: 1px solid var(--rule-hair, #efebde);
@@ -2438,4 +2448,163 @@ select.rc-input:focus {
 .kho-del__input:focus {
   outline: none; border-color: var(--signal, #8a1f1f);
   box-shadow: 0 0 0 3px var(--signal-soft, #efd5d5);
+}
+
+/* ── Tab NHẬT KÝ trong drawer ────────────────────────────────────────────────────
+   Timeline dọc Modern SaaS style: chấm mốc màu, badge pill hành động,
+   hiển thị diff thay đổi (cũ → mới) nổi bật, sắc nét. */
+.rc-nk {
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-2) 0 var(--sp-4);
+}
+.rc-nk__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  padding: 0 0 var(--sp-4);
+}
+/* Đường nối timeline các mốc */
+.rc-nk__item::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 28px;
+  bottom: 0;
+  width: 2px;
+  background: var(--rule-hair, rgba(20, 19, 15, 0.08));
+}
+.rc-nk__item:last-child::before {
+  display: none;
+}
+.rc-nk__dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--primary, #0284c7);
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  z-index: 1;
+}
+.rc-nk__item.is-tao .rc-nk__dot {
+  color: var(--success-deep, #15803d);
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+.rc-nk__item.is-xoa .rc-nk__dot {
+  color: var(--danger, #b3261e);
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.rc-nk__body {
+  background: #ffffff;
+  border: 1px solid var(--rule-hair, rgba(20, 19, 15, 0.12));
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.rc-nk__body:hover {
+  border-color: rgba(20, 19, 15, 0.2);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.rc-nk__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink, #14130f);
+}
+.rc-nk__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.rc-nk__badge--dm_sua {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+.rc-nk__badge--dm_tao {
+  background: #dcfce7;
+  color: #15803d;
+}
+.rc-nk__badge--dm_xoa {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.rc-nk__who {
+  font-size: 12.5px;
+  font-weight: 500;
+  /* `--ink-soft` KHÔNG có trong tokens.css — viết var(--ink-soft, #hex) là chạy bằng hex dự
+     phòng, màu rơi ra ngoài hệ. Dùng token có thật. */
+  color: var(--ink);
+}
+.rc-nk__at {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ash, #64748b);
+  white-space: nowrap;
+}
+
+.rc-nk__changes {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+  border: 1px solid #f1f5f9;
+}
+.rc-nk__change-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+  color: #334155;
+}
+.rc-nk__change-left {
+  color: #475569;
+  font-weight: 500;
+}
+.rc-nk__arrow {
+  color: #0284c7;
+  font-weight: 700;
+  font-size: 13px;
+  user-select: none;
+}
+.rc-nk__change-right {
+  color: #0f172a;
+  font-weight: 600;
+  background: #e0f2fe;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.rc-nk__change-row.is-tien .rc-nk__change-right {
+  color: #c2410c;
+  background: #ffedd5;
+}
+
+.rc-nk__empty {
+  padding: var(--sp-5) var(--sp-4);
+  text-align: center;
+  font-size: 13px;
+  color: var(--ash, #8a8676);
 }

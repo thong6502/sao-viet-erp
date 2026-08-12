@@ -12,6 +12,10 @@ class ModuleOut(BaseModel):
 
     key: str
     label: str
+    #: Những "việc" ĐÃ XÁC MINH là chết — bật cũng không mở thêm gì. Ma trận tắt sẵn + khoá + hover
+    #: cảnh báo đúng mấy ô này, KHÔNG suy ngược từ "cái gì máy chủ không gác thì chết": rất nhiều ô
+    #: được thi hành ở giao diện (ẩn/hiện nút) nên máy chủ không thấy mà vẫn có tác dụng thật.
+    viec_chet: list[str] = []
 
 
 class DepartmentOut(BaseModel):
@@ -44,6 +48,9 @@ class DepartmentSummaryOut(BaseModel):
     head_title: str | None = None
     # Đánh dấu khối SẢN XUẤT (spec §13.1). FE tính "effective" theo cây (self hoặc tổ tiên tick).
     la_san_xuat: bool = False
+    # Đánh dấu khối KINH DOANH — cùng luật kế thừa cây con. Nền cho danh sách "NV phụ trách" ở
+    # màn Khách hàng (chip KHỐI KD trên danh sách phòng ban dùng "effective" y như khối SX).
+    la_kinh_doanh: bool = False
     role_count: int = 0
     user_count: int = 0
     employee_count: int = 0
@@ -94,6 +101,8 @@ class DepartmentCreate(BaseModel):
     has_piece_work: bool = False
     # Khối SẢN XUẤT (spec §13.1) — mặc định không phải sản xuất.
     la_san_xuat: bool = False
+    # Khối KINH DOANH — mặc định không phải kinh doanh.
+    la_kinh_doanh: bool = False
 
 
 class DepartmentUpdate(BaseModel):
@@ -109,6 +118,11 @@ class DepartmentUpdate(BaseModel):
     has_piece_work: bool = False
     # Khối SẢN XUẤT (spec §13.1). FE gửi cả object nên luôn kèm cờ này.
     la_san_xuat: bool = False
+    # Khối KINH DOANH. KHÔNG gửi = giữ nguyên (router lọc theo `model_fields_set`): màn Phòng ban
+    # có nhiều luồng sửa chỉ đụng tên/trưởng phòng, ghi đè mặc định ở đó là âm thầm gỡ cờ khối.
+    la_kinh_doanh: bool = False
+    # `ca_lam_ids` ĐÃ BỎ (2026-08-10): ca khai một chỗ duy nhất ở Nhân sự → Ca kíp, không lặp lại
+    # ở từng tổ. Cột còn trong DB nhưng không nhận/không trả.
 
 
 class UnitLevelOut(BaseModel):
@@ -265,6 +279,18 @@ class RoleRename(BaseModel):
     name: str = Field(min_length=1, max_length=255)
 
 
+class RoleTemplateOut(BaseModel):
+    """Một VAI MẪU: mô tả + bộ quyền điền sẵn cho ma trận (đợt 6, 11/08/2026).
+
+    `permissions` là ma trận ĐẦY ĐỦ (mọi module, cờ nào không thuộc mẫu thì tắt) để giao diện chỉ
+    việc thay thẳng state — không phải trộn nửa vời rồi lẫn với quyền cũ của vai."""
+
+    key: str
+    label: str
+    mo_ta: str
+    permissions: list["PermissionRow"]
+
+
 class PermissionRow(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -297,6 +323,7 @@ class PermissionRow(BaseModel):
     can_view_salary: bool = False
     can_edit_salary: bool = False
     can_adjust: bool = False
+    can_view_log: bool = False  # cham_cong: xem tab Nhật ký chấm công (tách khỏi `can_read` 11/08/2026).
     can_approve_exception: bool = False
     can_set_credit_terms: bool = False
     can_record_deposit: bool = False   # don_hang_ban — Kế toán ghi phiếu thu cọc
@@ -308,6 +335,7 @@ class PermissionRow(BaseModel):
     can_view_cost: bool = False        # kho — xem giá vốn & giá trị tồn (chỉ KT + BGĐ)
     can_set_threshold: bool = False    # kho — khai ngưỡng tồn / cận tồn / tối đa
     can_post: bool = False             # kho — GHI SỔ phiếu (chốt tồn); tách khỏi lập nháp (SoD)
+    can_close_book: bool = False       # kho — KHÓA KỲ (chốt sổ) + Báo cáo kho kế toán + export
 
 
 class PermissionMatrixIn(BaseModel):

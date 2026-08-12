@@ -20,6 +20,7 @@ from ..models.bai_ghep_cong_doan import (
 from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan
 from ..models.customer import Customer
+from ..models.khuon_be import KhuonBe
 from ..models.lsx import (
     DV_CAI, DV_TAY, DV_TO, DV_TO_NGUYEN, LB_MAY,
     TT_DA_LAP_KE_HOACH as LSX_DA_LAP, TT_SAN_SANG as LSX_SAN_SANG,
@@ -615,6 +616,11 @@ class BaiGhepService:
             # Đóng đinh `tờ ➔ tờ` là nói sai ngay khi bước gộp là bế (`to → cai`): thẻ chung ghi
             # "5.075 tờ ➔ 5.075 tờ" trong khi thẻ liền kề ghi "vào 20.300 cái".
             don_vi_vao=mau.don_vi_vao, don_vi_ra=mau.don_vi_ra,
+            # CHỜ KỸ THUẬT (mục B) — lấy mức LỚN NHẤT của các bước gộp, không lấy của bước mẫu.
+            # Chạy chung một lượt thì cả bài phải chờ theo lệnh khô lâu nhất: lấy bước mẫu là ăn
+            # may đúng, mà sai thì xếp cán chồng lên lúc mực của lệnh kia chưa khô — hỏng hàng thật
+            # chứ không phải lệch lịch. Máy vẫn KHÔNG bị chiếm trong khoảng này.
+            cho_phut=max((_f(cd.cho_phut) for cd in cds), default=0.0),
             thu_tu=int(mau.thu_tu or 0),
         )
         self.db.add(chung)
@@ -663,10 +669,12 @@ class BaiGhepService:
     _SUA_DUOC_BUOC_CHUNG = (
         # `khoan_json` KHÔNG có ở đây: nó là ảnh chụp server tự chụp từ `piece_rate_id`
         # (xem `_ghim_khoan_chung`), không phải thứ client gửi thẳng.
-        # Thời lượng KẾ THỪA từ máy (2026-08-04): client chỉ còn gửi `phat_sinh_phut`.
-        # `setup_phut`/`chay_phut`/`cho_phut`/`di_chuyen_phut`/`ve_sinh_phut` đã rời bộ này.
+        # Thời lượng KẾ THỪA từ máy (2026-08-04): client gửi `phat_sinh_phut` và `cho_phut`.
+        # `setup_phut`/`chay_phut`/`di_chuyen_phut`/`ve_sinh_phut` đã rời bộ này.
         "department_id", "may_id", "so_nhan_cong", "loai_buoc",
         "nang_suat", "don_vi_nang_suat", "phat_sinh_phut",
+        # Chờ kỹ thuật: gộp lấy mức lớn nhất làm MẶC ĐỊNH, người lập kế hoạch sửa đè được (mục B).
+        "cho_phut",
         "so_luot_chay", "ghi_chu",
         "nha_cung_cap", "sl_gui", "ngay_gui_dk", "van_chuyen_ngay", "gia_cong_ngay",
         "ngay_nhan_dk", "hao_hut_cho_phep", "don_gia_gia_cong", "yeu_cau_ky_thuat",
@@ -1396,6 +1404,8 @@ class BaiGhepService:
                 "chay_phut": t["chay_phut"],
                 "setup_phut": t["dien_giai"]["setup_phut"],
                 "phat_sinh_phut": _f(c.phat_sinh_phut),
+                # Chờ kỹ thuật của lượt chung — trả từ CỘT (thứ người gõ đè được), không qua `t`.
+                "cho_phut": _f(c.cho_phut),
                 "so_luot_chay": c.so_luot_chay,
                 **self._khoan_chung_dict(c),
                 "vat_tus": [
@@ -1554,6 +1564,26 @@ class BaiGhepService:
         # Khổ thành phẩm — CHỈ hiển thị (khác khổ TP là bình thường, không phán mức).
         khos = [_kho(qc.get("dai_thanh_pham"), qc.get("rong_thanh_pham")) or "—" for qc in qcs]
         rows.append(_row("Khổ thành phẩm", khos, "phu_hop"))
+
+        # KHUÔN BẾ (mục C) — dụng cụ DÙNG CHUNG, chỉ có MỘT cái: hai lệnh khác khuôn ghép chung tờ
+        # thì tới bước bế phải tháo lắp khuôn giữa chừng, hoặc chạy hai lượt. Không chặn cứng (đúng
+        # lối dòng Giấy/Mực ngay trên), nhưng phải BÀY RA — hôm nay bảng này im lặng về khuôn, người
+        # ghép chỉ phát hiện lúc đã tới máy bế.
+        # Lệnh KHÔNG có bước cần dụng cụ thì khuôn trống là bình thường ⇒ bỏ hẳn dòng này, không
+        # bắt người ta đọc một dòng "—" vô nghĩa cho bài toàn tờ phẳng.
+        kb_ids = [(lsx_map[tv.lsx_id].khuon_be_id if tv.lsx_id in lsx_map else None) for tv in tvs]
+        if any(kb_ids):
+            ten_kb: dict[int, str] = {}
+            for k in {i for i in kb_ids if i}:
+                kb = self.db.get(KhuonBe, k)
+                if kb is not None:
+                    ten_kb[k] = f"{kb.ma} · {kb.ten}"
+            co_du = all(kb_ids)
+            rows.append(_row(
+                "Khuôn bế",
+                [ten_kb.get(i, "—") if i else "Chưa gán" for i in kb_ids],
+                "phu_hop" if (co_du and len(set(kb_ids)) == 1) else "can_xac_nhan",
+            ))
 
         return {"thanh_vien": [{"lsx_id": tv.lsx_id} for tv in tvs], "rows": rows}
 

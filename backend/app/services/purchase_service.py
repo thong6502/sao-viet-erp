@@ -53,6 +53,7 @@ from ..models.accounting import (
     PAYMENT_VOUCHER_CANCELLED,
     PAYMENT_VOUCHER_PAID,
 )
+from ..models.vat_lieu_kho import HANG_LOAI
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.purchase_repo import (
     DepartmentPurchaseRequestLineInput,
@@ -85,11 +86,14 @@ MAX_PURCHASE_ATTACHMENTS = 30
 # PMH/Phiếu chi mà KHÔNG hề có quyền `thu_mua`, `scope_for` trả None nên bị co về phòng Kế toán và
 # nhìn thấy RỖNG. Người chỉ có scope phòng ban thì vẫn bị co như cũ.
 DEPARTMENT_REQUEST_READER_MODULES = (
+    # Khoá RIÊNG của màn Yêu cầu mua hàng (tách 10/08/2026) — phải đứng đầu: ai được cấp đúng màn
+    # này thì đọc được, không cần mượn quyền của phân hệ khác.
+    "yeu_cau_mua_hang",
     "thu_mua",
     "bao_gia",
     "kho",
     "san_xuat",
-    "dm_giay_vat_tu",
+    "dm_giay",
     "ke_toan",
 )
 
@@ -171,6 +175,31 @@ def _business_today() -> date:
 
 def _money_round(value: Decimal) -> int:
     return int(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def _doc_mat_hang(get) -> tuple[str | None, int | None]:
+    """Đọc cặp `(hang_loai, hang_id)` của một dòng hàng (mg 0174).
+
+    PHẢI ĐỦ CẶP hoặc TRỐNG CẢ HAI. Nửa cặp thì **báo lỗi**, không im lặng bỏ: `hang_loai='giay'`
+    mà thiếu id là một con trỏ hỏng, và hậu quả của nó im re — dòng mua mất liên kết mặt hàng, bảng
+    cân đối không cộng lô đó vào "hàng đang về", kế hoạch giục mua thêm một lô giấy nữa. Đúng cái
+    bug mg 0174 sinh ra để chữa.
+
+    "Không đoán" nghĩa là không tự bịa nửa còn thiếu — KHÔNG có nghĩa là nuốt lỗi. Cùng cách xử lý
+    với dòng mặt hàng NCC (`_clean_supplier_items`), để một khái niệm chỉ có một luật.
+    """
+    loai = (get("hang_loai") or "").strip() or None
+    raw_id = get("hang_id")
+    hid = int(raw_id) if raw_id not in (None, "") else None
+    if (loai is None) != (hid is None):
+        raise PurchaseValidationError(
+            "Mặt hàng gốc phải có cả loại lẫn mã — chọn lại ở ô Vật tư."
+        )
+    if loai is None:
+        return None, None
+    if loai not in HANG_LOAI:
+        raise PurchaseValidationError(f'Loại mặt hàng "{loai}" không hợp lệ.')
+    return loai, hid
 
 
 def _purchase_line_amounts(
@@ -919,13 +948,16 @@ class PurchaseService:
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[dict], int]:
-        filter_by_department = not self._sees_all_department_requests(actor)
+        pham_vi = self.authz.scope_for(actor, "yeu_cau_mua_hang")
         rows, total = self.department_requests.list(
             q=q,
             status=status,
             source_type=source_type,
             requesting_department_id=actor.department_id,
-            filter_by_department=filter_by_department,
+            filter_by_department=not self._sees_all_department_requests(actor),
+            # `own` = ĐÚNG yêu cầu do chính mình gửi. Trước 11/08/2026 `own` rơi xuống nhánh lọc
+            # theo phòng nên thấy luôn yêu cầu của đồng nghiệp — đo được 1 dòng do người khác tạo.
+            requested_by_user_id=actor.id if pham_vi == SCOPE_OWN else None,
             sort=sort,
             page=page,
             size=size,
@@ -941,15 +973,38 @@ class PurchaseService:
           của họ: công việc của thu mua chính là biến đơn của phòng khác thành phiếu mua. Không
           phụ thuộc scope: nhân viên thu mua scope `own` (chỉ thấy PHIẾU MUA của mình) vẫn phải
           thấy đủ yêu cầu gửi đến, nếu không thì ngồi nhìn màn hình trống.
-        · **Người ĐỀ NGHỊ** (bao_gia · kho · san_xuat · dm_giay_vat_tu) — chỉ thấy yêu cầu của
+        · **Người ĐỀ NGHỊ** (bao_gia · kho · san_xuat · dm_giay) — chỉ thấy yêu cầu của
           phòng mình, trừ khi được cấp scope `all`.
 
         ⚠️ Ngày 04/08/2026 tôi hạ scope `thu_mua` của nhân viên mua hàng xuống `own` để họ chỉ
         thấy PHIẾU MUA của mình — và làm mù luôn hộp việc này, vì lúc đó cả hai danh sách cùng đọc
         một ô scope. Hai thứ khác nhau thì phải hỏi hai câu khác nhau.
+
+        ⚠️ 11/08/2026 — GỠ LỐI TẮT `thu_mua`. Trước đó dòng đầu hàm là:
+
+            if self.authz.scope_for(actor, "thu_mua") is not None:
+                return True
+
+        `scope_for` trả về chuỗi phạm vi khi vai CÓ dòng quyền `thu_mua`, **bất kể phạm vi là gì**
+        — nên chỉ cần được cấp màn Mua hàng (dù `own`) là ô chọn phạm vi ở màn Yêu cầu mua hàng bị
+        bỏ qua sạch, thấy yêu cầu của MỌI phòng. Chủ chốt báo đúng chỗ này; đo lại: vai
+        `yeu_cau_mua_hang` phạm vi `own` thấy 1 dòng, cấp thêm `thu_mua` là thành 2 dòng đủ cả hai
+        phòng.
+
+        Lối tắt đó SINH RA khi YCMH chưa có khoá riêng. Từ 10/08 nó có khoá `yeu_cau_mua_hang`,
+        nên cách đúng là cấp thẳng phạm vi `all` trên khoá đó cho bộ phận mua hàng — hiện rõ trên
+        ma trận, gỡ được. Migration 0183 làm việc cấp bù đó.
+
+        LUẬT NAY, đúng hai nhánh:
+
+        1. Vai CÓ dòng `yeu_cau_mua_hang` ⇒ **chỉ nghe phạm vi của chính khoá đó**. Ô nào của màn
+           nào thì màn đó nghe — đúng ý "cứ cấp quyền là được phép, không cấp là không được".
+           Không còn chuyện đặt phạm vi ở đây mà một khoá khác đè lên.
+        2. Vai KHÔNG có dòng đó (DB cũ chưa qua migration) ⇒ giữ luật cũ để không ai mù hộp việc.
         """
-        if self.authz.scope_for(actor, "thu_mua") is not None:
-            return True
+        pham_vi = self.authz.scope_for(actor, "yeu_cau_mua_hang")
+        if pham_vi is not None:
+            return pham_vi == SCOPE_ALL
         return any(
             self.authz.scope_for(actor, module) == SCOPE_ALL
             for module in DEPARTMENT_REQUEST_READER_MODULES
@@ -1033,8 +1088,20 @@ class PurchaseService:
             item_name = (get("item_name") or "").strip()
             if not item_name:
                 raise PurchaseValidationError("Ten vat tu khong duoc trong.")
-            if not self.suppliers.has_active_item(item_name):
-                raise PurchaseValidationError("Vat tu chua co trong danh muc mat hang nha cung cap.")
+            hang_loai, hang_id = _doc_mat_hang(get)
+            # Dòng ĐÃ GẮN MẶT HÀNG GỐC (mg 0174) thì thôi kiểm theo TÊN: cặp `(hang_loai, hang_id)`
+            # là bằng chứng mạnh hơn hẳn — món đó đang nằm trong danh mục gốc, không phải chữ gõ
+            # tay. Giữ lại phép so tên ở đây là chặn oan đúng luồng vừa dựng: bảng cân đối gửi
+            # "Couché 150 79×109" (tên danh mục) trong khi NCC khai "Couche 150" ⇒ không lập nổi
+            # yêu cầu mua, mà lý do báo ra lại là "vật tư chưa có trong danh mục" — sai và khó hiểu.
+            # Dòng KHÔNG gắn mặt hàng gốc: chỉ còn chấp nhận nếu tên trùng bảng giá NCC — đó là
+            # đường lùi cho DỮ LIỆU CŨ (phiếu lập trước khi ô chọn danh mục ra đời) và cho client
+            # cũ. Giao diện hiện tại luôn gửi kèm cặp `(hang_loai, hang_id)`: ô Vật tư ở màn Yêu
+            # cầu mua hàng là combobox tra thẳng danh mục Giấy + Vật tư khác, không gõ tự do.
+            if hang_loai is None and not self.suppliers.has_active_item(item_name):
+                raise PurchaseValidationError(
+                    "Vat tu phai chon tu danh muc (Giay / Vat tu khac)."
+                )
             unit = (get("unit") or "").strip()
             if not unit:
                 raise PurchaseValidationError("Don vi tinh khong duoc trong.")
@@ -1048,6 +1115,8 @@ class PurchaseService:
                     quantity=quantity,
                     expected_unit_price=0,
                     note=(get("note") or "").strip() or None,
+                    hang_loai=hang_loai,
+                    hang_id=hang_id,
                 )
             )
         return lines
@@ -1104,12 +1173,21 @@ class PurchaseService:
         return self._to_department_request_out(row)
 
     def can_create_department_request(self, actor) -> bool:
-        if self.authz.can(actor, "thu_mua", "request"):
-            return True
-        if actor.department_id is None:
-            return False
-        department = self.departments.get_by_id(actor.department_id)
-        return department is not None and department.head_user_id == actor.id
+        """Được LẬP yêu cầu mua hàng hay không — HỎI ĐÚNG MỘT THỨ: ô quyền của màn đó.
+
+        ⚠️ ĐÃ BỎ (10/08/2026) hai đường tắt cũ, theo yêu cầu chủ chốt "cứ cấp quyền là được phép,
+        không cấp là không được":
+
+        1. `thu_mua/request` — mượn quyền của MÀN KHÁC. Bật một ô ở màn Mua hàng lại mở cửa màn Yêu
+           cầu mua hàng: nhìn ma trận quyền không đoán được, đúng chỗ tester kêu "quyền không ăn khớp".
+        2. `department.head_user_id == actor.id` — QUYỀN NGẦM THEO CHỨC DANH. Ai đang là trưởng
+           phòng thì tự động lập được yêu cầu chi tiền, không cần ai cấp và KHÔNG BỎ ĐI ĐƯỢC: trên
+           ma trận quyền không có ô nào để tắt. Đổi trưởng phòng là quyền tự chuyển người theo.
+
+        Migration 0177 cấp bù `yeu_cau_mua_hang` cho vai của các trưởng phòng đang tại vị, nên không
+        ai mất đường làm việc — khác ở chỗ từ nay quyền đó HIỆN RÕ trên ma trận và gỡ được.
+        """
+        return self.authz.can(actor, "yeu_cau_mua_hang", "create")
 
     def update_department_request(
         self,
@@ -1153,7 +1231,7 @@ class PurchaseService:
         row = self._department_request(request_id)
         if row.status != DPR_OPEN:
             raise PurchaseConflict("Chi yeu cau dang cho mua moi duoc huy.")
-        can_cancel_any = self.authz.can(actor, "thu_mua", "cancel")
+        can_cancel_any = self.authz.can(actor, "yeu_cau_mua_hang", "cancel")
         if row.requested_by_user_id != actor.id and not can_cancel_any:
             raise PurchaseForbidden("Chi nguoi tao yeu cau hoac admin moi duoc huy.")
         # Lý do vào cột RIÊNG. Trước đây `row.note = reason` GHI ĐÈ mất ghi chú người lập.
@@ -1404,21 +1482,34 @@ class PurchaseService:
 
     @staticmethod
     def _chot_noi_dong(cleaned_lines, source_requests) -> None:
-        """Dòng phiếu chỉ được trỏ về dòng của CHÍNH yêu cầu nguồn nó gắn.
+        """Dòng phiếu chỉ được trỏ về dòng của CHÍNH yêu cầu nguồn nó gắn — VÀ kế thừa mặt hàng gốc.
 
         Không chốt thì phiếu trỏ được sang dòng của yêu cầu khác, và chi tiết YCMH hiện nhầm tiến
         độ của người khác — im lặng, không báo lỗi.
 
         Chạy RIÊNG sau khi đã gỡ yêu cầu nguồn, không nhét vào `_clean_lines`: nhét vào thì phải
         gỡ nguồn trước khi làm sạch dòng, và thứ tự báo lỗi đảo ngược — người dùng gõ thiếu đơn vị
-        tính lại nhận câu "yêu cầu không còn ở trạng thái chờ mua"."""
-        hop_le = {line.id for src in source_requests for line in getattr(src, "lines", [])}
+        tính lại nhận câu "yêu cầu không còn ở trạng thái chờ mua".
+
+        KẾ THỪA `(hang_loai, hang_id)` (mg 0174): đây là chỗ DUY NHẤT vừa cầm dòng phiếu vừa cầm
+        dòng yêu cầu nguồn, nên cũng là chỗ duy nhất nối được mặt hàng gốc mà không phải đoán từ
+        tên hàng. Thiếu bước này thì bảng cân đối vật tư không thấy "hàng đang về" của chính lô
+        giấy nó vừa bảo đi mua ⇒ nó giục mua thêm lần nữa. Client CÓ gửi thì tôn trọng client
+        (thu mua đổi mặt hàng khi lập phiếu là hợp lệ); chỉ điền khi đang trống.
+        """
+        dong_nguon = {line.id: line for src in source_requests for line in getattr(src, "lines", [])}
         for line in cleaned_lines:
             src_line_id = getattr(line, "department_request_line_id", None)
-            if src_line_id is not None and src_line_id not in hop_le:
+            if src_line_id is None:
+                continue
+            if src_line_id not in dong_nguon:
                 raise PurchaseValidationError(
                     f'Dòng "{line.item_name}" trỏ tới một dòng không thuộc yêu cầu nguồn của phiếu này.'
                 )
+            goc = dong_nguon[src_line_id]
+            if getattr(line, "hang_loai", None) is None and getattr(line, "hang_id", None) is None:
+                line.hang_loai = getattr(goc, "hang_loai", None)
+                line.hang_id = getattr(goc, "hang_id", None)
 
     def _clean_lines(
         self, raw_lines, *, supplier_id: int | None = None
@@ -1463,6 +1554,7 @@ class PurchaseService:
                 raise PurchaseValidationError("Thuế GTGT (%) phải trong khoảng 0 đến 100.")
             raw_src = get("department_request_line_id")
             src_line_id = int(raw_src) if raw_src not in (None, "") else None
+            hang_loai, hang_id = _doc_mat_hang(get)
             lines.append(
                 PurchaseRequestLineInput(
                     item_name=item_name,
@@ -1473,6 +1565,8 @@ class PurchaseService:
                     vat_percent=vat_percent,
                     note=(get("note") or "").strip() or None,
                     department_request_line_id=src_line_id,
+                    hang_loai=hang_loai,
+                    hang_id=hang_id,
                 )
             )
         return lines
@@ -2350,8 +2444,14 @@ class PurchaseService:
         Khác "giao đủ thì tự thành Đã nhận hàng": đây là ca giao THIẾU rồi thôi. Vì nó cắt phần hàng
         chưa về ra khỏi công nợ (nợ chỉ còn theo số đã giao), nó là quyết định về TIỀN ⇒ đòi
         `thu_mua:approve` + bắt lý do + vào nhật ký, cùng lằn ranh đã áp cho `undo_received`."""
-        if not self.authz.can(actor, "thu_mua", "approve"):
-            raise PurchaseForbidden("Chỉ người có quyền duyệt mới được đóng đơn.")
+        # Ô RIÊNG từ 11/08/2026 (`manage_status`) — KHÔNG dùng chung với "Duyệt / từ chối PMH"
+        # nữa. Đóng đơn là chốt một đơn hàng chưa về đủ (NCC không giao nữa): việc của bộ phận mua
+        # hàng, không phải quyết định chi tiền. Câu báo lỗi cũ ghi "quyền duyệt" nên đọc lên tưởng
+        # đúng, thật ra sai nghĩa.
+        if not self.authz.can(actor, "thu_mua", "manage_status"):
+            raise PurchaseForbidden(
+                "Cần quyền “Sửa / đảo trạng thái đơn sau khi nhận hàng” mới được đóng đơn."
+            )
         ly_do = (reason or "").strip()
         if not ly_do:
             raise PurchaseValidationError("Phải ghi lý do đóng đơn khi hàng chưa về đủ.")
@@ -2419,8 +2519,10 @@ class PurchaseService:
 
         ⚠️ Chỉ dùng cho phiếu KHÔNG theo dõi theo đợt giao. Phiếu có đợt giao thì số thực nhận là
         Σ các đợt (số dẫn xuất) — sửa ở đây sẽ bị nhánh dẫn xuất ghi đè trong im lặng, nên chặn."""
-        if not self.authz.can(actor, "thu_mua", "approve"):
-            raise PurchaseForbidden("Chỉ người có quyền duyệt mới được sửa số thực nhận.")
+        if not self.authz.can(actor, "thu_mua", "manage_status"):
+            raise PurchaseForbidden(
+                "Cần quyền “Sửa / đảo trạng thái đơn sau khi nhận hàng” mới được sửa số thực nhận."
+            )
         row = self._request_ghi(request_id, actor)
         if row.status != PR_RECEIVED:
             raise PurchaseConflict("Chỉ phiếu đã nhận hàng mới sửa được số thực nhận.")
@@ -2466,8 +2568,10 @@ class PurchaseService:
 
         Quyền: `thu_mua:approve` (trưởng bộ phận / giám đốc). Nút này XOÁ một món nợ khỏi màn kế
         toán nên không phải việc nhân viên tự quyết — cùng lằn ranh đã áp cho `cancel`."""
-        if not self.authz.can(actor, "thu_mua", "approve"):
-            raise PurchaseForbidden("Chỉ người có quyền duyệt mới được lùi trạng thái đã nhận hàng.")
+        if not self.authz.can(actor, "thu_mua", "manage_status"):
+            raise PurchaseForbidden(
+                "Cần quyền “Sửa / đảo trạng thái đơn sau khi nhận hàng” mới được lùi trạng thái."
+            )
         ly_do = (reason or "").strip()
         if not ly_do:
             raise PurchaseValidationError("Phải ghi lý do lùi trạng thái đã nhận hàng.")
@@ -2511,7 +2615,10 @@ class PurchaseService:
         #
         # Phân biệt theo NĂNG LỰC (`approve`) chứ không theo tên vai: tên vai đổi lúc nào cũng
         # được, mà đổi xong thì luật viết theo tên vai câm lặng thất hiệu.
-        if not self.authz.can(actor, "thu_mua", "approve"):
+        # Huỷ phiếu ĐÃ GỬI DUYỆT là quyết định của NGƯỜI DUYỆT — mà ô duyệt nay nằm ở khoá
+        # `ke_toan` (dời 11/08/2026, nút Duyệt/Từ chối chỉ có ở màn Đơn mua hàng bên Kế toán).
+        # Người lập vẫn tự dọn được phiếu NHÁP của chính mình, không cần ô nào.
+        if not self.authz.can(actor, "ke_toan", "approve"):
             if row.status != PR_DRAFT or row.created_by_user_id != actor.id:
                 raise PurchaseForbidden(
                     "Chi huy duoc phieu nhap do chinh minh lap. "

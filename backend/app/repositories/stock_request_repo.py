@@ -1,4 +1,4 @@
-"""Repository — Đề nghị kho (spec-kho-de-nghi §3–§5).
+"""Repository — Yêu cầu kho (spec-kho-de-nghi §3–§5).
 
 Chỉ truy vấn/ghi DB. Luật nghiệp vụ (ai được duyệt, chặn ứng vượt duyệt, chuyển trạng
 thái) nằm ở `services/stock_request_service.py`.
@@ -8,9 +8,15 @@ from __future__ import annotations
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..models.stock_request import StockRequest, StockRequestLine
+from ..models.stock_request import (
+    REQ_CANCELLED,
+    REQ_REJECTED,
+    REQ_XUAT,
+    StockRequest,
+    StockRequestLine,
+)
 
-_HEADER_FIELDS = ("bo_phan_id", "kho_id", "ngay_can", "uu_tien", "ghi_chu")
+_HEADER_FIELDS = ("bo_phan_id", "kho_id", "ngay_can", "uu_tien", "ghi_chu", "loai_kho")
 
 
 def _build_line(ln: dict, loai: str) -> StockRequestLine:
@@ -23,6 +29,8 @@ def _build_line(ln: dict, loai: str) -> StockRequestLine:
     return StockRequestLine(
         hang_loai=ln["hang_loai"],
         hang_id=ln["hang_id"],
+        lsx_id=ln.get("lsx_id"),
+        bai_ghep_id=ln.get("bai_ghep_id"),
         dvt=ln["dvt"],
         sl_de_nghi=ln["sl_de_nghi"],
         don_gia=ln.get("don_gia") if loai == "NHAP" else None,
@@ -36,6 +44,20 @@ class StockRequestRepository:
 
     def get(self, request_id: int) -> StockRequest | None:
         return self.db.get(StockRequest, request_id)
+
+    def lenh_ton_tai(self, lsx_id: int | None, bai_ghep_id: int | None) -> tuple[bool, bool]:
+        """`(lệnh có thật, bài ghép có thật)` cho ô "cho lệnh nào" (mg 0175).
+
+        Truy vấn nằm ở ĐÂY chứ không ở service: service từng mượn `self.requests.db` để tự
+        `db.get(...)` — thò tay qua repo lấy session là phá đúng ranh giới mà lớp repo dựng ra.
+        Id để trống ⇒ `True` (không gắn lệnh là hợp lệ: xin lặt vặt).
+        """
+        from ..models.bai_ghep import BaiGhep
+        from ..models.lsx import Lsx
+
+        co_lsx = lsx_id in (None, "") or self.db.get(Lsx, int(lsx_id)) is not None
+        co_bg = bai_ghep_id in (None, "") or self.db.get(BaiGhep, int(bai_ghep_id)) is not None
+        return co_lsx, co_bg
 
     def get_by_ma(self, ma: str) -> StockRequest | None:
         return self.db.execute(
@@ -52,8 +74,18 @@ class StockRequestRepository:
     def get_line(self, line_id: int) -> StockRequestLine | None:
         return self.db.get(StockRequestLine, line_id)
 
+    def count_by_loai(self, trang_thai: list[str]) -> dict[str, int]:
+        """Đếm yêu cầu theo CHIỀU (NHAP/XUAT) ở các trạng thái cho trước — cho badge Nhập/Xuất.
+        Toàn kho (không lọc phạm vi): badge là 'hộp việc chờ kho cấp', ai xem cũng thấy cùng số."""
+        rows = self.db.execute(
+            select(StockRequest.loai, func.count())
+            .where(StockRequest.trang_thai.in_(trang_thai))
+            .group_by(StockRequest.loai)
+        ).all()
+        return {loai: int(n) for loai, n in rows}
+
     def by_ids_with_lines(self, ids) -> dict[int, StockRequest]:
-        """Nạp NHIỀU đề nghị kèm dòng trong 1 (+lines) query — tránh N+1 khi serialize danh sách phiếu."""
+        """Nạp NHIỀU yêu cầu kèm dòng trong 1 (+lines) query — tránh N+1 khi serialize danh sách phiếu."""
         ids = [i for i in set(ids) if i is not None]
         if not ids:
             return {}
@@ -68,8 +100,8 @@ class StockRequestRepository:
              q: str | None = None, nguoi_tao_id: int | None = None,
              bo_phan_id: int | None = None, kho_id: int | None = None,
              page: int = 1, size: int = 50):
-        """Danh sách đề nghị. `nguoi_tao_id` / `bo_phan_id` là cách áp SCOPE: người đề nghị
-        (scope `own`) chỉ thấy đề nghị của chính mình — đó là lý do họ không nhìn thấy kho."""
+        """Danh sách yêu cầu. `nguoi_tao_id` / `bo_phan_id` là cách áp SCOPE: người yêu cầu
+        (scope `own`) chỉ thấy yêu cầu của chính mình — đó là lý do họ không nhìn thấy kho."""
         conds = []
         if loai:
             conds.append(StockRequest.loai == loai)
@@ -98,6 +130,30 @@ class StockRequestRepository:
         base = base.order_by(StockRequest.id.desc()).offset((page - 1) * size).limit(size)
         return list(self.db.execute(base).scalars()), total
 
+    def dong_xuat_theo_lenh(self) -> list[tuple[StockRequestLine, str]]:
+        """Dòng đề nghị XUẤT đã gắn lệnh/bài — nguồn "đã cấp" + "đang lĩnh" của bảng cân đối vật tư.
+
+        Trả kèm `trang_thai` của header để phía gọi khỏi lazy-load từng cái (N+1 trên màn cân đối
+        là hàng trăm query). CHỈ đề nghị XUẤT: đề nghị NHẬP là hàng ĐI VÀO kho, trừ nó vào nhu cầu
+        sản xuất là trừ ngược dấu.
+
+        Bỏ đề nghị đã HỦY / BỊ TỪ CHỐI: chúng không còn sinh ra phiếu nào nên `sl_duyet` của chúng
+        không phải hàng "đang lĩnh".
+        """
+        stmt = (
+            select(StockRequestLine, StockRequest.trang_thai)
+            .join(StockRequest, StockRequest.id == StockRequestLine.request_id)
+            .where(
+                StockRequest.loai == REQ_XUAT,
+                StockRequest.trang_thai.notin_([REQ_REJECTED, REQ_CANCELLED]),
+                or_(
+                    StockRequestLine.lsx_id.is_not(None),
+                    StockRequestLine.bai_ghep_id.is_not(None),
+                ),
+            )
+        )
+        return [(ln, tt) for ln, tt in self.db.execute(stmt)]
+
     def create(self, *, ma: str, loai: str, nguoi_tao_id: int, lines: list[dict],
                **header) -> StockRequest:
         obj = StockRequest(ma=ma, loai=loai, nguoi_tao_id=nguoi_tao_id)
@@ -112,8 +168,8 @@ class StockRequestRepository:
         return obj
 
     def replace_lines(self, obj: StockRequest, lines: list[dict]) -> None:
-        """Thay toàn bộ dòng (chỉ dùng khi đề nghị còn sửa được). Xóa-rồi-thêm thay vì
-        khớp từng dòng: đề nghị còn nháp thì chưa có phiếu nào trỏ vào dòng cũ."""
+        """Thay toàn bộ dòng (chỉ dùng khi yêu cầu còn sửa được). Xóa-rồi-thêm thay vì
+        khớp từng dòng: yêu cầu còn nháp thì chưa có phiếu nào trỏ vào dòng cũ."""
         obj.lines.clear()
         self.db.flush()
         for ln in lines:

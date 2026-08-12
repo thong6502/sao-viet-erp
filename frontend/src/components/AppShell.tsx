@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   connectQuoteEvents,
+  type HangLoai,
   type PinnedCustomer,
   type PurchaseNotifySummary,
 } from "../api/client";
@@ -36,6 +37,7 @@ import { NhanSuPage } from "../pages/NhanSuPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
 import { KhoTonKhoPage } from "../pages/KhoTonKhoPage";
 import { KhoPage } from "../pages/KhoPage";
+import { KhoBaoCaoPage } from "../pages/KhoBaoCaoPage";
 import type { KhoNhapSeed } from "../pages/KhoDeNghiPage";
 
 // Danh mục rebuild (config .tsx — render pill JSX)
@@ -52,7 +54,6 @@ import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage"
 import {
   AUTHENTICATED_NAV_IDS,
   MODULES_BY_NAV_ID,
-  SELF_SERVICE_MODULE,
   Sidebar,
   type NavItem,
 } from "./Sidebar";
@@ -78,7 +79,14 @@ export interface NavParams {
   /** P3 (redesign-bao-gia §6): mở thẳng 1 Phiếu tính giá (link "↳ PTG" từ Báo giá). */
   focusPhieuId?: number;
   /** Liên thông Kho → YCMH: mở form Yêu cầu mua hàng điền sẵn dòng vật tư (Tên + ĐVT). */
-  purchaseSeedLines?: { item_name: string; unit: string; quantity: number; note?: string | null }[];
+  purchaseSeedLines?: {
+    hang_loai?: HangLoai | null;
+    hang_id?: number | null;
+    item_name: string;
+    unit: string;
+    quantity: number;
+    note?: string | null;
+  }[];
   purchaseSeedPurpose?: string;
   /** Liên thông Đơn hàng → bàn Kế hoạch SX: mở thẳng đơn này ở hàng chờ / danh sách lệnh. */
   openSxOrderId?: number;
@@ -104,7 +112,7 @@ const tongViecThuMua = (s: PurchaseNotifySummary): number =>
   s.ycmh_cho_lap_phieu + s.pmh_bi_tu_choi + s.dot_giao_qua_han;
 
 export function AppShell() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [activeId, setActiveId] = useState("dashboard");
   const [navParams, setNavParams] = useState<NavParams | null>(null);
   const [readable, setReadable] = useState<Set<string> | null>(null);
@@ -114,6 +122,8 @@ export function AppShell() {
   // Kho đã khai báo → đổ menu con ĐỘNG dưới "Kho hàng" (Cấu hình danh mục). Refetch khi
   // khai báo/sửa/xoá kho (onMutate màn khai báo) → navbar cập nhật NGAY, không cần refresh.
   const [khoList, setKhoList] = useState<{ id: number; ma: string; ten: string }[]>([]);
+  // Số yêu cầu ĐÃ DUYỆT chờ kho lập phiếu, theo chiều — badge cạnh nút Nhập/Xuất trong KhoPage.
+  const [khoCounts, setKhoCounts] = useState<{ nhap: number; xuat: number }>({ nhap: 0, xuat: 0 });
   // Chuông Topbar: số đơn nghỉ CỦA TÔI vừa được quyết mà chưa xem (mọi NV).
   const [leaveUnseen, setLeaveUnseen] = useState(0);
   // Real-time luồng gửi duyệt (SSE): toast nổi + mốc 'chờ tôi duyệt' gần nhất để chỉ toast khi TĂNG.
@@ -128,16 +138,21 @@ export function AppShell() {
   // lại mỗi lần refetch.
   const lastShiftChange = useRef(0);
   const lastAdvancePending = useRef(0);
+  const lastKhoPending = useRef(0);
   const lastOtPending = useRef(0);
   const lastElPending = useRef(0);
   // Badge Thu mua: tổng 3 việc phải làm. Chỉ toast khi số TĂNG (có việc mới tới bàn thu mua),
   // không toast lại mỗi lần refetch — `purchase_changed` bắn ra từ MỌI đường ghi thu mua.
   const lastMuaHang = useRef(0);
-  const pushToast = useCallback((text: string, tone: "ok" | "warn" | "info") => {
-    const id = ++toastSeq.current;
-    setToasts((prev) => [...prev, { id, text, tone }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 6000);
-  }, []);
+  // Giữ tham số `ms` (thông báo kho hiện lâu 9s) — luồng thông báo-theo-phòng dùng.
+  const pushToast = useCallback(
+    (text: string, tone: "ok" | "warn" | "info", ms = 6000) => {
+      const id = ++toastSeq.current;
+      setToasts((prev) => [...prev, { id, text, tone }]);
+      setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), ms);
+    },
+    [],
+  );
 
   // Single navigation entrypoint: switches the active screen AND carries an optional
   // payload (pinned customer / document to open). Every param object is fresh so the
@@ -156,7 +171,10 @@ export function AppShell() {
         if (cancelled) return;
         // Các API "của tôi" tự giới hạn theo hồ sơ đăng nhập, không cần cấp
         // `luong:read` (quyền quản trị). Module ảo này chỉ mở cửa menu tự phục vụ.
-        setReadable(new Set([...acc.modules, SELF_SERVICE_MODULE]));
+        // `self_service` KHÔNG còn được nhét thêm ở đây (10/08/2026): nó là ô quyền thật, do
+        // máy chủ trả về như mọi module khác. Nhét tay = giao diện tưởng ai cũng có, bấm vào
+        // thì API trả 403 — hai nơi nói hai kiểu.
+        setReadable(new Set(acc.modules));
         setCaps(buildCapabilities(acc.permissions));
       })
       .catch(() => {
@@ -295,6 +313,17 @@ export function AppShell() {
         })
         .catch(() => {});
     }
+    // Badge Kho = số yêu cầu ĐÃ DUYỆT chờ kho lập phiếu (Nhập + Xuất). Snapshot; toast do SSE lo.
+    if (readable.has("kho")) {
+      api.kho.deNghi
+        .counts(token)
+        .then((c) => {
+          lastKhoPending.current = c.nhap + c.xuat;
+          setKhoCounts(c);
+          setBadges((prev) => ({ ...prev, "kho-main": c.nhap + c.xuat }));
+        })
+        .catch(() => {});
+    }
   }, [token, readable]);
   useEffect(() => {
     reloadBadges();
@@ -315,7 +344,8 @@ export function AppShell() {
   // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
-    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("di_muon") || readable.has("thu_mua") || readable.has("ke_toan"))) return;
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("di_muon") || readable.has("thu_mua") || readable.has("yeu_cau_mua_hang") || readable.has("ke_toan") ||
+      readable.has("phieu_chi") || readable.has("phieu_thu"))) return;
 
     const close = connectQuoteEvents(token, (e) => {
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
@@ -471,7 +501,7 @@ export function AppShell() {
           e.decision === "approved" ? "ok" : "warn",
         );
         reloadBadges();
-      } else if (readable.has("ke_toan") && e.type === "purchase_delivery_created") {
+      } else if (readable.has("phieu_chi") && e.type === "purchase_delivery_created") {
         pushToast(
           `Đơn mua hàng${e.code ? " " + e.code : ""} có đợt giao mới${
             e.seq_no ? ` số ${e.seq_no}` : ""
@@ -527,17 +557,35 @@ export function AppShell() {
           })
           .catch(() => {});
       } else if (readable.has("kho") && e.type === "stock_request") {
-        // Tin ĐÍCH DANH của luồng kho (trình duyệt · duyệt/từ chối · kho tiếp nhận · cấp hàng).
-        // Câu chữ do backend soạn theo bước — FE dựng lại câu ở đây là cầm chắc lệch nội dung.
-        pushToast(e.message, "info");
+        // Tin ĐÍCH DANH của luồng kho (duyệt/từ chối/hủy/cấp…). Câu chữ backend soạn; chèn CHIỀU
+        // (nhập/xuất) vào đầu cho cụ thể, hiện lâu hơn (9s).
+        const dir = e.loai === "XUAT" ? "xuất" : "nhập";
+        const msg = e.message.startsWith("Yêu cầu")
+          ? e.message.replace(/^Yêu cầu/, `Yêu cầu ${dir}`)
+          : e.message;
+        pushToast(msg, "info", 9000);
       } else if (readable.has("kho") && e.type === "stock_request_pending_changed") {
-        // Tín hiệu NHẸ: quoteTick ở đầu handler đã tăng → 2 màn kho đang mở tự refetch.
-        // Module kho chưa có endpoint đếm nên KHÔNG gọi reloadBadges (sẽ chỉ tốn request).
-
+        // Yêu cầu kho đổi (tạo/duyệt/cấp…) → cập nhật badge Nhập/Xuất; toast thủ kho khi tổng
+        // "chờ cấp" TĂNG (có việc mới). quoteTick ở đầu handler đã lo refetch 2 màn kho đang mở.
+        api.kho.deNghi
+          .counts(token)
+          .then((c) => {
+            const total = c.nhap + c.xuat;
+            setKhoCounts(c);
+            setBadges((prev) => ({ ...prev, "kho-main": total }));
+            // Toast "có việc mới" CHỈ cho người XỬ LÝ kho (lập phiếu / xem tồn), KHÔNG gửi người TẠO.
+            const canProcess = !!(caps.get("kho")?.can_create || caps.get("kho")?.can_view_stock);
+            if (total > lastKhoPending.current && canProcess && user?.id !== e.nguoi_tao_id) {
+              const dir = e.loai === "XUAT" ? "xuất" : "nhập";
+              pushToast(`🔔 Có yêu cầu ${dir} mới chờ cấp`, "info", 9000);
+            }
+            lastKhoPending.current = total;
+          })
+          .catch(() => {});
       }
     });
     return close;
-  }, [token, readable, reloadBadges, pushToast]);
+  }, [token, readable, reloadBadges, pushToast, caps, user]);
 
   // Mở màn Báo giá = người soạn đã xem các quyết định → đánh dấu seen + hạ badge (giống chuông Nghỉ phép).
   useEffect(() => {
@@ -566,6 +614,8 @@ export function AppShell() {
   // Vai chỉ có `kho:read` (để tạo đề nghị) KHÔNG được thấy — chặn bằng `can_view_stock`, để
   // ông sản xuất không nhìn thấy tồn/giá/lô của kho.
   const canViewStock = !!caps.get("kho")?.can_view_stock;
+  // Báo cáo kho (kế toán) — chỉ vai có `close_book` (kế toán kho + GĐ) mới vào.
+  const canCloseBook = !!caps.get("kho")?.can_close_book;
   // "kho-item:<id>" = màn Tồn kho của 1 kho — gác `kho` + `view_stock`.
   const isKhoView = baseId === "kho-item";
   const moduleKeys = MODULES_BY_NAV_ID[baseId] ?? (isKhoView ? ["kho"] : undefined);
@@ -573,7 +623,8 @@ export function AppShell() {
     AUTHENTICATED_NAV_IDS.has(baseId) ||
     (moduleKeys != null &&
       moduleKeys.some((moduleKey) => readable.has(moduleKey)) &&
-      (baseId !== "kho-item" || canViewStock));
+      (baseId !== "kho-item" || canViewStock) &&
+      (baseId !== "kho-baocao" || canCloseBook));
 
   const itemChildren: Record<string, { id: string; label: string }[]> = {};
   // Kho đã khai báo → item ĐỘNG dưới SECTION "Kho hàng" (id section = "kho-hang"). Bấm 1 kho → màn tạm.
@@ -586,6 +637,8 @@ export function AppShell() {
   }
   // Mục "Kho" chỉ cần `kho:read`; tab "Phiếu từ đề nghị" (cần create/view_stock) tự ẩn trong KhoPage.
   const hiddenIds = new Set<string>();
+  // "Báo cáo kho" gắn module `kho` (để qua gate readable) nhưng CHỈ kế toán (close_book) thấy.
+  if (!canCloseBook) hiddenIds.add("kho-baocao");
 
 
   function renderContent() {
@@ -613,7 +666,11 @@ export function AppShell() {
     // Kho — MỘT module, chia tab (Đề nghị · Hộp yêu cầu) × (Nhập · Xuất). `quoteTick` là tick
     // CHUNG của kênh SSE: mọi sự kiện kho đều đẩy tick nên bảng tự tươi, không mở EventSource riêng.
     if (baseId === "kho-main") {
-      return <KhoPage eventTick={quoteTick} nhapSeed={navParams?.khoNhapSeed} />;
+      return <KhoPage eventTick={quoteTick} nhapSeed={navParams?.khoNhapSeed} counts={khoCounts} />;
+    }
+    // Báo cáo kho (kế toán): sổ nhập-xuất + khóa kỳ + export MISA. Gác `close_book` ở `allowed`.
+    if (baseId === "kho-baocao") {
+      return <KhoBaoCaoPage token={token ?? ""} />;
     }
     // Màn TỒN KHO của 1 kho đã khai báo (bấm item "kho-item:<id>" dưới section "Kho hàng").
     if (baseId === "kho-item") {

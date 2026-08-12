@@ -17,6 +17,7 @@ import {
   type WorkShift,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useSelfServiceWrite } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { Field } from "../components/Field";
 import { Icon } from "../components/Icons";
@@ -57,6 +58,11 @@ function fmtDateTime(s: string | null | undefined): string {
 
 export function HoSoCuaToiPage() {
   const { token, user } = useAuth();
+  // Ô TỰ PHỤC VỤ (đợt 3) — quản trị TẮT ĐƯỢC. Không hỏi thì tắt xong nút Sửa / Gửi đề nghị
+  // vẫn bày ra, bấm mới ăn 403.
+  // Màn này CHỈ có nút ghi (Sửa liên hệ · Gửi đề nghị), phần xem đi theo chính ô `self_service`
+  // đã gác ở máy chủ — nên chỉ cần hỏi ô THAO TÁC (tách khỏi ô Xem ngày 11/08/2026).
+  const tuPhucVuGhi = useSelfServiceWrite();
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
   const [hasEmp, setHasEmp] = useState<boolean | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -172,7 +178,9 @@ export function HoSoCuaToiPage() {
           <h1>{emp.full_name} <span className={`ns-badge ${STATUS_CLASS[emp.status] ?? "ns-badge--muted"}`}>{STATUS_LABEL[emp.status] ?? emp.status}</span></h1>
           <p>{emp.department_name ?? "—"}{emp.position ? ` · ${emp.position}` : ""}{emp.job_grade ? ` · Bậc ${emp.job_grade}` : ""}</p>
           <p className="mine__herosub">{emp.code} · Vào làm {fmtDate(emp.hire_date)}{emp.account_username ? ` · Tài khoản ${emp.account_username}` : ""}</p>
-          <button type="button" className="mine__namehint" onClick={() => setRequesting(true)}>Cần đổi tên? Gửi đề nghị</button>
+          {tuPhucVuGhi && (
+            <button type="button" className="mine__namehint" onClick={() => setRequesting(true)}>Cần đổi tên? Gửi đề nghị</button>
+          )}
         </div>
       </div>
 
@@ -182,7 +190,9 @@ export function HoSoCuaToiPage() {
           <Row k="SĐT" v={emp.phone} /><Row k="Email" v={emp.email} />
           <Row k="Chỗ ở hiện tại" v={emp.current_address} />
           <Row k="Liên hệ khẩn" v={emp.emergency_contact_name ? `${emp.emergency_contact_name} · ${emp.emergency_contact_phone ?? ""}` : null} />
-          <button className="btn btn--ghost mine__editbtn" onClick={() => setEditing(true)}>Sửa</button>
+          {tuPhucVuGhi && (
+            <button className="btn btn--ghost mine__editbtn" onClick={() => setEditing(true)}>Sửa</button>
+          )}
         </div>
 
         <div className="mine__card">
@@ -215,7 +225,9 @@ export function HoSoCuaToiPage() {
       <div className="mine__card mine__wide">
         <div className="mine__reqhead">
           <h4 className="ns-section__title" style={{ margin: 0 }}>Đề nghị cập nhật (định danh / ngân hàng)</h4>
-          <button className="btn btn--ghost" onClick={() => setRequesting(true)}>+ Gửi đề nghị</button>
+          {tuPhucVuGhi && (
+            <button className="btn btn--ghost" onClick={() => setRequesting(true)}>+ Gửi đề nghị</button>
+          )}
         </div>
         <p className="cc-note">Các mục như tên, CCCD, hộ khẩu, số tài khoản… bạn không sửa thẳng — gửi đề nghị để HCNS duyệt.</p>
         <ul className="ns-filelist">

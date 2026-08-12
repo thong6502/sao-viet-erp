@@ -39,6 +39,9 @@ ACTION_REPARENT = "reparent"  # phong_ban: đổi cấp trên (cây tổ chức)
 ACTION_VIEW_SALARY = "view_salary"  # nhan_su: xem lương/BHXH; luong: xem cấu hình lương
 ACTION_EDIT_SALARY = "edit_salary"  # nhan_su: SỬA dữ liệu nhạy cảm hồ sơ (tách khỏi view_salary)
 ACTION_ADJUST = "adjust"  # nhan_su (Chấm công): điều chỉnh công qua punch nguồn (chấm bù/sửa)
+# cham_cong: XEM tab "Nhật ký chấm công" — tách khỏi `read` (chỉ mở Bảng công tháng) 11/08/2026.
+# Bảng công là số đã tổng hợp; nhật ký là TỪNG LƯỢT BẤM kèm giờ + toạ độ của cả xưởng.
+ACTION_VIEW_LOG = "view_log"
 ACTION_APPROVE_EXCEPTION = "approve_exception"  # don_hang_ban (A2): GĐ duyệt "đơn đặc thù"
 ACTION_SET_CREDIT_TERMS = "set_credit_terms"  # khach_hang: sửa chính sách tài chính (hạn mức + điều khoản + chiết khấu/biên min-max)
 ACTION_RECORD_DEPOSIT = "record_deposit"  # don_hang_ban: ghi phiếu thu cọc (Kế toán)
@@ -51,6 +54,7 @@ ACTION_VIEW_STOCK = "view_stock"  # kho: xem SỐ tồn (thiếu → chỉ thấ
 ACTION_VIEW_COST = "view_cost"  # kho: xem giá vốn & giá trị tồn (BRD §1.5 — chỉ KT + BGĐ)
 ACTION_SET_THRESHOLD = "set_threshold"  # kho: khai ngưỡng tồn / cận tồn / tối đa
 ACTION_POST = "post"  # kho: GHI SỔ phiếu (chốt tồn) — tách khỏi create (lập nháp) để giữ SoD
+ACTION_CLOSE_BOOK = "close_book"  # kho: KHÓA KỲ (chốt sổ) + xem Báo cáo kho kế toán + export MISA
 # Ghi chú: don_hang_ban tái dùng ACTION_APPROVE (= "Chốt đơn") và ACTION_CANCEL (= "Hủy đơn");
 # ACTION_APPROVE_EXCEPTION TÁCH RIÊNG (chỉ GĐ) — duyệt đơn đặc thù mới được chốt.
 
@@ -90,8 +94,10 @@ _ACTION_ATTR = {
     ACTION_REQUEST: "can_request",
     ACTION_VIEW_STOCK: "can_view_stock",
     ACTION_VIEW_COST: "can_view_cost",
+    ACTION_VIEW_LOG: "can_view_log",
     ACTION_SET_THRESHOLD: "can_set_threshold",
     ACTION_POST: "can_post",
+    ACTION_CLOSE_BOOK: "can_close_book",
 }
 
 
@@ -166,6 +172,7 @@ class AuthorizationService:
                 "can_view_cost": p.can_view_cost,
                 "can_set_threshold": p.can_set_threshold,
                 "can_post": p.can_post,
+                "can_close_book": p.can_close_book,
             }
             for p in self.roles.permissions_for(user.role_id)
         ]

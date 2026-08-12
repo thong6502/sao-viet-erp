@@ -1,9 +1,9 @@
-"""Service — Phiếu nhập/xuất kho: ứng theo đề nghị, phân bổ lô, ghi sổ, giá vốn.
+"""Service — Phiếu nhập/xuất kho: ứng theo yêu cầu, phân bổ lô, ghi sổ, giá vốn.
 
 docs/spec-kho-de-nghi.md §5–§6. Bốn luật cứng sống ở đây:
 
-1. **Không có đề nghị đã duyệt thì không lập được phiếu** (§5).
-2. **Không cho ứng vượt `sl_duyet`** — muốn thêm phải đề nghị mới (BRD §2.5 b8).
+1. **Không có yêu cầu đã duyệt thì không lập được phiếu** (§5).
+2. **Không cho ứng vượt `sl_duyet`** — muốn thêm phải yêu cầu mới (BRD §2.5 b8).
 3. **Nhập = tạo lô mới, mỗi lần nhập một lô riêng với giá riêng** (§6). Không gộp lô.
 4. **Xuất phải chỉ định lô**; ăn nhiều lô thì tách nhiều dòng, mỗi dòng một giá vốn.
 
@@ -32,6 +32,7 @@ from ..models.stock_voucher import (
     StockVoucherAttachment,
 )
 
+from ..repositories.kho_khoa_so_repo import KhoKhoaSoRepository
 from ..storage import get_storage, key_from_url, url_from_key
 
 # Đính kèm phiếu kho: byte đi qua storage.py (LocalStorage <backend>/static hoặc MinIO) rồi phục vụ
@@ -65,6 +66,17 @@ class StockVoucherService:
         # phải có sẵn trong danh mục Giấy / Vật tư khác, nên cửa đẻ hàng đó đóng hẳn.
         self.hang = hang
 
+    def _assert_period_open(self, kho_id, ngay) -> None:
+        """Chặn GHI SỔ vào KỲ ĐÃ KHÓA (kế toán chốt sổ, spec-bao-cao-kho §6). Mốc = NGÀY HẠCH TOÁN
+        = ngày ghi sổ (= hôm nay khi post); khóa xét theo KHOẢNG đã khóa (toàn kho hoặc kho này)."""
+        if kho_id is None or ngay is None:
+            return
+        if KhoKhoaSoRepository(self.vouchers.db).is_locked(kho_id, ngay):
+            raise StockVoucherError(
+                f"Kỳ kế toán chứa ngày {ngay.strftime('%d/%m/%Y')} đã khóa sổ — "
+                f"không thao tác được phiếu này."
+            )
+
     def _quy_doi(self, rl, qty: float) -> dict:
         """Số trên phiếu (theo `dvt` của dòng đề nghị) → số theo ĐƠN VỊ GỐC để ghi vào lô."""
         from .vat_lieu_kho_service import VatLieuKhoError
@@ -80,31 +92,32 @@ class StockVoucherService:
                ngay: date | None = None, ma: str | None = None, **header) -> StockVoucher:
         req = self.requests.get_with_lines(request_id)
         if req is None:
-            raise StockVoucherError("Không tìm thấy đề nghị.")
-        # Luật 1: mọi phiếu phải ứng theo một đề nghị ĐÃ DUYỆT.
+            raise StockVoucherError("Không tìm thấy yêu cầu.")
+        # Luật 1: mọi phiếu phải ứng theo một yêu cầu ĐÃ DUYỆT.
         if req.trang_thai not in REQUEST_FULFILLABLE:
             raise StockVoucherError(
-                "Chỉ lập phiếu cho đề nghị đã duyệt (và chưa hoàn tất)."
+                "Chỉ lập phiếu cho yêu cầu đã duyệt (và chưa hoàn tất)."
             )
         if not lines:
             raise StockVoucherError("Phiếu phải có ít nhất 1 dòng.")
+        # Lập phiếu NHÁP chưa vào sổ → không xét khóa kỳ ở đây (chỉ xét lúc GHI SỔ).
 
         loai = req.loai
         if loai not in VOUCHER_KINDS:
-            raise StockVoucherError("Loại đề nghị không hợp lệ.")
+            raise StockVoucherError("Loại yêu cầu không hợp lệ.")
 
         lines_by_id = {ln.id: ln for ln in req.lines}
         prepared: list[dict] = []
-        # Cộng dồn theo dòng đề nghị để chặn cả trường hợp 1 phiếu có nhiều dòng cùng ứng
-        # vào một dòng đề nghị (phân bổ nhiều lô) — kiểm từng dòng lẻ sẽ lọt.
+        # Cộng dồn theo dòng yêu cầu để chặn cả trường hợp 1 phiếu có nhiều dòng cùng ứng
+        # vào một dòng yêu cầu (phân bổ nhiều lô) — kiểm từng dòng lẻ sẽ lọt.
         wanted: dict[int, float] = {}
-        # Lý do CẤP/NHẬP THIẾU theo từng dòng đề nghị (kho phản hồi). Lấy từ dòng phiếu đầu có lý do.
+        # Lý do CẤP/NHẬP THIẾU theo từng dòng yêu cầu (kho phản hồi). Lấy từ dòng phiếu đầu có lý do.
         ly_do_by_rl: dict[int, str] = {}
 
         for ln in lines:
             rl = lines_by_id.get(ln.get("request_line_id"))
             if rl is None:
-                raise StockVoucherError("Dòng phiếu không thuộc đề nghị đã chọn.")
+                raise StockVoucherError("Dòng phiếu không thuộc yêu cầu đã chọn.")
             qty = float(ln.get("so_luong") or 0)
             if qty <= 0:
                 raise StockVoucherError("Số lượng trên phiếu phải lớn hơn 0.")
@@ -130,7 +143,7 @@ class StockVoucherService:
                 "vi_tri": ((ln.get("vi_tri") or "").strip() or None) if loai == VOUCHER_NHAP else None,
             }
             if loai == VOUCHER_NHAP:
-                # Giá của lô sắp tạo = ĐƠN GIÁ KHAI Ở ĐỀ NGHỊ (người đề nghị nhập). Kho KHÔNG sửa
+                # Giá của lô sắp tạo = ĐƠN GIÁ KHAI Ở YÊU CẦU (người yêu cầu nhập). Kho KHÔNG sửa
                 # giá — bỏ qua `don_gia` client gửi. Lô chưa tồn tại nên `lot_id` trống tới ghi sổ.
                 item["don_gia"] = int(rl.don_gia or 0)
             else:
@@ -144,7 +157,7 @@ class StockVoucherService:
             con_lai = float(rl.sl_duyet) - float(rl.sl_da_ung)
             if qty > con_lai + 1e-9:
                 raise StockVoucherError(
-                    "Ứng vượt số đã duyệt. Muốn cấp thêm thì phải tạo đề nghị mới."
+                    "Ứng vượt số đã duyệt. Muốn cấp thêm thì phải tạo yêu cầu mới."
                 )
             if qty < con_lai - 1e-9:
                 ld = ly_do_by_rl.get(rl_id)
@@ -171,7 +184,7 @@ class StockVoucherService:
             ma=ma_clean, loai=loai, request_id=req.id, nguoi_lap_id=user.id,
             kho_id=kho_id, ngay=ngay or date.today(), lines=prepared, **header
         )
-        # Đã lập phiếu (nháp) → đề nghị rời "Cần cấp" sang "Đang cấp" (Đang chuẩn bị).
+        # Đã lập phiếu (nháp) → yêu cầu rời "Cần cấp" sang "Đang cấp" (Đang chuẩn bị).
         self.request_service.mark_in_progress(req)
         return voucher
 
@@ -192,7 +205,7 @@ class StockVoucherService:
     # --- Ghi sổ -------------------------------------------------------------
 
     def post(self, voucher_id: int, user=None):
-        """Ghi sổ phiếu: NHẬP tạo lô mới, XUẤT trừ lô; rồi cộng `sl_da_ung` về đề nghị.
+        """Ghi sổ phiếu: NHẬP tạo lô mới, XUẤT trừ lô; rồi cộng `sl_da_ung` về yêu cầu.
         `user` = người ghi sổ (lưu vào `nguoi_ghi_so_id` để hiện "ai duyệt/ghi sổ phiếu").
 
         Đây là điểm DUY NHẤT tồn kho thay đổi. Chạy trong 1 transaction: kiểm hết mọi
@@ -203,10 +216,12 @@ class StockVoucherService:
             raise StockVoucherError("Không tìm thấy phiếu.")
         if v.trang_thai != VOUCHER_DRAFT:
             raise StockVoucherError("Chỉ ghi sổ được phiếu đang ở trạng thái Nháp.")
+        # Ghi sổ = ghi vào SỔ với ngày hạch toán = HÔM NAY → chặn nếu kỳ hôm nay đã khóa.
+        self._assert_period_open(v.kho_id, date.today())
 
         req = self.requests.get_with_lines(v.request_id)
         if req is None:
-            raise StockVoucherError("Không tìm thấy đề nghị của phiếu.")
+            raise StockVoucherError("Không tìm thấy yêu cầu của phiếu.")
         lines_by_id = {ln.id: ln for ln in req.lines}
 
         # --- Pha 1: kiểm tra toàn bộ, chưa ghi gì ---
@@ -216,7 +231,7 @@ class StockVoucherService:
         for rl_id, qty in wanted.items():
             rl = lines_by_id.get(rl_id)
             if rl is None:
-                raise StockVoucherError("Dòng phiếu trỏ vào đề nghị khác.")
+                raise StockVoucherError("Dòng phiếu trỏ vào yêu cầu khác.")
             con_lai = float(rl.sl_duyet) - float(rl.sl_da_ung)
             if qty > con_lai + 1e-9:
                 raise StockVoucherError("Ứng vượt số đã duyệt — không ghi sổ được.")
@@ -274,12 +289,12 @@ class StockVoucherService:
         if user is not None:
             v.nguoi_ghi_so_id = user.id
         v = self.vouchers.save(v)
-        # Đề nghị tự chuyển Hoàn tất / Đã cấp một phần + đẩy realtime cho người đề nghị.
+        # Yêu cầu tự chuyển Hoàn tất / Đã cấp một phần + đẩy realtime cho người yêu cầu.
         self.request_service.refresh_fulfillment(req)
         return v
 
     def cancel(self, voucher_id: int, ly_do: str):
-        """Hủy phiếu khi CÒN NHÁP — BẮT BUỘC lý do; đề nghị chuyển 'Đã hủy' kèm lý do (KẾT THÚC,
+        """Hủy phiếu khi CÒN NHÁP — BẮT BUỘC lý do; yêu cầu chuyển 'Đã hủy' kèm lý do (KẾT THÚC,
         không cấp lại). Phiếu đã ghi sổ không hủy được — muốn sửa thì lập phiếu điều chỉnh
         (BRD §1.5: chứng từ đã ghi không sửa trực tiếp)."""
         v = self.vouchers.get(voucher_id)
@@ -289,10 +304,11 @@ class StockVoucherService:
             raise StockVoucherError(
                 "Phiếu đã ghi sổ không hủy được — hãy lập phiếu điều chỉnh."
             )
+        # Hủy phiếu NHÁP chưa vào sổ → không xét khóa kỳ (phiếu đã ghi sổ vốn không hủy được).
         v.trang_thai = VOUCHER_CANCELLED
         v = self.vouchers.save(v)
-        # Không còn phiếu active nào cho đề nghị → đề nghị chuyển 'Đã hủy' kèm lý do (kết thúc).
-        # Còn phiếu ĐÃ GHI SỔ (đã cấp một phần) → giữ nguyên trạng thái, không đóng đề nghị.
+        # Không còn phiếu active nào cho yêu cầu → yêu cầu chuyển 'Đã hủy' kèm lý do (kết thúc).
+        # Còn phiếu ĐÃ GHI SỔ (đã cấp một phần) → giữ nguyên trạng thái, không đóng yêu cầu.
         req = self.requests.get_with_lines(v.request_id)
         if req is not None:
             rows, _ = self.vouchers.list(request_id=req.id)

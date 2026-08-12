@@ -98,18 +98,15 @@ def test_don_vi_de_trong_van_luu_duoc():
     assert v.don_vi_gia is None
 
 
-def test_quy_cach_dong_goi_hai_o_di_cung_nhau():
+def test_khong_con_quy_cach_dong_goi_o_danh_muc():
+    """Quy cách đóng gói ĐÃ BỎ (10/08/2026): quy đổi chỉ khai ở danh mục Đơn vị & quy đổi.
+
+    Gửi kèm hai field cũ cũng không được ghi — repo lọc theo whitelist, không có đường vòng.
+    """
     db, svc = _svc()
-    with pytest.raises(VatLieuKhoValidationError):        # có đơn vị đóng gói, thiếu hệ số
-        svc.create("vat_tu", dict(ma="A", ten="a", don_vi_gia="kg", don_vi_dong_goi="thung"))
-    with pytest.raises(VatLieuKhoValidationError):        # có hệ số, thiếu đơn vị đóng gói
-        svc.create("vat_tu", dict(ma="B", ten="b", don_vi_gia="kg", he_so_dong_goi=3))
-    with pytest.raises(VatLieuKhoValidationError):        # đóng gói trùng đơn vị gốc → vô nghĩa
-        svc.create("vat_tu", dict(ma="C", ten="c", don_vi_gia="kg",
-                                  don_vi_dong_goi="kg", he_so_dong_goi=3))
     v = svc.create("vat_tu", dict(ma="KEO", ten="Keo", don_vi_gia="kg",
                                   don_vi_dong_goi="thung", he_so_dong_goi=3))
-    assert v.don_vi_dong_goi == "thung" and float(v.he_so_dong_goi) == 3
+    assert not hasattr(v, "don_vi_dong_goi") and not hasattr(v, "he_so_dong_goi")
 
 
 # --- hai cửa dùng chung cho Kho + NCC -----------------------------------------
@@ -166,16 +163,17 @@ def test_giay_muon_dem_theo_to_thi_chon_don_vi_goc_la_to():
 
 
 def test_don_vi_cua_vat_tu_khong_kho_thi_khong_hien_to():
-    """Keo chỉ khai kg → không có khổ để chạy cạnh động, KHÔNG được mời người ta nhập "10 tờ keo"."""
+    """Keo chỉ khai kg → không có khổ để chạy cạnh động, KHÔNG được mời người ta nhập "10 tờ keo".
+
+    Cũng không còn "thùng": muốn nhập theo thùng thì khai hẳn đơn vị đó ở danh mục Đơn vị &
+    quy đổi, chứ không khai riêng lẻ trong từng mặt hàng nữa.
+    """
     db, svc = _svc()
-    v = svc.create("vat_tu", dict(ma="KEO", ten="Keo", don_vi_gia="kg",
-                                  don_vi_dong_goi="thung", he_so_dong_goi=3))
+    v = svc.create("vat_tu", dict(ma="KEO", ten="Keo", don_vi_gia="kg"))
     ra = svc.don_vi_cua_mat_hang("vat_tu", v.id)
     ma = {d["ma"] for d in ra["ds"]}
-    assert {"kg", "g", "tan", "thung"} <= ma
-    assert "to" not in ma and "ram" not in ma
-    thung = next(d for d in ra["ds"] if d["ma"] == "thung")
-    assert thung["he_so_ve_goc"] == pytest.approx(3)      # 1 thùng = 3 kg
+    assert {"kg", "g", "tan"} <= ma
+    assert "to" not in ma and "ram" not in ma and "thung" not in ma
 
 
 def test_don_vi_chua_khai_thi_noi_ly_do_chu_khong_doan():

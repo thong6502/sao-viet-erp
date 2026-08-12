@@ -145,6 +145,7 @@ export function LsxDetailView({
   const [congDoanRefs, setCongDoanRefs] = useState<RefRow[] | null>(null);
   const [toRefs, setToRefs] = useState<RefRow[] | null>(null);
   const [mayRefs, setMayRefs] = useState<RefRow[] | null>(null);
+  // Danh mục khuôn — cho ô chọn khuôn trong drawer BƯỚC (bước nào có cờ `requires_tooling`).
   const [khuonRefs, setKhuonRefs] = useState<RefRow[] | null>(null);
   const [vatTuRefs, setVatTuRefs] = useState<RefRow[] | null>(null);
   const [phuThuocRefs, setPhuThuocRefs] = useState<import("../api/client").LsxPhuThuocOption[]>([]);
@@ -170,6 +171,9 @@ export function LsxDetailView({
     // Không có quyền đọc danh mục → để null, ô hiện read-only thay vì select rỗng (select rỗng
     // + lưu = xoá trắng dữ liệu).
     api.congDoan.list(token).then((r) => setCongDoanRefs(r.items.map((c) => ({ id: c.id, ten: c.ten })))).catch(() => setCongDoanRefs(null));
+    api.khuonBe.list(token, { active: true })
+      .then((r) => setKhuonRefs(r.items.map((k) => ({ id: k.id, ten: k.ten }))))
+      .catch(() => setKhuonRefs(null));
     crud("/api/cong-doan/phong-ban").list(token).then((r) => setToRefs(r.items.map((t) => ({ id: t.id, ten: t.ten })))).catch(() => setToRefs(null));
     // Giữ luôn TỐC ĐỘ + CHUẨN BỊ của máy: form phải tính lại thời lượng ngay khi đổi máy, chứ
     // không đợi lưu rồi server mới trả số về (xem `RefRow`).
@@ -186,7 +190,6 @@ export function LsxDetailView({
         chuanBiKhoan: Array.isArray(khoan) ? khoan : [],
       };
     }))).catch(() => setMayRefs(null));
-    api.khuonBe.list(token, { active: true }).then((r) => setKhuonRefs(r.items.map((k) => ({ id: k.id, ten: k.ten })))).catch(() => setKhuonRefs(null));
     crud("/api/vat-lieu-kho/vat-tu-in-an").list(token, { active: true }).then((r) =>
       setVatTuRefs(r.items.map((v) => ({ id: v.id, ten: v.ten, ma: String(v.ma), donVi: String(v.don_vi_gia ?? "") })))
     ).catch(() => setVatTuRefs(null));
@@ -250,9 +253,8 @@ export function LsxDetailView({
     // Chỉ gửi cụm THÔNG SỐ khi nó thật sự đổi — gửi kèm mỗi lần lưu là mỗi lần lưu đều kích
     // bình bài lại + chạy lại chuỗi ngược, đè cả những số người khác vừa chỉnh.
     if (qcDoi) body.quy_cach = form.qc;
-    // Chỉ gửi khoá/máy khi danh mục đọc được — tránh xoá trắng dữ liệu server đang giữ.
-    if (khuonRefs) body.khuon_be_id = form.khuon_be_id ? Number(form.khuon_be_id) : null;
-    if (mayRefs) body.may_id = form.may_id ? Number(form.may_id) : null;
+    // KHÔNG gửi `khuon_be_id` / `may_id` nữa: hai ô đó đã bỏ khỏi màn (11/08/2026). Không gửi =
+    // server giữ nguyên giá trị nó đang có (máy dự kiến suy từ phiếu tính giá lúc tạo lệnh).
     try {
       const r = await api.lsx.update(token, d.id, body);
       setD(r);
@@ -415,7 +417,6 @@ export function LsxDetailView({
   // Ảnh chụp quy cách của lệnh CŨ không có các khoá thêm sau (bleed, khe cắt, cách bình…).
   // Thiếu khoá thì phải hiện "—", KHÔNG được để `n()` trả 0 rồi bày ra như số thật của phiếu.
   const co = (k: string): boolean => qc[k] !== undefined && qc[k] !== null;
-  const canKhuon = d.cong_doans.some((c) => /bế|cấn/i.test(c.ten));
   // Số tờ in / tờ nguyên KHÔNG còn tính ở đây: chúng là hai mốc ĐỌC RA từ chuỗi ngược bên server
   // (`_ap_chuoi_nguoc`). Giữ bản tính thứ hai ở frontend là mở đường cho hai số lệch nhau.
   const hanTre =
@@ -505,9 +506,6 @@ export function LsxDetailView({
                     {d.thieu.map((code) => (
                       <li key={code}>
                         <span>• {LSX_THIEU_LABELS[code] ?? code}</span>
-                        {code === "thieu_khuon" && (
-                          <button type="button" className="khsx-xlink" onClick={() => setTab("chung")}>Sửa →</button>
-                        )}
                         {code === "thieu_routing" && (
                           <button type="button" className="khsx-xlink" onClick={() => setTab("routing")}>Sửa →</button>
                         )}
@@ -685,41 +683,9 @@ export function LsxDetailView({
                       />
                       <span>Hàng GẤP — ưu tiên ở xưởng</span>
                     </label>
-                    {canKhuon && (
-                      <label className="khsx-field">
-                        <span className="khsx-field__label">Khuôn bế</span>
-                        {khuonRefs ? (
-                          <select value={form.khuon_be_id} onChange={(e) => set("khuon_be_id", e.target.value)}>
-                            <option value="">— chưa gán —</option>
-                            {khuonRefs.map((k) => (
-                              <option key={k.id} value={k.id}>
-                                {k.ten}
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="khsx-kv__val">{d.khuon_be_ten ?? "—"}</span>
-                        )}
-                      </label>
-                    )}
-                    <label className="khsx-field">
-                      <span className="khsx-field__label">
-                        Máy in dự kiến
-                        {d.may_id != null && <span className="khsx-field__origin">đề xuất</span>}
-                      </span>
-                      {mayRefs ? (
-                        <select value={form.may_id} onChange={(e) => set("may_id", e.target.value)}>
-                          <option value="">— chưa gán —</option>
-                          {mayRefs.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.ten}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="khsx-kv__val">{d.may_ten ?? "—"}</span>
-                      )}
-                    </label>
+                    {/* BỎ hai ô "Khuôn bế" và "Máy in dự kiến" (chủ 11/08/2026). Máy thật gán theo
+                        TỪNG BƯỚC ở màn Xếp lịch công đoạn, khuôn cũng gắn với bước bế — khai ở cấp
+                        lệnh chỉ là con số dự kiến nằm song song, sửa một nơi không kéo nơi kia. */}
                     <label className="khsx-field khsx-field--wide">
                       <span className="khsx-field__label">Ghi chú kế hoạch</span>
                       <textarea rows={3} value={form.ghi_chu} onChange={(e) => set("ghi_chu", e.target.value)} />
@@ -814,7 +780,8 @@ export function LsxDetailView({
                   <div className="khsx-kvgrid">
                     <KV k="Giấy" v={s("giay_ten")} />
                     <KV k="Định lượng (gsm)" v={qc.gsm ? num(n("gsm")) : "—"} mono />
-                    <KV k="Nguồn giấy" v={qc.nguon_giay === "khach" ? "Khách cấp" : "Công ty"} badge />
+                    {/* GỠ 2026-08-09 (Đợt 4 · K): dòng "Nguồn giấy". Công ty luôn cấp giấy nên
+                        dòng này chỉ còn là một ô luôn ghi "Công ty" — chiếm chỗ, không nói gì. */}
                     <KVNum k="Khổ giấy nguyên dài" suffix="mm" disabled={!canUpdate}
                       v={form.qc.kho_nguyen_dai} onChange={(x) => setQc({ kho_nguyen_dai: x })} />
                     <KVNum k="Khổ giấy nguyên rộng" suffix="mm" disabled={!canUpdate}
@@ -1025,6 +992,7 @@ export function LsxDetailView({
                     congDoanRefs={congDoanRefs}
                     toRefs={toRefs}
                     mayRefs={mayRefs}
+                    khuonRefs={khuonRefs}
                     vatTuRefs={vatTuRefs}
                     phuThuocRefs={phuThuocRefs}
                     canUpdate={canUpdate}

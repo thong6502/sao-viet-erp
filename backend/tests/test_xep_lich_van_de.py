@@ -166,14 +166,39 @@ def test_phat_hanh_gate_ngoai_le_revert(db, orders, lsx_svc, xl_svc, vd_svc, adm
 
     # Duyệt ngoại lệ → hết Chặn → phát hành được (Released).
     vd_svc.ngoai_le(issue_key=tm["issue_key"], ly_do="chấp nhận chạy nối ca", expires_at=None, actor=admin)
+    # ⚠️ Từ 2026-08-09 lệnh này còn MỘT chặn nữa và nó ĐÚNG: bảng cân đối vật tư nay quy được
+    # tờ → kg bằng khổ tờ in của chính lệnh (trước đây danh mục giấy không có khổ nên phép đổi
+    # tắt, dòng rơi vào "chưa đánh giá được" và detector im). Fixture không tạo tồn kho nào, nên
+    # lệnh thật sự thiếu giấy — mục F chốt "thiếu vật tư ⇒ chặn PHÁT HÀNH".
+    # Test này soi cơ chế NGOẠI LỆ, không soi vật tư ⇒ duyệt nốt các Chặn còn lại rồi mới phát hành.
+    con_chan = [
+        it for it in vd_svc.liet_ke()["items"]
+        if it["severity"] == "chan" and it["trang_thai"] != "ngoai_le"
+    ]
+    assert any(it["category"] == "thieu_vat_tu" for it in con_chan), \
+        f"kỳ vọng còn chặn vì thiếu vật tư, thực tế: {[it['category'] for it in con_chan]}"
+    for it in con_chan:
+        vd_svc.ngoai_le(issue_key=it["issue_key"], ly_do="fixture không dựng tồn kho",
+                        expires_at=None, actor=admin)
     lsx_a = vd_svc.phat_hanh_lsx(lsx_id=a.id, actor=admin)
     assert lsx_a.trang_thai == TT_DA_PHAT_HANH
 
     # Đã phát hành → không gỡ kế hoạch trực tiếp; thu hồi phát hành để về da_lap_ke_hoach.
     with pytest.raises(XepLichConflict):
         xl_svc.go_lsx(lsx_id=a.id, actor=admin)
-    vd_svc.go_phat_hanh_lsx(lsx_id=a.id, actor=admin)
+    # G2: gỡ phát hành BẮT BUỘC có lý do. Lệnh đã thả xuống xưởng mà hệ chưa có lớp thực thi ⇒ nó
+    # không biết thợ chạy tới đâu; thứ duy nhất còn lại là vết ai-gỡ-lúc-nào-vì-sao.
+    with pytest.raises(XepLichConflict):
+        vd_svc.go_phat_hanh_lsx(lsx_id=a.id, actor=admin)
+    assert db.get(Lsx, a.id).trang_thai == TT_DA_PHAT_HANH      # không lý do ⇒ KHÔNG đổi gì
+    vd_svc.go_phat_hanh_lsx(lsx_id=a.id, actor=admin, ly_do="khách dời hạn, xếp lại")
     assert db.get(Lsx, a.id).trang_thai == TT_DA_LAP_KE_HOACH
+    # Vết phải nằm trong AuditLog kèm nguyên văn lý do — đó là toàn bộ giá trị của ràng buộc này.
+    vet = [
+        r for r in AuditLogRepository(db).list_for_target(f"lsx:{a.id}", limit=50)
+        if r.action == "xep_lich_go_phat_hanh"
+    ]
+    assert vet and "khách dời hạn" in (vet[0].detail or "")
 
 
 # --- Vòng đời state + ngoại lệ kỹ thuật bị chặn + tái phát -------------------
@@ -181,7 +206,7 @@ def test_state_lifecycle_technical_no_exception_reopen(db, orders, lsx_svc, xl_s
     _luon_lam(monkeypatch)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]  # quy_cach kho_in 650×900, 4 màu
     nho = MayThietBi(ma="MAY-NHO-VD", ten="Máy con", loai_may="press_offset_sheet",
-                     toc_do=3000, don_vi_toc_do="to_gio", kho_max_dai=520, kho_max_rong=360, so_units=2)
+                     toc_do=3000, don_vi_toc_do="to_gio", kho_max_dai=520, kho_max_rong=360)
     db.add(nho)
     db.flush()
     step = _in_step(db, lsx.id)
@@ -218,11 +243,12 @@ def test_qua_tai_may_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, custom
     monkeypatch.setattr("app.services.xep_lich_van_de_service._utcnow", lambda: fixed)
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
-    # Ô "Thời gian khác" 4000' (~66h) chiếm máy > 7×480' = 3360' khả dụng (nền fallback
-    # 8h/ngày) → >100% Cao. Dùng ô này vì `chay_phut` gõ đè đã bỏ (2026-08-04): thời gian
-    # chạy nay luôn suy từ tốc độ máy, không ghim cứng được nữa.
+    # Ô "Thời gian khác" 12000' (200h) chiếm máy > 7×1440' = 10080' khả dụng → >100% Cao.
+    # Trần đổi từ 3360' lên 10080' vì máy nay chạy LIÊN TỤC (2026-08-10, bỏ ca của máy): đèn quá
+    # tải máy chỉ còn sáng khi một máy bị nhét quá 7 ngày công việc liền — trần thật của xưởng
+    # nằm ở quỹ giờ-NGƯỜI của tổ. Dùng ô này vì `chay_phut` gõ đè đã bỏ (2026-08-04).
     step.so_luot_chay, step.so_luong_vao = 1, 5000
-    step.phat_sinh_phut = 4000
+    step.phat_sinh_phut = 12000
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dong = XepLichRepository(db).by_lsx(lsx.id)[0]

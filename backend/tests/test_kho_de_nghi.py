@@ -156,6 +156,54 @@ def test_tao_de_nghi_la_duyet_luon(client):
     assert body["nguoi_duyet_ten"] is not None and body["duyet_luc"] is not None
 
 
+# --- mg 0175: dòng đề nghị khai được "xin cho LỆNH nào" ----------------------
+
+def test_dong_de_nghi_de_trong_lenh_van_lap_duoc(client):
+    """Xin lặt vặt (băng dính, giẻ lau) KHÔNG thuộc lệnh nào — luồng kho cũ không được vỡ."""
+    kho_id, mat_id = _setup(client)
+    dn = _login(client, "t_denghi")
+    r = client.post("/api/kho/de-nghi", headers=dn, json={
+        "loai": "XUAT", "kho_id": kho_id,
+        "lines": [{"hang_loai": mat_id[0], "hang_id": mat_id[1], "dvt": "to", "sl_de_nghi": 5}],
+    })
+    assert r.status_code == 201, r.text
+    assert r.json()["lines"][0]["lsx_id"] is None
+    assert r.json()["lines"][0]["lsx_ma"] is None
+
+
+def test_dong_de_nghi_gan_lenh_khong_ton_tai_thi_bao_loi(client):
+    """Id lệnh sai phải NỔ, không im lặng bỏ.
+
+    Im lặng thì dòng đó vĩnh viễn không khớp lệnh nào trong bảng cân đối, và triệu chứng duy nhất
+    là "sao lệnh này cấp rồi mà vẫn báo thiếu" — không ai lần ra được nguyên nhân.
+    """
+    kho_id, mat_id = _setup(client)
+    dn = _login(client, "t_denghi")
+    r = client.post("/api/kho/de-nghi", headers=dn, json={
+        "loai": "XUAT", "kho_id": kho_id,
+        "lines": [{"hang_loai": mat_id[0], "hang_id": mat_id[1], "dvt": "to",
+                   "sl_de_nghi": 5, "lsx_id": 999_999}],
+    })
+    assert r.status_code == 400, r.text
+    assert "999999" in r.text or "999_999" in r.text or "không tồn tại" in r.text
+
+
+def test_cung_mat_hang_cho_hai_lenh_khac_nhau_la_hai_dong_hop_le(client):
+    """Trước mg 0175, "1 mặt hàng = 1 dòng" chặn cả ca này. Gộp lại thì mất thông tin phần nào cho
+    lệnh nào — đúng thứ bảng cân đối cần để trừ đã-cấp vào đúng chỗ."""
+    kho_id, mat_id = _setup(client)
+    dn = _login(client, "t_denghi")
+    r = client.post("/api/kho/de-nghi", headers=dn, json={
+        "loai": "XUAT", "kho_id": kho_id,
+        "lines": [
+            {"hang_loai": mat_id[0], "hang_id": mat_id[1], "dvt": "to", "sl_de_nghi": 5},
+            {"hang_loai": mat_id[0], "hang_id": mat_id[1], "dvt": "to", "sl_de_nghi": 7},
+        ],
+    })
+    # Cùng mặt hàng, CÙNG (không) lệnh ⇒ vẫn là trùng, phải chặn như cũ.
+    assert r.status_code == 400, r.text
+
+
 # --- §5 Phiếu phải ứng theo đề nghị ------------------------------------------
 
 def test_khong_cho_ung_vuot_so_da_duyet(client):

@@ -95,10 +95,15 @@ export function AccountingPurchaseInboxPage({
   // Sáng 04/08/2026 đã gỡ ô này khỏi bộ phận Mua hàng nên giờ chỉ giám đốc và người được trao
   // quyền còn. Để `ke_toan:approve` thì kế toán tự duyệt khoản chi rồi tự viết phiếu chi — đúng
   // lỗi tách vai vừa vá bên thu mua.
-  const canApprove = can("thu_mua", "approve");
+  // Ô này DỜI sang khoá `ke_toan` ngày 11/08/2026 (nút Duyệt / Từ chối chỉ có ở màn này nên ô
+  // quyền cũng về đây). Lần dời trước sửa máy chủ mà QUÊN dòng này ⇒ quản trị tick ô mới, giao
+  // diện vẫn hỏi ô cũ, nút không hiện — "cấp quyền rồi mà không thấy nút".
+  const canApprove = can("ke_toan", "approve");
   // LẬP PHIẾU CHI là việc của kế toán — quyền khác hẳn quyền duyệt. Kế toán không có quyền duyệt
   // vẫn thấy đủ danh sách và trạng thái, chỉ không thấy nút Duyệt.
-  const canCreateVoucher = can("ke_toan", "approve");
+  // Nút "Lập phiếu chi" ⇒ quyền LẬP trên màn Phiếu chi. Trước đây hỏi `ke_toan:approve` —
+  // cùng một ô với "gán chứng từ" và "lập phiếu thu", bật một cái là mở cả ba.
+  const canCreateVoucher = can("phieu_chi", "create");
   const openYcmh = (code: string) =>
     navigate("yeu-cau-mua-hang", { focusRequestCode: code });
   const [rows, setRows] = useState<PurchaseRequestRow[]>([]);

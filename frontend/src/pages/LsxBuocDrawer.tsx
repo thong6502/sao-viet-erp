@@ -64,6 +64,7 @@ export function LsxBuocDrawer({
   congDoanRefs,
   toRefs,
   mayRefs,
+  khuonRefs,
   vatTuRefs,
   phuThuocRefs,
   baiGhep,
@@ -87,6 +88,7 @@ export function LsxBuocDrawer({
   congDoanRefs: RefRow[] | null;
   toRefs: RefRow[] | null;
   mayRefs: RefRow[] | null;
+  khuonRefs: RefRow[] | null;
   vatTuRefs: RefRow[] | null;
   phuThuocRefs: import("../api/client").LsxPhuThuocOption[];
   /** Lệnh đang ghép chung tờ — bước in của nó do BÀI điều phối, khoá máy ở đây. */
@@ -326,6 +328,9 @@ export function LsxBuocDrawer({
   const chiemTB = Number(tg.chiem_tai_nguyen_phut ?? 0);
   const chiemMin = phatSinh + setup + Number(tg.chay_phut_min ?? chayTB);
   const chiemMax = phatSinh + setup + Number(tg.chay_phut_max ?? chayTB);
+  // Chờ kỹ thuật nằm NGOÀI ba số trên (chúng đều là "chiếm máy"). Chỉ hiện khi > 0 — bước không
+  // chờ mà vẫn bày một dòng "0′" là thêm chữ để đọc mà không thêm thông tin.
+  const choKT = Number(tg.cho_phut ?? 0);
 
   return (
     <div className="khsx-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -686,6 +691,41 @@ export function LsxBuocDrawer({
                     <span className="khsx-kv__val">—</span>
                   )}
                 </label>
+                )}
+
+                {/* KHUÔN của bước — chỉ hỏi khi công đoạn nguồn bật cờ "cần khuôn / kẽm riêng"
+                    trong danh mục. Cờ đọc từ danh mục, KHÔNG dò chữ "bế" trong tên bước: tên là
+                    chữ người dùng gõ, đặt "Die-cut" hay "Ép kim" đều được.
+                    `kem` (bản kẽm) không hỏi — kẽm là vật tư tiêu hao, mỗi bài phơi mới, không có
+                    dòng nào trong kho khuôn để trỏ tới. */}
+                {row.requires_tooling && row.tooling_type !== "kem" && (
+                  <label className="khsx-field">
+                    <span className="khsx-field__label">
+                      {row.tooling_type === "khuon_ep" ? "Khuôn ép nhũ / dập nổi" : "Khuôn bế"}
+                    </span>
+                    {khuonRefs ? (
+                      <select
+                        value={row.khuon_be_id ?? ""}
+                        disabled={!canUpdate}
+                        onChange={(e) =>
+                          set("khuon_be_id", e.target.value ? Number(e.target.value) : null)
+                        }
+                      >
+                        <option value="">— chưa gán khuôn —</option>
+                        {khuonRefs.map((k) => (
+                          <option key={k.id} value={k.id}>
+                            {k.ten}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="khsx-kv__val">{row.khuon_be_ten ?? "—"}</span>
+                    )}
+                    <span className="khsx-field__hint">
+                      Bảng cân đối vật tư canh khuôn theo NGÀY CHẠY BƯỚC NÀY — khuôn về sau ngày đó
+                      là báo đỏ.
+                    </span>
+                  </label>
                 )}
 
                 {row.loai_buoc === "may" && (
@@ -1265,6 +1305,26 @@ export function LsxBuocDrawer({
                 />
                 <span className="khsx-field__hint">Phát sinh ngoài định mức — cộng thẳng vào giờ máy</span>
               </label>
+
+              {/* CHỜ KỸ THUẬT (mục B) — đứng NGAY CẠNH "Thời gian khác" để thấy ngay hai ô này
+                  ngược nhau: một cái chiếm máy, một cái không. Kế thừa từ danh mục Công đoạn theo
+                  cặp (công đoạn × loại SP) là MẶC ĐỊNH, không phải read-only: lô giấy dày hôm nay
+                  khô lâu hơn thì người kế hoạch phải gõ đè được. */}
+              <label className="khsx-field">
+                <span className="khsx-field__label">CHỜ KỸ THUẬT (PHÚT)</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="khsx-input-std"
+                  value={row.cho_phut}
+                  placeholder="0"
+                  disabled={!canUpdate}
+                  onChange={(e) => set("cho_phut", Math.max(0, Number(e.target.value) || 0).toString())}
+                />
+                <span className="khsx-field__hint">
+                  Mực khô · keo đông · màng nguội. Máy KHÔNG bận — chỉ bước sau phải lùi.
+                </span>
+              </label>
             </div>
 
             {/* Phép tính xổ ra từng dòng, chuẩn bị chi tiết theo từng khoản của máy. */}
@@ -1313,6 +1373,18 @@ export function LsxBuocDrawer({
                     ? "Đầu việc chưa khai năng suất tối thiểu / tối đa nên chưa có khoảng nhanh–chậm."
                     : "Máy chưa khai tốc độ tối thiểu / tối đa nên chưa có khoảng nhanh–chậm."}
                 </div>
+              )}
+              {choKT > 0 && (
+                <>
+                  <div className="khsx-tinh-gio__row">
+                    <span>Chờ kỹ thuật — máy rảnh, chỉ bước sau lùi</span>
+                    <b>{num(choKT)}′</b>
+                  </div>
+                  <div className="khsx-tinh-gio__row khsx-tinh-gio__row--tong">
+                    <span>Tổng thời gian dẫn của bước</span>
+                    <b>{phut(chiemTB + choKT)}</b>
+                  </div>
+                </>
               )}
             </div>
 

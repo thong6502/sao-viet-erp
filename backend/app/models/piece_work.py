@@ -19,27 +19,17 @@ from ..db import Base
 
 # --- Đơn vị tính đơn giá khoán ----------------------------------------------
 #
-# ⚠️ ĐÂY CHỈ LÀ GỢI Ý MỒI, KHÔNG PHẢI WHITELIST (chủ 29/07/2026: *"chỉ select được mấy cái thôi,
-# nhiều cái khác thì sao, bất tiện lắm"*). Nhà máy in còn hàng chục đơn vị khác (mét tới, ram,
-# thùng carton…) — người dùng gõ thẳng, đơn vị nào đã dùng sẽ tự vào danh sách gợi ý lần sau
-# (`PieceWorkRepository.distinct_units`).
+# Đơn vị CHỌN TỪ DANH MỤC `Đơn vị & quy đổi` (chủ 31/07/2026 — xem
+# `GET /api/payroll/khoan/units`). Trước đó là ô gõ tự do có gợi ý mồi; gõ tự do thì đơn vị lệch
+# một chữ so với danh mục là lệnh sản xuất vĩnh viễn không quy đổi ra tiền được. Thiếu đơn vị ⇒
+# thêm ở danh mục, KHÔNG sửa code.
 #
-# Lưu CHỮ HIỂN THỊ, không phải mã. Bản cũ lưu mã (`m2`) rồi dịch sang nhãn (`m²`) lúc hiện —
-# cho gõ tự do mà giữ cách đó thì bấm gợi ý "m²" lưu ra chuỗi khác với mã "m2" của dòng cũ:
-# hai dòng cùng nghĩa, khác giá trị. Migration 0125 đã đổi 8 mã cũ sang nhãn.
-DEFAULT_PIECE_UNITS = (
-    "m²",        # bồi, cán/phủ
-    "bài in",    # máy in, theo số màu
-    "tấn",       # cắt giấy cuộn
-    "cuốn",      # cắt/bắt thành phẩm
-    "lượt",      # cắt demi
-    "hộp",       # gỡ hàng
-    "tờ",
-    "kg",
-    "bộ",
-    "chiếc",
-    "khác",
-)
+# 🔴 `DEFAULT_PIECE_UNITS` (11 đơn vị ghi cứng) ĐÃ GỠ 10/08/2026: nó chết từ 31/07 nhưng vẫn nằm
+# đó qua `unit_suggestions()` — một hàm không router nào gọi. Đọc code thấy nó lại tưởng đơn vị
+# khoán có nguồn riêng, tách khỏi danh mục.
+#
+# Lưu **TÊN** của danh mục (`"cuốn"`, `"m²"`), không phải mã (`cuon`, `m2`) — vì ô chọn bày tên.
+# Cầu nối tên → mã nằm ở `LsxService._ma_don_vi`, dùng khi suy đơn vị năng suất của bước Tổ.
 UNIT_KHAC = "khác"   # giá trị mặc định khi bỏ trống
 
 _MONEY = Numeric(14, 2)

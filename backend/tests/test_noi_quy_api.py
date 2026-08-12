@@ -11,7 +11,7 @@ from app.security import create_access_token, create_file_token, decode_access_t
 from tests.test_luong_api import _admin_token, _h
 
 
-def _staff_token(*, create=False, delete=False) -> str:
+def _staff_token(*, read=True, create=False, delete=False) -> str:
     db = SessionLocal()
     try:
         users = UserRepository(db)
@@ -22,7 +22,7 @@ def _staff_token(*, create=False, delete=False) -> str:
         roles.set_permission(
             role_id=role.id,
             module_key="noi_quy",
-            can_read=False,
+            can_read=read,
             can_create=create,
             can_update=False,
             can_delete=delete,
@@ -80,17 +80,28 @@ def test_tao_ban_ghi_co_ma_nguoi_va_ngay_upload(client):
     assert [item["id"] for item in listed.json()["items"]] == [row["id"]]
 
 
-def test_moi_nhan_vien_dang_nhap_deu_xem_danh_sach_va_mo_file(client):
+def test_phai_co_o_noi_quy_moi_xem_duoc_danh_sach_va_mo_file(client):
+    """ĐỔI LUẬT 10/08/2026: trước đây chỉ cần ĐĂNG NHẬP là đọc được toàn bộ nội quy.
+
+    Nội quy thì ai cũng phải đọc thật — nên seed cấp ô này cho MỌI vai và migration 0179 cấp bù
+    cho mọi vai đang có, thực tế không ai mất gì. Khác ở chỗ nay nó là MỘT Ô nhìn thấy được trên
+    ma trận và gỡ được, chứ không phải luật ngầm không ai tắt nổi (Luật 1 của đợt phân quyền).
+    """
     admin = _admin_token(client)
     row = _create(client, admin).json()
-    viewer = _staff_token()
-    _use_file_cookie(client, viewer)
 
+    # Có ô Xem ⇒ đọc danh sách + mở được file.
+    viewer = _staff_token(read=True)
+    _use_file_cookie(client, viewer)
     listed = client.get("/api/noi-quy", headers=_h(viewer))
     assert listed.status_code == 200
     opened = client.get(row["file_url"], headers=_h(viewer))
     assert opened.status_code == 200
     assert opened.headers["content-type"].startswith("application/pdf")
+
+    # Gỡ ô Xem ⇒ 403. Đây là chiều mà trước bản này KHÔNG THỂ có: bỏ tick cũng vô ích.
+    _staff_token(read=False)
+    assert client.get("/api/noi-quy", headers=_h(viewer)).status_code == 403
 
 
 def test_chua_dang_nhap_thi_khong_xem_duoc_noi_quy(client):

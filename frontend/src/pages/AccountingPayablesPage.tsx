@@ -114,7 +114,8 @@ export function AccountingPayablesPage({
 }) {
   const { token } = useAuth();
   const can = useCan();
-  const canCreateVoucher = can("ke_toan", "create");
+  // Nút "Lập phiếu chi" trên màn Công nợ ⇒ hỏi quyền của MÀN PHIẾU CHI, không phải màn này.
+  const canCreateVoucher = can("phieu_chi", "create");
   const [summary, setSummary] = useState<PayablesSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

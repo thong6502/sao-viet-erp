@@ -16,13 +16,13 @@ import {
   type DepartmentPurchaseRequestStatus,
   type DepartmentPurchaseSourceType,
   type PurchaseRequestStatus,
-  type SupplierItemCatalogRow,
 } from "../api/client";
 import { useCan } from "../auth/permissions";
 import { useDebounced } from "../utils/useDebounced";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { DonViChonTheoHang, MaterialCombobox } from "../components/MaterialCombobox";
 import { DetailModal } from "../components/DetailModal";
 import { EmptyRow } from "../components/EmptyState";
 import { StatusHistoryTimeline } from "../components/StatusHistoryTimeline";
@@ -114,10 +114,12 @@ export function DepartmentPurchaseRequestsPage({
 }) {
   const { token, user } = useAuth();
   const can = useCan();
-  const canAdminCancel = can("thu_mua", "cancel");
+  // Huỷ HỘ người khác = quyền quản trị trên chính màn này; người tạo vẫn tự huỷ đơn của mình.
+  const canAdminCancel = can("yeu_cau_mua_hang", "cancel");
+  // Sửa / huỷ yêu cầu CỦA CHÍNH MÌNH — máy chủ gác `yeu_cau_mua_hang:update`.
+  const canUpdate = can("yeu_cau_mua_hang", "update");
   const [canCreate, setCanCreate] = useState(false);
   const [departmentName, setDepartmentName] = useState<string | null>(null);
-  const [itemCatalog, setItemCatalog] = useState<SupplierItemCatalogRow[]>([]);
 
   const [rows, setRows] = useState<DepartmentPurchaseRequestRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -193,18 +195,6 @@ export function DepartmentPurchaseRequestsPage({
   useEffect(() => {
     if (eventTick <= 0 || !token) return;
     load();
-    let alive = true;
-    api.suppliers
-      .itemCatalog(token)
-      .then((res) => {
-        if (alive) setItemCatalog(res.items);
-      })
-      .catch(() => {
-        if (alive) setItemCatalog([]);
-      });
-    return () => {
-      alive = false;
-    };
   }, [eventTick, load, token]);
 
   useEffect(() => {
@@ -233,22 +223,6 @@ export function DepartmentPurchaseRequestsPage({
       })
       .catch(() => {
         if (alive) setDepartmentName(null);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [token]);
-
-  useEffect(() => {
-    if (!token) return;
-    let alive = true;
-    api.suppliers
-      .itemCatalog(token)
-      .then((res) => {
-        if (alive) setItemCatalog(res.items);
-      })
-      .catch(() => {
-        if (alive) setItemCatalog([]);
       });
     return () => {
       alive = false;
@@ -323,13 +297,6 @@ export function DepartmentPurchaseRequestsPage({
     }));
   }
 
-  function selectCatalogItem(index: number, itemName: string) {
-    const picked = itemCatalog.find((item) => item.item_name === itemName);
-    setLine(index, {
-      item_name: itemName,
-      unit: picked?.unit ?? "",
-    });
-  }
 
   function cleanRequest(
     input: DepartmentPurchaseRequestInput,
@@ -346,6 +313,9 @@ export function DepartmentPurchaseRequestsPage({
       needed_date: (input.needed_date ?? "").trim(),
       note: null,
       lines: input.lines.map((line) => ({
+        // Cặp mặt hàng gốc đi kèm: phiếu mua sinh sau đó nối thẳng về đúng món, không ghép bằng tên.
+        hang_loai: line.hang_loai ?? null,
+        hang_id: line.hang_id ?? null,
         item_name: (line.item_name ?? "").trim(),
         unit: (line.unit ?? "").trim(),
         quantity: Number(line.quantity),
@@ -370,10 +340,6 @@ export function DepartmentPurchaseRequestsPage({
       setFormError("Ngày cần hàng không được nhỏ hơn hôm nay.");
       return;
     }
-    if (itemCatalog.length === 0) {
-      setFormError("Chua co vat tu nao trong danh muc mat hang nha cung cap.");
-      return;
-    }
     if (
       !payload.lines.length ||
       payload.lines.some((line) => !line.item_name || !line.unit)
@@ -383,13 +349,12 @@ export function DepartmentPurchaseRequestsPage({
       );
       return;
     }
-    if (
-      payload.lines.some(
-        (line) =>
-          !itemCatalog.some((item) => item.item_name === line.item_name),
-      )
-    ) {
-      setFormError("Vat tu yeu cau phai chon tu danh muc mat hang nha cung cap.");
+    // Phải là mặt hàng CÓ THẬT trong danh mục Giấy / Vật tư khác. Dòng cũ (lập trước khi ô chọn
+    // này ra đời) mở ra sửa cũng phải chọn lại — tên chuỗi không nối được về đâu cả.
+    if (payload.lines.some((line) => !line.hang_loai || !line.hang_id)) {
+      setFormError(
+        "Mỗi dòng phải chọn vật tư từ danh mục (Giấy / Vật tư khác) — gõ tên để tìm.",
+      );
       return;
     }
     if (payload.lines.some((line) => line.quantity <= 0)) {
@@ -633,7 +598,11 @@ export function DepartmentPurchaseRequestsPage({
                         icon="eye"
                         onClick={() => setSelectedId(row.id)}
                       />
+                      {/* Sửa/Huỷ đòi ĐỦ HAI thứ: là người tạo VÀ có ô Thao tác. Trước 11/08/2026
+                          chỉ xét "có phải người tạo không", nên gỡ ô Thao tác rồi hai nút vẫn bày
+                          ra — bấm mới ăn 403. Máy chủ vốn chặn đúng; đây là phần giao diện. */}
                       {row.status === "open" &&
+                        canUpdate &&
                         row.requested_by_user_id === user?.id && (
                           <RowActionButton
                             dense
@@ -644,7 +613,7 @@ export function DepartmentPurchaseRequestsPage({
                         )}
                       {row.status === "open" &&
                         (canAdminCancel ||
-                          row.requested_by_user_id === user?.id) && (
+                          (canUpdate && row.requested_by_user_id === user?.id)) && (
                           <RowActionButton
                             dense
                             danger
@@ -901,39 +870,33 @@ export function DepartmentPurchaseRequestsPage({
                   </div>
                   {form.lines.map((line, index) => (
                     <div className="purchase__line-edit" key={index}>
-                      <select
-                        className="input purchase__line-name"
-                        required
-                        value={line.item_name}
-                        onChange={(e) =>
-                          selectCatalogItem(index, e.target.value)
-                        }
-                      >
-                        <option value="">Chọn vật tư</option>
-                        {line.item_name &&
-                          !itemCatalog.some(
-                            (item) => item.item_name === line.item_name,
-                          ) && (
-                            <option value={line.item_name}>
-                              {line.item_name}
-                            </option>
-                          )}
-                        {itemCatalog.map((item) => (
-                          <option key={item.item_name} value={item.item_name}>
-                            {item.item_name} · {item.unit} · từ{" "}
-                            {item.supplier_count > 1
-                              ? ` · ${item.supplier_count} NCC`
-                              : ""}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        className="input purchase__line-unit"
-                        required
-                        readOnly
-                        placeholder="Tự điền"
+                      {/* Chọn từ DANH MỤC GỐC (Giấy + Vật tư khác) — cùng ô với đề nghị kho và
+                          bảng giá NCC. Trước đây đổ từ bảng giá NCC nên món chưa ai báo giá thì
+                          không đề nghị mua được, mà tên lưu dạng chuỗi cũng không nối về đâu. */}
+                      <div className="purchase__line-name">
+                        <MaterialCombobox
+                          token={token ?? ""}
+                          hangTen={line.item_name || null}
+                          onPick={(m) =>
+                            setLine(index, {
+                              hang_loai: m.hang_loai,
+                              hang_id: m.hang_id,
+                              item_name: m.ten,
+                              unit: "",
+                            })
+                          }
+                        />
+                      </div>
+                      {/* ĐVT theo CHÍNH mặt hàng vừa chọn (đơn vị gốc + những đơn vị đổi được
+                          với nó). Chưa chọn hàng thì khoá — gõ tự do là mở đường cho đơn vị lạ
+                          lọt vào, quy đổi tắt lặng lẽ và tồn kho lệch. */}
+                      <DonViChonTheoHang
+                        token={token ?? ""}
+                        hangLoai={line.hang_loai ?? null}
+                        hangId={line.hang_id ?? null}
                         value={line.unit}
-                        onChange={(e) => setLine(index, { unit: e.target.value })}
+                        onChange={(ma) => setLine(index, { unit: ma })}
+                        disabled={!line.hang_loai || !line.hang_id}
                       />
                       <input
                         className="input purchase__number-input"

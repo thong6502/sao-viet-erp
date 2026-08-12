@@ -134,6 +134,8 @@ class LsxCongDoanIn(BaseModel):
     bat_buoc: bool | None = None
     department_id: int | None = None
     may_id: int | None = None
+    # Khuôn của CHÍNH bước này (`khuon_be.id`). Chỉ hỏi khi công đoạn nguồn bật `requires_tooling`.
+    khuon_be_id: int | None = None
     # Đầu việc khoán của bước (`piece_rates.id`) — 0/null = bỏ chọn. KHÔNG gửi field này = giữ mặc
     # định theo tổ + công đoạn (server tự điền), đừng gửi null "cho chắc" kẻo xoá mất đầu việc.
     piece_rate_id: int | None = None
@@ -153,10 +155,14 @@ class LsxCongDoanIn(BaseModel):
     so_nhan_cong_toi_thieu: int | None = Field(default=None, ge=1)
     so_nhan_cong_tieu_chuan: int | None = Field(default=None, ge=1)
     so_nhan_cong_toi_da: int | None = Field(default=None, ge=1)
-    # Ô DUY NHẤT còn gõ được ở tab Thời gian (2026-08-04). `setup_phut` · `nang_suat` ·
-    # `chay_phut` · `cho_phut` · `di_chuyen_phut` đã BỎ khỏi input: chuẩn bị + tốc độ nay kế
-    # thừa SỐNG từ module Máy, người kế hoạch không sửa tại bước.
+    # Hai ô gõ được ở tab Thời gian. `setup_phut` · `nang_suat` · `chay_phut` · `di_chuyen_phut`
+    # vẫn BỎ khỏi input: chuẩn bị + tốc độ kế thừa SỐNG từ module Máy, người kế hoạch không sửa
+    # tại bước.
     phat_sinh_phut: float | None = Field(default=None, ge=0)
+    # `cho_phut` MỞ LẠI 2026-08-09 (mục B): kế thừa từ cặp (công đoạn × loại SP) là MẶC ĐỊNH, không
+    # phải read-only — lô giấy dày hôm nay khô lâu hơn thì người kế hoạch phải gõ đè được. Trần 72h
+    # để lỡ tay gõ nhầm đơn vị (phút thay vì giờ) không đẩy lịch đi cả tháng.
+    cho_phut: float | None = Field(default=None, ge=0, le=4320)
     # Gia công ngoài (§8)
     nha_cung_cap: str | None = None
     sl_gui: float | None = Field(default=None, ge=0)
@@ -190,6 +196,12 @@ class LsxCongDoanOut(BaseModel):
     department_ten: str | None = None
     may_id: int | None = None
     may_ten: str | None = None
+    # Dụng cụ của bước. `requires_tooling`/`tooling_type` là CỜ đọc từ danh mục Công đoạn — form
+    # dựa vào đó để hiện ô chọn khuôn, KHÔNG dò chữ "bế" trong tên bước.
+    requires_tooling: bool = False
+    tooling_type: str | None = None
+    khuon_be_id: int | None = None
+    khuon_be_ten: str | None = None
 
     so_luong_vao: float
     so_luong_ra: float
@@ -210,6 +222,10 @@ class LsxCongDoanOut(BaseModel):
     # `setup_phut` KẾ THỪA từ máy (read-only trên UI); `phat_sinh_phut` là ô người gõ.
     setup_phut: float = 0
     phat_sinh_phut: float = 0
+    # CHỜ KỸ THUẬT (mực khô · keo đông · màng nguội) — kế thừa từ danh mục Công đoạn theo cặp
+    # (công đoạn × loại SP), SỬA ĐÈ được tại bước. Vào `tong_phut` nhưng KHÔNG vào `chiem_may_phut`:
+    # tờ nằm trên pallet chờ khô thì máy vẫn chạy job khác.
+    cho_phut: float = 0
     nang_suat: float | None = None
     don_vi_nang_suat: str | None = None
     chay_phut: float | None = None      # dẫn xuất: SL vào × 60 ÷ tốc độ máy × số lượt

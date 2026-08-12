@@ -94,6 +94,7 @@ class ModuleCapability(BaseModel):
     can_view_cost: bool = False          # kho — xem giá vốn & giá trị tồn
     can_set_threshold: bool = False      # kho — khai ngưỡng tồn / cận tồn
     can_post: bool = False               # kho — GHI SỔ phiếu (chốt tồn); tách khỏi lập nháp (SoD)
+    can_close_book: bool = False         # kho — KHÓA KỲ (chốt sổ) + Báo cáo kho kế toán + export
 
 
 class PermissionsOut(BaseModel):

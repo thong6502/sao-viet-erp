@@ -17,7 +17,7 @@ import {
   type TinhGiaComponentMeta,
   type TinhGiaPreviewOut,
 } from "../api/client";
-import { congDoan, giay, loaiSanPham, mayThietBi, vatTu, type Row } from "../api/rebuildCatalog";
+import { congDoan, giay, loaiSanPham, mayThietBi, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { MucInHang } from "../components/MucIn";
@@ -36,7 +36,6 @@ const vnd = (v: number | string | null | undefined): string =>
 
 const rowLabel = (r: Row): string => `${r.ma ? `${r.ma} · ` : ""}${r.ten}`;
 const cdName = (r: Row): string => (r.ten_hien_thi ? String(r.ten_hien_thi) : String(r.ten));
-const vtName = (r: Row): string => `${r.ma ? String(r.ma) + " · " : ""}${String(r.ten)}`;
 const numOf = (v: unknown): number => (typeof v === "number" ? v : Number(v) || 0);
 
 /** Số BÀI IN = số trang ÷ trang mỗi tay — dẫn xuất y hệt engine (`thanh_phan_engine`), FE chỉ
@@ -244,7 +243,9 @@ interface EditableComponent {
   kho_nguyen_rong: number; // ①
   don_gia_giay: number;
   don_gia_don_vi: string; // kg | to | tan | ram | cai (theo danh mục giấy)
-  nguon_giay: string; // cong_ty | khach
+  /** DORMANT từ 2026-08-09 (Đợt 4 · K): ô chọn đã gỡ, engine thôi đọc. FE luôn gửi `cong_ty`.
+   *  Giữ field để không phải sửa DTO hai đầu — cột vẫn còn trong DB theo lệ dự án (không drop cột). */
+  nguon_giay: string;
   bu_hao_so_to: number;
   hao_so_to: number;
   tinh_bu_hao_cd: boolean; // bật/tắt tính bù hao công đoạn tự
@@ -271,9 +272,6 @@ interface EditableComponent {
   vat_tus: EditableVatTu[];
 }
 
-function blankVatTu(ten = "", vat_tu_id: number | null = null): EditableVatTu {
-  return { uid: nextUid(), vat_tu_id, ten, don_gia: 0, so_luong: 0, ghi_chu: "" };
-}
 function blankFinishing(ten = "", cong_doan_id: number | null = null): EditableFinishing {
   return {
     uid: nextUid(),
@@ -611,6 +609,37 @@ function NumField({
   opt?: string;
   suffix?: string;
 }) {
+  const [valStr, setValStr] = useState<string>(String(value ?? 0));
+
+  useEffect(() => {
+    if (Number(valStr) !== value) {
+      setValStr(String(value ?? 0));
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setValStr(raw);
+    if (raw === "") {
+      onChange(min);
+    } else {
+      const parsed = Number(raw);
+      if (!isNaN(parsed)) {
+        onChange(Math.max(min, parsed));
+      }
+    }
+  };
+
+  const handleBlur = () => {
+    const num = Math.max(min, Number(valStr) || min);
+    setValStr(String(num));
+    onChange(num);
+  };
+
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    e.target.select();
+  };
+
   return (
     <label className="tg-field">
       <span className="tg-microlabel">
@@ -623,8 +652,10 @@ function NumField({
           type="number"
           min={min}
           step={step}
-          value={value}
-          onChange={(e) => onChange(Math.max(min, Number(e.target.value)))}
+          value={valStr}
+          onChange={handleChange}
+          onBlur={handleBlur}
+          onFocus={handleFocus}
         />
         {suffix ? <span className="tg-suffix">{suffix}</span> : null}
       </div>
@@ -780,7 +811,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const [giays, setGiays] = useState<Row[]>([]);
   const [mays, setMays] = useState<Row[]>([]);
   const [congDoans, setCongDoans] = useState<Row[]>([]);
-  const [vatTus, setVatTus] = useState<Row[]>([]);
 
   // --- Header phiếu đã lưu ---
   const [ma, setMa] = useState("");
@@ -835,7 +865,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     giay.list(token).then((r) => setGiays(r.items)).catch(() => setGiays([]));
     mayThietBi.list(token).then((r) => setMays(r.items)).catch(() => setMays([]));
     congDoan.list(token).then((r) => setCongDoans(r.items)).catch(() => setCongDoans([]));
-    vatTu.list(token).then((r) => setVatTus(r.items)).catch(() => setVatTus([]));
   }, [token]);
 
   // Nạp phiếu.
@@ -969,21 +998,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     setComps((cs) =>
       cs.map((c) =>
         c.uid === cuid ? { ...c, thanh_phams: c.thanh_phams.filter((f) => f.uid !== fuid) } : c,
-      ),
-    );
-  }, []);
-
-  const addVt = useCallback((cuid: string, vat_tu_id: number | null = null, ten = "") => {
-    setComps((cs) =>
-      cs.map((c) =>
-        c.uid === cuid ? { ...c, vat_tus: [...c.vat_tus, blankVatTu(ten, vat_tu_id)] } : c,
-      ),
-    );
-  }, []);
-  const removeVt = useCallback((cuid: string, vuid: string) => {
-    setComps((cs) =>
-      cs.map((c) =>
-        c.uid === cuid ? { ...c, vat_tus: c.vat_tus.filter((v) => v.uid !== vuid) } : c,
       ),
     );
   }, []);
@@ -1772,7 +1786,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           giays={giays}
           mays={mays}
           congDoans={congDoans}
-          vatTus={vatTus}
           liveMeta={editMeta}
           phieuSL={phieuSL}
           onClose={closeEditor}
@@ -1787,8 +1800,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           onPickMay={onPickMay}
           addFin={addFin}
           removeFin={removeFin}
-          addVt={addVt}
-          removeVt={removeVt}
         />
       ) : null}
 
@@ -1810,7 +1821,6 @@ function ComponentModal({
   giays,
   mays,
   congDoans,
-  vatTus,
   liveMeta,
   phieuSL,
   onClose,
@@ -1821,8 +1831,6 @@ function ComponentModal({
   onPickMay,
   addFin,
   removeFin,
-  addVt,
-  removeVt,
 }: {
   comp: EditableComponent;
   idx: number;
@@ -1830,7 +1838,6 @@ function ComponentModal({
   giays: Row[];
   mays: Row[];
   congDoans: Row[];
-  vatTus: Row[];
   liveMeta: TinhGiaComponentMeta | null;
   phieuSL: number;
   onClose: () => void;
@@ -1841,8 +1848,6 @@ function ComponentModal({
   onPickMay: (uid: string, mid: number | null) => void;
   addFin: (cuid: string, cong_doan_id?: number | null, ten?: string, insertIndex?: number | null) => void;
   removeFin: (cuid: string, fuid: string) => void;
-  addVt: (cuid: string, vat_tu_id?: number | null, ten?: string) => void;
-  removeVt: (cuid: string, vuid: string) => void;
 }) {
   // uid của sản phẩm đang mở trợ lý "tính số khuôn từ số trang" (mỗi lúc chỉ 1 popover).
   const [calcUid, setCalcUid] = useState<string | null>(null);
@@ -2052,7 +2057,7 @@ function ComponentModal({
                 <span className="tg-step-badge">2</span> Giấy in
               </div>
               <div className="tg-grid">
-                <label className="tg-field tg-span-8">
+                <label className="tg-field tg-span-6">
                   <span className="tg-microlabel">Loại giấy</span>
                   <select
                     className="tg-input"
@@ -2067,18 +2072,10 @@ function ComponentModal({
                     ))}
                   </select>
                 </label>
-                <div className="tg-field tg-span-4">
-                  <span className="tg-microlabel">Nguồn giấy</span>
-                  <Seg
-                    ariaLabel="Nguồn giấy"
-                    value={c.nguon_giay}
-                    onChange={(v) => patchComp(c.uid, { nguon_giay: v })}
-                    options={[
-                      { val: "cong_ty", label: "Công ty" },
-                      { val: "khach", label: "Khách cấp" },
-                    ]}
-                  />
-                </div>
+                {/* GỠ 2026-08-09 (Đợt 4 · K): ô chọn "Nguồn giấy — Công ty / Khách cấp".
+                    Công ty luôn cấp giấy, và engine đã thôi đọc cờ đó. Để lại ô mà engine không
+                    nghe là tệ hơn không có ô: người tính giá tick "Khách cấp", nhìn thấy nó lưu
+                    được, rồi phiếu vẫn tính đủ tiền giấy. */}
                 <div className="tg-span-3">
                   <NumField
                     label="Dài nguyên"
@@ -2109,9 +2106,6 @@ function ComponentModal({
                       return `${fmt(numOf(g.don_gia))} đ / ${uL}`;
                     })()}
                   </div>
-                  {c.nguon_giay === "khach" && (
-                    <span className="tg-hint" style={{ marginTop: "-4px" }}>Khách cấp giấy — không tính tiền giấy.</span>
-                  )}
                 </div>
               </div>
             </section>
@@ -2351,56 +2345,6 @@ function ComponentModal({
 
             </section>
 
-            {/* ---- VẬT TƯ THÊM (mực/màng/keo → NGUYÊN VẬT LIỆU) ---- */}
-            <section className="rc-sec">
-              <div className="rc-sec__title">
-                <span className="tg-step-badge">5</span> Vật tư thêm
-              </div>
-              <div className="tg-chipgrid">
-                {c.vat_tus.length === 0 && (
-                  <p className="tg-chipgrid__empty" style={{ margin: "6px 0" }}>
-                    Thêm vật tư (mực…) — engine thế biến vào công thức của vật tư, hệt giấy.
-                  </p>
-                )}
-                {c.vat_tus.map((v) => (
-                  <span key={v.uid} className="tg-chip">
-                    <span className="tg-chip__name">{v.ten || "(vật tư)"}</span>
-                    <button
-                      type="button"
-                      className="tg-chip__x"
-                      aria-label="Xóa vật tư"
-                      title="Xóa khỏi phiếu"
-                      onClick={() => removeVt(c.uid, v.uid)}
-                    >
-                      <CloseIcon />
-                    </button>
-                  </span>
-                ))}
-                <select
-                  className="tg-chip-add"
-                  aria-label="Thêm vật tư"
-                  value=""
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (!val) return;
-                    if (val === "__blank") {
-                      addVt(c.uid);
-                    } else {
-                      const m = vatTus.find((x) => String(x.id) === val);
-                      addVt(c.uid, m ? m.id : null, m ? vtName(m) : "");
-                    }
-                  }}
-                >
-                  <option value="">+ Thêm vật tư…</option>
-                  {vatTus.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {vtName(m)}
-                    </option>
-                  ))}
-                  <option value="__blank">+ Tự nhập…</option>
-                </select>
-              </div>
-            </section>
           </div>
 
           {/* Cột phải: Trực quan hóa và Số liệu ước lượng */}

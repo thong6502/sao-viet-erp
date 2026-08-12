@@ -27,13 +27,16 @@ router = APIRouter(prefix="/api/files", tags=["files"])
 _PREFIX_PERMISSION: dict[str, str] = {
     "hr": "nhan_su",
     "crm": "khach_hang",
-    "ke-toan": "ke_toan",
-    "ke-toan-thu": "ke_toan",
+    # Chứng từ đính kèm đi theo MÀN của nó, không còn dùng chung khoá `ke_toan`.
+    "ke-toan": "phieu_chi",
+    "ke-toan-thu": "phieu_thu",
     "don-hang": "don_hang_ban",
     "san-xuat": "san_xuat",
     "kho": "kho",  # đính kèm phiếu kho (chứng từ nhập/xuất) — chỉ người có quyền đọc kho xem được
     # Hợp đồng / hoá đơn / biên bản giao nhận của phiếu mua (06/08/2026).
     "mua-hang": "thu_mua",
+    # Tài liệu đính kèm nội bộ của báo giá (file khách gửi / mẫu thiết kế / ảnh tham khảo).
+    "bao-gia": "bao_gia",
 }
 
 

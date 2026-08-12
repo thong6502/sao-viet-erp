@@ -46,23 +46,6 @@ describe("cột ĐVT của mặt hàng gốc", () => {
   });
 });
 
-describe("cột Quy cách đóng gói", () => {
-  it("ghép thành câu đọc được, dùng tên đơn vị", () => {
-    render(<>{cot(CFG_VAT_TU, "don_vi_dong_goi")(row({
-      don_vi_gia: "kg", don_vi_ten: "kg",
-      don_vi_dong_goi: "thung", don_vi_dong_goi_ten: "thùng", he_so_dong_goi: 3,
-    }))}</>);
-    expect(screen.getByText(/1\s*thùng\s*=\s*3\s*kg/)).toBeInTheDocument();
-  });
-
-  it("khai nửa vời (thiếu hệ số) thì không bịa ra câu", () => {
-    render(<>{cot(CFG_VAT_TU, "don_vi_dong_goi")(row({
-      don_vi_gia: "kg", don_vi_dong_goi: "thung", he_so_dong_goi: null,
-    }))}</>);
-    expect(screen.getByText("—")).toBeInTheDocument();
-  });
-});
-
 describe("cảnh báo quy đổi ở màn Đơn vị", () => {
   it("có canh_bao thì HIỆN RA — trước đây server trả mà không màn nào đọc", () => {
     const c = "“1 tờ = 1.000 g” là số cố định, nhưng tờ → g vốn đổi bằng công thức.";
@@ -76,22 +59,12 @@ describe("cảnh báo quy đổi ở màn Đơn vị", () => {
   });
 });
 
-describe("hint ĐỘNG của ô hệ số quy cách", () => {
-  const hint = (form: Record<string, unknown>) => {
-    const h = truong(CFG_VAT_TU, "he_so_dong_goi").hint;
-    if (typeof h !== "function") throw new Error("hint phải là hàm để dựng câu theo form");
-    return h(form);
-  };
-
-  it("đủ ba ô thì ra đúng câu người đọc kiểm được", () => {
-    expect(hint({ don_vi_dong_goi: "thùng", don_vi_gia: "kg", he_so_dong_goi: 3 }))
-      .toBe("1 thùng = 3 kg");
-  });
-
-  it("thiếu ô nào thì chỉ ĐÚNG ô đó, không báo chung chung", () => {
-    expect(hint({})).toMatch(/Chọn đơn vị đóng gói/);
-    expect(hint({ don_vi_dong_goi: "thùng" })).toMatch(/Chọn ĐVT/);
-    expect(hint({ don_vi_dong_goi: "thùng", don_vi_gia: "kg" })).toMatch(/1 thùng = \? kg/);
+describe("form Vật tư khác KHÔNG còn quy cách đóng gói", () => {
+  it("bỏ hẳn hai ô — quy đổi chỉ khai ở danh mục Đơn vị & quy đổi, một nơi duy nhất", () => {
+    const keys = CFG_VAT_TU.fields.map((f) => f.key);
+    expect(keys).not.toContain("don_vi_dong_goi");
+    expect(keys).not.toContain("he_so_dong_goi");
+    expect(CFG_VAT_TU.columns.map((c) => c.key)).not.toContain("don_vi_dong_goi");
   });
 });
 

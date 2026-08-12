@@ -2921,3 +2921,192 @@
   color: #78350f;
   font-weight: 500;
 }
+
+/* ==========================================================================
+   TAB VẬT TƯ — bảng cân đối (khối theo mặt hàng, dòng theo ngày cần)
+   Mọi rule bọc trong `.khsx` như phần trên; token lấy nguyên từ styles/tokens.css.
+   ========================================================================== */
+
+.khsx .khvt-sum {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--ash);
+}
+.khsx .khvt-sum b { font-family: var(--ff-sans); color: var(--ink); }
+.khsx .khvt-sum__do {
+  font-family: var(--ff-sans);
+  color: var(--signal);
+  font-weight: var(--fw-bold);
+}
+.khsx .khvt-sum__do::before { content: "·"; margin-right: var(--sp-2); color: var(--ash); }
+
+.khsx .khvt-toggle,
+.khsx .khvt-tickall {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.khsx .khvt-tickall { color: var(--rust); }
+
+/* --- khối một mặt hàng ---------------------------------------------------- */
+.khsx .khvt-list { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+.khsx .khvt-card {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--paper);
+  overflow: hidden;
+}
+/* Mặt hàng đang thiếu: vạch đỏ mép trái — cùng ngôn ngữ với `.khsx__row--rush`. */
+.khsx .khvt-card--do { box-shadow: inset 3px 0 0 var(--signal); }
+.khsx .khvt-card--cc { border-style: dashed; }
+
+.khsx .khvt-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.khsx .khvt-card__id { display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0; }
+.khsx .khvt-card__ten {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+
+.khsx .khvt-stats { display: flex; gap: var(--sp-4); margin: 0 0 0 auto; }
+.khsx .khvt-stats div { display: flex; flex-direction: column; gap: 1px; }
+.khsx .khvt-stats dt {
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  letter-spacing: 0.03em;
+}
+.khsx .khvt-stats dd {
+  margin: 0;
+  font-family: var(--ff-sans);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.khsx .khvt-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  padding: 3px 9px;
+  border-radius: var(--r-2);
+  background: var(--signal-soft);
+  color: var(--signal);
+  border: 1px solid color-mix(in srgb, var(--signal) 35%, transparent);
+  white-space: nowrap;
+}
+
+.khsx .khvt-table td { vertical-align: top; }
+.khsx .khvt-th--tick,
+.khsx .khvt-td--tick { width: 34px; }
+.khsx .khvt-row--chon { background: var(--rust-soft); }
+
+/* Mốc SUY (bước chưa xếp lịch) phải nhìn khác mốc thật — không thì người đọc tin vào một con số
+   chưa ai chốt. Chữ nghiêng + xám, kèm title giải thích. */
+.khsx .khvt-tam {
+  font-family: var(--ff-body);
+  font-size: var(--fs-xs);
+  font-style: italic;
+  color: var(--ash);
+  cursor: help;
+}
+
+/* Câu chỉ đường của khối KHUÔN — khối này cố tình KHÔNG có nút "Đề nghị đặt làm" (khuôn không nằm
+   trong danh mục mặt hàng), nên phải nói ra người ta làm gì tiếp; thiếu nó thì họ đứng nhìn dòng
+   đỏ mà không biết bước kế. */
+.khsx .khvt-cc-nhac {
+  margin: 0 0 var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-left: 3px solid var(--rust);
+  border-radius: var(--r-3);
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.khsx .khvt-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-family: var(--ff-sans);
+  color: var(--rust);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.khsx .khvt-link:hover { color: var(--rust-deep); }
+
+.khsx .khsx__sub--do { color: var(--signal); font-weight: var(--fw-bold); }
+
+/* --- pill 4 màu của bảng cân đối ----------------------------------------- */
+/* Cùng hình dạng `.khsx-pill` (bo tròn + chấm), khác bảng màu vì đây là 4 mức ĐỦ/THIẾU chứ không
+   phải trạng thái vòng đời lệnh. LUÔN kèm chữ — không chỉ dựa màu. */
+.khsx .khvt-pill--xam { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+.khsx .khvt-pill--xanh { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+.khsx .khvt-pill--vang { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+.khsx .khvt-pill--do { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+
+/* --- thanh thao tác nổi (chỉ hiện khi có dòng đã tick) ------------------- */
+.khsx .khvt-bar {
+  position: sticky;
+  bottom: var(--sp-4);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  margin-top: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--paper);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 10%);
+}
+.khsx .khvt-bar b { font-family: var(--ff-sans); }
+.khsx .khvt-bar__hint {
+  flex: 1 1 240px;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+}
+
+@media (max-width: 720px) {
+  .khsx .khvt-stats { width: 100%; margin-left: 0; }
+  .khsx .khvt-card__head { gap: var(--sp-2); }
+}
+
+/* Trạng thái thứ NĂM: máy chưa đánh giá được (thiếu đường quy đổi). Màu THÉP — cố ý không xám
+   (xám = "đã cấp đủ") và không đỏ (đỏ = biết chắc thiếu). Nó là "chưa biết", một hạng riêng. */
+.khsx .khvt-pill--khongro {
+  background: var(--steel-soft);
+  color: var(--steel);
+  border: 1px solid color-mix(in srgb, var(--steel) 35%, transparent);
+}
+.khsx .khvt-badge--khongro {
+  background: var(--steel-soft);
+  color: var(--steel);
+  border-color: color-mix(in srgb, var(--steel) 35%, transparent);
+}
+.khsx .khvt-sum__khongro {
+  font-family: var(--ff-sans);
+  color: var(--steel);
+  font-weight: var(--fw-bold);
+  cursor: help;
+}
+.khsx .khvt-sum__khongro::before { content: "·"; margin-right: var(--sp-2); color: var(--ash); }
