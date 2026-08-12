@@ -767,25 +767,32 @@ export function PermissionMatrix({
                           }
                         />
                       </div>
-                      {!g.noScope && (
-                        <div className="rdx-perm__cell rdx-perm__cell--scope">
-                          <select
-                            className="rdx-perm__scope"
-                            value={row.scope}
-                            disabled={readOnly}
-                            aria-label={`Phạm vi — ${label}`}
-                            onChange={(e) =>
-                              onScope(row.module_key, e.target.value as Scope)
-                            }
-                          >
-                            {SCOPES.map((s) => (
-                              <option key={s.value} value={s.value}>
-                                {s.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
+                      <div className="rdx-perm__cell rdx-perm__cell--scope">
+                        <select
+                          className="rdx-perm__scope"
+                          value={row.scope}
+                          // Chỉ còn ĐÚNG MỘT lựa chọn ⇒ khoá luôn: bày một ô chọn không chọn được
+                          // gì khác chỉ làm người ta bấm thử rồi tưởng hỏng.
+                          disabled={readOnly || phamViChoPhep?.length === 1}
+                          title={
+                            phamViChoPhep?.length === 1
+                              ? "Màn này chỉ có một phạm vi hợp lý — không cần chọn."
+                              : undefined
+                          }
+                          aria-label={`Phạm vi — ${label}`}
+                          onChange={(e) =>
+                            onScope(row.module_key, e.target.value as Scope)
+                          }
+                        >
+                          {SCOPES.filter(
+                            (s) => !phamViChoPhep || phamViChoPhep.includes(s.value),
+                          ).map((s) => (
+                            <option key={s.value} value={s.value}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
                       {fineActs && fineIsOpen && (
                         <div className="rdx-perm__fine" role="group" aria-label={`Quyền chi tiết — ${label}`}>
