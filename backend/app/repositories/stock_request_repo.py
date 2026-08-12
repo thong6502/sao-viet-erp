@@ -74,12 +74,19 @@ class StockRequestRepository:
     def get_line(self, line_id: int) -> StockRequestLine | None:
         return self.db.get(StockRequestLine, line_id)
 
-    def count_by_loai(self, trang_thai: list[str]) -> dict[str, int]:
+    def count_by_loai(self, trang_thai: list[str], *, nguoi_tao_id: int | None = None,
+                      bo_phan_id: int | None = None) -> dict[str, int]:
         """Đếm yêu cầu theo CHIỀU (NHAP/XUAT) ở các trạng thái cho trước — cho badge Nhập/Xuất.
-        Toàn kho (không lọc phạm vi): badge là 'hộp việc chờ kho cấp', ai xem cũng thấy cùng số."""
+        LỌC THEO SCOPE (nguoi_tao_id/bo_phan_id) GIỐNG `list`: badge khớp đúng số user thấy trong
+        hộp, không phải tổng toàn kho — ai ngoài tầm thì badge 0 (khớp list rỗng)."""
+        conds = [StockRequest.trang_thai.in_(trang_thai)]
+        if nguoi_tao_id is not None:
+            conds.append(StockRequest.nguoi_tao_id == nguoi_tao_id)
+        if bo_phan_id is not None:
+            conds.append(StockRequest.bo_phan_id == bo_phan_id)
         rows = self.db.execute(
             select(StockRequest.loai, func.count())
-            .where(StockRequest.trang_thai.in_(trang_thai))
+            .where(*conds)
             .group_by(StockRequest.loai)
         ).all()
         return {loai: int(n) for loai, n in rows}

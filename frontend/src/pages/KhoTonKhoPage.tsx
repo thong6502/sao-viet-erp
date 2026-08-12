@@ -382,16 +382,22 @@ export function KhoTonKhoPage({
     const chosen = groups.filter((g) => selected.has(g.key));
     if (chosen.length === 0) return;
     navigate("yeu-cau-mua-hang", {
-      purchaseSeedLines: chosen.map((g) => ({
-        // Mang theo CẶP chứ không chỉ tên: phía mua hàng nối được về đúng mặt hàng gốc,
-        // thay vì ghép mù bằng chuỗi tên (ghép trượt thì im lặng sai).
-        hang_loai: g.hang_loai,
-        hang_id: g.hang_id,
-        item_name: g.name ?? g.code ?? "",
-        unit: g.dvt ?? "",
-        quantity: 0,
-        note: "",
-      })),
+      purchaseSeedLines: chosen.map((g) => {
+        // SL cần mua = (ngưỡng tối đa nếu có, không thì ngưỡng tồn) − tồn hiện tại, kẹp ≥ 0.
+        // Gợi ý rule-based để về ngưỡng; người mua chỉnh lại được.
+        const th = thresholds[g.key];
+        const target = th?.nguong_toi_da ?? th?.nguong_ton ?? 0;
+        return {
+          // Mang theo CẶP chứ không chỉ tên: phía mua hàng nối được về đúng mặt hàng gốc,
+          // thay vì ghép mù bằng chuỗi tên (ghép trượt thì im lặng sai).
+          hang_loai: g.hang_loai,
+          hang_id: g.hang_id,
+          item_name: g.name ?? g.code ?? "",
+          unit: g.dvt ?? "",
+          quantity: Math.max(0, target - g.total),
+          note: "",
+        };
+      }),
       purchaseSeedPurpose: `Bổ sung tồn kho ${ten}`,
     });
   }

@@ -1,4 +1,4 @@
-// Kho — mảnh dùng chung cho MÀN ĐỀ NGHỊ và MÀN HỘP YÊU CẦU (spec-kho-de-nghi §D).
+// Kho — mảnh dùng chung cho MÀN YÊU CẦU và MÀN HỘP YÊU CẦU (spec-kho-de-nghi §D).
 // Hai màn nhìn cùng một chứng từ ở hai đầu luồng nên nhãn/màu trạng thái phải khớp tuyệt
 // đối; để mỗi màn tự khai một bảng là kiểu gì cũng lệch sau vài lần sửa.
 import { useEffect, useRef, useState, type CSSProperties } from "react";

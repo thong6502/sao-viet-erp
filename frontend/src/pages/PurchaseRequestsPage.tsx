@@ -597,23 +597,26 @@ export function PurchaseRequestsPage({
   // Đợt giao ↔ phiếu nhập kho = CÙNG sự kiện hàng về: bấm "Nhập kho" ở một đợt → nhảy sang màn
   // Yêu cầu kho, mở sẵn form NHẬP điền theo hàng đã nhận. Ghi chú trỏ về mã đơn mua + số đợt.
   //
-  // Ô MẶT HÀNG để TRỐNG có chủ ý: từ Đợt 3, kho chỉ nhận hàng CÓ trong danh mục gốc, mà dòng đơn
-  // mua chỉ có tên chữ (`item_name`) — ghép theo chuỗi chính là cái sai đang đi chữa ("Couche 150"
-  // ≠ "Couché 150 79×109"). Tên hàng đẩy vào ghi chú để người lập đối chiếu rồi tự chọn đúng món.
+  // MẶT HÀNG auto-điền từ liên kết danh mục gốc của dòng đơn mua (mg 0174), khớp qua
+  // `purchase_request_line_id`. Dòng đơn mua chỉ có tên chữ (không link danh mục) → hang null →
+  // kho tự chọn (ô chọn vẫn mở dù dòng khoá). Tên hàng vẫn đẩy vào ghi chú để đối chiếu.
   const nhapKhoTuDot = (row: PurchaseRequestRow, dot: PurchaseDeliveryRow) => {
-    // Đơn giá lấy từ ĐÚNG dòng đơn mua đẻ ra dòng giao này (khớp qua purchase_request_line_id).
-    const giaTheoDong = new Map(row.lines.map((pl) => [pl.id, pl.expected_unit_price]));
-    const seed: SeedLine[] = dot.lines.map((dl) => ({
-      hang_loai: null,
-      hang_id: null,
-      hang_ma: null,
-      hang_ten: null,
-      dvt: dl.unit,
-      he_so_ve_goc: null,
-      sl_de_nghi: dl.quantity,
-      don_gia: giaTheoDong.get(dl.purchase_request_line_id) ?? null,
-      ghi_chu: [dl.item_name, dl.note].filter(Boolean).join(" — ") || null,
-    }));
+    // Khớp dòng giao → dòng đơn mua (đơn giá + mặt hàng gốc) qua purchase_request_line_id.
+    const dongTheoId = new Map(row.lines.map((pl) => [pl.id, pl]));
+    const seed: SeedLine[] = dot.lines.map((dl) => {
+      const pl = dongTheoId.get(dl.purchase_request_line_id);
+      return {
+        hang_loai: pl?.hang_loai ?? null,
+        hang_id: pl?.hang_id ?? null,
+        hang_ma: pl?.hang_ma ?? null,
+        hang_ten: pl?.hang_ten ?? null,
+        dvt: dl.unit,
+        he_so_ve_goc: null,
+        sl_de_nghi: dl.quantity,
+        don_gia: pl?.expected_unit_price ?? null,
+        ghi_chu: [dl.item_name, dl.note].filter(Boolean).join(" — ") || null,
+      };
+    });
     navigate("kho-main", {
       khoNhapSeed: {
         seed,
