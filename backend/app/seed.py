@@ -141,6 +141,7 @@ def _full(scope: str, *, can_approve_exception: bool = False) -> dict:
         can_view_cost=True,
         can_set_threshold=True,
         can_post=True,  # GĐ toàn quyền kho → được GHI SỔ (chốt tồn)
+        can_close_book=True,  # GĐ: xem Báo cáo kho kế toán + khóa kỳ (chốt sổ) + export MISA
     )
 
 
@@ -465,7 +466,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Kế toán kho",
         {
             "dashboard": _read(SCOPE_ALL),
-            "kho": {**_read(SCOPE_ALL), **_KHO_QL},
+            # Kế toán kho: thêm KHÓA KỲ (chốt sổ) + Báo cáo kho + export MISA (can_close_book).
+            "kho": {**_read(SCOPE_ALL), **_KHO_QL, "can_close_book": True},
             # Đối chiếu giá vốn cần TRA danh mục, không sửa.
             **{k: _read(SCOPE_ALL) for k in ("dm_chung_loai_giay", "dm_giay", "dm_vat_tu")},
         },

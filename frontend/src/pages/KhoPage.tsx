@@ -1,7 +1,7 @@
-// Khung "Kho" — gộp Đề nghị + Hộp yêu cầu vào MỘT module, chia tab.
+// Khung "Kho" — gộp Yêu cầu + Hộp yêu cầu vào MỘT module, chia tab.
 //
 // Hai trục tab:
-//   • VIỆC:   Đề nghị · Hộp yêu cầu  (Hộp yêu cầu chỉ hiện cho vai trong kho)
+//   • VIỆC:   Yêu cầu · Hộp yêu cầu  (Hộp yêu cầu chỉ hiện cho vai trong kho)
 //   • CHIỀU:  Nhập · Xuất            (khoá chiều cho màn con qua prop `loai`)
 //
 // Không tách bảng DB — vẫn 1 bảng `stock_requests`/`stock_vouchers` cột `loai`, chỉ lọc theo
@@ -19,19 +19,22 @@ type FnTab = "denghi" | "yeucau";
 export function KhoPage({
   eventTick = 0,
   nhapSeed,
+  counts,
 }: {
   eventTick?: number;
-  /** Điều hướng từ "Nhập kho" (đợt giao đơn mua) → ép về tab Đề nghị · Nhập, mở sẵn form đã điền. */
+  /** Điều hướng từ "Nhập kho" (đợt giao đơn mua) → ép về tab Yêu cầu · Nhập, mở sẵn form đã điền. */
   nhapSeed?: KhoNhapSeed | null;
+  /** Số yêu cầu ĐÃ DUYỆT chờ cấp theo chiều — hiện badge cạnh nút Nhập/Xuất. */
+  counts?: { nhap: number; xuat: number };
 }) {
   const can = useCan();
-  // BỎ BƯỚC DUYỆT: màn Đề nghị chỉ cho người TẠO đề nghị (can_request); `can_approve` không còn
+  // BỎ BƯỚC DUYỆT: màn Yêu cầu chỉ cho người TẠO yêu cầu (can_request); `can_approve` không còn
   // dùng cho kho nữa (mọi vai duyệt cũ đều đã có can_request nên không ai mất truy cập).
   const canDeNghi = can("kho", "request");
   const canYeuCau = can("kho", "create") || can("kho", "view_stock");
   const [fn, setFn] = useState<FnTab>(canDeNghi ? "denghi" : "yeucau");
   const [loai, setLoai] = useState<StockRequestKind>("NHAP");
-  // Seed đang chờ đổ vào form (từ "Nhập kho" ở đơn mua). Effect ép tab Đề nghị · Nhập; KhoDeNghiPage
+  // Seed đang chờ đổ vào form (từ "Nhập kho" ở đơn mua). Effect ép tab Yêu cầu · Nhập; KhoDeNghiPage
   // tiêu thụ rồi gọi onSeedConsumed để xoá — tránh mở lại form khi bấm sang tab khác.
   const [pendingSeed, setPendingSeed] = useState<KhoNhapSeed | null>(null);
   useEffect(() => {
@@ -60,7 +63,7 @@ export function KhoPage({
               onClick={() => setFn("denghi")}
             >
               <FileTextIcon />
-              <span>Đề nghị</span>
+              <span>Yêu cầu</span>
             </button>
           )}
           {canYeuCau && (
@@ -70,22 +73,26 @@ export function KhoPage({
               onClick={() => setFn("yeucau")}
             >
               <InboxIcon />
-              <span>Phiếu từ đề nghị</span>
+              <span>Phiếu từ yêu cầu</span>
             </button>
           )}
         </div>
         <div className="kho-shell__dirs">
-          {(["NHAP", "XUAT"] as StockRequestKind[]).map((k) => (
-            <button
-              key={k}
-              type="button"
-              className={`seg${loai === k ? " is-active" : ""}`}
-              onClick={() => setLoai(k)}
-            >
-              {k === "NHAP" ? <ArrowDownIcon /> : <ArrowUpIcon />}
-              <span>{k === "NHAP" ? "Nhập" : "Xuất"}</span>
-            </button>
-          ))}
+          {(["NHAP", "XUAT"] as StockRequestKind[]).map((k) => {
+            const n = k === "NHAP" ? counts?.nhap ?? 0 : counts?.xuat ?? 0;
+            return (
+              <button
+                key={k}
+                type="button"
+                className={`seg${loai === k ? " is-active" : ""}`}
+                onClick={() => setLoai(k)}
+              >
+                {k === "NHAP" ? <ArrowDownIcon /> : <ArrowUpIcon />}
+                <span>{k === "NHAP" ? "Nhập" : "Xuất"}</span>
+                {n > 0 && <span className="kho-shell__count" aria-label={`${n} yêu cầu chờ cấp`}>{n}</span>}
+              </button>
+            );
+          })}
         </div>
       </div>
 

@@ -1,4 +1,4 @@
-"""Repository — Đề nghị kho (spec-kho-de-nghi §3–§5).
+"""Repository — Yêu cầu kho (spec-kho-de-nghi §3–§5).
 
 Chỉ truy vấn/ghi DB. Luật nghiệp vụ (ai được duyệt, chặn ứng vượt duyệt, chuyển trạng
 thái) nằm ở `services/stock_request_service.py`.
@@ -16,7 +16,7 @@ from ..models.stock_request import (
     StockRequestLine,
 )
 
-_HEADER_FIELDS = ("bo_phan_id", "kho_id", "ngay_can", "uu_tien", "ghi_chu")
+_HEADER_FIELDS = ("bo_phan_id", "kho_id", "ngay_can", "uu_tien", "ghi_chu", "loai_kho")
 
 
 def _build_line(ln: dict, loai: str) -> StockRequestLine:
@@ -74,8 +74,18 @@ class StockRequestRepository:
     def get_line(self, line_id: int) -> StockRequestLine | None:
         return self.db.get(StockRequestLine, line_id)
 
+    def count_by_loai(self, trang_thai: list[str]) -> dict[str, int]:
+        """Đếm yêu cầu theo CHIỀU (NHAP/XUAT) ở các trạng thái cho trước — cho badge Nhập/Xuất.
+        Toàn kho (không lọc phạm vi): badge là 'hộp việc chờ kho cấp', ai xem cũng thấy cùng số."""
+        rows = self.db.execute(
+            select(StockRequest.loai, func.count())
+            .where(StockRequest.trang_thai.in_(trang_thai))
+            .group_by(StockRequest.loai)
+        ).all()
+        return {loai: int(n) for loai, n in rows}
+
     def by_ids_with_lines(self, ids) -> dict[int, StockRequest]:
-        """Nạp NHIỀU đề nghị kèm dòng trong 1 (+lines) query — tránh N+1 khi serialize danh sách phiếu."""
+        """Nạp NHIỀU yêu cầu kèm dòng trong 1 (+lines) query — tránh N+1 khi serialize danh sách phiếu."""
         ids = [i for i in set(ids) if i is not None]
         if not ids:
             return {}
@@ -90,8 +100,8 @@ class StockRequestRepository:
              q: str | None = None, nguoi_tao_id: int | None = None,
              bo_phan_id: int | None = None, kho_id: int | None = None,
              page: int = 1, size: int = 50):
-        """Danh sách đề nghị. `nguoi_tao_id` / `bo_phan_id` là cách áp SCOPE: người đề nghị
-        (scope `own`) chỉ thấy đề nghị của chính mình — đó là lý do họ không nhìn thấy kho."""
+        """Danh sách yêu cầu. `nguoi_tao_id` / `bo_phan_id` là cách áp SCOPE: người yêu cầu
+        (scope `own`) chỉ thấy yêu cầu của chính mình — đó là lý do họ không nhìn thấy kho."""
         conds = []
         if loai:
             conds.append(StockRequest.loai == loai)
@@ -158,8 +168,8 @@ class StockRequestRepository:
         return obj
 
     def replace_lines(self, obj: StockRequest, lines: list[dict]) -> None:
-        """Thay toàn bộ dòng (chỉ dùng khi đề nghị còn sửa được). Xóa-rồi-thêm thay vì
-        khớp từng dòng: đề nghị còn nháp thì chưa có phiếu nào trỏ vào dòng cũ."""
+        """Thay toàn bộ dòng (chỉ dùng khi yêu cầu còn sửa được). Xóa-rồi-thêm thay vì
+        khớp từng dòng: yêu cầu còn nháp thì chưa có phiếu nào trỏ vào dòng cũ."""
         obj.lines.clear()
         self.db.flush()
         for ln in lines:

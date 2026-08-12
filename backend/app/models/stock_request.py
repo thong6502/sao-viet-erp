@@ -1,11 +1,11 @@
-"""Đề nghị kho (nhập / xuất) — docs/spec-kho-de-nghi.md §3–§5.
+"""Yêu cầu kho (nhập / xuất) — docs/spec-kho-de-nghi.md §3–§5.
 
-1 đề nghị = 1 chứng từ do người NGOÀI kho lập (tổ SX, mua hàng, bảo trì…). Hai luật
+1 yêu cầu = 1 chứng từ do người NGOÀI kho lập (tổ SX, mua hàng, bảo trì…). Hai luật
 xương sống lấy từ BRD Module Kho:
 
-* **Kho KHÔNG duyệt.** Duyệt là việc của tổ trưởng/quản lý bộ phận ĐỀ NGHỊ — BRD §2.6
+* **Kho KHÔNG duyệt.** Duyệt là việc của tổ trưởng/quản lý bộ phận YÊU CẦU — BRD §2.6
   b8, §2.8 b6, §2.9 b5 đều ghi "Kho tiếp nhận phiếu ĐÃ DUYỆT". Kho chỉ lập phiếu
-  nhập/xuất ứng theo đề nghị đã duyệt.
+  nhập/xuất ứng theo yêu cầu đã duyệt.
 * **Đã duyệt là khoá.** BRD §1.5: phiếu đã duyệt không sửa trực tiếp; muốn đổi thì hủy
   và tạo lại.
 
@@ -28,7 +28,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
 
-# Loại đề nghị. Giai đoạn 1 chỉ 2 giá trị; đặc thù nghiệp vụ (cấp bù, bảo trì, nhập trả…)
+# Loại yêu cầu. Giai đoạn 1 chỉ 2 giá trị; đặc thù nghiệp vụ (cấp bù, bảo trì, nhập trả…)
 # ghi vào `ghi_chu` chứ chưa tách loại riêng (spec §1).
 REQ_NHAP = "NHAP"
 REQ_XUAT = "XUAT"
@@ -63,23 +63,23 @@ def _utcnow() -> datetime:
 
 
 class StockRequest(Base):
-    """Header đề nghị kho."""
+    """Header yêu cầu kho."""
 
     __tablename__ = "stock_requests"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    # Số đề nghị in trên chứng từ (DNN0001 / DNX0001) — sinh qua document_sequences.
+    # Số yêu cầu in trên chứng từ (DNN0001 / DNX0001) — sinh qua document_sequences.
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
     loai: Mapped[str] = mapped_column(String(8), index=True, nullable=False)
 
     nguoi_tao_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id"), index=True, nullable=False
     )
-    # Bộ phận đề nghị — dùng cho scope `department` và cho ô "Bộ phận" trên bản in.
+    # Bộ phận yêu cầu — dùng cho scope `department` và cho ô "Bộ phận" trên bản in.
     bo_phan_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("departments.id"), index=True, nullable=True
     )
-    # Kho đích của đề nghị: XUẤT = lĩnh từ kho nào, NHẬP = nhập về kho nào. Đèn tồn tính theo
+    # Kho đích của yêu cầu: XUẤT = lĩnh từ kho nào, NHẬP = nhập về kho nào. Đèn tồn tính theo
     # kho này; phiếu kế thừa kho này (khoá). Nullable ở DB cho hàng cũ trước khi có cột, nhưng
     # API create BẮT BUỘC (schema).
     kho_id: Mapped[int | None] = mapped_column(
@@ -92,6 +92,9 @@ class StockRequest(Base):
     # Đặc thù nghiệp vụ (nhập mua / xuất cấp bù / xuất bảo trì…) ghi ở đây — giai đoạn 1
     # chưa tách loại phiếu riêng nên đây là chỗ duy nhất giữ ngữ cảnh.
     ghi_chu: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # Loại nhập/xuất kho — TỰ DO người tạo gõ ở form yêu cầu (tên hoặc mã, vd "nhập mua" / "2");
+    # Báo cáo kho đọc để xuất Excel MISA. Nullable = chưa khai. (mig 0169 thêm INT → 0170 đổi VARCHAR)
+    loai_kho: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     trang_thai: Mapped[str] = mapped_column(
         String(16), index=True, nullable=False, server_default=REQ_DRAFT, default=REQ_DRAFT
@@ -101,7 +104,7 @@ class StockRequest(Base):
     )
     duyet_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     ly_do_tu_choi: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    # Lý do KHO HỦY đề nghị (hủy phiếu nháp → đề nghị KẾT THÚC ở 'Đã hủy'). Tách khỏi
+    # Lý do KHO HỦY yêu cầu (hủy phiếu nháp → yêu cầu KẾT THÚC ở 'Đã hủy'). Tách khỏi
     # `ly_do_tu_choi` (lý do NGƯỜI DUYỆT từ chối). Null nếu chưa hủy. Thêm qua migration 0114.
     ly_do_huy: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
@@ -125,7 +128,7 @@ class StockRequest(Base):
 
 
 class StockRequestLine(Base):
-    """1 dòng vật tư của đề nghị.
+    """1 dòng vật tư của yêu cầu.
 
     Bốn con số chạy theo thứ tự `sl_de_nghi → sl_duyet → sl_da_ung`; "còn lại" =
     `sl_duyet - sl_da_ung` (tính, không lưu — lưu thành cột thứ 4 là mời sai lệch).
@@ -166,15 +169,15 @@ class StockRequestLine(Base):
         Numeric(14, 2), CheckConstraint("sl_da_ung >= 0"),
         nullable=False, server_default="0", default=0.0,
     )
-    # Đơn giá NHẬP do NGƯỜI ĐỀ NGHỊ khai (chỉ đề nghị NHẬP — họ biết giá NCC). Phiếu KẾ THỪA
-    # giá này khi ghi sổ; kho KHÔNG sửa. Null với đề nghị XUẤT (giá = giá vốn đích danh của lô).
+    # Đơn giá NHẬP do NGƯỜI YÊU CẦU khai (chỉ yêu cầu NHẬP — họ biết giá NCC). Phiếu KẾ THỪA
+    # giá này khi ghi sổ; kho KHÔNG sửa. Null với yêu cầu XUẤT (giá = giá vốn đích danh của lô).
     don_gia: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # GỠ mg 0171: `don_vi_phu` + `he_so_quy_doi` — người đề nghị tự khai hệ số quy đổi cho từng
     # dòng. Nay quy đổi lấy từ đồ thị đơn vị dùng chung (`don_vi_quy_doi` + quy cách đóng gói của
     # mặt hàng), nên khai tay ở đây chỉ tạo ra nguồn số thứ hai — mà hai nguồn thì sớm muộn lệch,
     # và lệch ở đây là lệch TỒN KHO.
     # KHO PHẢN HỒI: lý do kho cấp/nhập ÍT HƠN số còn phải cấp (vd NCC giao thiếu). Kho khai lúc
-    # lập phiếu khi SL < còn phải cấp; hiện ở mục "Kho phản hồi" của đề nghị.
+    # lập phiếu khi SL < còn phải cấp; hiện ở mục "Kho phản hồi" của yêu cầu.
     ly_do_thieu: Mapped[str | None] = mapped_column(String(500), nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
 

@@ -6,9 +6,12 @@ import "./info-hint.css";
 interface InfoHintProps {
   /** The tooltip text. Keep it one short sentence. */
   label: string;
+  /** Hướng mở bubble: "left" (mặc định, neo trái) hoặc "right" (neo phải, mở sang trái — dùng khi
+   *  icon nằm sát mép phải drawer/dialog để bubble không bị cắt). */
+  align?: "left" | "right";
 }
 
-export function InfoHint({ label }: InfoHintProps) {
+export function InfoHint({ label, align = "left" }: InfoHintProps) {
   const id = useId();
   return (
     <span className="hint-tip">
@@ -20,7 +23,11 @@ export function InfoHint({ label }: InfoHintProps) {
       >
         i
       </button>
-      <span role="tooltip" id={id} className="hint-tip__bubble">
+      <span
+        role="tooltip"
+        id={id}
+        className={`hint-tip__bubble${align === "right" ? " hint-tip__bubble--right" : ""}`}
+      >
         {label}
       </span>
     </span>

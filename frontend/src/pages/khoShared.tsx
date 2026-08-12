@@ -1,6 +1,7 @@
 // Kho — mảnh dùng chung cho MÀN ĐỀ NGHỊ và MÀN HỘP YÊU CẦU (spec-kho-de-nghi §D).
 // Hai màn nhìn cùng một chứng từ ở hai đầu luồng nên nhãn/màu trạng thái phải khớp tuyệt
 // đối; để mỗi màn tự khai một bảng là kiểu gì cũng lệch sau vài lần sửa.
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { StockRequestStatus, StockVoucherStatus } from "../api/client";
 import "./kho-request.css";
 
@@ -70,4 +71,77 @@ export function readStoredKho(key: string): number | null {
 export function writeStoredKho(key: string, value: number | null): void {
   if (value == null) localStorage.removeItem(key);
   else localStorage.setItem(key, String(value));
+}
+
+/** Khoảng ngày [from,to] (yyyy-mm-dd). Rỗng cả hai = không lọc. `val` rỗng = rớt khi ĐANG lọc. */
+export function inDateRange(val: string, range: { from: string; to: string }): boolean {
+  if (!range.from && !range.to) return true;
+  if (!val) return false;
+  if (range.from && val < range.from) return false;
+  if (range.to && val > range.to) return false;
+  return true;
+}
+
+/** Tiêu đề cột NGÀY có bộ lọc khoảng: bấm nhãn → bung popup 2 ô Từ/Đến. Lọc RỖNG khi cả hai trống.
+ *  Dùng chung cho màn Yêu cầu & Phiếu từ yêu cầu — bấm cột nào lọc đúng cột đó, có chấm báo đang lọc. */
+export function DateFilterHead({
+  label,
+  from,
+  to,
+  onChange,
+  style,
+}: {
+  label: string;
+  from: string;
+  to: string;
+  onChange: (from: string, to: string) => void;
+  style?: CSSProperties;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLTableCellElement>(null);
+  const active = !!(from || to);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  return (
+    <th ref={ref} style={style} className="kho-colfil">
+      <button
+        type="button"
+        className={`kho-colfil__btn${active ? " is-active" : ""}`}
+        onClick={() => setOpen((o) => !o)}
+        title="Bấm để lọc theo khoảng ngày"
+      >
+        {label}
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+        </svg>
+        {active && <span className="kho-colfil__dot" />}
+      </button>
+      {open && (
+        <div className="kho-colfil__pop" role="dialog">
+          <label className="kho-colfil__row">
+            <span>Từ</span>
+            <input type="date" className="rc-input" value={from} max={to || undefined}
+              onChange={(e) => onChange(e.target.value, to)} />
+          </label>
+          <label className="kho-colfil__row">
+            <span>Đến</span>
+            <input type="date" className="rc-input" value={to} min={from || undefined}
+              onChange={(e) => onChange(from, e.target.value)} />
+          </label>
+          {active && (
+            <button type="button" className="rc__link-btn kho-colfil__clear"
+              onClick={() => { onChange("", ""); setOpen(false); }}>
+              Xóa lọc
+            </button>
+          )}
+        </div>
+      )}
+    </th>
+  );
 }

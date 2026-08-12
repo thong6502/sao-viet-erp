@@ -102,7 +102,7 @@ class StockLotRepository:
         """**Tồn khả dụng** = Σ sl_con_lai của lô ở trạng thái xuất được, theo ĐƠN VỊ GỐC.
 
         Cố tình KHÔNG trả tồn thực tế: hàng chờ KCS / hàng lỗi nằm trong kho nhưng không
-        dùng được, cộng vào là hứa suông với người đề nghị (BRD §1.5).
+        dùng được, cộng vào là hứa suông với người yêu cầu (BRD §1.5).
         """
         stmt = select(func.coalesce(func.sum(StockLot.sl_con_lai), 0)).where(
             StockLot.hang_loai == hang[0],

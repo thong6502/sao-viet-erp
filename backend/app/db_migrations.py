@@ -6547,3 +6547,79 @@ def _migrate_khuon_theo_buoc(db: Session) -> None:
 
 
 MIGRATIONS.append(("0185_khuon_theo_buoc", _migrate_khuon_theo_buoc))
+
+
+def _migrate_kho_bao_cao_ke_toan(db: Session) -> None:
+    """Báo cáo kho (kế toán) — docs/spec-bao-cao-kho.md:
+      * `stock_requests.loai_kho` (INTEGER nullable) — mã loại nhập/xuất MISA người tạo gõ ở yêu cầu.
+      * `role_permissions.can_close_book` (BOOLEAN default FALSE) — quyền xem Báo cáo kho + export
+        Excel MISA + khóa kỳ (chốt sổ); cấp cho vai 'Kế toán kho' + 'Giám đốc'.
+    Bảng `kho_khoa_so` do create_all dựng (không cần ở đây). No-op trên DB fresh / cột đã có."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "stock_requests" in tables and "loai_kho" not in _existing_columns(insp, "stock_requests"):
+        db.execute(text("ALTER TABLE stock_requests ADD COLUMN loai_kho INTEGER"))
+    if "role_permissions" in tables:
+        if "can_close_book" not in _existing_columns(insp, "role_permissions"):
+            db.execute(text(
+                "ALTER TABLE role_permissions ADD COLUMN can_close_book BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+        if "roles" in tables:
+            db.execute(text(
+                "UPDATE role_permissions SET can_close_book = TRUE "
+                "WHERE module_key = 'kho' AND role_id IN "
+                "(SELECT id FROM roles WHERE name IN ('Kế toán kho', 'Giám đốc'))"
+            ))
+    db.commit()
+
+
+MIGRATIONS.append(("0169_kho_bao_cao_ke_toan", _migrate_kho_bao_cao_ke_toan))
+
+
+def _migrate_kho_bao_cao_v2(db: Session) -> None:
+    """Vòng 2 Báo cáo kho (docs/spec-bao-cao-kho.md):
+      * `stock_requests.loai_kho`: INT → VARCHAR(50) — người dùng gõ TÊN loại tự do (không phải mã).
+      * `kho_khoa_so`: khóa 1 NGÀY (`ngay_khoa`) → khóa KHOẢNG `[tu_ngay, den_ngay]` + `hanh_dong`
+        ('khoa'/'mo') = append-only (hiệu lực + lịch sử). Dữ liệu cũ không đáng kể → dựng lại bảng.
+    Idempotent + no-op trên DB fresh (create_all đã ra schema mới)."""
+    bind = db.get_bind()
+    is_sqlite = bind.dialect.name == "sqlite"
+    insp = inspect(bind)
+    tables = insp.get_table_names()
+
+    # 1) loai_kho INT → VARCHAR(50).
+    if "stock_requests" in tables and "loai_kho" in _existing_columns(insp, "stock_requests"):
+        col = next((c for c in insp.get_columns("stock_requests") if c["name"] == "loai_kho"), None)
+        type_str = str(col["type"]).upper() if col else ""
+        already_text = "CHAR" in type_str or "TEXT" in type_str
+        if not already_text:
+            if is_sqlite:
+                # SQLite affinity INTEGER → dựng lại cột kiểu VARCHAR (dữ liệu loai_kho mới/không đáng kể).
+                db.execute(text("ALTER TABLE stock_requests DROP COLUMN loai_kho"))
+                db.execute(text("ALTER TABLE stock_requests ADD COLUMN loai_kho VARCHAR(50)"))
+            else:
+                db.execute(text(
+                    "ALTER TABLE stock_requests ALTER COLUMN loai_kho TYPE VARCHAR(50) "
+                    "USING loai_kho::varchar"
+                ))
+        db.commit()
+
+    # 2) kho_khoa_so: dựng lại nếu còn cột cũ 'ngay_khoa'.
+    if "kho_khoa_so" in tables and "ngay_khoa" in _existing_columns(insp, "kho_khoa_so"):
+        db.execute(text("DROP TABLE kho_khoa_so"))
+        id_pk = "INTEGER PRIMARY KEY" if is_sqlite else "SERIAL PRIMARY KEY"
+        db.execute(text(
+            "CREATE TABLE kho_khoa_so ("
+            f"id {id_pk}, "
+            "kho_id INTEGER REFERENCES kho_hang(id), "
+            "tu_ngay DATE NOT NULL, "
+            "den_ngay DATE NOT NULL, "
+            "hanh_dong VARCHAR(8) NOT NULL DEFAULT 'khoa', "
+            "nguoi_khoa_id INTEGER REFERENCES users(id), "
+            "khoa_luc TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+        ))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_kho_khoa_so_kho_id ON kho_khoa_so (kho_id)"))
+        db.commit()
+
+
+MIGRATIONS.append(("0170_kho_bao_cao_v2", _migrate_kho_bao_cao_v2))

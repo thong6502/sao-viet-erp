@@ -5,13 +5,14 @@ parameters (no string-formatted input). No business rules here.
 """
 from __future__ import annotations
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models.department import Department
 from ..models.module import Module
-from ..models.role import Role, RolePermission
+from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN, Role, RolePermission
 from ..models.unit_level import UnitLevel
+from ..models.user import User
 
 
 class ModuleRepository:
@@ -308,6 +309,34 @@ class RoleRepository:
             ).scalars()
         )
 
+    def kho_notify_user_ids(self, *, bo_phan_id: int | None, creator_id: int | None) -> list[int]:
+        """User ids NÊN nhận tín hiệu 'việc kho mới' cho yêu cầu ở phòng `bo_phan_id`.
+
+        = người XỬ LÝ kho (`can_create` HOẶC `can_view_stock`) mà PHẠM VI của vai PHỦ phòng đó:
+        `all` (mọi phòng) · `department` (phòng người nhận khớp phòng yêu cầu) · `own` (chính
+        người tạo). Tôn trọng ĐÚNG scope như danh sách yêu cầu (kho_request._scoped_filters):
+        'phòng nào thấy phòng đó', còn kho scope=all vẫn thấy mọi phòng."""
+        stmt = (
+            select(User.id)
+            .join(RolePermission, RolePermission.role_id == User.role_id)
+            .where(
+                RolePermission.module_key == "kho",
+                or_(
+                    RolePermission.can_create.is_(True),
+                    RolePermission.can_view_stock.is_(True),
+                ),
+                or_(
+                    RolePermission.scope == SCOPE_ALL,
+                    and_(
+                        RolePermission.scope == SCOPE_DEPARTMENT,
+                        User.department_id == bo_phan_id,
+                    ),
+                    and_(RolePermission.scope == SCOPE_OWN, User.id == creator_id),
+                ),
+            )
+        )
+        return [uid for (uid,) in self.db.execute(stmt).all()]
+
     def set_permission(
         self,
         *,
@@ -351,6 +380,7 @@ class RoleRepository:
         can_view_cost: bool = False,
         can_set_threshold: bool = False,
         can_post: bool = False,
+        can_close_book: bool = False,
     ) -> RolePermission:
         """Upsert the (role, module) permission row."""
         perm = self.get_permission(role_id, module_key)
@@ -395,6 +425,7 @@ class RoleRepository:
         perm.can_view_cost = can_view_cost
         perm.can_set_threshold = can_set_threshold
         perm.can_post = can_post
+        perm.can_close_book = can_close_book
         self.db.commit()
         self.db.refresh(perm)
         return perm

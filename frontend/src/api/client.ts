@@ -275,8 +275,8 @@ export type QuoteEvent =
   | { type: "payment_voucher_cancelled"; code?: string | null; voucher_code?: string | null }
   // Kho (spec-kho-de-nghi §10): `stock_request` = tin đích danh có sẵn câu chữ để toast;
   // `stock_request_pending_changed` = tín hiệu NHẸ (danh sách chờ đổi) → chỉ refetch badge.
-  | { type: "stock_request"; code?: string; message: string }
-  | { type: "stock_request_pending_changed"; code?: string };
+  | { type: "stock_request"; code?: string; message: string; loai?: "NHAP" | "XUAT" }
+  | { type: "stock_request_pending_changed"; code?: string; loai?: "NHAP" | "XUAT"; nguoi_tao_id?: number };
 
 // --- Lệnh sản xuất (LSX) — bàn Kế hoạch sản xuất ------------------------------
 // Job (đơn) → Part (lệnh) → Operation (công đoạn). Mỗi DÒNG ĐƠN = 1 lệnh, ngang hàng.
@@ -1282,7 +1282,17 @@ export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => vo
   async function loop(): Promise<void> {
     while (!closed) {
       controller = new AbortController();
+      const ctl = controller;
+      // Watchdog: backend gửi event hoặc ": ping" ít nhất mỗi 20s. Im lặng > 50s = kết nối CHẾT
+      // NGẦM (nửa-mở qua proxy / zombie uvicorn --reload trên Windows) mà `reader.read()` treo mãi
+      // không báo lỗi → abort để rơi vào catch → reconnect. Nhờ vậy SSE TỰ LÀNH, không cần F5.
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      const kick = () => {
+        if (watchdog) clearTimeout(watchdog);
+        watchdog = setTimeout(() => ctl.abort(), 50_000);
+      };
       try {
+        kick();
         const resp = await fetch(`${BASE_URL}/api/quotations/events`, {
           headers: { ...authHeader(current), Accept: "text/event-stream" },
           credentials: "include",
@@ -1301,6 +1311,7 @@ export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => vo
         while (!closed) {
           const { value, done } = await reader.read();
           if (done) break;
+          kick();  // có byte (event hoặc ping) → gia hạn watchdog: kết nối còn sống
           buf += decoder.decode(value, { stream: true });
           let sep: number;
           while ((sep = buf.indexOf("\n\n")) >= 0) {
@@ -1316,7 +1327,9 @@ export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => vo
           }
         }
       } catch {
-        /* lỗi mạng/stream → reconnect sau backoff */
+        /* lỗi mạng/stream/abort-do-watchdog → reconnect sau backoff */
+      } finally {
+        if (watchdog) clearTimeout(watchdog);
       }
       if (closed) break;
       await new Promise((r) => setTimeout(r, 3000));  // backoff trước khi reconnect
@@ -1494,6 +1507,8 @@ export interface ModuleCapability {
   can_view_cost: boolean;
   can_set_threshold: boolean;
   can_post: boolean;
+  /** kho — KHÓA KỲ (chốt sổ) + Báo cáo kho kế toán + export MISA. */
+  can_close_book: boolean;
 }
 
 /** A live login session (active refresh token) for the admin user-detail view (spec-08). */
@@ -1552,6 +1567,8 @@ export interface PermissionRow {
   can_view_cost: boolean;
   can_set_threshold: boolean;
   can_post: boolean;
+  /** kho — KHÓA KỲ (chốt sổ) + Báo cáo kho kế toán + export MISA. */
+  can_close_book: boolean;
 }
 
 // --- Khách hàng (CRM), spec-06 v2 -------------------------------------------
@@ -4326,6 +4343,9 @@ export interface DepartmentPurchaseRequestLineInput {
   unit: string;
   quantity: number;
   note?: string | null;
+  /** UI-only (KHÔNG gửi API): dòng lấy từ mặt hàng Kho đã có → khoá Tên + ĐVT, bỏ qua canh danh
+   *  mục NCC. Payload gửi đi pick field tường minh nên cờ này không lọt lên backend. */
+  locked?: boolean;
 }
 
 export interface DepartmentPurchaseRequestInput {
@@ -5262,6 +5282,8 @@ export interface StockRequest {
   ngay_can: string | null;
   uu_tien: StockPriority;
   ghi_chu: string | null;
+  /** Mã loại nhập/xuất kho (MISA) người tạo gõ ở yêu cầu — Báo cáo kho dùng để export. */
+  loai_kho: string | null;
   trang_thai: StockRequestStatus;
   nguoi_duyet_id: number | null;
   nguoi_duyet_ten: string | null;
@@ -5312,6 +5334,8 @@ export interface StockRequestInput {
   ngay_can?: string | null;
   uu_tien?: StockPriority;
   ghi_chu?: string | null;
+  /** Mã loại nhập/xuất kho (MISA) — người tạo gõ tay; báo cáo dùng để export. */
+  loai_kho?: string | null;
   lines: StockRequestLineInput[];
 }
 
@@ -5319,7 +5343,78 @@ export interface StockRequestUpdateInput {
   ngay_can?: string | null;
   uu_tien?: StockPriority;
   ghi_chu?: string | null;
+  loai_kho?: string | null;
   lines?: StockRequestLineInput[];
+}
+
+/** Báo cáo kho (kế toán) — 1 dòng hàng của 1 phiếu đã ghi sổ. docs/spec-bao-cao-kho.md */
+export interface BaoCaoKhoRow {
+  voucher_id: number;
+  ngay_ghi_so: string | null;
+  ngay_ct: string | null;
+  so_ct: string;
+  loai: StockRequestKind;
+  loai_kho: string | null;
+  ma_hang: string | null;
+  ten_hang: string | null;
+  dvt: string | null;
+  so_luong: number;
+  don_gia: number | null;
+  thanh_tien: number | null;
+  kho_id: number | null;
+  kho_ten: string | null;
+}
+
+export interface BaoCaoKhoPage {
+  items: BaoCaoKhoRow[];
+  total: number;
+}
+
+export interface BaoCaoKhoParams {
+  tu?: string | null;
+  den?: string | null;
+  kho_id?: number | null;
+  loai?: StockRequestKind | null;
+  /** Tìm số CT / mã hàng / tên hàng — để "lọc gì = xuất nấy" (cả bảng lẫn file). */
+  q?: string | null;
+}
+
+/** Khóa/mở kỳ kế toán kho — 1 thao tác trên KHOẢNG ngày. kho_id null = toàn kho. Append-only = lịch sử. */
+export interface KhoKhoaSoRow {
+  id: number;
+  kho_id: number | null;
+  kho_ten: string | null;
+  tu_ngay: string;
+  den_ngay: string;
+  hanh_dong: "khoa" | "mo";
+  nguoi_khoa_ten: string | null;
+  khoa_luc: string | null;
+}
+
+export interface KhoKhoaSoInput {
+  kho_id?: number | null;
+  tu_ngay: string;
+  den_ngay: string;
+  hanh_dong: "khoa" | "mo";
+}
+
+/** 1 kỳ CÒN đang khóa (đã gộp khoảng liền mạch) — cho tab "Kỳ đã khóa". */
+export interface KhoaSoKyRow {
+  kho_id: number | null;
+  kho_ten: string | null;
+  tu_ngay: string;
+  den_ngay: string;
+  khoa_luc: string | null;
+}
+
+/** Ô chọn vật tư khi lập đề nghị — 4 trường tối thiểu, KHÔNG có giá. */
+export interface StockMaterialOption {
+  id: number;
+  code: string | null;
+  name: string | null;
+  unit: string | null;
+  don_vi_phu?: string | null;
+  he_so_quy_doi?: number | null;
 }
 
 /** Loại mặt hàng gốc — hai danh mục, hai dãy id riêng nên luôn đi theo CẶP với `hang_id`. */
@@ -5460,6 +5555,8 @@ export interface StockVoucher {
   loai: StockRequestKind;
   request_id: number;
   request_ma: string | null;
+  /** Loại phiếu (tự do) người tạo gõ ở yêu cầu — hiện trên phiếu + list. */
+  loai_kho: string | null;
   kho_id: number;
   kho_ten: string | null;
   ngay: string;
@@ -8378,6 +8475,10 @@ export const api = {
 
   kho: {
     deNghi: {
+      /** Số yêu cầu ĐÃ DUYỆT chờ kho lập phiếu, theo chiều — cho badge Nhập/Xuất + toast. */
+      counts(token: string): Promise<{ nhap: number; xuat: number }> {
+        return authed<{ nhap: number; xuat: number }>("/api/kho/de-nghi/counts", token);
+      },
       list(token: string, params: StockRequestListParams = {}): Promise<StockRequestPage> {
         const qs = new URLSearchParams();
         if (params.q) qs.set("q", params.q);
@@ -8595,6 +8696,57 @@ export const api = {
         });
       },
     },
+
+    /** Báo cáo kho (kế toán) — sổ nhập-xuất + khóa kỳ + export MISA. Cần quyền close_book. */
+    baoCao: {
+      dong(token: string, params: BaoCaoKhoParams = {}): Promise<BaoCaoKhoPage> {
+        const qs = new URLSearchParams();
+        if (params.tu) qs.set("tu", params.tu);
+        if (params.den) qs.set("den", params.den);
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        if (params.loai) qs.set("loai", params.loai);
+        if (params.q) qs.set("q", params.q);
+        const q = qs.toString();
+        return authed<BaoCaoKhoPage>(`/api/kho/bao-cao/dong${q ? `?${q}` : ""}`, token);
+      },
+      khoaSo(token: string): Promise<KhoKhoaSoRow[]> {
+        return authed<KhoKhoaSoRow[]>("/api/kho/khoa-so", token);
+      },
+      /** Các kỳ CÒN đang khóa (đã gộp khoảng) — cho tab "Kỳ đã khóa". */
+      ky(token: string): Promise<KhoaSoKyRow[]> {
+        return authed<KhoaSoKyRow[]>("/api/kho/khoa-so/ky", token);
+      },
+      setKhoaSo(token: string, body: KhoKhoaSoInput): Promise<KhoKhoaSoRow> {
+        return authed<KhoKhoaSoRow>("/api/kho/khoa-so", token, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      },
+      /** Xuất Excel báo cáo kho theo mẫu MISA (nhập/xuất) — fetch as blob (bearer + refresh-aware). */
+      async exportXlsxBlobUrl(
+        token: string,
+        loai: StockRequestKind,
+        params: Omit<BaoCaoKhoParams, "loai"> = {},
+      ): Promise<string> {
+        const qs = new URLSearchParams();
+        qs.set("loai", loai);
+        if (params.tu) qs.set("tu", params.tu);
+        if (params.den) qs.set("den", params.den);
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        if (params.q) qs.set("q", params.q);
+        const doFetch = (bearer: string) =>
+          fetch(`${BASE_URL}/api/kho/bao-cao/export.xlsx?${qs.toString()}`, {
+            credentials: "include", cache: "no-store", headers: authHeader(bearer),
+          });
+        let resp = await doFetch(token);
+        if (resp.status === 401) {
+          const fresh = await refreshAccessToken();
+          if (fresh) resp = await doFetch(fresh);
+        }
+        if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
+        return URL.createObjectURL(await resp.blob());
+      },
+    },
   },
 
   /** Endpoint CÔNG KHAI — tra kho khi quét tem QR (KHÔNG đăng nhập, KHÔNG giá vốn). */
@@ -8641,6 +8793,14 @@ export interface PublicScanLot {
   sl_con_lai: number;
 }
 
+/** 1 lần nhập/xuất gần đây (công khai — KHÔNG có tiền). */
+export interface PublicScanMove {
+  loai: string; // NHAP / XUAT
+  ngay: string | null;
+  so_ct: string;
+  so_luong: number;
+}
+
 export interface PublicScan {
   material_code: string | null;
   material_name: string | null;
@@ -8648,6 +8808,7 @@ export interface PublicScan {
   kho_ten: string | null;
   on_hand: number;
   lots: PublicScanLot[];
+  history: PublicScanMove[];
 }
 
 export interface PlateDieRateRow {
