@@ -798,16 +798,9 @@ export const CFG_DON_VI: CatalogConfig = {
     { key: "tram_dong_giay", label: "Trạm trên dòng giấy", type: "select",
       options: mapOpt(TRAM_DONG_GIAY),
       hint: "Để trống = ngoài dòng giấy (đúng cho gần hết danh mục). Chỉ đặt cho đơn vị đếm chính TỜ GIẤY qua từng chặng — sai một dòng là số giấy của mọi lệnh lệch theo." },
-    // CÁCH ĐO — công thức định nghĩa CHÍNH đơn vị này, ra LƯỢNG. Nằm ở tab "Công thức quy đổi"
-    // (mọi field type `formula` đều rơi vào đó), phía TRÊN bảng cặp.
-    //
-    // Khác hai thứ dễ nhầm:
-    //   · bảng CẶP ở dưới nối HAI đơn vị ("1 tấn = 1.000 kg") — lo đổi đơn vị lúc lĩnh kho;
-    //   · ô công thức ở Giấy · Vật tư khác · Công đoạn ra TIỀN.
-    // Ô này không nối với ai, và mỗi đơn vị chỉ có MỘT — nên lúc bung vật tư ở bước lệnh không có
-    // gì để chọn nhầm.
-    { key: "cong_thuc", label: "Cách đo (công thức)", type: "formula",
-      hint: "Định nghĩa chính đơn vị này bằng quy cách của lệnh, vd “m² tờ in = dai_in * rong_in * to_sau_in”. Vật tư nào khai đơn vị này thì ở lệnh máy tính số theo đây. Để trống = đơn vị thường, số lượng đi qua bảng quy đổi bên dưới." },
+    // 🔴 Ô "Cách đo" GỠ khỏi đây 13/08/2026 — nó là khối khai công thức THỨ HAI trên cùng một màn,
+    // nhìn y hệt nút "Công thức" ở khối Quy đổi bên dưới. Nay chỉ còn MỘT chỗ: bấm "Công thức" ở
+    // khối "Thêm quy đổi mới" là ghi thẳng vào `don_vi_do.cong_thuc` (xem `QuyDoiCuaDonVi`).
   ],
   // Quy đổi khai NGAY TẠI ĐÂY, dưới ô Ghi chú — một chỗ nhập, không màn thứ hai.
   renderExtra: (_form, existing) => <QuyDoiCuaDonVi donVi={existing} />,

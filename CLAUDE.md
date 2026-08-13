@@ -47,6 +47,26 @@ progress.md ĐÃ CŨ (dừng ở RBAC) — ĐỪNG tin nó để biết trạng 
 - UI/UX: ít thao tác + gợi ý rule-based từ data sẵn có; đừng thêm khối UI vô nghĩa; đừng đánh đổi
   chất lượng dữ liệu để bớt click.
 
+## Chống over-engineer (rút từ vụ 13/08/2026 — đọc trước khi định "dọn dẹp" cái gì)
+
+Bối cảnh: mình kêu màn Đơn vị có HAI khối công thức nhìn như trùng nhau. Việc cần làm là sửa MÀN
+(2 file FE). Claude đi rút cột `don_vi_quy_doi.cong_thuc` khỏi 11 file backend — trong khi cột đó
+có 4 dòng đang chạy và 3 nơi đang ăn (tiền khoán · kế hoạch vật tư · BOM). Kết quả: 3 lần lỗi dây
+chuyền, lần cuối làm màn Lệnh sản xuất 500 (`_doc_cap` đổi 4→3 phần tử, `_dong_tren_duong` vẫn
+đọc `[3]`). Phải hoàn tác toàn bộ.
+
+- **Sửa ĐÚNG TẦNG được kêu.** Kêu về UI thì sửa UI. Muốn đụng schema/engine phải nói lý do và chờ
+  duyệt — "cho nhất quán" KHÔNG phải lý do.
+- **Trước khi gọi cái gì là "thừa": đếm dữ liệu thật (`count(*)`) + grep nơi gọi.** Không có số thì
+  không được dùng chữ "thừa". (Vụ "chờ kỹ thuật" cùng ngày làm ĐÚNG thứ tự này: 0/24 · 0/10 · 0/14
+  ⇒ xoá an toàn. Vụ này làm ngược ⇒ vỡ.)
+- **Tách "ngưng dùng" khỏi "xoá đi".** Làm cái ĐẢO ĐƯỢC trước (đổi UI, ngưng đẻ dòng mới) rồi DỪNG.
+  Cái không đảo được (rút cột, sửa engine) chờ lượt sau, chờ mình gật.
+- **Test in ra rỗng = CHƯA CHẠY, không phải xanh.** Không thấy dòng `N passed` thì đừng xây tiếp.
+  (Ba lần `pytest` sai thư mục in ra rỗng, bị đọc nhầm thành pass.)
+- **Ngưỡng hỏi tính bằng ĐỘ KHÓ GỠ, không phải độ phân vân.** Trên 3 file, hoặc đụng thứ có dữ liệu
+  sống → hỏi. Còn lại tự quyết, đừng hỏi lại câu mình đã trả lời.
+
 ## Nguyên tắc sản phẩm
 
 - **Gửi/thông báo NỘI BỘ = REAL-TIME.** Mọi việc gửi giữa người dùng trong hệ thống (trình duyệt

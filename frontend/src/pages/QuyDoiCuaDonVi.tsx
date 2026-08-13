@@ -66,6 +66,24 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
     );
   }
 
+  /** Body PUT đơn vị — PHẢI gửi ĐỦ field đang có, chỉ thay `cong_thuc`.
+   *
+   *  `DonViDoIn` có default cho gần hết cột (`active=True`, `dung_lam_toc_do=False`,
+   *  `tram_dong_giay=None`…) nên gửi thiếu là server ghi đè bằng default — khai công thức cho `tờ`
+   *  mà mất cờ trạm dòng giấy thì bù hao của MỌI lệnh tính sai, im lặng. */
+  function bodyDonVi(cong_thuc: string): Record<string, unknown> {
+    const d = donVi as Record<string, unknown>;
+    return {
+      ma: String(d.ma), ten: String(d.ten), ho: String(d.ho ?? "khac"),
+      hieu_luc_tu: d.hieu_luc_tu ?? null,
+      ghi_chu: d.ghi_chu ?? null,
+      active: d.active !== false,
+      dung_lam_toc_do: !!d.dung_lam_toc_do,
+      tram_dong_giay: d.tram_dong_giay ?? null,
+      cong_thuc,
+    };
+  }
+
   async function chay<T>(viec: () => Promise<T>) {
     if (!token) return;
     setBan(true); setErr(null);
@@ -74,11 +92,23 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
     finally { setBan(false); }
   }
 
+  // HAI CHẾ ĐỘ, HAI ĐÍCH GHI KHÁC NHAU (13/08/2026):
+  //   · Số cố định  → dòng CẶP "1 tấn = 1000 kg" (có đích, hệ số không đổi).
+  //   · Công thức   → CÔNG THỨC CỦA CHÍNH ĐƠN VỊ NÀY, KHÔNG có đích.
+  //
+  // Vì sao công thức không cần đích: nó đã tự nhân số lượng của lệnh
+  // (`kg_giay_nguyen := dinh_luong * dai_in * rong_in * to_dau_vao`) nên ra thẳng TỔNG, không phải
+  // tỉ số để đổi từ đâu sang đâu. Bắt chọn "đơn vị quy đổi về" là hỏi thừa — và đó chính là chỗ
+  // trước đây đẻ ra hai khối công thức nhìn như trùng nhau trên cùng một màn.
   const themDong = () => chay(async () => {
-    const body: Record<string, unknown> = { tu_id: donVi.id, den_id: Number(them.den_id) };
-    if (them.dong) body.cong_thuc = them.gia.trim();
-    else body.he_so = Number(them.gia.replace(",", "."));
-    await apiCap.create(token!, body);
+    if (them.dong) {
+      await apiDonVi.update(token!, donVi.id, bodyDonVi(them.gia.trim()));
+    } else {
+      await apiCap.create(token!, {
+        tu_id: donVi.id, den_id: Number(them.den_id),
+        he_so: Number(them.gia.replace(",", ".")),
+      });
+    }
     setThem({ gia: "", den_id: "", dong: false });
   });
 
@@ -97,18 +127,12 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
     chay(() => apiCap.remove(token!, c.id));
   };
 
-  // MỖI ĐƠN VỊ CHỈ TÍNH RA BẰNG MỘT CÔNG THỨC (12/08/2026) — luật cho BOM: vật tư khai ĐVT là kg thì
-  // lúc bung ở bước lệnh phải có đúng một cách ra kg, hai cái là máy không biết chọn. Chặn theo đơn
-  // vị ĐÍCH: `tờ` vẫn đi ra được nhiều đường (→ cái · → kg · → m²) vì ba đích khác nhau.
-  // Lọc ngay ở dropdown thay vì để 422 bật ra sau khi bấm — server vẫn chặn, đây chỉ là cửa sớm.
-  const dichDaCoCongThuc = useMemo(
-    () => new Set(caps.filter((c) => (c.cong_thuc ?? "").trim()).map((c) => c.den_id)),
-    [caps],
-  );
-  const conLai = dvs.filter((d) => d.id !== donVi.id);
-  const conLaiChoDong = conLai.filter((d) => !dichDaCoCongThuc.has(Number(d.id)));
-  const dsDich = them.dong ? conLaiChoDong : conLai;
-  const hetChoDong = conLaiChoDong.length === 0;
+  // MỖI ĐƠN VỊ CHỈ MỘT CÔNG THỨC — luật cho BOM: vật tư khai ĐVT là kg thì lúc bung ở bước lệnh
+  // phải có đúng một cách ra kg, hai cái là máy không biết chọn. Nay luật này TỰ ĐÚNG vì công thức
+  // nằm ngay trên đơn vị (một cột, một dòng), không còn phải lọc dropdown để chặn trùng đích.
+  const dsDich = dvs.filter((d) => d.id !== donVi.id);
+  /** Công thức tính lượng của CHÍNH đơn vị này (`don_vi_do.cong_thuc`) — mỗi đơn vị nhiều nhất một. */
+  const ctCuaDonVi = String((donVi as { cong_thuc?: string }).cong_thuc ?? "").trim();
   const bienQuyDoi = bien.map((b) => b.ma);
 
   return (
@@ -131,9 +155,30 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
             <span className="dvqd__sub-badge">{khaiODay.length}</span>
           </div>
 
-          {khaiODay.length === 0 ? (
+          {/* CÔNG THỨC TÍNH LƯỢNG của chính đơn vị — không có đích nên không nằm trong `khaiODay`
+              (đó là các dòng cặp). Bày ngay đây để người khai thấy nó cùng chỗ với quy đổi, khỏi
+              phải nhớ nó nằm ở ô riêng nào khác. */}
+          {!!ctCuaDonVi && (
+            <div className="dvqd__card dvqd__card--ct">
+              <span className="dvqd__badge dvqd__badge--dynamic">Công thức</span>
+              <code className="dvqd__expr" title={ctCuaDonVi}>{ctCuaDonVi}</code>
+              <button
+                type="button"
+                className="dvqd__btn dvqd__btn--danger"
+                disabled={ban}
+                onClick={() => {
+                  if (!window.confirm(`Xoá công thức tính lượng của "${String(donVi.ten)}"?`)) return;
+                  chay(() => apiDonVi.update(token!, donVi.id, bodyDonVi("")));
+                }}
+              >
+                Xoá
+              </button>
+            </div>
+          )}
+
+          {khaiODay.length === 0 && !ctCuaDonVi ? (
             <p className="dvqd__hint">Chưa có quy đổi nào được khai báo cho đơn vị này.</p>
-          ) : (
+          ) : khaiODay.length === 0 ? null : (
             <div className="dvqd__card-list">
               {khaiODay.map((c) => {
                 const goc = c.cong_thuc ?? String(c.he_so);
@@ -291,18 +336,15 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
               <button
                 type="button"
                 className={`dvqd__type-btn ${them.dong ? "is-active" : ""}`}
-                disabled={hetChoDong && !them.dong}
-                title={hetChoDong
-                  ? "Mọi đơn vị còn lại đều đã có công thức động — mỗi đơn vị chỉ tính ra bằng một công thức."
+                disabled={!!ctCuaDonVi && !them.dong}
+                title={ctCuaDonVi
+                  ? `Đơn vị này đã có công thức: ${ctCuaDonVi}. Mỗi đơn vị chỉ MỘT — sửa dòng đang có.`
                   : undefined}
-                // Đổi sang chế độ động thì bỏ luôn đích đã chọn nếu đích đó không còn hợp lệ —
-                // không thì select giữ value cũ mà danh sách không có, trông như chưa chọn gì.
-                onClick={() => setThem((p) => ({
-                  ...p, dong: true, gia: "",
-                  den_id: dichDaCoCongThuc.has(Number(p.den_id)) ? "" : p.den_id,
-                }))}
+                // Chế độ công thức KHÔNG có đích ⇒ xoá luôn đích đang chọn dở, không thì bấm
+                // "Số cố định" lại thấy một lựa chọn cũ lơ lửng không rõ từ đâu ra.
+                onClick={() => setThem((p) => ({ ...p, dong: true, gia: "", den_id: "" }))}
               >
-                Công thức động
+                Công thức
               </button>
             </div>
           </div>
@@ -336,24 +378,28 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
               />
             )}
 
-            <select
-              className="rc-input dvqd__den"
-              value={them.den_id}
-              disabled={ban}
-              onChange={(e) => setThem((p) => ({ ...p, den_id: e.target.value }))}
-            >
-              <option value="">— Đơn vị quy đổi về —</option>
-              {dsDich.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {String(d.ten)}
-                </option>
-              ))}
-            </select>
+            {/* Ô đích CHỈ có nghĩa với số cố định. Công thức định nghĩa chính đơn vị đang mở nên
+                không có "quy đổi về" — xem chú thích ở `themDong`. */}
+            {!them.dong && (
+              <select
+                className="rc-input dvqd__den"
+                value={them.den_id}
+                disabled={ban}
+                onChange={(e) => setThem((p) => ({ ...p, den_id: e.target.value }))}
+              >
+                <option value="">— Đơn vị quy đổi về —</option>
+                {dsDich.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {String(d.ten)}
+                  </option>
+                ))}
+              </select>
+            )}
 
             <button
               type="button"
               className="dvqd__btn dvqd__btn--primary"
-              disabled={ban || !them.gia || !them.den_id}
+              disabled={ban || !them.gia || (!them.dong && !them.den_id)}
               onClick={themDong}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
