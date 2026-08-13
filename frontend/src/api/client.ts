@@ -268,6 +268,12 @@ export type QuoteEvent =
   // đợt này chỉ NỐI vào — không mở kênh SSE thứ hai.
   | { type: "purchase_changed"; code?: string | null }
   | { type: "accounting_changed"; code?: string | null }
+  | { type: "sales_invoice_created"; code?: string | null; invoice_id?: number; invoice_number?: string | null }
+  | { type: "sales_invoice_cancelled"; code?: string | null; invoice_id?: number; invoice_number?: string | null }
+  | { type: "sales_invoice_receipt_created"; code?: string | null; invoice_id?: number; receipt_code?: string | null }
+  | { type: "sales_invoice_created"; code?: string | null; invoice_id?: number; invoice_number?: string | null }
+  | { type: "sales_invoice_cancelled"; code?: string | null; invoice_id?: number; invoice_number?: string | null }
+  | { type: "sales_invoice_receipt_created"; code?: string | null; invoice_id?: number; receipt_code?: string | null }
   | { type: "purchase_pending_approval"; code?: string | null }
   | { type: "purchase_decision"; code?: string | null; decision: "approved" | "rejected" }
   | { type: "purchase_delivery_created"; code?: string | null; seq_no?: number | null }
@@ -4344,8 +4350,8 @@ export interface PayablesDetail {
 export interface ReceivableCustomerRow {
   customer_id: number | null;
   customer_name: string;
-  order_count: number;
-  total_amount: number;
+  invoice_count: number;
+  invoiced_amount: number;
   received_amount: number;
   total_due: number;
   overdue_amount: number;
@@ -4368,15 +4374,20 @@ export interface ReceivablesSummary {
 }
 
 export interface ReceivableItemRow {
+  invoice_id: number;
+  invoice_symbol: string | null;
+  invoice_number: string;
+  invoice_date: string;
   order_id: number;
   order_code: string;
   customer_id: number | null;
   customer_name: string;
-  base_date: string | null;
   due_date: string | null;
   chua_dat_han: boolean;
   overdue_days: number;
-  total_amount: number;
+  amount: number;
+  direct_received_amount: number;
+  deposit_offset_amount: number;
   received_amount: number;
   remaining_amount: number;
 }
@@ -4387,12 +4398,61 @@ export interface ReceivableReceiptRow {
   doc_no: string | null;
   order_id: number | null;
   order_code: string | null;
+  source_type: PaymentReceiptSource;
+  sales_invoice_id: number | null;
+  sales_invoice_number: string | null;
+  applied_to: "deposit_offset" | "sales_invoice";
   receipt_method: PaymentVoucherType;
   amount: number;
   receipt_date: string;
   payer_name: string;
   bank_reference: string | null;
   created_by_name: string | null;
+}
+
+export interface SalesInvoiceInput {
+  order_id: number;
+  invoice_symbol: string;
+  invoice_number: string;
+  invoice_date: string;
+  /** Omit to invoice the full remaining value of the order. */
+  amount_vnd?: number | null;
+}
+
+export interface SalesInvoiceRow {
+  id: number;
+  order_id: number;
+  order_code: string;
+  customer_id: number | null;
+  customer_name: string;
+  invoice_symbol: string | null;
+  invoice_number: string;
+  invoice_date: string;
+  amount_vnd: number;
+  payment_term_days_snapshot: number | null;
+  due_date: string | null;
+  status: "issued" | "cancelled";
+  direct_received_amount: number;
+  deposit_offset_amount: number;
+  received_amount: number;
+  remaining_amount: number;
+  created_by_user_id: number | null;
+  created_by_name: string | null;
+  created_at: string;
+  cancelled_by_user_id: number | null;
+  cancelled_by_name: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+}
+
+export interface SalesInvoiceListOut {
+  order_id: number;
+  order_code: string;
+  order_total: number;
+  invoiced_amount: number;
+  uninvoiced_amount: number;
+  deposit_received: number;
+  items: SalesInvoiceRow[];
 }
 
 export interface ReceivablesDetail {
@@ -4916,7 +4976,11 @@ export interface PaymentVoucherAttachment {
 }
 
 export type PaymentReceiptStatus = "waiting_receipt" | "received" | "cancelled";
-export type PaymentReceiptSource = "purchase_refund" | "order_deposit" | "other";
+export type PaymentReceiptSource =
+  | "purchase_refund"
+  | "order_deposit"
+  | "sales_invoice"
+  | "other";
 
 export interface PaymentReceiptInput extends PaymentVoucherAccountsInput {
   payer_name: string;
@@ -4946,6 +5010,8 @@ export interface PaymentReceiptRow {
   order_id: number | null;
   order_code: string | null;
   customer_name: string | null;
+  sales_invoice_id: number | null;
+  sales_invoice_number: string | null;
   payer_name: string;
   payer_address: string | null;
   debit_account: string | null;
@@ -8347,6 +8413,43 @@ export const api = {
     ): Promise<ReceivablesDetail> {
       const suffix = allHistory ? "?all_history=true" : "";
       return authed<ReceivablesDetail>(`/api/accounting/receivables/${customerId}${suffix}`, token);
+    },
+    salesInvoices(token: string, orderId: number): Promise<SalesInvoiceListOut> {
+      return authed<SalesInvoiceListOut>(
+        `/api/accounting/sales-invoices?order_id=${orderId}`,
+        token,
+      );
+    },
+    createSalesInvoice(
+      token: string,
+      input: SalesInvoiceInput,
+    ): Promise<SalesInvoiceRow> {
+      return authed<SalesInvoiceRow>("/api/accounting/sales-invoices", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    cancelSalesInvoice(
+      token: string,
+      invoiceId: number,
+      reason: string,
+    ): Promise<SalesInvoiceRow> {
+      return authed<SalesInvoiceRow>(
+        `/api/accounting/sales-invoices/${invoiceId}/cancel`,
+        token,
+        { method: "POST", body: JSON.stringify({ reason }) },
+      );
+    },
+    createSalesInvoiceReceipt(
+      token: string,
+      invoiceId: number,
+      input: PaymentReceiptInput,
+    ): Promise<PaymentReceiptRow> {
+      return authed<PaymentReceiptRow>(
+        `/api/accounting/sales-invoices/${invoiceId}/receipts`,
+        token,
+        { method: "POST", body: JSON.stringify(input) },
+      );
     },
     companyAccounts(
       token: string,

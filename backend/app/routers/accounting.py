@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, Up
 
 from ..deps import (
     get_accounting_service,
+    get_authorization_service,
+    get_order_service,
     get_purchase_service,
     require_any_permission,
     require_permission,
@@ -17,6 +19,7 @@ from ..realtime import hub
 from ..models.user import User
 from ..schemas.accounting import (
     ApproveAndCreateVoucherIn,
+    CancelSalesInvoiceIn,
     CancelPaymentReceiptIn,
     CancelPaymentVoucherIn,
     CompanyBankAccountIn,
@@ -36,6 +39,9 @@ from ..schemas.accounting import (
     PayablesSummaryOut,
     ReceivablesDetailOut,
     ReceivablesSummaryOut,
+    SalesInvoiceIn,
+    SalesInvoiceListOut,
+    SalesInvoiceOut,
     SupplierBankAccountIn,
     SupplierBankAccountOut,
 )
@@ -47,6 +53,8 @@ from ..services.accounting_service import (
     AccountingValidationError,
 )
 from ..services.purchase_service import PurchaseService
+from ..services.order_service import OrderForbidden, OrderNotFound, OrderService
+from ..services.rbac_service import AuthorizationService
 
 
 router = APIRouter(tags=["accounting"])
@@ -168,6 +176,90 @@ def accounting_receivables_detail(
     all_history: bool = Query(default=False),
 ) -> ReceivablesDetailOut:
     return ReceivablesDetailOut(**svc.receivables_detail(customer_id, all_history=all_history))
+
+
+@router.get("/api/accounting/sales-invoices", response_model=SalesInvoiceListOut)
+def list_sales_invoices(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[
+        User,
+        Depends(
+            require_any_permission(
+                (MODULE_PT, "read"),
+                (MODULE_CN_THU, "read"),
+                ("don_hang_ban", "read"),
+            )
+        ),
+    ],
+    authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
+    orders: Annotated[OrderService, Depends(get_order_service)],
+    order_id: int = Query(gt=0),
+) -> SalesInvoiceListOut:
+    if not (
+        authz.can(user, MODULE_PT, "read")
+        or authz.can(user, MODULE_CN_THU, "read")
+    ):
+        try:
+            orders.get(
+                order_id=order_id,
+                actor=user,
+                scope=authz.scope_for(user, "don_hang_ban") or "own",
+            )
+        except (OrderNotFound, OrderForbidden):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Không tìm thấy đơn hàng bán.",
+            ) from None
+    try:
+        return SalesInvoiceListOut(**svc.list_order_sales_invoices(order_id))
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.post(
+    "/api/accounting/sales-invoices",
+    response_model=SalesInvoiceOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_sales_invoice(
+    payload: SalesInvoiceIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE_PT, "create"))],
+) -> SalesInvoiceOut:
+    try:
+        row = svc.create_sales_invoice(actor=user, **payload.model_dump())
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+    _notify_accounting_changed(
+        row.get("order_code"),
+        event_type="sales_invoice_created",
+        invoice_id=row.get("id"),
+        invoice_number=row.get("invoice_number"),
+    )
+    return SalesInvoiceOut(**row)
+
+
+@router.post(
+    "/api/accounting/sales-invoices/{invoice_id}/cancel",
+    response_model=SalesInvoiceOut,
+)
+def cancel_sales_invoice(
+    invoice_id: int,
+    payload: CancelSalesInvoiceIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE_PT, "cancel"))],
+) -> SalesInvoiceOut:
+    try:
+        row = svc.cancel_sales_invoice(invoice_id, actor=user, reason=payload.reason)
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+    _notify_accounting_changed(
+        row.get("order_code"),
+        event_type="sales_invoice_cancelled",
+        invoice_id=row.get("id"),
+        invoice_number=row.get("invoice_number"),
+    )
+    return SalesInvoiceOut(**row)
 
 
 @router.get("/api/accounting/company-bank-accounts", response_model=list[CompanyBankAccountOut])
@@ -474,6 +566,32 @@ def create_other_payment_receipt(
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
     _notify_accounting_changed(row.get("code"))
+    return PaymentReceiptOut(**row)
+
+
+@router.post(
+    "/api/accounting/sales-invoices/{invoice_id}/receipts",
+    response_model=PaymentReceiptOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_sales_invoice_receipt(
+    invoice_id: int,
+    payload: PaymentReceiptIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE_PT, "create"))],
+) -> PaymentReceiptOut:
+    try:
+        row = svc.create_sales_invoice_receipt(
+            invoice_id, actor=user, **payload.model_dump()
+        )
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+    _notify_accounting_changed(
+        row.get("order_code") or row.get("code"),
+        event_type="sales_invoice_receipt_created",
+        invoice_id=row.get("sales_invoice_id"),
+        receipt_code=row.get("code"),
+    )
     return PaymentReceiptOut(**row)
 
 

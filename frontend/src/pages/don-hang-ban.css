@@ -859,6 +859,211 @@
   line-height: 1.4;
 }
 
+/* Bước Hóa đơn — sổ hóa đơn nằm ngay trong vòng đời đơn, không tách thành màn riêng. */
+.dhb__invoice-panel {
+  gap: var(--sp-3);
+}
+
+.dhb__invoice-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  overflow: hidden;
+}
+
+.dhb__invoice-metrics > div {
+  min-width: 0;
+  padding: 8px 9px;
+  background: var(--paper);
+  border-right: 1px solid var(--rule-soft);
+}
+
+.dhb__invoice-metrics > div:last-child {
+  border-right: 0;
+}
+
+.dhb__invoice-metrics span,
+.dhb__invoice-form label > span {
+  display: block;
+  color: var(--ash-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dhb__invoice-metrics strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink);
+  font-family: var(--ff-num);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dhb__invoice-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.dhb__invoice-toolbar p {
+  margin: 0;
+  color: var(--ash);
+  font-size: 12px;
+}
+
+.dhb__invoice-form,
+.dhb__invoice-cancel-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--rule-soft);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.dhb__invoice-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3);
+}
+
+.dhb__invoice-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.dhb__invoice-form label b {
+  color: var(--signal);
+}
+
+.dhb__invoice-money {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.dhb__invoice-preview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+  color: var(--ash);
+  font-size: 12px;
+}
+
+.dhb__invoice-preview b {
+  color: var(--ink);
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+}
+
+.dhb__invoice-preview small {
+  flex: 1 1 100%;
+  color: var(--ash-2);
+}
+
+.dhb__invoice-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+
+.dhb__invoice-tablewrap {
+  overflow-x: auto;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+}
+
+.dhb__invoice-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.dhb__invoice-table th {
+  padding: 8px 9px;
+  border-bottom: 1.5px solid var(--rule);
+  background: var(--paper);
+  color: var(--ash);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.dhb__invoice-table td {
+  padding: 9px;
+  border-bottom: 1px solid var(--rule-hair);
+  color: var(--ink);
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+
+.dhb__invoice-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.dhb__invoice-table tr.is-cancelled td {
+  color: var(--ash-2);
+}
+
+.dhb__invoice-table td small {
+  display: block;
+  margin-top: 3px;
+  color: var(--ash-2);
+}
+
+.dhb__invoice-status {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.dhb__invoice-status.is-issued {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+}
+
+.dhb__invoice-status.is-cancelled {
+  background: var(--signal-soft);
+  color: var(--signal);
+}
+
+.dhb__invoice-cancel {
+  display: block;
+  margin-top: 5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--signal);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dhb__invoice-cancel-form > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dhb__invoice-cancel-form small {
+  color: var(--ash-2);
+  font-size: 11px;
+}
+
 /* Bước Cọc — bộ 3 stat (Cần thu / Đã thu / Còn thiếu) */
 .dhb__stat-trio {
   display: grid;
@@ -995,6 +1200,33 @@
   .dhb__kpis {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .dhb__drawer-content {
+    width: 100%;
+    max-width: 100vw;
+  }
+
+  .dhb__invoice-metrics,
+  .dhb__invoice-form-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .dhb__invoice-metrics > div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .dhb__invoice-metrics > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--rule-soft);
+  }
+
+  .dhb__invoice-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dhb__invoice-toolbar .btn {
+    width: 100%;
+  }
 }
 
 /* ==========================================================================
@@ -1039,6 +1271,5 @@
     min-width: 0;
   }
 }
-
 
 

@@ -9,13 +9,10 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy import BigInteger, cast, func, select
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from .db import get_db
-from .models.accounting import PAYMENT_RECEIPT_RECEIVED, RECEIPT_SOURCE_ORDER, PaymentReceipt
-from .models.order import Order, OrderLine, STATUS_ORDERED
 from .models.user import User
 from .repositories.audit_repo import AuditLogRepository
 from .repositories.accounting_repo import AccountingRepository
@@ -55,7 +52,7 @@ from .repositories.norm_repo import NormRepository
 from .repositories.document_sequence_repo import DocumentSequenceRepository
 from .security import decode_access_token, decode_file_token
 from .services.auth_service import AuthError, AuthService
-from .services.accounting_service import AccountingService
+from .services.accounting_service import AccountingService, receivable_rows
 from .services.activity_service import ActivityService
 from .services.customer_analytics import CustomerAnalyticsService
 from .services.attendance_service import AttendanceService
@@ -275,27 +272,8 @@ class AccountingReceivablePort:
         self.db = db
 
     def get_ar_balance(self, customer_id: int) -> int:
-        total_x100 = self.db.execute(
-            select(func.coalesce(func.sum(cast(OrderLine.line_total, BigInteger) * (100 + OrderLine.vat_pct_estimate)), 0))
-            .select_from(Order)
-            .join(OrderLine, OrderLine.order_id == Order.id)
-            .where(Order.customer_id == customer_id, Order.status == STATUS_ORDERED)
-        ).scalar_one()
-        order_ids = list(
-            self.db.execute(
-                select(Order.id).where(Order.customer_id == customer_id, Order.status == STATUS_ORDERED)
-            ).scalars()
-        )
-        if not order_ids:
-            return 0
-        received = self.db.execute(
-            select(func.coalesce(func.sum(PaymentReceipt.amount_vnd), 0)).where(
-                PaymentReceipt.order_id.in_(order_ids),
-                PaymentReceipt.source_type == RECEIPT_SOURCE_ORDER,
-                PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
-            )
-        ).scalar_one()
-        return max(0, int(total_x100 or 0) // 100 - int(received or 0))
+        rows = receivable_rows(AccountingRepository(self.db), customer_id=customer_id)
+        return sum(int(row["remaining_amount"]) for row in rows)
 
 
 def get_customer_service(
@@ -765,4 +743,3 @@ def get_operation_service(
 # (thanh_phan_engine) vẫn đọc, tự dựng từ db chứ không đi qua DI.
 # Gỡ 2026-08-08 (Đợt 5): get_{costing,material,estimate}_{repository,service} — cụm tính giá đời cũ
 # đã xoá hẳn cùng 3 router costings/materials/estimates.
-

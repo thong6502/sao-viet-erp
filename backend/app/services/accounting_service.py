@@ -25,6 +25,9 @@ from ..models.accounting import (
     RECEIPT_SOURCE_ORDER,
     RECEIPT_SOURCE_OTHER,
     RECEIPT_SOURCE_PURCHASE,
+    RECEIPT_SOURCE_SALES_INVOICE,
+    SALES_INVOICE_CANCELLED,
+    SALES_INVOICE_ISSUED,
     VOUCHER_SOURCE_CUSTOMER_REFUND,
     VOUCHER_SOURCE_INTERNAL,
     VOUCHER_SOURCE_OTHER,
@@ -36,6 +39,7 @@ from ..models.accounting import (
     PaymentReceiptAttachment,
     PaymentVoucher,
     PaymentVoucherAttachment,
+    SalesInvoice,
     SupplierBankAccount,
 )
 from ..models.customer import Customer
@@ -132,6 +136,82 @@ def _text(value, *, label: str, required: bool = False, max_length: int | None =
     if max_length is not None and len(cleaned) > max_length:
         raise AccountingValidationError(f"{label} vượt quá {max_length} ký tự.")
     return cleaned or None
+
+
+def _order_total_with_vat(order: Order) -> int:
+    """Giá trị đơn gồm VAT, cùng công thức với màn Đơn hàng bán."""
+    total_x100 = sum(
+        int(line.line_total or 0) * (100 + int(line.vat_pct_estimate or 0))
+        for line in order.lines
+    )
+    return total_x100 // 100
+
+
+def receivable_rows(
+    repo: AccountingRepository, *, customer_id: int | None = None
+) -> list[dict]:
+    """Một nguồn sự thật cho Công nợ phải thu và thẻ công nợ CRM.
+
+    Chỉ hóa đơn `issued` sinh nợ. Phiếu thu gắn hóa đơn trừ đích danh; cọc gắn đơn
+    được cấn FIFO theo (ngày hóa đơn, id) nhưng không tự biến thành công nợ trước
+    khi hóa đơn xuất hiện.
+    """
+    invoices = repo.list_sales_invoices(
+        customer_id=customer_id, status=SALES_INVOICE_ISSUED
+    )
+    if not invoices:
+        return []
+
+    invoice_ids = [row.id for row in invoices]
+    direct_sums = repo.received_invoice_receipt_sums(invoice_ids)
+    order_ids = sorted({row.order_id for row in invoices})
+    deposit_sums = repo.received_deposit_sums(order_ids)
+    customers = repo.customers_by_ids(
+        {row.customer_id for row in invoices if row.customer_id is not None}
+    )
+
+    by_order: dict[int, list[SalesInvoice]] = {}
+    for invoice in invoices:
+        by_order.setdefault(invoice.order_id, []).append(invoice)
+
+    deposit_offsets: dict[int, int] = {}
+    for order_id, order_invoices in by_order.items():
+        deposit_pool = int(deposit_sums.get(order_id, 0))
+        for invoice in sorted(order_invoices, key=lambda row: (row.invoice_date, row.id)):
+            direct = min(int(invoice.amount_vnd), int(direct_sums.get(invoice.id, 0)))
+            offset = min(deposit_pool, max(0, int(invoice.amount_vnd) - direct))
+            deposit_offsets[invoice.id] = offset
+            deposit_pool -= offset
+
+    rows: list[dict] = []
+    for invoice in invoices:
+        direct = int(direct_sums.get(invoice.id, 0))
+        deposit_offset = int(deposit_offsets.get(invoice.id, 0))
+        amount = int(invoice.amount_vnd)
+        received = min(amount, direct + deposit_offset)
+        customer = customers.get(invoice.customer_id) if invoice.customer_id else None
+        rows.append(
+            {
+                "invoice_id": invoice.id,
+                "invoice_symbol": invoice.invoice_symbol,
+                "invoice_number": invoice.invoice_number,
+                "invoice_date": invoice.invoice_date,
+                "order_id": invoice.order_id,
+                "order_code": invoice.order.order_no,
+                "customer_id": invoice.customer_id,
+                "customer_name": invoice.customer_name_snapshot,
+                "credit_limit": int(customer.credit_limit or 0) if customer else 0,
+                "payment_term_days": customer.payment_term_days if customer else None,
+                "payment_term_days_snapshot": invoice.payment_term_days_snapshot,
+                "due_date": invoice.due_date,
+                "amount": amount,
+                "direct_received_amount": direct,
+                "deposit_offset_amount": deposit_offset,
+                "received_amount": received,
+                "remaining_amount": max(0, amount - received),
+            }
+        )
+    return rows
 
 
 class AccountingService:
@@ -681,136 +761,214 @@ class AccountingService:
     # --- receivables -------------------------------------------------------
 
     def _receivable_rows(self, *, customer_id: int | None = None) -> list[dict]:
-        db = self.repo.db
-        stmt = (
-            select(
-                Order.id,
-                Order.order_no,
-                Order.customer_id,
-                Customer.name,
-                Customer.credit_limit,
-                Customer.payment_term_days,
-                Order.delivery_committed_date,
-                Order.ordered_at,
-                Order.created_at,
-                func.coalesce(func.sum(_order_line_total_with_vat()), 0),
-            )
-            .select_from(Order)
-            .join(OrderLine, OrderLine.order_id == Order.id)
-            .outerjoin(Customer, Customer.id == Order.customer_id)
-            .where(Order.status == STATUS_ORDERED)
-            .group_by(
-                Order.id,
-                Order.order_no,
-                Order.customer_id,
-                Customer.name,
-                Customer.credit_limit,
-                Customer.payment_term_days,
-                Order.delivery_committed_date,
-                Order.ordered_at,
-                Order.created_at,
-            )
-        )
-        if customer_id is not None:
-            stmt = stmt.where(Order.customer_id == customer_id)
-        rows = []
-        for (
-            oid,
-            code,
-            cid,
-            cname,
-            limit,
-            term_days,
-            delivery_date,
-            ordered_at,
-            created_at,
-            total_x100,
-        ) in db.execute(stmt):
-            base_date = delivery_date
-            if base_date is None and ordered_at is not None:
-                base_date = ordered_at.date()
-            if base_date is None and created_at is not None:
-                base_date = created_at.date()
-            due_date = (
-                base_date + timedelta(days=int(term_days))
-                if base_date is not None and term_days is not None
-                else None
-            )
-            rows.append(
-                {
-                    "order_id": int(oid),
-                    "order_code": code,
-                    "customer_id": cid,
-                    "customer_name": cname or "(không rõ khách)",
-                    "credit_limit": int(limit or 0),
-                    "payment_term_days": term_days,
-                    "base_date": base_date,
-                    "due_date": due_date,
-                    "total_amount": int(total_x100 or 0) // 100,
-                    "received_amount": 0,
-                }
-            )
-        if not rows:
-            return []
-        ids = [r["order_id"] for r in rows]
-        received_stmt = (
-            select(PaymentReceipt.order_id, func.coalesce(func.sum(PaymentReceipt.amount_vnd), 0))
-            .where(
-                PaymentReceipt.order_id.in_(ids),
-                PaymentReceipt.source_type == RECEIPT_SOURCE_ORDER,
-                PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
-            )
-            .group_by(PaymentReceipt.order_id)
-        )
-        received = {int(oid): int(amount or 0) for oid, amount in db.execute(received_stmt)}
-        for row in rows:
-            row["received_amount"] = received.get(row["order_id"], 0)
-            row["remaining_amount"] = max(0, row["total_amount"] - row["received_amount"])
-        return rows
+        return receivable_rows(self.repo, customer_id=customer_id)
 
-    def _receipts_for_orders(self, order_ids: list[int], *, since: date | None = None) -> list[dict]:
-        if not order_ids:
-            return []
-        stmt = (
-            select(PaymentReceipt)
-            .where(
-                PaymentReceipt.order_id.in_(order_ids),
-                PaymentReceipt.source_type == RECEIPT_SOURCE_ORDER,
-                PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
-            )
-            .order_by(PaymentReceipt.receipt_date.desc(), PaymentReceipt.id.desc())
+    def _sales_invoice_out(self, invoice: SalesInvoice, money_row: dict | None = None) -> dict:
+        active = invoice.status == SALES_INVOICE_ISSUED
+        direct = money_row["direct_received_amount"] if money_row else 0
+        deposit = money_row["deposit_offset_amount"] if money_row else 0
+        received = money_row["received_amount"] if money_row else 0
+        remaining = money_row["remaining_amount"] if money_row else 0
+        return {
+            "id": invoice.id,
+            "order_id": invoice.order_id,
+            "order_code": invoice.order.order_no,
+            "customer_id": invoice.customer_id,
+            "customer_name": invoice.customer_name_snapshot,
+            "invoice_symbol": invoice.invoice_symbol,
+            "invoice_number": invoice.invoice_number,
+            "invoice_date": invoice.invoice_date,
+            "amount_vnd": int(invoice.amount_vnd),
+            "payment_term_days_snapshot": invoice.payment_term_days_snapshot,
+            "due_date": invoice.due_date,
+            "status": invoice.status,
+            "direct_received_amount": direct if active else 0,
+            "deposit_offset_amount": deposit if active else 0,
+            "received_amount": received if active else 0,
+            "remaining_amount": remaining if active else 0,
+            "created_by_user_id": invoice.created_by_user_id,
+            "created_by_name": self._user_name(invoice.created_by_user_id),
+            "created_at": invoice.created_at,
+            "cancelled_by_user_id": invoice.cancelled_by_user_id,
+            "cancelled_by_name": self._user_name(invoice.cancelled_by_user_id),
+            "cancelled_at": invoice.cancelled_at,
+            "cancel_reason": invoice.cancel_reason,
+        }
+
+    def list_order_sales_invoices(self, order_id: int) -> dict:
+        order = self.repo.get_sales_order(order_id)
+        if order is None:
+            raise AccountingNotFound("Không tìm thấy đơn hàng bán.")
+        invoices = self.repo.list_sales_invoices(order_id=order_id)
+        money = {
+            row["invoice_id"]: row
+            for row in self._receivable_rows(customer_id=order.customer_id)
+            if row["order_id"] == order_id
+        }
+        order_total = _order_total_with_vat(order)
+        invoiced = sum(
+            int(row.amount_vnd)
+            for row in invoices
+            if row.status == SALES_INVOICE_ISSUED
         )
-        if since is not None:
-            stmt = stmt.where(PaymentReceipt.receipt_date >= since)
-        out = []
-        for r in self.repo.db.execute(stmt).scalars():
-            out.append(
-                {
-                    "receipt_id": r.id,
-                    "code": r.code,
-                    "doc_no": r.doc_no,
-                    "order_id": r.order_id,
-                    "order_code": r.order_no_snapshot,
-                    "receipt_method": r.receipt_method,
-                    "amount": int(r.amount_vnd),
-                    "receipt_date": r.receipt_date,
-                    "payer_name": r.payer_name,
-                    "bank_reference": r.bank_reference,
-                    "created_by_name": self._user_name(r.created_by_user_id),
-                }
+        return {
+            "order_id": order.id,
+            "order_code": order.order_no,
+            "order_total": order_total,
+            "invoiced_amount": invoiced,
+            "uninvoiced_amount": max(0, order_total - invoiced),
+            "deposit_received": self.repo.received_deposit_sum(order.id),
+            "items": [self._sales_invoice_out(row, money.get(row.id)) for row in invoices],
+        }
+
+    def create_sales_invoice(self, *, actor, **values) -> dict:
+        order_id = int(values.get("order_id") or 0)
+        order = self.repo.get_sales_order(order_id)
+        if order is None:
+            raise AccountingNotFound("Không tìm thấy đơn hàng bán.")
+        if order.status != STATUS_ORDERED:
+            raise AccountingConflict("Chỉ đơn hàng đã chốt mới được ghi nhận hóa đơn.")
+        if order.customer_id is None:
+            raise AccountingValidationError("Đơn hàng chưa có khách hàng để ghi nhận công nợ.")
+        customer = self.repo.get_customer(order.customer_id)
+        if customer is None:
+            raise AccountingValidationError("Khách hàng của đơn không còn tồn tại.")
+        invoice_date = values.get("invoice_date")
+        if invoice_date is None:
+            raise AccountingValidationError("Ngày hóa đơn không được để trống.")
+        if invoice_date > _business_today():
+            raise AccountingValidationError("Ngày hóa đơn không được ở tương lai.")
+        if order.ordered_at is not None and invoice_date < order.ordered_at.date():
+            raise AccountingValidationError("Ngày hóa đơn không được trước ngày chốt đơn.")
+        invoice_number = _text(
+            values.get("invoice_number"), label="Số hóa đơn", required=True, max_length=64
+        )
+        invoice_symbol = _text(
+            values.get("invoice_symbol"), label="Ký hiệu hóa đơn", required=True, max_length=64
+        )
+        order_total = _order_total_with_vat(order)
+        already_invoiced = self.repo.issued_invoice_amount_for_order(order.id)
+        available = max(0, order_total - already_invoiced)
+        amount = int(values.get("amount_vnd") or available)
+        if amount <= 0:
+            raise AccountingValidationError("Đơn hàng không còn giá trị để ghi hóa đơn.")
+        if amount > available:
+            raise AccountingValidationError(
+                f"Số tiền hóa đơn vượt phần chưa xuất hóa đơn ({available:,} đ)."
             )
-        return out
+        term_days = customer.payment_term_days
+        due_date = (
+            invoice_date + timedelta(days=int(term_days))
+            if term_days is not None
+            else None
+        )
+        invoice = SalesInvoice(
+            order_id=order.id,
+            customer_id=customer.id,
+            invoice_symbol=invoice_symbol,
+            invoice_number=invoice_number,
+            invoice_date=invoice_date,
+            amount_vnd=amount,
+            payment_term_days_snapshot=term_days,
+            due_date=due_date,
+            customer_name_snapshot=customer.name,
+            status=SALES_INVOICE_ISSUED,
+            created_by_user_id=actor.id,
+        )
+        try:
+            saved = self.repo.save_sales_invoice(invoice)
+        except IntegrityError as exc:
+            raise AccountingConflict("Số và ký hiệu hóa đơn đã tồn tại.") from exc
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="create_sales_invoice",
+            target=f"sales_invoice:{saved.id}",
+            detail=f"{saved.invoice_number} <- {order.order_no}: {amount:,}đ",
+        )
+        money = next(
+            (row for row in self._receivable_rows(customer_id=customer.id) if row["invoice_id"] == saved.id),
+            None,
+        )
+        return self._sales_invoice_out(saved, money)
+
+    def cancel_sales_invoice(self, invoice_id: int, *, actor, reason: str) -> dict:
+        invoice = self.repo.get_sales_invoice(invoice_id)
+        if invoice is None:
+            raise AccountingNotFound("Không tìm thấy hóa đơn bán.")
+        if invoice.status == SALES_INVOICE_CANCELLED:
+            raise AccountingConflict("Hóa đơn đã hủy rồi.")
+        if self.repo.sales_invoice_has_active_receipts(invoice.id):
+            raise AccountingConflict(
+                "Hóa đơn đã có phiếu thu gắn vào; hãy hủy phiếu thu trước."
+            )
+        cleaned = _text(reason, label="Lý do hủy", required=True, max_length=2000)
+        invoice.status = SALES_INVOICE_CANCELLED
+        invoice.cancel_reason = cleaned
+        invoice.cancelled_by_user_id = actor.id
+        invoice.cancelled_at = _now()
+        saved = self.repo.save_sales_invoice(invoice)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="cancel_sales_invoice",
+            target=f"sales_invoice:{saved.id}",
+            detail=f"{saved.invoice_number}: {cleaned}",
+        )
+        return self._sales_invoice_out(saved)
+
+    def _receipts_for_receivable_rows(
+        self, rows: list[dict], *, since: date | None = None
+    ) -> list[dict]:
+        invoice_ids = sorted({row["invoice_id"] for row in rows})
+        order_ids = sorted({row["order_id"] for row in rows})
+        receipts = self.repo.list_receipts_for_receivables(
+            invoice_ids=invoice_ids, order_ids=order_ids, since=since
+        )
+        return [
+            {
+                "receipt_id": row.id,
+                "code": row.code,
+                "doc_no": row.doc_no,
+                "order_id": (
+                    row.order_id
+                    if row.order_id is not None
+                    else (row.sales_invoice.order_id if row.sales_invoice else None)
+                ),
+                "order_code": row.order_no_snapshot,
+                "source_type": row.source_type,
+                "sales_invoice_id": row.sales_invoice_id,
+                "sales_invoice_number": (
+                    row.sales_invoice.invoice_number if row.sales_invoice else None
+                ),
+                "applied_to": (
+                    "deposit_offset"
+                    if row.source_type == RECEIPT_SOURCE_ORDER
+                    else "sales_invoice"
+                ),
+                "receipt_method": row.receipt_method,
+                "amount": int(row.amount_vnd),
+                "receipt_date": row.receipt_date,
+                "payer_name": row.payer_name,
+                "bank_reference": row.bank_reference,
+                "created_by_name": self._user_name(row.created_by_user_id),
+            }
+            for row in receipts
+        ]
 
     def receivables_summary(self, *, q: str | None = None) -> dict:
         hom_nay = _business_today()
         moc_ky = hom_nay - timedelta(days=31 * PAYABLES_PERIOD_MONTHS)
         tim = (q or "").strip().lower()
         rows = self._receivable_rows()
-        receipts = self._receipts_for_orders([r["order_id"] for r in rows], since=moc_ky)
+        receipts = self._receipts_for_receivable_rows(rows, since=moc_ky)
         order_to_customer = {r["order_id"]: r["customer_id"] for r in rows}
+        invoice_to_customer = {r["invoice_id"]: r["customer_id"] for r in rows}
         thu_theo_khach: dict[int | None, int] = {}
         for receipt in receipts:
-            cid = order_to_customer.get(receipt["order_id"])
+            cid = (
+                invoice_to_customer.get(receipt["sales_invoice_id"])
+                if receipt["sales_invoice_id"] is not None
+                else order_to_customer.get(receipt["order_id"])
+            )
             thu_theo_khach[cid] = thu_theo_khach.get(cid, 0) + receipt["amount"]
 
         theo_khach: dict[int | None, dict] = {}
@@ -821,8 +979,8 @@ class AccountingService:
                 {
                     "customer_id": cid,
                     "customer_name": row["customer_name"],
-                    "order_count": 0,
-                    "total_amount": 0,
+                    "invoice_count": 0,
+                    "invoiced_amount": 0,
                     "received_amount": 0,
                     "total_due": 0,
                     "overdue_amount": 0,
@@ -832,12 +990,12 @@ class AccountingService:
                     "received_in_period": 0,
                 },
             )
-            bucket["total_amount"] += row["total_amount"]
+            bucket["invoiced_amount"] += row["amount"]
             bucket["received_amount"] += row["received_amount"]
             con_no = row["remaining_amount"]
             if con_no <= 0:
                 continue
-            bucket["order_count"] += 1
+            bucket["invoice_count"] += 1
             bucket["total_due"] += con_no
             if row["due_date"] is not None and row["due_date"] < hom_nay:
                 bucket["overdue_amount"] += con_no
@@ -872,7 +1030,7 @@ class AccountingService:
     def receivables_detail(self, customer_id: int, *, all_history: bool = False) -> dict:
         hom_nay = _business_today()
         moc_ky = date.min if all_history else hom_nay - timedelta(days=31 * PAYABLES_PERIOD_MONTHS)
-        customer = self.repo.db.get(Customer, customer_id)
+        customer = self.repo.get_customer(customer_id)
         if customer is None:
             raise AccountingNotFound("Không tìm thấy khách hàng.")
         rows = self._receivable_rows(customer_id=customer_id)
@@ -883,11 +1041,14 @@ class AccountingService:
                 continue
             items.append(
                 {
+                    "invoice_id": row["invoice_id"],
+                    "invoice_symbol": row["invoice_symbol"],
+                    "invoice_number": row["invoice_number"],
+                    "invoice_date": row["invoice_date"],
                     "order_id": row["order_id"],
                     "order_code": row["order_code"],
                     "customer_id": row["customer_id"],
                     "customer_name": row["customer_name"],
-                    "base_date": row["base_date"],
                     "due_date": row["due_date"],
                     "chua_dat_han": row["due_date"] is None,
                     "overdue_days": (
@@ -895,13 +1056,15 @@ class AccountingService:
                         if row["due_date"] is not None and row["due_date"] < hom_nay
                         else 0
                     ),
-                    "total_amount": row["total_amount"],
+                    "amount": row["amount"],
+                    "direct_received_amount": row["direct_received_amount"],
+                    "deposit_offset_amount": row["deposit_offset_amount"],
                     "received_amount": row["received_amount"],
                     "remaining_amount": con_no,
                 }
             )
         items.sort(key=lambda x: (x["due_date"] is not None, x["due_date"] or hom_nay))
-        paid = self._receipts_for_orders([r["order_id"] for r in rows], since=moc_ky)
+        paid = self._receipts_for_receivable_rows(rows, since=moc_ky)
         total_due = sum(i["remaining_amount"] for i in items)
         overdue_amount = sum(i["remaining_amount"] for i in items if i["overdue_days"] > 0)
         credit_limit = int(customer.credit_limit or 0)
@@ -1080,6 +1243,65 @@ class AccountingService:
         )
         return self._receipt_out(saved)
 
+    def create_sales_invoice_receipt(
+        self, invoice_id: int, *, actor, **values
+    ) -> dict:
+        """Lập Phiếu thu đã thu tiền, gắn đích danh một hóa đơn bán còn nợ."""
+        invoice = self.repo.get_sales_invoice(invoice_id)
+        if invoice is None:
+            raise AccountingNotFound("Không tìm thấy hóa đơn bán.")
+        if invoice.status != SALES_INVOICE_ISSUED:
+            raise AccountingConflict("Chỉ hóa đơn còn hiệu lực mới được lập phiếu thu.")
+        prepared = self._prepare_other_receipt(values)
+        receipt_date = prepared.get("receipt_date")
+        if receipt_date is not None and receipt_date < invoice.invoice_date:
+            raise AccountingValidationError("Ngày thu không được trước ngày hóa đơn.")
+        money_row = next(
+            (
+                row
+                for row in self._receivable_rows(customer_id=invoice.customer_id)
+                if row["invoice_id"] == invoice.id
+            ),
+            None,
+        )
+        remaining = money_row["remaining_amount"] if money_row else 0
+        if int(prepared["amount_vnd"]) > remaining:
+            raise AccountingValidationError(
+                f"Số tiền thu vượt quá phần hóa đơn còn phải thu ({remaining:,} đ)."
+            )
+        account = prepared.pop("company_account")
+        doc_no = self.sequences.generate_flat_code(SEQ_DOC_TYPE_PAYMENT_RECEIPT)
+        receipt = PaymentReceipt(
+            code=self._new_receipt_code(),
+            doc_no=doc_no,
+            source_type=RECEIPT_SOURCE_SALES_INVOICE,
+            sales_invoice_id=invoice.id,
+            # Cố ý không gắn order_id: tiền này là THU HÓA ĐƠN, không được làm cổng cọc nhích lên.
+            order_id=None,
+            order_no_snapshot=invoice.order.order_no,
+            customer_name_snapshot=invoice.customer_name_snapshot,
+            status=PAYMENT_RECEIPT_RECEIVED,
+            created_by_user_id=actor.id,
+            received_by_user_id=actor.id,
+            received_at=_now(),
+        )
+        for key, value in prepared.items():
+            setattr(receipt, key, value)
+        receipt.credit_account = receipt.credit_account or "131"
+        receipt.company_bank_account_id = account.id if account else None
+        receipt.company_account_holder_snapshot = account.account_holder if account else None
+        receipt.company_account_number_snapshot = account.account_number if account else None
+        receipt.company_bank_name_snapshot = account.bank_name if account else None
+        receipt.company_bank_branch_snapshot = account.bank_branch if account else None
+        saved = self.repo.save_receipt(receipt)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="create_sales_invoice_receipt",
+            target=f"payment_receipt:{saved.id}",
+            detail=f"{saved.code} <- HĐ {invoice.invoice_number}",
+        )
+        return self._receipt_out(saved)
+
     def received_sum_for_order(self, order_id: int) -> int:
         """Σ số tiền các phiếu thu ĐÃ THU (received) của một đơn — cổng chốt đơn đọc số này."""
         return self.repo.receipt_received_sum_for_order(order_id)
@@ -1150,7 +1372,7 @@ class AccountingService:
         receipt = self._receipt(receipt_id)
         if receipt.status == PAYMENT_RECEIPT_CANCELLED:
             raise AccountingConflict("Phiếu thu đã hủy.")
-        if receipt.source_type == RECEIPT_SOURCE_OTHER:
+        if receipt.source_type in (RECEIPT_SOURCE_OTHER, RECEIPT_SOURCE_SALES_INVOICE):
             cleaned_reason = _text(reason, label="Lý do hủy", required=True, max_length=2000)
             receipt.status = PAYMENT_RECEIPT_CANCELLED
             receipt.cancel_reason = cleaned_reason
@@ -1335,9 +1557,17 @@ class AccountingService:
             "code": row.code,
             "doc_no": row.doc_no,
             "source_type": row.source_type,
-            "order_id": row.order_id,
+            "order_id": (
+                row.order_id
+                if row.order_id is not None
+                else (row.sales_invoice.order_id if row.sales_invoice else None)
+            ),
             "order_code": row.order_no_snapshot,
             "customer_name": row.customer_name_snapshot,
+            "sales_invoice_id": row.sales_invoice_id,
+            "sales_invoice_number": (
+                row.sales_invoice.invoice_number if row.sales_invoice else None
+            ),
             "payment_voucher_id": row.payment_voucher_id,
             "payment_voucher_code": row.voucher_code_snapshot,
             "purchase_request_id": row.purchase_request_id,

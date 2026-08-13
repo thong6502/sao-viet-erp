@@ -85,7 +85,7 @@ const FINE_ACTIONS: Record<
     {
       key: "can_view_debt",
       label: "Xem công nợ",
-      hint: 'Cho xem thẻ Công nợ của khách (số dư phải thu + hạn mức đã dùng). ⚠️ Module Công nợ (AR) CHƯA build — bật quyền vẫn chỉ hiện thẻ "chưa khả dụng", chưa có số thật; chỉ có tác dụng khi module Công nợ hoàn thành.',
+      hint: "Cho xem thẻ Công nợ của khách (số dư phải thu theo hóa đơn đã ghi nhận + hạn mức đã dùng).",
     },
     {
       key: "can_set_credit_terms",
@@ -344,7 +344,7 @@ const MODULE_HINTS: Record<string, string> = {
   cong_no_phai_tra:
     "Xem: mở màn Công nợ phải trả (số còn nợ từng nhà cung cấp). Số liệu tính ra từ PMH + phiếu chi nên không có gì để sửa ở đây.",
   cong_no_phai_thu:
-    "Xem: mở màn Công nợ phải thu (số khách còn nợ). Số liệu tính ra từ đơn hàng + phiếu thu nên không có gì để sửa ở đây.",
+    "Xem: mở màn Công nợ phải thu (số khách còn nợ). Số liệu chỉ phát sinh từ hóa đơn bán đã ghi nhận, sau đó trừ cọc được cấn và phiếu thu; đơn mới chốt chưa tạo công nợ.",
   tk_ngan_hang:
     "Xem: mở màn Tài khoản ngân hàng (TK công ty + TK nhà cung cấp). Chỉnh sửa: thêm/sửa/ngừng dùng tài khoản. TK của nhà cung cấp thì người quản danh mục Nhà cung cấp cũng sửa được.",
 };

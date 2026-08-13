@@ -158,10 +158,8 @@ def test_dashboard_computes_from_real_orders(client):
     # Ý ĐỒ GỐC vẫn giữ: KHÔNG bịa số. Khác ở chỗ nay số 0 là **số thật đọc được** (khách này chưa
     # có hoá đơn nào), chứ không phải số 0 bịa ra để lấp chỗ trống — nên `available` phải True.
     assert d["receivable"]["available"] is True
-    # Khách này CÓ đơn thật và chưa trả đồng nào ⇒ dư nợ đúng bằng tổng đơn ở trên. Khẳng định
-    # bằng chính `total_series` chứ không gõ cứng một con số: sửa dữ liệu mẫu ở đầu test mà quên
-    # sửa đây thì lệch ngay, không âm thầm trôi qua.
-    assert d["receivable"]["balance"] == total_series
+    # Đơn đã chốt vẫn chưa phải công nợ. Chỉ hóa đơn bán đã ghi nhận mới làm phát sinh dư nợ.
+    assert d["receivable"]["balance"] == 0
 
 
 def test_dashboard_empty_state_no_fake_numbers(client):

@@ -5,17 +5,22 @@ from sqlalchemy import asc, case, desc, func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.accounting import (
+    PAYMENT_RECEIPT_CANCELLED,
     PAYMENT_RECEIPT_RECEIVED,
     PAYMENT_RECEIPT_WAITING,
     PAYMENT_VOUCHER_PAID,
     RECEIPT_SOURCE_ORDER,
+    SALES_INVOICE_ISSUED,
     CompanyBankAccount,
     PaymentReceipt,
     PaymentReceiptAttachment,
     PaymentVoucher,
     PaymentVoucherAttachment,
+    SalesInvoice,
     SupplierBankAccount,
 )
+from ..models.customer import Customer
+from ..models.order import Order
 from ..models.purchase import PurchaseRequest, PurchaseRequestSource, Supplier
 
 
@@ -286,6 +291,9 @@ class AccountingRepository:
                     func.lower(PaymentReceipt.supplier_name_snapshot).like(like),
                     func.lower(PaymentReceipt.order_no_snapshot).like(like),
                     func.lower(PaymentReceipt.customer_name_snapshot).like(like),
+                    PaymentReceipt.sales_invoice.has(
+                        func.lower(SalesInvoice.invoice_number).like(like)
+                    ),
                     func.lower(PaymentReceipt.payer_name).like(like),
                     func.lower(PaymentReceipt.content).like(like),
                 )
@@ -403,6 +411,127 @@ class AccountingRepository:
             ).scalars()
         )
 
+    # --- sales invoices / accounts receivable ------------------------------
+
+    def get_sales_order(self, order_id: int) -> Order | None:
+        return self.db.execute(
+            select(Order).options(selectinload(Order.lines)).where(Order.id == order_id)
+        ).scalar_one_or_none()
+
+    def get_customer(self, customer_id: int) -> Customer | None:
+        return self.db.get(Customer, customer_id)
+
+    def customers_by_ids(self, customer_ids: set[int]) -> dict[int, Customer]:
+        if not customer_ids:
+            return {}
+        rows = self.db.execute(
+            select(Customer).where(Customer.id.in_(customer_ids))
+        ).scalars()
+        return {row.id: row for row in rows}
+
+    def get_sales_invoice(self, invoice_id: int) -> SalesInvoice | None:
+        return self.db.execute(
+            self._sales_invoice_stmt().where(SalesInvoice.id == invoice_id)
+        ).scalar_one_or_none()
+
+    def list_sales_invoices(
+        self,
+        *,
+        order_id: int | None = None,
+        customer_id: int | None = None,
+        status: str | None = None,
+    ) -> list[SalesInvoice]:
+        stmt = self._sales_invoice_stmt()
+        if order_id is not None:
+            stmt = stmt.where(SalesInvoice.order_id == order_id)
+        if customer_id is not None:
+            stmt = stmt.where(SalesInvoice.customer_id == customer_id)
+        if status is not None:
+            stmt = stmt.where(SalesInvoice.status == status)
+        return list(
+            self.db.execute(
+                stmt.order_by(SalesInvoice.invoice_date, SalesInvoice.id)
+            ).scalars()
+        )
+
+    def issued_invoice_amount_for_order(self, order_id: int) -> int:
+        return int(
+            self.db.execute(
+                select(func.coalesce(func.sum(SalesInvoice.amount_vnd), 0)).where(
+                    SalesInvoice.order_id == order_id,
+                    SalesInvoice.status == SALES_INVOICE_ISSUED,
+                )
+            ).scalar_one()
+        )
+
+    def received_invoice_receipt_sums(self, invoice_ids: list[int]) -> dict[int, int]:
+        if not invoice_ids:
+            return {}
+        stmt = (
+            select(
+                PaymentReceipt.sales_invoice_id,
+                func.coalesce(func.sum(PaymentReceipt.amount_vnd), 0),
+            )
+            .where(
+                PaymentReceipt.sales_invoice_id.in_(invoice_ids),
+                PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
+            )
+            .group_by(PaymentReceipt.sales_invoice_id)
+        )
+        return {int(iid): int(amount) for iid, amount in self.db.execute(stmt)}
+
+    def sales_invoice_has_active_receipts(self, invoice_id: int) -> bool:
+        return bool(
+            self.db.execute(
+                select(func.count()).select_from(PaymentReceipt).where(
+                    PaymentReceipt.sales_invoice_id == invoice_id,
+                    PaymentReceipt.status != PAYMENT_RECEIPT_CANCELLED,
+                )
+            ).scalar_one()
+        )
+
+    def list_receipts_for_receivables(
+        self,
+        *,
+        invoice_ids: list[int],
+        order_ids: list[int],
+        since=None,
+    ) -> list[PaymentReceipt]:
+        if not invoice_ids and not order_ids:
+            return []
+        links = []
+        if invoice_ids:
+            links.append(PaymentReceipt.sales_invoice_id.in_(invoice_ids))
+        if order_ids:
+            links.append(
+                (PaymentReceipt.order_id.in_(order_ids))
+                & (PaymentReceipt.source_type == RECEIPT_SOURCE_ORDER)
+            )
+        stmt = self._receipt_stmt().where(
+            or_(*links),
+            PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
+        )
+        if since is not None:
+            stmt = stmt.where(PaymentReceipt.receipt_date >= since)
+        return list(
+            self.db.execute(
+                stmt.order_by(PaymentReceipt.receipt_date.desc(), PaymentReceipt.id.desc())
+            ).scalars()
+        )
+
+    def save_sales_invoice(self, invoice: SalesInvoice) -> SalesInvoice:
+        self.db.add(invoice)
+        self._commit()
+        self.db.refresh(invoice)
+        return self.get_sales_invoice(invoice.id) or invoice
+
+    def _sales_invoice_stmt(self):
+        return select(SalesInvoice).options(
+            selectinload(SalesInvoice.order),
+            selectinload(SalesInvoice.customer),
+            selectinload(SalesInvoice.receipts),
+        )
+
     def save_receipt(self, receipt: PaymentReceipt) -> PaymentReceipt:
         self.db.add(receipt)
         self._commit()
@@ -412,6 +541,7 @@ class AccountingRepository:
     def _receipt_stmt(self):
         return select(PaymentReceipt).options(
             selectinload(PaymentReceipt.payment_voucher),
+            selectinload(PaymentReceipt.sales_invoice),
             selectinload(PaymentReceipt.company_bank_account),
             selectinload(PaymentReceipt.attachments),
         )

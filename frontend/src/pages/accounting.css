@@ -781,6 +781,120 @@
   }
 }
 
+/* Công nợ phải thu theo HÓA ĐƠN. Bảng chi tiết rộng được cuộn ngang, không ép tên/mã xuống
+   thành cột chữ; form thu tiền nằm cùng drawer để tránh chồng thêm một modal. */
+.ar-summary-table td small,
+.ar-invoice-table td small,
+.ar-history-table td small {
+  display: block;
+  margin-top: 3px;
+  color: var(--ash-2);
+}
+
+.ar-tablewrap {
+  margin-top: var(--sp-2);
+  overflow-x: auto;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+}
+
+.ar-tablewrap .pay-table {
+  margin: 0;
+}
+
+.ar-invoice-table {
+  min-width: 980px;
+}
+
+.ar-history-table {
+  min-width: 760px;
+}
+
+.ar-invoice-table th,
+.ar-history-table th {
+  padding: 9px 10px;
+  border-bottom: 1.5px solid var(--rule);
+  background: var(--paper);
+  color: var(--ash);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ar-invoice-table td,
+.ar-history-table td {
+  padding: 10px;
+  vertical-align: top;
+}
+
+.ar-receipt-form-row > td {
+  padding: 0 !important;
+  background: var(--paper);
+}
+
+.ar-receipt-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border-left: 3px solid var(--rust);
+}
+
+.ar-receipt-form__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.ar-receipt-form__head > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ar-receipt-form__head small {
+  color: var(--ash-2);
+}
+
+.ar-receipt-form__grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr 1.6fr;
+  gap: var(--sp-3);
+}
+
+.ar-receipt-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+
+@media (max-width: 760px) {
+  .ar-summary-table {
+    overflow-x: auto;
+  }
+
+  .ar-summary-table .pay-table {
+    min-width: 760px;
+  }
+
+  .ar-receipt-form__head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ar-receipt-form__head .acct-segment {
+    width: 100%;
+  }
+
+  .ar-receipt-form__head .acct-segment button {
+    flex: 1;
+  }
+
+  .ar-receipt-form__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ===== B3: Cọc đơn hàng chờ ghi (hàng chờ + popup + lập cọc trong module Phiếu thu) ===== */
 .odq {
   margin: 0 0 16px;

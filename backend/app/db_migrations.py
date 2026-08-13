@@ -7309,3 +7309,72 @@ def _migrate_them_generated_at_cho_ky_luong(db) -> None:
 
 
 MIGRATIONS.append(("0186_them_generated_at_cho_ky_luong", _migrate_them_generated_at_cho_ky_luong))
+
+
+def _migrate_sales_invoices_ar(db: Session) -> None:
+    """AR: công nợ phải thu chỉ phát sinh từ hóa đơn bán đã phát hành (12/08/2026).
+
+    Tạo sổ hóa đơn bán và nối Phiếu thu vào đúng hóa đơn nguồn. Trên DB trắng, `create_all`
+    đã dựng đủ bảng/cột nên migration chỉ bảo đảm index; trên DB đang chạy, DDL dưới đây vá
+    tiến idempotent cho cả SQLite và PostgreSQL.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+    id_pk = "INTEGER PRIMARY KEY" if bind.dialect.name == "sqlite" else "SERIAL PRIMARY KEY"
+
+    if "orders" in tables and "customers" in tables and "users" in tables:
+        db.execute(text(
+            "CREATE TABLE IF NOT EXISTS sales_invoices ("
+            f"id {id_pk}, "
+            "order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE RESTRICT, "
+            "customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL, "
+            "invoice_symbol VARCHAR(64) NOT NULL, "
+            "invoice_number VARCHAR(64) NOT NULL, "
+            "invoice_date DATE NOT NULL, "
+            "amount_vnd BIGINT NOT NULL, "
+            "payment_term_days_snapshot INTEGER, "
+            "due_date DATE, "
+            "customer_name_snapshot VARCHAR(255) NOT NULL, "
+            "status VARCHAR(16) NOT NULL DEFAULT 'issued', "
+            "created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, "
+            "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+            "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+            "cancelled_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, "
+            "cancelled_at TIMESTAMP, "
+            "cancel_reason TEXT, "
+            "CONSTRAINT uq_sales_invoice_symbol_number "
+            "UNIQUE (invoice_symbol, invoice_number))"
+        ))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_sales_invoices_order_id "
+            "ON sales_invoices (order_id)"
+        ))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_sales_invoices_customer_id "
+            "ON sales_invoices (customer_id)"
+        ))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_sales_invoices_status "
+            "ON sales_invoices (status)"
+        ))
+
+    # Refresh sau CREATE TABLE để SQLite/Postgres đều thấy schema mới trong cùng migration.
+    insp = inspect(bind)
+    migrated_tables = set(insp.get_table_names())
+    if "payment_receipts" in migrated_tables and "sales_invoices" in migrated_tables:
+        receipt_cols = _existing_columns(insp, "payment_receipts")
+        if "sales_invoice_id" not in receipt_cols:
+            db.execute(text(
+                "ALTER TABLE payment_receipts ADD COLUMN sales_invoice_id INTEGER "
+                "REFERENCES sales_invoices(id) ON DELETE RESTRICT"
+            ))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_payment_receipts_sales_invoice_id "
+            "ON payment_receipts (sales_invoice_id)"
+        ))
+
+    db.commit()
+
+
+MIGRATIONS.append(("0187_sales_invoices_ar", _migrate_sales_invoices_ar))
