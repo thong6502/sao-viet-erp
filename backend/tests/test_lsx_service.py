@@ -1258,6 +1258,33 @@ def test_goi_y_luong_cho_MOI_vat_tu_de_drawer_dien_san(db, orders, lsx_svc, admi
     assert mu.id not in goi_y, "chưa tính ra được thì VẮNG mặt, không bịa số 0"
 
 
+def test_dau_viec_mang_san_vat_tu_da_tinh_so_de_drawer_bung(db, orders, lsx_svc, admin, customer):
+    """`khoan_chon_duoc[].vat_tus` phải CÓ SẴN vật tư + số, để drawer chọn đầu việc là điền ngay."""
+    from app.models.cong_doan import CongDoanDauViecVatTu
+    from app.models.vat_lieu_kho import VatTuInAn
+
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000,
+                    cong_thuc_luong="0.002 * so_luong")
+    db.add(keo)
+    db.flush()
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+    buoc = next(b for b in lsx_svc.detail_dict(lsx)["cong_doans"] if b["ten"] == "Dán hộp")
+    chon = next(x for x in buoc["khoan_chon_duoc"] if x["id"] == rate.id)
+
+    assert [v["ma"] for v in chon["vat_tus"]] == ["KEO-GAY"]
+    assert chon["vat_tus"][0]["so_luong"] == pytest.approx(
+        0.002 * float(lsx.so_luong_dat), rel=1e-6)
+
+
 def test_khong_co_bang_khoan_thi_khong_co_tien(db, orders, lsx_svc, admin, customer):
     """Tổ chưa khai giá khoán → mọi bước im lặng, tổng = 0. KHÔNG bịa số nào."""
     ptg = _ptg_2_san_pham(db)

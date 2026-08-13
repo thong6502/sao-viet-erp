@@ -227,6 +227,22 @@ export function LsxBuocDrawer({
 
   useEffect(() => titleRef.current?.focus(), [row.key]);
 
+  // ĐẦU VIỆC ĐÃ CHỌN SẴN thì cũng phải bung vật tư (13/08/2026).
+  //
+  // `bungVatTu` xưa nay chỉ chạy từ `chonDauViec`, tức là chỉ khi người dùng TỰ TAY đổi dropdown.
+  // Nhưng server điền sẵn đầu việc khi tổ chỉ khớp MỘT dòng — lúc đó chọn lại chính nó không nổ
+  // `onChange`, nên vật tư của đầu việc không bao giờ được bung. Người dùng thấy "In 2 màu" đã
+  // chọn mà khối "Vật tư cần dùng" trống trơn, không hiểu vì sao.
+  //
+  // CHỈ bung khi danh sách đang RỖNG: xoá bớt một dòng rồi mở lại thì máy không nhét lại — tôn
+  // trọng thao tác của người, đúng luật `tu_dong` ở `bungVatTu`.
+  useEffect(() => {
+    if (!canUpdate || row.khoan_rate_id == null || row.vat_tus.length > 0) return;
+    const chon = dsKhoan.find((x) => x.id === row.khoan_rate_id);
+    if (!chon?.vat_tus?.length) return;
+    onPatch(bungVatTu(chon));
+  }, [row.key, row.khoan_rate_id, dsKhoan]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   function onKeyDown(e: KeyboardEvent) {
     if (e.key === "Escape") {
       e.stopPropagation();
