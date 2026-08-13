@@ -6,8 +6,8 @@ import {
   api,
   connectQuoteEvents,
   type HangLoai,
+  type ModuleNotificationChannel,
   type PinnedCustomer,
-  type PurchaseNotifySummary,
 } from "../api/client";
 import { crud } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
@@ -103,13 +103,10 @@ export interface NavParams {
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
 
-/** Badge "Mua hàng" = TỔNG các việc người đó ĐƯỢC THẤY.
- *
- *  Cộng thẳng cả ba: server đã lọc theo phạm vi người gọi VÀ đã trả 0 cho phần công nợ khi người
- *  gọi không có `ke_toan:read`. Che thêm một lần nữa ở đây là để hai nơi cùng giữ một luật quyền —
- *  sửa một bên quên bên kia thì badge và màn hình nói hai kiểu. */
-const tongViecThuMua = (s: PurchaseNotifySummary): number =>
-  s.ycmh_cho_lap_phieu + s.pmh_bi_tu_choi + s.dot_giao_qua_han;
+const MODULE_NOTIFICATION_NAV: Record<ModuleNotificationChannel, string> = {
+  thu_mua: "mua-hang",
+  ke_toan: "ke-toan-don-mua-hang",
+};
 
 export function AppShell() {
   const { token, user } = useAuth();
@@ -141,9 +138,11 @@ export function AppShell() {
   const lastKhoPending = useRef(0);
   const lastOtPending = useRef(0);
   const lastElPending = useRef(0);
-  // Badge Thu mua: tổng 3 việc phải làm. Chỉ toast khi số TĂNG (có việc mới tới bàn thu mua),
-  // không toast lại mỗi lần refetch — `purchase_changed` bắn ra từ MỌI đường ghi thu mua.
-  const lastMuaHang = useRef(0);
+  const activeIdRef = useRef(activeId);
+  const moduleNotificationRevision = useRef<Record<ModuleNotificationChannel, number>>({
+    thu_mua: 0,
+    ke_toan: 0,
+  });
   // Giữ tham số `ms` (thông báo kho hiện lâu 9s) — luồng thông báo-theo-phòng dùng.
   const pushToast = useCallback(
     (text: string, tone: "ok" | "warn" | "info", ms = 6000) => {
@@ -161,6 +160,10 @@ export function AppShell() {
     setActiveId(id);
     setNavParams(params ?? null);
   }, []);
+
+  useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
 
   useEffect(() => {
     if (!token) return;
@@ -187,10 +190,65 @@ export function AppShell() {
     };
   }, [token]);
 
+  const reloadModuleNotificationBadges = useCallback(() => {
+    if (!token || readable === null) return;
+    const revision = { ...moduleNotificationRevision.current };
+    api.moduleNotifications
+      .summary(token)
+      .then((summary) => {
+        const activeNav = activeIdRef.current.split(":")[0];
+        setBadges((prev) => {
+          const next = { ...prev };
+          if (revision.thu_mua === moduleNotificationRevision.current.thu_mua) {
+            next[MODULE_NOTIFICATION_NAV.thu_mua] =
+              readable.has("thu_mua") && activeNav !== MODULE_NOTIFICATION_NAV.thu_mua
+                ? summary.thu_mua
+                : 0;
+          }
+          if (revision.ke_toan === moduleNotificationRevision.current.ke_toan) {
+            next[MODULE_NOTIFICATION_NAV.ke_toan] =
+              readable.has("ke_toan") && activeNav !== MODULE_NOTIFICATION_NAV.ke_toan
+                ? summary.ke_toan
+                : 0;
+          }
+          return next;
+        });
+      })
+      .catch(() => {});
+  }, [token, readable]);
+
+  const markModuleNotificationsRead = useCallback(
+    (channel: ModuleNotificationChannel) => {
+      if (!token) return;
+      const navId = MODULE_NOTIFICATION_NAV[channel];
+      const revision = ++moduleNotificationRevision.current[channel];
+      setBadges((prev) => ({ ...prev, [navId]: 0 }));
+      api.moduleNotifications.markRead(token, channel).catch(() => {
+        api.moduleNotifications
+          .summary(token)
+          .then((summary) => {
+            if (moduleNotificationRevision.current[channel] !== revision) return;
+            setBadges((prev) => ({ ...prev, [navId]: summary[channel] }));
+          })
+          .catch(() => {});
+      });
+    },
+    [token],
+  );
+  const markThuMuaNotificationsRead = useCallback(
+    () => markModuleNotificationsRead("thu_mua"),
+    [markModuleNotificationsRead],
+  );
+  const markKeToanNotificationsRead = useCallback(
+    () => markModuleNotificationsRead("ke_toan"),
+    [markModuleNotificationsRead],
+  );
+
   // Badge Nghỉ phép: số đơn chờ duyệt (endpoint tự trả null nếu người gọi không có quyền
   // duyệt → không hiện badge). NghiPhepPage gọi lại sau mỗi thao tác để badge cập nhật ngay.
   const reloadBadges = useCallback(() => {
     if (!token || readable === null) return;
+    reloadModuleNotificationBadges();
     if (readable.has("nghi_phep")) {
       api.leaves
         .summary(token)
@@ -289,20 +347,6 @@ export function AppShell() {
         .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan": r.total })))
         .catch(() => {});
     }
-    // Badge Thu mua treo ở nav "mua-hang" — nhóm "Thu mua" là SECTION, `NavRow` chỉ vẽ badge ở cấp
-    // ITEM. Chọn "Mua hàng" chứ không "Yêu cầu mua hàng": cả 3 con số đều là việc của người thu
-    // mua (lập PMH, lập lại PMH bị từ chối, đòi/trả nợ đợt giao), mà màn YCMH còn mở cho 5 vai đề
-    // nghị khác — treo ở đó là nhét việc của thu mua lên sidebar của kho/sản xuất/báo giá.
-    if (readable.has("thu_mua")) {
-      api.purchaseRequests
-        .notifySummary(token)
-        .then((s) => {
-          const n = tongViecThuMua(s);
-          setBadges((prev) => ({ ...prev, "mua-hang": n }));
-          lastMuaHang.current = n;
-        })
-        .catch(() => {});
-    }
     // Badge Lương = số đề nghị tạm ứng đang chờ TÔI duyệt (0 với người không có quyền duyệt).
     if (readable.has("luong")) {
       api.luong
@@ -324,7 +368,7 @@ export function AppShell() {
         })
         .catch(() => {});
     }
-  }, [token, readable]);
+  }, [token, readable, reloadModuleNotificationBadges]);
   useEffect(() => {
     reloadBadges();
     // Refetch khi đổi màn — cả 2 endpoint đều rất nhẹ, giữ badge tươi sau khi thao tác.
@@ -490,10 +534,26 @@ export function AppShell() {
             lastElPending.current = n;
           })
           .catch(() => {});
-      } else if (readable.has("ke_toan") && e.type === "purchase_pending_approval") {
+      } else if (
+        readable.has("thu_mua") &&
+        e.type === "department_purchase_request_created" &&
+        e.actor_user_id !== user?.id
+      ) {
+        pushToast(`Có yêu cầu mua hàng${e.code ? " " + e.code : ""} mới từ phòng ban`, "info");
+        reloadBadges();
+      } else if (
+        readable.has("ke_toan") &&
+        e.type === "purchase_pending_approval" &&
+        e.actor_user_id !== user?.id
+      ) {
         pushToast(`Có đơn mua hàng${e.code ? " " + e.code : ""} chờ xử lý`, "info");
         reloadBadges();
-      } else if (readable.has("thu_mua") && e.type === "purchase_decision") {
+      } else if (
+        readable.has("thu_mua") &&
+        e.type === "purchase_decision" &&
+        e.actor_user_id !== user?.id &&
+        (e.recipient_user_id == null || e.recipient_user_id === user?.id)
+      ) {
         pushToast(
           e.decision === "approved"
             ? `Đơn mua hàng${e.code ? " " + e.code : ""} đã được duyệt`
@@ -501,15 +561,34 @@ export function AppShell() {
           e.decision === "approved" ? "ok" : "warn",
         );
         reloadBadges();
-      } else if (readable.has("phieu_chi") && e.type === "purchase_delivery_created") {
-        pushToast(
-          `Đơn mua hàng${e.code ? " " + e.code : ""} có đợt giao mới${
-            e.seq_no ? ` số ${e.seq_no}` : ""
-          }`,
-          "info",
-        );
+      } else if (
+        (readable.has("ke_toan") || readable.has("phieu_chi")) &&
+        (e.type === "purchase_delivery_created" ||
+          e.type === "purchase_delivery_updated" ||
+          e.type === "purchase_delivery_deleted" ||
+          e.type === "purchase_invoice_updated") &&
+        e.actor_user_id !== user?.id
+      ) {
+        const code = e.code ? ` ${e.code}` : "";
+        if (e.type === "purchase_delivery_created") {
+          pushToast(
+            `Đơn mua hàng${code} có đợt giao mới${e.seq_no ? ` số ${e.seq_no}` : ""}`,
+            "info",
+          );
+        } else if (e.type === "purchase_delivery_updated") {
+          pushToast(`Đợt giao của đơn mua hàng${code} đã được cập nhật`, "info");
+        } else if (e.type === "purchase_delivery_deleted") {
+          pushToast(`Đợt giao của đơn mua hàng${code} đã được xóa`, "warn");
+        } else {
+          pushToast(`Hóa đơn của đơn mua hàng${code} đã được cập nhật`, "info");
+        }
         reloadBadges();
-      } else if (readable.has("thu_mua") && e.type === "payment_voucher_created") {
+      } else if (
+        readable.has("thu_mua") &&
+        e.type === "payment_voucher_created" &&
+        e.actor_user_id !== user?.id &&
+        (e.recipient_user_id == null || e.recipient_user_id === user?.id)
+      ) {
         pushToast(
           `Kế toán đã lập chứng từ${e.voucher_code ? " " + e.voucher_code : ""}${
             e.code ? ` cho đơn ${e.code}` : ""
@@ -517,7 +596,12 @@ export function AppShell() {
           "ok",
         );
         reloadBadges();
-      } else if (readable.has("thu_mua") && e.type === "payment_voucher_cancelled") {
+      } else if (
+        readable.has("thu_mua") &&
+        e.type === "payment_voucher_cancelled" &&
+        e.actor_user_id !== user?.id &&
+        (e.recipient_user_id == null || e.recipient_user_id === user?.id)
+      ) {
         pushToast(
           `Kế toán đã hủy chứng từ${e.voucher_code ? " " + e.voucher_code : ""}${
             e.code ? ` của đơn ${e.code}` : ""
@@ -526,24 +610,10 @@ export function AppShell() {
         );
         reloadBadges();
       } else if (
-        readable.has("thu_mua") &&
+        (readable.has("thu_mua") || readable.has("ke_toan")) &&
         (e.type === "purchase_changed" || e.type === "accounting_changed")
       ) {
-        // Việc thu mua đổi (YCMH/PMH/đợt giao) hoặc kế toán động vào phiếu chi → refetch badge
-        // NGAY, không bắt đổi màn. Hai event này backend đã broadcast sẵn từ trước; ở đây chỉ nối.
-        // Toast chỉ khi TĂNG: `purchase_changed` bắn ra từ mọi đường ghi, trong đó phần lớn là
-        // thao tác của chính người đang xem.
-        api.purchaseRequests
-          .notifySummary(token)
-          .then((s) => {
-            const n = tongViecThuMua(s);
-            setBadges((prev) => ({ ...prev, "mua-hang": n }));
-            if (n > lastMuaHang.current) {
-              pushToast("🔔 Có việc mới ở Mua hàng", "info");
-            }
-            lastMuaHang.current = n;
-          })
-          .catch(() => {});
+        reloadModuleNotificationBadges();
       } else if (readable.has("luong") && e.type === "advance_pending_changed") {
         // Có đề nghị tạm ứng mới/đổi → refetch số 'chờ duyệt'; toast khi TĂNG (người duyệt).
         api.luong
@@ -585,7 +655,22 @@ export function AppShell() {
       }
     });
     return close;
-  }, [token, readable, reloadBadges, pushToast, caps, user]);
+  }, [token, readable, reloadBadges, reloadModuleNotificationBadges, pushToast, caps, user]);
+
+  useEffect(() => {
+    if (readable === null) return;
+    const baseId = activeId.split(":")[0];
+    if (baseId === MODULE_NOTIFICATION_NAV.thu_mua && readable.has("thu_mua")) {
+      markThuMuaNotificationsRead();
+    } else if (baseId === MODULE_NOTIFICATION_NAV.ke_toan && readable.has("ke_toan")) {
+      markKeToanNotificationsRead();
+    }
+  }, [
+    activeId,
+    readable,
+    markThuMuaNotificationsRead,
+    markKeToanNotificationsRead,
+  ]);
 
   // Mở màn Báo giá = người soạn đã xem các quyết định → đánh dấu seen + hạ badge (giống chuông Nghỉ phép).
   useEffect(() => {
@@ -779,6 +864,7 @@ export function AppShell() {
             navigate={navigate}
             eventTick={quoteTick}
             focusRequestCode={navParams?.focusRequestCode ?? null}
+            onDataRefreshed={markThuMuaNotificationsRead}
           />
         );
       case "nha-cung-cap":
@@ -791,6 +877,7 @@ export function AppShell() {
             navigate={navigate}
             eventTick={quoteTick}
             focusRequestCode={navParams?.focusRequestCode ?? null}
+            onDataRefreshed={markKeToanNotificationsRead}
           />
         );
       case "ke-toan-phieu-chi":

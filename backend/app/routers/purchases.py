@@ -15,9 +15,20 @@ from fastapi import (
     status,
 )
 
-from ..deps import CurrentUser, get_purchase_service, require_any_permission, require_permission
+from ..deps import (
+    CurrentUser,
+    get_module_notification_repository,
+    get_purchase_service,
+    require_any_permission,
+    require_permission,
+)
 from ..models.user import User
 from ..realtime import hub
+from ..repositories.module_notification_repo import (
+    CHANNEL_KE_TOAN,
+    CHANNEL_THU_MUA,
+    ModuleNotificationRepository,
+)
 from ..schemas.purchase import (
     DepartmentPurchaseRequestIn,
     DepartmentPurchaseRequestListOut,
@@ -70,9 +81,37 @@ DEPARTMENT_REQUEST_READERS = tuple(
 )
 
 
-def _notify_purchase_changed(code: str | None = None, *, event_type: str = "purchase_changed", **extra) -> None:
+NotificationRepo = Annotated[
+    ModuleNotificationRepository, Depends(get_module_notification_repository)
+]
+
+
+def _notify_purchase_changed(
+    code: str | None = None,
+    *,
+    event_type: str = "purchase_changed",
+    notifications: ModuleNotificationRepository | None = None,
+    channel: str | None = None,
+    actor_user_id: int | None = None,
+    recipient_user_id: int | None = None,
+    **extra,
+) -> None:
     """Tín hiệu nhẹ cho các màn Thu mua/Kế toán tự refetch qua SSE."""
-    hub.broadcast({"type": event_type, "code": code, **extra})
+    if notifications is not None and channel is not None:
+        notifications.create(
+            channel=channel,
+            event_type=event_type,
+            actor_user_id=actor_user_id,
+            recipient_user_id=recipient_user_id,
+            source_code=code,
+        )
+    hub.broadcast({
+        "type": event_type,
+        "code": code,
+        "actor_user_id": actor_user_id,
+        "recipient_user_id": recipient_user_id,
+        **extra,
+    })
 
 
 def _map_error(exc: Exception) -> HTTPException:
@@ -150,13 +189,20 @@ def get_department_purchase_request(
 def create_department_purchase_request(
     payload: DepartmentPurchaseRequestIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE_YCMH, "create"))],
 ) -> DepartmentPurchaseRequestOut:
     try:
         row = svc.create_department_request(actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(
+        row.get("code"),
+        event_type="department_purchase_request_created",
+        notifications=notifications,
+        channel=CHANNEL_THU_MUA,
+        actor_user_id=user.id,
+    )
     return DepartmentPurchaseRequestOut(**row)
 
 
@@ -417,7 +463,8 @@ def create_purchase_request(
         row = svc.create_request(actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"), event_type="purchase_pending_approval")
+    # Mới là NHÁP của Thu mua, chưa gửi sang Kế toán nên chỉ làm tươi màn của người lập.
+    _notify_purchase_changed(row.get("code"))
     return PurchaseRequestOut(**row)
 
 
@@ -436,7 +483,7 @@ def create_purchase_requests_batch(
         rows = svc.create_requests_batch(actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(event_type="purchase_pending_approval")
+    _notify_purchase_changed()
     return PurchaseRequestListOut(items=[PurchaseRequestOut(**row) for row in rows],
                                   total=len(rows), page=1, size=len(rows) or 1)
 
@@ -474,13 +521,17 @@ def delete_purchase_request(
 def submit_purchase_request(
     request_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> PurchaseRequestOut:
     try:
         row = svc.submit(request_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"), event_type="purchase_pending_approval")
+    _notify_purchase_changed(
+        row.get("code"), event_type="purchase_pending_approval", notifications=notifications,
+        channel=CHANNEL_KE_TOAN, actor_user_id=user.id,
+    )
     return PurchaseRequestOut(**row)
 
 
@@ -495,13 +546,18 @@ def submit_purchase_request(
 def approve_purchase_request(
     request_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE_KE_TOAN, "approve"))],
 ) -> PurchaseRequestOut:
     try:
         row = svc.approve(request_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"), event_type="purchase_decision", decision="approved")
+    _notify_purchase_changed(
+        row.get("code"), event_type="purchase_decision", decision="approved",
+        notifications=notifications, channel=CHANNEL_THU_MUA, actor_user_id=user.id,
+        recipient_user_id=row.get("created_by_user_id"),
+    )
     return PurchaseRequestOut(**row)
 
 
@@ -510,13 +566,18 @@ def reject_purchase_request(
     request_id: int,
     payload: ReasonIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE_KE_TOAN, "approve"))],
 ) -> PurchaseRequestOut:
     try:
         row = svc.reject(request_id, reason=payload.reason, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"), event_type="purchase_decision", decision="rejected")
+    _notify_purchase_changed(
+        row.get("code"), event_type="purchase_decision", decision="rejected",
+        notifications=notifications, channel=CHANNEL_THU_MUA, actor_user_id=user.id,
+        recipient_user_id=row.get("created_by_user_id"),
+    )
     return PurchaseRequestOut(**row)
 
 
@@ -615,6 +676,7 @@ def create_purchase_delivery(
     request_id: int,
     payload: PurchaseDeliveryIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> PurchaseRequestOut:
     body = payload.model_dump()
@@ -624,7 +686,10 @@ def create_purchase_delivery(
     except PurchaseError as exc:
         raise _map_error(exc) from None
     seq_no = row.get("deliveries", [{}])[-1].get("seq_no") if row.get("deliveries") else None
-    _notify_purchase_changed(row.get("code"), event_type="purchase_delivery_created", seq_no=seq_no)
+    _notify_purchase_changed(
+        row.get("code"), event_type="purchase_delivery_created", seq_no=seq_no,
+        notifications=notifications, channel=CHANNEL_KE_TOAN, actor_user_id=user.id,
+    )
     return PurchaseRequestOut(**row)
 
 
@@ -637,6 +702,7 @@ def update_purchase_delivery(
     delivery_id: int,
     payload: PurchaseDeliveryIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> PurchaseRequestOut:
     body = payload.model_dump()
@@ -645,7 +711,10 @@ def update_purchase_delivery(
         row = svc.sua_dot_giao(request_id, delivery_id, lines=lines, actor=user, **body)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(
+        row.get("code"), event_type="purchase_delivery_updated",
+        notifications=notifications, channel=CHANNEL_KE_TOAN, actor_user_id=user.id,
+    )
     return PurchaseRequestOut(**row)
 
 
@@ -657,13 +726,17 @@ def delete_purchase_delivery(
     request_id: int,
     delivery_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> PurchaseRequestOut:
     try:
         row = svc.xoa_dot_giao(request_id, delivery_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(
+        row.get("code"), event_type="purchase_delivery_deleted",
+        notifications=notifications, channel=CHANNEL_KE_TOAN, actor_user_id=user.id,
+    )
     return PurchaseRequestOut(**row)
 
 
@@ -672,6 +745,7 @@ def assign_purchase_invoice(
     request_id: int,
     payload: PurchaseInvoiceAssignIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> PurchaseRequestOut:
     try:
@@ -684,7 +758,10 @@ def assign_purchase_invoice(
         )
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(
+        row.get("code"), event_type="purchase_invoice_updated",
+        notifications=notifications, channel=CHANNEL_KE_TOAN, actor_user_id=user.id,
+    )
     return PurchaseRequestOut(**row)
 
 

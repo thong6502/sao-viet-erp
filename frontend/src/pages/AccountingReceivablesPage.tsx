@@ -17,7 +17,7 @@ import { Button } from "../components/Button";
 import { CodeLink } from "../components/CodeLink";
 import { DetailModal } from "../components/DetailModal";
 import { Icon } from "../components/Icons";
-import { fmtDate, fmtDateTime, money } from "../utils/format";
+import { fmtDate, money } from "../utils/format";
 import "./accounting.css";
 import "./payables.css";
 import "./purchase.css";
@@ -141,10 +141,6 @@ export function AccountingReceivablesPage({
           <span className="pay-kpibar__icon pay-kpibar__icon--warn"><Icon name="shield" size={14} /></span>
           <b className="pay-kpibar__val">{known ? summary?.vuot_han_muc_count ?? 0 : "—"}</b>
           <span className="pay-kpibar__label">Khách vượt hạn mức</span>
-        </div>
-        <i className="pay-kpibar__sep" aria-hidden="true" />
-        <div className="pay-kpibar__item">
-          <span className="pay-kpibar__label">{known ? `chốt ${fmtDateTime(summary?.as_of)}` : "chưa chốt được"}</span>
         </div>
       </section>
 

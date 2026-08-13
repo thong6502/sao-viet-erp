@@ -216,6 +216,13 @@ export interface PurchaseNotifySummary {
   dot_giao_qua_han: number;
 }
 
+export type ModuleNotificationChannel = "thu_mua" | "ke_toan";
+
+export interface ModuleNotificationSummary {
+  thu_mua: number;
+  ke_toan: number;
+}
+
 export type QuoteEvent =
   | { type: "quote_decision"; quote_id: number; code: string; decision: "approved" | "rejected" }
   | { type: "quote_pending_changed"; code?: string }
@@ -268,17 +275,39 @@ export type QuoteEvent =
   // đợt này chỉ NỐI vào — không mở kênh SSE thứ hai.
   | { type: "purchase_changed"; code?: string | null }
   | { type: "accounting_changed"; code?: string | null }
+  | { type: "department_purchase_request_created"; code?: string | null; actor_user_id?: number | null }
   | { type: "sales_invoice_created"; code?: string | null; invoice_id?: number; invoice_number?: string | null }
   | { type: "sales_invoice_cancelled"; code?: string | null; invoice_id?: number; invoice_number?: string | null }
   | { type: "sales_invoice_receipt_created"; code?: string | null; invoice_id?: number; receipt_code?: string | null }
   | { type: "sales_invoice_created"; code?: string | null; invoice_id?: number; invoice_number?: string | null }
   | { type: "sales_invoice_cancelled"; code?: string | null; invoice_id?: number; invoice_number?: string | null }
   | { type: "sales_invoice_receipt_created"; code?: string | null; invoice_id?: number; receipt_code?: string | null }
-  | { type: "purchase_pending_approval"; code?: string | null }
-  | { type: "purchase_decision"; code?: string | null; decision: "approved" | "rejected" }
-  | { type: "purchase_delivery_created"; code?: string | null; seq_no?: number | null }
-  | { type: "payment_voucher_created"; code?: string | null; voucher_code?: string | null }
-  | { type: "payment_voucher_cancelled"; code?: string | null; voucher_code?: string | null }
+  | { type: "purchase_pending_approval"; code?: string | null; actor_user_id?: number | null }
+  | {
+      type: "purchase_decision";
+      code?: string | null;
+      decision: "approved" | "rejected";
+      actor_user_id?: number | null;
+      recipient_user_id?: number | null;
+    }
+  | { type: "purchase_delivery_created"; code?: string | null; seq_no?: number | null; actor_user_id?: number | null }
+  | { type: "purchase_delivery_updated"; code?: string | null; seq_no?: number | null; actor_user_id?: number | null }
+  | { type: "purchase_delivery_deleted"; code?: string | null; seq_no?: number | null; actor_user_id?: number | null }
+  | { type: "purchase_invoice_updated"; code?: string | null; actor_user_id?: number | null }
+  | {
+      type: "payment_voucher_created";
+      code?: string | null;
+      voucher_code?: string | null;
+      actor_user_id?: number | null;
+      recipient_user_id?: number | null;
+    }
+  | {
+      type: "payment_voucher_cancelled";
+      code?: string | null;
+      voucher_code?: string | null;
+      actor_user_id?: number | null;
+      recipient_user_id?: number | null;
+    }
   // Kho (spec-kho-de-nghi §10): `stock_request` = tin đích danh có sẵn câu chữ để toast;
   // `stock_request_pending_changed` = tín hiệu NHẸ (danh sách chờ đổi) → chỉ refetch badge.
   | { type: "stock_request"; code?: string; message: string; loai?: "NHAP" | "XUAT" }
@@ -8070,6 +8099,17 @@ export const api = {
       return authed<SupplierItemImportOut>("/api/suppliers/items/import", token, {
         method: "POST",
         body: form,
+      });
+    },
+  },
+
+  moduleNotifications: {
+    summary(token: string): Promise<ModuleNotificationSummary> {
+      return authed<ModuleNotificationSummary>("/api/module-notifications/summary", token);
+    },
+    markRead(token: string, channel: ModuleNotificationChannel): Promise<void> {
+      return authed<void>(`/api/module-notifications/${channel}/mark-read`, token, {
+        method: "POST",
       });
     },
   },

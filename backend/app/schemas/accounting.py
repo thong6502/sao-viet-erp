@@ -106,6 +106,7 @@ class PaymentVoucherOut(BaseModel):
     purchase_request_code: str
     purchase_request_total: int | None = None
     purchase_paid_amount: int | None = None
+    purchase_created_by_user_id: int | None = None
     purchase_created_by_name: str | None = None
     receipt_received_amount: int = 0
     receipt_pending_amount: int = 0

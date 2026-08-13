@@ -50,6 +50,7 @@ from .repositories.user_repo import UserRepository
 from .repositories.plate_die_rate_repo import PlateDieRateRepository
 from .repositories.norm_repo import NormRepository
 from .repositories.document_sequence_repo import DocumentSequenceRepository
+from .repositories.module_notification_repo import ModuleNotificationRepository
 from .security import decode_access_token, decode_file_token
 from .services.auth_service import AuthError, AuthService
 from .services.accounting_service import AccountingService, receivable_rows
@@ -88,6 +89,12 @@ _bearer = HTTPBearer(auto_error=False)
 
 def get_user_repository(db: Annotated[Session, Depends(get_db)]) -> UserRepository:
     return UserRepository(db)
+
+
+def get_module_notification_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> ModuleNotificationRepository:
+    return ModuleNotificationRepository(db)
 
 
 def get_auth_service(

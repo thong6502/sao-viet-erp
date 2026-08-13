@@ -7472,3 +7472,48 @@ def _migrate_sales_invoices_legacy_compat(db: Session) -> None:
 
 
 MIGRATIONS.append(("0189_sales_invoices_legacy_compat", _migrate_sales_invoices_legacy_compat))
+
+
+def _migrate_module_notifications(db: Session) -> None:
+    """Tạo hai bảng badge đọc/chưa đọc cho DB đang chạy.
+
+    DB trắng đã được ``create_all`` dựng từ model; ``checkfirst`` giữ migration idempotent cho cả
+    SQLite và PostgreSQL mà không phải duy trì hai bản CREATE TABLE bằng chuỗi SQL.
+    """
+    from .models.module_notification import ModuleNotification, ModuleNotificationRead
+
+    bind = db.get_bind()
+    ModuleNotification.__table__.create(bind, checkfirst=True)
+    ModuleNotificationRead.__table__.create(bind, checkfirst=True)
+    db.commit()
+
+
+MIGRATIONS.append(("0190_module_notifications", _migrate_module_notifications))
+
+
+def _migrate_module_notification_recipient(db: Session) -> None:
+    """Bổ sung người nhận cho bảng thông báo đã được tạo bởi bản 0190 đầu tiên.
+
+    Một số DB đã chạy 0190 trước khi ``recipient_user_id`` được thêm vào model. Sửa lại 0190 không
+    giúp các DB đó vì migration đã được đánh dấu hoàn tất, nên phải có một bước mới độc lập.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "module_notifications" not in set(insp.get_table_names()):
+        return
+    if "recipient_user_id" not in _existing_columns(insp, "module_notifications"):
+        db.execute(text(
+            "ALTER TABLE module_notifications ADD COLUMN recipient_user_id INTEGER "
+            "REFERENCES users(id) ON DELETE CASCADE"
+        ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_module_notifications_recipient_user_id "
+        "ON module_notifications (recipient_user_id)"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append((
+    "0191_module_notification_recipient",
+    _migrate_module_notification_recipient,
+))

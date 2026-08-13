@@ -13,7 +13,7 @@ import type { NavigateFn } from "../components/AppShell";
 import { Button } from "../components/Button";
 import { DetailModal } from "../components/DetailModal";
 import { Icon } from "../components/Icons";
-import { fmtDate, fmtDateTime, money } from "../utils/format";
+import { fmtDate, money } from "../utils/format";
 import "./accounting.css";
 import "./payables.css";
 import "./purchase.css";
@@ -232,12 +232,6 @@ export function AccountingPayablesPage({
           </b>
           <span className="pay-kpibar__label">NCC vượt hạn mức</span>
         </div>
-        <i className="pay-kpibar__sep" aria-hidden="true" />
-        <div className="pay-kpibar__item">
-          <span className="pay-kpibar__label">
-            {biet ? `chốt ${fmtDateTime(summary?.as_of)}` : "chưa chốt được"}
-          </span>
-        </div>
       </section>
 
       <section className="acct-toolbar">
@@ -299,12 +293,7 @@ export function AccountingPayablesPage({
                   ) : summary && summary.items.length > 0 ? (
                     "Không có nhà cung cấp nào khớp bộ lọc."
                   ) : (
-                    // Nói THẲNG là đã chốt và chốt lúc nào. Câu cụt "chưa nợ ai" trông y hệt lúc
-                    // màn hỏng — mà đó đúng là chuyện đã xảy ra.
-                    <>
-                      <strong>Không còn nợ nhà cung cấp nào</strong> — chốt lúc{" "}
-                      {fmtDateTime(summary?.as_of)}
-                    </>
+                    <strong>Không còn nợ nhà cung cấp nào</strong>
                   )}
                 </td>
               </tr>
@@ -527,7 +516,7 @@ function PayablesDrawer({
       title={supplierName}
       subtitle={
         detail
-          ? `Còn nợ ${money(detail.total_due)} · chốt ngày ${fmtDate(detail.as_of)}`
+          ? `Còn nợ ${money(detail.total_due)}`
           : undefined
       }
       badge={

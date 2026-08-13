@@ -2280,6 +2280,9 @@ class AccountingService:
             "purchase_request_total": purchase_total,
             "purchase_paid_amount": purchase_paid_amount,
             # Người phụ trách mua (lập PMH) — mặc định "Người nộp tiền" của phiếu thu.
+            "purchase_created_by_user_id": (
+                purchase.created_by_user_id if purchase else None
+            ),
             "purchase_created_by_name": (
                 self._user_name(purchase.created_by_user_id) if purchase else None
             ),

@@ -4529,6 +4529,61 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 > `lsx` / `lsx_cong_doan` ở mục trên. Migration `0079`–`0087` (ALTER các bảng cũ) vẫn ship nhưng
 > tự no-op vì bảng không còn. Tài liệu mô tả 8 bảng cũ đã xoá khỏi file này để khỏi gây nhiễu.
 
+### `module_notifications`
+
+**Purpose:** một sự kiện nội bộ cần hiện badge ở một màn Thu mua/Kế toán; một dòng được dùng chung
+cho mọi người có quyền đọc màn đó, không nhân bản theo người nhận.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Thứ tự sự kiện, đồng thời là mốc đọc ổn định. |
+| `channel` | `String(32)` → `VARCHAR(32)` | **IX** | no | — | Kênh nhận: `thu_mua` hoặc `ke_toan`. |
+| `event_type` | `String(64)` → `VARCHAR(64)` | — | no | — | Loại sự kiện realtime, ví dụ duyệt đơn hoặc cập nhật đợt giao. |
+| `source_code` | `String(64)` → `VARCHAR(64)` | — | yes | — | Mã đơn/chứng từ nguồn để truy vết và soạn toast. |
+| `actor_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Người tạo sự kiện; người này không tự nhận badge. |
+| `recipient_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Người nhận đích danh; NULL nghĩa là mọi người có quyền đọc kênh. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | **IX** | no | now (UTC) | Thời điểm phát sinh. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Foreign keys: `actor_user_id FK→users.id` (`SET NULL`), `recipient_user_id FK→users.id` (`CASCADE`).
+- Indexes: `channel`, `actor_user_id`, `recipient_user_id`, `created_at`.
+
+**Relationships**
+
+- Không giữ danh sách người nhận; quyền RBAC quyết định ai nhìn thấy badge của kênh.
+
+**Tất cả cột:** `id`, `channel`, `event_type`, `source_code`, `actor_user_id`, `recipient_user_id`, `created_at`.
+
+---
+
+### `module_notification_reads`
+
+**Purpose:** mốc thông báo cuối đã đọc của một người trong một kênh; một dòng cho mỗi cặp người × kênh.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Khóa kỹ thuật. |
+| `user_id` | `Integer` → `INTEGER` | **FK→users.id**, **U**, **IX** | no | — | Người đã đọc. |
+| `channel` | `String(32)` → `VARCHAR(32)` | **U**, **IX** | no | — | Kênh `thu_mua` hoặc `ke_toan`. |
+| `last_read_notification_id` | `Integer` → `INTEGER` | — | no | `0` | Mọi thông báo cùng kênh có id không lớn hơn mốc này đã đọc. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now/onupdate | Lần vào màn gần nhất. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Unique constraint `uq_module_notification_read_user_channel` trên (`user_id`, `channel`).
+- Foreign key: `user_id FK→users.id` (`CASCADE`).
+
+**Relationships**
+
+- Nhiều mốc đọc thuộc một người dùng; không FK cứng tới thông báo cuối để việc dọn thông báo cũ không khóa nhau.
+
+**Tất cả cột:** `id`, `user_id`, `channel`, `last_read_notification_id`, `updated_at`.
+
+---
+
 ## Template for a new table (copy when adding one)
 
 ```markdown

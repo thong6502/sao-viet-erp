@@ -14,6 +14,7 @@ import {
   type DepartmentPurchaseRequestRow,
   type DepartmentPurchaseRequestStatus,
   type PurchaseAttachmentRow,
+  type PurchaseDeliveryInput,
   type PurchaseDeliveryRow,
   type PurchaseRequestInput,
   type PurchaseRequestLineInput,
@@ -581,6 +582,7 @@ export function PurchaseRequestsPage({
   navigate,
   eventTick = 0,
   focusRequestCode = null,
+  onDataRefreshed,
 }: {
   navigate: NavigateFn;
   eventTick?: number;
@@ -588,6 +590,7 @@ export function PurchaseRequestsPage({
    *  Mã `PMH-…` = phiếu mua → tab "phieu"; mã `YCMH-…` = yêu cầu → tab "yeu-cau".
    *  Xem effect "BẪY LIÊN THÔNG" bên dưới trước khi đụng vào. */
   focusRequestCode?: string | null;
+  onDataRefreshed?: () => void;
 }) {
   const { token } = useAuth();
   const can = useCan();
@@ -832,6 +835,7 @@ export function PurchaseRequestsPage({
             ? current
             : null,
         );
+        onDataRefreshed?.();
       })
       .catch((err) => {
         if (err instanceof ApiError && err.isForbidden) setForbidden(true);
@@ -849,6 +853,7 @@ export function PurchaseRequestsPage({
     neededFrom,
     neededTo,
     page,
+    onDataRefreshed,
   ]);
 
   useEffect(() => {
@@ -3174,8 +3179,8 @@ function DeliveryDialog({
   const [ngayGiao, setNgayGiao] = useState(
     delivery?.delivery_date ?? todayInputValue(),
   );
-  // Ô "Hạn trả" đang TẮT trên form (khối JSX bên dưới bị comment): hạn trả để hệ suy từ
-  // `ngày giao + số ngày cho nợ của NCC`, không ai gõ tay nữa.
+  // Ô "Hạn trả" đang TẮT trên form (khối JSX bên dưới bị comment): hạn trả ưu tiên suy từ
+  // `ngày hóa đơn + số ngày cho nợ của NCC`; chưa có hóa đơn mới lùi về ngày giao.
   //
   // Vẫn giữ biến này và vẫn GỬI LÊN: sửa một đợt đã có hạn khai tay trước đó mà gửi `null` là âm
   // thầm xoá mất hạn đó, và món nợ tụt khỏi cột Quá hạn không ai hay. Bật lại ô thì đổi dòng này
@@ -3296,10 +3301,16 @@ function DeliveryDialog({
   async function submit() {
     if (!token || busy) return;
     const lines = row.lines
-      .map((line) => ({
-        purchase_request_line_id: line.id,
-        quantity: Number(soNhan[line.id]),
-      }))
+      .map((line) => {
+        const existing = delivery?.lines.find(
+          (item) => item.purchase_request_line_id === line.id,
+        );
+        return {
+          purchase_request_line_id: line.id,
+          quantity: Number(soNhan[line.id]),
+          note: existing?.note ?? null,
+        };
+      })
       .filter((l) => Number.isFinite(l.quantity) && l.quantity > 0);
     if (lines.length === 0) {
       setError(
@@ -3327,13 +3338,27 @@ function DeliveryDialog({
     setBusy(true);
     setError(null);
     try {
-      const payload = {
+      const existingLines = new Map(
+        (delivery?.lines ?? []).map((line) => [line.purchase_request_line_id, line]),
+      );
+      const linesChanged =
+        !suaDot ||
+        lines.length !== existingLines.size ||
+        lines.some((line) => {
+          const existing = existingLines.get(line.purchase_request_line_id);
+          return (
+            existing == null ||
+            Math.abs(existing.quantity - line.quantity) > 1e-9 ||
+            (existing.note ?? null) !== (line.note ?? null)
+          );
+        });
+      const payload: PurchaseDeliveryInput = {
         delivery_date: ngayGiao,
         due_date: hanTra || null,
         invoice_number: soHoaDon.trim() || null,
         invoice_date: ngayHoaDon || null,
         note: ghiChu.trim() || null,
-        lines,
+        lines: linesChanged ? lines : null,
       };
       let sau = suaDot
         ? await api.purchaseRequests.updateDelivery(
@@ -3411,8 +3436,8 @@ function DeliveryDialog({
             <span>
               Ngày giao <span className="purchase__required-star">*</span>
             </span>
-            {/* Chặn TƯƠNG LAI: ngày giao là mốc tính hạn trả, gõ nhầm sang tháng sau là món nợ biến
-                khỏi cột Quá hạn. Quá khứ vẫn cho — hàng về hôm qua mới ghi hôm nay là chuyện thường. */}
+            {/* Chặn TƯƠNG LAI: chưa có hóa đơn thì ngày giao là mốc dự phòng tính hạn trả. Quá khứ
+                vẫn cho — hàng về hôm qua mới ghi hôm nay là chuyện thường. */}
             <input
               className="input"
               type="date"
@@ -3422,7 +3447,7 @@ function DeliveryDialog({
             />
           </label>
         </div>
-        {/* Ô "Hạn trả" TẮT có chủ ý (hạn trả để hệ suy từ ngày giao + số ngày cho nợ của NCC).
+        {/* Ô "Hạn trả" TẮT có chủ ý (ưu tiên ngày hóa đơn, chưa có mới dùng ngày giao + số ngày nợ).
             Biến `hanTra` vẫn được gửi lên — xem khai báo state ở đầu component. Giữ nguyên khối
             dưới đây để bật lại được, đừng xoá: */}
         {/* <label className="purchase__field">

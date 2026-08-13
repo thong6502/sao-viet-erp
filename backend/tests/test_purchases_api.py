@@ -181,9 +181,92 @@ def test_ba_man_thu_mua_gac_bang_ba_khoa_doc_lap(client):
     r2 = client.post("/api/department-purchase-requests",
                      json=_department_request_payload(), headers=h_ycmh)
     assert r2.status_code == 201, r2.text
+    # Ô chọn Vật tư của YCMH đọc danh mục bằng chính quyền YCMH; tắt Thu mua không được làm nó
+    # trắng. Chỉ là cửa đọc picker, không mở CRUD danh mục.
+    assert client.get("/api/vat-lieu-kho/mat-hang", headers=h_ycmh).status_code == 200
     # ...nhung KHONG mo duoc danh muc NCC va KHONG cham duoc phieu mua.
     assert client.get("/api/suppliers", headers=h_ycmh).status_code == 403
     assert client.get("/api/purchase-requests", headers=h_ycmh).status_code == 403
+    # Endpoint badge không được rò số sự kiện của hai màn người này không có quyền.
+    assert client.get(
+        "/api/module-notifications/summary", headers=h_ycmh
+    ).json() == {"thu_mua": 0, "ke_toan": 0}
+    assert client.post(
+        "/api/module-notifications/thu_mua/mark-read", headers=h_ycmh
+    ).status_code == 403
+
+
+def test_badge_thu_mua_ke_toan_luu_trang_thai_da_doc(client, auth_headers):
+    """Gửi duyệt → Kế toán có badge; vào màn/mark-read → refresh vẫn 0; duyệt → Thu mua có badge."""
+    supplier = _supplier(client, auth_headers, name="NCC Badge Hai Chieu")
+    pr = _create_purchase_request(client, auth_headers, supplier["id"])
+    approver_headers = _h_duyet()
+
+    # Phiếu nháp chưa phải thông báo gửi Kế toán.
+    before = client.get("/api/module-notifications/summary", headers=approver_headers)
+    assert before.status_code == 200, before.text
+    assert before.json()["ke_toan"] == 0
+
+    sent = client.post(
+        f"/api/purchase-requests/{pr['id']}/submit", headers=auth_headers
+    )
+    assert sent.status_code == 200, sent.text
+    assert client.get(
+        "/api/module-notifications/summary", headers=approver_headers
+    ).json()["ke_toan"] == 1
+
+    seen = client.post(
+        "/api/module-notifications/ke_toan/mark-read", headers=approver_headers
+    )
+    assert seen.status_code == 204, seen.text
+    assert client.get(
+        "/api/module-notifications/summary", headers=approver_headers
+    ).json()["ke_toan"] == 0
+
+    approved = client.post(
+        f"/api/purchase-requests/{pr['id']}/approve", headers=approver_headers
+    )
+    assert approved.status_code == 200, approved.text
+    # Admin là người lập/Thu mua, khác người duyệt nên nhận thông báo ngược lại.
+    assert client.get(
+        "/api/module-notifications/summary", headers=auth_headers
+    ).json()["thu_mua"] == 1
+
+
+def test_tao_ycmh_bao_ngay_cho_thu_mua_va_luu_den_khi_doc(client, auth_headers):
+    """Phòng ban tạo YCMH -> Thu mua có badge ngay, refresh còn, vào màn mới hết."""
+    requester_token = _vai_dung_mot_man(
+        "yeu_cau_mua_hang",
+        "nguoi-tao-ycmh-bao-thu-mua",
+        can_read=True,
+        can_create=True,
+        can_update=True,
+    )
+    requester_headers = {"Authorization": f"Bearer {requester_token}"}
+
+    before = client.get("/api/module-notifications/summary", headers=auth_headers)
+    assert before.status_code == 200, before.text
+    assert before.json()["thu_mua"] == 0
+
+    created = client.post(
+        "/api/department-purchase-requests",
+        json=_department_request_payload(),
+        headers=requester_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    # Đếm từ bản ghi server nên tải lại trang vẫn còn, không phụ thuộc người dùng đã mở Mua hàng.
+    first = client.get("/api/module-notifications/summary", headers=auth_headers)
+    second = client.get("/api/module-notifications/summary", headers=auth_headers)
+    assert first.json()["thu_mua"] == second.json()["thu_mua"] == 1
+
+    seen = client.post(
+        "/api/module-notifications/thu_mua/mark-read", headers=auth_headers
+    )
+    assert seen.status_code == 204, seen.text
+    assert client.get(
+        "/api/module-notifications/summary", headers=auth_headers
+    ).json()["thu_mua"] == 0
 
 
 def test_khong_co_quyen_thi_khong_lap_duoc_yeu_cau_mua_hang(client):

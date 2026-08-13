@@ -352,16 +352,19 @@ def phan_bo_tien_dot(row) -> tuple[list[dict], int, int]:
 def han_tra_dot(delivery, supplier) -> date | None:
     """Hạn trả của một đợt giao.
 
-    Ưu tiên `due_date` khai tay; không có thì suy `ngày giao + suppliers.credit_days`.
+    Hóa đơn là căn cứ công nợ: có ngày hóa đơn thì suy từ ngày hóa đơn trước. `due_date` chỉ còn
+    là hạn đã chốt thủ công/dữ liệu cũ khi chưa đủ dữ liệu để suy; cuối cùng mới lùi về ngày giao.
     `credit_days` NULL = NCC CHƯA ĐẶT hạn ⇒ trả None = đợt này **không bao giờ vào cột Quá hạn**.
     Vì thế màn Công nợ phải đẩy đợt không-có-hạn lên ĐẦU kèm badge, đúng nếp chống giấu nợ đã áp
     cho phiếu chi thiếu hạn trước đây — im lặng ở đây nghĩa là một món nợ không ai canh."""
+    so_ngay = getattr(supplier, "credit_days", None) if supplier is not None else None
+    if delivery.invoice_date is not None and so_ngay is not None:
+        return delivery.invoice_date + timedelta(days=int(so_ngay))
     if delivery.due_date is not None:
         return delivery.due_date
-    so_ngay = getattr(supplier, "credit_days", None) if supplier is not None else None
-    if so_ngay is None:
-        return None
-    return delivery.delivery_date + timedelta(days=int(so_ngay))
+    if so_ngay is not None:
+        return delivery.delivery_date + timedelta(days=int(so_ngay))
+    return None
 
 
 def purchase_money(row) -> dict:
@@ -2195,7 +2198,22 @@ class PurchaseService:
             setattr(dot, k, v)
         if lines is not None:
             cleaned = self._clean_dot_lines(dot, row, lines)
-            dot.lines = [PurchaseDeliveryLine(**c) for c in cleaned]
+            # Cập nhật TẠI CHỖ theo dòng gốc. Gán cả collection bằng object mới khiến SQLAlchemy
+            # có thể INSERT dòng thay thế trước khi DELETE dòng cũ, đụng UNIQUE
+            # (delivery_id, purchase_request_line_id) và nổ 500 khi sửa một đợt đã có hàng.
+            hien_tai = {line.purchase_request_line_id: line for line in dot.lines}
+            incoming_ids = {item["purchase_request_line_id"] for item in cleaned}
+            for item in cleaned:
+                line_id = item["purchase_request_line_id"]
+                existing = hien_tai.get(line_id)
+                if existing is None:
+                    dot.lines.append(PurchaseDeliveryLine(**item))
+                else:
+                    existing.quantity = item["quantity"]
+                    existing.note = item["note"]
+            for existing in list(dot.lines):
+                if existing.purchase_request_line_id not in incoming_ids:
+                    dot.lines.remove(existing)
         self._sau_khi_doi_dot(row)
         saved = self.requests.save(row)
         self.audit.create(

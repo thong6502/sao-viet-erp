@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, Up
 from ..deps import (
     get_accounting_service,
     get_authorization_service,
+    get_module_notification_repository,
     get_order_service,
     get_purchase_service,
     require_any_permission,
@@ -17,6 +18,10 @@ from ..deps import (
 from ..models.purchase import PR_DRAFT
 from ..realtime import hub
 from ..models.user import User
+from ..repositories.module_notification_repo import (
+    CHANNEL_THU_MUA,
+    ModuleNotificationRepository,
+)
 from ..schemas.accounting import (
     ApproveAndCreateVoucherIn,
     CancelSalesInvoiceIn,
@@ -76,9 +81,37 @@ MODULE_CN_THU = "cong_no_phai_thu"    # màn Công nợ phải thu
 MODULE_TKNH = "tk_ngan_hang"          # màn Tài khoản ngân hàng
 
 
-def _notify_accounting_changed(code: str | None = None, *, event_type: str = "accounting_changed", **extra) -> None:
+NotificationRepo = Annotated[
+    ModuleNotificationRepository, Depends(get_module_notification_repository)
+]
+
+
+def _notify_accounting_changed(
+    code: str | None = None,
+    *,
+    event_type: str = "accounting_changed",
+    notifications: ModuleNotificationRepository | None = None,
+    channel: str | None = None,
+    actor_user_id: int | None = None,
+    recipient_user_id: int | None = None,
+    **extra,
+) -> None:
     """Tín hiệu nhẹ cho các màn Kế toán/Thu mua tự refetch qua SSE."""
-    hub.broadcast({"type": event_type, "code": code, **extra})
+    if notifications is not None and channel is not None:
+        notifications.create(
+            channel=channel,
+            event_type=event_type,
+            actor_user_id=actor_user_id,
+            recipient_user_id=recipient_user_id,
+            source_code=code,
+        )
+    hub.broadcast({
+        "type": event_type,
+        "code": code,
+        "actor_user_id": actor_user_id,
+        "recipient_user_id": recipient_user_id,
+        **extra,
+    })
 
 
 def _map_error(exc: Exception) -> HTTPException:
@@ -427,16 +460,22 @@ def get_payment_voucher(
 def create_payment_voucher(
     payload: PaymentVoucherIn,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE_PC, "create"))],
 ):
     try:
         row = svc.create_voucher(actor=user, **payload.model_dump())
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+    purchase_code = row.get("purchase_request_code")
     _notify_accounting_changed(
-        row.get("purchase_request_code") or row.get("code"),
-        event_type="payment_voucher_created",
+        purchase_code or row.get("code"),
+        event_type="payment_voucher_created" if purchase_code else "accounting_changed",
         voucher_code=row.get("code"),
+        notifications=notifications if purchase_code else None,
+        channel=CHANNEL_THU_MUA if purchase_code else None,
+        actor_user_id=user.id,
+        recipient_user_id=row.get("purchase_created_by_user_id"),
     )
     return PaymentVoucherOut(**row)
 
@@ -450,16 +489,22 @@ def cancel_payment_voucher(
     voucher_id: int,
     payload: CancelPaymentVoucherIn,
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE_PC, "cancel"))],
 ):
     try:
         row = svc.cancel_voucher(voucher_id, actor=user, reason=payload.reason)
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+    purchase_code = row.get("purchase_request_code")
     _notify_accounting_changed(
-        row.get("purchase_request_code") or row.get("code"),
-        event_type="payment_voucher_cancelled",
+        purchase_code or row.get("code"),
+        event_type="payment_voucher_cancelled" if purchase_code else "accounting_changed",
         voucher_code=row.get("code"),
+        notifications=notifications if purchase_code else None,
+        channel=CHANNEL_THU_MUA if purchase_code else None,
+        actor_user_id=user.id,
+        recipient_user_id=row.get("purchase_created_by_user_id"),
     )
     return PaymentVoucherOut(**row)
 

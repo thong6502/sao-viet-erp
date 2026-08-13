@@ -427,7 +427,13 @@ function NavRow({ item, activeId, isOpen, badge, onSelect, onToggle }: NavRowPro
         <Icon name={item.icon} className="sidebar__icon" />
         <span className="sidebar__label">{item.label}</span>
         {badge != null && badge > 0 && (
-          <span className="sidebar__badge" aria-label={`${badge} chờ xử lý`}>{badge > 99 ? "99+" : badge}</span>
+          <span
+            className="sidebar__badge"
+            aria-label={`${badge} thông báo chưa đọc`}
+            title={`${badge} thông báo chưa đọc`}
+          >
+            {badge > 99 ? "99+" : badge}
+          </span>
         )}
         {hasChildren && (
           <Icon
