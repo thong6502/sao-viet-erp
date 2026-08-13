@@ -148,6 +148,7 @@ def _khoa_row(db: Session, row) -> KhoKhoaSoRow:
         hanh_dong=row.hanh_dong,
         nguoi_khoa_ten=getattr(nguoi, "name", None),
         khoa_luc=row.khoa_luc,
+        ten=row.ten,
     )
 
 
@@ -162,11 +163,11 @@ def get_khoa_so_ky(db: Db, _: CloseBookUser) -> list[KhoaSoKyRow]:
     """Các KỲ CÒN đang khóa (đã gộp khoảng liền mạch) — cho tab 'Kỳ đã khóa' chọn nhanh + xuất."""
     kho_repo = KhoHangRepository(db)
     out: list[KhoaSoKyRow] = []
-    for kho_id, tu, den, khoa_luc in KhoKhoaSoRepository(db).locked_periods():
+    for kho_id, tu, den, khoa_luc, ten in KhoKhoaSoRepository(db).locked_periods():
         kho = kho_repo.get(kho_id) if kho_id else None
         out.append(KhoaSoKyRow(
             kho_id=kho_id, kho_ten=getattr(kho, "ten", None),
-            tu_ngay=tu, den_ngay=den, khoa_luc=khoa_luc,
+            tu_ngay=tu, den_ngay=den, khoa_luc=khoa_luc, ten=ten,
         ))
     return out
 
@@ -184,6 +185,16 @@ def set_khoa_so(payload: KhoKhoaSoIn, db: Db, user: CloseBookUser) -> KhoKhoaSoR
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Khoảng này chồng lấn kỳ đã khóa — chọn khoảng bắt đầu sau ngày đã khóa gần nhất.",
         )
+    # KHÓA: TÊN kỳ không được TRÙNG tên một kỳ ĐANG KHÓA khác (so không phân biệt hoa/thường) —
+    # chặn nhầm lẫn khi có nhiều kỳ. Bỏ trống thì không kiểm.
+    if payload.hanh_dong == "khoa" and (payload.ten or "").strip():
+        ten_norm = (payload.ten or "").strip().casefold()
+        dang_dung = {(t[4] or "").strip().casefold() for t in repo.locked_periods() if t[4]}
+        if ten_norm in dang_dung:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Tên kỳ '{payload.ten.strip()}' đã dùng cho một kỳ đang khóa — đặt tên khác.",
+            )
     # MỞ: khóa sổ TUẦN TỰ — chỉ mở được phần ĐUÔI vùng khóa, tính từ NGÀY CUỐI đang khóa (cutoff).
     # → mở được cả vùng [đầu..cutoff] hoặc một đuôi [giữa..cutoff]; KHÔNG mở phần giữa/đầu để hở
     #   kỳ mới hơn, cũng không mở vượt quá vùng khóa.
@@ -218,6 +229,7 @@ def set_khoa_so(payload: KhoKhoaSoIn, db: Db, user: CloseBookUser) -> KhoKhoaSoR
     row = repo.add(
         kho_id=payload.kho_id, tu_ngay=payload.tu_ngay, den_ngay=payload.den_ngay,
         hanh_dong=payload.hanh_dong, nguoi_khoa_id=user.id,
+        ten=((payload.ten or "").strip() or None) if payload.hanh_dong == "khoa" else None,
     )
     return _khoa_row(db, row)
 

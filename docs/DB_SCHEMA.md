@@ -4205,6 +4205,7 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 | `duyet_luc` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm duyệt. |
 | `ly_do_tu_choi` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lý do khi `rejected` — người DUYỆT từ chối. |
 | `ly_do_huy` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lý do KHO hủy đề nghị (hủy phiếu nháp → đề nghị KẾT THÚC ở `Đã hủy`). Tách khỏi `ly_do_tu_choi` vì là hai người và hai thời điểm khác nhau. NULL nếu chưa hủy. Thêm qua mig `0114`. |
+| `quyet_dinh_xem_luc` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Người TẠO đã xem QUYẾT ĐỊNH (duyệt/từ chối/kho hủy) lúc nào — NULL = chưa xem ⇒ nuôi badge "yêu cầu của tôi vừa được quyết" (so `duyet_luc > coalesce(quyet_dinh_xem_luc, epoch)`). Mirror `decision_seen_at` báo giá. Thêm qua mig `0188`. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo. |
 | `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now/onupdate | Sửa lần cuối. |
 
@@ -4218,7 +4219,7 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 
 - Một đề nghị có nhiều `stock_request_lines` (cascade delete-orphan) và được nhiều `stock_vouchers` ứng vào.
 
-**Tất cả cột:** `id`, `ma`, `loai`, `nguoi_tao_id`, `bo_phan_id`, `kho_id`, `ngay_can`, `uu_tien`, `ghi_chu`, `loai_kho`, `trang_thai`, `nguoi_duyet_id`, `duyet_luc`, `ly_do_tu_choi`, `ly_do_huy`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `loai`, `nguoi_tao_id`, `bo_phan_id`, `kho_id`, `ngay_can`, `uu_tien`, `ghi_chu`, `loai_kho`, `trang_thai`, `nguoi_duyet_id`, `duyet_luc`, `ly_do_tu_choi`, `ly_do_huy`, `quyet_dinh_xem_luc`, `created_at`, `updated_at`.
 
 ---
 
@@ -4235,6 +4236,7 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 | `hanh_dong` | `String(8)` → `VARCHAR(8)` | — | no | `khoa` | `khoa` = khóa kỳ; `mo` = mở lại. Bản ghi sau đè bản ghi trước ở các ngày giao nhau. |
 | `nguoi_khoa_id` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Kế toán kho thực hiện khóa/mở kỳ. |
 | `khoa_luc` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm ghi bản ghi khóa. |
+| `ten` | `String(120)` → `VARCHAR(120)` | — | yes | — | Tên kỳ (chỉ đặt khi `khoa`) — nhận diện nhanh + CHẶN TRÙNG tên với kỳ đang khóa khác. Bản ghi `mo` để trống. Thêm qua migration `0187`. |
 
 **Keys & indexes**
 
@@ -4245,7 +4247,34 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 
 - Bảng độc lập (không quan hệ ORM). Do `create_all` dựng; cấu trúc chốt ở migration `0170` (đổi từ 1 ngày `ngay_khoa` sang khoảng + `hanh_dong`). Thêm cùng Báo cáo kho (docs/spec-bao-cao-kho.md).
 
-**Tất cả cột:** `id`, `kho_id`, `tu_ngay`, `den_ngay`, `hanh_dong`, `nguoi_khoa_id`, `khoa_luc`.
+**Tất cả cột:** `id`, `kho_id`, `tu_ngay`, `den_ngay`, `hanh_dong`, `nguoi_khoa_id`, `khoa_luc`, `ten`.
+
+### `notifications`
+
+**Purpose:** Trung tâm thông báo (chuông Topbar). Mỗi bản ghi = 1 thông báo gửi tới MỘT người (`user_id`); hiện danh sách + đếm chưa đọc (`read_at IS NULL`). `link_loai` + `link_id` để bấm là mở đúng phiếu/yêu cầu. Cố tình GENERIC (không cột riêng cho kho) để sau nối thêm module. Bảng MỚI → `create_all` tự dựng (không cần migration).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | no | — | Người NHẬN thông báo. |
+| `loai` | `String(40)` → `VARCHAR(40)` | — | no | — | Phân loại nghiệp vụ (`kho_moi`, `kho_hoan_tat`, `kho_huy`…) — FE chọn icon/màu. |
+| `tieu_de` | `String(200)` → `VARCHAR(200)` | — | no | — | Tiêu đề ngắn hiển thị. |
+| `noi_dung` | `String(500)` → `VARCHAR(500)` | — | yes | — | Nội dung phụ (vd mã yêu cầu + người · phòng). |
+| `link_loai` | `String(40)` → `VARCHAR(40)` | — | yes | — | Đích điều hướng: `kho_inbox` (Hộp yêu cầu/thủ kho) · `kho_mine` (màn Yêu cầu/người tạo). NULL = không nhảy. |
+| `link_id` | `Integer` → `INTEGER` | — | yes | — | Id đối tượng đích (request_id). |
+| `read_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm ĐỌC (bấm vào). NULL = chưa đọc ⇒ tính vào badge chuông. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | **IX** | no | now (UTC) | Khi tạo. Sắp mới nhất trước. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index trên `user_id`, `created_at`.
+- Foreign keys: `user_id FK→users.id`.
+
+**Relationships**
+
+- Bảng độc lập (không quan hệ ORM). Do `create_all` dựng.
+
+**Tất cả cột:** `id`, `user_id`, `loai`, `tieu_de`, `noi_dung`, `link_loai`, `link_id`, `read_at`, `created_at`.
 
 ---
 

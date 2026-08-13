@@ -128,6 +128,8 @@ class StockRequestOut(BaseModel):
     # Lý do KHO hủy yêu cầu (hủy phiếu → yêu cầu 'Đã hủy'). Hiện ở mục "Đã hủy".
     ly_do_huy: str | None = None
     created_at: datetime
+    # Lần đổi gần nhất (tạo/cấp/hoàn tất/hủy) — FE xếp yêu cầu VỪA CÓ PHẢN HỒI lên đầu cho dễ thấy.
+    updated_at: datetime
     # Id phiếu ĐANG CHỜ GHI SỔ (nếu có) — FE đổi nút "Lập phiếu" thành "Xem phiếu", chống tạo trùng.
     open_voucher_id: int | None = None
     lines: list[StockRequestLineOut] = []
@@ -169,6 +171,7 @@ class KhoKhoaSoIn(BaseModel):
     tu_ngay: date
     den_ngay: date
     hanh_dong: str = Field(default="khoa", pattern="^(khoa|mo)$")
+    ten: str | None = Field(default=None, max_length=120)   # tên kỳ (chỉ khi 'khoa')
 
     @model_validator(mode="after")
     def _check_range(self):
@@ -186,6 +189,7 @@ class KhoKhoaSoRow(BaseModel):
     hanh_dong: str                        # 'khoa' | 'mo'
     nguoi_khoa_ten: str | None = None
     khoa_luc: datetime | None = None
+    ten: str | None = None                # tên kỳ (nếu có)
 
 
 class KhoaSoKyRow(BaseModel):
@@ -195,6 +199,7 @@ class KhoaSoKyRow(BaseModel):
     tu_ngay: date
     den_ngay: date
     khoa_luc: datetime | None = None      # thời điểm khóa quyết định tại ngày đầu kỳ
+    ten: str | None = None                # tên kỳ (từ bản ghi 'khoa' quyết định)
 
 
 class StockVoucherCancel(BaseModel):

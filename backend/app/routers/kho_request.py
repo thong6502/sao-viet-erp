@@ -166,7 +166,7 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
         duyet_luc=req.duyet_luc, ly_do_tu_choi=req.ly_do_tu_choi,
         ly_do_huy=req.ly_do_huy,
         open_voucher_id=open_voucher_id,
-        created_at=req.created_at, lines=lines,
+        created_at=req.created_at, updated_at=req.updated_at, lines=lines,
     )
 
 
@@ -248,11 +248,31 @@ def request_counts(
     hiện cho người XỬ LÝ (can_create=lập phiếu / can_view_stock) — khớp đúng người nhận thông báo;
     người chỉ TẠO yêu cầu (vd tổ trưởng SX) KHÔNG thấy badge. Trong tầm thì lọc theo SCOPE như list:
     kho trung tâm (all) thấy tổng; phòng ban thấy của phòng; scope own thấy của mình."""
+    # `done_unseen` / `fail_unseen` = phản hồi kho (yêu cầu HOÀN TẤT / KHÔNG THÀNH) của CHÍNH user mà
+    # user chưa mở xem — KHÔNG lọc theo scope xử-lý (việc của NGƯỜI TẠO, không phải workload kho).
+    # Người chỉ tạo yêu cầu vẫn nhận số này dù nhap/xuat = 0. Badge người tạo = done + fail.
+    resp = svc.requests.unseen_response_counts(user.id)
     is_kho_worker = authz.can(user, MODULE, "create") or authz.can(user, MODULE, "view_stock")
     if not is_kho_worker:
-        return {"nhap": 0, "xuat": 0}
+        return {"nhap": 0, "xuat": 0, "done_unseen": resp["done"], "fail_unseen": resp["fail"]}
     counts = svc.requests.count_by_loai([REQ_APPROVED], **_scoped_filters(user, authz))
-    return {"nhap": counts.get(REQ_NHAP, 0), "xuat": counts.get(REQ_XUAT, 0)}
+    return {
+        "nhap": counts.get(REQ_NHAP, 0),
+        "xuat": counts.get(REQ_XUAT, 0),
+        "done_unseen": resp["done"],
+        "fail_unseen": resp["fail"],
+    }
+
+
+@router.post("/{request_id}/seen", status_code=204)
+def mark_request_seen(
+    request_id: int,
+    svc: Service,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+):
+    """NGƯỜI TẠO mở xem 1 yêu cầu của mình → đánh dấu đã xem → hạ badge/số đỏ đúng yêu cầu đó.
+    Chỉ tác dụng lên yêu cầu do chính user tạo (repo lọc theo nguoi_tao_id)."""
+    svc.requests.mark_seen_one(request_id, user.id)
 
 
 # GỠ 2026-08-08 — ba cửa cũ: `GET /vat-tu` (tìm trong bảng `materials`), `POST /vat-tu` (kho tự

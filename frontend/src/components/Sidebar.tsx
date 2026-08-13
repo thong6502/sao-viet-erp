@@ -169,26 +169,19 @@ const NAV: NavSection[] = [
     ],
   },
   {
-    // SECTION "Nhập xuất kho" — nghiệp vụ chứng từ kho (yêu cầu + phiếu nhập/xuất). TÁCH khỏi
-    // "Kho hàng" vì section đó chỉ để LIỆT KÊ các kho vật lý đã khai báo, không chứa màn nghiệp vụ.
-    id: "nhap-xuat-kho",
-    label: "Nhập xuất kho",
+    // SECTION "Kho hàng" — GỘP màn nghiệp vụ kho (Yêu cầu nhập xuất · Báo cáo kho) + các kho ĐÃ
+    // KHAI BÁO (inject ĐỘNG từ AppShell qua dynamicItems, key theo section id → xếp SAU 2 mục
+    // nghiệp vụ, vì merge = [...items, ...dynamicItems]). `id`/`module` giữ nguyên nên routing +
+    // quyền không đổi khi dời khỏi section "Nhập xuất kho" cũ (đã bỏ).
+    id: "kho-hang",
+    label: "Kho hàng",
     items: [
       // MỘT mục — bên trong chia tab VIỆC (Yêu cầu · Hộp yêu cầu) × CHIỀU (Nhập · Xuất).
       // Tab "Hộp yêu cầu" tự ẩn nếu vai không có create/view_stock (gate trong KhoPage).
-      // Tên "Yêu cầu & Cấp phát": đúng việc của module (xin vật tư → kho cấp), phân biệt với
-      // section "Kho hàng" (kho vật lý: tồn/phiếu/ngưỡng).
       { id: "kho-main", label: "Yêu cầu nhập xuất", icon: "warehouse", module: "kho" },
       // Báo cáo kho (kế toán): sổ nhập-xuất + khóa kỳ + export MISA. AppShell ẩn nếu thiếu close_book.
       { id: "kho-baocao", label: "Báo cáo kho", icon: "fileText", module: "kho" },
     ],
-  },
-  {
-    // SECTION "Kho hàng" — CHỈ chứa các kho ĐÃ KHAI BÁO (inject ĐỘNG từ AppShell qua
-    // dynamicItems, key theo section id). Không có kho nào → section tự ẩn.
-    id: "kho-hang",
-    label: "Kho hàng",
-    items: [],
   },
   {
     id: "cau-hinh-dm",
