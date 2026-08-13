@@ -328,9 +328,6 @@ export const CFG_MAY: CatalogConfig = {
         { value: "tong", label: "Điền tổng — gõ thẳng một số" },
         { value: "khoan", label: "Theo từng khoản — máy tự cộng" },
       ] },
-    { key: "cho_ky_thuat_gio", label: "Chờ kỹ thuật sau khi chạy (giờ)", type: "number",
-      group: "Tốc độ & Vận hành",
-      hint: "Mực khô · màng nguội. KHÔNG chiếm máy — máy chạy job khác trong lúc chờ, chỉ bước SAU phải lùi. Máy UV khô dưới đèn thì để 0." },
     { key: "makeready_time_default", label: "Tổng thời gian chuẩn bị (phút)", type: "number",
       group: "Tốc độ & Vận hành",
       showIf: (f) => f._chuan_bi_kieu === "tong" },
@@ -409,18 +406,11 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // Nhìn ra công đoạn nào chưa khai số cho Lệnh sản xuất (giống cột Tốc độ bên màn Máy).
     // Ba thứ ĐI CÙNG NHAU ở một cột vì chúng cùng trả lời "bước này ăn bao nhiêu thời gian, và có
     // vướng dụng cụ không" — tách ba cột thì bảng dài mà vẫn phải đọc cả ba mới hiểu.
-    { key: "dau_viec_dinh_muc", label: "Chờ & ràng buộc",
+    { key: "dau_viec_dinh_muc", label: "Ràng buộc",
       render: (r) => {
-        const dv = (r.dau_viec_dinh_muc ?? []) as { cho_ky_thuat_gio?: number }[];
-        const gioMax = Array.isArray(dv) ? Math.max(0, ...dv.map((c) => Number(c.cho_ky_thuat_gio) || 0)) : 0;
-        if (!gioMax && !r.requires_tooling) return "—";
+        if (!r.requires_tooling) return "—";
         return (
           <div style={{ display: "flex", flexDirection: "column", gap: 2, fontSize: "12px" }}>
-            {gioMax > 0 && (
-              <span style={{ color: "var(--rust, #c5400a)", fontWeight: 500, display: "flex", alignItems: "center" }}>
-                <ClockIcon width={12} height={12} /> Chờ kỹ thuật tới {gioMax}h ({dv.length} đầu việc)
-              </span>
-            )}
             {!!r.requires_tooling && (
               <span className="rc__formula-pill">
                 Cần {lbl(TOOLING_TYPE)(r.tooling_type).toLowerCase()}
@@ -440,9 +430,6 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // (`may_thiet_bi.makeready_time_default`), KHÔNG đọc `cong_doan.setup_time` — cột đó dormant từ
     // trước. Để ô lại là mời người ta gõ một số không đổi phút nào, mà bước TỔ thì càng luôn = 0
     // (tổ không có máy). Chuẩn bị là chuyện của MÁY, khai ở màn Thiết bị & Máy móc.
-    // Chờ kỹ thuật KHÔNG khai ở đây nữa (10/08/2026): bước MÁY khai ở màn Máy, bước TỔ khai ở
-    // từng đầu việc bên dưới. Khoá theo công đoạn không tách được máy UV với máy cán màng (cùng
-    // công đoạn, chờ khác hẳn), cũng không tách được vào-keo với khâu-chỉ.
     // Mục C — bật hai cờ có sẵn. KHÔNG đoán bước bế theo tên công đoạn: đặt tên là việc của người
     // dùng, mà lịch thì khoá khuôn theo cờ này.
     { key: "requires_tooling", label: "Bước này cần khuôn / kẽm riêng", type: "checkbox",

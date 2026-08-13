@@ -4,7 +4,7 @@ Ba detector mới (`trung_khuon`, `khuon_chua_san_sang`, `thieu_nguoi`) kiểm �
 danh sách dòng dạng dict (đúng thứ `danh_sach()` trả) nên không cần dựng cả luồng đơn → lệnh → xếp
 lịch cho từng ca. Dựng đủ luồng chỉ để kiểm một phép so giờ là đổi 3 phút chạy test lấy 0 thông tin.
 
-Hai ca còn lại (`_top_may` sắp theo giờ xong, `cho_phut` không chiếm máy) phải chạm thật vào engine
+Ca còn lại (`_top_may` sắp theo giờ xong) phải chạm thật vào engine
 nên đi qua fixture chung của `test_xep_lich_service`.
 """
 from __future__ import annotations
@@ -180,23 +180,6 @@ def test_goi_y_tra_may_sap_theo_gio_xong(db, orders, lsx_svc, xl_svc, admin, cus
 
 
 # ============================ B — chờ kỹ thuật không chiếm máy ============================
-def test_cho_ky_thuat_khong_chiem_may_nhung_vao_tong(db, orders, lsx_svc, xl_svc, admin, customer,
-                                                     monkeypatch):
-    """`cho_phut` cộng vào `tong_phut` nhưng KHÔNG vào `chiem_may_phut` — máy vẫn chạy job khác."""
-    monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
-    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
-    step = _in_step(db, lsx.id)
-    step.so_luong_vao, step.chay_phut, step.cho_phut = 2500, None, 240
-    db.commit()
-    xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
-    dong = xl_svc.repo.by_lsx(lsx.id)[0]
-
-    d = xl_svc._thoi_luong(dong)
-    assert d["cho_phut"] == 240
-    assert d["tong_phut"] == pytest.approx(d["chiem_may_phut"] + 240)
-
-
-# ======================== A — máy chạy LIÊN TỤC, không cắt theo ca ========================
 def test_may_chay_lien_tuc_khong_bi_ca_cat(db, orders, lsx_svc, xl_svc, admin, customer,
                                            monkeypatch):
     """Máy là thiết bị: việc dài hơn một ca vẫn chạy thẳng, KHÔNG bị đẩy sang hôm sau (2026-08-10).
@@ -234,58 +217,3 @@ def test_may_chay_lien_tuc_khong_bi_ca_cat(db, orders, lsx_svc, xl_svc, admin, c
     )
 
 
-def test_cho_ky_thuat_DAY_buoc_sau_dung_bang_gio_cho(db, orders, lsx_svc, xl_svc, admin, customer,
-                                                     monkeypatch):
-    """Chờ kỹ thuật phải ĐẨY bước sau đúng chừng ấy — đó mới là lý do tồn tại của mục B.
-
-    Không kiểm chuyện này thì `cho_phut` chỉ là con số đẹp trong bảng: cộng vào `tong_phut` nhưng
-    bàn lịch vẫn xếp bước cán ngay sau bước in, tức xếp cán chồng lên lúc mực chưa khô.
-    """
-    monkeypatch.setattr("app.services.calendar_service.CalendarService.is_working_day",
-                        lambda self, d: True)
-    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
-    step = _in_step(db, lsx.id)
-    step.so_luong_vao, step.chay_phut, step.cho_phut = 2500, None, 0
-    # Bước SAU bước in. `thu_tu` KHÔNG tạo quan hệ ngầm (xem `_do_thi`) — quan hệ duy nhất là
-    # bảng phụ thuộc, nên phải khai cạnh thật, không thì engine coi hai bước độc lập và chẳng đẩy gì.
-    sau = LsxCongDoan(
-        lsx_id=lsx.id, thu_tu=step.thu_tu + 1, ten="Cán màng", nhom="finishing",
-        loai_buoc="may", may_id=step.may_id, so_luong_vao=2500,
-        don_vi_vao="to", don_vi_ra="to",
-    )
-    db.add(sau)
-    db.flush()
-    db.add(LsxCongDoanPhuThuoc(buoc_truoc_id=step.id, buoc_sau_id=sau.id))
-    db.commit()
-    xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
-
-    def _som_cua_buoc_sau() -> datetime:
-        items = {i["id"]: i for i in xl_svc.danh_sach()["items"]}
-        sau = [i for i in items.values()
-               if i["lsx_id"] == lsx.id and i["cong_doan_ten"] == "Cán màng"]
-        return _aware_naive(sau[0]["som_nhat"])
-
-    truoc = _som_cua_buoc_sau()
-
-    # Khai 240' chờ mực khô ở bước IN → bước cán phải lùi ĐÚNG 240'.
-    step.cho_phut = 240
-    db.commit()
-    svc2 = XepLichService(db, XepLichRepository(db), AuditLogRepository(db))
-    monkeypatch.setattr(svc2.cal, "is_working_day", lambda d: True)
-    items = {i["id"]: i for i in svc2.danh_sach()["items"]}
-    sau = [i for i in items.values()
-           if i["lsx_id"] == lsx.id and i["cong_doan_ten"] == "Cán màng"]
-    moi = _aware_naive(sau[0]["som_nhat"])
-
-    # Dung sai 1 giây, KHÔNG so bằng tuyệt đối: máy chạy liên tục (2026-08-10) nên "sớm nhất" hết
-    # bị snap về đầu ca 08:00 — nó bám thẳng `now()`, và hai lần gọi `danh_sach()` cách nhau vài
-    # chục mili-giây. Chênh đó là của đồng hồ, không phải của công thức chờ.
-    lech = abs((moi - truoc) - timedelta(minutes=240))
-    assert lech < timedelta(seconds=1), (
-        f"chờ 240' phải đẩy bước sau đúng 240' — thực tế {moi - truoc}"
-    )
-
-
-def _aware_naive(dt):
-    """Giờ lấy-từ-DB có thể naive (SQLite) hoặc aware (Postgres) — chuẩn hoá để trừ được nhau."""
-    return dt.replace(tzinfo=None) if dt.tzinfo else dt

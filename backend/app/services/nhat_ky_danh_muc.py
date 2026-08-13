@@ -87,7 +87,6 @@ NHAN: dict[str, str] = {
     "side_margin_cm": "Lề bên (cm)",
     "top_bottom_margin_cm": "Lề trên/dưới (cm)",
     "makeready_phut": "Makeready (phút)",
-    "cho_ky_thuat_gio": "Chờ kỹ thuật (giờ)",
     "phong_ban_id": "Tổ phụ trách",
     "cong_thuc": "Công thức",
     "don_vi": "Đơn vị",
@@ -114,7 +113,6 @@ HAU_TO: dict[str, str] = {
     "min_width_cm": "cm",
     "min_height_cm": "cm",
     "makeready_phut": "phút",
-    "cho_ky_thuat_gio": "giờ",
     "setup_time_mins": "phút",
     "changeover_time_mins": "phút",
 }

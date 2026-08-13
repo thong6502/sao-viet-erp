@@ -152,6 +152,10 @@ export function LsxDetailView({
   const [mayRefs, setMayRefs] = useState<RefRow[] | null>(null);
   // Danh mục khuôn — cho ô chọn khuôn trong drawer BƯỚC (bước nào có cờ `requires_tooling`).
   const [khuonRefs, setKhuonRefs] = useState<RefRow[] | null>(null);
+  /** Danh mục giấy cho ô chọn ở khối "Giấy & tờ in". `gsm` đi kèm để hiện định lượng mới ngay. */
+  const [giayRefs, setGiayRefs] = useState<
+    { id: number; ten: string; ma: string; gsm: number | null }[] | null
+  >(null);
   const [vatTuRefs, setVatTuRefs] = useState<RefRow[] | null>(null);
   const [phuThuocRefs, setPhuThuocRefs] = useState<import("../api/client").LsxPhuThuocOption[]>([]);
 
@@ -198,6 +202,16 @@ export function LsxDetailView({
     crud("/api/vat-lieu-kho/vat-tu-in-an").list(token, { active: true }).then((r) =>
       setVatTuRefs(r.items.map((v) => ({ id: v.id, ten: v.ten, ma: String(v.ma), donVi: String(v.don_vi_gia ?? "") })))
     ).catch(() => setVatTuRefs(null));
+    // Danh mục GIẤY — để kế hoạch đổi giấy ngay tại lệnh. Giấy hết hàng thì xưởng thay loại khác
+    // cùng tính chất (có khi xịn hơn) mà không phải quay về phiếu tính giá tạo lại lệnh. Giữ luôn
+    // `gsm` để đổi xong hiện định lượng mới ngay, khỏi chờ lưu — server cũng kéo `gsm` theo giấy
+    // (`ap_quy_cach`), đây chỉ là để hai bên nói cùng một số trong lúc đang sửa.
+    crud("/api/vat-lieu-kho/giay").list(token, { active: true }).then((r) =>
+      setGiayRefs(r.items.map((g) => ({
+        id: g.id, ten: String(g.ten), ma: String(g.ma ?? ""),
+        gsm: Number(g.gsm ?? 0) || null,
+      })))
+    ).catch(() => setGiayRefs(null));
     api.lsx.phuThuocOptions(token, lsxId).then(setPhuThuocRefs).catch(() => setPhuThuocRefs([]));
   }, [token, lsxId]);
 
@@ -442,6 +456,9 @@ export function LsxDetailView({
     so: moi ?? cu,
     tam: moi != null && moi !== cu,
   });
+  // Định lượng của giấy ĐANG CHỌN trong form (khác giấy đã lưu khi người dùng vừa đổi). Đọc từ
+  // danh mục chứ không đợi server: server có kéo `gsm` theo giấy, nhưng chỉ lúc LƯU.
+  const giayGsm = giayRefs?.find((g) => g.id === form.qc.giay_id)?.gsm ?? null;
   const kpiToIn = kpiSo(d.so_to_ke_hoach, xemTruoc?.so_to_ke_hoach);
   const kpiToNguyen = kpiSo(d.so_to_nguyen, xemTruoc?.so_to_nguyen);
   const kpiCon = kpiSo(d.so_con, xemTruoc?.so_con);
@@ -826,8 +843,49 @@ export function LsxDetailView({
                 </div>
                 <div className="khsx-spec__card-body">
                   <div className="khsx-kvgrid">
-                    <KV k="Giấy" v={s("giay_ten")} />
-                    <KV k="Định lượng (gsm)" v={qc.gsm ? num(n("gsm")) : "—"} mono />
+                    {/* GIẤY SỬA ĐƯỢC tại lệnh (13/08/2026). Trước đây là chữ chết, trong khi mọi ô
+                        khác trong khối này đều sửa được và nhãn khối ghi "thông số — sửa được".
+                        Nghiệp vụ: giấy hết hàng thì xưởng thay loại khác cùng tính chất (có khi
+                        xịn hơn) — bắt quay về phiếu tính giá tạo lại lệnh là mất sạch routing đã
+                        chỉnh. Backend vốn đã nhận `giay_id` và tự kéo `gsm` + tên theo giấy mới
+                        (`lsx_service.ap_quy_cach`); chỗ này chỉ thiếu ô chọn.
+                        Danh mục chưa nạp xong ⇒ vẫn hiện tên đã lưu, không để ô trống. */}
+                    {giayRefs ? (
+                      <label className={`khsx-kv ${canUpdate ? "khsx-kv--edit" : ""}`}>
+                        <span className="khsx-kv__key">Giấy</span>
+                        <select
+                          className="khsx-kv__input"
+                          disabled={!canUpdate}
+                          value={form.qc.giay_id ?? ""}
+                          onChange={(e) =>
+                            setQc({ giay_id: e.target.value ? Number(e.target.value) : null })
+                          }
+                        >
+                          <option value="">— chưa chọn giấy —</option>
+                          {giayRefs.map((g) => (
+                            <option key={g.id} value={g.id}>
+                              {g.ten}{g.gsm ? ` · ${g.gsm} gsm` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <KV k="Giấy" v={s("giay_ten")} />
+                    )}
+                    {/* Định lượng đi THEO giấy: đổi giấy là số này đổi ngay, khỏi chờ bấm Lưu —
+                        không thì màn hiện giấy mới cạnh gsm của cuộn giấy cũ. Chưa chọn được
+                        trong danh mục thì rơi về số đã lưu. */}
+                    <KV
+                      k="Định lượng (gsm)"
+                      v={
+                        giayGsm != null
+                          ? num(giayGsm)
+                          : qc.gsm
+                            ? num(n("gsm"))
+                            : "—"
+                      }
+                      mono
+                    />
                     {/* GỠ 2026-08-09 (Đợt 4 · K): dòng "Nguồn giấy". Công ty luôn cấp giấy nên
                         dòng này chỉ còn là một ô luôn ghi "Công ty" — chiếm chỗ, không nói gì. */}
                     <KVNum k="Khổ giấy nguyên dài" suffix="mm" disabled={!canUpdate}
@@ -920,11 +978,13 @@ export function LsxDetailView({
                       className={`khsx-kv ${laSach ? "" : "khsx-kv--edit"}`}
                       title={giaiThichSach}
                     >
+                      {/* Nhãn NGẮN, tỉ số để trong tooltip: nhét "· SẢN PHẨM XONG mỗi TỜ CHẠY MÁY"
+                          vào nhãn thì ô đầu tiên cao gấp đôi mấy ô cạnh nó, cả lưới lệch. */}
                       <span
                         className="khsx-kv__key"
                         title={dvTp && dvTo ? `Số ${dvTp} trên 1 ${dvTo}` : undefined}
                       >
-                        Bình bài{dvTp ? ` · ${dvTp} mỗi ${dvTo}` : ""}
+                        Bình bài
                       </span>
                       <input
                         className="khsx-kv__input"

@@ -43,8 +43,6 @@ class MayThietBiIn(BaseModel):
     # `makeready_time_default` = thời gian CANH MÁY, Xếp lịch đọc. KHÁC "Chuẩn bị" của Công đoạn
     # (`cong_doan.setup_time`, Lệnh SX đọc) — hai nơi hai việc, không gộp không cộng.
     makeready_time_default: float | None = None
-    # Chờ kỹ thuật sau khi chạy xong trên máy này (GIỜ) — mực khô · màng nguội. Không chiếm máy.
-    cho_ky_thuat_gio: float = 0
     # Kíp chuẩn cần để vận hành máy. Đây là nhu cầu nhân lực, không nhân tốc độ máy.
     so_nhan_cong: float = Field(default=1, ge=1)
     # Túi JSON: `chuan_bi_khoan` (các khoản chuẩn bị) + `lich_bao_tri` (Lịch bảo trì định kỳ).
@@ -67,7 +65,6 @@ class MayThietBiRow(BaseModel):
     toc_do_max: float | None = None
     don_vi_toc_do: str | None = None
     makeready_time_default: float | None = None
-    cho_ky_thuat_gio: float = 0
     so_nhan_cong: float = 1
     # Engine bình bài
     kho_max_dai: int | None = None

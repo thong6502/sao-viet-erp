@@ -1166,8 +1166,6 @@ interface DinhMucRow {
   piece_rate_id: number; nang_suat_nguoi_gio: number;
   nang_suat_nguoi_gio_min?: number | null; nang_suat_nguoi_gio_max?: number | null;
   don_vi_nang_suat?: string | null;
-  /** Giờ chờ kỹ thuật sau đầu việc này (keo đông…). 0 = không chờ. */
-  cho_ky_thuat_gio?: number;
   // Ba mốc nhân lực: tối thiểu ≤ chuẩn ≤ tối đa. Tối thiểu mới là KHAI BÁO, chưa vào công thức.
   so_nguoi_toi_thieu?: number;
   so_nguoi_tieu_chuan: number; so_nguoi_toi_da: number;
@@ -1210,10 +1208,6 @@ function DinhMucDauViecField({ value, options, departmentId, onChange }: {
               <th rowSpan={2} className="rc-col--left">Đầu việc chi tiết</th>
               <th colSpan={4} className="rc-col--group rc-group--ns">Năng suất khoán</th>
               <th colSpan={3} className="rc-col--group rc-group--nl">Định mức nhân lực (người)</th>
-              {/* Chờ kỹ thuật của bước TỔ khai ở ĐÂY (10/08/2026) — keo đông thì chờ, khâu chỉ thì
-                  không, nên nó thuộc về từng đầu việc chứ không phải cả công đoạn. Vế MÁY khai ở
-                  màn Thiết bị & Máy móc. */}
-              <th rowSpan={2} className="rc-col--num" title="Chờ sau khi làm xong đầu việc này — keo đông, màng nguội. KHÔNG chiếm máy.">Chờ (giờ)</th>
               {/* Cột "Mặc định" (radio chọn đầu việc điền sẵn) GỠ 12/08/2026 — xem mg 0190. Bế tay
                   hay bế máy là quyết định theo HÀNG, không khai một lần ở danh mục được. */}
               {/* VẬT TƯ đầu việc tiêu thụ (mg 0191) — nền BOM. Chỉ danh sách, KHÔNG có số lượng. */}
@@ -1231,7 +1225,7 @@ function DinhMucDauViecField({ value, options, departmentId, onChange }: {
               <th className="rc-col--num">Tối đa</th>
             </tr>
           </thead>
-          <tbody>{value.length === 0 && <tr><td colSpan={11} className="rc-bands__empty">
+          <tbody>{value.length === 0 && <tr><td colSpan={10} className="rc-bands__empty">
             {allowed.length === 0 ? "Tổ này chưa có đầu việc khoán để liên kết." : "Chưa chọn đầu việc định mức."}
           </td></tr>}{value.map((r, i) => { const opt = options.find((o) => o.id === r.piece_rate_id); const vtIds = r.vat_tu_ids ?? []; const mo = moVatTu === r.piece_rate_id; return <Fragment key={r.piece_rate_id}><tr>
             <td className="rc-col--left rc-dinh-muc-name">{opt ? `${opt.ma} · ${opt.ten}` : `#${r.piece_rate_id}`}</td>
@@ -1249,9 +1243,6 @@ function DinhMucDauViecField({ value, options, departmentId, onChange }: {
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_toi_thieu ?? 1} onChange={(e) => patch(i, { so_nguoi_toi_thieu: Number(e.target.value) })} /></td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_tieu_chuan} onChange={(e) => patch(i, { so_nguoi_tieu_chuan: Number(e.target.value) })} /></td>
             <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="1" value={r.so_nguoi_toi_da} onChange={(e) => patch(i, { so_nguoi_toi_da: Number(e.target.value) })} /></td>
-            <td className="rc-col--num"><input className="rc-input rc-input--num" type="number" min="0" step="any" placeholder="0"
-              value={r.cho_ky_thuat_gio ?? ""}
-              onChange={(e) => patch(i, { cho_ky_thuat_gio: e.target.value === "" ? 0 : Number(e.target.value) })} /></td>
             {/* Bấm để bung HÀNG PHỤ ngay dưới — không mở drawer lồng drawer, người khai vẫn thấy
                 cả bảng để so các dòng với nhau. */}
             <td className="rc-col--center">
@@ -1262,7 +1253,7 @@ function DinhMucDauViecField({ value, options, departmentId, onChange }: {
               </button>
             </td>
             <td className="rc-col--center"><button type="button" className="rc-bands__del" onClick={() => onChange(value.filter((_, j) => j !== i))}><TrashIcon /></button></td>
-          </tr>{mo && <tr className="rc-dm-vt__row"><td colSpan={11}>
+          </tr>{mo && <tr className="rc-dm-vt__row"><td colSpan={10}>
             <div className="rc-dm-vt">
               {vtIds.length === 0 && <div className="rc-dm-vt__empty">Chưa gắn vật tư nào.</div>}
               {vtIds.map((vid) => { const vt = vatTuTheoId.get(vid); return (
@@ -1291,7 +1282,7 @@ function DinhMucDauViecField({ value, options, departmentId, onChange }: {
         </table>
       </div>
       <div className="rc-dinh-muc-add">
-        <select className="rc-dinh-muc-add__select" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onChange([...value, { piece_rate_id: id, nang_suat_nguoi_gio: 1, nang_suat_nguoi_gio_min: null, nang_suat_nguoi_gio_max: null, don_vi_nang_suat: null, cho_ky_thuat_gio: 0, so_nguoi_toi_thieu: 1, so_nguoi_tieu_chuan: 1, so_nguoi_toi_da: 1, vat_tu_ids: [] }]); }}>
+        <select className="rc-dinh-muc-add__select" value="" onChange={(e) => { const id = Number(e.target.value); if (id) onChange([...value, { piece_rate_id: id, nang_suat_nguoi_gio: 1, nang_suat_nguoi_gio_min: null, nang_suat_nguoi_gio_max: null, don_vi_nang_suat: null, so_nguoi_toi_thieu: 1, so_nguoi_tieu_chuan: 1, so_nguoi_toi_da: 1, vat_tu_ids: [] }]); }}>
           <option value="">＋ Chọn đầu việc của tổ</option>{allowed.filter((o) => !selected.has(o.id)).map((o) => <option key={o.id} value={o.id}>{o.ma} · {o.ten}</option>)}
         </select>
       </div>

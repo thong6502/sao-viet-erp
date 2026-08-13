@@ -632,7 +632,6 @@ class BaiGhepService:
             # Chạy chung một lượt thì cả bài phải chờ theo lệnh khô lâu nhất: lấy bước mẫu là ăn
             # may đúng, mà sai thì xếp cán chồng lên lúc mực của lệnh kia chưa khô — hỏng hàng thật
             # chứ không phải lệch lịch. Máy vẫn KHÔNG bị chiếm trong khoảng này.
-            cho_phut=max((_f(cd.cho_phut) for cd in cds), default=0.0),
             thu_tu=int(mau.thu_tu or 0),
         )
         self.db.add(chung)
@@ -681,12 +680,11 @@ class BaiGhepService:
     _SUA_DUOC_BUOC_CHUNG = (
         # `khoan_json` KHÔNG có ở đây: nó là ảnh chụp server tự chụp từ `piece_rate_id`
         # (xem `_ghim_khoan_chung`), không phải thứ client gửi thẳng.
-        # Thời lượng KẾ THỪA từ máy (2026-08-04): client gửi `phat_sinh_phut` và `cho_phut`.
+        # Thời lượng KẾ THỪA từ máy (2026-08-04): client chỉ còn gửi `phat_sinh_phut`.
         # `setup_phut`/`chay_phut`/`di_chuyen_phut`/`ve_sinh_phut` đã rời bộ này.
         "department_id", "may_id", "so_nhan_cong", "loai_buoc",
         "nang_suat", "don_vi_nang_suat", "phat_sinh_phut",
         # Chờ kỹ thuật: gộp lấy mức lớn nhất làm MẶC ĐỊNH, người lập kế hoạch sửa đè được (mục B).
-        "cho_phut",
         "so_luot_chay", "ghi_chu",
         "nha_cung_cap", "sl_gui", "ngay_gui_dk", "van_chuyen_ngay", "gia_cong_ngay",
         "ngay_nhan_dk", "hao_hut_cho_phep", "don_gia_gia_cong", "yeu_cau_ky_thuat",
@@ -1435,7 +1433,6 @@ class BaiGhepService:
                 "setup_phut": t["dien_giai"]["setup_phut"],
                 "phat_sinh_phut": _f(c.phat_sinh_phut),
                 # Chờ kỹ thuật của lượt chung — trả từ CỘT (thứ người gõ đè được), không qua `t`.
-                "cho_phut": _f(c.cho_phut),
                 "so_luot_chay": c.so_luot_chay,
                 **self._khoan_chung_dict(c),
                 "vat_tus": [

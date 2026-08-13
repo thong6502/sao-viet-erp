@@ -109,8 +109,6 @@ class XepLichDongOut(BaseModel):
     khuon_be_id: int | None = None
     so_nhan_cong: int | None = None
     so_nhan_cong_toi_thieu: int | None = None
-    #: Chờ kỹ thuật (mực khô · keo đông) — đẩy bước sau, KHÔNG chiếm máy.
-    cho_phut: float = 0
     #: Khoá GOM việc cùng loại (giấy · khổ · bộ mực). null = chưa đủ quy cách ⇒ không gom với ai.
     gom_key: str | None = None
 

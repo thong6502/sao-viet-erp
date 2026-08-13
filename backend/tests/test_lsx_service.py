@@ -1187,37 +1187,18 @@ def _tl(cd, db=None):
     return thoi_luong_buoc(cd, may)
 
 
-def test_thoi_luong_tach_chiem_may_khoi_cho_va_di_chuyen():
-    """Ví dụ §4.4: 45 chuẩn bị + 5.300 tờ @ 5.000 tờ/h ≈ 109 phút CHIẾM MÁY.
+def test_thoi_luong_bo_qua_cac_o_dormant():
+    """`ve_sinh_phut` · `di_chuyen_phut` · `cho_phut` đều DORMANT — truyền vào để CHỨNG MINH bỏ qua.
 
-    Chờ khô mực 4 tiếng KHÔNG làm máy in bị chiếm thêm 4 tiếng — nó chỉ đẩy bước sau. Đó là toàn
-    bộ lý do hai con số phải TÁCH: `chiem_may_phut` giữ chỗ trên lane Gantt, `tong_phut` mới là
-    mốc bước sau được phép bắt đầu. Bàn lịch đẩy bước sau theo HIỆU hai số.
-
-    `cho_phut` SỐNG LẠI 2026-08-09 (chờ kỹ thuật, kế thừa từ `cong_doan_cho_ky_thuat`); trước đó
-    nó dormant nên test này từng chốt `tong_phut == chiem_may_phut`.
-
-    `ve_sinh_phut` + `di_chuyen_phut` vẫn dormant — truyền vào để CHỨNG MINH engine bỏ qua.
+    CHỜ KỸ THUẬT gỡ 13/08/2026: `tong_phut` nay bằng đúng `chiem_may_phut`. Hai khoá vẫn tách vì
+    bàn xếp lịch lấy HIỆU của chúng làm độ trễ giữa hai bước — hiệu = 0 nghĩa là bước sau bắt đầu
+    ngay khi máy nhả tờ. Muốn dựng lại độ trễ thì cộng vào `tong`, KHÔNG cộng vào `chiem_may`.
     """
-    b = _buoc(so_luong_vao=5300, ve_sinh_phut=15, cho_phut=240, di_chuyen_phut=30)
+    b = _buoc(so_luong_vao=5300, ve_sinh_phut=15, di_chuyen_phut=30)
     t = thoi_luong_buoc(b, _may_gia(toc_do=5000, chuan_bi=45))
     assert round(t["chay_phut"]) == 64
-    assert round(t["chiem_may_phut"]) == 109                 # 45 + 64 — KHÔNG có 240 phút chờ
-    assert round(t["cho_phut"]) == 240
-    # Tổng = chiếm máy + chờ. Vệ sinh 15' và di chuyển 30' KHÔNG vào (đã gỡ khỏi công thức).
-    assert round(t["tong_phut"]) == 349
-
-
-def test_cho_ky_thuat_day_buoc_sau_ma_khong_chiem_may():
-    """Hai bước giống hệt nhau, chỉ khác `cho_phut`: phần CHIẾM MÁY phải y nguyên.
-
-    Sai chỗ này là khoá oan cái máy suốt mấy tiếng mực khô — máy đứng trong khi nó rảnh."""
-    khong_cho = thoi_luong_buoc(_buoc(so_luong_vao=5300), _may_gia(toc_do=5000, chuan_bi=45))
-    co_cho = thoi_luong_buoc(
-        _buoc(so_luong_vao=5300, cho_phut=180), _may_gia(toc_do=5000, chuan_bi=45)
-    )
-    assert co_cho["chiem_may_phut"] == khong_cho["chiem_may_phut"]
-    assert round(co_cho["tong_phut"] - khong_cho["tong_phut"]) == 180
+    assert round(t["chiem_may_phut"]) == 109                 # 45 + 64
+    assert round(t["tong_phut"]) == 109                      # không cộng thêm gì
 
 
 def test_thoi_gian_khac_cong_thang_vao_chiem_may():
@@ -1588,6 +1569,37 @@ def test_thieu_NGUON_he_so_moi_chan_chu_khong_phai_he_so_bang_1(db, orders, lsx_
         lsx_svc.set_trang_thai(lsx_id=hop.id, trang_thai=TT_SAN_SANG, actor=admin)
 
 
+def test_doi_giay_tai_lenh_keo_theo_dinh_luong_va_ten(db, orders, lsx_svc, admin, customer):
+    """Giấy PHẢI đổi được ngay tại lệnh, và định lượng đi theo giấy mới.
+
+    Nghiệp vụ: giấy hết hàng thì xưởng thay loại khác cùng tính chất (có khi xịn hơn). Bắt quay về
+    phiếu tính giá rồi tạo lại lệnh là mất sạch routing đã chỉnh — nên `giay_id` nằm trong bộ
+    THÔNG SỐ sửa được của lệnh. Định lượng KHÔNG phải khai lại: nó là thuộc tính của giấy.
+    """
+    from app.schemas.lsx import LsxQuyCachIn
+
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
+    gsm_cu = (hop.quy_cach_json or {}).get("gsm")
+
+    khac = GiayNguyen(ma="G-COUCHE400", ten="Couché 400", gsm=400, don_gia=31_000,
+                      don_vi_gia="tan", cong_thuc_gia="so_luong * don_gia")
+    db.add(khac)
+    db.commit()
+
+    hop = lsx_svc.update(
+        lsx_id=hop.id, actor=admin,
+        payload=LsxUpdateIn(quy_cach=LsxQuyCachIn(giay_id=khac.id)),
+    )
+    qc = hop.quy_cach_json
+    assert qc["giay_id"] == khac.id
+    # Định lượng + tên đi THEO giấy, không giữ số của cuộn giấy cũ.
+    assert qc["gsm"] == 400 and qc["gsm"] != gsm_cu
+    assert qc["giay_ten"] == "Couché 400"
+
+
 def test_kiem_thieu_he_so_doc_theo_TRAM_khong_theo_MA_don_vi(
     db, orders, lsx_svc, admin, customer
 ):
@@ -1678,15 +1690,15 @@ def test_replace_routing_giu_nguyen_khoi_thue_ngoai(db, orders, lsx_svc, admin, 
             ngay_gui_dk=date.today(), ngay_nhan_dk=date.today() + timedelta(days=3),
             van_chuyen_ngay=1, gia_cong_ngay=1, hao_hut_cho_phep=50, don_gia_gia_cong=450,
             yeu_cau_ky_thuat="Màng mờ, không bong mép",
-            cho_phut=120, di_chuyen_phut=45, so_nhan_cong=3, bat_buoc=False,
+            di_chuyen_phut=45, so_nhan_cong=3, bat_buoc=False,
         ),
     ])
     cd = lsx_svc.get(hop.id).cong_doans[0]
     assert cd.nha_cung_cap == "Cơ sở Tân Bình" and float(cd.don_gia_gia_cong) == 450
     assert cd.yeu_cau_ky_thuat == "Màng mờ, không bong mép"
     assert not hasattr(cd, "dieu_kien_json")
-    # `cho_phut`/`di_chuyen_phut` đã rời hợp đồng lưu routing (2026-08-04) — cột còn trong DB
-    # nhưng client không gửi được nữa, nên chúng KHÔNG sống sót qua vòng lưu. Khối thuê ngoài
+    # `di_chuyen_phut` đã rời hợp đồng lưu routing (2026-08-04) — cột còn trong DB nhưng client
+    # không gửi được nữa, nên nó KHÔNG sống sót qua vòng lưu. Khối thuê ngoài
     # (nhà cung cấp · ngày gửi/nhận · đơn giá · yêu cầu kỹ thuật) mới là thứ phải giữ.
     assert cd.so_nhan_cong == 3 and cd.bat_buoc is False
     assert float(cd.hao_hut_cho_phep) == 50 and cd.ngay_nhan_dk is not None

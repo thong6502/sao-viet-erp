@@ -3035,7 +3035,7 @@ Bảng MỚI → `create_all` tự dựng, **không cần migration cho bảng**
 **`ca_lam_ids`** (`JSON`, nullable, mg 0178) — **ĐÃ GỠ KHỎI MODEL 11/08/2026** (trước đó dormant từ 10/08). Từng là tập ca riêng của MÁY; nay đã bỏ: **máy là thiết bị, bàn xếp lịch cho chạy LIÊN TỤC** (`XepLichService._lich_may` → `LichXuong(lien_tuc=True)`), chỉ dừng vì ngày nghỉ/lễ của xưởng và vùng KHOÁ máy (`machine_unavailable_periods` kiểu `chan`). Ca là chuyện của người: cần tăng ca thì cứ xếp việc vào giờ đó, không phải sửa danh mục máy. Không còn ô nhập, không còn trong API. Hệ quả đã biết: trần giờ máy/ngày thành 24h nên đèn "quá tải máy" gần như không sáng — trần thật nằm ở quỹ giờ-NGƯỜI của tổ. Cột giữ lại để không mất số cũ — **đừng khai lại ô này**.
 
 
-`cho_ky_thuat_gio` (NUMERIC(6,2) NOT NULL DEFAULT 0, mg 0182): **CHỜ KỸ THUẬT của bước MÁY** — số GIỜ hàng nằm chờ sau khi chạy xong trên máy này (mực khô, màng nguội). Tính bằng GIỜ, khác `makeready_time_default` tính bằng PHÚT — nhãn form phải ghi rõ đơn vị.
+🔴 **GỠ KHỎI MODEL 13/08/2026** — chờ kỹ thuật bỏ khỏi cả hệ theo yêu cầu chủ (lúc gỡ: 0/24 máy, 0/10 đầu việc, 0/14 bước lệnh có khai). Cột còn NẰM IM trong DB đang chạy, không code nào đọc. `cho_ky_thuat_gio` (NUMERIC(6,2) NOT NULL DEFAULT 0, mg 0182): **CHỜ KỸ THUẬT của bước MÁY** — số GIỜ hàng nằm chờ sau khi chạy xong trên máy này (mực khô, màng nguội). Tính bằng GIỜ, khác `makeready_time_default` tính bằng PHÚT — nhãn form phải ghi rõ đơn vị.
 
 **Vì sao khoá theo MÁY chứ không theo công đoạn** (chủ chốt 10/08/2026): CM-01/CM-02 là máy UV (khô dưới đèn, ≈0) còn CM-03/CM-04 là máy cán màng (phải để nguội vài giờ) — bốn máy CÙNG công đoạn "Cán màng / UV" mà chờ khác hẳn. Một số cho cả công đoạn là sai một trong hai vế, im lặng. Kéo lệnh sang máy khác ⇒ chờ tính lại.
 
@@ -3101,7 +3101,7 @@ Bảng MỚI → `create_all` tự dựng, **không cần migration cho bảng**
 
 `don_vi_nang_suat` (VARCHAR(32), nullable): đơn vị người khai chọn, cùng bảng mã với ô "Đơn vị tốc độ" của máy (`<đơn vị>_gio`). Đây là **NHÃN KHAI BÁO** — engine chia thẳng SL vào cho năng suất, KHÔNG quy đổi và KHÔNG kiểm khớp với đơn vị bước (bước quy đổi làm sau). Trống = giữ lối cũ, suy theo `cong_doan.don_vi_vao`.
 
-`cho_ky_thuat_gio` (NUMERIC(6,2) NOT NULL DEFAULT 0, mg 0182): **CHỜ KỸ THUẬT của bước TỔ** — số GIỜ hàng phải nằm chờ SAU khi làm xong đầu việc này (keo đông, màng nguội). Vế TỔ của cặp với `may_thiet_bi.cho_ky_thuat_gio` (vế MÁY); hai vế không chồng nhau vì một bước hoặc Máy hoặc Tổ.
+🔴 **GỠ KHỎI MODEL 13/08/2026** — chờ kỹ thuật bỏ khỏi cả hệ theo yêu cầu chủ (lúc gỡ: 0/24 máy, 0/10 đầu việc, 0/14 bước lệnh có khai). Cột còn NẰM IM trong DB đang chạy, không code nào đọc. `cho_ky_thuat_gio` (NUMERIC(6,2) NOT NULL DEFAULT 0, mg 0182): **CHỜ KỸ THUẬT của bước TỔ** — số GIỜ hàng phải nằm chờ SAU khi làm xong đầu việc này (keo đông, màng nguội). Vế TỔ của cặp với `may_thiet_bi.cho_ky_thuat_gio` (vế MÁY); hai vế không chồng nhau vì một bước hoặc Máy hoặc Tổ.
 
 **Vì sao khoá theo ĐẦU VIỆC chứ không theo công đoạn** (chủ chốt 10/08/2026): cùng công đoạn "Bắt tay + vào keo", đầu việc *vào keo gáy vuông* phải chờ keo đông còn *khâu chỉ* thì không chờ gì — một số cho cả công đoạn không tách được. Bảng cũ `cong_doan_cho_ky_thuat` (khoá công đoạn × loại sản phẩm) đã GỠ vì cùng lý do.
 
@@ -3605,7 +3605,7 @@ Trả về BA số bằng cách thay `toc_do` bằng `toc_do_max` / `toc_do` / `
 | `chay_phut` | `Numeric(10,2)` | — | yes | — | Người kế hoạch GÕ ĐÈ thời gian chạy. `null` = để máy tính từ `nang_suat`. |
 | `ve_sinh_phut` | `Numeric(10,2)` | — | no | `0` | **DORMANT 2026-08-04** — vệ sinh/rửa mực đã gỡ khỏi hệ: không còn ô nhập, engine KHÔNG cộng vào thời gian chiếm máy, bước mới luôn ghi `0`. Cột giữ để không mất số cũ (không có Alembic). |
 | `phat_sinh_phut` | `Numeric(10,2)` | — | no | `0` | "Thời gian khác" — phút phát sinh người kế hoạch gõ thêm (migration `0153`). Ô **DUY NHẤT** còn gõ được ở tab Thời gian: chuẩn bị + tốc độ nay kế thừa SỐNG từ `may_thiet_bi`. Cộng thẳng vào thời gian chiếm máy. |
-| `cho_phut` | `Numeric(10,2)` | — | no | `0` | Chờ kỹ thuật (khô mực/khô keo). Đẩy bước sau nhưng KHÔNG chiếm máy. |
+| `cho_phut` | `Numeric(10,2)` | — | no | `0` | 🔴 GỠ KHỎI MODEL 13/08/2026 — cột còn trong DB, không code nào đọc. |
 | `di_chuyen_phut` | `Numeric(10,2)` | — | no | `0` | Di chuyển bán thành phẩm sang tổ/máy kế. KHÔNG chiếm máy. |
 | `so_nhan_cong` | `Integer` | — | no | `1` | Số người kế hoạch. Chỉ bước Tổ dùng để tính năng suất; kíp Máy không tăng tốc máy. |
 | `so_nhan_cong_tieu_chuan` | `Integer` | — | no | `1` | Snapshot người tiêu chuẩn của đầu việc/kíp máy. |
@@ -3744,7 +3744,7 @@ Trả về BA số bằng cách thay `toc_do` bằng `toc_do_max` / `toc_do` / `
 | `chay_phut` | `Numeric(10,2)` | — | yes | — | Phút chạy suy từ `so_luong_vao` + năng suất; NULL = chưa đủ dữ liệu. |
 | `ve_sinh_phut` | `Numeric(10,2)` | — | no | `0` | **DORMANT 2026-08-04** — mirror `lsx_cong_doan.ve_sinh_phut`, cùng lý do: rửa mực gỡ khỏi hệ, cột giữ nguyên nhưng không đọc/ghi nữa. |
 | `phat_sinh_phut` | `Numeric(10,2)` | — | no | `0` | "Thời gian khác" — mirror `lsx_cong_doan.phat_sinh_phut` (migration `0153`). |
-| `cho_phut` | `Numeric(10,2)` | — | no | `0` | Phút chờ (khô mực, ổn định…). |
+| `cho_phut` | `Numeric(10,2)` | — | no | `0` | 🔴 GỠ KHỎI MODEL 13/08/2026 — cột còn trong DB, không code nào đọc. |
 | `di_chuyen_phut` | `Numeric(10,2)` | — | no | `0` | Phút di chuyển giữa tổ/máy. |
 | `nha_cung_cap` | `String(150)` | — | yes | — | Bước chung thuê ngoài → cả bài đi **một** phiếu, **một** NCC (bước chung nằm TRƯỚC điểm toả nên giao/nhận đều ở tầng bài). |
 | `sl_gui` | `Numeric(14,2)` | — | yes | — | Số lượng gửi đi (DỰ KIẾN). |

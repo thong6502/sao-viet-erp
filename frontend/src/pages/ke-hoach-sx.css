@@ -1063,6 +1063,12 @@ td.khsx-num > .khsx-unit {
   line-height: 1.4;
 }
 .khsx-kv__val.khsx-num { text-align: left; font-family: var(--ff-sans); }
+/* Đơn vị đứng sau con số trong ô THÔNG SỐ — phải có khoảng thở, không thì đọc ra "241TỜ CHẠY MÁY".
+   Dùng margin chứ không dựa vào dấu cách trong JSX: JSX nuốt khoảng trắng giữa hai thẻ. */
+.khsx-kv__val .khsx-unit {
+  margin-left: 5px;
+  overflow-wrap: anywhere;
+}
 .khsx-kv__val.is-nil {
   color: var(--ash-2);
   font-weight: normal;

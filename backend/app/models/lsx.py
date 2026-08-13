@@ -188,7 +188,8 @@ class LsxCongDoan(Base):
     kế thừa là MẶC ĐỊNH, không phải read-only.
 
     Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): setup tính 1 lần/lệnh, chạy
-    scale theo SL, `cho_phut`/`di_chuyen_phut` đẩy lịch nhưng KHÔNG ăn capacity của máy.
+    scale theo SL. `cho_phut`/`di_chuyen_phut` (đẩy lịch mà không ăn capacity máy) đã GỠ khỏi model
+    — cột còn nằm im trong DB, không code nào đọc.
     """
 
     __tablename__ = "lsx_cong_doan"
@@ -265,7 +266,6 @@ class LsxCongDoan(Base):
     # "Thời gian khác" (migration 0153) — ô DUY NHẤT người kế hoạch còn gõ được ở tab Thời gian;
     # cộng THẲNG vào thời gian chiếm máy. Chuẩn bị/tốc độ nay kế thừa từ máy, không sửa tại bước.
     phat_sinh_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
-    cho_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
     di_chuyen_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
     # Số người/máy chạy ĐỒNG THỜI (BC: Concurrent Capacities) — 5 người dán thì thời gian chạy ÷ 5.
     # Chỉ có nghĩa với bước chiếm tổ; bước chiếm máy để 1.

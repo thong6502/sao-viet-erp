@@ -171,10 +171,6 @@ class LsxCongDoanIn(BaseModel):
     # vẫn BỎ khỏi input: chuẩn bị + tốc độ kế thừa SỐNG từ module Máy, người kế hoạch không sửa
     # tại bước.
     phat_sinh_phut: float | None = Field(default=None, ge=0)
-    # `cho_phut` MỞ LẠI 2026-08-09 (mục B): kế thừa từ cặp (công đoạn × loại SP) là MẶC ĐỊNH, không
-    # phải read-only — lô giấy dày hôm nay khô lâu hơn thì người kế hoạch phải gõ đè được. Trần 72h
-    # để lỡ tay gõ nhầm đơn vị (phút thay vì giờ) không đẩy lịch đi cả tháng.
-    cho_phut: float | None = Field(default=None, ge=0, le=4320)
     # Gia công ngoài (§8)
     nha_cung_cap: str | None = None
     sl_gui: float | None = Field(default=None, ge=0)
@@ -240,7 +236,6 @@ class LsxCongDoanOut(BaseModel):
     # CHỜ KỸ THUẬT (mực khô · keo đông · màng nguội) — kế thừa từ danh mục Công đoạn theo cặp
     # (công đoạn × loại SP), SỬA ĐÈ được tại bước. Vào `tong_phut` nhưng KHÔNG vào `chiem_may_phut`:
     # tờ nằm trên pallet chờ khô thì máy vẫn chạy job khác.
-    cho_phut: float = 0
     nang_suat: float | None = None
     don_vi_nang_suat: str | None = None
     chay_phut: float | None = None      # dẫn xuất: SL vào × 60 ÷ tốc độ máy × số lượt

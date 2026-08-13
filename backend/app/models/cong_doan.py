@@ -169,17 +169,11 @@ class CongDoanDauViec(Base):
     )
     so_nguoi_tieu_chuan: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     so_nguoi_toi_da: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    # CHỜ KỸ THUẬT sau khi làm xong ĐẦU VIỆC này — keo đông, màng nguội (mg 0182). GIỜ, không phải
-    # phút. Vế TỔ của cặp với `may_thiet_bi.cho_ky_thuat_gio` (vế MÁY).
-    #
-    # Vì sao ở đầu việc chứ không ở công đoạn (chủ chốt 10/08/2026): cùng công đoạn "Bắt tay + vào
-    # keo", đầu việc *vào keo gáy vuông* phải chờ keo đông còn *khâu chỉ* thì không chờ gì. Một số
-    # cho cả công đoạn không tách được hai ca đó.
-    #
-    # Hai vế KHÔNG chồng nhau: một bước hoặc là Máy hoặc là Tổ, không bao giờ cả hai.
-    cho_ky_thuat_gio: Mapped[float] = mapped_column(
-        Numeric(6, 2), nullable=False, default=0, server_default="0"
-    )
+    # 🔴 `cho_ky_thuat_gio` ĐÃ GỠ 13/08/2026 — chờ kỹ thuật (keo đông · màng nguội) gỡ khỏi cả hệ
+    # theo yêu cầu chủ. Nó đẻ ra ba cột, ba ô nhập, một nhánh trong công thức thời lượng và một
+    # nhánh độ-trễ trong xếp lịch — mà lúc gỡ KHÔNG một dòng dữ liệu nào khai (0/24 máy, 0/10 đầu
+    # việc, 0/14 bước lệnh). Cột để NẰM IM trong Postgres (repo không có Alembic), cùng lối bảng
+    # `cong_doan_cho_ky_thuat` gỡ hồi 10/08. Cần lại thì khai lại model là có dữ liệu cũ.
     # 🔴 `is_default` ĐÃ GỠ 12/08/2026 (mg 0190) — cột radio "Mặc định" trong bảng đầu việc.
     # Nó chọn hộ đầu việc nào điền sẵn khi lập lệnh. Chủ chốt bỏ: cùng một công đoạn mà hai đầu
     # việc khác nhau thật sự (bế TAY / bế MÁY · vào keo / khâu chỉ) thì chọn cái nào là quyết định

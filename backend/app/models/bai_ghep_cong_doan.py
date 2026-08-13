@@ -106,7 +106,6 @@ class BaiGhepCongDoan(Base):
     ve_sinh_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
     # "Thời gian khác" (migration 0153) — mirror `LsxCongDoan.phat_sinh_phut`.
     phat_sinh_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
-    cho_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
     di_chuyen_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
 
     # --- Gia công ngoài (DỰ KIẾN). Bước chung thuê ngoài thì cả bài đi một phiếu, một NCC. ---

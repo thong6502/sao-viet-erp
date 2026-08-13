@@ -944,10 +944,6 @@ class XepLichService:
             "tong_phut": t["tong_phut"],
             "setup_phut": t["dien_giai"]["setup_phut"],
             "chay_phut": t["chay_phut"],
-            # CHỜ KỸ THUẬT (mục B) phải đi tiếp ra ngoài: `danh_sach` đọc `d["cho_phut"]` để phơi
-            # lên bảng. Thiếu key ở đây thì nó lấy mặc định 0.0 và mọi bước hiện "chờ 0 phút" dù
-            # danh mục đã khai — sai IM LẶNG, không lỗi nào bật ra.
-            "cho_phut": t.get("cho_phut", 0.0),
             "theo_may": pp == "may",
             "canh_bao": canh_bao,
         }
@@ -2033,7 +2029,6 @@ class XepLichService:
                 "so_nhan_cong_toi_thieu": (
                     getattr(buoc, "so_nhan_cong_toi_thieu", None) if buoc else None
                 ),
-                "cho_phut": d.get("cho_phut", 0.0),
                 # (E) Khoá GOM việc cùng loại — cùng giấy · cùng khổ tờ in · cùng bộ mực. Hai việc
                 # cùng khoá thì đổi từ việc này sang việc kia gần như không phải canh lại máy.
                 "gom_key": self._gom_key(lsx),

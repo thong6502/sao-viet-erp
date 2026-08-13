@@ -97,19 +97,8 @@ class MayThietBi(Base):
     # SQLite bỏ qua độ dài nên test vẫn xanh, Postgres thật thì lỗi lúc lưu — nới lên 32 (mg 0153).
     don_vi_toc_do: Mapped[str | None] = mapped_column(String(32), nullable=True)
     makeready_time_default: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)  # phút
-    # CHỜ KỸ THUẬT sau khi chạy xong trên máy này — mực khô · màng nguội (mg 0182). Tính bằng GIỜ
-    # (người khai nghĩ "mực khô 4 tiếng"), khác `makeready_time_default` tính bằng PHÚT — nhãn ở
-    # form phải ghi rõ đơn vị.
-    #
-    # Vì sao khai ở MÁY chứ không ở công đoạn (chủ chốt 10/08/2026): bốn máy CM-01…CM-04 cùng công
-    # đoạn "Cán màng / UV" nhưng hai máy UV khô dưới đèn (≈0) còn hai máy cán màng phải để nguội
-    # vài giờ. Một số cho cả công đoạn là chắc chắn sai một trong hai vế, mà không có gì báo.
-    #
-    # ⚠️ KHÔNG chiếm máy: tờ nằm chờ khô thì máy chạy job khác. Nó vào `tong_phut` của bước chứ
-    # KHÔNG vào `chiem_may_phut` — cộng nhầm là khoá oan cái máy mấy tiếng.
-    cho_ky_thuat_gio: Mapped[float] = mapped_column(
-        Numeric(6, 2), nullable=False, default=0, server_default="0"
-    )
+    # 🔴 `cho_ky_thuat_gio` ĐÃ GỠ 13/08/2026 — xem chú thích cùng tên ở `models/cong_doan.py`.
+    # Cột để nằm im trong Postgres, không đọc ở đâu nữa.
     # Kíp chuẩn cần để vận hành máy — hoạch định nhân lực, KHÔNG nhân tốc độ máy.
     so_nhan_cong: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, server_default="1", default=1)
 

@@ -505,7 +505,7 @@ export interface BaiGhepSoDoBuocChung {
   so_nhan_cong: number;
   nang_suat: number | null; don_vi_nang_suat: string | null;
   /** Dẫn xuất từ tốc độ máy; `setup_phut` kế thừa từ máy. Ô gõ được duy nhất là
-   *  `phat_sinh_phut` ("Thời gian khác"). `cho_phut`/`di_chuyen_phut` đã bỏ 2026-08-04. */
+   *  `phat_sinh_phut` ("Thời gian khác"). `cho_phut`/`di_chuyen_phut` đã bỏ. */
   chay_phut: number | null;
   setup_phut: number; phat_sinh_phut: number;
   so_luot_chay: number;
@@ -703,8 +703,6 @@ export interface XepLichRow {
   khuon_be_id: number | null;
   so_nhan_cong: number | null;
   so_nhan_cong_toi_thieu: number | null;
-  /** Chờ kỹ thuật (mực khô/keo đông) — đẩy bước sau, KHÔNG chiếm máy. */
-  cho_phut: number;
   /** Khoá GOM việc cùng loại (giấy · khổ · bộ mực). "Tự xếp" sắp theo khoá này trong cùng mức ưu
    *  tiên để việc cùng setup nằm liền nhau. null = chưa đủ quy cách ⇒ không gom với ai. */
   gom_key: string | null;
@@ -1134,9 +1132,6 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   setup_phut: number; nang_suat: number | null; don_vi_nang_suat: string | null;
   chay_phut: number | null;
   phat_sinh_phut: number;
-  /** CHỜ KỸ THUẬT (mực khô · keo đông · màng nguội) — kế thừa từ danh mục Công đoạn theo cặp
-   *  (công đoạn × loại SP), SỬA ĐÈ được tại bước. Vào `tong_phut` nhưng KHÔNG vào `chiem_may_phut`. */
-  cho_phut: number;
   // derived: chiếm máy theo tốc độ TB (Gantt đặt lịch) + dải nhanh/chậm nhất của máy.
   chiem_may_phut: number; chiem_may_phut_min: number; chiem_may_phut_max: number;
   tong_phut: number;
@@ -1177,8 +1172,6 @@ export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   so_nhan_cong_toi_thieu?: number; so_nhan_cong_tieu_chuan?: number; so_nhan_cong_toi_da?: number;
   setup_phut?: number; nang_suat?: number | null; don_vi_nang_suat?: string | null;
   phat_sinh_phut?: number;
-  /** Chờ kỹ thuật — KHÔNG gửi = giữ số server đã kế thừa; gửi số = sửa đè tại bước (mục B). */
-  cho_phut?: number;
   phu_thuoc_step_keys?: string[];
   vat_tus?: { vat_tu_id: number; so_luong: number }[];
   ghi_chu?: string | null;

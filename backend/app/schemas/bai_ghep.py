@@ -55,7 +55,6 @@ class BuocChungUpdateIn(BaseModel):
     phat_sinh_phut: float | None = None
     # Chờ kỹ thuật của lượt chạy chung (mục B) — lúc gộp lấy MỨC LỚN NHẤT của các bước gộp làm mặc
     # định (cả bài chờ theo lệnh khô lâu nhất), người lập kế hoạch sửa đè được. Không chiếm máy.
-    cho_phut: float | None = Field(default=None, ge=0, le=4320)
     so_luot_chay: int | None = None
     ghi_chu: str | None = None
     vat_tus: list[dict] | None = None
@@ -278,7 +277,6 @@ class SoDoBuocChung(BaseModel):
     setup_phut: float = 0               # kế thừa từ máy (read-only)
     phat_sinh_phut: float = 0
     #: Chờ kỹ thuật — vào tổng thời gian dẫn, KHÔNG vào chiếm máy (mục B).
-    cho_phut: float = 0
     so_luot_chay: int = 1
     # Khoán: phần GHIM (đầu việc đã chọn, ảnh chụp) + danh sách chọn được của TỔ đang gán + phần
     # DẪN XUẤT (SL quy đổi · tiền · diễn giải) — cùng hợp đồng với bước lệnh ở màn KHSX.
