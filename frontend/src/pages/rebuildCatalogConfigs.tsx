@@ -451,10 +451,21 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // THẬT của nó — ghi kẽm `bài in → bản kẽm` — thay vì phải bỏ trống như trước 11/08/2026.
     { key: "don_vi_vao", label: "Đơn vị đầu vào", ...F_DON_VI, group: "Đơn vị", default: "to" },
     { key: "don_vi_ra", label: "Đơn vị đầu ra", ...F_DON_VI, group: "Đơn vị", default: "to" },
+    // HỆ SỐ vào→ra — CHỈ cho bước ngoài dòng giấy, và CHỈ khi hai đơn vị khác nhau.
+    //
+    // Trên dòng giấy hệ số là số con/tờ · số mảnh xả · số tay, đều suy từ quy cách LỆNH. Bày ô ra
+    // ở đó là mời gõ đè lên bình bài ⇒ hai nguồn một số. Hai đơn vị GIỐNG nhau (`kẽm → kẽm`) thì
+    // hệ số luôn 1, hỏi cũng thừa.
+    //
+    // Chỉ so hai mã KHÁC NHAU chứ không hỏi trạm: form không có bản đồ trạm, mà server đã chặn ca
+    // lệch-một-vế rồi (E-CD-DONVI) nên phần còn lại chỉ có thể là cùng-ngoài-dòng.
+    { key: "he_so_ngoai_dong", label: "Hệ số vào → ra", type: "number", group: "Đơn vị",
+      showIf: (f) => !!f.don_vi_vao && !!f.don_vi_ra && f.don_vi_vao !== f.don_vi_ra,
+      hint: "Một đơn vị VÀO đẻ ra mấy đơn vị RA. Vd ghi kẽm 1 bài ra 4 bản ⇒ gõ 4. Để trống = 1." },
     { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong" },
     { key: "bu_hao_id", label: "Mã bù hao (gõ để tìm)", type: "ref-search", refPrefix: "/api/bu-hao", group: "Bù hao",
       showIf: (f) => f.kieu_bu_hao === "tra_bang" },
-    { key: "so_to_bu_hao", label: "Số tờ cộng cố định", type: "number", group: "Bù hao", default: 50,
+    { key: "so_to_bu_hao", label: "Số lượng cộng cố định", type: "number", group: "Bù hao", default: 50,
       showIf: (f) => f.kieu_bu_hao === "co_dinh" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Thông tin" },
   ],

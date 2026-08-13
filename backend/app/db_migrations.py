@@ -6968,3 +6968,21 @@ def _migrate_giay_cong_thuc_luong(db: Session) -> None:
 
 
 MIGRATIONS.append(("0195_giay_cong_thuc_luong", _migrate_giay_cong_thuc_luong))
+
+
+def _migrate_cong_doan_he_so_ngoai_dong(db: Session) -> None:
+    """Hệ số vào→ra cho bước NGOÀI dòng giấy (14/08/2026).
+
+    Trên dòng giấy hệ số suy từ quy cách lệnh (bình bài · mảnh xả · số tay). Ngoài dòng không có
+    gì nói "1 bài ra mấy kẽm" nên người khai — và chỉ khi hai đơn vị khác nhau.
+    """
+    insp = inspect(db.get_bind())
+    if "cong_doan" not in set(insp.get_table_names()):
+        return
+    if "he_so_ngoai_dong" in _existing_columns(insp, "cong_doan"):
+        return
+    db.execute(text("ALTER TABLE cong_doan ADD COLUMN he_so_ngoai_dong NUMERIC(18,6)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0196_cong_doan_he_so_ngoai_dong", _migrate_cong_doan_he_so_ngoai_dong))

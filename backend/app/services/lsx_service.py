@@ -1065,10 +1065,12 @@ class LsxService:
         # --- Đơn vị vào/ra + hệ số: KẾ THỪA từ danh mục, không suy từ tên ---
         dv_vao, dv_ra, he_so = _don_vi_theo_buoc(
             cd_obj, con=con, xa=max(int(comp.get("so_manh_xa") or 1), 1), tram=self._tram())
-        # Số lượng: bước NGOÀI dòng giấy (chế bản, đơn vị trống) đếm KẼM và đứng ngoài chuỗi ngược
-        # nên phải điền ở đây. Bước trên dòng giấy để 0 — `_ap_chuoi_nguoc` ghi đè ngay sau khi
-        # tạo; tự chế số ở đây chỉ tổ có hai công thức rồi lệch nhau.
-        vao = ra = _f(comp.get("so_kem")) if nhom == "prepress" else 0.0
+        # Số lượng để 0 cho MỌI bước — `_ap_chuoi_nguoc` ghi đè ngay sau khi tạo, cả bước trên dòng
+        # lẫn ngoài dòng. 🔴 GỠ 14/08/2026 nhánh `so_kem if nhom == "prepress"`: nó khoá theo TÊN
+        # NHÓM nên xưởng đặt nhóm khác là số rơi về 0 không một lời, và nó ép `vào = ra` nên hao ở
+        # bước chế bản không có chỗ nhét. Nay ngoài dòng đọc công thức của ĐƠN VỊ RA (xem
+        # `tinh_nguoc_routing`).
+        vao = ra = 0.0
 
         nang_suat, dv_nang_suat = _nang_suat_buoc(
             may, cd_obj, dv_vao, dv_ra=dv_ra, tram=self._tram())
@@ -1496,8 +1498,6 @@ class LsxService:
         tram = self._tram()
         idx = [i for i, c in enumerate(buoc)
                if tren_dong_giay(c.don_vi_vao, c.don_vi_ra, tram)]
-        if not idx:
-            return []
         he_so = self._he_so_cau(lsx, so_con=so_con)
         bu_hao_rows = [_bu_hao_to_dict(b) for b in self.db.execute(
             select(BuHao).where(BuHao.active.is_(True))
@@ -1518,6 +1518,43 @@ class LsxService:
             return cd_cache[cong_doan_id]
 
         out: list[dict] = [{} for _ in buoc]
+        # --- Bước NGOÀI dòng giấy: mỗi cái ĐỘC LẬP, không nối chuỗi -------------------------
+        # Đích của nó KHÔNG phải thành phẩm mà là CÔNG THỨC của đơn vị RA ("kem := so_kem" ⇒ 4 bản
+        # tốt). Rồi vào suy ngược y hệt dòng giấy — cùng một công thức, chỉ khác chỗ lấy đích và
+        # lấy hệ số. Nhờ vậy hao ở bước ngoài dòng có chỗ chảy: ghi 5 bản, hỏng 1, giao 4.
+        #
+        # Vế VÀO cố tình KHÔNG đọc công thức của đơn vị vào: hai đầu cùng chốt cứng thì hao hết chỗ
+        # nhét — đúng bệnh `vao = ra = so_kem` của bản cũ.
+        cach_do = self._cach_do()
+        ctx_ngoai = ngu_canh_lenh(quy_cach_bien(lsx))
+        for i, cd in enumerate(buoc):
+            if i in idx or not cd.don_vi_ra:
+                continue
+            ct = cach_do.get((cd.don_vi_ra or "").strip().lower(), "")
+            if not ct:
+                continue        # chưa khai công thức ⇒ để trống, KHÔNG đoán
+            try:
+                ra_ngoai = float(safe_eval(ct, dict(ctx_ngoai)))
+            except (ValueError, ZeroDivisionError):
+                continue
+            if ra_ngoai <= 0:
+                continue
+            fixed_n, pct_n = hao_buoc(
+                _quy_tac_bu_hao(cd.cong_doan_id), rows=bu_hao_rows, sl=ra_ngoai)
+            pct_n = min(max(pct_n, 0.0), 99.0)
+            # Hệ số khai ở danh mục; hai đơn vị GIỐNG nhau thì luôn 1, khỏi bắt khai.
+            obj_cd = self.db.get(CongDoan, cd.cong_doan_id) if cd.cong_doan_id else None
+            hs_n = _f(getattr(obj_cd, "he_so_ngoai_dong", None)) or 1.0
+            out[i] = {
+                "idx": i, "id": cd.id, "thu_tu": cd.thu_tu, "ten": cd.ten,
+                "so_luong_vao": float(ceil((ra_ngoai / hs_n + fixed_n) / (1.0 - pct_n / 100.0))),
+                "so_luong_ra": float(ceil(ra_ngoai)),
+                "don_vi_vao": cd.don_vi_vao, "don_vi_ra": cd.don_vi_ra,
+                "he_so_quy_doi": hs_n, "hao_hut": fixed_n, "hao_hut_pct": pct_n,
+            }
+        if not idx:
+            return [o for o in out if o]
+
         # Đích = SL đặt QUY VỀ đơn vị ra của bước cuối. Bản cũ luôn lấy thẳng SL đặt, nên routing
         # kết ở `con` (bế xong là hết) bị hiểu là "cần ngần ấy CON" trong khi khách đặt ngần ấy CÁI
         # — lệch đúng số con/cái. Dùng chung công thức với engine tính giá, xem `dich_chuoi`.

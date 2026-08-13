@@ -1285,6 +1285,73 @@ def test_dau_viec_mang_san_vat_tu_da_tinh_so_de_drawer_bung(db, orders, lsx_svc,
         0.002 * float(lsx.so_luong_dat), rel=1e-6)
 
 
+def test_xem_truoc_quy_cach_doi_kho_thi_so_TINH_LAI(db, orders, lsx_svc, admin, customer):
+    """Đổi khổ tờ in ở màn Quy cách ⇒ xem trước phải trả số MỚI ngay, chưa cần Lưu.
+
+    Màn LSX gọi `POST /xem-truoc-quy-cach` mỗi lần gõ (debounce 350ms) rồi gạch số cũ, hiện số mới
+    kèm nhãn "tính lại". Frontend NUỐT lỗi (`.catch(() => setXemTruoc(null))`) nên endpoint này hỏng
+    là màn đứng im mà không báo gì — test giữ cửa đó.
+    """
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    lsx = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
+    qc = lsx.quy_cach_json or {}
+
+    # Khổ tờ in bé lại một nửa ⇒ mỗi tờ ra ít con hơn ⇒ cần NHIỀU tờ hơn.
+    patch = {"kho_in_dai": float(qc["kho_in_dai"]) / 2}
+    kq = lsx_svc.xem_truoc_quy_cach(lsx_id=lsx.id, patch=patch)
+
+    assert kq["so_con"] < int(lsx.so_con), "khổ bé đi thì con/tờ phải giảm"
+    assert kq["so_to_ke_hoach"] > int(lsx.so_to_ke_hoach), "ít con/tờ thì phải nhiều tờ hơn"
+    assert "kho_in_dai" in kq["doi"], "phải nói rõ thông số nào đổi"
+    # Chưa Lưu thì DB KHÔNG được đụng tới.
+    db.refresh(lsx)
+    assert int(lsx.so_to_ke_hoach) != kq["so_to_ke_hoach"]
+
+
+def test_buoc_NGOAI_dong_giay_lay_so_tu_cong_thuc_don_vi_RA_va_co_hao(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Bước ngoài dòng giấy: `ra` ← công thức của ĐƠN VỊ RA, `vào` suy ngược kèm hao.
+
+    Chốt 14/08/2026, thay dòng hardcode `vao = ra = so_kem if nhom == "prepress"`. Bản cũ khoá theo
+    TÊN NHÓM (đặt nhóm khác là số rơi về 0 không một lời) và ép vào = ra nên hao hết chỗ nhét.
+
+    Ghi kẽm: 1 bài, 4 màu ⇒ ra 4 bản TỐT; hỏng 1 ⇒ phải ghi 5.
+        ra  = so_kem = 4
+        vào = (4 ÷ hệ_số 4 + hao 1) = 2 bài?  → KHÔNG: hệ số 4 nghĩa 1 bài ra 4 bản,
+              nên (4 ÷ 4) = 1 bài, + hao 1 (tính bằng đơn vị VÀO) = 2.
+    Test dùng `kẽm → kẽm` (hệ số 1) cho đúng nghiệp vụ hao: hỏng 1 BẢN, không phải hỏng 1 bài.
+    """
+    from app.models.don_vi_do import DonViDo
+
+    ptg = _ptg_2_san_pham(db)
+    # `kem` mang công thức: một lệnh cần bấy nhiêu bản kẽm.
+    dv_kem = db.query(DonViDo).filter(DonViDo.ma == "kem").one_or_none()
+    if dv_kem is None:
+        dv_kem = DonViDo(ma="kem", ten="bản kẽm", ho="kem")
+        db.add(dv_kem)
+    dv_kem.cong_thuc = "so_kem"
+    # Lấy một bước ĐANG CÓ trong routing rồi đẩy nó ra NGOÀI dòng giấy bằng cách đổi đơn vị —
+    # đúng thứ xảy ra khi xưởng khai `bai → kem` cho chế bản.
+    cd_cb = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    cd_cb.don_vi_vao = cd_cb.don_vi_ra = "kem"
+    cd_cb.kieu_bu_hao, cd_cb.so_to_bu_hao = "co_dinh", 1
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+    so_kem = int((lsx.quy_cach_json or {}).get("so_kem") or 0)
+    assert so_kem > 0, "lệnh phải có số kẽm để test có nghĩa"
+
+    cb = next(c for c in lsx.cong_doans if c.cong_doan_id == cd_cb.id)
+    assert float(cb.so_luong_ra) == so_kem, "ra = công thức của đơn vị RA"
+    assert float(cb.so_luong_vao) == so_kem + 1, "vào = ra + hao — hao nay CÓ chỗ chảy"
+
+
 def test_khong_co_bang_khoan_thi_khong_co_tien(db, orders, lsx_svc, admin, customer):
     """Tổ chưa khai giá khoán → mọi bước im lặng, tổng = 0. KHÔNG bịa số nào."""
     ptg = _ptg_2_san_pham(db)

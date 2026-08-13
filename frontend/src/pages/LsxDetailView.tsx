@@ -145,6 +145,9 @@ export function LsxDetailView({
   const [acts, setActs] = useState<LsxActivity[] | null>(null);
   /** Số MÁY TỰ TÍNH ứng với thông số đang gõ — server trả, chưa lưu. null = chưa sửa gì. */
   const [xemTruoc, setXemTruoc] = useState<LsxQuyCachXemTruoc | null>(null);
+  /** Lỗi của lần xem trước gần nhất. Trước 13/08/2026 chỗ này `.catch(() => setXemTruoc(null))` —
+   *  endpoint hỏng thì khối "Máy tự tính" đứng im y như chưa sửa gì, không một dòng báo. */
+  const [xemTruocLoi, setXemTruocLoi] = useState<string | null>(null);
 
   // Danh mục cho dropdown — nạp MỘT LẦN ở đây rồi truyền xuống bảng routing.
   const [congDoanRefs, setCongDoanRefs] = useState<RefRow[] | null>(null);
@@ -244,10 +247,16 @@ export function LsxDetailView({
   useEffect(() => {
     if (!token || !d || !qcDoi || !form) {
       setXemTruoc(null);
+      setXemTruocLoi(null);
       return;
     }
     const h = window.setTimeout(() => {
-      api.lsx.xemTruocQuyCach(token, d.id, form.qc).then(setXemTruoc).catch(() => setXemTruoc(null));
+      api.lsx.xemTruocQuyCach(token, d.id, form.qc)
+        .then((r) => { setXemTruoc(r); setXemTruocLoi(null); })
+        .catch((e) => {
+          setXemTruoc(null);
+          setXemTruocLoi(e instanceof ApiError ? e.message : "Không tính lại được — kiểm tra kết nối.");
+        });
     }, 350);
     return () => window.clearTimeout(h);
     // `form.qc` so bằng CHUỖI — object mới mỗi render thì effect bắn liên tục, debounce không cứu.
@@ -1020,6 +1029,11 @@ export function LsxDetailView({
                     />
                   </div>
                   {/* Ngả 1 vẫn ĐÈ số gõ tay — nhưng đè có báo trước, không lén. */}
+                  {xemTruocLoi && (
+                    <div className="khsx-alert" role="alert">
+                      Số bên trên CHƯA tính lại: {xemTruocLoi}
+                    </div>
+                  )}
                   {xemTruoc && xemTruoc.doi.length > 0 && (
                     <p className="khsx-spec__canhbao">
                       Đổi {xemTruoc.doi.length} thông số — các số trên sẽ ghi đè khi bấm Lưu.

@@ -38,6 +38,8 @@ class CongDoanIn(BaseModel):
     # không chạm giấy. Cặp hợp lệ do `cong_doan_service` kiểm.
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
+    # Hệ số vào→ra cho bước NGOÀI dòng giấy, chỉ dùng khi hai đơn vị khác nhau (mg 0196).
+    he_so_ngoai_dong: float | None = Field(default=None, gt=0)
     kieu_bu_hao: str = "khong"
     bu_hao_id: int | None = None
     so_to_bu_hao: int = Field(default=50, ge=0)
@@ -84,6 +86,7 @@ class CongDoanRow(BaseModel):
     # hết chuyện: một nguồn duy nhất, xưởng đổi tên đơn vị là bảng đổi theo.
     don_vi_vao_ten: str | None = None
     don_vi_ra_ten: str | None = None
+    he_so_ngoai_dong: float | None = None
     kieu_bu_hao: str = "khong"
     bu_hao_id: int | None = None
     so_to_bu_hao: int = 50

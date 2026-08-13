@@ -83,6 +83,19 @@ class CongDoan(Base):
     # xưởng khai mã dài hơn, và Postgres ném lỗi độ dài lúc ghi chứ không cắt bớt.
     don_vi_vao: Mapped[str | None] = mapped_column(String(24), nullable=True)
     don_vi_ra: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    # HỆ SỐ vào → ra cho bước NGOÀI dòng giấy (mg 0196). "Một đơn vị vào đẻ ra mấy đơn vị ra."
+    #
+    # Trên dòng giấy KHÔNG khai ở đây: hệ số ở đó là số con/tờ · số mảnh xả · số tay, đều suy từ
+    # quy cách của LỆNH (`_he_so_cau`). Bày ô ra cho bước trên dòng là mời gõ đè lên bình bài —
+    # hai nguồn cho một số, sớm muộn lệch.
+    #
+    # Ngoài dòng thì không có quy cách nào nói "1 bài ra mấy kẽm", nên người phải khai. Chỉ cần
+    # khi HAI ĐƠN VỊ KHÁC NHAU: `kẽm → kẽm` thì hệ số luôn 1, hỏi là hỏi thừa.
+    #
+    # Vì sao vẫn cần dù mỗi đơn vị đã có công thức riêng: nếu CẢ HAI đầu đều đọc công thức thì hai
+    # đầu chốt cứng, hao hụt hết chỗ nhét (đúng bệnh `vao = ra = so_kem` của bản cũ). Chỉ vế RA đọc
+    # công thức; vế VÀO suy ngược qua hệ số + hao, y hệt dòng giấy.
+    he_so_ngoai_dong: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
     nhom: Mapped[str] = mapped_column(String(12), index=True, nullable=False)  # prepress|print|finishing
     # Nhóm MÁY làm được công đoạn này — tên nhóm ở danh mục `nhom_may` ("Máy in"/"Bế"/"Cán màng / UV"…).
     # Chặn gán máy SAI LOẠI ở bước (vd bước Ghi kẽm CTP không cho gán máy Bế). NULL/[] = chưa khai =
