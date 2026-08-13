@@ -1152,6 +1152,10 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   /** Lượng TÍNH SẴN cho mọi vật tư theo bước này — chọn món nào ở drawer là điền số ngay.
    *  Món chưa tính ra được thì KHÔNG có trong mảng ⇒ để ô trống cho người khai, không đoán. */
   vat_tu_goi_y: { vat_tu_id: number; so_luong: number; dien_giai: string | null }[];
+  /** Số ĐÚNG RA phải là theo danh mục HIỆN TẠI, chỉ có khi KHÁC số đã lưu. null = không lệch.
+   *  Lệnh là ảnh chụp nên server không tự đè — màn gạch số cũ rồi mời bấm Lưu. */
+  so_luong_vao_moi: number | null;
+  so_luong_ra_moi: number | null;
   khoan_sl: number | null;
   khoan_don_vi_sl: string | null;
   khoan_tien: number | null;

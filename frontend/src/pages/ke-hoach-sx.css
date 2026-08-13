@@ -1293,6 +1293,10 @@ td.khsx-num > .khsx-unit {
 }
 .khsx-rt__time { white-space: nowrap; }
 .khsx-rt__sub2 { display: block; font-size: var(--fs-xs); color: var(--ash); margin-top: 2px; }
+/* Số ĐÃ LƯU khi danh mục đã đổi — gạch ngang, nhạt, đứng TRƯỚC số mới. Cùng lối với `KVDeriv`
+   ở tab Quy cách để hai màn nói cùng một ngôn ngữ: gạch cũ · hiện mới · nói vì sao. */
+.khsx-rt__cu { color: var(--ash); text-decoration: line-through; margin-right: 4px; }
+.khsx-rt__lech { color: var(--rust); }
 .khsx-need--soft {
   background: var(--amber-soft);
   color: var(--amber-deep);

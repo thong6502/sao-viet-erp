@@ -1352,6 +1352,44 @@ def test_buoc_NGOAI_dong_giay_lay_so_tu_cong_thuc_don_vi_RA_va_co_hao(
     assert float(cb.so_luong_vao) == so_kem + 1, "vào = ra + hao — hao nay CÓ chỗ chảy"
 
 
+def test_danh_muc_doi_sau_khi_tao_lenh_thi_BAO_LECH_chu_khong_tu_de(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Sửa danh mục SAU khi tạo lệnh ⇒ lệnh phơi số mới để màn báo, nhưng KHÔNG tự ghi đè.
+
+    Chủ hỏi 14/08/2026: "tôi ra lệnh rồi mà người khác sửa hệ số thì sao, tôi đâu có biết mà bấm
+    Lưu". Đúng — số lượng là ẢNH CHỤP, engine chỉ chạy lại ở ba cửa (tạo · sửa quy cách · lưu
+    routing). Nay lúc ĐỌC có so ngầm với danh mục hiện tại.
+
+    KHÔNG tự đè: lệnh đã phát xuống xưởng mà số giấy tự đổi dưới chân người kế hoạch còn tệ hơn số
+    cũ. Máy đề xuất, người quyết.
+    """
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0].id)
+
+    truoc = lsx_svc.detail_dict(lsx)["cong_doans"]
+    assert all(b["so_luong_vao_moi"] is None for b in truoc), "chưa đổi gì thì không được báo lệch"
+    buoc_in = next(b for b in truoc if b["nhom"] == "print")
+    vao_cu = buoc_in["so_luong_vao"]
+
+    # Người khác vào danh mục cộng thêm hao cho công đoạn IN.
+    cd_in = db.get(CongDoan, buoc_in["cong_doan_id"])
+    cd_in.kieu_bu_hao, cd_in.so_to_bu_hao = "co_dinh", int(cd_in.so_to_bu_hao or 0) + 500
+    db.commit()
+
+    sau = lsx_svc.detail_dict(lsx_svc.get(lsx.id))["cong_doans"]
+    b2 = next(b for b in sau if b["cong_doan_id"] == cd_in.id)
+    assert b2["so_luong_vao"] == vao_cu, "số ĐÃ LƯU phải giữ nguyên — lệnh là ảnh chụp"
+    assert b2["so_luong_vao_moi"] is not None, "phải phơi số mới để màn báo"
+    assert b2["so_luong_vao_moi"] > vao_cu, "thêm hao thì cần nhiều tờ hơn"
+    # DB cũng không được đụng.
+    db.refresh(lsx)
+    cd_db = next(c for c in lsx.cong_doans if c.cong_doan_id == cd_in.id)
+    assert float(cd_db.so_luong_vao) == vao_cu
+
+
 def test_khong_co_bang_khoan_thi_khong_co_tien(db, orders, lsx_svc, admin, customer):
     """Tổ chưa khai giá khoán → mọi bước im lặng, tổng = 0. KHÔNG bịa số nào."""
     ptg = _ptg_2_san_pham(db)

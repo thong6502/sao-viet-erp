@@ -554,15 +554,37 @@ export function LsxRoutingTable({
                     )}
                   </td>
                   <td className="khsx-rt__qty">
-                    {r.nhom === "prepress" || (!r.don_vi_vao && !r.don_vi_ra) ? (
+                    {/* 🔴 GỠ điều kiện `nhom === "prepress"` (14/08/2026): bước chế bản nay CÓ số
+                        thật (ra ← công thức của đơn vị, vào suy ngược kèm hao) nên che bằng dấu —
+                        là giấu mất số bản kẽm phải ghi. Chỉ còn che khi THẬT SỰ chưa khai đơn vị. */}
+                    {!r.don_vi_vao && !r.don_vi_ra ? (
                       <span className="khsx-muted">—</span>
                     ) : (
                       <>
-                        <span className="khsx-num">{num(n(r.so_luong_vao))}</span>
+                        {/* Danh mục đổi SAU khi tạo lệnh (bậc bù hao · công thức đơn vị · hệ số) thì
+                            số đã lưu thành cũ mà không ai biết. Server so ngầm rồi phơi
+                            `so_luong_*_moi`; ở đây gạch số cũ + hiện số mới. KHÔNG tự lưu — bấm
+                            "Lưu công đoạn" mới ghi, vì lệnh là ảnh chụp. */}
+                        {r.so_luong_vao_moi != null && (
+                          <s className="khsx-rt__cu">{num(n(r.so_luong_vao))}</s>
+                        )}
+                        <span className="khsx-num">
+                          {num(r.so_luong_vao_moi ?? n(r.so_luong_vao))}
+                        </span>
                         <span className="khsx-rt__dv">{dvNhan(r.don_vi_vao, r)}</span>
                         <span className="khsx-rt__arrow" aria-label="ra">→</span>
-                        <span className="khsx-num">{num(n(r.so_luong_ra))}</span>
+                        {r.so_luong_ra_moi != null && (
+                          <s className="khsx-rt__cu">{num(n(r.so_luong_ra))}</s>
+                        )}
+                        <span className="khsx-num">
+                          {num(r.so_luong_ra_moi ?? n(r.so_luong_ra))}
+                        </span>
                         <span className="khsx-rt__dv">{dvNhan(r.don_vi_ra, r)}</span>
+                        {(r.so_luong_vao_moi != null || r.so_luong_ra_moi != null) && (
+                          <span className="khsx-rt__sub2 khsx-rt__lech">
+                            danh mục đã đổi — bấm Lưu công đoạn để chốt số mới
+                          </span>
+                        )}
                         {/* Bước ĐỔI ĐƠN VỊ: nói luôn hệ số, không thì "59 tờ in → 5.201 con" là số
                             từ trên trời (59 × 180 = 10.620, không phải 5.201 — chuỗi đi NGƯỢC).
                             `heSoChu` LẬT lại khi hệ số < 1 (sách gấp tay) → "10 Tờ in = 1 Thành

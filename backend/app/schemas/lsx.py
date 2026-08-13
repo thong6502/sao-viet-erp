@@ -284,6 +284,10 @@ class LsxCongDoanOut(BaseModel):
     # `[{vat_tu_id, so_luong, dien_giai}]` — lượng tính sẵn cho MỌI vật tư theo bước này. Drawer
     # chọn món nào là điền số ngay, khỏi bắt gõ tay. Món chưa tính ra được thì KHÔNG có ở đây.
     vat_tu_goi_y: list[dict] = Field(default_factory=list)
+    # Số ĐÚNG RA phải là theo danh mục HIỆN TẠI, khi nó KHÁC số đã lưu (None = không lệch).
+    # Lệnh là ẢNH CHỤP nên server không tự đè — chỉ phơi ra để màn gạch số cũ + mời "Tính lại".
+    so_luong_vao_moi: float | None = None
+    so_luong_ra_moi: float | None = None
     # DẪN XUẤT (tính lúc đọc, không lưu): SL đã quy đổi · tiền dự kiến · diễn giải cách tính.
     khoan_sl: float | None = None
     khoan_don_vi_sl: str | None = None

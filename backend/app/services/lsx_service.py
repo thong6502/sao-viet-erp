@@ -1864,8 +1864,18 @@ class LsxService:
         # nằm ở cột, thiếu chúng thì công thức khoán dùng `to_dau_vao` báo "chưa biết Tờ vào máy"
         # ngay giữa màn đang hiện số tờ đó.
         qc_bien = quy_cach_bien(lsx)
+        # SỐ LƯỢNG LÀ ẢNH CHỤP lúc tạo lệnh — engine chỉ chạy lại ở ba cửa: tạo · sửa quy cách ·
+        # lưu routing. Danh mục đổi sau đó (bậc bù hao, công thức đơn vị, hệ số ngoài dòng) thì lệnh
+        # đã tạo KHÔNG hay biết, và người kế hoạch cũng không có gì để mà biết mà bấm Lưu.
+        #
+        # Nên tính lại NGẦM ở đây rồi SO với số đã lưu. Khác thì phơi ra `so_luong_*_moi` để màn
+        # gạch số cũ + hiện nhãn "tính lại". CỐ Ý KHÔNG tự đè: lệnh đã phát xuống xưởng mà số giấy
+        # tự đổi dưới chân người kế hoạch còn tệ hơn số cũ — máy đề xuất, người quyết.
+        moi = {r["idx"]: r for r in self.tinh_nguoc_routing(lsx)}
+        thu_tu_idx = {id(c): i for i, c in enumerate(sorted(lsx.cong_doans, key=lambda x: x.thu_tu))}
         buoc_dicts = [
-            self._cong_doan_dict(cd, dept_names, may_names, qc_bien)
+            self._cong_doan_dict(cd, dept_names, may_names, qc_bien,
+                                 moi.get(thu_tu_idx.get(id(cd), -1)))
             for cd in lsx.cong_doans
         ]
         return {
@@ -1943,7 +1953,7 @@ class LsxService:
         return k.ten if k is not None else None
 
     def _cong_doan_dict(self, cd, dept_names: dict, may_names: dict,
-                        quy_cach: dict | None = None) -> dict:
+                        quy_cach: dict | None = None, moi: dict | None = None) -> dict:
         vao = _f(cd.so_luong_vao)
         t = thoi_luong_buoc(cd, self._may_cua_buoc(cd))
         kh = cd.khoan_json or {}
@@ -1962,6 +1972,13 @@ class LsxService:
             "khuon_be_id": cd.khuon_be_id,
             "khuon_be_ten": self._khuon_ten(cd.khuon_be_id),
             "so_luong_vao": vao, "so_luong_ra": _f(cd.so_luong_ra),
+            # Số ĐÚNG RA phải là, tính lại theo danh mục HIỆN TẠI. Chỉ có mặt khi KHÁC số đã lưu —
+            # bằng nhau thì để None cho màn khỏi phải so lại lần nữa. Xem `detail_dict`.
+            "so_luong_vao_moi": (
+                _f(moi["so_luong_vao"]) if moi and _f(moi["so_luong_vao"]) != vao else None),
+            "so_luong_ra_moi": (
+                _f(moi["so_luong_ra"])
+                if moi and _f(moi["so_luong_ra"]) != _f(cd.so_luong_ra) else None),
             "don_vi_vao": cd.don_vi_vao, "don_vi_ra": cd.don_vi_ra,
             # Bước có nằm trên DÒNG GIẤY không. Bước ngoài dòng đứng ngoài chuỗi bù hao nên số
             # lượng KHÔNG tự tính (đứng im ở 0 nếu không ai điền) và hao của nó không cộng vào số

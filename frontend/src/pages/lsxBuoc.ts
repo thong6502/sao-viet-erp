@@ -55,6 +55,9 @@ export interface EditRow {
   thoi_luong_dien_giai: Record<string, unknown>;
   /** Lượng tính sẵn cho mọi vật tư (server tính theo bước) — READ-ONLY, không gửi lên. */
   vat_tu_goi_y: { vat_tu_id: number; so_luong: number; dien_giai: string | null }[];
+  /** Số tính lại theo danh mục HIỆN TẠI khi lệch số đã lưu — READ-ONLY, không gửi lên. */
+  so_luong_vao_moi: number | null;
+  so_luong_ra_moi: number | null;
   phu_thuoc_step_keys: string[];
   /** `tu_dong` = dòng MÁY bung khi chọn công việc khoán ⇒ lần bung sau thay được. Người tự thêm
    *  hoặc đã sửa số thì về `false` và máy chừa ra — không thì đổi công việc khoán là mất số vừa gõ. */
@@ -161,6 +164,8 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     phat_sinh_phut: s(cd.phat_sinh_phut),
     thoi_luong_dien_giai: cd.thoi_luong_dien_giai ?? {},
     vat_tu_goi_y: cd.vat_tu_goi_y ?? [],
+    so_luong_vao_moi: cd.so_luong_vao_moi ?? null,
+    so_luong_ra_moi: cd.so_luong_ra_moi ?? null,
     phu_thuoc_step_keys: cd.phu_thuoc_step_keys ?? [],
     vat_tus: (cd.vat_tus ?? []).map((v) => ({
       ...v, so_luong: String(v.so_luong), tu_dong: Boolean(v.tu_dong),
@@ -210,7 +215,7 @@ export function emptyRow(): EditRow {
     nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "",
     so_nhan_cong_toi_thieu: null, so_nhan_cong_tieu_chuan: 1, so_nhan_cong_toi_da: null,
     thoi_luong_dien_giai: {},
-    vat_tu_goi_y: [],
+    vat_tu_goi_y: [], so_luong_vao_moi: null, so_luong_ra_moi: null,
     phu_thuoc_step_keys: [], vat_tus: [],
     nha_cung_cap: "", sl_gui: "", ngay_gui_dk: "", van_chuyen_ngay: "", gia_cong_ngay: "",
     ngay_nhan_dk: "", hao_hut_cho_phep: "", don_gia_gia_cong: "", yeu_cau_ky_thuat: "",
