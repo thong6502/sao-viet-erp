@@ -1151,6 +1151,113 @@ def test_so_luong_vat_tu_lay_tu_CACH_DO_cua_don_vi(db, orders, lsx_svc, admin, c
     assert any("so_mau_pha" in c for c in chon["canh_bao_vat_tu"])
 
 
+def test_vat_tu_khai_o_dau_viec_TU_BUNG_vao_buoc_luc_tao_lenh(db, orders, lsx_svc, admin, customer):
+    """Khai vật tư ở ĐẦU VIỆC (danh mục) ⇒ tạo lệnh xong bước phải CÓ SẴN dòng đó, kèm số lượng.
+
+    Dính 13/08/2026: server tự điền đầu việc khi tổ chỉ khớp một dòng, nhưng chỉ FRONTEND mới bung
+    vật tư — và nó chỉ bung khi người dùng TỰ TAY chọn lại đầu việc ở drawer. Kết quả: lệnh có đầu
+    việc "In 2 màu" mà khối "Vật tư cần dùng" trống, kế hoạch vật tư không thấy gì để đi mua.
+    """
+    from app.models.cong_doan import CongDoanDauViecVatTu
+    from app.models.don_vi_do import DonViDo
+    from app.models.vat_lieu_kho import VatTuInAn
+
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
+    # Đơn vị TỰ TÍNH: keo đo bằng "kg keo" = định mức × số thành phẩm của lệnh.
+    db.add(DonViDo(ma="kg_keo", ten="kg keo", cong_thuc="0.002 * so_luong"))
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg_keo", don_gia=45_000)
+    db.add(keo)
+    db.flush()
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+
+    buoc = next(c for c in lsx.cong_doans if c.ten == "Dán hộp")
+    assert buoc.khoan_json, "tổ chỉ có một đầu việc ⇒ server phải điền sẵn"
+    ma = [v.vat_tu_ma_snapshot for v in buoc.vat_tus]
+    assert ma == ["KEO-GAY"], f"vật tư của đầu việc phải tự bung, đang có: {ma}"
+    v = buoc.vat_tus[0]
+    assert float(v.so_luong) == pytest.approx(0.002 * float(lsx.so_luong_dat), rel=1e-6)
+    assert v.tu_dong is True, "dòng máy bung ⇒ lần đổi đầu việc sau phải thay được"
+
+
+def test_cong_thuc_luong_cua_VAT_TU_thang_cong_thuc_cua_don_vi(db, orders, lsx_svc, admin, customer):
+    """Keo đo bằng `kg` THẬT + công thức lượng riêng ⇒ BOM ra số kg, khỏi đẻ đơn vị `kg_keo`.
+
+    Chốt 13/08/2026: công thức ra LƯỢNG thuộc về MÓN HÀNG, không thuộc về ĐƠN VỊ. `kg` dùng chung
+    cho keo · mực · giấy mà mỗi thứ tiêu hao một kiểu — gắn lên `kg` là cả ba bị tính như nhau.
+    Kho và mua hàng vẫn thấy `kg` thật, không phải `kg_keo`.
+    """
+    from app.models.cong_doan import CongDoanDauViecVatTu
+    from app.models.don_vi_do import DonViDo
+    from app.models.vat_lieu_kho import VatTuInAn
+
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
+    # `kg` mang công thức của GIẤY — cố tình, để chứng minh vật tư THẮNG đơn vị.
+    dv_kg = db.query(DonViDo).filter(DonViDo.ma == "kg").one_or_none()
+    if dv_kg is None:
+        dv_kg = DonViDo(ma="kg", ten="kg", ho="khoi_luong")
+        db.add(dv_kg)
+    dv_kg.cong_thuc = "dinh_luong * dai_in * rong_in * to_dau_vao"
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000,
+                    cong_thuc_luong="0.002 * so_luong")
+    db.add(keo)
+    db.flush()
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+    buoc = next(c for c in lsx.cong_doans if c.ten == "Dán hộp")
+    v = next(x for x in buoc.vat_tus if x.vat_tu_ma_snapshot == "KEO-GAY")
+
+    # Số theo công thức CỦA KEO, KHÔNG phải công thức khối lượng giấy gắn trên `kg`.
+    assert float(v.so_luong) == pytest.approx(0.002 * float(lsx.so_luong_dat), rel=1e-6)
+    assert v.don_vi_snapshot == "kg", "kho vẫn cân bằng kg thật, không phải kg_keo"
+
+
+def test_goi_y_luong_cho_MOI_vat_tu_de_drawer_dien_san(db, orders, lsx_svc, admin, customer):
+    """Chọn một vật tư BẤT KỲ ở drawer thì số phải hiện ngay — server tính sẵn cho cả danh mục.
+
+    Chủ 13/08/2026: "khi chọn keo vào gáy thì nó tính luôn". Công thức + quy cách đều nằm ở server;
+    client không có và không nên có (công thức chỉ được một bản). Nên server gửi kèm `vat_tu_goi_y`.
+
+    Món chưa tính ra được thì KHÔNG có trong danh sách ⇒ drawer để trống, không đoán số.
+    """
+    from app.models.don_vi_do import DonViDo
+    from app.models.vat_lieu_kho import VatTuInAn
+
+    ptg = _ptg_2_san_pham(db)
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000,
+                    cong_thuc_luong="0.002 * so_luong")
+    # Món CHƯA khai gì để tính lượng ⇒ phải VẮNG khỏi gợi ý, không được bịa số.
+    mu = VatTuInAn(ma="MU-LA", ten="Món lạ", don_vi_gia="thung_la", don_gia=1_000)
+    db.add_all([keo, mu, DonViDo(ma="thung_la", ten="thùng lạ")])
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+    buoc = next(b for b in lsx_svc.detail_dict(lsx)["cong_doans"] if b["ten"] == "Dán hộp")
+
+    goi_y = {g["vat_tu_id"]: g for g in buoc["vat_tu_goi_y"]}
+    assert keo.id in goi_y, "vật tư có công thức lượng phải được tính sẵn"
+    assert goi_y[keo.id]["so_luong"] == pytest.approx(
+        round(0.002 * float(lsx.so_luong_dat), 3), rel=1e-6)
+    assert mu.id not in goi_y, "chưa tính ra được thì VẮNG mặt, không bịa số 0"
+
+
 def test_khong_co_bang_khoan_thi_khong_co_tien(db, orders, lsx_svc, admin, customer):
     """Tổ chưa khai giá khoán → mọi bước im lặng, tổng = 0. KHÔNG bịa số nào."""
     ptg = _ptg_2_san_pham(db)

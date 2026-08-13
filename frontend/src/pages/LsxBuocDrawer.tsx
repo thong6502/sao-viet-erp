@@ -1254,6 +1254,12 @@ export function LsxBuocDrawer({
                       onChange={(e) => {
                         const item = vatTuRefs.find((v) => v.id === Number(e.target.value));
                         if (item && !row.vat_tus.some((v) => v.vat_tu_id === item.id)) {
+                          // Số ĐIỀN SẴN từ gợi ý server đã tính theo bước này (công thức của vật
+                          // tư, hoặc của đơn vị nó, hoặc quy đổi từ đơn vị bước). Chọn "Keo vào
+                          // gáy" là thấy ngay số, khỏi bắt gõ tay — client KHÔNG tự tính, công
+                          // thức chỉ có một bản ở server. Không tính ra được thì để trống, đúng
+                          // luật không đoán.
+                          const goiY = row.vat_tu_goi_y.find((g) => g.vat_tu_id === item.id);
                           set("vat_tus", [
                             ...row.vat_tus,
                             {
@@ -1261,7 +1267,7 @@ export function LsxBuocDrawer({
                               vat_tu_ma: item.ma ?? "",
                               vat_tu_ten: item.ten,
                               don_vi: item.donVi ?? "",
-                              so_luong: "",
+                              so_luong: goiY ? String(goiY.so_luong) : "",
                               tu_dong: false,   // người tự thêm ⇒ máy không đụng tới
                             },
                           ]);

@@ -6929,3 +6929,42 @@ def _migrate_bo_trang_thai_dang_thuc_hien(db: Session) -> None:
 MIGRATIONS.append(("0193_bao_tri_bo_dang_thuc_hien", _migrate_bo_trang_thai_dang_thuc_hien))
 
 
+
+
+def _migrate_vat_tu_cong_thuc_luong(db: Session) -> None:
+    """Vật tư có ô CÔNG THỨC LƯỢNG riêng, tách khỏi công thức GIÁ (13/08/2026).
+
+    `cong_thuc_gia` ra TIỀN cho phiếu tính giá; cột mới ra LƯỢNG cho BOM ở bước lệnh. Trước đó lượng
+    chỉ suy được khi ĐƠN VỊ của vật tư mang công thức — mà `kg` dùng chung cho keo · mực · giấy nên
+    không gắn được, buộc phải đẻ `kg_keo`/`kg_giay_to_in`… rồi kho và mua hàng phải nhìn mấy cái tên
+    đó thay vì `kg` thật.
+    """
+    insp = inspect(db.get_bind())
+    if "vat_tu_in_an" not in set(insp.get_table_names()):
+        return
+    if "cong_thuc_luong" in _existing_columns(insp, "vat_tu_in_an"):
+        return
+    db.execute(text("ALTER TABLE vat_tu_in_an ADD COLUMN cong_thuc_luong TEXT"))
+    db.commit()
+
+
+MIGRATIONS.append(("0194_vat_tu_cong_thuc_luong", _migrate_vat_tu_cong_thuc_luong))
+
+
+def _migrate_giay_cong_thuc_luong(db: Session) -> None:
+    """Giấy có ô CÔNG THỨC LƯỢNG riêng — vế còn lại của mg 0194 (vật tư khác đã có).
+
+    Có cột này thì giấy khai ĐVT `kg` THẬT rồi tự tính ra kg, khỏi đi vòng qua cạnh quy đổi động
+    `tờ → kg`. Cạnh đó là chỗ duy nhất còn giữ "công thức mà lại có đích" — chủ chốt 13/08/2026 là
+    vô lý, nhưng chưa xoá được vì kế hoạch vật tư đang sống nhờ nó. Khai xong ở đây thì xoá được.
+    """
+    insp = inspect(db.get_bind())
+    if "giay_nguyen" not in set(insp.get_table_names()):
+        return
+    if "cong_thuc_luong" in _existing_columns(insp, "giay_nguyen"):
+        return
+    db.execute(text("ALTER TABLE giay_nguyen ADD COLUMN cong_thuc_luong TEXT"))
+    db.commit()
+
+
+MIGRATIONS.append(("0195_giay_cong_thuc_luong", _migrate_giay_cong_thuc_luong))

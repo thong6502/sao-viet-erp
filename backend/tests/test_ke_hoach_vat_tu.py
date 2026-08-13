@@ -537,6 +537,32 @@ def test_giay_khong_co_kho_o_danh_muc_van_quy_ra_kg_bang_kho_CUA_LENH(db, svc, c
     assert "kg" in dong["nhu_cau_hien_thi"]
 
 
+def test_giay_co_CONG_THUC_LUONG_thi_ra_so_thang_khong_qua_quy_doi(db, svc, customer):
+    """Giấy khai ĐVT `kg` THẬT + công thức lượng riêng ⇒ kế hoạch ra kg, khỏi cạnh `tờ → kg`.
+
+    Chốt 13/08/2026: công thức KHÔNG có đích. Cạnh quy đổi động `tờ → kg` là chỗ duy nhất còn giữ
+    kiểu "công thức mà lại có đích"; khai công thức ngay trên mặt hàng thì cạnh đó hết lý do sống.
+
+    Cùng số với test trên: 1.000 tờ 150 g/m² khổ 790×1090 ⇒ 129,165 kg.
+    """
+    g = _giay(db, ma="GY-CTL", dai=0, rong=0, gsm=0)
+    g.cong_thuc_luong = "dinh_luong * dai_in * rong_in * to_nguyen"
+    o = _don(db, customer)
+    l = Lsx(
+        ma="LSX-CTL", ten="LSX-CTL", order_id=o.id, order_line_id=o._line.id,
+        so_luong_dat=1_000, so_to_nguyen=1_000, so_con=1,
+        han_hoan_thanh_sx=HOM_NAY + timedelta(days=10),
+        quy_cach_json={"giay_id": g.id, "kho_in_dai": 1090, "kho_in_rong": 790, "gsm": 150},
+        trang_thai=TT_SAN_SANG,
+    )
+    db.add(l)
+    db.commit()
+
+    dong = _nhom(svc.can_doi(), g)["dong"][0]
+    assert "khong_doi_chieu_duoc" not in dong["canh_bao"], dong.get("ly_do_canh_bao")
+    assert dong["nhu_cau"] == pytest.approx(129.165, abs=0.01)
+
+
 def test_giay_thieu_kho_o_CA_HAI_noi_thi_van_bao_khong_doi_chieu_duoc(db, svc, customer):
     """Lệnh cũ chưa có khổ trong quy cách + danh mục cũng trống ⇒ KHÔNG đoán, phải nói ra."""
     g = _giay(db, ma="GY-TRONG", dai=0, rong=0, gsm=0)

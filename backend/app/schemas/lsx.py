@@ -281,6 +281,9 @@ class LsxCongDoanOut(BaseModel):
     khoan_don_gia: float | None = None
     # Các đầu việc CHỌN ĐƯỢC cho bước (theo tổ + công đoạn) — nuôi dropdown ở drawer.
     khoan_chon_duoc: list[dict] = Field(default_factory=list)
+    # `[{vat_tu_id, so_luong, dien_giai}]` — lượng tính sẵn cho MỌI vật tư theo bước này. Drawer
+    # chọn món nào là điền số ngay, khỏi bắt gõ tay. Món chưa tính ra được thì KHÔNG có ở đây.
+    vat_tu_goi_y: list[dict] = Field(default_factory=list)
     # DẪN XUẤT (tính lúc đọc, không lưu): SL đã quy đổi · tiền dự kiến · diễn giải cách tính.
     khoan_sl: float | None = None
     khoan_don_vi_sl: str | None = None

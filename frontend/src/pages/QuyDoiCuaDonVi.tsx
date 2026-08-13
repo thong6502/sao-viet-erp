@@ -39,6 +39,9 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
   const [sua, setSua] = useState<Record<number, string>>({});
   // Chỉ MỘT trình soạn công thức mở một lúc.
   const [suaCt, setSuaCt] = useState<number | null>(null);
+  // Công thức tính lượng của chính đơn vị (`don_vi_do.cong_thuc`). GIỮ Ở ĐÂY chứ không đọc thẳng
+  // prop: `donVi` do drawer cha giữ và cha KHÔNG nạp lại sau khi khối này PUT.
+  const [ctState, setCtState] = useState("");
 
   const nap = useCallback(() => {
     if (!token || !donVi) return;
@@ -46,6 +49,12 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
   }, [token, donVi]);
 
   useEffect(() => { nap(); }, [nap]);
+
+  // Mở drawer đơn vị khác ⇒ lấy công thức của đơn vị ĐÓ. Khoá theo `id` chứ không theo cả object:
+  // prop đổi tham chiếu mỗi lần cha render thì hiệu ứng chạy lại và đè mất số vừa lưu.
+  useEffect(() => {
+    setCtState(String((donVi as { cong_thuc?: string } | null)?.cong_thuc ?? "").trim());
+  }, [donVi?.id]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!token) return;
@@ -102,7 +111,9 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
   // trước đây đẻ ra hai khối công thức nhìn như trùng nhau trên cùng một màn.
   const themDong = () => chay(async () => {
     if (them.dong) {
-      await apiDonVi.update(token!, donVi.id, bodyDonVi(them.gia.trim()));
+      const ct = them.gia.trim();
+      await apiDonVi.update(token!, donVi.id, bodyDonVi(ct));
+      setCtState(ct);
     } else {
       await apiCap.create(token!, {
         tu_id: donVi.id, den_id: Number(them.den_id),
@@ -131,8 +142,10 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
   // phải có đúng một cách ra kg, hai cái là máy không biết chọn. Nay luật này TỰ ĐÚNG vì công thức
   // nằm ngay trên đơn vị (một cột, một dòng), không còn phải lọc dropdown để chặn trùng đích.
   const dsDich = dvs.filter((d) => d.id !== donVi.id);
-  /** Công thức tính lượng của CHÍNH đơn vị này (`don_vi_do.cong_thuc`) — mỗi đơn vị nhiều nhất một. */
-  const ctCuaDonVi = String((donVi as { cong_thuc?: string }).cong_thuc ?? "").trim();
+  // Công thức tính lượng của CHÍNH đơn vị này — GIỮ Ở STATE, không đọc thẳng prop.
+  // `donVi` là prop của drawer cha; cha KHÔNG nạp lại sau khi khối này PUT, nên đọc thẳng prop thì
+  // lưu xong dòng công thức không hiện ra và bấm Xoá xong nó vẫn nằm đó (dính 13/08/2026).
+  const ctCuaDonVi = ctState;
   const bienQuyDoi = bien.map((b) => b.ma);
 
   return (
@@ -168,7 +181,10 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
                 disabled={ban}
                 onClick={() => {
                   if (!window.confirm(`Xoá công thức tính lượng của "${String(donVi.ten)}"?`)) return;
-                  chay(() => apiDonVi.update(token!, donVi.id, bodyDonVi("")));
+                  chay(async () => {
+                    await apiDonVi.update(token!, donVi.id, bodyDonVi(""));
+                    setCtState("");
+                  });
                 }}
               >
                 Xoá
@@ -361,7 +377,9 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
                 placeholder="Vd: 1.000"
                 onChange={(e) => setThem((p) => ({ ...p, gia: e.target.value }))}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && them.gia && them.den_id) {
+                  // Chế độ công thức không có đích ⇒ đừng đòi `den_id`, không thì gõ xong bấm
+                  // Enter là không ăn gì mà cũng chẳng báo gì.
+                  if (e.key === "Enter" && them.gia && (them.dong || them.den_id)) {
                     e.preventDefault();
                     themDong();
                   }
@@ -411,7 +429,7 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
 
             {/* Nút khoá thì phải NÓI THIẾU GÌ. Không có dòng này người dùng bấm mãi không ăn rồi
                 tưởng hỏng — đúng cái vừa dính 12/08/2026. */}
-            {!ban && (!them.gia || !them.den_id) && (
+            {!ban && (!them.gia || (!them.dong && !them.den_id)) && (
               <p className="dvqd__hint">
                 {!them.gia
                   ? (them.dong ? "Gõ công thức đã" : "Nhập số quy đổi đã")

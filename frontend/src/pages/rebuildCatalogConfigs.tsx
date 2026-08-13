@@ -561,6 +561,9 @@ export const CFG_GIAY: CatalogConfig = {
     // Đơn giá theo cân — CHỐT CỨNG ở danh mục (engine lấy thẳng, phiếu không sửa).
     { key: "don_gia", label: "Đơn giá (đ/kg)", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn (mặc định đ/kg)" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
+    // Vế GIẤY của cặp với ô cùng tên bên Vật tư khác (mg 0195). Ra LƯỢNG, không ra tiền.
+    { key: "cong_thuc_luong", label: "Công thức tính lượng", type: "formula", group: "Giá",
+      hint: "Ra SỐ LƯỢNG giấy cần cho một lệnh (khác ô trên — ô trên ra tiền). Vd: dinh_luong * dai_in * rong_in * to_dau_vao = số kg. Để trống = lượng suy bằng quy đổi từ đơn vị của bước." },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
 };
@@ -584,6 +587,12 @@ export const CFG_VAT_TU: CatalogConfig = {
     // (đã quy về đơn vị cơ sở; `don_gia_kg`/`don_gia_m2` gỡ 11/08/2026 vì trùng nghĩa).
     { key: "don_gia", label: "Đơn giá", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn — dùng làm biến don_gia trong công thức" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
+    // HAI Ô CÔNG THỨC, HAI CÂU HỎI KHÁC NHAU — nhãn phải nói rõ, không thì người khai gõ nhầm ô:
+    //   · "Công thức tính giá"  → ra TIỀN, phiếu tính giá đọc.
+    //   · "Công thức tính lượng" → ra LƯỢNG, BOM ở bước lệnh đọc.
+    // Đặt ở VẬT TƯ chứ không ở đơn vị vì `kg` dùng chung cho keo · mực · giấy (mg 0194).
+    { key: "cong_thuc_luong", label: "Công thức tính lượng", type: "formula", group: "Giá",
+      hint: "Ra SỐ LƯỢNG cần cho một lệnh (khác ô trên — ô trên ra tiền). Vd keo: 0.002 * so_luong = 2g mỗi thành phẩm. Để trống = lượng suy bằng quy đổi từ đơn vị của bước." },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
 };

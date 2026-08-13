@@ -47,7 +47,9 @@ from ..models.stock_request import REQ_DONE
 from ..models.vat_lieu_kho import HANG_GIAY
 from ..repositories.ke_hoach_vat_tu_repo import KeHoachVatTuRepository
 from .bien_cong_thuc import quy_cach_bien, quy_cach_bien_bai
-from .quy_doi_service import _so, doi_theo_quy_cach, don_vi_map
+from .bien_cong_thuc import ngu_canh_lenh
+from .thanh_phan_engine import safe_eval
+from .quy_doi_service import _so, bien_trong, doi_theo_quy_cach, don_vi_map
 
 # Lệnh ở ba trạng thái này là thứ kế hoạch phải lo giấy: đã chốt kỹ thuật, chỉ còn chờ chạy.
 # `nhap`/`cho_bo_sung` chưa chốt quy cách nên số tờ còn xê dịch — đưa vào bảng là mua theo số sắp đổi.
@@ -204,10 +206,21 @@ class KeHoachVatTuService:
         goc = (getattr(obj, "don_vi_gia", None) or "").strip()
         if not goc:
             return {"loi": f"“{obj.ten}” chưa chọn đơn vị tính ở danh mục."}
-        kq = doi_theo_quy_cach(
-            so_luong, dvt, goc, self._quy_cach_cua(hang[0], obj, qc_lenh),
-            self._dvs, self._cap_rows,
-        )
+        qc = self._quy_cach_cua(hang[0], obj, qc_lenh)
+        # CÔNG THỨC LƯỢNG của chính mặt hàng đi TRƯỚC (mg 0194/0195): nó đã tự nhân số lượng của
+        # lệnh nên ra thẳng TỔNG theo đơn vị gốc — không quy đổi từ `dvt` nữa. Cùng thứ tự với
+        # `LsxService._luong_vat_tu`: riêng (mặt hàng) trước, chung (quy đổi) sau.
+        ct = (getattr(obj, "cong_thuc_luong", None) or "").strip()
+        if ct:
+            ctx = ngu_canh_lenh(qc)
+            thieu = [b for b in bien_trong(ct) if _f(ctx.get(b)) <= 0]
+            if thieu:
+                return {"loi": f"Chưa biết {', '.join(thieu)} nên chưa tính được lượng {obj.ten}."}
+            try:
+                so_luong, dvt = float(safe_eval(ct, ctx)), goc
+            except (ValueError, ZeroDivisionError) as e:
+                return {"loi": f"Công thức lượng của {obj.ten} không chạy được ({e})."}
+        kq = doi_theo_quy_cach(so_luong, dvt, goc, qc, self._dvs, self._cap_rows)
         if "gia_tri" not in kq:
             return {"loi": kq.get("ly_do") or "Không đổi được đơn vị."}
         goc_ten = (self._dvs.get(goc.lower()) or {}).get("ten") or goc

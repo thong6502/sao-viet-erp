@@ -592,7 +592,8 @@ class LsxService:
             if not dvt:
                 canh_bao.append(f"{mat.ten}: chưa chọn đơn vị tính ở danh mục Vật tư khác.")
                 continue
-            so_luong, dien_giai, ly_do = self._luong_vat_tu(dvt, ctx, sl, dv_buoc, quy_cach)
+            so_luong, dien_giai, ly_do = self._luong_vat_tu(
+                dvt, ctx, sl, dv_buoc, quy_cach, mat=mat)
             if so_luong is None:
                 canh_bao.append(f"{mat.ten}: {ly_do}")
                 continue
@@ -601,6 +602,38 @@ class LsxService:
                 "so_luong": round(so_luong, 3), "dien_giai": dien_giai,
             })
         return ra, canh_bao
+
+    def _goi_y_luong_vat_tu(self, buoc, quy_cach: dict | None) -> list[dict]:
+        """`[{vat_tu_id, so_luong, dien_giai}]` cho MỌI vật tư đang dùng, tính sẵn theo bước này.
+
+        Vì sao server tính hộ (13/08/2026): người kế hoạch chọn "Keo vào gáy" từ dropdown thì số
+        phải hiện ra NGAY — công thức đã có (ở vật tư hoặc ở đơn vị của nó) và quy cách lệnh cũng
+        có, không việc gì bắt gõ tay. Frontend không tự tính được: nó không có công thức, không có
+        bảng quy đổi, và cũng không nên có — công thức chỉ được có MỘT bản, ở server.
+
+        Vật tư nào chưa tính ra được thì KHÔNG có trong danh sách ⇒ drawer để ô trống cho người
+        khai, đúng luật "không đoán". Danh mục vật tư là bảng nhỏ (đơn vị chục dòng) nên quét hết
+        rẻ hơn hẳn đẻ thêm một endpoint chỉ để hỏi từng món.
+        """
+        sl = _f(getattr(buoc, "so_luong_vao", 0))
+        if sl <= 0:
+            return []
+        ctx = ngu_canh_lenh(quy_cach or {})
+        dv_buoc = getattr(buoc, "don_vi_vao", None)
+        ra: list[dict] = []
+        for mat in self.db.execute(
+            select(VatTuInAn).where(VatTuInAn.active.is_(True))
+        ).scalars():
+            dvt = (mat.don_vi_gia or "").strip()
+            if not dvt:
+                continue
+            so_luong, dien_giai, _ly_do = self._luong_vat_tu(
+                dvt, ctx, sl, dv_buoc, quy_cach, mat=mat)
+            if so_luong is None:
+                continue
+            ra.append({"vat_tu_id": mat.id, "so_luong": round(so_luong, 3),
+                       "dien_giai": dien_giai})
+        return ra
 
     def _cach_do(self) -> dict[str, str]:
         """`{mã đơn vị: công thức CÁCH ĐO}` — chỉ đơn vị nào đã khai. Nạp một lần cho cả request:
@@ -616,8 +649,30 @@ class LsxService:
         return self._cach_do_cache
 
     def _luong_vat_tu(self, dvt: str, ctx: dict, sl: float, dv_buoc: str | None,
-                      quy_cach: dict | None) -> tuple[float | None, str | None, str]:
-        """Số lượng một vật tư đo bằng `dvt`. Trả `(số, diễn giải, lý do nếu tịt)`."""
+                      quy_cach: dict | None, *, mat=None) -> tuple[float | None, str | None, str]:
+        """Số lượng một vật tư đo bằng `dvt`. Trả `(số, diễn giải, lý do nếu tịt)`.
+
+        BA đường, theo đúng thứ tự RIÊNG → CHUNG:
+          1. `vat_tu_in_an.cong_thuc_luong` — công thức của CHÍNH món hàng (mg 0194). Ưu tiên cao
+             nhất vì nó riêng nhất: keo và mực cùng đo bằng `kg` nhưng tiêu hao khác hẳn nhau.
+          2. `don_vi_do.cong_thuc` — công thức của ĐƠN VỊ, cho đơn vị xưởng tự đẻ ra kiểu `m² tờ in`.
+          3. Quy đổi từ đơn vị của BƯỚC sang đơn vị vật tư — cho vật tư đo bằng đơn vị thường đã
+             khai cặp sẵn.
+
+        KHÔNG ĐOÁN: tịt cả ba thì trả lý do, drawer hiện cảnh báo để người kế hoạch tự thêm.
+        """
+        rieng = (getattr(mat, "cong_thuc_luong", None) or "").strip() if mat is not None else ""
+        if rieng:
+            try:
+                gt = float(safe_eval(rieng, dict(ctx)))
+            except (ValueError, ZeroDivisionError) as e:
+                return None, None, f"công thức lượng của {getattr(mat, 'ten', dvt)} không chạy được ({e})."
+            if gt <= 0:
+                thieu = [b for b in bien_trong(rieng) if _f(ctx.get(b)) <= 0]
+                return None, None, (
+                    f"công thức lượng ra 0 — thiếu {', '.join(thieu)}." if thieu
+                    else "công thức lượng ra 0.")
+            return gt, f"{cong_thuc_chu(rieng)} = {gt:g} {dvt}", ""
         cach_do = self._cach_do().get(dvt.strip().lower(), "")
         if cach_do:
             try:
@@ -1062,6 +1117,36 @@ class LsxService:
             "khoan_json": khoan,
         }
 
+    def _bung_vat_tu_dau_viec(self, lsx: Lsx, quy_cach: dict) -> None:
+        """Bung VẬT TƯ của đầu việc vào từng bước, ngay lúc tạo lệnh.
+
+        Vì sao ở SERVER chứ không đợi frontend (13/08/2026): server tự điền đầu việc khi bảng giá
+        của tổ chỉ khớp MỘT dòng (`_khoan_mac_dinh`), nhưng frontend chỉ bung vật tư khi người dùng
+        TỰ TAY chọn lại đầu việc ở drawer. Hai chỗ lệch nhau ⇒ lệnh tạo xong có đầu việc mà khối
+        "Vật tư cần dùng" trống trơn, và kế hoạch vật tư không thấy gì để đi mua. Điền sẵn ở đây thì
+        mọi lệnh đều có, khỏi phụ thuộc người dùng có mở drawer hay không.
+
+        `tu_dong=True` để lần bung sau (đổi đầu việc) thay được — dòng người tự thêm vẫn chừa ra.
+        Vật tư nào chưa quy đổi ra lượng được thì BỎ QUA, không ghi số đoán: `_vat_tu_bung` đã trả
+        lý do, drawer hiện cảnh báo cho người kế hoạch tự thêm.
+        """
+        for cd in lsx.cong_doans:
+            rate_id = int((cd.khoan_json or {}).get("rate_id") or 0)
+            if not rate_id or not cd.cong_doan_id:
+                continue
+            cd_obj = self.db.get(CongDoan, cd.cong_doan_id)
+            dm = next((x for x in (getattr(cd_obj, "dau_viec_dinh_muc", None) or [])
+                       if x.piece_rate_id == rate_id), None)
+            if dm is None:
+                continue
+            rows, _canh_bao = self._vat_tu_bung(dm, cd, quy_cach)
+            for pos, v in enumerate(rows):
+                cd.vat_tus.append(LsxCongDoanVatTu(
+                    vat_tu_id=v["vat_tu_id"], vat_tu_ma_snapshot=v["ma"],
+                    vat_tu_ten_snapshot=v["ten"], don_vi_snapshot=v["don_vi"] or "",
+                    so_luong=float(v["so_luong"]), thu_tu=pos, tu_dong=True,
+                ))
+
     def tao(self, *, order_id: int, order_line_ids: list[int], actor) -> list[Lsx]:
         order = self.repo.order_with_lines(order_id)
         if order is None:
@@ -1142,6 +1227,12 @@ class LsxService:
                 ))
             # Số lượng từng bước là DẪN XUẤT — chạy chuỗi ngược ngay sau khi dựng đủ routing.
             self._ap_chuoi_nguoc(lsx)
+            # ...rồi mới bung VẬT TƯ của đầu việc: `_vat_tu_bung` cần `so_luong_vao` của bước để
+            # quy ra lượng, mà số đó chỉ có sau chuỗi ngược.
+            # `quy_cach_bien` chứ KHÔNG phải `calc["quy_cach"]` thô: năm biến dẫn xuất (SL đặt ·
+            # con/tờ · tờ in · tờ nguyên · tờ sau in) nằm ở CỘT của lệnh. Thiếu chúng thì công thức
+            # nào dùng `so_luong`/`to_dau_vao` cũng ra 0 ⇒ bị coi là thiếu biến và không bung gì.
+            self._bung_vat_tu_dau_viec(lsx, quy_cach_bien(lsx))
             lsx.routing_goc_json = _routing_van_tay(lsx.cong_doans)
             self.repo.add(lsx)
             # Giữ hành vi tuyến tính hiện tại làm mặc định; sau đó kế hoạch có thể bỏ/thêm cạnh
@@ -1896,6 +1987,8 @@ class LsxService:
                  "tu_dong": bool(v.tu_dong)}
                 for v in cd.vat_tus
             ],
+            # Lượng tính sẵn cho MỌI vật tư — drawer chọn món nào là điền được ngay, khỏi gõ tay.
+            "vat_tu_goi_y": self._goi_y_luong_vat_tu(cd, quy_cach),
             **self._khoan_derived(cd, quy_cach),
         }
 

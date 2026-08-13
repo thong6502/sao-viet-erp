@@ -244,6 +244,29 @@ def test_khong_canh_bao_cap_cung_loai_do(svc):
 # --- vòng đời -----------------------------------------------------------------
 
 
+def test_don_vi_co_cong_thuc_hien_cong_thuc_va_KHONG_bao_chua_khai(svc):
+    """Đơn vị TỰ TÍNH không cần cặp nào — cột "Quy đổi" phải in công thức, đừng bảo "chưa khai".
+
+    Dính 13/08/2026: `kg_giay_to_in` khai công thức tử tế mà màn danh sách vẫn hiện "Chưa khai quy
+    đổi" + cảnh báo vàng, vì cả hai chỗ chỉ nhìn bảng CẶP. Người khai nhìn vào tưởng chưa lưu được,
+    rồi đi khai thêm một cặp không ai dùng cho hết cảnh báo.
+    """
+    dv = svc.create({"ma": "kg_giay_to_in", "ten": "kg giấy (theo tờ in)",
+                     "ho": "khoi_luong",
+                     "cong_thuc": "dinh_luong * dai_in * rong_in * to_dau_vao"})
+    # Câu hiển thị đọc được bằng chữ, không phải mã biến trần.
+    cau = svc.quy_doi_text(dv)
+    # KHÔNG có "1 " — câu định nghĩa, không phải tỉ số.
+    assert cau.startswith("kg giấy (theo tờ in) = ")
+    assert "Định lượng giấy" in cau and "Tờ vào máy" in cau
+    assert svc.canh_bao(dv) == [], "đơn vị tự tính không cần cặp — đừng báo chưa khai quy đổi"
+
+    # Đơn vị THƯỜNG chưa khai gì thì vẫn phải nhắc như cũ.
+    thung = svc.create({"ma": "thung_x", "ten": "thùng X"})
+    assert svc.quy_doi_text(thung) == "Chưa khai quy đổi"
+    assert svc.canh_bao(thung)
+
+
 def test_xoa_don_vi_thi_cap_cua_no_di_theo(svc):
     """Cặp mồ côi trỏ vào đơn vị đã xoá là đường đi MA — máy vẫn tính ra số mà không ai hiểu."""
     tan, kg = _bo_ba(svc)

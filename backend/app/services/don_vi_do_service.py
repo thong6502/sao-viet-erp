@@ -269,6 +269,15 @@ class DonViDoService:
         thập phân lẻ khó đọc hơn hẳn số nguyên.
         """
         caps = [c for c in self._cap_cache() if c.tu_ma == obj.ma or c.den_ma == obj.ma]
+        # ĐƠN VỊ TỰ TÍNH đứng trước: nó KHÔNG cần cặp nào để dùng được, nên in công thức ra đây thay
+        # vì để trống. Trước 13/08/2026 cột này chỉ nhìn bảng cặp ⇒ `kg_giay_to_in` đã khai công
+        # thức tử tế vẫn hiện "Chưa khai quy đổi", nhìn như chưa làm gì.
+        ct = (getattr(obj, "cong_thuc", None) or "").strip()
+        if ct:
+            # KHÔNG có "1 " ở vế trái: đây là câu ĐỊNH NGHĨA ("kg giấy = định lượng × …"), không
+            # phải tỉ số "1 tấn = 1.000 kg". Công thức đã tự nhân số lượng của lệnh nên vế phải là
+            # TỔNG, viết "1 kg giấy = …" là đọc thành "mỗi một kg giấy bằng…" — vô nghĩa.
+            return f"{obj.ten} = {cong_thuc_chu(ct)}"
         if not caps:
             return "Chưa khai quy đổi"
         cau: list[str] = []
@@ -349,7 +358,10 @@ class DonViDoService:
         """Cảnh báo mềm — hiện ở màn khai, KHÔNG chặn lưu."""
         rows = self._cap_cache()
         out: list[str] = []
-        if not any(c.tu_ma == obj.ma or c.den_ma == obj.ma for c in rows):
+        # Đơn vị TỰ TÍNH bằng công thức thì không cần cặp nào — báo "chưa khai quy đổi" là báo oan,
+        # và người khai sẽ đi khai thêm một cặp không ai dùng để cho hết cảnh báo.
+        co_ct = bool((getattr(obj, "cong_thuc", None) or "").strip())
+        if not co_ct and not any(c.tu_ma == obj.ma or c.den_ma == obj.ma for c in rows):
             out.append(
                 f"Chưa khai quy đổi — {obj.ten} chưa đổi qua lại được với đơn vị nào."
             )

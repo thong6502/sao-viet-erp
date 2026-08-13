@@ -82,6 +82,14 @@ class GiayNguyen(Base):
     gia_thi_truong: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)   # giá tham khảo thị trường
     kho_tinh_gia: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)  # khổ này dùng để tính giá?
     cong_thuc_gia: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # CÔNG THỨC LƯỢNG (mg 0195) — "một lệnh cần bao nhiêu <đơn vị này>". Cùng luật với
+    # `VatTuInAn.cong_thuc_luong`: ra LƯỢNG cho kế hoạch vật tư, khác `cong_thuc_gia` ngay trên
+    # (ra TIỀN cho phiếu tính giá).
+    #
+    # Có ô này thì giấy khai ĐVT `kg` THẬT rồi tự tính ra kg — không phải đi vòng qua cạnh quy đổi
+    # động `tờ → kg` nữa. Cạnh đó là thứ duy nhất còn giữ "công thức mà lại có đích", thứ chủ chốt
+    # 13/08/2026 là vô lý; khai ở đây xong thì xoá nó bằng tay trên UI được.
+    cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
     version_no: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)  # phiên bản giá hiện hành (mirror từ giay_gia_version)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
@@ -138,6 +146,15 @@ class VatTuInAn(Base):
     # Hai cột cũ để nguyên trong DB (không drop, dự án không có Alembic) nhưng không còn ai đọc.
     don_gia: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
     cong_thuc_gia: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # CÔNG THỨC LƯỢNG (mg 0194) — "một lệnh cần bao nhiêu <đơn vị này>", biến lấy từ quy cách lệnh.
+    # KHÁC `cong_thuc_gia` ngay trên: ô kia ra TIỀN cho phiếu tính giá, ô này ra LƯỢNG cho BOM ở
+    # bước lệnh. Hai câu hỏi khác nhau nên hai ô, đừng gộp.
+    #
+    # Vì sao đặt ở VẬT TƯ chứ không ở đơn vị (chủ chốt 13/08/2026): `kg` dùng chung cho keo · mực ·
+    # giấy, mà mỗi thứ tiêu hao theo một cách khác hẳn. Gắn công thức lên `kg` là mọi vật tư đo bằng
+    # kg đều bị tính theo cùng một công thức; muốn tránh thì phải đẻ `kg_keo`, `kg_muc`, `kg_giay`…
+    # rồi kho và mua hàng lãnh đủ mấy cái tên đó trong khi họ vẫn cân bằng kg thật.
+    cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

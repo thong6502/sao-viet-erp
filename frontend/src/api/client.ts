@@ -1149,6 +1149,9 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   khoan_don_gia: number | null;
   /** Đầu việc chọn được cho bước (theo tổ + công đoạn) — server đã áp luật "ưu tiên dòng khai riêng". */
   khoan_chon_duoc: LsxDauViecOption[];
+  /** Lượng TÍNH SẴN cho mọi vật tư theo bước này — chọn món nào ở drawer là điền số ngay.
+   *  Món chưa tính ra được thì KHÔNG có trong mảng ⇒ để ô trống cho người khai, không đoán. */
+  vat_tu_goi_y: { vat_tu_id: number; so_luong: number; dien_giai: string | null }[];
   khoan_sl: number | null;
   khoan_don_vi_sl: string | null;
   khoan_tien: number | null;

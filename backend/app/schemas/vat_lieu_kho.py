@@ -77,6 +77,7 @@ class GiayIn(BaseModel):
     kho_tinh_gia: bool = True
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
+    cong_thuc_luong: str | None = None
     active: bool = True
 
 
@@ -98,6 +99,7 @@ class GiayRow(BaseModel):
     ghi_chu: str | None = None
     version_no: int = 1
     cong_thuc_gia: str | None = None
+    cong_thuc_luong: str | None = None
     active: bool
     updated_at: datetime | None = None
 
@@ -110,6 +112,7 @@ class VatTuIn(BaseModel):
     don_gia: float = Field(default=0, ge=0)
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
+    cong_thuc_luong: str | None = None
     active: bool = True
 
 
@@ -124,6 +127,7 @@ class VatTuRow(BaseModel):
     don_gia: float
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
+    cong_thuc_luong: str | None = None
     active: bool
     updated_at: datetime | None = None
 
