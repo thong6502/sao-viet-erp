@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import {
   ApiError,
   api,
@@ -13,7 +19,6 @@ import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import "./accounting.css";
 
-
 type AccountTab = "company" | "supplier";
 type AccountRow = CompanyBankAccountRow | SupplierBankAccountRow;
 type AccountForm = CompanyBankAccountInput;
@@ -21,7 +26,6 @@ type AccountForm = CompanyBankAccountInput;
 function isCompanyAccount(row: AccountRow): row is CompanyBankAccountRow {
   return "use_for_receipts" in row;
 }
-
 
 function emptyAccount(): AccountForm {
   return {
@@ -38,7 +42,6 @@ function emptyAccount(): AccountForm {
   };
 }
 
-
 export function AccountingBankAccountsPage() {
   const { token } = useAuth();
   const can = useCan();
@@ -47,9 +50,11 @@ export function AccountingBankAccountsPage() {
   const canManageCompany = can("tk_ngan_hang", "update");
   const canManageSupplier =
     can("tk_ngan_hang", "update") || can("nha_cung_cap", "update");
-  const [tab, setTab] = useState<AccountTab>("company");
+  const [tab] = useState<AccountTab>("company");
   const [companyRows, setCompanyRows] = useState<CompanyBankAccountRow[]>([]);
-  const [supplierRows, setSupplierRows] = useState<SupplierBankAccountRow[]>([]);
+  const [supplierRows, setSupplierRows] = useState<SupplierBankAccountRow[]>(
+    [],
+  );
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
   const [supplierFilter, setSupplierFilter] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,26 +72,44 @@ export function AccountingBankAccountsPage() {
     Promise.all([
       api.accounting.companyAccounts(token, false),
       api.accounting.supplierAccounts(token, supplierFilter, false),
-      api.suppliers.list(token, { status: "active", sort: "name", page: 1, size: 200 }),
+      api.suppliers.list(token, {
+        status: "active",
+        sort: "name",
+        page: 1,
+        size: 200,
+      }),
     ])
       .then(([company, supplier, supplierList]) => {
         setCompanyRows(company);
         setSupplierRows(supplier);
         setSuppliers(supplierList.items);
       })
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Không tải được tài khoản ngân hàng."))
+      .catch((err) =>
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : "Không tải được tài khoản ngân hàng.",
+        ),
+      )
       .finally(() => setLoading(false));
   }, [token, supplierFilter]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const rows = useMemo<AccountRow[]>(() => tab === "company" ? companyRows : supplierRows, [tab, companyRows, supplierRows]);
+  const rows = useMemo<AccountRow[]>(
+    () => (tab === "company" ? companyRows : supplierRows),
+    [tab, companyRows, supplierRows],
+  );
   const canManage = tab === "company" ? canManageCompany : canManageSupplier;
 
   function openCreate() {
     setEditing(null);
     setForm(emptyAccount());
-    setFormSupplierId(tab === "supplier" ? supplierFilter ?? suppliers[0]?.id ?? null : null);
+    setFormSupplierId(
+      tab === "supplier" ? (supplierFilter ?? suppliers[0]?.id ?? null) : null,
+    );
     setModalOpen(true);
   }
 
@@ -136,15 +159,26 @@ export function AccountingBankAccountsPage() {
     event.preventDefault();
     if (!token || busy) return;
     const payload = cleanForm();
-    if (!payload.account_holder || !payload.account_number || !payload.bank_name || !payload.bank_branch) {
-      setError("Chủ tài khoản, số tài khoản, ngân hàng và chi nhánh đều bắt buộc.");
+    if (
+      !payload.account_holder ||
+      !payload.account_number ||
+      !payload.bank_name ||
+      !payload.bank_branch
+    ) {
+      setError(
+        "Chủ tài khoản, số tài khoản, ngân hàng và chi nhánh đều bắt buộc.",
+      );
       return;
     }
     if (tab === "supplier" && !formSupplierId) {
       setError("Vui lòng chọn nhà cung cấp.");
       return;
     }
-    if (tab === "company" && !payload.use_for_receipts && !payload.use_for_payments) {
+    if (
+      tab === "company" &&
+      !payload.use_for_receipts &&
+      !payload.use_for_payments
+    ) {
       setError("Tài khoản công ty phải dùng để thu, để chi hoặc cả hai.");
       return;
     }
@@ -152,7 +186,8 @@ export function AccountingBankAccountsPage() {
     setError(null);
     try {
       if (tab === "company") {
-        if (editing) await api.accounting.updateCompanyAccount(token, editing.id, payload);
+        if (editing)
+          await api.accounting.updateCompanyAccount(token, editing.id, payload);
         else await api.accounting.createCompanyAccount(token, payload);
       } else {
         const supplierPayload: SupplierBankAccountInput = {
@@ -166,13 +201,22 @@ export function AccountingBankAccountsPage() {
           note: payload.note,
           supplier_id: formSupplierId!,
         };
-        if (editing) await api.accounting.updateSupplierAccount(token, editing.id, supplierPayload);
+        if (editing)
+          await api.accounting.updateSupplierAccount(
+            token,
+            editing.id,
+            supplierPayload,
+          );
         else await api.accounting.createSupplierAccount(token, supplierPayload);
       }
       closeModal();
       load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Không lưu được tài khoản ngân hàng.");
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Không lưu được tài khoản ngân hàng.",
+      );
     } finally {
       setBusy(false);
     }
@@ -182,11 +226,16 @@ export function AccountingBankAccountsPage() {
     if (!token) return;
     setBusy(true);
     try {
-      if ("supplier_id" in row) await api.accounting.toggleSupplierAccount(token, row.id);
+      if ("supplier_id" in row)
+        await api.accounting.toggleSupplierAccount(token, row.id);
       else await api.accounting.toggleCompanyAccount(token, row.id);
       load();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Không đổi được trạng thái tài khoản.");
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Không đổi được trạng thái tài khoản.",
+      );
     } finally {
       setBusy(false);
     }
@@ -198,12 +247,59 @@ export function AccountingBankAccountsPage() {
 
   return (
     <main className="md-page">
-      <header className="md-page__head"><p className="eyebrow">Kế toán</p><h1 className="md-page__title">Tài khoản ngân hàng</h1><p className="md-page__sub">Quản lý tài khoản ngân hàng công ty dùng để thu/chi chuyển khoản và tài khoản thụ hưởng của nhà cung cấp.</p></header>
-      {error && <div className="banner banner--error" role="alert">{error}</div>}
-      <div className="acct-tabs" role="tablist"><button className={tab === "company" ? "is-active" : ""} onClick={() => setTab("company")}>Tài khoản công ty</button><button className={tab === "supplier" ? "is-active" : ""} onClick={() => setTab("supplier")}>Tài khoản nhà cung cấp</button></div>
+      <header className="md-page__head">
+        <p className="eyebrow">Kế toán</p>
+        <h1 className="md-page__title">Tài khoản ngân hàng</h1>
+        <p className="md-page__sub">
+          Quản lý tài khoản ngân hàng công ty dùng để thu/chi chuyển khoản và
+          tài khoản thụ hưởng của nhà cung cấp.
+        </p>
+      </header>
+      {error && (
+        <div className="banner banner--error" role="alert">
+          {error}
+        </div>
+      )}
+      {/* <div className="acct-tabs" role="tablist">
+        <button
+          className={tab === "company" ? "is-active" : ""}
+          onClick={() => setTab("company")}
+        >
+          Tài khoản công ty
+        </button>
+        <button
+          className={tab === "supplier" ? "is-active" : ""}
+          onClick={() => setTab("supplier")}
+        >
+          Tài khoản nhà cung cấp
+        </button>
+      </div> */}
       <section className="acct-toolbar">
-        {tab === "supplier" ? <select className="input acct-toolbar__select" value={supplierFilter ?? ""} onChange={(event) => setSupplierFilter(event.target.value ? Number(event.target.value) : null)}><option value="">Tất cả nhà cung cấp</option>{suppliers.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select> : <div />}
-        {canManage && <Button variant="primary" onClick={createForCurrentTab}>Thêm tài khoản</Button>}
+        {tab === "supplier" ? (
+          <select
+            className="input acct-toolbar__select"
+            value={supplierFilter ?? ""}
+            onChange={(event) =>
+              setSupplierFilter(
+                event.target.value ? Number(event.target.value) : null,
+              )
+            }
+          >
+            <option value="">Tất cả nhà cung cấp</option>
+            {suppliers.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <div />
+        )}
+        {canManage && (
+          <Button variant="primary" onClick={createForCurrentTab}>
+            Thêm tài khoản
+          </Button>
+        )}
       </section>
       <section className="card md-page__tablewrap">
         <table className="md-page__table">
@@ -237,7 +333,9 @@ export function AccountingBankAccountsPage() {
                 return (
                   <tr key={`${tab}-${row.id}`}>
                     {tab === "supplier" && (
-                      <td>{"supplier_name" in row ? row.supplier_name : "—"}</td>
+                      <td>
+                        {"supplier_name" in row ? row.supplier_name : "—"}
+                      </td>
                     )}
                     <td>
                       <strong>{row.account_holder}</strong>
@@ -267,7 +365,10 @@ export function AccountingBankAccountsPage() {
                       <div className="acct-actions acct-actions--compact">
                         {canManage && (
                           <>
-                            <Button variant="ghost" onClick={() => openEdit(row)}>
+                            <Button
+                              variant="ghost"
+                              onClick={() => openEdit(row)}
+                            >
                               Sửa
                             </Button>
                             <Button
@@ -288,20 +389,190 @@ export function AccountingBankAccountsPage() {
         </table>
       </section>
 
-      {modalOpen && <div className="acct-modal" role="dialog" aria-modal="true"><form className="acct-modal__box" onSubmit={save}><header className="acct-modal__head"><h2>{editing ? "Sửa tài khoản" : "Thêm tài khoản"}</h2><button type="button" className="acct-modal__x" onClick={closeModal}>×</button></header><div className="acct-modal__body">
-        {tab === "supplier" && <label className="acct-field"><span>Nhà cung cấp <b>*</b></span><select className="input" value={formSupplierId ?? ""} onChange={(event) => setFormSupplierId(event.target.value ? Number(event.target.value) : null)}><option value="">Chọn nhà cung cấp</option>{suppliers.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>}
-        <div className="acct-form-grid acct-form-grid--2"><label className="acct-field"><span>Chủ tài khoản <b>*</b></span><input autoFocus className="input" value={form.account_holder} onChange={(event) => setForm((current) => ({ ...current, account_holder: event.target.value }))} /></label><label className="acct-field"><span>Số tài khoản <b>*</b></span><input className="input" value={form.account_number} onChange={(event) => setForm((current) => ({ ...current, account_number: event.target.value }))} /></label><label className="acct-field"><span>Ngân hàng <b>*</b></span><input className="input" value={form.bank_name} onChange={(event) => setForm((current) => ({ ...current, bank_name: event.target.value }))} /></label><label className="acct-field"><span>Chi nhánh <b>*</b></span><input className="input" value={form.bank_branch} onChange={(event) => setForm((current) => ({ ...current, bank_branch: event.target.value }))} /></label><label className="acct-field"><span>Loại tiền</span><input className="input" maxLength={3} value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value.toUpperCase() }))} /></label></div>
-        <div className="acct-checks">
-          <label><input type="checkbox" checked={form.is_active} onChange={(event) => setForm((current) => ({ ...current, is_active: event.target.checked }))} /> Đang hoạt động</label>
-          {tab === "company" && (
-            <>
-              <label><input type="checkbox" checked={form.use_for_receipts} onChange={(event) => setForm((current) => ({ ...current, use_for_receipts: event.target.checked }))} /> Dùng để thu</label>
-              <label><input type="checkbox" checked={form.use_for_payments} onChange={(event) => setForm((current) => ({ ...current, use_for_payments: event.target.checked }))} /> Dùng để chi</label>
-            </>
-          )}
+      {modalOpen && (
+        <div className="acct-modal" role="dialog" aria-modal="true">
+          <form className="acct-modal__box" onSubmit={save}>
+            <header className="acct-modal__head">
+              <h2>{editing ? "Sửa tài khoản" : "Thêm tài khoản"}</h2>
+              <button
+                type="button"
+                className="acct-modal__x"
+                onClick={closeModal}
+              >
+                ×
+              </button>
+            </header>
+            <div className="acct-modal__body">
+              {tab === "supplier" && (
+                <label className="acct-field">
+                  <span>
+                    Nhà cung cấp <b>*</b>
+                  </span>
+                  <select
+                    className="input"
+                    value={formSupplierId ?? ""}
+                    onChange={(event) =>
+                      setFormSupplierId(
+                        event.target.value ? Number(event.target.value) : null,
+                      )
+                    }
+                  >
+                    <option value="">Chọn nhà cung cấp</option>
+                    {suppliers.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <div className="acct-form-grid acct-form-grid--2">
+                <label className="acct-field">
+                  <span>
+                    Chủ tài khoản <b>*</b>
+                  </span>
+                  <input
+                    autoFocus
+                    className="input"
+                    value={form.account_holder}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        account_holder: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="acct-field">
+                  <span>
+                    Số tài khoản <b>*</b>
+                  </span>
+                  <input
+                    className="input"
+                    value={form.account_number}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        account_number: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="acct-field">
+                  <span>
+                    Ngân hàng <b>*</b>
+                  </span>
+                  <input
+                    className="input"
+                    value={form.bank_name}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        bank_name: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="acct-field">
+                  <span>
+                    Chi nhánh <b>*</b>
+                  </span>
+                  <input
+                    className="input"
+                    value={form.bank_branch}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        bank_branch: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="acct-field">
+                  <span>Loại tiền</span>
+                  <input
+                    className="input"
+                    maxLength={3}
+                    value={form.currency}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        currency: event.target.value.toUpperCase(),
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+              <div className="acct-checks">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={form.is_active}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        is_active: event.target.checked,
+                      }))
+                    }
+                  />{" "}
+                  Đang hoạt động
+                </label>
+                {tab === "company" && (
+                  <>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={form.use_for_receipts}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            use_for_receipts: event.target.checked,
+                          }))
+                        }
+                      />{" "}
+                      Dùng để thu
+                    </label>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={form.use_for_payments}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            use_for_payments: event.target.checked,
+                          }))
+                        }
+                      />{" "}
+                      Dùng để chi
+                    </label>
+                  </>
+                )}
+              </div>
+              <label className="acct-field">
+                <span>Ghi chú</span>
+                <textarea
+                  className="input acct-textarea"
+                  value={form.note ?? ""}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      note: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+            <footer className="acct-modal__foot">
+              <Button type="button" variant="ghost" onClick={closeModal}>
+                Hủy
+              </Button>
+              <Button type="submit" variant="accent" loading={busy}>
+                Lưu tài khoản
+              </Button>
+            </footer>
+          </form>
         </div>
-        <label className="acct-field"><span>Ghi chú</span><textarea className="input acct-textarea" value={form.note ?? ""} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} /></label>
-      </div><footer className="acct-modal__foot"><Button type="button" variant="ghost" onClick={closeModal}>Hủy</Button><Button type="submit" variant="accent" loading={busy}>Lưu tài khoản</Button></footer></form></div>}
+      )}
     </main>
   );
 }

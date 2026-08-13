@@ -1,7 +1,10 @@
 """Data access for operational accounting and purchase payments."""
 from __future__ import annotations
 
-from sqlalchemy import asc, case, desc, func, or_, select, update
+from datetime import datetime, timezone
+from uuid import uuid4
+
+from sqlalchemy import MetaData, Table, asc, case, desc, func, inspect, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.accounting import (
@@ -520,6 +523,47 @@ class AccountingRepository:
         )
 
     def save_sales_invoice(self, invoice: SalesInvoice) -> SalesInvoice:
+        # Tương thích DB SQLite/PG đã từng chạy schema hóa đơn đời cũ. Các cột cũ
+        # ``code/subtotal_vnd/vat_vnd`` là NOT NULL nên ORM hiện tại không thể INSERT
+        # nếu không cấp giá trị. Phản chiếu đúng bảng live và ghi thêm các cột đó;
+        # hóa đơn cũ vẫn giữ nguyên, DB trắng tiếp tục dùng đường ORM bình thường.
+        bind = self.db.get_bind()
+        live_columns = {c["name"] for c in inspect(bind).get_columns("sales_invoices")}
+        legacy_required = {"code", "subtotal_vnd", "vat_vnd"}
+        if invoice.id is None and legacy_required <= live_columns:
+            now = datetime.now(timezone.utc)
+            values = {
+                "order_id": invoice.order_id,
+                "customer_id": invoice.customer_id,
+                "invoice_symbol": invoice.invoice_symbol,
+                "invoice_number": invoice.invoice_number,
+                "invoice_date": invoice.invoice_date,
+                "amount_vnd": invoice.amount_vnd,
+                "payment_term_days_snapshot": invoice.payment_term_days_snapshot,
+                "due_date": invoice.due_date,
+                "customer_name_snapshot": invoice.customer_name_snapshot,
+                "status": invoice.status,
+                "created_by_user_id": invoice.created_by_user_id,
+                "created_at": now,
+                "updated_at": now,
+                "code": f"HD-{uuid4().hex[:28]}",
+                "subtotal_vnd": invoice.amount_vnd,
+                "vat_vnd": 0,
+            }
+            if "invoice_series" in live_columns:
+                values["invoice_series"] = invoice.invoice_symbol
+            if "invoice_no" in live_columns:
+                values["invoice_no"] = invoice.invoice_number
+            if "payment_term_days" in live_columns:
+                values["payment_term_days"] = invoice.payment_term_days_snapshot
+            table = Table("sales_invoices", MetaData(), autoload_with=bind)
+            result = self.db.execute(table.insert().values(**values))
+            invoice_id = int(result.inserted_primary_key[0])
+            self._commit()
+            saved = self.get_sales_invoice(invoice_id)
+            if saved is None:
+                raise RuntimeError("Không đọc lại được hóa đơn vừa ghi.")
+            return saved
         self.db.add(invoice)
         self._commit()
         self.db.refresh(invoice)

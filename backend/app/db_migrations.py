@@ -7378,3 +7378,97 @@ def _migrate_sales_invoices_ar(db: Session) -> None:
 
 
 MIGRATIONS.append(("0187_sales_invoices_ar", _migrate_sales_invoices_ar))
+
+
+def _migrate_sales_invoices_legacy_compat(db: Session) -> None:
+    """Đưa bảng hóa đơn bán đời cũ về schema AR hiện tại mà không làm mất dữ liệu.
+
+    Một bản triển khai trước đã tạo ``sales_invoices`` với các tên
+    ``invoice_series``/``invoice_no``/``payment_term_days``. Vì bảng đã tồn tại,
+    migration 0187 dùng ``CREATE TABLE IF NOT EXISTS`` không thể bổ sung các cột
+    mới và mọi truy vấn ORM đều lỗi ngay ở ``invoice_symbol``.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "sales_invoices" not in set(insp.get_table_names()):
+        return
+
+    columns = _existing_columns(insp, "sales_invoices")
+    additions = (
+        ("invoice_symbol", "VARCHAR(64)"),
+        ("invoice_number", "VARCHAR(64)"),
+        ("payment_term_days_snapshot", "INTEGER"),
+        ("updated_at", "TIMESTAMP"),
+    )
+    for name, sql_type in additions:
+        if name not in columns:
+            db.execute(text(f"ALTER TABLE sales_invoices ADD COLUMN {name} {sql_type}"))
+    db.commit()
+
+    columns = _existing_columns(inspect(bind), "sales_invoices")
+    symbol_source = (
+        "COALESCE(NULLIF(TRIM(invoice_series), ''), 'HD')"
+        if "invoice_series" in columns
+        else "'HD'"
+    )
+    number_candidates = []
+    if "invoice_no" in columns:
+        number_candidates.append("NULLIF(TRIM(invoice_no), '')")
+    if "code" in columns:
+        number_candidates.append("NULLIF(TRIM(code), '')")
+    number_candidates.append("CAST(id AS VARCHAR(64))")
+    number_source = (
+        number_candidates[0]
+        if len(number_candidates) == 1
+        else f"COALESCE({', '.join(number_candidates)})"
+    )
+
+    db.execute(text(
+        "UPDATE sales_invoices SET "
+        f"invoice_symbol = COALESCE(invoice_symbol, {symbol_source}), "
+        f"invoice_number = COALESCE(invoice_number, {number_source}), "
+        "updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)"
+    ))
+    if "payment_term_days" in columns:
+        db.execute(text(
+            "UPDATE sales_invoices SET payment_term_days_snapshot = payment_term_days "
+            "WHERE payment_term_days_snapshot IS NULL"
+        ))
+    if "customer_name_snapshot" in columns:
+        db.execute(text(
+            "UPDATE sales_invoices SET customer_name_snapshot = 'Khách hàng' "
+            "WHERE customer_name_snapshot IS NULL OR TRIM(customer_name_snapshot) = ''"
+        ))
+
+    # Bảng cũ không bắt duy nhất cặp ký hiệu + số. Chỉ hậu tố những dòng trùng phía sau để
+    # migration không làm sập startup mà vẫn giữ dòng đầu tiên đúng nguyên bản.
+    db.execute(text(
+        "UPDATE sales_invoices AS current_row SET "
+        "invoice_number = invoice_number || '-' || CAST(id AS VARCHAR(32)) "
+        "WHERE EXISTS (SELECT 1 FROM sales_invoices AS earlier "
+        "WHERE earlier.invoice_symbol = current_row.invoice_symbol "
+        "AND earlier.invoice_number = current_row.invoice_number "
+        "AND earlier.id < current_row.id)"
+    ))
+
+    if bind.dialect.name == "postgresql":
+        for name in ("invoice_symbol", "invoice_number", "updated_at"):
+            db.execute(text(
+                f"ALTER TABLE sales_invoices ALTER COLUMN {name} SET NOT NULL"
+            ))
+        # Các cột bắt buộc của schema cũ không còn được ORM hiện tại ghi. Cho phép NULL để
+        # hóa đơn mới vẫn chèn được; dữ liệu lịch sử trong các cột này được giữ nguyên.
+        for legacy_name in ("code", "subtotal_vnd", "vat_vnd"):
+            if legacy_name in columns:
+                db.execute(text(
+                    f"ALTER TABLE sales_invoices ALTER COLUMN {legacy_name} DROP NOT NULL"
+                ))
+
+    db.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_invoice_symbol_number "
+        "ON sales_invoices (invoice_symbol, invoice_number)"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0189_sales_invoices_legacy_compat", _migrate_sales_invoices_legacy_compat))

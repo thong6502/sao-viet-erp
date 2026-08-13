@@ -707,9 +707,9 @@ export function PaymentReceiptsPage({
             onChange={(event) => setQ(event.target.value)}
             placeholder="Tìm PT, hóa đơn, đơn bán, PC, người nộp..."
           />
-          <Button type="submit" variant="ghost">
+          {/* <Button type="submit" variant="ghost">
             Tìm
-          </Button>
+          </Button> */}
         </form>
         <div className="acct-toolbar__filters">
           <select

@@ -1335,7 +1335,7 @@ export function PurchaseRequestsPage({
         {/* ĐƯỜNG CŨ, chỉ còn cho đơn KHÔNG theo dõi theo đợt (giao một lần, không ai muốn khai
             đợt). Đơn đã có đợt giao thì trạng thái là số SUY RA — server chặn gán tay, nên đừng
             bày nút ra rồi để người dùng bấm vào tường. */}
-        {canUpdate &&
+        {/* {canUpdate &&
           row.status === "purchased" &&
           row.deliveries.length === 0 && (
             <RowActionButton
@@ -1344,7 +1344,7 @@ export function PurchaseRequestsPage({
               icon="packageCheck"
               onClick={() => setReceiveModal({ row, mode: "receive" })}
             />
-          )}
+          )} */}
         {/* Sửa số thực nhận: cũng chỉ cho đơn KHÔNG theo đợt — đơn theo đợt thì sửa ở đúng đợt
             giao đó, sửa ở đây sẽ bị nhánh dẫn xuất ghi đè trong im lặng (server chặn). */}
         {canUpdate &&

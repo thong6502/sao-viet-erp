@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.db_migrations import (
     _migrate_payment_doc_no_and_accounts,
     _migrate_payment_voucher_amount_vnd,
+    _migrate_sales_invoices_legacy_compat,
 )
 from app.models.document_sequence import SEQ_YEAR_GLOBAL
 
@@ -109,3 +110,39 @@ def test_doc_no_migration_does_not_rewind_counter():
         rows = db.execute(text("SELECT doc_no FROM payment_vouchers ORDER BY id")).all()
         assert [r[0] for r in rows] == ["PC00011", "PC00012"]  # nối tiếp, không đè
         assert _counter(db, "payment_voucher") == 12
+
+
+def test_sales_invoice_legacy_migration_backfills_current_ar_columns():
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    with engine.begin() as connection:
+        connection.execute(text(
+            "CREATE TABLE sales_invoices ("
+            "id INTEGER PRIMARY KEY, code VARCHAR(32) NOT NULL UNIQUE, "
+            "invoice_series VARCHAR(20), invoice_no VARCHAR(32), "
+            "payment_term_days INTEGER, customer_name_snapshot VARCHAR(255), "
+            "created_at TIMESTAMP, subtotal_vnd BIGINT NOT NULL, "
+            "vat_vnd BIGINT NOT NULL, amount_vnd BIGINT NOT NULL)"
+        ))
+        connection.execute(text(
+            "INSERT INTO sales_invoices "
+            "(id, code, invoice_series, invoice_no, payment_term_days, "
+            "customer_name_snapshot, created_at, subtotal_vnd, vat_vnd, amount_vnd) "
+            "VALUES (1, 'HDB-0001', '1C26TAA', '000001', 30, 'Khách A', "
+            "CURRENT_TIMESTAMP, 1000000, 100000, 1100000)"
+        ))
+
+    with Session(engine) as db:
+        _migrate_sales_invoices_legacy_compat(db)
+        _migrate_sales_invoices_legacy_compat(db)
+        row = db.execute(text(
+            "SELECT invoice_symbol, invoice_number, payment_term_days_snapshot, "
+            "customer_name_snapshot, updated_at FROM sales_invoices WHERE id = 1"
+        )).one()
+
+    assert row.invoice_symbol == "1C26TAA"
+    assert row.invoice_number == "000001"
+    assert row.payment_term_days_snapshot == 30
+    assert row.customer_name_snapshot == "Khách A"
+    assert row.updated_at is not None
+    indexes = {item["name"] for item in inspect(engine).get_indexes("sales_invoices")}
+    assert "uq_sales_invoice_symbol_number" in indexes
