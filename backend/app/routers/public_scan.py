@@ -35,10 +35,16 @@ def public_kho_scan(db: Db, t: Annotated[str, Query(description="Mã QR đã ký
     kho_id, hang_loai, hang_id = parsed
     hang = (hang_loai, hang_id)
 
-    hang_svc = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    dv_repo = DonViDoRepository(db)
+    hang_svc = VatLieuKhoService(VatLieuKhoRepository(db), dv_repo)
     m = hang_svc.map_theo_cap([hang]).get(hang)
     if m is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy vật tư")
+
+    # `m.don_vi_gia` là MÃ đơn vị (to/cai/kem…); tra danh mục để hiện TÊN có dấu (tờ/cái/bản kẽm),
+    # khớp với màn danh mục & báo cáo — nếu không QR sẽ hiện đơn vị không dấu.
+    dv_ten = {d.ma: d.ten for d in dv_repo.all_active()}
+    dvt_code = getattr(m, "don_vi_gia", None)
 
     kho = KhoHangRepository(db).get(kho_id)
     lots_repo = StockLotRepository(db)
@@ -61,7 +67,7 @@ def public_kho_scan(db: Db, t: Annotated[str, Query(description="Mã QR đã ký
     return PublicScanOut(
         material_code=getattr(m, "ma", None),
         material_name=getattr(m, "ten", None),
-        dvt=getattr(m, "don_vi_gia", None),
+        dvt=dv_ten.get(dvt_code, dvt_code),
         kho_ten=getattr(kho, "ten", None),
         on_hand=lots_repo.on_hand(hang, kho_id),
         lots=[
