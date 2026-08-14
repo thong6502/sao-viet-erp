@@ -1101,9 +1101,15 @@ class PurchaseService:
             # đường lùi cho DỮ LIỆU CŨ (phiếu lập trước khi ô chọn danh mục ra đời) và cho client
             # cũ. Giao diện hiện tại luôn gửi kèm cặp `(hang_loai, hang_id)`: ô Vật tư ở màn Yêu
             # cầu mua hàng là combobox tra thẳng danh mục Giấy + Vật tư khác, không gõ tự do.
-            if hang_loai is None and not self.suppliers.has_active_item(item_name):
+            if hang_loai is not None:
+                if not self.suppliers.has_active_item_for_hang(hang_loai, hang_id):
+                    raise PurchaseValidationError(
+                        "Vat tu chua duoc nha cung cap nao khai ban. Vui long khai mat hang "
+                        "trong Nha cung cap truoc khi tao yeu cau mua."
+                    )
+            elif not self.suppliers.has_active_item(item_name):
                 raise PurchaseValidationError(
-                    "Vat tu phai chon tu danh muc (Giay / Vat tu khac)."
+                    "Vat tu phai duoc nha cung cap dang hoat dong khai ban truoc khi tao yeu cau mua."
                 )
             unit = (get("unit") or "").strip()
             if not unit:

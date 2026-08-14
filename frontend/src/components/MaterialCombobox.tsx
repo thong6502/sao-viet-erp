@@ -18,6 +18,7 @@ export function MaterialCombobox({
   onPick,
   placeholder = "Gõ tên vật tư…",
   disabled = false,
+  chiCoNhaCungCap = false,
   /** Lọc theo tồn: màn đề nghị XUẤT chỉ nên mời mặt hàng đang có hàng. */
   loc,
 }: {
@@ -27,6 +28,8 @@ export function MaterialCombobox({
   onPick: (m: MatHangOption) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** Chỉ mời mặt hàng đã có ít nhất một NCC đang bán. */
+  chiCoNhaCungCap?: boolean;
   loc?: (m: MatHangOption) => boolean;
 }) {
   const [text, setText] = useState(hangTen ?? "");
@@ -47,7 +50,7 @@ export function MaterialCombobox({
     let cancelled = false;
     const t = setTimeout(() => {
       api.matHang
-        .tim(token, text.trim() || null, 20)
+        .tim(token, text.trim() || null, 20, chiCoNhaCungCap)
         .then((r) => {
           if (!cancelled) {
             setOpts(loc ? r.filter(loc) : r);
@@ -60,7 +63,7 @@ export function MaterialCombobox({
       cancelled = true;
       clearTimeout(t);
     };
-  }, [text, open, token, loc]);
+  }, [text, open, token, loc, chiCoNhaCungCap]);
 
   function reposition() {
     const el = inputRef.current;
@@ -123,7 +126,9 @@ export function MaterialCombobox({
       ))}
       {opts.length === 0 && (
         <li className="kho-combo__empty" role="presentation">
-          Không có trong danh mục — khai ở Cấu hình danh mục → Giấy / Vật tư khác.
+          {chiCoNhaCungCap
+            ? "Chưa có NCC nào khai bán mặt hàng này. Hãy khai ở Nhà cung cấp trước."
+            : "Không có trong danh mục — khai ở Cấu hình danh mục → Giấy / Vật tư khác."}
         </li>
       )}
     </ul>

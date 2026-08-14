@@ -692,8 +692,8 @@ def test_department_purchase_request_update_before_purchase_request(client, auth
     assert body["lines"][0]["quantity"] == 500
 
 
-def test_department_purchase_request_returns_material_reference_for_edit(client, auth_headers):
-    """Form sửa cần cặp mặt hàng gốc để nạp lại đúng dropdown ĐVT."""
+def test_department_purchase_request_rejects_material_without_active_supplier(client, auth_headers):
+    """YCMH chỉ được chọn hàng đã có NCC đang khai bán."""
     payload = _department_request_payload()
     payload["lines"][0].update({"hang_loai": "giay", "hang_id": 123})
 
@@ -703,10 +703,8 @@ def test_department_purchase_request_returns_material_reference_for_edit(client,
         headers=auth_headers,
     )
 
-    assert created.status_code == 201, created.text
-    line = created.json()["lines"][0]
-    assert line["hang_loai"] == "giay"
-    assert line["hang_id"] == 123
+    assert created.status_code == 422, created.text
+    assert "nha cung cap" in created.json()["detail"].lower()
 
 
 def test_department_purchase_request_update_permissions_and_status(client, auth_headers):
