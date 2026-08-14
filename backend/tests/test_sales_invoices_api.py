@@ -22,19 +22,21 @@ def _headers(client) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
-def _sales_order(*, total: int = 1_000_000, term_days: int | None = 30) -> tuple[int, int]:
+def _sales_order(
+    *, total: int = 1_000_000, term_days: int | None = 30, suffix: str = "01"
+) -> tuple[int, int]:
     db = SessionLocal()
     try:
         customer = Customer(
-            code="KH-HD-01",
-            name="Customer invoice test",
+            code=f"KH-HD-{suffix}",
+            name="Customer invoice test" if suffix == "01" else f"Customer invoice test {suffix}",
             payment_term_days=term_days,
             credit_limit=500_000,
         )
         db.add(customer)
         db.flush()
         order = Order(
-            order_no="DH-HD-01",
+            order_no=f"DH-HD-{suffix}",
             customer_id=customer.id,
             status=STATUS_ORDERED,
             ordered_at=None,
@@ -120,6 +122,34 @@ def test_confirmed_order_does_not_create_receivable_until_invoice(client):
     assert customer["invoice_count"] == 1
     assert customer["invoiced_amount"] == 400_000
     assert customer["total_due"] == 400_000
+
+
+def test_cong_no_phai_thu_phan_trang_nhung_tong_tien_khong_doi(client):
+    headers = _headers(client)
+    order_a, customer_a = _sales_order(total=300_000, suffix="P1")
+    order_b, customer_b = _sales_order(total=700_000, suffix="P2")
+    assert client.post(
+        "/api/accounting/sales-invoices",
+        json=_invoice_payload(order_a, number="PAG-0001"),
+        headers=headers,
+    ).status_code == 201
+    assert client.post(
+        "/api/accounting/sales-invoices",
+        json=_invoice_payload(order_b, number="PAG-0002"),
+        headers=headers,
+    ).status_code == 201
+
+    trang_1 = client.get("/api/accounting/receivables?page=1&size=1", headers=headers)
+    trang_2 = client.get("/api/accounting/receivables?page=2&size=1", headers=headers)
+    assert trang_1.status_code == 200 and trang_2.status_code == 200
+    mot, hai = trang_1.json(), trang_2.json()
+    assert mot["total"] == 2 and mot["pages"] == 2
+    assert mot["page"] == 1 and hai["page"] == 2
+    assert mot["total_due"] == hai["total_due"] == 1_000_000
+    assert {mot["items"][0]["customer_id"], hai["items"][0]["customer_id"]} == {
+        customer_a,
+        customer_b,
+    }
 
 
 def test_partial_invoices_are_capped_by_order_total(client):

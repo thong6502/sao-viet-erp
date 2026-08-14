@@ -12,7 +12,7 @@ import {
   api,
   assetUrl,
   type DepartmentPurchaseRequestRow,
-  type DepartmentPurchaseRequestStatus,
+  type DepartmentPurchaseWorkflowStatus,
   type PurchaseAttachmentRow,
   type PurchaseDeliveryInput,
   type PurchaseDeliveryRow,
@@ -68,7 +68,7 @@ const STATUS_META: Record<
 const GHI_DOT_DUOC: PurchaseRequestStatus[] = ["purchased", "partially_received"];
 
 type StatusFilter = "all" | PurchaseRequestStatus;
-type SourceStatusFilter = "all" | DepartmentPurchaseRequestStatus;
+type SourceStatusFilter = "all" | DepartmentPurchaseWorkflowStatus;
 type DepositFilter = "all" | "none" | "unpaid" | "partial" | "enough";
 
 /** Hai tab con của màn Mua hàng (chốt 08/08/2026).
@@ -80,11 +80,13 @@ type DepositFilter = "all" | "none" | "unpaid" | "partial" | "enough";
 type PurchaseTab = "yeu-cau" | "phieu";
 
 const SOURCE_STATUS_META: Record<
-  DepartmentPurchaseRequestStatus,
+  DepartmentPurchaseWorkflowStatus,
   { label: string; tone: string }
 > = {
   open: { label: "Chờ Thu mua xử lý", tone: "draft" },
+  drafting: { label: "Thu mua đang lập đơn", tone: "draft" },
   pending_approval: { label: "Chờ duyệt", tone: "pending" },
+  needs_correction: { label: "Cần Thu mua chỉnh sửa", tone: "rejected" },
   in_purchase: { label: "Đang mua", tone: "pending" },
   done: { label: "Hoàn tất", tone: "received" },
   cancelled: { label: "Đã hủy", tone: "cancelled" },
@@ -1489,6 +1491,7 @@ export function PurchaseRequestsPage({
             <tr>
               <th>Mã yêu cầu</th>
               <th>Nguồn</th>
+              <th>Ngày tạo</th>
               <th>Cần hàng</th>
               <th>Vật tư</th>
               <th>Trạng thái</th>
@@ -1497,17 +1500,17 @@ export function PurchaseRequestsPage({
           </thead>
           <tbody>
             {sourceLoading ? (
-              <EmptyRow colSpan={6} trangThai="dang-tai" />
+              <EmptyRow colSpan={7} trangThai="dang-tai" />
             ) : sourceError ? (
               <EmptyRow
-                colSpan={6}
+                colSpan={7}
                 trangThai="loi"
                 loi={sourceError}
                 onThuLai={loadSources}
               />
             ) : sourceRows.length === 0 ? (
               <EmptyRow
-                colSpan={6}
+                colSpan={7}
                 icon="clipboard"
                 title="Chưa có yêu cầu mua từ phòng ban"
                 sub="Đơn mua hàng luôn bắt đầu từ một yêu cầu của bộ phận — chờ họ gửi sang."
@@ -1536,6 +1539,7 @@ export function PurchaseRequestsPage({
                           "Nội bộ"}
                       </div>
                     </td>
+                    <td>{fmtDate(row.created_at)}</td>
                     <td>{fmtDate(row.needed_date)}</td>
                     <td>
                       <strong>{row.lines.length} dòng</strong>
@@ -1547,7 +1551,12 @@ export function PurchaseRequestsPage({
                       </div>
                     </td>
                     <td>
-                      <SourceStatusBadge status={row.status} />
+                      <SourceStatusBadge status={row.workflow_status} />
+                      {purchaseChildSummary(row) && (
+                        <div className="md-page__muted purchase__source-progress">
+                          {purchaseChildSummary(row)}
+                        </div>
+                      )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       {canCreate && !disabled ? (
@@ -3862,7 +3871,7 @@ function StatusBadge({ status }: { status: PurchaseRequestStatus }) {
 function SourceStatusBadge({
   status,
 }: {
-  status: DepartmentPurchaseRequestStatus;
+  status: DepartmentPurchaseWorkflowStatus;
 }) {
   const meta = SOURCE_STATUS_META[status];
   return (
@@ -3870,6 +3879,30 @@ function SourceStatusBadge({
       {meta.label}
     </span>
   );
+}
+
+function purchaseChildSummary(row: DepartmentPurchaseRequestRow): string {
+  const dem = new Map<string, number>();
+  for (const phieu of row.purchase_requests) {
+    const nhom =
+      phieu.status === "rejected"
+        ? "cần sửa"
+        : phieu.status === "draft"
+          ? "đang lập"
+          : phieu.status === "pending_approval"
+            ? "chờ duyệt"
+            : phieu.status === "received"
+              ? "đã nhận"
+              : phieu.status === "cancelled"
+                ? "đã hủy"
+                : "đang mua";
+    dem.set(nhom, (dem.get(nhom) ?? 0) + 1);
+  }
+  const thuTu = ["cần sửa", "đang lập", "chờ duyệt", "đang mua", "đã nhận", "đã hủy"];
+  return thuTu
+    .filter((nhom) => dem.has(nhom))
+    .map((nhom) => `${dem.get(nhom)} đơn ${nhom}`)
+    .join(" · ");
 }
 
 function LocalField({

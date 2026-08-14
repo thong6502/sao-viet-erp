@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Sequence
 
-from sqlalchemy import asc, desc, func, or_, select
+from sqlalchemy import asc, desc, exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.accounting import PAYMENT_VOUCHER_PAID, PaymentVoucher
@@ -453,7 +453,38 @@ class DepartmentPurchaseRequestRepository:
                 )
             )
         if status:
-            conditions.append(DepartmentPurchaseRequest.status == status)
+            # `drafting` và `needs_correction` là trạng thái HIỂN THỊ suy từ đơn mua con. Lọc ngay
+            # trong SQL để `total` và phân trang vẫn chính xác, thay vì lọc 20 dòng sau khi tải.
+            def co_phieu_con(*statuses: str):
+                return exists(
+                    select(PurchaseRequestSource.id)
+                    .join(
+                        PurchaseRequest,
+                        PurchaseRequest.id == PurchaseRequestSource.purchase_request_id,
+                    )
+                    .where(
+                        PurchaseRequestSource.department_request_id
+                        == DepartmentPurchaseRequest.id,
+                        PurchaseRequest.status.in_(statuses),
+                    )
+                )
+
+            co_tu_choi = co_phieu_con(PR_REJECTED)
+            co_nhap = co_phieu_con(PR_DRAFT)
+            if status == "needs_correction":
+                conditions.append(co_tu_choi)
+            elif status == "drafting":
+                conditions.extend((~co_tu_choi, co_nhap))
+            elif status == DPR_PENDING_APPROVAL:
+                conditions.extend(
+                    (
+                        DepartmentPurchaseRequest.status == DPR_PENDING_APPROVAL,
+                        ~co_tu_choi,
+                        ~co_nhap,
+                    )
+                )
+            else:
+                conditions.append(DepartmentPurchaseRequest.status == status)
         if source_type:
             conditions.append(DepartmentPurchaseRequest.source_type == source_type)
         if requested_by_user_id is not None:
@@ -720,13 +751,12 @@ class PurchaseRequestRepository:
         rows = list(self.db.execute(stmt.offset((page - 1) * size).limit(size)).scalars())
         return rows, total
 
-    def count_rejected_with_open_source(self, *, creator_ids: list[int] | None = None) -> int:
-        """Số PMH **bị từ chối** mà YCMH nguồn VẪN đang *Chờ mua* — việc dễ bị bỏ quên nhất.
+    def count_rejected_pending_correction(self, *, creator_ids: list[int] | None = None) -> int:
+        """Số PMH **bị từ chối** mà YCMH nguồn vẫn đang được phiếu đó giữ.
 
-        PMH bị từ chối kéo YCMH nguồn rơi về `open` (`_BAC_PHIEU` → `_BAC_SANG_TRANG_THAI`), tức
-        phần hàng đó vẫn chưa ai mua được và phải lập phiếu khác. Còn PMH bị từ chối mà YCMH đã
-        sang trạng thái khác (có phiếu thay thế đang chạy, hoặc yêu cầu đã huỷ) thì KHÔNG còn việc
-        gì phải làm — đếm vào là badge kêu suốt đời cho một phiếu đã xong chuyện.
+        PMH bị từ chối giữ YCMH ở `pending_approval`: đây là việc Thu mua phải sửa trên CHÍNH PMH
+        rồi gửi lại. YCMH đã huỷ thì không còn việc; PMH đã gửi lại không còn trạng thái rejected
+        nên tự hết đếm.
 
         `COUNT(DISTINCT ...)` vì một PMH gom được nhiều YCMH nguồn: không DISTINCT thì phiếu gom 3
         yêu cầu bị đếm 3 lần.
@@ -746,7 +776,7 @@ class PurchaseRequestRepository:
                 DepartmentPurchaseRequest.id == PurchaseRequestSource.department_request_id,
             )
             .where(PurchaseRequest.status == PR_REJECTED)
-            .where(DepartmentPurchaseRequest.status == DPR_OPEN)
+            .where(DepartmentPurchaseRequest.status == DPR_PENDING_APPROVAL)
         )
         if creator_ids is not None:
             stmt = stmt.where(PurchaseRequest.created_by_user_id.in_(creator_ids or [-1]))

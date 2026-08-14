@@ -453,7 +453,14 @@ class AccountingService:
         )
         return qua_han, max(0, con_no - qua_han)
 
-    def payables_summary(self, *, q: str | None = None) -> dict:
+    def payables_summary(
+        self,
+        *,
+        q: str | None = None,
+        filter_: str = "all",
+        page: int = 1,
+        size: int = 20,
+    ) -> dict:
         """Công nợ phải trả gom theo nhà cung cấp.
 
         Dựng dòng khi **còn nợ > 0 HOẶC đã trả trong kỳ > 0**. Chỉ lấy "còn nợ > 0" là NCC vừa trả
@@ -520,12 +527,34 @@ class AccountingService:
             m["vuot_bao_nhieu"] = (
                 max(0, m["total_due"] - m["credit_limit"]) if m["credit_limit"] > 0 else 0
             )
+        # Thẻ tổng quan luôn tính trên TOÀN BỘ NCC đang có hoạt động/nợ, không đổi theo ô tìm kiếm,
+        # bộ lọc hay trang hiện tại. Dòng nợ 0 chỉ được lôi ra khi người dùng chủ động tìm tên.
+        tong_hop = [m for m in items if m["total_due"] > 0 or m["paid_in_period"] > 0]
+        if tim:
+            items = [m for m in items if tim in (m["supplier_name"] or "").lower()]
+        if filter_ == "overdue":
+            items = [m for m in items if m["overdue_amount"] > 0]
+        elif filter_ == "chua_han":
+            items = [m for m in items if m["no_han_amount"] > 0]
+        elif filter_ == "vuot_han_muc":
+            items = [m for m in items if m["vuot_han_muc"]]
+
+        page = max(1, page)
+        size = max(1, min(size, 200))
+        total = len(items)
+        pages = max(1, (total + size - 1) // size)
+        page = min(page, pages)
+        bat_dau = (page - 1) * size
         return {
-            "items": items,
-            "total_due": sum(m["total_due"] for m in items),
-            "overdue_amount": sum(m["overdue_amount"] for m in items),
-            "paid_in_period": sum(m["paid_in_period"] for m in items),
-            "vuot_han_muc_count": sum(1 for m in items if m["vuot_han_muc"]),
+            "items": items[bat_dau:bat_dau + size],
+            "total": total,
+            "page": page,
+            "size": size,
+            "pages": pages,
+            "total_due": sum(m["total_due"] for m in tong_hop),
+            "overdue_amount": sum(m["overdue_amount"] for m in tong_hop),
+            "paid_in_period": sum(m["paid_in_period"] for m in tong_hop),
+            "vuot_han_muc_count": sum(1 for m in tong_hop if m["vuot_han_muc"]),
             "period_months": PAYABLES_PERIOD_MONTHS,
             "as_of": hom_nay,
         }
@@ -954,7 +983,14 @@ class AccountingService:
             for row in receipts
         ]
 
-    def receivables_summary(self, *, q: str | None = None) -> dict:
+    def receivables_summary(
+        self,
+        *,
+        q: str | None = None,
+        filter_: str = "all",
+        page: int = 1,
+        size: int = 20,
+    ) -> dict:
         hom_nay = _business_today()
         moc_ky = hom_nay - timedelta(days=31 * PAYABLES_PERIOD_MONTHS)
         tim = (q or "").strip().lower()
@@ -1017,12 +1053,32 @@ class AccountingService:
             )
             items.append(item)
         items.sort(key=lambda x: (x["total_due"], x["received_in_period"]), reverse=True)
+        tong_hop = [i for i in items if i["total_due"] > 0 or i["received_in_period"] > 0]
+        if tim:
+            items = [i for i in items if tim in (i["customer_name"] or "").lower()]
+        if filter_ == "overdue":
+            items = [i for i in items if i["overdue_amount"] > 0]
+        elif filter_ == "chua_han":
+            items = [i for i in items if i["no_han_amount"] > 0]
+        elif filter_ == "vuot_han_muc":
+            items = [i for i in items if i["vuot_han_muc"]]
+
+        page = max(1, page)
+        size = max(1, min(size, 200))
+        total = len(items)
+        pages = max(1, (total + size - 1) // size)
+        page = min(page, pages)
+        bat_dau = (page - 1) * size
         return {
-            "items": items,
-            "total_due": sum(i["total_due"] for i in items),
-            "overdue_amount": sum(i["overdue_amount"] for i in items),
-            "received_in_period": sum(i["received_in_period"] for i in items),
-            "vuot_han_muc_count": sum(1 for i in items if i["vuot_han_muc"]),
+            "items": items[bat_dau:bat_dau + size],
+            "total": total,
+            "page": page,
+            "size": size,
+            "pages": pages,
+            "total_due": sum(i["total_due"] for i in tong_hop),
+            "overdue_amount": sum(i["overdue_amount"] for i in tong_hop),
+            "received_in_period": sum(i["received_in_period"] for i in tong_hop),
+            "vuot_han_muc_count": sum(1 for i in tong_hop if i["vuot_han_muc"]),
             "period_months": PAYABLES_PERIOD_MONTHS,
             "as_of": hom_nay,
         }

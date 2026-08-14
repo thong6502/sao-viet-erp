@@ -302,6 +302,9 @@ class DepartmentPurchaseRequestOut(BaseModel):
     id: int
     code: str
     status: str
+    # Trạng thái nghiệp vụ dùng để HIỂN THỊ/LỌC, suy từ các đơn mua con.
+    # Không ghi đè `status`: `status` vẫn là trạng thái tổng hợp được lưu để khóa luồng.
+    workflow_status: str
     source_type: str
     requesting_department_id: int | None = None
     requesting_department_name: str | None = None
@@ -496,7 +499,7 @@ class PurchaseNotifySummaryOut(BaseModel):
 
     # YCMH đang *Chờ mua* — việc đang nằm trên bàn thu mua.
     ycmh_cho_lap_phieu: int = 0
-    # PMH bị từ chối mà YCMH nguồn vẫn *Chờ mua* ⇒ phải lập lại. Dễ bị bỏ quên nhất.
+    # PMH bị từ chối đang chờ Thu mua sửa và gửi lại chính phiếu đó. Dễ bị bỏ quên nhất.
     pmh_bi_tu_choi: int = 0
     # Đợt giao quá hạn trả mà còn nợ. 0 với người KHÔNG có `ke_toan:read` — không rò công nợ.
     dot_giao_qua_han: int = 0

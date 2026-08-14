@@ -361,6 +361,10 @@ class PayableSupplierOut(BaseModel):
 
 class PayablesSummaryOut(BaseModel):
     items: list[PayableSupplierOut]
+    total: int
+    page: int
+    size: int
+    pages: int
     total_due: int
     overdue_amount: int
     paid_in_period: int = 0
@@ -475,6 +479,10 @@ class ReceivableCustomerOut(BaseModel):
 
 class ReceivablesSummaryOut(BaseModel):
     items: list[ReceivableCustomerOut]
+    total: int
+    page: int
+    size: int
+    pages: int
     total_due: int
     overdue_amount: int
     received_in_period: int = 0

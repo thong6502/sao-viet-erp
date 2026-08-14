@@ -4244,6 +4244,11 @@ export type DepartmentPurchaseRequestStatus =
   | "done"
   | "cancelled";
 
+export type DepartmentPurchaseWorkflowStatus =
+  | DepartmentPurchaseRequestStatus
+  | "drafting"
+  | "needs_correction";
+
 export type DepartmentPurchaseSourceType =
   | "kinh_doanh"
   | "kho"
@@ -4289,6 +4294,10 @@ export interface PayableSupplierRow {
 
 export interface PayablesSummary {
   items: PayableSupplierRow[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
   total_due: number;
   overdue_amount: number;
   paid_in_period: number;
@@ -4394,6 +4403,10 @@ export interface ReceivableCustomerRow {
 
 export interface ReceivablesSummary {
   items: ReceivableCustomerRow[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
   total_due: number;
   overdue_amount: number;
   received_in_period: number;
@@ -4632,6 +4645,7 @@ export interface DepartmentPurchaseRequestRow {
   id: number;
   code: string;
   status: DepartmentPurchaseRequestStatus;
+  workflow_status: DepartmentPurchaseWorkflowStatus;
   source_type: DepartmentPurchaseSourceType;
   requesting_department_id: number | null;
   requesting_department_name: string | null;
@@ -8427,8 +8441,16 @@ export const api = {
     },
     /** Công nợ phải trả gom theo NCC. Không phân trang — cắt trang là ra TỔNG sai.
         `q` lọc ở SERVER: NCC đã trả hết và im lặng lâu thì không có dòng nào để lọc phía màn. */
-    payables(token: string, q?: string): Promise<PayablesSummary> {
-      const suffix = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
+    payables(
+      token: string,
+      params: { q?: string; filter?: string; page?: number; size?: number } = {},
+    ): Promise<PayablesSummary> {
+      const qs = new URLSearchParams();
+      if (params.q?.trim()) qs.set("q", params.q.trim());
+      if (params.filter && params.filter !== "all") qs.set("filter", params.filter);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
       return authed<PayablesSummary>(`/api/accounting/payables${suffix}`, token);
     },
     /** `allHistory` bỏ mốc kỳ cho rổ "đã chi" — nút "Xem lịch sử cũ hơn". Chỉ nới cho MỘT NCC. */
@@ -8440,9 +8462,15 @@ export const api = {
       const suffix = allHistory ? "?all_history=true" : "";
       return authed<PayablesDetail>(`/api/accounting/payables/${supplierId}${suffix}`, token);
     },
-    receivables(token: string, q?: string): Promise<ReceivablesSummary> {
+    receivables(
+      token: string,
+      params: { q?: string; filter?: string; page?: number; size?: number } = {},
+    ): Promise<ReceivablesSummary> {
       const qs = new URLSearchParams();
-      if (q?.trim()) qs.set("q", q.trim());
+      if (params.q?.trim()) qs.set("q", params.q.trim());
+      if (params.filter && params.filter !== "all") qs.set("filter", params.filter);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
       return authed<ReceivablesSummary>(`/api/accounting/receivables${suffix}`, token);
     },

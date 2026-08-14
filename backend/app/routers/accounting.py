@@ -171,13 +171,18 @@ def accounting_payables(
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
     _: Annotated[User, Depends(require_permission(MODULE_CN_TRA, "read"))],
     q: str | None = Query(default=None),
+    filter_: str = Query(default="all", alias="filter"),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=200),
 ) -> PayablesSummaryOut:
     # Chỉ ĐỌC — không đẻ ô quyền mới, `ke_toan:read` là đủ. Không phân trang: cắt trang là ra
     # TỔNG sai.
     #
     # `q` lọc ở SERVER chứ không lọc trên danh sách đã trả về: NCC đã trả hết và im lặng lâu thì
     # KHÔNG có dòng nào trong danh sách để mà lọc — phải để service lôi họ ra.
-    return PayablesSummaryOut(**svc.payables_summary(q=q))
+    return PayablesSummaryOut(
+        **svc.payables_summary(q=q, filter_=filter_, page=page, size=size)
+    )
 
 
 @router.get("/api/accounting/payables/{supplier_id}", response_model=PayablesDetailOut)
@@ -197,8 +202,13 @@ def accounting_receivables(
     svc: Annotated[AccountingService, Depends(get_accounting_service)],
     _: Annotated[User, Depends(require_permission(MODULE_CN_THU, "read"))],
     q: str | None = Query(default=None),
+    filter_: str = Query(default="all", alias="filter"),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=200),
 ) -> ReceivablesSummaryOut:
-    return ReceivablesSummaryOut(**svc.receivables_summary(q=q))
+    return ReceivablesSummaryOut(
+        **svc.receivables_summary(q=q, filter_=filter_, page=page, size=size)
+    )
 
 
 @router.get("/api/accounting/receivables/{customer_id}", response_model=ReceivablesDetailOut)

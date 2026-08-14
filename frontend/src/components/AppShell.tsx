@@ -557,7 +557,7 @@ export function AppShell() {
         pushToast(
           e.decision === "approved"
             ? `Đơn mua hàng${e.code ? " " + e.code : ""} đã được duyệt`
-            : `Đơn mua hàng${e.code ? " " + e.code : ""} bị từ chối`,
+            : `Đơn mua hàng${e.code ? " " + e.code : ""} bị từ chối, cần sửa và gửi lại`,
           e.decision === "approved" ? "ok" : "warn",
         );
         reloadBadges();

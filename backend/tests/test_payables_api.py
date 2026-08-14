@@ -1610,6 +1610,25 @@ def test_o_tim_loi_duoc_ncc_khong_no_khong_giao_dich(client):
     assert muc["total_due"] == 0 and muc["paid_in_period"] == 0
 
 
+def test_cong_no_phai_tra_phan_trang_nhung_tong_tien_khong_doi(client):
+    headers = _headers(client)
+    ncc_a = _supplier(client, headers, name="NCC Trang A")
+    ncc_b = _supplier(client, headers, name="NCC Trang B")
+    don_a = _don(client, headers, ncc_a["id"])
+    don_b = _don(client, headers, ncc_b["id"])
+    _ve_hang(client, headers, don_a["id"])
+    _ve_hang(client, headers, don_b["id"])
+
+    trang_1 = client.get("/api/accounting/payables?page=1&size=1", headers=headers)
+    trang_2 = client.get("/api/accounting/payables?page=2&size=1", headers=headers)
+    assert trang_1.status_code == 200 and trang_2.status_code == 200
+    mot, hai = trang_1.json(), trang_2.json()
+    assert mot["total"] >= 2 and mot["pages"] >= 2
+    assert mot["page"] == 1 and hai["page"] == 2
+    assert mot["total_due"] == hai["total_due"]
+    assert mot["items"][0]["supplier_id"] != hai["items"][0]["supplier_id"]
+
+
 # --- kỳ chỉ cắt phần ĐÃ TRẢ, không cắt nợ ----------------------------------
 
 

@@ -13,7 +13,7 @@ import {
   type DepartmentPurchaseRequestLineInput,
   type DepartmentPurchaseRequestLineOut,
   type DepartmentPurchaseRequestRow,
-  type DepartmentPurchaseRequestStatus,
+  type DepartmentPurchaseWorkflowStatus,
   type DepartmentPurchaseSourceType,
   type PurchaseRequestStatus,
 } from "../api/client";
@@ -34,7 +34,7 @@ import "./master-data.css";
 import "./payables.css";
 import "./purchase.css";
 
-type StatusFilter = "all" | DepartmentPurchaseRequestStatus;
+type StatusFilter = "all" | DepartmentPurchaseWorkflowStatus;
 
 /** Số dòng mỗi trang. TRƯỚC 08/08/2026 màn này tải cứng 100 dòng và KHÔNG có phân trang: quá 100
  *  yêu cầu là bảng cắt im lặng trong khi ô "Tổng" vẫn hiện đúng — người dùng không có cách nào
@@ -51,11 +51,13 @@ const SOURCE_TYPE_LABELS: Record<DepartmentPurchaseSourceType, string> = {
 };
 
 const SOURCE_STATUS_META: Record<
-  DepartmentPurchaseRequestStatus,
+  DepartmentPurchaseWorkflowStatus,
   { label: string; tone: string }
 > = {
   open: { label: "Chờ Thu mua xử lý", tone: "draft" },
+  drafting: { label: "Thu mua đang lập đơn", tone: "draft" },
   pending_approval: { label: "Chờ duyệt", tone: "pending" },
+  needs_correction: { label: "Cần Thu mua chỉnh sửa", tone: "rejected" },
   in_purchase: { label: "Đang mua", tone: "pending" },
   done: { label: "Hoàn tất", tone: "received" },
   cancelled: { label: "Đã hủy", tone: "cancelled" },
@@ -580,7 +582,7 @@ export function DepartmentPurchaseRequestsPage({
                     <div className="md-page__muted">{fmtDate(row.created_at)}</div>
                   </td>
                   <td>
-                    <SourceStatusBadge status={row.status} />
+                    <SourceStatusBadge status={row.workflow_status} />
                   </td>
                   <td
                     className="md-page__actions-col"
@@ -664,7 +666,7 @@ export function DepartmentPurchaseRequestsPage({
           kicker="Chi tiết yêu cầu"
           title={selected.code}
           subtitle={noiDung(selected)}
-          badge={<SourceStatusBadge status={selected.status} />}
+          badge={<SourceStatusBadge status={selected.workflow_status} />}
           onClose={() => setSelectedId(null)}
         >
           <dl className="purchase__facts">
@@ -973,7 +975,7 @@ export function DepartmentPurchaseRequestsPage({
 function SourceStatusBadge({
   status,
 }: {
-  status: DepartmentPurchaseRequestStatus;
+  status: DepartmentPurchaseWorkflowStatus;
 }) {
   const meta = SOURCE_STATUS_META[status];
   return (

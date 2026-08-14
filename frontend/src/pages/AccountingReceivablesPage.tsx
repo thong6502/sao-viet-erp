@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   ApiError,
   api,
@@ -31,6 +31,8 @@ const LIST_FILTERS: { id: ListFilter; label: string }[] = [
   { id: "vuot_han_muc", label: "Vượt hạn mức" },
 ];
 
+const PAGE_SIZE = 20;
+
 function kpi(value: number | undefined, known: boolean): string {
   return known && value != null ? money(value) : "—";
 }
@@ -57,6 +59,7 @@ export function AccountingReceivablesPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<ListFilter>("all");
+  const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [sentQ, setSentQ] = useState("");
   const [open, setOpen] = useState<ReceivableCustomerRow | null>(null);
@@ -66,14 +69,17 @@ export function AccountingReceivablesPage({
     setLoading(true);
     setError(null);
     api.accounting
-      .receivables(token, sentQ)
-      .then(setSummary)
+      .receivables(token, { q: sentQ, filter, page, size: PAGE_SIZE })
+      .then((data) => {
+        setSummary(data);
+        if (data.page !== page) setPage(data.page);
+      })
       .catch((cause) => {
         setSummary(null);
         setError(cause instanceof ApiError ? cause.message : "Không tải được công nợ phải thu.");
       })
       .finally(() => setLoading(false));
-  }, [token, sentQ]);
+  }, [token, sentQ, filter, page]);
 
   useEffect(() => {
     load();
@@ -90,15 +96,7 @@ export function AccountingReceivablesPage({
   }, [q]);
 
   const known = !loading && !error && summary != null;
-  const rows = useMemo(() => {
-    const items = summary?.items ?? [];
-    return items.filter((row) => {
-      if (filter === "overdue") return row.overdue_amount > 0;
-      if (filter === "chua_han") return row.no_han_amount > 0;
-      if (filter === "vuot_han_muc") return row.vuot_han_muc;
-      return true;
-    });
-  }, [summary, filter]);
+  const rows = summary?.items ?? [];
 
   const months = summary?.period_months ?? 3;
 
@@ -146,11 +144,27 @@ export function AccountingReceivablesPage({
 
       <section className="acct-toolbar">
         <form className="md-page__search" onSubmit={(event) => event.preventDefault()}>
-          <input className="input" value={q} onChange={(event) => setQ(event.target.value)} placeholder="Tìm khách hàng..." />
+          <input
+            className="input"
+            value={q}
+            onChange={(event) => {
+              setQ(event.target.value);
+              setPage(1);
+            }}
+            placeholder="Tìm khách hàng..."
+          />
         </form>
         <div className="pay-pills">
           {LIST_FILTERS.map((item) => (
-            <button key={item.id} type="button" className={`pay-pill${filter === item.id ? " pay-pill--on" : ""}`} onClick={() => setFilter(item.id)}>
+            <button
+              key={item.id}
+              type="button"
+              className={`pay-pill${filter === item.id ? " pay-pill--on" : ""}`}
+              onClick={() => {
+                setFilter(item.id);
+                setPage(1);
+              }}
+            >
               {item.label}
             </button>
           ))}
@@ -196,6 +210,26 @@ export function AccountingReceivablesPage({
             ))}
           </tbody>
         </table>
+        <div className="md-page__pager">
+          <span className="md-page__muted">
+            Tổng {summary?.total ?? 0} khách hàng
+            {(summary?.pages ?? 1) > 1 ? ` · Trang ${summary?.page}/${summary?.pages}` : ""}
+          </span>
+          {(summary?.pages ?? 1) > 1 && (
+            <div className="md-page__pager-btns">
+              <Button variant="ghost" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
+                Trước
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={page >= (summary?.pages ?? 1) || loading}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Sau
+              </Button>
+            </div>
+          )}
+        </div>
       </section>
 
       {open?.customer_id != null && (

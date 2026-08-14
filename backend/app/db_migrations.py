@@ -7517,3 +7517,57 @@ MIGRATIONS.append((
     "0191_module_notification_recipient",
     _migrate_module_notification_recipient,
 ))
+
+
+def _migrate_rejected_pmh_keeps_ycmh_reserved(db: Session) -> None:
+    """Sửa YCMH cũ bị thả về ``open`` khi PMH nguồn bị Kế toán từ chối.
+
+    Luồng đúng là Thu mua sửa và gửi lại chính PMH bị từ chối. YCMH phải tiếp tục được giữ ở
+    ``pending_approval``; nếu để ``open``, cả giao diện lẫn API đều cho lập thêm PMH trùng nguồn.
+    """
+    tables = set(inspect(db.get_bind()).get_table_names())
+    required = {
+        "department_purchase_requests",
+        "purchase_requests",
+        "purchase_request_sources",
+    }
+    if not required.issubset(tables):
+        return
+
+    stale_ids = list(db.execute(text(
+        "SELECT d.id FROM department_purchase_requests d "
+        "WHERE d.status = 'open' AND EXISTS ("
+        "SELECT 1 FROM purchase_request_sources prs "
+        "JOIN purchase_requests pr ON pr.id = prs.purchase_request_id "
+        "WHERE prs.department_request_id = d.id AND pr.status = 'rejected')"
+    )).scalars())
+    if not stale_ids:
+        return
+
+    has_history = "purchase_status_history" in tables
+    has_updated_at = "updated_at" in _existing_columns(
+        inspect(db.get_bind()), "department_purchase_requests"
+    )
+    for doc_id in stale_ids:
+        if has_history:
+            db.execute(text(
+                "INSERT INTO purchase_status_history "
+                "(doc_type, doc_id, from_status, to_status, changed_by_user_id, source, reason, created_at) "
+                "VALUES ('ycmh', :doc_id, 'open', 'pending_approval', NULL, 'may', "
+                ":reason, CURRENT_TIMESTAMP)"
+            ), {
+                "doc_id": doc_id,
+                "reason": "Sửa dữ liệu: PMH bị từ chối vẫn giữ YCMH để chỉnh sửa và gửi lại",
+            })
+        db.execute(text(
+            "UPDATE department_purchase_requests SET status = 'pending_approval'"
+            + (", updated_at = CURRENT_TIMESTAMP" if has_updated_at else "")
+            + " WHERE id = :doc_id AND status = 'open'"
+        ), {"doc_id": doc_id})
+    db.commit()
+
+
+MIGRATIONS.append((
+    "0192_rejected_pmh_keeps_ycmh_reserved",
+    _migrate_rejected_pmh_keeps_ycmh_reserved,
+))
