@@ -256,6 +256,7 @@ export function DonViChonTheoHang({
   return (
     <select
       className="rc-input"
+      style={{ minWidth: 88 }}
       value={value}
       disabled={disabled || ds.length === 0}
       aria-label="Đơn vị tính"

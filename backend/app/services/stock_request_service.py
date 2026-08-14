@@ -35,12 +35,15 @@ from ..models.stock_request import (
     REQ_PREPARING,
     REQ_RECEIVED,
     REQ_REJECTED,
+    REQ_XUAT,
     REQUEST_EDITABLE,
     REQUEST_KINDS,
     StockRequest,
 )
 from ..realtime import hub
-from ..repositories.rbac_repo import RoleRepository
+from ..repositories.notification_repo import NotificationRepository
+from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
+from ..repositories.user_repo import UserRepository
 
 
 class StockRequestError(Exception):
@@ -124,6 +127,7 @@ class StockRequestService:
         req = self.requests.save(req)
         # Đẩy real-time để Hộp yêu cầu kho thấy yêu cầu mới ngay (badge nhảy), không bắt F5.
         self._notify(req, "Yêu cầu mới — chờ kho cấp", targeted=False)
+        self._notif_kho_moi(req)  # lưu vào chuông thủ kho
         return req
 
     def update(self, req: StockRequest, *, lines: list[dict] | None = None, **header) -> StockRequest:
@@ -253,6 +257,7 @@ class StockRequestService:
         req.ly_do_tu_choi = ly_do.strip()
         req = self.requests.save(req)
         self._notify(req, "Yêu cầu bị từ chối")
+        self._notif_nguoi_tao(req, loai="kho_huy", tieu_de="Yêu cầu bị từ chối")
         return req
 
     def cancel(self, req: StockRequest) -> StockRequest:
@@ -295,8 +300,9 @@ class StockRequestService:
             raise StockRequestError("Yêu cầu đã kết thúc — không hủy được.")
         req.trang_thai = REQ_CANCELLED
         req.ly_do_huy = ly_do
-        req = self.requests.save(req)
+        req = self.requests.save(req)  # save() tự cập nhật updated_at = mốc phản hồi cho badge người tạo
         self._notify(req, "Yêu cầu đã bị hủy")
+        self._notif_nguoi_tao(req, loai="kho_huy", tieu_de="Yêu cầu đã bị hủy")
         return req
 
     def revert_if_untouched(self, req: StockRequest) -> StockRequest:
@@ -368,14 +374,58 @@ class StockRequestService:
         # ĐẨY THEO PHẠM VI (không broadcast toàn hệ): chỉ tới người XỬ LÝ kho mà PHÒNG của yêu
         # cầu nằm trong scope của họ (all → mọi phòng; department → khớp phòng; own → người tạo).
         # ⇒ "phòng nào thấy phòng đó"; kho trung tâm scope=all vẫn nhận mọi phòng.
+        # Kèm TÊN người tạo + PHÒNG BAN để toast "việc mới" nói rõ đến từ ai (thủ kho biết ngay
+        # nguồn yêu cầu, không phải mở màn dò).
+        db = self.requests.db
+        creator = UserRepository(db).get_by_id(req.nguoi_tao_id) if req.nguoi_tao_id else None
+        dept = DepartmentRepository(db).get_by_id(req.bo_phan_id) if req.bo_phan_id else None
         signal = {
             "type": "stock_request_pending_changed",
             "code": req.ma, "loai": req.loai, "nguoi_tao_id": req.nguoi_tao_id,
+            "nguoi_tao_ten": getattr(creator, "name", None),
+            "bo_phan_ten": getattr(dept, "name", None),
         }
-        for uid in RoleRepository(self.requests.db).kho_notify_user_ids(
+        for uid in RoleRepository(db).kho_notify_user_ids(
             bo_phan_id=req.bo_phan_id, creator_id=req.nguoi_tao_id,
         ):
             hub.publish(uid, signal)
+
+    # --- Thông báo lưu vào chuông (trung tâm thông báo) — song song với toast SSE ---------------
+    def _notif_kho_moi(self, req: StockRequest) -> None:
+        """Lưu thông báo 'yêu cầu mới chờ cấp' cho THỦ KHO trong phạm vi (trừ người tạo) + đẩy SSE
+        để badge chuông nhảy ngay. Bấm → mở Hộp yêu cầu tại đúng yêu cầu (link_loai='kho_inbox')."""
+        db = self.requests.db
+        creator = UserRepository(db).get_by_id(req.nguoi_tao_id) if req.nguoi_tao_id else None
+        dept = DepartmentRepository(db).get_by_id(req.bo_phan_id) if req.bo_phan_id else None
+        who = " · ".join(x for x in [getattr(creator, "name", None), getattr(dept, "name", None)] if x)
+        dir_ = "xuất" if req.loai == REQ_XUAT else "nhập"
+        uids = [
+            u for u in RoleRepository(db).kho_notify_user_ids(
+                bo_phan_id=req.bo_phan_id, creator_id=req.nguoi_tao_id,
+            ) if u != req.nguoi_tao_id
+        ]
+        if not uids:
+            return
+        NotificationRepository(db).add_many(
+            uids, loai="kho_moi",
+            tieu_de=f"Yêu cầu {dir_} mới chờ cấp",
+            noi_dung=f"{req.ma}{' — ' + who if who else ''}",
+            link_loai="kho_inbox", link_id=req.id,
+        )
+        for uid in uids:
+            hub.publish(uid, {"type": "notification_new"})
+
+    def _notif_nguoi_tao(self, req: StockRequest, *, loai: str, tieu_de: str) -> None:
+        """Lưu thông báo phản hồi kho cho NGƯỜI TẠO (hoàn tất/hủy/từ chối) + đẩy SSE. Bấm → mở màn
+        Yêu cầu tại đúng yêu cầu (link_loai='kho_mine')."""
+        if not req.nguoi_tao_id:
+            return
+        NotificationRepository(self.requests.db).add(
+            user_id=req.nguoi_tao_id, loai=loai,
+            tieu_de=tieu_de, noi_dung=req.ma,
+            link_loai="kho_mine", link_id=req.id,
+        )
+        hub.publish(req.nguoi_tao_id, {"type": "notification_new"})
 
     def notify_low_stock(self, *, user_ids: list[int], material_name: str,
                          level: str, suggest: float | None) -> None:
@@ -411,4 +461,6 @@ class StockRequestService:
             req.trang_thai = REQ_PARTIAL
         req = self.requests.save(req)
         self._notify(req, "Hoàn tất yêu cầu" if done else "Kho đã cấp một phần")
+        if done:  # chỉ báo chuông khi ĐỦ (hoàn tất); cấp một phần chưa phải kết quả cuối
+            self._notif_nguoi_tao(req, loai="kho_hoan_tat", tieu_de="Yêu cầu đã hoàn tất")
         return req

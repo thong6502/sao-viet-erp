@@ -173,6 +173,22 @@
   color: var(--rust);
   font-size: 12px;
 }
+/* Chấm số ĐỎ báo "chưa xem" (vd phản hồi kho) — ngay cạnh nhãn/hint của lựa chọn. */
+.sel__opt-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--signal, #8a1f1f);
+  color: #fff;
+  font-family: var(--ff-num);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  line-height: 1;
+}
 
 /* Lựa chọn 2 TẦNG (`sub`): tên ở trên, thuộc tính ở dưới — vd "Lê Sale Một" / "NV Sales · Kinh
    doanh". Chỉ áp khi option có `sub`, nên mọi Select cũ giữ nguyên bố cục một dòng. */

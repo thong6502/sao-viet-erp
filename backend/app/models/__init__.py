@@ -96,6 +96,7 @@ from .bu_hao import BuHao
 from .don_vi_do import DonViDo, DonViQuyDoi
 from .kho_hang import KhoHang
 from .kho_khoa_so import KhoKhoaSo
+from .notification import Notification
 from .stock_request import StockRequest, StockRequestLine
 from .stock_lot import StockLot, StockThreshold
 from .stock_voucher import StockVoucher, StockVoucherAttachment, StockVoucherLine
@@ -204,6 +205,7 @@ __all__ = [
     "PhieuThanhPham",
     "KhoHang",
     "KhoKhoaSo",
+    "Notification",
     "StockRequest",
     "StockRequestLine",
     "StockVoucher",

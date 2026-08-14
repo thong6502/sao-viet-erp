@@ -7309,3 +7309,34 @@ def _migrate_them_generated_at_cho_ky_luong(db) -> None:
 
 
 MIGRATIONS.append(("0186_them_generated_at_cho_ky_luong", _migrate_them_generated_at_cho_ky_luong))
+
+
+def _migrate_kho_khoa_so_them_ten(db) -> None:
+    """Thêm cột `ten` (tên kỳ, tuỳ chọn) vào kho_khoa_so — đặt khi 'khoa' để nhận diện nhanh + CHẶN
+    TRÙNG với kỳ đang khóa khác. Nullable → no-op trên DB tạo mới bằng create_all."""
+    insp = inspect(db.get_bind())
+    if "kho_khoa_so" not in insp.get_table_names():
+        return
+    if "ten" not in _existing_columns(insp, "kho_khoa_so"):
+        db.execute(text("ALTER TABLE kho_khoa_so ADD COLUMN ten VARCHAR(120)"))
+        db.commit()
+
+
+MIGRATIONS.append(("0187_kho_khoa_so_them_ten", _migrate_kho_khoa_so_them_ten))
+
+
+def _migrate_stock_request_quyet_dinh_xem_luc(db) -> None:
+    """Thêm cột `quyet_dinh_xem_luc` (người tạo đã MỞ XEM yêu cầu tới lúc nào) vào stock_requests —
+    nuôi badge "yêu cầu của tôi vừa được kho PHẢN HỒI (hoàn tất/không thành)". Nullable → no-op trên
+    DB tạo mới bằng create_all. BASELINE: coi mọi yêu cầu HIỆN CÓ là đã xem (seen = updated_at) →
+    badge chỉ đếm phản hồi MỚI về sau, tránh nhảy số vì dữ liệu cũ."""
+    insp = inspect(db.get_bind())
+    if "stock_requests" not in insp.get_table_names():
+        return
+    if "quyet_dinh_xem_luc" not in _existing_columns(insp, "stock_requests"):
+        db.execute(text("ALTER TABLE stock_requests ADD COLUMN quyet_dinh_xem_luc TIMESTAMP WITH TIME ZONE"))
+        db.execute(text("UPDATE stock_requests SET quyet_dinh_xem_luc = updated_at"))
+        db.commit()
+
+
+MIGRATIONS.append(("0188_stock_request_quyet_dinh_xem_luc", _migrate_stock_request_quyet_dinh_xem_luc))

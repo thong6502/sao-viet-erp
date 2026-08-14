@@ -52,12 +52,12 @@ const KHO_KEY = "kho.yeu-cau.kho-id";
 const PAGE_SIZE = 8;
 const FETCH_SIZE = 200;
 
-type TabId = "tat-ca" | "can-cap" | "dang-cap" | "done" | "da-huy";
+type TabId = "tat-ca" | "can-cap" | "done" | "da-huy";
 
 const TAB_STATUSES: Record<TabId, StockRequestStatus[]> = {
+  // "Tất cả" vẫn phủ mọi trạng thái (kể cả received/preparing/partial đang xử lý — không còn tab riêng).
   "tat-ca": ["approved", "received", "preparing", "partial", "done", "cancelled"],
   "can-cap": ["approved"],
-  "dang-cap": ["received", "preparing", "partial"],
   done: ["done"],
   "da-huy": ["cancelled"],
 };
@@ -78,14 +78,12 @@ export interface KhoOption {
   ten: string;
 }
 
-/** Quá hạn → ngày cần → mã. */
+/** Yêu cầu MỚI NHẤT (created_at) lên đầu; quá hạn vẫn tô đỏ nhưng không ép lên trên. */
 function sortInbox(a: StockRequest, b: StockRequest): number {
-  const late = (r: StockRequest) => (isOverdue(r.ngay_can, r.trang_thai) ? 0 : 1);
-  if (late(a) !== late(b)) return late(a) - late(b);
-  const da = a.ngay_can ?? "9999-12-31";
-  const db = b.ngay_can ?? "9999-12-31";
-  if (da !== db) return da < db ? -1 : 1;
-  return a.ma.localeCompare(b.ma);
+  const ca = a.created_at ?? "";
+  const cb = b.created_at ?? "";
+  if (ca !== cb) return ca < cb ? 1 : -1; // desc — mới hơn đứng trước
+  return b.ma.localeCompare(a.ma); // cùng thời điểm: mã lớn hơn (mới hơn) trước
 }
 
 /** Mã lệnh/bài của một yêu cầu (mg 0175) — gộp các dòng, hiện tối đa 2 rồi "+n".
@@ -114,10 +112,15 @@ function progressOf(r: StockRequest): { done: number; total: number; pct: number
 export function KhoYeuCauPage({
   eventTick = 0,
   loai,
+  openRequestId = null,
+  onOpenRequestConsumed,
 }: {
   eventTick?: number;
   /** Khoá chiều theo tab (Nhập/Xuất): lọc yêu cầu + phiếu theo loai. */
   loai: StockRequestKind;
+  /** Bấm thông báo → mở sẵn drawer "ứng theo yêu cầu" đúng id này. */
+  openRequestId?: number | null;
+  onOpenRequestConsumed?: () => void;
 }) {
   const { token } = useAuth();
   const can = useCan();
@@ -212,6 +215,14 @@ export function KhoYeuCauPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventTick]);
 
+  // Bấm thông báo "yêu cầu mới chờ cấp" → mở sẵn drawer ứng theo đúng yêu cầu đó.
+  useEffect(() => {
+    if (openRequestId == null) return;
+    setOpenRequest(openRequestId);
+    onOpenRequestConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequestId]);
+
   useEffect(() => {
     setPage(1);
   }, [tab, q, khoId, dNeed]);
@@ -234,11 +245,12 @@ export function KhoYeuCauPage({
   const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const slice = <T,>(arr: T[]) => arr.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const pageRequests = slice(shownRequests);
+  // Yêu cầu mới nhất trong danh sách đang xem — đánh dấu "Mới" (đã sort desc nên là phần tử đầu).
+  const newestReqId = shownRequests[0]?.id ?? null;
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "tat-ca", label: "Tất cả" },
     { id: "can-cap", label: "Cần cấp" },
-    { id: "dang-cap", label: "Đang cấp" },
     { id: "done", label: "Hoàn tất" },
     { id: "da-huy", label: "Đã hủy" },
   ];
@@ -357,11 +369,12 @@ export function KhoYeuCauPage({
                   return (
                     <tr
                       key={r.id}
-                      className={`rc__row${overdue ? " kho-row--overdue" : ""}`}
+                      className={`rc__row${overdue ? " kho-row--overdue" : ""}${r.id === newestReqId ? " rc__row--new" : ""}`}
                       onClick={() => setOpenRequest(r.id)}
                     >
                       <td className="rc__nowrap">
                         <span className="rc__code-badge">{r.ma}</span>
+                        {r.id === newestReqId && <span className="kho-new-pill">Mới</span>}
                       </td>
                       <td>
                         <div>{r.nguoi_tao_ten ?? "—"}</div>
@@ -1395,7 +1408,7 @@ function AllocRow({
   const lyDoBox = isShort ? (
     <div className="kho-alloc__note kho-alloc__lydo">
       <label htmlFor={`ly-${l.id}`}>
-        Lý do cấp thiếu <em>*</em>
+        {isNhap ? "Lý do nhập thiếu" : "Lý do cấp thiếu"} <em>*</em>
       </label>
       <input
         id={`ly-${l.id}`}
