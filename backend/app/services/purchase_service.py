@@ -9,7 +9,11 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import select
+
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
+# Soft ref (đọc-only) sang module Kho: biết đợt giao nào ĐÃ sinh yêu cầu NHẬP để chặn nhập trùng.
+from ..models.stock_request import REQ_CANCELLED, StockRequest
 from ..models.purchase import (
     DEPARTMENT_PURCHASE_SOURCE_TYPES,
     DPR_CANCELLED,
@@ -2749,10 +2753,25 @@ class PurchaseService:
                         "voucher_date": v.voucher_date,
                     }
                 )
+        # Đợt giao nào ĐÃ sinh yêu cầu NHẬP (chưa hủy) → chặn nhập kho trùng (nút đổi "Đã nhập kho").
+        _dot_ids = [d.id for d in getattr(row, "deliveries", []) or []]
+        _nhap_map: dict[int, tuple[int, str]] = {}
+        if _dot_ids:
+            for sr in self.requests.db.execute(
+                select(StockRequest.id, StockRequest.ma, StockRequest.purchase_delivery_id).where(
+                    StockRequest.purchase_delivery_id.in_(_dot_ids),
+                    StockRequest.trang_thai != REQ_CANCELLED,
+                )
+            ).all():
+                _nhap_map[sr.purchase_delivery_id] = (sr.id, sr.ma)
         deliveries = [
             {
                 "id": d.id,
                 "seq_no": d.seq_no,
+                # Liên thông Kho: đợt đã có yêu cầu nhập (chưa hủy) chưa? + trỏ tới yêu cầu đó.
+                "da_nhap_kho": d.id in _nhap_map,
+                "stock_request_id": _nhap_map.get(d.id, (None, None))[0],
+                "stock_request_ma": _nhap_map.get(d.id, (None, None))[1],
                 "delivery_date": d.delivery_date,
                 "due_date": han_tra_dot(d, row.supplier),
                 # NULL = NCC chưa khai số ngày cho nợ ⇒ đợt này không bao giờ vào cột Quá hạn.

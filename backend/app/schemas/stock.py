@@ -43,6 +43,8 @@ class StockRequestCreate(BaseModel):
     ghi_chu: str | None = Field(default=None, max_length=1000)
     # Mã loại nhập/xuất kho theo MISA (0/1/2/3…) — người tạo gõ tay; Báo cáo kho dùng để export.
     loai_kho: str | None = Field(default=None, max_length=50)
+    # Nguồn đợt giao đơn mua (chỉ khi tạo từ nút "Nhập kho" ở đợt giao) — chặn nhập trùng.
+    purchase_delivery_id: int | None = None
     lines: list[StockRequestLineIn] = Field(min_length=1)
 
 

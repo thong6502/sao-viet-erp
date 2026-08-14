@@ -96,7 +96,7 @@ export function KhoDeNghiPage({
   // null = đóng; "new" = soạn mới; {id} = mở yêu cầu đã có; {seed} = tạo lại từ yêu cầu cũ.
   const [drawer, setDrawer] = useState<
     | null
-    | { mode: "new"; seed?: SeedLine[]; loai?: StockRequestKind; ghiChu?: string; ngayCan?: string; locked?: boolean }
+    | { mode: "new"; seed?: SeedLine[]; loai?: StockRequestKind; ghiChu?: string; ngayCan?: string; locked?: boolean; deliveryId?: number }
     | { mode: "open"; id: number }
   >(null);
 
@@ -111,6 +111,7 @@ export function KhoDeNghiPage({
         ghiChu: initialSeed.ghi_chu,
         ngayCan: initialSeed.ngay_can,
         locked: initialSeed.locked,
+        deliveryId: initialSeed.deliveryId,
       });
       onSeedConsumed?.();
     }
@@ -449,6 +450,7 @@ export function KhoDeNghiPage({
           seedGhiChu={drawer.mode === "new" ? drawer.ghiChu : undefined}
           seedNgayCan={drawer.mode === "new" ? drawer.ngayCan : undefined}
           seedLocked={drawer.mode === "new" ? drawer.locked : undefined}
+          seedDeliveryId={drawer.mode === "new" ? drawer.deliveryId : undefined}
           canRequest={canRequest}
           onClone={(lines, loai) => setDrawer({ mode: "new", seed: lines, loai })}
           onClose={() => setDrawer(null)}
@@ -552,6 +554,8 @@ export interface KhoNhapSeed {
   ngay_can?: string;
   /** true = số liệu lấy từ đơn mua → KHOÁ, không cho sửa dòng (phải khớp hàng đã nhận). */
   locked?: boolean;
+  /** Nguồn đợt giao (purchase_deliveries.id) → gắn vào yêu cầu để chặn nhập trùng đợt. */
+  deliveryId?: number;
 }
 
 interface DraftLine extends SeedLine {
@@ -596,6 +600,7 @@ interface RequestDrawerProps {
   seedGhiChu?: string;
   seedNgayCan?: string;
   seedLocked?: boolean;
+  seedDeliveryId?: number;
   canRequest: boolean;
   onClone: (lines: SeedLine[], loai: StockRequestKind) => void;
   onClose: () => void;
@@ -611,6 +616,7 @@ function RequestDrawer({
   seedGhiChu,
   seedNgayCan,
   seedLocked,
+  seedDeliveryId,
   canRequest,
   onClone,
   onClose,
@@ -795,6 +801,8 @@ function RequestDrawer({
         // Số yêu cầu LUÔN tự sinh (DNN/DNX####) — không cho tự nhập.
         ngay_can: ngayCan || null,
         ghi_chu: ghiChu || null,
+        // Gắn nguồn đợt giao (nếu tạo từ nút "Nhập kho") → backend chặn nhập trùng đợt.
+        purchase_delivery_id: seedDeliveryId ?? null,
         lines: body,
       });
       setDirty(false);
