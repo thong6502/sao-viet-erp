@@ -219,6 +219,31 @@ class DonViDoService:
             f"đó trước. [E-DV-VONG-TRON]"
         )
 
+    def cong_thuc_hieu_luc(self, obj) -> tuple[str, str, str] | None:
+        """`(công thức, mã CHỦ, tên CHỦ)` — tự khai trước, không có thì MƯỢN trong cụm tĩnh.
+
+        Cùng luật với `LsxService._cach_do_lan` bên engine: khai ở `kg` thì `tấn`/`g` dùng chung.
+        Có ở đây để MÀN cũng nói đúng thứ engine làm — nhìn vào `g` mà thấy trống thì người khai
+        tưởng chưa khai gì rồi đi khai lần hai, đúng thứ trùng lặp luật cụm sinh ra để chặn.
+        """
+        ma = (getattr(obj, "ma", "") or "").strip().lower()
+        tu_khai = (getattr(obj, "cong_thuc", None) or "").strip()
+        if tu_khai:
+            return tu_khai, ma, getattr(obj, "ten", ma)
+        chu = self._cum_co_cong_thuc(ma)
+        if not chu:
+            return None
+        d = sorted(chu, key=lambda x: x.ma)[0]
+        return (d.cong_thuc or "").strip(), d.ma, d.ten
+
+    def he_so_tu_chu(self, chu_ma: str, ma: str) -> float:
+        """Hệ số nhân từ đơn vị CHỦ sang `ma` — đi trên đồ thị cặp TĨNH. 1.0 nếu không cần đổi."""
+        if not chu_ma or chu_ma == ma:
+            return 1.0
+        cap = cap_map([r for r in self.repo.cap_rows() if not (r.cong_thuc or "").strip()], {})
+        duong = duong_di(chu_ma, ma, cap)
+        return he_so_duong(duong, cap) if duong else 1.0
+
     def _cum_co_cong_thuc(self, ma: str, *, tru_ma: str = "") -> list:
         """Đơn vị trong CỤM TĨNH của `ma` đang mang công thức lượng. Bỏ qua chính `tru_ma`."""
         goc = (ma or "").strip().lower()
@@ -347,15 +372,29 @@ class DonViDoService:
         # ĐƠN VỊ TỰ TÍNH đứng trước: nó KHÔNG cần cặp nào để dùng được, nên in công thức ra đây thay
         # vì để trống. Trước 13/08/2026 cột này chỉ nhìn bảng cặp ⇒ `kg_giay_to_in` đã khai công
         # thức tử tế vẫn hiện "Chưa khai quy đổi", nhìn như chưa làm gì.
-        ct = (getattr(obj, "cong_thuc", None) or "").strip()
-        if ct:
+        cau_ct = ""
+        hl = self.cong_thuc_hieu_luc(obj)
+        if hl:
+            ct, chu_ma, chu_ten = hl
             # KHÔNG có "1 " ở vế trái: đây là câu ĐỊNH NGHĨA ("kg giấy = định lượng × …"), không
             # phải tỉ số "1 tấn = 1.000 kg". Công thức đã tự nhân số lượng của lệnh nên vế phải là
             # TỔNG, viết "1 kg giấy = …" là đọc thành "mỗi một kg giấy bằng…" — vô nghĩa.
-            return f"{obj.ten} = {cong_thuc_chu(ct)}"
+            ma_nay = (obj.ma or "").strip().lower()
+            if chu_ma == ma_nay:
+                cau_ct = f"{obj.ten} = {cong_thuc_chu(ct)}"
+            else:
+                # MƯỢN của đơn vị khác trong cụm — phải NHÂN HỆ SỐ vào, không thì `g` hiện y hệt
+                # `kg` trong khi 1 kg = 1.000 g. Nói rõ mượn của ai: sửa phải về đúng đơn vị chủ.
+                hs_chu = self.he_so_tu_chu(chu_ma, ma_nay)
+                ve_phai = (cong_thuc_chu(ct) if hs_chu == 1
+                           else f"({cong_thuc_chu(ct)}) × {_so(hs_chu)}")
+                cau_ct = f"{obj.ten} = {ve_phai}  (theo {chu_ten})"
+        # KHÔNG return sớm ở nhánh công thức: đơn vị vừa có công thức lượng vừa có cặp quy đổi là
+        # chuyện thường (`kg` có công thức + `1 kg = 1.000 g` + `1 tấn = 1.000 kg`). Return sớm là
+        # nuốt mất phần cặp, cột "Quy đổi" chỉ còn công thức — dính 14/08/2026.
         if not caps:
-            return "Chưa khai quy đổi"
-        cau: list[str] = []
+            return cau_ct or "Chưa khai quy đổi"
+        cau: list[str] = [cau_ct] if cau_ct else []
         ten = {d.ma: d.ten for d in self._dv_cache()}
         for c in caps:
             kia = ten.get(c.den_ma, c.den_ma) if c.tu_ma == obj.ma else ten.get(c.tu_ma, c.tu_ma)

@@ -48,6 +48,8 @@ def _row(svc: DonViDoService, obj) -> DonViDoRow:
     row = DonViDoRow.model_validate(obj)
     row.canh_bao = svc.canh_bao(obj)
     row.quy_doi_text = svc.quy_doi_text(obj)
+    if (hl := svc.cong_thuc_hieu_luc(obj)):
+        row.cong_thuc_hieu_luc, row.cong_thuc_chu_ma, row.cong_thuc_chu_ten = hl
     # Cách đo dịch sang chữ để màn danh sách khỏi nhúng bảng nhãn biến thứ hai.
     row.cong_thuc_text = cong_thuc_chu(obj.cong_thuc) if obj.cong_thuc else None
     return row

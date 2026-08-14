@@ -73,15 +73,19 @@ _QUY_DOI_SEED: list[tuple[str, str, float, str]] = [
     ("cuon", "cai", 1, ""),
     ("bo", "cai", 1, ""),
     ("hop", "cai", 1, ""),
-    # --- Quy đổi ĐỘNG: hệ số là công thức, số ra tuỳ giấy/khổ của chính việc đang làm ---------
-    # Ba dòng này trước nằm CỨNG trong code (`quy_doi_service.CAU`) nên xưởng không sửa được.
-    # Biến do nơi gọi bơm: `dai`/`rong` là khổ của TỜ ĐANG ĐẾM (m), `dinh_luong` kg/m².
-    # tờ → cm² KHÔNG cần dòng riêng: đi tiếp bằng cặp m² → cm² đã khai ở trên.
+    # --- Quy đổi ĐỘNG: TỈ SỐ cho MỘT đơn vị, số ra tuỳ giấy/khổ của việc đang làm -------------
+    #
+    # ĐỪNG LẪN với ô "Công thức tính lượng" của đơn vị/mặt hàng (chủ chốt 14/08/2026):
+    #     cặp ĐỘNG (có đích)      = tỉ số cho MỘT tờ   → tiền khoán · đổi đơn vị của một SỐ LƯỢNG
+    #     công thức (không đích)  = TỔNG của cả lệnh   → BOM
+    # Nhét `to_dau_vao` vào công thức cặp là nhân số lượng HAI LẦN (engine đã nhân sẵn).
+    #
+    # Bốn dòng này là thứ tiền khoán sống nhờ: 4/10 đầu việc khoán khác đơn vị bước (cán màng
+    # đ/m², bắt tay đ/cuốn) — bỏ đi là chúng mất tiền công, đã đo thật ngày 14/08.
     ("to", "m2", 0, "dai_in * rong_in"),
     ("to", "kg", 0, "dinh_luong * dai_in * rong_in"),
     ("to", "cai", 0, "so_tp"),
-    # Tờ NGUYÊN cân theo khổ nguyên — khổ khác tờ in nên phải là dòng riêng. Trước 11/08/2026 không
-    # khai được: biến `dai`/`rong` là "khổ của tờ đang đếm", một dòng phải gánh cả hai ca.
+    # Tờ NGUYÊN cân theo khổ nguyên — khổ khác tờ in nên phải là dòng riêng.
     ("to_nguyen", "kg", 0, "dinh_luong * dai_nguyen * rong_nguyen"),
 ]
 

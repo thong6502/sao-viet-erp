@@ -26,6 +26,12 @@ interface Cap extends Row {
 }
 interface Bien { ma: string; nhan: string }
 
+/** Số cho người đọc: bỏ đuôi 0 thừa, tối đa 6 chữ số thập phân (1/1000 → "0,001"). */
+function soGon(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "?";
+  return n.toLocaleString("vi-VN", { maximumFractionDigits: 6 });
+}
+
 export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
   const { token } = useAuth();
   const [caps, setCaps] = useState<Cap[]>([]);
@@ -146,6 +152,15 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
   // `donVi` là prop của drawer cha; cha KHÔNG nạp lại sau khi khối này PUT, nên đọc thẳng prop thì
   // lưu xong dòng công thức không hiện ra và bấm Xoá xong nó vẫn nằm đó (dính 13/08/2026).
   const ctCuaDonVi = ctState;
+  // Công thức MƯỢN của đơn vị khác trong cụm tĩnh — server tính (`cong_thuc_hieu_luc`). Chỉ hiện
+  // khi đơn vị NÀY chưa tự khai: nhìn vào `g` mà thấy trống thì người khai tưởng chưa khai gì rồi
+  // đi khai lần hai, đúng thứ luật "một cụm một công thức" sinh ra để chặn.
+  const dvProp = donVi as {
+    cong_thuc_hieu_luc?: string; cong_thuc_chu_ten?: string; cong_thuc_chu_ma?: string;
+  };
+  const ctMuon = !ctCuaDonVi && dvProp.cong_thuc_hieu_luc
+    ? { ct: dvProp.cong_thuc_hieu_luc, chu: dvProp.cong_thuc_chu_ten ?? dvProp.cong_thuc_chu_ma ?? "" }
+    : null;
   const bienQuyDoi = bien.map((b) => b.ma);
 
   return (
@@ -192,7 +207,19 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
             </div>
           )}
 
-          {khaiODay.length === 0 && !ctCuaDonVi ? (
+          {/* MƯỢN: read-only, KHÔNG có nút Xoá — xoá phải về đúng đơn vị chủ, xoá ở đây thì người
+              dùng tưởng đã gỡ mà công thức vẫn nằm bên kia. */}
+          {ctMuon && (
+            <div className="dvqd__card dvqd__card--ct">
+              <span className="dvqd__badge">Theo {ctMuon.chu}</span>
+              <code className="dvqd__expr" title={ctMuon.ct}>{ctMuon.ct}</code>
+              <span className="dvqd__hint">
+                Khai ở “{ctMuon.chu}” — cùng cụm quy đổi cố định nên dùng chung. Sửa ở đơn vị đó.
+              </span>
+            </div>
+          )}
+
+          {khaiODay.length === 0 && !ctCuaDonVi && !ctMuon ? (
             <p className="dvqd__hint">Chưa có quy đổi nào được khai báo cho đơn vị này.</p>
           ) : khaiODay.length === 0 ? null : (
             <div className="dvqd__card-list">
@@ -317,7 +344,15 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
                       <polyline points="12 5 19 12 12 19" />
                     </svg>
                     <span className="dvqd__inbound-expr">
-                      {c.cau ? cauChu(c.cau, String(donVi.ten)) : `1 ${c.tu_ten} = ${c.he_so} ${donVi.ten}`}
+                      {/* LẬT về chiều của đơn vị ĐANG MỞ (14/08/2026). Mở `kg` mà đọc
+                          "1 tấn = 1.000 kg" thì phải tự lật trong đầu mới biết 1 kg là bao nhiêu
+                          tấn. Cặp đi HAI CHIỀU nên lật là hợp lệ.
+                          Dòng CÔNG THỨC giữ nguyên chiều gốc: lật một biểu thức ra chữ thì đọc
+                          còn khó hơn (cùng lý do với `quy_doi_text` ở server). */}
+                      {c.cong_thuc
+                        ? (c.cau ? cauChu(c.cau, String(donVi.ten))
+                                 : `1 ${c.tu_ten} = ${c.cong_thuc} ${donVi.ten}`)
+                        : `1 ${donVi.ten} = ${soGon(1 / Number(c.he_so || 1))} ${c.tu_ten}`}
                     </span>
                     <span className="dvqd__unit-tag">{String(donVi.ten)}</span>
                   </div>

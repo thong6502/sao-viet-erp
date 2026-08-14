@@ -39,6 +39,11 @@ class DonViDoRow(BaseModel):
     dung_lam_toc_do: bool = False
     tram_dong_giay: str | None = None
     cong_thuc: str | None = None
+    # Công thức HIỆU LỰC + đơn vị CHỦ. Khác `cong_thuc` khi đơn vị này MƯỢN của đơn vị khác trong
+    # cụm tĩnh (khai ở `kg` thì `tấn`/`g` dùng chung). Màn hiện read-only — xoá phải về đúng chủ.
+    cong_thuc_hieu_luc: str | None = None
+    cong_thuc_chu_ma: str | None = None
+    cong_thuc_chu_ten: str | None = None
     # Cách đo bằng CHỮ NGƯỜI ĐỌC ("Dài tờ in × Rộng tờ in × Tờ tốt sau in") — server dịch, để màn
     # danh sách khỏi phải nhúng bảng nhãn biến thứ hai.
     cong_thuc_text: str | None = None
