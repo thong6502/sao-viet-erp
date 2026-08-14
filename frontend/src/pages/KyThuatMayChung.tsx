@@ -7,6 +7,24 @@ import { Icon } from "../components/Icons";
 import { assetUrl } from "../api/client";
 import { nhatKyDanhMuc, type NhatKyItem } from "../api/rebuildCatalog";
 import { kyThuatMay, type Anh, type LoaiPhieu } from "../api/kyThuatMay";
+import { coChu, nenAnh } from "../lib/anhNen";
+
+/** Màn hẹp HOẶC không có hover (cảm ứng) ⇒ đổi sang bố cục danh sách/thẻ.
+ *
+ * Khai MỘT chỗ cho cả lịch lẫn bảng: hai định nghĩa breakpoint là sớm muộn một màn đổi hình còn
+ * màn kia thì không, ngay trên cùng một cái điện thoại. */
+export function useManHep(): boolean {
+  const truyVan = "(max-width: 820px), (hover: none)";
+  const [hep, setHep] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia(truyVan).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(truyVan);
+    const doi = () => setHep(mq.matches);
+    mq.addEventListener("change", doi);
+    return () => mq.removeEventListener("change", doi);
+  }, []);
+  return hep;
+}
 
 /** Khớp `LOAI_MODULE` bên `routers/nhat_ky_danh_muc.py` — sai chuỗi là 404, không phải danh sách rỗng. */
 export type LoaiNhatKy = "ky_thuat_sua_chua" | "ky_thuat_bao_tri";
@@ -34,6 +52,37 @@ export function Badge({ kieu, children }: { kieu: string; children: React.ReactN
   return <span className={`ktm-badge ktm-badge--${kieu}`}>{children}</span>;
 }
 
+/** Badge trạng thái của PHIẾU BẢO TRÌ — một chỗ duy nhất dựng nó.
+ *
+ * "Quá hạn" không phải trạng thái lưu trong DB mà là dẫn xuất (chưa xong + hạn đã qua), nên nó
+ * phải nằm chung với hai trạng thái thật ở đây; tách ra là mỗi màn tự chọn lúc nào gọi là quá hạn.
+ * Trước đây badge này dựng tay ở 6 chỗ (bảng · thẻ điện thoại · drawer · 4 chỗ trong lịch) và đã
+ * bắt đầu lệch nhau: chỗ có icon chỗ không, chỗ gọi "Chờ làm" chỗ "Chờ thực hiện".
+ */
+export function BadgeBaoTri({ trangThai, quaHan, gonNhe = false }: {
+  trangThai: string; quaHan?: boolean; gonNhe?: boolean;
+}) {
+  if (trangThai === "hoan_thanh") {
+    return (
+      <Badge kieu="tt-hoan_thanh">
+        <Icon name="check" size={11} /> Hoàn thành
+      </Badge>
+    );
+  }
+  if (quaHan) {
+    return (
+      <Badge kieu="tt-qua_han">
+        <Icon name="alert" size={11} /> Quá hạn
+      </Badge>
+    );
+  }
+  return (
+    <Badge kieu="tt-cho_thuc_hien">
+      {!gonNhe && <Icon name="clock" size={11} />} Chờ làm
+    </Badge>
+  );
+}
+
 /** Lịch sử thao tác của MỘT phiếu — ai làm gì, lúc nào.
  *
  * Đọc `audit_logs` qua endpoint nhật ký dùng chung (`/api/nhat-ky-danh-muc/{loai}/{id}`), không
@@ -44,17 +93,32 @@ export function NhatKyPhieu({ loai, phieuId }: { loai: LoaiNhatKy; phieuId: numb
   const { token } = useAuth();
   const [rows, setRows] = useState<NhatKyItem[]>([]);
   const [dangTai, setDangTai] = useState(true);
+  const [loi, setLoi] = useState<string | null>(null);
+  const [lan, setLan] = useState(0);
 
   useEffect(() => {
     if (!token) return;
     setDangTai(true);
+    setLoi(null);
     nhatKyDanhMuc(token, loai, phieuId)
       .then((r) => setRows(r.items ?? []))
-      .catch(() => setRows([]))
+      // Nuốt lỗi ở đây là mạng hỏng hiện y hệt "chưa có thao tác nào" — người đọc kết luận phiếu
+      // sạch sẽ trong khi thật ra họ chưa nhìn thấy gì cả.
+      .catch((e) => setLoi(e instanceof Error ? e.message : "Không tải được lịch sử thao tác."))
       .finally(() => setDangTai(false));
-  }, [token, loai, phieuId]);
+  }, [token, loai, phieuId, lan]);
 
   if (dangTai) return <p className="ktm-hint">Đang tải lịch sử…</p>;
+  if (loi) {
+    return (
+      <p className="ktm-hint ktm-hint--loi">
+        {loi}{" "}
+        <button type="button" className="ktm-hint__thu-lai" onClick={() => setLan((n) => n + 1)}>
+          Thử lại
+        </button>
+      </p>
+    );
+  }
   if (rows.length === 0) {
     return <p className="ktm-hint">Chưa có thao tác nào được ghi lại trên phiếu này.</p>;
   }
@@ -75,40 +139,22 @@ export function NhatKyPhieu({ loai, phieuId }: { loai: LoaiNhatKy; phieuId: numb
   );
 }
 
-/** Thanh chuyển trang. Phiếu tích lại theo tháng (≈400 phiếu/năm) nên KHÔNG tải hết rồi cuộn:
- *  lọc + phân trang đều ở server, đây chỉ là hai cái nút và một dòng "đang xem tới đâu". */
-export function PhanTrang({ page, size, total, onDoi }: {
-  page: number; size: number; total: number; onDoi: (p: number) => void;
-}) {
-  const soTrang = Math.max(1, Math.ceil(total / size));
-  if (total <= size) return null;          // một trang thì thanh này chỉ tổ chiếm chỗ
-  const dau = (page - 1) * size + 1;
-  const cuoi = Math.min(page * size, total);
-  return (
-    <div className="ktm-trang">
-      <span className="ktm-trang__so">
-        {dau}–{cuoi} / {total} phiếu
-      </span>
-      <div className="ktm-trang__nut">
-        <button type="button" disabled={page <= 1} onClick={() => onDoi(page - 1)}>
-          <Icon name="chevron" size={14} style={{ transform: "rotate(90deg)" }} /> Trước
-        </button>
-        <span className="ktm-trang__vi-tri">Trang {page}/{soTrang}</span>
-        <button type="button" disabled={page >= soTrang} onClick={() => onDoi(page + 1)}>
-          Sau <Icon name="chevron" size={14} style={{ transform: "rotate(-90deg)" }} />
-        </button>
-      </div>
-    </div>
-  );
-}
+// `PhanTrang` tự viết ĐÃ GỠ 14/08/2026 — hai màn dùng `components/Pager.tsx` như mọi màn khác
+// (`Pager` + `trangHopLe`). Bản riêng ở đây thiếu `loading` nên bấm dồn "Sau" ra hai lượt gọi
+// chồng nhau, và tự ẩn khi chỉ có một trang nên người dùng mất luôn dòng "Tổng N phiếu".
 
 /** Khối ảnh của MỘT giai đoạn (hiện trạng / chứng thực).
  *
  * `batBuoc` chỉ đổi cách trình bày (viền + dòng nhắc) — cửa chặn thật nằm ở backend, không phải ở
  * đây: khoá nút bên FE mà backend không chặn thì gọi thẳng API là qua.
+ *
+ * Danh sách ảnh do DRAWER nạp và truyền xuống (`tatCaAnh` = ảnh của cả phiếu, khối này tự lọc theo
+ * giai đoạn): hai khối trước/sau nếu mỗi cái tự gọi API thì mở một phiếu là hai request giống hệt
+ * nhau, thêm/xoá một tấm lại hai lần nữa.
  */
 export function AnhBox({
-  loai, phieuId, giaiDoan, tieuDe, moTa, batBuoc = false, khoa = false, onChanged,
+  loai, phieuId, giaiDoan, tieuDe, moTa, batBuoc = false, khoa = false,
+  tatCaAnh, onChanged,
 }: {
   loai: LoaiPhieu;
   phieuId: number;
@@ -117,37 +163,44 @@ export function AnhBox({
   moTa?: string;
   batBuoc?: boolean;
   khoa?: boolean;
+  tatCaAnh: Anh[];
   onChanged?: () => void;
 }) {
   const { token } = useAuth();
-  const [anh, setAnh] = useState<Anh[]>([]);
   const [dangTai, setDangTai] = useState(false);
+  const [dangNen, setDangNen] = useState(false);
+  const [tietKiem, setTietKiem] = useState<{ goc: number; sau: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [xemAnh, setXemAnh] = useState<Anh | null>(null);
   const [loi, setLoi] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const nap = () => {
-    if (!token) return;
-    kyThuatMay.listAnh(token, loai, phieuId)
-      .then((r) => setAnh(r.filter((a) => a.giai_doan === giaiDoan)))
-      .catch(() => setAnh([]));
-  };
-  useEffect(nap, [token, loai, phieuId, giaiDoan]);
+  const anh = tatCaAnh.filter((a) => a.giai_doan === giaiDoan);
 
   const them = async (files: FileList | null) => {
     if (!token || !files?.length) return;
-    setDangTai(true);
     setLoi(null);
+    setTietKiem(null);
+    let goc = 0;
+    let sau = 0;
     try {
       for (const f of Array.from(files)) {
-        await kyThuatMay.uploadAnh(token, loai, phieuId, f, giaiDoan);
+        // Nén TRƯỚC khi gửi: ảnh điện thoại 4–8MB/tấm, mạng xưởng yếu thì tải nguyên bản là thợ
+        // đứng chờ. Nén hỏng (HEIC…) thì `nenAnh` trả lại file gốc chứ không chặn.
+        setDangNen(true);
+        const kq = await nenAnh(f);
+        setDangNen(false);
+        goc += kq.goc;
+        sau += kq.sau;
+        setDangTai(true);
+        await kyThuatMay.uploadAnh(token, loai, phieuId, kq.file, giaiDoan);
       }
-      nap();
+      if (sau < goc) setTietKiem({ goc, sau });
       onChanged?.();
     } catch (e) {
       setLoi(e instanceof Error ? e.message : "Tải ảnh không thành công.");
     } finally {
+      setDangNen(false);
       setDangTai(false);
       if (inputRef.current) inputRef.current.value = "";
     }
@@ -158,7 +211,6 @@ export function AnhBox({
     setLoi(null);
     try {
       await kyThuatMay.removeAnh(token, a.id);
-      nap();
       onChanged?.();
     } catch (e) {
       setLoi(e instanceof Error ? e.message : "Không xoá được ảnh.");
@@ -209,7 +261,9 @@ export function AnhBox({
             <Icon name="camera" size={30} />
           </div>
           <div className="ktm-dropzone__main">
-            {dangTai ? "Đang nộp ảnh lên hệ thống…" : "Kéo & thả ảnh vào đây hoặc bấm để tải lên"}
+            {dangNen ? "Đang nén ảnh cho nhẹ…"
+              : dangTai ? "Đang nộp ảnh lên hệ thống…"
+              : "Kéo & thả ảnh vào đây hoặc bấm để tải lên"}
           </div>
           <div className="ktm-dropzone__sub">
             Định dạng hỗ trợ: JPG, PNG, HEIC — Hỗ trợ tải nhiều ảnh cùng lúc
@@ -243,10 +297,10 @@ export function AnhBox({
               type="button"
               className={`ktm-anh__them${isDragging ? " is-dragging" : ""}`}
               onClick={() => inputRef.current?.click()}
-              disabled={dangTai}
+              disabled={dangTai || dangNen}
             >
               <Icon name="plus" size={18} />
-              <span>{dangTai ? "Đang tải…" : "Thêm ảnh"}</span>
+              <span>{dangNen ? "Đang nén…" : dangTai ? "Đang tải…" : "Thêm ảnh"}</span>
             </button>
           )}
         </div>
@@ -260,6 +314,13 @@ export function AnhBox({
         hidden
         onChange={(e) => them(e.target.files)}
       />
+      {/* Nói ra đã nén được bao nhiêu: thợ thấy "6,2 MB → 380 KB" thì hiểu vì sao lần này tải nhanh,
+          và biết ảnh vẫn lên đủ chứ không phải bị bỏ bớt. */}
+      {tietKiem && (
+        <p className="ktm-anh__nen">
+          <Icon name="zap" size={11} /> Đã nén cho nhẹ: {coChu(tietKiem.goc)} → {coChu(tietKiem.sau)}
+        </p>
+      )}
       {loi && <p className="ktm-anh__loi">{loi}</p>}
 
       {/* Lightbox Modal phóng to ảnh */}

@@ -8,11 +8,13 @@ import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
+import { Pager, trangHopLe } from "../components/Pager";
+import { useTre } from "../lib/useTre";
 import { mayThietBi, type Row } from "../api/rebuildCatalog";
 import {
-  kyThuatMay, NHAN_MUC_DO, NHAN_TT_SUA_CHUA, TT_SUA_CHUA, type SuaChua,
+  kyThuatMay, NHAN_MUC_DO, NHAN_TT_SUA_CHUA, TT_SUA_CHUA, type Anh, type SuaChua,
 } from "../api/kyThuatMay";
-import { AnhBox, Badge, NhatKyPhieu, PhanTrang, fmtNgayGio } from "./KyThuatMayChung";
+import { AnhBox, Badge, NhatKyPhieu, fmtNgayGio } from "./KyThuatMayChung";
 
 const SIZE = 20;
 import "./rebuild-catalog.css";
@@ -39,6 +41,10 @@ export function SuaChuaMayPage() {
   const { token } = useAuth();
   const can = useCan();
   const suaDuoc = can("ky_thuat_may", "update");
+  // Tạo phiếu là quyền `create`, sửa nội dung là `update` — trước đây cả hai nút cùng gate bằng
+  // `update` nên vai chỉ được lập phiếu (không được sửa) thì không thấy nút nào. Màn Phiếu bảo trì
+  // đã tách đúng từ đầu; đây là chỗ lệch.
+  const taoDuoc = can("ky_thuat_may", "create");
 
   const [rows, setRows] = useState<SuaChua[]>([]);
   const [dem, setDem] = useState<Record<string, number>>({});
@@ -47,31 +53,46 @@ export function SuaChuaMayPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const qTre = useTre(q);            // gõ xong 300ms mới hỏi máy chủ, không phải mỗi phím một request
   // Mặc định: máy CÒN NẰM. Phiếu đã đóng tích lại theo tháng, để chung là càng chạy càng phải cuộn.
   const [tab, setTab] = useState<string>("can_lam");
   const [mo, setMo] = useState<SuaChua | "new" | null>(null);
   const [may, setMay] = useState<Row[]>([]);
+  const [loiMay, setLoiMay] = useState<string | null>(null);
 
   // Lọc + tìm kiếm + phân trang ở SERVER (xem ghi chú cùng chỗ bên màn Phiếu bảo trì).
   const load = useCallback(() => {
     if (!token) return;
     setLoading(true);
     kyThuatMay.listSuaChua(token, {
-      q: q.trim() || undefined,
+      q: qTre.trim() || undefined,
       trang_thai: tab === "all" ? undefined : tab,
       page,
       size: SIZE,
     })
-      .then((r) => { setRows(r.items); setDem(r.dem ?? {}); setTotal(r.total); setError(null); })
+      .then((r) => {
+        setRows(r.items); setDem(r.dem ?? {}); setTotal(r.total); setError(null);
+        // Đang đứng trang 3 mà bộ lọc co danh sách còn 2 trang ⇒ nhảy về trang cuối, không để
+        // người dùng nhìn một bảng rỗng rồi tưởng mất sạch dữ liệu.
+        const ve = trangHopLe(page, r.total, SIZE);
+        if (ve !== null) setPage(ve);
+      })
       .catch((e) => setError(e instanceof Error ? e.message : "Không tải được danh sách."))
       .finally(() => setLoading(false));
-  }, [token, q, tab, page]);
+  }, [token, qTre, tab, page]);
 
   useEffect(load, [load]);
+
+  // Danh mục máy chỉ cần khi LẬP PHIẾU mới ⇒ nạp lười (trước đây kéo 200 máy kèm túi JSON thông số
+  // ngay lúc mở màn, phần lớn không ai dùng tới).
   useEffect(() => {
-    if (!token) return;
-    mayThietBi.list(token).then((r) => setMay(r.items)).catch(() => setMay([]));
-  }, [token]);
+    if (!token || mo !== "new" || may.length > 0) return;
+    setLoiMay(null);
+    mayThietBi.list(token).then((r) => setMay(r.items))
+      // Nuốt lỗi ở đây là ô chọn máy rỗng trơn và người dùng không hiểu vì sao không lập được
+      // phiếu — nói ra để họ biết là mạng chứ không phải xưởng chưa khai máy nào.
+      .catch((e) => setLoiMay(e instanceof Error ? e.message : "Không tải được danh mục máy."));
+  }, [token, mo, may.length]);
 
   // `rows` là trang server trả về — không lọc lại ở đây.
   const hien = rows;
@@ -110,7 +131,7 @@ export function SuaChuaMayPage() {
             <input className="rc__search" placeholder="Tìm mã phiếu, máy, bộ phận hỏng…"
               value={q} onChange={(e) => doiLoc(() => setQ(e.target.value))} />
           </div>
-          {suaDuoc && (
+          {taoDuoc && (
             <Button variant="accent" onClick={() => setMo("new")}>
               <Icon name="plus" size={15} /> Ghi nhận máy hỏng
             </Button>
@@ -156,7 +177,7 @@ export function SuaChuaMayPage() {
           </thead>
           <tbody>
             {loading ? (
-              Array.from({ length: 4 }).map((_, i) => (
+              Array.from({ length: 5 }).map((_, i) => (
                 <tr key={`sk-${i}`} className="rc-skel__row">
                   {Array.from({ length: 6 }).map((__, j) => (
                     <td key={j}><span className="rc-skel" style={{ width: "70%" }} /></td>
@@ -167,6 +188,11 @@ export function SuaChuaMayPage() {
               <tr>
                 <td colSpan={6} className="rc__empty-state-td">
                   <div className="rc__empty-state">
+                    {/* Cùng cỡ/nét với màn danh mục: bảng rỗng không có hình thì nhìn như lỗi render. */}
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="rc__empty-icon">
+                      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                    </svg>
                     <p className="rc__empty-text">
                       {tongTatCa === 0
                         ? "Chưa có phiếu sửa chữa nào. Máy hỏng thì ghi nhận ngay để có vết."
@@ -174,7 +200,7 @@ export function SuaChuaMayPage() {
                     </p>
                     {/* Màn rỗng phải chỉ ra BƯỚC KẾ TIẾP, không bỏ người dùng đứng đó. */}
                     {tongTatCa === 0 ? (
-                      suaDuoc && (
+                      taoDuoc && (
                         <Button variant="ghost" onClick={() => setMo("new")}>
                           <Icon name="plus" size={15} /> Ghi nhận máy hỏng
                         </Button>
@@ -194,7 +220,9 @@ export function SuaChuaMayPage() {
                   <div className="ktm-phu">{fmtNgayGio(r.thoi_diem)}</div>
                 </td>
                 <td className="rc__name">
-                  {r.may_ma ?? "—"}
+                  {/* Cùng kiểu với bảng Phiếu bảo trì: mã máy là BADGE. Hai màn cùng nói về một cái
+                      máy mà một bên badge một bên chữ trần thì người dùng phải học hai lần. */}
+                  {r.may_ma ? <span className="ktm-may-badge">{r.may_ma}</span> : "—"}
                   <div className="ktm-phu">{r.may_ten ?? ""}</div>
                 </td>
                 <td>
@@ -204,22 +232,24 @@ export function SuaChuaMayPage() {
                 <td><Badge kieu={`muc-${r.muc_do}`}>{NHAN_MUC_DO[r.muc_do] ?? r.muc_do}</Badge></td>
                 <td><Badge kieu={`tt-${r.trang_thai}`}>{NHAN_TT_SUA_CHUA[r.trang_thai] ?? r.trang_thai}</Badge></td>
                 <td className="text-center rc__nowrap">
-                  {/* Cột này trả lời đúng một câu: phiếu đã đủ bằng chứng để đóng chưa. */}
-                  {r.so_anh > 0 ? (
-                    <span className={r.co_anh_sau ? "ktm-anhdem is-du" : "ktm-anhdem"}>{r.so_anh}</span>
-                  ) : <span className="ktm-anhdem is-trong">0</span>}
+                  {/* Cột này trả lời đúng một câu: phiếu đã đủ bằng chứng để đóng chưa. Dùng chung
+                      chip với màn Phiếu bảo trì — con số trần không nói được "đủ" hay "còn thiếu". */}
+                  <span className={`ktm-anhchip${r.so_anh === 0 ? "" : r.co_anh_sau ? " is-du" : " is-thieu"}`}>
+                    <Icon name="camera" size={12} /> {r.so_anh} ảnh
+                  </span>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <PhanTrang page={page} size={SIZE} total={total} onDoi={setPage} />
+      <Pager total={total} page={page} size={SIZE} onPage={setPage} loading={loading} unit="phiếu" />
 
       {mo && (
         <SuaChuaDrawer
           phieu={mo === "new" ? null : mo}
           may={may}
+          loiMay={loiMay}
           suaDuoc={suaDuoc}
           onClose={() => setMo(null)}
           onSaved={(p) => { load(); setMo(p); }}
@@ -229,9 +259,10 @@ export function SuaChuaMayPage() {
   );
 }
 
-function SuaChuaDrawer({ phieu, may, suaDuoc, onClose, onSaved }: {
+function SuaChuaDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
   phieu: SuaChua | null;
   may: Row[];
+  loiMay: string | null;
   suaDuoc: boolean;
   onClose: () => void;
   onSaved: (p: SuaChua) => void;
@@ -239,8 +270,10 @@ function SuaChuaDrawer({ phieu, may, suaDuoc, onClose, onSaved }: {
   const { token } = useAuth();
   const [form, setForm] = useState<FormState>(FORM_RONG);
   const [luu, setLuu] = useState(false);
+  const [dangDoi, setDangDoi] = useState(false);
   const [loi, setLoi] = useState<string | null>(null);
   const [anhTick, setAnhTick] = useState(0);   // đổi ⇒ nạp lại phiếu để cập nhật cờ `co_anh_sau`
+  const [anh, setAnh] = useState<Anh[]>([]);
   const [hienTai, setHienTai] = useState<SuaChua | null>(phieu);
   const [tab, setTab] = useState<"chi-tiet" | "lich-su">("chi-tiet");
 
@@ -261,16 +294,22 @@ function SuaChuaDrawer({ phieu, may, suaDuoc, onClose, onSaved }: {
   }, [phieu]);
 
   // Sau khi thêm/xoá ảnh phải nạp lại phiếu: nút "Xác nhận đã sửa" mở/khoá theo `co_anh_sau` mà
-  // cờ đó do backend tính.
+  // cờ đó do backend tính. Nạp ĐÚNG một phiếu — kéo cả danh sách theo máy rồi `find` thì phiếu nằm
+  // ngoài trang đầu là không thấy, và nút cứ khoá mãi dù ảnh đã tải lên.
   useEffect(() => {
     if (!token || !hienTai || anhTick === 0) return;
-    kyThuatMay.listSuaChua(token, { may_id: hienTai.may_id })
-      .then((r) => {
-        const moi = r.items.find((x) => x.id === hienTai.id);
-        if (moi) setHienTai(moi);
-      })
-      .catch(() => {});
+    kyThuatMay.getSuaChua(token, hienTai.id).then(setHienTai).catch(() => {});
   }, [anhTick, token, hienTai?.id]);
+
+  // Ảnh nạp một lần cho cả hai khối (trước/sau) — xem ghi chú ở `AnhBox`.
+  const napAnh = useCallback(() => {
+    if (!token || !hienTai) { setAnh([]); return; }
+    kyThuatMay.listAnh(token, "sua_chua", hienTai.id).then(setAnh)
+      // Nuốt lỗi ở đây là ảnh đã tải lên rồi mà khối ảnh vẫn trống và nút xác nhận vẫn khoá —
+      // không một dòng nào nói vì sao.
+      .catch((e) => setLoi(e instanceof Error ? e.message : "Không tải được danh sách ảnh."));
+  }, [token, hienTai?.id]);
+  useEffect(napAnh, [napAnh]);
 
   const set = (k: keyof FormState, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -303,14 +342,19 @@ function SuaChuaDrawer({ phieu, may, suaDuoc, onClose, onSaved }: {
   };
 
   const doiTrangThai = async (tt: string) => {
-    if (!token || !hienTai) return;
+    // `dangDoi` chặn bấm dồn: hai lượt gọi chồng nhau thì lượt về sau ghi đè trạng thái của lượt
+    // về trước, và màn hình hiện cái người dùng KHÔNG bấm cuối cùng.
+    if (!token || !hienTai || dangDoi) return;
     setLoi(null);
+    setDangDoi(true);
     try {
       const p = await kyThuatMay.trangThaiSuaChua(token, hienTai.id, tt);
       setHienTai(p);
       onSaved(p);
     } catch (e) {
       setLoi(e instanceof Error ? e.message : "Không đổi được trạng thái.");
+    } finally {
+      setDangDoi(false);
     }
   };
 
@@ -350,6 +394,9 @@ function SuaChuaDrawer({ phieu, may, suaDuoc, onClose, onSaved }: {
           </div>
         )}
 
+        {/* Bọc FORM: Enter trong ô là lưu được, khỏi phải rê chuột đi tìm nút. Form ôm cả body lẫn
+            chân drawer nên nút Lưu dính đáy vẫn submit đúng form này. */}
+        <form className="ktm-drawer__form" onSubmit={(e) => { e.preventDefault(); void luuPhieu(); }}>
         <div className="rc-drawer__body">
           {hienTai && tab === "lich-su" ? (
             <NhatKyPhieu loai="ky_thuat_sua_chua" phieuId={hienTai.id} />
@@ -374,7 +421,9 @@ function SuaChuaDrawer({ phieu, may, suaDuoc, onClose, onSaved }: {
                     <option key={m.id} value={m.id}>{String(m.ma)} · {String(m.ten)}</option>
                   ))}
                 </select>
-                {mayHienTai && <span className="ktm-hint">{String(mayHienTai.loai_may ?? "")}</span>}
+                {loiMay
+                  ? <span className="ktm-hint ktm-hint--loi">{loiMay}</span>
+                  : mayHienTai && <span className="ktm-hint">{String(mayHienTai.loai_may ?? "")}</span>}
               </label>
 
               <label className="rc-field">
@@ -423,13 +472,6 @@ function SuaChuaDrawer({ phieu, may, suaDuoc, onClose, onSaved }: {
               </label>
             </div>
 
-            {!khoaSua && (
-              <div className="ktm-actions">
-                <Button variant="accent" onClick={luuPhieu} disabled={luu}>
-                  {luu ? "Đang lưu…" : hienTai ? "Lưu thay đổi" : "Tạo phiếu"}
-                </Button>
-              </div>
-            )}
           </section>
 
           {hienTai && (
@@ -437,12 +479,14 @@ function SuaChuaDrawer({ phieu, may, suaDuoc, onClose, onSaved }: {
               <AnhBox loai="sua_chua" phieuId={hienTai.id} giaiDoan="truoc"
                 tieuDe="Ảnh hiện trạng hỏng" khoa={khoaSua}
                 moTa="Chụp trước khi tháo — không bắt buộc, nhưng đây là thứ giúp cãi lại được khi có tranh cãi."
-                onChanged={() => setAnhTick((t) => t + 1)} />
+                tatCaAnh={anh}
+                onChanged={() => { napAnh(); setAnhTick((t) => t + 1); }} />
 
               <AnhBox loai="sua_chua" phieuId={hienTai.id} giaiDoan="sau"
                 tieuDe="Ảnh chứng thực sau sửa" batBuoc khoa={dong}
                 moTa="Bắt buộc để đóng phiếu."
-                onChanged={() => setAnhTick((t) => t + 1)} />
+                tatCaAnh={anh}
+                onChanged={() => { napAnh(); setAnhTick((t) => t + 1); }} />
 
               {suaDuoc && (
                 <section className="rc-sec">
@@ -455,7 +499,7 @@ function SuaChuaDrawer({ phieu, may, suaDuoc, onClose, onSaved }: {
                       return (
                         <button key={tt} type="button"
                           className={`ktm-buoc__nut${dangO ? " is-active" : ""}`}
-                          disabled={dangO}
+                          disabled={dangO || dangDoi}
                           onClick={() => doiTrangThai(tt)}>
                           {NHAN_TT_SUA_CHUA[tt]}
                         </button>
@@ -475,7 +519,7 @@ function SuaChuaDrawer({ phieu, may, suaDuoc, onClose, onSaved }: {
                     </p>
                   )}
                   <button type="button" className="ktm-xacnhan__nut"
-                    disabled={!hienTai.co_anh_sau}
+                    disabled={!hienTai.co_anh_sau || dangDoi}
                     onClick={() => doiTrangThai("da_sua_xong")}>
                     <Icon name="check" size={15} /> Xác nhận đã sửa chữa xong
                   </button>
@@ -489,6 +533,18 @@ function SuaChuaDrawer({ phieu, may, suaDuoc, onClose, onSaved }: {
           </>
           )}
         </div>
+
+        {/* Chân drawer DÍNH ĐÁY như mọi màn khác: trước đây nút Lưu nằm giữa thân, cuộn xuống
+            checklist ảnh là mất dấu nó — người dùng tưởng phiếu tự lưu. */}
+        {!khoaSua && (!hienTai || tab === "chi-tiet") && (
+          <footer className="rc-drawer__foot">
+            <Button variant="ghost" type="button" onClick={onClose}>Hủy</Button>
+            <Button variant="accent" type="submit" disabled={luu}>
+              {luu ? "Đang lưu…" : hienTai ? "Lưu thay đổi" : "Tạo phiếu"}
+            </Button>
+          </footer>
+        )}
+        </form>
       </aside>
     </div>
   );

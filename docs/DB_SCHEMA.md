@@ -3336,7 +3336,7 @@ Chu kỳ KHÔNG khai ở đây — nguồn là `may_thiet_bi.fields_theo_loai.li
 **Tất cả cột:** `id`, `ma` (PBT-####), `may_id`, `goi_id` (neo `lich_bao_tri[].id` dạng `hm-...`;
 null = đột xuất), `goi_ten`, `chu_ky_so`, `chu_ky_don_vi` (ngay·tuan·thang·nam), `loai`
 (dinh_ky·dot_xuat), `ngay_ke_hoach`, `ngay_ke_hoach_goc`, `ly_do_doi`, `hang_muc` (JSON
-`[{id,ten,xong}]`), `nguoi_thuc_hien_id`, `nguoi_thuc_hien`, `trang_thai`
+`[{id,ten,xong,bo_qua,ly_do_bo_qua}]`), `nguoi_thuc_hien_id`, `nguoi_thuc_hien`, `trang_thai`
 (cho_thuc_hien·hoan_thanh), `ngay_hoan_thanh`, `hoan_thanh_boi`, `ghi_chu`,
 `created_at`, `updated_at`.
 
@@ -3351,11 +3351,17 @@ null = đột xuất), `goi_ten`, `chu_ky_so`, `chu_ky_don_vi` (ngay·tuan·than
   dở không mang tên ai. Thuê hãng ngoài ghi vào `ghi_chu`. ⚠️ Bảng dựng bằng `create_all` nên đã
   tồn tại trên Postgres dev từ trước ⇒ cột này BẮT BUỘC đi kèm migration, `create_all` không ALTER.
 
+- **Đóng phiếu đi qua HAI cửa, cùng hạng (409), cùng nằm ở service** (14/08/2026): (1) checklist
+  không còn việc nào chưa xử lý; (2) ≥1 ảnh `giai_doan="sau"`. Việc thật sự không phải làm kỳ này
+  thì đánh `bo_qua=true` kèm `ly_do_bo_qua` (bắt buộc) ngay trong JSON `hang_muc` — không có đường
+  lui đó thì thợ tick bừa cho qua và cái checklist mất sạch giá trị.
 - **"Quá hạn" và "Đã dời" KHÔNG lưu** — dẫn xuất lúc đọc (`ngay_ke_hoach` đã qua mà chưa xong;
   `ngay_ke_hoach_goc` khác `ngay_ke_hoach`). Lưu là lại đẻ ra thứ phải nhớ đi cập nhật.
 - `ngay_hoan_thanh` (Date) là MỐC NGHIỆP VỤ tính kỳ sau, không phải giờ bấm nút:
   `han_ke_tiep` = ngày hoàn thành gần nhất của gói + `chu_ky_so × chu_ky_don_vi`; chưa có phiếu nào
-  thì lấy `goi.ngay_bat_dau`; không khai nữa thì coi như tới hạn hôm nay.
+  thì lấy `goi.ngay_bat_dau`; **không có cả hai thì KHÔNG đoán** — trả `None` kèm lý do
+  (`thieu_chu_ky` / `thieu_ngay_bat_dau`) để màn hình nói thành lời "chưa khai Bắt đầu từ". Bản đầu
+  đoán là "tới hạn hôm nay" và một cú bấm đẻ ra 41 phiếu rác (12/08/2026) — đừng khôi phục.
 - Mốc "lần cuối làm" **không ghi ngược** vào JSON của máy: form Máy dựng lại `fields_theo_loai` từ
   bản JSON nó đang giữ, backend ghi vào đó là bị lưu đè mất.
 

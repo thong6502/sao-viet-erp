@@ -7,6 +7,7 @@ import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Pager, trangHopLe } from "../components/Pager";
+import { useTre } from "../lib/useTre";
 import { ApiError, authed } from "../api/client";
 import {
   crud, giayVersions, addGiayVersion, nhatKyDanhMuc,
@@ -111,16 +112,6 @@ export interface CatalogConfig {
  *  chỉ kéo về 20 dòng, không phải cả danh mục. Tìm kiếm và tab lọc vì thế cũng phải chạy ở máy
  *  chủ — lọc trong JS trên 20 dòng đang xem sẽ biến ô tìm thành "tìm trong trang này". */
 const PAGE_SIZE = 20;
-
-/** Chờ người ta gõ xong mới hỏi máy chủ. Không có nó thì mỗi phím là một request. */
-function useTre<T>(giaTri: T, ms = 300): T {
-  const [tre, setTre] = useState(giaTri);
-  useEffect(() => {
-    const t = setTimeout(() => setTre(giaTri), ms);
-    return () => clearTimeout(t);
-  }, [giaTri, ms]);
-  return tre;
-}
 
 export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig; onMutate?: () => void }) {
   const { token } = useAuth();
@@ -1810,7 +1801,7 @@ function CatalogDrawer({ config, existing, onClose, onSaved }: {
                     className={`rc-drawer__tab${formulaTab === "formula" ? " is-active" : ""}`}
                     onClick={() => setFormulaTab("formula")}
                   >
-                    {config.renderExtra ? "Công thức quy đổi" : "Công thức tính giá"}
+                    {config.renderExtra ? "Quy đổi & số lượng" : "Công thức tính giá"}
                   </button>
                 )}
                 {coNhatKy && (

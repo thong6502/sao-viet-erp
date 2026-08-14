@@ -38,6 +38,21 @@ def cong_thuc_chu(cong_thuc: str) -> str:
     return ra.replace("*", "×").replace("/", "÷")
 
 
+def cong_thuc_the_so(cong_thuc: str, ctx: dict) -> str:
+    """Công thức + ngữ cảnh → PHÉP TÍNH có số: `sl_ra * 200` với `sl_ra=175` → "175 × 200".
+
+    Đi KÈM `cong_thuc_chu` chứ không thay: chữ nói CÁCH tính, số cho người xem KIỂM tính. Thiếu
+    chặng số thì diễn giải nhảy thẳng từ tên biến sang kết quả, không ai dò ra máy lấy 175 ở đâu.
+
+    Biến không có trong `ctx` thì GIỮ NGUYÊN mã — thà lộ tên biến còn hơn in số 0 giả.
+    """
+    ra = cong_thuc or ""
+    for b in sorted(bien_cho(LOAI_QUY_DOI), key=lambda x: -len(x["ma"])):
+        if b["ma"] in ctx and ctx[b["ma"]] is not None:
+            ra = re.sub(rf"\b{b['ma']}\b", _so(ctx[b["ma"]]), ra)
+    return ra.replace("*", "×").replace("/", "÷")
+
+
 class DonViDoError(Exception):
     pass
 

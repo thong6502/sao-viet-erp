@@ -48,9 +48,12 @@ describe("cột ĐVT của mặt hàng gốc", () => {
 
 describe("cảnh báo quy đổi ở màn Đơn vị", () => {
   it("có canh_bao thì HIỆN RA — trước đây server trả mà không màn nào đọc", () => {
-    const c = "“1 tờ = 1.000 g” là số cố định, nhưng tờ → g vốn đổi bằng công thức.";
+    // Câu dài bị CẮT cho vừa cột nên đừng dò bằng nội dung chữ: bản trước tìm "số cố định" — cụm
+    // đó nằm sau ký tự thứ 27 nên không bao giờ có trong DOM, test đỏ mà chẳng nói lên điều gì.
+    // Chữ đầy đủ luôn ở `title` (hover ra xem), nên soi ở đó.
+    const c = "Chưa khai quy đổi — g chưa đổi qua lại được với đơn vị nào.";
     render(<>{cot(CFG_DON_VI, "canh_bao")(row({ canh_bao: [c] }))}</>);
-    expect(screen.getByText(new RegExp("số cố định"))).toBeInTheDocument();
+    expect(screen.getByTitle(c)).toBeInTheDocument();
   });
 
   it("không có cảnh báo thì để gạch, không để ô trống lửng lơ", () => {

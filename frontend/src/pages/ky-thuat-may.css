@@ -78,12 +78,18 @@
   display: block; margin-top: 4px;
   font-size: 11.5px; line-height: 1.45; color: var(--ash-2, #64748b);
 }
-.ktm-actions { display: flex; align-items: center; gap: 12px; margin-top: var(--sp-3, 12px); }
-.ktm-actions--cuoi { justify-content: flex-end; margin-top: var(--sp-5, 24px); }
-.ktm-dem {
-  margin-left: 8px; font-size: 11px; font-weight: var(--fw-regular);
-  letter-spacing: 0; text-transform: none; color: var(--ash-2, #64748b);
+/* Dòng gợi ý chuyển sang báo HỎNG: cùng chỗ, cùng cỡ chữ, chỉ đổi màu — lỗi mạng lúc nạp danh mục
+   máy phải nói ra ngay cạnh ô đang trống, không nấp trong banner tận đầu màn. */
+.ktm-hint--loi { color: var(--danger, #b91c1c); }
+.ktm-hint__thu-lai {
+  margin-left: 4px; padding: 0; border: 0; background: none;
+  font: inherit; color: var(--rust, #c5400a); text-decoration: underline; cursor: pointer;
 }
+.ktm-actions { display: flex; align-items: center; gap: 12px; margin-top: var(--sp-3, 12px); }
+
+/* Drawer bọc FORM: body cuộn, chân drawer dính đáy. Không có khối này thì `.rc-drawer__foot` trôi
+   theo nội dung và nút Lưu lại biến mất khi cuộn — đúng lỗi vừa sửa. */
+.ktm-drawer__form { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 
 .ktm-thongbao {
   display: flex; align-items: center; gap: 8px;
@@ -159,7 +165,6 @@
   min-height: 36px; padding: 6px 0;
   font-size: 13.5px; color: var(--ink, #0f172a);
 }
-.ktm-nguoinhan--trong { font-size: 12.5px; color: var(--ash-2, #94a3b8); }
 
 /* --- Tab trong drawer: Chi tiết | Lịch sử thao tác ------------------------------ */
 .ktm-tab {
@@ -214,17 +219,9 @@
 }
 .ktm-doilich .rc-field { min-width: 180px; }
 
-/* --- Checklist hạng mục ------------------------------------------------------- */
-.ktm-check { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.ktm-check li { border-bottom: 1px solid var(--rule-hair, #f1f5f9); }
-.ktm-check li:last-child { border-bottom: 0; }
-.ktm-check label {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 2px; cursor: pointer; font-size: 13.5px;
-}
-.ktm-check input { width: 16px; height: 16px; accent-color: var(--rust, #c5400a); }
-/* Việc đã tick: gạch + mờ. Thợ lướt mắt một cái là biết còn lại bao nhiêu. */
-.ktm-check .is-xong { text-decoration: line-through; color: var(--ash-2, #94a3b8); }
+/* Checklist dạng danh sách `.ktm-check` ĐÃ GỠ 14/08/2026 — JSX chuyển sang thẻ
+   (`.ktm-check-grid` / `.ktm-check-card` bên dưới) từ lúc thêm đường "không áp dụng kèm lý do",
+   bộ class cũ nằm lại không ai dùng. */
 
 /* --- Khối ảnh ----------------------------------------------------------------- */
 .ktm-anh {
@@ -241,7 +238,6 @@
   font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
   color: var(--ash, #475569);
 }
-.ktm-anh__dem { font-size: 11px; color: var(--ash-2, #94a3b8); font-variant-numeric: tabular-nums; }
 .ktm-anh__mota { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--ash-2, #64748b); }
 
 .ktm-anh__grid {
@@ -261,12 +257,6 @@
   margin-top: 3px; font-size: 10.5px; color: var(--ash-2, #94a3b8);
   font-variant-numeric: tabular-nums;
 }
-.ktm-anh__x {
-  position: absolute; top: 5px; right: 5px;
-  width: 20px; height: 20px; display: grid; place-items: center;
-  border: 0; border-radius: 999px; cursor: pointer;
-  background: rgba(15, 23, 42, .62); color: #fff;
-}
 .ktm-anh__them {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
   height: 96px;
@@ -283,31 +273,12 @@
 .ktm-anh__them:hover:not(:disabled), .ktm-anh__them.is-dragging { border-color: var(--rust, #c5400a); color: var(--rust-deep, #8a3208); background: #fffaf7; }
 .ktm-anh__them:disabled { opacity: .6; cursor: progress; }
 .ktm-anh__loi { margin: 8px 0 0; font-size: 12px; color: var(--signal-deep, #6b1717); }
-.ktm-anh__nhac {
-  display: flex; align-items: center; gap: 6px;
-  margin: 10px 0 0; font-size: 12px; color: var(--rust-deep, #8a3208);
-}
 
 /* --- Phân trang + lọc tháng ------------------------------------------------------ */
 .ktm-thangloc { width: 150px; padding: 7px 10px; font-size: 13px; }
 
-.ktm-trang {
-  display: flex; align-items: center; justify-content: space-between;
-  flex-wrap: wrap; gap: 10px;
-  margin-top: 10px; padding: 8px 2px;
-  font-size: 12.5px; color: var(--ash, #475569);
-}
-.ktm-trang__so { font-variant-numeric: tabular-nums; }
-.ktm-trang__nut { display: flex; align-items: center; gap: 6px; }
-.ktm-trang__nut button {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 6px 12px; border: 1px solid var(--rule-soft, #e2e8f0); border-radius: var(--r-3, 6px);
-  background: var(--paper, #fff); cursor: pointer; font: inherit; font-size: 12.5px;
-  color: var(--ink, #0f172a);
-}
-.ktm-trang__nut button:hover:not(:disabled) { border-color: var(--rust, #c5400a); color: var(--rust-deep, #8a3208); }
-.ktm-trang__nut button:disabled { opacity: .45; cursor: not-allowed; }
-.ktm-trang__vi-tri { font-variant-numeric: tabular-nums; color: var(--ash-2, #64748b); }
+/* Thanh phân trang riêng `.ktm-trang` ĐÃ GỠ 14/08/2026 cùng component `PhanTrang` — hai màn dùng
+   `components/Pager.tsx` (kèm `pager.css`) như mọi màn khác trong hệ. */
 
 /* --- Chuyển chế độ xem Lịch | Bảng --------------------------------------------- */
 .ktm-xem {
@@ -715,12 +686,17 @@
 .ktm-check-grid {
   display: flex; flex-direction: column; gap: 8px; margin-top: 10px;
 }
+.ktm-check-hint { margin: 8px 0 0; }
 .ktm-check-card {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; flex-direction: column; gap: 4px;
   padding: 10px 14px; border: 1px solid var(--rule-soft, #e2e8f0);
   border-radius: 8px; background: var(--paper, #fff);
-  cursor: pointer; transition: all .15s ease;
+  transition: all .15s ease;
   user-select: none;
+}
+.ktm-check-card__main {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  min-height: 32px;                      /* vùng chạm đủ rộng cho ngón tay */
 }
 .ktm-check-card:hover {
   border-color: var(--rust, #c5400a); background: #fffaf7;
@@ -741,7 +717,27 @@
   text-decoration: line-through; color: var(--ash-2, #64748b);
 }
 .ktm-check-card__title { font-size: 13.5px; color: var(--ink, #0f172a); flex: 1; }
-.ktm-check-card__status { font-size: 11.5px; font-weight: 600; color: #166534; }
+.ktm-check-card__status {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 11.5px; font-weight: 600; color: #166534;
+}
+
+/* "Không áp dụng lần này" — vẫn mở được cửa đóng phiếu nên KHÔNG tô đỏ như lỗi, nhưng phải khác
+   hẳn màu "đã làm" để nhìn một cái là biết việc đó không có ai đụng vào. */
+.ktm-check-card.is-boqua { background: #fffbeb; border-color: #fde68a; }
+.ktm-check-card.is-boqua .ktm-check-card__box { border-color: #d97706; color: #d97706; }
+.ktm-check-card.is-boqua .ktm-check-card__title { color: var(--ash-2, #64748b); }
+.ktm-check-card__status.is-boqua { color: #92400e; }
+.ktm-check-card__lydo {
+  margin: 0 0 0 28px; font-size: 11.5px; color: #92400e; line-height: 1.45;
+}
+.ktm-check-card__phu {
+  align-self: flex-start; margin-left: 28px; padding: 2px 0;
+  border: 0; background: none; cursor: pointer;
+  font-size: 11.5px; font-weight: 600; color: var(--ash-2, #64748b);
+  text-decoration: underline; text-underline-offset: 2px;
+}
+.ktm-check-card__phu:hover { color: var(--rust-deep, #8a3208); }
 
 /* Gatekeeper Box */
 .ktm-gatekeeper {
@@ -855,19 +851,172 @@
 .ktm-lightbox__body img { max-width: 100%; max-height: 75vh; object-fit: contain; border-radius: 6px; }
 .ktm-lightbox__foot { padding: 8px 16px; font-size: 11.5px; color: #94a3b8; text-align: center; }
 
-@media (max-width: 900px) {
-  .ktm-lich__o { min-height: 95px; }
-  .ktm-card__ten { display: none; }
+/* ── Dải "việc cần làm" đầu màn ─────────────────────────────────────────────────────────────
+   Ba con số toàn xưởng, bấm được. Câu hỏi đầu tiên mỗi sáng là "hôm nay làm gì", không phải
+   "có bao nhiêu phiếu" — nên nó đứng trên cả thanh lọc. */
+.ktm-tomtat {
+  display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px;
+}
+.ktm-tomtat__o {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; min-height: 44px;
+  border: 1px solid var(--rule-soft, #e2e8f0); border-radius: 10px;
+  background: var(--paper, #fff); cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+.ktm-tomtat__o:hover { border-color: var(--rust, #c5400a); background: #fffaf7; }
+.ktm-tomtat__so {
+  font-size: 20px; font-weight: 700; line-height: 1; color: var(--ink, #0f172a);
+  font-variant-numeric: tabular-nums;
+}
+.ktm-tomtat__nhan {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 600; color: var(--ash-2, #64748b);
+}
+.ktm-tomtat__o.is-co-viec { border-color: #fed7aa; background: #fff7ed; }
+.ktm-tomtat__o.is-co-viec .ktm-tomtat__so { color: var(--rust-deep, #8a3208); }
+.ktm-tomtat__o.is-tre { border-color: #fecdd3; background: #fff1f2; }
+.ktm-tomtat__o.is-tre .ktm-tomtat__so,
+.ktm-tomtat__o.is-tre .ktm-tomtat__nhan { color: #9f1239; }
+
+.ktm-lich__may-loc { height: 30px; padding: 0 8px; font-size: 12px; max-width: 190px; }
+
+/* ── Lịch bản DANH SÁCH (điện thoại / màn cảm ứng) ──────────────────────────────────────────
+   Không phải lưới 7 cột thu nhỏ: ô 50px chỉ chứa nổi mã máy, mà thông tin còn lại thì nằm
+   trong tooltip hover — thứ màn cảm ứng không có. */
+.ktm-agenda { display: flex; flex-direction: column; gap: 14px; }
+.ktm-agenda.is-loading { opacity: .55; }
+.ktm-agenda__rong {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 28px 16px; text-align: center; font-size: 13px; color: var(--ash-2, #64748b);
+  border: 1px dashed var(--rule, #cbd5e1); border-radius: 10px;
+}
+.ktm-agenda__rong p { margin: 0; }
+.ktm-agenda__ngay {
+  border: 1px solid var(--rule-soft, #e2e8f0); border-radius: 10px;
+  background: var(--paper, #fff); overflow: hidden;
+}
+.ktm-agenda__ngay.is-homnay { border-color: var(--rust, #c5400a); }
+.ktm-agenda__dau {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; background: var(--rule-hair, #f8fafc);
+  border-bottom: 1px solid var(--rule-soft, #e2e8f0);
+}
+.ktm-agenda__ngay.is-homnay .ktm-agenda__dau { background: #fff7ed; }
+.ktm-agenda__so { font-size: 14px; font-weight: 700; color: var(--ink, #0f172a); }
+.ktm-agenda__thu { font-size: 12px; color: var(--ash-2, #64748b); }
+.ktm-agenda__ds { display: flex; flex-direction: column; }
+.ktm-agenda__muc {
+  display: flex; flex-direction: column; gap: 3px; align-items: stretch;
+  padding: 12px; min-height: 56px; text-align: left; cursor: pointer;
+  border: 0; border-top: 1px solid var(--rule-hair, #f1f5f9);
+  border-left: 3px solid transparent; background: none; width: 100%;
+}
+.ktm-agenda__ds > .ktm-agenda__muc:first-child { border-top: 0; }
+.ktm-agenda__muc:active { background: var(--rule-hair, #f8fafc); }
+.ktm-agenda__muc--cho_thuc_hien { border-left-color: var(--rust, #c5400a); }
+.ktm-agenda__muc--hoan_thanh { border-left-color: var(--moss, #2f5d3a); }
+.ktm-agenda__muc--qua { border-left-color: var(--signal-deep, #6b1717); background: #fff5f5; }
+.ktm-agenda__muc--du-kien { border-left: 3px dashed var(--ash-2, #94a3b8); }
+.ktm-agenda__muc-dau { display: flex; align-items: center; gap: 8px; }
+.ktm-agenda__ma {
+  font-size: 11.5px; font-weight: 600; color: var(--ash-2, #64748b);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.ktm-agenda__ten { font-size: 13.5px; color: var(--ink, #0f172a); }
+.ktm-agenda__muc--hoan_thanh .ktm-agenda__ten {
+  text-decoration: line-through; color: var(--ash-2, #64748b);
+}
+.ktm-agenda__meta { font-size: 11.5px; color: var(--ash-2, #64748b); }
+.ktm-agenda__muc--qua .ktm-agenda__meta { color: #9f1239; font-weight: 600; }
+
+/* ── Bảng phiếu dạng THẺ (điện thoại) ───────────────────────────────────────────────────────
+   Bảng 7 cột ép xuống 375px là mỗi cột ~50px, chữ vỡ vụn. Thẻ giữ ĐỦ thông tin của bảng, kể cả
+   số ảnh — thứ quyết định phiếu đóng được hay không. Cùng ngôn ngữ hình khối với `ktm-agenda`. */
+.ktm-the-ds { display: flex; flex-direction: column; gap: 10px; }
+.ktm-the {
+  display: flex; flex-direction: column; gap: 6px; width: 100%;
+  padding: 12px 14px; text-align: left; cursor: pointer;
+  border: 1px solid var(--rule-soft, #e2e8f0); border-left: 3px solid transparent;
+  border-radius: 10px; background: var(--paper, #fff);
+}
+.ktm-the:active { background: var(--rule-hair, #f8fafc); }
+.ktm-the--cho_thuc_hien { border-left-color: var(--rust, #c5400a); }
+.ktm-the--hoan_thanh { border-left-color: var(--moss, #2f5d3a); }
+.ktm-the--qua { border-left-color: var(--signal-deep, #6b1717); background: #fff5f5; }
+.ktm-the.is-skel { gap: 8px; cursor: default; }
+.ktm-the__dau { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ktm-the__than { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ktm-the__goi { font-size: 13.5px; color: var(--ink, #0f172a); }
+.ktm-the--hoan_thanh .ktm-the__goi {
+  text-decoration: line-through; color: var(--ash-2, #64748b);
+}
+.ktm-the__meta {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 11.5px; color: var(--ash-2, #64748b);
+}
+.ktm-the__meta > span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* Dòng "đã nén 6,2 MB → 380 KB" dưới khối ảnh */
+.ktm-anh__nen {
+  display: flex; align-items: center; gap: 5px; margin: 8px 0 0;
+  font-size: 11.5px; font-weight: 600; color: var(--moss, #2f5d3a);
 }
 
-@media (max-width: 720px) {
+/* Nút trên đầu drawer (In · Đóng) */
+.ktm-drawer-hero__nut { display: flex; align-items: flex-start; gap: 6px; }
+
+.ktm-boqua-form__viec { margin: 0 0 10px; font-size: 13.5px; color: var(--ink, #0f172a); }
+
+@media (max-width: 900px) {
+  .ktm-lich__o { min-height: 95px; }
+}
+
+@media (max-width: 820px) {
+  /* Lịch đã chuyển sang bản danh sách (component tự đổi theo `matchMedia`) — phần còn lại chỉ
+     cần nới cho vừa ngón tay. */
+  .ktm-tomtat__o { flex: 1 1 auto; justify-content: center; }
+  /* Đây là lối lùi DUY NHẤT khi một việc không phải làm — nút quá bé thì thợ bấm trượt rồi tick
+     bừa cho xong, đúng thứ cửa chặn checklist sinh ra để tránh. */
+  .ktm-check-card__phu { min-height: 44px; padding: 8px 0; font-size: 12.5px; }
   .ktm-anh__grid { grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); }
   .ktm-doilich { flex-direction: column; align-items: stretch; }
-  .ktm-lich__bar { flex-direction: column; align-items: stretch; }
+  .ktm-lich__bar { flex-direction: column; align-items: stretch; gap: 10px; }
+  .ktm-lich__may-loc { max-width: none; width: 100%; height: 38px; }
+  .ktm-nhom-chip, .ktm-cg-btn { min-height: 34px; }
+  /* Nút xác nhận dính đáy: thợ vừa tick vừa chụp ảnh, cuộn lên cuộn xuống mãi mới bấm được. */
+  .ktm-gatekeeper__action {
+    position: sticky; bottom: 0; z-index: 2;
+    padding: 10px 0 2px; margin: 0 -4px;
+    background: linear-gradient(to bottom, rgba(255,255,255,0) 0%, var(--canvas, #fff) 22%);
+  }
+  .ktm-xacnhan__nut { min-height: 48px; font-size: 14px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ktm-buoc__nut { transition: none; }
+  .ktm-tomtat__o, .ktm-check-card { transition: none; }
+}
+
+/* ── Bản IN: một tờ mang xuống xưởng ────────────────────────────────────────────────────────
+   In chính cái drawer đang mở, bỏ hết vỏ ứng dụng. Không dựng endpoint PDF cho việc này. */
+@media print {
+  body * { visibility: hidden; }
+  .rc-drawer__scrim, .rc-drawer__scrim * { visibility: visible; }
+  .rc-drawer__scrim {
+    position: static; display: block; background: none; padding: 0;
+  }
+  .rc-drawer, .ktm-drawer {
+    position: static; width: 100%; max-width: none; height: auto;
+    box-shadow: none; border: 0; border-radius: 0; animation: none;
+  }
+  .rc-drawer__body { overflow: visible; height: auto; }
+  /* Thứ chỉ có nghĩa khi bấm được thì không in: nút, dropzone, thanh tab, ô ngày, cửa xác nhận. */
+  .rc-drawer__x, .ktm-in-nut, .ktm-tab, .ktm-actions, .ktm-dropzone,
+  .ktm-anh__them, .ktm-anh__overlay, .ktm-gatekeeper__action, .ktm-check-card__phu,
+  .ktm-doilich { display: none !important; }
+  .ktm-check-grid { break-inside: avoid; }
+  .ktm-anh__grid { grid-template-columns: repeat(3, 1fr); }
 }
 
 

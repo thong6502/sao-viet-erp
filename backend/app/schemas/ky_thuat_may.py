@@ -86,6 +86,9 @@ class HangMucRow(BaseModel):
     id: str | None = None
     ten: str
     xong: bool = False
+    # "Không áp dụng lần này" + lý do — nằm trong chính cột JSON `hang_muc`, không đẻ cột mới.
+    bo_qua: bool = False
+    ly_do_bo_qua: str | None = None
 
 
 class BaoTriIn(BaseModel):
@@ -135,6 +138,7 @@ class BaoTriRow(BaseModel):
     # --- dẫn xuất ---
     may_ma: str | None = None
     may_ten: str | None = None
+    may_loai: str | None = None  # nhóm máy trong danh mục — màn Lịch lọc theo cái này
     so_anh: int = 0
     co_anh_sau: bool = False
     qua_han: bool = False        # ngày kế hoạch đã qua mà chưa hoàn thành
@@ -146,6 +150,9 @@ class BaoTriListOut(BaseModel):
     total: int
     page: int
     size: int
+    # {trang_thai: số} + 3 số dẫn xuất theo ngày (`qua_han`, `den_hom_nay`, `tuan_nay`), đếm ở DB
+    # theo ĐÚNG bộ lọc đang xem (trừ trạng thái) — không phải đếm trang hiện tại, cũng không phải
+    # đếm cả bảng.
     dem: dict[str, int] = {}
 
 
@@ -166,6 +173,9 @@ class DoiTrangThaiIn(BaseModel):
 class TickHangMucIn(BaseModel):
     hang_muc_id: str
     xong: bool
+    # `bo_qua=True` ⇒ đánh "không áp dụng lần này", BẮT BUỘC kèm `ly_do` (service chặn nếu trống).
+    bo_qua: bool | None = None
+    ly_do: str | None = Field(default=None, max_length=200)
 
 
 # 🔴 `SinhPhieuOut` / `BoQuaRow` ĐÃ GỠ 12/08/2026 cùng nút "Sinh phiếu từ lịch". Phiếu định kỳ nay
@@ -184,6 +194,7 @@ class DuKienRow(BaseModel):
     may_id: int
     may_ma: str
     may_ten: str | None = None
+    may_loai: str | None = None
     goi_id: str | None = None
     goi_ten: str | None = None
     ngay: date
@@ -207,7 +218,8 @@ class HanGoiRow(BaseModel):
     goi_id: str | None = None
     goi_ten: str | None = None
     han: date | None = None
-    # phieu | ngay_bat_dau | chua_co_moc | thieu_chu_ky — để màn hình nói rõ hạn này tính từ đâu
+    # phieu | ngay_bat_dau | thieu_chu_ky | thieu_ngay_bat_dau — nói rõ hạn này tính từ đâu, hoặc
+    # vì sao KHÔNG tính được (hai lý do là hai ô khác nhau trên form Máy).
     nguon: str
     phieu_dang_mo_id: int | None = None
 

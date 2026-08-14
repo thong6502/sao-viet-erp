@@ -1,5 +1,5 @@
-// Bằng chứng cho ĐÚNG cú bấm đã làm trắng màn 14/08/2026: drawer Đơn vị → tab "Công thức quy đổi"
-// → khối "THÊM QUY ĐỔI MỚI" → nút "Công thức".
+// Bằng chứng cho ĐÚNG cú bấm đã làm trắng màn 14/08/2026: drawer Đơn vị → tab "Quy đổi & số lượng"
+// → khối "THÊM QUY ĐỔI MỚI" → nút "Theo quy cách".
 //
 // Cú bấm đó bật `them.dong` ⇒ khối này render `FormulaField`. `FormulaField` vừa bị đổi sang ô chip
 // inline và bản đổi bỏ mất ba hàm JSX vẫn gọi ⇒ ReferenceError NGAY TRONG RENDER ⇒ React gỡ cả cây
@@ -46,8 +46,8 @@ beforeEach(() => {
   }));
 });
 
-describe("drawer Đơn vị → Công thức quy đổi", () => {
-  it("bấm nút “Công thức” KHÔNG làm trắng màn — ô soạn công thức hiện ra", async () => {
+describe("drawer Đơn vị → Quy đổi & số lượng", () => {
+  it("bấm nút “Theo quy cách” KHÔNG làm trắng màn — ô soạn công thức hiện ra", async () => {
     const user = userEvent.setup();
     render(
       <AuthContext.Provider value={AUTH}>
@@ -56,7 +56,7 @@ describe("drawer Đơn vị → Công thức quy đổi", () => {
     );
 
     await screen.findByText("Chưa có quy đổi nào được khai báo cho đơn vị này.");
-    await user.click(screen.getByRole("button", { name: "Công thức" }));
+    await user.click(screen.getByRole("button", { name: "Theo quy cách" }));
 
     // Khối vẫn còn sống: ô soạn công thức thế chỗ ô số + ô đích (công thức định nghĩa chính đơn vị
     // đang mở nên KHÔNG có "quy đổi về").
@@ -74,7 +74,7 @@ describe("drawer Đơn vị → Công thức quy đổi", () => {
     );
 
     await screen.findByText("Chưa có quy đổi nào được khai báo cho đơn vị này.");
-    await user.click(screen.getByRole("button", { name: "Công thức" }));
+    await user.click(screen.getByRole("button", { name: "Theo quy cách" }));
 
     const nut = screen.getByRole("button", { name: /Thêm quy đổi/ });
     expect(nut).toBeDisabled();

@@ -238,8 +238,8 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
                   <span className="dvqd__unit-tag">{String(donVi.ten)}</span>
                   <span className="dvqd__eq-sign">=</span>
                   {renderFormulaPreviewChips(ctCuaDonVi, tra)}
-                  <span className="dvqd__badge dvqd__badge--dynamic" title="Hệ số tự động tính theo công thức">
-                    Công thức
+                  <span className="dvqd__badge dvqd__badge--dynamic" title="Số này tính ra từ quy cách của từng lệnh, không cố định">
+                    Theo quy cách
                   </span>
                 </div>
                 <div className="dvqd__card-actions">
@@ -406,13 +406,13 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
                 className={`dvqd__type-btn ${them.dong ? "is-active" : ""}`}
                 disabled={!!ctCuaDonVi && !them.dong}
                 title={ctCuaDonVi
-                  ? `Đơn vị này đã có công thức: ${ctCuaDonVi}. Mỗi đơn vị chỉ MỘT — sửa dòng đang có.`
+                  ? `Đơn vị này đã có số theo quy cách: ${ctCuaDonVi}. Mỗi cụm chỉ MỘT — sửa dòng đang có.`
                   : undefined}
-                // Chế độ công thức KHÔNG có đích ⇒ xoá luôn đích đang chọn dở, không thì bấm
+                // Chế độ theo quy cách KHÔNG có đích ⇒ xoá luôn đích đang chọn dở, không thì bấm
                 // "Số cố định" lại thấy một lựa chọn cũ lơ lửng không rõ từ đâu ra.
                 onClick={() => setThem((p) => ({ ...p, dong: true, gia: "", den_id: "" }))}
               >
-                Công thức
+                Theo quy cách
               </button>
             </div>
           </div>
@@ -457,7 +457,7 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
                   onChange={(x) => setThem((p) => ({ ...p, gia: x }))}
                   configPrefix="/api/don-vi"
                   bienGoiY={bienQuyDoi}
-                  nhanO={<>Công thức quy đổi cho <span className="rc-formula__editor-unit-tag">{String(donVi.ten)}</span></>}
+                  nhanO={<><span className="rc-formula__editor-unit-tag">{String(donVi.ten)}</span> theo quy cách</>}
                   goY="vd: dinh_luong * dai * rong"
                 />
               </div>

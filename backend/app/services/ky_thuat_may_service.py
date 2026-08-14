@@ -11,8 +11,9 @@ Hai luật xương sống của module này, cả hai nằm ở ĐÂY chứ khô
 `han_ke_tiep` — chỗ hay bị hiểu nhầm nhất — chạy theo đúng ba nhánh:
   · gói ĐÃ có phiếu hoàn thành ⇒ ngày hoàn thành GẦN NHẤT + chu kỳ;
   · chưa có phiếu nào mà gói khai `ngay_bat_dau` ⇒ chính ngày đó (kỳ 1);
-  · không có cả hai ⇒ coi như tới hạn hôm nay, để gói khai thiếu vẫn ra được phiếu thay vì im lặng
-    biến mất khỏi màn hình.
+  · không có cả hai ⇒ KHÔNG đoán: trả `None` kèm lý do để màn hình nói thành lời "chưa khai Bắt
+    đầu từ". (Bản đầu đoán là "tới hạn hôm nay" và một cú bấm đẻ ra 41 phiếu rác — xem ghi chú ở
+    hằng số `NGUON_*` bên dưới. Đừng khôi phục.)
 Mốc "lần cuối làm" KHÔNG ghi ngược vào JSON của máy: form Máy dựng lại `fields_theo_loai` từ bản
 JSON nó đang giữ (`transformSubmit` bên FE), backend ghi vào đó là sớm muộn bị lưu đè mất.
 """
@@ -64,6 +65,10 @@ NGUON_NGAY_BAT_DAU = "ngay_bat_dau"
 # người khai đi điền "Bắt đầu từ". Đừng khôi phục.
 
 
+# Sentinel: phân biệt "chưa nạp mốc, tự đi hỏi DB" với "đã nạp rồi, gói này KHÔNG có mốc" (None).
+_CHUA_NAP = object()
+
+
 class KyThuatMayError(Exception):
     pass
 
@@ -81,6 +86,14 @@ class KyThuatMayThieuAnh(KyThuatMayError):
     TRẠNG THÁI chưa cho đóng."""
 
 
+class KyThuatMayChuaXongViec(KyThuatMayError):
+    """Đóng phiếu bảo trì khi checklist còn việc chưa tick và cũng chưa đánh "không áp dụng".
+
+    Cùng hạng với cửa ảnh (409): trước 14/08/2026 khối "Điều kiện xác nhận" ngoài màn hình liệt kê
+    checklist như một điều kiện nhưng chỉ ẢNH mới thật sự chặn — nhìn như luật mà không phải luật.
+    """
+
+
 def _f(v: Any, default: float = 0.0) -> float:
     if v is None or v == "":
         return default
@@ -92,8 +105,21 @@ def _f(v: Any, default: float = 0.0) -> float:
         return default
 
 
+# Giờ NHÀ MÁY, không phải UTC. Cùng chuẩn với `sequence_service.BUSINESS_TZ` / `attendance_service
+# .VN_TZ`. Chỗ này từng lệch: service+router tính "hôm nay" bằng UTC còn repo dùng `date.today()`
+# (giờ máy chủ) — container VPS chạy UTC nên từ 0h đến 7h sáng giờ VN cả hệ vẫn tưởng là HÔM QUA:
+# ticker chưa sinh phiếu của kỳ hôm nay, badge chưa đếm, cờ `qua_han` trễ một ngày, và thợ ca đêm
+# bấm "Xác nhận đã bảo trì xong" với ngày mặc định (trình duyệt lấy giờ VN) thì bị 422 "ngày ở
+# tương lai". Một nguồn duy nhất, mọi tầng gọi hàm này.
+BUSINESS_TZ = timezone(timedelta(hours=7))
+
+
+def hom_nay_vn() -> date:
+    return datetime.now(BUSINESS_TZ).date()
+
+
 def _hom_nay() -> date:
-    return datetime.now(timezone.utc).date()
+    return hom_nay_vn()
 
 
 def _parse_date(v: Any) -> date | None:
@@ -120,20 +146,31 @@ def _cong_thang(moc: date, n: int) -> date:
     return date(nam, thang, ngay)
 
 
+CHU_KY_NGAY = "ngay"
+CHU_KY_TUAN = "tuan"
+CHU_KY_THANG = "thang"
+CHU_KY_NAM = "nam"
+CHU_KY_DON_VI = (CHU_KY_NGAY, CHU_KY_TUAN, CHU_KY_THANG, CHU_KY_NAM)
+
+
 def cong_chu_ky(moc: date, so: float, don_vi: str | None) -> date:
     """`moc` + `so` × đơn vị. Chu kỳ lẻ (2,5 tháng) làm tròn — không ai khai bảo trì kiểu đó, mà
     giữ số lẻ thì hạn rơi vào ngày không giải thích được."""
     n = max(1, int(round(_f(so, 1))))
-    if don_vi == "tuan":
+    if don_vi == CHU_KY_TUAN:
         return moc + timedelta(weeks=n)
-    if don_vi == "thang":
+    if don_vi == CHU_KY_THANG:
         return _cong_thang(moc, n)
-    if don_vi == "nam":
+    if don_vi == CHU_KY_NAM:
         return _cong_thang(moc, n * 12)
-    return moc + timedelta(days=n)  # "ngay" + mọi giá trị lạ
+    # "ngay" + mọi giá trị lạ. Đường lui này CỐ Ý giữ cho gói đã khai từ trước: chặn ở đây là gói
+    # biến mất khỏi lịch không một lời nào. Cửa chặn đặt ở chỗ NGƯỜI GÕ (`_validate_chu_ky`), nơi
+    # còn nói được "đơn vị không hợp lệ" cho đúng người đang sửa.
+    return moc + timedelta(days=n)
 
 
-def goi_bao_tri_cua(may: MayThietBi) -> list[dict]:
+def goi_bao_tri_cua(may: Any) -> list[dict]:
+    # `may` là bản ghi máy HOẶC hàng rút gọn từ `_may_co_lich()` — cả hai đều có `.fields_theo_loai`.
     """Danh sách GÓI bảo trì đã khai trên máy. Dữ liệu nằm trong cột JSON tự do nên phải phòng thủ:
     khoá thiếu / kiểu sai vẫn phải trả về danh sách chạy được."""
     box = may.fields_theo_loai if isinstance(may.fields_theo_loai, dict) else {}
@@ -209,8 +246,9 @@ class KyThuatMayService:
     def list_sua_chua(self, **kw):
         return self.repo.list_sua_chua(**kw)
 
-    def dem_sua_chua(self) -> dict[str, int]:
-        return self.repo.dem_theo_trang_thai_sua_chua()
+    def dem_sua_chua(self, **kw) -> dict[str, int]:
+        """Số cho dãy tab — nhận CÙNG bộ lọc với `list_sua_chua` (trừ trạng thái)."""
+        return self.repo.dem_sua_chua(**kw)
 
     def _validate_sua_chua(self, data: dict) -> None:
         if not data.get("may_id"):
@@ -220,6 +258,15 @@ class KyThuatMayService:
         muc_do = data.get("muc_do")
         if muc_do and muc_do not in MUC_DO:
             raise KyThuatMayValidationError(f"Mức độ không hợp lệ: {muc_do}")
+
+    def _validate_chu_ky(self, data: dict) -> None:
+        """Đơn vị chu kỳ do client gửi lên. `cong_chu_ky` coi mọi giá trị lạ là NGÀY, nên không chặn
+        ở đây thì một phiếu khai "quý" lặng lẽ thành chu kỳ 1 ngày và kỳ kế tiếp sai hẳn một mùa."""
+        don_vi = data.get("chu_ky_don_vi")
+        if don_vi and don_vi not in CHU_KY_DON_VI:
+            raise KyThuatMayValidationError(
+                f"Đơn vị chu kỳ không hợp lệ: {don_vi} (nhận: {', '.join(CHU_KY_DON_VI)})"
+            )
 
     def tao_sua_chua(self, data: dict, *, actor_id: int | None = None) -> SuaChuaMay:
         self._validate_sua_chua(data)
@@ -237,6 +284,10 @@ class KyThuatMayService:
         if "may_id" in data or "bo_phan_hong" in data:
             self._validate_sua_chua({**{"may_id": phieu.may_id,
                                         "bo_phan_hong": phieu.bo_phan_hong}, **data})
+        # Đổi sang máy KHÔNG CÓ THẬT thì trước đây lọt: `_validate_sua_chua` chỉ xem ô có trống
+        # không. Phiếu neo vào id máy đã xoá là cột Máy trống trơn và không ai lần ra được máy nào.
+        if data.get("may_id") and int(data["may_id"]) != phieu.may_id:
+            self._may(int(data["may_id"]))
         phieu = self.repo.update_sua_chua(phieu, data)
         self._ghi(NHAT_KY_LOAI_SUA_CHUA, phieu.id, "update", f"{phieu.ma} · sửa nội dung", actor_id)
         return phieu
@@ -276,10 +327,16 @@ class KyThuatMayService:
         return phieu
 
     def list_bao_tri(self, **kw):
-        return self.repo.list_bao_tri(**kw)
+        return self.repo.list_bao_tri(hom_nay=hom_nay_vn(), **kw)
 
-    def dem_bao_tri(self) -> dict[str, int]:
-        return self.repo.dem_theo_trang_thai_bao_tri()
+    def dem_bao_tri(self, **kw) -> dict[str, int]:
+        """Số cho dãy tab — nhận CÙNG bộ lọc với `list_bao_tri` (trừ trạng thái)."""
+        return self.repo.dem_bao_tri(hom_nay=hom_nay_vn(), **kw)
+
+    def dem_den_han(self) -> tuple[int, int]:
+        """(tới hạn còn dở, trong đó quá hạn) — badge cạnh mục "Phiếu bảo trì" trên thanh bên."""
+        dem = self.repo.dem_bao_tri(hom_nay=hom_nay_vn())
+        return dem.get("den_hom_nay", 0), dem.get("qua_han", 0)
 
     def tao_bao_tri(self, data: dict, *, actor_id: int | None = None) -> BaoTriMay:
         """Tạo phiếu. Hai lối vào, cùng một hàm:
@@ -290,6 +347,7 @@ class KyThuatMayService:
         """
         if not data.get("may_id"):
             raise KyThuatMayValidationError("Chưa chọn máy.")
+        self._validate_chu_ky(data)
         ngay = _parse_date(data.get("ngay_ke_hoach")) or _hom_nay()
         loai = data.get("loai") or LOAI_BT_DINH_KY
         if loai not in LOAI_BAO_TRI:
@@ -315,6 +373,7 @@ class KyThuatMayService:
         phieu = self.get_bao_tri(phieu_id)
         if phieu.trang_thai == TT_BT_HOAN_THANH:
             raise KyThuatMayValidationError("Phiếu đã hoàn thành — không sửa được nữa.")
+        self._validate_chu_ky(data)
         data = dict(data)
         # Đổi ngày ở đây là SỬA nội dung, không phải "dời lịch" (dời lịch bắt buộc có lý do và đi
         # qua `doi_lich`). Chặn để hai đường không đá nhau.
@@ -324,29 +383,53 @@ class KyThuatMayService:
         return phieu
 
     def tick_hang_muc(self, phieu_id: int, hang_muc_id: str, xong: bool, *,
+                      bo_qua: bool | None = None, ly_do: str | None = None,
                       actor_id: int | None = None) -> BaoTriMay:
+        """Tick một việc con, hoặc đánh việc đó là "không áp dụng lần này" kèm lý do.
+
+        Đường "không áp dụng" tồn tại vì checklist nay là CỬA CHẶN: bắt tick hết mà không chừa lối
+        cho việc thật sự không phải làm (gói chung cho 3 máy, kỳ này máy không có bộ phận đó) thì
+        thợ sẽ tick bừa — và cái checklist mất sạch giá trị. Lý do là bắt buộc, ghi thẳng vào JSON
+        `hang_muc` nên KHÔNG cần cột mới.
+        """
         phieu = self.get_bao_tri(phieu_id)
         if phieu.trang_thai == TT_BT_HOAN_THANH:
             raise KyThuatMayValidationError("Phiếu đã hoàn thành — không đổi checklist nữa.")
         rows = phieu.hang_muc if isinstance(phieu.hang_muc, list) else []
+        # Kiểm TỒN TẠI riêng, đừng suy từ "danh sách mới có khác danh sách cũ không": tick lại đúng
+        # giá trị đang có thì hai danh sách giống hệt nhau và người dùng nhận về câu "không tìm thấy
+        # hạng mục" — sai hoàn toàn với việc họ vừa làm.
+        if not any(isinstance(h, dict) and h.get("id") == hang_muc_id for h in rows):
+            raise KyThuatMayValidationError("Không tìm thấy hạng mục trong phiếu.")
+
+        if bo_qua:
+            ly_do_sach = (ly_do or "").strip()
+            if not ly_do_sach:
+                raise KyThuatMayValidationError(
+                    "Phải ghi lý do khi đánh dấu hạng mục là không áp dụng."
+                )
+            thay = {"xong": False, "bo_qua": True, "ly_do_bo_qua": ly_do_sach[:200]}
+        else:
+            # Tick (hoặc bỏ tick) là quay về luồng thường ⇒ nhả luôn dấu "không áp dụng".
+            thay = {"xong": bool(xong), "bo_qua": False, "ly_do_bo_qua": None}
+
         # ⚠️ Phải gán LIST MỚI: sửa tại chỗ phần tử của cột JSON thì SQLAlchemy không thấy gì thay
         # đổi và lặng lẽ không UPDATE (tick xong, F5 lại mất sạch).
         moi = [
-            {**h, "xong": bool(xong)} if isinstance(h, dict) and h.get("id") == hang_muc_id else h
+            {**h, **thay} if isinstance(h, dict) and h.get("id") == hang_muc_id else h
             for h in rows
         ]
-        if moi == rows:
-            raise KyThuatMayValidationError("Không tìm thấy hạng mục trong phiếu.")
         phieu.hang_muc = moi
         self.db.commit()
         self.db.refresh(phieu)
         ten_viec = next(
             (h.get("ten") for h in moi if isinstance(h, dict) and h.get("id") == hang_muc_id), ""
         )
+        dau = f"⊘ (không áp dụng: {thay['ly_do_bo_qua']})" if bo_qua else ("✓" if xong else "✗")
         # Ghi vết TỪNG việc con: đây là thứ trả lời "hôm đó thợ đã làm những gì" khi máy hỏng lại
         # ngay sau kỳ bảo trì. Không ghi thì checklist chỉ còn là mấy ô tick không ai truy được.
         self._ghi(NHAT_KY_LOAI_BAO_TRI, phieu.id, "update",
-                  f"{phieu.ma} · {'✓' if xong else '✗'} {ten_viec}", actor_id)
+                  f"{phieu.ma} · {dau} {ten_viec}", actor_id)
         return phieu
 
     def doi_lich(self, phieu_id: int, ngay_moi: Any, ly_do: str, *,
@@ -372,6 +455,30 @@ class KyThuatMayService:
                   f"{phieu.ma} · dời {cu:%d/%m/%Y} → {ngay:%d/%m/%Y} · {phieu.ly_do_doi}", actor_id)
         return phieu
 
+    @staticmethod
+    def hang_muc_con_lai(phieu: BaoTriMay) -> list[str]:
+        """Tên các việc con CHƯA xong và cũng chưa đánh "không áp dụng"."""
+        rows = phieu.hang_muc if isinstance(phieu.hang_muc, list) else []
+        return [
+            (h.get("ten") or "việc chưa đặt tên")
+            for h in rows
+            if isinstance(h, dict) and not h.get("xong") and not h.get("bo_qua")
+        ]
+
+    def _kiem_checklist(self, phieu: BaoTriMay) -> None:
+        """Cửa thứ hai (cùng hạng với cửa ảnh): còn việc con chưa tick thì chưa đóng phiếu được.
+
+        Phiếu không có checklist (đột xuất, hoặc gói không khai việc con) thì cửa này không chặn gì.
+        """
+        con = self.hang_muc_con_lai(phieu)
+        if not con:
+            return
+        ke = ", ".join(con[:3]) + ("…" if len(con) > 3 else "")
+        raise KyThuatMayChuaXongViec(
+            f"Còn {len(con)} hạng mục chưa làm ({ke}). Tick xong, hoặc đánh dấu "
+            f'"không áp dụng" kèm lý do.'
+        )
+
     def _ten_user(self, user_id: int | None) -> str | None:
         if not user_id:
             return None
@@ -396,6 +503,7 @@ class KyThuatMayService:
             phieu.nguoi_thuc_hien = None
 
         if trang_thai == TT_BT_HOAN_THANH:
+            self._kiem_checklist(phieu)
             self._kiem_anh_chung_thuc(LOAI_PHIEU_BAO_TRI, phieu.id)
             # Cho khai ngày làm THẬT (thợ làm thứ Bảy, thứ Hai mới vào bấm) — đây là mốc tính kỳ
             # sau nên lấy giờ bấm nút là đẩy lệch cả chuỗi kỳ về sau.
@@ -423,18 +531,22 @@ class KyThuatMayService:
 
     # ================= Lịch bảo trì của MÁY → hạn & sinh phiếu =================
 
-    def han_ke_tiep(self, may_id: int, goi: dict) -> tuple[date | None, str]:
+    def han_ke_tiep(self, may_id: int, goi: dict, *, moc: Any = _CHUA_NAP) -> tuple[date | None, str]:
         """(hạn, nguồn). `hạn = None` ⇒ KHÔNG tính được, và lý do nằm ở `nguồn`:
 
           · `thieu_chu_ky`      — gói khai tên nhưng bỏ trống "Mỗi … tháng";
           · `thieu_ngay_bat_dau` — có chu kỳ nhưng chưa từng làm lần nào VÀ chưa khai "Bắt đầu từ",
             nên không có gốc để cộng chu kỳ. KHÔNG đoán là hôm nay (xem ghi chú ở đầu file).
+
+        `moc` = ngày hoàn thành gần nhất của gói. Người gọi duyệt NHIỀU gói (lịch, ticker) truyền
+        sẵn từ `repo.moc_hoan_thanh_map()` để khỏi hỏi DB từng gói; bỏ trống thì hàm tự hỏi.
         """
         so = _f(goi.get("so"))
         if so <= 0:
             return None, BO_QUA_THIEU_CHU_KY
         goi_id = (goi.get("id") or "").strip()
-        moc = self.repo.ngay_hoan_thanh_gan_nhat(may_id, goi_id) if goi_id else None
+        if moc is _CHUA_NAP:
+            moc = self.repo.ngay_hoan_thanh_gan_nhat(may_id, goi_id) if goi_id else None
         if moc is not None:
             return cong_chu_ky(moc, so, goi.get("don_vi")), NGUON_PHIEU
         bat_dau = _parse_date(goi.get("ngay_bat_dau"))
@@ -442,21 +554,35 @@ class KyThuatMayService:
             return bat_dau, NGUON_NGAY_BAT_DAU
         return None, BO_QUA_THIEU_NGAY_BAT_DAU
 
+    def _may_co_lich(self):
+        """Máy kèm túi JSON lịch bảo trì — CHỈ 5 cột cần dùng, không nạp cả bản ghi máy (máy in có
+        vài chục field thông số). Lịch và ticker đều duyệt qua đây."""
+        return self.db.execute(
+            select(
+                MayThietBi.id, MayThietBi.ma, MayThietBi.ten,
+                MayThietBi.loai_may, MayThietBi.fields_theo_loai,
+            ).order_by(MayThietBi.ma.asc())
+        ).all()
+
     def han_cua_may(self, may_id: int) -> list[dict]:
         """Hạn kế tiếp từng gói của MỘT máy — tab "Lịch bảo trì" ở màn Thiết bị đọc cái này."""
         may = self._may(may_id)
+        # Nạp sẵn cho RIÊNG máy này (2 query) thay vì hỏi 2 query cho mỗi gói — máy 5 gói từng tốn
+        # 10 query. Cùng đường với `lich()`, không đẻ cơ chế thứ hai.
+        moc_map = self.repo.moc_hoan_thanh_map(may_id)
+        mo_map = self.repo.phieu_dang_mo_map(may_id)
         out: list[dict] = []
         for goi in goi_bao_tri_cua(may):
-            han, nguon = self.han_ke_tiep(may_id, goi)
-            goi_id = (goi.get("id") or "").strip() or None
+            goi_id_raw = (goi.get("id") or "").strip()
+            han, nguon = self.han_ke_tiep(may_id, goi, moc=moc_map.get((may_id, goi_id_raw)))
+            goi_id = goi_id_raw or None
+            mo = mo_map.get((may_id, goi_id_raw)) if goi_id else None
             out.append({
                 "goi_id": goi_id,
                 "goi_ten": (goi.get("viec") or "").strip() or None,
                 "han": han,
                 "nguon": nguon,
-                "phieu_dang_mo_id": (
-                    p.id if goi_id and (p := self.repo.phieu_dang_mo_cua_goi(may_id, goi_id)) else None
-                ),
+                "phieu_dang_mo_id": mo.id if mo is not None else None,
             })
         return out
 
@@ -477,18 +603,23 @@ class KyThuatMayService:
             .order_by(BaoTriMay.ngay_ke_hoach.asc(), BaoTriMay.id.asc())
         ).scalars())
 
+        # Nạp SẴN hai bảng tra thay vì hỏi lẻ từng gói: 40 máy × 3 gói từng là ~240 query cho một
+        # lần mở lịch (mà Lịch là view mặc định), nay là 2 query cố định dù bao nhiêu máy.
+        moc_map = self.repo.moc_hoan_thanh_map()
+        mo_map = self.repo.phieu_dang_mo_map()
+
         du_kien: list[dict] = []
-        for may in self.db.execute(select(MayThietBi).order_by(MayThietBi.ma.asc())).scalars():
+        for may in self._may_co_lich():
             for goi in goi_bao_tri_cua(may):
                 so = _f(goi.get("so"))
                 if so <= 0:
                     continue                      # chưa khai chu kỳ ⇒ không đoán được kỳ nào
                 goi_id = (goi.get("id") or "").strip()
                 don_vi = goi.get("don_vi")
-                han, _ = self.han_ke_tiep(may.id, goi)
+                han, _ = self.han_ke_tiep(may.id, goi, moc=moc_map.get((may.id, goi_id)))
                 if han is None:
                     continue
-                mo = self.repo.phieu_dang_mo_cua_goi(may.id, goi_id) if goi_id else None
+                mo = mo_map.get((may.id, goi_id)) if goi_id else None
                 moc = cong_chu_ky(mo.ngay_ke_hoach, so, don_vi) if mo is not None else han
                 # Cap 60 mốc/gói: chu kỳ 1 ngày mà xem cả năm là 365 chấm trên một lịch tháng —
                 # vẽ ra cũng không ai đọc được, mà vòng lặp thì tốn thật.
@@ -498,6 +629,7 @@ class KyThuatMayService:
                     if moc >= tu:
                         du_kien.append({
                             "may_id": may.id, "may_ma": may.ma, "may_ten": may.ten,
+                            "may_loai": may.loai_may,
                             "goi_id": goi_id or None,
                             "goi_ten": (goi.get("viec") or "").strip() or None,
                             "ngay": moc, "chu_ky_so": so, "chu_ky_don_vi": don_vi,
@@ -520,14 +652,16 @@ class KyThuatMayService:
         chỉ ra một phiếu cho mỗi kỳ.
         """
         hom_nay = hom_nay or _hom_nay()
+        moc_map = self.repo.moc_hoan_thanh_map()
+        mo_map = self.repo.phieu_dang_mo_map()
         ra: list[BaoTriMay] = []
-        for may in self.db.execute(select(MayThietBi).order_by(MayThietBi.ma.asc())).scalars():
+        for may in self._may_co_lich():
             for goi in goi_bao_tri_cua(may):
                 goi_id = (goi.get("id") or "").strip()
-                han, _ = self.han_ke_tiep(may.id, goi)
+                han, _ = self.han_ke_tiep(may.id, goi, moc=moc_map.get((may.id, goi_id)))
                 if han is None or han > hom_nay:
                     continue
-                if goi_id and self.repo.phieu_dang_mo_cua_goi(may.id, goi_id) is not None:
+                if goi_id and mo_map.get((may.id, goi_id)) is not None:
                     continue
                 phieu = self.repo.create_bao_tri({
                     "may_id": may.id,
@@ -538,11 +672,23 @@ class KyThuatMayService:
                     "loai": LOAI_BT_DINH_KY,
                     "ngay_ke_hoach": han,
                     "hang_muc": hang_muc_snapshot(goi),
-                }, ma=self.repo.next_ma_bao_tri())
+                    # Một vòng quét có thể ra nhiều phiếu ⇒ chốt MỘT lần ở cuối, không commit lẻ
+                    # từng cái (xem `repo.create_bao_tri`).
+                }, ma=self.repo.next_ma_bao_tri(), commit=False)
                 ra.append(phieu)
+                # Ghi ngay vào bảng tra: bảng này nạp MỘT lần đầu vòng lặp, không cập nhật thì gói
+                # vừa ra phiếu vẫn bị coi là "chưa có phiếu mở" ở các nhánh sau.
+                if goi_id:
+                    mo_map[(may.id, goi_id)] = phieu
                 self._ghi(NHAT_KY_LOAI_BAO_TRI, phieu.id, "create",
                           f"{phieu.ma} · tự sinh khi tới hạn · {may.ma} · "
                           f"{(goi.get('viec') or '').strip() or 'gói chưa đặt tên'}", actor_id)
+        if ra:
+            # Chốt MỘT lần cho cả loạt: hoặc cả kỳ hôm nay ra phiếu, hoặc không phiếu nào —
+            # không để lại nửa vời khi vòng quét gãy giữa chừng.
+            self.db.commit()
+            for p in ra:
+                self.db.refresh(p)
         return ra
 
     # `don_phieu_chua_dung()` cũng gỡ theo: nó chỉ tồn tại để hốt đống rác của cái nút trên. Phiếu

@@ -1511,6 +1511,55 @@ def test_khoan_khong_co_cau_quy_doi_thi_doc_CONG_THUC_cua_don_vi_don_gia(
     assert buoc["khoan_sl"] == pytest.approx(sl_ra, rel=1e-6), "SL khoán = sl_ra qua công thức"
     assert buoc["khoan_tien"] == round(sl_ra * 700)
     assert buoc["khoan_ly_do"] is None, "có tiền rồi thì không được kèm lý do tịt"
+    # Diễn giải phải ĐI HẾT tới số tiền, cùng giọng với đường một. Câu cụt kiểu
+    # "… = 35000 kg × 600 đ" bắt người xem tự nhân — chủ bắt lỗi 14\08\2026.
+    dg = buoc["khoan_dien_giai"]
+    assert dg.startswith("SL ra của công đoạn = ")
+    assert "đ/cuốn" in dg and dg.endswith(f"= {round(sl_ra * 700):,} đ".replace(",", "."))
+
+
+def test_khoan_muon_cong_thuc_trong_cum_thi_dien_giai_phoi_buoc_doi(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Đơn giá đ/`tấn` mà công thức khai ở `kg` — mượn trong cụm tĩnh rồi đổi tiếp.
+
+    Diễn giải phải hiện CẢ HAI chặng ("… = 7.000 kg → 7 tấn × …"): nhảy thẳng sang tấn thì công
+    thức người ta gõ ("× 200") trông như tính sai 1.000 lần, không ai kiểm được.
+    """
+    from app.models.don_vi_do import DonViDo, DonViQuyDoi
+
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    cd_dan.don_vi_vao = "tay"        # không nối với `tấn` bằng cặp nào ⇒ buộc đi đường hai
+    _gan_dinh_muc(db, cong_doan=cd_dan, ten="Bắt tay vào keo", don_vi="tấn", don_gia=600)
+    kg = db.query(DonViDo).filter(DonViDo.ma == "kg").one_or_none() or DonViDo(ma="kg", ten="kg")
+    kg.cong_thuc = "sl_ra * 200"     # khai MỘT chỗ, cả cụm kg·tấn·g dùng chung
+    tan = db.query(DonViDo).filter(DonViDo.ma == "tan").one_or_none() \
+        or DonViDo(ma="tan", ten="tấn")
+    db.add_all([kg, tan])
+    db.flush()
+    if not db.query(DonViQuyDoi).filter(DonViQuyDoi.tu_id == tan.id,
+                                        DonViQuyDoi.den_id == kg.id).first():
+        db.add(DonViQuyDoi(tu_id=tan.id, den_id=kg.id, he_so=1000))
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+    buoc = next(b for b in lsx_svc.detail_dict(lsx)["cong_doans"]
+                if b["cong_doan_id"] == cd_dan.id)
+
+    sl_ra = float(buoc["so_luong_ra"])
+    tan_gt = sl_ra * 200 / 1000
+    assert buoc["khoan_sl"] == pytest.approx(tan_gt, rel=1e-6)
+    assert buoc["khoan_tien"] == round(tan_gt * 600)
+    dg = buoc["khoan_dien_giai"]
+    from app.services.quy_doi_service import _so
+
+    assert f"= {_so(sl_ra)} × 200 = " in dg, "phải THẾ SỐ vào công thức, không chỉ đọc tên biến"
+    assert "kg → " in dg, "phải phơi chặng theo đơn vị CHỦ trước khi đổi"
+    assert "tấn × 600 đ/tấn = " in dg
 
 
 def test_khong_co_bang_khoan_thi_khong_co_tien(db, orders, lsx_svc, admin, customer):

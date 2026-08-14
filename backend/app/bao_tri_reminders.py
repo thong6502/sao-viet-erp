@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date, datetime, timezone
+from datetime import date
 
 from sqlalchemy import select
 
@@ -33,7 +33,7 @@ from .models.user import User
 from .realtime import hub
 from .repositories.audit_repo import AuditLogRepository
 from .repositories.ky_thuat_may_repo import KyThuatMayRepository
-from .services.ky_thuat_may_service import KyThuatMayService
+from .services.ky_thuat_may_service import KyThuatMayService, hom_nay_vn
 
 log = logging.getLogger(__name__)
 
@@ -126,7 +126,9 @@ async def run_bao_tri_reminder_loop(interval: int) -> None:
     """
     while True:
         try:
-            n = await asyncio.to_thread(_scan_once, datetime.now(timezone.utc).date())
+            # Ngày theo giờ NHÀ MÁY. Lấy UTC là 0h–7h sáng giờ VN ticker vẫn quét theo ngày HÔM QUA:
+            # kỳ của hôm nay không ra phiếu, ca sáng vào làm không thấy việc của mình.
+            n = await asyncio.to_thread(_scan_once, hom_nay_vn())
             if n:
                 log.info("bao tri reminder: ting %d phiếu tới hạn", n)
         except Exception:  # noqa: BLE001 — vòng lặp nền phải sống sót mọi lỗi

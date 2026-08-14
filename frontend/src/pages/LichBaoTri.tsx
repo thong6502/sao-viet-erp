@@ -1,12 +1,24 @@
+// Lịch bảo trì — phiếu THẬT + kỳ DỰ KIẾN (chưa lưu, backend tính lúc đọc) trên cùng một tháng.
+//
+// Hai hình dạng cho hai loại thiết bị, cùng một dữ liệu:
+//   · máy tính → lưới 7 cột, rê chuột ra thẻ thông tin;
+//   · điện thoại / màn hình cảm ứng → DANH SÁCH theo ngày, chữ hiện đủ ngay trên dòng.
+// Lý do tách: bản cũ ép lưới 7 cột xuống điện thoại rồi phải giấu tên gói đi cho vừa ô, còn thông
+// tin phụ thì nằm hết trong tooltip hover — mà màn cảm ứng không có hover. Thợ chụp ảnh tại máy
+// bằng điện thoại nên đây là màn họ mở nhiều nhất.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/useAuth";
 import { Icon } from "../components/Icons";
 import {
   kyThuatMay, NHAN_DON_VI_CHU_KY, NHAN_TT_BAO_TRI, type BaoTri, type DuKien,
 } from "../api/kyThuatMay";
+import { BadgeBaoTri, useManHep } from "./KyThuatMayChung";
 
 const THU = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+const THU_DAY_DU = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "Chủ nhật"];
 const MAX_CELL_ITEMS = 3;
+/** Bộ lọc nhớ giữa các lần mở màn — thợ phụ trách mấy máy cố định, bắt chọn lại mỗi lần là phiền. */
+const LOC_KEY = "ktm.lich.loc";
 
 function iso(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -26,20 +38,28 @@ function oCuaThang(nam: number, thang: number): Date[] {
   return o[35].getMonth() === thang || o.slice(35).some((d) => d.getMonth() === thang) ? o : o.slice(0, 35);
 }
 
-// Phân loại nhóm máy từ mã máy (IN-01 -> IN, BE-03 -> BE...)
-function nhomCuaMay(ma: string | null): string {
-  if (!ma) return "KHAC";
-  const prefix = ma.split("-")[0].toUpperCase();
-  return prefix || "KHAC";
+interface BoLoc {
+  tt: Record<string, boolean>;
+  nhom: string;
+  may: string;      // "all" | id máy dạng chuỗi
 }
 
-const TEN_NHOM_MAY: Record<string, string> = {
-  IN: "Máy in",
-  BE: "Máy bế",
-  CM: "Máy cán",
-  BOI: "Máy bồi",
-  DAO: "Máy cắt",
+const LOC_MAC_DINH: BoLoc = {
+  tt: { cho_thuc_hien: true, hoan_thanh: true, qua_han: true, du_kien: true },
+  nhom: "all",
+  may: "all",
 };
+
+function docLoc(): BoLoc {
+  try {
+    const raw = localStorage.getItem(LOC_KEY);
+    if (!raw) return LOC_MAC_DINH;
+    const v = JSON.parse(raw) as Partial<BoLoc>;
+    return { ...LOC_MAC_DINH, ...v, tt: { ...LOC_MAC_DINH.tt, ...(v.tt ?? {}) } };
+  } catch {
+    return LOC_MAC_DINH;   // localStorage hỏng/không có thì chạy như lần đầu, đừng để vỡ màn
+  }
+}
 
 interface TooltipInfo {
   item: BaoTri | DuKien;
@@ -56,22 +76,19 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
   nap: number;
 }) {
   const { token } = useAuth();
+  const cham = useManHep();
   const [phieu, setPhieu] = useState<BaoTri[]>([]);
   const [duKien, setDuKien] = useState<DuKien[]>([]);
   const [loading, setLoading] = useState(true);
   const [loi, setLoi] = useState<string | null>(null);
 
-  // Bộ lọc tương tác
-  const [trangThaiLoc, setTrangThaiLoc] = useState<Record<string, boolean>>({
-    cho_thuc_hien: true,
-    hoan_thanh: true,
-    qua_han: true,
-    du_kien: true,
-  });
-  const [nhomMayLoc, setNhomMayLoc] = useState<string>("all");
+  const [loc, setLoc] = useState<BoLoc>(docLoc);
+  useEffect(() => {
+    try { localStorage.setItem(LOC_KEY, JSON.stringify(loc)); } catch { /* riêng tư/đầy: bỏ qua */ }
+  }, [loc]);
 
   // State cho Popover xem chi tiết ngày & Tooltip
-  const [xemNgay, setXemNgay] = useState<{ key: string; phieu: BaoTri[]; duKien: DuKien[] } | null>(null);
+  const [xemNgay, setXemNgay] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<TooltipInfo | null>(null);
 
   const o = useMemo(() => oCuaThang(thang.getFullYear(), thang.getMonth()), [thang]);
@@ -89,13 +106,29 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
 
   useEffect(load, [load, nap]);
 
-  // Tìm danh sách nhóm máy thực tế từ dữ liệu
-  const dsNhomMay = useMemo(() => {
+  // Nhóm máy lấy từ DANH MỤC (`may_loai` backend trả kèm), không đoán từ tiền tố mã: máy đặt mã
+  // kiểu khác — "MAY-BE-01" — từng rơi hết vào một rổ "Nhóm KHAC" mà không ai hiểu vì sao.
+  const dsNhom = useMemo(() => {
     const set = new Set<string>();
-    for (const p of phieu) if (p.may_ma) set.add(nhomCuaMay(p.may_ma));
-    for (const d of duKien) if (d.may_ma) set.add(nhomCuaMay(d.may_ma));
-    return Array.from(set);
+    for (const p of phieu) if (p.may_loai) set.add(p.may_loai);
+    for (const d of duKien) if (d.may_loai) set.add(d.may_loai);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "vi"));
   }, [phieu, duKien]);
+
+  // Danh sách máy CÓ việc trong tháng đang xem — chọn giữa 40 máy mà 35 cái không có việc thì ô
+  // chọn chỉ tổ dài.
+  const dsMay = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const p of phieu) if (p.may_ma) m.set(p.may_id, p.may_ma);
+    for (const d of duKien) if (d.may_ma) m.set(d.may_id, d.may_ma);
+    return Array.from(m, ([id, ma]) => ({ id, ma })).sort((a, b) => a.ma.localeCompare(b.ma));
+  }, [phieu, duKien]);
+
+  const hopLoc = useCallback((mayId: number, mayLoai: string | null) => {
+    if (loc.nhom !== "all" && mayLoai !== loc.nhom) return false;
+    if (loc.may !== "all" && String(mayId) !== loc.may) return false;
+    return true;
+  }, [loc]);
 
   // Lọc + gom theo ngày
   const theoNgay = useMemo(() => {
@@ -107,31 +140,34 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
     };
 
     for (const p of phieu) {
-      const isQua = p.qua_han;
-      const ttKey = isQua ? "qua_han" : p.trang_thai;
-      if (!trangThaiLoc[ttKey]) continue;
-      if (nhomMayLoc !== "all" && nhomCuaMay(p.may_ma) !== nhomMayLoc) continue;
+      const ttKey = p.qua_han ? "qua_han" : p.trang_thai;
+      if (!loc.tt[ttKey]) continue;
+      if (!hopLoc(p.may_id, p.may_loai)) continue;
       lay(p.ngay_ke_hoach.slice(0, 10)).phieu.push(p);
     }
 
-    if (trangThaiLoc.du_kien) {
+    if (loc.tt.du_kien) {
       for (const d of duKien) {
-        if (nhomMayLoc !== "all" && nhomCuaMay(d.may_ma) !== nhomMayLoc) continue;
+        if (!hopLoc(d.may_id, d.may_loai)) continue;
         lay(d.ngay.slice(0, 10)).du_kien.push(d);
       }
     }
 
     return m;
-  }, [phieu, duKien, trangThaiLoc, nhomMayLoc]);
+  }, [phieu, duKien, loc, hopLoc]);
+
+  const dangLoc = loc.nhom !== "all" || loc.may !== "all"
+    || Object.keys(LOC_MAC_DINH.tt).some((k) => !loc.tt[k]);
 
   const homNayIso = iso(new Date());
   const nhanThang = thang.toLocaleDateString("vi-VN", { month: "long", year: "numeric" });
+  const ngayXem = xemNgay ? (theoNgay.get(xemNgay) ?? { phieu: [], du_kien: [] }) : null;
 
-  const toggleTrangThai = (k: string) => {
-    setTrangThaiLoc((prev) => ({ ...prev, [k]: !prev[k] }));
-  };
+  const toggleTrangThai = (k: string) =>
+    setLoc((v) => ({ ...v, tt: { ...v.tt, [k]: !v.tt[k] } }));
 
-  const handleMouseEnter = (e: React.MouseEvent, item: BaoTri | DuKien, isDuKien: boolean) => {
+  const handleMouseEnter = (e: React.MouseEvent | React.FocusEvent, item: BaoTri | DuKien, isDuKien: boolean) => {
+    if (cham) return;                       // màn cảm ứng: chữ đã hiện đủ trên dòng, khỏi tooltip
     const rect = e.currentTarget.getBoundingClientRect();
     setTooltip({
       item,
@@ -141,64 +177,72 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
     });
   };
 
-  const handleMouseLeave = () => {
-    setTooltip(null);
-  };
+  const handleMouseLeave = () => setTooltip(null);
+
+  // Danh sách theo ngày (bản cảm ứng): chỉ ngày CÓ việc, trong đúng tháng đang xem.
+  const dongTheoNgay = useMemo(() => {
+    if (!cham) return [];
+    return o
+      .filter((d) => d.getMonth() === thang.getMonth())
+      .map((d) => ({ d, key: iso(d), muc: theoNgay.get(iso(d)) }))
+      .filter((r) => (r.muc?.phieu.length ?? 0) + (r.muc?.du_kien.length ?? 0) > 0);
+  }, [cham, o, thang, theoNgay]);
 
   return (
     <section className="ktm-lich">
-      {/* Dynamic Filter Toolbar */}
+      {/* Thanh lọc: nhóm máy (danh mục) · máy cụ thể · chú giải bấm được để bật/tắt */}
       <div className="ktm-lich__bar">
         <div className="ktm-lich__nhom-may" role="group" aria-label="Lọc theo nhóm máy">
           <button
             type="button"
-            className={`ktm-nhom-chip${nhomMayLoc === "all" ? " is-active" : ""}`}
-            onClick={() => setNhomMayLoc("all")}
+            className={`ktm-nhom-chip${loc.nhom === "all" ? " is-active" : ""}`}
+            aria-pressed={loc.nhom === "all"}
+            onClick={() => setLoc((v) => ({ ...v, nhom: "all" }))}
           >
-            Tất cả máy
+            Tất cả nhóm
           </button>
-          {dsNhomMay.map((nhom) => (
+          {dsNhom.map((nhom) => (
             <button
               key={nhom}
               type="button"
-              className={`ktm-nhom-chip${nhomMayLoc === nhom ? " is-active" : ""}`}
-              onClick={() => setNhomMayLoc(nhom)}
+              className={`ktm-nhom-chip${loc.nhom === nhom ? " is-active" : ""}`}
+              aria-pressed={loc.nhom === nhom}
+              onClick={() => setLoc((v) => ({ ...v, nhom }))}
             >
-              {TEN_NHOM_MAY[nhom] ?? `Nhóm ${nhom}`}
+              {nhom}
             </button>
           ))}
+          {dsMay.length > 1 && (
+            <select
+              className="rc-input ktm-lich__may-loc"
+              value={loc.may}
+              aria-label="Lọc theo máy"
+              onChange={(e) => setLoc((v) => ({ ...v, may: e.target.value }))}
+            >
+              <option value="all">Mọi máy có việc ({dsMay.length})</option>
+              {dsMay.map((m) => <option key={m.id} value={String(m.id)}>{m.ma}</option>)}
+            </select>
+          )}
         </div>
 
-        {/* Chú giải tương tác (Click để bật/tắt lọc) */}
+        {/* Chú giải tương tác (bấm để bật/tắt lọc) */}
         <div className="ktm-lich__chu-giai">
-          <button
-            type="button"
-            className={`ktm-cg-btn${trangThaiLoc.cho_thuc_hien ? " is-active" : " is-off"}`}
-            onClick={() => toggleTrangThai("cho_thuc_hien")}
-          >
-            <i className="ktm-cham ktm-cham--cho" /> Chờ làm
-          </button>
-          <button
-            type="button"
-            className={`ktm-cg-btn${trangThaiLoc.hoan_thanh ? " is-active" : " is-off"}`}
-            onClick={() => toggleTrangThai("hoan_thanh")}
-          >
-            <i className="ktm-cham ktm-cham--xong" /> Hoàn thành
-          </button>
-          <button
-            type="button"
-            className={`ktm-cg-btn${trangThaiLoc.qua_han ? " is-active" : " is-off"}`}
-            onClick={() => toggleTrangThai("qua_han")}
-          >
-            <i className="ktm-cham ktm-cham--qua" /> Quá hạn
-          </button>
-          <button
-            type="button"
-            className={`ktm-cg-btn${trangThaiLoc.du_kien ? " is-active" : " is-off"}`}
-            onClick={() => toggleTrangThai("du_kien")}
-          >
-            <i className="ktm-cham ktm-cham--du-kien" /> Dự kiến
-          </button>
+          {([
+            ["cho_thuc_hien", "cho", "Chờ làm"],
+            ["hoan_thanh", "xong", "Hoàn thành"],
+            ["qua_han", "qua", "Quá hạn"],
+            ["du_kien", "du-kien", "Dự kiến"],
+          ] as const).map(([key, mau, nhan]) => (
+            <button
+              key={key}
+              type="button"
+              className={`ktm-cg-btn${loc.tt[key] ? " is-active" : " is-off"}`}
+              aria-pressed={loc.tt[key]}
+              onClick={() => toggleTrangThai(key)}
+            >
+              <i className={`ktm-cham ktm-cham--${mau}`} /> {nhan}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -220,6 +264,61 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
 
       {loi && <div className="banner banner--error" style={{ marginBottom: "var(--sp-3)" }}>{loi}</div>}
 
+      {cham ? (
+        <div className={`ktm-agenda${loading ? " is-loading" : ""}`}>
+          {dongTheoNgay.length === 0 ? (
+            <div className="ktm-agenda__rong">
+              <p>{loading ? "Đang tải lịch…" : "Tháng này không có việc bảo trì nào khớp bộ lọc."}</p>
+              {/* Tắt hết chú giải là màn trắng trơn — phải có đường ra ngay tại chỗ, đừng bắt người
+                  ta tự đoán mình vừa tắt cái gì ở thanh trên. */}
+              {!loading && dangLoc && (
+                <button type="button" className="btn btn--ghost" onClick={() => setLoc(LOC_MAC_DINH)}>
+                  Xoá bộ lọc
+                </button>
+              )}
+            </div>
+          ) : dongTheoNgay.map(({ d, key, muc }) => (
+            <div key={key} className={`ktm-agenda__ngay${key === homNayIso ? " is-homnay" : ""}`}>
+              <div className="ktm-agenda__dau">
+                <span className="ktm-agenda__so">{d.getDate()}/{d.getMonth() + 1}</span>
+                <span className="ktm-agenda__thu">{THU_DAY_DU[(d.getDay() + 6) % 7]}</span>
+                {key === homNayIso && <span className="ktm-lich__today-pill">Hôm nay</span>}
+              </div>
+              <div className="ktm-agenda__ds">
+                {(muc?.phieu ?? []).map((p) => (
+                  <button key={`p-${p.id}`} type="button"
+                    className={`ktm-agenda__muc ktm-agenda__muc--${p.qua_han ? "qua" : p.trang_thai}`}
+                    onClick={() => onMoPhieu(p)}>
+                    <span className="ktm-agenda__muc-dau">
+                      <span className="ktm-may-badge">{p.may_ma}</span>
+                      <span className="ktm-agenda__ma">{p.ma}</span>
+                    </span>
+                    <strong className="ktm-agenda__ten">{p.goi_ten ?? "Bảo trì"}</strong>
+                    <span className="ktm-agenda__meta">
+                      {p.qua_han ? "Quá hạn" : NHAN_TT_BAO_TRI[p.trang_thai]}
+                      {(p.hang_muc?.length ?? 0) > 0 &&
+                        ` · ${(p.hang_muc ?? []).filter((h) => h.xong || h.bo_qua).length}/${p.hang_muc?.length} việc`}
+                      {` · ${p.so_anh} ảnh`}
+                    </span>
+                  </button>
+                ))}
+                {(muc?.du_kien ?? []).map((dk, i) => (
+                  <button key={`d-${dk.may_id}-${dk.goi_id ?? i}`} type="button"
+                    className="ktm-agenda__muc ktm-agenda__muc--du-kien"
+                    onClick={() => onTaoTuDuKien(dk)}>
+                    <span className="ktm-agenda__muc-dau">
+                      <span className="ktm-may-badge">{dk.may_ma}</span>
+                      <span className="ktm-agenda__ma">Dự kiến</span>
+                    </span>
+                    <strong className="ktm-agenda__ten">{dk.goi_ten ?? "Bảo trì định kỳ"}</strong>
+                    <span className="ktm-agenda__meta">Bấm để lập phiếu</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
       <div className={`ktm-lich__luoi${loading ? " is-loading" : ""}`}>
         {THU.map((t) => <div key={t} className="ktm-lich__thu">{t}</div>)}
         {o.map((d) => {
@@ -240,7 +339,7 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
           return (
             <div key={key}
               className={`ktm-lich__o${trongThang ? "" : " is-ngoai"}${homNay ? " is-homnay" : ""}`}>
-              <div className="ktm-lich__o-head" onClick={() => tongSo > 0 && setXemNgay({ key, phieu: dsPhieu, duKien: dsDuKien })}>
+              <div className="ktm-lich__o-head" onClick={() => tongSo > 0 && setXemNgay(key)}>
                 <span className="ktm-lich__ngay">{d.getDate()}</span>
                 {homNay && <span className="ktm-lich__today-pill">Hôm nay</span>}
               </div>
@@ -251,6 +350,8 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
                     className={`ktm-card ktm-card--${p.qua_han ? "qua" : p.trang_thai}`}
                     onMouseEnter={(e) => handleMouseEnter(e, p, false)}
                     onMouseLeave={handleMouseLeave}
+                    onFocus={(e) => handleMouseEnter(e, p, false)}
+                    onBlur={handleMouseLeave}
                     onClick={() => onMoPhieu(p)}>
                     <span className="ktm-card__badge">{p.may_ma}</span>
                     <span className="ktm-card__ten">{p.goi_ten ?? "Bảo trì"}</span>
@@ -262,6 +363,8 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
                     className="ktm-card ktm-card--du-kien"
                     onMouseEnter={(e) => handleMouseEnter(e, dk, true)}
                     onMouseLeave={handleMouseLeave}
+                    onFocus={(e) => handleMouseEnter(e, dk, true)}
+                    onBlur={handleMouseLeave}
                     onClick={() => onTaoTuDuKien(dk)}>
                     <span className="ktm-card__badge">{dk.may_ma}</span>
                     <span className="ktm-card__ten">{dk.goi_ten ?? "Bảo trì"}</span>
@@ -272,7 +375,7 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
                   <button
                     type="button"
                     className="ktm-card__more"
-                    onClick={() => setXemNgay({ key, phieu: dsPhieu, duKien: dsDuKien })}
+                    onClick={() => setXemNgay(key)}
                   >
                     + {soConDuyet} phiếu khác
                   </button>
@@ -282,11 +385,13 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
           );
         })}
       </div>
+      )}
 
-      {/* Floating Rich Tooltip */}
+      {/* Thẻ thông tin nổi (chỉ máy tính có chuột) */}
       {tooltip && (
         <div
           className="ktm-tooltip"
+          role="tooltip"
           style={{ left: `${tooltip.x}px`, top: `${tooltip.y}px` }}
         >
           {tooltip.isDuKien ? (
@@ -297,17 +402,20 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
         </div>
       )}
 
-      {/* Day Summary Popover Modal */}
-      {xemNgay && (
+      {/* Popover tóm tắt một ngày. Đọc thẳng từ `theoNgay` nên tạo/sửa phiếu xong là nội dung
+          trong này cũng mới theo — chụp lại mảng lúc bấm thì nó đứng im ở bản cũ. */}
+      {xemNgay && ngayXem && (
         <div className="ktm-popover-overlay" onClick={() => setXemNgay(null)}>
           <div className="ktm-popover" onClick={(e) => e.stopPropagation()}>
             <div className="ktm-popover__head">
               <div>
                 <div className="ktm-popover__date-row">
                   <Icon name="calendar" size={16} />
-                  <h3 className="ktm-popover__title">{fmtNgayFull(xemNgay.key)}</h3>
+                  <h3 className="ktm-popover__title">{fmtNgayFull(xemNgay)}</h3>
                 </div>
-                <span className="ktm-popover__sub">{xemNgay.phieu.length + xemNgay.duKien.length} lịch bảo trì trong ngày</span>
+                <span className="ktm-popover__sub">
+                  {ngayXem.phieu.length + ngayXem.du_kien.length} lịch bảo trì trong ngày
+                </span>
               </div>
               <button type="button" className="ktm-popover__close" onClick={() => setXemNgay(null)}>
                 <Icon name="x" size={18} />
@@ -315,11 +423,11 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
             </div>
 
             <div className="ktm-popover__body">
-              {xemNgay.phieu.length > 0 && (
+              {ngayXem.phieu.length > 0 && (
                 <div className="ktm-popover__sec">
-                  <div className="ktm-popover__label">Phiếu Bảo Trì ({xemNgay.phieu.length})</div>
-                  {xemNgay.phieu.map((p) => {
-                    const xong = (p.hang_muc ?? []).filter((h) => h.xong).length;
+                  <div className="ktm-popover__label">Phiếu bảo trì ({ngayXem.phieu.length})</div>
+                  {ngayXem.phieu.map((p) => {
+                    const xong = (p.hang_muc ?? []).filter((h) => h.xong || h.bo_qua).length;
                     const tong = (p.hang_muc ?? []).length;
                     const pct = tong > 0 ? Math.round((xong / tong) * 100) : 0;
                     const isQua = p.qua_han;
@@ -332,15 +440,7 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
                       >
                         <div className="ktm-popover-item__head">
                           <span className="ktm-popover-item__ma">{p.ma}</span>
-                          <span className={`ktm-badge ktm-badge--tt-${isQua ? "qua_han" : p.trang_thai}`}>
-                            {isQua ? (
-                              <><Icon name="alert" size={12} /> Quá hạn</>
-                            ) : p.trang_thai === "hoan_thanh" ? (
-                              <><Icon name="check" size={12} /> Hoàn thành</>
-                            ) : (
-                              <><Icon name="clock" size={12} /> Chờ thực hiện</>
-                            )}
-                          </span>
+                          <BadgeBaoTri trangThai={p.trang_thai} quaHan={isQua} />
                         </div>
 
                         <div className="ktm-popover-item__title">
@@ -366,10 +466,10 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
                 </div>
               )}
 
-              {xemNgay.duKien.length > 0 && (
+              {ngayXem.du_kien.length > 0 && (
                 <div className="ktm-popover__sec">
-                  <div className="ktm-popover__label">Dự Kiến Chu Kỳ ({xemNgay.duKien.length})</div>
-                  {xemNgay.duKien.map((dk, i) => (
+                  <div className="ktm-popover__label">Dự kiến theo chu kỳ ({ngayXem.du_kien.length})</div>
+                  {ngayXem.du_kien.map((dk, i) => (
                     <div
                       key={i}
                       className="ktm-popover-item ktm-popover-item--du-kien"
@@ -403,16 +503,15 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
 
 function RichPhieuTooltip({ item }: { item: BaoTri }) {
   const isQua = item.qua_han;
-  const hangMucXong = (item.hang_muc ?? []).filter((h) => h.xong).length;
+  const hangMucXong = (item.hang_muc ?? []).filter((h) => h.xong || h.bo_qua).length;
   const hangMucTong = (item.hang_muc ?? []).length;
 
   return (
     <div className="ktm-tt">
       <div className="ktm-tt__head">
         <span className="ktm-tt__code">{item.ma}</span>
-        <span className={`ktm-badge ktm-badge--tt-${isQua ? "qua_han" : item.trang_thai}`}>
-          {isQua ? "Quá hạn" : NHAN_TT_BAO_TRI[item.trang_thai]}
-        </span>
+        {/* `gonNhe`: trong tooltip hẹp thì bỏ icon, giữ nguyên màu + chữ. */}
+        <BadgeBaoTri trangThai={item.trang_thai} quaHan={isQua} gonNhe />
       </div>
       <div className="ktm-tt__title">
         <span className="ktm-tt__may">{item.may_ma}</span>
@@ -436,7 +535,7 @@ function RichPhieuTooltip({ item }: { item: BaoTri }) {
           <span className="ktm-tt__lbl">Ảnh chứng thực:</span> {item.so_anh > 0 ? `${item.so_anh} ảnh` : "Chưa có"}
         </div>
       </div>
-      <div className="ktm-tt__foot">Click để xem & cập nhật phiếu</div>
+      <div className="ktm-tt__foot">Bấm để xem &amp; cập nhật phiếu</div>
     </div>
   );
 }
@@ -467,4 +566,3 @@ function RichDuKienTooltip({ item }: { item: DuKien }) {
     </div>
   );
 }
-

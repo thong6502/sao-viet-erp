@@ -63,10 +63,10 @@ from ..services.dong_giay import (
 )
 from ..models.don_vi_do import DonViDo
 from ..services.bien_cong_thuc import ngu_canh_lenh, quy_cach_bien
-from ..services.don_vi_do_service import cong_thuc_chu
+from ..services.don_vi_do_service import cong_thuc_chu, cong_thuc_the_so
 from ..services.piece_work_service import dau_viec_khop, khoan_snapshot
 from ..services.quy_doi_service import (
-    _so as _so_vn, bien_trong, cum_tinh, doi_theo_quy_cach, don_vi_map, tien_khoan,
+    _so as _so_vn, _tien, bien_trong, cum_tinh, doi_theo_quy_cach, don_vi_map, tien_khoan,
 )
 from ..services.thanh_phan_engine import safe_eval
 from ..services.thanh_phan_engine import cau_to_sang_cai, chua_theo_chieu, compute_phieu
@@ -803,20 +803,35 @@ class LsxService:
             return None
         if gt <= 0:
             return None
+        gt_goc, buoc_muon = gt, ""     # `gt_goc` = số theo đơn vị CHỦ, trước khi đổi
         if chu != ma_khoan:
-            # Công thức MƯỢN của đơn vị khác trong cụm ⇒ đổi tiếp về đơn vị đơn giá.
+            # Công thức MƯỢN của đơn vị khác trong cụm ⇒ đổi tiếp về đơn vị đơn giá. Bước đổi này
+            # PHƠI RA trong diễn giải: người đọc thấy "35.000 kg → 35 tấn" mới kiểm được số, chứ
+            # nhảy thẳng sang tấn thì công thức khai ở kg trông như tính sai 1.000 lần.
             kq = doi_theo_quy_cach(gt, chu, ma_khoan, quy_cach or {},
                                    self._don_vis(), self._cap_quy_doi())
             if "gia_tri" not in kq:
                 return None
+            ten_chu = (self._don_vis().get(chu) or {}).get("ten") or chu
+            buoc_muon = f"{_so_vn(gt)} {ten_chu} → "
             gt = float(kq["gia_tri"])
         don_gia = _f(kh.get("don_gia"))
+        tien = round(gt * don_gia)
+        dv = kh.get("don_vi")
+        # Chặng THẾ SỐ ("175 × 200") nằm giữa công thức chữ và kết quả — bỏ nó thì người xem
+        # không dò ra máy lấy 175 ở đâu. Công thức MỘT biến thì chặng này trùng luôn kết quả
+        # ("SL ra = 175 = 175 cuốn"), bỏ đi cho khỏi lặp.
+        the_so = cong_thuc_the_so(ct, ctx)
+        buoc_the = "" if the_so == _so_vn(gt_goc) else f"{the_so} = "
         return {
             "khoan_sl": round(gt, 4),
-            "khoan_don_vi_sl": kh.get("don_vi"),
-            "khoan_tien": round(gt * don_gia),
+            "khoan_don_vi_sl": dv,
+            "khoan_tien": tien,
+            # Cùng giọng với đường MỘT (`tien_khoan`): kết thúc bằng SỐ TIỀN. Câu cũ dừng ở
+            # "× 600 đ" nên người xem phải tự nhân — đúng thứ diễn giải sinh ra để khỏi phải làm.
             "khoan_dien_giai": (
-                f"{cong_thuc_chu(ct)} = {gt:g} {kh.get('don_vi')} × {_so_vn(don_gia)} đ"
+                f"{cong_thuc_chu(ct)} = {buoc_the}{buoc_muon}{_so_vn(gt)} {dv}"
+                f" × {_tien(don_gia)} đ/{dv} = {_tien(tien)} đ"
             ),
         }
 

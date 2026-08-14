@@ -1,8 +1,9 @@
 // API — Kỹ thuật máy (Sửa chữa máy + Phiếu bảo trì). Dùng chung `authed` của client.ts.
 //
 // Chu kỳ bảo trì KHÔNG khai ở màn này: nguồn là gói trong `may_thiet_bi.fields_theo_loai
-// .lich_bao_tri` (tab "Lịch bảo trì" màn Thiết bị). `sinhTuLich()` đọc chính chỗ đó rồi đẻ phiếu
-// cho gói đã tới hạn.
+// .lich_bao_tri` (tab "Lịch bảo trì" màn Thiết bị). Phiếu định kỳ ra đời bằng HAI đường: ticker nền
+// tự sinh khi tới hạn, hoặc người dùng bấm một ô KỲ DỰ KIẾN trên màn Lịch (`lich()` +
+// `createBaoTri` kèm `goi_id`). Không có đường đẻ hàng loạt.
 import { authed } from "./client";
 
 export type LoaiPhieu = "sua_chua" | "bao_tri";
@@ -56,6 +57,9 @@ export interface HangMuc {
   id?: string | null;
   ten: string;
   xong: boolean;
+  /** "Không áp dụng lần này" — mở cửa đóng phiếu mà không phải tick dối, BẮT BUỘC kèm lý do. */
+  bo_qua?: boolean;
+  ly_do_bo_qua?: string | null;
 }
 
 export interface BaoTri {
@@ -71,7 +75,8 @@ export interface BaoTri {
   ngay_ke_hoach_goc: string | null;
   ly_do_doi: string | null;
   hang_muc: HangMuc[] | null;
-  /** Người NHẬN việc — backend gán từ tài khoản bấm "Đang thực hiện", FE không gửi lên. */
+  /** NGƯỜI LÀM — backend gán từ tài khoản bấm "Xác nhận đã bảo trì xong" (không có bước nhận việc
+   *  riêng, phiếu chưa xong không mang tên ai). FE không gửi lên. */
   nguoi_thuc_hien_id: number | null;
   nguoi_thuc_hien: string | null;
   trang_thai: string;
@@ -80,6 +85,8 @@ export interface BaoTri {
   // dẫn xuất
   may_ma: string | null;
   may_ten: string | null;
+  /** Nhóm máy trong danh mục (`may_thiet_bi.loai_may`) — màn Lịch lọc theo cái này. */
+  may_loai: string | null;
   so_anh: number;
   co_anh_sau: boolean;
   qua_han: boolean;
@@ -91,7 +98,9 @@ export interface PhieuListOut<T> {
   total: number;
   page: number;
   size: number;
-  /** {trang_thai: số phiếu} trên TOÀN BỘ bảng — số trên dãy tab, không phải đếm trang hiện tại. */
+  /** Số cho dãy tab, đếm Ở DB theo ĐÚNG bộ lọc đang xem (trừ trạng thái) — không phải đếm trang
+   *  hiện tại, cũng không phải đếm cả bảng. Riêng bảo trì có thêm 3 khoá dẫn xuất theo ngày:
+   *  `qua_han` · `den_hom_nay` · `tuan_nay`. */
   dem: Record<string, number>;
 }
 
@@ -116,6 +125,7 @@ export interface DuKien {
   may_id: number;
   may_ma: string;
   may_ten: string | null;
+  may_loai: string | null;
   goi_id: string | null;
   goi_ten: string | null;
   ngay: string;
@@ -132,7 +142,8 @@ export interface HanGoi {
   goi_id: string | null;
   goi_ten: string | null;
   han: string | null;
-  /** phieu | ngay_bat_dau | chua_co_moc | thieu_chu_ky — để nói rõ hạn này tính từ đâu. */
+  /** phieu | ngay_bat_dau | thieu_chu_ky | thieu_ngay_bat_dau — nói rõ hạn tính từ đâu, hoặc vì
+   *  sao KHÔNG tính được (hai lý do là hai ô khác nhau trên form Máy). */
   nguon: string;
   phieu_dang_mo_id: number | null;
 }
@@ -155,6 +166,11 @@ export const kyThuatMay = {
   listSuaChua(token: string, params: Record<string, unknown> = {}): Promise<PhieuListOut<SuaChua>> {
     return authed<PhieuListOut<SuaChua>>(`${P}/sua-chua${qs({ size: 20, ...params })}`, token);
   },
+  /** MỘT phiếu. Dùng để nạp lại phiếu đang mở trong drawer — kéo cả danh sách rồi `find` thì phiếu
+   *  nằm ngoài trang 1 sẽ không tìm thấy, và cờ `co_anh_sau` đứng im dù ảnh đã tải lên. */
+  getSuaChua(token: string, id: number): Promise<SuaChua> {
+    return authed<SuaChua>(`${P}/sua-chua/${id}`, token);
+  },
   createSuaChua(token: string, body: Record<string, unknown>): Promise<SuaChua> {
     return authed<SuaChua>(`${P}/sua-chua`, token, { method: "POST", body: JSON.stringify(body) });
   },
@@ -174,15 +190,23 @@ export const kyThuatMay = {
   listBaoTri(token: string, params: Record<string, unknown> = {}): Promise<PhieuListOut<BaoTri>> {
     return authed<PhieuListOut<BaoTri>>(`${P}/bao-tri${qs({ size: 20, ...params })}`, token);
   },
+  /** MỘT phiếu — xem ghi chú ở `getSuaChua`. */
+  getBaoTri(token: string, id: number): Promise<BaoTri> {
+    return authed<BaoTri>(`${P}/bao-tri/${id}`, token);
+  },
   createBaoTri(token: string, body: Record<string, unknown>): Promise<BaoTri> {
     return authed<BaoTri>(`${P}/bao-tri`, token, { method: "POST", body: JSON.stringify(body) });
   },
   updateBaoTri(token: string, id: number, body: Record<string, unknown>): Promise<BaoTri> {
     return authed<BaoTri>(`${P}/bao-tri/${id}`, token, { method: "PUT", body: JSON.stringify(body) });
   },
-  tickHangMuc(token: string, id: number, hang_muc_id: string, xong: boolean): Promise<BaoTri> {
+  /** Tick một việc con. `bo_qua` = đánh "không áp dụng lần này" (bắt buộc `ly_do` — service chặn). */
+  tickHangMuc(
+    token: string, id: number, hang_muc_id: string, xong: boolean,
+    them?: { bo_qua?: boolean; ly_do?: string },
+  ): Promise<BaoTri> {
     return authed<BaoTri>(`${P}/bao-tri/${id}/hang-muc`, token, {
-      method: "POST", body: JSON.stringify({ hang_muc_id, xong }),
+      method: "POST", body: JSON.stringify({ hang_muc_id, xong, ...(them ?? {}) }),
     });
   },
   doiLich(token: string, id: number, ngay_moi: string, ly_do: string): Promise<BaoTri> {
