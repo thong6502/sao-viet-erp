@@ -1473,6 +1473,46 @@ def test_cong_thuc_luong_khai_o_kg_thi_TAN_dung_chung(db, orders, lsx_svc, admin
     assert v.don_vi_snapshot == "tan"
 
 
+def test_khoan_khong_co_cau_quy_doi_thi_doc_CONG_THUC_cua_don_vi_don_gia(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Không có cầu `tay → cuốn` ⇒ đọc công thức của đơn vị ĐƠN GIÁ, công thức dùng `sl_ra`.
+
+    Ca thật ở xưởng: "Bắt tay + vào keo" bước đếm `tay`, khoán đ/`cuốn`. `tay` không nối với
+    `cuốn` trong bảng cặp (cầu tay→cái nằm ở code `_he_so_cau`, không phải cặp khai) nên đầu việc
+    này CHƯA BAO GIỜ tính được tiền — đo 14/08/2026: 1/10 đầu việc câm dù đã đủ cặp.
+
+    Khai `cuốn := sl_ra` là xong: bước ra bao nhiêu cuốn thì trả bấy nhiêu.
+    """
+    from app.models.don_vi_do import DonViDo
+
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    # Bước đếm `tay` — đơn vị KHÔNG nối với `cuon` bằng cặp nào.
+    cd_dan.don_vi_vao = "tay"
+    rate = _gan_dinh_muc(db, cong_doan=cd_dan, ten="Bắt tay vào keo", don_vi="cuốn", don_gia=700)
+    cuon = db.query(DonViDo).filter(DonViDo.ma == "cuon").one_or_none()
+    if cuon is None:
+        cuon = DonViDo(ma="cuon", ten="cuốn", ho="thanh_pham")
+        db.add(cuon)
+    cuon.cong_thuc = "sl_ra"
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+    buoc = next(b for b in lsx_svc.detail_dict(lsx)["cong_doans"]
+                if b["cong_doan_id"] == cd_dan.id)
+    assert buoc["khoan_rate_id"] == rate.id
+
+    sl_ra = float(buoc["so_luong_ra"])
+    assert sl_ra > 0
+    assert buoc["khoan_sl"] == pytest.approx(sl_ra, rel=1e-6), "SL khoán = sl_ra qua công thức"
+    assert buoc["khoan_tien"] == round(sl_ra * 700)
+    assert buoc["khoan_ly_do"] is None, "có tiền rồi thì không được kèm lý do tịt"
+
+
 def test_khong_co_bang_khoan_thi_khong_co_tien(db, orders, lsx_svc, admin, customer):
     """Tổ chưa khai giá khoán → mọi bước im lặng, tổng = 0. KHÔNG bịa số nào."""
     ptg = _ptg_2_san_pham(db)

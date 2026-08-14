@@ -66,7 +66,7 @@ from ..services.bien_cong_thuc import ngu_canh_lenh, quy_cach_bien
 from ..services.don_vi_do_service import cong_thuc_chu
 from ..services.piece_work_service import dau_viec_khop, khoan_snapshot
 from ..services.quy_doi_service import (
-    bien_trong, cum_tinh, doi_theo_quy_cach, don_vi_map, tien_khoan,
+    _so as _so_vn, bien_trong, cum_tinh, doi_theo_quy_cach, don_vi_map, tien_khoan,
 )
 from ..services.thanh_phan_engine import safe_eval
 from ..services.thanh_phan_engine import cau_to_sang_cai, chua_theo_chieu, compute_phieu
@@ -778,6 +778,48 @@ class LsxService:
             return []
         return self._dau_viec_option_dicts(cd, department_id)
 
+    def _khoan_theo_cong_thuc(self, cd, kh: dict, quy_cach: dict | None) -> dict | None:
+        """Tiền khoán khi KHÔNG có cầu quy đổi — đọc công thức của đơn vị ĐƠN GIÁ KHOÁN.
+
+        Trả None nếu đơn vị đó chưa khai công thức (kể cả mượn trong cụm) ⇒ nơi gọi giữ nguyên câu
+        lý do cũ. KHÔNG đoán.
+
+        Công thức ở đây PHẢI dùng `sl_vao`/`sl_ra`: nó cần ra số của CHÍNH bước này, không phải
+        tổng của lệnh. Công thức chỉ đọc chip lệnh (vd `so_luong`) vẫn chạy, nhưng ra tổng — người
+        khai tự chịu, engine không đoán hộ.
+        """
+        ma_khoan = (self._don_vis().get(str(kh.get("don_vi") or "").strip().lower()) or {}).get("ma")
+        if not ma_khoan:
+            return None
+        lan = self._cach_do_lan(ma_khoan)
+        if not lan:
+            return None
+        ct, chu = lan
+        ctx = {**ngu_canh_lenh(quy_cach or {}),
+               "sl_vao": _f(cd.so_luong_vao), "sl_ra": _f(cd.so_luong_ra)}
+        try:
+            gt = float(safe_eval(ct, dict(ctx)))
+        except (ValueError, ZeroDivisionError):
+            return None
+        if gt <= 0:
+            return None
+        if chu != ma_khoan:
+            # Công thức MƯỢN của đơn vị khác trong cụm ⇒ đổi tiếp về đơn vị đơn giá.
+            kq = doi_theo_quy_cach(gt, chu, ma_khoan, quy_cach or {},
+                                   self._don_vis(), self._cap_quy_doi())
+            if "gia_tri" not in kq:
+                return None
+            gt = float(kq["gia_tri"])
+        don_gia = _f(kh.get("don_gia"))
+        return {
+            "khoan_sl": round(gt, 4),
+            "khoan_don_vi_sl": kh.get("don_vi"),
+            "khoan_tien": round(gt * don_gia),
+            "khoan_dien_giai": (
+                f"{cong_thuc_chu(ct)} = {gt:g} {kh.get('don_vi')} × {_so_vn(don_gia)} đ"
+            ),
+        }
+
     def _khoan_derived(self, cd, quy_cach: dict | None) -> dict:
         """Tiền khoán DỰ KIẾN của bước — tính LÚC ĐỌC, không lưu cột.
 
@@ -799,6 +841,14 @@ class LsxService:
             self._don_vis(), self._cap_quy_doi(),
         )
         if "tien" not in kq:
+            # ĐƯỜNG HAI (14/08/2026): không có cầu quy đổi thì đọc CÔNG THỨC của đơn vị đơn giá
+            # khoán — công thức đó dùng chip `sl_vao`/`sl_ra` nên tự lấy số của CHÍNH bước này.
+            #
+            # Ca thật: "Bắt tay + vào keo" bước đếm `tay`, khoán đ/`cuốn`. `tay` không nối với
+            # `cuốn` trong bảng cặp (cầu tay→cái nằm ở code `_he_so_cau`, không phải cặp khai) nên
+            # đầu việc này CHƯA BAO GIỜ tính được tiền. Khai `cuốn := sl_ra` là xong.
+            if (kq2 := self._khoan_theo_cong_thuc(cd, kh, quy_cach)) is not None:
+                return {**trong, **kq2}
             return {**trong, "khoan_ly_do": kq.get("ly_do"), "khoan_thieu": kq.get("thieu") or []}
         return {
             **trong,
