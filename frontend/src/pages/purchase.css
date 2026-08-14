@@ -1449,6 +1449,17 @@
   min-width: 200px;
 }
 
+.pdot__delivery-lines,
+.acct-deliveries__lines {
+  display: grid;
+  gap: 3px;
+}
+
+.pdot__delivery-lines span,
+.acct-deliveries__lines span {
+  overflow-wrap: anywhere;
+}
+
 .pdot__rowbtns {
   display: flex;
   align-items: center;

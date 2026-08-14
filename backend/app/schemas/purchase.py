@@ -243,6 +243,26 @@ class StatusHistoryOut(BaseModel):
     created_at: datetime
 
 
+class PurchaseActivityOut(BaseModel):
+    """Một mốc trong lịch sử ĐƠN MUA.
+
+    Lịch sử trạng thái chỉ trả lời đơn đã đi từ trạng thái nào sang trạng thái nào. Đợt giao là
+    sự kiện nghiệp vụ riêng: giao thêm một đợt có thể vẫn giữ trạng thái ``Giao một phần`` nhưng
+    người dùng vẫn cần thấy nó trong chi tiết đơn.
+    """
+
+    id: str
+    event_type: str
+    title: str
+    detail: str | None = None
+    actor_name: str | None = None
+    source: str | None = None
+    from_status: str | None = None
+    to_status: str | None = None
+    reason: str | None = None
+    created_at: datetime
+
+
 class PurchaseRequestLineOut(BaseModel):
     id: int
     item_name: str
@@ -280,6 +300,10 @@ class LineFulfilmentOut(BaseModel):
 
 class DepartmentPurchaseRequestLineOut(BaseModel):
     id: int
+    # Form sửa YCMH cần đúng cặp này để nạp lại dropdown ĐVT của chính mặt hàng đã chọn.
+    # Chỉ trả tên + ĐVT sẽ làm ô ĐVT bị khóa dù bản ghi vẫn có đơn vị.
+    hang_loai: str | None = None
+    hang_id: int | None = None
     item_name: str
     unit: str
     quantity: float
@@ -460,6 +484,8 @@ class PurchaseRequestOut(BaseModel):
     content: str | None = None
     reject_reason: str | None = None
     status_history: list[StatusHistoryOut] = Field(default_factory=list)
+    # Timeline này gồm đổi trạng thái VÀ các lần ghi/sửa/xóa đợt giao.
+    activity_history: list[PurchaseActivityOut] = Field(default_factory=list)
     contract_number: str | None = None
     deposit_expected: int = 0
     total_estimate: int

@@ -32,7 +32,7 @@ import { CodeLink } from "../components/CodeLink";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailModal } from "../components/DetailModal";
 import { EmptyRow } from "../components/EmptyState";
-import { StatusHistoryTimeline } from "../components/StatusHistoryTimeline";
+import { PurchaseActivityTimeline } from "../components/PurchaseActivityTimeline";
 import { StatusTabs } from "../components/StatusTabs";
 import { Icon } from "../components/Icons";
 import { RowActionButton } from "../components/RowActionButton";
@@ -2030,9 +2030,9 @@ export function PurchaseRequestsPage({
           />
 
           <p className="eyebrow" style={{ marginTop: 16 }}>
-            Lịch sử trạng thái
+            Lịch sử đơn mua hàng
           </p>
-          <StatusHistoryTimeline items={selected.status_history} />
+          <PurchaseActivityTimeline items={selected.activity_history} />
         </DetailModal>
       )}
 
@@ -2976,7 +2976,7 @@ function DeliveriesBlock({
             <tr>
               <th>Đợt</th>
               <th>Ngày giao</th>
-              <th>Hàng nhận</th>
+              <th>Hàng đã nhận</th>
               <th className="pay-num">Thành tiền</th>
               <th>Hóa đơn</th>
               <th>Hạn trả</th>
@@ -3007,18 +3007,15 @@ function DeliveriesBlock({
                   </td>
                   <td>{fmtDate(dot.delivery_date)}</td>
                   <td>
-                    {/* Thu gọn: 2 mặt hàng đầu + "…và N nữa". Đổ hết ra là bảng cao gấp ba mà
-                        vẫn không ai đọc từng dòng ở đây — chi tiết nằm trong hộp Sửa đợt. */}
-                    {dot.lines
-                      .slice(0, 2)
-                      .map(
-                        (l) =>
-                          `${l.item_name} ${l.quantity.toLocaleString("vi-VN")} ${l.unit}`,
-                      )
-                      .join(", ")}
-                    {dot.lines.length > 2 && (
-                      <small>…và {dot.lines.length - 2} mặt hàng nữa</small>
-                    )}
+                    <div className="pdot__delivery-lines">
+                      {dot.lines.map((line) => (
+                        <span key={line.id}>
+                          <strong>{line.item_name}</strong>
+                          {": "}
+                          {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                        </span>
+                      ))}
+                    </div>
                   </td>
                   <td className="pay-num">
                     <strong>{money(dot.amount)}</strong>

@@ -1049,3 +1049,7 @@
   margin-top: 3px;
   color: var(--ash);
 }
+
+.acct-deliveries__table td:nth-child(3) {
+  min-width: 190px;
+}

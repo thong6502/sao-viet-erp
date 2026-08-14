@@ -271,6 +271,8 @@ export function DepartmentPurchaseRequestsPage({
       needed_date: row.needed_date,
       note: null,
       lines: row.lines.map((line) => ({
+        hang_loai: line.hang_loai,
+        hang_id: line.hang_id,
         item_name: line.item_name,
         unit: line.unit,
         quantity: line.quantity,

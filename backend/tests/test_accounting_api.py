@@ -238,12 +238,12 @@ def test_approve_and_create_cash_voucher_tracks_partial_payment(client):
     assert body["items"][0]["purchase_paid_amount"] == 1_000_000
 
 
-def test_unc_requires_bank_accounts_reference_and_blocks_overpayment(client):
+def test_unc_nhap_truc_tiep_tai_khoan_thu_huong_va_chan_chi_vuot(client):
     headers = _headers(client)
     supplier = _supplier(client, headers)
     purchase, _ = _purchase(client, headers, supplier["id"])
     # `_purchase()` đã duyệt sẵn (bằng tài khoản khác người lập) — duyệt lại là 409.
-    company, beneficiary = _bank_accounts(client, headers, supplier["id"])
+    company, _beneficiary = _bank_accounts(client, headers, supplier["id"])
 
     payload = {
         "purchase_request_id": purchase["id"],
@@ -256,15 +256,30 @@ def test_unc_requires_bank_accounts_reference_and_blocks_overpayment(client):
         "exchange_rate": 1,
         "content": "Chuyển khoản mua giấy",
         "company_bank_account_id": company["id"],
-        "supplier_bank_account_id": beneficiary["id"],
+        # NCC không còn có danh mục tài khoản: thông tin thụ hưởng đi thẳng vào chứng từ.
+        "beneficiary_account_holder": "CÔNG TY GIẤY KẾ TOÁN",
+        "beneficiary_account_number": "987654321",
+        "beneficiary_bank_name": "BIDV",
+        "beneficiary_bank_branch": "Hà Nội",
         "bank_fee_bearer": "payer",
     }
+    missing_beneficiary = client.post(
+        "/api/accounting/payment-vouchers",
+        json={**payload, "beneficiary_account_number": ""},
+        headers=headers,
+    )
+    assert missing_beneficiary.status_code == 422
+    assert "số tài khoản" in missing_beneficiary.json()["detail"]
+
     created = client.post("/api/accounting/payment-vouchers", json=payload, headers=headers)
     assert created.status_code == 201, created.text
     voucher = created.json()
     assert re.fullmatch(r"UNC-\d{6}-[A-Z0-9]{4}", voucher["code"])
     assert voucher["company_account_number"] == "123456789"
     assert voucher["beneficiary_account_number"] == "987654321"
+    assert voucher["beneficiary_account_holder"] == "CÔNG TY GIẤY KẾ TOÁN"
+    assert voucher["beneficiary_bank_name"] == "BIDV"
+    assert voucher["supplier_bank_account_id"] is None
 
     assert voucher["status"] == "paid"
 
@@ -433,7 +448,7 @@ def test_doc_no_shared_counter_across_voucher_types(client):
     headers = _headers(client)
     supplier = _supplier(client, headers)
     purchase, _ = _purchase(client, headers, supplier["id"])
-    company, beneficiary = _bank_accounts(client, headers, supplier["id"])
+    company, _beneficiary = _bank_accounts(client, headers, supplier["id"])
 
     cash = client.post(
         "/api/accounting/payment-vouchers",
@@ -457,7 +472,9 @@ def test_doc_no_shared_counter_across_voucher_types(client):
             "exchange_rate": 1,
             "content": "Chuyển khoản đợt 2",
             "company_bank_account_id": company["id"],
-            "supplier_bank_account_id": beneficiary["id"],
+            "beneficiary_account_holder": "CÔNG TY GIẤY KẾ TOÁN",
+            "beneficiary_account_number": "987654321",
+            "beneficiary_bank_name": "BIDV",
             "bank_fee_bearer": "payer",
         },
         headers=headers,

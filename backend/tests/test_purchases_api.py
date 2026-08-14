@@ -692,6 +692,23 @@ def test_department_purchase_request_update_before_purchase_request(client, auth
     assert body["lines"][0]["quantity"] == 500
 
 
+def test_department_purchase_request_returns_material_reference_for_edit(client, auth_headers):
+    """Form sửa cần cặp mặt hàng gốc để nạp lại đúng dropdown ĐVT."""
+    payload = _department_request_payload()
+    payload["lines"][0].update({"hang_loai": "giay", "hang_id": 123})
+
+    created = client.post(
+        "/api/department-purchase-requests",
+        json=payload,
+        headers=auth_headers,
+    )
+
+    assert created.status_code == 201, created.text
+    line = created.json()["lines"][0]
+    assert line["hang_loai"] == "giay"
+    assert line["hang_id"] == 123
+
+
 def test_department_purchase_request_update_permissions_and_status(client, auth_headers):
     requester_headers = {"Authorization": f"Bearer {_requester_token()}"}
     sales2_headers = {"Authorization": f"Bearer {_sales2_token()}"}
@@ -1763,6 +1780,54 @@ def test_chi_tiet_ycmh_hien_so_da_giao_theo_dot(client, auth_headers):
     ).json()
     ff2 = next(l["fulfilment"] for l in ct2["lines"] if l["fulfilment"] is not None)
     assert ff2["received_quantity"] == 750
+
+
+def test_lich_su_don_mua_co_cac_moc_dot_giao_va_so_luong(client, auth_headers):
+    """Đợt giao không nhất thiết đổi trạng thái, nhưng bắt buộc hiện trong lịch sử Đơn mua."""
+    supplier = _supplier(client, auth_headers)
+    source = _create_department_request(client, auth_headers)
+    payload = _request_payload(supplier["id"])
+    payload["source_request_ids"] = [source["id"]]
+    pr = client.post("/api/purchase-requests", json=payload, headers=auth_headers).json()
+    assert client.post(f"/api/purchase-requests/{pr['id']}/submit", headers=auth_headers).status_code == 200
+    assert client.post(f"/api/purchase-requests/{pr['id']}/approve", headers=_h_duyet()).status_code == 200
+    assert client.post(f"/api/purchase-requests/{pr['id']}/mark-purchased", headers=auth_headers).status_code == 200
+
+    first = client.post(
+        f"/api/purchase-requests/{pr['id']}/deliveries",
+        json={
+            "delivery_date": date.today().isoformat(),
+            "lines": [{"purchase_request_line_id": pr["lines"][0]["id"], "quantity": 400}],
+        },
+        headers=auth_headers,
+    )
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert body["deliveries"][0]["lines"][0]["quantity"] == 400
+    created = next(item for item in body["activity_history"] if item["event_type"] == "delivery_created")
+    assert "Đợt 1" in created["detail"]
+    assert "400" in created["detail"]
+    assert created["actor_name"] == "Admin"
+
+    delivery_id = body["deliveries"][0]["id"]
+    updated = client.put(
+        f"/api/purchase-requests/{pr['id']}/deliveries/{delivery_id}",
+        json={
+            "delivery_date": date.today().isoformat(),
+            "lines": [{"purchase_request_line_id": pr["lines"][0]["id"], "quantity": 450}],
+        },
+        headers=auth_headers,
+    )
+    assert updated.status_code == 200, updated.text
+    assert any(item["event_type"] == "delivery_updated" for item in updated.json()["activity_history"])
+
+    deleted = client.delete(
+        f"/api/purchase-requests/{pr['id']}/deliveries/{delivery_id}", headers=auth_headers
+    )
+    assert deleted.status_code == 200, deleted.text
+    activity = deleted.json()["activity_history"]
+    assert any(item["event_type"] == "delivery_deleted" for item in activity)
+    assert any(item["event_type"] == "status" for item in activity)
 
 
 def test_chi_tiet_ycmh_phieu_khong_co_dot_giao_van_theo_luat_cu(client, auth_headers):
