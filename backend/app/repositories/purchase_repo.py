@@ -279,6 +279,38 @@ class SupplierRepository:
             is not None
         )
 
+    def has_active_item_for_hang(self, hang_loai: str, hang_id: int) -> bool:
+        """Có NCC đang hoạt động khai bán đúng mặt hàng gốc này không."""
+        return (
+            self.db.execute(
+                select(SupplierItem.id)
+                .join(Supplier, Supplier.id == SupplierItem.supplier_id)
+                .where(
+                    Supplier.status == SUPPLIER_ACTIVE,
+                    SupplierItem.is_active.is_(True),
+                    SupplierItem.hang_loai == hang_loai,
+                    SupplierItem.hang_id == int(hang_id),
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            is not None
+        )
+
+    def active_hang_pairs(self) -> set[tuple[str, int]]:
+        """Mặt hàng gốc có ít nhất một dòng bảng giá NCC đang dùng."""
+        rows = self.db.execute(
+            select(SupplierItem.hang_loai, SupplierItem.hang_id)
+            .join(Supplier, Supplier.id == SupplierItem.supplier_id)
+            .where(
+                Supplier.status == SUPPLIER_ACTIVE,
+                SupplierItem.is_active.is_(True),
+                SupplierItem.hang_loai.is_not(None),
+                SupplierItem.hang_id.is_not(None),
+            )
+            .distinct()
+        ).all()
+        return {(str(loai), int(hang_id)) for loai, hang_id in rows}
+
     def supplier_sells(self, supplier_id: int, item_name: str) -> bool:
         """NCC CỤ THỂ này có bán mặt hàng đó không — dùng lúc lập PHIẾU MUA, khi đã chọn NCC.
 

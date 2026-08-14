@@ -8855,9 +8855,15 @@ export const api = {
   /** DANH MỤC GỐC — hai cửa Kho + NCC dùng chung để chọn mặt hàng và chọn đơn vị.
    *  Thay `kho.deNghi.vatTu` cũ (đọc bảng `materials` riêng của kho). */
   matHang: {
-    tim(token: string, q?: string | null, size = 20): Promise<MatHangOption[]> {
+    tim(
+      token: string,
+      q?: string | null,
+      size = 20,
+      chiCoNhaCungCap = false,
+    ): Promise<MatHangOption[]> {
       const qs = new URLSearchParams({ size: String(size) });
       if (q) qs.set("q", q);
+      if (chiCoNhaCungCap) qs.set("chi_co_nha_cung_cap", "true");
       return authed<MatHangOption[]>(`/api/vat-lieu-kho/mat-hang?${qs.toString()}`, token);
     },
     /** Đơn vị gốc + mọi đơn vị đổi được — danh sách TỰ THÍCH NGHI theo từng mặt hàng. */

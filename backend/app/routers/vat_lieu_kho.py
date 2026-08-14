@@ -18,6 +18,7 @@ from ..deps import require_any_permission, require_permission
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
+from ..repositories.purchase_repo import SupplierRepository
 from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..schemas.vat_lieu_kho import (
     ChungLoaiGiayIn, ChungLoaiGiayRow, DonViCuaMatHangOut, GiayGiaVersionIn, GiayGiaVersionRow,
@@ -48,7 +49,7 @@ _DOC_CHUNG = (
 
 def get_service(db: Annotated[Session, Depends(get_db)]) -> VatLieuKhoService:
     return VatLieuKhoService(
-        VatLieuKhoRepository(db), DonViDoRepository(db), AuditLogRepository(db),
+        VatLieuKhoRepository(db), DonViDoRepository(db), AuditLogRepository(db), SupplierRepository(db),
     )
 
 
@@ -140,9 +141,13 @@ def tim_mat_hang(
     _: Annotated[User, Depends(_doc_mat_hang)],
     q: str | None = Query(default=None),
     size: int = Query(default=20, ge=1, le=50),
+    chi_co_nha_cung_cap: bool = Query(default=False),
 ) -> list[MatHangRow]:
     """Tìm gộp Giấy + Vật tư khác. Thay `GET /api/kho/de-nghi/vat-tu` (đọc bảng `materials` cũ)."""
-    return [MatHangRow(**r) for r in svc.tim_mat_hang(q=q, size=size)]
+    return [
+        MatHangRow(**r)
+        for r in svc.tim_mat_hang(q=q, size=size, chi_co_nha_cung_cap=chi_co_nha_cung_cap)
+    ]
 
 
 @router.get("/mat-hang/{hang_loai}/{hang_id}/don-vi", response_model=DonViCuaMatHangOut,

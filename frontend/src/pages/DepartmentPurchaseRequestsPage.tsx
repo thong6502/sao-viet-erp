@@ -881,6 +881,7 @@ export function DepartmentPurchaseRequestsPage({
                         <MaterialCombobox
                           token={token ?? ""}
                           hangTen={line.item_name || null}
+                          chiCoNhaCungCap
                           onPick={(m) =>
                             setLine(index, {
                               hang_loai: m.hang_loai,
