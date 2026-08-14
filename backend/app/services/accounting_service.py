@@ -1960,9 +1960,28 @@ class AccountingService:
         content = _text(values.get("content"), label="Nội dung chi", required=True, max_length=500)
 
         company_account = None
-        supplier_account = None
         cash_recipient_name = _text(
             values.get("cash_recipient_name"), label="Người nhận tiền", max_length=255
+        )
+        beneficiary_holder = _text(
+            values.get("beneficiary_account_holder"),
+            label="Tên chủ tài khoản thụ hưởng",
+            max_length=255,
+        )
+        beneficiary_number = _text(
+            values.get("beneficiary_account_number"),
+            label="Số tài khoản thụ hưởng",
+            max_length=64,
+        )
+        beneficiary_bank_name = _text(
+            values.get("beneficiary_bank_name"),
+            label="Ngân hàng thụ hưởng",
+            max_length=255,
+        )
+        beneficiary_bank_branch = _text(
+            values.get("beneficiary_bank_branch"),
+            label="Chi nhánh thụ hưởng",
+            max_length=255,
         )
         bank_fee_bearer = _text(
             values.get("bank_fee_bearer"), label="Bên chịu phí", max_length=16
@@ -1972,19 +1991,17 @@ class AccountingService:
                 raise AccountingValidationError("Phiếu chi phải có người nhận tiền.")
         else:
             company_id = values.get("company_bank_account_id")
-            supplier_account_id = values.get("supplier_bank_account_id")
             company_account = self.repo.get_company_account(int(company_id)) if company_id else None
-            supplier_account = self.repo.get_supplier_account(int(supplier_account_id)) if supplier_account_id else None
             if company_account is None or not company_account.is_active:
                 raise AccountingValidationError("Vui lòng chọn tài khoản công ty đang hoạt động.")
             if not company_account.use_for_payments:
                 raise AccountingValidationError("Tài khoản này chưa được bật dùng để chi.")
-            if supplier_account is None or not supplier_account.is_active:
-                raise AccountingValidationError("Vui lòng chọn tài khoản nhà cung cấp đang hoạt động.")
-            if supplier_account.supplier_id != purchase.supplier_id:
-                raise AccountingValidationError("Tài khoản thụ hưởng không thuộc nhà cung cấp của PMH.")
-            if company_account.currency != currency or supplier_account.currency != currency:
-                raise AccountingValidationError("Loại tiền của chứng từ phải khớp với hai tài khoản ngân hàng.")
+            if company_account.currency != currency:
+                raise AccountingValidationError("Loại tiền của chứng từ phải khớp tài khoản trích nợ.")
+            if not beneficiary_holder or not beneficiary_number or not beneficiary_bank_name:
+                raise AccountingValidationError(
+                    "UNC phải có tên chủ tài khoản, số tài khoản và ngân hàng thụ hưởng."
+                )
             bank_fee_bearer = bank_fee_bearer or BANK_FEE_PAYER
             if bank_fee_bearer not in BANK_FEE_BEARERS:
                 raise AccountingValidationError("Bên chịu phí ngân hàng không hợp lệ.")
@@ -2027,10 +2044,16 @@ class AccountingService:
             "invoice_date": values.get("invoice_date"),
             "contract_number": _text(values.get("contract_number"), label="Số hợp đồng", max_length=64),
             "company_account": company_account,
-            "supplier_account": supplier_account,
+            # Tài khoản NCC không còn quản lý theo danh mục. UNC chụp thông tin thụ hưởng mà
+            # kế toán nhập trên chính chứng từ, để chứng từ cũ không đổi khi NCC đổi tài khoản.
+            "supplier_account": None,
             "cash_recipient_name": cash_recipient_name,
             "cash_recipient_address": _text(values.get("cash_recipient_address"), label="Địa chỉ người nhận", max_length=500),
             "cash_recipient_identity": _text(values.get("cash_recipient_identity"), label="Giấy tờ người nhận", max_length=64),
+            "beneficiary_account_holder_snapshot": beneficiary_holder,
+            "beneficiary_account_number_snapshot": beneficiary_number,
+            "beneficiary_bank_name_snapshot": beneficiary_bank_name,
+            "beneficiary_bank_branch_snapshot": beneficiary_bank_branch,
             "bank_fee_bearer": bank_fee_bearer,
             "debit_account": _text(values.get("debit_account"), label="Tài khoản Nợ", max_length=64),
             "credit_account": _text(values.get("credit_account"), label="Tài khoản Có", max_length=64),

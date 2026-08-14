@@ -2185,7 +2185,7 @@ class PurchaseService:
             actor_user_id=actor.id,
             action="create_purchase_delivery",
             target=f"purchase_request:{row.id}",
-            detail=f"{row.code} — đợt {seq} ngày {header['delivery_date']}",
+            detail=f"{row.code} — {self._tom_tat_dot_giao(dot, row)}",
         )
         return self._to_request_out(saved)
 
@@ -2220,7 +2220,7 @@ class PurchaseService:
             actor_user_id=actor.id,
             action="update_purchase_delivery",
             target=f"purchase_request:{row.id}",
-            detail=f"{row.code} — đợt {dot.seq_no}",
+            detail=f"{row.code} — {self._tom_tat_dot_giao(dot, row)}",
         )
         return self._to_request_out(saved)
 
@@ -2229,6 +2229,7 @@ class PurchaseService:
         dot = self._dot_giao(row, delivery_id)
         self._chan_neu_dot_da_co_phieu_chi(row, delivery_id)
         seq = dot.seq_no
+        tom_tat = self._tom_tat_dot_giao(dot, row)
         row.deliveries.remove(dot)
         self._sau_khi_doi_dot(row)
         saved = self.requests.save(row)
@@ -2236,7 +2237,7 @@ class PurchaseService:
             actor_user_id=actor.id,
             action="delete_purchase_delivery",
             target=f"purchase_request:{row.id}",
-            detail=f"{row.code} — đợt {seq}",
+            detail=f"{row.code} — {tom_tat}",
         )
         return self._to_request_out(saved)
 
@@ -2654,6 +2655,21 @@ class PurchaseService:
 
     # --- output helpers ----------------------------------------------------
 
+    @staticmethod
+    def _tom_tat_dot_giao(dot: PurchaseDelivery, row: PurchaseRequest) -> str:
+        """Mô tả ngắn của một đợt để audit còn đọc được cả sau khi đợt bị xoá."""
+        line_by_id = {line.id: line for line in row.lines}
+        hang = []
+        for delivery_line in dot.lines:
+            line = line_by_id.get(delivery_line.purchase_request_line_id)
+            if line is None:
+                continue
+            hang.append(
+                f"{line.item_name} {float(delivery_line.quantity):g} {line.unit}"
+            )
+        hang_text = "; ".join(hang) if hang else "không còn dòng hàng"
+        return f"Đợt {dot.seq_no} ngày {dot.delivery_date}: {hang_text}"
+
     def _lich_su_out(self, doc_type: str, doc_id: int) -> list[dict]:
         """Lịch sử trạng thái, MỚI NHẤT TRƯỚC.
 
@@ -2671,6 +2687,57 @@ class PurchaseService:
             }
             for h in self.lich_su.cua(doc_type, doc_id)
         ]
+
+    def _lich_su_don_mua_out(self, row: PurchaseRequest) -> list[dict]:
+        """Ghép lịch sử đổi trạng thái với các mốc đợt giao thành một timeline.
+
+        Không ghi đợt giao thành một ``status`` giả: thêm đợt 2 trong khi đơn vẫn "Giao một
+        phần" vẫn là việc phải truy vết, nhưng không phải đổi trạng thái. Audit đã lưu đúng các
+        sự kiện này, nên chỉ cần đưa chúng ra màn hình thay vì tạo thêm bảng lịch sử thứ ba.
+        """
+        events: list[dict] = []
+        for history in self.lich_su.cua(DOC_PMH, row.id):
+            events.append(
+                {
+                    "id": f"status-{history.id}",
+                    "event_type": "status",
+                    "title": "Thay đổi trạng thái",
+                    "detail": None,
+                    "actor_name": self._user_name(history.changed_by_user_id),
+                    "source": history.source,
+                    "from_status": history.from_status,
+                    "to_status": history.to_status,
+                    "reason": history.reason,
+                    "created_at": history.created_at,
+                }
+            )
+
+        delivery_actions = {
+            "create_purchase_delivery": ("delivery_created", "Ghi nhận đợt giao"),
+            "update_purchase_delivery": ("delivery_updated", "Cập nhật đợt giao"),
+            "delete_purchase_delivery": ("delivery_deleted", "Xóa đợt giao"),
+            "assign_purchase_invoice": ("invoice_assigned", "Gán hóa đơn cho đợt giao"),
+        }
+        for log in self.audit.list_by_target(f"purchase_request:{row.id}", limit=200):
+            info = delivery_actions.get(log.action)
+            if info is None:
+                continue
+            event_type, title = info
+            events.append(
+                {
+                    "id": f"audit-{log.id}",
+                    "event_type": event_type,
+                    "title": title,
+                    "detail": log.detail or None,
+                    "actor_name": self._user_name(log.actor_user_id),
+                    "source": "nguoi" if log.actor_user_id is not None else "may",
+                    "from_status": None,
+                    "to_status": None,
+                    "reason": None,
+                    "created_at": log.created_at,
+                }
+            )
+        return sorted(events, key=lambda event: event["created_at"], reverse=True)
 
     def _user_name(self, user_id: int | None) -> str | None:
         if user_id is None:
@@ -2846,6 +2913,7 @@ class PurchaseService:
             "content": row.content or row.purpose,
             "reject_reason": row.reject_reason,
             "status_history": self._lich_su_out(DOC_PMH, row.id),
+            "activity_history": self._lich_su_don_mua_out(row),
             "contract_number": row.contract_number,
             "deposit_expected": int(row.deposit_expected or 0),
             "total_estimate": total,
@@ -2939,6 +3007,8 @@ class PurchaseService:
             lines.append(
                 {
                     "id": line.id,
+                    "hang_loai": line.hang_loai,
+                    "hang_id": line.hang_id,
                     "item_name": line.item_name,
                     "unit": line.unit,
                     "quantity": qty,

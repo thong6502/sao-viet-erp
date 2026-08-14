@@ -9,7 +9,6 @@ import {
   type PaymentVoucherRow,
   type PaymentVoucherType,
   type PurchaseRequestRow,
-  type SupplierBankAccountRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
@@ -106,6 +105,10 @@ function initialForm(
       contract_number: voucher.contract_number,
       company_bank_account_id: voucher.company_bank_account_id,
       supplier_bank_account_id: voucher.supplier_bank_account_id,
+      beneficiary_account_holder: voucher.beneficiary_account_holder,
+      beneficiary_account_number: voucher.beneficiary_account_number,
+      beneficiary_bank_name: voucher.beneficiary_bank_name,
+      beneficiary_bank_branch: voucher.beneficiary_bank_branch,
       cash_recipient_name: voucher.cash_recipient_name,
       cash_recipient_address: voucher.cash_recipient_address,
       cash_recipient_identity: voucher.cash_recipient_identity,
@@ -138,6 +141,10 @@ function initialForm(
     contract_number: null,
     company_bank_account_id: null,
     supplier_bank_account_id: null,
+    beneficiary_account_holder: purchase.supplier_name ?? "",
+    beneficiary_account_number: null,
+    beneficiary_bank_name: null,
+    beneficiary_bank_branch: null,
     cash_recipient_name: purchase.supplier_name ?? "",
     cash_recipient_address: null,
     cash_recipient_identity: null,
@@ -160,9 +167,6 @@ export function PaymentVoucherDialog({
   );
   const [companyAccounts, setCompanyAccounts] = useState<
     CompanyBankAccountRow[]
-  >([]);
-  const [supplierAccounts, setSupplierAccounts] = useState<
-    SupplierBankAccountRow[]
   >([]);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -213,15 +217,9 @@ export function PaymentVoucherDialog({
   useEffect(() => {
     if (!token) return;
     setLoadingAccounts(true);
-    Promise.all([
-      api.accounting.companyAccounts(token, true, "pay"),
-      purchase.supplier_id
-        ? api.accounting.supplierAccounts(token, purchase.supplier_id, true)
-        : Promise.resolve([]),
-    ])
-      .then(([company, supplier]) => {
+    api.accounting.companyAccounts(token, true, "pay")
+      .then((company) => {
         setCompanyAccounts(company);
-        setSupplierAccounts(supplier);
         setForm((current) => {
           const companyAccountId = current.company_bank_account_id ?? null;
           const companyAccount = company.find(
@@ -234,7 +232,6 @@ export function PaymentVoucherDialog({
           return {
             ...current,
             company_bank_account_id: companyAccountId,
-            supplier_bank_account_id: current.supplier_bank_account_id ?? null,
             currency,
             exchange_rate: currency === "VND" ? 1 : current.exchange_rate,
           };
@@ -242,7 +239,7 @@ export function PaymentVoucherDialog({
       })
       .catch(() => setError("Không tải được danh sách tài khoản ngân hàng."))
       .finally(() => setLoadingAccounts(false));
-  }, [token, purchase.supplier_id]);
+  }, [token]);
 
   function set<K extends keyof PaymentVoucherBaseInput>(
     key: K,
@@ -385,28 +382,13 @@ export function PaymentVoucherDialog({
     }
     if (
       form.voucher_type === "bank_transfer" &&
-      (!form.company_bank_account_id || !form.supplier_bank_account_id)
+      (!form.company_bank_account_id ||
+        !form.beneficiary_account_holder?.trim() ||
+        !form.beneficiary_account_number?.trim() ||
+        !form.beneficiary_bank_name?.trim())
     ) {
-      setError("UNC phải chọn tài khoản trích nợ và tài khoản thụ hưởng.");
+      setError("UNC phải có tài khoản công ty, tên chủ tài khoản, số tài khoản và ngân hàng thụ hưởng.");
       return;
-    }
-    if (form.voucher_type === "bank_transfer") {
-      const companyCurrency = companyAccounts.find(
-        (row) => row.id === form.company_bank_account_id,
-      )?.currency;
-      const supplierCurrency = supplierAccounts.find(
-        (row) => row.id === form.supplier_bank_account_id,
-      )?.currency;
-      if (
-        companyCurrency &&
-        supplierCurrency &&
-        companyCurrency !== supplierCurrency
-      ) {
-        setError(
-          "Tài khoản trích nợ và tài khoản thụ hưởng phải cùng loại tiền.",
-        );
-        return;
-      }
     }
 
     const payload: PaymentVoucherBaseInput = {
@@ -426,6 +408,10 @@ export function PaymentVoucherDialog({
       cash_recipient_name: optional(form.cash_recipient_name),
       cash_recipient_address: optional(form.cash_recipient_address),
       cash_recipient_identity: optional(form.cash_recipient_identity),
+      beneficiary_account_holder: optional(form.beneficiary_account_holder),
+      beneficiary_account_number: optional(form.beneficiary_account_number),
+      beneficiary_bank_name: optional(form.beneficiary_bank_name),
+      beneficiary_bank_branch: optional(form.beneficiary_bank_branch),
       debit_account: optional(form.debit_account),
       credit_account: optional(form.credit_account),
       note: optional(form.note),
@@ -433,10 +419,8 @@ export function PaymentVoucherDialog({
         form.voucher_type === "bank_transfer"
           ? (form.company_bank_account_id ?? null)
           : null,
-      supplier_bank_account_id:
-        form.voucher_type === "bank_transfer"
-          ? (form.supplier_bank_account_id ?? null)
-          : null,
+      // Tài khoản NCC không còn là danh mục quản lý: UNC lưu ảnh chụp thông tin đã nhập.
+      supplier_bank_account_id: null,
       bank_fee_bearer:
         form.voucher_type === "bank_transfer"
           ? (form.bank_fee_bearer ?? "payer")
@@ -794,11 +778,10 @@ export function PaymentVoucherDialog({
           ) : (
             <section className="acct-form-section">
               <h3>Thông tin chuyển khoản</h3>
-              {!loadingAccounts &&
-                (!companyAccounts.length || !supplierAccounts.length) && (
+              {!loadingAccounts && !companyAccounts.length && (
                   <div className="banner banner--warn">
-                    Chưa đủ tài khoản ngân hàng. Hãy khai báo trong mục Tài
-                    khoản ngân hàng trước khi lập UNC.
+                    Chưa có tài khoản công ty dùng để chi. Hãy khai báo trong
+                    mục Tài khoản ngân hàng trước khi lập UNC.
                   </div>
                 )}
               <div className="acct-form-grid acct-form-grid--3">
@@ -822,26 +805,51 @@ export function PaymentVoucherDialog({
                 </label>
                 <label className="acct-field">
                   <span>
-                    Tài khoản thụ hưởng <b>*</b>
+                    Tên chủ tài khoản <b>*</b>
                   </span>
-                  <select
+                  <input
                     className="input"
-                    value={form.supplier_bank_account_id ?? ""}
+                    value={form.beneficiary_account_holder ?? ""}
                     onChange={(e) =>
                       set(
-                        "supplier_bank_account_id",
-                        e.target.value ? Number(e.target.value) : null,
+                        "beneficiary_account_holder",
+                        e.target.value,
                       )
                     }
-                    disabled={loadingAccounts}
-                  >
-                    <option value="">Chọn tài khoản nhà cung cấp</option>
-                    {supplierAccounts.map((row) => (
-                      <option key={row.id} value={row.id}>
-                        {row.bank_name} · {row.account_number} · {row.currency}
-                      </option>
-                    ))}
-                  </select>
+                  />
+                </label>
+                <label className="acct-field">
+                  <span>
+                    Số tài khoản thụ hưởng <b>*</b>
+                  </span>
+                  <input
+                    className="input"
+                    inputMode="numeric"
+                    value={form.beneficiary_account_number ?? ""}
+                    onChange={(e) =>
+                      set("beneficiary_account_number", e.target.value)
+                    }
+                  />
+                </label>
+                <label className="acct-field">
+                  <span>
+                    Ngân hàng thụ hưởng <b>*</b>
+                  </span>
+                  <input
+                    className="input"
+                    value={form.beneficiary_bank_name ?? ""}
+                    onChange={(e) => set("beneficiary_bank_name", e.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="acct-form-grid acct-form-grid--3">
+                <label className="acct-field">
+                  <span>Chi nhánh</span>
+                  <input
+                    className="input"
+                    value={form.beneficiary_bank_branch ?? ""}
+                    onChange={(e) => set("beneficiary_bank_branch", e.target.value)}
+                  />
                 </label>
                 <label className="acct-field">
                   <span>Bên chịu phí</span>

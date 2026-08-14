@@ -15,7 +15,7 @@ import { Button } from "../components/Button";
 import { CodeLink } from "../components/CodeLink";
 import { DetailModal } from "../components/DetailModal";
 import { Icon } from "../components/Icons";
-import { StatusHistoryTimeline } from "../components/StatusHistoryTimeline";
+import { PurchaseActivityTimeline } from "../components/PurchaseActivityTimeline";
 import { UNC_ENABLED } from "../constants/features";
 import { fmtDate, money } from "../utils/format";
 import { PaymentVoucherDialog } from "./PaymentVoucherDialog";
@@ -789,6 +789,7 @@ export function AccountingPurchaseInboxPage({
                   <tr>
                     <th>Đợt</th>
                     <th>Ngày giao</th>
+                    <th>Hàng đã nhận</th>
                     <th>Hạn thanh toán</th>
                     <th>Giá trị</th>
                     <th>Đã chi</th>
@@ -801,6 +802,17 @@ export function AccountingPurchaseInboxPage({
                     <tr key={dot.id}>
                       <td>Đợt {dot.seq_no}</td>
                       <td>{fmtDate(dot.delivery_date)}</td>
+                      <td>
+                        <div className="acct-deliveries__lines">
+                          {dot.lines.map((line) => (
+                            <span key={line.id}>
+                              <strong>{line.item_name}</strong>
+                              {": "}
+                              {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
                       <td>{dot.chua_dat_han ? "Chưa đặt hạn" : fmtDate(dot.due_date)}</td>
                       <td className="acct-amount-cell">{money(dot.amount)}</td>
                       <td className="acct-amount-cell">{money(dot.paid_amount)}</td>
@@ -874,8 +886,8 @@ export function AccountingPurchaseInboxPage({
             )}
           </section>
           <section className="acct-history">
-            <p className="eyebrow">Lịch sử trạng thái</p>
-            <StatusHistoryTimeline items={selected.status_history} />
+            <p className="eyebrow">Lịch sử đơn mua hàng</p>
+            <PurchaseActivityTimeline items={selected.activity_history} />
           </section>
         </DetailModal>
       )}

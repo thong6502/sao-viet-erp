@@ -4638,6 +4638,8 @@ export interface LineFulfilment {
 
 export interface DepartmentPurchaseRequestLineOut {
   id: number;
+  hang_loai: HangLoai | null;
+  hang_id: number | null;
   item_name: string;
   unit: string;
   quantity: number;
@@ -4658,6 +4660,20 @@ export interface StatusHistoryRow {
   /** `may` = hệ TỰ suy ra (vd. giao đủ hàng ⇒ "đã nhận"), lúc đó không có người đứng tên. */
   source: "nguoi" | "may";
   changed_by_name: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+/** Một mốc trong lịch sử Đơn mua hàng: đổi trạng thái hoặc thao tác trên một đợt giao. */
+export interface PurchaseActivityRow {
+  id: string;
+  event_type: "status" | "delivery_created" | "delivery_updated" | "delivery_deleted" | "invoice_assigned";
+  title: string;
+  detail: string | null;
+  actor_name: string | null;
+  source: "nguoi" | "may" | null;
+  from_status: string | null;
+  to_status: string | null;
   reason: string | null;
   created_at: string;
 }
@@ -4835,6 +4851,8 @@ export interface PurchaseRequestRow {
   /** Lý do TỪ CHỐI / HUỶ — tách khỏi nội dung để lý do của người duyệt không đè lời người khai. */
   reject_reason: string | null;
   status_history: StatusHistoryRow[];
+  /** Lịch sử đầy đủ của đơn, gồm đổi trạng thái và các đợt giao. */
+  activity_history: PurchaseActivityRow[];
   created_at: string;
   updated_at: string;
   contract_number: string | null;
