@@ -187,11 +187,12 @@ def test_nhan_mot_phieu_thi_chua_xong(client):
     assert _trang_thai(client, headers, source["id"]) == "done"
 
 
-def test_tu_choi_mot_phieu_khong_keo_oan_ca_yeu_cau(client):
+def test_tu_choi_mot_phieu_van_giu_yeu_cau_cho_sua_lai(client):
     """⭐ Từ chối phiếu băng keo KHÔNG được xoá sạch tiến độ của phiếu giấy đã về hàng.
 
-    Yêu cầu quay về "Chờ mua" — vì phần băng keo chưa ai mua được, thu mua phải lập phiếu khác.
-    Nhưng phiếu giấy vẫn nguyên trạng thái đã nhận, và chi tiết phải nói rõ dòng nào bị từ chối."""
+    Yêu cầu vẫn được giữ ở "Chờ duyệt" để Thu mua sửa phiếu băng keo cũ và gửi lại; không được
+    thả về "Chờ mua" vì như vậy sẽ cho lập thêm phiếu trùng. Phiếu giấy vẫn nguyên trạng thái đã
+    nhận, và chi tiết phải nói rõ dòng nào bị từ chối."""
     headers = _headers(client)
     source, giay, keo = _yeu_cau_hai_dong(client, headers)
     for p in (giay, keo):
@@ -206,23 +207,34 @@ def test_tu_choi_mot_phieu_khong_keo_oan_ca_yeu_cau(client):
     )
     assert tu_choi.status_code == 200, tu_choi.text
 
-    assert _trang_thai(client, headers, source["id"]) == "open", (
-        "phần bị từ chối chưa ai mua được ⇒ yêu cầu phải về hàng chờ để lập phiếu khác"
+    assert _trang_thai(client, headers, source["id"]) == "pending_approval", (
+        "PMH bị từ chối vẫn phải giữ YCMH để sửa và gửi lại chính PMH đó"
     )
     assert client.get(
         f"/api/purchase-requests/{giay['id']}", headers=headers
     ).json()["status"] == "received", "phiếu giấy không được bị đụng tới"
 
     chi_tiet = _chi_tiet(client, headers, source["id"])
+    assert chi_tiet["workflow_status"] == "needs_correction"
     theo_ten = {line["item_name"]: line for line in chi_tiet["lines"]}
     assert theo_ten["Giấy Duplex"]["fulfilment"]["purchase_status"] == "received"
     assert theo_ten["Băng keo"]["fulfilment"]["purchase_status"] == "rejected"
 
+    can_sua = client.get(
+        "/api/department-purchase-requests?status=needs_correction",
+        headers=headers,
+    )
+    assert can_sua.status_code == 200, can_sua.text
+    assert source["id"] in {row["id"] for row in can_sua.json()["items"]}
+    cho_duyet = client.get(
+        "/api/department-purchase-requests?status=pending_approval",
+        headers=headers,
+    )
+    assert source["id"] not in {row["id"] for row in cho_duyet.json()["items"]}
 
-def test_phieu_bi_tu_choi_khong_lam_yeu_cau_treo_vinh_vien(client):
-    """⭐ Lỗ nặng nhất: `_moi_phieu_da_ve_hang` cũ chỉ loại phiếu ĐÃ HUỶ, không loại phiếu BỊ TỪ
-    CHỐI ⇒ phép "mọi phiếu đã về hàng" không bao giờ đúng nữa, yêu cầu kẹt ở "Đang mua" mãi mãi
-    kể cả khi hàng đã về đủ qua phiếu lập lại."""
+
+def test_phieu_bi_tu_choi_gui_lai_chinh_phieu_cu_va_hoan_tat(client):
+    """PMH bị từ chối được gửi lại chính nó; khi hàng về đủ thì YCMH hoàn tất."""
     headers = _headers(client)
     source, giay, keo = _yeu_cau_hai_dong(client, headers)
     for p in (giay, keo):
@@ -234,36 +246,13 @@ def test_phieu_bi_tu_choi_khong_lam_yeu_cau_treo_vinh_vien(client):
         json={"reason": "Giá cao"}, headers=_h_duyet(),
     ).status_code == 200
 
-    # Thu mua lập phiếu KHÁC cho đúng dòng băng keo — chỉ làm được vì yêu cầu đã về "Chờ mua".
-    dong_keo = next(
-        line["id"] for line in _chi_tiet(client, headers, source["id"])["lines"]
-        if line["item_name"] == "Băng keo"
-    )
-    lap_lai = client.post(
-        "/api/purchase-requests",
-        json={
-            "supplier_id": keo["supplier_id"],
-            "source_request_ids": [source["id"]],
-            "purpose": "Mua lại băng keo",
-            "needed_date": _needed_date(),
-            "lines": [
-                {
-                    "item_name": "Băng keo", "unit": "cuộn", "quantity": 500,
-                    "expected_unit_price": 2200, "discount_percent": 0, "vat_percent": 0,
-                    "department_request_line_id": dong_keo,
-                }
-            ],
-        },
-        headers=headers,
-    )
-    assert lap_lai.status_code == 201, lap_lai.text
-    moi = lap_lai.json()["id"]
-    _gui(client, headers, moi)
-    _duyet(client, moi)
-    _ve_hang(client, headers, moi)
+    _gui(client, headers, keo["id"])
+    assert _chi_tiet(client, headers, source["id"])["workflow_status"] == "pending_approval"
+    _duyet(client, keo["id"])
+    _ve_hang(client, headers, keo["id"])
 
     assert _trang_thai(client, headers, source["id"]) == "done", (
-        "hàng đã về đủ thì phải Xong, phiếu bị từ chối không được giữ yêu cầu lại"
+        "hàng đã về đủ sau khi gửi lại PMH cũ thì YCMH phải hoàn tất"
     )
 
 
@@ -355,6 +344,7 @@ def test_dong_khong_noi_thi_de_trong_chu_khong_doan_theo_ten(client):
     # Không nối được dòng nào ⇒ lùi về suy theo PHIẾU. Phiếu còn nháp mà yêu cầu đã "Chờ duyệt" là
     # đúng ý đồ: tạo phiếu là GIỮ CHỖ yêu cầu, không cho người thứ hai lập chồng lên.
     assert chi_tiet["status"] == "pending_approval"
+    assert chi_tiet["workflow_status"] == "drafting"
 
 
 def test_khong_cho_tro_sang_dong_cua_yeu_cau_khac(client):

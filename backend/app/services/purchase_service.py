@@ -110,9 +110,9 @@ PURCHASE_REQUEST_READER_MODULES = ("thu_mua", "ke_toan")
 # Thang bậc tiến độ của một phiếu mua, dùng để SUY trạng thái yêu cầu mua hàng (xem
 # `_tinh_lai_trang_thai_ycmh`).
 #
-# BỊ TỪ CHỐI / ĐÃ HUỶ = bậc 0: phần hàng đó chưa ai mua được, nên yêu cầu phải quay về "Chờ mua"
-# để thu mua lập phiếu khác — `create` chỉ nhận yêu cầu đang "Chờ mua" nên để bậc cao hơn là chặn
-# mất đường lập lại. Bỏ qua hẳn cũng sai: có ngày báo "Xong" trong khi một nửa đơn bị từ chối.
+# BỊ TỪ CHỐI = bậc 1: YCMH vẫn bị GIỮ bởi đúng PMH đó. Thu mua sửa PMH bị từ chối rồi gửi lại,
+# tuyệt đối không lập PMH thứ hai từ cùng YCMH — nếu thả về bậc 0, giao diện hiện lại nút "Tạo
+# đơn" và API cũng cho tạo trùng. ĐÃ HUỶ mới là bậc 0 vì quan hệ mua đó đã kết thúc thật.
 #
 # NHÁP = bậc 1 (Chờ duyệt), KHÔNG phải 0. Trông lệch nhưng đúng với hệ: `_replace_sources`
 # (purchase_repo.py) đẩy yêu cầu sang "Chờ duyệt" ngay khi thu mua TẠO phiếu, kể cả phiếu còn nháp
@@ -127,7 +127,7 @@ PURCHASE_REQUEST_READER_MODULES = ("thu_mua", "ke_toan")
 # khi hai phần ba đơn còn nằm ở kho NCC — đúng kiểu báo lạc quan mà luật "lấy bậc thấp nhất" ở dưới
 # sinh ra để tránh.
 _BAC_PHIEU = {
-    PR_REJECTED: 0,
+    PR_REJECTED: 1,
     PR_CANCELLED: 0,
     PR_DRAFT: 1,
     PR_PENDING: 1,
@@ -352,16 +352,19 @@ def phan_bo_tien_dot(row) -> tuple[list[dict], int, int]:
 def han_tra_dot(delivery, supplier) -> date | None:
     """Hạn trả của một đợt giao.
 
-    Ưu tiên `due_date` khai tay; không có thì suy `ngày giao + suppliers.credit_days`.
+    Hóa đơn là căn cứ công nợ: có ngày hóa đơn thì suy từ ngày hóa đơn trước. `due_date` chỉ còn
+    là hạn đã chốt thủ công/dữ liệu cũ khi chưa đủ dữ liệu để suy; cuối cùng mới lùi về ngày giao.
     `credit_days` NULL = NCC CHƯA ĐẶT hạn ⇒ trả None = đợt này **không bao giờ vào cột Quá hạn**.
     Vì thế màn Công nợ phải đẩy đợt không-có-hạn lên ĐẦU kèm badge, đúng nếp chống giấu nợ đã áp
     cho phiếu chi thiếu hạn trước đây — im lặng ở đây nghĩa là một món nợ không ai canh."""
+    so_ngay = getattr(supplier, "credit_days", None) if supplier is not None else None
+    if delivery.invoice_date is not None and so_ngay is not None:
+        return delivery.invoice_date + timedelta(days=int(so_ngay))
     if delivery.due_date is not None:
         return delivery.due_date
-    so_ngay = getattr(supplier, "credit_days", None) if supplier is not None else None
-    if so_ngay is None:
-        return None
-    return delivery.delivery_date + timedelta(days=int(so_ngay))
+    if so_ngay is not None:
+        return delivery.delivery_date + timedelta(days=int(so_ngay))
+    return None
 
 
 def purchase_money(row) -> dict:
@@ -1382,7 +1385,7 @@ class PurchaseService:
             requesting_department_id=getattr(actor, "department_id", None),
             filter_by_department=not self._sees_all_department_requests(actor),
         )
-        pmh = self.requests.count_rejected_with_open_source(
+        pmh = self.requests.count_rejected_pending_correction(
             creator_ids=self._creator_ids_theo_scope(actor)
         )
         qua_han = self.dem_dot_giao_qua_han() if self.authz.can(actor, "ke_toan", "read") else 0
@@ -1948,17 +1951,16 @@ class PurchaseService:
         thì ghi đè". Hệ quả thấy được trên màn:
         - Duyệt MỘT phiếu là yêu cầu thành "Đang mua", dù phiếu kia còn nằm chờ giám đốc ⇒ bộ phận
           tưởng cả yêu cầu đã được duyệt.
-        - Từ chối một phiếu kéo yêu cầu về "Chờ mua" dù phiếu kia đã duyệt và đang đi mua.
-        - Phiếu bị TỪ CHỐI không được loại khỏi phép "mọi phiếu đã về hàng" (chỉ loại phiếu HUỶ)
-          nên yêu cầu treo ở "Đang mua" **vĩnh viễn**, kể cả khi hàng đã về đủ qua phiếu lập lại.
+        - Luật cũ kéo phiếu bị từ chối về "Chờ mua", làm lộ lại nút Tạo đơn và cho sinh PMH trùng
+          nguồn thay vì buộc sửa phiếu cũ.
+        - Một phiếu đã nhận không được che mất phiếu khác còn bị từ chối trong cùng yêu cầu.
 
         Luật: xếp bậc, lấy bậc **THẤP NHẤT**. Báo bi quan thì cùng lắm bộ phận đi hỏi; báo lạc
         quan thì họ ngồi chờ hàng không bao giờ tới.
 
-        Phiếu **bị từ chối / đã huỷ** tính là bậc 0 (Chờ mua), KHÔNG phải bỏ qua: phần hàng đó chưa
-        ai mua được, nên yêu cầu phải quay lại hàng chờ để thu mua lập phiếu khác — hoặc bộ phận
-        huỷ hẳn yêu cầu. Bỏ qua thì có ngày báo "Xong" trong khi một nửa đơn bị từ chối. Và vì
-        `create` chỉ nhận yêu cầu đang "Chờ mua", để bậc 0 mới còn đường lập lại.
+        Phiếu **bị từ chối** vẫn tính là bậc 1: YCMH tiếp tục bị giữ bởi PMH cũ để Thu mua sửa và
+        gửi duyệt lại. Chỉ phiếu **đã huỷ** mới tính là bậc 0 (Chờ mua), vì lúc đó quan hệ mua đã
+        kết thúc và YCMH mới thực sự được phép lập đơn khác.
 
         Suy theo **DÒNG** khi phiếu có nối `department_request_line_id` — chính xác hơn hẳn: phiếu
         cũ bị huỷ và phiếu mới đã về hàng cùng phủ một dòng thì dòng đó tính là đã xong. Dữ liệu cũ
@@ -1984,8 +1986,9 @@ class PurchaseService:
                 src_line_id = getattr(line, "department_request_line_id", None)
                 if src_line_id is None:
                     continue
-                # Một dòng có thể đi qua NHIỀU phiếu (bị từ chối rồi lập lại) ⇒ lấy tiến độ CAO
-                # NHẤT của dòng đó, không phải của phiếu cuối cùng.
+                # Dữ liệu cũ có thể còn một dòng đi qua nhiều phiếu; lấy tiến độ CAO NHẤT của
+                # dòng đó để không làm mất tiến độ đã nhận. Luồng mới không cho lập phiếu thay thế
+                # khi phiếu cũ chỉ bị từ chối — phải sửa và gửi lại chính phiếu cũ.
                 bac_theo_dong[src_line_id] = max(
                     bac_theo_dong.get(src_line_id, 0), _BAC_PHIEU.get(p.status, 0)
                 )
@@ -2195,7 +2198,22 @@ class PurchaseService:
             setattr(dot, k, v)
         if lines is not None:
             cleaned = self._clean_dot_lines(dot, row, lines)
-            dot.lines = [PurchaseDeliveryLine(**c) for c in cleaned]
+            # Cập nhật TẠI CHỖ theo dòng gốc. Gán cả collection bằng object mới khiến SQLAlchemy
+            # có thể INSERT dòng thay thế trước khi DELETE dòng cũ, đụng UNIQUE
+            # (delivery_id, purchase_request_line_id) và nổ 500 khi sửa một đợt đã có hàng.
+            hien_tai = {line.purchase_request_line_id: line for line in dot.lines}
+            incoming_ids = {item["purchase_request_line_id"] for item in cleaned}
+            for item in cleaned:
+                line_id = item["purchase_request_line_id"]
+                existing = hien_tai.get(line_id)
+                if existing is None:
+                    dot.lines.append(PurchaseDeliveryLine(**item))
+                else:
+                    existing.quantity = item["quantity"]
+                    existing.note = item["note"]
+            for existing in list(dot.lines):
+                if existing.purchase_request_line_id not in incoming_ids:
+                    dot.lines.remove(existing)
         self._sau_khi_doi_dot(row)
         saved = self.requests.save(row)
         self.audit.create(
@@ -2932,10 +2950,27 @@ class PurchaseService:
                     "fulfilment": tinh_trang.get(line.id),
                 }
             )
+        phieu_con = [
+            link.purchase_request
+            for link in getattr(row, "purchase_links", [])
+            if link.purchase_request is not None
+        ]
+        # Ưu tiên trạng thái cần người dùng hành động. `status` vẫn giữ vai trò khóa luồng; trường
+        # này chỉ giúp bảng nói đúng việc Thu mua phải làm tiếp theo.
+        if row.status in (DPR_OPEN, DPR_IN_PURCHASE, DPR_DONE, DPR_CANCELLED):
+            workflow_status = row.status
+        elif any(p.status == PR_REJECTED for p in phieu_con):
+            workflow_status = "needs_correction"
+        elif any(p.status == PR_DRAFT for p in phieu_con):
+            workflow_status = "drafting"
+        else:
+            workflow_status = row.status
+
         return {
             "id": row.id,
             "code": row.code,
             "status": row.status,
+            "workflow_status": workflow_status,
             "source_type": row.source_type,
             "requesting_department_id": row.requesting_department_id,
             "requesting_department_name": (

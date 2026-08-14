@@ -12,8 +12,9 @@ import {
   api,
   assetUrl,
   type DepartmentPurchaseRequestRow,
-  type DepartmentPurchaseRequestStatus,
+  type DepartmentPurchaseWorkflowStatus,
   type PurchaseAttachmentRow,
+  type PurchaseDeliveryInput,
   type PurchaseDeliveryRow,
   type PurchaseRequestInput,
   type PurchaseRequestLineInput,
@@ -67,7 +68,7 @@ const STATUS_META: Record<
 const GHI_DOT_DUOC: PurchaseRequestStatus[] = ["purchased", "partially_received"];
 
 type StatusFilter = "all" | PurchaseRequestStatus;
-type SourceStatusFilter = "all" | DepartmentPurchaseRequestStatus;
+type SourceStatusFilter = "all" | DepartmentPurchaseWorkflowStatus;
 type DepositFilter = "all" | "none" | "unpaid" | "partial" | "enough";
 
 /** Hai tab con của màn Mua hàng (chốt 08/08/2026).
@@ -79,11 +80,13 @@ type DepositFilter = "all" | "none" | "unpaid" | "partial" | "enough";
 type PurchaseTab = "yeu-cau" | "phieu";
 
 const SOURCE_STATUS_META: Record<
-  DepartmentPurchaseRequestStatus,
+  DepartmentPurchaseWorkflowStatus,
   { label: string; tone: string }
 > = {
   open: { label: "Chờ Thu mua xử lý", tone: "draft" },
+  drafting: { label: "Thu mua đang lập đơn", tone: "draft" },
   pending_approval: { label: "Chờ duyệt", tone: "pending" },
+  needs_correction: { label: "Cần Thu mua chỉnh sửa", tone: "rejected" },
   in_purchase: { label: "Đang mua", tone: "pending" },
   done: { label: "Hoàn tất", tone: "received" },
   cancelled: { label: "Đã hủy", tone: "cancelled" },
@@ -581,6 +584,7 @@ export function PurchaseRequestsPage({
   navigate,
   eventTick = 0,
   focusRequestCode = null,
+  onDataRefreshed,
 }: {
   navigate: NavigateFn;
   eventTick?: number;
@@ -588,6 +592,7 @@ export function PurchaseRequestsPage({
    *  Mã `PMH-…` = phiếu mua → tab "phieu"; mã `YCMH-…` = yêu cầu → tab "yeu-cau".
    *  Xem effect "BẪY LIÊN THÔNG" bên dưới trước khi đụng vào. */
   focusRequestCode?: string | null;
+  onDataRefreshed?: () => void;
 }) {
   const { token } = useAuth();
   const can = useCan();
@@ -832,6 +837,7 @@ export function PurchaseRequestsPage({
             ? current
             : null,
         );
+        onDataRefreshed?.();
       })
       .catch((err) => {
         if (err instanceof ApiError && err.isForbidden) setForbidden(true);
@@ -849,6 +855,7 @@ export function PurchaseRequestsPage({
     neededFrom,
     neededTo,
     page,
+    onDataRefreshed,
   ]);
 
   useEffect(() => {
@@ -1335,7 +1342,7 @@ export function PurchaseRequestsPage({
         {/* ĐƯỜNG CŨ, chỉ còn cho đơn KHÔNG theo dõi theo đợt (giao một lần, không ai muốn khai
             đợt). Đơn đã có đợt giao thì trạng thái là số SUY RA — server chặn gán tay, nên đừng
             bày nút ra rồi để người dùng bấm vào tường. */}
-        {canUpdate &&
+        {/* {canUpdate &&
           row.status === "purchased" &&
           row.deliveries.length === 0 && (
             <RowActionButton
@@ -1344,7 +1351,7 @@ export function PurchaseRequestsPage({
               icon="packageCheck"
               onClick={() => setReceiveModal({ row, mode: "receive" })}
             />
-          )}
+          )} */}
         {/* Sửa số thực nhận: cũng chỉ cho đơn KHÔNG theo đợt — đơn theo đợt thì sửa ở đúng đợt
             giao đó, sửa ở đây sẽ bị nhánh dẫn xuất ghi đè trong im lặng (server chặn). */}
         {canUpdate &&
@@ -1484,6 +1491,7 @@ export function PurchaseRequestsPage({
             <tr>
               <th>Mã yêu cầu</th>
               <th>Nguồn</th>
+              <th>Ngày tạo</th>
               <th>Cần hàng</th>
               <th>Vật tư</th>
               <th>Trạng thái</th>
@@ -1492,17 +1500,17 @@ export function PurchaseRequestsPage({
           </thead>
           <tbody>
             {sourceLoading ? (
-              <EmptyRow colSpan={6} trangThai="dang-tai" />
+              <EmptyRow colSpan={7} trangThai="dang-tai" />
             ) : sourceError ? (
               <EmptyRow
-                colSpan={6}
+                colSpan={7}
                 trangThai="loi"
                 loi={sourceError}
                 onThuLai={loadSources}
               />
             ) : sourceRows.length === 0 ? (
               <EmptyRow
-                colSpan={6}
+                colSpan={7}
                 icon="clipboard"
                 title="Chưa có yêu cầu mua từ phòng ban"
                 sub="Đơn mua hàng luôn bắt đầu từ một yêu cầu của bộ phận — chờ họ gửi sang."
@@ -1531,6 +1539,7 @@ export function PurchaseRequestsPage({
                           "Nội bộ"}
                       </div>
                     </td>
+                    <td>{fmtDate(row.created_at)}</td>
                     <td>{fmtDate(row.needed_date)}</td>
                     <td>
                       <strong>{row.lines.length} dòng</strong>
@@ -1542,7 +1551,12 @@ export function PurchaseRequestsPage({
                       </div>
                     </td>
                     <td>
-                      <SourceStatusBadge status={row.status} />
+                      <SourceStatusBadge status={row.workflow_status} />
+                      {purchaseChildSummary(row) && (
+                        <div className="md-page__muted purchase__source-progress">
+                          {purchaseChildSummary(row)}
+                        </div>
+                      )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       {canCreate && !disabled ? (
@@ -3174,8 +3188,8 @@ function DeliveryDialog({
   const [ngayGiao, setNgayGiao] = useState(
     delivery?.delivery_date ?? todayInputValue(),
   );
-  // Ô "Hạn trả" đang TẮT trên form (khối JSX bên dưới bị comment): hạn trả để hệ suy từ
-  // `ngày giao + số ngày cho nợ của NCC`, không ai gõ tay nữa.
+  // Ô "Hạn trả" đang TẮT trên form (khối JSX bên dưới bị comment): hạn trả ưu tiên suy từ
+  // `ngày hóa đơn + số ngày cho nợ của NCC`; chưa có hóa đơn mới lùi về ngày giao.
   //
   // Vẫn giữ biến này và vẫn GỬI LÊN: sửa một đợt đã có hạn khai tay trước đó mà gửi `null` là âm
   // thầm xoá mất hạn đó, và món nợ tụt khỏi cột Quá hạn không ai hay. Bật lại ô thì đổi dòng này
@@ -3296,10 +3310,16 @@ function DeliveryDialog({
   async function submit() {
     if (!token || busy) return;
     const lines = row.lines
-      .map((line) => ({
-        purchase_request_line_id: line.id,
-        quantity: Number(soNhan[line.id]),
-      }))
+      .map((line) => {
+        const existing = delivery?.lines.find(
+          (item) => item.purchase_request_line_id === line.id,
+        );
+        return {
+          purchase_request_line_id: line.id,
+          quantity: Number(soNhan[line.id]),
+          note: existing?.note ?? null,
+        };
+      })
       .filter((l) => Number.isFinite(l.quantity) && l.quantity > 0);
     if (lines.length === 0) {
       setError(
@@ -3327,13 +3347,27 @@ function DeliveryDialog({
     setBusy(true);
     setError(null);
     try {
-      const payload = {
+      const existingLines = new Map(
+        (delivery?.lines ?? []).map((line) => [line.purchase_request_line_id, line]),
+      );
+      const linesChanged =
+        !suaDot ||
+        lines.length !== existingLines.size ||
+        lines.some((line) => {
+          const existing = existingLines.get(line.purchase_request_line_id);
+          return (
+            existing == null ||
+            Math.abs(existing.quantity - line.quantity) > 1e-9 ||
+            (existing.note ?? null) !== (line.note ?? null)
+          );
+        });
+      const payload: PurchaseDeliveryInput = {
         delivery_date: ngayGiao,
         due_date: hanTra || null,
         invoice_number: soHoaDon.trim() || null,
         invoice_date: ngayHoaDon || null,
         note: ghiChu.trim() || null,
-        lines,
+        lines: linesChanged ? lines : null,
       };
       let sau = suaDot
         ? await api.purchaseRequests.updateDelivery(
@@ -3411,8 +3445,8 @@ function DeliveryDialog({
             <span>
               Ngày giao <span className="purchase__required-star">*</span>
             </span>
-            {/* Chặn TƯƠNG LAI: ngày giao là mốc tính hạn trả, gõ nhầm sang tháng sau là món nợ biến
-                khỏi cột Quá hạn. Quá khứ vẫn cho — hàng về hôm qua mới ghi hôm nay là chuyện thường. */}
+            {/* Chặn TƯƠNG LAI: chưa có hóa đơn thì ngày giao là mốc dự phòng tính hạn trả. Quá khứ
+                vẫn cho — hàng về hôm qua mới ghi hôm nay là chuyện thường. */}
             <input
               className="input"
               type="date"
@@ -3422,7 +3456,7 @@ function DeliveryDialog({
             />
           </label>
         </div>
-        {/* Ô "Hạn trả" TẮT có chủ ý (hạn trả để hệ suy từ ngày giao + số ngày cho nợ của NCC).
+        {/* Ô "Hạn trả" TẮT có chủ ý (ưu tiên ngày hóa đơn, chưa có mới dùng ngày giao + số ngày nợ).
             Biến `hanTra` vẫn được gửi lên — xem khai báo state ở đầu component. Giữ nguyên khối
             dưới đây để bật lại được, đừng xoá: */}
         {/* <label className="purchase__field">
@@ -3837,7 +3871,7 @@ function StatusBadge({ status }: { status: PurchaseRequestStatus }) {
 function SourceStatusBadge({
   status,
 }: {
-  status: DepartmentPurchaseRequestStatus;
+  status: DepartmentPurchaseWorkflowStatus;
 }) {
   const meta = SOURCE_STATUS_META[status];
   return (
@@ -3845,6 +3879,30 @@ function SourceStatusBadge({
       {meta.label}
     </span>
   );
+}
+
+function purchaseChildSummary(row: DepartmentPurchaseRequestRow): string {
+  const dem = new Map<string, number>();
+  for (const phieu of row.purchase_requests) {
+    const nhom =
+      phieu.status === "rejected"
+        ? "cần sửa"
+        : phieu.status === "draft"
+          ? "đang lập"
+          : phieu.status === "pending_approval"
+            ? "chờ duyệt"
+            : phieu.status === "received"
+              ? "đã nhận"
+              : phieu.status === "cancelled"
+                ? "đã hủy"
+                : "đang mua";
+    dem.set(nhom, (dem.get(nhom) ?? 0) + 1);
+  }
+  const thuTu = ["cần sửa", "đang lập", "chờ duyệt", "đang mua", "đã nhận", "đã hủy"];
+  return thuTu
+    .filter((nhom) => dem.has(nhom))
+    .map((nhom) => `${dem.get(nhom)} đơn ${nhom}`)
+    .join(" · ");
 }
 
 function LocalField({

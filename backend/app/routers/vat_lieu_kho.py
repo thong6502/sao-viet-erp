@@ -127,11 +127,11 @@ _make_crud("vat_tu", VatTuIn, VatTuRow, "vat-tu-in-an")
 
 # -- MẶT HÀNG GỐC: hai cửa Kho + NCC dùng để chọn hàng và chọn đơn vị --
 #
-# Quyền rộng hơn CRUD (thêm `thu_mua`): người lập đề nghị kho và người khai bảng giá NCC đều phải
-# CHỌN được mặt hàng, nhưng không được sửa danh mục. Chỉ trả mã · tên · đơn vị — không có giá.
+# Quyền rộng hơn CRUD: người lập đề nghị kho/YCMH và người khai bảng giá NCC đều phải CHỌN được
+# mặt hàng, nhưng không được sửa danh mục. Chỉ trả mã · tên · đơn vị — không có giá.
 _doc_mat_hang = require_any_permission(
     ("dm_giay", "read"), ("dm_vat_tu", "read"), ("kho", "read"), ("thu_mua", "read"),
-    ("tinh_gia_thanh", "read"), ("san_xuat", "read"))
+    ("yeu_cau_mua_hang", "read"), ("tinh_gia_thanh", "read"), ("san_xuat", "read"))
 
 
 @router.get("/mat-hang", response_model=list[MatHangRow], name="tim_mat_hang")

@@ -267,6 +267,7 @@ def _ghi_dot(
     ngay: str | None = None,
     han: str | None = None,
     so_hd: str | None = None,
+    ngay_hd: str | None = None,
     expect: int = 200,
 ) -> dict:
     """Ghi một đợt giao. `lines` = [{"purchase_request_line_id": .., "quantity": ..}].
@@ -278,6 +279,7 @@ def _ghi_dot(
             "delivery_date": ngay or _hom_nay().isoformat(),
             "due_date": han,
             "invoice_number": so_hd,
+            "invoice_date": ngay_hd,
             "lines": lines,
         },
         headers=headers,
@@ -897,6 +899,38 @@ def test_dot_da_co_phieu_chi_thi_khong_sua_khong_xoa(client):
     assert xoa.status_code == 409
 
 
+def test_sua_dot_giao_cap_nhat_dong_tai_cho_khong_trung_unique(client):
+    """Gửi lại cùng dòng khi sửa từng gây 500 do INSERT mới trước DELETE dòng cũ."""
+    headers = _headers(client)
+    supplier = _supplier(client, headers, name="NCC Sua Dot Tai Cho")
+    don = _don(client, headers, supplier["id"])
+    _da_mua(client, headers, don["id"])
+    line_id = _dong_dau_tien(don)
+    sau = _ghi_dot(
+        client, headers, don["id"],
+        lines=[{"purchase_request_line_id": line_id, "quantity": 400}],
+    )
+    dot_id = sau["deliveries"][0]["id"]
+
+    sua = client.put(
+        f"/api/purchase-requests/{don['id']}/deliveries/{dot_id}",
+        json={
+            "delivery_date": _hom_nay().isoformat(),
+            "note": "Đã đối chiếu lại",
+            "lines": [
+                {"purchase_request_line_id": line_id, "quantity": 450, "note": "Nhận thực tế"}
+            ],
+        },
+        headers=headers,
+    )
+    assert sua.status_code == 200, sua.text
+    dot = sua.json()["deliveries"][0]
+    assert dot["note"] == "Đã đối chiếu lại"
+    assert len(dot["lines"]) == 1
+    assert dot["lines"][0]["quantity"] == 450
+    assert dot["lines"][0]["note"] == "Nhận thực tế"
+
+
 # --- trả nhiều đợt: KHÔNG được biến mất khỏi công nợ ------------------------
 
 
@@ -956,7 +990,7 @@ def test_phieu_huy_khong_tinh_la_no(client):
 
 
 def test_qua_han_dem_theo_han_cua_dot_giao(client, monkeypatch):
-    """Hạn trả nay thuộc về ĐỢT GIAO (ngày giao + số ngày NCC cho nợ), không thuộc phiếu chi —
+    """Hạn trả thuộc về ĐỢT GIAO (ưu tiên ngày hóa đơn + số ngày NCC cho nợ), không thuộc phiếu chi —
     phiếu chi là tiền đã ra, nó không có hạn."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Qua Han")
@@ -1030,12 +1064,16 @@ def test_so_ngay_cho_no_cua_ncc_suy_ra_han_tra(client):
     don = _don(client, headers, supplier["id"])
     _da_mua(client, headers, don["id"])
     ngay_giao = _hom_nay() - timedelta(days=10)
+    ngay_hoa_don = _hom_nay() - timedelta(days=3)
     sau = _ghi_dot(
         client, headers, don["id"],
         lines=[{"purchase_request_line_id": _dong_dau_tien(don), "quantity": 1000}],
         ngay=ngay_giao.isoformat(),
+        ngay_hd=ngay_hoa_don.isoformat(),
     )
-    assert sau["deliveries"][0]["due_date"] == (ngay_giao + timedelta(days=30)).isoformat()
+    assert sau["deliveries"][0]["due_date"] == (
+        ngay_hoa_don + timedelta(days=30)
+    ).isoformat()
     assert sau["deliveries"][0]["chua_dat_han"] is False
 
     # Nợ 2,2tr > hạn mức 1tr => CẢNH BÁO, không chặn gì.
@@ -1459,8 +1497,8 @@ def test_nhan_vien_khong_duoc_lui_va_phai_ghi_ly_do(client):
 def test_phieu_chi_khong_con_doi_han_tra(client):
     """Hạn trả trên phiếu chi thành DORMANT từ 06/08/2026.
 
-    Phiếu chi là tiền ĐÃ RA — nó không có hạn để mà trễ. Hạn trả nay thuộc về đợt giao (ngày giao +
-    số ngày NCC cho nợ), vì đó mới là chỗ món nợ phát sinh và cần bị canh. Bắt hạn ở đây nữa là bắt
+    Phiếu chi là tiền ĐÃ RA — nó không có hạn để mà trễ. Hạn trả nay thuộc về đợt giao (ưu tiên
+    ngày hóa đơn + số ngày NCC cho nợ), vì đó mới là chỗ món nợ phát sinh và cần bị canh. Bắt hạn ở đây nữa là bắt
     kế toán gõ một con số không ai đọc."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Khong Doi Han")
@@ -1570,6 +1608,25 @@ def test_o_tim_loi_duoc_ncc_khong_no_khong_giao_dich(client):
     assert r.status_code == 200, r.text
     muc = next(m for m in r.json()["items"] if m["supplier_id"] == supplier["id"])
     assert muc["total_due"] == 0 and muc["paid_in_period"] == 0
+
+
+def test_cong_no_phai_tra_phan_trang_nhung_tong_tien_khong_doi(client):
+    headers = _headers(client)
+    ncc_a = _supplier(client, headers, name="NCC Trang A")
+    ncc_b = _supplier(client, headers, name="NCC Trang B")
+    don_a = _don(client, headers, ncc_a["id"])
+    don_b = _don(client, headers, ncc_b["id"])
+    _ve_hang(client, headers, don_a["id"])
+    _ve_hang(client, headers, don_b["id"])
+
+    trang_1 = client.get("/api/accounting/payables?page=1&size=1", headers=headers)
+    trang_2 = client.get("/api/accounting/payables?page=2&size=1", headers=headers)
+    assert trang_1.status_code == 200 and trang_2.status_code == 200
+    mot, hai = trang_1.json(), trang_2.json()
+    assert mot["total"] >= 2 and mot["pages"] >= 2
+    assert mot["page"] == 1 and hai["page"] == 2
+    assert mot["total_due"] == hai["total_due"]
+    assert mot["items"][0]["supplier_id"] != hai["items"][0]["supplier_id"]
 
 
 # --- kỳ chỉ cắt phần ĐÃ TRẢ, không cắt nợ ----------------------------------

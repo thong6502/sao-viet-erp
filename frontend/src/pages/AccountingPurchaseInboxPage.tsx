@@ -82,12 +82,14 @@ export function AccountingPurchaseInboxPage({
   navigate,
   eventTick = 0,
   focusRequestCode,
+  onDataRefreshed,
 }: {
   navigate: NavigateFn;
   eventTick?: number;
   /** Mã PMH cần mở sẵn — màn Công nợ phải trả nhảy sang đây để lập phiếu chi cho đúng đơn đó.
       Không có nó thì bấm "Lập phiếu chi" chỉ đổ ra danh sách trắng, người dùng phải tự đi tìm. */
   focusRequestCode?: string | null;
+  onDataRefreshed?: () => void;
 }) {
   const { token } = useAuth();
   const can = useCan();
@@ -156,6 +158,7 @@ export function AccountingPurchaseInboxPage({
             ? current
             : null,
         );
+        onDataRefreshed?.();
       })
       .catch((err) =>
         setError(
@@ -176,6 +179,7 @@ export function AccountingPurchaseInboxPage({
     neededFrom,
     neededTo,
     page,
+    onDataRefreshed,
   ]);
 
   const loadSuppliers = useCallback(() => {

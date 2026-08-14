@@ -517,6 +517,14 @@
   margin-bottom: var(--sp-5);
 }
 
+.purchase__source-progress {
+  max-width: 220px;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
 .purchase__source-head,
 .purchase__source-toolbar,
 .purchase__source-foot {

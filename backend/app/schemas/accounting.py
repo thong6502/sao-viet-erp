@@ -106,6 +106,7 @@ class PaymentVoucherOut(BaseModel):
     purchase_request_code: str
     purchase_request_total: int | None = None
     purchase_paid_amount: int | None = None
+    purchase_created_by_user_id: int | None = None
     purchase_created_by_name: str | None = None
     receipt_received_amount: int = 0
     receipt_pending_amount: int = 0
@@ -214,7 +215,7 @@ class PaymentReceiptOut(BaseModel):
     id: int
     code: str
     doc_no: str | None = None
-    # Nguồn (V5): purchase_refund | order_deposit | other.
+    # Nguồn: purchase_refund | order_deposit | sales_invoice | other.
     source_type: str = "purchase_refund"
     # Nhánh Phiếu chi — nullable từ V5 (phiếu thu cọc đơn không có phiếu chi/PMH/NCC).
     payment_voucher_id: int | None = None
@@ -226,6 +227,8 @@ class PaymentReceiptOut(BaseModel):
     order_id: int | None = None
     order_code: str | None = None
     customer_name: str | None = None
+    sales_invoice_id: int | None = None
+    sales_invoice_number: str | None = None
     payer_name: str
     payer_address: str | None = None
     debit_account: str | None = None
@@ -280,6 +283,58 @@ class PaymentReceiptAttachmentListOut(BaseModel):
     items: list[PaymentReceiptAttachmentOut]
 
 
+# --- Hóa đơn bán ------------------------------------------------------------
+
+
+class SalesInvoiceIn(BaseModel):
+    order_id: int = Field(gt=0)
+    invoice_symbol: str = Field(min_length=1, max_length=64)
+    invoice_number: str = Field(min_length=1, max_length=64)
+    invoice_date: date
+    # Bỏ trống = xuất toàn bộ phần giá trị đơn chưa ghi hóa đơn.
+    amount_vnd: int | None = Field(default=None, gt=0)
+
+
+class CancelSalesInvoiceIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class SalesInvoiceOut(BaseModel):
+    id: int
+    order_id: int
+    order_code: str
+    customer_id: int | None = None
+    customer_name: str
+    invoice_symbol: str | None = None
+    invoice_number: str
+    invoice_date: date
+    amount_vnd: int
+    payment_term_days_snapshot: int | None = None
+    due_date: date | None = None
+    status: str
+    direct_received_amount: int = 0
+    deposit_offset_amount: int = 0
+    received_amount: int = 0
+    remaining_amount: int = 0
+    created_by_user_id: int | None = None
+    created_by_name: str | None = None
+    created_at: datetime
+    cancelled_by_user_id: int | None = None
+    cancelled_by_name: str | None = None
+    cancelled_at: datetime | None = None
+    cancel_reason: str | None = None
+
+
+class SalesInvoiceListOut(BaseModel):
+    order_id: int
+    order_code: str
+    order_total: int
+    invoiced_amount: int
+    uninvoiced_amount: int
+    deposit_received: int
+    items: list[SalesInvoiceOut]
+
+
 # --- Công nợ phải trả ------------------------------------------------------
 # Không có bảng công nợ: các số dưới đây SUY RA từ phiếu mua + phiếu chi lúc gọi API.
 
@@ -306,6 +361,10 @@ class PayableSupplierOut(BaseModel):
 
 class PayablesSummaryOut(BaseModel):
     items: list[PayableSupplierOut]
+    total: int
+    page: int
+    size: int
+    pages: int
     total_due: int
     overdue_amount: int
     paid_in_period: int = 0
@@ -405,8 +464,8 @@ class PayablesDetailOut(BaseModel):
 class ReceivableCustomerOut(BaseModel):
     customer_id: int | None = None
     customer_name: str
-    order_count: int
-    total_amount: int = 0
+    invoice_count: int
+    invoiced_amount: int = 0
     received_amount: int = 0
     total_due: int
     overdue_amount: int
@@ -420,6 +479,10 @@ class ReceivableCustomerOut(BaseModel):
 
 class ReceivablesSummaryOut(BaseModel):
     items: list[ReceivableCustomerOut]
+    total: int
+    page: int
+    size: int
+    pages: int
     total_due: int
     overdue_amount: int
     received_in_period: int = 0
@@ -429,15 +492,20 @@ class ReceivablesSummaryOut(BaseModel):
 
 
 class ReceivableItemOut(BaseModel):
+    invoice_id: int
+    invoice_symbol: str | None = None
+    invoice_number: str
+    invoice_date: date
     order_id: int
     order_code: str
     customer_id: int | None = None
     customer_name: str
-    base_date: date | None = None
     due_date: date | None = None
     chua_dat_han: bool = False
     overdue_days: int = 0
-    total_amount: int
+    amount: int
+    direct_received_amount: int = 0
+    deposit_offset_amount: int = 0
     received_amount: int = 0
     remaining_amount: int
 
@@ -448,6 +516,10 @@ class ReceivableReceiptOut(BaseModel):
     doc_no: str | None = None
     order_id: int | None = None
     order_code: str | None = None
+    source_type: str
+    sales_invoice_id: int | None = None
+    sales_invoice_number: str | None = None
+    applied_to: str
     receipt_method: str
     amount: int
     receipt_date: date

@@ -181,9 +181,92 @@ def test_ba_man_thu_mua_gac_bang_ba_khoa_doc_lap(client):
     r2 = client.post("/api/department-purchase-requests",
                      json=_department_request_payload(), headers=h_ycmh)
     assert r2.status_code == 201, r2.text
+    # Ô chọn Vật tư của YCMH đọc danh mục bằng chính quyền YCMH; tắt Thu mua không được làm nó
+    # trắng. Chỉ là cửa đọc picker, không mở CRUD danh mục.
+    assert client.get("/api/vat-lieu-kho/mat-hang", headers=h_ycmh).status_code == 200
     # ...nhung KHONG mo duoc danh muc NCC va KHONG cham duoc phieu mua.
     assert client.get("/api/suppliers", headers=h_ycmh).status_code == 403
     assert client.get("/api/purchase-requests", headers=h_ycmh).status_code == 403
+    # Endpoint badge không được rò số sự kiện của hai màn người này không có quyền.
+    assert client.get(
+        "/api/module-notifications/summary", headers=h_ycmh
+    ).json() == {"thu_mua": 0, "ke_toan": 0}
+    assert client.post(
+        "/api/module-notifications/thu_mua/mark-read", headers=h_ycmh
+    ).status_code == 403
+
+
+def test_badge_thu_mua_ke_toan_luu_trang_thai_da_doc(client, auth_headers):
+    """Gửi duyệt → Kế toán có badge; vào màn/mark-read → refresh vẫn 0; duyệt → Thu mua có badge."""
+    supplier = _supplier(client, auth_headers, name="NCC Badge Hai Chieu")
+    pr = _create_purchase_request(client, auth_headers, supplier["id"])
+    approver_headers = _h_duyet()
+
+    # Phiếu nháp chưa phải thông báo gửi Kế toán.
+    before = client.get("/api/module-notifications/summary", headers=approver_headers)
+    assert before.status_code == 200, before.text
+    assert before.json()["ke_toan"] == 0
+
+    sent = client.post(
+        f"/api/purchase-requests/{pr['id']}/submit", headers=auth_headers
+    )
+    assert sent.status_code == 200, sent.text
+    assert client.get(
+        "/api/module-notifications/summary", headers=approver_headers
+    ).json()["ke_toan"] == 1
+
+    seen = client.post(
+        "/api/module-notifications/ke_toan/mark-read", headers=approver_headers
+    )
+    assert seen.status_code == 204, seen.text
+    assert client.get(
+        "/api/module-notifications/summary", headers=approver_headers
+    ).json()["ke_toan"] == 0
+
+    approved = client.post(
+        f"/api/purchase-requests/{pr['id']}/approve", headers=approver_headers
+    )
+    assert approved.status_code == 200, approved.text
+    # Admin là người lập/Thu mua, khác người duyệt nên nhận thông báo ngược lại.
+    assert client.get(
+        "/api/module-notifications/summary", headers=auth_headers
+    ).json()["thu_mua"] == 1
+
+
+def test_tao_ycmh_bao_ngay_cho_thu_mua_va_luu_den_khi_doc(client, auth_headers):
+    """Phòng ban tạo YCMH -> Thu mua có badge ngay, refresh còn, vào màn mới hết."""
+    requester_token = _vai_dung_mot_man(
+        "yeu_cau_mua_hang",
+        "nguoi-tao-ycmh-bao-thu-mua",
+        can_read=True,
+        can_create=True,
+        can_update=True,
+    )
+    requester_headers = {"Authorization": f"Bearer {requester_token}"}
+
+    before = client.get("/api/module-notifications/summary", headers=auth_headers)
+    assert before.status_code == 200, before.text
+    assert before.json()["thu_mua"] == 0
+
+    created = client.post(
+        "/api/department-purchase-requests",
+        json=_department_request_payload(),
+        headers=requester_headers,
+    )
+    assert created.status_code == 201, created.text
+
+    # Đếm từ bản ghi server nên tải lại trang vẫn còn, không phụ thuộc người dùng đã mở Mua hàng.
+    first = client.get("/api/module-notifications/summary", headers=auth_headers)
+    second = client.get("/api/module-notifications/summary", headers=auth_headers)
+    assert first.json()["thu_mua"] == second.json()["thu_mua"] == 1
+
+    seen = client.post(
+        "/api/module-notifications/thu_mua/mark-read", headers=auth_headers
+    )
+    assert seen.status_code == 204, seen.text
+    assert client.get(
+        "/api/module-notifications/summary", headers=auth_headers
+    ).json()["thu_mua"] == 0
 
 
 def test_khong_co_quyen_thi_khong_lap_duoc_yeu_cau_mua_hang(client):
@@ -1086,6 +1169,54 @@ def test_purchase_request_full_lifecycle(client, auth_headers):
     assert done_source.json()["status"] == "done"
 
 
+def test_pmh_bi_tu_choi_khong_duoc_tao_don_moi_tu_cung_ycmh(client, auth_headers):
+    """Từ chối PMH -> sửa/gửi lại PMH cũ; cả trạng thái lẫn API phải chặn tạo đơn trùng."""
+    supplier = _supplier(client, auth_headers, name="NCC Chan PMH Trung")
+    source = _create_department_request(client, auth_headers)
+    pr = _create_purchase_request(client, auth_headers, supplier["id"], [source["id"]])
+    assert client.post(
+        f"/api/purchase-requests/{pr['id']}/submit", headers=auth_headers
+    ).status_code == 200
+    rejected = client.post(
+        f"/api/purchase-requests/{pr['id']}/reject",
+        json={"reason": "Cần sửa lại giá"},
+        headers=_h_duyet(),
+    )
+    assert rejected.status_code == 200, rejected.text
+
+    source_after = client.get(
+        f"/api/department-purchase-requests/{source['id']}", headers=auth_headers
+    )
+    assert source_after.json()["status"] == "pending_approval", (
+        "YCMH về open sẽ làm hiện lại nút Tạo đơn"
+    )
+
+    duplicate_payload = _request_payload(supplier["id"])
+    duplicate_payload["source_request_ids"] = [source["id"]]
+    duplicate = client.post(
+        "/api/purchase-requests", json=duplicate_payload, headers=auth_headers
+    )
+    assert duplicate.status_code == 422, duplicate.text
+
+    corrected_payload = _request_payload(supplier["id"])
+    corrected_payload["source_request_ids"] = [source["id"]]
+    corrected_payload["purpose"] = "Đã sửa giá theo phản hồi Kế toán"
+    corrected = client.put(
+        f"/api/purchase-requests/{pr['id']}",
+        json=corrected_payload,
+        headers=auth_headers,
+    )
+    assert corrected.status_code == 200, corrected.text
+    assert corrected.json()["id"] == pr["id"]
+    assert corrected.json()["status"] == "rejected"
+
+    resubmitted = client.post(
+        f"/api/purchase-requests/{pr['id']}/submit", headers=auth_headers
+    )
+    assert resubmitted.status_code == 200, resubmitted.text
+    assert resubmitted.json()["status"] == "pending_approval"
+
+
 def test_purchase_request_line_discount_and_vat(client, auth_headers):
     supplier = _supplier(client, auth_headers)
     source = _create_department_request(client, auth_headers)
@@ -1555,10 +1686,7 @@ def _notify(client, headers, expect: int = 200) -> dict:
 
 
 def _pmh_bi_tu_choi(client, headers, supplier_id: int) -> dict:
-    """PMH đi trọn đường tới BỊ TỪ CHỐI ⇒ YCMH nguồn tự rơi về 'Chờ mua' (bậc 0).
-
-    Không dựng thẳng trạng thái trong DB: chính cái LIÊN ĐỚI 'PMH bị từ chối kéo YCMH về Chờ mua'
-    là thứ con số `pmh_bi_tu_choi` đang đếm — bịa trạng thái là test rỗng."""
+    """PMH đi trọn đường tới BỊ TỪ CHỐI và vẫn giữ YCMH nguồn để sửa/gửi lại."""
     pr = _create_purchase_request(client, headers, supplier_id)
     assert client.post(
         f"/api/purchase-requests/{pr['id']}/submit", headers=headers
@@ -1700,30 +1828,28 @@ def test_notify_summary_dem_dung_ba_con_so(client, auth_headers):
 
     # a) Một YCMH để nguyên 'Chờ mua' — việc đang nằm trên bàn thu mua.
     _create_department_request(client, auth_headers)
-    # b) Một PMH bị từ chối; YCMH nguồn của nó rơi về 'Chờ mua' ⇒ YCMH thành 2.
+    # b) Một PMH bị từ chối; YCMH nguồn vẫn bị giữ nên KHÔNG cộng vào hàng "chờ lập đơn".
     _pmh_bi_tu_choi(client, auth_headers, supplier["id"])
     # c) Một đợt giao quá hạn còn nợ (YCMH nguồn của đơn này đã sang 'Đang mua', không đếm).
     _dot_giao_qua_han(client, auth_headers, supplier["id"])
 
     assert _notify(client, auth_headers) == {
-        "ycmh_cho_lap_phieu": 2,
+        "ycmh_cho_lap_phieu": 1,
         "pmh_bi_tu_choi": 1,
         "dot_giao_qua_han": 1,
     }
 
 
-def test_notify_summary_ycmh_da_co_phieu_thay_the_thi_thoi_dem(client, auth_headers):
-    """PMH bị từ chối nhưng YCMH đã có phiếu KHÁC đang chạy ⇒ hết việc, không đếm nữa.
-
-    Đếm mọi PMH `rejected` là badge kêu vĩnh viễn cho một phiếu đã xử lý xong — người dùng học
-    cách phớt lờ badge, và badge chết."""
-    supplier = _supplier(client, auth_headers, name="NCC Badge Thay The")
+def test_notify_summary_pmh_bi_tu_choi_gui_lai_thi_thoi_dem(client, auth_headers):
+    """Gửi lại chính PMH bị từ chối thì việc sửa phiếu đã xử lý, badge phải hết."""
+    supplier = _supplier(client, auth_headers, name="NCC Badge Gui Lai")
     tu_choi = _pmh_bi_tu_choi(client, auth_headers, supplier["id"])
     assert _notify(client, auth_headers)["pmh_bi_tu_choi"] == 1
 
-    # Thu mua lập PHIẾU KHÁC cho đúng YCMH đó → YCMH rời 'Chờ mua'.
-    source_id = tu_choi["sources"][0]["id"]
-    _create_purchase_request(client, auth_headers, supplier["id"], [source_id])
+    gui_lai = client.post(
+        f"/api/purchase-requests/{tu_choi['id']}/submit", headers=auth_headers
+    )
+    assert gui_lai.status_code == 200, gui_lai.text
 
     s = _notify(client, auth_headers)
     assert s["pmh_bi_tu_choi"] == 0
@@ -1754,7 +1880,7 @@ def test_notify_summary_dem_theo_pham_vi_nguoi_xem(client, auth_headers):
     assert cua_admin["pmh_bi_tu_choi"] == 2
     assert cua_buyer["pmh_bi_tu_choi"] == 1, (
         "nhân viên scope `own` đang đếm cả phiếu của người khác")
-    assert cua_buyer["ycmh_cho_lap_phieu"] == cua_admin["ycmh_cho_lap_phieu"] == 2, (
+    assert cua_buyer["ycmh_cho_lap_phieu"] == cua_admin["ycmh_cho_lap_phieu"] == 0, (
         "hộp việc YCMH bị co theo scope phiếu mua ⇒ nhân viên thu mua nhìn badge 0 mà màn đầy việc")
 
 

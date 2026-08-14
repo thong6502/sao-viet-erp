@@ -17,6 +17,7 @@ from .db import SessionLocal, init_db
 from .db_migrations import run_migrations
 from .routers import (
     accounting,
+    module_notifications,
     auth,
     attendance,
     calendar,
@@ -134,6 +135,7 @@ app.include_router(orders.router)
 app.include_router(product_types_catalog.router)
 app.include_router(purchases.router)
 app.include_router(accounting.router)
+app.include_router(module_notifications.router)
 app.include_router(machines.router)
 app.include_router(operations.router)
 # Gỡ (2026-07-16): products · plate_die_rates · norms — không màn nào gọi, module quyền đã bỏ

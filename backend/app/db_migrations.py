@@ -7311,6 +7311,266 @@ def _migrate_them_generated_at_cho_ky_luong(db) -> None:
 MIGRATIONS.append(("0186_them_generated_at_cho_ky_luong", _migrate_them_generated_at_cho_ky_luong))
 
 
+def _migrate_sales_invoices_ar(db: Session) -> None:
+    """AR: công nợ phải thu chỉ phát sinh từ hóa đơn bán đã phát hành (12/08/2026).
+
+    Tạo sổ hóa đơn bán và nối Phiếu thu vào đúng hóa đơn nguồn. Trên DB trắng, `create_all`
+    đã dựng đủ bảng/cột nên migration chỉ bảo đảm index; trên DB đang chạy, DDL dưới đây vá
+    tiến idempotent cho cả SQLite và PostgreSQL.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+    id_pk = "INTEGER PRIMARY KEY" if bind.dialect.name == "sqlite" else "SERIAL PRIMARY KEY"
+
+    if "orders" in tables and "customers" in tables and "users" in tables:
+        db.execute(text(
+            "CREATE TABLE IF NOT EXISTS sales_invoices ("
+            f"id {id_pk}, "
+            "order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE RESTRICT, "
+            "customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL, "
+            "invoice_symbol VARCHAR(64) NOT NULL, "
+            "invoice_number VARCHAR(64) NOT NULL, "
+            "invoice_date DATE NOT NULL, "
+            "amount_vnd BIGINT NOT NULL, "
+            "payment_term_days_snapshot INTEGER, "
+            "due_date DATE, "
+            "customer_name_snapshot VARCHAR(255) NOT NULL, "
+            "status VARCHAR(16) NOT NULL DEFAULT 'issued', "
+            "created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, "
+            "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+            "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+            "cancelled_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, "
+            "cancelled_at TIMESTAMP, "
+            "cancel_reason TEXT, "
+            "CONSTRAINT uq_sales_invoice_symbol_number "
+            "UNIQUE (invoice_symbol, invoice_number))"
+        ))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_sales_invoices_order_id "
+            "ON sales_invoices (order_id)"
+        ))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_sales_invoices_customer_id "
+            "ON sales_invoices (customer_id)"
+        ))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_sales_invoices_status "
+            "ON sales_invoices (status)"
+        ))
+
+    # Refresh sau CREATE TABLE để SQLite/Postgres đều thấy schema mới trong cùng migration.
+    insp = inspect(bind)
+    migrated_tables = set(insp.get_table_names())
+    if "payment_receipts" in migrated_tables and "sales_invoices" in migrated_tables:
+        receipt_cols = _existing_columns(insp, "payment_receipts")
+        if "sales_invoice_id" not in receipt_cols:
+            db.execute(text(
+                "ALTER TABLE payment_receipts ADD COLUMN sales_invoice_id INTEGER "
+                "REFERENCES sales_invoices(id) ON DELETE RESTRICT"
+            ))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_payment_receipts_sales_invoice_id "
+            "ON payment_receipts (sales_invoice_id)"
+        ))
+
+    db.commit()
+
+
+MIGRATIONS.append(("0187_sales_invoices_ar", _migrate_sales_invoices_ar))
+
+
+def _migrate_sales_invoices_legacy_compat(db: Session) -> None:
+    """Đưa bảng hóa đơn bán đời cũ về schema AR hiện tại mà không làm mất dữ liệu.
+
+    Một bản triển khai trước đã tạo ``sales_invoices`` với các tên
+    ``invoice_series``/``invoice_no``/``payment_term_days``. Vì bảng đã tồn tại,
+    migration 0187 dùng ``CREATE TABLE IF NOT EXISTS`` không thể bổ sung các cột
+    mới và mọi truy vấn ORM đều lỗi ngay ở ``invoice_symbol``.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "sales_invoices" not in set(insp.get_table_names()):
+        return
+
+    columns = _existing_columns(insp, "sales_invoices")
+    additions = (
+        ("invoice_symbol", "VARCHAR(64)"),
+        ("invoice_number", "VARCHAR(64)"),
+        ("payment_term_days_snapshot", "INTEGER"),
+        ("updated_at", "TIMESTAMP"),
+    )
+    for name, sql_type in additions:
+        if name not in columns:
+            db.execute(text(f"ALTER TABLE sales_invoices ADD COLUMN {name} {sql_type}"))
+    db.commit()
+
+    columns = _existing_columns(inspect(bind), "sales_invoices")
+    symbol_source = (
+        "COALESCE(NULLIF(TRIM(invoice_series), ''), 'HD')"
+        if "invoice_series" in columns
+        else "'HD'"
+    )
+    number_candidates = []
+    if "invoice_no" in columns:
+        number_candidates.append("NULLIF(TRIM(invoice_no), '')")
+    if "code" in columns:
+        number_candidates.append("NULLIF(TRIM(code), '')")
+    number_candidates.append("CAST(id AS VARCHAR(64))")
+    number_source = (
+        number_candidates[0]
+        if len(number_candidates) == 1
+        else f"COALESCE({', '.join(number_candidates)})"
+    )
+
+    db.execute(text(
+        "UPDATE sales_invoices SET "
+        f"invoice_symbol = COALESCE(invoice_symbol, {symbol_source}), "
+        f"invoice_number = COALESCE(invoice_number, {number_source}), "
+        "updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)"
+    ))
+    if "payment_term_days" in columns:
+        db.execute(text(
+            "UPDATE sales_invoices SET payment_term_days_snapshot = payment_term_days "
+            "WHERE payment_term_days_snapshot IS NULL"
+        ))
+    if "customer_name_snapshot" in columns:
+        db.execute(text(
+            "UPDATE sales_invoices SET customer_name_snapshot = 'Khách hàng' "
+            "WHERE customer_name_snapshot IS NULL OR TRIM(customer_name_snapshot) = ''"
+        ))
+
+    # Bảng cũ không bắt duy nhất cặp ký hiệu + số. Chỉ hậu tố những dòng trùng phía sau để
+    # migration không làm sập startup mà vẫn giữ dòng đầu tiên đúng nguyên bản.
+    db.execute(text(
+        "UPDATE sales_invoices AS current_row SET "
+        "invoice_number = invoice_number || '-' || CAST(id AS VARCHAR(32)) "
+        "WHERE EXISTS (SELECT 1 FROM sales_invoices AS earlier "
+        "WHERE earlier.invoice_symbol = current_row.invoice_symbol "
+        "AND earlier.invoice_number = current_row.invoice_number "
+        "AND earlier.id < current_row.id)"
+    ))
+
+    if bind.dialect.name == "postgresql":
+        for name in ("invoice_symbol", "invoice_number", "updated_at"):
+            db.execute(text(
+                f"ALTER TABLE sales_invoices ALTER COLUMN {name} SET NOT NULL"
+            ))
+        # Các cột bắt buộc của schema cũ không còn được ORM hiện tại ghi. Cho phép NULL để
+        # hóa đơn mới vẫn chèn được; dữ liệu lịch sử trong các cột này được giữ nguyên.
+        for legacy_name in ("code", "subtotal_vnd", "vat_vnd"):
+            if legacy_name in columns:
+                db.execute(text(
+                    f"ALTER TABLE sales_invoices ALTER COLUMN {legacy_name} DROP NOT NULL"
+                ))
+
+    db.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_invoice_symbol_number "
+        "ON sales_invoices (invoice_symbol, invoice_number)"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0189_sales_invoices_legacy_compat", _migrate_sales_invoices_legacy_compat))
+
+
+def _migrate_module_notifications(db: Session) -> None:
+    """Tạo hai bảng badge đọc/chưa đọc cho DB đang chạy.
+
+    DB trắng đã được ``create_all`` dựng từ model; ``checkfirst`` giữ migration idempotent cho cả
+    SQLite và PostgreSQL mà không phải duy trì hai bản CREATE TABLE bằng chuỗi SQL.
+    """
+    from .models.module_notification import ModuleNotification, ModuleNotificationRead
+
+    bind = db.get_bind()
+    ModuleNotification.__table__.create(bind, checkfirst=True)
+    ModuleNotificationRead.__table__.create(bind, checkfirst=True)
+    db.commit()
+
+
+MIGRATIONS.append(("0190_module_notifications", _migrate_module_notifications))
+
+
+def _migrate_module_notification_recipient(db: Session) -> None:
+    """Bổ sung người nhận cho bảng thông báo đã được tạo bởi bản 0190 đầu tiên.
+
+    Một số DB đã chạy 0190 trước khi ``recipient_user_id`` được thêm vào model. Sửa lại 0190 không
+    giúp các DB đó vì migration đã được đánh dấu hoàn tất, nên phải có một bước mới độc lập.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "module_notifications" not in set(insp.get_table_names()):
+        return
+    if "recipient_user_id" not in _existing_columns(insp, "module_notifications"):
+        db.execute(text(
+            "ALTER TABLE module_notifications ADD COLUMN recipient_user_id INTEGER "
+            "REFERENCES users(id) ON DELETE CASCADE"
+        ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_module_notifications_recipient_user_id "
+        "ON module_notifications (recipient_user_id)"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append((
+    "0191_module_notification_recipient",
+    _migrate_module_notification_recipient,
+))
+
+
+def _migrate_rejected_pmh_keeps_ycmh_reserved(db: Session) -> None:
+    """Sửa YCMH cũ bị thả về ``open`` khi PMH nguồn bị Kế toán từ chối.
+
+    Luồng đúng là Thu mua sửa và gửi lại chính PMH bị từ chối. YCMH phải tiếp tục được giữ ở
+    ``pending_approval``; nếu để ``open``, cả giao diện lẫn API đều cho lập thêm PMH trùng nguồn.
+    """
+    tables = set(inspect(db.get_bind()).get_table_names())
+    required = {
+        "department_purchase_requests",
+        "purchase_requests",
+        "purchase_request_sources",
+    }
+    if not required.issubset(tables):
+        return
+
+    stale_ids = list(db.execute(text(
+        "SELECT d.id FROM department_purchase_requests d "
+        "WHERE d.status = 'open' AND EXISTS ("
+        "SELECT 1 FROM purchase_request_sources prs "
+        "JOIN purchase_requests pr ON pr.id = prs.purchase_request_id "
+        "WHERE prs.department_request_id = d.id AND pr.status = 'rejected')"
+    )).scalars())
+    if not stale_ids:
+        return
+
+    has_history = "purchase_status_history" in tables
+    has_updated_at = "updated_at" in _existing_columns(
+        inspect(db.get_bind()), "department_purchase_requests"
+    )
+    for doc_id in stale_ids:
+        if has_history:
+            db.execute(text(
+                "INSERT INTO purchase_status_history "
+                "(doc_type, doc_id, from_status, to_status, changed_by_user_id, source, reason, created_at) "
+                "VALUES ('ycmh', :doc_id, 'open', 'pending_approval', NULL, 'may', "
+                ":reason, CURRENT_TIMESTAMP)"
+            ), {
+                "doc_id": doc_id,
+                "reason": "Sửa dữ liệu: PMH bị từ chối vẫn giữ YCMH để chỉnh sửa và gửi lại",
+            })
+        db.execute(text(
+            "UPDATE department_purchase_requests SET status = 'pending_approval'"
+            + (", updated_at = CURRENT_TIMESTAMP" if has_updated_at else "")
+            + " WHERE id = :doc_id AND status = 'open'"
+        ), {"doc_id": doc_id})
+    db.commit()
+
+
+MIGRATIONS.append((
+    "0192_rejected_pmh_keeps_ycmh_reserved",
+    _migrate_rejected_pmh_keeps_ycmh_reserved,
+))
 def _migrate_kho_khoa_so_them_ten(db) -> None:
     """Thêm cột `ten` (tên kỳ, tuỳ chọn) vào kho_khoa_so — đặt khi 'khoa' để nhận diện nhanh + CHẶN
     TRÙNG với kỳ đang khóa khác. Nullable → no-op trên DB tạo mới bằng create_all."""

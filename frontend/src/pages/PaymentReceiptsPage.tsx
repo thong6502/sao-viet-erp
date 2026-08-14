@@ -20,7 +20,6 @@ import { DetailModal } from "../components/DetailModal";
 import { Icon } from "../components/Icons";
 import { fmtDate, fmtDateTime, money, originalMoney } from "../utils/format";
 import { printTT200 } from "../utils/printTT200";
-import { OrderDepositQueue } from "./OrderDepositQueue";
 import { PaymentReceiptDialog } from "./PaymentReceiptDialog";
 import "./accounting.css";
 import "./purchase.css";
@@ -54,18 +53,21 @@ function optional(value?: string | null): string | null {
 
 function sourceLabel(row: PaymentReceiptRow): string {
   if (row.source_type === "order_deposit") return "Cọc đơn bán";
+  if (row.source_type === "sales_invoice") return "Thu hóa đơn";
   if (row.source_type === "other") return "Thu khác";
   return "Thu hoàn phiếu chi";
 }
 
 function sourceCode(row: PaymentReceiptRow): string | null {
   if (row.source_type === "order_deposit") return row.order_code;
+  if (row.source_type === "sales_invoice") return row.sales_invoice_number;
   if (row.source_type === "purchase_refund") return row.payment_voucher_code;
   return null;
 }
 
 function sourceName(row: PaymentReceiptRow): string {
   if (row.source_type === "order_deposit") return row.customer_name || "Khách hàng";
+  if (row.source_type === "sales_invoice") return row.customer_name || "Khách hàng";
   if (row.source_type === "purchase_refund") return row.supplier_name || "Nhà cung cấp";
   return row.payer_name;
 }
@@ -380,8 +382,6 @@ export function PaymentReceiptsPage({
   const canMarkReceived = can("phieu_thu", "manage_status");
   const canCancel = can("phieu_thu", "cancel");
   const canExport = can("phieu_thu", "export");
-  // B3: quyền "Ghi phiếu thu cọc" (module Đơn hàng bán) — chỉ người này thấy hàng chờ + nghe popup cọc.
-  const canRecordDeposit = can("don_hang_ban", "record_deposit");
   const [rows, setRows] = useState<PaymentReceiptRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -460,6 +460,10 @@ export function PaymentReceiptsPage({
       return;
     }
     if (row.source_type === "order_deposit" && row.order_id) {
+      navigate("don-hang-ban", { openOrderId: row.order_id });
+      return;
+    }
+    if (row.source_type === "sales_invoice" && row.order_id) {
       navigate("don-hang-ban", { openOrderId: row.order_id });
     }
   };
@@ -656,7 +660,7 @@ export function PaymentReceiptsPage({
         )}
         {canCancel &&
           (row.status === "waiting_receipt" ||
-            (row.source_type === "other" && row.status === "received")) && (
+            ((row.source_type === "other" || row.source_type === "sales_invoice") && row.status === "received")) && (
           <Button
             variant="danger"
             onClick={() =>
@@ -679,8 +683,8 @@ export function PaymentReceiptsPage({
         <p className="eyebrow">Kế toán</p>
         <h1 className="md-page__title">Phiếu thu</h1>
         <p className="md-page__sub">
-          Ghi nhận các khoản tiền vào công ty: thu cọc đơn bán, thu hoàn từ phiếu chi,
-          và các khoản thu khác phát sinh độc lập.
+          Ghi nhận các khoản tiền vào công ty: thu cọc đơn bán, thu hóa đơn,
+          thu hoàn từ phiếu chi và các khoản thu khác phát sinh độc lập.
         </p>
       </header>
       {error && (
@@ -688,7 +692,6 @@ export function PaymentReceiptsPage({
           {error}
         </div>
       )}
-      {canRecordDeposit && <OrderDepositQueue />}
       <section className="acct-toolbar">
         <form
           className="md-page__search"
@@ -702,11 +705,11 @@ export function PaymentReceiptsPage({
             className="input"
             value={q}
             onChange={(event) => setQ(event.target.value)}
-            placeholder="Tìm PT, PC, PMH, NCC, người nộp..."
+            placeholder="Tìm PT, hóa đơn, đơn bán, PC, người nộp..."
           />
-          <Button type="submit" variant="ghost">
+          {/* <Button type="submit" variant="ghost">
             Tìm
-          </Button>
+          </Button> */}
         </form>
         <div className="acct-toolbar__filters">
           <select
@@ -771,11 +774,17 @@ export function PaymentReceiptsPage({
                     <strong>{row.code}</strong>
                     <div className="purchase__source-codes">
                       {sourceCode(row) ? (
-                        <CodeLink
-                          code={sourceCode(row)!}
-                          onOpen={() => openSource(row)}
-                          title={`Mở ${sourceLabel(row)}`}
-                        />
+                        <>
+                          <CodeLink
+                            code={sourceCode(row)!}
+                            onOpen={() => openSource(row)}
+                            title={`Mở ${sourceLabel(row)}`}
+                          />
+                          <small>
+                            {sourceLabel(row)}
+                            {row.source_type === "sales_invoice" && row.order_code ? ` · Đơn ${row.order_code}` : ""}
+                          </small>
+                        </>
                       ) : (
                         <span>{sourceLabel(row)}</span>
                       )}
@@ -898,6 +907,17 @@ export function PaymentReceiptsPage({
               <div>
                 <dt>Đơn mua hàng</dt>
                 <dd>{selected.purchase_request_code}</dd>
+              </div>
+            )}
+            {selected.source_type === "sales_invoice" && selected.order_code && (
+              <div>
+                <dt>Đơn bán nguồn</dt>
+                <dd>
+                  <CodeLink
+                    code={selected.order_code}
+                    onOpen={() => openSource(selected)}
+                  />
+                </dd>
               </div>
             )}
             <div>
