@@ -4705,8 +4705,6 @@ export interface DepartmentPurchaseRequestRow {
   /** Lý do TỪ CHỐI / HUỶ — tách khỏi nội dung để lý do của người duyệt không đè lời người khai. */
   reject_reason: string | null;
   status_history: StatusHistoryRow[];
-  /** Lịch sử đầy đủ của đơn, gồm đổi trạng thái và các đợt giao. */
-  activity_history: PurchaseActivityRow[];
   created_at: string;
   updated_at: string;
   total_estimate: number;
@@ -4853,6 +4851,8 @@ export interface PurchaseRequestRow {
   /** Lý do TỪ CHỐI / HUỶ — tách khỏi nội dung để lý do của người duyệt không đè lời người khai. */
   reject_reason: string | null;
   status_history: StatusHistoryRow[];
+  /** Lịch sử đầy đủ của đơn, gồm đổi trạng thái và các đợt giao. */
+  activity_history: PurchaseActivityRow[];
   created_at: string;
   updated_at: string;
   contract_number: string | null;
