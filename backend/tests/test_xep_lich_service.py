@@ -109,6 +109,11 @@ def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000) -> PhieuTinhGia:
     giay = GiayNguyen(
         ma="G-IV350X", ten="Ivory 350", gsm=350, don_gia=25_000, don_vi_gia="tan",
         cong_thuc_gia="to_nguyen * dai_nguyen * rong_nguyen * dinh_luong * don_gia / 1000",
+        # CÔNG THỨC LƯỢNG — mọi giấy thật đều có (mg `0197` điền cho dòng cũ, seed điền cho dòng
+        # mới). Test dựng bằng `create_all` nên migration không chạy ⇒ phải khai tay, không thì
+        # bảng cân đối không quy được tờ → tấn và detector "thiếu vật tư" im.
+        # `/ 1000` vì giấy này bán theo TẤN: kết quả công thức đọc theo đúng `don_vi_gia`.
+        cong_thuc_luong="dinh_luong * dai_nguyen * rong_nguyen * to_nguyen / 1000",
     )
     db.add(giay)
     to_id = _to_san_xuat(db).id

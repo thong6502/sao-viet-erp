@@ -51,6 +51,10 @@ class KhuonBeService:
     def list(self, **kw):
         return self.repo.list(**kw)
 
+    def dem_theo_tinh_trang(self, **kw) -> dict[str, int]:
+        """Số khuôn theo tình trạng — cho tab lọc của màn Khuôn bế (xem repo)."""
+        return self.repo.dem_theo_tinh_trang(**kw)
+
     def create(self, data: dict, created_by: int | None = None):
         self._validate(data)
         # Mã sinh NGẦM: UI không cho gõ mã tay. Không truyền mã → tự cấp KB-#### trên mọi

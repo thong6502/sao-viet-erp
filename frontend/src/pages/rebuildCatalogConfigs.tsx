@@ -773,22 +773,26 @@ export const CFG_DON_VI: CatalogConfig = {
     {
       key: "quy_doi_text",
       label: "Quy đổi",
+      // Loại của từng mảnh do SERVER trả (`quy_doi_chips`), màn này chỉ tô màu. Bản trước tự tách
+      // `quy_doi_text` rồi đoán loại bằng cách dò tên biến ghi cứng — mà server đã đổi mã biến sang
+      // nhãn tiếng Việt trước khi trả, nên "bài in = Tờ vào máy + 2000" hiện xám như một hệ số.
       render: (r) => {
-        const raw = r.quy_doi_text ? String(r.quy_doi_text).trim() : "";
-        if (!raw || raw === "Chưa khai quy đổi") {
+        const chips = Array.isArray(r.quy_doi_chips)
+          ? (r.quy_doi_chips as { text?: string; loai?: string }[])
+          : [];
+        if (chips.length === 0) {
           return <span className="rc__chip-muted">Chưa khai báo</span>;
         }
-        const parts = raw.split(" · ").map((p) => p.trim()).filter(Boolean);
         return (
           <div className="rc__formula-chips">
-            {parts.map((p, i) => {
-              const isDynamic = p.includes("dinh_luong") || p.includes("dai") || p.includes("rong") || p.includes("so_con") || p.includes("×");
-              return (
-                <span key={i} className={`rc__formula-pill ${isDynamic ? "rc__formula-pill--dynamic" : ""}`}>
-                  {p}
-                </span>
-              );
-            })}
+            {chips.map((c, i) => (
+              <span
+                key={i}
+                className={`rc__formula-pill ${c.loai === "cong_thuc" ? "rc__formula-pill--dynamic" : ""}`}
+              >
+                {c.text}
+              </span>
+            ))}
           </div>
         );
       },

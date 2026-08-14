@@ -94,6 +94,10 @@ class MayThietBiService:
     def list(self, **kw):
         return self.repo.list(**kw)
 
+    def dem_theo_loai(self, **kw) -> dict[str, int]:
+        """Số máy theo loại — cho tab lọc của màn Thiết bị (xem repo)."""
+        return self.repo.dem_theo_loai(**kw)
+
     # -- writes --
     def create(self, data: dict, actor_id: int | None = None) -> MayThietBi:
         self._validate(data)

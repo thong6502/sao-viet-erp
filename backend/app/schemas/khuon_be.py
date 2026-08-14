@@ -40,3 +40,5 @@ class KhuonBeListOut(BaseModel):
     total: int
     page: int
     size: int
+    # Số khuôn theo tình trạng — nuôi số trên tab lọc (màn chỉ cầm 20 dòng, không tự đếm được).
+    facets: dict[str, int] = {}

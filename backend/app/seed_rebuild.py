@@ -68,12 +68,12 @@ _CT_LUONG_GIAY_CAN = "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen"
 
 # CẶP quy đổi: (tu, den, he_so) đọc là "1 <tu> = <he_so> <den>". Máy tự đi chiều ngược, nên KHÔNG
 # khai dòng đối xứng. Cặp nào chưa khai thì máy dò đường qua trung gian (tấn → g đi qua kg).
-_QUY_DOI_SEED: list[tuple[str, str, float, str]] = [
-    ("m2", "cm2", 10_000, ""),     # 1 m² = 10.000 cm²
-    ("tan", "kg", 1_000, ""),      # 1 tấn = 1.000 kg
-    ("kg", "g", 1_000, ""),        # 1 kg = 1.000 g
-    ("m", "mm", 1_000, ""),        # 1 mét = 1.000 mm
-    ("ram", "to", 500, ""),        # quy ước ngành in: 1 ram = 500 tờ
+_QUY_DOI_SEED: list[tuple[str, str, float]] = [
+    ("m2", "cm2", 10_000),     # 1 m² = 10.000 cm²
+    ("tan", "kg", 1_000),      # 1 tấn = 1.000 kg
+    ("kg", "g", 1_000),        # 1 kg = 1.000 g
+    ("m", "mm", 1_000),        # 1 mét = 1.000 mm
+    ("ram", "to", 500),        # quy ước ngành in: 1 ram = 500 tờ
     # 🔴 BỐN CẶP CÁCH-GỌI-THÀNH-PHẨM ĐÃ GỠ KHỎI SEED (14/08/2026 — chủ chốt yêu cầu):
     #     ("con", "cai", 1), ("cuon", "cai", 1), ("bo", "cai", 1), ("hop", "cai", 1)
     #
@@ -97,8 +97,9 @@ _QUY_DOI_SEED: list[tuple[str, str, float, str]] = [
     # công thức, không còn cặp nào phải chọn. Xem `LsxService._luong_vat_tu` (ba đường RIÊNG → CHUNG)
     # và `_khoan_theo_cong_thuc`.
     #
-    # ⚠️ CƠ CHẾ CẶP ĐỘNG VẪN CÒN TRONG CODE (`don_vi_quy_doi.cong_thuc` · `cap_map` · `_thieu_bien`) —
-    # chỉ ngưng SEED, không rút cột. Ai muốn khai tay vẫn khai được ở màn Đơn vị & quy đổi.
+    # ⚠️ CƠ CHẾ CẶP ĐỘNG NAY ĐÃ GỠ HẲN (cùng ngày, muộn hơn ghi chú này): cột
+    # `don_vi_quy_doi.cong_thuc` drop ở mg `0198`, màn Đơn vị & quy đổi hết cửa khai công thức cho
+    # cặp. Cặp CHỈ còn hệ số cố định.
     #
     # Cái mất khi gỡ (đã đo 14/08/2026, ghi lại để người sau khỏi phải đo lại):
     #   · 3 đầu việc khoán đ/m² (Cán màng bóng · Cán màng mờ · Ghép màng metalize) — bước đếm `to`,
@@ -152,14 +153,14 @@ def seed_don_vi_do(db: Session) -> None:
         (c.tu_id, c.den_id) for c in db.execute(select(DonViQuyDoi)).scalars()
     }
     caps = []
-    for tu, den, hs, ct in _QUY_DOI_SEED:
+    for tu, den, hs in _QUY_DOI_SEED:
         tu_id, den_id = by_ma.get(tu), by_ma.get(den)
         if not tu_id or not den_id:
             continue
         # Kiểm CẢ HAI CHIỀU: người dùng có thể đã khai "1 tờ = 0,002 ram" — cùng một chuyện.
         if (tu_id, den_id) in da_co or (den_id, tu_id) in da_co:
             continue
-        caps.append(DonViQuyDoi(tu_id=tu_id, den_id=den_id, he_so=hs, cong_thuc=ct or None))
+        caps.append(DonViQuyDoi(tu_id=tu_id, den_id=den_id, he_so=hs))
     if caps:
         db.add_all(caps)
         db.commit()

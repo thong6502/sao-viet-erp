@@ -184,12 +184,13 @@
 .rc__formula-pill {
   display: inline-flex;
   align-items: center;
+  font-family: var(--ff-sans);
   font-size: 11.5px;
   font-weight: 600;
   color: #334155;
-  background: #f1f5f9;
+  background: #f8fafc;
   border: 1px solid #e2e8f0;
-  padding: 3px 8px;
+  padding: 3px 9px;
   border-radius: 6px;
   white-space: normal;
   word-break: break-word;
@@ -198,10 +199,11 @@
 }
 
 .rc__formula-pill--dynamic {
-  color: #0d9488;
-  background: #f0fdfa;
-  border-color: #99f6e4;
-  font-family: 'JetBrains Mono', Consolas, monospace;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  font-family: var(--ff-sans);
+  font-weight: 600;
 }
 
 /* Cảnh báo MỀM (không chặn lưu) — vd cặp số cố định đè lên đường công thức. Hổ phách chứ không đỏ:

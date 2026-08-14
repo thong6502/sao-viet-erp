@@ -291,3 +291,20 @@ def test_tao_lai_ten_da_an_thi_BAT_LAI_chu_khong_bao_trung():
 
     lai = n.create("Ép kim")
     assert lai.id == row.id and lai.active is True
+
+
+def test_dem_theo_loai_nuoi_tab_loc():
+    """Số trên tab lọc màn Thiết bị do MÁY CHỦ đếm (màn chỉ cầm 20 dòng của trang đang xem).
+
+    Không lọc theo `loai_may` — tab đang không được chọn vẫn phải có số. Và tổng các tab
+    phải đúng bằng tổng danh mục, vì màn cộng chính các số này ra số cho tab "Tất cả"
+    (`loai_may` là cột NOT NULL nên ở đây không có nhóm khuyết).
+    """
+    db, svc = _svc()
+    svc.create(_off74(ma="OFF-1", loai_may="press_offset_sheet"))
+    svc.create(_off74(ma="OFF-2", loai_may="press_offset_sheet"))
+    svc.create(_off74(ma="BE-1", loai_may="die_cut"))
+
+    assert svc.dem_theo_loai() == {"press_offset_sheet": 2, "die_cut": 1}
+    assert sum(svc.dem_theo_loai().values()) == svc.list(size=1)[1]   # khớp tổng danh mục
+    assert svc.dem_theo_loai(q="be-1") == {"die_cut": 1}              # đi theo ô tìm

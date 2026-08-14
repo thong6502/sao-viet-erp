@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 
 from .bien_cong_thuc import LOAI_QUY_DOI, bien_cho, ngu_canh_lenh
-from .thanh_phan_engine import MATH_FUNCS, safe_eval
+from .thanh_phan_engine import MATH_FUNCS
 
 # --- Mã đơn vị mà CODE tham chiếu (danh mục có thể thêm đơn vị khác thoải mái) ----------------
 DV_TO = "to"
@@ -121,29 +121,25 @@ def bien_trong(cong_thuc: str) -> list[str]:
     return sorted({t for t in _TU.findall(cong_thuc or "") if t not in MATH_FUNCS})
 
 
-def _thieu_bien(cong_thuc: str, ctx: dict) -> list[str]:
-    """Biến chưa có số. Coi 0 là THIẾU: tờ khổ 0 hay định lượng 0 là chưa khai, không phải số thật."""
-    return [t for t in bien_trong(cong_thuc) if _f(ctx.get(t)) <= 0]
+def _doc_cap(r) -> tuple[str, str, float]:
+    """Một dòng cặp → `(mã từ, mã đến, hệ số)`.
 
-
-def _doc_cap(r) -> tuple[str, str, float, str]:
+    🔴 Phần tử thứ TƯ (`cong_thuc`) đã GỠ 14/08/2026 cùng quy đổi động. Nếu bạn đang sửa hàm này:
+    năm nơi đọc nó phải sửa CÙNG LƯỢT — vụ 13/08 vỡ đúng vì đổi 4→3 mà một chỗ còn đọc `[3]`.
+    """
     if isinstance(r, dict):
-        tu, den, hs, ct = r.get("tu_ma"), r.get("den_ma"), _f(r.get("he_so")), r.get("cong_thuc")
+        tu, den, hs = r.get("tu_ma"), r.get("den_ma"), _f(r.get("he_so"))
     else:
-        tu, den = getattr(r, "tu_ma", None), getattr(r, "den_ma", None)
-        hs, ct = _f(r.he_so), getattr(r, "cong_thuc", None)
-    return (str(tu or "").strip().lower(), str(den or "").strip().lower(), hs,
-            (ct or "").strip())
+        tu, den, hs = getattr(r, "tu_ma", None), getattr(r, "den_ma", None), _f(r.he_so)
+    return str(tu or "").strip().lower(), str(den or "").strip().lower(), hs
 
 
 def cum_tinh(ma: str, rows) -> set[str]:
-    """Mọi đơn vị với tới `ma` CHỈ qua cạnh TĨNH (hệ số cố định). Gồm cả chính `ma`.
+    """Mọi đơn vị với tới `ma` qua cặp quy đổi. Gồm cả chính `ma`.
 
-    "Cụm tĩnh" = một phép đo được gọi bằng nhiều tên: `kg · tấn · g`, `m² · cm²`, `tờ · ram`. Đổi
-    qua lại bằng hằng số, không phụ thuộc lệnh nào.
-
-    Cạnh ĐỘNG (`1 tờ = f(quy cách) kg`) KHÔNG gộp cụm — nó nối hai thứ KHÁC LOẠI, và cả hai đầu
-    đều được có công thức tính lượng riêng. Gộp chúng lại là chặn oan `tờ` với `kg`.
+    "Cụm" = một phép đo được gọi bằng nhiều tên: `kg · tấn · g`, `m² · cm²`, `tờ · ram`. Đổi qua
+    lại bằng hằng số, không phụ thuộc lệnh nào — từ 14/08/2026 MỌI cặp đều thế, không còn cạnh
+    động nào để phải loại trừ.
 
     Dùng cho hai việc: chặn khai công thức lượng thứ hai trong cùng cụm, và cho công thức khai ở
     một đơn vị LAN sang cả cụm (khai ở `kg` thì `tấn` dùng chung).
@@ -153,8 +149,8 @@ def cum_tinh(ma: str, rows) -> set[str]:
         return set()
     ke: dict[str, set[str]] = {}
     for r in rows or []:
-        tu, den, _hs, ct = _doc_cap(r)
-        if not tu or not den or ct:      # có công thức ⇒ cạnh ĐỘNG ⇒ bỏ qua
+        tu, den, _hs = _doc_cap(r)
+        if not tu or not den:
             continue
         ke.setdefault(tu, set()).add(den)
         ke.setdefault(den, set()).add(tu)
@@ -167,35 +163,21 @@ def cum_tinh(ma: str, rows) -> set[str]:
     return ra
 
 
-def cap_map(rows, ctx: dict | None = None,
-            gia_dinh_du_bien: bool = False) -> dict[str, dict[str, float]]:
+def cap_map(rows) -> dict[str, dict[str, float]]:
     """list[DonViQuyDoi] → đồ thị {ma_tu: {ma_den: he_so}}, CẢ HAI CHIỀU.
 
     Khai "1 tấn = 1.000 kg" là đủ để đổi ngược kg → tấn (nhân 1/1.000) — bắt khai hai dòng thì
     sớm muộn hai dòng lệch nhau. Rows phải kèm mã hai đầu (`tu_ma`/`den_ma`) vì hàm này thuần,
     không truy DB.
 
-    Dòng CÔNG THỨC (quy đổi động) chỉ vào đồ thị khi có `ctx` và đủ biến; thiếu biến thì cạnh đó
-    coi như KHÔNG TỒN TẠI — thà không đổi được còn hơn đổi bằng số đoán. `gia_dinh_du_bien` chỉ để
-    dựng câu báo lỗi ("đường này đi được nếu biết định lượng"), không dùng để tính ra số.
+    🔴 GỠ 14/08/2026: nhánh dòng-CÔNG-THỨC (`ctx` + `gia_dinh_du_bien`). Hệ không còn quy đổi ĐỘNG
+    — công thức nay khai ở CHÍNH đơn vị / mặt hàng và trả LƯỢNG, không có đích. Nhờ vậy đồ thị cặp
+    thành hằng số thuần: đổi `tấn → kg` ra một đáp án bất kể đang đứng ở lệnh nào.
     """
     g: dict[str, dict[str, float]] = {}
     for r in rows or []:
-        tu, den, hs, ct = _doc_cap(r)
-        if not tu or not den or tu == den:
-            continue
-        if ct:
-            thieu = _thieu_bien(ct, ctx or {})
-            if thieu:
-                if not gia_dinh_du_bien:
-                    continue
-                hs = 1.0            # cạnh "giả định" — chỉ để dò xem có đường hay không
-            else:
-                try:
-                    hs = float(safe_eval(ct, ctx or {}))
-                except (ValueError, ZeroDivisionError):
-                    continue
-        if hs <= 0:
+        tu, den, hs = _doc_cap(r)
+        if not tu or not den or tu == den or hs <= 0:
             continue
         g.setdefault(tu, {})[den] = hs
         g.setdefault(den, {})[tu] = 1.0 / hs
@@ -276,76 +258,29 @@ def doi(gia_tri: float, tu: str, den: str, dvs: dict[str, dict],
     return {"gia_tri": ket_qua, "don_vi": b["ten"], "dien_giai": dg}
 
 
-# --- Quy đổi ĐỘNG: hệ số là công thức ----------------------------------------------------------
-
-
-def _canh_tren_duong(duong: list[str]) -> set[tuple[str, str]]:
-    """Cạnh của đường, tính CẢ HAI CHIỀU — cặp lưu chiều nào cũng là cạnh đó."""
-    xuoi = set(zip(duong, duong[1:]))
-    return xuoi | {(b, a) for a, b in xuoi}
-
-
-def _dong_tren_duong(rows, duong: list[str]) -> list:
-    canh = _canh_tren_duong(duong or [])
-    return [r for r in rows or []
-            if _doc_cap(r)[3] and (_doc_cap(r)[0], _doc_cap(r)[1]) in canh]
-
-
-def _chu_thich_dong(rows, duong: list[str], ctx: dict, dvs: dict[str, dict]) -> list[str]:
-    """Câu giải thích cho mỗi cạnh ĐỘNG đã dùng: "1 tờ = 0,168 kg (định lượng 0,3 × dài 0,86 ×
-    rộng 0,65)". Không có nó thì người xem thấy một hệ số từ trên trời rơi xuống."""
-    out: list[str] = []
-    for r in _dong_tren_duong(rows, duong):
-        tu, den, _hs, ct = _doc_cap(r)
-        try:
-            val = float(safe_eval(ct, ctx))
-        except (ValueError, ZeroDivisionError):
-            continue
-        so = " × ".join(f"{BIEN.get(b, b).split(' (')[0]} {_so(_f(ctx.get(b)))}"
-                        for b in bien_trong(ct) if b in BIEN)
-        cau = f"1 {ten_dv(tu, dvs)} = {_so(val)} {ten_dv(den, dvs)}"
-        out.append(f"{cau}: {so}" if so else cau)
-    return out
+# 🔴 KHỐI "QUY ĐỔI ĐỘNG" ĐÃ GỠ HẲN 14/08/2026 (chủ chốt: hệ không hỗ trợ `kg = f() g` nữa).
+#
+# Ba hàm chỉ sống vì cạnh động, nay xoá cùng nó:
+#     `_canh_tren_duong` · `_dong_tren_duong`  — dò xem cạnh động nào nằm trên đường đi
+#     `_chu_thich_dong`                        — câu "1 tờ = 0,168 kg (định lượng 0,3 × …)"
+#     `_thieu_bien`                            — báo "chưa biết Định lượng giấy nên không đổi được"
+#
+# Công thức nay khai ở CHÍNH đơn vị (`don_vi_do.cong_thuc`) và CHÍNH mặt hàng
+# (`vat_tu_in_an.cong_thuc_luong` · `giay_nguyen.cong_thuc_luong`) — trả LƯỢNG, KHÔNG có đích.
+# Xem `LsxService._luong_vat_tu` (ba đường RIÊNG → CHUNG) và `KeHoachVatTuService._ve_goc`.
 
 
 def doi_theo_quy_cach(gia_tri: float, tu: str, den: str, quy_cach: dict | None,
                       dvs: dict[str, dict], cap_rows=None) -> dict:
-    """Đổi bằng cặp đã khai, KỂ CẢ cặp có công thức (quy đổi động).
+    """Đổi bằng CẶP đã khai. Cặp nay chỉ còn hệ số cố định, nên đây là phép thuần.
 
-    Nhận thẳng DANH SÁCH DÒNG cặp chứ không nhận đồ thị đã dẹp phẳng: hệ số của dòng động chỉ có
-    sau khi thay biến, mà biến thì lấy từ `quy_cach` của chính việc đang làm.
+    `quy_cach` GIỮ trong chữ ký nhưng KHÔNG dùng nữa (14/08/2026) — trước đây nó cấp định lượng/khổ
+    để thay vào công thức của cạnh động. Chưa rút khỏi chữ ký vì có 20 chỗ gọi trên 8 file; rút cùng
+    lượt với việc gỡ cạnh động là đúng cái đã làm vỡ ba lần hôm 13/08. Rút ở lượt sau.
     """
+    del quy_cach            # nói thẳng là bỏ, đừng để người đọc tưởng còn ăn
     tu_k, den_k = (tu or "").strip().lower(), (den or "").strip().lower()
-    rows = list(cap_rows or [])
-    a, b = dvs.get(tu_k), dvs.get(den_k)
-    if a is None or b is None:
-        return doi(gia_tri, tu_k, den_k, dvs, cap_map(rows))   # nguyên lỗi "chưa khai đơn vị"
-
-    ctx = ngu_canh(quy_cach)
-    cap = cap_map(rows, ctx)
-    kq = doi(gia_tri, tu_k, den_k, dvs, cap)
-    if "gia_tri" in kq:
-        ghi = _chu_thich_dong(rows, duong_di(a["ma"], b["ma"], cap) or [], ctx, dvs)
-        if ghi:
-            kq["dien_giai"] = f"{kq['dien_giai']} ({' · '.join(ghi)})"
-        return kq
-
-    # Không có đường. Nếu GIẢ ĐỊNH đủ biến mà lại có đường thì lỗi thật là thiếu số, không phải
-    # thiếu khai — nói thẳng thiếu cái gì thay vì bảo người ta đi khai thêm cặp.
-    duong_ao = duong_di(a["ma"], b["ma"], cap_map(rows, ctx, gia_dinh_du_bien=True))
-    if duong_ao:
-        thieu: list[str] = []
-        for r in _dong_tren_duong(rows, duong_ao):
-            for bien in _thieu_bien(_doc_cap(r)[3], ctx):
-                if bien not in thieu:
-                    thieu.append(bien)
-        if thieu:
-            return {
-                "thieu": thieu,
-                "ly_do": f"Chưa biết {', '.join(BIEN.get(k, k) for k in thieu)} nên không đổi "
-                         f"được {a['ten']} → {b['ten']}.",
-            }
-    return kq        # nguyên lỗi "chưa khai quy đổi giữa A và B"
+    return doi(gia_tri, tu_k, den_k, dvs, cap_map(list(cap_rows or [])))
 
 
 # --- Đơn vị dùng được cho MỘT mặt hàng ---------------------------------------------------------
@@ -363,7 +298,7 @@ def canh_quy_cach(don_vi_dong_goi: str | None, he_so_dong_goi, don_vi_goc: str |
     hs = _f(he_so_dong_goi)
     if not tu or not den or tu == den or hs <= 0:
         return []
-    return [{"tu_ma": tu, "den_ma": den, "he_so": hs, "cong_thuc": None}]
+    return [{"tu_ma": tu, "den_ma": den, "he_so": hs}]
 
 
 def don_vi_dung_duoc(goc: str, dvs: dict[str, dict], cap_rows=None,
@@ -373,10 +308,11 @@ def don_vi_dung_duoc(goc: str, dvs: dict[str, dict], cap_rows=None,
     `duong_di` chỉ trả lời "đi từ A tới B được không"; ở đây cần hỏi ngược lại "đứng ở A thì tới
     được những đâu", nên BFS LOANG cả đồ thị thay vì tìm một đích.
 
-    Danh sách TỰ THÍCH NGHI THEO MÓN mà không cần cấu hình riêng: `cap_map` loại cạnh động thiếu
-    biến, nên giấy (có khổ + định lượng) thấy tờ/ram/m², còn hoá chất chỉ khai kg thì cạnh
-    `tờ → kg` tắt và nó chỉ thấy kg/g/tấn. Cạnh riêng của món (quy cách đóng gói) truyền vào bằng
-    `cap_rows` đã nối thêm `canh_quy_cach(...)`.
+    Danh sách theo MÓN nhờ cạnh riêng của nó (quy cách đóng gói) — nơi gọi nối thêm
+    `canh_quy_cach(...)` vào `cap_rows`.
+
+    `quy_cach` GIỮ trong chữ ký nhưng KHÔNG dùng nữa (14/08/2026): trước đây nó bật/tắt cạnh động
+    theo việc có đủ biến hay không. Không còn cạnh động thì danh sách chỉ phụ thuộc bảng cặp.
 
     Trả list `{ma, ten, he_so, he_so_ve_goc, la_goc, dien_giai}`, thứ tự BFS nên đơn vị gốc đứng
     đầu rồi tới các đơn vị gần nhất. Hai hệ số ngược nhau đều được trả vì hai phía dùng hai chiều:
@@ -387,8 +323,9 @@ def don_vi_dung_duoc(goc: str, dvs: dict[str, dict], cap_rows=None,
     g = dvs.get(goc_k)
     if g is None:
         return []
+    del quy_cach            # nói thẳng là bỏ, đừng để người đọc tưởng còn ăn
     ma_goc = g["ma"]
-    cap = cap_map(list(cap_rows or []), ngu_canh(quy_cach))
+    cap = cap_map(list(cap_rows or []))
 
     he_so: dict[str, float] = {ma_goc: 1.0}
     hang_doi = [ma_goc]

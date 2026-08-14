@@ -60,7 +60,9 @@ def list_items(
 ) -> MayThietBiListOut:
     rows, total = svc.list(q=q, loai_may=loai_may, page=page, size=size)
     return MayThietBiListOut(
-        items=[MayThietBiRow.model_validate(r) for r in rows], total=total, page=page, size=size
+        items=[MayThietBiRow.model_validate(r) for r in rows], total=total, page=page, size=size,
+        # `facets` KHÔNG lọc theo `loai_may` — tab đang không được chọn vẫn phải khoe số của nó.
+        facets=svc.dem_theo_loai(q=q),
     )
 
 

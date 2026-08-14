@@ -53,7 +53,11 @@ def list_items(
 ) -> CongDoanListOut:
     rows, total = svc.list(q=q, nhom=nhom, active=active, page=page, size=size)
     svc.gan_ten_don_vi(rows)   # tên đơn vị đọc từ danh mục — xem `gan_ten_don_vi`
-    return CongDoanListOut(items=[CongDoanRow.model_validate(r) for r in rows], total=total, page=page, size=size)
+    return CongDoanListOut(
+        items=[CongDoanRow.model_validate(r) for r in rows], total=total, page=page, size=size,
+        # `facets` KHÔNG lọc theo `nhom` — tab đang không được chọn vẫn phải khoe số của nó.
+        facets=svc.dem_theo_nhom(q=q, active=active),
+    )
 
 
 @router.get("/phong-ban", response_model=RefOptionListOut)

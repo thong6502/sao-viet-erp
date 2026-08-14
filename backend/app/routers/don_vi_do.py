@@ -47,7 +47,11 @@ def _err(e: Exception):
 def _row(svc: DonViDoService, obj) -> DonViDoRow:
     row = DonViDoRow.model_validate(obj)
     row.canh_bao = svc.canh_bao(obj)
-    row.quy_doi_text = svc.quy_doi_text(obj)
+    # Dựng MỘT lần rồi rút chuỗi phẳng ra từ đó — gọi cả `quy_doi_text` lẫn `quy_doi_chips` là quét
+    # bảng cặp hai lượt cho mỗi dòng (20 đơn vị → 40 lượt) mà ra đúng cùng một thứ.
+    row.quy_doi_chips = svc.quy_doi_chips(obj)
+    row.quy_doi_text = (" · ".join(c["text"] for c in row.quy_doi_chips)
+                        if row.quy_doi_chips else "Chưa khai quy đổi")
     if (hl := svc.cong_thuc_hieu_luc(obj)):
         row.cong_thuc_hieu_luc, row.cong_thuc_chu_ma, row.cong_thuc_chu_ten = hl
     # Cách đo dịch sang chữ để màn danh sách khỏi nhúng bảng nhãn biến thứ hai.
@@ -57,8 +61,7 @@ def _row(svc: DonViDoService, obj) -> DonViDoRow:
 
 def _cap_row(c) -> CapRowOut:
     row = CapRowOut.model_validate(c)
-    ve_phai = cong_thuc_chu(c.cong_thuc) if c.cong_thuc else _so(float(c.he_so))
-    row.cau = f"1 {c.tu_ten} = {ve_phai} {c.den_ten}"
+    row.cau = f"1 {c.tu_ten} = {_so(float(c.he_so))} {c.den_ten}"
     row.ma = f"{c.tu_ma} → {c.den_ma}"
     row.ten = row.cau
     return row

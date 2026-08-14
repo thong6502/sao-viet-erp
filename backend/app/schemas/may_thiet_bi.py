@@ -90,6 +90,10 @@ class MayThietBiListOut(BaseModel):
     total: int
     page: int
     size: int
+    # Số máy theo TỪNG loại (`{"Máy in": 12, "Bế": 3}`) — nuôi số trên tab lọc của màn Thiết bị.
+    # Phải do server trả: màn chỉ cầm 20 dòng của trang đang xem nên không tự đếm được nữa, mà
+    # `loai_may` là chữ TỰ DO nên màn cũng không biết trước có những tab nào.
+    facets: dict[str, int] = {}
 
 
 # --- Trạng thái máy LÚC NÀY (dẫn xuất) ---------------------------------------

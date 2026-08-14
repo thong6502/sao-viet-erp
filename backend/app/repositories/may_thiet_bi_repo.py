@@ -35,13 +35,36 @@ class MayThietBiRepository:
             select(MayThietBi).where(func.upper(MayThietBi.ma) == ma)
         ).scalars().first()
 
+    def _loc_q(self, q: str | None):
+        """Điều kiện tìm theo mã/tên — dùng chung cho `list` và `dem_theo_loai` để hai con số
+        (dòng trong bảng · số trên tab) không bao giờ nói hai chuyện khác nhau."""
+        if not q:
+            return None
+        like = f"%{q.strip().lower()}%"
+        return or_(func.lower(MayThietBi.ma).like(like), func.lower(MayThietBi.ten).like(like))
+
+    def dem_theo_loai(self, *, q: str | None = None) -> dict[str, int]:
+        """Số máy của TỪNG loại — số hiện trên tab lọc của màn Thiết bị.
+
+        Cố ý KHÔNG áp điều kiện `loai_may`: tab nào cũng phải khoe số của nó, kể cả tab đang
+        không được chọn. `q` thì CÓ áp — đang tìm "KOMORI" mà tab vẫn khoe số cả danh mục là
+        nói dối. Một câu GROUP BY thay cho cách cũ (màn kéo cả bảng về rồi tự đếm trong JS).
+        """
+        stmt = select(MayThietBi.loai_may, func.count()).group_by(MayThietBi.loai_may)
+        loc = self._loc_q(q)
+        if loc is not None:
+            stmt = stmt.where(loc)
+        # Máy CHƯA khai loại gom vào khoá rỗng "" thay vì bị loại: màn cộng các số này ra tổng
+        # cho tab "Tất cả", bỏ nhóm khuyết đi là tab đó hụt số mà không ai biết vì sao.
+        return {(str(loai).strip() if loai is not None else ""): int(n)
+                for loai, n in self.db.execute(stmt)}
+
     def list(self, *, q: str | None = None, loai_may: str | None = None,
              page: int = 1, size: int = 50):
         conds = []
-        if q:
-            like = f"%{q.strip().lower()}%"
-            conds.append(or_(func.lower(MayThietBi.ma).like(like),
-                             func.lower(MayThietBi.ten).like(like)))
+        loc_q = self._loc_q(q)
+        if loc_q is not None:
+            conds.append(loc_q)
         if loai_may:
             conds.append(MayThietBi.loai_may == loai_may)
         base = select(MayThietBi)

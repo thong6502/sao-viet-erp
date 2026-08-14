@@ -45,11 +45,18 @@ def list_items(
     _: Annotated[User, Depends(require_permission(MODULE, "read"))],
     q: str | None = Query(default=None),
     active: bool | None = Query(default=None),
+    # Tab lọc của màn Khuôn bế (Còn dùng · Hỏng · Trả khách…). Trước 14/08/2026 màn tự lọc trong
+    # JS trên toàn bộ danh mục đã tải về; nay bảng chỉ cầm 20 dòng nên việc lọc phải về đây.
+    tinh_trang: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
 ) -> KhuonBeListOut:
-    rows, total = svc.list(q=q, active=active, page=page, size=size)
-    return KhuonBeListOut(items=[KhuonBeRow.model_validate(r) for r in rows], total=total, page=page, size=size)
+    rows, total = svc.list(q=q, active=active, tinh_trang=tinh_trang, page=page, size=size)
+    return KhuonBeListOut(
+        items=[KhuonBeRow.model_validate(r) for r in rows], total=total, page=page, size=size,
+        # `facets` KHÔNG lọc theo `tinh_trang` — tab đang không được chọn vẫn phải khoe số của nó.
+        facets=svc.dem_theo_tinh_trang(q=q, active=active),
+    )
 
 
 @router.get("/{item_id}", response_model=KhuonBeRow)

@@ -16,7 +16,7 @@ from ..models.don_vi_do import HO_GOI_Y, TRAM_DONG_GIAY
 from .bien_cong_thuc import LOAI_QUY_DOI, bien_cho
 from ..repositories.don_vi_do_repo import DonViDoRepository
 from .quy_doi_service import (
-    BIEN, _dong_tren_duong, _so, bien_trong, cap_map, cum_tinh, duong_di, he_so_duong,
+    BIEN, _so, bien_trong, cap_map, cum_tinh, duong_di, he_so_duong,
 )
 from .thanh_phan_engine import safe_eval
 
@@ -173,31 +173,10 @@ class DonViDoService:
         except (ValueError, ZeroDivisionError) as e:
             raise DonViDoValidationError(f"Công thức không chạy được: {e}") from None
 
-    def _kiem_mot_cong_thuc_moi_dich(
-        self, ct: str, den_id: int, den, *, bo_qua_cap_id: int | None = None
-    ) -> None:
-        """MỖI ĐƠN VỊ CHỈ ĐƯỢC TÍNH RA BẰNG MỘT CÔNG THỨC (12/08/2026).
-
-        Luật sinh ra cho BOM. Vật tư khai ĐVT là kg thì lúc bung ở bước lệnh máy phải đổi số lượng
-        của bước sang kg — có hai công thức cùng ra kg thì không có cách nào chọn, và chọn bừa nghĩa
-        là số vật tư sai mà nhìn vẫn hợp lý.
-
-        CHỈ chặn theo đơn vị ĐÍCH. Một đơn vị vẫn được khai nhiều công thức ĐI RA
-        (`tờ → cái` · `tờ → kg` · `tờ → m²`) — ba đích là ba câu hỏi khác nhau, không tranh nhau.
-
-        Không đụng dữ liệu cũ: dòng đã lưu trước luật này vẫn nằm nguyên, `canh_bao` nhắc để người
-        dùng tự dọn. Chặn ở đây chỉ ngăn khai thêm cái thứ hai.
-        """
-        if not ct:
-            return
-        cu = self.repo.dong_ve(den_id, bo_qua_id=bo_qua_cap_id)
-        if cu is None:
-            return
-        raise DonViDoValidationError(
-            f"{den.ten} đã có công thức động: 1 {cu.tu_ten} = "
-            f"{cong_thuc_chu(cu.cong_thuc)} {den.ten}. "
-            f"Mỗi đơn vị chỉ tính ra bằng MỘT công thức — sửa dòng đó thay vì khai thêm."
-        )
+    # 🔴 `_kiem_mot_cong_thuc_moi_dich` ĐÃ GỠ 14/08/2026 (dựng 12/08, sống đúng hai ngày). Nó chặn
+    # "hai công thức cùng ra một đơn vị ĐÍCH" — chỉ có nghĩa khi công thức còn có đích. Công thức
+    # nay khai trên chính đơn vị và không quy về đâu cả; việc canh trùng chuyển sang
+    # `_kiem_mot_cong_thuc_moi_cum` (một CỤM TĨNH một công thức).
 
     def _kiem_khong_vong_tron(self, ct: str, ma: str) -> None:
         """Chiều NGƯỢC của luật vòng tròn (14/08/2026).
@@ -240,7 +219,7 @@ class DonViDoService:
         """Hệ số nhân từ đơn vị CHỦ sang `ma` — đi trên đồ thị cặp TĨNH. 1.0 nếu không cần đổi."""
         if not chu_ma or chu_ma == ma:
             return 1.0
-        cap = cap_map([r for r in self.repo.cap_rows() if not (r.cong_thuc or "").strip()], {})
+        cap = cap_map(self.repo.cap_rows())
         duong = duong_di(chu_ma, ma, cap)
         return he_so_duong(duong, cap) if duong else 1.0
 
@@ -296,20 +275,22 @@ class DonViDoService:
             f"thức trước khi khai quy đổi này. [E-DV-BOM-TRUNG]"
         )
 
-    def _tach_the(self, data: dict, he_so_cu: float = 0.0) -> tuple[dict, float, str]:
-        """Chuẩn hoá dữ liệu một dòng quy đổi: số HAY công thức, không phải cả hai.
+    def _tach_the(self, data: dict, he_so_cu: float = 0.0) -> tuple[dict, float]:
+        """Chuẩn hoá một dòng quy đổi — chỉ còn SỐ.
 
-        Dòng động lưu `he_so = 0` (xem model): để 1 thì chỗ nào lỡ đọc cột số sẽ ra con số y như
-        thật mà sai, để 0 thì hỏng lộ ra ngay.
+        🔴 14/08/2026: nhánh `cong_thuc` đã gỡ. Cặp quy đổi nay chỉ mang hệ số cố định; công thức
+        khai ở CHÍNH đơn vị (`don_vi_do.cong_thuc`) và trả LƯỢNG, không có đích. Ai gửi `cong_thuc`
+        lên đây thì CHẶN, đừng nuốt im lặng — client cũ gửi nhầm mà lặng thinh là dữ liệu hỏng.
         """
-        ct = (data.get("cong_thuc") or "").strip()
-        if ct:
-            self._kiem_cong_thuc(ct)
-            return {**data, "cong_thuc": ct, "he_so": 0}, 0.0, ct
+        if (data.get("cong_thuc") or "").strip():
+            raise DonViDoValidationError(
+                "Cặp quy đổi chỉ nhận SỐ cố định. Công thức nay khai ở chính đơn vị "
+                "(tab “Công thức quy đổi”) và trả ra LƯỢNG, không quy về đơn vị nào. "
+                "[E-DV-CAP-CONGTHUC]")
         he_so = float(data.get("he_so", he_so_cu) or 0)
         if he_so <= 0:
-            raise DonViDoValidationError("Số quy đổi phải lớn hơn 0, hoặc khai bằng công thức.")
-        return {**data, "cong_thuc": None, "he_so": he_so}, he_so, ""
+            raise DonViDoValidationError("Số quy đổi phải lớn hơn 0.")
+        return {k: v for k, v in data.items() if k != "cong_thuc"} | {"he_so": he_so}, he_so
 
     def create_cap(self, data: dict, actor_id: int | None = None):
         tu_id, den_id = data.get("tu_id"), data.get("den_id")
@@ -317,38 +298,30 @@ class DonViDoService:
             raise DonViDoValidationError("Phải chọn cả hai đơn vị.")
         if tu_id == den_id:
             raise DonViDoValidationError("Hai đơn vị phải khác nhau.")
-        data, he_so, ct = self._tach_the(data)
+        data, he_so = self._tach_the(data)
         tu, den = self.get(tu_id), self.get(den_id)
         if self.repo.find_cap(tu_id, den_id) is not None:
             raise DonViDoDuplicate(f"Đã có quy đổi {tu.ten} → {den.ten}.")
-        self._kiem_mot_cong_thuc_moi_dich(ct, den_id, den)
-        if not ct:
-            # Dòng ĐỘNG không so được với đường hằng lúc khai (chưa có giấy nào để thay biến) —
-            # kiểm nó là lúc dùng, kèm diễn giải. Chỉ chặn được cái so được.
-            self._kiem_mau_thuan(tu.ma, den.ma, he_so)
-            self._kiem_noi_cum_khong_gop_hai_cong_thuc(tu, den)
+        self._kiem_mau_thuan(tu.ma, den.ma, he_so)
+        self._kiem_noi_cum_khong_gop_hai_cong_thuc(tu, den)
         obj = self.repo.create_cap(data)
         self._quen_cache()
         self._log(actor_id, "create_don_vi_cap", obj.id,
-                  f"Khai quy đổi 1 {tu.ten} = {ct or _so(he_so)} {den.ten}")
+                  f"Khai quy đổi 1 {tu.ten} = {_so(he_so)} {den.ten}")
         return obj
 
     def update_cap(self, cap_id: int, data: dict, actor_id: int | None = None):
         obj = self.repo.get_cap(cap_id)
         if obj is None:
             raise DonViDoNotFound("Không tìm thấy dòng quy đổi.")
-        if "cong_thuc" not in data and obj.cong_thuc:
-            data = {**data, "cong_thuc": obj.cong_thuc}
-        data, he_so, ct = self._tach_the(data, he_so_cu=float(obj.he_so or 0))
+        data, he_so = self._tach_the(data, he_so_cu=float(obj.he_so or 0))
         tu, den = self.get(obj.tu_id), self.get(obj.den_id)
-        self._kiem_mot_cong_thuc_moi_dich(ct, obj.den_id, den, bo_qua_cap_id=obj.id)
-        if not ct:
-            # Bỏ qua CHÍNH cặp đang sửa khi dò đường, không thì nó tự mâu thuẫn với bản cũ của mình.
-            self._kiem_mau_thuan(tu.ma, den.ma, he_so, bo_qua_cap_id=obj.id)
+        # Bỏ qua CHÍNH cặp đang sửa khi dò đường, không thì nó tự mâu thuẫn với bản cũ của mình.
+        self._kiem_mau_thuan(tu.ma, den.ma, he_so, bo_qua_cap_id=obj.id)
         obj = self.repo.update_cap(obj, data)
         self._quen_cache()
         self._log(actor_id, "update_don_vi_cap", obj.id,
-                  f"Sửa quy đổi 1 {tu.ten} = {ct or _so(he_so)} {den.ten}")
+                  f"Sửa quy đổi 1 {tu.ten} = {_so(he_so)} {den.ten}")
         return obj
 
     def delete_cap(self, cap_id: int, actor_id: int | None = None) -> None:
@@ -360,19 +333,24 @@ class DonViDoService:
         self._quen_cache()
 
     # --- mô tả cho màn hình --------------------------------------------------
-    def quy_doi_text(self, obj) -> str:
-        """Câu quy đổi ĐỌC TỪ CHÍNH DÒNG NÀY, nhiều cặp thì nối bằng ' · '.
+    def quy_doi_chips(self, obj) -> list[dict]:
+        """Từng mảnh của cột "Quy đổi", mỗi mảnh kèm LOẠI để màn danh sách tô màu — khỏi đoán.
 
-        Luôn mở đầu bằng đơn vị của dòng đang xem — nhìn dòng cm² mà thấy câu "1 m² = 10.000 cm²"
-        thì phải tự lật trong đầu mới hiểu, mà hai dòng m² và cm² lại hiện y hệt nhau. Khi đơn vị
-        này là vế PHẢI thì viết "10.000 cm² = 1 m²" chứ không đổi thành "1 cm² = 0,0001 m²": số
-        thập phân lẻ khó đọc hơn hẳn số nguyên.
+        `loai`: `cong_thuc` (câu ĐỊNH NGHĨA, vế phải là TỔNG của lệnh) · `co_dinh` (tỉ số MỘT đơn
+        vị). Hai thứ đọc khác nhau nên phải nhìn khác nhau.
+
+        🔴 Vì sao server phải trả loại (14/08/2026): trước đó server chỉ trả một chuỗi gộp
+        (`quy_doi_text`), màn danh sách tách bằng " · " rồi đoán loại bằng cách dò tên biến GHI
+        CỨNG (`dinh_luong` · `dai` · `rong` · `so_con` · dấu `×`). Đoán trượt ngay: server đã đổi
+        mã biến sang nhãn tiếng Việt bằng `cong_thuc_chu` TRƯỚC khi trả, nên không mảnh nào còn
+        chứa mã biến — câu "bài in = Tờ vào máy + 2000" rơi hết xuống nhánh cuối, không có dấu `×`
+        nên hiện xám y như một hệ số. Phân loại là việc của nơi BIẾT, tức chỗ dựng ra câu.
         """
         caps = [c for c in self._cap_cache() if c.tu_ma == obj.ma or c.den_ma == obj.ma]
+        out: list[dict] = []
         # ĐƠN VỊ TỰ TÍNH đứng trước: nó KHÔNG cần cặp nào để dùng được, nên in công thức ra đây thay
         # vì để trống. Trước 13/08/2026 cột này chỉ nhìn bảng cặp ⇒ `kg_giay_to_in` đã khai công
         # thức tử tế vẫn hiện "Chưa khai quy đổi", nhìn như chưa làm gì.
-        cau_ct = ""
         hl = self.cong_thuc_hieu_luc(obj)
         if hl:
             ct, chu_ma, chu_ten = hl
@@ -389,66 +367,42 @@ class DonViDoService:
                 ve_phai = (cong_thuc_chu(ct) if hs_chu == 1
                            else f"({cong_thuc_chu(ct)}) × {_so(hs_chu)}")
                 cau_ct = f"{obj.ten} = {ve_phai}  (theo {chu_ten})"
-        # KHÔNG return sớm ở nhánh công thức: đơn vị vừa có công thức lượng vừa có cặp quy đổi là
-        # chuyện thường (`kg` có công thức + `1 kg = 1.000 g` + `1 tấn = 1.000 kg`). Return sớm là
-        # nuốt mất phần cặp, cột "Quy đổi" chỉ còn công thức — dính 14/08/2026.
-        if not caps:
-            return cau_ct or "Chưa khai quy đổi"
-        cau: list[str] = [cau_ct] if cau_ct else []
+            out.append({"text": cau_ct, "loai": "cong_thuc"})
+        # KHÔNG dừng ở nhánh công thức: đơn vị vừa có công thức lượng vừa có cặp quy đổi là chuyện
+        # thường (`kg` có công thức + `1 kg = 1.000 g` + `1 tấn = 1.000 kg`). Dừng sớm là nuốt mất
+        # phần cặp, cột "Quy đổi" chỉ còn công thức — dính 14/08/2026.
         ten = {d.ma: d.ten for d in self._dv_cache()}
         for c in caps:
             kia = ten.get(c.den_ma, c.den_ma) if c.tu_ma == obj.ma else ten.get(c.tu_ma, c.tu_ma)
-            if c.cong_thuc:
-                # Dòng ĐỘNG: in nguyên chiều đã khai cho cả hai đơn vị (lật một công thức ra chữ
-                # thì đọc còn khó hơn), thay tên biến bằng chữ thường ngày.
-                cau.append(f"1 {ten.get(c.tu_ma, c.tu_ma)} = {cong_thuc_chu(c.cong_thuc)} "
-                           f"{ten.get(c.den_ma, c.den_ma)}")
-                continue
             hs = float(c.he_so)
             if c.den_ma == obj.ma:          # cặp lưu chiều ngược → quy về chiều của dòng này
                 hs = 1.0 / hs if hs else 0.0
             # Vế trái luôn là số NGUYÊN: "1 kg = 1.000 g" chứ không phải "0,001 kg = 1 g", và
             # "10.000 cm² = 1 m²" chứ không phải "1 cm² = 0,0001 m²". Số lẻ đọc mệt hơn hẳn.
             if hs >= 1:
-                cau.append(f"1 {obj.ten} = {_so(hs)} {kia}")
+                cau = f"1 {obj.ten} = {_so(hs)} {kia}"
             else:
-                cau.append(f"{_so(1.0 / hs)} {obj.ten} = 1 {kia}" if hs else f"1 {obj.ten} = ? {kia}")
-        return " · ".join(cau)
-
-    def _cap_de_cong_thuc(self, obj, rows) -> list[str]:
-        """Cặp SỐ CỐ ĐỊNH nối hai LOẠI ĐO khác nhau, trong khi hai loại đó vốn đã nối được bằng
-        đường CÔNG THỨC.
-
-        Vì sao đáng ngờ: đổi ngang loại đo (tờ → kg, tờ → m²) phụ thuộc khổ + định lượng của TỪNG
-        mặt hàng — đó chính là lý do nó được khai bằng công thức. Chốt thêm một con số cố định cho
-        cùng cặp ấy là ghi đè công thức bằng con số chỉ đúng với đúng một mặt hàng.
-
-        Đây là cách `1 tờ = 1.000 g` (⇒ mọi tờ giấy nặng 1 kg) lọt được vào DB: `_kiem_mau_thuan`
-        chỉ so với đường HẰNG, mà tờ → kg lại là đường ĐỘNG nên nó không có gì để so.
-
-        Chỉ CẢNH BÁO chứ không chặn: cạnh động có thể thiếu biến, và xưởng có thể có cặp ngang loại
-        hợp lệ thật (1 lượt = 1 tờ). Cùng loại đo thì không bao giờ báo — "1 tấn = 1.000 kg" đúng
-        với mọi mặt hàng.
-        """
-        ho = {d.ma: (d.ho or "khac") for d in self._dv_cache()}
-        out: list[str] = []
-        for r in rows:
-            if r.cong_thuc or obj.ma not in (r.tu_ma, r.den_ma):
-                continue
-            if ho.get(r.tu_ma) == ho.get(r.den_ma):
-                continue
-            con_lai = [x for x in rows if x is not r]
-            # `gia_dinh_du_bien` để cạnh động vào được đồ thị dù chưa có mặt hàng nào thay biến —
-            # ở đây chỉ hỏi "có đường không", không lấy số.
-            duong = duong_di(r.tu_ma, r.den_ma, cap_map(con_lai, {}, gia_dinh_du_bien=True))
-            if duong and _dong_tren_duong(con_lai, duong):
-                out.append(
-                    f"“1 {r.tu_ten} = {_so(float(r.he_so))} {r.den_ten}” là số cố định, nhưng "
-                    f"{r.tu_ten} → {r.den_ten} vốn đổi bằng công thức (tuỳ khổ · định lượng của "
-                    f"từng mặt hàng). Số cố định này chỉ đúng với một mặt hàng — nên xoá."
-                )
+                cau = f"{_so(1.0 / hs)} {obj.ten} = 1 {kia}" if hs else f"1 {obj.ten} = ? {kia}"
+            out.append({"text": cau, "loai": "co_dinh"})
         return out
 
+    def quy_doi_text(self, obj) -> str:
+        """Câu quy đổi ĐỌC TỪ CHÍNH DÒNG NÀY, nhiều mảnh thì nối bằng ' · '.
+
+        Luôn mở đầu bằng đơn vị của dòng đang xem — nhìn dòng cm² mà thấy câu "1 m² = 10.000 cm²"
+        thì phải tự lật trong đầu mới hiểu, mà hai dòng m² và cm² lại hiện y hệt nhau. Khi đơn vị
+        này là vế PHẢI thì viết "10.000 cm² = 1 m²" chứ không đổi thành "1 cm² = 0,0001 m²": số
+        thập phân lẻ khó đọc hơn hẳn số nguyên.
+
+        Chuỗi phẳng, GIỮ cho chỗ nào chỉ cần một dòng chữ (nhật ký, tooltip). Màn danh sách dùng
+        `quy_doi_chips` để còn biết mảnh nào là công thức.
+        """
+        chips = self.quy_doi_chips(obj)
+        return " · ".join(c["text"] for c in chips) if chips else "Chưa khai quy đổi"
+
+    # 🔴 `_cap_de_cong_thuc` ĐÃ GỠ 14/08/2026 — cảnh báo "cặp SỐ đè lên đường CÔNG THỨC". Nó chỉ có
+    # nghĩa khi bảng cặp còn chứa cạnh động để mà đè; nay cặp chỉ còn số nên không còn gì để cảnh.
+    #
     # Màn Đơn vị gọi `canh_bao` + `quy_doi_text` cho TỪNG dòng (18 đơn vị → 18 lượt). Không cache
     # thì mỗi dòng lại quét cả bảng đơn vị và bảng cặp — service sống đúng một request nên cache ở
     # đây an toàn, và dữ liệu không đổi giữa chừng.
@@ -479,17 +433,9 @@ class DonViDoService:
             out.append(
                 f"Chưa khai quy đổi — {obj.ten} chưa đổi qua lại được với đơn vị nào."
             )
-        # Dữ liệu khai TRƯỚC luật "một công thức mỗi đích" (12/08/2026) vẫn nằm nguyên — chặn chỉ áp
-        # cho lần khai mới. Nhắc ở đây để người dùng tự dọn: còn hai công thức cùng ra một đơn vị thì
-        # BOM bung vật tư sẽ vớ phải cái nào không ai đoán được.
-        nhieu = [c for c in rows if (c.cong_thuc or "").strip() and c.den_ma == obj.ma]
-        if len(nhieu) > 1:
-            out.append(
-                f"Có {len(nhieu)} công thức động cùng ra {obj.ten} "
-                f"({' · '.join(c.tu_ten for c in nhieu)}) — BOM sẽ không biết chọn cái nào. "
-                f"Giữ lại một."
-            )
-        out.extend(self._cap_de_cong_thuc(obj, rows))
+        # 🔴 GỠ 14/08/2026 cùng quy đổi động: cảnh báo "có N công thức động cùng ra <đơn vị>". Luật
+        # đó canh việc chọn giữa nhiều công thức CÙNG ĐÍCH — công thức nay không có đích nữa, và
+        # "một cụm một công thức" (`_kiem_mot_cong_thuc_moi_cum`) đã CHẶN ngay lúc khai.
         return out
 
     def _log(self, actor_id: int | None, action: str, target_id: int, detail: str) -> None:

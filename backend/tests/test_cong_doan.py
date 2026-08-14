@@ -421,3 +421,19 @@ def test_so_to_in_gross():
     # net 228 + canh máy 100/màu × ... (ở đây 1 lần) + 2% → ceil
     g = re.so_to_in_gross(228, so_mau=1, bu_hao_canh_may_per_mau=100, bu_hao_chay_pct=2)
     assert g == pytest.approx(335, abs=1)   # (228+100)*1.02 = 334.56 → 335
+
+
+def test_dem_theo_nhom_nuoi_tab_loc():
+    """Số trên tab lọc màn Công đoạn do MÁY CHỦ đếm — không lọc theo `nhom` (tab nào cũng
+    phải có số của nó), nhưng CÓ đi theo ô tìm và cờ `active`."""
+    db, svc = _svc()
+    svc.create(dict(ma="IN1", ten="In offset", nhom="print", pricing_basis="per_sheet"))
+    svc.create(dict(ma="IN2", ten="In lụa", nhom="print", pricing_basis="per_sheet"))
+    svc.create(dict(ma="BE1", ten="Bế hộp", nhom="finishing", pricing_basis="per_sheet"))
+    ngung = svc.create(dict(ma="CU1", ten="In cũ", nhom="print", pricing_basis="per_sheet"))
+    svc.update(ngung.id, dict(ma="CU1", ten="In cũ", nhom="print",
+                              pricing_basis="per_sheet", active=False))
+
+    assert svc.dem_theo_nhom() == {"print": 3, "finishing": 1}
+    assert svc.dem_theo_nhom(active=True) == {"print": 2, "finishing": 1}
+    assert svc.dem_theo_nhom(q="bế") == {"finishing": 1}

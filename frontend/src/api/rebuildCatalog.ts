@@ -7,6 +7,10 @@ export interface ListOut<T> {
   total: number;
   page: number;
   size: number;
+  /** Số dòng theo TỪNG giá trị của cột tab lọc (`{"Máy in": 12, "": 2}` — khoá rỗng = dòng chưa
+   *  khai giá trị đó). Chỉ 3 endpoint có tab lọc mới trả: Máy · Công đoạn · Khuôn bế.
+   *  Màn danh mục phân trang ở máy chủ nên chỉ cầm 20 dòng — số trên tab phải do server đếm. */
+  facets?: Record<string, number>;
 }
 
 export type Row = Record<string, unknown> & { id: number; ma: string; ten: string };

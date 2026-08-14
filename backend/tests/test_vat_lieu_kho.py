@@ -25,8 +25,9 @@ from app.services.vat_lieu_kho_service import (
 _DV = [("kg", "kg", "khoi_luong"), ("g", "g", "khoi_luong"), ("tan", "tấn", "khoi_luong"),
        ("to", "tờ", "to"), ("ram", "ram", "to"), ("m2", "m²", "dien_tich"),
        ("thung", "thùng", "thung"), ("kem", "bản kẽm", "kem")]
-_CAP = [("kg", "g", 1000, None), ("tan", "kg", 1000, None), ("ram", "to", 500, None),
-        ("to", "kg", 0, "dinh_luong * dai * rong"), ("to", "m2", 0, "dai * rong")]
+# Chỉ cặp SỐ. Hai dòng động (`to → kg`, `to → m²`) gỡ 14/08/2026 cùng cơ chế — chúng vốn đã không
+# đổi kết quả của file này (các assert bên dưới đều chờ `to`/`m2` KHÔNG hiện), nay cột không còn.
+_CAP = [("kg", "g", 1000), ("tan", "kg", 1000), ("ram", "to", 500)]
 
 
 def _svc():
@@ -39,8 +40,8 @@ def _svc():
         db.add(d)
         db.flush()
         ids[ma] = d.id
-    for tu, den, hs, ct in _CAP:
-        db.add(DonViQuyDoi(tu_id=ids[tu], den_id=ids[den], he_so=hs, cong_thuc=ct))
+    for tu, den, hs in _CAP:
+        db.add(DonViQuyDoi(tu_id=ids[tu], den_id=ids[den], he_so=hs))
     db.commit()
     return db, VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
 
@@ -163,7 +164,7 @@ def test_giay_muon_dem_theo_to_thi_chon_don_vi_goc_la_to():
 
 
 def test_don_vi_cua_vat_tu_khong_kho_thi_khong_hien_to():
-    """Keo chỉ khai kg → không có khổ để chạy cạnh động, KHÔNG được mời người ta nhập "10 tờ keo".
+    """Keo chỉ khai kg → KHÔNG được mời người ta nhập "10 tờ keo".
 
     Cũng không còn "thùng": muốn nhập theo thùng thì khai hẳn đơn vị đó ở danh mục Đơn vị &
     quy đổi, chứ không khai riêng lẻ trong từng mặt hàng nữa.

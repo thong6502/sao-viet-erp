@@ -182,6 +182,10 @@ class CongDoanService:
     def list(self, **kw):
         return self.repo.list(**kw)
 
+    def dem_theo_nhom(self, **kw) -> dict[str, int]:
+        """Số công đoạn theo giai đoạn — cho tab lọc của màn Công đoạn (xem repo)."""
+        return self.repo.dem_theo_nhom(**kw)
+
     def dau_viec_options(self, department_id: int | None = None) -> list[dict]:
         return [{"id": r.id, "ma": r.code or f"DV-{r.id}", "ten": r.name,
                  "department_id": r.department_id, "don_vi": r.unit,

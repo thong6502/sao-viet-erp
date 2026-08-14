@@ -6999,9 +6999,15 @@ def _migrate_giay_dien_cong_thuc_luong(db: Session) -> None:
 
         kg  =  định lượng (kg/m²)  ×  dài tờ nguyên (m)  ×  rộng tờ nguyên (m)  ×  số tờ nguyên
 
+    ⚠️ CÔNG THỨC PHẢI KHỚP ĐƠN VỊ BÁN, mỗi đơn vị một chuỗi riêng. `_ve_goc` đọc kết quả là số theo
+    ĐÚNG `don_vi_gia` của mặt hàng (`so_luong, dvt = safe_eval(ct), goc`) — dán chuỗi ra kg lên giấy
+    bán theo TẤN là mua thừa 1.000 lần, mà bảng cân đối vẫn nhìn hợp lý. Bản đầu của migration này
+    gộp cả kg/g/tấn vào một chuỗi; sửa 14/08/2026 trước khi có dòng nào dính (DB dev 5/5 giấy đều
+    bán theo kg, đã đếm).
+
     Chỉ điền cho dòng CHƯA khai (`IS NULL`) — người dùng sửa rồi thì không đè. Và chỉ cho giấy bán
-    theo CÂN (`don_vi_gia` thuộc cụm kg/g/tấn) hoặc theo TỜ; đơn vị khác thì để trống, dòng đó nhận
-    "chưa tính được lượng" — đúng hơn là bịa một công thức sai đơn vị.
+    theo CÂN hoặc theo TỜ; đơn vị khác thì để trống, dòng đó nhận "chưa tính được lượng" — đúng hơn
+    là bịa một công thức sai đơn vị.
 
     Khổ/định lượng lấy theo thứ tự LỆNH trước, danh mục sau (`_quy_cach_cua`), nên giấy không khai
     khổ ở danh mục vẫn ra số khi lệnh có khổ.
@@ -7013,7 +7019,8 @@ def _migrate_giay_dien_cong_thuc_luong(db: Session) -> None:
     if "cong_thuc_luong" not in cols or "don_vi_gia" not in cols:
         return
     CAN = "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen"
-    for dvs, ct in ((("kg", "g", "tan"), CAN), (("to", "to_nguyen"), "to_nguyen")):
+    for dvs, ct in ((("kg",), CAN), (("g",), f"{CAN} * 1000"), (("tan",), f"{CAN} / 1000"),
+                    (("to", "to_nguyen"), "to_nguyen")):
         db.execute(
             text("UPDATE giay_nguyen SET cong_thuc_luong = :ct "
                  "WHERE cong_thuc_luong IS NULL AND lower(don_vi_gia) = ANY(:dvs)")
@@ -7026,3 +7033,41 @@ def _migrate_giay_dien_cong_thuc_luong(db: Session) -> None:
 
 
 MIGRATIONS.append(("0197_giay_dien_cong_thuc_luong", _migrate_giay_dien_cong_thuc_luong))
+
+
+def _migrate_go_quy_doi_dong(db: Session) -> None:
+    """Gỡ QUY ĐỔI ĐỘNG — cột `don_vi_quy_doi.cong_thuc` (mg 0137 dựng lên, nay chết).
+
+    Vì sao bỏ: cặp mang công thức nghĩa là "1 tờ = f(chip) kg". Một đơn vị đích có thể tới từ nhiều
+    đường (`tờ → kg`, `tờ nguyên → kg`, `con → kg`) ⇒ lúc bung BOM máy không biết chọn đường nào, mà
+    ba đường cho ba số khác nhau. Mô hình thay thế đã chạy: CÁCH ĐO khai ở CHÍNH đơn vị
+    (`don_vi_do.cong_thuc`, mg 0192) và trả thẳng LƯỢNG của cả lệnh; giấy/vật tư có công thức riêng
+    đè lên (`giay_nguyen.cong_thuc_luong` mg 0195 + 0197, `vat_tu_in_an.cong_thuc_luong` mg 0194).
+
+    Hai việc, theo thứ tự:
+
+    1. **Xoá dòng động mồ côi** — dòng có công thức thì `he_so` lưu 0, tức sau khi gỡ code nó là cặp
+       "1 tờ = 0 kg": không đường quy đổi nào dùng được (`cap_map` bỏ qua `he_so <= 0`) nhưng vẫn
+       hiện ở màn Đơn vị. Dòng vừa có công thức VỪA có `he_so > 0` thì GIỮ — nó là cặp số hợp lệ,
+       chỉ mất phần công thức. DB dev hôm nay: 0 dòng động / 6 cặp (đã đếm trước khi viết).
+    2. **DROP COLUMN**, best-effort: SQLite cũ từ chối thì cột mồ côi vô hại vì model đã hết map nó.
+    """
+    insp = inspect(db.get_bind())
+    if "don_vi_quy_doi" not in set(insp.get_table_names()):
+        return
+    if "cong_thuc" not in _existing_columns(insp, "don_vi_quy_doi"):
+        return
+    db.execute(text(
+        "DELETE FROM don_vi_quy_doi "
+        "WHERE cong_thuc IS NOT NULL AND trim(cong_thuc) <> '' "
+        "AND (he_so IS NULL OR he_so <= 0)"
+    ))
+    db.commit()
+    try:
+        db.execute(text("ALTER TABLE don_vi_quy_doi DROP COLUMN cong_thuc"))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+MIGRATIONS.append(("0198_go_quy_doi_dong", _migrate_go_quy_doi_dong))

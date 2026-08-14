@@ -6,6 +6,7 @@ import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Pager, trangHopLe } from "../components/Pager";
 import { ApiError, authed } from "../api/client";
 import {
   crud, giayVersions, addGiayVersion, nhatKyDanhMuc,
@@ -106,6 +107,21 @@ export interface CatalogConfig {
   renderDeleteDialog?: (row: Row, ctx: { token: string; onClose: () => void; onDone: () => void }) => ReactNode;
 }
 
+/** Số dòng mỗi trang của MỌI màn danh mục. Trang cắt Ở MÁY CHỦ (`page`+`size`): mỗi lần mở màn
+ *  chỉ kéo về 20 dòng, không phải cả danh mục. Tìm kiếm và tab lọc vì thế cũng phải chạy ở máy
+ *  chủ — lọc trong JS trên 20 dòng đang xem sẽ biến ô tìm thành "tìm trong trang này". */
+const PAGE_SIZE = 20;
+
+/** Chờ người ta gõ xong mới hỏi máy chủ. Không có nó thì mỗi phím là một request. */
+function useTre<T>(giaTri: T, ms = 300): T {
+  const [tre, setTre] = useState(giaTri);
+  useEffect(() => {
+    const t = setTimeout(() => setTre(giaTri), ms);
+    return () => clearTimeout(t);
+  }, [giaTri, ms]);
+  return tre;
+}
+
 export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig; onMutate?: () => void }) {
   const { token } = useAuth();
   const api = useMemo(() => crud(config.prefix), [config.prefix]);
@@ -116,7 +132,13 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
   const [pricingRow, setPricingRow] = useState<Row | null>(null);  // hasVersions: mở drawer Lịch sử giá
   const [deleting, setDeleting] = useState<Row | null>(null);      // renderDeleteDialog: dialog xóa riêng
   const [q, setQ] = useState("");
+  const qTre = useTre(q);              // gõ xong 300ms mới hỏi máy chủ
   const [facet, setFacet] = useState("all");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);                                  // tổng SAU bộ lọc
+  const [facets, setFacets] = useState<Record<string, number>>({});       // số cho từng tab lọc
+  // Đổi bộ lọc thì về trang đầu — đứng ở trang 7 rồi gõ tìm còn 3 kết quả là bảng trống trơn.
+  useEffect(() => { setPage(1); }, [qTre, facet]);
 
   // Dữ liệu phụ theo dòng (vd trạng thái máy). Nạp SONG SONG, không nối tiếp: cột phụ chậm không
   // được phép giữ cả bảng ở trạng thái skeleton.
@@ -125,38 +147,69 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
   // mở bảng ra để tìm.
   const [extra, setExtra] = useState<Record<string, unknown> | null>(null);
 
+  const facetKey = config.facet?.key;
+
   const load = useCallback(() => {
     if (!token) return;
     setLoading(true);
-    api.list(token, config.softDelete ? { active: true } : {})   // xóa mềm: chỉ hiện dòng còn active
-      .then((r) => setRows(r.items))
+    // MỘT request cho MỘT trang: lọc + đếm + cắt trang đều nằm ở máy chủ. Trước 14/08/2026 màn
+    // kéo cả danh mục về rồi lọc trong JS — danh mục lớn là vừa nặng đường truyền vừa cụt dữ
+    // liệu (trần `size` của backend là 200).
+    api.list(token, {
+      page,
+      size: PAGE_SIZE,
+      ...(config.softDelete ? { active: true } : {}),   // xóa mềm: chỉ hiện dòng còn active
+      ...(qTre.trim() ? { q: qTre.trim() } : {}),
+      ...(facetKey && facet !== "all" ? { [facetKey]: facet } : {}),
+    })
+      .then((r) => {
+        setRows(r.items);
+        setTotal(r.total);
+        if (r.facets) setFacets(r.facets);
+        // Xoá nốt dòng cuối của trang cuối ⇒ `total` co lại mà `page` đứng yên ⇒ bảng rỗng trơn,
+        // người dùng tưởng mất sạch dữ liệu. Lùi về trang cuối còn thật.
+        const ve = trangHopLe(page, r.total, PAGE_SIZE);
+        if (ve !== null) setPage(ve);
+      })
       .catch((e) => setError(e instanceof ApiError ? e.message : "Không tải được danh sách."))
       .finally(() => setLoading(false));
-    // Hỏng thì để nguyên `null` — cột phụ sẽ nói "chưa biết" chứ không bịa ra trạng thái đẹp.
-    config.loadExtra?.(token).then(setExtra).catch(() => setExtra(null));
-  }, [token, api, config.softDelete, config.loadExtra]);
+  }, [token, api, config.softDelete, page, qTre, facet, facetKey]);
   useEffect(() => { load(); }, [load]);
 
-  // Tab lọc: giữ THỨ TỰ khai sẵn, nối thêm giá trị tự do có trong dữ liệu (facet.dynamic).
+  // Dữ liệu phụ nạp RIÊNG, không đi kèm mỗi lần lật trang: nó là map cho CẢ danh mục (vd trạng
+  // thái mọi máy), lật trang không làm nó khác đi. Chỉ nạp lại sau khi có người ghi (`tick`).
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!token || !config.loadExtra) return;
+    // Hỏng thì để nguyên `null` — cột phụ sẽ nói "chưa biết" chứ không bịa ra trạng thái đẹp.
+    config.loadExtra(token).then(setExtra).catch(() => setExtra(null));
+  }, [token, config.loadExtra, tick]);
+
+  /** Sau khi TẠO / SỬA / XÓA: tải lại cả bảng lẫn dữ liệu phụ. */
+  const lamMoi = useCallback(() => { load(); setTick((t) => t + 1); }, [load]);
+
+  // Tab lọc: giữ THỨ TỰ khai sẵn, nối thêm giá trị TỰ DO người dùng đã khai (facet.dynamic) —
+  // nay đọc từ `facets` của máy chủ, vì màn chỉ cầm 20 dòng nên không tự quét ra được nữa.
   const facetValues = useMemo(() => {
     const f = config.facet;
     if (!f) return [];
     if (!f.dynamic) return f.values;
     const known = new Set(f.values.map((v) => v.value));
-    const extra = [...new Set(rows.map((r) => String(r[f.key] ?? "").trim()).filter(Boolean))]
-      .filter((v) => !known.has(v))
+    const them = Object.keys(facets)
+      .filter((v) => v && !known.has(v))
       .sort((a, b) => a.localeCompare(b, "vi"));
-    return [...f.values, ...extra.map((v) => ({ value: v, label: v }))];
-  }, [config.facet, rows]);
+    return [...f.values, ...them.map((v) => ({ value: v, label: v }))];
+  }, [config.facet, facets]);
 
-  const shown = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (facet !== "all" && config.facet && String(r[config.facet.key] ?? "") !== facet) return false;
-      if (needle && !`${r.ma} ${r.ten}`.toLowerCase().includes(needle)) return false;
-      return true;
-    });
-  }, [rows, q, facet, config.facet]);
+  // Số cạnh tiêu đề và số trên tab "Tất cả": tổng theo Ô TÌM, KHÔNG theo tab đang chọn — đứng ở
+  // tab "Bế" mà tiêu đề tụt xuống còn 3 thì người ta tưởng danh mục có 3 dòng.
+  // `total` là tổng SAU cả tab, nên màn có tab thì cộng từ `facets`. Khoá rỗng trong `facets` là
+  // dòng chưa khai giá trị đó — vẫn phải cộng, bỏ đi là "Tất cả" hụt số.
+  const tongTheoTim = useMemo(() => {
+    const ds = Object.values(facets);
+    return config.facet && ds.length ? ds.reduce((a, b) => a + b, 0) : total;
+  }, [config.facet, facets, total]);
+  const dangLoc = qTre.trim() !== "" || facet !== "all";
 
   const [confirmDeleteRow, setConfirmDeleteRow] = useState<Row | null>(null);
 
@@ -166,8 +219,7 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
     setConfirmDeleteRow(r);
   }
 
-  const facetCount = (v: string) =>
-    config.facet ? rows.filter((r) => String(r[config.facet!.key] ?? "") === v).length : 0;
+  const facetCount = (v: string) => facets[v] ?? 0;
 
   return (
     <main className="rc">
@@ -176,7 +228,7 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
           <header className="rc__head">
             <div className="rc__headrow">
               <h1 className="rc__title">{config.title}</h1>
-              {config.showCount !== false && <span className="rc__count">{rows.length} mục</span>}
+              {config.showCount !== false && <span className="rc__count">{tongTheoTim} mục</span>}
             </div>
             <p className="rc__sub">{config.subtitle}</p>
           </header>
@@ -196,7 +248,7 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
         <div className="rc__unified-bar">
           <div className="rc__headrow">
             <h1 className="rc__title">{config.title}</h1>
-            {config.showCount !== false && <span className="rc__count">{rows.length} mục</span>}
+            {config.showCount !== false && <span className="rc__count">{tongTheoTim} mục</span>}
           </div>
           <div className="rc__unified-right">
             <div className="rc__search-wrapper">
@@ -213,7 +265,7 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
       {config.facet && (
         <div className="rc__tabs">
           <button className={`rc__tab${facet === "all" ? " is-active" : ""}`} onClick={() => setFacet("all")}>
-            Tất cả <span className="rc__tabn">{rows.length}</span>
+            Tất cả <span className="rc__tabn">{tongTheoTim}</span>
           </button>
           {facetValues.map((v) => (
             <button key={v.value} className={`rc__tab${facet === v.value ? " is-active" : ""}`}
@@ -258,7 +310,7 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
                   <td className="rc__actcol"><span className="rc-skel" style={{ width: "70px" }} /></td>
                 </tr>
               ))
-            ) : shown.length === 0 ? (
+            ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={config.columns.length + 3} className="rc__empty-state-td">
                   <div className="rc__empty-state">
@@ -267,17 +319,17 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
                       <path d="m15 9-6 6M9 9l6 6"/>
                     </svg>
                     <p className="rc__empty-text">
-                      {rows.length === 0 ? `Chưa có ${config.title.toLowerCase()} nào trong hệ thống.` : "Không tìm thấy kết quả phù hợp với bộ lọc."}
+                      {dangLoc ? "Không tìm thấy kết quả phù hợp với bộ lọc." : `Chưa có ${config.title.toLowerCase()} nào trong hệ thống.`}
                     </p>
-                    {rows.length === 0 ? (
-                      <Button variant="ghost" onClick={() => setEditing("new")}><PlusIcon /> Tạo {config.title.toLowerCase()}</Button>
-                    ) : (
+                    {dangLoc ? (
                       <Button variant="ghost" onClick={() => { setQ(""); setFacet("all"); }}>Xóa bộ lọc</Button>
+                    ) : (
+                      <Button variant="ghost" onClick={() => setEditing("new")}><PlusIcon /> Tạo {config.title.toLowerCase()}</Button>
                     )}
                   </div>
                 </td>
               </tr>
-            ) : shown.map((r) => {
+            ) : rows.map((r) => {
               const noWrapKeys = ["ma", "dai", "bac", "active", "version_no", "gsm", "kho", "don_vi_gia", "don_gia", "kho_max", "so_to_bu_hao"];
               return (
                 <tr key={r.id} className="rc__row" onClick={() => setEditing(r)}>
@@ -321,12 +373,20 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
         </table>
       </div>
 
+      {/* Chân bảng: `total` là tổng SAU bộ lọc (đúng cái đang được cắt trang), khác con số "N mục"
+          trên tiêu đề = tổng theo ô tìm, không theo tab. Bảng rỗng thì ẩn — khối "chưa có / không
+          tìm thấy" đã nói giúp, thêm dòng "Tổng 0 bản ghi" là thừa. Khóa nút khi đang tải để
+          bấm dồn không đẻ ra hai lượt gọi chồng nhau. */}
+      {total > 0 && (
+        <Pager total={total} page={page} size={PAGE_SIZE} onPage={setPage} loading={loading} unit="bản ghi" />
+      )}
+
       {editing && (
-        <CatalogDrawer config={config} existing={editing === "new" ? null : editing} allRows={rows}
-          onClose={() => { setEditing(null); load(); }}
+        <CatalogDrawer config={config} existing={editing === "new" ? null : editing}
+          onClose={() => { setEditing(null); lamMoi(); }}
           onSaved={(moi) => {
             setEditing(config.moLaiSauKhiTao && editing === "new" && moi ? moi : null);
-            load();
+            lamMoi();
             onMutate?.();
           }} />
       )}
@@ -334,13 +394,13 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
       {pricingRow && (
         <PriceHistoryDrawer row={pricingRow}
           onClose={() => setPricingRow(null)}
-          onSaved={() => { setPricingRow(null); load(); }} />
+          onSaved={() => { setPricingRow(null); lamMoi(); }} />
       )}
 
       {deleting && token && config.renderDeleteDialog?.(deleting, {
         token,
         onClose: () => setDeleting(null),
-        onDone: () => { setDeleting(null); load(); onMutate?.(); },
+        onDone: () => { setDeleting(null); lamMoi(); onMutate?.(); },
       })}
 
       {confirmDeleteRow && (
@@ -361,7 +421,7 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
             if (config.softDelete) {
               try {
                 await api.update(token, r.id, { ...r, active: false });
-                load();
+                lamMoi();
                 onMutate?.();
               } catch (e) {
                 setError(e instanceof ApiError ? e.message : "Không xóa được danh mục.");
@@ -369,7 +429,7 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
             } else {
               try {
                 await api.remove(token, r.id);
-                load();
+                lamMoi();
                 onMutate?.();
               } catch (e) {
                 setError(e instanceof ApiError ? e.message : "Không xóa được.");
@@ -564,17 +624,19 @@ function parseLabelAndSuffix(label: string): { cleanLabel: string; suffix: strin
 }
 
 // ── UTILITY: SUGGEST NEXT SEQUENTIAL CODE ─────────────────────────────────────────
-function suggestNextCode(prefix: string, rows: Row[]): string {
-  let codePrefix = "MA-";
-  if (prefix.includes("loai-san-pham")) codePrefix = "LSP-";
-  else if (prefix.includes("may-thiet-bi")) codePrefix = "TB-";
-  else if (prefix.includes("cong-doan")) codePrefix = "CD-";
-  else if (prefix.endsWith("/kho")) codePrefix = "KHO-";
-  else if (prefix.includes("giay")) codePrefix = "GL-";
-  else if (prefix.includes("muc")) codePrefix = "MUC-";
-  else if (prefix.includes("ban-kem")) codePrefix = "KEM-";
-  else if (prefix.includes("quy-tac-binh-bai")) codePrefix = "BB-";
+function tienToMa(prefix: string): string {
+  if (prefix.includes("loai-san-pham")) return "LSP-";
+  if (prefix.includes("may-thiet-bi")) return "TB-";
+  if (prefix.includes("cong-doan")) return "CD-";
+  if (prefix.endsWith("/kho")) return "KHO-";
+  if (prefix.includes("giay")) return "GL-";
+  if (prefix.includes("muc")) return "MUC-";
+  if (prefix.includes("ban-kem")) return "KEM-";
+  if (prefix.includes("quy-tac-binh-bai")) return "BB-";
+  return "MA-";
+}
 
+function soLonNhat(rows: Row[], codePrefix: string): number {
   const numRegex = new RegExp(`^${codePrefix}(\\d+)$`);
   let maxNum = 0;
   for (const r of rows) {
@@ -584,7 +646,24 @@ function suggestNextCode(prefix: string, rows: Row[]): string {
       if (val > maxNum) maxNum = val;
     }
   }
-  return `${codePrefix}${String(maxNum + 1).padStart(4, "0")}`;
+  return maxNum;
+}
+
+/** Mã gợi ý cho bản ghi mới — HỎI MÁY CHỦ, không đoán từ mấy dòng đang hiện trên bảng.
+ *
+ *  Từ khi màn phân trang ở máy chủ, bảng chỉ cầm 20 dòng: đoán mã lớn nhất trong đó là đứng ở
+ *  trang 1 (sắp theo mã tăng dần) sẽ gợi ý ra mã ĐÃ CÓ, người khai bấm Lưu mới ăn lỗi trùng.
+ *  Danh sách sắp tăng dần nên mã lớn nhất nằm ở TRANG CUỐI — hai request nhẹ (một để biết tổng,
+ *  một để lấy trang cuối) thay cho việc kéo cả danh mục về. */
+async function goiYMaTiepTheo(prefix: string, token: string): Promise<string> {
+  const codePrefix = tienToMa(prefix);
+  const api = crud(prefix);
+  const dau = await api.list(token, { q: codePrefix, size: 1 });
+  const soTrang = Math.max(1, Math.ceil(dau.total / 200));
+  const cuoi = dau.total > 1
+    ? await api.list(token, { q: codePrefix, size: 200, page: soTrang })
+    : dau;
+  return `${codePrefix}${String(soLonNhat(cuoi.items, codePrefix) + 1).padStart(4, "0")}`;
 }
 
 // ── INLINE SVG ICONS ─────────────────────────────────────────────────────────────
@@ -1304,8 +1383,8 @@ function DinhMucDauViecField({ value, options, departmentId, onChange }: {
 
 
 // ── DRAWER COMPONENT ─────────────────────────────────────────────────────────────
-function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
-  config: CatalogConfig; existing: Row | null; allRows: Row[];
+function CatalogDrawer({ config, existing, onClose, onSaved }: {
+  config: CatalogConfig; existing: Row | null;
   onClose: () => void; onSaved: (moi?: Row) => void;
 }) {
   const { token } = useAuth();
@@ -1313,7 +1392,9 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
   const isEdit = existing != null;
   const [form, setForm] = useState<Record<string, unknown>>(() => {
     const init: Record<string, unknown> = {
-      ma: existing?.ma ?? (config.autoCode ? "" : suggestNextCode(config.prefix, allRows)),
+      // Mã gợi ý điền SAU (hỏi máy chủ, xem effect bên dưới) — mở drawer ra ô mã trống một nhịp
+      // còn hơn điền sẵn một mã đã có người dùng.
+      ma: existing?.ma ?? "",
       ten: existing?.ten ?? ""
     };
     for (const f of config.fields) {
@@ -1338,6 +1419,17 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const set = (k: string, v: unknown) => setForm((p) => ({ ...p, [k]: v }));
+
+  // Mã gợi ý cho bản ghi MỚI (màn nào để người dùng tự đặt mã). Hỏi xong mới điền, và chỉ điền
+  // khi ô mã vẫn còn trống — người khai gõ tay trước thì tôn trọng cái họ gõ.
+  useEffect(() => {
+    if (isEdit || config.autoCode || !token) return;
+    let huy = false;
+    goiYMaTiepTheo(config.prefix, token)
+      .then((ma) => { if (!huy) setForm((p) => (String(p.ma ?? "") ? p : { ...p, ma })); })
+      .catch(() => {});   // hỏng thì để trống, người khai tự gõ — không chặn việc tạo mới
+    return () => { huy = true; };
+  }, [isEdit, config.autoCode, config.prefix, token]);
   const setRef = (key: string, value: string) => {
     if (key !== "department_id" || String(form.department_id ?? "") === value) {
       set(key, value);
@@ -1554,10 +1646,21 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
   }
 
   const typedMa = String(form.ma ?? "").trim().toUpperCase();
-  const isMaDuplicate = useMemo(() => {
-    if (isEdit || !typedMa) return false;
-    return allRows.some((r) => String(r.ma).trim().toUpperCase() === typedMa);
-  }, [isEdit, typedMa, allRows]);
+  const maTre = useTre(typedMa, 400);
+  // Cảnh báo trùng mã: HỎI MÁY CHỦ (bảng chỉ còn 20 dòng nên không tự biết được). Một request
+  // nhẹ sau khi gõ xong, lọc sẵn theo chính chuỗi vừa gõ. Đây chỉ là cảnh báo SỚM — chốt chặn
+  // thật vẫn là ràng buộc trùng mã ở backend, nên sót một ca hiếm cũng không lọt vào DB.
+  const [isMaDuplicate, setMaTrung] = useState(false);
+  useEffect(() => {
+    if (isEdit || !maTre || !token) { setMaTrung(false); return; }
+    let huy = false;
+    api.list(token, { q: maTre, size: 50 })
+      .then((r) => {
+        if (!huy) setMaTrung(r.items.some((x) => String(x.ma).trim().toUpperCase() === maTre));
+      })
+      .catch(() => { if (!huy) setMaTrung(false); });
+    return () => { huy = true; };
+  }, [isEdit, maTre, token, api]);
 
   const hasFormulaField = useMemo(
     () => visibleFields.some((f) => f.type === "formula") || config.renderExtra != null,

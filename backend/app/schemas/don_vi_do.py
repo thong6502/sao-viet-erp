@@ -52,6 +52,10 @@ class DonViDoRow(BaseModel):
     canh_bao: list[str] = Field(default_factory=list)
     # Câu quy đổi bằng CHỮ NGƯỜI ĐỌC: "1 tấn = 1.000 kg". Server dựng vì chỉ server thấy cả bảng cặp.
     quy_doi_text: str | None = None
+    # Cũng câu đó nhưng TÁCH SẴN từng mảnh kèm `loai` ("cong_thuc" / "co_dinh") — màn danh sách tô
+    # màu theo `loai`. Bản trước nó tự tách `quy_doi_text` rồi đoán loại bằng tên biến ghi cứng,
+    # trong khi biến đã được đổi sang nhãn tiếng Việt ⇒ công thức nào không có dấu × đều hiện xám.
+    quy_doi_chips: list[dict] = Field(default_factory=list)
 
 
 class DonViDoListOut(BaseModel):
@@ -79,10 +83,10 @@ class HoListOut(BaseModel):
 class CapIn(BaseModel):
     tu_id: int
     den_id: int
-    # Số HOẶC công thức. Dòng công thức gửi he_so = 0 (service tự chuẩn hoá) — `gt=0` ở đây sẽ
-    # chặn oan quy đổi động.
+    # CHỈ số cố định. Quy đổi động (`1 tờ = f(chip) kg`) đã gỡ 14/08/2026 — cách đo nay khai ở
+    # chính đơn vị (`DonViDoIn.cong_thuc`) và trả LƯỢNG, không phải tỉ lệ giữa hai đơn vị.
+    # Vẫn để `ge=0` (không `gt`) vì service mới là nơi báo lỗi có chữ, đẹp hơn 422 trống.
     he_so: float = Field(default=0, ge=0)
-    cong_thuc: str | None = Field(default=None, max_length=200)
     ghi_chu: str | None = Field(default=None, max_length=500)
 
 
@@ -97,7 +101,6 @@ class CapRowOut(BaseModel):
     tu_ten: str
     den_ten: str
     he_so: float
-    cong_thuc: str | None = None
     ghi_chu: str | None = None
     # "1 tấn = 1.000 kg" — dựng sẵn để mọi màn hiện cùng một câu.
     cau: str | None = None

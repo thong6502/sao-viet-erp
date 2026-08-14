@@ -88,3 +88,23 @@ def test_search_by_khach_and_so_ke():
     assert total == 1 and rows[0].khach_hang == "Cty Minh Long"
     rows2, total2 = svc.list(q="b2")
     assert total2 == 1 and rows2[0].so_ke == "Kệ B2"
+
+
+def test_loc_va_dem_theo_tinh_trang():
+    """Tab lọc của màn Khuôn bế chạy Ở MÁY CHỦ từ 14/08/2026.
+
+    Trước đó màn kéo cả danh mục về rồi lọc + đếm trong JS; nay bảng chỉ cầm 20 dòng nên
+    hai việc đó phải nằm đây: `list(tinh_trang=…)` lọc, `dem_theo_tinh_trang()` nuôi số
+    trên tab — và số trên tab KHÔNG được đổi theo tab đang chọn.
+    """
+    db, svc = _svc()
+    svc.create(dict(ten="Khuôn A", tinh_trang="dang_dung"))
+    svc.create(dict(ten="Khuôn B", tinh_trang="dang_dung"))
+    svc.create(dict(ten="Khuôn C", tinh_trang="hong"))
+
+    rows, total = svc.list(tinh_trang="hong")
+    assert total == 1 and rows[0].ten == "Khuôn C"
+
+    assert svc.dem_theo_tinh_trang() == {"dang_dung": 2, "hong": 1}
+    # Có ô tìm thì số trên tab đi theo ô tìm — tab khoe số cả danh mục là nói dối.
+    assert svc.dem_theo_tinh_trang(q="khuôn c") == {"hong": 1}

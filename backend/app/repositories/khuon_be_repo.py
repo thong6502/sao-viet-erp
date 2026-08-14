@@ -36,17 +36,41 @@ class KhuonBeRepository:
             return None
         return self.db.execute(select(KhuonBe).where(func.upper(KhuonBe.ma) == ma)).scalars().first()
 
+    def _loc_q(self, q: str | None):
+        """Điều kiện tìm (mã · tên · khách hàng · số kệ) — dùng chung cho `list` và
+        `dem_theo_tinh_trang` để số dòng và số trên tab luôn cùng một bộ lọc."""
+        if not q:
+            return None
+        like = f"%{q.strip().lower()}%"
+        return or_(
+            func.lower(KhuonBe.ma).like(like),
+            func.lower(KhuonBe.ten).like(like),
+            func.lower(KhuonBe.khach_hang).like(like),
+            func.lower(KhuonBe.so_ke).like(like),
+        )
+
+    def dem_theo_tinh_trang(self, *, q: str | None = None,
+                            active: bool | None = None) -> dict[str, int]:
+        """Số khuôn theo TỪNG tình trạng — số hiện trên tab lọc. Không áp điều kiện
+        `tinh_trang` (tab nào cũng phải có số của nó), nhưng CÓ áp `q` và `active`."""
+        stmt = select(KhuonBe.tinh_trang, func.count()).group_by(KhuonBe.tinh_trang)
+        loc = self._loc_q(q)
+        if loc is not None:
+            stmt = stmt.where(loc)
+        if active is not None:
+            stmt = stmt.where(KhuonBe.active.is_(active))
+        # Nhóm khuyết gom vào khoá rỗng "" (xem `may_thiet_bi_repo.dem_theo_loai`).
+        return {(str(tt).strip() if tt is not None else ""): int(n)
+                for tt, n in self.db.execute(stmt)}
+
     def list(self, *, q: str | None = None, active: bool | None = None,
-             page: int = 1, size: int = 50):
+             tinh_trang: str | None = None, page: int = 1, size: int = 50):
         conds = []
-        if q:
-            like = f"%{q.strip().lower()}%"
-            conds.append(or_(
-                func.lower(KhuonBe.ma).like(like),
-                func.lower(KhuonBe.ten).like(like),
-                func.lower(KhuonBe.khach_hang).like(like),
-                func.lower(KhuonBe.so_ke).like(like),
-            ))
+        loc_q = self._loc_q(q)
+        if loc_q is not None:
+            conds.append(loc_q)
+        if tinh_trang:
+            conds.append(KhuonBe.tinh_trang == tinh_trang)
         if active is not None:
             conds.append(KhuonBe.active.is_(active))
         base = select(KhuonBe)

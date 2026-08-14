@@ -10,7 +10,9 @@ from ..models.don_vi_do import DonViDo, DonViQuyDoi
 
 _FIELDS = ("ten", "ho", "hieu_luc_tu", "ghi_chu", "active", "dung_lam_toc_do",
            "tram_dong_giay", "cong_thuc")
-_CAP_FIELDS = ("tu_id", "den_id", "he_so", "cong_thuc", "ghi_chu")
+# `cong_thuc` KHÔNG còn trong danh sách ghi được của CẶP (14/08/2026) — cặp chỉ mang hệ số cố định.
+# Cột `don_vi_do.cong_thuc` ở `_FIELDS` là chuyện khác: đó là CÁCH ĐO của chính đơn vị, trả LƯỢNG.
+_CAP_FIELDS = ("tu_id", "den_id", "he_so", "ghi_chu")
 
 
 @dataclass
@@ -25,8 +27,6 @@ class CapRow:
     tu_ten: str
     den_ten: str
     he_so: float
-    # Có công thức = quy đổi ĐỘNG, `he_so` vô nghĩa (lưu 0) — số chỉ có lúc chạy.
-    cong_thuc: str | None = None
     ghi_chu: str | None = None
 
 
@@ -113,8 +113,7 @@ class DonViDoRepository:
         tu, den = aliased(DonViDo), aliased(DonViDo)
         stmt = (
             select(DonViQuyDoi.id, DonViQuyDoi.tu_id, DonViQuyDoi.den_id,
-                   tu.ma, den.ma, tu.ten, den.ten, DonViQuyDoi.he_so,
-                   DonViQuyDoi.cong_thuc, DonViQuyDoi.ghi_chu)
+                   tu.ma, den.ma, tu.ten, den.ten, DonViQuyDoi.he_so, DonViQuyDoi.ghi_chu)
             .join(tu, tu.id == DonViQuyDoi.tu_id)
             .join(den, den.id == DonViQuyDoi.den_id)
             .order_by(tu.ma.asc(), den.ma.asc())
@@ -123,7 +122,7 @@ class DonViDoRepository:
             stmt = stmt.where(DonViQuyDoi.id != bo_qua_id)
         return [
             CapRow(id=r[0], tu_id=r[1], den_id=r[2], tu_ma=r[3], den_ma=r[4],
-                   tu_ten=r[5], den_ten=r[6], he_so=float(r[7]), cong_thuc=r[8], ghi_chu=r[9])
+                   tu_ten=r[5], den_ten=r[6], he_so=float(r[7]), ghi_chu=r[8])
             for r in self.db.execute(stmt).all()
         ]
 
@@ -152,21 +151,8 @@ class DonViDoRepository:
             )
         ).scalars().first()
 
-    def dong_ve(self, den_id: int, *, bo_qua_id: int | None = None) -> CapRow | None:
-        """Dòng CÔNG THỨC đang trỏ về `den_id` — mỗi đơn vị chỉ được TÍNH RA bằng một cách.
-
-        Luật này sinh ra cho BOM (12/08/2026): vật tư khai ĐVT là kg thì phải có đúng MỘT công thức
-        ra kg, không thì lúc bung vật tư ở bước lệnh máy không biết lấy công thức nào. Chỉ chặn theo
-        đơn vị ĐÍCH — một đơn vị vẫn được khai nhiều công thức ĐI RA (`tờ → cái`, `tờ → kg`,
-        `tờ → m²`) vì ba đích khác nhau là ba câu hỏi khác nhau.
-
-        Lọc trên `cap_rows()` (đã nạp cả bảng, bảng nhỏ) thay vì query riêng.
-        """
-        return next(
-            (r for r in self.cap_rows(bo_qua_id=bo_qua_id)
-             if (r.cong_thuc or "").strip() and r.den_id == den_id),
-            None,
-        )
+    # 🔴 `dong_ve()` ĐÃ GỠ 14/08/2026 cùng quy đổi động — nó tìm "dòng công thức trỏ về đơn vị này",
+    # mà cặp nay không mang công thức nữa.
 
     def cong_doan_lay_lam_don_vi_ra(self, ma: str) -> list[str]:
         """Tên công đoạn đang lấy `ma` làm ĐƠN VỊ RA, và CẢ HAI vế đều ngoài dòng giấy.
@@ -191,9 +177,8 @@ class DonViDoRepository:
 
     def create_cap(self, data: dict):
         obj = DonViQuyDoi(tu_id=data["tu_id"], den_id=data["den_id"], he_so=data["he_so"])
-        for k in ("cong_thuc", "ghi_chu"):
-            if k in data:
-                setattr(obj, k, data[k])
+        if "ghi_chu" in data:
+            obj.ghi_chu = data["ghi_chu"]
         self.db.add(obj)
         self.db.commit()
         self.db.refresh(obj)

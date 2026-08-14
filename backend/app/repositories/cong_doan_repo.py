@@ -101,12 +101,33 @@ class CongDoanRepository:
             return None
         return self.db.execute(select(CongDoan).where(func.upper(CongDoan.ma) == ma)).scalars().first()
 
+    def _loc_q(self, q: str | None):
+        """Điều kiện tìm theo mã/tên — dùng chung cho `list` và `dem_theo_nhom` để số dòng
+        trong bảng và số trên tab luôn cùng một bộ lọc."""
+        if not q:
+            return None
+        like = f"%{q.strip().lower()}%"
+        return or_(func.lower(CongDoan.ma).like(like), func.lower(CongDoan.ten).like(like))
+
+    def dem_theo_nhom(self, *, q: str | None = None, active: bool | None = None) -> dict[str, int]:
+        """Số công đoạn của TỪNG giai đoạn — số hiện trên tab lọc. Không áp điều kiện `nhom`
+        (tab nào cũng phải có số của nó), nhưng CÓ áp `q` và `active`."""
+        stmt = select(CongDoan.nhom, func.count()).group_by(CongDoan.nhom)
+        loc = self._loc_q(q)
+        if loc is not None:
+            stmt = stmt.where(loc)
+        if active is not None:
+            stmt = stmt.where(CongDoan.active.is_(active))
+        # Nhóm khuyết gom vào khoá rỗng "" (xem `may_thiet_bi_repo.dem_theo_loai`).
+        return {(str(nhom).strip() if nhom is not None else ""): int(n)
+                for nhom, n in self.db.execute(stmt)}
+
     def list(self, *, q: str | None = None, nhom: str | None = None,
              active: bool | None = None, page: int = 1, size: int = 50):
         conds = []
-        if q:
-            like = f"%{q.strip().lower()}%"
-            conds.append(or_(func.lower(CongDoan.ma).like(like), func.lower(CongDoan.ten).like(like)))
+        loc_q = self._loc_q(q)
+        if loc_q is not None:
+            conds.append(loc_q)
         if nhom:
             conds.append(CongDoan.nhom == nhom)
         if active is not None:

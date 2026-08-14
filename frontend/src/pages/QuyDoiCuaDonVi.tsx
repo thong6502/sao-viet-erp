@@ -20,8 +20,9 @@ interface Cap extends Row {
   den_id: number;
   tu_ten: string;
   den_ten: string;
+  // Dòng CẶP chỉ mang SỐ. Field `cong_thuc` của cặp đã gỡ 14/08/2026 (mg 0198) — công thức nay khai
+  // ở chính đơn vị (`don_vi_do.cong_thuc`, xem `ctCuaDonVi` bên dưới) và trả LƯỢNG, không có đích.
   he_so: number;
-  cong_thuc: string | null;
   cau: string | null;
 }
 interface Bien { ma: string; nhan: string }
@@ -85,8 +86,6 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
   // Dòng đang thêm. `dong` = khai bằng công thức (quy đổi động) thay vì con số.
   const [them, setThem] = useState({ gia: "", den_id: "", dong: false });
   const [sua, setSua] = useState<Record<number, string>>({});
-  // Chỉ MỘT trình soạn công thức mở một lúc.
-  const [suaCt, setSuaCt] = useState<number | null>(null);
   // Công thức tính lượng của chính đơn vị (`don_vi_do.cong_thuc`). GIỮ Ở ĐÂY chứ không đọc thẳng
   // prop: `donVi` do drawer cha giữ và cha KHÔNG nạp lại sau khi khối này PUT.
   const [ctState, setCtState] = useState("");
@@ -178,16 +177,11 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
   });
 
   const luuDong = (c: Cap, forceVal?: string) => chay(async () => {
-    let v = forceVal ?? (sua[c.id] ?? (c.cong_thuc ?? String(c.he_so)));
-    if (c.cong_thuc) {
-      v = v.trim().replace(/[\+\-\*\/\(\)\s]+$/, "").trim();
-    }
+    const v = forceVal ?? sua[c.id] ?? String(c.he_so);
     await apiCap.update(token!, c.id, {
-      tu_id: c.tu_id, den_id: c.den_id,
-      ...(c.cong_thuc ? { cong_thuc: v } : { he_so: Number(v.replace(",", ".")) }),
+      tu_id: c.tu_id, den_id: c.den_id, he_so: Number(v.replace(",", ".")),
     });
     setSua((p) => { const n = { ...p }; delete n[c.id]; return n; });
-    setSuaCt(null);
   });
 
   const xoaDong = (c: Cap) => {
@@ -294,71 +288,40 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
           ) : khaiODay.length === 0 ? null : (
             <div className="dvqd__card-list">
               {khaiODay.map((c) => {
-                const goc = c.cong_thuc ?? String(c.he_so);
+                const goc = String(c.he_so);
                 const v = sua[c.id] ?? goc;
-                const dangSoan = suaCt === c.id;
                 const isDirty = v !== goc;
 
                 return (
-                  <div className={`dvqd__card ${dangSoan ? "dvqd__card--editing" : ""}`} key={c.id}>
+                  <div className="dvqd__card" key={c.id}>
                     <div className="dvqd__card-main">
                       <div className="dvqd__card-eq">
                         <span className="dvqd__unit-tag">1 {String(donVi.ten)}</span>
                         <span className="dvqd__eq-sign">=</span>
 
-                        {c.cong_thuc && !dangSoan ? (
-                          renderFormulaPreviewChips(c.cong_thuc, tra)
-                        ) : c.cong_thuc ? (
-                          <span className="dvqd__ve dvqd__ve--soan">Đang soạn công thức...</span>
-                        ) : (
-                          <input
-                            className={`dvqd__val-input ${isDirty ? "dvqd__val-input--dirty" : ""}`}
-                            value={v}
-                            disabled={ban}
-                            placeholder="Hệ số..."
-                            onChange={(e) => setSua((p) => ({ ...p, [c.id]: e.target.value }))}
-                            onBlur={() => { if (isDirty) luuDong(c); }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && isDirty) {
-                                e.preventDefault();
-                                luuDong(c);
-                              }
-                            }}
-                          />
-                        )}
+                        <input
+                          className={`dvqd__val-input ${isDirty ? "dvqd__val-input--dirty" : ""}`}
+                          value={v}
+                          disabled={ban}
+                          placeholder="Hệ số..."
+                          onChange={(e) => setSua((p) => ({ ...p, [c.id]: e.target.value }))}
+                          onBlur={() => { if (isDirty) luuDong(c); }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && isDirty) {
+                              e.preventDefault();
+                              luuDong(c);
+                            }
+                          }}
+                        />
 
                         <span className="dvqd__unit-name">{c.den_ten}</span>
 
-                        {c.cong_thuc ? (
-                          <span className="dvqd__badge dvqd__badge--dynamic" title="Hệ số tự động tính theo công thức">
-                            Công thức
-                          </span>
-                        ) : (
-                          <span className="dvqd__badge dvqd__badge--static">
-                            {isDirty ? "Đã sửa (Tự lưu)" : "Số cố định"}
-                          </span>
-                        )}
+                        <span className="dvqd__badge dvqd__badge--static">
+                          {isDirty ? "Đã sửa (Tự lưu)" : "Số cố định"}
+                        </span>
                       </div>
 
                       <div className="dvqd__card-actions">
-                        {c.cong_thuc && (
-                          <button
-                            type="button"
-                            className="dvqd__btn"
-                            disabled={ban}
-                            onClick={() => {
-                              if (dangSoan && isDirty) luuDong(c);
-                              setSuaCt(dangSoan ? null : c.id);
-                            }}
-                          >
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M12 20h9"/>
-                              <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
-                            </svg>
-                            {dangSoan ? "Đóng & Lưu" : "Sửa công thức"}
-                          </button>
-                        )}
-
                         <button
                           type="button"
                           className="dvqd__btn dvqd__btn--danger"
@@ -373,20 +336,6 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
                         </button>
                       </div>
                     </div>
-
-                    {dangSoan && (
-                      <div className="dvqd__editor-subpanel">
-                        <FormulaField
-                          id={`ct-cap-${c.id}`}
-                          value={v}
-                          onChange={(x) => setSua((p) => ({ ...p, [c.id]: x }))}
-                          configPrefix="/api/don-vi"
-                          bienGoiY={bienQuyDoi}
-                          nhanO={`Công thức quy đổi: 1 ${String(donVi.ten)} = … ${c.den_ten}`}
-                          goY="vd: dinh_luong * dai * rong"
-                        />
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -414,18 +363,13 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
                     <span className="dvqd__inbound-expr">
                       {/* LẬT về chiều của đơn vị ĐANG MỞ (14/08/2026). Mở `kg` mà đọc
                           "1 tấn = 1.000 kg" thì phải tự lật trong đầu mới biết 1 kg là bao nhiêu
-                          tấn. Cặp đi HAI CHIỀU nên lật là hợp lệ.
-                          Dòng CÔNG THỨC giữ nguyên chiều gốc: lật một biểu thức ra chữ thì đọc
-                          còn khó hơn (cùng lý do với `quy_doi_text` ở server). */}
-                      {c.cong_thuc
-                        ? renderFormulaPreviewChips(c.cong_thuc, tra)
-                        : `1 ${donVi.ten} = ${soGon(1 / Number(c.he_so || 1))} ${c.tu_ten}`}
+                          tấn. Cặp đi HAI CHIỀU nên lật là hợp lệ. */}
+                      {`1 ${donVi.ten} = ${soGon(1 / Number(c.he_so || 1))} ${c.tu_ten}`}
                     </span>
                     <span className="dvqd__unit-tag">{String(donVi.ten)}</span>
                   </div>
 
                   <div className="dvqd__inbound-meta">
-                    {c.cong_thuc && <span className="dvqd__badge dvqd__badge--dynamic">Công thức</span>}
                     <span className="dvqd__nguon">Khai tại đơn vị {c.tu_ten}</span>
                   </div>
                 </div>
