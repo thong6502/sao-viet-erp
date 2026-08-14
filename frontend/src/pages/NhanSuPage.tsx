@@ -2,7 +2,7 @@
 // Trang hồ sơ (tab Thông tin / Quá trình công tác / Đính kèm / Nhật ký) + dialog Đổi
 // trạng thái / Điều chuyển / Nâng bậc (sinh Quá trình công tác) + nối/tạo tài khoản.
 // Backend là cổng quyền thật (403); useCan chỉ ẩn/hiện nút cho gọn UX.
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   api,
   ApiError,
@@ -53,7 +53,6 @@ import {
   Mail,
   MapPin,
   Lock,
-  Paperclip,
   Trash2,
   Edit2,
   TrendingUp,
@@ -64,6 +63,10 @@ import {
   Shield,
   Hash,
   X,
+  UploadCloud,
+  File,
+  Image,
+  Eye,
 } from "lucide-react";
 import "./nhan-su.css";
 
@@ -1768,27 +1771,42 @@ export function EmployeeWizard({
                   setFiles((fs) => [...fs, { file, doc_kind: kind }])
                 }
               />
-              <ul className="ns-filelist">
-                {files.map((f, i) => (
-                  <li key={i}>
-                    <span>
-                      {DOC_KIND_LABEL[f.doc_kind]} · {f.file.name}
-                    </span>
-                    <button
-                      className="btn btn--ghost"
-                      onClick={() =>
-                        setFiles((fs) => fs.filter((_, j) => j !== i))
-                      }
-                    >
-                      Bỏ
-                    </button>
-                  </li>
-                ))}
-                {files.length === 0 && (
-                  <li className="ns__empty">
-                    Chưa chọn tệp nào (không bắt buộc).
-                  </li>
-                )}
+              <ul className="ns-filelist-v2">
+                {files.map((f, i) => {
+                  const typeInfo = getFileTypeInfo(f.file.name);
+                  const IconComponent = typeInfo.icon;
+                  return (
+                    <li key={i} className="ns-fileitem">
+                      <div className={`ns-fileitem__icon ${typeInfo.className}`}>
+                        <IconComponent size={18} />
+                      </div>
+                      <div className="ns-fileitem__main">
+                        <div className="ns-fileitem__name-group">
+                          <span className="ns-fileitem__name" title={f.file.name}>
+                            {f.file.name}
+                          </span>
+                          <div className="ns-fileitem__sub">
+                            {formatFileSize(f.file.size)}
+                          </div>
+                        </div>
+                        <span className="ns-fileitem__badge">
+                          {DOC_KIND_LABEL[f.doc_kind] ?? f.doc_kind}
+                        </span>
+                      </div>
+                      <div className="ns-fileitem__actions">
+                        <button
+                          type="button"
+                          className="btn btn--ghost ns-danger btn--sm"
+                          style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                          title="Xóa tệp"
+                          onClick={() => setFiles((fs) => fs.filter((_, j) => j !== i))}
+                        >
+                          <Trash2 size={13} /> Bỏ
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
@@ -1910,25 +1928,167 @@ export function EmployeeWizard({
   );
 }
 
-function FilePicker({ onAdd }: { onAdd: (file: File, kind: string) => void }) {
-  const [kind, setKind] = useState("hop_dong");
+function getFileTypeInfo(fileName: string) {
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  if (ext === "pdf") {
+    return { icon: FileText, className: "ns-fileitem__icon--pdf" };
+  }
+  if (["png", "jpg", "jpeg", "webp", "gif", "svg"].includes(ext || "")) {
+    return { icon: Image, className: "ns-fileitem__icon--img" };
+  }
+  return { icon: File, className: "ns-fileitem__icon--doc" };
+}
+
+function formatFileSize(bytes?: number): string | null {
+  if (!bytes) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function FilePicker({
+  onAdd,
+  disabled = false,
+  compact = false,
+  defaultKind = "hop_dong",
+}: {
+  onAdd: (file: File, kind: string) => void;
+  disabled?: boolean;
+  compact?: boolean;
+  defaultKind?: string;
+}) {
+  const [kind, setKind] = useState(defaultKind || "hop_dong");
+  const [isDragging, setIsDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (defaultKind && defaultKind !== "all") {
+      setKind(defaultKind);
+    }
+  }, [defaultKind]);
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!disabled && !isDragging) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (disabled) return;
+    const f = e.dataTransfer.files?.[0];
+    if (f) onAdd(f, kind);
+  };
+
+  if (compact) {
+    return (
+      <div
+        className={`ns-upload-bar ${isDragging ? "ns-upload-bar--dragging" : ""}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          style={{ display: "none" }}
+          disabled={disabled}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onAdd(f, kind);
+            e.target.value = "";
+          }}
+        />
+        <div className="ns-upload-bar__left">
+          <Button
+            variant="accent"
+            className="btn--sm"
+            disabled={disabled}
+            onClick={() => inputRef.current?.click()}
+          >
+            <UploadCloud size={15} style={{ marginRight: 4 }} />
+            Tải tệp đính kèm
+          </Button>
+          <select
+            className="ns-dropzone__select"
+            value={kind}
+            onChange={(e) => setKind(e.target.value)}
+            disabled={disabled}
+          >
+            {Object.entries(DOC_KIND_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+          <span className="ns-upload-bar__drop-text">
+            hoặc kéo & thả tệp trực tiếp vào đây
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="ns-filepick">
-      <select value={kind} onChange={(e) => setKind(e.target.value)}>
-        {Object.entries(DOC_KIND_LABEL).map(([k, v]) => (
-          <option key={k} value={k}>
-            {v}
-          </option>
-        ))}
-      </select>
+    <div
+      className={`ns-dropzone--empty ${isDragging ? "ns-dropzone--dragging" : ""}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <input
+        ref={inputRef}
         type="file"
+        style={{ display: "none" }}
+        disabled={disabled}
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) onAdd(f, kind);
           e.target.value = "";
         }}
       />
+      <div
+        className="ns-dropzone__body"
+        onClick={() => !disabled && inputRef.current?.click()}
+      >
+        <div className="ns-dropzone__icon-wrap">
+          <UploadCloud size={20} />
+        </div>
+        <p className="ns-dropzone__prompt">
+          Kéo & thả tệp vào đây hoặc{" "}
+          <button type="button" className="ns-dropzone__btn" disabled={disabled}>
+            chọn tệp từ máy tính
+          </button>
+        </p>
+        <p className="ns-dropzone__hint">
+          Hợp đồng, CCCD, bằng cấp (PDF, Word, Ảnh)... tải lên để lưu hồ sơ
+        </p>
+        <div
+          style={{ marginTop: 6 }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <select
+            className="ns-dropzone__select"
+            value={kind}
+            onChange={(e) => setKind(e.target.value)}
+            disabled={disabled}
+          >
+            {Object.entries(DOC_KIND_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
     </div>
   );
 }
@@ -3299,6 +3459,8 @@ function FilesTab({
   const [items, setItems] = useState<EmployeeAttachment[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [loi, setLoi] = useState<string | null>(null);
+  const [activeKind, setActiveKind] = useState<string>("all");
+
   const load = useCallback(() => {
     setLoi(null);
     api.employees
@@ -3309,14 +3471,35 @@ function FilesTab({
         setLoi(errMsg(e));
       });
   }, [token, employeeId]);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  const counts = useMemo(() => {
+    if (!items) return {};
+    const res: Record<string, number> = { all: items.length };
+    for (const item of items) {
+      res[item.doc_kind] = (res[item.doc_kind] || 0) + 1;
+    }
+    return res;
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    if (!items) return [];
+    if (activeKind === "all") return items;
+    return items.filter((a) => a.doc_kind === activeKind);
+  }, [items, activeKind]);
+
+  const hasFiles = !!(items && items.length > 0);
 
   return (
     <div>
       {canUpdate && (
         <FilePicker
+          disabled={busy}
+          compact={hasFiles}
+          defaultKind={activeKind !== "all" ? activeKind : "hop_dong"}
           onAdd={async (file, kind) => {
             setBusy(true);
             try {
@@ -3328,59 +3511,113 @@ function FilesTab({
           }}
         />
       )}
-      {busy && <p className="ns__empty">Đang tải lên…</p>}
-      {/* Ba ca tách rời. ⚠ Khối rỗng KHÔNG nằm trong `<ul>` được (EmptyState là `<div>`,
-          nhét vào `<ul>` là HTML sai) — nên đổi thành: có dữ liệu MỚI dựng danh sách. */}
+
+      {busy && <p className="ns__empty">Đang tải tệp lên…</p>}
       {loi && <EmptyState trangThai="loi" loi={loi} onThuLai={load} />}
       {!loi && items === null && <EmptyState trangThai="dang-tai" />}
-      {!loi && items?.length === 0 && (
-        <EmptyState
-          icon="fileText"
-          title="Chưa có tệp nào"
-          sub="Hợp đồng, CCCD, bằng cấp… tải lên đây để lưu cùng hồ sơ."
-        />
-      )}
-      {!loi && !!items?.length && (
-        <ul className="ns-filelist">
-          {items.map((a) => (
-            <li key={a.id}>
-              <a
-                href={assetUrl(a.file_url) ?? "#"}
-                target="_blank"
-                rel="noreferrer"
+
+      {!loi && items !== null && (
+        <>
+          {/* Category Filter Chips Bar */}
+          <div className="ns-file-filters">
+            <button
+              type="button"
+              className={`ns-file-filter-chip ${activeKind === "all" ? "ns-file-filter-chip--active" : ""}`}
+              onClick={() => setActiveKind("all")}
+            >
+              Tất cả
+              <span className="ns-file-filter-chip__count">
+                {counts["all"] || 0}
+              </span>
+            </button>
+            {Object.entries(DOC_KIND_LABEL).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                className={`ns-file-filter-chip ${activeKind === k ? "ns-file-filter-chip--active" : ""}`}
+                onClick={() => setActiveKind(k)}
               >
-                <Paperclip size={14} />
-                <span>
-                  {DOC_KIND_LABEL[a.doc_kind] ?? a.doc_kind} · {a.file_name}
+                {label}
+                <span className="ns-file-filter-chip__count">
+                  {counts[k] || 0}
                 </span>
-              </a>
-              <span className="ns-file__date">{fmtDate(a.uploaded_at)}</span>
-              {canUpdate && (
-                <button
-                  type="button"
-                  className="btn btn--ghost ns-danger"
-                  style={{
-                    padding: "4px 8px",
-                    display: "inline-flex",
-                    alignItems: "center",
-                  }}
-                  title="Xóa tệp"
-                  aria-label={`Xóa tệp ${a.file_name}`}
-                  onClick={async () => {
-                    await api.employees.deleteAttachment(
-                      token,
-                      employeeId,
-                      a.id,
-                    );
-                    load();
-                  }}
-                >
-                  <Trash2 size={13} />
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
+              </button>
+            ))}
+          </div>
+
+          {/* Full-width List Rows */}
+          {filteredItems.length === 0 ? (
+            <p className="ns__empty" style={{ padding: "20px 0" }}>
+              {activeKind === "all"
+                ? "Chưa có tệp đính kèm nào."
+                : `Chưa có tệp nào thuộc danh mục "${DOC_KIND_LABEL[activeKind]}".`}
+            </p>
+          ) : (
+            <ul className="ns-filelist-v2">
+              {filteredItems.map((a) => {
+                const typeInfo = getFileTypeInfo(a.file_name);
+                const IconComponent = typeInfo.icon;
+                return (
+                  <li key={a.id} className="ns-fileitem">
+                    <div className={`ns-fileitem__icon ${typeInfo.className}`}>
+                      <IconComponent size={18} />
+                    </div>
+                    <div className="ns-fileitem__main">
+                      <div className="ns-fileitem__name-group">
+                        <span className="ns-fileitem__name" title={a.file_name}>
+                          {a.file_name}
+                        </span>
+                        <div className="ns-fileitem__sub">
+                          <span>{fmtDate(a.uploaded_at)}</span>
+                        </div>
+                      </div>
+                      <span className="ns-fileitem__badge">
+                        {DOC_KIND_LABEL[a.doc_kind] ?? a.doc_kind}
+                      </span>
+                    </div>
+                    <div className="ns-fileitem__actions">
+                      <a
+                        href={assetUrl(a.file_url) ?? "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn btn--secondary btn--sm"
+                        style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                        title="Xem / Tải tệp"
+                      >
+                        <Eye size={13} /> Xem / Tải
+                      </a>
+                      {canUpdate && (
+                        <button
+                          type="button"
+                          className="btn btn--ghost ns-danger btn--sm"
+                          style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                          title="Xóa tệp"
+                          aria-label={`Xóa tệp ${a.file_name}`}
+                          onClick={async () => {
+                            if (
+                              window.confirm(
+                                `Bạn có chắc chắn muốn xóa tệp "${a.file_name}"?`,
+                              )
+                            ) {
+                              await api.employees.deleteAttachment(
+                                token,
+                                employeeId,
+                                a.id,
+                              );
+                              load();
+                            }
+                          }}
+                        >
+                          <Trash2 size={13} /> Xóa
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </>
       )}
     </div>
   );

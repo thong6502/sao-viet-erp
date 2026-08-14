@@ -42,6 +42,7 @@ from ..models.employee import (
     STATUS_SUSPENDED,
     Employee,
 )
+from ..models.profile_request import REQ_CANCELLED, REQ_PENDING
 from ..config import settings
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
@@ -519,6 +520,30 @@ class EmployeeService:
     def my_update_requests(self, *, user):
         emp = self.employees.get_by_user_id(user.id)
         return self.employees.list_update_requests_by_employee(emp.id) if emp is not None else []
+
+    def cancel_my_update_request(self, *, user, request_id: int):
+        """NV tự RÚT LẠI đề nghị của chính mình khi HCNS chưa xử lý.
+
+        Ba cửa phải qua: có hồ sơ · đúng đề nghị của mình (không rút hộ người khác) · còn
+        `pending`. Rút = đổi trạng thái, KHÔNG xoá dòng — HCNS vẫn tra được là đã từng có đề nghị
+        này và ai rút lúc nào."""
+        emp = self.employees.get_by_user_id(user.id)
+        if emp is None:
+            raise EmployeeValidationError("Tài khoản chưa gắn hồ sơ nhân viên.")
+        req = self.employees.get_update_request(request_id)
+        if req is None or req.employee_id != emp.id:
+            raise EmployeeNotFound("Không tìm thấy đề nghị cập nhật.")
+        if req.status != REQ_PENDING:
+            raise EmployeeValidationError("Đề nghị đã được xử lý, không rút lại được.")
+        req = self.employees.update_update_request(
+            req, status=REQ_CANCELLED, decided_by=user.id,
+            decided_at=datetime.now(timezone.utc),
+        )
+        self.audit.create(
+            actor_user_id=user.id, action="cancel_profile_request",
+            target=f"employee:{emp.id}", detail=f"{emp.code} rút đề nghị #{req.id}",
+        )
+        return req
 
     def list_update_requests(self, *, status=None):
         return self.employees.list_update_requests(status=status)

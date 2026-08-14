@@ -59,25 +59,21 @@ DV_BAI = "bai"    # bài bình (chế bản: 1 bài → n bản kẽm)
 # Thêm 2026-08-05 theo yêu cầu chủ: mức TAY của khâu sách, nằm trên dòng giấy.
 #   tờ in ──(gấp)──▶ TAY sách ──(bắt tay + vào keo)──▶ cuốn
 # `cai` (thành phẩm) là ĐÍCH CUỐI của dòng giấy — chủ chốt 2026-08-05, không có mức nào sau nó.
-# CHƯA có cầu quy đổi (chủ chốt "quy đổi bàn sau"): `_he_so_cau` không có key nên
-# `he_so.get(..., 1.0)` rơi về hệ số 1 — chuỗi ngược vẫn chạy, chỉ là chưa nhân/chia gì.
-# Khi chốt công thức thì thêm vào `CAU_QUY_DOI` + `_he_so_cau`, ĐỪNG khai hệ số ở chỗ khác.
 DV_TAY = "tay"    # tay sách (1 tờ in gấp lại = 1 tay, mang n trang)
-# Đơn vị KHÔNG nằm trên dòng giấy — chỉ để ghi nhận, không có cầu quy đổi (xem `CAU_QUY_DOI`).
-DV_NGOAI_DONG_GIAY = ("mau", "tan", "me", "m2", "nhip", "hop")
-DON_VI_CONG_DOAN = (
-    DV_TO_NGUYEN, DV_TO, DV_CON, DV_TAY, DV_CAI, DV_KEM, DV_BAI, *DV_NGOAI_DONG_GIAY,
-)
 
-# Dòng giấy đi qua BA đơn vị với HAI điểm quy đổi. Hệ số KHÔNG lưu ở đâu cả — phiếu tính giá đã
-# có sẵn (`so_manh_xa` từ khổ giấy, `con` từ bình bài); lưu lại là đẻ nguồn sự thật thứ hai.
-#     tờ nguyên ──(xả: ÷ số mảnh xả)──▶ tờ in ──(bế/xén: × con/tờ)──▶ tờ thành phẩm
-#     tờ nguyên ──(÷ số mảnh xả)──▶ tờ in ──(× con/tờ)──▶ con ──(÷ số tay)──▶ thành phẩm
-# Cầu `to → cai` GIỮ NGUYÊN (đi tắt, bỏ qua `con`) vì phần lớn routing khai thẳng như vậy; hai
-# cầu qua `con` là đường dài cho bước nào thật sự đếm mảnh. Hệ số cả bốn suy ở `_he_so_cau`.
-CAU_QUY_DOI = (
-    (DV_TO_NGUYEN, DV_TO), (DV_TO, DV_CAI), (DV_TO, DV_CON), (DV_CON, DV_CAI),
-)
+# 🔴 BA HẰNG ĐÃ XOÁ 14/08/2026 (grep 0 nơi dùng — chết từ 11/08 khi dòng giấy chuyển sang CỜ):
+#     DV_NGOAI_DONG_GIAY = ("mau","tan","me","m2","nhip","hop")
+#     DON_VI_CONG_DOAN   = (…13 mã…)
+#     CAU_QUY_DOI        = ((to_nguyen,to), (to,cai), (to,con), (con,cai))
+#
+# Cả ba đều KỂ SAI hệ hiện tại, nên đọc nhầm là đi sửa nhầm chỗ:
+#   · Đơn vị nào ngoài dòng giấy KHÔNG phải danh sách 6 mã — là mọi đơn vị bỏ trống cờ
+#     `don_vi_do.tram_dong_giay`. Thêm đơn vị mới KHÔNG phải sửa code.
+#   · Công đoạn dùng được CẢ danh mục đơn vị, không phải 13 mã.
+#   · Cầu dòng giấy nay là `models/don_vi_do.CAU_TRAM` (6 nhịp, khoá theo TRẠM), hệ số ở
+#     `lsx_service._he_so_cau`. Có test canh hai bên khớp: `test_dong_giay.py:136`.
+#
+# Bảy hằng `DV_*` phía trên thì SỐNG (2–9 nơi dùng mỗi cái) — đừng dọn kèm.
 
 # --- Loại bước (execution type). Quyết định bước CHIẾM cái gì khi lên Gantt — đây là lý do routing
 # tồn tại. Thời gian chờ/di chuyển nằm trên bước và không chiếm năng lực tài nguyên.

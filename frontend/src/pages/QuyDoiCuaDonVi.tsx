@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/useAuth";
 import { ApiError, authed } from "../api/client";
 import { crud, type Row } from "../api/rebuildCatalog";
-import { FormulaField } from "./RebuildCatalogPage";
+import { FormulaField, useBienCongThuc, traBien, type TraBien } from "./RebuildCatalogPage";
 
 const apiCap = crud("/api/don-vi/quy-doi");
 const apiDonVi = crud("/api/don-vi");
@@ -32,16 +32,58 @@ function soGon(n: number): string {
   return n.toLocaleString("vi-VN", { maximumFractionDigits: 6 });
 }
 
+// `tra` là bản tra từ điển biến — từ điển CHƯA nạp xong thì nó trả `undefined`, nên nhận đúng
+// kiểu `TraBien` (có `undefined`) chứ đừng ép `| null`: ép là tsc đỏ và `npm run build` gãy.
+function renderFormulaPreviewChips(formula: string, tra: TraBien) {
+  if (!formula.trim()) return null;
+  const tokenRegex = /[a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[\+\-\*\/\(\)]|\s+/g;
+  const tokens = formula.match(tokenRegex) || [];
+  return (
+    <span className="dvqd__chip-preview-list">
+      {tokens.map((token, i) => {
+        const trimmed = token.trim();
+        if (!trimmed) return <span key={i} className="dvqd__chip-space"> </span>;
+        const info = tra(trimmed);
+        if (info) {
+          return (
+            <span key={i} className="dvqd__chip-tag dvqd__chip-tag--var" title={`${info.nhan} (${trimmed})`}>
+              {info.nhan}
+            </span>
+          );
+        }
+        if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+          return (
+            <span key={i} className="dvqd__chip-tag dvqd__chip-tag--num">
+              {trimmed}
+            </span>
+          );
+        }
+        if (/^[\+\-\*\/\(\)]$/.test(trimmed)) {
+          const displayOp = trimmed === "*" ? "×" : trimmed === "/" ? "÷" : trimmed === "-" ? "−" : trimmed;
+          return (
+            <span key={i} className="dvqd__chip-tag dvqd__chip-tag--op">
+              {displayOp}
+            </span>
+          );
+        }
+        return <span key={i} className="dvqd__chip-tag">{trimmed}</span>;
+      })}
+    </span>
+  );
+}
+
 export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
   const { token } = useAuth();
   const [caps, setCaps] = useState<Cap[]>([]);
   const [dvs, setDvs] = useState<Row[]>([]);
   const [bien, setBien] = useState<Bien[]>([]);
   const [err, setErr] = useState<string | null>(null);
+
+  const tuDien = useBienCongThuc();
+  const tra = useMemo(() => traBien(tuDien), [tuDien]);
   const [ban, setBan] = useState(false);
   // Dòng đang thêm. `dong` = khai bằng công thức (quy đổi động) thay vì con số.
   const [them, setThem] = useState({ gia: "", den_id: "", dong: false });
-  const [moBien, setMoBien] = useState(true);
   const [sua, setSua] = useState<Record<number, string>>({});
   // Chỉ MỘT trình soạn công thức mở một lúc.
   const [suaCt, setSuaCt] = useState<number | null>(null);
@@ -117,7 +159,13 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
   // trước đây đẻ ra hai khối công thức nhìn như trùng nhau trên cùng một màn.
   const themDong = () => chay(async () => {
     if (them.dong) {
-      const ct = them.gia.trim();
+      let ct = them.gia.trim();
+      // Loại bỏ các toán tử dở dang ở cuối công thức (+ - * / ( ) trước khi gửi backend
+      ct = ct.replace(/[\+\-\*\/\(\)\s]+$/, "").trim();
+      if (!ct) {
+        alert("Vui lòng nhập công thức hợp lệ trước khi lưu!");
+        return;
+      }
       await apiDonVi.update(token!, donVi.id, bodyDonVi(ct));
       setCtState(ct);
     } else {
@@ -130,7 +178,10 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
   });
 
   const luuDong = (c: Cap, forceVal?: string) => chay(async () => {
-    const v = forceVal ?? (sua[c.id] ?? (c.cong_thuc ?? String(c.he_so)));
+    let v = forceVal ?? (sua[c.id] ?? (c.cong_thuc ?? String(c.he_so)));
+    if (c.cong_thuc) {
+      v = v.trim().replace(/[\+\-\*\/\(\)\s]+$/, "").trim();
+    }
     await apiCap.update(token!, c.id, {
       tu_id: c.tu_id, den_id: c.den_id,
       ...(c.cong_thuc ? { cong_thuc: v } : { he_so: Number(v.replace(",", ".")) }),
@@ -187,35 +238,54 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
               (đó là các dòng cặp). Bày ngay đây để người khai thấy nó cùng chỗ với quy đổi, khỏi
               phải nhớ nó nằm ở ô riêng nào khác. */}
           {!!ctCuaDonVi && (
-            <div className="dvqd__card dvqd__card--ct">
-              <span className="dvqd__badge dvqd__badge--dynamic">Công thức</span>
-              <code className="dvqd__expr" title={ctCuaDonVi}>{ctCuaDonVi}</code>
-              <button
-                type="button"
-                className="dvqd__btn dvqd__btn--danger"
-                disabled={ban}
-                onClick={() => {
-                  if (!window.confirm(`Xoá công thức tính lượng của "${String(donVi.ten)}"?`)) return;
-                  chay(async () => {
-                    await apiDonVi.update(token!, donVi.id, bodyDonVi(""));
-                    setCtState("");
-                  });
-                }}
-              >
-                Xoá
-              </button>
+            <div className="dvqd__card dvqd__card--ct" key="ct-cua-don-vi">
+              <div className="dvqd__card-main">
+                <div className="dvqd__card-eq">
+                  <span className="dvqd__unit-tag">{String(donVi.ten)}</span>
+                  <span className="dvqd__eq-sign">=</span>
+                  {renderFormulaPreviewChips(ctCuaDonVi, tra)}
+                  <span className="dvqd__badge dvqd__badge--dynamic" title="Hệ số tự động tính theo công thức">
+                    Công thức
+                  </span>
+                </div>
+                <div className="dvqd__card-actions">
+                  <button
+                    type="button"
+                    className="dvqd__btn dvqd__btn--danger"
+                    disabled={ban}
+                    onClick={() => {
+                      if (!window.confirm(`Xoá công thức tính lượng của "${String(donVi.ten)}"?`)) return;
+                      chay(async () => {
+                        await apiDonVi.update(token!, donVi.id, bodyDonVi(""));
+                        setCtState("");
+                      });
+                    }}
+                  >
+                    Xoá
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* MƯỢN: read-only, KHÔNG có nút Xoá — xoá phải về đúng đơn vị chủ, xoá ở đây thì người
-              dùng tưởng đã gỡ mà công thức vẫn nằm bên kia. */}
+          {/* MƯỢN: read-only, KHÔNG có nút Xoá — xoá phải về đúng đơn vị chủ */}
           {ctMuon && (
-            <div className="dvqd__card dvqd__card--ct">
-              <span className="dvqd__badge">Theo {ctMuon.chu}</span>
-              <code className="dvqd__expr" title={ctMuon.ct}>{ctMuon.ct}</code>
-              <span className="dvqd__hint">
-                Khai ở “{ctMuon.chu}” — cùng cụm quy đổi cố định nên dùng chung. Sửa ở đơn vị đó.
-              </span>
+            <div className="dvqd__card dvqd__card--ct" key="ct-muon">
+              <div className="dvqd__card-main">
+                <div className="dvqd__card-eq">
+                  <span className="dvqd__unit-tag">{String(donVi.ten)}</span>
+                  <span className="dvqd__eq-sign">=</span>
+                  {renderFormulaPreviewChips(ctMuon.ct, tra)}
+                  <span className="dvqd__badge dvqd__badge--dynamic" title={`Khai ở "${ctMuon.chu}" — cùng cụm quy đổi cố định nên dùng chung`}>
+                    Theo {ctMuon.chu}
+                  </span>
+                </div>
+                <div className="dvqd__card-actions">
+                  <span className="dvqd__hint">
+                    Khai ở “{ctMuon.chu}” — cùng cụm quy đổi cố định nên dùng chung. Sửa ở đơn vị đó.
+                  </span>
+                </div>
+              </div>
             </div>
           )}
 
@@ -237,9 +307,7 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
                         <span className="dvqd__eq-sign">=</span>
 
                         {c.cong_thuc && !dangSoan ? (
-                          <span className="dvqd__expr" title={c.cong_thuc}>
-                            {cauChu(c.cau, c.den_ten)}
-                          </span>
+                          renderFormulaPreviewChips(c.cong_thuc, tra)
                         ) : c.cong_thuc ? (
                           <span className="dvqd__ve dvqd__ve--soan">Đang soạn công thức...</span>
                         ) : (
@@ -350,8 +418,7 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
                           Dòng CÔNG THỨC giữ nguyên chiều gốc: lật một biểu thức ra chữ thì đọc
                           còn khó hơn (cùng lý do với `quy_doi_text` ở server). */}
                       {c.cong_thuc
-                        ? (c.cau ? cauChu(c.cau, String(donVi.ten))
-                                 : `1 ${c.tu_ten} = ${c.cong_thuc} ${donVi.ten}`)
+                        ? renderFormulaPreviewChips(c.cong_thuc, tra)
                         : `1 ${donVi.ten} = ${soGon(1 / Number(c.he_so || 1))} ${c.tu_ten}`}
                     </span>
                     <span className="dvqd__unit-tag">{String(donVi.ten)}</span>
@@ -374,7 +441,13 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
       <div className="dvqd__block dvqd__block--action">
         <div className="dvqd__create-card">
           <div className="dvqd__create-header">
-            <span>THÊM QUY ĐỔI MỚI</span>
+            <div className="dvqd__create-title">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              <span>THÊM QUY ĐỔI MỚI</span>
+            </div>
 
             <div className="dvqd__type-toggle">
               <button
@@ -400,116 +473,79 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
             </div>
           </div>
 
-          <div className="dvqd__create-row">
-            <span className="dvqd__create-prefix">1 {String(donVi.ten)} =</span>
-
+          <div className="dvqd__create-body">
             {!them.dong ? (
-              <input
-                className="rc-input dvqd__val"
-                style={{ width: "120px" }}
-                value={them.gia}
-                disabled={ban}
-                placeholder="Vd: 1.000"
-                onChange={(e) => setThem((p) => ({ ...p, gia: e.target.value }))}
-                onKeyDown={(e) => {
-                  // Chế độ công thức không có đích ⇒ đừng đòi `den_id`, không thì gõ xong bấm
-                  // Enter là không ăn gì mà cũng chẳng báo gì.
-                  if (e.key === "Enter" && them.gia && (them.dong || them.den_id)) {
-                    e.preventDefault();
-                    themDong();
-                  }
-                }}
-              />
+              <div className="dvqd__create-row">
+                <span className="dvqd__create-prefix">{String(donVi.ten)} =</span>
+                <input
+                  className="rc-input dvqd__val"
+                  style={{ width: "120px" }}
+                  value={them.gia}
+                  disabled={ban}
+                  placeholder="Vd: 1.000"
+                  onChange={(e) => setThem((p) => ({ ...p, gia: e.target.value }))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && them.gia && (them.dong || them.den_id)) {
+                      e.preventDefault();
+                      themDong();
+                    }
+                  }}
+                />
+                <select
+                  className="rc-input dvqd__den"
+                  value={them.den_id}
+                  disabled={ban}
+                  onChange={(e) => setThem((p) => ({ ...p, den_id: e.target.value }))}
+                >
+                  <option value="">— Đơn vị quy đổi về —</option>
+                  {dsDich.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {String(d.ten)}
+                    </option>
+                  ))}
+                </select>
+              </div>
             ) : (
-              <input
-                className="rc-input dvqd__val"
-                style={{ flex: "1 1 200px" }}
-                value={them.gia}
-                disabled={ban}
-                placeholder="Gõ công thức... vd: dinh_luong * dai * rong"
-                onChange={(e) => setThem((p) => ({ ...p, gia: e.target.value }))}
-              />
+              <div className="dvqd__formula-section">
+                <FormulaField
+                  id="ct-them"
+                  value={them.gia}
+                  onChange={(x) => setThem((p) => ({ ...p, gia: x }))}
+                  configPrefix="/api/don-vi"
+                  bienGoiY={bienQuyDoi}
+                  nhanO={<>Công thức quy đổi cho <span className="rc-formula__editor-unit-tag">{String(donVi.ten)}</span></>}
+                  goY="vd: dinh_luong * dai * rong"
+                />
+              </div>
             )}
+          </div>
 
-            {/* Ô đích CHỈ có nghĩa với số cố định. Công thức định nghĩa chính đơn vị đang mở nên
-                không có "quy đổi về" — xem chú thích ở `themDong`. */}
-            {!them.dong && (
-              <select
-                className="rc-input dvqd__den"
-                value={them.den_id}
-                disabled={ban}
-                onChange={(e) => setThem((p) => ({ ...p, den_id: e.target.value }))}
-              >
-                <option value="">— Đơn vị quy đổi về —</option>
-                {dsDich.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {String(d.ten)}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            <button
-              type="button"
-              className="dvqd__btn dvqd__btn--primary"
-              disabled={ban || !them.gia || (!them.dong && !them.den_id)}
-              onClick={themDong}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <line x1="12" y1="5" x2="12" y2="19"/>
-                <line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
-              Thêm quy đổi
-            </button>
-
-            {/* Nút khoá thì phải NÓI THIẾU GÌ. Không có dòng này người dùng bấm mãi không ăn rồi
-                tưởng hỏng — đúng cái vừa dính 12/08/2026. */}
+          <div className="dvqd__create-footer">
             {!ban && (!them.gia || (!them.dong && !them.den_id)) && (
               <p className="dvqd__hint">
                 {!them.gia
-                  ? (them.dong ? "Gõ công thức đã" : "Nhập số quy đổi đã")
+                  ? (them.dong ? "Nhập hoặc bấm chọn biến bên dưới để tạo công thức" : "Nhập số quy đổi đã")
                   : "Còn thiếu: chọn đơn vị quy đổi về"}
               </p>
             )}
 
-            {them.dong && (
+            <div className="dvqd__footer-actions">
               <button
                 type="button"
-                className={`dvqd__btn ${moBien ? "dvqd__btn--primary" : ""}`}
-                onClick={() => setMoBien((v) => !v)}
-                title="Tra cứu danh sách mã biến khả dụng và hướng dẫn cú pháp"
+                className="dvqd__btn dvqd__btn--primary"
+                disabled={ban || !them.gia || (!them.dong && !them.den_id)}
+                onClick={themDong}
               >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8"/>
-                  <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <line x1="5" y1="12" x2="19" y2="12"/>
                 </svg>
-                {moBien ? "Thu gọn biến" : "Tra cứu biến"}
+                Thêm quy đổi
               </button>
-            )}
-          </div>
-
-          {them.dong && moBien && (
-            <div className="dvqd__editor-subpanel">
-              <FormulaField
-                id="ct-them"
-                value={them.gia}
-                onChange={(x) => setThem((p) => ({ ...p, gia: x }))}
-                configPrefix="/api/don-vi"
-                bienGoiY={bienQuyDoi}
-                nhanO="Tra cứu biến & Cú pháp công thức quy đổi"
-                goY="vd: dinh_luong * dai * rong"
-              />
             </div>
-          )}
+          </div>
         </div>
       </div>
     </section>
   );
-}
-
-/** Vế phải của câu server dựng ("1 tờ = định lượng × dài × rộng kg" → "định lượng × dài × rộng"). */
-function cauChu(cau: string | null, denTen: string): string {
-  if (!cau) return "";
-  const sau = cau.split("=").slice(1).join("=").trim();
-  return sau.endsWith(denTen) ? sau.slice(0, -denTen.length).trim() : sau;
 }

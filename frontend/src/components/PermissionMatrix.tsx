@@ -256,6 +256,8 @@ const MODULE_HINTS: Record<string, string> = {
     "Xem: xem đơn hàng bán. Chỉnh sửa: tạo/sửa đơn. Duyệt đơn đặc thù, hủy đơn đã chốt và ghi phiếu thu cọc nằm ở quyền chi tiết.",
   san_xuat:
     "Xem: mở hộp việc / lệnh sản xuất trong phạm vi. Chỉnh sửa: cấu hình và phát lệnh. Gán thợ, ghi sản lượng, bàn giao giữa tổ nằm ở quyền chi tiết.",
+  ky_thuat_may:
+    "Gác CẢ HAI màn Sửa chữa máy và Phiếu bảo trì (cùng một người làm cả hai việc). Xem: xem phiếu + ảnh hiện trạng/chứng thực — hợp với quản đốc, điều độ. Chỉnh sửa: ghi nhận máy hỏng, ghi đã sửa gì, sinh phiếu bảo trì từ lịch của máy, tick hạng mục, dời lịch, tải ảnh và xác nhận xong — hợp với tổ sửa chữa. Không có quyền duyệt riêng: cửa chặn là ẢNH chứng thực, thiếu ảnh thì KHÔNG AI đóng được phiếu, kể cả giám đốc.",
   vai_tro:
     "Xem: xem danh sách vai trò và ma trận quyền. Chỉnh sửa: thêm/sửa/xóa vai trò. Muốn SỬA được chính ma trận này thì cần quyền chi tiết “Sửa ma trận phân quyền”.",
   nguoi_dung:
@@ -295,7 +297,7 @@ const MODULE_GROUPS: {
     label: "Kinh doanh",
     modules: ["khach_hang", "bao_gia", "don_hang_ban", "tinh_gia_thanh"],
   },
-  { key: "san_xuat", label: "Sản xuất", modules: ["san_xuat"] },
+  { key: "san_xuat", label: "Sản xuất", modules: ["san_xuat", "ky_thuat_may"] },
   { key: "kho", label: "Kho", modules: ["kho", "thu_mua"] },
   { key: "ke_toan", label: "Kế toán", modules: ["ke_toan"] },
   { key: "nhan_su", label: "Nhân sự", modules: ["nhan_su", "nghi_phep", "tang_ca", "di_muon", "luong"] },

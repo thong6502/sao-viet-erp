@@ -59,6 +59,13 @@ _DON_VI_SEED: list[tuple[str, str, str, str]] = [
     ("thung", "thùng", "thung", "Thùng đóng hàng lúc giao."),
 ]
 
+# CÔNG THỨC LƯỢNG của giấy bán theo CÂN — thay chỗ cặp quy đổi động `tờ → kg` đã gỡ (14/08/2026).
+# Không phải phỏng đoán, đây là định nghĩa cân của giấy:
+#     kg = định lượng (kg/m²) × dài tờ nguyên (m) × rộng tờ nguyên (m) × số tờ nguyên
+# Khổ/định lượng lấy LỆNH trước, danh mục sau (`ke_hoach_vat_tu._quy_cach_cua`). Migration `0197`
+# điền cho giấy đã có trong DB; hằng này để seed giấy MỚI dùng chung một chuỗi, khỏi lệch.
+_CT_LUONG_GIAY_CAN = "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen"
+
 # CẶP quy đổi: (tu, den, he_so) đọc là "1 <tu> = <he_so> <den>". Máy tự đi chiều ngược, nên KHÔNG
 # khai dòng đối xứng. Cặp nào chưa khai thì máy dò đường qua trung gian (tấn → g đi qua kg).
 _QUY_DOI_SEED: list[tuple[str, str, float, str]] = [
@@ -67,26 +74,38 @@ _QUY_DOI_SEED: list[tuple[str, str, float, str]] = [
     ("kg", "g", 1_000, ""),        # 1 kg = 1.000 g
     ("m", "mm", 1_000, ""),        # 1 mét = 1.000 mm
     ("ram", "to", 500, ""),        # quy ước ngành in: 1 ram = 500 tờ
-    # Các cách đếm thành phẩm là MỘT: nối hết về `cai` để bước lệnh (đếm `cai`) khớp mọi đơn giá
-    # khoán dù xưởng ghi "cuốn", "con", "hộp" hay "bộ".
-    ("con", "cai", 1, ""),
-    ("cuon", "cai", 1, ""),
-    ("bo", "cai", 1, ""),
-    ("hop", "cai", 1, ""),
-    # --- Quy đổi ĐỘNG: TỈ SỐ cho MỘT đơn vị, số ra tuỳ giấy/khổ của việc đang làm -------------
+    # 🔴 BỐN CẶP CÁCH-GỌI-THÀNH-PHẨM ĐÃ GỠ KHỎI SEED (14/08/2026 — chủ chốt yêu cầu):
+    #     ("con", "cai", 1), ("cuon", "cai", 1), ("bo", "cai", 1), ("hop", "cai", 1)
     #
-    # ĐỪNG LẪN với ô "Công thức tính lượng" của đơn vị/mặt hàng (chủ chốt 14/08/2026):
-    #     cặp ĐỘNG (có đích)      = tỉ số cho MỘT tờ   → tiền khoán · đổi đơn vị của một SỐ LƯỢNG
-    #     công thức (không đích)  = TỔNG của cả lệnh   → BOM
-    # Nhét `to_dau_vao` vào công thức cặp là nhân số lượng HAI LẦN (engine đã nhân sẵn).
+    # Lý do: danh mục là của người dùng. Xưởng nào gọi thành phẩm là "cuốn" thì tự khai
+    # "1 cuốn = 1 cái" ở màn Đơn vị & quy đổi — seed đặt sẵn bốn cách gọi là đoán hộ, cùng cái bệnh
+    # vừa chữa ở bốn cặp động bên dưới.
     #
-    # Bốn dòng này là thứ tiền khoán sống nhờ: 4/10 đầu việc khoán khác đơn vị bước (cán màng
-    # đ/m², bắt tay đ/cuốn) — bỏ đi là chúng mất tiền công, đã đo thật ngày 14/08.
-    ("to", "m2", 0, "dai_in * rong_in"),
-    ("to", "kg", 0, "dinh_luong * dai_in * rong_in"),
-    ("to", "cai", 0, "so_tp"),
-    # Tờ NGUYÊN cân theo khổ nguyên — khổ khác tờ in nên phải là dòng riêng.
-    ("to_nguyen", "kg", 0, "dinh_luong * dai_nguyen * rong_nguyen"),
+    # Cái mất khi gỡ (đo 14/08/2026 trên DB dev, ghi lại để người sau khỏi đo lại):
+    #   · 3 đơn giá khoán đ/cuốn (Bắt tay + vào keo gáy vuông · Xén 3 mặt · Đếm, bó, đóng gói) —
+    #     bước lệnh đếm `cai`, mất cặp ⇒ rơi xuống đường hai (`_khoan_theo_cong_thuc`), cần khai
+    #     công thức cho đơn vị `cuốn` (vd `sl_ra`) thì mới ra tiền.
+    #   · Hôm gỡ đã XOÁ luôn 4 cặp trong DB dev theo yêu cầu — không phải chỉ ngưng seed.
+    # 🔴 BỐN CẶP QUY ĐỔI ĐỘNG ĐÃ GỠ KHỎI SEED (14/08/2026 — chủ chốt yêu cầu):
+    #     ("to", "m2", 0, "dai_in * rong_in")
+    #     ("to", "kg", 0, "dinh_luong * dai_in * rong_in")
+    #     ("to", "cai", 0, "so_tp")
+    #     ("to_nguyen", "kg", 0, "dinh_luong * dai_nguyen * rong_nguyen")
+    #
+    # Lý do: quy đổi động chuyển sang ô "Công thức tính lượng" khai ở CHÍNH đơn vị
+    # (`don_vi_do.cong_thuc`) và ở CHÍNH mặt hàng (`vat_tu_in_an.cong_thuc_luong`) — mỗi chỗ đúng một
+    # công thức, không còn cặp nào phải chọn. Xem `LsxService._luong_vat_tu` (ba đường RIÊNG → CHUNG)
+    # và `_khoan_theo_cong_thuc`.
+    #
+    # ⚠️ CƠ CHẾ CẶP ĐỘNG VẪN CÒN TRONG CODE (`don_vi_quy_doi.cong_thuc` · `cap_map` · `_thieu_bien`) —
+    # chỉ ngưng SEED, không rút cột. Ai muốn khai tay vẫn khai được ở màn Đơn vị & quy đổi.
+    #
+    # Cái mất khi gỡ (đã đo 14/08/2026, ghi lại để người sau khỏi phải đo lại):
+    #   · 3 đầu việc khoán đ/m² (Cán màng bóng · Cán màng mờ · Ghép màng metalize) — bước đếm `to`,
+    #     mất cặp `to → m²` ⇒ rơi xuống đường hai, cần khai cách đo cho `m²`.
+    #   · Mua giấy theo cân ở Kế hoạch vật tư — cần `to`/`to_nguyen` → `kg`; `quy_doi_service` chưa
+    #     đọc cách đo nên chỗ này chưa có đường thay.
+    #   · Dropdown "đơn vị dùng được" ở Kho / NCC co lại còn cụm tĩnh.
 ]
 
 
@@ -292,19 +311,19 @@ def seed_rebuild_catalog(db: Session) -> None:
         db.add_all([
             GiayNguyen(ma="COUCHE-300-65x86", ten="Couché 300 65×86", chung_loai_giay_id=_cl.get("COUCHE"),
                        kho_dai=860, kho_rong=650, gsm=300, caliper_micron=310, tho="canh_dai",
-                       don_vi_gia="kg", don_gia=30000),
+                       don_vi_gia="kg", don_gia=30000, cong_thuc_luong=_CT_LUONG_GIAY_CAN),
             GiayNguyen(ma="COUCHE-150-79x109", ten="Couché 150 79×109", chung_loai_giay_id=_cl.get("COUCHE"),
                        kho_dai=1090, kho_rong=790, gsm=150, caliper_micron=150, tho="canh_dai",
-                       don_vi_gia="kg", don_gia=28000),
+                       don_vi_gia="kg", don_gia=28000, cong_thuc_luong=_CT_LUONG_GIAY_CAN),
             GiayNguyen(ma="FORD-70-65x86", ten="Ford 70 65×86", chung_loai_giay_id=_cl.get("FORD"),
                        kho_dai=860, kho_rong=650, gsm=70, caliper_micron=95, tho="canh_ngan",
-                       don_vi_gia="kg", don_gia=26000),
+                       don_vi_gia="kg", don_gia=26000, cong_thuc_luong=_CT_LUONG_GIAY_CAN),
             GiayNguyen(ma="IVORY-350-79x109", ten="Ivory 350 79×109", chung_loai_giay_id=_cl.get("IVORY"),
                        kho_dai=1090, kho_rong=790, gsm=350, caliper_micron=430, tho="canh_dai",
-                       don_vi_gia="kg", don_gia=32000),
+                       don_vi_gia="kg", don_gia=32000, cong_thuc_luong=_CT_LUONG_GIAY_CAN),
             GiayNguyen(ma="DUPLEX-300", ten="Duplex 300", chung_loai_giay_id=_cl.get("DUPLEX"),
                        kho_dai=1090, kho_rong=790, gsm=300, caliper_micron=380,
-                       don_vi_gia="kg", don_gia=18000),
+                       don_vi_gia="kg", don_gia=18000, cong_thuc_luong=_CT_LUONG_GIAY_CAN),
         ])
         db.commit()
     # Backfill chủng loại cho giấy chưa gắn (dev data / sau migration) theo tiền tố mã.

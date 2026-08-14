@@ -70,35 +70,45 @@ def test_khong_co_bien_nao_chay_duoc_ma_khong_ai_khai():
     assert not thua, f"engine bơm biến chưa khai trong từ điển: {sorted(thua)}"
 
 
-def test_bon_o_dung_chung_bo_16_bien():
-    """Chốt bảng chủ duyệt 11/08/2026: Giấy 17 · Vật tư 16 · Công đoạn 15 · Quy đổi 16.
+def test_bon_o_dung_chung_bo_bien_va_hai_chip_rieng_cua_buoc():
+    """Giấy 17 · Vật tư 16 · Công đoạn 15 · Quy đổi 18 (16 + `sl_vao` + `sl_ra`).
 
-    Ba điều dễ trượt lại nếu không khoá:
+    Bốn điều dễ trượt lại nếu không khoá:
       · Công đoạn KHÔNG có biến tiền — không có ô nhập đơn giá ở cả phiếu lẫn danh mục.
-      · Quy đổi dùng chung bộ biến với công thức tiền (an toàn vì nó chỉ chạy ở tầng lệnh;
-        kho/mua hàng đi cặp TĨNH) — cộng `dinh_luong` vì tờ→kg không có nó thì không tính được.
+      · Quy đổi dùng chung bộ biến với công thức tiền, cộng `dinh_luong` (tờ→kg cần nó).
       · Ba biến VAI TRÒ cũ (`dai` · `rong` · `so_con`) đã bỏ — thay bằng tên khổ cụ thể.
+      · `sl_vao`/`sl_ra` CHỈ ô Quy đổi có, và chỉ TẦNG BƯỚC bơm được (`lsx_service`): công thức
+        lượng cần số của CHÍNH bước, mà quy cách lệnh không biết bước nào đang hỏi.
     """
     dem = {loai: len(bien_cho(loai)) for loai in LOAI}
-    assert dem == {LOAI_GIAY: 17, LOAI_VAT_TU: 16, LOAI_CONG_DOAN: 15, LOAI_QUY_DOI: 16}, dem
+    assert dem == {LOAI_GIAY: 17, LOAI_VAT_TU: 16, LOAI_CONG_DOAN: 15, LOAI_QUY_DOI: 18}, dem
 
     chung = ma_hop_le(LOAI_CONG_DOAN)          # 15 biến ai cũng có
     assert ma_hop_le(LOAI_GIAY) - chung == {"dinh_luong", "don_gia_giay"}
     assert ma_hop_le(LOAI_VAT_TU) - chung == {"don_gia_vat_tu"}
     # Định lượng là thuộc tính CỦA GIẤY — chỉ ô Giấy khai được; Quy đổi giữ vì cần cho tờ→kg.
-    assert ma_hop_le(LOAI_QUY_DOI) - chung == {"dinh_luong"}
+    # Hai chip `sl_*` là của tầng bước, không nơi nào khác có.
+    assert ma_hop_le(LOAI_QUY_DOI) - chung == {"dinh_luong", "sl_vao", "sl_ra"}
+    for loai in (LOAI_GIAY, LOAI_VAT_TU, LOAI_CONG_DOAN):
+        assert not ({"sl_vao", "sl_ra"} & ma_hop_le(loai)), f"{loai} không được có chip của bước"
     assert not any(m.startswith("don_gia") for m in chung), "Công đoạn không có biến tiền"
     assert not ({"dai", "rong", "so_con"} & chung), "biến vai trò cũ phải hết"
 
 
-def test_ngu_canh_quy_doi_bom_du_bo_chung():
-    """`quy_doi_service.ngu_canh` phải trả ĐÚNG bộ biến của ô Quy đổi — thiếu một cái là dòng quy
-    đổi dùng nó rơi khỏi đồ thị mà chỉ lộ ra ở màn kế hoạch vật tư."""
+def test_ngu_canh_quy_doi_bom_du_tru_hai_chip_cua_buoc():
+    """`ngu_canh` dựng từ QUY CÁCH nên trả đủ bộ chung, TRỪ `sl_vao`/`sl_ra`.
+
+    Hai chip đó do `lsx_service` bơm thêm ở tầng bước (`{**ngu_canh_lenh(qc), "sl_vao": …}`) — quy
+    cách của lệnh không biết đang hỏi bước nào. Thiếu một chip KHÁC là dòng quy đổi dùng nó rơi khỏi
+    đồ thị, mà chỉ lộ ra ở màn kế hoạch vật tư.
+    """
     from app.services.quy_doi_service import ngu_canh
 
+    CUA_BUOC = {"sl_vao", "sl_ra"}
     ctx = ngu_canh({"kho_in_dai": 860, "kho_in_rong": 650, "kho_nguyen_dai": 860,
                     "kho_nguyen_rong": 650, "gsm": 300, "so_con": 99})
-    assert set(ctx) >= set(ma_hop_le(LOAI_QUY_DOI))
+    assert set(ctx) >= ma_hop_le(LOAI_QUY_DOI) - CUA_BUOC
+    assert not (set(ctx) & CUA_BUOC), "chip của bước không được lọt vào ngữ cảnh quy cách"
     assert ctx["dai_in"] == 0.86 and ctx["dinh_luong"] == 0.3 and ctx["so_tp"] == 99
     # Khoá CŨ `dai`/`rong` (mét) vẫn hiểu là khổ tờ IN — `ke_hoach_vat_tu` đang bơm kiểu đó.
     cu = ngu_canh({"dai": 0.86, "rong": 0.65, "gsm": 300})

@@ -178,6 +178,92 @@ def test_profile_update_request_flow(client):
     assert client.post(f"/api/employees/update-requests/{rid}/approve", json={}, headers=_h(admin)).status_code == 400
 
 
+def test_ho_so_cua_toi_tra_du_o_bhxh_thue_va_quan_ly_truc_tiep(client):
+    """Màn "Hồ sơ của tôi" đọc thẳng payload này. Thiếu một field ở schema Out là màn hiện
+    "—" trong khi DB có số — nên chốt bằng test: BHXH · cách tính thuế · ngày và nơi cấp CCCD ·
+    hạn thử việc · trưởng bộ phận (do route /me tự tra)."""
+    admin = _admin_token(client)
+    hcns = _dept_id("Hành chính nhân sự")
+    r = _create(client, admin, full_name="NV Đủ Ô", department_id=hcns,
+                social_insurance_no="7912345678", pit_tax_code="8123456789",
+                national_id="079080000123", national_id_date="2021-03-04",
+                national_id_place="Cục CS QLHC", probation_end_date="2024-03-15",
+                account={"username": "nvdu", "password": "nvdu12345"})
+    assert r.status_code == 201, r.text
+
+    # Trưởng bộ phận của phòng = tài khoản admin.
+    db = SessionLocal()
+    try:
+        depts = DepartmentRepository(db)
+        admin_user = UserRepository(db).get_by_username("admin")
+        depts.set_head(depts.get_by_id(hcns), admin_user.id)
+        head_name = admin_user.name or admin_user.username
+    finally:
+        db.close()
+
+    me_tok = client.post("/api/auth/login",
+                         json={"username": "nvdu", "password": "nvdu12345"}).json()["access_token"]
+    emp = client.get("/api/employees/me", headers=_h(me_tok)).json()["employee"]
+    assert emp["social_insurance_no"] == "7912345678"
+    assert emp["pit_mode"] == "luy_tien"
+    assert emp["national_id_date"] == "2021-03-04" and emp["national_id_place"] == "Cục CS QLHC"
+    assert emp["probation_end_date"] == "2024-03-15"
+    assert emp["department_head_name"] == head_name
+
+
+def test_nv_tu_rut_de_nghi_khi_hcns_chua_xu_ly(client):
+    """Gõ nhầm thì phải rút lại được — nhưng rút = đổi trạng thái, KHÔNG xoá vết; và chỉ rút
+    được đề nghị CỦA MÌNH, còn đang chờ."""
+    admin = _admin_token(client)
+    _create(client, admin, full_name="NV Rút", bank_account="111",
+            account={"username": "nvrut", "password": "nvrut12345"})
+    _create(client, admin, full_name="NV Khác", account={"username": "nvkhac", "password": "nvkhac1234"})
+    tok = client.post("/api/auth/login",
+                      json={"username": "nvrut", "password": "nvrut12345"}).json()["access_token"]
+    tok_khac = client.post("/api/auth/login",
+                           json={"username": "nvkhac", "password": "nvkhac1234"}).json()["access_token"]
+
+    rid = client.post("/api/employees/me/update-requests",
+                      json={"changes": {"bank_account": "999"}, "reason": "Đổi NH"},
+                      headers=_h(tok)).json()["id"]
+
+    # người khác KHÔNG rút hộ được
+    assert client.post(f"/api/employees/me/update-requests/{rid}/cancel",
+                       headers=_h(tok_khac)).status_code == 404
+
+    ok = client.post(f"/api/employees/me/update-requests/{rid}/cancel", headers=_h(tok))
+    assert ok.status_code == 200 and ok.json()["status"] == "cancelled"
+    assert ok.json()["decided_at"] is not None and ok.json()["decided_by_name"] == "NV Rút"
+
+    # vẫn còn trong danh sách (có vết), và HCNS không duyệt được nữa
+    mine = client.get("/api/employees/me/update-requests", headers=_h(tok)).json()["items"]
+    assert any(x["id"] == rid and x["status"] == "cancelled" for x in mine)
+    assert client.post(f"/api/employees/update-requests/{rid}/approve", json={},
+                       headers=_h(admin)).status_code == 400
+    # rút lần hai → 400, và hồ sơ KHÔNG bị áp thay đổi
+    assert client.post(f"/api/employees/me/update-requests/{rid}/cancel", headers=_h(tok)).status_code == 400
+    assert client.get("/api/employees/me", headers=_h(tok)).json()["employee"]["bank_account"] == "111"
+
+
+def test_de_nghi_bi_tu_choi_luu_ai_quyet_va_ly_do(client):
+    """NV phải thấy ai từ chối, lúc nào, vì sao — không thì màn chỉ có chữ "Từ chối" trơ trọi."""
+    admin = _admin_token(client)
+    _create(client, admin, full_name="NV Bị Từ Chối", bank_account="111",
+            account={"username": "nvtc", "password": "nvtc12345"})
+    tok = client.post("/api/auth/login",
+                      json={"username": "nvtc", "password": "nvtc12345"}).json()["access_token"]
+    rid = client.post("/api/employees/me/update-requests",
+                      json={"changes": {"bank_account": "999"}}, headers=_h(tok)).json()["id"]
+
+    client.post(f"/api/employees/update-requests/{rid}/reject",
+                json={"note": "Sai số tài khoản"}, headers=_h(admin))
+
+    row = next(x for x in client.get("/api/employees/me/update-requests", headers=_h(tok)).json()["items"]
+               if x["id"] == rid)
+    assert row["status"] == "rejected" and row["decision_note"] == "Sai số tài khoản"
+    assert row["decided_at"] is not None and row["decided_by_name"]
+
+
 # --- create + list ----------------------------------------------------------
 
 

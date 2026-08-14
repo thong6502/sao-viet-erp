@@ -2130,29 +2130,15 @@ function RefSearchField({ value, options, placeholder, byMa, onChange }: {
   );
 }
 
-// ── FORMULA FIELD EDITOR AND VALIDATOR (Live math preview + click-to-insert variable tags) ──
-// 🔴 GỠ 11/08/2026: `PHIEU_VARS` · `GIAY_VARS` · `WHITELIST_VARS` · `VAR_DESC` · `FRIENDLY_NAMES` ·
-// `EXTRA_VALID_VARS` — sáu mảng CỨNG quyết định chip nào hiện và validator nhận biến nào.
-//
-// Chúng là MỘT NỬA của sự thật: nửa kia (biến nào có GIÁ TRỊ thật) nằm ở backend, và không gì ép
-// hai nửa khớp. Đã lệch thật: `so_mau_pha` backend có mà đây không cho gõ; `so_vi_tri`/`dien_tich`
-// đây cho gõ ở mọi ô mà backend chỉ bơm cho công đoạn; `don_gia_luot`/`don_gia_kem` đây nhận mà
-// backend không hề có.
-//
-// Nay hỏi `/api/bien-cong-thuc` — một từ điển ở `services/bien_cong_thuc.py`, có test canh hai
-// tầng. Thêm biến thì sửa ĐÚNG chỗ đó, đừng dựng lại danh sách ở đây.
 export type BienCongThuc = {
   ma: string;
   nhan: string;
   mo_ta: string;
   don_vi: string;
-  /** "Số này ở đâu ra" — câu người khai công thức luôn hỏi. Hiện khi hover chip. */
   nguon: string;
   loai: string[];
 };
 
-// Từ điển tĩnh → nạp MỘT lần cho cả phiên, mọi ô công thức dùng chung. Không cache thì mở drawer
-// nào cũng gọi lại API cho một danh sách không bao giờ đổi.
 let _bienCache: BienCongThuc[] | null = null;
 let _bienChoDoi: Promise<BienCongThuc[]> | null = null;
 
@@ -2171,71 +2157,98 @@ export function useBienCongThuc(): BienCongThuc[] {
   return bien;
 }
 
-// Nhãn + mô tả biến nay lấy từ `useBienCongThuc()`. Ba bảng cứng cũ (`VAR_DESC` · `FRIENDLY_NAMES` ·
-// `EXTRA_VALID_VARS`) đã gỡ cùng lý do nêu ở trên — chúng là danh sách thứ hai không ai đối chiếu.
 export type TraBien = (ma: string) => BienCongThuc | undefined;
 
-/** Bản tra theo mã. Biến lạ (công thức cũ, hoặc từ điển chưa nạp xong) trả undefined để nơi gọi
- *  hiện MÃ TRẦN — thà thấy `so_mau_pha` còn hơn nuốt mất rồi đoán. */
 export function traBien(ds: BienCongThuc[]): TraBien {
   const theoMa = new Map(ds.map((b) => [b.ma, b]));
   return (ma) => theoMa.get(ma);
 }
 
-function translateFormula(formula: string, tra: TraBien): ReactNode[] {
-  if (!formula.trim()) return [<span key="empty" style={{ color: "var(--ash, #8a8676)", fontStyle: "italic" }}>Trống (trả về 0đ)</span>];
-  let s = formula.replace(/×/g, "*").replace(/÷/g, "/").replace(/−/g, "-");
-  const regex = /([a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[\+\-\*\/\(\)\,])/g;
-  const matches = s.match(regex) || [];
-  
-  const elements: ReactNode[] = [];
-  let index = 0;
-  
-  for (const m of matches) {
+const MATH_FUNCS = ["ceil", "floor", "round", "max", "min"];
+
+
+function renderFormulaChips({
+  value,
+  tra,
+  validVars,
+  whitelist,
+  onRemoveToken,
+}: {
+  value: string;
+  tra: (ma: string) => BienCongThuc | undefined;
+  validVars: string[] | null;
+  whitelist: string[];
+  onRemoveToken?: (index: number) => void;
+}) {
+  const tokenRegex = /[a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[\+\-\*\/\(\)\,]|[\s]+/g;
+  const matches = value.match(tokenRegex) || [];
+
+  return matches.map((m, idx) => {
+    if (/^\s+$/.test(m)) {
+      return <span key={idx} className="rc-formula__chip-space">{m}</span>;
+    }
+
     const trimmed = m.trim();
-    if (!trimmed) continue;
-    
-    if (tra(trimmed)) {
-      elements.push(
-        <span key={index++} className="rc-formula__trans-token rc-formula__trans-token--var">
-          {tra(trimmed)!.nhan}
+    const info = tra(trimmed);
+    const isValidVar = validVars ? validVars.includes(trimmed) : (whitelist.includes(trimmed) || !!info);
+
+    if (isValidVar || info) {
+      return (
+        <span
+          key={idx}
+          className="rc-formula__chip-token rc-formula__chip-token--var"
+          title={info ? `${info.nhan} (Mã: ${trimmed})\nĐơn vị: ${info.don_vi}\nNguồn: ${info.nguon}` : `Mã: ${trimmed}`}
+        >
+          <span className="rc-formula__chip-token-label">{info?.nhan ?? trimmed}</span>
+          {onRemoveToken && (
+            <button
+              type="button"
+              className="rc-formula__chip-token-del"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemoveToken(idx);
+              }}
+              title={`Xoá biến ${info?.nhan ?? trimmed}`}
+            >
+              ×
+            </button>
+          )}
         </span>
       );
-    } else if (MATH_FUNCS.includes(trimmed)) {
-      elements.push(
-        <span key={index++} className="rc-formula__trans-token rc-formula__trans-token--func">
-          {trimmed.toUpperCase()}
-        </span>
-      );
-    } else if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
-      elements.push(
-        <span key={index++} className="rc-formula__trans-token rc-formula__trans-token--num">
-          {trimmed}
-        </span>
-      );
-    } else if (/^[\+\-\*\/\(\)\,]$/.test(trimmed)) {
-      let displayOp = trimmed;
-      if (trimmed === "*") displayOp = " × ";
-      if (trimmed === "/") displayOp = " ÷ ";
-      if (trimmed === "-") displayOp = " − ";
-      if (trimmed === "+") displayOp = " + ";
-      elements.push(
-        <span key={index++} className="rc-formula__trans-token rc-formula__trans-token--op">
-          {displayOp}
-        </span>
-      );
-    } else {
-      elements.push(
-        <span key={index++} className="rc-formula__trans-token rc-formula__trans-token--error">
+    }
+
+    if (MATH_FUNCS.includes(trimmed)) {
+      return (
+        <span key={idx} className="rc-formula__chip-token rc-formula__chip-token--func">
           {trimmed}
         </span>
       );
     }
-  }
-  return elements;
-}
 
-const MATH_FUNCS = ["ceil", "floor", "round", "max", "min"];
+    if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+      return (
+        <span key={idx} className="rc-formula__chip-token rc-formula__chip-token--num">
+          {trimmed}
+        </span>
+      );
+    }
+
+    if (/^[\+\-\*\/\(\)\,]$/.test(trimmed)) {
+      const displayOp = trimmed === "*" ? "×" : trimmed === "/" ? "÷" : trimmed === "-" ? "−" : trimmed;
+      return (
+        <span key={idx} className="rc-formula__chip-token rc-formula__chip-token--op">
+          {displayOp}
+        </span>
+      );
+    }
+
+    return (
+      <span key={idx} className="rc-formula__chip-token rc-formula__chip-token--error" title={`Biến "${trimmed}" chưa hỗ trợ hoặc gõ sai`}>
+        {trimmed}
+      </span>
+    );
+  });
+}
 
 export function FormulaField({
   value,
@@ -2250,43 +2263,44 @@ export function FormulaField({
   value: string;
   onChange: (v: string) => void;
   configPrefix: string;
-  /** Bộ biến RIÊNG cho ngữ cảnh khác tính giá (vd quy đổi đơn vị). Có thì thay hẳn whitelist. */
   bienGoiY?: string[];
-  /** ÉP loại ô (bộ chip). Bỏ trống = suy từ `configPrefix` như cũ. */
   loaiO?: string;
-  nhanO?: string;
+  nhanO?: React.ReactNode;
   goY?: string;
-  /** Nhiều ô công thức trên một màn thì phải khác id — nút chèn biến tìm textarea theo id. */
   id?: string;
 }) {
   const isCd = configPrefix.includes("cong-doan");
-  const isGiay = configPrefix.endsWith("/giay");   // "/api/vat-lieu-kho/giay"
-  // Màn Đơn vị: ô "Cách đo" ra LƯỢNG, không ra tiền — bộ chip của nó là bộ quy đổi (có Định lượng
-  // giấy, không có đơn giá). Thiếu nhánh này thì nó ăn bộ Vật tư và chip lệch với thứ backend bơm.
+  const isGiay = configPrefix.endsWith("/giay");
   const isDonVi = configPrefix.includes("don-vi");
   const loaiO = loaiOEp ?? (isDonVi ? "quy_doi" : isCd ? "cong_doan" : isGiay ? "giay" : "vat_tu");
-  // Từ điển biến — MỘT nguồn với backend. Trước đây whitelist là mảng cứng ở file này, còn giá trị
-  // thật nằm bên engine; hai bên lệch thì công thức "hợp lệ" vẫn ra 0đ mà không ai biết.
   const tuDien = useBienCongThuc();
   const tra = useMemo(() => traBien(tuDien), [tuDien]);
-  // Chip GỢI Ý: đúng bộ biến của ô đang gõ. `bienGoiY` (quy đổi đơn vị) thay hẳn — ngữ cảnh đó
-  // không có phiếu tính giá nào để lấy số.
   const whitelist = useMemo(
     () => bienGoiY ?? tuDien.filter((b) => b.loai.includes(loaiO)).map((b) => b.ma),
     [bienGoiY, tuDien, loaiO],
   );
-  // Validator: gõ `don_gia` vào công thức quy đổi phải báo đỏ NGAY, không để tới lúc chạy mới biết.
-  // Từ điển chưa nạp xong (mảng rỗng) thì KHÔNG chấm đỏ gì cả — chấm đỏ lúc đó là báo oan.
   const validVars = useMemo(
     () => (whitelist.length ? [...whitelist] : null),
     [whitelist],
   );
-  // Real-time formula validation
 
-  // Popover "Cú pháp"
   const [showSyntax, setShowSyntax] = useState(false);
   const syntaxBtnRef = useRef<HTMLButtonElement>(null);
   const syntaxPopRef = useRef<HTMLDivElement>(null);
+
+  const [typedWord, setTypedWord] = useState("");
+  const [showAuto, setShowAuto] = useState(false);
+  const [autoIdx, setAutoIdx] = useState(0);
+
+  const autoSuggestions = useMemo(() => {
+    if (!typedWord || typedWord.length < 1) return [];
+    const q = typedWord.toLowerCase();
+    return whitelist.filter((v) => {
+      const info = tra(v);
+      return v.toLowerCase().includes(q) || (info && info.nhan.toLowerCase().includes(q));
+    }).slice(0, 8);
+  }, [typedWord, whitelist, tra]);
+
   useEffect(() => {
     if (!showSyntax) return;
     const onDown = (e: MouseEvent) => {
@@ -2300,33 +2314,145 @@ export function FormulaField({
     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
   }, [showSyntax]);
 
-  const insertVar = (varName: string) => {
-    const el = document.getElementById(id) as HTMLTextAreaElement | null;
-    if (!el) {
-      onChange(value + varName);
+  const commitTypedWord = (textToCommit?: string) => {
+    const word = (textToCommit !== undefined ? textToCommit : typedWord).trim();
+    if (word) {
+      onChange((value ? value.trimEnd() + " " : "") + word + " ");
+      setTypedWord("");
+      setShowAuto(false);
+    }
+  };
+
+  const oInline = () => document.getElementById(id) as HTMLInputElement | null;
+
+  /** Chèn toán tử / hàm / chip biến vào công thức đã chốt.
+   *  Chữ đang gõ dở phải CHỐT TRƯỚC: bấm "×" giữa chừng mà mất chữ vừa gõ thì người khai không
+   *  hiểu vì sao. Hàm và mở ngoặc dính liền tham số ("max(" → "max(dai_in"), còn lại tách bằng
+   *  khoảng trắng cho tokenizer cắt đúng. */
+  const insertVar = (text: string) => {
+    const them = text.trim();
+    if (!them) return;
+    const dangGo = typedWord.trim();
+    let goc = value.trimEnd();
+    if (dangGo) goc = (goc ? goc + " " : "") + dangGo;
+    onChange((goc ? goc + " " : "") + them + (them.endsWith("(") ? "" : " "));
+    setTypedWord("");
+    setShowAuto(false);
+    setTimeout(() => oInline()?.focus(), 10);
+  };
+
+  /** Bấm "×" trên một chip → bỏ đúng token đó. `idx` là chỉ số trong CÙNG mảng token mà
+   *  `renderFormulaChips` cắt ra từ `value`, nên phải cắt lại y hệt rồi splice. */
+  const handleRemoveToken = (idx: number) => {
+    const tokenRegex = /[a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[\+\-\*\/\(\)\,]|[\s]+/g;
+    const matches = value.match(tokenRegex) || [];
+    if (idx < 0 || idx >= matches.length) return;
+    matches.splice(idx, 1);
+    onChange(matches.join("").replace(/\s+/g, " ").trim());
+  };
+
+  /** Rời ô → chốt nốt chữ đang gõ dở thành chip. Ô inline KHÔNG nằm trong `value`, không chốt thì
+   *  gõ "1000" rồi bấm thẳng nút Lưu là số đó bay mất, im lặng. */
+  const handleInlineBlur = () => {
+    commitTypedWord();
+    setShowAuto(false);
+  };
+
+  const handleInlineChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const text = e.target.value;
+
+    // Nếu gõ toán tử (+ - * / ()), commit từ trước đó (nếu có) + toán tử
+    const lastChar = text.slice(-1);
+    if (/^[\+\-\*\/\(\)]$/.test(lastChar)) {
+      const wordBefore = text.slice(0, -1).trim();
+      let appended = "";
+      if (wordBefore) {
+        appended += wordBefore + " ";
+      }
+      appended += (lastChar === "*" ? " * " : lastChar === "/" ? " / " : lastChar === "-" ? " - " : lastChar === "+" ? " + " : lastChar);
+      onChange((value ? value + " " : "") + appended);
+      setTypedWord("");
+      setShowAuto(false);
       return;
     }
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const text = el.value;
-    const before = text.substring(0, start);
-    const after = text.substring(end, text.length);
-    const newValue = before + varName + after;
-    onChange(newValue);
+
+    setTypedWord(text);
+
+    // Nếu từ vừa gõ khớp chính xác 1 mã biến trong whitelist -> tự hóa Chip ngay!
+    // TRỪ khi còn mã DÀI HƠN bắt đầu bằng chữ này (`so_mau` còn `so_mau_pha`): chốt sớm là người
+    // ta không gõ nốt được nữa. Trường hợp đó để Enter/Tab trên gợi ý quyết định.
+    const trimmed = text.trim();
+    const conMaDaiHon = whitelist.some((v) => v !== trimmed && v.startsWith(trimmed));
+    if (whitelist.includes(trimmed) && !conMaDaiHon) {
+      onChange((value ? value + " " : "") + trimmed + " ");
+      setTypedWord("");
+      setShowAuto(false);
+      return;
+    }
+
+    if (trimmed.length >= 1) {
+      setShowAuto(true);
+      setAutoIdx(0);
+    } else {
+      setShowAuto(false);
+    }
+  };
+
+  const insertSuggestion = (varName: string) => {
+    const prefix = value ? value.trimEnd() + " " : "";
+    onChange(prefix + varName + " ");
+    setTypedWord("");
+    setShowAuto(false);
     setTimeout(() => {
-      el.focus();
-      el.setSelectionRange(start + varName.length, start + varName.length);
+      const el = document.getElementById(id) as HTMLInputElement | null;
+      el?.focus();
     }, 10);
   };
 
-  // Group variables for clean categorical rendering
+  const handleInlineKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (showAuto && autoSuggestions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setAutoIdx((i) => Math.min(i + 1, autoSuggestions.length - 1));
+        return;
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setAutoIdx((i) => Math.max(i - 1, 0));
+        return;
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        insertSuggestion(autoSuggestions[autoIdx]);
+        return;
+      } else if (e.key === "Escape") {
+        setShowAuto(false);
+        return;
+      }
+    }
+
+    // Enter khi không có gợi ý nào: vẫn phải chốt chữ đang gõ (số "1000" chẳng khớp biến nào),
+    // và chặn Enter lọt ra ngoài làm submit drawer.
+    if (e.key === "Enter" && typedWord.trim()) {
+      e.preventDefault();
+      commitTypedWord();
+      return;
+    }
+
+    if (e.key === "Backspace" && !typedWord) {
+      const tokenRegex = /[a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[\+\-\*\/\(\)\,]|[\s]+/g;
+      const matches = value.match(tokenRegex) || [];
+      if (matches.length > 0) {
+        e.preventDefault();
+        matches.pop();
+        onChange(matches.join(""));
+      }
+    }
+  };
+
   const groups = useMemo(() => {
     const sizeVars = ["dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in",
       "dai", "rong"];
     const qtyVars = ["so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in",
       "to_nguyen", "so_con"];
-    // Mỗi ô một biến đơn giá, tên nói rõ của ai (11/08/2026). Ô Công đoạn KHÔNG có biến tiền —
-    // không có chỗ nào nhập đơn giá công đoạn, đơn giá gõ thẳng vào công thức.
     const priceVars = ["dinh_luong", "don_gia_giay", "don_gia_vat_tu"];
     const daXep = new Set([...sizeVars, ...qtyVars, ...priceVars]);
 
@@ -2377,7 +2503,6 @@ export function FormulaField({
     ].filter(g => g.vars.length > 0);
   }, [whitelist]);
 
-  // Real-time formula validation
   const { valid, error } = useMemo(() => {
     if (!value.trim()) return { valid: true, error: null };
     
@@ -2393,8 +2518,6 @@ export function FormulaField({
       return { valid: false, error: "Thiếu dấu đóng hoặc mở ngoặc đơn" };
     }
 
-    // Từ điển chưa nạp xong → BỎ QUA kiểm biến (vẫn kiểm ngoặc/toán tử ở trên). Chấm đỏ lúc chưa
-    // biết biến nào hợp lệ là báo oan công thức đang đúng.
     if (!validVars) return { valid: true, error: null };
 
     const tokenRegex = /[a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[\+\-\*\/\(\)]|\s+/g;
@@ -2473,7 +2596,9 @@ export function FormulaField({
         </div>
 
         {/* Thanh chèn toán tử nhanh */}
-        <div className="rc-formula__op-toolbar">
+        {/* `preventDefault` trên mousedown: giữ con trỏ trong ô inline. Không có nó thì bấm nút là
+            ô blur TRƯỚC → chốt chữ đang gõ một lần, rồi `insertVar` chốt thêm lần nữa → chip đôi. */}
+        <div className="rc-formula__op-toolbar" onMouseDown={(e) => e.preventDefault()}>
           <span className="rc-formula__op-label">Chèn toán tử:</span>
           <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(" + ")} title="Cộng">+</button>
           <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(" - ")} title="Trừ">−</button>
@@ -2486,21 +2611,61 @@ export function FormulaField({
           <button type="button" className="rc-formula__op-btn" onClick={() => insertVar("round(")} title="Hàm round">round</button>
         </div>
 
-        <textarea
-          id={id}
-          className="rc-formula__textarea"
-          rows={2}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={goY}
-        />
-      </div>
+        {/* Ô công thức Chip Tiếng Việt duy nhất (Inline Chip Editor Container) */}
+        <div
+          className="rc-formula__single-stage"
+          onClick={() => {
+            const el = document.getElementById(id) as HTMLInputElement | null;
+            el?.focus();
+          }}
+        >
+          <div className="rc-formula__chips-wrap">
+            {value.trim() ? (
+              renderFormulaChips({ value, tra, validVars, whitelist, onRemoveToken: handleRemoveToken })
+            ) : null}
 
-      {/* 2. Dịch nghĩa tiếng Việt ngay dưới ô gõ */}
-      <div className="rc-formula__trans-container">
-        <div className="rc-formula__trans-title">Dịch nghĩa công thức (tiếng Việt):</div>
-        <div className="rc-formula__trans-content">
-          {translateFormula(value, tra)}
+            <div className="rc-formula__inline-input-box">
+              <input
+                id={id}
+                className="rc-formula__inline-input"
+                value={typedWord}
+                onChange={handleInlineChange}
+                onKeyDown={handleInlineKeyDown}
+                onBlur={handleInlineBlur}
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={value.trim() ? "" : goY}
+              />
+              {showAuto && autoSuggestions.length > 0 && (
+                <div
+                  className="rc-formula__autocomplete"
+                  role="listbox"
+                  onMouseDown={(e) => e.preventDefault()}
+                >
+                  <div className="rc-formula__autocomplete-head">Gợi ý biến phù hợp:</div>
+                  {autoSuggestions.map((v, idx) => (
+                    <div
+                      key={v}
+                      className={`rc-formula__autocomplete-item${idx === autoIdx ? " is-selected" : ""}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        insertSuggestion(v);
+                      }}
+                      onMouseEnter={() => setAutoIdx(idx)}
+                    >
+                      <div className="rc-formula__autocomplete-main">
+                        <span className="rc-formula__autocomplete-name">{tra(v)?.nhan ?? v}</span>
+                        <code className="rc-formula__autocomplete-code">{v}</code>
+                      </div>
+                      {tra(v)?.don_vi && (
+                        <span className="rc-formula__autocomplete-unit">{tra(v)!.don_vi}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -2521,7 +2686,7 @@ export function FormulaField({
         <span className="rc-formula__header-title">Danh sách biến khả dụng</span>
       </div>
 
-      <div className="rc-formula__all-vars">
+      <div className="rc-formula__all-vars" onMouseDown={(e) => e.preventDefault()}>
         {groups.flatMap((g) => g.vars.map((v) => ({ v, colorClass: g.colorClass }))).map(({ v, colorClass }) => (
           <button
             key={v}

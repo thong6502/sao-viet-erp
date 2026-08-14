@@ -14,7 +14,10 @@ from ..db import Base
 REQ_PENDING = "pending"
 REQ_APPROVED = "approved"
 REQ_REJECTED = "rejected"
-REQUEST_STATUSES = (REQ_PENDING, REQ_APPROVED, REQ_REJECTED)
+# NV tự rút lại đề nghị khi HCNS chưa xử lý (gõ nhầm / đổi ý). KHÔNG xoá dòng: đề nghị là
+# TƯƠNG TÁC hai bên, phải còn vết ai-gửi-gì-rút-lúc-nào. `decided_at` lúc này = giờ rút.
+REQ_CANCELLED = "cancelled"
+REQUEST_STATUSES = (REQ_PENDING, REQ_APPROVED, REQ_REJECTED, REQ_CANCELLED)
 
 
 def _utcnow() -> datetime:

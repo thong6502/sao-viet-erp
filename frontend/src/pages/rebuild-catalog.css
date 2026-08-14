@@ -189,9 +189,12 @@
   color: #334155;
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
-  padding: 2px 7px;
+  padding: 3px 8px;
   border-radius: 6px;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
+  max-width: 100%;
+  line-height: 1.45;
 }
 
 .rc__formula-pill--dynamic {
@@ -204,20 +207,23 @@
 /* Cảnh báo MỀM (không chặn lưu) — vd cặp số cố định đè lên đường công thức. Hổ phách chứ không đỏ:
    đỏ dành cho lỗi chặn, dùng đỏ cho thứ vẫn lưu được thì người ta quen mắt rồi bỏ qua cả hai. */
 .rc__warn-pill {
-  display: block;
-  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
   box-sizing: border-box;
   font-size: 11.5px;
   font-weight: 500;
-  line-height: 1.45;
+  line-height: 1.4;
   color: #92400e;
   background: #fffbeb;
   border: 1px solid #fde68a;
-  padding: 5px 8px;
+  padding: 3px 8px;
   border-radius: 6px;
-  white-space: normal;
-  word-break: normal;
-  overflow-wrap: break-word;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  cursor: help;
 }
 
 .rc__chip-muted {
@@ -450,9 +456,13 @@
 /* Nút KHOÁ phải NHÌN RA là khoá. Trước 12/08/2026 không có luật này: "Thêm quy đổi" thiếu đơn vị
    đích vẫn tím rực và con trỏ vẫn là bàn tay — người dùng bấm mãi không ăn, không có gì giải thích. */
 .dvqd__btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  filter: grayscale(0.35);
+  background: #e2e8f0 !important;
+  border-color: #cbd5e1 !important;
+  color: #94a3b8 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
 }
 
 /* Nói THIẾU GÌ, đừng bắt đoán. Đứng cạnh nút, mất đi khi đã đủ điều kiện. */
@@ -465,15 +475,22 @@
 }
 
 .dvqd__btn--primary {
-  background: #4f46e5;
+  background: linear-gradient(135deg, #ea580c 0%, #c5400a 100%);
   color: #ffffff;
-  border-color: #4f46e5;
+  border: 1px solid #c5400a;
+  box-shadow: 0 4px 14px rgba(197, 64, 10, 0.25);
+  font-weight: 600;
+  padding: 8px 18px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
 }
 
 .dvqd__btn--primary:hover:not(:disabled) {
-  background: #4338ca;
-  border-color: #4338ca;
+  background: linear-gradient(135deg, #c5400a 0%, #9a3412 100%);
+  border-color: #9a3412;
   color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(197, 64, 10, 0.35);
 }
 
 .dvqd__btn--danger {
@@ -501,15 +518,54 @@
 }
 
 .dvqd__badge--dynamic {
-  background: #f5f3ff;
-  color: #6d28d9;
-  border: 1px solid #ddd6fe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
 }
 
 .dvqd__badge--static {
   background: #f1f5f9;
   color: #475569;
   border: 1px solid #e2e8f0;
+}
+
+/* Hiển thị Chip công thức đã lưu trong thẻ Quy Đổi Khai Tại Đây */
+.dvqd__chip-preview-list {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+.dvqd__chip-space {
+  white-space: pre;
+}
+.dvqd__chip-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  border: 1px solid transparent;
+}
+.dvqd__chip-tag--var {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+.dvqd__chip-tag--num {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #15803d;
+  font-weight: 700;
+}
+.dvqd__chip-tag--op {
+  background: #fffbe6;
+  border-color: #fef08a;
+  color: #b45309;
+  font-weight: 700;
+  padding: 1px 6px;
 }
 
 /* Sub-panel chứa Trình biên soạn công thức khi bấm Sửa */
@@ -562,33 +618,52 @@
 
 /* Form Thêm Quy Đổi Mới */
 .dvqd__create-card {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.03);
+  transition: all 0.2s ease;
 }
 
 .dvqd__create-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 12px;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 12px;
+}
+
+.dvqd__create-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
   font-weight: 700;
+  letter-spacing: 0.02em;
   color: #0f172a;
+  text-transform: uppercase;
+}
+.dvqd__create-title svg {
+  color: var(--rust, #c5400a);
 }
 
 .dvqd__type-toggle {
   display: inline-flex;
   background: #e2e8f0;
-  padding: 2px;
-  border-radius: 6px;
+  padding: 3px;
+  border-radius: 8px;
 }
 
 .dvqd__type-btn {
-  padding: 4px 12px;
-  font-size: 11.5px;
+  padding: 5px 14px;
+  font-size: 12px;
   font-weight: 600;
   border: none;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
   color: #64748b;
   cursor: pointer;
@@ -598,20 +673,74 @@
 .dvqd__type-btn.is-active {
   background: #ffffff;
   color: #0f172a;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.dvqd__create-body {
+  width: 100%;
 }
 
 .dvqd__create-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
 .dvqd__create-prefix {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
-  color: #1e293b;
+  color: #0f172a;
+}
+
+.dvqd__formula-section {
+  width: 100%;
+}
+
+.dvqd__equation-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.dvqd__equation-unit {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f172a;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  padding: 4px 12px;
+  border-radius: 6px;
+}
+
+.dvqd__equation-equal {
+  font-size: 16px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.dvqd__equation-hint {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.dvqd__create-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.dvqd__footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .dvqd__hint {
@@ -637,12 +766,13 @@
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-5);
-  overflow: hidden;
+  overflow-x: auto;
   box-shadow: var(--shadow-1);
 }
 .rc__table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 .rc__table thead th {
   text-align: left;
@@ -664,6 +794,7 @@
   color: var(--ink);
   vertical-align: middle;
   height: auto;
+  word-break: break-word;
 }
 .rc__table tbody tr:last-child td {
   border-bottom: none;
@@ -696,6 +827,12 @@
 /* Mã: badge vuông mono (đồng bộ .ptg-code) */
 .rc__code-badge {
   display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  box-sizing: border-box;
   font-family: var(--ff-sans);
   font-size: 12px;
   font-weight: var(--fw-medium);
@@ -770,6 +907,21 @@
 .rc__actcol {
   text-align: right;
   white-space: nowrap;
+  padding-right: 12px !important;
+}
+
+.rc__tram-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: #7c2d12;
+  background: #ffedd5;
+  border: 1px solid #fed7aa;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: middle;
 }
 
 .rc__link-btn {
@@ -2059,35 +2211,36 @@ select.rc-input:focus {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px;
-  background: #15171f;
-  padding: 5px 12px;
-  border-bottom: 1px solid #232530;
+  gap: 5px;
+  background: #f8fafc;
+  padding: 6px 12px;
+  border-bottom: 1px solid #e2e8f0;
 }
 .rc-formula__op-label {
   font-size: 10px;
-  font-weight: 600;
-  color: #70758a;
-  margin-right: 2px;
+  font-weight: 700;
+  color: #64748b;
+  margin-right: 4px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 .rc-formula__op-btn {
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid #2e3140;
-  color: #d1d5e6;
-  border-radius: 4px;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  border-radius: 5px;
   font-family: var(--ff-sans);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
-  padding: 2px 7px;
+  padding: 3px 8px;
   cursor: pointer;
-  transition: all 0.12s ease;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 .rc-formula__op-btn:hover {
-  background: color-mix(in srgb, var(--rust) 30%, transparent);
-  color: #fff;
-  border-color: var(--rust);
+  background: #fff7ed;
+  color: #c5400a;
+  border-color: #c5400a;
 }
 
 .rc-formula__legend {
@@ -2107,17 +2260,17 @@ select.rc-input:focus {
 
 .rc-formula__editor-container {
   position: relative;
-  background: #0d0e12; /* slate tối, gọn */
-  border: 1px solid #232530;
-  border-radius: var(--r-5);
-  overflow: visible;  /* cho popover "Cú pháp" tràn ra ngoài, không bị cắt */
-  transition: border-color var(--duration-base) var(--easing-standard),
-    box-shadow var(--duration-base) var(--easing-standard);
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  overflow: visible;
+  transition: all 0.2s ease;
   width: 100%;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
 }
 .rc-formula__editor-container:focus-within {
-  border-color: var(--rust);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 15%, transparent);
+  border-color: #c5400a;
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.12);
 }
 
 /* Header: nhãn "Công thức" (trái) + nút "Cú pháp" (phải) */
@@ -2126,39 +2279,54 @@ select.rc-input:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #15171f;
-  padding: 6px 8px 6px 14px;
-  border-bottom: 1px solid #232530;
-  border-radius: var(--r-5) var(--r-5) 0 0;  /* bo góc trên khớp container (đã bỏ overflow:hidden) */
+  background: #f8fafc;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e2e8f0;
+  border-radius: 9px 9px 0 0;
 }
 .rc-formula__editor-label {
   font-family: var(--ff-sans);
-  font-size: 10px;
-  font-weight: var(--fw-bold);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #70758a;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-/* Nút "Cú pháp" trên nền tối */
+.rc-formula__editor-unit-tag {
+  color: #0284c7;
+  background: #e0f2fe;
+  border: 1px solid #bae6fd;
+  padding: 2px 9px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: none;
+}
+
+/* Nút "Cú pháp" trên nền sáng */
 .rc-formula__syntax-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   font-family: var(--ff-sans);
-  font-size: 11px;
-  font-weight: var(--fw-bold);
-  color: #b7bcd0;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid #2e3140;
-  border-radius: var(--r-2);
-  padding: 3px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #475569;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 10px;
   cursor: pointer;
-  transition: color var(--duration-fast) var(--easing-standard),
-    background-color var(--duration-fast) var(--easing-standard),
-    border-color var(--duration-fast) var(--easing-standard);
+  transition: all 0.15s ease;
 }
 .rc-formula__syntax-btn:hover,
+.rc-formula__syntax-btn.is-open {
+  color: #c5400a;
+  background: #fff7ed;
+  border-color: #c5400a;
+}
 .rc-formula__syntax-btn.is-open {
   color: #fff;
   background: color-mix(in srgb, var(--rust) 34%, transparent);
@@ -2250,21 +2418,241 @@ select.rc-input:focus {
 .rc-syntax__note { font-size: 11.5px; color: var(--ash); line-height: 1.5; margin: 2px 0 0; }
 .rc-syntax__note--no { color: var(--ash-2); }
 
-.rc-formula__textarea {
+/* Khối hiển thị Chip công thức trực quan trong ô công thức */
+.rc-formula__chip-stage {
+  background: #0d0f17;
+  border-bottom: 1px solid #1e2230;
+  padding: 10px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  line-height: 1.4;
+}
+.rc-formula__chip-stage-empty {
+  font-size: 11.5px;
+  color: #64748b;
+  font-style: italic;
+}
+.rc-formula__chip-space {
+  white-space: pre;
+}
+
+/* 1. Các loại Chip Token trong ô công thức */
+.rc-formula__chip-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  user-select: none;
+  cursor: default;
+}
+
+/* Chip biến hợp lệ (Variable Chip - chỉ hiển thị Tên Tiếng Việt) */
+.rc-formula__chip-token--var {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e40af;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.rc-formula__chip-token--var:hover {
+  background: #dbeafe;
+  border-color: #60a5fa;
+}
+.rc-formula__chip-token-label {
+  font-weight: 600;
+  color: #1d4ed8;
+}
+.rc-formula__chip-token-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 0;
+  background: rgba(29, 78, 216, 0.12);
+  color: #1d4ed8;
+  font-size: 11px;
+  cursor: pointer;
+  line-height: 1;
+  transition: all 0.12s ease;
+  margin-left: 2px;
+}
+.rc-formula__chip-token-del:hover {
+  background: #ef4444;
+  color: #ffffff;
+}
+
+/* Chip Toán tử (+ - * / () ) */
+.rc-formula__chip-token--op {
+  background: #fffbe6;
+  border-color: #fef08a;
+  color: #b45309;
+  font-family: var(--ff-sans);
+  font-weight: 700;
+  font-size: 13px;
+  padding: 3px 8px;
+}
+
+/* Chip Hằng số (Numbers) */
+.rc-formula__chip-token--num {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #15803d;
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+}
+
+/* Chip Hàm (max, min, round, ceil, floor) */
+.rc-formula__chip-token--func {
+  background: #faf5ff;
+  border-color: #e9d5ff;
+  color: #7e22ce;
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: lowercase;
+  padding: 3px 8px;
+}
+
+/* Chip Lỗi / Biến không hợp lệ */
+.rc-formula__chip-token--error {
+  background: #4c0519;
+  border-color: #9f1239;
+  color: #fda4af;
+  text-decoration: underline wavy #f43f5e;
+  font-size: 11.5px;
+}
+
+/* Input Wrapper & Autocomplete Popover */
+.rc-formula__input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.rc-formula__autocomplete {
+  position: absolute;
+  left: 12px;
+  bottom: calc(100% + 4px);
+  z-index: 50;
+  width: min(380px, 95vw);
+  max-height: 240px;
+  overflow-y: auto;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.6);
+  padding: 6px;
+}
+.rc-formula__autocomplete-head {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid #1e293b;
+  margin-bottom: 4px;
+}
+.rc-formula__autocomplete-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.rc-formula__autocomplete-item:hover,
+.rc-formula__autocomplete-item.is-selected {
+  background: #1e293b;
+  border-left: 3px solid var(--rust, #c5400a);
+}
+.rc-formula__autocomplete-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.rc-formula__autocomplete-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+.rc-formula__autocomplete-code {
+  font-size: 10.5px;
+  font-family: var(--ff-sans);
+  color: #38bdf8;
+}
+.rc-formula__autocomplete-unit {
+  font-size: 10.5px;
+  color: #cbd5e1;
+  background: #334155;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* Ô công thức Chip Tiếng Việt duy nhất (Single Formula Stage & Input) */
+.rc-formula__single-stage {
+  background: #ffffff;
+  border-radius: 0 0 9px 9px;
+  padding: 12px 14px;
+  min-height: 52px;
+  cursor: text;
+  transition: border-color 0.15s ease;
+}
+.rc-formula__single-stage:focus-within {
+  border-color: var(--rust, #c5400a);
+}
+
+.rc-formula__chips-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+/* Inline Input Container inside Chips Wrap */
+.rc-formula__inline-input-box {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 1 1 120px;
+  min-width: 80px;
+}
+
+.rc-formula__inline-input {
   background: transparent !important;
   border: none !important;
-  color: #f0f0c9 !important;
-  font-family: var(--ff-num) !important;
-  font-size: 13.5px !important;
-  line-height: 1.6 !important;
-  padding: 12px 14px !important;
+  color: #0f172a !important;
+  font-family: var(--ff-sans) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  line-height: 1.5 !important;
+  padding: 2px 4px !important;
   width: 100%;
-  resize: vertical;
-  min-height: 80px;
-  caret-color: #fff;
+  caret-color: #0f172a;
   outline: none !important;
+  box-shadow: none !important;
 }
-.rc-formula__textarea::placeholder {
+.rc-formula__inline-input::placeholder {
+  color: #94a3b8 !important;
+  font-style: italic;
+}
+.rc-formula__inline-input::placeholder {
   color: #4b4e5c;
   font-style: italic;
 }

@@ -83,9 +83,14 @@ def svc(db):
 
 
 def _giay(db, *, ma="GY-TEST", don_vi="kg", gsm=150, dai=860, rong=650) -> GiayNguyen:
-    """Giấy 65×86 định lượng 150 ⇒ 1 tờ = 0,15 × 0,86 × 0,65 = 0,08385 kg."""
+    """Giấy 65×86 định lượng 150 ⇒ 1 tờ = 0,15 × 0,86 × 0,65 = 0,08385 kg.
+
+    `cong_thuc_luong` mặc định BẬT (14/08/2026): cặp quy đổi động `tờ → kg` đã gỡ, nên giấy phải tự
+    khai cách đo mới ra được kg. Đúng chuỗi mà seed và migration `0197` điền cho giấy bán theo cân.
+    """
     g = GiayNguyen(ma=ma, ten=f"Giấy {ma}", gsm=gsm, kho_dai=dai, kho_rong=rong,
-                   don_vi_gia=don_vi)
+                   don_vi_gia=don_vi,
+                   cong_thuc_luong="dinh_luong * dai_nguyen * rong_nguyen * to_nguyen")
     db.add(g)
     db.commit()
     return g

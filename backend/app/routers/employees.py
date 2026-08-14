@@ -488,6 +488,15 @@ def _my_out(employee, depts: DepartmentRepository, users: UserRepository,
     out = _full(employee, depts, users, svc)
     for f in _MY_HIDDEN:
         setattr(out, f, None)
+    # "Quản lý trực tiếp của tôi" — chỉ tra ở đây (1 hồ sơ/lượt), KHÔNG đưa vào `_full` vì màn
+    # danh sách HCNS sẽ thành N+1 truy vấn.
+    if employee.department_id is not None:
+        d = depts.get_by_id(employee.department_id)
+        head_id = getattr(d, "head_user_id", None) if d is not None else None
+        if head_id is not None:
+            u = users.get_by_id(head_id)
+            if u is not None:
+                out.department_head_name = u.name or u.username
     return out
 
 
@@ -525,9 +534,19 @@ def my_attachments(svc: Service, user: CurrentUser) -> AttachmentsOut:
     return AttachmentsOut(items=[AttachmentOut.model_validate(a) for a in svc.my_attachments(user=user)])
 
 
-def _req_out(req, emp_names: dict[int, str]) -> UpdateRequestOut:
+def _decider_name(req, users: UserRepository) -> str | None:
+    """Tên người đã quyết (duyệt/từ chối) — hoặc chính NV nếu họ tự rút lại."""
+    if req.decided_by is None:
+        return None
+    u = users.get_by_id(req.decided_by)
+    return (u.name or u.username) if u is not None else None
+
+
+def _req_out(req, emp_names: dict[int, str], users: UserRepository | None = None) -> UpdateRequestOut:
     out = UpdateRequestOut.model_validate(req)
     out.employee_name = emp_names.get(req.employee_id)
+    if users is not None:
+        out.decided_by_name = _decider_name(req, users)
     return out
 
 
@@ -541,8 +560,18 @@ def create_my_request(body: UpdateRequestIn, svc: Service, user: CurrentUser) ->
 
 
 @router.get("/me/update-requests", response_model=UpdateRequestsOut)
-def my_requests(svc: Service, user: CurrentUser) -> UpdateRequestsOut:
-    return UpdateRequestsOut(items=[UpdateRequestOut.model_validate(r) for r in svc.my_update_requests(user=user)])
+def my_requests(svc: Service, users: Users, user: CurrentUser) -> UpdateRequestsOut:
+    return UpdateRequestsOut(items=[_req_out(r, {}, users) for r in svc.my_update_requests(user=user)])
+
+
+@router.post("/me/update-requests/{request_id}/cancel", response_model=UpdateRequestOut)
+def cancel_my_request(request_id: int, svc: Service, users: Users, user: CurrentUser) -> UpdateRequestOut:
+    """NV rút lại đề nghị của CHÍNH MÌNH khi HCNS chưa xử lý (gõ nhầm / đổi ý)."""
+    try:
+        req = svc.cancel_my_update_request(user=user, request_id=request_id)
+    except EmployeeError as exc:
+        _raise(exc)
+    return _req_out(req, {}, users)
 
 
 # --- HCNS duyệt yêu cầu cập nhật (quyền chi tiết `approve`) ------------------
@@ -558,11 +587,11 @@ def list_requests(svc: Service, users: Users,
         emp = svc.employees.get_by_id(eid)
         if emp is not None:
             emp_names[eid] = emp.full_name
-    return UpdateRequestsOut(items=[_req_out(r, emp_names) for r in reqs])
+    return UpdateRequestsOut(items=[_req_out(r, emp_names, users) for r in reqs])
 
 
 @router.post("/update-requests/{request_id}/approve", response_model=UpdateRequestOut)
-def approve_request(request_id: int, body: RequestDecisionIn, svc: Service, authz: Authz,
+def approve_request(request_id: int, body: RequestDecisionIn, svc: Service, authz: Authz, users: Users,
                     user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> UpdateRequestOut:
     try:
         req = svc.decide_update_request(request_id=request_id, actor=user, approve=True, note=body.note,
@@ -570,18 +599,18 @@ def approve_request(request_id: int, body: RequestDecisionIn, svc: Service, auth
                                         can_edit_salary=authz.can(user, MODULE, "edit_salary"))
     except EmployeeError as exc:
         _raise(exc)
-    return UpdateRequestOut.model_validate(req)
+    return _req_out(req, {}, users)
 
 
 @router.post("/update-requests/{request_id}/reject", response_model=UpdateRequestOut)
-def reject_request(request_id: int, body: RequestDecisionIn, svc: Service, authz: Authz,
+def reject_request(request_id: int, body: RequestDecisionIn, svc: Service, authz: Authz, users: Users,
                    user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> UpdateRequestOut:
     try:
         req = svc.decide_update_request(request_id=request_id, actor=user, approve=False,
                                         note=body.note, scope=_scope_for(authz, user))
     except EmployeeError as exc:
         _raise(exc)
-    return UpdateRequestOut.model_validate(req)
+    return _req_out(req, {}, users)
 
 
 # --- detail / edit ----------------------------------------------------------

@@ -75,6 +75,10 @@ const NAV: NavSection[] = [
       { id: "ke-hoach-sx", label: "Kế hoạch sản xuất", icon: "workflow", module: "san_xuat" },
       { id: "bai-ghep", label: "Bài ghép", icon: "layers", module: "san_xuat" },
       { id: "xep-lich-cong-doan", label: "Xếp lịch công đoạn", icon: "calendar", module: "san_xuat" },
+      // Kỹ thuật máy: MỘT module quyền cho cả hai màn — cùng một người (thợ sửa chữa) làm cả hai
+      // việc, tách hai dòng quyền chỉ tổ bắt người cấp quyền tick hai lần.
+      { id: "sua-chua-may", label: "Sửa chữa máy", icon: "settings", module: "ky_thuat_may" },
+      { id: "phieu-bao-tri", label: "Phiếu bảo trì", icon: "clock", module: "ky_thuat_may" },
     ],
   },
   {

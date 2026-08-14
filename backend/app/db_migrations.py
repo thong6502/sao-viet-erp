@@ -6986,3 +6986,43 @@ def _migrate_cong_doan_he_so_ngoai_dong(db: Session) -> None:
 
 
 MIGRATIONS.append(("0196_cong_doan_he_so_ngoai_dong", _migrate_cong_doan_he_so_ngoai_dong))
+
+
+def _migrate_giay_dien_cong_thuc_luong(db: Session) -> None:
+    """Điền CÔNG THỨC LƯỢNG mặc định cho giấy — vế còn lại của việc gỡ quy đổi động (14/08/2026).
+
+    Bốn cặp động (`tờ → kg`, `tờ → m²`, `tờ → cái`, `tờ nguyên → kg`) đã gỡ khỏi seed. Chỗ duy nhất
+    ngoài lệnh còn sống nhờ chúng là **Kế hoạch vật tư — mua giấy theo cân**: nó cần đổi số tờ nguyên
+    sang kg. Nay giấy tự khai công thức lượng, ra thẳng kg, khỏi đi vòng qua cặp.
+
+    Công thức KHÔNG phải phỏng đoán — đó là định nghĩa cân của giấy:
+
+        kg  =  định lượng (kg/m²)  ×  dài tờ nguyên (m)  ×  rộng tờ nguyên (m)  ×  số tờ nguyên
+
+    Chỉ điền cho dòng CHƯA khai (`IS NULL`) — người dùng sửa rồi thì không đè. Và chỉ cho giấy bán
+    theo CÂN (`don_vi_gia` thuộc cụm kg/g/tấn) hoặc theo TỜ; đơn vị khác thì để trống, dòng đó nhận
+    "chưa tính được lượng" — đúng hơn là bịa một công thức sai đơn vị.
+
+    Khổ/định lượng lấy theo thứ tự LỆNH trước, danh mục sau (`_quy_cach_cua`), nên giấy không khai
+    khổ ở danh mục vẫn ra số khi lệnh có khổ.
+    """
+    insp = inspect(db.get_bind())
+    if "giay_nguyen" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "giay_nguyen")
+    if "cong_thuc_luong" not in cols or "don_vi_gia" not in cols:
+        return
+    CAN = "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen"
+    for dvs, ct in ((("kg", "g", "tan"), CAN), (("to", "to_nguyen"), "to_nguyen")):
+        db.execute(
+            text("UPDATE giay_nguyen SET cong_thuc_luong = :ct "
+                 "WHERE cong_thuc_luong IS NULL AND lower(don_vi_gia) = ANY(:dvs)")
+            if db.get_bind().dialect.name != "sqlite" else
+            text("UPDATE giay_nguyen SET cong_thuc_luong = :ct "
+                 f"WHERE cong_thuc_luong IS NULL AND lower(don_vi_gia) IN ({','.join(repr(d) for d in dvs)})"),
+            {"ct": ct, "dvs": list(dvs)},
+        )
+    db.commit()
+
+
+MIGRATIONS.append(("0197_giay_dien_cong_thuc_luong", _migrate_giay_dien_cong_thuc_luong))

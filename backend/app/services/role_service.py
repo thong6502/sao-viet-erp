@@ -45,6 +45,10 @@ class RoleInUse(RoleError):
 SCOPELESS_MODULES = frozenset({
     "dm_loai_san_pham", "dm_thiet_bi", "dm_cong_doan", "dm_bu_hao", "dm_don_vi",
     "dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "khuon_be", "dm_kho_hang",
+    # Kỹ thuật máy (12/08/2026): phiếu sửa chữa / bảo trì là việc chung của xưởng — không có khái
+    # niệm "phiếu của tôi", nên bày dropdown Phạm vi chỉ khiến người cấp quyền tưởng mình vừa giới
+    # hạn được cái gì.
+    "ky_thuat_may",
 })
 
 READ_IMPLYING_KEYS = (

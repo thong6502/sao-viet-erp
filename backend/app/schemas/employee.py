@@ -238,6 +238,12 @@ class EmployeeOut(EmployeeRow):
     resign_date: date | None = None
     resign_reason: str | None = None
     note: str | None = None
+    # Thâm niên đã có TRƯỚC khi vào làm (tháng). Trước đây chỉ NHẬN lúc tạo chứ không TRẢ ra —
+    # nên màn nào tính thâm niên tổng cũng thiếu vế này với người chuyển từ nơi khác sang.
+    prior_seniority_months: int = 0
+    # Trưởng bộ phận (departments.head_user_id → tên tài khoản). CHỈ route self-service
+    # `/me` điền — danh sách HCNS bỏ trống để không phải tra thêm mỗi dòng (N+1).
+    department_head_name: str | None = None
 
 
 class EmployeeKpis(BaseModel):
@@ -313,6 +319,10 @@ class UpdateRequestOut(BaseModel):
     reason: str | None = None
     status: str
     decision_note: str | None = None
+    # Vết xử lý: lúc nào + ai. Thiếu hai ô này thì NV bị từ chối cũng không biết ai quyết,
+    # lúc nào — màn "Hồ sơ của tôi" đọc đúng hai field này.
+    decided_at: datetime | None = None
+    decided_by_name: str | None = None       # router fills
     created_at: datetime
 
 

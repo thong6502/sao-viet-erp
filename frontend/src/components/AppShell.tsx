@@ -22,6 +22,9 @@ import { DonHangBanPage } from "../pages/DonHangBanPage";
 import { KeHoachSXPage } from "../pages/KeHoachSXPage";
 import { BaiGhepPage } from "../pages/BaiGhepPage";
 import { XepLichPage } from "../pages/XepLichPage";
+import { SuaChuaMayPage } from "../pages/SuaChuaMayPage";
+import { PhieuBaoTriPage } from "../pages/PhieuBaoTriPage";
+import { kyThuatMay } from "../api/kyThuatMay";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
@@ -120,6 +123,9 @@ export function AppShell() {
   const [caps, setCaps] = useState<Capabilities>(new Map());
   // Badge số theo nav id (vd "nghi-phep": số đơn chờ duyệt) — chỉ người có quyền duyệt.
   const [badges, setBadges] = useState<Record<string, number>>({});
+  // Đã toast "bảo trì tới hạn" trong phiên này chưa — badge refetch nhiều lần, không có cờ này thì
+  // mỗi lần refetch lại đẩy thêm một toast y hệt.
+  const daToastBaoTri = useRef(false);
   // Kho đã khai báo → đổ menu con ĐỘNG dưới "Kho hàng" (Cấu hình danh mục). Refetch khi
   // khai báo/sửa/xoá kho (onMutate màn khai báo) → navbar cập nhật NGAY, không cần refresh.
   const [khoList, setKhoList] = useState<{ id: number; ma: string; ten: string }[]>([]);
@@ -280,6 +286,29 @@ export function AppShell() {
         .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan": r.total })))
         .catch(() => {});
     }
+    // Badge Phiếu bảo trì = số phiếu TỚI HẠN/quá hạn còn dở. Ticker nền đẩy `bao_tri_due` khi tới
+    // ngày ⇒ số này tự nhảy, thợ không phải mở màn mới biết máy tới kỳ.
+    if (readable.has("ky_thuat_may")) {
+      kyThuatMay
+        .denHan(token)
+        .then((r) => {
+          setBadges((prev) => ({ ...prev, "phieu-bao-tri": r.total }));
+          // Toast NGAY khi mở app nếu đang có việc tới hạn — không chỉ dựa vào sự kiện SSE.
+          // Sự kiện là "bắn rồi thôi": ticker ting lúc 7h sáng mà thợ 8h mới đăng nhập thì cú ting
+          // đó rơi vào hư không, và sổ "đã ting" của ticker chặn nhắc lại cho tới hôm sau. Badge
+          // thì bền (đọc theo trạng thái), nhưng một con số nhỏ trên thanh bên rất dễ lướt qua.
+          if (r.total > 0 && !daToastBaoTri.current) {
+            daToastBaoTri.current = true;   // đúng MỘT lần mỗi phiên, không lặp mỗi lần refetch
+            pushToast(
+              r.qua_han > 0
+                ? `⚠️ ${r.qua_han} phiếu bảo trì quá hạn (tổng ${r.total} phiếu tới hạn)`
+                : `🔧 ${r.total} phiếu bảo trì tới hạn hôm nay`,
+              r.qua_han > 0 ? "warn" : "info",
+            );
+          }
+        })
+        .catch(() => {});
+    }
     // Badge Thu mua treo ở nav "mua-hang" — nhóm "Thu mua" là SECTION, `NavRow` chỉ vẽ badge ở cấp
     // ITEM. Chọn "Mua hàng" chứ không "Yêu cầu mua hàng": cả 3 con số đều là việc của người thu
     // mua (lập PMH, lập lại PMH bị từ chối, đòi/trả nợ đợt giao), mà màn YCMH còn mở cho 5 vai đề
@@ -408,6 +437,13 @@ export function AppShell() {
           .hangCho(token)
           .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan": r.total })))
           .catch(() => {});
+      } else if (readable.has("ky_thuat_may") && e.type === "bao_tri_due") {
+        // Tới ngày bảo trì → ting tổ sửa chữa: toast + badge "Phiếu bảo trì" tự nhảy.
+        pushToast(
+          `${e.qua_han ? "⚠️ Quá hạn bảo trì" : "🔧 Tới hạn bảo trì"}: ${e.may} · ${e.goi}`.trim(),
+          e.qua_han ? "warn" : "info",
+        );
+        reloadBadges();
       } else if (readable.has("khach_hang") && e.type === "care_due") {
         // Tới giờ hẹn → ting người phụ trách: toast + badge "Khách hàng" (số việc đến hạn) tự nhảy.
         pushToast(`🔔 Tới hẹn chăm sóc: ${e.customer}${e.note ? " — " + e.note : ""}`, "info");
@@ -656,7 +692,7 @@ export function AppShell() {
       case "nhan-su":
         return <NhanSuPage navigate={navigate} />;
       case "ho-so-cua-toi":
-        return <HoSoCuaToiPage />;
+        return <HoSoCuaToiPage navigate={navigate} />;
       case "noi-quy":
         return <NoiQuyPage />;
       case "cham-cong":
@@ -712,6 +748,10 @@ export function AppShell() {
         return <BaiGhepPage navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "xep-lich-cong-doan":
         return <XepLichPage navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
+      case "sua-chua-may":
+        return <SuaChuaMayPage />;
+      case "phieu-bao-tri":
+        return <PhieuBaoTriPage />;
       case "yeu-cau-mua-hang":
         return (
           <DepartmentPurchaseRequestsPage

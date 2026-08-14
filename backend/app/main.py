@@ -41,6 +41,7 @@ from .routers import (
     cong_doan,
     bu_hao,
     don_vi_do,
+    bien_cong_thuc,
     kho,
     kho_request,
     kho_voucher,
@@ -54,6 +55,7 @@ from .routers import (
     bai_ghep,
     xep_lich,
     ke_hoach_vat_tu,
+    ky_thuat_may,
 )
 from .seed import seed_all
 
@@ -89,9 +91,17 @@ async def lifespan(app: FastAPI):
     # Ticker nhắc lịch hẹn chăm sóc real-time (SSE): quét hẹn tới giờ → "ting" người phụ trách.
     # 0 = tắt (test). Chạy nền, huỷ khi shutdown.
     reminder_task: asyncio.Task | None = None
+    bao_tri_task: asyncio.Task | None = None
     if settings.care_reminder_seconds > 0:
         from .care_reminders import run_care_reminder_loop
         reminder_task = asyncio.create_task(run_care_reminder_loop(settings.care_reminder_seconds))
+        # Nhắc phiếu bảo trì tới hạn — dùng chung công tắc `care_reminder_seconds` (0 = tắt trong
+        # test). Quét thưa hơn 10 lần: hẹn khách tính bằng phút, còn bảo trì tính bằng NGÀY, quét
+        # dày chỉ tốn vòng lặp chứ không sớm hơn được phút nào.
+        from .bao_tri_reminders import run_bao_tri_reminder_loop
+        bao_tri_task = asyncio.create_task(
+            run_bao_tri_reminder_loop(max(60, settings.care_reminder_seconds * 10))
+        )
     # Cầu Redis→SSE: nghe channel chung, bơm sự kiện vào các kết nối của worker này.
     bridge_task: asyncio.Task | None = None
     if hub.uses_redis:
@@ -99,7 +109,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        for task in (reminder_task, bridge_task):
+        for task in (reminder_task, bao_tri_task, bridge_task):
             if task is not None:
                 task.cancel()
 
@@ -143,6 +153,7 @@ app.include_router(vat_lieu_kho.router)
 app.include_router(cong_doan.router)
 app.include_router(bu_hao.router)
 app.include_router(don_vi_do.router)
+app.include_router(bien_cong_thuc.router)
 # Các router con của Kho phải đăng ký TRƯỚC `kho.router`: kho.router có `/api/kho/{kho_id}`
 # (1 đoạn) nên sẽ nuốt `/api/kho/de-nghi` và `/api/kho/nguong-ton` nếu đứng trước —
 # FastAPI khớp theo THỨ TỰ đăng ký, không theo độ cụ thể.
@@ -161,6 +172,7 @@ app.include_router(lsx.router)
 app.include_router(bai_ghep.router)
 app.include_router(xep_lich.router)
 app.include_router(ke_hoach_vat_tu.router)   # bảng cân đối vật tư (cùng module quyền `san_xuat`)
+app.include_router(ky_thuat_may.router)      # sửa chữa + phiếu bảo trì (module quyền `ky_thuat_may`)
 
 
 

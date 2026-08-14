@@ -15,9 +15,29 @@ from app.services.quy_doi_service import (
 )
 
 DVS = don_vi_map([{"ma": m, "ten": t, "ho": h} for m, t, h, _gc in _DON_VI_SEED])
+
+# Cặp ĐỘNG khai NGAY TẠI ĐÂY, không mượn seed nữa (14/08/2026). Bốn dòng này đã gỡ khỏi
+# `_QUY_DOI_SEED` — quy đổi động chuyển sang ô "Công thức tính lượng" ở chính đơn vị / mặt hàng.
+# Nhưng CƠ CHẾ cặp động vẫn còn trong code, và đây là bộ test của chính cơ chế đó, nên nó phải tự
+# dựng dữ liệu mồi. Test đi mượn seed cho đúng thứ nó đang test là buộc hai thứ vào nhau: đổi seed
+# một cái là test đỏ mà chẳng có lỗi nào thật.
+CAP_DONG: list[tuple[str, str, float, str]] = [
+    ("to", "m2", 0, "dai_in * rong_in"),
+    ("to", "kg", 0, "dinh_luong * dai_in * rong_in"),
+    ("to", "cai", 0, "so_tp"),
+    ("to_nguyen", "kg", 0, "dinh_luong * dai_nguyen * rong_nguyen"),
+]
+# Cách gọi thành phẩm cũng khai TẠI ĐÂY, cùng lý do (14/08/2026 — đã gỡ khỏi `_QUY_DOI_SEED`).
+# Xưởng nào gọi thành phẩm là "cuốn" thì tự khai cặp ở màn Đơn vị & quy đổi; test thì tự mồi.
+CAP_THANH_PHAM: list[tuple[str, str, float, str]] = [
+    ("con", "cai", 1, ""),
+    ("cuon", "cai", 1, ""),
+    ("bo", "cai", 1, ""),
+    ("hop", "cai", 1, ""),
+]
 # Dòng cặp GIỮ NGUYÊN (không dẹp sẵn thành đồ thị): dòng động chỉ ra hệ số sau khi thay biến.
 CAP_ROWS = [{"tu_ma": a, "den_ma": b, "he_so": h, "cong_thuc": ct}
-            for a, b, h, ct in _QUY_DOI_SEED]
+            for a, b, h, ct in (*_QUY_DOI_SEED, *CAP_THANH_PHAM, *CAP_DONG)]
 CAP = cap_map(CAP_ROWS)          # chỉ cạnh HẰNG — dùng cho `doi()` thuần
 
 # Quy cách THẬT của lệnh thẻ nhân viên (tờ in 860×650, Couché 300, 99 con/tờ).

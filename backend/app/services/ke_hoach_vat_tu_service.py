@@ -183,14 +183,19 @@ class KeHoachVatTuService:
         # đúng là câu trả lời thật, hơn là cân bằng khổ tờ in.
         qc["dai_in"] = (_f(qc.get("kho_in_dai")) or _f(getattr(obj, "kho_dai", 0))) / 1000.0
         qc["rong_in"] = (_f(qc.get("kho_in_rong")) or _f(getattr(obj, "kho_rong", 0))) / 1000.0
-        qc["dai_nguyen"] = (_f(qc.get("kho_nguyen_dai")) or _f(getattr(obj, "kho_dai", 0))) / 1000.0
-        qc["rong_nguyen"] = (_f(qc.get("kho_nguyen_rong"))
-                             or _f(getattr(obj, "kho_rong", 0))) / 1000.0
+        # Khổ NGUYÊN: lệnh → danh mục → **khổ tờ IN**. Nhánh thứ ba thêm 14/08/2026 cùng lúc gỡ cặp
+        # động: công thức lượng của giấy đếm bằng `dai_nguyen`, mà lệnh dựng tay / lệnh cũ có thể chỉ
+        # mang khổ in. Thà lấy khổ tờ in — đúng thứ giấy THỰC SỰ bị tiêu thụ, như docstring trên đã
+        # chốt — còn hơn để 0 rồi cả dòng giấy rơi vào "chưa tính được".
+        qc["dai_nguyen"] = (_f(qc.get("kho_nguyen_dai")) or _f(getattr(obj, "kho_dai", 0))
+                            or _f(qc.get("kho_in_dai"))) / 1000.0
+        qc["rong_nguyen"] = (_f(qc.get("kho_nguyen_rong")) or _f(getattr(obj, "kho_rong", 0))
+                             or _f(qc.get("kho_in_rong"))) / 1000.0
         qc["dinh_luong"] = (_f(qc.get("gsm")) or _f(getattr(obj, "gsm", 0))) / 1000.0
         return qc
 
     def _ve_goc(self, hang: tuple[str, int], dvt: str, so_luong: float,
-                qc_lenh: dict | None = None) -> dict:
+                qc_lenh: dict | None = None, *, tong_lenh: bool = False) -> dict:
         """Quy `so_luong` từ `dvt` về ĐƠN VỊ GỐC của mặt hàng.
 
         Trả `{sl, don_vi_goc_ten, hien_thi}` hoặc `{loi}`. Đi qua ĐÚNG một engine
@@ -210,7 +215,12 @@ class KeHoachVatTuService:
         # CÔNG THỨC LƯỢNG của chính mặt hàng đi TRƯỚC (mg 0194/0195): nó đã tự nhân số lượng của
         # lệnh nên ra thẳng TỔNG theo đơn vị gốc — không quy đổi từ `dvt` nữa. Cùng thứ tự với
         # `LsxService._luong_vat_tu`: riêng (mặt hàng) trước, chung (quy đổi) sau.
-        ct = (getattr(obj, "cong_thuc_luong", None) or "").strip()
+        #
+        # ⚠️ CHỈ cho đường NHU CẦU (`tong_lenh=True`). Công thức trả TỔNG của cả lệnh, nên chạy nó ở
+        # đường "đã cấp" / "đang về" là VỨT số thật của phiếu kho rồi thay bằng tổng nhu cầu — bảng
+        # cân đối sẽ luôn báo đã cấp đủ. Chưa nổ vì tới 14/08/2026 chưa mặt hàng nào khai công thức;
+        # điền công thức vào là nổ ngay, nên chặn ở đây cùng lượt.
+        ct = (getattr(obj, "cong_thuc_luong", None) or "").strip() if tong_lenh else ""
         if ct:
             ctx = ngu_canh_lenh(qc)
             thieu = [b for b in bien_trong(ct) if _f(ctx.get(b)) <= 0]
@@ -615,7 +625,9 @@ class KeHoachVatTuService:
 
     def _quy_doi_dong(self, tho: list[dict]) -> None:
         for d in tho:
-            kq = self._ve_goc(d["hang"], d["dvt"], d["sl"], d.get("qc"))
+            # `tong_lenh=True`: đây là đường NHU CẦU — hỏi "lệnh này cần bao nhiêu", đúng câu mà
+            # công thức lượng của mặt hàng trả lời. Hai đường "đã cấp"/"đang về" thì không.
+            kq = self._ve_goc(d["hang"], d["dvt"], d["sl"], d.get("qc"), tong_lenh=True)
             if "loi" in kq:
                 d["nhu_cau"] = 0.0
                 d["nhu_cau_hien_thi"] = f"{_so(d['sl'])} {d['dvt']}"
