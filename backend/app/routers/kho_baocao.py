@@ -77,6 +77,9 @@ def _report_rows(
     hang_map = hang_svc.map_theo_cap(
         list({(ln.hang_loai, ln.hang_id) for _v, ln, _req, _kho, _lot in results})
     )
+    # ĐVT trên báo cáo hiện TÊN có dấu (tờ · cái · bản kẽm) thay vì MÃ ascii (to · cai · kem) —
+    # `mh.don_vi_gia` là MÃ đơn vị; tra danh mục `don_vi_do` để đổi sang tên hiển thị (khớp danh mục).
+    dv_ten = {d.ma: d.ten for d in DonViDoRepository(db).all_active()}
 
     rows: list[BaoCaoKhoRow] = []
     for v, ln, req, kho, lot in results:
@@ -105,7 +108,7 @@ def _report_rows(
             loai_kho=req.loai_kho if req else None,
             ma_hang=getattr(mh, "ma", None),
             ten_hang=getattr(mh, "ten", None),
-            dvt=getattr(mh, "don_vi_gia", None),
+            dvt=dv_ten.get(getattr(mh, "don_vi_gia", None), getattr(mh, "don_vi_gia", None)),
             so_luong=qty,
             don_gia=price,
             thanh_tien=round(price * qty) if price is not None else None,

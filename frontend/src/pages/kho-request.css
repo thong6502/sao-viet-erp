@@ -1866,3 +1866,6 @@ input.kho-num,
 .kho-colfil__row > span { width: 28px; }
 .kho-colfil__row .rc-input { flex: 1; min-width: 0; }
 .kho-colfil__clear { align-self: flex-start; }
+/* Cột SỐ (canh phải): nút phễu bám phải, popup mở về bên phải cho khỏi tràn mép bảng. */
+.kho-colfil--num .kho-colfil__btn { justify-content: flex-end; width: 100%; }
+.kho-colfil--num .kho-colfil__pop { left: auto; right: 0; }

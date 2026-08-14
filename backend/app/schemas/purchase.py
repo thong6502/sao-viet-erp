@@ -382,6 +382,10 @@ class PurchaseDeliveryLineOut(BaseModel):
 class PurchaseDeliveryOut(BaseModel):
     id: int
     seq_no: int
+    # Liên thông Kho: đợt đã sinh yêu cầu NHẬP (chưa hủy) chưa → nút "Nhập kho" đổi "Đã nhập kho".
+    da_nhap_kho: bool = False
+    stock_request_id: int | None = None
+    stock_request_ma: str | None = None
     delivery_date: date
     due_date: date | None = None
     # True = NCC chưa khai số ngày cho nợ ⇒ đợt này không bao giờ vào cột Quá hạn. Màn hình phải

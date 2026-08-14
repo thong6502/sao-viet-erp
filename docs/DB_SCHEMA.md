@@ -4243,6 +4243,8 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 | `uu_tien` | `String(12)` → `VARCHAR(12)` | — | no | `binh_thuong` | `binh_thuong` / `gap`. |
 | `ghi_chu` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Đặc thù nghiệp vụ (nhập mua / xuất cấp bù / xuất bảo trì…) ghi ở đây — giai đoạn 1 chưa tách loại phiếu riêng nên đây là chỗ DUY NHẤT giữ ngữ cảnh. |
 | `loai_kho` | `String(50)` → `VARCHAR(50)` | — | yes | — | Loại nhập/xuất kho — TỰ DO người tạo gõ ở form yêu cầu (tên hoặc mã, vd "nhập mua" / "2"); Báo cáo kho kế toán đọc để xuất Excel MISA. NULL = chưa khai. Thêm `0169` (INT) → đổi VARCHAR ở `0170`. |
+| `purchase_delivery_id` | `Integer` → `INTEGER` | **IX** | yes | — | NGUỒN: đợt giao đơn mua (`purchase_deliveries.id`) sinh ra yêu cầu NHẬP này (bấm "Nhập kho" ở đợt giao). **Soft ref** (không FK — module Mua hàng có thể migrate sau). Dùng CHẶN nhập kho TRÙNG một đợt: đợt đã có yêu cầu (chưa hủy) trỏ vào thì nút đổi "Đã nhập kho". Thêm qua migration `0189`. |
+| `purchase_delivery_id` | `Integer` → `INTEGER` | **IX** | yes | — | NGUỒN: đợt giao đơn mua (`purchase_deliveries.id`) sinh ra yêu cầu NHẬP này (bấm "Nhập kho" ở đợt giao). Soft ref (KHÔNG FK — module Mua hàng migrate độc lập). Dùng CHẶN nhập kho TRÙNG một đợt: đợt đã có yêu cầu (chưa hủy) trỏ vào → nút đổi "Đã nhập kho". NULL = yêu cầu thường. Thêm qua migration `0189`. |
 | `trang_thai` | `String(16)` → `VARCHAR(16)` | **IX** | no | `draft` | Vòng đời: `draft` → `pending` → `approved` → `received` → `preparing` → `partial` → `done`; nhánh `rejected` / `cancelled`. `partial`/`done` do hệ thống tự set khi phiếu ứng số lượng. Người tạo chỉ sửa/hủy được ở `draft`/`pending`; kho chỉ lập phiếu ứng ở `approved`/`received`/`preparing`/`partial`. |
 | `nguoi_duyet_id` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Ai duyệt (tổ trưởng/quản lý bộ phận đề nghị — KHÔNG phải kho). |
 | `duyet_luc` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm duyệt. |
@@ -4262,7 +4264,7 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 
 - Một đề nghị có nhiều `stock_request_lines` (cascade delete-orphan) và được nhiều `stock_vouchers` ứng vào.
 
-**Tất cả cột:** `id`, `ma`, `loai`, `nguoi_tao_id`, `bo_phan_id`, `kho_id`, `ngay_can`, `uu_tien`, `ghi_chu`, `loai_kho`, `trang_thai`, `nguoi_duyet_id`, `duyet_luc`, `ly_do_tu_choi`, `ly_do_huy`, `quyet_dinh_xem_luc`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `loai`, `nguoi_tao_id`, `bo_phan_id`, `kho_id`, `ngay_can`, `uu_tien`, `ghi_chu`, `loai_kho`, `purchase_delivery_id`, `trang_thai`, `nguoi_duyet_id`, `duyet_luc`, `ly_do_tu_choi`, `ly_do_huy`, `quyet_dinh_xem_luc`, `created_at`, `updated_at`.
 
 ---
 

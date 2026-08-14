@@ -95,6 +95,10 @@ class StockRequest(Base):
     # Loại nhập/xuất kho — TỰ DO người tạo gõ ở form yêu cầu (tên hoặc mã, vd "nhập mua" / "2");
     # Báo cáo kho đọc để xuất Excel MISA. Nullable = chưa khai. (mig 0169 thêm INT → 0170 đổi VARCHAR)
     loai_kho: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # NGUỒN: đợt giao đơn mua sinh ra yêu cầu NHẬP này (bấm "Nhập kho" ở đợt giao). Soft ref (không
+    # FK — module Mua hàng có thể migrate sau). Dùng để CHẶN nhập kho TRÙNG một đợt: đợt đã có yêu cầu
+    # (chưa hủy) trỏ vào thì nút "Nhập kho" đổi thành "Đã nhập kho · Xem". Thêm qua migration 0189.
+    purchase_delivery_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
 
     trang_thai: Mapped[str] = mapped_column(
         String(16), index=True, nullable=False, server_default=REQ_DRAFT, default=REQ_DRAFT

@@ -55,9 +55,10 @@ const FETCH_SIZE = 200;
 type TabId = "tat-ca" | "can-cap" | "done" | "da-huy";
 
 const TAB_STATUSES: Record<TabId, StockRequestStatus[]> = {
-  // "Tất cả" vẫn phủ mọi trạng thái (kể cả received/preparing/partial đang xử lý — không còn tab riêng).
   "tat-ca": ["approved", "received", "preparing", "partial", "done", "cancelled"],
-  "can-cap": ["approved"],
+  // "Cần cấp" = MỌI yêu cầu còn phải cấp (chưa xong, chưa hủy) → gồm cả "Đã cấp một phần" để thủ
+  // kho thấy ngay cái đang dở mà nhập/cấp tiếp, không bị chìm trong "Tất cả".
+  "can-cap": ["approved", "received", "preparing", "partial"],
   done: ["done"],
   "da-huy": ["cancelled"],
 };
@@ -1143,7 +1144,7 @@ function VoucherCreateDrawer({
                 </div>
                 <div className="rc-field">
                   <label className="rc-field__label" htmlFor="v-ngay">
-                    Ngày
+                    {isNhap ? "Ngày nhập kho" : "Ngày xuất kho"}
                   </label>
                   <input
                     id="v-ngay"

@@ -89,12 +89,14 @@ export function DateFilterHead({
   from,
   to,
   onChange,
+  className,
   style,
 }: {
   label: string;
   from: string;
   to: string;
   onChange: (from: string, to: string) => void;
+  className?: string;
   style?: CSSProperties;
 }) {
   const [open, setOpen] = useState(false);
@@ -109,7 +111,7 @@ export function DateFilterHead({
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
   return (
-    <th ref={ref} style={style} className="kho-colfil">
+    <th ref={ref} style={style} className={`kho-colfil${className ? ` ${className}` : ""}`}>
       <button
         type="button"
         className={`kho-colfil__btn${active ? " is-active" : ""}`}
@@ -132,6 +134,84 @@ export function DateFilterHead({
           <label className="kho-colfil__row">
             <span>Đến</span>
             <input type="date" className="rc-input" value={to} min={from || undefined}
+              onChange={(e) => onChange(from, e.target.value)} />
+          </label>
+          {active && (
+            <button type="button" className="rc__link-btn kho-colfil__clear"
+              onClick={() => { onChange("", ""); setOpen(false); }}>
+              Xóa lọc
+            </button>
+          )}
+        </div>
+      )}
+    </th>
+  );
+}
+
+/** Khoảng SỐ [from,to]. `from`/`to` là chuỗi từ ô number (rỗng = không chặn phía đó). `val` null/NaN
+ *  → rớt khi ĐANG lọc. */
+export function inNumRange(val: number | null | undefined, range: { from: string; to: string }): boolean {
+  const lo = range.from.trim() === "" ? null : Number(range.from);
+  const hi = range.to.trim() === "" ? null : Number(range.to);
+  if (lo === null && hi === null) return true;
+  if (val == null || !Number.isFinite(val)) return false;
+  if (lo !== null && Number.isFinite(lo) && val < lo) return false;
+  if (hi !== null && Number.isFinite(hi) && val > hi) return false;
+  return true;
+}
+
+/** Tiêu đề cột SỐ có bộ lọc khoảng: bấm nhãn → bung popup 2 ô Từ/Đến (number). Chấm báo đang lọc.
+ *  `className` (vd "kho-bc__num") giữ canh phải như cột số thường. */
+export function NumFilterHead({
+  label,
+  from,
+  to,
+  onChange,
+  className,
+  style,
+}: {
+  label: string;
+  from: string;
+  to: string;
+  onChange: (from: string, to: string) => void;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLTableCellElement>(null);
+  const active = !!(from || to);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  return (
+    <th ref={ref} style={style} className={`kho-colfil kho-colfil--num${className ? ` ${className}` : ""}`}>
+      <button
+        type="button"
+        className={`kho-colfil__btn${active ? " is-active" : ""}`}
+        onClick={() => setOpen((o) => !o)}
+        title="Bấm để lọc theo khoảng số"
+      >
+        {label}
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+        </svg>
+        {active && <span className="kho-colfil__dot" />}
+      </button>
+      {open && (
+        <div className="kho-colfil__pop" role="dialog">
+          <label className="kho-colfil__row">
+            <span>Từ</span>
+            <input type="number" className="rc-input" value={from}
+              onChange={(e) => onChange(e.target.value, to)} />
+          </label>
+          <label className="kho-colfil__row">
+            <span>Đến</span>
+            <input type="number" className="rc-input" value={to}
               onChange={(e) => onChange(from, e.target.value)} />
           </label>
           {active && (

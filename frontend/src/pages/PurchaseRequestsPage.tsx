@@ -628,8 +628,14 @@ export function PurchaseRequestsPage({
         ngay_can: (dot.delivery_date || "").slice(0, 10),   // ngày nhập = ngày giao của đợt
         ghi_chu: `Nhập từ đơn mua ${row.code} — đợt ${dot.seq_no}`,
         locked: true,   // số liệu từ đơn mua → khoá, không cho sửa dòng
+        deliveryId: dot.id,   // gắn nguồn đợt → yêu cầu chặn nhập trùng
       },
     });
+  };
+  // Đợt ĐÃ nhập → mở đúng yêu cầu nhập đã tạo (màn Kho, tab Yêu cầu) thay vì seed lại.
+  const xemYeuCauNhap = (dot: PurchaseDeliveryRow) => {
+    if (dot.stock_request_id == null) return;
+    navigate("kho-main", { khoOpenRequest: { id: dot.stock_request_id, view: "denghi" } });
   };
   const canUpdate = can("thu_mua", "update");
   // Ba nút "Sửa số nhận · Mở lại đơn · Đóng đơn" nay gác bằng ô RIÊNG `manage_status`
@@ -2027,6 +2033,7 @@ export function PurchaseRequestsPage({
               setCloseModal({ row: selected, reason: "", error: null })
             }
             onNhapKho={(dot) => nhapKhoTuDot(selected, dot)}
+            onXemYeuCau={(dot) => xemYeuCauNhap(dot)}
           />
 
           <p className="eyebrow" style={{ marginTop: 16 }}>
@@ -2910,6 +2917,7 @@ function DeliveriesBlock({
   onXoaDot,
   onDongDon,
   onNhapKho,
+  onXemYeuCau,
 }: {
   row: PurchaseRequestRow;
   canUpdate: boolean;
@@ -2919,6 +2927,7 @@ function DeliveriesBlock({
   onXoaDot: (delivery: PurchaseDeliveryRow) => void;
   onDongDon: () => void;
   onNhapKho: (delivery: PurchaseDeliveryRow) => void;
+  onXemYeuCau: (delivery: PurchaseDeliveryRow) => void;
 }) {
   const ghiDuoc = canUpdate && GHI_DOT_DUOC.includes(row.status);
   // "Nhập kho" nhảy sang màn Kho, tab ĐỀ NGHỊ · Nhập với form điền sẵn ⇒ hỏi đúng ô mở tab đó
@@ -3072,14 +3081,23 @@ function DeliveriesBlock({
                             không phụ thuộc đã trả tiền. Bấm → nhảy sang màn Yêu cầu kho, mở sẵn form
                             NHẬP điền theo hàng đã nhận của đợt này. (Nối cứng qua `stock_voucher_id`
                             khi lập phiếu là bước sau — xem docs/prd-mua-hang-cong-no.md §11.) */}
-                        {coQuyenNhapKho && (
-                          <RowActionButton
-                            dense
-                            label="Nhập kho"
-                            icon="warehouse"
-                            onClick={() => onNhapKho(dot)}
-                          />
-                        )}
+                        {coQuyenNhapKho &&
+                          (dot.da_nhap_kho ? (
+                            // Đợt đã sinh yêu cầu nhập → không cho seed lại; bấm để XEM yêu cầu đó.
+                            <RowActionButton
+                              dense
+                              label={dot.stock_request_ma ? `Đã nhập · ${dot.stock_request_ma}` : "Đã nhập kho"}
+                              icon="check"
+                              onClick={() => onXemYeuCau(dot)}
+                            />
+                          ) : (
+                            <RowActionButton
+                              dense
+                              label="Nhập kho"
+                              icon="warehouse"
+                              onClick={() => onNhapKho(dot)}
+                            />
+                          ))}
                         {/* Đợt ĐÃ CÓ PHIẾU CHI thì server cấm sửa/xoá — tiền đã ra thì không được
                             đổi số hàng dưới chân nó. Hiện KHOÁ ngay ở đây chứ không bày nút rồi để
                             người dùng gõ xong cả form mới ăn lỗi. Nhưng NHẬP KHO thì vẫn cho. */}
