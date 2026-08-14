@@ -168,6 +168,27 @@ class DonViDoRepository:
             None,
         )
 
+    def cong_doan_lay_lam_don_vi_ra(self, ma: str) -> list[str]:
+        """Tên công đoạn đang lấy `ma` làm ĐƠN VỊ RA, và CẢ HAI vế đều ngoài dòng giấy.
+
+        Dùng để chặn chiều ngược của luật vòng tròn: công đoạn khai xong xuôi rồi mới có người vào
+        sửa công thức của đơn vị thêm `sl_vao`. Chỉ kể ca hai-vế-ngoài-dòng vì chỉ ở đó công thức
+        của đơn vị RA mới được đọc.
+        """
+        from ..models.cong_doan import CongDoan
+        from ..models.don_vi_do import DonViDo
+
+        if not ma:
+            return []
+        tram = {d.ma: d.tram_dong_giay for d in self.db.execute(select(DonViDo)).scalars()}
+        ra: list[str] = []
+        for cd in self.db.execute(
+            select(CongDoan).where(CongDoan.don_vi_ra == ma)
+        ).scalars():
+            if tram.get(cd.don_vi_vao) is None and tram.get(cd.don_vi_ra) is None:
+                ra.append(cd.ten)
+        return ra
+
     def create_cap(self, data: dict):
         obj = DonViQuyDoi(tu_id=data["tu_id"], den_id=data["den_id"], he_so=data["he_so"])
         for k in ("cong_thuc", "ghi_chu"):

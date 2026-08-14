@@ -65,7 +65,9 @@ from ..models.don_vi_do import DonViDo
 from ..services.bien_cong_thuc import ngu_canh_lenh, quy_cach_bien
 from ..services.don_vi_do_service import cong_thuc_chu
 from ..services.piece_work_service import dau_viec_khop, khoan_snapshot
-from ..services.quy_doi_service import bien_trong, doi_theo_quy_cach, don_vi_map, tien_khoan
+from ..services.quy_doi_service import (
+    bien_trong, cum_tinh, doi_theo_quy_cach, don_vi_map, tien_khoan,
+)
 from ..services.thanh_phan_engine import safe_eval
 from ..services.thanh_phan_engine import cau_to_sang_cai, chua_theo_chieu, compute_phieu
 from ..services.tinh_gia_service import _bu_hao_to_dict, _resolve_thanh_phan
@@ -581,7 +583,10 @@ class LsxService:
                 )
             ).scalars()
         }
-        ctx = ngu_canh_lenh(quy_cach or {})
+        # Bơm SỐ CỦA CHÍNH BƯỚC lên trên ngữ cảnh lệnh — `sl_vao`/`sl_ra` chỉ tồn tại ở tầng này.
+        # Bơm SAU `ngu_canh_lenh` vì hàm đó assert bộ khoá của nó phải khớp `MA_NGU_CANH_PHIEU`.
+        ctx = {**ngu_canh_lenh(quy_cach or {}),
+               "sl_vao": sl, "sl_ra": _f(getattr(buoc, "so_luong_ra", 0))}
         ra: list[dict] = []
         canh_bao: list[str] = []
         for v in vat_tus:
@@ -618,7 +623,10 @@ class LsxService:
         sl = _f(getattr(buoc, "so_luong_vao", 0))
         if sl <= 0:
             return []
-        ctx = ngu_canh_lenh(quy_cach or {})
+        # Bơm SỐ CỦA CHÍNH BƯỚC lên trên ngữ cảnh lệnh — `sl_vao`/`sl_ra` chỉ tồn tại ở tầng này.
+        # Bơm SAU `ngu_canh_lenh` vì hàm đó assert bộ khoá của nó phải khớp `MA_NGU_CANH_PHIEU`.
+        ctx = {**ngu_canh_lenh(quy_cach or {}),
+               "sl_vao": sl, "sl_ra": _f(getattr(buoc, "so_luong_ra", 0))}
         dv_buoc = getattr(buoc, "don_vi_vao", None)
         ra: list[dict] = []
         for mat in self.db.execute(
@@ -648,6 +656,26 @@ class LsxService:
             }
         return self._cach_do_cache
 
+    def _cach_do_lan(self, ma: str) -> tuple[str, str] | None:
+        """`(công thức, mã đơn vị CHỦ)` cho `ma` — tra thẳng trước, không có thì MƯỢN trong cụm tĩnh.
+
+        Công thức khai ở `kg` phải dùng được cho `tấn` và `g`: ba mã đó là MỘT phép đo, nối nhau
+        bằng hằng số. Bắt khai lại ở từng mã là đúng thứ trùng lặp đang muốn bỏ — và hai bản chép
+        tay sớm muộn lệch nhau.
+
+        Trả kèm mã CHỦ vì số chạy ra mang đơn vị của chủ; nơi gọi phải quy đổi tiếp sang `ma` bằng
+        `doi_theo_quy_cach` (đừng tự nhân/chia hệ số — cầu đã có sẵn).
+
+        Cụm chỉ đi qua cạnh TĨNH, và luật "một cụm một công thức" (`don_vi_do_service`) bảo đảm
+        nhiều nhất một chủ; `sorted` chỉ để kết quả ổn định nếu dữ liệu cũ còn hai.
+        """
+        cach_do = self._cach_do()
+        goc = (ma or "").strip().lower()
+        if cach_do.get(goc):
+            return cach_do[goc], goc
+        chu = sorted(m for m in cum_tinh(goc, self._cap_quy_doi()) if cach_do.get(m))
+        return (cach_do[chu[0]], chu[0]) if chu else None
+
     def _luong_vat_tu(self, dvt: str, ctx: dict, sl: float, dv_buoc: str | None,
                       quy_cach: dict | None, *, mat=None) -> tuple[float | None, str | None, str]:
         """Số lượng một vật tư đo bằng `dvt`. Trả `(số, diễn giải, lý do nếu tịt)`.
@@ -673,18 +701,28 @@ class LsxService:
                     f"công thức lượng ra 0 — thiếu {', '.join(thieu)}." if thieu
                     else "công thức lượng ra 0.")
             return gt, f"{cong_thuc_chu(rieng)} = {gt:g} {dvt}", ""
-        cach_do = self._cach_do().get(dvt.strip().lower(), "")
-        if cach_do:
+        lan = self._cach_do_lan(dvt)
+        if lan:
+            cach_do, chu = lan
             try:
                 gt = float(safe_eval(cach_do, dict(ctx)))
             except (ValueError, ZeroDivisionError) as e:
-                return None, None, f"cách đo của {dvt} không chạy được ({e})."
+                return None, None, f"cách đo của {chu} không chạy được ({e})."
             if gt <= 0:
                 thieu = [b for b in bien_trong(cach_do) if _f(ctx.get(b)) <= 0]
                 return None, None, (
-                    f"cách đo của {dvt} ra 0 — thiếu {', '.join(thieu)}." if thieu
-                    else f"cách đo của {dvt} ra 0.")
-            return gt, f"{cong_thuc_chu(cach_do)} = {gt:g} {dvt}", ""
+                    f"cách đo của {chu} ra 0 — thiếu {', '.join(thieu)}." if thieu
+                    else f"cách đo của {chu} ra 0.")
+            if chu == dvt.strip().lower():
+                return gt, f"{cong_thuc_chu(cach_do)} = {gt:g} {dvt}", ""
+            # Công thức MƯỢN của đơn vị khác trong cụm ⇒ số đang mang đơn vị CHỦ, đổi tiếp bằng
+            # cầu đã khai. Tự nhân/chia hệ số ở đây là đẻ đường quy đổi thứ hai.
+            kq = doi_theo_quy_cach(gt, chu, dvt, quy_cach or {},
+                                   self._don_vis(), self._cap_quy_doi())
+            if "gia_tri" not in kq:
+                return None, None, (kq.get("ly_do") or f"chưa quy đổi được {chu} → {dvt}.")
+            return (float(kq["gia_tri"]),
+                    f"{cong_thuc_chu(cach_do)} = {gt:g} {chu} → {kq['gia_tri']:g} {dvt}", "")
         # Không có cách đo → lùi về quy đổi từ đơn vị của bước.
         if not dv_buoc:
             return None, None, f"{dvt} chưa khai cách đo, và bước chưa có đơn vị để quy đổi."
@@ -1525,20 +1563,28 @@ class LsxService:
         #
         # Vế VÀO cố tình KHÔNG đọc công thức của đơn vị vào: hai đầu cùng chốt cứng thì hao hết chỗ
         # nhét — đúng bệnh `vao = ra = so_kem` của bản cũ.
-        cach_do = self._cach_do()
         ctx_ngoai = ngu_canh_lenh(quy_cach_bien(lsx))
         for i, cd in enumerate(buoc):
             if i in idx or not cd.don_vi_ra:
                 continue
-            ct = cach_do.get((cd.don_vi_ra or "").strip().lower(), "")
-            if not ct:
+            # Công thức có thể MƯỢN của đơn vị khác trong cụm tĩnh (khai ở `kg` thì `tấn` dùng
+            # chung) — `_cach_do_lan` trả kèm mã CHỦ để quy đổi tiếp.
+            lan = self._cach_do_lan(cd.don_vi_ra or "")
+            if not lan:
                 continue        # chưa khai công thức ⇒ để trống, KHÔNG đoán
+            ct, chu = lan
             try:
                 ra_ngoai = float(safe_eval(ct, dict(ctx_ngoai)))
             except (ValueError, ZeroDivisionError):
                 continue
             if ra_ngoai <= 0:
                 continue
+            if chu != (cd.don_vi_ra or "").strip().lower():
+                kq_lan = doi_theo_quy_cach(ra_ngoai, chu, cd.don_vi_ra, quy_cach_bien(lsx),
+                                           self._don_vis(), self._cap_quy_doi())
+                if "gia_tri" not in kq_lan:
+                    continue
+                ra_ngoai = float(kq_lan["gia_tri"])
             fixed_n, pct_n = hao_buoc(
                 _quy_tac_bu_hao(cd.cong_doan_id), rows=bu_hao_rows, sl=ra_ngoai)
             pct_n = min(max(pct_n, 0.0), 99.0)

@@ -574,6 +574,8 @@ export const CFG_GIAY: CatalogConfig = {
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
     // Vế GIẤY của cặp với ô cùng tên bên Vật tư khác (mg 0195). Ra LƯỢNG, không ra tiền.
     { key: "cong_thuc_luong", label: "Công thức tính lượng", type: "formula", group: "Giá",
+      // Bộ chip QUY ĐỔI: ô này ra LƯỢNG nên cần `sl_vao`/`sl_ra` và KHÔNG cần chip đơn giá.
+      loaiO: "quy_doi",
       hint: "Ra SỐ LƯỢNG giấy cần cho một lệnh (khác ô trên — ô trên ra tiền). Vd: dinh_luong * dai_in * rong_in * to_dau_vao = số kg. Để trống = lượng suy bằng quy đổi từ đơn vị của bước." },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
@@ -603,6 +605,8 @@ export const CFG_VAT_TU: CatalogConfig = {
     //   · "Công thức tính lượng" → ra LƯỢNG, BOM ở bước lệnh đọc.
     // Đặt ở VẬT TƯ chứ không ở đơn vị vì `kg` dùng chung cho keo · mực · giấy (mg 0194).
     { key: "cong_thuc_luong", label: "Công thức tính lượng", type: "formula", group: "Giá",
+      // Bộ chip QUY ĐỔI: ô này ra LƯỢNG nên cần `sl_vao`/`sl_ra` và KHÔNG cần chip đơn giá.
+      loaiO: "quy_doi",
       hint: "Ra SỐ LƯỢNG cần cho một lệnh (khác ô trên — ô trên ra tiền). Vd keo: 0.002 * so_luong = 2g mỗi thành phẩm. Để trống = lượng suy bằng quy đổi từ đơn vị của bước." },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
@@ -796,12 +800,17 @@ export const CFG_DON_VI: CatalogConfig = {
       label: "Lưu ý",
       render: (r) => {
         const ds = Array.isArray(r.canh_bao) ? (r.canh_bao as string[]) : [];
-        if (ds.length === 0) return "—";
+        if (ds.length === 0) return <span style={{ color: "var(--ash-2)" }}>—</span>;
         return (
           <div className="rc__formula-chips">
-            {ds.map((c, i) => (
-              <span key={i} className="rc__warn-pill" title={c}>⚠ {c}</span>
-            ))}
+            {ds.map((c, i) => {
+              const shortText = c.length > 28 ? (c.includes(" — ") ? `⚠ ${c.split(" — ")[0]}` : `⚠ ${c.slice(0, 27)}…`) : `⚠ ${c}`;
+              return (
+                <span key={i} className="rc__warn-pill" title={c}>
+                  {shortText}
+                </span>
+              );
+            })}
           </div>
         );
       },

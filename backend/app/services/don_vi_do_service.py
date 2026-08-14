@@ -16,7 +16,7 @@ from ..models.don_vi_do import HO_GOI_Y, TRAM_DONG_GIAY
 from .bien_cong_thuc import LOAI_QUY_DOI, bien_cho
 from ..repositories.don_vi_do_repo import DonViDoRepository
 from .quy_doi_service import (
-    BIEN, _dong_tren_duong, _so, bien_trong, cap_map, duong_di, he_so_duong,
+    BIEN, _dong_tren_duong, _so, bien_trong, cap_map, cum_tinh, duong_di, he_so_duong,
 )
 from .thanh_phan_engine import safe_eval
 
@@ -80,6 +80,8 @@ class DonViDoService:
             data["cong_thuc"] = ct or None
             if ct:
                 self._kiem_cong_thuc(ct)
+                self._kiem_mot_cong_thuc_moi_cum(ct, str(data.get("ma") or ""))
+                self._kiem_khong_vong_tron(ct, str(data.get("ma") or ""))
 
     @staticmethod
     def _chuan_hoa(data: dict) -> dict:
@@ -197,6 +199,78 @@ class DonViDoService:
             f"Mỗi đơn vị chỉ tính ra bằng MỘT công thức — sửa dòng đó thay vì khai thêm."
         )
 
+    def _kiem_khong_vong_tron(self, ct: str, ma: str) -> None:
+        """Chiều NGƯỢC của luật vòng tròn (14/08/2026).
+
+        Chiều xuôi ở `cong_doan_service`: chọn đơn vị RA có công thức dùng `sl_vao` thì chặn. Không
+        có chiều này thì chỉ cần khai ngược thứ tự là lọt — khai công đoạn trước, rồi mới vào sửa
+        công thức của đơn vị thêm chip.
+        """
+        lap = [b for b in bien_trong(ct) if b in ("sl_vao", "sl_ra")]
+        if not lap:
+            return
+        ten_cd = self.repo.cong_doan_lay_lam_don_vi_ra((ma or "").strip().lower())
+        if not ten_cd:
+            return
+        raise DonViDoValidationError(
+            f"Đơn vị này đang là ĐẦU RA của công đoạn {' · '.join(ten_cd)} (bước ngoài dòng giấy). "
+            f"Công thức dùng {' · '.join(lap)} — số của chính bước — sẽ thành vòng tròn: SL ra cần "
+            f"SL vào, mà SL vào lại suy từ SL ra. Bỏ chip đó, hoặc đổi đơn vị đầu ra của công đoạn "
+            f"đó trước. [E-DV-VONG-TRON]"
+        )
+
+    def _cum_co_cong_thuc(self, ma: str, *, tru_ma: str = "") -> list:
+        """Đơn vị trong CỤM TĨNH của `ma` đang mang công thức lượng. Bỏ qua chính `tru_ma`."""
+        goc = (ma or "").strip().lower()
+        if not goc:
+            return []
+        cum = cum_tinh(goc, self.repo.cap_rows())
+        bo = {goc, (tru_ma or "").strip().lower()}
+        return [d for d in self._dv_cache()
+                if d.ma in cum and d.ma not in bo and (d.cong_thuc or "").strip()]
+
+    def _kiem_mot_cong_thuc_moi_cum(self, ct: str, ma: str) -> None:
+        """MỘT CỤM TĨNH CHỈ MỘT CÔNG THỨC LƯỢNG (14/08/2026).
+
+        `kg · tấn · g` nối nhau bằng hằng số nên chúng là MỘT phép đo. Khai công thức ở cả `kg` lẫn
+        `tấn` là hai số cho cùng một câu hỏi, và `_cach_do_lan` bên lệnh sẽ phải chọn bừa.
+
+        Chỉ đi qua cạnh TĨNH: `tờ` với `kg` nối bằng cạnh ĐỘNG (`1 tờ = f(quy cách) kg`) — hai thứ
+        khác loại, cả hai được có công thức riêng. Gộp chúng là chặn oan.
+        """
+        if not ct:
+            return
+        kia = self._cum_co_cong_thuc(ma)
+        if not kia:
+            return
+        chu = kia[0]
+        ten_cum = " · ".join(sorted({chu.ten, *(d.ten for d in kia)}))
+        raise DonViDoValidationError(
+            f"“{chu.ten}” đã có công thức tính lượng: {cong_thuc_chu(chu.cong_thuc)}. "
+            f"Cả cụm {ten_cum} quy đổi cho nhau bằng số cố định nên chỉ được MỘT công thức — "
+            f"sửa ở “{chu.ten}”, hoặc xoá công thức đó trước. [E-DV-BOM-TRUNG]"
+        )
+
+    def _kiem_noi_cum_khong_gop_hai_cong_thuc(self, tu, den) -> None:
+        """Nối hai cụm mà MỖI BÊN đã có công thức lượng ⇒ cụm mới có hai. CHẶN.
+
+        Chiều ngược của `_kiem_mot_cong_thuc_moi_cum`. Không có nó thì luật thủng, chỉ cần khai
+        ngược thứ tự: khai công thức ở `kg`, khai công thức ở `tạ`, RỒI mới nối "1 tạ = 100 kg".
+
+        Chỉ áp cho cặp TĨNH — nơi gọi đã lọc (`if not ct`).
+        """
+        ben_tu = [d for d in self._dv_cache()
+                  if d.ma in cum_tinh(tu.ma, self.repo.cap_rows()) and (d.cong_thuc or "").strip()]
+        ben_den = [d for d in self._dv_cache()
+                   if d.ma in cum_tinh(den.ma, self.repo.cap_rows()) and (d.cong_thuc or "").strip()]
+        if not ben_tu or not ben_den:
+            return
+        raise DonViDoValidationError(
+            f"Nối “{tu.ten}” với “{den.ten}” là gộp hai cụm đang CÙNG có công thức tính lượng "
+            f"(“{ben_tu[0].ten}” và “{ben_den[0].ten}”). Một cụm chỉ được MỘT — xoá bớt một công "
+            f"thức trước khi khai quy đổi này. [E-DV-BOM-TRUNG]"
+        )
+
     def _tach_the(self, data: dict, he_so_cu: float = 0.0) -> tuple[dict, float, str]:
         """Chuẩn hoá dữ liệu một dòng quy đổi: số HAY công thức, không phải cả hai.
 
@@ -227,6 +301,7 @@ class DonViDoService:
             # Dòng ĐỘNG không so được với đường hằng lúc khai (chưa có giấy nào để thay biến) —
             # kiểm nó là lúc dùng, kèm diễn giải. Chỉ chặn được cái so được.
             self._kiem_mau_thuan(tu.ma, den.ma, he_so)
+            self._kiem_noi_cum_khong_gop_hai_cong_thuc(tu, den)
         obj = self.repo.create_cap(data)
         self._quen_cache()
         self._log(actor_id, "create_don_vi_cap", obj.id,

@@ -30,6 +30,17 @@ class CongDoanRepository:
                      .selectinload(CongDoanDauViec.vat_tus))
         ).scalar_one_or_none()
 
+    def don_vi_cong_thuc(self, ma: str) -> str:
+        """Công thức tính lượng của MỘT đơn vị (rỗng nếu chưa khai / mã không có)."""
+        if not ma:
+            return ""
+        from ..models.don_vi_do import DonViDo
+
+        row = self.db.execute(
+            select(DonViDo.cong_thuc).where(DonViDo.ma == ma)
+        ).scalar_one_or_none()
+        return (row or "").strip()
+
     def don_vi_tram(self, mas: set[str]) -> dict[str, str | None]:
         """`{mã đơn vị: trạm dòng giấy}` cho các mã CÓ THẬT trong danh mục Đơn vị.
 

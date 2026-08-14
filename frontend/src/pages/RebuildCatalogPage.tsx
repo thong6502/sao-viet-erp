@@ -21,6 +21,10 @@ export interface FieldDef {
   // mã như `don_vi_gia` (quy đổi làm việc trên mã `kg`/`to`, không trên id).
   type?: "text" | "number" | "date" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "ref-search" | "ref-search-ma" | "bands" | "size_tiers" | "nhom_may" | "nhom_may-multi" | "formula" | "dau-viec-dinh-muc" | "chuan_bi_khoan" | "lich_bao_tri" | "don_vi_toc_do";
   options?: { value: string; label: string }[];
+  /** Ô `formula`: ÉP bộ chip theo loại này thay vì suy từ màn. Cần khi MỘT màn có hai ô công thức
+   *  hỏi hai câu khác nhau — "Công thức tính giá" (ra tiền) vs "Công thức tính lượng" (ra lượng,
+   *  cần chip `sl_vao`/`sl_ra`, không cần chip đơn giá). */
+  loaiO?: string;
   refPrefix?: string;           // ref / ref-multi / ref-search: endpoint danh mục nguồn (đổ theo TÊN/MÃ)
   /** Query thêm khi nạp danh mục nguồn, vd `{ active: true }` — không lọc thì picker mời cả dòng
    *  đã ngừng dùng, người ta chọn xong bấm Lưu mới ăn lỗi từ server. */
@@ -231,14 +235,14 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
         <table className="rc__table">
           <thead>
             <tr>
-              <th style={{ width: "10%" }}>Mã</th>
-              <th style={{ width: "20%" }}>Tên</th>
+              <th style={{ width: "14%" }}>Mã</th>
+              <th style={{ width: "16%" }}>Tên</th>
               {config.columns.map((c) => {
                 const isCenter = c.key === "bac" || c.key === "dai" || c.key === "active";
-                const w = c.key === "quy_doi_text" ? "35%" : c.key === "canh_bao" ? "20%" : c.key === "ghi_chu" ? "15%" : undefined;
+                const w = c.key === "quy_doi_text" ? "34%" : c.key === "canh_bao" ? "12%" : c.key === "ghi_chu" ? "16%" : undefined;
                 return <th key={c.key} style={w ? { width: w } : undefined} className={isCenter ? "text-center" : ""}>{c.label}</th>;
               })}
-              <th className="rc__actcol" style={{ width: "10%" }}>Hành động</th>
+              <th className="rc__actcol" style={{ width: "8%", textAlign: "right" }}>Hành động</th>
             </tr>
           </thead>
           <tbody>
@@ -277,8 +281,15 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
               const noWrapKeys = ["ma", "dai", "bac", "active", "version_no", "gsm", "kho", "don_vi_gia", "don_gia", "kho_max", "so_to_bu_hao"];
               return (
                 <tr key={r.id} className="rc__row" onClick={() => setEditing(r)}>
-                  <td className="rc__mono rc__nowrap"><span className="rc__code-badge">{String(r.ma)}</span></td>
-                  <td className="rc__name">{String(r.ten)}</td>
+                  <td className="rc__mono rc__nowrap"><span className="rc__code-badge" title={String(r.ma)}>{String(r.ma)}</span></td>
+                  <td className="rc__name">
+                    {String(r.ten)}
+                    {Boolean(r.tram_dong_giay) && (
+                      <span className="rc__tram-badge" title={`Trạm dòng giấy: ${String(r.tram_dong_giay)}`}>
+                        Trạm giấy
+                      </span>
+                    )}
+                  </td>
                   {config.columns.map((c) => {
                     const isCenter = c.key === "bac" || c.key === "dai" || c.key === "active";
                     const classes = [
@@ -1459,6 +1470,10 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
         ) : f.type === "formula" ? (
           <FormulaField value={String(form[f.key] ?? "")} onChange={(v) => set(f.key, v)}
             configPrefix={config.prefix}
+            // Ô tự khai loại (vd "Công thức tính lượng" ở Vật tư/Giấy) thì ÉP bộ chip theo nó —
+            // một màn có thể có hai ô công thức hỏi hai câu khác nhau.
+            loaiO={f.loaiO}
+            id={`formula-${f.key}`}
             // Màn Đơn vị: ô này ra LƯỢNG, không ra tiền — nhãn phải nói đúng, không thì người khai
             // tưởng đang gõ công thức giá rồi nhét đơn giá vào.
             {...(config.prefix.includes("don-vi")
@@ -2227,6 +2242,7 @@ export function FormulaField({
   onChange,
   configPrefix,
   bienGoiY,
+  loaiO: loaiOEp,
   nhanO = "Công thức tính giá",
   goY = "Nhập công thức tính giá (vd: dai_tp * rong_tp * don_gia)...",
   id = "formula-textarea",
@@ -2236,6 +2252,8 @@ export function FormulaField({
   configPrefix: string;
   /** Bộ biến RIÊNG cho ngữ cảnh khác tính giá (vd quy đổi đơn vị). Có thì thay hẳn whitelist. */
   bienGoiY?: string[];
+  /** ÉP loại ô (bộ chip). Bỏ trống = suy từ `configPrefix` như cũ. */
+  loaiO?: string;
   nhanO?: string;
   goY?: string;
   /** Nhiều ô công thức trên một màn thì phải khác id — nút chèn biến tìm textarea theo id. */
@@ -2246,7 +2264,7 @@ export function FormulaField({
   // Màn Đơn vị: ô "Cách đo" ra LƯỢNG, không ra tiền — bộ chip của nó là bộ quy đổi (có Định lượng
   // giấy, không có đơn giá). Thiếu nhánh này thì nó ăn bộ Vật tư và chip lệch với thứ backend bơm.
   const isDonVi = configPrefix.includes("don-vi");
-  const loaiO = isDonVi ? "quy_doi" : isCd ? "cong_doan" : isGiay ? "giay" : "vat_tu";
+  const loaiO = loaiOEp ?? (isDonVi ? "quy_doi" : isCd ? "cong_doan" : isGiay ? "giay" : "vat_tu");
   // Từ điển biến — MỘT nguồn với backend. Trước đây whitelist là mảng cứng ở file này, còn giá trị
   // thật nằm bên engine; hai bên lệch thì công thức "hợp lệ" vẫn ra 0đ mà không ai biết.
   const tuDien = useBienCongThuc();

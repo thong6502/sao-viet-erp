@@ -6,6 +6,11 @@ from ..models.cong_doan import (
 )
 from ..models.don_vi_do import tram_chay_xuoi
 from ..repositories.cong_doan_repo import CongDoanRepository
+from .quy_doi_service import bien_trong
+
+# Hai chip là số của CHÍNH BƯỚC, không phải của lệnh — dùng chúng trong công thức của đơn vị RA là
+# vòng tròn (xem `_validate`). Khai ở `bien_cong_thuc._BANG` với loại `quy_doi`.
+_BIEN_CUA_BUOC = ("sl_vao", "sl_ra")
 from . import nhat_ky_danh_muc as nk
 
 
@@ -107,6 +112,20 @@ class CongDoanService:
                     f"Bước đổi từ {tren} (trên dòng giấy) sang {ngoai} (ngoài dòng giấy) chưa hỗ "
                     f"trợ — hệ số của cặp này là sức chứa của từng đơn, chưa có chỗ khai. "
                     f"[E-CD-DONVI]")
+            # VÒNG TRÒN (14/08/2026): bước NGOÀI dòng giấy lấy `ra` từ công thức của đơn vị RA,
+            # rồi suy `vào` ngược từ `ra`. Công thức đó mà dùng `sl_vao`/`sl_ra` thì không có chỗ
+            # bắt đầu — ra cần vào, vào cần ra. Chặn ngay lúc khai, đừng để lòi ra ô trống ở lệnh.
+            #
+            # Chỉ soi đơn vị RA (chỉ nó được đọc), và chỉ khi CẢ HAI ngoài dòng — trên dòng giấy
+            # thì `ra` lấy từ chuỗi, công thức của đơn vị bị bỏ qua hoàn toàn, chặn là chặn oan.
+            if t_vao is None and t_ra is None:
+                ct_ra = self.repo.don_vi_cong_thuc(dv_ra)
+                if ct_ra and (lap := [b for b in bien_trong(ct_ra) if b in _BIEN_CUA_BUOC]):
+                    raise CongDoanValidationError(
+                        f"“{dv_ra}” có công thức dùng {' · '.join(lap)} — là số của CHÍNH bước, "
+                        f"nên không khai làm đơn vị đầu ra được: SL ra phải tính xong trước thì "
+                        f"mới suy được SL vào. Bỏ chip đó khỏi công thức, hoặc chọn đơn vị ra "
+                        f"khác. [E-CD-VONG-TRON]")
             if t_vao is not None and not tram_chay_xuoi(t_vao, t_ra):
                 raise CongDoanValidationError(
                     f"Không quy đổi được {dv_vao} → {dv_ra}. Dòng giấy chỉ chảy một chiều: "

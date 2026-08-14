@@ -1390,6 +1390,89 @@ def test_danh_muc_doi_sau_khi_tao_lenh_thi_BAO_LECH_chu_khong_tu_de(
     assert float(cd_db.so_luong_vao) == vao_cu
 
 
+def test_chip_sl_vao_lay_so_cua_CHINH_BUOC_khong_phai_cua_lenh(
+    db, orders, lsx_svc, admin, customer,
+):
+    """`sl_vao` trong công thức lượng của vật tư ⇒ số theo SL VÀO của bước, không phải SL lệnh.
+
+    Keo dán ở bước Bắt tay phải tính theo số cuốn chạy qua ĐÚNG bước đó — bước sau hao bớt thì
+    lượng keo ít đi theo. Mọi chip khác đều là số của cả lệnh, không nói được điều này.
+    """
+    from app.models.cong_doan import CongDoanDauViecVatTu
+    from app.models.vat_lieu_kho import VatTuInAn
+
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
+    # Cho bước có HAO để `so_luong_vao` khác hẳn SL đặt — không thì test không chứng minh được
+    # chip lấy số của BƯỚC chứ không phải của lệnh.
+    cd_dan.kieu_bu_hao, cd_dan.so_to_bu_hao = "co_dinh", 300
+    keo = VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45_000,
+                    cong_thuc_luong="sl_vao * 0.002")
+    db.add(keo)
+    db.flush()
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+    buoc = next(c for c in lsx.cong_doans if c.ten == "Dán hộp")
+    v = next(x for x in buoc.vat_tus if x.vat_tu_ma_snapshot == "KEO-GAY")
+
+    assert float(v.so_luong) == pytest.approx(float(buoc.so_luong_vao) * 0.002, rel=1e-6)
+    # Và nó KHÁC số tính theo SL lệnh — nếu bằng nhau thì test không chứng minh được gì.
+    assert float(buoc.so_luong_vao) != float(lsx.so_luong_dat)
+
+
+def test_cong_thuc_luong_khai_o_kg_thi_TAN_dung_chung(db, orders, lsx_svc, admin, customer):
+    """Khai công thức ở `kg`, vật tư khai ĐVT `tấn` ⇒ vẫn ra số, đã chia 1.000.
+
+    `kg · tấn` là MỘT phép đo nối bằng hằng số. Bắt khai công thức lại ở từng mã là trùng lặp, và
+    hai bản chép tay sớm muộn lệch nhau.
+    """
+    from app.models.cong_doan import CongDoanDauViecVatTu
+    from app.models.don_vi_do import DonViDo, DonViQuyDoi
+    from app.models.vat_lieu_kho import VatTuInAn
+
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    _gan_dinh_muc(db, cong_doan=cd_dan, ten="Dán hộp thủ công", don_vi="cái", don_gia=250)
+
+    kg = db.query(DonViDo).filter(DonViDo.ma == "kg").one_or_none()
+    if kg is None:
+        kg = DonViDo(ma="kg", ten="kg", ho="khoi_luong")
+        db.add(kg)
+    kg.cong_thuc = "so_luong * 0.002"          # công thức khai ĐÚNG MỘT LẦN, ở kg
+    tan = db.query(DonViDo).filter(DonViDo.ma == "tan").one_or_none()
+    if tan is None:
+        tan = DonViDo(ma="tan", ten="tấn", ho="khoi_luong")
+        db.add(tan)
+    tan.cong_thuc = None          # công thức CHỈ ở kg — đây là điểm của test
+    db.flush()
+    if db.query(DonViQuyDoi).filter(
+        DonViQuyDoi.tu_id.in_([tan.id, kg.id]), DonViQuyDoi.den_id.in_([tan.id, kg.id])
+    ).first() is None:
+        db.add(DonViQuyDoi(tu_id=tan.id, den_id=kg.id, he_so=1000))
+    mat = VatTuInAn(ma="HOA-CHAT", ten="Hoá chất", don_vi_gia="tan", don_gia=9_000_000)
+    db.add(mat)
+    db.flush()
+    cd_dan.dau_viec_dinh_muc[0].vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=mat.id, thu_tu=0))
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    line = lsx_svc.preview(d.id)["lines"][0]
+    lsx = lsx_svc.get(lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]],
+                                 actor=admin)[0].id)
+    buoc = next(c for c in lsx.cong_doans if c.ten == "Dán hộp")
+    v = next(x for x in buoc.vat_tus if x.vat_tu_ma_snapshot == "HOA-CHAT")
+
+    cho_kg = float(lsx.so_luong_dat) * 0.002
+    assert float(v.so_luong) == pytest.approx(cho_kg / 1000, rel=1e-6), "phải chia 1.000 sang tấn"
+    assert v.don_vi_snapshot == "tan"
+
+
 def test_khong_co_bang_khoan_thi_khong_co_tien(db, orders, lsx_svc, admin, customer):
     """Tổ chưa khai giá khoán → mọi bước im lặng, tổng = 0. KHÔNG bịa số nào."""
     ptg = _ptg_2_san_pham(db)

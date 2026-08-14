@@ -136,6 +136,37 @@ def _doc_cap(r) -> tuple[str, str, float, str]:
             (ct or "").strip())
 
 
+def cum_tinh(ma: str, rows) -> set[str]:
+    """Mọi đơn vị với tới `ma` CHỈ qua cạnh TĨNH (hệ số cố định). Gồm cả chính `ma`.
+
+    "Cụm tĩnh" = một phép đo được gọi bằng nhiều tên: `kg · tấn · g`, `m² · cm²`, `tờ · ram`. Đổi
+    qua lại bằng hằng số, không phụ thuộc lệnh nào.
+
+    Cạnh ĐỘNG (`1 tờ = f(quy cách) kg`) KHÔNG gộp cụm — nó nối hai thứ KHÁC LOẠI, và cả hai đầu
+    đều được có công thức tính lượng riêng. Gộp chúng lại là chặn oan `tờ` với `kg`.
+
+    Dùng cho hai việc: chặn khai công thức lượng thứ hai trong cùng cụm, và cho công thức khai ở
+    một đơn vị LAN sang cả cụm (khai ở `kg` thì `tấn` dùng chung).
+    """
+    goc = str(ma or "").strip().lower()
+    if not goc:
+        return set()
+    ke: dict[str, set[str]] = {}
+    for r in rows or []:
+        tu, den, _hs, ct = _doc_cap(r)
+        if not tu or not den or ct:      # có công thức ⇒ cạnh ĐỘNG ⇒ bỏ qua
+            continue
+        ke.setdefault(tu, set()).add(den)
+        ke.setdefault(den, set()).add(tu)
+    ra, hang_doi = {goc}, [goc]
+    while hang_doi:
+        for kia in ke.get(hang_doi.pop(), ()):
+            if kia not in ra:
+                ra.add(kia)
+                hang_doi.append(kia)
+    return ra
+
+
 def cap_map(rows, ctx: dict | None = None,
             gia_dinh_du_bien: bool = False) -> dict[str, dict[str, float]]:
     """list[DonViQuyDoi] → đồ thị {ma_tu: {ma_den: he_so}}, CẢ HAI CHIỀU.

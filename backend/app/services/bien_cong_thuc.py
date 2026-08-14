@@ -89,6 +89,23 @@ _BANG: tuple[tuple[str, str, str, str, str, tuple[str, ...]], ...] = (
     ("don_gia_giay", "Đơn giá giấy",
      "Đơn giá của CHÍNH dòng giấy đang mở — đã quy về đơn vị công thức đang đếm", "đ",
      "ô Đơn giá của dòng giấy, quy về đơn vị cơ sở (khai đ/tấn thì máy ÷ 1.000)", (LOAI_GIAY,)),
+    # --- SỐ CỦA CHÍNH BƯỚC (14/08/2026) ---------------------------------------------------------
+    # Mọi biến trên đây là số của CẢ LỆNH. Hai biến này là số của MỘT BƯỚC — keo dán ở bước Bắt tay
+    # phải tính theo số cuốn chạy qua ĐÚNG bước đó, bước sau hao bớt thì lượng keo ít đi theo.
+    #
+    # CHỈ khai cho ô `quy_doi`, KHÔNG cho ba ô tiền: `MA_NGU_CANH_PHIEU` gom theo `_TIEN`, gắn vào
+    # đó là `ngu_canh_phieu` bị đòi bơm giá trị ở TẦNG PHIẾU — nơi chưa có bước nào — và assert ở
+    # cuối hai hàm đó nổ ngay. Ô "Công thức tính lượng" của Vật tư/Giấy dùng bộ chip `quy_doi` để
+    # với tới hai biến này (xem `rebuildCatalogConfigs`), và như thế cũng đúng nghĩa hơn: nó ra
+    # LƯỢNG chứ không ra tiền, nên vốn không nên có chip đơn giá.
+    #
+    # Nơi bơm: `LsxService._vat_tu_bung` + `_goi_y_luong_vat_tu`, bơm SAU `ngu_canh_lenh` nên không
+    # đụng assert. Ngữ cảnh nào không có (công thức tiền · công thức của cặp · công thức đơn vị RA
+    # lúc đang tính chính SL bước) thì `_thieu_bien` coi là THIẾU ⇒ để trống + báo lý do, không đoán.
+    ("sl_vao", "SL vào của công đoạn", "Số lượng VÀO của chính bước đang tính",
+     "đơn vị của bước", "chuỗi bù hao ngược — có sau khi engine chạy xong", (LOAI_QUY_DOI,)),
+    ("sl_ra", "SL ra của công đoạn", "Số lượng RA của chính bước đang tính",
+     "đơn vị của bước", "chuỗi bù hao ngược — có sau khi engine chạy xong", (LOAI_QUY_DOI,)),
     ("don_gia_vat_tu", "Đơn giá vật tư",
      "Đơn giá của CHÍNH vật tư đang mở — đã quy về đơn vị công thức đang đếm", "đ",
      "ô Đơn giá của dòng vật tư, quy về đơn vị cơ sở (khai đ/tấn thì máy ÷ 1.000)",

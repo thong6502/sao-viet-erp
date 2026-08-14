@@ -267,6 +267,67 @@ def test_don_vi_co_cong_thuc_hien_cong_thuc_va_KHONG_bao_chua_khai(svc):
     assert svc.canh_bao(thung)
 
 
+def test_mot_CUM_TINH_chi_mot_cong_thuc_luong(svc):
+    """`kg · tấn · g` nối nhau bằng hằng số ⇒ MỘT phép đo ⇒ chỉ được MỘT công thức lượng.
+
+    Hai công thức trong cùng cụm là hai số cho cùng một câu hỏi, và `_cach_do_lan` bên lệnh sẽ
+    phải chọn bừa.
+    """
+    kg = svc.create({"ma": "kg", "ten": "kg", "ho": "khoi_luong",
+                     "cong_thuc": "dinh_luong * dai_in * rong_in * to_dau_vao"})
+    tan = svc.create({"ma": "tan", "ten": "tấn", "ho": "khoi_luong"})
+    svc.create_cap({"tu_id": tan.id, "den_id": kg.id, "he_so": 1000})
+
+    with pytest.raises(DonViDoValidationError, match="E-DV-BOM-TRUNG"):
+        svc.update(tan.id, {"ma": "tan", "ten": "tấn", "ho": "khoi_luong",
+                            "cong_thuc": "so_luong * 2"})
+    # Sửa ở chính đơn vị đang giữ công thức thì KHÔNG bị chặn.
+    svc.update(kg.id, {"ma": "kg", "ten": "kg", "ho": "khoi_luong", "cong_thuc": "so_luong * 3"})
+
+
+def test_canh_DONG_khong_gop_cum_nen_to_va_kg_deu_duoc_co_cong_thuc(svc):
+    """`1 tờ = f(quy cách) kg` là cạnh ĐỘNG — hai thứ KHÁC LOẠI, không gộp cụm.
+
+    Gộp là chặn oan: `tờ` đếm tờ giấy, `kg` cân khối lượng, mỗi cái một công thức là đúng.
+    """
+    to = svc.create({"ma": "to", "ten": "tờ", "ho": "to", "cong_thuc": "to_dau_vao"})
+    kg = svc.create({"ma": "kg", "ten": "kg", "ho": "khoi_luong"})
+    svc.create_cap({"tu_id": to.id, "den_id": kg.id,
+                    "cong_thuc": "dinh_luong * dai_in * rong_in"})
+    # KHÔNG được chặn — cạnh nối chúng là cạnh động.
+    svc.update(kg.id, {"ma": "kg", "ten": "kg", "ho": "khoi_luong",
+                       "cong_thuc": "dinh_luong * dai_in * rong_in * to_dau_vao"})
+    assert svc.get(kg.id).cong_thuc
+
+
+def test_noi_cau_TINH_gop_hai_cong_thuc_thi_CHAN(svc):
+    """Chiều NGƯỢC: hai đơn vị đã có công thức rồi mới nối cầu tĩnh ⇒ cụm mới có hai ⇒ chặn.
+
+    Không có luật này thì chỉ cần khai ngược thứ tự là lọt.
+    """
+    kg = svc.create({"ma": "kg", "ten": "kg", "ho": "khoi_luong", "cong_thuc": "so_luong"})
+    ta = svc.create({"ma": "ta", "ten": "tạ", "ho": "khoi_luong", "cong_thuc": "so_luong * 2"})
+    with pytest.raises(DonViDoValidationError, match="E-DV-BOM-TRUNG"):
+        svc.create_cap({"tu_id": ta.id, "den_id": kg.id, "he_so": 100})
+
+
+def test_chan_chip_sl_vao_khi_don_vi_dang_la_dau_ra_cua_buoc_ngoai_dong(svc):
+    """Chiều NGƯỢC của luật vòng tròn: sửa công thức đơn vị thêm `sl_vao` sau khi đã khai công đoạn.
+
+    Không có nó thì khai ngược thứ tự là lọt — khai công đoạn trước, rồi mới thêm chip.
+    """
+    from app.models.cong_doan import CongDoan
+
+    kem = svc.create({"ma": "kem", "ten": "bản kẽm", "ho": "kem", "cong_thuc": "so_kem"})
+    svc.repo.db.add(CongDoan(ma="CD-CTP", ten="Ghi kẽm CTP", nhom="prepress",
+                             don_vi_vao="kem", don_vi_ra="kem"))
+    svc.repo.db.commit()
+
+    with pytest.raises(DonViDoValidationError, match="E-DV-VONG-TRON"):
+        svc.update(kem.id, {"ma": "kem", "ten": "bản kẽm", "ho": "kem",
+                            "cong_thuc": "sl_vao * 2"})
+
+
 def test_xoa_don_vi_thi_cap_cua_no_di_theo(svc):
     """Cặp mồ côi trỏ vào đơn vị đã xoá là đường đi MA — máy vẫn tính ra số mà không ai hiểu."""
     tan, kg = _bo_ba(svc)
