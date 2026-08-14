@@ -311,7 +311,35 @@ export type QuoteEvent =
   // Kho (spec-kho-de-nghi §10): `stock_request` = tin đích danh có sẵn câu chữ để toast;
   // `stock_request_pending_changed` = tín hiệu NHẸ (danh sách chờ đổi) → chỉ refetch badge.
   | { type: "stock_request"; code?: string; message: string; loai?: "NHAP" | "XUAT" }
-  | { type: "stock_request_pending_changed"; code?: string; loai?: "NHAP" | "XUAT"; nguoi_tao_id?: number };
+  | {
+      type: "stock_request_pending_changed";
+      code?: string;
+      loai?: "NHAP" | "XUAT";
+      nguoi_tao_id?: number;
+      nguoi_tao_ten?: string | null;
+      bo_phan_ten?: string | null;
+    }
+  // `notification_new` = có thông báo mới vào chuông → FE refetch list + badge chuông.
+  | { type: "notification_new" };
+
+// --- Trung tâm thông báo (chuông Topbar) -------------------------------------
+export interface AppNotification {
+  id: number;
+  loai: string;
+  tieu_de: string;
+  noi_dung: string | null;
+  /** Đích điều hướng: 'kho_inbox' (Hộp yêu cầu) · 'kho_mine' (màn Yêu cầu). NULL = không nhảy. */
+  link_loai: string | null;
+  link_id: number | null;
+  read_at: string | null;
+  da_doc: boolean;
+  created_at: string;
+}
+
+export interface NotificationList {
+  items: AppNotification[];
+  unread: number;
+}
 
 // --- Lệnh sản xuất (LSX) — bàn Kế hoạch sản xuất ------------------------------
 // Job (đơn) → Part (lệnh) → Operation (công đoạn). Mỗi DÒNG ĐƠN = 1 lệnh, ngang hàng.
@@ -5525,6 +5553,8 @@ export interface StockRequest {
   // Id phiếu ĐANG CHỜ GHI SỔ (nếu có) → đổi nút "Lập phiếu" thành "Xem phiếu", chống tạo trùng.
   open_voucher_id: number | null;
   created_at: string;
+  /** Lần đổi gần nhất (tạo/cấp/hoàn tất/hủy) — xếp yêu cầu vừa có phản hồi lên đầu. */
+  updated_at: string;
   lines: StockRequestLine[];
 }
 
@@ -5620,6 +5650,7 @@ export interface KhoKhoaSoRow {
   hanh_dong: "khoa" | "mo";
   nguoi_khoa_ten: string | null;
   khoa_luc: string | null;
+  ten: string | null;
 }
 
 export interface KhoKhoaSoInput {
@@ -5627,6 +5658,8 @@ export interface KhoKhoaSoInput {
   tu_ngay: string;
   den_ngay: string;
   hanh_dong: "khoa" | "mo";
+  /** Tên kỳ — chỉ gửi khi khóa; trùng tên kỳ đang khóa khác thì backend chặn. */
+  ten?: string | null;
 }
 
 /** 1 kỳ CÒN đang khóa (đã gộp khoảng liền mạch) — cho tab "Kỳ đã khóa". */
@@ -5636,6 +5669,7 @@ export interface KhoaSoKyRow {
   tu_ngay: string;
   den_ngay: string;
   khoa_luc: string | null;
+  ten: string | null;
 }
 
 /** Ô chọn vật tư khi lập đề nghị — 4 trường tối thiểu, KHÔNG có giá. */
@@ -6980,6 +7014,19 @@ export const api = {
     reopenPeriod(token: string, year: number, month: number): Promise<AttendancePeriod> {
       return authed<AttendancePeriod>("/api/attendance/period/reopen", token,
         { method: "POST", body: JSON.stringify({ year, month }) });
+    },
+  },
+
+  // --- Trung tâm thông báo (chuông) -----------------------------------------
+  notifications: {
+    list(token: string, limit = 30): Promise<NotificationList> {
+      return authed(`/api/notifications?limit=${limit}`, token);
+    },
+    markRead(token: string, id: number): Promise<void> {
+      return authed(`/api/notifications/${id}/read`, token, { method: "POST" });
+    },
+    markAllRead(token: string): Promise<void> {
+      return authed("/api/notifications/read-all", token, { method: "POST" });
     },
   },
 
@@ -8804,9 +8851,17 @@ export const api = {
 
   kho: {
     deNghi: {
-      /** Số yêu cầu ĐÃ DUYỆT chờ kho lập phiếu, theo chiều — cho badge Nhập/Xuất + toast. */
-      counts(token: string): Promise<{ nhap: number; xuat: number }> {
-        return authed<{ nhap: number; xuat: number }>("/api/kho/de-nghi/counts", token);
+      /** Số yêu cầu ĐÃ DUYỆT chờ kho lập phiếu (badge Nhập/Xuất, việc của thủ kho) + phản hồi kho cho
+       *  yêu cầu CỦA TÔI mà tôi chưa mở xem: `done_unseen` (Hoàn tất) + `fail_unseen` (Không thành).
+       *  Badge người tạo = done_unseen + fail_unseen. */
+      counts(
+        token: string,
+      ): Promise<{ nhap: number; xuat: number; done_unseen: number; fail_unseen: number }> {
+        return authed("/api/kho/de-nghi/counts", token);
+      },
+      /** NGƯỜI TẠO mở xem 1 yêu cầu của mình → đánh dấu đã xem → hạ badge/số đỏ đúng yêu cầu đó. */
+      markSeen(token: string, id: number): Promise<void> {
+        return authed(`/api/kho/de-nghi/${id}/seen`, token, { method: "POST" });
       },
       list(token: string, params: StockRequestListParams = {}): Promise<StockRequestPage> {
         const qs = new URLSearchParams();

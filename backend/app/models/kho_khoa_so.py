@@ -44,3 +44,6 @@ class KhoKhoaSo(Base):
     khoa_luc: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
+    # Tên kỳ (chỉ đặt khi 'khoa') — tuỳ chọn, để nhận diện nhanh + CHẶN TRÙNG với kỳ đang khóa
+    # khác. Bản ghi 'mo' để trống.
+    ten: Mapped[str | None] = mapped_column(String(120), nullable=True)

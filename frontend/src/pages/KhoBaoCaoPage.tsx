@@ -18,7 +18,7 @@ import "./rebuild-catalog.css";
 import "./kho-request.css";
 
 type KhoOpt = { id: number; ma: string; ten: string };
-type Tab = "so" | "lichsu" | "ky";
+type Tab = "tong-quan" | "so" | "lichsu" | "ky";
 
 const PAGE_SIZE = 20;
 
@@ -40,13 +40,53 @@ function fmtMoney(n: number | null): string {
   return n == null ? "" : n.toLocaleString("vi-VN");
 }
 
+// Bảng màu lát biểu đồ tròn — dùng đúng biến màu app (moss·rust·plum·amber·signal), ash cho "Khác".
+const DONUT_COLORS = [
+  "var(--moss)",
+  "var(--rust)",
+  "var(--plum)",
+  "var(--amber)",
+  "var(--signal)",
+  "var(--ash)",
+];
+
+type DonutSeg = { label: string; color: string; from: number; to: number; pct: number };
+
+// Donut tỉ trọng giá trị theo mặt hàng: TOP 5 + gộp phần còn lại thành "Khác" (khỏi loạn quá nhiều
+// lát). Trả các lát kèm mốc % để dựng conic-gradient.
+function buildDonut(
+  items: { ten: string | null; ma: string | null; tien: number }[],
+  total: number,
+): DonutSeg[] {
+  const top5 = items.slice(0, 5);
+  const shown = top5.reduce((s, x) => s + x.tien, 0);
+  const khac = Math.max(0, total - shown);
+  const segs = [
+    ...top5.map((t) => ({ label: t.ten ?? t.ma ?? "?", val: t.tien })),
+    ...(khac > 1 ? [{ label: "Khác", val: khac }] : []),
+  ].filter((s) => s.val > 0);
+  const denom = segs.reduce((s, x) => s + x.val, 0) || 1;
+  let acc = 0;
+  return segs.map((s, i) => {
+    const from = (acc / denom) * 100;
+    acc += s.val;
+    return {
+      label: s.label,
+      color: DONUT_COLORS[i % DONUT_COLORS.length],
+      from,
+      to: (acc / denom) * 100,
+      pct: (s.val / denom) * 100,
+    };
+  });
+}
+
 // Icon khóa/mở theo bộ icon dự án (SVG line, thừa kế currentColor) — thay cho emoji.
 function LockIcon({ open = false, size = 13 }: { open?: boolean; size?: number }) {
   return <Icon name={open ? "lockOpen" : "lock"} size={size} style={{ verticalAlign: "-2px" }} />;
 }
 
 export function KhoBaoCaoPage({ token }: { token: string }) {
-  const [tab, setTab] = useState<Tab>("so");
+  const [tab, setTab] = useState<Tab>("tong-quan");
   const [loai, setLoai] = useState<StockRequestKind>("NHAP");
   const [khoId, setKhoId] = useState<number | null>(null);
   const [tu, setTu] = useState("");
@@ -68,6 +108,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   const [khoaHanhDong, setKhoaHanhDong] = useState<"khoa" | "mo">("khoa");
   const [khoaTu, setKhoaTu] = useState("");
   const [khoaDen, setKhoaDen] = useState(todayISO());
+  const [khoaTen, setKhoaTen] = useState("");   // tên kỳ khi KHÓA (tuỳ chọn, chặn trùng)
   const [khoaBusy, setKhoaBusy] = useState(false);
   const [khoaError, setKhoaError] = useState<string | null>(null);
 
@@ -102,6 +143,112 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   useEffect(() => {
     if (tab === "so") load();
   }, [load, tab]);
+
+  // Tab "Tổng quan": cần CẢ hai chiều → nạp Nhập + Xuất theo cùng bộ lọc kho/ngày rồi gộp.
+  const [dashRows, setDashRows] = useState<BaoCaoKhoRow[]>([]);
+  const loadDash = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    Promise.all([
+      api.kho.baoCao.dong(token, { tu: tu || null, den: den || null, kho_id: khoId, loai: "NHAP" }),
+      api.kho.baoCao.dong(token, { tu: tu || null, den: den || null, kho_id: khoId, loai: "XUAT" }),
+    ])
+      .then(([n, x]) => setDashRows([...n.items, ...x.items]))
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Không tải được tổng quan."))
+      .finally(() => setLoading(false));
+  }, [token, tu, den, khoId]);
+  useEffect(() => {
+    if (tab === "tong-quan") loadDash();
+  }, [loadDash, tab]);
+
+  // Tổng hợp dashboard — tính client-side từ ĐÚNG data sổ (khớp con số tab Sổ nhập-xuất).
+  const dash = useMemo(() => {
+    const nhap = dashRows.filter((r) => r.loai === "NHAP");
+    const xuat = dashRows.filter((r) => r.loai === "XUAT");
+    const sumTien = (rs: BaoCaoKhoRow[]) => rs.reduce((s, r) => s + (r.thanh_tien ?? 0), 0);
+    const soPhieu = (rs: BaoCaoKhoRow[]) => new Set(rs.map((r) => r.so_ct)).size;
+    const tongNhap = sumTien(nhap);
+    const tongXuat = sumTien(xuat);
+
+    const khoAgg = new Map<number, { ten: string; nhap: number; xuat: number; phieu: Set<string> }>();
+    for (const r of dashRows) {
+      const key = r.kho_id ?? -1;
+      let cur = khoAgg.get(key);
+      if (!cur) {
+        cur = { ten: r.kho_ten ?? "—", nhap: 0, xuat: 0, phieu: new Set() };
+        khoAgg.set(key, cur);
+      }
+      if (r.loai === "NHAP") cur.nhap += r.thanh_tien ?? 0;
+      else cur.xuat += r.thanh_tien ?? 0;
+      cur.phieu.add(r.so_ct);
+    }
+    const theoKho = [...khoAgg.values()]
+      .map((k) => ({ ten: k.ten, nhap: k.nhap, xuat: k.xuat, phieu: k.phieu.size }))
+      .sort((a, b) => b.nhap + b.xuat - (a.nhap + a.xuat));
+
+    const topBy = (rs: BaoCaoKhoRow[]) => {
+      const m = new Map<
+        string,
+        { ma: string | null; ten: string | null; dvt: string | null; sl: number; tien: number }
+      >();
+      for (const r of rs) {
+        const key = r.ma_hang ?? r.ten_hang ?? "?";
+        let cur = m.get(key);
+        if (!cur) {
+          cur = { ma: r.ma_hang, ten: r.ten_hang, dvt: r.dvt, sl: 0, tien: 0 };
+          m.set(key, cur);
+        }
+        cur.sl += r.so_luong ?? 0;
+        cur.tien += r.thanh_tien ?? 0;
+      }
+      return [...m.values()].sort((a, b) => b.tien - a.tien).slice(0, 8);
+    };
+
+    // Chuỗi thời gian Nhập/Xuất — mặc định theo NGÀY; tự gộp theo THÁNG nếu quá nhiều ngày (>45)
+    // để biểu đồ khỏi tràn/rối.
+    const ngayCo = new Set(
+      dashRows.map((r) => (r.ngay_ghi_so ?? "").slice(0, 10)).filter(Boolean),
+    );
+    const theoThang = ngayCo.size > 45;
+    const tsMap = new Map<string, { nhap: number; xuat: number }>();
+    for (const r of dashRows) {
+      const raw = r.ngay_ghi_so ?? "";
+      if (!raw) continue;
+      const k = theoThang ? raw.slice(0, 7) : raw.slice(0, 10);
+      let cur = tsMap.get(k);
+      if (!cur) {
+        cur = { nhap: 0, xuat: 0 };
+        tsMap.set(k, cur);
+      }
+      if (r.loai === "NHAP") cur.nhap += r.thanh_tien ?? 0;
+      else cur.xuat += r.thanh_tien ?? 0;
+    }
+    const chuoi = [...tsMap.entries()]
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([k, v]) => ({
+        key: k,
+        label: theoThang ? `${k.slice(5)}/${k.slice(0, 4)}` : `${k.slice(8)}/${k.slice(5, 7)}`,
+        nhap: v.nhap,
+        xuat: v.xuat,
+      }));
+    const chuoiMax = Math.max(1, ...chuoi.map((c) => Math.max(c.nhap, c.xuat)));
+
+    return {
+      tongNhap,
+      tongXuat,
+      chenhLech: tongNhap - tongXuat,
+      phieuNhap: soPhieu(nhap),
+      phieuXuat: soPhieu(xuat),
+      soMatHang: new Set(dashRows.map((r) => r.ma_hang ?? r.ten_hang ?? "?")).size,
+      soDong: dashRows.length,
+      theoKho,
+      topNhap: topBy(nhap),
+      topXuat: topBy(xuat),
+      theoThang,
+      chuoi,
+      chuoiMax,
+    };
+  }, [dashRows]);
 
   const khoOptions = useMemo(
     () => [
@@ -148,15 +295,54 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
     () => filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
     [filteredRows, page],
   );
+
+  // Lọc cho "Lịch sử thao tác" (tìm phạm vi/người/tên kỳ/ngày + lọc hành động Khóa/Mở).
+  const [histQuery, setHistQuery] = useState("");
+  const [histAction, setHistAction] = useState<"all" | "khoa" | "mo">("all");
+  // Lọc cho "Kỳ đã khóa" (tìm tên kỳ/phạm vi/ngày).
+  const [kyQuery, setKyQuery] = useState("");
   useEffect(() => {
     setPage(1);
-  }, [search, loai, khoId, tu, den, tab]);
+  }, [search, loai, khoId, tu, den, tab, histQuery, histAction, kyQuery]);
 
-  // Lịch sử thao tác cũng phân trang (dùng chung `page`; reset khi đổi tab ở effect trên).
-  const histPageCount = Math.max(1, Math.ceil(locks.length / PAGE_SIZE));
+  // --- Lịch sử thao tác: lọc rồi phân trang (dùng chung `page`; reset ở effect trên) ---
+  const filteredLocks = useMemo(() => {
+    const q = histQuery.trim().toLowerCase();
+    return locks.filter((l) => {
+      if (histAction !== "all" && l.hanh_dong !== histAction) return false;
+      if (!q) return true;
+      const pv = l.kho_id == null ? "toàn kho" : l.kho_ten ?? "";
+      return (
+        pv.toLowerCase().includes(q) ||
+        (l.nguoi_khoa_ten ?? "").toLowerCase().includes(q) ||
+        (l.ten ?? "").toLowerCase().includes(q) ||
+        `${fmtDate(l.tu_ngay)} – ${fmtDate(l.den_ngay)}`.toLowerCase().includes(q)
+      );
+    });
+  }, [locks, histQuery, histAction]);
+  const histPageCount = Math.max(1, Math.ceil(filteredLocks.length / PAGE_SIZE));
   const pagedLocks = useMemo(
-    () => locks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [locks, page],
+    () => filteredLocks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filteredLocks, page],
+  );
+
+  // --- Kỳ đã khóa: lọc rồi phân trang ---
+  const filteredKy = useMemo(() => {
+    const q = kyQuery.trim().toLowerCase();
+    if (!q) return kyList;
+    return kyList.filter((k) => {
+      const pv = k.kho_id == null ? "toàn kho" : k.kho_ten ?? "";
+      return (
+        (k.ten ?? "").toLowerCase().includes(q) ||
+        pv.toLowerCase().includes(q) ||
+        `${fmtDate(k.tu_ngay)} – ${fmtDate(k.den_ngay)}`.toLowerCase().includes(q)
+      );
+    });
+  }, [kyList, kyQuery]);
+  const kyPageCount = Math.max(1, Math.ceil(filteredKy.length / PAGE_SIZE));
+  const pagedKy = useMemo(
+    () => filteredKy.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filteredKy, page],
   );
 
   // Mỗi kỳ khóa (bản ghi 'khoa' phủ dòng) một MÀU riêng — index theo thứ tự thời gian (tu_ngay).
@@ -209,13 +395,27 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
     setTab("so");
   }
 
-  function openKhoa() {
-    setKhoaScope(khoId != null ? khoId : "all");
-    setKhoaHanhDong("khoa");
-    setKhoaTu("");
-    setKhoaDen(todayISO());
+  // Điền sẵn dialog theo hành động: MỞ → lấy kỳ đang khóa MỚI NHẤT (kyList[0]) để khỏi gõ ngày;
+  // KHÓA → về mặc định trống (Đến = hôm nay), phạm vi theo kho đang lọc.
+  function fillKhoa(action: "khoa" | "mo") {
+    setKhoaHanhDong(action);
     setKhoaError(null);
+    setKhoaTen("");
+    if (action === "mo" && kyList.length > 0) {
+      const k = kyList[0];
+      setKhoaScope(k.kho_id ?? "all");
+      setKhoaTu(k.tu_ngay.slice(0, 10));
+      setKhoaDen(k.den_ngay.slice(0, 10));
+    } else if (action === "khoa") {
+      setKhoaScope(khoId != null ? khoId : "all");
+      setKhoaTu("");
+      setKhoaDen(todayISO());
+    }
+  }
+  function openKhoa() {
     loadLocks();
+    // Có kỳ đang khóa → mở dialog ở luồng MỞ + điền sẵn kỳ MỚI NHẤT; không có kỳ nào → luồng KHÓA.
+    fillKhoa(kyList.length > 0 ? "mo" : "khoa");
     setKhoaOpen(true);
   }
   async function saveKhoa() {
@@ -235,6 +435,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
         tu_ngay: khoaTu,
         den_ngay: khoaDen,
         hanh_dong: khoaHanhDong,
+        ten: khoaHanhDong === "khoa" ? khoaTen.trim() || null : null,
       });
       loadLocks();
       setKhoaOpen(false);
@@ -251,11 +452,13 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
         <div className="rc__headrow">
           <h1 className="rc__title">Báo cáo kho</h1>
           <span className="rc__count">
-            {tab === "so"
-              ? `${rows.length} dòng`
-              : tab === "lichsu"
-                ? `${locks.length} thao tác`
-                : `${kyList.length} kỳ`}
+            {tab === "tong-quan"
+              ? `${dashRows.length} dòng sổ`
+              : tab === "so"
+                ? `${rows.length} dòng`
+                : tab === "lichsu"
+                  ? `${locks.length} thao tác`
+                  : `${kyList.length} kỳ`}
           </span>
           <button
             type="button"
@@ -288,6 +491,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
         <div className="kho-shell__fns">
           {(
             [
+              ["tong-quan", "Tổng quan"],
               ["so", "Sổ nhập-xuất"],
               ["lichsu", "Lịch sử thao tác"],
               ["ky", "Kỳ đã khóa"],
@@ -309,6 +513,207 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
 
       {error && (
         <div className="rc__empty-state" style={{ color: "var(--rust, #b4531f)" }}>{error}</div>
+      )}
+
+      {tab === "tong-quan" && (
+        <>
+          <div className="rc__toolbar">
+            <div className="kho-picker">
+              <Select
+                ariaLabel="Kho"
+                value={khoId == null ? "" : String(khoId)}
+                onChange={(v) => setKhoId(v ? Number(v) : null)}
+                options={khoOptions}
+              />
+            </div>
+            <label className="kho-baocao__daterow">
+              <span>Ngày ghi sổ từ</span>
+              <input type="date" className="rc-input" value={tu} max={den || undefined} onChange={(e) => setTu(e.target.value)} />
+            </label>
+            <label className="kho-baocao__daterow">
+              <span>đến</span>
+              <input type="date" className="rc-input" value={den} min={tu || undefined} onChange={(e) => setDen(e.target.value)} />
+            </label>
+            {(tu || den) && (
+              <button type="button" className="rc__link-btn" onClick={() => { setTu(""); setDen(""); }}>
+                Xóa lọc ngày
+              </button>
+            )}
+          </div>
+
+          {loading ? (
+            <div className="rc__empty-state">Đang tải…</div>
+          ) : dashRows.length === 0 ? (
+            <div className="rc__empty-state">Chưa có phiếu ghi sổ nào trong phạm vi lọc.</div>
+          ) : (
+            <div className="kho-dash">
+              {/* Thẻ KPI — Nhập / Xuất / Chênh lệch / Mặt hàng, theo bộ lọc kho + ngày. */}
+              <div className="kho-dash__kpis">
+                <div className="kho-dash__card kho-dash__card--in">
+                  <span className="kho-dash__label">Tổng nhập</span>
+                  <span className="kho-dash__val">{fmtMoney(dash.tongNhap)} đ</span>
+                  <span className="kho-dash__sub">{dash.phieuNhap} phiếu nhập</span>
+                </div>
+                <div className="kho-dash__card kho-dash__card--out">
+                  <span className="kho-dash__label">Tổng xuất</span>
+                  <span className="kho-dash__val">{fmtMoney(dash.tongXuat)} đ</span>
+                  <span className="kho-dash__sub">{dash.phieuXuat} phiếu xuất</span>
+                </div>
+                <div className="kho-dash__card">
+                  <span className="kho-dash__label">Nhập − Xuất</span>
+                  <span className="kho-dash__val">{fmtMoney(dash.chenhLech)} đ</span>
+                  <span className="kho-dash__sub">giá trị ròng vào kho</span>
+                </div>
+                <div className="kho-dash__card">
+                  <span className="kho-dash__label">Mặt hàng luân chuyển</span>
+                  <span className="kho-dash__val">{dash.soMatHang}</span>
+                  <span className="kho-dash__sub">{dash.soDong} dòng sổ</span>
+                </div>
+              </div>
+
+              {/* Biểu đồ cột Nhập/Xuất theo thời gian — CSS thuần, màu khớp app (nhập xanh/xuất cam). */}
+              {dash.chuoi.length > 0 && (
+                <section className="rc-sec">
+                  <h3 className="rc-sec__title">
+                    Nhập / Xuất theo {dash.theoThang ? "tháng" : "ngày"}
+                  </h3>
+                  <div className="kho-chart">
+                    <div className="kho-chart__legend">
+                      <span className="kho-chart__leg kho-chart__leg--in">Nhập</span>
+                      <span className="kho-chart__leg kho-chart__leg--out">Xuất</span>
+                    </div>
+                    <div className="kho-chart__plot">
+                      {dash.chuoi.map((c) => (
+                        <div
+                          className="kho-chart__grp"
+                          key={c.key}
+                          title={`${c.label} — Nhập ${fmtMoney(c.nhap)} đ · Xuất ${fmtMoney(c.xuat)} đ`}
+                        >
+                          <div className="kho-chart__bars">
+                            <div
+                              className="kho-chart__bar kho-chart__bar--in"
+                              style={{ height: `${(c.nhap / dash.chuoiMax) * 100}%` }}
+                            />
+                            <div
+                              className="kho-chart__bar kho-chart__bar--out"
+                              style={{ height: `${(c.xuat / dash.chuoiMax) * 100}%` }}
+                            />
+                          </div>
+                          <div className="kho-chart__xlab">{c.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {/* Nhập / Xuất theo kho */}
+              <section className="rc-sec">
+                <h3 className="rc-sec__title">Nhập / Xuất theo kho</h3>
+                <div className="kho-lines__wrap">
+                  <table className="kho-lines">
+                    <thead>
+                      <tr>
+                        <th>Kho</th>
+                        <th className="kho-num">Giá trị nhập</th>
+                        <th className="kho-num">Giá trị xuất</th>
+                        <th className="kho-num">Số phiếu</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dash.theoKho.map((k, i) => (
+                        <tr key={i}>
+                          <td>{k.ten}</td>
+                          <td className="kho-num">{fmtMoney(k.nhap)}</td>
+                          <td className="kho-num">{fmtMoney(k.xuat)}</td>
+                          <td className="kho-num">{k.phieu}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              {/* Tỉ trọng giá trị theo mặt hàng — biểu đồ TRÒN (donut): top 5 + "Khác", cho Nhập & Xuất. */}
+              <div className="kho-dash__cols">
+                {([
+                  ["Tỉ trọng nhập", buildDonut(dash.topNhap, dash.tongNhap)],
+                  ["Tỉ trọng xuất", buildDonut(dash.topXuat, dash.tongXuat)],
+                ] as const).map(([ten, segs]) => (
+                  <section className="rc-sec" key={ten}>
+                    <h3 className="rc-sec__title">{ten}</h3>
+                    {segs.length === 0 ? (
+                      <p className="kho-hint">Không có dòng nào.</p>
+                    ) : (
+                      <div className="kho-donut">
+                        <div
+                          className="kho-donut__ring"
+                          role="img"
+                          aria-label={segs.map((s) => `${s.label} ${Math.round(s.pct)}%`).join(", ")}
+                          style={{
+                            background: `conic-gradient(${segs
+                              .map((s) => `${s.color} ${s.from}% ${s.to}%`)
+                              .join(", ")})`,
+                          }}
+                        />
+                        <ul className="kho-donut__legend">
+                          {segs.map((s, i) => (
+                            <li className="kho-donut__leg" key={i} title={s.label}>
+                              <span className="kho-donut__dot" style={{ background: s.color }} />
+                              <span className="kho-donut__legname">{s.label}</span>
+                              <span className="kho-donut__legpct">{Math.round(s.pct)}%</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </section>
+                ))}
+              </div>
+
+              {/* Top mặt hàng — BẢNG THUẦN (Mặt hàng · SL · Giá trị). */}
+              <div className="kho-dash__cols">
+                {([
+                  ["Top mặt hàng nhập", dash.topNhap],
+                  ["Top mặt hàng xuất", dash.topXuat],
+                ] as const).map(([tenBang, top]) => (
+                  <section className="rc-sec" key={tenBang}>
+                    <h3 className="rc-sec__title">{tenBang}</h3>
+                    {top.length === 0 ? (
+                      <p className="kho-hint">Không có dòng nào.</p>
+                    ) : (
+                      <div className="kho-lines__wrap">
+                        <table className="kho-lines">
+                          <thead>
+                            <tr>
+                              <th>Mặt hàng</th>
+                              <th className="kho-num">SL</th>
+                              <th className="kho-num">Giá trị</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {top.map((t, i) => (
+                              <tr key={i}>
+                                <td>
+                                  <div className="kho-lines__name">{t.ten ?? "—"}</div>
+                                  <div className="kho-lines__code">{t.ma ?? ""}</div>
+                                </td>
+                                <td className="kho-num">
+                                  {fmtQty(t.sl)} {t.dvt ?? ""}
+                                </td>
+                                <td className="kho-num">{fmtMoney(t.tien)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </section>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {tab === "so" && (
@@ -453,6 +858,27 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
 
       {tab === "lichsu" && (
         <>
+        <div className="rc__toolbar">
+          <div className="kho-picker">
+            <Select
+              ariaLabel="Hành động"
+              value={histAction}
+              onChange={(v) => setHistAction((v as "all" | "khoa" | "mo") || "all")}
+              options={[
+                { value: "all", label: "Tất cả thao tác" },
+                { value: "khoa", label: "Khóa kỳ" },
+                { value: "mo", label: "Mở kỳ" },
+              ]}
+            />
+          </div>
+          <input
+            className="rc-input"
+            style={{ marginLeft: "auto", maxWidth: 280 }}
+            placeholder="Tìm phạm vi / người / tên kỳ / ngày…"
+            value={histQuery}
+            onChange={(e) => setHistQuery(e.target.value)}
+          />
+        </div>
         <div className="kho-bc-wrap">
           <table className="rc__table kho-bc">
             <thead>
@@ -461,12 +887,15 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                 <th title="Khóa kỳ hoặc Mở lại kỳ đã khóa">Hành động</th>
                 <th title="Áp dụng cho toàn bộ kho hay một kho cụ thể">Phạm vi</th>
                 <th title="Khoảng ngày chứng từ bị khóa/mở (bao gồm 2 đầu)">Khoảng ngày</th>
+                <th title="Tên kỳ đặt khi khóa (Mở kỳ để trống)">Tên kỳ</th>
                 <th title="Kế toán thực hiện thao tác">Người thực hiện</th>
               </tr>
             </thead>
             <tbody>
-              {locks.length === 0 ? (
-                <tr><td colSpan={5} className="rc__empty-state">Chưa có thao tác khóa/mở kỳ nào.</td></tr>
+              {filteredLocks.length === 0 ? (
+                <tr><td colSpan={6} className="rc__empty-state">
+                  {locks.length === 0 ? "Chưa có thao tác khóa/mở kỳ nào." : "Không có thao tác nào khớp bộ lọc."}
+                </td></tr>
               ) : (
                 pagedLocks.map((l) => (
                   <tr key={l.id}>
@@ -482,6 +911,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                     </td>
                     <td>{l.kho_id == null ? "Toàn kho" : l.kho_ten ?? `Kho #${l.kho_id}`}</td>
                     <td>{fmtDate(l.tu_ngay)} – {fmtDate(l.den_ngay)}</td>
+                    <td>{l.ten ?? "—"}</td>
                     <td>{l.nguoi_khoa_ten ?? "—"}</td>
                   </tr>
                 ))
@@ -489,7 +919,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             </tbody>
           </table>
         </div>
-        {locks.length > 0 && (
+        {filteredLocks.length > 0 && (
           <div className="kho-bc-pager">
             <button
               type="button"
@@ -500,7 +930,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               ‹ Trước
             </button>
             <span>
-              Trang {page}/{histPageCount} · {locks.length} thao tác
+              Trang {page}/{histPageCount} · {filteredLocks.length} thao tác
             </span>
             <button
               type="button"
@@ -516,27 +946,41 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
       )}
 
       {tab === "ky" && (
+        <>
+        <div className="rc__toolbar">
+          <input
+            className="rc-input"
+            style={{ marginLeft: "auto", maxWidth: 280 }}
+            placeholder="Tìm tên kỳ / phạm vi / ngày…"
+            value={kyQuery}
+            onChange={(e) => setKyQuery(e.target.value)}
+          />
+        </div>
         <div className="kho-bc-wrap">
           <table className="rc__table kho-bc">
             <thead>
               <tr>
                 <th title="Khoảng ngày ghi sổ đang bị khóa (gồm 2 đầu)">Khoảng ngày</th>
+                <th title="Tên kỳ đặt khi khóa (tuỳ chọn)">Tên kỳ</th>
                 <th title="Toàn kho hay một kho cụ thể">Phạm vi</th>
                 <th title="Thời điểm khóa kỳ này">Khóa lúc</th>
                 <th aria-hidden="true" />
               </tr>
             </thead>
             <tbody>
-              {kyList.length === 0 ? (
+              {filteredKy.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="rc__empty-state">
-                    Chưa có kỳ nào đang khóa. Bấm “Khóa / mở kỳ” để chốt sổ.
+                  <td colSpan={5} className="rc__empty-state">
+                    {kyList.length === 0
+                      ? "Chưa có kỳ nào đang khóa. Bấm “Khóa / mở kỳ” để chốt sổ."
+                      : "Không có kỳ nào khớp bộ lọc."}
                   </td>
                 </tr>
               ) : (
-                kyList.map((k, i) => (
+                pagedKy.map((k, i) => (
                   <tr key={`${k.kho_id ?? "all"}-${k.tu_ngay}-${i}`}>
                     <td>{fmtDate(k.tu_ngay)} – {fmtDate(k.den_ngay)}</td>
+                    <td>{k.ten ?? "—"}</td>
                     <td>{k.kho_id == null ? "Toàn kho" : k.kho_ten ?? `Kho #${k.kho_id}`}</td>
                     <td>{fmtDateTime(k.khoa_luc)}</td>
                     <td>
@@ -550,6 +994,30 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             </tbody>
           </table>
         </div>
+        {filteredKy.length > 0 && (
+          <div className="kho-bc-pager">
+            <button
+              type="button"
+              className="rc__link-btn"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              ‹ Trước
+            </button>
+            <span>
+              Trang {page}/{kyPageCount} · {filteredKy.length} kỳ
+            </span>
+            <button
+              type="button"
+              className="rc__link-btn"
+              disabled={page >= kyPageCount}
+              onClick={() => setPage((p) => Math.min(kyPageCount, p + 1))}
+            >
+              Sau ›
+            </button>
+          </div>
+        )}
+        </>
       )}
 
       <ConfirmDialog
@@ -579,7 +1047,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                   className={`kho-khoa__seg-btn${
                     khoaHanhDong === id ? (id === "khoa" ? " is-khoa" : " is-mo") : ""
                   }`}
-                  onClick={() => setKhoaHanhDong(id)}
+                  onClick={() => fillKhoa(id)}
                 >
                   <LockIcon open={id === "mo"} size={15} />
                   {label}
@@ -613,6 +1081,21 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             </div>
           </div>
 
+          {/* KHÓA: đặt TÊN kỳ (tuỳ chọn) — trùng tên kỳ đang khóa khác thì backend chặn. */}
+          {khoaHanhDong === "khoa" && (
+            <div className="kho-khoa__field">
+              <label className="kho-khoa__label" htmlFor="khoa-ten">Tên kỳ (tuỳ chọn)</label>
+              <input
+                id="khoa-ten"
+                className="rc-input"
+                value={khoaTen}
+                maxLength={120}
+                onChange={(e) => setKhoaTen(e.target.value)}
+                placeholder="vd Kỳ tháng 7/2026"
+              />
+            </div>
+          )}
+
           <p className={`kho-khoa__note kho-khoa__note--${khoaHanhDong}`}>
             <LockIcon open={khoaHanhDong === "mo"} size={14} />
             <span>
@@ -621,6 +1104,32 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                 : "Mở lại kỳ để ghi sổ tiếp. Đặt “Đến ngày” = ngày cuối đang khóa. Thao tác nào cũng lưu vào Lịch sử."}
             </span>
           </p>
+
+          {/* KHÓA: hiện KỲ KHÓA GẦN NHẤT theo phạm vi (kyList sắp mới nhất trước) để biết đã chốt tới
+              đâu → đặt "Từ ngày" cho khớp, tránh giẫm kỳ cũ. */}
+          {khoaHanhDong === "khoa" &&
+            (() => {
+              const k = kyList.find((x) => (x.kho_id ?? "all") === khoaScope);
+              return k ? (
+                <p className="kho-khoa__kyten">
+                  Kỳ khóa gần nhất: <b>{fmtDate(k.tu_ngay)} – {fmtDate(k.den_ngay)}</b>
+                  {k.ten ? ` · ${k.ten}` : ""}
+                </p>
+              ) : null;
+            })()}
+
+          {/* MỞ: hiện TÊN kỳ ĐANG KHÓA sắp được mở (nếu kỳ có đặt tên) để biết rõ đang mở kỳ nào. */}
+          {khoaHanhDong === "mo" &&
+            (() => {
+              const k = kyList.find(
+                (x) => (x.kho_id ?? "all") === khoaScope && x.den_ngay.slice(0, 10) === khoaDen,
+              );
+              return k?.ten ? (
+                <p className="kho-khoa__kyten">
+                  Kỳ đang khóa: <b>{k.ten}</b>
+                </p>
+              ) : null;
+            })()}
         </div>
       </ConfirmDialog>
     </main>

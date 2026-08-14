@@ -35,10 +35,10 @@ class KhoKhoaSoRepository:
         return row is not None and row.hanh_dong == "khoa"
 
     def add(self, *, kho_id: int | None, tu_ngay: date, den_ngay: date,
-            hanh_dong: str, nguoi_khoa_id: int | None) -> KhoKhoaSo:
+            hanh_dong: str, nguoi_khoa_id: int | None, ten: str | None = None) -> KhoKhoaSo:
         row = KhoKhoaSo(
             kho_id=kho_id, tu_ngay=tu_ngay, den_ngay=den_ngay,
-            hanh_dong=hanh_dong, nguoi_khoa_id=nguoi_khoa_id,
+            hanh_dong=hanh_dong, nguoi_khoa_id=nguoi_khoa_id, ten=ten,
         )
         self.db.add(row)
         self.db.commit()
@@ -47,22 +47,35 @@ class KhoKhoaSoRepository:
 
     def locked_cutoff(self, kho_id: int | None) -> date | None:
         """NGÀY KHÓA XA NHẤT còn hiệu lực (cutoff) cho phạm vi — MÉP CUỐI vùng đang khóa. None nếu
-        không có gì đang khóa.
+        không có gì đang khóa. Dùng cho luật MỞ SỔ TUẦN TỰ (đặt 'Đến ngày' = cutoff).
 
-        Dùng cho luật MỞ SỔ TUẦN TỰ: chỉ mở được phần đuôi vùng khóa (đặt 'Đến ngày' = cutoff),
-        tránh (a) mở đè cả kỳ cũ lẫn kỳ mới bằng 1 range to, (b) mở phần giữa để hở kỳ mới hơn.
-        Duyệt bản ghi 'khoa' theo den giảm dần, lấy den ĐẦU TIÊN còn is_locked (bỏ qua bản đã bị 'mo')."""
-        stmt = (
-            select(KhoKhoaSo)
-            .where(
-                KhoKhoaSo.hanh_dong == "khoa",
-                or_(KhoKhoaSo.kho_id.is_(None), KhoKhoaSo.kho_id == kho_id),
-            )
-            .order_by(KhoKhoaSo.den_ngay.desc())
+        KHÔNG được dựa vào `den_ngay` của bản ghi 'khoa': khi MỞ MỘT PHẦN (bản 'mo' phủ đuôi một kỳ
+        'khoa') thì mép khóa lùi sang ngày KHÔNG trùng mốc bản ghi nào (vd khóa tới 30/08 rồi mở
+        12/08–30/08 → cutoff = 11/08). Phải QUÉT LÙI từ den lớn nhất của các bản 'khoa' tới ngày
+        `is_locked` đầu tiên. Tính trong bộ nhớ (1 query) cho phạm vi này, tránh N query."""
+        recs = list(
+            self.db.execute(
+                select(KhoKhoaSo).where(
+                    or_(KhoKhoaSo.kho_id.is_(None), KhoKhoaSo.kho_id == kho_id),
+                )
+            ).scalars()
         )
-        for rec in self.db.execute(stmt).scalars():
-            if self.is_locked(kho_id, rec.den_ngay):
-                return rec.den_ngay
+        khoa_den = [r.den_ngay for r in recs if r.hanh_dong == "khoa"]
+        if not khoa_den:
+            return None
+
+        def locked_at(day: date) -> bool:
+            # Bản ghi MỚI NHẤT (id lớn nhất) phủ `day` quyết định — giống `is_locked`, làm in-memory.
+            cov = [r for r in recs if r.tu_ngay <= day <= r.den_ngay]
+            return bool(cov) and max(cov, key=lambda r: r.id).hanh_dong == "khoa"
+
+        lo = min(r.tu_ngay for r in recs)
+        day = max(khoa_den)
+        one = timedelta(days=1)
+        while day >= lo:
+            if locked_at(day):
+                return day
+            day -= one
         return None
 
     def locked_run_start(self, kho_id: int | None, cutoff: date) -> date:
@@ -136,14 +149,14 @@ class KhoKhoaSoRepository:
                 # ĐỔI bản ghi khóa (hoặc chuyển khóa↔không) → chốt kỳ trước, mở kỳ mới.
                 if cur_id != prev_id:
                     if prev_id is not None:
-                        out.append((scope, run_start, prev_day, run_rep.khoa_luc if run_rep else None))
+                        out.append((scope, run_start, prev_day, run_rep.khoa_luc if run_rep else None, run_rep.ten if run_rep else None))
                     run_start = day if cur_id is not None else None
                     run_rep = w if cur_id is not None else None
                 prev_id = cur_id
                 prev_day = day
                 day += one
             if prev_id is not None:
-                out.append((scope, run_start, prev_day, run_rep.khoa_luc if run_rep else None))
+                out.append((scope, run_start, prev_day, run_rep.khoa_luc if run_rep else None, run_rep.ten if run_rep else None))
 
         out.sort(key=lambda t: (t[2], t[1]), reverse=True)  # den (rồi tu) giảm dần
         return out

@@ -107,6 +107,10 @@ class StockRequest(Base):
     # Lý do KHO HỦY yêu cầu (hủy phiếu nháp → yêu cầu KẾT THÚC ở 'Đã hủy'). Tách khỏi
     # `ly_do_tu_choi` (lý do NGƯỜI DUYỆT từ chối). Null nếu chưa hủy. Thêm qua migration 0114.
     ly_do_huy: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Người TẠO đã xem QUYẾT ĐỊNH (duyệt/từ chối/kho hủy) tới lúc nào — NULL = chưa xem ⇒ nuôi badge
+    # "yêu cầu của tôi vừa được quyết". So `duyet_luc > coalesce(quyet_dinh_xem_luc, epoch)`. Mirror
+    # `decision_seen_at` của báo giá/nghỉ phép. Thêm qua migration 0188.
+    quyet_dinh_xem_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

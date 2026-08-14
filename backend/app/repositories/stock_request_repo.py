@@ -5,16 +5,22 @@ thái) nằm ở `services/stock_request_service.py`.
 """
 from __future__ import annotations
 
-from sqlalchemy import func, or_, select
+from datetime import datetime, timezone
+
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.stock_request import (
     REQ_CANCELLED,
+    REQ_DONE,
     REQ_REJECTED,
     REQ_XUAT,
     StockRequest,
     StockRequestLine,
 )
+
+# Mốc gốc so "chưa xem" khi người tạo chưa từng mở yêu cầu (quyet_dinh_xem_luc NULL).
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 _HEADER_FIELDS = ("bo_phan_id", "kho_id", "ngay_can", "uu_tien", "ghi_chu", "loai_kho")
 
@@ -90,6 +96,45 @@ class StockRequestRepository:
             .group_by(StockRequest.loai)
         ).all()
         return {loai: int(n) for loai, n in rows}
+
+    # --- Badge "kho đã PHẢN HỒI yêu cầu của tôi" (hoàn tất / không thành) — seen theo TỪNG yêu cầu ---
+    # "Phản hồi" = trạng thái CUỐI, KHÔNG tính yêu cầu vừa tạo (luồng bỏ duyệt → tạo là 'approved'
+    # ngay, đó là hành động của chính người tạo nên không báo). Mốc so = `updated_at` (lúc kho chốt
+    # kết quả) > lần người tạo MỞ XEM yêu cầu đó (`quyet_dinh_xem_luc`).
+    _TERM_DONE = (REQ_DONE,)
+    _TERM_FAIL = (REQ_REJECTED, REQ_CANCELLED)
+
+    def unseen_response_counts(self, nguoi_tao_id: int) -> dict[str, int]:
+        """Số phản hồi kho CHƯA XEM của `nguoi_tao_id`, tách theo bộ lọc: done=Hoàn tất, fail=Không thành."""
+        fresh = StockRequest.updated_at > func.coalesce(StockRequest.quyet_dinh_xem_luc, _EPOCH)
+
+        def cnt(statuses: tuple[str, ...]) -> int:
+            stmt = select(func.count()).select_from(StockRequest).where(
+                StockRequest.nguoi_tao_id == nguoi_tao_id,
+                StockRequest.trang_thai.in_(statuses),
+                fresh,
+            )
+            return int(self.db.execute(stmt).scalar() or 0)
+
+        return {"done": cnt(self._TERM_DONE), "fail": cnt(self._TERM_FAIL)}
+
+    def mark_seen_one(self, request_id: int, nguoi_tao_id: int) -> None:
+        """Người tạo MỞ XEM 1 yêu cầu CỦA MÌNH → đánh dấu đã xem (chỉ yêu cầu do chính họ tạo).
+
+        GIỮ NGUYÊN `updated_at` (set = chính nó) để `onupdate=_utcnow` KHÔNG kích — nếu để nó nhảy
+        thì `updated_at` (mốc phản hồi để so) bị đẩy lên ~now, badge sẽ không bao giờ tắt."""
+        self.db.execute(
+            update(StockRequest)
+            .where(
+                StockRequest.id == request_id,
+                StockRequest.nguoi_tao_id == nguoi_tao_id,
+            )
+            .values(
+                quyet_dinh_xem_luc=datetime.now(timezone.utc),
+                updated_at=StockRequest.updated_at,
+            )
+        )
+        self.db.commit()
 
     def by_ids_with_lines(self, ids) -> dict[int, StockRequest]:
         """Nạp NHIỀU yêu cầu kèm dòng trong 1 (+lines) query — tránh N+1 khi serialize danh sách phiếu."""

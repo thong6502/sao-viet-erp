@@ -49,6 +49,115 @@
   border-radius: var(--r-pill);
 }
 
+/* ---- Notification bell dropdown ------------------------------------------- */
+.tb-bell-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+.tb-bell.is-open {
+  background: var(--rust-soft);
+  color: var(--ink);
+}
+.tb-notif {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 340px;
+  max-width: min(340px, 92vw);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  z-index: 200;
+  animation: tbDropDown var(--duration-base) var(--easing-standard);
+}
+.tb-notif__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+}
+.tb-notif__title {
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.tb-notif__markall {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--rust);
+  cursor: pointer;
+}
+.tb-notif__markall:hover {
+  text-decoration: underline;
+}
+.tb-notif__list {
+  max-height: min(60vh, 440px);
+  overflow-y: auto;
+}
+.tb-notif__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 14px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--rule-soft);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-base) var(--easing-standard);
+}
+.tb-notif__item:hover {
+  background: var(--paper);
+}
+.tb-notif__item--unread {
+  background: var(--rust-soft);
+}
+.tb-notif__item--unread:hover {
+  background: color-mix(in srgb, var(--rust) 12%, transparent);
+}
+.tb-notif__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--rust);
+}
+.tb-notif__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tb-notif__t {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+.tb-notif__s {
+  font-size: 12px;
+  color: var(--ash);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tb-notif__time {
+  font-size: 11px;
+  color: var(--ash);
+}
+.tb-notif__empty {
+  padding: 28px 14px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ash);
+}
+
 /* ---- User widget ---------------------------------------------------------- */
 .tb-user {
   position: relative;

@@ -50,6 +50,7 @@ from .routers import (
     khuon_be,
     loai_san_pham,
     nhat_ky_danh_muc,
+    notifications,
     tinh_gia,
     phieu_tinh_gia,
     lsx,
@@ -154,6 +155,7 @@ app.include_router(kho_voucher.router)
 app.include_router(kho_voucher.threshold_router)
 # Báo cáo kho (kế toán): /api/kho/bao-cao/* + /api/kho/khoa-so — TRƯỚC kho.router (path 1 đoạn).
 app.include_router(kho_baocao.router)
+app.include_router(notifications.router)
 # Router CÔNG KHAI (không auth) — trang tra kho khi quét tem QR. Mã ký HMAC chống dò id.
 app.include_router(public_scan.router)
 app.include_router(kho.router)

@@ -44,10 +44,12 @@ const TAB_STATUSES: Record<Exclude<TabId, "all">, StockRequestStatus[]> = {
   "khong-thanh": ["rejected", "cancelled"],
 };
 
-/** Ngày cần gần nhất → mới tạo nhất. Yêu cầu không có ngày cần xếp sau cùng trong nhóm. */
+/** VỪA CÓ PHẢN HỒI lên đầu: xếp theo `updated_at` (lần đổi gần nhất: tạo/cấp/hoàn tất/hủy) giảm dần
+ *  → yêu cầu vừa được duyệt/hủy/cấp nhảy lên trên cùng cho dễ nhận biết, không chìm dưới theo ngày tạo. */
 function sortRequests(a: StockRequest, b: StockRequest): number {
-  // Mới nhất lên đầu: yêu cầu vừa tạo hiện trên cùng.
-  if (a.created_at !== b.created_at) return b.created_at.localeCompare(a.created_at);
+  const ua = a.updated_at ?? a.created_at;
+  const ub = b.updated_at ?? b.created_at;
+  if (ua !== ub) return ub.localeCompare(ua);
   return b.ma.localeCompare(a.ma);
 }
 
@@ -56,6 +58,11 @@ export function KhoDeNghiPage({
   loai,
   initialSeed = null,
   onSeedConsumed,
+  unseenDone = 0,
+  unseenFail = 0,
+  onSeen,
+  openRequestId = null,
+  onOpenRequestConsumed,
 }: {
   eventTick?: number;
   /** Khoá chiều theo tab (Nhập/Xuất): lọc danh sách + cố định loại khi tạo mới. */
@@ -64,6 +71,14 @@ export function KhoDeNghiPage({
   initialSeed?: KhoNhapSeed | null;
   /** Báo cha đã tiêu thụ seed (xoá đi để không mở lại khi remount). */
   onSeedConsumed?: () => void;
+  /** Phản hồi kho CHƯA XEM của người tạo → số đỏ cạnh bộ lọc Hoàn tất / Không thành. */
+  unseenDone?: number;
+  unseenFail?: number;
+  /** Sau khi mở xem 1 yêu cầu (đã đánh dấu đã xem) → refetch badge/số đỏ ở AppShell. */
+  onSeen?: () => void;
+  /** Bấm thông báo → mở sẵn drawer đúng yêu cầu này (id). */
+  openRequestId?: number | null;
+  onOpenRequestConsumed?: () => void;
 }) {
   const { token, user } = useAuth();
   const can = useCan();
@@ -126,7 +141,35 @@ export function KhoDeNghiPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventTick]);
 
+  // Bấm thông báo → mở sẵn drawer đúng yêu cầu + đánh dấu đã xem (là yêu cầu của người tạo) + hạ badge.
+  useEffect(() => {
+    if (openRequestId == null) return;
+    setDrawer({ mode: "open", id: openRequestId });
+    if (token) {
+      api.kho.deNghi
+        .markSeen(token, openRequestId)
+        .then(() => onSeen?.())
+        .catch(() => {});
+    }
+    onOpenRequestConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequestId]);
+
   const meId = user?.id ?? -1;
+
+  // Mở xem 1 yêu cầu. Nếu là phản hồi cuối (Hoàn tất / Không thành) thì đánh dấu ĐÃ XEM (per-request)
+  // rồi refetch badge/số đỏ — "bấm xem cái nào mất cái đó".
+  function openRequest(r: StockRequest) {
+    setDrawer({ mode: "open", id: r.id });
+    const terminal =
+      r.trang_thai === "done" || r.trang_thai === "rejected" || r.trang_thai === "cancelled";
+    if (token && terminal) {
+      api.kho.deNghi
+        .markSeen(token, r.id)
+        .then(() => onSeen?.())
+        .catch(() => {});
+    }
+  }
 
   function countOf(id: TabId): number {
     if (id === "all") return rows.length;
@@ -159,7 +202,7 @@ export function KhoDeNghiPage({
     { id: "all", label: "Tất cả" },
     { id: "dang-cap", label: "Đang cấp" },
     { id: "done", label: "Hoàn tất" },
-    { id: "khong-thanh", label: "Không thành" },
+    { id: "khong-thanh", label: "Đã hủy" },
   ];
 
   // Yêu cầu KHÔNG gắn kho nên không có tồn để soi → bỏ hẳn cột đèn. Cột "Người" thay vào để
@@ -195,6 +238,9 @@ export function KhoDeNghiPage({
               value: t.id,
               label: t.label,
               hint: String(countOf(t.id)),
+              // Số ĐỎ = phản hồi kho CHƯA XEM của người tạo, chỉ ở bộ lọc Hoàn tất / Không thành.
+              badge:
+                t.id === "done" ? unseenDone : t.id === "khong-thanh" ? unseenFail : undefined,
             }))}
             value={tab}
             onChange={(v) => v != null && setTab(v as TabId)}
@@ -322,7 +368,7 @@ export function KhoDeNghiPage({
                   <tr
                     key={r.id}
                     className="rc__row"
-                    onClick={() => setDrawer({ mode: "open", id: r.id })}
+                    onClick={() => openRequest(r)}
                   >
                     <td className="rc__nowrap">
                       <span className="rc__code-badge">{r.ma}</span>
@@ -453,6 +499,7 @@ function LenhChon({
   return (
     <select
       className="rc-input"
+      style={{ minWidth: 156 }}
       value={value}
       aria-label="Xin cho lệnh sản xuất nào (bỏ trống nếu xin lặt vặt)"
       onChange={(e) => {
@@ -462,7 +509,7 @@ function LenhChon({
         else onChange(null, Number(v.slice(3)));
       }}
     >
-      <option value="">— không thuộc lệnh nào —</option>
+      <option value="">— Không theo lệnh —</option>
       {options.map((o) => (
         <option key={`${o.kind}:${o.id}`} value={`${o.kind === "lsx" ? "lsx" : "bg"}:${o.id}`}>
           {o.ma}
@@ -847,8 +894,8 @@ function RequestDrawer({
                         <th style={{ minWidth: 180 }}>Vật tư</th>
                         {/* mg 0175 — "xin cho lệnh nào". Bỏ trống được: xin lặt vặt không thuộc
                             lệnh nào. Khai thì Kế hoạch trừ đúng phần đã cấp vào lệnh đó. */}
-                        <th style={{ width: 150 }}>Cho lệnh</th>
-                        <th style={{ width: 76 }}>ĐVT</th>
+                        <th style={{ width: 172 }}>Cho lệnh</th>
+                        <th style={{ width: 92 }}>ĐVT</th>
                         <th className="kho-num" style={{ width: 100 }}>
                           SL yêu cầu
                         </th>

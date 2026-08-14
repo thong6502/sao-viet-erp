@@ -194,6 +194,12 @@
 .kho-khoa__note--mo svg {
   color: var(--moss);
 }
+/* Tên kỳ đang mở (hiện dưới dialog Mở kỳ). */
+.kho-khoa__kyten {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--ink);
+}
 
 /* --- Đèn tín hiệu tồn: chấm 7px trước chữ trong .badge-sem ---------------- */
 .kho-dot {
@@ -1308,6 +1314,23 @@ input.kho-num,
   letter-spacing: 0.02em;
 }
 
+/* Yêu cầu MỚI NHẤT trong hộp — pill "Mới" cạnh mã + nền nhạt cả dòng để bắt mắt. */
+.kho-new-pill {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: var(--rust);
+  vertical-align: middle;
+}
+.rc__row.rc__row--new td {
+  background: color-mix(in srgb, var(--rust) 6%, transparent);
+}
+
 /* Scrim glass backdrop */
 .rc-drawer__scrim {
   backdrop-filter: blur(4px);
@@ -1669,6 +1692,151 @@ input.kho-num,
   padding: 10px 0 2px;
   border-left: none;
   border-bottom: none;
+}
+
+/* --- Tab TỔNG QUAN (dashboard Báo cáo kho) --------------------------------- */
+.kho-dash { display: flex; flex-direction: column; gap: var(--sp-4); }
+.kho-dash__kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--sp-3);
+}
+.kho-dash__card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-left: 3px solid var(--rule);
+  border-radius: var(--r-3, 8px);
+}
+.kho-dash__card--in { border-left-color: var(--moss, #3f6f4a); }
+.kho-dash__card--out { border-left-color: var(--rust, #b4531f); }
+.kho-dash__label {
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+.kho-dash__val {
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  font-size: 21px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  line-height: 1.15;
+}
+.kho-dash__sub { font-size: 12px; color: var(--ash); }
+.kho-dash__cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+  align-items: start;
+}
+@media (max-width: 760px) {
+  .kho-dash__cols { grid-template-columns: 1fr; }
+}
+
+/* Biểu đồ cột Nhập/Xuất theo thời gian (dashboard) — CSS thuần, không thư viện. */
+.kho-chart { display: flex; flex-direction: column; gap: var(--sp-2); }
+.kho-chart__legend { display: flex; gap: var(--sp-3); font-size: 12px; color: var(--ash); }
+.kho-chart__leg { display: inline-flex; align-items: center; gap: 6px; }
+.kho-chart__leg::before {
+  content: "";
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.kho-chart__leg--in::before { background: var(--moss, #3f6f4a); }
+.kho-chart__leg--out::before { background: var(--rust, #b4531f); }
+.kho-chart__plot {
+  display: flex;
+  align-items: stretch;
+  gap: var(--sp-2);
+  height: 190px;
+  padding-top: var(--sp-1);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.kho-chart__grp {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 34px;
+  flex: 1 0 auto;
+}
+.kho-chart__bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+.kho-chart__bar {
+  width: 12px;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  align-self: flex-end;
+}
+.kho-chart__bar--in { background: var(--moss, #3f6f4a); }
+.kho-chart__bar--out { background: var(--rust, #b4531f); }
+.kho-chart__xlab {
+  font-size: 10px;
+  color: var(--ash);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Biểu đồ TRÒN (donut) tỉ trọng giá trị theo mặt hàng — conic-gradient, không thư viện. */
+.kho-donut { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.kho-donut__ring {
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  position: relative;
+}
+.kho-donut__ring::after {
+  content: "";
+  position: absolute;
+  inset: 27%;
+  border-radius: 50%;
+  background: var(--paper, #fff);
+}
+.kho-donut__legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  flex: 1;
+  min-width: 130px;
+}
+.kho-donut__leg { display: flex; align-items: center; gap: 7px; }
+.kho-donut__dot { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+.kho-donut__legname {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.kho-donut__legpct {
+  flex: 0 0 auto;
+  font-family: var(--ff-num);
+  font-variant-numeric: tabular-nums;
+  color: var(--ash);
+  font-weight: var(--fw-bold);
 }
 
 /* Tiêu đề cột NGÀY có bộ lọc: bấm nhãn → popup 2 ô Từ/Đến. Dùng chung 2 màn (DateFilterHead). */

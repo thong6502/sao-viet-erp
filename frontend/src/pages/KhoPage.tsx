@@ -20,16 +20,23 @@ export function KhoPage({
   eventTick = 0,
   nhapSeed,
   counts,
+  onSeen,
+  openRequest,
 }: {
   eventTick?: number;
   /** Điều hướng từ "Nhập kho" (đợt giao đơn mua) → ép về tab Yêu cầu · Nhập, mở sẵn form đã điền. */
   nhapSeed?: KhoNhapSeed | null;
-  /** Số yêu cầu ĐÃ DUYỆT chờ cấp theo chiều — hiện badge cạnh nút Nhập/Xuất. */
-  counts?: { nhap: number; xuat: number };
+  /** Số yêu cầu ĐÃ DUYỆT chờ cấp theo chiều (badge Nhập/Xuất) + phản hồi kho chưa xem của người tạo
+   *  (done_unseen=Hoàn tất, fail_unseen=Không thành). */
+  counts?: { nhap: number; xuat: number; done_unseen: number; fail_unseen: number };
+  /** Người tạo mở xem 1 yêu cầu → refetch badge/số đỏ (AppShell reloadBadges). */
+  onSeen?: () => void;
+  /** Bấm 1 thông báo kho → mở đúng yêu cầu: `view` chọn tab, `id` = request_id. */
+  openRequest?: { id: number; view: FnTab };
 }) {
   const can = useCan();
-  // BỎ BƯỚC DUYỆT: màn Yêu cầu chỉ cho người TẠO yêu cầu (can_request); `can_approve` không còn
-  // dùng cho kho nữa (mọi vai duyệt cũ đều đã có can_request nên không ai mất truy cập).
+  // Tab "Yêu cầu" (xem + tạo yêu cầu) CHỈ cho vai có `can_request` ("Tạo yêu cầu nhập/xuất") → THỦ
+  // KHO (chỉ có view_stock/create) KHÔNG thấy tab này, chỉ thấy "Phiếu từ yêu cầu".
   const canDeNghi = can("kho", "request");
   const canYeuCau = can("kho", "create") || can("kho", "view_stock");
   const [fn, setFn] = useState<FnTab>(canDeNghi ? "denghi" : "yeucau");
@@ -45,6 +52,17 @@ export function KhoPage({
     }
   }, [nhapSeed]);
   const consumeSeed = useCallback(() => setPendingSeed(null), []);
+  // Yêu cầu cần MỞ SẴN (bấm từ thông báo): ép đúng tab rồi truyền id xuống màn con để bung drawer.
+  const [openReqId, setOpenReqId] = useState<number | null>(null);
+  useEffect(() => {
+    if (openRequest?.id != null) {
+      setFn(openRequest.view);
+      setOpenReqId(openRequest.id);
+    }
+  }, [openRequest]);
+  const consumeOpenReq = useCallback(() => setOpenReqId(null), []);
+  // Phản hồi kho chưa xem của NGƯỜI TẠO (Hoàn tất + Không thành) — badge tab "Yêu cầu".
+  const phanHoiUnseen = (counts?.done_unseen ?? 0) + (counts?.fail_unseen ?? 0);
   const activeFn: FnTab =
     fn === "denghi" && !canDeNghi
       ? "yeucau"
@@ -64,6 +82,11 @@ export function KhoPage({
             >
               <FileTextIcon />
               <span>Yêu cầu</span>
+              {phanHoiUnseen > 0 && (
+                <span className="kho-shell__count" aria-label={`${phanHoiUnseen} phản hồi chưa xem`}>
+                  {phanHoiUnseen}
+                </span>
+              )}
             </button>
           )}
           {canYeuCau && (
@@ -103,9 +126,20 @@ export function KhoPage({
           eventTick={eventTick}
           initialSeed={loai === "NHAP" ? pendingSeed : null}
           onSeedConsumed={consumeSeed}
+          unseenDone={counts?.done_unseen ?? 0}
+          unseenFail={counts?.fail_unseen ?? 0}
+          onSeen={onSeen}
+          openRequestId={openReqId}
+          onOpenRequestConsumed={consumeOpenReq}
         />
       ) : (
-        <KhoYeuCauPage key={`yc-${loai}`} loai={loai} eventTick={eventTick} />
+        <KhoYeuCauPage
+          key={`yc-${loai}`}
+          loai={loai}
+          eventTick={eventTick}
+          openRequestId={openReqId}
+          onOpenRequestConsumed={consumeOpenReq}
+        />
       )}
     </main>
   );

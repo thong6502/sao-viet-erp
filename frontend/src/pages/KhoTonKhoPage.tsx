@@ -1532,7 +1532,6 @@ function MaterialHistoryDrawer({
                   <tr>
                     <th style={{ width: 96 }}>Ngày xuất</th>
                     <th style={{ width: 116 }}>Số phiếu</th>
-                    <th style={{ minWidth: 140 }}>Từ lô</th>
                     {/* SL yêu cầu (số đã xin trên yêu cầu sinh ra dòng xuất) đứng TRƯỚC SL xuất thực tế. */}
                     <th className="kho-num">SL yêu cầu</th>
                     <th className="kho-num">SL xuất</th>
@@ -1549,7 +1548,6 @@ function MaterialHistoryDrawer({
                           onOpen={() => onOpenVoucher(r.voucher_id)}
                         />
                       </td>
-                      <td className="kho-lines__code">{r.ma_lo ?? "—"}</td>
                       <td className="kho-num">
                         {r.sl_de_nghi != null ? fmtQty(r.sl_de_nghi) : "—"}
                       </td>
