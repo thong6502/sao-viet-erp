@@ -5,15 +5,14 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, api, type PublicScan, type PublicScanLot } from "../api/client";
 import { fmtDateISO } from "../utils/format";
 import { fmtQty } from "./khoShared";
+import logoUrl from "../assets/sao-viet-nhat-logo-mark.png";
 import "./public-scan.css";
 
-/** Còn ≤ 30 ngày tới HSD (kể cả đã quá hạn) → cảnh báo amber. */
-const HSD_WARN_DAYS = 30;
-
-type BinStatus = "du" | "sap_het" | "het";
+// Trạng thái ô/tổng CHỈ dựa vào TỒN: còn hàng = "Bình thường", hết = "Hết hàng".
+// (Đã bỏ cảnh báo HSD — kho giấy không quản hạn dùng.)
+type BinStatus = "du" | "het";
 const STATUS_META: Record<BinStatus, { label: string }> = {
   du: { label: "Bình thường" },
-  sap_het: { label: "Sắp hết hạn" },
   het: { label: "Hết hàng" },
 };
 
@@ -21,22 +20,7 @@ interface Bin {
   key: string;
   totalRemain: number;
   activeLots: number;
-  minHsd: string | null;
   status: BinStatus;
-}
-
-/** Số ngày từ hôm nay tới HSD (âm = đã quá hạn); null nếu không có/không parse được. */
-function daysToHsd(hsd: string | null): number | null {
-  if (!hsd) return null;
-  const d = new Date(hsd);
-  if (Number.isNaN(d.getTime())) return null;
-  const today = new Date();
-  const day = 86400000;
-  return Math.round(
-    (Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) -
-      Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())) /
-      day,
-  );
 }
 
 /** Đọc token QR đã ký từ URL (`#s=<payload>.<sig>`). Trả null nếu không phải link tra kho. */
@@ -100,14 +84,12 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
     for (const [key, arr] of groups) {
       const active = arr.filter((l) => l.sl_con_lai > 0);
       const totalRemain = active.reduce((s, l) => s + l.sl_con_lai, 0);
-      const hsds = active.map((l) => l.hsd).filter((h): h is string => !!h);
-      const minHsd = hsds.length ? hsds.reduce((m, h) => (h < m ? h : m)) : null;
-      let status: BinStatus;
-      if (totalRemain <= 0) status = "het";
-      else if (active.some((l) => l.hsd != null && (daysToHsd(l.hsd) ?? Infinity) <= HSD_WARN_DAYS))
-        status = "sap_het";
-      else status = "du";
-      list.push({ key, totalRemain, activeLots: active.length, minHsd, status });
+      list.push({
+        key,
+        totalRemain,
+        activeLots: active.length,
+        status: totalRemain <= 0 ? "het" : "du",
+      });
     }
     // Ô còn hàng lên trước, rồi nhiều SL trước.
     list.sort((a, b) => {
@@ -117,17 +99,8 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
     });
 
     const onHand = data?.on_hand ?? 0;
-    let ov: BinStatus;
-    if (onHand <= 0) ov = "het";
-    else if (
-      lots.some(
-        (l) => l.sl_con_lai > 0 && l.hsd != null && (daysToHsd(l.hsd) ?? Infinity) <= HSD_WARN_DAYS,
-      )
-    )
-      ov = "sap_het";
-    else ov = "du";
-
-    return { bins: list, overall: ov };
+    const overall: BinStatus = onHand <= 0 ? "het" : "du";
+    return { bins: list, overall };
   }, [data]);
 
   const history = data?.history ?? [];
@@ -135,7 +108,7 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
   return (
     <div className="pscan">
       <header className="pscan__brand">
-        <span className="pscan__brand-mark">SVN</span>
+        <img className="pscan__brand-logo" src={logoUrl} alt="" width={30} height={30} />
         <span className="pscan__brand-text">Sao Việt Nhật · Tra kho</span>
       </header>
 
@@ -201,8 +174,7 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
                           <tr>
                             <th>Ô / vị trí</th>
                             <th className="pscan__num">SL còn</th>
-                            <th className="pscan__num">Số lô</th>
-                            <th>HSD gần nhất</th>
+                            <th className="pscan__num">Số đợt nhập</th>
                             <th>Trạng thái</th>
                           </tr>
                         </thead>
@@ -218,13 +190,6 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
                                 {dvt && <span className="pscan__unit"> {dvt}</span>}
                               </td>
                               <td className="pscan__num">{bin.activeLots}</td>
-                              <td>
-                                {bin.minHsd ? (
-                                  <span className="pscan__hsd">{fmtDateISO(bin.minHsd)}</span>
-                                ) : (
-                                  <span className="pscan__muted">—</span>
-                                )}
-                              </td>
                               <td>
                                 <span className={`pscan__pill pscan__pill--${bin.status}`}>
                                   {STATUS_META[bin.status].label}
@@ -258,7 +223,7 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
                               <tr key={`${mv.so_ct}-${i}`}>
                                 <td>
                                   <span
-                                    className={`pscan__pill pscan__pill--${isNhap ? "du" : "sap_het"}`}
+                                    className={`pscan__pill pscan__pill--${isNhap ? "nhap" : "xuat"}`}
                                   >
                                     {isNhap ? "Nhập" : "Xuất"}
                                   </span>
