@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import re
 import secrets
 import string
 import unicodedata
@@ -600,6 +601,27 @@ class PurchaseService:
             raise PurchaseValidationError(
                 "Nhà cung cấp thiếu thông tin bắt buộc: " + ", ".join(missing) + "."
             )
+        # ĐIỆN THOẠI phải đủ 10 CHỮ SỐ (chủ chốt 15/08/2026). Gõ thiếu/thừa một số thì gọi không
+        # được, mà cái sai đó chỉ lộ ra đúng lúc cần gọi gấp cho nhà cung cấp.
+        # Bỏ dấu cách / chấm / gạch / ngoặc trước khi đếm — người ta hay gõ "090 123 4567", chặn
+        # cách viết đó là bắt gõ lại một con số vốn đã đúng. Lưu lại dạng đã gọn.
+        phone = re.sub(r"[\s.\-()]", "", phone)
+        if not phone.isdigit():
+            raise PurchaseValidationError(
+                "Số điện thoại chỉ được gồm chữ số, và phải đủ 10 số (ví dụ 0901234567)."
+            )
+        if len(phone) != 10:
+            raise PurchaseValidationError(
+                f"Số điện thoại phải đủ 10 chữ số (ví dụ 0901234567) — đang nhập {len(phone)} số."
+            )
+        # EMAIL phải có @, có phần trước và phần sau, không dấu cách. Cố tình KHÔNG bắt đúng chuẩn
+        # RFC: mọi biểu thức "đúng chuẩn" đều dài, khó đọc, và vẫn chặn oan vài địa chỉ có thật.
+        # Chỗ này chỉ cần chặn cái sai rõ ràng — thiếu @ thì thư không bao giờ tới.
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            raise PurchaseValidationError(
+                "Email phải có dạng ten@tencongty.vn — thiếu @ hoặc thiếu phần đuôi thì "
+                "thư gửi đi không tới nơi."
+            )
         status = values.get("status") or SUPPLIER_ACTIVE
         if status not in SUPPLIER_STATUSES:
             raise PurchaseValidationError("Trạng thái nhà cung cấp không hợp lệ.")
@@ -685,11 +707,31 @@ class PurchaseService:
         except VatLieuKhoError as e:
             raise PurchaseValidationError(str(e)) from None
 
+    def _chan_trung_mst(self, tax_code, *, bo_qua_id: int | None = None) -> None:
+        """MÃ SỐ THUẾ KHÔNG ĐƯỢC TRÙNG (chủ chốt 12/08/2026).
+
+        MST là định danh pháp lý của doanh nghiệp. Hai hồ sơ cùng MST = một nhà cung cấp bị nhập
+        hai lần: công nợ chẻ đôi, đối chiếu hoá đơn ra hai kết quả, và không ai biết phiếu chi nên
+        gắn vào hồ sơ nào.
+
+        BỎ TRỐNG THÌ KHÔNG CHẶN — hộ kinh doanh nhỏ nhiều nơi không có MST, và trước nay vẫn khai
+        được. Chặn cả ô rỗng là khoá mất nhóm NCC đó."""
+        ma = (tax_code or "").strip()
+        if not ma:
+            return
+        trung = self.suppliers.find_by_tax_code(ma)
+        if trung is not None and trung.id != bo_qua_id:
+            raise PurchaseConflict(
+                f"Mã số thuế {ma} đã dùng cho nhà cung cấp \"{trung.name}\". "
+                "Mỗi mã số thuế chỉ thuộc một nhà cung cấp — kiểm lại xem có phải trùng hồ sơ không."
+            )
+
     def create_supplier(self, *, actor, **values) -> Supplier:
         cleaned = self._clean_supplier_values(**values)
         existing = self.suppliers.find_by_name(cleaned["name"])
         if existing is not None:
             raise PurchaseConflict("Nhà cung cấp đã tồn tại.")
+        self._chan_trung_mst(cleaned.get("tax_code"))
         supplier = self.suppliers.create(**cleaned)
         self.audit.create(
             actor_user_id=actor.id,
@@ -705,6 +747,7 @@ class PurchaseService:
         existing = self.suppliers.find_by_name(cleaned["name"])
         if existing is not None and existing.id != supplier.id:
             raise PurchaseConflict("Nhà cung cấp đã tồn tại.")
+        self._chan_trung_mst(cleaned.get("tax_code"), bo_qua_id=supplier.id)
         supplier = self.suppliers.update(supplier, **cleaned)
         self.audit.create(
             actor_user_id=actor.id,
@@ -2473,11 +2516,15 @@ class PurchaseService:
         Khác "giao đủ thì tự thành Đã nhận hàng": đây là ca giao THIẾU rồi thôi. Vì nó cắt phần hàng
         chưa về ra khỏi công nợ (nợ chỉ còn theo số đã giao), nó là quyết định về TIỀN ⇒ đòi
         `thu_mua:approve` + bắt lý do + vào nhật ký, cùng lằn ranh đã áp cho `undo_received`."""
-        # Ô RIÊNG từ 11/08/2026 (`manage_status`) — KHÔNG dùng chung với "Duyệt / từ chối PMH"
+        # GỘP VỀ Ô "Thao tác" (`thu_mua:update`) ngày 12/08/2026 — chủ chốt test rồi kết luận ô
+        # riêng `manage_status` không đáng có: "quyền Sửa / đảo trạng thái đơn sau khi nhận hàng
+        # vô dụng, bỏ đi được không". Ba việc nó gác (sửa số nhận · mở lại đơn · đóng đơn) đều là
+        # việc thường ngày của chính người lập phiếu, tách ra chỉ thêm một ô phải nhớ tick.
+        # ⚠️ Vẫn KHÔNG dùng chung với "Duyệt / từ chối PMH"
         # nữa. Đóng đơn là chốt một đơn hàng chưa về đủ (NCC không giao nữa): việc của bộ phận mua
         # hàng, không phải quyết định chi tiền. Câu báo lỗi cũ ghi "quyền duyệt" nên đọc lên tưởng
         # đúng, thật ra sai nghĩa.
-        if not self.authz.can(actor, "thu_mua", "manage_status"):
+        if not self.authz.can(actor, "thu_mua", "update"):
             raise PurchaseForbidden(
                 "Cần quyền “Sửa / đảo trạng thái đơn sau khi nhận hàng” mới được đóng đơn."
             )
@@ -2548,7 +2595,7 @@ class PurchaseService:
 
         ⚠️ Chỉ dùng cho phiếu KHÔNG theo dõi theo đợt giao. Phiếu có đợt giao thì số thực nhận là
         Σ các đợt (số dẫn xuất) — sửa ở đây sẽ bị nhánh dẫn xuất ghi đè trong im lặng, nên chặn."""
-        if not self.authz.can(actor, "thu_mua", "manage_status"):
+        if not self.authz.can(actor, "thu_mua", "update"):
             raise PurchaseForbidden(
                 "Cần quyền “Sửa / đảo trạng thái đơn sau khi nhận hàng” mới được sửa số thực nhận."
             )
@@ -2597,7 +2644,7 @@ class PurchaseService:
 
         Quyền: `thu_mua:approve` (trưởng bộ phận / giám đốc). Nút này XOÁ một món nợ khỏi màn kế
         toán nên không phải việc nhân viên tự quyết — cùng lằn ranh đã áp cho `cancel`."""
-        if not self.authz.can(actor, "thu_mua", "manage_status"):
+        if not self.authz.can(actor, "thu_mua", "update"):
             raise PurchaseForbidden(
                 "Cần quyền “Sửa / đảo trạng thái đơn sau khi nhận hàng” mới được lùi trạng thái."
             )

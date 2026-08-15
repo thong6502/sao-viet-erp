@@ -190,6 +190,15 @@ class PayrollParams(Base):
     phu_cap_ca_min_cong: Mapped[float] = mapped_column(
         Numeric(5, 2), nullable=False, default=0.5, server_default="0.5"
     )
+    # --- SUẤT CƠM TĂNG CA (12/08/2026) ---
+    # Ngưỡng phút tăng ca trong MỘT NGÀY để được suất cơm, áp cho NGÀY LÀM VIỆC. Ngày NGHỈ theo
+    # Lịch chung (gồm ngày lễ, off1x) KHÔNG dùng ngưỡng này — cứ có tăng ca là có suất.
+    com_tang_ca_nguong_phut: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=180, server_default="180"
+    )
+    # Tiền MỘT suất. MẶC ĐỊNH 0 = TẮT — bật sẵn một khoản ra tiền cho cả nhà máy mà chưa ai duyệt
+    # số là tự ý tăng quỹ lương. Cùng lối với `cong_doan_rate`.
+    com_tang_ca_muc: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
@@ -360,6 +369,19 @@ class PayrollPeriod(Base):
     #: thưởng/phạt, nên "mới hơn" KHÔNG có nghĩa là "đã tính lại". Cần một dấu chỉ do engine đặt.
     #: NULL = kỳ có từ trước migration `0186` (không biết tính lúc nào) — cố ý KHÔNG đoán.
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Thời điểm PHÁT PHIẾU LƯƠNG cho người lao động. NULL = chưa công bố ⇒ NV KHÔNG thấy phiếu.
+    #:
+    #: Một cột làm cả hai việc: "Công bố ngay" ghi thời điểm hiện tại, "Hẹn giờ" ghi mốc tương lai.
+    #: Điều kiện NV thấy phiếu là `cong_bo_luc IS NOT NULL AND cong_bo_luc <= bây giờ` — KIỂM LÚC
+    #: ĐỌC nên KHÔNG cần job chạy nền: không có job để mà chết, không lệch múi giờ, không phải lo
+    #: nhiều worker. Thu hồi = set lại NULL.
+    cong_bo_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Thời điểm ĐÓNG phiếu — NLĐ thôi xem được. NULL = mở không thời hạn.
+    #:
+    #: Cùng với `cong_bo_luc` tạo thành MỘT CỬA SỔ: NV thấy phiếu khi
+    #: `cong_bo_luc <= bây giờ < dong_phieu_luc`. Chủ chốt 12/08/2026: *"cài giờ phiếu nó hiển thị
+    #: trong bao nhiêu lâu"* — phiếu lương không cần mở vĩnh viễn, xem xong là đóng lại.
+    dong_phieu_luc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PayrollLine(Base):
@@ -418,6 +440,10 @@ class PayrollLine(Base):
     # miễn thuế riêng (730k/tháng) nên gộp là mất đường tách sau này.
     meal_allowance_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     shift_allowance_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # Cơm TĂNG CA — cột RIÊNG, không gộp vào `meal_allowance_pay`: hai khoản khác luật (một theo
+    # ca thực làm, một theo giờ tăng ca) và một ngày có thể ăn CẢ HAI. Gộp là hết đường giải thích
+    # với người lao động khi họ hỏi "sao tháng này tiền cơm khác tháng trước".
+    com_tang_ca_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     # Premium CA ĐÊM theo GIỜ (giờ đêm × hệ số + tăng ca đêm) — tự tính từ chấm công, DÒNG RIÊNG, miễn TNCN.
     night_premium_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     vi_pham: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")        # tay — giảm trừ khác (RAW; gộp trần 30% Đ102)
@@ -589,5 +615,19 @@ class PayrollLineComponent(Base):
     source: Mapped[str] = mapped_column(
         String(8), nullable=False, default=COMPONENT_SOURCE_EMPLOYEE,
         server_default=COMPONENT_SOURCE_EMPLOYEE,
+    )
+    #: HCNS đã SỬA TAY số tiền của dòng này CHO RIÊNG KỲ NÀY.
+    #:
+    #: Dùng cho tình huống: hồ sơ gán "Hỗ trợ chi phí đi lại 200.000/tháng", nhưng tháng này người
+    #: ta đi nhiều hơn. Sửa ở hồ sơ là đổi cho MỌI THÁNG SAU và phải nhớ quay lại sửa ngược — quên
+    #: một lần là trả sai mãi. Nên đè ngay trên dòng lương, hồ sơ giữ nguyên.
+    #:
+    #: Dòng đã đè vẫn giữ `source='employee'` (nó KHÔNG phải thưởng nóng), nhưng được MIỄN khỏi
+    #: lượt xoá-ghi-lại của "Tính lại". Hai vế phải làm ĐỦ CẢ HAI, thiếu một là hỏng:
+    #:   1. `replace_employee_line_components` chỉ xoá dòng CHƯA đè;
+    #:   2. `generate` phải BỎ QUA khoản hồ sơ đã có dòng đè — quên vế này thì mỗi lần Tính lại
+    #:      lại thêm một dòng nữa và NV ăn tiền hai lần.
+    da_de_tay: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=sa_false()
     )
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)

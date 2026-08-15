@@ -952,16 +952,29 @@ def test_xin_it_hon_thuc_te_van_phat_phan_du(client):
     assert row["excused_cong"] == round(60 / 540, 2)  # chỉ bù phần đã xin
 
 
-def test_lam_du_ca_ma_khai_gio_thi_khong_duoc_cong_ao(client):
-    """Làm ĐỦ ca mà vẫn khai nghỉ 4h → excused = 0.
+def test_khai_nghi_4h_roi_van_o_lai_lam_thi_cong_theo_PHIEU(client):
+    """⚠️ LUẬT ĐÃ ĐỔI 12/08/2026 — test này trước đây khẳng định điều NGƯỢC LẠI.
 
-    Không kẹp thì phần dư ngày này âm thầm trả nợ cho một ngày vắng thật ở ngày khác
-    (chuyên cần tính trên TỔNG tháng) — rò tiền mà không ai nhìn ra."""
+    Ca: phiếu xin về sớm 13:00→17:00 (240'), nhưng 17:00 mới bấm ra.
+
+      • Luật CŨ: lấy giờ BẤM ⇒ công 1,0, `excused_cong` = 0 ("làm đủ ca thì khai nghỉ không được
+        cộng ảo").
+      • Luật MỚI: đơn đã duyệt là CAM KẾT ⇒ công tính đến 13:00 = 300'/540' = 0,56; phần vắng
+        240' đã có phép nên miễn phạt chuyên cần (`excused_cong` 0,44), không rơi vào
+        `late_off_days`.
+
+    Chủ chốt biết và CHỌN chịu sai ở đúng ca này: *"kệ họ, họ có thể sửa công hoặc là xóa phiếu
+    tạo lại"* — hệ thống không phân biệt được "về đúng 13h nhưng quên bấm" với "xin về 13h nhưng ở
+    lại làm". Hai đường lui đó có test riêng ở `test_kep_gio_ra_theo_phieu_ve_som.py`.
+
+    Giờ BẤM THẬT vẫn giữ nguyên trên lưới (17:00) — chỉ CÔNG bị kẹp. Xoá luôn giờ bấm thì HCNS
+    mất căn cứ để chấm bù, tức là chặn mất đường lui thứ hai."""
     token = _admin_token(client)
     emp = _setup_gio(client, token, "NV Khai Khống", punch_out_hour=17, leave_minutes=240)
     row = _row(client, token, emp["id"])
-    assert row["days"]["15"]["cong"] == 1.0
-    assert row["excused_cong"] == 0
+    assert row["days"]["15"]["cong"] == 0.56
+    assert row["days"]["15"]["last_out"] == "17:00", "kẹp CÔNG thôi, đừng nuốt giờ bấm thật"
+    assert row["excused_cong"] == 0.44
     assert row["late_off_days"] == []
 
 

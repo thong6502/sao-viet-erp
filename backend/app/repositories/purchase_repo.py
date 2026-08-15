@@ -83,13 +83,27 @@ class SupplierRepository:
             select(Supplier).where(func.lower(Supplier.name) == name.lower())
         ).scalars().first()
 
+    def find_by_tax_code(self, tax_code: str) -> Supplier | None:
+        """Tra NCC theo MÃ SỐ THUẾ (không phân biệt hoa thường, bỏ khoảng trắng hai đầu).
+
+        MST là định danh pháp lý — hai hồ sơ cùng MST nghĩa là một nhà cung cấp bị nhập hai lần,
+        và mọi con số công nợ của họ bị chẻ đôi. Trùng TÊN đã chặn từ trước; MST thì chưa."""
+        tax_code = (tax_code or "").strip()
+        if not tax_code:
+            return None
+        return self.db.execute(
+            select(Supplier).where(func.lower(Supplier.tax_code) == tax_code.lower())
+        ).scalars().first()
+
     def list(
         self,
         *,
         q: str | None = None,
         status: str | None = None,
         supplier_group: str | None = None,
-        sort: str = "name",
+        # MỚI NHẤT TRƯỚC (chủ chốt 12/08/2026). Trước đây xếp theo TÊN — NCC vừa khai xong nằm
+        # tận trang 3, người khai phải đi tìm chính thứ mình vừa tạo.
+        sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[Supplier], int]:
@@ -116,11 +130,14 @@ class SupplierRepository:
 
         total = self.db.execute(count_stmt).scalar_one()
         direction = asc
-        key = sort or "name"
+        key = sort or "-created_at"
         if key.startswith("-"):
             direction = desc
             key = key[1:]
-        stmt = stmt.order_by(direction(_SUPPLIER_SORTABLE.get(key, Supplier.name)), Supplier.id.asc())
+        cot = _SUPPLIER_SORTABLE.get(key, Supplier.created_at)
+        # Tie-break đi CÙNG CHIỀU với cột chính: xếp mới-nhất-trước mà `id ASC` thì hai NCC tạo
+        # cùng giây lại đảo ngược nhau ngay trong danh sách vừa xếp giảm dần.
+        stmt = stmt.order_by(direction(cot), direction(Supplier.id))
         page = max(1, page)
         size = max(1, min(size, 200))
         rows = list(self.db.execute(stmt.offset((page - 1) * size).limit(size)).scalars())

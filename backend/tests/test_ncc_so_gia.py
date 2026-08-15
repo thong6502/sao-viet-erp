@@ -6,11 +6,16 @@ trượt, mà trượt thì im lặng (không lỗi, chỉ là mãi không so đ
 """
 from __future__ import annotations
 
+from itertools import count
+
 from app.db import SessionLocal
 from app.models.don_vi_do import DonViDo, DonViQuyDoi
 from app.models.vat_lieu_kho import VatTuInAn
 
 ADMIN = {"username": "admin", "password": "admin123"}
+
+#: Cấp MST duy nhất cho từng NCC dựng trong file này.
+_dem_mst = count(1)
 
 
 def _h(client) -> dict[str, str]:
@@ -41,8 +46,12 @@ def _mat_hang() -> tuple[str, int]:
 
 
 def _ncc(client, h, ten: str, item: dict) -> int:
+    # MST phải KHÁC NHAU từng NCC: từ 12/08/2026 trùng mã số thuế bị chặn (một MST = một pháp
+    # nhân, trùng gần như luôn là nhập trùng hồ sơ). Trước đó mọi NCC ở đây dùng chung một mã.
+    # Đánh số theo thứ tự lập, KHÔNG băm tên — `hash()` chuỗi đổi theo từng lần chạy Python.
+    mst = f"01{next(_dem_mst):08d}"
     r = client.post("/api/suppliers", headers=h, json={
-        "name": ten, "tax_code": "0100000000", "phone": "0900000000",
+        "name": ten, "tax_code": mst, "phone": "0900000000",
         "email": f"{ten.lower().replace(' ', '')}@x.vn", "address": "HN",
         "contact_name": "A", "supplier_group": "giay", "items": [item],
     })

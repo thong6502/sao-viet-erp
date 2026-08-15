@@ -173,7 +173,8 @@ NUT_NGUY_HIEM: list[tuple[str, str, str, str]] = [
     # (mô tả, module, action, file giao diện)
     ("Chốt kỳ công / Mở lại kỳ", "cham_cong", "lock", "ChamCongPage.tsx"),
     ("Duyệt / từ chối PMH", "ke_toan", "approve", "AccountingPurchaseInboxPage.tsx"),
-    ("Sửa số nhận · Mở lại đơn · Đóng đơn", "thu_mua", "manage_status", "PurchaseRequestsPage.tsx"),
+    # Gộp về ô "Thao tác" 12/08/2026 — ô riêng `manage_status` đã bỏ khỏi ma trận.
+    ("Sửa số nhận · Mở lại đơn · Đóng đơn", "thu_mua", "update", "PurchaseRequestsPage.tsx"),
     ("Duyệt yêu cầu chỉnh công", "yeu_cau_chinh_cong", "approve", "ChamCongPage.tsx"),
     ("Xem tab Yêu cầu chỉnh công", "yeu_cau_chinh_cong", "read", "ChamCongPage.tsx"),
     ("Chốt bảng lương", "luong", "lock", "LuongPage.tsx"),
@@ -209,4 +210,66 @@ def test_danh_sach_cho_phep_khong_con_thua():
     thua = sorted(f"{k}:{a}" for (k, a) in CHO_PHEP if (k, a) in gac)
     assert not thua, (
         "Cặp này máy chủ đã gác rồi, gỡ khỏi `CHO_PHEP` đi: " + ", ".join(thua)
+    )
+
+
+# Nút "Huỷ phiếu" ở màn Mua hàng: bày ra 12/08/2026 rồi ẩn lại 15/08 ("không đúng công năng
+# hiện tại"). Hai guard canh nó ĐÃ GỠ THEO — chúng đọc mã nguồn giao diện bằng regex nên không
+# phân biệt được code sống với code đã chú thích: để lại thì lúc nào cũng xanh, thành ra một cái
+# vỏ guard. Bật lại nút thì lấy hai guard đó ở lịch sử git (commit cùng ngày 12/08).
+
+
+# ── Menu "Yêu cầu mua hàng" vs cổng đọc YCMH ở máy chủ ───────────────────────────────────────
+
+#: Khoá ĐỌC ĐƯỢC yêu cầu mua hàng ở máy chủ nhưng CỐ Ý không hiện mục menu — kèm lý do.
+MENU_YCMH_CO_Y_AN: dict[str, str] = {
+    "thu_mua":
+        "Chủ chốt 15/08/2026: cấp ô Mua hàng thì chỉ muốn thấy menu Mua hàng. Người mua VẪN đọc "
+        "được YCMH ở máy chủ — bắt buộc, vì màn Mua hàng gọi API đó để nạp ô chọn nguồn. Muốn có "
+        "thêm mục menu thì cấp ô 'Yêu cầu mua hàng'.",
+}
+
+
+def _menu_ycmh() -> set[str]:
+    """Danh sách khoá mở mục menu 'Yêu cầu mua hàng' ở thanh bên."""
+    s = (FE / "components" / "Sidebar.tsx").read_text(encoding="utf-8")
+    khoi = s.split('id: "yeu-cau-mua-hang"', 1)[1].split("modules: [", 1)[1].split("]", 1)[0]
+    return set(re.findall(r'"([a-z_]+)"', khoi))
+
+
+def _may_chu_doc_ycmh() -> set[str]:
+    nguon = (BE / "services" / "purchase_service.py").read_text(encoding="utf-8")
+    # Cắt ở "\n)" chứ KHÔNG phải ")" đầu tiên: chú thích ngay trong khối có dấu ngoặc
+    # ("(tách 10/08/2026)"), cắt ở đó thì khối rỗng và guard xanh giả.
+    khoi = nguon.split("DEPARTMENT_REQUEST_READER_MODULES = (", 1)[1].split("\n)", 1)[0]
+    khoa = set(re.findall(r'"([a-z_]+)"', khoi))
+    assert khoa, "không đọc được DEPARTMENT_REQUEST_READER_MODULES"
+    return khoa
+
+
+def test_menu_ycmh_khong_rong_hon_cong_may_chu():
+    """Chiều NGUY HIỂM: menu hiện mà API trả 403.
+
+    Người dùng thấy mục menu, bấm vào, ăn màn trắng kèm "không có quyền" — không hiểu mình thiếu
+    gì. Menu phải là TẬP CON của `DEPARTMENT_REQUEST_READER_MODULES`."""
+    thua = sorted(_menu_ycmh() - _may_chu_doc_ycmh())
+    assert not thua, (
+        "Thanh bên mở mục 'Yêu cầu mua hàng' cho khoá mà máy chủ KHÔNG cho đọc YCMH: "
+        + ", ".join(thua)
+        + " — cấp ô đó xong bấm vào menu sẽ ăn 403. Thêm khoá vào "
+        "DEPARTMENT_REQUEST_READER_MODULES hoặc bỏ khỏi Sidebar."
+    )
+
+
+def test_khoa_doc_duoc_ycmh_ma_khong_co_menu_deu_phai_khai_ly_do():
+    """Chiều còn lại KHÔNG vỡ gì, nhưng phải CỐ Ý.
+
+    Khoá đọc được YCMH mà không có mục menu = người dùng có quyền nhưng không có đường vào bằng
+    chuột. Đôi khi đúng ý (xem `MENU_YCMH_CO_Y_AN`), nhưng lặng lẽ rơi ra thì thành mất đường."""
+    thieu = sorted(_may_chu_doc_ycmh() - _menu_ycmh() - set(MENU_YCMH_CO_Y_AN))
+    assert not thieu, (
+        "Mấy khoá này đọc được YCMH ở máy chủ nhưng thanh bên không mở mục nào: "
+        + ", ".join(thieu)
+        + " — cấp ô xong người dùng vẫn không có đường vào. Thêm vào Sidebar, hoặc khai vào "
+        "`MENU_YCMH_CO_Y_AN` kèm lý do nếu ẩn là có chủ ý."
     )

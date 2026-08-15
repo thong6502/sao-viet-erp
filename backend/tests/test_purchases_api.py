@@ -1,6 +1,8 @@
 """Tests for the Thu mua API: suppliers + purchase-request approval flow."""
 from __future__ import annotations
 
+import zlib
+
 import re
 from datetime import date, timedelta
 
@@ -185,7 +187,12 @@ def test_ba_man_thu_mua_gac_bang_ba_khoa_doc_lap(client):
     # trắng. Chỉ là cửa đọc picker, không mở CRUD danh mục.
     assert client.get("/api/vat-lieu-kho/mat-hang", headers=h_ycmh).status_code == 200
     # ...nhung KHONG mo duoc danh muc NCC va KHONG cham duoc phieu mua.
-    assert client.get("/api/suppliers", headers=h_ycmh).status_code == 403
+    # DANH SÁCH NCC: từ 12/08/2026 người xử lý YCMH ĐỌC ĐƯỢC (chủ chốt: "chưa được cấp quyền nhà
+    # cung cấp sao nó lại không gợi ý nhà cung cấp"). Xử lý một yêu cầu mua là phải CHỌN nhà cung
+    # cấp, mà ô chọn lấy dữ liệu từ đúng endpoint này. ĐỌC ≠ sửa danh mục — vế sửa vẫn 403.
+    assert client.get("/api/suppliers", headers=h_ycmh).status_code == 200
+    assert client.post("/api/suppliers", json={"name": "NCC lau"},
+                       headers=h_ycmh).status_code == 403
     assert client.get("/api/purchase-requests", headers=h_ycmh).status_code == 403
     # Endpoint badge không được rò số sự kiện của hai màn người này không có quyền.
     assert client.get(
@@ -385,7 +392,10 @@ def _supplier(client, headers, name: str = "Cong ty Giay An Phat", items=None) -
         "/api/suppliers",
         json={
             "name": name,
-            "tax_code": "0101234567",
+            # MST suy từ TÊN: từ 12/08/2026 hai NCC không được trùng mã số thuế, mà fixture này
+            # dựng hàng chục NCC trong một file test. Suy từ tên ⇒ mỗi NCC một mã, còn hai lần gọi
+            # CÙNG TÊN vẫn ra cùng mã và vẫn vướng luật trùng TÊN (kiểm trước MST).
+            "tax_code": f"01{abs(zlib.crc32(name.encode())) % 10**8:08d}",
             "phone": "0901000001",
             "email": "ncc@example.com",
             "address": "12 Nguyen Trai, TP.HCM",
@@ -991,6 +1001,58 @@ def test_nguoi_chi_co_quyen_huy_chi_don_duoc_phieu_nhap_cua_minh(client, auth_he
     r = client.post(f"/api/purchase-requests/{da_gui['id']}/cancel",
                     json={"reason": "Giám đốc dừng"}, headers=_h_duyet())
     assert r.status_code == 200, r.text
+
+
+def test_dien_thoai_ncc_phai_du_10_so(client, auth_headers):
+    """Số điện thoại NCC phải đủ 10 chữ số (chủ chốt 15/08/2026).
+
+    Gõ thiếu/thừa một số thì gọi không được, mà cái sai đó chỉ lộ ra đúng lúc cần gọi gấp.
+
+    Chặn ở TẦNG SERVICE nên áp cho cả TẠO lẫn SỬA — vá mỗi đường tạo là hồ sơ vẫn hỏng được
+    bằng nút Sửa."""
+    ho_so = {
+        "name": "NCC So Dien Thoai", "tax_code": "0100777001",
+        "email": "sdt@x.vn", "address": "HN", "contact_name": "A",
+        "supplier_group": "giay",
+    }
+    r = client.post("/api/suppliers", json={**ho_so, "phone": "090123456"}, headers=auth_headers)
+    assert r.status_code == 422, r.text
+    assert "10 chữ số" in r.json()["detail"]
+
+    r = client.post("/api/suppliers", json={**ho_so, "phone": "09012345678"}, headers=auth_headers)
+    assert r.status_code == 422, "11 số cũng phải chặn"
+
+    r = client.post("/api/suppliers", json={**ho_so, "phone": "090abc4567"}, headers=auth_headers)
+    assert r.status_code == 422, "có chữ cái mà vẫn lọt"
+
+    # Dấu cách / gạch KHÔNG phải lỗi — người ta hay gõ "090 123 4567". Nhận, và lưu dạng gọn.
+    r = client.post("/api/suppliers", json={**ho_so, "phone": "090 123 4567"}, headers=auth_headers)
+    assert r.status_code == 201, r.text
+    sid = r.json()["id"]
+    assert r.json()["phone"] == "0901234567", "phải lưu dạng đã bỏ dấu cách"
+
+    # SỬA cũng chặn.
+    r = client.put(f"/api/suppliers/{sid}",
+                   json={**ho_so, "phone": "0901"}, headers=auth_headers)
+    assert r.status_code == 422, "sửa lọt thì hồ sơ vẫn hỏng được"
+
+
+def test_email_ncc_phai_co_a_cong(client, auth_headers):
+    """Email thiếu @ (hoặc thiếu đuôi) thì thư gửi đi không bao giờ tới — chặn ngay lúc lưu."""
+    ho_so = {
+        "name": "NCC Email", "tax_code": "0100777002", "phone": "0901234500",
+        "address": "HN", "contact_name": "A", "supplier_group": "giay",
+    }
+    for xau in ("khongcoacong.vn", "thieu@duoi", "co dau cach@x.vn", "@x.vn", "a@"):
+        r = client.post("/api/suppliers", json={**ho_so, "email": xau}, headers=auth_headers)
+        assert r.status_code == 422, f"lọt email sai: {xau!r} — {r.text}"
+
+    r = client.post("/api/suppliers", json={**ho_so, "email": "ke.toan@congty.com.vn"},
+                    headers=auth_headers)
+    assert r.status_code == 201, r.text
+    sid = r.json()["id"]
+    r = client.put(f"/api/suppliers/{sid}", json={**ho_so, "email": "hong"}, headers=auth_headers)
+    assert r.status_code == 422, "sửa lọt thì hồ sơ vẫn hỏng được"
 
 
 def test_seed_bo_phan_mua_hang_khong_co_quyen_duyet(client):
@@ -2007,11 +2069,18 @@ def test_vai_trong_tron_khong_doc_duoc_yeu_cau_mua_hang(client, auth_headers):
 
 
 def test_ba_viec_sau_khi_nhan_hang_doi_o_rieng_khong_phai_o_duyet(client, auth_headers):
-    """`thu_mua:manage_status` — ô mới (11/08/2026) cho: Sửa số nhận · Mở lại đơn · Đóng đơn.
+    """Sửa số nhận · Mở lại đơn · Đóng đơn đòi ô **Thao tác** (`thu_mua:update`).
 
-    Trước đó ba việc này mượn cờ `can_approve`, và ba câu báo lỗi còn ghi "chỉ người có quyền
-    duyệt" — đọc lên tưởng đúng, thật ra sai nghĩa: chúng là việc sửa/đảo trạng thái đơn SAU KHI
-    hàng về, của bộ phận mua hàng, chẳng liên quan tới duyệt chi tiền.
+    Ba nấc, ghi lại để đừng quay vòng:
+      • trước 11/08/2026 — mượn cờ `can_approve`, câu báo lỗi ghi "chỉ người có quyền duyệt": SAI
+        NGHĨA, đây là việc sửa đơn sau khi hàng về, chẳng liên quan duyệt chi tiền;
+      • 11/08/2026 — tách ra ô riêng `manage_status`;
+      • 12/08/2026 — GỘP về ô "Thao tác" sau khi chủ chốt test: *"quyền Sửa / đảo trạng thái đơn
+        sau khi nhận hàng vô dụng, bỏ đi được không"*. Ba việc đó là việc thường ngày của chính
+        người lập phiếu; tách ra chỉ thêm một ô phải nhớ tick.
+
+    Vế GIỮ NGUYÊN: người chỉ có ô Xem thì không đảo được trạng thái, và câu báo lỗi KHÔNG được
+    nói "quyền duyệt".
     """
     supplier = _supplier(client, auth_headers, name="NCC Trang Thai")
     pr = _create_purchase_request(client, auth_headers, supplier["id"])
@@ -2019,14 +2088,14 @@ def test_ba_viec_sau_khi_nhan_hang_doi_o_rieng_khong_phai_o_duyet(client, auth_h
     client.post(f"/api/purchase-requests/{pr['id']}/approve", headers=_h_duyet())
     client.post(f"/api/purchase-requests/{pr['id']}/receive", headers=auth_headers)
 
-    # Người có `thu_mua` đủ CRUD nhưng KHÔNG có ô mới ⇒ không lùi được trạng thái.
+    # Người CHỈ CÓ Ô XEM ⇒ không lùi được trạng thái.
     db = SessionLocal()
     try:
         kd = DepartmentRepository(db).get_by_name("Kinh doanh")
         roles, users = RoleRepository(db), UserRepository(db)
         vai = roles.create(name="Thu mua khong doi trang thai", department_id=kd.id)
         roles.set_permission(role_id=vai.id, module_key="thu_mua", can_read=True,
-                             can_create=True, can_update=True, scope=SCOPE_ALL)
+                             scope=SCOPE_ALL)
         u = users.create(username="tm-khong-doi-tt", name="TM", password_hash=hash_password("x"))
         users.set_assignment(u, department_id=kd.id, role_id=vai.id, is_active=True)
         db.commit()
@@ -2036,7 +2105,114 @@ def test_ba_viec_sau_khi_nhan_hang_doi_o_rieng_khong_phai_o_duyet(client, auth_h
 
     r = client.post(f"/api/purchase-requests/{pr['id']}/undo-received",
                     json={"reason": "dem lai"}, headers=thieu_o)
-    assert r.status_code == 403, f"thiếu ô mới mà vẫn lùi được trạng thái: {r.status_code}"
+    assert r.status_code == 403, f"chỉ có ô Xem mà vẫn lùi được trạng thái: {r.status_code}"
     assert "duyệt" not in r.json()["detail"].lower(), (
         "câu báo lỗi vẫn nói 'quyền duyệt' — sai nghĩa, đây là ô sửa/đảo trạng thái đơn"
     )
+
+
+# ══════════════════════════════ Thu mua & Kế toán, đợt 12/08/2026
+
+
+def _ncc(client, headers, *, name, tax_code, expect=201):
+    """Tạo NCC với đủ trường bắt buộc — chỉ TÊN và MST là thứ đang muốn thử."""
+    r = client.post("/api/suppliers",
+                    json={"name": name, "tax_code": tax_code, "phone": "0900000000",
+                          "email": "x@example.com", "address": "1 Le Loi",
+                          "contact_name": "A", "supplier_group": "paper",
+                          "payment_terms": "Cong no 30 ngay", "items": []},
+                    headers=headers)
+    assert r.status_code == expect, r.text
+    return r.json() if r.status_code < 400 else r
+
+
+def test_ma_so_thue_khong_duoc_trung(client, auth_headers):
+    """MST là ĐỊNH DANH PHÁP LÝ. Hai hồ sơ cùng MST = một nhà cung cấp bị nhập hai lần: công nợ
+    chẻ đôi, đối chiếu hoá đơn ra hai kết quả, không ai biết phiếu chi nên gắn hồ sơ nào."""
+    _ncc(client, auth_headers, name="NCC MST Goc", tax_code="0188888888")
+    lai = _ncc(client, auth_headers, name="NCC Khac Ten", tax_code="0188888888", expect=409)
+    assert "0188888888" in lai.json()["detail"]
+    assert "NCC MST Goc" in lai.json()["detail"], "câu báo phải chỉ ĐÍCH DANH hồ sơ đang giữ mã"
+
+
+def test_API_van_bat_buoc_khai_MST(client, auth_headers):
+    """Đo được 12/08/2026: schema `SupplierIn` đã bắt buộc `tax_code` (min_length 1) TỪ TRƯỚC —
+    không có đường nào tạo NCC mà bỏ trống mã số thuế.
+
+    Ghi lại vì nó đổi nghĩa của luật chống trùng vừa thêm: luật đó KHÔNG thể chặn nhầm nhóm "hộ
+    kinh doanh không có MST", đơn giản vì nhóm đó chưa bao giờ khai được. Nhánh "bỏ trống thì bỏ
+    qua" trong `_chan_trung_mst` vẫn giữ — nó đỡ cho người gọi nội bộ và cho ngày ai đó nới schema.
+    """
+    r = client.post("/api/suppliers",
+                    json={"name": "NCC Khong MST", "phone": "0900000000",
+                          "email": "x@example.com", "address": "1 Le Loi",
+                          "contact_name": "A", "supplier_group": "paper",
+                          "payment_terms": "Cong no 30 ngay", "items": []},
+                    headers=auth_headers)
+    assert r.status_code == 422, f"bỏ trống MST mà vẫn tạo được: {r.status_code}"
+
+
+def test_sua_NCC_giu_nguyen_mst_cua_chinh_no(client, auth_headers):
+    """Sửa tên mà không đụng MST thì không được tự vướng luật trùng với CHÍNH MÌNH."""
+    ncc = _ncc(client, auth_headers, name="NCC Sua Ten", tax_code="0177777777")
+    sua = client.put(f"/api/suppliers/{ncc['id']}",
+                     json={"name": "NCC Sua Ten (moi)", "tax_code": "0177777777",
+                           "phone": "0900000000", "email": "x@example.com",
+                           "address": "1 Le Loi", "contact_name": "A",
+                           "supplier_group": "paper", "payment_terms": "Cong no 30 ngay",
+                           "items": []},
+                     headers=auth_headers)
+    assert sua.status_code == 200, sua.text
+
+
+def test_danh_sach_NCC_moi_nhat_len_dau(client, auth_headers):
+    """Trước 12/08/2026 xếp theo TÊN — NCC vừa khai xong nằm tận trang sau, người khai phải đi
+    tìm chính thứ mình vừa tạo."""
+    # ⚠️ TÊN PHẢI NGƯỢC CHIỀU THỨ TỰ TẠO. Bản đầu đặt "Zzz" tạo trước / "Aaa" tạo sau — xếp theo
+    # tên hay theo thời gian đều ra "Aaa" đứng đầu, nên đột biến "về lại xếp theo tên" KHÔNG CẮN.
+    _ncc(client, auth_headers, name="Aaa Tao Truoc", tax_code="0111111111")
+    _ncc(client, auth_headers, name="Zzz Tao Sau", tax_code="0122222222")
+    ten = [x["name"] for x in client.get("/api/suppliers", headers=auth_headers).json()["items"]]
+    assert ten.index("Zzz Tao Sau") < ten.index("Aaa Tao Truoc"), (
+        f"vẫn đang xếp theo tên chứ không theo thời điểm tạo: {ten[:4]}"
+    )
+
+
+def test_o_Thao_tac_LA_DU_de_dao_trang_thai_don(client, auth_headers):
+    """Vế THÀNH CÔNG của việc gộp quyền — trước đây KHÔNG ca nào chạy nó.
+
+    Đột biến "bỏ hẳn kiểm quyền, luôn ném 403" vẫn xanh cả file: mọi ca đều chỉ kiểm chiều BỊ
+    CHẶN. Không có vế này thì gộp `manage_status` → `update` mà lỡ gác nhầm sang một ô không ai
+    có, cả bộ test vẫn im.
+    """
+    supplier = _supplier(client, auth_headers, name="NCC Thao Tac Du")
+    pr = _create_purchase_request(client, auth_headers, supplier["id"])
+    client.post(f"/api/purchase-requests/{pr['id']}/submit", headers=auth_headers)
+    client.post(f"/api/purchase-requests/{pr['id']}/approve", headers=_h_duyet())
+    # ⚠️ Endpoint là `mark-received`, KHÔNG phải `/receive` — gọi sai thì phiếu đứng ở "Đã mua"
+    # và ca đo báo "Chỉ phiếu đã nhận hàng mới lùi được", tưởng lỗi quyền. Hai ca cũ ở file này
+    # cũng gọi sai y hệt, nhưng chúng chỉ kiểm chiều BỊ CHẶN nên không lộ ra.
+    dm = client.post(f"/api/purchase-requests/{pr['id']}/mark-purchased", headers=auth_headers)
+    assert dm.status_code == 200, dm.text
+    dn = client.post(f"/api/purchase-requests/{pr['id']}/mark-received",
+                     json={"lines": []}, headers=auth_headers)
+    assert dn.status_code == 200, dn.text
+
+    db = SessionLocal()
+    try:
+        kd = DepartmentRepository(db).get_by_name("Kinh doanh")
+        roles, users = RoleRepository(db), UserRepository(db)
+        vai = roles.create(name="Thu mua co Thao tac", department_id=kd.id)
+        # ĐÚNG ô "Thao tác", KHÔNG có ô duyệt, KHÔNG có ô riêng nào khác.
+        roles.set_permission(role_id=vai.id, module_key="thu_mua", can_read=True,
+                             can_create=True, can_update=True, scope=SCOPE_ALL)
+        u = users.create(username="tm-co-thao-tac", name="TM", password_hash=hash_password("x"))
+        users.set_assignment(u, department_id=kd.id, role_id=vai.id, is_active=True)
+        db.commit()
+        h = {"Authorization": f"Bearer {create_access_token(str(u.id))}"}
+    finally:
+        db.close()
+
+    r = client.post(f"/api/purchase-requests/{pr['id']}/undo-received",
+                    json={"reason": "dem lai"}, headers=h)
+    assert r.status_code == 200, f"có ô Thao tác mà vẫn không lùi được: {r.text}"

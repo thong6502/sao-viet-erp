@@ -7602,6 +7602,132 @@ def _migrate_stock_request_quyet_dinh_xem_luc(db) -> None:
 MIGRATIONS.append(("0188_stock_request_quyet_dinh_xem_luc", _migrate_stock_request_quyet_dinh_xem_luc))
 
 
+def _migrate_cong_bo_phieu_luong(db) -> None:
+    """Thêm `payroll_periods.cong_bo_luc` — mốc PHÁT PHIẾU LƯƠNG cho NLĐ (12/08/2026).
+
+    `create_all` chỉ TẠO bảng, KHÔNG ALTER ⇒ cột mới phải thêm ở đây thì DB đang chạy mới nhận.
+
+    VÌ SAO CÓ: trước đó `latest_line_for_employee` trả dòng lương của kỳ mới nhất mà KHÔNG lọc
+    trạng thái kỳ — HCNS vừa bấm "Tính lại", số còn đang soát, thợ đã mở điện thoại xem được; HCNS
+    sửa tiếp thì số đổi, không ai báo gì.
+
+    MỘT CỘT LÀM CẢ HAI VIỆC: "Công bố ngay" ghi thời điểm hiện tại, "Hẹn giờ" ghi mốc tương lai.
+    Điều kiện thấy phiếu là `cong_bo_luc <= bây giờ`, KIỂM LÚC ĐỌC ⇒ không cần job chạy nền.
+
+    ĐỂ NULL CHO MỌI KỲ CŨ, cố ý: kỳ cũ coi như CHƯA công bố. Chọn ngược lại (mở sẵn hết) thì cột
+    này vô nghĩa ngay ngày đầu — mà mở sẵn cũng chỉ giữ nguyên hiện trạng đang muốn sửa.
+    """
+    insp = inspect(db.get_bind())
+    if "cong_bo_luc" not in _existing_columns(insp, "payroll_periods"):
+        db.execute(text("ALTER TABLE payroll_periods ADD COLUMN cong_bo_luc TIMESTAMP NULL"))
+        db.commit()
+
+
+MIGRATIONS.append(("0187_cong_bo_phieu_luong", _migrate_cong_bo_phieu_luong))
+
+
+def _migrate_de_tay_khoan_tu_ho_so(db) -> None:
+    """Thêm `payroll_line_components.da_de_tay` — sửa khoản "Từ hồ sơ" cho RIÊNG một kỳ (12/08/2026).
+
+    Chủ chốt: *"gán cho nó Hỗ trợ chi phí đi lại, nhưng tháng này nó đi nhiều hơn thì sửa thế nào?"*
+    Trước đó không sửa được: code chặn thẳng, vì dòng `source='employee'` bị xoá-ghi-lại mỗi lần
+    bấm "Tính lại" nên sửa xong là mất số âm thầm.
+
+    `false` cho mọi dòng cũ — không dòng nào đang bị đè, không có gì để đoán.
+    """
+    insp = inspect(db.get_bind())
+    if "da_de_tay" not in _existing_columns(insp, "payroll_line_components"):
+        db.execute(text(
+            "ALTER TABLE payroll_line_components ADD COLUMN da_de_tay BOOLEAN NOT NULL DEFAULT false"
+        ))
+        db.commit()
+
+
+MIGRATIONS.append(("0188_de_tay_khoan_tu_ho_so", _migrate_de_tay_khoan_tu_ho_so))
+
+
+def _migrate_dong_phieu_luong(db) -> None:
+    """Thêm `payroll_periods.dong_phieu_luc` — mốc ĐÓNG phiếu lương (12/08/2026).
+
+    Cùng `cong_bo_luc` (mg 0187) tạo thành MỘT CỬA SỔ: NV thấy phiếu khi
+    `cong_bo_luc <= bây giờ < dong_phieu_luc`. Chủ chốt: *"cài giờ phiếu nó hiển thị trong bao
+    nhiêu lâu"* — phiếu lương không cần mở vĩnh viễn.
+
+    NULL cho mọi kỳ cũ = mở không thời hạn ⇒ kỳ nào đang công bố vẫn giữ nguyên hành vi. Chọn
+    ngược lại (đóng sẵn) là âm thầm rút phiếu của những kỳ đang mở.
+    """
+    insp = inspect(db.get_bind())
+    if "dong_phieu_luc" not in _existing_columns(insp, "payroll_periods"):
+        db.execute(text("ALTER TABLE payroll_periods ADD COLUMN dong_phieu_luc TIMESTAMP NULL"))
+        db.commit()
+
+
+MIGRATIONS.append(("0189_dong_phieu_luong", _migrate_dong_phieu_luong))
+
+
+def _migrate_com_tang_ca(db) -> None:
+    """SUẤT CƠM TĂNG CA (12/08/2026) — 3 cột, một luật.
+
+    Chủ chốt: *"Tăng ca 3 tiếng sẽ được thưởng tiền cơm, cái này setup động nha; riêng tăng ca
+    ngày chủ nhật thì cứ tăng ca là được tiền cơm cho dù 1 tiếng hay 2 tiếng."*
+
+    Ba cột, mỗi cột một việc:
+      • `attendance_period_lines.ot_days_json` — phút tăng ca TỪNG NGÀY, tách ngày làm / ngày nghỉ.
+        Ảnh chụp cũ chỉ giữ TỔNG phút cả tháng nên không trả lời được "ngày nào đủ 3 tiếng".
+      • `payroll_params.com_tang_ca_nguong_phut` — ngưỡng cho NGÀY LÀM VIỆC (mặc định 180' = 3h).
+      • `payroll_params.com_tang_ca_muc` — tiền một suất. MẶC ĐỊNH 0 = TẮT, chủ tự khai.
+
+    Vì sao mức mặc định 0 chứ không phải 25.000 như cơm ca: bật sẵn một khoản RA TIỀN cho cả nhà
+    máy mà chưa ai duyệt số là tự ý tăng quỹ lương. Cùng lối với `cong_doan_rate` (cũng mặc định 0).
+    Ngưỡng thì để 180' vì nó chỉ có nghĩa khi mức > 0.
+    """
+    insp = inspect(db.get_bind())
+    if "ot_days_json" not in _existing_columns(insp, "attendance_period_lines"):
+        db.execute(text("ALTER TABLE attendance_period_lines ADD COLUMN ot_days_json TEXT NULL"))
+        db.commit()
+    cot_params = _existing_columns(insp, "payroll_params")
+    if "com_tang_ca_nguong_phut" not in cot_params:
+        db.execute(text("ALTER TABLE payroll_params ADD COLUMN com_tang_ca_nguong_phut "
+                        "INTEGER NOT NULL DEFAULT 180"))
+        db.commit()
+    if "com_tang_ca_muc" not in cot_params:
+        db.execute(text("ALTER TABLE payroll_params ADD COLUMN com_tang_ca_muc "
+                        "NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        db.commit()
+    if "com_tang_ca_pay" not in _existing_columns(insp, "payroll_lines"):
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN com_tang_ca_pay "
+                        "NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        db.commit()
+
+
+MIGRATIONS.append(("0190_com_tang_ca", _migrate_com_tang_ca))
+
+
+def _migrate_gop_o_dao_trang_thai_don(db) -> None:
+    """Gộp ô "Sửa / đảo trạng thái đơn sau khi nhận hàng" về ô "Thao tác" (12/08/2026).
+
+    Chủ chốt test rồi kết luận: *"quyền Sửa / đảo trạng thái đơn sau khi nhận hàng với Hủy PMH nó
+    vô dụng, bỏ đi được không, tôi test mà nó chả có gì."*
+
+    Hai ô, hai số phận khác nhau:
+
+    • `thu_mua.can_manage_status` — CÓ gác thật (sửa số nhận · mở lại đơn · đóng đơn). Ba việc đó
+      là việc thường ngày của chính người lập phiếu, tách ra chỉ thêm một ô phải nhớ tick. Nay
+      service hỏi `can_update`, nên PHẢI ĐỔ QUYỀN CŨ SANG — bỏ bước này thì vai nào đang có
+      `manage_status` mà chưa có `update` sẽ MẤT cả ba nút sáng hôm sau.
+
+    • `thu_mua.can_cancel` — ô "Hủy PMH", CHƯA BAO GIỜ được đọc: `purchase_service.cancel` gác
+      bằng `ke_toan:approve` (hoặc chính người lập khi phiếu còn nháp). Không có gì để đổ.
+      KHÔNG xoá cột — nó dùng chung cho mọi module, chỉ gỡ ô khỏi ma trận.
+    """
+    db.execute(text(
+        "UPDATE role_permissions SET can_update = true "
+        "WHERE module_key = 'thu_mua' AND can_manage_status AND NOT can_update"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0191_gop_o_dao_trang_thai_don", _migrate_gop_o_dao_trang_thai_don))
 def _migrate_stock_request_purchase_delivery_id(db) -> None:
     """Thêm `stock_requests.purchase_delivery_id` — nguồn đợt giao đơn mua sinh ra yêu cầu NHẬP
     (chặn nhập kho trùng một đợt). Nullable, soft ref → no-op DB fresh / cột đã có."""

@@ -259,29 +259,10 @@ export function PaymentReceiptDialog({
             </label>
           </div>
 
-          <div className="acct-form-grid acct-form-grid--2">
-            <label className="acct-field">
-              <span>Định khoản — Nợ</span>
-              <input
-                className="input"
-                maxLength={64}
-                placeholder="VD: 1111"
-                value={form.debit_account ?? ""}
-                onChange={(e) => set("debit_account", e.target.value)}
-              />
-            </label>
-            <label className="acct-field">
-              <span>Định khoản — Có</span>
-              <input
-                className="input"
-                maxLength={64}
-                placeholder="VD: 141"
-                value={form.credit_account ?? ""}
-                onChange={(e) => set("credit_account", e.target.value)}
-              />
-            </label>
-          </div>
-
+          {/* Khối "Định khoản" ĐÃ BỎ (chủ chốt 12/08/2026): hai ô Nợ / Có bắt kế toán gõ số
+              hiệu tài khoản cho từng phiếu, mà hệ thống không hạch toán gì từ chúng — chỉ in ra.
+              Cột `debit_account` và `credit_account` GIỮ NGUYÊN trong DB để phiếu cũ in lại vẫn
+              đúng; chỉ gỡ ô nhập. */}
           <div className="acct-segment" aria-label="Hình thức thu">
             <button
               type="button"

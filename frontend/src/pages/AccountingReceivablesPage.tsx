@@ -390,15 +390,19 @@ function ReceivablesDrawer({
             <div className="pay-block__head"><h3>Lịch sử đã thu / cấn cọc</h3><strong>{money(detail.received_in_period)}</strong></div>
             <div className="ar-tablewrap">
               <table className="pay-table ar-history-table">
-                <thead><tr><th>Phiếu thu</th><th>Áp dụng</th><th>Hóa đơn / đơn</th><th>Ngày thu</th><th>Hình thức</th><th>Số tiền</th></tr></thead>
+                {/* "Người lập" đứng cạnh chính số phiếu của người đó — soi lịch sử thấy dòng lạ
+                    thì câu hỏi đầu tiên luôn là "phiếu này ai ghi". Bên Công nợ phải trả đặt cùng
+                    chỗ, để hai màn đọc như nhau. */}
+                <thead><tr><th>Phiếu thu</th><th>Người lập</th><th>Áp dụng</th><th>Hóa đơn / đơn</th><th>Ngày thu</th><th>Hình thức</th><th>Số tiền</th></tr></thead>
                 <tbody>
-                  {detail.paid.length === 0 && <tr><td colSpan={6}>Chưa có khoản thu trong kỳ đang xem.</td></tr>}
+                  {detail.paid.length === 0 && <tr><td colSpan={7}>Chưa có khoản thu trong kỳ đang xem.</td></tr>}
                   {detail.paid.map((receipt) => (
                     <tr key={`${receipt.receipt_id}-${receipt.applied_to}-${receipt.sales_invoice_id ?? receipt.order_id}`}>
                       <td>
                         <CodeLink code={receipt.code} onOpen={() => navigate("ke-toan-phieu-thu", { focusReceiptQuery: receipt.code })} />
                         {receipt.doc_no && <small>Số {receipt.doc_no}</small>}
                       </td>
+                      <td title={receipt.created_by_name ?? undefined}>{receipt.created_by_name || "—"}</td>
                       <td>{receipt.applied_to === "deposit_offset" ? "Cấn cọc" : "Thu hóa đơn"}</td>
                       <td>
                         {receipt.sales_invoice_number ?? "—"}

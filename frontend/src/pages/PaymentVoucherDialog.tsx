@@ -912,34 +912,10 @@ export function PaymentVoucherDialog({
             </section>
           )}
 
-          <section className="acct-form-section">
-            <h3>Định khoản (in trên phiếu)</h3>
-            <div className="acct-form-grid acct-form-grid--3">
-              <label className="acct-field">
-                <span>Nợ</span>
-                <input
-                  className="input"
-                  maxLength={64}
-                  placeholder="VD: 242, 1331"
-                  value={form.debit_account ?? ""}
-                  onChange={(e) => set("debit_account", e.target.value)}
-                />
-              </label>
-              <label className="acct-field">
-                <span>Có</span>
-                <input
-                  className="input"
-                  maxLength={64}
-                  placeholder={
-                    form.voucher_type === "cash" ? "VD: 1111" : "VD: 1121"
-                  }
-                  value={form.credit_account ?? ""}
-                  onChange={(e) => set("credit_account", e.target.value)}
-                />
-              </label>
-            </div>
-          </section>
-
+          {/* Khối "Định khoản" ĐÃ BỎ (chủ chốt 12/08/2026): hai ô Nợ / Có bắt kế toán gõ số
+              hiệu tài khoản cho từng phiếu, mà hệ thống không hạch toán gì từ chúng — chỉ in ra.
+              Cột `debit_account` và `credit_account` GIỮ NGUYÊN trong DB để phiếu cũ in lại vẫn
+              đúng; chỉ gỡ ô nhập. */}
           <section className="acct-form-section">
             <h3>Chứng từ tham chiếu</h3>
             <div className="acct-form-grid acct-form-grid--3">

@@ -677,6 +677,10 @@ class AccountingService:
                         "invoice_date": v.invoice_date,
                         "has_attachment": bool(v.attachments),
                         "paid_date": ngay,
+                        # `_user_name` đi qua `Session.get` ⇒ cùng một kế toán lập 20 phiếu vẫn chỉ
+                        # một lượt vào DB (lần sau lấy ở identity map), không thành N+1.
+                        "created_by_user_id": v.created_by_user_id,
+                        "created_by_name": self._user_name(v.created_by_user_id),
                     }
                 )
         # Sắp theo hạn trả; đợt THIẾU hạn đẩy lên ĐẦU chứ không dìm xuống cuối — chúng không bao giờ

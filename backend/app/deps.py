@@ -516,7 +516,6 @@ O_QUYEN_DUOC_GAC: set[tuple[str, str]] = set()
 O_QUYEN_GAC_O_SERVICE: set[tuple[str, str]] = {
     ("yeu_cau_mua_hang", "create"),   # purchase_service.can_create_department_request
     ("yeu_cau_mua_hang", "cancel"),   # purchase_service.cancel_department_request (huỷ hộ)
-    ("thu_mua", "manage_status"),     # sửa số nhận · mở lại đơn · đóng đơn
     ("ke_toan", "approve"),           # huỷ PMH đã gửi duyệt (purchase_service.cancel)
     ("ke_toan", "read"),              # đếm đợt giao quá hạn cho badge Thu mua
 }
@@ -539,6 +538,9 @@ O_QUYEN_GAC_O_SERVICE: set[tuple[str, str]] = {
 #: mà chỗ nào đó vẫn đang hỏi thì test đỏ.
 O_CHET_DA_XAC_MINH: set[tuple[str, str]] = {
     ("yeu_cau_mua_hang", "delete"),
+    # `thu_mua:cancel` và `thu_mua:manage_status`: KHÔNG khai ở đây. Hai ô đó đã GỠ HẲN khỏi ma
+    # trận ngày 12/08/2026 (xem `PermissionMatrix.tsx`), mà danh sách này chỉ dùng để TẮT những ô
+    # còn bày ra. Khai thêm chỉ làm guard đi soi một ô không tồn tại.
     ("nha_cung_cap", "delete"),
     ("ke_toan", "create"), ("ke_toan", "update"), ("ke_toan", "delete"),
     ("phieu_chi", "update"), ("phieu_chi", "delete"),
