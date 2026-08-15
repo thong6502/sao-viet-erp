@@ -704,7 +704,7 @@ def test_department_purchase_request_rejects_material_without_active_supplier(cl
     )
 
     assert created.status_code == 422, created.text
-    assert "nha cung cap" in created.json()["detail"].lower()
+    assert "nhà cung cấp" in created.json()["detail"].lower()
 
 
 def test_department_purchase_request_update_permissions_and_status(client, auth_headers):
@@ -791,7 +791,7 @@ def test_phieu_mua_chan_mat_hang_ncc_khong_ban(client, auth_headers):
 
     chan = _gui(ncc_khac["id"], src_chan["id"])
     assert chan.status_code == 422, chan.text
-    assert "khong ban" in chan.json()["detail"], chan.text
+    assert "không bán" in chan.json()["detail"], chan.text
 
     # Mặt hàng NGƯNG BÁN cũng không đặt mới được nữa — `has_active_item` (đường YÊU CẦU mua) bỏ
     # sót vế `is_active` này. Tắt thẳng dưới DB vì `SupplierItemIn` không nhận trường `is_active`.
@@ -1441,7 +1441,7 @@ def test_o_gop_trong_ca_hai_thi_bao_loi(client, auth_headers):
         "/api/department-purchase-requests", json=payload, headers=auth_headers
     )
     assert resp.status_code == 422, resp.text
-    assert "Noi dung" in resp.json()["detail"]
+    assert "Nội dung" in resp.json()["detail"]
 
 
 def test_purchase_request_required_header_and_line_fields(client, auth_headers):
