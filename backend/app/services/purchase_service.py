@@ -707,6 +707,26 @@ class PurchaseService:
         except VatLieuKhoError as e:
             raise PurchaseValidationError(str(e)) from None
 
+    @staticmethod
+    def _chan_coc_vuot_tong(coc: int, tong: int, *, khi: str) -> None:
+        """CỌC DỰ KIẾN KHÔNG ĐƯỢC LỚN HƠN TỔNG DỰ KIẾN CỦA ĐƠN (chủ chốt 15/08/2026).
+
+        Cọc là ứng TRƯỚC một phần của chính đơn này. Khai cọc 10tr cho đơn 2tr là con số vô nghĩa,
+        mà nó không nằm yên: `tran_dat_coc` = cọc dự kiến − cọc đã chi, nên số khai thừa thành
+        HẠN MỨC CHI THẬT — kế toán lập được phiếu cọc 10tr cho đơn 2tr, tiền ra khỏi két rồi mới
+        có người hỏi.
+
+        Chặn CẢ HAI ĐẦU: lúc khai cọc, và lúc sửa dòng hàng làm tổng tụt xuống dưới cọc đã khai.
+        Bịt mỗi đầu trên thì chỉ cần khai cọc lúc đơn còn to rồi sửa đơn nhỏ lại là lách được."""
+        if coc > tong:
+            raise PurchaseValidationError(
+                f"Cọc dự kiến ({coc:,}đ) đang lớn hơn tổng dự kiến của đơn ({tong:,}đ) {khi}. "
+                "Cọc là ứng trước một phần của chính đơn này nên không thể vượt giá trị đơn."
+                if tong > 0 else
+                f"Chưa khai được cọc ({coc:,}đ): đơn chưa có dòng hàng nào nên tổng dự kiến đang "
+                "là 0đ. Khai hàng trước rồi mới đặt cọc."
+            )
+
     def _chan_trung_mst(self, tax_code, *, bo_qua_id: int | None = None) -> None:
         """MÃ SỐ THUẾ KHÔNG ĐƯỢC TRÙNG (chủ chốt 12/08/2026).
 
@@ -1842,6 +1862,21 @@ class PurchaseService:
             allowed_reserved_ids={link.department_request_id for link in row.sources},
         )
         self._chot_noi_dong(cleaned_lines, nguon)
+        # Tính tổng MỚI trước khi ghi: `update_header_and_lines` lưu luôn, raise sau đó là dữ liệu
+        # đã đổi rồi mới báo lỗi.
+        tong_moi = sum(
+            _purchase_line_amounts(
+                quantity=float(ln.quantity),
+                unit_price=int(ln.expected_unit_price),
+                discount_percent=float(ln.discount_percent or 0),
+                vat_percent=float(ln.vat_percent or 0),
+            )[3]
+            for ln in cleaned_lines
+        )
+        self._chan_coc_vuot_tong(
+            int(row.deposit_expected or 0), int(tong_moi),
+            khi="sau khi sửa — hạ cọc dự kiến xuống trước rồi sửa hàng",
+        )
         row = self.requests.update_header_and_lines(
             row,
             supplier_id=supplier_id,
@@ -2388,6 +2423,7 @@ class PurchaseService:
         coc = int(deposit_expected or 0)
         if coc < 0:
             raise PurchaseValidationError("Cọc dự kiến không được âm.")
+        self._chan_coc_vuot_tong(coc, int(purchase_money(row)["total"]), khi="")
         if coc != int(row.deposit_expected or 0) and row.status not in (
             PR_DRAFT,
             PR_PENDING,

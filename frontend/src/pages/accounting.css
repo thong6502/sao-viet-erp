@@ -193,6 +193,21 @@
   table-layout: fixed;
 }
 
+/* KHÔNG ĐỂ BẢNG CO DƯỚI NGƯỠNG ĐỌC ĐƯỢC (chủ chốt 15/08/2026: "UI bị vỡ, mình có thể dùng
+   tablet, mobile nữa chứ").
+
+   Năm cột dưới đây khai width CỨNG: 190 + 180 + 150 + 210 + 64 = 794px. Cột 2 ("Đối tượng")
+   không khai width nên nó ăn PHẦN CÒN LẠI — mà `table-layout: fixed` + `width: 100%` nghĩa là
+   bảng co theo container. Container hẹp hơn 794px thì phần còn lại về 0: tên nhà cung cấp rơi
+   mỗi dòng MỘT CHỮ CÁI, và hai tiêu đề cột (`white-space: nowrap`) tràn chồng lên nhau. Vỡ từ
+   khoảng 1000px trở xuống — tức laptop nhỏ đã dính, chưa cần tới tablet.
+
+   `min-width` chặn đúng chỗ đó. `.md-page__tablewrap` đã có `overflow-x: auto` nên màn hẹp hơn
+   thì CUỘN NGANG — bảng tiền 6 cột thì cuộn vẫn đọc được, còn chữ chồng chữ thì không. */
+.acct-list--voucher .md-page__table {
+  min-width: 1000px;
+}
+
 .acct-list--voucher th:nth-child(1),
 .acct-list--voucher td:nth-child(1) {
   width: 190px;

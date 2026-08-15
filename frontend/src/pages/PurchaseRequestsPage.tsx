@@ -2721,13 +2721,19 @@ function ContractBlock({
 
   // Cọc chỉ sửa được khi phiếu còn ở nháp / chờ duyệt / bị từ chối — khớp chốt bên service.
   const cocKhoa = !["draft", "pending_approval", "rejected"].includes(row.status);
+  // TRẦN CỌC = tổng dự kiến của đơn (chủ chốt 15/08/2026). Cọc là ứng trước một phần của chính
+  // đơn này nên không thể vượt giá trị đơn — mà số khai thừa không nằm yên: nó thành hạn mức
+  // lập phiếu chi cọc, tiền ra khỏi két rồi mới có người hỏi.
+  // Chặn ở đây chỉ để báo SỚM; luật thật nằm ở `PurchaseService._chan_coc_vuot_tong`.
+  const tranCoc = row.total_estimate ?? 0;
+  const cocVuot = !cocKhoa && Math.round(Number(coc) || 0) > tranCoc;
   const hopDong = row.attachments.filter((a) => a.kind === "hop_dong");
   const banDau =
     (row.contract_number ?? "") === soHopDong.trim() &&
     (row.deposit_expected || 0) === (Number(coc) || 0);
 
   async function luu() {
-    if (!token || busy) return;
+    if (!token || busy || cocVuot) return;
     setBusy(true);
     onError(null);
     try {
@@ -2797,12 +2803,14 @@ function ContractBlock({
           // cam đó thuộc về "Ghi đợt giao": đó là việc làm gần như mỗi lần hàng về và là đường
           // DUY NHẤT sinh công nợ, còn hợp đồng khai một lần rồi thôi. Hai nút cam cạnh nhau là
           // mắt không biết nhìn đâu.
-          // `disabled={banDau}` giữ nguyên: chưa sửa gì thì không có gì để lưu.
+          // `disabled={banDau}` giữ nguyên: chưa sửa gì thì không có gì để lưu. Thêm `cocVuot`:
+          // để bấm được rồi ăn 422 thì người dùng phải đọc toast mới hiểu, trong khi câu giải
+          // thích đã nằm ngay dưới ô nhập.
           <Button
             type="button"
             variant="ghost"
             loading={busy}
-            disabled={banDau}
+            disabled={banDau || cocVuot}
             onClick={luu}
           >
             Lưu hợp đồng
@@ -2829,21 +2837,29 @@ function ContractBlock({
             type="number"
             min={0}
             step={1000}
+            max={tranCoc || undefined}
             readOnly={!canUpdate || cocKhoa}
             value={coc}
             onChange={(e) => setCoc(e.target.value)}
             placeholder="0"
+            aria-invalid={cocVuot || undefined}
           />
-          <small className="pdot__hint">
+          <small className={`pdot__hint${cocVuot ? " pdot__hint--loi" : ""}`}>
             {cocKhoa ? (
               <>
                 Đơn đã duyệt nên cọc khoá — đây là con số người duyệt đã đồng ý.
                 Cần đổi thì lùi phiếu về nháp rồi duyệt lại.
               </>
+            ) : cocVuot ? (
+              <>
+                Cọc đang lớn hơn tổng dự kiến của đơn ({money(tranCoc)}). Cọc là ứng
+                trước một phần của chính đơn này nên không thể vượt giá trị đơn.
+              </>
             ) : (
               <>
-                Tiền cọc thật là một <strong>phiếu chi Đặt cọc</strong> bên Kế
-                toán — số này <strong>không</strong> vào công nợ, nhưng sẽ được{" "}
+                Tối đa {money(tranCoc)} (tổng dự kiến của đơn). Tiền cọc thật là một{" "}
+                <strong>phiếu chi Đặt cọc</strong> bên Kế toán — số này{" "}
+                <strong>không</strong> vào công nợ, nhưng sẽ được{" "}
                 <strong>điền sẵn</strong> khi kế toán lập phiếu cọc.
               </>
             )}

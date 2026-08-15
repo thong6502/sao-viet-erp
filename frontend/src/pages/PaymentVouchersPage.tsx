@@ -374,27 +374,15 @@ function StandaloneVoucherDialog({
               placeholder="VD: Thanh toán tiền điện tháng 8"
             />
           </label>
+          {/* Hai ô "Định khoản Nợ / Có" ĐÃ BỎ (chủ chốt 15/08/2026) — cùng lý do đã bỏ ở hộp
+              thoại phiếu chi theo đơn hôm 12/08: chúng bắt kế toán gõ số hiệu tài khoản cho từng
+              phiếu mà hệ thống KHÔNG hạch toán gì từ đó, chỉ in ra.
+              Đợt 12/08 tôi chỉ dọn hộp thoại lập-theo-đơn và bỏ sót đúng hai form LẬP RỜI này.
+              Tài khoản "Có" vẫn được điền ngầm theo hình thức chi (1111 tiền mặt · 1121 chuyển
+              khoản) ở `payload` bên dưới, nên phiếu in ra không mất dòng nào. */}
           <section className="acct-form-section">
-            <h3>Định khoản và tham chiếu</h3>
+            <h3>Chứng từ tham chiếu</h3>
             <div className="acct-form-grid acct-form-grid--2">
-              <label className="acct-field">
-                <span>Nợ</span>
-                <input
-                  className="input"
-                  value={form.debit_account ?? ""}
-                  onChange={(event) => set("debit_account", event.target.value)}
-                  placeholder="VD: 642, 1331"
-                />
-              </label>
-              <label className="acct-field">
-                <span>Có</span>
-                <input
-                  className="input"
-                  value={form.credit_account ?? ""}
-                  onChange={(event) => set("credit_account", event.target.value)}
-                  placeholder={isBank ? "1121" : "1111"}
-                />
-              </label>
               <label className="acct-field">
                 <span>Số hóa đơn</span>
                 <input
