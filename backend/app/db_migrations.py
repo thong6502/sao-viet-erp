@@ -7740,3 +7740,17 @@ def _migrate_stock_request_purchase_delivery_id(db) -> None:
 
 
 MIGRATIONS.append(("0189_stock_request_purchase_delivery_id", _migrate_stock_request_purchase_delivery_id))
+
+
+def _migrate_vat_lieu_kho_anh(db) -> None:
+    """Thêm `anh_url` (ảnh minh hoạ vật tư) vào `giay_nguyen` + `vat_tu_in_an`. Nullable → no-op
+    trên DB fresh / cột đã có. Lưu đường `/api/files/materials/…`; trang QR serve lại qua token."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    for tbl in ("giay_nguyen", "vat_tu_in_an"):
+        if tbl in tables and "anh_url" not in _existing_columns(insp, tbl):
+            db.execute(text(f"ALTER TABLE {tbl} ADD COLUMN anh_url VARCHAR(500)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0191_vat_lieu_kho_anh", _migrate_vat_lieu_kho_anh))

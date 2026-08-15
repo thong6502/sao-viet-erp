@@ -44,9 +44,9 @@ export interface StockVoucherPrintData {
   /** Số yêu cầu + ngày, điền vào dòng "Theo ... số ... ngày ...". */
   chungTuGoc: string | null;
   chungTuGocNgay: string | null;
-  /** Chuỗi trách nhiệm — in rõ AI yêu cầu · AI duyệt · AI lập phiếu (kho nhận). */
+  /** Chuỗi trách nhiệm — in rõ AI tạo yêu cầu · AI lập phiếu (kho nhận). Bỏ "người duyệt" vì tạo
+   *  yêu cầu kho không còn bước duyệt (1 quyền). */
   nguoiDeNghi: string | null;
-  nguoiDuyet: string | null;
   nguoiLapPhieu: string | null;
   /** Tên kho nhập/xuất. */
   khoTen: string | null;
@@ -205,8 +205,7 @@ ${data.cancelled ? '<div class="stamp">ĐÃ HỦY</div>' : ""}
   <div class="row"><span class="lb">Theo yêu cầu số:</span> <span class="vl">${escapeHtml(
     data.chungTuGoc ?? DOTS,
   )}${data.chungTuGocNgay ? ` ngày ${escapeHtml(data.chungTuGocNgay)}` : ""}</span></div>
-  ${row("Người yêu cầu", data.nguoiDeNghi)}
-  ${row("Người duyệt", data.nguoiDuyet)}
+  ${row("Người tạo yêu cầu", data.nguoiDeNghi)}
   ${row("Người lập phiếu (kho)", data.nguoiLapPhieu)}
   ${row(form.reasonLabel, data.lyDo)}
   ${row(form.placeLabel, data.khoTen)}

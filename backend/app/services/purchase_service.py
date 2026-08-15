@@ -1122,7 +1122,7 @@ class PurchaseService:
             raise PurchaseValidationError("Nguon yeu cau mua khong hop le.")
         cleaned_purpose = (purpose or "").strip()
         if not cleaned_purpose:
-            raise PurchaseValidationError("Noi dung / muc dich yeu cau mua khong duoc trong.")
+            raise PurchaseValidationError("Nội dung / mục đích yêu cầu mua không được trống.")
         if needed_date is None:
             raise PurchaseValidationError("Ngay can hang la thong tin bat buoc.")
         if needed_date < _business_today():
@@ -1157,7 +1157,7 @@ class PurchaseService:
             get = line.get if isinstance(line, dict) else lambda key, default=None: getattr(line, key, default)
             item_name = (get("item_name") or "").strip()
             if not item_name:
-                raise PurchaseValidationError("Ten vat tu khong duoc trong.")
+                raise PurchaseValidationError("Tên vật tư không được trống.")
             hang_loai, hang_id = _doc_mat_hang(get)
             # Dòng ĐÃ GẮN MẶT HÀNG GỐC (mg 0174) thì thôi kiểm theo TÊN: cặp `(hang_loai, hang_id)`
             # là bằng chứng mạnh hơn hẳn — món đó đang nằm trong danh mục gốc, không phải chữ gõ
@@ -1171,16 +1171,16 @@ class PurchaseService:
             if hang_loai is not None:
                 if not self.suppliers.has_active_item_for_hang(hang_loai, hang_id):
                     raise PurchaseValidationError(
-                        "Vat tu chua duoc nha cung cap nao khai ban. Vui long khai mat hang "
-                        "trong Nha cung cap truoc khi tao yeu cau mua."
+                        "Vật tư chưa được nhà cung cấp nào khai bán. Vui lòng khai mặt hàng "
+                        "trong Nhà cung cấp trước khi tạo yêu cầu mua."
                     )
             elif not self.suppliers.has_active_item(item_name):
                 raise PurchaseValidationError(
-                    "Vat tu phai duoc nha cung cap dang hoat dong khai ban truoc khi tao yeu cau mua."
+                    "Vật tư phải được nhà cung cấp đang hoạt động khai bán trước khi tạo yêu cầu mua."
                 )
             unit = (get("unit") or "").strip()
             if not unit:
-                raise PurchaseValidationError("Don vi tinh khong duoc trong.")
+                raise PurchaseValidationError("Đơn vị tính không được trống.")
             quantity = float(get("quantity"))
             if quantity <= 0:
                 raise PurchaseValidationError("So luong phai lon hon 0.")
@@ -1610,8 +1610,8 @@ class PurchaseService:
                 raise PurchaseValidationError("Tên hàng không được trống.")
             if supplier_id is not None and not self.suppliers.supplier_sells(supplier_id, item_name):
                 raise PurchaseValidationError(
-                    f'Nha cung cap nay khong ban "{item_name}". '
-                    "Chon nha cung cap khac cho dong nay, hoac khai mat hang do cho ho truoc."
+                    f'Nhà cung cấp này không bán "{item_name}". '
+                    "Chọn nhà cung cấp khác cho dòng này, hoặc khai mặt hàng đó cho họ trước."
                 )
             unit = (get("unit") or "").strip()
             if not unit:

@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import {
   ApiError,
   api,
+  assetUrl,
   type HangLoai,
   type SoGiaRow,
   type StockLevel,
@@ -49,6 +50,8 @@ interface MaterialGroup {
   code: string | null;
   name: string | null;
   dvt: string | null;
+  // Ảnh minh hoạ mặt hàng (từ danh mục). null = chưa có ảnh. Sửa được trong drawer (quyền danh mục).
+  anh: string | null;
   total: number;
   value: number; // Σ sl_con_lai × đơn giá — chỉ có nghĩa khi thấy giá
   lots: StockLot[];
@@ -210,6 +213,7 @@ export function KhoTonKhoPage({
           code: lot.hang_ma,
           name: lot.hang_ten,
           dvt: lot.dvt,
+          anh: lot.hang_anh,
           total: 0,
           value: 0,
           lots: [],
@@ -634,7 +638,7 @@ export function KhoTonKhoPage({
               <tr>
                 <th style={{ width: "14%" }}>Số phiếu</th>
                 <th style={{ width: "13%" }}>Theo yêu cầu</th>
-                <th style={{ width: "16%" }}>Người (lập · duyệt)</th>
+                <th style={{ width: "16%" }}>Người lập</th>
                 <DateFilterHead style={{ width: "12%" }} label={tab === "xuat" ? "Ngày xuất" : "Ngày nhập"} from={vDateFrom} to={vDateTo} onChange={(f, t) => { setVDateFrom(f); setVDateTo(t); }} />
                 <th className="kho-num" style={{ width: "12%" }}>
                   Mặt hàng / Tổng SL
@@ -702,9 +706,6 @@ export function KhoTonKhoPage({
                       </td>
                       <td>
                         <div className="rc__name">{v.nguoi_lap_ten ?? "—"}</div>
-                        <div className="rc__muted kho-hint">
-                          {v.nguoi_duyet_ten ? `Duyệt: ${v.nguoi_duyet_ten}` : "—"}
-                        </div>
                       </td>
                       <td className="rc__nowrap">{fmtDateISO(v.ngay)}</td>
                       <td className="kho-num">
@@ -1006,6 +1007,10 @@ function MaterialHistoryDrawer({
   const [data, setData] = useState<StockMaterialHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Ảnh minh hoạ mặt hàng — màn Tồn kho CHỈ HIỂN THỊ (gắn/đổi ảnh làm ở form PHIẾU NHẬP). Bấm để
+  // phóng to. `anh` lấy thẳng từ mặt hàng (đã có sẵn trong danh sách lô).
+  const anh = material.anh;
+  const [zoom, setZoom] = useState(false);
   // Tab MẶC ĐỊNH = "Tổng quan" (đầu tiên) khi mở drawer; giữ nguyên Nhập/Xuất phía sau.
   const [tab, setTab] = useState<"tong_quan" | "nhap" | "xuat">("tong_quan");
   const [page, setPage] = useState(1);
@@ -1088,6 +1093,7 @@ function MaterialHistoryDrawer({
   const xuatPaged = xuat.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
 
   return (
+    <>
     <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
       <aside className="rc-drawer rc-drawer--mid" onClick={(e) => e.stopPropagation()}>
         <header className="rc-drawer__head">
@@ -1134,6 +1140,19 @@ function MaterialHistoryDrawer({
                 🖨 In tem
               </button>
             </div>
+          </div>
+        )}
+
+        {anh && (
+          <div className="kho-anh">
+            <button
+              type="button"
+              className="kho-anh__thumb"
+              onClick={() => setZoom(true)}
+              title="Bấm để phóng to"
+            >
+              <img src={assetUrl(anh) ?? undefined} alt={material.name ?? "Ảnh vật tư"} />
+            </button>
           </div>
         )}
 
@@ -1335,6 +1354,21 @@ function MaterialHistoryDrawer({
         </div>
       </aside>
     </div>
+    {zoom && anh && (
+      <div
+        className="kho-anh__lightbox"
+        role="dialog"
+        aria-modal="true"
+        onClick={() => setZoom(false)}
+      >
+        <img
+          src={assetUrl(anh) ?? undefined}
+          alt={material.name ?? "Ảnh vật tư"}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+    )}
+    </>
   );
 }
 

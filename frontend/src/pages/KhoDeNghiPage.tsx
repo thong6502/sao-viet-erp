@@ -308,7 +308,7 @@ export function KhoDeNghiPage({
             <tr>
               <th style={{ width: "13%" }}>Mã</th>
               <th>Vật tư</th>
-              <th style={{ width: "15%" }}>Người</th>
+              <th style={{ width: "15%" }}>Người yêu cầu</th>
               <th style={{ width: "12%" }}>Ngày yêu cầu</th>
               <th style={{ width: "12%" }}>{loai === "NHAP" ? "Ngày cần nhập" : "Ngày cần xuất"}</th>
               <th style={{ width: "13%" }}>Trạng thái</th>

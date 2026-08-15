@@ -91,6 +91,13 @@ class VatLieuKhoRepository:
         self.db.refresh(obj)
         return obj
 
+    def set_anh(self, obj, url: str | None):
+        """Ghi RIÊNG `anh_url` (ảnh minh hoạ) — không đụng ma/tên nên không qua `update`/validate."""
+        obj.anh_url = url
+        self.db.commit()
+        self.db.refresh(obj)
+        return obj
+
     def delete(self, obj) -> None:
         self.db.delete(obj)
         self.db.commit()

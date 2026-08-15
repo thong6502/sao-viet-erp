@@ -5536,6 +5536,8 @@ export interface StockRequestLine {
   hang_id: number;
   hang_ma: string | null;
   hang_ten: string | null;
+  /** Ảnh minh hoạ mặt hàng (từ danh mục) — form phiếu nhập hiện + cho gắn/đổi ảnh ngay khi nhập. */
+  hang_anh: string | null;
   /** Nhãn nhóm ("Giấy" / "Vật tư khác") — chip phân biệt hai nguồn khi tên gần giống. */
   hang_nhom: string | null;
   /** "Xin cho lệnh nào" (mg 0175). Cả hai null = xin lặt vặt, không thuộc lệnh nào — hợp lệ.
@@ -5941,6 +5943,8 @@ export interface StockLot {
   hang_id: number;
   hang_ma: string | null;
   hang_ten: string | null;
+  /** Ảnh minh hoạ mặt hàng (từ danh mục). Màn Tồn kho gom theo mặt hàng nên chép sẵn vào lô. */
+  hang_anh: string | null;
   /** ĐƠN VỊ GỐC — `sl_ban_dau`/`sl_con_lai` của lô đều theo đơn vị này. */
   dvt: string | null;
   kho_id: number;
@@ -8904,6 +8908,20 @@ export const api = {
       const qs = new URLSearchParams({ hang_loai: hangLoai, hang_id: String(hangId) });
       return authed<SoGiaOut>(`/api/supplier-items/so-gia?${qs.toString()}`, token);
     },
+    /** Gắn/đổi ẢNH minh hoạ mặt hàng (chỉ vai có quyền sửa danh mục dm_giay/dm_vat_tu). */
+    uploadAnh(token: string, hangLoai: HangLoai, hangId: number, file: File): Promise<{ anh_url: string | null }> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<{ anh_url: string | null }>(
+        `/api/vat-lieu-kho/${hangLoai}/${hangId}/anh`, token, { method: "POST", body: form },
+      );
+    },
+    /** Gỡ ảnh minh hoạ mặt hàng. */
+    xoaAnh(token: string, hangLoai: HangLoai, hangId: number): Promise<{ anh_url: string | null }> {
+      return authed<{ anh_url: string | null }>(
+        `/api/vat-lieu-kho/${hangLoai}/${hangId}/anh`, token, { method: "DELETE" },
+      );
+    },
   },
 
   kho: {
@@ -9248,6 +9266,8 @@ export interface PublicScan {
   dvt: string | null;
   kho_ten: string | null;
   on_hand: number;
+  /** Đường ảnh CÔNG KHAI (`/api/public/vat-lieu-anh?t=…`, serve bằng token QR). null = chưa có ảnh. */
+  anh_url: string | null;
   lots: PublicScanLot[];
   history: PublicScanMove[];
 }

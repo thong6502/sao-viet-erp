@@ -125,6 +125,17 @@ class VatLieuKhoService:
         nk.ghi_xoa(self.audit, actor_id=actor_id, loai=kind, obj=obj)
         self.repo.delete(obj)
 
+    def set_anh(self, kind: str, item_id: int, url: str | None):
+        """Gắn/gỡ ẢNH minh hoạ cho mặt hàng GỐC (chỉ giấy / vật tư khác — chủng loại không có ảnh).
+
+        `url` = đường `/api/files/…` đã lưu file, hoặc None để gỡ. Trả về object đã cập nhật; caller
+        (router) tự xoá file cũ trên storage. Không ghi nhật ký danh mục — ảnh không phải trường giá.
+        """
+        if kind not in ("giay", "vat_tu"):
+            raise VatLieuKhoValidationError("Loại mặt hàng không nhận ảnh.")
+        obj = self.get(kind, item_id)
+        return self.repo.set_anh(obj, url)
+
     def gan_ten_don_vi(self, items) -> None:
         """Điền TÊN đơn vị cho cả trang bằng MỘT truy vấn.
 

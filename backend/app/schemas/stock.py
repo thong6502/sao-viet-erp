@@ -76,6 +76,8 @@ class StockRequestLineOut(BaseModel):
     hang_ma: str | None = None
     hang_ten: str | None = None
     hang_nhom: str | None = None
+    # Ảnh minh hoạ mặt hàng (từ danh mục) — form PHIẾU NHẬP hiện + cho gắn/đổi ảnh ngay khi nhập hàng.
+    hang_anh: str | None = None
     # "Cho lệnh nào" (mg 0175) + MÃ để FE hiện thẳng, khỏi gọi thêm một vòng /api/lsx cho mỗi dòng.
     lsx_id: int | None = None
     bai_ghep_id: int | None = None
@@ -340,6 +342,8 @@ class StockLotOut(BaseModel):
     hang_id: int
     hang_ma: str | None = None
     hang_ten: str | None = None
+    # Ảnh minh hoạ mặt hàng (từ danh mục) — màn Tồn kho gom theo mặt hàng nên chép sẵn vào lô.
+    hang_anh: str | None = None
     # ĐƠN VỊ GỐC của mặt hàng — `sl_ban_dau`/`sl_con_lai` của lô đều theo đơn vị này.
     dvt: str | None = None
     kho_id: int
@@ -435,6 +439,9 @@ class PublicScanOut(BaseModel):
     dvt: str | None = None
     kho_ten: str | None = None
     on_hand: float
+    # Đường ảnh minh hoạ CÔNG KHAI (`/api/public/vat-lieu-anh?t=…`) — dùng lại chính token QR để
+    # serve, không cần đăng nhập. None = vật tư chưa có ảnh.
+    anh_url: str | None = None
     lots: list[PublicScanLot] = []
     history: list[PublicScanMove] = []
 
