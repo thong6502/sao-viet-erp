@@ -1310,6 +1310,13 @@
   line-height: 1.35;
 }
 
+/* Câu nhắc dưới ô Cọc dự kiến khi số khai VƯỢT tổng đơn. Đổi màu + in đậm thay vì thêm một dải
+   cảnh báo riêng: chỗ sai nằm ngay trên nó, mắt không phải đi tìm. */
+.pdot__hint--loi {
+  color: var(--signal);
+  font-weight: var(--fw-medium);
+}
+
 .pdot__muted {
   color: var(--ash-2);
 }

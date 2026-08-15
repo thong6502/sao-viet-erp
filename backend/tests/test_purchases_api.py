@@ -1003,6 +1003,68 @@ def test_nguoi_chi_co_quyen_huy_chi_don_duoc_phieu_nhap_cua_minh(client, auth_he
     assert r.status_code == 200, r.text
 
 
+def test_coc_du_kien_khong_duoc_vuot_tong_don(client, auth_headers):
+    """⭐ CỌC DỰ KIẾN không được lớn hơn TỔNG DỰ KIẾN của đơn (chủ chốt 15/08/2026).
+
+    Không chỉ là con số vô nghĩa: `tran_dat_coc` = cọc dự kiến − cọc đã chi, nên số khai thừa
+    thành HẠN MỨC CHI THẬT — kế toán lập được phiếu cọc 10tr cho đơn 2,2tr, tiền rời két rồi mới
+    có người hỏi. Test này đi tới tận chỗ đó chứ không dừng ở việc khai."""
+    supplier = _supplier(client, auth_headers, name="NCC Coc Vuot")
+    # 1000 tờ × 2.200 + 5 kg × 80.000 = 2.600.000đ
+    don = _create_purchase_request(client, auth_headers, supplier["id"])
+    assert don["total_estimate"] == 2_600_000
+
+    r = client.put(f"/api/purchase-requests/{don['id']}/contract",
+                   json={"contract_number": None, "deposit_expected": 2_600_001},
+                   headers=auth_headers)
+    assert r.status_code == 422, r.text
+    assert "lớn hơn tổng dự kiến" in r.json()["detail"]
+
+    # Đúng bằng tổng thì CHO — trả trước 100% là chuyện có thật.
+    r = client.put(f"/api/purchase-requests/{don['id']}/contract",
+                   json={"contract_number": None, "deposit_expected": 2_600_000},
+                   headers=auth_headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["tran_dat_coc"] == 2_600_000, "trần chi cọc phải bám đúng số đã khai"
+
+
+def test_khong_lach_duoc_bang_cach_SUA_HANG_NHO_LAI(client, auth_headers):
+    """Vế bịt lỗ: khai cọc lúc đơn còn to, rồi sửa dòng hàng nhỏ lại.
+
+    Chặn mỗi lúc khai là lách được đúng bằng hai thao tác — mà đơn nhỏ lại thì trần chi cọc vẫn
+    giữ nguyên số cũ, tức là lỗ hổng y hệt chỉ đi vòng hơn."""
+    supplier = _supplier(client, auth_headers, name="NCC Sua Nho Lai")
+    don = _create_purchase_request(client, auth_headers, supplier["id"])
+    assert client.put(f"/api/purchase-requests/{don['id']}/contract",
+                      json={"contract_number": None, "deposit_expected": 2_000_000},
+                      headers=auth_headers).status_code == 200
+
+    def _sua(so_luong: float):
+        return client.put(
+            f"/api/purchase-requests/{don['id']}",
+            json={
+                "supplier_id": supplier["id"], "content": "Mua giấy",
+                "needed_date": don["needed_date"],
+                "source_request_ids": [s["department_request_id"] for s in don["sources"]],
+                # Tên/ĐVT phải KHỚP bảng giá của chính NCC này, nếu không vướng luật khác
+                # trước (NCC không bán món đó) và test hoá ra canh nhầm chỗ.
+                "lines": [{"item_name": "Giay Duplex 350gsm", "unit": "to",
+                           "quantity": so_luong, "expected_unit_price": 2200}],
+            },
+            headers=auth_headers,
+        )
+
+    r = _sua(100)          # 100 × 2.200 = 220.000đ < cọc 2tr
+    assert r.status_code == 422, r.text
+    assert "hạ cọc dự kiến" in r.json()["detail"]
+
+    # Hạ cọc trước thì sửa được — đường lui phải còn, nếu không đơn kẹt vĩnh viễn.
+    assert client.put(f"/api/purchase-requests/{don['id']}/contract",
+                      json={"contract_number": None, "deposit_expected": 200_000},
+                      headers=auth_headers).status_code == 200
+    assert _sua(100).status_code == 200
+
+
 def test_dien_thoai_ncc_phai_du_10_so(client, auth_headers):
     """Số điện thoại NCC phải đủ 10 chữ số (chủ chốt 15/08/2026).
 
