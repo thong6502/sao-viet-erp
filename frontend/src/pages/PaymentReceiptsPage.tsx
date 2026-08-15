@@ -302,37 +302,21 @@ function OtherReceiptDialog({
               </label>
             </div>
           )}
-          <div className="acct-form-grid acct-form-grid--3">
-            <label className="acct-field">
-              <span>Số tiền (VND) <b>*</b></span>
-              <input
-                className="input acct-money-input"
-                type="number"
-                min="1"
-                step="1"
-                value={form.amount === 0 ? "" : form.amount}
-                onChange={(event) => set("amount", Number(event.target.value))}
-              />
-            </label>
-            <label className="acct-field">
-              <span>Định khoản Nợ</span>
-              <input
-                className="input"
-                value={form.debit_account ?? ""}
-                onChange={(event) => set("debit_account", event.target.value)}
-                placeholder="1111 / 1121"
-              />
-            </label>
-            <label className="acct-field">
-              <span>Định khoản Có</span>
-              <input
-                className="input"
-                value={form.credit_account ?? ""}
-                onChange={(event) => set("credit_account", event.target.value)}
-                placeholder="VD: 131, 711"
-              />
-            </label>
-          </div>
+          {/* Hai ô "Định khoản Nợ / Có" ĐÃ BỎ (chủ chốt 15/08/2026) — xem chú thích cùng ngày ở
+              `PaymentVouchersPage`. Ô Số tiền vì thế đứng MỘT MÌNH: hạ lưới từ 3 cột xuống 1 để
+              nó không bị kéo bằng 1/3 hàng rồi nằm trơ với hai khoảng trống bên cạnh.
+              Tài khoản "Nợ" vẫn điền ngầm theo hình thức thu (1111 · 1121) trong `payload`. */}
+          <label className="acct-field">
+            <span>Số tiền (VND) <b>*</b></span>
+            <input
+              className="input acct-money-input"
+              type="number"
+              min="1"
+              step="1"
+              value={form.amount === 0 ? "" : form.amount}
+              onChange={(event) => set("amount", Number(event.target.value))}
+            />
+          </label>
           <label className="acct-field">
             <span>Nội dung thu <b>*</b></span>
             <input
