@@ -325,7 +325,12 @@ export function thoiLuongLive(r: EditRow, may?: MayTinhGio | null): Record<strin
     return Number.isFinite(x) ? x : 0;
   };
   const tron = (v: number): number => Math.round(v * 100) / 100;
-  const vao = f(r.so_luong_vao);
+  const dgServer = (r.thoi_luong_dien_giai ?? {}) as Record<string, unknown>;
+  // SL đưa vào phép chia là số ĐÃ QUY ĐỔI về đơn vị của tốc độ — server tính (chỉ nó có bảng cặp
+  // quy đổi) rồi gửi kèm trong `thoi_luong_dien_giai.so_luong_vao`. Bản preview KHÔNG dựng lại
+  // phép quy đổi: công thức thì được phép có hai bản, bảng quy đổi thì không.
+  const daQuyDoi = dgServer.phuong_phap !== "chua_quy_doi" && dgServer.so_luong_vao != null;
+  const vao = daQuyDoi ? Number(dgServer.so_luong_vao) || 0 : 0;
   const luot = Math.max(Math.trunc(f(r.so_luot_chay)) || 1, 1);
   const nguoiKeHoach = Math.max(Math.trunc(f(r.so_nhan_cong)) || 1, 1);
   const nguoiToiDa = Math.max(Math.trunc(f(r.so_nhan_cong_toi_da)) || nguoiKeHoach, 1);
@@ -335,7 +340,6 @@ export function thoiLuongLive(r: EditRow, may?: MayTinhGio | null): Record<strin
   // Số của MÁY ĐANG CHỌN trên form (`may`) — KHÔNG đợi server. Đổi máy trong drawer là chuẩn bị
   // + thời gian chạy phải nhảy ngay; chỉ khi bấm Lưu mới ghi DB. Không truyền `may` (bảng chưa
   // nạp xong danh mục) thì rơi về diễn giải server đã trả — vẫn hơn là ra 0.
-  const dgServer = (r.thoi_luong_dien_giai ?? {}) as Record<string, unknown>;
   const numOf = (k: string): number => Number(dgServer[k] ?? 0) || 0;
   const coMay = may != null;
   const setup = coMay ? (r.loai_buoc === "may" ? f(may?.chuanBiPhut) : 0) : numOf("setup_phut");
@@ -363,7 +367,6 @@ export function thoiLuongLive(r: EditRow, may?: MayTinhGio | null): Record<strin
     }
   } else if (r.loai_buoc === "may") {
     // Công thức chốt 2026-08-04: SL vào × 60 ÷ tốc độ × số lượt.
-    // KHÔNG kiểm nhãn đơn vị của máy — chỉ lấy CON SỐ (chủ chốt 2026-08-05).
     const tocDo = coMay ? f(may?.tocDo) : numOf("toc_do");
     const tocDoMax = coMay ? f(may?.tocDoMax) : numOf("toc_do_max");
     const tocDoMin = coMay ? f(may?.tocDoMin) : numOf("toc_do_min");
@@ -374,15 +377,30 @@ export function thoiLuongLive(r: EditRow, may?: MayTinhGio | null): Record<strin
     chayCham = tocDoMin > 0 ? chayVoi(tocDoMin) : chay;
     if (tocDo <= 0) phuongPhap = "thieu_nang_suat";
   }
-  if (phuongPhap === "thieu_nang_suat") {
+  // Chưa quy đổi được SL vào sang đơn vị tốc độ ⇒ không có giờ chạy, và nói đúng chỗ phải đi khai.
+  // Thắng mọi lý do khác: có tốc độ mà không biết bước nhận bao nhiêu THEO ĐƠN VỊ ĐÓ thì phép chia
+  // vô nghĩa (chủ 15/08/2026 — ca `500 kg/h` nhận số tờ).
+  if (r.loai_buoc !== "thue_ngoai" && !daQuyDoi) {
+    phuongPhap = "chua_quy_doi";
+    chay = chayNhanh = chayCham = 0;
+    canhBao.push(
+      "Chưa quy đổi được số lượng vào sang đơn vị của tốc độ nên không tính được thời gian chạy. " +
+      "Khai cầu quy đổi (hoặc công thức cho đơn vị đó) ở Cấu hình danh mục → Đơn vị & quy đổi."
+    );
+  } else if (phuongPhap === "thieu_nang_suat") {
     canhBao.push("Máy đang gán chưa khai tốc độ (hoặc bước chưa gán máy) nên không tính được thời gian chạy.");
   }
 
   const chiemTaiNguyen = khac + setup + chay;
   return {
     phuong_phap: phuongPhap,
+    // Số + đơn vị ĐÃ QUY ĐỔI (thứ thật sự đem chia); số/đơn vị gốc của bước đi kèm để câu diễn
+    // giải nói được cả hai chặng — cùng hình dạng server trả.
     so_luong_vao: tron(vao),
-    don_vi_vao: r.don_vi_vao,
+    don_vi_vao: (dgServer.don_vi_vao as string | null) ?? r.don_vi_vao,
+    so_luong_vao_goc: dgServer.so_luong_vao_goc ?? f(r.so_luong_vao),
+    don_vi_vao_goc: (dgServer.don_vi_vao_goc as string | null) ?? r.don_vi_vao,
+    quy_doi_dien_giai: dgServer.quy_doi_dien_giai ?? null,
     nguon_nang_suat: r.loai_buoc === "to" ? "dau_viec" : (r.loai_buoc === "may" ? "may" : null),
     nang_suat_co_so: nangSuatHieuDung > 0 ? tron(nangSuatHieuDung) : null,
     nang_suat_hieu_dung: nangSuatHieuDung > 0 ? tron(nangSuatHieuDung) : null,

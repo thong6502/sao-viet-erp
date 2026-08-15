@@ -11,16 +11,28 @@
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
+/* Trang trượt lên 6px mỗi lần mở là chuyển động TRANG TRÍ — với người bật "giảm chuyển động" nó
+   nằm đúng nhóm gây chóng mặt. Skeleton (`rc-skel`) đã tôn trọng cờ này từ trước, còn cả trang thì
+   chưa. Tắt hẳn, không làm chậm lại: nội dung hiện ngay là đúng ý người bật cờ. */
+@media (prefers-reduced-motion: reduce) {
+  .rc { animation: none; }
+}
 
-/* --- Header (đồng bộ .tg-head/.bg__head: rule dưới + title 26px + count mono muted) --- */
+/* --- Header MỘT DẠNG cho cả 10 màn danh mục (đồng bộ .tg-head/.bg__head) -------------
+   Ba hàng nằm TRONG cùng một `<header>`, đóng lại bằng ĐÚNG MỘT kẻ ngang:
+     1. tiêu đề 26px · pill đếm ····· nút [+ Thêm …]
+     2. (tuỳ) một dòng mô tả --ash 13px, tối đa 75ch
+     3. ô tìm ····· dải chip lọc `.seg` │ công tắc "Hiện mục đã ngừng"
+   Hàng 2 vắng thì TSX không render `<p>` — khung không đổi, chỉ hụt một dòng chữ. */
 .rc__head {
   margin-bottom: var(--sp-4);
-  padding-bottom: var(--sp-2);
+  padding-bottom: var(--sp-3);
   border-bottom: 1px solid var(--rule);
 }
 .rc__headrow {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  flex-wrap: wrap;
   gap: var(--sp-3);
 }
 .rc__title {
@@ -32,13 +44,18 @@
   letter-spacing: -.01em;
   line-height: 1.15;
 }
-/* Số lượng: mono muted cạnh title (thay count-pill tròn đen) */
+/* Số lượng: pill nhạt cạnh title — LUÔN hiện (cờ `showCount` đã bỏ 15/08/2026: một màn danh mục
+   giấu mất số mục của chính nó thì người ta phải đếm tay hoặc lật hết trang mới biết là bao nhiêu). */
 .rc__count {
   font-family: var(--ff-num);
-  font-size: 13px;
-  font-weight: var(--fw-regular);
-  color: var(--ash-2);
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  background: var(--rule-soft);
+  border-radius: var(--r-pill);
+  padding: 2px 10px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .rc__sub {
   color: var(--ash);
@@ -48,7 +65,63 @@
   line-height: 1.5;
 }
 
-/* --- Toolbar & Unified Top Bar --- */
+/* Hàng 3 của header: ô tìm trái · chip lọc phải · công tắc "đã ngừng" ngoài cùng. */
+.rc__filterbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+.rc__segs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+/* Công tắc "Hiện mục đã ngừng" — CÙNG HÀNG với chip lọc nhưng KHÁC NGHĨA: nó mở ra một tập khác
+   chứ không cắt tập đang xem. Vạch ngăn bên trái để mắt không đọc nhầm nó là chip thứ N; màu
+   trung tính (không rust, không charcoal) vì đây là chỗ cất đồ đã tắt, không phải lối đi chính. */
+.rc__ngung {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-left: var(--sp-2);
+  padding: 6px 12px 6px var(--sp-4);
+  border: none;
+  border-left: 1px solid var(--rule);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ash);
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: color var(--duration-base) var(--easing-standard);
+}
+.rc__ngung:hover {
+  color: var(--ink);
+}
+/* Vòng focus GIỮ góc vuông theo đúng hình lúc nghỉ — bo tròn ở đây thì vạch ngăn `border-left`
+   cong theo, nhìn như nút bị méo mỗi lần Tab vào. */
+.rc__ngung:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.rc__ngung.is-active {
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+}
+/* Đè `.is-active > .chip-count` (nền rust) của global: rust ở đây sẽ hét to hơn cả dải lọc chính. */
+.rc__ngung.is-active > .chip-count {
+  background: var(--steel-soft);
+  color: var(--steel);
+}
+
+/* --- Toolbar & Unified Top Bar ------------------------------------------------------
+   ⚠️ `.rc__unified-bar` / `.rc__unified-right` KHÔNG còn dùng ở màn danh mục (header đã gom về
+   một dạng 15/08/2026) nhưng PHẢI GIỮ: `PhieuBaoTriPage.tsx` và `SuaChuaMayPage.tsx` (module Kỹ
+   thuật máy) vẫn đang dựng thanh trên cùng bằng đúng hai class này. CSS ở repo là GLOBAL — xoá ở
+   đây là hai màn kia mất khung ngay, mà không có gì báo. Dọn nốt khi module đó xong việc. */
 .rc__unified-bar {
   display: flex;
   align-items: center;
@@ -113,8 +186,47 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust, #c5400a) 12%, transparent);
 }
 
-.rc__search:focus + .rc__search-icon {
+/* 🐛 Bản cũ viết `.rc__search:focus + .rc__search-icon` — `+` là "phần tử LIỀN SAU", mà icon nằm
+   TRƯỚC input trong DOM, nên luật đó chưa bao giờ khớp: icon không bao giờ đổi màu khi focus.
+   `:focus-within` trên vỏ mới là cái đọc đúng ý đồ. */
+.rc__search-wrapper:focus-within .rc__search-icon {
   color: var(--rust, #c5400a);
+}
+
+/* Chừa chỗ bên phải cho nút ✕ — không chừa thì chữ dài chui xuống dưới cái nút.
+   CHỈ ở màn danh mục: `.rc__search` còn được 3 màn Kho + 2 màn Kỹ thuật máy dùng, mà bên đó không
+   có nút ✕ nào — nới ở cấp global là 5 ô tìm kia tự dưng thừa 17px trống bên phải.
+   Padding đặt CỐ ĐỊNH chứ không theo `:has(.rc__search-clear)`: gắn theo sự có mặt của nút thì
+   chữ nhảy ngang một nhịp đúng lúc gõ ký tự đầu tiên. */
+.rc--dm .rc__search {
+  padding-right: 28px;
+}
+
+/* Nút ✕ xoá nhanh — chỉ render khi ô có chữ. Vùng bấm 24×24 (icon 12) để không phải nhắm. */
+.rc__search-clear {
+  position: absolute;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ash);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
+}
+.rc__search-clear:hover {
+  background: var(--rule-hair);
+  color: var(--ink);
+}
+.rc__search-clear:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
 }
 
 /* Custom button sizing inside rc components to prevent oversized look */
@@ -172,6 +284,31 @@
 .rc__tab.is-active .rc__tabn {
   color: var(--rust);
 }
+/* Công tắc "Hiện mục đã ngừng" đã dọn sang `.rc__ngung` (trên đầu file, cạnh `.rc__filterbar`) —
+   nó không còn là một cái tab nữa. */
+
+/* Ô chọn NHIỀU nhóm máy (`NhomMayMultiField`) — dải `.seg` có ô tick bên trong, nên phải viền lại
+   để chip chưa chọn vẫn nhìn ra là bấm được (`.seg` mặc định trong suốt, không viền). */
+.rc-nhom-may {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.rc-nhom-may .seg {
+  border-color: var(--rule);
+  font-size: 12px;
+}
+.rc-nhom-may .seg input {
+  margin: 0;
+  accent-color: var(--rust);
+}
+.rc-nhom-may .seg.is-active input {
+  accent-color: var(--on-charcoal);
+}
+.rc-nhom-may__hint {
+  flex-basis: 100%;
+  margin: 0;
+}
 
 /* Formula Chips & Badges trong Bảng Danh Mục */
 .rc__formula-chips {
@@ -180,64 +317,54 @@
   align-items: center;
   gap: 5px;
 }
-
-.rc__formula-pill {
-  display: inline-flex;
-  align-items: center;
-  font-family: var(--ff-sans);
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #334155;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  padding: 3px 9px;
-  border-radius: 6px;
+/* `.badge-sem` mặc định `nowrap` — đúng cho nhãn trạng thái hai chữ, SAI cho mảnh công thức
+   ("bài in = Tờ vào máy + 2000"). Trong hàng mảnh này thì cho xuống dòng, không thì chip tràn
+   khỏi cột "Quy đổi" và đẩy ngang cả bảng. */
+.rc__formula-chips .badge-sem {
   white-space: normal;
   word-break: break-word;
   max-width: 100%;
   line-height: 1.45;
 }
 
-.rc__formula-pill--dynamic {
-  color: #1d4ed8;
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  font-family: var(--ff-sans);
-  font-weight: 600;
-}
-
-/* Cảnh báo MỀM (không chặn lưu) — vd cặp số cố định đè lên đường công thức. Hổ phách chứ không đỏ:
-   đỏ dành cho lỗi chặn, dùng đỏ cho thứ vẫn lưu được thì người ta quen mắt rồi bỏ qua cả hai. */
-.rc__warn-pill {
+/* Mảnh công thức TRUNG TÍNH. Anh em cùng hàng của nó (mảnh "là công thức") nay là
+   `.badge-sem--rust` — bản trước tô #1d4ed8, tức dựng một accent XANH THỨ HAI cạnh rust của hệ.
+   Giữ riêng class này thay vì dùng thẳng `.badge-sem--muted` vì công thức phải XUỐNG DÒNG được
+   (`white-space: normal`), còn `.badge-sem` là `nowrap`. Kích thước/bo góc bám theo `.badge-sem`
+   để hai loại mảnh đứng cạnh nhau không so le. */
+.rc__formula-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  background: var(--rule-soft);
+  padding: 2px 8px;
+  border-radius: var(--r-2);
+  white-space: normal;
+  word-break: break-word;
+  max-width: 100%;
+  line-height: 1.45;
+}
+
+/* Cảnh báo MỀM (không chặn lưu) — vd cặp số cố định đè lên đường công thức. MÀU lấy ở
+   `.badge-sem--amber` (hổ phách chứ không đỏ: đỏ dành cho lỗi chặn, dùng đỏ cho thứ vẫn lưu được
+   thì người ta quen mắt rồi bỏ qua cả hai). Ở đây CHỈ còn phần HÌNH HỌC mà primitive không lo:
+   cột "Lưu ý" hẹp 12% nên câu dài phải cắt bằng ba chấm, và `title` mới là chỗ đọc nguyên câu.
+   Scope `.rc--dm` (0-2-0) để chắc chắn thắng `display: inline-flex` của `.badge-sem` bất kể thứ
+   tự bundle — `text-overflow` không cắt được chữ nằm trong hộp flex. */
+.rc--dm .rc__warn-pill {
+  display: inline-block;
   max-width: 100%;
   box-sizing: border-box;
-  font-size: 11.5px;
-  font-weight: 500;
-  line-height: 1.4;
-  color: #92400e;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  padding: 3px 8px;
-  border-radius: 6px;
+  overflow: hidden;
+  /* Giành lại `nowrap` từ luật `.rc__formula-chips .badge-sem` ở trên (cùng 0-2-0, luật này nằm
+     sau nên thắng): ba chấm chỉ hiện được khi chữ KHÔNG xuống dòng. */
   white-space: nowrap;
   text-overflow: ellipsis;
-  overflow: hidden;
   cursor: help;
-}
-
-.rc__chip-muted {
-  display: inline-flex;
-  align-items: center;
-  font-size: 11px;
-  font-weight: 600;
-  color: #94a3b8;
-  background: #f8fafc;
-  border: 1px dashed #cbd5e1;
-  padding: 2px 8px;
-  border-radius: 6px;
 }
 /* --- Khối QUY ĐỔI trong drawer Đơn vị (.dvqd) — Modern Enterprise Layout ------------- */
 .dvqd {
@@ -468,13 +595,6 @@
 }
 
 /* Nói THIẾU GÌ, đừng bắt đoán. Đứng cạnh nút, mất đi khi đã đủ điều kiện. */
-.dvqd__hint {
-  margin: 0;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: #b45309;
-  white-space: nowrap;
-}
 
 .dvqd__btn--primary {
   background: linear-gradient(135deg, #ea580c 0%, #c5400a 100%);
@@ -745,11 +865,16 @@
   margin-left: auto;
 }
 
+/* GỘP 15/08/2026: selector này từng khai HAI lần trong chính file này. Bản sau đè
+   margin/font-size/color, nhưng `font-weight` + `white-space` của bản trước KHÔNG bị đè nên vẫn
+   đang ăn — xoá bản trước là đổi hình thật. Đây là style ĐANG CHẠY, gộp nguyên trạng. */
 .dvqd__hint {
   margin: 4px 0 0;
   font-size: 12px;
+  font-weight: 600;
   line-height: 1.5;
   color: #64748b;
+  white-space: nowrap;
 }
 
 .dvqd__err {
@@ -812,6 +937,12 @@
   outline: 2px solid var(--rust);
   outline-offset: -2px;
 }
+/* Mục ĐÃ NGỪNG DÙNG: mờ cả dòng nhưng vẫn đọc được — người ta vào đây để tìm lại cái đã tắt rồi
+   bấm "Bật lại", che mờ quá tay là hỏng đúng việc họ đang làm. Cùng cách đã dùng cho khoản lương
+   ngừng áp dụng (`luong.css:1192`). Riêng cột Hành động giữ nguyên độ đậm: nút "Bật lại" mà mờ
+   theo thì trông như đang bị khoá. */
+.rc__row--ngung td { opacity: 0.55; }
+.rc__row--ngung td.rc__actcol { opacity: 1; }
 .rc__mono {
   font-family: var(--ff-sans);
   font-size: 13px;
@@ -874,6 +1005,39 @@
 .rc__name {
   font-weight: 600;
 }
+/* Ô Tên của MÀN DANH MỤC: nút mở + các badge nằm cùng hàng, cách nhau bằng `gap` thay vì
+   `margin-left` dán trên từng badge. Scope `.rc--dm` vì `.rc__name` còn được 3 màn Kho và 2 màn
+   Kỹ thuật máy dùng — trong đó có chỗ `-webkit-line-clamp`, đổi `display` ở cấp global là vỡ. */
+.rc--dm .rc__name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+/* ĐƯỜNG BÀN PHÍM mở một dòng. `<button>` thật ⇒ Enter/Space chạy sẵn, vai "button" hợp lệ, và
+   `:focus-visible` có chỗ để bám. Trước đây chỉ có `onClick` trên `<tr>`: chuột mở được, Tab thì
+   đi thẳng từ ô tìm xuống nút "Xóa" — người dùng bàn phím KHÔNG có cách nào mở một dòng ra xem.
+   (Không dán `role="button"` lên `<tr>`: làm thế là mất vai "row", trình đọc màn hình hết đọc
+   được tên cột đi kèm ô.) */
+.rc__open {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--r-2);
+}
+.rc__open:hover {
+  color: var(--rust-deep);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.rc__open:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
 .rc__msg {
   text-align: center;
   color: var(--ash, #8a8676);
@@ -905,6 +1069,19 @@
   margin: 0;
   max-width: 40ch;
 }
+/* Ca TẢI HỎNG: icon chuyển sang tông báo lỗi và dòng thứ hai nói LÝ DO máy chủ trả về. Hai dòng
+   chứ không một: câu đầu là kết luận người dùng cần ("không tải được"), câu sau là chi tiết để
+   báo cho IT — nhét chung một dòng thì câu kết luận bị chi tiết nuốt mất. */
+.rc__empty-icon--loi {
+  color: var(--signal);
+  opacity: 0.75;
+}
+.rc__empty-sub {
+  font-size: 12px;
+  color: var(--ash-2);
+  margin: -6px 0 0;
+  max-width: 48ch;
+}
 
 .rc__actcol {
   text-align: right;
@@ -912,19 +1089,9 @@
   padding-right: 12px !important;
 }
 
-.rc__tram-badge {
-  display: inline-flex;
-  align-items: center;
-  font-size: 10px;
-  font-weight: 600;
-  color: #7c2d12;
-  background: #ffedd5;
-  border: 1px solid #fed7aa;
-  padding: 1px 5px;
-  border-radius: 4px;
-  margin-left: 6px;
-  vertical-align: middle;
-}
+/* `.rc__tram-badge` XOÁ 15/08/2026 → `.badge-sem--steel`. Nó là một badge trạng thái như mọi badge
+   khác, không có lý do gì để có bảng màu riêng (#7c2d12 trên #ffedd5 lại còn sát tông rust của
+   NÚT BẤM, nhìn thoáng qua tưởng bấm được). */
 
 .rc__link-btn {
   background: none;
@@ -2325,11 +2492,6 @@ select.rc-input:focus {
 }
 .rc-formula__syntax-btn:hover,
 .rc-formula__syntax-btn.is-open {
-  color: #c5400a;
-  background: #fff7ed;
-  border-color: #c5400a;
-}
-.rc-formula__syntax-btn.is-open {
   color: #fff;
   background: color-mix(in srgb, var(--rust) 34%, transparent);
   border-color: var(--rust);
@@ -2649,10 +2811,6 @@ select.rc-input:focus {
   caret-color: #0f172a;
   outline: none !important;
   box-shadow: none !important;
-}
-.rc-formula__inline-input::placeholder {
-  color: #94a3b8 !important;
-  font-style: italic;
 }
 .rc-formula__inline-input::placeholder {
   color: #4b4e5c;
@@ -3255,3 +3413,44 @@ select.rc-input:focus {
 .rc-tt--ranh .rc-tt__dot { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
 /* Chưa nạp xong / nạp hỏng: nói "chưa biết", KHÔNG mượn tạm nhãn "Rảnh". */
 .rc-tt--chua-biet { color: var(--ash-2, #64748b); opacity: .6; }
+
+/* ══ GIÀNH LẠI 4 SELECTOR BỊ kho-request.css CƯỚP ═══════════════════════════════════
+   CSS ở repo này là GLOBAL và `AppShell` import TĨNH mọi trang, nên thứ tự trong bundle là cố
+   định: `kho-request.css` khai lại một loạt selector `rc-*` của file này và LUÔN nằm sau ⇒ nó
+   thắng trên MỌI màn, không phải chỉ sau khi ghé qua Kho.
+
+   Bốn chỗ đổi hình thật (hai chỗ còn lại — `.rc-drawer`, `.rc-drawer__head` border — đặt đúng
+   cùng giá trị nên vô hại):
+     · scrim      → xanh lạnh rgba(15,23,42,.4) + blur 4px, thay nền ấm của hệ;
+     · đầu drawer → nền `--canvas` thay `--paper`;
+     · tiêu đề mục→ mọc THÊM vạch rust ::before, thành HAI vạch cạnh nhau (file này đã có
+                    `border-left`), kèm padding lệch 10px thay 6px;
+     · badge mã   → đổi sang font số + đậm + nền `--paper`.
+
+   Cách chữa theo `UI_DESIGN.md` §10 nấc (2): NÂNG ĐỘ CỤ THỂ (0-2-0 thắng 0-1-0) — thắng bất kể
+   thứ tự bundle, và KHÔNG phải `!important` (§11 gọi đó là mùi lỗi). KHÔNG sửa `kho-request.css`:
+   4 màn kho đang chạy dữ liệu sống, ngoài phạm vi việc này.
+
+   `rc--dm` chỉ gắn ở `RebuildCatalogPage` nên `KhoPage`/`KhoHangView` (cũng dùng `.rc`) không
+   dính. ĐẢO NGƯỢC: xoá khối này + xoá `rc--dm` ở TSX là về nguyên trạng.
+   ══════════════════════════════════════════════════════════════════════════════════ */
+.rc--dm .rc-drawer__scrim {
+  background: rgba(13, 12, 10, 0.48);
+  backdrop-filter: blur(2px);
+}
+.rc--dm .rc-drawer__head {
+  background: var(--paper, #fdfcf8);
+}
+.rc--dm .rc-sec__title {
+  padding-left: 6px;
+}
+.rc--dm .rc-sec__title::before {
+  content: none;          /* file này đã vẽ vạch bằng `border-left` — hai vạch là thừa một */
+}
+.rc--dm .rc__code-badge {
+  font-family: var(--ff-sans);
+  font-weight: var(--fw-medium);
+  background: var(--rule-hair);
+  border-color: var(--rule-soft);
+  letter-spacing: normal;
+}

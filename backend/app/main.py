@@ -48,6 +48,7 @@ from .routers import (
     public_scan,
     khuon_be,
     loai_san_pham,
+    danh_muc_xoa,
     nhat_ky_danh_muc,
     tinh_gia,
     phieu_tinh_gia,
@@ -166,6 +167,7 @@ app.include_router(kho.router)
 app.include_router(khuon_be.router)
 app.include_router(loai_san_pham.router)
 app.include_router(nhat_ky_danh_muc.router)   # nhật ký 1 bản ghi — chung cho 10 màn danh mục
+app.include_router(danh_muc_xoa.router)       # "còn ai dùng không" — chung cho 8 màn danh mục
 app.include_router(tinh_gia.router)
 app.include_router(phieu_tinh_gia.router)
 app.include_router(lsx.router)

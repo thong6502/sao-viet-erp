@@ -97,6 +97,26 @@ async function safeDetail(resp: Response): Promise<string | null> {
     const body = await resp.json();
     const detail = (body as { detail?: unknown }).detail;
     if (typeof detail === "string") return detail;
+    // 422 của FastAPI trả `detail` là MẢNG `{loc, msg}`, không phải chuỗi. Trước 15/08/2026 nhánh
+    // này không tồn tại ⇒ mọi lỗi kiểm dữ liệu của CẢ APP rơi về câu chung "Request failed (422)."
+    // Không nói trường nào sai thì người dùng chỉ biết bấm lại, còn người sửa code phải dựng lại
+    // thân request rồi bắn thử từng cái để đoán — đã mất hai lượt vì đúng chỗ này.
+    if (Array.isArray(detail) && detail.length > 0) {
+      const doc = (it: unknown): string | null => {
+        const o = it as { loc?: unknown; msg?: unknown };
+        if (typeof o?.msg !== "string") return null;
+        // `loc` = ["body", "<trường>", <chỉ số>, ...] — bỏ "body", còn lại là đường dẫn tới ô sai.
+        const duong = Array.isArray(o.loc)
+          ? o.loc.filter((x) => x !== "body" && x !== "query" && x !== "path").join(" › ")
+          : "";
+        return duong ? `${duong}: ${o.msg}` : o.msg;
+      };
+      const ds = detail.map(doc).filter((x): x is string => x !== null);
+      if (ds.length > 0) {
+        // Cắt ở 3: một form sai chục ô thì banner dài hơn cả form. Ba cái đầu đủ để biết đi đâu sửa.
+        return ds.slice(0, 3).join(" · ") + (ds.length > 3 ? ` (+${ds.length - 3} lỗi nữa)` : "");
+      }
+    }
   } catch {
     /* non-JSON error body */
   }
@@ -292,7 +312,10 @@ export type LsxTrangThai =
 export type LsxDonVi = "to_nguyen" | "to" | "cai" | "kem" | "bai";
 /** Loại bước = tài nguyên mà bước chiếm khi lên lịch. */
 export type LsxLoaiBuoc = "may" | "to" | "thue_ngoai";
-export type LsxDonViNangSuat = "to_gio" | "cai_gio" | "kem_gio";
+// 🔴 `LsxDonViNangSuat = "to_gio" | "cai_gio" | "kem_gio"` GỠ 15/08/2026 — không nơi nào import,
+// và ba mã đó là tàn dư của lối "khớp mã đơn vị" vừa bỏ ở backend. `don_vi_nang_suat` nay là TÊN
+// đơn vị lấy từ đơn giá khoán (`"cái"`, `"ram"`), xưởng khai gì thì là chữ ấy — đừng khai lại một
+// liên hợp cứng ở đây.
 
 // 🔴 `LSX_DON_VI_LABELS` ĐÃ GỠ 12/08/2026 — bảng nhãn đơn vị khai cứng ở đây.
 //
@@ -1255,7 +1278,7 @@ export interface LsxDetail {
   customer_name: string | null; customer_po_no: string | null; sale_name: string | null;
   quote_version_id: number | null; quote_number: string | null; quote_version_number: number | null;
   phieu_thanh_phan_id: number | null; ptg_id: number | null; ptg_ma: string | null;
-  so_luong_dat: number; don_vi_tinh: string; bu_hao_to: number;
+  so_luong_dat: number; don_vi_tinh: string;
   so_to_ke_hoach: number; so_to_nguyen: number; so_con: number;
   /** MÃ đơn vị bốn chặng dòng giấy — SERVER chấm (`dong_giay.don_vi_chuoi`), client chỉ tra TÊN.
    *  Đừng suy lại ở FE: bản chép tay thứ hai đã từng cùng sai với bản server ở chặng `tay`.
@@ -1301,7 +1324,7 @@ export interface LsxBaiGhep {
   }>;
 }
 export interface LsxUpdateBody {
-  ten?: string; so_luong_dat?: number; don_vi_tinh?: string; bu_hao_to?: number;
+  ten?: string; so_luong_dat?: number; don_vi_tinh?: string;
   so_to_ke_hoach?: number; so_to_nguyen?: number; so_con?: number;
   han_hoan_thanh_sx?: string | null; is_rush?: boolean;
   khuon_be_id?: number | null; may_id?: number | null;
@@ -2015,6 +2038,9 @@ export interface TinhGiaComponentMeta {
 }
 /** 1 bước trong chuỗi ngược: số tờ vào — ra — hao của chính bước đó. */
 export interface BuHaoBuoc {
+  /** KHÓA ghép với dòng tiền `groups.cong_doan[].buoc_idx` — cùng là chỉ số bước trong chuỗi.
+   *  Optional vì backend đời cũ (chưa restart) không gửi; thiếu thì panel chỉ mất phần tiền. */
+  buoc_idx?: number;
   ten: string;
   nhom?: string | null; // prepress|print|finishing — UI neo "Tờ sau in" vào bước in
   dv_vao?: LsxDonVi | null; // đơn vị VÀO / RA của bước — khác nhau = bước đổi đơn vị
@@ -2144,9 +2170,6 @@ export interface ThanhPhanOut {
   don_gia_giay: number;
   don_gia_don_vi: string; // "to" | "tan"
   nguon_giay: string; // "cong_ty" | "khach"
-  bu_hao_so_to: number;
-  hao_so_to: number;
-  tinh_bu_hao_cd: boolean;
   /** Đè nhíp giấy của MÁY (0 = theo danh mục máy). Lề hông · đuôi · xén · cả gáy đã bỏ khỏi
    *  phiếu — chừa tờ in khai một lần ở danh mục Máy. */
   chua_nhip: number;
@@ -2250,9 +2273,6 @@ export interface ThanhPhanIn {
   don_gia_giay?: number;
   don_gia_don_vi?: string;
   nguon_giay?: string;
-  bu_hao_so_to?: number;
-  hao_so_to?: number;
-  tinh_bu_hao_cd?: boolean;
   chua_nhip?: number;
   bleed_mm?: number;
   khe_cat_mm?: number;
@@ -2796,12 +2816,28 @@ export interface MyContactInput {
   emergency_contact_phone?: string | null;
 }
 
+/** Số ký tự tối đa của các ô hồ sơ NV được ĐỀ NGHỊ đổi — khớp `String(n)` trong
+ *  `backend/app/models/employee.py`. Chỉ để chặn sớm + cảnh báo tại chỗ; BE vẫn là cổng thật
+ *  (đo lại đúng độ dài cột khi gửi VÀ khi duyệt). Thiếu bảng này thì người gõ 44 ký tự vào ô
+ *  30 ký tự vẫn gửi được, và người DUYỆT mới là người lãnh lỗi. */
+export const EMPLOYEE_FIELD_MAXLEN: Record<string, number> = {
+  full_name: 255,
+  national_id: 20,
+  national_id_place: 255,
+  permanent_address: 500,
+  bank_account: 30,
+  bank_name: 100,
+};
+
 // Yêu cầu cập nhật hồ sơ (NV đề nghị → HCNS duyệt).
 export interface UpdateRequest {
   id: number;
   employee_id: number;
   employee_name: string | null;
   changes: Record<string, string | number | null>;
+  /** Giá trị hồ sơ ĐANG mang của đúng các field trong `changes` — BE điền cho hàng đợi duyệt
+   *  của HCNS (rỗng ở các endpoint "của tôi": màn đó đã cầm sẵn hồ sơ người xem). */
+  current?: Record<string, string | number | null>;
   reason: string | null;
   /** pending | approved | rejected | cancelled (`cancelled` = NV tự rút lại). */
   status: string;
@@ -2814,6 +2850,15 @@ export interface UpdateRequest {
 export interface UpdateRequestInput {
   changes: Record<string, string | number | null>;
   reason?: string | null;
+}
+/** Một TRANG đề nghị của chính NV. `dem` đếm trên TOÀN BỘ hồ sơ (không phải trang đang xem) —
+ *  badge "N chờ duyệt" và số trên pill lọc phải đọc `dem`, đừng đếm lại từ `items`. */
+export interface MyUpdateRequestsPage {
+  items: UpdateRequest[];
+  total: number;
+  page: number;
+  size: number;
+  dem: Record<string, number>;
 }
 
 // --- Chấm công GPS (nhan_su) ------------------------------------------------
@@ -5204,9 +5249,6 @@ export interface AnPhamChiTiet {
   so_to_nguyen: number | null;
   con_tren_to: number | null;
   bu_hao_auto: number | null;
-  bu_hao_so_to: number;
-  hao_so_to: number;
-  tinh_bu_hao_cd: boolean;
   // note kỹ thuật theo sản phẩm + vật tư + routing
   ghi_chu_ky_thuat: string | null;
   vat_tu: VatTuGocRow[];
@@ -6487,8 +6529,13 @@ export const api = {
     createMyRequest(token: string, input: UpdateRequestInput): Promise<UpdateRequest> {
       return authed<UpdateRequest>("/api/employees/me/update-requests", token, { method: "POST", body: JSON.stringify(input) });
     },
-    myRequests(token: string): Promise<{ items: UpdateRequest[] }> {
-      return authed<{ items: UpdateRequest[] }>("/api/employees/me/update-requests", token);
+    /** Cắt trang Ở MÁY CHỦ (`page`/`size`) + lọc theo trạng thái. Trả kèm `dem` cho pill lọc. */
+    myRequests(token: string, opts?: { status?: string; page?: number; size?: number }): Promise<MyUpdateRequestsPage> {
+      const qs = new URLSearchParams();
+      if (opts?.status) qs.set("status", opts.status);
+      qs.set("page", String(opts?.page ?? 1));
+      qs.set("size", String(opts?.size ?? 10));
+      return authed<MyUpdateRequestsPage>(`/api/employees/me/update-requests?${qs}`, token);
     },
     /** NV tự rút lại đề nghị của mình khi HCNS chưa xử lý. Dòng vẫn còn (status `cancelled`). */
     cancelMyRequest(token: string, id: number): Promise<UpdateRequest> {

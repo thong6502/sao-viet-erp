@@ -1,5 +1,7 @@
 """Máy thiết bị — service: CRUD + validate (§8).
 
+Thân CRUD dùng chung ở `services/catalog_base.CatalogService`; ở đây chỉ còn luật riêng.
+
 🔴 `compute_bhr` / `compute_bhr_preview` (đơn giá giờ máy giá vốn) ĐÃ GỠ 11/08/2026 cùng cả khối
 cột BHR: form Máy chưa bao giờ có ô nhập cho chúng và không engine giá nào gọi ⇒ luôn chạy trên
 dữ liệu rỗng. Xem docstring `models/may_thiet_bi.py`.
@@ -8,26 +10,26 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from sqlalchemy import func, select
-
 from ..models.may_thiet_bi import MayThietBi, NhomMay
-from ..repositories.may_thiet_bi_repo import MayThietBiRepository
-from . import nhat_ky_danh_muc as nk
+from ..repositories.may_thiet_bi_repo import MayThietBiRepository, NhomMayRepository
+from .catalog_base import (
+    CatalogDuplicate, CatalogError, CatalogNotFound, CatalogService, CatalogValidationError,
+)
 
 
-class MayThietBiError(Exception):
+class MayThietBiError(CatalogError):
     pass
 
 
-class MayThietBiValidationError(MayThietBiError):
+class MayThietBiValidationError(MayThietBiError, CatalogValidationError):
     pass
 
 
-class MayThietBiDuplicate(MayThietBiError):
+class MayThietBiDuplicate(MayThietBiError, CatalogDuplicate):
     pass
 
 
-class MayThietBiNotFound(MayThietBiError):
+class MayThietBiNotFound(MayThietBiError, CatalogNotFound):
     pass
 
 
@@ -39,13 +41,19 @@ def _f(v, default: float = 0.0) -> float:
     return float(v)
 
 
-class MayThietBiService:
+class MayThietBiService(CatalogService):
+    LOAI = "may_thiet_bi"
+    E_NOT_FOUND = MayThietBiNotFound
+    E_DUPLICATE = MayThietBiDuplicate
+    E_VALIDATION = MayThietBiValidationError
+    MSG_NOT_FOUND = "Không tìm thấy máy."
+    MSG_DUPLICATE = "Mã máy đã tồn tại."
+
     def __init__(self, repo: MayThietBiRepository, audit=None) -> None:
-        self.repo = repo
-        self.audit = audit
+        super().__init__(repo, audit)
 
     # -- validate (§8) --
-    def _validate(self, data: dict, *, self_id: int | None = None) -> None:
+    def _validate(self, data: dict, obj: MayThietBi | None = None) -> None:
         if not (data.get("ma") or "").strip():
             raise MayThietBiValidationError("Mã máy không được trống.")
         if not (data.get("ten") or "").strip():
@@ -85,43 +93,25 @@ class MayThietBiService:
         _ = dvtd  # đơn vị tốc độ khớp loai_may — cảnh báo mềm, không chặn ở MVP.
 
     # -- reads --
-    def get(self, may_id: int) -> MayThietBi:
-        m = self.repo.get(may_id)
-        if m is None:
-            raise MayThietBiNotFound("Không tìm thấy máy.")
-        return m
-
-    def list(self, **kw):
-        return self.repo.list(**kw)
-
     def dem_theo_loai(self, **kw) -> dict[str, int]:
         """Số máy theo loại — cho tab lọc của màn Thiết bị (xem repo)."""
         return self.repo.dem_theo_loai(**kw)
 
-    # -- writes --
-    def create(self, data: dict, actor_id: int | None = None) -> MayThietBi:
-        self._validate(data)
-        if self.repo.find_by_ma(data["ma"]) is not None:
-            raise MayThietBiDuplicate("Mã máy đã tồn tại.")
-        m = self.repo.create(data)
-        nk.ghi_tao(self.audit, actor_id=actor_id, loai="may_thiet_bi", obj=m)
-        return m
+    def gan_ten_don_vi(self, items) -> None:
+        """Điền TÊN đơn vị tốc độ cho cả trang bằng MỘT truy vấn.
 
-    def update(self, may_id: int, data: dict, actor_id: int | None = None) -> MayThietBi:
-        m = self.get(may_id)
-        self._validate(data, self_id=m.id)
-        dup = self.repo.find_by_ma(data["ma"])
-        if dup is not None and dup.id != m.id:
-            raise MayThietBiDuplicate("Mã máy đã tồn tại.")
-        truoc = nk.anh_chup(m)
-        m = self.repo.update(m, data)
-        nk.ghi_sua(self.audit, actor_id=actor_id, loai="may_thiet_bi", obj=m, truoc=truoc)
-        return m
+        Bảng máy chỉ lưu MÃ (`to_gio`, `m_phut`) mà mã không đọc được thành lời. Gán ở server
+        chứ không để frontend tự tra — cùng lý do đã chốt cho Giấy · Vật tư
+        (`vat_lieu_kho_service.gan_ten_don_vi`) và Công đoạn: bảng nhãn cứng ở FE sớm muộn lệch
+        với danh mục, và xưởng đổi tên đơn vị thì cả hai chỗ phải đổi theo.
 
-    def delete(self, may_id: int, actor_id: int | None = None) -> None:
-        m = self.get(may_id)
-        nk.ghi_xoa(self.audit, actor_id=actor_id, loai="may_thiet_bi", obj=m)
-        self.repo.delete(m)
+        ⚠️ Field `don_vi_toc_do_ten` PHẢI có mặt trong `schemas.may_thiet_bi.MayThietBiRow`, nếu
+        không Pydantic nuốt im lặng và FE nhận `undefined` mà chẳng có lỗi nào.
+        """
+        ten = self.repo.don_vi_ten()
+        for it in items:
+            ma = (getattr(it, "don_vi_toc_do", None) or "").strip().lower()
+            it.don_vi_toc_do_ten = ten.get(ma) if ma else None
 
 
 # --- Danh mục NHÓM MÁY -------------------------------------------------------
@@ -129,20 +119,18 @@ class MayThietBiService:
 
 class NhomMayService:
     """Danh sách tên được phép chọn ở ô "Nhóm máy". KHÔNG phải khoá ngoại — xem docstring
-    `models.may_thiet_bi.NhomMay`."""
+    `models.may_thiet_bi.NhomMay`.
 
-    def __init__(self, db) -> None:
-        self.db = db
+    KHÔNG dùng `CatalogService`: bảng này không có cột `ma`, không có `update`, và `create` nhận
+    một CHUỖI chứ không phải dict. Ép vào nền chỉ để "cho đồng bộ" là đẻ ra ba cờ mà mỗi cờ đúng
+    một nơi dùng.
+    """
+
+    def __init__(self, repo: NhomMayRepository) -> None:
+        self.repo = repo
 
     def list(self) -> list[NhomMay]:
-        return list(
-            self.db.execute(
-                select(NhomMay).where(NhomMay.active.is_(True)).order_by(NhomMay.ten)
-            ).scalars()
-        )
-
-    def _tim_theo_ten(self, ten: str) -> NhomMay | None:
-        return self.db.execute(select(NhomMay).where(NhomMay.ten == ten)).scalars().first()
+        return self.repo.list_active()
 
     def create(self, ten: str) -> NhomMay:
         ten = (ten or "").strip()
@@ -150,37 +138,38 @@ class NhomMayService:
             raise MayThietBiValidationError("Tên nhóm máy không được trống.")
         if len(ten) > 60:
             raise MayThietBiValidationError("Tên nhóm máy tối đa 60 ký tự.")
-        cu = self._tim_theo_ten(ten)
+        cu = self.repo.find_by_ten(ten)
         if cu is not None:
             # Nhóm bị ẩn trước đó thì BẬT LẠI thay vì báo trùng — người dùng gõ đúng tên đó nghĩa
             # là họ muốn nó có mặt, chứ không quan tâm nó từng bị gỡ.
             if not cu.active:
-                cu.active = True
-                self.db.commit()
-                self.db.refresh(cu)
-                return cu
+                return self.repo.bat_lai(cu)
             raise MayThietBiDuplicate("Nhóm máy đã tồn tại.")
-        row = NhomMay(ten=ten)
-        self.db.add(row)
-        self.db.commit()
-        self.db.refresh(row)
-        return row
+        return self.repo.create(ten)
 
     def dem_may_dung(self, ten: str) -> int:
-        return int(self.db.execute(
-            select(func.count()).select_from(MayThietBi).where(MayThietBi.loai_may == ten)
-        ).scalar_one())
+        return self.repo.dem_may_dung(ten)
+
+    def dem_cong_doan_cho_phep(self, ten: str) -> int:
+        return self.repo.dem_cong_doan_cho_phep(ten)
 
     def delete(self, nhom_id: int) -> None:
-        row = self.db.get(NhomMay, nhom_id)
+        row = self.repo.get(nhom_id)
         if row is None:
             raise MayThietBiNotFound("Không tìm thấy nhóm máy.")
-        # 🔴 CHẶN khi còn máy dùng. Bảng này không phải FK nên DB không tự giữ — xoá mù là để lại
-        # máy mang tên nhóm không còn tồn tại, và không chỗ nào báo.
-        n = self.dem_may_dung(row.ten)
-        if n > 0:
+        # 🔴 CHẶN khi còn nơi dùng. Bảng này không phải FK nên DB không tự giữ — xoá mù là để lại
+        # tên nhóm không còn tồn tại, và không chỗ nào báo.
+        #
+        # Đếm CẢ HAI nơi. Trước 15/08/2026 chỉ đếm máy, nên nhóm chưa có máy nào nhưng đang nằm
+        # trong `cong_doan.nhom_may_cho_phep` vẫn xoá được — và ràng buộc "bước này chỉ chạy được
+        # trên nhóm máy X" âm thầm không khớp được ai nữa.
+        ly_do = []
+        if (n := self.dem_may_dung(row.ten)) > 0:
+            ly_do.append(f"{n} máy đang thuộc nhóm này")
+        if (m := self.dem_cong_doan_cho_phep(row.ten)) > 0:
+            ly_do.append(f"{m} công đoạn khai nhóm này ở ô “Máy làm được công đoạn này”")
+        if ly_do:
             raise MayThietBiValidationError(
-                f"Còn {n} máy đang thuộc nhóm “{row.ten}” — đổi nhóm cho các máy đó trước đã."
+                f"Không xóa được nhóm “{row.ten}” — còn: {' · '.join(ly_do)}."
             )
-        self.db.delete(row)
-        self.db.commit()
+        self.repo.delete(row)

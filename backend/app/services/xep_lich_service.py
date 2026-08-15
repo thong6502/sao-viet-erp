@@ -915,6 +915,18 @@ class XepLichService:
             return _dur_0()
         return self._thoi_luong_noi_bo(dong, lcd)
 
+    def _sl_tinh(self, lcd, may):
+        """SL vào của bước quy về đơn vị TỐC ĐỘ — cùng một hàm với drawer lệnh.
+
+        Bắt buộc đi qua `LsxService.sl_tinh_cua_buoc`: xếp lịch tự suy đích hay tự nhân hệ số là
+        Gantt và màn lệnh chia hai số khác nhau, mà chênh giờ thì không ai soi ra ngay.
+        """
+        from .bien_cong_thuc import quy_cach_bien
+
+        lsx = self.lsx_repo.get(lcd.lsx_id) if getattr(lcd, "lsx_id", None) else None
+        qc = quy_cach_bien(lsx) if lsx is not None else {}
+        return self.bg_svc._lsx_svc().sl_tinh_cua_buoc(lcd, may, qc)
+
     def _thoi_luong_noi_bo(
         self, dong: XepLichCongDoan, lcd: LsxCongDoan | BaiGhepCongDoan,
     ) -> dict:
@@ -930,13 +942,13 @@ class XepLichService:
         thanh. `theo_may` = tính được từ máy đang gán; sai thì `canh_bao` nói vì sao (máy chưa khai
         tốc độ / đơn vị lệch) để UI nhắc, thay vì im lặng ra số 0."""
         may = self.db.get(MayThietBi, dong.may_id) if dong.may_id else None
-        t = thoi_luong_buoc(lcd, may)
+        t = thoi_luong_buoc(lcd, may, self._sl_tinh(lcd, may))
         pp = t["dien_giai"]["phuong_phap"]
         canh_bao = None
         if pp == "thieu_nang_suat":
             canh_bao = "may_chua_toc_do"
-        elif pp == "don_vi_lech":
-            canh_bao = "don_vi_lech"
+        elif pp == "chua_quy_doi":
+            canh_bao = "chua_quy_doi"
         return {
             "chiem_may_phut": t["chiem_may_phut"],
             "chiem_may_phut_min": t["chiem_may_phut_min"],
@@ -1358,9 +1370,15 @@ class XepLichService:
         Chưa khai ràng buộc ⇒ MỌI máy. Máy đang gán luôn có mặt kể cả khi sai loại, không thì gợi
         ý tự loại chính lựa chọn hiện tại và người dùng tưởng mình gán bậy.
 
-        KHÔNG lọc `trang_thai == "active"` nữa (cột đã gỡ 11/08/2026 — không có ô nhập nên mọi máy
-        luôn "active", lọc mà không loại được gì). Máy dừng vì bảo trì/hỏng đã bị loại đúng chỗ:
-        engine né `machine_unavailable_periods` khi tìm khe, nên máy đang khoá không ra khe sớm.
+        LỌC `active` (cột thêm lại ở mg `0202`, 15/08/2026 — lần này CÓ ô nhập, là nút "Ngừng dùng"
+        của màn Máy): máy đã thanh lý thì đừng mời xếp việc vào. Khác hẳn cột `trang_thai` gỡ hồi
+        11/08 — cái đó trộn ba nghĩa và không ô nhập nào nên lọc chẳng loại được gì.
+
+        Máy dừng TẠM (bảo trì, hỏng) vẫn `active=True` và bị loại đúng chỗ khác: engine né
+        `machine_unavailable_periods` khi tìm khe, nên máy đang khoá không ra khe sớm.
+
+        Máy ĐANG GÁN luôn có mặt kể cả khi đã ngừng dùng — không thì mở một lệnh cũ ra là ô máy
+        trống trơn và người xếp lịch tưởng chưa ai gán.
         """
         cd = None
         if dong.nguon == NGUON_LSX:
@@ -1370,7 +1388,8 @@ class XepLichService:
             bgcd = self.db.get(BaiGhepCongDoan, dong.bai_ghep_cong_doan_id)
             cd = self.db.get(CongDoan, bgcd.cong_doan_id) if bgcd and bgcd.cong_doan_id else None
         allow = (getattr(cd, "nhom_may_cho_phep", None) or []) if cd is not None else []
-        mays = list(self.db.execute(select(MayThietBi)).scalars())
+        mays = [m for m in self.db.execute(select(MayThietBi)).scalars()
+                if m.active or m.id == dong.may_id]
         if allow:
             mays = [m for m in mays if m.loai_may in allow or m.id == dong.may_id]
         return mays
@@ -1440,7 +1459,7 @@ class XepLichService:
         gom = self._gom_key(lsx)
         ra: list[dict] = []
         for may in self._may_lam_duoc(dong):
-            chiem = thoi_luong_buoc(lcd, may)["chiem_may_phut"]
+            chiem = thoi_luong_buoc(lcd, may, self._sl_tinh(lcd, may))["chiem_may_phut"]
             if chiem <= 0:
                 continue                      # máy chưa khai tốc độ → không hứa được giờ xong nào
             khe = self._khe_trong(may.id, som, chiem, exclude_id=exclude_id)

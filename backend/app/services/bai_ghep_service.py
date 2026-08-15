@@ -730,7 +730,7 @@ class BaiGhepService:
         Kéo theo định mức (năng suất · số người) y như bước lệnh: chọn đầu việc xong mà năng suất
         vẫn trống thì thẻ vẫn kêu "Chưa có năng suất", người dùng phải gõ lại số đã có sẵn.
         """
-        from .lsx_service import _DV_VAO_SANG_NS, _dinh_muc_snapshot
+        from .lsx_service import _dinh_muc_snapshot
 
         svc = self._lsx_svc()
         cd_obj = self.db.get(CongDoan, chung.cong_doan_id) if chung.cong_doan_id else None
@@ -753,9 +753,9 @@ class BaiGhepService:
         # lệnh, gồm cả dải năng suất min/max và đơn vị khai báo.
         chung.khoan_json.update(_dinh_muc_snapshot(dm))
         chung.nang_suat = _f(dm.nang_suat_nguoi_gio)
-        chung.don_vi_nang_suat = dm.don_vi_nang_suat or (
-            _DV_VAO_SANG_NS.get(cd_obj.don_vi_vao) if cd_obj else None
-        )
+        # Đơn vị năng suất = đơn vị ĐƠN GIÁ KHOÁN. Bảng ánh xạ `_DV_VAO_SANG_NS` đã gỡ 15/08/2026
+        # cùng hai cơ chế đơn vị cũ — thời lượng nay quy SL vào về chính đơn vị này.
+        chung.don_vi_nang_suat = rate.unit
         chung.so_nhan_cong_tieu_chuan = int(dm.so_nguoi_tieu_chuan)
         chung.so_nhan_cong_toi_da = int(dm.so_nguoi_toi_da)
         chung.so_nhan_cong_toi_thieu = int(getattr(dm, "so_nguoi_toi_thieu", 1) or 1)
@@ -789,14 +789,20 @@ class BaiGhepService:
             raise BaiGhepValidationError("Một vật tư không được chọn trùng trong cùng công đoạn")
         mats = {
             v.id: v for v in self.db.execute(
-                select(VatTuInAn).where(VatTuInAn.id.in_(ids), VatTuInAn.active.is_(True))
+                select(VatTuInAn).where(VatTuInAn.id.in_(ids))
             ).scalars()
         } if ids else {}
+        # Vật tư đã nằm trên bài ghép từ trước thì giữ lại được, kể cả khi danh mục đã ngừng nó —
+        # chặn cả hai kiểu thì bài ghép cũ không lưu lại được dù chỉ sửa một con số khác.
+        dang_co = {int(v.vat_tu_id) for v in chung.vat_tus if v.vat_tu_id}
         chung.vat_tus[:] = []
         for i, v in enumerate(vat_tus):
             mat = mats.get(int(v.get("vat_tu_id") or 0))
             if mat is None:
-                raise BaiGhepValidationError("Vật tư không tồn tại hoặc đã ngừng dùng")
+                raise BaiGhepValidationError("Vật tư không tồn tại")
+            if not mat.active and mat.id not in dang_co:
+                raise BaiGhepValidationError(
+                    f"Vật tư “{mat.ten}” đã ngừng dùng — chọn vật tư khác")
             chung.vat_tus.append(BaiGhepCongDoanVatTu(
                 # `don_vi_gia`, KHÔNG phải `don_vi` — `VatTuInAn` không có cột nào tên `don_vi`.
                 # Gõ nhầm ở đây là AttributeError lúc chạy, 500 ngay khi bấm Lưu; bước lệnh
@@ -837,9 +843,11 @@ class BaiGhepService:
 
     def _bu_hao_rows(self) -> list[dict]:
         if self._bu_hao_cache is None:
-            self._bu_hao_cache = [_bu_hao_to_dict(b) for b in self.db.execute(
-                select(BuHao).where(BuHao.active.is_(True))
-            ).scalars()]
+            # KHÔNG lọc `active`: bài ghép tính lại số tờ của bản ĐÃ CÓ. Ẩn một mã bù hao mà lọc
+            # ở đây thì bài ghép cũ tự đổi số, không ai đụng vào mà vẫn lệch.
+            self._bu_hao_cache = [
+                _bu_hao_to_dict(b) for b in self.db.execute(select(BuHao)).scalars()
+            ]
         return self._bu_hao_cache
 
     def _quy_tac_hao(self, cong_doan_id: int | None) -> dict:
@@ -1393,7 +1401,10 @@ class BaiGhepService:
             _fixed, pct = self._hao_o_bac(c.cong_doan_id, h["ra"]) if tren_giay else (0.0, 0.0)
             may_obj = self.db.get(MayThietBi, c.may_id) if c.may_id else None
             cd_obj = self.db.get(CongDoan, c.cong_doan_id) if c.cong_doan_id else None
-            t = thoi_luong_buoc(c, may_obj)
+            # Quy cách `{}` như khối khoán (`_khoan_chung_dict`): tờ ghép không thuộc quy cách của
+            # lệnh nào, nên công thức nào cần biến quy cách sẽ báo tịt thay vì mượn số của một
+            # thành viên bất kỳ.
+            t = thoi_luong_buoc(c, may_obj, self._lsx_svc().sl_tinh_cua_buoc(c, may_obj, {}))
             ds = sorted(thanh_vien.get(c.id, []), key=lambda x: x["lsx_ma"] or "")
             out.append({
                 "step_key": c.step_key, "ten": c.ten, "nhom": c.nhom,
@@ -1558,9 +1569,15 @@ class BaiGhepService:
         `gop_step_key` khác `None` = bước này đang bị một bước chung ĐÈ; số/tổ/máy hiển thị lấy
         theo thẻ chung, thẻ lệnh chỉ còn là mảnh ghép của nó.
         """
+        from .bien_cong_thuc import quy_cach_bien
         from .lsx_service import thoi_luong_buoc
 
-        t = thoi_luong_buoc(cd, self.db.get(MayThietBi, cd.may_id) if cd.may_id else None)
+        may_obj = self.db.get(MayThietBi, cd.may_id) if cd.may_id else None
+        svc = self._lsx_svc()
+        # Bước LỆNH có quy cách của lệnh nó thuộc về; thẻ bước CHUNG (`BaiGhepCongDoan`) thì không
+        # có `.lsx` nên đi với `{}` — công thức cần biến quy cách sẽ báo tịt, không mượn số bừa.
+        qc = quy_cach_bien(cd.lsx) if getattr(cd, "lsx", None) is not None else {}
+        t = thoi_luong_buoc(cd, may_obj, svc.sl_tinh_cua_buoc(cd, may_obj, qc))
         sl = sl or {}
         return {
             "so_luong_vao": sl.get("so_luong_vao"), "so_luong_ra": sl.get("so_luong_ra"),

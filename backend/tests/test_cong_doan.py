@@ -283,13 +283,51 @@ def test_chan_vat_tu_ngung_dung_va_vat_tu_chua_co_don_vi():
     dm = dict(piece_rate_id=rate.id, nang_suat_nguoi_gio=100,
               so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2)
 
-    with pytest.raises(CongDoanValidationError, match="ngừng sử dụng"):
+    with pytest.raises(CongDoanValidationError, match="đã ngừng dùng"):
         svc.create({**base, "dau_viec_dinh_muc": [{**dm, "vat_tu_ids": [tat.id]}]})
     with pytest.raises(CongDoanValidationError, match="đơn vị tính"):
         svc.create({**base, "ma": "GC-X2", "dau_viec_dinh_muc": [{**dm, "vat_tu_ids": [trong.id]}]})
     with pytest.raises(CongDoanValidationError, match="trùng"):
         svc.create({**base, "ma": "GC-X3",
                     "dau_viec_dinh_muc": [{**dm, "vat_tu_ids": [trong.id, trong.id]}]})
+
+
+def test_vat_tu_ngung_dung_van_sua_duoc_cong_doan_dang_giu_no():
+    """Chặn GÁN MỚI, không chặn GIỮ NGUYÊN (luật đã chốt cho lương 27/07).
+
+    Trước bản vá: công đoạn khai vật tư X, sau đó kho tắt X ⇒ công đoạn đó KHÔNG SỬA ĐƯỢC NỮA,
+    kể cả khi chỉ muốn đổi cái tên — validate chặn ngay ở dòng vật tư mà người dùng không hề động
+    tới. Không có đường nào gỡ ngoài việc vào DB bật lại X.
+    """
+    from app.models.vat_lieu_kho import VatTuInAn
+
+    db, svc = _svc()
+    to, rate = _to_va_rate(svc, db, ma_to="PB912", ma_rate="GC-02")
+    vt = VatTuInAn(ma="VT-SONG", ten="Keo", don_vi_gia="kg", don_gia=1)
+    db.add(vt)
+    db.commit()
+    dm = dict(piece_rate_id=rate.id, nang_suat_nguoi_gio=100,
+              so_nguoi_tieu_chuan=1, so_nguoi_toi_da=2, vat_tu_ids=[vt.id])
+    cd = svc.create(dict(ma="GC-Y", ten="Gia công Y", nhom="finishing", department_id=to.id,
+                         pricing_basis="per_finished_qty", dau_viec_dinh_muc=[dm]))
+
+    vt.active = False                      # kho ngừng dùng vật tư SAU khi công đoạn đã khai nó
+    db.commit()
+
+    sua = svc.update(cd.id, dict(ma="GC-Y", ten="Gia công Y (đổi tên)", nhom="finishing",
+                                 department_id=to.id, pricing_basis="per_finished_qty",
+                                 dau_viec_dinh_muc=[dm]))
+    assert sua.ten == "Gia công Y (đổi tên)"
+    assert sua.dau_viec_dinh_muc[0].vat_tu_ids == [vt.id]
+
+    # Nhưng GÁN THÊM một vật tư đã ngừng thì vẫn phải chặn.
+    khac = VatTuInAn(ma="VT-TAT2", ten="Mực cũ", don_vi_gia="kg", don_gia=1, active=False)
+    db.add(khac)
+    db.commit()
+    with pytest.raises(CongDoanValidationError, match="đã ngừng dùng"):
+        svc.update(cd.id, dict(ma="GC-Y", ten="Gia công Y", nhom="finishing",
+                               department_id=to.id, pricing_basis="per_finished_qty",
+                               dau_viec_dinh_muc=[{**dm, "vat_tu_ids": [vt.id, khac.id]}]))
 
 
 def test_cong_doan_trung_tinh_khong_mang_loai_thuc_hien_hoac_may_mac_dinh():

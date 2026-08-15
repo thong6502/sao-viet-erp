@@ -128,12 +128,15 @@ class StockRequestService:
     def update(self, req: StockRequest, *, lines: list[dict] | None = None, **header) -> StockRequest:
         self._require_editable(req)
         if lines is not None:
-            self._validate_lines(lines)
+            # Mặt hàng vốn đã có trên đề nghị thì giữ lại được kể cả khi danh mục đã ngừng nó.
+            dang_co = {(ln.hang_loai, int(ln.hang_id))
+                       for ln in (req.lines or []) if ln.hang_loai and ln.hang_id}
+            self._validate_lines(lines, dang_co)
             self.requests.replace_lines(req, lines)
         self.requests.update_header(req, header)
         return self.requests.save(req)
 
-    def _validate_lines(self, lines: list[dict]) -> None:
+    def _validate_lines(self, lines: list[dict], dang_co: set[tuple] | None = None) -> None:
         """SIẾT (chủ chốt 2026-08-08): mỗi dòng phải trỏ một mặt hàng CÓ THẬT trong danh mục gốc,
         và đơn vị phải đổi được về đơn vị gốc của chính mặt hàng đó.
 
@@ -160,7 +163,8 @@ class StockRequestService:
                     "Một mặt hàng cho cùng một lệnh chỉ được xuất hiện 1 dòng — gộp số lượng lại."
                 )
             seen.add(key)
-            self._kiem_hang_va_don_vi(loai, int(hid), ln.get("dvt"), ln["sl_de_nghi"])
+            self._kiem_hang_va_don_vi(loai, int(hid), ln.get("dvt"), ln["sl_de_nghi"],
+                                      giu_duoc=(loai, int(hid)) in (dang_co or set()))
             self._kiem_lenh(ln.get("lsx_id"), ln.get("bai_ghep_id"))
 
     def _kiem_lenh(self, lsx_id, bai_ghep_id) -> None:
@@ -176,16 +180,22 @@ class StockRequestService:
         if not co_bg:
             raise StockRequestError(f"Bài ghép #{bai_ghep_id} không tồn tại — chọn lại.")
 
-    def _kiem_hang_va_don_vi(self, hang_loai: str, hang_id: int, dvt, so_luong) -> None:
+    def _kiem_hang_va_don_vi(self, hang_loai: str, hang_id: int, dvt, so_luong,
+                             *, giu_duoc: bool = False) -> None:
         """Mặt hàng còn dùng được + đơn vị quy được về gốc. Lỗi trả nguyên văn lý do của danh mục
-        (vd "chưa chọn đơn vị tính", "không đổi được từ tờ về kg") để người khai biết sửa ở đâu."""
+        (vd "chưa chọn đơn vị tính", "không đổi được từ tờ về kg") để người khai biết sửa ở đâu.
+
+        `giu_duoc` = dòng này vốn đã có trên đề nghị. Mặt hàng ngừng dùng sau khi đề nghị được lập
+        thì vẫn phải sửa được đề nghị (đổi số lượng, bỏ bớt dòng khác) — chặn cứng là nhốt luôn
+        cái đề nghị đó, không ai gỡ ra được.
+        """
         if self.hang is None:
             raise StockRequestError("Thiếu danh mục mặt hàng — không kiểm được dòng đề nghị.")
         from .vat_lieu_kho_service import VatLieuKhoError
 
         try:
             obj = self.hang.get(hang_loai, hang_id)
-            if not getattr(obj, "active", True):
+            if not getattr(obj, "active", True) and not giu_duoc:
                 raise StockRequestError(f"“{obj.ten}” đã ngừng dùng — chọn mặt hàng khác.")
             self.hang.quy_ve_goc(hang_loai, hang_id, dvt, so_luong)
         except VatLieuKhoError as e:

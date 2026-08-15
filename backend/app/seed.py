@@ -11,6 +11,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
+from .catalog_registry import MODULES_SEED
 from .config import settings
 from .models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from .models.work_calendar import KIND_OFF, SpecialDay
@@ -41,7 +42,6 @@ MODULES: list[tuple[str, str]] = [
     # người làm cả hai việc, tách hai dòng quyền chỉ tổ bắt người cấp quyền tick hai lần.
     ("ky_thuat_may", "Kỹ thuật máy"),
     ("kho", "Kho hàng"),
-    ("khuon_be", "Khuôn bế"),
     ("phong_ban", "Phòng ban"),
     ("vai_tro", "Vai trò"),
     ("nguoi_dung", "Người dùng"),
@@ -55,15 +55,9 @@ MODULES: list[tuple[str, str]] = [
     # màn hình chứ không phải dò theo tên kỹ thuật. Trước đây 10 mục menu chỉ có 5 dòng quyền:
     # bật đủ 5/5 vẫn không mở được Giấy (nó mượn quyền `kho`), Bù hao và Đơn vị thì đi ké
     # `dm_cong_doan` — cấp cho kế toán khai đơn vị là hở luôn danh mục công đoạn.
-    ("dm_loai_san_pham", "Loại sản phẩm"),
-    ("dm_thiet_bi", "Thiết bị & Máy móc"),
-    ("dm_cong_doan", "Công đoạn"),
-    ("dm_bu_hao", "Bù hao"),
-    ("dm_don_vi", "Đơn vị & quy đổi"),
-    ("dm_chung_loai_giay", "Chủng loại giấy"),
-    ("dm_giay", "Giấy"),
-    ("dm_vat_tu", "Vật tư khác"),
-    ("dm_kho_hang", "Khai báo kho"),
+    # Cả 10 dòng đọc từ `catalog_registry` (gồm cả `khuon_be`, trước nằm lẫn trên khối Hệ thống):
+    # thêm màn danh mục là tự có ô quyền, không phải nhớ chép sang đây.
+    *MODULES_SEED,
     ("nhan_su", "Nhân sự"),
     ("nghi_phep", "Nghỉ phép"),
     ("tang_ca", "Tăng ca"),

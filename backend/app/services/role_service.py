@@ -6,6 +6,7 @@ matrix (CRUD + scope per module), writing an audit row on every change.
 """
 from __future__ import annotations
 
+from ..catalog_registry import MODULE_KEYS
 from ..models.role import Role
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.rbac_repo import DepartmentRepository, ModuleRepository, RoleRepository
@@ -42,14 +43,15 @@ class RoleInUse(RoleError):
 # Module DANH MỤC — dữ liệu dùng chung toàn công ty, KHÔNG có phạm vi own/department. UI đã bỏ
 # dropdown Phạm vi ở nhóm này; ép `all` khi lưu để vai mới (mặc định `own`) không bị bó âm thầm
 # nếu sau này có ai bật lọc theo scope.
-SCOPELESS_MODULES = frozenset({
-    "dm_loai_san_pham", "dm_thiet_bi", "dm_cong_doan", "dm_bu_hao", "dm_don_vi",
-    "dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "khuon_be", "dm_kho_hang",
+#
+# 10 khoá danh mục lấy từ `catalog_registry` (thêm màn danh mục là tự có mặt ở đây, không phải
+# nhớ chép sang). Ngoài danh mục thì liệt kê tay bên dưới — registry chỉ nói về danh mục.
+SCOPELESS_MODULES = frozenset(MODULE_KEYS) | {
     # Kỹ thuật máy (12/08/2026): phiếu sửa chữa / bảo trì là việc chung của xưởng — không có khái
     # niệm "phiếu của tôi", nên bày dropdown Phạm vi chỉ khiến người cấp quyền tưởng mình vừa giới
     # hạn được cái gì.
     "ky_thuat_may",
-})
+}
 
 READ_IMPLYING_KEYS = (
     "can_create",

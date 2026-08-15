@@ -36,7 +36,7 @@ class KhuonBeRow(BaseModel):
 
 
 class KhuonBeListOut(BaseModel):
-    items: list
+    items: list[KhuonBeRow]
     total: int
     page: int
     size: int

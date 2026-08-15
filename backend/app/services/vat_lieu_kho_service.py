@@ -13,11 +13,14 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from ..models.vat_lieu_kho import BE_MAT_GIAY, HANG_LOAI, THO
+from ..models.vat_lieu_kho import HANG_LOAI, THO
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.vat_lieu_kho_repo import VERSION_SNAPSHOT, VatLieuKhoRepository
 from . import nhat_ky_danh_muc as nk
+from .catalog_base import (
+    CatalogDuplicate, CatalogError, CatalogNotFound, CatalogValidationError,
+)
 from .quy_doi_service import don_vi_dung_duoc, don_vi_map
 
 # Nhãn nhóm hiện trên picker — người chọn phải phân biệt được hai nguồn khi tên gần giống nhau.
@@ -25,19 +28,19 @@ from .quy_doi_service import don_vi_dung_duoc, don_vi_map
 HANG_NHAN = {"giay": "Giấy", "vat_tu": "Vật tư khác"}
 
 
-class VatLieuKhoError(Exception):
+class VatLieuKhoError(CatalogError):
     pass
 
 
-class VatLieuKhoValidationError(VatLieuKhoError):
+class VatLieuKhoValidationError(VatLieuKhoError, CatalogValidationError):
     pass
 
 
-class VatLieuKhoDuplicate(VatLieuKhoError):
+class VatLieuKhoDuplicate(VatLieuKhoError, CatalogDuplicate):
     pass
 
 
-class VatLieuKhoNotFound(VatLieuKhoError):
+class VatLieuKhoNotFound(VatLieuKhoError, CatalogNotFound):
     pass
 
 
@@ -54,40 +57,50 @@ class VatLieuKhoService:
         self.audit = audit
 
     # --- đơn vị tính ---------------------------------------------------------
-    def _kiem_don_vi(self, ma, nhan: str) -> None:
+    def _kiem_don_vi(self, ma, nhan: str, *, dang_co=None) -> None:
         """Đơn vị phải có trong danh mục `don_vi_do`. Để TRỐNG là hợp lệ ("chưa chọn").
 
-        Không nhận đơn vị gõ tự do nữa: mã lạ thì mọi quy đổi về sau đều tắt lặng lẽ (đồ thị không
-        có nút đó), tồn kho và giá cứ thế lệch mà không ai thấy lỗi ở đâu.
+        Không nhận đơn vị gõ tự do: mã lạ thì mọi quy đổi về sau đều tắt lặng lẽ (đồ thị không có
+        nút đó), tồn kho và giá cứ thế lệch mà không ai thấy lỗi ở đâu.
+
+        `dang_co` = đơn vị vốn đã nằm trên bản ghi. Chặn GÁN MỚI đơn vị đã ngừng dùng, nhưng KHÔNG
+        chặn khi người ta giữ nguyên nó — nếu không thì sửa mỗi cái tên của một loại giấy cũ cũng
+        bị chặn chỉ vì đơn vị của nó đã ngừng từ lâu (luật đã chốt cho lương 27/07).
         """
         ma = (ma or "").strip().lower()
-        if not ma:
+        if not ma or ma == (dang_co or "").strip().lower():
             return
-        if ma not in {d.ma.strip().lower() for d in self.don_vi.all_active()}:
+        if ma in {d.ma.strip().lower() for d in self.don_vi.all_active()}:
+            return
+        # Có trong danh mục nhưng đã ngừng — nói đúng bệnh, đừng bảo "không có" làm người ta đi
+        # khai lại một mã đang tồn tại rồi ăn lỗi trùng mã.
+        if ma in {d.ma.strip().lower() for d in self.don_vi.all_rows()}:
             raise VatLieuKhoValidationError(
-                f"{nhan} “{ma}” không có trong danh mục Đơn vị & quy đổi — khai ở đó trước."
+                f"{nhan} “{ma}” đã ngừng dùng — chọn đơn vị khác, hoặc bật lại ở Đơn vị & quy đổi."
             )
+        raise VatLieuKhoValidationError(
+            f"{nhan} “{ma}” không có trong danh mục Đơn vị & quy đổi — khai ở đó trước."
+        )
 
-    def _validate(self, kind: str, data: dict) -> None:
+    def _validate(self, kind: str, data: dict, *, obj=None) -> None:
         if not (data.get("ma") or "").strip():
             raise VatLieuKhoValidationError("Mã không được trống.")
         if not (data.get("ten") or "").strip():
             raise VatLieuKhoValidationError("Tên không được trống.")
-        if kind == "chung_loai_giay":
-            if data.get("be_mat") not in (None, "") and data["be_mat"] not in BE_MAT_GIAY:
-                raise VatLieuKhoValidationError("Bề mặt giấy không hợp lệ.")
-            if data.get("tho_mac_dinh") not in (None, "") and data["tho_mac_dinh"] not in THO:
-                raise VatLieuKhoValidationError("Thớ mặc định không hợp lệ.")
-        elif kind == "giay":
+        # `chung_loai_giay` không còn ô nào cần kiểm ngoài mã/tên (gỡ `be_mat`/`tho_mac_dinh`
+        # 15/08/2026) — nhánh riêng của nó bỏ luôn, đừng để lại `if` rỗng.
+        if kind == "giay":
             if not data.get("chung_loai_giay_id"):
                 raise VatLieuKhoValidationError("Phải chọn Chủng loại giấy.")
             if _f(data.get("gsm")) <= 0:
                 raise VatLieuKhoValidationError("GSM phải > 0.")
-            self._kiem_don_vi(data.get("don_vi_gia"), "Đơn vị tính")
+            self._kiem_don_vi(data.get("don_vi_gia"), "Đơn vị tính",
+                              dang_co=getattr(obj, "don_vi_gia", None))
             if data.get("tho") not in (None, "") and data["tho"] not in THO:
                 raise VatLieuKhoValidationError("Thớ không hợp lệ.")
         elif kind == "vat_tu":
-            self._kiem_don_vi(data.get("don_vi_gia"), "Đơn vị tính")
+            self._kiem_don_vi(data.get("don_vi_gia"), "Đơn vị tính",
+                              dang_co=getattr(obj, "don_vi_gia", None))
 
     def get(self, kind: str, item_id: int):
         obj = self.repo.get(kind, item_id)
@@ -104,23 +117,39 @@ class VatLieuKhoService:
             raise VatLieuKhoDuplicate("Mã đã tồn tại.")
         obj = self.repo.create(kind, data)
         nk.ghi_tao(self.audit, actor_id=actor_id, loai=kind, obj=obj)
+        # Repo chỉ `flush()`; chốt Ở ĐÂY để bản ghi và dòng nhật ký đi chung một giao dịch —
+        # cùng luật với 7 danh mục dùng `services/catalog_base.CatalogService`.
+        self.repo.chot_giao_dich()
         return obj
 
     def update(self, kind: str, item_id: int, data: dict, actor_id: int | None = None):
         obj = self.get(kind, item_id)
-        self._validate(kind, data)
+        self._validate(kind, data, obj=obj)   # `obj` để giữ được đơn vị vốn có, xem `_kiem_don_vi`
         dup = self.repo.find_by_ma(kind, data["ma"])
         if dup is not None and dup.id != obj.id:
             raise VatLieuKhoDuplicate("Mã đã tồn tại.")
         truoc = nk.anh_chup(obj)          # chụp TRƯỚC khi repo ghi đè lên chính object này
         obj = self.repo.update(obj, kind, data)
         nk.ghi_sua(self.audit, actor_id=actor_id, loai=kind, obj=obj, truoc=truoc)
+        self.repo.chot_giao_dich()
+        return obj
+
+    def dat_active(self, kind: str, item_id: int, active: bool, actor_id: int | None = None):
+        """BẬT / NGỪNG dùng — đổi ĐÚNG cờ `active`, không chạy `_validate`. Xem bản chú thích đầy
+        đủ ở `services/catalog_base.CatalogService.dat_active` (ba danh mục này không kế thừa nền
+        vì mọi phương thức của chúng nhận thêm `kind`)."""
+        obj = self.get(kind, item_id)
+        truoc = nk.anh_chup(obj)
+        obj = self.repo.update(obj, kind, {"active": bool(active)})
+        nk.ghi_sua(self.audit, actor_id=actor_id, loai=kind, obj=obj, truoc=truoc)
+        self.repo.chot_giao_dich()
         return obj
 
     def delete(self, kind: str, item_id: int, actor_id: int | None = None) -> None:
         obj = self.get(kind, item_id)
         nk.ghi_xoa(self.audit, actor_id=actor_id, loai=kind, obj=obj)
         self.repo.delete(obj)
+        self.repo.chot_giao_dich()
 
     def gan_ten_don_vi(self, items) -> None:
         """Điền TÊN đơn vị cho cả trang bằng MỘT truy vấn.
@@ -129,7 +158,9 @@ class VatLieuKhoService:
         `to` là "tờ". Gán ở đây chứ không để frontend tự tra: danh sách đơn vị chỉ được nạp trong
         drawer, cột bảng không với tới. Một `dict` cho cả trang nên không đẻ N+1.
         """
-        ten = {(d.ma or "").strip().lower(): d.ten for d in self.don_vi.all_active()}
+        # `all_rows` chứ không `all_active`: đây chỉ để HIỆN TÊN. Mặt hàng cũ trỏ đơn vị đã ngừng
+        # mà lọc ở đây thì cột ĐVT trống trơn, người dùng tưởng chưa khai.
+        ten = {(d.ma or "").strip().lower(): d.ten for d in self.don_vi.all_rows()}
         for it in items:
             ma = (getattr(it, "don_vi_gia", None) or "").strip().lower()
             if ma:
@@ -240,7 +271,9 @@ class VatLieuKhoService:
             raise VatLieuKhoValidationError("Loại mặt hàng không hợp lệ.")
         obj = self.get(hang_loai, hang_id)
         goc = (obj.don_vi_gia or "").strip()
-        dvs = don_vi_map(self.don_vi.all_active())
+        # `all_rows`: mặt hàng cũ có thể lấy đơn vị gốc là một đơn vị nay đã ngừng. Lọc ở đây thì
+        # `quy_ve_goc` không tìm ra nút gốc và NÉM LỖI ⇒ mọi dòng phiếu kho cũ hiện cảnh báo đỏ.
+        dvs = don_vi_map(self.don_vi.all_rows())
         if not goc:
             # Chưa khai đơn vị gốc → KHÔNG đoán. UI khoá ô ĐVT và chỉ đường về danh mục.
             return {"hang_loai": hang_loai, "hang_id": obj.id, "ma": obj.ma, "ten": obj.ten,
@@ -284,8 +317,43 @@ class VatLieuKhoService:
             if k in data and data[k] is not None:
                 setattr(giay, k, data[k])
         giay.version_no = v.version_no
-        self.repo.db.commit()
+        self.repo.chot_giao_dich()      # trước 15/08/2026 service gọi thẳng `self.repo.db.commit()`
         # Nhập đơn giá mới là thao tác đáng soi nhất của màn Giấy → phải có trong nhật ký, và ghi
         # y như một lần sửa (Đơn giá cũ → mới) chứ không phải dòng trống "đã thêm phiên bản".
         nk.ghi_sua(self.audit, actor_id=created_by, loai="giay", obj=giay, truoc=truoc)
         return v
+
+
+class MotDanhMucVatLieu:
+    """MỘT trong ba danh mục của `VatLieuKhoService`, phơi ra ĐÚNG khuôn danh mục.
+
+    `VatLieuKhoService` nhận `kind` ở MỌI phương thức (`create("giay", …)`) vì ba danh mục —
+    Chủng loại giấy · Giấy · Vật tư khác — dùng chung một thân, chỉ khác model. Nền router
+    (`routers/catalog_base.make_catalog_router`) thì gọi theo chữ ký chuẩn không có `kind`. Lớp
+    mỏng này ghim sẵn `kind`, rẻ hơn hẳn việc nhồi vào nền một tham số chỉ ba nơi dùng.
+    """
+
+    def __init__(self, goc: VatLieuKhoService, kind: str) -> None:
+        self.goc = goc
+        self.kind = kind
+
+    def list(self, **kw):
+        return self.goc.list(self.kind, **kw)
+
+    def get(self, item_id: int):
+        return self.goc.get(self.kind, item_id)
+
+    def create(self, data: dict, actor_id: int | None = None):
+        return self.goc.create(self.kind, data, actor_id=actor_id)
+
+    def update(self, item_id: int, data: dict, actor_id: int | None = None):
+        return self.goc.update(self.kind, item_id, data, actor_id=actor_id)
+
+    def dat_active(self, item_id: int, active: bool, actor_id: int | None = None):
+        return self.goc.dat_active(self.kind, item_id, active, actor_id=actor_id)
+
+    def delete(self, item_id: int, actor_id: int | None = None) -> None:
+        self.goc.delete(self.kind, item_id, actor_id=actor_id)
+
+    def gan_ten_don_vi(self, items) -> None:
+        self.goc.gan_ten_don_vi(items)

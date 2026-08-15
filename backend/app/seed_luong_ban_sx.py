@@ -661,7 +661,7 @@ def _sua_don_vi_gap_tay(lsx) -> None:
     mới gấp từng con). Đơn vị nay do DANH MỤC khai (`to → tay`, xem `_DON_VI_KHAU_SACH`) chứ
     không còn dò chữ "gấp" trong tên nữa; hàm này chỉ còn ghim số lượng cho lệnh mô phỏng.
     """
-    from .models.lsx import DV_TAY, DV_TO, NS_TO_GIO
+    from .models.lsx import DV_TAY, DV_TO
 
     to = float(lsx.so_to_ke_hoach or 0)
     if to <= 0:
@@ -674,8 +674,6 @@ def _sua_don_vi_gap_tay(lsx) -> None:
         cd.don_vi_vao = DV_TO
         cd.don_vi_ra = DV_TAY
         cd.he_so_quy_doi = 1
-        if cd.nang_suat:
-            cd.don_vi_nang_suat = NS_TO_GIO
 
 
 def _sua_so_luong_buoc_be(lsx) -> None:

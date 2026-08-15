@@ -45,19 +45,32 @@ _DON_VI_SEED: list[tuple[str, str, str, str]] = [
     ("tay", "tay sách", "to", "Tờ in đã gấp lại thành một tay, mang nhiều trang."),
     ("ram", "ram", "to", "Cách nhà cung cấp đóng gói giấy: 1 ram = 500 tờ."),
     # Loại THÀNH PHẨM — mọi cách đếm "một sản phẩm xong": bước lệnh gọi `cai`, bảng khoán của tổ gọi
-    # "cuốn" (sách) / "hộp" (gỡ hàng) / "con" (tem). Chúng đếm như nhau nên có cặp quy đổi 1-1 bên
-    # dưới; thiếu cặp đó thì bước "vào keo" (đơn vị `cai`, 1.000 cuốn) không khớp đơn giá 700 đ/cuốn.
-    ("cai", "cái", "thanh_pham", "Một sản phẩm hoàn chỉnh. Cuốn · con · bộ · hộp đều quy về cái."),
+    # "cuốn" (sách) / "hộp" (gỡ hàng) / "con" (tem). Chúng đếm như nhau, NHƯNG cặp quy đổi 1-1 nối
+    # chúng đã gỡ 14/08/2026 (xem `_QUY_DOI_SEED`) — xưởng tự khai cách gọi của mình. Vì thế câu
+    # giải nghĩa nói VIỆC CẦN LÀM chứ không hứa "= 1 cái": hứa suông là đúng cái bẫy vừa gỡ, người
+    # đọc tưởng máy đã biết trong khi cột Quy đổi ghi "Chưa khai báo".
+    ("cai", "cái", "thanh_pham", "Một sản phẩm hoàn chỉnh — đơn vị bước lệnh dùng để đếm thành phẩm."),
     ("con", "con", "thanh_pham", "Sản phẩm rời bế/xén ra từ tờ in — 1 tờ ra nhiều con (tem, thẻ, nhãn)."),
-    ("cuon", "cuốn", "thanh_pham", "Một cuốn sách thành phẩm (= 1 cái)."),
-    ("bo", "bộ", "thanh_pham", "Một bộ thành phẩm (= 1 cái)."),
-    ("hop", "hộp", "thanh_pham", "Một hộp thành phẩm (= 1 cái)."),
+    ("cuon", "cuốn", "thanh_pham", "Một cuốn sách thành phẩm. Khai quy đổi 1 cuốn = 1 cái nếu bước lệnh đếm cái."),
+    ("bo", "bộ", "thanh_pham", "Một bộ thành phẩm. Khai quy đổi 1 bộ = 1 cái nếu bước lệnh đếm cái."),
+    ("hop", "hộp", "thanh_pham", "Một hộp thành phẩm. Khai quy đổi 1 hộp = 1 cái nếu bước lệnh đếm cái."),
     ("kem", "bản kẽm", "kem", "Bản kẽm phơi cho MỘT màu của một bài in."),
     # mã `bai` khớp đơn vị bước lệnh (DV_BAI), không phải "bai_in"
     ("bai", "bài in", "bai", "Một bài đã bình, chạy ra nhiều tờ in giống nhau."),
     ("luot", "lượt", "luot", "Một lần đưa giấy qua máy (cắt demi tính theo lượt)."),
     ("thung", "thùng", "thung", "Thùng đóng hàng lúc giao."),
 ]
+
+# Câu giải nghĩa CŨ do chính seed này ghi, nay SAI sự thật: bốn cặp `cuốn/bộ/hộp → cái` đã gỡ nên
+# "(= 1 cái)" hứa điều máy không biết — cột Quy đổi ghi "Chưa khai báo" mà cột mô tả nói đã bằng
+# nhau. Người đọc tin cột mô tả rồi ngồi chờ tiền khoán không bao giờ hiện.
+# Bảng này để `seed_don_vi_do` thay chữ mình từng ghi; xoá dòng nào khi chắc DB không còn chữ đó.
+_GHI_CHU_LOI_THOI: dict[str, str] = {
+    "cai": "Một sản phẩm hoàn chỉnh. Cuốn · con · bộ · hộp đều quy về cái.",
+    "cuon": "Một cuốn sách thành phẩm (= 1 cái).",
+    "bo": "Một bộ thành phẩm (= 1 cái).",
+    "hop": "Một hộp thành phẩm (= 1 cái).",
+}
 
 # CÔNG THỨC LƯỢNG của giấy bán theo CÂN — thay chỗ cặp quy đổi động `tờ → kg` đã gỡ (14/08/2026).
 # Không phải phỏng đoán, đây là định nghĩa cân của giấy:
@@ -120,14 +133,13 @@ def seed_don_vi_do(db: Session) -> None:
     Bổ sung theo MÃ / CẶP CÒN THIẾU (không dùng `_empty`): thêm dòng mới vào hai danh sách trên là
     DB đang chạy cũng nhận, khỏi phải drop bảng. Cặp người dùng tự sửa thì KHÔNG bị ghi đè.
     """
-    from .db_migrations import DON_VI_TOC_DO_MAC_DINH   # một nguồn duy nhất, đừng chép danh sách
-
+    # 🔴 THÔI set `dung_lam_toc_do` 15/08/2026 — cột đã CHẾT (xem `models/don_vi_do.py`). Ô "Đơn vị
+    # tốc độ" của màn Máy nay bày mọi đơn vị `active`, không lọc theo cờ nào nữa.
     from .models.don_vi_do import TRAM_DONG_GIAY   # 5 trạm dòng giấy, mã trùng tên trạm
 
     co = {d.ma for d in db.execute(select(DonViDo)).scalars()}
     moi = [
         DonViDo(ma=ma, ten=ten, ho=ho, ghi_chu=gc or None,
-                dung_lam_toc_do=ma in DON_VI_TOC_DO_MAC_DINH,
                 # Cờ TRẠM suy từ mã (5 mã dòng giấy trùng đúng tên trạm) — đừng chép tay danh sách
                 # thứ hai ở đây. DB đang chạy nhận cờ này qua migration 0186.
                 tram_dong_giay=ma if ma in TRAM_DONG_GIAY else None)
@@ -139,10 +151,14 @@ def seed_don_vi_do(db: Session) -> None:
 
     # Giải nghĩa cho đơn vị nghề: điền vào dòng đang TRỐNG ghi chú, không đè chữ người dùng đã ghi.
     # Làm riêng vì DB đang chạy đã có sẵn các dòng này từ trước khi có cột giải nghĩa.
+    #
+    # THÊM: thay cả câu do CHÍNH seed này ghi nhưng nay sai sự thật (`_GHI_CHU_LOI_THOI`). Chỉ thay
+    # khi ghi chú trùng KHÍT chữ cũ — lệch một ký tự là coi như người dùng đã sửa tay, để yên.
     nghia = {ma: gc for ma, _t, _h, gc in _DON_VI_SEED if gc}
     them = 0
     for d in db.execute(select(DonViDo)).scalars():
-        if nghia.get(d.ma) and not (d.ghi_chu or "").strip():
+        cu = (d.ghi_chu or "").strip()
+        if nghia.get(d.ma) and (not cu or cu == _GHI_CHU_LOI_THOI.get(d.ma)):
             d.ghi_chu = nghia[d.ma]
             them += 1
     if them:
@@ -299,12 +315,12 @@ def seed_rebuild_catalog(db: Session) -> None:
     # --- Danh mục Giấy & Vật tư (Cấu hình danh mục) ---
     if _empty(db, ChungLoaiGiay):
         db.add_all([
-            ChungLoaiGiay(ma="COUCHE", ten="Couché", be_mat="bong", mo_ta="Giấy tráng phủ 2 mặt, bóng."),
-            ChungLoaiGiay(ma="FORD", ten="Ford (giấy in thường)", be_mat="nham"),
-            ChungLoaiGiay(ma="IVORY", ten="Ivory (bìa 1 mặt)", be_mat="bong"),
-            ChungLoaiGiay(ma="DUPLEX", ten="Duplex (bồi 2 lớp)", be_mat="nham"),
-            ChungLoaiGiay(ma="BRISTOL", ten="Bristol", be_mat="mo"),
-            ChungLoaiGiay(ma="KRAFT", ten="Kraft (giấy nâu)", be_mat="nham"),
+            ChungLoaiGiay(ma="COUCHE", ten="Couché", mo_ta="Giấy tráng phủ 2 mặt, bóng."),
+            ChungLoaiGiay(ma="FORD", ten="Ford (giấy in thường)"),
+            ChungLoaiGiay(ma="IVORY", ten="Ivory (bìa 1 mặt)"),
+            ChungLoaiGiay(ma="DUPLEX", ten="Duplex (bồi 2 lớp)"),
+            ChungLoaiGiay(ma="BRISTOL", ten="Bristol"),
+            ChungLoaiGiay(ma="KRAFT", ten="Kraft (giấy nâu)"),
         ])
         db.commit()
     _cl = {c.ma: c.id for c in db.execute(select(ChungLoaiGiay)).scalars()}

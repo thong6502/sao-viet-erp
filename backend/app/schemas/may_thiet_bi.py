@@ -47,6 +47,9 @@ class MayThietBiIn(BaseModel):
     so_nhan_cong: float = Field(default=1, ge=1)
     # Túi JSON: `chuan_bi_khoan` (các khoản chuẩn bị) + `lich_bao_tri` (Lịch bảo trì định kỳ).
     fields_theo_loai: dict | None = None
+    # Máy còn dùng hay đã thanh lý (mg `0202`). Máy dừng TẠM thì vẫn `True` — khai ở
+    # `machine_unavailable_periods`, xem `models/may_thiet_bi`.
+    active: bool = True
 
 
 class MayThietBiRow(BaseModel):
@@ -64,6 +67,13 @@ class MayThietBiRow(BaseModel):
     toc_do_min: float | None = None
     toc_do_max: float | None = None
     don_vi_toc_do: str | None = None
+    # TÊN đọc được của đơn vị tốc độ, tra từ danh mục Đơn vị (`may_thiet_bi_service.gan_ten_don_vi`)
+    # — bảng chỉ lưu MÃ (`to_gio`) mà mã không thành lời. Cùng cách đã làm cho Giấy · Vật tư ·
+    # Công đoạn, để màn khỏi nhúng bảng nhãn thứ hai rồi lệch với danh mục.
+    #
+    # ⚠️ BẪY ĐÃ DÍNH 4 LẦN: service trả thêm field mà schema Out không khai thì Pydantic NUỐT IM
+    # LẶNG và FE nhận `undefined`, không lỗi nào. Thêm field phải đi HẾT đường service → schema.
+    don_vi_toc_do_ten: str | None = None
     makeready_time_default: float | None = None
     so_nhan_cong: float = 1
     # Engine bình bài
@@ -80,6 +90,7 @@ class MayThietBiRow(BaseModel):
     le_hong_mm: int | None = None
     duoi_thang_mau_mm: int | None = None
     fields_theo_loai: dict | None = None
+    active: bool = True
     ghi_chu: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -141,3 +152,8 @@ class NhomMayRow(BaseModel):
 class NhomMayListOut(BaseModel):
     items: list[NhomMayRow]
     total: int
+    # `page`/`size` để phong bì giống 10 danh mục còn lại — FE dùng chung `crud()` và đọc cả bốn
+    # khoá; thiếu hai cái này là phân trang câm (undefined). Bảng nhóm máy nhỏ và KHÔNG cắt trang:
+    # luôn trả trọn một trang, `size` = số dòng thật.
+    page: int = 1
+    size: int = 0

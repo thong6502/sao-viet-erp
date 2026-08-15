@@ -1,13 +1,14 @@
 """Repository — Công đoạn (danh mục). CRUD + list/filter + find_by_ma."""
 from __future__ import annotations
 
-from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from ..models.cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu
 from ..models.don_vi_do import DonViDo
 from ..models.piece_work import PieceRate
 from ..models.vat_lieu_kho import VatTuInAn
+from .catalog_base import CatalogRepo
 
 ASSIGNABLE = (
     "ten", "ten_hien_thi", "don_vi_vao", "don_vi_ra", "he_so_ngoai_dong",
@@ -19,15 +20,28 @@ ASSIGNABLE = (
 )
 
 
-class CongDoanRepository:
-    def __init__(self, db: Session) -> None:
-        self.db = db
+class CongDoanRepository(CatalogRepo):
+    model = CongDoan
+    fields = ASSIGNABLE
+    commit_on_write = False   # `CongDoanService` chốt sau khi ghi nhật ký — xem `catalog_base`
+    # Mã KHAI TAY (service không tự cấp), nhưng quy ước đánh số là `CD-####` — khai `ma_prefix`
+    # để `GET /api/cong-doan/ma-goi-y` gợi được mã kế tiếp. Trước 15/08/2026 frontend tự đoán
+    # tiền tố này bằng cách dò chuỗi trong URL (`danh-muc/maGoiY.ts`).
+    ma_prefix = "CD-"
+
+    def _base_select(self):
+        """Nạp kèm định mức đầu việc + vật tư của nó — bảng công đoạn vẽ luôn các dòng con,
+        để lazy là N+1 truy vấn cho mỗi trang."""
+        return select(CongDoan).options(
+            selectinload(CongDoan.dau_viec_dinh_muc).selectinload(CongDoanDauViec.vat_tus)
+        )
+
+    def extra_conds(self, *, nhom: str | None = None, **_) -> list:
+        return [CongDoan.nhom == nhom] if nhom else []
 
     def get(self, cd_id: int) -> CongDoan | None:
         return self.db.execute(
-            select(CongDoan).where(CongDoan.id == cd_id)
-            .options(selectinload(CongDoan.dau_viec_dinh_muc)
-                     .selectinload(CongDoanDauViec.vat_tus))
+            self._base_select().where(CongDoan.id == cd_id)
         ).scalar_one_or_none()
 
     def don_vi_cong_thuc(self, ma: str) -> str:
@@ -75,6 +89,18 @@ class CongDoanRepository:
             )
         }
 
+    def phong_ban_tos(self):
+        """TỔ sản xuất = nút LÁ trong nhánh Khối Sản xuất (ĐỊNH NGHĨA CHUNG `to_san_xuat()`)."""
+        from .rbac_repo import DepartmentRepository
+
+        return DepartmentRepository(self.db).to_san_xuat()
+
+    def phong_ban_tat_ca(self):
+        """Mọi phòng ban — để dựng lại nhãn cho giá trị CŨ nay không còn là tổ."""
+        from .rbac_repo import DepartmentRepository
+
+        return DepartmentRepository(self.db).list_all()
+
     def piece_rates(self, ids: set[int]) -> dict[int, PieceRate]:
         if not ids:
             return {}
@@ -95,20 +121,6 @@ class CongDoanRepository:
             stmt = stmt.where(PieceRate.department_id == department_id)
         return list(self.db.execute(stmt.order_by(PieceRate.department_id, PieceRate.code, PieceRate.name)).scalars())
 
-    def find_by_ma(self, ma: str) -> CongDoan | None:
-        ma = (ma or "").strip().upper()
-        if not ma:
-            return None
-        return self.db.execute(select(CongDoan).where(func.upper(CongDoan.ma) == ma)).scalars().first()
-
-    def _loc_q(self, q: str | None):
-        """Điều kiện tìm theo mã/tên — dùng chung cho `list` và `dem_theo_nhom` để số dòng
-        trong bảng và số trên tab luôn cùng một bộ lọc."""
-        if not q:
-            return None
-        like = f"%{q.strip().lower()}%"
-        return or_(func.lower(CongDoan.ma).like(like), func.lower(CongDoan.ten).like(like))
-
     def dem_theo_nhom(self, *, q: str | None = None, active: bool | None = None) -> dict[str, int]:
         """Số công đoạn của TỪNG giai đoạn — số hiện trên tab lọc. Không áp điều kiện `nhom`
         (tab nào cũng phải có số của nó), nhưng CÓ áp `q` và `active`."""
@@ -122,31 +134,8 @@ class CongDoanRepository:
         return {(str(nhom).strip() if nhom is not None else ""): int(n)
                 for nhom, n in self.db.execute(stmt)}
 
-    def list(self, *, q: str | None = None, nhom: str | None = None,
-             active: bool | None = None, page: int = 1, size: int = 50):
-        conds = []
-        loc_q = self._loc_q(q)
-        if loc_q is not None:
-            conds.append(loc_q)
-        if nhom:
-            conds.append(CongDoan.nhom == nhom)
-        if active is not None:
-            conds.append(CongDoan.active.is_(active))
-        base = select(CongDoan).options(selectinload(CongDoan.dau_viec_dinh_muc)
-                     .selectinload(CongDoanDauViec.vat_tus))
-        count_stmt = select(func.count()).select_from(CongDoan)
-        for c in conds:
-            base = base.where(c)
-            count_stmt = count_stmt.where(c)
-        total = self.db.execute(count_stmt).scalar_one()
-        page, size = max(1, page), max(1, min(size, 200))
-        base = base.order_by(CongDoan.ma.asc()).offset((page - 1) * size).limit(size)
-        return list(self.db.execute(base).scalars()), total
-
-    def _apply(self, cd: CongDoan, data: dict) -> None:
-        for k in ASSIGNABLE:
-            if k in data:
-                setattr(cd, k, data[k])
+    def _sau_gan(self, cd: CongDoan, data: dict) -> None:
+        self._replace_dinh_muc(cd, data.get("dau_viec_dinh_muc") or [])
 
     def _replace_dinh_muc(self, cd: CongDoan, rows: list[dict]) -> None:
         """Thay TRỌN bộ định mức đầu việc của công đoạn.
@@ -171,24 +160,3 @@ class CongDoanRepository:
             )
             cd.dau_viec_dinh_muc.append(dv)
 
-    def create(self, data: dict) -> CongDoan:
-        cd = CongDoan(ma=data["ma"].strip().upper())
-        self._apply(cd, data)
-        self._replace_dinh_muc(cd, data.get("dau_viec_dinh_muc") or [])
-        self.db.add(cd)
-        self.db.commit()
-        self.db.refresh(cd)
-        return cd
-
-    def update(self, cd: CongDoan, data: dict) -> CongDoan:
-        if data.get("ma"):
-            cd.ma = data["ma"].strip().upper()
-        self._apply(cd, data)
-        self._replace_dinh_muc(cd, data.get("dau_viec_dinh_muc") or [])
-        self.db.commit()
-        self.db.refresh(cd)
-        return cd
-
-    def delete(self, cd: CongDoan) -> None:
-        self.db.delete(cd)
-        self.db.commit()

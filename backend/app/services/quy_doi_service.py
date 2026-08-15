@@ -22,15 +22,12 @@ import re
 from .bien_cong_thuc import LOAI_QUY_DOI, bien_cho, ngu_canh_lenh
 from .thanh_phan_engine import MATH_FUNCS
 
-# --- Mã đơn vị mà CODE tham chiếu (danh mục có thể thêm đơn vị khác thoải mái) ----------------
-DV_TO = "to"
-DV_RAM = "ram"
-DV_CAI = "cai"
-DV_CUON = "cuon"
-DV_CM2 = "cm2"
-DV_M2 = "m2"
-DV_KG = "kg"
-DV_TAN = "tan"
+# 🔴 TÁM HẰNG MÃ ĐƠN VỊ ĐÃ XOÁ 15/08/2026 (`DV_TO · DV_RAM · DV_CAI · DV_CUON · DV_CM2 · DV_M2 ·
+# DV_KG · DV_TAN`). Đo trước khi xoá: KHÔNG nơi nào import từ file này — 9 chỗ dùng `DV_TO` và 5
+# chỗ dùng `DV_CAI` đều lấy bản ở `models/lsx.py`. Sáu cái còn lại 0 chỗ dùng.
+#
+# Tệ hơn cả rác: tiêu đề cũ ghi "Mã đơn vị mà CODE tham chiếu" khiến người đọc tưởng phép quy đổi
+# tra theo mã cứng. KHÔNG — `doi()` chỉ dò đồ thị cặp trong DB, xưởng khai đơn vị tên gì cũng chạy.
 
 # Biến dùng được trong công thức quy đổi — tên là VAI TRÒ ("khổ của tờ đang đếm"), không phải tên
 # cột của giấy. Nhãn hiện nguyên văn cho người dùng khi thiếu. Dài/rộng tính bằng MÉT, định lượng

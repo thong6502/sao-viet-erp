@@ -624,10 +624,15 @@ def test_thoi_luong_theo_may_khop_don_vi(db, orders, lsx_svc, xl_svc, admin, cus
     assert d["chiem_may_phut"] == 90
 
 
-def test_thoi_luong_khong_phu_thuoc_nhan_don_vi_may(db, orders, lsx_svc, xl_svc, admin, customer):
-    """Máy khai nhãn `m2_gio` vẫn tính bình thường — công thức chỉ lấy con số (chốt 2026-08-05).
+def test_xep_lich_va_drawer_cung_mot_so_khi_don_vi_may_lech(
+    db, orders, lsx_svc, xl_svc, admin, customer,
+):
+    """⭐ Máy khai `m2_gio` mà bước đếm `tờ`, chưa khai quy đổi ⇒ **xếp lịch cũng không bịa giờ**.
 
-    Guard "lệch đơn vị ⇒ chạy = 0" đã gỡ: nó chặn oan bước đã gán máy đàng hoàng."""
+    🔴 ĐỔI 15/08/2026 — test này trước đây chốt "kệ nhãn, cứ chia con số" (5.000 tờ ÷ 5.000 m²/giờ
+    = 60 phút). Nay Gantt phải nói cùng một câu với drawer lệnh: quy đổi được thì tính, không thì
+    thôi + cảnh báo `chua_quy_doi`. Điều KHÔNG được phép là hai màn ra hai số.
+    """
     lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
     step = _in_step(db, lsx.id)
     step.so_luong_vao, step.so_luot_chay = 5000, 1
@@ -637,10 +642,15 @@ def test_thoi_luong_khong_phu_thuoc_nhan_don_vi_may(db, orders, lsx_svc, xl_svc,
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dong = XepLichRepository(db).by_lsx(lsx.id)[0]
     d = xl_svc._thoi_luong(dong)
-    assert d["theo_may"] is True and d["canh_bao"] is None
-    assert d["chay_phut"] == 60                      # 5.000 × 60 ÷ 5.000, kệ nhãn m2/h
+    assert d["chay_phut"] == 0 and d["canh_bao"] == "chua_quy_doi"
     assert d["setup_phut"] == float(may.makeready_time_default or 0)
-    assert d["chiem_may_phut"] == d["setup_phut"] + 60
+    assert d["chiem_may_phut"] == d["setup_phut"]
+
+    # Cùng bước, cùng máy → drawer lệnh phải ra ĐÚNG con số đó.
+    buoc = next(b for b in lsx_svc.detail_dict(lsx_svc.get(lsx.id))["cong_doans"]
+                if b["id"] == step.id)
+    assert buoc["chay_phut"] == d["chay_phut"]
+    assert buoc["chiem_may_phut"] == d["chiem_may_phut"]
 
 
 # --- HM4: kiểm KHẢ NĂNG máy (mềm — máy đề xuất, người quyết) -------------------

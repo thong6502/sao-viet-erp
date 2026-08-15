@@ -232,35 +232,26 @@ def test_don_vi_rieng_cua_xuong_van_gom_du_bu_hao():
     assert to_dau_vao("to_in") == to_dau_vao("to"), "đổi MÃ đơn vị không được đổi số giấy"
 
 
-def test_may_ctp_van_khop_khi_buoc_khai_don_vi_that():
-    """LỖ 2 — dùng đúng tính năng mới lại làm hỏng số.
+def test_don_vi_toc_do_cua_may_doc_tu_ma_gio():
+    """LỖ 2 (bản 15/08/2026) — đơn vị của tốc độ đọc từ mã máy, KHÔNG so bảng cứng nào.
 
-    Ô đơn vị của công đoạn nay mời khai `bai → kem` cho bước ghi kẽm. Bản cũ chỉ chạy nhánh dự
-    phòng "chế bản ⇒ kẽm/giờ" khi đơn vị BỎ TRỐNG, còn khai rồi thì tra bảng 5 mã cứng — `bai`
-    không có trong đó nên máy CTP hết khớp và ô năng suất của bước trống trơn.
+    Nguyên bản test này chốt `_nang_suat_buoc`: so mã `<đv>_gio` với đơn vị bước, lệch thì trả
+    `(None, None)` — vứt luôn tốc độ của một cái máy có thật, bước tụt về mỗi thời gian chuẩn bị.
+    Đó là "khớp hay không khớp", không phải quy đổi.
+
+    Nay chỉ còn một việc: biết tốc độ đếm bằng gì. Lệch đơn vị thì `_sl_theo_don_vi` đi quy đổi
+    (cầu quy đổi → công thức của đơn vị); quy đổi không được thì thời gian chạy = 0 KÈM lý do —
+    xem `test_chua_quy_doi_duoc_thi_KHONG_bia_gio`.
     """
-    from app.services.lsx_service import _nang_suat_buoc
+    from app.services.lsx_service import ma_don_vi_toc_do
 
     class May:
-        toc_do, don_vi_toc_do = 40.0, "kem_gio"
+        def __init__(self, dv): self.don_vi_toc_do = dv
 
-    class Cd:
-        nhom = "prepress"
-
-    ban_do = {ma: ma for ma in TRAM_DONG_GIAY}
-    # Bỏ trống đơn vị (dữ liệu cũ) — giữ nguyên hành vi.
-    assert _nang_suat_buoc(May(), Cd(), None) == (40.0, "kem_gio")
-    # Khai đơn vị THẬT: bước ngoài dòng giấy nhận và nhả cùng một con số nên khớp qua đầu RA.
-    assert _nang_suat_buoc(May(), Cd(), "bai", dv_ra="kem", tram=ban_do) == (40.0, "kem_gio")
-    # Máy đo bằng thứ khác hẳn thì vẫn BỎ QUA — không quy đổi bừa.
-    class MayKg:
-        toc_do, don_vi_toc_do = 500.0, "kg_gio"
-    assert _nang_suat_buoc(MayKg(), Cd(), "bai", dv_ra="kem", tram=ban_do) == (None, None)
-    # Bước TRÊN dòng giấy thì CHỈ khớp đầu VÀO: vào 250 tờ ra 5.000 con, lấy `con/giờ` chia số tờ
-    # là sai 20 lần.
-    class MayCon:
-        toc_do, don_vi_toc_do = 9000.0, "cai_gio"
-    assert _nang_suat_buoc(MayCon(), Cd(), "to", dv_ra="cai", tram=ban_do) == (None, None)
+    assert ma_don_vi_toc_do(May("kem_gio")) == "kem"
+    assert ma_don_vi_toc_do(May("bai_gio")) == "bai"
+    assert ma_don_vi_toc_do(May("m2_gio")) == "m2"
+    assert ma_don_vi_toc_do(May(None)) is None
 
 
 def test_buoc_roi_khoi_dong_giay_phai_keu_len():
@@ -338,29 +329,31 @@ def test_routing_ket_o_con_van_ra_dung_so_to():
     assert so_to_vao("con") == 2000, "kết ở `con` phải cần đúng ngần ấy giấy"
 
 
-def test_may_ctp_van_khop_toc_do_khi_buoc_khai_don_vi_that():
-    """LỖ 2 — dùng đúng tính năng mới lại làm hỏng số.
+def test_may_ctp_chay_theo_so_kem_khi_buoc_dem_kem():
+    """LỖ 2 (bản 15/08/2026) — bước ghi kẽm đếm `kem`, máy CTP khai `kem/giờ` ⇒ chạy đúng số kẽm.
 
-    Ghi kẽm khai `bai → kem` cho tử tế thì `bai` không có trong bảng 5 mã cũ ⇒ máy CTP hết khớp,
-    thời lượng tụt về mỗi thời gian chuẩn bị. Bước NGOÀI dòng giấy nhận và nhả cùng một con số nên
-    khớp bằng đầu nào cũng đúng; bước TRÊN dòng giấy thì không được nới lỏng như vậy.
+    Bản cũ đi bằng "khớp mã": bước khai `bai → kem` cho tử tế thì `bai` không có trong bảng 5 mã,
+    máy CTP hết khớp, thời lượng tụt về mỗi thời gian chuẩn bị — im lặng. Nay cùng đơn vị thì tính
+    thẳng, khác đơn vị thì QUY ĐỔI, quy đổi không được thì nói ra.
     """
-    from app.services.lsx_service import _nang_suat_buoc
+    from app.services.lsx_service import thoi_luong_buoc
 
     class May:
-        def __init__(self, td, dv): self.toc_do, self.don_vi_toc_do = td, dv
+        def __init__(self, td, dv):
+            self.toc_do, self.don_vi_toc_do = td, dv
+            self.toc_do_min = self.toc_do_max = None
+            self.makeready_time_default, self.fields_theo_loai = 10, None
 
-    class Cd:
-        def __init__(self, nhom): self.nhom = nhom
+    buoc = LsxCongDoan(lsx_id=0, thu_tu=0, ten="Ghi kẽm CTP", loai_buoc="may",
+                       nhom="prepress", so_luong_vao=40, don_vi_vao="kem")
+    t = thoi_luong_buoc(buoc, May(40, "kem_gio"), (40.0, "kẽm", "40 kẽm"))
+    assert round(t["chay_phut"]) == 60          # 40 kẽm ÷ 40 kẽm/giờ
+    assert round(t["chiem_may_phut"]) == 70     # + 10 phút chuẩn bị
 
-    tram = {ma: ma for ma in TRAM_DONG_GIAY}
-    ctp, may_ctp = Cd("prepress"), May(40, "kem_gio")
-    assert _nang_suat_buoc(may_ctp, ctp, None) == (40.0, "kem_gio")          # chưa khai — lối cũ
-    assert _nang_suat_buoc(may_ctp, ctp, "kem", dv_ra="kem", tram=tram) == (40.0, "kem_gio")
-    assert _nang_suat_buoc(may_ctp, ctp, "bai", dv_ra="kem", tram=tram) == (40.0, "kem_gio")
-    # Bước TRÊN dòng giấy: vào 250 tờ ra 5.000 con — vơ lấy `con/giờ` mà chia số tờ là sai 20 lần.
-    assert _nang_suat_buoc(May(800, "cai_gio"), Cd("finishing"), "to", dv_ra="cai",
-                           tram=tram) == (None, None)
+    # Máy đo bằng thứ khác mà chưa khai quy đổi ⇒ KHÔNG bịa giờ, chỉ còn chuẩn bị.
+    t2 = thoi_luong_buoc(buoc, May(500, "kg_gio"), None)
+    assert t2["chay_phut"] == 0
+    assert t2["dien_giai"]["phuong_phap"] == "chua_quy_doi"
 
 
 def test_canh_bao_buoc_roi_khoi_dong_giay():

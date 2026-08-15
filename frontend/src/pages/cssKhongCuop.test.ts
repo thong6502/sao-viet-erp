@@ -1,0 +1,82 @@
+/** Gác hai bệnh CSS đã dính thật, cả hai đều HỎNG TRONG IM LẶNG.
+ *
+ *  1. CƯỚP SELECTOR. CSS ở repo này là global và `AppShell` import tĩnh mọi trang, nên file nạp
+ *     sau thắng file nạp trước trên MỌI màn. `kho-request.css` khai lại một loạt selector `rc-*`
+ *     của `rebuild-catalog.css` và thắng suốt nhiều tháng — màn vẫn "chạy", chỉ là chạy bằng
+ *     style của màn khác. Không ai thấy vì không có gì báo.
+ *
+ *  2. KHAI HAI LẦN TRONG CÙNG MỘT FILE. Bản sau chỉ đè những thuộc tính nó có; phần còn lại của
+ *     bản trước vẫn ăn. Kết quả là một style lai mà không dòng nào trong file mô tả đúng — đúng
+ *     cái bẫy đã làm mất cả buổi khi sửa CSS "không ăn".
+ *
+ *  Đọc file bằng `node:fs`, không render gì — nhanh và không phụ thuộc jsdom.
+ */
+import { describe, expect, it } from "vitest";
+
+// Đọc bằng `import.meta.glob` của Vite chứ không `node:fs`: app frontend không khai `@types/node`
+// nên `tsc --noEmit` đỏ ngay, mà thêm cả bộ type Node chỉ để một test đọc file là đắt hơn thứ nó
+// mua. `?raw` trả nguyên văn nội dung, `eager` để có sẵn lúc chạy test.
+const CSS = import.meta.glob("./*.css", { query: "?raw", import: "default", eager: true }) as
+  Record<string, string>;
+const CHU = "./rebuild-catalog.css";
+
+/** Số selector mở đầu bằng `.rc-` / `.rc__` mà mỗi file KHÁC đang khai.
+ *  Đây là NỢ ĐÃ BIẾT: con số chỉ được CO LẠI, không được phình ra. */
+const NO_DA_BIET: Record<string, number> = {
+  "./kho-request.css": 17,  // scrim · drawer · sec__title · code-badge … (đã giành lại bằng .rc--dm)
+  "./ky-thuat-may.css": 2,  // .rc__tab.is-qua-han · .rc__tabn — hex cứng thay token
+  "./tinh-gia.css": 75,     // .rc-drawer--wide + cả bộ .rc-modal__* của màn Tính giá
+};
+
+function docCss(ten: string): string {
+  return CSS[ten] ?? "";
+}
+
+function selectorRc(css: string): string[] {
+  return css
+    .split("\n")
+    .map((d) => d.trim())
+    .filter((d) => /^\.rc[-_]/.test(d) && d.endsWith("{"))
+    .map((d) => d.replace(/\s*\{$/, ""));
+}
+
+describe("CSS danh mục không bị file khác cướp selector", () => {
+  const files = Object.keys(CSS).filter((f) => f !== CHU);
+
+  it.each(files)("%s không thêm selector rc-* mới", (ten: string) => {
+    const n = selectorRc(docCss(ten)).length;
+    const tran = NO_DA_BIET[ten] ?? 0;
+    expect(
+      n,
+      `${ten} khai ${n} selector "rc-*" (nợ đã biết: ${tran}).\n` +
+        `CSS là global — thêm một cái nữa là đè lên màn Cấu hình danh mục trên MỌI màn hình.\n` +
+        `Muốn style riêng thì dùng tiền tố của chính màn đó, đừng mượn họ "rc".`,
+    ).toBeLessThanOrEqual(tran);
+  });
+});
+
+describe("rebuild-catalog.css không khai trùng selector", () => {
+  it("mỗi selector chỉ xuất hiện một lần", () => {
+    const dem = new Map<string, number>();
+    let sau = 0;                       // độ sâu ngoặc — chỉ xét selector ở CẤP NGOÀI CÙNG
+    for (const d of docCss(CHU).split("\n")) {
+      const s = d.trim();
+      const mo = (s.match(/\{/g) ?? []).length;
+      const dong = (s.match(/\}/g) ?? []).length;
+      // Selector lặp lại BÊN TRONG `@media` là override responsive HỢP LỆ, không phải khai trùng
+      // — đếm cả chúng là guard kêu oan, mà guard kêu oan thì sớm muộn bị tắt.
+      if (sau === 0 && s.endsWith("{") && !s.startsWith("@") && !s.startsWith("/")) {
+        const sel = s.replace(/\s*\{$/, "");
+        if (sel && !sel.includes(":root")) dem.set(sel, (dem.get(sel) ?? 0) + 1);
+      }
+      sau += mo - dong;
+      if (sau < 0) sau = 0;
+    }
+    const trung = [...dem].filter(([, n]) => n > 1).map(([s]) => s);
+    expect(
+      trung,
+      "Selector khai hai lần: bản sau chỉ đè thuộc tính nó có, phần còn lại của bản trước VẪN ăn.\n" +
+        "Sửa bằng cách GỘP thành một khối, đừng thêm khối thứ ba.",
+    ).toEqual([]);
+  });
+});

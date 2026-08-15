@@ -146,14 +146,17 @@ class DonViDo(Base):
     active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_true(), default=True
     )
-    # Đơn vị này có được bày trong ô "Đơn vị tốc độ" của màn Máy không (mã sinh ra là `<ma>_gio`).
+    # ⚠️ CỘT CHẾT 15/08/2026 — KHÔNG nơi nào đọc nữa, giữ để dữ liệu cũ không mất.
     #
-    # Vì sao cần cờ RIÊNG chứ không bày cả danh mục: bảng này dùng CHUNG cho kho / khoán / mua
-    # hàng, đổ hết ra thì người khai máy phải chọn giữa "g/giờ", "thùng/giờ", "tấn/giờ"… (chủ soi
-    # ra 03/08/2026 — danh sách 17 dòng, quá nửa vô nghĩa với máy).
+    # Ý định ban đầu: lọc ô "Đơn vị tốc độ" của màn Máy cho khỏi bày cả danh mục. Cái hỏng là
+    # **không bao giờ có ô nào để bật cờ này** — chỉ migration 0154 bật sẵn cho 8 mã và seed set
+    # theo đúng 8 mã ấy. Nên nó không phải "cờ người dùng khai", nó là một danh sách cứng nằm dưới
+    # DB: đơn vị xưởng tự khai thì cờ = false vĩnh viễn và không dùng làm tốc độ được.
     #
-    # Và vì sao "xoá đơn vị tốc độ" = BỎ CỜ chứ không xoá dòng: xoá `kg` cho khuất mắt là gãy quy
-    # đổi bên kho và tiền khoán. Bỏ cờ thì đơn vị vẫn sống cho các phân hệ kia dùng.
+    # Chủ chốt 15/08: ô chọn bày MỌI đơn vị đang `active`. Danh sách dài hơn vài dòng, đổi lại khai
+    # đơn vị nào cũng dùng được ngay — đúng lẽ của module Đơn vị & quy đổi.
+    #
+    # Xoá cột phải viết migration nên để lượt sau; đừng đọc lại nó, và đừng dựng bộ lọc mới ở đây.
     dung_lam_toc_do: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False
     )

@@ -68,7 +68,10 @@ NHAN: dict[str, str] = {
     "so_luong_dong_goi": "SL đóng gói",
     # Máy · công đoạn · bù hao
     "loai": "Loại",
-    "loai_may": "Loại máy",
+    # `may_thiet_bi.loai_may` GIỮ giá trị mà màn gọi là "Nhóm máy" (ô chọn `NhomMayField`, danh mục
+    # `/api/nhom-may`). Nhãn cũ "Loại máy" là tên CỘT, không phải tên người dùng thấy — đọc nhật ký
+    # xong đi tìm ô "Loại máy" trên màn thì không có ô nào tên thế.
+    "loai_may": "Nhóm máy",
     "so_mau": "Số màu",
     "kho_toi_da": "Khổ tối đa",
     "kho_toi_thieu": "Khổ tối thiểu",
@@ -99,6 +102,90 @@ NHAN: dict[str, str] = {
     "tinh_trang": "Tình trạng",
     "ngay_lam": "Ngày làm",
     "khach_hang_id": "Khách hàng",
+    # ── Bổ sung 15/08/2026: 59 cột danh mục trước đó KHÔNG có nhãn nên nhật ký in ra TÊN CỘT
+    # (`he_so_ngoai_dong 1 → 8`). Chữ lấy đúng nhãn đang hiện trên màn (`rebuildCatalogConfigs`),
+    # không tự đặt tên mới — đọc nhật ký xong phải tìm ra đúng cái ô đó trên form.
+    # Đơn vị đo đi vào `HAU_TO` bên dưới, KHÔNG nhét vào nhãn: "Nhíp kẽm 10 → 12 mm" đọc gọn hơn
+    # "Nhíp kẽm (mm) 10 → 12".
+    # Loại sản phẩm
+    "structural_type": "Dạng kết cấu",
+    "box_sub_type": "Kiểu hộp",
+    "imposition_rule_id": "Quy tắc bình bài",
+    "has_cover": "Có bìa",
+    "cover_type": "Loại bìa",
+    "default_binding": "Kiểu đóng mặc định",
+    "default_stock_class": "Nhóm giấy mặc định",
+    "routing_template": "Chuỗi công đoạn mặc định",
+    # Công đoạn
+    "ten_hien_thi": "Tên hiển thị",
+    "kieu_bu_hao": "Bù hao",
+    "bu_hao_id": "Mã bù hao",
+    "so_to_bu_hao": "Số lượng cộng cố định",
+    "don_vi_vao": "Đơn vị đầu vào",
+    "don_vi_ra": "Đơn vị đầu ra",
+    "he_so_ngoai_dong": "Hệ số vào → ra",
+    "nhom_may_cho_phep": "Máy làm được công đoạn này",
+    "department_id": "Tổ phụ trách",
+    "khoan_ghi_theo": "Khoán ghi theo",
+    "allowed_defect_pct": "Hỏng cho phép",
+    "allowed_defect_abs": "Hỏng cho phép (số tuyệt đối)",
+    "che_do_tinh": "Chế độ tính",
+    "pricing_basis": "Cách tính giá",
+    "setup_cost": "Phí chuẩn bị",
+    "setup_time": "Thời gian chuẩn bị",
+    "nang_suat": "Năng suất",
+    "run_rate": "Đơn giá chạy",
+    "rate_tiers": "Bậc đơn giá",
+    "size_tiers": "Bậc theo khổ",
+    "first_unit_floor": "Sàn đơn vị đầu",
+    "min_charge": "Giá tối thiểu",
+    "requires_tooling": "Cần khuôn / kẽm riêng",
+    "tooling_type": "Loại dụng cụ",
+    "spoilage_pct": "Tỷ lệ hao",
+    "inline_flag": "Chạy nối tuyến (inline)",
+    "cong_thuc_gia": "Công thức tính giá",
+    "cong_thuc_luong": "Công thức tính lượng",
+    # Bù hao
+    "bac": "Bậc số lượng",
+    # Đơn vị & quy đổi
+    "ho": "Họ đơn vị",
+    "he_so_goc": "Hệ số về đơn vị gốc",
+    "hieu_luc_tu": "Hiệu lực từ",
+    "dung_lam_toc_do": "Dùng làm đơn vị tốc độ",
+    "tram_dong_giay": "Trạm trên dòng giấy",
+    # Chủng loại giấy · Giấy
+    "chung_loai_giay_id": "Chủng loại giấy",
+    "gsm": "Định lượng",
+    "caliper_micron": "Độ dày",
+    "gia_thi_truong": "Giá thị trường",
+    "kho_tinh_gia": "Khổ dùng để tính giá",
+    "version_no": "Phiên bản giá",
+    # Khuôn bế — `khach_hang` là CHỮ tự do (khác `khach_hang_id` phía trên của bảng khác).
+    "khach_hang": "Khách hàng",
+    "ngay_lam_khuon": "Ngày làm khuôn",
+    "ngay_ve_du_kien": "Ngày về dự kiến",
+    # Máy & thiết bị — tên cột thật của bảng `may_thiet_bi` (khác hẳn bộ khoá tiếng Anh phía trên,
+    # bộ đó là của bảng `machines` đời cũ).
+    "hang_san_xuat": "Hãng sản xuất",
+    "model": "Model",
+    "so_seri": "Số seri",
+    "toc_do_min": "Tốc độ tối thiểu",
+    "toc_do_max": "Tốc độ tối đa",
+    "don_vi_toc_do": "Đơn vị tốc độ",
+    "makeready_time_default": "Tổng thời gian chuẩn bị",
+    "so_nhan_cong": "Số người vận hành tiêu chuẩn",
+    "kho_max_dai": "Khổ giấy max — dài",
+    "kho_max_rong": "Khổ giấy max — rộng",
+    "kho_min_dai": "Khổ giấy min — dài",
+    "kho_min_rong": "Khổ giấy min — rộng",
+    "kho_kem_dai": "Khổ kẽm — dài",
+    "kho_kem_rong": "Khổ kẽm — rộng",
+    "vung_in_dai": "Vùng in max — dài",
+    "vung_in_rong": "Vùng in max — rộng",
+    "gripper_mm": "Nhíp kẽm",
+    "nhip_giay_mm": "Nhíp giấy",
+    "le_hong_mm": "Lề hông",
+    "duoi_thang_mau_mm": "Đuôi + thanh màu",
 }
 
 # Hậu tố đơn vị cho vài trường số — để "100 → 120" không trần trụi.
@@ -115,6 +202,20 @@ HAU_TO: dict[str, str] = {
     "makeready_phut": "phút",
     "setup_time_mins": "phút",
     "changeover_time_mins": "phút",
+    # 15/08/2026 — đơn vị của các cột vừa được đặt nhãn. Để ở ĐÂY chứ không nhét "(mm)" vào nhãn:
+    # nhãn là tên Ô, hậu tố là đơn vị của SỐ, gộp lại thì câu thành "Nhíp kẽm (mm) 10 → 12".
+    "gsm": "g/m²",
+    "caliper_micron": "µm",
+    "kho_max_dai": "mm", "kho_max_rong": "mm",
+    "kho_min_dai": "mm", "kho_min_rong": "mm",
+    "kho_kem_dai": "mm", "kho_kem_rong": "mm",
+    "vung_in_dai": "mm", "vung_in_rong": "mm",
+    "gripper_mm": "mm", "nhip_giay_mm": "mm",
+    "le_hong_mm": "mm", "duoi_thang_mau_mm": "mm",
+    "makeready_time_default": "phút",
+    "setup_time": "phút",
+    "allowed_defect_pct": "%",
+    "spoilage_pct": "%",
 }
 
 # Trường TIỀN: hậu tố lấy theo ĐVT của chính bản ghi ("đ/kg", "đ/tờ") vì mỗi mặt hàng một đơn vị.

@@ -221,17 +221,23 @@ def test_don_vi_toc_do_dai_van_luu_duoc():
 
 
 def test_quy_uoc_ma_don_vi_toc_do_khop_bang_tra_cua_lenh_SX():
-    """⭐ Mã PHẢI là `<đơn vị đếm>_gio` — Lệnh SX tra bảng theo đúng dạng đó.
+    """⭐ Mã PHẢI là `<đơn vị đếm>_gio` — Lệnh SX cắt hậu tố để biết tốc độ đếm bằng gì.
 
-    Đây là chốt cho quyết định "suy danh sách từ danh mục Đơn vị": nếu ai đó đổi quy ước đặt mã
-    (vd `toc_do_1`), lệnh SX BỎ QUA tốc độ trong im lặng — bước ra thời gian trống, không báo lỗi,
-    không ai biết. Test này bắt cái im lặng đó."""
-    from app.models.lsx import DV_KEM, DV_TO, NS_KEM_GIO, NS_TO_GIO
-    from app.services.lsx_service import _DV_VAO_SANG_NS
+    Đây là chốt cho quyết định "suy danh sách từ danh mục Đơn vị": ai đổi quy ước đặt mã (vd
+    `toc_do_1`) thì lệnh SX tra ra một mã đơn vị không có trong danh mục ⇒ bước KHÔNG quy đổi được
+    ⇒ thời gian chạy về 0. Test này bắt quy ước, không bắt danh sách đơn vị nào.
 
-    for dv_dem, ns in ((DV_TO, NS_TO_GIO), (DV_KEM, NS_KEM_GIO)):
-        assert ns == f"{dv_dem}_gio", f"{ns} khong theo quy uoc <{dv_dem}>_gio"
-        assert _DV_VAO_SANG_NS[dv_dem] == ns
+    (Bảng ánh xạ `_DV_VAO_SANG_NS` + ba hằng `NS_*` đã gỡ 15/08/2026 — xem `models/lsx.py`.)
+    """
+    from types import SimpleNamespace
+
+    from app.models.lsx import DV_KEM, DV_TO
+    from app.services.lsx_service import ma_don_vi_toc_do
+
+    for dv_dem in (DV_TO, DV_KEM):
+        may = SimpleNamespace(toc_do=500, don_vi_toc_do=f"{dv_dem}_gio")
+        assert ma_don_vi_toc_do(may) == dv_dem
+    assert ma_don_vi_toc_do(SimpleNamespace(don_vi_toc_do=None)) is None
 
 
 # --- Danh mục NHÓM MÁY -------------------------------------------------------
@@ -242,8 +248,9 @@ def test_quy_uoc_ma_don_vi_toc_do_khop_bang_tra_cua_lenh_SX():
 
 
 def _nhom_svc(db):
+    from app.repositories.may_thiet_bi_repo import NhomMayRepository
     from app.services.may_thiet_bi_service import NhomMayService
-    return NhomMayService(db)
+    return NhomMayService(NhomMayRepository(db))
 
 
 def test_them_nhom_may_va_chan_trung_ten():
@@ -308,3 +315,30 @@ def test_dem_theo_loai_nuoi_tab_loc():
     assert svc.dem_theo_loai() == {"press_offset_sheet": 2, "die_cut": 1}
     assert sum(svc.dem_theo_loai().values()) == svc.list(size=1)[1]   # khớp tổng danh mục
     assert svc.dem_theo_loai(q="be-1") == {"die_cut": 1}              # đi theo ô tìm
+
+
+def test_xoa_nhom_may_chan_ca_khi_cong_doan_dang_khai_no():
+    """Guard cũ CHỈ đếm máy — nhóm chưa có máy nào nhưng đang nằm trong
+    `cong_doan.nhom_may_cho_phep` vẫn xoá được, và ràng buộc "bước này chỉ chạy trên nhóm X"
+    âm thầm không khớp được ai nữa."""
+    from app.models.cong_doan import CongDoan
+
+    db, svc = _svc()
+    nsvc = _nhom_svc(db)
+    nhom = nsvc.create("Máy bồi tay")
+
+    # Chưa có MÁY nào thuộc nhóm ⇒ guard cũ cho xoá.
+    assert nsvc.dem_may_dung("Máy bồi tay") == 0
+
+    db.add(CongDoan(ma="CD-BOI", ten="Bồi tay", nhom="finishing",
+                    nhom_may_cho_phep=["Máy bồi tay"]))
+    db.commit()
+
+    with pytest.raises(MayThietBiValidationError, match="công đoạn"):
+        nsvc.delete(nhom.id)
+
+    # Gỡ khỏi công đoạn rồi thì xoá được.
+    cd = db.query(CongDoan).filter(CongDoan.ma == "CD-BOI").first()
+    cd.nhom_may_cho_phep = []
+    db.commit()
+    nsvc.delete(nhom.id)

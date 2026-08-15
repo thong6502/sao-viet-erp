@@ -48,10 +48,12 @@ def _svc():
 
 def test_chung_loai_giay_crud():
     db, svc = _svc()
-    c = svc.create("chung_loai_giay", dict(ma="COUCHE", ten="Couché", be_mat="bong"))
+    c = svc.create("chung_loai_giay", dict(ma="COUCHE", ten="Couché"))
     assert c.id and c.ma == "COUCHE"
-    with pytest.raises(VatLieuKhoValidationError):            # bề mặt sai
-        svc.create("chung_loai_giay", dict(ma="X", ten="x", be_mat="xyz"))
+    # `be_mat` / `tho_mac_dinh` GỠ 15/08/2026 — chủng loại giấy nay chỉ còn mã · tên · mô tả.
+    # Gửi kèm khoá đã gỡ thì Pydantic bỏ qua (không có field), service KHÔNG được vỡ.
+    with pytest.raises(VatLieuKhoValidationError):            # tên trống
+        svc.create("chung_loai_giay", dict(ma="X", ten="  "))
 
 
 def test_giay_crud_and_validate():

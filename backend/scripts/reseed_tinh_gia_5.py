@@ -45,12 +45,12 @@ def wipe(db):
 
 def seed_giay(db):
     cls = [
-        ChungLoaiGiay(ma="COUCHE", ten="Couché", be_mat="bong", mo_ta="Tráng phủ 2 mặt, bóng."),
-        ChungLoaiGiay(ma="FORD", ten="Ford (giấy in thường)", be_mat="nham"),
-        ChungLoaiGiay(ma="IVORY", ten="Ivory (bìa 1 mặt bóng)", be_mat="bong"),
-        ChungLoaiGiay(ma="DUPLEX", ten="Duplex (2 mặt: 1 bóng 1 xám)", be_mat="nham"),
-        ChungLoaiGiay(ma="BRISTOL", ten="Bristol", be_mat="mo"),
-        ChungLoaiGiay(ma="KRAFT", ten="Kraft (giấy nâu)", be_mat="nham"),
+        ChungLoaiGiay(ma="COUCHE", ten="Couché", mo_ta="Tráng phủ 2 mặt, bóng."),
+        ChungLoaiGiay(ma="FORD", ten="Ford (giấy in thường)"),
+        ChungLoaiGiay(ma="IVORY", ten="Ivory (bìa 1 mặt bóng)"),
+        ChungLoaiGiay(ma="DUPLEX", ten="Duplex (2 mặt: 1 bóng 1 xám)"),
+        ChungLoaiGiay(ma="BRISTOL", ten="Bristol"),
+        ChungLoaiGiay(ma="KRAFT", ten="Kraft (giấy nâu)"),
     ]
     db.add_all(cls)
     db.flush()

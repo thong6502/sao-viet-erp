@@ -1,18 +1,10 @@
-import { useEffect, useState } from "react";
-
-/** Trả về `giaTri` nhưng CHẬM lại `ms` — gõ xong mới hỏi máy chủ.
+/** `useTre` — bí danh tiếng Việt của `useDebounced`.
  *
- * Vì sao cần: ô tìm kiếm bắn thẳng `onChange` vào hàm tải là gõ "máy bế" ra 6 request, 5 cái đầu
- * vứt đi, và kết quả hiện ra theo thứ tự request nào về trước chứ không phải theo chữ đang gõ.
+ * Repo từng có HAI bản cùng một hook, chép tay giống nhau từng dòng: `lib/useTre.ts` (màn danh
+ * mục · kỹ thuật máy) và `utils/useDebounced.ts` (màn thu mua · nội quy). Hai bản thì sớm muộn
+ * lệch nhau một tham số mặc định, và không ai biết bản nào là bản đúng.
  *
- * Trước đây hàm này nằm cục bộ trong `RebuildCatalogPage.tsx` nên màn nào muốn dùng phải chép lại
- * — và mấy màn chép thiếu thì gõ một ký tự vẫn một request.
+ * Gộp về MỘT ruột ở `utils/useDebounced.ts`; giữ tên `useTre` vì 3 màn đang gọi theo tên đó, trong
+ * đó 2 màn (Sửa chữa máy · Phiếu bảo trì) đang có việc sửa dở — đổi tên ở đó là giẫm lên nhau.
  */
-export function useTre<T>(giaTri: T, ms = 300): T {
-  const [tre, setTre] = useState(giaTri);
-  useEffect(() => {
-    const t = setTimeout(() => setTre(giaTri), ms);
-    return () => clearTimeout(t);
-  }, [giaTri, ms]);
-  return tre;
-}
+export { useDebounced as useTre } from "../utils/useDebounced";

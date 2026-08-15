@@ -22,8 +22,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
 
+# `THO` còn dùng cho `GiayNguyen.tho` (thớ của TỪNG loại giấy) — ĐỪNG gỡ theo.
 THO = ("canh_dai", "canh_ngan")
-BE_MAT_GIAY = ("bong", "mo", "nham")
+# 🔴 GỠ `BE_MAT_GIAY` 15/08/2026 cùng hai cột `chung_loai_giay.be_mat` / `.tho_mac_dinh`.
+# Đo trước khi gỡ: `be_mat` 6/6 dòng có giá trị, `tho_mac_dinh` 0/6 — nhưng KHÔNG nơi nào ĐỌC để
+# tính, chỉ có validator kiểm enum và bảng hiện lên màn. Không engine tính giá / lệnh SX / kế
+# hoạch vật tư nào chạm tới.
 
 # MẶT HÀNG GỐC nằm ở HAI bảng với hai dãy id riêng, nên mọi nơi trỏ tới nó (kho, NCC) phải mang
 # CẶP `(hang_loai, hang_id)` chứ không mang mỗi id. Khoá cặp thay vì hai cột `giay_id`/`vat_tu_id`
@@ -49,8 +53,6 @@ class ChungLoaiGiay(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
     ten: Mapped[str] = mapped_column(String(150), nullable=False)
-    be_mat: Mapped[str | None] = mapped_column(String(12), nullable=True)   # bong|mo|nham
-    tho_mac_dinh: Mapped[str | None] = mapped_column(String(12), nullable=True)  # canh_dai|canh_ngan
     mo_ta: Mapped[str | None] = mapped_column(String(500), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

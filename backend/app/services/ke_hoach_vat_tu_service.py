@@ -143,7 +143,9 @@ class KeHoachVatTuService:
 
     def _nap_don_vi(self) -> None:
         """Nạp danh mục đơn vị + bảng cặp MỘT lần cho cả bảng (không N+1 theo dòng)."""
-        self._dvs = don_vi_map(self.don_vi.all_active())
+        # `all_rows`: bảng tra để QUY VỀ ĐƠN VỊ GỐC cho kế hoạch đã lập. Đơn vị ngừng dùng mà lọc
+        # ở đây thì dòng vật tư cũ mất đường quy đổi, số về 0 trong im lặng.
+        self._dvs = don_vi_map(self.don_vi.all_rows())
         self._cap_rows = list(self.don_vi.cap_rows())
         self._tram_cache = None
 
@@ -466,14 +468,21 @@ class KeHoachVatTuService:
     def _nap_thoi_luong(self, lenh: list[Lsx]) -> None:
         """Thời lượng từng bước — chỉ để suy MỐC TẠM cho lệnh chưa xếp. Dùng lại đúng công thức
         của `lsx_service.thoi_luong_buoc`, không chép lại phép tính."""
-        from .lsx_service import thoi_luong_buoc
+        from .bien_cong_thuc import quy_cach_bien
+        from .lsx_service import LsxService, thoi_luong_buoc
 
         # Nạp LÔ máy của mọi bước trước vòng lặp: tra từng cái là N+1 theo số bước của cả bảng.
         mays = self.repo.may_theo_ids({cd.may_id for l in lenh for cd in l.cong_doans})
+        # Một service cho cả vòng lặp: nó cache danh mục đơn vị + bảng cặp, dựng mới mỗi bước là
+        # mỗi bước một lượt query.
+        svc = LsxService(self.db, self.lsx_repo, None, None)
         self._dur: dict[int, float] = {}
         for l in lenh:
+            qc = quy_cach_bien(l)
             for cd in l.cong_doans:
-                self._dur[cd.id] = thoi_luong_buoc(cd, mays.get(cd.may_id))["tong_phut"]
+                may = mays.get(cd.may_id)
+                self._dur[cd.id] = thoi_luong_buoc(
+                    cd, may, svc.sl_tinh_cua_buoc(cd, may, qc))["tong_phut"]
 
     def _gom_nhu_cau(self, lenh, lenh_map, bais, thanh_vien) -> tuple[list[dict], list[dict]]:
         tho: list[dict] = []

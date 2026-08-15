@@ -127,6 +127,19 @@ class MayThietBi(Base):
     # gần nhất, xem `services/ky_thuat_may_service.py::han_ke_tiep`.
     fields_theo_loai: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    # ---- Còn dùng hay đã thanh lý (mg `0202`, 15/08/2026) ----
+    #
+    # KHÁC HẲN `trang_thai` đã gỡ 11/08: cái cũ là "máy đang chạy / đang bảo trì / đã nghỉ" — ba
+    # nghĩa chồng nhau và không ô nhập nào, nên chưa bao giờ phân loại được gì. Cột này chỉ trả lời
+    # MỘT câu: **xưởng còn máy này không**. Máy dừng TẠM (bảo trì, hỏng) vẫn `active=True` và khai
+    # bằng KHOẢNG THỜI GIAN ở `machine_unavailable_periods` — đó vẫn là thứ Xếp lịch đọc.
+    #
+    # Có nó thì màn Máy mới vào được luật xoá chung của danh mục: máy đã dùng ở lệnh/công đoạn thì
+    # NGỪNG DÙNG (chứng từ cũ giữ nguyên), máy khai nhầm thì xoá hẳn. Trước đó màn này chỉ có xoá
+    # cứng, và hộp thoại rơi vào ngõ cụt vì không có cờ nào để tắt.
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_true(), default=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False

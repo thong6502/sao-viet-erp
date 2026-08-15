@@ -14,6 +14,9 @@ from datetime import date
 
 from ..models.don_vi_do import HO_GOI_Y, TRAM_DONG_GIAY
 from .bien_cong_thuc import LOAI_QUY_DOI, bien_cho
+from .catalog_base import (
+    CatalogDuplicate, CatalogError, CatalogNotFound, CatalogService, CatalogValidationError,
+)
 from ..repositories.don_vi_do_repo import DonViDoRepository
 from .quy_doi_service import (
     BIEN, _so, bien_trong, cap_map, cum_tinh, duong_di, he_so_duong,
@@ -53,29 +56,48 @@ def cong_thuc_the_so(cong_thuc: str, ctx: dict) -> str:
     return ra.replace("*", "×").replace("/", "÷")
 
 
-class DonViDoError(Exception):
+class DonViDoError(CatalogError):
     pass
 
 
-class DonViDoValidationError(DonViDoError):
+class DonViDoValidationError(DonViDoError, CatalogValidationError):
     pass
 
 
-class DonViDoDuplicate(DonViDoError):
+class DonViDoDuplicate(DonViDoError, CatalogDuplicate):
     pass
 
 
-class DonViDoNotFound(DonViDoError):
+class DonViDoNotFound(DonViDoError, CatalogNotFound):
     pass
 
 
-class DonViDoService:
+# Loai ban ghi cho nhat ky — PHAI khop key trong `routers/nhat_ky_danh_muc.LOAI_MODULE`.
+# Don vi va cap quy doi la HAI bang, danh so rieng => hai chuoi target rieng.
+LOAI_DON_VI = "don_vi_do"
+LOAI_CAP = "don_vi_quy_doi"
+
+
+class DonViDoService(CatalogService):
+    """Thân CRUD của ĐƠN VỊ dùng chung ở `services/catalog_base.CatalogService`.
+
+    Nhật ký thì KHÔNG dùng `nhat_ky_danh_muc` như 6 danh mục còn lại — service này ghi bằng
+    `_log()` với action riêng (`create_don_vi`…) và phải phân biệt hai bảng (`don_vi_do` vs
+    `don_vi_quy_doi`). Vì vậy nó ghi đè ba móc `_ghi_tao` / `_ghi_sua` / `_ghi_xoa`.
+    """
+
+    LOAI = LOAI_DON_VI
+    E_NOT_FOUND = DonViDoNotFound
+    E_DUPLICATE = DonViDoDuplicate
+    E_VALIDATION = DonViDoValidationError
+    MSG_NOT_FOUND = "Không tìm thấy đơn vị."
+    MSG_DUPLICATE = "Mã đơn vị đã tồn tại."
+
     def __init__(self, repo: DonViDoRepository, audit=None) -> None:
-        self.repo = repo
-        self.audit = audit
+        super().__init__(repo, audit)
 
     # --- đơn vị --------------------------------------------------------------
-    def _validate(self, data: dict) -> None:
+    def _validate(self, data: dict, obj=None) -> None:
         if not (data.get("ma") or "").strip():
             raise DonViDoValidationError("Mã đơn vị không được trống.")
         if not (data.get("ten") or "").strip():
@@ -107,47 +129,26 @@ class DonViDoService:
             out["ho"] = str(out["ho"]).strip().lower()
         return out
 
-    def get(self, item_id: int):
-        obj = self.repo.get(item_id)
-        if obj is None:
-            raise DonViDoNotFound("Không tìm thấy đơn vị.")
-        return obj
+    @staticmethod
+    def _mac_dinh_tao(data: dict) -> dict:
+        data.setdefault("hieu_luc_tu", date.today())
+        return data
 
-    def list(self, **kw):
-        return self.repo.list(**kw)
+    def _sau_ghi(self) -> None:
+        self._quen_cache()
+
+    def _ghi_tao(self, actor_id: int | None, obj) -> None:
+        self._log(actor_id, "create_don_vi", obj.id, f"Thêm đơn vị {obj.ma} ({obj.ten})")
+
+    def _ghi_sua(self, actor_id: int | None, obj, truoc: dict) -> None:
+        self._log(actor_id, "update_don_vi", obj.id, f"Sửa đơn vị {obj.ma}")
+
+    def _ghi_xoa(self, actor_id: int | None, obj) -> None:
+        self._log(actor_id, "delete_don_vi", obj.id, f"Xoá đơn vị {obj.ma}")
 
     def ho_goi_y(self) -> list[str]:
         """Loại đo gợi ý = bộ mồi ∪ loại nhà máy đã dùng (giống cách gợi ý đơn vị của Lương khoán)."""
         return sorted({*HO_GOI_Y, *self.repo.distinct_ho()})
-
-    def create(self, data: dict, actor_id: int | None = None):
-        data = self._chuan_hoa(data)
-        self._validate(data)
-        if self.repo.find_by_ma(data["ma"]) is not None:
-            raise DonViDoDuplicate("Mã đơn vị đã tồn tại.")
-        data.setdefault("hieu_luc_tu", date.today())
-        obj = self.repo.create(data)
-        self._quen_cache()
-        self._log(actor_id, "create_don_vi", obj.id, f"Thêm đơn vị {obj.ma} ({obj.ten})")
-        return obj
-
-    def update(self, item_id: int, data: dict, actor_id: int | None = None):
-        obj = self.get(item_id)
-        data = self._chuan_hoa(data)
-        self._validate(data)
-        dup = self.repo.find_by_ma(data["ma"])
-        if dup is not None and dup.id != obj.id:
-            raise DonViDoDuplicate("Mã đơn vị đã tồn tại.")
-        obj = self.repo.update(obj, data)
-        self._quen_cache()
-        self._log(actor_id, "update_don_vi", obj.id, f"Sửa đơn vị {obj.ma}")
-        return obj
-
-    def delete(self, item_id: int, actor_id: int | None = None) -> None:
-        obj = self.get(item_id)
-        self._log(actor_id, "delete_don_vi", obj.id, f"Xoá đơn vị {obj.ma}")
-        self.repo.delete(obj)
-        self._quen_cache()
 
     # --- cặp quy đổi ---------------------------------------------------------
     def list_cap(self, **kw):
@@ -322,7 +323,7 @@ class DonViDoService:
         obj = self.repo.create_cap(data)
         self._quen_cache()
         self._log(actor_id, "create_don_vi_cap", obj.id,
-                  f"Khai quy đổi 1 {tu.ten} = {_so(he_so)} {den.ten}")
+                  f"Khai quy đổi 1 {tu.ten} = {_so(he_so)} {den.ten}", loai=LOAI_CAP)
         return obj
 
     def update_cap(self, cap_id: int, data: dict, actor_id: int | None = None):
@@ -336,16 +337,27 @@ class DonViDoService:
         obj = self.repo.update_cap(obj, data)
         self._quen_cache()
         self._log(actor_id, "update_don_vi_cap", obj.id,
-                  f"Sửa quy đổi 1 {tu.ten} = {_so(he_so)} {den.ten}")
+                  f"Sửa quy đổi 1 {tu.ten} = {_so(he_so)} {den.ten}", loai=LOAI_CAP)
         return obj
 
     def delete_cap(self, cap_id: int, actor_id: int | None = None) -> None:
         obj = self.repo.get_cap(cap_id)
         if obj is None:
             raise DonViDoNotFound("Không tìm thấy dòng quy đổi.")
-        self._log(actor_id, "delete_don_vi_cap", obj.id, f"Xoá quy đổi #{obj.id}")
+        self._log(actor_id, "delete_don_vi_cap", obj.id, f"Xoá quy đổi #{obj.id}", loai=LOAI_CAP)
         self.repo.delete_cap(obj)
         self._quen_cache()
+
+    def cap_row(self, cap_id: int):
+        """Cặp KÈM mã/tên hai đầu (`repositories.don_vi_do_repo.CapRow`).
+
+        Bảng `don_vi_quy_doi` chỉ giữ hai `id` + hệ số, mà màn phải hiện "1 tấn = 1.000 kg" — nên
+        mọi đường ĐỌC đều đi qua `cap_rows()`, kể cả sau khi vừa ghi xong.
+        """
+        row = next((c for c in self.repo.cap_rows() if c.id == cap_id), None)
+        if row is None:
+            raise DonViDoNotFound("Không tìm thấy dòng quy đổi.")
+        return row
 
     # --- mô tả cho màn hình --------------------------------------------------
     def quy_doi_chips(self, obj) -> list[dict]:
@@ -423,7 +435,9 @@ class DonViDoService:
     # đây an toàn, và dữ liệu không đổi giữa chừng.
     def _dv_cache(self):
         if getattr(self, "_dv_rows", None) is None:
-            self._dv_rows = list(self.repo.all_active())
+            # `all_rows`: chip quy đổi + cảnh báo phải kể cả cạnh nối tới đơn vị đã ngừng, nếu
+            # không thì màn Đơn vị báo "chưa khai quy đổi" cho một đơn vị thật ra có cạnh.
+            self._dv_rows = list(self.repo.all_rows())
         return self._dv_rows
 
     def _cap_cache(self):
@@ -453,9 +467,50 @@ class DonViDoService:
         # "một cụm một công thức" (`_kiem_mot_cong_thuc_moi_cum`) đã CHẶN ngay lúc khai.
         return out
 
-    def _log(self, actor_id: int | None, action: str, target_id: int, detail: str) -> None:
+    def _log(self, actor_id: int | None, action: str, target_id: int, detail: str,
+             *, loai: str = LOAI_DON_VI) -> None:
+        """Ghi nhật ký. `loai` PHẢI đúng bảng của `target_id`.
+
+        Trước 15/08/2026 hàm này cứng `don_vi_do:{id}` cho mọi lời gọi, trong khi ba lời gọi của
+        CẶP QUY ĐỔI truyền `DonViQuyDoi.id` — hai bảng đánh số riêng nên đơn vị #5 và cặp #5 dùng
+        chung một chuỗi target, và tab Nhật ký của đơn vị #5 hiện lẫn lịch sử của cặp #5.
+
+        Dòng đã ghi sai từ trước KHÔNG sửa: viết migration UPDATE lên `audit_logs` là ghi đè lịch
+        sử. Dòng cũ vẫn lẫn ở tab Đơn vị, dòng MỚI thì về đúng chỗ.
+        """
         if self.audit is None:
             return
         self.audit.create(
-            actor_user_id=actor_id, action=action, target=f"don_vi_do:{target_id}", detail=detail,
+            actor_user_id=actor_id, action=action, target=f"{loai}:{target_id}", detail=detail,
         )
+
+
+class CapQuyDoiService:
+    """CẶP QUY ĐỔI phơi ra ĐÚNG khuôn danh mục (`get/list/create/update/delete`).
+
+    Vì sao có lớp mỏng này: cặp quy đổi là danh mục THỨ HAI của màn Đơn vị, nhưng `DonViDoService`
+    đã dùng hết tên `get/create/update/delete` cho chính đơn vị nên phần cặp phải mang đuôi `_cap`.
+    Nền router (`routers/catalog_base.make_catalog_router`) gọi theo tên chuẩn — thay vì nhồi vào
+    nền một tham số "đổi tên phương thức" chỉ MỘT nơi dùng, đổi tên ở đây rẻ hơn hẳn.
+
+    Mọi đường ĐỌC trả `CapRow` (kèm mã/tên hai đầu) chứ không trả ORM trần — xem `cap_row()`.
+    """
+
+    def __init__(self, goc: DonViDoService) -> None:
+        self.goc = goc
+        self.repo = goc.repo
+
+    def list(self, **kw):
+        return self.goc.list_cap(**kw)
+
+    def get(self, item_id: int):
+        return self.goc.cap_row(item_id)
+
+    def create(self, data: dict, actor_id: int | None = None):
+        return self.goc.cap_row(self.goc.create_cap(data, actor_id=actor_id).id)
+
+    def update(self, item_id: int, data: dict, actor_id: int | None = None):
+        return self.goc.cap_row(self.goc.update_cap(item_id, data, actor_id=actor_id).id)
+
+    def delete(self, item_id: int, actor_id: int | None = None) -> None:
+        self.goc.delete_cap(item_id, actor_id=actor_id)

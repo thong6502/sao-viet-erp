@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
+
+RowT = TypeVar("RowT")
 
 
 # ---- Phiên bản giá giấy (lịch sử) ----
@@ -43,8 +46,6 @@ class GiayGiaVersionRow(BaseModel):
 class ChungLoaiGiayIn(BaseModel):
     ma: str = Field(min_length=1, max_length=30)
     ten: str = Field(min_length=1, max_length=150)
-    be_mat: str | None = None
-    tho_mac_dinh: str | None = None
     mo_ta: str | None = None
     active: bool = True
 
@@ -54,8 +55,6 @@ class ChungLoaiGiayRow(BaseModel):
     id: int
     ma: str
     ten: str
-    be_mat: str | None = None
-    tho_mac_dinh: str | None = None
     mo_ta: str | None = None
     active: bool
     updated_at: datetime | None = None
@@ -132,8 +131,15 @@ class VatTuRow(BaseModel):
     updated_at: datetime | None = None
 
 
-class ListOut(BaseModel):
-    items: list
+class ListOut(BaseModel, Generic[RowT]):
+    """Phong bì phân trang dùng chung cho CẢ BA danh mục ở router `vat_lieu_kho`.
+
+    GENERIC chứ không `items: list` trần: ba đường (`/chung-loai-giay` · `/giay` ·
+    `/vat-tu-in-an`) trả ba kiểu dòng khác nhau, khai trần thì OpenAPI mất kiểu và client sinh
+    ra `any[]`. Router dùng `ListOut[GiayRow]`, `ListOut[VatTuRow]`…
+    """
+
+    items: list[RowT]
     total: int
     page: int
     size: int
