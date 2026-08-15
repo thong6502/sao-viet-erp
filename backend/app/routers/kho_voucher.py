@@ -547,6 +547,7 @@ def list_lots(
         m = hang_map.get((lot.hang_loai, lot.hang_id))
         row.hang_ma = getattr(m, "ma", None)
         row.hang_ten = getattr(m, "ten", None)
+        row.hang_anh = getattr(m, "anh_url", None)
         row.dvt = getattr(m, "don_vi_gia", None)
         row.voucher_ma = voucher_ma_map.get(lot.voucher_id) if lot.voucher_id else None
         # Thủ kho chọn lô nhưng KHÔNG thấy giá (spec §6).

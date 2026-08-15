@@ -653,13 +653,25 @@ export function InboxRequestDrawer({
                       {req.lines.map((l) => (
                         <tr key={l.id}>
                           <td>
-                            <div
-                              className="kho-lines__name kho-name-clamp"
-                              title={l.hang_ten ?? undefined}
-                            >
-                              {l.hang_ten ?? "—"}
+                            {/* Ảnh mặt hàng (từ danh mục, gắn khi lập phiếu nhập) — cạnh tên vật tư, chỉ xem. */}
+                            <div className="kho-lineimg">
+                              {l.hang_anh && (
+                                <img
+                                  className="kho-lineimg__thumb"
+                                  src={assetUrl(l.hang_anh) ?? undefined}
+                                  alt=""
+                                />
+                              )}
+                              <div className="kho-lineimg__txt">
+                                <div
+                                  className="kho-lines__name kho-name-clamp"
+                                  title={l.hang_ten ?? undefined}
+                                >
+                                  {l.hang_ten ?? "—"}
+                                </div>
+                                <div className="kho-lines__code">{l.hang_ma ?? ""}</div>
+                              </div>
                             </div>
-                            <div className="kho-lines__code">{l.hang_ma ?? ""}</div>
                           </td>
                           <td className="kho-lines__code">{l.dvt}</td>
                           <td className="kho-num">{fmtQty(l.sl_de_nghi)}</td>
@@ -800,6 +812,12 @@ interface AllocBlock {
   // (siết 2026-08-08: mọi thứ nhập kho phải có sẵn trong danh mục gốc).
   matLabel: string;
   matCode: string | null;
+  /** Ảnh minh hoạ mặt hàng ĐANG LƯU (từ danh mục). null = chưa có. */
+  anh: string | null;
+  /** Ảnh MỚI đang chờ (client-side) — chỉ tải lên danh mục khi LẬP PHIẾU. null = không đổi. */
+  anhFile: File | null;
+  /** Đánh dấu GỠ ảnh cũ khi lập phiếu (chỉ có tác dụng khi không kèm `anhFile`). */
+  anhRemove: boolean;
   /** Hệ số về đơn vị gốc — để đổi số kho gõ (theo `line.dvt`) sang số tra lô/gợi ý phân bổ. */
   heSoVeGoc: number;
   cap: number;
@@ -880,6 +898,9 @@ function VoucherCreateDrawer({
       line: l,
       matLabel: l.hang_ten ?? "—",
       matCode: l.hang_ma,
+      anh: l.hang_anh,
+      anhFile: null,
+      anhRemove: false,
       // Server đã quy sẵn cho SL yêu cầu — suy ngược ra hệ số, khỏi gọi thêm API.
       heSoVeGoc: l.sl_quy_doi && l.sl_de_nghi ? l.sl_quy_doi / l.sl_de_nghi : 1,
       cap: l.sl_con_lai,
@@ -1035,24 +1056,30 @@ function VoucherCreateDrawer({
     return Math.round(sum);
   }, [blocks, isNhap, canViewCost]);
 
-  async function submit(post: boolean) {
-    if (!payload.length) {
-      setError("Chưa có dòng nào để cấp. Nhập số lượng hoặc chọn lô trước khi lưu.");
-      return;
-    }
-    // Cấp/nhập ÍT HƠN còn phải cấp → bắt buộc LÝ DO (kho phản hồi). Chặn ngay ở FE cho rõ.
-    const shortNoReason = blocks.find((b) => {
-      if (b.line.sl_con_lai <= 0) return false;
+  // Kiểm tra hợp lệ dùng CHUNG cho nút "Tạo & Ghi sổ" (báo NGAY khi bấm, không để lọt vào popup
+  // rồi mới báo) và cho submit (chốt chặn). Trả câu lỗi ĐẦU TIÊN, null nếu hợp lệ.
+  function firstError(): string | null {
+    if (!payload.length)
+      return "Chưa có dòng nào để cấp. Nhập số lượng hoặc chọn lô trước khi lưu.";
+    for (const b of blocks) {
+      if (b.line.sl_con_lai <= 0) continue;
       // Cả hai vế quy về ĐƠN VỊ DÒNG YÊU CẦU để so với `sl_con_lai` — lô đếm theo đơn vị gốc.
       const capped = isNhap
         ? b.cap
         : b.lots.reduce((s, x) => s + x.so_luong, 0) / (b.heSoVeGoc || 1);
-      return capped > 0 && capped < b.line.sl_con_lai - 1e-9 && !b.lyDo.trim();
-    });
-    if (shortNoReason) {
-      setError(
-        `"${shortNoReason.matLabel}" cấp ít hơn số còn phải cấp — nhập LÝ DO (vd NCC giao thiếu).`,
-      );
+      if (capped > b.line.sl_con_lai + 1e-9)
+        return "Ứng vượt số đã duyệt. Muốn cấp thêm thì phải tạo yêu cầu mới.";
+      // Cấp/nhập ÍT HƠN còn phải cấp → bắt buộc LÝ DO (kho phản hồi).
+      if (capped > 0 && capped < b.line.sl_con_lai - 1e-9 && !b.lyDo.trim())
+        return `"${b.matLabel}" cấp ít hơn số còn phải cấp — nhập LÝ DO (vd NCC giao thiếu).`;
+    }
+    return null;
+  }
+
+  async function submit(post: boolean) {
+    const err = firstError();
+    if (err) {
+      setError(err);
       return;
     }
     setBusy(true);
@@ -1070,6 +1097,18 @@ function VoucherCreateDrawer({
       // Chứng từ đã chọn cần voucher_id → upload NGAY SAU khi tạo phiếu (trước khi ghi sổ).
       for (const f of files) {
         await api.kho.phieu.uploadAttachment(token, v.id, f);
+      }
+      // Ảnh mặt hàng (cả nhập lẫn xuất): CHỈ lưu vào danh mục khi ĐÃ tạo phiếu (thêm ảnh rồi thoát
+      // giữa chừng thì không lưu). Best-effort — ảnh minh hoạ lỗi KHÔNG chặn/roll back việc tạo phiếu.
+      for (const b of blocks) {
+        try {
+          if (b.anhFile)
+            await api.matHang.uploadAnh(token, b.line.hang_loai, b.line.hang_id, b.anhFile);
+          else if (b.anhRemove)
+            await api.matHang.xoaAnh(token, b.line.hang_loai, b.line.hang_id);
+        } catch {
+          /* ảnh minh hoạ lỗi — bỏ qua, không chặn tạo phiếu */
+        }
       }
       if (post) await api.kho.phieu.ghiSo(token, v.id);
       setDirty(false);
@@ -1120,10 +1159,10 @@ function VoucherCreateDrawer({
             <section className="rc-sec">
               <h3 className="rc-sec__title">Thông tin phiếu</h3>
               <div className="rc-grid">
-                {/* Chuỗi trách nhiệm kế thừa từ yêu cầu — ghi thẳng vào phiếu (chỉ đọc). */}
+                {/* Chuỗi trách nhiệm kế thừa từ yêu cầu — ghi thẳng vào phiếu (chỉ đọc). Bỏ "người
+                    duyệt": tạo yêu cầu kho không còn bước duyệt (1 quyền). */}
                 <Readout label="Theo yêu cầu" value={request.ma} />
-                <Readout label="Người yêu cầu" value={request.nguoi_tao_ten || "—"} />
-                <Readout label="Người duyệt" value={request.nguoi_duyet_ten || "—"} />
+                <Readout label="Người tạo yêu cầu" value={request.nguoi_tao_ten || "—"} />
                 <div className="rc-field">
                   <span className="rc-field__label">
                     Kho {isNhap ? "(nhập về)" : "(xuất từ)"} <em>*</em>
@@ -1203,11 +1242,14 @@ function VoucherCreateDrawer({
                       <tr>
                         <th className="kho-nhap__stt">STT</th>
                         <th>Vật tư</th>
+                        {/* Ảnh mặt hàng — NGAY cạnh cột Vật tư (cả nhập lẫn xuất); bảng dài thì cuộn ngang. */}
+                        <th>Ảnh</th>
                         <th>ĐVT</th>
                         <th className="kho-num">SL yêu cầu</th>
                         <th className="kho-num">Tồn hiện tại</th>
                         <th className="kho-num">{isNhap ? "SL nhập" : "Cấp"}</th>
-                        <th className="kho-num">Đơn giá</th>
+                        {/* XUẤT: đơn giá là BÌNH QUÂN gia quyền các lô (giá vốn) — không phải giá nhập tay. */}
+                        <th className="kho-num">{isNhap ? "Đơn giá" : "Đơn giá bình quân"}</th>
                         <th className="kho-num">Thành tiền</th>
                         {/* Vị trí cất lô — chỉ phiếu NHẬP (xuất không đặt vị trí). */}
                         {isNhap && <th>Vị trí</th>}
@@ -1227,6 +1269,16 @@ function VoucherCreateDrawer({
                           onLyDo={(v) => patch(b.line.id, (cur) => ({ ...cur, lyDo: v }))}
                           onLotQty={(lotId, v) => setLotQty(b.line.id, lotId, v)}
                           onViTri={(v) => patch(b.line.id, (cur) => ({ ...cur, touched: true, viTri: v }))}
+                          onAnhPick={(file) =>
+                            patch(b.line.id, (cur) => ({ ...cur, anhFile: file, anhRemove: false }))
+                          }
+                          onAnhClear={() =>
+                            patch(b.line.id, (cur) =>
+                              cur.anhFile
+                                ? { ...cur, anhFile: null }
+                                : { ...cur, anhRemove: true },
+                            )
+                          }
                         />
                       ))}
                     </tbody>
@@ -1302,9 +1354,22 @@ function VoucherCreateDrawer({
             <button type="button" className="btn btn--ghost" onClick={requestClose}>
               Đóng
             </button>
-            {/* Create & post đã GỘP 1 quyền: lập phiếu = GHI SỔ NGAY (trừ tồn tức thì). Xác nhận
-                trước khi ghi vì phiếu không sửa được nữa — muốn sửa phải lập phiếu điều chỉnh. */}
-            <Button variant="accent" disabled={busy} onClick={() => setAskPost(true)}>
+            {/* Create & post đã GỘP 1 quyền: lập phiếu = GHI SỔ NGAY. Xác nhận trước khi ghi vì
+                phiếu không sửa được nữa. */}
+            <Button
+              variant="accent"
+              disabled={busy}
+              onClick={() => {
+                // Báo NGAY khi bấm (ứng vượt / cấp thiếu chưa nêu lý do) — không mở popup rồi mới báo.
+                const err = firstError();
+                if (err) {
+                  setError(err);
+                  return;
+                }
+                setError(null);
+                setAskPost(true);
+              }}
+            >
               Tạo &amp; Ghi sổ
             </Button>
           </footer>
@@ -1323,7 +1388,11 @@ function VoucherCreateDrawer({
       <ConfirmDialog
         open={askPost}
         title={isNhap ? "Ghi sổ phiếu nhập kho?" : "Ghi sổ phiếu xuất kho?"}
-        message="Tồn kho sẽ trừ ngay và phiếu không sửa được nữa. Muốn sửa phải lập phiếu điều chỉnh."
+        message={
+          isNhap
+            ? "Tồn kho sẽ cộng ngay và phiếu không sửa được nữa."
+            : "Tồn kho sẽ trừ ngay và phiếu không sửa được nữa."
+        }
         confirmLabel="Ghi sổ"
         busy={busy}
         onCancel={() => setAskPost(false)}
@@ -1347,6 +1416,8 @@ function AllocRow({
   onLyDo,
   onLotQty,
   onViTri,
+  onAnhPick,
+  onAnhClear,
 }: {
   token: string;
   khoId: number;
@@ -1358,8 +1429,27 @@ function AllocRow({
   onLyDo: (v: string) => void;
   onLotQty: (lotId: number, v: number) => void;
   onViTri: (v: string) => void;
+  /** Chọn/đổi ảnh mặt hàng (chỉ phiếu NHẬP) — GIỮ file client-side, chỉ lưu khi LẬP PHIẾU. */
+  onAnhPick: (file: File) => void;
+  /** Bỏ ảnh: có file đang chờ thì huỷ chọn; không thì đánh dấu gỡ ảnh cũ (áp khi lập phiếu). */
+  onAnhClear: () => void;
 }) {
   const l = block.line;
+  // Ảnh mặt hàng — chỉ phiếu NHẬP. GIỮ file ở CLIENT, chỉ lưu vào danh mục KHI LẬP PHIẾU: thêm ảnh
+  // rồi thoát mà chưa lập thì KHÔNG lưu (lần sau vào lại như mới). `block.anhFile` = ảnh mới đang chờ;
+  // `block.anhRemove` = đánh dấu gỡ ảnh cũ. Preview lấy từ file chờ (objectURL) hoặc ảnh cũ.
+  const [anhZoom, setAnhZoom] = useState(false);
+  const preview = useMemo(
+    () => (block.anhFile ? URL.createObjectURL(block.anhFile) : null),
+    [block.anhFile],
+  );
+  useEffect(
+    () => () => {
+      if (preview) URL.revokeObjectURL(preview);
+    },
+    [preview],
+  );
+  const shownAnh = preview ?? (!block.anhRemove && block.anh ? assetUrl(block.anh) : null);
   // Tồn hiện tại trong kho này (cả NHẬP lẫn XUẤT) — hiện thành CỘT riêng để biết đang thêm/rút khỏi đâu.
   const [tonInfo, setTonInfo] = useState<{ ton: number; gia: number | null } | null>(null);
   useEffect(() => {
@@ -1447,6 +1537,47 @@ function AllocRow({
           </div>
           {block.matCode ? <div className="kho-lines__code">{block.matCode}</div> : null}
         </td>
+        {/* Ảnh mặt hàng — NGAY cạnh cột Vật tư (cả nhập lẫn xuất). Chọn file = GIỮ client, lưu khi lập
+            phiếu. `stopPropagation` để bấm nút ảnh KHÔNG kích hoạt xổ/gập bảng lô của dòng XUẤT. */}
+        <td onClick={(e) => e.stopPropagation()}>
+          <div className="kho-anh kho-anh--cell">
+            {shownAnh && (
+              <button
+                type="button"
+                className="kho-anh__thumb kho-anh__thumb--sm"
+                onClick={() => setAnhZoom(true)}
+                title="Bấm để phóng to"
+              >
+                <img src={shownAnh} alt={block.matLabel} />
+              </button>
+            )}
+            <label className="rc__link-btn">
+              {shownAnh ? "Đổi" : "＋ Ảnh"}
+              <input
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onAnhPick(f);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {shownAnh && (
+              <button
+                type="button"
+                className="rc__link-btn kho-anh__del"
+                onClick={() => {
+                  onAnhClear();
+                  setAnhZoom(false);
+                }}
+              >
+                Xóa
+              </button>
+            )}
+          </div>
+        </td>
         <td className="kho-lines__code">{l.dvt}</td>
         <td className="kho-num">
           {/* SL người yêu cầu xin (sl_de_nghi) — không phải phần còn lại. Đã đủ thì báo "Đã cấp đủ". */}
@@ -1481,13 +1612,15 @@ function AllocRow({
           )}
         </td>
         <td className="kho-num">
-          {/* Đơn giá: NHẬP = giá người yêu cầu khai; XUẤT = đơn giá BÌNH QUÂN các lô đã lấy (giá vốn). */}
+          {/* Đơn giá: NHẬP = giá người yêu cầu khai (số nguyên). XUẤT = đơn giá BÌNH QUÂN gia quyền các
+              lô — hiện tới 2 SỐ LẺ để SL × đơn giá sát Thành tiền nhất (làm tròn đồng sẽ lệch to khi
+              SL lớn). Thành tiền vẫn là tổng giá vốn THỰC từng lô, không suy từ đơn giá này. */}
           {isNhap
             ? block.donGia
               ? `${Number(block.donGia).toLocaleString("vi-VN")} đ`
               : "—"
             : canViewCost && chosen > 0
-              ? money(Math.round(donGiaBq))
+              ? `${donGiaBq.toLocaleString("vi-VN", { maximumFractionDigits: 2 })} đ`
               : "—"}
         </td>
         <td className="kho-num">
@@ -1523,7 +1656,7 @@ function AllocRow({
       {hasDetail && (
         <tr className="kho-alloc__detailrow">
           <td aria-hidden />
-          <td colSpan={isNhap ? 8 : 7}>
+          <td colSpan={isNhap ? 9 : 8}>
             {quyDoiHint}
             {lyDoBox}
             {!isNhap && (
@@ -1605,6 +1738,20 @@ function AllocRow({
                 </div>
               </>
             )}
+          </td>
+        </tr>
+      )}
+      {anhZoom && shownAnh && (
+        <tr>
+          <td colSpan={isNhap ? 10 : 9} style={{ padding: 0, border: 0 }}>
+            <div
+              className="kho-anh__lightbox"
+              role="dialog"
+              aria-modal="true"
+              onClick={() => setAnhZoom(false)}
+            >
+              <img src={shownAnh} alt={block.matLabel} onClick={(e) => e.stopPropagation()} />
+            </div>
           </td>
         </tr>
       )}
@@ -1713,7 +1860,6 @@ export function VoucherDrawer({
       chungTuGoc: v.request_ma,
       chungTuGocNgay: req ? fmtDate(req.created_at) : null,
       nguoiDeNghi: req?.nguoi_tao_ten ?? null,
-      nguoiDuyet: req?.nguoi_duyet_ten ?? null,
       nguoiLapPhieu: v.nguoi_lap_ten ?? null,
       khoTen: v.kho_ten,
       diaDiem: null,
@@ -1798,9 +1944,9 @@ export function VoucherDrawer({
                   <h3 className="rc-sec__title">Thông tin phiếu</h3>
                   {/* kho-info-grid: lưới 2 cột có hairline ngăn cách cho dễ đọc (CSS dựng sẵn). */}
                   <div className="rc-grid kho-info-grid">
-                    {/* Chuỗi trách nhiệm — ai yêu cầu → ai duyệt → ai lập phiếu (kho). */}
-                    <Readout label="Người yêu cầu" value={v.nguoi_de_nghi_ten || "—"} />
-                    <Readout label="Người duyệt" value={v.nguoi_duyet_ten || "—"} />
+                    {/* Chuỗi trách nhiệm — ai tạo yêu cầu → ai lập phiếu (kho). Bỏ "người duyệt": tạo
+                        yêu cầu kho không còn bước duyệt (1 quyền). */}
+                    <Readout label="Người tạo yêu cầu" value={v.nguoi_de_nghi_ten || "—"} />
                     <Readout label="Người lập phiếu" value={v.nguoi_lap_ten || "—"} />
                     <Readout label="Theo yêu cầu" value={v.request_ma || "—"} />
                     <Readout label="Kho" value={v.kho_ten || "—"} />
@@ -1973,7 +2119,11 @@ export function VoucherDrawer({
       <ConfirmDialog
         open={askPost}
         title={v?.loai === "NHAP" ? "Ghi sổ phiếu nhập kho?" : "Ghi sổ phiếu xuất kho?"}
-        message="Tồn kho sẽ trừ ngay và phiếu không sửa được nữa. Muốn sửa phải lập phiếu điều chỉnh."
+        message={
+          v?.loai === "NHAP"
+            ? "Tồn kho sẽ cộng ngay và phiếu không sửa được nữa."
+            : "Tồn kho sẽ trừ ngay và phiếu không sửa được nữa."
+        }
         confirmLabel="Ghi sổ"
         busy={busy}
         onCancel={() => setAskPost(false)}

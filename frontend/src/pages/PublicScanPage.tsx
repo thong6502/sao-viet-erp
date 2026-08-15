@@ -2,7 +2,7 @@
 // Đứng RIÊNG (ngoài AppShell): brand bar + thẻ tóm tắt vật tư + 2 bảng (theo vị trí · lịch sử nhập/xuất).
 // Chỉ đọc dữ liệu công khai từ /api/public/kho-scan (đã bỏ mọi trường tiền ở backend).
 import { useEffect, useMemo, useState } from "react";
-import { ApiError, api, type PublicScan, type PublicScanLot } from "../api/client";
+import { ApiError, api, assetUrl, type PublicScan, type PublicScanLot } from "../api/client";
 import { fmtDateISO } from "../utils/format";
 import { fmtQty } from "./khoShared";
 import logoUrl from "../assets/sao-viet-nhat-logo-mark.png";
@@ -36,6 +36,8 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
   const [data, setData] = useState<PublicScan | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Bấm ảnh vật tư → xem ảnh FULL (lightbox). Bấm nền/nút ✕ để đóng.
+  const [zoom, setZoom] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -127,31 +129,50 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
         ) : data ? (
           <>
             <section className="pscan__card">
-              <div className="pscan__titlerow">
-                <h1 className="pscan__title">
-                  {data.material_name ?? data.material_code ?? "Vật tư"}
-                </h1>
-                <span className={`pscan__pill pscan__pill--${overall}`}>
-                  <span className={`pscan__dot pscan__dot--${overall}`} />
-                  {STATUS_META[overall].label}
-                </span>
-              </div>
-              <div className="pscan__meta">
-                {data.material_code && (
-                  <span>
-                    SKU <b>{data.material_code}</b>
-                  </span>
+              <div className="pscan__head">
+                {data.anh_url && (
+                  <button
+                    type="button"
+                    className="pscan__photobtn"
+                    onClick={() => setZoom(true)}
+                    aria-label="Xem ảnh phóng to"
+                    title="Bấm để xem ảnh lớn"
+                  >
+                    <img
+                      className="pscan__photo"
+                      src={assetUrl(data.anh_url) ?? undefined}
+                      alt={data.material_name ?? "Ảnh vật tư"}
+                    />
+                  </button>
                 )}
-                {dvt && (
-                  <span>
-                    ĐVT <b>{dvt}</b>
-                  </span>
-                )}
-                {data.kho_ten && (
-                  <span>
-                    Kho <b>{data.kho_ten}</b>
-                  </span>
-                )}
+                <div className="pscan__headmain">
+                  <div className="pscan__titlerow">
+                    <h1 className="pscan__title">
+                      {data.material_name ?? data.material_code ?? "Vật tư"}
+                    </h1>
+                    <span className={`pscan__pill pscan__pill--${overall}`}>
+                      <span className={`pscan__dot pscan__dot--${overall}`} />
+                      {STATUS_META[overall].label}
+                    </span>
+                  </div>
+                  <div className="pscan__meta">
+                    {data.material_code && (
+                      <span>
+                        SKU <b>{data.material_code}</b>
+                      </span>
+                    )}
+                    {dvt && (
+                      <span>
+                        ĐVT <b>{dvt}</b>
+                      </span>
+                    )}
+                    {data.kho_ten && (
+                      <span>
+                        Kho <b>{data.kho_ten}</b>
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
               <div className="pscan__total">
                 <span className="pscan__total-num">{fmtQty(data.on_hand)}</span>
@@ -255,7 +276,30 @@ export function PublicScanPage({ scanToken }: { scanToken: string }) {
         ) : null}
       </main>
 
-      <footer className="pscan__foot">Sao Việt Nhật ERP — quét tem để tra vị trí lưu kho</footer>
+      <footer className="pscan__foot">Sao Việt Nhật ERP · Dữ liệu tồn kho tại thời điểm tra cứu</footer>
+
+      {zoom && data?.anh_url && (
+        <div
+          className="pscan__lightbox"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setZoom(false)}
+        >
+          <button
+            type="button"
+            className="pscan__lightbox-x"
+            onClick={() => setZoom(false)}
+            aria-label="Đóng"
+          >
+            ✕
+          </button>
+          <img
+            src={assetUrl(data.anh_url) ?? undefined}
+            alt={data.material_name ?? "Ảnh vật tư"}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

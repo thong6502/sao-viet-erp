@@ -1869,3 +1869,77 @@ input.kho-num,
 /* Cột SỐ (canh phải): nút phễu bám phải, popup mở về bên phải cho khỏi tràn mép bảng. */
 .kho-colfil--num .kho-colfil__btn { justify-content: flex-end; width: 100%; }
 .kho-colfil--num .kho-colfil__pop { left: auto; right: 0; }
+
+/* --- Ảnh minh hoạ vật tư (drawer Tồn kho) --- */
+.kho-anh {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px var(--sp-5, 20px) 0;
+}
+.kho-anh__thumb {
+  flex: none;
+  width: 84px;
+  height: 84px;
+  border-radius: var(--r-3, 8px);
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  background: var(--canvas, #f1f5f9);
+  padding: 0;
+  overflow: hidden;
+  cursor: zoom-in;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.kho-anh__thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.kho-anh__thumb--empty { cursor: default; font-size: 30px; color: var(--ash-2, #94a3b8); }
+.kho-anh__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  font-size: 13px;
+}
+.kho-anh .rc__link-btn.is-disabled { opacity: 0.5; pointer-events: none; }
+/* Biến thể CELL — ảnh nằm CÙNG HÀNG vật tư (cột "Ảnh") trên dòng chính. KHÔNG xuống dòng để cột có
+   bề rộng ổn định; bảng dài thì cả bảng cuộn ngang (kho-lines__wrap có overflow-x). */
+.kho-anh--cell {
+  padding: 0;
+  gap: 8px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.kho-anh--cell .kho-anh__thumb--sm { width: 40px; height: 40px; border-radius: 6px; }
+/* Ảnh CẠNH TÊN vật tư trong bảng "Dòng vật tư" (chỉ xem) của drawer chi tiết yêu cầu. */
+.kho-lineimg { display: flex; align-items: center; gap: 10px; }
+.kho-lineimg__txt { min-width: 0; }
+.kho-lineimg__thumb {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--rule-soft, #e2e8f0);
+}
+.kho-anh__del { color: var(--signal, #dc2626); }
+.kho-anh__hint { color: var(--ash, #64748b); }
+.kho-anh__err { color: var(--signal, #dc2626); }
+.kho-anh__lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(15, 23, 42, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  cursor: zoom-out;
+}
+.kho-anh__lightbox img {
+  max-width: 92vw;
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  cursor: default;
+}

@@ -6,9 +6,12 @@ ký HMAC (services/qr_token) nên không dò id tuần tự được. Không dù
 """
 from __future__ import annotations
 
+import mimetypes
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,6 +24,7 @@ from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..schemas.stock import PublicScanLot, PublicScanMove, PublicScanOut
 from ..services.qr_token import verify_scan
 from ..services.vat_lieu_kho_service import VatLieuKhoService
+from ..storage import StorageFileNotFound, get_storage, is_safe_key, key_from_url
 
 router = APIRouter(prefix="/api/public", tags=["public"])
 
@@ -70,6 +74,9 @@ def public_kho_scan(db: Db, t: Annotated[str, Query(description="Mã QR đã ký
         dvt=dv_ten.get(dvt_code, dvt_code),
         kho_ten=getattr(kho, "ten", None),
         on_hand=lots_repo.on_hand(hang, kho_id),
+        # Có ảnh thì trả đường CÔNG KHAI (serve lại bằng chính token này) — không lộ key kho file.
+        anh_url=(f"/api/public/vat-lieu-anh?t={quote(t, safe='')}"
+                 if getattr(m, "anh_url", None) else None),
         lots=[
             PublicScanLot(
                 ma_lo=lot.ma_lo,
@@ -85,3 +92,30 @@ def public_kho_scan(db: Db, t: Annotated[str, Query(description="Mã QR đã ký
             for loai, ngay, ma, sl in db.execute(moves_stmt).all()
         ],
     )
+
+
+@router.get("/vat-lieu-anh")
+def public_vat_lieu_anh(db: Db, t: Annotated[str, Query(description="Mã QR đã ký")]) -> StreamingResponse:
+    """Serve ẢNH minh hoạ vật tư CÔNG KHAI (không đăng nhập) — bảo vệ bằng chính token QR đã ký,
+    chỉ trả ảnh đúng mặt hàng mà token trỏ tới. Không phơi key kho file, không dò id tuần tự."""
+    parsed = verify_scan(t)
+    if parsed is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Mã QR không hợp lệ")
+    _kho_id, hang_loai, hang_id = parsed
+    hang = (hang_loai, hang_id)
+
+    hang_svc = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    m = hang_svc.map_theo_cap([hang]).get(hang)
+    key = key_from_url(getattr(m, "anh_url", None) if m else None)
+    if not key or not is_safe_key(key):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không có ảnh")
+    try:
+        stream, size, content_type = get_storage().open_stream(key)
+    except StorageFileNotFound:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy ảnh") from None
+
+    headers = {"Cache-Control": "public, max-age=300"}
+    if size is not None:
+        headers["Content-Length"] = str(size)
+    media = content_type or mimetypes.guess_type(key)[0] or "application/octet-stream"
+    return StreamingResponse(stream, media_type=media, headers=headers)

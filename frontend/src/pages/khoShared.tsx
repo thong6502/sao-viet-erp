@@ -13,7 +13,9 @@ interface Tone {
 export const REQUEST_STATUS: Record<StockRequestStatus, Tone> = {
   draft: { label: "Nháp", tone: "muted" },
   pending: { label: "Chờ duyệt", tone: "amber" },
-  approved: { label: "Đã duyệt", tone: "steel" },
+  // Đã BỎ bước duyệt yêu cầu kho → tạo là "approved" ngay. Nhãn "Chờ xử lý" (chờ kho tiếp nhận/cấp),
+  // KHÔNG dùng "Đã duyệt" nữa vì không còn ai duyệt.
+  approved: { label: "Chờ xử lý", tone: "steel" },
   received: { label: "Kho tiếp nhận", tone: "steel" },
   preparing: { label: "Đang chuẩn bị", tone: "steel" },
   partial: { label: "Đã cấp một phần", tone: "rust" },
