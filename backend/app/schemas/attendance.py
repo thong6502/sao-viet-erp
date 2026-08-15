@@ -378,6 +378,9 @@ class AttendancePeriodOut(BaseModel):
     line_count: int                   # số dòng snapshot đã đóng băng
     employee_count: int               # số NV trong bảng công tháng
     hanging_days: int                 # số ngày treo (thiếu chấm RA) — xử trước khi Chốt
+    # L3 — lượt bấm ghi vào SAU khi kỳ đã chốt. Ảnh chụp không có chúng, Bảng lương cũng
+    # không ⇒ >0 là dấu hiệu phải chốt lại kỳ. Mặc định 0 cho kỳ chưa chốt.
+    phat_sinh_sau_chot: int = 0
     pending_leaves: int               # đơn nghỉ phép chưa duyệt của tháng
     pending_late_early: int = 0       # phiếu đi muộn/về sớm chưa duyệt (chặn chốt công y như trên)
     pending_adjusts: int              # yêu cầu chỉnh công chưa duyệt

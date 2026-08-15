@@ -373,6 +373,9 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
   const canCreate = can("nhan_su", "create");
   const canApprove = can("nhan_su", "approve");
   const canSalary = can("nhan_su", "edit_salary"); // có quyền khai lương → hiện bước "Lương" khi thêm NV
+  // Ô "Xuất Excel danh sách". Trước 11/08/2026 nút render TRẦN, không hỏi quyền gì — nên ô đó
+  // trong ma trận chưa bao giờ có tác dụng. Máy chủ cũng đã siết sang `nhan_su:export`.
+  const canExport = can("nhan_su", "export");
 
   const [data, setData] = useState<{
     items: EmployeeRow[];
@@ -663,14 +666,16 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                 </select>
                 <ChevronDown className="ns-select-chevron" size={14} />
               </div>
-              <button
-                className="ns-btn-excel"
-                onClick={exportExcel}
-                disabled={exporting}
-              >
-                <Download size={14} />
-                {exporting ? "Đang xuất…" : "Xuất Excel"}
-              </button>
+              {canExport && (
+                <button
+                  className="ns-btn-excel"
+                  onClick={exportExcel}
+                  disabled={exporting}
+                >
+                  <Download size={14} />
+                  {exporting ? "Đang xuất…" : "Xuất Excel"}
+                </button>
+              )}
               {/* Bỏ chip "Sắp hết thử việc ×": dải lọc phía trên đã sáng đúng ô đó rồi,
                   hai chỗ báo cùng một trạng thái chỉ làm người dùng phải đọc hai lần. */}
             </div>

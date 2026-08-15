@@ -13,7 +13,7 @@ import {
   type DepartmentPurchaseRequestLineInput,
   type DepartmentPurchaseRequestLineOut,
   type DepartmentPurchaseRequestRow,
-  type DepartmentPurchaseRequestStatus,
+  type DepartmentPurchaseWorkflowStatus,
   type DepartmentPurchaseSourceType,
   type PurchaseRequestStatus,
 } from "../api/client";
@@ -34,7 +34,7 @@ import "./master-data.css";
 import "./payables.css";
 import "./purchase.css";
 
-type StatusFilter = "all" | DepartmentPurchaseRequestStatus;
+type StatusFilter = "all" | DepartmentPurchaseWorkflowStatus;
 
 /** Số dòng mỗi trang. TRƯỚC 08/08/2026 màn này tải cứng 100 dòng và KHÔNG có phân trang: quá 100
  *  yêu cầu là bảng cắt im lặng trong khi ô "Tổng" vẫn hiện đúng — người dùng không có cách nào
@@ -51,11 +51,13 @@ const SOURCE_TYPE_LABELS: Record<DepartmentPurchaseSourceType, string> = {
 };
 
 const SOURCE_STATUS_META: Record<
-  DepartmentPurchaseRequestStatus,
+  DepartmentPurchaseWorkflowStatus,
   { label: string; tone: string }
 > = {
   open: { label: "Chờ Thu mua xử lý", tone: "draft" },
+  drafting: { label: "Thu mua đang lập đơn", tone: "draft" },
   pending_approval: { label: "Chờ duyệt", tone: "pending" },
+  needs_correction: { label: "Cần Thu mua chỉnh sửa", tone: "rejected" },
   in_purchase: { label: "Đang mua", tone: "pending" },
   done: { label: "Hoàn tất", tone: "received" },
   cancelled: { label: "Đã hủy", tone: "cancelled" },
@@ -114,7 +116,10 @@ export function DepartmentPurchaseRequestsPage({
 }) {
   const { token, user } = useAuth();
   const can = useCan();
-  const canAdminCancel = can("thu_mua", "cancel");
+  // Huỷ HỘ người khác = quyền quản trị trên chính màn này; người tạo vẫn tự huỷ đơn của mình.
+  const canAdminCancel = can("yeu_cau_mua_hang", "cancel");
+  // Sửa / huỷ yêu cầu CỦA CHÍNH MÌNH — máy chủ gác `yeu_cau_mua_hang:update`.
+  const canUpdate = can("yeu_cau_mua_hang", "update");
   const [canCreate, setCanCreate] = useState(false);
   const [departmentName, setDepartmentName] = useState<string | null>(null);
 
@@ -266,6 +271,8 @@ export function DepartmentPurchaseRequestsPage({
       needed_date: row.needed_date,
       note: null,
       lines: row.lines.map((line) => ({
+        hang_loai: line.hang_loai,
+        hang_id: line.hang_id,
         item_name: line.item_name,
         unit: line.unit,
         quantity: line.quantity,
@@ -577,7 +584,7 @@ export function DepartmentPurchaseRequestsPage({
                     <div className="md-page__muted">{fmtDate(row.created_at)}</div>
                   </td>
                   <td>
-                    <SourceStatusBadge status={row.status} />
+                    <SourceStatusBadge status={row.workflow_status} />
                   </td>
                   <td
                     className="md-page__actions-col"
@@ -595,7 +602,11 @@ export function DepartmentPurchaseRequestsPage({
                         icon="eye"
                         onClick={() => setSelectedId(row.id)}
                       />
+                      {/* Sửa/Huỷ đòi ĐỦ HAI thứ: là người tạo VÀ có ô Thao tác. Trước 11/08/2026
+                          chỉ xét "có phải người tạo không", nên gỡ ô Thao tác rồi hai nút vẫn bày
+                          ra — bấm mới ăn 403. Máy chủ vốn chặn đúng; đây là phần giao diện. */}
                       {row.status === "open" &&
+                        canUpdate &&
                         row.requested_by_user_id === user?.id && (
                           <RowActionButton
                             dense
@@ -606,7 +617,7 @@ export function DepartmentPurchaseRequestsPage({
                         )}
                       {row.status === "open" &&
                         (canAdminCancel ||
-                          row.requested_by_user_id === user?.id) && (
+                          (canUpdate && row.requested_by_user_id === user?.id)) && (
                           <RowActionButton
                             dense
                             danger
@@ -657,7 +668,7 @@ export function DepartmentPurchaseRequestsPage({
           kicker="Chi tiết yêu cầu"
           title={selected.code}
           subtitle={noiDung(selected)}
-          badge={<SourceStatusBadge status={selected.status} />}
+          badge={<SourceStatusBadge status={selected.workflow_status} />}
           onClose={() => setSelectedId(null)}
         >
           <dl className="purchase__facts">
@@ -870,6 +881,7 @@ export function DepartmentPurchaseRequestsPage({
                         <MaterialCombobox
                           token={token ?? ""}
                           hangTen={line.item_name || null}
+                          chiCoNhaCungCap
                           onPick={(m) =>
                             setLine(index, {
                               hang_loai: m.hang_loai,
@@ -880,10 +892,13 @@ export function DepartmentPurchaseRequestsPage({
                           }
                         />
                       </div>
-                      {/* ĐVT theo CHÍNH mặt hàng vừa chọn (đơn vị gốc + những đơn vị đổi được
-                          với nó). Chưa chọn hàng thì khoá — gõ tự do là mở đường cho đơn vị lạ
-                          lọt vào, quy đổi tắt lặng lẽ và tồn kho lệch. */}
+                      {/* ĐVT = ĐÚNG đơn vị của mặt hàng, CHỈ ĐỌC (chủ chốt 12/08/2026: "nhà
+                          cung cấp ghi là kg thì yêu cầu mua hàng nó cũng là kg, không cho sửa gì
+                          hết"). Trước đây còn cho chọn trong danh sách quy đổi — người đề nghị
+                          mua đổi sang thùng/bao là đẻ ra một con số phải quy đổi ngược khi đối
+                          chiếu bảng giá nhà cung cấp, và không ai biết nó đã đổi. */}
                       <DonViChonTheoHang
+                        chiDoc
                         token={token ?? ""}
                         hangLoai={line.hang_loai ?? null}
                         hangId={line.hang_id ?? null}
@@ -966,7 +981,7 @@ export function DepartmentPurchaseRequestsPage({
 function SourceStatusBadge({
   status,
 }: {
-  status: DepartmentPurchaseRequestStatus;
+  status: DepartmentPurchaseWorkflowStatus;
 }) {
   const meta = SOURCE_STATUS_META[status];
   return (

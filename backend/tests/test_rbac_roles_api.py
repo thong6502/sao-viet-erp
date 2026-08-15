@@ -98,9 +98,25 @@ def test_matrix_get_defaults_and_save_persists(client):
     ).json()["id"]
 
     rows = client.get(f"/api/roles/{role_id}/permissions", headers=_h(token)).json()
-    # One row per module; a brand-new role starts all-false / own.
+    # Một dòng cho mỗi module. Vai mới TẮT HẾT, trừ ĐÚNG HAI ô bật sẵn (10/08/2026, xem
+    # `RoleRepository.O_MAC_DINH`): Tự phục vụ + Nội quy — hai thứ là quyền của mọi người lao
+    # động, không phải đặc quyền của một vai. Vai mới mà thiếu chúng thì người vừa được gán vai
+    # không tự chấm công nổi và không đọc được nội quy.
     assert len(rows) >= 11
-    assert all(not r["can_read"] and r["scope"] == "own" for r in rows)
+    bat_san = {"self_service", "noi_quy"}
+    for r in rows:
+        if r["module_key"] in bat_san:
+            assert r["can_read"], f'{r["module_key"]} phải bật sẵn cho vai mới'
+            # `self_service` cần CẢ ô Thao tác (`can_create`) — từ 11/08/2026 nó mới là thứ cho
+            # chấm công / gửi đơn nghỉ · phiếu tăng ca · xin tạm ứng. Chỉ bật Xem thì vai mới gán
+            # xong, thợ mở màn ra mà không bấm được nút nào.
+            assert r["can_create"] is (r["module_key"] == "self_service"), (
+                f'{r["module_key"]}: can_create sai — Tự phục vụ phải có ô Thao tác, Nội quy thì không'
+            )
+            assert not (r["can_update"] or r["can_delete"])
+        else:
+            assert not r["can_read"], f'{r["module_key"]} không được tự bật cho vai mới'
+        assert r["scope"] == "own"
 
     for row in rows:
         if row["module_key"] == "khach_hang":
@@ -258,4 +274,62 @@ def test_dept_viewer_can_list_role_names_but_not_matrix(client):
     assert (
         client.get(f"/api/roles/{role_id}/permissions", headers=_h(token)).status_code
         == 403
+    )
+
+
+def test_moi_cot_quyen_deu_di_het_duong_ong_len_API():
+    """Thêm một cột quyền mà quên nối đường ống ⇒ ma trận hỏng ÂM THẦM, không báo gì.
+
+    ĐÃ VỠ HAI LẦN, hai chặng khác nhau:
+      • 11/08 (lần 1) `can_view_log` thiếu ở **schema API** ⇒ tick, Lưu, không lỗi — mở lại vẫn tắt.
+      • 11/08 (lần 2) `can_view_salary` · `can_edit_salary` · `can_adjust` thiếu ở **`get_matrix`**
+        ⇒ DB lưu đúng, máy chủ gác đúng, chỉ đường ĐỌC không trả về nên công tắc luôn hiện tắt.
+        Chủ chốt tick đi tick lại, tưởng hệ thống không nhận.
+
+    Bản guard đầu tiên KHÔNG bắt được lần 2: nó chỉ đếm "tên cột xuất hiện ≥2 lần trong
+    role_service.py", mà `can_adjust` có mặt ở danh sách cờ + `save_matrix` là đủ 2 — vẫn thiếu ở
+    `get_matrix`. Nay soi RIÊNG TỪNG HÀM, không đếm tổng nữa.
+
+    Bốn chặng phía máy chủ (chặng thứ năm là giao diện — xem
+    `test_giao_dien_va_may_chu_hoi_cung_mot_o_quyen`):
+      model → `RoleRepository.set_permission` → `get_matrix` (đọc) + `save_matrix` (ghi) → schema API.
+    """
+    import inspect as _inspect
+
+    from app.models.role import RolePermission
+    from app.repositories.rbac_repo import RoleRepository
+    from app.schemas.rbac import PermissionRow
+    from app.services.role_service import RoleService
+
+    cot = {
+        c.name for c in RolePermission.__table__.columns
+        if c.name not in ("id", "role_id", "module_key", "scope")
+    }
+
+    thieu_schema = sorted(cot - set(PermissionRow.model_fields))
+    assert not thieu_schema, (
+        "cột quyền chưa khai trong `PermissionRow` (schemas/rbac.py) ⇒ API nuốt mất khi lưu: "
+        + ", ".join(thieu_schema)
+    )
+
+    tham_so = set(_inspect.signature(RoleRepository.set_permission).parameters)
+    thieu_repo = sorted(cot - tham_so)
+    assert not thieu_repo, (
+        "cột quyền chưa có tham số trong `RoleRepository.set_permission` ⇒ seed/migration không "
+        "đặt được: " + ", ".join(thieu_repo)
+    )
+
+    # Soi RIÊNG hai hàm — đây là chỗ bản guard cũ hụt.
+    nguon_doc = _inspect.getsource(RoleService.get_matrix)
+    thieu_doc = sorted(c for c in cot if c not in nguon_doc)
+    assert not thieu_doc, (
+        "cột quyền không có trong `RoleService.get_matrix` ⇒ ma trận LUÔN HIỆN TẮT dù đã bật và "
+        "đã Lưu (DB vẫn đúng): " + ", ".join(thieu_doc)
+    )
+
+    nguon_ghi = _inspect.getsource(RoleService.save_matrix)
+    thieu_ghi = sorted(c for c in cot if c not in nguon_ghi)
+    assert not thieu_ghi, (
+        "cột quyền không có trong `RoleService.save_matrix` ⇒ bật rồi Lưu nhưng KHÔNG xuống DB: "
+        + ", ".join(thieu_ghi)
     )

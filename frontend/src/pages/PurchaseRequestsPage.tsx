@@ -12,8 +12,9 @@ import {
   api,
   assetUrl,
   type DepartmentPurchaseRequestRow,
-  type DepartmentPurchaseRequestStatus,
+  type DepartmentPurchaseWorkflowStatus,
   type PurchaseAttachmentRow,
+  type PurchaseDeliveryInput,
   type PurchaseDeliveryRow,
   type PurchaseRequestInput,
   type PurchaseRequestLineInput,
@@ -31,7 +32,7 @@ import { CodeLink } from "../components/CodeLink";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DetailModal } from "../components/DetailModal";
 import { EmptyRow } from "../components/EmptyState";
-import { StatusHistoryTimeline } from "../components/StatusHistoryTimeline";
+import { PurchaseActivityTimeline } from "../components/PurchaseActivityTimeline";
 import { StatusTabs } from "../components/StatusTabs";
 import { Icon } from "../components/Icons";
 import { RowActionButton } from "../components/RowActionButton";
@@ -67,7 +68,7 @@ const STATUS_META: Record<
 const GHI_DOT_DUOC: PurchaseRequestStatus[] = ["purchased", "partially_received"];
 
 type StatusFilter = "all" | PurchaseRequestStatus;
-type SourceStatusFilter = "all" | DepartmentPurchaseRequestStatus;
+type SourceStatusFilter = "all" | DepartmentPurchaseWorkflowStatus;
 type DepositFilter = "all" | "none" | "unpaid" | "partial" | "enough";
 
 /** Hai tab con của màn Mua hàng (chốt 08/08/2026).
@@ -79,11 +80,13 @@ type DepositFilter = "all" | "none" | "unpaid" | "partial" | "enough";
 type PurchaseTab = "yeu-cau" | "phieu";
 
 const SOURCE_STATUS_META: Record<
-  DepartmentPurchaseRequestStatus,
+  DepartmentPurchaseWorkflowStatus,
   { label: string; tone: string }
 > = {
   open: { label: "Chờ Thu mua xử lý", tone: "draft" },
+  drafting: { label: "Thu mua đang lập đơn", tone: "draft" },
   pending_approval: { label: "Chờ duyệt", tone: "pending" },
+  needs_correction: { label: "Cần Thu mua chỉnh sửa", tone: "rejected" },
   in_purchase: { label: "Đang mua", tone: "pending" },
   done: { label: "Hoàn tất", tone: "received" },
   cancelled: { label: "Đã hủy", tone: "cancelled" },
@@ -581,6 +584,7 @@ export function PurchaseRequestsPage({
   navigate,
   eventTick = 0,
   focusRequestCode = null,
+  onDataRefreshed,
 }: {
   navigate: NavigateFn;
   eventTick?: number;
@@ -588,7 +592,9 @@ export function PurchaseRequestsPage({
    *  Mã `PMH-…` = phiếu mua → tab "phieu"; mã `YCMH-…` = yêu cầu → tab "yeu-cau".
    *  Xem effect "BẪY LIÊN THÔNG" bên dưới trước khi đụng vào. */
   focusRequestCode?: string | null;
+  onDataRefreshed?: () => void;
 }) {
+  // `user` chỉ cần cho luật "Huỷ phiếu" — luật đó đang ẩn (15/08/2026), bật lại thì lấy kèm.
   const { token } = useAuth();
   const can = useCan();
   const canCreate = can("thu_mua", "create");
@@ -597,34 +603,57 @@ export function PurchaseRequestsPage({
   // Đợt giao ↔ phiếu nhập kho = CÙNG sự kiện hàng về: bấm "Nhập kho" ở một đợt → nhảy sang màn
   // Yêu cầu kho, mở sẵn form NHẬP điền theo hàng đã nhận. Ghi chú trỏ về mã đơn mua + số đợt.
   //
-  // Ô MẶT HÀNG để TRỐNG có chủ ý: từ Đợt 3, kho chỉ nhận hàng CÓ trong danh mục gốc, mà dòng đơn
-  // mua chỉ có tên chữ (`item_name`) — ghép theo chuỗi chính là cái sai đang đi chữa ("Couche 150"
-  // ≠ "Couché 150 79×109"). Tên hàng đẩy vào ghi chú để người lập đối chiếu rồi tự chọn đúng món.
+  // MẶT HÀNG auto-điền từ liên kết danh mục gốc của dòng đơn mua (mg 0174), khớp qua
+  // `purchase_request_line_id`. Dòng đơn mua chỉ có tên chữ (không link danh mục) → hang null →
+  // kho tự chọn (ô chọn vẫn mở dù dòng khoá). Tên hàng vẫn đẩy vào ghi chú để đối chiếu.
   const nhapKhoTuDot = (row: PurchaseRequestRow, dot: PurchaseDeliveryRow) => {
-    // Đơn giá lấy từ ĐÚNG dòng đơn mua đẻ ra dòng giao này (khớp qua purchase_request_line_id).
-    const giaTheoDong = new Map(row.lines.map((pl) => [pl.id, pl.expected_unit_price]));
-    const seed: SeedLine[] = dot.lines.map((dl) => ({
-      hang_loai: null,
-      hang_id: null,
-      hang_ma: null,
-      hang_ten: null,
-      dvt: dl.unit,
-      he_so_ve_goc: null,
-      sl_de_nghi: dl.quantity,
-      don_gia: giaTheoDong.get(dl.purchase_request_line_id) ?? null,
-      ghi_chu: [dl.item_name, dl.note].filter(Boolean).join(" — ") || null,
-    }));
+    // Khớp dòng giao → dòng đơn mua (đơn giá + mặt hàng gốc) qua purchase_request_line_id.
+    const dongTheoId = new Map(row.lines.map((pl) => [pl.id, pl]));
+    const seed: SeedLine[] = dot.lines.map((dl) => {
+      const pl = dongTheoId.get(dl.purchase_request_line_id);
+      return {
+        hang_loai: pl?.hang_loai ?? null,
+        hang_id: pl?.hang_id ?? null,
+        hang_ma: pl?.hang_ma ?? null,
+        hang_ten: pl?.hang_ten ?? null,
+        dvt: dl.unit,
+        he_so_ve_goc: null,
+        sl_de_nghi: dl.quantity,
+        don_gia: pl?.expected_unit_price ?? null,
+        ghi_chu: [dl.item_name, dl.note].filter(Boolean).join(" — ") || null,
+      };
+    });
     navigate("kho-main", {
       khoNhapSeed: {
         seed,
         ngay_can: (dot.delivery_date || "").slice(0, 10),   // ngày nhập = ngày giao của đợt
         ghi_chu: `Nhập từ đơn mua ${row.code} — đợt ${dot.seq_no}`,
         locked: true,   // số liệu từ đơn mua → khoá, không cho sửa dòng
+        deliveryId: dot.id,   // gắn nguồn đợt → yêu cầu chặn nhập trùng
       },
     });
   };
+  // Đợt ĐÃ nhập → mở đúng yêu cầu nhập đã tạo (màn Kho, tab Yêu cầu) thay vì seed lại.
+  const xemYeuCauNhap = (dot: PurchaseDeliveryRow) => {
+    if (dot.stock_request_id == null) return;
+    navigate("kho-main", { khoOpenRequest: { id: dot.stock_request_id, view: "denghi" } });
+  };
   const canUpdate = can("thu_mua", "update");
-  const canApprovePurchase = can("thu_mua", "approve");
+  /* Luật hiện nút "Huỷ phiếu" — ẩn cùng cái nút (15/08/2026). Giữ nguyên chữ vì nó chép đúng
+     luật của `PurchaseService.cancel`, viết lại từ đầu là dịp chép sai.
+  // Huỷ phiếu ĐÃ GỬI DUYỆT là quyết định của NGƯỜI DUYỆT — ô duyệt nay nằm bên Kế toán.
+  const canDuyetChi = can("ke_toan", "approve");
+  const HUY_DUOC_TRANG_THAI = [
+    "draft", "pending_approval", "approved", "purchased", "rejected",
+  ];
+  const huyPhieuDuoc = (row: PurchaseRequestRow) =>
+    HUY_DUOC_TRANG_THAI.includes(row.status) &&
+    (canDuyetChi ||
+      (canUpdate && row.status === "draft" && row.created_by_user_id === user?.id));
+  */
+  // Ba nút "Sửa số nhận · Mở lại đơn · Đóng đơn" gác bằng ô "Thao tác" (`update`) — gộp lại
+  // ngày 12/08/2026 sau khi chủ chốt test ô riêng `manage_status` và kết luận nó không đáng có.
+  const canApprovePurchase = can("thu_mua", "update");
   // KHÔNG còn `canApprove` ở màn này: duyệt đơn mua đã chuyển sang Kế toán thu mua (04/08/2026).
   //
   // ⚠️ Hộp "Lý do từ chối" (`reasonModal.kind === "reject"`) vẫn còn trong file nhưng KHÔNG CÒN AI
@@ -715,7 +744,9 @@ export function PurchaseRequestsPage({
   const [deleting, setDeleting] = useState<PurchaseRequestRow | null>(null);
   // Dùng CHUNG một hộp "nhập lý do" cho cả huỷ / từ chối / lùi đã nhận — không dựng hộp thứ ba.
   const [reasonModal, setReasonModal] = useState<null | {
-    kind: "cancel" | "reject" | "undo_received";
+    // Chỉ còn "cancel" — HUỶ PHIẾU. Nhánh "undo_received" (nút "Mở lại đơn") đã gỡ 12/08/2026
+    // theo chủ chốt; "reject" chuyển sang màn Đơn mua hàng (Kế toán) từ 11/08.
+    kind: "cancel";
     row: PurchaseRequestRow;
     reason: string;
     error: string | null;
@@ -825,6 +856,7 @@ export function PurchaseRequestsPage({
             ? current
             : null,
         );
+        onDataRefreshed?.();
       })
       .catch((err) => {
         if (err instanceof ApiError && err.isForbidden) setForbidden(true);
@@ -842,6 +874,7 @@ export function PurchaseRequestsPage({
     neededFrom,
     neededTo,
     page,
+    onDataRefreshed,
   ]);
 
   useEffect(() => {
@@ -1159,25 +1192,17 @@ export function PurchaseRequestsPage({
   async function confirmReason() {
     if (!token || !reasonModal) return;
     const { row, kind, reason } = reasonModal;
-    if (kind === "reject" && !reason.trim()) {
-      setReasonModal({ ...reasonModal, error: "Vui lòng nhập lý do từ chối." });
-      return;
-    }
-    // Lùi "Đã nhận hàng" XOÁ một món nợ khỏi màn Kế toán ⇒ bắt buộc ghi lý do, để nhật ký còn truy
-    // được. Server cũng chặn lý do rỗng; đây chỉ là chặn sớm cho đỡ một vòng gọi.
-    if (kind === "undo_received" && !reason.trim()) {
-      setReasonModal({ ...reasonModal, error: "Vui lòng nhập lý do lùi trạng thái." });
+    // Huỷ phiếu là DỪNG HẲN một đề nghị chi tiền ⇒ bắt buộc ghi lý do để nhật ký còn truy được.
+    if (!reason.trim()) {
+      setReasonModal({ ...reasonModal, error: "Vui lòng nhập lý do huỷ phiếu." });
       return;
     }
     setActionBusy(`${kind}:${row.id}`);
     setReasonModal({ ...reasonModal, error: null });
     try {
-      const next =
-        kind === "reject"
-          ? await api.purchaseRequests.reject(token, row.id, reason.trim())
-          : kind === "undo_received"
-            ? await api.purchaseRequests.undoReceived(token, row.id, reason.trim())
-            : await api.purchaseRequests.cancel(token, row.id, reason || null);
+      // HUỶ PHIẾU (12/08/2026). Đường này đã có ở máy chủ từ lâu — 5 test giữ hành vi thật —
+      // nhưng CHƯA TỪNG có nút, nên chủ chốt test thấy "chả có gì". Nay nối nút vào.
+      const next = await api.purchaseRequests.cancel(token, row.id, reason.trim());
       updateRow(next);
       setReasonModal(null);
       loadSources();
@@ -1335,7 +1360,7 @@ export function PurchaseRequestsPage({
         {/* ĐƯỜNG CŨ, chỉ còn cho đơn KHÔNG theo dõi theo đợt (giao một lần, không ai muốn khai
             đợt). Đơn đã có đợt giao thì trạng thái là số SUY RA — server chặn gán tay, nên đừng
             bày nút ra rồi để người dùng bấm vào tường. */}
-        {canUpdate &&
+        {/* {canUpdate &&
           row.status === "purchased" &&
           row.deliveries.length === 0 && (
             <RowActionButton
@@ -1344,7 +1369,7 @@ export function PurchaseRequestsPage({
               icon="packageCheck"
               onClick={() => setReceiveModal({ row, mode: "receive" })}
             />
-          )}
+          )} */}
         {/* Sửa số thực nhận: cũng chỉ cho đơn KHÔNG theo đợt — đơn theo đợt thì sửa ở đúng đợt
             giao đó, sửa ở đây sẽ bị nhánh dẫn xuất ghi đè trong im lặng (server chặn). */}
         {canUpdate &&
@@ -1358,41 +1383,24 @@ export function PurchaseRequestsPage({
               onClick={() => setReceiveModal({ row, mode: "edit" })}
             />
           )}
-        {canUpdate && canApprovePurchase && row.status === "received" && (
+        {/* Nút "Mở lại đơn" / "Lùi đã nhận" ĐÃ GỠ 12/08/2026 (chủ chốt: "cái nút mở lại đơn bỏ
+            đi nha"). Endpoint `undo-received` và bộ test của nó GIỮ NGUYÊN — nó là van an toàn
+            khi lỡ bấm "Đã nhận", chỉ là không còn bày ra ở màn này. */}
+        {/* NÚT "HUỶ PHIẾU" — ĐANG ẨN (chủ chốt 15/08/2026: "không đúng công năng hiện tại
+            của tôi, ẩn nút là được"). Bày ra hôm 12/08 rồi rút lại ngay trong ngày.
+            Máy chủ GIỮ NGUYÊN đường huỷ (`POST /api/purchase-requests/{id}/cancel`) cùng 4 nhánh
+            test của nó: nó vẫn là van gỡ kẹt khi phiếu lập nhầm. Bật lại = bỏ dấu chú thích ở
+            khối dưới; luật hiện nút đã chép sẵn đúng theo `PurchaseService.cancel`.
+        {huyPhieuDuoc(row) && (
           <RowActionButton
             dense={dense}
-            // Đơn theo đợt: lùi về "Giao một phần" (không phải "Đã mua") — nhãn nói đúng đích để
-            // người bấm biết mình sẽ rơi về đâu.
-            label={
-              row.deliveries.length > 0 ? "Mở lại đơn" : "Lùi đã nhận"
-            }
-            icon="rotateCcw"
+            label="Huỷ phiếu"
+            icon="ban"
             danger
+            loading={busy("cancel")}
             onClick={() =>
-              setReasonModal({ kind: "undo_received", row, reason: "", error: null })
+              setReasonModal({ kind: "cancel", row, reason: "", error: null })
             }
-          />
-        )}
-        {/* {canCancel &&
-          row.status !== "received" &&
-          row.status !== "cancelled" && (
-            <RowActionButton
-              dense={dense}
-              label="Hủy"
-              icon="ban"
-              danger
-              onClick={() =>
-                setReasonModal({ kind: "cancel", row, reason: "", error: null })
-              }
-            />
-          )} */}
-        {/* {canDelete && row.status === "draft" && (
-          <RowActionButton
-            dense={dense}
-            label="Xóa"
-            icon="trash"
-            danger
-            onClick={() => setDeleting(row)}
           />
         )} */}
       </div>
@@ -1506,6 +1514,7 @@ export function PurchaseRequestsPage({
             <tr>
               <th>Mã yêu cầu</th>
               <th>Nguồn</th>
+              <th>Ngày tạo</th>
               <th>Cần hàng</th>
               <th>Vật tư</th>
               <th>Trạng thái</th>
@@ -1514,17 +1523,17 @@ export function PurchaseRequestsPage({
           </thead>
           <tbody>
             {sourceLoading ? (
-              <EmptyRow colSpan={6} trangThai="dang-tai" />
+              <EmptyRow colSpan={7} trangThai="dang-tai" />
             ) : sourceError ? (
               <EmptyRow
-                colSpan={6}
+                colSpan={7}
                 trangThai="loi"
                 loi={sourceError}
                 onThuLai={loadSources}
               />
             ) : sourceRows.length === 0 ? (
               <EmptyRow
-                colSpan={6}
+                colSpan={7}
                 icon="clipboard"
                 title="Chưa có yêu cầu mua từ phòng ban"
                 sub="Đơn mua hàng luôn bắt đầu từ một yêu cầu của bộ phận — chờ họ gửi sang."
@@ -1553,6 +1562,7 @@ export function PurchaseRequestsPage({
                           "Nội bộ"}
                       </div>
                     </td>
+                    <td>{fmtDate(row.created_at)}</td>
                     <td>{fmtDate(row.needed_date)}</td>
                     <td>
                       <strong>{row.lines.length} dòng</strong>
@@ -1564,7 +1574,12 @@ export function PurchaseRequestsPage({
                       </div>
                     </td>
                     <td>
-                      <SourceStatusBadge status={row.status} />
+                      <SourceStatusBadge status={row.workflow_status} />
+                      {purchaseChildSummary(row) && (
+                        <div className="md-page__muted purchase__source-progress">
+                          {purchaseChildSummary(row)}
+                        </div>
+                      )}
                     </td>
                     <td onClick={(e) => e.stopPropagation()}>
                       {canCreate && !disabled ? (
@@ -2035,12 +2050,13 @@ export function PurchaseRequestsPage({
               setCloseModal({ row: selected, reason: "", error: null })
             }
             onNhapKho={(dot) => nhapKhoTuDot(selected, dot)}
+            onXemYeuCau={(dot) => xemYeuCauNhap(dot)}
           />
 
           <p className="eyebrow" style={{ marginTop: 16 }}>
-            Lịch sử trạng thái
+            Lịch sử đơn mua hàng
           </p>
-          <StatusHistoryTimeline items={selected.status_history} />
+          <PurchaseActivityTimeline items={selected.activity_history} />
         </DetailModal>
       )}
 
@@ -2380,28 +2396,15 @@ export function PurchaseRequestsPage({
 
       <ConfirmDialog
         open={Boolean(reasonModal)}
-        title={
-          reasonModal?.kind === "reject"
-            ? "Từ chối đơn?"
-            : reasonModal?.kind === "undo_received"
-              ? "Lùi về 'Đang mua'?"
-            : "Hủy đơn?"
-        }
+        // Hộp thoại này nay CHỈ dùng cho một việc: HUỶ PHIẾU.
+        title="Huỷ phiếu mua hàng?"
         message={
           reasonModal
-            ? reasonModal.kind === "undo_received"
-              ? `Đơn ${reasonModal.row.code} — công nợ của đơn này sẽ mất khỏi màn Kế toán, và yêu cầu của bộ phận quay về "Đang mua".`
-              : `Đơn ${reasonModal.row.code}`
+            ? `Phiếu ${reasonModal.row.code} sẽ dừng hẳn, và yêu cầu của bộ phận quay lại hàng chờ để lập phiếu khác. Không hoàn tác được.`
             : undefined
         }
         danger
-        confirmLabel={
-          reasonModal?.kind === "reject"
-            ? "Từ chối đơn"
-            : reasonModal?.kind === "undo_received"
-              ? "Lùi trạng thái"
-              : "Hủy đơn"
-        }
+        confirmLabel="Huỷ phiếu"
         busy={
           reasonModal
             ? actionBusy === `${reasonModal.kind}:${reasonModal.row.id}`
@@ -2413,11 +2416,7 @@ export function PurchaseRequestsPage({
       >
         <label className="purchase__field">
           <span>
-            {reasonModal?.kind === "reject"
-              ? "Lý do từ chối"
-              : reasonModal?.kind === "undo_received"
-                ? "Lý do lùi (bắt buộc)"
-                : "Lý do / ghi chú"}
+            Lý do huỷ (bắt buộc)
           </span>
           <textarea
             className="input purchase__textarea"
@@ -2722,13 +2721,19 @@ function ContractBlock({
 
   // Cọc chỉ sửa được khi phiếu còn ở nháp / chờ duyệt / bị từ chối — khớp chốt bên service.
   const cocKhoa = !["draft", "pending_approval", "rejected"].includes(row.status);
+  // TRẦN CỌC = tổng dự kiến của đơn (chủ chốt 15/08/2026). Cọc là ứng trước một phần của chính
+  // đơn này nên không thể vượt giá trị đơn — mà số khai thừa không nằm yên: nó thành hạn mức
+  // lập phiếu chi cọc, tiền ra khỏi két rồi mới có người hỏi.
+  // Chặn ở đây chỉ để báo SỚM; luật thật nằm ở `PurchaseService._chan_coc_vuot_tong`.
+  const tranCoc = row.total_estimate ?? 0;
+  const cocVuot = !cocKhoa && Math.round(Number(coc) || 0) > tranCoc;
   const hopDong = row.attachments.filter((a) => a.kind === "hop_dong");
   const banDau =
     (row.contract_number ?? "") === soHopDong.trim() &&
     (row.deposit_expected || 0) === (Number(coc) || 0);
 
   async function luu() {
-    if (!token || busy) return;
+    if (!token || busy || cocVuot) return;
     setBusy(true);
     onError(null);
     try {
@@ -2798,12 +2803,14 @@ function ContractBlock({
           // cam đó thuộc về "Ghi đợt giao": đó là việc làm gần như mỗi lần hàng về và là đường
           // DUY NHẤT sinh công nợ, còn hợp đồng khai một lần rồi thôi. Hai nút cam cạnh nhau là
           // mắt không biết nhìn đâu.
-          // `disabled={banDau}` giữ nguyên: chưa sửa gì thì không có gì để lưu.
+          // `disabled={banDau}` giữ nguyên: chưa sửa gì thì không có gì để lưu. Thêm `cocVuot`:
+          // để bấm được rồi ăn 422 thì người dùng phải đọc toast mới hiểu, trong khi câu giải
+          // thích đã nằm ngay dưới ô nhập.
           <Button
             type="button"
             variant="ghost"
             loading={busy}
-            disabled={banDau}
+            disabled={banDau || cocVuot}
             onClick={luu}
           >
             Lưu hợp đồng
@@ -2830,21 +2837,29 @@ function ContractBlock({
             type="number"
             min={0}
             step={1000}
+            max={tranCoc || undefined}
             readOnly={!canUpdate || cocKhoa}
             value={coc}
             onChange={(e) => setCoc(e.target.value)}
             placeholder="0"
+            aria-invalid={cocVuot || undefined}
           />
-          <small className="pdot__hint">
+          <small className={`pdot__hint${cocVuot ? " pdot__hint--loi" : ""}`}>
             {cocKhoa ? (
               <>
                 Đơn đã duyệt nên cọc khoá — đây là con số người duyệt đã đồng ý.
                 Cần đổi thì lùi phiếu về nháp rồi duyệt lại.
               </>
+            ) : cocVuot ? (
+              <>
+                Cọc đang lớn hơn tổng dự kiến của đơn ({money(tranCoc)}). Cọc là ứng
+                trước một phần của chính đơn này nên không thể vượt giá trị đơn.
+              </>
             ) : (
               <>
-                Tiền cọc thật là một <strong>phiếu chi Đặt cọc</strong> bên Kế
-                toán — số này <strong>không</strong> vào công nợ, nhưng sẽ được{" "}
+                Tối đa {money(tranCoc)} (tổng dự kiến của đơn). Tiền cọc thật là một{" "}
+                <strong>phiếu chi Đặt cọc</strong> bên Kế toán — số này{" "}
+                <strong>không</strong> vào công nợ, nhưng sẽ được{" "}
                 <strong>điền sẵn</strong> khi kế toán lập phiếu cọc.
               </>
             )}
@@ -2934,6 +2949,7 @@ function DeliveriesBlock({
   onXoaDot,
   onDongDon,
   onNhapKho,
+  onXemYeuCau,
 }: {
   row: PurchaseRequestRow;
   canUpdate: boolean;
@@ -2943,9 +2959,20 @@ function DeliveriesBlock({
   onXoaDot: (delivery: PurchaseDeliveryRow) => void;
   onDongDon: () => void;
   onNhapKho: (delivery: PurchaseDeliveryRow) => void;
+  onXemYeuCau: (delivery: PurchaseDeliveryRow) => void;
 }) {
   const ghiDuoc = canUpdate && GHI_DOT_DUOC.includes(row.status);
+  // "Nhập kho" nhảy sang màn Kho, tab ĐỀ NGHỊ · Nhập với form điền sẵn ⇒ hỏi đúng ô mở tab đó
+  // (`kho:request`), KHÔNG phải `kho:create` — bộ phận mua hàng có `request` mà không có `create`,
+  // gác nhầm là giấu nút của chính người cần dùng nó nhiều nhất.
+  const coQuyenNhapKho = useCan()("kho", "request");
   const dots = row.deliveries;
+  // Khung XEM ẢNH hoá đơn của một đợt. `i` = đang xem tấm thứ mấy (đợt có thể nhiều tấm).
+  const [xemAnh, setXemAnh] = useState<null | {
+    ds: PurchaseAttachmentRow[];
+    i: number;
+    dot: number;
+  }>(null);
 
   return (
     <section className="pdot">
@@ -2996,7 +3023,7 @@ function DeliveriesBlock({
             <tr>
               <th>Đợt</th>
               <th>Ngày giao</th>
-              <th>Hàng nhận</th>
+              <th>Hàng đã nhận</th>
               <th className="pay-num">Thành tiền</th>
               <th>Hóa đơn</th>
               <th>Hạn trả</th>
@@ -3027,18 +3054,15 @@ function DeliveriesBlock({
                   </td>
                   <td>{fmtDate(dot.delivery_date)}</td>
                   <td>
-                    {/* Thu gọn: 2 mặt hàng đầu + "…và N nữa". Đổ hết ra là bảng cao gấp ba mà
-                        vẫn không ai đọc từng dòng ở đây — chi tiết nằm trong hộp Sửa đợt. */}
-                    {dot.lines
-                      .slice(0, 2)
-                      .map(
-                        (l) =>
-                          `${l.item_name} ${l.quantity.toLocaleString("vi-VN")} ${l.unit}`,
-                      )
-                      .join(", ")}
-                    {dot.lines.length > 2 && (
-                      <small>…và {dot.lines.length - 2} mặt hàng nữa</small>
-                    )}
+                    <div className="pdot__delivery-lines">
+                      {dot.lines.map((line) => (
+                        <span key={line.id}>
+                          <strong>{line.item_name}</strong>
+                          {": "}
+                          {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                        </span>
+                      ))}
+                    </div>
                   </td>
                   <td className="pay-num">
                     <strong>{money(dot.amount)}</strong>
@@ -3060,8 +3084,29 @@ function DeliveriesBlock({
                       const n = row.attachments.filter(
                         (a) => a.delivery_id === dot.id && a.kind === "hoa_don",
                       ).length;
+                      // BẤM VÀO LÀ XEM ẢNH, ngay tại chỗ (chủ chốt 15/08/2026).
+                      //
+                      // Bản 12/08 cho bấm nhưng mở ô SỬA ĐỢT — vì ảnh đã render sẵn trong đó, tôi
+                      // tưởng khỏi dựng thêm màn. Sai: người ta bấm vào cái kẹp giấy là muốn NHÌN
+                      // cái ảnh, mà cái mở ra lại là một form nhập liệu có nút "Lưu đợt giao" —
+                      // vừa lạc, vừa mời người ta sửa nhầm một con số đang đẻ ra công nợ.
                       return n > 0 ? (
-                        <span className="pdot__clip">📎 {n}</span>
+                        <button
+                          type="button"
+                          className="pdot__clip pdot__clip--btn"
+                          onClick={() =>
+                            setXemAnh({
+                              ds: row.attachments.filter(
+                                (a) => a.delivery_id === dot.id && a.kind === "hoa_don",
+                              ),
+                              i: 0,
+                              dot: dot.seq_no,
+                            })
+                          }
+                          title={`Xem ${n} ảnh hoá đơn của đợt ${dot.seq_no}`}
+                        >
+                          📎 {n}
+                        </button>
                       ) : null;
                     })()}
                   </td>
@@ -3095,16 +3140,30 @@ function DeliveriesBlock({
                             không phụ thuộc đã trả tiền. Bấm → nhảy sang màn Yêu cầu kho, mở sẵn form
                             NHẬP điền theo hàng đã nhận của đợt này. (Nối cứng qua `stock_voucher_id`
                             khi lập phiếu là bước sau — xem docs/prd-mua-hang-cong-no.md §11.) */}
-                        <RowActionButton
-                          dense
-                          label="Nhập kho"
-                          icon="warehouse"
-                          onClick={() => onNhapKho(dot)}
-                        />
+                        {coQuyenNhapKho &&
+                          (dot.da_nhap_kho ? (
+                            // Đợt đã sinh yêu cầu nhập → không cho seed lại; bấm để XEM yêu cầu đó.
+                            <RowActionButton
+                              dense
+                              label={dot.stock_request_ma ? `Đã nhập · ${dot.stock_request_ma}` : "Đã nhập kho"}
+                              icon="check"
+                              onClick={() => onXemYeuCau(dot)}
+                            />
+                          ) : (
+                            <RowActionButton
+                              dense
+                              label="Nhập kho"
+                              icon="warehouse"
+                              onClick={() => onNhapKho(dot)}
+                            />
+                          ))}
                         {/* Đợt ĐÃ CÓ PHIẾU CHI thì server cấm sửa/xoá — tiền đã ra thì không được
                             đổi số hàng dưới chân nó. Hiện KHOÁ ngay ở đây chứ không bày nút rồi để
                             người dùng gõ xong cả form mới ăn lỗi. Nhưng NHẬP KHO thì vẫn cho. */}
-                        {khoa ? (
+                        {/* CHỈ hiện với người có quyền GHI (đợt 5). Trước đây mọi người xem đơn
+                            đều thấy "Sửa/Xoá đợt giao", bấm mới ăn 403 — máy chủ chặn đúng, giao
+                            diện thì bày ra. `ghiDuoc` = canUpdate + đơn đang ở trạng thái ghi được. */}
+                        {!ghiDuoc ? null : khoa ? (
                           <span
                             className="pdot__locked"
                             title="Đợt này đã có phiếu chi — huỷ phiếu chi trước rồi mới sửa/xoá được."
@@ -3154,6 +3213,101 @@ function DeliveriesBlock({
           Còn nợ <b>{money(row.outstanding_amount)}</b>
         </span>
       </div>
+
+      {/* KHUNG XEM ẢNH hoá đơn — chỉ để NHÌN: không ô nhập, không nút lưu, đóng là xong.
+          Có nút mở tab mới cho ai cần phóng to / tải về, và mũi tên khi đợt có nhiều tấm. */}
+      {xemAnh && xemAnh.ds.length > 0 && (
+        <div
+          className="pdot__lb"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setXemAnh(null);
+          }}
+        >
+          <div
+            className="pdot__lb-box"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Ảnh hoá đơn đợt ${xemAnh.dot}`}
+          >
+            <header className="pdot__lb-head">
+              <span className="pdot__lb-name">
+                Hoá đơn · đợt {xemAnh.dot}
+                {xemAnh.ds.length > 1 && (
+                  <small>
+                    {" "}
+                    ({xemAnh.i + 1}/{xemAnh.ds.length})
+                  </small>
+                )}
+              </span>
+              <div className="pdot__lb-acts">
+                <a
+                  href={assetUrl(xemAnh.ds[xemAnh.i].file_url) ?? "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Mở tab mới / tải về"
+                >
+                  Mở tab mới
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setXemAnh(null)}
+                  aria-label="Đóng"
+                >
+                  ✕
+                </button>
+              </div>
+            </header>
+            <div className="pdot__lb-body">
+              {ATTACHMENT_IMAGE_TYPES.includes(
+                xemAnh.ds[xemAnh.i].file_type ?? "",
+              ) ? (
+                <img
+                  src={assetUrl(xemAnh.ds[xemAnh.i].file_url) ?? ""}
+                  alt={xemAnh.ds[xemAnh.i].file_name}
+                />
+              ) : (
+                // PDF cũng đính kèm được ở đây — nhúng thẳng, khỏi bắt tải về mới xem được.
+                <iframe
+                  src={assetUrl(xemAnh.ds[xemAnh.i].file_url) ?? ""}
+                  title={xemAnh.ds[xemAnh.i].file_name}
+                />
+              )}
+            </div>
+            {xemAnh.ds.length > 1 && (
+              <footer className="pdot__lb-nav">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() =>
+                    setXemAnh((c) =>
+                      c
+                        ? { ...c, i: (c.i - 1 + c.ds.length) % c.ds.length }
+                        : c,
+                    )
+                  }
+                >
+                  ← Trước
+                </Button>
+                <span className="pdot__lb-filename">
+                  {xemAnh.ds[xemAnh.i].file_name}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() =>
+                    setXemAnh((c) =>
+                      c ? { ...c, i: (c.i + 1) % c.ds.length } : c,
+                    )
+                  }
+                >
+                  Sau →
+                </Button>
+              </footer>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -3203,8 +3357,8 @@ function DeliveryDialog({
   const [ngayGiao, setNgayGiao] = useState(
     delivery?.delivery_date ?? todayInputValue(),
   );
-  // Ô "Hạn trả" đang TẮT trên form (khối JSX bên dưới bị comment): hạn trả để hệ suy từ
-  // `ngày giao + số ngày cho nợ của NCC`, không ai gõ tay nữa.
+  // Ô "Hạn trả" đang TẮT trên form (khối JSX bên dưới bị comment): hạn trả ưu tiên suy từ
+  // `ngày hóa đơn + số ngày cho nợ của NCC`; chưa có hóa đơn mới lùi về ngày giao.
   //
   // Vẫn giữ biến này và vẫn GỬI LÊN: sửa một đợt đã có hạn khai tay trước đó mà gửi `null` là âm
   // thầm xoá mất hạn đó, và món nợ tụt khỏi cột Quá hạn không ai hay. Bật lại ô thì đổi dòng này
@@ -3325,10 +3479,16 @@ function DeliveryDialog({
   async function submit() {
     if (!token || busy) return;
     const lines = row.lines
-      .map((line) => ({
-        purchase_request_line_id: line.id,
-        quantity: Number(soNhan[line.id]),
-      }))
+      .map((line) => {
+        const existing = delivery?.lines.find(
+          (item) => item.purchase_request_line_id === line.id,
+        );
+        return {
+          purchase_request_line_id: line.id,
+          quantity: Number(soNhan[line.id]),
+          note: existing?.note ?? null,
+        };
+      })
       .filter((l) => Number.isFinite(l.quantity) && l.quantity > 0);
     if (lines.length === 0) {
       setError(
@@ -3356,13 +3516,27 @@ function DeliveryDialog({
     setBusy(true);
     setError(null);
     try {
-      const payload = {
+      const existingLines = new Map(
+        (delivery?.lines ?? []).map((line) => [line.purchase_request_line_id, line]),
+      );
+      const linesChanged =
+        !suaDot ||
+        lines.length !== existingLines.size ||
+        lines.some((line) => {
+          const existing = existingLines.get(line.purchase_request_line_id);
+          return (
+            existing == null ||
+            Math.abs(existing.quantity - line.quantity) > 1e-9 ||
+            (existing.note ?? null) !== (line.note ?? null)
+          );
+        });
+      const payload: PurchaseDeliveryInput = {
         delivery_date: ngayGiao,
         due_date: hanTra || null,
         invoice_number: soHoaDon.trim() || null,
         invoice_date: ngayHoaDon || null,
         note: ghiChu.trim() || null,
-        lines,
+        lines: linesChanged ? lines : null,
       };
       let sau = suaDot
         ? await api.purchaseRequests.updateDelivery(
@@ -3440,8 +3614,8 @@ function DeliveryDialog({
             <span>
               Ngày giao <span className="purchase__required-star">*</span>
             </span>
-            {/* Chặn TƯƠNG LAI: ngày giao là mốc tính hạn trả, gõ nhầm sang tháng sau là món nợ biến
-                khỏi cột Quá hạn. Quá khứ vẫn cho — hàng về hôm qua mới ghi hôm nay là chuyện thường. */}
+            {/* Chặn TƯƠNG LAI: chưa có hóa đơn thì ngày giao là mốc dự phòng tính hạn trả. Quá khứ
+                vẫn cho — hàng về hôm qua mới ghi hôm nay là chuyện thường. */}
             <input
               className="input"
               type="date"
@@ -3451,7 +3625,7 @@ function DeliveryDialog({
             />
           </label>
         </div>
-        {/* Ô "Hạn trả" TẮT có chủ ý (hạn trả để hệ suy từ ngày giao + số ngày cho nợ của NCC).
+        {/* Ô "Hạn trả" TẮT có chủ ý (ưu tiên ngày hóa đơn, chưa có mới dùng ngày giao + số ngày nợ).
             Biến `hanTra` vẫn được gửi lên — xem khai báo state ở đầu component. Giữ nguyên khối
             dưới đây để bật lại được, đừng xoá: */}
         {/* <label className="purchase__field">
@@ -3866,7 +4040,7 @@ function StatusBadge({ status }: { status: PurchaseRequestStatus }) {
 function SourceStatusBadge({
   status,
 }: {
-  status: DepartmentPurchaseRequestStatus;
+  status: DepartmentPurchaseWorkflowStatus;
 }) {
   const meta = SOURCE_STATUS_META[status];
   return (
@@ -3874,6 +4048,30 @@ function SourceStatusBadge({
       {meta.label}
     </span>
   );
+}
+
+function purchaseChildSummary(row: DepartmentPurchaseRequestRow): string {
+  const dem = new Map<string, number>();
+  for (const phieu of row.purchase_requests) {
+    const nhom =
+      phieu.status === "rejected"
+        ? "cần sửa"
+        : phieu.status === "draft"
+          ? "đang lập"
+          : phieu.status === "pending_approval"
+            ? "chờ duyệt"
+            : phieu.status === "received"
+              ? "đã nhận"
+              : phieu.status === "cancelled"
+                ? "đã hủy"
+                : "đang mua";
+    dem.set(nhom, (dem.get(nhom) ?? 0) + 1);
+  }
+  const thuTu = ["cần sửa", "đang lập", "chờ duyệt", "đang mua", "đã nhận", "đã hủy"];
+  return thuTu
+    .filter((nhom) => dem.has(nhom))
+    .map((nhom) => `${dem.get(nhom)} đơn ${nhom}`)
+    .join(" · ");
 }
 
 function LocalField({

@@ -72,7 +72,7 @@ class StockVoucherRepository:
         return list(self.db.execute(base).scalars()), total
 
     def draft_ids_by_request(self, request_ids: list[int]) -> dict[int, int]:
-        """Map {request_id: id phiếu ĐANG CHỜ GHI SỔ (draft) mới nhất}. Để đề nghị biết đã có
+        """Map {request_id: id phiếu ĐANG CHỜ GHI SỔ (draft) mới nhất}. Để yêu cầu biết đã có
         phiếu chờ ghi sổ chưa → đổi nút 'Lập phiếu' thành 'Xem phiếu', chống tạo trùng."""
         if not request_ids:
             return {}
@@ -90,7 +90,7 @@ class StockVoucherRepository:
         return out
 
     def sum_issued_for_line(self, request_line_id: int, *, exclude_voucher_id: int | None = None) -> float:
-        """Tổng số lượng đã ứng vào 1 dòng đề nghị qua các phiếu ĐÃ GHI SỔ.
+        """Tổng số lượng đã ứng vào 1 dòng yêu cầu qua các phiếu ĐÃ GHI SỔ.
 
         Dùng để kiểm tra chặn "ứng vượt SL duyệt" một cách độc lập với `sl_da_ung` — hai
         con số phải khớp; lệch nghĩa là có bug ghi sổ, và cách tính lại này bắt được.
@@ -115,8 +115,8 @@ class StockVoucherRepository:
         Giá vốn của dòng xuất = giá của lô bị trừ (`don_gia_nhap`), không phải `line.don_gia`
         (phiếu xuất không khai giá). Router ẩn giá nếu người gọi thiếu `can_view_cost`.
 
-        `sl_de_nghi` = SL xin trên dòng đề nghị gốc (nối qua `request_line_id` → StockRequestLine)
-        — không phải tiền, luôn hiện được; None nếu dòng phiếu không nối được đề nghị.
+        `sl_de_nghi` = SL xin trên dòng yêu cầu gốc (nối qua `request_line_id` → StockRequestLine)
+        — không phải tiền, luôn hiện được; None nếu dòng phiếu không nối được yêu cầu.
         """
         from ..models.stock_lot import StockLot
         from ..models.stock_request import StockRequestLine
@@ -156,7 +156,7 @@ class StockVoucherRepository:
         ]
 
     def sl_de_nghi_by_lot(self, lots) -> dict[int, float]:
-        """Map lot_id → `sl_de_nghi` của dòng đề nghị đã sinh ra lô NHẬP.
+        """Map lot_id → `sl_de_nghi` của dòng yêu cầu đã sinh ra lô NHẬP.
 
         Lô NHẬP có `voucher_id` (phiếu tạo lô); dòng phiếu NHẬP tạo lô là dòng có
         `voucher_id == lot.voucher_id` và `lot_id == lot.id` (ghi sổ gán lot_id về dòng).

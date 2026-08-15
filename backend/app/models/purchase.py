@@ -113,8 +113,8 @@ class Supplier(Base):
     credit_limit: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0"
     )
-    # ĐỊNH MỨC công nợ — số NGÀY NCC cho nợ kể từ ngày giao. Dùng suy hạn trả của từng đợt giao.
-    # 0 = trả ngay (giao hôm nay, mai chưa trả là đỏ). NULL = CHƯA ĐẶT HẠN ⇒ đợt giao không bao giờ
+    # ĐỊNH MỨC công nợ — số NGÀY NCC cho nợ kể từ ngày hóa đơn; chưa có hóa đơn mới lùi về ngày
+    # giao. 0 = trả ngay. NULL = CHƯA ĐẶT HẠN ⇒ đợt giao không bao giờ
     # vào cột "Quá hạn", nên màn Công nợ phải đẩy nó lên ĐẦU kèm badge thay vì để chìm.
     credit_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=SUPPLIER_ACTIVE)
@@ -366,8 +366,8 @@ class PurchaseDelivery(Base):
     # phải chứng từ ký được, nó là sự kiện của phiếu mua.
     seq_no: Mapped[int] = mapped_column(Integer, nullable=False)
     delivery_date: Mapped[date] = mapped_column(Date, nullable=False)
-    # Hạn trả riêng của đợt. NULL ⇒ suy `delivery_date + suppliers.credit_days`; NCC chưa khai số
-    # ngày cho nợ thì đợt này KHÔNG có hạn ⇒ không vào cột Quá hạn (và phải nổi lên đầu danh sách).
+    # Hạn trả riêng của đợt/dữ liệu cũ. Khi có ngày hóa đơn + số ngày cho nợ, service ưu tiên suy
+    # `invoice_date + suppliers.credit_days`; chưa có ngày hóa đơn mới dùng hạn này hoặc ngày giao.
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     invoice_number: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     invoice_date: Mapped[date | None] = mapped_column(Date, nullable=True)

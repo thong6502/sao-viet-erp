@@ -224,8 +224,9 @@ export function SuppliersPage({
 }) {
   const { token } = useAuth();
   const can = useCan();
-  const canCreate = can("thu_mua", "create");
-  const canUpdate = can("thu_mua", "update");
+  // Khoá RIÊNG của màn Nhà cung cấp (tách 10/08/2026) — không mượn quyền màn Mua hàng nữa.
+  const canCreate = can("nha_cung_cap", "create");
+  const canUpdate = can("nha_cung_cap", "update");
 
   const [allSuppliers, setAllSuppliers] = useState<SupplierRow[]>([]);
   const [rows, setRows] = useState<SupplierRow[]>([]);
@@ -515,6 +516,23 @@ export function SuppliersPage({
     ).map(([, label]) => label);
     if (missing.length > 0) {
       setFormError(`Vui lòng nhập đầy đủ: ${missing.join(", ")}.`);
+      setActiveTab("info");
+      return;
+    }
+    // Điện thoại 10 số · email có @ (chủ chốt 15/08/2026). Chặn Ở ĐÂY chỉ để báo SỚM và trỏ đúng
+    // ô sai — luật thật nằm ở `_clean_supplier_values` bên máy chủ, gọi thẳng API vẫn bị chặn.
+    const soDT = String(payload.phone ?? "").replace(/[\s.\-()]/g, "");
+    if (!/^\d{10}$/.test(soDT)) {
+      setFormError(
+        `Số điện thoại phải đủ 10 chữ số (ví dụ 0901234567) — đang nhập ${soDT.length} số.`,
+      );
+      setActiveTab("info");
+      return;
+    }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(payload.email ?? "").trim())) {
+      setFormError(
+        "Email phải có dạng ten@tencongty.vn — thiếu @ hoặc thiếu phần đuôi thì thư gửi đi không tới nơi.",
+      );
       setActiveTab("info");
       return;
     }
@@ -1454,7 +1472,17 @@ export function SuppliersPage({
                               placeholder="Gõ tên vật tư…"
                             />
                             {item.hang_loai && item.hang_id ? (
+                              /* ĐVT = ĐÚNG đơn vị gốc của mặt hàng, KHÔNG cho chọn (chủ chốt
+                                 15/08/2026, sau khi nghe rõ đánh đổi bên dưới).
+                                 Lý do: hai NCC cùng bán một món, một bên ghi "cái" một bên ghi
+                                 "con" — cùng một lượng, khác mỗi cách gọi — thì mọi thứ đối chiếu
+                                 sang YCMH/kho đều lệch mà không ai thấy.
+                                 ĐÁNH ĐỔI ĐÃ BIẾT: NCC báo giá theo ram/tấn nay phải tự quy về
+                                 tờ/kg trước khi nhập; cột "giá về gốc" bên phải vì thế luôn bằng
+                                 chính đơn giá. Máy chủ VẪN nhận đơn vị quy đổi (dòng cũ khai theo
+                                 ram còn nguyên, không bị viết lại) — hàng rào này chỉ ở màn nhập. */
                               <DonViChonTheoHang
+                                chiDoc
                                 token={token ?? ""}
                                 hangLoai={item.hang_loai}
                                 hangId={item.hang_id}
@@ -1465,16 +1493,17 @@ export function SuppliersPage({
                                 onQuyDoi={(info) => ghiQuyDoiDong(originalIndex, info)}
                               />
                             ) : (
-                              // Chưa chọn mặt hàng → KHOÁ ô đơn vị. Trước đây cho gõ tự do; gõ tự
-                              // do là mở đường cho đơn vị lạ ("thùg") lọt vào, quy đổi tắt lặng lẽ
-                              // và giá không quy về gốc được để so giữa các NCC.
-                              <input
-                                className="input"
-                                placeholder="Chọn vật tư trước"
-                                value={item.unit}
-                                readOnly
-                                disabled
-                              />
+                              // Chưa chọn mặt hàng → chưa biết đơn vị. Trước đây cho gõ tự do; gõ
+                              // tự do là mở đường cho đơn vị lạ ("thùg") lọt vào, quy đổi tắt lặng
+                              // lẽ và giá không quy về gốc được để so giữa các NCC.
+                              // Dùng CHUNG dáng chỉ-đọc với nhánh trên: hai trạng thái của cùng
+                              // một ô mà một bên là ô nhập khoá, một bên là chữ, thì nhìn như lỗi.
+                              <span
+                                className="kho-dv__ro kho-dv__ro--trong"
+                                title="Chọn vật tư trước"
+                              >
+                                {item.unit || "—"}
+                              </span>
                             )}
                             <input
                               className="input purchase__number-input"

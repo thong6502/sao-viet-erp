@@ -727,6 +727,8 @@ const PARAMS_A = [
   "ot_night_extra_pct",
   "adjust_max_per_month",
   "phu_cap_ca_min_cong",
+  "com_tang_ca_nguong_phut",
+  "com_tang_ca_muc",
 ] as const satisfies readonly (keyof PayrollParams)[];
 const PARAMS_INS = [
   "bhxh_rate",
@@ -1034,6 +1036,30 @@ function CoCheTab({
                   onChange={(v) => setP(f.key, v / 100)}
                 />
               ))}
+              {/* SUẤT CƠM TĂNG CA (12/08/2026). Hai ô đi liền nhau vì chúng chỉ có nghĩa cùng
+                  nhau: mức = 0 là tắt hẳn, lúc đó ngưỡng vô nghĩa. Nói rõ luật NGÀY NGHỈ ngay
+                  trong `hint` — nếu không HCNS khai 3 giờ rồi tưởng chủ nhật cũng phải đủ 3 giờ. */}
+              <ParamField
+                label="Tiền một suất cơm tăng ca"
+                hint="Để 0 là TẮT hẳn khoản này. Khoản cơm tăng ca ĐỘC LẬP với cơm ca — một ngày có thể ăn cả hai. Miễn thuế TNCN như cơm ca."
+                suffix="đ/suất"
+                step={5000}
+                min={0}
+                readOnly={readOnly}
+                value={p.com_tang_ca_muc}
+                onChange={(v) => setP("com_tang_ca_muc", v)}
+              />
+              <ParamField
+                label="Tăng ca bao nhiêu phút thì được một suất cơm"
+                hint="CHỈ áp cho NGÀY LÀM VIỆC. Ngày nghỉ theo Lịch chung — gồm cả ngày lễ và ngày 'Nghỉ 1×' — thì cứ có tăng ca là có suất, dù chỉ 1 tiếng. Mặc định 180 phút = 3 giờ."
+                suffix="phút"
+                step={30}
+                min={0}
+                max={1440}
+                readOnly={readOnly}
+                value={p.com_tang_ca_nguong_phut}
+                onChange={(v) => setP("com_tang_ca_nguong_phut", Math.round(v))}
+              />
               <ParamField
                 label="Phụ cấp làm ban đêm"
                 hint="Cộng thêm cho giờ làm 22h–06h (≥30% theo luật). Giờ đêm TRONG ca theo lịch dùng hệ số riêng khai trên form Khai ca."

@@ -13,7 +13,7 @@ import type { NavigateFn } from "../components/AppShell";
 import { Button } from "../components/Button";
 import { DetailModal } from "../components/DetailModal";
 import { Icon } from "../components/Icons";
-import { fmtDate, fmtDateTime, money } from "../utils/format";
+import { fmtDate, money } from "../utils/format";
 import "./accounting.css";
 import "./payables.css";
 import "./purchase.css";
@@ -64,6 +64,7 @@ const LIST_FILTERS: { id: ListFilter; label: string }[] = [
 ];
 
 const PAID_PAGE = 10;
+const PAGE_SIZE = 20;
 
 /** `—` khi CHƯA BIẾT (đang tải / lỗi), số khi đã tính ra. Đừng bao giờ lẫn hai thứ. */
 function kpi(value: number | undefined, biet: boolean): string {
@@ -114,11 +115,13 @@ export function AccountingPayablesPage({
 }) {
   const { token } = useAuth();
   const can = useCan();
-  const canCreateVoucher = can("ke_toan", "create");
+  // Nút "Lập phiếu chi" trên màn Công nợ ⇒ hỏi quyền của MÀN PHIẾU CHI, không phải màn này.
+  const canCreateVoucher = can("phieu_chi", "create");
   const [summary, setSummary] = useState<PayablesSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<ListFilter>("all");
+  const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [timDaGui, setTimDaGui] = useState("");
   const [open, setOpen] = useState<{
@@ -131,8 +134,11 @@ export function AccountingPayablesPage({
     setLoading(true);
     setError(null);
     api.accounting
-      .payables(token, timDaGui)
-      .then(setSummary)
+      .payables(token, { q: timDaGui, filter, page, size: PAGE_SIZE })
+      .then((data) => {
+        setSummary(data);
+        if (data.page !== page) setPage(data.page);
+      })
       .catch((err) => {
         // Xoá số cũ đi. Giữ lại là để màn hiện số của lần tải trước như thể vừa chốt xong.
         setSummary(null);
@@ -143,7 +149,7 @@ export function AccountingPayablesPage({
         );
       })
       .finally(() => setLoading(false));
-  }, [token, timDaGui]);
+  }, [token, timDaGui, filter, page]);
 
   useEffect(() => {
     load();
@@ -163,15 +169,7 @@ export function AccountingPayablesPage({
 
   const biet = !loading && !error && summary != null;
 
-  const rows = useMemo(() => {
-    const items = summary?.items ?? [];
-    return items.filter((row) => {
-      if (filter === "overdue") return row.overdue_amount > 0;
-      if (filter === "chua_han") return row.no_han_amount > 0;
-      if (filter === "vuot_han_muc") return row.vuot_han_muc;
-      return true;
-    });
-  }, [summary, filter]);
+  const rows = summary?.items ?? [];
 
   const soThang = summary?.period_months ?? 3;
 
@@ -231,12 +229,6 @@ export function AccountingPayablesPage({
           </b>
           <span className="pay-kpibar__label">NCC vượt hạn mức</span>
         </div>
-        <i className="pay-kpibar__sep" aria-hidden="true" />
-        <div className="pay-kpibar__item">
-          <span className="pay-kpibar__label">
-            {biet ? `chốt ${fmtDateTime(summary?.as_of)}` : "chưa chốt được"}
-          </span>
-        </div>
       </section>
 
       <section className="acct-toolbar">
@@ -247,7 +239,10 @@ export function AccountingPayablesPage({
           <input
             className="input"
             value={q}
-            onChange={(event) => setQ(event.target.value)}
+            onChange={(event) => {
+              setQ(event.target.value);
+              setPage(1);
+            }}
             placeholder="Tìm nhà cung cấp (kể cả đã trả hết)..."
           />
         </form>
@@ -257,7 +252,10 @@ export function AccountingPayablesPage({
               key={item.id}
               type="button"
               className={`pay-pill${filter === item.id ? " pay-pill--on" : ""}`}
-              onClick={() => setFilter(item.id)}
+              onClick={() => {
+                setFilter(item.id);
+                setPage(1);
+              }}
             >
               {item.label}
             </button>
@@ -295,15 +293,10 @@ export function AccountingPayablesPage({
                 <td colSpan={6}>
                   {q.trim() ? (
                     <>Không tìm thấy nhà cung cấp nào tên "{q.trim()}".</>
-                  ) : summary && summary.items.length > 0 ? (
+                  ) : filter !== "all" ? (
                     "Không có nhà cung cấp nào khớp bộ lọc."
                   ) : (
-                    // Nói THẲNG là đã chốt và chốt lúc nào. Câu cụt "chưa nợ ai" trông y hệt lúc
-                    // màn hỏng — mà đó đúng là chuyện đã xảy ra.
-                    <>
-                      <strong>Không còn nợ nhà cung cấp nào</strong> — chốt lúc{" "}
-                      {fmtDateTime(summary?.as_of)}
-                    </>
+                    <strong>Không còn nợ nhà cung cấp nào</strong>
                   )}
                 </td>
               </tr>
@@ -373,6 +366,26 @@ export function AccountingPayablesPage({
               ))}
           </tbody>
         </table>
+        <div className="md-page__pager">
+          <span className="md-page__muted">
+            Tổng {summary?.total ?? 0} nhà cung cấp
+            {(summary?.pages ?? 1) > 1 ? ` · Trang ${summary?.page}/${summary?.pages}` : ""}
+          </span>
+          {(summary?.pages ?? 1) > 1 && (
+            <div className="md-page__pager-btns">
+              <Button variant="ghost" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
+                Trước
+              </Button>
+              <Button
+                variant="ghost"
+                disabled={page >= (summary?.pages ?? 1) || loading}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Sau
+              </Button>
+            </div>
+          )}
+        </div>
       </section>
 
       {open && open.row.supplier_id != null && (
@@ -526,7 +539,7 @@ function PayablesDrawer({
       title={supplierName}
       subtitle={
         detail
-          ? `Còn nợ ${money(detail.total_due)} · chốt ngày ${fmtDate(detail.as_of)}`
+          ? `Còn nợ ${money(detail.total_due)}`
           : undefined
       }
       badge={
@@ -634,9 +647,9 @@ function PayablesDrawer({
               <p className="pay-block__hint">
                 Hàng đã về tới đâu thì nợ tới đó, gom theo từng đơn mua. Cột{" "}
                 <strong>Đã trả</strong> chỉ đếm tiền trả{" "}
-                <strong>đích danh đợt đó</strong> (khớp sao kê nhà cung cấp); cột{" "}
-                <strong>Cọc bù</strong> là cọc của cả đơn chiếu xuống. Còn nợ đã
-                trừ cả hai.
+                <strong>đích danh đợt đó</strong> (khớp sao kê nhà cung cấp).{" "}
+                <strong>Còn nợ</strong> đã trừ cả tiền cọc của đơn — nên có đợt
+                chưa trả đồng nào mà còn nợ vẫn nhỏ hơn giá trị đợt.
                 {chuaDatHan > 0 && (
                   <>
                     {" "}
@@ -696,7 +709,6 @@ function PayablesDrawer({
                           <th>Hạn trả</th>
                           <th className="pay-num">Giá trị</th>
                           <th className="pay-num">Đã trả</th>
-                          <th className="pay-num">Cọc bù</th>
                           <th className="pay-num">Còn nợ</th>
                         </tr>
                       </thead>
@@ -718,13 +730,6 @@ function PayablesDrawer({
                             </td>
                             <td className="pay-num">{money(row.amount)}</td>
                             <td className="pay-num">{money(row.paid)}</td>
-                            <td className="pay-num">
-                              {row.coc_bu > 0 ? (
-                                money(row.coc_bu)
-                              ) : (
-                                <small className="pay-cell--zero">—</small>
-                              )}
-                            </td>
                             <td className="pay-num">
                               <strong>{money(row.con_no)}</strong>
                             </td>
@@ -782,6 +787,9 @@ function PayablesDrawer({
                       <tr>
                         <th>Ngày trả</th>
                         <th>Phiếu chi</th>
+                        {/* Ai LẬP phiếu — đứng cạnh chính số phiếu của người đó, vì câu hỏi khi
+                            soi sao kê luôn là "phiếu này ai cho ra". */}
+                        <th>Người lập</th>
                         <th>Hóa đơn</th>
                         <th>Đơn · Đợt</th>
                         <th className="pay-num">Số tiền</th>
@@ -800,6 +808,9 @@ function PayablesDrawer({
                                 chưa có chứng từ
                               </small>
                             )}
+                          </td>
+                          <td title={row.created_by_name ?? undefined}>
+                            {row.created_by_name || "—"}
                           </td>
                           <td>
                             <HoaDon

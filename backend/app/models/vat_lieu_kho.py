@@ -93,6 +93,9 @@ class GiayNguyen(Base):
     # 13/08/2026 là vô lý; khai ở đây xong thì xoá nó bằng tay trên UI được.
     cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Ảnh minh hoạ vật tư (1 ảnh). Lưu đường `/api/files/materials/…` (đọc qua router có đăng nhập);
+    # trang QR công khai serve lại chính key này qua `/api/public/vat-lieu-anh` bằng token QR. NULL = chưa có ảnh.
+    anh_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     version_no: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)  # phiên bản giá hiện hành (mirror từ giay_gia_version)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
@@ -158,6 +161,8 @@ class VatTuInAn(Base):
     # rồi kho và mua hàng lãnh đủ mấy cái tên đó trong khi họ vẫn cân bằng kg thật.
     cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Ảnh minh hoạ vật tư (1 ảnh) — xem ghi chú `GiayNguyen.anh_url`.
+    anh_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

@@ -94,6 +94,19 @@ router = APIRouter(prefix="/api/employees", tags=["employees"])
 
 MODULE = "nhan_su"
 
+# TỰ PHỤC VỤ (tách 10/08/2026) — một ô quyền cho MỌI việc người lao động làm với hồ sơ của CHÍNH
+# MÌNH: tự chấm công, xem công/phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng.
+# Trước đây nhóm này không gác gì (chỉ cần đăng nhập) nên không có cách nào tắt cho một vai.
+# Ba hàng rào cũ GIỮ NGUYÊN (phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công · đúng
+# khung giờ ca) — chúng chống lạm dụng, còn ô này chống truy cập.
+MODULE_TU_PHUC_VU = "self_service"
+SelfUser = Annotated[User, Depends(require_permission(MODULE_TU_PHUC_VU, "read"))]
+
+# Ô THAO TÁC của Tự phục vụ (tách 11/08/2026). `SelfUser` (= `read`) chỉ cho XEM công / phiếu /
+# đơn của chính mình; mọi đường GHI — chấm công, gửi · sửa · huỷ đơn nghỉ, phiếu tăng ca, xin đi
+# muộn, xin tạm ứng, sửa hồ sơ của mình — đòi ô này.
+SelfWriter = Annotated[User, Depends(require_permission(MODULE_TU_PHUC_VU, "create"))]
+
 # Hồ sơ HR (CCCD, hợp đồng…) đi qua kho file dùng chung; đọc lại qua /api/files, chỉ người
 # có quyền `nhan_su` mới xem được (app/routers/files.py).
 _HR_SUBDIR = "hr"
@@ -249,7 +262,11 @@ def export_employees_xlsx(
     users: Users,
     depts: Depts,
     roles: Roles,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    # Ô "Xuất Excel danh sách" (`nhan_su:export`) — trước 11/08/2026 endpoint chỉ đòi `read`, và
+    # giao diện cũng KHÔNG hỏi ô nào cả, nên ô đó chưa bao giờ có tác dụng: ai xem được hồ sơ là
+    # tải được cả danh sách nhân sự ra file. Xuất file là mang dữ liệu RA KHỎI hệ thống — phải là
+    # một quyết định cấp riêng, không đi kèm quyền xem.
+    user: Annotated[User, Depends(require_permission(MODULE, "export"))],
     q: str | None = Query(default=None),
     department_id: int | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
@@ -503,7 +520,7 @@ def _my_out(employee, depts: DepartmentRepository, users: UserRepository,
 
 
 @router.get("/me", response_model=MyProfileOut)
-def my_profile(svc: Service, depts: Depts, users: Users, user: CurrentUser) -> MyProfileOut:
+def my_profile(svc: Service, depts: Depts, users: Users, user: SelfUser) -> MyProfileOut:
     emp = svc.my_employee(user=user)
     if emp is None:
         return MyProfileOut(has_employee=False, employee=None)
@@ -511,7 +528,7 @@ def my_profile(svc: Service, depts: Depts, users: Users, user: CurrentUser) -> M
 
 
 @router.put("/me", response_model=MyProfileOut)
-def update_my_profile(body: MyContactIn, svc: Service, depts: Depts, users: Users, user: CurrentUser) -> MyProfileOut:
+def update_my_profile(body: MyContactIn, svc: Service, depts: Depts, users: Users, user: SelfWriter) -> MyProfileOut:
     try:
         emp = svc.update_my_contact(user=user, fields=body.model_dump(exclude_unset=True))
     except EmployeeError as exc:
@@ -520,7 +537,7 @@ def update_my_profile(body: MyContactIn, svc: Service, depts: Depts, users: User
 
 
 @router.get("/me/events", response_model=EmployeeEventsOut)
-def my_events(svc: Service, users: Users, user: CurrentUser) -> EmployeeEventsOut:
+def my_events(svc: Service, users: Users, user: SelfUser) -> EmployeeEventsOut:
     items = []
     for ev in svc.my_events(user=user):
         row = EmployeeEventOut.model_validate(ev)
@@ -532,7 +549,7 @@ def my_events(svc: Service, users: Users, user: CurrentUser) -> EmployeeEventsOu
 
 
 @router.get("/me/attachments", response_model=AttachmentsOut)
-def my_attachments(svc: Service, user: CurrentUser) -> AttachmentsOut:
+def my_attachments(svc: Service, user: SelfUser) -> AttachmentsOut:
     return AttachmentsOut(items=[AttachmentOut.model_validate(a) for a in svc.my_attachments(user=user)])
 
 
@@ -566,7 +583,7 @@ def _req_out(req, emps: dict[int, object], users: UserRepository | None = None) 
 
 
 @router.post("/me/update-requests", response_model=UpdateRequestOut, status_code=201)
-def create_my_request(body: UpdateRequestIn, svc: Service, user: CurrentUser) -> UpdateRequestOut:
+def create_my_request(body: UpdateRequestIn, svc: Service, user: SelfWriter) -> UpdateRequestOut:
     try:
         req = svc.create_update_request(user=user, changes=body.changes, reason=body.reason)
     except EmployeeError as exc:
@@ -575,7 +592,7 @@ def create_my_request(body: UpdateRequestIn, svc: Service, user: CurrentUser) ->
 
 
 @router.get("/me/update-requests", response_model=MyUpdateRequestsOut)
-def my_requests(svc: Service, users: Users, user: CurrentUser,
+def my_requests(svc: Service, users: Users, user: SelfUser,
                 status_filter: str | None = Query(default=None, alias="status"),
                 page: int = Query(default=1, ge=1),
                 size: int = Query(default=10, ge=1, le=100)) -> MyUpdateRequestsOut:
@@ -589,7 +606,7 @@ def my_requests(svc: Service, users: Users, user: CurrentUser,
 
 
 @router.post("/me/update-requests/{request_id}/cancel", response_model=UpdateRequestOut)
-def cancel_my_request(request_id: int, svc: Service, users: Users, user: CurrentUser) -> UpdateRequestOut:
+def cancel_my_request(request_id: int, svc: Service, users: Users, user: SelfWriter) -> UpdateRequestOut:
     """NV rút lại đề nghị của CHÍNH MÌNH khi HCNS chưa xử lý (gõ nhầm / đổi ý)."""
     try:
         req = svc.cancel_my_update_request(user=user, request_id=request_id)

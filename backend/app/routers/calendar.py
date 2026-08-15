@@ -29,7 +29,8 @@ from ..services.calendar_service import (
 
 router = APIRouter(prefix="/api/calendar", tags=["calendar"])
 
-MODULE = "nhan_su"
+# Lịch & Ngày lễ là một TAB của màn Chấm công ⇒ đi theo khoá của màn đó (10/08/2026).
+MODULE = "cham_cong"
 
 Service = Annotated[CalendarService, Depends(get_calendar_service)]
 
@@ -46,7 +47,10 @@ def _raise(exc: Exception) -> None:
 
 
 @router.get("/config", response_model=ConfigOut)
-def get_config(svc: Service, user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> ConfigOut:
+# ⚠️ ĐỌC cũng đòi ô CẤU HÌNH, không phải ô Xem. Trước 10/08/2026 đường đọc chỉ đòi `read`:
+# vai chỉ-xem không thấy tab nhưng vẫn gọi thẳng API đọc được toạ độ + bán kính mọi điểm
+# chấm công và lưới phân ca cả tháng. Giao diện ẩn tab, máy chủ thì không — đúng Luật 2.
+def get_config(svc: Service, user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> ConfigOut:
     return ConfigOut.model_validate(svc.get_config())
 
 
@@ -65,7 +69,10 @@ def update_config(body: ConfigIn, svc: Service,
 
 @router.get("/special-days", response_model=SpecialDaysOut)
 def list_special_days(svc: Service,
-                      user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                      # ⚠️ ĐỌC cũng đòi ô CẤU HÌNH, không phải ô Xem. Trước 10/08/2026 đường đọc chỉ đòi `read`:
+                      # vai chỉ-xem không thấy tab nhưng vẫn gọi thẳng API đọc được toạ độ + bán kính mọi điểm
+                      # chấm công và lưới phân ca cả tháng. Giao diện ẩn tab, máy chủ thì không — đúng Luật 2.
+                      user: Annotated[User, Depends(require_permission(MODULE, "update"))],
                       year: int = Query(..., ge=2000, le=2100)) -> SpecialDaysOut:
     items = svc.list_special_days(year)
     return SpecialDaysOut(

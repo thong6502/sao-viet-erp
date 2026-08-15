@@ -6,7 +6,7 @@
 // hàng với công tắc Xem / Chỉnh sửa / pill Phạm vi; module có quyền chi tiết hiện chip "N/M chi
 // tiết" → bấm BUNG INLINE ngay dưới hàng (không popover portal). Data contract KHÔNG đổi.
 import { useState } from "react";
-import type { ModuleDef, PermissionRow, Scope } from "../api/client";
+import type { ModuleDef, PermissionRow, Scope, RoleTemplate } from "../api/client";
 import { Icon } from "./Icons";
 import "./permission-matrix.css";
 
@@ -54,8 +54,10 @@ export type ActionKey =
   | "can_request"
   | "can_view_stock"
   | "can_view_cost"
+  | "can_view_log"
   | "can_set_threshold"
-  | "can_post";
+  | "can_post"
+  | "can_close_book";
 
 // UI gộp Thêm/Sửa/Xóa thành một công tắc "quyền chỉnh sửa": tick là bật cả ba.
 // Dữ liệu vẫn lưu tách (can_create/can_update/can_delete) nên backend không đổi.
@@ -83,7 +85,7 @@ const FINE_ACTIONS: Record<
     {
       key: "can_view_debt",
       label: "Xem công nợ",
-      hint: 'Cho xem thẻ Công nợ của khách (số dư phải thu + hạn mức đã dùng). ⚠️ Module Công nợ (AR) CHƯA build — bật quyền vẫn chỉ hiện thẻ "chưa khả dụng", chưa có số thật; chỉ có tác dụng khi module Công nợ hoàn thành.',
+      hint: "Cho xem thẻ Công nợ của khách (số dư phải thu theo hóa đơn đã ghi nhận + hạn mức đã dùng).",
     },
     {
       key: "can_set_credit_terms",
@@ -144,28 +146,28 @@ const FINE_ACTIONS: Record<
     { key: "can_reparent", label: "Đổi cấp trên (cây tổ chức)" },
   ],
   // Kho: 2 ô chi tiết + công tắc chung Xem (can_read) + Lập phiếu (= TẠO + GHI SỔ + HỦY, can_create).
-  //   · Tạo đề nghị (can_request) — người XIN nhập/lĩnh vật tư.
+  //   · Tạo yêu cầu (can_request) — người XIN nhập/lĩnh vật tư.
   //   · Xem kho (1 công tắc = 3 cột): xem tồn + xem giá vốn + khai ngưỡng.
   // ĐÃ GỘP (bỏ SoD): "Ghi sổ" + "Hủy" nhập chung vào "Lập phiếu" — KHÔNG còn công tắc Ghi sổ riêng.
-  // Ai có Lập phiếu là tạo + ghi sổ + hủy được. KHÔNG có Duyệt: ĐÃ BỎ BƯỚC DUYỆT đề nghị kho
-  // (chủ 06/08/2026) — tạo đề nghị là 'approved' luôn, không ai duyệt nữa (cột `can_approve` giữ
-  // trong DB vì dùng chung HR/nơi khác, chỉ gỡ mục "Duyệt đề nghị" của KHO khỏi UI).
+  // Ai có Lập phiếu là tạo + ghi sổ + hủy được. KHÔNG có Duyệt: ĐÃ BỎ BƯỚC DUYỆT yêu cầu kho
+  // (chủ 06/08/2026) — tạo yêu cầu là 'approved' luôn, không ai duyệt nữa (cột `can_approve` giữ
+  // trong DB vì dùng chung HR/nơi khác, chỉ gỡ mục "Duyệt yêu cầu" của KHO khỏi UI).
   kho: [
     {
       key: "can_request",
-      label: "Tạo đề nghị nhập/xuất",
-      hint: "Lập ĐỀ NGHỊ nhập/xuất kho (tổ SX xin lĩnh vật tư, mua hàng xin nhập bổ sung). Người đề nghị nên để phạm vi \"Của tôi\".",
+      label: "Tạo yêu cầu nhập/xuất",
+      hint: "Lập YÊU CẦU nhập/xuất kho (tổ SX xin lĩnh vật tư, mua hàng xin nhập bổ sung). Người yêu cầu nên để phạm vi \"Của tôi\".",
     },
     {
       key: "can_view_stock",
       keys: ["can_view_stock", "can_view_cost", "can_set_threshold"],
-      label: "Xem tồn kho, giá vốn & ngưỡng tồn",
+      label: "Xem tất cả kho",
       hint: "MỘT công tắc gộp 3 quyền XEM/QUẢN của kho: XEM số tồn · XEM giá vốn & giá trị tồn · KHAI ngưỡng tồn. Ai làm kho bật ô này.",
     },
     {
-      key: "can_export",
-      label: "Xuất Excel báo cáo kho (kế toán)",
-      hint: "Cho phép xuất Excel báo cáo tồn kho chi tiết, bao gồm toàn bộ mã hàng, số lượng, giá vốn và vị trí của các kho.",
+      key: "can_close_book",
+      label: "Báo cáo kho + khóa kỳ (kế toán)",
+      hint: "Mở màn \"Báo cáo kho\": sổ nhập-xuất, xuất Excel theo mẫu MISA, và KHÓA KỲ (chốt sổ) toàn kho / từng kho. Chỉ kế toán kho.",
     },
   ],
   // DANH MỤC: KHÔNG có quyền chi tiết — mỗi màn danh mục chỉ Xem + Thao tác.
@@ -182,7 +184,52 @@ const FINE_ACTIONS: Record<
     { key: "can_transfer", label: "Điều chuyển & nâng bậc" },
     { key: "can_approve", label: "Duyệt yêu cầu cập nhật" },
     { key: "can_export", label: "Xuất Excel danh sách" },
-    { key: "can_adjust", label: "Chấm công: chấm bù / sửa công" },
+  ],
+  // Màn CHẤM CÔNG tách khoá riêng 10/08/2026. Cột Xem = Bảng công tháng + Nhật ký chấm công;
+  // cột Chỉnh sửa = ô "Cấu hình chấm công" (Điểm chấm công · Khai ca · Lịch & Ngày lễ). Ba ô
+  // dưới đây là các việc phải tách hẳn ra.
+  cham_cong: [
+    {
+      key: "can_view_log",
+      label: "Xem Nhật ký chấm công",
+      hint: "Tab Nhật ký = TỪNG LƯỢT BẤM của từng người kèm giờ và toạ độ. Khác với cột Xem (chỉ mở Bảng công tháng — số công đã tổng hợp). Ai cần xem công để tính lương thì không đương nhiên cần đọc dấu chân từng người.",
+    },
+    {
+      key: "can_adjust",
+      label: "Chấm bù / sửa công",
+      hint: "Sửa lượt bấm và chấm bù cho người khác, kể cả duyệt / từ chối Yêu cầu chỉnh công. Không có ô này thì chỉ xem được bảng công.",
+    },
+    {
+      key: "can_lock",
+      label: "Chốt kỳ công / Mở lại kỳ ⚠️",
+      hint: "Một cú bấm chụp ảnh bảng công của TOÀN CÔNG TY thành số liệu chốt — bảng lương khi kỳ đã khoá đọc đúng ảnh chụp đó; 'Mở lại kỳ' thì xoá sạch ảnh chụp. Trước 10/08/2026 ô này đi chung với 'Chấm bù'. Máy chủ còn đòi Phạm vi 'Tất cả': chốt nửa công ty thì bảng lương không biết nửa nào là nửa nào.",
+    },
+  ],
+  self_service: [],
+  // ⚠️ THÊM 11/08/2026 — trước đó phân hệ Nghỉ phép KHÔNG có mục nào ở đây, nên:
+  //   • `can_approve` KHÔNG AI BẬT ĐƯỢC ⇒ tab "Duyệt đơn" và "Lịch nghỉ" không bao giờ hiện với
+  //     bất kỳ ai ngoài admin. Chủ chốt báo đúng: "không thấy tab duyệt nghỉ phép ở đâu luôn".
+  //   • Quản danh mục LOẠI NGHỈ núp dưới cột "Thao tác" trần — bật nó là mở danh mục của cả công
+  //     ty mà người cấp quyền không có cách nào biết.
+  nghi_phep: [
+    {
+      key: "can_approve",
+      label: "Duyệt đơn nghỉ phép ⚠️",
+      hint: "Duyệt / từ chối đơn xin nghỉ của người khác, và mở tab “Lịch nghỉ” của cả phòng. Kết hợp Phạm vi: “Cả phòng” = tổ trưởng chỉ duyệt người trong tổ mình + các tổ con; “Tất cả” = HCNS duyệt toàn công ty. KHÔNG cần ô này để nhân viên tự gửi/hủy đơn của chính mình.",
+    },
+    {
+      key: "can_update",
+      label: "Quản danh mục loại nghỉ",
+      hint: "Thêm / sửa / XOÁ các loại nghỉ (phép năm, nghỉ ốm, không lương…) — chính sách dùng chung cho CẢ CÔNG TY, không phải việc của một phòng. Đây chính là ý nghĩa của cột “Thao tác” ở dòng này; cột “Xoá” không dùng tới.",
+    },
+  ],
+  // Tách khỏi ô "Chấm bù" của màn Chấm công ngày 11/08/2026.
+  yeu_cau_chinh_cong: [
+    {
+      key: "can_approve",
+      label: "Duyệt yêu cầu chỉnh công ⚠️",
+      hint: "Duyệt / từ chối yêu cầu chỉnh công của người khác — duyệt xong là công của họ đổi, tức đầu vào lương đổi. Phạm vi chỉ “Cả phòng” hoặc “Tất cả”: duyệt yêu cầu của chính mình là vô nghĩa.",
+    },
   ],
   di_muon: [
     {
@@ -200,6 +247,16 @@ const FINE_ACTIONS: Record<
   ],
   luong: [
     {
+      key: "can_lock",
+      label: "Chốt bảng lương / Mở lại kỳ ⚠️",
+      hint: "Chốt kỳ lương của TOÀN CÔNG TY (kỳ lương là một bản ghi chung, không chốt riêng từng tổ được) và mở lại kỳ đã chốt. Máy chủ còn đòi Phạm vi “Tất cả”.",
+    },
+    {
+      key: "can_manage_status",
+      label: "Đánh dấu đã chi lương ⚠️",
+      hint: "Tuyên bố TIỀN ĐÃ RA tới tay người lao động — và khoá kỳ luôn (muốn mở lại phải huỷ đã chi trước). Tách khỏi ô Chốt từ 10/08/2026: người tính lương chốt số, kế toán mới xác nhận đã trả. Máy chủ còn đòi Phạm vi “Tất cả”.",
+    },
+    {
       key: "can_view_salary",
       label: "Xem cấu hình lương",
       hint: "Cho xem thang bậc, khung lương, KPI, phụ cấp, bảo hiểm và lịch sử lương nhân viên. Không cần cấp quyền này để nhân viên xem Phiếu lương của tôi.",
@@ -209,26 +266,33 @@ const FINE_ACTIONS: Record<
     { key: "can_export", label: "Xuất bảng lương / file chuyển khoản" },
   ],
   thu_mua: [
-    {
-      key: "can_approve",
-      label: "Duyệt / từ chối PMH",
-      hint: "Duyệt hoặc từ chối phiếu mua hàng đã được Thu mua gửi lên. Đây là quyền quyết định phiếu có được đi tiếp sang kế toán hay không.",
-    },
-    {
-      key: "can_cancel",
-      label: "Hủy PMH",
-      hint: "Hủy phiếu mua hàng đã lập khi cần dừng hẳn nhu cầu mua.",
-    },
+    // ĐÃ BỎ 12/08/2026 (chủ chốt test rồi quyết) — hai ô này không đáng tồn tại:
+    //   • "Sửa / đảo trạng thái đơn sau khi nhận hàng" (`can_manage_status`): ba việc nó gác
+    //     (sửa số nhận · mở lại đơn · đóng đơn) là việc thường ngày của chính người lập phiếu,
+    //     nay gộp vào ô "Thao tác". Migration `0191` đổ quyền cũ về `can_update`.
+    //   • "Hủy PMH" (`can_cancel`): CHƯA BAO GIỜ được đọc. `purchase_service.cancel` gác bằng
+    //     `ke_toan:approve` (hoặc chính người lập, khi phiếu còn nháp) — ô này bật hay tắt đều
+    //     không đổi gì. Đã khai vào `deps.O_CHET_DA_XAC_MINH`.
   ],
+  // Ô của màn Đơn mua hàng (Kế toán) — dời từ phân hệ Mua hàng xuống 11/08/2026: nút Duyệt /
+  // Từ chối chỉ có ở màn này, để ô trên kia thì nhìn ma trận không đoán ra nó tác dụng ở đâu.
   ke_toan: [
     {
       key: "can_approve",
-      label: "Lập / sửa Phiếu chi-UNC / Phiếu thu",
-      hint: "Tạo, sửa và đính kèm chứng từ chi tiền hoặc thu tiền. Không phải quyền duyệt PMH.",
+      label: "Duyệt / từ chối PMH ⚠️",
+      hint: "Duyệt hoặc từ chối phiếu mua hàng — quyết định phiếu có đi tiếp thành khoản chi hay không. Nút nằm ngay màn này. Tách vai vẫn giữ: LẬP phiếu chi là ô riêng bên màn Phiếu chi, nên có ô này mà không có ô kia thì duyệt xong vẫn không tự viết được phiếu chi.",
     },
-    { key: "can_manage_status", label: "Xác nhận đã chi" },
-    { key: "can_cancel", label: "Hủy chứng từ chờ chi" },
-    { key: "can_export", label: "In / xuất chứng từ" },
+  ],
+  // Phân hệ Kế toán tách mỗi màn một khoá (10/08/2026). Ô "Lập phiếu" nay là cột **Thêm** của
+  // chính màn đó, không còn núp dưới tên `can_approve` — nên ở đây chỉ còn các quyền phụ.
+  phieu_chi: [
+    { key: "can_cancel", label: "Hủy phiếu chi chờ chi" },
+    { key: "can_export", label: "In / xuất phiếu chi" },
+  ],
+  phieu_thu: [
+    { key: "can_manage_status", label: "Xác nhận đã thu tiền" },
+    { key: "can_cancel", label: "Hủy phiếu thu" },
+    { key: "can_export", label: "In / xuất phiếu thu" },
   ],
 };
 
@@ -236,8 +300,14 @@ const FINE_ACTIONS: Record<
 // dấu ⓘ cạnh tên module (cùng khuôn tooltip với quyền chi tiết). Module không khai ở đây thì
 // không hiện ⓘ — thà thiếu còn hơn mô tả sai.
 const MODULE_HINTS: Record<string, string> = {
+  self_service:
+    "Việc người lao động làm với hồ sơ CỦA CHÍNH MÌNH: tự chấm công, xem công và phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng. Vai mới sinh ra đã bật sẵn ô này. Tắt đi thì người đó không tự chấm công được nữa — cân nhắc trước khi bỏ tick.",
   nhan_su:
-    "Xem: mở Hồ sơ nhân sự + Chấm công (danh sách NV, bảng công tháng). Chỉnh sửa: thêm/sửa/xóa hồ sơ nhân viên. Lương & BHXH của NV là dữ liệu nhạy cảm nên tách riêng thành quyền xem và quyền sửa.",
+    "Xem: mở Hồ sơ nhân sự (danh sách NV, chi tiết hồ sơ). Chỉnh sửa: thêm/sửa/xóa hồ sơ. Lương & BHXH của NV là dữ liệu nhạy cảm nên tách riêng thành quyền xem và quyền sửa. Màn Chấm công KHÔNG còn nằm trong ô này — nó có ô riêng ngay bên dưới.",
+  cham_cong:
+    "Xem: mở màn Chấm công (Bảng công tháng + Nhật ký chấm công) trong phạm vi được cấp. Chỉnh sửa: ba tab cấu hình — Điểm chấm công, Khai ca, Lịch & Ngày lễ (gác cả xem lẫn sửa, vì toạ độ điểm chấm công và lưới phân ca không phải thứ ai cũng cần đọc). Chấm bù và Chốt kỳ nằm ở quyền chi tiết. Nhân viên tự chấm công cho mình thì dùng ô Tự phục vụ, không cần ô này.",
+  noi_quy:
+    "Xem: đọc danh sách nội quy và mở file. Vai mới sinh ra đã bật sẵn — nội quy lao động thì ai cũng phải đọc. Thêm / xoá tài liệu nằm ở cột Thêm và Xoá.",
   nghi_phep:
     "Xem: thấy đơn nghỉ trong phạm vi được cấp. Chỉnh sửa: quản danh mục loại nghỉ. Nhân viên tự gửi và tự hủy đơn của mình thì KHÔNG cần cấp gì thêm.",
   tang_ca:
@@ -265,7 +335,17 @@ const MODULE_HINTS: Record<string, string> = {
   phong_ban:
     "Xem: xem cây tổ chức phòng ban / tổ. Chỉnh sửa: thêm/sửa/xóa phòng ban. Đặt trưởng phòng và đổi cấp trên trong cây nằm ở quyền chi tiết.",
   ke_toan:
-    "Xem: xem chứng từ kế toán. Chỉnh sửa: nhập/sửa dữ liệu chung của module. Lập phiếu chi/UNC - phiếu thu, xác nhận đã chi, hủy chứng từ, in/xuất nằm ở quyền chi tiết.",
+    "Xem: mở màn Đơn mua hàng của kế toán (danh sách PMH đã duyệt, chờ chi). CHỈ màn này — Phiếu chi, Phiếu thu, Công nợ và Tài khoản ngân hàng là các ô riêng bên dưới.",
+  phieu_chi:
+    "Xem: mở màn Phiếu chi / UNC. Thêm: LẬP phiếu cọc, phiếu thanh toán và gán chứng từ. Hủy phiếu và in/xuất nằm ở quyền chi tiết.",
+  phieu_thu:
+    "Xem: mở màn Phiếu thu. Thêm: LẬP / sửa phiếu thu và gán chứng từ. Xác nhận đã thu tiền, hủy phiếu, in/xuất nằm ở quyền chi tiết.",
+  cong_no_phai_tra:
+    "Xem: mở màn Công nợ phải trả (số còn nợ từng nhà cung cấp). Số liệu tính ra từ PMH + phiếu chi nên không có gì để sửa ở đây.",
+  cong_no_phai_thu:
+    "Xem: mở màn Công nợ phải thu (số khách còn nợ). Số liệu chỉ phát sinh từ hóa đơn bán đã ghi nhận, sau đó trừ cọc được cấn và phiếu thu; đơn mới chốt chưa tạo công nợ.",
+  tk_ngan_hang:
+    "Xem: mở màn Tài khoản ngân hàng (TK công ty + TK nhà cung cấp). Chỉnh sửa: thêm/sửa/ngừng dùng tài khoản. TK của nhà cung cấp thì người quản danh mục Nhà cung cấp cũng sửa được.",
 };
 
 // Nghĩa CHUNG của 3 cột — luôn đúng với mọi module, hiện ở dòng tiêu đề.
@@ -297,10 +377,47 @@ const MODULE_GROUPS: {
     label: "Kinh doanh",
     modules: ["khach_hang", "bao_gia", "don_hang_ban", "tinh_gia_thanh"],
   },
+    // `ky_thuat_may` thuộc nhóm Sản xuất: phiếu sửa chữa/bảo trì là việc của xưởng, và ô
+  // quyền của nó sinh cùng module Kỹ thuật máy. Thiếu ở đây thì nó rơi vào nhóm "Khác".
   { key: "san_xuat", label: "Sản xuất", modules: ["san_xuat", "ky_thuat_may"] },
-  { key: "kho", label: "Kho", modules: ["kho", "thu_mua"] },
-  { key: "ke_toan", label: "Kế toán", modules: ["ke_toan"] },
-  { key: "nhan_su", label: "Nhân sự", modules: ["nhan_su", "nghi_phep", "tang_ca", "di_muon", "luong"] },
+  { key: "kho", label: "Kho", modules: ["kho"] },
+  // Thu mua tách khỏi nhóm Kho (10/08/2026): mỗi MÀN một ô quyền + phạm vi riêng, cấp tới đâu
+  // làm được tới đó. Thiếu một khoá ở đây thì nó rơi vào nhóm "Khác" — vẫn cấp được, chỉ khó tìm.
+  {
+    key: "thu_mua",
+    label: "Thu mua",
+    modules: ["yeu_cau_mua_hang", "thu_mua", "nha_cung_cap"],
+  },
+  {
+    key: "ke_toan",
+    label: "Kế toán",
+    modules: [
+      "ke_toan",
+      "phieu_chi",
+      "phieu_thu",
+      "cong_no_phai_tra",
+      "cong_no_phai_thu",
+      "tk_ngan_hang",
+    ],
+  },
+  {
+    key: "nhan_su",
+    label: "Nhân sự",
+    modules: [
+      "self_service",
+      // Phòng ban ĐỨNG TRƯỚC Hồ sơ nhân sự (chủ chốt 11/08/2026): cây tổ chức là cái khung chứa
+      // hồ sơ, đọc từ trên xuống mới thuận. Trước đây nó nằm mãi dưới nhóm "Hệ thống".
+      "phong_ban",
+      "nhan_su",
+      "cham_cong",
+      "yeu_cau_chinh_cong",
+      "nghi_phep",
+      "tang_ca",
+      "di_muon",
+      "luong",
+      "noi_quy",
+    ],
+  },
   {
     key: "danh_muc",
     label: "Danh mục",
@@ -323,7 +440,9 @@ const MODULE_GROUPS: {
   {
     key: "he_thong",
     label: "Hệ thống",
-    modules: ["dashboard", "phong_ban", "vai_tro", "nguoi_dung", "activity_log"],
+    // `phong_ban` đã dời sang nhóm Nhân sự (11/08/2026) — nó là cây tổ chức nhân sự, không phải
+    // cấu hình hệ thống.
+    modules: ["dashboard", "vai_tro", "nguoi_dung", "activity_log"],
   },
 ];
 
@@ -367,8 +486,10 @@ export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
     can_request: false,
     can_view_stock: false,
     can_view_cost: false,
+    can_view_log: false,
     can_set_threshold: false,
     can_post: false,
+    can_close_book: false,
   }));
 }
 
@@ -386,7 +507,33 @@ interface PermissionMatrixProps {
   onScope: (moduleKey: string, scope: Scope) => void;
   /** Chế độ chỉ xem: mọi công tắc + phạm vi bị khóa (người dùng thiếu quyền sửa vai trò). */
   readOnly?: boolean;
+  /** Bảng VAI MẪU (đợt 6). Bỏ trống ⇒ không hiện thanh chọn mẫu. */
+  templates?: RoleTemplate[];
+  /** Người dùng chọn một mẫu — cha THAY SẠCH ma trận bằng `template.permissions`. */
+  onApplyTemplate?: (template: RoleTemplate) => void;
 }
+
+//: Phạm vi nào có nghĩa ở màn nào. Màn không khai ở đây thì cho chọn cả ba như cũ.
+//
+//  Vì sao khoá: bày ra một lựa chọn không có tác dụng là nói dối người cấp quyền. "Nhà cung cấp"
+//  là danh mục dùng chung — không có khái niệm NCC "của tôi"; "Đơn mua hàng (Kế toán)" là hộp thư
+//  của cả công ty; "Tự phục vụ" thì đúng nghĩa chỉ của mình; duyệt yêu cầu chỉnh công của CHÍNH
+//  MÌNH thì vô nghĩa nên bỏ "Của tôi".
+//
+//  ⚠️ Lương CỐ Ý chưa khai ở đây — khoá nó về "Tất cả" là MỞ RỘNG dữ liệu lương ra toàn công ty,
+//  chờ chủ chốt chốt (xem PRD vòng 2 §2.6).
+const PHAM_VI_CHO_PHEP: Record<string, Scope[]> = {
+  nha_cung_cap: ["all"],
+  ke_toan: ["all"],
+  cong_no_phai_tra: ["all"],
+  cong_no_phai_thu: ["all"],
+  self_service: ["own"],
+  nhan_su: ["department", "all"],
+  yeu_cau_chinh_cong: ["department", "all"],
+};
+
+const CANH_BAO_O_CHET =
+  "Ô này chưa nối vào chức năng nào — bật cũng không mở thêm gì.";
 
 export function PermissionMatrix({
   modules,
@@ -394,8 +541,23 @@ export function PermissionMatrix({
   onToggle,
   onScope,
   readOnly = false,
+  templates,
+  onApplyTemplate,
 }: PermissionMatrixProps) {
   const moduleLabel = new Map(modules.map((m) => [m.key, m.label]));
+  // Máy chủ khai những ô ĐÃ XÁC MINH là chết (`/api/rbac/modules` → `viec_chet`). Chỉ tắt + khoá
+  // đúng mấy ô đó.
+  //
+  // ⚠️ ĐỪNG đảo lại thành "cái gì máy chủ không gác thì chết". Bản đầu (11/08/2026) làm vậy và
+  // khoá nhầm hàng loạt ô đang dùng được — In/xuất phiếu chi · phiếu thu · Đặt trưởng phòng · Đổi
+  // cấp trên · Xem lương & BHXH · Sửa lương & BHXH · Thao tác vòng đời · Điều chuyển & nâng bậc.
+  // Lý do: rất nhiều ô chỉ thi hành ở GIAO DIỆN (ẩn/hiện nút), máy chủ không hề biết.
+  const viecChet = new Map(
+    modules.filter((m) => m.viec_chet).map((m) => [m.key, new Set(m.viec_chet!)]),
+  );
+  /** Mặc định CÒN SỐNG — thà để thừa một ô vô hại còn hơn khoá nhầm một ô đang dùng. */
+  const oSong = (moduleKey: string, viec: string): boolean =>
+    !viecChet.get(moduleKey)?.has(viec);
   const byKey = new Map(matrix.map((r) => [r.module_key, r]));
   // Nhóm mở/đóng: mặc định mở khi nhóm CÓ quyền; override khi người dùng bấm.
   const [groupOverride, setGroupOverride] = useState<Map<string, boolean>>(new Map());
@@ -432,8 +594,35 @@ export function PermissionMatrix({
       return next;
     });
 
+  // Vai mẫu: sau khi tách quyền theo màn, ma trận dài ~32 khoá. Cấp tay mất 10–15 phút và dễ
+  // tick nhầm — mà rủi ro thật không phải mất thời gian, là người ta CẤP BỪA cho xong rồi còn
+  // lỏng hơn trước khi tách. Mẫu chỉ ĐIỀN SẴN, người dùng xem lại rồi mới bấm Lưu.
+  const coMau = !readOnly && !!templates?.length && !!onApplyTemplate;
+
   return (
     <div className="rdx-perm">
+      {coMau && (
+        <div className="rdx-perm__mau">
+          <span className="rdx-perm__mau-nhan">Điền theo vai mẫu</span>
+          <div className="rdx-perm__mau-nut">
+            {templates!.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                className="rdx-perm__mau-btn"
+                title={t.mo_ta}
+                onClick={() => onApplyTemplate!(t)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <p className="rdx-perm__mau-ghi">
+            Chọn mẫu sẽ <strong>thay toàn bộ</strong> các ô bên dưới. Xem lại rồi bấm Lưu —
+            chưa Lưu thì chưa có gì đổi.
+          </p>
+        </div>
+      )}
       {groups.map((g) => {
         const granted = g.rows.filter(rowHasAny).length;
         const open = groupOverride.has(g.key) ? groupOverride.get(g.key)! : granted > 0;
@@ -494,6 +683,13 @@ export function PermissionMatrix({
                   const canWrite = isNoiQuy
                     ? row.can_create && row.can_delete
                     : WRITE_ACTIONS.every((k) => row[k]);
+                  const xemSong = oSong(row.module_key, "read");
+                  // Cột "Thao tác" bật nhiều cột một lúc — coi là còn sống nếu CÓ ÍT NHẤT MỘT
+                  // trong số đó được máy chủ gác. Đòi tất cả thì gần như màn nào cũng bị khoá oan.
+                  const ghiSong = actionKeys.some((k) =>
+                    oSong(row.module_key, k.replace("can_", "")),
+                  );
+                  const phamViChoPhep = PHAM_VI_CHO_PHEP[row.module_key];
                   const fineActs = FINE_ACTIONS[row.module_key];
                   // Công tắc gộp (`keys`): bật = TẤT CẢ cột bật.
                   const fineOn = (a: { key: ActionKey; keys?: ActionKey[] }) =>
@@ -543,8 +739,9 @@ export function PermissionMatrix({
                           <input
                             type="checkbox"
                             className="switch"
-                            checked={row.can_read}
-                            disabled={readOnly}
+                            checked={row.can_read && xemSong}
+                            disabled={readOnly || !xemSong}
+                            title={xemSong ? undefined : CANH_BAO_O_CHET}
                             aria-label={`Xem — ${label}`}
                             onChange={(e) =>
                               onToggle(row.module_key, "can_read", e.target.checked)
@@ -556,8 +753,9 @@ export function PermissionMatrix({
                         <input
                           type="checkbox"
                           className="switch"
-                          checked={canWrite}
-                          disabled={readOnly}
+                          checked={canWrite && ghiSong}
+                          disabled={readOnly || !ghiSong}
+                          title={ghiSong ? undefined : CANH_BAO_O_CHET}
                           aria-label={
                             isNoiQuy
                               ? `Thao tác (thêm, xóa) — ${label}`
@@ -570,25 +768,32 @@ export function PermissionMatrix({
                           }
                         />
                       </div>
-                      {!g.noScope && (
-                        <div className="rdx-perm__cell rdx-perm__cell--scope">
-                          <select
-                            className="rdx-perm__scope"
-                            value={row.scope}
-                            disabled={readOnly}
-                            aria-label={`Phạm vi — ${label}`}
-                            onChange={(e) =>
-                              onScope(row.module_key, e.target.value as Scope)
-                            }
-                          >
-                            {SCOPES.map((s) => (
-                              <option key={s.value} value={s.value}>
-                                {s.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
+                      <div className="rdx-perm__cell rdx-perm__cell--scope">
+                        <select
+                          className="rdx-perm__scope"
+                          value={row.scope}
+                          // Chỉ còn ĐÚNG MỘT lựa chọn ⇒ khoá luôn: bày một ô chọn không chọn được
+                          // gì khác chỉ làm người ta bấm thử rồi tưởng hỏng.
+                          disabled={readOnly || phamViChoPhep?.length === 1}
+                          title={
+                            phamViChoPhep?.length === 1
+                              ? "Màn này chỉ có một phạm vi hợp lý — không cần chọn."
+                              : undefined
+                          }
+                          aria-label={`Phạm vi — ${label}`}
+                          onChange={(e) =>
+                            onScope(row.module_key, e.target.value as Scope)
+                          }
+                        >
+                          {SCOPES.filter(
+                            (s) => !phamViChoPhep || phamViChoPhep.includes(s.value),
+                          ).map((s) => (
+                            <option key={s.value} value={s.value}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
                       {fineActs && fineIsOpen && (
                         <div className="rdx-perm__fine" role="group" aria-label={`Quyền chi tiết — ${label}`}>
@@ -597,8 +802,15 @@ export function PermissionMatrix({
                               <input
                                 type="checkbox"
                                 className="switch"
-                                checked={fineOn(a)}
-                                disabled={readOnly}
+                                checked={fineOn(a) && oSong(row.module_key, a.key.replace("can_", ""))}
+                                disabled={
+                                  readOnly || !oSong(row.module_key, a.key.replace("can_", ""))
+                                }
+                                title={
+                                  oSong(row.module_key, a.key.replace("can_", ""))
+                                    ? a.hint
+                                    : CANH_BAO_O_CHET
+                                }
                                 aria-label={`${a.label} — ${label}`}
                                 onChange={(e) =>
                                   // Công tắc gộp → set TẤT CẢ cột trong `keys`; thường → 1 cột.

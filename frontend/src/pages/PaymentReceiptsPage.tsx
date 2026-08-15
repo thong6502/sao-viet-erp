@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   ApiError,
   api,
   assetUrl,
+  type CompanyBankAccountRow,
   type PaymentReceiptAttachment,
+  type PaymentReceiptInput,
   type PaymentReceiptRow,
   type PaymentReceiptStatus,
   type PaymentVoucherRow,
+  type PaymentVoucherType,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
@@ -15,10 +18,8 @@ import { Button } from "../components/Button";
 import { CodeLink } from "../components/CodeLink";
 import { DetailModal } from "../components/DetailModal";
 import { Icon } from "../components/Icons";
-import { VOUCHER_PAGE_LABEL } from "../constants/features";
 import { fmtDate, fmtDateTime, money, originalMoney } from "../utils/format";
 import { printTT200 } from "../utils/printTT200";
-import { OrderDepositQueue } from "./OrderDepositQueue";
 import { PaymentReceiptDialog } from "./PaymentReceiptDialog";
 import "./accounting.css";
 import "./purchase.css";
@@ -41,7 +42,38 @@ function methodText(row: PaymentReceiptRow): string {
 }
 
 /** In Phiếu thu theo mẫu 01-TT. */
+function isoToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function optional(value?: string | null): string | null {
+  const cleaned = (value ?? "").trim();
+  return cleaned || null;
+}
+
+function sourceLabel(row: PaymentReceiptRow): string {
+  if (row.source_type === "order_deposit") return "Cọc đơn bán";
+  if (row.source_type === "sales_invoice") return "Thu hóa đơn";
+  if (row.source_type === "other") return "Thu khác";
+  return "Thu hoàn phiếu chi";
+}
+
+function sourceCode(row: PaymentReceiptRow): string | null {
+  if (row.source_type === "order_deposit") return row.order_code;
+  if (row.source_type === "sales_invoice") return row.sales_invoice_number;
+  if (row.source_type === "purchase_refund") return row.payment_voucher_code;
+  return null;
+}
+
+function sourceName(row: PaymentReceiptRow): string {
+  if (row.source_type === "order_deposit") return row.customer_name || "Khách hàng";
+  if (row.source_type === "sales_invoice") return row.customer_name || "Khách hàng";
+  if (row.source_type === "purchase_refund") return row.supplier_name || "Nhà cung cấp";
+  return row.payer_name;
+}
+
 function printReceipt(row: PaymentReceiptRow): boolean {
+  const linkedSourceCode = sourceCode(row);
   return printTT200({
     kind: "thu",
     docNo: row.doc_no,
@@ -61,7 +93,8 @@ function printReceipt(row: PaymentReceiptRow): boolean {
             },
           ]
         : []),
-      { label: "Phiếu chi nguồn", value: row.payment_voucher_code },
+      { label: "Nguồn thu", value: sourceLabel(row) },
+      ...(linkedSourceCode ? [{ label: "Mã nguồn", value: linkedSourceCode }] : []),
       ...(row.bank_reference ? [{ label: "Mã giao dịch", value: row.bank_reference }] : []),
     ],
     amount: row.amount,
@@ -71,6 +104,248 @@ function printReceipt(row: PaymentReceiptRow): boolean {
     attachmentCount: row.attachment_count,
     cancelled: row.status === "cancelled",
   });
+}
+
+function OtherReceiptDialog({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: (receipt: PaymentReceiptRow) => void;
+}) {
+  const { token } = useAuth();
+  const [form, setForm] = useState<PaymentReceiptInput>({
+    payer_name: "",
+    payer_address: null,
+    receipt_method: "cash",
+    receipt_date: isoToday(),
+    amount: 0,
+    exchange_rate: 1,
+    content: "",
+    debit_account: "1111",
+    credit_account: null,
+    company_bank_account_id: null,
+    bank_reference: null,
+    note: null,
+  });
+  const [companyAccounts, setCompanyAccounts] = useState<CompanyBankAccountRow[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isBank = form.receipt_method === "bank_transfer";
+
+  useEffect(() => {
+    if (!token) return;
+    setLoadingAccounts(true);
+    api.accounting
+      .companyAccounts(token, true, "receive")
+      .then((accounts) => setCompanyAccounts(accounts.filter((row) => row.currency === "VND")))
+      .catch(() => setError("Không tải được danh sách tài khoản ngân hàng."))
+      .finally(() => setLoadingAccounts(false));
+  }, [token]);
+
+  function set<K extends keyof PaymentReceiptInput>(key: K, value: PaymentReceiptInput[K]) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!token || saving) return;
+    if (!form.payer_name.trim()) {
+      setError("Vui lòng nhập người nộp tiền.");
+      return;
+    }
+    if (!form.receipt_date || !form.content.trim()) {
+      setError("Vui lòng nhập ngày thu và nội dung thu.");
+      return;
+    }
+    if (!Number.isFinite(form.amount) || form.amount <= 0) {
+      setError("Số tiền thu phải lớn hơn 0.");
+      return;
+    }
+    if (isBank && !form.company_bank_account_id) {
+      setError("Vui lòng chọn tài khoản công ty nhận tiền.");
+      return;
+    }
+    if (isBank && !optional(form.bank_reference)) {
+      setError("Thu qua ngân hàng phải có mã giao dịch hoặc số báo có.");
+      return;
+    }
+    const payload: PaymentReceiptInput = {
+      ...form,
+      payer_name: form.payer_name.trim(),
+      payer_address: optional(form.payer_address),
+      receipt_method: form.receipt_method,
+      receipt_date: form.receipt_date,
+      amount: Math.round(Number(form.amount)),
+      exchange_rate: 1,
+      content: form.content.trim(),
+      debit_account:
+        optional(form.debit_account) ?? (isBank ? "1121" : "1111"),
+      credit_account: optional(form.credit_account),
+      company_bank_account_id: isBank ? form.company_bank_account_id ?? null : null,
+      bank_reference: isBank ? optional(form.bank_reference) : null,
+      note: optional(form.note),
+    };
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await api.accounting.createOtherReceipt(token, payload);
+      onSaved(saved);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Không lập được phiếu thu.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="acct-modal" role="dialog" aria-modal="true">
+      <form className="acct-modal__box" onSubmit={submit}>
+        <header className="acct-modal__head">
+          <div>
+            <p className="eyebrow">Phiếu thu</p>
+            <h2>Tạo phiếu thu</h2>
+          </div>
+          <button type="button" className="acct-modal__x" onClick={onClose} aria-label="Đóng">
+            ×
+          </button>
+        </header>
+        <div className="acct-modal__body">
+          {error && (
+            <div className="banner banner--error" role="alert">
+              {error}
+            </div>
+          )}
+          <div className="acct-form-grid acct-form-grid--2">
+            <label className="acct-field">
+              <span>Người nộp tiền <b>*</b></span>
+              <input
+                className="input"
+                value={form.payer_name}
+                onChange={(event) => set("payer_name", event.target.value)}
+                placeholder="Tên khách / nhân viên / đối tượng nộp"
+              />
+            </label>
+            <label className="acct-field">
+              <span>Ngày thu <b>*</b></span>
+              <input
+                className="input"
+                type="date"
+                value={form.receipt_date}
+                onChange={(event) => set("receipt_date", event.target.value)}
+              />
+            </label>
+          </div>
+          <label className="acct-field">
+            <span>Địa chỉ người nộp</span>
+            <input
+              className="input"
+              value={form.payer_address ?? ""}
+              onChange={(event) => set("payer_address", event.target.value)}
+            />
+          </label>
+          <div className="acct-segment" aria-label="Hình thức thu">
+            <button
+              type="button"
+              className={form.receipt_method === "cash" ? "is-active" : ""}
+              onClick={() => {
+                set("receipt_method", "cash" as PaymentVoucherType);
+                set("debit_account", "1111");
+                set("company_bank_account_id", null);
+                set("bank_reference", null);
+              }}
+            >
+              Tiền mặt
+            </button>
+            <button
+              type="button"
+              className={isBank ? "is-active" : ""}
+              onClick={() => {
+                set("receipt_method", "bank_transfer" as PaymentVoucherType);
+                set("debit_account", "1121");
+              }}
+            >
+              Chuyển khoản
+            </button>
+          </div>
+          {isBank && (
+            <div className="acct-form-grid acct-form-grid--2">
+              <label className="acct-field">
+                <span>Tài khoản nhận <b>*</b></span>
+                <select
+                  className="input"
+                  value={form.company_bank_account_id ?? ""}
+                  disabled={loadingAccounts}
+                  onChange={(event) =>
+                    set(
+                      "company_bank_account_id",
+                      event.target.value ? Number(event.target.value) : null,
+                    )
+                  }
+                >
+                  <option value="">Chọn tài khoản công ty</option>
+                  {companyAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.bank_name} · {account.account_number}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="acct-field">
+                <span>Mã giao dịch / số báo có <b>*</b></span>
+                <input
+                  className="input"
+                  value={form.bank_reference ?? ""}
+                  onChange={(event) => set("bank_reference", event.target.value)}
+                />
+              </label>
+            </div>
+          )}
+          {/* Hai ô "Định khoản Nợ / Có" ĐÃ BỎ (chủ chốt 15/08/2026) — xem chú thích cùng ngày ở
+              `PaymentVouchersPage`. Ô Số tiền vì thế đứng MỘT MÌNH: hạ lưới từ 3 cột xuống 1 để
+              nó không bị kéo bằng 1/3 hàng rồi nằm trơ với hai khoảng trống bên cạnh.
+              Tài khoản "Nợ" vẫn điền ngầm theo hình thức thu (1111 · 1121) trong `payload`. */}
+          <label className="acct-field">
+            <span>Số tiền (VND) <b>*</b></span>
+            <input
+              className="input acct-money-input"
+              type="number"
+              min="1"
+              step="1"
+              value={form.amount === 0 ? "" : form.amount}
+              onChange={(event) => set("amount", Number(event.target.value))}
+            />
+          </label>
+          <label className="acct-field">
+            <span>Nội dung thu <b>*</b></span>
+            <input
+              className="input"
+              value={form.content}
+              onChange={(event) => set("content", event.target.value)}
+              placeholder="VD: Thu tiền khách thanh toán, thu bồi hoàn..."
+            />
+          </label>
+          <label className="acct-field">
+            <span>Ghi chú</span>
+            <textarea
+              className="input acct-textarea"
+              value={form.note ?? ""}
+              onChange={(event) => set("note", event.target.value)}
+            />
+          </label>
+        </div>
+        <footer className="acct-modal__foot">
+          <Button variant="ghost" type="button" onClick={onClose}>
+            Hủy
+          </Button>
+          <Button variant="primary" type="submit" loading={saving}>
+            Lưu phiếu thu
+          </Button>
+        </footer>
+      </form>
+    </div>
+  );
 }
 
 export function PaymentReceiptsPage({
@@ -85,12 +360,12 @@ export function PaymentReceiptsPage({
 }) {
   const { token } = useAuth();
   const can = useCan();
-  const canApprove = can("ke_toan", "approve");
-  const canMarkReceived = can("ke_toan", "manage_status");
-  const canCancel = can("ke_toan", "cancel");
-  const canExport = can("ke_toan", "export");
-  // B3: quyền "Ghi phiếu thu cọc" (module Đơn hàng bán) — chỉ người này thấy hàng chờ + nghe popup cọc.
-  const canRecordDeposit = can("don_hang_ban", "record_deposit");
+  // Khoá RIÊNG của màn Phiếu thu (tách 10/08/2026). `create` = LẬP/SỬA phiếu + gán chứng từ;
+  // trước đây gọi là `approve` nên nhìn ma trận tưởng là quyền duyệt.
+  const canApprove = can("phieu_thu", "create");
+  const canMarkReceived = can("phieu_thu", "manage_status");
+  const canCancel = can("phieu_thu", "cancel");
+  const canExport = can("phieu_thu", "export");
   const [rows, setRows] = useState<PaymentReceiptRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -104,6 +379,7 @@ export function PaymentReceiptsPage({
     voucher: PaymentVoucherRow;
     receipt: PaymentReceiptRow;
   }>(null);
+  const [creatingOther, setCreatingOther] = useState(false);
   const [marking, setMarking] = useState<PaymentReceiptRow | null>(null);
   const [bankReference, setBankReference] = useState("");
   const [cancelling, setCancelling] = useState<PaymentReceiptRow | null>(null);
@@ -162,8 +438,19 @@ export function PaymentReceiptsPage({
     [rows, selectedId],
   );
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const openVoucher = (code: string) =>
-    navigate("ke-toan-phieu-chi", { focusVoucherQuery: code });
+  const openSource = (row: PaymentReceiptRow) => {
+    if (row.source_type === "purchase_refund" && row.payment_voucher_code) {
+      navigate("ke-toan-phieu-chi", { focusVoucherQuery: row.payment_voucher_code });
+      return;
+    }
+    if (row.source_type === "order_deposit" && row.order_id) {
+      navigate("don-hang-ban", { openOrderId: row.order_id });
+      return;
+    }
+    if (row.source_type === "sales_invoice" && row.order_id) {
+      navigate("don-hang-ban", { openOrderId: row.order_id });
+    }
+  };
   const selectedReceiptId = selected?.id ?? null;
   /** Đóng popup rồi mới mở form — không chồng hai lớp cửa sổ. */
   function closeDetailThen(action: () => void) {
@@ -249,6 +536,10 @@ export function PaymentReceiptsPage({
 
   async function openEdit(row: PaymentReceiptRow) {
     if (!token) return;
+    if (!row.payment_voucher_id) {
+      setError("Phiếu thu này không có phiếu chi nguồn để sửa ở form thu hoàn.");
+      return;
+    }
     setBusy(true);
     try {
       const voucher = await api.accounting.voucher(
@@ -327,7 +618,9 @@ export function PaymentReceiptsPage({
             In phiếu
           </Button>
         )}
-        {canApprove && row.status === "waiting_receipt" && (
+        {canApprove &&
+          row.status === "waiting_receipt" &&
+          row.source_type === "purchase_refund" && (
           <Button
             variant="ghost"
             onClick={() => closeDetailThen(() => openEdit(row))}
@@ -349,7 +642,9 @@ export function PaymentReceiptsPage({
             Xác nhận đã thu
           </Button>
         )}
-        {canCancel && row.status === "waiting_receipt" && (
+        {canCancel &&
+          (row.status === "waiting_receipt" ||
+            ((row.source_type === "other" || row.source_type === "sales_invoice") && row.status === "received")) && (
           <Button
             variant="danger"
             onClick={() =>
@@ -372,8 +667,8 @@ export function PaymentReceiptsPage({
         <p className="eyebrow">Kế toán</p>
         <h1 className="md-page__title">Phiếu thu</h1>
         <p className="md-page__sub">
-          Ghi nhận tiền quay về công ty — tiền chi ra tiêu không hết do NCC
-          hoặc nhân viên phụ trách mua nộp lại.
+          Ghi nhận các khoản tiền vào công ty: thu cọc đơn bán, thu hóa đơn,
+          thu hoàn từ phiếu chi và các khoản thu khác phát sinh độc lập.
         </p>
       </header>
       {error && (
@@ -381,7 +676,6 @@ export function PaymentReceiptsPage({
           {error}
         </div>
       )}
-      {canRecordDeposit && <OrderDepositQueue />}
       <section className="acct-toolbar">
         <form
           className="md-page__search"
@@ -395,11 +689,11 @@ export function PaymentReceiptsPage({
             className="input"
             value={q}
             onChange={(event) => setQ(event.target.value)}
-            placeholder="Tìm PT, PC, PMH, NCC, người nộp..."
+            placeholder="Tìm PT, hóa đơn, đơn bán, PC, người nộp..."
           />
-          <Button type="submit" variant="ghost">
+          {/* <Button type="submit" variant="ghost">
             Tìm
-          </Button>
+          </Button> */}
         </form>
         <div className="acct-toolbar__filters">
           <select
@@ -417,6 +711,11 @@ export function PaymentReceiptsPage({
               </option>
             ))}
           </select>
+          {canApprove && (
+            <Button variant="primary" onClick={() => setCreatingOther(true)}>
+              + Tạo phiếu thu
+            </Button>
+          )}
         </div>
       </section>
       <section className="card md-page__tablewrap acct-list">
@@ -441,8 +740,8 @@ export function PaymentReceiptsPage({
             {!loading && rows.length === 0 && (
               <tr>
                 <td colSpan={7}>
-                  Chưa có phiếu thu phù hợp. Lập phiếu thu từ trang{" "}
-                  {VOUCHER_PAGE_LABEL} — nút "Lập phiếu thu" trên phiếu đã chi.
+                  Chưa có phiếu thu phù hợp. Có thể tạo phiếu thu trực tiếp tại đây,
+                  hoặc lập từ đơn bán/phiếu chi nguồn khi phát sinh nghiệp vụ.
                 </td>
               </tr>
             )}
@@ -458,10 +757,21 @@ export function PaymentReceiptsPage({
                   <td className="acct-code-cell">
                     <strong>{row.code}</strong>
                     <div className="purchase__source-codes">
-                      <CodeLink
-                        code={row.payment_voucher_code}
-                        onOpen={openVoucher}
-                      />
+                      {sourceCode(row) ? (
+                        <>
+                          <CodeLink
+                            code={sourceCode(row)!}
+                            onOpen={() => openSource(row)}
+                            title={`Mở ${sourceLabel(row)}`}
+                          />
+                          <small>
+                            {sourceLabel(row)}
+                            {row.source_type === "sales_invoice" && row.order_code ? ` · Đơn ${row.order_code}` : ""}
+                          </small>
+                        </>
+                      ) : (
+                        <span>{sourceLabel(row)}</span>
+                      )}
                     </div>
                   </td>
                   <td
@@ -563,21 +873,40 @@ export function PaymentReceiptsPage({
         >
           <dl className="purchase__facts">
             <div>
-              <dt>Phiếu chi nguồn</dt>
-              <dd>
-                <CodeLink
-                  code={selected.payment_voucher_code}
-                  onOpen={openVoucher}
-                />
-              </dd>
+              <dt>Nguồn thu</dt>
+              <dd>{sourceLabel(selected)}</dd>
             </div>
+            {sourceCode(selected) && (
+              <div>
+                <dt>Mã nguồn</dt>
+                <dd>
+                  <CodeLink
+                    code={sourceCode(selected)!}
+                    onOpen={() => openSource(selected)}
+                  />
+                </dd>
+              </div>
+            )}
+            {selected.purchase_request_code && (
+              <div>
+                <dt>Đơn mua hàng</dt>
+                <dd>{selected.purchase_request_code}</dd>
+              </div>
+            )}
+            {selected.source_type === "sales_invoice" && selected.order_code && (
+              <div>
+                <dt>Đơn bán nguồn</dt>
+                <dd>
+                  <CodeLink
+                    code={selected.order_code}
+                    onOpen={() => openSource(selected)}
+                  />
+                </dd>
+              </div>
+            )}
             <div>
-              <dt>PMH nguồn</dt>
-              <dd>{selected.purchase_request_code}</dd>
-            </div>
-            <div>
-              <dt>Nhà cung cấp</dt>
-              <dd>{selected.supplier_name}</dd>
+              <dt>Đối tượng</dt>
+              <dd>{sourceName(selected)}</dd>
             </div>
             <div>
               <dt>Ngày thu</dt>
@@ -741,6 +1070,15 @@ export function PaymentReceiptsPage({
           onClose={() => setEditState(null)}
           onSaved={() => {
             setEditState(null);
+            load();
+          }}
+        />
+      )}
+      {creatingOther && (
+        <OtherReceiptDialog
+          onClose={() => setCreatingOther(false)}
+          onSaved={() => {
+            setCreatingOther(false);
             load();
           }}
         />

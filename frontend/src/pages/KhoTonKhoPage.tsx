@@ -4,13 +4,14 @@
 //   • Tồn kho:  gom lô theo VẬT TƯ, bung xem từng lô (tồn = Σ sl_con_lai, spec §6).
 //   • Phiếu kho: phiếu nhập/xuất ĐÃ LẬP tại kho này (chuyển vào đây thay vì ở Hộp yêu cầu — phiếu
 //     là chứng từ của kho, nên nằm cùng chỗ với tồn/ngưỡng).
-// Đặt ngưỡng tồn nằm ở đây (không ở màn đề nghị) vì ngưỡng gắn với kho vật lý: bấm ô Min/Max
+// Đặt ngưỡng tồn nằm ở đây (không ở màn yêu cầu) vì ngưỡng gắn với kho vật lý: bấm ô Min/Max
 // hoặc badge Trạng thái của 1 mã → popup đặt ngưỡng (chỉ khi có quyền set_threshold).
 // Giá vốn CHỈ hiện với `can_view_cost` — thiếu quyền thì cột giá biến mất (ẩn cột, không "—").
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
   ApiError,
   api,
+  assetUrl,
   type HangLoai,
   type SoGiaRow,
   type StockLevel,
@@ -28,7 +29,13 @@ import { StockLevelChip } from "../components/StockLevelChip";
 import type { NavigateFn } from "../components/AppShell";
 import { fmtDateISO, money } from "../utils/format";
 import { qrToSvg } from "../lib/qr";
-import { VoucherStatusBadge, fmtQty } from "./khoShared";
+import {
+  DateFilterHead,
+  NumFilterHead,
+  VoucherStatusBadge,
+  fmtQty,
+  inNumRange,
+} from "./khoShared";
 import { InboxRequestDrawer, VoucherDrawer } from "./KhoYeuCauPage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import "./rebuild-catalog.css";
@@ -43,6 +50,8 @@ interface MaterialGroup {
   code: string | null;
   name: string | null;
   dvt: string | null;
+  // Ảnh minh hoạ mặt hàng (từ danh mục). null = chưa có ảnh. Sửa được trong drawer (quyền danh mục).
+  anh: string | null;
   total: number;
   value: number; // Σ sl_con_lai × đơn giá — chỉ có nghĩa khi thấy giá
   lots: StockLot[];
@@ -89,9 +98,6 @@ export function KhoTonKhoPage({
   // ĐÃ GỘP quyền: ghi sổ + hủy dùng CHUNG quyền lập phiếu (create) — không còn 'post' riêng.
   const canPost = canCreate;
   const canSetThreshold = can("kho", "set_threshold");
-  const canExport = can("kho", "export");
-
-  const [exporting, setExporting] = useState(false);
 
   const [tab, setTab] = useState<TonTab>("ton");
   const [lots, setLots] = useState<StockLot[]>([]);
@@ -117,13 +123,13 @@ export function KhoTonKhoPage({
   const [dateTo, setDateTo] = useState("");
   const [tonFrom, setTonFrom] = useState("");
   const [tonTo, setTonTo] = useState("");
+  const [gtFrom, setGtFrom] = useState(""); // Giá trị tồn (g.value)
+  const [gtTo, setGtTo] = useState("");
   // Bộ lọc tab Phiếu Nhập/Xuất (RIÊNG — khác ngữ nghĩa tab tồn): khoảng NGÀY PHIẾU + khoảng GIÁ VỐN.
   const [vDateFrom, setVDateFrom] = useState("");
   const [vDateTo, setVDateTo] = useState("");
   const [vValFrom, setVValFrom] = useState("");
   const [vValTo, setVValTo] = useState("");
-  const [filterOpen, setFilterOpen] = useState(false);
-  const filterRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -180,37 +186,19 @@ export function KhoTonKhoPage({
     vValTo,
   ]);
 
-  // Đổi tab → XÓA sạch mọi bộ lọc + đóng popover (khỏi lẫn bộ lọc giữa 2 nhóm tab). Effect RIÊNG
-  // chỉ theo [tab] — KHÔNG gộp vào effect reset page (deps của nó là chính các filter → sẽ tự xóa
-  // ngay khi vừa gõ filter).
+  // Đổi tab → XÓA sạch mọi bộ lọc (khỏi lẫn bộ lọc giữa 2 nhóm tab). Effect RIÊNG chỉ theo [tab].
   useEffect(() => {
     setDateFrom("");
     setDateTo("");
     setTonFrom("");
     setTonTo("");
+    setGtFrom("");
+    setGtTo("");
     setVDateFrom("");
     setVDateTo("");
     setVValFrom("");
     setVValTo("");
-    setFilterOpen(false);
   }, [tab]);
-
-  // Đóng popover Lọc khi bấm ra ngoài / nhấn Esc.
-  useEffect(() => {
-    if (!filterOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (filterRef.current && !filterRef.current.contains(e.target as Node)) setFilterOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setFilterOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [filterOpen]);
 
   const groups = useMemo<MaterialGroup[]>(() => {
     const m = new Map<string, MaterialGroup>();
@@ -225,6 +213,7 @@ export function KhoTonKhoPage({
           code: lot.hang_ma,
           name: lot.hang_ten,
           dvt: lot.dvt,
+          anh: lot.hang_anh,
           total: 0,
           value: 0,
           lots: [],
@@ -296,9 +285,11 @@ export function KhoTonKhoPage({
       // Khoảng tồn khả dụng.
       if (tf != null && !Number.isNaN(tf) && g.total < tf) return false;
       if (tt != null && !Number.isNaN(tt) && g.total > tt) return false;
+      // Khoảng GIÁ TRỊ TỒN (g.value).
+      if (!inNumRange(g.value, { from: gtFrom, to: gtTo })) return false;
       return true;
     });
-  }, [groups, q, dateFrom, dateTo, tonFrom, tonTo]);
+  }, [groups, q, dateFrom, dateTo, tonFrom, tonTo, gtFrom, gtTo]);
 
   const shownVouchers = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -355,21 +346,15 @@ export function KhoTonKhoPage({
   // Cảnh báo: mã đang ở "Cần mua" (≤ ngưỡng tồn).
   const canMua = useMemo(() => groups.filter((g) => g.level === "can_mua"), [groups]);
 
-  // Bộ lọc đang bật (để hiện badge số + pill + empty state) — THEO TAB đang xem.
-  const hasDateFilter = dateFrom !== "" || dateTo !== "";
-  const hasTonFilter = tonFrom !== "" || tonTo !== "";
-  const hasVDateFilter = vDateFrom !== "" || vDateTo !== "";
-  const hasVValFilter = vValFrom !== "" || vValTo !== "";
-  const activeFilters =
-    tab === "ton"
-      ? (hasDateFilter ? 1 : 0) + (hasTonFilter ? 1 : 0)
-      : (hasVDateFilter ? 1 : 0) + (hasVValFilter ? 1 : 0);
+  // Xóa mọi bộ lọc của TAB đang xem (nút "Xóa lọc" ở empty-state). Funnel từng cột tự có nút riêng.
   function clearFilters() {
     if (tab === "ton") {
       setDateFrom("");
       setDateTo("");
       setTonFrom("");
       setTonTo("");
+      setGtFrom("");
+      setGtTo("");
     } else {
       setVDateFrom("");
       setVDateTo("");
@@ -378,43 +363,31 @@ export function KhoTonKhoPage({
     }
   }
 
-  // Tạo Yêu cầu mua hàng từ các mã đã tick: mở form YCMH (nguồn Kho) điền sẵn Tên + ĐVT,
-  // để trống SL + ghi chú cho người dùng nhập.
+  // Tạo Yêu cầu mua hàng từ các mã đã tick: mở form YCMH (nguồn Kho) điền sẵn Tên + ĐVT + SL cần
+  // mua; KHOÁ Tên + ĐVT (lấy từ mặt hàng đã có), chỉ cho sửa số lượng. SL cần mua = (ngưỡng tối đa
+  // nếu có, không thì ngưỡng tồn) − tồn hiện tại, kẹp ≥ 0. Người dùng chỉnh lại được.
   function createPurchaseFromSelected() {
     const chosen = groups.filter((g) => selected.has(g.key));
     if (chosen.length === 0) return;
     navigate("yeu-cau-mua-hang", {
-      purchaseSeedLines: chosen.map((g) => ({
-        // Mang theo CẶP chứ không chỉ tên: phía mua hàng nối được về đúng mặt hàng gốc,
-        // thay vì ghép mù bằng chuỗi tên (ghép trượt thì im lặng sai).
-        hang_loai: g.hang_loai,
-        hang_id: g.hang_id,
-        item_name: g.name ?? g.code ?? "",
-        unit: g.dvt ?? "",
-        quantity: 0,
-        note: "",
-      })),
+      purchaseSeedLines: chosen.map((g) => {
+        // SL cần mua = (ngưỡng tối đa nếu có, không thì ngưỡng tồn) − tồn hiện tại, kẹp ≥ 0.
+        // Gợi ý rule-based để về ngưỡng; người mua chỉnh lại được.
+        const th = thresholds[g.key];
+        const target = th?.nguong_toi_da ?? th?.nguong_ton ?? 0;
+        return {
+          // Mang theo CẶP chứ không chỉ tên: phía mua hàng nối được về đúng mặt hàng gốc,
+          // thay vì ghép mù bằng chuỗi tên (ghép trượt thì im lặng sai).
+          hang_loai: g.hang_loai,
+          hang_id: g.hang_id,
+          item_name: g.name ?? g.code ?? "",
+          unit: g.dvt ?? "",
+          quantity: Math.max(0, target - g.total),
+          note: "",
+        };
+      }),
       purchaseSeedPurpose: `Bổ sung tồn kho ${ten}`,
     });
-  }
-
-  async function handleExportExcel() {
-    if (exporting) return;
-    setExporting(true);
-    try {
-      const url = await api.kho.phieu.exportXlsxBlobUrl(token, khoId);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {
-      setError("Không thể xuất file Excel. Vui lòng thử lại.");
-    } finally {
-      setExporting(false);
-    }
   }
 
   const voucherCols = canViewCost ? 6 : 5;
@@ -440,18 +413,6 @@ export function KhoTonKhoPage({
               : `${shownVouchers.length} phiếu`}
             {ma ? ` · ${ma}` : ""}
           </span>
-          {canExport && (
-            <button
-              type="button"
-              className="btn btn--secondary kho-export-btn"
-              disabled={exporting}
-              onClick={handleExportExcel}
-              title="Xuất báo cáo tồn kho chi tiết ra file Excel"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              {exporting ? "Đang xuất…" : "Xuất Excel"}
-            </button>
-          )}
         </div>
         <p className="rc__sub">
           {tab === "ton"
@@ -489,7 +450,7 @@ export function KhoTonKhoPage({
           <input
             className="rc__search"
             placeholder={
-              tab === "ton" ? "Tìm mã / tên vật tư…" : "Tìm số phiếu / mã đề nghị / tên vật tư…"
+              tab === "ton" ? "Tìm mã / tên vật tư…" : "Tìm số phiếu / mã yêu cầu / tên vật tư…"
             }
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -524,226 +485,9 @@ export function KhoTonKhoPage({
             </div>
           </>
         )}
-        <div className="kho-filter" ref={filterRef}>
-          <Button
-            variant="secondary"
-            className={`kho-filter__btn${activeFilters > 0 ? " is-active" : ""}`}
-            onClick={() => setFilterOpen((o) => !o)}
-            aria-expanded={filterOpen}
-          >
-            <FilterIcon />
-            Lọc
-            {activeFilters > 0 && <span className="kho-filter__count">{activeFilters}</span>}
-          </Button>
-          {filterOpen && (
-            <div
-              className="kho-filter__pop"
-              role="dialog"
-              aria-label={tab === "ton" ? "Bộ lọc tồn kho" : "Bộ lọc phiếu"}
-            >
-              {tab === "ton" ? (
-                <>
-                  <div className="kho-filter__sec">
-                    <div className="kho-filter__lbl">Ngày nhập</div>
-                    <div className="kho-daterange">
-                      <input
-                        type="date"
-                        className="rc-input"
-                        value={dateFrom}
-                        max={dateTo || undefined}
-                        onChange={(e) => setDateFrom(e.target.value)}
-                        aria-label="Ngày nhập từ"
-                      />
-                      <span className="kho-daterange__sep">–</span>
-                      <input
-                        type="date"
-                        className="rc-input"
-                        value={dateTo}
-                        min={dateFrom || undefined}
-                        onChange={(e) => setDateTo(e.target.value)}
-                        aria-label="Ngày nhập đến"
-                      />
-                    </div>
-                  </div>
-                  <div className="kho-filter__sec">
-                    <div className="kho-filter__lbl">Tồn khả dụng</div>
-                    <div className="kho-daterange">
-                      <input
-                        type="number"
-                        className="rc-input kho-num"
-                        placeholder="từ"
-                        value={tonFrom}
-                        onChange={(e) => setTonFrom(e.target.value)}
-                        aria-label="Tồn từ"
-                      />
-                      <span className="kho-daterange__sep">–</span>
-                      <input
-                        type="number"
-                        className="rc-input kho-num"
-                        placeholder="đến"
-                        value={tonTo}
-                        onChange={(e) => setTonTo(e.target.value)}
-                        aria-label="Tồn đến"
-                      />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="kho-filter__sec">
-                    <div className="kho-filter__lbl">Ngày phiếu</div>
-                    <div className="kho-daterange">
-                      <input
-                        type="date"
-                        className="rc-input"
-                        value={vDateFrom}
-                        max={vDateTo || undefined}
-                        onChange={(e) => setVDateFrom(e.target.value)}
-                        aria-label="Ngày phiếu từ"
-                      />
-                      <span className="kho-daterange__sep">–</span>
-                      <input
-                        type="date"
-                        className="rc-input"
-                        value={vDateTo}
-                        min={vDateFrom || undefined}
-                        onChange={(e) => setVDateTo(e.target.value)}
-                        aria-label="Ngày phiếu đến"
-                      />
-                    </div>
-                  </div>
-                  {canViewCost && (
-                    <div className="kho-filter__sec">
-                      <div className="kho-filter__lbl">Giá trị (giá vốn)</div>
-                      <div className="kho-daterange">
-                        <input
-                          type="number"
-                          className="rc-input kho-num"
-                          placeholder="từ"
-                          value={vValFrom}
-                          onChange={(e) => setVValFrom(e.target.value)}
-                          aria-label="Giá vốn từ"
-                        />
-                        <span className="kho-daterange__sep">–</span>
-                        <input
-                          type="number"
-                          className="rc-input kho-num"
-                          placeholder="đến"
-                          value={vValTo}
-                          onChange={(e) => setVValTo(e.target.value)}
-                          aria-label="Giá vốn đến"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-              <div className="kho-filter__foot">
-                <button
-                  type="button"
-                  className="btn btn--ghost"
-                  disabled={activeFilters === 0}
-                  onClick={clearFilters}
-                >
-                  Xóa lọc
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={() => setFilterOpen(false)}
-                >
-                  Xong
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
         <div className="rc__spacer" />
       </div>
 
-      {/* Pill các bộ lọc đang bật — theo TAB đang xem (tồn: ngày nhập/tồn · phiếu: ngày phiếu/giá trị). */}
-      {activeFilters > 0 && (
-        <div className="kho-filterbar">
-          {tab === "ton" ? (
-            <>
-              {hasDateFilter && (
-                <span className="kho-filterpill">
-                  Ngày nhập: {dateFrom ? fmtDateISO(dateFrom) : "…"} –{" "}
-                  {dateTo ? fmtDateISO(dateTo) : "…"}
-                  <button
-                    type="button"
-                    className="kho-filterpill__x"
-                    aria-label="Bỏ lọc ngày nhập"
-                    onClick={() => {
-                      setDateFrom("");
-                      setDateTo("");
-                    }}
-                  >
-                    ✕
-                  </button>
-                </span>
-              )}
-              {hasTonFilter && (
-                <span className="kho-filterpill">
-                  Tồn: {tonFrom !== "" ? fmtQty(Number(tonFrom)) : "…"} –{" "}
-                  {tonTo !== "" ? fmtQty(Number(tonTo)) : "…"}
-                  <button
-                    type="button"
-                    className="kho-filterpill__x"
-                    aria-label="Bỏ lọc khoảng tồn"
-                    onClick={() => {
-                      setTonFrom("");
-                      setTonTo("");
-                    }}
-                  >
-                    ✕
-                  </button>
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              {hasVDateFilter && (
-                <span className="kho-filterpill">
-                  Ngày phiếu: {vDateFrom ? fmtDateISO(vDateFrom) : "…"} –{" "}
-                  {vDateTo ? fmtDateISO(vDateTo) : "…"}
-                  <button
-                    type="button"
-                    className="kho-filterpill__x"
-                    aria-label="Bỏ lọc ngày phiếu"
-                    onClick={() => {
-                      setVDateFrom("");
-                      setVDateTo("");
-                    }}
-                  >
-                    ✕
-                  </button>
-                </span>
-              )}
-              {hasVValFilter && (
-                <span className="kho-filterpill">
-                  Giá trị: {vValFrom !== "" ? money(Number(vValFrom)) : "…"} –{" "}
-                  {vValTo !== "" ? money(Number(vValTo)) : "…"}
-                  <button
-                    type="button"
-                    className="kho-filterpill__x"
-                    aria-label="Bỏ lọc khoảng giá trị"
-                    onClick={() => {
-                      setVValFrom("");
-                      setVValTo("");
-                    }}
-                  >
-                    ✕
-                  </button>
-                </span>
-              )}
-            </>
-          )}
-          <button type="button" className="kho-filterbar__clear" onClick={clearFilters}>
-            Xóa lọc
-          </button>
-        </div>
-      )}
 
       {error && (
         <div className="banner banner--error" role="alert" style={{ marginBottom: "var(--sp-4)" }}>
@@ -817,9 +561,7 @@ export function KhoTonKhoPage({
                 )}
                 <th>Vật tư</th>
                 <th style={{ width: "13%" }}>Vị trí</th>
-                <th className="kho-num" style={{ width: "12%" }}>
-                  Tồn khả dụng
-                </th>
+                <NumFilterHead className="kho-num" style={{ width: "12%" }} label="Tồn khả dụng" from={tonFrom} to={tonTo} onChange={(f, t) => { setTonFrom(f); setTonTo(t); }} />
                 <th className="kho-num" style={{ width: "9%" }}>
                   Số đợt nhập
                 </th>
@@ -827,13 +569,9 @@ export function KhoTonKhoPage({
                   Min / Max
                 </th>
                 <th style={{ width: "11%" }}>Trạng thái</th>
-                <th className="kho-num" style={{ width: "12%" }}>
-                  Ngày nhập
-                </th>
+                <DateFilterHead className="kho-num kho-colfil--num" style={{ width: "12%" }} label="Ngày nhập" from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
                 {canViewCost && (
-                  <th className="kho-num" style={{ width: "12%" }}>
-                    Giá trị tồn
-                  </th>
+                  <NumFilterHead className="kho-num" style={{ width: "12%" }} label="Giá trị tồn" from={gtFrom} to={gtTo} onChange={(f, t) => { setGtFrom(f); setGtTo(t); }} />
                 )}
               </tr>
             </thead>
@@ -899,16 +637,14 @@ export function KhoTonKhoPage({
             <thead>
               <tr>
                 <th style={{ width: "14%" }}>Số phiếu</th>
-                <th style={{ width: "13%" }}>Theo đề nghị</th>
-                <th style={{ width: "16%" }}>Người (lập · duyệt)</th>
-                <th style={{ width: "12%" }}>Ngày</th>
+                <th style={{ width: "13%" }}>Theo yêu cầu</th>
+                <th style={{ width: "16%" }}>Người lập</th>
+                <DateFilterHead style={{ width: "12%" }} label={tab === "xuat" ? "Ngày xuất" : "Ngày nhập"} from={vDateFrom} to={vDateTo} onChange={(f, t) => { setVDateFrom(f); setVDateTo(t); }} />
                 <th className="kho-num" style={{ width: "12%" }}>
                   Mặt hàng / Tổng SL
                 </th>
                 {canViewCost && (
-                  <th className="kho-num" style={{ width: "14%" }}>
-                    Giá vốn
-                  </th>
+                  <NumFilterHead className="kho-num" style={{ width: "14%" }} label="Giá vốn" from={vValFrom} to={vValTo} onChange={(f, t) => { setVValFrom(f); setVValTo(t); }} />
                 )}
                 <th style={{ width: "12%" }}>Trạng thái</th>
               </tr>
@@ -931,7 +667,7 @@ export function KhoTonKhoPage({
                       <BoxIcon />
                       <p className="rc__empty-text">
                         {vouchers.length === 0
-                          ? "Chưa có phiếu kho nào ở kho này. Phiếu được lập từ một đề nghị đã duyệt."
+                          ? "Chưa có phiếu kho nào ở kho này. Phiếu được lập từ một yêu cầu đã duyệt."
                           : "Không có phiếu nào khớp bộ lọc."}
                       </p>
                       {vouchers.length > 0 && (
@@ -970,9 +706,6 @@ export function KhoTonKhoPage({
                       </td>
                       <td>
                         <div className="rc__name">{v.nguoi_lap_ten ?? "—"}</div>
-                        <div className="rc__muted kho-hint">
-                          {v.nguoi_duyet_ten ? `Duyệt: ${v.nguoi_duyet_ten}` : "—"}
-                        </div>
                       </td>
                       <td className="rc__nowrap">{fmtDateISO(v.ngay)}</td>
                       <td className="kho-num">
@@ -1058,7 +791,7 @@ export function KhoTonKhoPage({
       )}
 
       {openRequest != null && (
-        // Chỉ ĐỌC: mở đề nghị gốc từ mã "Theo đề nghị". Lập phiếu vẫn làm ở Hộp yêu cầu, nên
+        // Chỉ ĐỌC: mở yêu cầu gốc từ mã "Theo yêu cầu". Lập phiếu vẫn làm ở Hộp yêu cầu, nên
         // canCreate=false (ẩn nút Lập phiếu / Tiếp nhận / Chuẩn bị).
         <InboxRequestDrawer
           key={`req-${openRequest}`}
@@ -1274,6 +1007,10 @@ function MaterialHistoryDrawer({
   const [data, setData] = useState<StockMaterialHistory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Ảnh minh hoạ mặt hàng — màn Tồn kho CHỈ HIỂN THỊ (gắn/đổi ảnh làm ở form PHIẾU NHẬP). Bấm để
+  // phóng to. `anh` lấy thẳng từ mặt hàng (đã có sẵn trong danh sách lô).
+  const anh = material.anh;
+  const [zoom, setZoom] = useState(false);
   // Tab MẶC ĐỊNH = "Tổng quan" (đầu tiên) khi mở drawer; giữ nguyên Nhập/Xuất phía sau.
   const [tab, setTab] = useState<"tong_quan" | "nhap" | "xuat">("tong_quan");
   const [page, setPage] = useState(1);
@@ -1356,6 +1093,7 @@ function MaterialHistoryDrawer({
   const xuatPaged = xuat.slice((page - 1) * DRAWER_PAGE, page * DRAWER_PAGE);
 
   return (
+    <>
     <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
       <aside className="rc-drawer rc-drawer--mid" onClick={(e) => e.stopPropagation()}>
         <header className="rc-drawer__head">
@@ -1365,26 +1103,24 @@ function MaterialHistoryDrawer({
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
             {material.level && <StockLevelChip level={material.level} />}
-            {/* QR gắn với LÔ nhập (vị trí lô) → chỉ hiện ở tab Nhập. */}
-            {tab === "nhap" && (
-              <button
-                type="button"
-                className={`rc__link-btn${showQr ? " is-active" : ""}`}
-                onClick={() => setShowQr((v) => !v)}
-                aria-pressed={showQr}
-                title="Tem QR vật tư — quét ra lô & vị trí"
-              >
-                {showQr ? "▾ QR" : "▸ QR"}
-              </button>
-            )}
+            {/* Tem QR của vật tư — hiện ở MỌI tab (Tổng quan · Nhập · Xuất). */}
+            <button
+              type="button"
+              className={`rc__link-btn${showQr ? " is-active" : ""}`}
+              onClick={() => setShowQr((v) => !v)}
+              aria-pressed={showQr}
+              title="Tem QR vật tư — quét ra tồn & vị trí"
+            >
+              {showQr ? "▾ QR" : "▸ QR"}
+            </button>
             <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
               ✕
             </button>
           </div>
         </header>
 
-        {showQr && tab === "nhap" && (
-          // Tem QR: quét bằng điện thoại → mở TRANG TRA KHO CÔNG KHAI (lô + vị trí). In để dán kệ.
+        {showQr && (
+          // Tem QR: quét bằng điện thoại → mở TRANG TRA KHO CÔNG KHAI (tồn · vị trí · lịch sử). In dán kệ.
           <div className="kho-qr">
             {qrUrl ? (
               <div
@@ -1397,13 +1133,26 @@ function MaterialHistoryDrawer({
             )}
             <div className="kho-qr__side">
               <div className="kho-qr__note">
-                Quét để xem lô &amp; vị trí của vật tư này (không cần đăng nhập).
+                Quét để xem tồn, vị trí &amp; lịch sử nhập/xuất của vật tư này (không cần đăng nhập).
               </div>
               {qrUrl && <div className="kho-qr__url">{qrUrl}</div>}
               <button type="button" className="rc__link-btn" onClick={printQr}>
                 🖨 In tem
               </button>
             </div>
+          </div>
+        )}
+
+        {anh && (
+          <div className="kho-anh">
+            <button
+              type="button"
+              className="kho-anh__thumb"
+              onClick={() => setZoom(true)}
+              title="Bấm để phóng to"
+            >
+              <img src={assetUrl(anh) ?? undefined} alt={material.name ?? "Ảnh vật tư"} />
+            </button>
           </div>
         )}
 
@@ -1513,8 +1262,8 @@ function MaterialHistoryDrawer({
                     <tr>
                       <th style={{ minWidth: 130 }}>Phiếu</th>
                       <th style={{ width: 96 }}>Ngày nhập</th>
-                      {/* SL đề nghị (số đã xin trên đề nghị sinh ra lô) đứng TRƯỚC SL nhập thực tế. */}
-                      <th className="kho-num">SL đề nghị</th>
+                      {/* SL yêu cầu (số đã xin trên yêu cầu sinh ra lô) đứng TRƯỚC SL nhập thực tế. */}
+                      <th className="kho-num">SL yêu cầu</th>
                       <th className="kho-num">SL nhập</th>
                       <th style={{ minWidth: 96 }}>Vị trí</th>
                       {canViewCost && <th className="kho-num">Đơn giá</th>}
@@ -1561,9 +1310,8 @@ function MaterialHistoryDrawer({
                   <tr>
                     <th style={{ width: 96 }}>Ngày xuất</th>
                     <th style={{ width: 116 }}>Số phiếu</th>
-                    <th style={{ minWidth: 140 }}>Từ lô</th>
-                    {/* SL đề nghị (số đã xin trên đề nghị sinh ra dòng xuất) đứng TRƯỚC SL xuất thực tế. */}
-                    <th className="kho-num">SL đề nghị</th>
+                    {/* SL yêu cầu (số đã xin trên yêu cầu sinh ra dòng xuất) đứng TRƯỚC SL xuất thực tế. */}
+                    <th className="kho-num">SL yêu cầu</th>
                     <th className="kho-num">SL xuất</th>
                     {canViewCost && <th className="kho-num">Giá vốn</th>}
                   </tr>
@@ -1578,7 +1326,6 @@ function MaterialHistoryDrawer({
                           onOpen={() => onOpenVoucher(r.voucher_id)}
                         />
                       </td>
-                      <td className="kho-lines__code">{r.ma_lo ?? "—"}</td>
                       <td className="kho-num">
                         {r.sl_de_nghi != null ? fmtQty(r.sl_de_nghi) : "—"}
                       </td>
@@ -1607,6 +1354,21 @@ function MaterialHistoryDrawer({
         </div>
       </aside>
     </div>
+    {zoom && anh && (
+      <div
+        className="kho-anh__lightbox"
+        role="dialog"
+        aria-modal="true"
+        onClick={() => setZoom(false)}
+      >
+        <img
+          src={assetUrl(anh) ?? undefined}
+          alt={material.name ?? "Ảnh vật tư"}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+    )}
+    </>
   );
 }
 
@@ -2042,22 +1804,6 @@ const SearchIcon = () => (
   >
     <circle cx="11" cy="11" r="8" />
     <path d="m21 21-4.3-4.3" />
-  </svg>
-);
-
-const FilterIcon = () => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
   </svg>
 );
 

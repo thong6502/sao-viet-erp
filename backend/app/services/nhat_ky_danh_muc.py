@@ -40,6 +40,8 @@ NHAN: dict[str, str] = {
     "ten_ngan": "Tên ngắn",
     "mo_ta": "Mô tả",
     "ghi_chu": "Ghi chú",
+    # Ảnh minh hoạ mặt hàng (mg `0191`) — nhật ký in NHÃN chứ không in tên cột.
+    "anh_url": "Ảnh minh hoạ",
     "note": "Ghi chú",
     "active": "Đang hoạt động",
     "is_active": "Đang hoạt động",

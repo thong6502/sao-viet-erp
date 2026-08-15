@@ -90,6 +90,15 @@ def _err(e: StockVoucherError) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
+def _can_see_cost(v, user, authz, db) -> bool:
+    """Ai thấy GIÁ VỐN của phiếu: người có quyền `view_cost`, HOẶC chính NGƯỜI TẠO yêu cầu gốc
+    (chủ 10/08/2026: người tạo xem được phiếu sinh từ yêu cầu của họ — không ẩn giá)."""
+    if authz.can(user, MODULE, "view_cost"):
+        return True
+    req = StockRequestRepository(db).get(v.request_id) if getattr(v, "request_id", None) else None
+    return req is not None and req.nguoi_tao_id == user.id
+
+
 def _serialize(v, *, svc: StockVoucherService, db: Session, can_view_cost: bool,
                hang_map: dict | None = None, lot_map: dict | None = None,
                req_map: dict | None = None) -> StockVoucherOut:
@@ -108,8 +117,8 @@ def _serialize(v, *, svc: StockVoucherService, db: Session, can_view_cost: bool,
     req = req_map.get(v.request_id)
     req_lines = req.lines if req is not None else []
     line_dvt = {ln.id: ln.dvt for ln in req_lines}
-    # SL đề nghị theo dòng đề nghị (request_line_id) — nối vào mỗi dòng phiếu để đối chiếu
-    # "đề nghị vs thực nhận/xuất". Đọc-nối, không lưu cột.
+    # SL yêu cầu theo dòng yêu cầu (request_line_id) — nối vào mỗi dòng phiếu để đối chiếu
+    # "yêu cầu vs thực nhận/xuất". Đọc-nối, không lưu cột.
     line_sl_de_nghi = {ln.id: float(ln.sl_de_nghi) for ln in req_lines}
     goc_map = svc.hang.don_vi_goc_map([(ln.hang_loai, ln.hang_id) for ln in v.lines])
 
@@ -197,7 +206,7 @@ def _serialize(v, *, svc: StockVoucherService, db: Session, can_view_cost: bool,
     kho = khos.get(v.kho_id)
     lap = users.get_by_id(v.nguoi_lap_id) if v.nguoi_lap_id else None
     ghi_so_u = users.get_by_id(v.nguoi_ghi_so_id) if getattr(v, "nguoi_ghi_so_id", None) else None
-    # Ai đề nghị / ai duyệt lấy từ đề nghị gốc (phiếu ứng theo đề nghị đã duyệt).
+    # Ai yêu cầu / ai duyệt lấy từ yêu cầu gốc (phiếu ứng theo yêu cầu đã duyệt).
     de_nghi_u = users.get_by_id(req.nguoi_tao_id) if req and req.nguoi_tao_id else None
     duyet_u = (
         users.get_by_id(req.nguoi_duyet_id)
@@ -207,6 +216,7 @@ def _serialize(v, *, svc: StockVoucherService, db: Session, can_view_cost: bool,
     return StockVoucherOut(
         id=v.id, ma=v.ma, loai=v.loai,
         request_id=v.request_id, request_ma=getattr(req, "ma", None),
+        loai_kho=getattr(req, "loai_kho", None),
         kho_id=v.kho_id, kho_ten=getattr(kho, "ten", None),
         ngay=v.ngay, nguoi_lap_id=v.nguoi_lap_id, nguoi_lap_ten=getattr(lap, "name", None),
         nguoi_de_nghi_ten=getattr(de_nghi_u, "name", None),
@@ -236,6 +246,11 @@ def list_vouchers(
         kho_id=kho_id, q=q, page=page, size=size,
     )
     can_view_cost = authz.can(user, MODULE, "view_cost")
+    # Người TẠO yêu cầu lọc phiếu theo yêu cầu của MÌNH → cho thấy giá (không ẩn), như GET phiếu.
+    if not can_view_cost and request_id is not None:
+        req0 = StockRequestRepository(db).get(request_id)
+        if req0 is not None and req0.nguoi_tao_id == user.id:
+            can_view_cost = True
     # Nạp SẴN mã hàng / lô / đề nghị của cả trang trong vài query (tránh N+1 trong _serialize).
     hang_map = _hang_service(db).map_theo_cap(
         [(ln.hang_loai, ln.hang_id) for v in rows for ln in v.lines])
@@ -259,7 +274,7 @@ def get_voucher(
     v = svc.vouchers.get_with_lines(voucher_id)
     if v is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy phiếu")
-    return _serialize(v, svc=svc, db=db, can_view_cost=authz.can(user, MODULE, "view_cost"))
+    return _serialize(v, svc=svc, db=db, can_view_cost=_can_see_cost(v, user, authz, db))
 
 
 @router.post("", response_model=StockVoucherOut, status_code=status.HTTP_201_CREATED)
@@ -297,7 +312,7 @@ def post_voucher(
 def cancel_voucher(
     voucher_id: int, payload: StockVoucherCancel, svc: Service, db: Db, authz: Authz,
     # ĐÃ GỘP quyền: hủy phiếu = cùng quyền lập phiếu (create), không tách người lập & người chốt sổ.
-    # Chỉ hủy được phiếu CHƯA ghi sổ. BẮT BUỘC lý do → đề nghị chuyển 'Đã hủy' kèm lý do (kết thúc).
+    # Chỉ hủy được phiếu CHƯA ghi sổ. BẮT BUỘC lý do → yêu cầu chuyển 'Đã hủy' kèm lý do (kết thúc).
     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
 ) -> StockVoucherOut:
     try:
@@ -521,13 +536,20 @@ def list_lots(
     lots = svc.lots.list_lots(hang=hang, kho_id=kho_id, con_hang=con_hang)
     # Nạp SẴN mọi mặt hàng của các lô trong 1 lượt (tránh N+1).
     hang_map = svc.hang.map_theo_cap([(lot.hang_loai, lot.hang_id) for lot in lots])
+    # Mã phiếu NHẬP sinh ra từng lô — để hiển thị lô THEO MÃ PHIẾU (đợt hàng vào kho) thay mã lô
+    # kỹ thuật. Nạp 1 lượt tránh N+1.
+    voucher_ma_map = svc.vouchers.ma_by_ids(
+        list({lot.voucher_id for lot in lots if lot.voucher_id is not None})
+    )
     out = []
     for lot in lots:
         row = StockLotOut.model_validate(lot)
         m = hang_map.get((lot.hang_loai, lot.hang_id))
         row.hang_ma = getattr(m, "ma", None)
         row.hang_ten = getattr(m, "ten", None)
+        row.hang_anh = getattr(m, "anh_url", None)
         row.dvt = getattr(m, "don_vi_gia", None)
+        row.voucher_ma = voucher_ma_map.get(lot.voucher_id) if lot.voucher_id else None
         # Thủ kho chọn lô nhưng KHÔNG thấy giá (spec §6).
         row.don_gia_nhap = int(lot.don_gia_nhap or 0) if can_view_cost else None
         out.append(row)
@@ -554,7 +576,7 @@ def material_history(
     voucher_ma_map = svc.vouchers.ma_by_ids(
         list({lot.voucher_id for lot in lots if lot.voucher_id is not None})
     )
-    # SL đề nghị của từng lô NHẬP (nối lô → dòng phiếu NHẬP → dòng đề nghị) — nạp 1 lượt, tránh N+1.
+    # SL yêu cầu của từng lô NHẬP (nối lô → dòng phiếu NHẬP → dòng yêu cầu) — nạp 1 lượt, tránh N+1.
     sl_de_nghi_map = svc.vouchers.sl_de_nghi_by_lot(lots)
     nhap: list[StockLotOut] = []
     for lot in lots:
@@ -564,12 +586,12 @@ def material_history(
         row.dvt = dvt
         row.voucher_ma = voucher_ma_map.get(lot.voucher_id) if lot.voucher_id else None
         row.don_gia_nhap = int(lot.don_gia_nhap or 0) if can_view_cost else None
-        # SL đề nghị KHÔNG phải tiền → luôn hiện (không gate theo can_view_cost).
+        # SL yêu cầu KHÔNG phải tiền → luôn hiện (không gate theo can_view_cost).
         row.sl_de_nghi = sl_de_nghi_map.get(lot.id)
         nhap.append(row)
 
     # XUẤT = dòng phiếu xuất đã ghi sổ (đích danh lô); giá vốn = giá lô, ẩn nếu thiếu quyền.
-    # `sl_de_nghi` nối qua dòng phiếu xuất → dòng đề nghị (không phải tiền → luôn hiện).
+    # `sl_de_nghi` nối qua dòng phiếu xuất → dòng yêu cầu (không phải tiền → luôn hiện).
     xuat = [
         MaterialXuatRow(
             ngay=r["ngay"], voucher_id=r["voucher_id"], voucher_ma=r["voucher_ma"],

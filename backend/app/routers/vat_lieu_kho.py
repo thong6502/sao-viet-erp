@@ -12,22 +12,27 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import require_any_permission, require_permission
+from ..deps import (
+    CurrentUser, get_authorization_service, require_any_permission, require_permission,
+)
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
+from ..repositories.purchase_repo import SupplierRepository
 from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..schemas.vat_lieu_kho import (
     ChungLoaiGiayIn, ChungLoaiGiayRow, DonViCuaMatHangOut, GiayGiaVersionIn, GiayGiaVersionRow,
-    GiayIn, GiayRow, ListOut, MatHangRow, VatTuIn, VatTuRow,
+    GiayIn, GiayRow, ListOut, MatHangRow, VatLieuAnhOut, VatTuIn, VatTuRow,
 )
+from ..services.rbac_service import AuthorizationService
 from ..services.vat_lieu_kho_service import (
     MotDanhMucVatLieu, VatLieuKhoNotFound, VatLieuKhoService, VatLieuKhoValidationError,
 )
+from ..storage import get_storage, key_from_url, make_key, url_from_key
 from .catalog_base import loi_http, make_catalog_router
 
 router = APIRouter(prefix="/api/vat-lieu-kho", tags=["vat-lieu-kho"])
@@ -51,7 +56,7 @@ _DOC_CHUNG = (
 
 def get_service(db: Annotated[Session, Depends(get_db)]) -> VatLieuKhoService:
     return VatLieuKhoService(
-        VatLieuKhoRepository(db), DonViDoRepository(db), AuditLogRepository(db),
+        VatLieuKhoRepository(db), DonViDoRepository(db), AuditLogRepository(db), SupplierRepository(db),
     )
 
 
@@ -95,11 +100,11 @@ _khai("vat_tu", VatTuIn, VatTuRow, "vat-tu-in-an", kem_don_vi=True)
 
 # -- MẶT HÀNG GỐC: hai cửa Kho + NCC dùng để chọn hàng và chọn đơn vị --
 #
-# Quyền rộng hơn CRUD (thêm `thu_mua`): người lập đề nghị kho và người khai bảng giá NCC đều phải
-# CHỌN được mặt hàng, nhưng không được sửa danh mục. Chỉ trả mã · tên · đơn vị — không có giá.
+# Quyền rộng hơn CRUD: người lập đề nghị kho/YCMH và người khai bảng giá NCC đều phải CHỌN được
+# mặt hàng, nhưng không được sửa danh mục. Chỉ trả mã · tên · đơn vị — không có giá.
 _doc_mat_hang = require_any_permission(
     ("dm_giay", "read"), ("dm_vat_tu", "read"), ("kho", "read"), ("thu_mua", "read"),
-    ("tinh_gia_thanh", "read"), ("san_xuat", "read"))
+    ("yeu_cau_mua_hang", "read"), ("tinh_gia_thanh", "read"), ("san_xuat", "read"))
 
 
 @router.get("/mat-hang", response_model=list[MatHangRow], name="tim_mat_hang")
@@ -108,9 +113,13 @@ def tim_mat_hang(
     _: Annotated[User, Depends(_doc_mat_hang)],
     q: str | None = Query(default=None),
     size: int = Query(default=20, ge=1, le=50),
+    chi_co_nha_cung_cap: bool = Query(default=False),
 ) -> list[MatHangRow]:
     """Tìm gộp Giấy + Vật tư khác. Thay `GET /api/kho/de-nghi/vat-tu` (đọc bảng `materials` cũ)."""
-    return [MatHangRow(**r) for r in svc.tim_mat_hang(q=q, size=size)]
+    return [
+        MatHangRow(**r)
+        for r in svc.tim_mat_hang(q=q, size=size, chi_co_nha_cung_cap=chi_co_nha_cung_cap)
+    ]
 
 
 @router.get("/mat-hang/{hang_loai}/{hang_id}/don-vi", response_model=DonViCuaMatHangOut,
@@ -160,3 +169,70 @@ def add_giay_version(
     except (VatLieuKhoNotFound, VatLieuKhoValidationError) as e:
         raise loi_http(e) from None
     return GiayGiaVersionRow.model_validate(v)
+
+
+# -- Ảnh minh hoạ mặt hàng (chỉ giấy / vật tư khác) — upload lúc LẬP PHIẾU NHẬP kho --
+#
+# Ảnh là master-data của mặt hàng nhưng chụp lúc NHẬP HÀNG, nên cho cả người LẬP PHIẾU KHO
+# (`kho` create) lẫn người sửa DANH MỤC (`dm_giay`/`dm_vat_tu` update) gắn/đổi/gỡ. `loai` là path
+# param nên kiểm quyền THỦ CÔNG. Lưu qua kho file, prefix `materials/` (không có trong
+# `_PREFIX_PERMISSION` ⇒ chỉ cần đăng nhập là xem ở màn nội bộ); trang QR serve lại bằng token.
+_MAX_ANH_BYTES = 5 * 1024 * 1024  # 5 MB — ảnh minh hoạ, không cần lớn hơn
+
+
+def _guard_anh(loai: str, user: User, authz: AuthorizationService) -> None:
+    if loai not in ("giay", "vat_tu"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Loại mặt hàng không nhận ảnh.")
+    if not (authz.can(user, "kho", "create") or authz.can(user, MODULE_BY_KIND[loai], "update")):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Bạn không có quyền sửa ảnh mặt hàng này.")
+
+
+@router.post("/{loai}/{item_id}/anh", response_model=VatLieuAnhOut, name="set_vat_lieu_anh")
+def set_vat_lieu_anh(
+    loai: str, item_id: int, svc: Service, user: CurrentUser,
+    authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
+    file: UploadFile = File(...),
+) -> VatLieuAnhOut:
+    _guard_anh(loai, user, authz)
+    ct = (file.content_type or "").lower()
+    if not ct.startswith("image/"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Chỉ nhận ảnh (image/*).")
+    data = file.file.read()
+    if not data:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Tệp rỗng.")
+    if len(data) > _MAX_ANH_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Ảnh vượt quá 5 MB.")
+    try:
+        obj = svc.get(loai, item_id)
+    except VatLieuKhoNotFound as e:
+        raise _err(e) from None
+    old_key = key_from_url(getattr(obj, "anh_url", None))
+    key, _name = make_key("materials", f"{loai}-{item_id}", file.filename)
+    get_storage().save(key, data, file.content_type)
+    svc.set_anh(loai, item_id, url_from_key(key))
+    if old_key and old_key != key:
+        try:
+            get_storage().delete(old_key)   # ảnh cũ mồ côi không được chặn thao tác chính
+        except Exception:
+            pass
+    return VatLieuAnhOut(anh_url=url_from_key(key))
+
+
+@router.delete("/{loai}/{item_id}/anh", response_model=VatLieuAnhOut, name="clear_vat_lieu_anh")
+def clear_vat_lieu_anh(
+    loai: str, item_id: int, svc: Service, user: CurrentUser,
+    authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
+) -> VatLieuAnhOut:
+    _guard_anh(loai, user, authz)
+    try:
+        obj = svc.get(loai, item_id)
+    except VatLieuKhoNotFound as e:
+        raise _err(e) from None
+    old_key = key_from_url(getattr(obj, "anh_url", None))
+    svc.set_anh(loai, item_id, None)
+    if old_key:
+        try:
+            get_storage().delete(old_key)
+        except Exception:
+            pass
+    return VatLieuAnhOut(anh_url=None)

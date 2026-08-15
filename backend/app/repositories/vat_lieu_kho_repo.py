@@ -84,6 +84,13 @@ class VatLieuKhoRepository:
     def update(self, obj, kind: str, data: dict):
         return self._r(kind).update(obj, data)
 
+    def set_anh(self, obj, url: str | None):
+        """Ghi RIÊNG `anh_url` (ảnh minh hoạ) — không đụng ma/tên nên không qua `update`/validate."""
+        obj.anh_url = url
+        self.db.commit()
+        self.db.refresh(obj)
+        return obj
+
     def delete(self, obj) -> None:
         """Chỉ `flush()` — nơi gọi chốt bằng `chot_giao_dich()` sau khi đã ghi nhật ký."""
         self.db.delete(obj)

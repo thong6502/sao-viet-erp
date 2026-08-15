@@ -2578,23 +2578,19 @@ def _migrate_seed_pricing_formulas(db: Session) -> None:
     """Backfill công thức giá cho 3 danh mục CHUẨN (mực CMYK · màng bóng · ghi kẽm CTP) trên DB đã
     seed TRƯỚC khi có cột `cong_thuc_gia` (mig 0058) — để mực/màng/kẽm ra tiền thật thay vì 0đ.
 
-    🔴 CHÚ THÍCH CŨ Ở ĐÂY (2026-08-09) NÓI HAI CÔNG THỨC MỰC/MÀNG "SAI THANG 10⁶ · ra 175 tỷ" —
-    GỠ 11/08/2026 vì SAI. Nó tưởng `dai_in`/`rong_in` bơm vào là MILIMÉT; thật ra engine chia 1.000
-    về MÉT trước (`dai_in_m = kho_in_d / 1000`). Chạy thử đúng ví dụ của chính nó::
+    ⚠️⚠️ HAI CÔNG THỨC MỰC VÀ MÀNG DƯỚI ĐÂY SAI THANG 10⁶ — biết và CỐ Ý để nguyên (chủ chốt
+    2026-08-09). Hệ số viết cho diện tích tính bằng MÉT, nhưng `dai_in`/`rong_in` engine đưa vào là
+    MILIMÉT ⇒ diện tích to gấp một triệu lần::
 
-        1.000 tờ 650×900, in 4 màu → 585 m² → 0,702 kg mực = 175.500 đ   ✅
-        1.000 tờ cán màng          → 585 m²                = 1.755.000 đ ✅
-
-    ĐỪNG viết migration chia 10⁶ — làm thế mới thật sự hỏng số.
+        1.000 tờ 650×900, in 4 màu → 702.000 kg mực  = 175,5 TỶ đ   (đúng: 0,7 kg = 175.500 đ)
+        1.000 tờ cán màng          → 585.000.000 m²  = 1.755 TỶ đ   (đúng: 585 m² = 1.755.000 đ)
 
     Không sửa vì xưởng tính giá KHOÁN THEO CÔNG ĐOẠN, không thêm dòng vật tư rời nào — hai công
     thức này hiện không chảy vào phiếu nào. Migration này đã CHẠY trên các DB cũ, nên sửa ở đây
     KHÔNG cứu được chúng; muốn dứt điểm phải viết migration MỚI chia 10⁶ (và chỉ đụng hàng còn
     nguyên chuỗi gốc, đừng đè công thức xưởng tự sửa).
-    🔴 ĐOẠN TRÊN ĐÃ SAI, giữ lại chỉ để hiểu lịch sử — GỠ kết luận 11/08/2026. Engine chia khổ về
-    MÉT trước khi bơm (`dai_in_m = kho_in_d / 1000`), nên hệ số 0,0003 (= 0,3 g mực/m²/màu) chạy
-    ĐÚNG: 1.000 tờ 650×900 in 4 màu → 0,702 kg = 175.500 đ. KHÔNG có chuyện 175 tỷ, và ĐỪNG viết
-    migration chia 10⁶ — làm thế mới là hỏng.
+
+    Ai định thêm dòng vật tư vào phiếu tính giá: SỬA HỆ SỐ TRƯỚC, không thì ra báo giá 175 tỷ.
 
     Chỉ đụng hàng còn MÃ CHUẨN và CHƯA có công thức (cong_thuc_gia rỗng) → KHÔNG đè cấu hình xưởng
     tự sửa. Mực: đơn giá placeholder 8.000/kg (giá ảo) → 250.000/kg CHỈ khi còn đúng 8.000. Ghi kẽm:
@@ -4715,10 +4711,7 @@ def _migrate_khsx_dinh_muc_vat_tu_phu_thuoc(db: Session) -> None:
         f"id {id_pk}, cong_doan_id INTEGER NOT NULL REFERENCES cong_doan(id) ON DELETE CASCADE, "
         "piece_rate_id INTEGER NOT NULL, nang_suat_nguoi_gio NUMERIC(14,2) NOT NULL, "
         "so_nguoi_tieu_chuan INTEGER NOT NULL DEFAULT 1, so_nguoi_toi_da INTEGER NOT NULL DEFAULT 1, "
-        # `is_default` GỠ khỏi câu này 12/08/2026 cùng mg 0190. Phải sửa ở ĐÂY nữa: trên DB trắng,
-        # `create_all` dựng bảng theo MODEL (đã hết cột) trước khi migration chạy, nên
-        # `CREATE TABLE IF NOT EXISTS` là no-op và câu INSERT dưới sẽ chèn vào cột không tồn tại.
-        "UNIQUE(cong_doan_id,piece_rate_id))"
+        "is_default BOOLEAN NOT NULL DEFAULT false, UNIQUE(cong_doan_id,piece_rate_id))"
     ))
     if "piece_rates" in tables and "cong_doan" in tables:
         rows = db.execute(text(
@@ -4732,8 +4725,8 @@ def _migrate_khsx_dinh_muc_vat_tu_phu_thuoc(db: Session) -> None:
             if len(rates) == 1:
                 db.execute(text(
                     "INSERT INTO cong_doan_dau_viec "
-                    "(cong_doan_id,piece_rate_id,nang_suat_nguoi_gio,so_nguoi_tieu_chuan,so_nguoi_toi_da) "
-                    "SELECT :c,:r,:n,1,1 WHERE NOT EXISTS (SELECT 1 FROM cong_doan_dau_viec "
+                    "(cong_doan_id,piece_rate_id,nang_suat_nguoi_gio,so_nguoi_tieu_chuan,so_nguoi_toi_da,is_default) "
+                    "SELECT :c,:r,:n,1,1,true WHERE NOT EXISTS (SELECT 1 FROM cong_doan_dau_viec "
                     "WHERE cong_doan_id=:c AND piece_rate_id=:r)"
                 ), {"c": cid, "r": rates[0][0], "n": ns})
 
@@ -6058,6 +6051,190 @@ def _migrate_de_nghi_kho_bo_buoc_duyet(db: Session) -> None:
 MIGRATIONS.append(("0168_de_nghi_kho_bo_buoc_duyet", _migrate_de_nghi_kho_bo_buoc_duyet))
 
 
+def _migrate_company_bank_account_usage(db: Session) -> None:
+    """Tài khoản ngân hàng công ty dùng chung cho tiền vào/ra.
+
+    Tài khoản cũ mặc định bật cả hai để UNC/Phiếu thu đang có không bị mất lựa chọn.
+    Sau đó kế toán có thể tắt bớt từng mục đích trên giao diện.
+    """
+    insp = inspect(db.get_bind())
+    if "company_bank_accounts" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "company_bank_accounts")
+    if "use_for_receipts" not in cols:
+        db.execute(
+            text(
+                "ALTER TABLE company_bank_accounts "
+                "ADD COLUMN use_for_receipts BOOLEAN NOT NULL DEFAULT TRUE"
+            )
+        )
+    if "use_for_payments" not in cols:
+        db.execute(
+            text(
+                "ALTER TABLE company_bank_accounts "
+                "ADD COLUMN use_for_payments BOOLEAN NOT NULL DEFAULT TRUE"
+            )
+        )
+    db.commit()
+
+
+MIGRATIONS.append(("0174_company_bank_account_usage", _migrate_company_bank_account_usage))
+
+
+def _migrate_bank_accounts_bo_mac_dinh(db: Session) -> None:
+    """Bỏ khái niệm tài khoản ngân hàng mặc định.
+
+    Kế toán tự chọn tài khoản khi lập Phiếu thu/UNC để tránh hệ thống tự điền nhầm tài khoản.
+    Cột `is_default` giữ lại để tương thích schema cũ, nhưng dữ liệu mới không còn dùng.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    for table in ("company_bank_accounts", "supplier_bank_accounts"):
+        if table in tables and "is_default" in _existing_columns(insp, table):
+            db.execute(text(f"UPDATE {table} SET is_default = FALSE WHERE is_default = TRUE"))
+    db.commit()
+
+
+MIGRATIONS.append(("0175_bank_accounts_bo_mac_dinh", _migrate_bank_accounts_bo_mac_dinh))
+
+
+def _migrate_payment_vouchers_da_nguon_chi(db: Session) -> None:
+    """Phiếu chi trở thành sổ chi chung: PMH chỉ là một nguồn chi.
+
+    - Thêm `source_type` để phân biệt: purchase_request / internal_expense /
+      customer_refund / other.
+    - Nới `purchase_request_id` nullable để lập phiếu chi độc lập.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "payment_vouchers" not in insp.get_table_names():
+        return
+    cols = {c["name"]: c for c in insp.get_columns("payment_vouchers")}
+    dialect = bind.dialect.name
+    if dialect == "postgresql":
+        if "source_type" not in cols:
+            db.execute(
+                text(
+                    "ALTER TABLE payment_vouchers "
+                    "ADD COLUMN source_type VARCHAR(24) NOT NULL DEFAULT 'purchase_request'"
+                )
+            )
+        if cols.get("purchase_request_id", {}).get("nullable") is False:
+            db.execute(text("ALTER TABLE payment_vouchers ALTER COLUMN purchase_request_id DROP NOT NULL"))
+        db.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_source_type "
+                "ON payment_vouchers (source_type)"
+            )
+        )
+        db.commit()
+        return
+
+    if dialect != "sqlite":
+        if "source_type" not in cols:
+            db.execute(
+                text(
+                    "ALTER TABLE payment_vouchers "
+                    "ADD COLUMN source_type VARCHAR(24) NOT NULL DEFAULT 'purchase_request'"
+                )
+            )
+        db.commit()
+        return
+
+    info = list(db.execute(text("PRAGMA table_info(payment_vouchers)")).mappings())
+    has_source = any(row["name"] == "source_type" for row in info)
+    purchase_not_null = any(row["name"] == "purchase_request_id" and row["notnull"] for row in info)
+    if has_source and not purchase_not_null:
+        return
+
+    new_columns = [
+        "id INTEGER PRIMARY KEY",
+        "code VARCHAR(32) NOT NULL",
+        "doc_no VARCHAR(16)",
+        "source_type VARCHAR(24) NOT NULL DEFAULT 'purchase_request'",
+        "purchase_request_id INTEGER",
+        "delivery_id INTEGER",
+        "supplier_id INTEGER",
+        "voucher_type VARCHAR(24) NOT NULL",
+        "payment_stage VARCHAR(16) NOT NULL",
+        "status VARCHAR(24) NOT NULL DEFAULT 'waiting_payment'",
+        "voucher_date DATE NOT NULL",
+        "planned_payment_date DATE",
+        "amount BIGINT NOT NULL",
+        "amount_vnd BIGINT NOT NULL",
+        "currency VARCHAR(3) NOT NULL DEFAULT 'VND'",
+        "exchange_rate NUMERIC(18, 6) NOT NULL DEFAULT 1",
+        "content VARCHAR(500) NOT NULL",
+        "invoice_number VARCHAR(64)",
+        "invoice_date DATE",
+        "contract_number VARCHAR(64)",
+        "company_bank_account_id INTEGER",
+        "supplier_bank_account_id INTEGER",
+        "cash_recipient_name VARCHAR(255)",
+        "cash_recipient_address VARCHAR(500)",
+        "cash_recipient_identity VARCHAR(64)",
+        "bank_fee_bearer VARCHAR(16)",
+        "bank_reference VARCHAR(64)",
+        "debit_account VARCHAR(64)",
+        "credit_account VARCHAR(64)",
+        "source_code_snapshot VARCHAR(32) NOT NULL",
+        "supplier_name_snapshot VARCHAR(255) NOT NULL",
+        "supplier_tax_code_snapshot VARCHAR(20)",
+        "supplier_address_snapshot VARCHAR(500)",
+        "company_account_holder_snapshot VARCHAR(255)",
+        "company_account_number_snapshot VARCHAR(64)",
+        "company_bank_name_snapshot VARCHAR(255)",
+        "company_bank_branch_snapshot VARCHAR(255)",
+        "beneficiary_account_holder_snapshot VARCHAR(255)",
+        "beneficiary_account_number_snapshot VARCHAR(64)",
+        "beneficiary_bank_name_snapshot VARCHAR(255)",
+        "beneficiary_bank_branch_snapshot VARCHAR(255)",
+        "created_by_user_id INTEGER",
+        "paid_by_user_id INTEGER",
+        "paid_at DATETIME",
+        "cancelled_by_user_id INTEGER",
+        "cancelled_at DATETIME",
+        "cancel_reason TEXT",
+        "note TEXT",
+        "created_at DATETIME NOT NULL",
+        "updated_at DATETIME NOT NULL",
+    ]
+    old_names = {row["name"] for row in info}
+    target_names = [col.split(" ", 1)[0] for col in new_columns]
+    select_exprs = []
+    for name in target_names:
+        if name in old_names:
+            select_exprs.append(name)
+        elif name == "source_type":
+            select_exprs.append("'purchase_request'")
+        else:
+            select_exprs.append("NULL")
+    db.execute(text("DROP TABLE IF EXISTS payment_vouchers_new"))
+    db.execute(text(f"CREATE TABLE payment_vouchers_new ({', '.join(new_columns)})"))
+    db.execute(
+        text(
+            "INSERT INTO payment_vouchers_new "
+            f"({', '.join(target_names)}) SELECT {', '.join(select_exprs)} "
+            "FROM payment_vouchers"
+        )
+    )
+    db.execute(text("DROP TABLE payment_vouchers"))
+    db.execute(text("ALTER TABLE payment_vouchers_new RENAME TO payment_vouchers"))
+    for ddl in (
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_payment_vouchers_code ON payment_vouchers (code)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_payment_vouchers_doc_no ON payment_vouchers (doc_no)",
+        "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_source_type ON payment_vouchers (source_type)",
+        "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_purchase_request_id ON payment_vouchers (purchase_request_id)",
+        "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_delivery_id ON payment_vouchers (delivery_id)",
+        "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_supplier_id ON payment_vouchers (supplier_id)",
+        "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_voucher_type ON payment_vouchers (voucher_type)",
+        "CREATE INDEX IF NOT EXISTS ix_payment_vouchers_status ON payment_vouchers (status)",
+    ):
+        db.execute(text(ddl))
+    db.commit()
+
+
+MIGRATIONS.append(("0176_payment_vouchers_da_nguon_chi", _migrate_payment_vouchers_da_nguon_chi))
 def _migrate_dong_mua_tro_mat_hang_goc(db: Session) -> None:
     """Dòng YÊU CẦU mua + dòng PHIẾU mua gắn được vào MẶT HÀNG GỐC `(hang_loai, hang_id)`.
 
@@ -6556,6 +6733,1029 @@ def _migrate_khuon_theo_buoc(db: Session) -> None:
 MIGRATIONS.append(("0185_khuon_theo_buoc", _migrate_khuon_theo_buoc))
 
 
+def _migrate_kho_bao_cao_ke_toan(db: Session) -> None:
+    """Báo cáo kho (kế toán) — docs/spec-bao-cao-kho.md:
+      * `stock_requests.loai_kho` (INTEGER nullable) — mã loại nhập/xuất MISA người tạo gõ ở yêu cầu.
+      * `role_permissions.can_close_book` (BOOLEAN default FALSE) — quyền xem Báo cáo kho + export
+        Excel MISA + khóa kỳ (chốt sổ); cấp cho vai 'Kế toán kho' + 'Giám đốc'.
+    Bảng `kho_khoa_so` do create_all dựng (không cần ở đây). No-op trên DB fresh / cột đã có."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "stock_requests" in tables and "loai_kho" not in _existing_columns(insp, "stock_requests"):
+        db.execute(text("ALTER TABLE stock_requests ADD COLUMN loai_kho INTEGER"))
+    if "role_permissions" in tables:
+        if "can_close_book" not in _existing_columns(insp, "role_permissions"):
+            db.execute(text(
+                "ALTER TABLE role_permissions ADD COLUMN can_close_book BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+        if "roles" in tables:
+            db.execute(text(
+                "UPDATE role_permissions SET can_close_book = TRUE "
+                "WHERE module_key = 'kho' AND role_id IN "
+                "(SELECT id FROM roles WHERE name IN ('Kế toán kho', 'Giám đốc'))"
+            ))
+    db.commit()
+
+
+MIGRATIONS.append(("0169_kho_bao_cao_ke_toan", _migrate_kho_bao_cao_ke_toan))
+
+
+def _migrate_kho_bao_cao_v2(db: Session) -> None:
+    """Vòng 2 Báo cáo kho (docs/spec-bao-cao-kho.md):
+      * `stock_requests.loai_kho`: INT → VARCHAR(50) — người dùng gõ TÊN loại tự do (không phải mã).
+      * `kho_khoa_so`: khóa 1 NGÀY (`ngay_khoa`) → khóa KHOẢNG `[tu_ngay, den_ngay]` + `hanh_dong`
+        ('khoa'/'mo') = append-only (hiệu lực + lịch sử). Dữ liệu cũ không đáng kể → dựng lại bảng.
+    Idempotent + no-op trên DB fresh (create_all đã ra schema mới)."""
+    bind = db.get_bind()
+    is_sqlite = bind.dialect.name == "sqlite"
+    insp = inspect(bind)
+    tables = insp.get_table_names()
+
+    # 1) loai_kho INT → VARCHAR(50).
+    if "stock_requests" in tables and "loai_kho" in _existing_columns(insp, "stock_requests"):
+        col = next((c for c in insp.get_columns("stock_requests") if c["name"] == "loai_kho"), None)
+        type_str = str(col["type"]).upper() if col else ""
+        already_text = "CHAR" in type_str or "TEXT" in type_str
+        if not already_text:
+            if is_sqlite:
+                # SQLite affinity INTEGER → dựng lại cột kiểu VARCHAR (dữ liệu loai_kho mới/không đáng kể).
+                db.execute(text("ALTER TABLE stock_requests DROP COLUMN loai_kho"))
+                db.execute(text("ALTER TABLE stock_requests ADD COLUMN loai_kho VARCHAR(50)"))
+            else:
+                db.execute(text(
+                    "ALTER TABLE stock_requests ALTER COLUMN loai_kho TYPE VARCHAR(50) "
+                    "USING loai_kho::varchar"
+                ))
+        db.commit()
+
+    # 2) kho_khoa_so: dựng lại nếu còn cột cũ 'ngay_khoa'.
+    if "kho_khoa_so" in tables and "ngay_khoa" in _existing_columns(insp, "kho_khoa_so"):
+        db.execute(text("DROP TABLE kho_khoa_so"))
+        id_pk = "INTEGER PRIMARY KEY" if is_sqlite else "SERIAL PRIMARY KEY"
+        db.execute(text(
+            "CREATE TABLE kho_khoa_so ("
+            f"id {id_pk}, "
+            "kho_id INTEGER REFERENCES kho_hang(id), "
+            "tu_ngay DATE NOT NULL, "
+            "den_ngay DATE NOT NULL, "
+            "hanh_dong VARCHAR(8) NOT NULL DEFAULT 'khoa', "
+            "nguoi_khoa_id INTEGER REFERENCES users(id), "
+            "khoa_luc TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+        ))
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_kho_khoa_so_kho_id ON kho_khoa_so (kho_id)"))
+        db.commit()
+
+
+MIGRATIONS.append(("0170_kho_bao_cao_v2", _migrate_kho_bao_cao_v2))
+
+
+def _migrate_tach_module_thu_mua(db) -> None:
+    """Tách `thu_mua` thành 3 màn: Mua hàng · Nhà cung cấp · Yêu cầu mua hàng (chủ chốt 10/08/2026).
+
+    ⚠️ ĐÂY LÀ MIGRATION QUYỀN — sai là người thật mất đường làm việc sáng hôm sau.
+
+    Hai việc, theo đúng thứ tự:
+    1. Thêm 2 khoá module mới vào bảng `modules` (khoá ngoại của `role_permissions` trỏ vào đây,
+       thiếu là INSERT ở bước 2 vỡ).
+    2. **SAO CHÉP** mọi hàng quyền `thu_mua` hiện có sang hai khoá mới, giữ NGUYÊN mọi cờ và phạm
+       vi. Không sao chép thì mọi vai đang làm thu mua mất sạch quyền Nhà cung cấp + Yêu cầu mua
+       hàng ngay khi bản này lên.
+
+    Sau bước này quyền là BỘ THỪA (ai có thu mua thì có cả ba màn) — đúng ý đồ: không ai mất gì,
+    còn muốn siết lại thì quản trị tự bỏ tick từng màn. Siết sẵn trong migration là đoán thay chủ.
+
+    Idempotent: chạy lại không đẻ hàng trùng (`WHERE NOT EXISTS`).
+    """
+    # ⚠️ HAI điều bắt buộc ở dòng này, cả hai đều đã vỡ thật:
+    #
+    # 1. ĐỪNG dùng `PRAGMA table_info(...)`. Trên Postgres nó KHÔNG trả rỗng mà NÉM SyntaxError,
+    #    nên nhánh dự phòng "if not cols" không bao giờ chạy tới — app chết ngay lúc khởi động
+    #    (DB dev, 11/08/2026). Bộ test chạy SQLite nên PRAGMA luôn ngon và test vẫn xanh.
+    # 2. Gọi TRƯỚC MỌI LỆNH GHI. `inspect()` mở connection riêng; test dùng SQLite StaticPool nên
+    #    connection đó CHÍNH LÀ connection của phiên — đóng nó là ROLLBACK luôn mấy câu INSERT
+    #    đang chờ. Đặt sau phần ghi thì mất sạch dữ liệu vừa thêm mà không báo lỗi gì.
+    cols = sorted(_existing_columns(inspect(db.get_bind()), "role_permissions"))
+
+    for key, label in (("nha_cung_cap", "Nhà cung cấp"),
+                       ("yeu_cau_mua_hang", "Yêu cầu mua hàng")):
+        # `modules.created_at` NOT NULL và KHÔNG có server_default ⇒ phải tự điền, không thì
+        # INSERT vỡ. Đây là bẫy chung của mọi migration thêm dòng danh mục trong dự án này.
+        db.execute(
+            text("INSERT INTO modules (key, label, created_at) "
+                 "SELECT :k, :l, CURRENT_TIMESTAMP "
+                 "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+            {"k": key, "l": label},
+        )
+    # Nhãn của `thu_mua` đổi nghĩa: nay chỉ còn màn Mua hàng.
+    db.execute(text("UPDATE modules SET label = 'Mua hàng' WHERE key = 'thu_mua'"))
+
+    chep = [c for c in cols if c not in ("id", "module_key")]
+    danh_sach = ", ".join(chep)
+    for key in ("nha_cung_cap", "yeu_cau_mua_hang"):
+        db.execute(
+            text(
+                f"INSERT INTO role_permissions (module_key, {danh_sach}) "
+                f"SELECT :k, {danh_sach} FROM role_permissions rp "
+                "WHERE rp.module_key = 'thu_mua' AND NOT EXISTS ("
+                "  SELECT 1 FROM role_permissions x "
+                "  WHERE x.role_id = rp.role_id AND x.module_key = :k)"
+            ),
+            {"k": key},
+        )
+
+    # BƯỚC 3 — cấp bù cho TRƯỞNG PHÒNG đang tại vị.
+    # Trước bản này, hàm `can_create_department_request` cho trưởng phòng lập yêu cầu mua hàng bằng
+    # QUYỀN NGẦM theo chức danh (`departments.head_user_id`), không có bản ghi quyền nào cả — nên
+    # bước 2 ở trên không có gì để sao chép. Bỏ đường ngầm mà không cấp bù là sáng hôm sau mọi
+    # trưởng phòng mất quyền đề nghị vật tư.
+    # Cấp read+create+update, phạm vi `department` (đúng tầm một trưởng phòng). Từ nay quyền này
+    # HIỆN trên ma trận: quản trị bỏ tick là gỡ được, chứ không dính cứng vào chức danh.
+    # Mọi cột còn lại của `role_permissions` đều là Boolean NOT NULL **không có server_default**
+    # (chỉ có default phía Python) ⇒ INSERT thẳng bằng SQL mà bỏ sót cột nào là vỡ NOT NULL.
+    # Nên liệt kê ĐỦ: ba ô cần bật = true, tất cả các ô khác = false.
+    bat = ("can_read", "can_create", "can_update")
+    ten_cot = [c for c in cols if c not in ("id", "role_id", "module_key", "scope")]
+    gan = ", ".join(ten_cot)
+    gia_tri = ", ".join("true" if c in bat else "false" for c in ten_cot)
+    db.execute(
+        text(
+            f"INSERT INTO role_permissions (role_id, module_key, scope, {gan}) "
+            f"SELECT DISTINCT u.role_id, 'yeu_cau_mua_hang', 'department', {gia_tri} "
+            "FROM departments d "
+            "JOIN users u ON u.id = d.head_user_id "
+            "WHERE u.role_id IS NOT NULL AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = u.role_id AND x.module_key = 'yeu_cau_mua_hang')"
+        )
+    )
+    db.commit()
+
+
+MIGRATIONS.append(("0177_tach_module_thu_mua", _migrate_tach_module_thu_mua))
+
+
+# Màn nào tách ra khoá nào, và ô "lập/thao tác" của màn đó lấy giá trị từ ĐÂU của quyền `ke_toan` cũ.
+# Khoá cũ dùng `can_approve` làm cờ vạn năng cho "lập phiếu chi / lập phiếu thu / gán chứng từ";
+# khoá mới gọi đúng tên là `can_create` (hoặc `can_update` với màn Tài khoản ngân hàng).
+_TACH_KE_TOAN = (
+    # (khoá mới, cột đích, các cột nguồn — đúng MỘT cái true là đích thành true)
+    ("phieu_chi", "can_create", ("can_create", "can_approve")),
+    ("phieu_thu", "can_create", ("can_create", "can_approve")),
+    ("cong_no_phai_tra", None, ()),
+    ("cong_no_phai_thu", None, ()),
+    ("tk_ngan_hang", "can_update", ("can_update", "can_approve")),
+)
+
+
+def _migrate_tach_module_ke_toan(db) -> None:
+    """Tách `ke_toan` thành 6 màn (chủ chốt 10/08/2026). Cùng khuôn với 0177 của Thu mua.
+
+    ⚠️ MIGRATION QUYỀN + CÓ ĐỔI NGHĨA ĐỘNG TỪ — chỗ dễ sai nhất của cả đợt.
+
+    Trước: cả phân hệ treo trên một khoá. `can_read` mở 6 màn; `can_approve` là cờ vạn năng cho
+    "lập phiếu chi", "lập phiếu thu", "gán chứng từ" — bật một ô là tiền ra được.
+
+    Sau: mỗi màn một khoá, và động từ gọi đúng tên (LẬP phiếu = `can_create`). Vì đổi tên động từ
+    nên KHÔNG được sao chép nguyên xi: kế toán ngoài đời đang lập phiếu bằng ô `can_approve`, chép
+    thẳng sang là sáng hôm sau họ mở màn ra mà không bấm được nút nào. Bảng `_TACH_KE_TOAN` ở trên
+    khai rõ đích lấy từ nguồn nào.
+
+    Idempotent: chạy lại không đẻ hàng trùng.
+    """
+    # ⚠️ HAI điều bắt buộc ở dòng này, cả hai đều đã vỡ thật:
+    #
+    # 1. ĐỪNG dùng `PRAGMA table_info(...)`. Trên Postgres nó KHÔNG trả rỗng mà NÉM SyntaxError,
+    #    nên nhánh dự phòng "if not cols" không bao giờ chạy tới — app chết ngay lúc khởi động
+    #    (DB dev, 11/08/2026). Bộ test chạy SQLite nên PRAGMA luôn ngon và test vẫn xanh.
+    # 2. Gọi TRƯỚC MỌI LỆNH GHI. `inspect()` mở connection riêng; test dùng SQLite StaticPool nên
+    #    connection đó CHÍNH LÀ connection của phiên — đóng nó là ROLLBACK luôn mấy câu INSERT
+    #    đang chờ. Đặt sau phần ghi thì mất sạch dữ liệu vừa thêm mà không báo lỗi gì.
+    cols = sorted(_existing_columns(inspect(db.get_bind()), "role_permissions"))
+
+    for key, label in (("phieu_chi", "Phiếu chi / UNC"),
+                       ("phieu_thu", "Phiếu thu"),
+                       ("cong_no_phai_tra", "Công nợ phải trả"),
+                       ("cong_no_phai_thu", "Công nợ phải thu"),
+                       ("tk_ngan_hang", "Tài khoản ngân hàng")):
+        db.execute(
+            text("INSERT INTO modules (key, label, created_at) "
+                 "SELECT :k, :l, CURRENT_TIMESTAMP "
+                 "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+            {"k": key, "l": label},
+        )
+    db.execute(text("UPDATE modules SET label = 'Đơn mua hàng (Kế toán)' WHERE key = 'ke_toan'"))
+
+
+    for key, cot_dich, cot_nguon in _TACH_KE_TOAN:
+        chep = [c for c in cols if c not in ("id", "module_key")]
+        # Cột đích lấy từ phép HOẶC của các cột nguồn; các cột còn lại chép nguyên.
+        chon = []
+        for c in chep:
+            if cot_dich and c == cot_dich:
+                dieu_kien = " OR ".join(f"rp.{n}" for n in cot_nguon if n in cols)
+                chon.append(f"CASE WHEN {dieu_kien} THEN true ELSE false END")
+            else:
+                chon.append(f"rp.{c}")
+        db.execute(
+            text(
+                f"INSERT INTO role_permissions (module_key, {', '.join(chep)}) "
+                f"SELECT :k, {', '.join(chon)} FROM role_permissions rp "
+                "WHERE rp.module_key = 'ke_toan' AND NOT EXISTS ("
+                "  SELECT 1 FROM role_permissions x "
+                "  WHERE x.role_id = rp.role_id AND x.module_key = :k)"
+            ),
+            {"k": key},
+        )
+    db.commit()
+
+
+MIGRATIONS.append(("0178_tach_module_ke_toan", _migrate_tach_module_ke_toan))
+
+
+def _migrate_tach_module_nhan_su_luong(db) -> None:
+    """Tách phân hệ Nhân sự & Lương (chủ chốt 10/08/2026). Lát cuối của đợt phân quyền.
+
+    ⚠️ MIGRATION QUYỀN — NĂM việc, mỗi việc hỏng một kiểu khác nhau. Đọc hết trước khi sửa.
+
+    1. **Thêm khoá `cham_cong`** rồi SAO CHÉP quyền `nhan_su` sang. Trước đây màn Chấm công dùng
+       chung khoá với màn Hồ sơ nhân sự, nên cấp quyền xem hồ sơ là mở luôn bảng công cả công ty.
+
+    2. **`can_lock` lấy từ `can_adjust` cũ.** Chốt kỳ / Mở lại kỳ trước đây gác bằng ô "chấm bù"
+       (`adjust`); nay tách thành ô riêng vì một cú bấm đóng băng đầu vào lương TOÀN NHÀ MÁY và
+       *Mở lại kỳ* thì xoá sạch số liệu chốt. Không ánh xạ thì người đang chốt kỳ mất quyền ngay.
+       Ánh xạ xong, quản trị bỏ tick `can_lock` cho ai không cần — đó mới là điều muốn có.
+
+    3. **Khoá `self_service` cấp cho MỌI vai.** Tự phục vụ (tự chấm công, xem phiếu lương của
+       mình, tự gửi đơn nghỉ / tăng ca / tạm ứng) trước đây chỉ đòi ĐĂNG NHẬP — luật ngầm, không
+       có ô nào để tắt. Nay là ô thật; cấp cho mọi vai để không ai mất việc hằng ngày, khác ở chỗ
+       từ nay nó HIỆN trên ma trận và gỡ được.
+
+    4. **`noi_quy` read cấp cho MỌI vai** — cùng lý do: nội quy thì ai cũng phải đọc thật, nhưng
+       phải là một ô nhìn thấy được chứ không phải "ai đăng nhập cũng vào".
+
+    5. **Lương THÔI mượn phạm vi của Nhân sự.** `payroll._scope_for` trước đây đọc
+       `scope_for(user, "nhan_su")`: cấp quyền Lương mà quên cấp Nhân sự thì người đó tụt về *chỉ
+       mình* — không ai đoán ra. Nay Lương đọc phạm vi của CHÍNH nó, nên phải chép phạm vi
+       `nhan_su` sang `luong` để giữ nguyên hành vi hôm nay.
+
+    Idempotent: chạy lại không đẻ hàng trùng, không ghi đè phạm vi đã chép.
+    """
+    # ⚠️ HAI điều bắt buộc ở dòng này, cả hai đều đã vỡ thật:
+    #
+    # 1. ĐỪNG dùng `PRAGMA table_info(...)`. Trên Postgres nó KHÔNG trả rỗng mà NÉM SyntaxError,
+    #    nên nhánh dự phòng "if not cols" không bao giờ chạy tới — app chết ngay lúc khởi động
+    #    (DB dev, 11/08/2026). Bộ test chạy SQLite nên PRAGMA luôn ngon và test vẫn xanh.
+    # 2. Gọi TRƯỚC MỌI LỆNH GHI. `inspect()` mở connection riêng; test dùng SQLite StaticPool nên
+    #    connection đó CHÍNH LÀ connection của phiên — đóng nó là ROLLBACK luôn mấy câu INSERT
+    #    đang chờ. Đặt sau phần ghi thì mất sạch dữ liệu vừa thêm mà không báo lỗi gì.
+    cols = sorted(_existing_columns(inspect(db.get_bind()), "role_permissions"))
+
+    for key, label in (("cham_cong", "Chấm công"), ("self_service", "Tự phục vụ")):
+        db.execute(
+            text("INSERT INTO modules (key, label, created_at) "
+                 "SELECT :k, :l, CURRENT_TIMESTAMP "
+                 "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+            {"k": key, "l": label},
+        )
+    db.execute(text("UPDATE modules SET label = 'Hồ sơ nhân sự' WHERE key = 'nhan_su'"))
+
+
+    # (1)+(2) nhan_su → cham_cong, `can_lock` lấy từ `can_adjust` cũ.
+    chep = [c for c in cols if c not in ("id", "module_key")]
+    chon = []
+    for c in chep:
+        if c == "can_lock" and "can_adjust" in cols:
+            chon.append("CASE WHEN rp.can_lock OR rp.can_adjust THEN true ELSE false END")
+        else:
+            chon.append(f"rp.{c}")
+    db.execute(
+        text(
+            f"INSERT INTO role_permissions (module_key, {', '.join(chep)}) "
+            f"SELECT 'cham_cong', {', '.join(chon)} FROM role_permissions rp "
+            "WHERE rp.module_key = 'nhan_su' AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = 'cham_cong')"
+        )
+    )
+
+    # (3)+(4) self_service + noi_quy: cấp `can_read` cho MỌI vai đang có.
+    khac = [c for c in cols if c not in ("id", "role_id", "module_key", "scope")]
+    gan = ", ".join(khac)
+    for key, bat in (("self_service", {"can_read"}), ("noi_quy", {"can_read"})):
+        gia_tri = ", ".join("true" if c in bat else "false" for c in khac)
+        db.execute(
+            text(
+                f"INSERT INTO role_permissions (role_id, module_key, scope, {gan}) "
+                f"SELECT r.id, :k, 'own', {gia_tri} FROM roles r "
+                "WHERE NOT EXISTS ("
+                "  SELECT 1 FROM role_permissions x "
+                "  WHERE x.role_id = r.id AND x.module_key = :k)"
+            ),
+            {"k": key},
+        )
+
+    # (5) Lương giữ nguyên phạm vi đang thực sự dùng = phạm vi của `nhan_su`.
+    db.execute(text(
+        "UPDATE role_permissions SET scope = ("
+        "  SELECT ns.scope FROM role_permissions ns "
+        "  WHERE ns.role_id = role_permissions.role_id AND ns.module_key = 'nhan_su') "
+        "WHERE module_key = 'luong' AND EXISTS ("
+        "  SELECT 1 FROM role_permissions ns "
+        "  WHERE ns.role_id = role_permissions.role_id AND ns.module_key = 'nhan_su' "
+        "    AND ns.scope <> role_permissions.scope)"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0179_tach_module_nhan_su_luong", _migrate_tach_module_nhan_su_luong))
+
+
+def _migrate_tach_o_danh_dau_da_chi_luong(db) -> None:
+    """Tách "Đánh dấu ĐÃ CHI lương" khỏi "Chốt bảng lương" (đợt 4, 10/08/2026).
+
+    Trước: bốn endpoint `/luong/lock`, `/reopen`, `/pay`, `/unpay` dùng CHUNG ô `can_lock`. Ai chốt
+    được bảng lương thì tự tuyên bố luôn "đã trả tiền cho người lao động" — không còn ai đối chiếu.
+    Ngoài đời hai việc hai người: người tính lương chốt số, kế toán mới xác nhận đã trả.
+
+    Sau: `/pay` + `/unpay` đòi ô riêng `can_manage_status`.
+
+    Ánh xạ `can_manage_status = can_lock` cũ để người đang làm không mất việc. Quản trị bỏ tick cho
+    ai không cần — đó mới là điều muốn có. KHÔNG cấp cho người không có `can_lock`: đó là ô cho
+    tiền ra, vống lên còn tệ hơn cái đang sửa.
+
+    Idempotent: chỉ đụng dòng `luong` nào chưa bật `can_manage_status`.
+    """
+    db.execute(text(
+        "UPDATE role_permissions SET can_manage_status = true "
+        "WHERE module_key = 'luong' AND can_lock AND NOT can_manage_status"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0180_tach_o_danh_dau_da_chi_luong", _migrate_tach_o_danh_dau_da_chi_luong))
+
+
+def _migrate_them_o_xem_nhat_ky_cham_cong(db) -> None:
+    """Thêm cột `role_permissions.can_view_log` + tách "Nhật ký chấm công · Xem" (11/08/2026).
+
+    `create_all` chỉ TẠO bảng, KHÔNG ALTER ⇒ cột mới phải thêm ở đây thì DB đang chạy mới nhận.
+
+    Ánh xạ `can_view_log = can_read` của `cham_cong`: ai đang xem được nhật ký thì vẫn xem được.
+    Bỏ ánh xạ là sáng hôm sau tab Nhật ký trắng trơn với tất cả mọi người, kể cả HCNS.
+    """
+    insp = inspect(db.get_bind())
+    if "can_view_log" not in _existing_columns(insp, "role_permissions"):
+        db.execute(text(
+            "ALTER TABLE role_permissions ADD COLUMN can_view_log BOOLEAN NOT NULL DEFAULT false"
+        ))
+        db.commit()
+    db.execute(text(
+        "UPDATE role_permissions SET can_view_log = true "
+        "WHERE module_key = 'cham_cong' AND can_read AND NOT can_view_log"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0181_them_o_xem_nhat_ky_cham_cong", _migrate_them_o_xem_nhat_ky_cham_cong))
+
+
+def _migrate_doi_o_duyet_pmh_sang_ke_toan(db) -> None:
+    """Dời "Duyệt / từ chối PMH" sang khoá `ke_toan`, tách 3 việc kia ra ô riêng (11/08/2026).
+
+    Ô `thu_mua:can_approve` cũ mang HAI nghĩa và nằm SAI phân hệ:
+      • "duyệt / từ chối PMH" — nút chỉ có ở màn **Đơn mua hàng (Kế toán)**;
+      • "sửa số nhận · mở lại đơn · đóng đơn" — nút ở màn Mua hàng, chẳng liên quan tới duyệt.
+
+    Nay tách đôi, mỗi ô về đúng màn có nút. Vì cùng một cờ cũ nuôi cả hai nên phải chép sang CẢ HAI
+    đích, nếu không thì mất một trong hai đường làm việc:
+      • `ke_toan.can_approve      = thu_mua.can_approve`  (người đang duyệt vẫn duyệt được)
+      • `thu_mua.can_manage_status = thu_mua.can_approve` (người đang mở lại đơn vẫn mở được)
+
+    `thu_mua.can_cancel` (ô "Hủy PMH") bỏ hẳn — endpoint và nút đều đã gỡ. KHÔNG xoá cột trong DB:
+    cột dùng chung cho mọi module, `yeu_cau_mua_hang` và các phân hệ khác vẫn đang dùng.
+
+    Idempotent: chỉ bật thêm, không ghi đè cái đã bật.
+    """
+    # ke_toan có thể chưa có dòng cho vai đó ⇒ vừa UPDATE vừa INSERT.
+    cols = sorted(_existing_columns(inspect(db.get_bind()), "role_permissions"))
+    db.execute(text(
+        "UPDATE role_permissions SET can_approve = true "
+        "WHERE module_key = 'ke_toan' AND NOT can_approve AND role_id IN ("
+        "  SELECT role_id FROM role_permissions WHERE module_key = 'thu_mua' AND can_approve)"
+    ))
+    khac = [c for c in cols if c not in ("id", "role_id", "module_key", "scope")]
+    gia_tri = ", ".join("true" if c in ("can_read", "can_approve") else "false" for c in khac)
+    db.execute(text(
+        f"INSERT INTO role_permissions (role_id, module_key, scope, {', '.join(khac)}) "
+        f"SELECT rp.role_id, 'ke_toan', rp.scope, {gia_tri} FROM role_permissions rp "
+        "WHERE rp.module_key = 'thu_mua' AND rp.can_approve AND NOT EXISTS ("
+        "  SELECT 1 FROM role_permissions x "
+        "  WHERE x.role_id = rp.role_id AND x.module_key = 'ke_toan')"
+    ))
+    db.execute(text(
+        "UPDATE role_permissions SET can_manage_status = true "
+        "WHERE module_key = 'thu_mua' AND can_approve AND NOT can_manage_status"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0182_doi_o_duyet_pmh_sang_ke_toan", _migrate_doi_o_duyet_pmh_sang_ke_toan))
+
+
+def _migrate_ycmh_khong_con_an_theo_khoa_thu_mua(db) -> None:
+    """Gỡ lối tắt "có `thu_mua` là thấy YCMH cả công ty" — cấp bù phạm vi thật (11/08/2026).
+
+    LỖ HỔNG ĐO ĐƯỢC: `_sees_all_department_requests` từng mở cửa cho bất kỳ vai nào CÓ dòng quyền
+    `thu_mua`, **không xét phạm vi**. Hậu quả: quản trị chọn "Của tôi" hay "Cả phòng" ở màn Yêu cầu
+    mua hàng cũng vô ích — vẫn thấy yêu cầu của mọi bộ phận. Đo: vai `yeu_cau_mua_hang` phạm vi
+    `own` thấy 1 dòng; cấp thêm `thu_mua` (cũng `own`) thành 2 dòng, đủ cả hai phòng.
+
+    Lối tắt sinh ra khi YCMH chưa có khoá riêng. Nay nó có `yeu_cau_mua_hang`, nên cách đúng là
+    ghi thẳng phạm vi `all` lên khoá đó — hiện trên ma trận, quản trị gỡ được.
+
+    Ai được cấp bù: vai đang có `thu_mua` (bộ phận mua hàng — hộp việc của họ đúng là toàn công
+    ty). KHÔNG cấp cho vai chỉ có `bao_gia`/`kho`/`san_xuat`… — mấy vai đó xưa nay vẫn chỉ thấy
+    phòng mình, giữ nguyên.
+
+    Idempotent: chỉ nới phạm vi, không thu hẹp cái đã rộng.
+    """
+    cols = sorted(_existing_columns(inspect(db.get_bind()), "role_permissions"))
+    khac = [c for c in cols if c not in ("id", "role_id", "module_key", "scope")]
+    gia_tri = ", ".join("true" if c == "can_read" else "false" for c in khac)
+
+    # Vai có `thu_mua` mà CHƯA có dòng `yeu_cau_mua_hang` ⇒ thêm dòng, phạm vi `all`.
+    db.execute(text(
+        f"INSERT INTO role_permissions (role_id, module_key, scope, {', '.join(khac)}) "
+        f"SELECT rp.role_id, 'yeu_cau_mua_hang', 'all', {gia_tri} FROM role_permissions rp "
+        "WHERE rp.module_key = 'thu_mua' AND NOT EXISTS ("
+        "  SELECT 1 FROM role_permissions x "
+        "  WHERE x.role_id = rp.role_id AND x.module_key = 'yeu_cau_mua_hang')"
+    ))
+    # Đã có dòng nhưng phạm vi hẹp ⇒ nới lên `all` + bật Xem (trước đây họ vẫn thấy hết mà).
+    db.execute(text(
+        "UPDATE role_permissions SET scope = 'all', can_read = true "
+        "WHERE module_key = 'yeu_cau_mua_hang' AND scope <> 'all' AND role_id IN ("
+        "  SELECT role_id FROM role_permissions WHERE module_key = 'thu_mua')"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(
+    ("0183_ycmh_khong_con_an_theo_khoa_thu_mua", _migrate_ycmh_khong_con_an_theo_khoa_thu_mua)
+)
+
+
+def _migrate_tu_phuc_vu_co_o_thao_tac(db) -> None:
+    """Tự phục vụ tách làm hai ô: XEM (`can_read`) và THAO TÁC (`can_create`) — 11/08/2026.
+
+    Trước đó khoá `self_service` CHỈ dùng động từ `read`, nên cột "Thao tác" của nó là ô chết: gỡ
+    tick đi thì thợ vẫn chấm công, vẫn gửi phiếu tăng ca, vẫn xin nghỉ. Chủ chốt báo đúng ba lần
+    ở ba màn khác nhau, cùng một gốc.
+
+    ⚠️ ÁNH XẠ BẮT BUỘC — `can_create = can_read`. Cột `can_create` của `self_service` xưa nay chưa
+    ai bật (nó vô nghĩa mà), nên không ánh xạ là sáng hôm sau **cả nhà máy không chấm công được**,
+    không ai xin nghỉ được. Đây là migration mà quên thì cả công ty đứng.
+
+    Thêm: `nghi_phep.can_create` (xin nghỉ) cũng đổ sang `self_service.can_create` — từ nay xin
+    nghỉ cho chính mình đi cùng ô với xin tăng ca / đi muộn / tạm ứng, không còn một mình một kiểu.
+    `nghi_phep.can_create` GIỮ NGUYÊN, nay mang nghĩa "nhập đơn HỘ người khác" (HCNS nhập giùm thợ
+    không dùng máy).
+
+    Idempotent: chỉ bật thêm, không tắt gì.
+    """
+    db.execute(text(
+        "UPDATE role_permissions SET can_create = true "
+        "WHERE module_key = 'self_service' AND can_read AND NOT can_create"
+    ))
+    db.execute(text(
+        "UPDATE role_permissions SET can_create = true "
+        "WHERE module_key = 'self_service' AND NOT can_create AND role_id IN ("
+        "  SELECT role_id FROM role_permissions WHERE module_key = 'nghi_phep' AND can_create)"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0184_tu_phuc_vu_co_o_thao_tac", _migrate_tu_phuc_vu_co_o_thao_tac))
+
+
+def _migrate_tach_o_yeu_cau_chinh_cong(db) -> None:
+    """Tách "Yêu cầu chỉnh công" ra ô riêng + Đi muộn chỉ còn ô Duyệt (11/08/2026).
+
+    HAI việc, hai gốc khác nhau:
+
+    1. **Yêu cầu chỉnh công** tách khỏi `cham_cong`. Trước đây xem thì dùng chung `cham_cong:read`,
+       duyệt thì dùng chung `cham_cong:adjust`. Ai đang duyệt (`can_adjust`) được chép sang ô mới
+       với `can_read` + `can_approve`; phạm vi giữ nguyên, nhưng `own` nâng lên `department` —
+       duyệt yêu cầu của CHÍNH MÌNH là vô nghĩa, để `own` thì màn trống trơn.
+
+    2. **Đi muộn / về sớm**: đọc danh sách nay đòi `di_muon:approve` thay vì `read` (màn chỉ còn
+       một việc thật là duyệt). Ai đang có `read` mà chưa có `approve` sẽ mất đường vào — nhưng
+       KHÔNG cấp bù `approve` cho họ: duyệt phiếu người khác là quyền nặng hơn hẳn quyền xem, tự
+       nâng cấp là mở cửa. Họ vẫn xem phiếu CỦA MÌNH qua ô Tự phục vụ; quản trị muốn cho ai duyệt
+       thì tick ô Duyệt — hiện rõ trên ma trận.
+
+    Idempotent: chạy lại không đẻ hàng trùng.
+    """
+    for key, label in (("yeu_cau_chinh_cong", "Yêu cầu chỉnh công"),):
+        db.execute(
+            text("INSERT INTO modules (key, label, created_at) "
+                 "SELECT :k, :l, CURRENT_TIMESTAMP "
+                 "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+            {"k": key, "l": label},
+        )
+
+    cols = sorted(_existing_columns(inspect(db.get_bind()), "role_permissions"))
+    khac = [c for c in cols if c not in ("id", "role_id", "module_key", "scope")]
+    gia_tri = ", ".join(
+        "true" if c in ("can_read", "can_approve") else "false" for c in khac
+    )
+    db.execute(text(
+        f"INSERT INTO role_permissions (role_id, module_key, scope, {', '.join(khac)}) "
+        f"SELECT rp.role_id, 'yeu_cau_chinh_cong', "
+        # `own` → `department`: duyệt yêu cầu của chính mình là vô nghĩa.
+        f"CASE WHEN rp.scope = 'own' THEN 'department' ELSE rp.scope END, {gia_tri} "
+        "FROM role_permissions rp "
+        "WHERE rp.module_key = 'cham_cong' AND rp.can_adjust AND NOT EXISTS ("
+        "  SELECT 1 FROM role_permissions x "
+        "  WHERE x.role_id = rp.role_id AND x.module_key = 'yeu_cau_chinh_cong')"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0185_tach_o_yeu_cau_chinh_cong", _migrate_tach_o_yeu_cau_chinh_cong))
+
+
+def _migrate_them_generated_at_cho_ky_luong(db) -> None:
+    """Thêm `payroll_periods.generated_at` — dấu "engine chạy lần cuối lúc nào" (12/08/2026).
+
+    `create_all` chỉ TẠO bảng, KHÔNG ALTER ⇒ cột mới phải thêm ở đây thì DB đang chạy mới nhận.
+
+    DÙNG ĐỂ LÀM GÌ: bịt khe hở L4 của vòng khoá công ⇄ lương. Chuỗi mới bắt chốt công trước khi
+    chốt lương, nhưng vẫn còn kẽ:
+
+        9h  tính lương (số live)  →  10h  ai đó chấm bù  →  11h  chốt công  →  12h  chốt lương
+
+    Dòng lương lúc 12h VẪN là số của 9h. So `generated_at` với `attendance_periods.locked_at` là
+    biết ngay, rồi bắt bấm "Tính lại" trước khi cho chốt.
+
+    KHÔNG ĐOÁN cho kỳ cũ: để NULL. Đoán bừa (vd gán `created_at`) là tự tay khẳng định một điều
+    mình không biết — kỳ cũ nào lỡ rơi vào diện phải chặn thì cứ bấm Tính lại một lần là xong,
+    rẻ hơn nhiều so với cho lọt một kỳ đáng ra phải chặn.
+    """
+    insp = inspect(db.get_bind())
+    if "generated_at" not in _existing_columns(insp, "payroll_periods"):
+        db.execute(text("ALTER TABLE payroll_periods ADD COLUMN generated_at TIMESTAMP NULL"))
+        db.commit()
+
+
+MIGRATIONS.append(("0186_them_generated_at_cho_ky_luong", _migrate_them_generated_at_cho_ky_luong))
+
+
+def _migrate_sales_invoices_ar(db: Session) -> None:
+    """AR: công nợ phải thu chỉ phát sinh từ hóa đơn bán đã phát hành (12/08/2026).
+
+    Tạo sổ hóa đơn bán và nối Phiếu thu vào đúng hóa đơn nguồn. Trên DB trắng, `create_all`
+    đã dựng đủ bảng/cột nên migration chỉ bảo đảm index; trên DB đang chạy, DDL dưới đây vá
+    tiến idempotent cho cả SQLite và PostgreSQL.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+    id_pk = "INTEGER PRIMARY KEY" if bind.dialect.name == "sqlite" else "SERIAL PRIMARY KEY"
+
+    if "orders" in tables and "customers" in tables and "users" in tables:
+        db.execute(text(
+            "CREATE TABLE IF NOT EXISTS sales_invoices ("
+            f"id {id_pk}, "
+            "order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE RESTRICT, "
+            "customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL, "
+            "invoice_symbol VARCHAR(64) NOT NULL, "
+            "invoice_number VARCHAR(64) NOT NULL, "
+            "invoice_date DATE NOT NULL, "
+            "amount_vnd BIGINT NOT NULL, "
+            "payment_term_days_snapshot INTEGER, "
+            "due_date DATE, "
+            "customer_name_snapshot VARCHAR(255) NOT NULL, "
+            "status VARCHAR(16) NOT NULL DEFAULT 'issued', "
+            "created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, "
+            "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+            "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+            "cancelled_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, "
+            "cancelled_at TIMESTAMP, "
+            "cancel_reason TEXT, "
+            "CONSTRAINT uq_sales_invoice_symbol_number "
+            "UNIQUE (invoice_symbol, invoice_number))"
+        ))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_sales_invoices_order_id "
+            "ON sales_invoices (order_id)"
+        ))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_sales_invoices_customer_id "
+            "ON sales_invoices (customer_id)"
+        ))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_sales_invoices_status "
+            "ON sales_invoices (status)"
+        ))
+
+    # Refresh sau CREATE TABLE để SQLite/Postgres đều thấy schema mới trong cùng migration.
+    insp = inspect(bind)
+    migrated_tables = set(insp.get_table_names())
+    if "payment_receipts" in migrated_tables and "sales_invoices" in migrated_tables:
+        receipt_cols = _existing_columns(insp, "payment_receipts")
+        if "sales_invoice_id" not in receipt_cols:
+            db.execute(text(
+                "ALTER TABLE payment_receipts ADD COLUMN sales_invoice_id INTEGER "
+                "REFERENCES sales_invoices(id) ON DELETE RESTRICT"
+            ))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_payment_receipts_sales_invoice_id "
+            "ON payment_receipts (sales_invoice_id)"
+        ))
+
+    db.commit()
+
+
+MIGRATIONS.append(("0187_sales_invoices_ar", _migrate_sales_invoices_ar))
+
+
+def _migrate_sales_invoices_legacy_compat(db: Session) -> None:
+    """Đưa bảng hóa đơn bán đời cũ về schema AR hiện tại mà không làm mất dữ liệu.
+
+    Một bản triển khai trước đã tạo ``sales_invoices`` với các tên
+    ``invoice_series``/``invoice_no``/``payment_term_days``. Vì bảng đã tồn tại,
+    migration 0187 dùng ``CREATE TABLE IF NOT EXISTS`` không thể bổ sung các cột
+    mới và mọi truy vấn ORM đều lỗi ngay ở ``invoice_symbol``.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "sales_invoices" not in set(insp.get_table_names()):
+        return
+
+    columns = _existing_columns(insp, "sales_invoices")
+    additions = (
+        ("invoice_symbol", "VARCHAR(64)"),
+        ("invoice_number", "VARCHAR(64)"),
+        ("payment_term_days_snapshot", "INTEGER"),
+        ("updated_at", "TIMESTAMP"),
+    )
+    for name, sql_type in additions:
+        if name not in columns:
+            db.execute(text(f"ALTER TABLE sales_invoices ADD COLUMN {name} {sql_type}"))
+    db.commit()
+
+    columns = _existing_columns(inspect(bind), "sales_invoices")
+    symbol_source = (
+        "COALESCE(NULLIF(TRIM(invoice_series), ''), 'HD')"
+        if "invoice_series" in columns
+        else "'HD'"
+    )
+    number_candidates = []
+    if "invoice_no" in columns:
+        number_candidates.append("NULLIF(TRIM(invoice_no), '')")
+    if "code" in columns:
+        number_candidates.append("NULLIF(TRIM(code), '')")
+    number_candidates.append("CAST(id AS VARCHAR(64))")
+    number_source = (
+        number_candidates[0]
+        if len(number_candidates) == 1
+        else f"COALESCE({', '.join(number_candidates)})"
+    )
+
+    db.execute(text(
+        "UPDATE sales_invoices SET "
+        f"invoice_symbol = COALESCE(invoice_symbol, {symbol_source}), "
+        f"invoice_number = COALESCE(invoice_number, {number_source}), "
+        "updated_at = COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)"
+    ))
+    if "payment_term_days" in columns:
+        db.execute(text(
+            "UPDATE sales_invoices SET payment_term_days_snapshot = payment_term_days "
+            "WHERE payment_term_days_snapshot IS NULL"
+        ))
+    if "customer_name_snapshot" in columns:
+        db.execute(text(
+            "UPDATE sales_invoices SET customer_name_snapshot = 'Khách hàng' "
+            "WHERE customer_name_snapshot IS NULL OR TRIM(customer_name_snapshot) = ''"
+        ))
+
+    # Bảng cũ không bắt duy nhất cặp ký hiệu + số. Chỉ hậu tố những dòng trùng phía sau để
+    # migration không làm sập startup mà vẫn giữ dòng đầu tiên đúng nguyên bản.
+    db.execute(text(
+        "UPDATE sales_invoices AS current_row SET "
+        "invoice_number = invoice_number || '-' || CAST(id AS VARCHAR(32)) "
+        "WHERE EXISTS (SELECT 1 FROM sales_invoices AS earlier "
+        "WHERE earlier.invoice_symbol = current_row.invoice_symbol "
+        "AND earlier.invoice_number = current_row.invoice_number "
+        "AND earlier.id < current_row.id)"
+    ))
+
+    if bind.dialect.name == "postgresql":
+        for name in ("invoice_symbol", "invoice_number", "updated_at"):
+            db.execute(text(
+                f"ALTER TABLE sales_invoices ALTER COLUMN {name} SET NOT NULL"
+            ))
+        # Các cột bắt buộc của schema cũ không còn được ORM hiện tại ghi. Cho phép NULL để
+        # hóa đơn mới vẫn chèn được; dữ liệu lịch sử trong các cột này được giữ nguyên.
+        for legacy_name in ("code", "subtotal_vnd", "vat_vnd"):
+            if legacy_name in columns:
+                db.execute(text(
+                    f"ALTER TABLE sales_invoices ALTER COLUMN {legacy_name} DROP NOT NULL"
+                ))
+
+    db.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_invoice_symbol_number "
+        "ON sales_invoices (invoice_symbol, invoice_number)"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0189_sales_invoices_legacy_compat", _migrate_sales_invoices_legacy_compat))
+
+
+def _migrate_module_notifications(db: Session) -> None:
+    """Tạo hai bảng badge đọc/chưa đọc cho DB đang chạy.
+
+    DB trắng đã được ``create_all`` dựng từ model; ``checkfirst`` giữ migration idempotent cho cả
+    SQLite và PostgreSQL mà không phải duy trì hai bản CREATE TABLE bằng chuỗi SQL.
+    """
+    from .models.module_notification import ModuleNotification, ModuleNotificationRead
+
+    bind = db.get_bind()
+    ModuleNotification.__table__.create(bind, checkfirst=True)
+    ModuleNotificationRead.__table__.create(bind, checkfirst=True)
+    db.commit()
+
+
+MIGRATIONS.append(("0190_module_notifications", _migrate_module_notifications))
+
+
+def _migrate_module_notification_recipient(db: Session) -> None:
+    """Bổ sung người nhận cho bảng thông báo đã được tạo bởi bản 0190 đầu tiên.
+
+    Một số DB đã chạy 0190 trước khi ``recipient_user_id`` được thêm vào model. Sửa lại 0190 không
+    giúp các DB đó vì migration đã được đánh dấu hoàn tất, nên phải có một bước mới độc lập.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "module_notifications" not in set(insp.get_table_names()):
+        return
+    if "recipient_user_id" not in _existing_columns(insp, "module_notifications"):
+        db.execute(text(
+            "ALTER TABLE module_notifications ADD COLUMN recipient_user_id INTEGER "
+            "REFERENCES users(id) ON DELETE CASCADE"
+        ))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_module_notifications_recipient_user_id "
+        "ON module_notifications (recipient_user_id)"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append((
+    "0191_module_notification_recipient",
+    _migrate_module_notification_recipient,
+))
+
+
+def _migrate_rejected_pmh_keeps_ycmh_reserved(db: Session) -> None:
+    """Sửa YCMH cũ bị thả về ``open`` khi PMH nguồn bị Kế toán từ chối.
+
+    Luồng đúng là Thu mua sửa và gửi lại chính PMH bị từ chối. YCMH phải tiếp tục được giữ ở
+    ``pending_approval``; nếu để ``open``, cả giao diện lẫn API đều cho lập thêm PMH trùng nguồn.
+    """
+    tables = set(inspect(db.get_bind()).get_table_names())
+    required = {
+        "department_purchase_requests",
+        "purchase_requests",
+        "purchase_request_sources",
+    }
+    if not required.issubset(tables):
+        return
+
+    stale_ids = list(db.execute(text(
+        "SELECT d.id FROM department_purchase_requests d "
+        "WHERE d.status = 'open' AND EXISTS ("
+        "SELECT 1 FROM purchase_request_sources prs "
+        "JOIN purchase_requests pr ON pr.id = prs.purchase_request_id "
+        "WHERE prs.department_request_id = d.id AND pr.status = 'rejected')"
+    )).scalars())
+    if not stale_ids:
+        return
+
+    has_history = "purchase_status_history" in tables
+    has_updated_at = "updated_at" in _existing_columns(
+        inspect(db.get_bind()), "department_purchase_requests"
+    )
+    for doc_id in stale_ids:
+        if has_history:
+            db.execute(text(
+                "INSERT INTO purchase_status_history "
+                "(doc_type, doc_id, from_status, to_status, changed_by_user_id, source, reason, created_at) "
+                "VALUES ('ycmh', :doc_id, 'open', 'pending_approval', NULL, 'may', "
+                ":reason, CURRENT_TIMESTAMP)"
+            ), {
+                "doc_id": doc_id,
+                "reason": "Sửa dữ liệu: PMH bị từ chối vẫn giữ YCMH để chỉnh sửa và gửi lại",
+            })
+        db.execute(text(
+            "UPDATE department_purchase_requests SET status = 'pending_approval'"
+            + (", updated_at = CURRENT_TIMESTAMP" if has_updated_at else "")
+            + " WHERE id = :doc_id AND status = 'open'"
+        ), {"doc_id": doc_id})
+    db.commit()
+
+
+MIGRATIONS.append((
+    "0192_rejected_pmh_keeps_ycmh_reserved",
+    _migrate_rejected_pmh_keeps_ycmh_reserved,
+))
+def _migrate_kho_khoa_so_them_ten(db) -> None:
+    """Thêm cột `ten` (tên kỳ, tuỳ chọn) vào kho_khoa_so — đặt khi 'khoa' để nhận diện nhanh + CHẶN
+    TRÙNG với kỳ đang khóa khác. Nullable → no-op trên DB tạo mới bằng create_all."""
+    insp = inspect(db.get_bind())
+    if "kho_khoa_so" not in insp.get_table_names():
+        return
+    if "ten" not in _existing_columns(insp, "kho_khoa_so"):
+        db.execute(text("ALTER TABLE kho_khoa_so ADD COLUMN ten VARCHAR(120)"))
+        db.commit()
+
+
+MIGRATIONS.append(("0187_kho_khoa_so_them_ten", _migrate_kho_khoa_so_them_ten))
+
+
+def _migrate_stock_request_quyet_dinh_xem_luc(db) -> None:
+    """Thêm cột `quyet_dinh_xem_luc` (người tạo đã MỞ XEM yêu cầu tới lúc nào) vào stock_requests —
+    nuôi badge "yêu cầu của tôi vừa được kho PHẢN HỒI (hoàn tất/không thành)". Nullable → no-op trên
+    DB tạo mới bằng create_all. BASELINE: coi mọi yêu cầu HIỆN CÓ là đã xem (seen = updated_at) →
+    badge chỉ đếm phản hồi MỚI về sau, tránh nhảy số vì dữ liệu cũ."""
+    insp = inspect(db.get_bind())
+    if "stock_requests" not in insp.get_table_names():
+        return
+    if "quyet_dinh_xem_luc" not in _existing_columns(insp, "stock_requests"):
+        db.execute(text("ALTER TABLE stock_requests ADD COLUMN quyet_dinh_xem_luc TIMESTAMP WITH TIME ZONE"))
+        db.execute(text("UPDATE stock_requests SET quyet_dinh_xem_luc = updated_at"))
+        db.commit()
+
+
+MIGRATIONS.append(("0188_stock_request_quyet_dinh_xem_luc", _migrate_stock_request_quyet_dinh_xem_luc))
+
+
+def _migrate_cong_bo_phieu_luong(db) -> None:
+    """Thêm `payroll_periods.cong_bo_luc` — mốc PHÁT PHIẾU LƯƠNG cho NLĐ (12/08/2026).
+
+    `create_all` chỉ TẠO bảng, KHÔNG ALTER ⇒ cột mới phải thêm ở đây thì DB đang chạy mới nhận.
+
+    VÌ SAO CÓ: trước đó `latest_line_for_employee` trả dòng lương của kỳ mới nhất mà KHÔNG lọc
+    trạng thái kỳ — HCNS vừa bấm "Tính lại", số còn đang soát, thợ đã mở điện thoại xem được; HCNS
+    sửa tiếp thì số đổi, không ai báo gì.
+
+    MỘT CỘT LÀM CẢ HAI VIỆC: "Công bố ngay" ghi thời điểm hiện tại, "Hẹn giờ" ghi mốc tương lai.
+    Điều kiện thấy phiếu là `cong_bo_luc <= bây giờ`, KIỂM LÚC ĐỌC ⇒ không cần job chạy nền.
+
+    ĐỂ NULL CHO MỌI KỲ CŨ, cố ý: kỳ cũ coi như CHƯA công bố. Chọn ngược lại (mở sẵn hết) thì cột
+    này vô nghĩa ngay ngày đầu — mà mở sẵn cũng chỉ giữ nguyên hiện trạng đang muốn sửa.
+    """
+    insp = inspect(db.get_bind())
+    if "cong_bo_luc" not in _existing_columns(insp, "payroll_periods"):
+        db.execute(text("ALTER TABLE payroll_periods ADD COLUMN cong_bo_luc TIMESTAMP NULL"))
+        db.commit()
+
+
+MIGRATIONS.append(("0187_cong_bo_phieu_luong", _migrate_cong_bo_phieu_luong))
+
+
+def _migrate_de_tay_khoan_tu_ho_so(db) -> None:
+    """Thêm `payroll_line_components.da_de_tay` — sửa khoản "Từ hồ sơ" cho RIÊNG một kỳ (12/08/2026).
+
+    Chủ chốt: *"gán cho nó Hỗ trợ chi phí đi lại, nhưng tháng này nó đi nhiều hơn thì sửa thế nào?"*
+    Trước đó không sửa được: code chặn thẳng, vì dòng `source='employee'` bị xoá-ghi-lại mỗi lần
+    bấm "Tính lại" nên sửa xong là mất số âm thầm.
+
+    `false` cho mọi dòng cũ — không dòng nào đang bị đè, không có gì để đoán.
+    """
+    insp = inspect(db.get_bind())
+    if "da_de_tay" not in _existing_columns(insp, "payroll_line_components"):
+        db.execute(text(
+            "ALTER TABLE payroll_line_components ADD COLUMN da_de_tay BOOLEAN NOT NULL DEFAULT false"
+        ))
+        db.commit()
+
+
+MIGRATIONS.append(("0188_de_tay_khoan_tu_ho_so", _migrate_de_tay_khoan_tu_ho_so))
+
+
+def _migrate_dong_phieu_luong(db) -> None:
+    """Thêm `payroll_periods.dong_phieu_luc` — mốc ĐÓNG phiếu lương (12/08/2026).
+
+    Cùng `cong_bo_luc` (mg 0187) tạo thành MỘT CỬA SỔ: NV thấy phiếu khi
+    `cong_bo_luc <= bây giờ < dong_phieu_luc`. Chủ chốt: *"cài giờ phiếu nó hiển thị trong bao
+    nhiêu lâu"* — phiếu lương không cần mở vĩnh viễn.
+
+    NULL cho mọi kỳ cũ = mở không thời hạn ⇒ kỳ nào đang công bố vẫn giữ nguyên hành vi. Chọn
+    ngược lại (đóng sẵn) là âm thầm rút phiếu của những kỳ đang mở.
+    """
+    insp = inspect(db.get_bind())
+    if "dong_phieu_luc" not in _existing_columns(insp, "payroll_periods"):
+        db.execute(text("ALTER TABLE payroll_periods ADD COLUMN dong_phieu_luc TIMESTAMP NULL"))
+        db.commit()
+
+
+MIGRATIONS.append(("0189_dong_phieu_luong", _migrate_dong_phieu_luong))
+
+
+def _migrate_com_tang_ca(db) -> None:
+    """SUẤT CƠM TĂNG CA (12/08/2026) — 3 cột, một luật.
+
+    Chủ chốt: *"Tăng ca 3 tiếng sẽ được thưởng tiền cơm, cái này setup động nha; riêng tăng ca
+    ngày chủ nhật thì cứ tăng ca là được tiền cơm cho dù 1 tiếng hay 2 tiếng."*
+
+    Ba cột, mỗi cột một việc:
+      • `attendance_period_lines.ot_days_json` — phút tăng ca TỪNG NGÀY, tách ngày làm / ngày nghỉ.
+        Ảnh chụp cũ chỉ giữ TỔNG phút cả tháng nên không trả lời được "ngày nào đủ 3 tiếng".
+      • `payroll_params.com_tang_ca_nguong_phut` — ngưỡng cho NGÀY LÀM VIỆC (mặc định 180' = 3h).
+      • `payroll_params.com_tang_ca_muc` — tiền một suất. MẶC ĐỊNH 0 = TẮT, chủ tự khai.
+
+    Vì sao mức mặc định 0 chứ không phải 25.000 như cơm ca: bật sẵn một khoản RA TIỀN cho cả nhà
+    máy mà chưa ai duyệt số là tự ý tăng quỹ lương. Cùng lối với `cong_doan_rate` (cũng mặc định 0).
+    Ngưỡng thì để 180' vì nó chỉ có nghĩa khi mức > 0.
+    """
+    insp = inspect(db.get_bind())
+    if "ot_days_json" not in _existing_columns(insp, "attendance_period_lines"):
+        db.execute(text("ALTER TABLE attendance_period_lines ADD COLUMN ot_days_json TEXT NULL"))
+        db.commit()
+    cot_params = _existing_columns(insp, "payroll_params")
+    if "com_tang_ca_nguong_phut" not in cot_params:
+        db.execute(text("ALTER TABLE payroll_params ADD COLUMN com_tang_ca_nguong_phut "
+                        "INTEGER NOT NULL DEFAULT 180"))
+        db.commit()
+    if "com_tang_ca_muc" not in cot_params:
+        db.execute(text("ALTER TABLE payroll_params ADD COLUMN com_tang_ca_muc "
+                        "NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        db.commit()
+    if "com_tang_ca_pay" not in _existing_columns(insp, "payroll_lines"):
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN com_tang_ca_pay "
+                        "NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        db.commit()
+
+
+MIGRATIONS.append(("0190_com_tang_ca", _migrate_com_tang_ca))
+
+
+def _migrate_gop_o_dao_trang_thai_don(db) -> None:
+    """Gộp ô "Sửa / đảo trạng thái đơn sau khi nhận hàng" về ô "Thao tác" (12/08/2026).
+
+    Chủ chốt test rồi kết luận: *"quyền Sửa / đảo trạng thái đơn sau khi nhận hàng với Hủy PMH nó
+    vô dụng, bỏ đi được không, tôi test mà nó chả có gì."*
+
+    Hai ô, hai số phận khác nhau:
+
+    • `thu_mua.can_manage_status` — CÓ gác thật (sửa số nhận · mở lại đơn · đóng đơn). Ba việc đó
+      là việc thường ngày của chính người lập phiếu, tách ra chỉ thêm một ô phải nhớ tick. Nay
+      service hỏi `can_update`, nên PHẢI ĐỔ QUYỀN CŨ SANG — bỏ bước này thì vai nào đang có
+      `manage_status` mà chưa có `update` sẽ MẤT cả ba nút sáng hôm sau.
+
+    • `thu_mua.can_cancel` — ô "Hủy PMH", CHƯA BAO GIỜ được đọc: `purchase_service.cancel` gác
+      bằng `ke_toan:approve` (hoặc chính người lập khi phiếu còn nháp). Không có gì để đổ.
+      KHÔNG xoá cột — nó dùng chung cho mọi module, chỉ gỡ ô khỏi ma trận.
+    """
+    db.execute(text(
+        "UPDATE role_permissions SET can_update = true "
+        "WHERE module_key = 'thu_mua' AND can_manage_status AND NOT can_update"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0191_gop_o_dao_trang_thai_don", _migrate_gop_o_dao_trang_thai_don))
+def _migrate_stock_request_purchase_delivery_id(db) -> None:
+    """Thêm `stock_requests.purchase_delivery_id` — nguồn đợt giao đơn mua sinh ra yêu cầu NHẬP
+    (chặn nhập kho trùng một đợt). Nullable, soft ref → no-op DB fresh / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "stock_requests" not in insp.get_table_names():
+        return
+    if "purchase_delivery_id" not in _existing_columns(insp, "stock_requests"):
+        db.execute(text("ALTER TABLE stock_requests ADD COLUMN purchase_delivery_id INTEGER"))
+        db.commit()
+
+
+MIGRATIONS.append(("0189_stock_request_purchase_delivery_id", _migrate_stock_request_purchase_delivery_id))
+
+
+def _migrate_vat_lieu_kho_anh(db) -> None:
+    """Thêm `anh_url` (ảnh minh hoạ vật tư) vào `giay_nguyen` + `vat_tu_in_an`. Nullable → no-op
+    trên DB fresh / cột đã có. Lưu đường `/api/files/materials/…`; trang QR serve lại qua token."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    for tbl in ("giay_nguyen", "vat_tu_in_an"):
+        if tbl in tables and "anh_url" not in _existing_columns(insp, tbl):
+            db.execute(text(f"ALTER TABLE {tbl} ADD COLUMN anh_url VARCHAR(500)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0191_vat_lieu_kho_anh", _migrate_vat_lieu_kho_anh))
+
+
 def _migrate_don_vi_tram_dong_giay(db: Session) -> None:
     """Dòng giấy đọc từ DANH MỤC đơn vị: cờ `don_vi_do.tram_dong_giay` + nới cột đơn vị của bước.
 
@@ -6927,8 +8127,6 @@ def _migrate_bo_trang_thai_dang_thuc_hien(db: Session) -> None:
 
 
 MIGRATIONS.append(("0193_bao_tri_bo_dang_thuc_hien", _migrate_bo_trang_thai_dang_thuc_hien))
-
-
 
 
 def _migrate_vat_tu_cong_thuc_luong(db: Session) -> None:

@@ -20,6 +20,8 @@ export interface SelectOption<T extends SelectValue = SelectValue> {
    *  dòng: dùng khi dòng phụ là thuộc tính của lựa chọn chứ không phải chú thích ngắn. Không
    *  truyền thì DOM giữ nguyên như cũ. */
   sub?: string;
+  /** Chấm số ĐỎ (báo "mới/chưa xem") ở cuối lựa chọn — vd số phản hồi kho chưa xem. Ẩn khi ≤0. */
+  badge?: number;
 }
 
 interface SelectProps<T extends SelectValue> {
@@ -223,6 +225,11 @@ export function Select<T extends SelectValue>({
             <span className="sel__opt-label">{opt.label}</span>
           )}
           {opt.hint && <span className="sel__opt-hint">{opt.hint}</span>}
+          {opt.badge != null && opt.badge > 0 && (
+            <span className="sel__opt-badge" aria-label={`${opt.badge} chưa xem`}>
+              {opt.badge > 99 ? "99+" : opt.badge}
+            </span>
+          )}
           {opt.value === value && (
             <span className="sel__opt-check" aria-hidden="true">✓</span>
           )}

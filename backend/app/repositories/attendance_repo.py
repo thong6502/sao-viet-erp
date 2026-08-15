@@ -22,6 +22,16 @@ from ..models.attendance import (
 )
 
 
+def _load_ot_days(raw):
+    """Đọc `ot_days_json`. Ép khoá ngày về SỐ để khớp nhánh live — xem `_chuan_ot_days`."""
+    import json as _json
+    try:
+        v = _json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        v = {}
+    return {k: {int(d): int(m) for d, m in (v.get(k) or {}).items()} for k in ("lam", "nghi")}
+
+
 def _load_ca_lam(raw: str | None) -> dict[int, list[float]]:
     """Đọc cột JSON `ca_lam_json` → {ca → [công từng ngày làm ca đó]}.
 
@@ -166,6 +176,20 @@ class AttendanceRepository:
                 .order_by(AttendanceLog.checked_at.asc(), AttendanceLog.id.asc())
             ).scalars()
         )
+
+    def count_logs_created_after(self, start, end, moc) -> int:
+        """Số lượt bấm của khoảng [start, end) mà được GHI VÀO sau mốc `moc` (UTC).
+
+        Dùng để biết kỳ công đã chốt còn "phát sinh" gì không. Lọc theo HAI trục khác nhau, cố ý:
+        `checked_at` nói lượt bấm thuộc THÁNG nào, `created_at` nói nó được ghi LÚC nào. Chỉ nhìn
+        một trục là hỏng — người chấm công hôm nay cho tháng này (created mới, checked mới) khác
+        hẳn HCNS ghi bù hôm nay cho tháng trước.
+        """
+        return int(self.db.execute(
+            select(func.count()).select_from(AttendanceLog)
+            .where(AttendanceLog.checked_at >= start, AttendanceLog.checked_at < end,
+                   AttendanceLog.created_at > moc)
+        ).scalar() or 0)
 
     # --- attendance_adjust_requests (yêu cầu chỉnh công) --------------------
 
@@ -327,6 +351,7 @@ class AttendanceRepository:
                 "ot_restday_minutes": int(getattr(ln, "ot_restday_minutes", 0) or 0),
                 "late_off_days": _load_off_days(getattr(ln, "late_off_days_json", None)),
                 "ca_lam": _load_ca_lam(getattr(ln, "ca_lam_json", None)),
+                "ot_days": _load_ot_days(getattr(ln, "ot_days_json", None)),
                 "night_premium_minutes": float(getattr(ln, "night_premium_minutes", 0) or 0),
                 "ot_night_normal_minutes": int(getattr(ln, "ot_night_normal_minutes", 0) or 0),
                 "ot_night_restday_minutes": int(getattr(ln, "ot_night_restday_minutes", 0) or 0),

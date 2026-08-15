@@ -127,11 +127,31 @@ def test_xuat_nhan_su_chan_nguoi_khong_co_quyen(client):
 # --- self-service "Hồ sơ của tôi" ------------------------------------------
 
 
+def _vai_tho(client, token) -> int:
+    """Vai TRỐNG QUYỀN cho thợ — chỉ có hai ô mặc định (Tự phục vụ + Nội quy).
+
+    Từ 10/08/2026 tự phục vụ là MỘT Ô QUYỀN. Tài khoản KHÔNG GÁN VAI thì không có ô nào, nên
+    cũng không mở được "Hồ sơ của tôi" — giống hệt mọi module khác của hệ thống. Vai mới sinh ra
+    đã kèm sẵn hai ô đó (xem `RoleRepository.O_MAC_DINH`)."""
+    meta = client.get("/api/employees/meta", headers=_h(token)).json()
+    dept = next(d["id"] for d in meta["departments"] if d["name"] == "Hành chính nhân sự")
+    from app.db import SessionLocal
+    from app.repositories.rbac_repo import RoleRepository
+    db = SessionLocal()
+    try:
+        roles = RoleRepository(db)
+        vai = roles.get_by_name_and_department("Tho trong quyen", dept) or roles.create(
+            name="Tho trong quyen", department_id=dept)
+        return vai.id
+    finally:
+        db.close()
+
+
 def test_my_profile_self_service(client):
     token = _admin_token(client)
     _create(client, token, full_name="NV Tự", phone="0900", note="ghi chú nội bộ",
             payroll_group="van_phong",
-            account={"username": "nvtu", "password": "nvtu12345"})
+            account={"username": "nvtu", "password": "nvtu12345", "role_id": _vai_tho(client, token)})
     me_tok = client.post("/api/auth/login", json={"username": "nvtu", "password": "nvtu12345"}).json()["access_token"]
 
     me = client.get("/api/employees/me", headers=_h(me_tok)).json()
@@ -152,7 +172,7 @@ def test_profile_update_request_flow(client):
     → áp thật vào hồ sơ; duyệt lại đơn đã xử lý → 400."""
     admin = _admin_token(client)
     _create(client, admin, full_name="NV Yêu Cầu", bank_account="111",
-            account={"username": "nvyc", "password": "nvyc12345"})
+            account={"username": "nvyc", "password": "nvyc12345", "role_id": _vai_tho(client, admin)})
     me_tok = client.post("/api/auth/login", json={"username": "nvyc", "password": "nvyc12345"}).json()["access_token"]
 
     # đề nghị đổi số TK (được) + phone (không whitelist → bị loại)
@@ -188,7 +208,7 @@ def test_ho_so_cua_toi_tra_du_o_bhxh_thue_va_quan_ly_truc_tiep(client):
                 social_insurance_no="7912345678", pit_tax_code="8123456789",
                 national_id="079080000123", national_id_date="2021-03-04",
                 national_id_place="Cục CS QLHC", probation_end_date="2024-03-15",
-                account={"username": "nvdu", "password": "nvdu12345"})
+                account={"username": "nvdu", "password": "nvdu12345", "role_id": _vai_tho(client, admin)})
     assert r.status_code == 201, r.text
 
     # Trưởng bộ phận của phòng = tài khoản admin.
@@ -216,8 +236,8 @@ def test_nv_tu_rut_de_nghi_khi_hcns_chua_xu_ly(client):
     được đề nghị CỦA MÌNH, còn đang chờ."""
     admin = _admin_token(client)
     _create(client, admin, full_name="NV Rút", bank_account="111",
-            account={"username": "nvrut", "password": "nvrut12345"})
-    _create(client, admin, full_name="NV Khác", account={"username": "nvkhac", "password": "nvkhac1234"})
+            account={"username": "nvrut", "password": "nvrut12345", "role_id": _vai_tho(client, admin)})
+    _create(client, admin, full_name="NV Khác", account={"username": "nvkhac", "password": "nvkhac1234", "role_id": _vai_tho(client, admin)})
     tok = client.post("/api/auth/login",
                       json={"username": "nvrut", "password": "nvrut12345"}).json()["access_token"]
     tok_khac = client.post("/api/auth/login",
@@ -249,7 +269,7 @@ def test_de_nghi_bi_tu_choi_luu_ai_quyet_va_ly_do(client):
     """NV phải thấy ai từ chối, lúc nào, vì sao — không thì màn chỉ có chữ "Từ chối" trơ trọi."""
     admin = _admin_token(client)
     _create(client, admin, full_name="NV Bị Từ Chối", bank_account="111",
-            account={"username": "nvtc", "password": "nvtc12345"})
+            account={"username": "nvtc", "password": "nvtc12345", "role_id": _vai_tho(client, admin)})
     tok = client.post("/api/auth/login",
                       json={"username": "nvtc", "password": "nvtc12345"}).json()["access_token"]
     rid = client.post("/api/employees/me/update-requests",
@@ -272,7 +292,7 @@ def test_de_nghi_cua_toi_cat_trang_o_may_chu_va_dem_theo_trang_thai(client):
     pill lọc đọc ô này; đếm lại từ `items` của trang đang xem là sai ngay khi qua trang 2."""
     admin = _admin_token(client)
     _create(client, admin, full_name="NV Nhiều Đề Nghị", bank_account="111",
-            account={"username": "nvnhieu", "password": "nvnhieu123"})
+            account={"username": "nvnhieu", "password": "nvnhieu123", "role_id": _vai_tho(client, admin)})
     tok = client.post("/api/auth/login",
                       json={"username": "nvnhieu", "password": "nvnhieu123"}).json()["access_token"]
 
@@ -308,7 +328,7 @@ def test_de_nghi_dai_hon_o_ho_so_bi_chan_va_hang_doi_kem_gia_tri_hien_tai(client
     """
     admin = _admin_token(client)
     _create(client, admin, full_name="NV Dài Chữ", bank_account="111",
-            account={"username": "nvdai", "password": "nvdai12345"})
+            account={"username": "nvdai", "password": "nvdai12345", "role_id": _vai_tho(client, admin)})
     tok = client.post("/api/auth/login",
                       json={"username": "nvdai", "password": "nvdai12345"}).json()["access_token"]
 

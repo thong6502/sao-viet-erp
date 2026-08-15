@@ -9,12 +9,15 @@ import { useCan } from "../auth/permissions";
 import {
   api,
   ApiError,
+  connectQuoteEvents,
   type CustomerAddress,
   type CustomerContact,
   type LsxListItem,
   type OrderDetail,
   type OrderRow,
   type OrderStatsOut,
+  type SalesInvoiceListOut,
+  type SalesInvoiceRow,
 } from "../api/client";
 import { DeliveryNotePrint } from "./DeliveryNotePrint";
 import { gopTheoNhom } from "../utils/gop-nhom";
@@ -361,10 +364,46 @@ function OrderDrawer({
   navigate?: (id: string, params?: Record<string, unknown>) => void;
 }) {
   const { token } = useAuth();
+  const can = useCan();
   const [editing, setEditing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
+  const [invoiceBook, setInvoiceBook] = useState<SalesInvoiceListOut | null>(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
+  const canCreateInvoice = can("phieu_thu", "create");
+  const canCancelInvoice = can("phieu_thu", "cancel");
   const canCancel = (order.status === "draft" && canUpdate) || (order.status === "ordered" && canApproveException);
+
+  const loadInvoices = useCallback(async () => {
+    if (!token) return;
+    setInvoiceLoading(true);
+    setInvoiceError(null);
+    try {
+      setInvoiceBook(await api.accounting.salesInvoices(token, order.id));
+    } catch (error) {
+      setInvoiceError(error instanceof ApiError ? error.message : "Không tải được hóa đơn của đơn bán.");
+    } finally {
+      setInvoiceLoading(false);
+    }
+  }, [token, order.id]);
+
+  useEffect(() => {
+    setInvoiceBook(null);
+    void loadInvoices();
+  }, [loadInvoices]);
+
+  useEffect(() => {
+    if (!token) return;
+    return connectQuoteEvents(token, (event) => {
+      if (
+        event.type === "accounting_changed"
+        || event.type === "sales_invoice_created"
+        || event.type === "sales_invoice_cancelled"
+        || event.type === "sales_invoice_receipt_created"
+      ) void loadInvoices();
+    });
+  }, [token, loadInvoices]);
 
   async function upConsent(f: File) { if (token) onSaved(await api.orders.uploadConsent(token, order.id, f)); }
   async function delConsent(aid: number) { if (token) onSaved(await api.orders.deleteConsent(token, order.id, aid)); }
@@ -400,6 +439,16 @@ function OrderDrawer({
 
   const chotDate = order.ordered_at ? fmtDate(order.ordered_at) : (order.created_at ? fmtDate(order.created_at) : "—");
   const cocText = !isChotDone ? "chưa tới" : noDeposit ? "không cần cọc" : order.deposit_ok ? "đủ" : "chờ cọc";
+  const invoiceStage = !invoiceBook || invoiceBook.invoiced_amount <= 0
+    ? "none"
+    : invoiceBook.uninvoiced_amount > 0
+      ? "partial"
+      : "full";
+  const invoiceStageLabel = invoiceStage === "full"
+    ? "Đã ghi đủ"
+    : invoiceStage === "partial"
+      ? "Đã ghi một phần"
+      : "Chưa ghi";
 
   const [activeStep, setActiveStep] = useState<"coc" | "chot" | "sanxuat" | "giao" | "hoadon">("coc");
 
@@ -544,12 +593,12 @@ function OrderDrawer({
                     <span className="dhb__timeline-sub">—</span>
                   </div>
                   <div
-                    className={`dhb__timeline-step ${activeStep === "hoadon" ? "is-selected" : ""}`}
+                    className={`dhb__timeline-step ${invoiceStage === "full" ? "is-done" : ""} ${activeStep === "hoadon" ? "is-selected" : ""}`}
                     onClick={() => setActiveStep("hoadon")}
                   >
-                    <div className="dhb__timeline-dot">5</div>
+                    <div className="dhb__timeline-dot">{invoiceStage === "full" ? <Icon name="check" size={12} /> : "5"}</div>
                     <span className="dhb__timeline-label">Hóa đơn</span>
-                    <span className="dhb__timeline-sub">—</span>
+                    <span className="dhb__timeline-sub">{invoiceStageLabel.toLowerCase()}</span>
                   </div>
                 </div>
  
@@ -704,15 +753,15 @@ function OrderDrawer({
                 )}
  
                 {activeStep === "hoadon" && (
-                  <div className="dhb__lifecycle-box dhb__lifecycle-box--dotted">
-                    <div className="dhb__lifecycle-box-header">
-                      <h4 className="dhb__lifecycle-box-title">Hóa đơn & công nợ</h4>
-                      <span className="dhb__lifecycle-badge dhb__lifecycle-badge--upcoming">SẮP CÓ - HÓA ĐƠN/AR</span>
-                    </div>
-                    <p className="dhb__lifecycle-desc" style={{ opacity: 0.7, fontSize: 11, fontStyle: "italic" }}>
-                      Khi có module sẽ hiện: Số hóa đơn | Còn nợ = tổng – đã thu | Hạn công nợ
-                    </p>
-                  </div>
+                  <InvoicePanel
+                    order={order}
+                    book={invoiceBook}
+                    loading={invoiceLoading}
+                    error={invoiceError}
+                    canCreate={canCreateInvoice}
+                    canCancel={canCancelInvoice}
+                    onChanged={loadInvoices}
+                  />
                 )}
               </Section>
               {/* Khối ⑤ "Duyệt đơn đặc thù" đã gỡ cùng luồng duyệt. */}
@@ -846,6 +895,238 @@ function OrderDrawer({
         )}
         {showPrint && <DeliveryNotePrint d={order} onClose={() => setShowPrint(false)} />}
       </aside>
+    </div>
+  );
+}
+
+function InvoicePanel({
+  order,
+  book,
+  loading,
+  error,
+  canCreate,
+  canCancel,
+  onChanged,
+}: {
+  order: OrderDetail;
+  book: SalesInvoiceListOut | null;
+  loading: boolean;
+  error: string | null;
+  canCreate: boolean;
+  canCancel: boolean;
+  onChanged: () => Promise<void>;
+}) {
+  const { token } = useAuth();
+  const today = (() => {
+    const now = new Date();
+    const offset = now.getTimezoneOffset() * 60_000;
+    return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+  })();
+  const [showCreate, setShowCreate] = useState(false);
+  const [symbol, setSymbol] = useState("");
+  const [number, setNumber] = useState("");
+  const [invoiceDate, setInvoiceDate] = useState(today);
+  const [amount, setAmount] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<SalesInvoiceRow | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+
+  const issued = book?.items.filter((item) => item.status === "issued") ?? [];
+  const outstanding = issued.reduce((sum, item) => sum + item.remaining_amount, 0);
+  const stage = !book || book.invoiced_amount <= 0
+    ? "none"
+    : book.uninvoiced_amount > 0
+      ? "partial"
+      : "full";
+  const stageLabel = stage === "full" ? "ĐÃ GHI ĐỦ" : stage === "partial" ? "ĐÃ GHI MỘT PHẦN" : "CHƯA GHI";
+  const depositAlreadyOffset = issued.reduce((sum, item) => sum + item.deposit_offset_amount, 0);
+  const depositAvailable = Math.max(0, (book?.deposit_received ?? 0) - depositAlreadyOffset);
+  const enteredAmount = Math.max(0, Number(amount || 0));
+  const expectedOffset = Math.min(depositAvailable, enteredAmount);
+  const expectedDebt = Math.max(0, enteredAmount - expectedOffset);
+
+  useEffect(() => {
+    if (!showCreate || !book) return;
+    setAmount(String(book.uninvoiced_amount));
+    setInvoiceDate(today);
+    setFormError(null);
+  }, [showCreate, book, today]);
+
+  async function createInvoice(event: React.FormEvent) {
+    event.preventDefault();
+    if (!token || !book || saving) return;
+    if (!symbol.trim() || !number.trim() || !invoiceDate) {
+      setFormError("Vui lòng nhập ký hiệu, số hóa đơn và ngày hóa đơn.");
+      return;
+    }
+    if (invoiceDate > today) {
+      setFormError("Ngày hóa đơn không được nằm trong tương lai.");
+      return;
+    }
+    if (!Number.isFinite(enteredAmount) || enteredAmount <= 0 || enteredAmount > book.uninvoiced_amount) {
+      setFormError(`Giá trị hóa đơn phải từ 1 đến ${vnd(book.uninvoiced_amount)}.`);
+      return;
+    }
+    setSaving(true);
+    setFormError(null);
+    try {
+      await api.accounting.createSalesInvoice(token, {
+        order_id: order.id,
+        invoice_symbol: symbol.trim(),
+        invoice_number: number.trim(),
+        invoice_date: invoiceDate,
+        amount_vnd: Math.round(enteredAmount),
+      });
+      setShowCreate(false);
+      setSymbol("");
+      setNumber("");
+      await onChanged();
+    } catch (cause) {
+      setFormError(cause instanceof ApiError ? cause.message : "Không ghi nhận được hóa đơn.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function cancelInvoice(event: React.FormEvent) {
+    event.preventDefault();
+    if (!token || !cancelTarget || saving) return;
+    if (!cancelReason.trim()) {
+      setFormError("Vui lòng nhập lý do hủy hóa đơn.");
+      return;
+    }
+    setSaving(true);
+    setFormError(null);
+    try {
+      await api.accounting.cancelSalesInvoice(token, cancelTarget.id, cancelReason.trim());
+      setCancelTarget(null);
+      setCancelReason("");
+      await onChanged();
+    } catch (cause) {
+      setFormError(cause instanceof ApiError ? cause.message : "Không hủy được hóa đơn.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="dhb__lifecycle-box dhb__invoice-panel">
+      <div className="dhb__lifecycle-box-header">
+        <h4 className="dhb__lifecycle-box-title">Hóa đơn &amp; công nợ</h4>
+        <span className={`dhb__lifecycle-badge ${stage === "full" ? "dhb__lifecycle-badge--done" : stage === "partial" ? "dhb__lifecycle-badge--active" : "dhb__lifecycle-badge--upcoming"}`}>
+          {stageLabel}
+        </span>
+      </div>
+
+      {error && <div className="banner banner--error" role="alert">{error}</div>}
+      {formError && <div className="banner banner--error" role="alert">{formError}</div>}
+      {loading && !book && <p className="dhb__lifecycle-desc">Đang tải sổ hóa đơn...</p>}
+
+      {book && (
+        <>
+          <div className="dhb__invoice-metrics">
+            <div><span>Tổng đơn</span><strong>{vnd(book.order_total)}</strong></div>
+            <div><span>Đã ghi HĐ</span><strong>{vnd(book.invoiced_amount)}</strong></div>
+            <div><span>Chưa ghi HĐ</span><strong>{vnd(book.uninvoiced_amount)}</strong></div>
+            <div><span>Còn phải thu</span><strong>{vnd(outstanding)}</strong></div>
+          </div>
+
+          <div className="dhb__invoice-toolbar">
+            <p>Chỉ hóa đơn đã ghi nhận mới phát sinh công nợ phải thu.</p>
+            {order.status === "ordered" && canCreate && book.uninvoiced_amount > 0 && !showCreate && (
+              <button type="button" className="btn btn--primary" onClick={() => setShowCreate(true)}>
+                <Icon name="fileText" size={14} /> Ghi nhận hóa đơn
+              </button>
+            )}
+          </div>
+
+          {showCreate && (
+            <form className="dhb__invoice-form" onSubmit={createInvoice}>
+              <div className="dhb__invoice-form-grid">
+                <label>
+                  <span>Ký hiệu <b>*</b></span>
+                  <input className="dhb__input" value={symbol} maxLength={64} onChange={(event) => setSymbol(event.target.value)} placeholder="VD: 1C26TSV" autoFocus />
+                </label>
+                <label>
+                  <span>Số hóa đơn <b>*</b></span>
+                  <input className="dhb__input" value={number} maxLength={64} onChange={(event) => setNumber(event.target.value)} placeholder="VD: 00001234" />
+                </label>
+                <label>
+                  <span>Ngày hóa đơn <b>*</b></span>
+                  <input className="dhb__input" type="date" min={order.ordered_at?.slice(0, 10)} max={today} value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />
+                </label>
+                <label>
+                  <span>Giá trị hóa đơn <b>*</b></span>
+                  <input className="dhb__input dhb__invoice-money" type="number" min="1" max={book.uninvoiced_amount} step="1" value={amount} onChange={(event) => setAmount(event.target.value)} />
+                </label>
+              </div>
+              <div className="dhb__invoice-preview">
+                <span>Dự kiến cấn cọc <b>{vnd(expectedOffset)}</b></span>
+                <span>Công nợ mới <b>{vnd(expectedDebt)}</b></span>
+                <small>Hạn thu được hệ thống tính theo điều khoản công nợ của khách tại ngày ghi hóa đơn.</small>
+              </div>
+              <div className="dhb__invoice-form-actions">
+                <button type="button" className="btn btn--secondary" onClick={() => setShowCreate(false)} disabled={saving}>Hủy</button>
+                <button type="submit" className="btn btn--primary" disabled={saving}>{saving ? "Đang lưu..." : "Ghi nhận"}</button>
+              </div>
+            </form>
+          )}
+
+          <div className="dhb__invoice-tablewrap">
+            <table className="dhb__invoice-table">
+              <thead>
+                <tr>
+                  <th>Số HĐ</th>
+                  <th>Ngày / hạn thu</th>
+                  <th>Giá trị</th>
+                  <th>Cọc cấn</th>
+                  <th>Đã thu</th>
+                  <th>Còn nợ</th>
+                  <th>Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody>
+                {book.items.length === 0 && <tr><td colSpan={7}>Chưa ghi nhận hóa đơn.</td></tr>}
+                {book.items.map((item) => (
+                  <tr key={item.id} className={item.status === "cancelled" ? "is-cancelled" : ""}>
+                    <td><strong>{item.invoice_symbol ? `${item.invoice_symbol} · ` : ""}{item.invoice_number}</strong><small>{item.created_by_name ?? "—"}</small></td>
+                    <td>{fmtDate(item.invoice_date)}<small>Hạn {fmtDate(item.due_date)}</small></td>
+                    <td>{vnd(item.amount_vnd)}</td>
+                    <td>{vnd(item.deposit_offset_amount)}</td>
+                    <td>{vnd(item.direct_received_amount)}</td>
+                    <td><strong>{vnd(item.remaining_amount)}</strong></td>
+                    <td>
+                      <span className={`dhb__invoice-status ${item.status === "issued" ? "is-issued" : "is-cancelled"}`}>
+                        {item.status === "issued" ? "Đã ghi" : "Đã hủy"}
+                      </span>
+                      {item.status === "issued" && canCancel && (
+                        <button type="button" className="dhb__invoice-cancel" title="Hủy hóa đơn" onClick={() => { setCancelTarget(item); setCancelReason(""); setFormError(null); }}>
+                          Hủy
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {cancelTarget && (
+            <form className="dhb__invoice-cancel-form" onSubmit={cancelInvoice}>
+              <div>
+                <strong>Hủy hóa đơn {cancelTarget.invoice_number}</strong>
+                <small>Hóa đơn đã có phiếu thu sẽ không thể hủy. Hãy hủy phiếu thu liên quan trước.</small>
+              </div>
+              <textarea className="dhb__input" rows={2} value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} placeholder="Lý do hủy *" />
+              <div className="dhb__invoice-form-actions">
+                <button type="button" className="btn btn--secondary" onClick={() => setCancelTarget(null)} disabled={saving}>Đóng</button>
+                <button type="submit" className="btn btn--danger" disabled={saving}>{saving ? "Đang hủy..." : "Xác nhận hủy"}</button>
+              </div>
+            </form>
+          )}
+        </>
+      )}
     </div>
   );
 }

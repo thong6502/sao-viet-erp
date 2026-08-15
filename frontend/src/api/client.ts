@@ -236,6 +236,13 @@ export interface PurchaseNotifySummary {
   dot_giao_qua_han: number;
 }
 
+export type ModuleNotificationChannel = "thu_mua" | "ke_toan";
+
+export interface ModuleNotificationSummary {
+  thu_mua: number;
+  ke_toan: number;
+}
+
 export type QuoteEvent =
   | { type: "quote_decision"; quote_id: number; code: string; decision: "approved" | "rejected" }
   | { type: "quote_pending_changed"; code?: string }
@@ -291,15 +298,71 @@ export type QuoteEvent =
   // đợt này chỉ NỐI vào — không mở kênh SSE thứ hai.
   | { type: "purchase_changed"; code?: string | null }
   | { type: "accounting_changed"; code?: string | null }
-  | { type: "purchase_pending_approval"; code?: string | null }
-  | { type: "purchase_decision"; code?: string | null; decision: "approved" | "rejected" }
-  | { type: "purchase_delivery_created"; code?: string | null; seq_no?: number | null }
-  | { type: "payment_voucher_created"; code?: string | null; voucher_code?: string | null }
-  | { type: "payment_voucher_cancelled"; code?: string | null; voucher_code?: string | null }
+  | { type: "department_purchase_request_created"; code?: string | null; actor_user_id?: number | null }
+  | { type: "sales_invoice_created"; code?: string | null; invoice_id?: number; invoice_number?: string | null }
+  | { type: "sales_invoice_cancelled"; code?: string | null; invoice_id?: number; invoice_number?: string | null }
+  | { type: "sales_invoice_receipt_created"; code?: string | null; invoice_id?: number; receipt_code?: string | null }
+  | { type: "sales_invoice_created"; code?: string | null; invoice_id?: number; invoice_number?: string | null }
+  | { type: "sales_invoice_cancelled"; code?: string | null; invoice_id?: number; invoice_number?: string | null }
+  | { type: "sales_invoice_receipt_created"; code?: string | null; invoice_id?: number; receipt_code?: string | null }
+  | { type: "purchase_pending_approval"; code?: string | null; actor_user_id?: number | null }
+  | {
+      type: "purchase_decision";
+      code?: string | null;
+      decision: "approved" | "rejected";
+      actor_user_id?: number | null;
+      recipient_user_id?: number | null;
+    }
+  | { type: "purchase_delivery_created"; code?: string | null; seq_no?: number | null; actor_user_id?: number | null }
+  | { type: "purchase_delivery_updated"; code?: string | null; seq_no?: number | null; actor_user_id?: number | null }
+  | { type: "purchase_delivery_deleted"; code?: string | null; seq_no?: number | null; actor_user_id?: number | null }
+  | { type: "purchase_invoice_updated"; code?: string | null; actor_user_id?: number | null }
+  | {
+      type: "payment_voucher_created";
+      code?: string | null;
+      voucher_code?: string | null;
+      actor_user_id?: number | null;
+      recipient_user_id?: number | null;
+    }
+  | {
+      type: "payment_voucher_cancelled";
+      code?: string | null;
+      voucher_code?: string | null;
+      actor_user_id?: number | null;
+      recipient_user_id?: number | null;
+    }
   // Kho (spec-kho-de-nghi §10): `stock_request` = tin đích danh có sẵn câu chữ để toast;
   // `stock_request_pending_changed` = tín hiệu NHẸ (danh sách chờ đổi) → chỉ refetch badge.
-  | { type: "stock_request"; code?: string; message: string }
-  | { type: "stock_request_pending_changed"; code?: string };
+  | { type: "stock_request"; code?: string; message: string; loai?: "NHAP" | "XUAT" }
+  | {
+      type: "stock_request_pending_changed";
+      code?: string;
+      loai?: "NHAP" | "XUAT";
+      nguoi_tao_id?: number;
+      nguoi_tao_ten?: string | null;
+      bo_phan_ten?: string | null;
+    }
+  // `notification_new` = có thông báo mới vào chuông → FE refetch list + badge chuông.
+  | { type: "notification_new" };
+
+// --- Trung tâm thông báo (chuông Topbar) -------------------------------------
+export interface AppNotification {
+  id: number;
+  loai: string;
+  tieu_de: string;
+  noi_dung: string | null;
+  /** Đích điều hướng: 'kho_inbox' (Hộp yêu cầu) · 'kho_mine' (màn Yêu cầu). NULL = không nhảy. */
+  link_loai: string | null;
+  link_id: number | null;
+  read_at: string | null;
+  da_doc: boolean;
+  created_at: string;
+}
+
+export interface NotificationList {
+  items: AppNotification[];
+  unread: number;
+}
 
 // --- Lệnh sản xuất (LSX) — bàn Kế hoạch sản xuất ------------------------------
 // Job (đơn) → Part (lệnh) → Operation (công đoạn). Mỗi DÒNG ĐƠN = 1 lệnh, ngang hàng.
@@ -1362,7 +1425,17 @@ export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => vo
   async function loop(): Promise<void> {
     while (!closed) {
       controller = new AbortController();
+      const ctl = controller;
+      // Watchdog: backend gửi event hoặc ": ping" ít nhất mỗi 20s. Im lặng > 50s = kết nối CHẾT
+      // NGẦM (nửa-mở qua proxy / zombie uvicorn --reload trên Windows) mà `reader.read()` treo mãi
+      // không báo lỗi → abort để rơi vào catch → reconnect. Nhờ vậy SSE TỰ LÀNH, không cần F5.
+      let watchdog: ReturnType<typeof setTimeout> | undefined;
+      const kick = () => {
+        if (watchdog) clearTimeout(watchdog);
+        watchdog = setTimeout(() => ctl.abort(), 50_000);
+      };
       try {
+        kick();
         const resp = await fetch(`${BASE_URL}/api/quotations/events`, {
           headers: { ...authHeader(current), Accept: "text/event-stream" },
           credentials: "include",
@@ -1381,6 +1454,7 @@ export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => vo
         while (!closed) {
           const { value, done } = await reader.read();
           if (done) break;
+          kick();  // có byte (event hoặc ping) → gia hạn watchdog: kết nối còn sống
           buf += decoder.decode(value, { stream: true });
           let sep: number;
           while ((sep = buf.indexOf("\n\n")) >= 0) {
@@ -1396,7 +1470,9 @@ export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => vo
           }
         }
       } catch {
-        /* lỗi mạng/stream → reconnect sau backoff */
+        /* lỗi mạng/stream/abort-do-watchdog → reconnect sau backoff */
+      } finally {
+        if (watchdog) clearTimeout(watchdog);
       }
       if (closed) break;
       await new Promise((r) => setTimeout(r, 3000));  // backoff trước khi reconnect
@@ -1412,6 +1488,10 @@ export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => vo
 export type Scope = "own" | "department" | "all";
 
 export interface ModuleDef {
+  /** Những "việc" ĐÃ XÁC MINH là chết ở màn này (`["update","delete",…]`) — ma trận tắt sẵn +
+   *  khoá + hover cảnh báo đúng mấy ô đó. Mặc định coi mọi ô còn sống: thà để thừa một ô vô hại
+   *  còn hơn khoá nhầm một ô đang dùng. */
+  viec_chet?: string[];
   key: string;
   label: string;
 }
@@ -1572,8 +1652,11 @@ export interface ModuleCapability {
   can_request: boolean;
   can_view_stock: boolean;
   can_view_cost: boolean;
+  can_view_log: boolean;
   can_set_threshold: boolean;
   can_post: boolean;
+  /** kho — KHÓA KỲ (chốt sổ) + Báo cáo kho kế toán + export MISA. */
+  can_close_book: boolean;
 }
 
 /** A live login session (active refresh token) for the admin user-detail view (spec-08). */
@@ -1588,6 +1671,14 @@ export interface Role {
   id: number;
   name: string;
   department_id: number;
+}
+
+export interface RoleTemplate {
+  key: string;
+  label: string;
+  mo_ta: string;
+  /** Ma trận ĐẦY ĐỦ (mọi module) — áp mẫu là THAY SẠCH, không trộn với quyền cũ của vai. */
+  permissions: PermissionRow[];
 }
 
 export interface PermissionRow {
@@ -1630,8 +1721,11 @@ export interface PermissionRow {
   can_request: boolean;
   can_view_stock: boolean;
   can_view_cost: boolean;
+  can_view_log: boolean;
   can_set_threshold: boolean;
   can_post: boolean;
+  /** kho — KHÓA KỲ (chốt sổ) + Báo cáo kho kế toán + export MISA. */
+  can_close_book: boolean;
 }
 
 // --- Khách hàng (CRM), spec-06 v2 -------------------------------------------
@@ -3345,7 +3439,10 @@ export interface PayrollParams {
   /** DORMANT — trần tạm ứng đã gỡ (2026-07-24). Backend vẫn trả field; FE không còn dùng. */
   advance_max_pct: number;
   /** Số NGÀY CÔNG tối đa 1 NV được tự xin chỉnh công trong 1 tháng. 0 = không giới hạn. */
-  adjust_max_per_month: number;
+  adjust_max_per_month: number;  /** Suất cơm TĂNG CA: ngưỡng phút/ngày (chỉ áp NGÀY LÀM VIỆC) và tiền một suất.
+   *  `com_tang_ca_muc = 0` ⇒ TẮT tính năng. */
+  com_tang_ca_nguong_phut: number;
+  com_tang_ca_muc: number;
 }
 export interface SalaryRule {
   id: number;
@@ -3502,6 +3599,11 @@ export interface PayrollPeriod {
   locked_at: string | null;
   paid_at: string | null;
   paid_by: number | null;
+  /** CỬA SỔ xem phiếu của NLĐ. `cong_bo_luc` = mốc MỞ (`null` = chưa công bố);
+   *  `dong_phieu_luc` = mốc ĐÓNG (`null` = mở không thời hạn).
+   *  NV thấy phiếu khi `cong_bo_luc <= bây giờ < dong_phieu_luc`. Mở lại kỳ ⇒ cả hai về `null`. */
+  cong_bo_luc?: string | null;
+  dong_phieu_luc?: string | null;
 }
 export interface PayrollLine {
   id: number;
@@ -3542,6 +3644,8 @@ export interface PayrollLine {
   ca_pay?: number;
   /** Cơm ca = `work_shifts.meal_allowance` × số ngày THỰC LÀM ca đó (ngày đủ ngưỡng công). */
   meal_allowance_pay?: number;
+  /** Cơm TĂNG CA — dòng riêng, không gộp cơm ca (hai luật khác nhau, một ngày ăn cả hai được). */
+  com_tang_ca_pay?: number;
   /** Phụ cấp ca = `work_shifts.shift_allowance` × số ngày THỰC LÀM ca đó. Tách riêng khỏi cơm vì
    *  tiền ăn giữa ca có trần miễn thuế riêng. */
   shift_allowance_pay?: number;
@@ -3768,6 +3872,9 @@ export interface LineComponent {
   amount: number;
   note: string | null;
   source: "employee" | "line";
+  /** HCNS đã sửa tay số tiền CHO RIÊNG KỲ NÀY. Hồ sơ nhân viên KHÔNG đổi — tháng sau tự về mức
+   *  cũ. Dòng đã đè được miễn khỏi lượt ghi đè của "Tính lại". */
+  da_de_tay?: boolean;
 }
 export interface LineComponentInput {
   component_id: number;
@@ -3782,6 +3889,11 @@ export interface LineComponentPatch {
 export interface PayrollTable {
   period: PayrollPeriod | null;
   lines: PayrollLine[];
+  /** Vì sao CHƯA chốt được bảng lương — `null` = chốt được. Máy chủ soạn sẵn CÂU CHỮ (kỳ công
+   *  chưa chốt · bảng lương cũ hơn ảnh chụp · …) và đã tính cả mốc miễn trừ. ĐỪNG tự suy lại luật
+   *  ở đây: số lý do còn tăng, suy lại là nút sáng mà bấm vào ăn lỗi — hoặc tệ hơn, tắt nút của
+   *  tháng thật ra chốt được. Xem `PayrollService.ly_do_chua_chot_duoc`. */
+  chan_chot_ly_do?: string | null;
 }
 export interface MyPayslip {
   has_employee: boolean;
@@ -3921,6 +4033,10 @@ export interface AttendancePeriod {
   line_count: number;
   employee_count: number;
   hanging_days: number;      // ngày treo (thiếu chấm RA) — xử trước khi Chốt
+  /** Lượt bấm ghi vào SAU khi kỳ đã chốt. Chấm công GPS cố ý KHÔNG bị chặn (chặn thợ bấm
+   *  giờ là họ đứng ở cổng bấm mãi không xong, nhất là ca đêm qua nửa đêm) nên chỉ đánh
+   *  dấu: ảnh chụp không có mấy lượt này, Bảng lương cũng không ⇒ >0 là phải chốt lại kỳ. */
+  phat_sinh_sau_chot?: number;
   pending_leaves: number;    // đơn nghỉ phép chưa duyệt của tháng
   /** Phiếu đi muộn/về sớm chưa duyệt — CHẶN chốt công y như đơn nghỉ: snapshot đóng băng lúc
    *  chốt, phiếu duyệt sau đó không vào được nữa ⇒ NLĐ vẫn ăn phạt dù đã xin phép đúng luật. */
@@ -4280,6 +4396,11 @@ export type DepartmentPurchaseRequestStatus =
   | "done"
   | "cancelled";
 
+export type DepartmentPurchaseWorkflowStatus =
+  | DepartmentPurchaseRequestStatus
+  | "drafting"
+  | "needs_correction";
+
 export type DepartmentPurchaseSourceType =
   | "kinh_doanh"
   | "kho"
@@ -4325,6 +4446,10 @@ export interface PayableSupplierRow {
 
 export interface PayablesSummary {
   items: PayableSupplierRow[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
   total_due: number;
   overdue_amount: number;
   paid_in_period: number;
@@ -4387,6 +4512,9 @@ export interface PayablePaidRow {
   invoice_date: string | null;
   has_attachment: boolean;
   paid_date: string;
+  /** Người LẬP phiếu chi — "ai cho tiền ra" phải đọc được ngay tại dòng. */
+  created_by_user_id: number | null;
+  created_by_name: string | null;
 }
 
 export interface PayablesDetail {
@@ -4408,6 +4536,136 @@ export interface PayablesDetail {
   total_due: number;
   overdue_amount: number;
   paid_in_period: number;
+  as_of: string;
+}
+
+// --- Công nợ phải thu ------------------------------------------------------
+export interface ReceivableCustomerRow {
+  customer_id: number | null;
+  customer_name: string;
+  invoice_count: number;
+  invoiced_amount: number;
+  received_amount: number;
+  total_due: number;
+  overdue_amount: number;
+  no_han_amount: number;
+  credit_limit: number;
+  payment_term_days: number | null;
+  vuot_han_muc: boolean;
+  vuot_bao_nhieu: number;
+  received_in_period: number;
+}
+
+export interface ReceivablesSummary {
+  items: ReceivableCustomerRow[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
+  total_due: number;
+  overdue_amount: number;
+  received_in_period: number;
+  vuot_han_muc_count: number;
+  period_months: number;
+  as_of: string;
+}
+
+export interface ReceivableItemRow {
+  invoice_id: number;
+  invoice_symbol: string | null;
+  invoice_number: string;
+  invoice_date: string;
+  order_id: number;
+  order_code: string;
+  customer_id: number | null;
+  customer_name: string;
+  due_date: string | null;
+  chua_dat_han: boolean;
+  overdue_days: number;
+  amount: number;
+  direct_received_amount: number;
+  deposit_offset_amount: number;
+  received_amount: number;
+  remaining_amount: number;
+}
+
+export interface ReceivableReceiptRow {
+  receipt_id: number;
+  code: string;
+  doc_no: string | null;
+  order_id: number | null;
+  order_code: string | null;
+  source_type: PaymentReceiptSource;
+  sales_invoice_id: number | null;
+  sales_invoice_number: string | null;
+  applied_to: "deposit_offset" | "sales_invoice";
+  receipt_method: PaymentVoucherType;
+  amount: number;
+  receipt_date: string;
+  payer_name: string;
+  bank_reference: string | null;
+  created_by_name: string | null;
+}
+
+export interface SalesInvoiceInput {
+  order_id: number;
+  invoice_symbol: string;
+  invoice_number: string;
+  invoice_date: string;
+  /** Omit to invoice the full remaining value of the order. */
+  amount_vnd?: number | null;
+}
+
+export interface SalesInvoiceRow {
+  id: number;
+  order_id: number;
+  order_code: string;
+  customer_id: number | null;
+  customer_name: string;
+  invoice_symbol: string | null;
+  invoice_number: string;
+  invoice_date: string;
+  amount_vnd: number;
+  payment_term_days_snapshot: number | null;
+  due_date: string | null;
+  status: "issued" | "cancelled";
+  direct_received_amount: number;
+  deposit_offset_amount: number;
+  received_amount: number;
+  remaining_amount: number;
+  created_by_user_id: number | null;
+  created_by_name: string | null;
+  created_at: string;
+  cancelled_by_user_id: number | null;
+  cancelled_by_name: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+}
+
+export interface SalesInvoiceListOut {
+  order_id: number;
+  order_code: string;
+  order_total: number;
+  invoiced_amount: number;
+  uninvoiced_amount: number;
+  deposit_received: number;
+  items: SalesInvoiceRow[];
+}
+
+export interface ReceivablesDetail {
+  customer_id: number;
+  customer_name: string;
+  credit_limit: number;
+  payment_term_days: number | null;
+  vuot_han_muc: boolean;
+  vuot_bao_nhieu: number;
+  items: ReceivableItemRow[];
+  paid: ReceivableReceiptRow[];
+  period_months: number;
+  all_history: boolean;
+  total_due: number;
+  overdue_amount: number;
+  received_in_period: number;
   as_of: string;
 }
 
@@ -4437,6 +4695,9 @@ export interface DepartmentPurchaseRequestLineInput {
   unit: string;
   quantity: number;
   note?: string | null;
+  /** UI-only (KHÔNG gửi API): dòng lấy từ mặt hàng Kho đã có → khoá Tên + ĐVT, bỏ qua canh danh
+   *  mục NCC. Payload gửi đi pick field tường minh nên cờ này không lọt lên backend. */
+  locked?: boolean;
 }
 
 export interface DepartmentPurchaseRequestInput {
@@ -4483,6 +4744,11 @@ export interface PurchaseRequestLineOut {
   vat_amount: number;
   line_total: number;
   note: string | null;
+  /** Liên kết mặt hàng gốc (mg 0174) — Nhập kho từ đợt giao auto-điền vật tư. Null = chỉ tên chữ. */
+  hang_loai: HangLoai | null;
+  hang_id: number | null;
+  hang_ma: string | null;
+  hang_ten: string | null;
 }
 
 /** Một dòng yêu cầu đã vào phiếu nào, của NCC nào, tới đâu rồi. */
@@ -4499,6 +4765,8 @@ export interface LineFulfilment {
 
 export interface DepartmentPurchaseRequestLineOut {
   id: number;
+  hang_loai: HangLoai | null;
+  hang_id: number | null;
   item_name: string;
   unit: string;
   quantity: number;
@@ -4523,6 +4791,20 @@ export interface StatusHistoryRow {
   created_at: string;
 }
 
+/** Một mốc trong lịch sử Đơn mua hàng: đổi trạng thái hoặc thao tác trên một đợt giao. */
+export interface PurchaseActivityRow {
+  id: string;
+  event_type: "status" | "delivery_created" | "delivery_updated" | "delivery_deleted" | "invoice_assigned";
+  title: string;
+  detail: string | null;
+  actor_name: string | null;
+  source: "nguoi" | "may" | null;
+  from_status: string | null;
+  to_status: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
 export interface DepartmentRequestPurchaseRow {
   id: number;
   code: string;
@@ -4534,6 +4816,7 @@ export interface DepartmentPurchaseRequestRow {
   id: number;
   code: string;
   status: DepartmentPurchaseRequestStatus;
+  workflow_status: DepartmentPurchaseWorkflowStatus;
   source_type: DepartmentPurchaseSourceType;
   requesting_department_id: number | null;
   requesting_department_name: string | null;
@@ -4593,6 +4876,10 @@ export interface PurchaseDeliveryRow {
   id: number;
   /** Đợt 1, 2, 3… trong phạm vi PHIẾU MUA — không phải dãy số toàn hệ. */
   seq_no: number;
+  /** Liên thông Kho: đợt đã sinh yêu cầu NHẬP (chưa hủy) chưa → nút "Nhập kho" đổi "Đã nhập kho". */
+  da_nhap_kho: boolean;
+  stock_request_id: number | null;
+  stock_request_ma: string | null;
   delivery_date: string;
   due_date: string | null;
   /** true = NCC chưa khai số ngày cho nợ ⇒ đợt này KHÔNG BAO GIỜ vào cột Quá hạn. Màn hình phải
@@ -4695,6 +4982,8 @@ export interface PurchaseRequestRow {
   /** Lý do TỪ CHỐI / HUỶ — tách khỏi nội dung để lý do của người duyệt không đè lời người khai. */
   reject_reason: string | null;
   status_history: StatusHistoryRow[];
+  /** Lịch sử đầy đủ của đơn, gồm đổi trạng thái và các đợt giao. */
+  activity_history: PurchaseActivityRow[];
   created_at: string;
   updated_at: string;
   contract_number: string | null;
@@ -4735,6 +5024,11 @@ export interface PurchaseRequestListOut {
 
 export type PaymentVoucherType = "cash" | "bank_transfer";
 export type PaymentStage = "advance" | "partial" | "final" | "other";
+export type PaymentVoucherSource =
+  | "purchase_request"
+  | "internal_expense"
+  | "customer_refund"
+  | "other";
 /** BỎ HẲN `waiting_payment` từ 06/08/2026 (Đ1): lập phiếu chi = tiền ĐÃ RA, phiếu sinh ra đã là
  *  `paid`. Migration đã chuyển mọi phiếu "chờ chi" cũ thành `paid` (có dấu trong `note`). */
 export type PaymentVoucherStatus = "paid" | "cancelled";
@@ -4750,7 +5044,12 @@ export interface BankAccountInput {
   note?: string | null;
 }
 
-export interface CompanyBankAccountRow extends BankAccountInput {
+export interface CompanyBankAccountInput extends BankAccountInput {
+  use_for_receipts: boolean;
+  use_for_payments: boolean;
+}
+
+export interface CompanyBankAccountRow extends CompanyBankAccountInput {
   id: number;
   created_at: string;
   updated_at: string;
@@ -4774,6 +5073,7 @@ export interface PaymentVoucherAccountsInput {
 }
 
 export interface PaymentVoucherBaseInput extends PaymentVoucherAccountsInput {
+  source_type?: PaymentVoucherSource | null;
   voucher_type: PaymentVoucherType;
   payment_stage: PaymentStage;
   /** Đợt giao mà phiếu này trả cho. BẮT BUỘC với phiếu thanh toán khi đơn CÓ đợt giao; phải để
@@ -4795,12 +5095,16 @@ export interface PaymentVoucherBaseInput extends PaymentVoucherAccountsInput {
   cash_recipient_name?: string | null;
   cash_recipient_address?: string | null;
   cash_recipient_identity?: string | null;
+  beneficiary_account_holder?: string | null;
+  beneficiary_account_number?: string | null;
+  beneficiary_bank_name?: string | null;
+  beneficiary_bank_branch?: string | null;
   bank_fee_bearer?: "payer" | "beneficiary" | "shared" | null;
   note?: string | null;
 }
 
 export interface PaymentVoucherInput extends PaymentVoucherBaseInput {
-  purchase_request_id: number;
+  purchase_request_id?: number | null;
 }
 
 export interface PaymentVoucherRow {
@@ -4810,7 +5114,8 @@ export interface PaymentVoucherRow {
   doc_no: string | null;
   debit_account: string | null;
   credit_account: string | null;
-  purchase_request_id: number;
+  source_type: PaymentVoucherSource;
+  purchase_request_id: number | null;
   purchase_request_code: string;
   purchase_request_total: number | null;
   purchase_paid_amount: number | null;
@@ -4891,6 +5196,11 @@ export interface PaymentVoucherAttachment {
 }
 
 export type PaymentReceiptStatus = "waiting_receipt" | "received" | "cancelled";
+export type PaymentReceiptSource =
+  | "purchase_refund"
+  | "order_deposit"
+  | "sales_invoice"
+  | "other";
 
 export interface PaymentReceiptInput extends PaymentVoucherAccountsInput {
   payer_name: string;
@@ -4902,6 +5212,7 @@ export interface PaymentReceiptInput extends PaymentVoucherAccountsInput {
   exchange_rate?: number | null;
   content: string;
   company_bank_account_id?: number | null;
+  bank_reference?: string | null;
   note?: string | null;
 }
 
@@ -4910,11 +5221,17 @@ export interface PaymentReceiptRow {
   code: string;
   /** Số IN trên mẫu 01-TT (PT00027). */
   doc_no: string | null;
-  payment_voucher_id: number;
-  payment_voucher_code: string;
-  purchase_request_id: number;
-  purchase_request_code: string;
-  supplier_name: string;
+  source_type: PaymentReceiptSource;
+  payment_voucher_id: number | null;
+  payment_voucher_code: string | null;
+  purchase_request_id: number | null;
+  purchase_request_code: string | null;
+  supplier_name: string | null;
+  order_id: number | null;
+  order_code: string | null;
+  customer_name: string | null;
+  sales_invoice_id: number | null;
+  sales_invoice_number: string | null;
   payer_name: string;
   payer_address: string | null;
   debit_account: string | null;
@@ -5327,6 +5644,8 @@ export interface StockRequestLine {
   hang_id: number;
   hang_ma: string | null;
   hang_ten: string | null;
+  /** Ảnh minh hoạ mặt hàng (từ danh mục) — form phiếu nhập hiện + cho gắn/đổi ảnh ngay khi nhập. */
+  hang_anh: string | null;
   /** Nhãn nhóm ("Giấy" / "Vật tư khác") — chip phân biệt hai nguồn khi tên gần giống. */
   hang_nhom: string | null;
   /** "Xin cho lệnh nào" (mg 0175). Cả hai null = xin lặt vặt, không thuộc lệnh nào — hợp lệ.
@@ -5370,6 +5689,8 @@ export interface StockRequest {
   ngay_can: string | null;
   uu_tien: StockPriority;
   ghi_chu: string | null;
+  /** Mã loại nhập/xuất kho (MISA) người tạo gõ ở yêu cầu — Báo cáo kho dùng để export. */
+  loai_kho: string | null;
   trang_thai: StockRequestStatus;
   nguoi_duyet_id: number | null;
   nguoi_duyet_ten: string | null;
@@ -5380,6 +5701,8 @@ export interface StockRequest {
   // Id phiếu ĐANG CHỜ GHI SỔ (nếu có) → đổi nút "Lập phiếu" thành "Xem phiếu", chống tạo trùng.
   open_voucher_id: number | null;
   created_at: string;
+  /** Lần đổi gần nhất (tạo/cấp/hoàn tất/hủy) — xếp yêu cầu vừa có phản hồi lên đầu. */
+  updated_at: string;
   lines: StockRequestLine[];
 }
 
@@ -5420,6 +5743,10 @@ export interface StockRequestInput {
   ngay_can?: string | null;
   uu_tien?: StockPriority;
   ghi_chu?: string | null;
+  /** Mã loại nhập/xuất kho (MISA) — người tạo gõ tay; báo cáo dùng để export. */
+  loai_kho?: string | null;
+  /** Nguồn đợt giao đơn mua (chỉ khi tạo từ nút "Nhập kho" ở đợt) — chặn nhập trùng. */
+  purchase_delivery_id?: number | null;
   lines: StockRequestLineInput[];
 }
 
@@ -5427,7 +5754,82 @@ export interface StockRequestUpdateInput {
   ngay_can?: string | null;
   uu_tien?: StockPriority;
   ghi_chu?: string | null;
+  loai_kho?: string | null;
   lines?: StockRequestLineInput[];
+}
+
+/** Báo cáo kho (kế toán) — 1 dòng hàng của 1 phiếu đã ghi sổ. docs/spec-bao-cao-kho.md */
+export interface BaoCaoKhoRow {
+  voucher_id: number;
+  ngay_ghi_so: string | null;
+  ngay_ct: string | null;
+  so_ct: string;
+  loai: StockRequestKind;
+  loai_kho: string | null;
+  ma_hang: string | null;
+  ten_hang: string | null;
+  dvt: string | null;
+  so_luong: number;
+  don_gia: number | null;
+  thanh_tien: number | null;
+  kho_id: number | null;
+  kho_ten: string | null;
+}
+
+export interface BaoCaoKhoPage {
+  items: BaoCaoKhoRow[];
+  total: number;
+}
+
+export interface BaoCaoKhoParams {
+  tu?: string | null;
+  den?: string | null;
+  kho_id?: number | null;
+  loai?: StockRequestKind | null;
+  /** Tìm số CT / mã hàng / tên hàng — để "lọc gì = xuất nấy" (cả bảng lẫn file). */
+  q?: string | null;
+}
+
+/** Khóa/mở kỳ kế toán kho — 1 thao tác trên KHOẢNG ngày. kho_id null = toàn kho. Append-only = lịch sử. */
+export interface KhoKhoaSoRow {
+  id: number;
+  kho_id: number | null;
+  kho_ten: string | null;
+  tu_ngay: string;
+  den_ngay: string;
+  hanh_dong: "khoa" | "mo";
+  nguoi_khoa_ten: string | null;
+  khoa_luc: string | null;
+  ten: string | null;
+}
+
+export interface KhoKhoaSoInput {
+  kho_id?: number | null;
+  tu_ngay: string;
+  den_ngay: string;
+  hanh_dong: "khoa" | "mo";
+  /** Tên kỳ — chỉ gửi khi khóa; trùng tên kỳ đang khóa khác thì backend chặn. */
+  ten?: string | null;
+}
+
+/** 1 kỳ CÒN đang khóa (đã gộp khoảng liền mạch) — cho tab "Kỳ đã khóa". */
+export interface KhoaSoKyRow {
+  kho_id: number | null;
+  kho_ten: string | null;
+  tu_ngay: string;
+  den_ngay: string;
+  khoa_luc: string | null;
+  ten: string | null;
+}
+
+/** Ô chọn vật tư khi lập đề nghị — 4 trường tối thiểu, KHÔNG có giá. */
+export interface StockMaterialOption {
+  id: number;
+  code: string | null;
+  name: string | null;
+  unit: string | null;
+  don_vi_phu?: string | null;
+  he_so_quy_doi?: number | null;
 }
 
 /** Loại mặt hàng gốc — hai danh mục, hai dãy id riêng nên luôn đi theo CẶP với `hang_id`. */
@@ -5568,6 +5970,8 @@ export interface StockVoucher {
   loai: StockRequestKind;
   request_id: number;
   request_ma: string | null;
+  /** Loại phiếu (tự do) người tạo gõ ở yêu cầu — hiện trên phiếu + list. */
+  loai_kho: string | null;
   kho_id: number;
   kho_ten: string | null;
   ngay: string;
@@ -5647,6 +6051,8 @@ export interface StockLot {
   hang_id: number;
   hang_ma: string | null;
   hang_ten: string | null;
+  /** Ảnh minh hoạ mặt hàng (từ danh mục). Màn Tồn kho gom theo mặt hàng nên chép sẵn vào lô. */
+  hang_anh: string | null;
   /** ĐƠN VỊ GỐC — `sl_ban_dau`/`sl_con_lai` của lô đều theo đơn vị này. */
   dvt: string | null;
   kho_id: number;
@@ -6029,6 +6435,11 @@ export const api = {
     },
     deleteRole(token: string, roleId: number): Promise<void> {
       return authed<void>(`/api/roles/${roleId}`, token, { method: "DELETE" });
+    },
+    /** Bảng VAI MẪU — bộ quyền dựng sẵn cho các vai điển hình (đợt 6).
+     *  CHỈ ĐỌC: giao diện điền vào ma trận đang mở, người dùng xem lại rồi mới bấm Lưu. */
+    roleTemplates(token: string): Promise<RoleTemplate[]> {
+      return authed<RoleTemplate[]>("/api/roles/templates", token);
     },
     permissions(token: string, roleId: number): Promise<PermissionRow[]> {
       return authed<PermissionRow[]>(`/api/roles/${roleId}/permissions`, token);
@@ -6767,6 +7178,19 @@ export const api = {
     },
   },
 
+  // --- Trung tâm thông báo (chuông) -----------------------------------------
+  notifications: {
+    list(token: string, limit = 30): Promise<NotificationList> {
+      return authed(`/api/notifications?limit=${limit}`, token);
+    },
+    markRead(token: string, id: number): Promise<void> {
+      return authed(`/api/notifications/${id}/read`, token, { method: "POST" });
+    },
+    markAllRead(token: string): Promise<void> {
+      return authed("/api/notifications/read-all", token, { method: "POST" });
+    },
+  },
+
   // --- Tăng ca (tang_ca) ----------------------------------------------------
   overtime: {
     mine(token: string, params?: { page?: number; size?: number }): Promise<MyOvertime> {
@@ -7122,6 +7546,17 @@ export const api = {
       bulkAssign(token: string, id: number, input: BulkAssignInput): Promise<BulkAssignResult> {
         return authed<BulkAssignResult>(`/api/luong/components/${id}/bulk-assign`, token, { method: "POST", body: JSON.stringify(input) });
       },
+    },
+    /** Phát phiếu lương theo CỬA SỔ. `luc` trống = mở NGAY; `den` trống = mở không thời hạn. */
+    congBo(token: string, year: number, month: number, luc?: string | null, den?: string | null): Promise<PayrollPeriod> {
+      return authed<PayrollPeriod>("/api/luong/cong-bo", token, { method: "POST", body: JSON.stringify({ year, month, luc: luc ?? null, den: den ?? null }) });
+    },
+    thuHoi(token: string, year: number, month: number): Promise<PayrollPeriod> {
+      return authed<PayrollPeriod>("/api/luong/thu-hoi", token, { method: "POST", body: JSON.stringify({ year, month }) });
+    },
+    /** Trả một khoản đã đè tay về đúng mức đang khai ở hồ sơ NV. `null` = khoản đã bị gỡ khỏi hồ sơ. */
+    boDeComponent(token: string, rowId: number): Promise<LineComponent | null> {
+      return authed<LineComponent | null>(`/api/luong/lines/components/${rowId}/bo-de`, token, { method: "POST" });
     },
     lock(token: string, year: number, month: number): Promise<PayrollPeriod> {
       return authed<PayrollPeriod>("/api/luong/lock", token, { method: "POST", body: JSON.stringify({ year, month }) });
@@ -7901,6 +8336,17 @@ export const api = {
     },
   },
 
+  moduleNotifications: {
+    summary(token: string): Promise<ModuleNotificationSummary> {
+      return authed<ModuleNotificationSummary>("/api/module-notifications/summary", token);
+    },
+    markRead(token: string, channel: ModuleNotificationChannel): Promise<void> {
+      return authed<void>(`/api/module-notifications/${channel}/mark-read`, token, {
+        method: "POST",
+      });
+    },
+  },
+
   departmentPurchaseRequests: {
     list(
       token: string,
@@ -8214,8 +8660,16 @@ export const api = {
     },
     /** Công nợ phải trả gom theo NCC. Không phân trang — cắt trang là ra TỔNG sai.
         `q` lọc ở SERVER: NCC đã trả hết và im lặng lâu thì không có dòng nào để lọc phía màn. */
-    payables(token: string, q?: string): Promise<PayablesSummary> {
-      const suffix = q?.trim() ? `?q=${encodeURIComponent(q.trim())}` : "";
+    payables(
+      token: string,
+      params: { q?: string; filter?: string; page?: number; size?: number } = {},
+    ): Promise<PayablesSummary> {
+      const qs = new URLSearchParams();
+      if (params.q?.trim()) qs.set("q", params.q.trim());
+      if (params.filter && params.filter !== "all") qs.set("filter", params.filter);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
       return authed<PayablesSummary>(`/api/accounting/payables${suffix}`, token);
     },
     /** `allHistory` bỏ mốc kỳ cho rổ "đã chi" — nút "Xem lịch sử cũ hơn". Chỉ nới cho MỘT NCC. */
@@ -8227,19 +8681,83 @@ export const api = {
       const suffix = allHistory ? "?all_history=true" : "";
       return authed<PayablesDetail>(`/api/accounting/payables/${supplierId}${suffix}`, token);
     },
-    companyAccounts(token: string, activeOnly = false): Promise<CompanyBankAccountRow[]> {
-      return authed<CompanyBankAccountRow[]>(
-        `/api/accounting/company-bank-accounts?active_only=${activeOnly}`,
+    receivables(
+      token: string,
+      params: { q?: string; filter?: string; page?: number; size?: number } = {},
+    ): Promise<ReceivablesSummary> {
+      const qs = new URLSearchParams();
+      if (params.q?.trim()) qs.set("q", params.q.trim());
+      if (params.filter && params.filter !== "all") qs.set("filter", params.filter);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<ReceivablesSummary>(`/api/accounting/receivables${suffix}`, token);
+    },
+    receivablesDetail(
+      token: string,
+      customerId: number,
+      allHistory = false,
+    ): Promise<ReceivablesDetail> {
+      const suffix = allHistory ? "?all_history=true" : "";
+      return authed<ReceivablesDetail>(`/api/accounting/receivables/${customerId}${suffix}`, token);
+    },
+    salesInvoices(token: string, orderId: number): Promise<SalesInvoiceListOut> {
+      return authed<SalesInvoiceListOut>(
+        `/api/accounting/sales-invoices?order_id=${orderId}`,
         token,
       );
     },
-    createCompanyAccount(token: string, input: BankAccountInput): Promise<CompanyBankAccountRow> {
+    createSalesInvoice(
+      token: string,
+      input: SalesInvoiceInput,
+    ): Promise<SalesInvoiceRow> {
+      return authed<SalesInvoiceRow>("/api/accounting/sales-invoices", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    cancelSalesInvoice(
+      token: string,
+      invoiceId: number,
+      reason: string,
+    ): Promise<SalesInvoiceRow> {
+      return authed<SalesInvoiceRow>(
+        `/api/accounting/sales-invoices/${invoiceId}/cancel`,
+        token,
+        { method: "POST", body: JSON.stringify({ reason }) },
+      );
+    },
+    createSalesInvoiceReceipt(
+      token: string,
+      invoiceId: number,
+      input: PaymentReceiptInput,
+    ): Promise<PaymentReceiptRow> {
+      return authed<PaymentReceiptRow>(
+        `/api/accounting/sales-invoices/${invoiceId}/receipts`,
+        token,
+        { method: "POST", body: JSON.stringify(input) },
+      );
+    },
+    companyAccounts(
+      token: string,
+      activeOnly = false,
+      usage?: "receive" | "pay" | null,
+    ): Promise<CompanyBankAccountRow[]> {
+      const qs = new URLSearchParams();
+      qs.set("active_only", String(activeOnly));
+      if (usage) qs.set("usage", usage);
+      return authed<CompanyBankAccountRow[]>(
+        `/api/accounting/company-bank-accounts?${qs.toString()}`,
+        token,
+      );
+    },
+    createCompanyAccount(token: string, input: CompanyBankAccountInput): Promise<CompanyBankAccountRow> {
       return authed<CompanyBankAccountRow>("/api/accounting/company-bank-accounts", token, {
         method: "POST",
         body: JSON.stringify(input),
       });
     },
-    updateCompanyAccount(token: string, id: number, input: BankAccountInput): Promise<CompanyBankAccountRow> {
+    updateCompanyAccount(token: string, id: number, input: CompanyBankAccountInput): Promise<CompanyBankAccountRow> {
       return authed<CompanyBankAccountRow>(`/api/accounting/company-bank-accounts/${id}`, token, {
         method: "PUT",
         body: JSON.stringify(input),
@@ -8289,6 +8807,7 @@ export const api = {
       params: {
         q?: string;
         status?: string | null;
+        source_type?: PaymentVoucherSource | null;
         voucher_type?: string | null;
         supplier_id?: number | null;
         purchase_request_id?: number | null;
@@ -8300,6 +8819,7 @@ export const api = {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
       if (params.status) qs.set("status", params.status);
+      if (params.source_type) qs.set("source_type", params.source_type);
       if (params.voucher_type) qs.set("voucher_type", params.voucher_type);
       if (params.supplier_id != null) qs.set("supplier_id", String(params.supplier_id));
       if (params.purchase_request_id != null)
@@ -8336,6 +8856,7 @@ export const api = {
         q?: string;
         status?: string | null;
         payment_voucher_id?: number | null;
+        source_type?: PaymentReceiptSource | null;
         sort?: string;
         page?: number;
         size?: number;
@@ -8346,6 +8867,7 @@ export const api = {
       if (params.status) qs.set("status", params.status);
       if (params.payment_voucher_id != null)
         qs.set("payment_voucher_id", String(params.payment_voucher_id));
+      if (params.source_type) qs.set("source_type", params.source_type);
       if (params.sort) qs.set("sort", params.sort);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
@@ -8362,6 +8884,12 @@ export const api = {
         token,
         { method: "POST", body: JSON.stringify(input) },
       );
+    },
+    createOtherReceipt(token: string, input: PaymentReceiptInput): Promise<PaymentReceiptRow> {
+      return authed<PaymentReceiptRow>(`/api/accounting/payment-receipts`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
     },
     updateReceipt(
       token: string,
@@ -8475,9 +9003,15 @@ export const api = {
   /** DANH MỤC GỐC — hai cửa Kho + NCC dùng chung để chọn mặt hàng và chọn đơn vị.
    *  Thay `kho.deNghi.vatTu` cũ (đọc bảng `materials` riêng của kho). */
   matHang: {
-    tim(token: string, q?: string | null, size = 20): Promise<MatHangOption[]> {
+    tim(
+      token: string,
+      q?: string | null,
+      size = 20,
+      chiCoNhaCungCap = false,
+    ): Promise<MatHangOption[]> {
       const qs = new URLSearchParams({ size: String(size) });
       if (q) qs.set("q", q);
+      if (chiCoNhaCungCap) qs.set("chi_co_nha_cung_cap", "true");
       return authed<MatHangOption[]>(`/api/vat-lieu-kho/mat-hang?${qs.toString()}`, token);
     },
     /** Đơn vị gốc + mọi đơn vị đổi được — danh sách TỰ THÍCH NGHI theo từng mặt hàng. */
@@ -8491,10 +9025,36 @@ export const api = {
       const qs = new URLSearchParams({ hang_loai: hangLoai, hang_id: String(hangId) });
       return authed<SoGiaOut>(`/api/supplier-items/so-gia?${qs.toString()}`, token);
     },
+    /** Gắn/đổi ẢNH minh hoạ mặt hàng (chỉ vai có quyền sửa danh mục dm_giay/dm_vat_tu). */
+    uploadAnh(token: string, hangLoai: HangLoai, hangId: number, file: File): Promise<{ anh_url: string | null }> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<{ anh_url: string | null }>(
+        `/api/vat-lieu-kho/${hangLoai}/${hangId}/anh`, token, { method: "POST", body: form },
+      );
+    },
+    /** Gỡ ảnh minh hoạ mặt hàng. */
+    xoaAnh(token: string, hangLoai: HangLoai, hangId: number): Promise<{ anh_url: string | null }> {
+      return authed<{ anh_url: string | null }>(
+        `/api/vat-lieu-kho/${hangLoai}/${hangId}/anh`, token, { method: "DELETE" },
+      );
+    },
   },
 
   kho: {
     deNghi: {
+      /** Số yêu cầu ĐÃ DUYỆT chờ kho lập phiếu (badge Nhập/Xuất, việc của thủ kho) + phản hồi kho cho
+       *  yêu cầu CỦA TÔI mà tôi chưa mở xem: `done_unseen` (Hoàn tất) + `fail_unseen` (Không thành).
+       *  Badge người tạo = done_unseen + fail_unseen. */
+      counts(
+        token: string,
+      ): Promise<{ nhap: number; xuat: number; done_unseen: number; fail_unseen: number }> {
+        return authed("/api/kho/de-nghi/counts", token);
+      },
+      /** NGƯỜI TẠO mở xem 1 yêu cầu của mình → đánh dấu đã xem → hạ badge/số đỏ đúng yêu cầu đó. */
+      markSeen(token: string, id: number): Promise<void> {
+        return authed(`/api/kho/de-nghi/${id}/seen`, token, { method: "POST" });
+      },
       list(token: string, params: StockRequestListParams = {}): Promise<StockRequestPage> {
         const qs = new URLSearchParams();
         if (params.q) qs.set("q", params.q);
@@ -8712,6 +9272,57 @@ export const api = {
         });
       },
     },
+
+    /** Báo cáo kho (kế toán) — sổ nhập-xuất + khóa kỳ + export MISA. Cần quyền close_book. */
+    baoCao: {
+      dong(token: string, params: BaoCaoKhoParams = {}): Promise<BaoCaoKhoPage> {
+        const qs = new URLSearchParams();
+        if (params.tu) qs.set("tu", params.tu);
+        if (params.den) qs.set("den", params.den);
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        if (params.loai) qs.set("loai", params.loai);
+        if (params.q) qs.set("q", params.q);
+        const q = qs.toString();
+        return authed<BaoCaoKhoPage>(`/api/kho/bao-cao/dong${q ? `?${q}` : ""}`, token);
+      },
+      khoaSo(token: string): Promise<KhoKhoaSoRow[]> {
+        return authed<KhoKhoaSoRow[]>("/api/kho/khoa-so", token);
+      },
+      /** Các kỳ CÒN đang khóa (đã gộp khoảng) — cho tab "Kỳ đã khóa". */
+      ky(token: string): Promise<KhoaSoKyRow[]> {
+        return authed<KhoaSoKyRow[]>("/api/kho/khoa-so/ky", token);
+      },
+      setKhoaSo(token: string, body: KhoKhoaSoInput): Promise<KhoKhoaSoRow> {
+        return authed<KhoKhoaSoRow>("/api/kho/khoa-so", token, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      },
+      /** Xuất Excel báo cáo kho theo mẫu MISA (nhập/xuất) — fetch as blob (bearer + refresh-aware). */
+      async exportXlsxBlobUrl(
+        token: string,
+        loai: StockRequestKind,
+        params: Omit<BaoCaoKhoParams, "loai"> = {},
+      ): Promise<string> {
+        const qs = new URLSearchParams();
+        qs.set("loai", loai);
+        if (params.tu) qs.set("tu", params.tu);
+        if (params.den) qs.set("den", params.den);
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        if (params.q) qs.set("q", params.q);
+        const doFetch = (bearer: string) =>
+          fetch(`${BASE_URL}/api/kho/bao-cao/export.xlsx?${qs.toString()}`, {
+            credentials: "include", cache: "no-store", headers: authHeader(bearer),
+          });
+        let resp = await doFetch(token);
+        if (resp.status === 401) {
+          const fresh = await refreshAccessToken();
+          if (fresh) resp = await doFetch(fresh);
+        }
+        if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
+        return URL.createObjectURL(await resp.blob());
+      },
+    },
   },
 
   /** Endpoint CÔNG KHAI — tra kho khi quét tem QR (KHÔNG đăng nhập, KHÔNG giá vốn). */
@@ -8758,13 +9369,24 @@ export interface PublicScanLot {
   sl_con_lai: number;
 }
 
+/** 1 lần nhập/xuất gần đây (công khai — KHÔNG có tiền). */
+export interface PublicScanMove {
+  loai: string; // NHAP / XUAT
+  ngay: string | null;
+  so_ct: string;
+  so_luong: number;
+}
+
 export interface PublicScan {
   material_code: string | null;
   material_name: string | null;
   dvt: string | null;
   kho_ten: string | null;
   on_hand: number;
+  /** Đường ảnh CÔNG KHAI (`/api/public/vat-lieu-anh?t=…`, serve bằng token QR). null = chưa có ảnh. */
+  anh_url: string | null;
   lots: PublicScanLot[];
+  history: PublicScanMove[];
 }
 
 export interface PlateDieRateRow {

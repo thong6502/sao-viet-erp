@@ -1,13 +1,13 @@
 """Phiếu nhập / xuất kho — docs/spec-kho-de-nghi.md §5.
 
-**Mọi phiếu bắt buộc ứng theo một đề nghị đã duyệt** (`request_id` NOT NULL). Luật này
-khớp BRD: mỗi nghiệp vụ kho đều có chứng từ đề nghị đứng trước (nhập mua ← đề nghị mua
+**Mọi phiếu bắt buộc ứng theo một yêu cầu đã duyệt** (`request_id` NOT NULL). Luật này
+khớp BRD: mỗi nghiệp vụ kho đều có chứng từ yêu cầu đứng trước (nhập mua ← yêu cầu mua
 §2.17, nhập TP ← yêu cầu nhập kho của KCS §2.3 b2, xuất cấp bù ← đề xuất cấp bù §2.6 b2…).
 Ba miễn trừ của BRD (tồn đầu kỳ §2.1, điều chỉnh sau kiểm kê §2.16, hủy/thanh lý §2.14)
 đều NGOÀI phạm vi giai đoạn 1 nên chưa cần cửa thoát.
 
 Phiếu ở trạng thái `draft` chưa đụng tồn; `posted` mới ghi sổ (tạo lô nếu nhập, trừ
-`sl_con_lai` nếu xuất) và cộng `sl_da_ung` về dòng đề nghị.
+`sl_con_lai` nếu xuất) và cộng `sl_da_ung` về dòng yêu cầu.
 
 Bảng MỚI → `create_all` tự dựng, không cần migration.
 """
@@ -52,7 +52,7 @@ class StockVoucher(Base):
     # Số phiếu in trên chứng từ (PNK0001 / PXK0001) — sinh qua document_sequences.
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
     loai: Mapped[str] = mapped_column(String(8), index=True, nullable=False)
-    # BẮT BUỘC: không có đề nghị thì không có phiếu (spec §5).
+    # BẮT BUỘC: không có yêu cầu thì không có phiếu (spec §5).
     request_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("stock_requests.id"), index=True, nullable=False
     )
@@ -117,7 +117,7 @@ class StockVoucherLine(Base):
     voucher_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("stock_vouchers.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    # Dòng đề nghị mà dòng phiếu này ứng vào — nền cho chặn "ứng vượt SL duyệt".
+    # Dòng yêu cầu mà dòng phiếu này ứng vào — nền cho chặn "ứng vượt SL duyệt".
     request_line_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("stock_request_lines.id"), index=True, nullable=False
     )

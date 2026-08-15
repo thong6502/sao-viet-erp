@@ -18,6 +18,7 @@ export function MaterialCombobox({
   onPick,
   placeholder = "Gõ tên vật tư…",
   disabled = false,
+  chiCoNhaCungCap = false,
   /** Lọc theo tồn: màn đề nghị XUẤT chỉ nên mời mặt hàng đang có hàng. */
   loc,
 }: {
@@ -27,6 +28,8 @@ export function MaterialCombobox({
   onPick: (m: MatHangOption) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** Chỉ mời mặt hàng đã có ít nhất một NCC đang bán. */
+  chiCoNhaCungCap?: boolean;
   loc?: (m: MatHangOption) => boolean;
 }) {
   const [text, setText] = useState(hangTen ?? "");
@@ -47,7 +50,7 @@ export function MaterialCombobox({
     let cancelled = false;
     const t = setTimeout(() => {
       api.matHang
-        .tim(token, text.trim() || null, 20)
+        .tim(token, text.trim() || null, 20, chiCoNhaCungCap)
         .then((r) => {
           if (!cancelled) {
             setOpts(loc ? r.filter(loc) : r);
@@ -60,7 +63,7 @@ export function MaterialCombobox({
       cancelled = true;
       clearTimeout(t);
     };
-  }, [text, open, token, loc]);
+  }, [text, open, token, loc, chiCoNhaCungCap]);
 
   function reposition() {
     const el = inputRef.current;
@@ -123,7 +126,9 @@ export function MaterialCombobox({
       ))}
       {opts.length === 0 && (
         <li className="kho-combo__empty" role="presentation">
-          Không có trong danh mục — khai ở Cấu hình danh mục → Giấy / Vật tư khác.
+          {chiCoNhaCungCap
+            ? "Chưa có NCC nào khai bán mặt hàng này. Hãy khai ở Nhà cung cấp trước."
+            : "Không có trong danh mục — khai ở Cấu hình danh mục → Giấy / Vật tư khác."}
         </li>
       )}
     </ul>
@@ -183,6 +188,7 @@ export function DonViChonTheoHang({
   onChange,
   onQuyDoi,
   disabled = false,
+  chiDoc = false,
 }: {
   token: string;
   hangLoai: HangLoai | null;
@@ -194,6 +200,18 @@ export function DonViChonTheoHang({
    *  `heSoVeGoc` = 1 đơn vị này bằng bao nhiêu đơn vị gốc (dùng CHIA để ra giá/đơn-vị-gốc). */
   onQuyDoi?: (info: { donViGocTen: string; heSoVeGoc: number } | null) => void;
   disabled?: boolean;
+  /** CHỈ ĐỌC — hiện đơn vị của mặt hàng, KHÔNG cho chọn đơn vị quy đổi.
+   *
+   *  • Yêu cầu mua hàng (12/08/2026): người đề nghị mua không phải người quyết đơn vị giao dịch.
+   *  • Nhà cung cấp (15/08/2026): *"2 nhà cung cấp cùng bán 1 sản phẩm, 1 bên ghi cái 1 bên ghi
+   *    con thì sao"* — chủ chốt chốt lấy đơn vị gốc, không cho chọn. Đánh đổi đã nêu rõ và đã
+   *    được chấp nhận: NCC báo giá theo ram/tấn phải tự quy về đơn vị gốc trước khi nhập.
+   *
+   *  Dòng CŨ đã lưu đơn vị quy đổi thì hiện ĐÚNG đơn vị đã lưu, không viết lại: đổi "ram" thành
+   *  "tờ" mà giữ nguyên số tiền là biến 250.000 đ/ram thành 250.000 đ/tờ — sai gấp 500 lần.
+   *
+   *  Màn Kho GIỮ NGUYÊN ô chọn: nhập/xuất kho theo thùng, bao là việc có thật. */
+  chiDoc?: boolean;
 }) {
   const [ds, setDs] = useState<{ ma: string; ten: string; he_so_ve_goc: number; la_goc: boolean }[]>([]);
   const [lyDo, setLyDo] = useState<string | null>(null);
@@ -253,9 +271,24 @@ export function DonViChonTheoHang({
       </span>
     );
   }
+  if (chiDoc) {
+    const dang = ds.find((d) => d.ma === value) ?? ds.find((d) => d.la_goc);
+    // `||` chứ KHÔNG phải `??`: chưa chọn vật tư thì `value` là CHUỖI RỖNG, mà `??` chỉ bắt
+    // null/undefined ⇒ ô hiện ra trống trơn, trông như một ô nhập vỡ.
+    const chu = dang?.ten || value || "—";
+    return (
+      <span
+        className={`kho-dv__ro${dang ? "" : " kho-dv__ro--trong"}`}
+        title={dang ? `Đơn vị của mặt hàng: ${dang.ten}` : "Chọn vật tư trước"}
+      >
+        {chu}
+      </span>
+    );
+  }
   return (
     <select
       className="rc-input"
+      style={{ minWidth: 88 }}
       value={value}
       disabled={disabled || ds.length === 0}
       aria-label="Đơn vị tính"

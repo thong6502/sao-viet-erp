@@ -17,6 +17,7 @@ from .db import SessionLocal, init_db
 from .db_migrations import run_migrations
 from .routers import (
     accounting,
+    module_notifications,
     auth,
     attendance,
     calendar,
@@ -43,6 +44,7 @@ from .routers import (
     don_vi_do,
     bien_cong_thuc,
     kho,
+    kho_baocao,
     kho_request,
     kho_voucher,
     public_scan,
@@ -50,6 +52,7 @@ from .routers import (
     loai_san_pham,
     danh_muc_xoa,
     nhat_ky_danh_muc,
+    notifications,
     tinh_gia,
     phieu_tinh_gia,
     lsx,
@@ -143,6 +146,7 @@ app.include_router(orders.router)
 app.include_router(product_types_catalog.router)
 app.include_router(purchases.router)
 app.include_router(accounting.router)
+app.include_router(module_notifications.router)
 app.include_router(machines.router)
 app.include_router(operations.router)
 # Gỡ (2026-07-16): products · plate_die_rates · norms — không màn nào gọi, module quyền đã bỏ
@@ -161,6 +165,9 @@ app.include_router(bien_cong_thuc.router)
 app.include_router(kho_request.router)
 app.include_router(kho_voucher.router)
 app.include_router(kho_voucher.threshold_router)
+# Báo cáo kho (kế toán): /api/kho/bao-cao/* + /api/kho/khoa-so — TRƯỚC kho.router (path 1 đoạn).
+app.include_router(kho_baocao.router)
+app.include_router(notifications.router)
 # Router CÔNG KHAI (không auth) — trang tra kho khi quét tem QR. Mã ký HMAC chống dò id.
 app.include_router(public_scan.router)
 app.include_router(kho.router)

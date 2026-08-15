@@ -13,6 +13,14 @@ Công thức: `cong_no = max(0, giá trị hàng ĐÃ GIAO − (đã chi − đ�
 một phiếu chi nên cọc tự khấu trừ ngay từ đợt giao đầu tiên.
 
 Phiếu chi lập ra là ĐÃ CHI — không còn trạng thái "chờ chi", không còn rổ 🟡.
+
+HAI LUẬT THÊM (chủ chốt 09/08/2026) — mọi test dựng dữ liệu ở file này phải theo:
+
+5. **Phiếu THANH TOÁN bắt buộc gắn ĐỢT GIAO.** Đơn chưa có đợt nào ⇒ chặn 422. Hệ quả: đơn đi
+   đường CŨ (`mark-received`, không có đợt) chỉ còn trả được bằng phiếu ĐẶT CỌC.
+6. **Phiếu ĐẶT CỌC bắt buộc khai CỌC DỰ KIẾN trước** (`PUT /purchase-requests/{id}/contract`), và
+   trần cọc = cọc dự kiến − cọc ĐÃ CHI. Chưa khai ⇒ chặn 422. Dùng `_don(..., coc=N)` /
+   `_khai_coc()` để khai — khai phải xong TRƯỚC khi duyệt vì duyệt rồi là khoá.
 """
 from __future__ import annotations
 
@@ -98,7 +106,9 @@ def _token_vai(username: str, *, module: str, **quyen) -> str:
 
 def _duyet(client, purchase_id: int) -> None:
     """Người lập không tự duyệt được phiếu của mình ⇒ phải có người duyệt riêng."""
-    token = _token_vai("cn-approver", module="thu_mua", can_read=True, can_approve=True)
+    # Ô duyệt PMH dời sang khoá `ke_toan` ngày 11/08/2026 — nút Duyệt / Từ chối chỉ có ở màn
+    # "Đơn mua hàng (Kế toán)" nên ô quyền cũng về đó.
+    token = _token_vai("cn-approver", module="ke_toan", can_read=True, can_approve=True)
     r = client.post(
         f"/api/purchase-requests/{purchase_id}/approve",
         headers={"Authorization": f"Bearer {token}"},
@@ -106,10 +116,36 @@ def _duyet(client, purchase_id: int) -> None:
     assert r.status_code == 200, r.text
 
 
-def _don(client, headers, supplier_id: int, *, quantity: int = 1000, duyet: bool = True) -> dict:
+def _khai_coc(client, headers, purchase_id: int, so_tien: int) -> dict:
+    """Khai CỌC DỰ KIẾN trên phiếu mua — bắt buộc trước khi lập bất kỳ phiếu ĐẶT CỌC nào
+    (chủ chốt 09/08/2026).
+
+    Phải gọi khi phiếu còn NHÁP/CHỜ DUYỆT: cọc dự kiến khoá sau khi duyệt (đó là con số người
+    duyệt đã đồng ý), nên `_don(..., coc=...)` gọi hàm này trước bước gửi duyệt."""
+    r = client.put(
+        f"/api/purchase-requests/{purchase_id}/contract",
+        json={"contract_number": None, "deposit_expected": so_tien},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["deposit_expected"] == so_tien
+    return r.json()
+
+
+def _don(
+    client,
+    headers,
+    supplier_id: int,
+    *,
+    quantity: int = 1000,
+    duyet: bool = True,
+    coc: int = 0,
+) -> dict:
     """Dựng một PMH đã duyệt. 1000 tờ × 2.200đ = 2.200.000đ.
 
-    `duyet=False` để nguyên ở NHÁP — dùng cho ca phải khai trước khi duyệt."""
+    `duyet=False` để nguyên ở NHÁP — dùng cho ca phải khai trước khi duyệt.
+    `coc=N` khai luôn CỌC DỰ KIẾN N đồng trước khi gửi duyệt — bắt buộc cho mọi test lập phiếu
+    ĐẶT CỌC, vì từ 09/08/2026 chưa khai thì phiếu cọc bị chặn 422."""
     source = client.post(
         "/api/department-purchase-requests",
         json={
@@ -144,6 +180,8 @@ def _don(client, headers, supplier_id: int, *, quantity: int = 1000, duyet: bool
     )
     assert purchase.status_code == 201, purchase.text
     body = purchase.json()
+    if coc:
+        _khai_coc(client, headers, body["id"], coc)
     if duyet:
         assert client.post(
             f"/api/purchase-requests/{body['id']}/submit", headers=headers
@@ -189,7 +227,10 @@ def _phieu_chi(
     delivery_id: int | None = None,
     expect: int = 201,
 ) -> dict:
-    """Lập một phiếu chi. Phiếu sinh ra ĐÃ LÀ 'đã chi' — không còn bước xác nhận."""
+    """Lập một phiếu chi. Phiếu sinh ra ĐÃ LÀ 'đã chi' — không còn bước xác nhận.
+
+    Mặc định `stage="advance"` = phiếu ĐẶT CỌC ⇒ đơn phải khai cọc dự kiến trước (`_don(coc=…)`).
+    `stage="final"` = phiếu THANH TOÁN ⇒ bắt buộc truyền `delivery_id` của một đợt giao có thật."""
     r = client.post(
         "/api/accounting/payment-vouchers",
         json={
@@ -226,6 +267,7 @@ def _ghi_dot(
     ngay: str | None = None,
     han: str | None = None,
     so_hd: str | None = None,
+    ngay_hd: str | None = None,
     expect: int = 200,
 ) -> dict:
     """Ghi một đợt giao. `lines` = [{"purchase_request_line_id": .., "quantity": ..}].
@@ -237,6 +279,7 @@ def _ghi_dot(
             "delivery_date": ngay or _hom_nay().isoformat(),
             "due_date": han,
             "invoice_number": so_hd,
+            "invoice_date": ngay_hd,
             "lines": lines,
         },
         headers=headers,
@@ -418,7 +461,8 @@ def test_coc_la_coc_ca_don_khong_thuoc_dot_nao(client):
     Nay: cột "đã trả" của đợt chỉ đếm tiền trả ĐÍCH DANH đợt đó; cọc đứng thành dòng riêng."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Coc")
-    don = _don(client, headers, supplier["id"])
+    # Cọc dự kiến phải khai TRƯỚC khi lập phiếu cọc (09/08/2026).
+    don = _don(client, headers, supplier["id"], coc=600_000)
     _phieu_chi(client, headers, don["id"], 600_000, stage="advance")
 
     _da_mua(client, headers, don["id"])
@@ -459,7 +503,7 @@ def test_dong_da_tra_noi_ro_dot_may(client):
     hai đợt của cùng một đơn hiện y hệt nhau."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Dot May")
-    don = _don(client, headers, supplier["id"])
+    don = _don(client, headers, supplier["id"], coc=100_000)
     _phieu_chi(client, headers, don["id"], 100_000, stage="advance")
     _da_mua(client, headers, don["id"])
     dong = _dong_dau_tien(don)
@@ -483,7 +527,7 @@ def test_coc_phu_het_dot_thi_dot_khong_con_bao_no(client):
     phiếu chi trong khi tổng dưới cùng đã về 0 — mời kế toán trả lần thứ hai."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Coc Phu Het")
-    don = _don(client, headers, supplier["id"])
+    don = _don(client, headers, supplier["id"], coc=100_000)
     _phieu_chi(client, headers, don["id"], 100_000, stage="advance")
     _da_mua(client, headers, don["id"])
     sau = _ghi_dot(
@@ -504,10 +548,13 @@ def test_phieu_mua_phoi_ra_cac_phieu_dat_coc_da_lap(client):
     """Form phiếu chi cần biết đơn ĐÃ có phiếu cọc để cảnh báo khi sắp lập phiếu cọc thứ hai.
 
     Cảnh báo chứ KHÔNG chặn (chủ chốt 07/08/2026): ứng thêm là ca có thật, và mỗi lần tiền rời két
-    phải là một chứng từ riêng — sửa phiếu cũ lên số to hơn là làm phiếu không khớp lần chi thật."""
+    phải là một chứng từ riêng — sửa phiếu cũ lên số to hơn là làm phiếu không khớp lần chi thật.
+
+    Từ 09/08/2026 "không chặn" có thêm một mép: nhiều phiếu cọc vẫn được, miễn TỔNG không vượt cọc
+    dự kiến đã khai. Ở đây khai đúng 150.000 = 100.000 + 50.000 nên cả hai phiếu đều lọt."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Coc Hai Lan")
-    don = _don(client, headers, supplier["id"])
+    don = _don(client, headers, supplier["id"], coc=150_000)
     truoc = client.get(f"/api/purchase-requests/{don['id']}", headers=headers).json()
     assert truoc["coc_da_lap"] == [] and truoc["coc_da_chi"] == 0
 
@@ -530,8 +577,8 @@ def test_ung_truoc_roi_nop_lai_phan_thua_thi_het_no(client):
     trừ tiền đã chi. Nay đo theo HÀNG ĐÃ VỀ nên ra đúng 0."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC No Ao")
-    # Đơn 5.000 tờ x 2.200 = 11.000.000đ
-    don = _don(client, headers, supplier["id"], quantity=5000)
+    # Đơn 5.000 tờ x 2.200 = 11.000.000đ, thoả thuận tạm ứng 10.000.000đ.
+    don = _don(client, headers, supplier["id"], quantity=5000, coc=10_000_000)
     phieu = _phieu_chi(client, headers, don["id"], 10_000_000, stage="advance")
 
     _da_mua(client, headers, don["id"])
@@ -576,14 +623,53 @@ def test_ung_truoc_roi_nop_lai_phan_thua_thi_het_no(client):
     ]
 
 
+# --- số tiền đợt giao: theo HOÁ ĐƠN, không phải theo đơn giá ----------------
+
+
+def test_tien_dot_giao_do_MAY_TINH_tu_so_luong(client):
+    """Tiền của đợt = số lượng thực nhận × đơn giá đã chốt. KHÔNG ai gõ tay (chủ 07/08/2026).
+
+    Vòng này từng đi hai lần: 06/08 mở ô "Số tiền theo hoá đơn" cho gõ tay, 07/08 chủ đảo lại —
+    *"không cho sửa nữa, dựa vào số lượng thực tế tính ra tiền luôn"*. Ô gõ tay đẻ ra đúng cái lệch
+    mà chính chủ bắt được: chi tiết PMH hiện một số, ngoài bảng hiện số khác cho cùng một đợt.
+
+    Gửi kèm `amount` cũng phải bị BỎ QUA — client cũ hoặc người gọi thẳng API không được có đường
+    ghi đè con số này."""
+    headers = _headers(client)
+    supplier = _supplier(client, headers, name="NCC Tien May Tinh")
+    don = _don(client, headers, supplier["id"])  # 1.000 tờ x 2.200 = 2.200.000đ
+    _da_mua(client, headers, don["id"])
+
+    r = client.post(
+        f"/api/purchase-requests/{don['id']}/deliveries",
+        json={
+            "delivery_date": _hom_nay().isoformat(),
+            # Cố tình nhét số tiền vào — server phải phớt lờ.
+            "amount": 999_999_999,
+            "lines": [{"purchase_request_line_id": _dong_dau_tien(don), "quantity": 500}],
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    dot = r.json()["deliveries"][0]
+    assert dot["amount"] == 1_100_000, "500 × 2.200 — không phải số client gửi lên"
+    assert "amount_goi_y" not in dot, "thôi còn khái niệm số gợi ý"
+    assert r.json()["gia_tri_da_giao"] == 1_100_000
+    assert r.json()["outstanding_amount"] == 1_100_000
+
+
 # --- trần lập phiếu chi -----------------------------------------------------
 
 
 def test_tran_thanh_toan_theo_no_tran_dat_coc_theo_don(client):
-    """Hai trần khác nhau có chủ ý: thanh toán <= CÔNG NỢ, đặt cọc <= GIÁ TRỊ ĐƠN."""
+    """Hai trần khác nhau có chủ ý: thanh toán <= CÔNG NỢ, đặt cọc <= CỌC DỰ KIẾN ĐÃ KHAI.
+
+    Vế cọc đổi gốc 09/08/2026: trước đó trần cọc lấy theo GIÁ TRỊ ĐƠN, nên đơn 2,2tr ứng trước được
+    tới 2,2tr trong khi hai bên chỉ thoả thuận cọc 1tr. Nay trần bám con số đã khai — nên ở đây khai
+    1.000.000 (KHÁC giá trị đơn) để test chứng minh trần lấy từ đâu."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Tran Phieu")
-    don = _don(client, headers, supplier["id"])
+    don = _don(client, headers, supplier["id"], coc=1_000_000)
     _da_mua(client, headers, don["id"])
     sau = _ghi_dot(
         client, headers, don["id"],
@@ -591,14 +677,14 @@ def test_tran_thanh_toan_theo_no_tran_dat_coc_theo_don(client):
     )
     dot_id = sau["deliveries"][0]["id"]
     assert sau["outstanding_amount"] == 1_100_000
-    assert sau["tran_dat_coc"] == 2_200_000
+    assert sau["tran_dat_coc"] == 1_000_000, "trần cọc = số đã khai, KHÔNG phải giá trị đơn 2,2tr"
 
     vuot = _phieu_chi(
         client, headers, don["id"], 1_100_001, stage="final", delivery_id=dot_id, expect=422
     )
     assert "thanh toán" in vuot["detail"]
 
-    vuot_coc = _phieu_chi(client, headers, don["id"], 2_200_001, stage="advance", expect=422)
+    vuot_coc = _phieu_chi(client, headers, don["id"], 1_000_001, stage="advance", expect=422)
     assert "đặt cọc" in vuot_coc["detail"]
 
     ok = _phieu_chi(client, headers, don["id"], 1_100_000, stage="final", delivery_id=dot_id)
@@ -643,16 +729,18 @@ def test_tran_thanh_toan_theo_TUNG_DOT_khong_theo_ca_don(client):
 
 
 def test_coc_khong_bi_tran_dot_chan(client):
-    """Cọc vẫn theo trần CẢ ĐƠN — nó là tiền chi khi hàng chưa về, không thuộc đợt nào."""
+    """Cọc KHÔNG bị trần theo đợt chặn — nó là tiền chi khi hàng chưa về, không thuộc đợt nào.
+
+    Trần của nó là CỌC DỰ KIẾN đã khai (09/08/2026), độc lập hoàn toàn với giá trị hàng đã về."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Coc Van Rong")
-    don = _don(client, headers, supplier["id"])
+    don = _don(client, headers, supplier["id"], coc=2_200_000)
     _da_mua(client, headers, don["id"])
     _ghi_dot(
         client, headers, don["id"],
         lines=[{"purchase_request_line_id": _dong_dau_tien(don), "quantity": 100}],
     )
-    # Hàng mới về 220.000đ nhưng vẫn ứng trước được tới giá trị đơn 2.200.000đ.
+    # Hàng mới về 220.000đ nhưng vẫn ứng trước được trọn 2.200.000đ đã khai.
     ok = _phieu_chi(client, headers, don["id"], 2_200_000, stage="advance")
     assert ok["amount_vnd"] == 2_200_000
 
@@ -668,6 +756,122 @@ def test_phieu_thanh_toan_phai_chon_dot_khi_don_co_dot_giao(client):
     )
     thieu = _phieu_chi(client, headers, don["id"], 100_000, stage="final", expect=422)
     assert "chọn đợt giao" in thieu["detail"]
+
+
+# --- luật 09/08/2026: thanh toán PHẢI có đợt giao, cọc PHẢI khai trước ------
+
+
+def test_chua_co_dot_giao_nao_thi_khong_lap_duoc_phieu_thanh_toan(client):
+    """Luật 1 (chủ chốt 09/08/2026). Đơn chưa ghi đợt giao nào ⇒ phiếu THANH TOÁN bị chặn.
+
+    Trước đó đơn không có đợt vẫn chi được với `delivery_id = null`: tiền ra khỏi két mà không có
+    mốc "hàng về đợt nào" ⇒ công nợ biết TỔNG đã trả nhưng không biết đợt nào xong, còn cột Quá hạn
+    (đếm theo hạn của TỪNG đợt) không quy được về đâu. Nay muốn trả tiền thì ghi đợt trước — hoặc đi
+    đường ĐẶT CỌC nếu hàng thật sự chưa về."""
+    headers = _headers(client)
+    supplier = _supplier(client, headers, name="NCC Chua Co Dot")
+    don = _don(client, headers, supplier["id"])
+    _da_mua(client, headers, don["id"])
+
+    chan = _phieu_chi(client, headers, don["id"], 100_000, stage="final", expect=422)
+    assert "chưa có đợt giao" in chan["detail"]
+    assert "ĐẶT CỌC" in chan["detail"], "báo lỗi phải chỉ luôn đường đi tiếp"
+    # Chặn thật: không có phiếu chi nào được đẻ ra.
+    assert client.get(f"/api/purchase-requests/{don['id']}", headers=headers).json()["paid_amount"] == 0
+
+    # Ghi đợt giao xong thì đúng số tiền đó đi lọt, và phiếu mang theo số đợt.
+    sau = _ghi_dot(
+        client, headers, don["id"],
+        lines=[{"purchase_request_line_id": _dong_dau_tien(don), "quantity": 500}],
+    )
+    dot_id = sau["deliveries"][0]["id"]
+    ok = _phieu_chi(client, headers, don["id"], 100_000, stage="final", delivery_id=dot_id)
+    assert ok["delivery_id"] == dot_id
+    assert ok["delivery_seq_no"] == 1
+
+
+def test_chua_khai_coc_du_kien_thi_khong_lap_duoc_phieu_dat_coc(client):
+    """Luật 2 (chủ chốt 09/08/2026). Chưa khai Cọc dự kiến ⇒ phiếu ĐẶT CỌC bị chặn.
+
+    Không khai mà vẫn chi được thì con số "Cọc dự kiến" chỉ là trang trí, và không có gì để đối
+    chiếu với thoả thuận đã ký."""
+    headers = _headers(client)
+    supplier = _supplier(client, headers, name="NCC Chua Khai Coc")
+    don = _don(client, headers, supplier["id"])  # KHÔNG khai cọc
+    truoc = client.get(f"/api/purchase-requests/{don['id']}", headers=headers).json()
+    assert truoc["deposit_expected"] == 0
+    assert truoc["tran_dat_coc"] == 0, "chưa khai thì trần cọc bằng 0, không phải giá trị đơn"
+
+    chan = _phieu_chi(client, headers, don["id"], 100_000, stage="advance", expect=422)
+    assert "Cọc dự kiến" in chan["detail"]
+
+    # Và đơn ĐÃ DUYỆT thì không khai vá được nữa — nên phải khai từ lúc còn nháp.
+    muon = client.put(
+        f"/api/purchase-requests/{don['id']}/contract",
+        json={"contract_number": None, "deposit_expected": 100_000},
+        headers=headers,
+    )
+    assert muon.status_code == 409, muon.text
+
+    # Đơn khai đàng hoàng từ đầu thì cùng số tiền đó đi lọt.
+    don_ok = _don(client, headers, supplier["id"], coc=100_000)
+    assert _phieu_chi(client, headers, don_ok["id"], 100_000, stage="advance")["amount_vnd"] == 100_000
+
+
+def test_khai_coc_10tr_thi_lap_duoc_nhieu_phieu_mien_tong_khong_vuot(client):
+    """Trần cọc = cọc dự kiến − cọc ĐÃ CHI: khai 10tr thì 3tr + 7tr đều qua, thêm 1đ là chặn.
+
+    Nhiều phiếu cọc là ca có thật (ứng đợt một rồi ứng thêm), nên luật đếm theo TỔNG chứ không cấm
+    phiếu thứ hai. Đơn ở đây trị giá 22tr — cố ý to hơn số khai, để chứng minh trần bám con số đã
+    thoả thuận chứ không bám giá trị đơn."""
+    headers = _headers(client)
+    supplier = _supplier(client, headers, name="NCC Coc Nhieu Lan")
+    don = _don(client, headers, supplier["id"], quantity=10_000, coc=10_000_000)  # đơn 22.000.000đ
+
+    def _tran() -> int:
+        return client.get(f"/api/purchase-requests/{don['id']}", headers=headers).json()["tran_dat_coc"]
+
+    assert _tran() == 10_000_000
+
+    _phieu_chi(client, headers, don["id"], 3_000_000, stage="advance")
+    assert _tran() == 7_000_000
+    _phieu_chi(client, headers, don["id"], 7_000_000, stage="advance")
+    assert _tran() == 0
+
+    them = _phieu_chi(client, headers, don["id"], 1, stage="advance", expect=422)
+    assert "đặt cọc" in them["detail"]
+    sau = client.get(f"/api/purchase-requests/{don['id']}", headers=headers).json()
+    assert sau["coc_da_chi"] == 10_000_000, "đúng số đã khai, không hơn một đồng"
+
+
+def test_tran_coc_khong_bi_tien_thanh_toan_dot_giao_dam_vao(client):
+    """Hai hạn mức ĐỘC LẬP: trần cọc KHÔNG trừ tiền đã thanh toán cho đợt giao.
+
+    Trừ vào đây thì càng trả tiền hàng càng hết quyền ứng trước — trong khi cọc và tiền hàng là hai
+    thoả thuận khác nhau."""
+    headers = _headers(client)
+    supplier = _supplier(client, headers, name="NCC Hai Han Muc")
+    don = _don(client, headers, supplier["id"], coc=1_000_000)  # đơn 2,2tr, cọc thoả thuận 1tr
+    _da_mua(client, headers, don["id"])
+    sau = _ghi_dot(
+        client, headers, don["id"],
+        lines=[{"purchase_request_line_id": _dong_dau_tien(don), "quantity": 1000}],
+    )
+    dot_id = sau["deliveries"][0]["id"]
+
+    def _tran() -> int:
+        return client.get(f"/api/purchase-requests/{don['id']}", headers=headers).json()["tran_dat_coc"]
+
+    _phieu_chi(client, headers, don["id"], 400_000, stage="advance")
+    assert _tran() == 600_000
+
+    # Trả 1tr ĐÍCH DANH đợt giao — trần cọc không được nhúc nhích.
+    _phieu_chi(client, headers, don["id"], 1_000_000, stage="final", delivery_id=dot_id)
+    assert _tran() == 600_000, "tiền hàng KHÔNG được ăn vào hạn mức cọc"
+
+    # ...và 600.000đ cọc còn lại vẫn chi được trọn vẹn.
+    assert _phieu_chi(client, headers, don["id"], 600_000, stage="advance")["amount_vnd"] == 600_000
+    assert _tran() == 0
 
 
 def test_dot_da_co_phieu_chi_thi_khong_sua_khong_xoa(client):
@@ -695,14 +899,49 @@ def test_dot_da_co_phieu_chi_thi_khong_sua_khong_xoa(client):
     assert xoa.status_code == 409
 
 
+def test_sua_dot_giao_cap_nhat_dong_tai_cho_khong_trung_unique(client):
+    """Gửi lại cùng dòng khi sửa từng gây 500 do INSERT mới trước DELETE dòng cũ."""
+    headers = _headers(client)
+    supplier = _supplier(client, headers, name="NCC Sua Dot Tai Cho")
+    don = _don(client, headers, supplier["id"])
+    _da_mua(client, headers, don["id"])
+    line_id = _dong_dau_tien(don)
+    sau = _ghi_dot(
+        client, headers, don["id"],
+        lines=[{"purchase_request_line_id": line_id, "quantity": 400}],
+    )
+    dot_id = sau["deliveries"][0]["id"]
+
+    sua = client.put(
+        f"/api/purchase-requests/{don['id']}/deliveries/{dot_id}",
+        json={
+            "delivery_date": _hom_nay().isoformat(),
+            "note": "Đã đối chiếu lại",
+            "lines": [
+                {"purchase_request_line_id": line_id, "quantity": 450, "note": "Nhận thực tế"}
+            ],
+        },
+        headers=headers,
+    )
+    assert sua.status_code == 200, sua.text
+    dot = sua.json()["deliveries"][0]
+    assert dot["note"] == "Đã đối chiếu lại"
+    assert len(dot["lines"]) == 1
+    assert dot["lines"][0]["quantity"] == 450
+    assert dot["lines"][0]["note"] == "Nhận thực tế"
+
+
 # --- trả nhiều đợt: KHÔNG được biến mất khỏi công nợ ------------------------
 
 
 def test_tra_mot_phan_van_con_no(client):
-    """Đơn 2,2tr chi 1tr rồi => vẫn nợ 1,2tr. Đây là chỗ dễ làm đơn trả dở biến mất khỏi bảng."""
+    """Đơn 2,2tr chi 1tr rồi => vẫn nợ 1,2tr. Đây là chỗ dễ làm đơn trả dở biến mất khỏi bảng.
+
+    Đơn đi đường CŨ (`mark-received`, không có đợt giao) nên từ 09/08/2026 chỉ trả được bằng phiếu
+    ĐẶT CỌC — và muốn thế thì phải khai cọc dự kiến trước."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Tra Nhieu Dot")
-    don = _don(client, headers, supplier["id"])
+    don = _don(client, headers, supplier["id"], coc=1_000_000)
     _ve_hang(client, headers, don["id"])
     _phieu_chi(client, headers, don["id"], 1_000_000)
 
@@ -713,7 +952,7 @@ def test_tra_mot_phan_van_con_no(client):
 def test_tra_xong_thi_roi_khoi_cong_no_va_vao_ro_da_tra(client):
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Tra Xong")
-    don = _don(client, headers, supplier["id"])
+    don = _don(client, headers, supplier["id"], coc=2_200_000)
     _ve_hang(client, headers, don["id"])
     _phieu_chi(client, headers, don["id"], 2_200_000)
 
@@ -731,10 +970,34 @@ def test_tra_xong_thi_roi_khoi_cong_no_va_vao_ro_da_tra(client):
     assert sum(x["amount"] for x in chi_tiet["paid"]) == chi_tiet["paid_in_period"] == 2_200_000
 
 
+def test_ro_da_tra_noi_ro_AI_LAP_phieu_chi(client):
+    """Rổ "Tiền đã rời két" phải nói tên NGƯỜI LẬP từng phiếu (chủ chốt 15/08/2026).
+
+    Soi sao kê nhà cung cấp mà thấy một dòng lạ, câu hỏi đầu tiên luôn là "phiếu này ai cho ra" —
+    trước đây phải mở từng phiếu chi mới biết. Màn Phiếu chi và Đơn mua hàng đã có cột này từ lâu;
+    đây là chỗ cuối còn thiếu.
+
+    Phiếu ở đây do KẾ TOÁN lập, KHÔNG phải admin — nếu ai đó trả nhầm tên người đang đăng nhập
+    (hoặc tên người lập ĐƠN MUA) thì test đỏ ngay."""
+    headers = _headers(client)
+    supplier = _supplier(client, headers, name="NCC Ai Lap Phieu")
+    don = _don(client, headers, supplier["id"], coc=2_200_000)   # đơn do ADMIN lập
+    _ve_hang(client, headers, don["id"])
+
+    ke_toan = _token_vai("cn-ketoan-lap", module="phieu_chi", can_read=True, can_create=True)
+    _phieu_chi(client, {"Authorization": f"Bearer {ke_toan}"}, don["id"], 2_200_000)
+
+    lan_tra = _cong_no_ncc(client, headers, supplier["id"])["paid"]
+    assert len(lan_tra) == 1
+    assert lan_tra[0]["created_by_name"] == "cn-ketoan-lap", (
+        "rổ đã trả không nói đúng người LẬP phiếu chi"
+    )
+
+
 def test_phieu_huy_khong_tinh_la_no(client):
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Phieu Huy")
-    don = _don(client, headers, supplier["id"])
+    don = _don(client, headers, supplier["id"], coc=2_200_000)
     _ve_hang(client, headers, don["id"])
     phieu = _phieu_chi(client, headers, don["id"], 2_200_000)
     assert client.post(
@@ -751,7 +1014,7 @@ def test_phieu_huy_khong_tinh_la_no(client):
 
 
 def test_qua_han_dem_theo_han_cua_dot_giao(client, monkeypatch):
-    """Hạn trả nay thuộc về ĐỢT GIAO (ngày giao + số ngày NCC cho nợ), không thuộc phiếu chi —
+    """Hạn trả thuộc về ĐỢT GIAO (ưu tiên ngày hóa đơn + số ngày NCC cho nợ), không thuộc phiếu chi —
     phiếu chi là tiền đã ra, nó không có hạn."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Qua Han")
@@ -825,12 +1088,16 @@ def test_so_ngay_cho_no_cua_ncc_suy_ra_han_tra(client):
     don = _don(client, headers, supplier["id"])
     _da_mua(client, headers, don["id"])
     ngay_giao = _hom_nay() - timedelta(days=10)
+    ngay_hoa_don = _hom_nay() - timedelta(days=3)
     sau = _ghi_dot(
         client, headers, don["id"],
         lines=[{"purchase_request_line_id": _dong_dau_tien(don), "quantity": 1000}],
         ngay=ngay_giao.isoformat(),
+        ngay_hd=ngay_hoa_don.isoformat(),
     )
-    assert sau["deliveries"][0]["due_date"] == (ngay_giao + timedelta(days=30)).isoformat()
+    assert sau["deliveries"][0]["due_date"] == (
+        ngay_hoa_don + timedelta(days=30)
+    ).isoformat()
     assert sau["deliveries"][0]["chua_dat_han"] is False
 
     # Nợ 2,2tr > hạn mức 1tr => CẢNH BÁO, không chặn gì.
@@ -939,24 +1206,60 @@ def test_so_hop_dong_va_coc_du_kien_khong_dung_vao_cong_no(client):
 
 
 def test_khai_nhan_thieu_thi_no_giam_va_chan_lap_phieu_vuot(client):
-    """NCC giao 800/1000 tờ ⇒ nợ 1,76tr, không phải 2,2tr. Và kế toán KHÔNG lập nổi phiếu 2,2tr."""
+    """NCC giao 800/1000 tờ ⇒ nợ 1,76tr, không phải 2,2tr. Và kế toán KHÔNG lập nổi phiếu 2,2tr.
+
+    Ý đồ giữ nguyên; chỉ ĐƯỜNG DỰNG DỮ LIỆU đổi: từ 09/08/2026 phiếu THANH TOÁN bắt buộc gắn đợt
+    giao, nên số nhận thiếu ở đây khai bằng một ĐỢT GIAO 800 tờ thay cho `mark-received`. (Đường
+    khai thiếu kiểu cũ vẫn được canh ở `test_khong_khai_gi_thi_y_nhu_truoc` và các test sửa số thực
+    nhận ngay dưới.)"""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Giao Thieu")
     don = _don(client, headers, supplier["id"])
-    line_id = don["lines"][0]["id"]
-    sau = _ve_hang(
-        client, headers, don["id"], lines=[{"line_id": line_id, "received_quantity": 800}]
+    _da_mua(client, headers, don["id"])
+    sau = _ghi_dot(
+        client, headers, don["id"],
+        lines=[{"purchase_request_line_id": _dong_dau_tien(don), "quantity": 800}],
     )
+    dot_id = sau["deliveries"][0]["id"]
     assert sau["total_estimate"] == 2_200_000, "giá trị ĐƠN ĐẶT không đổi"
     assert sau["received_total"] == 1_760_000
+    assert sau["gia_tri_da_giao"] == 1_760_000
 
     muc = next(m for m in _cong_no(client, headers)["items"] if m["supplier_id"] == supplier["id"])
     assert muc["total_due"] == 1_760_000
 
     # Phiếu THANH TOÁN bị chặn ở đúng số nợ đã phát sinh (1,76tr) — không cho trả theo số ĐẶT.
-    vuot = _phieu_chi(client, headers, don["id"], 2_200_000, stage="final", expect=422)
+    vuot = _phieu_chi(
+        client, headers, don["id"], 2_200_000, stage="final", delivery_id=dot_id, expect=422
+    )
     assert "thanh toán" in vuot["detail"]
-    assert _phieu_chi(client, headers, don["id"], 1_760_000, stage="final")["amount_vnd"] == 1_760_000
+    assert _phieu_chi(
+        client, headers, don["id"], 1_760_000, stage="final", delivery_id=dot_id
+    )["amount_vnd"] == 1_760_000
+
+
+def test_don_cu_khai_nhan_thieu_thi_cong_no_giam_theo_so_thuc_nhan(client):
+    """Đường CŨ (mark-received, KHÔNG đợt giao): khai nhận 800/1000 ⇒ nợ 1,76tr chứ không 2,2tr.
+
+    Vế này vốn nằm trong `test_khai_nhan_thieu_thi_no_giam_va_chan_lap_phieu_vuot`. Test đó nay
+    dựng bằng ĐỢT GIAO (luật 09/08/2026 bắt phiếu thanh toán phải gắn đợt), nên nhánh
+    `da_giao is None` của `purchase_money` — dùng cho mọi đơn CHƯA có đợt — mất người canh.
+
+    Kiểm bằng đột biến: đổi nhánh đó thành `gia_tri_da_giao = total` mà cả suite vẫn xanh, tức là
+    công nợ đơn cũ có thể âm thầm nhảy từ 1,76tr lên 2,2tr không ai biết. Test này bịt chỗ đó."""
+    headers = _headers(client)
+    supplier = _supplier(client, headers, name="NCC Don Cu Giao Thieu")
+    don = _don(client, headers, supplier["id"])
+    sau = _ve_hang(
+        client, headers, don["id"],
+        lines=[{"line_id": don["lines"][0]["id"], "received_quantity": 800}],
+    )
+    assert sau["total_estimate"] == 2_200_000, "giá trị ĐƠN ĐẶT không đổi"
+    assert sau["received_total"] == 1_760_000
+    assert sau["outstanding_amount"] == 1_760_000
+
+    muc = next(m for m in _cong_no(client, headers)["items"] if m["supplier_id"] == supplier["id"])
+    assert muc["total_due"] == 1_760_000
 
 
 def test_khong_khai_gi_thi_y_nhu_truoc(client):
@@ -987,9 +1290,11 @@ def test_khong_cho_khai_nhan_nhieu_hon_dat(client):
 
 
 def test_sua_so_thuc_nhan_xuong_duoi_so_da_cam_ket_bi_chan(client):
+    """Đơn KHÔNG theo đợt giao (sửa số thực nhận chỉ có ở đường cũ) nên tiền ra bằng phiếu ĐẶT CỌC
+    — khai cọc dự kiến 2,2tr trước cho hợp luật 09/08/2026."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Sua Xuong")
-    don = _don(client, headers, supplier["id"])
+    don = _don(client, headers, supplier["id"], coc=2_200_000)
     line_id = don["lines"][0]["id"]
     _ve_hang(client, headers, don["id"])
     _phieu_chi(client, headers, don["id"], 2_200_000)
@@ -1004,14 +1309,18 @@ def test_sua_so_thuc_nhan_xuong_duoi_so_da_cam_ket_bi_chan(client):
 
 
 def test_sua_so_thuc_nhan_doi_2_can_quyen_duyet(client):
-    """Đợt 1 về 600, đợt 2 về nốt ⇒ sửa lên 1000. Nhưng phải là người có quyền duyệt."""
+    """Đợt 1 về 600, đợt 2 về nốt ⇒ sửa lên 1000. Người chỉ ĐỌC thì không được sửa.
+
+    ⚠️ Luật đổi 12/08/2026: ô riêng `thu_mua:manage_status` ĐÃ BỎ (chủ chốt test và kết luận nó
+    không đáng có) — việc này nay gác bằng chính ô "Thao tác" (`update`). Nên vế 403 phải thử bằng
+    người CHỈ ĐỌC; thử bằng người có `update` là đang đòi lại cái ô đã bỏ."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Hai Dot")
     don = _don(client, headers, supplier["id"])
     line_id = don["lines"][0]["id"]
     _ve_hang(client, headers, don["id"], lines=[{"line_id": line_id, "received_quantity": 600}])
 
-    token = _token_vai("cn-nhanvien", module="thu_mua", can_read=True, can_update=True)
+    token = _token_vai("cn-chi-doc", module="thu_mua", can_read=True)
     tu_choi = client.put(
         f"/api/purchase-requests/{don['id']}/received-quantities",
         json={"lines": [{"line_id": line_id, "received_quantity": 1000}]},
@@ -1152,7 +1461,7 @@ def test_lui_bi_chan_khi_da_co_phieu_chi_da_chi(client):
     """Tiền đã rời két rồi thì không quay lại khai 'chưa nhận hàng' được."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Lui Da Chi")
-    don = _don(client, headers, supplier["id"])
+    don = _don(client, headers, supplier["id"], coc=1_000_000)
     _ve_hang(client, headers, don["id"])
     _phieu_chi(client, headers, don["id"], 1_000_000)
 
@@ -1172,7 +1481,7 @@ def test_huy_phieu_chi_xong_thi_lui_duoc(client):
     mới lùi. Giữ được cửa sửa sai mà không cho ai lùi trạng thái khi tiền đang nằm ngoài két."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Lui Sau Huy")
-    don = _don(client, headers, supplier["id"])
+    don = _don(client, headers, supplier["id"], coc=1_000_000)
     _ve_hang(client, headers, don["id"])
     phieu = _phieu_chi(client, headers, don["id"], 1_000_000)
 
@@ -1191,12 +1500,19 @@ def test_huy_phieu_chi_xong_thi_lui_duoc(client):
 
 
 def test_nhan_vien_khong_duoc_lui_va_phai_ghi_ly_do(client):
+    """Lùi "Đã nhận" xoá một món nợ khỏi màn Kế toán ⇒ phải có ô Thao tác VÀ phải ghi lý do.
+
+    ⚠️ Như test sửa số nhận ở trên: từ 12/08/2026 ô gác là `update` (ô riêng `manage_status` đã
+    bỏ), nên vế 403 thử bằng người CHỈ ĐỌC.
+
+    Nút "Mở lại đơn" trên màn Mua hàng cũng đã gỡ cùng ngày, nhưng ĐƯỜNG NÀY GIỮ NGUYÊN — nó là
+    van an toàn khi lỡ bấm "Đã nhận", nên hàng rào của nó vẫn phải được canh."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Lui Quyen")
     don = _don(client, headers, supplier["id"])
     _ve_hang(client, headers, don["id"])
 
-    token = _token_vai("cn-nhanvien2", module="thu_mua", can_read=True, can_update=True)
+    token = _token_vai("cn-chi-doc2", module="thu_mua", can_read=True)
     tu_choi = client.post(
         f"/api/purchase-requests/{don['id']}/undo-received",
         json={"reason": "Tôi muốn lùi"},
@@ -1216,12 +1532,12 @@ def test_nhan_vien_khong_duoc_lui_va_phai_ghi_ly_do(client):
 def test_phieu_chi_khong_con_doi_han_tra(client):
     """Hạn trả trên phiếu chi thành DORMANT từ 06/08/2026.
 
-    Phiếu chi là tiền ĐÃ RA — nó không có hạn để mà trễ. Hạn trả nay thuộc về đợt giao (ngày giao +
-    số ngày NCC cho nợ), vì đó mới là chỗ món nợ phát sinh và cần bị canh. Bắt hạn ở đây nữa là bắt
+    Phiếu chi là tiền ĐÃ RA — nó không có hạn để mà trễ. Hạn trả nay thuộc về đợt giao (ưu tiên
+    ngày hóa đơn + số ngày NCC cho nợ), vì đó mới là chỗ món nợ phát sinh và cần bị canh. Bắt hạn ở đây nữa là bắt
     kế toán gõ một con số không ai đọc."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Khong Doi Han")
-    don = _don(client, headers, supplier["id"])
+    don = _don(client, headers, supplier["id"], coc=1_000_000)
     _ve_hang(client, headers, don["id"])
 
     r = client.post(
@@ -1276,7 +1592,8 @@ def test_chot_ngay_chi_chan_cai_vo_ly_khong_chan_qua_khu(client):
     chi từ 06/08/2026 — nó thuộc về đợt giao.)"""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Chot Ngay")
-    don = _don(client, headers, supplier["id"])
+    # Khai cọc dư sức cho cả ba lần thử 100k — để mỗi phiếu hỏng đúng vì NGÀY, không phải vì trần.
+    don = _don(client, headers, supplier["id"], coc=500_000)
     _ve_hang(client, headers, don["id"])
     hom_nay = _hom_nay()
 
@@ -1328,6 +1645,25 @@ def test_o_tim_loi_duoc_ncc_khong_no_khong_giao_dich(client):
     assert muc["total_due"] == 0 and muc["paid_in_period"] == 0
 
 
+def test_cong_no_phai_tra_phan_trang_nhung_tong_tien_khong_doi(client):
+    headers = _headers(client)
+    ncc_a = _supplier(client, headers, name="NCC Trang A")
+    ncc_b = _supplier(client, headers, name="NCC Trang B")
+    don_a = _don(client, headers, ncc_a["id"])
+    don_b = _don(client, headers, ncc_b["id"])
+    _ve_hang(client, headers, don_a["id"])
+    _ve_hang(client, headers, don_b["id"])
+
+    trang_1 = client.get("/api/accounting/payables?page=1&size=1", headers=headers)
+    trang_2 = client.get("/api/accounting/payables?page=2&size=1", headers=headers)
+    assert trang_1.status_code == 200 and trang_2.status_code == 200
+    mot, hai = trang_1.json(), trang_2.json()
+    assert mot["total"] >= 2 and mot["pages"] >= 2
+    assert mot["page"] == 1 and hai["page"] == 2
+    assert mot["total_due"] == hai["total_due"]
+    assert mot["items"][0]["supplier_id"] != hai["items"][0]["supplier_id"]
+
+
 # --- kỳ chỉ cắt phần ĐÃ TRẢ, không cắt nợ ----------------------------------
 
 
@@ -1340,7 +1676,7 @@ def test_ky_khong_cat_no_va_xem_duoc_lich_su_cu(client):
        nó thì NCC trả hết từ lâu tra ra "không nợ" mà chẳng thấy đã trả những gì."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Ky Cu")
-    don = _don(client, headers, supplier["id"])
+    don = _don(client, headers, supplier["id"], coc=2_200_000)
     _ve_hang(client, headers, don["id"])
     phieu = _phieu_chi(client, headers, don["id"], 2_200_000)
 
@@ -1404,42 +1740,3 @@ def test_khong_co_quyen_ke_toan_thi_khong_xem_duoc_cong_no(client):
     token = _token_vai("cn-ngoai-ke-toan", module="thu_mua", can_read=True)
     r = client.get("/api/accounting/payables", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403, r.text
-
-
-# --- số tiền đợt giao: theo HOÁ ĐƠN, không phải theo đơn giá ----------------
-
-
-def test_tien_dot_giao_do_MAY_TINH_tu_so_luong(client):
-    """Tiền của đợt = số lượng thực nhận × đơn giá đã chốt. KHÔNG ai gõ tay (chủ 07/08/2026).
-
-    Vòng này từng đi hai lần: 06/08 mở ô "Số tiền theo hoá đơn" cho gõ tay, 07/08 chủ đảo lại —
-    *"không cho sửa nữa, dựa vào số lượng thực tế tính ra tiền luôn"*. Ô gõ tay đẻ ra đúng cái lệch
-    mà chính chủ bắt được: chi tiết PMH hiện một số, ngoài bảng hiện số khác cho cùng một đợt.
-
-    Gửi kèm `amount` cũng phải bị BỎ QUA — client cũ hoặc người gọi thẳng API không được có đường
-    ghi đè con số này."""
-    headers = _headers(client)
-    supplier = _supplier(client, headers, name="NCC Tien May Tinh")
-    don = _don(client, headers, supplier["id"])  # 1.000 tờ x 2.200 = 2.200.000đ
-    _da_mua(client, headers, don["id"])
-
-    r = client.post(
-        f"/api/purchase-requests/{don['id']}/deliveries",
-        json={
-            "delivery_date": _hom_nay().isoformat(),
-            # Cố tình nhét số tiền vào — server phải phớt lờ.
-            "amount": 999_999_999,
-            "lines": [{"purchase_request_line_id": _dong_dau_tien(don), "quantity": 500}],
-        },
-        headers=headers,
-    )
-    assert r.status_code == 200, r.text
-    dot = r.json()["deliveries"][0]
-    assert dot["amount"] == 1_100_000, "500 × 2.200 — không phải số client gửi lên"
-    assert "amount_goi_y" not in dot, "thôi còn khái niệm số gợi ý"
-    assert r.json()["gia_tri_da_giao"] == 1_100_000
-    assert r.json()["outstanding_amount"] == 1_100_000
-
-
-# --- trần lập phiếu chi -----------------------------------------------------
-

@@ -670,6 +670,10 @@ class OrderService:
                 raise OrderForbidden("Hủy đơn đã chốt cần quyền duyệt (TP KD / Giám đốc)")
             if fault not in (FAULT_KHACH, FAULT_XUONG):
                 raise OrderValidationError("Hủy đơn đã chốt phải nêu lỗi tại ai (khách / xưởng)")
+            if self.accounting_repo.issued_invoice_amount_for_order(order.id) > 0:
+                raise OrderConflict(
+                    "Đơn đã có hóa đơn còn hiệu lực; hãy hủy hóa đơn trước khi hủy đơn."
+                )
             order.cancel_fault = fault
         order.status = STATUS_CANCELLED
         order.cancel_reason = reason

@@ -145,6 +145,11 @@ class ListOut(BaseModel, Generic[RowT]):
     size: int
 
 
+class VatLieuAnhOut(BaseModel):
+    """Kết quả gắn/gỡ ảnh minh hoạ — đường ảnh sau thao tác (None = đã gỡ)."""
+    anh_url: str | None = None
+
+
 # ---- MẶT HÀNG GỐC: cửa dùng chung cho Kho + NCC ----
 class MatHangRow(BaseModel):
     """1 dòng trong picker mặt hàng — gộp Giấy + Vật tư khác."""

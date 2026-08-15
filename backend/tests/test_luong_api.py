@@ -591,6 +591,15 @@ def test_nv_khong_co_quyen_cau_hinh_luong_van_thay_3_dong(client):
     client.post(f"/api/luong/salaries/{eid}", json={"effective_from": "2026-01-01",
                 "luong_vi_tri": 10_000_000}, headers=_h(admin))
     client.post("/api/luong/generate", json={"year": 2026, "month": 6}, headers=_h(admin))
+    # Từ 12/08/2026 phiếu lương phải được CÔNG BỐ thì NV mới thấy — chốt công → chốt lương →
+    # công bố. Thiếu bước này thì `/payslip/me` trả `line: null` và ca đo hỏng trước khi chạm
+    # tới thứ nó định kiểm (3 dòng bảo hiểm).
+    assert client.post("/api/attendance/period/lock", json={"year": 2026, "month": 6},
+                       headers=_h(admin)).status_code == 200
+    assert client.post("/api/luong/lock", json={"year": 2026, "month": 6},
+                       headers=_h(admin)).status_code == 200
+    assert client.post("/api/luong/cong-bo", json={"year": 2026, "month": 6},
+                       headers=_h(admin)).status_code == 200
 
     db = SessionLocal()
     try:
@@ -1077,7 +1086,9 @@ def test_salary_declare_and_preview(client):
 
     prev = client.get(f"/api/luong/salaries/{eid}/preview", headers=_h(token)).json()
     assert prev["monthly"] == 22_000_000 and prev["source"] == "employee"
-    assert prev["insurance_base"] == 18_000_000   # mức đóng BH = lương vị trí
+    # Mức đóng BH = MỨC NỀN (vị trí 18tr + trách nhiệm 4tr) — chủ chốt 12/08/2026, đảo chốt
+    # cũ "chỉ lương vị trí". Preview PHẢI khớp bảng lương, xem `PayrollService.salary_preview`.
+    assert prev["insurance_base"] == 22_000_000
 
     hist = client.get(f"/api/luong/salaries/{eid}", headers=_h(token)).json()
     assert hist["employee_name"] == "Thợ In A" and len(hist["items"]) == 1
@@ -2265,9 +2276,14 @@ def test_khoan_phat_sinh_vao_dung_tong_va_thue(client):
     assert after["thu_nhap_mien_thue"] == goc_mien + 1_000_000
 
 
-def test_khong_sua_duoc_khoan_chep_tu_ho_so_tren_bang_luong(client):
-    """Khoản đến từ hồ sơ chỉ sửa ở Lương → Lương nhân viên. Sửa/gỡ trên bảng lương ⇒ chặn,
-    nếu không thì lần Tính lại kế tiếp ghi đè lại, người dùng tưởng hệ thống nuốt thao tác."""
+def test_de_so_tien_khoan_tu_ho_so_nhung_KHONG_go_duoc(client):
+    """ĐỔI LUẬT 12/08/2026 — trước đó SỬA cũng bị chặn.
+
+    Chủ chốt: *"gán Hỗ trợ chi phí đi lại, nhưng tháng này nó đi nhiều hơn thì sửa thế nào?"*
+    Nay SỬA SỐ TIỀN được, cho riêng kỳ này (`da_de_tay`), hồ sơ giữ nguyên.
+
+    Nhưng **GỠ vẫn chặn**, cố ý: gỡ một khoản của hồ sơ ở đây thì lần Tính lại kế tiếp nó mọc lại
+    — người dùng tưởng hệ thống nuốt thao tác. Muốn thôi trả khoản đó thì gỡ ở hồ sơ nhân viên."""
     token = _admin_token(client)
     eid = _make_emp(client, token, name="NV Chép Hồ Sơ", status="active")
     client.post(f"/api/luong/salaries/{eid}", json={"effective_from": "2026-01-01",
@@ -2281,9 +2297,12 @@ def test_khong_sua_duoc_khoan_chep_tu_ho_so_tren_bang_luong(client):
                if x["source"] == "employee")
     r = client.put(f"/api/luong/lines/components/{row['id']}",
                    json={"amount": 999_000}, headers=_h(token))
-    assert r.status_code == 400 and "Lương nhân viên" in r.json()["detail"]
-    assert client.delete(f"/api/luong/lines/components/{row['id']}",
-                         headers=_h(token)).status_code == 400
+    assert r.status_code == 200, r.text
+    assert r.json()["amount"] == 999_000 and r.json()["da_de_tay"] is True
+
+    # GỠ thì vẫn chặn — vế cũ giữ nguyên.
+    xoa = client.delete(f"/api/luong/lines/components/{row['id']}", headers=_h(token))
+    assert xoa.status_code == 400 and "Lương nhân viên" in xoa.json()["detail"]
 
 
 def test_ngung_ap_dung_van_tra_luong_va_bao_ai_con_dinh(client):
@@ -2330,3 +2349,104 @@ def test_hai_khoan_mo_thu_nhap_khac_co_san(client):
     by_code = {x["code"]: x for x in items}
     assert "thu_nhap_khac_ct" in by_code and by_code["thu_nhap_khac_ct"]["is_taxable"] is True
     assert "thu_nhap_khac_mt" in by_code and by_code["thu_nhap_khac_mt"]["is_taxable"] is False
+
+
+# ══════════════════════════════════ ĐỢT A (12/08/2026) — đoàn phí vào thuế
+
+
+def _nv_luong(client, token, *, ten, vi_tri, trach_nhiem=0, doan_vien=False):
+    eid = _make_emp(client, token, name=ten, status="active")
+    r = client.post(f"/api/luong/salaries/{eid}",
+                    json={"effective_from": "2026-01-01", "luong_vi_tri": vi_tri,
+                          "luong_trach_nhiem": trach_nhiem, "union_member": doan_vien},
+                    headers=_h(token))
+    assert r.status_code == 201, r.text
+    return eid
+
+
+def test_A4_sua_mot_o_va_tinh_lai_ra_CUNG_SO_THUE(client):
+    """⭐ Ca quan trọng nhất của đợt A — canh THỨ TỰ trong `update_line`.
+
+    Từ 12/08/2026 thuế TRỪ đoàn phí. `update_line` vốn tính thuế TRƯỚC rồi mới tính đoàn phí — vô
+    hại suốt thời gian thuế chưa dùng tới, nhưng nay để nguyên là **thuế ăn số đoàn phí CŨ**.
+
+    ⚠️ Ca đo phải làm ĐOÀN PHÍ ĐỔI GIÁ TRỊ giữa hai lần tính, nếu không thứ tự đúng hay sai đều ra
+    cùng số và test XANH GIẢ: dòng vừa `generate` đã mang sẵn đoàn phí đúng, nên `_apply_auto_pit`
+    đọc trước hay sau cũng thấy y hệt. Đây đúng là chỗ bản test đầu tiên đã hụt.
+
+    Cách làm: tính lương với tỷ lệ 0,5% → ĐỔI tỷ lệ lên 2% → sờ vào dòng → so với `generate` mới.
+    Hai đường phải ra CÙNG đoàn phí và CÙNG thuế."""
+    token = _admin_token(client)
+    client.put("/api/luong/params", json={"cong_doan_rate": 0.005}, headers=_h(token))
+    eid = _nv_luong(client, token, ten="NV Doan Vien A4", vi_tri=60_000_000, doan_vien=True)
+
+    gen = client.post("/api/luong/generate", json={"year": 2026, "month": 6},
+                      headers=_h(token)).json()
+    line = next(l for l in gen["lines"] if l["employee_id"] == eid)
+    assert line["cong_doan"] > 0, "ca đo hỏng: NV này phải có đoàn phí"
+
+    # ⚠️ NV thử không có lượt chấm công nào ⇒ lương công = 0 ⇒ gross ≈ 0 ⇒ THUẾ = 0 CẢ HAI ĐƯỜNG,
+    # và ca đo thành vô nghĩa (bản đầu tiên của test này đã dính đúng vậy: đột biến dời khối đoàn
+    # phí về chỗ cũ vẫn XANH). Bơm một khoản chịu thuế đủ lớn để thuế thật sự khác 0.
+    line = client.put(f"/api/luong/lines/{line['id']}",
+                      json={"dieu_chinh_luong": 100_000_000}, headers=_h(token)).json()
+    assert line["pit"] > 0, "ca đo hỏng: chưa có thuế thì so thuế vô nghĩa"
+
+    # Tỷ lệ đổi ⇒ `update_line` phải tính lại đoàn phí, VÀ thuế phải theo số MỚI đó.
+    client.put("/api/luong/params", json={"cong_doan_rate": 0.02}, headers=_h(token))
+    sua = client.put(f"/api/luong/lines/{line['id']}", json={"note": "soát lại"},
+                     headers=_h(token)).json()
+    tinh_lai = next(l for l in client.post("/api/luong/generate", json={"year": 2026, "month": 6},
+                                           headers=_h(token)).json()["lines"]
+                    if l["employee_id"] == eid)
+
+    assert sua["cong_doan"] == tinh_lai["cong_doan"] > line["cong_doan"]
+    assert sua["pit_taxable"] == tinh_lai["pit_taxable"], (
+        f'"Sửa 1 ô" ra thu nhập tính thuế {sua["pit_taxable"]}, "Tính lại" ra '
+        f'{tinh_lai["pit_taxable"]} — khối đoàn phí đang nằm SAU khối TNCN trong `update_line`'
+    )
+    assert sua["pit"] == tinh_lai["pit"] > 0
+
+
+def test_A5_khong_phai_doan_vien_thi_sua_dong_khong_lam_doan_phi_song_lai(client):
+    """Lỗi #3 trong `docs/CONG_THUC_TINH_LUONG.md` Phần 14 — nay vá cùng đợt A.
+
+    `update_line` chỉ kiểm `is_probation`, QUÊN cờ đoàn viên. "Tính lại" ra 0đ đúng, nhưng mọi
+    thao tác sửa dòng (kể cả thêm/xoá khoản phát sinh) làm đoàn phí SỐNG LẠI và trừ vào thực nhận.
+
+    Từ 12/08/2026 lỗi này còn nặng hơn: đoàn phí ma làm GIẢM THUẾ của người không hề đóng."""
+    token = _admin_token(client)
+    client.put("/api/luong/params", json={"cong_doan_rate": 0.005}, headers=_h(token))
+    eid = _nv_luong(client, token, ten="NV Khong Doan Vien", vi_tri=60_000_000, doan_vien=False)
+
+    gen = client.post("/api/luong/generate", json={"year": 2026, "month": 6},
+                      headers=_h(token)).json()
+    line = next(l for l in gen["lines"] if l["employee_id"] == eid)
+    assert line["cong_doan"] == 0, "không phải đoàn viên mà Tính lại đã ra tiền"
+
+    sau = client.put(f"/api/luong/lines/{line['id']}", json={"note": "soát lại"},
+                     headers=_h(token)).json()
+    assert sau["cong_doan"] == 0, "sửa một ô làm đoàn phí sống lại — đúng lỗi #3"
+    assert sau["pit"] == line["pit"], "đoàn phí ma còn kéo thuế xuống theo"
+    assert sau["net_pay"] == line["net_pay"]
+
+
+def test_A_doan_phi_bam_muc_nen_va_giam_thue(client):
+    """Ba mục của đợt A gặp nhau trên một dòng lương thật, qua đúng đường API.
+
+    Bảng lương công ty (T05/2026) là chuẩn đối chiếu: BH bắt buộc và đoàn phí CÙNG một gốc, và
+    đoàn phí nằm trong khối giảm trừ trước thuế."""
+    token = _admin_token(client)
+    client.put("/api/luong/params", json={"cong_doan_rate": 0.005}, headers=_h(token))
+    eid = _nv_luong(client, token, ten="NV Co Trach Nhiem", vi_tri=8_000_000,
+                    trach_nhiem=2_000_000, doan_vien=True)
+
+    gen = client.post("/api/luong/generate", json={"year": 2026, "month": 6},
+                      headers=_h(token)).json()
+    ln = next(l for l in gen["lines"] if l["employee_id"] == eid)
+
+    # Mục 3: mức đóng BH = vị trí + trách nhiệm.
+    assert ln["insurance_base"] == 10_000_000
+    # Mục 4: đoàn phí CÙNG GỐC với BH, không phải thực lĩnh.
+    assert ln["cong_doan"] == round(10_000_000 * 0.005)
+    assert ln["cong_doan"] != round(float(ln["net_pay"]) * 0.005)

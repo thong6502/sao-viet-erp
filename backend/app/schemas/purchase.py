@@ -243,6 +243,26 @@ class StatusHistoryOut(BaseModel):
     created_at: datetime
 
 
+class PurchaseActivityOut(BaseModel):
+    """Một mốc trong lịch sử ĐƠN MUA.
+
+    Lịch sử trạng thái chỉ trả lời đơn đã đi từ trạng thái nào sang trạng thái nào. Đợt giao là
+    sự kiện nghiệp vụ riêng: giao thêm một đợt có thể vẫn giữ trạng thái ``Giao một phần`` nhưng
+    người dùng vẫn cần thấy nó trong chi tiết đơn.
+    """
+
+    id: str
+    event_type: str
+    title: str
+    detail: str | None = None
+    actor_name: str | None = None
+    source: str | None = None
+    from_status: str | None = None
+    to_status: str | None = None
+    reason: str | None = None
+    created_at: datetime
+
+
 class PurchaseRequestLineOut(BaseModel):
     id: int
     item_name: str
@@ -257,6 +277,12 @@ class PurchaseRequestLineOut(BaseModel):
     vat_amount: int
     line_total: int
     note: str | None = None
+    # Liên kết MẶT HÀNG GỐC (mg 0174) — để Nhập kho từ đợt giao TỰ ĐIỀN vật tư thay vì bỏ trống.
+    # None khi dòng mua chỉ có tên chữ (không link danh mục) → kho phải chọn tay.
+    hang_loai: str | None = None
+    hang_id: int | None = None
+    hang_ma: str | None = None
+    hang_ten: str | None = None
 
 
 class LineFulfilmentOut(BaseModel):
@@ -274,6 +300,10 @@ class LineFulfilmentOut(BaseModel):
 
 class DepartmentPurchaseRequestLineOut(BaseModel):
     id: int
+    # Form sửa YCMH cần đúng cặp này để nạp lại dropdown ĐVT của chính mặt hàng đã chọn.
+    # Chỉ trả tên + ĐVT sẽ làm ô ĐVT bị khóa dù bản ghi vẫn có đơn vị.
+    hang_loai: str | None = None
+    hang_id: int | None = None
     item_name: str
     unit: str
     quantity: float
@@ -296,6 +326,9 @@ class DepartmentPurchaseRequestOut(BaseModel):
     id: int
     code: str
     status: str
+    # Trạng thái nghiệp vụ dùng để HIỂN THỊ/LỌC, suy từ các đơn mua con.
+    # Không ghi đè `status`: `status` vẫn là trạng thái tổng hợp được lưu để khóa luồng.
+    workflow_status: str
     source_type: str
     requesting_department_id: int | None = None
     requesting_department_name: str | None = None
@@ -349,6 +382,10 @@ class PurchaseDeliveryLineOut(BaseModel):
 class PurchaseDeliveryOut(BaseModel):
     id: int
     seq_no: int
+    # Liên thông Kho: đợt đã sinh yêu cầu NHẬP (chưa hủy) chưa → nút "Nhập kho" đổi "Đã nhập kho".
+    da_nhap_kho: bool = False
+    stock_request_id: int | None = None
+    stock_request_ma: str | None = None
     delivery_date: date
     due_date: date | None = None
     # True = NCC chưa khai số ngày cho nợ ⇒ đợt này không bao giờ vào cột Quá hạn. Màn hình phải
@@ -451,6 +488,8 @@ class PurchaseRequestOut(BaseModel):
     content: str | None = None
     reject_reason: str | None = None
     status_history: list[StatusHistoryOut] = Field(default_factory=list)
+    # Timeline này gồm đổi trạng thái VÀ các lần ghi/sửa/xóa đợt giao.
+    activity_history: list[PurchaseActivityOut] = Field(default_factory=list)
     contract_number: str | None = None
     deposit_expected: int = 0
     total_estimate: int
@@ -490,7 +529,7 @@ class PurchaseNotifySummaryOut(BaseModel):
 
     # YCMH đang *Chờ mua* — việc đang nằm trên bàn thu mua.
     ycmh_cho_lap_phieu: int = 0
-    # PMH bị từ chối mà YCMH nguồn vẫn *Chờ mua* ⇒ phải lập lại. Dễ bị bỏ quên nhất.
+    # PMH bị từ chối đang chờ Thu mua sửa và gửi lại chính phiếu đó. Dễ bị bỏ quên nhất.
     pmh_bi_tu_choi: int = 0
     # Đợt giao quá hạn trả mà còn nợ. 0 với người KHÔNG có `ke_toan:read` — không rò công nợ.
     dot_giao_qua_han: int = 0

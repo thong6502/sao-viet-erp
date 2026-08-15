@@ -150,8 +150,16 @@ def test_dashboard_computes_from_real_orders(client):
     assert "Catalogue A4" in labels and "Name card" in labels
     # Heatmap has at least one cell.
     assert len(d["heatmap"]) >= 1
-    # Công nợ still SEAM-16 unavailable (no fake 0).
-    assert d["receivable"]["available"] is False
+    # SEAM-16 (Công nợ phải thu) ĐÃ ĐƯỢC NỐI ngày 10/08/2026 — `deps.py` tiêm
+    # `AccountingReceivablePort` thật thay cho stub ném NotImplementedError. Trước đó dòng này
+    # khẳng định `available is False` ("chưa xây"), và nó đỏ suốt từ hôm nối cho tới 11/08 vì
+    # không ai cập nhật test theo.
+    #
+    # Ý ĐỒ GỐC vẫn giữ: KHÔNG bịa số. Khác ở chỗ nay số 0 là **số thật đọc được** (khách này chưa
+    # có hoá đơn nào), chứ không phải số 0 bịa ra để lấp chỗ trống — nên `available` phải True.
+    assert d["receivable"]["available"] is True
+    # Đơn đã chốt vẫn chưa phải công nợ. Chỉ hóa đơn bán đã ghi nhận mới làm phát sinh dư nợ.
+    assert d["receivable"]["balance"] == 0
 
 
 def test_dashboard_empty_state_no_fake_numbers(client):

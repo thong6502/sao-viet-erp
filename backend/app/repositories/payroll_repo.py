@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models.payroll import (
@@ -372,6 +372,29 @@ class PayrollRepository:
                 select(PayrollLine)
                 .join(PayrollPeriod, PayrollLine.period_id == PayrollPeriod.id)
                 .where(PayrollLine.employee_id == employee_id)
+                .order_by(PayrollPeriod.year.desc(), PayrollPeriod.month.desc())
+                .limit(1)
+            ).scalars().first()
+        )
+
+    def latest_published_line_for_employee(self, employee_id: int, bay_gio) -> PayrollLine | None:
+        """Dòng lương gần nhất của 1 NV trong các kỳ ĐÃ CÔNG BỐ và ĐÃ TỚI GIỜ.
+
+        Lọc ngay trong câu truy vấn chứ không lấy kỳ mới nhất rồi kiểm sau: kỳ tháng 8 chưa công bố
+        mà tháng 7 đã công bố thì NV phải thấy PHIẾU THÁNG 7, không phải "không có phiếu nào".
+
+        `cong_bo_luc <= bay_gio < dong_phieu_luc` là chỗ "hẹn giờ" tự chạy — không cần job nền.
+        Cả mở lẫn đóng đều chỉ là phép so ngày lúc ĐỌC."""
+        return (
+            self.db.execute(
+                select(PayrollLine)
+                .join(PayrollPeriod, PayrollLine.period_id == PayrollPeriod.id)
+                .where(PayrollLine.employee_id == employee_id,
+                       PayrollPeriod.cong_bo_luc.is_not(None),
+                       PayrollPeriod.cong_bo_luc <= bay_gio,
+                       # Hết hạn xem thì thôi hiện. NULL = mở không thời hạn.
+                       or_(PayrollPeriod.dong_phieu_luc.is_(None),
+                           PayrollPeriod.dong_phieu_luc > bay_gio))
                 .order_by(PayrollPeriod.year.desc(), PayrollPeriod.month.desc())
                 .limit(1)
             ).scalars().first()

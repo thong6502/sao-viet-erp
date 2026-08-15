@@ -24,6 +24,7 @@ import {
   type WorkShift,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useSelfServiceWrite } from "../auth/permissions";
 import type { NavigateFn } from "../components/AppShell";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -106,6 +107,11 @@ interface SoLuong { ky: PayrollPeriod; dong: PayrollLine }
 
 export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
   const { token, user } = useAuth();
+  // Ô TỰ PHỤC VỤ (đợt 3) — quản trị TẮT ĐƯỢC. Không hỏi thì tắt xong nút Sửa / Gửi đề nghị
+  // vẫn bày ra, bấm mới ăn 403.
+  // Màn này CHỈ có nút ghi (Sửa liên hệ · Gửi đề nghị), phần xem đi theo chính ô `self_service`
+  // đã gác ở máy chủ — nên chỉ cần hỏi ô THAO TÁC (tách khỏi ô Xem ngày 11/08/2026).
+  const tuPhucVuGhi = useSelfServiceWrite();
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
   const [hasEmp, setHasEmp] = useState<boolean | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -379,6 +385,11 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
           {emp.department_head_name && (
             <p className="mine__herosub">Trưởng bộ phận: {emp.department_head_name}</p>
           )}
+          {tuPhucVuGhi && (
+            <button type="button" className="mine__namehint" onClick={() => setRequesting(true)}>
+              Cần đổi tên? Gửi đề nghị
+            </button>
+          )}
         </div>
       </div>
 
@@ -445,7 +456,7 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
               </div>
             </div>
             <div className="mine__nudge__acts">
-              {thieu.tu.length > 0 && (
+              {thieu.tu.length > 0 && tuPhucVuGhi && (
                 <button type="button" className="mine__nudge-btn-main" onClick={() => setEditing(true)}>
                   Điền {thieu.tu.length} mục bạn tự sửa
                 </button>
@@ -468,13 +479,18 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
               Thông tin liên hệ
               <span className="mine__ownchip">Bạn tự sửa</span>
             </h4>
-            <button className="btn btn--ghost" onClick={() => setEditing(true)}>Sửa</button>
+            {tuPhucVuGhi && (
+              <button className="btn btn--ghost" onClick={() => setEditing(true)}>Sửa</button>
+            )}
           </div>
           <Row k="SĐT" v={emp.phone} />
           <Row k="Email" v={emp.email} />
           <Row k="Chỗ ở hiện tại" v={emp.current_address} />
           <Row k="Liên hệ khẩn (tên)" v={emp.emergency_contact_name} />
           <Row k="Liên hệ khẩn (SĐT)" v={emp.emergency_contact_phone} />
+          {tuPhucVuGhi && (
+            <button className="btn btn--ghost mine__editbtn" onClick={() => setEditing(true)}>Sửa</button>
+          )}
         </div>
 
         <div className="mine__card">
@@ -538,9 +554,11 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
             <span className="mine__card-icon"><Icon name="send" size={14} /></span>
             Đề nghị cập nhật hồ sơ
           </h4>
-          <Button variant="accent" onClick={() => setRequesting(true)}>
-            <Icon name="send" size={13} /> Gửi đề nghị
-          </Button>
+          {tuPhucVuGhi && (
+            <Button variant="accent" onClick={() => setRequesting(true)}>
+              <Icon name="send" size={13} /> Gửi đề nghị
+            </Button>
+          )}
         </div>
         <div className="mine__req-notice">
           <Icon name="help" size={14} className="mine__req-notice-icon" />

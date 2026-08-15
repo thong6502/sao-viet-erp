@@ -186,7 +186,68 @@
    dòng cao). Chi tiết phụ (YCMH, đã thu, nguyên tệ) đã có đủ trong popup.
    Khoanh bằng --voucher để KHÔNG đụng Phiếu thu / YC kế toán cùng dùng .acct-list. */
 .acct-list--voucher tbody tr {
-  height: 52px;
+  height: 64px;
+}
+
+.acct-list--voucher table {
+  table-layout: fixed;
+}
+
+/* KHÔNG ĐỂ BẢNG CO DƯỚI NGƯỠNG ĐỌC ĐƯỢC (chủ chốt 15/08/2026: "UI bị vỡ, mình có thể dùng
+   tablet, mobile nữa chứ").
+
+   Năm cột dưới đây khai width CỨNG: 190 + 180 + 150 + 210 + 64 = 794px. Cột 2 ("Đối tượng")
+   không khai width nên nó ăn PHẦN CÒN LẠI — mà `table-layout: fixed` + `width: 100%` nghĩa là
+   bảng co theo container. Container hẹp hơn 794px thì phần còn lại về 0: tên nhà cung cấp rơi
+   mỗi dòng MỘT CHỮ CÁI, và hai tiêu đề cột (`white-space: nowrap`) tràn chồng lên nhau. Vỡ từ
+   khoảng 1000px trở xuống — tức laptop nhỏ đã dính, chưa cần tới tablet.
+
+   `min-width` chặn đúng chỗ đó. `.md-page__tablewrap` đã có `overflow-x: auto` nên màn hẹp hơn
+   thì CUỘN NGANG — bảng tiền 6 cột thì cuộn vẫn đọc được, còn chữ chồng chữ thì không. */
+.acct-list--voucher .md-page__table {
+  min-width: 1000px;
+}
+
+.acct-list--voucher th:nth-child(1),
+.acct-list--voucher td:nth-child(1) {
+  width: 190px;
+}
+
+.acct-list--voucher th:nth-child(3),
+.acct-list--voucher td:nth-child(3) {
+  width: 180px;
+}
+
+.acct-list--voucher th:nth-child(4),
+.acct-list--voucher td:nth-child(4) {
+  width: 150px;
+}
+
+.acct-list--voucher th:nth-child(5),
+.acct-list--voucher td:nth-child(5) {
+  width: 210px;
+}
+
+.acct-list--voucher th:nth-child(6),
+.acct-list--voucher td:nth-child(6) {
+  width: 64px;
+}
+
+.acct-list--voucher td.acct-code-cell strong,
+.acct-list--voucher td.acct-target-cell strong {
+  display: block;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.acct-list--voucher td.acct-code-cell small,
+.acct-list--voucher td.acct-target-cell small,
+.acct-list--voucher td.acct-user-cell small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.25;
 }
 
 /* Dải nhóm PMH cố tình thấp — miễn trừ khỏi sàn 52px. */
@@ -214,7 +275,7 @@
 }
 
 .acct-list td.acct-user-cell > div {
-  max-width: 140px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -655,6 +716,24 @@
   text-transform: uppercase;
 }
 
+.acct-purpose-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.acct-purpose-tags span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: #eef3f7;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+}
+
 .acct-checks {
   display: flex;
   flex-wrap: wrap;
@@ -714,6 +793,120 @@
     width: 100%;
     max-height: 100vh;
     border-radius: 0;
+  }
+}
+
+/* Công nợ phải thu theo HÓA ĐƠN. Bảng chi tiết rộng được cuộn ngang, không ép tên/mã xuống
+   thành cột chữ; form thu tiền nằm cùng drawer để tránh chồng thêm một modal. */
+.ar-summary-table td small,
+.ar-invoice-table td small,
+.ar-history-table td small {
+  display: block;
+  margin-top: 3px;
+  color: var(--ash-2);
+}
+
+.ar-tablewrap {
+  margin-top: var(--sp-2);
+  overflow-x: auto;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+}
+
+.ar-tablewrap .pay-table {
+  margin: 0;
+}
+
+.ar-invoice-table {
+  min-width: 980px;
+}
+
+.ar-history-table {
+  min-width: 760px;
+}
+
+.ar-invoice-table th,
+.ar-history-table th {
+  padding: 9px 10px;
+  border-bottom: 1.5px solid var(--rule);
+  background: var(--paper);
+  color: var(--ash);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ar-invoice-table td,
+.ar-history-table td {
+  padding: 10px;
+  vertical-align: top;
+}
+
+.ar-receipt-form-row > td {
+  padding: 0 !important;
+  background: var(--paper);
+}
+
+.ar-receipt-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border-left: 3px solid var(--rust);
+}
+
+.ar-receipt-form__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.ar-receipt-form__head > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ar-receipt-form__head small {
+  color: var(--ash-2);
+}
+
+.ar-receipt-form__grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr 1.6fr;
+  gap: var(--sp-3);
+}
+
+.ar-receipt-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+
+@media (max-width: 760px) {
+  .ar-summary-table {
+    overflow-x: auto;
+  }
+
+  .ar-summary-table .pay-table {
+    min-width: 760px;
+  }
+
+  .ar-receipt-form__head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ar-receipt-form__head .acct-segment {
+    width: 100%;
+  }
+
+  .ar-receipt-form__head .acct-segment button {
+    flex: 1;
+  }
+
+  .ar-receipt-form__grid {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -870,4 +1063,8 @@
   display: block;
   margin-top: 3px;
   color: var(--ash);
+}
+
+.acct-deliveries__table td:nth-child(3) {
+  min-width: 190px;
 }

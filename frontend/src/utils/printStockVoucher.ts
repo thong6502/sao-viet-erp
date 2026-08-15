@@ -5,8 +5,8 @@
  *  Bố cục bám biểu mẫu giấy: không logo, font Times New Roman, A4.
  *
  *  Chỗ lệch có chủ ý so với mẫu chuẩn:
- *   • Dòng "Theo ... số ... ngày ..." điền **số đề nghị**, vì mọi phiếu đều phải ứng theo
- *     một đề nghị đã duyệt (spec-kho-de-nghi §5).
+ *   • Dòng "Theo ... số ... ngày ..." điền **số yêu cầu**, vì mọi phiếu đều phải ứng theo
+ *     một yêu cầu đã duyệt (spec-kho-de-nghi §5).
  *  (Trước có thêm cột "Mã lô" cho giá xuất đích danh — đã BỎ: lô định danh qua chính phiếu
  *   nhập nguồn nên cột riêng thừa.)
  *
@@ -21,7 +21,7 @@ export interface StockVoucherPrintLine {
   materialCode: string | null;
   materialName: string | null;
   dvt: string | null;
-  /** Số lượng ghi trên chứng từ (đề nghị đã duyệt). */
+  /** Số lượng ghi trên chứng từ (yêu cầu đã duyệt). */
   soLuongChungTu: number | null;
   /** Số lượng thực nhập / thực xuất. */
   soLuong: number;
@@ -37,16 +37,16 @@ export interface StockVoucherPrintData {
   docDate: string | null;
   debitAccount: string | null;
   creditAccount: string | null;
-  /** Bộ phận đề nghị — ô "Bộ phận" ở góc trên trái. */
+  /** Bộ phận yêu cầu — ô "Bộ phận" ở góc trên trái. */
   boPhan: string | null;
   /** Họ tên người giao hàng (01-VT) / người nhận hàng (02-VT). */
   nguoiGiaoNhan: string | null;
-  /** Số đề nghị + ngày, điền vào dòng "Theo ... số ... ngày ...". */
+  /** Số yêu cầu + ngày, điền vào dòng "Theo ... số ... ngày ...". */
   chungTuGoc: string | null;
   chungTuGocNgay: string | null;
-  /** Chuỗi trách nhiệm — in rõ AI đề nghị · AI duyệt · AI lập phiếu (kho nhận). */
+  /** Chuỗi trách nhiệm — in rõ AI tạo yêu cầu · AI lập phiếu (kho nhận). Bỏ "người duyệt" vì tạo
+   *  yêu cầu kho không còn bước duyệt (1 quyền). */
   nguoiDeNghi: string | null;
-  nguoiDuyet: string | null;
   nguoiLapPhieu: string | null;
   /** Tên kho nhập/xuất. */
   khoTen: string | null;
@@ -202,11 +202,10 @@ ${data.cancelled ? '<div class="stamp">ĐÃ HỦY</div>' : ""}
 </div>
 <div class="body">
   ${row(form.personLabel, data.nguoiGiaoNhan)}
-  <div class="row"><span class="lb">Theo đề nghị số:</span> <span class="vl">${escapeHtml(
+  <div class="row"><span class="lb">Theo yêu cầu số:</span> <span class="vl">${escapeHtml(
     data.chungTuGoc ?? DOTS,
   )}${data.chungTuGocNgay ? ` ngày ${escapeHtml(data.chungTuGocNgay)}` : ""}</span></div>
-  ${row("Người đề nghị", data.nguoiDeNghi)}
-  ${row("Người duyệt", data.nguoiDuyet)}
+  ${row("Người tạo yêu cầu", data.nguoiDeNghi)}
   ${row("Người lập phiếu (kho)", data.nguoiLapPhieu)}
   ${row(form.reasonLabel, data.lyDo)}
   ${row(form.placeLabel, data.khoTen)}

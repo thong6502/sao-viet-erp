@@ -66,6 +66,15 @@
   border: 5px solid transparent;
   border-bottom-color: var(--ink);
 }
+/* Neo PHẢI: bubble mở sang TRÁI (icon sát mép phải) — không tràn/cắt mất. */
+.hint-tip__bubble--right {
+  left: auto;
+  right: -6px;
+}
+.hint-tip__bubble--right::after {
+  left: auto;
+  right: 12px;
+}
 .hint-tip__btn:hover + .hint-tip__bubble,
 .hint-tip__btn:focus-visible + .hint-tip__bubble,
 .hint-tip:hover .hint-tip__bubble {

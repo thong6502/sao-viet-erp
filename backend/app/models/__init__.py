@@ -73,6 +73,7 @@ from .accounting import (
     PaymentReceiptAttachment,
     PaymentVoucher,
     PaymentVoucherAttachment,
+    SalesInvoice,
     SupplierBankAccount,
 )
 from .quotation import (
@@ -95,6 +96,8 @@ from .cong_doan import CongDoan, CongDoanDauViec, CongDoanDauViecVatTu
 from .bu_hao import BuHao
 from .don_vi_do import DonViDo, DonViQuyDoi
 from .kho_hang import KhoHang
+from .kho_khoa_so import KhoKhoaSo
+from .notification import Notification
 from .stock_request import StockRequest, StockRequestLine
 from .stock_lot import StockLot, StockThreshold
 from .stock_voucher import StockVoucher, StockVoucherAttachment, StockVoucherLine
@@ -112,6 +115,7 @@ from .machine_unavailable import MachineUnavailablePeriod
 from .to_quan_so import ToQuanSoNgay
 from .document_sequence import DocumentSequence
 from .ky_thuat_may import BaoTriMay, KyThuatMayAnh, SuaChuaMay
+from .module_notification import ModuleNotification, ModuleNotificationRead
 
 __all__ = [
     "BaiGhepCongDoan",
@@ -166,6 +170,7 @@ __all__ = [
     "SupplierBankAccount",
     "PaymentVoucher",
     "PaymentReceipt",
+    "SalesInvoice",
     "PaymentVoucherAttachment",
     "PaymentReceiptAttachment",
     "Machine",
@@ -199,10 +204,14 @@ __all__ = [
     "PlateDieRate",
     "Norm",
     "DocumentSequence",
+    "ModuleNotification",
+    "ModuleNotificationRead",
     "PhieuTinhGia",
     "PhieuThanhPhan",
     "PhieuThanhPham",
     "KhoHang",
+    "KhoKhoaSo",
+    "Notification",
     "StockRequest",
     "StockRequestLine",
     "StockVoucher",

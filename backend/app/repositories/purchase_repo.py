@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Sequence
 
-from sqlalchemy import asc, desc, func, or_, select
+from sqlalchemy import asc, desc, exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.accounting import PAYMENT_VOUCHER_PAID, PaymentVoucher
@@ -83,13 +83,27 @@ class SupplierRepository:
             select(Supplier).where(func.lower(Supplier.name) == name.lower())
         ).scalars().first()
 
+    def find_by_tax_code(self, tax_code: str) -> Supplier | None:
+        """Tra NCC theo MÃ SỐ THUẾ (không phân biệt hoa thường, bỏ khoảng trắng hai đầu).
+
+        MST là định danh pháp lý — hai hồ sơ cùng MST nghĩa là một nhà cung cấp bị nhập hai lần,
+        và mọi con số công nợ của họ bị chẻ đôi. Trùng TÊN đã chặn từ trước; MST thì chưa."""
+        tax_code = (tax_code or "").strip()
+        if not tax_code:
+            return None
+        return self.db.execute(
+            select(Supplier).where(func.lower(Supplier.tax_code) == tax_code.lower())
+        ).scalars().first()
+
     def list(
         self,
         *,
         q: str | None = None,
         status: str | None = None,
         supplier_group: str | None = None,
-        sort: str = "name",
+        # MỚI NHẤT TRƯỚC (chủ chốt 12/08/2026). Trước đây xếp theo TÊN — NCC vừa khai xong nằm
+        # tận trang 3, người khai phải đi tìm chính thứ mình vừa tạo.
+        sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[Supplier], int]:
@@ -116,11 +130,14 @@ class SupplierRepository:
 
         total = self.db.execute(count_stmt).scalar_one()
         direction = asc
-        key = sort or "name"
+        key = sort or "-created_at"
         if key.startswith("-"):
             direction = desc
             key = key[1:]
-        stmt = stmt.order_by(direction(_SUPPLIER_SORTABLE.get(key, Supplier.name)), Supplier.id.asc())
+        cot = _SUPPLIER_SORTABLE.get(key, Supplier.created_at)
+        # Tie-break đi CÙNG CHIỀU với cột chính: xếp mới-nhất-trước mà `id ASC` thì hai NCC tạo
+        # cùng giây lại đảo ngược nhau ngay trong danh sách vừa xếp giảm dần.
+        stmt = stmt.order_by(direction(cot), direction(Supplier.id))
         page = max(1, page)
         size = max(1, min(size, 200))
         rows = list(self.db.execute(stmt.offset((page - 1) * size).limit(size)).scalars())
@@ -279,6 +296,38 @@ class SupplierRepository:
             is not None
         )
 
+    def has_active_item_for_hang(self, hang_loai: str, hang_id: int) -> bool:
+        """Có NCC đang hoạt động khai bán đúng mặt hàng gốc này không."""
+        return (
+            self.db.execute(
+                select(SupplierItem.id)
+                .join(Supplier, Supplier.id == SupplierItem.supplier_id)
+                .where(
+                    Supplier.status == SUPPLIER_ACTIVE,
+                    SupplierItem.is_active.is_(True),
+                    SupplierItem.hang_loai == hang_loai,
+                    SupplierItem.hang_id == int(hang_id),
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            is not None
+        )
+
+    def active_hang_pairs(self) -> set[tuple[str, int]]:
+        """Mặt hàng gốc có ít nhất một dòng bảng giá NCC đang dùng."""
+        rows = self.db.execute(
+            select(SupplierItem.hang_loai, SupplierItem.hang_id)
+            .join(Supplier, Supplier.id == SupplierItem.supplier_id)
+            .where(
+                Supplier.status == SUPPLIER_ACTIVE,
+                SupplierItem.is_active.is_(True),
+                SupplierItem.hang_loai.is_not(None),
+                SupplierItem.hang_id.is_not(None),
+            )
+            .distinct()
+        ).all()
+        return {(str(loai), int(hang_id)) for loai, hang_id in rows}
+
     def supplier_sells(self, supplier_id: int, item_name: str) -> bool:
         """NCC CỤ THỂ này có bán mặt hàng đó không — dùng lúc lập PHIẾU MUA, khi đã chọn NCC.
 
@@ -433,6 +482,10 @@ class DepartmentPurchaseRequestRepository:
         source_type: str | None = None,
         requesting_department_id: int | None = None,
         filter_by_department: bool = False,
+        # Phạm vi `own` — CHỈ yêu cầu do chính người này gửi. Trước 11/08/2026 không có tham số
+        # này: `own` rơi xuống dùng chung nhánh lọc theo phòng, tức thấy luôn yêu cầu của đồng
+        # nghiệp cùng phòng. Đo được: vai phạm vi `own` thấy 1 dòng do NGƯỜI KHÁC tạo.
+        requested_by_user_id: int | None = None,
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
@@ -449,10 +502,43 @@ class DepartmentPurchaseRequestRepository:
                 )
             )
         if status:
-            conditions.append(DepartmentPurchaseRequest.status == status)
+            # `drafting` và `needs_correction` là trạng thái HIỂN THỊ suy từ đơn mua con. Lọc ngay
+            # trong SQL để `total` và phân trang vẫn chính xác, thay vì lọc 20 dòng sau khi tải.
+            def co_phieu_con(*statuses: str):
+                return exists(
+                    select(PurchaseRequestSource.id)
+                    .join(
+                        PurchaseRequest,
+                        PurchaseRequest.id == PurchaseRequestSource.purchase_request_id,
+                    )
+                    .where(
+                        PurchaseRequestSource.department_request_id
+                        == DepartmentPurchaseRequest.id,
+                        PurchaseRequest.status.in_(statuses),
+                    )
+                )
+
+            co_tu_choi = co_phieu_con(PR_REJECTED)
+            co_nhap = co_phieu_con(PR_DRAFT)
+            if status == "needs_correction":
+                conditions.append(co_tu_choi)
+            elif status == "drafting":
+                conditions.extend((~co_tu_choi, co_nhap))
+            elif status == DPR_PENDING_APPROVAL:
+                conditions.extend(
+                    (
+                        DepartmentPurchaseRequest.status == DPR_PENDING_APPROVAL,
+                        ~co_tu_choi,
+                        ~co_nhap,
+                    )
+                )
+            else:
+                conditions.append(DepartmentPurchaseRequest.status == status)
         if source_type:
             conditions.append(DepartmentPurchaseRequest.source_type == source_type)
-        if filter_by_department:
+        if requested_by_user_id is not None:
+            conditions.append(DepartmentPurchaseRequest.requested_by_user_id == requested_by_user_id)
+        elif filter_by_department:
             conditions.append(DepartmentPurchaseRequest.requesting_department_id == requesting_department_id)
 
         stmt = select(DepartmentPurchaseRequest).options(
@@ -714,13 +800,12 @@ class PurchaseRequestRepository:
         rows = list(self.db.execute(stmt.offset((page - 1) * size).limit(size)).scalars())
         return rows, total
 
-    def count_rejected_with_open_source(self, *, creator_ids: list[int] | None = None) -> int:
-        """Số PMH **bị từ chối** mà YCMH nguồn VẪN đang *Chờ mua* — việc dễ bị bỏ quên nhất.
+    def count_rejected_pending_correction(self, *, creator_ids: list[int] | None = None) -> int:
+        """Số PMH **bị từ chối** mà YCMH nguồn vẫn đang được phiếu đó giữ.
 
-        PMH bị từ chối kéo YCMH nguồn rơi về `open` (`_BAC_PHIEU` → `_BAC_SANG_TRANG_THAI`), tức
-        phần hàng đó vẫn chưa ai mua được và phải lập phiếu khác. Còn PMH bị từ chối mà YCMH đã
-        sang trạng thái khác (có phiếu thay thế đang chạy, hoặc yêu cầu đã huỷ) thì KHÔNG còn việc
-        gì phải làm — đếm vào là badge kêu suốt đời cho một phiếu đã xong chuyện.
+        PMH bị từ chối giữ YCMH ở `pending_approval`: đây là việc Thu mua phải sửa trên CHÍNH PMH
+        rồi gửi lại. YCMH đã huỷ thì không còn việc; PMH đã gửi lại không còn trạng thái rejected
+        nên tự hết đếm.
 
         `COUNT(DISTINCT ...)` vì một PMH gom được nhiều YCMH nguồn: không DISTINCT thì phiếu gom 3
         yêu cầu bị đếm 3 lần.
@@ -740,7 +825,7 @@ class PurchaseRequestRepository:
                 DepartmentPurchaseRequest.id == PurchaseRequestSource.department_request_id,
             )
             .where(PurchaseRequest.status == PR_REJECTED)
-            .where(DepartmentPurchaseRequest.status == DPR_OPEN)
+            .where(DepartmentPurchaseRequest.status == DPR_PENDING_APPROVAL)
         )
         if creator_ids is not None:
             stmt = stmt.where(PurchaseRequest.created_by_user_id.in_(creator_ids or [-1]))

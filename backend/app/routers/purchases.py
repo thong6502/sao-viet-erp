@@ -15,9 +15,20 @@ from fastapi import (
     status,
 )
 
-from ..deps import CurrentUser, get_purchase_service, require_any_permission, require_permission
+from ..deps import (
+    CurrentUser,
+    get_module_notification_repository,
+    get_purchase_service,
+    require_any_permission,
+    require_permission,
+)
 from ..models.user import User
 from ..realtime import hub
+from ..repositories.module_notification_repo import (
+    CHANNEL_KE_TOAN,
+    CHANNEL_THU_MUA,
+    ModuleNotificationRepository,
+)
 from ..schemas.purchase import (
     DepartmentPurchaseRequestIn,
     DepartmentPurchaseRequestListOut,
@@ -55,7 +66,13 @@ from ..services.purchase_service import (
 )
 
 router = APIRouter(tags=["purchases"])
-MODULE = "thu_mua"
+# TÁCH THEO MÀN (chủ chốt 10/08/2026, đường A). `MODULE` giữ nguyên khoá `thu_mua` nhưng nay chỉ
+# còn nghĩa MÀN MUA HÀNG — đổi khoá là mọi hàng `role_permissions` cũ trỏ vào hư không.
+# Migration 0177 sao chép quyền `thu_mua` cũ sang hai khoá mới nên không ai mất đường làm việc.
+MODULE = "thu_mua"            # màn Mua hàng (phiếu mua)
+MODULE_NCC = "nha_cung_cap"   # màn Nhà cung cấp
+MODULE_YCMH = "yeu_cau_mua_hang"  # màn Yêu cầu mua hàng
+MODULE_KE_TOAN = "ke_toan"    # màn Đơn mua hàng (Kế toán) — nơi DUYỆT / TỪ CHỐI PMH
 # Cổng quyền đọc YCMH dựng từ CHÍNH danh sách mà service dùng để quyết định có co danh sách về
 # phòng ban hay không — thêm/bớt một vai chỉ phải sửa một chỗ, không còn cảnh cấp quyền vào được
 # màn nhưng lại bị lọc ra rỗng. (Kế toán truy vết YCMH nguồn khi duyệt PMH / lập Phiếu chi: SEAM-25.)
@@ -64,9 +81,37 @@ DEPARTMENT_REQUEST_READERS = tuple(
 )
 
 
-def _notify_purchase_changed(code: str | None = None, *, event_type: str = "purchase_changed", **extra) -> None:
+NotificationRepo = Annotated[
+    ModuleNotificationRepository, Depends(get_module_notification_repository)
+]
+
+
+def _notify_purchase_changed(
+    code: str | None = None,
+    *,
+    event_type: str = "purchase_changed",
+    notifications: ModuleNotificationRepository | None = None,
+    channel: str | None = None,
+    actor_user_id: int | None = None,
+    recipient_user_id: int | None = None,
+    **extra,
+) -> None:
     """Tín hiệu nhẹ cho các màn Thu mua/Kế toán tự refetch qua SSE."""
-    hub.broadcast({"type": event_type, "code": code, **extra})
+    if notifications is not None and channel is not None:
+        notifications.create(
+            channel=channel,
+            event_type=event_type,
+            actor_user_id=actor_user_id,
+            recipient_user_id=recipient_user_id,
+            source_code=code,
+        )
+    hub.broadcast({
+        "type": event_type,
+        "code": code,
+        "actor_user_id": actor_user_id,
+        "recipient_user_id": recipient_user_id,
+        **extra,
+    })
 
 
 def _map_error(exc: Exception) -> HTTPException:
@@ -84,7 +129,19 @@ def _map_error(exc: Exception) -> HTTPException:
 @router.get("/api/department-purchase-requests", response_model=DepartmentPurchaseRequestListOut)
 def list_department_purchase_requests(
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: CurrentUser,
+    # CỬA HỞ ĐÃ ĐO ĐƯỢC 10/08/2026: trước đây chỉ đòi `CurrentUser` — vai TRỐNG TRƠN, không cấp một
+    # ô quyền nào, vẫn đọc được toàn bộ yêu cầu mua hàng. Đây là màn DUY NHẤT của Thu mua bị hở
+    # (7 endpoint còn lại đều chặn 403).
+    #
+    # Gác bằng `DEPARTMENT_REQUEST_READER_MODULES` chứ không bằng riêng `thu_mua`: màn này cố ý mở
+    # cho 6 nhóm đề nghị vật tư (báo giá · kho · sản xuất · vật tư · kế toán · thu mua), đúng như
+    # `Sidebar.tsx` khai. Gác riêng `thu_mua` là khoá đường xin vật tư của 5 nhóm còn lại.
+    user: Annotated[
+        User,
+        Depends(require_any_permission(
+            *((m, "read") for m in DEPARTMENT_REQUEST_READER_MODULES)
+        )),
+    ],
     q: str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
     source_type: str | None = Query(default=None),
@@ -110,7 +167,13 @@ def can_create_department_purchase_request(
 def get_department_purchase_request(
     request_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: CurrentUser,
+    # Cùng luật đọc với danh sách: 6 nhóm đề nghị vật tư, KHÔNG phải mọi tài khoản đăng nhập.
+    user: Annotated[
+        User,
+        Depends(require_any_permission(
+            *((m, "read") for m in DEPARTMENT_REQUEST_READER_MODULES)
+        )),
+    ],
 ) -> DepartmentPurchaseRequestOut:
     try:
         return DepartmentPurchaseRequestOut(**svc.get_department_request(request_id, actor=user))
@@ -126,13 +189,20 @@ def get_department_purchase_request(
 def create_department_purchase_request(
     payload: DepartmentPurchaseRequestIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: CurrentUser,
+    notifications: NotificationRepo,
+    user: Annotated[User, Depends(require_permission(MODULE_YCMH, "create"))],
 ) -> DepartmentPurchaseRequestOut:
     try:
         row = svc.create_department_request(actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(
+        row.get("code"),
+        event_type="department_purchase_request_created",
+        notifications=notifications,
+        channel=CHANNEL_THU_MUA,
+        actor_user_id=user.id,
+    )
     return DepartmentPurchaseRequestOut(**row)
 
 
@@ -141,7 +211,7 @@ def update_department_purchase_request(
     request_id: int,
     payload: DepartmentPurchaseRequestIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: CurrentUser,
+    user: Annotated[User, Depends(require_permission(MODULE_YCMH, "update"))],
 ) -> DepartmentPurchaseRequestOut:
     try:
         row = svc.update_department_request(request_id, actor=user, **payload.model_dump())
@@ -156,7 +226,7 @@ def cancel_department_purchase_request(
     request_id: int,
     payload: ReasonIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: CurrentUser,
+    user: Annotated[User, Depends(require_permission(MODULE_YCMH, "update"))],
 ) -> DepartmentPurchaseRequestOut:
     try:
         row = svc.cancel_department_request(request_id, reason=payload.reason, actor=user)
@@ -171,12 +241,21 @@ def list_suppliers(
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
     _: Annotated[
         User,
-        Depends(require_any_permission((MODULE, "read"), ("ke_toan", "read"))),
+        # ⚠️ NGƯỜI MUA HÀNG PHẢI ĐỌC ĐƯỢC DANH SÁCH NÀY (chủ chốt 12/08/2026): xử lý một yêu cầu
+        # mua hàng là phải CHỌN nhà cung cấp, mà ô chọn lấy dữ liệu từ chính endpoint này. Bắt cấp
+        # thêm ô "Nhà cung cấp" chỉ để gợi ý được tên NCC là cấp thừa quyền — ô đó cho SỬA danh
+        # mục, còn ở đây chỉ cần ĐỌC.
+        # Cùng lối với ngoại lệ `ke_toan` đã có sẵn: kế toán cũng chỉ đọc để đối chiếu phiếu chi.
+        Depends(require_any_permission((MODULE_NCC, "read"), ("ke_toan", "read"),
+                                       (MODULE, "read"), ("yeu_cau_mua_hang", "read"))),
     ],
     q: str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
     supplier_group: str | None = Query(default=None),
-    sort: str = Query(default="name"),
+    # Mặc định MỚI NHẤT TRƯỚC (chủ chốt 12/08/2026) — NCC vừa khai xong phải thấy ngay,
+    # đừng bắt người ta đi tìm chính thứ mình vừa tạo. Đổi ở đây thôi là chưa đủ nếu giao
+    # diện tự truyền `sort=name` — đã soi, màn Nhà cung cấp không truyền tham số này.
+    sort: str = Query(default="-created_at"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ) -> SupplierListOut:
@@ -229,7 +308,7 @@ def _xlsx_response(data: bytes, filename: str) -> Response:
 @router.get("/api/suppliers/items/template.xlsx")
 def supplier_items_template(
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(require_permission(MODULE_NCC, "read"))],
 ) -> Response:
     return _xlsx_response(svc.mau_vat_tu_xlsx(), "mau-vat-tu-nha-cung-cap.xlsx")
 
@@ -238,7 +317,7 @@ def supplier_items_template(
 def supplier_items_export(
     supplier_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(require_permission(MODULE_NCC, "read"))],
 ) -> Response:
     try:
         data, filename = svc.xuat_vat_tu_xlsx(supplier_id)
@@ -250,7 +329,7 @@ def supplier_items_export(
 @router.post("/api/suppliers/items/import", response_model=SupplierItemImportOut)
 async def supplier_items_import(
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    _: Annotated[User, Depends(require_permission(MODULE_NCC, "update"))],
     file: UploadFile = File(...),
 ) -> SupplierItemImportOut:
     """ĐỌC file .xlsx → trả danh sách mặt hàng + lỗi từng dòng. KHÔNG ghi DB.
@@ -273,7 +352,7 @@ async def supplier_items_import(
 def create_supplier(
     payload: SupplierIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+    user: Annotated[User, Depends(require_permission(MODULE_NCC, "create"))],
 ) -> SupplierRow:
     try:
         row = svc.create_supplier(actor=user, **payload.model_dump())
@@ -288,7 +367,7 @@ def update_supplier(
     supplier_id: int,
     payload: SupplierIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE_NCC, "update"))],
 ) -> SupplierRow:
     try:
         row = svc.update_supplier(supplier_id, actor=user, **payload.model_dump())
@@ -302,7 +381,7 @@ def update_supplier(
 def toggle_supplier(
     supplier_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE_NCC, "update"))],
 ) -> SupplierRow:
     try:
         row = svc.toggle_supplier_active(supplier_id, actor=user)
@@ -393,7 +472,8 @@ def create_purchase_request(
         row = svc.create_request(actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"), event_type="purchase_pending_approval")
+    # Mới là NHÁP của Thu mua, chưa gửi sang Kế toán nên chỉ làm tươi màn của người lập.
+    _notify_purchase_changed(row.get("code"))
     return PurchaseRequestOut(**row)
 
 
@@ -412,7 +492,7 @@ def create_purchase_requests_batch(
         rows = svc.create_requests_batch(actor=user, **payload.model_dump())
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(event_type="purchase_pending_approval")
+    _notify_purchase_changed()
     return PurchaseRequestListOut(items=[PurchaseRequestOut(**row) for row in rows],
                                   total=len(rows), page=1, size=len(rows) or 1)
 
@@ -450,27 +530,43 @@ def delete_purchase_request(
 def submit_purchase_request(
     request_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> PurchaseRequestOut:
     try:
         row = svc.submit(request_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"), event_type="purchase_pending_approval")
+    _notify_purchase_changed(
+        row.get("code"), event_type="purchase_pending_approval", notifications=notifications,
+        channel=CHANNEL_KE_TOAN, actor_user_id=user.id,
+    )
     return PurchaseRequestOut(**row)
 
 
+# DUYỆT / TỪ CHỐI PMH gác bằng khoá của MÀN CÓ NÚT — là màn "Đơn mua hàng" bên Kế toán
+# (`ke_toan`), không phải màn Mua hàng (chủ chốt 11/08/2026). Trước đây gác `thu_mua:approve`:
+# ô hiện dưới phân hệ Mua hàng mà tác dụng lại ở màn Kế toán, nhìn ma trận không đoán ra.
+#
+# Tách vai VẪN CÒN NGUYÊN, chỉ là nó nằm ở hai ô rõ ràng thay vì trốn trong tên khoá: LẬP PHIẾU CHI
+# từ đợt 3 là `phieu_chi:create`, một ô khác hẳn. Ai được cấp `ke_toan:approve` mà không có
+# `phieu_chi:create` thì duyệt xong vẫn không tự viết được phiếu chi.
 @router.post("/api/purchase-requests/{request_id}/approve", response_model=PurchaseRequestOut)
 def approve_purchase_request(
     request_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    notifications: NotificationRepo,
+    user: Annotated[User, Depends(require_permission(MODULE_KE_TOAN, "approve"))],
 ) -> PurchaseRequestOut:
     try:
         row = svc.approve(request_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"), event_type="purchase_decision", decision="approved")
+    _notify_purchase_changed(
+        row.get("code"), event_type="purchase_decision", decision="approved",
+        notifications=notifications, channel=CHANNEL_THU_MUA, actor_user_id=user.id,
+        recipient_user_id=row.get("created_by_user_id"),
+    )
     return PurchaseRequestOut(**row)
 
 
@@ -479,13 +575,18 @@ def reject_purchase_request(
     request_id: int,
     payload: ReasonIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    notifications: NotificationRepo,
+    user: Annotated[User, Depends(require_permission(MODULE_KE_TOAN, "approve"))],
 ) -> PurchaseRequestOut:
     try:
         row = svc.reject(request_id, reason=payload.reason, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"), event_type="purchase_decision", decision="rejected")
+    _notify_purchase_changed(
+        row.get("code"), event_type="purchase_decision", decision="rejected",
+        notifications=notifications, channel=CHANNEL_THU_MUA, actor_user_id=user.id,
+        recipient_user_id=row.get("created_by_user_id"),
+    )
     return PurchaseRequestOut(**row)
 
 
@@ -562,7 +663,14 @@ def cancel_purchase_request(
     request_id: int,
     payload: ReasonIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "cancel"))],
+    # Ô "Hủy PMH" (`thu_mua:cancel`) ĐÃ BỎ 12/08/2026 — chủ chốt test: "vô dụng". Đúng: tick nó
+    # lên cũng chẳng mở thêm gì, vì (a) KHÔNG màn nào gọi endpoint này, và (b) service còn một
+    # cửa nữa — `ke_toan:approve`, hoặc chính người lập khi phiếu còn NHÁP.
+    # Nay cổng router nói ĐÚNG luật đó thay vì đòi một ô thứ ba không ai cấp.
+    user: Annotated[
+        User,
+        Depends(require_any_permission((MODULE, "update"), ("ke_toan", "approve"))),
+    ],
 ) -> PurchaseRequestOut:
     try:
         row = svc.cancel(request_id, reason=payload.reason, actor=user)
@@ -584,6 +692,7 @@ def create_purchase_delivery(
     request_id: int,
     payload: PurchaseDeliveryIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> PurchaseRequestOut:
     body = payload.model_dump()
@@ -593,7 +702,10 @@ def create_purchase_delivery(
     except PurchaseError as exc:
         raise _map_error(exc) from None
     seq_no = row.get("deliveries", [{}])[-1].get("seq_no") if row.get("deliveries") else None
-    _notify_purchase_changed(row.get("code"), event_type="purchase_delivery_created", seq_no=seq_no)
+    _notify_purchase_changed(
+        row.get("code"), event_type="purchase_delivery_created", seq_no=seq_no,
+        notifications=notifications, channel=CHANNEL_KE_TOAN, actor_user_id=user.id,
+    )
     return PurchaseRequestOut(**row)
 
 
@@ -606,6 +718,7 @@ def update_purchase_delivery(
     delivery_id: int,
     payload: PurchaseDeliveryIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> PurchaseRequestOut:
     body = payload.model_dump()
@@ -614,7 +727,10 @@ def update_purchase_delivery(
         row = svc.sua_dot_giao(request_id, delivery_id, lines=lines, actor=user, **body)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(
+        row.get("code"), event_type="purchase_delivery_updated",
+        notifications=notifications, channel=CHANNEL_KE_TOAN, actor_user_id=user.id,
+    )
     return PurchaseRequestOut(**row)
 
 
@@ -626,13 +742,17 @@ def delete_purchase_delivery(
     request_id: int,
     delivery_id: int,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> PurchaseRequestOut:
     try:
         row = svc.xoa_dot_giao(request_id, delivery_id, actor=user)
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(
+        row.get("code"), event_type="purchase_delivery_deleted",
+        notifications=notifications, channel=CHANNEL_KE_TOAN, actor_user_id=user.id,
+    )
     return PurchaseRequestOut(**row)
 
 
@@ -641,6 +761,7 @@ def assign_purchase_invoice(
     request_id: int,
     payload: PurchaseInvoiceAssignIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
+    notifications: NotificationRepo,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> PurchaseRequestOut:
     try:
@@ -653,7 +774,10 @@ def assign_purchase_invoice(
         )
     except PurchaseError as exc:
         raise _map_error(exc) from None
-    _notify_purchase_changed(row.get("code"))
+    _notify_purchase_changed(
+        row.get("code"), event_type="purchase_invoice_updated",
+        notifications=notifications, channel=CHANNEL_KE_TOAN, actor_user_id=user.id,
+    )
     return PurchaseRequestOut(**row)
 
 

@@ -13,6 +13,10 @@ import "./sidebar.css";
 interface NavChild {
   id: string;
   label: string;
+  /** Khoá quyền RIÊNG của menu con. Bỏ trống thì con dùng chung khoá của cha (mặc định cũ).
+   *  Có từ 10/08/2026 khi phân hệ Kế toán tách mỗi màn một khoá — ba màn con của "Kế toán thu
+   *  mua" nay là ba ô quyền khác nhau, không còn cùng bật/tắt theo cha. */
+  module?: string;
 }
 
 export interface NavItem {
@@ -25,10 +29,16 @@ export interface NavItem {
 }
 
 export const SELF_SERVICE_MODULE = "self_service";
-export const AUTHENTICATED_NAV_IDS: ReadonlySet<string> = new Set([
-  "noi-quy",
-  "yeu-cau-mua-hang",
-]);
+// Menu hiện cho MỌI tài khoản đăng nhập KHÔNG CẦN cấp ô nào — tức luật ngầm, đi ngược Luật 1
+// của đợt phân quyền ("không có ô nào bật thì không vào được").
+//
+// ⚠️ NAY RỖNG, và cố ý để rỗng. Hai mục từng nằm đây đều đã có ô thật:
+//   • "yeu-cau-mua-hang" → khoá `yeu_cau_mua_hang` (10/08/2026)
+//   • "noi-quy"          → khoá `noi_quy`, được seed + migration cấp cho MỌI vai nên thực tế ai
+//                          cũng vẫn đọc được, khác ở chỗ giờ quản trị GỠ ĐƯỢC.
+// Thêm id mới vào đây = tạo lại đúng cái luật ngầm vừa dọn. Muốn "ai cũng vào được" thì cấp ô đó
+// cho mọi vai (xem `RoleRepository.O_MAC_DINH`), đừng bỏ qua cổng quyền.
+export const AUTHENTICATED_NAV_IDS: ReadonlySet<string> = new Set([]);
 
 interface NavSection {
   id: string;
@@ -89,10 +99,19 @@ const NAV: NavSection[] = [
         id: "yeu-cau-mua-hang",
         label: "Yêu cầu mua hàng",
         icon: "clipboard",
-        module: "thu_mua",
+        module: "yeu_cau_mua_hang",
         // ke_toan: kế toán bấm mã YCMH từ PMH/Phiếu chi để truy vết ngược.
+        // Danh sách dự phòng GIỮ NGUYÊN các phân hệ đề nghị vật tư — nó là TẬP CON của
+        // DEPARTMENT_REQUEST_READER_MODULES ở backend. Rộng hơn backend là menu hiện mà API trả
+        // 403; hẹp hơn thì chỉ ẩn menu, quyền đọc dữ liệu không suy suyển.
+        //
+        // ⚠️ CỐ Ý THIẾU "thu_mua" (chủ chốt 15/08/2026: "tôi chỉ cấp quyền cho mình nhìn thấy
+        // menu thu mua thôi"). Người mua hàng VẪN đọc được YCMH ở máy chủ — bắt buộc, vì màn Mua
+        // hàng gọi thẳng API đó để nạp ô chọn nguồn (`loadSources`). Chỉ là không tự động hiện
+        // thêm một mục menu khi quản trị mới cấp mỗi ô Mua hàng; muốn có menu thì cấp ô
+        // "Yêu cầu mua hàng". Gỡ dòng ngoại lệ trong `test_giao_dien_khop_may_chu.py` nếu đảo lại.
         modules: [
-          "thu_mua",
+          "yeu_cau_mua_hang",
           "bao_gia",
           "kho",
           "san_xuat",
@@ -101,56 +120,78 @@ const NAV: NavSection[] = [
         ],
       },
       { id: "mua-hang", label: "Mua hàng", icon: "bag", module: "thu_mua" },
-      { id: "nha-cung-cap", label: "Nhà cung cấp", icon: "truck", module: "thu_mua" },
+      { id: "nha-cung-cap", label: "Nhà cung cấp", icon: "truck", module: "nha_cung_cap" },
     ],
   },
   {
     id: "ke-toan",
     label: "Kế toán",
     items: [
+      // BỎ NHÓM CON "Kế toán thu mua" (chủ chốt 12/08/2026): ba màn dưới nay đứng NGANG HÀNG với
+      // Phiếu thu · Công nợ phải thu · Tài khoản ngân hàng. Lý do gộp cũ (số liệu công nợ phải trả
+      // đến từ PMH + phiếu chi) đúng về dữ liệu nhưng sai về thao tác: bên THU đã phẳng, để bên CHI
+      // thụt thêm một cấp thì hai vế đối xứng của cùng một việc lại nằm hai độ sâu khác nhau.
+      //
+      // Icon đi theo CẶP cho dễ đọc: hai phiếu dùng `fileText`, hai công nợ dùng `calculator`.
+      //
       // "Đơn mua hàng" TRƯỚC ĐÂY mang nhãn "Yêu cầu mua hàng" — nhãn SAI: màn này hiển thị PHIẾU
       // MUA HÀNG (`/api/accounting/inbox` trả `PurchaseRequestListOut`), không phải YCMH. Nhìn
       // menu cũ tưởng có hai chỗ xem YCMH, thật ra một chỗ là PMH.
       //
       // Đây cũng là nơi DUYỆT đơn mua hàng (chủ 04/08/2026: "phải duyệt ở phần kế toán chứ") —
       // màn Mua hàng bên Thu mua không còn nút duyệt nữa.
-      //
-      // "Phiếu thu" và "Tài khoản ngân hàng" tạm GỠ khỏi menu theo yêu cầu; file màn vẫn còn để
-      // dựng lại ở đợt kế toán sau.
       {
-        id: "ke-toan-thu-mua",
-        label: "Kế toán thu mua",
-        icon: "calculator",
+        id: "ke-toan-don-mua-hang",
+        label: "Đơn mua hàng",
+        icon: "clipboard",
         module: "ke_toan",
-        children: [
-          { id: "ke-toan-don-mua-hang", label: "Đơn mua hàng" },
-          { id: "ke-toan-phieu-chi", label: VOUCHER_PAGE_LABEL },
-          // Công nợ phải trả nằm ở ĐÂY chứ không đứng riêng dưới "Kế toán": 100% số liệu của nó
-          // đến từ PMH + phiếu chi. Sau này có công nợ phải THU (khách hàng) thì đó là nhánh khác.
-          { id: "ke-toan-cong-no", label: "Công nợ phải trả" },
-        ],
+      },
+      {
+        id: "ke-toan-phieu-chi",
+        label: VOUCHER_PAGE_LABEL,
+        icon: "fileText",
+        module: "phieu_chi",
+      },
+      {
+        id: "ke-toan-cong-no",
+        label: "Công nợ phải trả",
+        icon: "calculator",
+        module: "cong_no_phai_tra",
+      },
+      {
+        id: "ke-toan-phieu-thu",
+        label: "Phiếu thu",
+        icon: "fileText",
+        module: "phieu_thu",
+      },
+      {
+        id: "ke-toan-cong-no-phai-thu",
+        label: "Công nợ phải thu",
+        icon: "calculator",
+        module: "cong_no_phai_thu",
+      },
+      {
+        id: "ke-toan-tai-khoan-ngan-hang",
+        label: "Tài khoản ngân hàng",
+        icon: "database",
+        module: "tk_ngan_hang",
       },
     ],
   },
   {
-    // SECTION "Nhập xuất kho" — nghiệp vụ chứng từ kho (đề nghị + phiếu nhập/xuất). TÁCH khỏi
-    // "Kho hàng" vì section đó chỉ để LIỆT KÊ các kho vật lý đã khai báo, không chứa màn nghiệp vụ.
-    id: "nhap-xuat-kho",
-    label: "Nhập xuất kho",
-    items: [
-      // MỘT mục — bên trong chia tab VIỆC (Đề nghị · Hộp yêu cầu) × CHIỀU (Nhập · Xuất).
-      // Tab "Hộp yêu cầu" tự ẩn nếu vai không có create/view_stock (gate trong KhoPage).
-      // Tên "Đề nghị & Cấp phát": đúng việc của module (xin vật tư → kho cấp), phân biệt với
-      // section "Kho hàng" (kho vật lý: tồn/phiếu/ngưỡng).
-      { id: "kho-main", label: "Yêu cầu nhập xuất", icon: "warehouse", module: "kho" },
-    ],
-  },
-  {
-    // SECTION "Kho hàng" — CHỈ chứa các kho ĐÃ KHAI BÁO (inject ĐỘNG từ AppShell qua
-    // dynamicItems, key theo section id). Không có kho nào → section tự ẩn.
+    // SECTION "Kho hàng" — GỘP màn nghiệp vụ kho (Yêu cầu nhập xuất · Báo cáo kho) + các kho ĐÃ
+    // KHAI BÁO (inject ĐỘNG từ AppShell qua dynamicItems, key theo section id → xếp SAU 2 mục
+    // nghiệp vụ, vì merge = [...items, ...dynamicItems]). `id`/`module` giữ nguyên nên routing +
+    // quyền không đổi khi dời khỏi section "Nhập xuất kho" cũ (đã bỏ).
     id: "kho-hang",
     label: "Kho hàng",
-    items: [],
+    items: [
+      // MỘT mục — bên trong chia tab VIỆC (Yêu cầu · Hộp yêu cầu) × CHIỀU (Nhập · Xuất).
+      // Tab "Hộp yêu cầu" tự ẩn nếu vai không có create/view_stock (gate trong KhoPage).
+      { id: "kho-main", label: "Yêu cầu nhập xuất", icon: "warehouse", module: "kho" },
+      // Báo cáo kho (kế toán): sổ nhập-xuất + khóa kỳ + export MISA. AppShell ẩn nếu thiếu close_book.
+      { id: "kho-baocao", label: "Báo cáo kho", icon: "fileText", module: "kho" },
+    ],
   },
   {
     id: "cau-hinh-dm",
@@ -182,7 +223,10 @@ const NAV: NavSection[] = [
       // sự vì nó là cái khung chứa.
       { id: "phong-ban", label: "Phòng ban", icon: "building", module: "phong_ban" },
       { id: "nhan-su", label: "Hồ sơ nhân sự", icon: "users", module: "nhan_su" },
-      { id: "cham-cong", label: "Chấm công", icon: "activity", module: "nhan_su", modules: ["nhan_su", SELF_SERVICE_MODULE] },
+      // Khoá RIÊNG `cham_cong` (10/08/2026) — trước đây dùng chung `nhan_su` nên cấp quyền xem
+      // hồ sơ là mở luôn bảng công cả công ty. Vẫn nhận SELF_SERVICE: thợ chỉ có ô Tự phục vụ
+      // cũng phải vào được màn này để bấm chấm công và xem công của mình.
+      { id: "cham-cong", label: "Chấm công", icon: "activity", module: "cham_cong", modules: ["cham_cong", SELF_SERVICE_MODULE] },
       { id: "nghi-phep", label: "Nghỉ phép", icon: "calendar", module: "nghi_phep" },
       { id: "tang-ca", label: "Tăng ca", icon: "clock", module: "tang_ca" },
       {
@@ -192,8 +236,8 @@ const NAV: NavSection[] = [
         module: "luong",
         modules: ["luong", SELF_SERVICE_MODULE],
       },
-      // Danh mục dùng chung: mọi tài khoản đã đăng nhập đều thấy và mở được (id nằm trong
-      // AUTHENTICATED_NAV_IDS nên bộ lọc quyền bên dưới cho qua bất kể `modules`).
+      // Nội quy lao động: ai cũng phải đọc, nhưng từ 10/08/2026 đi qua Ô QUYỀN `noi_quy` thật
+      // (seed + migration cấp cho MỌI vai) chứ không còn nằm trong AUTHENTICATED_NAV_IDS.
       // ⚠ ĐỪNG dời lại lên "Tổng quan" và ĐỪNG đổi `id`/`module`: id là khoá route + khoá
       // MODULE_BY_NAV_ID, đổi là gãy cả điều hướng lẫn cổng quyền.
       {
@@ -235,7 +279,11 @@ export const MODULES_BY_NAV_ID: Record<string, string[]> = Object.fromEntries(
       const mods = i.modules ?? [i.module];
       return [
         [i.id, mods] as [string, string[]],
-        ...(i.children ?? []).map((c) => [c.id, mods] as [string, string[]]),
+        // Menu con có khoá riêng thì dùng khoá đó — nếu vẫn kế thừa của cha thì hàng rào ở
+        // AppShell sẽ cho vào cả ba màn con chỉ vì có quyền một màn.
+        ...(i.children ?? []).map(
+          (c) => [c.id, c.module ? [c.module] : mods] as [string, string[]],
+        ),
       ];
     }),
   ),
@@ -281,7 +329,14 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicIte
         )
         .map((i) => {
           const dyn = itemChildren?.[i.id];
-          return dyn && dyn.length ? { ...i, children: dyn } : i;
+          if (dyn && dyn.length) return { ...i, children: dyn };
+          // Menu con có khoá riêng → ẩn con nào chưa được cấp. Con không khai khoá thì theo cha
+          // (giữ nguyên nếp cũ của mọi nhóm khác).
+          if (!i.children?.some((c) => c.module)) return i;
+          return {
+            ...i,
+            children: i.children.filter((c) => !c.module || readable.has(c.module)),
+          };
         }),
     };
   }).filter((s) => s.items.length > 0);
@@ -375,7 +430,13 @@ function NavRow({ item, activeId, isOpen, badge, onSelect, onToggle }: NavRowPro
         <Icon name={item.icon} className="sidebar__icon" />
         <span className="sidebar__label">{item.label}</span>
         {badge != null && badge > 0 && (
-          <span className="sidebar__badge" aria-label={`${badge} chờ xử lý`}>{badge > 99 ? "99+" : badge}</span>
+          <span
+            className="sidebar__badge"
+            aria-label={`${badge} thông báo chưa đọc`}
+            title={`${badge} thông báo chưa đọc`}
+          >
+            {badge > 99 ? "99+" : badge}
+          </span>
         )}
         {hasChildren && (
           <Icon

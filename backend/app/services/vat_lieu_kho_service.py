@@ -16,6 +16,7 @@ from decimal import Decimal
 from ..models.vat_lieu_kho import HANG_LOAI, THO
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
+from ..repositories.purchase_repo import SupplierRepository
 from ..repositories.vat_lieu_kho_repo import VERSION_SNAPSHOT, VatLieuKhoRepository
 from . import nhat_ky_danh_muc as nk
 from .catalog_base import (
@@ -50,11 +51,13 @@ def _f(v) -> float:
 
 class VatLieuKhoService:
     def __init__(self, repo: VatLieuKhoRepository, don_vi_repo: DonViDoRepository,
-                 audit: AuditLogRepository | None = None) -> None:
+                 audit: AuditLogRepository | None = None,
+                 suppliers: SupplierRepository | None = None) -> None:
         self.repo = repo
         self.don_vi = don_vi_repo
         # `audit` để None được: engine tính giá dựng service này chỉ để ĐỌC danh mục, không ghi vết.
         self.audit = audit
+        self.suppliers = suppliers
 
     # --- đơn vị tính ---------------------------------------------------------
     def _kiem_don_vi(self, ma, nhan: str, *, dang_co=None) -> None:
@@ -151,6 +154,17 @@ class VatLieuKhoService:
         self.repo.delete(obj)
         self.repo.chot_giao_dich()
 
+    def set_anh(self, kind: str, item_id: int, url: str | None):
+        """Gắn/gỡ ẢNH minh hoạ cho mặt hàng GỐC (chỉ giấy / vật tư khác — chủng loại không có ảnh).
+
+        `url` = đường `/api/files/…` đã lưu file, hoặc None để gỡ. Trả về object đã cập nhật; caller
+        (router) tự xoá file cũ trên storage. Không ghi nhật ký danh mục — ảnh không phải trường giá.
+        """
+        if kind not in ("giay", "vat_tu"):
+            raise VatLieuKhoValidationError("Loại mặt hàng không nhận ảnh.")
+        obj = self.get(kind, item_id)
+        return self.repo.set_anh(obj, url)
+
     def gan_ten_don_vi(self, items) -> None:
         """Điền TÊN đơn vị cho cả trang bằng MỘT truy vấn.
 
@@ -199,7 +213,9 @@ class VatLieuKhoService:
         return {k: (getattr(v, "don_vi_gia", None) or None)
                 for k, v in self.map_theo_cap(hangs).items()}
 
-    def tim_mat_hang(self, q: str | None = None, size: int = 20) -> list[dict]:
+    def tim_mat_hang(
+        self, q: str | None = None, size: int = 20, *, chi_co_nha_cung_cap: bool = False,
+    ) -> list[dict]:
         """Tìm GỘP Giấy + Vật tư khác — nguồn duy nhất của picker mặt hàng ở Kho và NCC.
 
         Gộp ở tầng service chứ không bắt frontend gọi hai lần rồi tự trộn: thứ tự và giới hạn số
@@ -207,10 +223,19 @@ class VatLieuKhoService:
         Chỉ trả hàng `active` — hàng đã ngừng dùng mà vẫn chọn được thì siết cũng như không.
         """
         moi_ben = max(1, size)
+        cap_co_ncc = (
+            self.suppliers.active_hang_pairs()
+            if chi_co_nha_cung_cap and self.suppliers
+            else None
+        )
         ra: list[dict] = []
         for loai in ("giay", "vat_tu"):
             rows, _t = self.repo.list(loai, q=q, active=True, page=1, size=moi_ben)
-            ra.extend(self._mat_hang_row(loai, r) for r in rows)
+            ra.extend(
+                self._mat_hang_row(loai, r)
+                for r in rows
+                if cap_co_ncc is None or (loai, r.id) in cap_co_ncc
+            )
         ra.sort(key=lambda d: (d["ma"] or "").upper())
         return ra[:size]
 
