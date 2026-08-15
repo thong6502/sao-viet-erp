@@ -3328,7 +3328,10 @@ export interface PayrollParams {
   /** DORMANT — trần tạm ứng đã gỡ (2026-07-24). Backend vẫn trả field; FE không còn dùng. */
   advance_max_pct: number;
   /** Số NGÀY CÔNG tối đa 1 NV được tự xin chỉnh công trong 1 tháng. 0 = không giới hạn. */
-  adjust_max_per_month: number;
+  adjust_max_per_month: number;  /** Suất cơm TĂNG CA: ngưỡng phút/ngày (chỉ áp NGÀY LÀM VIỆC) và tiền một suất.
+   *  `com_tang_ca_muc = 0` ⇒ TẮT tính năng. */
+  com_tang_ca_nguong_phut: number;
+  com_tang_ca_muc: number;
 }
 export interface SalaryRule {
   id: number;
@@ -3485,6 +3488,11 @@ export interface PayrollPeriod {
   locked_at: string | null;
   paid_at: string | null;
   paid_by: number | null;
+  /** CỬA SỔ xem phiếu của NLĐ. `cong_bo_luc` = mốc MỞ (`null` = chưa công bố);
+   *  `dong_phieu_luc` = mốc ĐÓNG (`null` = mở không thời hạn).
+   *  NV thấy phiếu khi `cong_bo_luc <= bây giờ < dong_phieu_luc`. Mở lại kỳ ⇒ cả hai về `null`. */
+  cong_bo_luc?: string | null;
+  dong_phieu_luc?: string | null;
 }
 export interface PayrollLine {
   id: number;
@@ -3525,6 +3533,8 @@ export interface PayrollLine {
   ca_pay?: number;
   /** Cơm ca = `work_shifts.meal_allowance` × số ngày THỰC LÀM ca đó (ngày đủ ngưỡng công). */
   meal_allowance_pay?: number;
+  /** Cơm TĂNG CA — dòng riêng, không gộp cơm ca (hai luật khác nhau, một ngày ăn cả hai được). */
+  com_tang_ca_pay?: number;
   /** Phụ cấp ca = `work_shifts.shift_allowance` × số ngày THỰC LÀM ca đó. Tách riêng khỏi cơm vì
    *  tiền ăn giữa ca có trần miễn thuế riêng. */
   shift_allowance_pay?: number;
@@ -3751,6 +3761,9 @@ export interface LineComponent {
   amount: number;
   note: string | null;
   source: "employee" | "line";
+  /** HCNS đã sửa tay số tiền CHO RIÊNG KỲ NÀY. Hồ sơ nhân viên KHÔNG đổi — tháng sau tự về mức
+   *  cũ. Dòng đã đè được miễn khỏi lượt ghi đè của "Tính lại". */
+  da_de_tay?: boolean;
 }
 export interface LineComponentInput {
   component_id: number;
@@ -4388,6 +4401,9 @@ export interface PayablePaidRow {
   invoice_date: string | null;
   has_attachment: boolean;
   paid_date: string;
+  /** Người LẬP phiếu chi — "ai cho tiền ra" phải đọc được ngay tại dòng. */
+  created_by_user_id: number | null;
+  created_by_name: string | null;
 }
 
 export interface PayablesDetail {
@@ -7403,6 +7419,17 @@ export const api = {
       bulkAssign(token: string, id: number, input: BulkAssignInput): Promise<BulkAssignResult> {
         return authed<BulkAssignResult>(`/api/luong/components/${id}/bulk-assign`, token, { method: "POST", body: JSON.stringify(input) });
       },
+    },
+    /** Phát phiếu lương theo CỬA SỔ. `luc` trống = mở NGAY; `den` trống = mở không thời hạn. */
+    congBo(token: string, year: number, month: number, luc?: string | null, den?: string | null): Promise<PayrollPeriod> {
+      return authed<PayrollPeriod>("/api/luong/cong-bo", token, { method: "POST", body: JSON.stringify({ year, month, luc: luc ?? null, den: den ?? null }) });
+    },
+    thuHoi(token: string, year: number, month: number): Promise<PayrollPeriod> {
+      return authed<PayrollPeriod>("/api/luong/thu-hoi", token, { method: "POST", body: JSON.stringify({ year, month }) });
+    },
+    /** Trả một khoản đã đè tay về đúng mức đang khai ở hồ sơ NV. `null` = khoản đã bị gỡ khỏi hồ sơ. */
+    boDeComponent(token: string, rowId: number): Promise<LineComponent | null> {
+      return authed<LineComponent | null>(`/api/luong/lines/components/${rowId}/bo-de`, token, { method: "POST" });
     },
     lock(token: string, year: number, month: number): Promise<PayrollPeriod> {
       return authed<PayrollPeriod>("/api/luong/lock", token, { method: "POST", body: JSON.stringify({ year, month }) });

@@ -892,10 +892,13 @@ export function DepartmentPurchaseRequestsPage({
                           }
                         />
                       </div>
-                      {/* ĐVT theo CHÍNH mặt hàng vừa chọn (đơn vị gốc + những đơn vị đổi được
-                          với nó). Chưa chọn hàng thì khoá — gõ tự do là mở đường cho đơn vị lạ
-                          lọt vào, quy đổi tắt lặng lẽ và tồn kho lệch. */}
+                      {/* ĐVT = ĐÚNG đơn vị của mặt hàng, CHỈ ĐỌC (chủ chốt 12/08/2026: "nhà
+                          cung cấp ghi là kg thì yêu cầu mua hàng nó cũng là kg, không cho sửa gì
+                          hết"). Trước đây còn cho chọn trong danh sách quy đổi — người đề nghị
+                          mua đổi sang thùng/bao là đẻ ra một con số phải quy đổi ngược khi đối
+                          chiếu bảng giá nhà cung cấp, và không ai biết nó đã đổi. */}
                       <DonViChonTheoHang
+                        chiDoc
                         token={token ?? ""}
                         hangLoai={line.hang_loai ?? null}
                         hangId={line.hang_id ?? null}

@@ -594,6 +594,7 @@ export function PurchaseRequestsPage({
   focusRequestCode?: string | null;
   onDataRefreshed?: () => void;
 }) {
+  // `user` chỉ cần cho luật "Huỷ phiếu" — luật đó đang ẩn (15/08/2026), bật lại thì lấy kèm.
   const { token } = useAuth();
   const can = useCan();
   const canCreate = can("thu_mua", "create");
@@ -632,10 +633,21 @@ export function PurchaseRequestsPage({
     });
   };
   const canUpdate = can("thu_mua", "update");
-  // Ba nút "Sửa số nhận · Mở lại đơn · Đóng đơn" nay gác bằng ô RIÊNG `manage_status`
-  // ("Sửa / đảo trạng thái đơn sau khi nhận hàng"), không còn mượn cờ duyệt. Cùng lỗi với màn
-  // Đơn mua hàng (Kế toán): lần trước đổi máy chủ mà quên dòng này nên bật ô mới không thấy gì.
-  const canApprovePurchase = can("thu_mua", "manage_status");
+  /* Luật hiện nút "Huỷ phiếu" — ẩn cùng cái nút (15/08/2026). Giữ nguyên chữ vì nó chép đúng
+     luật của `PurchaseService.cancel`, viết lại từ đầu là dịp chép sai.
+  // Huỷ phiếu ĐÃ GỬI DUYỆT là quyết định của NGƯỜI DUYỆT — ô duyệt nay nằm bên Kế toán.
+  const canDuyetChi = can("ke_toan", "approve");
+  const HUY_DUOC_TRANG_THAI = [
+    "draft", "pending_approval", "approved", "purchased", "rejected",
+  ];
+  const huyPhieuDuoc = (row: PurchaseRequestRow) =>
+    HUY_DUOC_TRANG_THAI.includes(row.status) &&
+    (canDuyetChi ||
+      (canUpdate && row.status === "draft" && row.created_by_user_id === user?.id));
+  */
+  // Ba nút "Sửa số nhận · Mở lại đơn · Đóng đơn" gác bằng ô "Thao tác" (`update`) — gộp lại
+  // ngày 12/08/2026 sau khi chủ chốt test ô riêng `manage_status` và kết luận nó không đáng có.
+  const canApprovePurchase = can("thu_mua", "update");
   // KHÔNG còn `canApprove` ở màn này: duyệt đơn mua đã chuyển sang Kế toán thu mua (04/08/2026).
   //
   // ⚠️ Hộp "Lý do từ chối" (`reasonModal.kind === "reject"`) vẫn còn trong file nhưng KHÔNG CÒN AI
@@ -726,8 +738,9 @@ export function PurchaseRequestsPage({
   const [deleting, setDeleting] = useState<PurchaseRequestRow | null>(null);
   // Dùng CHUNG một hộp "nhập lý do" cho cả huỷ / từ chối / lùi đã nhận — không dựng hộp thứ ba.
   const [reasonModal, setReasonModal] = useState<null | {
-    // Chỉ còn "undo_received" — xem chú thích ở chỗ gọi API.
-    kind: "undo_received";
+    // Chỉ còn "cancel" — HUỶ PHIẾU. Nhánh "undo_received" (nút "Mở lại đơn") đã gỡ 12/08/2026
+    // theo chủ chốt; "reject" chuyển sang màn Đơn mua hàng (Kế toán) từ 11/08.
+    kind: "cancel";
     row: PurchaseRequestRow;
     reason: string;
     error: string | null;
@@ -1173,18 +1186,17 @@ export function PurchaseRequestsPage({
   async function confirmReason() {
     if (!token || !reasonModal) return;
     const { row, kind, reason } = reasonModal;
-    // Lùi "Đã nhận hàng" XOÁ một món nợ khỏi màn Kế toán ⇒ bắt buộc ghi lý do, để nhật ký còn truy
-    // được. Server cũng chặn lý do rỗng; đây chỉ là chặn sớm cho đỡ một vòng gọi.
-    if (kind === "undo_received" && !reason.trim()) {
-      setReasonModal({ ...reasonModal, error: "Vui lòng nhập lý do lùi trạng thái." });
+    // Huỷ phiếu là DỪNG HẲN một đề nghị chi tiền ⇒ bắt buộc ghi lý do để nhật ký còn truy được.
+    if (!reason.trim()) {
+      setReasonModal({ ...reasonModal, error: "Vui lòng nhập lý do huỷ phiếu." });
       return;
     }
     setActionBusy(`${kind}:${row.id}`);
     setReasonModal({ ...reasonModal, error: null });
     try {
-      // Chỉ còn MỘT nhánh: lùi trạng thái đã nhận. Hai nhánh cũ đã gỡ (11/08/2026) —
-      // "reject" chuyển hẳn sang màn Đơn mua hàng (Kế toán), "cancel" bỏ vì không dùng tới.
-      const next = await api.purchaseRequests.undoReceived(token, row.id, reason.trim());
+      // HUỶ PHIẾU (12/08/2026). Đường này đã có ở máy chủ từ lâu — 5 test giữ hành vi thật —
+      // nhưng CHƯA TỪNG có nút, nên chủ chốt test thấy "chả có gì". Nay nối nút vào.
+      const next = await api.purchaseRequests.cancel(token, row.id, reason.trim());
       updateRow(next);
       setReasonModal(null);
       loadSources();
@@ -1365,21 +1377,26 @@ export function PurchaseRequestsPage({
               onClick={() => setReceiveModal({ row, mode: "edit" })}
             />
           )}
-        {canUpdate && canApprovePurchase && row.status === "received" && (
+        {/* Nút "Mở lại đơn" / "Lùi đã nhận" ĐÃ GỠ 12/08/2026 (chủ chốt: "cái nút mở lại đơn bỏ
+            đi nha"). Endpoint `undo-received` và bộ test của nó GIỮ NGUYÊN — nó là van an toàn
+            khi lỡ bấm "Đã nhận", chỉ là không còn bày ra ở màn này. */}
+        {/* NÚT "HUỶ PHIẾU" — ĐANG ẨN (chủ chốt 15/08/2026: "không đúng công năng hiện tại
+            của tôi, ẩn nút là được"). Bày ra hôm 12/08 rồi rút lại ngay trong ngày.
+            Máy chủ GIỮ NGUYÊN đường huỷ (`POST /api/purchase-requests/{id}/cancel`) cùng 4 nhánh
+            test của nó: nó vẫn là van gỡ kẹt khi phiếu lập nhầm. Bật lại = bỏ dấu chú thích ở
+            khối dưới; luật hiện nút đã chép sẵn đúng theo `PurchaseService.cancel`.
+        {huyPhieuDuoc(row) && (
           <RowActionButton
             dense={dense}
-            // Đơn theo đợt: lùi về "Giao một phần" (không phải "Đã mua") — nhãn nói đúng đích để
-            // người bấm biết mình sẽ rơi về đâu.
-            label={
-              row.deliveries.length > 0 ? "Mở lại đơn" : "Lùi đã nhận"
-            }
-            icon="rotateCcw"
+            label="Huỷ phiếu"
+            icon="ban"
             danger
+            loading={busy("cancel")}
             onClick={() =>
-              setReasonModal({ kind: "undo_received", row, reason: "", error: null })
+              setReasonModal({ kind: "cancel", row, reason: "", error: null })
             }
           />
-        )}
+        )} */}
       </div>
     );
   }
@@ -2372,16 +2389,15 @@ export function PurchaseRequestsPage({
 
       <ConfirmDialog
         open={Boolean(reasonModal)}
-        // Hộp thoại này nay CHỈ dùng cho một việc: lùi trạng thái đã nhận. Hai nhánh cũ
-        // (từ chối / huỷ đơn) đã gỡ 11/08/2026 — xem chú thích ở `confirmReason`.
-        title="Lùi về 'Đang mua'?"
+        // Hộp thoại này nay CHỈ dùng cho một việc: HUỶ PHIẾU.
+        title="Huỷ phiếu mua hàng?"
         message={
           reasonModal
-            ? `Đơn ${reasonModal.row.code} — công nợ của đơn này sẽ mất khỏi màn Kế toán, và yêu cầu của bộ phận quay về "Đang mua".`
+            ? `Phiếu ${reasonModal.row.code} sẽ dừng hẳn, và yêu cầu của bộ phận quay lại hàng chờ để lập phiếu khác. Không hoàn tác được.`
             : undefined
         }
         danger
-        confirmLabel="Lùi trạng thái"
+        confirmLabel="Huỷ phiếu"
         busy={
           reasonModal
             ? actionBusy === `${reasonModal.kind}:${reasonModal.row.id}`
@@ -2393,7 +2409,7 @@ export function PurchaseRequestsPage({
       >
         <label className="purchase__field">
           <span>
-            Lý do lùi (bắt buộc)
+            Lý do huỷ (bắt buộc)
           </span>
           <textarea
             className="input purchase__textarea"
@@ -2926,6 +2942,12 @@ function DeliveriesBlock({
   // gác nhầm là giấu nút của chính người cần dùng nó nhiều nhất.
   const coQuyenNhapKho = useCan()("kho", "request");
   const dots = row.deliveries;
+  // Khung XEM ẢNH hoá đơn của một đợt. `i` = đang xem tấm thứ mấy (đợt có thể nhiều tấm).
+  const [xemAnh, setXemAnh] = useState<null | {
+    ds: PurchaseAttachmentRow[];
+    i: number;
+    dot: number;
+  }>(null);
 
   return (
     <section className="pdot">
@@ -3037,8 +3059,29 @@ function DeliveriesBlock({
                       const n = row.attachments.filter(
                         (a) => a.delivery_id === dot.id && a.kind === "hoa_don",
                       ).length;
+                      // BẤM VÀO LÀ XEM ẢNH, ngay tại chỗ (chủ chốt 15/08/2026).
+                      //
+                      // Bản 12/08 cho bấm nhưng mở ô SỬA ĐỢT — vì ảnh đã render sẵn trong đó, tôi
+                      // tưởng khỏi dựng thêm màn. Sai: người ta bấm vào cái kẹp giấy là muốn NHÌN
+                      // cái ảnh, mà cái mở ra lại là một form nhập liệu có nút "Lưu đợt giao" —
+                      // vừa lạc, vừa mời người ta sửa nhầm một con số đang đẻ ra công nợ.
                       return n > 0 ? (
-                        <span className="pdot__clip">📎 {n}</span>
+                        <button
+                          type="button"
+                          className="pdot__clip pdot__clip--btn"
+                          onClick={() =>
+                            setXemAnh({
+                              ds: row.attachments.filter(
+                                (a) => a.delivery_id === dot.id && a.kind === "hoa_don",
+                              ),
+                              i: 0,
+                              dot: dot.seq_no,
+                            })
+                          }
+                          title={`Xem ${n} ảnh hoá đơn của đợt ${dot.seq_no}`}
+                        >
+                          📎 {n}
+                        </button>
                       ) : null;
                     })()}
                   </td>
@@ -3136,6 +3179,101 @@ function DeliveriesBlock({
           Còn nợ <b>{money(row.outstanding_amount)}</b>
         </span>
       </div>
+
+      {/* KHUNG XEM ẢNH hoá đơn — chỉ để NHÌN: không ô nhập, không nút lưu, đóng là xong.
+          Có nút mở tab mới cho ai cần phóng to / tải về, và mũi tên khi đợt có nhiều tấm. */}
+      {xemAnh && xemAnh.ds.length > 0 && (
+        <div
+          className="pdot__lb"
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setXemAnh(null);
+          }}
+        >
+          <div
+            className="pdot__lb-box"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Ảnh hoá đơn đợt ${xemAnh.dot}`}
+          >
+            <header className="pdot__lb-head">
+              <span className="pdot__lb-name">
+                Hoá đơn · đợt {xemAnh.dot}
+                {xemAnh.ds.length > 1 && (
+                  <small>
+                    {" "}
+                    ({xemAnh.i + 1}/{xemAnh.ds.length})
+                  </small>
+                )}
+              </span>
+              <div className="pdot__lb-acts">
+                <a
+                  href={assetUrl(xemAnh.ds[xemAnh.i].file_url) ?? "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Mở tab mới / tải về"
+                >
+                  Mở tab mới
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setXemAnh(null)}
+                  aria-label="Đóng"
+                >
+                  ✕
+                </button>
+              </div>
+            </header>
+            <div className="pdot__lb-body">
+              {ATTACHMENT_IMAGE_TYPES.includes(
+                xemAnh.ds[xemAnh.i].file_type ?? "",
+              ) ? (
+                <img
+                  src={assetUrl(xemAnh.ds[xemAnh.i].file_url) ?? ""}
+                  alt={xemAnh.ds[xemAnh.i].file_name}
+                />
+              ) : (
+                // PDF cũng đính kèm được ở đây — nhúng thẳng, khỏi bắt tải về mới xem được.
+                <iframe
+                  src={assetUrl(xemAnh.ds[xemAnh.i].file_url) ?? ""}
+                  title={xemAnh.ds[xemAnh.i].file_name}
+                />
+              )}
+            </div>
+            {xemAnh.ds.length > 1 && (
+              <footer className="pdot__lb-nav">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() =>
+                    setXemAnh((c) =>
+                      c
+                        ? { ...c, i: (c.i - 1 + c.ds.length) % c.ds.length }
+                        : c,
+                    )
+                  }
+                >
+                  ← Trước
+                </Button>
+                <span className="pdot__lb-filename">
+                  {xemAnh.ds[xemAnh.i].file_name}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() =>
+                    setXemAnh((c) =>
+                      c ? { ...c, i: (c.i + 1) % c.ds.length } : c,
+                    )
+                  }
+                >
+                  Sau →
+                </Button>
+              </footer>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

@@ -1888,3 +1888,149 @@
   color: var(--ash-2);
   font-size: var(--fs-xs);
 }
+
+/* Nhãn "📎 N" ở bảng đợt giao — NAY LÀ NÚT (chủ chốt 12/08/2026: "thêm hình ảnh mà lại không
+   bấm vào xem được"). Trước đây là `<span>` trơ: ảnh có lưu, có hiện đủ trong ô sửa đợt, nhưng
+   từ bảng thì chỉ thấy con số. Giữ nguyên dáng nhãn, chỉ thêm dấu hiệu bấm được. */
+.pdot__clip--btn {
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.pdot__clip--btn:hover { text-decoration-style: solid; }
+
+/* KHUNG XEM ẢNH hoá đơn của một đợt giao (15/08/2026).
+
+   Bản trước bấm 📎 thì mở ô SỬA ĐỢT — có ảnh thật, nhưng kèm cả form nhập và nút "Lưu đợt giao".
+   Người chỉ muốn nhìn cái hoá đơn lại đứng trước một cái form sửa số liệu đang đẻ ra công nợ.
+   Khung này CHỈ ĐỂ NHÌN: không ô nhập, không nút lưu. */
+.pdot__lb {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  background: rgba(20, 19, 15, 0.62);
+  backdrop-filter: blur(2px);
+}
+
+.pdot__lb-box {
+  display: flex;
+  flex-direction: column;
+  width: min(920px, 100%);
+  max-height: 92vh;
+  overflow: hidden;
+  border-radius: var(--r-6);
+  background: var(--canvas);
+  box-shadow: var(--shadow-lg);
+}
+
+.pdot__lb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.pdot__lb-name {
+  font-weight: 600;
+}
+
+.pdot__lb-name small {
+  color: var(--ash-2);
+  font-weight: 400;
+}
+
+.pdot__lb-acts {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+.pdot__lb-acts button {
+  border: 0;
+  background: none;
+  color: var(--ash-2);
+  font-size: var(--fs-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pdot__lb-acts button:hover { color: var(--ink); }
+
+/* Nền tối sau ảnh: hoá đơn chụp bằng điện thoại hay lẫn nền trắng, không có nền tối thì mép ảnh
+   biến mất vào hộp thoại. */
+.pdot__lb-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  flex: 1;
+  padding: var(--sp-3);
+  background: var(--charcoal-2);
+}
+
+.pdot__lb-body img {
+  max-width: 100%;
+  max-height: 76vh;
+  object-fit: contain;
+}
+
+.pdot__lb-body iframe {
+  width: 100%;
+  height: 76vh;
+  border: 0;
+  background: #fff;
+}
+
+.pdot__lb-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+  border-top: 1px solid var(--rule-soft);
+}
+
+.pdot__lb-filename {
+  overflow: hidden;
+  color: var(--ash-2);
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Ô đơn vị CHỈ ĐỌC (màn Yêu cầu mua hàng) — trông như ô nhập để hàng không lệch, nhưng không
+   bấm được. Đơn vị ở đó bám đúng mặt hàng, người đề nghị mua không đổi được. */
+/* ĐVT CHỈ ĐỌC — đọc như một GIÁ TRỊ, không phải ô nhập bị khoá (15/08/2026).
+
+   Bản trước mượn nguyên lớp `.rc-input` (viền + nền + shadow lõm) rồi hạ opacity: nhìn y hệt một
+   ô nhập, người dùng bấm vào rồi chờ nó cho gõ. Tệ hơn: chưa chọn vật tư thì chữ rỗng ⇒ ra đúng
+   một cái viên thuốc trắng trơn, trông như giao diện vỡ.
+   Nay bỏ hẳn khung, chỉ giữ chiều cao + `min-width` để hàng trong lưới không xô lệch. */
+.kho-dv__ro {
+  display: inline-flex;
+  align-items: center;
+  min-width: 88px;
+  min-height: 36px;
+  padding: 0 var(--sp-1);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  cursor: default;
+}
+
+/* Chưa chọn vật tư: hiện gạch ngang mờ, KHÔNG để trống — ô trống không nói được là "chưa có"
+   hay "hỏng". */
+.kho-dv__ro--trong {
+  color: var(--ash-2);
+}

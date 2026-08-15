@@ -250,5 +250,10 @@ class AttendancePeriodLine(Base):
     # đúng lúc HCNS bấm Chốt (draft một số, chốt xong một số). Ngưỡng "bao nhiêu công thì được
     # hưởng" KHÔNG lưu ở đây — đó là chính sách trả tiền, nằm ở tham số Lương.
     ca_lam_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: {"lam": {ngay: phut}, "nghi": {ngay: phut}} — phút tăng ca TỪNG NGÀY, tách theo loại ngày.
+    #: Nền tính SUẤT CƠM TĂNG CA ở Lương: ngày làm việc phải đủ ngưỡng mới có suất, ngày nghỉ thì
+    #: cứ tăng ca là có. `ot_minutes` tổng tháng KHÔNG trả lời được câu hỏi theo ngày đó.
+    #: Đóng băng qua Chốt công như hai cột trên — thiếu là suất cơm NHẢY SỐ đúng lúc chốt công.
+    ot_days_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

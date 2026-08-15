@@ -420,6 +420,11 @@ class PayablePaidOut(BaseModel):
     invoice_date: date | None = None
     has_attachment: bool = False
     paid_date: date
+    # NGƯỜI LẬP phiếu chi — hỏi "ai duyệt cho tiền ra" thì phải trả lời được ngay tại dòng, không
+    # bắt mở từng phiếu. Các màn Phiếu chi / Đơn mua hàng đã có cột này từ lâu; rổ "đã trả" ở màn
+    # Công nợ phải trả là chỗ CUỐI CÙNG còn thiếu (chủ chốt 15/08/2026).
+    created_by_user_id: int | None = None
+    created_by_name: str | None = None
 
 
 class PayableCocOut(BaseModel):

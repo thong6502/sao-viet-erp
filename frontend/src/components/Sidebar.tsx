@@ -97,11 +97,17 @@ const NAV: NavSection[] = [
         icon: "clipboard",
         module: "yeu_cau_mua_hang",
         // ke_toan: kế toán bấm mã YCMH từ PMH/Phiếu chi để truy vết ngược.
-        // Danh sách dự phòng GIỮ NGUYÊN các phân hệ đề nghị vật tư — phải khớp
-        // DEPARTMENT_REQUEST_READER_MODULES ở backend, lệch là menu hiện mà API trả 403.
+        // Danh sách dự phòng GIỮ NGUYÊN các phân hệ đề nghị vật tư — nó là TẬP CON của
+        // DEPARTMENT_REQUEST_READER_MODULES ở backend. Rộng hơn backend là menu hiện mà API trả
+        // 403; hẹp hơn thì chỉ ẩn menu, quyền đọc dữ liệu không suy suyển.
+        //
+        // ⚠️ CỐ Ý THIẾU "thu_mua" (chủ chốt 15/08/2026: "tôi chỉ cấp quyền cho mình nhìn thấy
+        // menu thu mua thôi"). Người mua hàng VẪN đọc được YCMH ở máy chủ — bắt buộc, vì màn Mua
+        // hàng gọi thẳng API đó để nạp ô chọn nguồn (`loadSources`). Chỉ là không tự động hiện
+        // thêm một mục menu khi quản trị mới cấp mỗi ô Mua hàng; muốn có menu thì cấp ô
+        // "Yêu cầu mua hàng". Gỡ dòng ngoại lệ trong `test_giao_dien_khop_may_chu.py` nếu đảo lại.
         modules: [
           "yeu_cau_mua_hang",
-          "thu_mua",
           "bao_gia",
           "kho",
           "san_xuat",

@@ -43,6 +43,7 @@ from ..repositories.user_repo import UserRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.payroll_component_repo import PayrollComponentRepository
 from ..schemas.payroll import (
+    CongBoIn,
     ComponentDeleteOut,
     BulkAssignIn,
     BulkAssignOut,
@@ -685,6 +686,33 @@ def reopen_period(body: GenerateIn, svc: Service, authz: Authz,
     return PeriodOut.model_validate(p)
 
 
+@router.post("/cong-bo", response_model=PeriodOut)
+def cong_bo_phieu(body: CongBoIn, svc: Service, authz: Authz,
+                  user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> PeriodOut:
+    """Phát phiếu lương cho NLĐ — ngay, hoặc hẹn giờ.
+
+    Gác bằng ô CHỐT BẢNG LƯƠNG chứ không thêm ô quyền mới (chủ chốt 12/08/2026, đường 2: bớt ô để
+    quên). Ngoài đời người chốt lương và người phát phiếu cũng là một; lỡ tay thì có `/thu-hoi`."""
+    _chan_neu_khong_toan_cong_ty(authz, user, "Công bố phiếu lương")
+    try:
+        p = svc.cong_bo_phieu(year=body.year, month=body.month, actor=user,
+                              luc=body.luc, den=body.den)
+    except PayrollError as exc:
+        _raise(exc)
+    return PeriodOut.model_validate(p)
+
+
+@router.post("/thu-hoi", response_model=PeriodOut)
+def thu_hoi_phieu(body: GenerateIn, svc: Service, authz: Authz,
+                  user: Annotated[User, Depends(require_permission(MODULE, "lock"))]) -> PeriodOut:
+    _chan_neu_khong_toan_cong_ty(authz, user, "Thu hồi phiếu lương")
+    try:
+        p = svc.thu_hoi_phieu(year=body.year, month=body.month, actor=user)
+    except PayrollError as exc:
+        _raise(exc)
+    return PeriodOut.model_validate(p)
+
+
 @router.post("/pay", response_model=PeriodOut)
 # Ô RIÊNG (10/08/2026) — KHÔNG dùng chung với "Chốt bảng lương".
 # Chốt = số đã tính xong, còn Đánh dấu đã chi = tuyên bố TIỀN ĐÃ RA TỚI TAY người lao động, và nó
@@ -1077,6 +1105,20 @@ def update_line_component(row_id: int, body: LineComponentPatchIn, svc: Service,
     except PayrollError as exc:
         _raise(exc)
     return LineComponentOut.model_validate(row)
+
+
+@router.post("/lines/components/{row_id}/bo-de", response_model=LineComponentOut | None)
+def bo_de_line_component(row_id: int, svc: Service,
+                         user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+    """"Trả về theo hồ sơ" — bỏ số đè của riêng kỳ này, lấy lại mức đang khai ở hồ sơ NV.
+
+    Trả `null` khi khoản đó đã bị gỡ khỏi hồ sơ (dòng bị xoá luôn — giữ lại là trả một khoản NV
+    không còn được hưởng)."""
+    try:
+        row = svc.bo_de_line_component(actor=user, row_id=row_id)
+    except PayrollError as exc:
+        _raise(exc)
+    return LineComponentOut.model_validate(row) if row is not None else None
 
 
 @router.delete("/lines/components/{row_id}", status_code=204)

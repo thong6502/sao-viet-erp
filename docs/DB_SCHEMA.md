@@ -1849,6 +1849,7 @@ từ đây khi kỳ đã `locked`. Xóa + ghi lại mỗi lần Chốt / Mở l�
 | `ot_holiday_minutes` | `Integer` → `INTEGER` | — | no | `0` | Phút OT ngày lễ. Thêm qua migration 0065. |
 | `ot_restday_minutes` | `Integer` → `INTEGER` | — | no | `0` | Phút OT ngày nghỉ tuần. Thêm qua migration 0065. |
 | `late_off_days_json`, `ca_lam_json` | `Text` → `TEXT` | — | yes | — | JSON list SỐ PHÚT vi phạm (trễ+sớm, không phép) MỖI NGÀY — đóng băng để Lương áp bảng phạt trễ/sớm tự động (mỗi phần tử = 1 lần). Thêm qua migration 0098. |
+| `ot_days_json` | `Text` → `TEXT` | — | yes | — | `{"lam": {ngày: phút}, "nghi": {ngày: phút}}` — phút tăng ca TỪNG NGÀY, tách ngày làm việc / ngày nghỉ theo Lịch chung. Nền tính SUẤT CƠM TĂNG CA ở Lương (`ot_minutes` tổng tháng không trả lời được "ngày nào đủ ngưỡng"). Đóng băng khi chốt công. Thêm qua migration 0190. |
 | `night_premium_minutes` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Σ phút đêm TRONG ca × (hệ số ca − 1) → Lương tính premium giờ đêm. Thêm qua migration 0101. |
 | `ot_night_normal_minutes` | `Integer` → `INTEGER` | — | no | `0` | Phút TĂNG CA ĐÊM ngày thường (Lương áp hệ số luật). Thêm qua migration 0101. |
 | `ot_night_restday_minutes` | `Integer` → `INTEGER` | — | no | `0` | Phút TĂNG CA ĐÊM ngày nghỉ tuần. Thêm qua migration 0101. |
@@ -2626,6 +2627,8 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 | `pit_flat_threshold` | `Numeric(14,2)` | no | `2000000` | Ngưỡng thu nhập MỖI LẦN TRẢ mới phải khấu trừ tại nguồn (hiện 2.000.000đ). Đi cặp với `pit_flat_rate`. Thêm qua migration 0120. |
 | `phat_cap_pct` | `Numeric(6,4)` | no | `0.3` | **TRẦN KHẤU TRỪ KỶ LUẬT** — PHÂN SỐ (`0.30` = 30%). ⚠️ Đây là MỨC LUẬT, không phải chính sách công ty: Điều 102 BLLĐ 2019 giới hạn khấu trừ mỗi tháng không quá 30% lương còn lại sau khi trừ BHXH và TNCN. Trước viết cứng `0.30` trong `_capped_penalty`. `0` = TẮT TRẦN (ghi phạt bao nhiêu trừ bấy nhiêu; thực nhận vẫn có sàn 0, không âm) — màn Cấu hình lương cảnh báo khi đặt 0 hoặc > 30%. Thêm qua migration 0126. |
 | `phu_cap_ca_min_cong` | `Numeric(5,2)` | no | `0.5` | **NGƯỠNG CÔNG để hưởng phụ cấp cơm/ca của một ngày** (chủ chốt 03/08/2026). Ngày có `cong >= ` số này thì hưởng **TRỌN** mức của ca; dưới ngưỡng thì **KHÔNG có gì** — cố ý **KHÔNG nhân theo tỷ lệ**: một suất ăn là có hoặc không, nhân tỷ lệ thì đi muộn 15 phút (công 0,97) ra 24.250đ tiền cơm. `0.5` = nghỉ nửa buổi vẫn được hưởng. ⚠️ Hệ thống KHÔNG có cờ "nửa buổi" — đi muộn/về sớm/nghỉ nửa buổi dùng chung `late_early_requests` và engine chỉ đọc ĐỘ DÀI khoảng vắng, nên luật buộc phải diễn đạt theo `cong`. Thêm qua migration 0157. |
+| `com_tang_ca_nguong_phut` | `Integer` | no | `180` | Ngưỡng phút tăng ca trong MỘT NGÀY để được suất cơm — chỉ áp cho NGÀY LÀM VIỆC. Ngày nghỉ theo Lịch chung (gồm lễ, off1x) cứ có tăng ca là có suất. Thêm qua migration 0190. |
+| `com_tang_ca_muc` | `Numeric(14,2)` | no | `0` | Tiền MỘT suất cơm tăng ca. Mặc định 0 = TẮT (chủ tự khai) — cùng lối `cong_doan_rate`. Thêm qua migration 0190. |
 | `bhxh_mien_tu_so_ngay` | `Integer` | no | `14` | **SỐ NGÀY nghỉ không lương trong tháng mà từ đó tháng đó KHÔNG ĐÓNG BHXH.** ⚠️ MỨC LUẬT, không phải chính sách công ty: QĐ 595/QĐ-BHXH Đ42.4 — không làm việc và không hưởng tiền lương từ **14 ngày làm việc** trở lên trong tháng thì tháng đó không đóng BHXH. Engine đếm `ngay_khong_luong = standard_cong − actual_cong − plain_cong` (`plain_cong` là ngày off1x CÓ đi làm và CÓ trả 1× nên phải cộng lại, không thì người làm ngày đó mất BHXH oan). `0` = **TẮT LUẬT**: tháng nào cũng trừ BHXH, như hành vi trước 04/08/2026 — engine kiểm `> 0` TRƯỚC khi so, thiếu chốt đó thì `>= 0` luôn đúng và cả xưởng mất sạch BHXH. Trước 04/08/2026 số 14 viết cứng trong `payroll_service`. Thêm qua migration 0158. |
 | `updated_at` | `DateTime(tz)` | no | now | Lần cập nhật. |
 
@@ -2750,6 +2753,8 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `created_by` | `Integer` | **FK→users.id** | yes | — | Người tạo kỳ. |
 | `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
 | `generated_at` | `DateTime(tz)` | — | yes | — | Lần chạy engine (Tính lại) gần nhất. So với `attendance_periods.locked_at` để chặn chốt lương trên số tính TRƯỚC lúc chốt công. NULL = kỳ có từ trước migration `0186`. |
+| `cong_bo_luc` | `DateTime(tz)` | — | yes | — | Mốc MỞ phiếu lương cho NLĐ. NULL = chưa công bố. Mốc tương lai = đã hẹn giờ. Mở lại kỳ ⇒ tự về NULL. Thêm qua migration `0187`. |
+| `dong_phieu_luc` | `DateTime(tz)` | — | yes | — | Mốc ĐÓNG phiếu. NULL = mở không thời hạn. Cùng `cong_bo_luc` tạo một CỬA SỔ: NV thấy phiếu khi `cong_bo_luc <= now < dong_phieu_luc` — kiểm lúc ĐỌC, không cần job nền. Thêm qua migration `0189`. |
 
 ---
 
@@ -2786,6 +2791,7 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `night_days` | `Integer` | — | no | `0` | Số ngày làm ca đêm (từ Chấm công) — chỉ để tham khảo, KHÔNG ra tiền. Thêm qua migration 0043. |
 | `night_pay` | `Numeric(14,2)` | — | no | `0` | ⚠️ **NGƯNG từ 03/08/2026 — luôn 0.** Trước đây = số KHAI TAY ở `employee_salaries.phu_cap_ca` (cộng phẳng) và được miễn TNCN. Phần miễn đó là **di sản**: ô này vốn là tiền ca đêm ĐƯỢC TÍNH (đơn giá tổ × số lượt, bỏ ở mg 0090), khi đổi sang số gõ tay thì phần miễn bị bê nguyên sang — mà TT 111/2013 Đ3.1.i chỉ miễn **phần trả CAO HƠN** gắn với giờ đêm/tăng ca THỰC TẾ. Nay phụ cấp cơm/ca tính theo CA THỰC LÀM (2 cột dưới); cột này GIỮ để không mất lịch sử kỳ đã chốt. API vẫn phơi alias `ca_pay`. |
 | `meal_allowance_pay` | `Numeric(14,2)` | — | no | `0` | Tiền **CƠM CA** = `work_shifts.meal_allowance` × số ngày THỰC LÀM ca đó. Thêm qua migration 0157. |
+| `com_tang_ca_pay` | `Numeric(14,2)` | — | no | `0` | Tiền cơm **TĂNG CA** của kỳ. Cột RIÊNG, không gộp `meal_allowance_pay`: hai khoản khác luật và một ngày có thể ăn cả hai. Miễn TNCN như cơm ca. Thêm qua migration 0190. |
 | `shift_allowance_pay` | `Numeric(14,2)` | — | no | `0` | **PHỤ CẤP CA** = `work_shifts.shift_allowance` × số ngày THỰC LÀM ca đó. Tách RIÊNG khỏi cột trên vì tiền ăn giữa ca có trần miễn thuế riêng (730k/tháng) — gộp một cục là mất đường tách sau. Cả hai **CHỊU thuế TNCN**; khoản nào thật sự miễn thì khai ở danh mục khoản thu nhập có cờ `is_taxable`. Thêm qua migration 0157. |
 | `night_premium_pay` | `Numeric(14,2)` | — | no | `0` | **Premium CA ĐÊM theo GIỜ** (giờ 22h–06h × hệ số ca + tăng ca đêm Đ98.3) — tự tính từ chấm công, DÒNG RIÊNG, miễn TNCN. Thêm qua migration 0102. |
 | `vi_pham` | `Numeric(14,2)` | — | no | `0` | Giảm trừ khác (nhập tay, RAW; gộp trần 30% Đ102). |
@@ -2899,6 +2905,7 @@ vẫn in ra đúng y lúc trả tiền. Bảng do `create_all` tạo (không mig
 | `is_taxable` | `Boolean` | — | no | `true` | Cờ chịu thuế TẠI THỜI ĐIỂM TÍNH — đổi cờ ở danh mục không sửa số kỳ cũ. |
 | `amount` | `Numeric(14,2)` | — | no | `0` | Số tiền khoản này trên dòng lương (đồng). |
 | `source` | `String(8)` | — | no | `employee` | NGUỒN dòng này: `employee` = chép từ hồ sơ NV ⇒ bị GHI ĐÈ mỗi lần "Tính lại"; `line` = HCNS thêm tay cho RIÊNG kỳ này (thưởng nóng) ⇒ GIỮ NGUYÊN qua mọi lần tính lại và KHÔNG lặp sang kỳ sau. Thiếu cột này thì "Tính lại" xoá sạch thưởng nóng. Thêm qua migration 0121. |
+| `da_de_tay` | `Boolean` | — | no | `false` | HCNS đã SỬA TAY số tiền của dòng này cho RIÊNG kỳ này. Dòng đè vẫn giữ `source='employee'` nhưng được miễn khỏi lượt xoá-ghi-lại của "Tính lại", và `generate` phải BỎ QUA khoản hồ sơ đã có dòng đè (quên là sinh dòng trùng, NV ăn hai lần). Thêm qua migration `0188`. |
 | `note` | `String(255)` | — | yes | — | Ghi chú (vd "Thưởng nóng của Sếp"). Thêm qua migration 0121. |
 
 - Keys & indexes: PK `id`; UNIQUE `(line_id, component_id)` = `uq_line_component`; index `line_id`, `component_id`.

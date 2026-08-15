@@ -266,16 +266,13 @@ const FINE_ACTIONS: Record<
     { key: "can_export", label: "Xuất bảng lương / file chuyển khoản" },
   ],
   thu_mua: [
-    {
-      key: "can_manage_status",
-      label: "Sửa / đảo trạng thái đơn sau khi nhận hàng",
-      hint: "Sửa số thực nhận · Mở lại đơn (lùi khỏi “Đã nhận”) · Đóng đơn khi nhà cung cấp không giao nữa. Việc của bộ phận mua hàng, KHÔNG phải quyền duyệt chi tiền — ô Duyệt / từ chối PMH nay nằm dưới màn Đơn mua hàng (Kế toán), đúng nơi có nút.",
-    },
-    {
-      key: "can_cancel",
-      label: "Hủy PMH",
-      hint: "Huỷ phiếu mua hàng. Người lập tự huỷ được phiếu NHÁP của chính mình; phiếu đã gửi duyệt thì chỉ người có quyền duyệt mới huỷ được (xem `purchase_service.cancel`).",
-    },
+    // ĐÃ BỎ 12/08/2026 (chủ chốt test rồi quyết) — hai ô này không đáng tồn tại:
+    //   • "Sửa / đảo trạng thái đơn sau khi nhận hàng" (`can_manage_status`): ba việc nó gác
+    //     (sửa số nhận · mở lại đơn · đóng đơn) là việc thường ngày của chính người lập phiếu,
+    //     nay gộp vào ô "Thao tác". Migration `0191` đổ quyền cũ về `can_update`.
+    //   • "Hủy PMH" (`can_cancel`): CHƯA BAO GIỜ được đọc. `purchase_service.cancel` gác bằng
+    //     `ke_toan:approve` (hoặc chính người lập, khi phiếu còn nháp) — ô này bật hay tắt đều
+    //     không đổi gì. Đã khai vào `deps.O_CHET_DA_XAC_MINH`.
   ],
   // Ô của màn Đơn mua hàng (Kế toán) — dời từ phân hệ Mua hàng xuống 11/08/2026: nút Duyệt /
   // Từ chối chỉ có ở màn này, để ô trên kia thì nhìn ma trận không đoán ra nó tác dụng ở đâu.

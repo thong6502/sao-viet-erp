@@ -970,6 +970,30 @@ def test_tra_xong_thi_roi_khoi_cong_no_va_vao_ro_da_tra(client):
     assert sum(x["amount"] for x in chi_tiet["paid"]) == chi_tiet["paid_in_period"] == 2_200_000
 
 
+def test_ro_da_tra_noi_ro_AI_LAP_phieu_chi(client):
+    """Rổ "Tiền đã rời két" phải nói tên NGƯỜI LẬP từng phiếu (chủ chốt 15/08/2026).
+
+    Soi sao kê nhà cung cấp mà thấy một dòng lạ, câu hỏi đầu tiên luôn là "phiếu này ai cho ra" —
+    trước đây phải mở từng phiếu chi mới biết. Màn Phiếu chi và Đơn mua hàng đã có cột này từ lâu;
+    đây là chỗ cuối còn thiếu.
+
+    Phiếu ở đây do KẾ TOÁN lập, KHÔNG phải admin — nếu ai đó trả nhầm tên người đang đăng nhập
+    (hoặc tên người lập ĐƠN MUA) thì test đỏ ngay."""
+    headers = _headers(client)
+    supplier = _supplier(client, headers, name="NCC Ai Lap Phieu")
+    don = _don(client, headers, supplier["id"], coc=2_200_000)   # đơn do ADMIN lập
+    _ve_hang(client, headers, don["id"])
+
+    ke_toan = _token_vai("cn-ketoan-lap", module="phieu_chi", can_read=True, can_create=True)
+    _phieu_chi(client, {"Authorization": f"Bearer {ke_toan}"}, don["id"], 2_200_000)
+
+    lan_tra = _cong_no_ncc(client, headers, supplier["id"])["paid"]
+    assert len(lan_tra) == 1
+    assert lan_tra[0]["created_by_name"] == "cn-ketoan-lap", (
+        "rổ đã trả không nói đúng người LẬP phiếu chi"
+    )
+
+
 def test_phieu_huy_khong_tinh_la_no(client):
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Phieu Huy")
@@ -1285,14 +1309,18 @@ def test_sua_so_thuc_nhan_xuong_duoi_so_da_cam_ket_bi_chan(client):
 
 
 def test_sua_so_thuc_nhan_doi_2_can_quyen_duyet(client):
-    """Đợt 1 về 600, đợt 2 về nốt ⇒ sửa lên 1000. Nhưng phải là người có quyền duyệt."""
+    """Đợt 1 về 600, đợt 2 về nốt ⇒ sửa lên 1000. Người chỉ ĐỌC thì không được sửa.
+
+    ⚠️ Luật đổi 12/08/2026: ô riêng `thu_mua:manage_status` ĐÃ BỎ (chủ chốt test và kết luận nó
+    không đáng có) — việc này nay gác bằng chính ô "Thao tác" (`update`). Nên vế 403 phải thử bằng
+    người CHỈ ĐỌC; thử bằng người có `update` là đang đòi lại cái ô đã bỏ."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Hai Dot")
     don = _don(client, headers, supplier["id"])
     line_id = don["lines"][0]["id"]
     _ve_hang(client, headers, don["id"], lines=[{"line_id": line_id, "received_quantity": 600}])
 
-    token = _token_vai("cn-nhanvien", module="thu_mua", can_read=True, can_update=True)
+    token = _token_vai("cn-chi-doc", module="thu_mua", can_read=True)
     tu_choi = client.put(
         f"/api/purchase-requests/{don['id']}/received-quantities",
         json={"lines": [{"line_id": line_id, "received_quantity": 1000}]},
@@ -1472,12 +1500,19 @@ def test_huy_phieu_chi_xong_thi_lui_duoc(client):
 
 
 def test_nhan_vien_khong_duoc_lui_va_phai_ghi_ly_do(client):
+    """Lùi "Đã nhận" xoá một món nợ khỏi màn Kế toán ⇒ phải có ô Thao tác VÀ phải ghi lý do.
+
+    ⚠️ Như test sửa số nhận ở trên: từ 12/08/2026 ô gác là `update` (ô riêng `manage_status` đã
+    bỏ), nên vế 403 thử bằng người CHỈ ĐỌC.
+
+    Nút "Mở lại đơn" trên màn Mua hàng cũng đã gỡ cùng ngày, nhưng ĐƯỜNG NÀY GIỮ NGUYÊN — nó là
+    van an toàn khi lỡ bấm "Đã nhận", nên hàng rào của nó vẫn phải được canh."""
     headers = _headers(client)
     supplier = _supplier(client, headers, name="NCC Lui Quyen")
     don = _don(client, headers, supplier["id"])
     _ve_hang(client, headers, don["id"])
 
-    token = _token_vai("cn-nhanvien2", module="thu_mua", can_read=True, can_update=True)
+    token = _token_vai("cn-chi-doc2", module="thu_mua", can_read=True)
     tu_choi = client.post(
         f"/api/purchase-requests/{don['id']}/undo-received",
         json={"reason": "Tôi muốn lùi"},

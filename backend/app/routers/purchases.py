@@ -241,12 +241,21 @@ def list_suppliers(
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
     _: Annotated[
         User,
-        Depends(require_any_permission((MODULE_NCC, "read"), ("ke_toan", "read"))),
+        # ⚠️ NGƯỜI MUA HÀNG PHẢI ĐỌC ĐƯỢC DANH SÁCH NÀY (chủ chốt 12/08/2026): xử lý một yêu cầu
+        # mua hàng là phải CHỌN nhà cung cấp, mà ô chọn lấy dữ liệu từ chính endpoint này. Bắt cấp
+        # thêm ô "Nhà cung cấp" chỉ để gợi ý được tên NCC là cấp thừa quyền — ô đó cho SỬA danh
+        # mục, còn ở đây chỉ cần ĐỌC.
+        # Cùng lối với ngoại lệ `ke_toan` đã có sẵn: kế toán cũng chỉ đọc để đối chiếu phiếu chi.
+        Depends(require_any_permission((MODULE_NCC, "read"), ("ke_toan", "read"),
+                                       (MODULE, "read"), ("yeu_cau_mua_hang", "read"))),
     ],
     q: str | None = Query(default=None),
     status_: str | None = Query(default=None, alias="status"),
     supplier_group: str | None = Query(default=None),
-    sort: str = Query(default="name"),
+    # Mặc định MỚI NHẤT TRƯỚC (chủ chốt 12/08/2026) — NCC vừa khai xong phải thấy ngay,
+    # đừng bắt người ta đi tìm chính thứ mình vừa tạo. Đổi ở đây thôi là chưa đủ nếu giao
+    # diện tự truyền `sort=name` — đã soi, màn Nhà cung cấp không truyền tham số này.
+    sort: str = Query(default="-created_at"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ) -> SupplierListOut:
@@ -654,7 +663,14 @@ def cancel_purchase_request(
     request_id: int,
     payload: ReasonIn,
     svc: Annotated[PurchaseService, Depends(get_purchase_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "cancel"))],
+    # Ô "Hủy PMH" (`thu_mua:cancel`) ĐÃ BỎ 12/08/2026 — chủ chốt test: "vô dụng". Đúng: tick nó
+    # lên cũng chẳng mở thêm gì, vì (a) KHÔNG màn nào gọi endpoint này, và (b) service còn một
+    # cửa nữa — `ke_toan:approve`, hoặc chính người lập khi phiếu còn NHÁP.
+    # Nay cổng router nói ĐÚNG luật đó thay vì đòi một ô thứ ba không ai cấp.
+    user: Annotated[
+        User,
+        Depends(require_any_permission((MODULE, "update"), ("ke_toan", "approve"))),
+    ],
 ) -> PurchaseRequestOut:
     try:
         row = svc.cancel(request_id, reason=payload.reason, actor=user)

@@ -1961,3 +1961,67 @@
   transition: all var(--duration-base) var(--easing-standard);
 }
 .lg-dept-filter:focus { outline: none; border-color: var(--rust); }
+
+/* ── BẢNG CÔNG BỐ PHIẾU LƯƠNG (12/08/2026) ────────────────────────────────────
+   Trước đó là một hàng trần: nhãn + ô datetime + 2 nút, không khung, không nói
+   được ô bỏ trống nghĩa là gì. Chủ chốt: "giao diện hẹn giờ xấu quá".
+
+   Ba việc bảng này phải làm rõ, vì cả HAI ô đều bỏ trống được và mỗi cách bỏ
+   trống một nghĩa:
+     • mở trống  = mở ngay khi bấm
+     • đóng trống = mở không thời hạn
+   Nên mỗi ô có một dòng chú NGAY DƯỚI, và dưới cùng là một câu tả cả cửa sổ
+   bằng tiếng Việt — người dùng đọc lại được điều mình vừa chọn trước khi bấm.
+
+   Dùng nền `--steel-soft` để tách khỏi băng cảnh báo (`--amber-soft`) và băng
+   thành công (`--moss-soft`) đang có trên cùng màn — đây là khối THAO TÁC, không
+   phải thông báo. */
+.lg-congbo {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--steel-soft);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.lg-congbo__title { font-weight: var(--fw-medium); color: var(--ink); }
+.lg-congbo__grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--sp-4);
+}
+.lg-congbo__field { display: flex; flex-direction: column; gap: 4px; }
+.lg-congbo__field > span { font-size: 13px; color: var(--ash-2); }
+.lg-congbo__field > input {
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  font: inherit;
+  font-family: var(--ff-num);
+  color: var(--ink);
+}
+/* Dòng chú của ô: giữ CHỖ cả khi rỗng (`min-height`) để hai ô không nhảy lên
+   xuống mỗi lần người dùng gõ vào một ô. */
+.lg-congbo__field > em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--ash-2);
+  min-height: 16px;
+}
+/* Nút gợi ý nhanh xuống hàng dưới cùng khi hết chỗ — laptop 1280 vẫn đủ một hàng. */
+.lg-congbo__quick { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-self: flex-end; padding-bottom: 20px; }
+.lg-congbo__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  border-top: 1px solid var(--rule-hair);
+  padding-top: var(--sp-3);
+}
+.lg-congbo__hint { font-size: 13px; color: var(--ash-2); }
+.lg-congbo__act { display: flex; gap: var(--sp-2); }

@@ -787,6 +787,9 @@ function PayablesDrawer({
                       <tr>
                         <th>Ngày trả</th>
                         <th>Phiếu chi</th>
+                        {/* Ai LẬP phiếu — đứng cạnh chính số phiếu của người đó, vì câu hỏi khi
+                            soi sao kê luôn là "phiếu này ai cho ra". */}
+                        <th>Người lập</th>
                         <th>Hóa đơn</th>
                         <th>Đơn · Đợt</th>
                         <th className="pay-num">Số tiền</th>
@@ -805,6 +808,9 @@ function PayablesDrawer({
                                 chưa có chứng từ
                               </small>
                             )}
+                          </td>
+                          <td title={row.created_by_name ?? undefined}>
+                            {row.created_by_name || "—"}
                           </td>
                           <td>
                             <HoaDon
