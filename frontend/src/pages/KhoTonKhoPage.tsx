@@ -28,7 +28,13 @@ import { StockLevelChip } from "../components/StockLevelChip";
 import type { NavigateFn } from "../components/AppShell";
 import { fmtDateISO, money } from "../utils/format";
 import { qrToSvg } from "../lib/qr";
-import { VoucherStatusBadge, fmtQty } from "./khoShared";
+import {
+  DateFilterHead,
+  NumFilterHead,
+  VoucherStatusBadge,
+  fmtQty,
+  inNumRange,
+} from "./khoShared";
 import { InboxRequestDrawer, VoucherDrawer } from "./KhoYeuCauPage";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import "./rebuild-catalog.css";
@@ -114,13 +120,13 @@ export function KhoTonKhoPage({
   const [dateTo, setDateTo] = useState("");
   const [tonFrom, setTonFrom] = useState("");
   const [tonTo, setTonTo] = useState("");
+  const [gtFrom, setGtFrom] = useState(""); // Giá trị tồn (g.value)
+  const [gtTo, setGtTo] = useState("");
   // Bộ lọc tab Phiếu Nhập/Xuất (RIÊNG — khác ngữ nghĩa tab tồn): khoảng NGÀY PHIẾU + khoảng GIÁ VỐN.
   const [vDateFrom, setVDateFrom] = useState("");
   const [vDateTo, setVDateTo] = useState("");
   const [vValFrom, setVValFrom] = useState("");
   const [vValTo, setVValTo] = useState("");
-  const [filterOpen, setFilterOpen] = useState(false);
-  const filterRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -177,37 +183,19 @@ export function KhoTonKhoPage({
     vValTo,
   ]);
 
-  // Đổi tab → XÓA sạch mọi bộ lọc + đóng popover (khỏi lẫn bộ lọc giữa 2 nhóm tab). Effect RIÊNG
-  // chỉ theo [tab] — KHÔNG gộp vào effect reset page (deps của nó là chính các filter → sẽ tự xóa
-  // ngay khi vừa gõ filter).
+  // Đổi tab → XÓA sạch mọi bộ lọc (khỏi lẫn bộ lọc giữa 2 nhóm tab). Effect RIÊNG chỉ theo [tab].
   useEffect(() => {
     setDateFrom("");
     setDateTo("");
     setTonFrom("");
     setTonTo("");
+    setGtFrom("");
+    setGtTo("");
     setVDateFrom("");
     setVDateTo("");
     setVValFrom("");
     setVValTo("");
-    setFilterOpen(false);
   }, [tab]);
-
-  // Đóng popover Lọc khi bấm ra ngoài / nhấn Esc.
-  useEffect(() => {
-    if (!filterOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (filterRef.current && !filterRef.current.contains(e.target as Node)) setFilterOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setFilterOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [filterOpen]);
 
   const groups = useMemo<MaterialGroup[]>(() => {
     const m = new Map<string, MaterialGroup>();
@@ -293,9 +281,11 @@ export function KhoTonKhoPage({
       // Khoảng tồn khả dụng.
       if (tf != null && !Number.isNaN(tf) && g.total < tf) return false;
       if (tt != null && !Number.isNaN(tt) && g.total > tt) return false;
+      // Khoảng GIÁ TRỊ TỒN (g.value).
+      if (!inNumRange(g.value, { from: gtFrom, to: gtTo })) return false;
       return true;
     });
-  }, [groups, q, dateFrom, dateTo, tonFrom, tonTo]);
+  }, [groups, q, dateFrom, dateTo, tonFrom, tonTo, gtFrom, gtTo]);
 
   const shownVouchers = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -352,21 +342,15 @@ export function KhoTonKhoPage({
   // Cảnh báo: mã đang ở "Cần mua" (≤ ngưỡng tồn).
   const canMua = useMemo(() => groups.filter((g) => g.level === "can_mua"), [groups]);
 
-  // Bộ lọc đang bật (để hiện badge số + pill + empty state) — THEO TAB đang xem.
-  const hasDateFilter = dateFrom !== "" || dateTo !== "";
-  const hasTonFilter = tonFrom !== "" || tonTo !== "";
-  const hasVDateFilter = vDateFrom !== "" || vDateTo !== "";
-  const hasVValFilter = vValFrom !== "" || vValTo !== "";
-  const activeFilters =
-    tab === "ton"
-      ? (hasDateFilter ? 1 : 0) + (hasTonFilter ? 1 : 0)
-      : (hasVDateFilter ? 1 : 0) + (hasVValFilter ? 1 : 0);
+  // Xóa mọi bộ lọc của TAB đang xem (nút "Xóa lọc" ở empty-state). Funnel từng cột tự có nút riêng.
   function clearFilters() {
     if (tab === "ton") {
       setDateFrom("");
       setDateTo("");
       setTonFrom("");
       setTonTo("");
+      setGtFrom("");
+      setGtTo("");
     } else {
       setVDateFrom("");
       setVDateTo("");
@@ -497,226 +481,9 @@ export function KhoTonKhoPage({
             </div>
           </>
         )}
-        <div className="kho-filter" ref={filterRef}>
-          <Button
-            variant="secondary"
-            className={`kho-filter__btn${activeFilters > 0 ? " is-active" : ""}`}
-            onClick={() => setFilterOpen((o) => !o)}
-            aria-expanded={filterOpen}
-          >
-            <FilterIcon />
-            Lọc
-            {activeFilters > 0 && <span className="kho-filter__count">{activeFilters}</span>}
-          </Button>
-          {filterOpen && (
-            <div
-              className="kho-filter__pop"
-              role="dialog"
-              aria-label={tab === "ton" ? "Bộ lọc tồn kho" : "Bộ lọc phiếu"}
-            >
-              {tab === "ton" ? (
-                <>
-                  <div className="kho-filter__sec">
-                    <div className="kho-filter__lbl">Ngày nhập</div>
-                    <div className="kho-daterange">
-                      <input
-                        type="date"
-                        className="rc-input"
-                        value={dateFrom}
-                        max={dateTo || undefined}
-                        onChange={(e) => setDateFrom(e.target.value)}
-                        aria-label="Ngày nhập từ"
-                      />
-                      <span className="kho-daterange__sep">–</span>
-                      <input
-                        type="date"
-                        className="rc-input"
-                        value={dateTo}
-                        min={dateFrom || undefined}
-                        onChange={(e) => setDateTo(e.target.value)}
-                        aria-label="Ngày nhập đến"
-                      />
-                    </div>
-                  </div>
-                  <div className="kho-filter__sec">
-                    <div className="kho-filter__lbl">Tồn khả dụng</div>
-                    <div className="kho-daterange">
-                      <input
-                        type="number"
-                        className="rc-input kho-num"
-                        placeholder="từ"
-                        value={tonFrom}
-                        onChange={(e) => setTonFrom(e.target.value)}
-                        aria-label="Tồn từ"
-                      />
-                      <span className="kho-daterange__sep">–</span>
-                      <input
-                        type="number"
-                        className="rc-input kho-num"
-                        placeholder="đến"
-                        value={tonTo}
-                        onChange={(e) => setTonTo(e.target.value)}
-                        aria-label="Tồn đến"
-                      />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="kho-filter__sec">
-                    <div className="kho-filter__lbl">Ngày phiếu</div>
-                    <div className="kho-daterange">
-                      <input
-                        type="date"
-                        className="rc-input"
-                        value={vDateFrom}
-                        max={vDateTo || undefined}
-                        onChange={(e) => setVDateFrom(e.target.value)}
-                        aria-label="Ngày phiếu từ"
-                      />
-                      <span className="kho-daterange__sep">–</span>
-                      <input
-                        type="date"
-                        className="rc-input"
-                        value={vDateTo}
-                        min={vDateFrom || undefined}
-                        onChange={(e) => setVDateTo(e.target.value)}
-                        aria-label="Ngày phiếu đến"
-                      />
-                    </div>
-                  </div>
-                  {canViewCost && (
-                    <div className="kho-filter__sec">
-                      <div className="kho-filter__lbl">Giá trị (giá vốn)</div>
-                      <div className="kho-daterange">
-                        <input
-                          type="number"
-                          className="rc-input kho-num"
-                          placeholder="từ"
-                          value={vValFrom}
-                          onChange={(e) => setVValFrom(e.target.value)}
-                          aria-label="Giá vốn từ"
-                        />
-                        <span className="kho-daterange__sep">–</span>
-                        <input
-                          type="number"
-                          className="rc-input kho-num"
-                          placeholder="đến"
-                          value={vValTo}
-                          onChange={(e) => setVValTo(e.target.value)}
-                          aria-label="Giá vốn đến"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-              <div className="kho-filter__foot">
-                <button
-                  type="button"
-                  className="btn btn--ghost"
-                  disabled={activeFilters === 0}
-                  onClick={clearFilters}
-                >
-                  Xóa lọc
-                </button>
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  onClick={() => setFilterOpen(false)}
-                >
-                  Xong
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
         <div className="rc__spacer" />
       </div>
 
-      {/* Pill các bộ lọc đang bật — theo TAB đang xem (tồn: ngày nhập/tồn · phiếu: ngày phiếu/giá trị). */}
-      {activeFilters > 0 && (
-        <div className="kho-filterbar">
-          {tab === "ton" ? (
-            <>
-              {hasDateFilter && (
-                <span className="kho-filterpill">
-                  Ngày nhập: {dateFrom ? fmtDateISO(dateFrom) : "…"} –{" "}
-                  {dateTo ? fmtDateISO(dateTo) : "…"}
-                  <button
-                    type="button"
-                    className="kho-filterpill__x"
-                    aria-label="Bỏ lọc ngày nhập"
-                    onClick={() => {
-                      setDateFrom("");
-                      setDateTo("");
-                    }}
-                  >
-                    ✕
-                  </button>
-                </span>
-              )}
-              {hasTonFilter && (
-                <span className="kho-filterpill">
-                  Tồn: {tonFrom !== "" ? fmtQty(Number(tonFrom)) : "…"} –{" "}
-                  {tonTo !== "" ? fmtQty(Number(tonTo)) : "…"}
-                  <button
-                    type="button"
-                    className="kho-filterpill__x"
-                    aria-label="Bỏ lọc khoảng tồn"
-                    onClick={() => {
-                      setTonFrom("");
-                      setTonTo("");
-                    }}
-                  >
-                    ✕
-                  </button>
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              {hasVDateFilter && (
-                <span className="kho-filterpill">
-                  Ngày phiếu: {vDateFrom ? fmtDateISO(vDateFrom) : "…"} –{" "}
-                  {vDateTo ? fmtDateISO(vDateTo) : "…"}
-                  <button
-                    type="button"
-                    className="kho-filterpill__x"
-                    aria-label="Bỏ lọc ngày phiếu"
-                    onClick={() => {
-                      setVDateFrom("");
-                      setVDateTo("");
-                    }}
-                  >
-                    ✕
-                  </button>
-                </span>
-              )}
-              {hasVValFilter && (
-                <span className="kho-filterpill">
-                  Giá trị: {vValFrom !== "" ? money(Number(vValFrom)) : "…"} –{" "}
-                  {vValTo !== "" ? money(Number(vValTo)) : "…"}
-                  <button
-                    type="button"
-                    className="kho-filterpill__x"
-                    aria-label="Bỏ lọc khoảng giá trị"
-                    onClick={() => {
-                      setVValFrom("");
-                      setVValTo("");
-                    }}
-                  >
-                    ✕
-                  </button>
-                </span>
-              )}
-            </>
-          )}
-          <button type="button" className="kho-filterbar__clear" onClick={clearFilters}>
-            Xóa lọc
-          </button>
-        </div>
-      )}
 
       {error && (
         <div className="banner banner--error" role="alert" style={{ marginBottom: "var(--sp-4)" }}>
@@ -790,9 +557,7 @@ export function KhoTonKhoPage({
                 )}
                 <th>Vật tư</th>
                 <th style={{ width: "13%" }}>Vị trí</th>
-                <th className="kho-num" style={{ width: "12%" }}>
-                  Tồn khả dụng
-                </th>
+                <NumFilterHead className="kho-num" style={{ width: "12%" }} label="Tồn khả dụng" from={tonFrom} to={tonTo} onChange={(f, t) => { setTonFrom(f); setTonTo(t); }} />
                 <th className="kho-num" style={{ width: "9%" }}>
                   Số đợt nhập
                 </th>
@@ -800,13 +565,9 @@ export function KhoTonKhoPage({
                   Min / Max
                 </th>
                 <th style={{ width: "11%" }}>Trạng thái</th>
-                <th className="kho-num" style={{ width: "12%" }}>
-                  Ngày nhập
-                </th>
+                <DateFilterHead className="kho-num kho-colfil--num" style={{ width: "12%" }} label="Ngày nhập" from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
                 {canViewCost && (
-                  <th className="kho-num" style={{ width: "12%" }}>
-                    Giá trị tồn
-                  </th>
+                  <NumFilterHead className="kho-num" style={{ width: "12%" }} label="Giá trị tồn" from={gtFrom} to={gtTo} onChange={(f, t) => { setGtFrom(f); setGtTo(t); }} />
                 )}
               </tr>
             </thead>
@@ -874,14 +635,12 @@ export function KhoTonKhoPage({
                 <th style={{ width: "14%" }}>Số phiếu</th>
                 <th style={{ width: "13%" }}>Theo yêu cầu</th>
                 <th style={{ width: "16%" }}>Người (lập · duyệt)</th>
-                <th style={{ width: "12%" }}>Ngày</th>
+                <DateFilterHead style={{ width: "12%" }} label={tab === "xuat" ? "Ngày xuất" : "Ngày nhập"} from={vDateFrom} to={vDateTo} onChange={(f, t) => { setVDateFrom(f); setVDateTo(t); }} />
                 <th className="kho-num" style={{ width: "12%" }}>
                   Mặt hàng / Tổng SL
                 </th>
                 {canViewCost && (
-                  <th className="kho-num" style={{ width: "14%" }}>
-                    Giá vốn
-                  </th>
+                  <NumFilterHead className="kho-num" style={{ width: "14%" }} label="Giá vốn" from={vValFrom} to={vValTo} onChange={(f, t) => { setVValFrom(f); setVValTo(t); }} />
                 )}
                 <th style={{ width: "12%" }}>Trạng thái</th>
               </tr>
@@ -2011,22 +1770,6 @@ const SearchIcon = () => (
   >
     <circle cx="11" cy="11" r="8" />
     <path d="m21 21-4.3-4.3" />
-  </svg>
-);
-
-const FilterIcon = () => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
   </svg>
 );
 

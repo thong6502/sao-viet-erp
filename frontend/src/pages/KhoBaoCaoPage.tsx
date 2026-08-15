@@ -13,7 +13,7 @@ import { crud } from "../api/rebuildCatalog";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 import { Select } from "../components/Select";
-import { fmtQty, todayISO } from "./khoShared";
+import { DateFilterHead, NumFilterHead, fmtQty, inDateRange, inNumRange, todayISO } from "./khoShared";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
 
@@ -91,6 +91,15 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   const [khoId, setKhoId] = useState<number | null>(null);
   const [tu, setTu] = useState("");
   const [den, setDen] = useState("");
+  // Sổ · Ngày CT + các cột SỐ (funnel cột) — khai sớm vì `filteredRows` dùng ngay.
+  const [ctFrom, setCtFrom] = useState("");
+  const [ctTo, setCtTo] = useState("");
+  const [slFrom, setSlFrom] = useState(""); // Số lượng
+  const [slTo, setSlTo] = useState("");
+  const [dgFrom, setDgFrom] = useState(""); // Đơn giá
+  const [dgTo, setDgTo] = useState("");
+  const [ttFrom, setTtFrom] = useState(""); // Thành tiền
+  const [ttTo, setTtTo] = useState("");
 
   const [rows, setRows] = useState<BaoCaoKhoRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -277,14 +286,19 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   // Tìm kiếm (số CT / mã / tên hàng) + phân trang — client-side trên dữ liệu đã tải.
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
-      (r) =>
+    return rows.filter((r) => {
+      if (!inDateRange((r.ngay_ct ?? "").slice(0, 10), { from: ctFrom, to: ctTo })) return false;
+      if (!inNumRange(r.so_luong, { from: slFrom, to: slTo })) return false;
+      if (!inNumRange(r.don_gia, { from: dgFrom, to: dgTo })) return false;
+      if (!inNumRange(r.thanh_tien, { from: ttFrom, to: ttTo })) return false;
+      if (!q) return true;
+      return (
         (r.so_ct ?? "").toLowerCase().includes(q) ||
         (r.ma_hang ?? "").toLowerCase().includes(q) ||
-        (r.ten_hang ?? "").toLowerCase().includes(q),
-    );
-  }, [rows, search]);
+        (r.ten_hang ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [rows, search, ctFrom, ctTo, slFrom, slTo, dgFrom, dgTo, ttFrom, ttTo]);
 
   const total = useMemo(
     () => filteredRows.reduce((s, r) => s + (r.thanh_tien ?? 0), 0),
@@ -301,15 +315,32 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   const [histAction, setHistAction] = useState<"all" | "khoa" | "mo">("all");
   // Lọc cho "Kỳ đã khóa" (tìm tên kỳ/phạm vi/ngày).
   const [kyQuery, setKyQuery] = useState("");
+  // Lọc theo TỪNG CỘT ngày (funnel ở tiêu đề cột). KHOẢNG NGÀY dùng chung Lịch sử + Kỳ (chồng lấn).
+  const [lockTu, setLockTu] = useState("");
+  const [lockDen, setLockDen] = useState("");
+  const [tdFrom, setTdFrom] = useState(""); // Lịch sử · Thời điểm (khoa_luc)
+  const [tdTo, setTdTo] = useState("");
+  const [klFrom, setKlFrom] = useState(""); // Kỳ · Khóa lúc (khoa_luc)
+  const [klTo, setKlTo] = useState("");
   useEffect(() => {
     setPage(1);
-  }, [search, loai, khoId, tu, den, tab, histQuery, histAction, kyQuery]);
+  }, [search, loai, khoId, tu, den, tab, histQuery, histAction, kyQuery, lockTu, lockDen,
+      ctFrom, ctTo, tdFrom, tdTo, klFrom, klTo, slFrom, slTo, dgFrom, dgTo, ttFrom, ttTo]);
+
+  // Kỳ [tu,den] có chồng lấn khoảng lọc [lockTu,lockDen]? (đầu nào rỗng = không chặn phía đó).
+  const lockInRange = (tuNgay: string, denNgay: string) => {
+    if (lockTu && denNgay.slice(0, 10) < lockTu) return false;
+    if (lockDen && tuNgay.slice(0, 10) > lockDen) return false;
+    return true;
+  };
 
   // --- Lịch sử thao tác: lọc rồi phân trang (dùng chung `page`; reset ở effect trên) ---
   const filteredLocks = useMemo(() => {
     const q = histQuery.trim().toLowerCase();
     return locks.filter((l) => {
       if (histAction !== "all" && l.hanh_dong !== histAction) return false;
+      if (!lockInRange(l.tu_ngay, l.den_ngay)) return false;
+      if (!inDateRange((l.khoa_luc ?? "").slice(0, 10), { from: tdFrom, to: tdTo })) return false;
       if (!q) return true;
       const pv = l.kho_id == null ? "toàn kho" : l.kho_ten ?? "";
       return (
@@ -319,7 +350,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
         `${fmtDate(l.tu_ngay)} – ${fmtDate(l.den_ngay)}`.toLowerCase().includes(q)
       );
     });
-  }, [locks, histQuery, histAction]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locks, histQuery, histAction, lockTu, lockDen, tdFrom, tdTo]);
   const histPageCount = Math.max(1, Math.ceil(filteredLocks.length / PAGE_SIZE));
   const pagedLocks = useMemo(
     () => filteredLocks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
@@ -329,8 +361,10 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   // --- Kỳ đã khóa: lọc rồi phân trang ---
   const filteredKy = useMemo(() => {
     const q = kyQuery.trim().toLowerCase();
-    if (!q) return kyList;
     return kyList.filter((k) => {
+      if (!lockInRange(k.tu_ngay, k.den_ngay)) return false;
+      if (!inDateRange((k.khoa_luc ?? "").slice(0, 10), { from: klFrom, to: klTo })) return false;
+      if (!q) return true;
       const pv = k.kho_id == null ? "toàn kho" : k.kho_ten ?? "";
       return (
         (k.ten ?? "").toLowerCase().includes(q) ||
@@ -338,7 +372,8 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
         `${fmtDate(k.tu_ngay)} – ${fmtDate(k.den_ngay)}`.toLowerCase().includes(q)
       );
     });
-  }, [kyList, kyQuery]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kyList, kyQuery, lockTu, lockDen, klFrom, klTo]);
   const kyPageCount = Math.max(1, Math.ceil(filteredKy.length / PAGE_SIZE));
   const pagedKy = useMemo(
     () => filteredKy.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
@@ -738,19 +773,6 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                 options={khoOptions}
               />
             </div>
-            <label className="kho-baocao__daterow">
-              <span>Ngày ghi sổ từ</span>
-              <input type="date" className="rc-input" value={tu} max={den || undefined} onChange={(e) => setTu(e.target.value)} />
-            </label>
-            <label className="kho-baocao__daterow">
-              <span>đến</span>
-              <input type="date" className="rc-input" value={den} min={tu || undefined} onChange={(e) => setDen(e.target.value)} />
-            </label>
-            {(tu || den) && (
-              <button type="button" className="rc__link-btn" onClick={() => { setTu(""); setDen(""); }}>
-                Xóa lọc ngày
-              </button>
-            )}
             <input
               className="rc-input"
               style={{ marginLeft: "auto", maxWidth: 260 }}
@@ -770,16 +792,16 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             <table className="rc__table kho-bc">
               <thead>
                 <tr>
-                  <th title="Ngày hạch toán (MISA) — lúc ghi sổ phiếu">Ngày ghi sổ</th>
-                  <th title="Ngày chứng từ — ngày lập phiếu">Ngày CT</th>
+                  <DateFilterHead label="Ngày ghi sổ" from={tu} to={den} onChange={(f, t) => { setTu(f); setDen(t); }} />
+                  <DateFilterHead label="Ngày CT" from={ctFrom} to={ctTo} onChange={(f, t) => { setCtFrom(f); setCtTo(t); }} />
                   <th title="Số chứng từ — mã phiếu PNK/PXK">Số CT</th>
                   <th title="Kho của phiếu — kế toán dựa vào chiều + kho để điền mã 0/1/2/3 trên Excel">Kho</th>
                   <th title="Mã vật tư">Mã hàng</th>
                   <th title="Tên vật tư — di chuột xem đầy đủ nếu dài">Tên hàng</th>
                   <th title="Đơn vị tính">ĐVT</th>
-                  <th className="kho-bc__num" title="Số lượng nhập/xuất">Số lượng</th>
-                  <th className="kho-bc__num" title="Đơn giá (nhập: giá nhập; xuất: giá vốn)">Đơn giá</th>
-                  <th className="kho-bc__num" title="Thành tiền = số lượng × đơn giá">Thành tiền</th>
+                  <NumFilterHead className="kho-bc__num" label="Số lượng" from={slFrom} to={slTo} onChange={(f, t) => { setSlFrom(f); setSlTo(t); }} />
+                  <NumFilterHead className="kho-bc__num" label="Đơn giá" from={dgFrom} to={dgTo} onChange={(f, t) => { setDgFrom(f); setDgTo(t); }} />
+                  <NumFilterHead className="kho-bc__num" label="Thành tiền" from={ttFrom} to={ttTo} onChange={(f, t) => { setTtFrom(f); setTtTo(t); }} />
                 </tr>
               </thead>
               <tbody>
@@ -816,6 +838,11 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                     );
                   })
                 )}
+                {/* Dòng đệm giữ bảng CAO ĐỀU 1 trang dù ít dòng — popover funnel không bị container che. */}
+                {filteredRows.length > 0 &&
+                  Array.from({ length: Math.max(0, PAGE_SIZE - pagedRows.length) }).map((_, i) => (
+                    <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={10}>&nbsp;</td></tr>
+                  ))}
               </tbody>
               {filteredRows.length > 0 && (
                 <tfoot>
@@ -883,10 +910,10 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
           <table className="rc__table kho-bc">
             <thead>
               <tr>
-                <th title="Thời điểm thực hiện thao tác (giờ máy)">Thời điểm</th>
+                <DateFilterHead label="Thời điểm" from={tdFrom} to={tdTo} onChange={(f, t) => { setTdFrom(f); setTdTo(t); }} />
                 <th title="Khóa kỳ hoặc Mở lại kỳ đã khóa">Hành động</th>
                 <th title="Áp dụng cho toàn bộ kho hay một kho cụ thể">Phạm vi</th>
-                <th title="Khoảng ngày chứng từ bị khóa/mở (bao gồm 2 đầu)">Khoảng ngày</th>
+                <DateFilterHead label="Khoảng ngày" from={lockTu} to={lockDen} onChange={(f, t) => { setLockTu(f); setLockDen(t); }} />
                 <th title="Tên kỳ đặt khi khóa (Mở kỳ để trống)">Tên kỳ</th>
                 <th title="Kế toán thực hiện thao tác">Người thực hiện</th>
               </tr>
@@ -916,6 +943,10 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                   </tr>
                 ))
               )}
+              {filteredLocks.length > 0 &&
+                Array.from({ length: Math.max(0, PAGE_SIZE - pagedLocks.length) }).map((_, i) => (
+                  <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={6}>&nbsp;</td></tr>
+                ))}
             </tbody>
           </table>
         </div>
@@ -960,10 +991,10 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
           <table className="rc__table kho-bc">
             <thead>
               <tr>
-                <th title="Khoảng ngày ghi sổ đang bị khóa (gồm 2 đầu)">Khoảng ngày</th>
+                <DateFilterHead label="Khoảng ngày" from={lockTu} to={lockDen} onChange={(f, t) => { setLockTu(f); setLockDen(t); }} />
                 <th title="Tên kỳ đặt khi khóa (tuỳ chọn)">Tên kỳ</th>
                 <th title="Toàn kho hay một kho cụ thể">Phạm vi</th>
-                <th title="Thời điểm khóa kỳ này">Khóa lúc</th>
+                <DateFilterHead label="Khóa lúc" from={klFrom} to={klTo} onChange={(f, t) => { setKlFrom(f); setKlTo(t); }} />
                 <th aria-hidden="true" />
               </tr>
             </thead>
@@ -991,6 +1022,10 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                   </tr>
                 ))
               )}
+              {filteredKy.length > 0 &&
+                Array.from({ length: Math.max(0, PAGE_SIZE - pagedKy.length) }).map((_, i) => (
+                  <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={5}>&nbsp;</td></tr>
+                ))}
             </tbody>
           </table>
         </div>

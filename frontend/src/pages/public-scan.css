@@ -19,18 +19,12 @@
   background: var(--paper, #fff);
   border-bottom: 1px solid var(--rule-soft, #e2e8f0);
 }
-.pscan__brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.pscan__brand-logo {
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: var(--rust, #c5400a);
-  color: #fff;
-  font-weight: 800;
-  font-size: 12px;
-  letter-spacing: 0.5px;
+  object-fit: contain;
+  flex: none;
 }
 .pscan__brand-text {
   font-weight: 700;
@@ -92,7 +86,7 @@
   border-top: 1px dashed var(--rule-soft, #e2e8f0);
 }
 .pscan__total-num {
-  font-family: var(--ff-num, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
   font-size: 34px;
   font-weight: 800;
   line-height: 1;
@@ -114,11 +108,12 @@
   font-weight: 700;
   white-space: nowrap;
 }
-.pscan__pill--du {
+.pscan__pill--du,
+.pscan__pill--nhap {
   background: #dcfce7;
   color: #15803d;
 }
-.pscan__pill--sap_het {
+.pscan__pill--xuat {
   background: #fef3c7;
   color: #b45309;
 }
@@ -134,9 +129,6 @@
 }
 .pscan__dot--du {
   background: var(--moss, #16a34a);
-}
-.pscan__dot--sap_het {
-  background: var(--amber, #d97706);
 }
 .pscan__dot--het {
   background: var(--signal, #dc2626);
@@ -178,6 +170,11 @@
   border-bottom: 1px solid var(--rule-soft, #e2e8f0);
   white-space: nowrap;
 }
+/* Cột số: tiêu đề PHẢI canh phải như dữ liệu — nếu không `.pscan__table th` (specificity cao
+   hơn `.pscan__num`) ghì tiêu đề về trái trong khi dữ liệu canh phải → lệch cột. */
+.pscan__table th.pscan__num {
+  text-align: right;
+}
 .pscan__table td {
   padding: 12px 16px;
   border-bottom: 1px solid var(--rule-hair, #f1f5f9);
@@ -189,7 +186,7 @@
 }
 .pscan__num {
   text-align: right;
-  font-family: var(--ff-num, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .pscan__strong {
@@ -207,13 +204,9 @@
   font-weight: 600;
 }
 .pscan__code {
-  font-family: var(--ff-num, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
   font-size: 13px;
   font-weight: 600;
-}
-.pscan__hsd {
-  font-family: var(--ff-num, ui-monospace, monospace);
-  font-size: 13px;
 }
 .pscan__muted {
   color: var(--ash-2, #94a3b8);

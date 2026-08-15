@@ -22,7 +22,8 @@ from ..models.stock_request import (
 # Mốc gốc so "chưa xem" khi người tạo chưa từng mở yêu cầu (quyet_dinh_xem_luc NULL).
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
-_HEADER_FIELDS = ("bo_phan_id", "kho_id", "ngay_can", "uu_tien", "ghi_chu", "loai_kho")
+_HEADER_FIELDS = ("bo_phan_id", "kho_id", "ngay_can", "uu_tien", "ghi_chu", "loai_kho",
+                  "purchase_delivery_id")
 
 
 def _build_line(ln: dict, loai: str) -> StockRequestLine:

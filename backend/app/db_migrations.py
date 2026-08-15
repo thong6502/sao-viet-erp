@@ -7728,3 +7728,15 @@ def _migrate_gop_o_dao_trang_thai_don(db) -> None:
 
 
 MIGRATIONS.append(("0191_gop_o_dao_trang_thai_don", _migrate_gop_o_dao_trang_thai_don))
+def _migrate_stock_request_purchase_delivery_id(db) -> None:
+    """Thêm `stock_requests.purchase_delivery_id` — nguồn đợt giao đơn mua sinh ra yêu cầu NHẬP
+    (chặn nhập kho trùng một đợt). Nullable, soft ref → no-op DB fresh / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "stock_requests" not in insp.get_table_names():
+        return
+    if "purchase_delivery_id" not in _existing_columns(insp, "stock_requests"):
+        db.execute(text("ALTER TABLE stock_requests ADD COLUMN purchase_delivery_id INTEGER"))
+        db.commit()
+
+
+MIGRATIONS.append(("0189_stock_request_purchase_delivery_id", _migrate_stock_request_purchase_delivery_id))

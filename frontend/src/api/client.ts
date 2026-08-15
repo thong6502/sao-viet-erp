@@ -4765,6 +4765,10 @@ export interface PurchaseDeliveryRow {
   id: number;
   /** Đợt 1, 2, 3… trong phạm vi PHIẾU MUA — không phải dãy số toàn hệ. */
   seq_no: number;
+  /** Liên thông Kho: đợt đã sinh yêu cầu NHẬP (chưa hủy) chưa → nút "Nhập kho" đổi "Đã nhập kho". */
+  da_nhap_kho: boolean;
+  stock_request_id: number | null;
+  stock_request_ma: string | null;
   delivery_date: string;
   due_date: string | null;
   /** true = NCC chưa khai số ngày cho nợ ⇒ đợt này KHÔNG BAO GIỜ vào cột Quá hạn. Màn hình phải
@@ -5631,6 +5635,8 @@ export interface StockRequestInput {
   ghi_chu?: string | null;
   /** Mã loại nhập/xuất kho (MISA) — người tạo gõ tay; báo cáo dùng để export. */
   loai_kho?: string | null;
+  /** Nguồn đợt giao đơn mua (chỉ khi tạo từ nút "Nhập kho" ở đợt) — chặn nhập trùng. */
+  purchase_delivery_id?: number | null;
   lines: StockRequestLineInput[];
 }
 

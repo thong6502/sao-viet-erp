@@ -306,7 +306,7 @@ def create_request(
             user=user, loai=payload.loai, kho_id=payload.kho_id, ma=payload.ma,
             lines=[ln.model_dump() for ln in payload.lines],
             ngay_can=payload.ngay_can, uu_tien=payload.uu_tien, ghi_chu=payload.ghi_chu,
-            loai_kho=payload.loai_kho,
+            loai_kho=payload.loai_kho, purchase_delivery_id=payload.purchase_delivery_id,
         )
     except StockRequestError as e:
         raise _err(e) from None
