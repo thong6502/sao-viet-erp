@@ -10,6 +10,7 @@ import {
   ApiError,
   api,
   assetUrl,
+  EMPLOYEE_FIELD_MAXLEN,
   type EmployeeAttachment,
   type EmployeeDetail,
   type EmployeeEvent,
@@ -26,9 +27,11 @@ import { useAuth } from "../auth/useAuth";
 import type { NavigateFn } from "../components/AppShell";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { EmptyState } from "../components/EmptyState";
+import { DetailModal } from "../components/DetailModal";
+import { EmptyRow, EmptyState } from "../components/EmptyState";
 import { Field } from "../components/Field";
 import { Icon, type IconName } from "../components/Icons";
+import { Pager, trangHopLe } from "../components/Pager";
 import { Timeline, type TimelineEntry } from "../components/Timeline";
 import "./nhan-su.css";
 import "./ho-so-cua-toi.css";
@@ -53,9 +56,6 @@ const EVENT_LABEL: Record<string, string> = {
 // Nhãn cách tính thuế TNCN. `null` KHÔNG có ở đây: null = bị che quyền, xử riêng (ẩn cả dòng).
 const PIT_MODE_LABEL: Record<string, string> = {
   luy_tien: "Luỹ tiến (HĐ ≥ 3 tháng)", khau_tru_10: "Khấu trừ 10%", cam_ket_08: "Cam kết 08/CK-TNCN",
-};
-const REQ_STATUS_LABEL: Record<string, string> = {
-  pending: "Chờ duyệt", approved: "Đã duyệt", rejected: "Từ chối", cancelled: "Đã rút lại",
 };
 
 function fmtDate(s: string | null | undefined): string {
@@ -118,7 +118,13 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
   const [huyReq, setHuyReq] = useState<UpdateRequest | null>(null);
   const [huyBusy, setHuyBusy] = useState(false);
   const [huyErr, setHuyErr] = useState<string | null>(null);
-  const [xemHetReq, setXemHetReq] = useState(false);
+  // Đề nghị cập nhật: CẮT TRANG Ở MÁY CHỦ. `reqDem` là số đếm theo trạng thái trên TOÀN BỘ hồ sơ
+  // (máy chủ trả) — pill lọc và chip đầu màn đọc ô này, KHÔNG đếm lại từ trang đang xem.
+  const [reqTotal, setReqTotal] = useState(0);
+  const [reqDem, setReqDem] = useState<Record<string, number>>({});
+  const [reqLoc, setReqLoc] = useState<string>("all");
+  const [reqPage, setReqPage] = useState(1);
+  const [xemReq, setXemReq] = useState<UpdateRequest | null>(null);
   // Số liệu "của tôi" — mỗi nguồn tải/thử lại ĐỘC LẬP, hỏng một chip không kéo sập cả màn.
   const [phep, setPhep] = useState<Tai<SoPhep>>(DANG_TAI);
   const [cong, setCong] = useState<Tai<SoCong>>(DANG_TAI);
@@ -132,10 +138,20 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
 
   const loadReqs = useCallback(() => {
     if (!token) return;
-    api.employees.myRequests(token)
-      .then((r) => setReqs({ tt: "ok", du: r.items }))
+    api.employees.myRequests(token, {
+      ...(reqLoc !== "all" ? { status: reqLoc } : {}),
+      page: reqPage, size: REQ_PAGE_SIZE,
+    })
+      .then((r) => {
+        setReqs({ tt: "ok", du: r.items });
+        setReqTotal(r.total);
+        setReqDem(r.dem ?? {});
+        // Rút lại đề nghị cuối của trang cuối ⇒ tổng co lại, trang này rỗng trơn: lùi về trang có thật.
+        const ve = trangHopLe(reqPage, r.total, REQ_PAGE_SIZE);
+        if (ve !== null) setReqPage(ve);
+      })
       .catch(() => setReqs({ tt: "loi" }));
-  }, [token]);
+  }, [token, reqLoc, reqPage]);
 
   const load = useCallback(() => {
     if (!token) return;
@@ -145,9 +161,12 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
     api.employees.myAttachments(token)
       .then((r) => setFiles({ tt: "ok", du: r.items }))
       .catch(() => setFiles({ tt: "loi" }));
-    loadReqs();
-  }, [token, loadReqs]);
+  }, [token]);
   useEffect(() => { load(); }, [load]);
+  // Danh sách đề nghị tải RIÊNG: đổi pill lọc hay lật trang chỉ gọi lại đúng nó, không kéo theo
+  // hồ sơ · giấy tờ · quá trình công tác chạy lại cả loạt.
+  useEffect(() => { loadReqs(); }, [loadReqs]);
+  useEffect(() => { setReqPage(1); }, [reqLoc]);
   useEffect(() => {
     if (emp?.default_shift_id && token) {
       api.attendance.shifts(token).then((r) => setShift(r.items.find((s) => s.id === emp.default_shift_id) ?? null)).catch(() => setShift(null));
@@ -220,7 +239,18 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
   });
 
   const dsReq = reqs.tt === "ok" ? reqs.du : [];
-  const choDuyet = dsReq.filter((r) => r.status === "pending");
+  const soCho = reqDem.pending ?? 0;
+  // Pill "Tất cả" cộng các ô đếm, KHÔNG lấy `reqTotal`: `total` là tổng SAU bộ lọc, đứng ở pill
+  // "Từ chối" mà "Tất cả" tụt xuống 1 thì người xem tưởng mất dữ liệu.
+  const tongDem = Object.values(reqDem).reduce((a, b) => a + b, 0);
+
+  /** Về "Tất cả" · trang 1 rồi tải lại — dùng sau khi GỬI đề nghị mới: đứng ở pill "Từ chối"
+   *  trang 3 thì cái vừa gửi nằm ngoài tầm mắt, người ta tưởng bấm hụt. */
+  const veDauDsReq = useCallback(() => {
+    if (reqLoc !== "all") setReqLoc("all");
+    if (reqPage !== 1) setReqPage(1);
+    if (reqLoc === "all" && reqPage === 1) loadReqs();
+  }, [reqLoc, reqPage, loadReqs]);
   // Ô còn trống — tách hai nhóm vì hai nhóm dẫn tới HAI việc khác nhau: tự điền vs gửi đề nghị.
   const thieu = useMemo(() => oThieu(emp), [emp]);
 
@@ -235,7 +265,8 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
     setHuyBusy(true); setHuyErr(null);
     try {
       await api.employees.cancelMyRequest(token, huyReq.id);
-      setHuyReq(null); setHuyBusy(false);
+      // Đóng luôn popup: dòng đang xem vừa đổi trạng thái, để nguyên là hiện dữ liệu đã cũ.
+      setHuyReq(null); setXemReq(null); setHuyBusy(false);
       loadReqs();
     } catch (e) { setHuyErr(messageFor(e)); setHuyBusy(false); }
   }
@@ -377,15 +408,15 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
           doc={(d) => `Phiếu lương kỳ ${d.ky.month} năm ${d.ky.year}, thực nhận ${Math.round(d.dong.net_pay)} đồng. Mở màn Lương.`}
           onGo={() => navigate?.("luong")} onThuLai={napLuong} moTaGo="Mở màn Lương"
         />
+        {/* Số ở đây đọc `reqDem` (máy chủ đếm trên TOÀN BỘ), không đếm từ trang đang xem. "Gửi gần
+            nhất" đã bỏ: với danh sách cắt trang thì không còn biết chắc, in ra là bịa. */}
         <StatChip
           nhan="Đề nghị chờ duyệt" icon="send"
           tt={reqs.tt === "ok" ? { tt: "ok", du: dsReq } : reqs.tt === "loi" ? { tt: "loi" } : DANG_TAI}
-          giaTri={() => ({ so: fmtSo(choDuyet.length), donVi: "đề nghị" })}
-          phu={() => (choDuyet.length > 0
-            ? `Gửi gần nhất ${fmtDate(choDuyet[0].created_at)}`
-            : "Không có đề nghị nào đang chờ")}
-          tone={() => (choDuyet.length > 0 ? "warn" : "none")}
-          doc={() => `${choDuyet.length} đề nghị đang chờ duyệt. Xem khối Đề nghị cập nhật.`}
+          giaTri={() => ({ so: fmtSo(soCho), donVi: "đề nghị" })}
+          phu={() => (soCho > 0 ? "Đang chờ HCNS xử lý" : "Không có đề nghị nào đang chờ")}
+          tone={() => (soCho > 0 ? "warn" : "none")}
+          doc={() => `${soCho} đề nghị đang chờ duyệt. Xem khối Đề nghị cập nhật.`}
           onGo={cuonToiReq} onThuLai={loadReqs} moTaGo="Xem khối Đề nghị cập nhật"
         />
       </section>
@@ -506,31 +537,91 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
           <h4 className="ns-info-card__title mine__cardtitle">
             <span className="mine__card-icon"><Icon name="send" size={14} /></span>
             Đề nghị cập nhật hồ sơ
-            {choDuyet.length > 0 && <span className="ns-badge ns-badge--warn">{choDuyet.length} chờ duyệt</span>}
           </h4>
-          <button className="btn btn--ghost" onClick={() => setRequesting(true)}>+ Gửi đề nghị</button>
+          <Button variant="accent" onClick={() => setRequesting(true)}>
+            <Icon name="send" size={13} /> Gửi đề nghị
+          </Button>
         </div>
-        <p className="cc-note">Các mục như tên, CCCD, hộ khẩu, số tài khoản… bạn không sửa thẳng — gửi đề nghị để HCNS duyệt.</p>
-        {reqs.tt !== "ok" ? (
-          <EmptyState trangThai={reqs.tt === "loi" ? "loi" : "dang-tai"} inline onThuLai={loadReqs} />
-        ) : dsReq.length === 0 ? (
-          <EmptyState
-            inline icon="send" title="Chưa gửi đề nghị nào."
-            sub="Các mục do HCNS quản lý (tên, CCCD, hộ khẩu, số tài khoản…) sửa qua đề nghị."
-          />
-        ) : (
-          <>
-            <ul className="mine__reqlist">
-              {sapXepReq(dsReq).slice(0, xemHetReq ? undefined : 5).map((r) => (
-                <ReqItem key={r.id} req={r} emp={emp} onHuy={() => { setHuyErr(null); setHuyReq(r); }} />
-              ))}
-            </ul>
-            {!xemHetReq && dsReq.length > 5 && (
-              <button className="btn btn--ghost mine__reqmore" onClick={() => setXemHetReq(true)}>
-                Xem thêm ({dsReq.length - 5})
+        <div className="mine__req-notice">
+          <Icon name="help" size={14} className="mine__req-notice-icon" />
+          <span>Các mục do HCNS quản lý (tên, CCCD, hộ khẩu, số tài khoản…) bạn gửi đề nghị sửa để HCNS xét duyệt.</span>
+        </div>
+
+        {/* Pill lọc — số đếm lấy từ `reqDem` của máy chủ nên KHÔNG đổi theo trang đang xem.
+            Giữ đủ 5 pill kể cả khi đếm 0: vị trí không nhảy giữa các lần tải, và "Từ chối 0"
+            tự nó là tin tốt. */}
+        <div className="mine__reqfilter" role="group" aria-label="Lọc đề nghị theo trạng thái">
+          <button
+            type="button" className={`seg${reqLoc === "all" ? " is-active" : ""}`}
+            aria-pressed={reqLoc === "all"} onClick={() => setReqLoc("all")}
+          >
+            Tất cả <span className="chip-count">{tongDem}</span>
+          </button>
+          {REQ_LOC.map((f) => {
+            const n = reqDem[f.key] ?? 0;
+            const on = reqLoc === f.key;
+            return (
+              <button
+                key={f.key} type="button" className={`seg${on ? " is-active" : ""}`}
+                aria-pressed={on} onClick={() => setReqLoc(f.key)}
+              >
+                {f.label}
+                {/* rust = việc CẦN LÀM; pill đang chọn đã tự rust nên không dán thêm class. */}
+                <span className={`chip-count${f.key === "pending" && n > 0 && !on ? " chip-count--alert" : ""}`}>{n}</span>
               </button>
-            )}
-          </>
+            );
+          })}
+        </div>
+
+        <div className="ns__tablewrap mine__reqtable">
+          <table className="ns__table">
+            <thead>
+              <tr>
+                <th className="mine__reqcol-date">Ngày gửi</th>
+                <th className="mine__reqcol-st">Trạng thái</th>
+                <th>Nội dung đề nghị</th>
+                <th className="mine__reqcol-who">Người xử lý</th>
+                <th className="mine__reqcol-act"><span className="mine__vh">Thao tác</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {reqs.tt === "dang-tai" ? (
+                Array.from({ length: 3 }, (_, i) => (
+                  <tr key={`skel-${i}`}>
+                    <td colSpan={5}><span className="mine__skel mine__skel--dong" /></td>
+                  </tr>
+                ))
+              ) : reqs.tt === "loi" ? (
+                <EmptyRow colSpan={5} trangThai="loi" onThuLai={loadReqs} />
+              ) : dsReq.length === 0 && reqLoc !== "all" ? (
+                <EmptyRow
+                  colSpan={5} icon="search"
+                  title={`Chưa có đề nghị nào ở trạng thái "${nhanLoc(reqLoc)}".`}
+                  action={<Button variant="ghost" onClick={() => setReqLoc("all")}>Xem tất cả</Button>}
+                />
+              ) : dsReq.length === 0 ? (
+                <EmptyRow
+                  colSpan={5} icon="send" title="Chưa gửi đề nghị nào."
+                  sub="Các mục do HCNS quản lý (CCCD, hộ khẩu, số tài khoản…) sửa qua đề nghị."
+                  action={<Button variant="ghost" onClick={() => setRequesting(true)}>Gửi đề nghị đầu tiên</Button>}
+                />
+              ) : (
+                dsReq.map((r) => (
+                  <ReqRow
+                    key={r.id} req={r}
+                    onXem={() => setXemReq(r)}
+                    onHuy={() => { setHuyErr(null); setHuyReq(r); }}
+                  />
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        {reqs.tt === "ok" && reqTotal > 0 && (
+          <Pager
+            total={reqTotal} page={reqPage} size={REQ_PAGE_SIZE}
+            onPage={setReqPage} unit="đề nghị"
+          />
         )}
       </div>
 
@@ -575,7 +666,11 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
       </div>
 
       {editing && <ContactModal token={token!} emp={emp} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(); }} />}
-      {requesting && <RequestModal token={token!} emp={emp} onClose={() => setRequesting(false)} onSaved={() => { setRequesting(false); load(); }} />}
+      {requesting && <RequestModal token={token!} emp={emp} onClose={() => setRequesting(false)} onSaved={() => { setRequesting(false); veDauDsReq(); }} />}
+      {xemReq && (
+        <ReqDetailModal req={xemReq} emp={emp} onClose={() => setXemReq(null)}
+                        onHuy={() => { setHuyErr(null); setHuyReq(xemReq); }} />
+      )}
       <ConfirmDialog
         open={huyReq !== null}
         title="Hủy đề nghị này?"
@@ -598,6 +693,39 @@ const REQ_FIELD_LABEL: Record<string, string> = {
   dependents_count: "Người phụ thuộc",
 };
 
+const REQ_PAGE_SIZE = 10;
+// Nhãn PILL ngắn ("Chờ duyệt") vì nó là bộ lọc; nhãn BADGE trong bảng mới là câu đủ
+// ("Chờ HCNS duyệt") vì nó là trạng thái. Đừng dùng lẫn.
+const REQ_LOC = [
+  { key: "pending", label: "Chờ duyệt" },
+  { key: "approved", label: "Đã duyệt" },
+  { key: "rejected", label: "Từ chối" },
+  { key: "cancelled", label: "Đã rút" },
+] as const;
+const nhanLoc = (key: string): string => REQ_LOC.find((f) => f.key === key)?.label ?? key;
+
+/** "4 mục: Nơi cấp CCCD, Hộ khẩu +2" — tóm tắt MỘT DÒNG cho ô bảng.
+ *
+ *  CHỈ tên trường, KHÔNG bao giờ có giá trị người dùng gõ: giá trị là chuỗi tự do dài vô hạn, và
+ *  đó đúng là thứ đã làm tràn bảng hàng đợi HCNS trước đây (xem nhan-su.css §hàng đợi). Giá trị
+ *  chỉ hiện trong popup, nơi có chỗ xuống dòng. */
+function tomTatChanges(changes: UpdateRequest["changes"]): { ngan: string; du: string } {
+  const ten = Object.keys(changes).map((k) => REQ_FIELD_LABEL[k] ?? k);
+  if (ten.length === 0) return { ngan: "Không có mục nào", du: "" };
+  const dau = ten.slice(0, 2).join(", ");
+  return {
+    ngan: `${ten.length} mục: ${dau}${ten.length > 2 ? ` +${ten.length - 2}` : ""}`,
+    du: ten.join(", "),
+  };
+}
+
+/** Giá trị mới của một field, dạng đọc được. `null`/rỗng là ĐỀ NGHỊ XOÁ, không phải thiếu dữ liệu. */
+function giaTriMoi(field: string, v: unknown): string {
+  if (v === null || v === "") return "(bỏ trống)";
+  if (field === "date_of_birth" || field === "national_id_date") return fmtDate(String(v));
+  return String(v);
+}
+
 /** Ô còn trống, TÁCH hai nhóm vì dẫn tới hai việc khác nhau: tự điền (modal liên hệ) vs
  *  gửi đề nghị cho HCNS. Cố ý KHÔNG đếm: `dependents_count` (0 là giá trị thật),
  *  `pit_mode` (null = bị che quyền), `probation_end_date` (chỉ có nghĩa khi thử việc). */
@@ -616,15 +744,6 @@ function oThieu(emp: EmployeeDetail | null): { tu: string[]; hcns: string[] } {
     ["pit_tax_code", emp.pit_tax_code],
   ] as const).filter(([, v]) => trong(v)).map(([k]) => k as string);
   return { tu, hcns };
-}
-
-/** Chờ duyệt lên đầu (việc còn treo), rồi mới tới đơn đã xong theo thời gian gửi giảm dần. */
-function sapXepReq(items: UpdateRequest[]): UpdateRequest[] {
-  return [...items].sort((a, b) => {
-    const pa = a.status === "pending" ? 0 : 1, pb = b.status === "pending" ? 0 : 1;
-    if (pa !== pb) return pa - pb;
-    return (b.created_at ?? "").localeCompare(a.created_at ?? "");
-  });
 }
 
 function kieuFile(name: string): "pdf" | "img" | "doc" {
@@ -733,60 +852,181 @@ function StatChip<T>({ nhan, icon, tt, giaTri, phu, tone, doc, onGo, onThuLai, m
   );
 }
 
-/** Một đề nghị + VẾT xử lý. Mũi tên "cũ → mới" chỉ vẽ khi còn `pending`: khi đã duyệt, hồ sơ
- *  đã mang giá trị mới nên hai vế trùng nhau — vẽ mũi tên lúc đó là bịa dữ liệu. */
-function ReqItem({ req, emp, onHuy }: { req: UpdateRequest; emp: EmployeeDetail; onHuy: () => void }) {
-  const cho = req.status === "pending";
-  const cls = req.status === "approved" ? "is-approved"
-    : req.status === "rejected" ? "is-rejected"
-    : req.status === "cancelled" ? "is-cancelled" : "is-pending";
-  const badgeCls = req.status === "approved" ? "ns-badge--ok"
-    : req.status === "rejected" ? "ns-badge--danger"
-    : req.status === "cancelled" ? "ns-badge--muted" : "ns-badge--warn";
+// Nhãn `ngan` cho màn hẹp (≤640px) — badge bị bóp còn ~100px, câu đủ sẽ bị cắt giữa chừng.
+// `aria-label` của dòng vẫn dùng câu ĐỦ để trình đọc màn hình không mất nghĩa.
+const REQ_STATUS_CONFIG: Record<string, { label: string; ngan: string; cls: string; icon: IconName }> = {
+  pending: { label: "Chờ HCNS duyệt", ngan: "Chờ", cls: "badge-sem--amber", icon: "clock" },
+  approved: { label: "Đã phê duyệt", ngan: "Đã duyệt", cls: "badge-sem--moss", icon: "check" },
+  rejected: { label: "HCNS từ chối", ngan: "Từ chối", cls: "badge-sem--signal", icon: "alert" },
+  cancelled: { label: "Đã rút lại", ngan: "Đã rút", cls: "badge-sem--muted", icon: "ban" },
+};
+const cfgReq = (status: string) =>
+  REQ_STATUS_CONFIG[status] ?? { label: status, ngan: status, cls: "badge-sem--muted", icon: "help" as IconName };
+
+/** MỘT DÒNG bảng. Cả hàng bấm được bằng chuột, nhưng đường bàn phím là `<button>` THẬT trong ô
+ *  "Nội dung" — dán `role="button"` lên `<tr>` là xoá vai "row", trình đọc màn hình mất cấu trúc
+ *  bảng. Ô thao tác chặn nổi bọt, không thì một cú bấm "Hủy" mở cả popup lẫn hộp xác nhận. */
+function ReqRow({ req, onXem, onHuy }: { req: UpdateRequest; onXem: () => void; onHuy: () => void }) {
+  const cfg = cfgReq(req.status);
+  const { ngan, du } = tomTatChanges(req.changes);
   return (
-    <li className={`mine__reqitem ${cls}`}>
-      <div className="mine__reqitem__head">
-        <span className={`ns-badge ${badgeCls}`}>{REQ_STATUS_LABEL[req.status] ?? req.status}</span>
-        <span className="mine__reqdate">Gửi {fmtDateTime(req.created_at)}</span>
-      </div>
-      <div className="mine__reqchange">
-        {Object.entries(req.changes).map(([k, v]) => (
-          <div className="mine__reqchange__row" key={k}>
-            <span className="mine__reqchange__k">{REQ_FIELD_LABEL[k] ?? k}</span>
-            <span className="mine__reqchange__v">
-              {cho && <><span className="mine__reqchange__old">{giaTriCu(emp, k) || "(chưa có)"}</span> → </>}
-              <strong>{v === null || v === "" ? "(bỏ trống)" : String(v)}</strong>
-            </span>
-          </div>
-        ))}
-        {req.reason && (
-          <div className="mine__reqchange__row">
-            <span className="mine__reqchange__k">Lý do</span>
-            <span className="mine__reqchange__v">{req.reason}</span>
-          </div>
+    <tr
+      className={`mine__reqrow${req.status === "cancelled" ? " mine__reqrow--mo" : ""}`}
+      onClick={onXem}
+    >
+      <td className="mine__reqcol-date" title={fmtDateTime(req.created_at)}>{fmtDate(req.created_at)}</td>
+      <td className="mine__reqcol-st">
+        <span className={`badge-sem ${cfg.cls}`}>
+          <Icon name={cfg.icon} size={11} />
+          <span className="mine__badge-du">{cfg.label}</span>
+          <span className="mine__badge-ngan">{cfg.ngan}</span>
+        </span>
+      </td>
+      <td className="mine__reqcell-noidung">
+        <button
+          type="button" className="mine__reqopen" title={du}
+          aria-label={`Mở đề nghị gửi ${fmtDate(req.created_at)} — ${ngan}, ${cfg.label}`}
+          onClick={onXem}
+        >
+          {ngan}
+        </button>
+        <span className="mine__reqsub">{fmtDate(req.created_at)}</span>
+      </td>
+      <td className="mine__reqcol-who">
+        {req.status === "pending" ? (
+          <span className="mine__reqwho--wait">Đang chờ HCNS</span>
+        ) : (
+          <>
+            {/* `decided_at` của đơn tự rút là giờ NGƯỜI GỬI rút — đừng in "Duyệt bởi" ở ca đó. */}
+            <span>{req.status === "cancelled" ? "Bạn rút lại" : (req.decided_by_name ?? "HCNS")}</span>
+            {req.decided_at && <span className="mine__reqsub mine__reqsub--luon">{fmtDate(req.decided_at)}</span>}
+          </>
         )}
-      </div>
-      {req.status === "rejected" && (
-        <p className="mine__reqreject">
-          <Icon name="alert" size={14} />
-          {req.decision_note || "HCNS không ghi lý do. Liên hệ HCNS để biết thêm."}
-        </p>
-      )}
-      {(req.decided_at || cho) && (
-        <div className="mine__reqtrace">
-          {cho ? (
-            <button className="btn btn--ghost mine__reqcancel" onClick={onHuy}>
+      </td>
+      <td className="mine__reqcol-act" onClick={(e) => e.stopPropagation()}>
+        {req.status === "pending" ? (
+          <button type="button" className="mine__reqhuy" onClick={onHuy}>
+            <Icon name="x" size={12} /> Hủy
+          </button>
+        ) : null}
+      </td>
+    </tr>
+  );
+}
+
+/** Popup CHỈ-XEM một đề nghị. Nút thao tác nằm ở `footer` theo hợp đồng của `DetailModal`.
+ *
+ *  Mũi tên "cũ → mới" CHỈ vẽ khi còn `pending`: đơn đã duyệt thì hồ sơ đã mang giá trị mới, hai
+ *  vế trùng nhau — vẽ mũi tên lúc đó là bịa dữ liệu. Ba trạng thái còn lại dùng bảng 2 cột. */
+function ReqDetailModal({ req, emp, onClose, onHuy }: {
+  req: UpdateRequest; emp: EmployeeDetail; onClose: () => void; onHuy: () => void;
+}) {
+  const cho = req.status === "pending";
+  const cfg = cfgReq(req.status);
+  const entries = Object.entries(req.changes);
+  // Lý do/ghi chú là chuỗi tự do: gấp lại 8 dòng để một đoạn dán 2000 ký tự không đẩy nút Hủy
+  // ra khỏi tầm nhìn. Mở lại thì hiện đủ, không cắt mất chữ nào.
+  const [moLyDo, setMoLyDo] = useState(false);
+  const [moTuChoi, setMoTuChoi] = useState(false);
+  useEffect(() => { setMoLyDo(false); setMoTuChoi(false); }, [req.id]);
+
+  return (
+    <DetailModal
+      kicker="Đề nghị cập nhật hồ sơ"
+      title={`Gửi ngày ${fmtDate(req.created_at)}`}
+      subtitle={`${entries.length} mục thông tin · ${fmtDateTime(req.created_at)}`}
+      badge={<span className={`badge-sem ${cfg.cls}`}><Icon name={cfg.icon} size={11} />{cfg.label}</span>}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Đóng</Button>
+          {cho && (
+            <button type="button" className="mine__reqhuy mine__reqhuy--lon" onClick={onHuy}>
               <Icon name="x" size={13} /> Hủy đề nghị
             </button>
+          )}
+        </>
+      }
+    >
+      <div className={`mine__diff-table${cho ? "" : " mine__diff-table--2col"}`}>
+        <div className="mine__diff-table__head">
+          <span>Mục thông tin</span>
+          {cho ? (
+            <>
+              <span>Hiện tại</span>
+              <span />
+              <span>Đề nghị mới</span>
+            </>
           ) : (
-            <span>
-              {req.status === "cancelled" ? "Bạn rút lại" : `Quyết bởi ${req.decided_by_name ?? "HCNS"}`}
-              {req.decided_at ? ` · ${fmtDateTime(req.decided_at)}` : ""}
-            </span>
+            <span>Giá trị đã đề nghị</span>
           )}
         </div>
+        <div className="mine__diff-table__body">
+          {entries.map(([k, v]) => (
+            <div className="mine__diff-table__row" key={k}>
+              <span className="mine__diff-table__name">{REQ_FIELD_LABEL[k] ?? k}</span>
+              {cho ? (
+                <>
+                  {/* Endpoint "của tôi" KHÔNG trả `current` (BE chỉ điền cho hàng đợi HCNS) —
+                      cột này bắt buộc tính từ hồ sơ đang cầm sẵn. */}
+                  <span className="mine__diff-chip mine__diff-chip--old">{giaTriCu(emp, k) || "(chưa có)"}</span>
+                  <Icon name="arrowRight" size={12} className="mine__diff-arrow" />
+                  <span className="mine__diff-chip mine__diff-chip--new">{giaTriMoi(k, v)}</span>
+                </>
+              ) : (
+                <span className="mine__diff-chip mine__diff-chip--val">{giaTriMoi(k, v)}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {req.reason && (
+        <div className="mine__reqreason">
+          <Icon name="fileText" size={14} className="mine__reqreason-icon" />
+          <div className="mine__reqreason-text">
+            <div className={moLyDo ? undefined : "mine__reqreason--clamp"}>
+              <span className="mine__reqreason-label">Lý do đề nghị:</span> {req.reason}
+            </div>
+            <button type="button" className="mine__reqreason-more" onClick={() => setMoLyDo((m) => !m)}>
+              {moLyDo ? "Thu gọn" : "Xem đầy đủ"}
+            </button>
+          </div>
+        </div>
       )}
-    </li>
+
+      {req.status === "rejected" && (
+        <div className="mine__reqreject">
+          <Icon name="alert" size={14} />
+          <div className="mine__reqreason-text">
+            <div className={moTuChoi ? undefined : "mine__reqreason--clamp"}>
+              <strong>HCNS từ chối:</strong>{" "}
+              {req.decision_note || "HCNS không ghi lý do. Liên hệ HCNS để biết thêm."}
+            </div>
+            <button type="button" className="mine__reqreason-more" onClick={() => setMoTuChoi((m) => !m)}>
+              {moTuChoi ? "Thu gọn" : "Xem đầy đủ"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div>
+        <h5 className="mine__reqsec">Tiến trình xử lý</h5>
+        <Timeline items={[
+          { title: "Bạn gửi đề nghị", meta: fmtDateTime(req.created_at), accent: true, tone: "rust" },
+          cho
+            ? { title: "Đang chờ HCNS xem xét", meta: "—" }
+            : {
+                title: req.status === "approved" ? `HCNS phê duyệt · ${req.decided_by_name ?? "HCNS"}`
+                  : req.status === "rejected" ? `HCNS từ chối · ${req.decided_by_name ?? "HCNS"}`
+                  : "Bạn rút lại đề nghị",
+                meta: fmtDateTime(req.decided_at),
+                accent: true,
+                tone: req.status === "approved" ? "moss" : req.status === "rejected" ? "signal" : undefined,
+              },
+        ]} />
+      </div>
+    </DetailModal>
   );
 }
 
@@ -916,10 +1156,20 @@ function RequestModal({ token, emp, onClose, onSaved }: {
     try { await api.employees.createMyRequest(token, { changes, reason: reason || null }); onSaved(); }
     catch (e) { setErr(e instanceof Error ? e.message : "Lỗi khi gửi."); setBusy(false); }
   }
-  const F = (label: string, k: string, type = "text", placeholder = "", className = "") => (
-    <label className="ns-field"><span className="ns-field__label">{label}</span>
-      <input type={type} className={className} placeholder={placeholder} value={form[k]} onChange={(e) => set(k, e.target.value)} /></label>
-  );
+  // Chặn độ dài NGAY Ở Ô NHẬP theo đúng độ dài cột hồ sơ. Không có `maxLength` thì gõ 44 ký
+  // tự vào ô "Số tài khoản" (chỉ chứa 30) vẫn gửi đi bình thường — đề nghị nằm dạng JSON nên
+  // không ai đo — và mãi tới lúc HCNS bấm Duyệt mới vỡ, người duyệt lãnh lỗi thay người gõ.
+  const F = (label: string, k: string, type = "text", placeholder = "", className = "") => {
+    const max = EMPLOYEE_FIELD_MAXLEN[k];
+    const cham = max !== undefined && (form[k]?.length ?? 0) >= max;
+    return (
+      <label className="ns-field"><span className="ns-field__label">{label}</span>
+        <input type={type} className={className} placeholder={placeholder} maxLength={max}
+               value={form[k]} onChange={(e) => set(k, e.target.value)} />
+        {cham && <span className="mine__field-hint">Đã chạm giới hạn {max} ký tự.</span>}
+      </label>
+    );
+  };
   return (
     <div className="ns-modal" role="dialog" aria-modal="true" aria-labelledby="mine-req-title">
       <div className="ns-modal__box ns-modal__box--wide">

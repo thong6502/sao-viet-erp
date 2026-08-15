@@ -114,6 +114,26 @@ class EmployeeForbidden(EmployeeError):
     """The employee exists but is outside the caller's data scope."""
 
 
+# Nhãn tiếng Việt của cột hồ sơ — CHỈ để ghép câu báo lỗi cho người đang gõ ("Số tài khoản tối
+# đa 30 ký tự"), không phải nguồn hiển thị của FE (FE có bảng nhãn riêng).
+FIELD_LABELS: dict[str, str] = {
+    "full_name": "Họ tên", "position": "Chức danh", "national_id": "CCCD",
+    "national_id_place": "Nơi cấp CCCD", "phone": "Điện thoại", "email": "Email",
+    "permanent_address": "Hộ khẩu", "current_address": "Chỗ ở hiện tại",
+    "emergency_contact_name": "Người liên hệ khẩn", "emergency_contact_phone": "SĐT người liên hệ",
+    "social_insurance_no": "Số sổ BHXH", "pit_tax_code": "MST cá nhân",
+    "bank_account": "Số tài khoản", "bank_name": "Ngân hàng", "job_grade": "Bậc tay nghề",
+    "payroll_group": "Nhóm lương", "note": "Ghi chú",
+}
+
+
+def _max_len(field: str) -> int | None:
+    """Số ký tự tối đa của một cột hồ sơ, ĐỌC THẲNG TỪ MODEL (`String(n)`) chứ không chép tay —
+    đổi độ dài cột thì chỗ này theo ngay, không có bảng số thứ hai để lệch."""
+    col = Employee.__table__.columns.get(field)
+    return getattr(getattr(col, "type", None), "length", None)
+
+
 def _clean(value: str | None) -> str | None:
     if value is None:
         return None
@@ -165,13 +185,29 @@ class EmployeeService:
             raise EmployeeValidationError("Số người phụ thuộc phải là số nguyên ≥ 0.")
         return n
 
+    @staticmethod
+    def _check_len(field: str, value: str | None) -> str | None:
+        """Chặn chuỗi DÀI HƠN CỘT ngay tại cửa vào.
+
+        Vì sao phải đo ở đây: `profile_update_requests.changes` là JSON — NV gõ dài bao nhiêu
+        cũng LƯU ĐƯỢC lúc gửi đề nghị, nhưng mãi tới lúc HCNS bấm Duyệt mới đem ghi vào cột
+        thật (`bank_account` chỉ 30 ký tự) ⇒ Postgres nổ `value too long`, người DUYỆT lãnh
+        lỗi 500 thay cho người GÕ. Đo tại đây thì người gõ nhận câu tiếng Việt ngay lúc gửi,
+        và đề nghị cũ lỡ quá dài cũng ra 400 có chữ chứ không phải 500 trắng."""
+        limit = _max_len(field)
+        if value is not None and limit is not None and len(value) > limit:
+            raise EmployeeValidationError(
+                f"{FIELD_LABELS.get(field, field)} tối đa {limit} ký tự (đang nhập {len(value)})."
+            )
+        return value
+
     def _clean_fields(self, fields: dict) -> dict:
         """Trim string inputs; validate the constrained ones. Returns a cleaned copy
         containing only recognised employee columns."""
         out: dict = {}
         for key, value in fields.items():
             if key == "full_name":
-                out[key] = self._validate_name(value)
+                out[key] = self._check_len(key, self._validate_name(value))
             elif key == "gender":
                 out[key] = self._validate_gender(value)
             elif key == "dependents_count":
@@ -182,7 +218,7 @@ class EmployeeService:
                 g = self._resolve_job_grade(value, None)
                 out[key] = g.id if g is not None else None
             elif isinstance(value, str):
-                out[key] = _clean(value)
+                out[key] = self._check_len(key, _clean(value))
             else:
                 out[key] = value
         return out
@@ -517,9 +553,18 @@ class EmployeeService:
             employee_id=emp.id, changes=payload, reason=_clean(reason),
         )
 
-    def my_update_requests(self, *, user):
+    def my_update_requests(self, *, user, status: str | None = None, page: int = 1, size: int = 10):
+        """Một trang đề nghị của chính NV + tổng dòng + số đếm theo trạng thái.
+
+        Tài khoản chưa gắn hồ sơ (admin thuần) không phải lỗi — trả trang rỗng để màn "Hồ sơ của
+        tôi" hiện trạng thái rỗng bình thường."""
         emp = self.employees.get_by_user_id(user.id)
-        return self.employees.list_update_requests_by_employee(emp.id) if emp is not None else []
+        if emp is None:
+            return [], 0, {}
+        rows, total = self.employees.list_update_requests_by_employee(
+            emp.id, status=status, page=page, size=size,
+        )
+        return rows, total, self.employees.dem_update_requests_by_employee(emp.id)
 
     def cancel_my_update_request(self, *, user, request_id: int):
         """NV tự RÚT LẠI đề nghị của chính mình khi HCNS chưa xử lý.

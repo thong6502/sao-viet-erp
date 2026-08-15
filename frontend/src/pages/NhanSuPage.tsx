@@ -7,6 +7,7 @@ import {
   api,
   ApiError,
   assetUrl,
+  EMPLOYEE_FIELD_MAXLEN,
   PIT_MODE_META,
   type AuditRow,
   type EmployeeAttachment,
@@ -58,6 +59,7 @@ import {
   TrendingUp,
   UserMinus,
   AlertTriangle,
+  ArrowRight,
   Key,
   User,
   Shield,
@@ -898,6 +900,27 @@ const REQ_FIELD_LABEL: Record<string, string> = {
   bank_name: "Ngân hàng",
   dependents_count: "Người phụ thuộc",
 };
+const REQ_DATE_FIELDS = new Set(["date_of_birth", "national_id_date"]);
+
+/** Một giá trị trong đề nghị → chuỗi đọc được. `null`/rỗng phải nói RÕ là "chưa có" hay "bỏ
+ *  trống" chứ không in ô trắng: người duyệt đang phải quyết dựa trên đúng mấy chữ này. */
+function reqValue(field: string, v: unknown, khiRong: string): string {
+  if (v === null || v === undefined || v === "") return khiRong;
+  return REQ_DATE_FIELDS.has(field) ? fmtDate(String(v)) : String(v);
+}
+
+/** Ô nào vượt độ dài cột hồ sơ ⇒ bấm Duyệt chắc chắn bị BE chặn. Nói trước cho người duyệt
+ *  (và tắt nút Duyệt) thay vì để họ bấm rồi ăn thông báo lỗi. */
+function reqQuaDai(changes: UpdateRequest["changes"]): string[] {
+  const loi: string[] = [];
+  for (const [k, v] of Object.entries(changes)) {
+    const max = EMPLOYEE_FIELD_MAXLEN[k];
+    if (max && typeof v === "string" && v.length > max) {
+      loi.push(`${REQ_FIELD_LABEL[k] ?? k}: ${v.length} ký tự, vượt giới hạn ${max}`);
+    }
+  }
+  return loi;
+}
 
 function RequestQueueModal({
   token,
@@ -913,6 +936,8 @@ function RequestQueueModal({
   /** Lỗi TẢI hàng đợi. Trước đây `.catch` nuốt lỗi rồi `setItems([])` ⇒ máy chủ chết mà bảng
    *  vẫn in "không có yêu cầu": HCNS tưởng sạch việc và đóng màn. */
   const [listError, setListError] = useState<string | null>(null);
+  /** Lỗi khi DUYỆT/TỪ CHỐI (khác lỗi tải danh sách) — vd nội dung dài hơn ô hồ sơ. */
+  const [actionError, setActionError] = useState<string | null>(null);
   const load = useCallback(() => {
     setListError(null);
     api.employees
@@ -929,91 +954,139 @@ function RequestQueueModal({
 
   async function decide(id: number, approve: boolean) {
     setBusy(true);
+    setActionError(null);
     try {
       if (approve) await api.employees.approveRequest(token, id);
       else await api.employees.rejectRequest(token, id, "Từ chối");
       load();
       onDecided();
+    } catch (e) {
+      // Trước đây lỗi duyệt rơi vào hư không: người duyệt bấm, không thấy gì đổi, tưởng máy
+      // đơ. Hay gặp nhất là ô dài hơn cột (BE trả câu "… tối đa N ký tự").
+      setActionError(errMsg(e));
     } finally {
       setBusy(false);
     }
   }
   return (
-    <div className="ns-modal" role="dialog" aria-modal="true">
+    <div className="ns-modal" role="dialog" aria-modal="true" aria-labelledby="nsq-title">
       <div className="ns-modal__box ns-modal__box--wide">
         <header className="ns-modal__head">
-          <h2>Yêu cầu cập nhật hồ sơ (chờ duyệt)</h2>
-          <button className="ns-modal__x" onClick={onClose}>
+          <h2 id="nsq-title">Yêu cầu cập nhật hồ sơ (chờ duyệt)</h2>
+          <button className="ns-modal__x" onClick={onClose} aria-label="Đóng">
             ×
           </button>
         </header>
         <div className="ns-modal__body">
-          <div className="ns__tablewrap">
-            <table className="ns__table">
-              <thead>
-                <tr>
-                  <th>Nhân viên</th>
-                  <th>Đề nghị đổi</th>
-                  <th>Lý do</th>
-                  <th className="ns-col-act">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody>
-                {!items && !listError && (
-                  <EmptyRow colSpan={4} trangThai="dang-tai" />
-                )}
-                {listError && (
-                  <EmptyRow
-                    colSpan={4}
-                    trangThai="loi"
-                    loi={listError}
-                    onThuLai={load}
-                  />
-                )}
-                {!listError &&
-                  items?.map((r) => (
-                    <tr key={r.id}>
-                      <td>{r.employee_name ?? `NV#${r.employee_id}`}</td>
-                      <td>
-                        {Object.entries(r.changes)
-                          .map(([k, v]) => `${REQ_FIELD_LABEL[k] ?? k}: ${v}`)
-                          .join(" · ")}
-                      </td>
-                      <td>{r.reason ?? "—"}</td>
-                      <td className="ns-col-act">
-                        <div className="cc-rowact ns-rowact">
-                          <RowActionButton
-                            dense
-                            label="Duyệt"
-                            icon="check"
-                            disabled={busy}
-                            onClick={() => decide(r.id, true)}
+          {actionError && (
+            <div className="banner banner--error" role="alert">
+              {actionError}
+            </div>
+          )}
+          {!items && !listError && <EmptyState trangThai="dang-tai" inline />}
+          {listError && (
+            <EmptyState trangThai="loi" loi={listError} onThuLai={load} inline />
+          )}
+          {!listError && items?.length === 0 && (
+            <EmptyState
+              icon="clipboard"
+              title="Chưa có yêu cầu chờ duyệt"
+              sub="Nhân viên gửi đề nghị sửa hồ sơ thì việc sẽ hiện ở đây."
+              inline
+            />
+          )}
+          {/* MỖI ĐỀ NGHỊ MỘT THẺ, không nhồi vào một ô bảng nữa: chuỗi nối bằng dấu "·" không
+              xuống dòng nên hộ khẩu / nơi cấp CCCD dài là đẩy luôn cột Lý do và hai nút
+              Duyệt–Từ chối ra khỏi màn. Thẻ cũng là chỗ đặt được cột "Hiện tại" — người duyệt
+              phải thấy đang đổi TỪ GÌ sang gì mới quyết được. */}
+          {!listError && !!items?.length && (
+            <ul className="nsq__list">
+              {items.map((r) => {
+                const entries = Object.entries(r.changes);
+                const quaDai = reqQuaDai(r.changes);
+                return (
+                  <li className="nsq__item" key={r.id}>
+                    <div className="nsq__head">
+                      <span className="nsq__who">
+                        <User size={13} />
+                        {r.employee_name ?? `NV#${r.employee_id}`}
+                      </span>
+                      <span className="nsq__sent">
+                        <Clock size={12} />
+                        Gửi {fmtDateTime(r.created_at)}
+                      </span>
+                    </div>
+
+                    <div className="nsq__diff">
+                      <div className="nsq__diff-head">
+                        <span>Mục thông tin</span>
+                        <span>Hiện tại</span>
+                        <span aria-hidden="true" />
+                        <span>Đề nghị mới</span>
+                      </div>
+                      {entries.map(([k, v]) => (
+                        <div className="nsq__diff-row" key={k}>
+                          <span className="nsq__diff-name">
+                            {REQ_FIELD_LABEL[k] ?? k}
+                          </span>
+                          <span className="nsq__chip nsq__chip--old">
+                            {reqValue(k, r.current?.[k], "(chưa có)")}
+                          </span>
+                          <ArrowRight
+                            size={13}
+                            className="nsq__arrow"
+                            aria-hidden="true"
                           />
-                          {/* GIỮ tín hiệu nguy hiểm: từ chối là quyết định NV nhận được ngay,
-                              mất màu đỏ là bấm nhầm ô bên cạnh. */}
-                          <RowActionButton
-                            dense
-                            danger
-                            label="Từ chối"
-                            icon="ban"
-                            disabled={busy}
-                            onClick={() => decide(r.id, false)}
-                          />
+                          <span className="nsq__chip nsq__chip--new">
+                            {reqValue(k, v, "(bỏ trống)")}
+                          </span>
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                {!listError && items?.length === 0 && (
-                  <EmptyRow
-                    colSpan={4}
-                    icon="clipboard"
-                    title="Chưa có yêu cầu chờ duyệt"
-                    sub="Nhân viên gửi đề nghị sửa hồ sơ thì việc sẽ hiện ở đây."
-                  />
-                )}
-              </tbody>
-            </table>
-          </div>
+                      ))}
+                    </div>
+
+                    {r.reason && (
+                      <p className="nsq__reason">
+                        <span className="nsq__reason-label">Lý do đề nghị:</span>{" "}
+                        {r.reason}
+                      </p>
+                    )}
+
+                    {quaDai.length > 0 && (
+                      <p className="nsq__warn" role="alert">
+                        <AlertTriangle size={13} />
+                        <span>
+                          Nội dung dài hơn ô hồ sơ cho phép ({quaDai.join(" · ")}) — duyệt
+                          sẽ bị chặn. Đề nghị nhân viên gửi lại bản ngắn gọn.
+                        </span>
+                      </p>
+                    )}
+
+                    <div className="nsq__foot">
+                      <div className="cc-rowact ns-rowact">
+                        <RowActionButton
+                          dense
+                          label="Duyệt"
+                          icon="check"
+                          disabled={busy || quaDai.length > 0}
+                          onClick={() => decide(r.id, true)}
+                        />
+                        {/* GIỮ tín hiệu nguy hiểm: từ chối là quyết định NV nhận được ngay,
+                            mất màu đỏ là bấm nhầm ô bên cạnh. */}
+                        <RowActionButton
+                          dense
+                          danger
+                          label="Từ chối"
+                          icon="ban"
+                          disabled={busy}
+                          onClick={() => decide(r.id, false)}
+                        />
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
         <footer className="ns-modal__foot">
           <button className="btn btn--ghost" onClick={onClose}>

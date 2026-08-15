@@ -264,6 +264,66 @@ def test_de_nghi_bi_tu_choi_luu_ai_quyet_va_ly_do(client):
     assert row["decided_at"] is not None and row["decided_by_name"]
 
 
+def test_de_nghi_cua_toi_cat_trang_o_may_chu_va_dem_theo_trang_thai(client):
+    """Đề nghị KHÔNG bị xoá khi rút/từ chối nên danh sách chỉ dài thêm ⇒ cắt trang Ở MÁY CHỦ.
+
+    Hai chốt: (1) `page`/`size` cắt đúng và `total` là tổng THẬT chứ không phải số dòng trả về;
+    (2) `dem` đếm trên TOÀN BỘ hồ sơ và KHÔNG đổi theo bộ lọc — badge "N chờ duyệt" cùng số trên
+    pill lọc đọc ô này; đếm lại từ `items` của trang đang xem là sai ngay khi qua trang 2."""
+    admin = _admin_token(client)
+    _create(client, admin, full_name="NV Nhiều Đề Nghị", bank_account="111",
+            account={"username": "nvnhieu", "password": "nvnhieu123"})
+    tok = client.post("/api/auth/login",
+                      json={"username": "nvnhieu", "password": "nvnhieu123"}).json()["access_token"]
+
+    ids = [client.post("/api/employees/me/update-requests",
+                       json={"changes": {"bank_account": f"90{i}"}}, headers=_h(tok)).json()["id"]
+           for i in range(5)]
+    client.post(f"/api/employees/me/update-requests/{ids[0]}/cancel", headers=_h(tok))
+    client.post(f"/api/employees/update-requests/{ids[1]}/reject", json={"note": "Sai"}, headers=_h(admin))
+
+    trang1 = client.get("/api/employees/me/update-requests?page=1&size=2", headers=_h(tok)).json()
+    assert trang1["total"] == 5 and trang1["page"] == 1 and trang1["size"] == 2
+    assert [x["id"] for x in trang1["items"]] == sorted(ids, reverse=True)[:2]   # mới nhất trước
+
+    trang3 = client.get("/api/employees/me/update-requests?page=3&size=2", headers=_h(tok)).json()
+    assert [x["id"] for x in trang3["items"]] == [ids[0]] and trang3["total"] == 5
+
+    assert trang1["dem"] == {"pending": 3, "cancelled": 1, "rejected": 1}
+
+    loc = client.get("/api/employees/me/update-requests?status=pending&size=10", headers=_h(tok)).json()
+    assert loc["total"] == 3 and all(x["status"] == "pending" for x in loc["items"])
+    assert loc["dem"]["cancelled"] == 1        # pill "Đã rút" vẫn phải hiện số dù đang lọc pending
+    assert client.get("/api/employees/me/update-requests?status=xyz", headers=_h(tok)).status_code == 400
+
+
+def test_de_nghi_dai_hon_o_ho_so_bi_chan_va_hang_doi_kem_gia_tri_hien_tai(client):
+    """Hai chốt của màn HCNS duyệt đề nghị cập nhật:
+
+    1) `changes` là JSON — dài bao nhiêu cũng lưu được, nên phải ĐO NGAY LÚC GỬI theo đúng độ
+       dài cột (`bank_account` = String(30)). Không đo thì đề nghị 44 ký tự lọt vào hàng đợi,
+       tới lúc HCNS bấm Duyệt mới ghi vào cột thật ⇒ Postgres nổ `value too long` và người
+       DUYỆT lãnh lỗi thay người GÕ (SQLite của test không nổ, nên chốt bằng test này).
+    2) Hàng đợi phải kèm giá trị ĐANG có: người duyệt cần thấy đổi TỪ GÌ sang gì mới quyết được.
+    """
+    admin = _admin_token(client)
+    _create(client, admin, full_name="NV Dài Chữ", bank_account="111",
+            account={"username": "nvdai", "password": "nvdai12345"})
+    tok = client.post("/api/auth/login",
+                      json={"username": "nvdai", "password": "nvdai12345"}).json()["access_token"]
+
+    qua_dai = client.post("/api/employees/me/update-requests",
+                          json={"changes": {"bank_account": "9" * 44}}, headers=_h(tok))
+    assert qua_dai.status_code == 400
+    assert "30 ký tự" in qua_dai.json()["detail"]
+
+    rid = client.post("/api/employees/me/update-requests",
+                      json={"changes": {"bank_account": "999"}}, headers=_h(tok)).json()["id"]
+    row = next(x for x in client.get("/api/employees/update-requests?status=pending",
+                                     headers=_h(admin)).json()["items"] if x["id"] == rid)
+    assert row["current"]["bank_account"] == "111"
+
+
 # --- create + list ----------------------------------------------------------
 
 

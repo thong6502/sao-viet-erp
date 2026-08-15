@@ -34,6 +34,7 @@ from ..deps import (
     require_any_permission,
     require_permission,
 )
+from ..models.profile_request import REQUEST_STATUSES
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
@@ -66,6 +67,7 @@ from ..schemas.employee import (
     JobGradesOut,
     MyContactIn,
     MyProfileOut,
+    MyUpdateRequestsOut,
     RequestDecisionIn,
     RoleOption,
     ShiftAssignmentOut,
@@ -542,9 +544,22 @@ def _decider_name(req, users: UserRepository) -> str | None:
     return (u.name or u.username) if u is not None else None
 
 
-def _req_out(req, emp_names: dict[int, str], users: UserRepository | None = None) -> UpdateRequestOut:
+def _current_values(emp, changes: dict) -> dict:
+    """Giá trị hồ sơ ĐANG mang của đúng các field NV xin đổi — người duyệt cần thấy 'đang là gì'
+    mới quyết được. Ngày về chuỗi ISO cho FE tự định dạng."""
+    out: dict = {}
+    for key in changes:
+        val = getattr(emp, key, None)
+        out[key] = val.isoformat() if isinstance(val, date) else val
+    return out
+
+
+def _req_out(req, emps: dict[int, object], users: UserRepository | None = None) -> UpdateRequestOut:
     out = UpdateRequestOut.model_validate(req)
-    out.employee_name = emp_names.get(req.employee_id)
+    emp = emps.get(req.employee_id)
+    if emp is not None:
+        out.employee_name = emp.full_name
+        out.current = _current_values(emp, req.changes or {})
     if users is not None:
         out.decided_by_name = _decider_name(req, users)
     return out
@@ -559,9 +574,18 @@ def create_my_request(body: UpdateRequestIn, svc: Service, user: CurrentUser) ->
     return UpdateRequestOut.model_validate(req)
 
 
-@router.get("/me/update-requests", response_model=UpdateRequestsOut)
-def my_requests(svc: Service, users: Users, user: CurrentUser) -> UpdateRequestsOut:
-    return UpdateRequestsOut(items=[_req_out(r, {}, users) for r in svc.my_update_requests(user=user)])
+@router.get("/me/update-requests", response_model=MyUpdateRequestsOut)
+def my_requests(svc: Service, users: Users, user: CurrentUser,
+                status_filter: str | None = Query(default=None, alias="status"),
+                page: int = Query(default=1, ge=1),
+                size: int = Query(default=10, ge=1, le=100)) -> MyUpdateRequestsOut:
+    """Đề nghị của chính NV — CẮT TRANG Ở MÁY CHỦ, kèm số đếm theo trạng thái cho pill lọc."""
+    if status_filter is not None and status_filter not in REQUEST_STATUSES:
+        raise HTTPException(status_code=400, detail="Trạng thái lọc không hợp lệ.")
+    rows, total, dem = svc.my_update_requests(user=user, status=status_filter, page=page, size=size)
+    return MyUpdateRequestsOut(
+        items=[_req_out(r, {}, users) for r in rows], total=total, page=page, size=size, dem=dem,
+    )
 
 
 @router.post("/me/update-requests/{request_id}/cancel", response_model=UpdateRequestOut)
@@ -582,12 +606,12 @@ def list_requests(svc: Service, users: Users,
                   user: Annotated[User, Depends(require_permission(MODULE, "read"))],
                   status_filter: str | None = Query(default=None, alias="status")) -> UpdateRequestsOut:
     reqs = svc.list_update_requests(status=status_filter)
-    emp_names: dict[int, str] = {}
+    emps: dict[int, object] = {}
     for eid in {r.employee_id for r in reqs}:
         emp = svc.employees.get_by_id(eid)
         if emp is not None:
-            emp_names[eid] = emp.full_name
-    return UpdateRequestsOut(items=[_req_out(r, emp_names, users) for r in reqs])
+            emps[eid] = emp
+    return UpdateRequestsOut(items=[_req_out(r, emps, users) for r in reqs])
 
 
 @router.post("/update-requests/{request_id}/approve", response_model=UpdateRequestOut)

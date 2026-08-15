@@ -316,6 +316,10 @@ class UpdateRequestOut(BaseModel):
     employee_id: int
     employee_name: str | None = None       # router fills (HCNS list)
     changes: dict
+    # Giá trị ĐANG có trên hồ sơ của đúng các field trong `changes` — router điền cho hàng đợi
+    # HCNS. Thiếu ô này thì người duyệt chỉ thấy giá trị mới, không biết đang đổi TỪ GÌ sang gì
+    # (màn "Hồ sơ của tôi" không cần: nó đã cầm sẵn hồ sơ của chính người xem).
+    current: dict = {}
     reason: str | None = None
     status: str
     decision_note: str | None = None
@@ -328,6 +332,22 @@ class UpdateRequestOut(BaseModel):
 
 class UpdateRequestsOut(BaseModel):
     items: list[UpdateRequestOut]
+
+
+class MyUpdateRequestsOut(UpdateRequestsOut):
+    """Phong bì phân trang cho danh sách đề nghị của CHÍNH NV (màn "Hồ sơ của tôi").
+
+    Giữ đúng bộ `items · total · page · size` như các danh mục đã cắt trang ở máy chủ
+    (`schemas/vat_lieu_kho.ListOut`), thêm `dem`: số đề nghị theo từng trạng thái tính trên TOÀN
+    BỘ hồ sơ. `dem` không phải trang trí — badge "N chờ duyệt" và số trên pill lọc phải đọc ở đây,
+    đếm trên `items` của trang đang xem sẽ sai khi NV có nhiều hơn một trang.
+
+    Hàng đợi HCNS (`UpdateRequestsOut`) chưa cắt trang, để nguyên."""
+
+    total: int = 0
+    page: int = 1
+    size: int = 0
+    dem: dict[str, int] = Field(default_factory=dict)
 
 
 class EmployeeEventOut(BaseModel):

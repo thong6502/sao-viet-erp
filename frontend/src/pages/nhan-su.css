@@ -1773,6 +1773,161 @@ button.ns__kpi {
   border-bottom-style: none;
 }
 
+/* ── Hàng đợi HCNS duyệt "Yêu cầu cập nhật hồ sơ": MỖI ĐỀ NGHỊ MỘT THẺ ────────────────
+   Bỏ bảng ở màn này. Nội dung là chuỗi TỰ DO người dùng gõ (hộ khẩu, nơi cấp CCCD, số tài
+   khoản) — bảng cũ nhồi cả cụm thay đổi vào MỘT ô, không xuống dòng nên tràn ngang và đẩy
+   cột Lý do + hai nút Duyệt/Từ chối ra khỏi màn. Thẻ cho xuống dòng thoải mái và có chỗ đặt
+   cột "Hiện tại".
+   Bố cục diff bám theo bảng ở "Hồ sơ của tôi" (`.mine__diff-table`): người gửi và người duyệt
+   nhìn CÙNG một cách thì mới đối chiếu được với nhau. */
+.nsq__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nsq__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  padding: var(--sp-4);
+}
+
+.nsq__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.nsq__who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.nsq__who svg {
+  color: var(--ash-2);
+}
+
+.nsq__sent {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  color: var(--ash-2);
+}
+
+.nsq__diff {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  overflow: hidden;
+}
+
+.nsq__diff-head,
+.nsq__diff-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 150px) minmax(0, 1fr) 16px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 8px var(--sp-3);
+}
+
+.nsq__diff-head {
+  background: var(--paper);
+  color: var(--ash);
+  font-size: 10.5px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.nsq__diff-row + .nsq__diff-row {
+  border-top: 1px solid var(--rule-hair);
+}
+
+.nsq__diff-name {
+  font-size: var(--fs-sm);
+  color: var(--ash);
+}
+
+.nsq__arrow {
+  color: var(--ash-2);
+}
+
+/* Chuỗi người dùng gõ có thể rất dài mà KHÔNG có dấu cách nào (số tài khoản dán nhầm cả
+   đoạn). `anywhere` là cách duy nhất cắt được giữa từ — thiếu nó là thẻ phình ngang, đúng
+   lỗi của bảng cũ. */
+.nsq__chip {
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: var(--r-3);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.nsq__chip--old {
+  background: var(--rule-hair);
+  color: var(--ash);
+  text-decoration: line-through;
+  text-decoration-color: var(--ash-2);
+}
+
+.nsq__chip--new {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  font-weight: var(--fw-medium);
+}
+
+.nsq__reason {
+  margin: 0;
+  padding: 8px var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  background: var(--paper);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.nsq__reason-label {
+  color: var(--ash);
+  font-weight: var(--fw-bold);
+}
+
+.nsq__warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 8px var(--sp-3);
+  border-radius: var(--r-3);
+  background: var(--signal-soft);
+  color: var(--signal-deep);
+  font-size: var(--fs-xs);
+}
+
+.nsq__warn svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.nsq__foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .cc-rowact {
   display: flex;
   gap: var(--sp-2);
@@ -1889,6 +2044,22 @@ button.ns__kpi {
 
   .ns-wizard__salary-intro span {
     text-align: left;
+  }
+
+  /* Diff đề nghị cập nhật: màn hẹp thì xếp DỌC. Mũi tên xoay 90° chứ không ẩn — nó là thứ
+     nói "cũ → mới"; bỏ đi thì hai chip chồng nhau đọc ra hai giá trị ngang hàng. */
+  .nsq__diff-head {
+    display: none;
+  }
+
+  .nsq__diff-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .nsq__arrow {
+    transform: rotate(90deg);
+    justify-self: start;
   }
 }
 
