@@ -1,9 +1,16 @@
 """Sales invoice is the only event that creates accounts receivable."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 
 from app.db import SessionLocal
+# "Hôm nay" phải là ĐỒNG HỒ CỦA SERVER (`Asia/Bangkok`), không phải của runner.
+#
+# `_hom_nay()` đọc giờ máy chạy test; GitHub Actions chạy UTC. Trong khoảng 17–24h UTC (tức
+# 0–7h giờ VN) hai đồng hồ lệch NGÀY, nên "ngày mai" mà test dựng lại đúng bằng "hôm nay" của
+# server ⇒ ca "hoá đơn đề ngày tương lai phải bị chặn" nhận 201 thay vì 422. Đã đỏ CI thật
+# 15/08/2026 21:28 UTC. Dùng chung seam với service thì hai bên không thể lệch, bất kể chạy giờ nào.
+from app.services.accounting_service import _business_today as _hom_nay
 from app.models.accounting import (
     PAYMENT_RECEIPT_RECEIVED,
     RECEIPT_SOURCE_ORDER,
@@ -62,7 +69,7 @@ def _invoice_payload(order_id: int, *, number: str, amount: int | None = None) -
         "order_id": order_id,
         "invoice_symbol": "1C26TSV",
         "invoice_number": number,
-        "invoice_date": date.today().isoformat(),
+        "invoice_date": _hom_nay().isoformat(),
     }
     if amount is not None:
         payload["amount_vnd"] = amount
@@ -83,7 +90,7 @@ def _add_deposit(order_id: int, amount: int) -> None:
                 payer_name="Customer invoice test",
                 receipt_method="cash",
                 status=PAYMENT_RECEIPT_RECEIVED,
-                receipt_date=date.today(),
+                receipt_date=_hom_nay(),
                 amount=amount,
                 amount_vnd=amount,
                 currency="VND",
@@ -115,7 +122,7 @@ def test_confirmed_order_does_not_create_receivable_until_invoice(client):
     assert created.status_code == 201, created.text
     body = created.json()
     assert body["remaining_amount"] == 400_000
-    assert body["due_date"] == (date.today() + timedelta(days=30)).isoformat()
+    assert body["due_date"] == (_hom_nay() + timedelta(days=30)).isoformat()
 
     after = client.get("/api/accounting/receivables", headers=headers).json()
     customer = next(row for row in after["items"] if row["customer_id"] == customer_id)
@@ -221,7 +228,7 @@ def test_invoice_receipt_reduces_debt_and_guards_cancellation(client):
         json={
             "payer_name": "Customer invoice test",
             "receipt_method": "cash",
-            "receipt_date": date.today().isoformat(),
+            "receipt_date": _hom_nay().isoformat(),
             "amount": 200_000,
             "content": "Partial invoice payment",
         },
@@ -243,7 +250,7 @@ def test_invoice_receipt_reduces_debt_and_guards_cancellation(client):
         json={
             "payer_name": "Customer invoice test",
             "receipt_method": "cash",
-            "receipt_date": date.today().isoformat(),
+            "receipt_date": _hom_nay().isoformat(),
             "amount": 300_001,
             "content": "Overpay",
         },
@@ -280,7 +287,7 @@ def test_overdue_and_credit_limit_use_invoice_date_and_snapshot(client):
     headers = _headers(client)
     order_id, customer_id = _sales_order(term_days=1)
     payload = _invoice_payload(order_id, number="00000012")
-    payload["invoice_date"] = (date.today() - timedelta(days=3)).isoformat()
+    payload["invoice_date"] = (_hom_nay() - timedelta(days=3)).isoformat()
     created = client.post(
         "/api/accounting/sales-invoices", json=payload, headers=headers
     )
@@ -324,7 +331,7 @@ def test_invoice_validation_requires_traceable_identity_and_valid_date(client):
     assert response.status_code == 422, response.text
 
     future = _invoice_payload(order_id, number="00000009")
-    future["invoice_date"] = (date.today() + timedelta(days=1)).isoformat()
+    future["invoice_date"] = (_hom_nay() + timedelta(days=1)).isoformat()
     response = client.post(
         "/api/accounting/sales-invoices", json=future, headers=headers
     )
