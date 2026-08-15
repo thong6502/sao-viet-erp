@@ -115,7 +115,6 @@ function loiDong(rows: EditRow[], i: number): string[] {
 export function LsxRoutingTable({
   congDoans,
   soLuongDat,
-  buHaoThem,
   leadTime,
   baiGhep,
   congDoanRefs,
@@ -136,7 +135,6 @@ export function LsxRoutingTable({
 }: {
   congDoans: LsxCongDoan[];
   soLuongDat: number;
-  buHaoThem: number;
   leadTime: LsxLeadTime | null;
   /** Lệnh đang ghép chung tờ → thông số tờ do BÀI quyết, bước in khoá lại ở màn này. */
   baiGhep: import("../api/client").LsxBaiGhep | null;
@@ -150,7 +148,7 @@ export function LsxRoutingTable({
   saving: boolean;
   onSave: (body: LsxCongDoanBody[], lyDo?: string) => void;
   /** Sửa cấp LỆNH từ drawer bước cuối (SL thành phẩm / hao thêm) → server tính lại cả chuỗi. */
-  onPatchLsx: (p: { so_luong_dat?: number; bu_hao_to?: number }) => void;
+  onPatchLsx: (p: { so_luong_dat?: number }) => void;
   onMacDinhBuoc: (congDoanId: number) => Promise<LsxBuocMacDinh>;
   onDauViecOptions: (
     congDoanId: number, departmentId: number,
@@ -754,7 +752,6 @@ export function LsxRoutingTable({
           index={moBuoc}
           tong={rows.length}
           soLuongDat={soLuongDat}
-          buHaoThem={buHaoThem}
           congDoanRefs={congDoanRefs}
           toRefs={toRefs}
           mayRefs={mayRefs}

@@ -84,16 +84,16 @@ LOAI_BUOC = (LB_MAY, LB_TO, LB_THUE_NGOAI)
 # Bước chiếm tổ (nhiều người làm song song được → `so_nhan_cong` chia thời gian chạy).
 LOAI_BUOC_THEO_TO = (LB_TO,)
 
-# --- Đơn vị năng suất (output/giờ). Khớp `may_thiet_bi.don_vi_toc_do` ở phần dùng được.
-# Mã năng suất nay sinh theo LUẬT CHUNG `<mã đơn vị>_gio` (xem `_nang_suat_buoc` ở lsx_service):
-# xưởng khai đơn vị `me`/`thung` thì máy khai `me_gio`/`thung_gio` là khớp. Ba hằng dưới chỉ còn
-# là mã của mấy đơn vị quen, dùng trong bảng NGOẠI LỆ `_DV_VAO_SANG_NS` (tay sách đo bằng tờ/giờ).
-NS_TO_GIO = "to_gio"
-NS_CAI_GIO = "cai_gio"
-NS_KEM_GIO = "kem_gio"
-# 🔴 GỠ `DON_VI_NANG_SUAT = (to_gio, cai_gio, kem_gio)` 12/08/2026 — DANH SÁCH CỨNG còn sót của lối
-# cũ, đã KHÔNG nơi nào đọc: service Máy không validate theo nó và `_nang_suat_buoc` chuyển sang luật
-# chung từ 11/08. Để lại chỉ mời người sau dựng lại cái khoá ba-đơn-vị vừa gỡ. Đừng khai lại.
+# --- Đơn vị năng suất: KHÔNG có hằng nào ở đây, và đừng khai lại.
+#
+# Máy lưu `may_thiet_bi.don_vi_toc_do` dạng `<mã đơn vị>_gio`, mã lấy thẳng từ danh mục Đơn vị &
+# quy đổi — xưởng khai `me`/`thung` thì máy khai `me_gio`/`thung_gio`. Cắt hậu tố ở đúng một chỗ:
+# `lsx_service.ma_don_vi_toc_do`.
+#
+# 🔴 GỠ `NS_TO_GIO`/`NS_CAI_GIO`/`NS_KEM_GIO` 15/08/2026 (trước đó là `DON_VI_NANG_SUAT` 12/08):
+# ba hằng này chỉ sống để nuôi bảng ánh xạ `_DV_VAO_SANG_NS` — thứ so mã rồi VỨT tốc độ khi lệch.
+# Nay SL vào được quy đổi về đơn vị của tốc độ nên không còn gì để so. Khai lại một danh sách đơn
+# vị cứng ở tầng code là dựng lại đúng cái vừa gỡ.
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -127,7 +127,9 @@ class Lsx(Base):
     # --- Số lượng (MIS: Ordered → Planned; Produced thuộc pha thực thi) ---
     so_luong_dat: Mapped[int] = mapped_column(Integer, nullable=False, default=0)      # = order_lines.qty
     don_vi_tinh: Mapped[str] = mapped_column(String(30), nullable=False, default="cái")
-    bu_hao_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)         # tờ bù (auto+tay)
+    # 🔴 XOÁ 15/08/2026: `bu_hao_to` — ô "Hao hụt thêm" ở bước cuối. Bỏ cùng ô "+ Bù thêm" bên
+    # phiếu tính giá để cả hệ chỉ còn MỘT đường khai hao: định mức của chính công đoạn ở danh mục.
+    # Đo 0/3 lệnh (DB dev) từng gõ số. `LsxPreviewLine.bu_hao_to` KHÁC — đó là số máy tự tra, giữ.
     so_to_ke_hoach: Mapped[int] = mapped_column(Integer, nullable=False, default=0)    # tờ vào máy
     so_to_nguyen: Mapped[int] = mapped_column(Integer, nullable=False, default=0)      # tờ giấy nguyên
     so_con: Mapped[int] = mapped_column(Integer, nullable=False, default=1)            # con/tờ

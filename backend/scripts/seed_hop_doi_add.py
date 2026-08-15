@@ -48,7 +48,7 @@ def main():
     db = SessionLocal()
     try:
         # ── 1. Chủng loại + Giấy D250 khổ 44,5×64 (mua theo cân, 17.100đ/kg) ──────────
-        cl = get_or_create(db, ChungLoaiGiay, "DUPLEX", ten="Duplex (2 mặt: 1 bóng 1 xám)", be_mat="nham")
+        cl = get_or_create(db, ChungLoaiGiay, "DUPLEX", ten="Duplex (2 mặt: 1 bóng 1 xám)")
         giay = get_or_create(
             db, GiayNguyen, "D250-BOI-44.5x64",
             ten="Giấy D250 bồi 44,5×64 (17.100đ/kg)", chung_loai_giay_id=cl.id, gsm=250,
@@ -118,7 +118,6 @@ def main():
             dai_thanh_pham=145, rong_thanh_pham=130,  # chỉ hiển thị (con_auto tắt)
             con_auto=False, so_con=2,                 # ghép 2 con/tờ
             co_in=False,                              # kẽm gộp trong khoán In
-            tinh_bu_hao_cd=False, bu_hao_so_to=250, hao_so_to=150,  # 2000 → 2250 giấy → 2100 sau in
         )
         tp.thanh_phams = [
             PhieuThanhPham(thu_tu=0, cong_doan_id=c_in.id, ten="In offset 4 màu (khoán, gồm kẽm)"),

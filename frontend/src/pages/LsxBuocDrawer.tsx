@@ -61,7 +61,6 @@ export function LsxBuocDrawer({
   index,
   tong,
   soLuongDat,
-  buHaoThem,
   congDoanRefs,
   toRefs,
   mayRefs,
@@ -85,8 +84,6 @@ export function LsxBuocDrawer({
   index: number;
   tong: number;
   soLuongDat: number;
-  /** `lsx.bu_hao_to` — hao thêm của kế hoạch, cộng vào bước CUỐI (đơn vị theo bước đó). */
-  buHaoThem: number;
   congDoanRefs: RefRow[] | null;
   toRefs: RefRow[] | null;
   mayRefs: RefRow[] | null;
@@ -100,9 +97,10 @@ export function LsxBuocDrawer({
   dvChuoi: import("./lsxBuoc").DonViChuoi;
   canUpdate: boolean;
   onPatch: (p: Partial<EditRow>) => void;
-  /** Sửa thẳng CẤP LỆNH — chỉ bước CUỐI dùng: SL thành phẩm cần giao (`so_luong_dat`) và hao
-   *  thêm của kế hoạch (`bu_hao_to`). Cả chuỗi phía trên tính ngược lại từ hai số này. */
-  onPatchLsx?: (p: { so_luong_dat?: number; bu_hao_to?: number }) => void;
+  /** Sửa thẳng CẤP LỆNH — chỉ bước CUỐI dùng: SL thành phẩm cần giao (`so_luong_dat`). Cả chuỗi
+   *  phía trên tính ngược lại từ số này. (Ô "Hao hụt thêm" đã gỡ 15/08/2026 — hao nay chỉ khai
+   *  ở định mức của chính công đoạn, nơi biết bước đó đếm bằng đơn vị gì.) */
+  onPatchLsx?: (p: { so_luong_dat?: number }) => void;
   /** Đổi công đoạn: kéo lại toàn bộ mặc định của công đoạn mới (giữ SL vào/ra). */
   onDoiCongDoan: (congDoanId: number | null) => void;
   onDoiTo: (departmentId: number | null) => void;
@@ -131,9 +129,7 @@ export function LsxBuocDrawer({
   // (chế bản, đơn vị trống) không tính là bước cuối của dòng giấy.
   const laBuocCuoi = index === tong - 1 && !!row.don_vi_ra;
   const [slRaCuoi, setSlRaCuoi] = useState(String(soLuongDat ?? 0));
-  const [haoThem, setHaoThem] = useState(String(buHaoThem ?? 0));
   useEffect(() => setSlRaCuoi(String(soLuongDat ?? 0)), [soLuongDat]);
-  useEffect(() => setHaoThem(String(buHaoThem ?? 0)), [buHaoThem]);
 
   // --- Sổ giao – nhận thực tế (bước thuê ngoài) --------------------------------------
   // Ghi THẲNG lên server, khác mọi ô khác trong drawer (chờ "Lưu công đoạn"). Vì đây là ghi
@@ -641,25 +637,10 @@ export function LsxBuocDrawer({
                 </span>
               </div>
 
-              {laBuocCuoi && (
-                <div className="khsx-wchip khsx-wchip--input">
-                  <span className="khsx-wchip__label">Hao hụt thêm:</span>
-                  <div className="khsx-wchip__input-group">
-                    <input
-                      type="number"
-                      min={0}
-                      className="khsx-wchip-input"
-                      value={haoThem}
-                      disabled={!canUpdate}
-                      onChange={(e) => setHaoThem(e.target.value)}
-                      onBlur={() =>
-                        onPatchLsx?.({ bu_hao_to: Math.max(0, Number(haoThem) || 0) })
-                      }
-                    />
-                    <span className="khsx-unit-badge khsx-unit-badge--sm">{dvNhan(row.don_vi_ra)}</span>
-                  </div>
-                </div>
-              )}
+              {/* 🔴 GỠ 15/08/2026: ô "Hao hụt thêm" ở bước cuối (`lsx.bu_hao_to`). Bỏ cùng ô
+                  "+ Bù thêm" bên phiếu tính giá để cả hệ chỉ còn MỘT đường khai hao — định mức của
+                  chính công đoạn ở danh mục. Chip "Hao hụt định mức" bên trái GIỮ NGUYÊN: đó là số
+                  máy tự tra, chỉ để đọc. */}
 
               {/* `heSoChu` LẬT lại khi hệ số < 1 (sách gấp tay): "10 Tờ in = 1 Thành phẩm" thay vì
                   "1 Tờ in = 0,1 Thành phẩm" — cùng cách trình bày với panel bù hao bên Tính giá. */}
@@ -773,6 +754,15 @@ export function LsxBuocDrawer({
                         }
                       >
                         <option value="">— chưa gán khuôn —</option>
+                        {/* Khuôn đã ngừng dùng không có trong `khuonRefs` (lọc `active:true`);
+                            không chèn lại thì ô rơi về "— chưa gán khuôn —" và cú Lưu kế tiếp gỡ
+                            mất khuôn của bước. Server đã trả sẵn `khuon_be_ten`, chỉ cần dùng. */}
+                        {row.khuon_be_id != null
+                          && !khuonRefs.some((k) => k.id === row.khuon_be_id) && (
+                          <option value={row.khuon_be_id}>
+                            {row.khuon_be_ten ?? `#${row.khuon_be_id}`} · đã ngừng dùng
+                          </option>
+                        )}
                         {khuonRefs.map((k) => (
                           <option key={k.id} value={k.id}>
                             {k.ten}
@@ -1462,13 +1452,22 @@ export function LsxBuocDrawer({
                 </span>
               </div>
 
-              {Number(tg.nang_suat_hieu_dung ?? 0) > 0 && (
+              {Number(tg.nang_suat_hieu_dung ?? 0) > 0 && tg.phuong_phap !== "chua_quy_doi" && (
                 <div className="khsx-formula-box">
                   <span className="khsx-formula-box__title">Công thức thời gian chạy:</span>
                   <code className="khsx-formula-code">
-                    {num(Number(tg.so_luong_vao ?? 0))} {String(tg.don_vi_vao ?? "")}
-                    {row.loai_buoc === "may" ? ` × ${Number(tg.so_luot_chay ?? 1)} lượt` : ""} ÷{" "}
-                    {num(Number(tg.nang_suat_hieu_dung ?? 0))}/giờ × 60 ={" "}
+                    {/* Chặng QUY ĐỔI hiện trước phép chia: người xem phải thấy 325 tờ thành 18,17
+                        kg ở đâu ra, không thì con số giữa công thức là số trên trời. */}
+                    {tg.quy_doi_dien_giai ? (
+                      <>{String(tg.quy_doi_dien_giai)}{" "}÷{" "}</>
+                    ) : (
+                      <>
+                        {num(Number(tg.so_luong_vao ?? 0))} {String(tg.don_vi_vao ?? "")} ÷{" "}
+                      </>
+                    )}
+                    {row.loai_buoc === "may" && Number(tg.so_luot_chay ?? 1) !== 1
+                      ? `${num(Number(tg.nang_suat_hieu_dung ?? 0))}/giờ × ${Number(tg.so_luot_chay ?? 1)} lượt × 60 = `
+                      : `${num(Number(tg.nang_suat_hieu_dung ?? 0))}/giờ × 60 = `}
                     <strong>{num(Number(tg.chay_phut ?? 0))} phút</strong>
                   </code>
                 </div>

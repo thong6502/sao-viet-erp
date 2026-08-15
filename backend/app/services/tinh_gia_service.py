@@ -69,7 +69,7 @@ _TP_SCALAR_FIELDS = (
     # thôi cảnh mỗi tầng tự lấy một đường rồi không ai kiểm chúng có khớp nhau không.
     "don_vi_tinh", "so_to_per_sp", "so_trang", "trang_moi_tay", "so_luong", "loai_san_pham_id",
     "giay_id", "kho_nguyen", "kho_nguyen_dai", "kho_nguyen_rong", "don_gia_giay",
-    "don_gia_don_vi", "nguon_giay", "bu_hao_so_to", "hao_so_to", "tinh_bu_hao_cd",
+    "don_gia_don_vi", "nguon_giay",
     "chua_nhip", "bleed_mm", "khe_cat_mm",
     "co_in", "che_ban_loai", "che_ban_don_gia", "quy_cach_in",
     "kho_in_dai", "kho_in_rong", "so_con", "con_auto", "may_id", "don_gia_cong_in",
@@ -199,9 +199,9 @@ def compute_phieu_snapshot(db: Session, phieu) -> dict:
     so_luong = int(phieu.so_luong or 0)
     tps = sorted(phieu.thanh_phans, key=lambda t: (t.thu_tu or 0, t.id or 0))
     resolved = [_resolve_thanh_phan(db, tp) for tp in tps]
-    bu_hao_rows = [_bu_hao_to_dict(b) for b in db.execute(
-        select(BuHao).where(BuHao.active.is_(True))
-    ).scalars()]
+    # KHÔNG lọc `active`: phiếu đã lưu chạy lại engine mỗi lần Lưu. Ẩn một mã bù hao mà lọc ở đây
+    # thì số tờ hao và giá vốn của phiếu cũ nhảy ngay lần sửa kế tiếp, không ai được báo.
+    bu_hao_rows = [_bu_hao_to_dict(b) for b in db.execute(select(BuHao)).scalars()]
     result = compute_phieu(so_luong=so_luong, thanh_phans=resolved, bu_hao_rows=bu_hao_rows)
 
     # gán giá vốn từng thành phần + ghi ngược SỐ BÀI IN dẫn xuất (so_trang / trang_moi_tay) để

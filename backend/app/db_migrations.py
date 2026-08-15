@@ -7071,3 +7071,142 @@ def _migrate_go_quy_doi_dong(db: Session) -> None:
 
 
 MIGRATIONS.append(("0198_go_quy_doi_dong", _migrate_go_quy_doi_dong))
+
+
+def _migrate_go_be_mat_tho_chung_loai_giay(db: Session) -> None:
+    """Gỡ `chung_loai_giay.be_mat` + `.tho_mac_dinh` — chủ dự án yêu cầu 15/08/2026.
+
+    ĐẾM TRƯỚC KHI GỠ (DB dev, qua API, ngay trước khi viết hàm này):
+
+      | cột            | có dữ liệu | ai ĐỌC                                        |
+      |----------------|-----------|-----------------------------------------------|
+      | `be_mat`       | 6/6       | chỉ hiện trên bảng + `_validate` của chính nó  |
+      | `tho_mac_dinh` | 0/6       | không ai                                       |
+
+    ⚠️ MẤT DỮ LIỆU, KHÔNG ĐẢO LẠI: `be_mat` đang có giá trị ở cả 6 dòng ("bong"/"mo"/"nham").
+    Mất nó là mất chữ Bóng/Mờ/Nhám trên bảng Chủng loại giấy — KHÔNG engine nào đọc để tính, nên
+    không phiếu nào đổi số. `tho_mac_dinh` rỗng sạch; đừng nhầm với `giay_nguyen.tho` (thớ của
+    TỪNG loại giấy) — cột đó KHÔNG đụng tới, vẫn dùng cho bình bài.
+
+    KHÔNG gỡ `cong_thuc_luong` ở đây dù cùng đợt yêu cầu — xem ghi chú ở
+    `models/vat_lieu_kho.GiayNguyen.cong_thuc_luong`: nó là thứ DUY NHẤT còn đổi được tờ → kg
+    sau khi mg 0198 gỡ cặp quy đổi động, và bảng cặp hiện không có cầu `to → kg` nào
+    (đã soi: chỉ `kg→g`, `ram→to`, `tan→kg`).
+
+    DROP COLUMN best-effort: SQLite đời cũ từ chối thì cột mồ côi vô hại — model đã hết map nó.
+    """
+    insp = inspect(db.get_bind())
+    if "chung_loai_giay" not in set(insp.get_table_names()):
+        return
+    for cot in ("be_mat", "tho_mac_dinh"):
+        if cot not in _existing_columns(insp, "chung_loai_giay"):
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE chung_loai_giay DROP COLUMN {cot}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0199_go_be_mat_tho_chung_loai_giay", _migrate_go_be_mat_tho_chung_loai_giay))
+
+
+def _migrate_go_o_bu_hao_nhap_tay(db: Session) -> None:
+    """Gỡ HAI ô nhập hao bằng tay — chủ dự án yêu cầu 15/08/2026.
+
+      | cột                              | ô trên màn                   | có dữ liệu |
+      |----------------------------------|------------------------------|-----------|
+      | `phieu_thanh_phan.bu_hao_so_to`  | Phiếu tính giá · "+ Bù thêm" | 0/7 phiếu |
+      | `lsx.bu_hao_to`                  | Lệnh SX · "Hao hụt thêm"     | 0/3 lệnh  |
+
+    (Đếm qua API trên DB dev ngay trước khi viết hàm này.)
+
+    VÌ SAO GỠ chứ không sửa: ô của phiếu tính giá cộng một con số TỜ vào cả `vao` lẫn `ra` của MỌI
+    bước mà không nhìn đơn vị — bước đếm cuốn nhận thêm 100 *tờ* thành 100 *cuốn*, nên hao hiện ra
+    ÂM và đơn 500 cuốn hoá 600. Ô bên lệnh SX thì làm đúng (cộng vào bước cuối, có nhãn đơn vị),
+    nhưng giữ một ô đúng và một ô sai cho cùng một khái niệm là để người dùng tự đoán màn nào tin
+    được. Nay cả hệ còn MỘT đường khai hao: định mức của chính công đoạn trong danh mục Công đoạn —
+    chỗ đó biết bước ấy đếm bằng gì nên quy ra giấy đúng cầu.
+
+    KHÔNG đụng `lsx_cong_doan.hao_hut` / `.hao_hut_pct`: đó là số DẪN XUẤT do chuỗi ngược ghi, và
+    `bai_ghep_service` đang đọc để chuyển hao lên bài chung. Cũng KHÔNG đụng `LsxPreviewLine.bu_hao_to`
+    (số máy tự tra, chỉ để hiển thị ở màn xem trước) — trùng tên, khác thứ.
+
+    DROP COLUMN best-effort: SQLite đời cũ từ chối thì cột mồ côi vô hại — model đã hết map nó.
+    """
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+    for bang, cot in (("phieu_thanh_phan", "bu_hao_so_to"), ("lsx", "bu_hao_to")):
+        if bang not in ten_bang or cot not in _existing_columns(insp, bang):
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE {bang} DROP COLUMN {cot}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0200_go_o_bu_hao_nhap_tay", _migrate_go_o_bu_hao_nhap_tay))
+
+
+def _migrate_go_hai_cot_hao_chet(db: Session) -> None:
+    """Gỡ nốt HAI cột hao đã chết từ lâu ở `phieu_thanh_phan` — chủ dự án yêu cầu 15/08/2026.
+
+      | cột             | ô trên màn              | tình trạng                                  |
+      |-----------------|-------------------------|---------------------------------------------|
+      | `hao_so_to`     | "− Hao"                 | ô gỡ khỏi UI từ trước; engine trả `hao_tay`=0 |
+      | `tinh_bu_hao_cd`| nút bật/tắt bù hao tự   | nút gỡ khỏi UI từ trước; engine LUÔN tính chuỗi |
+
+    Cả hai đã ngưng-đọc từ lâu (xem chú thích cũ ở `models/phieu_tinh_gia`), chỉ còn đi nhờ DTO
+    giữa hai tầng — tức chúng vẫn hiện trong payload và trong OpenAPI như thể còn tác dụng.
+
+    Đây là bước SAU của `0200`: gỡ xong ba ô nhập tay thì khối "Số tờ tự tính" của phiếu tính giá
+    do máy tính TRỌN VẸN, không còn ô nào để hai người gõ hai số khác nhau trên cùng một phiếu.
+
+    ⚠️ Danh sách cột dưới đây có CẢ `bu_hao_so_to` — đáng lẽ `0200` rút nó, nhưng `0200` gõ nhầm
+    tên bảng (`phieu_tinh_gia_component`, không tồn tại) nên guard "bảng không có" nuốt mất trong
+    im lặng. `0200` đã chạy trên DB dev nên sửa tại chỗ không đủ — phải rút lại ở đây. (Tên trong
+    `0200` cũng đã vá, để DB dựng mới không dính lỗi đó.)
+
+    DROP COLUMN best-effort: SQLite đời cũ từ chối thì cột mồ côi vô hại — model đã hết map nó.
+    """
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in set(insp.get_table_names()):
+        return
+    for cot in ("bu_hao_so_to", "hao_so_to", "tinh_bu_hao_cd"):
+        if cot not in _existing_columns(insp, "phieu_thanh_phan"):
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE phieu_thanh_phan DROP COLUMN {cot}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0201_go_hai_cot_hao_chet", _migrate_go_hai_cot_hao_chet))
+
+
+def _migrate_may_thiet_bi_active(db: Session) -> None:
+    """`may_thiet_bi.active` — máy còn dùng hay đã thanh lý. Chủ dự án yêu cầu 15/08/2026.
+
+    ĐỪNG NHẦM với `trang_thai` đã gỡ ở mg `0186`: cái cũ trộn ba nghĩa (đang chạy / bảo trì / đã
+    nghỉ) và không có ô nhập nào. Cột này trả lời ĐÚNG MỘT câu — xưởng còn máy này không. Máy dừng
+    TẠM vẫn `active=True`, khai bằng khoảng thời gian ở `machine_unavailable_periods`.
+
+    VÌ SAO CẦN: màn Máy là màn danh mục DUY NHẤT không có cờ này, nên nó đứng ngoài luật xoá chung
+    — bấm Xóa là xoá cứng, không có đường "ngừng dùng". Sau khi hộp thoại xoá chuyển sang hỏi
+    `kiem-xoa` (15/08), màn này rơi vào ngõ cụt: hỏi thì 404, ngừng dùng cũng 404.
+
+    Backfill: mọi máy đang có = còn dùng (`TRUE`). Không suy từ dữ liệu nào khác — không có nguồn
+    nào đáng tin để đoán máy nào đã thanh lý, mà đoán sai là máy biến mất khỏi ô chọn của xếp lịch.
+    """
+    insp = inspect(db.get_bind())
+    if "may_thiet_bi" not in set(insp.get_table_names()):
+        return
+    if "active" in _existing_columns(insp, "may_thiet_bi"):
+        return
+    db.execute(text("ALTER TABLE may_thiet_bi ADD COLUMN active BOOLEAN NOT NULL DEFAULT TRUE"))
+    db.commit()
+
+
+MIGRATIONS.append(("0202_may_thiet_bi_active", _migrate_may_thiet_bi_active))

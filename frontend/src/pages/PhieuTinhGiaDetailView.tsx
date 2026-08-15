@@ -9,6 +9,7 @@ import {
   ApiError,
   type PhieuTinhGiaOut,
   type PhieuTinhGiaColOut,
+  type PhieuTinhGiaGroupOut,
   type PtgActivity,
   type ThanhPhanIn,
   type ThanhPhanOut,
@@ -27,6 +28,7 @@ import { useNapTenDonVi } from "./tenDonVi";
 // Nhãn ĐƠN VỊ của biến công thức lấy từ TỪ ĐIỂN BIẾN (`/api/bien-cong-thuc`), không khai lại ở đây —
 // xem ghi chú chỗ `humanizeFormula`.
 import { traBien, useBienCongThuc, type TraBien } from "./RebuildCatalogPage";
+import { HAM_TOAN, catToken, laSo, laToanTu } from "./danh-muc/formulaTokens";
 import { PhieuTinhGiaPrint, type PhieuTinhGia, type PhieuTinhGiaColumn } from "./PhieuTinhGiaPrint";
 import "./rebuild-catalog.css";
 import "./tinh-gia.css";
@@ -196,6 +198,121 @@ function SoDv({ so, dv }: { so: string; dv?: string | null }) {
   );
 }
 
+/** Một dòng tiền đã đọc ra khỏi `groups[].rows` (kiểu thô `Record<string, string|number|null>`).
+ *
+ *  HAI công thức, không phải một: `congThucGoc` là thứ người ta khai trong danh mục (`to_dau_vao *
+ *  so_mat * 350`), `congThuc` là bản engine đã thế số. Panel hiện cả hai — bản gốc trả lời "tính
+ *  bằng gì", bản thế số trả lời "ra số nào". */
+export interface DongTien {
+  ten: string;
+  tien: number;
+  congThuc: string;
+  congThucGoc: string;
+}
+
+/** `"to_dau_vao * so_mat * 350"` → `"Tờ vào máy × Số mặt in × 350"`.
+ *
+ *  Dùng chung bộ cắt token của màn danh mục — bản thứ hai là bản sớm muộn lệch một ký tự. Tên hàm
+ *  toán giữ nguyên; biến lạ (từ điển chưa nạp, hoặc mã đã gỡ) cũng giữ nguyên mã thay vì nuốt đi:
+ *  thấy `to_qua_buoc` lù lù còn biết mà đi sửa, chứ mất tiêu thì công thức đọc lên thiếu một vế. */
+function dienGiaiFormula(raw: string, tra: TraBien): string {
+  if (!raw) return "";
+  const dau: Record<string, string> = { "*": "×", "/": "÷", "-": "−" };
+  return catToken(raw)
+    .map((t) => {
+      if (laToanTu(t)) return dau[t] ?? t;
+      if (laSo(t) || /^\s+$/.test(t)) return t;
+      if ((HAM_TOAN as readonly string[]).includes(t)) return t;
+      return tra(t)?.nhan ?? t;
+    })
+    .join("");
+}
+
+function _so(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+function _chuoi(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+
+/** Dòng tiền của từng công đoạn, GIỮ THỨ TỰ ROUTING như engine trả về. Khối "Giá vốn" liệt kê
+ *  theo mảng này; `tienTheoBuoc` bên dưới là cùng dữ liệu nhưng tra theo khóa, cho thẻ số tờ. */
+function dongCongDoan(groups: PhieuTinhGiaGroupOut[] | null): DongTien[] {
+  const grp = groups?.find((g) => g.idx === "cong_doan");
+  const ra: DongTien[] = [];
+  for (const r of grp?.rows ?? []) {
+    const tien = _so(r.thanh_tien);
+    if (tien === null) continue;
+    // `ten` mang tiền tố tên sản phẩm (`_pre`) — ở đây đang đứng TRONG sản phẩm đó rồi, lặp lại
+    // tên nó ở mọi dòng chỉ tổ đẩy con số ra khỏi tầm mắt.
+    ra.push({
+      ten: _chuoi(r.ten).split(" · ").pop() ?? "",
+      tien,
+      congThuc: _chuoi(r.cong_thuc),
+      congThucGoc: _chuoi(r.cong_thuc_goc),
+    });
+  }
+  return ra;
+}
+
+/** Hai dòng dưới một khoản tiền: DIỄN GIẢI (tính bằng gì) rồi THAY SỐ (ra số nào).
+ *
+ *  Một dòng thế số đứng trơ thì đọc lên là "5.200 × 2 × 350" — không biết 5.200 là tờ vào máy hay
+ *  tờ nguyên, mà hai số đó khác nhau và đều có mặt trên màn. Có dòng tên biến ở trên mới kiểm được. */
+function HaiDongCongThuc({ d, tra }: { d: DongTien; tra: TraBien }) {
+  const goc = dienGiaiFormula(d.congThucGoc, tra);
+  const so = d.congThuc ? humanizeFormula(d.congThuc, tra) : "";
+  if (!goc && !so) return null;
+  return (
+    <>
+      {goc && <em className="tg-sheetrow__derive">{goc}</em>}
+      {so && <em className="tg-sheetrow__derive tg-sheetrow__derive--so">= {so}</em>}
+    </>
+  );
+}
+
+/** Tiền của TỪNG BƯỚC, tra theo `buoc_idx` — khóa do engine phát ra ở CẢ hai danh sách
+ *  (`groups.cong_doan[].buoc_idx` và `bu_hao_chi_tiet[].buoc_idx`).
+ *
+ *  KHÔNG ghép bằng tên: hai bên không cùng độ dài (chế bản có tiền nhưng không chạm tờ nên vắng
+ *  mặt bên kia) và tên bên tiền đã bị gắn tiền tố tên sản phẩm. Ghép bằng tên thì hôm nào xưởng
+ *  đổi tên một công đoạn là tiền rơi khỏi thẻ mà KHÔNG có lỗi nào báo.
+ *
+ *  Backend chưa restart (route cũ, không có `buoc_idx`) ⇒ map rỗng ⇒ thẻ chỉ hiện số tờ như cũ,
+ *  không vỡ. Ở đây KHÔNG suy ra tiền bằng vị trí để "đỡ trống" — thà thiếu còn hơn gán nhầm tiền
+ *  của bước này sang bước khác. */
+function tienTheoBuoc(groups: PhieuTinhGiaGroupOut[] | null): Map<number, DongTien> {
+  const out = new Map<number, DongTien>();
+  const grp = groups?.find((g) => g.idx === "cong_doan");
+  for (const r of grp?.rows ?? []) {
+    const key = _so(r.buoc_idx);
+    const tien = _so(r.thanh_tien);
+    if (key === null || tien === null) continue;
+    out.set(key, {
+      ten: _chuoi(r.ten), tien,
+      congThuc: _chuoi(r.cong_thuc), congThucGoc: _chuoi(r.cong_thuc_goc),
+    });
+  }
+  return out;
+}
+
+/** Dòng NVL tách theo cờ `loai` engine gắn — giấy đứng riêng, mực/màng/keo gom lại. */
+function nvlTheoLoai(groups: PhieuTinhGiaGroupOut[] | null): { giay: DongTien[]; vatTu: DongTien[] } {
+  const ra: { giay: DongTien[]; vatTu: DongTien[] } = { giay: [], vatTu: [] };
+  const grp = groups?.find((g) => g.idx === "nvl");
+  for (const r of grp?.rows ?? []) {
+    const tien = _so(r.thanh_tien);
+    if (tien === null) continue;
+    const dong: DongTien = {
+      ten: _chuoi(r.ten), tien,
+      congThuc: _chuoi(r.cong_thuc), congThucGoc: _chuoi(r.cong_thuc_goc),
+    };
+    if (r.loai === "giay") ra.giay.push(dong);
+    else if (r.loai === "vat_tu") ra.vatTu.push(dong);
+  }
+  return ra;
+}
+
 // 🔴 GỠ `FORMULA_UNIT` (12/08/2026) — bảng nhãn đơn vị của biến khai cứng ở đây. Nó là BẢN SAO của
 // cột `don_vi` trong từ điển biến (`services/bien_cong_thuc`, phơi qua `/api/bien-cong-thuc`), và đã
 // lệch bốn chỗ:
@@ -273,9 +390,6 @@ interface EditableComponent {
   /** DORMANT từ 2026-08-09 (Đợt 4 · K): ô chọn đã gỡ, engine thôi đọc. FE luôn gửi `cong_ty`.
    *  Giữ field để không phải sửa DTO hai đầu — cột vẫn còn trong DB theo lệ dự án (không drop cột). */
   nguon_giay: string;
-  bu_hao_so_to: number;
-  hao_so_to: number;
-  tinh_bu_hao_cd: boolean; // bật/tắt tính bù hao công đoạn tự
   chua_nhip: number; // đè nhíp giấy của máy (0 = theo danh mục Máy)
   bleed_mm: number;
   khe_cat_mm: number;
@@ -335,9 +449,6 @@ function blankComponent(ten = ""): EditableComponent {
     don_gia_giay: 0,
     don_gia_don_vi: "to",
     nguon_giay: "cong_ty",
-    bu_hao_so_to: 0,
-    hao_so_to: 0,
-    tinh_bu_hao_cd: true,
     chua_nhip: 0,
     bleed_mm: 0,
     khe_cat_mm: 0,
@@ -405,9 +516,6 @@ function fromComponent(c: ThanhPhanOut): EditableComponent {
     don_gia_giay: c.don_gia_giay ?? 0,
     don_gia_don_vi: c.don_gia_don_vi ?? "to",
     nguon_giay: c.nguon_giay ?? "cong_ty",
-    bu_hao_so_to: c.bu_hao_so_to ?? 0,
-    hao_so_to: c.hao_so_to ?? 0,
-    tinh_bu_hao_cd: c.tinh_bu_hao_cd ?? true,
     chua_nhip: c.chua_nhip ?? 0,
     bleed_mm: c.bleed_mm ?? 0,
     khe_cat_mm: c.khe_cat_mm ?? 0,
@@ -449,9 +557,6 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
     don_gia_giay: c.don_gia_giay,
     don_gia_don_vi: c.don_gia_don_vi,
     nguon_giay: c.nguon_giay,
-    bu_hao_so_to: c.bu_hao_so_to,
-    hao_so_to: c.hao_so_to,
-    tinh_bu_hao_cd: c.tinh_bu_hao_cd,
     chua_nhip: c.chua_nhip,
     bleed_mm: c.bleed_mm,
     khe_cat_mm: c.khe_cat_mm,
@@ -859,6 +964,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const [editingUid, setEditingUid] = useState<string | null>(null);
   // Số [Hiện] LIVE của sản phẩm đang mở modal (gọi /preview — engine thật, không ghi DB).
   const [editMeta, setEditMeta] = useState<TinhGiaComponentMeta | null>(null);
+  // Hai NHÓM TIỀN (nvl · cong_doan) của chính sản phẩm đang mở — cùng một vòng /preview với
+  // `editMeta`, không gọi thêm lần nào. Panel bên phải chạy mạch tiền song song mạch số tờ: mỗi
+  // bước hiện tiền của đúng bước đó, chốt lại bằng giá vốn sản phẩm.
+  const [editGia, setEditGia] = useState<PhieuTinhGiaGroupOut[] | null>(null);
   // Bình bài NGHỊCH: uid → true khi gõ Số con mà KHÔNG xếp được đúng N trong khổ giấy nguyên.
 
   // --- Kết quả ---
@@ -1112,8 +1221,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       ca: c.con_auto, sc: c.so_con, tr: c.so_trang, tmt: c.trang_moi_tay, qc: c.quy_cach_in,
       // Ký theo TẬP mực, không theo ba số dẫn xuất: server ghi đè ba số đó nên chúng không đổi
       // ngay khi bấm chip, ký nhầm vào chúng là preview đứng im trong khi số kẽm đã khác.
-      ma: c.muc_a, mb: c.muc_b, bu: c.bu_hao_so_to, hao: c.hao_so_to,
-      tbh: c.tinh_bu_hao_cd,
+      ma: c.muc_a, mb: c.muc_b,
       ch: c.chua_nhip,
       bl: c.bleed_mm, ke: c.khe_cat_mm,
       gid: c.giay_id, may: c.may_id, cds: c.thanh_phams.map((f) => f.cong_doan_id),
@@ -1122,13 +1230,19 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   useEffect(() => {
     if (!token || !editingComp) {
       setEditMeta(null);
+      setEditGia(null);
       return;
     }
     const snapshot = editingComp;
     const h = window.setTimeout(() => {
       api.tinhGia
         .preview(token, { so_luong: phieuSL, thanh_phans: [toThanhPhanIn(snapshot)] })
-        .then((r) => setEditMeta(r.meta?.components?.[0] ?? null))
+        .then((r) => {
+          setEditMeta(r.meta?.components?.[0] ?? null);
+          // `/preview` được gọi với ĐÚNG MỘT sản phẩm nên `groups` đã là của riêng nó — không
+          // phải lọc, cũng không cần backend gửi thêm bản sao theo từng sản phẩm.
+          setEditGia(r.groups ?? null);
+        })
         .catch(() => {});
     }, 300);
     return () => window.clearTimeout(h);
@@ -1821,6 +1935,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           mays={mays}
           congDoans={congDoans}
           liveMeta={editMeta}
+          liveGia={editGia}
           phieuSL={phieuSL}
           onClose={closeEditor}
           onRemove={() => {
@@ -1856,6 +1971,7 @@ function ComponentModal({
   mays,
   congDoans,
   liveMeta,
+  liveGia,
   phieuSL,
   onClose,
   onRemove,
@@ -1873,6 +1989,7 @@ function ComponentModal({
   mays: Row[];
   congDoans: Row[];
   liveMeta: TinhGiaComponentMeta | null;
+  liveGia: PhieuTinhGiaGroupOut[] | null;
   phieuSL: number;
   onClose: () => void;
   onRemove: () => void;
@@ -1889,6 +2006,25 @@ function ComponentModal({
   const [moPhanRa, setMoPhanRa] = useState(false);
   // "Tờ sau in" là tờ tốt ra khỏi bước IN — neo vào đúng bước đó để không phải đoán con số ở đâu ra.
   const buocIn = liveMeta?.bu_hao_chi_tiet?.find((b) => b.nhom === "print") ?? null;
+  // --- Mạch TIỀN (cùng vòng /preview với mạch số tờ) ---
+  // Từ điển biến để đổi công thức đã thế số thành chữ đọc được. `useBienCongThuc` cache theo
+  // PHIÊN nên gọi ở đây không đẻ thêm request, khỏi phải luồn thêm một prop qua modal.
+  const bienCt = useBienCongThuc();
+  const tra = useMemo(() => traBien(bienCt), [bienCt]);
+  const mapTien = useMemo(() => tienTheoBuoc(liveGia), [liveGia]);
+  const dsCongDoan = useMemo(() => dongCongDoan(liveGia), [liveGia]);
+  const nvl = useMemo(() => nvlTheoLoai(liveGia), [liveGia]);
+  const tienCongDoan = useMemo(
+    () => [...mapTien.values()].reduce((s, d) => s + d.tien, 0), [mapTien],
+  );
+  const tienNvl = [...nvl.giay, ...nvl.vatTu].reduce((s, d) => s + d.tien, 0);
+  // Tổng LẤY TỪ ENGINE (`gia_von_tp`), không tự cộng lại — cộng ở client là đẻ nguồn sự thật thứ
+  // hai, rồi hai màn ra hai con số trên cùng một phiếu. Nhưng CÓ đối chiếu: lệch quá 1đ nghĩa là
+  // có dòng engine tính mà panel chưa hiện ⇒ nói thẳng ra thay vì để người xem tự cộng rồi ngờ.
+  const lechTien = liveMeta ? Math.abs(liveMeta.gia_von_tp - (tienNvl + tienCongDoan)) : 0;
+  // Chưa có số (chưa nhập đủ) hoặc backend đời cũ chưa gửi nhóm tiền ⇒ không dựng khối rỗng.
+  const coTien = !!liveMeta
+    && (nvl.giay.length > 0 || nvl.vatTu.length > 0 || dsCongDoan.length > 0);
   // ĐƠN VỊ CỦA CHÍNH CHUỖI NÀY (12/08/2026) — trước đó khối này gọi cứng "tờ" và "con/tờ", trong
   // khi công đoạn khai `tờ → cái` / `tờ → tay sách`. Hệ quả thấy ngay trên màn: cùng số 99 mà dòng
   // trên ghi "99 con/tờ" còn dòng bù hao ghi "1 tờ = 99 cái" — mà `con` và `cái` là HAI đơn vị khác
@@ -2493,6 +2629,8 @@ function ComponentModal({
                     const haoText = coHao
                       ? `cần ${fmt(b.ra_quy ?? 0)} ${dvV} tốt + ${fmt(b.hao)} hao = ${fmt(b.vao)} ${dvV}`
                       : null;
+                    // Tiền của ĐÚNG bước này. `undefined` = backend chưa gửi khóa ⇒ không hiện gì.
+                    const tienBuoc = b.buoc_idx == null ? undefined : mapTien.get(b.buoc_idx);
 
                     return (
                       <li key={i} className="tg-step-card">
@@ -2514,6 +2652,11 @@ function ComponentModal({
                           <span className="tg-step-card__qty">
                             {fmt(b.ra)} <small>{dvR}</small>
                           </span>
+                          {tienBuoc && (
+                            <span className="tg-step-card__tien" title={tienBuoc.congThuc || undefined}>
+                              {fmt(Math.round(tienBuoc.tien))} <small>đ</small>
+                            </span>
+                          )}
                         </div>
                         {(doiTiLe || coHao) && (
                           <div className="tg-step-card__details">
@@ -2540,19 +2683,10 @@ function ComponentModal({
                   })}
                 </ul>
               )}
-              <div className="tg-sheetrow tg-sheetrow--input">
-                <span>+ Bù thêm</span>
-                <input
-                  className="tg-sheetinput"
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={c.bu_hao_so_to}
-                  onChange={(e) =>
-                    patchComp(c.uid, { bu_hao_so_to: Math.max(0, Math.round(Number(e.target.value) || 0)) })
-                  }
-                />
-              </div>
+              {/* 🔴 GỠ 15/08/2026: ô "+ Bù thêm" — ô nhập tay CUỐI CÙNG của khối này. Nó cộng một
+                  con số TỜ vào mọi bước bất kể bước đó đếm bằng gì, nên bước đếm cuốn ra hao ÂM và
+                  đơn 500 hoá 600. Nay cả khối số tờ do máy tính hết. Muốn làm dư thì khai bù hao
+                  của chính công đoạn ở danh mục — chỗ đó biết đơn vị nên quy ra giấy đúng cầu. */}
               <div className="tg-sheetrow tg-sheetrow--total">
                 <span>= Tờ vào máy</span>
                 {liveMeta
@@ -2615,6 +2749,83 @@ function ComponentModal({
                   : "Nhập đủ khổ + số lượng để tính"}
               </div>
             </div>
+
+            {/* GIÁ THÀNH: mạch tiền nối tiếp mạch số tờ ở trên. Cùng một vòng /preview, không
+                gọi thêm request nào. Chi tiết TỪNG bước nằm trong phân rã "Bù hao công đoạn" —
+                ở đây chỉ chốt tổng, để khối không dài gấp đôi vì lặp lại tên 6 công đoạn. */}
+            {liveMeta && (
+              <div className="tg-sheetbox tg-sheetbox--tien">
+                <div className="tg-sheetbox__title">
+                  Giá vốn <span className="tg-sheetbox__hint">sản phẩm này</span>
+                </div>
+                {/* KHÔNG gộp hai ca này làm một: "engine tính ra 0đ" và "engine có tính mà panel
+                    không đọc được dòng" là hai chuyện khác hẳn, mà chỉ có tổng > 0 mới phân biệt
+                    được. Nói nhầm ca thì người dùng đi sửa công thức trong khi công thức không sai. */}
+                {!coTien && (
+                  <div className="tg-sheetbox__foot">
+                    {liveMeta.gia_von_tp > 0
+                      ? "Chưa tách được từng dòng — máy chủ đang trả bản dữ liệu cũ. Con số tổng vẫn đúng."
+                      : "Chưa có dòng tiền nào — kiểm tra ô Công thức tính giá ở danh mục Giấy và danh mục Công đoạn."}
+                  </div>
+                )}
+                {nvl.giay.map((d, i) => (
+                  <div className="tg-sheetrow" key={`g${i}`}>
+                    <span className="tg-sheetrow__stack">
+                      Giấy
+                      <HaiDongCongThuc d={d} tra={tra} />
+                    </span>
+                    <SoDv so={fmt(Math.round(d.tien))} dv="đ" />
+                  </div>
+                ))}
+                {nvl.vatTu.map((d, i) => (
+                  <div className="tg-sheetrow" key={`v${i}`}>
+                    <span className="tg-sheetrow__stack">
+                      {d.ten.split(" · ").pop()}
+                      <HaiDongCongThuc d={d} tra={tra} />
+                    </span>
+                    <SoDv so={fmt(Math.round(d.tien))} dv="đ" />
+                  </div>
+                ))}
+                {dsCongDoan.length > 0 && (
+                  <>
+                    <div className="tg-sheetrow tg-sheetrow--group">
+                      <span>Công đoạn <small>{dsCongDoan.length} bước</small></span>
+                      <SoDv so={fmt(Math.round(tienCongDoan))} dv="đ" />
+                    </div>
+                    {/* Liệt kê ĐỦ từng bước, không gộp: người lập phiếu cần thấy bước nào ăn bao
+                        nhiêu để còn thương lượng, và để bắt được bước khai nhầm công thức. Dòng
+                        diễn giải là công thức ĐÃ THẾ SỐ — thứ cho phép kiểm lại con số bằng tay. */}
+                    {dsCongDoan.map((d, i) => (
+                      <div className="tg-sheetrow tg-sheetrow--sub" key={`cd${i}`}>
+                        <span className="tg-sheetrow__stack">
+                          {d.ten}
+                          <HaiDongCongThuc d={d} tra={tra} />
+                        </span>
+                        <SoDv so={fmt(Math.round(d.tien))} dv="đ" />
+                      </div>
+                    ))}
+                  </>
+                )}
+                <div className="tg-sheetrow tg-sheetrow--total">
+                  <span className="tg-sheetrow__stack">
+                    = Giá vốn sản phẩm
+                    {/* Chưa có dòng nào thì dòng hướng dẫn ở trên đã nói rồi — thêm cảnh báo lệch
+                        nữa là kêu hai lần cùng một chuyện, mà con số "lệch" khi đó bằng đúng tổng,
+                        đọc lên như một lỗi thứ hai. */}
+                    {coTien && lechTien > 1 && (
+                      <em className="tg-sheetrow__derive">
+                        Lệch {fmt(Math.round(lechTien))} đ so với tổng các dòng đang hiện — còn dòng
+                        engine tính mà panel chưa liệt kê.
+                      </em>
+                    )}
+                  </span>
+                  <SoDv so={fmt(Math.round(liveMeta!.gia_von_tp))} dv="đ" />
+                </div>
+                <div className="tg-sheetbox__foot">
+                  {fmt(Math.round(liveMeta!.gia_von_don))} đ / {c.don_vi_tinh || "cái"}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

@@ -371,7 +371,6 @@ class LsxOut(BaseModel):
 
     so_luong_dat: int
     don_vi_tinh: str
-    bu_hao_to: int
     so_to_ke_hoach: int
     so_to_nguyen: int
     so_con: int
@@ -477,7 +476,6 @@ class LsxUpdateIn(BaseModel):
     ten: str | None = None
     so_luong_dat: int | None = Field(default=None, ge=0)
     don_vi_tinh: str | None = None
-    bu_hao_to: int | None = Field(default=None, ge=0)
     # Cụm THÔNG SỐ (ảnh chụp từ phiếu) — sửa cái nào là mọi số dẫn xuất tính lại ngay.
     quy_cach: LsxQuyCachIn | None = None
     so_to_ke_hoach: int | None = Field(default=None, ge=0)

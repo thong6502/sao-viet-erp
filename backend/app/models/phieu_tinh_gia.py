@@ -108,15 +108,17 @@ class PhieuThanhPhan(Base):
     don_gia_giay: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     don_gia_don_vi: Mapped[str] = mapped_column(String(8), nullable=False, default="to")   # to|tan
     nguon_giay: Mapped[str] = mapped_column(String(12), nullable=False, default="cong_ty")  # cong_ty|khach
-    bu_hao_so_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # "+ Bù thêm" (tờ in cộng thêm) — KHÔNG hệ số
-    # KHÔNG CÒN DÙNG: ô "− Hao" đã bỏ khỏi UI + engine. Nó vốn là bản thay tay cho "tờ mất khi in",
-    # nay chuỗi bù hao NGƯỢC tính ra `to_sau_in` từ bước in nên không cần gõ. Giữ cột để khỏi
-    # migration và không mất dữ liệu cũ; engine lờ đi, `meta.hao_tay` luôn 0.
-    hao_so_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    # KHÔNG CÒN DÙNG: nút bật/tắt bù hao tự đã bỏ khỏi UI + engine. Tắt bù hao là mở đường cho báo
-    # giá hụt giấy mà không ai biết — muốn cộng thêm thì có "+ Bù thêm", muốn bớt thì sửa định mức
-    # của công đoạn. Giữ cột để khỏi migration; engine luôn tính chuỗi ngược.
-    tinh_bu_hao_cd: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
+    # 🔴 XOÁ 15/08/2026 — BA cột nhập-tay của khối số tờ, gỡ cùng đợt (mg `0200` + `0201`):
+    #   · `bu_hao_so_to` ("+ Bù thêm") — cộng một con số TỜ vào mọi bước bất kể bước đó đếm bằng gì,
+    #     nên bước đếm cuốn ra hao ÂM và đơn 500 hoá 600. Đo 0/7 phiếu từng dùng.
+    #   · `hao_so_to` ("− Hao") — bản thay tay cho "tờ mất khi in"; chuỗi ngược đã tính `to_sau_in`
+    #     từ chính bước in nên không cần gõ. Ô đã gỡ khỏi UI từ trước, engine không đọc.
+    #   · `tinh_bu_hao_cd` (nút bật/tắt bù hao tự) — tắt bù hao là mở đường cho báo giá hụt giấy mà
+    #     không ai biết. Nút đã gỡ khỏi UI từ trước, engine luôn tính chuỗi ngược.
+    #
+    # Nay khối số tờ do máy tính TRỌN VẸN, không còn ô nào để hai người gõ hai số khác nhau. Muốn
+    # cộng/bớt hao thì sửa định mức của chính công đoạn ở danh mục — chỗ đó biết bước ấy đếm bằng
+    # đơn vị gì nên quy ra giấy đúng cầu. Đừng dựng lại ô nào ở đây.
     # Chừa tờ in thuộc về MÁY (danh mục: `nhip_giay_mm` / `le_hong_mm` / `duoi_thang_mau_mm`).
     # Phiếu chỉ giữ MỘT ô đè: nhíp giấy — khoản duy nhất đổi theo job (cạnh nạp, hướng bài).
     # Lề hông · đuôi · xén · cả gáy đã BỎ khỏi phiếu: chưa từng có chỗ nhập, chỉ làm engine cộng

@@ -48,7 +48,6 @@ tp = {
     "co_in": False,                                   # kẽm gộp trong khoán In → tắt fallback chế bản
     # Số tờ THỦ CÔNG (tắt auto bù hao công đoạn): net 2000 → +250 bù = 2250 (giấy);
     # −150 hao in = 2100 (sau in, dùng cho cán/bồi).
-    "tinh_bu_hao_cd": False, "bu_hao_so_to": 250, "hao_so_to": 150,
     "vat_tus": [],
     "thanh_phams": [
         row("In offset 4 màu (khoán, gồm kẽm)",

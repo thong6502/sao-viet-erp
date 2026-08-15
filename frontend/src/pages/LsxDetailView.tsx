@@ -68,7 +68,6 @@ interface FormState {
   may_id: string;
   ghi_chu: string;
   so_luong_dat: string;
-  bu_hao_to: string;
   so_to_ke_hoach: string;
   so_to_nguyen: string;
   so_con: string;
@@ -109,7 +108,6 @@ function toForm(d: LsxDetail): FormState {
     may_id: d.may_id != null ? String(d.may_id) : "",
     ghi_chu: d.ghi_chu ?? "",
     so_luong_dat: String(d.so_luong_dat),
-    bu_hao_to: String(d.bu_hao_to),
     so_to_ke_hoach: String(d.so_to_ke_hoach),
     so_to_nguyen: String(d.so_to_nguyen),
     so_con: String(d.so_con),
@@ -273,7 +271,6 @@ export function LsxDetailView({
       is_rush: form.is_rush,
       ghi_chu: form.ghi_chu || null,
       so_luong_dat: Number(form.so_luong_dat || 0),
-      bu_hao_to: Number(form.bu_hao_to || 0),
       // `so_to_ke_hoach` / `so_to_nguyen` KHÔNG gửi nữa — server đọc ra từ chuỗi ngược tại hai
       // ranh giới đơn vị (tờ nguyên → tờ in). Gửi lên chỉ tổ có nguồn sự thật thứ hai.
       so_con: Number(form.so_con || 1),
@@ -301,7 +298,7 @@ export function LsxDetailView({
    *  Hai số này là ĐẦU VÀO DUY NHẤT của chuỗi ngược — server nhận xong tính lại vào/ra + hao của
    *  mọi bước rồi trả lệnh mới, nên phải nạp lại `d` chứ không patch cục bộ. */
   const patchLsx = useCallback(
-    async (p: { so_luong_dat?: number; bu_hao_to?: number }) => {
+    async (p: { so_luong_dat?: number }) => {
       if (!token || !d) return;
       try {
         const r = await api.lsx.update(token, d.id, p as LsxUpdateBody);
@@ -622,12 +619,9 @@ export function LsxDetailView({
               không nói tới là phải bịa một chữ ("TỜ NGUYÊN") rồi bày cạnh chữ đọc thật.
               Ngoại lệ có chủ ý: các ô KÍCH THƯỚC ("Khổ … dài") vẫn mang tên đơn vị trong nhãn —
               giá trị ở đó là mm, không có cặp số+đơn vị nào để tách. */}
-          <div className="khsx-kpi-tile">
-            <span className="khsx-kpi-tile__label">Bù hao</span>
-            <span className="khsx-kpi-tile__val">
-              {num(d.bu_hao_to)} <small>{dvTo}</small>
-            </span>
-          </div>
+          {/* 🔴 GỠ 15/08/2026: ô KPI "Bù hao" — nó đọc `lsx.bu_hao_to`, cột chỉ đổi được bằng ô
+              "Hao hụt thêm" (nay đã bỏ) nên luôn hiện 0 trên mọi lệnh. Hao thật của từng bước xem
+              ở chip "Hao hụt định mức" trong drawer bước — đo đúng đơn vị của bước đó. */}
 
           <div
             className={`khsx-kpi-tile khsx-kpi-tile--hero${kpiToIn.tam ? " khsx-kpi-tile--tam" : ""}`}
@@ -871,6 +865,17 @@ export function LsxDetailView({
                           }
                         >
                           <option value="">— chưa chọn giấy —</option>
+                          {/* Giấy ĐÃ NGỪNG DÙNG không có trong `giayRefs` (danh mục lọc
+                              `active:true`). Không chèn lại thì ô rơi về "— chưa chọn giấy —" và
+                              cú Lưu kế tiếp XOÁ `giay_id` của lệnh cũ, im lặng, dù người dùng
+                              không hề đụng vào ô này. Cùng cách đã làm cho ô Công đoạn
+                              (`LsxBuocDrawer.tsx:486-489`). */}
+                          {form.qc.giay_id != null
+                            && !giayRefs.some((g) => g.id === form.qc.giay_id) && (
+                            <option value={form.qc.giay_id}>
+                              {s("giay_ten") || `#${form.qc.giay_id}`} · đã ngừng dùng
+                            </option>
+                          )}
                           {giayRefs.map((g) => (
                             <option key={g.id} value={g.id}>
                               {g.ten}{g.gsm ? ` · ${g.gsm} gsm` : ""}
@@ -1124,7 +1129,6 @@ export function LsxDetailView({
                   <LsxRoutingTable
                     congDoans={d.cong_doans}
                     soLuongDat={d.so_luong_dat}
-                    buHaoThem={d.bu_hao_to}
                     leadTime={d.lead_time}
                     baiGhep={d.bai_ghep}
                     congDoanRefs={congDoanRefs}

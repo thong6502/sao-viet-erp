@@ -694,18 +694,17 @@ def test_san_sang_bi_chan_khi_con_thieu_va_mo_khi_du(db, orders, lsx_svc, admin,
 
 
 def test_don_vi_nang_suat_KHOA_theo_don_gia_khoan(db, lsx_svc):
-    """Nhãn đơn vị năng suất khoá theo đơn giá khoán, người khai KHÔNG đổi được (chủ 10/08/2026).
+    """Đơn vị năng suất LÀ đơn vị đơn giá khoán, người khai KHÔNG đổi được (chủ 10/08/2026).
 
     Ghim luôn ca dễ hiểu nhầm: cột `cong_doan_dau_viec.don_vi_nang_suat` vẫn còn trong DB và vẫn
     có dữ liệu cũ, nhưng thôi được đọc — đọc nó ra là quay lại lối "người khai chọn" vừa bỏ.
 
-    ⚠️ Đây là NHÃN, không vào công thức: `SL_vào × 60 ÷ năng_suất × số_lượt` giữ nguyên (chủ chốt
-    10/08 — hoãn bước quy đổi). Nên đầu việc khoán theo `cuốn` gắn vào công đoạn vào bằng `tờ` sẽ
-    hiện "cuon_gio" trong khi máy chia số TỜ. Biết và chấp nhận; test này KHÔNG kiểm số giờ.
+    🔴 ĐỔI 15/08/2026: trước đây trả MÃ `cuon_gio` qua `dv_nang_suat_theo_khoan` — một nhãn suông,
+    hiện "cuốn/h" trong khi công thức chia số TỜ. Hàm đó đã gỡ cùng hai cơ chế đơn vị khác; nay
+    trả thẳng TÊN đơn vị của đơn giá, và thời lượng quy SL vào về chính đơn vị này trước khi chia.
     """
     from app.models.don_vi_do import DonViDo
     from app.models.piece_work import PieceRate
-    from app.services.lsx_service import dv_nang_suat_theo_khoan
 
     to = _to_san_xuat(db)
     for ma, ten, ho in (("to", "tờ", "to"), ("cuon", "cuốn", "thanh_pham")):
@@ -726,16 +725,86 @@ def test_don_vi_nang_suat_KHOA_theo_don_gia_khoan(db, lsx_svc):
     ))
     db.commit()
 
-    tra = lsx_svc._ma_don_vi
-    assert dv_nang_suat_theo_khoan("cuốn", "to", tra_ma=tra) == "cuon_gio"
-    # Chưa gắn đơn giá khoán → lùi về đơn vị vào của công đoạn.
-    assert dv_nang_suat_theo_khoan(None, "to", tra_ma=tra) == "to_gio"
-    # Tên lạ, danh mục không có → KHÔNG tự chế `<chữ>_gio`, lùi về đơn vị vào.
-    assert dv_nang_suat_theo_khoan("mét tới", "to", tra_ma=tra) == "to_gio"
-
-    # Đường thật: dòng đã khai sẵn "to_gio" vẫn phải ra "cuon_gio" theo đơn giá khoán.
+    # Dòng đã khai sẵn "to_gio" vẫn phải bị đơn giá khoán thắng.
     [dv] = [x for x in lsx_svc._dau_viec_option_dicts(cd, to.id) if x["id"] == rate.id]
-    assert dv["don_vi"] == "cuốn" and dv["don_vi_nang_suat"] == "cuon_gio"
+    assert dv["don_vi"] == "cuốn" and dv["don_vi_nang_suat"] == "cuốn"
+
+
+def test_thoi_gian_buoc_TO_quy_SL_vao_ve_don_vi_don_gia_khoan(
+    db, orders, lsx_svc, admin, customer,
+):
+    """⭐ Bước đếm `cai`, khoán đ/`ram`, có cầu `1 ram = 500 cái` ⇒ chia RAM cho ram/giờ.
+
+    Đây là ca chủ bắt lỗi 15/08: năng suất hiện "500 kg/h" mà máy vẫn nhận số TỜ. Nay SL vào đi
+    qua đúng bộ quy đổi của tiền khoán trước khi chia — hai màn nói cùng một đơn vị.
+    """
+    from app.models.don_vi_do import DonViDo, DonViQuyDoi
+
+    ptg = _ptg_2_san_pham(db)
+    cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
+    _gan_dinh_muc(db, cong_doan=cd_dan, ten="Bó ram", don_vi="ram", don_gia=900, nang_suat=2)
+    cai = db.query(DonViDo).filter(DonViDo.ma == "cai").one()
+    ram = db.query(DonViDo).filter(DonViDo.ma == "ram").one_or_none() \
+        or DonViDo(ma="ram", ten="ram", ho="to")
+    db.add(ram)
+    db.flush()
+    db.add(DonViQuyDoi(tu_id=ram.id, den_id=cai.id, he_so=500))
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
+    hop = _chon_loai_buoc(lsx_svc, hop, admin, {"Dán hộp": "to"})
+
+    buoc = next(b for b in lsx_svc.detail_dict(lsx_svc.get(hop.id))["cong_doans"]
+                if b["ten"] == "Dán hộp")
+    dg = buoc["thoi_luong_dien_giai"]
+    vao_cai = float(buoc["so_luong_vao"])
+    assert vao_cai > 0
+    # Số đem chia là RAM, không phải cái.
+    assert dg["so_luong_vao"] == pytest.approx(vao_cai / 500, rel=1e-6)
+    assert dg["don_vi_vao"] == "ram"
+    assert dg["so_luong_vao_goc"] == pytest.approx(vao_cai, rel=1e-6)
+    # phút = ram ÷ (2 ram/giờ × số người) × 60 — chia theo người là luật cũ, không đụng.
+    nguoi = int(dg["so_nhan_cong_tinh"] or 1)
+    assert buoc["chay_phut"] == pytest.approx(vao_cai / 500 / (2 * nguoi) * 60, abs=0.01)
+
+
+def test_thoi_gian_buoc_MAY_doc_cong_thuc_cua_don_vi_toc_do(
+    db, orders, lsx_svc, admin, customer,
+):
+    """⭐ Máy khai `m²/giờ`, bước đếm `tờ`, không có cầu ⇒ chạy CÔNG THỨC của đơn vị `m²`.
+
+    Đường hai của tiền khoán, dùng nguyên xi cho thời gian: đơn vị đích tự khai cách đo bằng chip
+    `sl_vao`. Không có nó thì bước im lặng về 0 — xem `test_chua_quy_doi_duoc_thi_KHONG_bia_gio`.
+    """
+    from app.models.don_vi_do import DonViDo
+
+    ptg = _ptg_2_san_pham(db)
+    m2 = db.query(DonViDo).filter(DonViDo.ma == "m2").one_or_none() \
+        or DonViDo(ma="m2", ten="m²", ho="dien_tich")
+    m2.cong_thuc = "sl_vao * 0.559"          # tờ 65×86 = 0,559 m²
+    db.add(m2)
+    db.commit()
+
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
+    hop = lsx_svc.tao(order_id=d.id, order_line_ids=ids[:1], actor=admin)[0]
+    may_in = next(x for x in hop.cong_doans if x.ten == "In offset")
+    may = db.get(MayThietBi, may_in.may_id)
+    may.don_vi_toc_do, may.toc_do = "m2_gio", 3000
+    may.toc_do_min = may.toc_do_max = None
+    db.commit()
+
+    buoc = next(b for b in lsx_svc.detail_dict(lsx_svc.get(hop.id))["cong_doans"]
+                if b["id"] == may_in.id)
+    dg = buoc["thoi_luong_dien_giai"]
+    vao_to = float(buoc["so_luong_vao"])
+    assert dg["so_luong_vao"] == pytest.approx(vao_to * 0.559, abs=0.01)   # server làm tròn 2 số
+    assert dg["don_vi_vao"] == "m²"
+    assert "SL vào của công đoạn" in (dg["quy_doi_dien_giai"] or "")
+    luot = int(dg["so_luot_chay"] or 1)
+    assert buoc["chay_phut"] == pytest.approx(vao_to * 0.559 * 60 / 3000 * luot, abs=0.01)
 
 
 def test_sua_quy_cach_tren_lenh_tinh_lai_moi_so_dan_xuat(db, orders, lsx_svc, admin, customer):
@@ -1592,10 +1661,25 @@ def _may_gia(toc_do=None, chuan_bi=0, toc_do_min=None, toc_do_max=None,
     )
 
 
+def _sl_1_1(cd, dv="tờ"):
+    """`sl_tinh` coi như quy đổi 1:1 — dùng cho các test chốt CÔNG THỨC.
+
+    Từ 15/08/2026 `thoi_luong_buoc` nhận SL ĐÃ quy đổi về đơn vị của tốc độ (`sl_tinh`), không tự
+    lấy `so_luong_vao` nữa. Các test dưới kiểm phép chia / ba mức / số người — phần quy đổi có test
+    riêng, nên ở đây truyền thẳng số của bước cho khỏi lẫn hai thứ vào nhau.
+    """
+    return (float(cd.so_luong_vao or 0), dv, f"{cd.so_luong_vao:g} {dv}")
+
+
+def _tlb(cd, may=None, dv="tờ"):
+    """`thoi_luong_buoc` với `sl_tinh` 1:1 — xem `_sl_1_1`."""
+    return thoi_luong_buoc(cd, may, _sl_1_1(cd, dv))
+
+
 def _tl(cd, db=None):
     """Thời lượng bước trong test tích hợp — nạp đúng máy đang gán như service làm."""
     may = db.get(MayThietBi, cd.may_id) if (db is not None and cd.may_id) else None
-    return thoi_luong_buoc(cd, may)
+    return _tlb(cd, may)
 
 
 def test_thoi_luong_bo_qua_cac_o_dormant():
@@ -1606,7 +1690,7 @@ def test_thoi_luong_bo_qua_cac_o_dormant():
     ngay khi máy nhả tờ. Muốn dựng lại độ trễ thì cộng vào `tong`, KHÔNG cộng vào `chiem_may`.
     """
     b = _buoc(so_luong_vao=5300, ve_sinh_phut=15, di_chuyen_phut=30)
-    t = thoi_luong_buoc(b, _may_gia(toc_do=5000, chuan_bi=45))
+    t = _tlb(b, _may_gia(toc_do=5000, chuan_bi=45))
     assert round(t["chay_phut"]) == 64
     assert round(t["chiem_may_phut"]) == 109                 # 45 + 64
     assert round(t["tong_phut"]) == 109                      # không cộng thêm gì
@@ -1617,16 +1701,16 @@ def test_thoi_gian_khac_cong_thang_vao_chiem_may():
 
     `chay_phut` nhập đè đã BỎ: truyền vào cũng bị bỏ qua, giờ chạy luôn suy từ tốc độ máy."""
     b = _buoc(so_luong_vao=5300, chay_phut=120, phat_sinh_phut=30)
-    t = thoi_luong_buoc(b, _may_gia(toc_do=5000, chuan_bi=45))
+    t = _tlb(b, _may_gia(toc_do=5000, chuan_bi=45))
     assert round(t["chay_phut"]) == 64                       # KHÔNG lấy 120 gõ đè
     assert round(t["chiem_may_phut"]) == 139                 # 30 khác + 45 chuẩn bị + 64 chạy
 
 
 def test_may_nhan_so_luot_nhung_khong_chia_theo_kip_nguoi():
     may = _may_gia(toc_do=5000)
-    assert thoi_luong_buoc(_buoc(loai_buoc="may", so_luong_vao=5000), may)["chay_phut"] == 60
+    assert _tlb(_buoc(loai_buoc="may", so_luong_vao=5000), may)["chay_phut"] == 60
     # In trở 2 lượt → chạy gấp đôi.
-    t = thoi_luong_buoc(_buoc(loai_buoc="may", so_luong_vao=5000,
+    t = _tlb(_buoc(loai_buoc="may", so_luong_vao=5000,
                               so_luot_chay=2, so_nhan_cong=3), may)
     assert t["chay_phut"] == 120
     assert t["dien_giai"]["phuong_phap"] == "may"
@@ -1636,7 +1720,7 @@ def test_may_nhan_so_luot_nhung_khong_chia_theo_kip_nguoi():
 
 
 def test_to_chia_theo_nguoi_va_gioi_han_o_muc_toi_da():
-    t = thoi_luong_buoc(_buoc(
+    t = _tlb(_buoc(
         loai_buoc="to", so_luong_vao=5000, nang_suat=500,
         so_nhan_cong=6, so_nhan_cong_toi_da=5,
     ))
@@ -1657,7 +1741,7 @@ def test_to_co_ba_muc_nang_suat_nhu_may_co_ba_muc_toc_do():
     chạy nhanh hơn nên ra thời lượng NHỎ nhất, mức THẤP (400) ra lớn nhất. "Thời gian khác" là
     hằng số nên cộng đều vào cả ba, không làm khoảng rộng ra.
     """
-    t = thoi_luong_buoc(_buoc(
+    t = _tlb(_buoc(
         loai_buoc="to", so_luong_vao=5000, nang_suat=500, phat_sinh_phut=10,
         so_nhan_cong=2, so_nhan_cong_toi_da=5,
         khoan_json={"nang_suat_nguoi_gio": 500,
@@ -1669,7 +1753,7 @@ def test_to_co_ba_muc_nang_suat_nhu_may_co_ba_muc_toc_do():
     assert t["chiem_may_phut_max"] == 385                   # 10 + 5000/(400×2)×60
     assert t["dien_giai"]["co_dai_toc_do"] is True
     # Số người vẫn nhân vào CẢ BA mức: 4 người thì cả ba co lại đúng một nửa.
-    t4 = thoi_luong_buoc(_buoc(
+    t4 = _tlb(_buoc(
         loai_buoc="to", so_luong_vao=5000, nang_suat=500, so_nhan_cong=4, so_nhan_cong_toi_da=5,
         khoan_json={"nang_suat_nguoi_gio_min": 400, "nang_suat_nguoi_gio_max": 1000},
     ))
@@ -1679,7 +1763,7 @@ def test_to_co_ba_muc_nang_suat_nhu_may_co_ba_muc_toc_do():
 
 def test_to_chua_khai_dai_thi_ba_muc_bang_nhau():
     """Định mức cũ (chưa khai min/max) → râu co về một điểm, KHÔNG bịa khoảng."""
-    t = thoi_luong_buoc(_buoc(
+    t = _tlb(_buoc(
         loai_buoc="to", so_luong_vao=5000, nang_suat=500, so_nhan_cong=2,
         khoan_json={"nang_suat_nguoi_gio": 500},
     ))
@@ -1698,8 +1782,9 @@ def test_dai_nang_suat_va_don_vi_khai_bao_theo_lenh_xuong_buoc(
     đè bị bỏ qua. Trước đó test này ghim chiều ngược lại (`hop_gio` thắng); đổi assert là do ĐỔI
     LUẬT, không phải nới test cho qua.
 
-    Nhắc: đơn vị chỉ là NHÃN, không vào công thức thời lượng (`SL_vào × 60 ÷ (năng_suất × người)`
-    cho bước Tổ) — nên đổi nhãn không đụng tới mấy assert phút ở cuối.
+    🔴 15/08/2026: đơn vị THÔI là nhãn suông — thời lượng quy SL vào về chính đơn vị đó rồi mới
+    chia. Ở ca này bước đếm `cai` và đơn giá khoán cũng `cái` nên tỉ số 1, mấy assert phút không
+    đổi; ca lệch đơn vị có test riêng bên dưới.
     """
     ptg = _ptg_2_san_pham(db)
     cd_dan = db.query(CongDoan).filter(CongDoan.ma == "CD-DAN-T").one()
@@ -1711,8 +1796,9 @@ def test_dai_nang_suat_va_don_vi_khai_bao_theo_lenh_xuong_buoc(
     hop = _chon_loai_buoc(lsx_svc, hop, admin, {"Dán hộp": "to"})
 
     dan = {cd.ten: cd for cd in hop.cong_doans}["Dán hộp"]
-    # Khoá theo đơn giá khoán ("cái") — giá trị khai đè `hop_gio` KHÔNG thắng.
-    assert dan.don_vi_nang_suat == "cai_gio"
+    # Khoá theo đơn giá khoán ("cái") — giá trị khai đè `hop_gio` KHÔNG thắng. Từ 15/08/2026 lưu
+    # TÊN đơn vị chứ không phải mã `<đv>_gio`: thời lượng quy SL vào về chính đơn vị này.
+    assert dan.don_vi_nang_suat == "cái"
     assert dan.khoan_json["nang_suat_nguoi_gio_min"] == 400
     assert dan.khoan_json["nang_suat_nguoi_gio_max"] == 1000
     t = _tl(dan, db)
@@ -1755,7 +1841,7 @@ def test_buoc_to_go_may_va_ba_moc_nhan_luc_sua_duoc(db, orders, lsx_svc, admin, 
 
 def test_thieu_nang_suat_thi_khong_bia_so():
     """Chưa khai năng suất → thời gian chạy = 0, KHÔNG đoán bừa để Gantt khỏi vẽ số sai."""
-    result = thoi_luong_buoc(_buoc(so_luong_vao=5000))    # bước máy CHƯA gán máy
+    result = _tlb(_buoc(so_luong_vao=5000))    # bước máy CHƯA gán máy
     assert result["chay_phut"] == 0
     assert any("chưa khai tốc độ" in x for x in result["dien_giai"]["canh_bao"])
 
@@ -1774,20 +1860,27 @@ def test_mac_dinh_ke_thua_tu_danh_muc_cong_doan_va_may(db, orders, lsx_svc, admi
     # setup ← cong_doan.setup_time; năng suất ← may_thiet_bi. Vệ sinh/rửa mực đã gỡ khỏi hệ nên
     # bước sinh ra LUÔN 0 (cột `thoi_gian_rua_muc` cũng đã gỡ khỏi model 11/08/2026).
     assert float(b["In offset"].setup_phut) == 45
-    assert float(b["In offset"].nang_suat) == 5000 and b["In offset"].don_vi_nang_suat == "to_gio"
+    # Bước MÁY không chép tốc độ lên bước nữa (15/08/2026) — `thoi_luong_buoc` đọc SỐNG từ máy,
+    # nên cột ở đây để trống chứ không giữ một bản dễ lệch.
+    assert b["In offset"].nang_suat is None and b["In offset"].don_vi_nang_suat is None
     assert float(b["In offset"].ve_sinh_phut) == 0
     assert float(b["Bế"].setup_phut) == 30 and float(b["Bế"].ve_sinh_phut) == 0
-    # Bước Tổ lấy năng suất/người từ định mức đầu việc, đơn vị suy từ đơn vị vào
-    # của bước (dán đếm con ⇒ con/giờ) chứ không đọc cột lưu nào.
+    # Bước Tổ lấy năng suất/người từ định mức đầu việc; đơn vị LÀ đơn vị của đơn giá khoán.
     assert float(b["Dán hộp"].nang_suat) == 4000
-    assert b["Dán hộp"].don_vi_nang_suat == "cai_gio" and b["Dán hộp"].may_id is None
+    assert b["Dán hộp"].don_vi_nang_suat == "cái" and b["Dán hộp"].may_id is None
     assert _tl(b["Dán hộp"], db)["chay_phut"] > 0
     # Hao hụt % KHÔNG kế thừa từ danh mục dù `cong_doan.spoilage_pct` = 2: module Bù hao đã bao cả
     # hao theo % (bậc `don_vi='pct'`, `tra_bac` quy về số tờ) và đã nằm trong `hao_hut` — lấy thêm
     # lần nữa là đếm hai lần. Ô này để trống cho người kế hoạch quyết tại lệnh.
     assert float(b["Dán hộp"].hao_hut_pct) == 0
-    # Cục bù hao của engine chỉ gắn ĐÚNG MỘT bước (bước in) — bước khác phải bằng 0.
-    assert float(b["In offset"].hao_hut) == hop.bu_hao_to
+    # Hao của mỗi bước lấy từ ĐỊNH MỨC của chính công đoạn (danh mục Bù hao). Fixture này KHÔNG
+    # khai bù hao cho công đoạn nào ⇒ cả ba bước đều 0.
+    #
+    # Trước 15/08/2026 dòng này viết `assert hao_hut == hop.bu_hao_to`, mà `bu_hao_to` cũng bằng 0
+    # ⇒ nó chỉ khẳng định `0 == 0`, chưa bao giờ chứng minh "cục hao gắn đúng bước in" như lời
+    # comment. Cột `bu_hao_to` nay đã bỏ; muốn canh chuyện gắn-đúng-bước thì xem
+    # `test_thanh_phan_engine.test_chip_sl_vao_bat_dung_so_to_cua_chinh_buoc`.
+    assert float(b["In offset"].hao_hut) == 0
     assert float(b["Bế"].hao_hut) == 0 and float(b["Dán hộp"].hao_hut) == 0
     # Loại bước do NGƯỜI chọn: in giữ mặc định `may`, dán tay là "to" vì kế hoạch vừa bấm ở trên.
     assert b["In offset"].loai_buoc == "may" and b["Dán hộp"].loai_buoc == "to"
@@ -2253,7 +2346,12 @@ def test_doi_may_ke_thua_kip_chuan_nhung_giu_so_nguoi_ke_hoach_nhap_tai_lsx(
     saved = next(x for x in lsx_svc.get(hop.id).cong_doans if x.id == muc_tieu.id)
     assert saved.so_nhan_cong_tieu_chuan == 2
     assert saved.so_nhan_cong == 4
-    assert float(saved.nang_suat) == 4000
+    assert saved.may_id == may_moi.id
+    # Tốc độ KHÔNG chép lên bước nữa (15/08/2026) — đổi máy là thời lượng tự đổi theo máy mới,
+    # khỏi cần đồng bộ một bản chép.
+    assert saved.nang_suat is None
+    assert round(_tl(saved, db)["chay_phut"], 2) == round(
+        float(saved.so_luong_vao) * 60 / 4000, 2)
 
 
 def test_cong_doan_chua_khai_nang_suat_thi_de_trong_chu_khong_bia_so(
@@ -2533,15 +2631,17 @@ class _Cd:
 
 
 def test_che_ban_lay_toc_do_may_ghi_kem():
-    from app.services.lsx_service import _nang_suat_buoc
+    """Đơn vị của tốc độ đọc từ mã `<đv>_gio` của máy — nguồn duy nhất.
 
-    # Máy CTP khai kẽm/giờ + bước chế bản (đơn vị vào TRỐNG) → khớp.
-    assert _nang_suat_buoc(_May(20, "kem_gio"), _Cd("prepress"), None) == (20.0, "kem_gio")
-    # Máy in khai tờ/giờ + bước đếm tờ → vẫn như cũ.
-    assert _nang_suat_buoc(_May(5000, "to_gio"), _Cd("print"), "to") == (5000.0, "to_gio")
-    # Lệch đơn vị thì BỎ QUA, không quy đổi bừa — 20 kẽm/giờ không phải 20 tờ/giờ.
-    assert _nang_suat_buoc(_May(20, "kem_gio"), _Cd("print"), "to") == (None, None)
-    assert _nang_suat_buoc(_May(5000, "to_gio"), _Cd("prepress"), None) == (None, None)
+    🔴 ĐỔI 15/08/2026: trước đây `_nang_suat_buoc` so mã rồi TRẢ VỀ (None, None) khi lệch, tức là
+    vứt luôn tốc độ của một cái máy có thật. Hàm đó đã gỡ: nay lệch đơn vị thì đi QUY ĐỔI
+    (`_sl_theo_don_vi`), quy đổi không được mới thôi — và nói rõ lý do thay vì im lặng.
+    """
+    from app.services.lsx_service import ma_don_vi_toc_do
+
+    assert ma_don_vi_toc_do(_May(20, "kem_gio")) == "kem"
+    assert ma_don_vi_toc_do(_May(5000, "to_gio")) == "to"
+    assert ma_don_vi_toc_do(_May(5000, None)) is None
 
 
 def test_thoi_luong_che_ban_chay_theo_so_kem():
@@ -2549,13 +2649,13 @@ def test_thoi_luong_che_ban_chay_theo_so_kem():
     ctp = _may_gia(toc_do=20, chuan_bi=10, don_vi="kem_gio")
     b = _buoc(ten="Ghi kèm CTP", loai_buoc="may", nhom="prepress", so_luong_vao=4,
               don_vi_vao=None)
-    t = thoi_luong_buoc(b, ctp)
+    t = _tlb(b, ctp, "kẽm")
     assert round(t["chay_phut"]) == 12
     assert round(t["chiem_may_phut"]) == 22
     # Gấp 10 lần số kẽm thì thời gian ghi cũng gấp 10 — trước đây cả hai đều ra 10 phút.
     b10 = _buoc(ten="Ghi kèm CTP", loai_buoc="may", nhom="prepress", so_luong_vao=40,
                 don_vi_vao=None)
-    assert round(thoi_luong_buoc(b10, ctp)["chay_phut"]) == 120
+    assert round(_tlb(b10, ctp, "kẽm")["chay_phut"]) == 120
 
 
 def test_ba_con_so_theo_dai_toc_do_may():
@@ -2565,7 +2665,7 @@ def test_ba_con_so_theo_dai_toc_do_may():
     khoan = [{"ten": "Đổi kẽm", "phut": 15}, {"ten": "Canh màu", "phut": 15},
              {"ten": "Lên giấy", "phut": 10}, {"ten": "Pha mực", "phut": 15}]
     may = _may_gia(toc_do=11_000, toc_do_min=8_000, toc_do_max=15_000, chuan_bi=55, khoan=khoan)
-    t = thoi_luong_buoc(_buoc(loai_buoc="may", so_luong_vao=20_000, don_vi_vao="to"), may)
+    t = _tlb(_buoc(loai_buoc="may", so_luong_vao=20_000, don_vi_vao="to"), may)
     assert round(t["chiem_may_phut"]) == 164        # 55 + 20.000×60÷11.000
     assert round(t["chiem_may_phut_min"]) == 135    # tốc độ TỐI ĐA ⇒ thời lượng NHỎ nhất
     assert round(t["chiem_may_phut_max"]) == 205
@@ -2580,21 +2680,23 @@ def test_ba_con_so_theo_dai_toc_do_may():
 
 def test_may_chua_khai_dai_thi_ba_so_bang_nhau():
     """Máy chỉ khai tốc độ TB ⇒ râu co về một điểm — KHÔNG bịa khoảng."""
-    t = thoi_luong_buoc(_buoc(loai_buoc="may", so_luong_vao=5_000, don_vi_vao="to"),
+    t = _tlb(_buoc(loai_buoc="may", so_luong_vao=5_000, don_vi_vao="to"),
                         _may_gia(toc_do=5_000, chuan_bi=30))
     assert t["chiem_may_phut"] == t["chiem_may_phut_min"] == t["chiem_may_phut_max"] == 90
     assert t["dien_giai"]["co_dai_toc_do"] is False
 
 
-def test_khong_quan_tam_nhan_don_vi_toc_do():
-    """Chủ chốt 2026-08-05: công thức chỉ lấy CON SỐ, KHÔNG kiểm nhãn đơn vị của máy.
+def test_chua_quy_doi_duoc_thi_KHONG_bia_gio():
+    """⭐ Bước đếm `tờ`, máy khai `tấn/giờ`, không quy đổi được ⇒ **không có số**, nêu lý do.
 
-    Trước đó ở đây có guard "lệch đơn vị ⇒ chạy = 0". Guard đó chặn đúng những bước đã gán máy
-    đàng hoàng chỉ vì máy khai nhãn khác (vd `tấn/h`), và nó là thứ tự thêm chứ không phải yêu
-    cầu. Nhãn đơn vị là việc của màn Máy; thời lượng chỉ quan tâm con số."""
+    🔴 ĐỔI 15/08/2026 — chỗ này trước đây chốt điều NGƯỢC LẠI ("chỉ lấy CON SỐ, không kiểm nhãn"),
+    nên 20.000 tờ chia 11.000 tấn/giờ ra 109 phút trông như thật. Chủ bắt lỗi ở ca `500 kg/h` nhận
+    số tờ. Nay quy đổi được thì tính, không được thì thôi — thà trống còn hơn một con số không ai
+    đi kiểm. Chuẩn bị của máy vẫn còn vì nó không phụ thuộc số lượng.
+    """
     t = thoi_luong_buoc(_buoc(loai_buoc="may", so_luong_vao=20_000, don_vi_vao="to"),
                         _may_gia(toc_do=11_000, chuan_bi=55, don_vi="tan_gio"))
-    assert round(t["chay_phut"]) == 109        # 20.000 × 60 ÷ 11.000, kệ nhãn "tấn/h"
-    assert round(t["chiem_may_phut"]) == 164
-    assert t["dien_giai"]["phuong_phap"] == "may"
-    assert t["dien_giai"]["canh_bao"] == []
+    assert t["chay_phut"] == 0
+    assert round(t["chiem_may_phut"]) == 55                  # chỉ còn chuẩn bị
+    assert t["dien_giai"]["phuong_phap"] == "chua_quy_doi"
+    assert any("quy đổi" in c for c in t["dien_giai"]["canh_bao"])

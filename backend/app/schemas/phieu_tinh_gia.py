@@ -93,9 +93,6 @@ class ThanhPhanIn(BaseModel):
     don_gia_giay: float | None = None
     don_gia_don_vi: str | None = None
     nguon_giay: str | None = None
-    bu_hao_so_to: int | None = None
-    hao_so_to: int | None = None
-    tinh_bu_hao_cd: bool | None = None
     chua_nhip: float | None = None
     bleed_mm: float | None = None
     khe_cat_mm: float | None = None
@@ -149,9 +146,6 @@ class ThanhPhanOut(BaseModel):
     don_gia_giay: float
     don_gia_don_vi: str
     nguon_giay: str
-    bu_hao_so_to: int
-    hao_so_to: int
-    tinh_bu_hao_cd: bool = True
     chua_nhip: float
     bleed_mm: float = 0
     khe_cat_mm: float = 0

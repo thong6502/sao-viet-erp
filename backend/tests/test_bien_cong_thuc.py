@@ -81,16 +81,19 @@ def test_bon_o_dung_chung_bo_bien_va_hai_chip_rieng_cua_buoc():
         lượng cần số của CHÍNH bước, mà quy cách lệnh không biết bước nào đang hỏi.
     """
     dem = {loai: len(bien_cho(loai)) for loai in LOAI}
-    assert dem == {LOAI_GIAY: 17, LOAI_VAT_TU: 16, LOAI_CONG_DOAN: 15, LOAI_QUY_DOI: 18}, dem
+    assert dem == {LOAI_GIAY: 17, LOAI_VAT_TU: 16, LOAI_CONG_DOAN: 17, LOAI_QUY_DOI: 18}, dem
 
-    chung = ma_hop_le(LOAI_CONG_DOAN)          # 15 biến ai cũng có
+    chung = ma_hop_le(LOAI_CONG_DOAN) - {"sl_vao", "sl_ra"}    # 15 biến ai cũng có
     assert ma_hop_le(LOAI_GIAY) - chung == {"dinh_luong", "don_gia_giay"}
     assert ma_hop_le(LOAI_VAT_TU) - chung == {"don_gia_vat_tu"}
     # Định lượng là thuộc tính CỦA GIẤY — chỉ ô Giấy khai được; Quy đổi giữ vì cần cho tờ→kg.
-    # Hai chip `sl_*` là của tầng bước, không nơi nào khác có.
     assert ma_hop_le(LOAI_QUY_DOI) - chung == {"dinh_luong", "sl_vao", "sl_ra"}
-    for loai in (LOAI_GIAY, LOAI_VAT_TU, LOAI_CONG_DOAN):
+    # Hai chip `sl_*` là số của MỘT BƯỚC. Công đoạn có (15/08/2026) vì công thức tiền của nó phải
+    # đếm được đúng lượng đi qua chính nó. Giấy/Vật tư KHÔNG — hai ô đó tính tiền cho một MẶT HÀNG,
+    # nó không đứng ở bước nào cả, khai vào là bơm không nổi rồi ra 0đ im lặng.
+    for loai in (LOAI_GIAY, LOAI_VAT_TU):
         assert not ({"sl_vao", "sl_ra"} & ma_hop_le(loai)), f"{loai} không được có chip của bước"
+    assert {"sl_vao", "sl_ra"} <= ma_hop_le(LOAI_CONG_DOAN)
     assert not any(m.startswith("don_gia") for m in chung), "Công đoạn không có biến tiền"
     assert not ({"dai", "rong", "so_con"} & chung), "biến vai trò cũ phải hết"
 
@@ -309,4 +312,7 @@ def test_engine_dung_dung_ngu_canh_khai_trong_tu_dien():
     assert all(p.kind is p.KEYWORD_ONLY and p.default is p.empty for p in tham_so.values()), \
         "phải keyword-only và KHÔNG mặc định — có mặc định là thiếu biến vẫn chạy, ra 0đ im lặng"
     # Ngữ cảnh phiếu = 15 biến chung + `dinh_luong`. Biến đơn giá do nơi gọi bơm riêng cho ô của nó.
-    assert set(MA_NGU_CANH_PHIEU) == ma_hop_le(LOAI_CONG_DOAN) | {"dinh_luong"}
+    # Hai chip tầng BƯỚC nằm ngoài: `ngu_canh_phieu` chạy một lần cho cả thành phần, chưa biết bước
+    # nào — engine bơm chúng trong vòng lặp (`MA_TANG_BUOC_TIEN`).
+    assert set(MA_NGU_CANH_PHIEU) == (ma_hop_le(LOAI_CONG_DOAN) - {"sl_vao", "sl_ra"}) | {"dinh_luong"}
+    assert not (set(MA_NGU_CANH_PHIEU) & {"sl_vao", "sl_ra"})

@@ -93,19 +93,28 @@ _BANG: tuple[tuple[str, str, str, str, str, tuple[str, ...]], ...] = (
     # Mọi biến trên đây là số của CẢ LỆNH. Hai biến này là số của MỘT BƯỚC — keo dán ở bước Bắt tay
     # phải tính theo số cuốn chạy qua ĐÚNG bước đó, bước sau hao bớt thì lượng keo ít đi theo.
     #
-    # CHỈ khai cho ô `quy_doi`, KHÔNG cho ba ô tiền: `MA_NGU_CANH_PHIEU` gom theo `_TIEN`, gắn vào
-    # đó là `ngu_canh_phieu` bị đòi bơm giá trị ở TẦNG PHIẾU — nơi chưa có bước nào — và assert ở
-    # cuối hai hàm đó nổ ngay. Ô "Công thức tính lượng" của Vật tư/Giấy dùng bộ chip `quy_doi` để
-    # với tới hai biến này (xem `rebuildCatalogConfigs`), và như thế cũng đúng nghĩa hơn: nó ra
-    # LƯỢNG chứ không ra tiền, nên vốn không nên có chip đơn giá.
+    # Hai biến này thuộc TẦNG BƯỚC (`_TANG_BUOC` dưới đây), không phải tầng phiếu — engine bơm
+    # chúng trong vòng lặp từng bước, nên chúng nằm NGOÀI `MA_NGU_CANH_PHIEU`.
     #
-    # Nơi bơm: `LsxService._vat_tu_bung` + `_goi_y_luong_vat_tu`, bơm SAU `ngu_canh_lenh` nên không
-    # đụng assert. Ngữ cảnh nào không có (công thức tiền · công thức của cặp · công thức đơn vị RA
-    # lúc đang tính chính SL bước) thì `_thieu_bien` coi là THIẾU ⇒ để trống + báo lý do, không đoán.
+    # MỞ CHO Ô CÔNG ĐOẠN 15/08/2026: không có chúng thì công thức tiền của một công đoạn KHÔNG CÓ
+    # tên biến nào trỏ tới số tờ đi qua chính nó. Bảng chip chỉ có `to_dau_vao` (tờ vào máy, đã gồm
+    # bù hao của CẢ chuỗi), `to_sau_in` (một con số chung, không phân biệt được hai bước sau in) và
+    # `so_luong` (SL đặt). Hệ quả đo được: bước "Gấp tay sách" chạm 5.000 tờ nhưng khai
+    # `to_dau_vao * 120` nên tính tiền trên 5.200 — dư đúng 200 tờ mà máy in đã đốt.
+    #
+    # Ô "Công thức tính lượng" của Vật tư/Giấy vẫn với tới hai biến này qua bộ chip `quy_doi`
+    # (xem `rebuildCatalogConfigs`). Giấy/Vật tư KHÔNG mở: hai ô đó tính tiền cho một MẶT HÀNG, nó
+    # không đứng ở bước nào cả.
+    #
+    # Nơi bơm: `thanh_phan_engine` (vòng lặp công đoạn) · `LsxService._vat_tu_bung` +
+    # `_goi_y_luong_vat_tu`. Ngữ cảnh nào không có (công thức của cặp · công thức đơn vị RA lúc
+    # đang tính chính SL bước) thì `_thieu_bien` coi là THIẾU ⇒ để trống + báo lý do, không đoán.
     ("sl_vao", "SL vào của công đoạn", "Số lượng VÀO của chính bước đang tính",
-     "đơn vị của bước", "chuỗi bù hao ngược — có sau khi engine chạy xong", (LOAI_QUY_DOI,)),
+     "đơn vị của bước", "chuỗi bù hao ngược — có sau khi engine chạy xong",
+     (LOAI_CONG_DOAN, LOAI_QUY_DOI)),
     ("sl_ra", "SL ra của công đoạn", "Số lượng RA của chính bước đang tính",
-     "đơn vị của bước", "chuỗi bù hao ngược — có sau khi engine chạy xong", (LOAI_QUY_DOI,)),
+     "đơn vị của bước", "chuỗi bù hao ngược — có sau khi engine chạy xong",
+     (LOAI_CONG_DOAN, LOAI_QUY_DOI)),
     ("don_gia_vat_tu", "Đơn giá vật tư",
      "Đơn giá của CHÍNH vật tư đang mở — đã quy về đơn vị công thức đang đếm", "đ",
      "ô Đơn giá của dòng vật tư, quy về đơn vị cơ sở (khai đ/tấn thì máy ÷ 1.000)",
@@ -125,9 +134,22 @@ _THEO_MA = {b["ma"]: b for b in BIEN}
 # `dinh_luong` có trong ngữ cảnh dù chỉ ô Giấy KHAI được: ba ô dùng chung một ngữ cảnh, và bơm dư
 # một biến thì vô hại (validator vẫn chặn ai gõ nó vào công thức vật tư/công đoạn). Chiều NGUY HIỂM
 # là ngược lại — khai mà không bơm, công thức ra 0đ im lặng; đó mới là thứ test guard canh.
+# Biến của TẦNG BƯỚC: giá trị chỉ có khi engine đã biết đang tính bước nào, nên KHÔNG bơm ở tầng
+# phiếu (`ngu_canh_phieu` chạy một lần cho cả thành phần, trước vòng lặp bước). Trừ chúng ra khỏi
+# `MA_NGU_CANH_PHIEU` để cái chốt "khai mà quên bơm ⇒ nổ ngay" vẫn canh được đúng tầng của nó:
+# tầng phiếu vẫn assert khít, tầng bước có chốt riêng ở nơi bơm.
+_TANG_BUOC: frozenset[str] = frozenset({"sl_vao", "sl_ra"})
+
 MA_NGU_CANH_PHIEU: tuple[str, ...] = tuple(
     b["ma"] for b in BIEN
-    if set(b["loai"]) & set(_TIEN) and not b["ma"].startswith("don_gia")
+    if set(b["loai"]) & set(_TIEN)
+    and not b["ma"].startswith("don_gia")
+    and b["ma"] not in _TANG_BUOC
+)
+
+# Biến tầng bước dùng được ở ô công thức TIỀN — `thanh_phan_engine` bơm đủ bộ này trong vòng lặp.
+MA_TANG_BUOC_TIEN: tuple[str, ...] = tuple(
+    b["ma"] for b in BIEN if set(b["loai"]) & set(_TIEN) and b["ma"] in _TANG_BUOC
 )
 
 

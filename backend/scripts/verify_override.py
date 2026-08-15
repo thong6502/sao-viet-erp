@@ -27,8 +27,7 @@ def paper_cost(db, giay, knd, knr):
     tp = PhieuThanhPhan(
         thu_tu=0, ten="x", giay_id=giay.id, quy_cach_in="mot_mat", so_mau_a=4, so_mau_b=0,
         kho_nguyen_dai=knd, kho_nguyen_rong=knr, kho_in_dai=640, kho_in_rong=435,
-        con_auto=False, so_con=2, co_in=False, tinh_bu_hao_cd=False,
-        bu_hao_so_to=250, hao_so_to=150,
+        con_auto=False, so_con=2, co_in=False,
     )
     p.thanh_phans = [tp]
     db.add(p)
