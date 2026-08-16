@@ -1192,9 +1192,16 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   ten: string; nhom: string | null; loai_buoc: LsxLoaiBuoc; bat_buoc: boolean;
   department_id: number | null; department_ten: string | null;
   may_id: number | null; may_ten: string | null;
-  /** Hai CỜ đọc từ danh mục Công đoạn. Lệnh KHÔNG còn gán con dao nào (mg `0203`) — hai cờ này ở
-   *  lại vì phiếu tính giá dựa vào chúng để biết bước nào hỏi PHÍ khuôn. */
+  /** Hai CỜ đọc từ danh mục Công đoạn — quyết định bước có hỏi khuôn không; `tooling_type` còn là
+   *  chiều lọc thứ hai của ô chọn dao. Năm field `khuon_be_*` là ẢNH CHỤP server ghép sẵn để bày
+   *  cho thợ (mã · tên · SỐ KỆ · tình trạng · ngày về) — màn khỏi phải tra danh mục Khuôn. */
   requires_tooling: boolean; tooling_type: string | null;
+  khuon_be_id: number | null;
+  khuon_be_ma: string | null;
+  khuon_be_ten: string | null;
+  khuon_be_so_ke: string | null;
+  khuon_be_tinh_trang: string | null;
+  khuon_be_ngay_ve: string | null;
   // Đơn vị VÀO ≠ RA là chuyện thường ở bế/xén — hệ số quy đổi nối hai đầu.
   so_luong_vao: number; so_luong_ra: number;
   don_vi_vao: string; don_vi_ra: string; he_so_quy_doi: number;
@@ -1248,6 +1255,8 @@ export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   step_key?: string; thu_tu?: number; cong_doan_id?: number | null; ten?: string; nhom?: string | null;
   loai_buoc?: LsxLoaiBuoc; bat_buoc?: boolean;
   department_id?: number | null; may_id?: number | null;
+  /** Con dao của bước (`khuon_be.id`). null = bỏ gán. */
+  khuon_be_id?: number | null;
   so_luong_vao?: number; so_luong_ra?: number;
   don_vi_vao?: string; don_vi_ra?: string; he_so_quy_doi?: number;
   hao_hut?: number; hao_hut_pct?: number; so_luot_chay?: number; so_nhan_cong?: number;
@@ -1812,12 +1821,20 @@ export interface CustomerDashboard {
   print_specs_phieu: number;
   receivable: ReceivableCard;
 }
+export interface OrderLineBrief {
+  description: string;
+  line_total: number;
+}
 export interface OrderHistoryRow {
   id: number;
   order_no: string;
   status: string;
   order_kind: string;
   summary: string;
+  /** Từng dòng kèm TIỀN THẬT. Khối "Sản phẩm mua nhiều nhất" cộng theo đây — trước 16/08/2026
+   *  chỉ có `summary` (chuỗi nối) nên nó phải chia đều tổng đơn cho số dấu phẩy, xếp sai hạng.
+   *  Đơn cũ có thể trả mảng rỗng; `gopTienTheoSanPham` lùi về đếm số đơn, KHÔNG bịa tiền. */
+  lines: OrderLineBrief[];
   total: number | null;
   created_at: string;
 }
@@ -5501,14 +5518,34 @@ export interface KhoNhanRow {
   so_khach: number;
 }
 
-// --- Khuôn bế (danh mục dùng chung) ---------------------------------------
+// --- Khuôn (danh mục dùng chung — chứa cả khuôn bế lẫn khuôn ép nhũ) --------
+// Tên bảng + module quyền vẫn là `khuon_be`; chỉ nhan đề màn đổi thành "Khuôn" (16/08/2026).
 export interface KhuonBeRow {
   id: number;
   ma: string;
   ten: string;
+  /** Khách đặt con dao — chiều lọc chính của ô chọn dao ở bước lệnh. */
+  khach_hang_id: number | null;
+  khach_hang_ten: string | null;
+  /** `khuon_be` | `khuon_ep` — CÙNG bộ mã với `cong_doan.tooling_type` để lọc bằng phép so thẳng. */
+  loai: string | null;
   so_ke: string | null;
   tinh_trang: string;
+  ngay_ve_du_kien: string | null;
   active: boolean;
+}
+
+/** 1 con dao chọn được cho bước của một lệnh — server đã lọc theo khách của lệnh. */
+export interface KhuonChonDuoc {
+  id: number;
+  ma: string;
+  ten: string;
+  /** null = dao khai trước mg 0205, chưa ai phân loại — VẪN hiện ở mọi bước, giấu đi là bắt
+   *  người ta đi làm lại con dao đang nằm trên kệ. */
+  loai: string | null;
+  so_ke: string | null;
+  tinh_trang: string;
+  ngay_ve_du_kien: string | null;
 }
 
 // (`LichChayRow` — 1 lệnh trong bảng lịch chạy Máy × Ngày — đã gỡ 16/08/2026: tàn dư của lớp
@@ -7727,6 +7764,22 @@ export const api = {
     },
     phuThuocOptions(token: string, id: number): Promise<LsxPhuThuocOption[]> {
       return authed<LsxPhuThuocOption[]>(`/api/lsx/${id}/phu-thuoc-options`, token);
+    },
+    /** Dao chọn được cho lệnh này — server đã lọc theo KHÁCH của lệnh (chiều lọc đắt nhất), và
+     *  gác bằng quyền `lenh_san_xuat.read` nên không cần cấp thêm quyền vào danh mục Khuôn.
+     *  Lọc tiếp theo LOẠI của từng bước làm ở màn: danh sách đã rút còn vài dòng. */
+    khuonChonDuoc(token: string, id: number): Promise<KhuonChonDuoc[]> {
+      return authed<KhuonChonDuoc[]>(`/api/lsx/${id}/khuon-chon-duoc`, token);
+    },
+    /** Nhánh "làm dao mới" — KHÔNG gửi khách: server lấy từ chính lệnh, khỏi lệch. */
+    taoKhuonChoLenh(
+      token: string, id: number,
+      body: { ten: string; loai: string | null; ngay_ve_du_kien: string },
+    ): Promise<KhuonChonDuoc> {
+      return authed<KhuonChonDuoc>(`/api/lsx/${id}/khuon-moi`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
     },
     /** Ghi nhận THỰC TẾ hàng gia công ngoài đi/về. Cửa riêng — chạy được cả khi lệnh đã lập
      *  kế hoạch, vì hàng ra cổng đúng lúc lệnh đang chạy. */

@@ -4,7 +4,7 @@ Thân CRUD dùng chung ở `services/catalog_base.CatalogService`; ở đây ch�
 """
 from __future__ import annotations
 
-from ..models.khuon_be import TINH_TRANG
+from ..models.khuon_be import LOAI_KHUON, TINH_TRANG
 from ..repositories.khuon_be_repo import KhuonBeRepository
 from .catalog_base import (
     CatalogDuplicate, CatalogError, CatalogNotFound, CatalogService, CatalogValidationError,
@@ -45,13 +45,16 @@ class KhuonBeService(CatalogService):
         tt = data.get("tinh_trang")
         if tt is not None and tt not in TINH_TRANG:
             raise KhuonBeValidationError("Tình trạng khuôn không hợp lệ.")
-        # `dang_dat_lam` mà không có ngày về thì bàn lịch không trả lời được câu duy nhất đáng hỏi
-        # ("khuôn về KỊP giờ bế chưa?") — nó sẽ phải ĐOÁN, mà đoán ở đây là cho xếp bế vào ngày
-        # chưa có khuôn. Bắt khai luôn thay vì để trống rồi im lặng.
+        loai = data.get("loai")
+        if loai and loai not in LOAI_KHUON:
+            raise KhuonBeValidationError("Loại khuôn không hợp lệ.")
+        # `dang_dat_lam` = dao chưa có trong tay (thuê ngoài chưa về, hoặc xưởng đang tự làm).
+        # Không khai ngày thì bước dùng dao ở lệnh sản xuất chỉ hiện "đang làm" trống trơn — người
+        # xếp việc không biết chờ tới bao giờ, mà đó đúng là câu duy nhất họ cần.
         if tt == "dang_dat_lam" and not data.get("ngay_ve_du_kien"):
             raise KhuonBeValidationError(
-                "Khuôn đang đặt làm phải khai NGÀY VỀ DỰ KIẾN — bàn xếp lịch cần số này để biết "
-                "khuôn có kịp giờ bế không."
+                "Khuôn đang đặt làm phải khai NGÀY CÓ KHUÔN (dự kiến) — bước dùng khuôn ở lệnh "
+                "sản xuất hiện ngày này để biết chờ tới bao giờ."
             )
 
     def dem_theo_tinh_trang(self, **kw) -> dict[str, int]:

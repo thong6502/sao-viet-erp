@@ -125,6 +125,15 @@ class LsxBuocVatTuOut(BaseModel):
     tu_dong: bool = False
 
 
+class KhuonMoiIn(BaseModel):
+    """Nhánh "làm dao mới" ở bước lệnh. KHÔNG có `khach_hang_id` — server lấy từ chính lệnh."""
+
+    ten: str = Field(min_length=1, max_length=200)
+    loai: str | None = None
+    #: Ngày cần có dao. Service của danh mục Khuôn bắt buộc trường này khi `dang_dat_lam`.
+    ngay_ve_du_kien: date
+
+
 class PhuThuocOption(BaseModel):
     lsx_id: int
     lsx_ma: str
@@ -146,6 +155,9 @@ class LsxCongDoanIn(BaseModel):
     bat_buoc: bool | None = None
     department_id: int | None = None
     may_id: int | None = None
+    #: Con dao của bước (`khuon_be.id`). Gửi null = bỏ gán.
+    khuon_be_id: int | None = None
+
     # Đầu việc khoán của bước (`piece_rates.id`) — 0/null = bỏ chọn. KHÔNG gửi field này = giữ mặc
     # định theo tổ + công đoạn (server tự điền), đừng gửi null "cho chắc" kẻo xoá mất đầu việc.
     piece_rate_id: int | None = None
@@ -202,10 +214,17 @@ class LsxCongDoanOut(BaseModel):
     department_ten: str | None = None
     may_id: int | None = None
     may_ten: str | None = None
-    # Hai CỜ đọc từ danh mục Công đoạn. Lệnh không còn gán con dao nào (mg `0203`); giữ hai cờ vì
-    # phiếu tính giá dựa vào chúng để biết bước nào hỏi PHÍ khuôn.
+    # Hai CỜ đọc từ danh mục Công đoạn — quyết định bước có hỏi khuôn không, và `tooling_type` là
+    # chiều lọc thứ hai của ô chọn dao. Bốn field `khuon_be_*` là ẢNH CHỤP để bày cho thợ (mã · tên
+    # · SỐ KỆ · tình trạng · ngày về), server ghép sẵn nên màn khỏi tra danh mục Khuôn.
     requires_tooling: bool = False
     tooling_type: str | None = None
+    khuon_be_id: int | None = None
+    khuon_be_ma: str | None = None
+    khuon_be_ten: str | None = None
+    khuon_be_so_ke: str | None = None
+    khuon_be_tinh_trang: str | None = None
+    khuon_be_ngay_ve: date | None = None
 
     so_luong_vao: float
     so_luong_ra: float

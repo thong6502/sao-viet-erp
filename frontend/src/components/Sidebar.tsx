@@ -208,8 +208,10 @@ const NAV: NavSection[] = [
       { id: "chung-loai-giay", label: "Chủng loại giấy", icon: "fileText", module: "dm_chung_loai_giay" },
       { id: "giay", label: "Giấy", icon: "bag", module: "dm_giay" },
       { id: "vat-tu-in-an", label: "Vật tư khác", icon: "bag", module: "dm_vat_tu" },
-      // Khuôn bế: khai báo nơi lưu trữ khuôn (số kệ · ngày làm · tình trạng). Quyền RIÊNG `khuon_be`.
-      { id: "khuon-be", label: "Khuôn bế", icon: "clipboard", module: "khuon_be" },
+      // Khuôn: kho dao của xưởng (bế + ép nhũ) — khách · loại · số kệ · tình trạng. Bước cần khuôn
+      // ở Lệnh sản xuất chọn dao từ đây. Nhan đề đổi 16/08/2026; `module` GIỮ chuỗi `khuon_be` vì
+      // nó nằm trong bảng phân quyền của DB thật.
+      { id: "khuon-be", label: "Khuôn", icon: "clipboard", module: "khuon_be" },
       // Khai báo kho: màn CRUD tạo/sửa kho. Kho tạo ở đây tự hiện thành mục dưới SECTION "Kho hàng".
       { id: "khai-bao-kho", label: "Khai báo kho", icon: "warehouse", module: "dm_kho_hang" },
     ],

@@ -34,6 +34,7 @@ import type { NavigateFn } from "../components/AppShell";
 import { useAuth } from "../auth/useAuth";
 import { useCan, useScopeOf } from "../auth/permissions";
 import { CareCalendar } from "./CareCalendar";
+import { gopTienTheoSanPham, tinhTiLeChot } from "./khachHangSo";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Select } from "../components/Select";
@@ -275,6 +276,10 @@ const QUOTE_STATUS_LABELS: Record<string, string> = {
   approved: "Đã duyệt",
   accepted: "Đã chốt",
   rejected: "Từ chối",
+  // Thiếu đúng dòng này nên badge in nguyên mã máy "CONVERTED_TO_ORDER" giữa các nhãn tiếng Việt
+  // — mà đây lại là trạng thái ĐÔNG NHẤT của khách quen (báo giá nào cũng thành đơn).
+  converted_to_order: "Đã lên đơn",
+  pending_approval: "Chờ duyệt",
   expired: "Hết hạn",
   cancelled: "Đã hủy",
   on_hold: "Tạm giữ",
@@ -2181,24 +2186,8 @@ function OrdersTab({
   // Group by month for chart — trục liên tục tối đa 12 tháng như prototype.
   const monthlySpend = useMemo(() => monthlySeries(filteredRows), [filteredRows]);
 
-  // Top products mix — TOP 4 như prototype; chỉ số ĐO ĐƯỢC từ rows thật (số đơn + giá trị).
-  const productMix = useMemo(() => {
-    const counts: Record<string, { qty: number; total: number }> = {};
-    filteredRows.forEach((o) => {
-      const summary = o.summary || "Sản phẩm khác";
-      const parts = summary.split(",").map((s) => s.trim());
-      parts.forEach((p) => {
-        if (!p) return;
-        if (!counts[p]) counts[p] = { qty: 0, total: 0 };
-        counts[p].qty += 1;
-        counts[p].total += Math.round((o.total ?? 0) / parts.length);
-      });
-    });
-    return Object.entries(counts)
-      .map(([name, stat]) => ({ name, ...stat }))
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 4);
-  }, [filteredRows]);
+  // Top products mix — TOP 4, cộng theo TIỀN THẬT của từng dòng đơn (xem `gopTienTheoSanPham`).
+  const productMix = useMemo(() => gopTienTheoSanPham(filteredRows), [filteredRows]);
 
   if (error) return <div className="banner banner--error" role="alert">{error}</div>;
   if (rows == null) return <TableSkeleton cols={5} />;
@@ -2424,11 +2413,10 @@ function QuotesTab({
       </div>
     );
 
-  // Số liệu THẬT từ chính danh sách báo giá — không bịa (prototype có strip tương tự).
+  // Số liệu THẬT từ chính danh sách báo giá. Tỉ lệ chốt tính ở `tinhTiLeChot` (có test) — định
+  // nghĩa "thắng"/"đã chào" phải khớp backend, xem chú thích trong `khachHangSo.ts`.
   const totalQuoted = filteredRows.reduce((s, q) => s + (q.total ?? 0), 0);
-  const won = filteredRows.filter((q) => q.status === "approved" || q.status === "accepted");
-  const winRate = filteredRows.length > 0 ? Math.round((won.length / filteredRows.length) * 100) : 0;
-  const wonValue = won.reduce((s, q) => s + (q.total ?? 0), 0);
+  const chot = tinhTiLeChot(filteredRows);
 
   return (
     <div className="kh__histwrap">
@@ -2458,14 +2446,22 @@ function QuotesTab({
         </div>
         <div className="kh__kpi card">
           <span className="kh__kpi-label">TỈ LỆ CHỐT</span>
-          <span className="kh__kpi-value">{winRate}%</span>
-          <span className="kh__kpi-hint">{won.length}/{filteredRows.length} BG chốt hoặc duyệt</span>
+          {/* Chưa chào báo giá nào thì hiện "—", KHÔNG hiện 0%: 0% đọc ra là "chào mãi không ai
+              mua", oan cho khách mới toanh. */}
+          <span className="kh__kpi-value">{chot.pct === null ? "—" : `${chot.pct}%`}</span>
+          <span className="kh__kpi-hint">
+            {chot.pct === null
+              ? "Chưa gửi báo giá nào cho khách"
+              : `${chot.thang}/${chot.daChao} BG đã gửi khách`}
+          </span>
         </div>
         <div className="kh__kpi card">
           <span className="kh__kpi-label">GIÁ TRỊ ĐÃ CHỐT</span>
-          <span className="kh__kpi-value">{moneyStat(wonValue)}</span>
+          <span className="kh__kpi-value">{moneyStat(chot.giaTriThang)}</span>
           <span className="kh__kpi-hint">
-            {won.length > 0 ? `TB ${moneyCompact(Math.round(wonValue / won.length))} / BG thắng` : "Chưa có BG thắng"}
+            {chot.thang > 0
+              ? `TB ${moneyCompact(Math.round(chot.giaTriThang / chot.thang))} / BG thắng`
+              : "Chưa có BG thắng"}
           </span>
         </div>
       </div>

@@ -35,6 +35,7 @@ from ..schemas.lsx import (
     LsxQuyCachIn,
     LsxUpdateIn,
     PreviewOut,
+    KhuonMoiIn,
     PhuThuocOption,
     RoutingReplaceIn,
     TaoLsxIn,
@@ -197,6 +198,58 @@ def phu_thuoc_options(
     try:
         _guard_scope(db, svc.get(lsx_id), user, authz)
         return [PhuThuocOption.model_validate(x) for x in svc.phu_thuoc_options(lsx_id)]
+    except Exception as exc:
+        raise _map(exc)
+
+
+@router.get("/{lsx_id}/khuon-chon-duoc")
+def khuon_chon_duoc(
+    lsx_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    loai: str | None = None,
+    dang_chon: int | None = None,
+) -> list[dict]:
+    """Dao chọn được cho một bước — đã lọc theo KHÁCH của lệnh + LOẠI của bước (xem service).
+
+    Gác bằng quyền `lenh_san_xuat.read` chứ không phải quyền màn Khuôn: người cấu hình lệnh phải
+    chọn được dao mà không cần cấp thêm quyền vào danh mục — đây là danh sách rút gọn của đúng
+    một lệnh, không phải cửa vào toàn bộ kho.
+    """
+    svc = _svc(db)
+    try:
+        lsx = svc.get(lsx_id)
+    except Exception as exc:
+        raise _map(exc)
+    _guard_scope(db, lsx, user, authz)
+    return svc.khuon_chon_duoc(lsx, loai=loai, dang_chon=dang_chon)
+
+
+@router.post("/{lsx_id}/khuon-moi", status_code=201)
+def tao_khuon_cho_lenh(
+    lsx_id: int,
+    payload: KhuonMoiIn,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> dict:
+    """Nhánh "làm dao mới" ở bước — tạo dòng trong danh mục Khuôn, tình trạng `dang_dat_lam`.
+
+    Gác bằng `lenh_san_xuat.update` chứ không phải quyền ghi danh mục Khuôn: người cấu hình lệnh
+    phải đi tiếp được ngay tại chỗ. Bắt họ có thêm quyền vào danh mục là dựng lại đúng ngõ cụt
+    làm ô chọn khuôn đời trước chết — mở ra không có dao, không có đường tạo, đóng lại bỏ qua.
+    """
+    svc = _svc(db)
+    try:
+        lsx = svc.get(lsx_id)
+    except Exception as exc:
+        raise _map(exc)
+    _guard_scope(db, lsx, user, authz)
+    try:
+        return svc.tao_khuon_cho_lenh(
+            lsx, ten=payload.ten, loai=payload.loai, ngay_ve=payload.ngay_ve_du_kien, actor=user,
+        )
     except Exception as exc:
         raise _map(exc)
 

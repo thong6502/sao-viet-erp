@@ -120,6 +120,9 @@ export function LsxRoutingTable({
   congDoanRefs,
   toRefs,
   mayRefs,
+  khuonRefs,
+  tenSanPham,
+  onTaoKhuon,
   vatTuRefs,
   phuThuocRefs,
   canUpdate,
@@ -140,6 +143,10 @@ export function LsxRoutingTable({
   congDoanRefs: RefRow[] | null;
   toRefs: RefRow[] | null;
   mayRefs: RefRow[] | null;
+  khuonRefs: import("../api/client").KhuonChonDuoc[] | null;
+  /** Tên sản phẩm của lệnh — mặc định cho tên dao mới. */
+  tenSanPham: string;
+  onTaoKhuon: (input: { ten: string; loai: string | null; ngay_ve: string }) => Promise<number>;
   vatTuRefs: RefRow[] | null;
   phuThuocRefs: import("../api/client").LsxPhuThuocOption[];
   canUpdate: boolean;
@@ -753,6 +760,9 @@ export function LsxRoutingTable({
           congDoanRefs={congDoanRefs}
           toRefs={toRefs}
           mayRefs={mayRefs}
+          khuonRefs={khuonRefs}
+          tenSanPham={tenSanPham}
+          onTaoKhuon={onTaoKhuon}
           vatTuRefs={vatTuRefs}
           phuThuocRefs={phuThuocRefs}
           baiGhep={baiGhep}

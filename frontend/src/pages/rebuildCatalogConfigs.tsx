@@ -442,12 +442,14 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     // (`may_thiet_bi.makeready_time_default`), KHÔNG đọc `cong_doan.setup_time` — cột đó dormant từ
     // trước. Để ô lại là mời người ta gõ một số không đổi phút nào, mà bước TỔ thì càng luôn = 0
     // (tổ không có máy). Chuẩn bị là chuyện của MÁY, khai ở màn Thiết bị & Máy móc.
-    // Mục C — bật hai cờ có sẵn. KHÔNG đoán bước bế theo tên công đoạn: đặt tên là việc của người
-    // dùng, mà lịch thì khoá khuôn theo cờ này.
-    { key: "requires_tooling", label: "Bước này cần khuôn / kẽm riêng", type: "checkbox",
-      group: "Lệnh sản xuất",
-      hint: "Bật ⇒ lệnh phải gán khuôn, và hai lệnh dùng chung một khuôn không được xếp trùng giờ." },
-    { key: "tooling_type", label: "Loại dụng cụ", type: "select", group: "Lệnh sản xuất",
+    // Hai cờ này CHỈ còn nuôi phiếu tính giá (16/08/2026): bật ⇒ bước đó hiện ô nhập PHÍ KHUÔN.
+    // Chuyển từ nhóm "Lệnh sản xuất" sang "Giá" cùng ngày — lệnh sản xuất không còn đọc chúng nữa
+    // (mg `0203` gỡ cả cột gán khuôn lẫn hai ràng buộc khuôn ở xếp lịch).
+    // Vẫn KHÔNG đoán bước bế theo tên công đoạn: đặt tên là việc của người dùng.
+    { key: "requires_tooling", label: "Bước này cần khuôn riêng", type: "checkbox",
+      group: "Giá",
+      hint: "Bật ⇒ phiếu tính giá hỏi thêm ô PHÍ KHUÔN ở bước này (để trống = dùng lại dao cũ)." },
+    { key: "tooling_type", label: "Loại khuôn", type: "select", group: "Giá",
       options: mapOpt(TOOLING_TYPE), showIf: (f) => !!f.requires_tooling },
     { key: "dau_viec_dinh_muc", label: "Đầu việc và định mức của tổ", type: "dau-viec-dinh-muc",
       refPrefix: "/api/cong-doan/dau-viec", group: "Lệnh sản xuất" },
@@ -738,10 +740,17 @@ export const CFG_KHO_HANG: CatalogConfig = {
   renderDeleteDialog: (row, ctx) => <KhoDeleteDialog row={row} {...ctx} />,
 };
 
-// Tình trạng khuôn bế — record-only (con người phán, máy chỉ ghi nhận).
-// `dang_dat_lam` (mg 0177): khuôn CHƯA có trong tay, đang đặt thợ làm — đi kèm NGÀY VỀ DỰ KIẾN.
-// Bàn xếp lịch so ngày đó với giờ bắt đầu bước bế để biết khuôn có kịp không; không có nó thì
-// "đang đặt làm" chỉ là một chữ, không chặn được lệnh xếp bế vào ngày mai.
+// Tình trạng khuôn — record-only (con người phán, máy chỉ ghi nhận).
+// `dang_dat_lam` (mg 0177): dao CHƯA có trong tay — thuê ngoài chưa về, hoặc xưởng đang tự làm.
+// Đi kèm NGÀY CÓ KHUÔN (dự kiến): bước dùng dao ở Lệnh sản xuất hiện ngày đó để người xếp việc
+// biết chờ tới bao giờ. Không có nó thì "đang đặt làm" chỉ là một chữ.
+// Loại dao — CÙNG bộ mã với `TOOLING_TYPE` của công đoạn (ô chọn dao ở bước lệnh lọc bằng phép so
+// thẳng hai giá trị, lệch bộ mã là lọc ra rỗng).
+export const LOAI_KHUON: Lbls = {
+  khuon_be: "Khuôn bế",
+  khuon_ep: "Khuôn ép nhũ / dập nổi",
+};
+
 export const TINH_TRANG_KHUON: Lbls = {
   dang_dung: "Đang dùng",
   dang_dat_lam: "Đang đặt làm",
@@ -760,30 +769,52 @@ const fmtDate = (v: unknown): string => {
 // ấn phẩm; đơn lặp lại thì lôi khuôn cũ ra dùng. Chỉ đủ để TÌM LẠI: số kệ (vị trí lưu) +
 // tình trạng. Ref ấn phẩm/khách hàng đấu sau. Mã KB-#### tự sinh; xóa mềm giữ dấu vết.
 export const CFG_KHUON_BE: CatalogConfig = {
-  title: "Khuôn bế",
+  // Nhan đề là "Khuôn" (chứa cả khuôn ép nhũ) từ 16/08/2026 — nhưng `prefix`, `nhatKyLoai` và
+  // `moduleQuyen` GIỮ NGUYÊN chuỗi `khuon_be`, xem cảnh báo ngay dưới.
+  title: "Khuôn",
   // ⚠️ `khuon_be` KHÔNG có tiền tố `dm_` như 9 màn kia — đây là chuỗi ĐANG NẰM TRONG bảng
   // `role_permissions` của DB thật (khớp `components/Sidebar.tsx`). Đổi cho "nhất quán" là mọi vai
   // mất sạch quyền màn này.
   moduleQuyen: "khuon_be",
-  subtitle: "Khai báo nơi lưu trữ khuôn bế (số kệ · ngày làm · tình trạng). Mỗi khuôn làm riêng cho 1 ấn phẩm — đơn lặp lại lôi khuôn cũ ra dùng.",
+  subtitle: "Kho dao của xưởng — khuôn bế và khuôn ép nhũ. Mỗi con dao làm riêng cho 1 ấn phẩm; đơn lặp lại lôi dao cũ ra dùng. Bước cần khuôn ở Lệnh sản xuất chọn dao từ đây.",
   prefix: "/api/khuon-be",
   nhatKyLoai: "khuon_be",
   softDelete: true,
   autoCode: true,          // mã KB-#### sinh ngầm ở backend, ẩn ô nhập mã
   facet: { key: "tinh_trang", values: mapOpt(TINH_TRANG_KHUON) },
   columns: [
+    { key: "khach_hang_ten", label: "Khách hàng",
+      render: (r) => (r.khach_hang_ten ? String(r.khach_hang_ten) : "—") },
+    { key: "loai", label: "Loại", render: (r) => (r.loai ? lbl(LOAI_KHUON)(r.loai) : "—") },
     { key: "so_ke", label: "Số kệ", render: (r) => (r.so_ke ? String(r.so_ke) : "—") },
-    { key: "ngay_lam_khuon", label: "Ngày làm", render: (r) => fmtDate(r.ngay_lam_khuon) },
+    // MỘT ngày duy nhất từ mg `0207` (gộp `ngay_lam_khuon` vào đây) — dao đã có thì là ngày nó
+    // về / làm xong, dao đang làm thì là ngày dự kiến. Thêm chữ "dự kiến" cho ca sau để không ai
+    // đọc nhầm một con số tương lai thành chuyện đã rồi.
+    { key: "ngay_ve_du_kien", label: "Ngày có khuôn",
+      render: (r) => (r.tinh_trang === "dang_dat_lam"
+        ? `dự kiến ${fmtDate(r.ngay_ve_du_kien)}`
+        : fmtDate(r.ngay_ve_du_kien)) },
     { key: "tinh_trang", label: "Tình trạng", render: (r) => lbl(TINH_TRANG_KHUON)(r.tinh_trang) },
   ],
   fields: [
+    // Hai ô này là HAI CHIỀU LỌC của ô chọn dao ở bước lệnh sản xuất. Khai đủ thì người cấu hình
+    // lệnh mở ra chỉ thấy vài con dao đúng khách, đúng loại; bỏ trống thì họ phải lội cả kho.
+    // `size: 200` = trần của nền danh mục. Mặc định chỉ lấy trang đầu, mà ô chọn khách thiếu dòng
+    // thì người ta tưởng chưa có khách đó rồi bỏ trống — đúng thứ làm chiều lọc này vô dụng.
+    { key: "khach_hang_id", label: "Khách hàng", type: "ref", refPrefix: "/api/customers",
+      refParams: { size: 200 }, group: "Nhận diện",
+      hint: "Dao làm cho khách nào. Đây là đường tìm chính khi đơn lặp lại — bỏ trống thì lần sau dễ đặt lại con dao đã có." },
+    { key: "loai", label: "Loại khuôn", type: "select", group: "Nhận diện",
+      options: mapOpt(LOAI_KHUON),
+      hint: "Bước “Ép nhũ” chỉ thấy dao ép, bước “Bế” chỉ thấy dao bế." },
     { key: "so_ke", label: "Số kệ / vị trí lưu", type: "text", group: "Lưu trữ",
-      hint: "Nơi cất khuôn, vd: Kệ B3 — xưởng sau in" },
-    { key: "ngay_lam_khuon", label: "Ngày làm khuôn", type: "date", group: "Lưu trữ" },
+      hint: "Nơi cất khuôn, vd: Kệ B3 — xưởng sau in. Thợ đọc đúng ô này để đi lấy." },
     { key: "tinh_trang", label: "Tình trạng", type: "select", group: "Lưu trữ",
       options: mapOpt(TINH_TRANG_KHUON), default: "dang_dung" },
-    { key: "ngay_ve_du_kien", label: "Ngày về dự kiến", type: "date", group: "Lưu trữ",
-      hint: "Bắt buộc khi tình trạng là “Đang đặt làm” — bàn xếp lịch cần số này để biết khuôn có kịp giờ bế không" },
+    // "Ngày có khuôn" chứ không phải "ngày về": chữ "về" ngầm giả định thuê ngoài, mà xưởng tự làm
+    // dao thì không "về" đâu cả — nó làm xong. Một ô, hai đường, một tên trung tính.
+    { key: "ngay_ve_du_kien", label: "Ngày có khuôn (dự kiến)", type: "date", group: "Lưu trữ",
+      hint: "Thuê ngoài thì là ngày về; xưởng tự làm thì là ngày làm xong. Bắt buộc khi tình trạng là “Đang đặt làm” — bước dùng khuôn ở Lệnh sản xuất hiện ngày này để biết chờ tới bao giờ." },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Lưu trữ" },
   ],
 };

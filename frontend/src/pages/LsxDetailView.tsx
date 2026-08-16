@@ -4,7 +4,7 @@
 //
 // Trạng thái `nhap ↔ cho_bo_sung` do SERVER lật sau mỗi lần lưu — client luôn lấy lại từ response,
 // không tự đoán. `san_sang` là hành động của NGƯỜI (server trả 409 nếu còn thiếu).
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   LSX_CANH_BAO_LABELS,
@@ -118,11 +118,15 @@ export function LsxDetailView({
   onBack,
   onChanged,
   navigate,
+  eventTick,
 }: {
   lsxId: number;
   onBack: () => void;
   onChanged: () => void;
   navigate?: (id: string, params?: Record<string, unknown>) => void;
+  /** Tick SSE của `AppShell` — nhảy mỗi sự kiện real-time. Màn DANH SÁCH tự refetch theo nó; màn
+   *  này thì KHÔNG được tự refetch (xem nút "Làm mới"), chỉ dùng để biết có gì mới. */
+  eventTick?: number;
 }) {
   const { token } = useAuth();
   const canUpdate = useCan()("san_xuat", "update");
@@ -149,6 +153,11 @@ export function LsxDetailView({
   const [congDoanRefs, setCongDoanRefs] = useState<RefRow[] | null>(null);
   const [toRefs, setToRefs] = useState<RefRow[] | null>(null);
   const [mayRefs, setMayRefs] = useState<RefRow[] | null>(null);
+  // Dao chọn được của LỆNH này — server đã lọc theo khách của lệnh. Nạp MỘT lần cho cả routing;
+  // lọc tiếp theo loại của từng bước làm trong drawer (danh sách tới đó chỉ còn vài dòng).
+  const [khuonRefs, setKhuonRefs] = useState<
+    import("../api/client").KhuonChonDuoc[] | null
+  >(null);
   /** Danh mục giấy cho ô chọn ở khối "Giấy & tờ in". `gsm` đi kèm để hiện định lượng mới ngay. */
   const [giayRefs, setGiayRefs] = useState<
     { id: number; ten: string; ma: string; gsm: number | null }[] | null
@@ -171,6 +180,53 @@ export function LsxDetailView({
   }, [token, lsxId]);
 
   useEffect(() => load(), [load]);
+
+  const napKhuon = useCallback(() => {
+    if (!token) return;
+    api.lsx.khuonChonDuoc(token, lsxId).then(setKhuonRefs).catch(() => setKhuonRefs(null));
+  }, [token, lsxId]);
+  useEffect(() => napKhuon(), [napKhuon]);
+
+  // --- "Có thay đổi mới" ---------------------------------------------------------------------
+  // Mốc tick tại lần nạp gần nhất. Tick nhảy quá mốc ⇒ có ai đó vừa sửa lệnh này (hoặc bài ghép /
+  // xếp lịch liên quan) SAU khi ta cầm dữ liệu.
+  //
+  // Nhận cả sự kiện do CHÍNH TA gây ra (lưu xong là server broadcast). Ta đồng bộ mốc ở mỗi lần
+  // `load()` xong nên phần lớn tự tắt; sự kiện về trễ hơn `load()` vài chục ms thì nút sáng OAN
+  // một lúc. Chấp nhận: bấm vào chỉ tốn một lần nạp lại, còn BỎ SÓT thay đổi thật thì người kế
+  // hoạch sửa trên dữ liệu cũ rồi ghi đè việc của người khác.
+  const tickDaXem = useRef(eventTick ?? 0);
+  const coDuLieuMoi = (eventTick ?? 0) > tickDaXem.current;
+  const lamMoi = useCallback(() => {
+    tickDaXem.current = eventTick ?? 0;
+    load();
+    napKhuon();
+  }, [eventTick, load, napKhuon]);
+  useEffect(() => {
+    // Mỗi lần dữ liệu về (kể cả lần đầu và sau khi tự lưu) thì coi như đã xem tới tick hiện tại.
+    if (d) tickDaXem.current = eventTick ?? 0;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [d]);
+
+  /** Tạo dao mới cho một bước → dòng mới trong danh mục Khuôn ở tình trạng "đang đặt làm".
+   *
+   *  Khách + loại lấy từ chính lệnh và bước, không hỏi lại: người cấu hình lệnh không nên phải gõ
+   *  lại thứ hệ thống đã biết. Nạp lại danh sách ngay để dao vừa tạo có mặt cho các bước khác. */
+  const taoKhuon = useCallback(
+    async (input: { ten: string; loai: string | null; ngay_ve: string }) => {
+      if (!token) throw new Error("Chưa đăng nhập.");
+      const row = await api.lsx.taoKhuonChoLenh(token, lsxId, {
+        ten: input.ten, loai: input.loai, ngay_ve_du_kien: input.ngay_ve,
+      });
+      // Nhét NGAY dòng vừa tạo vào danh sách, ĐỪNG chỉ đợi `napKhuon()`: nó không await được (chỗ
+      // gọi cần `id` trả về ngay để gán vào bước), nên có một khe mà bước đã trỏ vào dao mới trong
+      // khi danh sách chưa có nó — chip in ra "#7" trống trơn đúng như lỗi vừa gặp.
+      setKhuonRefs((prev) => [...(prev ?? []), row]);
+      napKhuon();
+      return row.id;
+    },
+    [token, lsxId, napKhuon],
+  );
 
   useEffect(() => {
     if (!token) return;
@@ -481,11 +537,28 @@ export function LsxDetailView({
             {d.ten && <p className="khsx-detail__name">{d.ten}</p>}
           </div>
 
-          {canUpdate && d.trang_thai !== "san_sang" && (
-            <Button variant="ghost" className="khsx-btn--danger" onClick={() => setAskDelete(true)}>
-              <Icon name="trash" size={14} /> Xoá lệnh
-            </Button>
-          )}
+          <div className="khsx-detail__headnut">
+            {/* Nút LÀM MỚI — sáng lên khi lệnh này bị người/màn khác sửa (tín hiệu SSE `lsx_changed`).
+                CỐ Ý không tự nạp lại: bảng công đoạn giữ sửa CHƯA LƯU ("Sửa ở đây chưa ghi vào DB
+                — bấm Lưu công đoạn"), tự nạp là im lặng xoá việc người ta đang làm dở. Máy báo có
+                cái mới, người quyết lúc nào lấy. */}
+            <button
+              type="button"
+              className={`khsx-lammoi${coDuLieuMoi ? " is-moi" : ""}`}
+              onClick={lamMoi}
+              title={coDuLieuMoi
+                ? "Lệnh này vừa bị sửa ở nơi khác — bấm để nạp lại"
+                : "Nạp lại lệnh và danh sách khuôn"}
+            >
+              <Icon name="refresh" size={13} />
+              {coDuLieuMoi ? "Có thay đổi mới — làm mới" : "Làm mới"}
+            </button>
+            {canUpdate && d.trang_thai !== "san_sang" && (
+              <Button variant="ghost" className="khsx-btn--danger" onClick={() => setAskDelete(true)}>
+                <Icon name="trash" size={14} /> Xoá lệnh
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="khsx-detail__chips">
@@ -1128,6 +1201,9 @@ export function LsxDetailView({
                     congDoanRefs={congDoanRefs}
                     toRefs={toRefs}
                     mayRefs={mayRefs}
+                    khuonRefs={khuonRefs}
+                    tenSanPham={d.ten}
+                    onTaoKhuon={taoKhuon}
                     vatTuRefs={vatTuRefs}
                     phuThuocRefs={phuThuocRefs}
                     canUpdate={canUpdate}

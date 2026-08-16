@@ -87,6 +87,7 @@ from ..schemas.customer import (
     NoteUpdateIn,
     OrderHistoryOut,
     OrderHistoryRowOut,
+    OrderLineBriefOut,
     PrintSpecOut,
     ProductSliceOut,
     QuoteHistoryOut,
@@ -853,7 +854,17 @@ def customer_order_history(
     scope = _scope_for(authz, user)
     _load_scoped(svc, customer_id, scope, user)  # scope guard (404 if out of scope)
     rows = analytics.order_history(customer_id)
-    return OrderHistoryOut(items=[OrderHistoryRowOut(**vars(r)) for r in rows])
+    # Dựng `lines` TƯỜNG MINH thay vì để `**vars(r)` ném cả list dataclass vào pydantic: nested
+    # model không có `from_attributes` thì đây là chỗ vỡ, mà kiểu vỡ của pydantic ở tầng này là
+    # im lặng nuốt field — FE nhận `undefined`, không lỗi, không log (đã dính 4 lần).
+    return OrderHistoryOut(items=[
+        OrderHistoryRowOut(
+            **{k: v for k, v in vars(r).items() if k != "lines"},
+            lines=[OrderLineBriefOut(description=d.description, line_total=d.line_total)
+                   for d in r.lines],
+        )
+        for r in rows
+    ])
 
 
 @router.get("/{customer_id}/quotations", response_model=QuoteHistoryOut)

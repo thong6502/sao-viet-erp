@@ -8554,3 +8554,120 @@ def _migrate_kho_nhan_khach(db: Session) -> None:
 
 
 MIGRATIONS.append(("0204_kho_nhan_khach", _migrate_kho_nhan_khach))
+
+
+def _migrate_noi_khuon_vao_buoc_lenh(db: Session) -> None:
+    """Nối danh mục Khuôn vào bước lệnh sản xuất — chủ dự án chốt 16/08/2026.
+
+    Ba cột:
+      · `khuon_be.khach_hang_id` — FK khách đặt con dao. KHÁC cột `khach_hang` chuỗi đã xoá
+        15/08: cột cũ gõ tay nên "Cty An Phát" ≠ "Công ty TNHH An Phát", lọc ra thiếu rồi người
+        ta tưởng chưa có dao và đặt làm con thứ hai.
+      · `khuon_be.loai` — bế / ép nhũ, cùng bộ mã với `cong_doan.tooling_type` để ô chọn lọc bằng
+        phép so thẳng. Thiếu nó thì bước Ép nhũ thấy cả dao bế.
+      · `lsx_cong_doan.khuon_be_id` — DỰNG LẠI cột mg `0203` vừa xoá sáng nay.
+
+    ⚠️ Vì sao dựng lại thứ vừa xoá: `0203` xoá đúng — 0/14 bước có gán khuôn. Nhưng nguyên nhân là
+    HÌNH DẠNG của ô chứ không phải nhu cầu: nó là select trống, mở ra danh sách rỗng, không có
+    đường tạo dao mới, nên ai cũng bỏ qua. Bản dựng lại hỏi hai nhánh (dùng dao có sẵn / làm dao
+    mới) và lọc sẵn theo khách + loại, tức có lối đi cho CẢ HAI câu trả lời.
+    Không mất dữ liệu: cột cũ rỗng hoàn toàn khi bị xoá.
+
+    ADD COLUMN best-effort trên từng cột — DB đã có sẵn cột nào thì bỏ qua cột đó.
+    """
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+    them = [
+        ("khuon_be", "khach_hang_id", "INTEGER"),
+        ("khuon_be", "loai", "VARCHAR(16)"),
+        ("lsx_cong_doan", "khuon_be_id", "INTEGER"),
+    ]
+    for bang, cot, kieu in them:
+        if bang not in ten_bang or cot in _existing_columns(insp, bang):
+            continue
+        db.execute(text(f"ALTER TABLE {bang} ADD COLUMN {cot} {kieu}"))
+        db.commit()
+
+    # Backfill `loai` nằm ở mg `0206` — KHÔNG gộp vào đây. Xem lý do ở đó: bản đầu viết chung một
+    # hàm và chết vì Inspector cache.
+
+
+MIGRATIONS.append(("0205_noi_khuon_vao_buoc_lenh", _migrate_noi_khuon_vao_buoc_lenh))
+
+
+def _migrate_doan_loai_khuon(db: Session) -> None:
+    """Đoán `khuon_be.loai` cho các dòng khai TRƯỚC mg `0205`, dựa vào TÊN dao.
+
+    ⚠️ VÌ SAO LÀ MỘT MIGRATION RIÊNG — đây là bài học, đừng lặp lại:
+
+    Bản đầu viết backfill này ngay trong `0205`, ngay sau vòng `ALTER TABLE ADD COLUMN`, và gác
+    bằng `if "loai" in _existing_columns(insp, "khuon_be")` — dùng lại chính `insp` tạo ở ĐẦU hàm.
+
+    `Inspector` CACHE kết quả reflection (`info_cache`). Cái tạo trước `ALTER` vẫn báo danh sách
+    cột CŨ mãi mãi, nên guard luôn ra `False` và cả khối backfill bị bỏ qua — không lỗi, không log,
+    migration vẫn ghi "đã chạy". Đo lại trên DB dev: 6/6 dòng còn `loai IS NULL` trong khi câu SQL
+    hoàn toàn đúng (Postgres khớp cả 6 với `lower(ten) LIKE '%bế%'`).
+
+    Hai cách chữa: tạo inspector MỚI sau vòng ALTER, hoặc tách ra hàm riêng như đây. Chọn cách sau
+    vì `0205` đã chạy trên DB dev rồi — sửa tại chỗ thì nó không chạy lại, dữ liệu vẫn hỏng.
+
+    LUẬT ĐOÁN: chỉ nhận khi TÊN nói rõ. "cái nào không ép thì là bế" nghe hợp lý nhưng sai với dao
+    dập nổi / dao cắt — mà đoán sai ở đây là ô chọn dao LỌC MẤT con dao đúng, tệ hơn để trống (để
+    trống thì dao vẫn hiện ở mọi loại bước).
+    """
+    insp = inspect(db.get_bind())
+    if "khuon_be" not in set(insp.get_table_names()):
+        return
+    if "loai" not in _existing_columns(insp, "khuon_be"):
+        return
+    db.execute(text(
+        "UPDATE khuon_be SET loai = 'khuon_ep' "
+        "WHERE loai IS NULL AND (lower(ten) LIKE '%ép%' OR lower(ten) LIKE '%ep nhu%')"
+    ))
+    db.execute(text(
+        "UPDATE khuon_be SET loai = 'khuon_be' "
+        "WHERE loai IS NULL AND lower(ten) LIKE '%bế%'"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0206_doan_loai_khuon", _migrate_doan_loai_khuon))
+
+
+def _migrate_go_ngay_lam_khuon(db: Session) -> None:
+    """Gộp hai ô ngày của kho khuôn về MỘT — chủ dự án yêu cầu 16/08/2026.
+
+    Màn Khuôn đang có hai ô ngày sát nhau mà người khai phải tự đoán điền cái nào:
+      · `ngay_lam_khuon`   — "Ngày làm khuôn"  (dao làm xong lúc nào)
+      · `ngay_ve_du_kien`  — "Ngày có khuôn"   (dao nằm trong tay lúc nào)
+    Với một con dao đã có thì hai câu đó là MỘT. Giữ cả hai là mời người ta khai lệch, rồi màn
+    phải đoán hiển thị ô nào — chính chỗ đã phải viết một nhánh `if tinh_trang == 'dang_dat_lam'`
+    trong cột bảng.
+
+    Đo trước khi gộp (Postgres dev): 7 dòng — 6 có `ngay_lam_khuon`, 1 có `ngay_ve_du_kien`,
+    **0 dòng có CẢ HAI**, 0 dòng trống cả hai. Hai cột bổ khuyết nhau hoàn hảo ⇒ chép sang là
+    không mất và không đè số nào.
+
+    CHÉP TRƯỚC, DROP SAU — và chỉ chép vào ô còn trống, để nếu có dòng nào lỡ khai cả hai thì giá
+    trị người dùng nhập ở ô "có khuôn" thắng, không bị ngày làm ghi đè.
+    """
+    insp = inspect(db.get_bind())
+    if "khuon_be" not in set(insp.get_table_names()):
+        return
+    cot = _existing_columns(insp, "khuon_be")
+    if "ngay_lam_khuon" not in cot:
+        return
+    if "ngay_ve_du_kien" in cot:
+        db.execute(text(
+            "UPDATE khuon_be SET ngay_ve_du_kien = ngay_lam_khuon "
+            "WHERE ngay_ve_du_kien IS NULL AND ngay_lam_khuon IS NOT NULL"
+        ))
+        db.commit()
+    try:
+        db.execute(text("ALTER TABLE khuon_be DROP COLUMN ngay_lam_khuon"))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+MIGRATIONS.append(("0207_go_ngay_lam_khuon", _migrate_go_ngay_lam_khuon))

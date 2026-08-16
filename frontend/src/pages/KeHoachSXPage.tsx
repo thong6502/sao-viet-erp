@@ -156,6 +156,7 @@ export function KeHoachSXPage({
           navigate={navigate}
           onBack={() => setView({ mode: "list" })}
           onChanged={doiDuLieu}
+          eventTick={eventTick}
         />
       </main>
     );

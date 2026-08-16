@@ -283,8 +283,8 @@ def _ensure_khuon_the(db: Session, khach_ten: str | None) -> int | None:
     if kb is None:
         kb = KhuonBe(
             ma="KB-0006", ten="Khuôn bế thẻ nhân viên 54×86 (góc R3 + lỗ dây)",
-            so_ke="Kệ B2 — kho khuôn",
-            ngay_lam_khuon=date.today() - timedelta(days=20), tinh_trang="dang_dung",
+            so_ke="Kệ B2 — kho khuôn", loai="khuon_be",
+            ngay_ve_du_kien=date.today() - timedelta(days=20), tinh_trang="dang_dung",
             ghi_chu="Bế 99 con/tờ 65×86.",
         )
         db.add(kb)

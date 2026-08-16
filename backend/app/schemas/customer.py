@@ -537,12 +537,20 @@ class CustomerDashboardOut(BaseModel):
     receivable: ReceivableCard
 
 
+class OrderLineBriefOut(BaseModel):
+    description: str
+    line_total: int
+
+
 class OrderHistoryRowOut(BaseModel):
     id: int
     order_no: str
     status: str
     order_kind: str
     summary: str
+    #: Từng dòng kèm TIỀN THẬT — khối "Sản phẩm mua nhiều nhất" cộng theo đây thay vì chia đều
+    #: tổng đơn cho số dấu phẩy trong `summary`.
+    lines: list[OrderLineBriefOut] = []
     total: int | None
     created_at: datetime
 

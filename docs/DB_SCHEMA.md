@@ -3386,12 +3386,24 @@ Thứ phụ thuộc từng mặt hàng ("1 thùng keo = 3 kg" khác "1 thùng m�
 
 ### `khuon_be`
 
-**Purpose:** danh mục KHAI BÁO nơi lưu trữ khuôn bế (master data nhẹ) — mỗi khuôn làm riêng cho hình bế của 1 ấn phẩm; đơn lặp lại thì lôi khuôn cũ ra dùng. Khai TAY để tìm lại: `ma` (KB-#### sinh ngầm) / `ten` (tên khuôn / ấn phẩm) / `so_ke` (số kệ, vị trí lưu — lõi) / `ngay_lam_khuon` / `tinh_trang` (dang_dung·hong·thanh_ly) / `ghi_chu`. Bảng mới → `create_all` tự dựng (không migration). Xóa mềm (`active=false`) giữ dấu vết. Gác quyền module RIÊNG `khuon_be`. `khach_hang` đã **DROP** (mg `0202`): cột khai tay không nối danh mục Khách hàng nên là bản chép tên dễ lệch; khuôn nhận diện bằng mã + tên ấn phẩm.
+**Purpose:** KHO DAO của xưởng — **khuôn bế và khuôn ép nhũ** (nhan đề màn là "Khuôn" từ 16/08/2026; tên bảng + module quyền vẫn `khuon_be`, đổi là mọi vai mất sạch quyền màn này). Mỗi con dao làm riêng cho 1 ấn phẩm; đơn lặp lại thì lôi dao cũ ra dùng. Khai TAY: `ma` (KB-#### sinh ngầm) / `ten` (tên ấn phẩm) / `khach_hang_id` / `loai` / `so_ke` (vị trí lưu — thợ đọc ô này để đi lấy) / `tinh_trang` / `ngay_ve_du_kien` / `ghi_chu`. Xóa mềm (`active=false`) giữ dấu vết.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `so_ke`, `ngay_lam_khuon`, `tinh_trang`, `ngay_ve_du_kien`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**ĐƯỢC NỐI từ 16/08/2026 (mg `0205`):** bước của lệnh sản xuất trỏ vào đây qua `lsx_cong_doan.khuon_be_id`. Người cấu hình lệnh chọn *"dùng dao có sẵn"* (ô chọn lọc theo **khách của lệnh + loại của bước**) hoặc *"làm dao mới"* — nhánh sau tạo thẳng một dòng ở đây với `tinh_trang='dang_dat_lam'`. Trước đó danh mục này là sổ đứng một mình, không chỗ nào trỏ tới.
+
+`khach_hang` (chuỗi) đã **DROP** (mg `0202`): khai tay không nối danh mục nên là bản chép tên dễ lệch — thay bằng `khach_hang_id` FK ở mg `0205`.
+
+**Tất cả cột:** `id`, `ma`, `ten`, `khach_hang_id`, `loai`, `so_ke`, `tinh_trang`, `ngay_ve_du_kien`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+
+- 🔴 `ngay_lam_khuon` ĐÃ GỠ (mg `0207`, 16/08/2026) — gộp vào `ngay_ve_du_kien`. Với một con dao đã có thì "làm xong lúc nào" và "có trong tay lúc nào" là MỘT câu; hai ô sát nhau chỉ mời người khai điền lệch, rồi màn phải đoán hiển thị ô nào. Đo trước khi gộp: 7 dòng — 6 có `ngay_lam_khuon`, 1 có `ngay_ve_du_kien`, **0 dòng có cả hai** ⇒ chép sang không mất và không đè.
 
 - `tinh_trang` (mg 0177) nhận thêm giá trị **`dang_dat_lam`** — khuôn CHƯA có trong tay, đang đặt thợ làm. Không phải DDL (`tinh_trang` là VARCHAR tự do, service kiểm giá trị theo hằng `TINH_TRANG`).
-- `ngay_ve_du_kien` (`Date`, nullable, mg 0177) — chỉ có nghĩa với `dang_dat_lam`. Bàn xếp lịch so ngày này với giờ bắt đầu bước bế: về SAU giờ bế ⇒ vấn đề mức **Chặn**; về kịp ⇒ cảnh báo vàng. Không có nó thì `dang_dat_lam` chỉ là một chữ, không chặn được gì.
+- `ngay_ve_du_kien` (`Date`, nullable, mg 0177) — **NGÀY CÓ KHUÔN (dự kiến)**: ngày dao nằm trong tay xưởng, bất kể đường nào — thuê ngoài thì là ngày về, xưởng tự làm thì là ngày làm xong. Chỉ có nghĩa với `dang_dat_lam`; service bắt buộc khai khi chọn trạng thái đó. Ngày này hiện ngay tại **bước dùng khuôn ở lệnh sản xuất** để người xếp việc biết chờ tới bao giờ.
+  ⚠️ Tên cột giữ chữ "về" từ mg 0177, nhưng NHÃN trên mọi màn là "Ngày có khuôn" — đừng đọc tên cột thành "chỉ dành cho hàng thuê ngoài". Không đổi tên cột: một migration + rà mọi nơi đọc, đổi lấy một chuỗi người dùng không bao giờ nhìn thấy.
+  ⚠️ Cột này từng **không nằm trong `KhuonBeRepository.fields`** (danh sách cột client được phép ghi) nên form có ô, service bắt buộc khai, mà lưu xong ra `NULL` — hỏng câm. Sửa 16/08/2026.
+- `khach_hang_id` (`Integer`, **FK→customers.id**, IX, nullable — mg 0205) — khách đặt con dao này. Là chiều lọc CHÍNH của ô chọn dao ở bước lệnh: kho vài trăm dao mà không lọc theo khách thì người ta tìm không ra, bấm "làm dao mới", rồi đặt lại con dao đã có.
+  ⚠️ ĐỪNG quay về kiểu chuỗi: cột `khach_hang` gõ tay đã bị xoá 15/08/2026 vì "Cty An Phát" và "Công ty TNHH An Phát" thành hai khách, lọc ra thiếu.
+- `loai` (`String(16)`, IX, nullable — mg 0205) — `khuon_be` | `khuon_ep`. **Dùng chung bộ mã với `cong_doan.tooling_type`**: ô chọn lọc bằng phép so thẳng hai giá trị, lệch bộ mã là lọc ra rỗng. Nullable vì các dòng khai trước 0205 chưa ai phân loại; migration chỉ backfill khi TÊN nói rõ ("ép" → `khuon_ep`, "bế" → `khuon_be`), còn lại để trống chứ không đoán bừa.
+- Nhan đề màn là **"Khuôn"** (chứa cả khuôn ép nhũ) nhưng **tên bảng và module quyền vẫn là `khuon_be`** — đổi là mọi vai mất sạch quyền màn này.
 
 ### ~~`bao_tri_phieu` · `bao_tri_hen` · `bao_tri_anh`~~ — MODULE ĐÃ GỠ 12/08/2026
 
@@ -3720,6 +3732,7 @@ Trả về BA số bằng cách thay `toc_do` bằng `toc_do_max` / `toc_do` / `
 | `nhom` | `String(12)` | — | yes | — | `prepress`/`print`/`finishing` (snapshot). |
 | `department_id` | `Integer` | IX | yes | — | Soft → `departments.id` = tổ nhận việc (snapshot `cong_doan.department_id`). Cũng là "trung tâm sản xuất" — KHÔNG có bảng work_center riêng. |
 | `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id` cho bước này. |
+| `khuon_be_id` | `Integer` | IX | yes | — | Soft → `khuon_be.id` — con dao của CHÍNH bước này (mg `0205`). Chỉ hỏi ở bước mà công đoạn nguồn bật `requires_tooling`. Để trống là hợp lệ, KHÔNG chặn phát hành lệnh. **Lịch sử:** cột này từng bị xoá hẳn sáng 16/08 (mg `0203`, 0/14 bước có gán) rồi dựng lại chiều cùng ngày với hình dạng khác — cũ là một select trống không có đường tạo dao mới nên ai cũng bỏ qua; mới là hai nhánh *dùng dao có sẵn* (lọc theo khách của lệnh + loại của bước) / *làm dao mới* (tạo thẳng dòng `khuon_be` ở `dang_dat_lam`). |
 | `loai_buoc` | `String(12)` | — | no | `may` | Snapshot `may|to|thue_ngoai`. |
 | `bat_buoc` | `Boolean` → `BOOLEAN` | — | no | `true` | Bước bắt buộc hay tùy chọn (§4.1). |
 | `so_luong_vao` | `Numeric(14,2)` | — | no | `0` | SL đầu vào bước. |

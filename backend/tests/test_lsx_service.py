@@ -2700,3 +2700,80 @@ def test_chua_quy_doi_duoc_thi_KHONG_bia_gio():
     assert round(t["chiem_may_phut"]) == 55                  # chỉ còn chuẩn bị
     assert t["dien_giai"]["phuong_phap"] == "chua_quy_doi"
     assert any("quy đổi" in c for c in t["dien_giai"]["canh_bao"])
+
+
+# --- Khuôn của bước: hai nhánh gán-cũ / làm-mới (mg 0205, 16/08/2026) ----------------
+
+
+def _lenh_don_gian(db, orders, lsx_svc, admin, customer):
+    """Một lệnh bất kỳ CỦA `customer` — đủ để kiểm hai nhánh khuôn."""
+    d = _don_da_chuyen_sx(db, orders, admin, customer, _ptg_sach(db))
+    line = lsx_svc.preview(d.id)["lines"][0]
+    return lsx_svc.get(
+        lsx_svc.tao(order_id=d.id, order_line_ids=[line["order_line_id"]], actor=admin)[0].id
+    )
+
+
+def test_khuon_chon_duoc_LOC_theo_khach_cua_lenh(db, orders, lsx_svc, admin, customer):
+    """Ô chọn dao chỉ bày dao CỦA KHÁCH NÀY.
+
+    Đây là thứ làm nhánh "dùng dao có sẵn" dùng được: kho vài trăm dao mà bày hết thì người ta
+    tìm không ra, bấm "làm dao mới", rồi đặt lại con dao đã có — mất tiền thật.
+    """
+    from app.models.khuon_be import KhuonBe
+
+    lsx = _lenh_don_gian(db, orders, lsx_svc, admin, customer)
+    khac = Customer(code="KH-KHAC", name="Khách khác")
+    db.add(khac)
+    db.flush()
+    db.add_all([
+        KhuonBe(ma="KB-A", ten="Dao của khách này", khach_hang_id=customer.id, loai="khuon_be"),
+        KhuonBe(ma="KB-B", ten="Dao khách khác", khach_hang_id=khac.id, loai="khuon_be"),
+        KhuonBe(ma="KB-C", ten="Dao chưa gán khách", loai="khuon_be"),
+    ])
+    db.commit()
+
+    ma = {k["ma"] for k in lsx_svc.khuon_chon_duoc(lsx, loai=None, dang_chon=None)}
+    assert ma == {"KB-A"}, ma
+
+
+def test_khuon_dang_chon_LUON_con_trong_danh_sach(db, orders, lsx_svc, admin, customer):
+    """Dao đã gán từ trước phải ở lại dù không khớp bộ lọc.
+
+    Dao cũ có thể khai thiếu khách/loại. Rơi khỏi danh sách thì ô chọn nhảy về rỗng và cú Lưu kế
+    tiếp GỠ MẤT dao của bước — đúng bẫy đã gặp ở ô chọn khuôn đời trước.
+    """
+    from app.models.khuon_be import KhuonBe
+
+    lsx = _lenh_don_gian(db, orders, lsx_svc, admin, customer)
+    mo_coi = KhuonBe(ma="KB-CU", ten="Dao đời cũ, chưa khai khách")
+    db.add(mo_coi)
+    db.commit()
+
+    ds = lsx_svc.khuon_chon_duoc(lsx, loai="khuon_be", dang_chon=mo_coi.id)
+    assert [k["ma"] for k in ds] == ["KB-CU"]
+
+
+def test_tao_khuon_moi_lay_khach_TU_LENH_va_vao_kho_o_trang_thai_dang_dat(
+    db, orders, lsx_svc, admin, customer,
+):
+    """Nhánh "làm dao mới": khách + loại KHÔNG hỏi lại người dùng, lấy từ lệnh và từ bước."""
+    from datetime import date as _date
+
+    from app.models.khuon_be import KhuonBe
+
+    lsx = _lenh_don_gian(db, orders, lsx_svc, admin, customer)
+    ra = lsx_svc.tao_khuon_cho_lenh(
+        lsx, ten="Hộp bánh trung thu 20×20", loai="khuon_be",
+        ngay_ve=_date(2026, 8, 20), actor=admin,
+    )
+    assert ra["ma"].startswith("KB-")          # mã do danh mục sinh, không phải tự đặt
+    assert ra["tinh_trang"] == "dang_dat_lam"
+
+    k = db.get(KhuonBe, ra["id"])
+    assert k.khach_hang_id == customer.id      # lấy từ lệnh
+    assert k.loai == "khuon_be"                # lấy từ cờ của bước
+    assert k.ngay_ve_du_kien == _date(2026, 8, 20)
+
+    # Và nó xuất hiện ngay trong danh sách chọn của chính lệnh đó.
+    assert ra["id"] in {x["id"] for x in lsx_svc.khuon_chon_duoc(lsx, loai="khuon_be", dang_chon=None)}

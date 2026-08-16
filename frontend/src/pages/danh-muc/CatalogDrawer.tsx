@@ -225,9 +225,16 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
           <div className="rc-input-wrapper">
             <select className="rc-input" value={String(form[f.key] ?? "")} onChange={(e) => setRef(f.key, e.target.value)}>
               <option value="">— chọn —</option>
-              {(refData[f.refPrefix ?? ""] ?? []).map((o) => (
-                <option key={o.id} value={o.id}>{o.ma} · {o.ten}</option>
-              ))}
+              {/* Chịu được CẢ HAI cách đặt tên cột: 10 màn danh mục dùng `ma`/`ten`, còn Khách
+                  hàng (mà màn Khuôn trỏ tới) dùng `code`/`name`. Không đỡ thì ô chọn ra một dãy
+                  "undefined · undefined" — hỏng câm, vì `undefined` vẫn render thành chữ. */}
+              {(refData[f.refPrefix ?? ""] ?? []).map((o) => {
+                const ma = o.ma ?? o.code;
+                const ten = o.ten ?? o.name;
+                return (
+                  <option key={o.id} value={o.id}>{ma ? `${ma} · ${ten}` : String(ten ?? o.id)}</option>
+                );
+              })}
             </select>
           </div>
         ) : f.type === "ref-search" ? (

@@ -29,7 +29,7 @@ def _svc():
 def test_create_and_validate():
     db, svc = _svc()
     k = svc.create(dict(ma="KB-0001", ten="Khuôn hộp bánh A", so_ke="Kệ B3",
-                        khach_hang="Cty A", ngay_lam_khuon=date(2026, 1, 5)))
+                        ngay_ve_du_kien=date(2026, 1, 5)))
     assert k.id and k.ma == "KB-0001" and k.active is True
     assert k.so_ke == "Kệ B3" and k.tinh_trang == "dang_dung"
     with pytest.raises(KhuonBeValidationError):            # thiếu tên
@@ -116,3 +116,43 @@ def test_loc_va_dem_theo_tinh_trang():
     assert svc.dem_theo_tinh_trang() == {"dang_dung": 2, "hong": 1}
     # Có ô tìm thì số trên tab đi theo ô tìm — tab khoe số cả danh mục là nói dối.
     assert svc.dem_theo_tinh_trang(q="khuôn c") == {"hong": 1}
+
+
+# --- Nối vào bước lệnh sản xuất (mg 0205, 16/08/2026) ---------------------------
+
+
+def test_ngay_ve_du_kien_THUC_SU_duoc_luu():
+    """🔴 Lỗi có sẵn, sửa 16/08/2026: `ngay_ve_du_kien` KHÔNG nằm trong `KhuonBeRepository.fields`
+    — danh sách cột client được phép ghi. Form có ô, service BẮT BUỘC khai khi chọn "đang đặt
+    làm", người dùng gõ vào, validate qua… rồi `_gan` bỏ qua và lưu ra NULL. Hỏng câm, không lỗi.
+
+    Mất cột này là mất luôn thứ duy nhất đáng hỏi ở nhánh "làm dao mới": chờ tới bao giờ.
+    """
+    db, svc = _svc()
+    k = svc.create(dict(ten="Khuôn hộp mới", tinh_trang="dang_dat_lam",
+                        ngay_ve_du_kien=date(2026, 8, 20)))
+    db.expire_all()                                   # đọc lại từ DB, không lấy bản trong bộ nhớ
+    assert svc.get(k.id).ngay_ve_du_kien == date(2026, 8, 20)
+
+
+def test_khach_va_loai_duoc_luu_va_loc_duoc():
+    """Hai chiều lọc của ô chọn dao ở bước lệnh. Không lưu được thì ô chọn bày cả kho."""
+    db, svc = _svc()
+    a = svc.create(dict(ten="Dao bế hộp A", khach_hang_id=7, loai="khuon_be"))
+    svc.create(dict(ten="Dao ép nhũ hộp A", khach_hang_id=7, loai="khuon_ep"))
+    svc.create(dict(ten="Dao bế hộp B", khach_hang_id=9, loai="khuon_be"))
+
+    db.expire_all()
+    assert svc.get(a.id).khach_hang_id == 7 and svc.get(a.id).loai == "khuon_be"
+
+    # Lọc từng chiều và cả hai chiều.
+    assert svc.list(khach_hang_id=7)[1] == 2
+    assert svc.list(loai="khuon_be")[1] == 2
+    rows, total = svc.list(khach_hang_id=7, loai="khuon_ep")
+    assert total == 1 and rows[0].ten == "Dao ép nhũ hộp A"
+
+
+def test_loai_khong_hop_le_bi_chan():
+    db, svc = _svc()
+    with pytest.raises(KhuonBeValidationError):
+        svc.create(dict(ten="Khuôn lạ", loai="khuon_dap_noi"))

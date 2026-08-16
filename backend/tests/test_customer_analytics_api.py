@@ -306,6 +306,72 @@ def test_order_and_quote_history_are_real(client):
     assert quotes["items"][0]["code"] == "BGX1"
 
 
+def test_lich_su_don_tra_TIEN_TUNG_DONG(client):
+    """Mỗi dòng đơn phải kèm tiền THẬT của chính nó.
+
+    Trước 16/08/2026 endpoint chỉ trả `summary` là chuỗi nối tên ("SP A, SP B"), nên khối "Sản
+    phẩm mua nhiều nhất" bên frontend phải tách theo dấu phẩy rồi CHIA ĐỀU tổng đơn — đơn gồm
+    ruột sách + thẻ nhân viên bị gán hai thứ bằng tiền nhau. Tiền thật vốn nằm sẵn ở
+    `order_lines.line_total`, chỉ là không được trả xuống."""
+    _seed_staff_customers()
+    token = _admin_token(client)
+    cid = _customer_id_by_name("An Phát")
+
+    db = SessionLocal()
+    try:
+        o = Order(order_no="DH-2DONG", customer_id=cid, order_kind="moi", status="ordered",
+                  created_at=datetime.now(timezone.utc))
+        # Hai dòng LỆCH HẲN nhau về tiền — chia đều sẽ ra 15tr/15tr, số thật là 28tr/2tr.
+        o.lines.append(OrderLine(description="Ruột sách 160 trang", qty=1,
+                                 unit_price_snapshot=28_000_000, line_total=28_000_000))
+        o.lines.append(OrderLine(description="Thẻ nhân viên", qty=1,
+                                 unit_price_snapshot=2_000_000, line_total=2_000_000))
+        db.add(o)
+        db.commit()
+    finally:
+        db.close()
+
+    dong = next(
+        r for r in client.get(f"/api/customers/{cid}/orders", headers=_h(token)).json()["items"]
+        if r["order_no"] == "DH-2DONG"
+    )
+    assert dong["total"] == 30_000_000
+    assert [(l["description"], l["line_total"]) for l in dong["lines"]] == [
+        ("Ruột sách 160 trang", 28_000_000),
+        ("Thẻ nhân viên", 2_000_000),
+    ]
+    # `summary` vẫn còn (bảng đơn hiển thị bằng nó) và vẫn dựng từ chính các dòng đó.
+    assert dong["summary"] == "Ruột sách 160 trang, Thẻ nhân viên"
+
+
+def test_ti_le_chot_dem_bao_gia_DA_LEN_DON_la_thang(client):
+    """`converted_to_order` = "Đã lên đơn" ⇒ THẮNG CHẮC CHẮN, không được bỏ sót.
+
+    Bản cũ chỉ đếm `approved`+`accepted` nên khách có 11 báo giá đã lên đơn vẫn bị ghi tỉ lệ
+    chốt 18%. Và `approved` ("GĐ duyệt xong, CHỜ sale gửi khách") thì KHÔNG phải thắng — khách
+    còn chưa nhìn thấy báo giá."""
+    _seed_staff_customers()
+    token = _admin_token(client)
+    cid = _customer_id_by_name("An Phát")
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        for i, st in enumerate(
+            ["converted_to_order", "converted_to_order", "accepted", "rejected",
+             "draft", "approved"]
+        ):
+            db.add(Quote(quote_number=f"BGTL{i}", customer_id=cid, status=st, created_at=now))
+        db.commit()
+    finally:
+        db.close()
+
+    d = client.get(f"/api/customers/{cid}/dashboard", headers=_h(token)).json()
+    # Thắng = 2 converted + 1 accepted = 3. Đã chào = 3 + 1 rejected = 4 (loại draft + approved
+    # vì khách chưa thấy). 3/4 = 75%.
+    assert d["win_rate_pct"] == 75
+
+
 def test_order_history_csv_export(client):
     _seed_staff_customers()
     token = _admin_token(client)

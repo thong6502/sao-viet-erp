@@ -143,8 +143,16 @@ def test_thue_ngoai_co_so_giao_nhan_va_chi_mot_cua_ghi() -> None:
     node = DRAWER.parents[1] / "components" / "DagNodeCard.tsx"
     card = node.read_text(encoding="utf-8")
 
-    assert "Thực tế giao – nhận" in drawer
-    assert "sec-giao-nhan" in drawer
+    # Neo vào ĐỊNH DANH MÁY (`"giao_nhan"`), không vào chữ hiển thị.
+    #
+    # 16/08/2026: drawer được dựng lại theo tab, khối "Thực tế giao – nhận" (id `sec-giao-nhan`)
+    # thành tab `giao_nhan`. Hai assert cũ grep đúng hai chuỗi đó nên đỏ — trong khi MỌI bảo đảm
+    # thật vẫn còn (nút xác nhận · `onGiaoNhan(` · `toBody` sạch · badge không ghi; đã kiểm từng
+    # cái một trước khi sửa test này).
+    #
+    # Guard đọc chữ hiển thị thì mỗi lần đổi nhãn là một lần đỏ oan, mà guard kêu oan thì sớm muộn
+    # bị tắt — lúc đó mất luôn phần đáng gác. Khoá máy vẫn đỏ khi tính năng bị GỠ THẬT.
+    assert '"giao_nhan"' in drawer
     assert "Xác nhận đã giao" in drawer and "Xác nhận đã nhận" in drawer
     # Ghi THẲNG qua cửa thực thi, KHÔNG gom vào payload lưu routing (payload đó bị guard
     # "đã lập kế hoạch" chặn, mà hàng ra cổng đúng lúc lệnh đang chạy).
@@ -186,8 +194,11 @@ def test_dag_noi_duoc_phu_thuoc_xuyen_lsx_ngay_tren_so_do() -> None:
 def test_drawer_van_giu_duong_chon_phu_thuoc_bang_ban_phim() -> None:
     """Canvas kéo-thả là chuột; drawer vẫn là đường a11y để chọn tiền nhiệm."""
     source = DRAWER.read_text(encoding="utf-8")
-    assert "Phụ thuộc để xếp lịch (DAG)" in source
+    # Cùng lý do như test giao–nhận ở trên: tiêu đề đổi "Phụ thuộc ĐỂ xếp lịch" → "Phụ thuộc xếp
+    # lịch" khi dựng lại drawer 16/08/2026. Neo vào `phu_thuoc_step_keys` — mất khoá đó thì đường
+    # chọn tiền nhiệm bằng bàn phím mới thật sự biến mất.
     assert "phu_thuoc_step_keys" in source
+    assert "phuThuocRefs" in source
 
 
 def test_dag_co_thanh_keo_ngang_va_van_giu_sap_xep_tu_dong() -> None:

@@ -45,6 +45,22 @@ from ..models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen
 # Orders in these statuses are excluded from realised revenue (đã hủy).
 _EXCLUDED_ORDER_STATUSES = (ORDER_CANCELLED,)
 
+# --- TỈ LỆ CHỐT: định nghĩa "thắng" và "đã chào" ở ĐÚNG MỘT CHỖ ---------------------------
+#
+# Sửa 16/08/2026 — bản cũ đếm sai CẢ HAI CHIỀU và cho ra con số bôi nhọ chính mình:
+#   · BỎ SÓT `converted_to_order` ("Đã lên đơn — khoá 1 báo giá = 1 đơn"). Đây là thắng CHẮC
+#     CHẮN, đã thành đơn hàng rồi. Khách An Phát có 11 báo giá loại này ⇒ màn hình ghi tỉ lệ
+#     chốt 18% trong khi thực tế 88%.
+#   · TÍNH NHẦM `approved` là thắng. Trạng thái đó nghĩa là "GĐ Kinh doanh duyệt xong, CHỜ sale
+#     gửi khách" — khách còn chưa nhìn thấy báo giá.
+#
+# MẪU SỐ chỉ gồm báo giá khách ĐÃ THẤY. Loại `draft` / `pending_approval` / `approved` (chưa ra
+# khỏi cửa) và `cancelled` (mình tự huỷ, không phải khách chê) — để trong mẫu số là tự trừ điểm
+# vì những việc khách chưa hề biết. Báo giá `sent` đang chờ trả lời thì VẪN tính: đã chào mà
+# chưa chốt được thì chưa phải thắng.
+CHOT_THANG = ("accepted", "converted_to_order")
+CHOT_DA_CHAO = ("sent", "accepted", "rejected", "expired", "converted_to_order")
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -170,12 +186,26 @@ class HeatCell:
 
 
 @dataclass
+class OrderLineBrief:
+    """1 dòng của đơn: tên sản phẩm + TIỀN THẬT của chính dòng đó."""
+
+    description: str
+    line_total: int
+
+
+@dataclass
 class OrderHistoryRow:
     id: int
     order_no: str
     status: str
     order_kind: str
     summary: str        # mô tả gộp các dòng đơn (đối ngoại), "SP A, SP B"
+    # Từng dòng kèm tiền. Thêm 16/08/2026 vì khối "Sản phẩm mua nhiều nhất" trước đây chỉ có
+    # `summary` (chuỗi nối) nên frontend phải tách theo dấu phẩy rồi CHIA ĐỀU tổng đơn cho số
+    # phần — đơn 21,5 Mđ gồm "Ruột sách 160 trang, Bìa sách, Thẻ nhân viên" bị gán mỗi thứ
+    # 7,17 Mđ, dù ruột sách đắt hơn thẻ nhân viên nhiều lần. Tiền thật vốn nằm sẵn ở
+    # `order_lines.line_total`, chỉ là không được trả xuống.
+    lines: list[OrderLineBrief]
     total: int | None
     created_at: datetime
 
@@ -401,17 +431,22 @@ class CustomerAnalyticsService:
         quotes_total = self.db.execute(
             select(func.count(Quote.id)).where(Quote.customer_id == cid)
         ).scalar_one()
-        sent_quotes = self.db.execute(
+        da_chao = self.db.execute(
             select(func.count(Quote.id)).where(
-                Quote.customer_id == cid,
-                Quote.status.in_(("sent", "accepted", "rejected", "expired")),
+                Quote.customer_id == cid, Quote.status.in_(CHOT_DA_CHAO),
+            )
+        ).scalar_one()
+        thang = self.db.execute(
+            select(func.count(Quote.id)).where(
+                Quote.customer_id == cid, Quote.status.in_(CHOT_THANG),
             )
         ).scalar_one()
 
         avg_order_value = round(revenue_12m / orders_12m) if orders_12m else None
-        win_rate = (
-            round(orders_total / sent_quotes * 100) if sent_quotes else None
-        )
+        # Cả tử lẫn mẫu đều là SỐ BÁO GIÁ. Bản cũ lấy `orders_total / sent_quotes` — số ĐƠN chia
+        # cho số BÁO GIÁ, hai đại lượng khác loại, nên một đơn tách làm hai báo giá (hoặc một
+        # báo giá đẻ hai đơn) là tỉ lệ vọt qua 100%.
+        win_rate = round(thang / da_chao * 100) if da_chao else None
         has_data = orders_total > 0 or quotes_total > 0
         print_specs, print_specs_phieu = self.print_specs(cid)
 
@@ -576,24 +611,27 @@ class CustomerAnalyticsService:
             .order_by(Order.created_at.desc(), Order.id.desc())
             .limit(limit)
         ).all()
-        # Line descriptions per order (đối ngoại summary) — one query, no N+1.
+        # Dòng của đơn: mô tả + TIỀN THẬT của từng dòng — one query, no N+1.
         order_ids = [r[0] for r in rows]
-        desc_by_order: dict[int, list[str]] = {}
+        lines_by_order: dict[int, list[OrderLineBrief]] = {}
         if order_ids:
-            for oid, desc in self.db.execute(
-                select(OrderLine.order_id, OrderLine.description)
+            for oid, desc, line_total in self.db.execute(
+                select(OrderLine.order_id, OrderLine.description, OrderLine.line_total)
                 .where(OrderLine.order_id.in_(order_ids))
                 .order_by(OrderLine.id)
             ):
                 if desc:
-                    desc_by_order.setdefault(oid, []).append(desc.strip())
+                    lines_by_order.setdefault(oid, []).append(
+                        OrderLineBrief(description=desc.strip(), line_total=int(line_total or 0))
+                    )
         return [
             OrderHistoryRow(
                 id=oid,
                 order_no=no,
                 status=status,
                 order_kind=kind,
-                summary=", ".join(desc_by_order.get(oid, [])) or "—",
+                summary=", ".join(d.description for d in lines_by_order.get(oid, [])) or "—",
+                lines=lines_by_order.get(oid, []),
                 total=int(total) if total is not None else None,
                 created_at=created,
             )

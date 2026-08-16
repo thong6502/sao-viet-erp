@@ -919,6 +919,96 @@ class LsxService:
         ).all()
         return {i: n for i, n in rows}
 
+    def khuon_chon_duoc(self, lsx: Lsx, *, loai: str | None, dang_chon: int | None) -> list[dict]:
+        """Dao mà bước của lệnh này CHỌN ĐƯỢC — đã lọc sẵn hai chiều: khách của lệnh + loại của bước.
+
+        Vì sao có endpoint riêng thay vì gọi danh mục Khuôn rồi lọc: (1) lọc ở client là điều chủ
+        dự án đã bác thẳng một lần; (2) nền chung của 10 màn danh mục chỉ nhận ĐÚNG MỘT bộ lọc
+        riêng (`loc`), nới nó ra cho một màn là sửa nền của cả 10.
+
+        Lọc theo khách là thứ làm nhánh "dùng dao có sẵn" DÙNG ĐƯỢC: kho vài trăm dao mà bày hết
+        thì người ta tìm không ra, bấm "làm dao mới", rồi đặt lại con dao đã có — mất tiền thật.
+
+        `dang_chon` LUÔN được giữ trong danh sách dù không khớp bộ lọc: dao đã gán từ trước có thể
+        khai thiếu loại/khách, mà rơi khỏi danh sách thì ô chọn nhảy về rỗng và cú Lưu kế tiếp gỡ
+        mất dao của bước — đúng bẫy đã gặp ở ô chọn khuôn đời cũ.
+        """
+        from ..models.khuon_be import KhuonBe
+
+        order = self.db.get(Order, lsx.order_id) if lsx.order_id else None
+        khach_id = getattr(order, "customer_id", None) if order else None
+
+        dk = [KhuonBe.active.is_(True)]
+        if khach_id:
+            dk.append(KhuonBe.khach_hang_id == khach_id)
+        if loai:
+            dk.append(KhuonBe.loai == loai)
+        rows = list(self.db.execute(
+            select(KhuonBe).where(*dk).order_by(KhuonBe.ma)
+        ).scalars())
+        if dang_chon and not any(k.id == dang_chon for k in rows):
+            if (cu := self.db.get(KhuonBe, dang_chon)) is not None:
+                rows.insert(0, cu)
+        return [
+            # `loai` phải trả về: màn lọc tiếp theo loại của TỪNG BƯỚC trên danh sách đã rút gọn
+            # này (một lệnh có thể vừa có bước bế vừa có bước ép nhũ), nên nạp một lần dùng chung.
+            {"id": k.id, "ma": k.ma, "ten": k.ten, "loai": k.loai, "so_ke": k.so_ke,
+             "tinh_trang": k.tinh_trang, "ngay_ve_du_kien": k.ngay_ve_du_kien}
+            for k in rows
+        ]
+
+    def tao_khuon_cho_lenh(self, lsx: Lsx, *, ten: str, loai: str | None, ngay_ve, actor) -> dict:
+        """Nhánh "làm dao mới": đẻ một dòng trong danh mục Khuôn ở tình trạng `dang_dat_lam`.
+
+        KHÁCH lấy từ chính lệnh, LOẠI lấy từ cờ của bước — không hỏi lại người dùng thứ hệ thống
+        đã biết. Đó là toàn bộ lý do nhánh này nằm ở đây chứ không bắt họ mở màn Khuôn khai tay
+        rồi quay lại chọn: ba lần chuyển màn cho một việc là ba lần người ta bỏ dở.
+
+        Dựng qua `KhuonBeService` chứ không `db.add` thẳng: service giữ luật riêng của danh mục
+        (sinh mã KB-####, bắt buộc ngày về khi `dang_dat_lam`) và ghi nhật ký — bỏ qua nó là dao
+        mới lọt vào kho không mã, không vết.
+        """
+        from ..repositories.khuon_be_repo import KhuonBeRepository
+        from ..services.khuon_be_service import KhuonBeService
+
+        order = self.db.get(Order, lsx.order_id) if lsx.order_id else None
+        svc = KhuonBeService(KhuonBeRepository(self.db), self.audit)
+        k = svc.create(
+            {
+                "ten": ten,
+                "loai": loai,
+                "khach_hang_id": getattr(order, "customer_id", None) if order else None,
+                "tinh_trang": "dang_dat_lam",
+                "ngay_ve_du_kien": ngay_ve,
+            },
+            getattr(actor, "id", None),
+        )
+        return {"id": k.id, "ma": k.ma, "ten": k.ten, "loai": k.loai, "so_ke": k.so_ke,
+                "tinh_trang": k.tinh_trang, "ngay_ve_du_kien": k.ngay_ve_du_kien}
+
+    def _khuon_map(self, ids: set[int]) -> dict[int, dict]:
+        """Dao của các bước — nạp LÔ, không tra từng bước (routing 10 bước = 10 query thừa).
+
+        Trả đủ thứ bước cần bày cho thợ: mã · tên ấn phẩm · SỐ KỆ (thứ thợ thật sự cần để đi lấy)
+        · tình trạng · ngày về nếu đang đặt làm.
+        """
+        from ..models.khuon_be import KhuonBe
+
+        ids = {int(i) for i in ids if i}
+        if not ids:
+            return {}
+        rows = self.db.execute(select(KhuonBe).where(KhuonBe.id.in_(ids))).scalars()
+        return {
+            k.id: {
+                "khuon_be_ma": k.ma,
+                "khuon_be_ten": k.ten,
+                "khuon_be_so_ke": k.so_ke,
+                "khuon_be_tinh_trang": k.tinh_trang,
+                "khuon_be_ngay_ve": k.ngay_ve_du_kien,
+            }
+            for k in rows
+        }
+
     def _thanh_phan(self, tp_id: int | None) -> PhieuThanhPhan | None:
         if not tp_id:
             return None
@@ -1967,6 +2057,7 @@ class LsxService:
             may_ids.add(lsx.may_id)
         dept_names = self._dept_names(dept_ids)
         may_names = self._may_names(may_ids)
+        khuon_map = self._khuon_map({cd.khuon_be_id for cd in lsx.cong_doans})
         ptg_id = ptg_ma = None
         tp = self._thanh_phan(lsx.phieu_thanh_phan_id)
         if tp is not None:
@@ -2002,7 +2093,7 @@ class LsxService:
         thu_tu_idx = {id(c): i for i, c in enumerate(sorted(lsx.cong_doans, key=lambda x: x.thu_tu))}
         buoc_dicts = [
             self._cong_doan_dict(cd, dept_names, may_names, qc_bien,
-                                 moi.get(thu_tu_idx.get(id(cd), -1)))
+                                 moi.get(thu_tu_idx.get(id(cd), -1)), khuon_map)
             for cd in lsx.cong_doans
         ]
         return {
@@ -2073,7 +2164,8 @@ class LsxService:
         }
 
     def _cong_doan_dict(self, cd, dept_names: dict, may_names: dict,
-                        quy_cach: dict | None = None, moi: dict | None = None) -> dict:
+                        quy_cach: dict | None = None, moi: dict | None = None,
+                        khuon_map: dict | None = None) -> dict:
         vao = _f(cd.so_luong_vao)
         may_cd = self._may_cua_buoc(cd)
         t = thoi_luong_buoc(cd, may_cd, self.sl_tinh_cua_buoc(cd, may_cd, quy_cach))
@@ -2085,11 +2177,14 @@ class LsxService:
             "department_id": cd.department_id,
             "department_ten": dept_names.get(cd.department_id),
             "may_id": cd.may_id, "may_ten": may_names.get(cd.may_id),
-            # Hai cờ dụng cụ đọc từ danh mục Công đoạn (không suy từ tên bước — tên là chữ người
-            # dùng gõ). Lệnh KHÔNG còn gán con dao nào từ 16/08/2026 (mg `0203`); hai cờ này ở lại
-            # vì phiếu tính giá dùng chúng để biết bước nào hỏi PHÍ khuôn.
+            # Hai cờ dụng cụ đọc từ danh mục Công đoạn (KHÔNG suy từ tên bước — tên là chữ người
+            # dùng gõ, đặt "Die-cut" hay "Ép kim" đều được). Chúng quyết định bước này có hỏi khuôn
+            # hay không, và `tooling_type` còn là chiều lọc thứ hai của ô chọn dao.
             "requires_tooling": bool(getattr(cd_obj, "requires_tooling", False)),
             "tooling_type": getattr(cd_obj, "tooling_type", None),
+            # Con dao của bước + thông tin bày cho thợ. Nạp theo LÔ ở `_khuon_map`, không tra ở đây.
+            "khuon_be_id": cd.khuon_be_id,
+            **(khuon_map or {}).get(cd.khuon_be_id, {}),
             "so_luong_vao": vao, "so_luong_ra": _f(cd.so_luong_ra),
             # Số ĐÚNG RA phải là, tính lại theo danh mục HIỆN TẠI. Chỉ có mặt khi KHÁC số đã lưu —
             # bằng nhau thì để None cho màn khỏi phải so lại lần nữa. Xem `detail_dict`.
@@ -2471,7 +2566,7 @@ class LsxService:
     # `setup_phut` · `chay_phut` · `di_chuyen_phut` · `ve_sinh_phut` · `cho_phut` đã rời bộ này:
     # còn cột trong DB nhưng không nhận từ client và engine không đọc.
     _ROUTING_FIELD_THUAN = (
-        "may_id", "bat_buoc", "so_luot_chay",
+        "may_id", "khuon_be_id", "bat_buoc", "so_luot_chay",
         # Ba mốc nhân lực: kế thừa từ định mức là MẶC ĐỊNH, người kế hoạch sửa được tại bước.
         "so_nhan_cong", "so_nhan_cong_toi_thieu", "so_nhan_cong_tieu_chuan",
         "so_nhan_cong_toi_da", "phat_sinh_phut",
@@ -2481,7 +2576,7 @@ class LsxService:
         "ghi_chu",
     )
     _ROUTING_FIELD_NULLABLE = {
-        "may_id", "chay_phut", "nha_cung_cap", "ngay_gui_dk", "ngay_nhan_dk",
+        "may_id", "khuon_be_id", "chay_phut", "nha_cung_cap", "ngay_gui_dk", "ngay_nhan_dk",
         "ghi_chu",
     }
 

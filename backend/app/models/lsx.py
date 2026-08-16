@@ -206,14 +206,18 @@ class LsxCongDoan(Base):
     # Tổ nhận việc — snapshot `cong_doan.department_id` lúc copy (đổi danh mục sau không lay lệnh đã tạo).
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → may_thiet_bi.id
-    # 🔴 KHÔNG dựng lại cột khuôn ở đây. `lsx_cong_doan.khuon_be_id` (gán dao cho bước) và
-    # `lsx.khuon_be_id` (đời cũ, gán cho cả lệnh) đều đã XOÁ HẲN 16/08/2026 theo mg `0203` — cùng
-    # với hai detector khuôn ở xếp lịch, dòng so sánh "Khuôn bế" ở bài ghép và nhóm "Công cụ" ở
-    # kế hoạch vật tư. Số đo lúc quyết: 0/14 bước có gán khuôn ⇒ chưa ai dùng thật.
+    # Con dao dùng cho CHÍNH BƯỚC NÀY (soft-ref → khuon_be.id). Chỉ hỏi ở bước mà công đoạn nguồn
+    # bật `requires_tooling`.
     #
-    # Danh mục kho khuôn (`khuon_be`) VẪN CÒN và vẫn khai được — nó nay là sổ tài sản đứng riêng,
-    # không có chỗ nào trong lệnh/xếp lịch trỏ tới. Cờ `cong_doan.requires_tooling` cũng còn, nhưng
-    # chỉ để phiếu tính giá biết bước nào hỏi PHÍ khuôn (`phieu_thanh_pham.phi_khuon`).
+    # LỊCH SỬ, đọc trước khi định sửa: cột này từng bị XOÁ HẲN sáng 16/08/2026 (mg `0203`) vì
+    # 0/14 bước có gán khuôn. Nguyên nhân KHÔNG phải người dùng lười mà là hình dạng của ô: nó là
+    # một select trống, mở ra thấy danh sách rỗng (dao chưa ai khai), KHÔNG có đường tạo dao mới,
+    # nên ai cũng đóng lại và bỏ qua. Dựng lại chiều tối cùng ngày (mg `0205`) với hình dạng khác:
+    # HAI NHÁNH — "dùng dao có sẵn" (ô chọn đã lọc sẵn theo khách của lệnh + loại dao của bước) và
+    # "làm dao mới" (tạo thẳng một dòng trong danh mục Khuôn, tình trạng `dang_dat_lam`).
+    #
+    # Để trống là hợp lệ, KHÔNG chặn phát hành lệnh — chủ dự án chốt 16/08.
+    khuon_be_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
 
     # --- Nhận diện bước ---
     loai_buoc: Mapped[str] = mapped_column(
