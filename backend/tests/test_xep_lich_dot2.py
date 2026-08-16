@@ -1,8 +1,11 @@
 """ĐỢT 2 — các ca bắt buộc trong phần Verify của plan, phần chưa có test.
 
-Ba detector mới (`trung_khuon`, `khuon_chua_san_sang`, `thieu_nguoi`) kiểm ở mức HÀM: chúng nhận
-danh sách dòng dạng dict (đúng thứ `danh_sach()` trả) nên không cần dựng cả luồng đơn → lệnh → xếp
-lịch cho từng ca. Dựng đủ luồng chỉ để kiểm một phép so giờ là đổi 3 phút chạy test lấy 0 thông tin.
+Detector `thieu_nguoi` kiểm ở mức HÀM: nó nhận danh sách dòng dạng dict (đúng thứ `danh_sach()`
+trả) nên không cần dựng cả luồng đơn → lệnh → xếp lịch cho từng ca. Dựng đủ luồng chỉ để kiểm một
+phép so là đổi 3 phút chạy test lấy 0 thông tin.
+
+(7 test của `trung_khuon` + `khuon_chua_san_sang` đã gỡ 16/08/2026 cùng hai detector đó — mg
+`0203`. Chúng gác một luật chưa lần nào có dữ liệu để chạy: 0/14 bước từng gán khuôn.)
 
 Ca còn lại (`_top_may` sắp theo giờ xong) phải chạm thật vào engine
 nên đi qua fixture chung của `test_xep_lich_service`.
@@ -13,14 +16,12 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from app.models.khuon_be import KhuonBe
 from app.models.lsx import LsxCongDoan, LsxCongDoanPhuThuoc
 from app.repositories.audit_repo import AuditLogRepository
 from app.repositories.xep_lich_repo import XepLichRepository
 from app.services.xep_lich_service import XepLichService
 from app.services.xep_lich_van_de_service import (
-    CAT_KHUON_CHUA_SAN_SANG, CAT_THIEU_NGUOI, CAT_TRUNG_KHUON, SEV_CANH_BAO, SEV_CHAN,
-    XepLichVanDeService,
+    CAT_THIEU_NGUOI, SEV_CANH_BAO, SEV_CHAN, XepLichVanDeService,
 )
 
 from tests.test_xep_lich_service import (  # noqa: F401 — fixture dùng chung
@@ -43,89 +44,11 @@ def _dong(**kw) -> dict:
         "id": 1, "nguon": "lsx", "lsx_id": 1, "bai_ghep_id": None, "lsx_ma": "LSX-0001",
         "cong_doan_ten": "Bế", "may_id": None, "department_id": None,
         "trang_thai": "da_xep", "start_at": _utc(8), "finish_at": _utc(10),
-        "can_dung_cu": True, "khuon_be_id": 1,
         "so_nhan_cong": 2, "so_nhan_cong_toi_thieu": 2,
         "loai_buoc": "to", "is_locked": False,
     }
     d.update(kw)
     return d
-
-
-# ============================ C — khuôn bế dùng chung ============================
-def test_trung_khuon_chan_khi_chong_gio(vd_svc):
-    """Hai bước cùng một khuôn, chồng giờ → Chặn. Chỉ có MỘT bộ khuôn, hai máy cũng không cứu."""
-    rows = [
-        _dong(id=1, lsx_id=1, lsx_ma="LSX-0001", may_id=10, start_at=_utc(8), finish_at=_utc(10)),
-        _dong(id=2, lsx_id=2, lsx_ma="LSX-0002", may_id=11, start_at=_utc(9), finish_at=_utc(11)),
-    ]
-    out = vd_svc._trung_khuon(rows)
-    assert len(out) == 1
-    assert out[0]["category"] == CAT_TRUNG_KHUON
-    assert out[0]["severity"] == SEV_CHAN
-
-
-def test_trung_khuon_bat_ca_buoc_be_giao_cho_TO(vd_svc):
-    """Bế TAY (gán tổ, không máy) vẫn phải bị bắt: trục gom là KHUÔN, không phải máy.
-
-    Trước đây detector lọc qua `_da_xep_co_may` nên mọi bước bế thủ công lọt lưới trong im lặng.
-    """
-    rows = [
-        _dong(id=1, lsx_id=1, may_id=None, department_id=5, start_at=_utc(8), finish_at=_utc(10)),
-        _dong(id=2, lsx_id=2, may_id=None, department_id=5, start_at=_utc(9), finish_at=_utc(11)),
-    ]
-    assert len(vd_svc._trung_khuon(rows)) == 1
-
-
-def test_trung_khuon_bo_qua_khi_khac_khuon_hoac_khong_can_dung_cu(vd_svc):
-    khac_khuon = [
-        _dong(id=1, khuon_be_id=1, start_at=_utc(8), finish_at=_utc(10)),
-        _dong(id=2, khuon_be_id=2, start_at=_utc(9), finish_at=_utc(11)),
-    ]
-    assert vd_svc._trung_khuon(khac_khuon) == []
-    # Bước KHÔNG cần dụng cụ thì trùng giờ là chuyện của máy, không phải của khuôn.
-    khong_can = [
-        _dong(id=1, can_dung_cu=False, start_at=_utc(8), finish_at=_utc(10)),
-        _dong(id=2, can_dung_cu=False, start_at=_utc(9), finish_at=_utc(11)),
-    ]
-    assert vd_svc._trung_khuon(khong_can) == []
-
-
-def test_khuon_chua_gan_la_chan(vd_svc):
-    assert vd_svc._khuon_chua_san_sang([_dong(khuon_be_id=None)])[0]["severity"] == SEV_CHAN
-
-
-@pytest.mark.parametrize("tinh_trang", ["hong", "thanh_ly"])
-def test_khuon_hong_hoac_thanh_ly_la_chan(db, vd_svc, tinh_trang):
-    kb = KhuonBe(ma=f"KB-{tinh_trang[:4]}", ten="Khuôn hộp", tinh_trang=tinh_trang)
-    db.add(kb)
-    db.commit()
-    out = vd_svc._khuon_chua_san_sang([_dong(khuon_be_id=kb.id)])
-    assert out[0]["category"] == CAT_KHUON_CHUA_SAN_SANG
-    assert out[0]["severity"] == SEV_CHAN
-
-
-def test_khuon_dat_lam_ve_TRE_la_chan_ve_KIP_chi_canh_bao(db, vd_svc):
-    """Ranh giới của luật: khuôn về SAU giờ bắt đầu bế thì chặn, về trước thì chỉ nhắc theo dõi."""
-    bat_dau = _utc(8)
-    tre = KhuonBe(ma="KB-TRE", ten="Khuôn trễ", tinh_trang="dang_dat_lam",
-                  ngay_ve_du_kien=bat_dau.date() + timedelta(days=3))
-    kip = KhuonBe(ma="KB-KIP", ten="Khuôn kịp", tinh_trang="dang_dat_lam",
-                  ngay_ve_du_kien=bat_dau.date() - timedelta(days=1))
-    db.add_all([tre, kip])
-    db.commit()
-
-    o_tre = vd_svc._khuon_chua_san_sang([_dong(khuon_be_id=tre.id, start_at=bat_dau)])
-    o_kip = vd_svc._khuon_chua_san_sang([_dong(id=2, khuon_be_id=kip.id, start_at=bat_dau)])
-    assert o_tre[0]["severity"] == SEV_CHAN
-    assert o_kip[0]["severity"] == SEV_CANH_BAO
-
-
-def test_khuon_dat_lam_chua_co_ngay_ve_la_chan(db, vd_svc):
-    """Không biết bao giờ về = KHÔNG đoán là sẽ kịp. Đoán ở đây là hứa với xưởng một ngày không có."""
-    kb = KhuonBe(ma="KB-MOMO", ten="Khuôn mơ hồ", tinh_trang="dang_dat_lam", ngay_ve_du_kien=None)
-    db.add(kb)
-    db.commit()
-    assert vd_svc._khuon_chua_san_sang([_dong(khuon_be_id=kb.id)])[0]["severity"] == SEV_CHAN
 
 
 # ============================ G — số người tối thiểu ============================

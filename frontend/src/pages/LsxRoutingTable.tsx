@@ -120,7 +120,6 @@ export function LsxRoutingTable({
   congDoanRefs,
   toRefs,
   mayRefs,
-  khuonRefs,
   vatTuRefs,
   phuThuocRefs,
   canUpdate,
@@ -141,7 +140,6 @@ export function LsxRoutingTable({
   congDoanRefs: RefRow[] | null;
   toRefs: RefRow[] | null;
   mayRefs: RefRow[] | null;
-  khuonRefs: RefRow[] | null;
   vatTuRefs: RefRow[] | null;
   phuThuocRefs: import("../api/client").LsxPhuThuocOption[];
   canUpdate: boolean;
@@ -755,7 +753,6 @@ export function LsxRoutingTable({
           congDoanRefs={congDoanRefs}
           toRefs={toRefs}
           mayRefs={mayRefs}
-          khuonRefs={khuonRefs}
           vatTuRefs={vatTuRefs}
           phuThuocRefs={phuThuocRefs}
           baiGhep={baiGhep}

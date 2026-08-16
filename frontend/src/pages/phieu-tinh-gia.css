@@ -68,8 +68,10 @@
 .ptg-nhom-con > td:first-child { padding-left: 18px; }
 .ptg-center { text-align: center; }
 .ptg-cap { font-size: 8.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--ptg-muted); font-weight: 600; }
-.ptg-printed {   font-family: var(--ff-num);
-  position: absolute; top: 7mm; right: 12mm; font-size: 8px; color: var(--ptg-muted); font-variant-numeric: tabular-nums; }
+/* 🔴 GỠ `.ptg-printed` (16/08/2026) — "Ngày in" nổi `position:absolute` ở góc phải trên, tức nó
+   ĐÈ vào đúng ô của khối Số phiếu / Ngày lập. Ba dòng chen một góc, mà dòng quan trọng nhất (số
+   phiếu) lại kẹt giữa. Ngày in nay nằm ở CHÂN trang cạnh số phiếu — đúng chỗ của một dấu vết kỹ
+   thuật, và hết chồng lấn. */
 
 /* header */
 .ptg-mh {
@@ -80,7 +82,9 @@
   border-bottom: 2px solid var(--ptg-line-strong);
   padding-bottom: 9px;
 }
-.ptg-logo { border: 1px solid var(--ptg-line-strong); padding: 8px 10px; width: 110px; text-align: center; line-height: 1.12; }
+/* Logo KHÔNG đóng khung: khung 1px quanh ảnh đọc ra như ô giữ chỗ chưa có logo, mà đây là logo
+   thật. Bỏ viền, giữ đúng bề ngang cũ để ba cột không xê dịch. */
+.ptg-logo { width: 110px; text-align: center; line-height: 1.12; }
 .ptg-logo .ptg-mark { font-weight: 800; font-size: 14px; letter-spacing: .03em; }
 .ptg-logo .ptg-mark small { display: block; font-size: 9px; font-weight: 700; letter-spacing: .16em; }
 .ptg-logo .ptg-tag { font-size: 7px; text-transform: uppercase; letter-spacing: .12em; color: var(--ptg-muted); margin-top: 3px; }
@@ -88,17 +92,42 @@
 .ptg-th { text-align: center; }
 .ptg-th h1 { font-size: 20px; font-weight: 800; letter-spacing: .02em; }
 .ptg-th .ptg-cty { font-size: 9.5px; color: var(--ptg-muted); margin-top: 2px; }
-.ptg-meta { text-align: right; font-size: 11px; line-height: 1.6; }
-.ptg-meta b {   font-family: var(--ff-num);
-  font-weight: 700; font-variant-numeric: tabular-nums; }
+/* Meta: nhãn nhỏ TRÊN, giá trị đậm DƯỚI — cùng một lối với khối `.ptg-info`, để hai khối cạnh
+   nhau đọc ra một hệ chứ không phải hai kiểu trình bày. */
+.ptg-meta {
+  display: grid;
+  justify-items: end;
+  gap: 0;
+  text-align: right;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.ptg-meta .ptg-cap { margin-top: 4px; }
+.ptg-meta .ptg-cap:first-child { margin-top: 0; }
+.ptg-meta b {
+  font-family: var(--ff-num);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+/* Số phiếu là danh tính của tờ giấy này — cho nó to hơn một bậc so với ngày. */
+.ptg-meta__so { font-size: 13px; letter-spacing: .02em; }
 
-/* info */
-.ptg-info { border-bottom: 1px solid var(--ptg-hair); padding: 8px 0 9px; margin-bottom: 9px; }
-.ptg-info .ptg-r { margin: 2px 0; }
-.ptg-info .ptg-g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px 18px; margin: 2px 0; }
-.ptg-lbl { color: var(--ptg-muted); }
+/* info — nhãn nhỏ ĐẶT TRÊN giá trị, hai cột đều nhau.
+   Bản cũ dùng lưới BA cột mà chỉ đổ HAI ô: ô rỗng chiếm 1/3 bề ngang, còn "Khổ thành phẩm" bị ép
+   vào 1/3 nên rớt dòng giữa chừng ("Sách 14,5×20,5 cm ·" / "thẻ 5,4×8,6 cm"). Hai cột thì mỗi ô
+   rộng gấp rưỡi, đủ chỗ cho chuỗi quy cách dài. */
+.ptg-info {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px 18px;
+  border-bottom: 1px solid var(--ptg-hair);
+  padding: 9px 0 10px;
+  margin-bottom: 9px;
+}
+.ptg-f { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.ptg-f--wide { grid-column: 1 / -1; }
 .ptg-val { font-weight: 700; }
-.ptg-val-b { font-weight: 800; }
+.ptg-val-b { font-weight: 800; font-size: 13px; }
 
 /* section title */
 .ptg-sec {

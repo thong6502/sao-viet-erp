@@ -213,6 +213,20 @@ class PhieuThanhPham(Base):
     dien_tich: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False, default=0)  # cm²/thành phẩm
     nha_cung_cap: Mapped[str | None] = mapped_column(String(150), nullable=True)   # thuê ngoài
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # PHÍ KHUÔN của CHÍNH bước này — khoản MỘT LẦN (không nhân số lượng).
+    #
+    # Chỉ có nghĩa khi công đoạn nguồn bật `requires_tooling` với `tooling_type` là dao lưu kho
+    # (`khuon_be` · `khuon_ep`). `kem` KHÔNG có ô: bản kẽm là vật tư tiêu hao, mỗi bài phơi mới, và
+    # tiền nó đã nằm trong công thức của bước chế bản (`so_kem × đơn giá`) — thêm ô là tính hai lần.
+    #
+    # 0 / để trống = DÙNG LẠI dao cũ ⇒ không tính tiền. Đúng thông lệ ngành: phí dao thu ở đơn đầu,
+    # dao giữ lại trong kho, đơn tái đặt không thu lại.
+    #
+    # ⚠️ CÓ cộng vào `gia_von_tp` — engine đẻ nó thành một dòng tiền trong nhóm Công đoạn (chốt
+    # 15/08/2026: gộp để báo giá chỉ còn MỘT dòng). Nghĩa là tiền dao BỊ CHIA theo sản lượng: cùng
+    # con dao 734.300đ, đơn 500 cuốn gánh 1.469 đ/cuốn còn đơn 5.000 cuốn chỉ 147 đ/cuốn. Đây là
+    # đánh đổi đã biết và đã chọn, KHÔNG phải lỗi — đừng "sửa" bằng cách rút nó ra khỏi giá vốn.
+    phi_khuon: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

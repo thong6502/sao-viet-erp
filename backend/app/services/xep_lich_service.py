@@ -451,38 +451,6 @@ class XepLichService:
         })
         return f"{giay}|{dai}x{rong}|{','.join(muc)}"
 
-    def _dong_can_dung_cu(self, rows: list[XepLichCongDoan]) -> set[int]:
-        """Id dòng lịch thuộc bước CẦN DỤNG CỤ (`cong_doan.requires_tooling`).
-
-        Đọc CỜ ở danh mục, KHÔNG đoán bước bế theo TÊN — tên là chữ người dùng gõ ("Bế", "Bế nổi",
-        "Cắt bế"…), đổi lúc nào không ai báo, và đoán trượt thì ràng buộc khuôn im lặng tắt.
-
-        Một query cho cả bảng: `danh_sach` chạy trên hàng trăm dòng, tra từng dòng là N+1.
-        """
-        cd_ids: set[int] = set()
-        theo_dong: dict[int, int] = {}
-        for r in rows:
-            cd_id = None
-            if r.nguon == NGUON_LSX:
-                lcd = self._lcd(r.lsx_cong_doan_id)
-                cd_id = lcd.cong_doan_id if lcd else None
-            elif r.bai_ghep_cong_doan_id:
-                bgcd = self.db.get(BaiGhepCongDoan, r.bai_ghep_cong_doan_id)
-                cd_id = bgcd.cong_doan_id if bgcd else None
-            if cd_id:
-                cd_ids.add(cd_id)
-                theo_dong[r.id] = cd_id
-        if not cd_ids:
-            return set()
-        can = {
-            i for (i,) in self.db.execute(
-                select(CongDoan.id).where(
-                    CongDoan.id.in_(cd_ids), CongDoan.requires_tooling.is_(True)
-                )
-            )
-        }
-        return {rid for rid, cd_id in theo_dong.items() if cd_id in can}
-
     # ================= QUÂN SỐ & QUỸ GIỜ-NGƯỜI CỦA TỔ (mục I) =================
 
     def quan_so_tu_tinh(self, department_id: int, ngay: date) -> int:
@@ -810,20 +778,6 @@ class XepLichService:
             if r.bai_ghep_cong_doan_id else None
         )
         return int(getattr(buoc, "so_nhan_cong", 1) or 1) if buoc else None
-
-    def _khuon_cua_bai(self, bg: BaiGhep | None) -> int | None:
-        """Khuôn bế của một BÀI GHÉP = khuôn mà MỌI thành viên cùng dùng, không thì None.
-
-        Bài mà các lệnh khai khuôn khác nhau thì không có "khuôn của bài" — chạy chung một lượt bế
-        bằng hai khuôn là chuyện vô lý, và bảng `kiem_tuong_thich` đã bày dòng "Khuôn bế" mức *cần
-        xác nhận* ngay lúc ghép. Trả bừa khuôn của thành viên đầu tiên là khoá oan cái khuôn đó
-        (detector trùng-khuôn chặn lệnh khác) trong khi lượt chạy này chưa chắc dùng nó.
-        """
-        if bg is None or not bg.thanh_viens:
-            return None
-        lsx_map = self.bg_repo.lsx_by_ids([tv.lsx_id for tv in bg.thanh_viens if tv.lsx_id])
-        ids = {getattr(l, "khuon_be_id", None) for l in lsx_map.values()}
-        return next(iter(ids)) if len(ids) == 1 and None not in ids else None
 
     def _khoang_may(self, may_id: int | None, kieu: str) -> tuple[tuple[datetime, datetime], ...]:
         if not may_id:
@@ -1986,7 +1940,6 @@ class XepLichService:
 
         may_names = {i: m.ten for i, m in may_objs.items()}
         dept_names = self._dept_names({r.department_id for r in rows})
-        can_dung_cu = self._dong_can_dung_cu(rows)
 
         items: list[dict] = []
         for r in rows:
@@ -2006,12 +1959,11 @@ class XepLichService:
                     if r.bai_ghep_cong_doan_id else None
                 )
                 ten = bgcd.ten if bgcd else "In chung"
-            # Nguồn của ba số dưới KHÁC NHAU theo loại dòng: bước lệnh đọc `lsx_cong_doan`, lượt
+            # Nguồn của hai số dưới KHÁC NHAU theo loại dòng: bước lệnh đọc `lsx_cong_doan`, lượt
             # chạy chung của bài đọc `bai_ghep_cong_doan`. Chỉ đọc `lcd` thì mọi dòng bài ghép ra
-            # None ⇒ detector "thiếu người" và "khuôn chưa sẵn sàng" bỏ qua trọn lượt chạy chung,
-            # đúng chỗ nhiều lệnh chạy cùng lúc nên sai là sai to nhất.
+            # None ⇒ detector "thiếu người" bỏ qua trọn lượt chạy chung, đúng chỗ nhiều lệnh chạy
+            # cùng lúc nên sai là sai to nhất.
             buoc = lcd if r.nguon == NGUON_LSX else bgcd
-            khuon_id = lsx.khuon_be_id if lsx else (self._khuon_cua_bai(bg) if bg else None)
             ch = chuoi.get(r.id, {})
             d = dur[r.id]
             items.append({
@@ -2039,11 +1991,7 @@ class XepLichService:
                 ),
                 "can_xac_nhan": bool(ly_do_xn), "ly_do_xac_nhan": ly_do_xn,
                 "is_rush": bool(lsx.is_rush) if lsx else False,
-                # --- Nền cho detector khuôn bế (C) + số người tối thiểu (G) ---
-                # `can_dung_cu` đọc CỜ `cong_doan.requires_tooling`, KHÔNG đoán bước bế theo TÊN:
-                # tên là chữ người dùng gõ, đổi lúc nào không ai báo.
-                "can_dung_cu": r.id in can_dung_cu,
-                "khuon_be_id": khuon_id,
+                # --- Nền cho detector số người tối thiểu (G) ---
                 "so_nhan_cong": int(getattr(buoc, "so_nhan_cong", 1) or 1) if buoc else None,
                 "so_nhan_cong_toi_thieu": (
                     getattr(buoc, "so_nhan_cong_toi_thieu", None) if buoc else None

@@ -8384,6 +8384,69 @@ def _migrate_go_hai_cot_hao_chet(db: Session) -> None:
 MIGRATIONS.append(("0201_go_hai_cot_hao_chet", _migrate_go_hai_cot_hao_chet))
 
 
+def _migrate_phi_khuon_buoc(db: Session) -> None:
+    """`phieu_thanh_pham.phi_khuon` — phí làm khuôn của CHÍNH bước đó, khoản MỘT LẦN.
+
+    Nghiệp vụ (thông lệ ngành in, đã đối chiếu tài liệu ngoài): tiền làm dao thu ở ĐƠN ĐẦU, dao
+    giữ lại trong kho nhà in, ĐƠN TÁI ĐẶT không thu lại. Cùng kết cấu hộp mà chỉ khác hình in thì
+    vẫn một con dao — nên "dùng lại" là ca phổ biến, không phải ngoại lệ.
+
+    Vì sao gắn vào BƯỚC chứ không vào sản phẩm: cờ `requires_tooling` + `tooling_type` vốn khai ở
+    DANH MỤC CÔNG ĐOẠN, nên tiền phải nằm cùng chỗ với cái cờ sinh ra nó. Một hộp có thể cần ba
+    con dao (bế · ép nhũ · dập nổi) ở ba bước khác nhau, thợ báo giá từng con, và lúc tái đơn
+    thường chỉ MỘT con phải làm lại — gộp một cục thì tới lúc đó không biết trừ ra bao nhiêu.
+
+    ⚠️ KHÔNG cộng vào `gia_von_tp` và KHÔNG chia theo số lượng — xem chú thích ở model.
+
+    Cột NOT NULL DEFAULT 0 nên dòng cũ tự về 0 = "không tính phí dao", đúng nghĩa cần.
+    """
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_pham" not in set(insp.get_table_names()):
+        return
+    if "phi_khuon" in _existing_columns(insp, "phieu_thanh_pham"):
+        return
+    db.execute(text(
+        "ALTER TABLE phieu_thanh_pham ADD COLUMN phi_khuon NUMERIC(18,2) NOT NULL DEFAULT 0"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0202_phi_khuon_buoc", _migrate_phi_khuon_buoc))
+
+
+def _migrate_go_khach_hang_khuon_be(db: Session) -> None:
+    """Gỡ `khuon_be.khach_hang` — chủ dự án yêu cầu 15/08/2026.
+
+    ⚠️ MẤT DỮ LIỆU, KHÔNG ĐẢO LẠI: đếm trước khi gỡ (DB dev, qua màn danh mục) — **6/6 dòng đang
+    có tên khách** ("Cty Kinh Đô", "Cty Minh Long", "Dược Hậu Giang", "Cty Vinamilk", "Shop An
+    Nhiên", "Công ty TNHH An Phát"). Khác hẳn các cột gỡ ở `0200`/`0201` (0 dòng có dữ liệu).
+
+    Không engine nào đọc cột này — nó chỉ hiện thành một cột trên bảng và một ô trong drawer. Nhưng
+    nó CÓ nằm trong `search_fields` của repo, nên sau khi gỡ, gõ tên khách vào ô tìm sẽ không ra
+    khuôn nào nữa; ô tìm còn mã · tên ấn phẩm · số kệ.
+
+    Vì sao gỡ hợp lý: cột khai TAY, không nối danh mục Khách hàng, nên nó là bản chép tên dễ lệch —
+    "Cty Kinh Đô" ở đây và "Công ty CP Kinh Đô" bên CRM là hai chuỗi khác nhau mà không chỗ nào
+    đối chiếu. Khuôn nhận diện bằng MÃ + TÊN ấn phẩm; muốn biết của khách nào thì tra qua lệnh
+    sản xuất đang dùng khuôn đó.
+
+    DROP COLUMN best-effort: SQLite đời cũ từ chối thì cột mồ côi vô hại — model đã hết map nó.
+    """
+    insp = inspect(db.get_bind())
+    if "khuon_be" not in set(insp.get_table_names()):
+        return
+    if "khach_hang" not in _existing_columns(insp, "khuon_be"):
+        return
+    try:
+        db.execute(text("ALTER TABLE khuon_be DROP COLUMN khach_hang"))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+MIGRATIONS.append(("0202_go_khach_hang_khuon_be", _migrate_go_khach_hang_khuon_be))
+
+
 def _migrate_may_thiet_bi_active(db: Session) -> None:
     """`may_thiet_bi.active` — máy còn dùng hay đã thanh lý. Chủ dự án yêu cầu 15/08/2026.
 
@@ -8408,3 +8471,86 @@ def _migrate_may_thiet_bi_active(db: Session) -> None:
 
 
 MIGRATIONS.append(("0202_may_thiet_bi_active", _migrate_may_thiet_bi_active))
+
+
+def _migrate_go_khuon_khoi_lenh(db: Session) -> None:
+    """Gỡ HẲN khuôn khỏi lệnh sản xuất & xếp lịch — chủ dự án yêu cầu 16/08/2026.
+
+    Đếm trước khi quyết (Postgres dev, không đoán):
+
+      | thứ                                  | số thật |
+      |--------------------------------------|---------|
+      | bước lệnh có gán khuôn               | 0 / 14  |
+      | lệnh còn giữ cột đời cũ              | 1 / 3   |
+      | kho khuôn (danh mục)                 | 6 dòng  |
+
+    0/14 ⇒ tính năng gán khuôn CHƯA AI DÙNG THẬT. Cùng lượt này gỡ luôn ba hộ tiêu thụ của nó:
+    hai detector khuôn ở xếp lịch (trùng dao · dao chưa sẵn sàng), dòng so sánh "Khuôn bế" ở bảng
+    ghép chung, và nhóm "Công cụ" ở kế hoạch vật tư. Nhóm Công cụ bỏ hẳn chứ không giữ nửa vời:
+    không biết CON DAO NÀO thì không tra được tình trạng / ngày về, mà đó là toàn bộ giá trị của
+    nó — phần còn lại ("bước này cần khuôn") routing đã nói rồi.
+
+    CÒN LẠI, đừng gỡ nhầm:
+      · `khuon_be` (kho khuôn) — vẫn khai/sửa được, nay là sổ tài sản đứng riêng.
+      · `cong_doan.requires_tooling` / `tooling_type` — phiếu tính giá cần, để biết bước nào hỏi
+        PHÍ khuôn (`phieu_thanh_pham.phi_khuon`, mg `0202`). Tiền dao KHÔNG bị đụng tới ở đây.
+
+    Hệ quả: cửa chặn xoá khuôn (`danh_muc_tham_chieu._khuon_be`) hết thứ để đếm ⇒ xoá khuôn trong
+    danh mục nay không còn bị chặn bởi lệnh nào.
+
+    DROP COLUMN best-effort: SQLite đời cũ từ chối thì cột mồ côi vô hại — model đã hết map nó.
+    """
+    insp = inspect(db.get_bind())
+    ten_bang = set(insp.get_table_names())
+    for bang in ("lsx_cong_doan", "lsx"):
+        if bang not in ten_bang:
+            continue
+        if "khuon_be_id" not in _existing_columns(insp, bang):
+            continue
+        try:
+            db.execute(text(f"ALTER TABLE {bang} DROP COLUMN khuon_be_id"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+MIGRATIONS.append(("0203_go_khuon_khoi_lenh", _migrate_go_khuon_khoi_lenh))
+
+
+# 13 nhãn từng VIẾT CỨNG trong `KhachHangPage.tsx` (`DEFAULT_TAG_PRESETS`). Chép nguyên văn sang
+# đây làm dữ liệu mồi để mở màn lên KHÔNG mất gì so với trước — khác mỗi chỗ: nay xoá được.
+NHAN_KHACH_MOI = (
+    "VIP", "Ưu tiên", "Đối tác lâu năm", "Tiềm năng cao", "Tái ký HĐ", "Trả đúng hạn",
+    "Ưa giao nhanh", "Chuộng mẫu đẹp", "Bao bì cao cấp", "Cần chăm sóc", "Nhạy giá",
+    "Khó tính", "Hay trễ hẹn",
+)
+
+
+def _migrate_kho_nhan_khach(db: Session) -> None:
+    """Mồi kho nhãn khách (`customer_tag_catalog`) — chủ dự án yêu cầu 16/08/2026.
+
+    Bảng do `create_all` tự dựng (dự án không Alembic; `create_all` TẠO bảng thiếu). Việc của
+    migration này chỉ là ĐỔ 13 nhãn mồi.
+
+    Guard là "bảng RỖNG HOÀN TOÀN", không phải "thiếu nhãn nào thì thêm nhãn đó". Khác biệt quan
+    trọng: yêu cầu của chủ dự án là XOÁ ĐƯỢC nhãn. Nếu guard theo từng nhãn thì lần khởi động sau
+    seeder mọc lại đúng nhãn vừa xoá — xoá xong tưởng xong, restart một phát nó về. Rỗng-mới-mồi
+    nghĩa là chỉ rót đúng MỘT lần, ở lần đầu tiên.
+
+    Nhãn đã gán cho khách (`customer_tags`) KHÔNG đụng tới: hai bảng nối nhau bằng chuỗi `label`,
+    không khoá ngoại, nên khách đang mang nhãn nào thì giữ nguyên nhãn đó.
+    """
+    insp = inspect(db.get_bind())
+    if "customer_tag_catalog" not in set(insp.get_table_names()):
+        return
+    if db.execute(text("SELECT count(*) FROM customer_tag_catalog")).scalar():
+        return
+    for nhan in NHAN_KHACH_MOI:
+        db.execute(
+            text("INSERT INTO customer_tag_catalog (label, created_at) VALUES (:l, :t)"),
+            {"l": nhan, "t": datetime.now(timezone.utc)},
+        )
+    db.commit()
+
+
+MIGRATIONS.append(("0204_kho_nhan_khach", _migrate_kho_nhan_khach))

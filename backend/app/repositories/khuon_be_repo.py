@@ -9,10 +9,10 @@ from .catalog_base import CatalogRepo
 
 class KhuonBeRepository(CatalogRepo):
     model = KhuonBe
-    fields = ("ten", "khach_hang", "so_ke", "ngay_lam_khuon", "tinh_trang", "ghi_chu", "active")
+    fields = ("ten", "so_ke", "ngay_lam_khuon", "tinh_trang", "ghi_chu", "active")
     # Tìm cả theo KHÁCH HÀNG và SỐ KỆ: người tìm khuôn thường nhớ "khuôn của ai" / "để kệ nào"
     # chứ hiếm khi nhớ mã KB-####.
-    search_fields = ("ma", "ten", "khach_hang", "so_ke")
+    search_fields = ("ma", "ten", "so_ke")
     ma_prefix = "KB-"
     commit_on_write = False   # `KhuonBeService` chốt sau khi đã ghi nhật ký — xem `catalog_base`
 

@@ -23,7 +23,6 @@ from ..models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
 from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan
 from ..models.customer import Customer
-from ..models.khuon_be import KhuonBe
 from ..models.loai_san_pham import LoaiSanPham
 from ..models.lsx import (
     DV_CAI,
@@ -72,10 +71,10 @@ from ..services.tinh_gia_service import _bu_hao_to_dict, _resolve_thanh_phan
 # Công đoạn sau xén → đếm bằng CON (thành phẩm); còn lại đếm bằng TỜ. Heuristic theo tên để điền
 # MẶC ĐỊNH cho kế hoạch, không phải luật — mọi dòng sửa được.
 
-# Checklist "thiếu khuôn bế" ĐÃ BỎ khỏi file này (11/08/2026) cùng ô gán khuôn ở màn Kế hoạch.
-# Luật ĐỌC CỜ (`requires_tooling` / `tooling_type` khai ở danh mục Công đoạn) vẫn sống ở bảng cân
-# đối vật tư — xem `KeHoachVatTuService._cong_doan_can_dung_cu`. Công đoạn là danh mục người dùng
-# tự khai, đặt tên gì cũng được, nên KHÔNG suy bất cứ thứ gì từ tên bước.
+# 🔴 Khuôn đã RA KHỎI lệnh sản xuất hoàn toàn (16/08/2026, mg `0203`): ô gán ở cấp lệnh bỏ từ
+# 11/08, cột `lsx_cong_doan.khuon_be_id` bỏ nốt cùng nhóm "Công cụ" của bảng cân đối và hai
+# detector khuôn ở xếp lịch. Cờ `requires_tooling` / `tooling_type` ở danh mục Công đoạn VẪN CÒN,
+# nhưng nay chỉ phiếu tính giá đọc — để biết bước nào hỏi PHÍ khuôn.
 
 # Trường KHÔNG chép sang quy cách lệnh sản xuất: toàn bộ là TIỀN (lệnh xuống xưởng không mang
 # giá vốn) + số lượng (đã có `so_luong_dat` của ĐƠN, chép lại chỉ gây mâu thuẫn).
@@ -1063,7 +1062,7 @@ class LsxService:
         return {"comp": comp, "quy_cach": quy_cach, "routing": routing, "sl_ptg": sl_ptg}
 
     def _thieu(self, *, order: Order, tp: PhieuThanhPhan | None, quy_cach: dict | None,
-               routing: list[dict], khuon_be_id: int | None) -> list[str]:
+               routing: list[dict]) -> list[str]:
         """Checklist 'job readiness' — thiếu gì thì lệnh nằm ở CHỜ BỔ SUNG."""
         thieu: list[str] = []
         if tp is None:
@@ -1078,9 +1077,9 @@ class LsxService:
                 thieu.append("thieu_routing")
         if order.delivery_committed_date is None:
             thieu.append("thieu_ngay_giao")
-        # "thiếu khuôn bế" ĐÃ BỎ khỏi checklist (chủ 11/08/2026): ô gán khuôn ở cấp lệnh đã gỡ
-        # khỏi màn Kế hoạch, nên giữ điều kiện này thì mọi lệnh có bước bế mắc kẹt ở CHỜ BỔ SUNG
-        # mà không ai gỡ được. Khuôn gắn với BƯỚC bế, không phải với cả lệnh.
+        # "thiếu khuôn bế" ĐÃ BỎ khỏi checklist (11/08/2026), và từ 16/08 khuôn ra khỏi lệnh hẳn
+        # (mg `0203`) — không còn chỗ nào trong lệnh biết con dao nào, nên đừng thêm lại điều kiện
+        # này: mọi lệnh có bước bế sẽ mắc kẹt ở CHỜ BỔ SUNG mà không ai gỡ được.
         return thieu
 
     # ================= PREVIEW =================
@@ -1136,8 +1135,7 @@ class LsxService:
                 ],
                 "quy_cach": calc["quy_cach"],
                 "thieu": self._thieu(
-                    order=order, tp=tp, quy_cach=calc["quy_cach"],
-                    routing=calc["routing"], khuon_be_id=None,
+                    order=order, tp=tp, quy_cach=calc["quy_cach"], routing=calc["routing"],
                 ),
                 "sl_ptg": calc["sl_ptg"] if calc["sl_ptg"] and calc["sl_ptg"] != int(line.qty or 0) else None,
                 "lsx_id": existing.id if existing else None,
@@ -1304,7 +1302,6 @@ class LsxService:
             so_luong_dat = int(line.qty or 0)
             thieu = self._thieu(
                 order=order, tp=tp, quy_cach=calc["quy_cach"], routing=calc["routing"],
-                khuon_be_id=None,
             )
             lsx = Lsx(
                 ma=self.sequence.generate_code("job"),
@@ -1970,7 +1967,6 @@ class LsxService:
             may_ids.add(lsx.may_id)
         dept_names = self._dept_names(dept_ids)
         may_names = self._may_names(may_ids)
-        khuon = self.db.get(KhuonBe, lsx.khuon_be_id) if lsx.khuon_be_id else None
         ptg_id = ptg_ma = None
         tp = self._thanh_phan(lsx.phieu_thanh_phan_id)
         if tp is not None:
@@ -2019,7 +2015,6 @@ class LsxService:
             "quote_version_number": quote_version_number,
             "ptg_id": ptg_id,
             "ptg_ma": ptg_ma,
-            "khuon_be_ten": (khuon.ten if khuon else None),
             "may_ten": may_names.get(lsx.may_id),
             "nguoi_phu_trach_ten": self._user_name(lsx.nguoi_phu_trach_id),
             "thieu": self.thieu_cua(lsx),
@@ -2077,12 +2072,6 @@ class LsxService:
             "buoc_bi_de": de_len,
         }
 
-    def _khuon_ten(self, khuon_id: int | None) -> str | None:
-        if not khuon_id:
-            return None
-        k = self.db.get(KhuonBe, khuon_id)
-        return k.ten if k is not None else None
-
     def _cong_doan_dict(self, cd, dept_names: dict, may_names: dict,
                         quy_cach: dict | None = None, moi: dict | None = None) -> dict:
         vao = _f(cd.so_luong_vao)
@@ -2096,13 +2085,11 @@ class LsxService:
             "department_id": cd.department_id,
             "department_ten": dept_names.get(cd.department_id),
             "may_id": cd.may_id, "may_ten": may_names.get(cd.may_id),
-            # Dụng cụ của CHÍNH bước này. Hai cờ đi kèm để form biết có phải hỏi khuôn không —
-            # đọc CỜ ở danh mục Công đoạn, không suy từ tên bước (tên là chữ người dùng gõ).
-            # `khuon_be_ten` để hiện chữ khi người xem không có quyền đọc danh mục khuôn.
+            # Hai cờ dụng cụ đọc từ danh mục Công đoạn (không suy từ tên bước — tên là chữ người
+            # dùng gõ). Lệnh KHÔNG còn gán con dao nào từ 16/08/2026 (mg `0203`); hai cờ này ở lại
+            # vì phiếu tính giá dùng chúng để biết bước nào hỏi PHÍ khuôn.
             "requires_tooling": bool(getattr(cd_obj, "requires_tooling", False)),
             "tooling_type": getattr(cd_obj, "tooling_type", None),
-            "khuon_be_id": cd.khuon_be_id,
-            "khuon_be_ten": self._khuon_ten(cd.khuon_be_id),
             "so_luong_vao": vao, "so_luong_ra": _f(cd.so_luong_ra),
             # Số ĐÚNG RA phải là, tính lại theo danh mục HIỆN TẠI. Chỉ có mặt khi KHÁC số đã lưu —
             # bằng nhau thì để None cho màn khỏi phải so lại lần nữa. Xem `detail_dict`.
@@ -2442,7 +2429,7 @@ class LsxService:
         # chuỗi ngược (`_ap_chuoi_nguoc`), nhận thêm đường nữa là đẻ nguồn sự thật thứ hai.
         for field in (
             "ten", "so_luong_dat", "don_vi_tinh",
-            "so_con", "han_hoan_thanh_sx", "is_rush", "khuon_be_id", "may_id",
+            "so_con", "han_hoan_thanh_sx", "is_rush", "may_id",
             "nguoi_phu_trach_id", "ghi_chu",
         ):
             if field in data and getattr(lsx, field) != data[field]:
@@ -2484,7 +2471,7 @@ class LsxService:
     # `setup_phut` · `chay_phut` · `di_chuyen_phut` · `ve_sinh_phut` · `cho_phut` đã rời bộ này:
     # còn cột trong DB nhưng không nhận từ client và engine không đọc.
     _ROUTING_FIELD_THUAN = (
-        "may_id", "khuon_be_id", "bat_buoc", "so_luot_chay",
+        "may_id", "bat_buoc", "so_luot_chay",
         # Ba mốc nhân lực: kế thừa từ định mức là MẶC ĐỊNH, người kế hoạch sửa được tại bước.
         "so_nhan_cong", "so_nhan_cong_toi_thieu", "so_nhan_cong_tieu_chuan",
         "so_nhan_cong_toi_da", "phat_sinh_phut",
@@ -2494,7 +2481,7 @@ class LsxService:
         "ghi_chu",
     )
     _ROUTING_FIELD_NULLABLE = {
-        "may_id", "khuon_be_id", "chay_phut", "nha_cung_cap", "ngay_gui_dk", "ngay_nhan_dk",
+        "may_id", "chay_phut", "nha_cung_cap", "ngay_gui_dk", "ngay_nhan_dk",
         "ghi_chu",
     }
 

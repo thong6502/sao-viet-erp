@@ -173,10 +173,7 @@ export const XEP_LICH_CATEGORY_META: Record<XepLichVanDeCategory, { label: strin
   qua_tai_may: { label: "Quá tải máy", icon: "activity" },
   han_bai_ghep: { label: "Hạn sớm hơn bài ghép", icon: "calendar" },
   thue_ngoai: { label: "Thuê ngoài", icon: "truck" },
-  // --- Đợt 2 --- khuôn bế là tài nguyên DÙNG CHUNG y như máy, chỉ khác là nó không có lane trên
-  // Gantt nên va chạm không ai nhìn thấy; hai loại dưới đây là chỗ nó lộ ra.
-  trung_khuon: { label: "Trùng khuôn bế", icon: "lock" },
-  khuon_chua_san_sang: { label: "Khuôn chưa sẵn sàng", icon: "ban" },
+  // --- Đợt 2 --- (`trung_khuon` + `khuon_chua_san_sang` đã gỡ 16/08/2026 — xem mg `0203`.)
   thieu_vat_tu: { label: "Thiếu vật tư", icon: "packageCheck" },
   thieu_nguoi: { label: "Thiếu người", icon: "help" },
   // --- Đợt 3 --- ràng buộc THẬT của tổ nằm ở NGƯỜI, không ở giờ: tổ Dán 8 người chạy được 5+3

@@ -45,7 +45,17 @@ PRICING_BASIS = (
     "per_job",            # Trọn gói một lần (cả đơn) — engine ÷ SL ở đơn giá bình quân (khuôn bế…)
     "per_other",          # Khác (nhập tay, giá phẳng)
 )
-TOOLING_TYPE = ("khuon_be", "khuon_ep", "kem")
+# Dụng cụ DÙNG CHUNG mà bước phải mượn từ kho khuôn. Bật `requires_tooling` nghĩa là: lệnh PHẢI
+# gán một dòng khuôn có thật, và hai lệnh mượn cùng một khuôn không được xếp trùng giờ.
+#
+# 🔴 GỠ `"kem"` 16/08/2026: kẽm là VẬT TƯ TIÊU HAO — mỗi bài phơi một bộ mới, không có dòng nào
+# trong kho khuôn để trỏ tới. Chọn nó là bật một ràng buộc xếp lịch không bao giờ áp được, mà ô
+# "Khuôn" thì cũng không hiện ra. Mọi nơi tiêu thụ vốn ĐÃ loại nó bằng tay:
+#   · `LsxBuocDrawer` — `row.tooling_type !== "kem"` mới hỏi khuôn;
+#   · mg `0193` chuyển khuôn xuống bước — `WHERE c.tooling_type IN ('khuon_be','khuon_ep')`.
+# Tức đây là lựa chọn duy nhất trong ô mà chọn xong KHÔNG có tác dụng gì. Đo trước khi gỡ: 0/13
+# công đoạn đang dùng. Số kẽm cần cho một lệnh vẫn tính như cũ qua biến `so_kem`, không liên quan.
+TOOLING_TYPE = ("khuon_be", "khuon_ep")
 # Cách công đoạn tính bù hao: không / tra bảng (trỏ 1 mã bù hao ở module Bù hao → tra bậc SL) /
 # cộng cố định `so_to_bu_hao` tờ (ép kim, UV… — không theo bảng).
 KIEU_BU_HAO = ("khong", "tra_bang", "co_dinh")

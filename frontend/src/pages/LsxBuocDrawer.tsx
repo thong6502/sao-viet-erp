@@ -64,7 +64,6 @@ export function LsxBuocDrawer({
   congDoanRefs,
   toRefs,
   mayRefs,
-  khuonRefs,
   vatTuRefs,
   phuThuocRefs,
   baiGhep,
@@ -87,7 +86,6 @@ export function LsxBuocDrawer({
   congDoanRefs: RefRow[] | null;
   toRefs: RefRow[] | null;
   mayRefs: RefRow[] | null;
-  khuonRefs: RefRow[] | null;
   vatTuRefs: RefRow[] | null;
   phuThuocRefs: import("../api/client").LsxPhuThuocOption[];
   /** Lệnh đang ghép chung tờ — bước in của nó do BÀI điều phối, khoá máy ở đây. */
@@ -735,49 +733,12 @@ export function LsxBuocDrawer({
                 </label>
                 )}
 
-                {/* KHUÔN của bước — chỉ hỏi khi công đoạn nguồn bật cờ "cần khuôn / kẽm riêng"
-                    trong danh mục. Cờ đọc từ danh mục, KHÔNG dò chữ "bế" trong tên bước: tên là
-                    chữ người dùng gõ, đặt "Die-cut" hay "Ép kim" đều được.
-                    `kem` (bản kẽm) không hỏi — kẽm là vật tư tiêu hao, mỗi bài phơi mới, không có
-                    dòng nào trong kho khuôn để trỏ tới. */}
-                {row.requires_tooling && row.tooling_type !== "kem" && (
-                  <label className="khsx-field">
-                    <span className="khsx-field__label">
-                      {row.tooling_type === "khuon_ep" ? "Khuôn ép nhũ / dập nổi" : "Khuôn bế"}
-                    </span>
-                    {khuonRefs ? (
-                      <select
-                        value={row.khuon_be_id ?? ""}
-                        disabled={!canUpdate}
-                        onChange={(e) =>
-                          set("khuon_be_id", e.target.value ? Number(e.target.value) : null)
-                        }
-                      >
-                        <option value="">— chưa gán khuôn —</option>
-                        {/* Khuôn đã ngừng dùng không có trong `khuonRefs` (lọc `active:true`);
-                            không chèn lại thì ô rơi về "— chưa gán khuôn —" và cú Lưu kế tiếp gỡ
-                            mất khuôn của bước. Server đã trả sẵn `khuon_be_ten`, chỉ cần dùng. */}
-                        {row.khuon_be_id != null
-                          && !khuonRefs.some((k) => k.id === row.khuon_be_id) && (
-                          <option value={row.khuon_be_id}>
-                            {row.khuon_be_ten ?? `#${row.khuon_be_id}`} · đã ngừng dùng
-                          </option>
-                        )}
-                        {khuonRefs.map((k) => (
-                          <option key={k.id} value={k.id}>
-                            {k.ten}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="khsx-kv__val">{row.khuon_be_ten ?? "—"}</span>
-                    )}
-                    <span className="khsx-field__hint">
-                      Bảng cân đối vật tư canh khuôn theo NGÀY CHẠY BƯỚC NÀY — khuôn về sau ngày đó
-                      là báo đỏ.
-                    </span>
-                  </label>
-                )}
+                {/* 🔴 Ô chọn KHUÔN của bước đã GỠ 16/08/2026 (mg `0203`) cùng cột
+                    `lsx_cong_doan.khuon_be_id`, hai detector khuôn ở xếp lịch và nhóm "Công cụ" ở
+                    bảng cân đối. Số đo lúc quyết: 0/14 bước từng gán khuôn.
+                    Kho khuôn (danh mục) VẪN CÒN — nó nay là sổ tài sản đứng riêng. Cờ
+                    `requires_tooling` cũng còn, nhưng chỉ phiếu tính giá đọc, để biết bước nào hỏi
+                    PHÍ khuôn. Đừng dựng lại ô này ở đây nếu chưa bàn lại cả ba hộ tiêu thụ trên. */}
 
                 {row.loai_buoc === "may" && (
                   <label className="khsx-field">

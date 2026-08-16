@@ -479,19 +479,19 @@ def seed_rebuild_catalog(db: Session) -> None:
         ])
         db.commit()
 
-    # --- Khuôn bế (khai báo lưu trữ) — khai TAY: tên ấn phẩm · khách · số kệ · ngày làm · tình trạng ---
+    # --- Khuôn bế (khai báo lưu trữ) — khai TAY: tên ấn phẩm · số kệ · ngày làm · tình trạng ---
     if _empty(db, KhuonBe):
         db.add_all([
-            KhuonBe(ma="KB-0001", ten="Khuôn bế hộp bánh Trung thu", khach_hang="Cty Kinh Đô",
+            KhuonBe(ma="KB-0001", ten="Khuôn bế hộp bánh Trung thu",
                     so_ke="Kệ A1 — xưởng sau in", ngay_lam_khuon=date(2025, 8, 12), tinh_trang="dang_dung"),
-            KhuonBe(ma="KB-0002", ten="Khuôn bế hộp Ivory 12×8×5", khach_hang="Cty Minh Long",
+            KhuonBe(ma="KB-0002", ten="Khuôn bế hộp Ivory 12×8×5",
                     so_ke="Kệ A2 — xưởng sau in", ngay_lam_khuon=date(2026, 1, 15), tinh_trang="dang_dung"),
-            KhuonBe(ma="KB-0003", ten="Khuôn bế tem decal tròn Ø40", khach_hang="Dược Hậu Giang",
+            KhuonBe(ma="KB-0003", ten="Khuôn bế tem decal tròn Ø40",
                     so_ke="Kệ B1 — kho khuôn", ngay_lam_khuon=date(2025, 11, 3), tinh_trang="dang_dung"),
-            KhuonBe(ma="KB-0004", ten="Khuôn bế thùng carton sóng B 40×30×25", khach_hang="Cty Vinamilk",
+            KhuonBe(ma="KB-0004", ten="Khuôn bế thùng carton sóng B 40×30×25",
                     so_ke="Kệ C3 — kho khuôn", ngay_lam_khuon=date(2024, 6, 20), tinh_trang="hong",
                     ghi_chu="Dao mòn góc, cần mài lại trước khi tái dùng"),
-            KhuonBe(ma="KB-0005", ten="Khuôn bế túi giấy quai xách", khach_hang="Shop An Nhiên",
+            KhuonBe(ma="KB-0005", ten="Khuôn bế túi giấy quai xách",
                     so_ke="Kệ B4 — kho khuôn", ngay_lam_khuon=date(2025, 3, 10), tinh_trang="thanh_ly",
                     ghi_chu="Mẫu cũ, khách đã đổi thiết kế"),
         ])

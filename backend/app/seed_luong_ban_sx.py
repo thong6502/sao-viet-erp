@@ -274,12 +274,16 @@ def _ensure_loai_the(db: Session) -> int | None:
 
 
 def _ensure_khuon_the(db: Session, khach_ten: str | None) -> int | None:
-    """Khuôn bế thẻ (lệnh SX cần khuôn mới rời trạng thái 'chờ bổ sung')."""
+    """Một dòng mẫu cho KHO KHUÔN — nay chỉ để danh mục có dữ liệu xem, không lệnh nào trỏ tới.
+
+    Trước 16/08/2026 con dao này được gán vào lệnh thẻ để lệnh rời trạng thái 'chờ bổ sung'; cả
+    ràng buộc đó lẫn cột `khuon_be_id` đã bỏ (mg `0203`).
+    """
     kb = db.execute(select(KhuonBe).where(KhuonBe.ma == "KB-0006")).scalars().first()
     if kb is None:
         kb = KhuonBe(
             ma="KB-0006", ten="Khuôn bế thẻ nhân viên 54×86 (góc R3 + lỗ dây)",
-            khach_hang=khach_ten, so_ke="Kệ B2 — kho khuôn",
+            so_ke="Kệ B2 — kho khuôn",
             ngay_lam_khuon=date.today() - timedelta(days=20), tinh_trang="dang_dung",
             ghi_chu="Bế 99 con/tờ 65×86.",
         )
@@ -627,7 +631,7 @@ def _tao_don_hang(db: Session, *, quote, version, khach: Customer, sale_id: int,
     return o
 
 
-def _tao_lenh_san_xuat(db: Session, *, order, actor, khuon_the_id: int | None) -> list:
+def _tao_lenh_san_xuat(db: Session, *, order, actor) -> list:
     """Sinh lệnh sản xuất qua LsxService THẬT (routing + số tờ + đơn vị bước do service tính),
     rồi gán khuôn bế cho lệnh thẻ và xác nhận 'sẵn sàng' như kế hoạch làm trên màn."""
     from .models.lsx import TT_SAN_SANG
@@ -641,8 +645,6 @@ def _tao_lenh_san_xuat(db: Session, *, order, actor, khuon_the_id: int | None) -
         order_id=order.id, order_line_ids=[ln.id for ln in order.lines], actor=actor,
     )
     for lsx in lenhs:
-        if khuon_the_id and any("bế" in (cd.ten or "").lower() for cd in lsx.cong_doans):
-            lsx.khuon_be_id = khuon_the_id
         lsx.han_hoan_thanh_sx = (order.delivery_committed_date - timedelta(days=3)
                                  if order.delivery_committed_date else None)
         _sua_don_vi_gap_tay(lsx)
@@ -742,7 +744,7 @@ def seed_luong_ban_sx(db: Session) -> None:
         select(LoaiSanPham).where(LoaiSanPham.ma == "LSP-0003")
     ).scalars().first()
     lsp_the_id = _ensure_loai_the(db)
-    khuon_the_id = _ensure_khuon_the(db, khach.name)
+    _ensure_khuon_the(db, khach.name)   # chỉ để kho khuôn có dòng mẫu — lệnh không trỏ tới nữa
     seq = SequenceService(DocumentSequenceRepository(db))
 
     if can_luong_du:
@@ -763,7 +765,7 @@ def seed_luong_ban_sx(db: Session) -> None:
                             "(đã sửa maquette v2).",
         )
         db.commit()   # LsxService.tao tự commit — chốt phần thương mại trước cho sạch transaction
-        _tao_lenh_san_xuat(db, order=order, actor=ke_hoach, khuon_the_id=khuon_the_id)
+        _tao_lenh_san_xuat(db, order=order, actor=ke_hoach)
         db.commit()
 
     if can_luong_cho:

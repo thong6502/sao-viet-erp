@@ -143,13 +143,16 @@ def _bu_hao(db: Session, obj) -> ThamChieu:
 
 
 def _khuon_be(db: Session, obj) -> ThamChieu:
-    from ..models.lsx import Lsx, LsxCongDoan
+    """Kho khuôn nay KHÔNG có ai tham chiếu ⇒ xoá không bị chặn.
 
-    return ThamChieu(chan=_gom(
-        _cau(_dem(db, LsxCongDoan, LsxCongDoan.khuon_be_id == obj.id),
-             "bước lệnh sản xuất"),
-        _cau(_dem(db, Lsx, Lsx.khuon_be_id == obj.id), "lệnh sản xuất (cột cũ)"),
-    ))
+    Từ 16/08/2026 (mg `0203`) khuôn đã ra khỏi lệnh sản xuất hoàn toàn — cả `lsx_cong_doan
+    .khuon_be_id` lẫn `lsx.khuon_be_id` đều xoá, cùng hai detector xếp lịch và nhóm "Công cụ" của
+    bảng cân đối. Danh mục này giờ là sổ tài sản đứng riêng.
+
+    Giữ hàm (thay vì gỡ khỏi registry) để màn danh mục vẫn đi đúng luồng `kiem-xoa` chung như 9 màn
+    kia — trả rỗng nghĩa là "hỏi rồi, không vướng gì", khác hẳn với 404 vì thiếu hàm.
+    """
+    return ThamChieu()
 
 
 def _loai_san_pham(db: Session, obj) -> ThamChieu:

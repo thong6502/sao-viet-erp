@@ -12,7 +12,8 @@ export interface PhieuTinhGiaHeader {
   ngayLap: string;
   ngayIn: string;
   tenAnPham: string;
-  soLuong: number;
+  /** Chuỗi gom theo ĐVT ("500 cuốn · 1.000 thẻ") — KHÔNG cộng các đơn vị khác nhau. */
+  soLuong: string;
   khoThanhPham: string;
 }
 
@@ -188,8 +189,6 @@ export function PhieuTinhGiaPrint({
       </div>
 
       <div className="ptg-sheet">
-        <div className="ptg-printed">Ngày in: {header.ngayIn}</div>
-
         <header className="ptg-mh">
           <div className="ptg-logo">
             <img src={svnLogoUrl} alt="Sao Việt Nhật" />
@@ -198,30 +197,32 @@ export function PhieuTinhGiaPrint({
             <h1>PHIẾU TÍNH GIÁ ẤN PHẨM</h1>
             <div className="ptg-cty">CÔNG TY SAO VIỆT NHẬT</div>
           </div>
+          {/* Số phiếu là DANH TÍNH của chứng từ ⇒ đứng đầu, to nhất khối. Bản cũ để "Ngày in" —
+              thứ ít quan trọng nhất — nổi absolute đè lên đúng góc này, thành ra ba dòng chen nhau
+              mà dòng quan trọng nhất lại nằm giữa. "Ngày in" nay xuống chân trang, đúng chỗ của nó. */}
           <div className="ptg-meta">
-            <div>
-              Số phiếu: <b>{header.soPhieu}</b>
-            </div>
-            <div>
-              Ngày: <b>{header.ngayLap}</b>
-            </div>
+            <span className="ptg-cap">Số phiếu</span>
+            <b className="ptg-meta__so">{header.soPhieu}</b>
+            <span className="ptg-cap">Ngày lập</span>
+            <b>{header.ngayLap}</b>
           </div>
         </header>
 
+        {/* Nhãn ĐẶT TRÊN giá trị, không nằm cùng hàng. Bản cũ để "nhãn: giá trị" chung dòng trong
+            lưới BA cột mà chỉ đổ HAI ô — ô thứ ba bỏ trống còn "Khổ thành phẩm" bị ép 1/3 bề ngang
+            nên rớt dòng giữa chữ. Nay hai cột đều nhau, mỗi ô một nhãn nhỏ + một giá trị. */}
         <div className="ptg-info">
-          <div className="ptg-r">
-            <span className="ptg-lbl">Tên ấn phẩm:</span>{" "}
+          <div className="ptg-f ptg-f--wide">
+            <span className="ptg-cap">Tên ấn phẩm</span>
             <span className="ptg-val-b">{header.tenAnPham}</span>
           </div>
-          <div className="ptg-g3">
-            <div>
-              <span className="ptg-lbl">Số lượng:</span>{" "}
-              <span className="ptg-val">{header.soLuong}</span>
-            </div>
-            <div>
-              <span className="ptg-lbl">Khổ thành phẩm:</span>{" "}
-              <span className="ptg-val">{header.khoThanhPham}</span>
-            </div>
+          <div className="ptg-f">
+            <span className="ptg-cap">Số lượng</span>
+            <span className="ptg-val">{header.soLuong}</span>
+          </div>
+          <div className="ptg-f">
+            <span className="ptg-cap">Khổ thành phẩm</span>
+            <span className="ptg-val">{header.khoThanhPham}</span>
           </div>
         </div>
 
@@ -327,7 +328,9 @@ export function PhieuTinhGiaPrint({
           <span>
             Công ty Sao Việt Nhật · Phiếu tính giá nội bộ — không có giá trị thanh toán.
           </span>
-          <span>{header.soPhieu}</span>
+          <span>
+            {header.soPhieu} · in {header.ngayIn}
+          </span>
         </div>
       </div>
     </div>
@@ -344,7 +347,7 @@ export const SAMPLE_PHIEU: PhieuTinhGia = {
     ngayLap: "10/07/2026",
     ngayIn: "11/07/2026 09:42",
     tenAnPham: AN_PHAM,
-    soLuong: 510,
+    soLuong: "510 tờ",
     khoThanhPham: "— cm",
   },
   sanPhams: [{ ten: AN_PHAM, soLuong: 510, dvt: "Tờ" }],

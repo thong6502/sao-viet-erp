@@ -52,8 +52,9 @@ CAT_QUA_TAI_MAY = "qua_tai_may"
 CAT_HAN_BAI_GHEP = "han_bai_ghep"
 CAT_THUE_NGOAI = "thue_ngoai"
 # --- Đợt 2 (2026-08-09) ---
-CAT_TRUNG_KHUON = "trung_khuon"              # C: hai lệnh dùng chung MỘT khuôn, trùng giờ
-CAT_KHUON_CHUA_SAN_SANG = "khuon_chua_san_sang"  # C: khuôn hỏng / chưa gán / về sau giờ bế
+# 🔴 `trung_khuon` + `khuon_chua_san_sang` đã GỠ 16/08/2026 (mg `0203`) cùng cột
+# `lsx_cong_doan.khuon_be_id` — 0/14 bước từng gán khuôn nên hai detector này chưa lần nào có dữ
+# liệu để chạy. Đừng dựng lại nếu chưa có đường nhập khuôn cho bước.
 CAT_THIEU_VAT_TU = "thieu_vat_tu"            # F: bảng cân đối có dòng đỏ cho lệnh/bài này
 CAT_THIEU_NGUOI = "thieu_nguoi"              # G: tổ bố trí dưới số người tối thiểu
 CAT_QUA_TAI_TO = "qua_tai_to"                # I: Σ người các việc cùng lúc > quân số có mặt của tổ
@@ -139,8 +140,6 @@ class XepLichVanDeService:
         issues += self._qua_tai_may(rows)
         issues += self._han_som_bai_ghep(rows)
         issues += self._thue_ngoai(rows)
-        issues += self._trung_khuon(rows)
-        issues += self._khuon_chua_san_sang(rows)
         issues += self._thieu_nguoi(rows)
         issues += self._qua_tai_to(rows)
         issues += self._thieu_vat_tu(rows)
@@ -704,110 +703,6 @@ class XepLichVanDeService:
         return {"items": items, "total": len(items)}
 
     # ================= ĐỢT 2 — DETECTOR MỚI =================
-
-    def _trung_khuon(self, rows: list[dict]) -> list[dict]:
-        """Hai bước cần DỤNG CỤ, cùng một khuôn, khoảng giờ chồng nhau (Chặn).
-
-        Khuôn bế là tài nguyên DÙNG CHUNG y như máy, chỉ khác là nó không có lane trên Gantt nên
-        không ai nhìn thấy va chạm. Hai lệnh xếp cùng giờ trên hai máy bế khác nhau vẫn hợp lệ về
-        máy — nhưng chỉ có MỘT bộ khuôn, và cái đó không ai báo cho tới lúc thợ ra xưởng.
-
-        Nhân bản `_trung_may`, đổi trục gom từ MÁY sang KHUÔN. Chỉ xét dòng của bước có cờ
-        `requires_tooling` (không đoán bước bế theo tên).
-
-        ⚠️ KHÔNG lọc qua `_da_xep_co_may`: hàm đó đòi `may_id`, mà bước bế hoàn toàn có thể gán cho
-        TỔ (bế tay) hoặc thuê ngoài. Trục ở đây là KHUÔN — có máy hay không chẳng liên quan; đòi
-        thêm máy chỉ làm ràng buộc khuôn im lặng bỏ sót đúng những bước bế thủ công.
-        """
-        by_khuon: dict[int, list[dict]] = {}
-        for r in rows:
-            if r["trang_thai"] != "da_xep" or not r["start_at"] or not r["finish_at"]:
-                continue
-            if not r.get("can_dung_cu") or not r.get("khuon_be_id"):
-                continue
-            by_khuon.setdefault(r["khuon_be_id"], []).append(r)
-        out: list[dict] = []
-        for kid, rs in by_khuon.items():
-            rs.sort(key=lambda r: _aware(r["start_at"]))
-            for i in range(len(rs)):
-                a = rs[i]
-                sa, ea = _aware(a["start_at"]), _aware(a["finish_at"])
-                for j in range(i + 1, len(rs)):
-                    b = rs[j]
-                    sb, eb = _aware(b["start_at"]), _aware(b["finish_at"])
-                    if sb >= ea:
-                        break
-                    ov = _overlap_phut(sa, ea, sb, eb)
-                    if ov <= 0:
-                        continue
-                    lo, hi = (a, b) if a["id"] <= b["id"] else (b, a)
-                    out.append({
-                        "issue_key": f"{CAT_TRUNG_KHUON}:{kid}:{lo['id']}:{hi['id']}",
-                        "category": CAT_TRUNG_KHUON, "severity": SEV_CHAN,
-                        "title": (f"{a['lsx_ma']} · {a['cong_doan_ten']} ({_fmt(sa)}–{_fmt(ea)}) "
-                                  f"và {b['lsx_ma']} · {b['cong_doan_ten']} ({_fmt(sb)}–{_fmt(eb)}) "
-                                  f"dùng CHUNG một khuôn — chồng {_phut_str(ov)}"),
-                        "nguyen_nhan": ("Chỉ có một bộ khuôn. Hai bước cùng cần nó trong khoảng "
-                                        "giờ chồng nhau, dù chạy trên hai máy khác nhau."),
-                        "impacts": self._impact([a, b]),
-                        "delay_phut": round(ov),
-                        "group_key": f"khuon:{kid}",
-                    })
-        return out
-
-    def _khuon_chua_san_sang(self, rows: list[dict]) -> list[dict]:
-        """Bước cần dụng cụ mà khuôn không dùng được đúng lúc.
-
-        · lệnh CHƯA GÁN khuôn                      → Chặn
-        · khuôn `hong` / `thanh_ly`                → Chặn
-        · `dang_dat_lam` mà về SAU giờ bắt đầu bế  → Chặn
-        · `dang_dat_lam` về kịp                    → Cảnh báo (vẫn phải theo dõi)
-        """
-        from ..models.khuon_be import KhuonBe
-
-        can = [r for r in rows if r.get("can_dung_cu")]
-        if not can:
-            return []
-        ids = {r["khuon_be_id"] for r in can if r.get("khuon_be_id")}
-        khuons = {
-            k.id: k for k in self.db.execute(select(KhuonBe).where(KhuonBe.id.in_(ids))).scalars()
-        } if ids else {}
-        out: list[dict] = []
-        for r in can:
-            kid = r.get("khuon_be_id")
-            khuon = khuons.get(kid) if kid else None
-            sev = None
-            ly_do = None
-            if khuon is None:
-                sev, ly_do = SEV_CHAN, "lệnh chưa gán khuôn bế"
-            elif (khuon.tinh_trang or "") in ("hong", "thanh_ly"):
-                nhan = "hỏng" if khuon.tinh_trang == "hong" else "đã thanh lý"
-                sev, ly_do = SEV_CHAN, f"khuôn {khuon.ma} {nhan}"
-            elif (khuon.tinh_trang or "") == "dang_dat_lam":
-                ve = khuon.ngay_ve_du_kien
-                bat_dau = _aware(r["start_at"])
-                if ve is None:
-                    sev, ly_do = SEV_CHAN, f"khuôn {khuon.ma} đang đặt làm, chưa có ngày về"
-                elif bat_dau is not None and _aware(_cuoi_ngay(ve)) > bat_dau:
-                    sev, ly_do = SEV_CHAN, (
-                        f"khuôn {khuon.ma} về {ve:%d/%m}, SAU giờ bắt đầu {_fmt(bat_dau)}"
-                    )
-                else:
-                    sev, ly_do = SEV_CANH_BAO, (
-                        f"khuôn {khuon.ma} đang đặt làm, dự kiến về {ve:%d/%m} — theo dõi"
-                    )
-            if sev is None:
-                continue
-            out.append({
-                "issue_key": f"{CAT_KHUON_CHUA_SAN_SANG}:{r['id']}",
-                "category": CAT_KHUON_CHUA_SAN_SANG, "severity": sev,
-                "title": f"{r['lsx_ma']} · {r['cong_doan_ten']}: {ly_do}",
-                "nguyen_nhan": "Bước cần dụng cụ nhưng khuôn chưa sẵn sàng đúng lúc bắt đầu.",
-                "impacts": self._impact([r]),
-                "delay_phut": None,
-                "group_key": f"khuon:{kid or 0}",
-            })
-        return out
 
     def _thieu_nguoi(self, rows: list[dict]) -> list[dict]:
         """Bước của TỔ bố trí ít người hơn mức TỐI THIỂU (Chặn) — dưới mức đó không mở máy được.

@@ -46,6 +46,10 @@ def _cong_doan_to_dict(cd: CongDoan, tram: dict[str, str] | None = None) -> dict
         "first_unit_floor": _f(cd.first_unit_floor) if cd.first_unit_floor is not None else None,
         "min_charge": _f(cd.min_charge) if cd.min_charge is not None else None,
         "spoilage_pct": _f(cd.spoilage_pct),
+        # Hai cờ dụng cụ: engine dùng để biết bước nào ĐƯỢC PHÉP mang phí khuôn, và để kêu khi
+        # bước cần dao mà chưa khai phí. Trước đây engine hoàn toàn không thấy hai cờ này.
+        "requires_tooling": bool(cd.requires_tooling),
+        "tooling_type": cd.tooling_type,
         # Đơn vị vào/ra khai ở danh mục — engine cần để tra bù hao ĐÚNG đơn vị và biết bước nào là
         # ranh giới quy đổi. Hệ số thì engine tự có (`con`, `so_manh_xa` của chính phiếu).
         "don_vi_vao": cd.don_vi_vao,
@@ -81,6 +85,8 @@ _TP_SCALAR_FIELDS = (
 _ROW_SCALAR_FIELDS = (
     "thu_tu", "cong_doan_id", "ten", "don_gia", "so_luong", "bu_hao",
     "so_mat", "so_vi_tri", "dien_tich", "nha_cung_cap", "ghi_chu",
+    # Phí khuôn của bước — engine CÓ cộng vào giá vốn (một dòng tiền trong nhóm Công đoạn).
+    "phi_khuon",
 )
 
 

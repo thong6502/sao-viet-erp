@@ -999,24 +999,48 @@
 }
 
 /* ── Bản IN: một tờ mang xuống xưởng ────────────────────────────────────────────────────────
-   In chính cái drawer đang mở, bỏ hết vỏ ứng dụng. Không dựng endpoint PDF cho việc này. */
+   In chính cái drawer đang mở, bỏ hết vỏ ứng dụng. Không dựng endpoint PDF cho việc này.
+
+   ⚠️ MỌI selector dưới đây PHẢI khoá trong `body:has(.ktm-drawer)` — sửa 16/08/2026.
+   Bản trước để `body * { visibility: hidden }` TRẦN, tức nó ẩn sạch mọi thứ khi in ở MỌI MÀN, chỉ
+   chừa `.rc-drawer__scrim`. Vào Phiếu tính giá bấm In: trang đó không có scrim nào ⇒ không còn gì
+   hiện ⇒ **bản in ra trắng tinh** (và vẫn đủ số trang, vì `visibility` giữ chỗ trong bố cục).
+   Đây là lỗi LẶP LẠI: `luong.css` từng y hệt, comment ở đó ghi rõ "trước đây `body *` global → ẩn
+   sạch bản in của MỌI màn khác (vd Phiếu tính giá bị trắng)". Ba màn in kia đều đã khoá phạm vi
+   (`body:has(.qpdf)` · `body:has(.tg-page)` · `body:has(.lg-payslip-print)`).
+
+   Khoá CẢ KHỐI chứ không riêng dòng `body *`: `.rc-drawer__scrim` là class DÙNG CHUNG — Kho đề
+   nghị · Kho tồn · Kho yêu cầu · drawer danh mục đều mang nó. Để mấy dòng `position: static` ở
+   ngoài phạm vi thì in trong lúc mở drawer của những màn ấy sẽ bị dí phẳng vô cớ.
+
+   Neo theo `.ktm-drawer` (có ở cả `PhieuBaoTriPage` lẫn `SuaChuaMayPage`), KHÔNG neo theo
+   `.rc-drawer__scrim` — neo vào class dùng chung là quay lại đúng cái bẫy vừa gỡ. */
 @media print {
-  body * { visibility: hidden; }
-  .rc-drawer__scrim, .rc-drawer__scrim * { visibility: visible; }
-  .rc-drawer__scrim {
+  body:has(.ktm-drawer) * { visibility: hidden; }
+  body:has(.ktm-drawer) .rc-drawer__scrim,
+  body:has(.ktm-drawer) .rc-drawer__scrim * { visibility: visible; }
+  body:has(.ktm-drawer) .rc-drawer__scrim {
     position: static; display: block; background: none; padding: 0;
   }
-  .rc-drawer, .ktm-drawer {
+  body:has(.ktm-drawer) .rc-drawer,
+  body:has(.ktm-drawer) .ktm-drawer {
     position: static; width: 100%; max-width: none; height: auto;
     box-shadow: none; border: 0; border-radius: 0; animation: none;
   }
-  .rc-drawer__body { overflow: visible; height: auto; }
+  body:has(.ktm-drawer) .rc-drawer__body { overflow: visible; height: auto; }
   /* Thứ chỉ có nghĩa khi bấm được thì không in: nút, dropzone, thanh tab, ô ngày, cửa xác nhận. */
-  .rc-drawer__x, .ktm-in-nut, .ktm-tab, .ktm-actions, .ktm-dropzone,
-  .ktm-anh__them, .ktm-anh__overlay, .ktm-gatekeeper__action, .ktm-check-card__phu,
-  .ktm-doilich { display: none !important; }
-  .ktm-check-grid { break-inside: avoid; }
-  .ktm-anh__grid { grid-template-columns: repeat(3, 1fr); }
+  body:has(.ktm-drawer) .rc-drawer__x,
+  body:has(.ktm-drawer) .ktm-in-nut,
+  body:has(.ktm-drawer) .ktm-tab,
+  body:has(.ktm-drawer) .ktm-actions,
+  body:has(.ktm-drawer) .ktm-dropzone,
+  body:has(.ktm-drawer) .ktm-anh__them,
+  body:has(.ktm-drawer) .ktm-anh__overlay,
+  body:has(.ktm-drawer) .ktm-gatekeeper__action,
+  body:has(.ktm-drawer) .ktm-check-card__phu,
+  body:has(.ktm-drawer) .ktm-doilich { display: none !important; }
+  body:has(.ktm-drawer) .ktm-check-grid { break-inside: avoid; }
+  body:has(.ktm-drawer) .ktm-anh__grid { grid-template-columns: repeat(3, 1fr); }
 }
 
 

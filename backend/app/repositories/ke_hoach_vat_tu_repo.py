@@ -14,8 +14,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanVatTu
-from ..models.cong_doan import CongDoan
-from ..models.khuon_be import KhuonBe
 from ..models.lsx import LsxCongDoanVatTu
 from ..models.may_thiet_bi import MayThietBi
 from ..models.xep_lich import XepLichCongDoan
@@ -56,14 +54,6 @@ class KeHoachVatTuRepository:
             .order_by(BaiGhepCongDoan.thu_tu)
         ).scalars())
 
-    def khuon_theo_ids(self, ids: list[int]) -> dict[int, KhuonBe]:
-        if not ids:
-            return {}
-        return {
-            k.id: k
-            for k in self.db.execute(select(KhuonBe).where(KhuonBe.id.in_(ids))).scalars()
-        }
-
     def may_theo_ids(self, ids: set[int]) -> dict[int, MayThietBi]:
         """Máy của các bước — nạp LÔ để suy thời lượng, tra từng cái là N+1 theo số bước."""
         ids = {int(i) for i in ids if i}
@@ -74,10 +64,4 @@ class KeHoachVatTuRepository:
             for m in self.db.execute(select(MayThietBi).where(MayThietBi.id.in_(ids))).scalars()
         }
 
-    def cong_doan_can_dung_cu(self) -> set[int]:
-        """Id công đoạn có cờ `requires_tooling` — đọc CỜ, không đoán bước bế theo tên."""
-        return {
-            i for (i,) in self.db.execute(
-                select(CongDoan.id).where(CongDoan.requires_tooling.is_(True))
-            )
-        }
+    # (`khuon_theo_ids` + `cong_doan_can_dung_cu` đã gỡ 16/08/2026 cùng nhóm "Công cụ" — mg `0203`.)

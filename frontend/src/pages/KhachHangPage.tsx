@@ -24,6 +24,7 @@ import {
   type DuplicateWarn,
   type FollowupRow,
   type ImportResultOut,
+  type KhoNhanRow,
   type OrderHistoryRow,
   type QuoteHistoryRow,
   type ReceivableCard,
@@ -76,14 +77,29 @@ import {
   Palette,
   Scissors,
   Box,
-  Zap,
   CreditCard,
   Droplets,
   StickyNote,
   Pin,
   Clock3,
   Loader2,          // spinner nút "Tra cứu MST" (.kh__spin quay nó)
+  LayoutGrid,
+  List,
+  ArrowLeftRight,
+  ArrowRight,
+  ShieldAlert,
 } from "lucide-react";
+
+// 🔴 `getCustomerTierMeta` đã GỠ 16/08/2026. Nó tự phán "hạng khách" NGAY TRONG FRONTEND bằng
+// ngưỡng viết cứng — doanh số 12T ≥ 100 triệu → VIP, ≥3 đơn → Đối tác, ≥1 đơn → Đang GD, còn lại
+// → Mới — rồi in ra badge cạnh tên và tô chấm màu trên avatar.
+//
+// Vì sao bỏ: không có cột nào trong DB đỡ nó, nên nhãn ấy KHÔNG ai khai được, KHÔNG sửa được và
+// KHÔNG tìm kiếm được — chỉ là phép tính lúc vẽ màn. Ngưỡng 100 triệu cũng không có trong spec
+// nào. `docs/redesign-khach-hang.md` đã chốt sẵn từ trước: "Bỏ mọi tự-phân-loại / badge fake,
+// thay bằng thẻ gán tay (customer_tags)".
+//
+// Muốn nói khách này thuộc loại gì thì dùng THẺ — thẻ là dữ liệu thật, gán/gỡ được, lọc được.
 import { MixDonut, MonthBars } from "../components/charts";
 import "./khach-hang.css";
 
@@ -180,33 +196,71 @@ function getInitials(name: string): string {
   return clean.substring(0, 2).toUpperCase();
 }
 
-export const TAG_TONES = ["rust", "plum", "moss", "amber"] as const;
+export const TAG_TONES = [
+  "indigo",
+  "emerald",
+  "violet",
+  "cyan",
+  "amber",
+  "rose",
+  "fuchsia",
+  "teal",
+] as const;
 
-export function tagTone(label: string): (typeof TAG_TONES)[number] {
+export const TAG_SEMANTIC_TONES: Record<string, string> = {
+  "ưu tiên": "violet",
+  "tiềm năng": "emerald",
+  "tiềm năng cao": "emerald",
+  "đối tác lâu năm": "indigo",
+  "tái ký hđ": "teal",
+  "trả đúng hạn": "emerald",
+  "nhạy giá": "amber",
+  "hay trễ hẹn": "rose",
+  "khó tính": "rose",
+  "ưa giao nhanh": "cyan",
+  "cần chăm sóc": "amber",
+  "chuộng mẫu đẹp": "fuchsia",
+  "bao bì cao cấp": "indigo",
+};
+
+export function tagTone(label: string): string {
+  const lower = label.trim().toLowerCase();
+  if (TAG_SEMANTIC_TONES[lower]) return TAG_SEMANTIC_TONES[lower];
   let h = 0;
   for (const ch of label) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return TAG_TONES[h % TAG_TONES.length];
 }
 
-export function getKhAvatarClass(name: string): string {
-  const clean = name.replace(/^(Cty|Công ty|Cafe|Cà phê|TNHH|CP)\s+/i, "").trim();
-  const tones = ["rust", "plum", "moss", "amber", "steel"];
-  let code = 0;
-  for (let i = 0; i < clean.length; i++) {
-    code = clean.charCodeAt(i) + ((code << 5) - code);
-  }
-  const tone = tones[Math.abs(code) % tones.length];
-  return `kh__avatar--${tone}`;
+const KH_CHU_CO_MAU = [
+  "a", "b", "c", "d", "e", "g", "h", "k", "l", "m", "n", "p", "q", "s", "t", "u", "v", "x",
+] as const;
+
+/** Chữ cái quyết định MÀU của một khách — lấy từ chính CHỮ TẮT đang hiện trong vòng tròn.
+ *
+ *  Suy lại từ `getInitials` chứ không tự bóc tiền tố lần nữa: bản cũ tự bóc, mà chỉ bóc ĐƯỢC MỘT
+ *  lần, nên "Công ty TNHH An Phát" còn lại "TNHH An Phát" → lấy chữ "T", trong khi vòng tròn ghi
+ *  "AP". Màu chạy theo chữ "Công ty" chứ không theo tên khách ⇒ mọi "Công ty TNHH …" cùng một
+ *  màu, mọi "Công ty CP …" cùng một màu khác. Lấy chữ đầu của chữ tắt thì màu và chữ KHÔNG THỂ
+ *  lệch nhau, vì cả hai đọc từ một nguồn.
+ */
+function khChuMau(name: string): string {
+  const ch = getInitials(name).slice(0, 1).toLowerCase();
+  return (KH_CHU_CO_MAU as readonly string[]).includes(ch) ? ch : "default";
 }
 
-/*
-const TIER_META: Record<CustomerTier, { label: string; stars: number; cls: string }> = {
-  loyal: { label: "Thân thiết", stars: 3, cls: "tier--loyal" },
-  partner: { label: "Đối tác lâu năm", stars: 2, cls: "tier--partner" },
-  regular: { label: "Đang giao dịch", stars: 1, cls: "tier--regular" },
-  new: { label: "Mới", stars: 0, cls: "tier--new" },
-};
-*/
+export function getKhAvatarClass(name: string): string {
+  return `kh__avatar--${khChuMau(name)}`;
+}
+
+/** Chấm nhỏ ở góc avatar — CÙNG chữ cái với avatar, chỉ đậm tông hơn.
+ *
+ *  Trước 16/08/2026 chấm này tô theo "hạng khách" tự phán trong frontend (≥100 triệu = VIP,
+ *  ≥3 đơn = Đối tác…). Ngưỡng không ai duyệt, không có trong DB, và chấm 7px không chú giải thì
+ *  người dùng cũng không có cách nào biết cam nghĩa là gì. Nay chấm chỉ là phần của khối định
+ *  danh — không giả vờ phân loại nữa. */
+export function getKhDotClass(name: string): string {
+  return `kh__avatar-dot--${khChuMau(name)}`;
+}
 
 const ORDER_STATUS_LABELS: Record<string, string> = {
   draft: "Nháp",
@@ -368,6 +422,8 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
   const [mode, setMode] = useState<null | "create" | "edit">(null);
   const [editing, setEditing] = useState<CustomerRow | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<"table" | "cards">("table");
+  const [quickTagModalCust, setQuickTagModalCust] = useState<{ id: number; name: string } | null>(null);
 
   const load = useCallback(() => {
     if (!token) return;
@@ -709,6 +765,28 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
               />
             </div>
           )}
+
+          {/* View Mode Switcher: Bảng ⟷ Thẻ CRM */}
+          <div className="kh__view-switcher" role="group" aria-label="Chế độ hiển thị">
+            <button
+              type="button"
+              className={`kh__view-btn${viewMode === "table" ? " is-active" : ""}`}
+              title="Xem dạng Bảng"
+              aria-pressed={viewMode === "table"}
+              onClick={() => setViewMode("table")}
+            >
+              <List size={14} />
+            </button>
+            <button
+              type="button"
+              className={`kh__view-btn${viewMode === "cards" ? " is-active" : ""}`}
+              title="Xem dạng Thẻ CRM"
+              aria-pressed={viewMode === "cards"}
+              onClick={() => setViewMode("cards")}
+            >
+              <LayoutGrid size={14} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -718,7 +796,11 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
         <div className="kh__bulkslot">
           {selectedIds.size > 0 ? (
             <div className="kh__bulkbar">
-              <span className="kh__bulkbar-count">Đã chọn {selectedIds.size} khách hàng</span>
+              <div className="kh__bulkbar-left">
+                <span className="kh__bulkcount">
+                  Đã chọn <strong>{selectedIds.size}</strong> khách hàng
+                </span>
+              </div>
               <div className="kh__bulkbar-actions">
                 <Button variant="accent" onClick={openBulk}>
                   Chuyển hàng loạt
@@ -736,260 +818,391 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
         </div>
       )}
 
-      {/* KHÔNG kèm `.card`: global.css được bundle SAU page CSS nên `.card{padding:var(--sp-8)}`
-          thắng mọi `padding` khai ở đây ⇒ bảng bị đệm 32px, thành khung-trong-khung.
-          Báo giá làm đúng: chỉ `.q-card`, một khung bọc sát bảng. Xem UI_DESIGN §10. */}
-      <div className="kh__tablewrap">
-        {/* Vùng cuộn ngang bọc RIÊNG bảng — pager nằm ngoài nên nút trang và Select
-            "số dòng" không trôi theo khi khung hẹp (xem khach-hang.css §RESPONSIVE). */}
-        <div className="kh__tablescroll">
-        <table className="kh__table">
-          <thead>
-            <tr>
-              {canReassign && (
-                <th className="kh__check-col">
-                  <input
-                    type="checkbox"
-                    aria-label="Chọn tất cả trên trang"
-                    title="Tick để chọn khách hàng — chọn xong sẽ hiện nút điều chuyển hàng loạt"
-                    checked={allOnPageSelected}
-                    onChange={toggleAllOnPage}
-                  />
-                </th>
-              )}
-              <th>
-                <SortBtn label="Khách hàng" col="name" sort={sort} onSort={setSort} />
-              </th>
-              <th className="kh__num">
-                <SortBtn label="Doanh số 12T" col="revenue" sort={sort} onSort={setSort} />
-              </th>
-              <th className="kh__num">
-                <SortBtn label="Số đơn" col="orders" sort={sort} onSort={setSort} />
-              </th>
-              <th className="kh__num">TB / Đơn</th>
-              <th>NV phụ trách</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              [...Array(6)].map((_, i) => (
-                <tr key={i} className="kh__skelrow">
-                  {[...Array(colCount)].map((__, j) => (
-                    <td key={j}>
-                      <span className="kh__skel" />
-                    </td>
-                  ))}
-                </tr>
-              ))
-            ) : listError ? (
-              <tr>
-                <td colSpan={colCount} className="kh__status">
-                  <div className="banner banner--error" role="alert">
-                    <span>{listError}</span>
-                    <button type="button" className="btn btn--ghost" onClick={() => load()}>
-                      Thử lại
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={colCount} className="kh__empty-cell">
-                  {q || tagFilter || saleFilter || followupFilter ? (
-                    <div className="kh__empty-state">
-                      <div className="kh__empty-icon">
-                        <SearchX size={28} />
-                      </div>
-                      <h3 className="kh__empty-title">Không tìm thấy khách hàng</h3>
-                      <p className="kh__empty-sub">
-                        Không tìm thấy khách hàng nào phù hợp với điều kiện tìm kiếm hoặc bộ lọc hiện tại.
-                      </p>
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          setQ("");
-                          setTagFilter("");
-                          setSaleFilter("");
-                          setFollowupFilter(false);
-                          setPage(1);
-                        }}
-                      >
-                        Xoá bộ lọc
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="kh__empty-state">
-                      <div className="kh__empty-icon">
-                        <UserPlus size={28} />
-                      </div>
-                      <h3 className="kh__empty-title">Chưa có khách hàng nào trong sổ</h3>
-                      <p className="kh__empty-sub">
-                        Danh sách khách hàng của bạn hiện đang trống. Hãy tạo mới khách hàng đầu tiên để bắt đầu quản lý hồ sơ và giao dịch.
-                      </p>
-                      <Button
-                        variant="primary"
-                        onClick={() => {
-                          setEditing(null);
-                          setMode("create");
-                        }}
-                      >
-                        + Tạo khách hàng đầu tiên
-                      </Button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ) : (
-              rows.map((c) => {
-                const initials = getInitials(c.name);
-                const avgOrderValue = c.orders_total > 0 ? Math.round(c.revenue_12m / c.orders_total) : 0;
-                const careDue = followups.filter((f) => f.customer_id === c.id).length;
+      {/* Vùng hiển thị dữ liệu: Dạng Bảng hoặc Dạng Thẻ CRM */}
+      {viewMode === "cards" && !loading && !listError && rows.length > 0 ? (
+        <div className="kh__cards-grid">
+          {rows.map((c) => {
+            const initials = getInitials(c.name);
+            const careDue = followups.filter((f) => f.customer_id === c.id).length;
+            const customerTags = c.tags ?? [];
 
-                return (
-                  <tr
-                    key={c.id}
-                    className={`kh__row${openId === c.id ? " is-open" : ""}`}
-                    onClick={() => setOpenId(c.id)}
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") setOpenId(c.id);
+            return (
+              <div
+                key={c.id}
+                className={`kh__customer-card-v2${openId === c.id ? " is-open" : ""}`}
+                onClick={() => setOpenId(c.id)}
+              >
+                <div className="kh__card-top">
+                  <div className="kh__card-identity">
+                    <div className="kh__avatar-wrapper">
+                      <div className={`kh__avatar ${getKhAvatarClass(c.name)}`}>{initials}</div>
+                      <span className={`kh__avatar-dot ${getKhDotClass(c.name)}`} />
+                    </div>
+                    <div className="kh__card-info">
+                      <div className="kh__card-name-row">
+                        <h3 className="kh__card-name" title={c.name}>{c.name}</h3>
+                      </div>
+                      <div className="kh__card-submeta">
+                        <span className="kh__code-badge">{c.code || `KH${String(c.id).padStart(3, "0")}`}</span>
+                        {c.tax_code && <span className="kh__mst-chip">MST {c.tax_code}</span>}
+                        {careDue > 0 && (
+                          <span className="kh__row-badge kh__row-badge--care">
+                            <AlarmClock size={10} /> {careDue} việc
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="kh__card-tag-btn"
+                    title="Gắn thẻ"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setQuickTagModalCust({ id: c.id, name: c.name });
                     }}
                   >
-                    {canReassign && (
-                      <td className="kh__check-col" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          aria-label={`Chọn ${c.name}`}
-                          checked={selectedIds.has(c.id)}
-                          onChange={() => toggleRow(c.id)}
-                        />
-                      </td>
+                    <Tags size={13} />
+                  </button>
+                </div>
+
+                <div className="kh__card-stats">
+                  <div className="kh__card-stat-item">
+                    <span className="kh__card-stat-label">Doanh số 12T</span>
+                    <span className="kh__card-stat-val kh__card-stat-val--rev">
+                      {c.revenue_12m > 0 ? moneyStat(c.revenue_12m) : "—"}
+                    </span>
+                  </div>
+                  <div className="kh__card-stat-item">
+                    <span className="kh__card-stat-label">Số đơn hàng</span>
+                    <span className="kh__card-stat-val">{c.orders_total} đơn</span>
+                  </div>
+                </div>
+
+                <div className="kh__card-footer">
+                  {c.sale_name ? (
+                    <div className="kh__sale-chip-compact">
+                      <span className="kh__sale-avatar">{getInitials(c.sale_name)}</span>
+                      <span className="kh__sale-name">{c.sale_name}</span>
+                    </div>
+                  ) : (
+                    <span className="kh__muted">Chưa gán NV</span>
+                  )}
+                  <div className="kh__card-tags">
+                    {customerTags.slice(0, 2).map((t) => (
+                      <span key={t} className={`kh__row-badge kh__row-badge--tag-${tagTone(t)}`}>
+                        {t}
+                      </span>
+                    ))}
+                    {customerTags.length > 2 && (
+                      <span
+                        className="kh__row-badge kh__row-badge--more"
+                        title={customerTags.slice(2).join(", ")}
+                      >
+                        +{customerTags.length - 2}
+                      </span>
                     )}
-                    <td>
-                      <div className="kh__identity-cell">
-                        <div className={`kh__avatar ${getKhAvatarClass(c.name)}`}>{initials}</div>
-                        <div className="kh__identity">
-                          <div className="kh__name-row">
-                            <span className="kh__name">{c.name}</span>
-                            <span className="kh__code-badge">{c.code || `KH${String(c.id).padStart(3, "0")}`}</span>
-                          </div>
-                          <span className="kh__submeta">
-                            {c.tax_code && <span className="kh__mst-chip">MST {c.tax_code}</span>}
-                          </span>
-                          <div className="kh__row-badges">
-                            {careDue > 0 && (
-                              <span
-                                className="kh__row-badge kh__row-badge--care"
-                                title={`${careDue} việc chăm sóc đến hạn`}
-                              >
-                                <AlarmClock size={10} /> {careDue}
-                              </span>
-                            )}
-                            {/* Redesign spec-06 v2: badge = THẺ gán tay (#7), bỏ tier/mock. */}
-                            {(c.tags ?? []).map((t) => (
-                              <span key={t} className={`kh__row-badge kh__row-badge--tag-${tagTone(t)}`}>
-                                {t}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="kh__tablewrap">
+          <div className="kh__tablescroll">
+            <table className="kh__table">
+              <thead>
+                <tr>
+                  {canReassign && (
+                    <th className="kh__check-col">
+                      <input
+                        type="checkbox"
+                        aria-label="Chọn tất cả trên trang"
+                        title="Tick để chọn khách hàng — chọn xong sẽ hiện nút điều chuyển hàng loạt"
+                        checked={allOnPageSelected}
+                        onChange={toggleAllOnPage}
+                      />
+                    </th>
+                  )}
+                  <th>
+                    <SortBtn label="Khách hàng" col="name" sort={sort} onSort={setSort} />
+                  </th>
+                  <th className="kh__num">
+                    <SortBtn label="Doanh số 12T" col="revenue" sort={sort} onSort={setSort} />
+                  </th>
+                  <th className="kh__num">
+                    <SortBtn label="Số đơn" col="orders" sort={sort} onSort={setSort} />
+                  </th>
+                  <th className="kh__num">TB / Đơn</th>
+                  <th>NV phụ trách</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  [...Array(6)].map((_, i) => (
+                    <tr key={i} className="kh__skelrow">
+                      {[...Array(colCount)].map((__, j) => (
+                        <td key={j}>
+                          <span className="kh__skel" />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : listError ? (
+                  <tr>
+                    <td colSpan={colCount} className="kh__status">
+                      <div className="banner banner--error" role="alert">
+                        <span>{listError}</span>
+                        <button type="button" className="btn btn--ghost" onClick={() => load()}>
+                          Thử lại
+                        </button>
                       </div>
                     </td>
-                    <td className="kh__num kh__money">
-                      {c.revenue_12m > 0 ? (
-                        <span className="kh__revenue-val">{moneyStat(c.revenue_12m)}</span>
+                  </tr>
+                ) : rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={colCount} className="kh__empty-cell">
+                      {q || tagFilter || saleFilter || followupFilter ? (
+                        <div className="kh__empty-state">
+                          <div className="kh__empty-icon">
+                            <SearchX size={28} />
+                          </div>
+                          <h3 className="kh__empty-title">Không tìm thấy khách hàng</h3>
+                          <p className="kh__empty-sub">
+                            Không tìm thấy khách hàng nào phù hợp với điều kiện tìm kiếm hoặc bộ lọc hiện tại.
+                          </p>
+                          <Button
+                            variant="ghost"
+                            onClick={() => {
+                              setQ("");
+                              setTagFilter("");
+                              setSaleFilter("");
+                              setFollowupFilter(false);
+                              setPage(1);
+                            }}
+                          >
+                            Xoá bộ lọc
+                          </Button>
+                        </div>
                       ) : (
-                        <span className="kh__muted">—</span>
+                        <div className="kh__empty-state">
+                          <div className="kh__empty-icon">
+                            <UserPlus size={28} />
+                          </div>
+                          <h3 className="kh__empty-title">Chưa có khách hàng nào trong sổ</h3>
+                          <p className="kh__empty-sub">
+                            Danh sách khách hàng của bạn hiện đang trống. Hãy tạo mới khách hàng đầu tiên để bắt đầu quản lý hồ sơ và giao dịch.
+                          </p>
+                          <Button
+                            variant="primary"
+                            onClick={() => {
+                              setEditing(null);
+                              setMode("create");
+                            }}
+                          >
+                            + Tạo khách hàng đầu tiên
+                          </Button>
+                        </div>
                       )}
-                    </td>
-                    <td className="kh__num">
-                      {c.orders_total > 0 ? (
-                        <span className="kh__orders-pill">{c.orders_total}</span>
-                      ) : (
-                        <span className="kh__muted">0</span>
-                      )}
-                    </td>
-                    <td className="kh__num">
-                      {avgOrderValue > 0 ? moneySuperCompact(avgOrderValue) : <span className="kh__muted">—</span>}
-                    </td>
-                    <td>
-                      {c.sale_name ? (
-                        <span className="kh__sale-chip">
-                          <User size={12} />
-                          <span className="kh__sale-chip__txt">
-                            <span className="kh__sale-chip__ten">{c.sale_name}</span>
-                            {/* Vai trò + phòng ngay dưới tên: nhìn bảng là biết ai trưởng ai
-                                nhân viên, không phải mở từng hồ sơ. Người không còn trong danh
-                                sách NV (đã nghỉ/đổi phòng) thì không có dòng phụ. */}
-                            {saleMeta.get(c.sale_user_id ?? -1) && (
-                              <span className="kh__sale-chip__vt">
-                                {saleMeta.get(c.sale_user_id ?? -1)}
-                              </span>
-                            )}
-                          </span>
-                        </span>
-                      ) : (
-                        <span className="kh__muted">Chưa gán</span>
-                      )}
-                    </td>
-                    <td className="kh__arrow-col">
-                      <span className="kh__arrow-icon">›</span>
                     </td>
                   </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-        </div>
+                ) : (
+                  (() => {
+                    const maxRevenueOnPage = Math.max(...rows.map((r) => r.revenue_12m || 0), 1);
+                    return rows.map((c) => {
+                      const initials = getInitials(c.name);
+                      const avgOrderValue = c.orders_total > 0 ? Math.round(c.revenue_12m / c.orders_total) : 0;
+                      const careDue = followups.filter((f) => f.customer_id === c.id).length;
+                      const revPercent = c.revenue_12m > 0 ? Math.min(100, Math.round((c.revenue_12m / maxRevenueOnPage) * 100)) : 0;
+                      const customerTags = c.tags ?? [];
+                      const displayTags = customerTags.slice(0, 2);
+                      const remainingTagsCount = customerTags.length - 2;
+                      const salesRole = saleMeta.get(c.sale_user_id ?? -1);
+                      const revGradient =
+                        c.revenue_12m >= 100_000_000
+                          ? "linear-gradient(90deg, #818cf8, #7c3aed)"
+                          : c.revenue_12m >= 10_000_000
+                          ? "linear-gradient(90deg, #34d399, #059669)"
+                          : "linear-gradient(90deg, #94a3b8, #64748b)";
 
-        {!loading && !listError && rows.length > 0 && (
-          <div className="kh__pager">
-            <div className="kh__pager-left">
-              <span className="kh__pager-info">
-                Tổng {total} khách hàng · Trang {page}/{totalPages}
-              </span>
-              <span className="kh__pager-divider" />
-              <div className="kh__pager-size">
-                <span>Hiển thị</span>
-                <Select
-                  ariaLabel="Số dòng mỗi trang"
-                  value={pageSize}
-                  onChange={(v) => {
-                    setPageSize(v ?? 25);
-                    setPage(1);
-                  }}
-                  options={PAGE_SIZES.map((n) => ({ value: n, label: `${n} dòng` }))}
-                />
-              </div>
-            </div>
-            <div className="kh__pager-btns">
-              <button
-                type="button"
-                className="kh__pager-btn"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                title="Trang trước"
-              >
-                <ChevronLeft size={16} /> Trước
-              </button>
-              <span className="kh__pager-page-indicator">
-                {page} / {totalPages}
-              </span>
-              <button
-                type="button"
-                className="kh__pager-btn"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                title="Trang sau"
-              >
-                Sau <ChevronRight size={16} />
-              </button>
-            </div>
+                      return (
+                        <tr
+                          key={c.id}
+                          className={`kh__row${openId === c.id ? " is-open" : ""}`}
+                          onClick={() => setOpenId(c.id)}
+                          tabIndex={0}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") setOpenId(c.id);
+                          }}
+                        >
+                          {canReassign && (
+                            <td className="kh__check-col" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                aria-label={`Chọn ${c.name}`}
+                                checked={selectedIds.has(c.id)}
+                                onChange={() => toggleRow(c.id)}
+                              />
+                            </td>
+                          )}
+                          <td>
+                            <div className="kh__identity-cell">
+                              <div className="kh__avatar-wrapper">
+                                <div className={`kh__avatar ${getKhAvatarClass(c.name)}`}>{initials}</div>
+                                <span className={`kh__avatar-dot ${getKhDotClass(c.name)}`} />
+                              </div>
+                              <div className="kh__identity">
+                                <div className="kh__name-row">
+                                  <span className="kh__name" title={c.name}>{c.name}</span>
+                                  <span className="kh__code-badge">{c.code || `KH${String(c.id).padStart(3, "0")}`}</span>
+                                </div>
+                                <div className="kh__submeta">
+                                  {c.tax_code && <span className="kh__mst-chip">MST {c.tax_code}</span>}
+                                  {careDue > 0 && (
+                                    <span
+                                      className="kh__row-badge kh__row-badge--care"
+                                      title={`${careDue} việc chăm sóc đến hạn`}
+                                    >
+                                      <AlarmClock size={10} /> {careDue} việc
+                                    </span>
+                                  )}
+                                  {displayTags.map((t) => (
+                                    <span key={t} className={`kh__row-badge kh__row-badge--tag-${tagTone(t)}`}>
+                                      {t}
+                                    </span>
+                                  ))}
+                                  {remainingTagsCount > 0 && (
+                                    <span
+                                      className="kh__row-badge kh__row-badge--more"
+                                      title={customerTags.slice(2).join(", ")}
+                                    >
+                                      +{remainingTagsCount}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="kh__num kh__money-cell">
+                            {c.revenue_12m > 0 ? (
+                              <div className="kh__rev-box">
+                                <span className="kh__revenue-val">{moneyStat(c.revenue_12m)}</span>
+                                <div className="kh__rev-bar-track" title={`${revPercent}% so với top trang`}>
+                                  <div
+                                    className="kh__rev-bar-fill"
+                                    style={{
+                                      width: `${Math.max(6, revPercent)}%`,
+                                      background: revGradient,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="kh__muted">—</span>
+                            )}
+                          </td>
+                          <td className="kh__num">
+                            {c.orders_total > 0 ? (
+                              <span className="kh__orders-pill-v2">{c.orders_total}</span>
+                            ) : (
+                              <span className="kh__muted">0</span>
+                            )}
+                          </td>
+                          <td className="kh__num kh__aov-cell">
+                            {avgOrderValue > 0 ? moneySuperCompact(avgOrderValue) : <span className="kh__muted">—</span>}
+                          </td>
+                          <td>
+                            {c.sale_name ? (
+                              <div
+                                className="kh__sale-chip-compact"
+                                title={salesRole ? `${c.sale_name} · ${salesRole}` : c.sale_name}
+                              >
+                                <span className="kh__sale-avatar">{getInitials(c.sale_name)}</span>
+                                <span className="kh__sale-name">{c.sale_name}</span>
+                              </div>
+                            ) : (
+                              <span className="kh__muted">Chưa gán</span>
+                            )}
+                          </td>
+                          <td className="kh__action-col" onClick={(e) => e.stopPropagation()}>
+                            <div className="kh__row-quick-actions">
+                              <button
+                                type="button"
+                                className="kh__quick-btn"
+                                title="Gắn thẻ"
+                                onClick={() => setQuickTagModalCust({ id: c.id, name: c.name })}
+                              >
+                                <Tags size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                className="kh__quick-btn"
+                                title="Xem hồ sơ"
+                                onClick={() => setOpenId(c.id)}
+                              >
+                                <ChevronRight size={14} />
+                              </button>
+                            </div>
+                            <ChevronRight size={15} className="kh__arrow-icon" />
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()
+                )}
+              </tbody>
+            </table>
           </div>
-        )}
+        </div>
+      )}
+
+  {!loading && !listError && rows.length > 0 && (
+    <div className="kh__pager">
+      <div className="kh__pager-left">
+        <span className="kh__pager-info">
+          Tổng {total} khách hàng · Trang {page}/{totalPages}
+        </span>
+        <span className="kh__pager-divider" />
+        <div className="kh__pager-size">
+          <span>Hiển thị</span>
+          <Select
+            ariaLabel="Số dòng mỗi trang"
+            value={pageSize}
+            onChange={(v) => {
+              setPageSize(v ?? 25);
+              setPage(1);
+            }}
+            options={PAGE_SIZES.map((n) => ({ value: n, label: `${n} dòng` }))}
+          />
+        </div>
       </div>
+      <div className="kh__pager-btns">
+        <button
+          type="button"
+          className="kh__pager-btn"
+          disabled={page <= 1}
+          onClick={() => setPage((p) => Math.max(1, p - 1))}
+          title="Trang trước"
+        >
+          <ChevronLeft size={16} /> Trước
+        </button>
+        <span className="kh__pager-page-indicator">
+          {page} / {totalPages}
+        </span>
+        <button
+          type="button"
+          className="kh__pager-btn"
+          disabled={page >= totalPages}
+          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          title="Trang sau"
+        >
+          Sau <ChevronRight size={16} />
+        </button>
+      </div>
+    </div>
+  )}
 
       {mode === "create" && (
         <CustomerFormDialog
@@ -1039,6 +1252,19 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
         />
       )}
 
+      {quickTagModalCust && (
+        <TagModal
+          customerId={quickTagModalCust.id}
+          customerName={quickTagModalCust.name}
+          current={(rows.find((r) => r.id === quickTagModalCust.id)?.tags ?? []).map((label, idx) => ({ id: idx + 1, label }))}
+          onClose={() => setQuickTagModalCust(null)}
+          onSaved={() => {
+            setQuickTagModalCust(null);
+            load();
+          }}
+        />
+      )}
+
       {openId != null && mode == null && (
         <CustomerObjectPage
           customerId={openId}
@@ -1057,91 +1283,30 @@ export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn
         />
       )}
 
-      <ConfirmDialog
+      <CustomerReassignModal
         open={reassignOpen}
-        title="Điều chuyển khách hàng"
-        message="Chuyển TOÀN BỘ khách hàng đang phụ trách của một nhân viên sang nhân viên khác (dùng khi bàn giao). Kiểm tra kỹ nguồn/đích trước khi xác nhận."
-        confirmLabel="Điều chuyển"
-        danger
-        countdownSeconds={5}
+        sales={sales}
+        fromSale={fromSale}
+        toSale={toSale}
+        setFromSale={setFromSale}
+        setToSale={setToSale}
         busy={reassignBusy}
         error={reassignError}
-        confirmDisabled={fromSale == null || toSale == null || fromSale === toSale}
         onConfirm={doReassign}
         onCancel={() => !reassignBusy && setReassignOpen(false)}
-      >
-        <label className="field">
-          <span className="field__label">Từ nhân viên (nguồn)</span>
-          <Select
-            ariaLabel="Nhân viên nguồn"
-            portal
-            value={fromSale}
-            placeholder="— Chọn nhân viên nguồn —"
-            onChange={(v) => setFromSale(v)}
-            options={[
-              { value: null, label: "— Chọn nhân viên nguồn —" },
-              // NGUỒN = ai đang thực sự giữ khách (kèm số lượng). Người chưa có khách nào thì
-              // chuyển đi từ họ là thao tác vô nghĩa.
-              ...sales
-                .filter((s) => (s.so_kh ?? 0) > 0)
-                .map((s) => ({
-                  value: s.id,
-                  label: s.name,
-                  sub: moTaSale(s),
-                  hint: `${s.so_kh} KH`,
-                })),
-            ]}
-          />
-        </label>
-        <label className="field">
-          <span className="field__label">Sang nhân viên (đích)</span>
-          <Select
-            ariaLabel="Nhân viên đích"
-            portal
-            value={toSale}
-            placeholder="— Chọn nhân viên đích —"
-            onChange={(v) => setToSale(v)}
-            options={[
-              { value: null, label: "— Chọn nhân viên đích —" },
-              // ĐÍCH = người đủ tư cách nhận khách.
-              ...sales
-                .filter((s) => s.id !== fromSale && s.co_the_gan !== false)
-                .map((s) => ({ value: s.id, label: s.name, sub: moTaSale(s) })),
-            ]}
-          />
-        </label>
-      </ConfirmDialog>
+      />
 
-      <ConfirmDialog
+      <BulkReassignModal
         open={bulkOpen}
-        title={`Chuyển ${selectedIds.size} khách hàng đã chọn`}
-        message="Các khách hàng đang tick sẽ được chuyển sang nhân viên tiếp nhận. Kiểm tra kỹ trước khi xác nhận."
-        confirmLabel="Chuyển"
-        danger
-        countdownSeconds={5}
+        selectedCount={selectedIds.size}
+        sales={sales}
+        bulkTarget={bulkTarget}
+        setBulkTarget={setBulkTarget}
         busy={bulkBusy}
         error={bulkError}
-        confirmDisabled={bulkTarget == null}
         onConfirm={doBulkReassign}
         onCancel={() => !bulkBusy && setBulkOpen(false)}
-      >
-        <label className="field">
-          <span className="field__label">Sang nhân viên (đích)</span>
-          <Select
-            ariaLabel="Nhân viên đích"
-            portal
-            value={bulkTarget}
-            placeholder="— Chọn nhân viên đích —"
-            onChange={(v) => setBulkTarget(v)}
-            options={[
-              { value: null, label: "— Chọn nhân viên đích —" },
-              ...sales
-                .filter((s) => s.co_the_gan !== false)
-                .map((s) => ({ value: s.id, label: s.name, sub: moTaSale(s) })),
-            ]}
-          />
-        </label>
-      </ConfirmDialog>
+      />
     </main>
   );
 }
@@ -1234,21 +1399,6 @@ function KpiStrip({
     </div>
   );
 }
-
-/*
-function TierBadge({ tier }: { tier: CustomerTier }) {
-  const meta = TIER_META[tier];
-  return (
-    <span className={`kh__tier ${meta.cls}`} title={meta.label}>
-      <span className="kh__stars" aria-hidden="true">
-        {"★".repeat(meta.stars)}
-        {"☆".repeat(Math.max(0, 3 - meta.stars))}
-      </span>
-      {meta.label}
-    </span>
-  );
-}
-*/
 
 function SortBtn({
   label,
@@ -1553,6 +1703,15 @@ function PaymentGauge({
 
 // --- Dashboard tab -----------------------------------------------------------
 
+/** Icon cho từng dòng "Thông số in thường đặt" — khoá do backend quyết (`PrintSpec.key`);
+ *  khoá lạ thì rơi về icon giấy thay vì vỡ hàng. */
+const SPEC_ICONS: Record<string, ReactNode> = {
+  giay: <Layers size={13} />,
+  mau: <Palette size={13} />,
+  gia_cong: <Scissors size={13} />,
+  kho: <Box size={13} />,
+};
+
 function DashboardTab({
   dash,
   receivable,
@@ -1579,6 +1738,8 @@ function DashboardTab({
   }
   const canDebt = useCan()("khach_hang", "view_debt");
   const avgVal = dash.avg_order_value ?? 0;
+  // `print_specs` có thể undefined khi FE mới chạy với BE cũ (deploy lệch) → coi như chưa có.
+  const specs = dash.print_specs ?? [];
   const cards: { label: string; value: ReactNode; hint?: string; muted?: boolean }[] = [
     // Không có dữ liệu 24 tháng để so YoY thật → hint trung thực về phạm vi số liệu.
     { label: "Doanh số 12T", value: moneyStat(dash.revenue_12m), hint: "12 tháng gần nhất" },
@@ -1648,7 +1809,8 @@ function DashboardTab({
         </section>
       </div>
 
-      <div className="kh__dash-grid-3">
+      {/* Ẩn card thông số ⇒ lưới còn 2 cột, không để lại ô trống ở cột 3. */}
+      <div className={`kh__dash-grid-3${specs.length === 0 ? " kh__dash-grid-3--2" : ""}`}>
         {/* Cơ cấu sản phẩm — donut */}
         <section className="card kh__chart">
           <div className="kh__chart-head">
@@ -1657,31 +1819,38 @@ function DashboardTab({
           <ProductDonut mix={dash.product_mix} />
         </section>
 
-        {/* Thông số in thường đặt */}
-        <section className="card kh__chart">
-          <div className="kh__chart-head">
-            <h3><Droplets size={14} /> Thông số in thường đặt</h3>
-            <span className="kh__muted-tag">KỸ THUẬT</span>
-          </div>
-          <div className="kh__specs-list">
-            {[
-              { ic: <Layers size={13} />, label: "Giấy ưa thích", val: "Couche 200gsm", pct: 85 },
-              { ic: <Palette size={13} />, label: "Số màu TB", val: "5 màu (CMYK+Pantone)", pct: 70 },
-              { ic: <Scissors size={13} />, label: "Gia công", val: "Cán bóng · Đóng keo", pct: 65 },
-              { ic: <Box size={13} />, label: "Khổ phổ biến", val: "A4 / A5", pct: 90 },
-              { ic: <Zap size={13} />, label: "Độ phủ mực TB", val: "Cao (50–60%)", pct: 55 },
-            ].map((row) => (
-              <div className="kh__spec-item" key={row.label}>
-                <span className="kh__spec-ic" aria-hidden="true">{row.ic}</span>
-                <div className="kh__spec-text">
-                  <span className="kh__spec-label">{row.label}</span>
-                  <span className="kh__spec-val">{row.val}</span>
+        {/* Thông số in thường đặt — GOM TỪ PHIẾU TÍNH GIÁ THẬT của khách (giấy · số màu · gia
+            công · khổ), xem `CustomerAnalyticsService.print_specs`. Khách chưa có phiếu nào thì
+            backend trả mảng rỗng và card BIẾN MẤT — không hiện số mẫu. */}
+        {specs.length > 0 && (
+          <section className="card kh__chart">
+            <div className="kh__chart-head">
+              <h3><Droplets size={14} /> Thông số in thường đặt</h3>
+              <span className="kh__muted-tag" title="Đọc từ phiếu tính giá gắn báo giá của khách">
+                {dash.print_specs_phieu} PHIẾU
+              </span>
+            </div>
+            <div className="kh__specs-list">
+              {specs.map((row) => (
+                <div className="kh__spec-item" key={row.key}>
+                  <span className="kh__spec-ic" aria-hidden="true">
+                    {SPEC_ICONS[row.key] ?? <Layers size={13} />}
+                  </span>
+                  <div className="kh__spec-text">
+                    <span className="kh__spec-label">{row.label}</span>
+                    <span className="kh__spec-val">{row.value}</span>
+                  </div>
+                  <div
+                    className="kh__progress-bar"
+                    title={`${row.pct}% sản phẩm đã báo giá dùng thông số này`}
+                  >
+                    <div className="kh__progress-fill" style={{ width: `${row.pct}%` }}></div>
+                  </div>
                 </div>
-                <div className="kh__progress-bar"><div className="kh__progress-fill" style={{ width: `${row.pct}%` }}></div></div>
-              </div>
-            ))}
-          </div>
-        </section>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Chính sách tài chính (redesign spec-06 v2) — thay widget "Thanh toán" fake. */}
         <FinancialPolicyCard
@@ -2956,11 +3125,12 @@ function AuditTab({
 
 // --- Nhãn thủ công (#7: sales gán tay để phân loại chăm sóc) --------------------
 
-// Kho thẻ gợi ý mặc định (mockup) — hợp nhất với các nhãn đã dùng trong scope.
-const DEFAULT_TAG_PRESETS = [
-  "Tiềm năng", "Ưu tiên", "Đối tác lâu năm", "Trả đúng hạn", "Hay trễ hẹn",
-  "Khó tính", "Nhạy giá", "Ưa giao nhanh", "Cần chăm sóc", "Tái ký HĐ",
-];
+// 🔴 `DEFAULT_TAG_PRESETS` — 13 nhãn VIẾT CỨNG — đã gỡ 16/08/2026. Kho nhãn nay là dữ liệu thật
+// (`customer_tag_catalog`, mg `0204` mồi đúng 13 nhãn đó nên mở lên không mất gì).
+//
+// Vì sao phải bỏ: mảng cứng làm nhãn KHÔNG XOÁ ĐƯỢC. Gỡ "Nhạy giá" khỏi mọi khách xong, mở hộp
+// Gắn thẻ ra nó vẫn nằm đấy — vì nó nằm trong code chứ không trong dữ liệu. Người dùng xoá mãi
+// không hết, mà cũng chẳng có lỗi nào báo.
 
 /** Chips nhãn trên header hồ sơ + nút mở modal Gắn thẻ (mockup: toggle preset, Lưu một lần). */
 function TagChips({ customerId, customerName }: { customerId: number; customerName?: string }) {
@@ -3009,8 +3179,8 @@ function TagChips({ customerId, customerName }: { customerId: number; customerNa
   );
 }
 
-/** Modal "Gắn thẻ" (mockup): pill toggle chọn/bỏ, tạo thẻ mới rồi Enter, Lưu MỘT lần
- *  (diff gán/gỡ so với hiện tại — không lưu từng click). */
+/** Modal "Gắn thẻ" 2.0: Fluid Vibrant Tag Cloud, Omni Search & Create bar thông minh,
+ *  đa sắc màu hiện đại, tối giản không gian và thao tác tức thì. */
 function TagModal({
   customerId,
   customerName,
@@ -3025,19 +3195,24 @@ function TagModal({
   onSaved: (next: { id: number; label: string }[]) => void;
 }) {
   const { token } = useAuth();
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const canUpdate = useCan()("khach_hang", "update");
+  // KHO nhãn từ server (`customer_tag_catalog`) — thay cho mảng 13 chuỗi viết cứng cũ. Giữ cả
+  // `so_khach` để hộp thoại xoá hỏi được bằng số thật thay vì "bạn có chắc không".
+  const [kho, setKho] = useState<KhoNhanRow[]>([]);
   const [customs, setCustoms] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(current.map((t) => t.label)),
   );
-  const [draft, setDraft] = useState("");
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [xoaNhan, setXoaNhan] = useState<KhoNhanRow | null>(null);
 
-  useEffect(() => {
+  const napKho = useCallback(() => {
     if (!token) return;
-    api.customers.tagLabels(token).then(setSuggestions).catch(() => setSuggestions([]));
+    api.customers.tagKho(token).then((r) => setKho(r.items)).catch(() => setKho([]));
   }, [token]);
+  useEffect(() => napKho(), [napKho]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -3045,16 +3220,20 @@ function TagModal({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // Kho pill: preset mặc định ∪ nhãn đã dùng trong scope ∪ nhãn đang gắn ∪ nhãn vừa tạo.
-  const all = useMemo(() => {
+  /** Số khách đang mang từng nhãn — tra theo nhãn hạ chữ, để hỏi trước khi xoá. */
+  const soKhachTheoNhan = useMemo(() => {
+    const m = new Map<string, KhoNhanRow>();
+    for (const r of kho) m.set(r.label.toLowerCase(), r);
+    return m;
+  }, [kho]);
+
+  // Danh sách tất cả nhãn duy nhất (case-insensitive dedup).
+  // `current` vẫn phải góp mặt: khách có thể đang mang một nhãn mà kho chưa kịp nạp xong, thiếu nó
+  // thì chip đang bật biến khỏi lưới và cú Lưu kế tiếp gỡ mất nhãn của khách.
+  const allLabels = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const l of [
-      ...DEFAULT_TAG_PRESETS,
-      ...suggestions,
-      ...current.map((t) => t.label),
-      ...customs,
-    ]) {
+    for (const l of [...kho.map((r) => r.label), ...current.map((t) => t.label), ...customs]) {
       const key = l.toLowerCase();
       if (!seen.has(key)) {
         seen.add(key);
@@ -3062,30 +3241,51 @@ function TagModal({
       }
     }
     return out;
-  }, [suggestions, current, customs]);
+  }, [kho, current, customs]);
+
+  // Bộ lọc thẻ theo từ khoá tìm kiếm
+  const filteredLabels = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return allLabels;
+    return allLabels.filter((l) => l.toLowerCase().includes(q));
+  }, [allLabels, query]);
+
+  const exactMatchExists = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return allLabels.some((l) => l.toLowerCase() === q);
+  }, [allLabels, query]);
 
   function toggle(label: string) {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(label)) next.delete(label);
+      const existing = [...next].find((l) => l.toLowerCase() === label.toLowerCase());
+      if (existing) next.delete(existing);
       else next.add(label);
       return next;
     });
   }
 
-  function onDraftEnter() {
-    const label = draft.trim().replace(/\s+/g, " ");
+  function clearAll() {
+    setSelected(new Set());
+  }
+
+  function handleCreateOrAdd() {
+    const label = query.trim().replace(/\s+/g, " ");
     if (!label) return;
     if (label.length > 50) {
       setError("Nhãn tối đa 50 ký tự.");
       return;
     }
     setError(null);
-    // Trùng (case-insensitive) nhãn đã có trong kho → chỉ chọn nhãn đó, không tạo đúp.
-    const existing = all.find((l) => l.toLowerCase() === label.toLowerCase());
+    const existing = allLabels.find((l) => l.toLowerCase() === label.toLowerCase());
     if (!existing) setCustoms((prev) => [...prev, label]);
-    setSelected((prev) => new Set(prev).add(existing ?? label));
-    setDraft("");
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.add(existing ?? label);
+      return next;
+    });
+    setQuery("");
   }
 
   async function save() {
@@ -3095,7 +3295,7 @@ function TagModal({
     try {
       const currentByLower = new Map(current.map((t) => [t.label.toLowerCase(), t]));
       const selectedLower = new Set([...selected].map((l) => l.toLowerCase()));
-      // Diff: gỡ nhãn bỏ chọn trước, rồi gán nhãn mới — backend dedup nên an toàn.
+      
       for (const t of current) {
         if (!selectedLower.has(t.label.toLowerCase())) {
           await api.customers.deleteTag(token, customerId, t.id);
@@ -3114,55 +3314,466 @@ function TagModal({
     }
   }
 
+  const selectedCount = selected.size;
+  const avatarClass = customerName ? getKhAvatarClass(customerName) : "kh__avatar--moss";
+  const initials = customerName ? getInitials(customerName) : "KH";
+
   return (
-    <div className="kh__overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="kh__dialog card kh__tagmodal" role="dialog" aria-modal="true" aria-label="Gắn thẻ khách hàng">
-        <div className="kh__dialog-head">
-          <h2>Gắn thẻ{customerName ? ` · ${customerName}` : ""}</h2>
+    <div className="kh__overlay kh__overlay--blur" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div
+        className="kh__dialog card kh__tagmodal-v3"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Gắn thẻ khách hàng"
+      >
+        {/* Header Modal với Avatar Khách hàng */}
+        <div className="kh__tagmodal-head">
+          <div className="kh__tagmodal-head-left">
+            <div className={`kh__tagmodal-avatar ${avatarClass}`}>{initials}</div>
+            <div>
+              <div className="kh__tagmodal-subhead">Nhận diện &amp; Phân loại CRM</div>
+              <h2 className="kh__tagmodal-title">{customerName || "Khách hàng"}</h2>
+            </div>
+          </div>
           <button type="button" className="kh__close" aria-label="Đóng" onClick={onClose}>
-            <X size={14} strokeWidth={2} />
+            <X size={16} strokeWidth={2} />
           </button>
         </div>
-        <div className="kh__dialog-body">
-          <div className="kh__tagrow">
-            {all.map((label) => {
+
+        {/* Body Modal */}
+        <div className="kh__dialog-body kh__tagmodal-body">
+          {/* Thanh Tìm kiếm & Tạo thẻ Omni-Input */}
+          <div className="kh__tag-omni-bar">
+            <Search size={15} className="kh__tag-omni-ic" />
+            <input
+              className="kh__tag-omni-input"
+              placeholder="Tìm thẻ hoặc gõ tên để tạo mới (Enter)…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleCreateOrAdd();
+                }
+              }}
+            />
+            {query && (
+              <button
+                type="button"
+                className="kh__tag-omni-clear"
+                onClick={() => setQuery("")}
+                title="Xóa tìm kiếm"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          {/* Tag Cloud đa sắc màu liền mạch */}
+          <div className="kh__tagcloud-fluid">
+            {filteredLabels.map((label) => {
               const on = [...selected].some((l) => l.toLowerCase() === label.toLowerCase());
+              const tone = tagTone(label);
+              // Chỉ nhãn ĐÃ Ở TRONG KHO mới xoá được. Nhãn vừa gõ ở ô trên (`customs`) chưa có id
+              // — nó chỉ thành dòng thật sau khi Lưu, nên chưa có gì để xoá.
+              const dongKho = soKhachTheoNhan.get(label.toLowerCase());
               return (
-                <button
-                  key={label}
-                  type="button"
-                  className={`kh__tagpill${on ? ` is-on kh__tagpill--${tagTone(label)}` : ""}`}
-                  aria-pressed={on}
-                  onClick={() => toggle(label)}
-                >
-                  {label}
-                </button>
+                <span key={label} className="kh__tagpill-wrap">
+                  <button
+                    type="button"
+                    className={`kh__tagpill-v3${on ? " is-on" : ""} kh__tagpill--${tone}`}
+                    aria-pressed={on}
+                    onClick={() => toggle(label)}
+                  >
+                    {on ? (
+                      <Check size={13} className="kh__tagpill-check" strokeWidth={2.5} />
+                    ) : (
+                      <span className="kh__tagpill-dot" />
+                    )}
+                    <span>{label}</span>
+                  </button>
+                  {canUpdate && dongKho && (
+                    // Nút xoá NẰM NGOÀI pill, không lồng trong nó: button trong button là HTML
+                    // không hợp lệ, trình duyệt tự gỡ lồng và cú bấm rơi nhầm sang nút cha.
+                    <button
+                      type="button"
+                      className="kh__tagpill-del"
+                      title={`Xoá nhãn "${label}" khỏi kho`}
+                      aria-label={`Xoá nhãn ${label} khỏi kho`}
+                      onClick={() => setXoaNhan(dongKho)}
+                    >
+                      <X size={11} strokeWidth={2.5} />
+                    </button>
+                  )}
+                </span>
               );
             })}
+
+            {/* Pill gợi ý tạo thẻ mới khi không khớp hoàn toàn */}
+            {!exactMatchExists && query.trim() && (
+              <button
+                type="button"
+                className="kh__tagpill-v3 kh__tagpill-create"
+                onClick={handleCreateOrAdd}
+              >
+                <Plus size={13} strokeWidth={2.5} />
+                <span>Tạo mới "<strong>{query.trim()}</strong>"</span>
+              </button>
+            )}
           </div>
-          <input
-            className="input"
-            placeholder="Tạo thẻ mới rồi Enter…"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                onDraftEnter();
-              }
-            }}
-          />
-          <p className="kh__muted kh__tagmodal-hint">
-            Bấm để chọn / bỏ chọn. Thẻ giúp lọc &amp; nhận diện nhanh nhóm khách.
-          </p>
+
           {error && <div className="banner banner--error" role="alert">{error}</div>}
-          <div className="kh__dialog-actions">
+
+          {/* Dải Tóm Tắt (Summary Bar) các thẻ đã chọn */}
+          {selectedCount > 0 && (
+            <div className="kh__tag-summary-bar">
+              <div className="kh__tag-summary-left">
+                <span className="kh__tag-summary-label">Đã chọn ({selectedCount}):</span>
+                <div className="kh__tag-summary-chips">
+                  {[...selected].map((label) => (
+                    <span key={label} className={`kh__tag-summary-chip kh__tagchip--${tagTone(label)}`}>
+                      {label}
+                      <button
+                        type="button"
+                        className="kh__tag-summary-del"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggle(label);
+                        }}
+                        title="Bỏ chọn"
+                      >
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <button type="button" className="kh__tag-clear-btn" onClick={clearAll}>
+                Bỏ chọn tất cả
+              </button>
+            </div>
+          )}
+
+          {/* Footer Action buttons */}
+          <div className="kh__dialog-actions kh__tagmodal-actions">
             <Button variant="ghost" onClick={onClose}>
               Huỷ
             </Button>
             <Button variant="primary" onClick={save} loading={busy}>
-              Lưu thẻ
+              {selectedCount > 0 ? `Lưu ${selectedCount} thẻ` : "Lưu thay đổi"}
             </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Xoá nhãn khỏi KHO — khác hẳn bỏ tick (bỏ tick chỉ gỡ nhãn khỏi riêng khách này).
+          Hỏi kèm SỐ KHÁCH THẬT chứ không "bạn có chắc không": con số là thứ duy nhất giúp người
+          bấm biết mình sắp làm hỏng bao nhiêu. */}
+      <ConfirmDialog
+        open={xoaNhan !== null}
+        danger
+        title={`Xoá nhãn "${xoaNhan?.label ?? ""}" khỏi kho?`}
+        message={
+          xoaNhan && xoaNhan.so_khach > 0
+            ? `${xoaNhan.so_khach} khách đang mang nhãn này — xoá thì nhãn rơi khỏi cả ${xoaNhan.so_khach} khách đó. `
+              + "Không khôi phục được."
+            : "Chưa khách nào mang nhãn này, xoá là an toàn."
+        }
+        confirmLabel="Xoá nhãn"
+        busy={busy}
+        onCancel={() => setXoaNhan(null)}
+        onConfirm={async () => {
+          if (!token || !xoaNhan) return;
+          setBusy(true);
+          setError(null);
+          try {
+            await api.customers.xoaNhanKho(token, xoaNhan.id);
+            // Gỡ khỏi ô đang chọn luôn: giữ lại thì bấm Lưu sẽ gán lại đúng nhãn vừa xoá, và nó
+            // tự chui về kho qua `add_tag` — xoá xong lại mọc.
+            setSelected((prev) => {
+              const next = new Set(prev);
+              for (const l of next) {
+                if (l.toLowerCase() === xoaNhan.label.toLowerCase()) next.delete(l);
+              }
+              return next;
+            });
+            setCustoms((prev) =>
+              prev.filter((l) => l.toLowerCase() !== xoaNhan.label.toLowerCase()));
+            setXoaNhan(null);
+            napKho();
+          } catch (err) {
+            setError(err instanceof ApiError ? err.message : "Xoá nhãn không thành công.");
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+// --- Modal Điều chuyển & Bàn giao Khách hàng (Handover Hub) -------------------
+
+/** Modal Điều chuyển & Bàn giao toàn bộ khách hàng giữa 2 nhân sự kinh doanh */
+function CustomerReassignModal({
+  open,
+  sales,
+  fromSale,
+  toSale,
+  setFromSale,
+  setToSale,
+  busy,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  sales: SaleOption[];
+  fromSale: number | null;
+  toSale: number | null;
+  setFromSale: (v: number | null) => void;
+  setToSale: (v: number | null) => void;
+  busy: boolean;
+  error: string | null;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const [countdown, setCountdown] = useState(5);
+
+  useEffect(() => {
+    if (!open) {
+      setCountdown(5);
+      return;
+    }
+    setCountdown(5);
+    const timer = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onCancel();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, busy, onCancel]);
+
+  if (!open) return null;
+
+  const sourceSale = sales.find((s) => s.id === fromSale);
+  const targetSale = sales.find((s) => s.id === toSale);
+  const isConfirmDisabled = fromSale == null || toSale == null || fromSale === toSale || countdown > 0;
+  const sourceCount = sourceSale?.so_kh ?? 0;
+  const targetCount = targetSale?.so_kh ?? 0;
+
+  return (
+    <div className="kh__overlay kh__overlay--blur" onMouseDown={(e) => e.target === e.currentTarget && !busy && onCancel()}>
+      <div
+        className="kh__dialog card kh__reassign-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Điều chuyển khách hàng"
+      >
+        {/* Header Modal */}
+        <div className="kh__reassign-head">
+          <div className="kh__reassign-head-left">
+            <div className="kh__reassign-head-icon">
+              <ArrowLeftRight size={18} />
+            </div>
+            <div>
+              <h2 className="kh__reassign-title">Điều chuyển &amp; Bàn giao khách hàng</h2>
+              <div className="kh__reassign-subtitle">
+                Bàn giao quyền phụ trách danh bạ giữa các nhân sự kinh doanh
+              </div>
+            </div>
+          </div>
+          <button type="button" className="kh__close" aria-label="Đóng" onClick={onCancel} disabled={busy}>
+            <X size={16} strokeWidth={2} />
+          </button>
+        </div>
+
+        {/* Body Modal */}
+        <div className="kh__dialog-body kh__reassign-body">
+          {/* Safety Notice Card */}
+          <div className="kh__reassign-notice">
+            <ShieldAlert size={16} className="kh__reassign-notice-ic" />
+            <div className="kh__reassign-notice-text">
+              <strong>Lưu ý bàn giao:</strong> Toàn bộ khách hàng của nhân viên nguồn sẽ được chuyển giao sang nhân viên tiếp nhận. Quyền chăm sóc và lịch sử giao dịch sẽ được bàn giao đầy đủ.
+            </div>
+          </div>
+
+          {/* Interactive Transfer Duo */}
+          <div className="kh__transfer-duo">
+            {/* Cột Nguồn */}
+            <div className="kh__transfer-col kh__transfer-col--source">
+              <label className="kh__transfer-label">
+                <Users size={13} />
+                <span>Từ nhân viên (Nguồn)</span>
+              </label>
+              <Select
+                ariaLabel="Nhân viên nguồn"
+                portal
+                value={fromSale}
+                placeholder="— Chọn nhân viên nguồn —"
+                onChange={(v) => setFromSale(v)}
+                options={sales
+                  .filter((s) => (s.so_kh ?? 0) > 0)
+                  .map((s) => ({
+                    value: s.id,
+                    label: s.name,
+                    sub: moTaSale(s),
+                    hint: `${s.so_kh} KH`,
+                  }))}
+              />
+
+              {sourceSale ? (
+                <div className="kh__transfer-card">
+                  <div className="kh__avatar-wrapper">
+                    <div className={`kh__avatar ${getKhAvatarClass(sourceSale.name)}`}>
+                      {getInitials(sourceSale.name)}
+                    </div>
+                  </div>
+                  <div className="kh__transfer-card-info">
+                    <div className="kh__transfer-card-name">{sourceSale.name}</div>
+                    <div className="kh__transfer-card-role">{moTaSale(sourceSale) || "NV Kinh doanh"}</div>
+                    <div className="kh__transfer-card-meta">
+                      <span className="kh__transfer-count-badge">
+                        Đang giữ: <strong>{sourceCount} KH</strong>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="kh__transfer-card-empty">Chọn nhân viên có khách cần bàn giao</div>
+              )}
+            </div>
+
+            {/* Mũi tên chuyển dịch */}
+            <div className="kh__transfer-arrow-hub">
+              <div className="kh__transfer-arrow-pill">
+                {sourceCount > 0 ? `${sourceCount} KH` : "Bàn giao"}
+              </div>
+              <div className="kh__transfer-arrow-ic">
+                <ArrowRight size={16} />
+              </div>
+            </div>
+
+            {/* Cột Đích */}
+            <div className="kh__transfer-col kh__transfer-col--target">
+              <label className="kh__transfer-label">
+                <ShieldCheck size={13} />
+                <span>Sang nhân viên (Đích)</span>
+              </label>
+              <Select
+                ariaLabel="Nhân viên đích"
+                portal
+                value={toSale}
+                placeholder="— Chọn nhân viên đích —"
+                onChange={(v) => setToSale(v)}
+                options={sales
+                  .filter((s) => s.id !== fromSale && s.co_the_gan !== false)
+                  .map((s) => ({
+                    value: s.id,
+                    label: s.name,
+                    sub: moTaSale(s),
+                    hint: s.so_kh != null ? `${s.so_kh} KH` : undefined,
+                  }))}
+              />
+
+              {targetSale ? (
+                <div className="kh__transfer-card">
+                  <div className="kh__avatar-wrapper">
+                    <div className={`kh__avatar ${getKhAvatarClass(targetSale.name)}`}>
+                      {getInitials(targetSale.name)}
+                    </div>
+                  </div>
+                  <div className="kh__transfer-card-info">
+                    <div className="kh__transfer-card-name">{targetSale.name}</div>
+                    <div className="kh__transfer-card-role">{moTaSale(targetSale) || "NV Tiếp nhận"}</div>
+                    <div className="kh__transfer-card-meta">
+                      <span className="kh__transfer-count-badge">
+                        Hiện có: <strong>{targetCount} KH</strong>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="kh__transfer-card-empty">Chọn nhân viên tiếp nhận danh bạ</div>
+              )}
+            </div>
+          </div>
+
+          {/* Impact Preview Card */}
+          {sourceSale && targetSale && (
+            <div className="kh__reassign-impact">
+              <div className="kh__reassign-impact-title">
+                <CheckCircle2 size={14} className="kh__reassign-impact-ic" />
+                <span>Dự kiến biến động sau khi bàn giao:</span>
+              </div>
+              <div className="kh__reassign-impact-grid">
+                <div className="kh__reassign-impact-box">
+                  <span className="kh__reassign-impact-sub">Nguồn: <strong>{sourceSale.name}</strong></span>
+                  <div className="kh__reassign-impact-val">
+                    <span>{sourceCount} KH</span>
+                    <ArrowRight size={12} />
+                    <strong className="kh__reassign-impact-zero">0 KH</strong>
+                    <span className="kh__reassign-impact-subtag">(Bàn giao hết)</span>
+                  </div>
+                </div>
+                <div className="kh__reassign-impact-box">
+                  <span className="kh__reassign-impact-sub">Đích: <strong>{targetSale.name}</strong></span>
+                  <div className="kh__reassign-impact-val">
+                    <span>{targetCount} KH</span>
+                    <ArrowRight size={12} />
+                    <strong className="kh__reassign-impact-plus">{targetCount + sourceCount} KH</strong>
+                    <span className="kh__reassign-impact-plustag">(+{sourceCount} KH)</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {error && <div className="banner banner--error" role="alert">{error}</div>}
+
+          {/* Action buttons */}
+          <div className="kh__dialog-actions kh__reassign-actions">
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={onCancel}
+              disabled={busy}
+            >
+              Huỷ
+            </button>
+            <button
+              type="button"
+              className="kh__reassign-confirm-btn"
+              onClick={onConfirm}
+              disabled={busy || isConfirmDisabled}
+            >
+              {busy ? (
+                "Đang điều chuyển…"
+              ) : countdown > 0 ? (
+                <>
+                  <Clock size={13} />
+                  <span>Xác nhận bàn giao ({countdown}s)</span>
+                </>
+              ) : (
+                <>
+                  <ArrowLeftRight size={14} />
+                  <span>Xác nhận bàn giao ngay</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -3170,7 +3781,179 @@ function TagModal({
   );
 }
 
-// --- Ghi chú tab (lưu ý tự do của team về khách; ghim + sửa/xóa) ---------------
+/** Modal Chuyển hàng loạt khách hàng đã chọn sang nhân viên tiếp nhận */
+function BulkReassignModal({
+  open,
+  selectedCount,
+  sales,
+  bulkTarget,
+  setBulkTarget,
+  busy,
+  error,
+  onConfirm,
+  onCancel,
+}: {
+  open: boolean;
+  selectedCount: number;
+  sales: SaleOption[];
+  bulkTarget: number | null;
+  setBulkTarget: (v: number | null) => void;
+  busy: boolean;
+  error: string | null;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const [countdown, setCountdown] = useState(5);
+
+  useEffect(() => {
+    if (!open) {
+      setCountdown(5);
+      return;
+    }
+    setCountdown(5);
+    const timer = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onCancel();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, busy, onCancel]);
+
+  if (!open) return null;
+
+  const targetSale = sales.find((s) => s.id === bulkTarget);
+  const isConfirmDisabled = bulkTarget == null || countdown > 0;
+  const targetCount = targetSale?.so_kh ?? 0;
+
+  return (
+    <div className="kh__overlay kh__overlay--blur" onMouseDown={(e) => e.target === e.currentTarget && !busy && onCancel()}>
+      <div
+        className="kh__dialog card kh__reassign-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Chuyển khách hàng đã chọn"
+      >
+        {/* Header Modal */}
+        <div className="kh__reassign-head">
+          <div className="kh__reassign-head-left">
+            <div className="kh__reassign-head-icon">
+              <Users size={18} />
+            </div>
+            <div>
+              <h2 className="kh__reassign-title">Chuyển {selectedCount} khách hàng đã chọn</h2>
+              <div className="kh__reassign-subtitle">
+                Gán nhân viên phụ trách mới cho danh sách khách hàng đang chọn
+              </div>
+            </div>
+          </div>
+          <button type="button" className="kh__close" aria-label="Đóng" onClick={onCancel} disabled={busy}>
+            <X size={16} strokeWidth={2} />
+          </button>
+        </div>
+
+        {/* Body Modal */}
+        <div className="kh__dialog-body kh__reassign-body">
+          {/* Safety Notice Card */}
+          <div className="kh__reassign-notice">
+            <ShieldAlert size={16} className="kh__reassign-notice-ic" />
+            <div className="kh__reassign-notice-text">
+              <strong>Lưu ý:</strong> <strong>{selectedCount} khách hàng</strong> đang chọn sẽ được cập nhật người phụ trách sang nhân sự được chỉ định bên dưới.
+            </div>
+          </div>
+
+          {/* Chọn nhân viên đích */}
+          <div className="kh__bulk-target-box">
+            <label className="kh__transfer-label">
+              <ShieldCheck size={13} />
+              <span>Chỉ định nhân viên tiếp nhận (Đích)</span>
+            </label>
+            <Select
+              ariaLabel="Nhân viên đích"
+              portal
+              value={bulkTarget}
+              placeholder="— Chọn nhân viên tiếp nhận —"
+              onChange={(v) => setBulkTarget(v)}
+              options={sales
+                .filter((s) => s.co_the_gan !== false)
+                .map((s) => ({
+                  value: s.id,
+                  label: s.name,
+                  sub: moTaSale(s),
+                  hint: s.so_kh != null ? `${s.so_kh} KH` : undefined,
+                }))}
+            />
+
+            {targetSale && (
+              <div className="kh__transfer-card" style={{ marginTop: "12px" }}>
+                <div className="kh__avatar-wrapper">
+                  <div className={`kh__avatar ${getKhAvatarClass(targetSale.name)}`}>
+                    {getInitials(targetSale.name)}
+                  </div>
+                </div>
+                <div className="kh__transfer-card-info">
+                  <div className="kh__transfer-card-name">{targetSale.name}</div>
+                  <div className="kh__transfer-card-role">{moTaSale(targetSale) || "NV Tiếp nhận"}</div>
+                  <div className="kh__transfer-card-meta">
+                    <span className="kh__transfer-count-badge">
+                      Hiện có: <strong>{targetCount} KH</strong> ➔ Sau chuyển: <strong>{targetCount + selectedCount} KH</strong> (+{selectedCount} KH)
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {error && <div className="banner banner--error" role="alert">{error}</div>}
+
+          {/* Action buttons */}
+          <div className="kh__dialog-actions kh__reassign-actions">
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={onCancel}
+              disabled={busy}
+            >
+              Huỷ
+            </button>
+            <button
+              type="button"
+              className="kh__reassign-confirm-btn"
+              onClick={onConfirm}
+              disabled={busy || isConfirmDisabled}
+            >
+              {busy ? (
+                "Đang điều chuyển…"
+              ) : countdown > 0 ? (
+                <>
+                  <Clock size={13} />
+                  <span>Xác nhận chuyển ({countdown}s)</span>
+                </>
+              ) : (
+                <>
+                  <Users size={14} />
+                  <span>Xác nhận chuyển ngay</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function NotesTab({ customerId }: { customerId: number }) {
   const { token } = useAuth();

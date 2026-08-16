@@ -22,22 +22,41 @@ const CHU = "./rebuild-catalog.css";
 
 /** Số selector mở đầu bằng `.rc-` / `.rc__` mà mỗi file KHÁC đang khai.
  *  Đây là NỢ ĐÃ BIẾT: con số chỉ được CO LẠI, không được phình ra. */
+/* ⚠️ BA CON SỐ NÀY LÀ SỐ ĐO THẬT, đo lại 16/08/2026 — trước đó chúng SAI CẢ BA.
+ *
+ * Lý do: `import.meta.glob(..., "?raw")` dưới Vitest trả về CHUỖI RỖNG cho mọi file CSS, vì mặc
+ * định `test.css = false` khiến CSS không được xử lý. Cả lưới gác này đọc rỗng ⇒ mọi khẳng định
+ * đúng một cách vô nghĩa, và nó xanh suốt từ lúc viết. Đã bật `css: true` trong `vite.config.ts`.
+ *
+ * Bài học đắt hơn con số: một guard XANH chưa chứng minh gì nếu chưa có lần nào thấy nó ĐỎ. */
 const NO_DA_BIET: Record<string, number> = {
-  "./kho-request.css": 17,  // scrim · drawer · sec__title · code-badge … (đã giành lại bằng .rc--dm)
-  "./ky-thuat-may.css": 2,  // .rc__tab.is-qua-han · .rc__tabn — hex cứng thay token
-  "./tinh-gia.css": 75,     // .rc-drawer--wide + cả bộ .rc-modal__* của màn Tính giá
+  "./kho-request.css": 28,  // scrim · drawer · sec__title · code-badge … (đã giành lại bằng .rc--dm)
+  "./ky-thuat-may.css": 1,  // .rc__tab.is-qua-han — hex cứng thay token
+  "./tinh-gia.css": 19,     // .rc-drawer--wide + bộ .rc-modal__* của màn Tính giá
 };
 
 function docCss(ten: string): string {
   return CSS[ten] ?? "";
 }
 
+/** Selector đang tô MỘT PHẦN TỬ `rc-*`.
+ *
+ *  Đếm theo phần tử BỊ TÔ (token cuối), không theo token đầu. `.rc-modal__right-col .tg-sheetrow`
+ *  tô một phần tử `tg-*` nằm trong khung của chính màn đó — nó không thể chạm tới màn Cấu hình
+ *  danh mục, nên tính vào nợ là kêu oan. Còn `.kho-request .rc-drawer__scrim` thì tô THẲNG một
+ *  phần tử của danh mục ⇒ đúng thứ guard này sinh ra để bắt. */
 function selectorRc(css: string): string[] {
   return css
     .split("\n")
     .map((d) => d.trim())
-    .filter((d) => /^\.rc[-_]/.test(d) && d.endsWith("{"))
-    .map((d) => d.replace(/\s*\{$/, ""));
+    .filter((d) => d.endsWith("{") && !d.startsWith("@") && !d.startsWith("/"))
+    .map((d) => d.replace(/\s*\{$/, ""))
+    .filter((sel) =>
+      sel.split(",").some((phan) => {
+        const cuoi = phan.trim().split(/\s+|>/).filter(Boolean).pop() ?? "";
+        return /^\.rc[-_]/.test(cuoi);
+      }),
+    );
 }
 
 describe("CSS danh mục không bị file khác cướp selector", () => {
@@ -52,6 +71,87 @@ describe("CSS danh mục không bị file khác cướp selector", () => {
         `CSS là global — thêm một cái nữa là đè lên màn Cấu hình danh mục trên MỌI màn hình.\n` +
         `Muốn style riêng thì dùng tiền tố của chính màn đó, đừng mượn họ "rc".`,
     ).toBeLessThanOrEqual(tran);
+  });
+});
+
+/** Các luật trong mọi khối `@media print` của một file: `{ sel, khai }`.
+ *
+ *  Cắt thô bằng regex chứ không dựng parser CSS: đủ cho việc soi một mẫu selector, và không kéo
+ *  thêm phụ thuộc chỉ để chạy một test. */
+function luatTrongMediaPrint(css: string): { sel: string; khai: string }[] {
+  const ra: { sel: string; khai: string }[] = [];
+  const khoi = css.matchAll(/@media[^{]*\bprint\b[^{]*\{/g);
+  for (const m of khoi) {
+    // Cắt đúng thân khối bằng cách đếm ngoặc từ vị trí mở.
+    let i = (m.index ?? 0) + m[0].length;
+    let sau = 1;
+    const dau = i;
+    while (i < css.length && sau > 0) {
+      if (css[i] === "{") sau++;
+      else if (css[i] === "}") sau--;
+      i++;
+    }
+    const than = css.slice(dau, i - 1).replace(/\/\*[\s\S]*?\*\//g, "");
+    for (const r of than.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      ra.push({ sel: r[1].trim().replace(/\s+/g, " "), khai: r[2] });
+    }
+  }
+  return ra;
+}
+
+/** Luật này có ẨN thứ gì đi không (chứ không phải chỉ nới overflow/height)? */
+function laLuatAn(khai: string): boolean {
+  return /(^|;)\s*(display\s*:\s*none|visibility\s*:\s*hidden)/i.test(khai);
+}
+
+describe("@media print không được ẩn toàn cục", () => {
+  /** Đã dính HAI LẦN, cả hai đều làm bản in của MÀN KHÁC ra trắng tinh:
+   *
+   *   · `luong.css` — `body * { visibility: hidden }` trần. Comment tại chỗ ghi rõ hậu quả:
+   *     "ẩn sạch bản in của MỌI màn khác (vd Phiếu tính giá bị trắng)". Đã sửa bằng `body:has(…)`.
+   *   · `ky-thuat-may.css` — viết lại y hệt cái bẫy đó, phát hiện 16/08/2026 khi Phiếu tính giá
+   *     in ra 2 trang trắng.
+   *
+   *  CSS ở repo này là global và `AppShell` import tĩnh mọi trang, nên một dòng `body *` trong
+   *  `@media print` của MỘT màn sẽ ăn vào bản in của TẤT CẢ màn. Hỏng câm: không lỗi, không cảnh
+   *  báo, chỉ là giấy trắng — mà thường tới tay khách rồi mới có người kêu.
+   *
+   *  Luật: mọi selector nhắm `body`/`html`/`*` trong `@media print` phải khoá phạm vi bằng
+   *  `:has(...)` của chính màn đó. Bốn màn in hiện có đều làm vậy: `.qpdf` · `.tg-page` ·
+   *  `.lg-payslip-print` · `.ktm-drawer`.
+   */
+  const files = Object.keys(CSS);
+
+  it.each(files)("%s: luật print ẩn-toàn-cục phải khoá màn", (ten: string) => {
+    // CHỈ soi luật có ẩn thật (`display:none` / `visibility:hidden`). Luật chỉ nới `overflow` hay
+    // `height` cho `html, body` là VÔ HẠI và cần cho mọi màn in — `tinh-gia.css` cố ý làm thế, kèm
+    // ghi chú "không dùng :has vì vài trình duyệt bỏ qua :has trong media print". Bắt cả nhóm đó
+    // là guard kêu oan, mà guard kêu oan thì sớm muộn bị tắt.
+    const xau = luatTrongMediaPrint(docCss(ten))
+      .filter(({ sel, khai }) => laLuatAn(khai) && !sel.includes(":has("))
+      .map(({ sel }) => sel)
+      .filter((sel) => sel.split(",").some((s) => /^\s*(html|body|\*)(\s|\*|$)/.test(s)));
+    expect(
+      xau,
+      `${ten} có luật print ẨN toàn cục mà không khoá màn: ${JSON.stringify(xau)}\n` +
+        "CSS là global ⇒ nó ăn vào bản in của MỌI màn khác, và hậu quả là GIẤY TRẮNG.\n" +
+        "Khoá lại bằng `body:has(<class riêng của màn>) …`, xem 4 màn in hiện có.",
+    ).toEqual([]);
+  });
+
+  it("bản in Kỹ thuật máy vẫn còn luật hiện drawer của nó", () => {
+    // Khoá phạm vi mà lỡ tay khoá luôn cả phần hiện drawer thì màn KTM in ra trắng — đổi bệnh
+    // chứ không chữa bệnh. Giữ một mốc để chắc phần "cho hiện" còn nguyên.
+    const luat = luatTrongMediaPrint(docCss("./ky-thuat-may.css"));
+    expect(luat.length, "khối @media print của KTM biến mất").toBeGreaterThan(0);
+    expect(
+      luat.some((l) => l.sel.includes(".ktm-drawer") && l.sel.includes(":has(")),
+      "KTM phải khoá phạm vi bằng :has(.ktm-drawer)",
+    ).toBe(true);
+    expect(
+      luat.some((l) => l.sel.includes(".rc-drawer__scrim") && /visibility\s*:\s*visible/i.test(l.khai)),
+      "KTM phải còn luật CHO HIỆN drawer, không thì chính nó in ra trắng",
+    ).toBe(true);
   });
 });
 

@@ -149,7 +149,6 @@ class Lsx(Base):
     # Ảnh chụp routing NGAY LÚC TẠO lệnh (list dict rút gọn: ten · nhom · loai_buoc · thue ngoài).
     # Chỉ để §14 phát hiện "routing đã đổi so với bài tính giá" — KHÔNG dùng để tính lại bất cứ gì.
     routing_goc_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    khuon_be_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → khuon_be.id
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)       # → may_thiet_bi.id
 
     # --- Quản lý ---
@@ -207,14 +206,14 @@ class LsxCongDoan(Base):
     # Tổ nhận việc — snapshot `cong_doan.department_id` lúc copy (đổi danh mục sau không lay lệnh đã tạo).
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → may_thiet_bi.id
-    # Khuôn dùng cho CHÍNH BƯỚC NÀY (soft-ref → khuon_be.id). Chỉ có nghĩa khi công đoạn nguồn bật
-    # cờ `requires_tooling` với `tooling_type` là khuôn lưu kho (khuon_be · khuon_ep).
+    # 🔴 KHÔNG dựng lại cột khuôn ở đây. `lsx_cong_doan.khuon_be_id` (gán dao cho bước) và
+    # `lsx.khuon_be_id` (đời cũ, gán cho cả lệnh) đều đã XOÁ HẲN 16/08/2026 theo mg `0203` — cùng
+    # với hai detector khuôn ở xếp lịch, dòng so sánh "Khuôn bế" ở bài ghép và nhóm "Công cụ" ở
+    # kế hoạch vật tư. Số đo lúc quyết: 0/14 bước có gán khuôn ⇒ chưa ai dùng thật.
     #
-    # Vì sao ở BƯỚC chứ không ở lệnh (11/08/2026): một lệnh hộp giấy có thể vừa Bế (khuôn bế) vừa
-    # Ép nhũ (khuôn ép) — ô khuôn ở cấp lệnh chỉ giữ được MỘT cái, cái còn lại không ai biết lấy
-    # khuôn nào. Gắn theo bước thì bảng cân đối còn canh được đúng mốc: khuôn bế phải có mặt ngày
-    # chạy bước bế, khuôn ép ngày chạy bước ép — hai ngày khác nhau.
-    khuon_be_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    # Danh mục kho khuôn (`khuon_be`) VẪN CÒN và vẫn khai được — nó nay là sổ tài sản đứng riêng,
+    # không có chỗ nào trong lệnh/xếp lịch trỏ tới. Cờ `cong_doan.requires_tooling` cũng còn, nhưng
+    # chỉ để phiếu tính giá biết bước nào hỏi PHÍ khuôn (`phieu_thanh_pham.phi_khuon`).
 
     # --- Nhận diện bước ---
     loai_buoc: Mapped[str] = mapped_column(

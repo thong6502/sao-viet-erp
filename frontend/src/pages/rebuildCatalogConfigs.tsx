@@ -18,9 +18,10 @@ const lbl = (m: Lbls) => (v: unknown) => (v == null || v === "" ? "—" : (m[Str
 
 const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia công sau in", other: "Dịch vụ khác" };
 
-// Dụng cụ DÙNG CHUNG mà bước cần (mục C) — phải khớp `cong_doan.TOOLING_TYPE` ở backend
-// (`khuon_be` · `khuon_ep` · `kem`), service chặn giá trị ngoài danh sách.
-const TOOLING_TYPE: Lbls = { khuon_be: "Khuôn bế", khuon_ep: "Khuôn ép nhũ / dập nổi", kem: "Bản kẽm" };
+// Dụng cụ DÙNG CHUNG mà bước phải mượn từ kho khuôn — khớp `cong_doan.TOOLING_TYPE` ở backend
+// (service chặn giá trị ngoài danh sách). "Bản kẽm" đã gỡ 16/08/2026: kẽm là vật tư tiêu hao,
+// không có dòng nào trong kho khuôn để trỏ tới — xem lý do đầy đủ ở `models/cong_doan.TOOLING_TYPE`.
+const TOOLING_TYPE: Lbls = { khuon_be: "Khuôn bế", khuon_ep: "Khuôn ép nhũ / dập nổi" };
 
 // NHÃN đọc cho mã đơn vị hay gặp ở công đoạn — KHÔNG còn là danh sách chọn (11/08/2026).
 //
@@ -771,14 +772,11 @@ export const CFG_KHUON_BE: CatalogConfig = {
   autoCode: true,          // mã KB-#### sinh ngầm ở backend, ẩn ô nhập mã
   facet: { key: "tinh_trang", values: mapOpt(TINH_TRANG_KHUON) },
   columns: [
-    { key: "khach_hang", label: "Khách hàng", render: (r) => (r.khach_hang ? String(r.khach_hang) : "—") },
     { key: "so_ke", label: "Số kệ", render: (r) => (r.so_ke ? String(r.so_ke) : "—") },
     { key: "ngay_lam_khuon", label: "Ngày làm", render: (r) => fmtDate(r.ngay_lam_khuon) },
     { key: "tinh_trang", label: "Tình trạng", render: (r) => lbl(TINH_TRANG_KHUON)(r.tinh_trang) },
   ],
   fields: [
-    { key: "khach_hang", label: "Khách hàng", type: "text", group: "Thông tin",
-      hint: "Khai tay tên khách; nối danh mục khách hàng ở bản sau" },
     { key: "so_ke", label: "Số kệ / vị trí lưu", type: "text", group: "Lưu trữ",
       hint: "Nơi cất khuôn, vd: Kệ B3 — xưởng sau in" },
     { key: "ngay_lam_khuon", label: "Ngày làm khuôn", type: "date", group: "Lưu trữ" },

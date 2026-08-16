@@ -1,4 +1,4 @@
-/* Custom Select (dropdown) — paper + ink + rust, matches .input metrics. */
+/* Custom Select (dropdown) — Modern Indigo & Slate design system */
 .sel {
   position: relative;
   width: 100%;
@@ -8,34 +8,35 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--sp-2);
+  gap: var(--sp-2, 8px);
   font-family: var(--ff-sans);
-  font-size: 14px;
-  color: var(--ink);
+  font-size: 13.5px;
+  color: #0f172a;
   text-align: left;
-  background: var(--canvas);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-2);
-  padding: 10px 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 12px;
   cursor: pointer;
-  transition: border-color var(--duration-base) var(--easing-standard);
+  transition: all 0.15s ease;
 }
 .sel__trigger:hover:not(:disabled) {
-  border-color: var(--ash-2);
+  border-color: #cbd5e1;
 }
 .sel__trigger.is-open {
-  border-color: var(--ink);
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
 }
 .sel__trigger:focus-visible {
-  outline: 2px solid var(--rust);
-  outline-offset: 1px;
-  border-color: var(--ink);
+  outline: none;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
 }
 .sel--disabled .sel__trigger,
 .sel__trigger:disabled {
   opacity: 0.55;
   cursor: not-allowed;
-  background: var(--paper);
+  background: #f8fafc;
 }
 .sel__value {
   min-width: 0;
@@ -44,16 +45,17 @@
   white-space: nowrap;
 }
 .sel__value--ph {
-  color: var(--ash-2);
+  color: #94a3b8;
 }
 .sel__caret {
   flex: 0 0 auto;
-  color: var(--ash);
+  color: #94a3b8;
   font-size: 11px;
-  transition: transform var(--duration-fast) var(--easing-standard);
+  transition: transform var(--duration-fast, 0.15s) ease;
 }
 .sel__trigger.is-open .sel__caret {
   transform: rotate(180deg);
+  color: #4f46e5;
 }
 
 /* Popover list. */
@@ -65,29 +67,30 @@
   right: 0;
   list-style: none;
   margin: 0;
-  padding: var(--sp-1);
-  background: var(--canvas);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-3, 10px);
-  box-shadow: var(--shadow-4, 0 8px 24px rgba(20, 19, 15, 0.12));
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.02);
   max-height: 280px;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--rule) transparent;
+  scrollbar-color: #cbd5e1 transparent;
+  animation: khFadeIn 0.15s ease-out;
 }
 
 .sel__list::-webkit-scrollbar {
-  width: 6px;
+  width: 5px;
 }
 .sel__list::-webkit-scrollbar-track {
   background: transparent;
 }
 .sel__list::-webkit-scrollbar-thumb {
-  background: var(--rule);
+  background: #cbd5e1;
   border-radius: 9999px;
 }
 .sel__list::-webkit-scrollbar-thumb:hover {
-  background: var(--ash-2);
+  background: #94a3b8;
 }
 
 .sel__list--right {
@@ -97,81 +100,105 @@
 
 /* Auto-expand popover width when options have 2-tier stacked text (e.g. Sales name + role) */
 .sel__list:has(.sel__opt-stack) {
-  min-width: max(100%, 260px);
-  max-width: 320px;
+  min-width: max(100%, 280px);
+}
+/* Bản PORTAL là position:fixed ⇒ `100%` tính theo MÀN HÌNH chứ không phải bề ngang ô chọn;
+   để nguyên luật trên thì popover kéo dài hết trang (vd modal Điều chuyển khách hàng). */
+.sel__list--portal:has(.sel__opt-stack) {
+  min-width: 280px;
 }
 
 /* Portal mode: sits above modal (z-index 2000); position comes from inline fixed coords. */
 .sel__list--portal {
   z-index: 2000;
+  max-width: calc(100vw - 16px);
 }
 /* Ô tìm trong popover (prop `searchable`) — dính đầu danh sách khi cuộn. */
 .sel__search {
   position: sticky;
-  top: calc(var(--sp-1) * -1);
-  margin: calc(var(--sp-1) * -1) calc(var(--sp-1) * -1) var(--sp-1);
-  padding: var(--sp-1);
-  background: var(--canvas);
-  border-bottom: 1px solid var(--rule-soft);
+  top: -4px;
+  margin: -4px -4px 4px;
+  padding: 6px;
+  background: #ffffff;
+  border-bottom: 1px solid #f1f5f9;
   z-index: 1;
 }
 .sel__searchinput {
   width: 100%;
   font-family: var(--ff-sans);
   font-size: 13px;
-  color: var(--ink);
-  background: var(--paper);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-2);
+  color: #0f172a;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
   padding: 6px 10px;
 }
 .sel__searchinput:focus {
   outline: none;
-  border-color: var(--rust);
+  border-color: #4f46e5;
+  background: #ffffff;
 }
 .sel__empty {
   padding: 10px;
   font-size: 12.5px;
-  color: var(--ash);
+  color: #94a3b8;
   text-align: center;
 }
 
 .sel__opt {
   display: flex;
-  align-items: baseline;
-  gap: var(--sp-2);
+  align-items: center;
+  gap: 8px;
   padding: 8px 10px;
-  border-radius: var(--r-2);
+  border-radius: 8px;
   cursor: pointer;
+  transition: all 0.12s ease;
 }
 .sel__opt.is-active {
-  background: var(--paper);
+  background: #f1f5f9;
 }
 .sel__opt.is-selected {
-  color: var(--rust-deep);
-  font-weight: var(--fw-medium);
+  background: rgba(99, 102, 241, 0.08);
+  color: #4338ca;
+  font-weight: 600;
 }
 .sel__opt.is-selected.is-active {
-  background: var(--rust-soft);
+  background: rgba(99, 102, 241, 0.14);
+  color: #3730a3;
 }
 .sel__opt-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 13px;
+  color: #0f172a;
+}
+.sel__opt.is-selected .sel__opt-label {
+  color: #4338ca;
+  font-weight: 600;
 }
 .sel__opt-hint {
   font-family: var(--ff-sans);
   font-size: 11px;
-  color: var(--ash);
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  margin-left: auto;
 }
 .sel__opt.is-selected .sel__opt-hint {
-  color: var(--rust-deep);
+  background: rgba(99, 102, 241, 0.12);
+  color: #4338ca;
+  border-color: rgba(99, 102, 241, 0.25);
 }
 .sel__opt-check {
-  margin-left: auto;
-  color: var(--rust);
-  font-size: 12px;
+  margin-left: 6px;
+  color: #4f46e5;
+  font-size: 13px;
+  font-weight: 700;
 }
 /* Chấm số ĐỎ báo "chưa xem" (vd phản hồi kho) — ngay cạnh nhãn/hint của lựa chọn. */
 .sel__opt-badge {
@@ -182,35 +209,35 @@
   height: 18px;
   padding: 0 5px;
   border-radius: 999px;
-  background: var(--signal, #8a1f1f);
+  background: #ef4444;
   color: #fff;
   font-family: var(--ff-num);
   font-size: 11px;
-  font-weight: var(--fw-bold);
+  font-weight: 700;
   line-height: 1;
 }
 
 /* Lựa chọn 2 TẦNG (`sub`): tên ở trên, thuộc tính ở dưới — vd "Lê Sale Một" / "NV Sales · Kinh
-   doanh". Chỉ áp khi option có `sub`, nên mọi Select cũ giữ nguyên bố cục một dòng. */
+   doanh". */
 .sel__opt-stack {
   display: flex;
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+  flex: 1;
 }
 .sel__opt-sub {
   font-size: 11px;
   line-height: 1.3;
-  color: var(--ash);
+  color: #64748b;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .sel__opt.is-selected .sel__opt-sub {
-  color: var(--rust-deep);
+  color: #6366f1;
 }
-/* Option 2 tầng thì căn theo ĐỈNH, không theo baseline — baseline của khối 2 dòng đẩy dấu ✓
-   và hint lệch xuống. */
 .sel__opt:has(.sel__opt-stack) {
   align-items: center;
 }
+

@@ -1853,24 +1853,24 @@ def seed_payroll(db: Session) -> None:
 # Mỗi finishing: (ten, cong_doan_ma|None, don_gia_phang). don_gia_phang>0 → tính phẳng; else dùng
 # cấu hình công đoạn (compute_step_cost).
 PTG_SAMPLES: list[tuple] = [
-    ("PTG-2026-0211", "HANGTAG LAVELLO BLACK", "5×10 cm", 5000, "Lê Văn C (KTV)", [
+    ("PTG-2026-0211", "HANGTAG LAVELLO BLACK", "5×10 cm", 5000, "Lê Văn C", [
         ("Thẻ treo", "IVORY-350-79x109", 60, 4, "hai_mat",
          [("Cán màng bóng", "CD-0003", 0.0), ("Bế nổi", None, 300.0)]),
     ]),
-    ("PTG-2026-0204", "Hộp giấy offset", "20×30×5 cm", 10000, "Phạm Văn D (KTV)", [
+    ("PTG-2026-0204", "Hộp giấy offset", "20×30×5 cm", 10000, "Phạm Văn D", [
         ("Thân hộp", "IVORY-350-79x109", 2, 4, "mot_mat",
          [("Cán màng bóng", "CD-0003", 0.0), ("Bế", None, 250.0)]),
         ("Nắp hộp", "DUPLEX-300", 4, 2, "mot_mat", []),
     ]),
-    ("PTG-2026-0206", "Tờ rơi A4", "21×29.7 cm", 30000, "Lê Văn C (KTV)", [
+    ("PTG-2026-0206", "Tờ rơi A4", "21×29.7 cm", 30000, "Lê Văn C", [
         ("Tờ rơi", "COUCHE-150-79x109", 4, 4, "hai_mat", []),
     ]),
-    ("PTG-2026-0203", "Catalogue", "21×28 cm", 5000, "Phạm Văn D (KTV)", [
+    ("PTG-2026-0203", "Catalogue", "21×28 cm", 5000, "Phạm Văn D", [
         ("Ruột", "COUCHE-150-79x109", 4, 4, "hai_mat", []),
         ("Bìa", "COUCHE-300-65x86", 2, 4, "hai_mat",
          [("Cán màng bóng", "CD-0003", 0.0)]),
     ]),
-    ("PTG-2026-0202", "Danh thiếp cao cấp", "9×5.4 cm", 8000, "Lê Văn C (KTV)", [
+    ("PTG-2026-0202", "Danh thiếp cao cấp", "9×5.4 cm", 8000, "Lê Văn C", [
         ("Danh thiếp", "COUCHE-300-65x86", 24, 4, "hai_mat",
          [("Ép kim", None, 500.0)]),
     ]),

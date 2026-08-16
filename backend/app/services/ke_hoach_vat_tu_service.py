@@ -460,7 +460,10 @@ class KeHoachVatTuService:
 
         nhom = self._chay_con_tro(tho, ton=ton, dang_ve=dang_ve, da_cap=da_cap,
                                   dang_linh=dang_linh)
-        nhom.extend(self._nhom_cong_cu(lenh))
+        # 🔴 Nhóm "Công cụ" (khuôn bế) đã GỠ 16/08/2026 cùng cột `lsx_cong_doan.khuon_be_id`
+        # (mg `0203`). Giữ nửa vời thì vô nghĩa: không biết CON DAO NÀO thì không tra được tình
+        # trạng / ngày về, mà đó là toàn bộ giá trị của nhóm — phần còn lại ("bước này cần khuôn")
+        # routing đã nói rồi.
         return {"items": self._loc(nhom, q=q, chi_thieu=chi_thieu), "bo_qua": bo_qua}
 
     # ---- (a) ----------------------------------------------------------------
@@ -767,91 +770,6 @@ class KeHoachVatTuService:
         return ra
 
     # ---- 1.3 DÒNG CÔNG CỤ (khuôn bế) ---------------------------------------
-
-    def _nhom_cong_cu(self, lenh: list[Lsx]) -> list[dict]:
-        """Khuôn bế: dòng CÔNG CỤ — không so tồn, chỉ hỏi "có sẵn sàng đúng lúc không".
-
-        Khuôn không phải hàng tiêu hao: hai lệnh dùng chung MỘT khuôn là chuyện bình thường, cái
-        phải canh là *tình trạng* và *giờ*. Vì thế nhóm này không có tồn / còn lại sau.
-        """
-        can_khuon = self._cong_doan_can_dung_cu()
-        if not can_khuon:
-            return []
-        dong_theo_khuon: dict[int, list[dict]] = {}
-        for l in lenh:
-            # MỖI bước cần dụng cụ là MỘT dòng — không lấy mỗi bước đầu tiên nữa (11/08/2026).
-            # Hộp giấy vừa Bế vừa Ép nhũ là hai khuôn khác nhau, hai ngày cần khác nhau; gộp lại
-            # thì khuôn ép về muộn vẫn báo xanh vì đã canh theo ngày bế.
-            for buoc in sorted(l.cong_doans, key=lambda c: c.thu_tu):
-                if buoc.cong_doan_id not in can_khuon:
-                    continue
-                ngay = self._ngay_can_buoc(buoc.id)
-                moc_tam = ngay is None
-                if moc_tam:
-                    ngay, _ = self._moc_tam(l)
-                dong_theo_khuon.setdefault(int(buoc.khuon_be_id or 0), []).append({
-                    "loai": "cong_cu",
-                    "lsx_id": l.id,
-                    "bai_ghep_id": None,
-                    "ma": l.ma,
-                    "ten_viec": buoc.ten,
-                    "ngay_can": ngay,
-                    "moc_tam": moc_tam,
-                    "nhu_cau": None,
-                    "nhu_cau_hien_thi": "1 bộ khuôn",
-                    "da_cap": None, "dang_linh": None, "con_phai_co": None, "con_lai_sau": None,
-                    "thieu": None, "han_dat": None, "dat_muon": False,
-                    "canh_bao": [], "ly_do_canh_bao": None,
-                    "_khuon_id": int(buoc.khuon_be_id or 0),
-                })
-        if not dong_theo_khuon:
-            return []
-        khuons = self.repo.khuon_theo_ids([i for i in dong_theo_khuon if i])
-        ra: list[dict] = []
-        for khuon_id, ds in dong_theo_khuon.items():
-            khuon = khuons.get(khuon_id)
-            so_do = 0
-            for d in ds:
-                d.pop("_khuon_id", None)
-                d["trang_thai"] = self._mau_khuon(khuon, d["ngay_can"])
-                if d["trang_thai"] == MAU_DO:
-                    so_do += 1
-            ra.append({
-                "loai_nhom": "cong_cu",
-                "hang_loai": "khuon",
-                "hang_id": khuon_id,
-                "hang_ma": getattr(khuon, "ma", None),
-                "hang_ten": getattr(khuon, "ten", None) or "Chưa gán khuôn",
-                "don_vi_goc": None,
-                "ton": None,
-                "tong_can": None,
-                "so_dong_do": so_do,
-                "khuon_tinh_trang": getattr(khuon, "tinh_trang", None),
-                "khuon_ngay_ve": getattr(khuon, "ngay_ve_du_kien", None),
-                "dong": sorted(ds, key=lambda d: (d["ngay_can"] is None,
-                                                  d["ngay_can"] or date.max, d["ma"])),
-            })
-        ra.sort(key=lambda g: (-g["so_dong_do"], g["hang_ma"] or ""))
-        return ra
-
-    def _cong_doan_can_dung_cu(self) -> set[int]:
-        """Id công đoạn có cờ `requires_tooling`. KHÔNG đoán bước bế theo TÊN — tên là chữ người
-        dùng gõ, đổi lúc nào không ai báo."""
-        return self.repo.cong_doan_can_dung_cu()
-
-    @staticmethod
-    def _mau_khuon(khuon, ngay_can: date | None) -> str:
-        if khuon is None:
-            return MAU_DO                        # lệnh chưa gán khuôn nào
-        tt = (khuon.tinh_trang or "").strip()
-        if tt in ("hong", "thanh_ly"):
-            return MAU_DO
-        if tt == "dang_dat_lam":
-            ve = khuon.ngay_ve_du_kien
-            if ve is None or (ngay_can is not None and ve > ngay_can):
-                return MAU_DO                    # về sau giờ bế = không có khuôn mà chạy
-            return MAU_VANG                      # về kịp, nhưng vẫn phải theo dõi
-        return MAU_XANH
 
     # ---- lọc hiển thị -------------------------------------------------------
 

@@ -87,11 +87,15 @@ from ..schemas.customer import (
     NoteUpdateIn,
     OrderHistoryOut,
     OrderHistoryRowOut,
+    PrintSpecOut,
     ProductSliceOut,
     QuoteHistoryOut,
     QuoteHistoryRowOut,
     ReceivableCard,
     SaleOption,
+    KhoNhanOut,
+    KhoNhanRow,
+    KhoNhanXoaOut,
     TagIn,
     TagOut,
     TagsOut,
@@ -477,6 +481,47 @@ def list_tag_labels(
     return svc.customers.distinct_labels(scope=_scope_for(authz, user), actor=user)
 
 
+# --- kho nhãn dùng chung (thêm / xoá nhãn) ---------------------------------------
+# ⚠️ Ba route dưới phải đứng TRƯỚC `/{customer_id}`: đường một đoạn, để sau thì "tag-kho" bị nuốt
+# thành customer_id rồi 422. Cùng lý do `/tags` ở trên đứng chỗ này.
+
+
+@router.get("/tag-kho", response_model=KhoNhanOut)
+def list_kho_nhan(
+    svc: Service,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> KhoNhanOut:
+    """Kho nhãn có thể gán + số khách đang mang từng nhãn."""
+    return KhoNhanOut(items=[KhoNhanRow(**r) for r in svc.list_kho_nhan()])
+
+
+@router.post("/tag-kho", response_model=KhoNhanRow, status_code=201)
+def them_nhan_kho(
+    payload: TagIn,
+    svc: Service,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> KhoNhanRow:
+    try:
+        row = svc.them_nhan_kho(label=payload.label, actor=user)
+    except CustomerValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    return KhoNhanRow(id=row.id, label=row.label, so_khach=0)
+
+
+@router.delete("/tag-kho/{nhan_id}", response_model=KhoNhanXoaOut)
+def xoa_nhan_kho(
+    nhan_id: int,
+    svc: Service,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> KhoNhanXoaOut:
+    """Xoá nhãn khỏi kho + gỡ khỏi mọi khách đang mang. Không chặn — xem `xoa_nhan_kho`."""
+    try:
+        so = svc.xoa_nhan_kho(nhan_id=nhan_id, actor=user)
+    except CustomerNotFound:
+        raise _not_found() from None
+    return KhoNhanXoaOut(so_khach_da_go=so)
+
+
 @router.get("/{customer_id}/tags", response_model=TagsOut)
 def list_customer_tags(
     customer_id: int,
@@ -788,6 +833,8 @@ def customer_dashboard(
         product_mix=[ProductSliceOut(**vars(s)) for s in d.product_mix],
         heatmap=[HeatCellOut(**vars(h)) for h in d.heatmap],
         has_data=d.has_data,
+        print_specs=[PrintSpecOut(**vars(s)) for s in d.print_specs],
+        print_specs_phieu=d.print_specs_phieu,
         receivable=_receivable_card(
             svc, customer, can_view=authz.can(user, MODULE, "view_debt")
         ),

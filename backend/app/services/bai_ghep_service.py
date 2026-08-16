@@ -20,7 +20,6 @@ from ..models.bai_ghep_cong_doan import (
 from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan
 from ..models.customer import Customer
-from ..models.khuon_be import KhuonBe
 from ..models.lsx import (
     LB_MAY,
     TT_DA_LAP_KE_HOACH as LSX_DA_LAP, TT_SAN_SANG as LSX_SAN_SANG,
@@ -1639,26 +1638,11 @@ class BaiGhepService:
         khos = [_kho(qc.get("dai_thanh_pham"), qc.get("rong_thanh_pham")) or "—" for qc in qcs]
         rows.append(_row("Khổ thành phẩm", khos, "phu_hop"))
 
-        # KHUÔN BẾ (mục C) — dụng cụ DÙNG CHUNG, chỉ có MỘT cái: hai lệnh khác khuôn ghép chung tờ
-        # thì tới bước bế phải tháo lắp khuôn giữa chừng, hoặc chạy hai lượt. Không chặn cứng (đúng
-        # lối dòng Giấy/Mực ngay trên), nhưng phải BÀY RA — hôm nay bảng này im lặng về khuôn, người
-        # ghép chỉ phát hiện lúc đã tới máy bế.
-        # Lệnh KHÔNG có bước cần dụng cụ thì khuôn trống là bình thường ⇒ bỏ hẳn dòng này, không
-        # bắt người ta đọc một dòng "—" vô nghĩa cho bài toàn tờ phẳng.
-        kb_ids = [(lsx_map[tv.lsx_id].khuon_be_id if tv.lsx_id in lsx_map else None) for tv in tvs]
-        if any(kb_ids):
-            ten_kb: dict[int, str] = {}
-            for k in {i for i in kb_ids if i}:
-                kb = self.db.get(KhuonBe, k)
-                if kb is not None:
-                    ten_kb[k] = f"{kb.ma} · {kb.ten}"
-            co_du = all(kb_ids)
-            rows.append(_row(
-                "Khuôn bế",
-                [ten_kb.get(i, "—") if i else "Chưa gán" for i in kb_ids],
-                "phu_hop" if (co_du and len(set(kb_ids)) == 1) else "can_xac_nhan",
-            ))
-
+        # 🔴 Dòng "Khuôn bế" đã GỠ 16/08/2026 cùng cột `lsx_cong_doan.khuon_be_id` (mg `0203`).
+        # Đừng dựng lại theo lối cũ nếu sau này có đường gán khuôn: nó so khuôn ở cấp LỆNH, mà câu
+        # đó vốn sai — hai lệnh ghép chung TỜ IN rồi mỗi lệnh đi bế riêng bằng dao của nó thì khác
+        # dao là bình thường. Chỉ khi bước bế được GỘP thành một lượt chạy chung mà các thành viên
+        # khai hai con dao khác nhau mới là vô lý (một lượt không lắp được hai khuôn).
         return {"thanh_vien": [{"lsx_id": tv.lsx_id} for tv in tvs], "rows": rows}
 
     # ================= CHECKLIST =================

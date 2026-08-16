@@ -373,6 +373,43 @@ chặn trùng nhãn (case-insensitive) trong cùng khách. Chạy song song vớ
 
 ---
 
+### `customer_tag_catalog`
+
+**Purpose:** KHO NHÃN dùng chung — danh sách nhãn *có thể* gán, tách khỏi việc đã gán cho ai
+(mg `0204`, 16/08/2026). Trước đó kho nhãn là mảng 13 chuỗi **viết cứng** trong
+`KhachHangPage.tsx`, nên nhãn không xoá được: gỡ khỏi mọi khách xong, mở hộp Gắn thẻ ra nó vẫn
+nằm đấy vì nó nằm trong code chứ không trong dữ liệu.
+
+Không gộp được vào `customer_tags`: bảng đó là bảng GÁN (`customer_id` NOT NULL) nên một nhãn chỉ
+tồn tại khi đã có khách mang nó — nhãn "có sẵn nhưng chưa ai dùng" không có chỗ chứa.
+
+| Column       | Type (SQLAlchemy → SQLite / Postgres)                  | Key             | Null | Default        | Meaning                                     |
+| ------------ | ------------------------------------------------------ | --------------- | ---- | -------------- | ------------------------------------------- |
+| `id`         | `Integer` → `INTEGER` / `SERIAL`                       | **PK**          | no   | auto-increment | Surrogate primary key.                      |
+| `label`      | `String(50)` → `VARCHAR(50)`                           | **UQ**, **IX**  | no   | —              | Nội dung nhãn. UQ chặn trùng y hệt; trùng khác hoa-thường do service chặn. |
+| `created_by` | `Integer` → `INTEGER`                                  | **FK→users.id** | yes  | —              | Người thêm nhãn vào kho.                    |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —               | no   | now (UTC)      | Thời điểm thêm.                             |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique + index trên `label`.
+- Foreign keys: `created_by FK→users.id`.
+
+**Ghi chú vận hành**
+
+- Nối với `customer_tags` bằng **chuỗi `label`, KHÔNG khoá ngoại** — dữ liệu đã gán từ trước không
+  phải migrate, và nhãn gõ tay tại chỗ vẫn gán được ngay rồi mới đẻ dòng danh mục.
+- **Xoá nhãn ở đây thì service gỡ luôn** mọi dòng `customer_tags` mang nhãn đó. Không để lại: chip
+  còn trên khách mà nhãn đã khỏi kho thì không còn đường nào bỏ tick.
+- Xoá **không bị chặn** dù đang có khách mang (khác luật xoá của 10 màn Cấu hình danh mục) — nhãn
+  là ghi chú mềm, không phải danh mục mà số liệu neo vào. Bù lại màn hình hỏi kèm **số khách thật**.
+- Hạt mồi 13 nhãn của mg `0204` chỉ rót khi bảng **rỗng hoàn toàn**, để nhãn đã xoá không mọc lại
+  sau mỗi lần khởi động.
+- KHÔNG có cột `mau` (màu chip do `tagTone()` bên FE suy từ chuỗi nhãn) và KHÔNG có cột `active`
+  (yêu cầu là thêm/xoá; cờ ngừng-dùng không có ô bật/tắt nào trên màn ⇒ sẽ là cột chết).
+
+---
+
 ### `customer_care_events`
 
 **Purpose:** nhật ký chăm sóc khách (khảo sát #20/#27: ngày nào gọi/nhắn/email/gặp, trao
@@ -3349,9 +3386,9 @@ Thứ phụ thuộc từng mặt hàng ("1 thùng keo = 3 kg" khác "1 thùng m�
 
 ### `khuon_be`
 
-**Purpose:** danh mục KHAI BÁO nơi lưu trữ khuôn bế (master data nhẹ) — mỗi khuôn làm riêng cho hình bế của 1 ấn phẩm; đơn lặp lại thì lôi khuôn cũ ra dùng. Khai TAY để tìm lại: `ma` (KB-#### sinh ngầm) / `ten` (tên khuôn / ấn phẩm) / `khach_hang` (khai tay, đấu ref sau) / `so_ke` (số kệ, vị trí lưu — lõi) / `ngay_lam_khuon` / `tinh_trang` (dang_dung·hong·thanh_ly) / `ghi_chu`. Bảng mới → `create_all` tự dựng (không migration). Xóa mềm (`active=false`) giữ dấu vết. Gác quyền module RIÊNG `khuon_be`.
+**Purpose:** danh mục KHAI BÁO nơi lưu trữ khuôn bế (master data nhẹ) — mỗi khuôn làm riêng cho hình bế của 1 ấn phẩm; đơn lặp lại thì lôi khuôn cũ ra dùng. Khai TAY để tìm lại: `ma` (KB-#### sinh ngầm) / `ten` (tên khuôn / ấn phẩm) / `so_ke` (số kệ, vị trí lưu — lõi) / `ngay_lam_khuon` / `tinh_trang` (dang_dung·hong·thanh_ly) / `ghi_chu`. Bảng mới → `create_all` tự dựng (không migration). Xóa mềm (`active=false`) giữ dấu vết. Gác quyền module RIÊNG `khuon_be`. `khach_hang` đã **DROP** (mg `0202`): cột khai tay không nối danh mục Khách hàng nên là bản chép tên dễ lệch; khuôn nhận diện bằng mã + tên ấn phẩm.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `khach_hang`, `so_ke`, `ngay_lam_khuon`, `tinh_trang`, `ngay_ve_du_kien`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `so_ke`, `ngay_lam_khuon`, `tinh_trang`, `ngay_ve_du_kien`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
 - `tinh_trang` (mg 0177) nhận thêm giá trị **`dang_dat_lam`** — khuôn CHƯA có trong tay, đang đặt thợ làm. Không phải DDL (`tinh_trang` là VARCHAR tự do, service kiểm giá trị theo hằng `TINH_TRANG`).
 - `ngay_ve_du_kien` (`Date`, nullable, mg 0177) — chỉ có nghĩa với `dang_dat_lam`. Bàn xếp lịch so ngày này với giờ bắt đầu bước bế: về SAU giờ bế ⇒ vấn đề mức **Chặn**; về kịp ⇒ cảnh báo vàng. Không có nó thì `dang_dat_lam` chỉ là một chữ, không chặn được gì.
@@ -3479,7 +3516,9 @@ một bảng chứ không hai, để mọi chỗ đọc/đếm/xoá ảnh chỉ 
 
 **Purpose:** 1 dòng công đoạn gia công sau in (finishing) của 1 thành phần — con của `phieu_thanh_phan` (`thanh_phan_id` FK thật, cascade xoá). Hoặc tính giá PHẲNG (`don_gia` > 0 × số lượng — `so_luong`=0 nghĩa dùng SL đặt của phiếu) hoặc dùng cấu hình công đoạn danh mục (`cong_doan_id`, soft FK) qua `routing_engine.compute_step_cost` với `so_mat`/`so_vi_tri`/`dien_tich`. `nha_cung_cap` → nhãn thuê ngoài. `bu_hao` cờ báo dòng có góp hao. (Không cột lợi nhuận — đây là giá vốn.)
 
-**Tất cả cột:** `id`, `thanh_phan_id`, `thu_tu`, `cong_doan_id`, `ten`, `don_gia`, `so_luong`, `bu_hao`, `so_mat`, `so_vi_tri`, `dien_tich`, `nha_cung_cap`, `ghi_chu`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `thanh_phan_id`, `thu_tu`, `cong_doan_id`, `ten`, `don_gia`, `so_luong`, `bu_hao`, `so_mat`, `so_vi_tri`, `dien_tich`, `nha_cung_cap`, `ghi_chu`, `phi_khuon`, `created_at`, `updated_at`.
+
+`phi_khuon` (NUMERIC(18,2) NOT NULL DEFAULT 0, migration `0202`) = phí làm khuôn của CHÍNH bước đó — khoản **MỘT LẦN**. Chỉ có nghĩa khi công đoạn nguồn bật `requires_tooling` với `tooling_type` là dao lưu kho (`khuon_be` · `khuon_ep`); `kem` KHÔNG nhận (bản kẽm là vật tư tiêu hao, tiền đã nằm trong công thức chế bản `so_kem × đơn giá` — lấy thêm là tính hai lần). 0 = **dùng lại dao cũ**, không tính tiền: thông lệ ngành in là thu phí dao ở đơn ĐẦU, dao giữ lại kho, đơn tái đặt không thu lại. ⚠️ **KHÔNG cộng vào `gia_von_tp`** và không chia theo số lượng — engine trả riêng ở `meta.components[].phi_khuon`. Nhét vào giá vốn là nó bị chia: cùng con dao 2 triệu, đơn 100 cái đội 20.000 đ/cái còn đơn 5.000 cái chỉ 400 đ/cái.
 
 ---
 
@@ -3648,7 +3687,6 @@ một bảng chứ không hai, để mọi chỗ đọc/đếm/xoá ảnh chỉ 
 | `is_rush` | `Boolean` → `BOOLEAN` | — | no | `false` | Ưu tiên gấp (snapshot `orders.is_rush`, sửa được). |
 | `quy_cach_json` | `JSON` | — | yes | — | Snapshot quy cách: khổ ①②③ · giấy + định lượng · số màu A/B · cách in · chừa · số kẽm · số lượt · ghi chú kỹ thuật. Read-only ở lát 1. |
 | `routing_goc_json` | `JSON` | — | yes | — | Ảnh chụp routing LÚC TẠO lệnh (list rút gọn: `ten`·`nhom`·`loai_buoc`). CHỈ để cảnh báo "routing đã đổi so với bài tính giá" — không dùng tính lại gì. |
-| `khuon_be_id` | `Integer` | IX | yes | — | Soft → `khuon_be.id` — kế hoạch gán khuôn. |
 | `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id` — máy in dự kiến. |
 | `trang_thai` | `String(20)` | — | no | `nhap` | `nhap` → `cho_bo_sung` → `san_sang` → `da_lap_ke_hoach` (đã sinh dòng xếp lịch → routing khóa). Mốc phát hành/thực thi thuộc pha sau. |
 | `nguoi_phu_trach_id` | `Integer` | IX | yes | — | Soft → `users.id` — người kế hoạch phụ trách lệnh. |
@@ -3657,7 +3695,7 @@ một bảng chứ không hai, để mọi chỗ đọc/đếm/xoá ảnh chỉ 
 | `created_at` | `DateTime(timezone=True)` | — | no | now | |
 | `updated_at` | `DateTime(timezone=True)` | — | no | now/onupdate | |
 
-**Tất cả cột:** `id`, `ma`, `loai`, `lsx_goc_id`, `ten`, `order_id`, `order_line_id`, `quote_version_id`, `phieu_thanh_phan_id`, `so_luong_dat`, `don_vi_tinh`, `so_to_ke_hoach`, `so_to_nguyen`, `so_con`, `ban_giao_at`, `han_giao_khach`, `han_hoan_thanh_sx`, `is_rush`, `quy_cach_json`, `routing_goc_json`, `khuon_be_id`, `may_id`, `trang_thai`, `nguoi_phu_trach_id`, `ghi_chu`, `created_by`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `loai`, `lsx_goc_id`, `ten`, `order_id`, `order_line_id`, `quote_version_id`, `phieu_thanh_phan_id`, `so_luong_dat`, `don_vi_tinh`, `so_to_ke_hoach`, `so_to_nguyen`, `so_con`, `ban_giao_at`, `han_giao_khach`, `han_hoan_thanh_sx`, `is_rush`, `quy_cach_json`, `routing_goc_json`, `may_id`, `trang_thai`, `nguoi_phu_trach_id`, `ghi_chu`, `created_by`, `created_at`, `updated_at`.
 
 ---
 
@@ -3682,7 +3720,6 @@ Trả về BA số bằng cách thay `toc_do` bằng `toc_do_max` / `toc_do` / `
 | `nhom` | `String(12)` | — | yes | — | `prepress`/`print`/`finishing` (snapshot). |
 | `department_id` | `Integer` | IX | yes | — | Soft → `departments.id` = tổ nhận việc (snapshot `cong_doan.department_id`). Cũng là "trung tâm sản xuất" — KHÔNG có bảng work_center riêng. |
 | `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id` cho bước này. |
-| `khuon_be_id` | `Integer` | IX | yes | — | Soft → `khuon_be.id` — khuôn dùng cho CHÍNH bước này (chỉ có nghĩa khi công đoạn nguồn bật `requires_tooling` với `tooling_type` là `khuon_be`/`khuon_ep`). Trước 11/08/2026 khuôn gán ở cấp lệnh (`lsx.khuon_be_id`) nên lệnh vừa Bế vừa Ép nhũ chỉ giữ được một khuôn — mg `0185` chuyển xuống bước. |
 | `loai_buoc` | `String(12)` | — | no | `may` | Snapshot `may|to|thue_ngoai`. |
 | `bat_buoc` | `Boolean` → `BOOLEAN` | — | no | `true` | Bước bắt buộc hay tùy chọn (§4.1). |
 | `so_luong_vao` | `Numeric(14,2)` | — | no | `0` | SL đầu vào bước. |

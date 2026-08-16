@@ -103,10 +103,7 @@ class XepLichDongOut(BaseModel):
     # ⚠️ Service đã bơm sáu field dưới vào dict từ đầu, nhưng thiếu chúng ở ĐÂY thì pydantic
     # NUỐT IM LẶNG: FE nhận `undefined`, không lỗi, không log. Cụ thể `gom_key` mất làm "Tự xếp"
     # gom mọi dòng vào cùng một khoá ⇒ mục E (gom việc cùng loại) chạy y như chưa có.
-    #: Bước có cần DỤNG CỤ không (cờ `cong_doan.requires_tooling`) + khuôn của lệnh — nền cho hai
-    #: detector khuôn bế. Đọc CỜ ở danh mục, KHÔNG đoán bước bế theo tên.
-    can_dung_cu: bool = False
-    khuon_be_id: int | None = None
+    #: (`can_dung_cu` + `khuon_be_id` đã gỡ 16/08/2026 cùng hai detector khuôn — xem mg `0203`.)
     so_nhan_cong: int | None = None
     so_nhan_cong_toi_thieu: int | None = None
     #: Khoá GOM việc cùng loại (giấy · khổ · bộ mực). null = chưa đủ quy cách ⇒ không gom với ai.

@@ -18,6 +18,7 @@ export default defineConfig({
   // trong comment thì xanh dù đã xoá sạch UI. Nó chứng minh KÝ TỰ tồn tại, không chứng minh render.
   test: {
     environment: "jsdom",
+    css: true,
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],

@@ -146,8 +146,6 @@ class LsxCongDoanIn(BaseModel):
     bat_buoc: bool | None = None
     department_id: int | None = None
     may_id: int | None = None
-    # Khuôn của CHÍNH bước này (`khuon_be.id`). Chỉ hỏi khi công đoạn nguồn bật `requires_tooling`.
-    khuon_be_id: int | None = None
     # Đầu việc khoán của bước (`piece_rates.id`) — 0/null = bỏ chọn. KHÔNG gửi field này = giữ mặc
     # định theo tổ + công đoạn (server tự điền), đừng gửi null "cho chắc" kẻo xoá mất đầu việc.
     piece_rate_id: int | None = None
@@ -204,12 +202,10 @@ class LsxCongDoanOut(BaseModel):
     department_ten: str | None = None
     may_id: int | None = None
     may_ten: str | None = None
-    # Dụng cụ của bước. `requires_tooling`/`tooling_type` là CỜ đọc từ danh mục Công đoạn — form
-    # dựa vào đó để hiện ô chọn khuôn, KHÔNG dò chữ "bế" trong tên bước.
+    # Hai CỜ đọc từ danh mục Công đoạn. Lệnh không còn gán con dao nào (mg `0203`); giữ hai cờ vì
+    # phiếu tính giá dựa vào chúng để biết bước nào hỏi PHÍ khuôn.
     requires_tooling: bool = False
     tooling_type: str | None = None
-    khuon_be_id: int | None = None
-    khuon_be_ten: str | None = None
 
     so_luong_vao: float
     so_luong_ra: float
@@ -388,8 +384,6 @@ class LsxOut(BaseModel):
     is_rush: bool
 
     quy_cach_json: dict | None = None
-    khuon_be_id: int | None = None
-    khuon_be_ten: str | None = None
     may_id: int | None = None
     may_ten: str | None = None
 
@@ -483,7 +477,6 @@ class LsxUpdateIn(BaseModel):
     so_con: int | None = Field(default=None, ge=1)
     han_hoan_thanh_sx: date | None = None
     is_rush: bool | None = None
-    khuon_be_id: int | None = None
     may_id: int | None = None
     nguoi_phu_trach_id: int | None = None
     ghi_chu: str | None = None

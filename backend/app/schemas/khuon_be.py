@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field
 class KhuonBeIn(BaseModel):
     ma: str | None = Field(default=None, max_length=30)  # tạo mới: bỏ trống → backend tự sinh KB-####
     ten: str = Field(min_length=1, max_length=200)
-    khach_hang: str | None = None
     so_ke: str | None = None
     ngay_lam_khuon: date | None = None
     tinh_trang: str = "dang_dung"
@@ -25,7 +24,6 @@ class KhuonBeRow(BaseModel):
     id: int
     ma: str
     ten: str
-    khach_hang: str | None = None
     so_ke: str | None = None
     ngay_lam_khuon: date | None = None
     tinh_trang: str

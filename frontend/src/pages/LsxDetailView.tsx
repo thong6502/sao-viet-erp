@@ -64,7 +64,6 @@ interface FormState {
   ten: string;
   han_hoan_thanh_sx: string;
   is_rush: boolean;
-  khuon_be_id: string;
   may_id: string;
   ghi_chu: string;
   so_luong_dat: string;
@@ -104,7 +103,6 @@ function toForm(d: LsxDetail): FormState {
     ten: d.ten,
     han_hoan_thanh_sx: d.han_hoan_thanh_sx ?? "",
     is_rush: d.is_rush,
-    khuon_be_id: d.khuon_be_id != null ? String(d.khuon_be_id) : "",
     may_id: d.may_id != null ? String(d.may_id) : "",
     ghi_chu: d.ghi_chu ?? "",
     so_luong_dat: String(d.so_luong_dat),
@@ -151,8 +149,6 @@ export function LsxDetailView({
   const [congDoanRefs, setCongDoanRefs] = useState<RefRow[] | null>(null);
   const [toRefs, setToRefs] = useState<RefRow[] | null>(null);
   const [mayRefs, setMayRefs] = useState<RefRow[] | null>(null);
-  // Danh mục khuôn — cho ô chọn khuôn trong drawer BƯỚC (bước nào có cờ `requires_tooling`).
-  const [khuonRefs, setKhuonRefs] = useState<RefRow[] | null>(null);
   /** Danh mục giấy cho ô chọn ở khối "Giấy & tờ in". `gsm` đi kèm để hiện định lượng mới ngay. */
   const [giayRefs, setGiayRefs] = useState<
     { id: number; ten: string; ma: string; gsm: number | null }[] | null
@@ -181,9 +177,6 @@ export function LsxDetailView({
     // Không có quyền đọc danh mục → để null, ô hiện read-only thay vì select rỗng (select rỗng
     // + lưu = xoá trắng dữ liệu).
     api.congDoan.list(token).then((r) => setCongDoanRefs(r.items.map((c) => ({ id: c.id, ten: c.ten })))).catch(() => setCongDoanRefs(null));
-    api.khuonBe.list(token, { active: true })
-      .then((r) => setKhuonRefs(r.items.map((k) => ({ id: k.id, ten: k.ten }))))
-      .catch(() => setKhuonRefs(null));
     crud("/api/cong-doan/phong-ban").list(token).then((r) => setToRefs(r.items.map((t) => ({ id: t.id, ten: t.ten })))).catch(() => setToRefs(null));
     // Giữ luôn TỐC ĐỘ + CHUẨN BỊ của máy: form phải tính lại thời lượng ngay khi đổi máy, chứ
     // không đợi lưu rồi server mới trả số về (xem `RefRow`).
@@ -278,8 +271,9 @@ export function LsxDetailView({
     // Chỉ gửi cụm THÔNG SỐ khi nó thật sự đổi — gửi kèm mỗi lần lưu là mỗi lần lưu đều kích
     // bình bài lại + chạy lại chuỗi ngược, đè cả những số người khác vừa chỉnh.
     if (qcDoi) body.quy_cach = form.qc;
-    // KHÔNG gửi `khuon_be_id` / `may_id` nữa: hai ô đó đã bỏ khỏi màn (11/08/2026). Không gửi =
-    // server giữ nguyên giá trị nó đang có (máy dự kiến suy từ phiếu tính giá lúc tạo lệnh).
+    // KHÔNG gửi `may_id`: ô đó đã bỏ khỏi màn (11/08/2026). Không gửi = server giữ nguyên giá trị
+    // nó đang có (máy dự kiến suy từ phiếu tính giá lúc tạo lệnh). Khuôn thì không còn cột nào để
+    // gửi — đã xoá hẳn 16/08/2026 (mg `0203`).
     try {
       const r = await api.lsx.update(token, d.id, body);
       setD(r);
@@ -1134,7 +1128,6 @@ export function LsxDetailView({
                     congDoanRefs={congDoanRefs}
                     toRefs={toRefs}
                     mayRefs={mayRefs}
-                    khuonRefs={khuonRefs}
                     vatTuRefs={vatTuRefs}
                     phuThuocRefs={phuThuocRefs}
                     canUpdate={canUpdate}

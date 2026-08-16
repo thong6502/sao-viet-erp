@@ -513,6 +513,67 @@ def test_tags_manual_assign_dedup_filter(client):
     assert "Gán nhãn: Đại lý" in details and "Gỡ nhãn: Đại lý" in details
 
 
+# --- Kho nhãn dùng chung: THÊM và XOÁ được (16/08/2026) -------------------------
+# Trước đó kho nhãn là mảng 13 chuỗi viết cứng trong `KhachHangPage.tsx`: gán thêm thì được, mà
+# XOÁ thì không đường nào — gỡ nhãn khỏi mọi khách xong, mở hộp ra nó vẫn nằm đấy vì nó nằm trong
+# code. Ba test dưới ghim đúng ba mắt xích làm cho "xoá" thành thật.
+
+
+def test_kho_nhan_them_roi_xoa_hop_le(client):
+    """(Hạt mồi 13 nhãn của mg `0204` kiểm ở `test_kho_nhan_migration.py` — fixture `db` chỉ
+    `create_all`, không chạy migration, nên đừng chờ nhãn mồi có mặt ở đây.)"""
+    token = _admin_token(client)
+
+    # Thêm nhãn mới.
+    r = client.post("/api/customers/tag-kho", json={"label": "Giao tỉnh"}, headers=_h(token))
+    assert r.status_code == 201
+    moi_id = r.json()["id"]
+
+    # Thêm lại y hệt (khác hoa-thường) → trả nhãn cũ, KHÔNG đẻ dòng thứ hai.
+    r2 = client.post("/api/customers/tag-kho", json={"label": "giao tỉnh"}, headers=_h(token))
+    assert r2.json()["id"] == moi_id
+
+    # Xoá → biến mất THẬT khỏi kho (đây là thứ bản viết cứng không làm được).
+    assert client.delete(
+        f"/api/customers/tag-kho/{moi_id}", headers=_h(token)
+    ).json()["so_khach_da_go"] == 0
+    con_lai = {r["label"] for r in
+               client.get("/api/customers/tag-kho", headers=_h(token)).json()["items"]}
+    assert "Giao tỉnh" not in con_lai
+
+
+def test_xoa_nhan_kho_go_luon_khoi_khach_dang_mang(client):
+    """Xoá nhãn thì chip trên khách phải rơi theo.
+
+    Để lại chip mà nhãn đã khỏi kho là tạo ra một chip KHÔNG GỠ ĐƯỢC: hộp Gắn thẻ chỉ bày nhãn
+    có trong kho, nên không còn ô nào để bỏ tick."""
+    token = _admin_token(client)
+    cid = _create(client, token, name="Cty Mang Nhan")["customer"]["id"]
+    client.post(f"/api/customers/{cid}/tags", json={"label": "Hay đổi ý"}, headers=_h(token))
+
+    kho = client.get("/api/customers/tag-kho", headers=_h(token)).json()["items"]
+    dong = next(r for r in kho if r["label"] == "Hay đổi ý")
+    assert dong["so_khach"] == 1, "phải đếm được số khách đang mang để cảnh báo trước khi xoá"
+
+    assert client.delete(
+        f"/api/customers/tag-kho/{dong['id']}", headers=_h(token)
+    ).json()["so_khach_da_go"] == 1
+    con = client.get(f"/api/customers/{cid}/tags", headers=_h(token)).json()["items"]
+    assert [t["label"] for t in con] == []
+
+
+def test_go_nhan_tay_tu_vao_kho(client):
+    """Nhãn gõ tay ở hộp Gắn thẻ phải tự vào kho — không thì lần sau người khác gõ lại từ đầu
+    và sinh ra hai biến thể của cùng một ý, làm ô lọc tách đôi kết quả."""
+    token = _admin_token(client)
+    cid = _create(client, token, name="Cty Go Tay")["customer"]["id"]
+    client.post(f"/api/customers/{cid}/tags", json={"label": "In gấp"}, headers=_h(token))
+
+    kho = {r["label"] for r in
+           client.get("/api/customers/tag-kho", headers=_h(token)).json()["items"]}
+    assert "In gấp" in kho
+
+
 # --- Pha B: nhắc lịch hẹn real-time (SSE "ting") --------------------------------
 
 

@@ -226,6 +226,28 @@ class TagsOut(BaseModel):
     items: list[TagOut]
 
 
+# --- Kho nhãn dùng chung (thêm / xoá nhãn — 16/08/2026) -------------------------
+
+
+class KhoNhanRow(BaseModel):
+    """Một nhãn trong kho + số khách đang mang nó.
+
+    `so_khach` để màn hình hỏi có SỐ trước khi xoá ("3 khách đang mang nhãn này") thay vì một hộp
+    thoại "bạn có chắc không" — đếm sẵn ở đây nên không phải gọi thêm vòng nào lúc bấm xoá."""
+
+    id: int
+    label: str
+    so_khach: int = 0
+
+
+class KhoNhanOut(BaseModel):
+    items: list[KhoNhanRow]
+
+
+class KhoNhanXoaOut(BaseModel):
+    so_khach_da_go: int
+
+
 # --- Ghi chú tự do (tab Ghi chú — lưu ý team về khách) --------------------------
 
 
@@ -482,6 +504,15 @@ class HeatCellOut(BaseModel):
     count: int
 
 
+class PrintSpecOut(BaseModel):
+    """1 dòng "Thông số in thường đặt" — đọc từ phiếu tính giá gắn báo giá của khách."""
+
+    key: str
+    label: str
+    value: str
+    pct: int
+
+
 class CustomerDashboardOut(BaseModel):
     """The Dashboard tab: every figure computed from real orders/quotations. When the
     customer has no history `has_data=False` and the UI shows an honest empty state."""
@@ -498,6 +529,10 @@ class CustomerDashboardOut(BaseModel):
     product_mix: list[ProductSliceOut]
     heatmap: list[HeatCellOut]
     has_data: bool
+    # Thông số in thường đặt (giấy · màu · gia công · khổ). Rỗng = khách chưa có phiếu tính giá
+    # nào ⇒ frontend ẩn card, KHÔNG hiện số mẫu.
+    print_specs: list[PrintSpecOut] = []
+    print_specs_phieu: int = 0
     # Công nợ chỉ-đọc card reused from detail (SEAM-16 aware).
     receivable: ReceivableCard
 

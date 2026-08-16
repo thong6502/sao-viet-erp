@@ -33,7 +33,9 @@ class KhuonBe(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)  # KB-####
     ten: Mapped[str] = mapped_column(String(200), nullable=False)            # tên khuôn / ấn phẩm áp dụng
-    khach_hang: Mapped[str | None] = mapped_column(String(200), nullable=True)  # khai tay; đấu ref khách hàng sau
+    # 🔴 XOÁ 15/08/2026: `khach_hang` — chủ dự án yêu cầu. Cột khai TAY, không nối danh mục Khách
+    # hàng, nên nó là bản chép tên dễ lệch (gõ "Cty Kinh Đô" ở đây vs "Công ty CP Kinh Đô" ở CRM).
+    # Khuôn nhận diện bằng MÃ + TÊN ấn phẩm; muốn biết của khách nào thì tra qua lệnh dùng khuôn đó.
     so_ke: Mapped[str | None] = mapped_column(String(120), nullable=True)    # số kệ / vị trí lưu ← lõi
     ngay_lam_khuon: Mapped[date | None] = mapped_column(Date, nullable=True)  # ngày làm khuôn mới
     tinh_trang: Mapped[str] = mapped_column(

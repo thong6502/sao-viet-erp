@@ -211,7 +211,9 @@ export function PhieuTinhGiaListView({
               </th>
               <th>Trạng thái</th>
               <th>
-                <SortBtn label="Ngày · KTV" col="ngay" sort={sort} onSort={setSort} />
+                {/* "Ngày" trần đọc lên không biết là ngày nào — lập, tính giá, hay sửa lần cuối.
+                    Cột này sắp xếp theo `created_at` nên gọi đúng tên: ngày LẬP. */}
+                <SortBtn label="Ngày lập · Người lập" col="ngay" sort={sort} onSort={setSort} />
               </th>
             </tr>
           </thead>

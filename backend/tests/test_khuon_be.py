@@ -80,14 +80,22 @@ def test_soft_deleted_ma_reused_not_duplicate():
     assert total == 1 and rows[0].id == a.id
 
 
-def test_search_by_khach_and_so_ke():
+def test_search_theo_ten_va_so_ke():
+    """Ô tìm quét MÃ · TÊN ấn phẩm · SỐ KỆ.
+
+    Cột `khach_hang` đã gỡ 15/08/2026 (mg `0202`) nên tìm theo tên khách KHÔNG còn ra kết quả —
+    ghi thẳng vào test để lần sau không ai tưởng là hỏng rồi đi "sửa" bằng cách nối lại cột.
+    Muốn biết khuôn của khách nào thì tra qua lệnh sản xuất đang dùng khuôn đó.
+    """
     db, svc = _svc()
-    svc.create(dict(ten="Khuôn hộp", khach_hang="Cty Minh Long", so_ke="Kệ A1"))
-    svc.create(dict(ten="Khuôn tem", khach_hang="Cty Khác", so_ke="Kệ B2"))
+    svc.create(dict(ten="Khuôn hộp Minh Long", so_ke="Kệ A1"))
+    svc.create(dict(ten="Khuôn tem", so_ke="Kệ B2"))
     rows, total = svc.list(q="minh long")
-    assert total == 1 and rows[0].khach_hang == "Cty Minh Long"
+    assert total == 1 and rows[0].ten == "Khuôn hộp Minh Long"
     rows2, total2 = svc.list(q="b2")
     assert total2 == 1 and rows2[0].so_ke == "Kệ B2"
+    # Chuỗi chỉ có ở tên khách cũ ⇒ không dòng nào khớp.
+    assert svc.list(q="Cty")[1] == 0
 
 
 def test_loc_va_dem_theo_tinh_trang():

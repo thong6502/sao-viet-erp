@@ -418,9 +418,6 @@ export const LSX_THIEU_LABELS: Record<string, NhanMa> = {
   thieu_kho: "Thiếu kích thước",
   thieu_routing: "Chưa có công đoạn",
   thieu_ngay_giao: "Thiếu ngày giao",
-  // KHÔNG ghi cứng "khuôn bế": cờ `tooling_type` bắt cả `khuon_ep` (ép kim), nên nhãn phải phủ
-  // được mọi loại khuôn người dùng khai trong danh mục Công đoạn.
-  thieu_khuon: "Chưa gán khuôn",
   thieu_to_may: "Có công đoạn chưa gán tổ / máy",
   thieu_ncc: "Công đoạn thuê ngoài chưa có nhà gia công",
   thieu_tg_thue_ngoai: "Công đoạn thuê ngoài chưa có ngày gửi / nhận",
@@ -783,10 +780,7 @@ export interface XepLichRow {
   ly_do_xac_nhan: string[];      // kho_vuot_may
   is_rush: boolean;
   // --- Đợt 2 ---
-  /** Bước có cần DỤNG CỤ không (`cong_doan.requires_tooling`) + khuôn của lệnh — nền cho hai
-   *  detector khuôn bế. Đọc CỜ ở danh mục, KHÔNG đoán bước bế theo tên. */
-  can_dung_cu: boolean;
-  khuon_be_id: number | null;
+  // (`can_dung_cu` + `khuon_be_id` đã gỡ 16/08/2026 cùng hai detector khuôn — xem mg `0203`.)
   so_nhan_cong: number | null;
   so_nhan_cong_toi_thieu: number | null;
   /** Khoá GOM việc cùng loại (giấy · khổ · bộ mực). "Tự xếp" sắp theo khoá này trong cùng mức ưu
@@ -987,8 +981,7 @@ export type XepLichVanDeCategory =
   | "han_bai_ghep"
   | "thue_ngoai"
   // --- Đợt 2 (2026-08-09) ---
-  | "trung_khuon"            // hai lệnh dùng chung MỘT khuôn, trùng giờ
-  | "khuon_chua_san_sang"    // khuôn hỏng / chưa gán / về sau giờ bế
+  // (`trung_khuon` + `khuon_chua_san_sang` đã gỡ 16/08/2026 — xem mg `0203`.)
   | "thieu_vat_tu"           // bảng cân đối báo thiếu — chặn PHÁT HÀNH, không chặn lúc xếp
   | "thieu_nguoi"            // tổ bố trí dưới số người tối thiểu
   // --- Đợt 3 ---
@@ -1199,10 +1192,9 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   ten: string; nhom: string | null; loai_buoc: LsxLoaiBuoc; bat_buoc: boolean;
   department_id: number | null; department_ten: string | null;
   may_id: number | null; may_ten: string | null;
-  /** Dụng cụ của bước. `requires_tooling`/`tooling_type` là CỜ đọc từ danh mục Công đoạn — form
-   *  dựa vào đó để hiện ô chọn khuôn, KHÔNG dò chữ "bế" trong tên bước. */
+  /** Hai CỜ đọc từ danh mục Công đoạn. Lệnh KHÔNG còn gán con dao nào (mg `0203`) — hai cờ này ở
+   *  lại vì phiếu tính giá dựa vào chúng để biết bước nào hỏi PHÍ khuôn. */
   requires_tooling: boolean; tooling_type: string | null;
-  khuon_be_id: number | null; khuon_be_ten: string | null;
   // Đơn vị VÀO ≠ RA là chuyện thường ở bế/xén — hệ số quy đổi nối hai đầu.
   so_luong_vao: number; so_luong_ra: number;
   don_vi_vao: string; don_vi_ra: string; he_so_quy_doi: number;
@@ -1256,8 +1248,6 @@ export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   step_key?: string; thu_tu?: number; cong_doan_id?: number | null; ten?: string; nhom?: string | null;
   loai_buoc?: LsxLoaiBuoc; bat_buoc?: boolean;
   department_id?: number | null; may_id?: number | null;
-  /** Khuôn của bước (`khuon_be.id`) — chỉ gửi khi công đoạn nguồn bật `requires_tooling`. */
-  khuon_be_id?: number | null;
   so_luong_vao?: number; so_luong_ra?: number;
   don_vi_vao?: string; don_vi_ra?: string; he_so_quy_doi?: number;
   hao_hut?: number; hao_hut_pct?: number; so_luot_chay?: number; so_nhan_cong?: number;
@@ -1353,7 +1343,6 @@ export interface LsxDetail {
   ban_giao_at: string | null; han_giao_khach: string | null; han_hoan_thanh_sx: string | null;
   is_rush: boolean;
   quy_cach_json: Record<string, unknown> | null;
-  khuon_be_id: number | null; khuon_be_ten: string | null;
   may_id: number | null; may_ten: string | null;
   nguoi_phu_trach_id: number | null; nguoi_phu_trach_ten: string | null;
   ghi_chu: string | null; created_at: string; updated_at: string;
@@ -1390,7 +1379,7 @@ export interface LsxUpdateBody {
   ten?: string; so_luong_dat?: number; don_vi_tinh?: string;
   so_to_ke_hoach?: number; so_to_nguyen?: number; so_con?: number;
   han_hoan_thanh_sx?: string | null; is_rush?: boolean;
-  khuon_be_id?: number | null; may_id?: number | null;
+  may_id?: number | null;
   nguoi_phu_trach_id?: number | null; ghi_chu?: string | null;
   quy_cach?: LsxQuyCachBody;
 }
@@ -1799,6 +1788,13 @@ export interface HeatCell {
   weekday: number;
   count: number;
 }
+/** 1 dòng "Thông số in thường đặt" — gom từ phiếu tính giá gắn báo giá của khách. */
+export interface PrintSpec {
+  key: "giay" | "mau" | "gia_cong" | "kho" | string;
+  label: string;
+  value: string;
+  pct: number;
+}
 export interface CustomerDashboard {
   revenue_12m: number;
   orders_12m: number;
@@ -1812,6 +1808,8 @@ export interface CustomerDashboard {
   product_mix: ProductSlice[];
   heatmap: HeatCell[];
   has_data: boolean;
+  print_specs: PrintSpec[];
+  print_specs_phieu: number;
   receivable: ReceivableCard;
 }
 export interface OrderHistoryRow {
@@ -2103,7 +2101,7 @@ export interface PhieuTinhGiaGroupOut {
   rows: Array<Record<string, string | number | null>>;
   subtotal: number;
 }
-/** Số [Hiện] read-only của 1 thành phần (từ result.meta.components) — soi số cho KTV. */
+/** Số [Hiện] read-only của 1 thành phần (từ result.meta.components) — soi số cho người lập phiếu. */
 export interface TinhGiaComponentMeta {
   idx: number;
   name: string;
@@ -2127,7 +2125,13 @@ export interface TinhGiaComponentMeta {
   so_to_per_sp?: number; // số bài in — DẪN XUẤT: so_trang / trang_moi_tay
   to_ra_cuoi?: number; // tờ ra khỏi bước cuối chuỗi
   so_tp_ra?: number; // thành phẩm thật sự có = to_ra_cuoi × con/tờ
-  bu_hao_tay?: number; // "+ Bù thêm" — ô nhập tay duy nhất còn lại
+  /** Σ phí khuôn của sản phẩm này — khoản MỘT LẦN, nhưng ĐÃ NẰM TRONG `gia_von_tp` (và do đó
+   *  trong `gia_von_don`). Số này chỉ để BÀY RA cho người đọc biết trong giá vốn có bao nhiêu
+   *  tiền dao — ĐỪNG cộng nó vào tổng lần nữa. */
+  phi_khuon?: number;
+  /** Phân rã theo bước: bước nào con dao nào bao nhiêu tiền. */
+  phi_khuon_dong?: { ten: string; loai: string | null; thanh_tien: number }[];
+  bu_hao_tay?: number; // ô "+ Bù thêm" đã bỏ → engine luôn trả 0
   hao_tay?: number; // ô "− Hao" đã bỏ → engine luôn trả 0
 }
 /** 1 bước trong chuỗi ngược: số tờ vào — ra — hao của chính bước đó. */
@@ -2237,6 +2241,11 @@ export interface ThanhPhamOut {
   dien_tich: number;
   nha_cung_cap: string | null;
   ghi_chu: string | null;
+  /** Phí làm khuôn của CHÍNH bước này — khoản MỘT LẦN (không nhân SL), nhưng engine CÓ cộng vào
+   *  `gia_von_tp`, nên khi chia ra đ/sản phẩm thì đơn nhỏ gánh nặng hơn đơn lớn. Đó là đánh đổi đã
+   *  chọn 15/08/2026 để báo giá chỉ còn MỘT dòng — đừng "sửa" bằng cách rút nó ra khỏi giá vốn.
+   *  0 = dùng lại dao cũ. Chỉ có nghĩa ở bước mà công đoạn nguồn cần dao lưu kho (bế / ép nhũ). */
+  phi_khuon: number;
 }
 
 /** 1 thành phần giấy (paper component): giấy + kỹ thuật in + màu + list gia công. */
@@ -2347,6 +2356,7 @@ export interface ThanhPhamIn {
   dien_tich?: number;
   nha_cung_cap?: string | null;
   ghi_chu?: string | null;
+  phi_khuon?: number;
 }
 /** Input 1 thành phần — mọi field optional + list gia công. */
 export interface ThanhPhanIn {
@@ -5481,35 +5491,29 @@ export interface OrderListParams {
   size?: number;
 }
 
+/** 1 nhãn trong KHO nhãn khách + số khách đang mang nó.
+ *
+ *  `so_khach` có sẵn trong danh sách để hộp thoại xoá hỏi được bằng SỐ THẬT ("3 khách đang mang
+ *  nhãn này") thay vì "bạn có chắc không" — không phải gọi thêm vòng nào lúc bấm xoá. */
+export interface KhoNhanRow {
+  id: number;
+  label: string;
+  so_khach: number;
+}
+
 // --- Khuôn bế (danh mục dùng chung) ---------------------------------------
 export interface KhuonBeRow {
   id: number;
   ma: string;
   ten: string;
-  khach_hang: string | null;
   so_ke: string | null;
   tinh_trang: string;
   active: boolean;
 }
 
-// ④ 1 lệnh trong bảng lịch chạy (Máy × Ngày)
-export interface LichChayRow {
-  lenh_id: number;
-  ma: string;
-  trang_thai: string;   // gate resize hạn nội bộ trên Gantt (sau phát khóa hạn)
-  order_no: string | null;
-  khach: string | null;
-  giay_label: string | null;
-  spec_tom_tat: string;
-  may_id: number | null;
-  ngay_chay: string | null;
-  thu_tu_chay: number | null;
-  thoi_luong_phut: number | null;
-  han_giao_khach: string | null;
-  han_giao_noi_bo: string | null;
-  can_khuon: boolean;
-  khuon_be_id: number | null;
-}
+// (`LichChayRow` — 1 lệnh trong bảng lịch chạy Máy × Ngày — đã gỡ 16/08/2026: tàn dư của lớp
+//  SX-thực-thi đời cũ, khai ra mà KHÔNG nơi nào import. Bảng lịch chạy nay là `XepLichCongDoan`.)
+
 // 1 công đoạn routing GỐC của ấn phẩm (đọc từ Tính giá) — KHÔNG có đơn giá (cô lập thương mại).
 export interface RoutingGocRow {
   thu_tu: number;
@@ -6640,6 +6644,24 @@ export const api = {
     },
     deleteTag(token: string, id: number, tagId: number): Promise<void> {
       return authed<void>(`/api/customers/${id}/tags/${tagId}`, token, { method: "DELETE" });
+    },
+    // --- kho nhãn dùng chung (thêm / xoá nhãn — 16/08/2026) ---
+    // ĐỪNG nhầm với `tagLabels` ngay trên: cái đó trả nhãn ĐÃ ĐƯỢC GÁN cho khách nào đó (nguồn của
+    // ô lọc), còn đây là kho nhãn CÓ THỂ gán — nhãn vừa tạo, chưa ai mang, chỉ có ở đây.
+    tagKho(token: string): Promise<{ items: KhoNhanRow[] }> {
+      return authed<{ items: KhoNhanRow[] }>("/api/customers/tag-kho", token);
+    },
+    themNhanKho(token: string, label: string): Promise<KhoNhanRow> {
+      return authed<KhoNhanRow>("/api/customers/tag-kho", token, {
+        method: "POST",
+        body: JSON.stringify({ label }),
+      });
+    },
+    /** Xoá nhãn khỏi kho VÀ gỡ khỏi mọi khách đang mang. Trả số khách bị gỡ. */
+    xoaNhanKho(token: string, nhanId: number): Promise<{ so_khach_da_go: number }> {
+      return authed<{ so_khach_da_go: number }>(`/api/customers/tag-kho/${nhanId}`, token, {
+        method: "DELETE",
+      });
     },
     // --- chăm sóc (#20/#27/#28) ---
     careEvents(token: string, id: number): Promise<{ items: CareEvent[] }> {

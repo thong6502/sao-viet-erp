@@ -25,6 +25,8 @@ class ThanhPhamIn(BaseModel):
     dien_tich: float | None = None
     nha_cung_cap: str | None = None
     ghi_chu: str | None = None
+    # Phí làm khuôn của CHÍNH bước này — MỘT LẦN, không nhân SL. 0 = dùng lại dao cũ.
+    phi_khuon: float | None = Field(default=None, ge=0)
 
 
 class ThanhPhamOut(BaseModel):
@@ -43,6 +45,7 @@ class ThanhPhamOut(BaseModel):
     dien_tich: float
     nha_cung_cap: str | None = None
     ghi_chu: str | None = None
+    phi_khuon: float = 0
 
 
 # ============================ VẬT TƯ (nguyên vật liệu thêm) ============================
