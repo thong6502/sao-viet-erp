@@ -732,6 +732,28 @@ class PayrollService:
         # Cực hiếm 20 lần trùng → nới suffix 6 ký tự cho chắc chắn duy nhất.
         return f"{pre}-{ymd}-{''.join(secrets.choice(_ADV_CODE_ALPHABET) for _ in range(6))}"
 
+    def _chan_neu_ky_luong_da_khoa(self, year: int, month: int, viec: str) -> None:
+        """Chặn đụng vào TẠM ỨNG của kỳ lương đã CHỐT / ĐÃ CHI (chủ chốt 15/08/2026).
+
+        Tạm ứng khác chấm công ở một điểm quyết định: nó KHÔNG có ảnh chụp. Số tiền được nướng
+        thẳng vào dòng lương lúc "Tính lại", nên phiếu đổi trạng thái sau đó là hai bên lệch ngay.
+        Lệch theo hai chiều tiền ngược nhau, cả hai đều không để lại dấu:
+          · duyệt muộn  → lương đã trả ĐỦ, mà tiền mặt thì đã đưa ⇒ công ty mất khoản đó;
+          · huỷ muộn    → lương đã TRỪ rồi, phiếu lại không còn ⇒ thợ mất khoản đó.
+        """
+        if int(year) <= 0 or int(month) <= 0:
+            return
+        period = self.payroll.get_period_by_ym(int(year), int(month))
+        if period is not None and period.status in (PERIOD_LOCKED, PERIOD_PAID):
+            da_chi = period.status == PERIOD_PAID
+            raise PayrollLocked(
+                f"Kỳ lương {int(month):02d}/{int(year)} đã "
+                + ("CHI" if da_chi else "chốt")
+                + f" — số đã khoá nên không {viec} nữa. "
+                + ("Huỷ 'đã chi' rồi mở lại kỳ lương" if da_chi else "Mở lại kỳ lương")
+                + " trước, sửa xong nhớ bấm “Tính lại”."
+            )
+
     def create_advance(self, *, employee_id, actor, period_year, period_month,
                         advance_date, amount, reason=None, kind=ADV_KIND_TAM_UNG):
         """Tạo phiếu tạm ứng (kind=tam_ung) hoặc phiếu thanh toán lương đợt 1 (kind=luong_dot_1).
@@ -741,6 +763,7 @@ class PayrollService:
             raise PayrollNotFound("Không tìm thấy nhân viên.")
         if amount is None or float(amount) <= 0:
             raise PayrollValidationError("Số tiền phải > 0.")
+        self._chan_neu_ky_luong_da_khoa(period_year, period_month, "lập thêm phiếu tạm ứng")
         code = self._new_advance_code(advance_date, kind=kind)
         return self.payroll.create_advance(
             code=code, employee_id=employee_id, period_year=period_year, period_month=period_month,
@@ -775,6 +798,8 @@ class PayrollService:
             raise PayrollForbidden("Nhân viên này ngoài phạm vi quản lý của bạn.")
         if a.status != ADV_PENDING:
             raise PayrollValidationError("Đề nghị đã được xử lý.")
+        self._chan_neu_ky_luong_da_khoa(
+            a.period_year, a.period_month, "duyệt / từ chối phiếu tạm ứng của kỳ đó")
         return self.payroll.update_advance(
             a, status=ADV_APPROVED if approve else ADV_REJECTED,
             decided_by=getattr(actor, "id", None), decided_at=datetime.now(timezone.utc),
@@ -787,6 +812,8 @@ class PayrollService:
             raise PayrollNotFound("Không tìm thấy đề nghị tạm ứng.")
         if a.status not in (ADV_PENDING, ADV_APPROVED):
             raise PayrollValidationError("Không thể hủy đề nghị này.")
+        self._chan_neu_ky_luong_da_khoa(
+            a.period_year, a.period_month, "huỷ phiếu tạm ứng của kỳ đó")
         return self.payroll.update_advance(a, status=ADV_CANCELLED)
 
     # --- engine tính 1 dòng -------------------------------------------------
@@ -1603,6 +1630,13 @@ class PayrollService:
         không mở lại kỳ công); chiều ĐI TẮT bỏ ngỏ — tính lương → chốt → chi tiền mà kỳ công chưa
         từng chốt, tức lương chạy trên số LIVE, và số live vẫn sửa được SAU KHI TIỀN ĐÃ RA.
 
+        **L8 — ảnh chụp đã cũ so với thực tế.** Kỳ công chốt rồi mà thợ vẫn bấm tiếp (chấm công
+        GPS KHÔNG hỏi kỳ công — cố ý, chặn thợ đi làm thật vì lý do sổ sách là sai vai). Chốt lương
+        lúc này là đóng băng một tấm ảnh đã thiếu.
+
+        **L11 — còn phiếu tạm ứng treo.** Tiền mặt ĐÃ RA khỏi két mà chưa được ghi vào lương.
+        Không có ảnh chụp nào che chỗ này: số tạm ứng nướng thẳng vào dòng lương lúc "Tính lại".
+
         **L4 — bảng lương cũ hơn ảnh chụp.** Kẽ hở còn lại của L1::
 
             9h tính lương → 10h ai đó chấm bù → 11h chốt công → 12h chốt lương
@@ -1613,6 +1647,17 @@ class PayrollService:
         Mốc miễn trừ (`AP_DUNG_CHOT_CONG_TRUOC_TU`) tính sẵn ở đây, giao diện không chép lại luật.
         """
         year, month = int(year), int(month)
+
+        # L11 đứng NGOÀI mốc miễn trừ, khác mọi lý do còn lại. Mốc đó sinh ra vì tháng cũ không có
+        # dòng kỳ công nào để mà chốt — áp ngược là khoá chết những kỳ lương cũ. Tạm ứng thì không
+        # dính gì tới chuỗi chốt công: nó là tiền mặt đã ra khỏi két, tháng nào cũng đúng, và luôn
+        # gỡ được bằng một cú duyệt/từ chối chứ không phải đi lục đơn từ đời nào.
+        treo = self.payroll.count_pending_advances_in_period(year, month)
+        if treo:
+            return (f"Còn {treo} phiếu tạm ứng tháng {month:02d}/{year} chưa duyệt — duyệt hoặc "
+                    "từ chối hết rồi bấm “Tính lại”, nếu không khoản đã ứng sẽ không được trừ vào "
+                    "lương tháng này.")
+
         if (year, month) < AP_DUNG_CHOT_CONG_TRUOC_TU or self.attendance is None:
             return None
 
@@ -1620,6 +1665,19 @@ class PayrollService:
         if chot_luc is None:
             return (f"Kỳ công {month:02d}/{year} chưa chốt — số công còn sửa được thì chưa khoá "
                     "bảng lương. Sang màn Chấm công → Bảng công tháng → Chốt kỳ công trước.")
+
+        # L8 — kỳ công ĐÃ chốt nhưng thực tế vẫn chạy tiếp sau đó.
+        # Chốt công là CHỤP ẢNH bảng công; Lương đọc ảnh. Lượt bấm ghi vào sau lúc chụp KHÔNG có
+        # trong ảnh ⇒ chốt lương lúc này là đóng băng một tấm ảnh đã thiếu.
+        # Hay gặp nhất: chốt công vào CHIỀU ngày cuối tháng — phần đuôi ngày hôm đó và trọn ca đêm
+        # bấm sau lúc chốt, tháng nào cũng lặp lại.
+        # Màn Chấm công đã có dải cảnh báo cho chuyện này (L3), nhưng nó chỉ NÓI và nói ở màn
+        # khác; người chốt lương không nhìn thấy. Đây là đầu CHẶN.
+        sau_chot = self.attendance.so_luot_bam_sau_chot(year, month)
+        if sau_chot:
+            return (f"Kỳ công {month:02d}/{year} đã chốt nhưng có {sau_chot} lượt bấm ghi vào SAU "
+                    "lúc chốt — ảnh chụp không có mấy lượt đó nên bảng lương cũng chưa tính. "
+                    "Sang màn Chấm công mở lại kỳ công rồi chốt lại, sau đó bấm “Tính lại”.")
 
         period = self.payroll.get_period_by_ym(year, month)
         if period is None:

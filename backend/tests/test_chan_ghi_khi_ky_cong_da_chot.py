@@ -148,6 +148,219 @@ def test_L1_thang_truoc_moc_van_chot_duoc_nhu_cu(client):
     assert r.status_code == 200, f"tháng trước mốc phải chốt được như cũ: {r.text}"
 
 
+# ══════════════════════════════════════════════ L10 — phiếu TĂNG CA treo chặn chốt công
+
+
+def _phieu_tang_ca_treo(employee_id: int, ngay: str) -> int:
+    """Phiếu tăng ca CÒN CHỜ DUYỆT. Ghi thẳng repo vì hai đường HTTP đều không ra `pending`:
+    `POST /api/overtime` là tổ trưởng tạo hộ (duyệt luôn), `POST /api/overtime/me` đòi tài khoản
+    đã gắn hồ sơ nhân viên."""
+    from datetime import date as _date
+
+    from app.models.overtime import STATUS_PENDING
+    from app.repositories.overtime_repo import OvertimeRepository
+
+    y, m, d = (int(x) for x in ngay.split("-"))
+    db = SessionLocal()
+    try:
+        r = OvertimeRepository(db).create_request(
+            employee_id=employee_id, work_date=_date(y, m, d),
+            from_minute=1020, to_minute=1140, reason="chạy đơn gấp",
+            status=STATUS_PENDING,
+        )
+        return r.id
+    finally:
+        db.close()
+
+
+def test_L10_con_phieu_tang_ca_treo_thi_khong_chot_duoc_cong(client):
+    """⭐ Ba loại phiếu kia đã chặn từ trước; TĂNG CA lọt cho tới 15/08/2026.
+
+    Sót nó không chỉ là thiếu cảnh báo — nó thành NGÕ CỤT. Từ 12/08, duyệt phiếu vào tháng đã chốt
+    cũng bị chặn (L2). Nên chốt công khi còn phiếu tăng ca treo thì: duyệt không được, mà không
+    duyệt thì thợ không có tiền tăng ca; gỡ ra bắt buộc phải mở lại cả kỳ công."""
+    h = _h(client)
+    emp = _nhan_vien(client, h, ten="NV Tang Ca Treo")
+    _phieu_tang_ca_treo(emp["id"], NGAY)
+
+    r = _chot_cong(client, h, expect=400)
+    assert "tăng ca" in r.json()["detail"], f"câu báo phải gọi ĐÚNG TÊN loại phiếu: {r.text}"
+
+
+def test_L10_duyet_xong_thi_chot_duoc(client):
+    """Đối chứng — chặn phải mở ra được, nếu không là ngõ cụt kiểu khác."""
+    h = _h(client)
+    emp = _nhan_vien(client, h, ten="NV Tang Ca Duyet")
+    rid = _phieu_tang_ca_treo(emp["id"], NGAY)
+    _chot_cong(client, h, expect=400)
+
+    assert client.post(f"/api/overtime/{rid}/approve", json={}, headers=h).status_code == 200
+    _chot_cong(client, h)
+
+
+def test_L10_phieu_tang_ca_THANG_KHAC_khong_chan_nham(client):
+    """Chặn nhầm tháng khác thì HCNS không bao giờ chốt nổi tháng này — phiếu treo của tháng sau
+    đâu liên quan gì tới ảnh chụp tháng này."""
+    h = _h(client)
+    emp = _nhan_vien(client, h, ten="NV Tang Ca Thang Sau")
+    _phieu_tang_ca_treo(emp["id"], f"{NAM}-09-10")
+
+    _chot_cong(client, h)
+
+
+# ══════════════════════════════════════════════ L8 — ảnh chụp cũ hơn thực tế
+
+
+def _bam_gps(employee_id: int, vao, ra):
+    """Ghi ĐỦ CẶP vào–ra qua repo — mô phỏng thợ chấm công GPS SAU khi kỳ đã chốt.
+
+    `check()` cố tình KHÔNG hỏi kỳ công (chặn thợ đi làm thật vì lý do sổ sách là sai vai), nên
+    đây không phải đường vòng của test — đó đúng là hành vi thật của hệ thống.
+
+    Phải đủ CẢ HAI lượt: thiếu lượt RA là ngày treo, và L5 sẽ chặn ngay ở bước chốt lại kỳ công —
+    test hoá ra canh nhầm hàng rào."""
+    from app.repositories.attendance_repo import AttendanceRepository
+
+    db = SessionLocal()
+    try:
+        repo = AttendanceRepository(db)
+        repo.create_log(employee_id=employee_id, check_type="in",
+                        within_range=True, checked_at=vao)
+        repo.create_log(employee_id=employee_id, check_type="out",
+                        within_range=True, checked_at=ra)
+    finally:
+        db.close()
+
+
+def test_L8_bam_them_sau_khi_chot_cong_thi_khong_chot_duoc_luong(client):
+    """⭐ Chốt công là CHỤP ẢNH; lượt bấm ghi vào sau lúc chụp không có trong ảnh.
+
+    Hay gặp nhất: chốt công vào CHIỀU ngày cuối tháng — phần đuôi ngày hôm đó và trọn ca đêm bấm
+    sau lúc chốt, tháng nào cũng lặp lại. Màn Chấm công đã có dải cảnh báo (L3) nhưng nó chỉ NÓI,
+    và nói ở màn mà người chốt lương không mở. Đây là đầu CHẶN."""
+    from datetime import datetime, timezone
+
+    h = _h(client)
+    nv = _nhan_vien(client, h, ten="NV Bam Sau Chot")
+    _chot_cong(client, h, nam=L1_NAM, thang=L1_THANG)
+    assert client.post("/api/luong/generate", json={"year": L1_NAM, "month": L1_THANG},
+                       headers=h).status_code == 200
+
+    # Lượt bấm rơi vào THÁNG đã chốt, nhưng được GHI VÀO sau lúc chốt (created_at = bây giờ).
+    _bam_gps(nv["id"],
+             datetime(L1_NAM, L1_THANG, 20, 1, 0, tzinfo=timezone.utc),    # 08:00 giờ VN
+             datetime(L1_NAM, L1_THANG, 20, 10, 0, tzinfo=timezone.utc))   # 17:00 giờ VN
+
+    r = client.post("/api/luong/lock", json={"year": L1_NAM, "month": L1_THANG}, headers=h)
+    assert r.status_code in (400, 409, 422), f"chốt được lương trên ảnh chụp đã thiếu: {r.text}"
+    chi_tiet = r.json()["detail"]
+    assert "sau" in chi_tiet.lower() and "Chấm công" in chi_tiet, chi_tiet
+
+    # ĐƯỜNG LUI phải còn: mở lại kỳ công → chốt lại → tính lại → chốt lương được.
+    assert client.post("/api/attendance/period/reopen",
+                       json={"year": L1_NAM, "month": L1_THANG}, headers=h).status_code == 200
+    _chot_cong(client, h, nam=L1_NAM, thang=L1_THANG)
+    assert client.post("/api/luong/generate", json={"year": L1_NAM, "month": L1_THANG},
+                       headers=h).status_code == 200
+    r = client.post("/api/luong/lock", json={"year": L1_NAM, "month": L1_THANG}, headers=h)
+    assert r.status_code == 200, f"vá xong mà không mở ra được thì là ngõ cụt: {r.text}"
+
+
+# ══════════════════════════════════════════════ L9 — lịch làm việc viết lại tháng đã chốt
+
+
+def _ngay_dac_biet(client, h, ngay: str, ten="Nghỉ bù", expect=(200, 201)):
+    r = client.post("/api/calendar/special-days",
+                    json={"day": ngay, "kind": "off", "name": ten, "is_paid": True}, headers=h)
+    assert r.status_code in expect if isinstance(expect, tuple) else r.status_code == expect, r.text
+    return r
+
+
+def test_L9a_khong_khai_them_ngay_le_cho_thang_da_chot(client):
+    """Ngày lễ / nghỉ bù không đụng MỘT người — nó đổi công của CẢ CÔNG TY trong tháng đó.
+
+    Hay gặp: khai NGHỈ BÙ muộn. Chốt công xong mới khai thì Bảng công (đọc thực tế) lệch khỏi
+    phiếu lương (đọc ảnh chụp), lệch đồng loạt mà không ai thấy."""
+    h = _h(client)
+    _nhan_vien(client, h, ten="NV Lich")
+    _chot_cong(client, h)
+
+    r = _ngay_dac_biet(client, h, f"{NAM}-{THANG:02d}-20", expect=(400, 409, 422))
+    assert "chốt" in r.json()["detail"].lower(), r.text
+
+
+def test_L9a_thang_CHUA_chot_van_khai_ngay_le_binh_thuong(client):
+    """Đối chứng — chặn nhầm tháng đang mở thì HCNS không khai nổi lịch nghỉ sắp tới."""
+    h = _h(client)
+    _nhan_vien(client, h, ten="NV Lich Mo")
+    _chot_cong(client, h)          # chốt tháng 7…
+
+    # …nhưng khai ngày lễ cho tháng 9 (chưa chốt) thì phải cho.
+    # Tránh 02/9: hệ thống đã seed sẵn Quốc khánh, đụng vào là vướng luật "đã được khai" chứ
+    # không phải luật kỳ công — test hoá ra canh nhầm hàng rào.
+    _ngay_dac_biet(client, h, f"{NAM}-09-16", ten="Nghỉ bù nội bộ")
+
+
+def test_L9a_khong_xoa_duoc_ngay_le_cua_thang_da_chot(client):
+    """Xoá cũng nguy hiểm hệt như thêm — công lễ biến mất khỏi Bảng công, lương giữ nguyên."""
+    h = _h(client)
+    _nhan_vien(client, h, ten="NV Lich Xoa")
+    sid = _ngay_dac_biet(client, h, f"{NAM}-{THANG:02d}-21").json()["id"]
+    _chot_cong(client, h)
+
+    r = client.delete(f"/api/calendar/special-days/{sid}", headers=h)
+    assert r.status_code in (400, 409, 422), f"xoá được ngày lễ của tháng đã chốt: {r.text}"
+
+
+def test_L9b_doi_lich_tuan_KHONG_lam_lech_cong_chuan_thang_da_chot(client):
+    """⭐ Nửa nặng của chỗ hở: cấu hình tuần làm việc chỉ có MỘT bản dùng chung, KHÔNG có ngày
+    hiệu lực. Công ty bỏ làm thứ Bảy hôm nay là công chuẩn của MỌI THÁNG CŨ đổi theo — mà
+    đơn giá ngày = lương tháng ÷ công chuẩn, nên tính lại một tháng cũ ra tiền khác.
+
+    Bản vá: công chuẩn vào ảnh chụp lúc chốt, cùng chỗ với công của từng người."""
+    from app.db import SessionLocal
+    from app.repositories.attendance_repo import AttendanceRepository
+    from app.repositories.audit_repo import AuditLogRepository
+    from app.repositories.calendar_repo import CalendarRepository
+    from app.repositories.employee_repo import EmployeeRepository
+    from app.repositories.leave_repo import LeaveRepository
+    from app.repositories.payroll_repo import PayrollRepository
+    from app.services.attendance_service import AttendanceService
+    from app.services.calendar_service import CalendarService
+
+    def _std(nam, thang) -> float | None:
+        db = SessionLocal()
+        try:
+            svc = AttendanceService(
+                AttendanceRepository(db), EmployeeRepository(db), AuditLogRepository(db),
+                leaves=LeaveRepository(db),
+                calendar=CalendarService(CalendarRepository(db), AuditLogRepository(db)),
+                payroll=PayrollRepository(db),
+            )
+            return svc.standard_working_days(nam, thang)
+        finally:
+            db.close()
+
+    h = _h(client)
+    _nhan_vien(client, h, ten="NV Lich Tuan")
+    _chot_cong(client, h)
+    truoc = _std(NAM, THANG)
+    assert truoc and truoc > 0, "chưa đọc được công chuẩn"
+
+    # Công ty bỏ làm thứ Bảy.
+    r = client.put("/api/calendar/config", json={"works_sat": False}, headers=h)
+    assert r.status_code == 200, r.text
+
+    sau = _std(NAM, THANG)
+    assert sau == truoc, (
+        f"đổi lịch tuần đã viết lại công chuẩn của tháng ĐÃ CHỐT: {truoc} → {sau}. "
+        "Đơn giá ngày = lương tháng ÷ công chuẩn, nên đây là tiền đổi."
+    )
+
+    # Tháng CHƯA chốt phải đổi theo lịch MỚI — nếu không là đóng băng nhầm cả tương lai.
+    assert _std(NAM, 9) < 26, "tháng chưa chốt vẫn phải đọc lịch sống (bỏ thứ Bảy ⇒ ít ngày hơn)"
+
+
 # ══════════════════════════════════════════════ L2 — duyệt/hủy đơn vào tháng đã chốt
 
 

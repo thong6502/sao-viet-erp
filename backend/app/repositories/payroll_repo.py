@@ -262,6 +262,24 @@ class PayrollRepository:
             select(func.count()).select_from(SalaryAdvance).where(SalaryAdvance.status == status)
         ).scalar_one()
 
+    def count_pending_advances_in_period(self, year: int, month: int) -> int:
+        """Số phiếu tạm ứng / lương đợt 1 CÒN CHỜ DUYỆT của ĐÚNG kỳ đó — guard chốt lương.
+
+        KHÁC `count_advances_by_status` (đếm mọi kỳ, nuôi badge): chốt lương là việc của một
+        tháng, phiếu treo tháng khác không liên quan.
+
+        Vì sao phải chặn (chủ chốt 15/08/2026): tiền tạm ứng được nướng THẲNG vào dòng lương lúc
+        bấm "Tính lại" — không có ảnh chụp nào che như bên chấm công. Duyệt phiếu SAU khi chốt
+        lương thì khoản trừ không bao giờ xảy ra: tiền mặt đã đưa cho thợ mà lương vẫn trả đủ.
+        """
+        return int(self.db.execute(
+            select(func.count()).select_from(SalaryAdvance).where(
+                SalaryAdvance.status == ADV_PENDING,
+                SalaryAdvance.period_year == year,
+                SalaryAdvance.period_month == month,
+            )
+        ).scalar_one())
+
     def advance_code_exists(self, code: str) -> bool:
         """Kiểm mã tạm ứng đã tồn tại chưa — để sinh mã ngẫu nhiên không trùng."""
         return self.db.execute(

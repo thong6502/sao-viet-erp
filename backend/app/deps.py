@@ -335,8 +335,14 @@ def get_calendar_repository(
 def get_calendar_service(
     calendar: Annotated[CalendarRepository, Depends(get_calendar_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> CalendarService:
-    return CalendarService(calendar, audit)
+    # Repo chấm công → chặn sửa ngày lễ / nghỉ bù của tháng đã CHỐT CÔNG. Dựng thẳng từ `db` chứ
+    # không `Depends(get_attendance_repository)`: hàm đó khai BÊN DƯỚI trong file này, tham chiếu
+    # lên trên là NameError ngay lúc nạp module.
+    # Chỉ nhận REPO, không nhận service — `AttendanceService` đã giữ `CalendarService` bên trong
+    # nó, nhận ngược lại là vòng service ↔ service.
+    return CalendarService(calendar, audit, attendance=AttendanceRepository(db))
 
 
 def get_attendance_repository(

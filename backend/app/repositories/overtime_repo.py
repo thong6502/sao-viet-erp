@@ -129,6 +129,24 @@ class OvertimeRepository:
             stmt = stmt.where(cond)
         return int(self.db.execute(stmt).scalar_one())
 
+    def count_pending_in_range(self, start: date, end: date) -> int:
+        """Số phiếu tăng ca CÒN CHỜ DUYỆT có `work_date` trong [start, end] — guard chốt công.
+
+        KHÁC `count_pending_scoped` (nuôi badge, lọc theo phạm vi người xem): ở đây đếm TOÀN BỘ,
+        vì chốt công là việc của cả tháng chứ không của riêng phạm vi ai.
+
+        Vì sao phải chặn (chủ chốt 15/08/2026): ảnh chụp đóng băng theo trạng thái LÚC CHỐT, mà
+        từ 12/08 duyệt phiếu vào tháng đã chốt cũng bị chặn ⇒ phiếu treo lúc chốt thành NGÕ CỤT:
+        không duyệt được, mà không duyệt thì không có tiền tăng ca. Gỡ ra bắt buộc phải mở lại kỳ
+        công. Ba loại phiếu kia đã chặn đúng vì lý do này; tăng ca lọt cho tới hôm nay."""
+        return int(self.db.execute(
+            select(func.count()).select_from(OvertimeRequest).where(
+                OvertimeRequest.status == STATUS_PENDING,
+                OvertimeRequest.work_date >= start,
+                OvertimeRequest.work_date <= end,
+            )
+        ).scalar_one())
+
     def count_my_unseen(self, employee_id: int) -> int:
         """Số phiếu của NV đã ĐƯỢC QUYẾT mà NV chưa xem — nuôi chuông Topbar."""
         stmt = select(func.count(OvertimeRequest.id)).where(
