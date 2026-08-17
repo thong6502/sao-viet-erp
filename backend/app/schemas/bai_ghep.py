@@ -1,8 +1,7 @@
 """Pydantic schemas — Bài ghép (print gang).
 
-Service trả DICT (đã tính số tờ/dư + kiểm tương thích + checklist); response model chỉ để validate
-+ tài liệu OpenAPI. Số dẫn xuất gói trong `so_to`; bảng so sánh trong `tuong_thich` (giữ `dict` cho
-gọn — UI đọc trực tiếp).
+Service trả DICT (đã tính số tờ/dư + checklist); response model chỉ để validate + tài liệu OpenAPI.
+Số dẫn xuất gói trong `so_to` (giữ `dict` cho gọn — UI đọc trực tiếp).
 """
 from __future__ import annotations
 
@@ -81,6 +80,13 @@ class BaiGhepUpdateIn(BaseModel):
     ghi_chu: str | None = None
 
 
+class BaiGhep2UpdateIn(BaiGhepUpdateIn):
+    ten: str = ""
+    han_hoan_thanh_sx: date | None = None
+    is_rush: bool = False
+    nguoi_phu_trach_id: int | None = None
+
+
 class TrangThaiIn(BaseModel):
     trang_thai: str
 
@@ -110,12 +116,23 @@ class HangChoGhepItem(BaseModel):
 class HangChoGhepOut(BaseModel):
     items: list[HangChoGhepItem]
     total: int
+    #: Số lệnh KHỚP MỌI BỘ LỌC nhưng bị giấu vì đang giữ chỗ vật tư.
+    #:
+    #: Có con số này thì màn nói được vì sao một lệnh biến mất. Không có thì người ghép đi tìm
+    #: LSX26-0005 mà không thấy, và không phân biệt nổi ba lý do khác nhau: chưa sẵn sàng · là ruột
+    #: sách · đang giữ chỗ. Chỉ lý do thứ ba là thứ họ tự gỡ được.
+    so_giu_cho: int = 0
 
 
 # ============================ Danh sách bài ghép ============================
 class BaiGhepListItem(BaseModel):
     id: int
     ma: str
+    ten: str = ""
+    han_hoan_thanh_sx: date | None = None
+    is_rush: bool = False
+    nguoi_phu_trach_id: int | None = None
+    nguoi_phu_trach_ten: str | None = None
     trang_thai: str
     so_lsx: int = 0
     giay_ten: str | None = None
@@ -157,10 +174,20 @@ class ThanhVienOut(BaseModel):
     ty_le_giay: float = 0
     san_luong_du_kien: int = 0
     du: int = 0
+    # D3: gợi ý con/tờ — trần theo khổ (ước lượng) + mức cân sản lượng để bớt dư. `service` đã
+    # tính từ lâu nhưng THIẾU ở đây nên Pydantic nuốt im lặng: frontend nhận `undefined`, nút
+    # "dùng gợi ý" không bao giờ hiện. Thêm field mới phải đi hết dict → schema → type TS.
+    con_toi_da: int = 0
+    con_goi_y: int = 0
     giay_id: int | None = None
     giay_ten: str | None = None
     so_mau_a: int | None = None
     so_mau_b: int | None = None
+    # TẬP mực, không chỉ số đếm: "4/1" của hai lệnh có thể là hai bộ mực khác nhau (CMYK/K với
+    # CMYK/185C) — chung tờ là chung bản, nên người ghép phải thấy tên mực chứ không chỉ con số.
+    # Cùng lý do với hai field trên: service trả sẵn, thiếu ở đây là frontend nhận rỗng.
+    muc_a: list[str] = Field(default_factory=list)
+    muc_b: list[str] = Field(default_factory=list)
     quy_cach_in: str | None = None
     kho_tp: str | None = None
     han_hoan_thanh_sx: date | None = None
@@ -169,6 +196,11 @@ class ThanhVienOut(BaseModel):
 class BaiGhepDetailOut(BaseModel):
     id: int
     ma: str
+    ten: str = ""
+    han_hoan_thanh_sx: date | None = None
+    is_rush: bool = False
+    nguoi_phu_trach_id: int | None = None
+    nguoi_phu_trach_ten: str | None = None
     trang_thai: str
     giay_id: int | None = None
     giay_ten: str | None = None
@@ -184,7 +216,6 @@ class BaiGhepDetailOut(BaseModel):
     ghi_chu: str | None = None
     thanh_vien: list[ThanhVienOut] = Field(default_factory=list)
     so_to: dict = Field(default_factory=dict)          # so_to_tot · tong_to · fill_pct · han · rows
-    tuong_thich: dict = Field(default_factory=dict)    # bảng so sánh thuộc tính × thành viên
     thieu: list[str] = Field(default_factory=list)     # checklist CHẶN sẵn sàng
     canh_bao: list[str] = Field(default_factory=list)  # cảnh báo MỀM
 
@@ -199,6 +230,50 @@ class BaiGhepActivityItem(BaseModel):
 
 class BaiGhepActivityOut(BaseModel):
     items: list[BaiGhepActivityItem]
+
+
+# ============================ Vật tư hiệu lực ============================
+class VatTuHieuLucDong(BaseModel):
+    pham_vi: str = Field(pattern="^(bai_ghep|lsx)$")
+    lsx_id: int | None = None
+    bai_ghep_id: int | None = None
+    buoc_id: int | None = None
+    gang_step_key: str | None = None
+    ma: str
+    ten_viec: str | None = None
+    nhu_cau: float = 0
+    nhu_cau_hien_thi: str = ""
+
+
+class VatTuHieuLucNhom(BaseModel):
+    loai_nhom: str
+    hang_loai: str
+    hang_id: int
+    hang_ma: str | None = None
+    hang_ten: str | None = None
+    don_vi_goc: str | None = None
+    tong_can: float = 0
+    dong: list[VatTuHieuLucDong] = Field(default_factory=list)
+
+
+class VatTuHieuLucBoQua(BaseModel):
+    ma: str
+    ly_do: str
+
+
+class VatTuHieuLucOut(BaseModel):
+    bai_ghep_id: int
+    items: list[VatTuHieuLucNhom] = Field(default_factory=list)
+    bo_qua: list[VatTuHieuLucBoQua] = Field(default_factory=list)
+
+
+class NguoiPhuTrachOption(BaseModel):
+    id: int
+    ten: str
+
+
+class NguoiPhuTrachOptionsOut(BaseModel):
+    items: list[NguoiPhuTrachOption] = Field(default_factory=list)
 
 
 # ============================ Sơ đồ (dẫn xuất) ============================

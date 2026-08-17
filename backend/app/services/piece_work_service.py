@@ -1,15 +1,17 @@
 """Lương khoán (module `luong`, nhịp 2) — nghiệp vụ.
 
 Không còn tầng "sổ khoán" (quỹ tổ + bù lỗ + thưởng + chia hệ số). Chỉ còn:
-  - Đơn giá khoán (piece_rates): bảng giá tra khi ghi Phiếu sản lượng.
   - khoan_map / defect_map: tổng hợp tiền khoán mỗi NV từ Phiếu sản lượng THEO NGƯỜI của kỳ,
     cộng thẳng vào cột `khoan` của payroll_lines lúc tính lương.
+  - Thưởng/phạt tổ trưởng theo tỷ lệ hàng lỗi (bậc + ngưỡng sản lượng).
+
+CRUD bảng đơn giá (`piece_rates`) KHÔNG còn ở đây — từ 17/08/2026 nó là danh mục "Công việc khoán"
+(`services/cong_viec_khoan_service.py`). Hai hàm THUẦN còn lại (`dau_viec_khop`, `khoan_snapshot`)
+chỉ ĐỌC một dòng đơn giá, Kế hoạch SX gọi khi bung lệnh — không ghi gì nên vẫn thuộc về đây.
 
 Cổng chốt = Chốt kỳ lương (payroll_lines đóng băng số khoán khi kỳ chốt). Không có chốt riêng.
 """
 from __future__ import annotations
-
-from ..models.piece_work import UNIT_KHAC
 
 
 class PieceWorkError(Exception):
@@ -40,20 +42,32 @@ def dau_viec_khop(rates, *, department_id: int | None) -> list:
     """
     return [
         r for r in (rates or [])
-        if getattr(r, "is_active", True)
+        if getattr(r, "active", True)
         and (department_id is None or r.department_id == department_id)
     ]
 
 
 def khoan_snapshot(rate) -> dict:
     """Ảnh chụp đầu việc để GHIM vào bước lệnh — xưởng lên giá khoán về sau không được xê dịch
-    lệnh đã phát, nên bước giữ số của chính nó thay vì đọc-sống bảng giá."""
-    return {
+    lệnh đã phát, nên bước giữ số của chính nó thay vì đọc-sống bảng giá.
+
+    `cong_thuc` (mg `0213`) ghim CÙNG LÚC với đơn giá, và vì đúng một lý do: nó quyết định LƯỢNG mà
+    đơn giá nhân vào, nên sửa nó ở danh mục cũng là đổi tiền. Ghim một nửa (giá đóng băng, cách đo
+    đọc sống) là kiểu sai khó thấy nhất — tiền của lệnh cũ tự đổi mà không dòng nhật ký nào giải
+    thích. Bước cũ muốn ăn công thức mới thì chọn lại đầu việc.
+
+    Khoá VẮNG khi công thức rỗng (không ghi `None`): `khoan_json` là ảnh chụp đọc bằng mắt trong
+    nhật ký lệnh, thêm một khoá luôn null chỉ làm dài dòng.
+    """
+    snap = {
         "rate_id": rate.id,
-        "ten": rate.name,
+        "ten": rate.ten,
         "don_vi": rate.unit,
         "don_gia": float(rate.unit_price or 0),
     }
+    if (ct := (getattr(rate, "cong_thuc_luong", None) or "").strip()):
+        snap["cong_thuc"] = ct
+    return snap
 
 
 class PieceWorkService:
@@ -61,49 +75,15 @@ class PieceWorkService:
         self.piece = piece          # PieceWorkRepository (đơn giá khoán)
         self.outputs = outputs      # ProductionOutputRepository — nguồn tiền khoán theo người. None → bỏ.
 
-    # --- đơn giá khoán ------------------------------------------------------
-
-    def list_rates(self, department_id: int | None = None):
-        return self.piece.list_rates(department_id=department_id)
-
-    def _sinh_ma(self) -> str:
-        """Mã dòng đơn giá — máy sinh, người dùng không gõ (chủ 2026-07-31). Chạy số theo dòng đã
-        có: KH-0001, KH-0002… Mã cũ của xưởng (A–F trong bảng giấy) giữ nguyên, không đụng."""
-        so = 0
-        for r in self.piece.list_rates():
-            ma = str(getattr(r, "code", "") or "")
-            if ma.upper().startswith("KH-") and ma[3:].isdigit():
-                so = max(so, int(ma[3:]))
-        return f"KH-{so + 1:04d}"
-
-    def create_rate(self, **f):
-        if not f.get("group_name"):
-            raise PieceWorkValidationError("Thiếu tổ khoán.")
-        if not f.get("name"):
-            raise PieceWorkValidationError("Thiếu tên công việc.")
-        if f.get("unit_price") is None:
-            raise PieceWorkValidationError("Thiếu đơn giá.")
-        # Đơn vị lưu ĐÚNG chữ nhận được (màn khai chọn từ danh mục Đơn vị & quy đổi). Bản trước
-        # còn "chuẩn hoá" ngầm — âm thầm sửa chữ người ta gõ; bảng khai báo thì đừng làm thế.
-        f["unit"] = str(f.get("unit") or UNIT_KHAC).strip() or UNIT_KHAC
-        if not (f.get("code") or "").strip():
-            f["code"] = self._sinh_ma()
-        return self.piece.create_rate(**f)
-
-    def update_rate(self, rate_id, **f):
-        r = self.piece.get_rate(rate_id)
-        if r is None:
-            raise PieceWorkNotFound("Không tìm thấy đơn giá.")
-        patch = {k: v for k, v in f.items() if v is not None}
-        if "unit" in patch:
-            patch["unit"] = str(patch["unit"] or UNIT_KHAC).strip() or UNIT_KHAC
-        return self.piece.update_rate(r, **patch)
-
-    def delete_rate(self, rate_id):
-        r = self.piece.get_rate(rate_id)
-        if r is None:
-            raise PieceWorkNotFound("Không tìm thấy đơn giá.")
-        self.piece.delete_rate(r)
+    # --- đơn giá khoán: CRUD ĐÃ CHUYỂN ĐI -----------------------------------
+    #
+    # `list_rates` / `create_rate` / `update_rate` / `delete_rate` gỡ ngày 17/08/2026. Bảng
+    # `piece_rates` nay là màn "Công việc khoán" của Cấu hình danh mục — mọi đường đọc/ghi đi qua
+    # `CongViecKhoanService` (nền `CatalogService`: canh trùng mã, mã tự sinh `KH-####`, xoá mềm,
+    # và GHI NHẬT KÝ trong cùng giao dịch). Giữ lại một bộ CRUD thứ hai ở đây là giữ một đường ghi
+    # không có nhật ký.
+    #
+    # Còn ở lớp này: tiền khoán vào bảng lương (`khoan_map`) + thưởng/phạt tổ trưởng.
 
     # --- Bậc thưởng/phạt tổ trưởng theo tỷ lệ hàng lỗi (chủ 29/07/2026) ------
 

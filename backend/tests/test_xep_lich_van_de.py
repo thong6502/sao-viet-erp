@@ -26,7 +26,9 @@ from app.services.xep_lich_van_de_service import XepLichVanDeService
 
 # Fixtures (db/admin/customer/orders/lsx_svc/bg_svc/xl_svc) + helpers dùng chung từ test xếp lịch.
 from tests.test_xep_lich_service import (  # noqa: F401
+    _giu_cho_du,
     _hai_lsx_san_sang,
+    _nha_cho,
     _in_step,
     admin,
     bg_svc,
@@ -52,6 +54,71 @@ def _luon_lam(monkeypatch):
 
 def _cats(res, cat):
     return [it for it in res["items"] if it["category"] == cat]
+
+
+# --- Cửa CHẶN PHÁT HÀNH khi thiếu vật tư (17/08/2026) -------------------------
+#
+# Bơm thẳng bảng cân đối giả thay vì dựng cả luồng đơn → lệnh → phiếu mua: cái đang kiểm là LUẬT
+# PHÂN LOẠI của detector, không phải phép cộng trừ của bảng cân đối (đã có test riêng ở
+# `test_ke_hoach_vat_tu.py`).
+
+
+def _bang_gia(dong: list[dict]) -> dict:
+    return {"items": [{"loai_nhom": "vat_tu", "hang_ten": "Couché 300", "hang_ma": "GY-1",
+                       "dong": dong}]}
+
+
+def _rows(*lsx_ids: int) -> list[dict]:
+    return [{"lsx_id": i, "lsx_ma": f"LSX-{i}", "bai_ghep_id": None, "may_id": None, "id": i * 10}
+            for i in lsx_ids]
+
+
+def test_ve_muon_VAN_chan_phat_hanh_va_chi_viec_khac_voi_thieu(db, vd_svc, monkeypatch):
+    """🔴 Dòng `ve_muon` KHÔNG được tuột khỏi cửa chặn.
+
+    Bảng cân đối tách `ve_muon` khỏi `do` ngày 17/08/2026. Detector cũ lọc `!= "do"` nên nếu quên
+    sửa thì lệnh CHƯA CÓ GIẤY vẫn phát hành xuống xưởng được — hỏng câm, không ai báo.
+
+    Nhưng hai ca phải chỉ HAI VIỆC NGƯỢC NHAU: thiếu thì đi mua, về muộn thì dời lịch (mua thêm là
+    mua đúp đúng lô đang trên đường về).
+    """
+    monkeypatch.setattr(vd_svc, "_can_doi_vat_tu", lambda: _bang_gia([
+        {"trang_thai": "do", "lsx_id": 1, "bai_ghep_id": None},
+        {"trang_thai": "ve_muon", "lsx_id": 2, "bai_ghep_id": None,
+         "ngay_du_hang": date(2026, 8, 27)},
+    ]))
+    out = vd_svc._thieu_vat_tu(_rows(1, 2))
+
+    assert len(out) == 2
+    assert {v["severity"] for v in out} == {"chan"}, "cả hai đều phải CHẶN phát hành"
+
+    thieu = next(v for v in out if "ve_muon" not in v["issue_key"])
+    muon = next(v for v in out if "ve_muon" in v["issue_key"])
+    assert "27/08" in muon["title"], "phải nói NGÀY VỀ để biết dời lịch tới đâu"
+    assert "dời bước" in muon["nguyen_nhan"] and "ĐỪNG lập yêu cầu mua" in muon["nguyen_nhan"]
+    assert "dời bước" not in thieu["nguyen_nhan"]
+
+
+def test_mot_lenh_vua_thieu_vua_ve_muon_ra_HAI_van_de_khac_khoa(db, vd_svc, monkeypatch):
+    """Trùng `issue_key` thì một cái nuốt cái kia — và state "đã xử lý" của người dùng dính chung."""
+    monkeypatch.setattr(vd_svc, "_can_doi_vat_tu", lambda: _bang_gia([
+        {"trang_thai": "do", "lsx_id": 1, "bai_ghep_id": None},
+        {"trang_thai": "ve_muon", "lsx_id": 1, "bai_ghep_id": None,
+         "ngay_du_hang": date(2026, 9, 3)},
+    ]))
+    out = vd_svc._thieu_vat_tu(_rows(1))
+
+    assert len({v["issue_key"] for v in out}) == 2, f"khoá phải khác nhau: {out}"
+
+
+def test_bang_can_doi_hong_thi_KEU_chu_khong_im(db, vd_svc, monkeypatch):
+    """Trả rỗng đọc y hệt "không lệnh nào thiếu" — và cửa phát hành mở cho lệnh không có giấy."""
+    def _no(*_a, **_k):
+        raise RuntimeError("bảng hỏng")
+
+    monkeypatch.setattr(vd_svc, "_can_doi_vat_tu", _no)
+    out = vd_svc._thieu_vat_tu(_rows(1))
+    assert len(out) == 1 and "Không kiểm được vật tư" in out[0]["title"]
 
 
 # --- Detector: đè vùng khóa máy ---------------------------------------------
@@ -117,7 +184,10 @@ def _gop_in_va_san_sang(db, bg_svc, bg, admin):
             bai_ghep_id=bg.id, gang_step_key=c.step_key, actor=admin,
             patch={"department_id": to_id, "may_id": mau.may_id},
         )
-    return bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai="san_sang", actor=admin)
+    ra = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai="san_sang", actor=admin)
+    # Bài là CHỦ THỂ giữ chỗ — bật sau khi gộp, vì gộp làm đổi số giấy cần.
+    _giu_cho_du(db, bai_ghep_ids=[bg.id])
+    return ra
 
 
 # --- Xả tờ là bước Máy bình thường, không còn detector theo tên ---------------
@@ -131,6 +201,7 @@ def test_khong_con_detector_gang_thieu_xa_to(db, orders, lsx_svc, bg_svc, xl_svc
                        may_id=_in_step(db, b.id).may_id, so_luong_vao=5000, nang_suat=6000,
                        don_vi_nang_suat="to_gio"))
     db.commit()
+    _nha_cho(db, [a.id, b.id])
     bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
     bg = _gop_in_va_san_sang(db, bg_svc, bg, admin)
     xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)
@@ -166,19 +237,23 @@ def test_phat_hanh_gate_ngoai_le_revert(db, orders, lsx_svc, xl_svc, vd_svc, adm
 
     # Duyệt ngoại lệ → hết Chặn → phát hành được (Released).
     vd_svc.ngoai_le(issue_key=tm["issue_key"], ly_do="chấp nhận chạy nối ca", expires_at=None, actor=admin)
-    # ⚠️ Từ 2026-08-09 lệnh này còn MỘT chặn nữa và nó ĐÚNG: bảng cân đối vật tư nay quy được
-    # tờ → kg bằng khổ tờ in của chính lệnh (trước đây danh mục giấy không có khổ nên phép đổi
-    # tắt, dòng rơi vào "chưa đánh giá được" và detector im). Fixture không tạo tồn kho nào, nên
-    # lệnh thật sự thiếu giấy — mục F chốt "thiếu vật tư ⇒ chặn PHÁT HÀNH".
-    # Test này soi cơ chế NGOẠI LỆ, không soi vật tư ⇒ duyệt nốt các Chặn còn lại rồi mới phát hành.
+    # ⚠️ ĐỔI 17/08/2026. Từ 2026-08-09 tới nay chỗ này còn một chặn `thieu_vat_tu` và test phải đi
+    # vòng qua nó — vì fixture không dựng tồn kho nào nên lệnh thật sự thiếu giấy.
+    #
+    # Nay `_hai_lsx_san_sang` dựng sẵn kho đầy + bật giữ chỗ: đó là TIỀN ĐỀ MỚI của việc vào kế
+    # hoạch (Đợt 2 — *đã xếp lịch nghĩa là vật tư đã có chủ*), nên lệnh đã nằm trên board thì không
+    # còn thiếu vật tư nữa. Chặn đó biến mất là ĐÚNG, không phải nới lỏng.
+    #
+    # Vẫn quét và duyệt nốt các Chặn còn lại: test này soi cơ chế NGOẠI LỆ, không soi vật tư — ghim
+    # cứng "không còn chặn nào" sẽ đỏ oan mỗi lần ai đó thêm detector mới.
     con_chan = [
         it for it in vd_svc.liet_ke()["items"]
         if it["severity"] == "chan" and it["trang_thai"] != "ngoai_le"
     ]
-    assert any(it["category"] == "thieu_vat_tu" for it in con_chan), \
-        f"kỳ vọng còn chặn vì thiếu vật tư, thực tế: {[it['category'] for it in con_chan]}"
+    assert not [it for it in con_chan if it["category"] == "thieu_vat_tu"], \
+        "lệnh đã giữ chỗ đủ thì KHÔNG được còn chặn vì thiếu vật tư"
     for it in con_chan:
-        vd_svc.ngoai_le(issue_key=it["issue_key"], ly_do="fixture không dựng tồn kho",
+        vd_svc.ngoai_le(issue_key=it["issue_key"], ly_do="ngoài phạm vi test ngoại lệ",
                         expires_at=None, actor=admin)
     lsx_a = vd_svc.phat_hanh_lsx(lsx_id=a.id, actor=admin)
     assert lsx_a.trang_thai == TT_DA_PHAT_HANH
@@ -270,6 +345,7 @@ def test_han_som_bai_ghep_detector(db, orders, lsx_svc, bg_svc, xl_svc, vd_svc, 
     a.han_hoan_thanh_sx = date(2026, 7, 20)   # SỚM hơn lúc in ghép xong (27/7) → bị bắt
     b.han_hoan_thanh_sx = date(2026, 8, 30)   # xa → không bị bắt
     db.commit()
+    _nha_cho(db, [a.id, b.id])
     bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
     bg = _gop_in_va_san_sang(db, bg_svc, bg, admin)
     xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)

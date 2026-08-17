@@ -135,6 +135,45 @@ def _don_vi_do(db: Session, obj) -> ThamChieu:
     return ThamChieu(chan=chan, keo_theo=_gom(_cau(n_cap, "cặp quy đổi")))
 
 
+def _dem_ghim_khoan(db: Session, model, rate_id: int) -> int:
+    """Số bước đang GHIM đơn giá này trong `khoan_json` (`{rate_id, ten, don_vi, don_gia}`).
+
+    Đọc trong Python: `khoan_json` là cột JSON, mà Postgres và SQLite không có cùng một toán tử
+    "lấy khoá" nào chạy được cả hai (`->>` vs `json_extract`). Lọc `IS NOT NULL` NGAY Ở SQL nên chỉ
+    tải về đúng các bước THẬT SỰ có đầu việc khoán, không phải cả bảng bước lệnh.
+    """
+    rows = db.execute(
+        select(model.khoan_json).where(model.khoan_json.is_not(None))
+    ).scalars()
+    return sum(1 for j in rows if isinstance(j, dict) and int(j.get("rate_id") or 0) == rate_id)
+
+
+def _cong_viec_khoan(db: Session, obj) -> ThamChieu:
+    """Ai đang dùng một dòng đơn giá khoán.
+
+    Hai kiểu tham chiếu, đếm thiếu kiểu nào là "xoá hẳn" tưởng an toàn:
+      · bằng ID   — `cong_doan_dau_viec.piece_rate_id` (định mức đầu việc của công đoạn, khai tay
+        hàng giờ: năng suất người-giờ, số người, BOM vật tư);
+      · bằng ẢNH CHỤP — bước lệnh SX và bước bài ghép ghim `khoan_json.rate_id`. Số tiền của chúng
+        KHÔNG xê dịch khi danh mục đổi (đó là lý do có ảnh chụp), nhưng vẫn phải CHẶN xoá hẳn: mất
+        dòng gốc là lệnh không còn chọn lại được đúng đầu việc đó, và người đọc lệnh hết đường tra
+        ngược "đơn giá này ở đâu ra".
+
+    Không có CASCADE nào trỏ vào bảng này (`piece_rate_id` là soft-ref, không FK cứng) ⇒ `keo_theo`
+    luôn rỗng: xoá một dòng đơn giá không làm bay theo bản ghi nào.
+    """
+    from ..models.bai_ghep_cong_doan import BaiGhepCongDoan
+    from ..models.cong_doan import CongDoanDauViec
+    from ..models.lsx import LsxCongDoan
+
+    return ThamChieu(chan=_gom(
+        _cau(_dem(db, CongDoanDauViec, CongDoanDauViec.piece_rate_id == obj.id),
+             "định mức đầu việc của công đoạn"),
+        _cau(_dem_ghim_khoan(db, LsxCongDoan, obj.id), "bước trong lệnh sản xuất"),
+        _cau(_dem_ghim_khoan(db, BaiGhepCongDoan, obj.id), "bước trong bài ghép"),
+    ))
+
+
 def _bu_hao(db: Session, obj) -> ThamChieu:
     from ..models.cong_doan import CongDoan
 
@@ -271,6 +310,7 @@ def _dem_cong_doan_theo_nhom(db: Session, ten_nhom: str) -> int:
 # `loai` ở đây là tên chính trong `catalog_registry` (cũng là key nhật ký) — không đẻ bộ tên thứ hai.
 DEM_THEO_LOAI = {
     "cong_doan": _cong_doan,
+    "cong_viec_khoan": _cong_viec_khoan,
     "may_thiet_bi": _may_thiet_bi,
     "don_vi_do": _don_vi_do,
     "bu_hao": _bu_hao,

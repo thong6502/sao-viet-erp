@@ -179,10 +179,10 @@ export function XepLichPage({
 }) {
   const { token, user } = useAuth();
   const can = useCan();
-  const canCreate = can("san_xuat", "create");
-  const canUpdate = can("san_xuat", "update");
-  const canApprove = can("san_xuat", "approve"); // quyền PHÁT (can_approve) — nút Phát hành
-  const canApproveException = can("san_xuat", "approve_exception"); // duyệt ngoại lệ — nút Xin ngoại lệ (tách khỏi phát hành)
+  const canCreate = can("xep_lich", "create");
+  const canUpdate = can("xep_lich", "update");
+  const canApprove = can("xep_lich", "approve"); // quyền PHÁT (can_approve) — nút Phát hành
+  const canApproveException = can("xep_lich", "approve_exception"); // duyệt ngoại lệ — nút Xin ngoại lệ (tách khỏi phát hành)
 
   const [rows, setRows] = useState<XepLichRow[] | null>(null);
   const [queue, setQueue] = useState<XepLichHangChoItem[] | null>(null);

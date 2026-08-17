@@ -40,6 +40,7 @@ from .routers import (
     may_thiet_bi,
     vat_lieu_kho,
     cong_doan,
+    cong_viec_khoan,
     bu_hao,
     don_vi_do,
     bien_cong_thuc,
@@ -57,6 +58,7 @@ from .routers import (
     phieu_tinh_gia,
     lsx,
     bai_ghep,
+    bai_ghep_2,
     xep_lich,
     ke_hoach_vat_tu,
     ky_thuat_may,
@@ -156,6 +158,7 @@ app.include_router(may_thiet_bi.router)
 app.include_router(may_thiet_bi.nhom_may_router)   # danh mục Nhóm máy (cùng module quyền)
 app.include_router(vat_lieu_kho.router)
 app.include_router(cong_doan.router)
+app.include_router(cong_viec_khoan.router)     # đơn giá khoán theo tổ (trước ở tab của màn Lương)
 app.include_router(bu_hao.router)
 app.include_router(don_vi_do.router)
 app.include_router(bien_cong_thuc.router)
@@ -173,12 +176,13 @@ app.include_router(public_scan.router)
 app.include_router(kho.router)
 app.include_router(khuon_be.router)
 app.include_router(loai_san_pham.router)
-app.include_router(nhat_ky_danh_muc.router)   # nhật ký 1 bản ghi — chung cho 10 màn danh mục
-app.include_router(danh_muc_xoa.router)       # "còn ai dùng không" — chung cho 8 màn danh mục
+app.include_router(nhat_ky_danh_muc.router)   # nhật ký 1 bản ghi — chung cho 11 màn danh mục
+app.include_router(danh_muc_xoa.router)       # "còn ai dùng không" — chung cho 9 màn danh mục
 app.include_router(tinh_gia.router)
 app.include_router(phieu_tinh_gia.router)
 app.include_router(lsx.router)
 app.include_router(bai_ghep.router)
+app.include_router(bai_ghep_2.router)
 app.include_router(xep_lich.router)
 app.include_router(ke_hoach_vat_tu.router)   # bảng cân đối vật tư (cùng module quyền `san_xuat`)
 app.include_router(ky_thuat_may.router)      # sửa chữa + phiếu bảo trì (module quyền `ky_thuat_may`)

@@ -1,7 +1,8 @@
 """Service Bài ghép — nghiệp vụ gom công đoạn in của nhiều LSX chạy chung 1 tờ.
 
-Số tờ / dư / tổng tờ / % tờ dùng là DẪN XUẤT, tính lúc đọc (`tinh_so_to`), KHÔNG lưu cột. Kiểm
-tương thích MỀM (3 mức, không chặn) — người quyết. Gate cứng `san_sang` chỉ 4 điều kiện tối thiểu.
+Số tờ / dư / tổng tờ / % tờ dùng là DẪN XUẤT, tính lúc đọc (`tinh_so_to`), KHÔNG lưu cột. Máy KHÔNG
+so quy cách hộ (bảng "kiểm tương thích" đã gỡ 17/08/2026) — bảng thành viên bày đủ giấy/mực/số
+mặt/khổ TP để người tự so. Gate cứng `san_sang` chỉ 4 điều kiện tối thiểu.
 Guard "1 LSX ≤ 1 bài ghép" ở đây (cross-table, soft không unique gọn được). Máy chỉ ghi nhận.
 """
 from __future__ import annotations
@@ -9,10 +10,12 @@ from __future__ import annotations
 from math import ceil
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models.bai_ghep import (
-    TRANG_THAI_BAI_GHEP, TT_DA_LAP_KE_HOACH, TT_NHAP, TT_SAN_SANG, BaiGhep, BaiGhepThanhVien,
+    TRANG_THAI_BAI_GHEP, TT_DA_LAP_KE_HOACH, TT_DA_PHAT_HANH, TT_NHAP, TT_SAN_SANG,
+    BaiGhep, BaiGhepThanhVien,
 )
 from ..models.bai_ghep_cong_doan import (
     BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCongDoanVatTu,
@@ -187,22 +190,80 @@ class BaiGhepService:
             bg.trang_thai = TT_NHAP
 
     def _chan_da_lap(self, bg: BaiGhep) -> None:
-        """Đã lập kế hoạch → khóa sửa thành viên/giấy (gỡ kế hoạch ở màn Xếp lịch để mở lại)."""
-        if bg.trang_thai == TT_DA_LAP_KE_HOACH:
+        """Đã lập lịch/phát hành thì chỉ service Xếp lịch được mở khóa."""
+        if bg.trang_thai in (TT_DA_LAP_KE_HOACH, TT_DA_PHAT_HANH):
+            if bg.trang_thai == TT_DA_PHAT_HANH:
+                raise BaiGhepConflict("Bài ghép đã phát hành — gỡ phát hành và kế hoạch trước khi sửa")
             raise BaiGhepConflict("Bài ghép đã lập kế hoạch — gỡ kế hoạch trước khi sửa")
+
+    def _la_sach_khong_ghep_duoc(self, quy_cach: dict | None) -> bool:
+        return la_gap_tay(quy_cach)
+
+    def _chan_dang_giu_cho(self, bg: BaiGhep) -> None:
+        """DÂY KHOÁ THỨ NHẤT: bài đang giữ chỗ vật tư → không thêm/rút/sửa thành viên, không phá bài.
+
+        Lý do gốc: **ghép bài làm ĐỔI con số cần giữ, và đổi xuống.** Hai lệnh in riêng cần
+        `40,42 + 54,50 = 94,92 kg`; ghép chung một tờ thì cả bài cần ít hơn hẳn — đó chính là chỗ
+        ghép bài tiết kiệm giấy. Đụng vào thành viên mà không nhả trước thì xưởng ôm chỗ cho một
+        đống giấy không ai cần nữa, trong khi lệnh khác bị báo thiếu vì đụng trần tồn tự do.
+
+        Đối xứng với `_chan_lenh_dang_giu_cho` ở phía lệnh. Cả hai đều có ĐƯỜNG LÙI: nhả chỗ rồi
+        làm — chặn cứng không lối ra sẽ biến giữ chỗ thành cái khoá vĩnh viễn không cho ghép bài,
+        mà ghép bài là chỗ tiết kiệm thật.
+        """
+        if getattr(bg, "giu_cho_bat", False):
+            raise BaiGhepConflict(
+                f"Bài ghép {bg.ma} đang giữ chỗ vật tư — nhả chỗ ở màn Kế hoạch vật tư trước, "
+                "vì đổi thành viên là đổi luôn số giấy cả bài cần."
+            )
+
+    def _chan_lenh_dang_giu_cho(self, lsx_ids: list[int]) -> None:
+        """Lệnh in riêng đang giữ chỗ thì chưa được đưa vào bài — nhả cả lệnh trước.
+
+        Chủ chốt 17/08/2026: nhả **CẢ LỆNH**, không tách riêng phần giấy. Đúng là ghép bài chỉ đổi
+        số giấy chứ không đổi mực/keo, nhưng tách ra sẽ đẻ trạng thái "giữ một phần vì đang chờ
+        ghép" mà sau này gỡ rối rất khó nhìn. Ghép bài là quyết định làm sớm; nhả rồi giữ lại tốn
+        vài giây, còn trạng thái nửa vời thì trả giá mãi.
+        """
+        from ..models.lsx import Lsx
+
+        dang = [l for l in self.repo.lsx_by_ids(list(lsx_ids)).values()
+                if getattr(l, "giu_cho_bat", False)] if lsx_ids else []
+        if not dang:
+            return
+        ten = ", ".join(sorted(l.ma for l in dang))
+        raise BaiGhepConflict(
+            f"{ten} đang giữ chỗ vật tư — nhả chỗ ở màn Kế hoạch vật tư trước khi ghép bài. "
+            "Ghép xong số giấy cần sẽ ÍT HƠN (đó là chỗ ghép bài tiết kiệm), nên phải giữ lại."
+        )
 
     # ================= HÀNG CHỜ GHÉP =================
 
-    def hang_cho_ghep(self, *, giay_id: int | None = None, q: str | None = None) -> list[dict]:
+    def hang_cho_ghep(self, *, giay_id: int | None = None, q: str | None = None) -> dict:
+        """`{"items": [...], "so_giu_cho": n}` — hàng chờ ghép, ĐÃ TRỪ lệnh đang giữ chỗ vật tư.
+
+        Lệnh đã bật giữ chỗ thì KHÔNG hiện ở đây (chủ chốt 17/08/2026). Cửa chặn ở `_validate_them`
+        vẫn giữ làm chốt cuối, nhưng lọc ngay từ danh sách mới là cách đúng: bày một lệnh ra rồi
+        báo lỗi lúc bấm là mời người ta làm một việc không làm được.
+
+        Thứ tự ấy cũng chính là thứ tự làm việc đúng — **ghép bài TRƯỚC, giữ chỗ SAU**. Ghép bài
+        làm số giấy cần ÍT ĐI (đó là chỗ nó tiết kiệm), nên giữ trước rồi mới ghép là ôm chỗ cho
+        một đống giấy không ai cần nữa, trong khi lệnh khác bị báo thiếu vì đụng trần tồn tự do.
+
+        `so_giu_cho` đếm SAU mọi bộ lọc khác: nó trả lời đúng câu *"nhả chỗ thì có thêm mấy lệnh
+        vào bảng NÀY"*. Đếm trước thì một lệnh ruột sách (không bao giờ ghép được) cũng bị tính,
+        và người dùng đi nhả chỗ xong chẳng thấy gì xuất hiện.
+        """
         lsxs = self.repo.hang_cho_ghep()
         cust = self._customer_names({l.order_id for l in lsxs})
         out: list[dict] = []
+        so_giu_cho = 0
         for l in lsxs:
             qc = l.quy_cach_json or {}
             # Ruột sách KHÔNG ghép chung tờ được — xem `_validate_them`. Lọc ở Python chứ không
             # nhét vào SQL của repo: `trang_moi_tay` nằm trong JSON, truy vấn JSON phải rẽ nhánh
             # SQLite/Postgres, mà hàng chờ vốn đã lọc `giay_id`/`q` ngay tại đây rồi.
-            if la_gap_tay(qc):
+            if self._la_sach_khong_ghep_duoc(qc):
                 continue
             if giay_id is not None and qc.get("giay_id") != giay_id:
                 continue
@@ -210,6 +271,11 @@ class BaiGhepService:
                 like = q.strip().lower()
                 if like not in (l.ma or "").lower() and like not in (l.ten or "").lower():
                     continue
+            # ĐẶT CUỐI có chủ ý — xem docstring: đếm sau mọi bộ lọc khác thì con số mới đúng nghĩa
+            # "nhả chỗ sẽ có thêm bấy nhiêu lệnh vào bảng này".
+            if getattr(l, "giu_cho_bat", False):
+                so_giu_cho += 1
+                continue
             out.append({
                 "lsx_id": l.id, "ma": l.ma, "ten": l.ten,
                 "so_luong_dat": l.so_luong_dat, "don_vi_tinh": l.don_vi_tinh,
@@ -226,7 +292,7 @@ class BaiGhepService:
                 "kho_tp": _kho(qc.get("dai_thanh_pham"), qc.get("rong_thanh_pham")),
                 "kho_in": _kho(qc.get("kho_in_dai"), qc.get("kho_in_rong")),
             })
-        return out
+        return {"items": out, "so_giu_cho": so_giu_cho}
 
     # ================= TẠO / SỬA THÀNH VIÊN =================
 
@@ -246,7 +312,7 @@ class BaiGhepService:
             # nổi — cho vào là ra số vô nghĩa chứ không phải số xấp xỉ. BÌA sách vẫn ghép bình
             # thường vì bìa là hàng cắt rời. Chặn ở đây chứ không chỉ ở hàng chờ: hàng chờ là bộ
             # lọc HIỂN THỊ, API vẫn gọi thẳng được.
-            if la_gap_tay(l.quy_cach_json):
+            if self._la_sach_khong_ghep_duoc(l.quy_cach_json):
                 tay = so_tay_moi_cuon(
                     trang_moi_tay=(l.quy_cach_json or {}).get("trang_moi_tay"),
                     so_trang=(l.quy_cach_json or {}).get("so_trang"),
@@ -263,10 +329,20 @@ class BaiGhepService:
         ids = list(dict.fromkeys(int(i) for i in lsx_ids if i))  # khử trùng, giữ thứ tự
         if not ids:
             raise BaiGhepValidationError("Chưa chọn LSX nào để ghép")
+        # Cùng luật với `them_thanh_vien`: TẠO bài cũng là ghép bài. Bỏ sót cửa này thì lệnh mang
+        # nguyên chỗ giữ của mình vào bài, rồi bài lại giữ tiếp cho cả cụm ⇒ giữ HAI LẦN cùng một
+        # xấp giấy, và tồn tự do của mọi người khác bị trừ oan.
+        self._chan_lenh_dang_giu_cho(ids)
         lsx_map = self.repo.lsx_by_ids(ids)
         self._validate_them(ids, lsx_map)
+        ma = self.sequence.generate_code("bai_ghep")
+        hans = [lsx_map[i].han_hoan_thanh_sx for i in ids if lsx_map[i].han_hoan_thanh_sx]
         bg = BaiGhep(
-            ma=self.sequence.generate_code("bai_ghep"),
+            ma=ma,
+            ten=f"Bài ghép {ma}",
+            han_hoan_thanh_sx=min(hans) if hans else None,
+            is_rush=any(bool(lsx_map[i].is_rush) for i in ids),
+            nguoi_phu_trach_id=getattr(actor, "id", None),
             trang_thai=TT_NHAP,
             created_by=getattr(actor, "id", None),
         )
@@ -279,12 +355,18 @@ class BaiGhepService:
                 # sai (còn CTP/cán/bế chung) vừa cướp mất quyết định của người lập kế hoạch.
             ))
         self._goi_y_giay_kho(bg, lsx_map)
-        self.repo.add(bg)
-        self.audit.create(
-            actor_user_id=getattr(actor, "id", None), action="tao_bai_ghep",
-            target=f"bai_ghep:{bg.id}", detail=f"Tạo bài ghép {bg.ma} ({len(ids)} LSX)",
-        )
-        self.repo.commit()
+        try:
+            self.repo.add(bg)
+            self.audit.create(
+                actor_user_id=getattr(actor, "id", None), action="tao_bai_ghep",
+                target=f"bai_ghep:{bg.id}", detail=f"Tạo bài ghép {bg.ma} ({len(ids)} LSX)",
+            )
+            self.repo.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise BaiGhepConflict(
+                "Có LSX đã thuộc bài ghép khác — tải lại danh sách rồi thử lại"
+            ) from exc
         return self._get(bg.id)
 
     def _goi_y_giay_kho(self, bg: BaiGhep, lsx_map: dict[int, Lsx]) -> None:
@@ -303,10 +385,12 @@ class BaiGhepService:
     def them_thanh_vien(self, *, bai_ghep_id: int, lsx_ids: list[int], actor) -> BaiGhep:
         bg = self._get(bai_ghep_id)
         self._chan_da_lap(bg)
+        self._chan_dang_giu_cho(bg)
         co_san = {tv.lsx_id for tv in bg.thanh_viens}
         ids = [int(i) for i in dict.fromkeys(lsx_ids) if int(i) not in co_san]
         if not ids:
             raise BaiGhepValidationError("Không có LSX mới để thêm")
+        self._chan_lenh_dang_giu_cho(ids)
         lsx_map = self.repo.lsx_by_ids(ids)
         self._validate_them(ids, lsx_map)
         for i in ids:
@@ -317,7 +401,13 @@ class BaiGhepService:
                 # Bước nào chạy chung do NGƯỜI khai (`bai_ghep_cong_doan`) — máy đoán hộ thì vừa
                 # sai (còn CTP/cán/bế chung) vừa cướp mất quyết định của người lập kế hoạch.
             ))
-        self.db.flush()
+        try:
+            self.db.flush()
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise BaiGhepConflict(
+                "Có LSX đã thuộc bài ghép khác — tải lại danh sách rồi thử lại"
+            ) from exc
         # Thêm lệnh → `so_to_tot` (max nhu cầu) và tổng con trên tờ đổi → số của bước chung đổi.
         self._tinh_lai(bg)
         self._mark_nhap(bg)
@@ -331,6 +421,7 @@ class BaiGhepService:
     def bo_thanh_vien(self, *, bai_ghep_id: int, thanh_vien_id: int, actor) -> BaiGhep:
         bg = self._get(bai_ghep_id)
         self._chan_da_lap(bg)
+        self._chan_dang_giu_cho(bg)
         tv = next((t for t in bg.thanh_viens if t.id == thanh_vien_id), None)
         if tv is None:
             raise BaiGhepNotFound("Không tìm thấy thành viên")
@@ -360,6 +451,7 @@ class BaiGhepService:
         """
         bg = self._get(bai_ghep_id)
         self._chan_da_lap(bg)
+        self._chan_dang_giu_cho(bg)
         tv = next((t for t in bg.thanh_viens if t.id == thanh_vien_id), None)
         if tv is None:
             raise BaiGhepNotFound("Không tìm thấy thành viên")
@@ -370,19 +462,36 @@ class BaiGhepService:
         # CẢ hai tầng, không riêng tầng lệnh.
         self._tinh_lai(bg, [tv.lsx_id])
         self._mark_nhap(bg)
+        self.audit.create(
+            actor_user_id=getattr(actor, "id", None), action="sua_thanh_vien",
+            target=f"bai_ghep:{bg.id}",
+            detail=f"Sửa con/tờ của 1 LSX trong {bg.ma} thành {int(so_con_tren_to)}",
+        )
         self.repo.commit()
         return self._get(bg.id)
+
+    _SUA_DUOC_BAI = (
+        "giay_id", "kho_in_dai", "kho_in_rong", "may_id", "hao_hut_setup",
+        "hao_hut_chay", "ghi_chu",
+    )
 
     def sua(self, *, bai_ghep_id: int, patch: dict, actor) -> BaiGhep:
         bg = self._get(bai_ghep_id)
         self._chan_da_lap(bg)
-        for field in ("giay_id", "kho_in_dai", "kho_in_rong", "may_id", "hao_hut_setup",
-                      "hao_hut_chay", "ghi_chu"):
+        if {
+            "giay_id", "kho_in_dai", "kho_in_rong", "hao_hut_setup", "hao_hut_chay",
+        } & set(patch):
+            self._chan_dang_giu_cho(bg)
+        for field in self._SUA_DUOC_BAI:
             if field in patch:
                 setattr(bg, field, patch[field])
         # Khổ tờ in đổi → số mảnh xả của thành viên đổi theo. Hao khai tay đổi → số tờ cấp đổi.
         if {"kho_in_dai", "kho_in_rong", "hao_hut_setup", "hao_hut_chay"} & set(patch):
             self._tinh_lai(bg)
+        self.audit.create(
+            actor_user_id=getattr(actor, "id", None), action="sua_bai_ghep",
+            target=f"bai_ghep:{bg.id}", detail=f"Cập nhật bài ghép {bg.ma}",
+        )
         self.repo.commit()
         return self._get(bg.id)
 
@@ -585,6 +694,7 @@ class BaiGhepService:
         """
         bg = self._get(bai_ghep_id)
         self._chan_da_lap(bg)
+        self._chan_dang_giu_cho(bg)
         keys = list(dict.fromkeys(k for k in step_keys if k))
         if len(keys) < 2:
             raise BaiGhepValidationError("Chọn ít nhất 2 bước để gộp")
@@ -618,11 +728,11 @@ class BaiGhepService:
             loai_buoc=mau.loai_buoc, bat_buoc=bool(mau.bat_buoc),
             # CHƯA gán tổ/máy: gộp xong là phải lập lại kế hoạch cho lượt chạy chung, không thừa
             # kế mù của bất kỳ lệnh nào — hai lệnh có thể đang khai hai máy khác nhau.
-            so_nhan_cong_tieu_chuan=int(mau.so_nhan_cong_tieu_chuan or 1),
-            so_nhan_cong=int(mau.so_nhan_cong_tieu_chuan or 1),
-            so_nhan_cong_toi_da=mau.so_nhan_cong_toi_da,
-            so_nhan_cong_toi_thieu=mau.so_nhan_cong_toi_thieu,
-            don_vi_nang_suat=mau.don_vi_nang_suat,
+            so_nhan_cong_tieu_chuan=1,
+            so_nhan_cong=1,
+            so_nhan_cong_toi_da=None,
+            so_nhan_cong_toi_thieu=None,
+            don_vi_nang_suat=None,
             # Đơn vị vào/ra là thứ NGƯỜI khai ở danh mục công đoạn, không phải thứ bài tự đặt.
             # Đóng đinh `tờ ➔ tờ` là nói sai ngay khi bước gộp là bế (`to → cai`): thẻ chung ghi
             # "5.075 tờ ➔ 5.075 tờ" trong khi thẻ liền kề ghi "vào 20.300 cái".
@@ -658,6 +768,7 @@ class BaiGhepService:
         """
         bg = self._get(bai_ghep_id)
         self._chan_da_lap(bg)
+        self._chan_dang_giu_cho(bg)
         chung = next((c for c in self._buoc_chungs(bg) if c.step_key == gang_step_key), None)
         if chung is None:
             raise BaiGhepNotFound("Không tìm thấy bước chung")
@@ -695,6 +806,7 @@ class BaiGhepService:
         """Lập kế hoạch cho lượt chạy chung: một tổ, một máy, một kíp, một bộ vật tư."""
         bg = self._get(bai_ghep_id)
         self._chan_da_lap(bg)
+        self._chan_dang_giu_cho(bg)
         chung = next((c for c in self._buoc_chungs(bg) if c.step_key == gang_step_key), None)
         if chung is None:
             raise BaiGhepNotFound("Không tìm thấy bước chung")
@@ -1596,50 +1708,6 @@ class BaiGhepService:
             ],
         }
 
-    # ================= KIỂM TƯƠNG THÍCH (mềm) =================
-
-    def kiem_tuong_thich(self, bg: BaiGhep, lsx_map: dict[int, Lsx]) -> dict:
-        tvs = bg.thanh_viens
-        qcs = [(lsx_map[tv.lsx_id].quy_cach_json or {}) if tv.lsx_id in lsx_map else {} for tv in tvs]
-
-        def _row(nhan, vals, muc):
-            return {"thuoc_tinh": nhan, "gia_tri": vals, "muc": muc}
-
-        rows = []
-        # Giấy: thiếu → không phù hợp; khác → cần xác nhận; giống → phù hợp.
-        giays = [qc.get("giay_id") for qc in qcs]
-        giay_ten = [qc.get("giay_ten") for qc in qcs]
-        if any(g is None for g in giays):
-            muc = "khong_phu_hop"
-        elif len(set(giays)) <= 1:
-            muc = "phu_hop"
-        else:
-            muc = "can_xac_nhan"
-        rows.append(_row("Giấy", [t or "—" for t in giay_ten], muc))
-
-        # MỰC: ghép chung tờ là chung một bộ bản, nên phải khớp CHÍNH XÁC TỪNG MỰC, không phải
-        # khớp số lượng. Hai lệnh cùng nhãn "4/1" mà một bên mặt sau là K còn bên kia là 185C thì
-        # bản kẽm khác nhau — so con số sẽ gật "phù hợp" cho một bài không in chung được.
-        # Lệnh cũ chưa có tập mực (`quy_cach_json` trước 2026-08-05) → rơi về nhãn số như trước.
-        def _nhan_muc(qc: dict) -> str:
-            a, b = tap_muc(qc.get("muc_a")), tap_muc(qc.get("muc_b"))
-            if not a and not b:
-                return f"{qc.get('so_mau_a') or 0}/{qc.get('so_mau_b') or 0}"
-            return f"{'+'.join(a) or '—'} / {'+'.join(b) or '—'}"
-
-        maus = [_nhan_muc(qc) for qc in qcs]
-        rows.append(_row("Mực in", maus, "phu_hop" if len(set(maus)) <= 1 else "can_xac_nhan"))
-
-        # Số mặt/trở.
-        mats = [qc.get("quy_cach_in") or "—" for qc in qcs]
-        rows.append(_row("Số mặt/trở", mats, "phu_hop" if len(set(mats)) <= 1 else "can_xac_nhan"))
-
-        # Khổ thành phẩm — CHỈ hiển thị (khác khổ TP là bình thường, không phán mức).
-        khos = [_kho(qc.get("dai_thanh_pham"), qc.get("rong_thanh_pham")) or "—" for qc in qcs]
-        rows.append(_row("Khổ thành phẩm", khos, "phu_hop"))
-
-        return {"thanh_vien": [{"lsx_id": tv.lsx_id} for tv in tvs], "rows": rows}
-
     # ================= CHECKLIST =================
 
     def thieu_cua(self, bg: BaiGhep, lsx_map: dict[int, Lsx] | None = None) -> list[str]:
@@ -1679,8 +1747,8 @@ class BaiGhepService:
         cb: list[str] = []
         # KHÔNG còn cảnh báo "khác quy cách" (khác giấy / số màu / số mặt) và "bài thưa".
         # Điều kiện gộp CHỈ là cùng công đoạn — quy cách thì người dùng có nghiệp vụ đó, máy không
-        # phán hộ. Bảng `kiem_tuong_thich` vẫn BÀY ĐỦ các giá trị để người tự so, và `fill_pct`
-        # vẫn hiện dưới dạng con số; chỉ bỏ phần MÁY KẾT LUẬN hộ.
+        # phán hộ. Giấy/mực/số mặt/khổ TP của từng thành viên vẫn về nguyên trong `detail_dict`
+        # để người tự so, và `fill_pct` vẫn hiện dưới dạng con số; chỉ bỏ phần MÁY KẾT LUẬN hộ.
         lsxs = [lsx_map.get(tv.lsx_id) for tv in bg.thanh_viens]
         if any(l and l.is_rush for l in lsxs):
             cb.append("co_gap")
@@ -1707,8 +1775,7 @@ class BaiGhepService:
             raise BaiGhepValidationError("Trạng thái không hợp lệ")
         if trang_thai == TT_DA_LAP_KE_HOACH:
             raise BaiGhepValidationError("Lập kế hoạch qua màn Xếp lịch, không đổi trực tiếp ở đây")
-        if bg.trang_thai == TT_DA_LAP_KE_HOACH:
-            raise BaiGhepConflict("Bài ghép đã lập kế hoạch — gỡ kế hoạch trước")
+        self._chan_da_lap(bg)
         if trang_thai == TT_SAN_SANG and self.thieu_cua(bg):
             raise BaiGhepConflict("Còn thiếu dữ liệu — bổ sung xong mới đánh dấu sẵn sàng")
         bg.trang_thai = trang_thai
@@ -1722,6 +1789,10 @@ class BaiGhepService:
     def xoa(self, *, bai_ghep_id: int, actor) -> None:
         bg = self._get(bai_ghep_id)
         self._chan_da_lap(bg)
+        # Phá bài cũng làm đổi số giấy cần (mỗi lệnh về in riêng ⇒ CẦN NHIỀU HƠN). Xoá thẳng khi
+        # đang giữ chỗ thì `ON DELETE CASCADE` nuốt luôn các dòng giữ, và phần giấy vừa nhả ra
+        # không lệnh nào biết mà nhặt — im lặng mất chỗ.
+        self._chan_dang_giu_cho(bg)
         ma = bg.ma
         self.repo.delete(bg)  # cascade xoá thành viên → LSX tự do lại
         self.audit.create(
@@ -1740,7 +1811,10 @@ class BaiGhepService:
         for bg in bgs:
             so_to = self.tinh_so_to(bg, lsx_map)
             out.append({
-                "id": bg.id, "ma": bg.ma, "trang_thai": bg.trang_thai,
+                "id": bg.id, "ma": bg.ma, "ten": bg.ten,
+                "han_hoan_thanh_sx": bg.han_hoan_thanh_sx,
+                "is_rush": bool(bg.is_rush), "nguoi_phu_trach_id": bg.nguoi_phu_trach_id,
+                "trang_thai": bg.trang_thai,
                 "so_lsx": len(bg.thanh_viens),
                 "giay_ten": giay.get(bg.giay_id),
                 "kho_in": _kho(bg.kho_in_dai, bg.kho_in_rong),
@@ -1797,7 +1871,10 @@ class BaiGhepService:
             })
 
         return {
-            "id": bg.id, "ma": bg.ma, "trang_thai": bg.trang_thai,
+            "id": bg.id, "ma": bg.ma, "ten": bg.ten,
+            "han_hoan_thanh_sx": bg.han_hoan_thanh_sx,
+            "is_rush": bool(bg.is_rush), "nguoi_phu_trach_id": bg.nguoi_phu_trach_id,
+            "trang_thai": bg.trang_thai,
             "giay_id": bg.giay_id, "giay_ten": giay.get(bg.giay_id),
             "kho_in_dai": bg.kho_in_dai, "kho_in_rong": bg.kho_in_rong,
             "may_id": bg.may_id, "may_ten": may.get(bg.may_id),
@@ -1805,7 +1882,6 @@ class BaiGhepService:
             "ghi_chu": bg.ghi_chu,
             "thanh_vien": thanh_vien,
             "so_to": so_to,
-            "tuong_thich": self.kiem_tuong_thich(bg, lsx_map),
             "thieu": self.thieu_cua(bg, lsx_map),
             "canh_bao": self.canh_bao_cua(bg, lsx_map, so_to),
         }

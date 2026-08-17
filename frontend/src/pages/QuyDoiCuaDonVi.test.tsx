@@ -1,9 +1,10 @@
-// Bằng chứng cho ĐÚNG cú bấm đã làm trắng màn 14/08/2026: drawer Đơn vị → tab "Quy đổi & số lượng"
-// → khối "THÊM QUY ĐỔI MỚI" → nút "Theo quy cách".
+// Khối "Quy đổi & số lượng" của drawer Đơn vị — nay CHỈ còn quy đổi bằng SỐ.
 //
-// Cú bấm đó bật `them.dong` ⇒ khối này render `FormulaField`. `FormulaField` vừa bị đổi sang ô chip
-// inline và bản đổi bỏ mất ba hàm JSX vẫn gọi ⇒ ReferenceError NGAY TRONG RENDER ⇒ React gỡ cả cây
-// ⇒ trắng bong. Lỗi nổ ở `FormulaField` nhưng người dùng gặp nó Ở ĐÂY, nên khoá lại từ đây.
+// 🔴 Hai test cũ ở đây khoá cú bấm "Theo quy cách" (đã làm trắng màn 14/08/2026 vì `FormulaField`
+// ném ReferenceError trong render). Nút đó GỠ 17/08/2026 cùng cột `don_vi_do.cong_thuc` (mg `0215`):
+// câu "một lệnh cần bao nhiêu" không thuộc về ĐƠN VỊ mà thuộc về một MÓN / MÁY / ĐẦU VIỆC / BƯỚC,
+// và cả bốn nay có ô riêng. Test đổi theo: khoá lại chính việc nút đó KHÔNG được quay lại, vì màn
+// này là chỗ nó từng đứng và người sửa sau dễ "khai lại cho tiện".
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -18,22 +19,13 @@ const AUTH: AuthState = {
   updateUser: () => {}, notice: null, setNotice: () => {},
 };
 
-const BIEN = [
-  { ma: "dinh_luong", nhan: "Định lượng giấy" },
-  { ma: "dai_in", nhan: "Dài tờ in" },
-  { ma: "rong_in", nhan: "Rộng tờ in" },
-];
-
-/** Đơn vị "bài in" chưa khai quy đổi nào — đúng trạng thái trên ảnh chụp màn hình lỗi. */
+/** Đơn vị "bài in" chưa khai quy đổi nào. */
 const BAI_IN: Row = { id: 7, ma: "bai_in", ten: "bài in", ho: "khac", active: true };
+const KG: Row = { id: 8, ma: "kg", ten: "kg", ho: "khoi_luong", active: true };
 
 function ketQua(path: string): unknown {
   if (path.startsWith("/api/don-vi/quy-doi")) return { items: [], total: 0, page: 1, size: 200 };
-  if (path.startsWith("/api/don-vi/bien")) return { items: BIEN };
-  if (path.startsWith("/api/don-vi")) return { items: [BAI_IN], total: 1, page: 1, size: 200 };
-  if (path.startsWith("/api/bien-cong-thuc")) {
-    return { items: BIEN.map((b) => ({ ...b, mo_ta: b.nhan, don_vi: "", nguon: "", loai: ["quy_doi"] })) };
-  }
+  if (path.startsWith("/api/don-vi")) return { items: [BAI_IN, KG], total: 2, page: 1, size: 200 };
   return { items: [] };
 }
 
@@ -47,8 +39,7 @@ beforeEach(() => {
 });
 
 describe("drawer Đơn vị → Quy đổi & số lượng", () => {
-  it("bấm nút “Theo quy cách” KHÔNG làm trắng màn — ô soạn công thức hiện ra", async () => {
-    const user = userEvent.setup();
+  it("KHÔNG còn chế độ “Theo quy cách” — module này chỉ khai đơn vị + quy đổi", async () => {
     render(
       <AuthContext.Provider value={AUTH}>
         <QuyDoiCuaDonVi donVi={BAI_IN} />
@@ -56,16 +47,14 @@ describe("drawer Đơn vị → Quy đổi & số lượng", () => {
     );
 
     await screen.findByText("Chưa có quy đổi nào được khai báo cho đơn vị này.");
-    await user.click(screen.getByRole("button", { name: "Theo quy cách" }));
-
-    // Khối vẫn còn sống: ô soạn công thức thế chỗ ô số + ô đích (công thức định nghĩa chính đơn vị
-    // đang mở nên KHÔNG có "quy đổi về").
-    await waitFor(() => expect(document.getElementById("ct-them")).toBeInTheDocument());
-    expect(screen.getByText("Danh sách biến khả dụng")).toBeInTheDocument();
-    expect(screen.queryByText("— Đơn vị quy đổi về —")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Theo quy cách" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Số cố định" })).not.toBeInTheDocument();
+    // Ô soạn công thức cũng không được còn sót lại dưới bất kỳ hình dạng nào.
+    expect(document.getElementById("ct-them")).toBeNull();
+    expect(screen.queryByText("Danh sách biến khả dụng")).not.toBeInTheDocument();
   });
 
-  it("soạn xong công thức thì nút Thêm quy đổi mở khoá", async () => {
+  it("khai quy đổi bằng SỐ: nút mở khoá khi đủ số + đơn vị đích", async () => {
     const user = userEvent.setup();
     render(
       <AuthContext.Provider value={AUTH}>
@@ -74,14 +63,17 @@ describe("drawer Đơn vị → Quy đổi & số lượng", () => {
     );
 
     await screen.findByText("Chưa có quy đổi nào được khai báo cho đơn vị này.");
-    await user.click(screen.getByRole("button", { name: "Theo quy cách" }));
-
     const nut = screen.getByRole("button", { name: /Thêm quy đổi/ });
     expect(nut).toBeDisabled();
     // Nút khoá thì phải NÓI THIẾU GÌ, không thì người dùng bấm mãi rồi tưởng hỏng.
-    expect(screen.getByText(/Nhập hoặc bấm chọn biến/)).toBeInTheDocument();
+    expect(screen.getByText("Nhập số quy đổi đã")).toBeInTheDocument();
 
-    await user.type(document.getElementById("ct-them")!, "dai_in");
+    await user.type(screen.getByPlaceholderText("Vd: 1.000"), "65");
+    // Có số nhưng chưa chọn đích ⇒ vẫn khoá, và câu nhắc đổi theo.
+    expect(nut).toBeDisabled();
+    expect(screen.getByText("Còn thiếu: chọn đơn vị quy đổi về")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole("combobox"), "8");
     await waitFor(() => expect(nut).toBeEnabled());
   });
 });

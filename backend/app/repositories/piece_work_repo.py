@@ -1,4 +1,9 @@
-"""Đơn giá khoán data access — chỉ tầng này chạm DB cho bảng piece_rates."""
+"""Thưởng/phạt tổ trưởng data access (module `luong`).
+
+⚠️ CRUD bảng `piece_rates` KHÔNG còn ở đây — từ 17/08/2026 bảng đó là danh mục "Công việc khoán"
+và đi qua `repositories/cong_viec_khoan_repo.CongViecKhoanRepository` (nền `CatalogRepo`). File này
+chỉ còn hai bảng mốc thưởng/phạt tổ trưởng.
+"""
 from __future__ import annotations
 
 from sqlalchemy import delete, select
@@ -7,48 +12,12 @@ from sqlalchemy.orm import Session
 from ..models.piece_work import (
     PieceLeaderBonusBracket,
     PieceLeaderBonusSetting,
-    PieceRate,
 )
 
 
 class PieceWorkRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
-
-    # --- piece_rates --------------------------------------------------------
-
-    def list_rates(self, *, active_only: bool = False,
-                   department_id: int | None = None) -> list[PieceRate]:
-        stmt = select(PieceRate)
-        if active_only:
-            stmt = stmt.where(PieceRate.is_active.is_(True))
-        if department_id is not None:
-            stmt = stmt.where(PieceRate.department_id == department_id)
-        return list(self.db.execute(stmt.order_by(PieceRate.group_name, PieceRate.id)).scalars())
-
-    def get_rate(self, rate_id: int) -> PieceRate | None:
-        return self.db.get(PieceRate, rate_id)
-
-    def distinct_units(self) -> list[str]:
-        """Các đơn vị NHÀ MÁY ĐÃ THỰC SỰ DÙNG — nuôi gợi ý ở ô "Đơn vị" và bước gộp chính tả.
-
-        Gợi ý mọc từ chính dữ liệu người dùng gõ, không phải từ danh sách cứng ai đó đoán trước:
-        gõ "mét tới" một lần thì lần sau nó tự nằm trong danh sách."""
-        rows = self.db.execute(
-            select(PieceRate.unit).where(PieceRate.unit != "").distinct()
-        ).scalars()
-        return sorted({(u or "").strip() for u in rows if (u or "").strip()})
-
-    def create_rate(self, **f) -> PieceRate:
-        r = PieceRate(**f); self.db.add(r); self.db.commit(); self.db.refresh(r); return r
-
-    def update_rate(self, r: PieceRate, **f) -> PieceRate:
-        for k, v in f.items():
-            setattr(r, k, v)
-        self.db.commit(); self.db.refresh(r); return r
-
-    def delete_rate(self, r: PieceRate) -> None:
-        self.db.delete(r); self.db.commit()
 
     # --- Bậc thưởng/phạt tổ trưởng theo tỷ lệ hàng lỗi (chủ 29/07/2026) ------
 

@@ -172,6 +172,7 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
   const renderField = (f: FieldDef) => {
     const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
     const hint = typeof f.hint === "function" ? f.hint(form) : f.hint;
+    const laDonVi = config.prefix.includes("don-vi");
     const isFullWidth = f.type === "bands" || f.type === "chuan_bi_khoan" || f.type === "lich_bao_tri" || f.type === "ref-multi" || f.type === "nhom_may-multi" || f.type === "dau-viec-dinh-muc" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
     // "div" chứ không "label": khối này chứa NHIỀU input, bọc trong <label> là bấm đâu cũng nhảy
     // focus vào ô đầu tiên.
@@ -265,12 +266,18 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
             // một màn có thể có hai ô công thức hỏi hai câu khác nhau.
             loaiO={f.loaiO}
             id={`formula-${f.key}`}
-            // Màn Đơn vị: ô này ra LƯỢNG, không ra tiền — nhãn phải nói đúng, không thì người khai
-            // tưởng đang gõ công thức giá rồi nhét đơn giá vào.
-            {...(config.prefix.includes("don-vi")
-              ? { nhanO: "Cách đo của đơn vị này",
-                  goY: "vd: dai_in * rong_in * to_sau_in  (một m² tờ in đo thế nào)" }
-              : {})} />
+            // Nhãn TRONG khung đi theo nhãn của CHÍNH field. Trước 17/08/2026 nó đóng đinh
+            // "Công thức tính giá", chấp nhận được khi mỗi màn chỉ có một ô; nay Giấy và Vật tư
+            // có hai ô (giá · lượng) nên để cả hai cùng đội một tên là mời gõ nhầm ô — mà gõ nhầm
+            // ở đây thì tiền chảy vào chỗ đếm lượng, không ai soi ra.
+            //
+            // Màn Đơn vị đứng riêng: ô của nó ra LƯỢNG chứ không ra tiền, và nhãn field ("Cách đo")
+            // không đủ nói điều đó. Viết bằng TOÁN TỬ BA NGÔI chứ không spread đè lên `nhanO` —
+            // spread hai lần cùng một prop là TS2783, và người đọc phải dò xem cái nào thắng.
+            nhanO={laDonVi ? "Cách đo của đơn vị này" : cleanLabel}
+            goY={laDonVi
+              ? "vd: dai_in * rong_in * to_sau_in  (một m² tờ in đo thế nào)"
+              : (hint || undefined)} />
         ) : f.type === "checkbox" ? (
           <label className="rc-switch">
             <input type="checkbox" checked={!!form[f.key]} onChange={(e) => set(f.key, e.target.checked)} />
@@ -510,7 +517,8 @@ export function CatalogDrawer({ config, existing, onClose, onSaved }: {
                   className={`rc-drawer__tab${formulaTab === "formula" ? " is-active" : ""}`}
                   onClick={() => setFormulaTab("formula")}
                 >
-                  {config.renderExtra ? "Quy đổi & số lượng" : "Công thức tính giá"}
+                  {config.nhanTabCongThuc
+                    ?? (config.renderExtra ? "Quy đổi & số lượng" : "Công thức tính giá")}
                 </button>
               )}
               {coNhatKy && (

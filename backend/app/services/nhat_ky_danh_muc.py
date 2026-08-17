@@ -189,6 +189,13 @@ NHAN: dict[str, str] = {
     "nhip_giay_mm": "Nhíp giấy",
     "le_hong_mm": "Lề hông",
     "duoi_thang_mau_mm": "Đuôi + thanh màu",
+    # Công việc khoán (`piece_rates`, 17/08/2026) — tên cột đời cũ còn tiếng Anh, nhật ký in NHÃN.
+    # `group_name` là NHÃN TỔ lưu trên dòng, khác `department_id` là con trỏ sang cây tổ chức: sửa
+    # tổ thì cả hai cùng đổi, nên phải đọc ra hai câu khác nhau mới hiểu chuyện gì xảy ra.
+    "group_name": "Tổ (nhãn trên dòng)",
+    "unit": "Đơn vị",
+    "unit_price": "Đơn giá",
+    "cong_doan": "Công đoạn (cột cũ)",
 }
 
 # Hậu tố đơn vị cho vài trường số — để "100 → 120" không trần trụi.
@@ -222,7 +229,8 @@ HAU_TO: dict[str, str] = {
 }
 
 # Trường TIỀN: hậu tố lấy theo ĐVT của chính bản ghi ("đ/kg", "đ/tờ") vì mỗi mặt hàng một đơn vị.
-TIEN = frozenset({"don_gia", "gia", "don_gia_kg", "don_gia_to", "đon_gia"})
+# `unit_price` = đơn giá khoán; ĐVT của nó nằm ở cột `unit` (xem `_hau_to`).
+TIEN = frozenset({"don_gia", "gia", "don_gia_kg", "don_gia_to", "đon_gia", "unit_price"})
 
 
 def _la_so(v: Any) -> bool:
@@ -284,7 +292,9 @@ def _chu(v: Any) -> str:
 
 def _hau_to(truong: str, ban_ghi: dict[str, Any]) -> str:
     if truong in TIEN:
-        dv = (ban_ghi.get("don_vi_gia") or "").strip()
+        # Hai tên cột cho cùng một ý "ĐVT của bản ghi này": `don_vi_gia` ở mặt hàng gốc, `unit` ở
+        # công việc khoán. Đọc cả hai để "Đơn giá 250 → 300 đ/tờ" chứ không phải "đ" trần.
+        dv = (ban_ghi.get("don_vi_gia") or ban_ghi.get("unit") or "").strip()
         return f"đ/{dv}" if dv else "đ"
     return HAU_TO.get(truong, "")
 

@@ -42,6 +42,14 @@ _PREFIX_PERMISSION: dict[str, str] = {
     "ky-thuat-may": "ky_thuat_may",
 }
 
+# Thư mục chứa ảnh của HAI màn khác ô quyền — khoá có dạng `<thư mục>/<loại phiếu>/...` nên soi
+# thêm đoạn thứ hai. Không làm bước này thì chỉ còn hai lựa chọn, cả hai đều dở: nới `ky-thuat-may`
+# cho cả hai khoá (người chỉ có Phiếu bảo trì xem được ảnh máy hỏng), hoặc để nguyên một khoá
+# (người chỉ có Phiếu bảo trì không xem được ảnh của chính phiếu mình đang làm).
+_PREFIX_2_PERMISSION: dict[tuple[str, str], str] = {
+    ("ky-thuat-may", "bao_tri"): "phieu_bao_tri",
+}
+
 
 @router.get("/{key:path}")
 def download_file(
@@ -53,7 +61,10 @@ def download_file(
     if not is_safe_key(key):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Đường dẫn tệp không hợp lệ")
 
-    module = _PREFIX_PERMISSION.get(key.split("/", 1)[0])
+    doan = key.split("/")
+    module = _PREFIX_2_PERMISSION.get(
+        (doan[0], doan[1] if len(doan) > 1 else "")
+    ) or _PREFIX_PERMISSION.get(doan[0])
     if module and not authz.can(user, module, "read"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Bạn không có quyền xem tệp này")
 

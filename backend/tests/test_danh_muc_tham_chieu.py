@@ -17,7 +17,9 @@ from app.models.cong_doan import CongDoan
 from app.models.don_vi_do import DonViDo
 from app.models.khuon_be import KhuonBe
 from app.models.loai_san_pham import LoaiSanPham
+from app.models.department import Department
 from app.models.may_thiet_bi import MayThietBi
+from app.models.piece_work import PieceRate
 from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 from app.services.danh_muc_tham_chieu import DEM_THEO_LOAI, tham_chieu
 
@@ -36,7 +38,8 @@ def _mau(db):
     """Một bản ghi cho mỗi loại — DB trắng, chưa ai dùng gì."""
     cl = ChungLoaiGiay(ma="ZZCL", ten="ZZ Chủng loại")
     dv = DonViDo(ma="zzkg", ten="ZZ Ký")
-    db.add_all([cl, dv])
+    to = Department(name="ZZ Tổ mẫu", code="ZZTOM", la_san_xuat=True)
+    db.add_all([cl, dv, to])
     db.commit()
     rows = {
         "cong_doan": CongDoan(ma="ZZCD", ten="ZZ Công đoạn", nhom="finishing"),
@@ -50,6 +53,9 @@ def _mau(db):
         "chung_loai_giay": cl,
         "giay": GiayNguyen(ma="ZZG", ten="ZZ Giấy", chung_loai_giay_id=cl.id, gsm=100),
         "vat_tu": VatTuInAn(ma="ZZVT", ten="ZZ Vật tư"),
+        # Công việc khoán (17/08/2026): cùng bảng `piece_rates` mà Lương khoán tra.
+        "cong_viec_khoan": PieceRate(group_name="ZZ Tổ mẫu", department_id=to.id,
+                                     ma="ZZKH", ten="ZZ Việc khoán", unit="zzkg", unit_price=100),
     }
     db.add_all([v for k, v in rows.items() if k not in ("don_vi_do", "chung_loai_giay")])
     db.commit()
@@ -105,14 +111,12 @@ def test_cascade_bao_bang_SO_chu_khong_chan(db):
     """Xoá công đoạn là bay định mức đầu việc theo (CASCADE thật ở DB). Không chặn, nhưng phải
     nói bằng số trước khi bấm — đó là dữ liệu khai tay, không hoàn tác được."""
     from app.models.cong_doan import CongDoanDauViec
-    from app.models.department import Department
-    from app.models.piece_work import PieceRate
 
     rows = _mau(db)
     to = Department(name="ZZ Tổ", code="ZZTO", la_san_xuat=True)
     db.add(to)
     db.commit()
-    rate = PieceRate(group_name="ZZ Tổ", department_id=to.id, name="ZZ đầu việc",
+    rate = PieceRate(group_name="ZZ Tổ", department_id=to.id, ten="ZZ đầu việc",
                      unit="cái", unit_price=1)
     db.add(rate)
     db.commit()

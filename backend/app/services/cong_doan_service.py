@@ -64,7 +64,7 @@ class CongDoanService(CatalogService):
             for r in dinh_muc:
                 rid = int(r.get("piece_rate_id") or 0)
                 rate = rates.get(rid)
-                if rate is None or not rate.is_active:
+                if rate is None or not rate.active:
                     raise CongDoanValidationError("Đầu việc không tồn tại hoặc đã ngừng dùng.")
                 if rate.department_id != data.get("department_id"):
                     raise CongDoanValidationError("Đầu việc phải thuộc đúng tổ phụ trách.")
@@ -129,20 +129,21 @@ class CongDoanService(CatalogService):
                     f"Bước đổi từ {tren} (trên dòng giấy) sang {ngoai} (ngoài dòng giấy) chưa hỗ "
                     f"trợ — hệ số của cặp này là sức chứa của từng đơn, chưa có chỗ khai. "
                     f"[E-CD-DONVI]")
-            # VÒNG TRÒN (14/08/2026): bước NGOÀI dòng giấy lấy `ra` từ công thức của đơn vị RA,
-            # rồi suy `vào` ngược từ `ra`. Công thức đó mà dùng `sl_vao`/`sl_ra` thì không có chỗ
-            # bắt đầu — ra cần vào, vào cần ra. Chặn ngay lúc khai, đừng để lòi ra ô trống ở lệnh.
+            # VÒNG TRÒN (14/08/2026, chuyển nguồn 17/08/2026): bước NGOÀI dòng giấy lấy `ra` từ
+            # `cong_thuc_san_luong` của CHÍNH công đoạn (mg `0214`, trước là công thức của đơn vị
+            # RA), rồi suy `vào` ngược từ `ra`. Công thức đó mà dùng `sl_vao`/`sl_ra` thì không có
+            # chỗ bắt đầu — ra cần vào, vào cần ra. Chặn ngay lúc khai, đừng để lòi ra ô trống ở
+            # lệnh.
             #
-            # Chỉ soi đơn vị RA (chỉ nó được đọc), và chỉ khi CẢ HAI ngoài dòng — trên dòng giấy
-            # thì `ra` lấy từ chuỗi, công thức của đơn vị bị bỏ qua hoàn toàn, chặn là chặn oan.
+            # Chỉ chặn khi CẢ HAI đầu ngoài dòng giấy — trên dòng giấy thì `ra` lấy từ chuỗi bù hao,
+            # cột này bị bỏ qua hoàn toàn nên chặn là chặn oan.
             if t_vao is None and t_ra is None:
-                ct_ra = self.repo.don_vi_cong_thuc(dv_ra)
-                if ct_ra and (lap := [b for b in bien_trong(ct_ra) if b in _BIEN_CUA_BUOC]):
+                ct_sl = (data.get("cong_thuc_san_luong") or "").strip()
+                if ct_sl and (lap := [b for b in bien_trong(ct_sl) if b in _BIEN_CUA_BUOC]):
                     raise CongDoanValidationError(
-                        f"“{dv_ra}” có công thức dùng {' · '.join(lap)} — là số của CHÍNH bước, "
-                        f"nên không khai làm đơn vị đầu ra được: SL ra phải tính xong trước thì "
-                        f"mới suy được SL vào. Bỏ chip đó khỏi công thức, hoặc chọn đơn vị ra "
-                        f"khác. [E-CD-VONG-TRON]")
+                        f"Công thức sản lượng dùng {' · '.join(lap)} — là số của CHÍNH bước, nên "
+                        f"không tự tính được: SL ra phải xong trước thì mới suy được SL vào. Bỏ "
+                        f"chip đó khỏi công thức. [E-CD-VONG-TRON]")
             if t_vao is not None and not tram_chay_xuoi(t_vao, t_ra):
                 raise CongDoanValidationError(
                     f"Không quy đổi được {dv_vao} → {dv_ra}. Dòng giấy chỉ chảy một chiều: "
@@ -240,7 +241,7 @@ class CongDoanService(CatalogService):
         return items
 
     def dau_viec_options(self, department_id: int | None = None) -> list[dict]:
-        return [{"id": r.id, "ma": r.code or f"DV-{r.id}", "ten": r.name,
+        return [{"id": r.id, "ma": r.ma or f"DV-{r.id}", "ten": r.ten,
                  "department_id": r.department_id, "don_vi": r.unit,
                  "don_gia": float(r.unit_price)}
                 for r in self.repo.piece_rates_active(department_id)]

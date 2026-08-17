@@ -1,6 +1,6 @@
-"""MỘT NGUỒN cho danh sách 10 màn "Cấu hình danh mục".
+"""MỘT NGUỒN cho danh sách 11 màn "Cấu hình danh mục".
 
-Vì sao có file này: cùng một danh sách 10 màn đang bị CHÉP TAY ở nhiều nơi, mỗi nơi một hình
+Vì sao có file này: cùng một danh sách 11 màn đang bị CHÉP TAY ở nhiều nơi, mỗi nơi một hình
 dạng và không nơi nào biết nơi kia — seed quyền, `SCOPELESS_MODULES`, bảng loại→module của nhật
 ký, bảng loại→model của luồng xoá (và bên FE là menu + ma trận quyền). Thêm một màn danh mục là
 phải nhớ sửa đủ sáu chỗ; quên một chỗ thì hỏng IM LẶNG: màn hiện ra nhưng không có ô quyền, hoặc
@@ -52,9 +52,14 @@ DANH_MUC: tuple[DanhMuc, ...] = (
             alias_loai=("machine",), model="models.may_thiet_bi:MayThietBi"),
     DanhMuc("cong_doan", "dm_cong_doan", "Công đoạn", "cong-doan",
             alias_loai=("operation",), model="models.cong_doan:CongDoan"),
+    # Đơn giá khoán theo tổ. Đứng ngay sau Công đoạn vì đó là chỗ nó được dùng (ô "Định mức đầu
+    # việc" của bước). Trước 17/08/2026 khai ở một tab của màn Lương — bảng `piece_rates` giữ
+    # nguyên tên, chỉ đổi CHỖ KHAI và ba tên cột mà nền danh mục đọc (mg `0210`).
+    DanhMuc("cong_viec_khoan", "dm_cong_viec_khoan", "Công việc khoán", "cong-viec-khoan",
+            model="models.piece_work:PieceRate"),
     DanhMuc("bu_hao", "dm_bu_hao", "Bù hao", "bu-hao", model="models.bu_hao:BuHao"),
     # `don_vi_quy_doi` là BẢNG RIÊNG, đánh số riêng — nhưng nằm trong drawer của màn Đơn vị nên
-    # ăn chung ô quyền, vì thế đứng ở `alias_loai` chứ không thành dòng thứ 11.
+    # ăn chung ô quyền, vì thế đứng ở `alias_loai` chứ không thành một dòng riêng.
     DanhMuc("don_vi_do", "dm_don_vi", "Đơn vị & quy đổi", "don-vi",
             alias_loai=("don_vi_quy_doi",), model="models.don_vi_do:DonViDo"),
     DanhMuc("chung_loai_giay", "dm_chung_loai_giay", "Chủng loại giấy", "chung-loai-giay",
@@ -67,7 +72,7 @@ DANH_MUC: tuple[DanhMuc, ...] = (
     DanhMuc("kho_hang", "dm_kho_hang", "Khai báo kho", "khai-bao-kho"),
 )
 
-#: 10 khoá quyền của nhóm danh mục, đúng thứ tự menu.
+#: 11 khoá quyền của nhóm danh mục, đúng thứ tự menu.
 MODULE_KEYS: tuple[str, ...] = tuple(d.module for d in DANH_MUC)
 
 #: (key, nhãn) để seed bảng module quyền — cùng hình dạng với `seed.MODULES`.
@@ -80,7 +85,7 @@ _THEO_LOAI_KE_ALIAS: dict[str, DanhMuc] = {
     **_THEO_LOAI,
 }
 
-#: loại bản ghi (kể cả tên đời cũ) → module quyền. 14 khoá cho 10 màn.
+#: loại bản ghi (kể cả tên đời cũ) → module quyền. 15 khoá cho 11 màn.
 MODULE_THEO_LOAI: dict[str, str] = {k: d.module for k, d in _THEO_LOAI_KE_ALIAS.items()}
 
 

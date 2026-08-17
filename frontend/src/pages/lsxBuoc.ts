@@ -311,6 +311,49 @@ export function toBody(rows: EditRow[]): LsxCongDoanBody[] {
   });
 }
 
+/** Lỗi/nghi vấn của RIÊNG 1 dòng routing — chỉ TÔ MÀU, không chặn lưu.
+ *
+ * Ở đây (chứ không ở `LsxRoutingTable`) vì nó thuần `EditRow` → chuỗi, không dính React: cùng chỗ
+ * với `toEdit`/`toBody`/`thoiLuong`, và test được mà không phải dựng cả bảng.
+ *
+ *
+ * Cảnh báo giả nguy hiểm hơn là không có cảnh báo: nó dạy người dùng bỏ qua cả cột, nên lúc đứt
+ * thật cũng chẳng ai nhìn.
+ *
+ * Nay lọc bằng CỜ `tren_dong_giay` — server suy từ `don_vi_do.tram_dong_giay`, FE không tự đoán từ
+ * mã. Bước ngoài dòng giấy đo khối lượng việc của RIÊNG nó (kẽm đếm bản, đóng thùng đếm thùng);
+ * đem thước đó so với thước dòng giấy là so hai thứ không liên quan.
+ *
+ * Vẫn so bằng MÃ đơn vị chứ không bằng trạm: giữa hai bước liền nhau trên dòng giấy, giấy không
+ * đổi cách đếm — mọi nhịp đổi trạm (`tờ → tay`) xảy ra BÊN TRONG một bước, giữa `vào` và `ra` của
+ * chính nó. Bởi vậy luật cầu giữa các trạm (`CAU_TRAM`) không cần có mặt ở client, và KHÔNG được
+ * chép sang đây — xem bài học ở `donViChuoi` phía dưới.
+ */
+export function loiDong(rows: EditRow[], i: number): string[] {
+  const r = rows[i];
+  const out: string[] = [];
+  const vao = n(r.so_luong_vao);
+  const ra = n(r.so_luong_ra);
+  if (r.don_vi_vao === r.don_vi_ra && vao > 0 && ra > vao) out.push("ra nhiều hơn vào");
+  // KHÔNG kiểm `he_so <= 1` nữa: hệ số nay do server suy, và 1 là HỢP LỆ ở cả hai cầu
+  // (1 tờ nguyên ra 1 tờ in là chuyện thường). Luật cũ bắt oan đúng ca đó.
+  if (r.loai_buoc === "thue_ngoai") {
+    if (!r.nha_cung_cap.trim()) out.push("chưa có nhà gia công");
+    if (!r.ngay_gui_dk || !r.ngay_nhan_dk) out.push("chưa có ngày gửi / nhận");
+  } else if (r.department_id == null && r.may_id == null) {
+    out.push("chưa gán tổ / máy");
+  }
+  if (r.tren_dong_giay && r.don_vi_vao) {
+    const truoc = rows
+      .slice(0, i)
+      .reverse()
+      .find((x) => x.tren_dong_giay && x.don_vi_vao && x.don_vi_ra);
+    if (truoc && truoc.don_vi_ra !== r.don_vi_vao) out.push("đứt đơn vị");
+  }
+  if (i > 0 && r.ten && rows[i - 1].ten === r.ten) out.push("trùng bước trước");
+  return out;
+}
+
 /** Preview tức thời trong drawer trước khi lưu.
  *
  * Backend vẫn tính lại và chốt snapshot khi lưu. Bản preview này dùng đúng các đầu vào đang hiện

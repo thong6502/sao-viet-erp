@@ -43,6 +43,48 @@ function hoan<T>() {
 }
 
 describe("chọn bước để gộp", () => {
+  it("thẻ công đoạn chọn được bằng bàn phím và báo trạng thái đã chọn", async () => {
+    const hoi = vi.fn().mockResolvedValue({});
+    render(
+      <BaiGhepDagCanvas sd={haiLenhChuaGop()} chon={null} onChon={() => {}}
+                        onGop={async () => {}} onHoiUngVien={hoi} />,
+    );
+
+    const node = the("In A");
+    node.focus();
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => expect(hoi).toHaveBeenCalledWith(["a-in"]));
+    expect(node).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("không làm sáng bước cùng LSX hoặc khác công đoạn dù phản hồi ứng viên bị rộng", async () => {
+    const data = soDo({
+      nhanh: [
+        nhanh({ lsx_id: 1, buoc: [
+          buoc({ step_key: "a-in", ten: "In A", cong_doan_id: 20 }),
+          buoc({ step_key: "a-in-2", ten: "In A lần 2", cong_doan_id: 20 }),
+        ] }),
+        nhanh({ lsx_id: 2, buoc: [
+          buoc({ step_key: "b-can", ten: "Cán B", cong_doan_id: 30 }),
+          buoc({ step_key: "b-in", ten: "In B", cong_doan_id: 20 }),
+        ] }),
+      ],
+    });
+    const hoi = vi.fn().mockResolvedValue({
+      "a-in-2": { gop_duoc: true, ly_do: null },
+      "b-can": { gop_duoc: true, ly_do: null },
+      "b-in": { gop_duoc: true, ly_do: null },
+    });
+    render(<BaiGhepDagCanvas sd={data} chon={null} onChon={() => {}} onGop={async () => {}} onHoiUngVien={hoi} />);
+
+    await userEvent.click(the("In A"));
+    await waitFor(() => expect(the("In B")).toHaveClass("is-ung-vien"));
+
+    expect(the("In A lần 2")).not.toHaveClass("is-ung-vien");
+    expect(the("Cán B")).not.toHaveClass("is-ung-vien");
+  });
+
   it("một cú bấm = MỘT lượt hỏi server, kể cả dưới StrictMode", async () => {
     // StrictMode gọi updater của `setState` HAI lần để soi hàm thuần. Đặt lời gọi mạng bên trong
     // updater là mỗi cú bấm bắn hai request — và hai request ấy còn đua nhau ghi kết quả.

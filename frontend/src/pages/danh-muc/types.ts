@@ -76,6 +76,12 @@ export interface CatalogConfig {
    *  đang đổ dropdown cho cả chục màn khác, bắt họ trả giá cho số chỉ một màn cần là sai chỗ.
    *  Hỏng thì NUỐT (trả `{}`) — mất cột phụ không được phép làm trắng cả bảng danh mục. */
   loadExtra?: (token: string) => Promise<Record<string, unknown>>;
+  /** Nhãn của TAB chứa các ô công thức. Mặc định "Công thức tính giá" — đúng cho màn có ô ra TIỀN
+   *  (Giấy · Vật tư · Công đoạn), SAI cho màn chỉ có ô ra LƯỢNG: máy khai cách đo theo đơn vị tốc
+   *  độ, công việc khoán khai cách đo lượng khoán, cả hai không nhắc tới tiền. Nhãn sai ở đây mời
+   *  người khai gõ công thức tiền vào ô lượng — mà gõ nhầm thì tiền chảy vào chỗ đếm lượng, không
+   *  ai soi ra. Màn có `renderExtra` (Đơn vị) vẫn giữ nhãn riêng của nó. */
+  nhanTabCongThuc?: string;
   /** Chia phần khai báo thành nhiều TAB theo `group`. Chỉ màn khai dài mới cần (Máy có 7 nhóm,
    *  cuộn một mạch rất mệt). Không khai thì render một mạch như cũ. Nhóm không liệt kê ở đây rơi
    *  vào tab ĐẦU TIÊN — quên khai một nhóm thì nó vẫn hiện, không biến mất im lặng. */

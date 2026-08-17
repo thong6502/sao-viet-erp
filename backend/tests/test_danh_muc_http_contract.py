@@ -36,6 +36,26 @@ def _doan_tim(ten: str) -> str:
     return ten[idx + 1:].strip() or ten
 
 
+def _to_sx_id(client, h) -> int:
+    """Id một TỔ sản xuất — `department_id` bắt buộc của Công việc khoán.
+
+    Lấy từ chính endpoint mà form dùng (`/api/cong-doan/phong-ban`), không tự tạo tổ: tổ đó phải là
+    nút LÁ trong khối Sản xuất mới hiện ở ô chọn, mà luật đó nằm ở service — test tự dựng một
+    `Department` là dựng một tổ mà form thật không mời chọn.
+    """
+    r = client.get("/api/cong-doan/phong-ban", headers=h)
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    if items:
+        return int(items[0]["id"])
+    # `code` do hệ thống sinh (spec-05) — không nhận từ client. Tổ mới không có con ⇒ là nút LÁ
+    # trong khối Sản xuất, đúng thứ `phong_ban_options` mời chọn.
+    tao = client.post("/api/departments",
+                      json={"name": "ZZ Tổ khoán", "la_san_xuat": True}, headers=h)
+    assert tao.status_code == 201, tao.text
+    return int(tao.json()["id"])
+
+
 def _chung_loai_id(client, h) -> int:
     r = client.post("/api/vat-lieu-kho/chung-loai-giay",
                     json={"ma": "ZZCLG", "ten": "ZZ Chủng loại"}, headers=h)
@@ -53,6 +73,11 @@ DANH_MUC = [
      False, False),
     ("/api/bu-hao", "dm_bu_hao",
      lambda c, h, i: {"ma": f"ZZBH{i}", "ten": f"ZZ Bù hao {i}"}, False, False),
+    # Công việc khoán (17/08/2026): mã tự sinh `KH-####`, DELETE xoá HẲN khi chưa ai dùng (dòng test
+    # chưa có định mức đầu việc nào trỏ tới) — cùng luật với Công đoạn · Bù hao, khác Kho.
+    ("/api/cong-viec-khoan", "dm_cong_viec_khoan",
+     lambda c, h, i: {"ten": f"ZZ Việc khoán {i}", "department_id": _to_sx_id(c, h),
+                      "unit": "to", "unit_price": 100 + i}, True, False),
     ("/api/don-vi", "dm_don_vi",
      lambda c, h, i: {"ma": f"zzdv{i}", "ten": f"ZZ Đơn vị {i}"}, False, False),
     ("/api/khuon-be", "khuon_be",
@@ -209,6 +234,8 @@ CO_MA_GOI_Y = [
     ("/api/khuon-be", "KB-"),
     ("/api/cong-doan", "CD-"),
     ("/api/loai-san-pham", "LSP-"),
+    # Công việc khoán: mã do MÁY cấp hẳn (không có ô Mã trên form) — xưởng gọi việc khoán bằng tên.
+    ("/api/cong-viec-khoan", "KH-"),
 ]
 # Danh mục KHÔNG có "mã kế tiếp": mã là chữ có nghĩa (`kg`, `COUCHE`, `MUC-CMYK`) hoặc đánh theo
 # LOẠI (`IN-01`, `CM-03`) ⇒ cố ý không mở route, chứ không phải quên.

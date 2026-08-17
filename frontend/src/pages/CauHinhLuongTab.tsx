@@ -259,10 +259,14 @@ export function CauHinhLuongTab({
   token,
   readOnly,
   onDirtyChange,
+  navigate,
 }: {
   token: string;
   readOnly: boolean;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Chỉ dùng cho một đường: panel "Đơn giá khoán của tổ" → màn danh mục Công việc khoán. Bỏ trống
+   *  thì panel vẫn khai được, chỉ mất đường dẫn (xem `KhoanRatesEditor.onMoDanhMuc`). */
+  navigate?: (id: string) => void;
 }) {
   const [sub, setSub] = useState<SubTab>("cochE");
   const [loading, setLoading] = useState(true);
@@ -653,6 +657,7 @@ export function CauHinhLuongTab({
           loading={compsLoading}
           readOnly={readOnly}
           busy={saving}
+          navigate={navigate}
         />
       )}
 
@@ -886,6 +891,7 @@ function CoCheTab({
   loading,
   readOnly,
   busy,
+  navigate,
 }: {
   token: string;
   p: PayrollParams;
@@ -898,6 +904,7 @@ function CoCheTab({
   loading: boolean;
   readOnly: boolean;
   busy: boolean;
+  navigate?: (id: string) => void;
 }) {
   const deptName = depts.find((d) => d.id === deptId)?.name ?? "";
   const empCounts = useMemo(() => {
@@ -1186,16 +1193,21 @@ function CoCheTab({
       {khoanOn && deptId != null && (
         <div className="cl-card">
           <h3 className="cl-card__title">Đơn giá khoán — {deptName}</h3>
+          {/* Mô tả nói ĐÚNG những gì khai được ở ĐÂY. Từ 17/08/2026 bảng đơn giá là danh mục
+              "Công việc khoán" (Cấu hình danh mục) — panel này là một khung nhìn theo tổ của cùng
+              dữ liệu, nên phải nói rõ chỗ nào làm được gì, không thì người dùng đi tìm nút Xoá và
+              tab Nhật ký ngay tại đây. */}
           <p className="cl-card__desc">
-            Khai công việc + đơn giá khoán của tổ này (vd “dán bìa các tông” =
-            170đ/tờ). Tính tiền khoán theo sản lượng sẽ nối khi có Lệnh sản
-            xuất.
+            Khai công việc + đơn giá khoán của tổ này (vd “dán bìa các tông” = 170đ/tờ). Cùng dữ liệu
+            với <b>Cấu hình danh mục → Công việc khoán</b>; xoá hẳn, nhật ký ai đổi giá và mục đã
+            ngừng dùng thì xem ở màn đó.
           </p>
           <div className="cl-card__body">
             <KhoanRatesEditor
               token={token}
               departmentId={deptId}
               deptName={deptName}
+              onMoDanhMuc={navigate ? () => navigate("cong-viec-khoan") : undefined}
             />
           </div>
         </div>

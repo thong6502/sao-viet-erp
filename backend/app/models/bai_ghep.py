@@ -20,10 +20,11 @@ migration. Boolean (nếu phát sinh) dùng `false()`/`true()` của SQLAlchemy 
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
-    DateTime, ForeignKey, Integer, String, Text, UniqueConstraint,
+    Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint,
+    false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -51,8 +52,19 @@ class BaiGhep(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)  # GB26-0001
+    ten: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    han_hoan_thanh_sx: Mapped[date | None] = mapped_column(Date, nullable=True)
+    is_rush: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
+    nguoi_phu_trach_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # -> users.id
 
     trang_thai: Mapped[str] = mapped_column(String(20), nullable=False, default=TT_NHAP)
+    # CÔNG TẮC giữ chỗ vật tư — song song `lsx.giu_cho_bat`. Bài ghép là CHỦ THỂ giữ chỗ của các
+    # lệnh thành viên (lệnh đã ghép không giữ riêng), nên công tắc phải nằm ở đây chứ không ở lệnh.
+    giu_cho_bat: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
 
     # --- Giấy + khổ tờ in CHẠY CHUNG (một tờ ghép chỉ một loại giấy) ---
     giay_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → giay_nguyen.id
@@ -92,7 +104,11 @@ class BaiGhepThanhVien(Base):
 
     __tablename__ = "bai_ghep_thanh_vien"
     # Chống thêm TRÙNG một LSX vào cùng một bài (guard "1 LSX ≤ 1 bài" nằm ở service, cross-table).
-    __table_args__ = (UniqueConstraint("bai_ghep_id", "lsx_id", name="uq_bai_ghep_lsx"),)
+    __table_args__ = (
+        UniqueConstraint("bai_ghep_id", "lsx_id", name="uq_bai_ghep_lsx"),
+        # Chốt ở DB để hai request đồng thời cũng không thể đưa một LSX vào hai bài khác nhau.
+        UniqueConstraint("lsx_id", name="uq_bai_ghep_thanh_vien_lsx_id"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # FK THẬT + CASCADE: xoá bài → xoá thành viên.

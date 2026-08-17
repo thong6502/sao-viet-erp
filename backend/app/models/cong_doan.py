@@ -94,6 +94,20 @@ class CongDoan(Base):
     # đầu chốt cứng, hao hụt hết chỗ nhét (đúng bệnh `vao = ra = so_kem` của bản cũ). Chỉ vế RA đọc
     # công thức; vế VÀO suy ngược qua hệ số + hao, y hệt dòng giấy.
     he_so_ngoai_dong: Mapped[float | None] = mapped_column(Numeric(18, 6), nullable=True)
+    # CÔNG THỨC SẢN LƯỢNG RA của bước NGOÀI dòng giấy (mg `0214`, 17/08/2026).
+    #
+    # "Bước này ra bao nhiêu <đơn vị ra>" — vd Ghi kẽm CTP khai `so_kem` ⇒ 4 bản tốt, hỏng 20% ⇒
+    # máy suy VÀO = 5. Chỉ vế RA khai; vế VÀO suy ngược qua `he_so_ngoai_dong` + bù hao (xem ghi chú
+    # ngay trên).
+    #
+    # Trước đó số này lấy từ CÔNG THỨC CỦA ĐƠN VỊ RA (`don_vi_do.cong_thuc`, mg `0192`) — sai chủ
+    # sở hữu: "một bước ghi kẽm ra mấy bản" là việc của BƯỚC, không phải thuộc tính của đơn vị "bản
+    # kẽm"; hai công đoạn cùng đo bằng `kem` có thể ra số khác nhau, mà công thức treo ở đơn vị thì
+    # cả hai buộc dùng chung. Cột kia gỡ ở mg `0215` cùng đợt.
+    #
+    # Bước TRÊN dòng giấy bỏ qua cột này: số của chúng đến từ chuỗi bù hao ngược (tờ → con → tay →
+    # cái). Khai vào đây cũng không ai đọc — engine chỉ hỏi nó ở nhánh ngoài dòng.
+    cong_thuc_san_luong: Mapped[str | None] = mapped_column(String(200), nullable=True)
     nhom: Mapped[str] = mapped_column(String(12), index=True, nullable=False)  # prepress|print|finishing
     # Nhóm MÁY làm được công đoạn này — tên nhóm ở danh mục `nhom_may` ("Máy in"/"Bế"/"Cán màng / UV"…).
     # Chặn gán máy SAI LOẠI ở bước (vd bước Ghi kẽm CTP không cho gán máy Bế). NULL/[] = chưa khai =

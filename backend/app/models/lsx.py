@@ -121,6 +121,15 @@ class Lsx(Base):
     is_rush: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False
     )
+    # CÔNG TẮC giữ chỗ vật tư (17/08/2026). Bật = ĐĂNG KÝ giữ, không phải chụp một lần: giữ được
+    # bao nhiêu hay bấy nhiêu, hàng về sau thì tự nhặt thêm cho đủ.
+    #
+    # Cần cờ RIÊNG, không suy từ "có dòng nào trong `vat_tu_giu_cho` không": trạng thái "đã bật mà
+    # chưa giữ được gì" (kho trống, đang chờ mua) không có dòng nào để suy — mà đó chính là trạng
+    # thái phải nhớ để hàng về thì tự nhặt.
+    giu_cho_bat: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
 
     # --- Kỹ thuật ---
     # Snapshot quy cách lúc tạo: khổ ①②③ · giấy + định lượng · số màu A/B · cách in · chừa · số kẽm ·

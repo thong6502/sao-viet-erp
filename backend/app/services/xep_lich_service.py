@@ -959,6 +959,67 @@ class XepLichService:
             select(BaiGhepCongDoanMap.lsx_step_key).where(BaiGhepCongDoanMap.lsx_id == lsx_id)
         ).scalars())
 
+    def _chan_chua_giu_du(self, *, ma: str, lsx_id: int | None = None,
+                          bai_ghep_id: int | None = None) -> None:
+        """DÂY KHOÁ THỨ HAI: chưa giữ đủ vật tư thì chưa được vào kế hoạch (17/08/2026).
+
+        Cả mạch chỉ có một chiều — `ghép bài → giữ chỗ → xếp lịch`. Chặn ở đây là thứ làm cho lịch
+        đáng tin: **đã xếp lịch nghĩa là vật tư đã có chủ**, không còn chuyện lệnh khác lĩnh mất rồi
+        lịch thành lịch ma mà không ai báo.
+
+        Điểm đẹp của giữ chỗ: nó chỉ cần SỐ LƯỢNG, không cần ngày. Nên cửa này không phải hỏi lại
+        "bao giờ cần" — vòng luẩn quẩn *xếp lịch mới biết ngày cần / ngày cần mới biết đủ hay thiếu*
+        bị cắt ở đây.
+
+        Service giữ chỗ dựng TRỄ (chỉ khi thật sự chặn tới) vì nó kéo theo cả bảng cân đối; và bọc
+        `try` để bảng cân đối hỏng KHÔNG khoá chết cả bàn xếp lịch — nhưng hỏng thì NÓI ra chứ
+        không im lặng cho qua, im lặng ở đây là mở cửa cho lệnh không có giấy.
+        """
+        try:
+            from ..repositories.bai_ghep_repo import BaiGhepRepository
+            from ..repositories.don_vi_do_repo import DonViDoRepository
+            from ..repositories.lsx_repo import LsxRepository
+            from ..repositories.purchase_repo import (
+                PurchaseRequestRepository, SupplierRepository,
+            )
+            from ..repositories.stock_lot_repo import StockLotRepository
+            from ..repositories.stock_request_repo import StockRequestRepository
+            from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+            from .giu_cho_service import GiuChoService
+            from .ke_hoach_vat_tu_service import KeHoachVatTuService
+            from .vat_lieu_kho_service import VatLieuKhoService
+
+            kh = KeHoachVatTuService(
+                self.db, lsx_repo=LsxRepository(self.db),
+                bai_ghep_repo=BaiGhepRepository(self.db),
+                hang=VatLieuKhoService(VatLieuKhoRepository(self.db),
+                                       DonViDoRepository(self.db)),
+                lots=StockLotRepository(self.db), requests=StockRequestRepository(self.db),
+                purchases=PurchaseRequestRepository(self.db),
+                suppliers=SupplierRepository(self.db), don_vi=DonViDoRepository(self.db),
+            )
+            tt = GiuChoService(self.db, kh).trang_thai(lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
+        except Exception as exc:                                    # noqa: BLE001
+            raise XepLichConflict(
+                f"Chưa kiểm được vật tư của {ma} ({type(exc).__name__}) — mở màn Kế hoạch vật tư "
+                "xem lỗi thật rồi thử lại. Không xếp lịch khi chưa biết có đủ hàng hay không."
+            ) from None
+        if tt["du"]:
+            return
+        if not tt["bat"]:
+            raise XepLichConflict(
+                f"{ma} chưa giữ chỗ vật tư — vào màn Kế hoạch vật tư bấm Giữ chỗ trước khi xếp lịch."
+            )
+        if tt["khong_ro"]:
+            raise XepLichConflict(
+                f"{ma} có vật tư chưa quy đổi được về đơn vị kho nên không biết cần bao nhiêu — "
+                "kiểm lại đơn vị của mặt hàng ở màn Kế hoạch vật tư."
+            )
+        raise XepLichConflict(
+            f"{ma} mới giữ được một phần vật tư, còn thiếu {len(tt['thieu'])} mặt hàng — "
+            "lập yêu cầu mua ở màn Kế hoạch vật tư, hàng về là hệ tự giữ nốt."
+        )
+
     def dua_vao_lsx(self, *, lsx_id: int, actor) -> Lsx:
         lsx = self.lsx_repo.get(lsx_id)
         if lsx is None:
@@ -969,6 +1030,7 @@ class XepLichService:
             raise XepLichConflict(f"Lệnh {lsx.ma} chưa sẵn sàng xếp lịch")
         if self.bg_repo.lsx_da_ghep([lsx_id]):
             raise XepLichConflict("Lệnh nằm trong bài ghép — lập kế hoạch qua bài ghép")
+        self._chan_chua_giu_du(lsx_id=lsx_id, ma=lsx.ma)
         self.repo.add_all(self._sinh_dong(lsx, bo_qua_in=False, actor=actor))
         lsx.trang_thai = LSX_DA_LAP
         self.audit.create(
@@ -986,6 +1048,7 @@ class XepLichService:
             raise XepLichConflict(f"Bài ghép {bg.ma} đã lập kế hoạch")
         if bg.trang_thai != BG_SAN_SANG or self.bg_svc.thieu_cua(bg):
             raise XepLichConflict(f"Bài ghép {bg.ma} chưa sẵn sàng xếp lịch")
+        self._chan_chua_giu_du(bai_ghep_id=bg.id, ma=bg.ma)
         # MỖI bước chạy chung một dòng — không phải một dòng "in ghép" duy nhất. `_sinh_dong` loại
         # mọi bước bị đè khỏi routing lệnh, nên gộp CTP + In + Cán mà chỉ đẻ một dòng là hai bước
         # kia bốc hơi khỏi board. Máy / tổ / NCC lấy từ chính bước chung (người vừa khai ở drawer),

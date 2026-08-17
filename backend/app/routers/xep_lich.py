@@ -1,6 +1,10 @@
 """Router Xếp lịch công đoạn — bàn xếp lịch của bộ phận Kế hoạch sản xuất.
 
-Prefix `/api/xep-lich`. RBAC MODULE = "san_xuat".
+Prefix `/api/xep-lich`. RBAC MODULE RIÊNG = "xep_lich" (tách khỏi `san_xuat` ngày 17/08/2026 —
+một ô quyền cho mỗi màn; migration 0209 sao chép quyền cũ sang). Hai bit `approve` (phát hành
+lịch) và `approve_exception` (duyệt ngoại lệ) THEO LUÔN sang khoá này: trước đây chúng treo trên
+`san_xuat` nhưng chỉ file này hỏi tới, mà ma trận lại không bày ra ô nào để cấp — nghĩa là ngoài
+admin không ai phát hành được lịch.
 
 Luồng: LSX / bài ghép `san_sang` nằm ở `/hang-cho` → `POST /dua-vao/...` sinh dòng lịch (khóa routing)
 → bảng `/dong` gom theo máy/lệnh/bài ghép → `PUT /dong/{id}/gan` gán máy/ca/giờ (hệ tính giờ kết thúc +
@@ -62,7 +66,7 @@ from ..services.xep_lich_service import (
 from ..services.xep_lich_van_de_service import XepLichVanDeService
 
 router = APIRouter(prefix="/api/xep-lich", tags=["xep-lich"])
-MODULE = "san_xuat"
+MODULE = "xep_lich"
 
 
 @contextmanager

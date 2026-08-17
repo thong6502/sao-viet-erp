@@ -62,7 +62,7 @@ from ..services.bien_cong_thuc import ngu_canh_lenh, quy_cach_bien
 from ..services.don_vi_do_service import cong_thuc_chu, cong_thuc_the_so
 from ..services.piece_work_service import dau_viec_khop, khoan_snapshot
 from ..services.quy_doi_service import (
-    _so as _so_vn, _tien, bien_trong, cum_tinh, doi_theo_quy_cach, don_vi_map, tien_khoan,
+    _so as _so_vn, _tien, bien_trong, doi_theo_quy_cach, don_vi_map, tien_khoan,
 )
 from ..services.thanh_phan_engine import safe_eval
 from ..services.thanh_phan_engine import cau_to_sang_cai, chua_theo_chieu, compute_phieu
@@ -430,7 +430,7 @@ class LsxService:
             from ..models.piece_work import PieceRate
 
             self._rates_cache = list(
-                self.db.execute(select(PieceRate).where(PieceRate.is_active.is_(True))).scalars()
+                self.db.execute(select(PieceRate).where(PieceRate.active.is_(True))).scalars()
             )
         return self._rates_cache
 
@@ -508,12 +508,14 @@ class LsxService:
         Danh sách khai ở danh mục (`cong_doan_dau_viec_vat_tu`) chỉ có TÊN; số lượng suy ở đây vì
         định mức tuỳ quy cách của từng lệnh. Hai đường, theo thứ tự:
 
-        1. **CÁCH ĐO của đơn vị** (`don_vi_do.cong_thuc`, mg 0192) — đường chính. Vật tư khai ĐVT là
-           `m² tờ in` thì chạy thẳng công thức của đơn vị đó với quy cách lệnh. Không nối với đơn vị
-           nào, không đi qua đồ thị, nên KHÔNG có gì để chọn nhầm.
-        2. Đơn vị không có cách đo → lùi về quy đổi từ đơn vị của BƯỚC sang đơn vị vật tư
+        1. **CÔNG THỨC LƯỢNG của chính món hàng** (`vat_tu_in_an.cong_thuc_luong`, mg 0194) — đường
+           chính. Riêng nhất nên đúng nhất: keo và mực cùng đo bằng `kg` mà ăn khác hẳn nhau.
+        2. Món chưa khai công thức → lùi về quy đổi từ đơn vị của BƯỚC sang đơn vị vật tư
            (`doi_theo_quy_cach`, đúng cửa tiền khoán đang dùng). Giữ đường này cho vật tư đo bằng
            đơn vị thường (`cái`, `kg`) mà xưởng đã khai cặp sẵn.
+
+        Đường "cách đo của ĐƠN VỊ" (`don_vi_do.cong_thuc`, mg 0192) GỠ 17/08/2026 (mg `0215`) — nó
+        trả lời hộ mọi món cùng đơn vị, đúng thứ đường 1 sinh ra để thay.
 
         KHÔNG ĐOÁN: cả hai đường đều tịt thì bỏ dòng đó ra khỏi kết quả và trả câu lý do — thà người
         kế hoạch tự thêm còn hơn bung một con số sai trông như thật.
@@ -595,51 +597,27 @@ class LsxService:
                        "dien_giai": dien_giai})
         return ra
 
-    def _cach_do(self) -> dict[str, str]:
-        """`{mã đơn vị: công thức CÁCH ĐO}` — chỉ đơn vị nào đã khai. Nạp một lần cho cả request:
-        `don_vi_map` không mang cột này, mà tra từng dòng là N+1 theo số vật tư của mọi bước."""
-        if getattr(self, "_cach_do_cache", None) is None:
-            self._cach_do_cache = {
-                d.ma: (d.cong_thuc or "").strip()
-                for d in self.db.execute(
-                    select(DonViDo).where(DonViDo.cong_thuc.is_not(None))
-                ).scalars()
-                if (d.cong_thuc or "").strip()
-            }
-        return self._cach_do_cache
-
-    def _cach_do_lan(self, ma: str) -> tuple[str, str] | None:
-        """`(công thức, mã đơn vị CHỦ)` cho `ma` — tra thẳng trước, không có thì MƯỢN trong cụm tĩnh.
-
-        Công thức khai ở `kg` phải dùng được cho `tấn` và `g`: ba mã đó là MỘT phép đo, nối nhau
-        bằng hằng số. Bắt khai lại ở từng mã là đúng thứ trùng lặp đang muốn bỏ — và hai bản chép
-        tay sớm muộn lệch nhau.
-
-        Trả kèm mã CHỦ vì số chạy ra mang đơn vị của chủ; nơi gọi phải quy đổi tiếp sang `ma` bằng
-        `doi_theo_quy_cach` (đừng tự nhân/chia hệ số — cầu đã có sẵn).
-
-        Cụm chỉ đi qua cạnh TĨNH, và luật "một cụm một công thức" (`don_vi_do_service`) bảo đảm
-        nhiều nhất một chủ; `sorted` chỉ để kết quả ổn định nếu dữ liệu cũ còn hai.
-        """
-        cach_do = self._cach_do()
-        goc = (ma or "").strip().lower()
-        if cach_do.get(goc):
-            return cach_do[goc], goc
-        chu = sorted(m for m in cum_tinh(goc, self._cap_quy_doi()) if cach_do.get(m))
-        return (cach_do[chu[0]], chu[0]) if chu else None
+    # `_cach_do` / `_cach_do_lan` GỠ 17/08/2026 cùng cột `don_vi_do.cong_thuc` (mg `0215`).
+    # "Cách đo" treo ở ĐƠN VỊ là thứ dùng chung cho mọi ai đếm bằng đơn vị đó, trong khi câu hỏi
+    # thật luôn thuộc về một MÓN / MÁY / ĐẦU VIỆC / BƯỚC cụ thể — và cả bốn nay đều có ô riêng
+    # (`cong_thuc_luong` của giấy · vật tư · máy · đầu việc khoán, `cong_thuc_san_luong` của công
+    # đoạn). Đừng dựng lại: mượn-trong-cụm của hàm cũ là chỗ hai đơn vị cùng cụm tranh nhau trả lời.
 
     def _luong_vat_tu(self, dvt: str, ctx: dict, sl: float, dv_buoc: str | None,
                       quy_cach: dict | None, *, mat=None) -> tuple[float | None, str | None, str]:
         """Số lượng một vật tư đo bằng `dvt`. Trả `(số, diễn giải, lý do nếu tịt)`.
 
-        BA đường, theo đúng thứ tự RIÊNG → CHUNG:
+        HAI đường, theo đúng thứ tự RIÊNG → CHUNG:
           1. `vat_tu_in_an.cong_thuc_luong` — công thức của CHÍNH món hàng (mg 0194). Ưu tiên cao
              nhất vì nó riêng nhất: keo và mực cùng đo bằng `kg` nhưng tiêu hao khác hẳn nhau.
-          2. `don_vi_do.cong_thuc` — công thức của ĐƠN VỊ, cho đơn vị xưởng tự đẻ ra kiểu `m² tờ in`.
-          3. Quy đổi từ đơn vị của BƯỚC sang đơn vị vật tư — cho vật tư đo bằng đơn vị thường đã
+          2. Quy đổi từ đơn vị của BƯỚC sang đơn vị vật tư — cho vật tư đo bằng đơn vị thường đã
              khai cặp sẵn.
 
-        KHÔNG ĐOÁN: tịt cả ba thì trả lý do, drawer hiện cảnh báo để người kế hoạch tự thêm.
+        Đường "công thức của ĐƠN VỊ" (`don_vi_do.cong_thuc`) GỠ 17/08/2026 (mg `0215`): nó trả lời
+        hộ mọi món cùng đo bằng `kg`, trong khi keo và mực ăn khác nhau — đúng thứ ô số 1 sinh ra để
+        thay. Món nào đang dựa vào nó thì khai `cong_thuc_luong` của chính nó.
+
+        KHÔNG ĐOÁN: tịt cả hai thì trả lý do, drawer hiện cảnh báo để người kế hoạch tự thêm.
         """
         rieng = (getattr(mat, "cong_thuc_luong", None) or "").strip() if mat is not None else ""
         if rieng:
@@ -653,31 +631,11 @@ class LsxService:
                     f"công thức lượng ra 0 — thiếu {', '.join(thieu)}." if thieu
                     else "công thức lượng ra 0.")
             return gt, f"{cong_thuc_chu(rieng)} = {gt:g} {dvt}", ""
-        lan = self._cach_do_lan(dvt)
-        if lan:
-            cach_do, chu = lan
-            try:
-                gt = float(safe_eval(cach_do, dict(ctx)))
-            except (ValueError, ZeroDivisionError) as e:
-                return None, None, f"cách đo của {chu} không chạy được ({e})."
-            if gt <= 0:
-                thieu = [b for b in bien_trong(cach_do) if _f(ctx.get(b)) <= 0]
-                return None, None, (
-                    f"cách đo của {chu} ra 0 — thiếu {', '.join(thieu)}." if thieu
-                    else f"cách đo của {chu} ra 0.")
-            if chu == dvt.strip().lower():
-                return gt, f"{cong_thuc_chu(cach_do)} = {gt:g} {dvt}", ""
-            # Công thức MƯỢN của đơn vị khác trong cụm ⇒ số đang mang đơn vị CHỦ, đổi tiếp bằng
-            # cầu đã khai. Tự nhân/chia hệ số ở đây là đẻ đường quy đổi thứ hai.
-            kq = doi_theo_quy_cach(gt, chu, dvt, quy_cach or {},
-                                   self._don_vis(), self._cap_quy_doi())
-            if "gia_tri" not in kq:
-                return None, None, (kq.get("ly_do") or f"chưa quy đổi được {chu} → {dvt}.")
-            return (float(kq["gia_tri"]),
-                    f"{cong_thuc_chu(cach_do)} = {gt:g} {chu} → {kq['gia_tri']:g} {dvt}", "")
-        # Không có cách đo → lùi về quy đổi từ đơn vị của bước.
+        # Không có công thức riêng → quy đổi từ đơn vị của bước.
         if not dv_buoc:
-            return None, None, f"{dvt} chưa khai cách đo, và bước chưa có đơn vị để quy đổi."
+            return None, None, (
+                f"{getattr(mat, 'ten', dvt)} chưa khai công thức lượng, và bước chưa có đơn vị "
+                f"để quy đổi.")
         kq = doi_theo_quy_cach(sl, dv_buoc, dvt, quy_cach or {},
                                self._don_vis(), self._cap_quy_doi())
         if "gia_tri" not in kq:
@@ -702,7 +660,7 @@ class LsxService:
             dm = assoc.get(rate.id)
             item = {
                 "id": rate.id,
-                "ten": rate.name,
+                "ten": rate.ten,
                 "don_vi": rate.unit,
                 "don_gia": _f(rate.unit_price),
             }
@@ -743,14 +701,22 @@ class LsxService:
         loai = getattr(cd, "loai_buoc", LB_MAY) or LB_MAY
         if loai == LB_MAY:
             dich = ma_don_vi_toc_do(may)
+            # Công thức riêng của CHÍNH MÁY đang gán (mg `0213`) — đọc SỐNG, vì đổi máy là đổi cả
+            # tốc độ lẫn cách đếm lượt. Không có máy (bước chưa gán) thì không có công thức riêng.
+            ct_rieng = (getattr(may, "cong_thuc_luong", None) or "").strip() if may is not None else ""
         elif loai == LB_TO:
-            dich = (getattr(cd, "khoan_json", None) or {}).get("don_vi")
+            kh = getattr(cd, "khoan_json", None) or {}
+            dich = kh.get("don_vi")
+            # Công thức GHIM trong ảnh chụp đầu việc, KHÔNG đọc lại danh mục: xưởng sửa cách đo về
+            # sau không được xê dịch tiền công của lệnh đã phát (xem `khoan_snapshot`).
+            ct_rieng = (kh.get("cong_thuc") or "").strip()
         else:
             return None
-        return self._sl_theo_don_vi(cd, dich, quy_cach) if dich else None
+        return self._sl_theo_don_vi(cd, dich, quy_cach, ct_rieng=ct_rieng) if dich else None
 
     def _sl_theo_don_vi(self, cd, dv_dich: str | None,
-                        quy_cach: dict | None) -> tuple[float, str, str] | None:
+                        quy_cach: dict | None, *,
+                        ct_rieng: str = "") -> tuple[float, str, str] | None:
         """SL VÀO của bước quy về `dv_dich`. Trả `(số, tên đơn vị, câu diễn giải)` — None nếu tịt.
 
         **MỘT bộ quy đổi cho CẢ tiền lẫn giờ** (chủ chốt 15/08/2026):
@@ -758,12 +724,20 @@ class LsxService:
             tiền khoán   SL vào → đơn vị ĐƠN GIÁ   → × đơn giá  → tiền
             thời lượng   SL vào → đơn vị TỐC ĐỘ    → ÷ tốc độ   → phút
 
-        Hai đường, đúng thứ tự tiền khoán vẫn chạy, không có đường thứ ba:
+        HAI đường, theo đúng thứ tự RIÊNG → CHUNG (cùng luật với `_luong_vat_tu`):
+          ⓿ `ct_rieng` — công thức của CHÍNH đối tượng: `may_thiet_bi.cong_thuc_luong` cho bước máy,
+             `khoan_json["cong_thuc"]` (ảnh chụp của đầu việc) cho bước tổ. Mg `0213`. Riêng nhất nên
+             thắng: lượt in của máy 5 màu khác máy 2 màu, mà cả hai cùng đo bằng `to_gio`.
           ① `doi_theo_quy_cach` — cầu quy đổi đã khai (kể cả đi vòng qua trung gian).
-          ② `_cach_do_lan` — công thức của ĐƠN VỊ ĐÍCH (chip `sl_vao`/`sl_ra`), mượn được trong
-             cụm tĩnh rồi đổi tiếp về đích.
+
+        Bậc "công thức của ĐƠN VỊ ĐÍCH" GỠ 17/08/2026 (mg `0215`) — bậc ⓿ thay đúng chỗ nó: cùng bộ
+        chip `sl_vao`/`sl_ra`, nhưng khai trên chính cái máy / đầu việc cần nó thay vì trên đơn vị
+        dùng chung.
 
         Tịt cả hai ⇒ None. Nơi gọi tự quyết, hàm này KHÔNG đoán và KHÔNG lùi về số thô.
+
+        ⚠️ Công thức riêng ra thẳng số theo `dv_dich` — KHÔNG quy đổi tiếp. Nó được khai ĐỂ trả lời
+        đúng câu "bằng bao nhiêu <đơn vị đích>", nên nhân thêm một hệ số nào nữa là tính hai lần.
 
         Đừng chép phép đổi này ra chỗ khác: hai bản chép tay là hai cơ hội lệch, mà lệch giữa tiền
         công và giờ công của cùng một bước thì không ai soi ra.
@@ -774,37 +748,28 @@ class LsxService:
         sl = _f(cd.so_luong_vao)
         ten_dich = (self._don_vis().get(ma_dich) or {}).get("ten") or ma_dich
 
+        # ⓿ công thức RIÊNG của máy / của đầu việc khoán.
+        if (ct_rieng := (ct_rieng or "").strip()):
+            ctx0 = {**ngu_canh_lenh(quy_cach or {}),
+                    "sl_vao": sl, "sl_ra": _f(cd.so_luong_ra)}
+            try:
+                gt0 = float(safe_eval(ct_rieng, dict(ctx0)))
+            except (ValueError, ZeroDivisionError):
+                gt0 = 0.0
+            # Ra 0 (hoặc không chạy được) thì RƠI XUỐNG hai đường sau chứ không tịt hẳn: công thức
+            # thiếu biến là chuyện của một lệnh cụ thể (chưa khai số màu, chưa có khổ), mà cầu quy
+            # đổi vẫn có thể trả lời được. Tịt luôn ở đây là làm mất tiền khoán vốn đang tính ra.
+            if gt0 > 0:
+                the_so0 = cong_thuc_the_so(ct_rieng, ctx0)
+                dau0 = "" if the_so0 == _so_vn(gt0) else f"{the_so0} = "
+                return gt0, ten_dich, f"{cong_thuc_chu(ct_rieng)} = {dau0}{_so_vn(gt0)} {ten_dich}"
+
         # ① cầu quy đổi. Cùng đơn vị cũng đi lối này (`doi` trả thẳng, hệ số 1).
         kq = doi_theo_quy_cach(sl, cd.don_vi_vao, ma_dich, quy_cach or {},
                                self._don_vis(), self._cap_quy_doi())
         if "gia_tri" in kq:
             return float(kq["gia_tri"]), kq["don_vi"], kq["dien_giai"]
-
-        # ② công thức của đơn vị đích.
-        lan = self._cach_do_lan(ma_dich)
-        if not lan:
-            return None
-        ct, chu = lan
-        ctx = {**ngu_canh_lenh(quy_cach or {}),
-               "sl_vao": sl, "sl_ra": _f(cd.so_luong_ra)}
-        try:
-            gt = float(safe_eval(ct, dict(ctx)))
-        except (ValueError, ZeroDivisionError):
-            return None
-        if gt <= 0:
-            return None
-        the_so = cong_thuc_the_so(ct, ctx)
-        buoc_the = "" if the_so == _so_vn(gt) else f"{the_so} = "
-        buoc_muon = ""
-        if chu != ma_dich:
-            kq2 = doi_theo_quy_cach(gt, chu, ma_dich, quy_cach or {},
-                                    self._don_vis(), self._cap_quy_doi())
-            if "gia_tri" not in kq2:
-                return None
-            ten_chu = (self._don_vis().get(chu) or {}).get("ten") or chu
-            buoc_muon = f"{_so_vn(gt)} {ten_chu} → "
-            gt = float(kq2["gia_tri"])
-        return gt, ten_dich, f"{cong_thuc_chu(ct)} = {buoc_the}{buoc_muon}{_so_vn(gt)} {ten_dich}"
+        return None
 
     def _khoan_theo_cong_thuc(self, cd, kh: dict, quy_cach: dict | None) -> dict | None:
         """Tiền khoán khi KHÔNG có cầu quy đổi — quy SL vào về đơn vị ĐƠN GIÁ rồi nhân đơn giá.
@@ -814,8 +779,12 @@ class LsxService:
         tiền công và giờ công thì không ai soi ra.
 
         Trả None khi không quy đổi được ⇒ nơi gọi giữ nguyên câu lý do cũ. KHÔNG đoán.
+
+        `cong_thuc` lấy từ ẢNH CHỤP `khoan_json` (mg `0213`), không đọc lại danh mục — cùng lý do
+        đơn giá được ghim: sửa cách đo ở danh mục không được đổi tiền của lệnh đã phát.
         """
-        kq = self._sl_theo_don_vi(cd, kh.get("don_vi"), quy_cach)
+        kq = self._sl_theo_don_vi(cd, kh.get("don_vi"), quy_cach,
+                                  ct_rieng=(kh.get("cong_thuc") or ""))
         if kq is None:
             return None
         gt, dv, cau = kq
@@ -845,6 +814,14 @@ class LsxService:
         kh = cd.khoan_json or {}
         if not kh.get("don_vi") or not kh.get("don_gia"):
             return trong
+        # ⓿ CÔNG THỨC RIÊNG của đầu việc (ảnh chụp `khoan_json["cong_thuc"]`, mg `0213`) thắng cả cầu
+        # quy đổi: nó được khai ĐÚNG cho việc này, còn cầu là luật chung của hai đơn vị. Ví dụ tổ
+        # đóng gói vừa "bắt tay + vào keo" (đ/cuốn theo `sl_ra`) vừa "đếm, bó" (đ/cuốn theo bó) —
+        # cùng cặp `tay → cuốn`, hai cách đo khác nhau. Đặt sau cầu thì công thức chỉ chạy khi cầu
+        # tịt, tức là khai xong mà không có tác dụng gì.
+        if (kh.get("cong_thuc") or "").strip():
+            if (kq0 := self._khoan_theo_cong_thuc(cd, kh, quy_cach)) is not None:
+                return {**trong, **kq0}
         sl = _f(cd.so_luong_vao)
         kq = tien_khoan(
             sl, cd.don_vi_vao, kh["don_vi"], _f(kh["don_gia"]), quy_cach or {},
@@ -1581,6 +1558,12 @@ class LsxService:
             "don_vi_vao": dv_vao,
             "don_vi_ra": dv_ra,
             "he_so_quy_doi": he_so,
+            # Cờ dòng giấy phải đi CÙNG cặp đơn vị mới. Client áp `don_vi_vao`/`don_vi_ra` của công
+            # đoạn vừa chọn lên dòng đang sửa; không trả kèm cờ thì nó giữ cờ của công đoạn CŨ, và
+            # FE không tự suy lại được (trạm là cờ trên danh mục Đơn vị, không đọc ra từ mã).
+            # Đổi bước in → ghi kẽm là dòng đó mang cặp `m² → bài in` mà vẫn tự nhận "trên dòng
+            # giấy" cho tới lúc lưu.
+            "tren_dong_giay": tren_dong_giay(dv_vao, dv_ra, self._tram()),
             "setup_phut": _f(cd.setup_time),
         }
 
@@ -1709,24 +1692,21 @@ class LsxService:
         for i, cd in enumerate(buoc):
             if i in idx or not cd.don_vi_ra:
                 continue
-            # Công thức có thể MƯỢN của đơn vị khác trong cụm tĩnh (khai ở `kg` thì `tấn` dùng
-            # chung) — `_cach_do_lan` trả kèm mã CHỦ để quy đổi tiếp.
-            lan = self._cach_do_lan(cd.don_vi_ra or "")
-            if not lan:
+            # CÔNG THỨC SẢN LƯỢNG của CHÍNH CÔNG ĐOẠN (mg `0214`). Trước 17/08/2026 số này lấy từ
+            # công thức của ĐƠN VỊ RA (`don_vi_do.cong_thuc`, gỡ ở mg `0215`) — sai chủ sở hữu: hai
+            # công đoạn cùng đo bằng `kem` có thể ra số khác nhau, mà công thức treo ở đơn vị thì cả
+            # hai buộc dùng chung. Ra thẳng theo đơn vị RA nên KHÔNG quy đổi tiếp: nó được khai để
+            # trả lời đúng câu "bước này ra mấy <đơn vị ra>".
+            cd_obj_ct = self.db.get(CongDoan, cd.cong_doan_id) if cd.cong_doan_id else None
+            ct = (getattr(cd_obj_ct, "cong_thuc_san_luong", None) or "").strip()
+            if not ct:
                 continue        # chưa khai công thức ⇒ để trống, KHÔNG đoán
-            ct, chu = lan
             try:
                 ra_ngoai = float(safe_eval(ct, dict(ctx_ngoai)))
             except (ValueError, ZeroDivisionError):
                 continue
             if ra_ngoai <= 0:
                 continue
-            if chu != (cd.don_vi_ra or "").strip().lower():
-                kq_lan = doi_theo_quy_cach(ra_ngoai, chu, cd.don_vi_ra, quy_cach_bien(lsx),
-                                           self._don_vis(), self._cap_quy_doi())
-                if "gia_tri" not in kq_lan:
-                    continue
-                ra_ngoai = float(kq_lan["gia_tri"])
             fixed_n, pct_n = hao_buoc(
                 _quy_tac_bu_hao(cd.cong_doan_id), rows=bu_hao_rows, sl=ra_ngoai)
             pct_n = min(max(pct_n, 0.0), 99.0)

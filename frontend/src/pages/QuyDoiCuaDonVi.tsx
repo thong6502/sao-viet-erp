@@ -8,9 +8,8 @@
 // không cần bấm nút "Lưu" gây rườm rà.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/useAuth";
-import { ApiError, authed } from "../api/client";
+import { ApiError } from "../api/client";
 import { crud, type Row } from "../api/rebuildCatalog";
-import { FormulaField, useBienCongThuc, traBien, type TraBien } from "./RebuildCatalogPage";
 
 const apiCap = crud("/api/don-vi/quy-doi");
 const apiDonVi = crud("/api/don-vi");
@@ -25,7 +24,6 @@ interface Cap extends Row {
   he_so: number;
   cau: string | null;
 }
-interface Bien { ma: string; nhan: string }
 
 /** Số cho người đọc: bỏ đuôi 0 thừa, tối đa 6 chữ số thập phân (1/1000 → "0,001"). */
 function soGon(n: number): string {
@@ -33,62 +31,17 @@ function soGon(n: number): string {
   return n.toLocaleString("vi-VN", { maximumFractionDigits: 6 });
 }
 
-// `tra` là bản tra từ điển biến — từ điển CHƯA nạp xong thì nó trả `undefined`, nên nhận đúng
-// kiểu `TraBien` (có `undefined`) chứ đừng ép `| null`: ép là tsc đỏ và `npm run build` gãy.
-function renderFormulaPreviewChips(formula: string, tra: TraBien) {
-  if (!formula.trim()) return null;
-  const tokenRegex = /[a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[\+\-\*\/\(\)]|\s+/g;
-  const tokens = formula.match(tokenRegex) || [];
-  return (
-    <span className="dvqd__chip-preview-list">
-      {tokens.map((token, i) => {
-        const trimmed = token.trim();
-        if (!trimmed) return <span key={i} className="dvqd__chip-space"> </span>;
-        const info = tra(trimmed);
-        if (info) {
-          return (
-            <span key={i} className="dvqd__chip-tag dvqd__chip-tag--var" title={`${info.nhan} (${trimmed})`}>
-              {info.nhan}
-            </span>
-          );
-        }
-        if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
-          return (
-            <span key={i} className="dvqd__chip-tag dvqd__chip-tag--num">
-              {trimmed}
-            </span>
-          );
-        }
-        if (/^[\+\-\*\/\(\)]$/.test(trimmed)) {
-          const displayOp = trimmed === "*" ? "×" : trimmed === "/" ? "÷" : trimmed === "-" ? "−" : trimmed;
-          return (
-            <span key={i} className="dvqd__chip-tag dvqd__chip-tag--op">
-              {displayOp}
-            </span>
-          );
-        }
-        return <span key={i} className="dvqd__chip-tag">{trimmed}</span>;
-      })}
-    </span>
-  );
-}
 
 export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
   const { token } = useAuth();
   const [caps, setCaps] = useState<Cap[]>([]);
   const [dvs, setDvs] = useState<Row[]>([]);
-  const [bien, setBien] = useState<Bien[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
-  const tuDien = useBienCongThuc();
-  const tra = useMemo(() => traBien(tuDien), [tuDien]);
   const [ban, setBan] = useState(false);
-  // Dòng đang thêm. `dong` = khai bằng công thức (quy đổi động) thay vì con số.
-  const [them, setThem] = useState({ gia: "", den_id: "", dong: false });
+  // Dòng đang thêm. Chỉ còn MỘT dạng: "1 <đơn vị này> = <số> <đơn vị kia>".
+  const [them, setThem] = useState({ gia: "", den_id: "" });
   const [sua, setSua] = useState<Record<number, string>>({});
-  // Công thức tính lượng của chính đơn vị (`don_vi_do.cong_thuc`). GIỮ Ở ĐÂY chứ không đọc thẳng
-  // prop: `donVi` do drawer cha giữ và cha KHÔNG nạp lại sau khi khối này PUT.
-  const [ctState, setCtState] = useState("");
 
   const nap = useCallback(() => {
     if (!token || !donVi) return;
@@ -97,17 +50,9 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
 
   useEffect(() => { nap(); }, [nap]);
 
-  // Mở drawer đơn vị khác ⇒ lấy công thức của đơn vị ĐÓ. Khoá theo `id` chứ không theo cả object:
-  // prop đổi tham chiếu mỗi lần cha render thì hiệu ứng chạy lại và đè mất số vừa lưu.
-  useEffect(() => {
-    setCtState(String((donVi as { cong_thuc?: string } | null)?.cong_thuc ?? "").trim());
-  }, [donVi?.id]);   // eslint-disable-line react-hooks/exhaustive-deps
-
   useEffect(() => {
     if (!token) return;
     apiDonVi.list(token, { active: true }).then((r) => setDvs(r.items)).catch(() => setDvs([]));
-    authed<{ items: Bien[] }>("/api/don-vi/bien", token)
-      .then((r) => setBien(r.items)).catch(() => setBien([]));
   }, [token]);
 
   const khaiODay = useMemo(() => caps.filter((c) => c.tu_id === donVi?.id), [caps, donVi]);
@@ -122,24 +67,6 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
     );
   }
 
-  /** Body PUT đơn vị — PHẢI gửi ĐỦ field đang có, chỉ thay `cong_thuc`.
-   *
-   *  `DonViDoIn` có default cho gần hết cột (`active=True`, `dung_lam_toc_do=False`,
-   *  `tram_dong_giay=None`…) nên gửi thiếu là server ghi đè bằng default — khai công thức cho `tờ`
-   *  mà mất cờ trạm dòng giấy thì bù hao của MỌI lệnh tính sai, im lặng. */
-  function bodyDonVi(cong_thuc: string): Record<string, unknown> {
-    const d = donVi as Record<string, unknown>;
-    return {
-      ma: String(d.ma), ten: String(d.ten), ho: String(d.ho ?? "khac"),
-      hieu_luc_tu: d.hieu_luc_tu ?? null,
-      ghi_chu: d.ghi_chu ?? null,
-      active: d.active !== false,
-      dung_lam_toc_do: !!d.dung_lam_toc_do,
-      tram_dong_giay: d.tram_dong_giay ?? null,
-      cong_thuc,
-    };
-  }
-
   async function chay<T>(viec: () => Promise<T>) {
     if (!token) return;
     setBan(true); setErr(null);
@@ -148,32 +75,17 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
     finally { setBan(false); }
   }
 
-  // HAI CHẾ ĐỘ, HAI ĐÍCH GHI KHÁC NHAU (13/08/2026):
-  //   · Số cố định  → dòng CẶP "1 tấn = 1000 kg" (có đích, hệ số không đổi).
-  //   · Công thức   → CÔNG THỨC CỦA CHÍNH ĐƠN VỊ NÀY, KHÔNG có đích.
+  // MỘT DẠNG DUY NHẤT: dòng CẶP "1 tấn = 1.000 kg" — có đích, hệ số không đổi.
   //
-  // Vì sao công thức không cần đích: nó đã tự nhân số lượng của lệnh
-  // (`kg_giay_nguyen := dinh_luong * dai_in * rong_in * to_dau_vao`) nên ra thẳng TỔNG, không phải
-  // tỉ số để đổi từ đâu sang đâu. Bắt chọn "đơn vị quy đổi về" là hỏi thừa — và đó chính là chỗ
-  // trước đây đẻ ra hai khối công thức nhìn như trùng nhau trên cùng một màn.
+  // Chế độ "Theo quy cách" (ghi `don_vi_do.cong_thuc`) GỠ 17/08/2026: câu "một lệnh cần bao nhiêu"
+  // không thuộc về ĐƠN VỊ mà thuộc về một MÓN / MÁY / ĐẦU VIỆC / BƯỚC cụ thể, và cả bốn nay đều có
+  // ô công thức riêng. Module này còn đúng hai việc: khai đơn vị, và quy đổi giữa các đơn vị.
   const themDong = () => chay(async () => {
-    if (them.dong) {
-      let ct = them.gia.trim();
-      // Loại bỏ các toán tử dở dang ở cuối công thức (+ - * / ( ) trước khi gửi backend
-      ct = ct.replace(/[\+\-\*\/\(\)\s]+$/, "").trim();
-      if (!ct) {
-        alert("Vui lòng nhập công thức hợp lệ trước khi lưu!");
-        return;
-      }
-      await apiDonVi.update(token!, donVi.id, bodyDonVi(ct));
-      setCtState(ct);
-    } else {
-      await apiCap.create(token!, {
-        tu_id: donVi.id, den_id: Number(them.den_id),
-        he_so: Number(them.gia.replace(",", ".")),
-      });
-    }
-    setThem({ gia: "", den_id: "", dong: false });
+    await apiCap.create(token!, {
+      tu_id: donVi.id, den_id: Number(them.den_id),
+      he_so: Number(them.gia.replace(",", ".")),
+    });
+    setThem({ gia: "", den_id: "" });
   });
 
   const luuDong = (c: Cap, forceVal?: string) => chay(async () => {
@@ -189,24 +101,7 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
     chay(() => apiCap.remove(token!, c.id));
   };
 
-  // MỖI ĐƠN VỊ CHỈ MỘT CÔNG THỨC — luật cho BOM: vật tư khai ĐVT là kg thì lúc bung ở bước lệnh
-  // phải có đúng một cách ra kg, hai cái là máy không biết chọn. Nay luật này TỰ ĐÚNG vì công thức
-  // nằm ngay trên đơn vị (một cột, một dòng), không còn phải lọc dropdown để chặn trùng đích.
   const dsDich = dvs.filter((d) => d.id !== donVi.id);
-  // Công thức tính lượng của CHÍNH đơn vị này — GIỮ Ở STATE, không đọc thẳng prop.
-  // `donVi` là prop của drawer cha; cha KHÔNG nạp lại sau khi khối này PUT, nên đọc thẳng prop thì
-  // lưu xong dòng công thức không hiện ra và bấm Xoá xong nó vẫn nằm đó (dính 13/08/2026).
-  const ctCuaDonVi = ctState;
-  // Công thức MƯỢN của đơn vị khác trong cụm tĩnh — server tính (`cong_thuc_hieu_luc`). Chỉ hiện
-  // khi đơn vị NÀY chưa tự khai: nhìn vào `g` mà thấy trống thì người khai tưởng chưa khai gì rồi
-  // đi khai lần hai, đúng thứ luật "một cụm một công thức" sinh ra để chặn.
-  const dvProp = donVi as {
-    cong_thuc_hieu_luc?: string; cong_thuc_chu_ten?: string; cong_thuc_chu_ma?: string;
-  };
-  const ctMuon = !ctCuaDonVi && dvProp.cong_thuc_hieu_luc
-    ? { ct: dvProp.cong_thuc_hieu_luc, chu: dvProp.cong_thuc_chu_ten ?? dvProp.cong_thuc_chu_ma ?? "" }
-    : null;
-  const bienQuyDoi = bien.map((b) => b.ma);
 
   return (
     <section className="dvqd">
@@ -228,62 +123,7 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
             <span className="dvqd__sub-badge">{khaiODay.length}</span>
           </div>
 
-          {/* CÔNG THỨC TÍNH LƯỢNG của chính đơn vị — không có đích nên không nằm trong `khaiODay`
-              (đó là các dòng cặp). Bày ngay đây để người khai thấy nó cùng chỗ với quy đổi, khỏi
-              phải nhớ nó nằm ở ô riêng nào khác. */}
-          {!!ctCuaDonVi && (
-            <div className="dvqd__card dvqd__card--ct" key="ct-cua-don-vi">
-              <div className="dvqd__card-main">
-                <div className="dvqd__card-eq">
-                  <span className="dvqd__unit-tag">{String(donVi.ten)}</span>
-                  <span className="dvqd__eq-sign">=</span>
-                  {renderFormulaPreviewChips(ctCuaDonVi, tra)}
-                  <span className="dvqd__badge dvqd__badge--dynamic" title="Số này tính ra từ quy cách của từng lệnh, không cố định">
-                    Theo quy cách
-                  </span>
-                </div>
-                <div className="dvqd__card-actions">
-                  <button
-                    type="button"
-                    className="dvqd__btn dvqd__btn--danger"
-                    disabled={ban}
-                    onClick={() => {
-                      if (!window.confirm(`Xoá công thức tính lượng của "${String(donVi.ten)}"?`)) return;
-                      chay(async () => {
-                        await apiDonVi.update(token!, donVi.id, bodyDonVi(""));
-                        setCtState("");
-                      });
-                    }}
-                  >
-                    Xoá
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* MƯỢN: read-only, KHÔNG có nút Xoá — xoá phải về đúng đơn vị chủ */}
-          {ctMuon && (
-            <div className="dvqd__card dvqd__card--ct" key="ct-muon">
-              <div className="dvqd__card-main">
-                <div className="dvqd__card-eq">
-                  <span className="dvqd__unit-tag">{String(donVi.ten)}</span>
-                  <span className="dvqd__eq-sign">=</span>
-                  {renderFormulaPreviewChips(ctMuon.ct, tra)}
-                  <span className="dvqd__badge dvqd__badge--dynamic" title={`Khai ở "${ctMuon.chu}" — cùng cụm quy đổi cố định nên dùng chung`}>
-                    Theo {ctMuon.chu}
-                  </span>
-                </div>
-                <div className="dvqd__card-actions">
-                  <span className="dvqd__hint">
-                    Khai ở “{ctMuon.chu}” — cùng cụm quy đổi cố định nên dùng chung. Sửa ở đơn vị đó.
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {khaiODay.length === 0 && !ctCuaDonVi && !ctMuon ? (
+          {khaiODay.length === 0 ? (
             <p className="dvqd__hint">Chưa có quy đổi nào được khai báo cho đơn vị này.</p>
           ) : khaiODay.length === 0 ? null : (
             <div className="dvqd__card-list">
@@ -393,32 +233,13 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
               <span>THÊM QUY ĐỔI MỚI</span>
             </div>
 
-            <div className="dvqd__type-toggle">
-              <button
-                type="button"
-                className={`dvqd__type-btn ${!them.dong ? "is-active" : ""}`}
-                onClick={() => setThem((p) => ({ ...p, dong: false, gia: "" }))}
-              >
-                Số cố định
-              </button>
-              <button
-                type="button"
-                className={`dvqd__type-btn ${them.dong ? "is-active" : ""}`}
-                disabled={!!ctCuaDonVi && !them.dong}
-                title={ctCuaDonVi
-                  ? `Đơn vị này đã có số theo quy cách: ${ctCuaDonVi}. Mỗi cụm chỉ MỘT — sửa dòng đang có.`
-                  : undefined}
-                // Chế độ theo quy cách KHÔNG có đích ⇒ xoá luôn đích đang chọn dở, không thì bấm
-                // "Số cố định" lại thấy một lựa chọn cũ lơ lửng không rõ từ đâu ra.
-                onClick={() => setThem((p) => ({ ...p, dong: true, gia: "", den_id: "" }))}
-              >
-                Theo quy cách
-              </button>
-            </div>
+            {/* Dải chọn "Số cố định / Theo quy cách" GỠ 17/08/2026 — chỉ còn một dạng nên không
+                còn gì để chọn. Công thức tính lượng khai ở món hàng · máy · công việc khoán · công
+                đoạn, tuỳ số đó thuộc về ai. */}
           </div>
 
           <div className="dvqd__create-body">
-            {!them.dong ? (
+            {(
               <div className="dvqd__create-row">
                 <span className="dvqd__create-prefix">{String(donVi.ten)} =</span>
                 <input
@@ -429,7 +250,7 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
                   placeholder="Vd: 1.000"
                   onChange={(e) => setThem((p) => ({ ...p, gia: e.target.value }))}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && them.gia && (them.dong || them.den_id)) {
+                    if (e.key === "Enter" && them.gia && them.den_id) {
                       e.preventDefault();
                       themDong();
                     }
@@ -449,27 +270,13 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
                   ))}
                 </select>
               </div>
-            ) : (
-              <div className="dvqd__formula-section">
-                <FormulaField
-                  id="ct-them"
-                  value={them.gia}
-                  onChange={(x) => setThem((p) => ({ ...p, gia: x }))}
-                  configPrefix="/api/don-vi"
-                  bienGoiY={bienQuyDoi}
-                  nhanO={<><span className="rc-formula__editor-unit-tag">{String(donVi.ten)}</span> theo quy cách</>}
-                  goY="vd: dinh_luong * dai * rong"
-                />
-              </div>
             )}
           </div>
 
           <div className="dvqd__create-footer">
-            {!ban && (!them.gia || (!them.dong && !them.den_id)) && (
+            {!ban && (!them.gia || !them.den_id) && (
               <p className="dvqd__hint">
-                {!them.gia
-                  ? (them.dong ? "Nhập hoặc bấm chọn biến bên dưới để tạo công thức" : "Nhập số quy đổi đã")
-                  : "Còn thiếu: chọn đơn vị quy đổi về"}
+                {!them.gia ? "Nhập số quy đổi đã" : "Còn thiếu: chọn đơn vị quy đổi về"}
               </p>
             )}
 
@@ -477,7 +284,7 @@ export function QuyDoiCuaDonVi({ donVi }: { donVi: Row | null }) {
               <button
                 type="button"
                 className="dvqd__btn dvqd__btn--primary"
-                disabled={ban || !them.gia || (!them.dong && !them.den_id)}
+                disabled={ban || !them.gia || !them.den_id}
                 onClick={themDong}
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

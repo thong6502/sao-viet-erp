@@ -93,8 +93,8 @@ def test_cong_doan_to_luu_dinh_muc_theo_dau_viec():
     to = Department(name="Tổ Bồi", code="PB900", la_san_xuat=True)
     db.add(to)
     db.flush()
-    rate = PieceRate(group_name="Tổ Bồi", department_id=to.id, code="BOI-01",
-                     name="Bồi sóng", unit="tờ", unit_price=200)
+    rate = PieceRate(group_name="Tổ Bồi", department_id=to.id, ma="BOI-01",
+                     ten="Bồi sóng", unit="tờ", unit_price=200)
     db.add(rate)
     db.commit()
 
@@ -120,7 +120,7 @@ def test_dinh_muc_luu_dai_nang_suat_don_vi_va_ba_moc_nhan_luc():
     to = Department(name="Tổ Dán", code="PB903", la_san_xuat=True)
     db.add(to)
     db.flush()
-    rate = PieceRate(group_name="Tổ Dán", department_id=to.id, name="Dán hộp",
+    rate = PieceRate(group_name="Tổ Dán", department_id=to.id, ten="Dán hộp",
                      unit="hộp", unit_price=80)
     db.add(rate)
     db.commit()
@@ -162,7 +162,7 @@ def test_luu_lai_dinh_muc_cung_dau_viec_khong_dung_unique():
     to = Department(name="Tổ Cán màng", code="PB904", la_san_xuat=True)
     db.add(to)
     db.flush()
-    rate = PieceRate(group_name="Tổ Cán màng", department_id=to.id, name="Cán mờ",
+    rate = PieceRate(group_name="Tổ Cán màng", department_id=to.id, ten="Cán mờ",
                      unit="m²", unit_price=150)
     db.add(rate)
     db.commit()
@@ -190,9 +190,9 @@ def test_dinh_muc_to_chan_dau_viec_khac_to_va_cho_nhieu_dau_viec_khong_can_mac_d
     db.add_all([to_a, to_b])
     db.flush()
     rates = [
-        PieceRate(group_name="A", department_id=to_a.id, name="A1", unit="tờ", unit_price=1),
-        PieceRate(group_name="A", department_id=to_a.id, name="A2", unit="tờ", unit_price=1),
-        PieceRate(group_name="B", department_id=to_b.id, name="B1", unit="tờ", unit_price=1),
+        PieceRate(group_name="A", department_id=to_a.id, ten="A1", unit="tờ", unit_price=1),
+        PieceRate(group_name="A", department_id=to_a.id, ten="A2", unit="tờ", unit_price=1),
+        PieceRate(group_name="B", department_id=to_b.id, ten="B1", unit="tờ", unit_price=1),
     ]
     db.add_all(rates)
     db.commit()
@@ -221,8 +221,8 @@ def _to_va_rate(svc, db, *, ma_to: str, ma_rate: str):
     to = Department(name=f"Tổ {ma_to}", code=ma_to, la_san_xuat=True)
     db.add(to)
     db.flush()
-    rate = PieceRate(group_name=ma_to, department_id=to.id, code=ma_rate,
-                     name=f"Việc {ma_rate}", unit="tờ", unit_price=100)
+    rate = PieceRate(group_name=ma_to, department_id=to.id, ma=ma_rate,
+                     ten=f"Việc {ma_rate}", unit="tờ", unit_price=100)
     db.add(rate)
     db.commit()
     return to, rate
@@ -475,3 +475,33 @@ def test_dem_theo_nhom_nuoi_tab_loc():
     assert svc.dem_theo_nhom() == {"print": 3, "finishing": 1}
     assert svc.dem_theo_nhom(active=True) == {"print": 2, "finishing": 1}
     assert svc.dem_theo_nhom(q="bế") == {"finishing": 1}
+
+
+def test_cong_thuc_san_luong_chan_chip_cua_chinh_buoc():
+    """⭐ VÒNG TRÒN: `cong_thuc_san_luong` dùng `sl_vao`/`sl_ra` thì không có chỗ bắt đầu.
+
+    Bước NGOÀI dòng giấy lấy SL RA từ công thức này, rồi suy SL VÀO ngược lại. Công thức mà đọc
+    chính hai số đó thì ra cần vào, vào cần ra — chặn ngay lúc khai, đừng để lòi ra ô trống ở lệnh.
+
+    Luật này chuyển từ `DonViDoService` sang đây ngày 17/08/2026 cùng với chỗ khai: trước đó công
+    thức treo ở ĐƠN VỊ RA (`don_vi_do.cong_thuc`, gỡ ở mg `0215`).
+    """
+    db, svc = _svc()
+    with pytest.raises(CongDoanValidationError, match="E-CD-VONG-TRON"):
+        svc.create(dict(ma="CTP1", ten="Ghi kẽm CTP", nhom="prepress",
+                        pricing_basis="per_sheet", don_vi_vao="kem", don_vi_ra="kem",
+                        cong_thuc_san_luong="sl_vao * 2"))
+
+
+def test_cong_thuc_san_luong_luu_duoc_cho_buoc_ngoai_dong():
+    """Công thức KHÔNG đọc số của chính bước thì lưu bình thường — vd Ghi kẽm ra `so_kem` bản."""
+    db, svc = _svc()
+    cd = svc.create(dict(ma="CTP2", ten="Ghi kẽm CTP", nhom="prepress",
+                         pricing_basis="per_sheet", don_vi_vao="kem", don_vi_ra="kem",
+                         cong_thuc_san_luong="so_kem"))
+    assert cd.cong_thuc_san_luong == "so_kem"
+    # Sửa xoá trắng cũng phải được — bỏ công thức là bước quay về khai tay số lượng.
+    sua = svc.update(cd.id, dict(ma="CTP2", ten="Ghi kẽm CTP", nhom="prepress",
+                                 pricing_basis="per_sheet", don_vi_vao="kem", don_vi_ra="kem",
+                                 cong_thuc_san_luong=None))
+    assert not sua.cong_thuc_san_luong

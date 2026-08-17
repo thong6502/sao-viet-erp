@@ -33,11 +33,14 @@ export function BaiGhepPage({
 }) {
   const { token } = useAuth();
   const can = useCan();
-  const canCreate = can("san_xuat", "create");
+  const canCreate = can("bai_ghep", "create");
 
   const [view, setView] = useState<View>({ mode: "list" });
   const [tab, setTab] = useState<"cho" | "list">("cho");
   const [pool, setPool] = useState<HangChoGhepItem[] | null>(null);
+  // Số lệnh bị GIẤU vì đang giữ chỗ vật tư. Không có nó thì lệnh biến mất im lặng và người ghép
+  // không phân biệt nổi "chưa sẵn sàng" với "đang giữ chỗ" — mà chỉ cái sau họ tự gỡ được.
+  const [soGiuCho, setSoGiuCho] = useState(0);
   const [list, setList] = useState<BaiGhepListItem[] | null>(null);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [q, setQ] = useState("");
@@ -49,7 +52,10 @@ export function BaiGhepPage({
     if (!token) return;
     api.baiGhep
       .hangCho(token, { q: q.trim() || undefined })
-      .then((r) => setPool(r.items))
+      .then((r) => {
+        setPool(r.items);
+        setSoGiuCho(r.so_giu_cho ?? 0);
+      })
       .catch((e: unknown) => setErr(e instanceof ApiError ? e.message : String(e)));
   }, [token, q]);
 
@@ -163,6 +169,7 @@ export function BaiGhepPage({
       {tab === "cho" ? (
         <ChoTable
           rows={pool}
+          soGiuCho={soGiuCho}
           picked={picked}
           onToggle={toggle}
           q={q}
@@ -181,6 +188,7 @@ export function BaiGhepPage({
 // --- Khu 1: công đoạn in chờ xếp --------------------------------------------
 function ChoTable({
   rows,
+  soGiuCho,
   picked,
   onToggle,
   q,
@@ -190,6 +198,7 @@ function ChoTable({
   onTao,
 }: {
   rows: HangChoGhepItem[] | null;
+  soGiuCho: number;
   picked: Set<number>;
   onToggle: (id: number) => void;
   q: string;
@@ -222,6 +231,20 @@ function ChoTable({
           Tạo bài ghép{picked.size > 0 ? ` (${picked.size})` : ""}
         </Button>
       </div>
+
+      {/* Vì sao một lệnh không có ở đây. Lệnh đang giữ chỗ vật tư bị lọc khỏi danh sách (ghép bài
+          làm số giấy cần ÍT ĐI, nên phải ghép trước rồi mới giữ) — nhưng biến mất im lặng thì
+          người ghép đi tìm một mã cụ thể sẽ tưởng lệnh chưa sẵn sàng, và đi sửa nhầm chỗ. */}
+      {soGiuCho > 0 && (
+        <p className="bghep-anvi" role="status">
+          <Icon name="lock" size={13} />
+          <span>
+            <b>{num(soGiuCho)} lệnh</b> đang giữ chỗ vật tư nên không hiện ở đây. Ghép bài làm số
+            giấy cần ít đi, nên phải <b>ghép trước, giữ chỗ sau</b> — sang <b>Kế hoạch vật tư</b>
+            {" "}nhả chỗ nếu vẫn muốn ghép.
+          </span>
+        </p>
+      )}
 
       <div className="khsx__tablewrap">
         <table className="khsx__table khsx__table--queue">

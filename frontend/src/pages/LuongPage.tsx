@@ -17,7 +17,6 @@ import {
   AlertTriangle,
   Wallet,
   FileText,
-  Calculator,
   Receipt,
   HandCoins,
 } from "lucide-react";
@@ -49,15 +48,16 @@ import { CauHinhLuongTab } from "./CauHinhLuongTab";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { EmptyRow, EmptyState } from "../components/EmptyState";
-import { KhoanRatesEditor } from "../components/KhoanRatesEditor";
 import { RowActionButton } from "../components/RowActionButton";
 import "./nhan-su.css";
 import "./luong.css";
 
+// `"khoan"` GỠ 17/08/2026: bảng đơn giá khoán thành màn "Công việc khoán" của Cấu hình danh mục.
+// Giữ giá trị này trong union thì `?tab=khoan` (link cũ ai đó bookmark) vào một tab không render gì.
+// Không có nó, `tabTuUrl` rơi về tab mặc định — người dùng thấy màn Lương bình thường.
 type Tab =
   | "bang"
   | "nhanvien"
-  | "khoan"
   | "tamung"
   | "cauhinh"
   | "phieu"
@@ -132,12 +132,16 @@ export function LuongPage({
   focusEmployeeId,
   eventTick,
   openTab,
+  navigate,
 }: {
   focusEmployeeId?: number;
   /** Tăng mỗi sự kiện real-time (SSE) → tab Tạm ứng đang mở tự refetch, không cần đổi màn. */
   eventTick?: number;
   /** Liên thông từ màn Phòng ban ("Sửa ở Cấu hình lương") → mở thẳng tab cấu hình. */
   openTab?: "cauhinh";
+  /** Điều hướng của AppShell — panel "Đơn giá khoán của tổ" cần nó để chỉ đường sang màn danh mục
+   *  Công việc khoán (chỗ có xoá hẳn · nhật ký · mục đã ngừng). */
+  navigate?: (id: string) => void;
 }) {
   const { token } = useAuth();
   const can = useCan();
@@ -221,16 +225,6 @@ export function LuongPage({
               <span>Lương nhân viên</span>
             </button>
           )}
-          {canManage && (
-            <button
-              className={`lg-tab-btn ${tab === "khoan" ? "is-active" : ""}`}
-              onClick={() => go("khoan")}
-              title="Quản lý lương khoán"
-            >
-              <Calculator className="lg-tab-btn__icon" />
-              <span>Lương khoán</span>
-            </button>
-          )}
           {canOpenTamUng && (
             <button
               className={`lg-tab-btn ${tab === "tamung" ? "is-active" : ""}`}
@@ -294,7 +288,6 @@ export function LuongPage({
       {tab === "nhanvien" && canManage && (
         <NhanVienTab token={token!} focusEmployeeId={focusEmployeeId} />
       )}
-      {tab === "khoan" && canManage && <KhoanTab token={token!} />}
       {tab === "tamung" && canOpenTamUng && (
         <TamUngTab
           token={token!}
@@ -308,6 +301,7 @@ export function LuongPage({
           token={token!}
           readOnly={!canManage}
           onDirtyChange={setCfgDirty}
+          navigate={navigate}
         />
       )}
       {tab === "phieu" && tuPhucVu && <PhieuLuongTab token={token!} />}
@@ -3196,14 +3190,6 @@ function SalaryModal({
       </ConfirmDialog>
     </div>
   );
-}
-
-// --- Tab: Lương khoán (đơn giá khoán) ---------------------------------------
-// Tiền khoán mỗi người = Phiếu sản lượng theo người (màn Lệnh SX) → cột "Khoán" bảng lương.
-// Tab này chỉ quản lý bảng ĐƠN GIÁ khoán để tra khi ghi phiếu.
-
-function KhoanTab({ token }: { token: string }) {
-  return <KhoanRatesEditor token={token} />;
 }
 
 // --- Tab: Tạm ứng -----------------------------------------------------------

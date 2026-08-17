@@ -37,7 +37,7 @@ from .services.ky_thuat_may_service import KyThuatMayService, hom_nay_vn
 
 log = logging.getLogger(__name__)
 
-MODULE = "ky_thuat_may"
+MODULE = "phieu_bao_tri"
 
 # {ngày: {phieu_id}} — chỉ giữ đúng NGÀY HÔM NAY, sang ngày mới là thay sạch.
 _da_ting: dict[date, set[int]] = {}

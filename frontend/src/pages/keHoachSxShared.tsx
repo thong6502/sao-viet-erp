@@ -339,6 +339,18 @@ export function ChuoiCongDoan({
   );
 }
 
+// --- ô key–value ------------------------------------------------------------
+/** Ô nhãn–giá trị CHỈ ĐỌC (khuôn `.khsx-kv` trong ke-hoach-sx.css). Dùng cho số DẪN XUẤT: cái gì
+ *  gõ được thì là `<label class="khsx-kv khsx-kv--edit">`, không phải ô này. */
+export function Kv({ k, v }: { k: string; v: string | number }) {
+  return (
+    <div className="khsx-kv">
+      <span className="khsx-kv__k">{k}</span>
+      <span className="khsx-kv__v">{v}</span>
+    </div>
+  );
+}
+
 // --- trạng thái tải / rỗng / lỗi -------------------------------------------
 export function Skeleton({ rows = 5, cols = 6 }: { rows?: number; cols?: number }) {
   return (

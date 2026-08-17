@@ -53,12 +53,21 @@ class StockVoucherError(Exception):
 
 
 class StockVoucherService:
-    def __init__(self, vouchers, requests, lots, sequence, request_service, hang) -> None:
+    def __init__(self, vouchers, requests, lots, sequence, request_service, hang,
+                 giu_cho=None) -> None:
         self.vouchers = vouchers
         self.requests = requests
         self.lots = lots
         self.sequence = sequence
         self.request_service = request_service
+        # `GiuChoService` — TUỲ CHỌN (17/08/2026). Vắng thì kho chạy y như trước: mọi chỗ dựng
+        # service cũ không phải sửa, và test kho không phải kéo theo cả bảng cân đối.
+        #
+        # Có mặt thì kho gánh thêm hai việc:
+        #   · XUẤT — không cho lấn vào phần lệnh khác đang giữ (`kiem_xuat`);
+        #   · GHI SỔ — xuất xong thì nhả phần giữ tương ứng, nhập xong thì tự nhặt thêm cho lệnh
+        #     đang chờ (`tieu_thu` / `nhat_them`).
+        self.giu_cho = giu_cho
         # `VatLieuKhoService` — tra danh mục gốc + quy đổi đơn vị.
         #
         # GỠ 2026-08-08: `materials` + `material_service` + `_create_new_material()`. Phiếu từng tự
@@ -255,6 +264,18 @@ class StockVoucherService:
                         "Kho không cho xuất âm."
                     )
 
+            # Cửa thứ hai (17/08/2026): không lấn vào phần LỆNH KHÁC đang giữ chỗ.
+            #
+            # Kiểm trên TỔNG theo mặt hàng, không theo lô: giữ chỗ cố ý không neo lô nào (kho vẫn
+            # nhập-trước-xuất-trước). Kiểm ở đây chứ không ở lúc lập phiếu — lập phiếu là nháp, còn
+            # ghi sổ mới là lúc hàng thật rời kho, và giữa hai mốc đó tồn tự do có thể đã đổi.
+            if self.giu_cho is not None:
+                for (hang, chu), sl in self._gom_theo_hang_va_chu_the(v, lines_by_id).items():
+                    loi = self.giu_cho.kiem_xuat(
+                        hang=hang, so_luong=sl, lsx_id=chu[0], bai_ghep_id=chu[1])
+                    if loi:
+                        raise StockVoucherError(loi)
+
         # --- Pha 2: ghi ---
         if v.loai == VOUCHER_NHAP:
             for ln in v.lines:
@@ -284,6 +305,24 @@ class StockVoucherService:
             rl = lines_by_id[rl_id]
             rl.sl_da_ung = float(rl.sl_da_ung) + qty
 
+        # --- Pha 3: báo cho GIỮ CHỖ (17/08/2026) ---
+        #
+        # XUẤT ⇒ phần giữ của chính lệnh đó HOÁ THÀNH phần đã cấp, nhả khỏi bảng giữ chỗ. Không nhả
+        # là đếm hai lần: tồn đã giảm khi ghi sổ, mà chỗ giữ vẫn trừ tiếp vào tồn tự do ⇒ mọi lệnh
+        # khác báo thiếu oan.
+        #
+        # NHẬP ⇒ hàng vừa vào kho, gọi `nhat_them` để lệnh nào đang bật công tắc mà còn thiếu thì
+        # được bù NGAY. Đây là toàn bộ ý nghĩa của "bật = đăng ký, không phải chụp một lần" —
+        # không ai phải nhớ quay lại bấm đúng lúc hàng nhập.
+        if self.giu_cho is not None:
+            if v.loai == VOUCHER_XUAT:
+                for (hang, chu), sl in self._gom_theo_hang_va_chu_the(v, lines_by_id).items():
+                    if chu != (None, None):
+                        self.giu_cho.tieu_thu(hang=hang, so_luong=sl,
+                                              lsx_id=chu[0], bai_ghep_id=chu[1])
+            else:
+                self.giu_cho.nhat_them()
+
         v.trang_thai = VOUCHER_POSTED
         v.ghi_so_luc = datetime.now(timezone.utc)
         if user is not None:
@@ -292,6 +331,26 @@ class StockVoucherService:
         # Yêu cầu tự chuyển Hoàn tất / Đã cấp một phần + đẩy realtime cho người yêu cầu.
         self.request_service.refresh_fulfillment(req)
         return v
+
+    @staticmethod
+    def _gom_theo_hang_va_chu_the(v, lines_by_id: dict) -> dict[tuple, float]:
+        """`{((hang_loai, hang_id), (lsx_id, bai_ghep_id)): Σ sl_goc}` của phiếu.
+
+        Gộp theo ĐƠN VỊ GỐC (`sl_goc`) vì giữ chỗ đếm bằng đơn vị gốc — so `so_luong` (đơn vị người
+        khai) với chỗ giữ là so hai thang khác nhau, đúng bẫy mà cửa kiểm lô ngay trên đã dặn.
+
+        Chủ thể lấy từ DÒNG YÊU CẦU: phiếu kho không tự biết xuất cho lệnh nào, `stock_request_lines`
+        mới là chỗ khai.
+        """
+        ra: dict[tuple, float] = {}
+        for ln in v.lines:
+            rl = lines_by_id.get(ln.request_line_id)
+            khoa = (
+                (ln.hang_loai, ln.hang_id),
+                (getattr(rl, "lsx_id", None), getattr(rl, "bai_ghep_id", None)),
+            )
+            ra[khoa] = ra.get(khoa, 0.0) + float(ln.sl_goc)
+        return ra
 
     def cancel(self, voucher_id: int, ly_do: str):
         """Hủy phiếu khi CÒN NHÁP — BẮT BUỘC lý do; yêu cầu chuyển 'Đã hủy' kèm lý do (KẾT THÚC,

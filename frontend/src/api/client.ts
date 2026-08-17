@@ -472,19 +472,13 @@ export const BAI_GHEP_THIEU_LABELS: Record<string, string> = {
  *
  *  ĐÃ BỎ `khac_giay` / `khac_so_mau` / `khac_so_mat` / `bai_thua`: điều kiện gộp chỉ là cùng công
  *  đoạn, còn quy cách thì người dùng có nghiệp vụ đó — máy không phán hộ. Bảng "Kiểm tương thích"
- *  vẫn bày đủ giá trị để người tự so, và `fill_pct` vẫn hiện dưới dạng con số. */
+ *  (bảng máy tự kết luận Phù hợp / Cần xác nhận) cũng đã gỡ 17/08/2026: giấy · mực · số mặt · khổ
+ *  TP của từng thành viên nằm sẵn trong bảng thành viên để người tự so. */
 export const BAI_GHEP_CANH_BAO_LABELS: Record<string, string> = {
   co_gap: "Có lệnh GẤP trong bài",
   lech_han: "Hạn giao các lệnh lệch nhau xa",
   thanh_vien_khong_san_sang: "Có lệnh không còn sẵn sàng",
   don_huy: "Có lệnh thuộc đơn đã huỷ",
-};
-
-/** Mức tương thích 1 thuộc tính giữa các thành viên → nhãn + tone (class `.bghep-muc--{tone}`). */
-export const BAI_GHEP_MUC_META: Record<string, { label: string; tone: string }> = {
-  phu_hop: { label: "Phù hợp", tone: "ok" },
-  can_xac_nhan: { label: "Cần xác nhận", tone: "warn" },
-  khong_phu_hop: { label: "Không phù hợp", tone: "bad" },
 };
 
 export interface HangChoGhepItem {
@@ -498,12 +492,27 @@ export interface HangChoGhepItem {
   muc_a: string[]; muc_b: string[];
   kho_tp: string | null; kho_in: string | null;
 }
-export interface HangChoGhepOut { items: HangChoGhepItem[]; total: number }
+export interface HangChoGhepOut {
+  items: HangChoGhepItem[];
+  total: number;
+  /** Số lệnh KHỚP MỌI BỘ LỌC nhưng bị giấu vì đang giữ chỗ vật tư.
+   *
+   *  Lệnh đang giữ chỗ không hiện ở hàng chờ ghép — nhưng biến mất im lặng thì người ghép đi tìm
+   *  một mã cụ thể sẽ không phân biệt nổi ba lý do: chưa sẵn sàng · là ruột sách · đang giữ chỗ.
+   *  Chỉ lý do thứ ba là thứ họ tự gỡ được, nên phải nói ra. */
+  so_giu_cho: number;
+}
 
 export interface BaiGhepListItem {
   id: number; ma: string; trang_thai: BaiGhepTrangThai; so_lsx: number;
   giay_ten: string | null; kho_in: string | null;
   so_to_tot: number; tong_to: number; han_in_muon_nhat: string | null; so_canh_bao: number;
+  /** 0 = chưa gộp bước nào ⇒ mới là N lệnh rời, chưa thành bài ghép. Server vẫn luôn trả (schema
+   *  `BaiGhepListItem` có sẵn), chỉ là type này quên khai. */
+  so_buoc_chung: number;
+  /** Giấy phải LĨNH KHO = tờ in + hao lượt chung — khác `so_to_tot` (tờ in). */
+  to_nguyen_can: number;
+  hao_de_xuat: number;
 }
 export interface BaiGhepListOut { items: BaiGhepListItem[]; total: number }
 
@@ -677,8 +686,6 @@ export interface BaiGhepBuocChungBody {
 export interface BaiGhepUngVienGop {
   ung_vien: Record<string, { gop_duoc: boolean; ly_do: string | null }>;
 }
-export interface BaiGhepTuongThichRow { thuoc_tinh: string; gia_tri: (string | null)[]; muc: string }
-export interface BaiGhepTuongThich { thanh_vien: { lsx_id: number }[]; rows: BaiGhepTuongThichRow[] }
 export interface BaiGhepDetail {
   id: number; ma: string; trang_thai: BaiGhepTrangThai;
   giay_id: number | null; giay_ten: string | null;
@@ -688,7 +695,6 @@ export interface BaiGhepDetail {
   hao_hut_setup: number | null; hao_hut_chay: number | null; ghi_chu: string | null;
   thanh_vien: BaiGhepThanhVien[];
   so_to: BaiGhepSoTo;
-  tuong_thich: BaiGhepTuongThich;
   thieu: string[]; canh_bao: string[];
 }
 export interface BaiGhepUpdateBody {
@@ -696,6 +702,58 @@ export interface BaiGhepUpdateBody {
   /** Gửi `null` = xoá khai báo (quay về hao máy đề xuất); gửi `0` = khai "không bù hao". */
   may_id?: number | null; hao_hut_setup?: number | null; hao_hut_chay?: number | null;
   ghi_chu?: string | null;
+}
+
+/** Metadata riêng của Bài ghép 2. Các phép tính/routing vẫn dùng chung engine Bài ghép. */
+export interface BaiGhep2Meta {
+  ten: string;
+  han_hoan_thanh_sx: string | null;
+  is_rush: boolean;
+  nguoi_phu_trach_id: number | null;
+  nguoi_phu_trach_ten?: string | null;
+}
+export interface BaiGhep2ListItem extends BaiGhepListItem, BaiGhep2Meta {}
+export interface BaiGhep2ListOut { items: BaiGhep2ListItem[]; total: number }
+export interface BaiGhep2Detail extends BaiGhepDetail, BaiGhep2Meta {}
+export interface BaiGhep2UpdateBody extends BaiGhepUpdateBody {
+  ten?: string;
+  han_hoan_thanh_sx?: string | null;
+  is_rush?: boolean;
+  nguoi_phu_trach_id?: number | null;
+}
+export interface BaiGhep2NguoiPhuTrachOption { id: number; ten: string }
+
+export interface BaiGhep2VatTuDong {
+  pham_vi: "bai_ghep" | "lsx";
+  lsx_id: number | null;
+  bai_ghep_id: number | null;
+  buoc_id: number | null;
+  gang_step_key?: string | null;
+  ma: string;
+  ten_viec: string | null;
+  nhu_cau: number;
+  nhu_cau_hien_thi: string;
+}
+export interface BaiGhep2VatTuNhom {
+  loai_nhom: string;
+  hang_loai: string;
+  hang_id: number;
+  hang_ma: string | null;
+  hang_ten: string | null;
+  don_vi_goc: string | null;
+  tong_can: number;
+  dong: BaiGhep2VatTuDong[];
+}
+export interface BaiGhep2VatTuHieuLuc {
+  bai_ghep_id: number;
+  items: BaiGhep2VatTuNhom[];
+  bo_qua: { ma: string; ly_do: string }[];
+}
+export interface BaiGhep2Activity {
+  at: string | null;
+  actor: string | null;
+  action: string;
+  detail: string | null;
 }
 
 // --- Xếp lịch công đoạn — bàn xếp lịch (máy + giờ) của Kế hoạch sản xuất -------
@@ -1280,6 +1338,9 @@ export interface LsxBuocMacDinh {
   cong_doan_id: number; ten: string; nhom: string | null;
   department_id: number | null;
   don_vi_vao: string; don_vi_ra: string; he_so_quy_doi: number;
+  /** Cặp đơn vị trên có nằm trên DÒNG GIẤY không — server quyết theo cờ trạm của danh mục Đơn vị.
+   *  Phải áp CÙNG LÚC với hai ô đơn vị: cờ là thuộc tính của cặp đơn vị, không phải của dòng. */
+  tren_dong_giay: boolean;
   setup_phut: number;
 }
 export interface LsxDauViecOption {
@@ -3917,16 +3978,23 @@ export interface MyPayslip {
 }
 
 // --- Lương khoán (nhịp 2) ---------------------------------------------------
+/** Một dòng danh mục "Công việc khoán" (`/api/cong-viec-khoan`).
+ *
+ *  Tên field đi theo cột thật sau mg `0210`: `ma` · `ten` · `active` (trước là `code`/`name`/
+ *  `is_active`) — bảng vào nền danh mục dùng chung nên phải cùng bộ tên với 10 màn kia.
+ *  `unit` lưu MÃ đơn vị (`to`, `kg`); `don_vi_ten` là tên đọc được do server gán, `null` khi mã
+ *  không có trong danh mục Đơn vị. */
 export interface PieceRate {
   id: number;
   group_name: string;
   department_id: number | null;
-  code: string | null;
-  name: string;
+  ma: string | null;
+  ten: string;
   unit: string;
+  don_vi_ten?: string | null;
   unit_price: number;
   note: string | null;
-  is_active: boolean;
+  active: boolean;
 }
 /** Một bậc thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi của tổ (chủ 29/07/2026).
  *
@@ -3957,15 +4025,18 @@ export interface LeaderBracketsOut {
   items: LeaderBracket[];
 }
 
+/** Thân POST/PUT của danh mục Công việc khoán.
+ *
+ *  KHÔNG có `group_name`: nhãn tổ do server suy từ `department_id` — hai chỗ cùng khai một sự thật
+ *  thì sớm muộn lệch nhau. `ma` bỏ trống ⇒ server cấp `KH-####`. */
 export interface PieceRateInput {
-  group_name: string;
   department_id?: number | null;
-  code?: string | null;
-  name: string;
+  ma?: string | null;
+  ten: string;
   unit: string;
   unit_price: number;
   note?: string | null;
-  is_active?: boolean;
+  active?: boolean;
 }
 export interface CongDoanLite {
   id: number;
@@ -5868,15 +5939,24 @@ export type HangLoai = "giay" | "vat_tu";
 // hàng thuộc quyền Kho/Kế toán (`view_cost`).
 
 /** Màu của một dòng cân đối. `khong_ro` = KHÔNG quy đổi được đơn vị ⇒ máy chưa đánh giá được —
- *  cố ý tách khỏi `xam` ("đã cấp đủ"), vì dán nhãn đủ lên dòng chưa ai tính nổi là nói ngược. */
-export type CanDoiMau = "xam" | "xanh" | "vang" | "do" | "khong_ro";
+ *  cố ý tách khỏi `xam` ("đã cấp đủ"), vì dán nhãn đủ lên dòng chưa ai tính nổi là nói ngược.
+ *  `ve_muon` = ĐÃ MUA rồi, hàng đang về nhưng về SAU ngày cần — tách khỏi `do` (17/08/2026) vì hai
+ *  ca xử ngược nhau: đỏ thì đi mua, về muộn thì dời lịch. Gộp một màu là mời người ta mua đúp. */
+export type CanDoiMau = "xam" | "xanh" | "vang" | "do" | "khong_ro" | "ve_muon";
 
 export interface CanDoiDong {
   /** `vat_tu` = so tồn · `cong_cu` = khuôn bế, KHÔNG so tồn (chỉ hỏi sẵn sàng đúng lúc chưa). */
   loai: "vat_tu" | "cong_cu";
   lsx_id: number | null;
   bai_ghep_id: number | null;
+  /** Bước tiêu thụ — phần thứ NĂM của khoá dòng. Một lệnh có nhiều công đoạn và mỗi công đoạn khai
+   *  vật tư riêng, nên cùng một món ở hai bước là HAI dòng; thiếu nó thì hai dòng trùng khoá và
+   *  yêu cầu mua ra đúng một nửa số cần. Phải gửi lại y nguyên ở `CanDoiKhoaDong`. */
+  buoc_id: number | null;
   ma: string;
+  /** Lệnh có cờ GẤP — CHỈ ĐỂ BÀY. Máy không xếp ưu tiên, không cướp chỗ; người lập kế hoạch nhìn
+   *  rồi tự quyết. */
+  is_rush: boolean;
   ten_viec: string | null;
   ngay_can: string | null;
   /** true = bước CHƯA xếp lịch ⇒ ngày cần là mốc SUY (hạn SX − tổng thời gian dẫn). Phải hiện
@@ -5894,6 +5974,9 @@ export interface CanDoiDong {
   /** Phần thiếu RIÊNG của dòng (không phải luỹ kế) — tick nhiều dòng rồi cộng vẫn đúng. */
   thieu: number | null;
   trang_thai: CanDoiMau;
+  /** Ngày về của lô ĐỦ ĐỂ PHỦ chỗ thiếu — chỉ có ở dòng `ve_muon`. Không phải lô gần nhất: dời
+   *  lịch theo lô gần nhất mà nó chỉ có 1 kg thì tới nơi vẫn không đủ hàng. */
+  ngay_du_hang: string | null;
   /** Hạn chót phải đặt = ngày cần − số ngày kiểm nhập. Không còn trừ "số ngày NCC giao" (ô đó đã
    *  bỏ 10/08/2026 — khai tay là số đoán). */
   han_dat: string | null;
@@ -5914,6 +5997,9 @@ export interface CanDoiNhom {
   so_dong_do: number;
   /** Số dòng KHÔNG đánh giá được. Bộ lọc "chỉ mặt hàng đang thiếu" GIỮ LẠI nhóm có số này > 0. */
   so_dong_khong_ro: number;
+  /** Số dòng ĐÃ MUA nhưng hàng về SAU ngày cần. Bộ lọc "chỉ thứ đang thiếu" cũng GIỮ LẠI — lệnh
+   *  vẫn đứng máy, chỉ khác là việc phải lo là dời lịch chứ không phải chạy đi mua. */
+  so_dong_ve_muon: number;
   khuon_tinh_trang: string | null;
   khuon_ngay_ve: string | null;
   dong: CanDoiDong[];
@@ -5930,12 +6016,77 @@ export interface CanDoiOut {
   bo_qua: CanDoiBoQua[];
 }
 
-/** Khoá của một dòng trên bảng — đủ để server tìm lại và TỰ tính phần thiếu. */
+/** Khoá của một dòng trên bảng — đủ để server tìm lại và TỰ tính phần thiếu.
+ *
+ *  ⚠️ NĂM phần tử, phải khớp `_khoa_dong()` bên `services/ke_hoach_vat_tu_service.py`. Lệch một
+ *  phần tử là server tra không ra dòng nào và MỌI lần bấm "Đề nghị mua" trả 400 với câu lỗi chỉ
+ *  sai đường ("tải lại bảng" — tải lại vẫn lỗi). */
 export interface CanDoiKhoaDong {
   hang_loai: HangLoai;
   hang_id: number;
   lsx_id: number | null;
   bai_ghep_id: number | null;
+  buoc_id: number | null;
+}
+
+/** Một MẶT HÀNG mà một lệnh/bài cần — đã gộp mọi công đoạn của lệnh đó. */
+export interface TheoLenhHang {
+  hang_loai: HangLoai;
+  hang_id: number;
+  hang_ma: string | null;
+  hang_ten: string | null;
+  don_vi_goc: string | null;
+  /** Theo ĐƠN VỊ GỐC, đã trừ phần kho cấp rồi. */
+  can: number;
+  thieu: number;
+  dang_giu: number;
+  /** >1 nghĩa là con số trên đã GỘP nhiều công đoạn — hiện ra để không ai tưởng đó là một bước. */
+  so_buoc: number;
+  /** Màu NẶNG NHẤT trong các bước. Thẻ chỉ hiện được một màu. */
+  trang_thai: CanDoiMau;
+  /** Bao nhiêu lệnh/bài KHÁC đang thiếu chính món này — câu *"nhả ra thì ai đỡ"* của hộp xác nhận.
+   *  Server đếm trên TOÀN BỘ bảng, trước mọi bộ lọc. */
+  so_lenh_khac_thieu: number;
+  /** Khoá 5 phần của TỪNG dòng đỏ — gửi thẳng vào `deNghiMua`. Cố ý không gộp về một khoá cho
+   *  mỗi mặt hàng: một lệnh ăn cùng món ở hai công đoạn là hai dòng, gộp là mua một nửa. */
+  khoa_do: CanDoiKhoaDong[];
+}
+
+/** Một thẻ = MỘT lệnh (hoặc bài ghép) — cách nhìn *"lệnh này chạy được chưa"*. */
+export interface TheoLenhRow {
+  lsx_id: number | null;
+  bai_ghep_id: number | null;
+  ma: string;
+  is_rush: boolean;
+  ngay_can: string | null;
+  moc_tam: boolean;
+  /** Còn giữ chỗ nhưng ĐÃ RƠI khỏi bảng cân đối (lệnh bị kéo về nháp…). Vẫn trừ vào tồn tự do của
+   *  mọi người khác, nên phải bày ra để có đường nhả. */
+  ngoai_pham_vi: boolean;
+
+  bat: boolean;
+  /** Giữ đủ 100% ⇒ cửa xếp lịch mở. Đây là điều kiện DUY NHẤT của cửa đó. */
+  du: boolean;
+  khong_ro: boolean;
+  /** Ngày sớm nhất được xếp bước tiêu thụ — `null` khi mọi phần đều là hàng có thật trong kho. */
+  xep_som_nhat: string | null;
+  da_xep_lich: boolean;
+  giu_tu: string | null;
+  so_ngay_giu: number | null;
+  /** Đã bật · giữ quá ngưỡng · mà chưa hề đưa vào kế hoạch. Máy CHỈ BÀY, KHÔNG tự nhả. */
+  giu_lau_chua_chay: boolean;
+
+  so_mat_hang: number;
+  so_thieu: number;
+  so_ve_muon: number;
+  so_khong_ro: number;
+  hang: TheoLenhHang[];
+}
+
+export interface TheoLenhOut {
+  items: TheoLenhRow[];
+  /** Đếm trên TOÀN BỘ danh sách, không phải phần đang lọc. */
+  so_giu_lau: number;
 }
 
 /** 1 dòng trong picker mặt hàng (gộp Giấy + Vật tư khác). KHÔNG có giá. */
@@ -7635,15 +7786,11 @@ export const api = {
       return authed<MyPayslip>("/api/luong/payslip/me", token);
     },
     // --- Lương khoán (nhịp 2) ---
-    khoanRates(token: string, departmentId?: number | null): Promise<{ items: PieceRate[] }> {
-      const q = departmentId != null ? `?department_id=${departmentId}` : "";
-      return authed<{ items: PieceRate[] }>(`/api/luong/khoan/rates${q}`, token);
-    },
-    /** Gợi ý cho ô "Đơn vị" = mồi mặc định ∪ đơn vị nhà máy ĐÃ dùng.
-     *  ⚠️ KHÔNG phải whitelist — gõ đơn vị ngoài danh sách này vẫn lưu bình thường. */
-    khoanUnits(token: string): Promise<{ items: string[] }> {
-      return authed<{ items: string[] }>("/api/luong/khoan/units", token);
-    },
+    //
+    // ⚠️ `khoanRates` · `khoanUnits` · `createKhoanRate` · `updateKhoanRate` · `deleteKhoanRate`
+    // GỠ 17/08/2026: bảng đơn giá thành danh mục "Công việc khoán". Ai cần nó thì dùng
+    // `crud("/api/cong-viec-khoan")` của `api/rebuildCatalog` — cùng một cửa với 10 màn danh mục
+    // kia, nên có nhật ký, xoá mềm và mã tự sinh mà không phải khai lại đường API thứ hai.
     /** Bậc thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi — mỗi tổ một bộ riêng. */
     leaderBrackets(token: string, departmentId: number): Promise<LeaderBracketsOut> {
       return authed<LeaderBracketsOut>(`/api/luong/khoan/leader-brackets?department_id=${departmentId}`, token);
@@ -7657,15 +7804,6 @@ export const api = {
           department_id: departmentId, items, min_output_qty: minOutputQty,
         }),
       });
-    },
-    createKhoanRate(token: string, input: PieceRateInput): Promise<PieceRate> {
-      return authed<PieceRate>("/api/luong/khoan/rates", token, { method: "POST", body: JSON.stringify(input) });
-    },
-    updateKhoanRate(token: string, id: number, input: PieceRateInput): Promise<PieceRate> {
-      return authed<PieceRate>(`/api/luong/khoan/rates/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
-    },
-    deleteKhoanRate(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/luong/khoan/rates/${id}`, token, { method: "DELETE" });
     },
   },
 
@@ -7921,6 +8059,88 @@ export const api = {
     },
   },
 
+  // --- Bài ghép 2 — cùng tài nguyên/engine, API và quyền độc lập trong giai đoạn nghiệm thu. ---
+  baiGhep2: {
+    nguoiPhuTrachOptions(token: string): Promise<{ items: BaiGhep2NguoiPhuTrachOption[] }> {
+      return authed<{ items: BaiGhep2NguoiPhuTrachOption[] }>("/api/bai-ghep-2/nguoi-phu-trach-options", token);
+    },
+    hangCho(token: string, params: { q?: string } = {}): Promise<HangChoGhepOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<HangChoGhepOut>(`/api/bai-ghep-2/hang-cho${suffix}`, token);
+    },
+    list(token: string): Promise<BaiGhep2ListOut> {
+      return authed<BaiGhep2ListOut>("/api/bai-ghep-2", token);
+    },
+    get(token: string, id: number): Promise<BaiGhep2Detail> {
+      return authed<BaiGhep2Detail>(`/api/bai-ghep-2/${id}`, token);
+    },
+    tao(token: string, lsxIds: number[]): Promise<BaiGhep2Detail> {
+      return authed<BaiGhep2Detail>("/api/bai-ghep-2", token, {
+        method: "POST", body: JSON.stringify({ lsx_ids: lsxIds }),
+      });
+    },
+    update(token: string, id: number, body: BaiGhep2UpdateBody): Promise<BaiGhep2Detail> {
+      return authed<BaiGhep2Detail>(`/api/bai-ghep-2/${id}`, token, {
+        method: "PUT", body: JSON.stringify(body),
+      });
+    },
+    themThanhVien(token: string, id: number, lsxIds: number[]): Promise<BaiGhep2Detail> {
+      return authed<BaiGhep2Detail>(`/api/bai-ghep-2/${id}/thanh-vien`, token, {
+        method: "POST", body: JSON.stringify({ lsx_ids: lsxIds }),
+      });
+    },
+    suaThanhVien(token: string, id: number, tvId: number, soConTrenTo: number): Promise<BaiGhep2Detail> {
+      return authed<BaiGhep2Detail>(`/api/bai-ghep-2/${id}/thanh-vien/${tvId}`, token, {
+        method: "PUT", body: JSON.stringify({ so_con_tren_to: soConTrenTo }),
+      });
+    },
+    boThanhVien(token: string, id: number, tvId: number): Promise<BaiGhep2Detail> {
+      return authed<BaiGhep2Detail>(`/api/bai-ghep-2/${id}/thanh-vien/${tvId}`, token, { method: "DELETE" });
+    },
+    soDo(token: string, id: number): Promise<BaiGhepSoDo> {
+      return authed<BaiGhepSoDo>(`/api/bai-ghep-2/${id}/so-do`, token);
+    },
+    gop(token: string, id: number, stepKeys: string[]): Promise<BaiGhep2Detail> {
+      return authed<BaiGhep2Detail>(`/api/bai-ghep-2/${id}/gop`, token, {
+        method: "POST", body: JSON.stringify({ step_keys: stepKeys }),
+      });
+    },
+    tach(token: string, id: number, gangStepKey: string): Promise<BaiGhep2Detail> {
+      return authed<BaiGhep2Detail>(
+        `/api/bai-ghep-2/${id}/gop/${encodeURIComponent(gangStepKey)}`, token, { method: "DELETE" },
+      );
+    },
+    luuBuocChung(
+      token: string, id: number, gangStepKey: string, body: BaiGhepBuocChungBody,
+    ): Promise<BaiGhep2Detail> {
+      return authed<BaiGhep2Detail>(
+        `/api/bai-ghep-2/${id}/gop/${encodeURIComponent(gangStepKey)}`, token,
+        { method: "PUT", body: JSON.stringify(body) },
+      );
+    },
+    ungVienGop(token: string, id: number, stepKeys: string[]): Promise<BaiGhepUngVienGop> {
+      return authed<BaiGhepUngVienGop>(`/api/bai-ghep-2/${id}/ung-vien-gop`, token, {
+        method: "POST", body: JSON.stringify({ step_keys: stepKeys }),
+      });
+    },
+    vatTuHieuLuc(token: string, id: number): Promise<BaiGhep2VatTuHieuLuc> {
+      return authed<BaiGhep2VatTuHieuLuc>(`/api/bai-ghep-2/${id}/vat-tu-hieu-luc`, token);
+    },
+    setTrangThai(token: string, id: number, trangThai: BaiGhepTrangThai): Promise<BaiGhep2Detail> {
+      return authed<BaiGhep2Detail>(`/api/bai-ghep-2/${id}/trang-thai`, token, {
+        method: "POST", body: JSON.stringify({ trang_thai: trangThai }),
+      });
+    },
+    remove(token: string, id: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/bai-ghep-2/${id}`, token, { method: "DELETE" });
+    },
+    activity(token: string, id: number): Promise<{ items: BaiGhep2Activity[] }> {
+      return authed<{ items: BaiGhep2Activity[] }>(`/api/bai-ghep-2/${id}/activity`, token);
+    },
+  },
+
   // --- Kế hoạch vật tư — bảng cân đối "cần · có · thiếu · bao giờ phải đặt" ---
   keHoachVatTu: {
     canDoi(
@@ -7944,6 +8164,37 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ dong, ghi_chu: ghiChu ?? null }),
       });
+    },
+    /** CÙNG bảng cân đối, xoay theo LỆNH — "lệnh này chạy được chưa" thay vì "còn thiếu gì". */
+    theoLenh(
+      token: string,
+      params: { q?: string; chi_can_lo?: boolean; chi_giu_lau?: boolean } = {},
+    ): Promise<TheoLenhOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.chi_can_lo) qs.set("chi_can_lo", "true");
+      if (params.chi_giu_lau) qs.set("chi_giu_lau", "true");
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<TheoLenhOut>(`/api/ke-hoach-vat-tu/theo-lenh${suffix}`, token);
+    },
+    /** Bật/tắt giữ chỗ. Trả về THẺ ĐÃ CẬP NHẬT của chính chủ thể đó — màn chỉ việc thay tại chỗ,
+     *  khỏi gọi lại cả danh sách (giữa hai lời gọi người dùng sẽ nhìn thấy một thẻ nói dối). */
+    giuCho(
+      token: string,
+      bat: boolean,
+      chu: { lsx_id?: number | null; bai_ghep_id?: number | null },
+    ): Promise<TheoLenhRow> {
+      return authed<TheoLenhRow>(
+        `/api/ke-hoach-vat-tu/giu-cho/${bat ? "bat" : "tat"}`,
+        token,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            lsx_id: chu.lsx_id ?? null,
+            bai_ghep_id: chu.bai_ghep_id ?? null,
+          }),
+        },
+      );
     },
   },
 

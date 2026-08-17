@@ -1,9 +1,10 @@
 """Router Bài ghép (print gang) — bàn của Kế hoạch: gom công đoạn in nhiều LSX chạy chung 1 tờ.
 
-Prefix `/api/bai-ghep`. RBAC MODULE = "san_xuat" (tái dùng, không đẻ quyền mới).
+Prefix `/api/bai-ghep`. RBAC MODULE RIÊNG = "bai_ghep" (tách khỏi `san_xuat` ngày 17/08/2026 —
+một ô quyền cho mỗi màn; migration 0209 sao chép quyền cũ sang).
 
-Luồng: hàng chờ ghép (LSX sẵn sàng cùng giấy) → tick → `POST /` tạo bài nháp → kiểm tương thích +
-chọn giấy/khổ chung + sửa số con/tờ + khai hao hụt → `POST /{id}/trang-thai` đánh dấu sẵn sàng.
+Luồng: hàng chờ ghép (LSX sẵn sàng cùng giấy) → tick → `POST /` tạo bài nháp → chọn giấy/khổ chung
++ sửa số con/tờ + khai hao hụt → `POST /{id}/trang-thai` đánh dấu sẵn sàng.
 """
 from __future__ import annotations
 
@@ -50,7 +51,7 @@ from ..services.bai_ghep_service import (
 from ..services.sequence_service import SequenceService
 
 router = APIRouter(prefix="/api/bai-ghep", tags=["bai-ghep"])
-MODULE = "san_xuat"
+MODULE = "bai_ghep"
 
 
 def _svc(db: Session) -> BaiGhepService:
@@ -92,8 +93,15 @@ def hang_cho(
     giay_id: Annotated[int | None, Query()] = None,
     q: Annotated[str | None, Query()] = None,
 ) -> HangChoGhepOut:
-    items = _svc(db).hang_cho_ghep(giay_id=giay_id, q=q)
-    return HangChoGhepOut(items=[HangChoGhepItem.model_validate(i) for i in items], total=len(items))
+    kq = _svc(db).hang_cho_ghep(giay_id=giay_id, q=q)
+    items = kq["items"]
+    # `total` là số dòng THẬT SỰ hiện ra — badge trên thanh bên ăn thẳng con số này, nên nó phải
+    # đã trừ lệnh đang giữ chỗ. Badge đếm cả lệnh không ghép được là badge nói dối.
+    return HangChoGhepOut(
+        items=[HangChoGhepItem.model_validate(i) for i in items],
+        total=len(items),
+        so_giu_cho=kq["so_giu_cho"],
+    )
 
 
 # --- Danh sách bài ghép ------------------------------------------------------

@@ -430,6 +430,12 @@
     padding-left: var(--sp-3);
     padding-right: var(--sp-3);
   }
+  /* Nhắc lại cho nhóm không có Phạm vi: media query đè lên luật 3 cột ở trên, thiếu dòng này
+     thì màn hẹp chừa một máng trống 116px bên phải nhóm Danh mục. */
+  .rdx-perm__rows--noscope .rdx-perm__colhead,
+  .rdx-perm__rows--noscope .rdx-perm__row {
+    grid-template-columns: minmax(0, 1fr) 56px 56px;
+  }
 }
 
 /* ---- Thanh VAI MẪU (đợt 6) ---------------------------------------------

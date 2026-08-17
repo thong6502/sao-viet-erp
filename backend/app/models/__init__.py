@@ -102,6 +102,7 @@ from .stock_request import StockRequest, StockRequestLine
 from .stock_lot import StockLot, StockThreshold
 from .stock_voucher import StockVoucher, StockVoucherAttachment, StockVoucherLine
 from .khuon_be import KhuonBe
+from .vat_tu_giu_cho import VatTuGiuCho
 from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
 from .lsx import Lsx, LsxCongDoan, LsxCongDoanVatTu, LsxCongDoanPhuThuoc

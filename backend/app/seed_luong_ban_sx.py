@@ -196,7 +196,7 @@ def _ensure_don_gia_khoan(db: Session) -> None:
     # ĐÃ LỆCH THẬT: "Đóng gói + nhập kho" bị heuristic seed xếp vào Tổ KCS vì có chữ "nhập kho",
     # nên đơn giá khai cho "Tổ Đóng gói" sẽ không bao giờ khớp bước đó.
     cd_rows = {c.ma: c for c in db.execute(select(CongDoan)).scalars()}
-    co_san = {r.code for r in db.execute(select(PieceRate)).scalars() if r.code}
+    co_san = {r.ma for r in db.execute(select(PieceRate)).scalars() if r.ma}
     rows = []
     for ten_to, ma, ten, cds, don_vi, don_gia, ghi_chu in _DON_GIA_KHOAN:
         if ma in co_san:
@@ -208,9 +208,9 @@ def _ensure_don_gia_khoan(db: Session) -> None:
         if dept_id is None:
             continue   # chưa có tổ nào nhận → khai đơn giá cũng không ai dùng
         rows.append(PieceRate(
-            group_name=ten_to, department_id=dept_id, code=ma, name=ten,
+            group_name=ten_to, department_id=dept_id, ma=ma, ten=ten,
             unit=don_vi, unit_price=don_gia,
-            note=ghi_chu, is_active=True,
+            note=ghi_chu, active=True,
         ))
     if rows:
         db.add_all(rows)
@@ -229,9 +229,9 @@ def _ensure_dinh_muc_to(db: Session) -> None:
     from .models.piece_work import PieceRate
 
     rate_theo_ma = {
-        r.code: r for r in db.execute(
-            select(PieceRate).where(PieceRate.is_active.is_(True))
-        ).scalars() if r.code
+        r.ma: r for r in db.execute(
+            select(PieceRate).where(PieceRate.active.is_(True))
+        ).scalars() if r.ma
     }
     cd_rows = {c.ma: c for c in db.execute(select(CongDoan)).scalars()}
     # Lật bản đồ: công đoạn → các đầu việc THẬT SỰ làm ở đó.

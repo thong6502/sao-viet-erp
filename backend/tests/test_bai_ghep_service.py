@@ -218,9 +218,44 @@ def _by_sl(detail: dict, sl: int) -> dict:
 # --- tests -------------------------------------------------------------------
 def test_hang_cho_ghep_hien_2_lsx_cung_giay(db, orders, lsx_svc, bg_svc, admin, customer):
     _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
-    rows = bg_svc.hang_cho_ghep()
+    rows = bg_svc.hang_cho_ghep()["items"]
     assert len(rows) == 2
     assert all(r["giay_ten"] == "Ivory 350" for r in rows)
+
+
+def test_hang_cho_ghep_GIAU_lenh_dang_giu_cho(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Lệnh đã bật giữ chỗ vật tư KHÔNG hiện ở hàng chờ ghép (chủ chốt 17/08/2026).
+
+    Bày nó ra rồi báo lỗi lúc bấm là mời người ta làm một việc không làm được. Cửa chặn ở
+    `_validate_them` vẫn giữ làm chốt cuối (API gọi thẳng được), nhưng người dùng thường sẽ không
+    bao giờ chạm tới nó nữa.
+
+    Thứ tự đúng mà luật này ép ra: **ghép bài TRƯỚC, giữ chỗ SAU** — ghép làm số giấy cần ít đi,
+    giữ trước rồi ghép là ôm chỗ cho một đống giấy không ai cần nữa.
+    """
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    lsx_svc.repo.get(created[0].id).giu_cho_bat = True
+    db.commit()
+
+    kq = bg_svc.hang_cho_ghep()
+    assert {r["lsx_id"] for r in kq["items"]} == {created[1].id}
+    assert kq["so_giu_cho"] == 1, "phải đếm được để màn nói ra vì sao lệnh kia biến mất"
+
+
+def test_so_giu_cho_dem_SAU_moi_bo_loc_khac(db, orders, lsx_svc, bg_svc, admin, customer):
+    """Ruột sách đang giữ chỗ KHÔNG được tính vào `so_giu_cho`.
+
+    Đếm trước các bộ lọc kia thì con số nói dối: người dùng đọc "1 lệnh đang giữ chỗ", đi nhả chỗ,
+    quay lại vẫn chẳng thấy lệnh nào hiện ra — vì nó bị chặn bởi lý do khác mà bảng không nói.
+    """
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    sach = _hoa_thanh_sach(db, lsx_svc.get(created[0].id))
+    lsx_svc.repo.get(sach.id).giu_cho_bat = True
+    db.commit()
+
+    kq = bg_svc.hang_cho_ghep()
+    assert kq["so_giu_cho"] == 0, "ruột sách không bao giờ ghép được — nhả chỗ cũng chẳng hiện ra"
+    assert {r["lsx_id"] for r in kq["items"]} == {created[1].id}
 
 
 def _buoc_in_keys(lsx_svc, created) -> list[str]:
@@ -537,7 +572,7 @@ def test_ruot_sach_khong_vao_duoc_bai_ghep(db, orders, lsx_svc, bg_svc, admin, c
     bia = created[1]                      # `trang_moi_tay` = 1 → hàng cắt rời
 
     # Hàng chờ: sách biến mất, bìa vẫn còn.
-    cho = {r["lsx_id"] for r in bg_svc.hang_cho_ghep()}
+    cho = {r["lsx_id"] for r in bg_svc.hang_cho_ghep()["items"]}
     assert sach.id not in cho
     assert bia.id in cho, "bìa sách là hàng cắt rời, KHÔNG được chặn nhầm"
 
@@ -1090,8 +1125,8 @@ def test_khoan_luot_chung_ghim_theo_id_va_chan_dau_viec_la(
     # mà `BaiGhepService` dựng instance đó ở lần gọi engine đầu tiên.
     to = _to_san_xuat(db)
     cd_in_id = sorted(lsx_svc.get(created[0].id).cong_doans, key=lambda c: c.thu_tu)[0].cong_doan_id
-    rate = PieceRate(group_name="to_in", name="In tờ rời", unit="to", unit_price=35,
-                     department_id=to.id, is_active=True)
+    rate = PieceRate(group_name="to_in", ten="In tờ rời", unit="to", unit_price=35,
+                     department_id=to.id, active=True)
     db.add(rate)
     db.flush()
     db.add(CongDoanDauViec(
@@ -1118,8 +1153,8 @@ def test_khoan_luot_chung_ghim_theo_id_va_chan_dau_viec_la(
     assert "Chưa có năng suất" not in sau["thieu"]
 
     # Đầu việc không thuộc tổ / công đoạn → CHẶN, không âm thầm ghim.
-    la = PieceRate(group_name="to_khac", name="Việc tổ khác", unit="to", unit_price=99,
-                   department_id=None, is_active=True)
+    la = PieceRate(group_name="to_khac", ten="Việc tổ khác", unit="to", unit_price=99,
+                   department_id=None, active=True)
     db.add(la)
     db.commit()
     with pytest.raises(BaiGhepValidationError):

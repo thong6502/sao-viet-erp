@@ -28,7 +28,7 @@ from ..schemas.don_vi_do import (
     QuyDoiIn, QuyDoiOut,
 )
 from ..services.don_vi_do_service import (
-    CapQuyDoiService, DonViDoService, cong_thuc_chu,
+    CapQuyDoiService, DonViDoService,
 )
 from ..services.quy_doi_service import BIEN, _so, don_vi_map, doi_theo_quy_cach
 from .catalog_base import make_catalog_router
@@ -62,10 +62,6 @@ def _dung_rows(svc: DonViDoService, objs: list) -> list[DonViDoRow]:
         row.quy_doi_chips = svc.quy_doi_chips(obj)
         row.quy_doi_text = (" · ".join(c["text"] for c in row.quy_doi_chips)
                             if row.quy_doi_chips else "Chưa khai quy đổi")
-        if (hl := svc.cong_thuc_hieu_luc(obj)):
-            row.cong_thuc_hieu_luc, row.cong_thuc_chu_ma, row.cong_thuc_chu_ten = hl
-        # Cách đo dịch sang chữ để màn danh sách khỏi nhúng bảng nhãn biến thứ hai.
-        row.cong_thuc_text = cong_thuc_chu(obj.cong_thuc) if obj.cong_thuc else None
         ra.append(row)
     return ra
 

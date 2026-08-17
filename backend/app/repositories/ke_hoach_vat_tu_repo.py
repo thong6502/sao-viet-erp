@@ -13,7 +13,9 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanVatTu
+from ..models.bai_ghep_cong_doan import (
+    BaiGhepCongDoan, BaiGhepCongDoanMap, BaiGhepCongDoanVatTu,
+)
 from ..models.lsx import LsxCongDoanVatTu
 from ..models.may_thiet_bi import MayThietBi
 from ..models.xep_lich import XepLichCongDoan
@@ -52,6 +54,20 @@ class KeHoachVatTuRepository:
             select(BaiGhepCongDoan)
             .where(BaiGhepCongDoan.bai_ghep_id == bai_ghep_id)
             .order_by(BaiGhepCongDoan.thu_tu)
+        ).scalars())
+
+    def step_keys_bi_buoc_chung_de(self, bai_ghep_ids: set[int]) -> set[str]:
+        """Tập bước nguồn đã mất hiệu lực vì đang được một bước chung của các bài này đè."""
+        ids = {int(i) for i in bai_ghep_ids if i}
+        if not ids:
+            return set()
+        return set(self.db.execute(
+            select(BaiGhepCongDoanMap.lsx_step_key)
+            .join(
+                BaiGhepCongDoan,
+                BaiGhepCongDoan.id == BaiGhepCongDoanMap.bai_ghep_cong_doan_id,
+            )
+            .where(BaiGhepCongDoan.bai_ghep_id.in_(ids))
         ).scalars())
 
     def may_theo_ids(self, ids: set[int]) -> dict[int, MayThietBi]:

@@ -32,7 +32,7 @@ ACTION_DELETE = "delete"
 # `"dang-ky"` có ngày bị nuốt vào `{loai}` của một route một-đoạn thêm sau này.
 @router.get("/dang-ky")
 def dang_ky(user: Annotated[User, Depends(get_current_user)]) -> dict:
-    """Bảng khai 10 màn Cấu hình danh mục (loại · khoá quyền · nhãn · id màn).
+    """Bảng khai 11 màn Cấu hình danh mục (loại · khoá quyền · nhãn · id màn).
 
     Để FE dựng menu + ma trận quyền từ MỘT nguồn thay vì chép tay lần thứ ba. Chỉ cần ĐĂNG NHẬP:
     đây là bảng khai TĨNH, không có dữ liệu nghiệp vụ nào — đẻ thêm ô quyền cho nó chỉ tạo ra một

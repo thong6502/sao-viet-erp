@@ -201,8 +201,8 @@ cửa chính vì một tờ chỉ một loại giấy.
 ### 6.2 Trong bài — công tắc Sơ đồ / Bảng
 
 Dùng lại công tắc đã có ở màn Công đoạn (`Sơ đồ DAG` ↔ `Bảng danh sách`), **mặc định Sơ đồ**.
-Các khối form hiện tại (Thông tin chung · Giấy & số tờ · Thành viên · Kiểm tương thích) giữ nguyên
-ở tab Bảng — ai quen gõ form thì vẫn gõ.
+Các khối form hiện tại (Thông tin chung · Giấy & số tờ · Thành viên) giữ nguyên ở tab Bảng — ai quen
+gõ form thì vẫn gõ.
 
 ### 6.3 Bố cục sơ đồ
 
@@ -236,10 +236,15 @@ khai** (sửa tại màn lệnh).
 - **+ Thêm lệnh vào bài** cạnh node IN → picker hàng chờ **đã lọc sẵn theo giấy + khổ của bài**.
 - Bỏ: nút `×` đầu nhánh → xác nhận → nhánh biến mất, số tờ tính lại.
 
-### 6.7 Kiểm tương thích gắn lên nhánh
+### 6.7 Kiểm tương thích — ĐÃ GỠ (17/08/2026)
 
-Bảng so sánh giữ nguyên ở tab Bảng (nó là ma trận đối chiếu). Nhưng dòng `cần xác nhận` phải hiện
-**chip vàng ngay trên nhánh liên quan** — ngồi nhìn sơ đồ mà phải nhớ sang bảng khác là mất.
+Bảng "Kiểm tương thích sản xuất" (máy tự kết luận *Phù hợp / Cần xác nhận / Không phù hợp* cho
+giấy · mực · số mặt · khổ TP) **đã bỏ khỏi cả FE và BE**, cùng hướng với việc bỏ cảnh báo
+`khac_giay` / `khac_so_mau` / `khac_so_mat` trước đó: điều kiện gộp CHỈ là cùng công đoạn, quy cách
+thì người lập kế hoạch có nghiệp vụ đó — máy không phán hộ.
+
+Bốn giá trị này vẫn về nguyên trong `detail_dict` và **bày ở bảng thành viên** (`giay_ten`,
+`muc_a`/`muc_b`, `quy_cach_in`, `kho_tp`) để người tự so; chỉ mất phần máy kết luận.
 
 ### 6.8 Đường vào từ phía lệnh
 
@@ -280,3 +285,63 @@ bản, thành spec khác.
 
 Thêm cột `buoc_in_step_key` → phải viết `backend/app/db_migrations.py` **và** cập nhật
 `docs/DB_SCHEMA.md` cùng lúc, không thì guard test đỏ.
+
+---
+
+## 10. Bài ghép 2 — bản chạy song song (17/08/2026)
+
+Bản dựng lại của chính module này, chạy **song song** với bản cũ trên **cùng dữ liệu** để so trực
+tiếp trước khi thay. Không có bảng riêng, không có engine thứ hai.
+
+### 10.1 Dùng chung tới đâu
+
+`BaiGhep2Service(BaiGhepService)` và `BaiGhep2Repository(BaiGhepRepository)` — kế thừa, chỉ override
+đúng ba điểm khác biệt bên dưới. Mọi số dẫn xuất, guard cấu trúc, gộp/tách, audit đều là code của
+bản cũ. Sửa engine là **cả hai màn cùng đổi** — đó là chủ đích.
+
+FE dùng chung `BaiGhepBuocChungForm.tsx` (form lượt chạy chung) và `BaiGhepDagCanvas`. Form nằm
+file riêng chứ **không** export từ `BaiGhepSoDo.tsx` nữa: màn mới mà phụ thuộc ngược vào màn cũ thì
+Đợt 2 xoá màn cũ là gãy. Form tự nạp `bai-ghep.css` + `ke-hoach-sx.css` để style đi theo component.
+
+### 10.2 Ba điểm khác bản cũ
+
+| | Bản cũ | Bài ghép 2 |
+|---|---|---|
+| Hàng chờ | lệnh `san_sang`, lọc theo giấy | thêm `nhap` + `cho_bo_sung`; **không** lọc giấy/khổ/màu/bước in |
+| Ruột sách gấp tay | chặn mọi `la_gap_tay` | chỉ chặn khi `so_tay_moi_cuon > 1` |
+| Tạo bài | 1 lệnh cũng tạo được | tối thiểu **2 lệnh**, không tự động gộp |
+
+Ý đằng sau: bản cũ lọc sẵn cho người dùng nên giấu mất lệnh đáng lẽ ghép được; bản 2 bày hết rồi
+để người lập kế hoạch quyết — máy chỉ ghi nhận.
+
+### 10.3 Metadata của bài — `mg 0212`
+
+`bai_ghep` thêm `ten` · `han_hoan_thanh_sx` · `is_rush` · `nguoi_phu_trach_id`. Bốn cột này
+**khởi tạo một lần lúc tạo bài** (tên từ mã, hạn = MIN hạn thành viên, gấp = có thành viên gấp,
+phụ trách = người tạo) rồi thành ô người dùng sửa được. Bài ghép sau đó **không** tự cập nhật theo
+thành viên — thêm một lệnh gấp vào bài không tự bật lại cờ gấp.
+
+Hệ quả cho migration: `is_rush` thêm kèm `DEFAULT FALSE` nên "người dùng đã tắt" và "chưa backfill"
+cùng là `FALSE`. `_migrate_bai_ghep_2` chỉ suy lại cờ ở **đúng lượt tạo cột** (`added`), lần chạy
+lại chỉ vá dòng `NULL`.
+
+`mg 0212` cũng chốt `UNIQUE(bai_ghep_thanh_vien.lsx_id)` — luật "1 lệnh 1 bài" trước nay chỉ có ở
+tầng service. Gặp dữ liệu trùng thì migration **báo đích danh `lsx_id` rồi dừng**, không tự chọn
+bài để xoá: đó là quyết định nghiệp vụ.
+
+### 10.4 Quyền và lộ trình thay thế
+
+Module key `bai_ghep_2`, không có scope, **không vai nào được cấp sẵn** — kể cả admin (loại trừ
+tường minh trong `role_templates.py`). Muốn dùng phải cấp tay.
+
+⚠️ Module mới phải khai thêm vào `MODULE_GROUPS` của `PermissionMatrix.tsx`. Backend trả dòng ma
+trận cho MỌI module trong bảng `modules`, nhưng khoá chưa map rơi vào nhóm "Khác" — mà nhóm này
+**mặc định thu gọn khi chưa cấp gì** (`open = granted > 0`). Kết quả: dòng có tồn tại nhưng nằm
+sau một tiêu đề đóng ở đáy trang ⇒ người quản trị không cấp được ⇒ menu không hiện ⇒ tưởng module
+chưa dựng. `bai_ghep_2` dính đúng vậy, vá 18/08/2026 (thêm vào nhóm Sản xuất ngay dưới `bai_ghep`,
+kèm `PHAM_VI_CHO_PHEP` khoá `["all"]` cho khớp `SCOPELESS_MODULES`).
+
+- **Đợt 1 (xong):** hai module chạy song song, hai quyền riêng.
+- **Đợt 2 (chờ nghiệm thu):** copy quyền `bai_ghep` → `bai_ghep_2`, gỡ module cũ, đổi nhãn.
+  Trước khi xoá `BaiGhepPage.tsx`/`BaiGhepSoDo.tsx` phải rà lại `bai-ghep.css`: file này giờ là tài
+  sản chung, `BaiGhepBuocChungForm` đang nạp nó.

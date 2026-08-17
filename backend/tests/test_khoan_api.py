@@ -1,6 +1,7 @@
-"""Đơn giá khoán (module `luong` nhịp 2): CRUD bảng giá tra khi ghi Phiếu sản lượng.
+"""Thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi (module `luong` nhịp 2).
 
 Tiền khoán vào bảng lương = Phiếu sản lượng theo người (xem test_san_luong_api). Không còn "sổ khoán".
+Bảng ĐƠN GIÁ khoán nay là danh mục — xem `test_cong_viec_khoan.py`.
 """
 from __future__ import annotations
 
@@ -18,126 +19,13 @@ def _h(t: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {t}"}
 
 
-def test_rate_crud(client):
-    token = _admin_token(client)
-    r = client.post("/api/luong/khoan/rates", json={
-        "group_name": "to_boi", "name": "Bồi 3 lớp", "unit": "m2", "unit_price": 170,
-    }, headers=_h(token))
-    assert r.status_code == 201
-    rid = r.json()["id"]
-    assert any(x["id"] == rid for x in client.get("/api/luong/khoan/rates", headers=_h(token)).json()["items"])
-    upd = client.put(f"/api/luong/khoan/rates/{rid}", json={
-        "group_name": "to_boi", "name": "Bồi 3 lớp", "unit": "m2", "unit_price": 180,
-    }, headers=_h(token))
-    assert upd.json()["unit_price"] == 180
-    assert client.delete(f"/api/luong/khoan/rates/{rid}", headers=_h(token)).status_code == 204
-
-
-def test_rate_scoped_by_department(client):
-    """Đơn giá gắn `department_id` (khai trong Cấu hình lương của tổ) → GET lọc đúng theo tổ."""
-    token = _admin_token(client)
-    a = client.post("/api/luong/khoan/rates", json={
-        "group_name": "Tổ Bế", "department_id": 101, "name": "Dán bìa các tông",
-        "unit": "to", "unit_price": 170,
-    }, headers=_h(token)).json()
-    b = client.post("/api/luong/khoan/rates", json={
-        "group_name": "Tổ Bồi", "department_id": 202, "name": "Bồi carton 3 lớp",
-        "unit": "m2", "unit_price": 200,
-    }, headers=_h(token)).json()
-    assert a["department_id"] == 101 and b["department_id"] == 202
-    # Lọc theo tổ 101 → chỉ đơn giá của tổ đó.
-    only = client.get("/api/luong/khoan/rates?department_id=101", headers=_h(token)).json()["items"]
-    ids = {x["id"] for x in only}
-    assert a["id"] in ids and b["id"] not in ids
-    assert all(x["department_id"] == 101 for x in only)
-    # Không lọc → thấy cả hai.
-    all_ids = {x["id"] for x in client.get("/api/luong/khoan/rates", headers=_h(token)).json()["items"]}
-    assert a["id"] in all_ids and b["id"] in all_ids
-
-
-# --- Ô "Đơn vị" ---------------------------------------------------------------
-# 2026-07-31: màn khai CHỌN từ danh mục `Đơn vị & quy đổi` (lệch một chữ là lệnh không quy đổi ra
-# tiền được). Nhưng API vẫn NHẬN chữ bất kỳ — dòng cũ, seed và import đều đang mang đơn vị ngoài
-# danh mục; chặn ở API là khoá luôn đường sửa những dòng đó.
-
-
-def _mk(client, token, **over):
-    body = {"group_name": "to_test_unit", "name": "Việc test đơn vị", "unit_price": 100}
-    body.update(over)
-    return client.post("/api/luong/khoan/rates", json=body, headers=_h(token))
-
-
-def test_don_vi_go_tu_do_luu_duoc(client):
-    """⭐ Đơn vị NGOÀI danh sách gợi ý vẫn lưu bình thường — đây là cả điểm của thay đổi."""
-    token = _admin_token(client)
-    r = _mk(client, token, unit="mét tới")
-    assert r.status_code == 201, r.text
-    assert r.json()["unit"] == "mét tới"
-
-
-def test_don_vi_luu_dung_chu_nhan_duoc(client):
-    """⭐ Lưu ĐÚNG chữ nhận được, chỉ cắt khoảng trắng thừa.
-
-    Bản trước còn "chuẩn hoá" ngầm: gõ "KG" khi đã có "kg" thì server âm thầm đổi thành "kg". Có
-    lý khi ô đơn vị gõ tự do, nhưng chủ chốt 2026-07-31 — đơn vị CHỌN TỪ danh mục Đơn vị & quy đổi
-    và màn khai báo không được sửa chữ của người ta sau lưng."""
-    token = _admin_token(client)
-    assert _mk(client, token, unit="kg").json()["unit"] == "kg"
-    assert _mk(client, token, unit="  KG ").json()["unit"] == "KG"
-
-
-def test_don_vi_khong_gop_theo_dau(client):
-    """CỐ Ý không bỏ dấu để gộp: "to" và "tờ" là hai đơn vị khác nhau."""
-    token = _admin_token(client)
-    assert _mk(client, token, unit="tờ").json()["unit"] == "tờ"
-    assert _mk(client, token, unit="to").json()["unit"] == "to"
-
-
-def test_don_vi_bo_trong_thanh_khac(client):
-    token = _admin_token(client)
-    assert _mk(client, token, unit="").json()["unit"] == "khác"
-    assert _mk(client, token, unit="   ").json()["unit"] == "khác"
-
-
-def test_don_vi_dai_24_ky_tu(client):
-    """12 ký tự cũ vừa khít "thùng carton" là hỏng ⇒ đã nới 24."""
-    token = _admin_token(client)
-    assert _mk(client, token, unit="thùng carton loại to").status_code == 201
-    assert _mk(client, token, unit="x" * 25).status_code == 422
-
-
-def test_don_vi_chon_duoc_la_danh_muc_don_vi(client):
-    """Danh sách đơn vị = danh mục `Đơn vị & quy đổi`, KHÔNG mọc thêm từ dữ liệu đã dùng.
-
-    Bản trước nối cả hai nguồn nên danh sách đôi nhau từng cặp (`m2`/`m²`, `hop`/`hộp`) — dòng cũ
-    lưu MÃ còn danh mục hiện TÊN, nhìn như hai đơn vị khác nhau."""
-    token = _admin_token(client)
-    truoc = client.get("/api/luong/khoan/units", headers=_h(token)).json()["items"]
-    assert "m²" in truoc, "danh mục đơn vị chưa được seed"
-    assert len(truoc) == len(set(truoc)), "danh sách đơn vị bị trùng"
-
-    _mk(client, token, unit="ram giấy")
-    sau = client.get("/api/luong/khoan/units", headers=_h(token)).json()["items"]
-    assert sau == truoc, "đơn vị gõ ngoài danh mục không được chui vào danh sách chọn"
-
-
-def test_sua_don_gia_giu_nguyen_chu_don_vi(client):
-    """Đường SỬA cũng chỉ cắt khoảng trắng, không đổi chữ."""
-    token = _admin_token(client)
-    rid = _mk(client, token, unit="bộ").json()["id"]
-    upd = client.put(f"/api/luong/khoan/rates/{rid}", json={
-        "group_name": "to_test_unit", "name": "Việc test đơn vị",
-        "unit": " BỘ ", "unit_price": 100,
-    }, headers=_h(token))
-    assert upd.status_code == 200, upd.text
-    assert upd.json()["unit"] == "BỘ"
-
-
-def test_ma_tu_sinh_khi_bo_trong(client):
-    """Chủ chốt: không cho nhập mã, máy sinh KH-####."""
-    token = _admin_token(client)
-    ma = _mk(client, token, unit="kg").json()["code"]
-    assert ma and ma.startswith("KH-")
+# --- Đơn giá khoán: TEST CHUYỂN ĐI -------------------------------------------
+#
+# 13 test CRUD/đơn vị/mã tự sinh của bảng `piece_rates` chuyển sang `test_cong_viec_khoan.py` ngày
+# 17/08/2026, cùng lúc 5 route `/api/luong/khoan/rates|units` bị gỡ: bảng đó nay là danh mục "Công
+# việc khoán" (`/api/cong-viec-khoan`). Giữ lại ở đây thì test gọi một API không còn tồn tại.
+#
+# File này còn: THƯỞNG/PHẠT tổ trưởng theo tỷ lệ hàng lỗi + ngưỡng sản lượng.
 
 
 # --- Bậc thưởng/phạt tổ trưởng theo tỷ lệ hàng lỗi (chủ 29/07/2026) ---------

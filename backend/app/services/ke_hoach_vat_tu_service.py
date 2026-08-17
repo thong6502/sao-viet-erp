@@ -74,6 +74,13 @@ MAU_XAM, MAU_XANH, MAU_VANG, MAU_DO = "xam", "xanh", "vang", "do"
 # hệ thống không tính nổi mà đeo nhãn đó là nói ngược sự thật, và tệ hơn: nó rơi khỏi bộ lọc "chỉ
 # mặt hàng đang thiếu", tức biến mất đúng lúc người ta đi tìm việc phải lo.
 MAU_KHONG_RO = "khong_ro"
+# Trạng thái THỨ SÁU (17/08/2026): ĐÃ MUA RỒI, hàng đang về — nhưng về SAU ngày cần.
+#
+# Vì sao không để chung `do`: lô về sau ngày cần thì không được cộng vào tồn, nên dòng đỏ y hệt
+# dòng CHƯA MUA GÌ. Hai ca đó có cách xử NGƯỢC NHAU — chưa mua thì đi mua, còn đã mua mà về muộn
+# thì phải DỜI LỊCH bước tiêu thụ (hoặc hối NCC). Người dùng nhìn màu đỏ rồi tick đi mua lần nữa
+# là MUA ĐÚP đúng lô đang trên đường về.
+MAU_VE_MUON = "ve_muon"
 
 # Cờ cảnh báo trên dòng — tập MỞ, phía FE chỉ cần biết dòng có cảnh báo thì tô nhạt + hiện tooltip.
 CB_KHONG_DOI_CHIEU = "khong_doi_chieu_duoc"
@@ -84,6 +91,15 @@ CB_KHONG_DOI_CHIEU = "khong_doi_chieu_duoc"
 # Xử bằng cách NÓI RA, không bịa số ngày mặc định: bịa là biến một lỗ im lặng thành một con số sai
 # im lặng, tệ hơn.
 CB_DAN_KHONG_SUY_DUOC = "dan_khong_suy_duoc"
+
+# Ba lý do khiến mốc tạm không suy được → câu chữ cho người mua. MỘT bảng dùng chung cho cả câu
+# "mọi dòng đều mờ" lẫn câu "trộn lệnh rõ với lệnh mờ" — hai chỗ nói cùng một chuyện thì phải nói
+# cùng một cách, không thì người đọc tưởng là hai vấn đề khác nhau.
+_LY_DO_MOC = {
+    "chua_gan_may": "còn bước chưa gán máy",
+    "chua_co_han": "chưa khai hạn sản xuất",
+    "khong_co_thanh_vien": "bài ghép chưa có thành viên nào",
+}
 
 
 class KeHoachVatTuError(Exception):
@@ -103,6 +119,16 @@ def _f(v) -> float:
 
 def _hom_nay() -> date:
     return datetime.now(timezone.utc).date()
+
+
+def _khoa_dong(hang_loai, hang_id, d: dict) -> tuple:
+    """KHOÁ nhận dạng MỘT dòng của bảng cân đối — hợp đồng giữa bảng và nút "Đề nghị mua".
+
+    Phải khớp từng phần với `khoa()` bên `VatTuKeHoachView.tsx`; lệch một phần tử là client tick
+    một dòng mà server tra ra dòng khác (hoặc không tra ra gì).
+
+    """
+    return (hang_loai, hang_id, d.get("lsx_id"), d.get("bai_ghep_id"), d.get("buoc_id"))
 
 
 class KeHoachVatTuService:
@@ -248,8 +274,12 @@ class KeHoachVatTuService:
 
     # ================== (a) GOM DÒNG NHU CẦU ==================
 
-    def _lenh_trong_pham_vi(self) -> list[Lsx]:
-        return [l for l in self.lsx_repo.list() if l.trang_thai in TRANG_THAI_TINH]
+    def _lenh_trong_pham_vi(self, include_lsx_ids: set[int] | None = None) -> list[Lsx]:
+        include = {int(i) for i in (include_lsx_ids or set()) if i}
+        return [
+            l for l in self.lsx_repo.list()
+            if l.trang_thai in TRANG_THAI_TINH or l.id in include
+        ]
 
     def _bai_trong_pham_vi(self, lenh_ids: set[int]) -> list[BaiGhep]:
         """Bài ghép có ÍT NHẤT MỘT lệnh thành viên đang trong phạm vi.
@@ -313,7 +343,7 @@ class KeHoachVatTuService:
 
     # ================== (b) NGÀY CẦN ==================
 
-    def _moc_tam(self, lsx: Lsx) -> tuple[date | None, bool]:
+    def _moc_tam(self, lsx: Lsx) -> tuple[date | None, bool, str]:
         """Lệnh CHƯA xếp: `(hạn SX − tổng thời gian dẫn, suy được hay không)`.
 
         ⚠️ KHÔNG lấy thẳng hạn SX. Hạn SX là mốc CUỐI chuỗi, còn giấy cần ở ĐẦU chuỗi — lấy thẳng
@@ -322,17 +352,22 @@ class KeHoachVatTuService:
         Nhưng thời gian dẫn lấy từ MÁY (`thoi_luong_buoc`: tốc độ + thời gian chuẩn bị đều là thuộc
         tính của máy), nên lệnh có bước máy CHƯA GÁN MÁY thì tổng ra 0 và hiệu số rơi đúng về hạn
         SX — nhìn y như đã tính. Trả cờ `False` để dòng đó đeo cảnh báo, thay vì bịa một số ngày.
+
+        Phần tử THỨ BA là LÝ DO không suy được (`chua_co_han` / `chua_gan_may` / rỗng). Trả về chứ
+        không để nơi gọi đoán: ở dòng BÀI GHÉP, `ngay_can` lấy từ thành viên CÓ mốc còn cờ hỏng đến
+        từ thành viên KHÁC, nên suy lý do bằng `bool(ngay_can)` là chẩn đoán sai — bảo người ta đi
+        gán máy trong khi máy đã gán đủ, chỉ một thành viên thiếu hạn.
         """
         han = lsx.han_hoan_thanh_sx
         if han is None:
-            return None, False
+            return None, False, "chua_co_han"
         tong_phut = sum(_f(self._dur.get(cd.id)) for cd in lsx.cong_doans)
         # Có bước cần máy mà chưa gán ⇒ phần thời gian của nó chưa vào tổng.
         thieu_may = any(
             (cd.loai_buoc or LB_MAY) == LB_MAY and not cd.may_id for cd in lsx.cong_doans
         )
         so_ngay = ceil(tong_phut / 60.0 / GIO_LAM_MOI_NGAY) if tong_phut else 0
-        return han - timedelta(days=so_ngay), not thieu_may
+        return han - timedelta(days=so_ngay), not thieu_may, ("chua_gan_may" if thieu_may else "")
 
     def _ngay_can_buoc(self, buoc_id: int | None, *, cua_bai: bool = False) -> date | None:
         bang = self._start_buoc_bai if cua_bai else self._start_buoc
@@ -348,6 +383,20 @@ class KeHoachVatTuService:
 
         `sl_da_ung` = kho ĐÃ ghi sổ (tồn đã trừ) ⇒ **đã cấp**.
         `sl_duyet − sl_da_ung` = đề nghị còn treo, kho chưa ghi sổ ⇒ **đang lĩnh** (chỉ là nhãn).
+
+        ⚠️ KHOÁ Ở ĐÂY CHỈ CÓ 3 PHẦN TỬ — thiếu chiều BƯỚC, khác `_khoa_dong()` (5 phần tử). Cố ý,
+        vì phiếu xuất kho chỉ gắn `lsx_id`/`bai_ghep_id`, KHÔNG có `lsx_cong_doan_id`: kho xuất cho
+        một LỆNH, không xuất cho một bước.
+
+        Hệ quả CHƯA XỬ: lệnh ăn cùng một món ở hai bước thì cùng một số "đã cấp" bị trừ vào CẢ HAI
+        dòng ⇒ cả hai ra `con_phai_co = 0` ⇒ bảng báo "đã cấp đủ" trong khi xưởng còn thiếu một nửa.
+        Kiểu sai tệ hơn báo thiếu oan.
+
+        Chưa nổ vì tới 17/08/2026 `stock_request_lines` còn RỖNG. Nhưng Đợt 2 §2.3 sẽ nối "xuất kho
+        cho lệnh → giảm phần giữ chỗ", tức nhánh này bắt đầu có dữ liệu — **phải quyết cách PHÂN BỔ
+        số đã cấp cấp-lệnh xuống từng bước TRƯỚC khi dựng `ton_tu_do`**, không thì tồn tự do kế
+        thừa nguyên phép trừ hai lần. Không sửa được bằng cách thêm `buoc_id` vào khoá: dữ liệu
+        nguồn không mang chiều đó.
 
         Số trên dòng đề nghị theo ĐƠN VỊ NGƯỜI KHAI, phải quy về gốc mới so được với nhu cầu.
         """
@@ -430,9 +479,15 @@ class KeHoachVatTuService:
 
     # ================== HÀM CHÍNH ==================
 
-    def can_doi(self, *, q: str | None = None, chi_thieu: bool = False) -> dict:
+    def can_doi(
+        self,
+        *,
+        q: str | None = None,
+        chi_thieu: bool = False,
+        include_lsx_ids: set[int] | None = None,
+    ) -> dict:
         self._nap_don_vi()
-        lenh = self._lenh_trong_pham_vi()
+        lenh = self._lenh_trong_pham_vi(include_lsx_ids)
         lenh_map = {l.id: l for l in lenh}
         bais = self._bai_trong_pham_vi(set(lenh_map))
         thanh_vien: set[int] = {tv.lsx_id for b in bais for tv in b.thanh_viens}
@@ -461,6 +516,59 @@ class KeHoachVatTuService:
         nhom = self._chay_con_tro(tho, ton=ton, dang_ve=dang_ve, da_cap=da_cap,
                                   dang_linh=dang_linh)
         return {"items": self._loc(nhom, q=q, chi_thieu=chi_thieu), "bo_qua": bo_qua}
+
+    def vat_tu_hieu_luc(self, bai_ghep_id: int) -> dict:
+        """Chiếu bảng cân đối xuống đúng một bài cho tab Vật tư của Bài ghép 2.
+
+        Engine ``can_doi`` vẫn là nguồn duy nhất của quy đổi/số lượng. Phép chiếu chỉ giữ giấy và
+        vật tư của chính bài hoặc bước riêng của thành viên, rồi tính lại tổng sau lọc; tuyệt đối
+        không bê ``tong_can`` toàn xưởng vào tab bài.
+        """
+        bg = self.bai_ghep_repo.get(bai_ghep_id)
+        if bg is None:
+            from .bai_ghep_service import BaiGhepNotFound
+            raise BaiGhepNotFound("Không tìm thấy bài ghép")
+        member_ids = {tv.lsx_id for tv in bg.thanh_viens}
+        member_rows = self.bai_ghep_repo.lsx_by_ids(list(member_ids))
+        ma_hieu_luc = {bg.ma, *(l.ma for l in member_rows.values())}
+        gang_step_keys = {c.id: c.step_key for c in self._buoc_chung(bg.id)}
+        can_doi = self.can_doi(include_lsx_ids=member_ids)
+        items: list[dict] = []
+        for nhom in can_doi["items"]:
+            dong = []
+            for row in nhom.get("dong", []):
+                la_bai = row.get("bai_ghep_id") == bg.id
+                la_lenh = row.get("bai_ghep_id") is None and row.get("lsx_id") in member_ids
+                if not (la_bai or la_lenh):
+                    continue
+                dong.append({
+                    "pham_vi": "bai_ghep" if la_bai else "lsx",
+                    "lsx_id": row.get("lsx_id"),
+                    "bai_ghep_id": row.get("bai_ghep_id"),
+                    "buoc_id": row.get("buoc_id"),
+                    "gang_step_key": gang_step_keys.get(row.get("buoc_id")) if la_bai else None,
+                    "ma": row["ma"],
+                    "ten_viec": row.get("ten_viec"),
+                    "nhu_cau": round(_f(row.get("nhu_cau")), 4),
+                    "nhu_cau_hien_thi": row.get("nhu_cau_hien_thi") or "",
+                })
+            if not dong:
+                continue
+            items.append({
+                "loai_nhom": nhom["loai_nhom"],
+                "hang_loai": nhom["hang_loai"],
+                "hang_id": nhom["hang_id"],
+                "hang_ma": nhom.get("hang_ma"),
+                "hang_ten": nhom.get("hang_ten"),
+                "don_vi_goc": nhom.get("don_vi_goc"),
+                "tong_can": round(sum(_f(row["nhu_cau"]) for row in dong), 4),
+                "dong": dong,
+            })
+        return {
+            "bai_ghep_id": bg.id,
+            "items": items,
+            "bo_qua": [row for row in can_doi["bo_qua"] if row.get("ma") in ma_hieu_luc],
+        }
 
     # ---- (a) ----------------------------------------------------------------
 
@@ -533,10 +641,11 @@ class KeHoachVatTuService:
 
         # --- vật tư khai tay ở bước lệnh ------------------------------------
         buoc_map = {cd.id: (cd, l) for l in lenh for cd in l.cong_doans}
+        bi_buoc_chung_de = self.repo.step_keys_bi_buoc_chung_de({bg.id for bg in bais})
         if buoc_map:
             for vt in self.repo.vat_tu_theo_buoc_lenh(list(buoc_map)):
                 cd, l = buoc_map[vt.lsx_cong_doan_id]
-                if _f(vt.so_luong) <= 0:
+                if cd.step_key in bi_buoc_chung_de or _f(vt.so_luong) <= 0:
                     continue
                 tho.append(
                     self._dong_lenh(l, ("vat_tu", int(vt.vat_tu_id)), vt.don_vi_snapshot,
@@ -588,13 +697,19 @@ class KeHoachVatTuService:
         ngay = self._ngay_can_buoc(getattr(buoc, "id", None))
         moc_tam = ngay is None
         suy_duoc = True
+        moc_ly_do = ""
         if moc_tam:
-            ngay, suy_duoc = self._moc_tam(l)
+            ngay, suy_duoc, moc_ly_do = self._moc_tam(l)
         return {
             "hang": hang, "loai": "vat_tu", "lsx_id": l.id, "bai_ghep_id": None,
+            "buoc_id": getattr(buoc, "id", None),
             "ma": l.ma, "ten_viec": getattr(buoc, "ten", None),
             "ngay_can": ngay, "moc_tam": moc_tam, "dvt": dvt, "sl": sl,
             "moc_suy_duoc": suy_duoc,
+            "moc_ly_do": moc_ly_do,
+            # Cờ GẤP của lệnh — chỉ để BÀY, máy không xếp ưu tiên hộ (chủ chốt 17/08/2026).
+            # Người lập kế hoạch nhìn cờ rồi tự quyết nhả chỗ của lệnh nào.
+            "is_rush": bool(getattr(l, "is_rush", False)),
             # Quy cách của CHÍNH lệnh này — nguồn ưu tiên để đổi tờ → kg. Lấy qua `quy_cach_bien`
             # (không phải `quy_cach_json` trần) để công thức quy đổi dùng được cả năm số dẫn xuất
             # nằm ở cột: SL đặt · con/tờ · tờ in · tờ nguyên · tờ sau in.
@@ -606,19 +721,32 @@ class KeHoachVatTuService:
         ngay = self._ngay_can_buoc(getattr(buoc, "id", None), cua_bai=True)
         moc_tam = ngay is None
         suy_duoc = True
+        moc_ly_do = ""
         if moc_tam:
             # Bài chạy chung một lượt: mốc tạm là mốc SỚM NHẤT trong các lệnh thành viên — cả bài
             # phải có giấy trước khi lệnh gấp nhất của nó cần.
             cap = [self._moc_tam(l) for l in (lsx_map or {}).values()]
-            mocs = [m for m, _ok in cap if m]
+            mocs = [m for m, _ok, _ld in cap if m]
             ngay = min(mocs) if mocs else None
             # Chỉ cần MỘT thành viên không suy được là cả mốc của bài đáng ngờ.
-            suy_duoc = bool(cap) and all(ok for _m, ok in cap)
+            suy_duoc = bool(cap) and all(ok for _m, ok, _ld in cap)
+            # Lý do lấy từ thành viên HỎNG, không suy từ `ngay_can` của bài: bài vẫn có ngày (từ
+            # thành viên tốt) trong khi cờ hỏng đến từ thành viên khác. Bài không nạp được thành
+            # viên nào (`cap` rỗng) cũng là một ca — gọi tên riêng, đừng gộp vào hai ca kia.
+            ly_do_tv = [ld for _m, ok, ld in cap if not ok and ld]
+            moc_ly_do = ly_do_tv[0] if ly_do_tv else ("" if cap else "khong_co_thanh_vien")
         return {
             "hang": hang, "loai": "vat_tu", "lsx_id": None, "bai_ghep_id": bg.id,
+            # Cùng lý do như `_dong_lenh`. Ở đây `buoc_id` là `bai_ghep_cong_doan.id` — KHÁC không
+            # gian id với bước lệnh, nhưng cặp `(lsx_id, bai_ghep_id)` trong khoá đã phân biệt sẵn
+            # (dòng bài luôn có `lsx_id=None`), nên không cần thêm cờ loại.
+            "buoc_id": getattr(buoc, "id", None),
             "ma": bg.ma, "ten_viec": getattr(buoc, "ten", None),
             "ngay_can": ngay, "moc_tam": moc_tam, "dvt": dvt, "sl": sl,
             "moc_suy_duoc": suy_duoc,
+            "moc_ly_do": moc_ly_do,
+            # Bài GẤP khi có ÍT NHẤT MỘT thành viên gấp — cả bài chạy chung một lượt, không tách được.
+            "is_rush": any(bool(getattr(l, "is_rush", False)) for l in (lsx_map or {}).values()),
             # Ngữ cảnh biến của BÀI — cùng bộ 16 biến với lệnh và với phiếu tính giá, xem
             # `bien_cong_thuc`. Trước 11/08/2026 chỗ này dựng tay ba khoá (khổ in + gsm) nên 13/16
             # biến bằng 0 trong im lặng: công thức quy đổi nào chạm `to_dau_vao` hay `so_kem` là
@@ -659,6 +787,8 @@ class KeHoachVatTuService:
 
     def _chay_con_tro(self, tho, *, ton, dang_ve, da_cap, dang_linh) -> list[dict]:
         hom_nay = _hom_nay()
+        # Phần đã cấp CÒN LẠI chưa gán cho dòng nào — bản sao để trừ dần, không đụng dict gốc.
+        cap_con = dict(da_cap)
         theo_hang: dict[tuple, list[dict]] = {}
         for d in tho:
             theo_hang.setdefault(d["hang"], []).append(d)
@@ -669,6 +799,11 @@ class KeHoachVatTuService:
             # Dòng chưa có ngày cần (lệnh không hạn SX, chưa xếp) xuống CUỐI: không biết bao giờ
             # cần thì không được chen lên trước lệnh có hạn rõ ràng để ăn tồn.
             ds.sort(key=lambda d: (d["ngay_can"] is None, d["ngay_can"] or date.max, d["ma"]))
+            # Số dòng của cùng (mặt hàng, chủ thể) — quyết định có phải CHIA phần đã cấp không.
+            so_dong_khoa: dict[tuple, int] = {}
+            for d in ds:
+                k = (hang, d["lsx_id"], d["bai_ghep_id"])
+                so_dong_khoa[k] = so_dong_khoa.get(k, 0) + 1
             ve = list(dang_ve.get(hang, []))
             i = 0
             con_lai = float(ton.get(hang, 0.0))
@@ -676,6 +811,7 @@ class KeHoachVatTuService:
             dong_out: list[dict] = []
             so_do = 0
             so_khong_ro = 0
+            so_ve_muon = 0
             tong_can = 0.0
             for d in ds:
                 ngay = d["ngay_can"]
@@ -684,8 +820,14 @@ class KeHoachVatTuService:
                 while i < len(ve) and ngay is not None and ve[i][0] <= ngay:
                     con_lai += ve[i][1]
                     i += 1
-                cap = da_cap.get((hang, d["lsx_id"], d["bai_ghep_id"]), 0.0)
-                linh = dang_linh.get((hang, d["lsx_id"], d["bai_ghep_id"]), 0.0)
+                khoa_cap = (hang, d["lsx_id"], d["bai_ghep_id"])
+                cap_tong = _f(da_cap.get(khoa_cap))
+                if so_dong_khoa.get(khoa_cap, 0) <= 1:
+                    cap = cap_tong
+                else:
+                    cap = min(_f(cap_con.get(khoa_cap)), _f(d["nhu_cau"]))
+                    cap_con[khoa_cap] = _f(cap_con.get(khoa_cap)) - cap
+                linh = dang_linh.get(khoa_cap, 0.0)
                 # ⚠️ Bẫy đếm hai lần #1: `cap` chỉ trừ vào NHU CẦU. Tồn (`con_lai`) đã giảm sẵn khi
                 # kho ghi sổ — trừ thêm lần nữa là lệnh sau báo thiếu oan.
                 #
@@ -708,6 +850,27 @@ class KeHoachVatTuService:
                     mau = MAU_VANG          # chỉ đủ nhờ hàng đang về
                 else:
                     mau = MAU_DO
+                # ĐỎ vì THIẾU THẬT, hay đỏ vì HÀNG VỀ MUỘN? Con trỏ `i` chỉ cộng những lô về KỊP
+                # (`ngày về ≤ ngày cần`), nên phần đang về chưa dùng nằm ở `ve[i:]` — toàn bộ là lô
+                # về SAU ngày cần của dòng này. Gộp nó vào mà phủ nổi ⇒ hàng đã mua rồi, chỉ sai
+                # ngày. Đi mua tiếp là mua đúp.
+                #
+                # Ngày trả về là ngày của lô ĐỦ ĐỂ PHỦ chỗ thiếu, KHÔNG phải lô gần nhất. Lấy lô đầu
+                # là chỉ sai đường: `ve[i]=(25/8, 1kg)` + `ve[i+1]=(30/9, 500kg)` mà thiếu 400kg thì
+                # câu "dời bước sang sau 25/8" đưa người ta tới đúng ngày vẫn không có giấy.
+                #
+                # Dòng KHÔNG có ngày cần thì bỏ qua hẳn: "về muộn" là muộn SO VỚI một mốc, mà dòng
+                # này chưa có mốc nào. Dán nhãn đó vào là vừa cấm tick mua vừa chặn phát hành với
+                # câu "dời bước tiêu thụ" — trong khi việc thật là đi khai hạn sản xuất.
+                ngay_du_hang = None
+                if mau == MAU_DO and ngay is not None:
+                    luy_ke = 0.0
+                    for ngay_lo, sl_lo in ve[i:]:
+                        luy_ke += sl_lo
+                        if con_lai + luy_ke >= 0:
+                            mau = MAU_VE_MUON
+                            ngay_du_hang = ngay_lo
+                            break
                 # Phần thiếu RIÊNG của dòng này = phần nó không được phủ. KHÔNG lấy `−con_lai`
                 # (thiếu luỹ kế): tick hai dòng đỏ rồi gộp một yêu cầu mua thì số luỹ kế cộng
                 # chồng lên nhau, đi mua thừa đúng phần đã đếm hai lần.
@@ -716,6 +879,8 @@ class KeHoachVatTuService:
                     so_do += 1
                 elif mau == MAU_KHONG_RO:
                     so_khong_ro += 1
+                elif mau == MAU_VE_MUON:
+                    so_ve_muon += 1
                 tong_can += con_phai_co
                 # HẠN CHÓT PHẢI ĐẶT = ngày cần − số ngày kiểm nhập. Trước đây còn trừ "số ngày NCC
                 # giao" khai tay ở bảng giá NCC; bỏ 10/08/2026 vì lúc khai danh mục chưa ai biết
@@ -730,6 +895,9 @@ class KeHoachVatTuService:
                     "loai": d["loai"],
                     "lsx_id": d["lsx_id"],
                     "bai_ghep_id": d["bai_ghep_id"],
+                    "buoc_id": d.get("buoc_id"),
+                    "moc_ly_do": d.get("moc_ly_do") or "",
+                    "is_rush": bool(d.get("is_rush")),
                     "ma": d["ma"],
                     "ten_viec": d["ten_viec"],
                     "ngay_can": ngay,
@@ -742,6 +910,7 @@ class KeHoachVatTuService:
                     "con_lai_sau": round(con_lai, 4),
                     "thieu": round(thieu, 4),
                     "trang_thai": mau,
+                    "ngay_du_hang": ngay_du_hang,
                     "han_dat": han_dat,
                     "dat_muon": dat_muon,
                     "canh_bao": d["canh_bao"],
@@ -758,11 +927,14 @@ class KeHoachVatTuService:
                 "tong_can": round(tong_can, 4),
                 "so_dong_do": so_do,
                 "so_dong_khong_ro": so_khong_ro,
+                "so_dong_ve_muon": so_ve_muon,
                 "dong": dong_out,
             })
         # Nhóm không đánh giá được xếp ngay sau nhóm thiếu: cả hai đều là việc phải lo, chỉ khác
-        # là một cái biết thiếu bao nhiêu, một cái chưa biết gì.
-        ra.sort(key=lambda g: (-g["so_dong_do"], -g["so_dong_khong_ro"], g["hang_ma"] or ""))
+        # là một cái biết thiếu bao nhiêu, một cái chưa biết gì. Nhóm "về muộn" xếp sau cùng trong
+        # ba loại phải lo — nó đã mua rồi, việc còn lại là dời lịch chứ không phải chạy đi mua.
+        ra.sort(key=lambda g: (-g["so_dong_do"], -g["so_dong_khong_ro"], -g["so_dong_ve_muon"],
+                               g["hang_ma"] or ""))
         return ra
 
     # ---- 1.3 DÒNG CÔNG CỤ (khuôn bế) ---------------------------------------
@@ -787,7 +959,13 @@ class KeHoachVatTuService:
             # Nhóm KHÔNG ĐÁNH GIÁ ĐƯỢC cũng ở lại: "chỉ thứ đang thiếu" nghĩa là "chỉ thứ phải lo",
             # mà thứ máy không tính nổi thì phải lo NHIỀU HƠN chứ không phải ít hơn. Lọc nó đi là
             # giấu đúng cái cần thấy.
-            ra = [g for g in ra if g["so_dong_do"] > 0 or g.get("so_dong_khong_ro", 0) > 0]
+            #
+            # Nhóm VỀ MUỘN cũng ở lại, cùng lý do: hàng mua rồi nhưng về sau ngày cần thì lệnh VẪN
+            # đứng máy — việc phải lo, chỉ khác là việc dời lịch chứ không phải việc mua.
+            ra = [g for g in ra
+                  if g["so_dong_do"] > 0
+                  or g.get("so_dong_khong_ro", 0) > 0
+                  or g.get("so_dong_ve_muon", 0) > 0]
         return ra
 
     # ================== ĐỀ NGHỊ MUA ==================
@@ -807,17 +985,36 @@ class KeHoachVatTuService:
             if g["loai_nhom"] != "vat_tu":
                 continue
             for d in g["dong"]:
-                khoa = (g["hang_loai"], g["hang_id"], d["lsx_id"], d["bai_ghep_id"])
-                tra[khoa] = (g, d)
+                tra[_khoa_dong(g["hang_loai"], g["hang_id"], d)] = (g, d)
         lines: list[dict] = []
         ngays: list[date] = []
         mas: list[str] = []
+        chi_tiet: list[tuple[str, date, bool]] = []
+        # Có dòng nào mang ngày cần không — dùng để phân biệt HAI nguyên nhân khiến `ngays` rỗng.
+        co_ngay = False
+        # Lệnh/bài có ngày cần KHÔNG TIN ĐƯỢC — `(mã, mã lý do)`. Phải gọi tên ra, kể cả khi yêu
+        # cầu vẫn có ngày từ lệnh khác: trộn lệnh rõ với lệnh mờ mà chỉ in ngày của lệnh rõ thì
+        # người mua tưởng cả lô cần ngày đó.
+        #
+        # ⚠️ Lấy LÝ DO THẬT từ `_moc_tam`, KHÔNG suy từ `bool(ngay_can)`. Ba nguồn:
+        #   · `chua_gan_may`        — có hạn SX nhưng còn bước máy chưa gán ⇒ mốc rơi về đúng hạn
+        #   · `chua_co_han`         — chưa khai hạn sản xuất
+        #   · `khong_co_thanh_vien` — bài ghép không nạp được thành viên nào
+        #
+        # Suy từ `bool(ngay_can)` SAI ở dòng BÀI GHÉP: bài vẫn có ngày (lấy từ thành viên tốt)
+        # trong khi cờ hỏng đến từ thành viên KHÁC. In cứng một lý do là chỉ người ta sửa nhầm chỗ
+        # — bảo "gán máy đi" trong khi máy đã gán đủ. Vài lần thế là không ai đọc câu ⚠ nữa, mà cả
+        # đợt này dựng lên để những câu ⚠ đó đáng tin.
+        mo: list[tuple[str, str]] = []
         gop: dict[tuple, dict] = {}
+        # Khoá đã tick — CHỐNG TRÙNG. Client gửi hai lần cùng một khoá (bấm đúp, hoặc bảng cũ) thì
+        # vòng dưới sẽ cộng `thieu` hai lượt và đi mua gấp đôi. `Set` chặn ngay tại cửa.
+        da_xet: set[tuple] = set()
         for c in chon:
-            khoa = (
-                c.get("hang_loai"), int(c.get("hang_id") or 0),
-                c.get("lsx_id"), c.get("bai_ghep_id"),
-            )
+            khoa = _khoa_dong(c.get("hang_loai"), int(c.get("hang_id") or 0), c)
+            if khoa in da_xet:
+                continue
+            da_xet.add(khoa)
             found = tra.get(khoa)
             if found is None:
                 raise KeHoachVatTuValidationError(
@@ -825,6 +1022,12 @@ class KeHoachVatTuService:
                     "cân đối rồi chọn lại."
                 )
             g, d = found
+            if d["trang_thai"] == MAU_VE_MUON:
+                raise KeHoachVatTuValidationError(
+                    f"Dòng {d['ma']} đã có hàng đang về"
+                    + (f" ngày {d['ngay_du_hang']:%d/%m}" if d.get("ngay_du_hang") else "")
+                    + " — mua thêm là mua đúp. Dời lịch bước tiêu thụ hoặc hối nhà cung cấp."
+                )
             if _f(d["thieu"]) <= 0:
                 raise KeHoachVatTuValidationError(
                     f"Dòng {d['ma']} không còn thiếu — không đề nghị mua nữa."
@@ -832,10 +1035,25 @@ class KeHoachVatTuService:
             key = (g["hang_loai"], g["hang_id"])
             cur = gop.setdefault(key, {"g": g, "sl": 0.0})
             cur["sl"] += _f(d["thieu"])
+            # ⚠️ Ngày cần chỉ lấy từ dòng SUY ĐƯỢC. Dòng đeo cờ `dan_khong_suy_duoc` mang đúng hạn
+            # SX (muộn hơn thực tế) vì lệnh còn bước chưa gán máy — hệ ĐÃ tự nhận là không tính
+            # nổi, lấy nó đi đặt hàng là đặt theo một con số mình vừa tuyên bố là sai.
+            tin_duoc = CB_DAN_KHONG_SUY_DUOC not in (d.get("canh_bao") or [])
             if d["ngay_can"]:
-                ngays.append(d["ngay_can"])
+                co_ngay = True
+                if tin_duoc:
+                    ngays.append(d["ngay_can"])
+            if not tin_duoc and d["ma"] not in [x[0] for x in mo]:
+                mo.append((d["ma"], d.get("moc_ly_do") or "chua_gan_may"))
             if d["ma"] not in mas:
                 mas.append(d["ma"])
+            # Ngày cần của TỪNG lệnh, để người mua biết trong lô có lệnh nào thật sự gấp — yêu cầu
+            # chỉ mang MỘT ngày (sớm nhất), nhìn nó không đoán ra được các mốc còn lại.
+            #
+            # CHỈ liệt kê dòng TIN ĐƯỢC: kèm ngày của dòng vừa bị loại khỏi `needed_date` thì ghi
+            # chú tự cãi nhau — vừa bảo "chưa suy được ngày" vừa đưa ra một ngày cụ thể.
+            if d["ngay_can"] and tin_duoc and d["ma"] not in [x[0] for x in chi_tiet]:
+                chi_tiet.append((d["ma"], d["ngay_can"], bool(d.get("is_rush"))))
         if not gop:
             raise KeHoachVatTuValidationError("Chưa chọn dòng nào.")
         for (loai, hid), cur in gop.items():
@@ -852,8 +1070,57 @@ class KeHoachVatTuService:
         # Kẹp sàn HÔM NAY vì ngày cần có thể đã qua (lệnh đang trễ) — thu mua không nhận ngày quá
         # khứ, mà chặn ở đó thì đúng lúc cháy nhất lại không lập nổi yêu cầu mua.
         can = min(ngays) if ngays else hom_nay
+        # `ngays` rỗng có HAI đường, và chúng cần hai câu khác nhau — chẩn đoán sai thì thu mua đi
+        # sửa nhầm chỗ:
+        #   · có ngày cần nhưng MỌI dòng đeo cờ "chưa suy được" ⇒ lệnh còn bước chưa gán máy
+        #   · không dòng nào có ngày cần        ⇒ lệnh chưa khai hạn sản xuất
+        # `ngays` rỗng ⇒ lấy lý do THẬT của dòng mờ đầu tiên; không còn suy từ `co_ngay`. Giữ
+        # `co_ngay` làm đường lùi cho dòng cũ chưa mang `moc_ly_do`.
+        ly_do_ngay = "" if ngays else (
+            (mo[0][1] if mo else "") or ("chua_gan_may" if co_ngay else "chua_co_han")
+        )
         return {
             "lines": lines,
             "needed_date": max(can, hom_nay),
             "related_document_code": ", ".join(mas[:5]),
+            "ghi_chu_ngay": self._ghi_chu_ngay(chi_tiet, ly_do_ngay, mo),
         }
+
+    @staticmethod
+    def _ghi_chu_ngay(chi_tiet: list[tuple[str, date, bool]], ly_do_ngay: str,
+                      mo: list[tuple[str, str]] | None = None) -> str:
+        """Câu mô tả NGÀY CẦN của từng lệnh, ghép vào nội dung yêu cầu mua.
+
+        Yêu cầu chỉ mang MỘT ngày (sớm nhất trong các dòng gộp), nên người mua nhìn nó không biết
+        trong lô còn lệnh nào cần muộn hơn hay lệnh nào đang gấp. Thiếu thông tin đó thì họ dễ hối
+        cả đơn cho kịp mốc sớm nhất, hoặc chia đơn nhầm chỗ.
+        """
+        phan: list[str] = []
+        if ly_do_ngay:
+            phan.append(
+                f"⚠ Ngày cần chưa suy được ({_LY_DO_MOC.get(ly_do_ngay, ly_do_ngay)}) — "
+                "thu mua xác nhận lại trước khi đặt."
+            )
+        if chi_tiet:
+            phan.append(" · ".join(
+                f"{ma} cần {ngay:%d/%m}{' (GẤP)' if gap else ''}"
+                for ma, ngay, gap in sorted(chi_tiet, key=lambda x: x[1])[:8]
+            ))
+        # Gọi TÊN lệnh có ngày không tin được, kể cả khi yêu cầu vẫn có ngày từ lệnh khác. Không nói
+        # thì người mua đọc "LSX-A, LSX-B · cần 21/08" rồi tưởng cả hai cùng cần 21/08.
+        #
+        # Hai nhóm, hai lý do — cùng bộ chữ với `ly_do_ngay` ở trên để người đọc không phải học hai
+        # cách diễn đạt cho cùng một chuyện.
+        if mo and ly_do_ngay == "":
+            for ma_ly_do, ly_do in _LY_DO_MOC.items():
+                nhom = [ma for ma, ld in mo if ld == ma_ly_do]
+                if not nhom:
+                    continue
+                # Cắt bao nhiêu thì NÓI ra bấy nhiêu: câu này tồn tại để chống im lặng, cắt im lặng
+                # ngay trong nó là tự phản.
+                them = f" và {len(nhom) - 5} lệnh nữa" if len(nhom) > 5 else ""
+                phan.append(
+                    f"⚠ Chưa suy được ngày cần cho {', '.join(nhom[:5])}{them} ({ly_do}) — "
+                    "ngày trên yêu cầu chỉ đúng cho các lệnh còn lại."
+                )
+        return " ".join(phan)

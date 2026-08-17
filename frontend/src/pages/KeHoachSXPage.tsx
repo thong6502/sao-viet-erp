@@ -14,7 +14,6 @@ import { Icon } from "../components/Icons";
 import { StatusTabs } from "../components/StatusTabs";
 import { LsxDetailView } from "./LsxDetailView";
 import { LsxPreviewDrawer } from "./LsxPreviewDrawer";
-import { VatTuKeHoachView } from "./VatTuKeHoachView";
 import { nhanDonVi } from "./lsxBuoc";
 import { useNapTenDonVi } from "./tenDonVi";
 import {
@@ -57,19 +56,15 @@ export function KeHoachSXPage({
   useNapTenDonVi();
 
   const [view, setView] = useState<View>({ mode: "list" });
-  const [tab, setTab] = useState<"hang-cho" | "lenh" | "vat-tu">("hang-cho");
+  // Tab "Vật tư" ĐÃ TÁCH 17/08/2026 thành màn riêng `Kế hoạch vật tư` (chủ chốt) — xem
+  // `KeHoachVatTuPage`. Màn này giữ đúng phạm vi MỘT lệnh; bảng cân đối cả kho là việc của màn kia.
+  const [tab, setTab] = useState<"hang-cho" | "lenh">("hang-cho");
   const [previewOrderId, setPreviewOrderId] = useState<number | null>(null);
   const [orderFilter, setOrderFilter] = useState<{ id: number; code: string } | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
   const [queue, setQueue] = useState<HangChoItem[] | null>(null);
   const [lenhs, setLenhs] = useState<LsxListItem[] | null>(null);
-  // Số dòng thiếu vật tư — tab Vật tư báo ngược lên để vẽ chip. Cố ý KHÔNG gọi lại API ở đây:
-  // hai lần gọi cùng một bảng là hai con số có thể lệch nhau ngay trên cùng một màn.
-  const [vatTuDo, setVatTuDo] = useState(0);
-  // Bit "tạo yêu cầu mua cho bộ phận" — KHÔNG lách bằng quyền `san_xuat`. Thiếu bit thì nút "Đề
-  // nghị mua" tự ẩn, bảng cân đối vẫn xem được bình thường.
-  const [canDeNghiMua, setCanDeNghiMua] = useState(false);
   const [ttFilter, setTtFilter] = useState("all");
   const [q, setQ] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -93,18 +88,6 @@ export function KeHoachSXPage({
       .then((r) => setLenhs(r.items))
       .catch((e: unknown) => setErr(e instanceof ApiError ? e.message : String(e)));
   }, [token, orderFilter, ttFilter, q]);
-
-  useEffect(() => {
-    if (!token) return;
-    let alive = true;
-    api.departmentPurchaseRequests
-      .canCreate(token)
-      .then((r: { can_create: boolean }) => alive && setCanDeNghiMua(r.can_create))
-      .catch(() => alive && setCanDeNghiMua(false));
-    return () => {
-      alive = false;
-    };
-  }, [token]);
 
   useEffect(() => loadQueue(), [loadQueue, eventTick]);
   useEffect(() => {
@@ -200,16 +183,6 @@ export function KeHoachSXPage({
           Lệnh sản xuất
           <span className="chip-count">{lenhs?.length ?? 0}</span>
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "vat-tu"}
-          className={`seg ${tab === "vat-tu" ? "is-active" : ""}`}
-          onClick={() => setTab("vat-tu")}
-        >
-          Vật tư
-          {vatTuDo > 0 && <span className="chip-count chip-count--alert">{vatTuDo}</span>}
-        </button>
       </div>
 
       {flash && (
@@ -219,14 +192,7 @@ export function KeHoachSXPage({
       )}
       {err && <BangLoi text={err} onRetry={doiDuLieu} />}
 
-      {tab === "vat-tu" ? (
-        <VatTuKeHoachView
-          eventTick={eventTick}
-          canDeNghiMua={canDeNghiMua}
-          onSoDo={setVatTuDo}
-          onOpenLsx={(id) => setView({ mode: "detail", id })}
-        />
-      ) : tab === "hang-cho" ? (
+      {tab === "hang-cho" ? (
         <QueueTable
           rows={queue}
           scopeAll={scopeOf("san_xuat") === "all"}

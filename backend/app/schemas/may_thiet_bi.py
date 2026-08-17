@@ -36,6 +36,9 @@ class MayThietBiIn(BaseModel):
     toc_do_min: float | None = None      # dải năng lực, CHỈ ĐỂ KHAI (xem model)
     toc_do_max: float | None = None
     don_vi_toc_do: str | None = None
+    #: Cách đo LƯỢNG theo đơn vị tốc độ của CHÍNH máy này (vd `sl_vao * dai_in * rong_in` cho máy
+    #: đo m²/giờ). Rỗng = để hệ quy đổi như cũ — xem `LsxService._sl_theo_don_vi`.
+    cong_thuc_luong: str | None = None
     # `makeready_time_default` = thời gian CANH MÁY, Xếp lịch đọc. KHÁC "Chuẩn bị" của Công đoạn
     # (`cong_doan.setup_time`, Lệnh SX đọc) — hai nơi hai việc, không gộp không cộng.
     makeready_time_default: float | None = None
@@ -63,6 +66,7 @@ class MayThietBiRow(BaseModel):
     toc_do_min: float | None = None
     toc_do_max: float | None = None
     don_vi_toc_do: str | None = None
+    cong_thuc_luong: str | None = None
     # TÊN đọc được của đơn vị tốc độ, tra từ danh mục Đơn vị (`may_thiet_bi_service.gan_ten_don_vi`)
     # — bảng chỉ lưu MÃ (`to_gio`) mà mã không thành lời. Cùng cách đã làm cho Giấy · Vật tư ·
     # Công đoạn, để màn khỏi nhúng bảng nhãn thứ hai rồi lệch với danh mục.

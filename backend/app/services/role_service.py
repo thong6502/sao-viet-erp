@@ -45,13 +45,23 @@ class RoleInUse(RoleError):
 # dropdown Phạm vi ở nhóm này; ép `all` khi lưu để vai mới (mặc định `own`) không bị bó âm thầm
 # nếu sau này có ai bật lọc theo scope.
 #
-# 10 khoá danh mục lấy từ `catalog_registry` (thêm màn danh mục là tự có mặt ở đây, không phải
+# 11 khoá danh mục lấy từ `catalog_registry` (thêm màn danh mục là tự có mặt ở đây, không phải
 # nhớ chép sang). Ngoài danh mục thì liệt kê tay bên dưới — registry chỉ nói về danh mục.
 SCOPELESS_MODULES = frozenset(MODULE_KEYS) | {
     # Kỹ thuật máy (12/08/2026): phiếu sửa chữa / bảo trì là việc chung của xưởng — không có khái
     # niệm "phiếu của tôi", nên bày dropdown Phạm vi chỉ khiến người cấp quyền tưởng mình vừa giới
     # hạn được cái gì.
     "ky_thuat_may",
+    # Ba màn tách khỏi `san_xuat` ngày 17/08/2026. Đã soi: KHÔNG router nào của chúng đọc scope
+    # (`bai_ghep.py` · `xep_lich.py` · `ke_hoach_vat_tu.py` đều 0 lần) — bài ghép và lịch xưởng là
+    # bức tranh chung, không có "bài ghép của tôi". Riêng `san_xuat` KHÔNG vào đây: `lsx.py` đọc
+    # scope thật (`_owner_ids_for_scope`) để thợ chỉ thấy lệnh của mình.
+    "ke_hoach_vat_tu",
+    "bai_ghep",
+    "bai_ghep_2",
+    "xep_lich",
+    # Phiếu bảo trì tách khỏi `ky_thuat_may` cùng ngày, thừa hưởng đúng lý do của khoá mẹ.
+    "phieu_bao_tri",
 }
 
 READ_IMPLYING_KEYS = (

@@ -77,6 +77,12 @@ def _fmt(dt) -> str:
     return a.replace(tzinfo=None).strftime("%d/%m %H:%M")
 
 
+def _ngay(d) -> str:
+    """`date` → 'dd/mm'. Khác `_fmt` (nhận datetime, in kèm giờ): ngày hàng về là NGÀY, gắn giờ vào
+    là bịa ra một độ chính xác nhà cung cấp chưa từng hứa."""
+    return d.strftime("%d/%m") if hasattr(d, "strftime") else str(d)
+
+
 def _phut_str(phut: float) -> str:
     t = int(round(phut or 0))
     if t <= 0:
@@ -798,47 +804,74 @@ class XepLichVanDeService:
                 "delay_phut": None,
                 "group_key": "thieu_vat_tu:loi",
             }]
+        # HAI rổ, KHÔNG gộp: `do` = chưa có hàng ⇒ đi mua. `ve_muon` = đã mua rồi, hàng về SAU ngày
+        # cần ⇒ phải DỜI LỊCH (mua thêm là mua đúp). Cùng chặn phát hành, nhưng câu chỉ việc khác
+        # hẳn nhau — gộp một câu là chỉ người ta đi làm nhầm việc.
+        #
+        # ⚠️ Phải nhận CẢ HAI mã. Bảng cân đối tách `ve_muon` ra khỏi `do` ngày 17/08/2026; lọc mỗi
+        # `!= "do"` như bản cũ thì dòng về muộn TUỘT khỏi cửa chặn và lệnh không có giấy vẫn phát
+        # hành được.
         thieu_lsx: dict[int, list[str]] = {}
         thieu_bg: dict[int, list[str]] = {}
+        muon_lsx: dict[int, list[str]] = {}
+        muon_bg: dict[int, list[str]] = {}
         for nhom in bang.get("items", []):
             if nhom.get("loai_nhom") != "vat_tu":
                 continue
             for d in nhom.get("dong", []):
-                if d.get("trang_thai") != "do":
+                tt = d.get("trang_thai")
+                if tt not in ("do", "ve_muon"):
                     continue
                 ten = nhom.get("hang_ten") or nhom.get("hang_ma") or "?"
+                if tt == "ve_muon" and d.get("ngay_du_hang"):
+                    ten = f"{ten} (về {_ngay(d['ngay_du_hang'])})"
+                bang_lsx, bang_bg = (muon_lsx, muon_bg) if tt == "ve_muon" else (thieu_lsx, thieu_bg)
                 if d.get("lsx_id"):
-                    thieu_lsx.setdefault(d["lsx_id"], []).append(ten)
+                    bang_lsx.setdefault(d["lsx_id"], []).append(ten)
                 elif d.get("bai_ghep_id"):
-                    thieu_bg.setdefault(d["bai_ghep_id"], []).append(ten)
+                    bang_bg.setdefault(d["bai_ghep_id"], []).append(ten)
 
         ma_lsx = {r["lsx_id"]: r["lsx_ma"] for r in rows if r.get("lsx_id")}
         ma_bg = {r["bai_ghep_id"]: r["lsx_ma"] for r in rows if r.get("bai_ghep_id")}
         out: list[dict] = []
-        for lsx_id, tens in thieu_lsx.items():
-            lien_quan = [r for r in rows if r.get("lsx_id") == lsx_id]
-            if not lien_quan:
-                continue                     # lệnh chưa vào kế hoạch thì chưa phải việc của bàn này
-            out.append(self._van_de_thieu_vt(
-                f"lsx:{lsx_id}", ma_lsx.get(lsx_id), tens, lien_quan, None))
-        for bg_id, tens in thieu_bg.items():
-            lien_quan = [r for r in rows if r.get("bai_ghep_id") == bg_id]
-            if not lien_quan:
-                continue
-            out.append(self._van_de_thieu_vt(
-                f"bai_ghep:{bg_id}", ma_bg.get(bg_id), tens, lien_quan, bg_id))
+        for ve_muon, blsx, bbg in ((False, thieu_lsx, thieu_bg), (True, muon_lsx, muon_bg)):
+            for lsx_id, tens in blsx.items():
+                lien_quan = [r for r in rows if r.get("lsx_id") == lsx_id]
+                if not lien_quan:
+                    continue                 # lệnh chưa vào kế hoạch thì chưa phải việc của bàn này
+                out.append(self._van_de_thieu_vt(
+                    f"lsx:{lsx_id}", ma_lsx.get(lsx_id), tens, lien_quan, None,
+                    ve_muon=ve_muon))
+            for bg_id, tens in bbg.items():
+                lien_quan = [r for r in rows if r.get("bai_ghep_id") == bg_id]
+                if not lien_quan:
+                    continue
+                out.append(self._van_de_thieu_vt(
+                    f"bai_ghep:{bg_id}", ma_bg.get(bg_id), tens, lien_quan, bg_id,
+                    ve_muon=ve_muon))
         return out
 
     def _van_de_thieu_vt(self, khoa: str, ma: str | None, tens: list[str],
-                         lien_quan: list[dict], bg_id: int | None) -> dict:
+                         lien_quan: list[dict], bg_id: int | None,
+                         *, ve_muon: bool = False) -> dict:
         ds = _uniq(tens)
         hien = ", ".join(ds[:3]) + (f" và {len(ds) - 3} thứ khác" if len(ds) > 3 else "")
+        # `issue_key` phải kèm loại: một lệnh có thể VỪA thiếu món A VỪA có món B về muộn, hai vấn
+        # đề khác nhau. Thiếu tiền tố thì hai cái trùng khoá, một cái nuốt cái kia — và state
+        # "đã xử lý" của người dùng cũng dính chung.
+        tien_to = "ve_muon:" if ve_muon else ""
         return {
-            "issue_key": f"{CAT_THIEU_VAT_TU}:{khoa}",
+            "issue_key": f"{CAT_THIEU_VAT_TU}:{tien_to}{khoa}",
             "category": CAT_THIEU_VAT_TU, "severity": SEV_CHAN,
-            "title": f"{ma or khoa}: thiếu {hien}",
-            "nguyen_nhan": ("Bảng cân đối vật tư báo thiếu — tồn cộng hàng đang về vẫn không đủ "
-                            "tới ngày cần."),
+            "title": (f"{ma or khoa}: {hien} về sau ngày cần" if ve_muon
+                      else f"{ma or khoa}: thiếu {hien}"),
+            "nguyen_nhan": (
+                # ĐÃ mua rồi ⇒ chỉ đúng việc phải làm là dời lịch, KHÔNG phải đi mua tiếp.
+                "Hàng đã đặt nhưng ngày về muộn hơn ngày cần — dời bước tiêu thụ sang sau ngày về, "
+                "hoặc hối nhà cung cấp. ĐỪNG lập yêu cầu mua nữa: lô đang trên đường về."
+                if ve_muon else
+                "Bảng cân đối vật tư báo thiếu — tồn cộng hàng đang về vẫn không đủ tới ngày cần."
+            ),
             "impacts": self._impact(lien_quan, extra_bg=[bg_id] if bg_id else None),
             "delay_phut": None,
             "group_key": khoa,

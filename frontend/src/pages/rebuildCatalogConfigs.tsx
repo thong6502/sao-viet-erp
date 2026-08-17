@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import type { CatalogConfig, ChuanBiKhoanRow } from "./RebuildCatalogPage";
 import { ClockIcon, isMayIn, tongChuanBi } from "./RebuildCatalogPage";
+import { nhanTo } from "./danh-muc/nhanTo";
 import { QuyDoiCuaDonVi } from "./QuyDoiCuaDonVi";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ApiError, authed } from "../api/client";
@@ -263,6 +264,9 @@ export const CFG_MAY: CatalogConfig = {
     ],
     dynamic: true,
   },
+  // Ô công thức duy nhất của màn Máy ra LƯỢNG (theo đơn vị tốc độ), không ra tiền — nhãn tab mặc
+  // định "Công thức tính giá" sẽ mời gõ sai thứ vào đó.
+  nhanTabCongThuc: "Cách đo lượng",
   // Khai máy là form DÀI (7 nhóm). Cuộn một mạch thì khối Lịch bảo trì nằm tít dưới đáy, ai vào
   // sửa chu kỳ cũng phải lướt qua cả đống ô khổ giấy không liên quan. Chia 3 tab theo việc.
   tabsKhai: [
@@ -309,6 +313,13 @@ export const CFG_MAY: CatalogConfig = {
     { key: "don_vi_toc_do", label: "Đơn vị tốc độ", type: "don_vi_toc_do",
       refPrefix: "/api/don-vi", refParams: { active: true, size: 200 },
       group: "Tốc độ & Vận hành", default: "to_gio" },
+    // Ô ra LƯỢNG, KHÔNG ra tiền và KHÔNG ra giờ: nó chỉ trả lời "bước này bằng bao nhiêu <đơn vị
+    // tốc độ>", rồi engine mới chia tốc độ ra phút. Đứng ngay dưới ô Đơn vị tốc độ vì đó là đơn vị
+    // nó phải ra. `loaiO: "quy_doi"` ⇒ chip có `sl_vao`/`sl_ra` và KHÔNG có đơn giá — ô này không
+    // được phép nhắc tới tiền.
+    { key: "cong_thuc_luong", label: "Cách đo lượng theo đơn vị tốc độ", type: "formula",
+      loaiO: "quy_doi", group: "Tốc độ & Vận hành",
+      hint: "Bỏ trống = hệ tự quy đổi. vd máy đo m²/giờ: sl_vao * dai_in * rong_in · máy 5 màu chạy 2 lượt: sl_vao * so_mau / 5" },
     { key: "toc_do_min", label: "Tốc độ tối thiểu", type: "number", group: "Tốc độ & Vận hành" },
     { key: "toc_do_max", label: "Tốc độ tối đa", type: "number", group: "Tốc độ & Vận hành" },
     { key: "so_nhan_cong", label: "Số người vận hành tiêu chuẩn", type: "number", required: true,
@@ -391,6 +402,8 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
   // xoá hẳn, còn nơi dùng thì chỉ ngừng dùng. Mục đã ngừng xem lại ở công tắc trên dải lọc.
   softDelete: true,
+  // Màn này có HAI ô công thức, một ra tiền một ra lượng ⇒ nhãn tab phải trung tính.
+  nhanTabCongThuc: "Công thức",
   facet: { key: "nhom", values: mapOpt(NHOM_CD) },
   columns: [
     { key: "nhom", label: "Giai đoạn", render: (r) => lbl(NHOM_CD)(r.nhom) },
@@ -457,6 +470,19 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "he_so_ngoai_dong", label: "Hệ số vào → ra", type: "number", group: "Đơn vị",
       showIf: (f) => !!f.don_vi_vao && !!f.don_vi_ra && f.don_vi_vao !== f.don_vi_ra,
       hint: "Một đơn vị VÀO đẻ ra mấy đơn vị RA. Vd ghi kẽm 1 bài ra 4 bản ⇒ gõ 4. Để trống = 1." },
+    // SẢN LƯỢNG RA của bước NGOÀI dòng giấy (mg `0214`). Cặp đôi với ô hệ số ngay trên: một cái nói
+    // bước ra bao nhiêu, một cái nói vào gấp mấy lần ra.
+    //
+    // Trước 17/08/2026 số này lấy từ công thức của ĐƠN VỊ RA (`don_vi_do.cong_thuc`, đã gỡ) — sai
+    // chủ sở hữu: hai công đoạn cùng đo bằng `kem` có thể ra số khác nhau, mà công thức treo ở đơn
+    // vị thì cả hai buộc dùng chung.
+    //
+    // KHÔNG `showIf`: form không biết đơn vị nào là trạm dòng giấy (cờ đó nằm ở danh mục Đơn vị,
+    // server giữ), nên đoán ở đây là đoán sai. Engine tự bỏ qua với bước trên dòng giấy — số của
+    // chúng đến từ chuỗi bù hao ngược. Hint nói rõ phạm vi thay cho việc ẩn/hiện.
+    { key: "cong_thuc_san_luong", label: "Công thức sản lượng ra", type: "formula",
+      loaiO: "quy_doi", group: "Đơn vị",
+      hint: "CHỈ cho bước ngoài dòng giấy (ghi kẽm, ép nhũ…). vd Ghi kẽm: so_kem. Bước trên dòng giấy lấy số từ chuỗi bù hao nên khai ở đây không ai đọc." },
     { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong" },
     { key: "bu_hao_id", label: "Mã bù hao (gõ để tìm)", type: "ref-search", refPrefix: "/api/bu-hao", group: "Bù hao",
       showIf: (f) => f.kieu_bu_hao === "tra_bang" },
@@ -480,6 +506,64 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     body.size_tiers = [];
     return body;
   },
+};
+
+export const CFG_CONG_VIEC_KHOAN: CatalogConfig = {
+  title: "Công việc khoán",
+  moduleQuyen: "dm_cong_viec_khoan",
+  subtitle: "Đơn giá khoán theo tổ — bảng giá mà bước lệnh sản xuất và bảng lương tra để ra tiền khoán.",
+  prefix: "/api/cong-viec-khoan",
+  nhatKyLoai: "cong_viec_khoan",
+  // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì xoá
+  // hẳn, còn định mức đầu việc / bước lệnh đang trỏ tới thì chỉ ngừng dùng (tiền của lệnh đã phát
+  // KHÔNG được xê dịch). Mục đã ngừng xem lại ở công tắc trên dải lọc.
+  softDelete: true,
+  // Mã do MÁY cấp (`KH-####`) ⇒ ẩn ô Mã lúc tạo. Xưởng gọi việc khoán bằng TÊN ("bế tay", "vào keo
+  // gáy vuông"), chưa ai từng gọi bằng mã — bắt gõ mã là thêm một ô không ai đọc lại.
+  autoCode: true,
+  // Ô công thức của màn này ra LƯỢNG khoán, không ra tiền (tiền = lượng × đơn giá, engine nhân).
+  nhanTabCongThuc: "Cách đo lượng",
+  // Tab lọc = TỔ. Không khai `values` cứng: tổ do người dùng dựng ở cây tổ chức, mọi giá trị đều
+  // đến từ dữ liệu (`dynamic`) — khai cứng là bỏ sót đúng những tổ xưởng mới mở.
+  facet: { key: "to", values: [], dynamic: true },
+  columns: [
+    { key: "group_name", label: "Tổ", render: (r) => nhanTo(r.group_name) },
+    // Đơn vị lưu MÃ, hiện TÊN (server gán `don_vi_ten`) — `m2` không ai đọc thành "m²". Mã lạ (dòng
+    // cũ mang đơn vị ngoài danh mục) thì hiện nguyên mã kèm dấu hiệu: nó là việc phải sửa, không
+    // phải chuyện im lặng bỏ qua.
+    { key: "unit", label: "Đơn vị", render: (r) => {
+        const ma = r.unit ? String(r.unit) : "";
+        if (!ma) return "—";
+        if (r.don_vi_ten) return <span className="rc__formula-pill">{String(r.don_vi_ten)}</span>;
+        return (
+          <span className="badge-sem badge-sem--muted" title="Đơn vị này không có trong danh mục Đơn vị & quy đổi">
+            {ma}
+          </span>
+        );
+      } },
+    { key: "unit_price", label: "Đơn giá",
+      render: (r) => (Number(r.unit_price) ? `${Number(r.unit_price).toLocaleString("vi-VN")} đ` : "—") },
+    { key: "note", label: "Ghi chú", render: (r) => (r.note ? String(r.note) : "—") },
+  ],
+  fields: [
+    // Tổ lấy từ CÙNG endpoint với ô "Tổ phụ trách" của Công đoạn — nút LÁ trong khối Sản xuất. Một
+    // nguồn thì đầu việc khoán và công đoạn không bao giờ trỏ hai danh sách tổ khác nhau (mà lệch
+    // là bước lệnh không tìm thấy đầu việc nào của tổ mình).
+    { key: "department_id", label: "Tổ làm việc này", type: "ref",
+      refPrefix: "/api/cong-doan/phong-ban", required: true, group: "Thông tin",
+      hint: "Bước lệnh của tổ này sẽ chọn được đơn giá vừa khai." },
+    { key: "unit", label: "Đơn vị tính khoán", ...F_DON_VI, required: true, group: "Đơn giá" },
+    { key: "unit_price", label: "Đơn giá (đ)", type: "number", required: true, group: "Đơn giá",
+      hint: "Tiền cho MỘT đơn vị ở trên. Vd bế tay 400 đ/tờ." },
+    // Cách đo LƯỢNG mà đơn giá nhân vào. Bỏ trống thì hệ tự quy đổi SL của bước sang đơn vị này
+    // bằng cầu quy đổi — chỉ khai khi cầu đó không có, hoặc có mà việc này đo theo cách khác.
+    // Ghi chú quan trọng cho người khai: sửa ô này KHÔNG đổi tiền của lệnh đã phát (bước ghim ảnh
+    // chụp lúc chọn đầu việc) — nói ra để không ai tưởng vá xong là số cũ tự đúng theo.
+    { key: "cong_thuc_luong", label: "Cách đo lượng khoán", type: "formula", loaiO: "quy_doi",
+      group: "Đơn giá",
+      hint: "Bỏ trống = hệ tự quy đổi. vd khoán đ/cuốn mà bước đếm tay: sl_ra. Lệnh ĐÃ phát giữ cách đo cũ." },
+    { key: "note", label: "Ghi chú", type: "text", group: "Thông tin" },
+  ],
 };
 
 export const CFG_BU_HAO: CatalogConfig = {
@@ -570,6 +654,13 @@ export const CFG_GIAY: CatalogConfig = {
     // Đơn giá theo cân — CHỐT CỨNG ở danh mục (engine lấy thẳng, phiếu không sửa).
     { key: "don_gia", label: "Đơn giá (đ/kg)", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn (mặc định đ/kg)" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
+    // Ô thứ hai ra LƯỢNG, không ra tiền. Nó là thứ DUY NHẤT còn đổi được tờ → kg cho bảng cân đối
+    // vật tư sau khi gỡ cặp quy đổi động (mg 0198); mg 0197 đã điền sẵn cho giấy bán theo cân, tới
+    // nay chưa có ô nào để người dùng nhìn thấy hay sửa. `loaiO: "quy_doi"` ⇒ chip có `sl_vao`/
+    // `sl_ra` và KHÔNG có đơn giá — ô này không được phép nhắc tới tiền.
+    { key: "cong_thuc_luong", label: "Công thức tính lượng", type: "formula", loaiO: "quy_doi",
+      group: "Giá",
+      hint: "vd: dinh_luong * dai_nguyen * rong_nguyen * to_nguyen — ra số kg giấy phải mua" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
 };
@@ -597,6 +688,12 @@ export const CFG_VAT_TU: CatalogConfig = {
     // (đã quy về đơn vị cơ sở; `don_gia_kg`/`don_gia_m2` gỡ 11/08/2026 vì trùng nghĩa).
     { key: "don_gia", label: "Đơn giá", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn — dùng làm biến don_gia trong công thức" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
+    // Lượng tiêu hao của CHÍNH món này. Đường ưu tiên số 1 của `LsxService._luong_vat_tu`: khai ở
+    // đây thì keo thôi ăn ké "cách đo" của đơn vị `kg` — thứ đang dùng chung cho cả mực lẫn keo dù
+    // hai món tiêu hao khác hẳn nhau.
+    { key: "cong_thuc_luong", label: "Công thức tính lượng", type: "formula", loaiO: "quy_doi",
+      group: "Giá",
+      hint: "vd: sl_ra * 0.02 — lượng tiêu hao của bước, theo ĐVT đã chọn" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
 };
@@ -864,6 +961,7 @@ export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "khai-bao-kho": CFG_KHO_HANG,
   "may-thiet-bi": CFG_MAY,
   "cong-doan": CFG_CONG_DOAN,
+  "cong-viec-khoan": CFG_CONG_VIEC_KHOAN,
   "bu-hao": CFG_BU_HAO,
   "don-vi": CFG_DON_VI,
   "chung-loai-giay": CFG_CHUNG_LOAI_GIAY,

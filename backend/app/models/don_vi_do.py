@@ -166,17 +166,14 @@ class DonViDo(Base):
     # String chứ không Boolean: engine cần biết trạm NÀO để kiểm chiều chảy (tờ nguyên → tờ in →
     # con/tay → cái); Boolean chỉ nói được "có nằm trên dòng hay không" nên không chặn nổi `cai → to`.
     tram_dong_giay: Mapped[str | None] = mapped_column(String(12), nullable=True)
-    # CÁCH ĐO — công thức ĐỊNH NGHĨA chính đơn vị này (mg 0192, nền BOM). Đọc là:
+    # `cong_thuc` (CÁCH ĐO của đơn vị, mg 0192) GỠ 17/08/2026 — mg `0215`. Bảng này nay chỉ trả lời
+    # HAI câu: đơn vị nào có, và đổi qua lại thế nào (cặp `don_vi_quy_doi`, hệ số cố định).
     #
-    #     "một <đơn vị này> đo bằng <công thức>", biến lấy từ quy cách của việc đang làm.
-    #     vd  m² tờ in  :=  dai_in * rong_in * to_sau_in
-    #
-    # KHÁC HẲN `don_vi_quy_doi.cong_thuc`: dòng bên kia nối HAI đơn vị ("1 tờ = … kg"), còn cột này
-    # là đơn vị TỰ ĐỊNH NGHĨA, không đổi sang cái gì. Nhờ vậy mỗi đơn vị có đúng MỘT cách đo —
-    # không có gì để chọn nhầm lúc bung vật tư ở bước lệnh.
-    #
-    # Cũng KHÁC công thức ở Giấy · Vật tư khác · Công đoạn: ba ô đó ra TIỀN, ô này ra LƯỢNG.
-    cong_thuc: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Vì sao gỡ: cách đo treo ở ĐƠN VỊ là câu trả lời dùng chung cho mọi ai đếm bằng đơn vị đó, mà
+    # câu hỏi thật luôn thuộc về một cái CỤ THỂ — keo và mực cùng đo bằng `kg` nhưng ăn khác nhau,
+    # hai máy cùng đo `to_gio` nhưng đếm lượt khác nhau. Nay mỗi nơi có ô của mình:
+    # `giay_nguyen`/`vat_tu_in_an`/`may_thiet_bi`/`piece_rates.cong_thuc_luong` và
+    # `cong_doan.cong_thuc_san_luong`.
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

@@ -1,5 +1,5 @@
 // Chi tiết 1 LỆNH SẢN XUẤT — nơi kế hoạch hoàn thiện lệnh trước khi lập kế hoạch.
-// 4 tab: Thông tin chung · Quy cách · Công đoạn (routing) · Nhật ký.
+// 5 tab: Thông tin chung · Quy cách · Công đoạn (routing) · Vật tư · Nhật ký.
 // Cột phải: checklist "còn thiếu gì" + nút "Sẵn sàng lập kế hoạch" (CTA duy nhất của màn).
 //
 // Trạng thái `nhap ↔ cho_bo_sung` do SERVER lật sau mỗi lần lưu — client luôn lấy lại từ response,
@@ -28,7 +28,9 @@ import { MucInHang } from "../components/MucIn";
 import { Timeline } from "../components/Timeline";
 import { ImpositionDiagram } from "./ImpositionDiagram";
 import { LsxRoutingTable, type RefRow } from "./LsxRoutingTable";
+import { LsxVatTuPanel } from "./LsxVatTuPanel";
 import { donViChuoi } from "./lsxBuoc";
+import { bangKeVatTu } from "./lsxVatTu";
 import { useNapTenDonVi } from "./tenDonVi";
 import {
   BangLoi,
@@ -43,12 +45,15 @@ import {
 // Tab "Số lượng & bù hao" ĐÃ BỎ: mọi số ở đó nay là dẫn xuất của chuỗi ngược (số tờ in, tờ
 // nguyên, bù hao) và đã hiện ở thanh bên. Ô duy nhất còn gõ được là SL ra của bước CUỐI, nằm
 // trong drawer bước; con/tờ chuyển sang tab Quy cách.
-type TabKey = "chung" | "quycach" | "routing" | "nhatky";
+type TabKey = "chung" | "quycach" | "routing" | "vattu" | "nhatky";
 
+// "Vật tư" đứng ngay SAU Công đoạn: bốn tab cũ đi theo mạch lệnh-gì → làm-ra-sao → qua-những-bước
+// -nào → ai-đã-đụng-vào. Câu "ăn những gì" thuộc về chỗ sau chuỗi bước, trước sổ nhật ký.
 const TABS: { key: TabKey; label: string }[] = [
   { key: "chung", label: "Thông tin chung" },
   { key: "quycach", label: "Quy cách" },
   { key: "routing", label: "Công đoạn" },
+  { key: "vattu", label: "Vật tư" },
   { key: "nhatky", label: "Nhật ký" },
 ];
 
@@ -131,6 +136,8 @@ export function LsxDetailView({
   const { token } = useAuth();
   const canUpdate = useCan()("san_xuat", "update");
   // Nhãn đơn vị đọc từ DANH MỤC (không bảng nhãn cứng) — cùng nguồn với bảng routing và Tính giá.
+  // Gọi (không giữ version): hook tự `setState` khi danh mục về ⇒ màn vẽ lại ⇒ bảng kê vật tư
+  // tính lại nhãn đơn vị. Nó là hàm thuần gọi thẳng trong render, không cache.
   useNapTenDonVi();
   const [d, setD] = useState<LsxDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -485,6 +492,14 @@ export function LsxDetailView({
   // (lsxBuoc.ts) — dùng chung với bảng routing, đừng chép lại ở đây.
   const dvChuoi = donViChuoi(d, d.don_vi_tinh);
   const { to: dvTo, tp: dvTp, tay: dvTay, toNguyen: dvToNguyen } = dvChuoi;
+  // Bảng kê vật tư — tính MỘT lần cho cả ô tóm tắt trên đầu màn lẫn tab "Vật tư". Hàm thuần chạy
+  // trên ≤ vài chục bước nên gọi thẳng trong render, không cần memo.
+  const keVatTu = bangKeVatTu({
+    congDoans: d.cong_doans,
+    quyCach: d.quy_cach_json,
+    soToNguyen: d.so_to_nguyen,
+    donViToNguyen: d.don_vi_to_nguyen,
+  });
 
   // SÁCH GẤP TAY vs CẮT RỜI — cùng tiêu chí backend dùng để chọn nhánh hệ số (`la_gap_tay`).
   // Sách: tờ in gấp NGUYÊN VẸN thành một tay, một cuốn cần `soTay` TỜ → giấy nhân lên theo số tay,
@@ -738,6 +753,29 @@ export function LsxDetailView({
           <div className="khsx-kpi-tile">
             <span className="khsx-kpi-tile__label">Công đoạn</span>
             <span className="khsx-kpi-tile__val">{num(d.cong_doans.length)}</span>
+          </div>
+
+          {/* Ô này hiện ở MỌI tab — đó là lý do nó tồn tại. Đứng ở tab Công đoạn vẫn liếc thấy
+              lệnh đã khai vật tư chưa, khỏi phải nhớ bấm sang tab khác để kiểm trước khi phát hành.
+              Chưa khai gì thì để "—" nhạt, KHÔNG hiện số 0: 0 trông như một số đã tính. */}
+          <div
+            className="khsx-kpi-tile"
+            title={
+              keVatTu.so_mon > 0
+                ? `${keVatTu.so_mon} món · ${keVatTu.so_buoc_trong}/${d.cong_doans.length} bước chưa khai`
+                : "Lệnh chưa khai vật tư nào"
+            }
+          >
+            <span className="khsx-kpi-tile__label">Vật tư</span>
+            <span className="khsx-kpi-tile__val">
+              {keVatTu.so_mon > 0 ? (
+                <>
+                  {num(keVatTu.so_mon)} <small>món</small>
+                </>
+              ) : (
+                <span className="khsx-muted">—</span>
+              )}
+            </span>
           </div>
 
           <div className="khsx-kpi-tile">
@@ -1216,6 +1254,22 @@ export function LsxDetailView({
                     onDirtyChange={setRoutingDirty}
                     dvChuoi={dvChuoi}
                   />
+                </div>
+              </div>
+            </section>
+          )}
+
+          {tab === "vattu" && (
+            <section className="khsx-panel" role="tabpanel" id="khsx-panel-vattu" aria-labelledby="khsx-tab-vattu" tabIndex={0}>
+              <div className="khsx-spec__card">
+                <div className="khsx-spec__card-head">
+                  <div className="khsx-spec__card-icon">
+                    <Icon name="box" size={16} />
+                  </div>
+                  <h4 className="khsx-spec__title">Vật tư của lệnh</h4>
+                </div>
+                <div className="khsx-spec__card-body">
+                  <LsxVatTuPanel ke={keVatTu} />
                 </div>
               </div>
             </section>

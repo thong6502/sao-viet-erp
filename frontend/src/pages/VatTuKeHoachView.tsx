@@ -26,7 +26,7 @@ import {
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
-import { BangLoi, EmptyState, Skeleton, classHan, ngay, num } from "./keHoachSxShared";
+import { BangLoi, ChipGap, EmptyState, Skeleton, classHan, ngay, num } from "./keHoachSxShared";
 
 /** Bốn màu — LUÔN kèm chữ, không chỉ dựa màu (a11y). Nhãn nói HỆ QUẢ, không nói màu. */
 const MAU_META: Record<CanDoiMau, { label: string; cls: string; hint: string }> = {
@@ -45,7 +45,27 @@ const MAU_META: Record<CanDoiMau, { label: string; cls: string; hint: string }> 
     cls: "khvt-pill--khongro",
     hint: "Chưa quy đổi được về đơn vị kho — hệ thống KHÔNG đoán. Kiểm lại đơn vị của mặt hàng.",
   },
+  // ĐÃ MUA rồi, chỉ sai ngày. Tách khỏi "Thiếu" vì hai ca chỉ hai việc NGƯỢC NHAU: thiếu thì đi
+  // mua, còn cái này mua thêm là mua đúp đúng lô đang trên đường về — việc phải làm là dời lịch.
+  ve_muon: {
+    label: "Hàng về muộn",
+    cls: "khvt-pill--vemuon",
+    hint: "Đã đặt mua rồi nhưng hàng về SAU ngày cần. Dời bước tiêu thụ, hoặc hối nhà cung cấp — "
+      + "đừng mua thêm.",
+  },
 };
+
+/** Nhãn của một màu, CHỊU ĐƯỢC mã lạ.
+ *
+ *
+ *  Ngã về nhãn trung tính + hiện thẳng mã: thà đọc thấy "ve_muon" còn hơn mất cả màn. */
+function metaCua(mau: CanDoiMau): { label: string; cls: string; hint: string } {
+  return MAU_META[mau] ?? {
+    label: String(mau),
+    cls: "khvt-pill--khongro",
+    hint: "Trạng thái mới từ máy chủ mà màn này chưa biết — báo kỹ thuật cập nhật.",
+  };
+}
 
 const KHUON_META: Record<string, string> = {
   dang_dung: "Đang dùng",
@@ -54,9 +74,14 @@ const KHUON_META: Record<string, string> = {
   thanh_ly: "Đã thanh lý",
 };
 
-/** Khoá duy nhất của một dòng trong cả bảng — dùng cho tick chọn và cho payload đề nghị mua. */
+/** Khoá duy nhất của một dòng trong cả bảng — dùng cho tick chọn, cho React key, và cho payload
+ *  đề nghị mua.
+ *
+ *  ⚠️ NĂM phần tử, phải khớp `_khoa_dong()` bên `services/ke_hoach_vat_tu_service.py`.
+ *
+ *  mất một, React key trùng — và yêu cầu mua ra ĐÚNG MỘT NỬA số cần. */
 function khoa(nhom: CanDoiNhom, d: CanDoiDong): string {
-  return `${nhom.hang_loai}:${nhom.hang_id}:${d.lsx_id ?? ""}:${d.bai_ghep_id ?? ""}`;
+  return `${nhom.hang_loai}:${nhom.hang_id}:${d.lsx_id ?? ""}:${d.bai_ghep_id ?? ""}:${d.buoc_id ?? ""}`;
 }
 
 /** Số theo đơn vị gốc — 2 chữ số thập phân, bỏ phần thập phân vô nghĩa. */
@@ -161,6 +186,7 @@ export function VatTuKeHoachView({
         hang_id: nhom.hang_id,
         lsx_id: d.lsx_id,
         bai_ghep_id: d.bai_ghep_id,
+        buoc_id: d.buoc_id,
       }));
     setDangGui(true);
     try {
@@ -180,11 +206,15 @@ export function VatTuKeHoachView({
   const nhoms = data?.items ?? [];
   const tongDo = nhoms.reduce((s, n) => s + n.so_dong_do, 0);
   const tongKhongRo = nhoms.reduce((s, n) => s + n.so_dong_khong_ro, 0);
+  const tongVeMuon = nhoms.reduce((s, n) => s + (n.so_dong_ve_muon ?? 0), 0);
 
   // Chip trên nút tab chỉ đúng khi KHÔNG lọc — bảng đang lọc thì con số không nói về cả kế hoạch.
+  //
+  // Cộng CẢ BA loại phải lo. Bỏ sót `ve_muon` là bỏ sót đúng thứ vừa dựng ra để không bị bỏ sót:
+  // mặt hàng có 3 lệnh hàng về muộn mà chip hiện 0 thì không ai vào xem.
   useEffect(() => {
-    if (data && !q.trim() && !chiThieu) onSoDo?.(tongDo + tongKhongRo);
-  }, [data, q, chiThieu, tongDo, tongKhongRo, onSoDo]);
+    if (data && !q.trim() && !chiThieu) onSoDo?.(tongDo + tongKhongRo + tongVeMuon);
+  }, [data, q, chiThieu, tongDo, tongKhongRo, tongVeMuon, onSoDo]);
 
   return (
     <>
@@ -198,6 +228,14 @@ export function VatTuKeHoachView({
               title="Chưa quy đổi được về đơn vị kho — hệ thống KHÔNG đoán."
             >
               {num(tongKhongRo)} chưa đánh giá được
+            </span>
+          )}
+          {tongVeMuon > 0 && (
+            <span
+              className="khvt-sum__vemuon"
+              title="Đã đặt mua nhưng hàng về SAU ngày cần — dời lịch, đừng mua thêm."
+            >
+              {num(tongVeMuon)} hàng về muộn
             </span>
           )}
         </span>
@@ -359,6 +397,14 @@ function KhoiMatHang({
             <Icon name="help" size={11} /> {nhom.so_dong_khong_ro} dòng chưa đánh giá được
           </span>
         )}
+        {/* Không có badge này thì mặt hàng lọt vào bộ lọc "chỉ thứ đang thiếu" CHỈ VÌ có dòng về
+            muộn sẽ hiện một thẻ trơn — người dùng không hiểu vì sao nó ở đó. Hai trạng thái phải
+            lo kia đều có badge; thiếu cái thứ ba là lệch khỏi khuôn của chính màn này. */}
+        {(nhom.so_dong_ve_muon ?? 0) > 0 && (
+          <span className="khvt-badge khvt-badge--vemuon">
+            <Icon name="truck" size={11} /> {nhom.so_dong_ve_muon} dòng hàng về muộn
+          </span>
+        )}
         {canChon && keysDo.length > 0 && (
           <label className="khvt-tickall">
             <input
@@ -390,7 +436,7 @@ function KhoiMatHang({
           <tbody>
             {nhom.dong.map((d) => {
               const k = khoa(nhom, d);
-              const meta = MAU_META[d.trang_thai];
+              const meta = metaCua(d.trang_thai);
               const chonDuoc = canChon && d.trang_thai === "do";
               return (
                 <tr key={k} className={`khsx__row ${chon.has(k) ? "khvt-row--chon" : ""}`}>
@@ -426,7 +472,15 @@ function KhoiMatHang({
                     ) : (
                       <span className="khsx__code">{d.ma}</span>
                     )}
+                    {d.is_rush && <ChipGap />}
                     {d.ten_viec && <div className="khsx__sub">{d.ten_viec}</div>}
+                    {d.trang_thai === "ve_muon" && (
+                      // Câu CHỈ VIỆC, không phải mô tả trạng thái: dòng này đã mua rồi, việc còn
+                      // lại là dời lịch. Không nói ra thì người dùng thấy đỏ và đi mua lần nữa.
+                      <div className="khsx__sub khsx__sub--vemuon">
+                        hàng về {ngay(d.ngay_du_hang)} — dời bước tiêu thụ, đừng mua thêm
+                      </div>
+                    )}
                   </td>
                   <td className="khsx-num">
                     {d.nhu_cau_hien_thi}
@@ -530,7 +584,7 @@ function KhoiCongCu({
           </thead>
           <tbody>
             {nhom.dong.map((d) => {
-              const meta = MAU_META[d.trang_thai];
+              const meta = metaCua(d.trang_thai);
               return (
                 <tr key={`${d.lsx_id}`} className="khsx__row">
                   <td className={`khsx-num ${d.moc_tam ? "" : classHan(d.ngay_can)}`}>

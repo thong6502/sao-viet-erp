@@ -133,6 +133,22 @@ const FINE_ACTIONS: Record<
       hint: "Tổ trưởng GIAO số sang tổ kế + XÁC NHẬN NHẬN (2 con dấu, lệch được để truy thất thoát). Không gate cứng chặn tổ nhận chạy.",
     },
   ],
+  // ⚠️ THÊM 17/08/2026 cùng lúc tách khoá. Hai bit này CÓ THẬT ở máy chủ từ lâu
+  // (`routers/xep_lich.py` gác 4 endpoint bằng `approve` + 1 bằng `approve_exception`) nhưng hồi
+  // đó chúng treo trên khoá `san_xuat`, mà ma trận KHÔNG bày ô nào để cấp ⇒ ngoài admin không ai
+  // phát hành được lịch. Cùng một bệnh với `nghi_phep:approve` hồi 11/08/2026.
+  xep_lich: [
+    {
+      key: "can_approve",
+      label: "Phát hành lịch ⚠️",
+      hint: "Chốt lịch đã xếp thành lịch CHÍNH THỨC cho xưởng chạy (và gỡ phát hành). Phát hành xong là routing bị khoá, tổ nhìn theo lịch này mà làm — nên tách khỏi ô Thao tác: người kéo-thả thử nghiệm không đương nhiên là người chốt.",
+    },
+    {
+      key: "can_approve_exception",
+      label: "Duyệt ngoại lệ khi phát hành ⚠️",
+      hint: "Phát hành lịch DÙ danh sách Vấn đề còn cảnh báo (trùng máy, nguy cơ trễ hạn, thiếu dữ liệu…). Nặng hơn ô Phát hành: đây là bỏ qua đèn đỏ, phải là người chịu trách nhiệm nếu trễ đơn. Thường chỉ trưởng điều độ.",
+    },
+  ],
   vai_tro: [{ key: "can_manage_permissions", label: "Sửa ma trận phân quyền" }],
   nguoi_dung: [
     { key: "can_reset_password", label: "Đặt lại mật khẩu" },
@@ -324,10 +340,22 @@ const MODULE_HINTS: Record<string, string> = {
     "Xem: xem báo giá trong phạm vi. Chỉnh sửa: tạo/sửa báo giá + thao tác vòng đời thường (gửi khách, ghi nhận đồng ý/từ chối, hủy, xuất PDF, tạo bản mới). Riêng báo giá “đặc thù” cần quyền chi tiết để duyệt.",
   don_hang_ban:
     "Xem: xem đơn hàng bán. Chỉnh sửa: tạo/sửa đơn. Duyệt đơn đặc thù, hủy đơn đã chốt và ghi phiếu thu cọc nằm ở quyền chi tiết.",
+  // 6 dòng dưới đây gác 6 MÀN RIÊNG (tách 17/08/2026). Trước đó `san_xuat` mở 4 màn và
+  // `ky_thuat_may` mở 2 — nhãn cũ chỉ kể một màn nên người cấp quyền không đoán ra mình vừa mở gì.
   san_xuat:
-    "Xem: mở hộp việc / lệnh sản xuất trong phạm vi. Chỉnh sửa: cấu hình và phát lệnh. Gán thợ, ghi sản lượng, bàn giao giữa tổ nằm ở quyền chi tiết.",
+    "CHỈ màn Kế hoạch sản xuất (hàng chờ → lệnh SX → routing). Xem: mở hộp việc / lệnh trong phạm vi. Chỉnh sửa: tạo lệnh, sửa routing, đánh dấu sẵn sàng. Gán thợ, ghi sản lượng, bàn giao giữa tổ nằm ở quyền chi tiết. Kế hoạch vật tư · Bài ghép · Xếp lịch là ba ô RIÊNG ngay bên dưới — từ 17/08/2026 ô này không còn mở chúng nữa.",
+  ke_hoach_vat_tu:
+    "Màn Kế hoạch vật tư (bảng cân đối: lệnh nào thiếu gì, hôm nào phải đặt). Xem: đọc bảng cân đối — trong đó có GIÁ vật tư và giá trị phải mua, nên cân nhắc trước khi cấp rộng. Chỉnh sửa: khai/sửa số giữ chỗ cho lệnh. Nút “Đề nghị mua” của dòng thiếu KHÔNG đi theo ô này mà theo quyền tạo yêu cầu mua hàng.",
+  bai_ghep:
+    "Màn Bài ghép (gom công đoạn in của nhiều lệnh chạy chung một tờ). Xem: đọc hàng chờ ghép và các bài đã ghép. Chỉnh sửa: tạo bài, chọn giấy/khổ chung, sửa số con trên tờ, khai hao hụt, đánh dấu sẵn sàng.",
+  bai_ghep_2:
+    "Màn Bài ghép 2 — bản CHẠY THỬ song song với màn Bài ghép, làm cùng việc nhưng siết chặt hơn: hàng chờ chỉ hiện lệnh thật sự ghép được, ruột sách buộc cùng loại giấy, mỗi bài tối thiểu 2 lệnh. Chưa cấp sẵn cho vai nào (kể cả Quản trị) — bật ô này cho ai thì người đó thấy mục “Bài ghép 2” trên thanh bên. Đang nghiệm thu: cấp cho một vài người rồi so với màn cũ, xong mới thay hẳn.",
+  xep_lich:
+    "Màn Xếp lịch công đoạn (bảng Gantt theo máy + danh sách Vấn đề). Xem: nhìn lịch cả xưởng. Chỉnh sửa: đưa lệnh vào lịch, gán máy/ca/giờ, kéo-thả dời khe, khóa/gỡ. PHÁT HÀNH lịch và duyệt ngoại lệ nằm ở quyền chi tiết — sửa lịch nháp khác với chốt lịch cho xưởng chạy.",
   ky_thuat_may:
-    "Gác CẢ HAI màn Sửa chữa máy và Phiếu bảo trì (cùng một người làm cả hai việc). Xem: xem phiếu + ảnh hiện trạng/chứng thực — hợp với quản đốc, điều độ. Chỉnh sửa: ghi nhận máy hỏng, ghi đã sửa gì, sinh phiếu bảo trì từ lịch của máy, tick hạng mục, dời lịch, tải ảnh và xác nhận xong — hợp với tổ sửa chữa. Không có quyền duyệt riêng: cửa chặn là ẢNH chứng thực, thiếu ảnh thì KHÔNG AI đóng được phiếu, kể cả giám đốc.",
+    "CHỈ màn Sửa chữa máy. Xem: xem phiếu + ảnh hiện trạng/chứng thực — hợp với quản đốc, điều độ. Chỉnh sửa: ghi nhận máy hỏng, ghi đã sửa gì, tải ảnh và xác nhận xong — hợp với tổ sửa chữa. Không có quyền duyệt riêng: cửa chặn là ẢNH chứng thực, thiếu ảnh thì KHÔNG AI đóng được phiếu, kể cả giám đốc.",
+  phieu_bao_tri:
+    "Màn Phiếu bảo trì (bảo dưỡng định kỳ sinh từ lịch của máy). Tách khỏi Sửa chữa máy 17/08/2026: điều độ cần biết máy nào sắp nằm để né khi xếp lịch, mà không cần đọc phiếu máy hỏng. Xem: xem phiếu + lịch đến hạn. Chỉnh sửa: sinh phiếu từ lịch, tick hạng mục, dời lịch, tải ảnh, xác nhận xong. Cửa chặn vẫn là ẢNH.",
   vai_tro:
     "Xem: xem danh sách vai trò và ma trận quyền. Chỉnh sửa: thêm/sửa/xóa vai trò. Muốn SỬA được chính ma trận này thì cần quyền chi tiết “Sửa ma trận phân quyền”.",
   nguoi_dung:
@@ -377,9 +405,24 @@ const MODULE_GROUPS: {
     label: "Kinh doanh",
     modules: ["khach_hang", "bao_gia", "don_hang_ban", "tinh_gia_thanh"],
   },
-    // `ky_thuat_may` thuộc nhóm Sản xuất: phiếu sửa chữa/bảo trì là việc của xưởng, và ô
-  // quyền của nó sinh cùng module Kỹ thuật máy. Thiếu ở đây thì nó rơi vào nhóm "Khác".
-  { key: "san_xuat", label: "Sản xuất", modules: ["san_xuat", "ky_thuat_may"] },
+  // MỘT MÀN = MỘT DÒNG, xếp đúng thứ tự menu "Sản xuất" để người cấp quyền dò theo màn hình.
+  // 7 mục menu → 7 dòng; trước 17/08/2026 chỉ có 2, bật đủ 2/2 vẫn không siết được màn nào.
+  // Thiếu một khoá ở đây thì nó rơi vào nhóm "Khác" — mà nhóm "Khác" mặc định THU GỌN khi chưa
+  // cấp gì (`open = granted > 0`), nên module mới coi như tàng hình: không cấp được ⇒ menu không
+  // hiện ⇒ tưởng module chưa dựng. `bai_ghep_2` dính đúng bẫy đó ngày 18/08/2026.
+  {
+    key: "san_xuat",
+    label: "Sản xuất",
+    modules: [
+      "san_xuat",
+      "ke_hoach_vat_tu",
+      "bai_ghep",
+      "bai_ghep_2",
+      "xep_lich",
+      "ky_thuat_may",
+      "phieu_bao_tri",
+    ],
+  },
   { key: "kho", label: "Kho", modules: ["kho"] },
   // Thu mua tách khỏi nhóm Kho (10/08/2026): mỗi MÀN một ô quyền + phạm vi riêng, cấp tới đâu
   // làm được tới đó. Thiếu một khoá ở đây thì nó rơi vào nhóm "Khác" — vẫn cấp được, chỉ khó tìm.
@@ -422,11 +465,14 @@ const MODULE_GROUPS: {
     key: "danh_muc",
     label: "Danh mục",
     // MỘT MÀN = MỘT DÒNG, xếp đúng thứ tự menu "Cấu hình danh mục" để người cấp quyền dò theo
-    // màn hình. 10 mục menu → 10 dòng; trước đây chỉ có 5, bật đủ 5/5 vẫn thiếu màn.
+    // màn hình. 11 mục menu → 11 dòng; trước đây chỉ có 5, bật đủ 5/5 vẫn thiếu màn.
     modules: [
       "dm_loai_san_pham",
       "dm_thiet_bi",
       "dm_cong_doan",
+      // Công việc khoán (17/08/2026): tách khỏi ô quyền `luong`. Nay cấp được "khai đơn giá khoán"
+      // mà không phải mở cả bảng lương cho người ta.
+      "dm_cong_viec_khoan",
       "dm_bu_hao",
       "dm_don_vi",
       "dm_chung_loai_giay",
@@ -530,6 +576,18 @@ const PHAM_VI_CHO_PHEP: Record<string, Scope[]> = {
   self_service: ["own"],
   nhan_su: ["department", "all"],
   yeu_cau_chinh_cong: ["department", "all"],
+  // Kỹ thuật máy nằm trong `SCOPELESS_MODULES` của máy chủ (ép `all` lúc lưu) NHƯNG ở nhóm Sản
+  // xuất — nhóm này có cột Phạm vi thật (`san_xuat` dùng), nên không bỏ ô đi được như nhóm Danh
+  // mục. Khoá về một lựa chọn để ô hiện mờ thay vì bày ba lựa chọn mà chọn gì cũng ra `all`.
+  ky_thuat_may: ["all"],
+  // Bốn màn tách khỏi khối Sản xuất 17/08/2026 cũng nằm trong `SCOPELESS_MODULES` của máy chủ
+  // (ép `all` lúc lưu) nhưng ở nhóm Sản xuất — nhóm này có cột Phạm vi thật vì `san_xuat` dùng
+  // (`lsx.py` lọc lệnh theo scope), nên không bỏ cột đi được. Khoá về một lựa chọn để ô hiện mờ.
+  ke_hoach_vat_tu: ["all"],
+  bai_ghep: ["all"],
+  bai_ghep_2: ["all"],
+  xep_lich: ["all"],
+  phieu_bao_tri: ["all"],
 };
 
 const CANH_BAO_O_CHET =
@@ -768,32 +826,38 @@ export function PermissionMatrix({
                           }
                         />
                       </div>
-                      <div className="rdx-perm__cell rdx-perm__cell--scope">
-                        <select
-                          className="rdx-perm__scope"
-                          value={row.scope}
-                          // Chỉ còn ĐÚNG MỘT lựa chọn ⇒ khoá luôn: bày một ô chọn không chọn được
-                          // gì khác chỉ làm người ta bấm thử rồi tưởng hỏng.
-                          disabled={readOnly || phamViChoPhep?.length === 1}
-                          title={
-                            phamViChoPhep?.length === 1
-                              ? "Màn này chỉ có một phạm vi hợp lý — không cần chọn."
-                              : undefined
-                          }
-                          aria-label={`Phạm vi — ${label}`}
-                          onChange={(e) =>
-                            onScope(row.module_key, e.target.value as Scope)
-                          }
-                        >
-                          {SCOPES.filter(
-                            (s) => !phamViChoPhep || phamViChoPhep.includes(s.value),
-                          ).map((s) => (
-                            <option key={s.value} value={s.value}>
-                              {s.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                      {/* Nhóm `noScope` (Danh mục) KHÔNG dựng ô này. Trước 17/08/2026 chỉ tiêu đề
+                          cột bị ẩn còn ô chọn vẫn render → lưới 3 cột đẩy nó rớt xuống dòng dưới,
+                          nằm ngay dưới tên module. Người cấp quyền thấy một ô "Tất cả" tưởng chọn
+                          được, trong khi `role_service.SCOPELESS_MODULES` ép `all` lúc lưu. */}
+                      {!g.noScope && (
+                        <div className="rdx-perm__cell rdx-perm__cell--scope">
+                          <select
+                            className="rdx-perm__scope"
+                            value={row.scope}
+                            // Chỉ còn ĐÚNG MỘT lựa chọn ⇒ khoá luôn: bày một ô chọn không chọn được
+                            // gì khác chỉ làm người ta bấm thử rồi tưởng hỏng.
+                            disabled={readOnly || phamViChoPhep?.length === 1}
+                            title={
+                              phamViChoPhep?.length === 1
+                                ? "Màn này chỉ có một phạm vi hợp lý — không cần chọn."
+                                : undefined
+                            }
+                            aria-label={`Phạm vi — ${label}`}
+                            onChange={(e) =>
+                              onScope(row.module_key, e.target.value as Scope)
+                            }
+                          >
+                            {SCOPES.filter(
+                              (s) => !phamViChoPhep || phamViChoPhep.includes(s.value),
+                            ).map((s) => (
+                              <option key={s.value} value={s.value}>
+                                {s.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
 
                       {fineActs && fineIsOpen && (
                         <div className="rdx-perm__fine" role="group" aria-label={`Quyền chi tiết — ${label}`}>

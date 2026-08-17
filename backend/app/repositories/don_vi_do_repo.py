@@ -10,9 +10,9 @@ from ..models.don_vi_do import DonViDo, DonViQuyDoi
 from .catalog_base import CatalogRepo
 
 _FIELDS = ("ten", "ho", "hieu_luc_tu", "ghi_chu", "active", "dung_lam_toc_do",
-           "tram_dong_giay", "cong_thuc")
-# `cong_thuc` KHÔNG còn trong danh sách ghi được của CẶP (14/08/2026) — cặp chỉ mang hệ số cố định.
-# Cột `don_vi_do.cong_thuc` ở `_FIELDS` là chuyện khác: đó là CÁCH ĐO của chính đơn vị, trả LƯỢNG.
+           "tram_dong_giay")
+# `cong_thuc` KHÔNG còn ghi được ở CẢ HAI bảng: cặp bỏ 14/08/2026 (mg 0198), đơn vị bỏ 17/08/2026
+# (mg 0215). Công thức tính lượng nay khai ở món hàng / máy / đầu việc khoán / công đoạn.
 _CAP_FIELDS = ("tu_id", "den_id", "he_so", "ghi_chu")
 
 

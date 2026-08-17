@@ -98,10 +98,6 @@ from ..schemas.piece_work import (
     LeaderBracketOut,
     LeaderBracketsIn,
     LeaderBracketsOut,
-    RateIn,
-    RateOut,
-    RatesOut,
-    UnitsOut,
 )
 from ..services.payroll_service import (
     PayrollError,
@@ -847,12 +843,17 @@ def my_payslip(svc: Service, employees: Employees, departments: Departments, use
 
 
 # --- Lương khoán (nhịp 2) ---------------------------------------------------
-
-
-@router.get("/khoan/rates", response_model=RatesOut)
-def list_rates(svc: PieceService, user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-               department_id: int | None = None) -> RatesOut:
-    return RatesOut(items=[RateOut.model_validate(r) for r in svc.list_rates(department_id=department_id)])
+#
+# ⚠️ BẢNG ĐƠN GIÁ KHOÁN KHÔNG CÒN Ở ĐÂY. Năm route `/khoan/rates` (list · tạo · sửa · xoá) và
+# `/khoan/units` đã gỡ ngày 17/08/2026: `piece_rates` thành màn "Công việc khoán" của Cấu hình danh
+# mục, đi qua `routers/cong_viec_khoan.py` (`/api/cong-viec-khoan`).
+#
+# Vì sao gỡ chứ không để song song: hai đường ghi vào cùng một bảng thì đường không đi qua
+# `CongViecKhoanService` không ghi nhật ký, và tab Nhật ký của màn thiếu dòng mà chẳng ai biết vì
+# sao. Panel "Đơn giá khoán của tổ" trong Cấu hình lương vẫn khai ngay tại chỗ — nó gọi API mới,
+# lọc theo `?to=<tên tổ>`, và đọc được nhờ OR-gate `luong` ở router kia.
+#
+# Còn lại ở đây: THƯỞNG/PHẠT tổ trưởng theo tỷ lệ hàng lỗi (bảng khác, chuyện khác).
 
 
 @router.get("/khoan/leader-brackets", response_model=LeaderBracketsOut)
@@ -896,52 +897,6 @@ def set_leader_brackets(body: LeaderBracketsIn, svc: PieceService,
         min_output_qty=float(st.min_output_qty),
         items=[LeaderBracketOut.model_validate(b) for b in rows],
     )
-
-
-@router.get("/khoan/units", response_model=UnitsOut)
-def list_khoan_units(svc: PieceService, db: Annotated[Session, Depends(get_db)],
-                     user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> UnitsOut:
-    """Đơn vị CHỌN ĐƯỢC cho ô "Đơn vị" = danh mục `Đơn vị & quy đổi` (chủ 2026-07-31).
-
-    Trước đây là gợi ý cho ô gõ tự do (mồi mặc định ∪ đơn vị đã dùng). Gõ tự do làm đơn vị lệch
-    một chữ so với danh mục là lệnh sản xuất vĩnh viễn không quy đổi ra tiền được — thiếu đơn vị
-    thì thêm ở danh mục, một nguồn chứ không hai.
-
-    CHỈ trả danh mục, KHÔNG nối thêm đơn vị các dòng cũ: dòng cũ lưu MÃ (`m2`, `hop`, `luot`) còn
-    danh mục hiện TÊN (`m²`, `hộp`, `lượt`) nên nối vào là danh sách đôi nhau từng cặp, nhìn như
-    hai đơn vị khác nhau. Dòng cũ vẫn sửa được: màn khai tự chèn chính giá trị của nó vào danh
-    sách chọn (không ép đổi), `quy_doi_service` cũng tra được cả mã lẫn tên.
-    """
-    from ..repositories.don_vi_do_repo import DonViDoRepository
-
-    return UnitsOut(items=[d.ten for d in DonViDoRepository(db).all_active()])
-
-
-@router.post("/khoan/rates", response_model=RateOut, status_code=status.HTTP_201_CREATED)
-def create_rate(body: RateIn, svc: PieceService,
-                user: Annotated[User, Depends(require_permission(MODULE, "create"))]) -> RateOut:
-    try:
-        return RateOut.model_validate(svc.create_rate(**body.model_dump()))
-    except PieceWorkError as exc:
-        _raise(exc)
-
-
-@router.put("/khoan/rates/{rate_id}", response_model=RateOut)
-def update_rate(rate_id: int, body: RateIn, svc: PieceService,
-                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> RateOut:
-    try:
-        return RateOut.model_validate(svc.update_rate(rate_id, **body.model_dump()))
-    except PieceWorkError as exc:
-        _raise(exc)
-
-
-@router.delete("/khoan/rates/{rate_id}", status_code=204)
-def delete_rate(rate_id: int, svc: PieceService,
-                user: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
-    try:
-        svc.delete_rate(rate_id)
-    except PieceWorkError as exc:
-        _raise(exc)
 
 
 # --- Danh mục khoản thu nhập (chủ 2026-07-27) --------------------------------

@@ -78,7 +78,31 @@ def get_service(db: Annotated[Session, Depends(get_db)]) -> StockVoucherService:
         requests, lots, StockThresholdRepository(db), sequence, hang=hang)
     return StockVoucherService(
         StockVoucherRepository(db), requests, lots, sequence, request_service, hang,
+        giu_cho=_giu_cho_service(db),
     )
+
+
+def _giu_cho_service(db: Session):
+    """`GiuChoService` cho đường GHI SỔ — kho phải biết phần nào đã có chủ.
+
+    Dựng TẠI ĐÂY chứ không nhét vào `deps.py`: cùng lối `get_service` của router này, và giữ cho
+    `StockVoucherService` không phải biết cách lắp cả bảng cân đối (nó nhận sẵn qua tham số, vắng
+    thì chạy như cũ).
+    """
+    from ..repositories.bai_ghep_repo import BaiGhepRepository
+    from ..repositories.don_vi_do_repo import DonViDoRepository
+    from ..repositories.lsx_repo import LsxRepository
+    from ..repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
+    from ..services.giu_cho_service import GiuChoService
+    from ..services.ke_hoach_vat_tu_service import KeHoachVatTuService
+
+    kh = KeHoachVatTuService(
+        db, lsx_repo=LsxRepository(db), bai_ghep_repo=BaiGhepRepository(db),
+        hang=_hang_service(db), lots=StockLotRepository(db),
+        requests=StockRequestRepository(db), purchases=PurchaseRequestRepository(db),
+        suppliers=SupplierRepository(db), don_vi=DonViDoRepository(db),
+    )
+    return GiuChoService(db, kh)
 
 
 Service = Annotated[StockVoucherService, Depends(get_service)]

@@ -149,6 +149,80 @@ def _ptg_2_in(db, *, sl_a=20_000, sl_b=8_000) -> PhieuTinhGia:
     return p
 
 
+def _giu_cho_du(db, *, lsx_ids=(), bai_ghep_ids=()):
+    """Dựng ĐỦ VẬT TƯ + bật giữ chỗ — tiền đề MỚI của việc vào kế hoạch (17/08/2026).
+
+    Từ Đợt 2, `dua_vao_lsx` / `dua_vao_bai_ghep` chặn khi chưa giữ đủ vật tư: *đã xếp lịch nghĩa là
+    vật tư đã có chủ*. Mọi test ở file này soi CƠ CHẾ XẾP LỊCH (gán máy, vùng khoá, tiền nhiệm, xem
+    trước), không soi vật tư — nên dựng sẵn kho đầy ở đây, một chỗ, thay vì rắc `bat()` vào 31 chỗ
+    gọi và làm loãng thứ mỗi test thật sự kiểm.
+
+    Kho đầy = một lô rất lớn cho MỌI mặt hàng trong danh mục. Thô nhưng đúng ý: fixture này nói
+    "vật tư không phải là biến của bài toán đang kiểm".
+    """
+    from app.models.kho_hang import KhoHang
+    from app.models.stock_lot import LOT_AVAILABLE, StockLot
+    from app.models.vat_lieu_kho import GiayNguyen, VatTuInAn
+    from app.repositories.bai_ghep_repo import BaiGhepRepository
+    from app.repositories.don_vi_do_repo import DonViDoRepository
+    from app.repositories.lsx_repo import LsxRepository
+    from app.repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
+    from app.repositories.stock_lot_repo import StockLotRepository
+    from app.repositories.stock_request_repo import StockRequestRepository
+    from app.repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+    from app.services.giu_cho_service import GiuChoService
+    from app.services.ke_hoach_vat_tu_service import KeHoachVatTuService
+    from app.services.vat_lieu_kho_service import VatLieuKhoService
+
+    kho = db.query(KhoHang).first()
+    if kho is None:
+        kho = KhoHang(ma="K-XL", ten="Kho test xếp lịch")
+        db.add(kho)
+        db.flush()
+    for loai, model in (("giay", GiayNguyen), ("vat_tu", VatTuInAn)):
+        for mh in db.query(model).all():
+            ma_lo = f"LOT-XL-{loai}-{mh.id}"
+            if db.query(StockLot).filter(StockLot.ma_lo == ma_lo).first():
+                continue
+            db.add(StockLot(hang_loai=loai, hang_id=mh.id, kho_id=kho.id, ma_lo=ma_lo,
+                            sl_ban_dau=1_000_000, sl_con_lai=1_000_000,
+                            ngay_nhap=date.today(), trang_thai=LOT_AVAILABLE))
+    db.commit()
+
+    kh = KeHoachVatTuService(
+        db, lsx_repo=LsxRepository(db), bai_ghep_repo=BaiGhepRepository(db),
+        hang=VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db)),
+        lots=StockLotRepository(db), requests=StockRequestRepository(db),
+        purchases=PurchaseRequestRepository(db), suppliers=SupplierRepository(db),
+        don_vi=DonViDoRepository(db),
+    )
+    gc = GiuChoService(db, kh)
+    for i in lsx_ids:
+        gc.bat(lsx_id=i)
+    for i in bai_ghep_ids:
+        gc.bat(bai_ghep_id=i)
+
+
+def _nha_cho(db, lsx_ids):
+    """Nhả chỗ của các lệnh trước khi GHÉP BÀI.
+
+    Từ Đợt 2, lệnh đang giữ chỗ không ghép bài được — vì ghép làm ĐỔI số giấy cần (và đổi xuống).
+    `_hai_lsx_san_sang` bật sẵn giữ chỗ cho mọi lệnh, nên test nào đi đường bài ghép phải nhả trước.
+    Đúng thao tác người dùng thật: Nhả chỗ → ghép → giữ lại ở bài.
+    """
+    from app.models.lsx import Lsx
+
+    for i in lsx_ids:
+        l = db.get(Lsx, i)
+        if l is not None:
+            l.giu_cho_bat = False
+    from app.models.vat_tu_giu_cho import VatTuGiuCho
+
+    db.query(VatTuGiuCho).filter(VatTuGiuCho.lsx_id.in_(list(lsx_ids))).delete(
+        synchronize_session=False)
+    db.commit()
+
+
 def _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer):
     ptg = _ptg_2_in(db)
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
@@ -156,6 +230,7 @@ def _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer):
     created = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
     for l in created:
         lsx_svc.set_trang_thai(lsx_id=l.id, trang_thai=TT_SAN_SANG, actor=admin)
+    _giu_cho_du(db, lsx_ids=[l.id for l in created])
     return created
 
 
@@ -302,7 +377,11 @@ def _gop_in_va_san_sang(db, bg_svc, bg, admin, keys=None):
             bai_ghep_id=bg.id, gang_step_key=c.step_key, actor=admin,
             patch={"department_id": to_id, "may_id": mau.may_id},
         )
-    return bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
+    ra = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
+    # Bài ghép là CHỦ THỂ giữ chỗ của các lệnh thành viên — bật ở đây, sau khi gộp xong, vì gộp làm
+    # đổi số giấy cần (đó chính là lý do bài đang giữ chỗ thì không cho thêm/rút thành viên).
+    _giu_cho_du(db, bai_ghep_ids=[bg.id])
+    return ra
 
 
 def test_moi_buoc_chung_mot_dong_lich_khong_bi_boc_hoi(
@@ -326,6 +405,7 @@ def test_moi_buoc_chung_mot_dong_lich_khong_bi_boc_hoi(
             don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to",
         ))
     db.commit()
+    _nha_cho(db, [l.id for l in created])
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
 
     tvs = bg_svc._get(bg.id).thanh_viens
@@ -343,6 +423,7 @@ def test_moi_buoc_chung_mot_dong_lich_khong_bi_boc_hoi(
             patch={"department_id": to_id, "may_id": mau.may_id},
         )
     bg = bg_svc.set_trang_thai(bai_ghep_id=bg.id, trang_thai=TT_SAN_SANG, actor=admin)
+    _giu_cho_du(db, bai_ghep_ids=[bg.id])       # tiền đề mới: giữ đủ vật tư mới vào kế hoạch
     xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)
 
     gang = XepLichRepository(db).by_bai_ghep(bg.id)
@@ -369,6 +450,7 @@ def test_bai_ghep_in_chung_mot_dong_loai_tru_in(db, orders, lsx_svc, bg_svc, xl_
             don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to",
         ))
     db.commit()
+    _nha_cho(db, [l.id for l in created])
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
     bg = _gop_in_va_san_sang(db, bg_svc, bg, admin)
 
@@ -811,6 +893,7 @@ def test_lenh_in_hai_luot_chi_loai_dung_luot_duoc_ghep(
             don_vi_nang_suat="to_gio", don_vi_vao="to", don_vi_ra="to",
         ))
     db.commit()
+    _nha_cho(db, [l.id for l in created])
     bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
 
     # Hai lượt in → máy không đoán, bài chưa có gì chạy chung cho tới khi người gộp.

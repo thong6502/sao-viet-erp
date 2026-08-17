@@ -541,6 +541,9 @@ class BuocMacDinhOut(BaseModel):
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
     he_so_quy_doi: float
+    #: Cặp đơn vị trên có nằm trên DÒNG GIẤY không. Đi kèm hai ô trên vì client áp cả cụm một lượt;
+    #: thiếu nó thì dòng vừa đổi sang ghi kẽm (`m² → bài in`) vẫn đeo cờ của công đoạn cũ.
+    tren_dong_giay: bool = True
     setup_phut: float
     nang_suat: float | None = None
     don_vi_nang_suat: str | None = None

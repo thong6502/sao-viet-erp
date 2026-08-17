@@ -44,8 +44,8 @@ function chuKyChu(p: BaoTri): string {
 export function PhieuBaoTriPage() {
   const { token } = useAuth();
   const can = useCan();
-  const suaDuoc = can("ky_thuat_may", "update");
-  const taoDuoc = can("ky_thuat_may", "create");
+  const suaDuoc = can("phieu_bao_tri", "update");
+  const taoDuoc = can("phieu_bao_tri", "create");
   const hepMan = useManHep();
 
   const [rows, setRows] = useState<BaoTri[]>([]);

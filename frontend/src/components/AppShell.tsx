@@ -21,7 +21,9 @@ import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
 import { KeHoachSXPage } from "../pages/KeHoachSXPage";
+import { KeHoachVatTuPage } from "../pages/KeHoachVatTuPage";
 import { BaiGhepPage } from "../pages/BaiGhepPage";
+import { BaiGhep2Page } from "../pages/BaiGhep2Page";
 import { XepLichPage } from "../pages/XepLichPage";
 import { SuaChuaMayPage } from "../pages/SuaChuaMayPage";
 import { PhieuBaoTriPage } from "../pages/PhieuBaoTriPage";
@@ -62,6 +64,7 @@ import {
   type NavItem,
 } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { coTheMoKenhSse } from "./appShellRealtime";
 
 /** A cross-module navigation intent: which screen to open + optional payload so the
  *  target screen can pre-pin a customer or drill straight to a document. */
@@ -348,26 +351,66 @@ export function AppShell() {
         })
         .catch(() => {});
     }
+    // Bốn badge khối Sản xuất — mỗi cái gác bằng KHOÁ CỦA MÀN NÓ (tách 17/08/2026). Trước đây cả
+    // bốn nằm chung trong `if (readable.has("san_xuat"))`; để nguyên thì ai chỉ được cấp Bài ghép
+    // sẽ không thấy badge của chính màn mình, còn ai chỉ có Kế hoạch SX lại gọi 3 API bị 403
+    // (im lặng vì `.catch`, nhưng vẫn là 3 lượt gọi thừa mỗi lần mở app).
     // Badge Kế hoạch SX = số đơn Sale đã chuyển xuống mà CÒN dòng chưa lên lệnh (hàng chờ).
     if (readable.has("san_xuat")) {
       api.lsx
         .hangCho(token)
         .then((r) => setBadges((prev) => ({ ...prev, "ke-hoach-sx": r.total })))
         .catch(() => {});
-      // Badge Bài ghép = số LSX sẵn sàng đang chờ ghép (pool).
+    }
+    // Badge Bài ghép = số LSX sẵn sàng đang chờ ghép (pool).
+    if (readable.has("bai_ghep")) {
       api.baiGhep
         .hangCho(token)
         .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep": r.total })))
         .catch(() => {});
-      // Badge Xếp lịch = số nguồn (LSX / bài ghép) đang chờ xếp (chưa đưa vào kế hoạch).
+    }
+    if (readable.has("bai_ghep_2")) {
+      api.baiGhep2
+        .hangCho(token)
+        .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep-2": r.total })))
+        .catch(() => {});
+    }
+    // Badge Xếp lịch = số nguồn (LSX / bài ghép) đang chờ xếp (chưa đưa vào kế hoạch).
+    if (readable.has("xep_lich")) {
       api.xepLich
         .hangCho(token)
         .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan": r.total })))
         .catch(() => {});
     }
+    if (readable.has("ke_hoach_vat_tu")) {
+      // Badge Kế hoạch vật tư = Σ BA loại việc phải lo: thiếu · chưa đánh giá được · hàng về muộn.
+      // Gộp cả ba vì cả ba đều làm lệnh đứng máy — thứ máy không tính nổi còn phải lo NHIỀU HƠN
+      // thứ đã biết thiếu, còn hàng về muộn thì đã mua rồi nhưng vẫn chưa chạy được.
+      //
+      // ⚠️ CỐ Ý chỉ nạp ở đây, KHÔNG nạp lại trong nhánh SSE bên dưới như ba badge trên: `can-doi`
+      // duyệt mọi lệnh + bài ghép + lô kho + phiếu mua rồi chạy engine quy đổi cho từng dòng — đắt
+      // hơn hẳn ba endpoint `hangCho` kia. Bắt nó tính lại sau MỖI sự kiện sản xuất là trả giá lớn
+      // cho một con số đổi rất chậm. Màn đang mở thì vẫn tươi: nó tự refetch theo `eventTick`.
+      api.keHoachVatTu
+        .canDoi(token, { chi_thieu: true })
+        .then((r) =>
+          setBadges((prev) => ({
+            ...prev,
+            // Cộng CẢ BA loại phải lo: thiếu · chưa đánh giá được · hàng về muộn. Bỏ sót loại thứ
+            // ba là bỏ sót đúng thứ vừa dựng ra để đừng bị bỏ sót — `chi_thieu=true` có trả về
+            // nhóm chỉ toàn dòng về muộn, mà badge hiện 0 thì không ai bấm vào.
+            "ke-hoach-vat-tu": (r.items ?? []).reduce(
+              (s, g) =>
+                s + (g.so_dong_do ?? 0) + (g.so_dong_khong_ro ?? 0) + (g.so_dong_ve_muon ?? 0),
+              0,
+            ),
+          })),
+        )
+        .catch(() => {});
+    }
     // Badge Phiếu bảo trì = số phiếu TỚI HẠN/quá hạn còn dở. Ticker nền đẩy `bao_tri_due` khi tới
     // ngày ⇒ số này tự nhảy, thợ không phải mở màn mới biết máy tới kỳ.
-    if (readable.has("ky_thuat_may")) {
+    if (readable.has("phieu_bao_tri")) {
       kyThuatMay
         .denHan(token)
         .then((r) => {
@@ -447,8 +490,7 @@ export function AppShell() {
   // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
-    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca") || readable.has("di_muon") || readable.has("thu_mua") || readable.has("yeu_cau_mua_hang") || readable.has("ke_toan") ||
-      readable.has("phieu_chi") || readable.has("phieu_thu"))) return;
+    if (!token || readable === null || !coTheMoKenhSse(readable)) return;
 
     const close = connectQuoteEvents(token, (e) => {
       // Có thông báo mới vào chuông → refetch list + badge chuông (độc lập luồng badge module).
@@ -512,32 +554,46 @@ export function AppShell() {
           })
           .catch(() => {});
       } else if (
-        readable.has("san_xuat") &&
-        (e.type === "order_ordered" ||
-          e.type === "lsx_changed" ||
-          e.type === "bai_ghep_changed" ||
-          e.type === "xep_lich_changed")
+        e.type === "order_ordered" ||
+        e.type === "lsx_changed" ||
+        e.type === "bai_ghep_changed" ||
+        e.type === "xep_lich_changed"
       ) {
         // Sale "Chuyển xuống sản xuất" → hàng chờ Kế hoạch nhảy (badge + toast); Kế hoạch/ghép bài/
         // xếp lịch đổi → 3 badge khối Sản xuất co giãn NGAY. Nội dung màn tự refetch qua `quoteTick`.
-        api.lsx
-          .hangCho(token)
-          .then((r) => {
-            setBadges((prev) => ({ ...prev, "ke-hoach-sx": r.total }));
-            if (e.type === "order_ordered") {
-              pushToast(`🔔 Đơn ${e.code ?? ""} vừa chuyển xuống sản xuất`.trim(), "info");
-            }
-          })
-          .catch(() => {});
-        api.baiGhep
-          .hangCho(token)
-          .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep": r.total })))
-          .catch(() => {});
-        api.xepLich
-          .hangCho(token)
-          .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan": r.total })))
-          .catch(() => {});
-      } else if (readable.has("ky_thuat_may") && e.type === "bao_tri_due") {
+        //
+        // Ba lượt nạp gác RIÊNG từng khoá (tách 17/08/2026): một sự kiện `lsx_changed` vẫn làm
+        // hàng chờ của cả ba màn đổi, nhưng người chỉ có Bài ghép thì chỉ nên nạp lại badge Bài ghép.
+        if (readable.has("san_xuat")) {
+          api.lsx
+            .hangCho(token)
+            .then((r) => {
+              setBadges((prev) => ({ ...prev, "ke-hoach-sx": r.total }));
+              if (e.type === "order_ordered") {
+                pushToast(`🔔 Đơn ${e.code ?? ""} vừa chuyển xuống sản xuất`.trim(), "info");
+              }
+            })
+            .catch(() => {});
+        }
+        if (readable.has("bai_ghep")) {
+          api.baiGhep
+            .hangCho(token)
+            .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep": r.total })))
+            .catch(() => {});
+        }
+        if (readable.has("bai_ghep_2")) {
+          api.baiGhep2
+            .hangCho(token)
+            .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep-2": r.total })))
+            .catch(() => {});
+        }
+        if (readable.has("xep_lich")) {
+          api.xepLich
+            .hangCho(token)
+            .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan": r.total })))
+            .catch(() => {});
+        }
+      } else if (readable.has("phieu_bao_tri") && e.type === "bao_tri_due") {
         // Tới ngày bảo trì → ting tổ sửa chữa: toast + badge "Phiếu bảo trì" tự nhảy.
         pushToast(
           `${e.qua_han ? "⚠️ Quá hạn bảo trì" : "🔧 Tới hạn bảo trì"}: ${e.may} · ${e.goi}`.trim(),
@@ -941,6 +997,7 @@ export function AppShell() {
             focusEmployeeId={navParams?.focusEmployeeId}
             eventTick={quoteTick}
             openTab={navParams?.luongTab}
+            navigate={navigate}
           />
         );
       case "khach-hang":
@@ -967,8 +1024,12 @@ export function AppShell() {
             onBadgeStale={reloadBadges}
           />
         );
+      case "ke-hoach-vat-tu":
+        return <KeHoachVatTuPage navigate={navigate} eventTick={quoteTick} />;
       case "bai-ghep":
         return <BaiGhepPage navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
+      case "bai-ghep-2":
+        return <BaiGhep2Page navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "xep-lich-cong-doan":
         return <XepLichPage navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "sua-chua-may":

@@ -74,6 +74,17 @@ class MayThietBi(Base):
     # "Đơn vị & quy đổi"). `don_vi_do.ma` rộng 24 ⇒ mã ở đây có thể tới 28 ký tự: 16 là TRÀN.
     # SQLite bỏ qua độ dài nên test vẫn xanh, Postgres thật thì lỗi lúc lưu — nới lên 32 (mg 0153).
     don_vi_toc_do: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # CÔNG THỨC LƯỢNG của MÁY NÀY (mg `0213`) — "một bước chạy trên máy này thì bằng bao nhiêu
+    # <đơn vị tốc độ>". Ra LƯỢNG, KHÔNG ra giờ: phép `÷ tốc độ` và hai tầng thời lượng giữ nguyên.
+    #
+    # Vì sao gắn vào MÁY chứ không vào đơn vị: `don_vi_do.cong_thuc` là cách đo của một ĐƠN VỊ nên
+    # mọi máy đo bằng đơn vị đó dùng chung một cách tính — trong khi lượt in của máy 5 màu là
+    # `sl_vao * so_mau / 5`, của máy 2 màu là chia 2. Cùng lý do `vat_tu_in_an.cong_thuc_luong` phải
+    # gắn vào món hàng (keo và mực cùng đo bằng `kg` nhưng tiêu hao khác hẳn).
+    #
+    # Đọc SỐNG (không ghim vào bước như đơn giá khoán): đổi máy là đổi tốc độ, giờ chạy vốn phải
+    # tính theo máy ĐANG gán. `LsxService._sl_theo_don_vi` đọc nó ở BẬC 0, trước cầu quy đổi.
+    cong_thuc_luong: Mapped[str | None] = mapped_column(Text, nullable=True)
     makeready_time_default: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)  # phút
     so_nhan_cong: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, server_default="1", default=1)
 

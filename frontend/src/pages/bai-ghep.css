@@ -27,17 +27,8 @@
 }
 .bghep .khsx-select-sm:focus-visible { outline: 2px solid var(--rust); outline-offset: -1px; }
 
-/* --- Kiểm tương thích --- */
+/* --- Dòng gợi ý trên canvas --- */
 .bghep .bghep-hint { font-size: var(--fs-sm); color: var(--ash); margin: 0 0 var(--sp-4); }
-.bghep .bghep-compat__attr { font-weight: var(--fw-medium); color: var(--ink); white-space: nowrap; }
-.bghep .bghep-muc {
-  display: inline-block; padding: 2px 10px; border-radius: 999px;
-  font-size: var(--fs-xs); font-weight: var(--fw-medium); white-space: nowrap;
-}
-/* "Phù hợp" = trung tính (xám): màu chỉ dành cho thiểu số cần chú ý (cần xác nhận / không phù hợp). */
-.bghep .bghep-muc--ok { background: var(--rule-soft); color: var(--ash); }
-.bghep .bghep-muc--warn { background: var(--amber-soft); color: var(--amber-deep); }
-.bghep .bghep-muc--bad { background: var(--signal-soft); color: var(--signal); }
 
 /* --- Nhắc xả tờ (callout hổ phách) --- */
 .bghep .bghep-note {
@@ -915,8 +906,10 @@
   letter-spacing: 0.02em;
 }
 
-/* --- Modern Modal Popup --- */
-/* --- Modern Modal Popup (WOW Pro Max) --- */
+/* --- Modal Popup ---
+   Modal KHÔNG trượt, KHÔNG scale: nó là bàn nhập liệu mở đi mở lại chục lần một phiên, mỗi lần
+   nhấp nháy vị trí là một lần mắt phải bắt lại chỗ. Chỉ mờ dần cả lớp overlay (opacity trên cha
+   kéo theo dialog) — dialog tự đứng đúng chỗ ngay từ khung đầu. */
 .bgsd-modal-overlay {
   position: fixed;
   top: 0;
@@ -931,12 +924,15 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  animation: bgsdFadeIn 0.2s ease-out;
+  animation: bgsdFadeIn 0.14s ease-out;
 }
 
 @keyframes bgsdFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bgsd-modal-overlay { animation: none; }
 }
 
 .bgsd-modal-dialog {
@@ -950,12 +946,6 @@
   border-radius: 18px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25), 0 8px 24px rgba(15, 23, 42, 0.1);
   overflow: hidden;
-  animation: bgsdSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes bgsdSlideUp {
-  from { opacity: 0; transform: translateY(14px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .bgsd-modal-head {
@@ -1203,51 +1193,6 @@
 }
 .bgsd-ups-goiy:hover { color: #1d4ed8; }
 
-/* Chip + icon "Kiểm tương thích": màu THEO mức xấu nhất của dữ liệu, không tô cứng. Dùng token
-   hệ (moss/amber/signal) thay hex thô — xem quy ước ở đầu file. */
-.bgsd-chip-compat-count {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  margin-left: 8px;
-}
-.bgsd-chip-compat-count.is-ok { background: var(--moss-soft); color: var(--moss-deep); }
-.bgsd-chip-compat-count.is-warn { background: var(--amber-soft); color: var(--amber-deep); }
-.bgsd-chip-compat-count.is-bad { background: var(--signal-soft); color: var(--signal); }
-
-.bgsd-compat-icon { flex: none; }
-.bgsd-compat-icon.is-ok { color: var(--moss); }
-.bgsd-compat-icon.is-warn { color: var(--amber-deep); }
-.bgsd-compat-icon.is-bad { color: var(--signal); }
-
-.bgsd-accordion-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: transparent;
-  border: 0;
-  padding: 4px 0;
-  cursor: pointer;
-  text-align: left;
-}
-.bgsd-accordion-caret {
-  transition: transform 0.2s ease;
-  color: #64748b;
-}
-.bgsd-accordion-caret.is-open {
-  transform: rotate(180deg);
-}
-
-.bgsd-accordion-body {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid #e2e8f0;
-}
-
 .bgsd-banner-callout {
   display: flex;
   align-items: center;
@@ -1327,33 +1272,6 @@
   color: var(--ink, #0f172a);
   letter-spacing: 0.02em;
   margin-bottom: 4px;
-}
-
-.bgsd-accordion-btn {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 4px 0;
-  border: 0;
-  background: transparent;
-  color: var(--ink, #0f172a);
-  cursor: pointer;
-}
-.bgsd-accordion-btn:hover { opacity: 0.85; }
-.bgsd-accordion-caret {
-  flex: none;
-  transition: transform 0.16s ease;
-}
-.bgsd-accordion-caret.is-open { transform: rotate(180deg); }
-@media (prefers-reduced-motion: reduce) {
-  .bgsd-accordion-caret { transition: none; }
-}
-
-.bgsd-accordion-body {
-  margin-top: 8px;
-  max-height: 320px;
-  overflow-y: auto;
 }
 
 @media (max-width: 1024px) {
@@ -1506,9 +1424,13 @@
     0 20px 45px -10px rgba(15, 23, 42, 0.45),
     0 0 0 1px rgba(255, 255, 255, 0.1) inset;
   font-size: 13px;
-  animation: bgsdSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: bgsdSelbarUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
-@keyframes bgsdSlideUp {
+/* Tên RIÊNG, không dùng tên chung: keyframes này mang `translateX(-50%)` của riêng thanh pill (nó
+   tự căn giữa bằng transform). Trước đây nó tên `bgsdSlideUp` trùng với keyframes của modal, mà
+   trùng tên thì bản KHAI SAU thắng cả file — modal bị kéo lệch nửa chiều rộng sang trái rồi trượt
+   ngang vào. Đặt tên theo chỗ dùng là hết đường tái phát. */
+@keyframes bgsdSelbarUp {
   from { transform: translate(-50%, 20px); opacity: 0; }
   to { transform: translate(-50%, 0); opacity: 1; }
 }
@@ -1574,3 +1496,26 @@
   gap: 12px;
   padding-top: 4px;
 }
+
+/* ── "Vì sao lệnh này không có ở đây" (17/08/2026) ────────────────────────────────────────────
+   Lệnh đã bật giữ chỗ vật tư bị LỌC khỏi hàng chờ ghép, không phải chặn lúc bấm. Biến mất im lặng
+   thì người ghép đi tìm một mã cụ thể sẽ tưởng lệnh chưa sẵn sàng và đi sửa nhầm chỗ — nên phải
+   nói ra, kèm đúng đường gỡ.
+
+   Xám-trung-tính chứ không đỏ/cam: đây KHÔNG phải lỗi, mà là thứ tự làm việc đúng (ghép trước, giữ
+   chỗ sau). Tô cảnh báo lên nó là dạy người dùng sợ một việc bình thường. */
+.bghep-anvi {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  color: var(--ash);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+.bghep-anvi > svg { flex: 0 0 auto; margin-top: 3px; }
+.bghep-anvi b { color: var(--ink); font-weight: var(--fw-bold); }

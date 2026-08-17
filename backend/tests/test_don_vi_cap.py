@@ -105,49 +105,31 @@ def test_don_vi_chua_khai_cap_noi_thang(svc):
     assert svc.canh_bao(thung), "phải nhắc là chưa dùng quy đổi được"
 
 
-def test_chips_noi_ro_manh_nao_la_cong_thuc(svc):
-    """Màn danh sách tô màu theo `loai` server trả, KHÔNG tự đoán từ chữ.
-
-    Ca thật 14/08/2026: "bài in = Tờ vào máy + 2000" hiện xám y như một hệ số cố định, vì màn hình
-    đoán "đây là công thức" bằng cách dò tên biến (`dinh_luong`, `dai`…) và dấu `×` — mà tên biến
-    đã được server đổi sang nhãn tiếng Việt, còn công thức này thì chỉ có dấu `+`.
-    """
-    bai = svc.create({"ma": "bai", "ten": "bài in", "cong_thuc": "to_dau_vao + 2000"})
-    met = svc.create({"ma": "m", "ten": "mét"})
-    svc.create_cap({"tu_id": bai.id, "den_id": met.id, "he_so": 65})
-
-    chips = svc.quy_doi_chips(bai)
-    assert [c["loai"] for c in chips] == ["cong_thuc", "co_dinh"]
-    assert chips[0]["text"] == "bài in = Tờ vào máy + 2000"
-    assert chips[1]["text"] == "1 bài in = 65 mét"
-    # Chuỗi phẳng giữ nguyên hình dạng cũ — nhật ký và tooltip vẫn đọc nó.
-    assert svc.quy_doi_text(bai) == "bài in = Tờ vào máy + 2000 · 1 bài in = 65 mét"
-
-
-def test_chips_cua_don_vi_MUON_cong_thuc_cung_la_cong_thuc(svc):
-    """`g` mượn công thức của `kg` qua cầu tĩnh — mảnh đó vẫn phải là `cong_thuc`, không phải hệ số."""
-    kg = svc.create({"ma": "kg", "ten": "kg", "cong_thuc": "sl_ra * 200"})
-    g = svc.create({"ma": "g", "ten": "g"})
-    svc.create_cap({"tu_id": kg.id, "den_id": g.id, "he_so": 1000})
-
-    chips = svc.quy_doi_chips(g)
-    assert chips[0]["loai"] == "cong_thuc"
-    assert "theo kg" in chips[0]["text"]
-
-
-# --- cách đo của chính đơn vị (thay chỗ quy đổi động đã gỡ) ---------------------
+# --- module này CHỈ còn: khai đơn vị + quy đổi giữa các đơn vị ------------------
 #
-# 🔴 Bảy ca test của QUY ĐỔI ĐỘNG gỡ 14/08/2026 cùng cơ chế (mg `0198`):
+# Hai đợt gỡ, cùng một lý do — công thức KHÔNG thuộc về đơn vị:
+#
+#   14/08/2026 (mg `0198`) — CẶP mang công thức ("1 tờ = f(quy cách) kg"), bảy ca test đi cùng:
 #     `test_luu_duoc_dong_cong_thuc` · `test_chan_bien_la_trong_cong_thuc`
 #     `test_dong_cong_thuc_khong_bi_chan_mau_thuan` · `test_moi_don_vi_chi_mot_cong_thuc_ra_no`
 #     `test_sua_chinh_dong_cong_thuc_khong_tu_chan`
 #     `test_canh_bao_hai_cong_thuc_cung_dich_cho_du_lieu_cu`
 #     `test_canh_bao_cap_so_co_dinh_de_len_duong_cong_thuc` · `test_khong_canh_bao_cap_cung_loai_do`
 #
-# Chúng kiểm cặp-mang-công-thức và hai cảnh báo chỉ tồn tại vì cặp đó. Cửa vào nay CHẶN
-# (`test_cap_khong_nhan_cong_thuc_nua` ngay dưới), nên giữ chúng là test một tính năng không còn.
-# Luật "một phép đo một công thức" KHÔNG mất — nó chuyển sang cụm đơn vị, xem
-# `test_mot_CUM_TINH_chi_mot_cong_thuc_luong`.
+#   17/08/2026 (mg `0215`) — CÁCH ĐO của chính đơn vị (`don_vi_do.cong_thuc`), tám ca test đi cùng:
+#     `test_chips_noi_ro_manh_nao_la_cong_thuc`
+#     `test_chips_cua_don_vi_MUON_cong_thuc_cung_la_cong_thuc`
+#     `test_don_vi_mang_cach_do_cua_chinh_no`
+#     `test_don_vi_co_cong_thuc_hien_cong_thuc_va_KHONG_bao_chua_khai`
+#     `test_mot_CUM_TINH_chi_mot_cong_thuc_luong`
+#     `test_khong_co_cap_noi_thi_to_va_kg_deu_duoc_co_cong_thuc`
+#     `test_noi_cau_TINH_gop_hai_cong_thuc_thi_CHAN`
+#     `test_chan_chip_sl_vao_khi_don_vi_dang_la_dau_ra_cua_buoc_ngoai_dong`
+#
+# Cách đo treo ở đơn vị là câu trả lời DÙNG CHUNG cho mọi ai đếm bằng đơn vị đó, trong khi câu hỏi
+# thật luôn thuộc về một cái CỤ THỂ: keo và mực cùng đo `kg` mà ăn khác nhau. Nay mỗi nơi có ô
+# riêng — `cong_thuc_luong` ở Giấy · Vật tư · Máy · Công việc khoán, `cong_thuc_san_luong` ở Công
+# đoạn (luật vòng-tròn `sl_vao`/`sl_ra` theo về đó, xem `test_cong_doan.py`).
 
 
 def test_cap_khong_nhan_cong_thuc_nua(svc):
@@ -166,110 +148,6 @@ def test_cap_khong_nhan_cong_thuc_nua(svc):
     with pytest.raises(DonViDoValidationError, match="E-DV-CAP-CONGTHUC"):
         svc.update_cap(cap.id, {"tu_id": to.id, "den_id": kg.id, "he_so": 0.039,
                                 "cong_thuc": "dinh_luong * dai_in * rong_in"})
-
-
-def test_don_vi_mang_cach_do_cua_chinh_no(svc):
-    """CÁCH ĐO (mg 0192): công thức ĐỊNH NGHĨA chính đơn vị, KHÔNG nối với đơn vị nào.
-
-    Đây là nguồn số lượng của BOM, và từ 14/08/2026 là cách DUY NHẤT khai công thức cho đơn vị.
-    Khác ô công thức ở Giấy · Vật tư khác · Công đoạn (`cong_thuc_gia`) — ô đó ra TIỀN.
-    """
-    dv = svc.create({"ma": "m2_to_in", "ten": "m² tờ in",
-                     "cong_thuc": "dai_in * rong_in * to_sau_in"})
-    assert dv.cong_thuc == "dai_in * rong_in * to_sau_in"
-    # Đơn vị thường không bắt buộc có cách đo.
-    assert svc.create({"ma": "thung", "ten": "thùng"}).cong_thuc is None
-    # Sửa được, và xoá trắng thì về None chứ không giữ chuỗi rỗng.
-    assert svc.update(dv.id, {"ma": dv.ma, "ten": dv.ten, "cong_thuc": "  "}).cong_thuc is None
-    # Biến lạ bị chặn ngay — để lọt thì cách đo nằm chết, mọi vật tư dùng đơn vị này im lặng ra 0.
-    with pytest.raises(DonViDoValidationError, match="do_day"):
-        svc.create({"ma": "hop_x", "ten": "hộp X", "cong_thuc": "do_day * dai_in"})
-
-
-# --- vòng đời -----------------------------------------------------------------
-
-
-def test_don_vi_co_cong_thuc_hien_cong_thuc_va_KHONG_bao_chua_khai(svc):
-    """Đơn vị TỰ TÍNH không cần cặp nào — cột "Quy đổi" phải in công thức, đừng bảo "chưa khai".
-
-    Dính 13/08/2026: `kg_giay_to_in` khai công thức tử tế mà màn danh sách vẫn hiện "Chưa khai quy
-    đổi" + cảnh báo vàng, vì cả hai chỗ chỉ nhìn bảng CẶP. Người khai nhìn vào tưởng chưa lưu được,
-    rồi đi khai thêm một cặp không ai dùng cho hết cảnh báo.
-    """
-    dv = svc.create({"ma": "kg_giay_to_in", "ten": "kg giấy (theo tờ in)",
-                     "ho": "khoi_luong",
-                     "cong_thuc": "dinh_luong * dai_in * rong_in * to_dau_vao"})
-    # Câu hiển thị đọc được bằng chữ, không phải mã biến trần.
-    cau = svc.quy_doi_text(dv)
-    # KHÔNG có "1 " — câu định nghĩa, không phải tỉ số.
-    assert cau.startswith("kg giấy (theo tờ in) = ")
-    assert "Định lượng giấy" in cau and "Tờ vào máy" in cau
-    assert svc.canh_bao(dv) == [], "đơn vị tự tính không cần cặp — đừng báo chưa khai quy đổi"
-
-    # Đơn vị THƯỜNG chưa khai gì thì vẫn phải nhắc như cũ.
-    thung = svc.create({"ma": "thung_x", "ten": "thùng X"})
-    assert svc.quy_doi_text(thung) == "Chưa khai quy đổi"
-    assert svc.canh_bao(thung)
-
-
-def test_mot_CUM_TINH_chi_mot_cong_thuc_luong(svc):
-    """`kg · tấn · g` nối nhau bằng hằng số ⇒ MỘT phép đo ⇒ chỉ được MỘT công thức lượng.
-
-    Hai công thức trong cùng cụm là hai số cho cùng một câu hỏi, và `_cach_do_lan` bên lệnh sẽ
-    phải chọn bừa.
-    """
-    kg = svc.create({"ma": "kg", "ten": "kg", "ho": "khoi_luong",
-                     "cong_thuc": "dinh_luong * dai_in * rong_in * to_dau_vao"})
-    tan = svc.create({"ma": "tan", "ten": "tấn", "ho": "khoi_luong"})
-    svc.create_cap({"tu_id": tan.id, "den_id": kg.id, "he_so": 1000})
-
-    with pytest.raises(DonViDoValidationError, match="E-DV-BOM-TRUNG"):
-        svc.update(tan.id, {"ma": "tan", "ten": "tấn", "ho": "khoi_luong",
-                            "cong_thuc": "so_luong * 2"})
-    # Sửa ở chính đơn vị đang giữ công thức thì KHÔNG bị chặn.
-    svc.update(kg.id, {"ma": "kg", "ten": "kg", "ho": "khoi_luong", "cong_thuc": "so_luong * 3"})
-
-
-def test_khong_co_cap_noi_thi_to_va_kg_deu_duoc_co_cong_thuc(svc):
-    """`tờ` đếm tờ giấy, `kg` cân khối lượng — hai PHÉP ĐO khác nhau, mỗi cái một công thức.
-
-    Luật "một cụm một công thức" chỉ bó trong CỤM (đơn vị nối nhau bằng hệ số cố định). Trước
-    14/08/2026 hai đơn vị này nối bằng cạnh ĐỘNG và test kiểm rằng cạnh động không gộp cụm; nay
-    không có cạnh nào nối chúng nữa, nhưng kết luận phải giữ y nguyên — gộp là chặn oan.
-    """
-    to = svc.create({"ma": "to", "ten": "tờ", "ho": "to", "cong_thuc": "to_dau_vao"})
-    kg = svc.create({"ma": "kg", "ten": "kg", "ho": "khoi_luong"})
-    svc.update(kg.id, {"ma": "kg", "ten": "kg", "ho": "khoi_luong",
-                       "cong_thuc": "dinh_luong * dai_in * rong_in * to_dau_vao"})
-    assert svc.get(kg.id).cong_thuc and svc.get(to.id).cong_thuc
-
-
-def test_noi_cau_TINH_gop_hai_cong_thuc_thi_CHAN(svc):
-    """Chiều NGƯỢC: hai đơn vị đã có công thức rồi mới nối cầu tĩnh ⇒ cụm mới có hai ⇒ chặn.
-
-    Không có luật này thì chỉ cần khai ngược thứ tự là lọt.
-    """
-    kg = svc.create({"ma": "kg", "ten": "kg", "ho": "khoi_luong", "cong_thuc": "so_luong"})
-    ta = svc.create({"ma": "ta", "ten": "tạ", "ho": "khoi_luong", "cong_thuc": "so_luong * 2"})
-    with pytest.raises(DonViDoValidationError, match="E-DV-BOM-TRUNG"):
-        svc.create_cap({"tu_id": ta.id, "den_id": kg.id, "he_so": 100})
-
-
-def test_chan_chip_sl_vao_khi_don_vi_dang_la_dau_ra_cua_buoc_ngoai_dong(svc):
-    """Chiều NGƯỢC của luật vòng tròn: sửa công thức đơn vị thêm `sl_vao` sau khi đã khai công đoạn.
-
-    Không có nó thì khai ngược thứ tự là lọt — khai công đoạn trước, rồi mới thêm chip.
-    """
-    from app.models.cong_doan import CongDoan
-
-    kem = svc.create({"ma": "kem", "ten": "bản kẽm", "ho": "kem", "cong_thuc": "so_kem"})
-    svc.repo.db.add(CongDoan(ma="CD-CTP", ten="Ghi kẽm CTP", nhom="prepress",
-                             don_vi_vao="kem", don_vi_ra="kem"))
-    svc.repo.db.commit()
-
-    with pytest.raises(DonViDoValidationError, match="E-DV-VONG-TRON"):
-        svc.update(kem.id, {"ma": "kem", "ten": "bản kẽm", "ho": "kem",
-                            "cong_thuc": "sl_vao * 2"})
 
 
 def test_xoa_don_vi_thi_cap_cua_no_di_theo(svc):

@@ -1,6 +1,6 @@
-"""Nhật ký của MỘT bản ghi danh mục — một cửa chung cho cả 10 màn Cấu hình danh mục.
+"""Nhật ký của MỘT bản ghi danh mục — một cửa chung cho cả 11 màn Cấu hình danh mục.
 
-Một endpoint thay vì mười: các màn danh mục giống hệt nhau về mặt này (đọc `audit_logs` theo
+Một endpoint thay vì mười một: các màn danh mục giống hệt nhau về mặt này (đọc `audit_logs` theo
 target `"{loai}:{id}"`), tách ra mười route chỉ tổ chép mười lần cùng một đoạn.
 
 Quyền: KHÔNG đẻ ô quyền mới — ai ĐỌC được màn nào thì xem được nhật ký của bản ghi trong màn đó

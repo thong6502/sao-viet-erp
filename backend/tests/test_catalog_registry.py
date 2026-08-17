@@ -1,4 +1,4 @@
-"""KHOÁ hành vi của `app.catalog_registry` — bảng khai một-nguồn cho 10 màn Cấu hình danh mục.
+"""KHOÁ hành vi của `app.catalog_registry` — bảng khai một-nguồn cho 11 màn Cấu hình danh mục.
 
 Đợt B8 gom bốn bản chép tay ở backend (seed quyền · `SCOPELESS_MODULES` · `LOAI_MODULE` của nhật
 ký · `model_cua` của luồng xoá) về một chỗ. Rút trừu tượng kiểu này hỏng IM LẶNG: mất một khoá
@@ -16,6 +16,7 @@ from app.models.don_vi_do import DonViDo
 from app.models.khuon_be import KhuonBe
 from app.models.loai_san_pham import LoaiSanPham
 from app.models.may_thiet_bi import MayThietBi
+from app.models.piece_work import PieceRate
 from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 from app.routers.nhat_ky_danh_muc import LOAI_MODULE
 from app.seed import MODULES
@@ -24,14 +25,19 @@ from app.services.role_service import SCOPELESS_MODULES
 
 # ── Bản gốc, chép tay từ code TRƯỚC đợt B8 ──────────────────────────────────────
 
-#: `role_service.SCOPELESS_MODULES` bản cũ — 10 khoá danh mục + Kỹ thuật máy.
+#: `role_service.SCOPELESS_MODULES` bản cũ — 11 khoá danh mục + Kỹ thuật máy, cộng 4 màn khối
+#: Sản xuất tách khoá riêng ngày 17/08/2026 (đã soi: không router nào của chúng đọc scope).
+#: `san_xuat` KHÔNG có mặt — `lsx.py` đọc scope thật để thợ chỉ thấy lệnh của mình.
+#: `dm_cong_viec_khoan` (17/08/2026): màn danh mục nên scopeless như 10 màn kia — bảng đơn giá là
+#: dữ liệu GỐC của cả xưởng, không có khái niệm "đơn giá của tôi".
 SCOPELESS_CU = frozenset({
-    "dm_loai_san_pham", "dm_thiet_bi", "dm_cong_doan", "dm_bu_hao", "dm_don_vi",
-    "dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "khuon_be", "dm_kho_hang",
+    "dm_loai_san_pham", "dm_thiet_bi", "dm_cong_doan", "dm_cong_viec_khoan", "dm_bu_hao",
+    "dm_don_vi", "dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "khuon_be", "dm_kho_hang",
     "ky_thuat_may",
+    "ke_hoach_vat_tu", "bai_ghep", "bai_ghep_2", "xep_lich", "phieu_bao_tri",
 })
 
-#: `nhat_ky_danh_muc.LOAI_MODULE` bản cũ — 16 khoá: 10 tên chính, 3 tên đời cũ
+#: `nhat_ky_danh_muc.LOAI_MODULE` bản cũ — 17 khoá: 11 tên chính, 3 tên đời cũ
 #: (`product_type`/`machine`/`operation`), bảng phụ `don_vi_quy_doi`, 2 khoá Kỹ thuật máy.
 LOAI_MODULE_CU = {
     "loai_san_pham": "dm_loai_san_pham",
@@ -40,6 +46,9 @@ LOAI_MODULE_CU = {
     "machine": "dm_thiet_bi",
     "cong_doan": "dm_cong_doan",
     "operation": "dm_cong_doan",
+    # Đơn giá khoán vào Cấu hình danh mục 17/08/2026 — trước đó bảng `piece_rates` KHÔNG ghi nhật ký
+    # dòng nào (CRUD của nó nằm ở router Lương, ngoài nền danh mục).
+    "cong_viec_khoan": "dm_cong_viec_khoan",
     "bu_hao": "dm_bu_hao",
     "don_vi_do": "dm_don_vi",
     "don_vi_quy_doi": "dm_don_vi",
@@ -60,6 +69,9 @@ MODEL_CU = {
     # Máy vào bản đồ 15/08/2026 cùng cột `active` (mg `0202`): trước đó nó `model=None`
     # nên `kiem-xoa` trả 404 và hộp thoại xoá của màn Máy rơi vào ngõ cụt.
     "may_thiet_bi": MayThietBi,
+    # Công việc khoán vào bản đồ 17/08/2026: `kiem-xoa` đếm định mức đầu việc + bước lệnh/bài ghép
+    # đang ghim đơn giá này.
+    "cong_viec_khoan": PieceRate,
 }
 
 
@@ -84,7 +96,7 @@ def test_model_cua_y_nguyen_ban_cu():
         assert model_cua(loai) is None, f"{loai}: phải là None, không được suy ra model"
 
 
-def test_seed_modules_giu_du_10_o_quyen_va_khong_trung():
+def test_seed_modules_giu_du_o_quyen_va_khong_trung():
     """Ma trận quyền lấy dòng từ bảng `modules` do seed đẻ ra. Thiếu một dòng = không cấp được
     quyền cho màn đó; trùng một dòng = seed đè nhãn qua lại giữa hai lần chạy."""
     keys = [k for k, _ in MODULES]
@@ -106,7 +118,7 @@ def test_khuon_be_giu_nguyen_chuoi_quyen():
 def test_khong_trung_loai_khong_trung_module():
     loai = [d.loai for d in DANH_MUC] + [a for d in DANH_MUC for a in d.alias_loai]
     assert len(loai) == len(set(loai)), "trùng `loai` giữa tên chính và tên đời cũ"
-    assert len(MODULE_KEYS) == len(set(MODULE_KEYS)) == 10
+    assert len(MODULE_KEYS) == len(set(MODULE_KEYS)) == 11
 
 
 def test_dem_theo_loai_phu_dung_cac_man_co_model():
@@ -122,11 +134,11 @@ def _admin(client) -> dict[str, str]:
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
-def test_dang_ky_tra_du_10_man(client):
+def test_dang_ky_tra_du_cac_man(client):
     r = client.get("/api/danh-muc/dang-ky", headers=_admin(client))
     assert r.status_code == 200, r.text
     items = r.json()["items"]
-    assert len(items) == 10
+    assert len(items) == 11
     assert [i["module"] for i in items] == list(MODULE_KEYS), "phải giữ đúng thứ tự menu"
     for i in items:
         assert {"loai", "module", "nhan", "path"} == set(i), f"khoá lệch: {sorted(i)}"

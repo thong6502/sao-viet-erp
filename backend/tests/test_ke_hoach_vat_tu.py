@@ -24,7 +24,7 @@ from app.db import Base, SessionLocal, engine
 from app.db_migrations import run_migrations
 from app.models.bai_ghep import BaiGhep, BaiGhepThanhVien
 from app.models.customer import Customer
-from app.models.lsx import TT_SAN_SANG, Lsx, LsxCongDoan
+from app.models.lsx import TT_CHO_BO_SUNG, TT_NHAP, TT_SAN_SANG, Lsx, LsxCongDoan
 from app.models.may_thiet_bi import MayThietBi
 from app.models.order import Order, OrderLine
 from app.models.purchase import (
@@ -46,7 +46,10 @@ from app.repositories.stock_lot_repo import StockLotRepository
 from app.repositories.stock_request_repo import StockRequestRepository
 from app.repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from app.seed import seed_all
-from app.services.ke_hoach_vat_tu_service import KeHoachVatTuService
+from app.services.ke_hoach_vat_tu_service import (
+    KeHoachVatTuService,
+    KeHoachVatTuValidationError,
+)
 from app.services.vat_lieu_kho_service import VatLieuKhoService
 
 HOM_NAY = date.today()
@@ -357,13 +360,23 @@ def test_lenh_chua_xep_lay_moc_tam_bang_han_sx_tru_thoi_gian_dan(db, svc, custom
     assert dong["ngay_can"] < han
 
 
-def test_hang_ve_sau_ngay_can_thi_van_do(db, svc, customer):
+def test_hang_ve_sau_ngay_can_KHONG_duoc_cong_vao_ton(db, svc, customer):
+    """Lô về sau ngày cần KHÔNG được cộng vào tồn — dòng vẫn là việc phải lo.
+
+    ⚠️ Đổi assert 17/08/2026: trước đây kỳ vọng `do`, nay là `ve_muon`. KHÔNG phải nới lỏng — nó
+    CHẶT hơn: `ve_muon` nói thêm rằng hàng ĐÃ MUA rồi, chỉ sai ngày. Cửa chặn phát hành ở bàn xếp
+    lịch nhận cả hai mã như nhau (`xep_lich_van_de_service._thieu_vat_tu`), nên lệnh vẫn không
+    phát hành được. Cái đổi là CÂU CHỈ VIỆC: đỏ thì đi mua, về muộn thì dời lịch.
+    """
     g = _giay(db)
     _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000,
           han=HOM_NAY + timedelta(days=2))
     _phieu_mua(db, hang=("giay", g.id), so_luong=500, ngay_ve=HOM_NAY + timedelta(days=30))
 
-    assert _nhom(svc.can_doi(), g)["dong"][0]["trang_thai"] == "do"
+    dong = _nhom(svc.can_doi(), g)["dong"][0]
+    assert dong["trang_thai"] == "ve_muon"
+    assert dong["con_lai_sau"] < 0          # lô kia KHÔNG được cộng vào — đây mới là điều cốt lõi
+    assert dong["ngay_du_hang"] == HOM_NAY + timedelta(days=30)
 
 
 # --- HẠN ĐẶT ------------------------------------------------------------------
@@ -604,3 +617,586 @@ def test_dong_trong_nhom_sap_theo_NGAY_CAN(db, svc, customer):
 # 🔴 Khối test nhóm "Công cụ" (khuôn) đã GỠ 16/08/2026 cùng chính nhóm đó — xem mg `0203`.
 # Cặp cờ `requires_tooling` / `tooling_type` VẪN CÒN ở danh mục Công đoạn, nhưng nay chỉ phiếu
 # tính giá đọc (để biết bước nào hỏi PHÍ khuôn) — luật đó gác ở `test_thanh_phan_engine.py`.
+
+
+# ============ ĐỢT 1 (17/08/2026) — ba lỗi làm SAI SỐ TIỀN ĐI MUA ============
+#
+# Cả ba cùng một họ HỎNG CÂM: bảng vẫn vẽ ra, không lỗi, chỉ con số gửi sang thu mua là sai.
+
+
+def _vat_tu(db, *, ma="VT-MUC", ten="Mực đen", don_vi="kg") -> VatTuInAn:
+    vt = VatTuInAn(ma=ma, ten=ten, don_vi_gia=don_vi)
+    db.add(vt)
+    db.commit()
+    return vt
+
+
+def _khai_vat_tu(db, buoc, vt, so_luong, dvt="kg") -> None:
+    from app.models.lsx import LsxCongDoanVatTu
+
+    db.add(LsxCongDoanVatTu(
+        lsx_cong_doan_id=buoc.id, vat_tu_id=vt.id, vat_tu_ma_snapshot=vt.ma,
+        vat_tu_ten_snapshot=vt.ten, don_vi_snapshot=dvt, so_luong=so_luong,
+    ))
+    db.commit()
+
+
+def _them_buoc(db, lsx, *, thu_tu, ten) -> LsxCongDoan:
+    b = LsxCongDoan(lsx_id=lsx.id, thu_tu=thu_tu, ten=ten, loai_buoc="may", may_id=_may(db).id,
+                    don_vi_vao="to", don_vi_ra="to", so_luong_vao=100, so_luong_ra=100)
+    db.add(b)
+    db.commit()
+    return b
+
+
+def _buoc_dau(db, lsx) -> LsxCongDoan:
+    """Bước ĐẦU của lệnh. `order_by` tường minh: mọi chỗ gọi hiện đều lúc lệnh mới có một bước,
+    nhưng `.first()` trần sẽ gãy im lặng nếu ai đó tái dùng sau `_them_buoc`."""
+    return (db.query(LsxCongDoan)
+            .filter(LsxCongDoan.lsx_id == lsx.id)
+            .order_by(LsxCongDoan.thu_tu.asc(), LsxCongDoan.id.asc())
+            .first())
+
+
+def _khai_vat_tu_bai(db, buoc_chung, vt, so_luong, dvt="kg") -> None:
+    """Vật tư của một bước CHUNG của bài ghép — bảng khác hẳn bảng vật tư của bước lệnh."""
+    from app.models.bai_ghep_cong_doan import BaiGhepCongDoanVatTu
+
+    db.add(BaiGhepCongDoanVatTu(
+        bai_ghep_cong_doan_id=buoc_chung.id, vat_tu_id=vt.id, vat_tu_ma_snapshot=vt.ma,
+        vat_tu_ten_snapshot=vt.ten, don_vi_snapshot=dvt, so_luong=so_luong,
+    ))
+    db.commit()
+
+
+# --- Lỗi ①: một lệnh ăn CÙNG một vật tư ở NHIỀU công đoạn ---------------------
+
+
+def test_cung_vat_tu_o_hai_buoc_sinh_HAI_dong_khac_khoa(db, svc, customer):
+    """Một lệnh có nhiều công đoạn, mỗi công đoạn khai vật tư riêng ⇒ hai dòng RIÊNG BIỆT.
+
+    Ca thật trên DB dev: LSX26-0004 khai *Màng cán bóng* ở cả #20 In offset lẫn #50 Xén 3 mặt.
+    """
+    g = _giay(db)
+    vt = _vat_tu(db)
+    l = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=100, han=MAI)
+    b1 = _buoc_dau(db, l)
+    b2 = _them_buoc(db, l, thu_tu=2, ten="Bước hai")
+    _khai_vat_tu(db, b1, vt, 5)
+    _khai_vat_tu(db, b2, vt, 5)
+
+    nhom = next(x for x in svc.can_doi()["items"]
+                if (x["hang_loai"], x["hang_id"]) == ("vat_tu", vt.id))
+    assert len(nhom["dong"]) == 2, "hai công đoạn ⇒ hai dòng, không được gộp"
+    assert nhom["tong_can"] == pytest.approx(10)
+    # KHOÁ phải khác nhau — đây là thứ `gom_de_nghi` tra; trùng khoá là nuốt mất một dòng.
+    assert {d["buoc_id"] for d in nhom["dong"]} == {b1.id, b2.id}
+
+
+def test_de_nghi_mua_cong_DU_ca_hai_buoc_khong_ra_mot_nua(db, svc, customer):
+    """🔴 Lỗi ① — trước 17/08/2026 hàm này trả 5 thay vì 10, đúng MỘT NỬA.
+
+    Khoá dòng thiếu `buoc_id` nên hai dòng cùng lệnh + cùng món trùng khoá; dict `tra` ghi đè, dòng
+    sau nuốt dòng trước. Không lỗi, không cảnh báo — chỉ là đơn mua ra nửa số cần.
+    """
+    g = _giay(db)
+    vt = _vat_tu(db)
+    l = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=100, han=MAI)
+    b1 = _buoc_dau(db, l)
+    b2 = _them_buoc(db, l, thu_tu=2, ten="Bước hai")
+    _khai_vat_tu(db, b1, vt, 5)
+    _khai_vat_tu(db, b2, vt, 5)
+
+    gom = svc.gom_de_nghi([
+        {"hang_loai": "vat_tu", "hang_id": vt.id, "lsx_id": l.id,
+         "bai_ghep_id": None, "buoc_id": b1.id},
+        {"hang_loai": "vat_tu", "hang_id": vt.id, "lsx_id": l.id,
+         "bai_ghep_id": None, "buoc_id": b2.id},
+    ])
+    assert len(gom["lines"]) == 1                      # gộp về MỘT dòng hàng để đi mua
+    assert gom["lines"][0]["quantity"] == pytest.approx(10)
+
+
+def test_da_cap_CHIA_cho_cac_buoc_khong_tru_nguyen_vao_tung_dong(db, svc, customer):
+    """🔴 Cùng họ lỗi ①, nhưng ở phía ĐÃ CẤP — sửa 17/08/2026.
+
+    Phiếu xuất kho chỉ gắn `lsx_id`, KHÔNG có `lsx_cong_doan_id`: kho xuất cho một LỆNH chứ không
+    cho một bước. Nhưng lệnh ăn cùng món ở hai công đoạn thì có HAI dòng cùng khoá đó. Trừ nguyên
+    phần đã cấp vào cả hai ⇒ cả hai ra `con_phai_co = 0` ⇒ bảng báo "đã cấp đủ" trong khi xưởng
+    còn thiếu đúng một nửa. Tệ hơn báo thiếu oan: không ai đi mua bù.
+
+    Chia theo thứ tự ngày cần — cùng luật con trỏ tồn và luật ưu tiên của giữ chỗ.
+    """
+    g = _giay(db)
+    vt = _vat_tu(db)
+    l = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=100, han=MAI)
+    b1 = _buoc_dau(db, l)
+    b2 = _them_buoc(db, l, thu_tu=2, ten="Bước hai")
+    _khai_vat_tu(db, b1, vt, 5)
+    _khai_vat_tu(db, b2, vt, 5)
+    # Kho mới cấp 5 kg cho cả lệnh — đủ MỘT bước, không đủ hai.
+    r = StockRequest(ma="DNX-CHIA", loai=REQ_XUAT, nguoi_tao_id=1, trang_thai=REQ_APPROVED)
+    db.add(r)
+    db.flush()
+    db.add(StockRequestLine(request_id=r.id, hang_loai="vat_tu", hang_id=vt.id, lsx_id=l.id,
+                            dvt="kg", sl_de_nghi=5, sl_duyet=5, sl_da_ung=5))
+    db.commit()
+
+    nhom = next(x for x in svc.can_doi()["items"]
+                if (x["hang_loai"], x["hang_id"]) == ("vat_tu", vt.id))
+    con = [_f2(d["con_phai_co"]) for d in nhom["dong"]]
+    assert sorted(con) == [0, 5], f"5 kg chỉ phủ được MỘT bước, thực tế còn phải có: {con}"
+    assert nhom["tong_can"] == pytest.approx(5), "cả lệnh vẫn còn thiếu 5 kg"
+
+
+def _f2(v) -> float:
+    return round(float(v or 0), 2)
+
+
+def test_tick_trung_mot_dong_khong_lam_mua_gap_doi(db, svc, customer):
+    """Client gửi hai lần cùng một khoá (bấm đúp / bảng cũ) ⇒ vẫn chỉ tính MỘT lần."""
+    g = _giay(db)
+    vt = _vat_tu(db)
+    l = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=100, han=MAI)
+    b1 = _buoc_dau(db, l)
+    _khai_vat_tu(db, b1, vt, 5)
+
+    khoa = {"hang_loai": "vat_tu", "hang_id": vt.id, "lsx_id": l.id,
+            "bai_ghep_id": None, "buoc_id": b1.id}
+    gom = svc.gom_de_nghi([khoa, dict(khoa)])
+    assert gom["lines"][0]["quantity"] == pytest.approx(5)
+
+
+# --- Lỗi ②: "đã mua nhưng về muộn" KHÁC "chưa mua gì" ------------------------
+
+
+def test_ve_muon_khong_cho_tick_mua_them(db, svc, customer):
+    """Mua thêm cho lô đang trên đường về là MUA ĐÚP — chặn ngay ở cửa."""
+    g = _giay(db)
+    l = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000,
+              han=HOM_NAY + timedelta(days=2))
+    _phieu_mua(db, hang=("giay", g.id), so_luong=500, ngay_ve=HOM_NAY + timedelta(days=30))
+
+    with pytest.raises(KeHoachVatTuValidationError, match="đang về"):
+        svc.gom_de_nghi([{"hang_loai": "giay", "hang_id": g.id, "lsx_id": l.id,
+                          "bai_ghep_id": None, "buoc_id": _buoc_dau(db, l).id}])
+
+
+def test_ngay_ve_lay_lo_DU_PHU_khong_phai_lo_gan_nhat(db, svc, customer):
+    """Dời lịch theo lô gần nhất mà lô đó chỉ có 1 kg thì tới nơi vẫn không đủ hàng.
+
+    Hai lô: 1 kg về sau 10 ngày, 5.000 kg về sau 40 ngày. Lệnh cần ~83 kg ⇒ chỉ lô THỨ HAI mới cứu
+    được, nên ngày trả về phải là ngày của lô đó.
+    """
+    g = _giay(db)
+    _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000,
+          han=HOM_NAY + timedelta(days=2))
+    _phieu_mua(db, hang=("giay", g.id), so_luong=1, ngay_ve=HOM_NAY + timedelta(days=10))
+    _phieu_mua(db, hang=("giay", g.id), so_luong=5_000, ngay_ve=HOM_NAY + timedelta(days=40))
+
+    dong = _nhom(svc.can_doi(), g)["dong"][0]
+    assert dong["trang_thai"] == "ve_muon"
+    assert dong["ngay_du_hang"] == HOM_NAY + timedelta(days=40)
+
+
+def test_dong_khong_co_ngay_can_thi_KHONG_dan_nhan_ve_muon(db, svc, customer):
+    """"Muộn" là muộn SO VỚI một mốc — dòng chưa có mốc nào thì không có gì để so.
+
+    Dán nhãn đó vào sẽ vừa cấm tick mua vừa chặn phát hành với câu "dời bước tiêu thụ", trong khi
+    việc thật là đi khai hạn sản xuất.
+    """
+    g = _giay(db)
+    _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=None)
+    _phieu_mua(db, hang=("giay", g.id), so_luong=5_000, ngay_ve=HOM_NAY + timedelta(days=30))
+
+    assert _nhom(svc.can_doi(), g)["dong"][0]["trang_thai"] != "ve_muon"
+
+
+def test_loc_chi_thieu_GIU_nhom_chi_co_dong_ve_muon(db, svc, customer):
+    """Hàng mua rồi mà về muộn thì lệnh VẪN đứng máy — lọc nó đi là giấu đúng việc phải lo."""
+    g = _giay(db)
+    _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000,
+          han=HOM_NAY + timedelta(days=2))
+    _phieu_mua(db, hang=("giay", g.id), so_luong=5_000, ngay_ve=HOM_NAY + timedelta(days=30))
+
+    nhom = _nhom(svc.can_doi(chi_thieu=True), g)
+    assert nhom["so_dong_ve_muon"] == 1 and nhom["so_dong_do"] == 0
+
+
+# --- Lỗi ③: đặt hàng theo ngày mà hệ TỰ NHẬN là không suy được ---------------
+
+
+def test_ngay_khong_suy_duoc_thi_KHONG_dung_lam_needed_date(db, svc, customer):
+    """Lệnh còn bước chưa gán máy ⇒ mốc tạm rơi về đúng hạn SX (muộn hơn thật), và hệ TỰ ĐÁNH DẤU.
+
+    Lấy chính con số mình vừa tuyên bố là sai đi đặt hàng thì đặt trễ mà bảng vẫn xanh.
+    """
+    g = _giay(db)
+    han = HOM_NAY + timedelta(days=20)
+    l = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=han)
+    buoc = _buoc_dau(db, l)
+    buoc.may_id = None          # gỡ máy ⇒ thời gian dẫn = 0 ⇒ cờ `dan_khong_suy_duoc`
+    db.commit()
+
+    dong = _nhom(svc.can_doi(), g)["dong"][0]
+    assert "dan_khong_suy_duoc" in dong["canh_bao"]
+
+    gom = svc.gom_de_nghi([{"hang_loai": "giay", "hang_id": g.id, "lsx_id": l.id,
+                            "bai_ghep_id": None, "buoc_id": buoc.id}])
+    assert gom["needed_date"] != han, "không được lấy ngày mà hệ vừa nói là không suy được"
+    assert "chưa suy được" in gom["ghi_chu_ngay"]
+
+
+def test_ghi_chu_kem_ngay_can_tung_lenh(db, svc, customer):
+    """Yêu cầu chỉ mang MỘT ngày (sớm nhất) — người mua cần biết các mốc còn lại."""
+    g = _giay(db)
+    l1 = _lenh(db, customer, ma="LSX-SOM", giay_id=g.id, so_to_nguyen=500,
+               han=HOM_NAY + timedelta(days=5))
+    l2 = _lenh(db, customer, ma="LSX-MUON", giay_id=g.id, so_to_nguyen=500,
+               han=HOM_NAY + timedelta(days=25))
+
+    gom = svc.gom_de_nghi([
+        {"hang_loai": "giay", "hang_id": g.id, "lsx_id": l1.id,
+         "bai_ghep_id": None, "buoc_id": _buoc_dau(db, l1).id},
+        {"hang_loai": "giay", "hang_id": g.id, "lsx_id": l2.id,
+         "bai_ghep_id": None, "buoc_id": _buoc_dau(db, l2).id},
+    ])
+    assert "LSX-SOM" in gom["ghi_chu_ngay"] and "LSX-MUON" in gom["ghi_chu_ngay"]
+
+
+def test_khong_co_han_SX_thi_noi_dung_ly_do(db, svc, customer):
+    """Hai đường làm `ngays` rỗng ⇒ hai câu khác nhau. Chẩn đoán sai thì thu mua đi sửa nhầm chỗ.
+
+    Ở đây lệnh KHÔNG có hạn SX (khác hẳn ca "còn bước chưa gán máy") — nói "chưa gán máy" là chỉ
+    người ta đi gán máy, gán xong vẫn không ra ngày.
+    """
+    g = _giay(db)
+    l = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=None)
+
+    gom = svc.gom_de_nghi([{"hang_loai": "giay", "hang_id": g.id, "lsx_id": l.id,
+                            "bai_ghep_id": None, "buoc_id": _buoc_dau(db, l).id}])
+    assert "chưa khai hạn sản xuất" in gom["ghi_chu_ngay"]
+    assert "chưa gán máy" not in gom["ghi_chu_ngay"]
+
+
+def test_tron_lenh_ro_va_lenh_mo_thi_GOI_TEN_lenh_mo(db, svc, customer):
+    """Yêu cầu vẫn có ngày (từ lệnh rõ) nhưng phải nói ra lệnh nào KHÔNG tin được ngày.
+
+    Im lặng ở đây thì người mua đọc "LSX-RO, LSX-MO · cần 21/08" và tưởng cả hai cùng cần 21/08.
+    """
+    g = _giay(db)
+    ro = _lenh(db, customer, ma="LSX-RO", giay_id=g.id, so_to_nguyen=500,
+               han=HOM_NAY + timedelta(days=6))
+    mo = _lenh(db, customer, ma="LSX-MO", giay_id=g.id, so_to_nguyen=500,
+               han=HOM_NAY + timedelta(days=20))
+    b_mo = _buoc_dau(db, mo)
+    b_mo.may_id = None                       # ⇒ cờ `dan_khong_suy_duoc`
+    db.commit()
+
+    # Lấy ngày cần THẬT của từng dòng thay vì ghim số: ngày cần là mốc SUY (hạn SX − thời gian
+    # dẫn), nên ghim cứng sẽ đỏ oan mỗi khi ai đó chỉnh tốc độ máy trong fixture.
+    dong = {d["ma"]: d for d in _nhom(svc.can_doi(), g)["dong"]}
+    gom = svc.gom_de_nghi([
+        {"hang_loai": "giay", "hang_id": g.id, "lsx_id": ro.id,
+         "bai_ghep_id": None, "buoc_id": _buoc_dau(db, ro).id},
+        {"hang_loai": "giay", "hang_id": g.id, "lsx_id": mo.id,
+         "bai_ghep_id": None, "buoc_id": b_mo.id},
+    ])
+    assert gom["needed_date"] == dong["LSX-RO"]["ngay_can"], "phải lấy ngày của lệnh RÕ"
+    assert gom["needed_date"] != dong["LSX-MO"]["ngay_can"]
+    assert "LSX-MO" in gom["ghi_chu_ngay"] and "Chưa suy được" in gom["ghi_chu_ngay"]
+    assert "chưa gán máy" in gom["ghi_chu_ngay"]      # LSX-MO có hạn, chỉ thiếu máy
+
+
+def test_tron_lenh_ro_va_lenh_KHONG_HAN_thi_noi_dung_ly_do(db, svc, customer):
+    """🔴 Cùng cờ `dan_khong_suy_duoc` nhưng HAI nguyên nhân — phải ra HAI câu.
+
+    Lệnh chưa khai hạn SX cũng đeo cờ đó, dù máy đã gán đủ. In cứng "còn bước chưa gán máy" là chỉ
+    thu mua đi bảo kế hoạch gán máy, kế hoạch mở ra thấy máy đủ rồi. Vài lần thế là không ai đọc
+    câu ⚠ nữa — mà cả đợt này dựng lên để những câu ⚠ đó đáng tin.
+    """
+    g = _giay(db)
+    ro = _lenh(db, customer, ma="LSX-RO", giay_id=g.id, so_to_nguyen=500,
+               han=HOM_NAY + timedelta(days=6))
+    # Máy GÁN ĐỦ, chỉ thiếu hạn SX.
+    khong_han = _lenh(db, customer, ma="LSX-NOHAN", giay_id=g.id, so_to_nguyen=500, han=None)
+
+    gom = svc.gom_de_nghi([
+        {"hang_loai": "giay", "hang_id": g.id, "lsx_id": ro.id,
+         "bai_ghep_id": None, "buoc_id": _buoc_dau(db, ro).id},
+        {"hang_loai": "giay", "hang_id": g.id, "lsx_id": khong_han.id,
+         "bai_ghep_id": None, "buoc_id": _buoc_dau(db, khong_han).id},
+    ])
+    assert "LSX-NOHAN" in gom["ghi_chu_ngay"]
+    assert "chưa khai hạn sản xuất" in gom["ghi_chu_ngay"]
+    assert "chưa gán máy" not in gom["ghi_chu_ngay"], "máy đã gán đủ — nói vậy là chỉ sai chỗ sửa"
+
+
+def test_bai_ghep_co_ngay_nhung_thanh_vien_thieu_han_thi_noi_DUNG_ly_do(db, svc, customer):
+    """🔴 Nguồn thứ BA của `dan_khong_suy_duoc`, chỉ có ở dòng BÀI GHÉP.
+
+    Ở bài, `ngay_can` lấy từ thành viên CÓ mốc, còn cờ hỏng đến từ thành viên KHÁC. Nên bài vừa có
+    ngày vừa đeo cờ — suy lý do bằng `bool(ngay_can)` sẽ ra "còn bước chưa gán máy" trong khi máy
+    đã gán đủ cả hai thành viên, thứ thiếu là HẠN SX của một thành viên.
+    """
+    g = _giay(db)
+    ro = _lenh(db, customer, ma="LSX-RO", giay_id=g.id, so_to_nguyen=500,
+               han=HOM_NAY + timedelta(days=6))
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=500,
+              han=HOM_NAY + timedelta(days=25))
+    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=500, han=None)  # thiếu HẠN
+    bg = BaiGhep(ma="GB-001", giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
+    db.add(bg)
+    db.flush()
+    db.add_all([
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id, so_con_tren_to=1),
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=b.id, so_con_tren_to=1),
+    ])
+    db.commit()
+
+    dong = {d["ma"]: d for d in _nhom(svc.can_doi(), g)["dong"]}
+    assert dong["GB-001"]["ngay_can"] is not None, "bài VẪN có ngày (từ thành viên tốt)"
+    assert "dan_khong_suy_duoc" in dong["GB-001"]["canh_bao"]
+
+    gom = svc.gom_de_nghi([
+        {"hang_loai": "giay", "hang_id": g.id, "lsx_id": ro.id,
+         "bai_ghep_id": None, "buoc_id": _buoc_dau(db, ro).id},
+        {"hang_loai": "giay", "hang_id": g.id, "lsx_id": None,
+         "bai_ghep_id": bg.id, "buoc_id": dong["GB-001"]["buoc_id"]},
+    ])
+    assert "GB-001" in gom["ghi_chu_ngay"]
+    assert "chưa khai hạn sản xuất" in gom["ghi_chu_ngay"]
+    assert "chưa gán máy" not in gom["ghi_chu_ngay"], \
+        "máy đã gán đủ cả hai thành viên — nói vậy là chỉ sai chỗ sửa"
+
+
+def test_cat_danh_sach_lenh_mo_thi_NOI_ra_con_bao_nhieu(db, svc, customer):
+    """Câu ⚠ này tồn tại để chống im lặng — cắt im lặng ngay trong nó là tự phản."""
+    g = _giay(db)
+    ro = _lenh(db, customer, ma="LSX-RO", giay_id=g.id, so_to_nguyen=100,
+               han=HOM_NAY + timedelta(days=6))
+    chon = [{"hang_loai": "giay", "hang_id": g.id, "lsx_id": ro.id,
+             "bai_ghep_id": None, "buoc_id": _buoc_dau(db, ro).id}]
+    for i in range(7):                       # 7 lệnh mờ > ngưỡng cắt 5
+        l = _lenh(db, customer, ma=f"LSX-M{i}", giay_id=g.id, so_to_nguyen=100,
+                  han=HOM_NAY + timedelta(days=20))
+        b = _buoc_dau(db, l)
+        b.may_id = None
+        db.commit()
+        chon.append({"hang_loai": "giay", "hang_id": g.id, "lsx_id": l.id,
+                     "bai_ghep_id": None, "buoc_id": b.id})
+
+    ghi = svc.gom_de_nghi(chon)["ghi_chu_ngay"]
+    assert "và 2 lệnh nữa" in ghi, f"cắt 5/7 thì phải nói còn 2, thực tế: {ghi!r}"
+
+
+def test_router_NOI_ghi_chu_ngay_vao_noi_dung_yeu_cau(client):
+    """Router phải nối `ghi_chu_ngay` vào `content` của yêu cầu mua — kiểm HÀNH VI, không grep.
+
+    `gom_de_nghi` dựng câu đó, nhưng nếu router thôi dùng thì cả mục "Kèm luôn" của lỗi ③ chết câm:
+    service vẫn trả đúng, test service vẫn xanh, chỉ người mua là không bao giờ đọc được.
+
+    Bơm cả HAI service qua `dependency_overrides` thay vì seed lệnh có dòng đỏ: cái đang kiểm là
+    ĐOẠN NỐI ở router, không phải phép cộng trừ của bảng cân đối (đã có test riêng ở trên).
+    Bản grep-nguồn trước đó bị bác đúng — nó xanh cả khi đảo điều kiện `if` lẫn khi gán vào biến
+    chết, mà lại đỏ oan khi đổi f-string sang nối chuỗi.
+    """
+    from app.main import app
+    from app.routers import ke_hoach_vat_tu as r
+
+    ghi = "LSX-X cần 30/08 ⚠ Chưa suy được ngày cần cho LSX-Y"
+    da_nhan: dict = {}
+
+    class _KhoGia:
+        def gom_de_nghi(self, chon):
+            return {"lines": [{"hang_loai": "giay", "hang_id": 1, "item_name": "Giấy",
+                               "unit": "kg", "quantity": 5}],
+                    "needed_date": HOM_NAY, "related_document_code": "LSX-X, LSX-Y",
+                    "ghi_chu_ngay": ghi}
+
+    class _ThuMuaGia:
+        def create_department_request(self, **kw):
+            da_nhan.update(kw)
+            return {"id": 1, "code": "YC-0001"}
+
+    app.dependency_overrides[r.get_service] = lambda: _KhoGia()
+    app.dependency_overrides[r.get_purchase_service] = lambda: _ThuMuaGia()
+    try:
+        resp = client.post(
+            "/api/ke-hoach-vat-tu/de-nghi-mua",
+            json={"dong": [{"hang_loai": "giay", "hang_id": 1}]},
+            headers={"Authorization": f"Bearer {_admin_token()}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 201, resp.text
+    assert ghi in (da_nhan.get("content") or ""), \
+        f"nội dung yêu cầu mua phải mang ghi chú ngày, thực tế: {da_nhan.get('content')!r}"
+
+
+def _admin_token() -> str:
+    from app.repositories.user_repo import UserRepository
+    from app.security import create_access_token
+
+    s = SessionLocal()
+    try:
+        return create_access_token(str(UserRepository(s).get_by_username("admin").id))
+    finally:
+        s.close()
+
+
+def test_is_rush_ra_toi_dong_va_ghi_chu(db, svc, customer):
+    """Cờ GẤP phải đi hết chuỗi. Nửa vời (backend có, dòng không mang) là bẫy dự án đã dính 4 lần."""
+    g = _giay(db)
+    l = _lenh(db, customer, ma="LSX-GAP", giay_id=g.id, so_to_nguyen=500,
+              han=HOM_NAY + timedelta(days=6))
+    l.is_rush = True
+    db.commit()
+
+    dong = _nhom(svc.can_doi(), g)["dong"][0]
+    assert dong["is_rush"] is True
+
+    gom = svc.gom_de_nghi([{"hang_loai": "giay", "hang_id": g.id, "lsx_id": l.id,
+                            "bai_ghep_id": None, "buoc_id": _buoc_dau(db, l).id}])
+    assert "(GẤP)" in gom["ghi_chu_ngay"]
+
+
+# --- Lỗi ①, nhánh BÀI GHÉP ---------------------------------------------------
+
+
+def test_bai_ghep_cung_vat_tu_o_hai_buoc_chung_cung_KHONG_gop_khoa(db, svc, customer):
+    """🔴 Nhánh bài ghép của lỗi ① — plan ghi đích danh.
+
+    `buoc_id` của dòng BÀI là `bai_ghep_cong_doan.id`, KHÁC không gian id với bước lệnh. Cặp
+    `(lsx_id=None, bai_ghep_id=X)` trong khoá là thứ phân biệt hai không gian đó — nếu luật ấy sai
+    thì bài ghép ăn cùng món ở hai bước chung cũng ra đơn mua một nửa, y như lệnh thường.
+    """
+    from app.models.bai_ghep_cong_doan import BaiGhepCongDoan
+    from app.models.lsx import LsxCongDoanVatTu  # noqa: F401 — cùng module với bảng vật tư bước
+
+    g = _giay(db)
+    vt = _vat_tu(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    bg = BaiGhep(ma="GB-001", giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
+    db.add(bg)
+    db.flush()
+    db.add_all([
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id, so_con_tren_to=1),
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=b.id, so_con_tren_to=1),
+    ])
+    # HAI bước CHUNG của bài, cả hai cùng ăn một món.
+    buocs = []
+    for i in (1, 2):
+        c = BaiGhepCongDoan(bai_ghep_id=bg.id, thu_tu=i, ten=f"Bước chung {i}",
+                            so_luong_vao=100, so_luong_ra=100)
+        db.add(c)
+        db.flush()
+        buocs.append(c)
+    db.commit()
+    for c in buocs:
+        _khai_vat_tu_bai(db, c, vt, 5)
+
+    nhom = next(x for x in svc.can_doi()["items"]
+                if (x["hang_loai"], x["hang_id"]) == ("vat_tu", vt.id))
+    assert len(nhom["dong"]) == 2
+    assert {d["buoc_id"] for d in nhom["dong"]} == {buocs[0].id, buocs[1].id}
+    assert all(d["lsx_id"] is None and d["bai_ghep_id"] == bg.id for d in nhom["dong"])
+
+    gom = svc.gom_de_nghi([
+        {"hang_loai": "vat_tu", "hang_id": vt.id, "lsx_id": None,
+         "bai_ghep_id": bg.id, "buoc_id": buocs[0].id},
+        {"hang_loai": "vat_tu", "hang_id": vt.id, "lsx_id": None,
+         "bai_ghep_id": bg.id, "buoc_id": buocs[1].id},
+    ])
+    assert gom["lines"][0]["quantity"] == pytest.approx(10), "phải cộng cả hai bước chung"
+
+
+def test_bai_GAP_khi_co_it_nhat_mot_thanh_vien_gap(db, svc, customer):
+    """Bài chạy chung một lượt, không tách được — một thành viên gấp là cả bài gấp."""
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    b.is_rush = True
+    bg = BaiGhep(ma="GB-001", giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
+    db.add(bg)
+    db.flush()
+    db.add_all([
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id, so_con_tren_to=1),
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=b.id, so_con_tren_to=1),
+    ])
+    db.commit()
+
+    dong = _nhom(svc.can_doi(), g)["dong"][0]
+    assert dong["ma"] == "GB-001" and dong["is_rush"] is True
+
+
+def test_vat_tu_hieu_luc_bai_ghep_khong_cong_lai_buoc_nguon_bi_override(
+    db, svc, customer,
+):
+    """Bước chung tính một lần; bước riêng theo LSX; bước nguồn bị đè không còn hiệu lực."""
+    from app.models.bai_ghep_cong_doan import BaiGhepCongDoan, BaiGhepCongDoanMap
+    from app.models.lsx import LsxCongDoan
+
+    g = _giay(db)
+    vt = _vat_tu(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    b = _lenh(db, customer, ma="LSX-B", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+    a.trang_thai = TT_NHAP
+    b.trang_thai = TT_CHO_BO_SUNG
+    db.commit()
+    nguon_a, nguon_b = _buoc_dau(db, a), _buoc_dau(db, b)
+    rieng_a = LsxCongDoan(lsx_id=a.id, thu_tu=2, ten="Riêng A", nhom="finishing")
+    rieng_b = LsxCongDoan(lsx_id=b.id, thu_tu=2, ten="Riêng B", nhom="finishing")
+    db.add_all([rieng_a, rieng_b])
+    bg = BaiGhep(ma="GB-EFFECTIVE", giay_id=g.id, kho_in_dai=860, kho_in_rong=650)
+    db.add(bg)
+    db.flush()
+    db.add_all([
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=a.id, so_con_tren_to=1),
+        BaiGhepThanhVien(bai_ghep_id=bg.id, lsx_id=b.id, so_con_tren_to=1),
+    ])
+    chung = BaiGhepCongDoan(
+        bai_ghep_id=bg.id, thu_tu=1, ten="Bước chung", nhom="print",
+        so_luong_vao=100, so_luong_ra=100,
+    )
+    db.add(chung)
+    db.flush()
+    db.add_all([
+        BaiGhepCongDoanMap(
+            bai_ghep_cong_doan_id=chung.id, lsx_id=a.id, lsx_step_key=nguon_a.step_key,
+        ),
+        BaiGhepCongDoanMap(
+            bai_ghep_cong_doan_id=chung.id, lsx_id=b.id, lsx_step_key=nguon_b.step_key,
+        ),
+    ])
+    db.commit()
+
+    # Hai dòng 5 kg ở bước nguồn đã bị đè phải biến khỏi nhu cầu hiệu lực.
+    _khai_vat_tu(db, nguon_a, vt, 5)
+    _khai_vat_tu(db, nguon_b, vt, 5)
+    # Hai bước riêng vẫn tính theo từng LSX; bước chung chỉ tính đúng một lần cho cả bài.
+    _khai_vat_tu(db, rieng_a, vt, 2)
+    _khai_vat_tu(db, rieng_b, vt, 3)
+    _khai_vat_tu_bai(db, chung, vt, 7)
+
+    nhom = next(x for x in svc.can_doi()["items"]
+                if (x["hang_loai"], x["hang_id"]) == ("vat_tu", vt.id))
+    assert len(nhom["dong"]) == 3
+    assert sum(d["nhu_cau"] for d in nhom["dong"]) == pytest.approx(12)
+    assert {(d["lsx_id"], d["bai_ghep_id"], d["nhu_cau"]) for d in nhom["dong"]} == {
+        (a.id, None, 2), (b.id, None, 3), (None, bg.id, 7),
+    }
+
+    hieu_luc = svc.vat_tu_hieu_luc(bg.id)
+    assert hieu_luc["bai_ghep_id"] == bg.id
+    tab = next(x for x in hieu_luc["items"]
+               if (x["hang_loai"], x["hang_id"]) == ("vat_tu", vt.id))
+    assert tab["tong_can"] == pytest.approx(12), "phải tính lại sau khi lọc khỏi tổng toàn xưởng"
+    assert {(d["pham_vi"], d["lsx_id"], d["nhu_cau"]) for d in tab["dong"]} == {
+        ("lsx", a.id, 2), ("lsx", b.id, 3), ("bai_ghep", None, 7),
+    }
+    assert {
+        (d["pham_vi"], d["gang_step_key"]) for d in tab["dong"]
+    } == {("lsx", None), ("bai_ghep", chung.step_key)}

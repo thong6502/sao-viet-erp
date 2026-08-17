@@ -73,6 +73,11 @@ TEMPLATES: list[dict] = [
                 "can_read": True, "can_assign_work": True, "can_record_output": True,
                 "can_handover": True, "scope": SCOPE_OWN,
             },
+            # Tách khoá 17/08/2026: ba màn này trước đây đi kèm `san_xuat:read`. Mẫu GIỮ NGUYÊN
+            # mức cũ — mẫu chỉ điền sẵn, siết hay không là quyết định của người bấm Lưu.
+            "ke_hoach_vat_tu": {"can_read": True, "scope": SCOPE_ALL},
+            "bai_ghep": {"can_read": True, "scope": SCOPE_ALL},
+            "xep_lich": {"can_read": True, "scope": SCOPE_ALL},
             # Xem công + nhật ký của tổ để biết ai vắng, ai đi muộn. KHÔNG `can_adjust` (chấm bù)
             # và KHÔNG `can_lock` (chốt kỳ) — hai việc đó của HCNS.
             "cham_cong": {"can_read": True, "can_view_log": True, "scope": SCOPE_DEPARTMENT},
@@ -124,6 +129,13 @@ TEMPLATES: list[dict] = [
                 "can_lock": True,         # chốt bảng lương / mở lại kỳ
                 "can_export": True,
                 "can_view_salary": True, "can_edit_salary": True,
+                "scope": SCOPE_ALL,
+            },
+            # Bảng ĐƠN GIÁ KHOÁN — ô quyền riêng từ 17/08/2026 (trước đi ké khoá `luong`, khai trong
+            # một tab của màn Lương). HCNS vẫn là người khai nó, nên mẫu phải kèm khoá mới: thiếu thì
+            # vai cấp lại từ mẫu mở được màn Lương mà mất chỗ khai đơn giá.
+            "dm_cong_viec_khoan": {
+                "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
                 "scope": SCOPE_ALL,
             },
             "noi_quy": {"can_read": True, "can_create": True, "can_delete": True, "scope": SCOPE_ALL},

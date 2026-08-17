@@ -3347,6 +3347,29 @@ td.khsx-num > .khsx-unit {
 }
 .khsx .khvt-sum__khongro::before { content: "·"; margin-right: var(--sp-2); color: var(--ash); }
 
+/* Trạng thái thứ SÁU (17/08/2026): ĐÃ MUA rồi, hàng về SAU ngày cần.
+   Dùng hệ CAM (rust) chứ không đỏ: đỏ nghĩa là "đi mua", mà dòng này mua thêm là mua ĐÚP — việc
+   phải làm là dời lịch. Hai việc ngược nhau thì không được mang cùng một màu. */
+.khsx .khvt-pill--vemuon {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  border: 1px solid color-mix(in srgb, var(--rust) 35%, transparent);
+}
+.khsx .khvt-sum__vemuon {
+  font-family: var(--ff-sans);
+  color: var(--rust-deep);
+  font-weight: var(--fw-bold);
+  cursor: help;
+}
+.khsx .khvt-sum__vemuon::before { content: "·"; margin-right: var(--sp-2); color: var(--ash); }
+.khsx .khvt-badge--vemuon {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  border-color: color-mix(in srgb, var(--rust) 35%, transparent);
+}
+/* Câu CHỈ VIỆC dưới mã lệnh — phải đọc được, không phải chú thích mờ. */
+.khsx .khsx__sub--vemuon { color: var(--rust-deep); font-weight: var(--fw-medium); }
+
 /* ── KHUÔN của bước (16/08/2026) ──────────────────────────────────────────────────────────
    Hai trạng thái, hai hình: ĐÃ CHỌN là một thẻ đọc-nhanh (mã · tên · SỐ KỆ — thứ thợ cần để đi
    lấy); CHƯA CHỌN là hai lối đi cạnh nhau (chọn dao có sẵn / làm dao mới). Bản đời trước chỉ có
@@ -3438,3 +3461,319 @@ td.khsx-num > .khsx-unit {
 @media (prefers-reduced-motion: reduce) {
   .khsx-lammoi.is-moi::before { animation: none; }
 }
+
+/* ============================================================================
+   Tab "VẬT TƯ" của lệnh — bảng kê theo từng công đoạn + khối tổng gom.
+   Ba nhóm phải phân biệt được KHÔNG CHỈ bằng màu (icon + viền + vị trí cùng nói),
+   vì đây là chỗ đọc số đi mua: nhìn nhầm nhóm là mua nhầm thứ.
+   ========================================================================== */
+.khsx-vtke { display: flex; flex-direction: column; gap: 18px; }
+
+.khsx-vtke__tomtat { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.khsx-vtke__tomtat-chinh { font-size: 15px; font-weight: 600; color: var(--ink); }
+.khsx-vtke__tomtat-phu { font-size: 12px; color: var(--ash); }
+.khsx-vtke__tomtat-phu::before { content: "·"; margin-right: 8px; }
+
+.khsx-vtke__ds { list-style: none; margin: 0; padding: 0; }
+.khsx-vtke__buoc { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--rule-hair); }
+.khsx-vtke__buoc:first-child { border-top: 0; padding-top: 0; }
+.khsx-vtke__stt {
+  flex: 0 0 auto; width: 32px; padding-top: 2px;
+  font-family: var(--ff-mono, monospace); font-size: 11px; font-weight: 700; color: var(--ash);
+}
+.khsx-vtke__than { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+
+.khsx-vtke__dau { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.khsx-vtke__ten { font-size: 14px; font-weight: 600; color: var(--ink); }
+.khsx-vtke__no { font-size: 12px; color: var(--ash); }
+.khsx-vtke__no::before { content: "·"; margin-right: 6px; }
+/* Đầu việc là thứ QUYẾT ĐỊNH bước ăn vật tư gì ⇒ cho nó dạng viên, đọc lướt vẫn thấy. */
+.khsx-vtke__dv {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  background: var(--steel-soft); color: var(--steel);
+}
+.khsx-vtke__dv--trong {
+  background: transparent; color: var(--ash); font-weight: 400; font-style: italic;
+  border: 1px dashed var(--rule-soft);
+}
+
+.khsx-vtke__luong { font-size: 12px; color: var(--ash); font-variant-numeric: tabular-nums; }
+/* Bước đo bằng thước riêng (ghi kẽm đếm bản in) — số vào/ra KHÔNG nối với bước liền kề.
+   Không gắn nhãn này thì người đọc tưởng chuyền bị đứt ở đó. */
+.khsx-vtke__ngoai {
+  margin-left: 10px; padding: 2px 7px; border-radius: 4px; cursor: help;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  background: var(--rule-hair); color: var(--ash);
+}
+
+.khsx-vtke__mons { display: flex; flex-direction: column; gap: 4px; }
+.khsx-vtke-mon {
+  display: grid; grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  align-items: center; gap: 10px; padding: 6px 10px;
+  border: 1px solid var(--rule-soft); border-radius: 8px; background: #ffffff;
+}
+.khsx-vtke-mon__ico { display: inline-flex; color: var(--ash); }
+.khsx-vtke-mon__ten {
+  font-size: 13px; color: var(--ink);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.khsx-vtke-mon__ma {
+  font-family: var(--ff-mono, monospace); font-size: 10px; font-weight: 700;
+  color: var(--ash); margin-right: 8px;
+}
+.khsx-vtke-mon__so {
+  font-size: 13px; font-weight: 600; color: var(--ink);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.khsx-vtke-mon__phu {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--ash); white-space: nowrap;
+}
+/* NVL chính: nền giấy + gạch trái — thứ tốn tiền nhất, phải bật ra khỏi danh sách. */
+.khsx-vtke-mon--nvl { border-left: 3px solid var(--steel); background: var(--paper); }
+.khsx-vtke-mon--nvl .khsx-vtke-mon__ico { color: var(--steel); }
+/* Dụng cụ: VIỀN ĐỨT — mượn rồi trả, không mất đi khỏi kho. Dấu hiệu hình dạng, không phải màu. */
+.khsx-vtke-mon--dung_cu { border-style: dashed; }
+
+.khsx-vtke-mon__buoc { font-family: var(--ff-mono, monospace); font-size: 10px; color: var(--ash); }
+/* Món khai ở TỪ HAI BƯỚC trở lên: đây đúng là chỗ nhìn riêng từng bước sẽ mua thiếu. */
+.khsx-vtke-mon__buoc.is-nhieu {
+  padding: 1px 6px; border-radius: 4px; font-weight: 700;
+  background: var(--rust-soft); color: var(--rust-deep);
+}
+
+.khsx-vtke__trong { margin: 0; font-size: 12px; font-style: italic; color: var(--ash); }
+.khsx-vtke__thieu {
+  margin: 0; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--rust-deep);
+}
+
+.khsx-vtke__tong {
+  border-top: 2px solid var(--ink); padding-top: 14px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.khsx-vtke__tong-tieu {
+  margin: 0; font-size: 12px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink);
+}
+.khsx-vtke__ghi { margin: 0; font-size: 12px; color: var(--ash); }
+
+@media (max-width: 640px) {
+  .khsx-vtke-mon { grid-template-columns: 18px minmax(0, 1fr); row-gap: 2px; }
+  .khsx-vtke-mon__so, .khsx-vtke-mon__phu { grid-column: 2; }
+}
+
+/* ============================================================================
+   KẾ HOẠCH VẬT TƯ — CÔNG TẮC GOM THEO + CÁCH NHÌN THEO LỆNH (giữ chỗ). 17/08/2026.
+   Cùng một bảng cân đối, xoay 90°. Là công tắc GOM-THEO chứ không phải tab: dữ liệu y hệt, chỉ
+   khác trục gom — tab ngụ ý hai tập dữ liệu khác nhau.
+   ========================================================================== */
+.khsx .khvt-gom { display: flex; gap: var(--sp-2); margin-top: var(--sp-3); flex-wrap: wrap; }
+.khsx .khvt-gom__nut {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 7px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  color: var(--ash);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  text-align: left;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.khsx .khvt-gom__nut:hover { color: var(--ink); border-color: var(--ash); }
+.khsx .khvt-gom__nut.is-chon {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--canvas);
+}
+/* Câu phụ nói CÂU HỎI mà bên đó trả lời. "Theo mặt hàng / Theo lệnh" đúng về kỹ thuật nhưng không
+   cho biết bấm sang bên kia thì được gì. */
+.khsx .khvt-gom__phu { font-size: var(--fs-xs); font-weight: 400; opacity: .72; }
+.khsx .khvt-gom__chip {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 19px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--signal);
+  color: #fff;
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  line-height: 17px;
+  text-align: center;
+}
+
+/* ── Dải nhắc "GIỮ LÂU MÀ CHƯA CHẠY" ─────────────────────────────────────────
+   Thay cho cơ chế tự-hết-hạn (cố ý KHÔNG làm — thứ chạy ngầm mà nhả nhầm đúng hôm gấp thì không
+   ai truy ra). Hổ phách chứ không đỏ: đây là việc nên XEM LẠI, không phải hỏng. */
+.khsx .gclv-nhac {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: 10px var(--sp-4);
+  margin-bottom: var(--sp-3);
+  border: 1px solid color-mix(in srgb, var(--amber-deep) 30%, transparent);
+  border-radius: var(--r-2);
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.khsx .gclv-nhac > span { flex: 1 1 340px; min-width: 0; }
+.khsx .gclv-nhac b { font-family: var(--ff-sans); }
+.khsx .gclv-nhac__nut {
+  margin-left: auto;
+  padding: 4px 11px;
+  border: 1px solid currentColor;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.khsx .gclv-nhac__nut.is-bat { background: var(--amber-deep); color: var(--amber-soft); }
+
+/* ── Thẻ LỆNH ────────────────────────────────────────────────────────────── */
+.khsx .gclv-card { display: flex; flex-direction: column; }
+/* Giữ đủ = xếp lịch được: vạch xanh mép trái, ngược hệ với vạch đỏ của `.khvt-card--do`. */
+.khsx .gclv-card--du { box-shadow: inset 3px 0 0 var(--moss-deep, #15803d); }
+
+.khsx .gclv-pill--tat { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+.khsx .gclv-pill--du { background: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+.khsx .gclv-pill--dang {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  border: 1px solid color-mix(in srgb, var(--amber-deep) 32%, transparent);
+}
+
+/* Câu CHỈ VIỆC dưới đầu thẻ — thẻ đỏ mà không nói phải làm gì thì người dùng đứng nhìn. */
+.khsx .gclv-nhan {
+  margin: 0;
+  padding: 9px var(--sp-4);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--ash);
+  border-bottom: 1px solid var(--rule-hair);
+}
+.khsx .gclv-nhan b { color: var(--ink); font-weight: var(--fw-bold); }
+.khsx .gclv-nhan--canh { color: var(--rust-deep); background: var(--rust-soft); }
+.khsx .gclv-nhan--canh b { color: inherit; }
+.khsx .gclv-nhan--ok { color: var(--moss-deep, #15803d); }
+.khsx .gclv-nhan--ok b { color: inherit; }
+
+/* ── Dòng MẶT HÀNG trong thẻ ─────────────────────────────────────────────────
+   Lưới cố định thay vì bảng: mỗi thẻ chỉ vài dòng, dựng <table> cho mỗi lệnh thì đầu bảng lặp lại
+   hàng chục lần và mắt phải đọc lại nhãn cột mỗi thẻ. */
+.khsx .gclv-mons { list-style: none; margin: 0; padding: var(--sp-2) var(--sp-4); }
+.khsx .gclv-mon {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--rule-hair);
+  font-size: var(--fs-sm);
+}
+.khsx .gclv-mon:first-child { border-top: 0; }
+.khsx .gclv-mon__ma {
+  font-family: var(--ff-num, monospace);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+}
+.khsx .gclv-mon__ten {
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Món khai ở TỪ HAI BƯỚC trở lên — đúng chỗ nhìn riêng từng bước sẽ mua thiếu, phải nói ra. */
+.khsx .gclv-mon__buoc {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  cursor: help;
+}
+.khsx .gclv-mon__so,
+.khsx .gclv-mon__giu {
+  font-family: var(--ff-sans);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.khsx .gclv-mon__so { color: var(--ink); }
+.khsx .gclv-mon__giu { color: var(--ash); font-size: var(--fs-xs); }
+/* Viên trạng thái mượn NGUYÊN hệ màu của bảng theo-mặt-hàng (`.khvt-pill--*`) — cùng một dữ liệu
+   nhìn từ hai phía mà hai bảng màu thì người dùng phải học hai lần. Ở đây chỉ chỉnh chỗ đứng. */
+.khsx .gclv-mon__tt { justify-self: end; padding: 2px 10px; }
+/* "Đã cấp" và "đủ" gộp về MỘT màu trung tính: màu phải đánh dấu thiểu số cần xử, tô xanh cả hai
+   thì thẻ nào cũng rực và đúng dòng đỏ lại chìm. Chữ đã nói rõ nên không mất thông tin. */
+.khsx .gclv-tt--yen { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+
+/* ── Hàng NÚT của thẻ ────────────────────────────────────────────────────── */
+.khsx .gclv-nut {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--rule-soft);
+  background: var(--canvas);
+}
+.khsx .gclv-nut__ghi {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+}
+.khsx .gclv-sum__du {
+  font-family: var(--ff-sans);
+  color: var(--moss-deep, #15803d);
+  font-weight: var(--fw-bold);
+  cursor: help;
+}
+.khsx .gclv-sum__du::before { content: "·"; margin-right: var(--sp-2); color: var(--ash); }
+
+@media (max-width: 720px) {
+  .khsx .gclv-mon { grid-template-columns: auto minmax(0, 1fr); row-gap: 2px; }
+  .khsx .gclv-mon__so,
+  .khsx .gclv-mon__giu,
+  .khsx .gclv-mon__buoc,
+  .khsx .gclv-mon__tt { grid-column: 2; justify-self: start; }
+}
+
+/* ── Hộp xác nhận NHẢ CHỖ ────────────────────────────────────────────────────
+   Kê đích danh sắp nhả cái gì · bao nhiêu · ai đang cần. Câu chung chung "bạn có chắc không" thì
+   người ta bấm qua theo phản xạ; con số cụ thể mới khiến họ dừng một nhịp. */
+.gclv-hop__dau { margin: 0 0 6px; font-size: var(--fs-sm); color: var(--ash); }
+.gclv-hop__trong { margin: 0; font-size: var(--fs-sm); color: var(--ash); font-style: italic; }
+.gclv-hop__ds { margin: 0 0 12px; padding-left: 18px; font-size: var(--fs-sm); line-height: 1.7; }
+.gclv-hop__ds b { font-family: var(--ff-sans); font-variant-numeric: tabular-nums; color: var(--ink); }
+/* Nửa TÍCH CỰC của hộp thoại — hộp chỉ doạ thì người ta không bao giờ nhả, kể cả lúc nên nhả. */
+.gclv-hop__doi { color: var(--moss-deep); font-weight: var(--fw-medium); }
+.gclv-hop__hq {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule-hair);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--ash);
+}
+.gclv-hop__hq b { color: var(--ink); font-family: var(--ff-num, monospace); }

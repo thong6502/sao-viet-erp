@@ -45,14 +45,14 @@ export function PhieuTinhGiaListView({
   onNew,
 }: {
   onOpen: (id: number) => void;
-  onNew: (id: number) => void;
+  // Mở form phiếu NHÁP — không tạo bản ghi. Phiếu chỉ vào DB khi có sản phẩm + bấm Tính giá.
+  onNew: () => void;
 }) {
   const { token } = useAuth();
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [items, setItems] = useState<PhieuTinhGiaListItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [statusFilter, setStatusFilter] = useState("all");
@@ -79,17 +79,6 @@ export function PhieuTinhGiaListView({
   useEffect(() => {
     load();
   }, [load]);
-
-  const create = useCallback(() => {
-    if (!token) return;
-    setCreating(true);
-    setError(null);
-    api.phieuTinhGia
-      .create(token, {})
-      .then((out) => onNew(out.id))
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Không tạo được phiếu."))
-      .finally(() => setCreating(false));
-  }, [token, onNew]);
 
   // Filter and sort items client-side
   const filteredAndSortedItems = useMemo(() => {
@@ -144,7 +133,8 @@ export function PhieuTinhGiaListView({
           </p>
         </div>
         <div className="tg-head__actions">
-          <Button variant="accent" onClick={create} loading={creating}>
+          {/* Chỉ MỞ FORM, không POST: phiếu rỗng không được sinh ra rồi bỏ lại trong DB. */}
+          <Button variant="accent" onClick={onNew}>
             <PlusIcon /> Lập phiếu tính giá
           </Button>
         </div>
@@ -237,7 +227,7 @@ export function PhieuTinhGiaListView({
                         Xóa tìm kiếm
                       </Button>
                     ) : (
-                      <Button variant="ghost" onClick={create} loading={creating}>
+                      <Button variant="ghost" onClick={onNew}>
                         + Lập phiếu đầu tiên
                       </Button>
                     )}

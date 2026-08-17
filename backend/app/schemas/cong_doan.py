@@ -40,6 +40,10 @@ class CongDoanIn(BaseModel):
     don_vi_ra: str | None = None
     # Hệ số vào→ra cho bước NGOÀI dòng giấy, chỉ dùng khi hai đơn vị khác nhau (mg 0196).
     he_so_ngoai_dong: float | None = Field(default=None, gt=0)
+    # Công thức SẢN LƯỢNG RA của bước NGOÀI dòng giấy (mg `0214`) — vd Ghi kẽm khai `so_kem`. Vế VÀO
+    # KHÔNG khai: nó suy ngược từ RA qua `he_so_ngoai_dong` + bù hao, chốt cứng cả hai đầu thì hao
+    # hết chỗ nhét. Bước trên dòng giấy bỏ qua cột này.
+    cong_thuc_san_luong: str | None = Field(default=None, max_length=200)
     kieu_bu_hao: str = "khong"
     bu_hao_id: int | None = None
     so_to_bu_hao: int = Field(default=50, ge=0)
@@ -87,6 +91,9 @@ class CongDoanRow(BaseModel):
     don_vi_vao_ten: str | None = None
     don_vi_ra_ten: str | None = None
     he_so_ngoai_dong: float | None = None
+    #: Công thức SẢN LƯỢNG RA của bước NGOÀI dòng giấy (mg `0214`). Bước trên dòng giấy bỏ qua
+    #: — số của chúng đến từ chuỗi bù hao ngược.
+    cong_thuc_san_luong: str | None = None
     kieu_bu_hao: str = "khong"
     bu_hao_id: int | None = None
     so_to_bu_hao: int = 50

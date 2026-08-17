@@ -188,6 +188,11 @@ Test khoá:
 | **K7** | Vẽ **cạnh chéo lệnh trong cùng bài** (dây tím đứt nét, kèm `<title>`), tách khỏi nhánh "tiền nhiệm ngoài bài" (dây xám). Trước đây chỉ vẽ loại ngoài bài nên cạnh giữa hai thành viên biến mất dù engine vẫn tính |
 | **K8** | Thêm `BaiGhepVongPhuThuoc` mang `nut` + `nhan_chung` + `tu_tro`; router trả 409 với `detail` là **object** (`message` · `loai` · `nut` · `tu_tro` · `nhan_chung`) thay vì một chuỗi |
 
+> **Cập nhật 17/08/2026 — câu chốt của K2 đã lỗi thời:** bảng "Kiểm tương thích" **cũng bị gỡ hẳn**
+> (`kiem_tuong_thich` ở service, field `tuong_thich` ở schema/type, khối accordion trong popup sơ đồ,
+> `BAI_GHEP_MUC_META` và CSS `.bghep-muc*`/`.bgsd-*compat*`). Đi trọn hướng của K2: máy thôi kết luận
+> quy cách. Bốn giá trị giấy · mực · số mặt · khổ TP vẫn bày ở **bảng thành viên** để người tự so.
+
 **Sửa kèm trong đợt này:** **M1** (select tổ so id thay vì tên — gốc là backend chỉ trả `to_ten`, nay trả cả `department_id`/`may_id`) và **M10** (`BaiGhepListItem.hao_in_de_xuat` → `hao_de_xuat` + `so_buoc_chung`, cùng lỗi schema-nuốt-field như S2). Nhãn "Vào/Ra/Hao cả lượt" trong drawer thôi đóng đinh chữ "tờ", lấy theo đơn vị đã khai; `nhanDonVi` export ra dùng chung thay vì chép đôi.
 
 <details><summary>Chẩn đoán gốc (giữ để tra lại)</summary>

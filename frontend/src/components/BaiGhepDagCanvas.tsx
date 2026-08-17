@@ -494,6 +494,15 @@ export function BaiGhepDagCanvas({
    * ĐÔI request dưới StrictMode (React chạy updater hai lần để soi hàm thuần) — mỗi cú bấm hai
    * lượt hỏi server, và hai lượt ấy còn đua nhau ghi `ungVien`.
    */
+  const hopDieuKienGop = useCallback((node: Node) => {
+    if (!dangChon.length) return true;
+    const dau = nodeMap.get(dangChon[0]);
+    if (!dau || dau.cong_doan_id == null || dau.cong_doan_id !== node.cong_doan_id) return false;
+    const lsxDau = sd.nhanh.find((n) => n.buoc.some((b) => b.step_key === dau.step_key))?.lsx_id;
+    const lsxNode = sd.nhanh.find((n) => n.buoc.some((b) => b.step_key === node.step_key))?.lsx_id;
+    return lsxDau != null && lsxNode != null && lsxDau !== lsxNode;
+  }, [dangChon, nodeMap, sd.nhanh]);
+
   const bamThe = useCallback(
     (node: Node) => {
       if (!canUpdate || !onGop || deLen.has(node.step_key)) return;
@@ -501,12 +510,13 @@ export function BaiGhepDagCanvas({
       let sau: string[];
       if (truoc.includes(node.step_key)) sau = truoc.filter((k) => k !== node.step_key);
       else if (!truoc.length) sau = [node.step_key];
-      else if (ungVien[node.step_key]?.gop_duoc) sau = [...truoc, node.step_key];
+      else if (ungVien[node.step_key]?.gop_duoc && hopDieuKienGop(node)) sau = [...truoc, node.step_key];
       else if (ungVien[node.step_key]) {
         // Mờ vì sẽ sinh vòng: KHÔNG cho chọn, nhưng phải nói ra. Trước đây chỗ này `return` câm —
         // người dùng bấm mãi không hiểu vì sao thẻ không nhận.
         setLyDoChan(
           ungVien[node.step_key].ly_do
+            ?? (!hopDieuKienGop(node) ? "Chỉ gộp bước cùng công đoạn ở một lệnh khác." : null)
             ?? `Không gộp "${node.ten}" vào lượt đang chọn được — sẽ sinh vòng phụ thuộc.`,
         );
         return;
@@ -515,7 +525,7 @@ export function BaiGhepDagCanvas({
       setDangChon(sau);
       void capNhatUngVien(sau);
     },
-    [canUpdate, onGop, deLen, ungVien, dangChon, capNhatUngVien],
+    [canUpdate, onGop, deLen, ungVien, dangChon, capNhatUngVien, hopDieuKienGop],
   );
 
   /** Nhánh nào đang được tô đậm: nhánh người bấm, hoặc nhánh của bước đầu tiên đang chọn để gộp. */
@@ -793,6 +803,7 @@ export function BaiGhepDagCanvas({
                     chon === g.step_key ? "dag-node--selected" : ""
                   } ${g.thieu.length ? "dag-node--has-error" : ""}`}
                   style={{ left: p.x, top: p.y, width: GANG_W, minHeight: caoGop(g) }}
+                  aria-label={`Bước chung ${g.ten}`}
                   onClick={() => onChon(g.step_key)}
                   onDoubleClick={() => onMoBuocChung?.(g.step_key)}
                   onMouseDown={(e) => handleStartDragNode(`gop_${g.step_key}`, e)}
@@ -804,7 +815,14 @@ export function BaiGhepDagCanvas({
                         <span key={i} className="bgsd__cham" style={{ background: mau(m) }} />
                       ))}
                     </span>
-                    <span className="dag-node__title" title={g.ten}>{g.ten}</span>
+                    <button type="button" className="dag-node__title bgsd-node-title-btn" title={g.ten}
+                      style={{ appearance: "none", border: 0, padding: 0, background: "transparent", font: "inherit", textAlign: "left", cursor: "pointer" }}
+                      aria-pressed={chon === g.step_key}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => { e.stopPropagation(); onChon(g.step_key); }}
+                      onDoubleClick={(e) => { e.stopPropagation(); onMoBuocChung?.(g.step_key); }}>
+                      {g.ten}
+                    </button>
                     <span className="dag-node__type-tag dag-node__type-tag--ghep" title="Chạy chung một lượt">
                       {g.ma_bai_ghep}
                     </span>
@@ -964,7 +982,15 @@ export function BaiGhepDagCanvas({
                   >
                     <div className="bgsd-card-branch__head">
                       <span className="bgsd__cham" style={{ background: c }} />
-                      <span className="khsx__code">{n.lsx_ma}</span>
+                      <button type="button" className="khsx__code bgsd-node-title-btn"
+                        style={{ appearance: "none", border: 0, padding: 0, background: "transparent", font: "inherit", textAlign: "left", cursor: "pointer" }}
+                        aria-pressed={isSelected}
+                        aria-label={`Chọn lệnh ${n.lsx_ma}`}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => { e.stopPropagation(); onChon(n.lsx_id); }}
+                        onDoubleClick={(e) => { e.stopPropagation(); onMoLenh?.(n.lsx_id); }}>
+                        {n.lsx_ma}
+                      </button>
                       {/* `con/tờ` CHỈ GHI NHẬN (bình bài bằng phần mềm khác), nhưng là khoá chia
                           mọi thứ sau điểm toả — sản lượng và giấy đều chia theo con. Sửa TẠI CHỖ
                           vì đây là số người cân bài chỉnh nhiều nhất; bắt mở modal cho mỗi lần
@@ -1047,7 +1073,7 @@ export function BaiGhepDagCanvas({
                     const meta = LSX_LOAI_BUOC_META[b.loai_buoc] ?? { label: b.loai_buoc };
                     const daChon = dangChon.includes(b.step_key);
                     const uv = ungVien[b.step_key];
-                    const sang = !!uv?.gop_duoc;
+                    const sang = !!uv?.gop_duoc && hopDieuKienGop(b);
                     const mo = dangChon.length > 0 && !daChon && !sang;
 
                     return (
@@ -1078,7 +1104,18 @@ export function BaiGhepDagCanvas({
                           } ${sang ? "is-ung-vien" : ""} ${mo ? "is-mo" : ""}`}
                           style={{ left: p.x, top: p.y, width: CARD_W, ["--mau-nhanh" as string]: c }}
                           title={uv && !uv.gop_duoc ? uv.ly_do ?? undefined : undefined}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Công đoạn ${b.ten}`}
+                          aria-pressed={daChon}
                           onClick={(e) => { e.stopPropagation(); bamThe(b); }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              bamThe(b);
+                            }
+                          }}
                           onDoubleClick={(e) => { e.stopPropagation(); onMoLenh?.(n.lsx_id); }}
                           onMouseDown={(e) => handleStartDragNode(`node_${b.step_key}`, e)}
                         >

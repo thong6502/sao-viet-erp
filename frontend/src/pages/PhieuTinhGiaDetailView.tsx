@@ -1,8 +1,9 @@
 // DETAIL của "Tính giá" — GIÁ VỐN theo SẢN LƯỢNG, KHÔNG hệ số (redesign-tinh-gia.md).
 // 1 phiếu = nhiều "Thành phần" giấy; mỗi thành phần = Giấy ① + Kỹ thuật in ② + Màu + Gia công.
 // UI: LIST (bám RebuildCatalogPage: badge + row + Sửa/Xóa) + DRAWER (.rc-drawer*) sửa 1 thành phần,
-// trong drawer có SƠ ĐỒ BÌNH BÀI live. Auto + override giữ nguyên. "Tính giá" = update(id) (BE
-// replace-all + tính lại + snapshot) → refresh từ Out. LƯU = TÍNH.
+// trong drawer có SƠ ĐỒ BÌNH BÀI live. Auto + override giữ nguyên. "Tính giá" = create (lần đầu,
+// khi phiếu còn nháp) hoặc update(pid) — BE replace-all + tính lại + snapshot → refresh từ Out.
+// LƯU = TÍNH, và phiếu KHÔNG vào DB cho tới lần lưu đầu tiên (chống phiếu rỗng bỏ lại).
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   api,
@@ -21,6 +22,7 @@ import {
 import { congDoan, giay, loaiSanPham, mayThietBi, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
+import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { MucInHang } from "../components/MucIn";
 import { ImpositionDiagram } from "./ImpositionDiagram";
 import { heSoChu, nhanDonVi } from "./lsxBuoc";
@@ -979,7 +981,9 @@ function KhuonCalc({ domId, soTrangDaLuu, moiTayDaLuu, onApply, onClose }: {
 
 // ------------------------------- Component -------------------------------
 export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
-  id: number;
+  // null = phiếu NHÁP chưa ghi DB (vừa bấm "Lập phiếu tính giá"). Form chạy đủ — bình bài và số
+  // tờ live đều tính không cần id — chỉ LƯU là hoãn tới khi có sản phẩm thật, để không đẻ phiếu rỗng.
+  id: number | null;
   onBack: () => void;
   // BG-3: điều hướng sang Báo giá (openQuoteId đã wired ở AppShell). Không truyền → ẩn nút báo giá.
   navigate?: (pageId: string, params?: { openQuoteId?: number }) => void;
@@ -988,6 +992,9 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   // Nhãn đơn vị ở bảng phân rã bù hao đọc từ danh mục — nạp một lần cho cả phiên.
   useNapTenDonVi();
   const [quoting, setQuoting] = useState(false);
+  // Id THẬT của phiếu: null tới khi lần lưu đầu tiên chạy xong (POST). Từ đó trở đi là PUT.
+  const [pid, setPid] = useState<number | null>(id);
+  const daLuu = pid != null;
 
   // --- Danh mục nguồn ---
   const [loaiSPs, setLoaiSPs] = useState<Row[]>([]);
@@ -1024,9 +1031,11 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   // Nhật ký hoạt động THẬT (ai làm gì · khi nào) — nhiều người cùng sửa 1 phiếu.
   const [acts, setActs] = useState<PtgActivity[]>([]);
   const [showAllActs, setShowAllActs] = useState(false); // UI-only: "Xem tất cả"
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(id != null);
   const [calcing, setCalcing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Chặn cửa khi rời phiếu nháp đang có nội dung (chưa lưu → thoát là mất).
+  const [hoiThoat, setHoiThoat] = useState(false);
 
   const applyOut = useCallback((out: PhieuTinhGiaOut) => {
     setMa(out.ma);
@@ -1040,14 +1049,15 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     setWarnList(out.result?.warnings ?? out.warnings ?? []);
   }, []);
 
-  // Nạp nhật ký hoạt động của phiếu (mới→cũ) từ backend.
-  const loadActs = useCallback(() => {
-    if (!token) return;
+  // Nạp nhật ký hoạt động của phiếu (mới→cũ) từ backend. Nhận id tường minh vì ngay sau lần lưu
+  // đầu (POST) `pid` chưa kịp vào closure — truyền thẳng id vừa được cấp.
+  const loadActs = useCallback((forId: number | null = pid) => {
+    if (!token || forId == null) return;
     api.phieuTinhGia
-      .activity(token, id)
+      .activity(token, forId)
       .then((r) => setActs(r.items))
       .catch(() => setActs([]));
-  }, [token, id]);
+  }, [token, pid]);
 
   // Nạp 4 danh mục 1 lần.
   useEffect(() => {
@@ -1058,9 +1068,9 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     congDoan.list(token).then((r) => setCongDoans(r.items)).catch(() => setCongDoans([]));
   }, [token]);
 
-  // Nạp phiếu.
+  // Nạp phiếu. id null = phiếu nháp chưa có gì trên server → form rỗng, không gọi API.
   useEffect(() => {
-    if (!token) return;
+    if (!token || id == null) return;
     let alive = true;
     setLoading(true);
     setErr(null);
@@ -1069,7 +1079,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       .then((out) => {
         if (alive) {
           applyOut(out);
-          loadActs();
+          loadActs(id);
         }
       })
       .catch((e) => {
@@ -1321,23 +1331,33 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   }, [previewSig, token]);
 
   // "Tính giá" = LƯU + TÍNH LẠI (BE) → refresh từ Out.
+  // Phiếu NHÁP (chưa có pid): lần này mới POST — và chỉ POST khi đã có sản phẩm. Phiếu 0 sản phẩm
+  // có giá vốn 0, không mang thông tin gì; ghi nó xuống DB chỉ để lại rác + ăn mất một số PTG.
   const calc = useCallback(() => {
     if (!token) return;
+    const payload = {
+      kho_thanh_pham: khoThanhPham.trim() || null,
+      loai_san_pham_id: loaiSPId === "" ? null : loaiSPId,
+      thanh_phans: comps.map(toThanhPhanIn),
+    };
+    if (pid == null && comps.length === 0) {
+      setErr("Thêm ít nhất 1 sản phẩm rồi mới tính giá — phiếu trống không được lưu.");
+      return;
+    }
     setCalcing(true);
     setErr(null);
-    api.phieuTinhGia
-      .update(token, id, {
-        kho_thanh_pham: khoThanhPham.trim() || null,
-        loai_san_pham_id: loaiSPId === "" ? null : loaiSPId,
-        thanh_phans: comps.map(toThanhPhanIn),
-      })
+    const req = pid == null
+      ? api.phieuTinhGia.create(token, payload)
+      : api.phieuTinhGia.update(token, pid, payload);
+    req
       .then((out) => {
+        setPid(out.id);
         applyOut(out);
-        loadActs(); // phản ánh ngay dòng "Cập nhật phiếu" vừa ghi.
+        loadActs(out.id); // phản ánh ngay dòng "Lập phiếu" / "Cập nhật phiếu" vừa ghi.
       })
       .catch((e) => setErr(e instanceof ApiError ? e.message : "Không tính được giá. Thử lại."))
       .finally(() => setCalcing(false));
-  }, [token, id, khoThanhPham, loaiSPId, comps, applyOut, loadActs]);
+  }, [token, pid, khoThanhPham, loaiSPId, comps, applyOut, loadActs]);
 
   // #1 — Sửa sản phẩm XONG (đóng modal: Xong / X / bấm ra ngoài) mà CÓ thay đổi → tự tính lại
   // giá ngay, khỏi bấm "Tính giá" riêng. Chụp snapshot lúc mở để so khi đóng (chỉ tính khi dirty).
@@ -1366,12 +1386,12 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   // BG-3: từ phiếu tính giá → LUÔN tạo 1 phiếu báo giá MỚI (1 PTG → nhiều BG). Không ghi tiếp
   // phiếu cũ; muốn điều chỉnh 1 báo giá đã có thì dùng "Tạo phiên bản mới" TRONG phiếu đó.
   async function openOrCreateQuote() {
-    if (!token || !navigate) return;
+    if (!token || !navigate || pid == null) return;
     setQuoting(true);
     setErr(null);
     try {
       const q = await api.quotations.create(token, {
-        phieu_tinh_gia_id: id, customer_id: null, valid_until: null,
+        phieu_tinh_gia_id: pid, customer_id: null, valid_until: null,
         customer_note: null, internal_note: null,
       });
       navigate("bao-gia", { openQuoteId: q.id });
@@ -1537,24 +1557,46 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const editing = comps.find((c) => c.uid === editingUid) ?? null;
   const editingIdx = editing ? comps.findIndex((c) => c.uid === editingUid) : -1;
 
+  // Rời phiếu: nháp đang có sản phẩm mà chưa lưu thì hỏi trước — thoát là mất trắng phần đã nhập
+  // (phiếu chưa tồn tại trên server nên không có gì để mở lại).
+  const thoat = useCallback(() => {
+    if (!daLuu && comps.length > 0) {
+      setHoiThoat(true);
+      return;
+    }
+    onBack();
+  }, [daLuu, comps.length, onBack]);
+
   return (
     <main className="rdx-cost tg-page">
       {/* ---------- HEAD ---------- */}
       <header className="tg-head">
         <div className="tg-head__lead">
-          <button type="button" className="tg-back" onClick={onBack}>
+          <button type="button" className="tg-back" onClick={thoat}>
             <BackIcon /> Danh sách
           </button>
           <div className="eyebrow tg-head__eyebrow">
             <LockIcon /> Giá vốn nội bộ
           </div>
           <div className="tg-head__titlerow">
-            <h1 className="tg-head__title">{ma || "Phiếu tính giá"}</h1>
+            <h1 className="tg-head__title">{ma || "Phiếu mới"}</h1>
+            {/* Nói thẳng phiếu chưa nằm trong sổ — mã PTG chỉ được cấp khi lưu thật. */}
+            {!daLuu && <span className="badge neutral"><span className="d" />Chưa lưu</span>}
           </div>
         </div>
         <div className="tg-head__actions">
-          <Button variant="accent" onClick={calc} loading={calcing} disabled={!token || loading}>
-            Tính giá
+          <Button
+            variant="accent"
+            onClick={calc}
+            loading={calcing}
+            disabled={!token || loading || (!daLuu && comps.length === 0)}
+            title={
+              !daLuu && comps.length === 0
+                ? "Thêm sản phẩm trước — phiếu trống không được lưu"
+                : "Lưu phiếu & tính lại giá vốn"
+            }
+          >
+            {daLuu ? "Tính giá" : "Tính giá & lưu"}
           </Button>
           <Button
             variant="secondary"
@@ -1569,8 +1611,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
               variant="primary"
               onClick={openOrCreateQuote}
               loading={quoting}
-              disabled={!token || loading}
-              title="Tạo / mở báo giá từ phiếu tính giá này"
+              disabled={!token || loading || !daLuu}
+              title={daLuu ? "Tạo / mở báo giá từ phiếu tính giá này" : "Tính giá & lưu phiếu trước khi báo giá"}
             >
               Báo giá →
             </Button>
@@ -1935,13 +1977,15 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
             <section className="panel">
               <div className="panel__hd"><h3><FileIcon /> Phiếu này</h3></div>
               <div className="info">
-                <div className="irow"><span className="k">Mã phiếu</span><span className="v mono">{ma || "—"}</span></div>
+                <div className="irow"><span className="k">Mã phiếu</span><span className="v mono">{ma || "Cấp khi lưu"}</span></div>
                 <div className="irow"><span className="k">Người lập</span><span className="v">{ktv ?? "—"}</span></div>
                 <div className="irow"><span className="k">Ngày lập</span><span className="v">{ngay ? new Date(ngay).toLocaleDateString("vi-VN") : "—"}</span></div>
                 <div className="irow">
                   <span className="k">Trạng thái</span>
                   <span className="v">
-                    {result && result.grand_total > 0 ? (
+                    {!daLuu ? (
+                      <span className="badge neutral"><span className="d" />Chưa lưu</span>
+                    ) : result && result.grand_total > 0 ? (
                       <span className="badge soft"><span className="d" />Đã tính giá</span>
                     ) : (
                       <span className="badge neutral"><span className="d" />Nháp</span>
@@ -1969,7 +2013,9 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
               </div>
               {acts.length === 0 ? (
                 <div className="tl">
-                  <p className="tg-empty__sub" style={{ margin: "4px 0" }}>Chưa có hoạt động.</p>
+                  <p className="tg-empty__sub" style={{ margin: "4px 0" }}>
+                    {daLuu ? "Chưa có hoạt động." : "Nhật ký bắt đầu từ lần lưu đầu tiên."}
+                  </p>
                 </div>
               ) : (
                 <div className="tl scrollbox">
@@ -2040,6 +2086,16 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           <PhieuTinhGiaPrint data={phieu} />
         </div>
       ) : null}
+
+      <DiscardChangesDialog
+        open={hoiThoat}
+        message="Phiếu này chưa được lưu. Thoát bây giờ là mất phần đã nhập."
+        onDiscard={() => {
+          setHoiThoat(false);
+          onBack();
+        }}
+        onKeepEditing={() => setHoiThoat(false)}
+      />
     </main>
   );
 }
@@ -2333,10 +2389,10 @@ function ComponentModal({
               </div>
             </section>
 
-            {/* ---- GIẤY IN ---- */}
+            {/* ---- GIẤY NGUYÊN ---- */}
             <section className="rc-sec">
               <div className="rc-sec__title">
-                <span className="tg-step-badge">2</span> Giấy in
+                <span className="tg-step-badge">2</span> Giấy nguyên
               </div>
               <div className="tg-grid">
                 <label className="tg-field tg-span-6">

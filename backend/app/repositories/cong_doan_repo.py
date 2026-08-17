@@ -13,6 +13,7 @@ from .catalog_base import CatalogRepo
 ASSIGNABLE = (
     "ten", "ten_hien_thi", "don_vi_vao", "don_vi_ra", "he_so_ngoai_dong",
     "kieu_bu_hao", "bu_hao_id", "so_to_bu_hao", "nhom", "nhom_may_cho_phep", "department_id", "khoan_ghi_theo",
+    "cong_thuc_san_luong",
     "allowed_defect_pct", "allowed_defect_abs",
     "che_do_tinh", "pricing_basis", "setup_cost", "setup_time", "nang_suat",
     "run_rate", "rate_tiers", "size_tiers", "first_unit_floor", "min_charge", "requires_tooling",
@@ -43,17 +44,6 @@ class CongDoanRepository(CatalogRepo):
         return self.db.execute(
             self._base_select().where(CongDoan.id == cd_id)
         ).scalar_one_or_none()
-
-    def don_vi_cong_thuc(self, ma: str) -> str:
-        """Công thức tính lượng của MỘT đơn vị (rỗng nếu chưa khai / mã không có)."""
-        if not ma:
-            return ""
-        from ..models.don_vi_do import DonViDo
-
-        row = self.db.execute(
-            select(DonViDo.cong_thuc).where(DonViDo.ma == ma)
-        ).scalar_one_or_none()
-        return (row or "").strip()
 
     def don_vi_tram(self, mas: set[str]) -> dict[str, str | None]:
         """`{mã đơn vị: trạm dòng giấy}` cho các mã CÓ THẬT trong danh mục Đơn vị.
@@ -116,10 +106,11 @@ class CongDoanRepository(CatalogRepo):
         return {r.id: r for r in rows}
 
     def piece_rates_active(self, department_id: int | None = None) -> list[PieceRate]:
-        stmt = select(PieceRate).where(PieceRate.is_active.is_(True))
+        stmt = select(PieceRate).where(PieceRate.active.is_(True))
         if department_id is not None:
             stmt = stmt.where(PieceRate.department_id == department_id)
-        return list(self.db.execute(stmt.order_by(PieceRate.department_id, PieceRate.code, PieceRate.name)).scalars())
+        return list(self.db.execute(
+            stmt.order_by(PieceRate.department_id, PieceRate.ma, PieceRate.ten)).scalars())
 
     def dem_theo_nhom(self, *, q: str | None = None, active: bool | None = None) -> dict[str, int]:
         """Số công đoạn của TỪNG giai đoạn — số hiện trên tab lọc. Không áp điều kiện `nhom`

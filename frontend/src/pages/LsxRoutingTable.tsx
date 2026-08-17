@@ -28,6 +28,7 @@ import {
   type EditRow,
   emptyRow,
   heSoChu,
+  loiDong,
   n,
   phut,
   thoiLuong,
@@ -86,30 +87,6 @@ export function nhanGiaoNhan(r: EditRow): string {
   }
   const hut = gn.so_hut ?? 0;
   return hut > 0 ? `Đã về · thiếu ${num(hut)}` : "Đã về";
-}
-
-function loiDong(rows: EditRow[], i: number): string[] {
-  const r = rows[i];
-  const out: string[] = [];
-  const vao = n(r.so_luong_vao);
-  const ra = n(r.so_luong_ra);
-  if (r.don_vi_vao === r.don_vi_ra && vao > 0 && ra > vao) out.push("ra nhiều hơn vào");
-  // KHÔNG kiểm `he_so <= 1` nữa: hệ số nay do server suy, và 1 là HỢP LỆ ở cả hai cầu
-  // (1 tờ nguyên ra 1 tờ in là chuyện thường). Luật cũ bắt oan đúng ca đó.
-  if (r.loai_buoc === "thue_ngoai") {
-    if (!r.nha_cung_cap.trim()) out.push("chưa có nhà gia công");
-    if (!r.ngay_gui_dk || !r.ngay_nhan_dk) out.push("chưa có ngày gửi / nhận");
-  } else if (r.department_id == null && r.may_id == null) {
-    out.push("chưa gán tổ / máy");
-  }
-  // Bước TRƯỚC trên dòng giấy (bỏ qua bước đơn vị trống, vd chế bản) phải nhả đúng đơn vị mà
-  // bước này ăn. Không lọc thì chế bản đứng đầu routing đẻ cảnh báo giả với bước in ngay sau.
-  if (r.don_vi_vao) {
-    const truoc = rows.slice(0, i).reverse().find((x) => x.don_vi_vao && x.don_vi_ra);
-    if (truoc && truoc.don_vi_ra !== r.don_vi_vao) out.push("đứt đơn vị");
-  }
-  if (i > 0 && r.ten && rows[i - 1].ten === r.ten) out.push("trùng bước trước");
-  return out;
 }
 
 export function LsxRoutingTable({
@@ -227,6 +204,10 @@ export function LsxRoutingTable({
           cong_doan_id: m.cong_doan_id, ten: m.ten, nhom: m.nhom,
           department_id: m.department_id,
           don_vi_vao: m.don_vi_vao, don_vi_ra: m.don_vi_ra,
+          // Cờ dòng giấy đi CÙNG cặp đơn vị — nó là thuộc tính của cặp đó, không phải của dòng.
+          // Giữ cờ cũ là bước vừa đổi sang ghi kẽm (`m² → bài in`) vẫn bị đem so đơn vị với bước
+          // in ngay sau, tức đúng cảnh báo giả vừa sửa nhưng sống lại lúc người dùng đang sửa.
+          tren_dong_giay: m.tren_dong_giay !== false,
           he_so_quy_doi: m.he_so_quy_doi > 1 ? String(m.he_so_quy_doi) : "",
           // Thời gian chuẩn bị + chạy KHÔNG còn nằm ở bước: kế thừa sống từ máy đang gán.
         });

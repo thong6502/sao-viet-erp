@@ -8,7 +8,9 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CFG_DON_VI, CFG_GIAY, CFG_VAT_TU } from "./rebuildCatalogConfigs";
+import {
+  CFG_CONG_VIEC_KHOAN, CFG_DON_VI, CFG_GIAY, CFG_MAY, CFG_VAT_TU,
+} from "./rebuildCatalogConfigs";
 import type { CatalogConfig, FieldDef } from "./RebuildCatalogPage";
 import type { Row } from "../api/rebuildCatalog";
 
@@ -78,6 +80,71 @@ describe("ô ĐVT lấy từ danh mục Đơn vị", () => {
       expect(f.type).toBe("ref-search-ma");          // lưu mã `kg`, không lưu id
       expect(f.refPrefix).toBe("/api/don-vi");       // nguồn duy nhất, không còn list cứng
       expect(f.refParams).toEqual({ active: true }); // không mời đơn vị đã ngừng dùng
+    }
+  });
+});
+
+describe("màn Công việc khoán (đơn giá khoán theo tổ)", () => {
+  it("cột Đơn vị hiện TÊN khi mã có trong danh mục", () => {
+    render(<>{cot(CFG_CONG_VIEC_KHOAN, "unit")(row({ unit: "to", don_vi_ten: "tờ" }))}</>);
+    expect(screen.getByText("tờ")).toBeInTheDocument();
+  });
+
+  it("mã lạ thì hiện NGUYÊN mã kèm dấu hiệu — không bỏ trắng như thể chưa khai", () => {
+    // Dòng đời cũ mang đơn vị ngoài danh mục ("mét tới"): server không tra ra tên nên `don_vi_ten`
+    // rỗng. Bỏ trắng ô thì người khai tưởng chưa chọn gì và giá trị hỏng vẫn nằm nguyên đó.
+    render(<>{cot(CFG_CONG_VIEC_KHOAN, "unit")(row({ unit: "mét tới", don_vi_ten: null }))}</>);
+    const o = screen.getByText("mét tới");
+    expect(o).toBeInTheDocument();
+    expect(o).toHaveAttribute("title", expect.stringContaining("không có trong danh mục"));
+  });
+
+  it("cột Tổ dịch mã tổ đời cũ sang tên đọc được", () => {
+    render(<>{cot(CFG_CONG_VIEC_KHOAN, "group_name")(row({ group_name: "to_boi" }))}</>);
+    expect(screen.getByText("Tổ Bồi")).toBeInTheDocument();
+  });
+
+  it("đi đúng nền danh mục: mã tự sinh · xoá mềm · có tab Nhật ký · gác quyền riêng", () => {
+    expect(CFG_CONG_VIEC_KHOAN.autoCode).toBe(true);        // KH-#### do server cấp
+    expect(CFG_CONG_VIEC_KHOAN.softDelete).toBe(true);      // còn nơi dùng ⇒ chỉ ngừng dùng
+    expect(CFG_CONG_VIEC_KHOAN.nhatKyLoai).toBe("cong_viec_khoan");
+    expect(CFG_CONG_VIEC_KHOAN.moduleQuyen).toBe("dm_cong_viec_khoan");
+    expect(CFG_CONG_VIEC_KHOAN.prefix).toBe("/api/cong-viec-khoan");
+  });
+
+  it("ô Đơn vị dùng CÙNG cách khai với Giấy · Vật tư (lưu mã, chỉ mời đơn vị còn dùng)", () => {
+    const f = truong(CFG_CONG_VIEC_KHOAN, "unit");
+    expect(f.type).toBe("ref-search-ma");
+    expect(f.refPrefix).toBe("/api/don-vi");
+    expect(f.refParams).toEqual({ active: true });
+  });
+
+  it("KHÔNG có ô `group_name`: nhãn tổ do server suy từ tổ đã chọn", () => {
+    const keys = CFG_CONG_VIEC_KHOAN.fields.map((f) => f.key);
+    expect(keys).toContain("department_id");
+    expect(keys).not.toContain("group_name");
+    expect(truong(CFG_CONG_VIEC_KHOAN, "department_id").required).toBe(true);
+  });
+});
+
+describe("ô Cách đo lượng ở màn Máy và Công việc khoán (mg 0213)", () => {
+  it("cả hai dùng bộ chip `quy_doi` — ô ra LƯỢNG không được mời chip đơn giá", () => {
+    for (const cfg of [CFG_MAY, CFG_CONG_VIEC_KHOAN]) {
+      const f = truong(cfg, "cong_thuc_luong");
+      expect(f.type).toBe("formula");
+      expect(f.loaiO).toBe("quy_doi");
+    }
+  });
+
+  it("nhãn tab công thức KHÔNG phải \"Công thức tính giá\" — hai ô này không nhắc tới tiền", () => {
+    expect(CFG_MAY.nhanTabCongThuc).toBe("Cách đo lượng");
+    expect(CFG_CONG_VIEC_KHOAN.nhanTabCongThuc).toBe("Cách đo lượng");
+  });
+
+  it("Giấy · Vật tư giữ nhãn mặc định: ô của chúng có cả công thức GIÁ", () => {
+    for (const cfg of [CFG_GIAY, CFG_VAT_TU]) {
+      expect(cfg.nhanTabCongThuc).toBeUndefined();
+      expect(cfg.fields.some((f) => f.key === "cong_thuc_gia")).toBe(true);
     }
   });
 });
