@@ -52,9 +52,6 @@ CAT_QUA_TAI_MAY = "qua_tai_may"
 CAT_HAN_BAI_GHEP = "han_bai_ghep"
 CAT_THUE_NGOAI = "thue_ngoai"
 # --- Đợt 2 (2026-08-09) ---
-# 🔴 `trung_khuon` + `khuon_chua_san_sang` đã GỠ 16/08/2026 (mg `0203`) cùng cột
-# `lsx_cong_doan.khuon_be_id` — 0/14 bước từng gán khuôn nên hai detector này chưa lần nào có dữ
-# liệu để chạy. Đừng dựng lại nếu chưa có đường nhập khuôn cho bước.
 CAT_THIEU_VAT_TU = "thieu_vat_tu"            # F: bảng cân đối có dòng đỏ cho lệnh/bài này
 CAT_THIEU_NGUOI = "thieu_nguoi"              # G: tổ bố trí dưới số người tối thiểu
 CAT_QUA_TAI_TO = "qua_tai_to"                # I: Σ người các việc cùng lúc > quân số có mặt của tổ

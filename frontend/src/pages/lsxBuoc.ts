@@ -117,10 +117,6 @@ export interface KhoanChon {
   canh_bao_vat_tu?: string[];
 }
 
-// 🔴 GỠ `DON_VI` + `DON_VI_NANG_SUAT` 12/08/2026 — hai bảng nhãn cứng, cả hai đã CHẾT (export mà
-// không nơi nào import). `DON_VI` chính là bảng bị `client.ts` và `tenDonVi.ts` nêu đích danh: nó
-// gọi `cai` là "Con" trong khi danh mục ghi "cái" và bảng thứ ba gọi "Thành phẩm" — ba tên cho một
-// thứ. Nhãn đơn vị đọc từ danh mục qua `nhanDonVi` bên dưới; đừng dựng lại bảng nào ở đây.
 
 /** Điều kiện bắt đầu (§4.5) — "công đoạn trước xong" là mặc định nên không có ô riêng. */
 let seq = 0;

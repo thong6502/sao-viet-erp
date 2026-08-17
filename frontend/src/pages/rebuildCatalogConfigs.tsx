@@ -35,12 +35,6 @@ const TOOLING_TYPE: Lbls = { khuon_be: "Khuôn bế", khuon_ep: "Khuôn ép nhũ
 // `con` KHÁC `thành phẩm`: sách gấp tay thì nhiều tờ mới gom thành MỘT cuốn. Hệ số các cầu này
 // SUY ở `_he_so_cau` từ quy cách lệnh, không khai tay.
 //
-// 🔴 BẢNG NHÃN `DON_VI_CD` ĐÃ GỠ 12/08/2026. Nó khai cứng `to` = "Tờ in", `cai` = "Thành phẩm",
-// trong khi danh mục Đơn vị ghi "tờ" và "cái" — nên CÙNG MỘT GIÁ TRỊ hiện HAI TÊN ở hai chỗ trên
-// cùng một màn: danh sách ghi "Tờ in → Thành phẩm", mở drawer ra lại là "tờ → cái".
-//
-// Nay server trả `don_vi_vao_ten`/`don_vi_ra_ten` đọc thẳng từ danh mục (`gan_ten_don_vi`). Đơn vị
-// là danh mục ĐỘNG — xưởng đổi tên là bảng đổi theo, không phải đi sửa hằng trong code.
 
 // 5 TRẠM của dòng giấy — ô chọn ở màn Đơn vị, khớp `models/don_vi_do.TRAM_DONG_GIAY` bên backend
 // (service chặn giá trị lạ). Đây là menu ĐÓNG thật sự: engine chạy chuỗi bù hao theo đúng 5 mức
@@ -60,8 +54,6 @@ const KIEU_BU_HAO: Lbls = {
   co_dinh: "Cộng cố định (số tờ)",
 };
 
-// 🔴 GỠ `THO` + `BE_MAT` 15/08/2026 cùng hai ô "Thớ mặc định" / "Bề mặt" của Chủng loại giấy.
-// Không màn nào còn dùng hai bảng nhãn này (grep 0 nơi gọi sau khi gỡ).
 
 // GỠ 2026-08-08: `DV_GIA_GIAY` / `DV_GIA_VAT_TU` — hai danh sách đơn vị CỨNG. Đơn vị giờ chọn từ
 // danh mục Đơn vị & quy đổi (`/api/don-vi`), là NGUỒN DUY NHẤT dùng chung cho Kho · NCC · khoán ·
@@ -143,9 +135,6 @@ export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
 // Nhãn đơn vị tốc độ ở BẢNG DANH SÁCH: server đã tra sẵn tên thật (`don_vi_toc_do_ten`, xem
 // `may_thiet_bi_service.gan_ten_don_vi`) nên chỉ việc đọc.
 //
-// 🔴 BỎ bảng `DON_VI_TOC_DO` (9 mã viết tay) 15/08/2026 — nó là bảng nhãn THỨ HAI: xưởng đổi tên
-// đơn vị ở danh mục thì cột này vẫn đọc chữ cũ, và đơn vị mới khai thì hiện mã trần. Mã chỉ còn là
-// lối về khi máy khai đơn vị nay đã xoá khỏi danh mục.
 function nhanDonViTocDo(r: Row): string {
   const ten = String(r.don_vi_toc_do_ten ?? "").trim();
   if (ten) return `${ten}/h`;
@@ -438,14 +427,6 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "department_id", label: "Phòng ban / Tổ phụ trách", type: "ref", refPrefix: "/api/cong-doan/phong-ban", group: "Thông tin" },
 
     // ── Nguồn nuôi thẳng thời lượng bước ở Lệnh sản xuất ──────────────────────────────────────
-    // 🔴 Ô "Thời gian chuẩn bị (phút)" ĐÃ GỠ 10/08/2026. Công thức thời lượng lấy chuẩn bị TỪ MÁY
-    // (`may_thiet_bi.makeready_time_default`), KHÔNG đọc `cong_doan.setup_time` — cột đó dormant từ
-    // trước. Để ô lại là mời người ta gõ một số không đổi phút nào, mà bước TỔ thì càng luôn = 0
-    // (tổ không có máy). Chuẩn bị là chuyện của MÁY, khai ở màn Thiết bị & Máy móc.
-    // Hai cờ này CHỈ còn nuôi phiếu tính giá (16/08/2026): bật ⇒ bước đó hiện ô nhập PHÍ KHUÔN.
-    // Chuyển từ nhóm "Lệnh sản xuất" sang "Giá" cùng ngày — lệnh sản xuất không còn đọc chúng nữa
-    // (mg `0203` gỡ cả cột gán khuôn lẫn hai ràng buộc khuôn ở xếp lịch).
-    // Vẫn KHÔNG đoán bước bế theo tên công đoạn: đặt tên là việc của người dùng.
     { key: "requires_tooling", label: "Bước này cần khuôn riêng", type: "checkbox",
       group: "Giá",
       hint: "Bật ⇒ phiếu tính giá hỏi thêm ô PHÍ KHUÔN ở bước này (để trống = dùng lại dao cũ)." },
@@ -558,10 +539,6 @@ export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
   // Xoá MỀM: nút "Xóa" hỏi server "còn ai dùng không" rồi tự chọn kết cục — chưa ai dùng thì
   // xoá hẳn, còn nơi dùng thì chỉ ngừng dùng. Mục đã ngừng xem lại ở công tắc trên dải lọc.
   softDelete: true,
-  // 🔴 GỠ "Bề mặt" + "Thớ mặc định" 15/08/2026 (chủ dự án yêu cầu) — gỡ CẢ hai cột ở model, schema,
-  // repo và validator backend, không chỉ ẩn ô. Đo trước khi gỡ: `be_mat` 6/6 dòng có giá trị,
-  // `tho_mac_dinh` 0/6, và KHÔNG nơi nào đọc để tính (không tính giá · không lệnh SX · không kế
-  // hoạch vật tư) — chúng chỉ hiện lên màn. Chủng loại giấy nay chỉ còn mã · tên · mô tả.
   columns: [
     { key: "mo_ta", label: "Mô tả", render: (r) => (r.mo_ta ? String(r.mo_ta) : "—") },
   ],
@@ -593,18 +570,6 @@ export const CFG_GIAY: CatalogConfig = {
     // Đơn giá theo cân — CHỐT CỨNG ở danh mục (engine lấy thẳng, phiếu không sửa).
     { key: "don_gia", label: "Đơn giá (đ/kg)", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn (mặc định đ/kg)" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
-    // 🔴 GỠ Ô "Công thức tính lượng" 15/08/2026 (chủ dự án yêu cầu) — CHỈ GỠ Ô, KHÔNG gỡ cột.
-    //
-    // Cột `giay_nguyen.cong_thuc_luong` VẪN CÒN và vẫn có dữ liệu: 5/5 dòng giấy đang mang
-    // `dinh_luong * dai_nguyen * rong_nguyen * to_nguyen` do migration 0197 tự điền, và BA nơi
-    // đang đọc nó — `lsx_service` (BOM bước lệnh) · `ke_hoach_vat_tu_service` · `quy_doi_service`.
-    // Rút cột là gãy phép đổi tờ→kg của kế hoạch vật tư.
-    //
-    // Bỏ ô không mất dữ liệu: router dùng `model_dump(exclude_unset=True)` nên khoá không gửi lên
-    // thì vắng khỏi `data`, và `CatalogRepo._gan` chỉ ghi khoá CÓ MẶT.
-    //
-    // ⚠️ Hệ quả: giấy TẠO MỚI từ nay không khai được công thức lượng ⇒ cột để trống ⇒ lượng suy
-    // bằng quy đổi từ đơn vị của bước (đường lùi vốn có). Muốn khai lại thì bỏ comment khối này.
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
 };
@@ -632,11 +597,6 @@ export const CFG_VAT_TU: CatalogConfig = {
     // (đã quy về đơn vị cơ sở; `don_gia_kg`/`don_gia_m2` gỡ 11/08/2026 vì trùng nghĩa).
     { key: "don_gia", label: "Đơn giá", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn — dùng làm biến don_gia trong công thức" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
-    // 🔴 GỠ Ô "Công thức tính lượng" 15/08/2026 (chủ dự án yêu cầu) — CHỈ GỠ Ô, KHÔNG gỡ cột.
-    // Cột `vat_tu_in_an.cong_thuc_luong` (mg 0194) vẫn còn; đo lúc gỡ: 0/7 dòng có giá trị, nên
-    // màn này gỡ đi là không mất gì cả. `lsx_service._vat_tu_bung` vẫn đọc cột — bỏ trống thì nó
-    // suy lượng bằng quy đổi từ đơn vị của bước, đúng đường lùi vốn có.
-    // Xem chú thích dài hơn ở CFG_GIAY phía trên (chỗ đó có dữ liệu thật, 5/5 dòng).
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
 };
@@ -894,9 +854,6 @@ export const CFG_DON_VI: CatalogConfig = {
     { key: "tram_dong_giay", label: "Trạm trên dòng giấy", type: "select",
       options: mapOpt(TRAM_DONG_GIAY),
       hint: "Để trống = ngoài dòng giấy (đúng cho gần hết danh mục). Chỉ đặt cho đơn vị đếm chính TỜ GIẤY qua từng chặng — sai một dòng là số giấy của mọi lệnh lệch theo." },
-    // 🔴 Ô "Cách đo" GỠ khỏi đây 13/08/2026 — nó là khối khai công thức THỨ HAI trên cùng một màn,
-    // nhìn y hệt nút "Công thức" ở khối Quy đổi bên dưới. Nay chỉ còn MỘT chỗ: bấm "Công thức" ở
-    // khối "Thêm quy đổi mới" là ghi thẳng vào `don_vi_do.cong_thuc` (xem `QuyDoiCuaDonVi`).
   ],
   // Quy đổi khai NGAY TẠI ĐÂY, dưới ô Ghi chú — một chỗ nhập, không màn thứ hai.
   renderExtra: (_form, existing) => <QuyDoiCuaDonVi donVi={existing} />,

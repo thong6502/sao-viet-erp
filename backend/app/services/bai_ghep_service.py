@@ -1638,11 +1638,6 @@ class BaiGhepService:
         khos = [_kho(qc.get("dai_thanh_pham"), qc.get("rong_thanh_pham")) or "—" for qc in qcs]
         rows.append(_row("Khổ thành phẩm", khos, "phu_hop"))
 
-        # 🔴 Dòng "Khuôn bế" đã GỠ 16/08/2026 cùng cột `lsx_cong_doan.khuon_be_id` (mg `0203`).
-        # Đừng dựng lại theo lối cũ nếu sau này có đường gán khuôn: nó so khuôn ở cấp LỆNH, mà câu
-        # đó vốn sai — hai lệnh ghép chung TỜ IN rồi mỗi lệnh đi bế riêng bằng dao của nó thì khác
-        # dao là bình thường. Chỉ khi bước bế được GỘP thành một lượt chạy chung mà các thành viên
-        # khai hai con dao khác nhau mới là vô lý (một lượt không lắp được hai khuôn).
         return {"thanh_vien": [{"lsx_id": tv.lsx_id} for tv in tvs], "rows": rows}
 
     # ================= CHECKLIST =================

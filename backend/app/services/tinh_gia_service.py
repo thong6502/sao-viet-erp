@@ -145,19 +145,6 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
 
     # Dòng gia công sau in: bơm cấu hình công đoạn cho MỌI dòng có gắn danh mục.
     #
-    # 🔴 GỠ ĐIỀU KIỆN `not _f(rd.get("don_gia"))` (11/08/2026). Nó là tàn dư thời công đoạn còn
-    # tính được bằng ĐƠN GIÁ PHẲNG: dòng nào gõ giá tay thì khỏi cần cấu hình danh mục. Nhưng
-    # công đoạn đã **formula-only** từ 22/07 (siết trọn 11/08) — engine không đọc `don_gia` của
-    # dòng nữa, xem `thanh_phan_engine`. Điều kiện ở lại chẳng còn tiết kiệm gì, chỉ còn gây hại:
-    #
-    #   dòng có đơn giá phẳng ⇒ không nạp `cong_doan` ⇒ mất `tram_vao`/`tram_ra` ⇒ bước RƠI khỏi
-    #   dòng giấy ⇒ **bù hao của bước biến mất khỏi báo giá**, mà LỆNH thì vẫn tính đủ (nó đọc
-    #   routing thẳng từ `cong_doan_id`). Đo trên ca sách 2.000 cuốn 10 tay có bước xén hao 50
-    #   cuốn: phiếu ra 20.000 tờ, lệnh ra 20.500 tờ — báo giá hụt 500 tờ giấy, không cảnh báo nào
-    #   chỉ đúng chỗ (engine chỉ kêu chung "chưa khai đơn vị vào/ra").
-    #
-    # "Lấy giá ở đâu" và "bước này đứng đâu trên dòng giấy, hao bao nhiêu" là HAI câu hỏi khác
-    # nhau; buộc chung vào một `if` là chỗ sinh ra lệch. Cấu hình danh mục nay luôn nạp.
     tram = ban_do_tram(db)   # đọc MỘT lần cho cả phiếu, không hỏi lại từng dòng
     rows: list[dict] = []
     for row in sorted(tp.thanh_phams, key=lambda r: (r.thu_tu or 0, r.id or 0)):

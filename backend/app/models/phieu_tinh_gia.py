@@ -108,21 +108,6 @@ class PhieuThanhPhan(Base):
     don_gia_giay: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     don_gia_don_vi: Mapped[str] = mapped_column(String(8), nullable=False, default="to")   # to|tan
     nguon_giay: Mapped[str] = mapped_column(String(12), nullable=False, default="cong_ty")  # cong_ty|khach
-    # 🔴 XOÁ 15/08/2026 — BA cột nhập-tay của khối số tờ, gỡ cùng đợt (mg `0200` + `0201`):
-    #   · `bu_hao_so_to` ("+ Bù thêm") — cộng một con số TỜ vào mọi bước bất kể bước đó đếm bằng gì,
-    #     nên bước đếm cuốn ra hao ÂM và đơn 500 hoá 600. Đo 0/7 phiếu từng dùng.
-    #   · `hao_so_to` ("− Hao") — bản thay tay cho "tờ mất khi in"; chuỗi ngược đã tính `to_sau_in`
-    #     từ chính bước in nên không cần gõ. Ô đã gỡ khỏi UI từ trước, engine không đọc.
-    #   · `tinh_bu_hao_cd` (nút bật/tắt bù hao tự) — tắt bù hao là mở đường cho báo giá hụt giấy mà
-    #     không ai biết. Nút đã gỡ khỏi UI từ trước, engine luôn tính chuỗi ngược.
-    #
-    # Nay khối số tờ do máy tính TRỌN VẸN, không còn ô nào để hai người gõ hai số khác nhau. Muốn
-    # cộng/bớt hao thì sửa định mức của chính công đoạn ở danh mục — chỗ đó biết bước ấy đếm bằng
-    # đơn vị gì nên quy ra giấy đúng cầu. Đừng dựng lại ô nào ở đây.
-    # Chừa tờ in thuộc về MÁY (danh mục: `nhip_giay_mm` / `le_hong_mm` / `duoi_thang_mau_mm`).
-    # Phiếu chỉ giữ MỘT ô đè: nhíp giấy — khoản duy nhất đổi theo job (cạnh nạp, hướng bài).
-    # Lề hông · đuôi · xén · cả gáy đã BỎ khỏi phiếu: chưa từng có chỗ nhập, chỉ làm engine cộng
-    # nhầm hai chiều. Muốn đổi thì sửa danh mục Máy — một nguồn, mọi phiếu ăn theo.
     chua_nhip: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     # Bình bài: con để bình = thành phẩm ③ + 2×bleed; giữa 2 con kề nhau chừa `khe_cat_mm`.
     # 0 = không tràn lề / bình sát cắt chung nhát. Sale nhập trên phiếu (hỏi khách hoặc kỹ thuật).

@@ -1,8 +1,5 @@
 // Mã gợi ý cho bản ghi MỚI của một danh mục.
 //
-// 🔴 NỢ ĐÃ BIẾT: `tienToMa` đoán tiền tố bằng cách dò chuỗi trong đường dẫn API — tức là viết
-// CỨNG một luật vốn thuộc về danh mục. Đợt F6 sẽ đổi sang hỏi backend (`GET {prefix}/ma-goi-y`)
-// rồi xoá hẳn bảng dò này. Trước khi đó thì đừng thêm dòng mới vào đây; thêm là nợ dày thêm.
 import { crud } from "../../api/rebuildCatalog";
 import type { Row } from "./types";
 

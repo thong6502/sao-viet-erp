@@ -61,19 +61,6 @@ DV_BAI = "bai"    # bài bình (chế bản: 1 bài → n bản kẽm)
 # `cai` (thành phẩm) là ĐÍCH CUỐI của dòng giấy — chủ chốt 2026-08-05, không có mức nào sau nó.
 DV_TAY = "tay"    # tay sách (1 tờ in gấp lại = 1 tay, mang n trang)
 
-# 🔴 BA HẰNG ĐÃ XOÁ 14/08/2026 (grep 0 nơi dùng — chết từ 11/08 khi dòng giấy chuyển sang CỜ):
-#     DV_NGOAI_DONG_GIAY = ("mau","tan","me","m2","nhip","hop")
-#     DON_VI_CONG_DOAN   = (…13 mã…)
-#     CAU_QUY_DOI        = ((to_nguyen,to), (to,cai), (to,con), (con,cai))
-#
-# Cả ba đều KỂ SAI hệ hiện tại, nên đọc nhầm là đi sửa nhầm chỗ:
-#   · Đơn vị nào ngoài dòng giấy KHÔNG phải danh sách 6 mã — là mọi đơn vị bỏ trống cờ
-#     `don_vi_do.tram_dong_giay`. Thêm đơn vị mới KHÔNG phải sửa code.
-#   · Công đoạn dùng được CẢ danh mục đơn vị, không phải 13 mã.
-#   · Cầu dòng giấy nay là `models/don_vi_do.CAU_TRAM` (6 nhịp, khoá theo TRẠM), hệ số ở
-#     `lsx_service._he_so_cau`. Có test canh hai bên khớp: `test_dong_giay.py:136`.
-#
-# Bảy hằng `DV_*` phía trên thì SỐNG (2–9 nơi dùng mỗi cái) — đừng dọn kèm.
 
 # --- Loại bước (execution type). Quyết định bước CHIẾM cái gì khi lên Gantt — đây là lý do routing
 # tồn tại. Thời gian chờ/di chuyển nằm trên bước và không chiếm năng lực tài nguyên.
@@ -90,10 +77,6 @@ LOAI_BUOC_THEO_TO = (LB_TO,)
 # quy đổi — xưởng khai `me`/`thung` thì máy khai `me_gio`/`thung_gio`. Cắt hậu tố ở đúng một chỗ:
 # `lsx_service.ma_don_vi_toc_do`.
 #
-# 🔴 GỠ `NS_TO_GIO`/`NS_CAI_GIO`/`NS_KEM_GIO` 15/08/2026 (trước đó là `DON_VI_NANG_SUAT` 12/08):
-# ba hằng này chỉ sống để nuôi bảng ánh xạ `_DV_VAO_SANG_NS` — thứ so mã rồi VỨT tốc độ khi lệch.
-# Nay SL vào được quy đổi về đơn vị của tốc độ nên không còn gì để so. Khai lại một danh sách đơn
-# vị cứng ở tầng code là dựng lại đúng cái vừa gỡ.
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -127,9 +110,6 @@ class Lsx(Base):
     # --- Số lượng (MIS: Ordered → Planned; Produced thuộc pha thực thi) ---
     so_luong_dat: Mapped[int] = mapped_column(Integer, nullable=False, default=0)      # = order_lines.qty
     don_vi_tinh: Mapped[str] = mapped_column(String(30), nullable=False, default="cái")
-    # 🔴 XOÁ 15/08/2026: `bu_hao_to` — ô "Hao hụt thêm" ở bước cuối. Bỏ cùng ô "+ Bù thêm" bên
-    # phiếu tính giá để cả hệ chỉ còn MỘT đường khai hao: định mức của chính công đoạn ở danh mục.
-    # Đo 0/3 lệnh (DB dev) từng gõ số. `LsxPreviewLine.bu_hao_to` KHÁC — đó là số máy tự tra, giữ.
     so_to_ke_hoach: Mapped[int] = mapped_column(Integer, nullable=False, default=0)    # tờ vào máy
     so_to_nguyen: Mapped[int] = mapped_column(Integer, nullable=False, default=0)      # tờ giấy nguyên
     so_con: Mapped[int] = mapped_column(Integer, nullable=False, default=1)            # con/tờ

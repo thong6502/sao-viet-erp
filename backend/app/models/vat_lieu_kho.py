@@ -24,10 +24,6 @@ from ..db import Base
 
 # `THO` còn dùng cho `GiayNguyen.tho` (thớ của TỪNG loại giấy) — ĐỪNG gỡ theo.
 THO = ("canh_dai", "canh_ngan")
-# 🔴 GỠ `BE_MAT_GIAY` 15/08/2026 cùng hai cột `chung_loai_giay.be_mat` / `.tho_mac_dinh`.
-# Đo trước khi gỡ: `be_mat` 6/6 dòng có giá trị, `tho_mac_dinh` 0/6 — nhưng KHÔNG nơi nào ĐỌC để
-# tính, chỉ có validator kiểm enum và bảng hiện lên màn. Không engine tính giá / lệnh SX / kế
-# hoạch vật tư nào chạm tới.
 
 # MẶT HÀNG GỐC nằm ở HAI bảng với hai dãy id riêng, nên mọi nơi trỏ tới nó (kho, NCC) phải mang
 # CẶP `(hang_loai, hang_id)` chứ không mang mỗi id. Khoá cặp thay vì hai cột `giay_id`/`vat_tu_id`

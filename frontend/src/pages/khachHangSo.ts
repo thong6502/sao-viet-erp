@@ -11,10 +11,6 @@ import type { OrderHistoryRow, QuoteHistoryRow } from "../api/client";
 // Hai nơi cùng tính một chỉ số là mầm lệch số; giữ được vì frontend BẮT BUỘC tính lại — bộ lọc
 // theo năm cắt tập báo giá, mà backend chỉ trả con số lifetime.
 //
-// 🔴 Bản trước đếm sai CẢ HAI CHIỀU:
-//   · bỏ sót `converted_to_order` ("Đã lên đơn — khoá 1 báo giá = 1 đơn") — thắng chắc chắn;
-//   · tính `approved` là thắng, trong khi nó là "GĐ duyệt xong, CHỜ sale gửi khách".
-// Khách An Phát có 11 báo giá đã lên đơn ⇒ màn hình ghi 18% trong khi thực tế 88%.
 export const CHOT_THANG = ["accepted", "converted_to_order"];
 
 // Mẫu số CHỈ gồm báo giá khách ĐÃ THẤY. Loại `draft` · `pending_approval` · `approved` (chưa ra
@@ -51,10 +47,6 @@ export interface SanPhamGop {
 
 /** Gộp tiền theo sản phẩm từ TIỀN THẬT của từng dòng đơn (`lines[].line_total`).
  *
- *  🔴 Bản trước không có `lines`: nó tách `summary` theo dấu phẩy rồi CHIA ĐỀU tổng đơn cho số
- *  phần. Đơn 21,5 Mđ gồm "Ruột sách 160 trang, Bìa sách, Thẻ nhân viên" bị gán mỗi thứ 7,17 Mđ,
- *  dù ruột sách đắt hơn thẻ nhân viên nhiều lần — bảng xếp hạng "mua nhiều nhất" vì thế xếp sai
- *  thứ tự, mà nhìn vào không thấy có gì bất thường.
  *
  *  Đơn cũ (trước khi backend trả `lines`) vẫn lùi về tách `summary`, nhưng KHÔNG chia tiền nữa —
  *  thà thiếu tiền còn hơn tiền bịa; số đơn vẫn đếm được nên dòng đó không biến mất.

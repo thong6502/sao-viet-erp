@@ -368,21 +368,6 @@ class AccountingService:
     # đường: lập phiếu chi rồi chi, hoặc huỷ đơn.
     #
     # Ba rổ, đừng lẫn:
-    #   🔴 CHƯA VÀO SỔ — đơn ĐÃ NHẬN HÀNG mà chưa có phiếu chi phủ hết. Nợ có thật nhưng kế toán
-    #      chưa lập phiếu. Bỏ rổ này đi là GIẤU NỢ: bảng sạch bong trong khi vẫn đang nợ NCC.
-    #   🟡 CHỜ CHI — đã lập phiếu, tiền chưa ra. Nợ đã vào sổ, có hạn trả.
-    #   ✅ ĐÃ TRẢ — từng LẦN TRẢ (không phải từng đơn). Cộng lại đúng bằng cột "Đã trả".
-    #
-    # Rổ ✅ trước 05/08/2026 liệt kê "đơn đã trả xong" — sai đơn vị: cột "Đã trả" là TIỀN, bấm vào
-    # mà ra danh sách ĐƠN thì cộng không khớp. Đổi sang từng lần trả cũng hợp việc đối chiếu hơn:
-    # NCC gửi sao kê cũng nghĩ theo từng lần nhận tiền, không nghĩ theo đơn.
-    #
-    # ⚠️ Nhãn trên màn phải là "Đã trả" ở CẢ HAI chỗ (cột ngoài bảng lẫn khối trong drawer). Có lúc
-    # ngoài bảng ghi "Đã trả" mà trong drawer ghi "Đã chi trong kỳ" — cùng một con số, hai tên, chủ
-    # đọc không hiểu là cái gì. Tên trường trong API (`paid_in_period`, `paid`) giữ nguyên, chỉ nhãn
-    # hiển thị mới cần đồng bộ.
-    #
-    # Đơn đã duyệt mà hàng chưa về KHÔNG nằm ở đây — chưa nợ ai. (Đó là "dự chi", việc khác.)
 
     def _no_cua_phieu(self, row) -> dict:
         """Bóc một phiếu mua thành các con số công nợ.
@@ -560,10 +545,8 @@ class AccountingService:
         }
 
     def payables_detail(self, supplier_id: int, *, all_history: bool = False) -> dict:
-        """Chi tiết công nợ một NCC — 🔴 chưa vào sổ · 🟡 chờ chi · ✅ đã chi trong kỳ.
+        """Chi tiết công nợ một NCC — chưa vào sổ · 🟡 chờ chi · ✅ đã chi trong kỳ.
 
-        ⚠️ Kỳ CHỈ cắt phần ĐÃ TRẢ. Nợ chưa trả (🔴 và 🟡) không hề nhìn ngày — đơn nợ từ hai năm
-        trước hôm nay vẫn hiện đủ. Nợ cũ không bao giờ tự biến mất.
 
         `all_history=True` bỏ mốc kỳ cho riêng rổ ✅ — dùng cho nút "Xem lịch sử cũ hơn". NCC trả
         hết từ 5 tháng trước thì mặc định rổ ✅ rỗng, tra ra "không nợ" nhưng không thấy đã trả

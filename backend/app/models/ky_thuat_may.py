@@ -18,11 +18,6 @@ Ba điều đáng nhớ trước khi sửa file này:
 Bảng MỚI ⇒ `create_all` tự dựng, KHÔNG viết `db_migrations.py`. Nhưng phải ghi vào
 `docs/DB_SCHEMA.md` cùng lúc — file đó có guard test.
 
-🔴 **Vì sao tiền tố `ky_thuat_*` chứ không phải `bao_tri_phieu`:** module Bảo trì cũ bị gỡ
-12/08/2026 nhưng ba bảng `bao_tri_phieu` · `bao_tri_hen` · `bao_tri_anh` VẪN NẰM LẠI trong Postgres
-dev/prod (dự án không có Alembic nên không ai drop). `create_all` thấy bảng đã tồn tại là bỏ qua,
-không ALTER ⇒ model mới sẽ trỏ vào bảng cũ thiếu cột: test chạy SQLite trắng thì xanh, DB thật thì
-vỡ lúc lưu. Đặt tên khác là cách rẻ nhất để né, khỏi phải drop bảng người khác.
 """
 from __future__ import annotations
 
@@ -58,10 +53,6 @@ MUC_DO_NGHIEM_TRONG = "nghiem_trong"
 MUC_DO = (MUC_DO_NHE, MUC_DO_TRUNG_BINH, MUC_DO_NGHIEM_TRONG)
 
 # --- Phiếu bảo trì ---------------------------------------------------------------
-# 🔴 Bảo trì chỉ có HAI nấc (chủ chốt 12/08/2026): chờ làm → xong. Nấc "đang thực hiện" ĐÃ BỎ —
-# nó bắt thợ bấm hai lần cho một việc, mà lần bấm đầu chẳng nói thêm được gì: bảo trì định kỳ làm
-# xong trong một lượt, không phải việc kéo dài nhiều ngày cần theo dõi tiến độ.
-# Ai bấm "Xác nhận đã bảo trì xong" thì CHÍNH người đó là người làm — không có bước nhận việc riêng.
 TT_BT_CHO_THUC_HIEN = "cho_thuc_hien"
 TT_BT_HOAN_THANH = "hoan_thanh"
 TRANG_THAI_BAO_TRI = (TT_BT_CHO_THUC_HIEN, TT_BT_HOAN_THANH)

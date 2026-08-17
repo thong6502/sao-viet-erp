@@ -648,13 +648,6 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         warnings.append(f"Thành phần '{name}': {_c}")
 
     # --- Số tờ: đọc RA KHỎI CHUỖI tại đúng ranh giới đơn vị, không tính riêng bên ngoài ---
-    # 🔴 GỠ 15/08/2026: ô "+ Bù thêm" (`bu_hao_so_to`) — ô nhập tay CUỐI CÙNG của khối này, nay
-    # khối số tờ hoàn toàn do máy tính. Nó cộng một con số TỜ vào cả `vao` lẫn `ra` của MỌI bước
-    # mà không nhìn đơn vị: bước đếm cuốn nhận thêm 100 *tờ* thành 100 *cuốn*, nên hao ra ÂM và
-    # đơn 500 cuốn hoá thành 600. Đo được 0/7 phiếu (DB dev) từng gõ số vào đó.
-    #
-    # Muốn làm dư thì khai vào BÙ HAO CỦA CHÍNH CÔNG ĐOẠN trong danh mục — chỗ đó biết bước ấy
-    # đếm bằng gì nên quy ra giấy đúng cầu. Đừng dựng lại một ô cộng phẳng ở đây.
 
     def _vao_tai(tram: str) -> float | None:
         """Số lượng VÀO của bước đầu tiên đứng ở TRẠM `tram` — mốc cần ở ranh giới đó.
@@ -861,10 +854,6 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     for idx_buoc, row in enumerate(chain):
         cd = row.get("cong_doan") or {}
         ten_r = row.get("ten") or cd.get("ten") or "Công đoạn"
-        # 🔴 GỠ 11/08/2026: ba biến CHẾT `row_sl` · `don_gia_r` (đơn giá phẳng của dòng) · `basis`
-        # (`pricing_basis` của danh mục) — gán rồi không đọc, tàn dư thời chưa formula-only. Để lại
-        # là mời người sau tưởng đơn giá phẳng còn tác dụng rồi dựng lại nhánh cũ; chính niềm tin
-        # đó đã đẻ ra cái `if` nuốt bù hao ở `tinh_gia_service._resolve_thanh_phan`.
 
         ctx = dict(ctx_base)
         # SỐ CỦA CHÍNH BƯỚC NÀY (đọc từ chuỗi ngược) — đây là hai chip `sl_vao`/`sl_ra` ở ô Công
@@ -892,14 +881,6 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         ctx["dt_thanh_pham_cm2"] = _f(row.get("dien_tich"))
 
         formula = cd.get("cong_thuc_gia") if cd else None
-        # 🔴 GỠ 11/08/2026: hai công thức MẶC ĐỊNH theo nhóm (`to_dau_vao * so_mat * don_gia` cho
-        # print, `so_kem * don_gia` cho prepress). Chúng dựa vào `don_gia` của công đoạn — một biến
-        # CHẾT: không có ô nhập ở phiếu (bỏ 21/07) lẫn ở danh mục (form chỉ còn ô Công thức), nên
-        # nó chỉ ăn `run_rate` cũ kẹt trong DB mà không ai sửa được. Kết quả: công thức mặc định ra
-        # 0đ nhưng trông như đã tính.
-        #
-        # Nay công đoạn chưa khai công thức thì engine NÓI THẲNG "chưa khai công thức tính giá —
-        # tính 0đ" (đường cảnh báo ngay dưới). Bắt người ta viết một công thức, thật hơn.
         if formula and formula.strip():
             eval_ctx = dict(ctx_vars)
             eval_ctx["so_mat"] = ctx["so_mat"]

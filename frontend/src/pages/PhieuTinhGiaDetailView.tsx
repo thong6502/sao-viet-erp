@@ -338,15 +338,6 @@ function nvlTheoLoai(groups: PhieuTinhGiaGroupOut[] | null): { giay: DongTien[];
   return ra;
 }
 
-// 🔴 GỠ `FORMULA_UNIT` (12/08/2026) — bảng nhãn đơn vị của biến khai cứng ở đây. Nó là BẢN SAO của
-// cột `don_vi` trong từ điển biến (`services/bien_cong_thuc`, phơi qua `/api/bien-cong-thuc`), và đã
-// lệch bốn chỗ:
-//   · `don_gia` — biến này đã tách thành `don_gia_giay` / `don_gia_vat_tu` (mg 0189), nên hai biến
-//     MỚI không có nhãn nào, còn cái tên cũ thì không công thức nào dùng nữa;
-//   · `dai_nguyen`/`rong_nguyen` ghi "cm" trong khi engine bơm MÉT;
-//   · `dinh_luong` ghi "gsm" trong khi engine bơm kg/m² (gsm ÷ 1.000);
-//   · thiếu hẳn `dai_in` · `rong_in` · `so_tp` · `to_sau_in` · `so_mau` · `so_mau_pha`.
-// Nay tra thẳng từ điển: thêm/đổi biến ở backend là màn này theo ngay, không phải nhớ sửa hai nơi.
 
 // Tên hàm toán (max/min/ceil/floor/round) — GIỮ NGUYÊN trong diễn giải, không humanize như biến.
 const MATH_FN = new Set(["max", "min", "ceil", "floor", "round"]);
@@ -2838,7 +2829,7 @@ function ComponentModal({
                   })}
                 </ul>
               )}
-              {/* 🔴 GỠ 15/08/2026: ô "+ Bù thêm" — ô nhập tay CUỐI CÙNG của khối này. Nó cộng một
+              {/* GỠ 15/08/2026: ô "+ Bù thêm" — ô nhập tay CUỐI CÙNG của khối này. Nó cộng một
                   con số TỜ vào mọi bước bất kể bước đó đếm bằng gì, nên bước đếm cuốn ra hao ÂM và
                   đơn 500 hoá 600. Nay cả khối số tờ do máy tính hết. Muốn làm dư thì khai bù hao
                   của chính công đoạn ở danh mục — chỗ đó biết đơn vị nên quy ra giấy đúng cầu. */}

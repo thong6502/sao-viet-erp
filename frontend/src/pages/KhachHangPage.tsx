@@ -91,16 +91,6 @@ import {
   ShieldAlert,
 } from "lucide-react";
 
-// 🔴 `getCustomerTierMeta` đã GỠ 16/08/2026. Nó tự phán "hạng khách" NGAY TRONG FRONTEND bằng
-// ngưỡng viết cứng — doanh số 12T ≥ 100 triệu → VIP, ≥3 đơn → Đối tác, ≥1 đơn → Đang GD, còn lại
-// → Mới — rồi in ra badge cạnh tên và tô chấm màu trên avatar.
-//
-// Vì sao bỏ: không có cột nào trong DB đỡ nó, nên nhãn ấy KHÔNG ai khai được, KHÔNG sửa được và
-// KHÔNG tìm kiếm được — chỉ là phép tính lúc vẽ màn. Ngưỡng 100 triệu cũng không có trong spec
-// nào. `docs/redesign-khach-hang.md` đã chốt sẵn từ trước: "Bỏ mọi tự-phân-loại / badge fake,
-// thay bằng thẻ gán tay (customer_tags)".
-//
-// Muốn nói khách này thuộc loại gì thì dùng THẺ — thẻ là dữ liệu thật, gán/gỡ được, lọc được.
 import { MixDonut, MonthBars } from "../components/charts";
 import "./khach-hang.css";
 
@@ -3121,12 +3111,6 @@ function AuditTab({
 
 // --- Nhãn thủ công (#7: sales gán tay để phân loại chăm sóc) --------------------
 
-// 🔴 `DEFAULT_TAG_PRESETS` — 13 nhãn VIẾT CỨNG — đã gỡ 16/08/2026. Kho nhãn nay là dữ liệu thật
-// (`customer_tag_catalog`, mg `0204` mồi đúng 13 nhãn đó nên mở lên không mất gì).
-//
-// Vì sao phải bỏ: mảng cứng làm nhãn KHÔNG XOÁ ĐƯỢC. Gỡ "Nhạy giá" khỏi mọi khách xong, mở hộp
-// Gắn thẻ ra nó vẫn nằm đấy — vì nó nằm trong code chứ không trong dữ liệu. Người dùng xoá mãi
-// không hết, mà cũng chẳng có lỗi nào báo.
 
 /** Chips nhãn trên header hồ sơ + nút mở modal Gắn thẻ (mockup: toggle preset, Lưu một lần). */
 function TagChips({ customerId, customerName }: { customerId: number; customerName?: string }) {

@@ -4,28 +4,6 @@
 Máy là **spec năng lực**: khổ giấy/kẽm, vùng in, chừa lề, tốc độ, thời gian chuẩn bị — những số
 Tính giá · Lệnh SX · Xếp lịch · Bình bài thật sự đọc.
 
-🔴 **DỌN LỚN 11/08/2026 — bỏ ~50 cột không có ô nhập.** Chủ chốt: *"không nhập liệu được thì là
-rác"*. Đã gỡ khỏi model (cột nằm lại orphan trong Postgres — dự án không có Alembic, không drop,
-nhưng KHÔNG còn code nào đọc/ghi):
-  · **BHR** (`von_dau_tu` `nam_khau_hao` `gio_lam_nam` `availability_pct` `luong_gio` `markup_pct`…)
-    — cả khối giá vốn giờ máy + `compute_bhr` + endpoint `/bhr`, `/bhr-preview`. Có spec §4 và test
-    xanh, NHƯNG chưa bao giờ có ô nhập trên form Máy và không engine giá nào gọi ⇒ luôn null.
-  · **Tài sản** `ma_tai_san` `ma_TK_cost_center` `nha_cung_cap` `ngay_dua_vao_su_dung`
-    `het_han_bao_hanh` `phuong_phap_khau_hao`.
-  · **Nhận diện thừa** `dia_diem` `phong_ban_id` `ghi_chu_2` `nhom_cost_center` `finishing_subtype`.
-  · **Năng lực không nối** `min_stock_gsm` `max_stock_gsm` `vat_lieu_ho_tro_class` `so_ca`
-    `chi_so_dem_luot` `so_may_song_song`.
-  · **Offset chưa nối engine** `so_units` `units_truoc` `units_sau` `khoa_class` `co_tro_mat`
-    `cho_phep_tu_tro` `cho_phep_tro_dau_duoi` `bu_hao_canh_may_per_mau` `bu_hao_chay_pct`
-    `ho_tro_cip3` (hàm `routing_engine.so_to_in_gross` nhận bù hao qua THAM SỐ, không đọc máy).
-  · **Bảo trì thô** `ngay_bao_tri_gan_nhat` `chu_ky_bao_tri` `chu_ky_bao_tri_don_vi`
-    `ngay_bao_tri_ke_tiep` — thay bằng khối **Lịch bảo trì định kỳ** (`fields_theo_loai.lich_bao_tri`:
-    đầu việc + chu kỳ ngày/tuần/tháng/năm, nhiều hạng mục/máy).
-  · **Dormant** `ca_lam_ids` `thoi_gian_rua_muc`.
-  · **`trang_thai` + property `active`** — bỏ ô "Tình trạng" khỏi form ⇒ mọi máy luôn `active`,
-    cờ đó chưa bao giờ phân loại được gì. Máy dừng vì bảo trì/hỏng thì khoá theo KHOẢNG THỜI GIAN
-    ở `machine_unavailable_periods` (Xếp lịch đọc cái đó), không phải một cờ mức-máy.
-Thêm cột lại chỉ khi có ô nhập đi kèm — đừng dựng cột trước rồi hẹn form sau.
 """
 from __future__ import annotations
 
@@ -97,9 +75,6 @@ class MayThietBi(Base):
     # SQLite bỏ qua độ dài nên test vẫn xanh, Postgres thật thì lỗi lúc lưu — nới lên 32 (mg 0153).
     don_vi_toc_do: Mapped[str | None] = mapped_column(String(32), nullable=True)
     makeready_time_default: Mapped[float | None] = mapped_column(Numeric(8, 2), nullable=True)  # phút
-    # 🔴 `cho_ky_thuat_gio` ĐÃ GỠ 13/08/2026 — xem chú thích cùng tên ở `models/cong_doan.py`.
-    # Cột để nằm im trong Postgres, không đọc ở đâu nữa.
-    # Kíp chuẩn cần để vận hành máy — hoạch định nhân lực, KHÔNG nhân tốc độ máy.
     so_nhan_cong: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, server_default="1", default=1)
 
     # ---- Khổ · vùng in · chừa lề (★ = engine bình bài đọc) ----

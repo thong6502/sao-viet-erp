@@ -557,7 +557,7 @@ export function LsxRoutingTable({
                     )}
                   </td>
                   <td className="khsx-rt__qty">
-                    {/* 🔴 GỠ điều kiện `nhom === "prepress"` (14/08/2026): bước chế bản nay CÓ số
+                    {/* GỠ điều kiện `nhom === "prepress"` (14/08/2026): bước chế bản nay CÓ số
                         thật (ra ← công thức của đơn vị, vào suy ngược kèm hao) nên che bằng dấu —
                         là giấu mất số bản kẽm phải ghi. Chỉ còn che khi THẬT SỰ chưa khai đơn vị. */}
                     {!r.don_vi_vao && !r.don_vi_ra ? (

@@ -388,11 +388,6 @@ export function AppShell() {
         })
         .catch(() => {});
     }
-    // 🔴 GỠ 16/08/2026 lúc hoà nhánh: khối badge Thu mua đọc `purchaseRequests.notifySummary`
-    // + `tongViecThuMua()` đã được thay bằng hệ THÔNG BÁO THEO MODULE (`MODULE_NOTIFICATION_NAV`,
-    // bảng `module_notifications` — mg `0190`). Giữ lại là hai nguồn cùng ghi một badge, mà bản cũ
-    // còn gọi hai hàm nhánh kia đã xoá.
-    // Badge Lương = số đề nghị tạm ứng đang chờ TÔI duyệt (0 với người không có quyền duyệt).
     if (readable.has("luong")) {
       api.luong
         .advanceNotifySummary(token)

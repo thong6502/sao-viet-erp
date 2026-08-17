@@ -375,20 +375,7 @@ export type LsxTrangThai =
 export type LsxDonVi = "to_nguyen" | "to" | "cai" | "kem" | "bai";
 /** Loại bước = tài nguyên mà bước chiếm khi lên lịch. */
 export type LsxLoaiBuoc = "may" | "to" | "thue_ngoai";
-// 🔴 `LsxDonViNangSuat = "to_gio" | "cai_gio" | "kem_gio"` GỠ 15/08/2026 — không nơi nào import,
-// và ba mã đó là tàn dư của lối "khớp mã đơn vị" vừa bỏ ở backend. `don_vi_nang_suat` nay là TÊN
-// đơn vị lấy từ đơn giá khoán (`"cái"`, `"ram"`), xưởng khai gì thì là chữ ấy — đừng khai lại một
-// liên hợp cứng ở đây.
 
-// 🔴 `LSX_DON_VI_LABELS` ĐÃ GỠ 12/08/2026 — bảng nhãn đơn vị khai cứng ở đây.
-//
-// Nó nói `to` = "Tờ in" và `cai` = "Thành phẩm", trong khi DANH MỤC Đơn vị ghi "tờ" và "cái". Hệ quả
-// thấy được trên màn: bảng Công đoạn hiện "Tờ in → Thành phẩm" nhưng mở drawer ra lại là "tờ → cái"
-// — cùng một giá trị, hai cái tên. Còn `lsxBuoc.DON_VI` thì gọi `cai` là "Con": ba tên cho một thứ.
-//
-// Đơn vị là danh mục ĐỘNG, xưởng tự khai và tự đổi tên. Nhãn nay đọc từ chính danh mục:
-// `pages/tenDonVi.ts` (nạp một lần cho cả phiên) và `CongDoanRow.don_vi_vao_ten` (server gán).
-// Đừng dựng lại bảng thứ hai ở đây.
 
 
 /** Nhãn + màu của loại bước. `tone` map sang class `.khsx-lb--{tone}` trong ke-hoach-sx.css. */

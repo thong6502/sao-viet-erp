@@ -1015,14 +1015,6 @@ class PayrollService:
             # làm việc trở lên trong tháng thì THÁNG ĐÓ KHÔNG ĐÓNG BHXH. Một nhánh này phủ cả hai
             # tình huống: người vào/nghỉ việc GIỮA THÁNG (ít công), và người nghỉ không lương dài.
             #
-            # 🔴 `nguong_bhxh > 0` KHÔNG phải cho đẹp: `0` nghĩa là TẮT luật, mà bỏ vế đó ra thì
-            # `ngay_khong_luong >= 0` LUÔN ĐÚNG ⇒ cả xưởng mất sạch BHXH trong khi bảng lương trông
-            # vẫn bình thường. Có test riêng canh đúng chỗ này.
-            # GIỮ `insurance_base` như nhánh "BH đóng nơi khác" để phiếu lương vẫn hiện mức đóng —
-            # để trống thì người xem tưởng chưa khai lương cơ bản.
-            # Cùng gốc với nhánh đóng BH bình thường (chủ chốt 12/08/2026): vị trí + trách
-            # nhiệm. Để lệch giữa các nhánh là ĐOÀN PHÍ ra hai mức khác nhau — nó tính trên
-            # `insurance_base`, và hai nhánh miễn BHXH VẪN đóng đoàn phí (doc §8.5 bẫy 2).
             insurance_base = float(monthly)
             bhxh = 0.0
         else:
@@ -1549,10 +1541,6 @@ class PayrollService:
         # là bắt buộc: để nguyên chỗ cũ (sau TNCN) thì thuế ăn số đoàn phí CŨ và "Sửa 1 ô" ra khác
         # "Tính lại". Công thức chép ĐÚNG `_compute`: insurance_base × tỷ lệ.
         #
-        # 🔴 VÁ LỖI #3 (doc Phần 14) CÙNG LƯỢT: bản cũ chỉ kiểm `is_probation`, QUÊN cờ đoàn viên.
-        # Hệ quả: người KHÔNG phải đoàn viên được "Tính lại" cho ra 0đ, nhưng mọi thao tác sửa dòng
-        # (kể cả thêm/xoá khoản phát sinh — `_recompute_line` gọi thẳng vào đây) làm đoàn phí SỐNG
-        # LẠI. Nay lỗi đó còn lây sang thuế: đoàn phí ma làm GIẢM thuế của người không hề đóng.
         sal_cd = self.payroll.current_salary(ln.employee_id, date.today())
         la_doan_vien = bool(getattr(sal_cd, "union_member", False)) if sal_cd else False
         ln.cong_doan = 0.0 if (ln.is_probation or not la_doan_vien) else _round(

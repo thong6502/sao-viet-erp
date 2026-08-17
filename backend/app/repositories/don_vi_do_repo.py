@@ -123,8 +123,6 @@ class DonViDoRepository(CatalogRepo):
             )
         ).scalars().first()
 
-    # 🔴 `dong_ve()` ĐÃ GỠ 14/08/2026 cùng quy đổi động — nó tìm "dòng công thức trỏ về đơn vị này",
-    # mà cặp nay không mang công thức nữa.
 
     def cong_doan_lay_lam_don_vi_ra(self, ma: str) -> list[str]:
         """Tên công đoạn đang lấy `ma` làm ĐƠN VỊ RA, và CẢ HAI vế đều ngoài dòng giấy.

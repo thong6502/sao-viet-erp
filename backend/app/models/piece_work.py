@@ -24,12 +24,6 @@ from ..db import Base
 # một chữ so với danh mục là lệnh sản xuất vĩnh viễn không quy đổi ra tiền được. Thiếu đơn vị ⇒
 # thêm ở danh mục, KHÔNG sửa code.
 #
-# 🔴 `DEFAULT_PIECE_UNITS` (11 đơn vị ghi cứng) ĐÃ GỠ 10/08/2026: nó chết từ 31/07 nhưng vẫn nằm
-# đó qua `unit_suggestions()` — một hàm không router nào gọi. Đọc code thấy nó lại tưởng đơn vị
-# khoán có nguồn riêng, tách khỏi danh mục.
-#
-# Lưu **TÊN** của danh mục (`"cuốn"`, `"m²"`), không phải mã (`cuon`, `m2`) — vì ô chọn bày tên.
-# Cầu nối tên → mã nằm ở `LsxService._ma_don_vi`, dùng khi suy đơn vị năng suất của bước Tổ.
 UNIT_KHAC = "khác"   # giá trị mặc định khi bỏ trống
 
 _MONEY = Numeric(14, 2)

@@ -686,7 +686,7 @@ export function LsxDetailView({
               không nói tới là phải bịa một chữ ("TỜ NGUYÊN") rồi bày cạnh chữ đọc thật.
               Ngoại lệ có chủ ý: các ô KÍCH THƯỚC ("Khổ … dài") vẫn mang tên đơn vị trong nhãn —
               giá trị ở đó là mm, không có cặp số+đơn vị nào để tách. */}
-          {/* 🔴 GỠ 15/08/2026: ô KPI "Bù hao" — nó đọc `lsx.bu_hao_to`, cột chỉ đổi được bằng ô
+          {/* GỠ 15/08/2026: ô KPI "Bù hao" — nó đọc `lsx.bu_hao_to`, cột chỉ đổi được bằng ô
               "Hao hụt thêm" (nay đã bỏ) nên luôn hiện 0 trên mọi lệnh. Hao thật của từng bước xem
               ở chip "Hao hụt định mức" trong drawer bước — đo đúng đơn vị của bước đó. */}
 

@@ -3476,10 +3476,6 @@ def _migrate_drop_kpi_bonus(db: Session) -> None:
 
     Gỡ 2 cột `payroll_lines.kpi_percent` / `kpi_bonus` và các dòng bật/tắt KPI theo tổ.
 
-    🔴 **HÃM AN TOÀN — đừng gỡ.** DROP COLUMN là thao tác KHÔNG LÙI ĐƯỢC: mất là mất luôn, trong
-    DB không còn bản sao nào để khôi phục. DB dev thì đọc được (0 dòng có tiền KPI) nhưng DB thật
-    trên VPS thì KHÔNG. Nên trước khi drop phải ĐẾM: còn dòng lương nào mang tiền KPI thì **bỏ
-    qua, giữ nguyên cột**.
 
     Bỏ sót vài cột thừa trên một DB nào đó là vô hại — SQLAlchemy chỉ đọc cột đã khai trong model.
     Xoá nhầm tiền của người ta thì không cứu được. Chọn phía an toàn.
@@ -5537,7 +5533,7 @@ MIGRATIONS.append(("0163_thu_mua_bo_phan_khong_duyet", _migrate_thu_mua_bo_phan_
 
 
 def _migrate_xoa_chung_tu_ke_toan_lam_lai(db: Session) -> None:
-    """🔴 XOÁ SẠCH chứng từ kế toán để dựng lại phân hệ (chủ 04/08/2026: "đập cả bảng dữ liệu").
+    """XOÁ SẠCH chứng từ kế toán để dựng lại phân hệ (chủ 04/08/2026: "đập cả bảng dữ liệu").
 
     Xoá con trước cha sau cho khỏi vướng khoá ngoại:
       `payment_receipt_attachments` → `payment_voucher_attachments` → `payment_receipts`

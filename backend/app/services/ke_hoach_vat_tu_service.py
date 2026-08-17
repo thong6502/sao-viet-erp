@@ -460,10 +460,6 @@ class KeHoachVatTuService:
 
         nhom = self._chay_con_tro(tho, ton=ton, dang_ve=dang_ve, da_cap=da_cap,
                                   dang_linh=dang_linh)
-        # 🔴 Nhóm "Công cụ" (khuôn bế) đã GỠ 16/08/2026 cùng cột `lsx_cong_doan.khuon_be_id`
-        # (mg `0203`). Giữ nửa vời thì vô nghĩa: không biết CON DAO NÀO thì không tra được tình
-        # trạng / ngày về, mà đó là toàn bộ giá trị của nhóm — phần còn lại ("bước này cần khuôn")
-        # routing đã nói rồi.
         return {"items": self._loc(nhom, q=q, chi_thieu=chi_thieu), "bo_qua": bo_qua}
 
     # ---- (a) ----------------------------------------------------------------

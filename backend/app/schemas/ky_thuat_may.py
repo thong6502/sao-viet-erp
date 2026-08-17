@@ -178,8 +178,6 @@ class TickHangMucIn(BaseModel):
     ly_do: str | None = Field(default=None, max_length=200)
 
 
-# 🔴 `SinhPhieuOut` / `BoQuaRow` ĐÃ GỠ 12/08/2026 cùng nút "Sinh phiếu từ lịch". Phiếu định kỳ nay
-# tạo từ ô kỳ dự kiến trên màn LỊCH — một lần bấm ra đúng một phiếu người ta đang nhìn.
 
 
 # ================= Lịch (calendar) =================

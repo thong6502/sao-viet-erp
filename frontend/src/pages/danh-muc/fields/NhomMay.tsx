@@ -3,8 +3,6 @@
 // Danh mục THẬT (`/api/nhom-may`) chứ không còn là chữ tự do khai cứng trong code. Giá trị lưu
 // trên máy vẫn là CHỮ (`may_thiet_bi.loai_may`) — bảng chỉ quản danh sách tên được bày ra.
 // Quyền `dm_thiet_bi` = đúng module của màn này, nên không có cảnh thấy nút rồi ăn 403.
-// 🔴 Xoá nhóm còn máy dùng bị backend CHẶN kèm số máy — hiện nguyên câu đó cho người ta biết
-// phải đi sửa mấy máy, đừng nuốt thành "không xoá được".
 import { useState } from "react";
 
 import { useAuth } from "../../../auth/useAuth";

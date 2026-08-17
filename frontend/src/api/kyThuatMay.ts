@@ -115,9 +115,6 @@ export interface Anh {
   uploaded_at: string | null;
 }
 
-// 🔴 `SinhPhieuKq` / `BoQua` ĐÃ GỠ 12/08/2026 cùng nút "Sinh phiếu từ lịch": phiếu định kỳ nay tạo
-// từ ô kỳ dự kiến trên màn Lịch (`lich()` + `createBaoTri` kèm `goi_id`) — một lần bấm ra đúng một
-// phiếu người ta đang nhìn.
 
 /** Kỳ bảo trì tương lai CHƯA có phiếu — vẽ mờ trên lịch, bấm vào là tạo phiếu thật.
  *  Không lưu ở bảng nào: backend tính lúc đọc từ chu kỳ gói trên máy. */

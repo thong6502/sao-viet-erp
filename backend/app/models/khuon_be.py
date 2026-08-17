@@ -43,13 +43,6 @@ class KhuonBe(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)  # KB-####
     ten: Mapped[str] = mapped_column(String(200), nullable=False)            # tên khuôn / ấn phẩm áp dụng
-    # 🔴 XOÁ 15/08/2026: `khach_hang` — chủ dự án yêu cầu. Cột khai TAY, không nối danh mục Khách
-    # hàng, nên nó là bản chép tên dễ lệch (gõ "Cty Kinh Đô" ở đây vs "Công ty CP Kinh Đô" ở CRM).
-    # Khuôn nhận diện bằng MÃ + TÊN ấn phẩm; muốn biết của khách nào thì tra qua lệnh dùng khuôn đó.
-    # Khách đặt con dao này (mg 0205). FK THẬT tới danh mục Khách hàng — KHÁC hẳn cột `khach_hang`
-    # chuỗi đã xoá 15/08: cột cũ gõ tay nên "Cty An Phát" và "Công ty TNHH An Phát" thành hai khách,
-    # lọc ra thiếu, rồi người ta tưởng chưa có dao và đặt làm con thứ hai. Đây là đường TÌM CHÍNH:
-    # xưởng chạy vài năm là kho vài trăm dao, không lọc theo khách thì không ai tìm nổi.
     khach_hang_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("customers.id"), index=True, nullable=True
     )
@@ -57,9 +50,6 @@ class KhuonBe(Base):
     # mới biết. Nullable: 6 dòng có sẵn từ trước chưa ai phân loại, ép NOT NULL là phải đoán hộ.
     loai: Mapped[str | None] = mapped_column(String(16), index=True, nullable=True)
     so_ke: Mapped[str | None] = mapped_column(String(120), nullable=True)    # số kệ / vị trí lưu ← lõi
-    # 🔴 `ngay_lam_khuon` đã GỘP vào `ngay_ve_du_kien` (mg `0207`, 16/08/2026). Với một con dao đã
-    # có thì "làm xong lúc nào" và "có trong tay lúc nào" là MỘT câu — hai ô sát nhau chỉ mời người
-    # khai điền lệch, rồi màn phải đoán hiển thị ô nào. Đừng dựng lại ô thứ hai.
     tinh_trang: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="dang_dung", default="dang_dung"
     )  # dang_dung|dang_dat_lam|hong|thanh_ly

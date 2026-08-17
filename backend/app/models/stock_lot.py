@@ -47,7 +47,7 @@ LOT_ISSUABLE = (LOT_AVAILABLE,)
 STOCK_OVER = "du_ton"        # 🔵 > ngưỡng tối đa
 STOCK_OK = "du"              # 🟢 đủ
 STOCK_CRITICAL = "can_mua"   # 🟠 ≤ ngưỡng tồn
-STOCK_OUT = "het"            # 🔴 = 0
+STOCK_OUT = "het"
 # Bỏ mức "cận tồn/sắp hết" (2026-07-29) — chỉ còn 4 mức.
 STOCK_LEVELS = (STOCK_OVER, STOCK_OK, STOCK_CRITICAL, STOCK_OUT)
 # Hai mức này kích hoạt đẩy nhắc realtime cho người có quyền yêu cầu (spec §8).

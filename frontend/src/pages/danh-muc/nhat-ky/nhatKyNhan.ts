@@ -8,9 +8,6 @@
 // đủ 59 cột còn thiếu, có test gác `test_nhat_ky_nhan_du.py`). Đó là đúng tầng: một nguồn, và
 // thêm cột mới mà quên nhãn thì đỏ ở backend chứ không âm thầm lọt ra màn hình.
 //
-// 🔴 Phần CÒN LẠI (`formatNkVal` + `NK_SUB_LABELS`) chỉ phục vụ DÒNG CŨ: audit ghi trước khi
-// backend biết định dạng `dict` còn để nguyên repr Python (`{'khoan_lo': True}`). Dòng MỚI không
-// bao giờ có dấu `{` nên hàm thoát ngay ở câu đầu. Đừng thêm nhãn mới vào đây.
 
 /** Nhãn cho từng loại hành động. */
 export const NK_NHAN: Record<string, string> = {

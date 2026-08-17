@@ -195,10 +195,6 @@ export function DepartmentsPage({
     // Nhánh dự phòng chỉ còn dùng khi đúng người đang đăng nhập: họ vừa đổi ảnh trong màn Tài khoản
     // thì context xác thực mới hơn danh sách đang cache, hiện ngay cho khỏi tưởng đổi không ăn.
     //
-    // 🔴 ĐÃ GỠ nhánh so theo TÊN. Trước đây ai trùng tên với người đang đăng nhập là **hiện ảnh của
-    // người đang đăng nhập lên hàng của họ** — mà trùng tên trong nhà máy là chuyện thường
-    // (Nguyễn Văn A). Gắn sai mặt vào sai người trên màn nhân sự là loại sai không được phép có,
-    // và nó im lặng hoàn toàn. Chỉ khớp theo `id` — thứ duy nhất định danh chắc chắn.
     const laChinhMinh = options?.userId != null && user?.id === options.userId;
 
     const src = options?.avatarUrl

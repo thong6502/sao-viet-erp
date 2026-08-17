@@ -183,10 +183,6 @@ def doi_trang_thai_sua_chua(
                          svc.repo.anh_thong_ke(LOAI_PHIEU_SUA_CHUA, [phieu.id]))
 
 
-# 🔴 KHÔNG có `DELETE /sua-chua/{id}` (chủ chốt 12/08/2026). Phiếu là VẾT của một việc đã xảy ra
-# ngoài đời: máy đã hỏng, thợ đã sờ vào, ảnh đã chụp. Xoá được nghĩa là lịch sử hỏng hóc của máy có
-# thể bị dọn sạch — đúng thứ người ta cần nhất khi cãi nhau "máy này hay hỏng chỗ nào".
-# Ghi nhầm thì SỬA nội dung; phiếu không còn hiệu lực thì để nguyên đó, nó không cản ai.
 
 
 # ================= Phiếu bảo trì =================
@@ -238,15 +234,8 @@ def list_bao_tri(
     )
 
 
-# 🔴 `POST /bao-tri/sinh-tu-lich` ĐÃ GỠ 12/08/2026 (chủ chốt). Nút "quét tất cả máy rồi đẻ phiếu
-# hàng loạt" là nguồn gốc của 41 phiếu rác cùng ngày; từ khi có màn LỊCH thì cách tạo phiếu định kỳ
-# là bấm thẳng vào ô kỳ dự kiến (`GET /bao-tri/lich` + `POST /bao-tri` kèm `goi_id`), tạo đúng một
-# phiếu người ta đang nhìn. Đừng dựng lại.
 
 
-# 🔴 `POST /bao-tri/don-phieu-chua-dung` cũng GỠ luôn: nó sinh ra chỉ để hốt 41 phiếu rác của cái
-# nút trên. Không còn cơ chế đẻ hàng loạt thì không còn rác hàng loạt để dọn — phiếu lẻ tạo nhầm thì
-# mở ra bấm "Xoá phiếu" là xong.
 
 
 @router.get("/bao-tri/den-han", response_model=DenHanOut)
@@ -379,9 +368,6 @@ def doi_trang_thai_bao_tri(
                         svc.repo.anh_thong_ke(LOAI_PHIEU_BAO_TRI, [phieu.id]))
 
 
-# 🔴 KHÔNG có `DELETE /bao-tri/{id}` — cùng lý do với phiếu sửa chữa, cộng thêm một điều nữa: phiếu
-# bảo trì đã hoàn thành là MỐC tính kỳ kế tiếp. Xoá một phiếu là chuỗi kỳ phía sau tính lại từ đầu
-# mà không ai thấy nó vừa đổi.
 
 
 # ================= Ảnh minh chứng (dùng chung 2 loại phiếu) =================

@@ -1,10 +1,6 @@
 """Pydantic schemas — Máy thiết bị. Create/Update permissive (extra allow → field phụ theo
 loai_may đi thẳng vào fields_theo_loai/ASSIGNABLE); Row đầy đủ.
 
-🔴 Dọn 11/08/2026: gỡ toàn bộ field KHÔNG có ô nhập trên form Máy (khối BHR + tài sản + offset
-chưa nối engine + bảo trì thô) và `BhrBreakdownOut`. Danh sách đầy đủ + lý do: docstring
-`models/may_thiet_bi.py`. ⚠️ Thêm field mới phải đi HẾT chuỗi model → ASSIGNABLE → schema In/Row
-→ type TS, thiếu một mắt là Pydantic nuốt im lặng và FE nhận `undefined`.
 """
 from __future__ import annotations
 

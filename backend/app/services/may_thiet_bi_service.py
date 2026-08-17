@@ -2,9 +2,6 @@
 
 Thân CRUD dùng chung ở `services/catalog_base.CatalogService`; ở đây chỉ còn luật riêng.
 
-🔴 `compute_bhr` / `compute_bhr_preview` (đơn giá giờ máy giá vốn) ĐÃ GỠ 11/08/2026 cùng cả khối
-cột BHR: form Máy chưa bao giờ có ô nhập cho chúng và không engine giá nào gọi ⇒ luôn chạy trên
-dữ liệu rỗng. Xem docstring `models/may_thiet_bi.py`.
 """
 from __future__ import annotations
 
@@ -157,12 +154,6 @@ class NhomMayService:
         row = self.repo.get(nhom_id)
         if row is None:
             raise MayThietBiNotFound("Không tìm thấy nhóm máy.")
-        # 🔴 CHẶN khi còn nơi dùng. Bảng này không phải FK nên DB không tự giữ — xoá mù là để lại
-        # tên nhóm không còn tồn tại, và không chỗ nào báo.
-        #
-        # Đếm CẢ HAI nơi. Trước 15/08/2026 chỉ đếm máy, nên nhóm chưa có máy nào nhưng đang nằm
-        # trong `cong_doan.nhom_may_cho_phep` vẫn xoá được — và ràng buộc "bước này chỉ chạy được
-        # trên nhóm máy X" âm thầm không khớp được ai nữa.
         ly_do = []
         if (n := self.dem_may_dung(row.ten)) > 0:
             ly_do.append(f"{n} máy đang thuộc nhóm này")

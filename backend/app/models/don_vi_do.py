@@ -211,11 +211,6 @@ class DonViQuyDoi(Base):
         Integer, ForeignKey("don_vi_do.id", ondelete="CASCADE"), index=True, nullable=False
     )
     # 1 <tu> = he_so <den>, LUÔN là số cố định > 0 (service chặn 0/âm — chia cho 0 khi đi ngược).
-    # 🔴 Cột `cong_thuc` (quy đổi ĐỘNG "1 tờ = dinh_luong*dai*rong kg") ĐÃ GỠ 14/08/2026, mg 0198.
-    # Lý do: cùng một đơn vị đích có thể tính ra bằng nhiều đường ⇒ BOM không biết chọn đường nào.
-    # Nay CÁCH ĐO khai ở CHÍNH đơn vị (`don_vi_do.cong_thuc`, mg 0192) và trả thẳng LƯỢNG của cả
-    # lệnh, còn giấy/vật tư có công thức riêng đè lên (`giay_nguyen.cong_thuc_luong` mg 0195,
-    # `vat_tu_in_an.cong_thuc_luong` mg 0194). Cặp trong bảng này chỉ còn hệ số chết.
     he_so: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
 

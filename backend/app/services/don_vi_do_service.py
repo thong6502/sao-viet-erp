@@ -23,9 +23,6 @@ from .quy_doi_service import (
 )
 from .thanh_phan_engine import safe_eval
 
-# 🔴 `BIEN_CHU` (bảng nhãn riêng thứ ba) ĐÃ GỠ 11/08/2026 — nhãn nay lấy từ TỪ ĐIỂN CHUNG
-# `bien_cong_thuc.nhan()`. Giữ bảng riêng ở đây là đúng cái bệnh đang chữa: thêm biến mới thì bảng
-# này không biết, công thức in ra hiện mã trần (`dai_in`) giữa những chữ tiếng Việt.
 
 # Sai số tương đối cho phép khi so hai đường quy đổi. Không so tuyệt đối vì hệ số trải từ 0,001
 # tới 1.000.000 — tuyệt đối thì hoặc quá chặt với số nhỏ, hoặc quá lỏng với số lớn.
@@ -189,10 +186,6 @@ class DonViDoService(CatalogService):
         except (ValueError, ZeroDivisionError) as e:
             raise DonViDoValidationError(f"Công thức không chạy được: {e}") from None
 
-    # 🔴 `_kiem_mot_cong_thuc_moi_dich` ĐÃ GỠ 14/08/2026 (dựng 12/08, sống đúng hai ngày). Nó chặn
-    # "hai công thức cùng ra một đơn vị ĐÍCH" — chỉ có nghĩa khi công thức còn có đích. Công thức
-    # nay khai trên chính đơn vị và không quy về đâu cả; việc canh trùng chuyển sang
-    # `_kiem_mot_cong_thuc_moi_cum` (một CỤM TĨNH một công thức).
 
     def _kiem_khong_vong_tron(self, ct: str, ma: str) -> None:
         """Chiều NGƯỢC của luật vòng tròn (14/08/2026).
@@ -294,9 +287,6 @@ class DonViDoService(CatalogService):
     def _tach_the(self, data: dict, he_so_cu: float = 0.0) -> tuple[dict, float]:
         """Chuẩn hoá một dòng quy đổi — chỉ còn SỐ.
 
-        🔴 14/08/2026: nhánh `cong_thuc` đã gỡ. Cặp quy đổi nay chỉ mang hệ số cố định; công thức
-        khai ở CHÍNH đơn vị (`don_vi_do.cong_thuc`) và trả LƯỢNG, không có đích. Ai gửi `cong_thuc`
-        lên đây thì CHẶN, đừng nuốt im lặng — client cũ gửi nhầm mà lặng thinh là dữ liệu hỏng.
         """
         if (data.get("cong_thuc") or "").strip():
             raise DonViDoValidationError(
@@ -366,12 +356,6 @@ class DonViDoService(CatalogService):
         `loai`: `cong_thuc` (câu ĐỊNH NGHĨA, vế phải là TỔNG của lệnh) · `co_dinh` (tỉ số MỘT đơn
         vị). Hai thứ đọc khác nhau nên phải nhìn khác nhau.
 
-        🔴 Vì sao server phải trả loại (14/08/2026): trước đó server chỉ trả một chuỗi gộp
-        (`quy_doi_text`), màn danh sách tách bằng " · " rồi đoán loại bằng cách dò tên biến GHI
-        CỨNG (`dinh_luong` · `dai` · `rong` · `so_con` · dấu `×`). Đoán trượt ngay: server đã đổi
-        mã biến sang nhãn tiếng Việt bằng `cong_thuc_chu` TRƯỚC khi trả, nên không mảnh nào còn
-        chứa mã biến — câu "bài in = Tờ vào máy + 2000" rơi hết xuống nhánh cuối, không có dấu `×`
-        nên hiện xám y như một hệ số. Phân loại là việc của nơi BIẾT, tức chỗ dựng ra câu.
         """
         caps = [c for c in self._cap_cache() if c.tu_ma == obj.ma or c.den_ma == obj.ma]
         out: list[dict] = []
@@ -427,12 +411,6 @@ class DonViDoService(CatalogService):
         chips = self.quy_doi_chips(obj)
         return " · ".join(c["text"] for c in chips) if chips else "Chưa khai quy đổi"
 
-    # 🔴 `_cap_de_cong_thuc` ĐÃ GỠ 14/08/2026 — cảnh báo "cặp SỐ đè lên đường CÔNG THỨC". Nó chỉ có
-    # nghĩa khi bảng cặp còn chứa cạnh động để mà đè; nay cặp chỉ còn số nên không còn gì để cảnh.
-    #
-    # Màn Đơn vị gọi `canh_bao` + `quy_doi_text` cho TỪNG dòng (18 đơn vị → 18 lượt). Không cache
-    # thì mỗi dòng lại quét cả bảng đơn vị và bảng cặp — service sống đúng một request nên cache ở
-    # đây an toàn, và dữ liệu không đổi giữa chừng.
     def _dv_cache(self):
         if getattr(self, "_dv_rows", None) is None:
             # `all_rows`: chip quy đổi + cảnh báo phải kể cả cạnh nối tới đơn vị đã ngừng, nếu
@@ -462,9 +440,6 @@ class DonViDoService(CatalogService):
             out.append(
                 f"Chưa khai quy đổi — {obj.ten} chưa đổi qua lại được với đơn vị nào."
             )
-        # 🔴 GỠ 14/08/2026 cùng quy đổi động: cảnh báo "có N công thức động cùng ra <đơn vị>". Luật
-        # đó canh việc chọn giữa nhiều công thức CÙNG ĐÍCH — công thức nay không có đích nữa, và
-        # "một cụm một công thức" (`_kiem_mot_cong_thuc_moi_cum`) đã CHẶN ngay lúc khai.
         return out
 
     def _log(self, actor_id: int | None, action: str, target_id: int, detail: str,

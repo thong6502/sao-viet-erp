@@ -23,11 +23,6 @@ from ..db import Base
 # "print"/"prepress" cụ thể nên "other" rơi vào nhánh finishing-like (mặc định NẰM trên dòng giấy
 # như gia công sau in). Phải KHỚP `NHOM_CD` ở frontend/rebuildCatalogConfigs.tsx — mở ở CẢ HAI nơi.
 NHOM = ("prepress", "print", "finishing", "other")
-# 🔴 `DON_VI_DONG_GIAY` (5 mã cứng) + `CAP_DON_VI_HOP_LE` (6 cặp liệt kê tay) ĐÃ GỠ 11/08/2026.
-# Đơn vị vào/ra nay trỏ vào DANH MỤC `don_vi_do` — xưởng khai đơn vị nào cũng dùng được, và câu
-# "đơn vị này có nằm trên dòng giấy không" đọc từ cờ `don_vi_do.tram_dong_giay` (xem
-# `models/don_vi_do.TRAM_DONG_GIAY` + `services/dong_giay.py`). Đừng dựng lại danh sách cứng ở
-# đây: nó chính là thứ chặn bước ghi kẽm khai `bai → kem` và bắt nó để trống đơn vị.
 CHE_DO_TINH = ("theo_san_luong",)  # "theo_gio" đã gỡ — công đoạn chỉ tính theo công thức/sản lượng
 # Đơn vị tính giá công đoạn (bao trùm chế bản + in + sau in). Engine `routing_engine.basis_qty`
 # quy đổi mỗi key → số lượng tính tiền từ ctx job.
@@ -48,13 +43,6 @@ PRICING_BASIS = (
 # Dụng cụ DÙNG CHUNG mà bước phải mượn từ kho khuôn. Bật `requires_tooling` nghĩa là: lệnh PHẢI
 # gán một dòng khuôn có thật, và hai lệnh mượn cùng một khuôn không được xếp trùng giờ.
 #
-# 🔴 GỠ `"kem"` 16/08/2026: kẽm là VẬT TƯ TIÊU HAO — mỗi bài phơi một bộ mới, không có dòng nào
-# trong kho khuôn để trỏ tới. Chọn nó là bật một ràng buộc xếp lịch không bao giờ áp được, mà ô
-# "Khuôn" thì cũng không hiện ra. Mọi nơi tiêu thụ vốn ĐÃ loại nó bằng tay:
-#   · `LsxBuocDrawer` — `row.tooling_type !== "kem"` mới hỏi khuôn;
-#   · mg `0193` chuyển khuôn xuống bước — `WHERE c.tooling_type IN ('khuon_be','khuon_ep')`.
-# Tức đây là lựa chọn duy nhất trong ô mà chọn xong KHÔNG có tác dụng gì. Đo trước khi gỡ: 0/13
-# công đoạn đang dùng. Số kẽm cần cho một lệnh vẫn tính như cũ qua biến `so_kem`, không liên quan.
 TOOLING_TYPE = ("khuon_be", "khuon_ep")
 # Cách công đoạn tính bù hao: không / tra bảng (trỏ 1 mã bù hao ở module Bù hao → tra bậc SL) /
 # cộng cố định `so_to_bu_hao` tờ (ép kim, UV… — không theo bảng).
@@ -192,17 +180,6 @@ class CongDoanDauViec(Base):
     )
     so_nguoi_tieu_chuan: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     so_nguoi_toi_da: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    # 🔴 `cho_ky_thuat_gio` ĐÃ GỠ 13/08/2026 — chờ kỹ thuật (keo đông · màng nguội) gỡ khỏi cả hệ
-    # theo yêu cầu chủ. Nó đẻ ra ba cột, ba ô nhập, một nhánh trong công thức thời lượng và một
-    # nhánh độ-trễ trong xếp lịch — mà lúc gỡ KHÔNG một dòng dữ liệu nào khai (0/24 máy, 0/10 đầu
-    # việc, 0/14 bước lệnh). Cột để NẰM IM trong Postgres (repo không có Alembic), cùng lối bảng
-    # `cong_doan_cho_ky_thuat` gỡ hồi 10/08. Cần lại thì khai lại model là có dữ liệu cũ.
-    # 🔴 `is_default` ĐÃ GỠ 12/08/2026 (mg 0190) — cột radio "Mặc định" trong bảng đầu việc.
-    # Nó chọn hộ đầu việc nào điền sẵn khi lập lệnh. Chủ chốt bỏ: cùng một công đoạn mà hai đầu
-    # việc khác nhau thật sự (bế TAY / bế MÁY · vào keo / khâu chỉ) thì chọn cái nào là quyết định
-    # của người lập lệnh theo hàng cụ thể, không phải hằng số khai một lần ở danh mục.
-    # Nay: công đoạn có ĐÚNG MỘT đầu việc thì vẫn tự điền (không có gì để chọn nhầm); từ hai trở
-    # lên thì để TRỐNG. Xem `lsx_service._khoan_mac_dinh`.
 
     cong_doan: Mapped["CongDoan"] = relationship("CongDoan", back_populates="dau_viec_dinh_muc")
     # VẬT TƯ đầu việc này tiêu thụ — nền của BOM (12/08/2026). Khai một lần ở danh mục, đến lệnh thì
@@ -252,10 +229,3 @@ class CongDoanDauViecVatTu(Base):
     )
 
 
-# 🔴 `CongDoanChoKyThuat` (bảng `cong_doan_cho_ky_thuat`) ĐÃ GỠ 10/08/2026 — chờ kỹ thuật nay khai
-# ở MÁY (`may_thiet_bi.cho_ky_thuat_gio`) và ở ĐẦU VIỆC (`CongDoanDauViec.cho_ky_thuat_gio`), xem
-# migration 0182. Khoá theo (công đoạn × loại sản phẩm) không tách được hai ca thật: bốn máy cùng
-# công đoạn "Cán màng / UV" mà UV khô ngay còn cán màng phải nguội; và cùng công đoạn "Bắt tay +
-# vào keo" thì vào-keo chờ còn khâu-chỉ không.
-#
-# Bảng cũ để NẰM IM trong DB (0 dòng lúc gỡ, dự án không có Alembic nên không drop).

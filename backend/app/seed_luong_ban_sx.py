@@ -88,10 +88,6 @@ _CONG_DOAN_MOI: list[tuple] = [
 # tờ → cuốn. Số giấy vẫn đúng (cầu tắt `to → cai` gánh cả 1/so_tay) nhưng bù hao của bước gấp và
 # bước bắt tay bị tra bậc ở SAI ĐƠN VỊ, và người đọc lệnh không thấy tay ở đâu ra.
 #
-# 🔴 MỞ RỘNG 12/08/2026 cho CẢ BẢY công đoạn file này tạo. Trước đó chỉ khai hai bước sách, năm
-# bước còn lại nhận đơn vị từ MIGRATION — mà trên DB TRẮNG migration chạy TRƯỚC seed nên không có
-# dòng nào để gán: công đoạn ra đời với đơn vị rỗng ⇒ rơi khỏi dòng giấy ⇒ **mọi lệnh 0 tờ, im
-# lặng**. Lỗi chỉ lộ khi dựng DB từ đầu nên nằm im rất lâu.
 _DON_VI_KHAU_SACH: dict[str, tuple[str, str]] = {
     "CD-0007": ("to", "tay"),    # gấp tay: 1 tờ in gấp nguyên thành 1 tay (hệ số 1)
     "CD-0008": ("tay", "cai"),   # bắt tay + vào keo: gom `so_tay` tay → 1 cuốn
@@ -224,9 +220,6 @@ def _ensure_don_gia_khoan(db: Session) -> None:
 def _ensure_dinh_muc_to(db: Session) -> None:
     """Gắn đầu việc vào công đoạn theo ĐÚNG bản đồ khai ở `_DON_GIA_KHOAN`.
 
-    🔴 SỬA 12/08/2026. Bản cũ gắn MỌI đầu việc của tổ vào MỌI công đoạn của tổ đó — bỏ qua chính
-    cột `[CD-…]` đã khai ngay trên đầu file. Hậu quả trên DB dev: 25 dòng nối thay vì 10, và những
-    cặp vô nghĩa như công đoạn *Bồi sóng* mang đầu việc *Gấp tay sách máy* · *Bắt tay + vào keo*.
 
     Sai này không chỉ xấu mắt: từ khi đầu việc mang theo VẬT TƯ (BOM, mg 0191), gắn nhầm đầu việc là
     bung nhầm vật tư xuống lệnh. Bản đồ phải là nguồn sự thật duy nhất.
@@ -333,11 +326,6 @@ def _tao_phieu_tinh_gia(db: Session, *, cd: dict[str, int], sale_id: int | None,
     ruot = PhieuThanhPhan(
         thu_tu=0, loai_thanh_phan="ruot", ten="Ruột sách 160 trang",
         dai_thanh_pham=205, rong_thanh_pham=145,
-        # 🔴 HAI SỐ NÀY LÀ THỨ QUYẾT ĐỊNH cả giấy lẫn công in của sách — thiếu là engine tính cuốn
-        # 160 trang y như một tờ rời. `so_tay = ceil(so_trang / trang_moi_tay)` = 160/32 = 5, và
-        # với sách thì 1 tờ in = 1 TAY (xem `thanh_phan_engine.cau_to_sang_cai`) ⇒ 1.000 cuốn cần
-        # 5.000 tờ in, không phải 1.000. Bản seed đầu bỏ trống hai ô này (cột thêm sau) nên giá vốn
-        # ruột hụt đúng 5 lần.
         so_trang=160, trang_moi_tay=32,
         so_luong=SL_SACH, don_vi_tinh="cuốn", nhom_bao_gia=NHOM_SACH,
         loai_san_pham_id=lsp_sach_id,

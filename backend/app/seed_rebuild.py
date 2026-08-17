@@ -87,39 +87,6 @@ _QUY_DOI_SEED: list[tuple[str, str, float]] = [
     ("kg", "g", 1_000),        # 1 kg = 1.000 g
     ("m", "mm", 1_000),        # 1 mét = 1.000 mm
     ("ram", "to", 500),        # quy ước ngành in: 1 ram = 500 tờ
-    # 🔴 BỐN CẶP CÁCH-GỌI-THÀNH-PHẨM ĐÃ GỠ KHỎI SEED (14/08/2026 — chủ chốt yêu cầu):
-    #     ("con", "cai", 1), ("cuon", "cai", 1), ("bo", "cai", 1), ("hop", "cai", 1)
-    #
-    # Lý do: danh mục là của người dùng. Xưởng nào gọi thành phẩm là "cuốn" thì tự khai
-    # "1 cuốn = 1 cái" ở màn Đơn vị & quy đổi — seed đặt sẵn bốn cách gọi là đoán hộ, cùng cái bệnh
-    # vừa chữa ở bốn cặp động bên dưới.
-    #
-    # Cái mất khi gỡ (đo 14/08/2026 trên DB dev, ghi lại để người sau khỏi đo lại):
-    #   · 3 đơn giá khoán đ/cuốn (Bắt tay + vào keo gáy vuông · Xén 3 mặt · Đếm, bó, đóng gói) —
-    #     bước lệnh đếm `cai`, mất cặp ⇒ rơi xuống đường hai (`_khoan_theo_cong_thuc`), cần khai
-    #     công thức cho đơn vị `cuốn` (vd `sl_ra`) thì mới ra tiền.
-    #   · Hôm gỡ đã XOÁ luôn 4 cặp trong DB dev theo yêu cầu — không phải chỉ ngưng seed.
-    # 🔴 BỐN CẶP QUY ĐỔI ĐỘNG ĐÃ GỠ KHỎI SEED (14/08/2026 — chủ chốt yêu cầu):
-    #     ("to", "m2", 0, "dai_in * rong_in")
-    #     ("to", "kg", 0, "dinh_luong * dai_in * rong_in")
-    #     ("to", "cai", 0, "so_tp")
-    #     ("to_nguyen", "kg", 0, "dinh_luong * dai_nguyen * rong_nguyen")
-    #
-    # Lý do: quy đổi động chuyển sang ô "Công thức tính lượng" khai ở CHÍNH đơn vị
-    # (`don_vi_do.cong_thuc`) và ở CHÍNH mặt hàng (`vat_tu_in_an.cong_thuc_luong`) — mỗi chỗ đúng một
-    # công thức, không còn cặp nào phải chọn. Xem `LsxService._luong_vat_tu` (ba đường RIÊNG → CHUNG)
-    # và `_khoan_theo_cong_thuc`.
-    #
-    # ⚠️ CƠ CHẾ CẶP ĐỘNG NAY ĐÃ GỠ HẲN (cùng ngày, muộn hơn ghi chú này): cột
-    # `don_vi_quy_doi.cong_thuc` drop ở mg `0198`, màn Đơn vị & quy đổi hết cửa khai công thức cho
-    # cặp. Cặp CHỈ còn hệ số cố định.
-    #
-    # Cái mất khi gỡ (đã đo 14/08/2026, ghi lại để người sau khỏi phải đo lại):
-    #   · 3 đầu việc khoán đ/m² (Cán màng bóng · Cán màng mờ · Ghép màng metalize) — bước đếm `to`,
-    #     mất cặp `to → m²` ⇒ rơi xuống đường hai, cần khai cách đo cho `m²`.
-    #   · Mua giấy theo cân ở Kế hoạch vật tư — cần `to`/`to_nguyen` → `kg`; `quy_doi_service` chưa
-    #     đọc cách đo nên chỗ này chưa có đường thay.
-    #   · Dropdown "đơn vị dùng được" ở Kho / NCC co lại còn cụm tĩnh.
 ]
 
 
@@ -133,8 +100,6 @@ def seed_don_vi_do(db: Session) -> None:
     Bổ sung theo MÃ / CẶP CÒN THIẾU (không dùng `_empty`): thêm dòng mới vào hai danh sách trên là
     DB đang chạy cũng nhận, khỏi phải drop bảng. Cặp người dùng tự sửa thì KHÔNG bị ghi đè.
     """
-    # 🔴 THÔI set `dung_lam_toc_do` 15/08/2026 — cột đã CHẾT (xem `models/don_vi_do.py`). Ô "Đơn vị
-    # tốc độ" của màn Máy nay bày mọi đơn vị `active`, không lọc theo cờ nào nữa.
     from .models.don_vi_do import TRAM_DONG_GIAY   # 5 trạm dòng giấy, mã trùng tên trạm
 
     co = {d.ma for d in db.execute(select(DonViDo)).scalars()}

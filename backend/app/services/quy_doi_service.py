@@ -22,12 +22,6 @@ import re
 from .bien_cong_thuc import LOAI_QUY_DOI, bien_cho, ngu_canh_lenh
 from .thanh_phan_engine import MATH_FUNCS
 
-# 🔴 TÁM HẰNG MÃ ĐƠN VỊ ĐÃ XOÁ 15/08/2026 (`DV_TO · DV_RAM · DV_CAI · DV_CUON · DV_CM2 · DV_M2 ·
-# DV_KG · DV_TAN`). Đo trước khi xoá: KHÔNG nơi nào import từ file này — 9 chỗ dùng `DV_TO` và 5
-# chỗ dùng `DV_CAI` đều lấy bản ở `models/lsx.py`. Sáu cái còn lại 0 chỗ dùng.
-#
-# Tệ hơn cả rác: tiêu đề cũ ghi "Mã đơn vị mà CODE tham chiếu" khiến người đọc tưởng phép quy đổi
-# tra theo mã cứng. KHÔNG — `doi()` chỉ dò đồ thị cặp trong DB, xưởng khai đơn vị tên gì cũng chạy.
 
 # Biến dùng được trong công thức quy đổi — tên là VAI TRÒ ("khổ của tờ đang đếm"), không phải tên
 # cột của giấy. Nhãn hiện nguyên văn cho người dùng khi thiếu. Dài/rộng tính bằng MÉT, định lượng
@@ -121,8 +115,6 @@ def bien_trong(cong_thuc: str) -> list[str]:
 def _doc_cap(r) -> tuple[str, str, float]:
     """Một dòng cặp → `(mã từ, mã đến, hệ số)`.
 
-    🔴 Phần tử thứ TƯ (`cong_thuc`) đã GỠ 14/08/2026 cùng quy đổi động. Nếu bạn đang sửa hàm này:
-    năm nơi đọc nó phải sửa CÙNG LƯỢT — vụ 13/08 vỡ đúng vì đổi 4→3 mà một chỗ còn đọc `[3]`.
     """
     if isinstance(r, dict):
         tu, den, hs = r.get("tu_ma"), r.get("den_ma"), _f(r.get("he_so"))
@@ -167,9 +159,6 @@ def cap_map(rows) -> dict[str, dict[str, float]]:
     sớm muộn hai dòng lệch nhau. Rows phải kèm mã hai đầu (`tu_ma`/`den_ma`) vì hàm này thuần,
     không truy DB.
 
-    🔴 GỠ 14/08/2026: nhánh dòng-CÔNG-THỨC (`ctx` + `gia_dinh_du_bien`). Hệ không còn quy đổi ĐỘNG
-    — công thức nay khai ở CHÍNH đơn vị / mặt hàng và trả LƯỢNG, không có đích. Nhờ vậy đồ thị cặp
-    thành hằng số thuần: đổi `tấn → kg` ra một đáp án bất kể đang đứng ở lệnh nào.
     """
     g: dict[str, dict[str, float]] = {}
     for r in rows or []:
@@ -255,16 +244,6 @@ def doi(gia_tri: float, tu: str, den: str, dvs: dict[str, dict],
     return {"gia_tri": ket_qua, "don_vi": b["ten"], "dien_giai": dg}
 
 
-# 🔴 KHỐI "QUY ĐỔI ĐỘNG" ĐÃ GỠ HẲN 14/08/2026 (chủ chốt: hệ không hỗ trợ `kg = f() g` nữa).
-#
-# Ba hàm chỉ sống vì cạnh động, nay xoá cùng nó:
-#     `_canh_tren_duong` · `_dong_tren_duong`  — dò xem cạnh động nào nằm trên đường đi
-#     `_chu_thich_dong`                        — câu "1 tờ = 0,168 kg (định lượng 0,3 × …)"
-#     `_thieu_bien`                            — báo "chưa biết Định lượng giấy nên không đổi được"
-#
-# Công thức nay khai ở CHÍNH đơn vị (`don_vi_do.cong_thuc`) và CHÍNH mặt hàng
-# (`vat_tu_in_an.cong_thuc_luong` · `giay_nguyen.cong_thuc_luong`) — trả LƯỢNG, KHÔNG có đích.
-# Xem `LsxService._luong_vat_tu` (ba đường RIÊNG → CHUNG) và `KeHoachVatTuService._ve_goc`.
 
 
 def doi_theo_quy_cach(gia_tri: float, tu: str, den: str, quy_cach: dict | None,

@@ -59,10 +59,6 @@ BO_QUA_THIEU_NGAY_BAT_DAU = "thieu_ngay_bat_dau"
 # Nguồn của hạn — để màn hình nói rõ "tính từ đâu" thay vì phun ra một ngày không ai kiểm được.
 NGUON_PHIEU = "phieu"
 NGUON_NGAY_BAT_DAU = "ngay_bat_dau"
-# 🔴 Bản đầu có nhánh thứ ba "chưa có mốc ⇒ coi như tới hạn HÔM NAY", định làm đường lui cho gói
-# khai thiếu. Thực tế (12/08/2026): bấm "Sinh phiếu từ lịch" một lần đẻ ra 41 phiếu cùng hạn hôm
-# nay, không ai đặt hàng cái nào. Đường lui đó ĐÃ BỎ — thiếu mốc thì KHÔNG đoán, chỉ nói ra cho
-# người khai đi điền "Bắt đầu từ". Đừng khôi phục.
 
 
 # Sentinel: phân biệt "chưa nạp mốc, tự đi hỏi DB" với "đã nạp rồi, gói này KHÔNG có mốc" (None).
@@ -314,9 +310,6 @@ class KyThuatMayService:
                   f"{phieu.ma} · trạng thái → {trang_thai}", actor_id)
         return phieu
 
-    # 🔴 KHÔNG có `xoa_sua_chua` (chủ chốt 12/08/2026). Bản trước chỉ chặn phiếu ĐÃ ĐÓNG, nhưng
-    # phiếu chưa đóng cũng là vết thật: máy đã hỏng, có người đã báo, có thể đã chụp ảnh hiện trạng.
-    # Ghi nhầm thì SỬA nội dung — không có nút nào dọn sạch lịch sử hỏng hóc của một cái máy.
 
     # ================= Phiếu bảo trì =================
 
@@ -526,8 +519,6 @@ class KyThuatMayService:
                   f"{phieu.ma} · trạng thái → {trang_thai}", actor_id)
         return phieu
 
-    # 🔴 KHÔNG có `xoa_bao_tri` — cùng lý do với phiếu sửa chữa. Riêng phiếu bảo trì còn thêm một
-    # điều: phiếu đã hoàn thành là MỐC tính kỳ kế tiếp, xoá là chuỗi kỳ phía sau lặng lẽ đổi.
 
     # ================= Lịch bảo trì của MÁY → hạn & sinh phiếu =================
 

@@ -71,10 +71,6 @@ from ..services.tinh_gia_service import _bu_hao_to_dict, _resolve_thanh_phan
 # Công đoạn sau xén → đếm bằng CON (thành phẩm); còn lại đếm bằng TỜ. Heuristic theo tên để điền
 # MẶC ĐỊNH cho kế hoạch, không phải luật — mọi dòng sửa được.
 
-# 🔴 Khuôn đã RA KHỎI lệnh sản xuất hoàn toàn (16/08/2026, mg `0203`): ô gán ở cấp lệnh bỏ từ
-# 11/08, cột `lsx_cong_doan.khuon_be_id` bỏ nốt cùng nhóm "Công cụ" của bảng cân đối và hai
-# detector khuôn ở xếp lịch. Cờ `requires_tooling` / `tooling_type` ở danh mục Công đoạn VẪN CÒN,
-# nhưng nay chỉ phiếu tính giá đọc — để biết bước nào hỏi PHÍ khuôn.
 
 # Trường KHÔNG chép sang quy cách lệnh sản xuất: toàn bộ là TIỀN (lệnh xuống xưởng không mang
 # giá vốn) + số lượng (đã có `so_luong_dat` của ĐƠN, chép lại chỉ gây mâu thuẫn).
@@ -82,18 +78,6 @@ _QC_BO_QUA = frozenset({
     "don_gia_giay", "don_gia_don_vi", "don_gia_cong_in", "che_ban_don_gia",
     "cong_thuc_gia", "gia_von_tp", "so_luong",
 })
-# 🔴 GỠ 15/08/2026 — BA cơ chế đơn vị của thời lượng, gộp còn MỘT (`_sl_theo_don_vi`):
-#
-#   A. `_nang_suat_buoc()` + `_DV_VAO_SANG_NS`  — so mã `<đv>_gio`, LỆCH thì vứt luôn tốc độ máy.
-#      Máy khai `to_gio` gắn bước đếm `bai` ⇒ `nang_suat = None` ⇒ thời lượng tụt còn mỗi chuẩn bị.
-#   B. `dv_nang_suat_theo_khoan()`              — khoá NHÃN đơn vị theo đơn giá khoán, mà NHÃN thôi:
-#      hiện "500 kg/h" trong khi công thức vẫn nhận số TỜ. Chính ca chủ bắt lỗi 15/08.
-#   C. chú thích "không kiểm đơn vị tốc độ" ở `thoi_luong_buoc` — cứ chia, quả cho cam.
-#
-# A kiểm rồi vứt · B chỉ dán nhãn · C không kiểm gì ⇒ không lối nào đúng. Nay SL vào được QUY ĐỔI
-# về đơn vị của tốc độ bằng đúng cơ chế tiền khoán (cầu quy đổi → công thức của đơn vị), quy đổi
-# không được thì KHÔNG có số + nêu lý do. Đừng dựng lại bảng ánh xạ đơn vị nào ở đây: xưởng khai
-# đơn vị gì là việc của danh mục Đơn vị & quy đổi, engine chỉ đi hỏi nó.
 
 
 def _don_vi_theo_buoc(cd_obj, *, con: int = 1, xa: int = 1,
@@ -340,10 +324,6 @@ def thoi_luong_buoc(cd, may=None, sl_tinh=None) -> dict:
         )
 
     chiem_may = khac + setup + chay
-    # 🔴 CHỜ KỸ THUẬT GỠ 13/08/2026 — `tong_phut` nay bằng đúng `chiem_may_phut`. Giữ hai khoá
-    # riêng vì bàn xếp lịch đọc HIỆU của chúng làm độ trễ giữa hai bước (`lag`): hiệu = 0 nghĩa là
-    # bước sau bắt đầu ngay khi máy nhả tờ. Muốn dựng lại độ trễ thì cộng vào `tong` ở đây, đừng
-    # cộng vào `chiem_may` — chiếm máy là thứ ăn năng lực máy, chờ thì không.
     tong = chiem_may
     co_dai = round(chay_nhanh, 2) != round(chay_cham, 2)
     dien_giai = {
@@ -500,9 +480,6 @@ class LsxService:
         Nhiều đầu việc khớp (bế tay / bế máy cùng công đoạn) là chuyện chỉ người biết → máy để
         trống + nhắc, KHÔNG chọn hộ. Tổ không ăn khoán thì danh sách rỗng, cũng ra None.
 
-        🔴 GỠ 12/08/2026: nhánh ưu tiên cờ `is_default` khai ở danh mục. Cột đó cho khai một lần
-        rồi chọn hộ mãi mãi, trong khi *bế tay hay bế máy* phụ thuộc HÀNG cụ thể chứ không phải
-        công đoạn. Nay chỉ còn một luật: một đầu việc thì điền, hai trở lên thì để người quyết.
         """
         khop = self._dau_viec_cua_cong_doan(cd_obj, department_id)
         if not khop:
@@ -1276,10 +1253,6 @@ class LsxService:
         dv_vao, dv_ra, he_so = _don_vi_theo_buoc(
             cd_obj, con=con, xa=max(int(comp.get("so_manh_xa") or 1), 1), tram=self._tram())
         # Số lượng để 0 cho MỌI bước — `_ap_chuoi_nguoc` ghi đè ngay sau khi tạo, cả bước trên dòng
-        # lẫn ngoài dòng. 🔴 GỠ 14/08/2026 nhánh `so_kem if nhom == "prepress"`: nó khoá theo TÊN
-        # NHÓM nên xưởng đặt nhóm khác là số rơi về 0 không một lời, và nó ép `vào = ra` nên hao ở
-        # bước chế bản không có chỗ nhét. Nay ngoài dòng đọc công thức của ĐƠN VỊ RA (xem
-        # `tinh_nguoc_routing`).
         vao = ra = 0.0
 
         # Bước MÁY không ghi năng suất lên bước nữa (gỡ `_nang_suat_buoc` 15/08/2026):
@@ -1789,11 +1762,6 @@ class LsxService:
                 fixed, pct = 0.0, 0.0
             else:
                 fixed, pct = hao_buoc(_quy_tac_bu_hao(cd.cong_doan_id), rows=bu_hao_rows, sl=can_ra)
-            # 🔴 GỠ 15/08/2026: `fixed += lsx.bu_hao_to` — ô "Hao hụt thêm" ở bước cuối. Bỏ cùng ô
-            # "+ Bù thêm" bên phiếu tính giá để cả hệ chỉ còn MỘT đường khai hao: định mức của
-            # chính công đoạn trong danh mục. Đo 0/3 lệnh (DB dev) từng gõ số vào đó.
-            # Hệ số tra theo TRẠM, không theo mã: xưởng khai mã riêng cho một chặng thì cặp mã
-            # không có trong bảng cầu, engine ăn 1.0 và cấp thiếu giấy trong im lặng.
             hs = he_so.get((tram_vao, tram_ra), 1.0) if tram_vao != tram_ra else 1.0
             pct = min(max(pct, 0.0), 99.0)
             vao = float(ceil((can_ra / hs + fixed) / (1.0 - pct / 100.0)))

@@ -342,8 +342,6 @@ class SalesInvoiceListOut(BaseModel):
 class PayableSupplierOut(BaseModel):
     supplier_id: int | None = None
     supplier_name: str
-    # Số đơn CÒN NỢ (🔴 + 🟡). Đơn đã trả xong không đếm ở đây, nếu không cột này chửi nhau với
-    # `total_due` — nhìn "12 đơn / còn nợ 5tr" là không hiểu đơn nào đang nợ.
     order_count: int
     # Nợ đã QUÁ HẠN trả (theo hạn của từng đợt giao) và phần chưa tới hạn. Cộng lại = `total_due`.
     overdue_amount: int
