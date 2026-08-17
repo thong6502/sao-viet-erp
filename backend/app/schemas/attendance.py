@@ -383,6 +383,7 @@ class AttendancePeriodOut(BaseModel):
     phat_sinh_sau_chot: int = 0
     pending_leaves: int               # đơn nghỉ phép chưa duyệt của tháng
     pending_late_early: int = 0       # phiếu đi muộn/về sớm chưa duyệt (chặn chốt công y như trên)
+    pending_overtime: int = 0         # phiếu TĂNG CA chưa duyệt (chặn từ 15/08/2026 — xem repo)
     pending_adjusts: int              # yêu cầu chỉnh công chưa duyệt
     payroll_locked: bool              # kỳ lương tháng này đã chốt → không mở lại kỳ công
 

@@ -199,6 +199,10 @@ class AttendancePeriod(Base):
     )
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     locked_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    # CÔNG CHUẨN của tháng, ĐÓNG BĂNG lúc chốt (15/08/2026). Ảnh chụp đã giữ công của từng người;
+    # thiếu số này thì mẫu số vẫn đọc lịch sống — mà lịch tuần làm việc không có ngày hiệu lực,
+    # đổi một lần là viết lại đơn giá ngày của mọi tháng cũ. NULL = kỳ chốt trước bản vá.
+    standard_cong: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

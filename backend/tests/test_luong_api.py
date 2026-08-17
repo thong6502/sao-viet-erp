@@ -1122,6 +1122,67 @@ def test_salary_declare_and_preview(client):
 # --- tạm ứng ----------------------------------------------------------------
 
 
+def test_L11_con_phieu_tam_ung_treo_thi_khong_chot_duoc_luong(client):
+    """⭐ Tiền mặt ĐÃ RA khỏi két mà chưa ghi vào lương.
+
+    Khác mọi hàng rào chấm công: tạm ứng KHÔNG có ảnh chụp che. Số tiền nướng thẳng vào dòng
+    lương lúc "Tính lại", nên duyệt phiếu sau khi chốt là khoản trừ không bao giờ xảy ra — lương
+    trả đủ, mà tiền mặt thì đã đưa cho thợ rồi."""
+    token = _admin_token(client)
+    eid = _emp_luong_10tr(client, token, "NV Ung Treo")
+    _adv(client, token, eid, 3_000_000, month=6)          # để nguyên CHỜ DUYỆT
+
+    assert client.post("/api/luong/generate", json={"year": 2026, "month": 6},
+                       headers=_h(token)).status_code == 200
+    r = client.post("/api/luong/lock", json={"year": 2026, "month": 6}, headers=_h(token))
+    assert r.status_code in (400, 409, 422), f"chốt lương khi còn phiếu ứng treo: {r.text}"
+    assert "tạm ứng" in r.json()["detail"], r.text
+
+
+def test_L11_duyet_xong_thi_chot_duoc_va_co_tru(client):
+    """Đối chứng — chặn phải mở ra được, VÀ khoản ứng phải thật sự bị trừ sau khi tính lại.
+
+    Thiếu vế "có trừ" thì chỉ cần luôn chặn là test trên vẫn xanh, mà tiền vẫn sai."""
+    token = _admin_token(client)
+    eid = _emp_luong_10tr(client, token, "NV Ung Duyet")
+    aid = _adv(client, token, eid, 3_000_000, month=6).json()["id"]
+    assert client.post(f"/api/luong/advances/{aid}/approve", json={"approve": True},
+                       headers=_h(token)).status_code == 200
+
+    assert client.post("/api/luong/generate", json={"year": 2026, "month": 6},
+                       headers=_h(token)).status_code == 200
+    dong = _line_of(client, token, eid, year=2026, month=6)
+    assert float(dong["advance_total"]) == 3_000_000, "duyệt rồi mà lương không trừ khoản ứng"
+
+    r = client.post("/api/luong/lock", json={"year": 2026, "month": 6}, headers=_h(token))
+    assert r.status_code == 200, r.text
+
+
+def test_L11_chot_luong_roi_thi_khong_dung_vao_phieu_tam_ung_nua(client):
+    """Hai chiều tiền ngược nhau, cả hai đều không để lại dấu vết:
+    · duyệt muộn → lương đã trả ĐỦ mà tiền mặt đã đưa ⇒ công ty mất khoản đó;
+    · huỷ muộn   → lương đã TRỪ rồi mà phiếu không còn ⇒ thợ mất khoản đó."""
+    token = _admin_token(client)
+    eid = _emp_luong_10tr(client, token, "NV Ung Sau Chot")
+    da_duyet = _adv(client, token, eid, 1_000_000, month=6).json()["id"]
+    assert client.post(f"/api/luong/advances/{da_duyet}/approve", json={"approve": True},
+                       headers=_h(token)).status_code == 200
+    assert client.post("/api/luong/generate", json={"year": 2026, "month": 6},
+                       headers=_h(token)).status_code == 200
+    assert client.post("/api/luong/lock", json={"year": 2026, "month": 6},
+                       headers=_h(token)).status_code == 200
+
+    # a) huỷ phiếu ĐÃ DUYỆT sau khi chốt → chặn
+    r = client.post(f"/api/luong/advances/{da_duyet}/cancel", headers=_h(token))
+    assert r.status_code in (400, 409, 422), f"huỷ được phiếu của kỳ đã chốt: {r.text}"
+
+    # b) lập phiếu MỚI cho kỳ đã chốt → chặn
+    _adv(client, token, eid, 500_000, month=6, expect=409)
+
+    # c) tháng KHÁC vẫn lập bình thường — chặn nhầm là HCNS không ứng được cho tháng đang chạy
+    _adv(client, token, eid, 500_000, month=7)
+
+
 def test_advance_workflow(client):
     token = _admin_token(client)
     eid = _make_emp(client, token, name="NV Ứng", payroll_group="van_phong")
