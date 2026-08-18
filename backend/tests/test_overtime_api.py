@@ -187,6 +187,20 @@ def test_to_truong_chi_thay_phieu_trong_to_minh(client):
     assert {kd_emp, sx_emp} <= all_seen
 
 
+def _cap_o_tang_ca_cho_vai(ten_vai: str, phong: str) -> None:
+    """Cấp ô Tăng ca (xem + thao tác, phạm vi của tôi) cho một vai đã có sẵn trong seed."""
+    db = SessionLocal()
+    try:
+        dept = DepartmentRepository(db).get_by_name(phong)
+        roles = RoleRepository(db)
+        vai = roles.get_by_name_and_department(ten_vai, dept.id)
+        roles.set_permission(role_id=vai.id, module_key="tang_ca", scope="own",
+                             can_read=True, can_create=True, can_cancel=True)
+        db.commit()
+    finally:
+        db.close()
+
+
 def _plain_token_with_emp(client, admin_token) -> str:
     """Tài khoản vai 'NV Sales' — KHÔNG có ô quyền `tang_ca` nào, đã gắn hồ sơ nhân viên."""
     eid = _make_emp(client, admin_token, name="NV thường TC", dept="Kinh doanh")
@@ -208,10 +222,22 @@ def _plain_token_with_emp(client, admin_token) -> str:
 
 
 def test_tu_phuc_vu_khong_can_o_quyen(client):
-    """Mọi NLĐ đều phải XIN được tăng ca cho CHÍNH MÌNH và HỦY được phiếu chưa duyệt của mình —
-    không phụ thuộc ô quyền `tang_ca` (đúng khuôn 'Yêu cầu chỉnh công'). Nhưng KHÔNG được duyệt."""
+    """⚠️ LUẬT ĐỔI 15/08/2026 — trước đây test này khẳng định "không phụ thuộc ô quyền".
+
+    Nay: ĐỌC dữ liệu của mình là quyền đương nhiên, nhưng **GHI thì phải có ô Thao tác** của chính
+    màn đó (chủ chốt: *"tôi chưa bật thao tác vẫn bấm gửi đơn được nè"*). Vai không có ô Tăng ca
+    thì không gửi được phiếu, kể cả phiếu của chính mình.
+
+    Vẫn giữ nguyên vế quan trọng nhất: có ô Thao tác thì gửi được, nhưng KHÔNG được duyệt."""
     admin = _admin_token(client)
     t = _plain_token_with_emp(client, admin)
+
+    # Chưa có ô Thao tác ⇒ chặn.
+    assert client.post("/api/overtime/me",
+                       json={"work_date": "2026-07-23", "from_minute": 1200, "to_minute": 1320},
+                       headers=_h(t)).status_code == 403
+
+    _cap_o_tang_ca_cho_vai("NV Sales", "Kinh doanh")
 
     r = client.post("/api/overtime/me",
                     json={"work_date": "2026-07-23", "from_minute": 1200, "to_minute": 1320},

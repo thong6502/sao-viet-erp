@@ -57,7 +57,17 @@ export type ActionKey =
   | "can_view_log"
   | "can_set_threshold"
   | "can_post"
-  | "can_close_book";
+  | "can_close_book"
+  // cham_cong (mg 0194) — một ô = một tab.
+  | "can_view_timesheet"
+  | "can_approve_late_early"
+  | "can_manage_locations"
+  | "can_manage_shifts"
+  | "can_manage_calendar"
+  | "can_view_payroll_table"
+  | "can_manage_salary_profiles"
+  | "can_manage_piece_rates"
+  | "can_manage_leave_types";
 
 // UI gộp Thêm/Sửa/Xóa thành một công tắc "quyền chỉnh sửa": tick là bật cả ba.
 // Dữ liệu vẫn lưu tách (can_create/can_update/can_delete) nên backend không đổi.
@@ -188,7 +198,29 @@ const FINE_ACTIONS: Record<
   // Màn CHẤM CÔNG tách khoá riêng 10/08/2026. Cột Xem = Bảng công tháng + Nhật ký chấm công;
   // cột Chỉnh sửa = ô "Cấu hình chấm công" (Điểm chấm công · Khai ca · Lịch & Ngày lễ). Ba ô
   // dưới đây là các việc phải tách hẳn ra.
+  // MỘT Ô = MỘT TAB (chủ chốt 15/08/2026). Cột Xem = mở màn + BA TAB CỦA TÔI (bấm giờ · lịch công
+  // của mình · tự xin đi muộn) — đó là việc của chính người đó, không phải quyền được ban.
+  // Mỗi ô dưới đây mở đúng MỘT tab, và tab đó luôn dính tới NGƯỜI KHÁC hoặc DÙNG CHUNG.
   cham_cong: [
+    {
+      key: "can_view_timesheet",
+      label: "Bảng công tháng",
+      hint: "Lưới người × ngày của cả phạm vi, và là chỗ đặt nút Chốt kỳ công. Đây là công cụ QUẢN LÝ, cùng hạng với Bảng lương — thợ vẫn mở được màn Chấm công để bấm giờ và xem lịch công của mình, nhưng không thấy công của cả xưởng. Trước 15/08/2026 nó đi chung với ô Xem nên cấp Xem là thấy hết.",
+    },
+    {
+      key: "can_approve_late_early",
+      label: "Duyệt phiếu đi muộn / về sớm / nghỉ nửa buổi",
+      hint: "Mở tab con Duyệt phiếu, cho duyệt / từ chối phiếu của NGƯỜI KHÁC (và khai hộ — khai hộ là duyệt luôn). KHÔNG cần ô này để tự xin phiếu cho mình. Gộp về đây từ khoá 'Đi muộn / về sớm' cũ: nó vốn là một tab của màn này chứ không phải một màn riêng.",
+    },
+    {
+      key: "can_manage_locations",
+      label: "Điểm chấm công",
+      hint: "Mở tab Điểm chấm công — khai toạ độ và bán kính các điểm được phép chấm. Trước đây ba tab cấu hình đi chung MỘT ô nên bật một cái là mở cả ba.",
+    },
+    { key: "can_manage_shifts", label: "Khai ca",
+      hint: "Mở tab Khai ca — danh mục ca làm việc (giờ vào/ra, ca đêm, tiền cơm/phụ cấp theo ca). Đây là dữ liệu dùng chung cho cả nhà máy." },
+    { key: "can_manage_calendar", label: "Lịch & Ngày lễ",
+      hint: "Mở tab Lịch & Ngày lễ — tuần làm việc và ngày nghỉ lễ. Đổi ở đây là đổi CÔNG CHUẨN của tháng, tức đổi đơn giá ngày của mọi người." },
     {
       key: "can_view_log",
       label: "Xem Nhật ký chấm công",
@@ -205,7 +237,6 @@ const FINE_ACTIONS: Record<
       hint: "Một cú bấm chụp ảnh bảng công của TOÀN CÔNG TY thành số liệu chốt — bảng lương khi kỳ đã khoá đọc đúng ảnh chụp đó; 'Mở lại kỳ' thì xoá sạch ảnh chụp. Trước 10/08/2026 ô này đi chung với 'Chấm bù'. Máy chủ còn đòi Phạm vi 'Tất cả': chốt nửa công ty thì bảng lương không biết nửa nào là nửa nào.",
     },
   ],
-  self_service: [],
   // ⚠️ THÊM 11/08/2026 — trước đó phân hệ Nghỉ phép KHÔNG có mục nào ở đây, nên:
   //   • `can_approve` KHÔNG AI BẬT ĐƯỢC ⇒ tab "Duyệt đơn" và "Lịch nghỉ" không bao giờ hiện với
   //     bất kỳ ai ngoài admin. Chủ chốt báo đúng: "không thấy tab duyệt nghỉ phép ở đâu luôn".
@@ -218,26 +249,14 @@ const FINE_ACTIONS: Record<
       hint: "Duyệt / từ chối đơn xin nghỉ của người khác, và mở tab “Lịch nghỉ” của cả phòng. Kết hợp Phạm vi: “Cả phòng” = tổ trưởng chỉ duyệt người trong tổ mình + các tổ con; “Tất cả” = HCNS duyệt toàn công ty. KHÔNG cần ô này để nhân viên tự gửi/hủy đơn của chính mình.",
     },
     {
-      key: "can_update",
+      // CỘT RIÊNG từ 15/08/2026 (mg 0197). Trước đó ô này mượn `can_update` — mà `can_update` là
+      // một trong ba cột nút "Thao tác" bật cùng lúc, nên bật Thao tác là ô này TỰ SÁNG THEO.
+      key: "can_manage_leave_types",
       label: "Quản danh mục loại nghỉ",
       hint: "Thêm / sửa / XOÁ các loại nghỉ (phép năm, nghỉ ốm, không lương…) — chính sách dùng chung cho CẢ CÔNG TY, không phải việc của một phòng. Đây chính là ý nghĩa của cột “Thao tác” ở dòng này; cột “Xoá” không dùng tới.",
     },
   ],
   // Tách khỏi ô "Chấm bù" của màn Chấm công ngày 11/08/2026.
-  yeu_cau_chinh_cong: [
-    {
-      key: "can_approve",
-      label: "Duyệt yêu cầu chỉnh công ⚠️",
-      hint: "Duyệt / từ chối yêu cầu chỉnh công của người khác — duyệt xong là công của họ đổi, tức đầu vào lương đổi. Phạm vi chỉ “Cả phòng” hoặc “Tất cả”: duyệt yêu cầu của chính mình là vô nghĩa.",
-    },
-  ],
-  di_muon: [
-    {
-      key: "can_approve",
-      label: "Duyệt phiếu đi muộn / về sớm",
-      hint: "Duyệt / từ chối phiếu đi muộn · về sớm · nghỉ nửa buổi của người khác (và khai hộ cho thợ — khai hộ là duyệt luôn). Kết hợp Phạm vi: 'Cả phòng' = tổ trưởng chỉ đụng được người trong tổ mình + các tổ con; 'Tất cả' = HCNS duyệt toàn công ty. KHÔNG cần cờ này để nhân viên tự xin/hủy phiếu của chính mình.",
-    },
-  ],
   tang_ca: [
     {
       key: "can_approve",
@@ -246,6 +265,15 @@ const FINE_ACTIONS: Record<
     },
   ],
   luong: [
+    { key: "can_manage_salary_profiles", label: "Lương nhân viên",
+      hint: "Mở tab Lương nhân viên — khai và điều chỉnh mức lương từng người (lương vị trí, trách nhiệm, bảo hiểm). Trước 15/08/2026 tab này đi theo cột Thao tác, nên bật Thao tác là ba tab bung ra cùng lúc." },
+    { key: "can_manage_piece_rates", label: "Lương khoán",
+      hint: "Mở tab Lương khoán — đơn giá khoán theo tổ / công việc. Dữ liệu dùng chung, không phải của một người." },
+    {
+      key: "can_view_payroll_table",
+      label: "Bảng lương tháng",
+      hint: "Danh sách lương của cả phạm vi, kèm nút Tính lại · Chốt kỳ · Đánh dấu đã chi. Đây là công cụ QUẢN LÝ — nhân viên xem phiếu lương của chính mình ở tab riêng, không cần ô này. Trước 15/08/2026 nó đi theo cột Xem, nên cấp ô Lương ở phạm vi 'Của tôi' là thợ vẫn mở được bảng lương cả công ty.",
+    },
     {
       key: "can_lock",
       label: "Chốt bảng lương / Mở lại kỳ ⚠️",
@@ -262,7 +290,6 @@ const FINE_ACTIONS: Record<
       hint: "Cho xem thang bậc, khung lương, KPI, phụ cấp, bảo hiểm và lịch sử lương nhân viên. Không cần cấp quyền này để nhân viên xem Phiếu lương của tôi.",
     },
     { key: "can_approve", label: "Duyệt tạm ứng" },
-    { key: "can_lock", label: "Chốt kỳ lương" },
     { key: "can_export", label: "Xuất bảng lương / file chuyển khoản" },
   ],
   thu_mua: [
@@ -315,7 +342,7 @@ const MODULE_HINTS: Record<string, string> = {
   di_muon:
     "Xem: thấy danh sách phiếu đi muộn / về sớm / nghỉ nửa buổi trong phạm vi (tab nằm trong màn Chấm công). Nhân viên tự xin / tự hủy phiếu của CHÍNH MÌNH thì KHÔNG cần cấp quyền nào — tab luôn hiện. Muốn DUYỆT phiếu người khác (và khai hộ thợ) thì bật quyền chi tiết “Duyệt phiếu đi muộn / về sớm”.",
   luong:
-    "Xem: mở màn Lương (bảng lương tháng, tạm ứng). Chỉnh sửa: tính lại lương, sửa dòng lương, khai cấu hình. Cấu hình lương + duyệt tạm ứng + chốt kỳ + xuất file nằm ở quyền chi tiết. Nhân viên xem “Phiếu lương của tôi” thì không cần quyền này.",
+    "Xem: MỞ MÀN Lương — chỉ thấy hai tab của chính mình (Phiếu lương của tôi, Tạm ứng của tôi). Không có ô này là không vào được màn, kể cả để xem phiếu lương của mình, nên vai nào cũng nên bật. Thao tác: gửi đề nghị tạm ứng / xin lương đợt 1 cho chính mình, và ghi ở những tab đã mở. Bảng lương tháng, Lương nhân viên, Lương khoán, Cấu hình, duyệt tạm ứng, chốt kỳ, xuất file — mỗi thứ một ô ở quyền chi tiết bên dưới.",
   thu_mua:
     "Xem: xem danh sách YCMH và PMH trong phạm vi được cấp. Chỉnh sửa: lập/sửa/gửi duyệt PMH, đánh dấu đã mua/đã nhận. Duyệt-từ chối PMH và hủy PMH nằm ở quyền chi tiết.",
   khach_hang:
@@ -403,17 +430,19 @@ const MODULE_GROUPS: {
   {
     key: "nhan_su",
     label: "Nhân sự",
+    // ĐÃ GỠ 15/08/2026: "Đi muộn / về sớm" và "Yêu cầu chỉnh công" — hai TAB của màn Chấm công,
+    // không phải hai màn. Quyền của chúng nay là ô chi tiết của chính Chấm công (mg 0194); để lại
+    // hai dòng này thì tick cũng không mở thêm gì.
+    // Ô "Tự phục vụ" ĐÃ BỎ 15/08/2026: phần "của tôi" là quyền đương nhiên của mọi tài khoản, nên
+    // nó không phải một dòng để cấp. Nó cũng không phải một MÀN — nó cắt ngang bốn màn khác.
     modules: [
-      "self_service",
       // Phòng ban ĐỨNG TRƯỚC Hồ sơ nhân sự (chủ chốt 11/08/2026): cây tổ chức là cái khung chứa
       // hồ sơ, đọc từ trên xuống mới thuận. Trước đây nó nằm mãi dưới nhóm "Hệ thống".
       "phong_ban",
       "nhan_su",
       "cham_cong",
-      "yeu_cau_chinh_cong",
       "nghi_phep",
       "tang_ca",
-      "di_muon",
       "luong",
       "noi_quy",
     ],
@@ -527,10 +556,26 @@ const PHAM_VI_CHO_PHEP: Record<string, Scope[]> = {
   ke_toan: ["all"],
   cong_no_phai_tra: ["all"],
   cong_no_phai_thu: ["all"],
-  self_service: ["own"],
   nhan_su: ["department", "all"],
-  yeu_cau_chinh_cong: ["department", "all"],
 };
+
+//: Ô CHỈ BẬT ĐƯỢC khi phạm vi là "Tất cả" (chủ chốt 15/08/2026).
+//: Ba tab cấu hình dưới đây ghi vào dữ liệu DÙNG CHUNG cả nhà máy — đổi lịch lễ hay khai ca là
+//: đổi CÔNG của toàn bộ nhân viên, không phải của một tổ. Máy chủ cũng chặn (403), nên không khai
+//: ở đây thì người cấp quyền tick được mà người dùng bấm vào ăn lỗi.
+const O_DOI_PHAM_VI_TOAN_CTY: ReadonlySet<string> = new Set([
+  "can_manage_locations",
+  "can_manage_shifts",
+  "can_manage_calendar",
+  // Chốt kỳ công / Mở lại kỳ: máy chủ ĐÃ đòi phạm vi "Tất cả" từ đợt trước, nhưng ma trận không
+  // nói ra ⇒ tick được rồi bấm mới ăn 403. Một cú bấm đóng băng bảng công của TOÀN CÔNG TY; chốt
+  // nửa nhà máy thì bảng lương không biết nửa nào là nửa nào.
+  "can_lock",
+]);
+
+const CANH_BAO_PHAM_VI =
+  "Ô này đụng vào dữ liệu dùng chung của CẢ NHÀ MÁY (điểm chấm công · ca · lịch lễ · chốt kỳ " +
+  "công) nên chỉ bật được khi Phạm vi là “Tất cả”. Đổi Phạm vi sang “Tất cả” rồi bật lại.";
 
 const CANH_BAO_O_CHET =
   "Ô này chưa nối vào chức năng nào — bật cũng không mở thêm gì.";
@@ -781,9 +826,21 @@ export function PermissionMatrix({
                               : undefined
                           }
                           aria-label={`Phạm vi — ${label}`}
-                          onChange={(e) =>
-                            onScope(row.module_key, e.target.value as Scope)
-                          }
+                          onChange={(e) => {
+                            const moi = e.target.value as Scope;
+                            // Hạ phạm vi khỏi "Tất cả" thì TỰ TẮT những ô đòi phạm vi toàn công
+                            // ty (chủ chốt 15/08/2026). Để nguyên thì ô vẫn hiện là ĐANG BẬT
+                            // nhưng bị làm mờ — nhìn như đã cấp, mà bấm vào ăn 403 vì máy chủ
+                            // chặn. Tắt hẳn để cái nhìn thấy đúng bằng cái có thật.
+                            if (moi !== "all") {
+                              O_DOI_PHAM_VI_TOAN_CTY.forEach((k) => {
+                                if ((row as unknown as Record<string, boolean | undefined>)[k]) {
+                                  onToggle(row.module_key, k as ActionKey, false);
+                                }
+                              });
+                            }
+                            onScope(row.module_key, moi);
+                          }}
                         >
                           {SCOPES.filter(
                             (s) => !phamViChoPhep || phamViChoPhep.includes(s.value),
@@ -804,12 +861,16 @@ export function PermissionMatrix({
                                 className="switch"
                                 checked={fineOn(a) && oSong(row.module_key, a.key.replace("can_", ""))}
                                 disabled={
-                                  readOnly || !oSong(row.module_key, a.key.replace("can_", ""))
+                                  readOnly ||
+                                  !oSong(row.module_key, a.key.replace("can_", "")) ||
+                                  (O_DOI_PHAM_VI_TOAN_CTY.has(a.key) && row.scope !== "all")
                                 }
                                 title={
-                                  oSong(row.module_key, a.key.replace("can_", ""))
-                                    ? a.hint
-                                    : CANH_BAO_O_CHET
+                                  O_DOI_PHAM_VI_TOAN_CTY.has(a.key) && row.scope !== "all"
+                                    ? CANH_BAO_PHAM_VI
+                                    : oSong(row.module_key, a.key.replace("can_", ""))
+                                      ? a.hint
+                                      : CANH_BAO_O_CHET
                                 }
                                 aria-label={`${a.label} — ${label}`}
                                 onChange={(e) =>
@@ -821,6 +882,13 @@ export function PermissionMatrix({
                               />
                               <span className="rdx-perm__fine-text">
                                 {a.label}
+                                {/* Nói RA MẶT lý do không bật được — nằm trong tooltip thì người
+                                    cấp quyền phải rê chuột mới biết, mà họ có biết đâu mà rê. */}
+                                {O_DOI_PHAM_VI_TOAN_CTY.has(a.key) && row.scope !== "all" && (
+                                  <span className="rdx-perm__fine-warn" title={CANH_BAO_PHAM_VI}>
+                                    cần Phạm vi “Tất cả”
+                                  </span>
+                                )}
                                 {a.hint && (
                                   <span
                                     className="rdx-perm__fine-hint"

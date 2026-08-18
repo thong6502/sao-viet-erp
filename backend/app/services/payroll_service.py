@@ -26,6 +26,7 @@ from ..models.employee import (
     STATUS_PROBATION,
     STATUS_RESIGNED,
 )
+from ..models.role import SCOPE_ALL
 from ..models.payroll import (
     COMPONENT_SOURCE_LINE,
     ADV_APPROVED,
@@ -1351,13 +1352,42 @@ class PayrollService:
         self._audit(actor, "payroll_generate", f"payroll_period:{period.id}", f"{int(month)}/{int(year)}")
         return period
 
-    def get_table(self, *, year, month):
-        """Kỳ lương + các dòng (kèm thông tin NV) cho FE. None nếu chưa tạo."""
+    def nv_duoc_xem(self, *, scope, actor) -> set[int] | None:
+        """Tập `employee_id` người gọi được xem theo PHẠM VI. None = không giới hạn (Tất cả).
+
+        LỖ HỔNG ĐÃ ĐO 15/08/2026: bảng lương trả về MỌI dòng của kỳ, chỉ hỏi "có ô Xem Lương
+        không" mà không hỏi "quản ai". Cấp ô Xem Lương với phạm vi *Của tôi* thì người đó vẫn đọc
+        được lương của cả công ty, gồm cả giám đốc. Đúng căn bệnh tester ghi ở đợt rà soát lần 1:
+        *"Phạm vi của tôi nhưng xem được tất cả"*.
+
+        Dùng lại `list_scoped_all` — CÙNG một nguồn phạm vi với Chấm công, Nghỉ phép, Tăng ca.
+        Tự viết điều kiện lọc thứ hai ở đây là hai nơi hiểu "cả phòng" theo hai kiểu."""
+        if scope is None or scope == SCOPE_ALL:
+            return None
+        return {e.id for e in self.employees.list_scoped_all(scope=scope, actor=actor)}
+
+    def get_table(self, *, year, month, scope=None, actor=None):
+        """Kỳ lương + các dòng (kèm thông tin NV) cho FE. None nếu chưa tạo.
+
+        `scope`/`actor` = phạm vi của NGƯỜI XEM. Bỏ trống (mặc định) = không lọc — chỉ dùng cho
+        đường nội bộ đã tự gác; mọi endpoint phơi ra ngoài PHẢI truyền vào."""
         period = self.payroll.get_period_by_ym(year, month)
         if period is None:
             return None
         lines = self.payroll.list_lines(period.id)
+        duoc_xem = self.nv_duoc_xem(scope=scope, actor=actor)
+        if duoc_xem is not None:
+            lines = [ln for ln in lines if ln.employee_id in duoc_xem]
         return {"period": period, "lines": lines}
+
+    def chan_ngoai_pham_vi(self, *, employee_id: int, scope, actor) -> None:
+        """Chặn đụng vào dòng lương của người NGOÀI phạm vi. Dùng cho các đường đi thẳng theo
+        `line_id` — ở đó không có danh sách để lọc, phải hỏi từng lần."""
+        duoc_xem = self.nv_duoc_xem(scope=scope, actor=actor)
+        if duoc_xem is not None and int(employee_id) not in duoc_xem:
+            raise PayrollForbidden(
+                "Dòng lương này thuộc người ngoài phạm vi quản lý của bạn."
+            )
 
     def _khoan_defect_for(self, period, employee_id) -> float:
         """Trừ lỗi hàng khoán của NV trong kỳ (Đ102: gộp vào trần khấu trừ 30%). Đọc LẠI từ sổ
@@ -1369,25 +1399,31 @@ class PayrollService:
 
     # --- Tầng 3: khoản PHÁT SINH cho riêng một kỳ (thưởng nóng) --------------
 
-    def _line_for_edit(self, line_id: int):
+    def _line_for_edit(self, line_id: int, *, scope=None, actor=None):
         ln = self.payroll.get_line(line_id)
         if ln is None:
             raise PayrollNotFound("Không tìm thấy dòng lương.")
         period = self.payroll.get_period(ln.period_id)
         if period is None or period.status != PERIOD_DRAFT:
             raise PayrollLocked("Kỳ lương đã chốt/đã chi — không sửa được.")
+        # PHẠM VI (15/08/2026): gác ở ĐÂY vì cả 4 đường sửa dòng lương đều đi qua hàm này —
+        # sửa dòng, thêm/sửa/bỏ đè/xoá khoản phát sinh. Gác ở từng endpoint là bốn chỗ để quên.
+        self.chan_ngoai_pham_vi(employee_id=ln.employee_id, scope=scope, actor=actor)
         return ln
 
-    def list_line_components(self, *, line_id: int) -> list:
-        if self.payroll.get_line(line_id) is None:
+    def list_line_components(self, *, line_id: int, scope=None, actor=None) -> list:
+        ln = self.payroll.get_line(line_id)
+        if ln is None:
             raise PayrollNotFound("Không tìm thấy dòng lương.")
+        # Khoản phát sinh của một người là tiền của người đó — cùng hàng rào phạm vi với bảng lương.
+        self.chan_ngoai_pham_vi(employee_id=ln.employee_id, scope=scope, actor=actor)
         return self.components.line_components(line_id) if self.components else []
 
-    def add_line_component(self, *, actor, line_id: int, component_id: int, amount: float,
+    def add_line_component(self, *, actor, line_id: int, component_id: int, amount: float, scope=None,
                            note: str | None = None):
         """Thêm khoản chỉ có ở KỲ NÀY. Chép `name`/`kind`/`is_taxable` từ danh mục tại thời điểm
         thêm — kỳ sau đổi danh mục thì dòng này vẫn giữ đúng số đã trả."""
-        ln = self._line_for_edit(line_id)
+        ln = self._line_for_edit(line_id, scope=scope, actor=actor)
         c = self.components.get_component(component_id) if self.components else None
         if c is None:
             raise PayrollValidationError(
@@ -1404,11 +1440,11 @@ class PayrollService:
                     f"{c.name} {float(amount):,.0f}đ — {note or ''}")
         return row
 
-    def update_line_component(self, *, actor, row_id: int, amount=None, note=None):
+    def update_line_component(self, *, actor, row_id: int, amount=None, note=None, scope=None):
         row = self.components.get_line_component(row_id) if self.components else None
         if row is None:
             raise PayrollNotFound("Không tìm thấy khoản trên dòng lương.")
-        ln = self._line_for_edit(row.line_id)
+        ln = self._line_for_edit(row.line_id, scope=scope, actor=actor)
         fields = {}
         if amount is not None:
             if float(amount) < 0:
@@ -1429,7 +1465,7 @@ class PayrollService:
         self._audit(actor, "update_line_component", f"payroll_line:{row.line_id}", row.name)
         return row
 
-    def bo_de_line_component(self, *, actor, row_id: int):
+    def bo_de_line_component(self, *, actor, row_id: int, scope=None):
         """Trả một khoản đã đè về ĐÚNG SỐ Ở HỒ SƠ, ngay lập tức.
 
         Không chỉ tắt cờ rồi chờ "Tính lại": người bấm "Trả về theo hồ sơ" muốn thấy số cũ NGAY.
@@ -1443,7 +1479,7 @@ class PayrollService:
                 "Khoản phát sinh do người dùng thêm tay — không có 'mức hồ sơ' để trả về. "
                 "Sửa thẳng số tiền, hoặc xoá dòng."
             )
-        ln = self._line_for_edit(row.line_id)
+        ln = self._line_for_edit(row.line_id, scope=scope, actor=actor)
         emp = self.employees.get_by_id(ln.employee_id)
         goc = next((c for c in (self._components_for(emp) if emp else [])
                     if int(c["component_id"]) == int(row.component_id)), None)
@@ -1458,7 +1494,7 @@ class PayrollService:
         self._audit(actor, "bo_de_line_component", f"payroll_line:{ln.id}", row.name)
         return row
 
-    def delete_line_component(self, *, actor, row_id: int) -> None:
+    def delete_line_component(self, *, actor, row_id: int, scope=None) -> None:
         row = self.components.get_line_component(row_id) if self.components else None
         if row is None:
             raise PayrollNotFound("Không tìm thấy khoản trên dòng lương.")
@@ -1466,7 +1502,7 @@ class PayrollService:
             raise PayrollValidationError(
                 "Khoản chép từ hồ sơ nhân viên không gỡ được ở đây — gỡ ở Lương → Lương nhân viên."
             )
-        ln = self._line_for_edit(row.line_id)
+        ln = self._line_for_edit(row.line_id, scope=scope, actor=actor)
         name = row.name
         self.components.delete_line_component(row)
         self._recompute_line(ln, actor)
@@ -1479,7 +1515,7 @@ class PayrollService:
         số khác Tính lại" đã tái phát nhiều lần ở file này."""
         self.update_line(line_id=ln.id, actor=actor)
 
-    def update_line(self, *, line_id, actor, vi_pham=None, pit=None,
+    def update_line(self, *, line_id, actor, scope=None, vi_pham=None, pit=None,
                     pit_manual=None, di_tre_manual=None, monthly_override=None, note=None,
                     dieu_chinh_luong=None, di_tre=None, dt_vuot_troi=None,
                     phat_bien_ban=None, phat_5s_dong_phuc=None):
@@ -1776,7 +1812,36 @@ class PayrollService:
 
     # --- self-service phiếu lương -------------------------------------------
 
-    def my_payslip(self, *, user):
+    def _cho_phat(self, employee_id: int, ky_dang_xem: set[tuple[int, int]], bay_gio) -> dict | None:
+        """Kỳ lương MỚI NHẤT của NV mà họ CHƯA được xem — trả về để giao diện nói đúng lý do.
+
+        ⚠️ CHỈ tháng + trạng thái, TUYỆT ĐỐI không kèm một con số tiền nào. Cả cửa công bố sinh ra
+        để NLĐ không đọc số chưa chốt; đẩy dòng lương ra rồi để giao diện tự ẩn là mở DevTools
+        đọc được, cửa công bố thành hình thức.
+
+        Dùng lại `latest_line_for_employee` — hàm này thành CODE CHẾT từ 12/08/2026 khi cửa công
+        bố ra đời, nay sống lại đúng một việc: hỏi "có phiếu không" mà không hỏi "bao nhiêu tiền".
+        """
+        ln = self.payroll.latest_line_for_employee(employee_id)
+        if ln is None:
+            return None                      # chưa từng có bảng lương nào → câu mặc định
+        p = self.payroll.get_period(ln.period_id)
+        if p is None or (int(p.year), int(p.month)) in ky_dang_xem:
+            return None                      # kỳ mới nhất đang xem được rồi → không có gì để báo
+        mo = _as_utc(p.cong_bo_luc) if p.cong_bo_luc is not None else None
+        dong = _as_utc(p.dong_phieu_luc) if p.dong_phieu_luc is not None else None
+        if mo is None:
+            tinh_trang = "chua_phat"         # chốt xong nhưng chưa ai bấm Công bố
+        elif mo > bay_gio:
+            tinh_trang = "hen_gio"           # đã hẹn, chưa tới giờ mở
+        elif dong is not None and dong <= bay_gio:
+            tinh_trang = "da_dong"           # từng phát, cửa sổ đã khép
+        else:
+            return None                      # đang mở thật → đã nằm trong `ky_dang_xem` ở trên
+        return {"year": int(p.year), "month": int(p.month),
+                "tinh_trang": tinh_trang, "mo_luc": mo}
+
+    def my_payslip(self, *, user, year=None, month=None):
         """Phiếu lương của CHÍNH NV đăng nhập — chỉ trả kỳ ĐÃ CÔNG BỐ và ĐÃ TỚI GIỜ.
 
         ⚠️ Trước 12/08/2026 hàm này trả thẳng dòng lương của kỳ mới nhất, KHÔNG lọc gì: HCNS vừa
@@ -1784,13 +1849,30 @@ class PayrollService:
         đổi, không ai báo. Nay phải qua cửa công bố.
 
         Chủ chốt chọn ĐƯỜNG 2 (12/08/2026): KHÔNG thêm ô quyền nào. Phiếu lương là tiền của chính
-        người ta nên ai cũng được xem của mình; thứ cần kiểm soát là THỜI ĐIỂM, không phải AI."""
+        người ta nên ai cũng được xem của mình; thứ cần kiểm soát là THỜI ĐIỂM, không phải AI.
+
+        TỪ 17/08/2026 nhận thêm `year`/`month` để NLĐ tra lại tháng cũ (`docs/prd-phieu-luong-tu-
+        phuc-vu.md`). Bỏ trống ⇒ kỳ mới nhất đang mở ⇒ HÀNH VI Y HỆT TRƯỚC, client cũ không sửa
+        vẫn chạy. Chủ chốt: cửa sổ mở–đóng là công tắc DUY NHẤT, không thêm trần "12 tháng gần
+        nhất" — đã có giờ đóng rồi, thêm trần cứng là hai chỗ cùng quyết một việc."""
         emp = self.employees.get_by_user_id(user.id)
         if emp is None:
-            return {"has_employee": False, "employee_name": None, "line": None, "period": None}
-        ln = self.payroll.latest_published_line_for_employee(emp.id, datetime.now(timezone.utc))
+            return {"has_employee": False, "employee_name": None, "line": None, "period": None,
+                    "ky_xem_duoc": [], "cho_phat": None}
+        bay_gio = datetime.now(timezone.utc)
+        ky_list = self.payroll.published_periods_for_employee(emp.id, bay_gio)
+        if year is not None and month is not None:
+            ln = self.payroll.published_line_for_employee(emp.id, bay_gio, int(year), int(month))
+        else:
+            ln = self.payroll.latest_published_line_for_employee(emp.id, bay_gio)
         period = self.payroll.get_period(ln.period_id) if ln else None
-        return {"has_employee": True, "employee_name": emp.full_name, "line": ln, "period": period}
+        return {
+            "has_employee": True, "employee_name": emp.full_name, "line": ln, "period": period,
+            "ky_xem_duoc": [{"year": int(p.year), "month": int(p.month),
+                             "dong_phieu_luc": p.dong_phieu_luc} for p in ky_list],
+            "cho_phat": self._cho_phat(
+                emp.id, {(int(p.year), int(p.month)) for p in ky_list}, bay_gio),
+        }
 
     # --- công bố phiếu lương ------------------------------------------------
 

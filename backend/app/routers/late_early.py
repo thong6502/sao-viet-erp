@@ -12,6 +12,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..deps import (
+    get_current_user,
     CurrentUser,
     get_attendance_repository,
     get_authorization_service,
@@ -54,27 +55,41 @@ from ..services.rbac_service import AuthorizationService
 
 router = APIRouter(prefix="/api/late-early", tags=["late-early"])
 
-MODULE = "di_muon"
+# Khoá `di_muon` GỘP về màn Chấm công 15/08/2026 — nó vốn là một TAB của màn đó, không phải một
+# màn riêng. Duyệt phiếu nay hỏi ô chi tiết `approve_late_early` của `cham_cong`.
+MODULE = "di_muon"          # giữ tên hằng cho các chỗ còn tham chiếu; sẽ gỡ ở lượt dọn khoá cũ
+MODULE_CHAM_CONG = "cham_cong"
 
 # TỰ PHỤC VỤ (tách 10/08/2026) — một ô quyền cho MỌI việc người lao động làm với hồ sơ của CHÍNH
 # MÌNH: tự chấm công, xem công/phiếu lương của mình, tự gửi đơn nghỉ / phiếu tăng ca / xin tạm ứng.
 # Trước đây nhóm này không gác gì (chỉ cần đăng nhập) nên không có cách nào tắt cho một vai.
 # Ba hàng rào cũ GIỮ NGUYÊN (phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công · đúng
 # khung giờ ca) — chúng chống lạm dụng, còn ô này chống truy cập.
+# Ô `self_service` ĐÃ BỎ 15/08/2026 (chủ chốt). Dữ liệu của CHÍNH MÌNH là quyền đương nhiên của
+# mọi tài khoản đăng nhập — xem công / phiếu / đơn của mình, và gửi · sửa · huỷ đơn của mình.
+# Chặn nó là chặn người ta đi làm, chứ không bảo vệ được gì: mọi đường `/me` đã tự lọc theo hồ sơ
+# gắn với tài khoản, không đọc sang ai được.
+# Ba hàng rào thật GIỮ NGUYÊN: phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công ·
+# đúng khung giờ ca. Cái quyết định THẤY MÀN NÀO vẫn là ô của chính màn đó.
 MODULE_TU_PHUC_VU = "self_service"
-SelfUser = Annotated[User, Depends(require_permission(MODULE_TU_PHUC_VU, "read"))]
+SelfUser = Annotated[User, Depends(get_current_user)]
 
 # Ô THAO TÁC của Tự phục vụ (tách 11/08/2026). `SelfUser` (= `read`) chỉ cho XEM công / phiếu /
 # đơn của chính mình; mọi đường GHI — chấm công, gửi · sửa · huỷ đơn nghỉ, phiếu tăng ca, xin đi
 # muộn, xin tạm ứng, sửa hồ sơ của mình — đòi ô này.
-SelfWriter = Annotated[User, Depends(require_permission(MODULE_TU_PHUC_VU, "create"))]
+# GHI LÀ GHI — phải có ô THAO TÁC của chính màn này (chủ chốt 15/08/2026: *"tôi chưa bật thao tác
+# vẫn bấm gửi đơn được nè"*). Bấm giờ · gửi yêu cầu chỉnh công · xin đi muộn đều là ĐƯỜNG GHI,
+# không phải "xem dữ liệu của mình".
+#
+# Khác với `SelfUser` (đọc phần của mình — quyền đương nhiên, xem chú thích ở trên).
+SelfWriter = Annotated[User, Depends(require_permission(MODULE_CHAM_CONG, "create"))]
 # Sửa / huỷ phiếu: người TẠO tự làm với phiếu của mình, hoặc NGƯỜI DUYỆT làm hộ ⇒ nhận
 # cả hai ô. Ai không có ô nào trong hai ô này thì không đụng được — trước đây chỉ cần
 # đăng nhập là gọi được, đúng chỗ tester bắt.
 SelfOrApprover = Annotated[
     # Người TẠO sửa/huỷ phiếu của mình ⇒ đòi ô THAO TÁC của Tự phục vụ (`create`),
     # không phải ô Xem. Người DUYỆT làm hộ thì đi bằng ô duyệt của phân hệ.
-    User, Depends(require_any_permission((MODULE_TU_PHUC_VU, "create"), (MODULE, "approve")))
+    User, Depends(get_current_user)
 ]
 
 Service = Annotated[LateEarlyService, Depends(get_late_early_service)]
@@ -89,7 +104,7 @@ def _scope(authz: AuthorizationService, user: User) -> str:
 
     Dùng cho CẢ đường GHI, không chỉ đường đọc: ô quyền `approve` chỉ nói "được duyệt", còn
     scope mới nói "được duyệt CHO AI"."""
-    return authz.scope_for(user, MODULE) or "own"
+    return authz.scope_for(user, MODULE_CHAM_CONG) or "own"
 
 
 def _raise(exc: Exception) -> None:
@@ -184,7 +199,7 @@ def summary(svc: Service, authz: Authz, user: SelfUser):
     """Badge sidebar + chuông. `pending_in_scope` = None khi người gọi KHÔNG có quyền duyệt."""
     pending = None
     if authz.can(user, MODULE, "approve"):
-        pending = svc.count_pending(scope=authz.scope_for(user, MODULE) or "own", actor=user)
+        pending = svc.count_pending(scope=authz.scope_for(user, MODULE_CHAM_CONG) or "own", actor=user)
     return LateEarlySummaryOut(pending_in_scope=pending,
                                my_decided_unseen=svc.my_unseen_count(user=user))
 
@@ -200,7 +215,7 @@ def mark_seen(svc: Service, user: SelfUser):
 @router.post("", response_model=LateEarlyRequestOut, status_code=status.HTTP_201_CREATED)
 def create_for_employee(body: LateEarlyRequestForIn, svc: Service, employees: Employees,
                         leaves: Leaves, authz: Authz,
-                        user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
+                        user: Annotated[User, Depends(require_permission(MODULE_CHAM_CONG, "approve_late_early"))]):
     """Tổ trưởng khai THẲNG cho thợ → duyệt luôn (không bắt thợ gửi rồi duyệt lại)."""
     try:
         r = svc.create_request(actor=user, work_date=body.work_date,
@@ -216,7 +231,7 @@ def create_for_employee(body: LateEarlyRequestForIn, svc: Service, employees: Em
 
 @router.get("/roster", response_model=LateEarlyRosterOut)
 def roster(svc: Service, employees: Employees, attendance: Attendance, authz: Authz,
-           user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
+           user: Annotated[User, Depends(require_permission(MODULE_CHAM_CONG, "approve_late_early"))]):
     """Thợ trong tầm + danh mục ca — nuôi dropdown "Khai hộ thợ" và suy kiểu vắng (đi muộn /
     về sớm / nửa buổi) từ khung ca.
 
@@ -249,16 +264,16 @@ def list_requests(svc: Service, employees: Employees, leaves: Leaves, authz: Aut
                   # cũng đi theo ô đó (đổi 11/08/2026, chủ chốt: *"Nút Xem với Thao tác có bị thừa
                   # không, tôi chỉ thấy Duyệt phiếu đi muộn/về sớm là dùng được thôi"*).
                   # Ai chỉ xem phiếu CỦA MÌNH thì đi bằng `/me` (ô Tự phục vụ), không qua đây.
-                  user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+                  user: Annotated[User, Depends(require_permission(MODULE_CHAM_CONG, "approve_late_early"))],
                   status_filter: str | None = None):
-    scope = authz.scope_for(user, MODULE) or "own"
+    scope = authz.scope_for(user, MODULE_CHAM_CONG) or "own"
     reqs = svc.list_requests(scope=scope, actor=user, status=status_filter)
     return LateEarlyRequestsOut(items=_resolve(employees, leaves, reqs))
 
 
 @router.post("/bulk-approve", response_model=LateEarlyBulkResultOut)
 def bulk_approve(body: LateEarlyBulkIn, svc: Service, employees: Employees, authz: Authz,
-                 user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
+                 user: Annotated[User, Depends(require_permission(MODULE_CHAM_CONG, "approve_late_early"))]):
     done = svc.bulk_approve(actor=user, request_ids=body.ids, scope=_scope(authz, user))
     for r in done:
         _notify_decision(r, employees, "approved")
@@ -268,7 +283,7 @@ def bulk_approve(body: LateEarlyBulkIn, svc: Service, employees: Employees, auth
 
 @router.post("/bulk-reject", response_model=LateEarlyBulkResultOut)
 def bulk_reject(body: LateEarlyBulkRejectIn, svc: Service, employees: Employees, authz: Authz,
-                user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
+                user: Annotated[User, Depends(require_permission(MODULE_CHAM_CONG, "approve_late_early"))]):
     try:
         done = svc.bulk_reject(actor=user, request_ids=body.ids, note=body.note,
                                scope=_scope(authz, user))
@@ -283,7 +298,7 @@ def bulk_reject(body: LateEarlyBulkRejectIn, svc: Service, employees: Employees,
 @router.post("/{request_id}/approve", response_model=LateEarlyRequestOut)
 def approve(request_id: int, body: LateEarlyDecisionIn, svc: Service, employees: Employees,
             leaves: Leaves, authz: Authz,
-            user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
+            user: Annotated[User, Depends(require_permission(MODULE_CHAM_CONG, "approve_late_early"))]):
     try:
         r = svc.approve(actor=user, request_id=request_id, note=body.note,
                         scope=_scope(authz, user))
@@ -296,7 +311,7 @@ def approve(request_id: int, body: LateEarlyDecisionIn, svc: Service, employees:
 @router.post("/{request_id}/reject", response_model=LateEarlyRequestOut)
 def reject(request_id: int, body: LateEarlyRejectIn, svc: Service, employees: Employees,
            leaves: Leaves, authz: Authz,
-           user: Annotated[User, Depends(require_permission(MODULE, "approve"))]):
+           user: Annotated[User, Depends(require_permission(MODULE_CHAM_CONG, "approve_late_early"))]):
     try:
         r = svc.reject(actor=user, request_id=request_id, note=body.note,
                        scope=_scope(authz, user))

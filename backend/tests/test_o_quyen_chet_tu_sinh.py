@@ -129,7 +129,8 @@ def test_o_chet_da_biet_van_nam_trong_danh_sach(client):
         ("cong_no_phai_tra", "update"), ("cong_no_phai_thu", "update"),
         ("nghi_phep", "delete"),
         ("di_muon", "read"), ("di_muon", "create"),
-        ("tang_ca", "create"),
+        # `tang_ca:create` SỐNG LẠI 15/08/2026 — bỏ ô Tự phục vụ nên "gửi phiếu cho chính mình"
+        # đi bằng ô Thao tác của chính màn Tăng ca. Đừng khai lại là chết.
         # Màn Yêu cầu chỉnh công (chủ chốt hỏi 12/08/2026: "Thao tác tác dụng gì vậy" — không gì
         # cả). Ba cửa của màn chỉ dùng `read` + `approve`; gửi yêu cầu là việc của ô Tự phục vụ.
         ("yeu_cau_chinh_cong", "create"), ("yeu_cau_chinh_cong", "update"),
@@ -163,4 +164,119 @@ def test_khai_tay_o_gac_tang_service_van_dung_voi_ma_nguon():
     assert not thua, (
         "khai tay nhưng KHÔNG còn chỗ nào ở service hỏi quyền đó — gỡ khỏi "
         "`O_QUYEN_GAC_O_SERVICE`: " + ", ".join(thua)
+    )
+
+
+def test_moi_cot_co_quyen_deu_di_xuong_duoc_trinh_duyet():
+    """⭐ TẦNG THỨ SÁU — chỗ vừa lọt 15/08/2026.
+
+    Chuỗi nối một ô quyền có SÁU tầng: model → repo `set_permission` → bản đồ động từ ở
+    `rbac_service` → schema API → ma trận ở giao diện → **`capabilities()`**. Tầng cuối liệt kê
+    TỪNG CỜ MỘT bằng tay; thiếu một dòng là ô lưu được, ma trận hiện đúng, mà trình duyệt không
+    biết ô đó tồn tại ⇒ **tab không bao giờ hiện, không một lời báo lỗi**.
+
+    Năm tầng kia đều có test rồi; tầng này thì không, và nó vừa nuốt mất 5 ô mới."""
+    from app.models.role import RolePermission
+    from app.services.rbac_service import AuthorizationService
+
+    cot = {c.name for c in RolePermission.__table__.columns if c.name.startswith("can_")}
+    nguon = (BE / "services" / "rbac_service.py").read_text(encoding="utf-8")
+    than = nguon.split("def capabilities(", 1)[1].split("\n    def ", 1)[0]
+    gui_xuong = set(re.findall(r'"(can_\w+)": p\.', than))
+
+    thieu = sorted(cot - gui_xuong)
+    assert not thieu, (
+        "Mấy cột quyền này KHÔNG được gửi xuống trình duyệt trong `capabilities()` — quản trị tick "
+        "được, ma trận hiện đúng, nhưng màn hình không bao giờ thấy ô đó nên tab/nút không hiện:\n"
+        "  " + ", ".join(thieu)
+    )
+    assert AuthorizationService is not None
+
+
+def test_schema_tra_ve_khong_cat_mat_cot_quyen_nao():
+    """⭐ TẦNG 6b — `response_model` của FastAPI CẮT BỎ field không khai trong schema.
+
+    Ngày 15/08/2026 chuyện này lọt HAI LẦN liên tiếp: cờ đã có trong `capabilities()` nhưng
+    `ModuleCapability` không khai ⇒ FastAPI lọc sạch, trình duyệt không nhận. Triệu chứng y hệt
+    tầng 6: mọi thứ đúng, chỉ tab không hiện, không một lời báo lỗi.
+
+    Guard `test_moi_cot_co_quyen_deu_di_xuong_duoc_trinh_duyet` KHÔNG bắt được ca này — nó chỉ soi
+    `capabilities()`, không soi schema."""
+    from app.models.role import RolePermission
+    from app.schemas.auth import ModuleCapability
+
+    cot = {c.name for c in RolePermission.__table__.columns if c.name.startswith("can_")}
+    khai = set(ModuleCapability.model_fields)
+    thieu = sorted(cot - khai)
+    assert not thieu, (
+        "Mấy cột quyền này KHÔNG khai trong `ModuleCapability` ⇒ FastAPI cắt khỏi JSON trả về, "
+        "trình duyệt không bao giờ nhận được:\n  " + ", ".join(thieu)
+    )
+
+
+def test_o_chi_tiet_khong_dung_chung_cot_voi_nut_thao_tac():
+    """⭐ Ô chi tiết KHÔNG được mượn cột mà nút "Thao tác" bật.
+
+    Nút "Thao tác" trên ma trận bật CÙNG LÚC ba cột `can_create` / `can_update` / `can_delete`.
+    Ô chi tiết nào lấy một trong ba cột đó làm khoá thì bật Thao tác là nó TỰ SÁNG THEO — người
+    cấp quyền mở thêm một quyền mà không hề bấm vào đó, và không có gì báo cho họ biết.
+
+    Đã cắn thật 15/08/2026: ô "Quản danh mục loại nghỉ" dùng `can_update`, nên bật Thao tác (để
+    thợ gửi / huỷ đơn của chính mình) là mở luôn quyền sửa chính sách nghỉ của cả nhà máy.
+    """
+    s = (FE / "components" / "PermissionMatrix.tsx").read_text(encoding="utf-8")
+
+    m = re.search(r"const WRITE_ACTIONS: ActionKey\[\] = \[(.*?)\]", s, re.S)
+    assert m, "không đọc được `WRITE_ACTIONS` — đổi tên hằng thì sửa guard này luôn"
+    ghi = {x.strip().strip('"') for x in m.group(1).split(",") if x.strip()}
+    assert ghi, "WRITE_ACTIONS rỗng — guard sẽ xanh giả"
+
+    than = s[s.index("const FINE_ACTIONS"):]
+    than = than[: than.index("\n};")]
+
+    dung_chung, mod = [], None
+    for dong in than.split("\n"):
+        khop = re.match(r"\s{2}([a-z_]+): \[", dong)
+        if khop:
+            mod = khop.group(1)
+        for k in re.findall(r'key: "(can_\w+)"', dong):
+            if k in ghi:
+                dung_chung.append(f"{mod}.{k}")
+
+    assert not dung_chung, (
+        "Ô chi tiết mượn cột của nút Thao tác — bật Thao tác là ô đó TỰ SÁNG THEO, tức mở thêm "
+        "quyền mà người cấp không hề bấm:\n  " + ", ".join(dung_chung)
+    )
+
+
+def test_khong_co_hai_o_chi_tiet_dung_chung_mot_cot():
+    """⭐ Trong CÙNG một module, hai ô chi tiết không được dùng chung một cột.
+
+    Dùng chung thì tick ô này ô kia sáng theo — người cấp quyền tưởng đó là hai việc khác nhau,
+    thật ra chỉ là một dòng khai thừa. Đã cắn thật 15/08/2026: màn Lương có cả "Chốt bảng lương /
+    Mở lại kỳ" lẫn "Chốt kỳ lương", hai nhãn khác nhau nhưng cùng cột `can_lock`.
+
+    Ô dùng `keys` (một công tắc set NHIỀU cột) vẫn hợp lệ — chỗ đó `key` chỉ là cột đại diện.
+    """
+    s = (FE / "components" / "PermissionMatrix.tsx").read_text(encoding="utf-8")
+    than = s[s.index("const FINE_ACTIONS"):]
+    than = than[: than.index("\n};")]
+
+    trung, mod = [], None
+    da_thay: dict[str, set[str]] = {}
+    for dong in than.split("\n"):
+        khop = re.match(r"\s{2}([a-z_]+): \[", dong)
+        if khop:
+            mod = khop.group(1)
+            da_thay[mod] = set()
+        for k in re.findall(r'key: "(can_\w+)"', dong):
+            if mod is None:
+                continue
+            if k in da_thay[mod]:
+                trung.append(f"{mod}.{k}")
+            da_thay[mod].add(k)
+
+    assert not trung, (
+        "Hai ô chi tiết dùng chung một cột — tick ô này ô kia sáng theo, mà nhãn lại khác nhau "
+        "nên người cấp quyền tưởng là hai việc:\n  " + ", ".join(trung)
     )

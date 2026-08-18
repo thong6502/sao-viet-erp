@@ -55,6 +55,16 @@ ACTION_VIEW_COST = "view_cost"  # kho: xem giá vốn & giá trị tồn (BRD §
 ACTION_SET_THRESHOLD = "set_threshold"  # kho: khai ngưỡng tồn / cận tồn / tối đa
 ACTION_POST = "post"  # kho: GHI SỔ phiếu (chốt tồn) — tách khỏi create (lập nháp) để giữ SoD
 ACTION_CLOSE_BOOK = "close_book"  # kho: KHÓA KỲ (chốt sổ) + xem Báo cáo kho kế toán + export MISA
+# cham_cong (mg 0194) — MỘT Ô = MỘT TAB. Tên động từ gọi đúng tên tab để màn hỏi cho khỏi lẫn.
+ACTION_VIEW_TIMESHEET = "view_timesheet"          # tab Bảng công tháng
+ACTION_APPROVE_LATE_EARLY = "approve_late_early"  # tab con Duyệt phiếu đi muộn / về sớm
+ACTION_MANAGE_LOCATIONS = "manage_locations"      # tab Điểm chấm công
+ACTION_MANAGE_SHIFTS = "manage_shifts"            # tab Khai ca
+ACTION_MANAGE_CALENDAR = "manage_calendar"        # tab Lịch & Ngày lễ
+ACTION_VIEW_PAYROLL_TABLE = "view_payroll_table"  # luong: tab Bảng lương tháng
+ACTION_MANAGE_SALARY_PROFILES = "manage_salary_profiles"  # luong: tab Lương nhân viên
+ACTION_MANAGE_PIECE_RATES = "manage_piece_rates"          # luong: tab Lương khoán
+ACTION_MANAGE_LEAVE_TYPES = "manage_leave_types"          # nghi_phep: danh mục loại nghỉ
 # Ghi chú: don_hang_ban tái dùng ACTION_APPROVE (= "Chốt đơn") và ACTION_CANCEL (= "Hủy đơn");
 # ACTION_APPROVE_EXCEPTION TÁCH RIÊNG (chỉ GĐ) — duyệt đơn đặc thù mới được chốt.
 
@@ -98,6 +108,15 @@ _ACTION_ATTR = {
     ACTION_SET_THRESHOLD: "can_set_threshold",
     ACTION_POST: "can_post",
     ACTION_CLOSE_BOOK: "can_close_book",
+    ACTION_VIEW_TIMESHEET: "can_view_timesheet",
+    ACTION_APPROVE_LATE_EARLY: "can_approve_late_early",
+    ACTION_MANAGE_LOCATIONS: "can_manage_locations",
+    ACTION_MANAGE_SHIFTS: "can_manage_shifts",
+    ACTION_MANAGE_CALENDAR: "can_manage_calendar",
+    ACTION_VIEW_PAYROLL_TABLE: "can_view_payroll_table",
+    ACTION_MANAGE_SALARY_PROFILES: "can_manage_salary_profiles",
+    ACTION_MANAGE_PIECE_RATES: "can_manage_piece_rates",
+    ACTION_MANAGE_LEAVE_TYPES: "can_manage_leave_types",
 }
 
 
@@ -161,6 +180,10 @@ class AuthorizationService:
                 "can_view_salary": p.can_view_salary,
                 "can_edit_salary": p.can_edit_salary,
                 "can_adjust": p.can_adjust,
+                # ⚠️ `can_view_log` THIẾU Ở ĐÂY từ 11/08/2026 tới 15/08/2026 — ô "Xem Nhật ký chấm
+                # công" cấp xong mà tab KHÔNG BAO GIỜ HIỆN, vì trình duyệt không nhận được cờ.
+                # Máy chủ gác đúng nên bộ test API vẫn xanh; chỉ người ngồi bấm mới thấy.
+                "can_view_log": p.can_view_log,
                 "can_approve_exception": p.can_approve_exception,
                 "can_set_credit_terms": p.can_set_credit_terms,
                 "can_record_deposit": p.can_record_deposit,
@@ -173,6 +196,18 @@ class AuthorizationService:
                 "can_set_threshold": p.can_set_threshold,
                 "can_post": p.can_post,
                 "can_close_book": p.can_close_book,
+                # cham_cong (mg 0194) — MỘT Ô = MỘT TAB. Thiếu ở ĐÂY thì ô lưu được, ma trận hiện
+                # đúng, nhưng trình duyệt không biết ô đó tồn tại ⇒ tab không bao giờ hiện. Đây là
+                # tầng thứ SÁU của chuỗi nối một ô quyền; năm tầng kia không thay được nó.
+                "can_view_timesheet": p.can_view_timesheet,
+                "can_approve_late_early": p.can_approve_late_early,
+                "can_manage_locations": p.can_manage_locations,
+                "can_manage_shifts": p.can_manage_shifts,
+                "can_manage_calendar": p.can_manage_calendar,
+                "can_view_payroll_table": p.can_view_payroll_table,
+                "can_manage_salary_profiles": p.can_manage_salary_profiles,
+                "can_manage_piece_rates": p.can_manage_piece_rates,
+                "can_manage_leave_types": p.can_manage_leave_types,
             }
             for p in self.roles.permissions_for(user.role_id)
         ]

@@ -432,8 +432,15 @@ def _make_worker(username: str, dept_id: int) -> int:
     db = SessionLocal()
     try:
         users, roles = UserRepository(db), RoleRepository(db)
-        vai = roles.get_by_name_and_department("Thợ trống quyền", dept_id) or roles.create(
-            name="Thợ trống quyền", department_id=dept_id)
+        vai = roles.get_by_name_and_department("Thợ trống quyền", dept_id)
+        if vai is None:
+            vai = roles.create(name="Thợ trống quyền", department_id=dept_id)
+            # Từ 15/08/2026 (mg 0194): ô `self_service` đã bỏ, phần "của tôi" đi theo ô của CHÍNH
+            # màn đó. Thợ phải được cấp `cham_cong` mới bấm giờ được — `can_read` mở màn + ba tab
+            # của mình, `can_create` là ô Thao tác (ghi thì phải có ô, kể cả ghi đơn của mình).
+            # KHÔNG có `can_view_timesheet` ⇒ vẫn không thấy lưới công cả xưởng.
+            roles.set_permission(role_id=vai.id, module_key="cham_cong", scope="own",
+                                 can_read=True, can_create=True)
         u = users.get_by_username(username) or users.create(
             username=username, name=username, password_hash=hash_password("x"))
         users.set_assignment(u, department_id=dept_id, role_id=vai.id, is_active=True)
@@ -453,8 +460,10 @@ def _dept_hr_token(dept_name: str) -> str:
         # Đọc nhật ký + bảng công là màn Chấm công ⇒ khoá `cham_cong`.
         # `can_view_log`: tab Nhật ký chấm công tách thành ô riêng 11/08/2026 — HR của phòng
         # vẫn phải đọc được nhật ký của phòng mình.
+        # `can_view_timesheet`: Bảng công tháng tách thành ô riêng 15/08/2026 (mg 0194) — `can_read`
+        # nay chỉ mở màn + ba tab CỦA TÔI; muốn xem lưới cả phòng phải có ô này.
         roles.set_permission(role_id=role.id, module_key="cham_cong", can_read=True,
-                             can_view_log=True, scope="department")
+                             can_view_log=True, can_view_timesheet=True, scope="department")
         users = UserRepository(db)
         u = users.get_by_username(f"hr-{dept.id}") or users.create(
             username=f"hr-{dept.id}", name="HR", password_hash=hash_password("x"))

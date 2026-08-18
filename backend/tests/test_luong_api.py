@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from datetime import datetime, timezone
 
+from app.models.role import SCOPE_OWN
 from app.db import SessionLocal
 from app.repositories.employee_repo import EmployeeRepository
 from app.repositories.payroll_repo import PayrollRepository
@@ -1248,6 +1249,11 @@ def test_my_advance_dot_1_self_create(client):
         users = UserRepository(db)
         kd = DepartmentRepository(db).get_by_name("Kinh doanh")
         role = RoleRepository(db).get_by_name_and_department("NV Sales", kd.id)
+        # GHI LÀ GHI (15/08/2026): xin tạm ứng cho CHÍNH MÌNH vẫn đòi ô THAO TÁC của màn Lương —
+        # *"chưa bật thao tác lên vẫn cho gửi duyệt bình thường đó nha"*. Phạm vi `own` + KHÔNG
+        # `can_view_payroll_table` ⇒ vào được tab của mình mà vẫn không thấy bảng lương cả xưởng.
+        RoleRepository(db).set_permission(role_id=role.id, module_key="luong", scope=SCOPE_OWN,
+                                         can_read=True, can_create=True)
         u = users.create(username="nv-tu-xin-dot1", name="NV", password_hash=hash_password("x"))
         users.set_assignment(u, department_id=kd.id, role_id=role.id, is_active=True)
         emps = EmployeeRepository(db)

@@ -1657,6 +1657,17 @@ export interface ModuleCapability {
   can_post: boolean;
   /** kho — KHÓA KỲ (chốt sổ) + Báo cáo kho kế toán + export MISA. */
   can_close_book: boolean;
+  /** cham_cong (mg 0194) — MỘT Ô = MỘT TAB. Xem `PermissionMatrix` để biết ô nào mở tab nào. */
+  can_view_timesheet?: boolean;
+  can_approve_late_early?: boolean;
+  can_manage_locations?: boolean;
+  can_manage_shifts?: boolean;
+  can_manage_calendar?: boolean;
+  /** luong (mg 0195) — tab Bảng lương tháng, tách khỏi cột Xem. */
+  can_view_payroll_table?: boolean;
+  can_manage_salary_profiles?: boolean;
+  can_manage_piece_rates?: boolean;
+  can_manage_leave_types?: boolean;
 }
 
 /** A live login session (active refresh token) for the admin user-detail view (spec-08). */
@@ -1726,6 +1737,17 @@ export interface PermissionRow {
   can_post: boolean;
   /** kho — KHÓA KỲ (chốt sổ) + Báo cáo kho kế toán + export MISA. */
   can_close_book: boolean;
+  /** cham_cong (mg 0194) — MỘT Ô = MỘT TAB. Xem `PermissionMatrix` để biết ô nào mở tab nào. */
+  can_view_timesheet?: boolean;
+  can_approve_late_early?: boolean;
+  can_manage_locations?: boolean;
+  can_manage_shifts?: boolean;
+  can_manage_calendar?: boolean;
+  /** luong (mg 0195) — tab Bảng lương tháng, tách khỏi cột Xem. */
+  can_view_payroll_table?: boolean;
+  can_manage_salary_profiles?: boolean;
+  can_manage_piece_rates?: boolean;
+  can_manage_leave_types?: boolean;
 }
 
 // --- Khách hàng (CRM), spec-06 v2 -------------------------------------------
@@ -3895,11 +3917,31 @@ export interface PayrollTable {
    *  tháng thật ra chốt được. Xem `PayrollService.ly_do_chua_chot_duoc`. */
   chan_chot_ly_do?: string | null;
 }
+/** Một kỳ NLĐ tra lại được. CHỈ nhãn tháng — không kèm tiền. */
+export interface KyXemDuoc {
+  year: number;
+  month: number;
+  /** null = mở không thời hạn. */
+  dong_phieu_luc: string | null;
+}
+
+/** Kỳ mới nhất NLĐ CHƯA xem được, kèm lý do — để màn thôi nói "chưa có kỳ lương nào". */
+export interface ChoPhat {
+  year: number;
+  month: number;
+  tinh_trang: "chua_phat" | "hen_gio" | "da_dong";
+  /** Chỉ có nghĩa khi `tinh_trang = "hen_gio"`. */
+  mo_luc: string | null;
+}
+
 export interface MyPayslip {
   has_employee: boolean;
   employee_name: string | null;
   period: PayrollPeriod | null;
   line: PayrollLine | null;
+  /** Các kỳ tra lại được, mới → cũ. Rỗng = không có phiếu nào đang mở. */
+  ky_xem_duoc: KyXemDuoc[];
+  cho_phat: ChoPhat | null;
 }
 
 // --- Lương khoán (nhịp 2) ---------------------------------------------------
@@ -7661,8 +7703,11 @@ export const api = {
       if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
       return URL.createObjectURL(await resp.blob());
     },
-    myPayslip(token: string): Promise<MyPayslip> {
-      return authed<MyPayslip>("/api/luong/payslip/me", token);
+    /** Bỏ trống `ky` ⇒ kỳ mới nhất đang mở (hành vi cũ). Truyền vào ⇒ tra lại tháng đó —
+     *  máy chủ vẫn lọc theo cửa sổ công bố nên tháng chưa phát trả về rỗng. */
+    myPayslip(token: string, ky?: { year: number; month: number }): Promise<MyPayslip> {
+      const q = ky ? `?year=${ky.year}&month=${ky.month}` : "";
+      return authed<MyPayslip>(`/api/luong/payslip/me${q}`, token);
     },
     // --- Lương khoán (nhịp 2) ---
     khoanRates(token: string, departmentId?: number | null): Promise<{ items: PieceRate[] }> {

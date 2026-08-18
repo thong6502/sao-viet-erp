@@ -11,6 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from ..deps import (
+    get_current_user,
     CurrentUser,
     get_authorization_service,
     get_employee_repository,
@@ -57,15 +58,21 @@ MODULE = "nghi_phep"
 # Trước đây nhóm này không gác gì (chỉ cần đăng nhập) nên không có cách nào tắt cho một vai.
 # Ba hàng rào cũ GIỮ NGUYÊN (phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công · đúng
 # khung giờ ca) — chúng chống lạm dụng, còn ô này chống truy cập.
+# Ô `self_service` ĐÃ BỎ 15/08/2026 (chủ chốt). Dữ liệu của CHÍNH MÌNH là quyền đương nhiên của
+# mọi tài khoản đăng nhập — xem công / phiếu / đơn của mình, và gửi · sửa · huỷ đơn của mình.
+# Chặn nó là chặn người ta đi làm, chứ không bảo vệ được gì: mọi đường `/me` đã tự lọc theo hồ sơ
+# gắn với tài khoản, không đọc sang ai được.
+# Ba hàng rào thật GIỮ NGUYÊN: phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công ·
+# đúng khung giờ ca. Cái quyết định THẤY MÀN NÀO vẫn là ô của chính màn đó.
 MODULE_TU_PHUC_VU = "self_service"
-SelfUser = Annotated[User, Depends(require_permission(MODULE_TU_PHUC_VU, "read"))]
+SelfUser = Annotated[User, Depends(get_current_user)]
 # Sửa / huỷ phiếu: người TẠO tự làm với phiếu của mình, hoặc NGƯỜI DUYỆT làm hộ ⇒ nhận
 # cả hai ô. Ai không có ô nào trong hai ô này thì không đụng được — trước đây chỉ cần
 # đăng nhập là gọi được, đúng chỗ tester bắt.
 SelfOrApprover = Annotated[
-    # Người TẠO huỷ đơn của mình ⇒ ô THAO TÁC của Tự phục vụ (`create`), không phải ô Xem
-    # (đổi 11/08/2026). Người DUYỆT huỷ hộ thì đi bằng ô duyệt của phân hệ.
-    User, Depends(require_any_permission((MODULE_TU_PHUC_VU, "create"), (MODULE, "approve")))
+    # HUỶ đơn là ĐƯỜNG GHI ⇒ ô Thao tác của chính màn Nghỉ phép (15/08/2026). Người DUYỆT huỷ hộ
+    # thì đi bằng ô Duyệt. Trước 15/08 nó đi theo ô Thao tác của Tự phục vụ — ô đó đã bỏ.
+    User, Depends(require_any_permission((MODULE, "cancel"), (MODULE, "approve")))
 ]
 
 Service = Annotated[LeaveService, Depends(get_leave_service)]
@@ -128,7 +135,7 @@ def list_types(svc: Service, user: Annotated[User, Depends(require_permission(MO
 
 @router.post("/types", response_model=LeaveTypeOut, status_code=status.HTTP_201_CREATED)
 def create_type(body: LeaveTypeIn, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LeaveTypeOut:
+                user: Annotated[User, Depends(require_permission(MODULE, "manage_leave_types"))]) -> LeaveTypeOut:
     try:
         t = svc.create_type(actor=user, name=body.name, is_paid=body.is_paid,
                             annual_quota=body.annual_quota, note=body.note)
@@ -139,7 +146,7 @@ def create_type(body: LeaveTypeIn, svc: Service,
 
 @router.put("/types/{type_id}", response_model=LeaveTypeOut)
 def update_type(type_id: int, body: LeaveTypeIn, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LeaveTypeOut:
+                user: Annotated[User, Depends(require_permission(MODULE, "manage_leave_types"))]) -> LeaveTypeOut:
     try:
         t = svc.update_type(actor=user, type_id=type_id, name=body.name, is_paid=body.is_paid,
                             annual_quota=body.annual_quota, note=body.note, is_active=body.is_active)
@@ -150,7 +157,7 @@ def update_type(type_id: int, body: LeaveTypeIn, svc: Service,
 
 @router.delete("/types/{type_id}", status_code=204)
 def delete_type(type_id: int, svc: Service,
-                user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+                user: Annotated[User, Depends(require_permission(MODULE, "manage_leave_types"))]):
     try:
         svc.delete_type(actor=user, type_id=type_id)
     except LeaveError as exc:
@@ -167,8 +174,9 @@ def create_request(body: LeaveRequestIn, svc: Service, employees: Employees,
                    # — riêng nghỉ phép một kiểu, nên chủ chốt tắt ô Thao tác của Tự phục vụ mà vẫn
                    # xin nghỉ được. Vẫn nhận `nghi_phep:create` cho ca HCNS **nhập đơn hộ** thợ
                    # không dùng máy.
-                   user: Annotated[User, Depends(require_any_permission(
-                       (MODULE_TU_PHUC_VU, "create"), (MODULE, "create")))]) -> LeaveRequestOut:
+                   # GỬI đơn là ĐƯỜNG GHI ⇒ ô Thao tác của màn Nghỉ phép (15/08/2026).
+                   user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+                   ) -> LeaveRequestOut:
     try:
         r = svc.create_request(actor=user, leave_type_id=body.leave_type_id,
                                start_date=body.start_date, end_date=body.end_date, reason=body.reason)

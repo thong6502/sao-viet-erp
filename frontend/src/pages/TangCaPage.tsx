@@ -6,7 +6,7 @@
 // nên màn này KHÔNG nhập giờ làm thực — chỉ khai khoảng được phép tăng ca.
 import { useCallback, useEffect, useState } from "react";
 import { api, type EmployeeRow, type OvertimeRequest } from "../api/client";
-import { useCan, useSelfService, useSelfServiceWrite } from "../auth/permissions";
+import { useCan, useSelfService } from "../auth/permissions";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { EmptyRow } from "../components/EmptyState";
@@ -446,7 +446,10 @@ export function TangCaPage({
   const tuPhucVu = useSelfService();
   // Ô THAO TÁC của Tự phục vụ — TÁCH khỏi ô Xem ngày 11/08/2026. Tab/danh sách đi theo ô
   // Xem; còn nút GỬI · SỬA · HUỶ thì đi theo ô này.
-  const tuPhucVuGhi = useSelfServiceWrite();
+  // GHI LÀ GHI — gửi / sửa / huỷ đơn của CHÍNH MÌNH vẫn đòi ô Thao tác của màn Tăng ca
+  // (chủ chốt 15/08/2026: *"tôi chưa bật thao tác vẫn bấm gửi đơn được nè"*). Chỉ phần ĐỌC dữ
+  // liệu của mình mới là quyền đương nhiên.
+  const tuPhucVuGhi = can("tang_ca", "create");
   const [tab, setTab] = useState<Tab>(canApprove && !tuPhucVu ? "approve" : "mine");
   const [mine, setMine] = useState<OvertimeRequest[]>([]);
   const [mineTotal, setMineTotal] = useState(0);

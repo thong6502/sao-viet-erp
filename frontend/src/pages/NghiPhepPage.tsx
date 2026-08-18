@@ -13,7 +13,7 @@ import {
   type LeaveTypeInput,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
-import { useCan, useSelfService, useSelfServiceWrite } from "../auth/permissions";
+import { useCan, useSelfService } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { EmptyRow, EmptyState } from "../components/EmptyState";
 import { Pager, trangHopLe } from "../components/Pager";
@@ -101,12 +101,18 @@ export function NghiPhepPage({ onChanged, focusEmployeeId }: { onChanged?: () =>
   const tuPhucVu = useSelfService();
   // Ô THAO TÁC của Tự phục vụ — TÁCH khỏi ô Xem ngày 11/08/2026. Tab/danh sách đi theo ô
   // Xem; còn nút GỬI · SỬA · HUỶ thì đi theo ô này.
-  const tuPhucVuGhi = useSelfServiceWrite();
+  // GHI LÀ GHI — gửi / sửa / huỷ đơn của CHÍNH MÌNH vẫn đòi ô Thao tác của màn Nghỉ phép
+  // (chủ chốt 15/08/2026: *"tôi chưa bật thao tác vẫn bấm gửi đơn được nè"*). Chỉ phần ĐỌC dữ
+  // liệu của mình mới là quyền đương nhiên.
+  const tuPhucVuGhi = can("nghi_phep", "create");
   // Danh mục LOẠI NGHỈ là chính sách TOÀN CÔNG TY, chỉ HCNS/Admin. Phải gác bằng `update` cho
   // KHỚP backend (`routers/leaves.py` gác 3 endpoint /types bằng `update`) — gác bằng `approve`
   // là tổ trưởng (approve=true, update=false) nhìn thấy tab, mở ra, bấm lưu rồi ăn 403: màn
   // mời-rồi-đuổi, người dùng tưởng mình có quyền.
-  const canTypes = can("nghi_phep", "update");
+  // Danh mục LOẠI NGHỈ có ô riêng từ 15/08/2026 (mg 0197) — trước đó nó dùng chung cột với nút
+  // "Thao tác", nên bật Thao tác (để thợ gửi/huỷ đơn của mình) là mở luôn quyền sửa chính sách
+  // nghỉ của cả nhà máy.
+  const canTypes = can("nghi_phep", "manage_leave_types");
   // Ai bị gỡ ô Tự phục vụ thì mở thẳng tab Duyệt — không thì vào màn là thấy tab trống.
   const [tab, setTab] = useState<Tab>("me");
 

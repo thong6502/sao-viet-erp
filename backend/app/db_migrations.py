@@ -8459,3 +8459,213 @@ def _migrate_attendance_period_standard_cong(db) -> None:
 
 
 MIGRATIONS.append(("0193_attendance_period_standard_cong", _migrate_attendance_period_standard_cong))
+
+
+def _migrate_cham_cong_mot_o_mot_tab(db) -> None:
+    """Màn Chấm công: MỘT Ô QUYỀN = MỘT TAB (chủ chốt 15/08/2026).
+
+    Thêm 5 cột cờ rồi RÓT quyền đang có sang, theo hướng **chỉ bật thêm, không tắt gì** — không vai
+    nào mất quyền sau khi cập nhật:
+
+      cham_cong.can_read              → can_view_timesheet      (đang xem bảng công thì vẫn xem)
+      cham_cong.can_update            → 3 ô cấu hình            ("Cấu hình chấm công" cũ mở cả ba)
+      di_muon.can_approve             → can_approve_late_early  (gộp khoá về đúng màn của nó)
+      yeu_cau_chinh_cong.can_approve  → cham_cong.can_approve   (cột này của cham_cong đang trống)
+
+    Dòng quyền của hai module cũ (`di_muon`, `yeu_cau_chinh_cong`) GIỮ NGUYÊN tại chỗ — xoá ở lượt
+    sau, sau khi chạy thật vài ngày. Migration đã xoá dữ liệu thì không có đường về."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    co = _existing_columns(insp, "role_permissions")
+    for ten in ("can_view_timesheet", "can_approve_late_early", "can_manage_locations",
+                "can_manage_shifts", "can_manage_calendar"):
+        if ten not in co:
+            db.execute(text(
+                f"ALTER TABLE role_permissions ADD COLUMN {ten} BOOLEAN NOT NULL DEFAULT FALSE"))
+    db.commit()
+
+    # Rót TRONG CÙNG dòng cham_cong.
+    db.execute(text(
+        "UPDATE role_permissions SET can_view_timesheet = true "
+        "WHERE module_key = 'cham_cong' AND can_read AND NOT can_view_timesheet"))
+    db.execute(text(
+        "UPDATE role_permissions SET can_manage_locations = true, can_manage_shifts = true, "
+        "can_manage_calendar = true "
+        "WHERE module_key = 'cham_cong' AND can_update"))
+    db.commit()
+
+    # Rót TỪ module khác sang: chỉ đụng những vai đã có dòng `cham_cong`; vai chưa có dòng đó thì
+    # tạo mới với đúng ô vừa rót (kèm can_read để họ còn mở được màn mà dùng).
+    for nguon, dich in (("di_muon", "can_approve_late_early"),
+                        ("yeu_cau_chinh_cong", "can_approve")):
+        vai = [r[0] for r in db.execute(text(
+            f"SELECT role_id FROM role_permissions WHERE module_key = '{nguon}' AND can_approve"
+        )).all()]
+        for role_id in vai:
+            co_dong = db.execute(text(
+                "SELECT 1 FROM role_permissions WHERE role_id = :r AND module_key = 'cham_cong'"
+            ), {"r": role_id}).first()
+            if co_dong:
+                db.execute(text(
+                    f"UPDATE role_permissions SET {dich} = true "
+                    "WHERE role_id = :r AND module_key = 'cham_cong'"), {"r": role_id})
+            else:
+                # Liệt kê ĐỦ mọi cột `can_*` và cho false — bảng có cột NOT NULL không kèm
+                # server_default (can_create…), bỏ sót là vỡ ngay trên DB tạo mới bằng create_all.
+                co_cot = [c for c in _existing_columns(insp, "role_permissions")
+                          if c.startswith("can_")]
+                gia_tri = {c: (c in ("can_read", dich)) for c in co_cot}
+                ten_cot = ", ".join(gia_tri)
+                cho = ", ".join(f":{c}" for c in gia_tri)
+                db.execute(
+                    text(f"INSERT INTO role_permissions (role_id, module_key, scope, {ten_cot}) "
+                         f"VALUES (:r, 'cham_cong', 'department', {cho})"),
+                    {"r": role_id, **gia_tri},
+                )
+    db.commit()
+
+
+MIGRATIONS.append(("0194_cham_cong_mot_o_mot_tab", _migrate_cham_cong_mot_o_mot_tab))
+
+
+def _migrate_luong_bang_luong_thanh_o_rieng(db) -> None:
+    """Tab "Bảng lương tháng" thành Ô RIÊNG (chủ chốt 15/08/2026).
+
+    Trước đó nó đi theo cột Xem của module `luong`, nên cấp ô Lương ở phạm vi *Của tôi* là người
+    đó vẫn mở được BẢNG LƯƠNG — danh sách quản lý, kèm nút Tính lại / Chốt kỳ. Chủ chốt: *"Sao lại
+    bảng lương với tạm ứng nhân viên được xem nhỉ"*. Cùng khuôn đã áp cho "Bảng công tháng".
+
+    Rót theo hướng CHỈ THÊM: ai đang xem được bảng lương thì sau cập nhật vẫn xem được."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    if "can_view_payroll_table" not in _existing_columns(insp, "role_permissions"):
+        db.execute(text(
+            "ALTER TABLE role_permissions ADD COLUMN can_view_payroll_table "
+            "BOOLEAN NOT NULL DEFAULT FALSE"))
+        db.commit()
+    db.execute(text(
+        "UPDATE role_permissions SET can_view_payroll_table = true "
+        "WHERE module_key = 'luong' AND can_read AND NOT can_view_payroll_table"))
+    db.commit()
+
+
+MIGRATIONS.append(("0195_luong_bang_luong_thanh_o_rieng", _migrate_luong_bang_luong_thanh_o_rieng))
+
+
+def _migrate_luong_hai_tab_thanh_o_rieng(db) -> None:
+    """Tab "Lương nhân viên" và "Lương khoán" thành Ô RIÊNG (chủ chốt 15/08/2026).
+
+    Trước đó hai tab này đi theo CỘT THAO TÁC — bật Thao tác là ba tab bung ra cùng lúc, đúng cái
+    bệnh vừa dọn ở "Cấu hình chấm công". Chủ chốt: *"lương nhân viên với lương khoán nó cũng là
+    tab mà nên cũng phải có nút bật tắt chứ"*.
+
+    Luật chốt: **cột Thao tác KHÔNG mở tab nào**, nó chỉ cho GHI vào tab đã mở được.
+
+    Rót CHỈ THÊM: ai đang có ô Thao tác của Lương thì được bật sẵn hai ô mới — giữ nguyên hiện
+    trạng, không ai mất tab đang dùng."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    co = _existing_columns(insp, "role_permissions")
+    for ten in ("can_manage_salary_profiles", "can_manage_piece_rates"):
+        if ten not in co:
+            db.execute(text(
+                f"ALTER TABLE role_permissions ADD COLUMN {ten} BOOLEAN NOT NULL DEFAULT FALSE"))
+    db.commit()
+    db.execute(text(
+        "UPDATE role_permissions SET can_manage_salary_profiles = true, "
+        "can_manage_piece_rates = true "
+        "WHERE module_key = 'luong' AND can_update"))
+    db.commit()
+
+
+MIGRATIONS.append(("0196_luong_hai_tab_thanh_o_rieng", _migrate_luong_hai_tab_thanh_o_rieng))
+
+
+def _migrate_nghi_phep_danh_muc_thanh_o_rieng(db) -> None:
+    """Ô "Quản danh mục loại nghỉ" có CỘT RIÊNG (chủ chốt 15/08/2026).
+
+    Trước đó nó mượn chính cột `can_update` — mà `can_update` cũng là một trong ba cột nút "Thao
+    tác" bật cùng lúc. Hậu quả trên màn: bật Thao tác (để thợ gửi/huỷ đơn của mình) thì ô "Quản
+    danh mục loại nghỉ" TỰ SÁNG THEO, tức là mở luôn quyền sửa chính sách nghỉ của cả nhà máy mà
+    người cấp quyền không hề bấm vào đó.
+
+    Rót CHỈ THÊM: vai nào đang có `nghi_phep.can_update` thì được bật ô mới — giữ nguyên hiện
+    trạng, không ai mất quyền quản danh mục đang dùng."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    if "can_manage_leave_types" not in _existing_columns(insp, "role_permissions"):
+        db.execute(text(
+            "ALTER TABLE role_permissions ADD COLUMN can_manage_leave_types "
+            "BOOLEAN NOT NULL DEFAULT FALSE"))
+        db.commit()
+    db.execute(text(
+        "UPDATE role_permissions SET can_manage_leave_types = true "
+        "WHERE module_key = 'nghi_phep' AND can_update AND NOT can_manage_leave_types"))
+    db.commit()
+
+
+MIGRATIONS.append(("0197_nghi_phep_danh_muc_thanh_o_rieng", _migrate_nghi_phep_danh_muc_thanh_o_rieng))
+
+
+def _migrate_luong_o_that_thay_o_ma(db) -> None:
+    """Màn Lương: đổi cổng vào từ ô ma `self_service` sang ô THẬT `luong`.
+
+    Trước 15/08/2026 menu Lương mở khi có `luong` HOẶC `self_service`. `self_service` được cấp
+    sẵn cho MỌI vai và ĐÃ BỊ GỠ khỏi bảng phân quyền ⇒ HCNS không nhìn thấy, không tắt được:
+    một cái cổng không có tay nắm. Cùng lúc, luật "ghi là ghi" bắt xin tạm ứng phải có ô Lương →
+    Thao tác, mà đo trên DB dev thì 17/20 vai không có ô Lương ⇒ vào tab được mà không gửi được.
+
+    Migration này rót ô `luong` phạm vi `own` (Xem + Thao tác) cho những vai đang đi cửa
+    `self_service`, để khi cổng ma bị gỡ thì KHÔNG ai mất màn Lương của mình. CHỈ THÊM:
+
+      * vai CHƯA có dòng `luong`               → INSERT (scope own, can_read + can_create)
+      * vai có dòng `luong` nhưng TRỐNG TRƠN    → UPDATE đúng hai ô đó
+        (trống trơn = mọi cột `can_*` đều false; trong bảng phân quyền nó hiện y như chưa cấp)
+      * vai có dòng `luong` đã bật ô nào đó     → KHÔNG ĐỤNG (đó là ý của người cấu hình)
+
+    KHÔNG bật `can_view_payroll_table`: bảng lương tháng là việc của HCNS/kế toán —
+    *"công nhân làm gì có quyền đó đâu"*. Dòng `self_service` giữ nguyên tại chỗ, xoá ở lượt sau.
+    """
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    cot_can = [c for c in _existing_columns(insp, "role_permissions") if c.startswith("can_")]
+    if "can_read" not in cot_can or "can_create" not in cot_can:
+        return
+
+    # Vai đi cửa self_service = vai cần giữ nguyên trải nghiệm hôm nay.
+    vai_ss = [r[0] for r in db.execute(text(
+        "SELECT role_id FROM role_permissions WHERE module_key = 'self_service' AND can_read"
+    )).all()]
+    if not vai_ss:
+        return
+
+    trong_tron = " AND ".join(f"NOT {c}" for c in cot_can)
+    for role_id in vai_ss:
+        dong = db.execute(text(
+            "SELECT 1 FROM role_permissions WHERE role_id = :r AND module_key = 'luong'"
+        ), {"r": role_id}).first()
+        if dong is None:
+            # Liệt kê ĐỦ mọi cột `can_*` — bảng có cột NOT NULL không kèm server_default,
+            # bỏ sót là vỡ ngay trên DB tạo mới bằng create_all (bài học mg 0194).
+            gia_tri = {c: (c in ("can_read", "can_create")) for c in cot_can}
+            ten_cot = ", ".join(gia_tri)
+            cho = ", ".join(f":{c}" for c in gia_tri)
+            db.execute(
+                text(f"INSERT INTO role_permissions (role_id, module_key, scope, {ten_cot}) "
+                     f"VALUES (:r, 'luong', 'own', {cho})"),
+                {"r": role_id, **gia_tri},
+            )
+        else:
+            db.execute(text(
+                "UPDATE role_permissions SET can_read = true, can_create = true "
+                f"WHERE role_id = :r AND module_key = 'luong' AND {trong_tron}"
+            ), {"r": role_id})
+    db.commit()
+
+
+MIGRATIONS.append(("0198_luong_o_that_thay_o_ma", _migrate_luong_o_that_thay_o_ma))

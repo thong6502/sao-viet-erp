@@ -314,6 +314,20 @@ def test_to_truong_khong_ghi_duoc_vao_to_khac(client):
     assert _mk(client, lead, sx_emp, work_date="2026-07-18")["status"] == "approved"
 
 
+def _cap_o_cham_cong_cho_vai(ten_vai: str, phong: str) -> None:
+    """Cấp ô Chấm công (xem + thao tác, phạm vi của tôi) — phần "của tôi" của màn đó."""
+    db = SessionLocal()
+    try:
+        dept = DepartmentRepository(db).get_by_name(phong)
+        roles = RoleRepository(db)
+        vai = roles.get_by_name_and_department(ten_vai, dept.id)
+        roles.set_permission(role_id=vai.id, module_key="cham_cong", scope="own",
+                             can_read=True, can_create=True, can_cancel=True)
+        db.commit()
+    finally:
+        db.close()
+
+
 def _plain_token_with_emp(client, admin_token) -> str:
     """Tài khoản vai 'NV Sales' — KHÔNG có ô quyền `di_muon` nào, đã gắn hồ sơ nhân viên."""
     eid = _make_emp(client, admin_token, name="NV thường ĐM", dept="Kinh doanh")
@@ -335,10 +349,19 @@ def _plain_token_with_emp(client, admin_token) -> str:
 
 
 def test_tu_phuc_vu_khong_can_o_quyen(client):
-    """Mọi NLĐ đều phải XIN / SỬA / HỦY được phiếu của CHÍNH MÌNH mà không cần ô quyền
-    `di_muon` nào. Nhưng DUYỆT thì vẫn phải có `approve`, và màn danh sách vẫn cần `read`."""
+    """⚠️ LUẬT ĐỔI 15/08/2026 — trước đây khẳng định "không cần ô quyền nào".
+
+    Nay ĐỌC phần của mình là quyền đương nhiên, còn **GHI thì phải có ô Thao tác của màn Chấm
+    công** (phiếu đi muộn là một tab của màn đó từ mg 0194). Vẫn giữ vế: gửi được ≠ duyệt được."""
     admin = _admin_token(client)
     t = _plain_token_with_emp(client, admin)
+
+    # Chưa có ô Thao tác của Chấm công ⇒ không gửi được, kể cả phiếu của chính mình.
+    assert client.post("/api/late-early/me", json={
+        "work_date": "2026-07-23", "from_minute": 480, "to_minute": 540, "reason": None,
+    }, headers=_h(t)).status_code == 403
+
+    _cap_o_cham_cong_cho_vai("NV Sales", "Kinh doanh")
 
     r = _me(client, t, work_date="2026-07-23", frm=480, to=540)
     rid = r["id"]
