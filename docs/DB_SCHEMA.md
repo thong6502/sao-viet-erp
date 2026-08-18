@@ -1812,6 +1812,7 @@ Yêu cầu chỉnh công: NV tự gửi (giải trình 1 ngày công) → HCNS d
 | `status` | `String(12)` → `VARCHAR(12)` | **IX** | no | `draft` | `draft` (đang mở) / `locked` (đã chốt). |
 | `locked_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm chốt. |
 | `locked_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người chốt. |
+| `standard_cong` | `Numeric(6,2)` → `NUMERIC` | — | yes | — | **Công chuẩn ĐÓNG BĂNG lúc chốt** (mg 0193). Lịch tuần làm việc chỉ có MỘT bản dùng chung, không có ngày hiệu lực — bỏ làm thứ Bảy là công chuẩn mọi tháng cũ đổi theo, mà đơn giá ngày = lương tháng ÷ công chuẩn. NULL = kỳ chốt trước 15/08/2026 ⇒ đọc lịch sống như cũ. Mở lại kỳ thì xoá về NULL. |
 | `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người tạo kỳ. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo. |
 | `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Cập nhật cuối. |

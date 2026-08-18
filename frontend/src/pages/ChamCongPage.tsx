@@ -6304,7 +6304,8 @@ function TimesheetTab({
         (period.hanging_days > 0 ||
           period.pending_leaves +
             period.pending_adjusts +
-            period.pending_late_early >
+            period.pending_late_early +
+            (period.pending_overtime ?? 0) >
             0) && (
           <div
             className="banner banner--warn cc-ts-warn-banner"
@@ -6317,9 +6318,10 @@ function TimesheetTab({
               <strong>
                 {period.pending_leaves +
                   period.pending_adjusts +
-                  period.pending_late_early}
+                  period.pending_late_early +
+                  (period.pending_overtime ?? 0)}
               </strong>{" "}
-              đơn chờ duyệt.
+              đơn chờ duyệt (nghỉ phép · đi muộn–về sớm · tăng ca · chỉnh công).
             </span>
           </div>
         )}

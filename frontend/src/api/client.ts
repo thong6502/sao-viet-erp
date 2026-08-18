@@ -4041,6 +4041,9 @@ export interface AttendancePeriod {
   /** Phiếu đi muộn/về sớm chưa duyệt — CHẶN chốt công y như đơn nghỉ: snapshot đóng băng lúc
    *  chốt, phiếu duyệt sau đó không vào được nữa ⇒ NLĐ vẫn ăn phạt dù đã xin phép đúng luật. */
   pending_late_early: number;
+  /** Phiếu TĂNG CA chưa duyệt — chặn từ 15/08/2026. Sót nó là ngõ cụt: chốt xong thì duyệt cũng
+   *  bị chặn, mà không duyệt thì không có tiền tăng ca; gỡ ra phải mở lại cả kỳ công. */
+  pending_overtime?: number;
   pending_adjusts: number;   // yêu cầu chỉnh công chưa duyệt
   payroll_locked: boolean;   // kỳ lương tháng này đã chốt → không mở lại kỳ công
 }

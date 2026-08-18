@@ -8440,3 +8440,22 @@ def _migrate_dieu_chuyen_kho(db) -> None:
 
 
 MIGRATIONS.append(("0203_dieu_chuyen_kho", _migrate_dieu_chuyen_kho))
+def _migrate_attendance_period_standard_cong(db) -> None:
+    """Thêm `attendance_periods.standard_cong` — CÔNG CHUẨN đóng băng lúc chốt kỳ công.
+
+    Vì sao cần (chủ chốt 15/08/2026): cấu hình tuần làm việc chỉ có MỘT bản dùng chung cho mọi
+    thời điểm, không có ngày hiệu lực. Công ty bỏ làm thứ Bảy là công chuẩn của MỌI THÁNG TRONG
+    QUÁ KHỨ đổi theo — mà đơn giá ngày = lương tháng ÷ công chuẩn, nên tính lại một tháng cũ sẽ
+    ra tiền khác, dù tháng đó đã chốt công và đã trả lương.
+
+    Đóng băng đúng theo lối cả vòng khoá đang dùng: chốt công là CHỤP ẢNH. Nay ảnh chụp thêm một
+    số nữa. NULL = kỳ chốt TRƯỚC bản vá này ⇒ vẫn đọc lịch sống như cũ, không viết lại lịch sử."""
+    insp = inspect(db.get_bind())
+    if "attendance_periods" not in insp.get_table_names():
+        return
+    if "standard_cong" not in _existing_columns(insp, "attendance_periods"):
+        db.execute(text("ALTER TABLE attendance_periods ADD COLUMN standard_cong NUMERIC(6, 2)"))
+        db.commit()
+
+
+MIGRATIONS.append(("0193_attendance_period_standard_cong", _migrate_attendance_period_standard_cong))
