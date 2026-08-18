@@ -416,3 +416,113 @@ def test_employee_id_loc_trong_pham_vi_khong_noi_quyen(client):
     # Tổ trưởng gõ id người NGOÀI tổ → rỗng, không lộ phiếu.
     lach = client.get(f"/api/overtime?employee_id={ngoai_to}", headers=_h(lead)).json()
     assert lach["items"] == [] and lach["total"] == 0
+
+
+# --- TRẦN GIỜ LÀM THÊM THEO THÁNG (Đ107) — chủ chốt 17/08/2026: CHẶN CỨNG -------------------
+
+def _set_tran(client, token, *, thang_phut):
+    r = client.put("/api/luong/params", json={"ot_max_minutes_per_month": thang_phut},
+                   headers=_h(token))
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_tran_thang_mac_dinh_TAT_khong_chan_ai(client):
+    """Mặc định `ot_max_minutes_per_month = 0` ⇒ TẮT trần. Migration chạy xong KHÔNG chặn ai."""
+    token = _admin_token(client)
+    prm = client.get("/api/luong/params", headers=_h(token)).json()
+    assert prm["ot_max_minutes_per_month"] == 0
+    eid = _make_emp(client, token, name="TC Trần Tắt")
+    # 5 phiếu × 8h = 40h, rồi thêm 1 phiếu nữa — không trần thì qua hết.
+    for d in range(10, 16):
+        _mk(client, token, eid, work_date=f"2026-07-{d}", frm=1320, to=1800)
+    info = client.get("/api/overtime/tran-thang",
+                      params={"employee_id": eid, "year": 2026, "month": 7},
+                      headers=_h(token)).json()
+    assert info["ap_tran"] is False and info["con_lai_phut"] is None
+
+
+def test_tran_thang_chan_cung_khi_vuot(client):
+    """Bật trần 40h ⇒ phiếu làm tổng vượt 40h bị CHẶN, không có đường vượt."""
+    token = _admin_token(client)
+    _set_tran(client, token, thang_phut=40 * 60)
+    try:
+        eid = _make_emp(client, token, name="TC Trần Chặn")
+        # 4 phiếu × 8h = 32h — còn 8h.
+        for d in range(10, 14):
+            _mk(client, token, eid, work_date=f"2026-08-{d}", frm=1320, to=1800)
+        info = client.get("/api/overtime/tran-thang",
+                          params={"employee_id": eid, "year": 2026, "month": 8},
+                          headers=_h(token)).json()
+        assert info["ap_tran"] is True
+        assert info["da_dung_phut"] == 32 * 60 and info["con_lai_phut"] == 8 * 60
+
+        # Phiếu thứ 5 xin 9h > 8h còn lại ⇒ CHẶN.
+        r = client.post("/api/overtime",
+                        json={"employee_id": eid, "work_date": "2026-08-14",
+                              "from_minute": 1320, "to_minute": 1320 + 9 * 60,
+                              "reason": "đơn gấp"}, headers=_h(token))
+        assert r.status_code == 400, r.text
+        msg = r.json()["detail"]
+        assert "32h" in msg and "40h" in msg and "8h" in msg   # đủ số để người dùng tự sửa
+
+        # Đúng 8h thì QUA — trần chặn đúng mức, không chặn oan.
+        _mk(client, token, eid, work_date="2026-08-14", frm=1320, to=1320 + 8 * 60)
+
+        # Hết sạch trần ⇒ thông điệp khác, nói thẳng là không cấp thêm được.
+        r2 = client.post("/api/overtime",
+                         json={"employee_id": eid, "work_date": "2026-08-15",
+                               "from_minute": 1320, "to_minute": 1380,
+                               "reason": "x"}, headers=_h(token))
+        assert r2.status_code == 400
+        assert "hết trần" in r2.json()["detail"]
+    finally:
+        _set_tran(client, token, thang_phut=0)
+
+
+def test_tran_thang_phieu_CHO_DUYET_cung_chiem_cho(client):
+    """Chủ chốt: phiếu chờ duyệt GIỮ CHỖ. Không thế thì gửi 10 phiếu rồi duyệt lần lượt là qua trần."""
+    token = _admin_token(client)
+    _set_tran(client, token, thang_phut=10 * 60)
+    try:
+        eid = _make_emp(client, token, name="TC Chờ Duyệt", dept="Sản xuất")
+        emp_token = _lead_token()   # tổ trưởng tạo hộ = duyệt luôn
+        _mk(client, token, eid, work_date="2026-09-10", frm=1320, to=1320 + 6 * 60)
+        # Phiếu thứ 2 xin 6h, chỉ còn 4h ⇒ chặn (dù phiếu 1 mới là 'approved').
+        r = client.post("/api/overtime",
+                        json={"employee_id": eid, "work_date": "2026-09-11",
+                              "from_minute": 1320, "to_minute": 1320 + 6 * 60,
+                              "reason": "x"}, headers=_h(token))
+        assert r.status_code == 400
+        # HỦY phiếu 1 ⇒ TRẢ CHỖ ngay trong cùng request, không job nền.
+        rid = client.get("/api/overtime", params={"year": 2026, "month": 9},
+                         headers=_h(token)).json()["items"][0]["id"]
+        assert client.post(f"/api/overtime/{rid}/cancel", headers=_h(token)).status_code == 200
+        info = client.get("/api/overtime/tran-thang",
+                          params={"employee_id": eid, "year": 2026, "month": 9},
+                          headers=_h(token)).json()
+        assert info["da_dung_phut"] == 0 and info["con_lai_phut"] == 10 * 60
+        emp_token
+    finally:
+        _set_tran(client, token, thang_phut=0)
+
+
+def test_tran_thang_dem_theo_TUNG_THANG_khong_cong_don(client):
+    """Chủ bỏ trần NĂM ⇒ tháng nào tính tháng đó, không luỹ kế."""
+    token = _admin_token(client)
+    _set_tran(client, token, thang_phut=8 * 60)
+    try:
+        eid = _make_emp(client, token, name="TC Theo Tháng")
+        _mk(client, token, eid, work_date="2026-10-15", frm=1320, to=1800)   # 8h — hết trần T10
+        # Tháng 11 vẫn còn nguyên trần.
+        _mk(client, token, eid, work_date="2026-11-15", frm=1320, to=1800)
+        i10 = client.get("/api/overtime/tran-thang",
+                         params={"employee_id": eid, "year": 2026, "month": 10},
+                         headers=_h(token)).json()
+        i11 = client.get("/api/overtime/tran-thang",
+                         params={"employee_id": eid, "year": 2026, "month": 11},
+                         headers=_h(token)).json()
+        assert i10["con_lai_phut"] == 0 and i11["con_lai_phut"] == 0
+        assert i10["da_dung_phut"] == 8 * 60 and i11["da_dung_phut"] == 8 * 60
+    finally:
+        _set_tran(client, token, thang_phut=0)

@@ -3119,6 +3119,11 @@ export interface TimesheetDay {
   leave: string | null;  // tên loại nghỉ (nếu ngày nghỉ đã duyệt) HOẶC tên ngày lễ
   leave_paid: boolean;   // nghỉ có lương (P) hay không (KL)
   holiday?: boolean;     // ngày nghỉ lễ hưởng lương (cộng 1 công tự động)
+  /** LOẠI NGÀY khi CÓ ĐI LÀM — ba cờ `holiday`/`restday`/`plain` loại trừ nhau (thứ tự
+   *  `plain > holiday > restday`, khớp nhánh tính tiền bên Lương). Ô lịch cần chúng để nói
+   *  "→ tính N công"; không có cờ thì ngày Chủ nhật đi làm hiện y hệt ngày thường. */
+  restday?: boolean;     // ngày NGHỈ TUẦN (CN) có đi làm → tiền ×`he_so_ngay.nghi_tuan`
+  plain?: boolean;       // ngày `off1x` có đi làm → 1× phẳng, KHÔNG hệ số
   planned_off?: boolean; // ngày nghỉ theo lịch phân ca (dấu kế hoạch, không sinh hệ số)
 }
 
@@ -3138,8 +3143,22 @@ export interface TimesheetRow {
   /** Công THIẾU nhưng có đơn nghỉ theo giờ đã duyệt — KHÔNG nằm trong `total_cong`
    *  (tiền công vẫn trừ), chỉ để Lương giữ nguyên phụ cấp chuyên cần. */
   excused_cong?: number;
+  /** Công ĐẶC BIỆT trong tháng — nguồn của cột "Công đặc biệt". `holiday_cong`/`restday_cong`
+   *  là TẬP CON của `total_cong`; riêng `plain_cong` đã bị trừ ra (Lương trả riêng, 1× phẳng). */
+  holiday_cong?: number;
+  restday_cong?: number;
+  plain_cong?: number;
   total_hours: number;
   total_cong: number | null;
+}
+
+/** Hệ số công theo LOẠI NGÀY, đọc từ Cấu hình lương — để màn hình khỏi viết cứng số.
+ *  ⚠️ Lễ và Chủ nhật CỐ Ý khác nhau: lễ = 1 (tiền lễ Đ112) + hệ số làm lễ ⇒ mặc định 4×;
+ *  Chủ nhật = đúng hệ số nghỉ tuần ⇒ mặc định 2×. Đừng "dọn" cho giống nhau. */
+export interface HeSoNgay {
+  le: number;
+  nghi_tuan: number;
+  off1x: number;
 }
 
 // --- Lưới phân ca tháng (shift plan) ----------------------------------------
@@ -3304,6 +3323,19 @@ export interface OvertimeBulkResult {
   done: number[];
   skipped: number[];
 }
+/** Số dư TRẦN GIỜ LÀM THÊM THÁNG (Điều 107 BLLĐ) — nuôi dải bộ đếm trên modal tạo/sửa phiếu.
+ *
+ *  `ap_tran = false` ⇒ công ty chưa bật trần ⇒ FE **ẩn cả khối**, đừng bày ô vô nghĩa.
+ *  Đếm theo PHIẾU (chờ duyệt + đã duyệt), KHÔNG phải giờ đã bấm máy — phiếu chờ duyệt
+ *  vẫn GIỮ CHỖ. Mọi số là PHÚT; UI quy ra giờ ("40h" / "8h30").
+ *  KHÔNG có trần theo NĂM — chủ đã bỏ (17/08/2026). */
+export interface TranThangOut {
+  ap_tran: boolean;
+  tran_phut: number;
+  da_dung_phut: number;
+  /** null khi `ap_tran = false` (không có trần thì không có "còn lại"). */
+  con_lai_phut: number | null;
+}
 
 // --- Đi muộn / về sớm / nghỉ nửa buổi (module `di_muon`) ---------------------
 // Phiếu CHẤM CÔNG ngoại lệ, KHÔNG phải đơn nghỉ phép: 1 phiếu/ngày, tổ trưởng duyệt, khai
@@ -3465,6 +3497,12 @@ export interface PayrollParams {
    *  `com_tang_ca_muc = 0` ⇒ TẮT tính năng. */
   com_tang_ca_nguong_phut: number;
   com_tang_ca_muc: number;
+  /** TRẦN GIỜ LÀM THÊM THÁNG (Đ107) — số PHÚT tối đa MỘT người trong MỘT tháng, `0` = TẮT trần.
+   *  Backend CHẶN CỨNG khi vượt: không có đường vượt, không quyền đặc biệt. Ô nhập trên UI theo
+   *  GIỜ (40h = 2400) — nhớ ×60 lúc lưu, ÷60 lúc đọc. KHÔNG có trần theo NĂM. */
+  ot_max_minutes_per_month: number;
+  /** Độ dài tối đa của MỘT phiếu tăng ca, tính bằng PHÚT (Đ107.1, mặc định 720 = 12h). */
+  ot_max_minutes_per_day: number;
 }
 export interface SalaryRule {
   id: number;
@@ -4062,6 +4100,7 @@ export interface Timesheet {
   days_in_month: number;
   standard_cong?: number | null;   // công chuẩn động của tháng (số ngày làm việc theo lịch)
   holidays?: HolidayMark[];        // ngày nghỉ lễ hưởng lương trong tháng
+  he_so_ngay?: HeSoNgay;           // hệ số công theo loại ngày (từ Cấu hình lương)
   rows: TimesheetRow[];
 }
 
@@ -7358,6 +7397,18 @@ export const api = {
     },
     summary(token: string): Promise<OvertimeSummary> {
       return authed<OvertimeSummary>("/api/overtime/summary", token);
+    },
+    /** Số dư trần giờ làm thêm THÁNG (Đ107). `employeeId` bỏ trống = của chính người gọi;
+     *  `excludeId` = id phiếu ĐANG SỬA để nó không tự đếm chính nó. */
+    tranThang(token: string, params: {
+      year: number; month: number; employeeId?: number | null; excludeId?: number | null;
+    }): Promise<TranThangOut> {
+      return authed<TranThangOut>(`/api/overtime/tran-thang${qs({
+        year: params.year,
+        month: params.month,
+        employee_id: params.employeeId,
+        exclude_id: params.excludeId,
+      })}`, token);
     },
     markSeen(token: string): Promise<void> {
       return authed<void>("/api/overtime/mark-seen", token, { method: "POST" });

@@ -942,6 +942,27 @@ class AttendanceService:
 
     # --- bảng công tháng ----------------------------------------------------
 
+    def he_so_ngay(self) -> dict[str, float]:
+        """Hệ số công HIỂN THỊ theo loại ngày — để ô lịch nói "→ tính N công" mà KHÔNG viết cứng số.
+
+        Đây là số ĐỌC RA TỪ CẤU HÌNH LƯƠNG, không phải công thức thứ hai: nó phải khớp từng đồng
+        với `PayrollService._compute`. Hai chỗ dùng HAI công thức khác nhau, CỐ Ý (chủ chốt
+        17/08/2026 — xem `payroll_service.py` khối premium Đ98):
+
+          • NGÀY LỄ  = **1 + holiday_work_multiplier** (mặc định 1 + 3 = 4×). Phần 1× là tiền lương
+            ngày lễ Đ112 — người đó hưởng dù nghỉ ở nhà; Đ98.1.c trả TRỌN 300% "chưa kể" khoản đó.
+          • NGHỈ TUẦN = **restday_work_multiplier** (mặc định 2×), KHÔNG cộng 1. Chủ nhật nghỉ ở nhà
+            thì không có đồng nào, nên phần 1× trong lương công CHÍNH LÀ tiền đi làm ⇒ 1× + 1×.
+            Cộng thêm 1 ở đây là màn hình hứa 3× trong khi phiếu lương trả 2×.
+          • off1x = 1× phẳng, không hệ số (Lương trả riêng, uncapped).
+
+        Đọc PayrollRepository (đã có sẵn ở `self._payroll`) chứ KHÔNG gọi PayrollService — service
+        Lương đang phụ thuộc service này, nối ngược lại là vòng."""
+        params = self._payroll.get_params() if self._payroll is not None else None
+        m_hol = float(getattr(params, "holiday_work_multiplier", 3.0) or 3.0)
+        m_rest = float(getattr(params, "restday_work_multiplier", 2.0) or 2.0)
+        return {"le": round(1.0 + m_hol, 2), "nghi_tuan": round(m_rest, 2), "off1x": 1.0}
+
     def monthly_timesheet(self, *, year: int, month: int, department_id: int | None = None,
                           scope=None, actor=None, only_employee_id: int | None = None) -> dict:
         """Gom attendance_logs của 1 tháng thành lưới NV × ngày (giờ VN). Mỗi ô ngày:
@@ -1098,6 +1119,11 @@ class AttendanceService:
             return {"first_in": None, "last_out": None, "hours": None, "present": False,
                     "cong": None, "late": False, "early": False, "ot_minutes": 0, "night": False,
                     "leave": None, "leave_paid": False, "holiday": False,
+                    # Ô NGÀY tự nói LOẠI NGÀY của nó (18/08/2026). Trước đây chỉ có `holiday`, nên
+                    # ngày nghỉ tuần / ngày `off1x` CÓ đi làm hiện y hệt ngày thường ("Công: 1") —
+                    # người làm Chủ nhật tưởng mình bị trả thiếu. Ba cờ này LOẠI TRỪ NHAU, đúng
+                    # thứ tự `plain > holiday > restday` mà tiền đang tính ở dưới.
+                    "restday": False, "plain": False,
                     "planned_off": False}
 
         # AI LÊN BẢNG = NV còn biên chế trong tháng **HỢP** NV có dấu vết (lượt bấm / đơn phép /
@@ -1268,6 +1294,7 @@ class AttendanceService:
                             # trả riêng uncapped, KHÔNG rơi vào premium lễ/nghỉ tuần.
                             plain_cong += info["cong"]
                             total_cong -= info["cong"]
+                            cell["plain"] = True
                         elif d in paid_holidays:
                             holiday_cong += info["cong"]
                             ot_holiday += info["ot_minutes"]
@@ -1275,6 +1302,7 @@ class AttendanceService:
                         elif is_restday:
                             restday_cong += info["cong"]
                             ot_restday += info["ot_minutes"]
+                            cell["restday"] = True
                         # Phạt trễ/sớm TỰ ĐỘNG: gom SỐ PHÚT vi phạm (trễ + về sớm) ngày này để payroll áp
                         # bảng phạt (mỗi ngày 1 lần). CHỈ khi KHÔNG có đơn phép duyệt phủ ngày đó (có phép →
                         # miễn) và KHÔNG phải ngày lễ. Ngày nghỉ tuần (CN): ×2 phút (khớp "Chủ nhật ×2" ở ô
@@ -1397,7 +1425,9 @@ class AttendanceService:
             })
         rows.sort(key=lambda r: r["employee_code"])
         return {"year": year, "month": month, "days_in_month": days_in_month,
-                "standard_cong": standard_cong, "holidays": holidays_info, "rows": rows}
+                "standard_cong": standard_cong, "holidays": holidays_info,
+                # Hệ số theo LOẠI NGÀY (cấp tháng, không phải per-NV) → ô lịch tự ghi "→ tính N công".
+                "he_so_ngay": self.he_so_ngay(), "rows": rows}
 
     def my_timesheet(self, *, user, year: int, month: int) -> dict:
         """Bảng công tháng CỦA CHÍNH NV đăng nhập (self-service, không cần quyền module).

@@ -45,6 +45,7 @@ from ..schemas.attendance import (
     RejectRequestIn,
     RequestAdjustIn,
     TodayKpiOut,
+    HeSoNgay,
     HolidayMark,
     PeriodActionIn,
     AttendancePeriodOut,
@@ -512,6 +513,7 @@ def my_timesheet(
         year=data["year"], month=data["month"], days_in_month=data["days_in_month"],
         standard_cong=data.get("standard_cong"),
         holidays=[HolidayMark(**h) for h in data.get("holidays", [])],
+        he_so_ngay=HeSoNgay(**data.get("he_so_ngay", {})),
         rows=_timesheet_rows(svc, depts, data),
     )
 
@@ -571,6 +573,9 @@ def _timesheet_rows(svc: AttendanceService, depts: DepartmentRepository, data: d
             paid_leave_days=r.get("paid_leave_days", 0),
             total_hours=r["total_hours"], total_cong=r.get("total_cong"),
             excused_cong=r.get("excused_cong", 0),
+            # Công đặc biệt — service đã tách sẵn từ 17/08/2026, tới 18/08 mới có đường ra API.
+            holiday_cong=r.get("holiday_cong", 0), restday_cong=r.get("restday_cong", 0),
+            plain_cong=r.get("plain_cong", 0),
         ))
     return rows
 
@@ -594,6 +599,7 @@ def timesheet(
         year=data["year"], month=data["month"], days_in_month=data["days_in_month"],
         standard_cong=data.get("standard_cong"),
         holidays=[HolidayMark(**h) for h in data.get("holidays", [])],
+        he_so_ngay=HeSoNgay(**data.get("he_so_ngay", {})),
         rows=_timesheet_rows(svc, depts, data),
     )
 

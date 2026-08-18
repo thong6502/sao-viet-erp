@@ -579,8 +579,11 @@ def test_luong_khoan_component_mirrors_department_flag(client):
         db.close()
 
 
-def test_khoan_and_overtime_are_mutually_exclusive(client):
-    """Khoán ⟷ Tăng ca loại trừ nhau: payload bật cả hai → Tăng ca tự tắt (khoán thắng)."""
+def test_khoan_va_tang_ca_DOC_LAP(client):
+    """⚠️ ĐẢO 17/08/2026 — Khoán ⟷ Tăng ca KHÔNG còn loại trừ nhau, bật CẢ HAI được.
+
+    Chủ chốt: *"Tổ khoán vẫn có tăng ca"*, đảo luật loại trừ ngày 22/07/2026. Engine cũng đã gỡ
+    vế `has_piece_work` khỏi `ot_pay`. Test này canh không ai dựng lại luật loại trừ."""
     token = _admin_token(client)
     dept_id = _dept_id("Kinh doanh")
 
@@ -589,14 +592,14 @@ def test_khoan_and_overtime_are_mutually_exclusive(client):
             f"/api/luong/dept-components/{dept_id}", headers=_h(token)).json()["items"]}
         return items["luong_khoan"]["is_enabled"], items["tang_ca"]["is_enabled"]
 
-    # Bật CẢ hai → BE ép Tăng ca tắt.
+    # Bật CẢ hai → GIỮ NGUYÊN cả hai, backend KHÔNG ép tắt cái nào.
     client.put(f"/api/luong/dept-components/{dept_id}", json={"items": [
         {"component_key": "luong_khoan", "is_enabled": True},
         {"component_key": "tang_ca", "is_enabled": True},
     ]}, headers=_h(token))
-    assert _state() == (True, False)
+    assert _state() == (True, True)
 
-    # Tắt khoán + bật tăng ca → tăng ca bật được (không bị ép nữa).
+    # Tắt khoán + bật tăng ca → vẫn đúng như khai.
     client.put(f"/api/luong/dept-components/{dept_id}", json={"items": [
         {"component_key": "luong_khoan", "is_enabled": False},
         {"component_key": "tang_ca", "is_enabled": True},

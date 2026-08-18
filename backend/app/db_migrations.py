@@ -8669,3 +8669,81 @@ def _migrate_luong_o_that_thay_o_ma(db) -> None:
 
 
 MIGRATIONS.append(("0198_luong_o_that_thay_o_ma", _migrate_luong_o_that_thay_o_ma))
+
+
+def _migrate_luong_special_cong(db: Session) -> None:
+    """`payroll_lines.special_cong` — công NGÀY LỄ / NGHỈ TUẦN có đi làm (TRONG ĐÓ của
+    `actual_cong`). Sửa 17/08/2026.
+
+    VÌ SAO CẦN: `_luong_cong_split` kẹp `paid_worked = min(worked, std)`. Công ngày lễ/CN nằm chung
+    rổ đó nên ai đã đủ công chuẩn rồi mới đi làm Chủ nhật thì phần gốc 1× bị trần nuốt, `ot_pay`
+    chỉ bù `(hệ số − 1)` ⇒ thực nhận 1× thay vì 2× (lễ: 2× thay vì 3×) — trái Đ98.1.b/c.
+    Nay công lễ/CN được trả NGOÀI trần. `_compute` biết số này từ Chấm công, nhưng đường "Sửa 1 ô"
+    (`update_line`) chỉ đọc dòng lương nên PHẢI có cột, không thì hai đường tính ra hai số.
+
+    KHÔNG BACKFILL: kỳ cũ để `0` ⇒ tính lại kỳ cũ vẫn ra đúng số đã chốt, không hồi tố tiền.
+    Chỉ ADD COLUMN DEFAULT — idempotent, no-op trên DB fresh (create_all đã dựng)."""
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    if "special_cong" in _existing_columns(insp, "payroll_lines"):
+        return
+    db.execute(text(
+        "ALTER TABLE payroll_lines ADD COLUMN special_cong NUMERIC(6,2) NOT NULL DEFAULT 0"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0204_luong_special_cong", _migrate_luong_special_cong))
+
+
+def _migrate_luong_off1x_pay(db: Session) -> None:
+    """`payroll_lines.off1x_pay` — tiền ngày off1x (TRONG ĐÓ của `ot_pay`). Sửa 17/08/2026.
+
+    VÌ SAO CẦN: `_auto_pit` miễn thuế NGUYÊN `ot_pay`, mà `ot_pay` gộp cả tiền ngày off1x — khoản
+    trả đúng 1×, KHÔNG hệ số, tức lương ngày làm việc bình thường, KHÔNG có phần "trả cao hơn" nào
+    để miễn. Kế toán chốt 17/08/2026: "lương thuế chỉ 1 công bình thường" ⇒ khoản này CHỊU thuế.
+    `_compute` biết số này, nhưng đường "Sửa 1 ô" (`update_line` / `_apply_auto_pit`) chỉ đọc dòng
+    lương nên PHẢI có cột, không thì hai đường ra hai số thuế.
+
+    KHÔNG BACKFILL: kỳ cũ để `0` ⇒ tính lại kỳ cũ vẫn ra đúng số đã chốt, không hồi tố thuế.
+    Chỉ ADD COLUMN DEFAULT — idempotent, no-op trên DB fresh (create_all đã dựng)."""
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in set(insp.get_table_names()):
+        return
+    if "off1x_pay" in _existing_columns(insp, "payroll_lines"):
+        return
+    db.execute(text(
+        "ALTER TABLE payroll_lines ADD COLUMN off1x_pay NUMERIC(14,2) NOT NULL DEFAULT 0"
+    ))
+    db.commit()
+
+
+MIGRATIONS.append(("0205_luong_off1x_pay", _migrate_luong_off1x_pay))
+
+
+def _migrate_tran_gio_tang_ca(db: Session) -> None:
+    """`payroll_params.ot_max_minutes_per_month` + `.ot_max_minutes_per_day` — trần giờ làm thêm
+    Điều 107 BLLĐ. Chủ chốt 17/08/2026: khai được số giờ/tháng, CHẶN CỨNG, không có đường vượt.
+
+    ⚠️ `ot_max_minutes_per_month` mặc định **0 = TẮT TRẦN** — cố ý. Migration chạy xong KHÔNG chặn
+    ai, không đổi một đồng nào. Chủ vào Cấu hình lương gõ 2400 (40 giờ) khi sẵn sàng bật.
+
+    `ot_max_minutes_per_day` mặc định 720 (12 giờ) = ĐÚNG hằng số `MAX_OT_MINUTES` đang viết cứng
+    trong `overtime_service` ⇒ hành vi không đổi, chỉ chuyển từ code sang tham số khai được.
+
+    Chỉ ADD COLUMN DEFAULT — idempotent, no-op trên DB fresh (create_all đã dựng)."""
+    insp = inspect(db.get_bind())
+    if "payroll_params" not in set(insp.get_table_names()):
+        return
+    cols = _existing_columns(insp, "payroll_params")
+    for name, ddl in (
+        ("ot_max_minutes_per_month", "INTEGER NOT NULL DEFAULT 0"),
+        ("ot_max_minutes_per_day", "INTEGER NOT NULL DEFAULT 720"),
+    ):
+        if name not in cols:
+            db.execute(text(f"ALTER TABLE payroll_params ADD COLUMN {name} {ddl}"))
+    db.commit()
+
+
+MIGRATIONS.append(("0206_tran_gio_tang_ca", _migrate_tran_gio_tang_ca))

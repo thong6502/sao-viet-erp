@@ -86,6 +86,17 @@ class OvertimeBulkResultOut(BaseModel):
     skipped: list[int]
 
 
+class TranThangOut(BaseModel):
+    """Số dư trần giờ làm thêm THÁNG của 1 NV — nuôi dải bộ đếm trên modal tạo/sửa phiếu.
+
+    `ap_tran = False` ⇒ chưa bật trần, FE ẨN cả khối (đừng bày ô vô nghĩa).
+    Số đếm theo PHIẾU (chờ duyệt + đã duyệt), KHÔNG phải giờ đã bấm máy."""
+    ap_tran: bool = False
+    tran_phut: int = 0
+    da_dung_phut: int = 0
+    con_lai_phut: int | None = None
+
+
 class OvertimeSummaryOut(BaseModel):
     # Số phiếu CHỜ DUYỆT trong scope người gọi (badge sidebar). None nếu không có quyền duyệt.
     pending_in_scope: int | None = None
