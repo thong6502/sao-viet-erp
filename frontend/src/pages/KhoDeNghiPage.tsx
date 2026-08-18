@@ -25,7 +25,7 @@ import { DonViChonTheoHang, MaterialCombobox } from "../components/MaterialCombo
 import { PrintSheet } from "../components/PrintSheet";
 import { Select } from "../components/Select";
 import { fmtDate, fmtDateISO } from "../utils/format";
-import { RequestStatusBadge, fmtQty, isOverdue, todayISO } from "./khoShared";
+import { DateFilterHead, LoaiYeuCauChip, RequestStatusBadge, fmtQty, inDateRange, isOverdue, todayISO, useHeaderTitles } from "./khoShared";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
 
@@ -56,6 +56,7 @@ function sortRequests(a: StockRequest, b: StockRequest): number {
 export function KhoDeNghiPage({
   eventTick = 0,
   loai,
+  dieuChuyen = false,
   initialSeed = null,
   onSeedConsumed,
   unseenDone = 0,
@@ -67,6 +68,9 @@ export function KhoDeNghiPage({
   eventTick?: number;
   /** Khoá chiều theo tab (Nhập/Xuất): lọc danh sách + cố định loại khi tạo mới. */
   loai: StockRequestKind;
+  /** Tab ĐIỀU CHUYỂN: chỉ hiện yêu cầu điều chuyển (dieu_chuyen=true) + ẩn nút "Tạo yêu cầu"
+   *  (điều chuyển tạo từ màn Tồn kho, không tạo tay ở đây). */
+  dieuChuyen?: boolean;
   /** Điều hướng kèm dữ liệu → mở sẵn form TẠO đã điền (vd "Nhập kho" từ đợt giao đơn mua). */
   initialSeed?: KhoNhapSeed | null;
   /** Báo cha đã tiêu thụ seed (xoá đi để không mở lại khi remount). */
@@ -82,6 +86,8 @@ export function KhoDeNghiPage({
 }) {
   const { token, user } = useAuth();
   const can = useCan();
+  // Hover tiêu đề cột → hiện tên cột đầy đủ (kể cả khi bị cắt).
+  const tableRef = useHeaderTitles();
   const canRequest = can("kho", "request");
 
   const [rows, setRows] = useState<StockRequest[]>([]);
@@ -89,9 +95,12 @@ export function KhoDeNghiPage({
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<TabId>("all");
-  // Lọc theo khoảng NGÀY CẦN (rỗng = không lọc đầu đó).
+  // Lọc theo khoảng NGÀY CẦN (rỗng = không lọc đầu đó) — nay là phễu cột "Ngày cần nhập/xuất".
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  // Lọc theo khoảng NGÀY YÊU CẦU (created_at) — phễu cột "Ngày yêu cầu".
+  const [reqFrom, setReqFrom] = useState("");
+  const [reqTo, setReqTo] = useState("");
   const [page, setPage] = useState(1);
   // null = đóng; "new" = soạn mới; {id} = mở yêu cầu đã có; {seed} = tạo lại từ yêu cầu cũ.
   const [drawer, setDrawer] = useState<
@@ -121,14 +130,14 @@ export function KhoDeNghiPage({
     if (!token) return;
     setLoading(true);
     api.kho.deNghi
-      .list(token, { q: q || null, loai, size: FETCH_SIZE })
+      .list(token, { q: q || null, loai, dieu_chuyen: dieuChuyen, size: FETCH_SIZE })
       .then((r) => {
         setRows(r.items);
         setError(null);
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : "Không tải được danh sách yêu cầu."))
       .finally(() => setLoading(false));
-  }, [token, q, loai]);
+  }, [token, q, loai, dieuChuyen]);
 
   // Gõ tìm → chờ 300ms rồi mới gọi (mỗi lần gọi backend phải tính đèn tồn cho từng dòng).
   useEffect(() => {
@@ -180,20 +189,19 @@ export function KhoDeNghiPage({
   const filtered = useMemo(() => {
     const base =
       tab === "all" ? rows : rows.filter((r) => TAB_STATUSES[tab].includes(r.trang_thai));
-    // Lọc theo khoảng Ngày cần. Yêu cầu chưa đặt ngày cần → ẩn khi có áp bộ lọc ngày.
-    const byDate = base.filter((r) => {
-      if (!dateFrom && !dateTo) return true;
-      if (!r.ngay_can) return false;
-      if (dateFrom && r.ngay_can < dateFrom) return false;
-      if (dateTo && r.ngay_can > dateTo) return false;
-      return true;
-    });
+    // Lọc theo phễu 2 cột ngày. `inDateRange` rỗng cả hai đầu = không lọc; ô rỗng (chưa đặt Ngày
+    // cần) rớt khi ĐANG lọc — giữ đúng luật cũ. Created_at là datetime → cắt lấy phần ngày.
+    const byDate = base.filter(
+      (r) =>
+        inDateRange(r.created_at.slice(0, 10), { from: reqFrom, to: reqTo }) &&
+        inDateRange(r.ngay_can ?? "", { from: dateFrom, to: dateTo }),
+    );
     return [...byDate].sort(sortRequests);
-  }, [rows, tab, dateFrom, dateTo]);
+  }, [rows, tab, reqFrom, reqTo, dateFrom, dateTo]);
 
   useEffect(() => {
     setPage(1);
-  }, [tab, q, dateFrom, dateTo]);
+  }, [tab, q, reqFrom, reqTo, dateFrom, dateTo]);
 
   const total = filtered.length;
   const shown = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -208,7 +216,7 @@ export function KhoDeNghiPage({
 
   // Yêu cầu KHÔNG gắn kho nên không có tồn để soi → bỏ hẳn cột đèn. Cột "Người" thay vào để
   // mỗi công đoạn hiện rõ AI yêu cầu → AI duyệt ngay trên bảng.
-  const colCount = 6;
+  const colCount = 7;
 
   return (
     <div className="kho-list">
@@ -248,40 +256,10 @@ export function KhoDeNghiPage({
             ariaLabel="Lọc trạng thái"
           />
         </div>
-        {/* Lọc theo khoảng NGÀY CẦN. */}
-        <div className="kho-daterange" title="Lọc theo Ngày cần">
-          <input
-            type="date"
-            className="rc-input"
-            value={dateFrom}
-            max={dateTo || undefined}
-            onChange={(e) => setDateFrom(e.target.value)}
-            aria-label="Từ ngày"
-          />
-          <span className="kho-daterange__sep">→</span>
-          <input
-            type="date"
-            className="rc-input"
-            value={dateTo}
-            min={dateFrom || undefined}
-            onChange={(e) => setDateTo(e.target.value)}
-            aria-label="Đến ngày"
-          />
-          {(dateFrom || dateTo) && (
-            <button
-              type="button"
-              className="rc__link-btn"
-              onClick={() => {
-                setDateFrom("");
-                setDateTo("");
-              }}
-            >
-              Xóa
-            </button>
-          )}
-        </div>
+        {/* Lọc ngày CHUYỂN sang phễu từng cột (Ngày yêu cầu · Ngày cần) — bỏ date-range chung ở đây. */}
         <div className="rc__spacer" />
-        {canRequest && (
+        {/* Tab ĐIỀU CHUYỂN không tạo tay ở đây — điều chuyển sinh từ màn Tồn kho (nút "Chuyển kho"). */}
+        {canRequest && !dieuChuyen && (
           <Button variant="accent" onClick={() => setDrawer({ mode: "new", loai })}>
             <PlusIcon /> Tạo yêu cầu
           </Button>
@@ -303,14 +281,15 @@ export function KhoDeNghiPage({
       )}
 
       <div className="rc__tablewrap">
-        <table className="rc__table rc__table--fixed">
+        <table ref={tableRef} className="rc__table rc__table--fixed">
           <thead>
             <tr>
               <th style={{ width: "13%" }}>Mã</th>
+              <th style={{ width: "11%" }}>Loại</th>
               <th>Vật tư</th>
               <th style={{ width: "15%" }}>Người yêu cầu</th>
-              <th style={{ width: "12%" }}>Ngày yêu cầu</th>
-              <th style={{ width: "12%" }}>{loai === "NHAP" ? "Ngày cần nhập" : "Ngày cần xuất"}</th>
+              <DateFilterHead style={{ width: "12%" }} label="Ngày yêu cầu" from={reqFrom} to={reqTo} onChange={(f, t) => { setReqFrom(f); setReqTo(t); }} />
+              <DateFilterHead style={{ width: "12%" }} label={loai === "NHAP" ? "Ngày cần nhập" : "Ngày cần xuất"} from={dateFrom} to={dateTo} onChange={(f, t) => { setDateFrom(f); setDateTo(t); }} />
               <th style={{ width: "13%" }}>Trạng thái</th>
             </tr>
           </thead>
@@ -332,11 +311,13 @@ export function KhoDeNghiPage({
                     <EmptyIcon />
                     <p className="rc__empty-text">
                       {rows.length === 0
-                        ? "Chưa có yêu cầu nào. Tạo yêu cầu để xin nhập hoặc lĩnh vật tư."
+                        ? dieuChuyen
+                          ? "Chưa có điều chuyển nào. Tạo điều chuyển ở màn Tồn kho (nút “Chuyển kho”)."
+                          : "Chưa có yêu cầu nào. Tạo yêu cầu để xin nhập hoặc lĩnh vật tư."
                         : "Không có yêu cầu nào ở trạng thái này."}
                     </p>
                     {rows.length === 0 ? (
-                      canRequest && (
+                      canRequest && !dieuChuyen && (
                         <Button variant="ghost" onClick={() => setDrawer({ mode: "new", loai })}>
                           <PlusIcon /> Tạo yêu cầu
                         </Button>
@@ -373,6 +354,9 @@ export function KhoDeNghiPage({
                   >
                     <td className="rc__nowrap">
                       <span className="rc__code-badge">{r.ma}</span>
+                    </td>
+                    <td>
+                      <LoaiYeuCauChip loai={r.loai} dieuChuyen={r.dieu_chuyen} />
                     </td>
                     <td>
                       <div
@@ -819,7 +803,12 @@ function RequestDrawer({
     else onClose();
   }
 
-  const kicker = loai === "NHAP" ? "YÊU CẦU NHẬP" : "YÊU CẦU XUẤT";
+  // Yêu cầu điều chuyển vốn là NHẬP ở đích, nhưng hiện tên "YÊU CẦU ĐIỀU CHUYỂN" cho đúng ngữ nghĩa.
+  const kicker = req?.dieu_chuyen
+    ? "YÊU CẦU ĐIỀU CHUYỂN"
+    : loai === "NHAP"
+      ? "YÊU CẦU NHẬP"
+      : "YÊU CẦU XUẤT";
 
   return (
     <>
@@ -874,6 +863,16 @@ function RequestDrawer({
               <section className="rc-sec">
                 <h3 className="rc-sec__title">Thông tin chung</h3>
                 <div className="rc-grid">
+                  {req?.dieu_chuyen && (
+                    // Đường đi hàng của điều chuyển — CHỈ hiện khi là yêu cầu điều chuyển; nhập/xuất
+                    // thường không có dòng này.
+                    <div className="rc-field rc-field--full">
+                      <span className="rc-field__label">Điều chuyển</span>
+                      <span>
+                        Từ kho {req.kho_nguon_ten ?? "—"} → {req.kho_ten ?? "kho đích"}
+                      </span>
+                    </div>
+                  )}
                   {/* "Loại" (Nhập/Xuất) đã bỏ khỏi form: chiều do TAB quyết định, không cần hiện lại. */}
                   <div className="rc-field">
                     <label className="rc-field__label" htmlFor="kho-ngay-can">

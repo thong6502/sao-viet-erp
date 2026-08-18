@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -23,6 +24,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -99,6 +101,19 @@ class StockRequest(Base):
     # FK — module Mua hàng có thể migrate sau). Dùng để CHẶN nhập kho TRÙNG một đợt: đợt đã có yêu cầu
     # (chưa hủy) trỏ vào thì nút "Nhập kho" đổi thành "Đã nhập kho · Xem". Thêm qua migration 0189.
     purchase_delivery_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    # ĐIỀU CHUYỂN KHO (mô hình 2 yêu cầu, mig 0203): ấn điều chuyển sinh CẶP yêu cầu — một XUẤT ở
+    # kho nguồn (tự lập + ghi sổ ngay để trừ tồn) và một NHẬP ở kho đích (chờ đích lập phiếu nhận).
+    # Cả hai bật `dieu_chuyen=true`. Yêu cầu NHẬP đích còn mang:
+    #  · `kho_nguon_id` = kho nguồn (để hiện "Điều chuyển từ «kho nguồn»").
+    #  · `xuat_voucher_id` = phiếu XUẤT nguồn đã ghi sổ (soft ref, truy cặp đi–đến).
+    #  · dòng yêu cầu `don_gia` = GIÁ VỐN CHỐT từ nguồn → phiếu nhập đích khoá đơn giá theo đây.
+    dieu_chuyen: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
+    kho_nguon_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("kho_hang.id"), index=True, nullable=True
+    )
+    xuat_voucher_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
 
     trang_thai: Mapped[str] = mapped_column(
         String(16), index=True, nullable=False, server_default=REQ_DRAFT, default=REQ_DRAFT

@@ -36,6 +36,8 @@ import { fmtDate, fmtDateISO, money } from "../utils/format";
 import { printStockVoucher, type StockVoucherPrintData } from "../utils/printStockVoucher";
 import {
   DateFilterHead,
+  DieuChuyenPill,
+  LoaiYeuCauChip,
   RequestStatusBadge,
   VoucherStatusBadge,
   fmtQty,
@@ -43,6 +45,7 @@ import {
   isOverdue,
   readStoredKho,
   todayISO,
+  useHeaderTitles,
   writeStoredKho,
 } from "./khoShared";
 import "./rebuild-catalog.css";
@@ -110,15 +113,26 @@ function progressOf(r: StockRequest): { done: number; total: number; pct: number
   return { done, total, pct: total > 0 ? Math.min(100, (done / total) * 100) : 0 };
 }
 
+/** Ký hiệu "≈" NHỎ đứng trước số khi giá trị HIỂN THỊ đã bị làm tròn (giá trị thật lẻ hơn).
+ *  `decimals` = số chữ số lẻ của cách hiển thị. Tròn khớp → không hiện gì (số tròn để nguyên). */
+function ApproxMark({ raw, decimals }: { raw: number; decimals: number }) {
+  const factor = 10 ** decimals;
+  if (Math.abs(raw - Math.round(raw * factor) / factor) <= 1e-9) return null;
+  return <span className="kho-approx" title="Số đã làm tròn để hiển thị (giá trị thật lẻ hơn)">≈ </span>;
+}
+
 export function KhoYeuCauPage({
   eventTick = 0,
   loai,
+  dieuChuyen = false,
   openRequestId = null,
   onOpenRequestConsumed,
 }: {
   eventTick?: number;
   /** Khoá chiều theo tab (Nhập/Xuất): lọc yêu cầu + phiếu theo loai. */
   loai: StockRequestKind;
+  /** Tab ĐIỀU CHUYỂN: chỉ hiện yêu cầu điều chuyển (dieu_chuyen=true). */
+  dieuChuyen?: boolean;
   /** Bấm thông báo → mở sẵn drawer "ứng theo yêu cầu" đúng id này. */
   openRequestId?: number | null;
   onOpenRequestConsumed?: () => void;
@@ -126,6 +140,8 @@ export function KhoYeuCauPage({
   const { token } = useAuth();
   const can = useCan();
   const canCreate = can("kho", "create");
+  // Hover tiêu đề cột → hiện tên cột đầy đủ (kể cả khi bị cắt).
+  const tableRef = useHeaderTitles();
   // Ghi sổ đã GỘP vào quyền "create" (bỏ tách "post"/SoD) — khớp backend: post_voucher chỉ đòi
   // create. Ai lập được phiếu là ghi sổ được luôn, không còn bước "Chờ ghi sổ" chờ người khác.
   const canPost = canCreate;
@@ -184,6 +200,7 @@ export function KhoYeuCauPage({
       .list(token, {
         q: q || null,
         loai,
+        dieu_chuyen: dieuChuyen,
         trang_thai: INBOX_STATUSES,
         size: FETCH_SIZE,
       })
@@ -195,7 +212,7 @@ export function KhoYeuCauPage({
         setError(e instanceof ApiError ? e.message : "Không tải được hộp yêu cầu kho."),
       )
       .finally(() => setLoading(false));
-  }, [token, q, loai, khoId]);
+  }, [token, q, loai, khoId, dieuChuyen]);
 
   // "Lập phiếu" / "Xem phiếu": yêu cầu đã có phiếu ĐANG CHỜ GHI SỔ (`open_voucher_id`) thì MỞ LẠI
   // đúng phiếu đó — thấy nguyên dữ liệu đã nhập + Ghi sổ/Hủy — thay vì đẻ ra phiếu trống (mất dữ
@@ -258,7 +275,7 @@ export function KhoYeuCauPage({
 
   // Cột yêu cầu: 8 khi có nút Lập phiếu, 7 khi không (đã bỏ cột Tồn — yêu cầu không gắn kho).
   // Mã · Loại · Bộ phận · Vật tư · Cho lệnh · Tiến độ · Cần ngày · Trạng thái (+ cột thao tác).
-  const reqCols = canCreate ? 8 : 7;
+  const reqCols = canCreate ? 9 : 8;
 
   return (
     <>
@@ -328,10 +345,11 @@ export function KhoYeuCauPage({
 
       <div className="rc__tablewrap">
         {(
-          <table className="rc__table rc__table--fixed">
+          <table ref={tableRef} className="rc__table rc__table--fixed">
             <thead>
               <tr>
                 <th style={{ width: "13%" }}>Mã</th>
+                <th style={{ width: "10%" }}>Loại</th>
                 <th style={{ width: "15%" }}>Bộ phận · Người</th>
                 <th>Vật tư</th>
                 {/* mg 0175 — soạn hàng theo LỆNH: thủ kho gom được các yêu cầu của cùng một lệnh
@@ -376,6 +394,9 @@ export function KhoYeuCauPage({
                       <td className="rc__nowrap">
                         <span className="rc__code-badge">{r.ma}</span>
                         {r.id === newestReqId && <span className="kho-new-pill">Mới</span>}
+                      </td>
+                      <td>
+                        <LoaiYeuCauChip loai={r.loai} dieuChuyen={r.dieu_chuyen} />
                       </td>
                       <td>
                         <div>{r.nguoi_tao_ten ?? "—"}</div>
@@ -578,7 +599,11 @@ export function InboxRequestDrawer({
         <header className="rc-drawer__head">
           <div>
             <div className="rc-drawer__kicker">
-              {req?.loai === "NHAP" ? "YÊU CẦU NHẬP" : "YÊU CẦU XUẤT"}
+              {req?.dieu_chuyen
+                ? "YÊU CẦU ĐIỀU CHUYỂN"
+                : req?.loai === "NHAP"
+                  ? "YÊU CẦU NHẬP"
+                  : "YÊU CẦU XUẤT"}
             </div>
             <h2 className="rc-drawer__title">{req?.ma ?? "Đang tải…"}</h2>
           </div>
@@ -624,6 +649,13 @@ export function InboxRequestDrawer({
               <section className="rc-sec">
                 <h3 className="rc-sec__title">Yêu cầu</h3>
                 <div className="rc-grid">
+                  {req.dieu_chuyen && (
+                    // Đường đi hàng của điều chuyển — CHỈ hiện khi là yêu cầu điều chuyển.
+                    <Readout
+                      label="Điều chuyển"
+                      value={`Từ kho ${req.kho_nguon_ten ?? "—"} → ${req.kho_ten ?? "kho đích"}`}
+                    />
+                  )}
                   <Readout
                     label="Ngày cần"
                     value={req.ngay_can ? fmtDateISO(req.ngay_can) : "—"}
@@ -1128,7 +1160,7 @@ function VoucherCreateDrawer({
   return (
     <>
       <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={requestClose}>
-        <aside className="rc-drawer rc-drawer--wide" onClick={(e) => e.stopPropagation()}>
+        <aside className="rc-drawer rc-drawer--wide kho-voucher-drawer" onClick={(e) => e.stopPropagation()}>
           <header className="rc-drawer__head">
             <div>
               <div className="rc-drawer__kicker">
@@ -1137,6 +1169,7 @@ function VoucherCreateDrawer({
               <h2 className="rc-drawer__title">Ứng theo {request.ma}</h2>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
+              {request.dieu_chuyen && <DieuChuyenPill />}
               {/* Không badge "Chờ ghi sổ" nữa: tạo = ghi sổ ngay (create & post gộp 1 quyền). */}
               <button
                 type="button"
@@ -1156,6 +1189,18 @@ function VoucherCreateDrawer({
               </div>
             )}
 
+            {request.dieu_chuyen && isNhap && (
+              // Phiếu NHẬP đích của một điều chuyển: đơn giá đã KHOÁ theo giá vốn chốt ở kho nguồn
+              // (không gõ tay). Nêu rõ để người lập không thắc mắc vì sao đơn giá không sửa được.
+              <div className="banner banner--info">
+                <span>
+                  Phiếu điều chuyển
+                  {request.kho_nguon_ten ? ` từ kho ${request.kho_nguon_ten}` : ""} — đơn giá KHOÁ
+                  theo giá vốn nguồn. <b>Ghi sổ phiếu này sẽ TRỪ kho nguồn và CỘNG kho đích cùng lúc.</b>
+                </span>
+              </div>
+            )}
+
             <section className="rc-sec">
               <h3 className="rc-sec__title">Thông tin phiếu</h3>
               <div className="rc-grid">
@@ -1163,24 +1208,38 @@ function VoucherCreateDrawer({
                     duyệt": tạo yêu cầu kho không còn bước duyệt (1 quyền). */}
                 <Readout label="Theo yêu cầu" value={request.ma} />
                 <Readout label="Người tạo yêu cầu" value={request.nguoi_tao_ten || "—"} />
-                <div className="rc-field">
-                  <span className="rc-field__label">
-                    Kho {isNhap ? "(nhập về)" : "(xuất từ)"} <em>*</em>
-                  </span>
-                  {/* Bước lập phiếu QUYẾT ĐỊNH kho (yêu cầu không chọn kho). Đổi kho → nạp lại lô. */}
-                  <Select
-                    portal
-                    options={khoList.map((w) => ({ value: w.id, label: w.ten, hint: w.ma }))}
-                    value={khoId}
-                    onChange={(v) => {
-                      if (v == null) return;
-                      setDirty(true);
-                      setKhoId(Number(v));
-                    }}
-                    ariaLabel="Kho của phiếu"
-                    placeholder="Chọn kho"
-                  />
-                </div>
+                {request.dieu_chuyen ? (
+                  // ĐIỀU CHUYỂN: kho nguồn ↔ đích đã CHỐT ở yêu cầu → KHOÁ CỨNG, không cho đổi
+                  // (đổi kho đích là làm sai đích của điều chuyển). Hiện cả hai để thấy đường đi hàng.
+                  <>
+                    <Readout label="Từ kho (nguồn)" value={request.kho_nguon_ten || "—"} />
+                    <Readout
+                      label="Đến kho (nhập về)"
+                      value={
+                        request.kho_ten || khoList.find((w) => w.id === khoId)?.ten || "—"
+                      }
+                    />
+                  </>
+                ) : (
+                  <div className="rc-field">
+                    <span className="rc-field__label">
+                      Kho {isNhap ? "(nhập về)" : "(xuất từ)"} <em>*</em>
+                    </span>
+                    {/* Bước lập phiếu QUYẾT ĐỊNH kho (yêu cầu không chọn kho). Đổi kho → nạp lại lô. */}
+                    <Select
+                      portal
+                      options={khoList.map((w) => ({ value: w.id, label: w.ten, hint: w.ma }))}
+                      value={khoId}
+                      onChange={(v) => {
+                        if (v == null) return;
+                        setDirty(true);
+                        setKhoId(Number(v));
+                      }}
+                      ariaLabel="Kho của phiếu"
+                      placeholder="Chọn kho"
+                    />
+                  </div>
+                )}
                 <div className="rc-field">
                   <label className="rc-field__label" htmlFor="v-ngay">
                     {isNhap ? "Ngày nhập kho" : "Ngày xuất kho"}
@@ -1607,33 +1666,48 @@ function AllocRow({
               aria-label="SL nhập"
             />
           ) : (
-            // XUẤT: cấp đúng số CÒN ĐƯỢC ỨNG từ yêu cầu — không cho sửa. Muốn cấp một phần thì chọn ít lô hơn.
-            <b className="kho-alloc__capfixed">{fmtQty(l.sl_con_lai)}</b>
+            // XUẤT: cột "Cấp" = SL THỰC CẤP đợt này = tổng SL LẤY các lô (quy về đơn vị dòng yêu cầu),
+            // KHÔNG phải SL yêu cầu bên cạnh. Sửa số cấp bằng cách đổi "SL lấy" ở bảng lô bên dưới.
+            <b className="kho-alloc__capfixed">{fmtQty(cappedTon)}</b>
           )}
         </td>
         <td className="kho-num">
           {/* Đơn giá: NHẬP = giá người yêu cầu khai (số nguyên). XUẤT = đơn giá BÌNH QUÂN gia quyền các
               lô — hiện tới 2 SỐ LẺ để SL × đơn giá sát Thành tiền nhất (làm tròn đồng sẽ lệch to khi
               SL lớn). Thành tiền vẫn là tổng giá vốn THỰC từng lô, không suy từ đơn giá này. */}
-          {isNhap
-            ? block.donGia
-              ? `${Number(block.donGia).toLocaleString("vi-VN")} đ`
-              : "—"
-            : canViewCost && chosen > 0
-              ? `${donGiaBq.toLocaleString("vi-VN", { maximumFractionDigits: 2 })} đ`
-              : "—"}
+          {isNhap ? (
+            block.donGia ? `${Number(block.donGia).toLocaleString("vi-VN")} đ` : "—"
+          ) : canViewCost && chosen > 0 ? (
+            <>
+              <ApproxMark raw={donGiaBq} decimals={2} />
+              {donGiaBq.toLocaleString("vi-VN", { maximumFractionDigits: 2 })} đ
+            </>
+          ) : (
+            "—"
+          )}
         </td>
         <td className="kho-num">
-          {/* Thành tiền: NHẬP = SL nhập × đơn giá; XUẤT = tổng giá vốn các lô (chỉ khi có quyền giá). */}
-          {settled
-            ? "—"
-            : isNhap
-              ? block.donGia && block.cap
-                ? money(Math.round(thanhTien))
-                : "—"
-              : canViewCost && chosen > 0
-                ? money(Math.round(thanhTien))
-                : "—"}
+          {/* Thành tiền: NHẬP = SL nhập × đơn giá; XUẤT = tổng giá vốn các lô (chỉ khi có quyền giá).
+              "≈" nhỏ phía trước khi số bị làm tròn (giá trị thật lẻ hơn); số tròn thì để nguyên. */}
+          {settled ? (
+            "—"
+          ) : isNhap ? (
+            block.donGia && block.cap ? (
+              <>
+                <ApproxMark raw={thanhTien} decimals={0} />
+                {money(Math.round(thanhTien))}
+              </>
+            ) : (
+              "—"
+            )
+          ) : canViewCost && chosen > 0 ? (
+            <>
+              <ApproxMark raw={thanhTien} decimals={0} />
+              {money(Math.round(thanhTien))}
+            </>
+          ) : (
+            "—"
+          )}
         </td>
         {/* Vị trí cất lô (kệ/ô) — chỉ NHẬP; tuỳ chọn, ghi sổ chép sang lô. */}
         {isNhap && (

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import CurrentUser, get_authorization_service, require_permission
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
-from ..models.stock_request import REQ_APPROVED, REQ_NHAP, REQ_XUAT
+from ..models.stock_request import REQ_APPROVED
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.document_sequence_repo import DocumentSequenceRepository
@@ -153,7 +153,11 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
     creator = users.get_by_id(req.nguoi_tao_id) if req.nguoi_tao_id else None
     approver = users.get_by_id(req.nguoi_duyet_id) if req.nguoi_duyet_id else None
     dept = DepartmentRepository(db).get_by_id(req.bo_phan_id) if req.bo_phan_id else None
-    kho = KhoHangRepository(db).get(req.kho_id) if req.kho_id else None
+    kho_repo = KhoHangRepository(db)
+    kho = kho_repo.get(req.kho_id) if req.kho_id else None
+    # ĐIỀU CHUYỂN: yêu cầu NHẬP đích có `kho_nguon_id` → hiện "Điều chuyển từ «kho nguồn»".
+    kho_nguon_id = getattr(req, "kho_nguon_id", None)
+    kho_nguon = kho_repo.get(kho_nguon_id) if kho_nguon_id else None
     return StockRequestOut(
         id=req.id, ma=req.ma, loai=req.loai,
         nguoi_tao_id=req.nguoi_tao_id,
@@ -167,6 +171,10 @@ def _serialize(req, *, db: Session, can_view_stock: bool, levels: dict | None,
         duyet_luc=req.duyet_luc, ly_do_tu_choi=req.ly_do_tu_choi,
         ly_do_huy=req.ly_do_huy,
         open_voucher_id=open_voucher_id,
+        dieu_chuyen=bool(getattr(req, "dieu_chuyen", False)),
+        kho_nguon_id=kho_nguon_id,
+        kho_nguon_ten=getattr(kho_nguon, "ten", None),
+        xuat_voucher_id=getattr(req, "xuat_voucher_id", None),
         created_at=req.created_at, updated_at=req.updated_at, lines=lines,
     )
 
@@ -214,12 +222,15 @@ def list_requests(
     loai: str | None = Query(default=None),
     trang_thai: list[str] | None = Query(default=None),
     kho_id: int | None = Query(default=None, description="Lọc yêu cầu theo kho đích"),
+    dieu_chuyen: bool | None = Query(
+        default=None, description="True = chỉ yêu cầu điều chuyển · False = nhập/xuất thường"),
     q: str | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
 ) -> StockRequestPage:
     rows, total = svc.requests.list(
-        loai=loai, trang_thai=trang_thai, q=q, kho_id=kho_id, page=page, size=size,
+        loai=loai, trang_thai=trang_thai, q=q, kho_id=kho_id, dieu_chuyen=dieu_chuyen,
+        page=page, size=size,
         **_scoped_filters(user, authz),
     )
     can_view_stock = authz.can(user, MODULE, "view_stock")
@@ -255,11 +266,13 @@ def request_counts(
     resp = svc.requests.unseen_response_counts(user.id)
     is_kho_worker = authz.can(user, MODULE, "create") or authz.can(user, MODULE, "view_stock")
     if not is_kho_worker:
-        return {"nhap": 0, "xuat": 0, "done_unseen": resp["done"], "fail_unseen": resp["fail"]}
+        return {"nhap": 0, "xuat": 0, "dieu_chuyen": 0,
+                "done_unseen": resp["done"], "fail_unseen": resp["fail"]}
     counts = svc.requests.count_by_loai([REQ_APPROVED], **_scoped_filters(user, authz))
     return {
-        "nhap": counts.get(REQ_NHAP, 0),
-        "xuat": counts.get(REQ_XUAT, 0),
+        "nhap": counts["nhap"],
+        "xuat": counts["xuat"],
+        "dieu_chuyen": counts["dieu_chuyen"],
         "done_unseen": resp["done"],
         "fail_unseen": resp["fail"],
     }
