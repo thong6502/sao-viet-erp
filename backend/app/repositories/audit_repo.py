@@ -64,6 +64,17 @@ class AuditLogRepository:
             ).scalars()
         )
 
+    def list_by_action(self, action: str, limit: int = 200) -> list[AuditLog]:
+        """Audit rows của MỘT loại thao tác (vd ``kho_export``), mới nhất trước — cho màn lịch sử."""
+        return list(
+            self.db.execute(
+                select(AuditLog)
+                .where(AuditLog.action == action)
+                .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+                .limit(limit)
+            ).scalars()
+        )
+
     def list_by_target(self, target: str, limit: int = 200) -> list[AuditLog]:
         """Audit rows for one entity (e.g. ``customer:42``), newest first — feeds the
         per-record "Nhật ký" timeline."""

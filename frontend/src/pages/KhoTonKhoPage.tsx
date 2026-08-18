@@ -33,6 +33,8 @@ import { qrToSvg } from "../lib/qr";
 import {
   DateFilterHead,
   NumFilterHead,
+  PageSizeSelect,
+  DEFAULT_PAGE_SIZE,
   VoucherStatusBadge,
   fmtQty,
   inNumRange,
@@ -68,7 +70,6 @@ interface MaterialGroup {
 
 type TonTab = "ton" | "nhap" | "xuat";
 
-const PAGE_SIZE = 20;
 /** Mức tồn 4 mức — MIRROR backend `stock_level` (bỏ "sắp hết/cận tồn"). Chưa khai ngưỡng
  *  → null (không bịa cảnh báo). Màn tồn chỉ có hàng còn tồn nên "het" gần như không xuất hiện. */
 function levelOf(onHand: number, th: StockThreshold | undefined): StockLevel | null {
@@ -121,6 +122,7 @@ export function KhoTonKhoPage({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [voucherFilter, setVoucherFilter] = useState<"all" | StockVoucherStatus>("all");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [openVoucher, setOpenVoucher] = useState<number | null>(null);
   const [openRequest, setOpenRequest] = useState<number | null>(null);
   // Điều chuyển HÀNG LOẠT: mở popup cho các mã đã tick → gộp vào 1 yêu cầu điều chuyển.
@@ -196,6 +198,7 @@ export function KhoTonKhoPage({
     vDateTo,
     vValFrom,
     vValTo,
+    pageSize,
   ]);
 
   // Đổi tab → XÓA sạch mọi bộ lọc (khỏi lẫn bộ lọc giữa 2 nhóm tab). Effect RIÊNG chỉ theo [tab].
@@ -411,9 +414,9 @@ export function KhoTonKhoPage({
 
   // Phân trang (dùng chung cho cả 2 tab; số tổng theo tab đang xem).
   const pageTotal = tab === "ton" ? filtered.length : shownVouchers.length;
-  const maxPage = Math.max(1, Math.ceil(pageTotal / PAGE_SIZE));
-  const pagedGroups = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const pagedVouchers = shownVouchers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const maxPage = Math.max(1, Math.ceil(pageTotal / pageSize));
+  const pagedGroups = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const pagedVouchers = shownVouchers.slice((page - 1) * pageSize, page * pageSize);
 
   return (
     <main className="rc kho-list">
@@ -746,6 +749,7 @@ export function KhoTonKhoPage({
 
       {!loading && pageTotal > 0 && (
         <div className="kho-pager">
+          <PageSizeSelect value={pageSize} onChange={setPageSize} />
           <span className="kho-pager__page">
             {tab === "ton" ? `${pageTotal} vật tư` : `${pageTotal} phiếu`}
           </span>

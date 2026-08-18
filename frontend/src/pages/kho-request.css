@@ -97,7 +97,7 @@
 .kho-bc-pager {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-end;
   gap: var(--sp-3);
   margin-top: var(--sp-2);
   font-size: 0.85rem;
@@ -686,6 +686,16 @@ input.kho-num,
   font-variant-numeric: tabular-nums;
 }
 
+/* Bộ chọn số dòng/trang — dropdown gọn (mở lên trên). */
+.kho-pgsize {
+  width: 118px;
+  flex: 0 0 auto;
+}
+/* Pager báo cáo (không có spacer sẵn): đẩy selector về mép trái, nút trang giữ bên phải. */
+.kho-bc-pager .kho-pgsize {
+  margin-right: auto;
+}
+
 /* --- Toolbar: ô chọn kho gọn trong hàng toolbar --------------------------- */
 .kho-picker {
   width: 200px;
@@ -987,15 +997,16 @@ input.kho-num,
   background: var(--paper);
   border-bottom: 1.5px solid var(--rule);
 }
-/* Cột hẹp (thu nhỏ cửa sổ): tiêu đề dài XUỐNG DÒNG trong ô thay vì tràn/đè cột bên — CHỈ bảng LIST
-   (Yêu cầu/Hộp yêu cầu = .rc__table--fixed · Tồn/Phiếu = .kho-table). KHÔNG áp cho báo cáo (.kho-bc,
-   table-layout:auto + cột số hẹp có phễu — wrap ở đó làm "SỐ LƯỢNG" gãy 3 dòng, phễu lệch). */
-.rc__table--fixed thead th,
+/* Bảng LIST (Yêu cầu/Hộp yêu cầu = .rc__table--fixed · Tồn/Phiếu = .kho-table): tiêu đề cột NẰM
+   NGANG (nowrap, KHÔNG xuống dòng); cột tự co giãn theo nội dung (table-layout:auto) nên tiêu đề
+   không bao giờ đè cột bên; bảng dài quá khung thì KHUNG BỌC (overflow-x:auto) tự cuộn ngang. */
+.rc__table.rc__table--fixed,
+.kho-list .kho-table {
+  table-layout: auto;
+}
+.rc__table.rc__table--fixed thead th,
 .kho-list .kho-table thead th {
-  white-space: normal;
-  overflow-wrap: anywhere;
-  line-height: 1.25;
-  vertical-align: bottom;
+  white-space: nowrap;
 }
 /* Cột số căn phải (khớp ô số tbody) — không ép nhãn số sang trái. */
 .kho-list .rc__table thead th.kho-num {

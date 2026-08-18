@@ -230,6 +230,16 @@ class KhoKhoaSoRow(BaseModel):
     ten: str | None = None                # tên kỳ (nếu có)
 
 
+class KhoExportLogRow(BaseModel):
+    """1 lần XUẤT EXCEL báo cáo kho — cho tab 'Lịch sử thao tác' (ghi vào audit_logs)."""
+    thoi_diem: datetime
+    loai: str                             # "Nhập kho" / "Xuất kho" / "Chuyển kho" / "Tồn kho"
+    pham_vi: str                          # loại báo cáo · kho (vd "Nhập kho · Kho nguyên vật liệu")
+    khoang_ngay: str | None = None        # "01/08/2026 – 18/08/2026" hoặc None
+    ten_ky: str | None = None             # tên kỳ đã khóa nếu khoảng ngày trùng kỳ; "Toàn bộ" nếu ko lọc ngày
+    nguoi_ten: str | None = None
+
+
 class KhoaSoKyRow(BaseModel):
     """1 kỳ CÒN đang khóa (đã gộp khoảng liền mạch) — cho tab 'Kỳ đã khóa' chọn nhanh + xuất."""
     kho_id: int | None = None             # None = Toàn kho

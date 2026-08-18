@@ -8,6 +8,7 @@ Dependency INLINE theo pattern các router kho hiện có. MODULE quyền = "kho
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -225,12 +226,18 @@ def list_requests(
     dieu_chuyen: bool | None = Query(
         default=None, description="True = chỉ yêu cầu điều chuyển · False = nhập/xuất thường"),
     q: str | None = Query(default=None),
+    ngay_can_tu: date | None = Query(default=None),
+    ngay_can_den: date | None = Query(default=None),
+    tao_tu: date | None = Query(default=None),
+    tao_den: date | None = Query(default=None),
+    order: str = Query(default="id", pattern="^(id|updated)$"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
 ) -> StockRequestPage:
     rows, total = svc.requests.list(
         loai=loai, trang_thai=trang_thai, q=q, kho_id=kho_id, dieu_chuyen=dieu_chuyen,
-        page=page, size=size,
+        ngay_can_tu=ngay_can_tu, ngay_can_den=ngay_can_den, tao_tu=tao_tu, tao_den=tao_den,
+        order=order, page=page, size=size,
         **_scoped_filters(user, authz),
     )
     can_view_stock = authz.can(user, MODULE, "view_stock")
@@ -276,6 +283,29 @@ def request_counts(
         "done_unseen": resp["done"],
         "fail_unseen": resp["fail"],
     }
+
+
+@router.get("/counts-by-status")
+def request_counts_by_status(
+    svc: Service, authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    loai: str | None = Query(default=None),
+    trang_thai: list[str] | None = Query(default=None, description="Tập nền trạng thái (vd INBOX)"),
+    kho_id: int | None = Query(default=None),
+    dieu_chuyen: bool | None = Query(default=None),
+    q: str | None = Query(default=None),
+    ngay_can_tu: date | None = Query(default=None),
+    ngay_can_den: date | None = Query(default=None),
+    tao_tu: date | None = Query(default=None),
+    tao_den: date | None = Query(default=None),
+) -> dict[str, int]:
+    """Đếm yêu cầu theo TỪNG trạng thái (áp cùng bộ lọc list, TRỪ tab) → FE cộng theo tab cho badge.
+    Trả {trang_thai: số}. Áp SCOPE như list để badge khớp đúng danh sách người dùng thấy."""
+    return svc.requests.count_by_status(
+        loai=loai, base_trang_thai=trang_thai, kho_id=kho_id, dieu_chuyen=dieu_chuyen, q=q,
+        ngay_can_tu=ngay_can_tu, ngay_can_den=ngay_can_den, tao_tu=tao_tu, tao_den=tao_den,
+        **_scoped_filters(user, authz),
+    )
 
 
 @router.post("/{request_id}/seen", status_code=204)

@@ -162,20 +162,14 @@ class StockRequestRepository:
         ).scalars()
         return {r.id: r for r in rows}
 
-    def list(self, *, loai: str | None = None, trang_thai: list[str] | None = None,
-             q: str | None = None, nguoi_tao_id: int | None = None,
-             bo_phan_id: int | None = None, kho_id: int | None = None,
-             dieu_chuyen: bool | None = None,
-             page: int = 1, size: int = 50):
-        """Danh sách yêu cầu. `nguoi_tao_id` / `bo_phan_id` là cách áp SCOPE: người yêu cầu
-        (scope `own`) chỉ thấy yêu cầu của chính mình — đó là lý do họ không nhìn thấy kho.
-        `dieu_chuyen`: True = CHỈ yêu cầu điều chuyển (tab Điều chuyển) · False = nhập/xuất thường
-        (loại điều chuyển) · None = không lọc theo cờ này."""
-        conds = []
+    def _base_conds(self, *, loai=None, trang_thai=None, q=None, nguoi_tao_id=None,
+                    bo_phan_id=None, kho_id=None, dieu_chuyen=None,
+                    ngay_can_tu=None, ngay_can_den=None, tao_tu=None, tao_den=None):
+        """Điều kiện lọc CHUNG cho `list` và `count_by_status` — để badge tab khớp đúng list.
+        `ngay_can_tu/den` lọc theo NGÀY CẦN (cột Date); `tao_tu/den` lọc theo NGÀY TẠO (created_at)."""
         # ẨN vế XUẤT nguồn của điều chuyển (bút toán nội bộ): nó tự ghi sổ khi kho đích nhập, người
-        # dùng không thao tác trực tiếp → không hiện trong Yêu cầu / Hộp yêu cầu. Yêu cầu NHẬP đích
-        # (kho_nguon_id ≠ null) VẪN hiện bình thường.
-        conds.append(or_(StockRequest.dieu_chuyen.is_(False), StockRequest.loai != REQ_XUAT))
+        # dùng không thao tác trực tiếp → không hiện. Yêu cầu NHẬP đích (kho_nguon_id ≠ null) VẪN hiện.
+        conds = [or_(StockRequest.dieu_chuyen.is_(False), StockRequest.loai != REQ_XUAT)]
         if dieu_chuyen is not None:
             conds.append(StockRequest.dieu_chuyen.is_(dieu_chuyen))
         if loai:
@@ -188,13 +182,37 @@ class StockRequestRepository:
             conds.append(StockRequest.bo_phan_id == bo_phan_id)
         if kho_id is not None:
             conds.append(StockRequest.kho_id == kho_id)
+        if ngay_can_tu is not None:
+            conds.append(StockRequest.ngay_can >= ngay_can_tu)
+        if ngay_can_den is not None:
+            conds.append(StockRequest.ngay_can <= ngay_can_den)
+        if tao_tu is not None:
+            conds.append(func.date(StockRequest.created_at) >= tao_tu)
+        if tao_den is not None:
+            conds.append(func.date(StockRequest.created_at) <= tao_den)
         if q:
             like = f"%{q.strip().lower()}%"
             conds.append(or_(
                 func.lower(StockRequest.ma).like(like),
                 func.lower(func.coalesce(StockRequest.ghi_chu, "")).like(like),
             ))
+        return conds
 
+    def list(self, *, loai: str | None = None, trang_thai: list[str] | None = None,
+             q: str | None = None, nguoi_tao_id: int | None = None,
+             bo_phan_id: int | None = None, kho_id: int | None = None,
+             dieu_chuyen: bool | None = None,
+             ngay_can_tu=None, ngay_can_den=None, tao_tu=None, tao_den=None,
+             order: str = "id", page: int = 1, size: int = 50):
+        """Danh sách yêu cầu (BE-paging). `nguoi_tao_id` / `bo_phan_id` áp SCOPE: người yêu cầu
+        (scope `own`) chỉ thấy yêu cầu của chính mình — đó là lý do họ không nhìn thấy kho.
+        `dieu_chuyen`: True = CHỈ yêu cầu điều chuyển · False = nhập/xuất thường · None = không lọc.
+        `order`: 'id' = mới TẠO trước (mặc định) · 'updated' = vừa ĐỔI (duyệt/cấp/hủy) trước (Hộp yêu cầu)."""
+        conds = self._base_conds(
+            loai=loai, trang_thai=trang_thai, q=q, nguoi_tao_id=nguoi_tao_id,
+            bo_phan_id=bo_phan_id, kho_id=kho_id, dieu_chuyen=dieu_chuyen,
+            ngay_can_tu=ngay_can_tu, ngay_can_den=ngay_can_den, tao_tu=tao_tu, tao_den=tao_den,
+        )
         base = select(StockRequest).options(selectinload(StockRequest.lines))
         count_stmt = select(func.count()).select_from(StockRequest)
         for c in conds:
@@ -202,8 +220,29 @@ class StockRequestRepository:
             count_stmt = count_stmt.where(c)
         total = self.db.execute(count_stmt).scalar_one()
         page, size = max(1, page), max(1, min(size, 200))
-        base = base.order_by(StockRequest.id.desc()).offset((page - 1) * size).limit(size)
+        order_cols = (
+            [StockRequest.updated_at.desc(), StockRequest.id.desc()]
+            if order == "updated" else [StockRequest.id.desc()]
+        )
+        base = base.order_by(*order_cols).offset((page - 1) * size).limit(size)
         return list(self.db.execute(base).scalars()), total
+
+    def count_by_status(self, *, loai=None, q=None, nguoi_tao_id=None, bo_phan_id=None,
+                        kho_id=None, dieu_chuyen=None, base_trang_thai=None,
+                        ngay_can_tu=None, ngay_can_den=None, tao_tu=None,
+                        tao_den=None) -> dict[str, int]:
+        """Đếm yêu cầu theo TỪNG TRẠNG THÁI (cùng bộ lọc như `list`, TRỪ tab) → FE cộng theo tab
+        cho badge. `base_trang_thai`: giới hạn tập nền (vd Hộp yêu cầu chỉ tính trạng thái INBOX)."""
+        conds = self._base_conds(
+            loai=loai, trang_thai=base_trang_thai, q=q, nguoi_tao_id=nguoi_tao_id,
+            bo_phan_id=bo_phan_id, kho_id=kho_id, dieu_chuyen=dieu_chuyen,
+            ngay_can_tu=ngay_can_tu, ngay_can_den=ngay_can_den, tao_tu=tao_tu, tao_den=tao_den,
+        )
+        rows = self.db.execute(
+            select(StockRequest.trang_thai, func.count()).where(*conds)
+            .group_by(StockRequest.trang_thai)
+        ).all()
+        return {str(s): int(n) for s, n in rows}
 
     def dong_xuat_theo_lenh(self) -> list[tuple[StockRequestLine, str]]:
         """Dòng đề nghị XUẤT đã gắn lệnh/bài — nguồn "đã cấp" + "đang lĩnh" của bảng cân đối vật tư.

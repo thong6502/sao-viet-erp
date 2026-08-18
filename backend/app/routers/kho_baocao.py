@@ -15,6 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+import json
+
 from ..db import get_db
 from ..deps import require_permission
 from ..models.kho_hang import KhoHang
@@ -28,6 +30,7 @@ from ..models.stock_voucher import (
     StockVoucherLine,
 )
 from ..models.user import User
+from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.don_vi_do_repo import DonViDoRepository
 from ..repositories.kho_hang_repo import KhoHangRepository
 from ..repositories.kho_khoa_so_repo import KhoKhoaSoRepository
@@ -40,6 +43,7 @@ from ..schemas.stock import (
     BaoCaoKhoPage,
     BaoCaoKhoRow,
     KhoaSoKyRow,
+    KhoExportLogRow,
     KhoKhoaSoIn,
     KhoKhoaSoRow,
 )
@@ -470,10 +474,67 @@ def _build_xlsx(rows: list[BaoCaoKhoRow], loai: str) -> bytes:
     return buf.getvalue()
 
 
+# --- Ghi NHẬT KÝ mỗi lần xuất Excel (vào audit_logs) → hiện ở tab "Lịch sử thao tác" ------------
+_ACTION_EXPORT = "kho_export"
+
+
+def _log_export(db: Session, user: User, *, loai_label: str,
+                kho_id: int | None, tu: date | None, den: date | None) -> None:
+    """Ghi 1 dòng nhật ký 'xuất Excel' (ai · lúc nào · báo cáo gì · kho · khoảng ngày)."""
+    kho_ten = None
+    if kho_id is not None:
+        kho_ten = getattr(KhoHangRepository(db).get(kho_id), "ten", None)
+    pham_vi = f"{loai_label} · {kho_ten or 'Tất cả kho'}"
+    khoang = (
+        f"{_fmt_date(tu) or '…'} – {_fmt_date(den) or '…'}" if (tu or den) else None
+    )
+    # Tên kỳ: xuất TOÀN BỘ (không lọc ngày) → "Toàn bộ"; khoảng ngày TRÙNG ĐÚNG một kỳ đã khóa
+    # (cùng phạm vi kho) → tên kỳ đó; khoảng ngày lẻ (không trùng kỳ) → để trống.
+    ten_ky: str | None = None
+    if tu is None and den is None:
+        ten_ky = "Toàn bộ"
+    elif tu is not None and den is not None:
+        for k_kho, k_tu, k_den, _luc, k_ten in KhoKhoaSoRepository(db).locked_periods():
+            if k_tu == tu and k_den == den and k_kho == kho_id:
+                ten_ky = k_ten or None
+                break
+    AuditLogRepository(db).create(
+        actor_user_id=getattr(user, "id", None),
+        action=_ACTION_EXPORT,
+        target=loai_label,
+        detail=json.dumps(
+            {"pham_vi": pham_vi, "khoang_ngay": khoang, "ten_ky": ten_ky},
+            ensure_ascii=False,
+        ),
+    )
+
+
+@router.get("/bao-cao/lich-su-export", response_model=list[KhoExportLogRow])
+def get_lich_su_export(db: Db, _: CloseBookUser) -> list[KhoExportLogRow]:
+    """Lịch sử các lần XUẤT EXCEL báo cáo kho (mới nhất trước) — gộp vào tab 'Lịch sử thao tác'."""
+    users = UserRepository(db)
+    out: list[KhoExportLogRow] = []
+    for r in AuditLogRepository(db).list_by_action(_ACTION_EXPORT, limit=200):
+        try:
+            d = json.loads(r.detail or "{}")
+        except (ValueError, TypeError):
+            d = {}
+        u = users.get_by_id(r.actor_user_id) if r.actor_user_id else None
+        out.append(KhoExportLogRow(
+            thoi_diem=r.created_at,
+            loai=r.target or "Xuất Excel",
+            pham_vi=d.get("pham_vi") or r.target or "—",
+            khoang_ngay=d.get("khoang_ngay"),
+            ten_ky=d.get("ten_ky"),
+            nguoi_ten=getattr(u, "name", None),
+        ))
+    return out
+
+
 @router.get("/bao-cao/export.xlsx")
 def export_bao_cao(
     db: Db,
-    _: CloseBookUser,
+    user: CloseBookUser,
     loai: str = Query(pattern="^(NHAP|XUAT)$"),
     tu: date | None = Query(default=None),
     den: date | None = Query(default=None),
@@ -482,6 +543,8 @@ def export_bao_cao(
 ) -> Response:
     rows = _report_rows(db, tu=tu, den=den, kho_id=kho_id, loai=loai, q=q)
     content = _build_xlsx(rows, loai)
+    _log_export(db, user, loai_label="Nhập kho" if loai == VOUCHER_NHAP else "Xuất kho",
+                kho_id=kho_id, tu=tu, den=den)
     fname = f"bao-cao-kho-{'nhap' if loai == VOUCHER_NHAP else 'xuat'}.xlsx"
     return Response(
         content=content,
@@ -525,7 +588,7 @@ def _build_chuyen_xlsx(rows: list[BaoCaoChuyenKhoRow]) -> bytes:
 @router.get("/bao-cao/chuyen-kho/export.xlsx")
 def export_chuyen_kho(
     db: Db,
-    _: CloseBookUser,
+    user: CloseBookUser,
     tu: date | None = Query(default=None),
     den: date | None = Query(default=None),
     kho_id: int | None = Query(default=None),
@@ -533,6 +596,7 @@ def export_chuyen_kho(
 ) -> Response:
     rows = _chuyen_kho_rows(db, tu=tu, den=den, kho_id=kho_id, q=q)
     content = _build_chuyen_xlsx(rows)
+    _log_export(db, user, loai_label="Chuyển kho", kho_id=kho_id, tu=tu, den=den)
     return Response(
         content=content,
         media_type=_XLSX_MEDIA,

@@ -36,12 +36,12 @@ import { fmtDate, fmtDateISO, money } from "../utils/format";
 import { printStockVoucher, type StockVoucherPrintData } from "../utils/printStockVoucher";
 import {
   DateFilterHead,
-  DieuChuyenPill,
   LoaiYeuCauChip,
   RequestStatusBadge,
   VoucherStatusBadge,
+  PageSizeSelect,
+  DEFAULT_PAGE_SIZE,
   fmtQty,
-  inDateRange,
   isOverdue,
   readStoredKho,
   todayISO,
@@ -52,8 +52,6 @@ import "./rebuild-catalog.css";
 import "./kho-request.css";
 
 const KHO_KEY = "kho.yeu-cau.kho-id";
-const PAGE_SIZE = 8;
-const FETCH_SIZE = 200;
 
 type TabId = "tat-ca" | "can-cap" | "done" | "da-huy";
 
@@ -80,14 +78,6 @@ export interface KhoOption {
   id: number;
   ma: string;
   ten: string;
-}
-
-/** Yêu cầu MỚI NHẤT (created_at) lên đầu; quá hạn vẫn tô đỏ nhưng không ép lên trên. */
-function sortInbox(a: StockRequest, b: StockRequest): number {
-  const ca = a.created_at ?? "";
-  const cb = b.created_at ?? "";
-  if (ca !== cb) return ca < cb ? 1 : -1; // desc — mới hơn đứng trước
-  return b.ma.localeCompare(a.ma); // cùng thời điểm: mã lớn hơn (mới hơn) trước
 }
 
 /** Mã lệnh/bài của một yêu cầu (mg 0175) — gộp các dòng, hiện tối đa 2 rồi "+n".
@@ -151,11 +141,14 @@ export function KhoYeuCauPage({
   const [khoList, setKhoList] = useState<KhoOption[]>([]);
   const [khoId, setKhoId] = useState<number | null>(() => readStoredKho(KHO_KEY));
   const [requests, setRequests] = useState<StockRequest[]>([]);
+  const [totalCount, setTotalCount] = useState(0);         // tổng bản ghi khớp lọc (từ BE)
+  const [counts, setCounts] = useState<Record<string, number>>({}); // số theo trạng thái → badge tab
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [tab, setTab] = useState<TabId>("can-cap");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   // Lọc khoảng ngày theo cột "Cần ngày" (ngay_can) — bấm tiêu đề cột để bung Từ/Đến.
   const [dNeed, setDNeed] = useState({ from: "", to: "" });
 
@@ -196,23 +189,29 @@ export function KhoYeuCauPage({
     setLoading(true);
     // KHÔNG lọc theo kho: yêu cầu giờ không gắn kho (kho quyết ở phiếu) → mọi yêu cầu đã duyệt
     // đều vào chung một hộp cho thủ kho xử lý. Ô kho ở toolbar chỉ là kho MẶC ĐỊNH khi lập phiếu.
-    api.kho.deNghi
-      .list(token, {
-        q: q || null,
-        loai,
-        dieu_chuyen: dieuChuyen,
-        trang_thai: INBOX_STATUSES,
-        size: FETCH_SIZE,
-      })
-      .then((r) => {
+    // BE-paging: chỉ tải ĐÚNG trang theo tab + lọc ngày; đếm số theo trạng thái riêng (badge tab).
+    const filters = {
+      q: q || null,
+      loai,
+      dieu_chuyen: dieuChuyen,
+      ngay_can_tu: dNeed.from || null,
+      ngay_can_den: dNeed.to || null,
+    };
+    Promise.all([
+      api.kho.deNghi.list(token, { ...filters, trang_thai: TAB_STATUSES[tab], page, size: pageSize }),
+      api.kho.deNghi.tabCounts(token, { ...filters, trang_thai: INBOX_STATUSES }),
+    ])
+      .then(([r, c]) => {
         setRequests(r.items);
+        setTotalCount(r.total);
+        setCounts(c);
         setError(null);
       })
       .catch((e) =>
         setError(e instanceof ApiError ? e.message : "Không tải được hộp yêu cầu kho."),
       )
       .finally(() => setLoading(false));
-  }, [token, q, loai, khoId, dieuChuyen]);
+  }, [token, q, loai, dieuChuyen, dNeed, tab, page, pageSize]);
 
   // "Lập phiếu" / "Xem phiếu": yêu cầu đã có phiếu ĐANG CHỜ GHI SỔ (`open_voucher_id`) thì MỞ LẠI
   // đúng phiếu đó — thấy nguyên dữ liệu đã nhập + Ghi sổ/Hủy — thay vì đẻ ra phiếu trống (mất dữ
@@ -243,28 +242,20 @@ export function KhoYeuCauPage({
 
   useEffect(() => {
     setPage(1);
-  }, [tab, q, khoId, dNeed]);
+  }, [tab, q, khoId, dNeed, pageSize]);
 
+  // Số trên tab = CỘNG số theo trạng thái (BE trả `counts`) của các trạng thái thuộc tab đó.
   function countOf(id: TabId): number {
-    return requests.filter((r) => TAB_STATUSES[id].includes(r.trang_thai)).length;
+    return TAB_STATUSES[id].reduce((s, st) => s + (counts[st] ?? 0), 0);
   }
 
-  const shownRequests = useMemo(
-    () =>
-      requests
-        .filter(
-          (r) => TAB_STATUSES[tab].includes(r.trang_thai) && inDateRange(r.ngay_can ?? "", dNeed),
-        )
-        .sort(sortInbox),
-    [requests, tab, dNeed],
-  );
-
-  const total = shownRequests.length;
-  const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const slice = <T,>(arr: T[]) => arr.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const pageRequests = slice(shownRequests);
-  // Yêu cầu mới nhất trong danh sách đang xem — đánh dấu "Mới" (đã sort desc nên là phần tử đầu).
-  const newestReqId = shownRequests[0]?.id ?? null;
+  // BE đã lọc (tab + ngày + q) + phân trang + sắp theo id giảm (≈ created_at desc như sortInbox)
+  // → dùng thẳng danh sách trả về làm trang hiện tại, không cắt/lọc lại ở client.
+  const total = totalCount;
+  const maxPage = Math.max(1, Math.ceil(total / pageSize));
+  const pageRequests = requests;
+  // "Mới" = yêu cầu MỚI NHẤT — nằm đầu TRANG 1 (BE sắp id desc); trang khác không đánh dấu.
+  const newestReqId = page === 1 ? (requests[0]?.id ?? null) : null;
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "tat-ca", label: "Tất cả" },
@@ -370,7 +361,7 @@ export function KhoYeuCauPage({
             <tbody>
               {loading ? (
                 <SkeletonRows cols={reqCols} />
-              ) : shownRequests.length === 0 ? (
+              ) : requests.length === 0 ? (
                 <EmptyRow
                   cols={reqCols}
                   text={
@@ -449,7 +440,7 @@ export function KhoYeuCauPage({
                     </tr>
                   );
                   })}
-                  {Array.from({ length: Math.max(0, PAGE_SIZE - pageRequests.length) }).map((_, i) => (
+                  {Array.from({ length: Math.max(0, pageSize - pageRequests.length) }).map((_, i) => (
                     <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true">
                       <td colSpan={reqCols}>
                         <div className="rc__name">&nbsp;</div>
@@ -466,6 +457,7 @@ export function KhoYeuCauPage({
 
       {total > 0 && (
         <div className="kho-pager">
+          <PageSizeSelect value={pageSize} onChange={setPageSize} />
           <span className="kho-pager__page">{total} yêu cầu</span>
           <div className="rc__spacer" />
           <button
@@ -910,7 +902,8 @@ function VoucherCreateDrawer({
   const [ngay, setNgay] = useState(todayISO());
   // Người giao/nhận hàng mặc định = NGƯỜI YÊU CẦU (hàng về/ra theo đúng người xin); thủ kho sửa được.
   const [nguoiGiaoNhan, setNguoiGiaoNhan] = useState(request.nguoi_tao_ten ?? "");
-  const [ghiChu, setGhiChu] = useState("");
+  // ĐIỀU CHUYỂN: ghi chú phiếu nhập đích LẤY SẴN từ ghi chú điều chuyển (đã gắn vào yêu cầu); sửa được.
+  const [ghiChu, setGhiChu] = useState(request.dieu_chuyen ? (request.ghi_chu ?? "") : "");
   // Chứng từ (ảnh/PDF) chọn SẴN lúc tạo — giữ client-side, upload sau khi có voucher_id.
   const [files, setFiles] = useState<File[]>([]);
   const [blocks, setBlocks] = useState<AllocBlock[]>([]);
@@ -1169,7 +1162,6 @@ function VoucherCreateDrawer({
               <h2 className="rc-drawer__title">Ứng theo {request.ma}</h2>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
-              {request.dieu_chuyen && <DieuChuyenPill />}
               {/* Không badge "Chờ ghi sổ" nữa: tạo = ghi sổ ngay (create & post gộp 1 quyền). */}
               <button
                 type="button"
