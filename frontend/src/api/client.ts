@@ -4285,6 +4285,8 @@ export interface SoGiaRow {
   supplier_name: string;
   supplier_item_id: number;
   unit: string;
+  /** Tên có dấu của đơn vị NCC bán ("thùng", "cái") để hiển thị; null = trùng mã / không tra được. */
+  unit_ten: string | null;
   unit_price: number;
   vat_percent: number;
   /** Giá quy về ĐƠN VỊ GỐC — cột duy nhất so được giữa các NCC. null = không quy đổi được
@@ -5703,6 +5705,13 @@ export interface StockRequest {
   ly_do_huy: string | null;
   // Id phiếu ĐANG CHỜ GHI SỔ (nếu có) → đổi nút "Lập phiếu" thành "Xem phiếu", chống tạo trùng.
   open_voucher_id: number | null;
+  /** ĐIỀU CHUYỂN KHO: yêu cầu NHẬP đích có `kho_nguon_id` ⇒ là YÊU CẦU ĐIỀU CHUYỂN
+   *  (nhãn "Điều chuyển từ «kho_nguon_ten»", phiếu nhập KHOÁ đơn giá). `xuat_voucher_id` =
+   *  phiếu xuất nguồn đã ghi sổ (truy cặp đi–đến). */
+  dieu_chuyen: boolean;
+  kho_nguon_id: number | null;
+  kho_nguon_ten: string | null;
+  xuat_voucher_id: number | null;
   created_at: string;
   /** Lần đổi gần nhất (tạo/cấp/hoàn tất/hủy) — xếp yêu cầu vừa có phản hồi lên đầu. */
   updated_at: string;
@@ -5719,6 +5728,8 @@ export interface StockRequestListParams {
   loai?: StockRequestKind | null;
   trang_thai?: StockRequestStatus[];
   kho_id?: number | null;
+  /** true = CHỈ yêu cầu điều chuyển (tab Điều chuyển) · false = nhập/xuất thường · bỏ = không lọc. */
+  dieu_chuyen?: boolean | null;
   page?: number;
   size?: number;
 }
@@ -5777,6 +5788,8 @@ export interface BaoCaoKhoRow {
   thanh_tien: number | null;
   kho_id: number | null;
   kho_ten: string | null;
+  /** ĐIỀU CHUYỂN nội bộ: gắn nhãn "điều chuyển" + LOẠI khỏi tổng mua/bán ở Tổng quan. */
+  dieu_chuyen: boolean;
 }
 
 export interface BaoCaoKhoPage {
@@ -5790,6 +5803,35 @@ export interface BaoCaoKhoParams {
   kho_id?: number | null;
   loai?: StockRequestKind | null;
   /** Tìm số CT / mã hàng / tên hàng — để "lọc gì = xuất nấy" (cả bảng lẫn file). */
+  q?: string | null;
+}
+
+/** Báo cáo kho — 1 dòng điều chuyển đã ghi sổ (Xuất tại kho → Nhập tại kho). */
+export interface BaoCaoChuyenKhoRow {
+  voucher_id: number;
+  ngay_ghi_so: string | null;
+  ngay_ct: string | null;
+  so_ct: string;
+  ma_hang: string | null;
+  ten_hang: string | null;
+  dvt: string | null;
+  so_luong: number;
+  don_gia_von: number | null;
+  tien_von: number | null;
+  kho_xuat_ten: string | null;
+  kho_nhap_ten: string | null;
+  dien_giai: string | null;
+}
+
+export interface BaoCaoChuyenKhoPage {
+  items: BaoCaoChuyenKhoRow[];
+  total: number;
+}
+
+export interface BaoCaoChuyenKhoParams {
+  tu?: string | null;
+  den?: string | null;
+  kho_id?: number | null;
   q?: string | null;
 }
 
@@ -5990,6 +6032,8 @@ export interface StockVoucher {
   trang_thai: StockVoucherStatus;
   ghi_so_luc: string | null;
   created_at: string;
+  /** ĐIỀU CHUYỂN: true cho cả phiếu xuất nguồn lẫn phiếu nhập đích — FE/báo cáo gắn nhãn. */
+  dieu_chuyen: boolean;
   lines: StockVoucherLine[];
   /** Tổng giá vốn — chỉ có khi `can_view_cost`. */
   gia_von: number | null;
@@ -6047,6 +6091,34 @@ export interface StockVoucherInput {
   lines: StockVoucherLineInput[];
 }
 
+/** 1 mặt hàng cần điều chuyển. `so_luong` theo ĐƠN VỊ GỐC của mặt hàng. */
+export interface DieuChuyenItemInput {
+  hang_loai: HangLoai;
+  hang_id: number;
+  so_luong: number;
+}
+
+/** Ấn ĐIỀU CHUYỂN 1 hay NHIỀU mặt hàng kho nguồn → kho đích (gộp vào MỘT yêu cầu điều chuyển). */
+export interface DieuChuyenInput {
+  kho_nguon_id: number;
+  kho_den_id: number;
+  items: DieuChuyenItemInput[];
+  ghi_chu?: string | null;
+}
+
+/** Kết quả ấn điều chuyển: MỘT yêu cầu điều chuyển (NHẬP đích, nhiều dòng) + phiếu xuất nguồn đã ghi sổ. */
+export interface DieuChuyenResult {
+  yeu_cau_id: number;
+  yeu_cau_ma: string;
+  phieu_xuat_id: number;
+  phieu_xuat_ma: string;
+  kho_nguon_id: number;
+  kho_den_id: number;
+  so_dong: number;
+  /** Tổng giá vốn điều chuyển — null nếu thiếu `can_view_cost`. */
+  gia_von: number | null;
+}
+
 export interface StockLot {
   id: number;
   ma_lo: string;
@@ -6056,8 +6128,9 @@ export interface StockLot {
   hang_ten: string | null;
   /** Ảnh minh hoạ mặt hàng (từ danh mục). Màn Tồn kho gom theo mặt hàng nên chép sẵn vào lô. */
   hang_anh: string | null;
-  /** ĐƠN VỊ GỐC — `sl_ban_dau`/`sl_con_lai` của lô đều theo đơn vị này. */
+  /** ĐƠN VỊ GỐC — `dvt` = MÃ (to/cai…) cho logic/quy đổi; `dvt_ten` = TÊN có dấu (tờ/cái) để hiển thị. */
   dvt: string | null;
+  dvt_ten: string | null;
   kho_id: number;
   vi_tri: string | null;
   ngay_nhap: string;
@@ -9051,7 +9124,7 @@ export const api = {
        *  Badge người tạo = done_unseen + fail_unseen. */
       counts(
         token: string,
-      ): Promise<{ nhap: number; xuat: number; done_unseen: number; fail_unseen: number }> {
+      ): Promise<{ nhap: number; xuat: number; dieu_chuyen: number; done_unseen: number; fail_unseen: number }> {
         return authed("/api/kho/de-nghi/counts", token);
       },
       /** NGƯỜI TẠO mở xem 1 yêu cầu của mình → đánh dấu đã xem → hạ badge/số đỏ đúng yêu cầu đó. */
@@ -9065,6 +9138,7 @@ export const api = {
         // `trang_thai` là list ở backend → lặp param, KHÔNG nối bằng dấu phẩy.
         for (const s of params.trang_thai ?? []) qs.append("trang_thai", s);
         if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        if (params.dieu_chuyen != null) qs.set("dieu_chuyen", String(params.dieu_chuyen));
         if (params.page) qs.set("page", String(params.page));
         if (params.size) qs.set("size", String(params.size));
         const suffix = qs.toString() ? `?${qs.toString()}` : "";
@@ -9148,6 +9222,14 @@ export const api = {
       },
       create(token: string, body: StockVoucherInput): Promise<StockVoucher> {
         return authed<StockVoucher>("/api/kho/phieu", token, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+      },
+      /** Ấn ĐIỀU CHUYỂN: server tự XUẤT nguồn (ghi sổ ngay, trừ tồn, chốt giá vốn bình quân) +
+       *  tạo YÊU CẦU ĐIỀU CHUYỂN (NHẬP) ở đích. Kho đích lập phiếu nhập (đơn giá khoá) như nhập thường. */
+      dieuChuyen(token: string, body: DieuChuyenInput): Promise<DieuChuyenResult> {
+        return authed<DieuChuyenResult>("/api/kho/dieu-chuyen", token, {
           method: "POST",
           body: JSON.stringify(body),
         });
@@ -9288,6 +9370,16 @@ export const api = {
         const q = qs.toString();
         return authed<BaoCaoKhoPage>(`/api/kho/bao-cao/dong${q ? `?${q}` : ""}`, token);
       },
+      /** Dòng ĐIỀU CHUYỂN đã ghi sổ (Xuất tại kho → Nhập tại kho) — cho tab Chuyển kho. */
+      chuyenKho(token: string, params: BaoCaoChuyenKhoParams = {}): Promise<BaoCaoChuyenKhoPage> {
+        const qs = new URLSearchParams();
+        if (params.tu) qs.set("tu", params.tu);
+        if (params.den) qs.set("den", params.den);
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        if (params.q) qs.set("q", params.q);
+        const q = qs.toString();
+        return authed<BaoCaoChuyenKhoPage>(`/api/kho/bao-cao/chuyen-kho${q ? `?${q}` : ""}`, token);
+      },
       khoaSo(token: string): Promise<KhoKhoaSoRow[]> {
         return authed<KhoKhoaSoRow[]>("/api/kho/khoa-so", token);
       },
@@ -9315,6 +9407,28 @@ export const api = {
         if (params.q) qs.set("q", params.q);
         const doFetch = (bearer: string) =>
           fetch(`${BASE_URL}/api/kho/bao-cao/export.xlsx?${qs.toString()}`, {
+            credentials: "include", cache: "no-store", headers: authHeader(bearer),
+          });
+        let resp = await doFetch(token);
+        if (resp.status === 401) {
+          const fresh = await refreshAccessToken();
+          if (fresh) resp = await doFetch(fresh);
+        }
+        if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
+        return URL.createObjectURL(await resp.blob());
+      },
+      /** Xuất Excel ĐIỀU CHUYỂN theo mẫu MISA "Chuyển kho" — fetch as blob (bearer + refresh-aware). */
+      async chuyenKhoExportXlsxBlobUrl(
+        token: string,
+        params: BaoCaoChuyenKhoParams = {},
+      ): Promise<string> {
+        const qs = new URLSearchParams();
+        if (params.tu) qs.set("tu", params.tu);
+        if (params.den) qs.set("den", params.den);
+        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+        if (params.q) qs.set("q", params.q);
+        const doFetch = (bearer: string) =>
+          fetch(`${BASE_URL}/api/kho/bao-cao/chuyen-kho/export.xlsx?${qs.toString()}`, {
             credentials: "include", cache: "no-store", headers: authHeader(bearer),
           });
         let resp = await doFetch(token);

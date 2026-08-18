@@ -8408,6 +8408,38 @@ def _migrate_may_thiet_bi_active(db: Session) -> None:
 
 
 MIGRATIONS.append(("0202_may_thiet_bi_active", _migrate_may_thiet_bi_active))
+
+
+def _migrate_dieu_chuyen_kho(db) -> None:
+    """Điều chuyển kho (mô hình 2 yêu cầu) — thêm cột đánh dấu/nối, KHÔNG đụng CheckConstraint loai
+    (phiếu vẫn NHAP/XUAT) nên KHÔNG cần dựng lại bảng. Toàn ALTER ADD nullable / default → no-op DB
+    fresh / cột đã có.
+
+    - `stock_requests.dieu_chuyen` (bool) — cả yêu cầu XUẤT nguồn lẫn NHẬP đích của một điều chuyển.
+    - `stock_requests.kho_nguon_id` (int) — trên yêu cầu NHẬP đích: kho nguồn (hiện "Điều chuyển từ …").
+    - `stock_requests.xuat_voucher_id` (int) — trên yêu cầu NHẬP đích: phiếu xuất nguồn đã ghi sổ.
+    - `stock_vouchers.dieu_chuyen` (bool) — cả phiếu xuất nguồn lẫn nhập đích (báo cáo gắn nhãn).
+    """
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "stock_requests" in tables:
+        cols = _existing_columns(insp, "stock_requests")
+        if "dieu_chuyen" not in cols:
+            db.execute(text(
+                "ALTER TABLE stock_requests ADD COLUMN dieu_chuyen BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+        if "kho_nguon_id" not in cols:
+            db.execute(text("ALTER TABLE stock_requests ADD COLUMN kho_nguon_id INTEGER"))
+        if "xuat_voucher_id" not in cols:
+            db.execute(text("ALTER TABLE stock_requests ADD COLUMN xuat_voucher_id INTEGER"))
+    if "stock_vouchers" in tables and "dieu_chuyen" not in _existing_columns(insp, "stock_vouchers"):
+        db.execute(text(
+            "ALTER TABLE stock_vouchers ADD COLUMN dieu_chuyen BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    db.commit()
+
+
+MIGRATIONS.append(("0203_dieu_chuyen_kho", _migrate_dieu_chuyen_kho))
 def _migrate_attendance_period_standard_cong(db) -> None:
     """Thêm `attendance_periods.standard_cong` — CÔNG CHUẨN đóng băng lúc chốt kỳ công.
 

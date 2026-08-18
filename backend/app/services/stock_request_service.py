@@ -130,6 +130,43 @@ class StockRequestService:
         self._notif_kho_moi(req)  # lưu vào chuông thủ kho
         return req
 
+    def create_dieu_chuyen(self, *, user, loai: str, kho_id: int, lines: list[dict],
+                           dieu_chuyen: bool = True, kho_nguon_id: int | None = None,
+                           xuat_voucher_id: int | None = None, ghi_chu: str | None = None,
+                           notify: bool = False) -> StockRequest:
+        """Tạo yêu cầu cho ĐIỀU CHUYỂN KHO (mô hình 2 yêu cầu — spec-dieu-chuyen-kho §4).
+
+        Nhận NHIỀU dòng (điều chuyển hàng loạt gộp vào 1 yêu cầu). Dùng cho CẢ HAI vế: vế XUẤT ở kho
+        nguồn (nội bộ, `notify=False`) và vế NHẬP ở kho đích (yêu cầu điều chuyển thấy được,
+        `notify=True`). Tạo là DUYỆT LUÔN (giống `create`): `sl_duyet = sl_de_nghi`, trạng thái
+        `approved` để lập phiếu được ngay. `_validate_lines` vẫn chạy (mặt hàng có thật + đơn vị
+        quy được về gốc + không trùng mặt hàng)."""
+        if loai not in REQUEST_KINDS:
+            raise StockRequestError("Loại yêu cầu không hợp lệ (chỉ NHAP hoặc XUAT).")
+        self._validate_lines(lines)
+        doc_type = (
+            SEQ_DOC_TYPE_STOCK_REQUEST_IN if loai == REQ_NHAP
+            else SEQ_DOC_TYPE_STOCK_REQUEST_OUT
+        )
+        req = self.requests.create(
+            ma=self.sequence.generate_flat_code(doc_type), loai=loai,
+            nguoi_tao_id=user.id, lines=lines,
+            bo_phan_id=user.department_id, kho_id=kho_id, ghi_chu=ghi_chu,
+            dieu_chuyen=dieu_chuyen, kho_nguon_id=kho_nguon_id, xuat_voucher_id=xuat_voucher_id,
+        )
+        for ln in req.lines:
+            ln.sl_duyet = ln.sl_de_nghi
+        req.trang_thai = REQ_APPROVED
+        req.nguoi_duyet_id = user.id
+        req.duyet_luc = datetime.now(timezone.utc)
+        req = self.requests.save(req)
+        # Vế NHẬP đích = yêu cầu điều chuyển THẤY ĐƯỢC → báo kho như yêu cầu mới. Vế XUẤT nguồn là
+        # bút toán nội bộ (tự lập + ghi sổ ngay) → im lặng, khỏi spam "yêu cầu xuất mới chờ cấp".
+        if notify:
+            self._notify(req, "Yêu cầu điều chuyển mới — chờ nhập kho", targeted=False)
+            self._notif_kho_moi(req)
+        return req
+
     def update(self, req: StockRequest, *, lines: list[dict] | None = None, **header) -> StockRequest:
         self._require_editable(req)
         if lines is not None:
@@ -296,6 +333,10 @@ class StockRequestService:
     def mark_in_progress(self, req: StockRequest) -> StockRequest:
         """LẬP PHIẾU (nháp) cho yêu cầu → rời 'Cần cấp' sang 'Đang cấp' (Đang chuẩn bị). Idempotent:
         chỉ đẩy khi còn approved/received; partial/done/preparing giữ nguyên. Gọi từ voucher.create."""
+        # Vế XUẤT nguồn của điều chuyển: phiếu tự lập + ghi sổ ngay trong 1 nhịp → bỏ qua bước
+        # 'đang chuẩn bị' và toast của nó (bút toán nội bộ, không phải việc kho phải theo dõi).
+        if getattr(req, "dieu_chuyen", False) and req.loai == REQ_XUAT:
+            return req
         if req.trang_thai in (REQ_APPROVED, REQ_RECEIVED):
             req.trang_thai = REQ_PREPARING
             req = self.requests.save(req)
@@ -470,6 +511,10 @@ class StockRequestService:
         elif any_issued:
             req.trang_thai = REQ_PARTIAL
         req = self.requests.save(req)
+        # Vế XUẤT nguồn của điều chuyển: chốt trạng thái (Hoàn tất) nhưng KHÔNG đẩy toast/chuông —
+        # người ấn điều chuyển không cần thông báo "yêu cầu xuất đã hoàn tất" cho bút toán nội bộ.
+        if getattr(req, "dieu_chuyen", False) and req.loai == REQ_XUAT:
+            return req
         self._notify(req, "Hoàn tất yêu cầu" if done else "Kho đã cấp một phần")
         if done:  # chỉ báo chuông khi ĐỦ (hoàn tất); cấp một phần chưa phải kết quả cuối
             self._notif_nguoi_tao(req, loai="kho_hoan_tat", tieu_de="Yêu cầu đã hoàn tất")

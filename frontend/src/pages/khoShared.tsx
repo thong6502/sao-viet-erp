@@ -2,7 +2,7 @@
 // Hai màn nhìn cùng một chứng từ ở hai đầu luồng nên nhãn/màu trạng thái phải khớp tuyệt
 // đối; để mỗi màn tự khai một bảng là kiểu gì cũng lệch sau vài lần sửa.
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import type { StockRequestStatus, StockVoucherStatus } from "../api/client";
+import type { StockRequestKind, StockRequestStatus, StockVoucherStatus } from "../api/client";
 import "./kho-request.css";
 
 interface Tone {
@@ -40,6 +40,45 @@ export function RequestStatusBadge({ status }: { status: StockRequestStatus }) {
 export function VoucherStatusBadge({ status }: { status: StockVoucherStatus }) {
   const s = VOUCHER_STATUS[status] ?? { label: status, tone: "muted" };
   return <span className={`badge-sem badge-sem--${s.tone}`}>{s.label}</span>;
+}
+
+/** Nhãn ĐIỀU CHUYỂN — dán lên yêu cầu điều chuyển (NHẬP ở đích) để phân biệt với nhập/xuất thường.
+ *  Kèm tên kho nguồn khi có ("Điều chuyển từ «kho»"). Dùng chung ở Hộp yêu cầu · Yêu cầu · drawer. */
+export function DieuChuyenPill({ khoNguonTen }: { khoNguonTen?: string | null }) {
+  return (
+    <span
+      className="badge-sem badge-sem--steel"
+      title={khoNguonTen ? `Điều chuyển từ ${khoNguonTen}` : "Điều chuyển nội bộ"}
+    >
+      ⇄ Điều chuyển{khoNguonTen ? ` · từ ${khoNguonTen}` : ""}
+    </span>
+  );
+}
+
+/** Chip LOẠI yêu cầu — cột "Loại" ở danh sách Yêu cầu / Phiếu từ yêu cầu: Nhập · Xuất · Điều chuyển.
+ *  `dieuChuyen` ưu tiên (yêu cầu điều chuyển vốn là NHẬP ở đích, nhưng hiển thị là "Điều chuyển"). */
+export function LoaiYeuCauChip({ loai, dieuChuyen }: { loai: StockRequestKind; dieuChuyen?: boolean }) {
+  if (dieuChuyen) return <span className="badge-sem badge-sem--steel">Điều chuyển</span>;
+  return loai === "NHAP" ? (
+    <span className="badge-sem badge-sem--moss">Nhập</span>
+  ) : (
+    <span className="badge-sem badge-sem--rust">Xuất</span>
+  );
+}
+
+/** Gắn `title` (tooltip trình duyệt) cho MỌI `<th>` của bảng = chính chữ tiêu đề cột → hover ra tên
+ *  cột đầy đủ dù cột bị cắt (vd "Mặt hàng / Tổng"). Trả ref gắn vào `<table>`. Không đè title có sẵn
+ *  (vd cột phễu ngày/số đã có mô tả riêng). Chạy sau mỗi render vì số cột có thể đổi (ẩn/hiện theo quyền). */
+export function useHeaderTitles<T extends HTMLElement = HTMLTableElement>() {
+  const ref = useRef<T>(null);
+  useEffect(() => {
+    // Gắn cho MỌI `<th>` trong phạm vi ref (đặt ref ở `<table>` hoặc bọc cả `<main>` để phủ nhiều bảng).
+    ref.current?.querySelectorAll<HTMLTableCellElement>("thead th").forEach((th) => {
+      const t = (th.textContent || "").trim();
+      if (t && !th.hasAttribute("title")) th.setAttribute("title", t);
+    });
+  });
+  return ref;
 }
 
 /** Số lượng: bỏ đuôi .00 (phiếu giấy không ai ghi "10,00 tờ"), tối đa 3 số lẻ. */
@@ -121,7 +160,7 @@ export function DateFilterHead({
         title="Bấm để lọc theo khoảng ngày"
       >
         {label}
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
         </svg>
         {active && <span className="kho-colfil__dot" />}
@@ -199,7 +238,7 @@ export function NumFilterHead({
         title="Bấm để lọc theo khoảng số"
       >
         {label}
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
         </svg>
         {active && <span className="kho-colfil__dot" />}

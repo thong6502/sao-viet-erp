@@ -4454,7 +4454,9 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 
 - Một đề nghị có nhiều `stock_request_lines` (cascade delete-orphan) và được nhiều `stock_vouchers` ứng vào.
 
-**Tất cả cột:** `id`, `ma`, `loai`, `nguoi_tao_id`, `bo_phan_id`, `kho_id`, `ngay_can`, `uu_tien`, `ghi_chu`, `loai_kho`, `purchase_delivery_id`, `trang_thai`, `nguoi_duyet_id`, `duyet_luc`, `ly_do_tu_choi`, `ly_do_huy`, `quyet_dinh_xem_luc`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `loai`, `nguoi_tao_id`, `bo_phan_id`, `kho_id`, `ngay_can`, `uu_tien`, `ghi_chu`, `loai_kho`, `purchase_delivery_id`, `dieu_chuyen`, `kho_nguon_id`, `xuat_voucher_id`, `trang_thai`, `nguoi_duyet_id`, `duyet_luc`, `ly_do_tu_choi`, `ly_do_huy`, `quyet_dinh_xem_luc`, `created_at`, `updated_at`.
+
+`dieu_chuyen`/`kho_nguon_id`/`xuat_voucher_id` (mig 0203) — ĐIỀU CHUYỂN KHO (2 yêu cầu): ấn điều chuyển sinh CẶP yêu cầu — XUẤT ở nguồn (tự lập + ghi sổ ngay, trừ tồn) và NHẬP ở đích (chờ nhận). Cả hai `dieu_chuyen=true`. Yêu cầu NHẬP đích: `kho_nguon_id` = kho nguồn (hiện "Điều chuyển từ …"); `xuat_voucher_id` = phiếu xuất nguồn đã ghi sổ (soft ref); dòng `don_gia` = giá vốn chốt từ nguồn (phiếu nhập đích khoá đơn giá). Phiếu vẫn NHAP/XUAT — không đổi CheckConstraint.
 
 ---
 
@@ -4591,7 +4593,9 @@ không phải toàn cục — bản PDF có dấu là của đúng bản đó.
 
 - Một phiếu có nhiều `stock_voucher_lines` và nhiều `stock_voucher_attachments` (cả hai cascade delete-orphan). Phiếu NHẬP khi ghi sổ sinh ra `stock_lots`.
 
-**Tất cả cột:** `id`, `ma`, `loai`, `request_id`, `kho_id`, `ngay`, `nguoi_lap_id`, `nguoi_giao_nhan`, `ghi_chu`, `trang_thai`, `ghi_so_luc`, `nguoi_ghi_so_id`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `loai`, `request_id`, `kho_id`, `dieu_chuyen`, `ngay`, `nguoi_lap_id`, `nguoi_giao_nhan`, `ghi_chu`, `trang_thai`, `ghi_so_luc`, `nguoi_ghi_so_id`, `created_at`, `updated_at`.
+
+`dieu_chuyen` (mig 0203) — bật cho CẢ phiếu xuất nguồn LẪN phiếu nhập đích của một điều chuyển; báo cáo kho gắn nhãn "điều chuyển" + LOẠI khỏi tổng mua/bán. Phiếu vẫn NHAP/XUAT (không đổi CheckConstraint).
 
 ---
 
