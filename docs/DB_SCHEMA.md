@@ -189,6 +189,10 @@ gets on that module.
 | `can_manage_locations` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (cham_cong, mg 0194) — tab **Điểm chấm công**. Tách từ `can_update` ("Cấu hình chấm công") vốn mở một lúc ba tab. |
 | `can_manage_shifts` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (cham_cong, mg 0194) — tab **Khai ca**. Tách từ `can_update`. |
 | `can_manage_calendar` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (cham_cong, mg 0194) — tab **Lịch & Ngày lễ**. Tách từ `can_update`. |
+| `can_view_payroll_table` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (luong, mg 0195) — tab **Bảng lương tháng**: danh sách lương cả phạm vi kèm nút Tính lại · Chốt kỳ · Đánh dấu đã chi. Công cụ QUẢN LÝ, cùng hạng với `can_view_timesheet` bên Chấm công. Trước 15/08/2026 nó đi theo `can_read`, nên cấp ô Lương ở phạm vi *Của tôi* là thợ vẫn mở được bảng lương. |
+| `can_manage_salary_profiles` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (luong, mg 0196) — tab **Lương nhân viên** (hồ sơ lương từng người). Tách khỏi cột Thao tác: cột đó nay chỉ cho GHI, không mở tab nào. |
+| `can_manage_piece_rates` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (luong, mg 0196) — tab **Lương khoán** (đơn giá khoán theo tổ/công việc). Tách khỏi cột Thao tác. |
+| `can_manage_leave_types` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (nghi_phep, mg 0197) — **danh mục loại nghỉ** (phép năm, nghỉ ốm, không lương…), chính sách dùng chung cả công ty. Trước đó nó mượn chính cột `can_update`, mà `can_update` là một trong ba cột nút *Thao tác* bật cùng lúc ⇒ bật Thao tác là ô này TỰ SÁNG THEO, mở luôn quyền sửa chính sách nghỉ của cả nhà máy. |
 
 **Keys & indexes**
 
