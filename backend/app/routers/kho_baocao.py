@@ -35,6 +35,8 @@ from ..repositories.user_repo import UserRepository
 from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..services.vat_lieu_kho_service import VatLieuKhoService
 from ..schemas.stock import (
+    BaoCaoChuyenKhoPage,
+    BaoCaoChuyenKhoRow,
     BaoCaoKhoPage,
     BaoCaoKhoRow,
     KhoaSoKyRow,
@@ -114,6 +116,7 @@ def _report_rows(
             thanh_tien=round(price * qty) if price is not None else None,
             kho_id=v.kho_id,
             kho_ten=getattr(kho, "ten", None),
+            dieu_chuyen=bool(getattr(v, "dieu_chuyen", False)),
         )
         if ql and not any(
             ql in (val or "").lower() for val in (row.so_ct, row.ma_hang, row.ten_hang)
@@ -135,6 +138,91 @@ def bao_cao_dong(
 ) -> BaoCaoKhoPage:
     rows = _report_rows(db, tu=tu, den=den, kho_id=kho_id, loai=loai, q=q)
     return BaoCaoKhoPage(items=rows, total=len(rows))
+
+
+# --- Điều chuyển kho: 1 dòng/mặt hàng (Xuất tại kho → Nhập tại kho) --------------
+
+def _chuyen_kho_rows(
+    db: Session, *, tu: date | None, den: date | None, kho_id: int | None, q: str | None = None,
+) -> list[BaoCaoChuyenKhoRow]:
+    """Dòng điều chuyển ĐÃ GHI SỔ: mỗi dòng phiếu NHẬP đích (đại diện điều chuyển) → gộp kho nguồn
+    (Xuất tại kho) + kho đích (Nhập tại kho) trên cùng 1 dòng, giá vốn chốt từ nguồn."""
+    ql = (q or "").strip().lower()
+    stmt = (
+        select(StockVoucher, StockVoucherLine, StockRequest, KhoHang)
+        .join(StockVoucherLine, StockVoucherLine.voucher_id == StockVoucher.id)
+        .join(StockRequest, StockRequest.id == StockVoucher.request_id, isouter=True)
+        .join(KhoHang, KhoHang.id == StockVoucher.kho_id, isouter=True)  # kho ĐÍCH (nhập về)
+        .where(
+            StockVoucher.trang_thai == VOUCHER_POSTED,
+            StockVoucher.dieu_chuyen.is_(True),
+            StockVoucher.loai == VOUCHER_NHAP,  # vế NHẬP đích = đại diện cho cả điều chuyển
+        )
+        .order_by(StockVoucher.ghi_so_luc, StockVoucher.id, StockVoucherLine.id)
+    )
+    results = db.execute(stmt).all()
+    # Tên kho NGUỒN (Xuất tại kho) tra từ `stock_requests.kho_nguon_id` — 1 lượt, tránh N+1.
+    kho_repo = KhoHangRepository(db)
+    nguon_map = {
+        kid: getattr(kho_repo.get(kid), "ten", None)
+        for kid in {req.kho_nguon_id for _v, _ln, req, _k in results if req and req.kho_nguon_id}
+    }
+    hang_svc = VatLieuKhoService(VatLieuKhoRepository(db), DonViDoRepository(db))
+    hang_map = hang_svc.map_theo_cap(
+        list({(ln.hang_loai, ln.hang_id) for _v, ln, _req, _k in results})
+    )
+    dv_ten = {d.ma: d.ten for d in DonViDoRepository(db).all_active()}
+
+    rows: list[BaoCaoChuyenKhoRow] = []
+    for v, ln, req, kho in results:
+        mh = hang_map.get((ln.hang_loai, ln.hang_id))
+        d = v.ghi_so_luc.date() if v.ghi_so_luc else None
+        if tu and (d is None or d < tu):
+            continue
+        if den and (d is None or d > den):
+            continue
+        nguon_id = getattr(req, "kho_nguon_id", None) if req else None
+        # Lọc theo kho: giữ điều chuyển LIÊN QUAN kho này (xuất khỏi hoặc nhập vào).
+        if kho_id and kho_id not in (v.kho_id, nguon_id):
+            continue
+        # SL · đơn giá vốn theo ĐƠN VỊ GỐC (khớp tồn + cách tính nhập): don_gia quy về đv gốc.
+        qty = float(ln.sl_goc or 0)
+        so = float(ln.so_luong or 0)
+        price = round(float(ln.don_gia) * so / qty) if (qty and ln.don_gia is not None) else None
+        row = BaoCaoChuyenKhoRow(
+            voucher_id=v.id,
+            ngay_ghi_so=d,
+            ngay_ct=v.ngay,
+            so_ct=v.ma,
+            ma_hang=getattr(mh, "ma", None),
+            ten_hang=getattr(mh, "ten", None),
+            dvt=dv_ten.get(getattr(mh, "don_vi_gia", None), getattr(mh, "don_vi_gia", None)),
+            so_luong=qty,
+            don_gia_von=price,
+            tien_von=round(price * qty) if price is not None else None,
+            kho_xuat_ten=nguon_map.get(nguon_id),
+            kho_nhap_ten=getattr(kho, "ten", None),
+            dien_giai=v.ghi_chu or (req.ghi_chu if req else None),
+        )
+        if ql and not any(
+            ql in (val or "").lower() for val in (row.so_ct, row.ma_hang, row.ten_hang)
+        ):
+            continue
+        rows.append(row)
+    return rows
+
+
+@router.get("/bao-cao/chuyen-kho", response_model=BaoCaoChuyenKhoPage)
+def bao_cao_chuyen_kho(
+    db: Db,
+    _: CloseBookUser,
+    tu: date | None = Query(default=None),
+    den: date | None = Query(default=None),
+    kho_id: int | None = Query(default=None),
+    q: str | None = Query(default=None),
+) -> BaoCaoChuyenKhoPage:
+    rows = _chuyen_kho_rows(db, tu=tu, den=den, kho_id=kho_id, q=q)
+    return BaoCaoChuyenKhoPage(items=rows, total=len(rows))
 
 
 # --- Khóa kỳ (chốt sổ) ---------------------------------------------------------
@@ -308,6 +396,38 @@ def _map_xuat(r: BaoCaoKhoRow) -> dict:
     }
 
 
+# Cột đúng thứ tự mẫu MISA "Chuyển kho" (Copy of Mau_chuyen_kho.xls — 36 cột).
+_CHUYEN_HEADERS = [
+    "Hiển thị trên sổ", "Hình thức chuyển kho", "Ngày chứng từ (*)", "Ngày hạch toán (*)",
+    "Số chứng từ (*)", "Mẫu số hóa đơn", "Ký hiệu HĐ", "Hợp đồng KT số/Lệnh điều động", "Ngày",
+    "Của", "Về việc/Diễn giải", "Đại lý/Đơn vị nhận", "Tên đại lý/Tên đơn vị nhận",
+    "Mã số thuế đại lý/đơn vị nhận", "Người vận chuyển", "Tên người VC", "Hợp đồng số",
+    "Phương tiện VC", "Mã hàng (*)", "Tên hàng", "Xuất tại kho (*)", "Địa chỉ kho xuất",
+    "Nhập tại kho (*)", "Địa chỉ kho nhập", "Hàng hóa giữ hộ/bán hộ", "TK Nợ (*)", "TK Có (*)",
+    "ĐVT", "Số lượng", "Đơn giá bán", "Thành tiền", "Đơn giá vốn", "Tiền vốn", "Số lô",
+    "Hạn sử dụng", "Mã thống kê",
+]
+
+
+def _map_chuyen(r: BaoCaoChuyenKhoRow) -> dict:
+    # CHỈ fill cột có sẵn dữ liệu (Xuất/Nhập tại kho, mặt hàng, SL, giá vốn); còn lại để TRỐNG cho
+    # kế toán tự khai trong Excel/MISA ("Hình thức chuyển kho", đối tượng, vận chuyển, TK…).
+    return {
+        "Ngày chứng từ (*)": _fmt_date(r.ngay_ct),
+        "Ngày hạch toán (*)": _fmt_date(r.ngay_ghi_so),
+        "Số chứng từ (*)": r.so_ct,
+        "Về việc/Diễn giải": r.dien_giai,
+        "Mã hàng (*)": r.ma_hang,
+        "Tên hàng": r.ten_hang,
+        "Xuất tại kho (*)": r.kho_xuat_ten,
+        "Nhập tại kho (*)": r.kho_nhap_ten,
+        "ĐVT": r.dvt,
+        "Số lượng": r.so_luong,
+        "Đơn giá vốn": r.don_gia_von,
+        "Tiền vốn": r.tien_von,
+    }
+
+
 # Mẫu Excel MISA (đã chuyển .xls→.xlsx, GIỮ màu cột + gợi ý (data-validation) + độ rộng + freeze).
 # Header ở dòng 1; data ghi từ dòng 2. Xem backend/app/templates/kho/.
 _TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates" / "kho"
@@ -367,4 +487,54 @@ def export_bao_cao(
         content=content,
         media_type=_XLSX_MEDIA,
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+def _build_chuyen_xlsx(rows: list[BaoCaoChuyenKhoRow]) -> bytes:
+    """Export điều chuyển theo mẫu MISA 'Chuyển kho' — chỉ fill cột có dữ liệu, còn lại để trống."""
+    from openpyxl import Workbook, load_workbook
+    from openpyxl.styles import Font
+
+    template = _TEMPLATE_DIR / "chuyen_kho.xlsx"
+    if template.exists():
+        wb = load_workbook(template)
+        ws = wb.active
+    else:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Chuyển kho"
+        ws.append(_CHUYEN_HEADERS)
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+    for i, r in enumerate(rows):
+        vals = _map_chuyen(r)
+        for ci, h in enumerate(_CHUYEN_HEADERS, start=1):
+            v = vals.get(h)
+            if v is None:
+                continue
+            cell = ws.cell(row=2 + i, column=ci, value=v)
+            if h in _MONEY_COLS:
+                cell.number_format = "#,##0"
+            elif h in _QTY_COLS:
+                cell.number_format = "#,##0.###"
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@router.get("/bao-cao/chuyen-kho/export.xlsx")
+def export_chuyen_kho(
+    db: Db,
+    _: CloseBookUser,
+    tu: date | None = Query(default=None),
+    den: date | None = Query(default=None),
+    kho_id: int | None = Query(default=None),
+    q: str | None = Query(default=None),
+) -> Response:
+    rows = _chuyen_kho_rows(db, tu=tu, den=den, kho_id=kho_id, q=q)
+    content = _build_chuyen_xlsx(rows)
+    return Response(
+        content=content,
+        media_type=_XLSX_MEDIA,
+        headers={"Content-Disposition": 'attachment; filename="bao-cao-kho-chuyen-kho.xlsx"'},
     )

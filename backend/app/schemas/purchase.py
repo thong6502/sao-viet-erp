@@ -130,7 +130,8 @@ class SoGiaRow(BaseModel):
     supplier_id: int
     supplier_name: str
     supplier_item_id: int
-    unit: str                 # đơn vị NCC bán (ram, thùng…)
+    unit: str                 # MÃ đơn vị NCC bán (ram, thung, cai…)
+    unit_ten: str | None = None  # TÊN có dấu để hiển thị ("thùng", "cái"); None = trùng mã / không tra được
     unit_price: int           # giá theo đơn vị đó
     vat_percent: float
     # Giá quy về ĐƠN VỊ GỐC của mặt hàng — cột duy nhất so được giữa các NCC. None = không quy

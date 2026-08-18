@@ -165,6 +165,8 @@ app.include_router(bien_cong_thuc.router)
 app.include_router(kho_request.router)
 app.include_router(kho_voucher.router)
 app.include_router(kho_voucher.threshold_router)
+# Điều chuyển kho: /api/kho/dieu-chuyen — path RIÊNG, đăng ký TRƯỚC kho.router (path 1 đoạn).
+app.include_router(kho_voucher.dieu_chuyen_router)
 # Báo cáo kho (kế toán): /api/kho/bao-cao/* + /api/kho/khoa-so — TRƯỚC kho.router (path 1 đoạn).
 app.include_router(kho_baocao.router)
 app.include_router(notifications.router)

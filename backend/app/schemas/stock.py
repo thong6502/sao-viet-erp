@@ -136,6 +136,13 @@ class StockRequestOut(BaseModel):
     updated_at: datetime
     # Id phiếu ĐANG CHỜ GHI SỔ (nếu có) — FE đổi nút "Lập phiếu" thành "Xem phiếu", chống tạo trùng.
     open_voucher_id: int | None = None
+    # ĐIỀU CHUYỂN KHO (mig 0203): yêu cầu NHẬP đích có `kho_nguon_id` ⇒ là YÊU CẦU ĐIỀU CHUYỂN
+    # (FE hiện nhãn "Điều chuyển từ «kho_nguon_ten»", đơn giá phiếu nhập khoá). `xuat_voucher_id` =
+    # phiếu xuất nguồn đã ghi sổ (truy cặp đi–đến).
+    dieu_chuyen: bool = False
+    kho_nguon_id: int | None = None
+    kho_nguon_ten: str | None = None
+    xuat_voucher_id: int | None = None
     lines: list[StockRequestLineOut] = []
 
 
@@ -163,10 +170,37 @@ class BaoCaoKhoRow(BaseModel):
     thanh_tien: float | None = None
     kho_id: int | None = None
     kho_ten: str | None = None
+    # ĐIỀU CHUYỂN nội bộ (mig 0203): FE gắn nhãn "điều chuyển" + LOẠI dòng này khỏi tổng mua/bán
+    # ở Tổng quan (chỉ tính luân chuyển từng kho, không thổi phồng "mua/bán trong kỳ").
+    dieu_chuyen: bool = False
 
 
 class BaoCaoKhoPage(BaseModel):
     items: list[BaoCaoKhoRow]
+    total: int
+
+
+class BaoCaoChuyenKhoRow(BaseModel):
+    """1 dòng hàng của MỘT điều chuyển ĐÃ GHI SỔ — cho màn Báo cáo kho (tab Chuyển kho) + export
+    theo mẫu MISA 'Chuyển kho' (Xuất tại kho → Nhập tại kho trên cùng 1 dòng)."""
+
+    voucher_id: int                       # phiếu NHẬP đích (đại diện điều chuyển)
+    ngay_ghi_so: date | None = None       # = ngày hạch toán (MISA)
+    ngay_ct: date | None = None           # = ngày chứng từ (ngày lập phiếu nhập đích)
+    so_ct: str                            # = số chứng từ (mã phiếu nhập đích)
+    ma_hang: str | None = None
+    ten_hang: str | None = None
+    dvt: str | None = None
+    so_luong: float
+    don_gia_von: int | None = None        # giá vốn chốt từ nguồn (đ/đơn vị gốc)
+    tien_von: float | None = None
+    kho_xuat_ten: str | None = None       # Xuất tại kho = kho nguồn
+    kho_nhap_ten: str | None = None       # Nhập tại kho = kho đích
+    dien_giai: str | None = None          # ghi chú điều chuyển
+
+
+class BaoCaoChuyenKhoPage(BaseModel):
+    items: list[BaoCaoChuyenKhoRow]
     total: int
 
 
@@ -299,6 +333,9 @@ class StockVoucherOut(BaseModel):
     trang_thai: str
     ghi_so_luc: datetime | None = None
     created_at: datetime
+    # ĐIỀU CHUYỂN KHO (mig 0203): true cho cả phiếu xuất nguồn lẫn phiếu nhập đích — FE/báo cáo
+    # gắn nhãn "điều chuyển"; báo cáo loại khỏi tổng mua/bán.
+    dieu_chuyen: bool = False
     lines: list[StockVoucherLineOut] = []
     # Tổng giá vốn — chỉ có khi `can_view_cost`.
     gia_von: int | None = None
@@ -307,6 +344,51 @@ class StockVoucherOut(BaseModel):
 class StockVoucherPage(BaseModel):
     items: list[StockVoucherOut]
     total: int
+
+
+# --- Điều chuyển kho (spec-dieu-chuyen-kho) ---------------------------------
+
+class DieuChuyenItemIn(BaseModel):
+    """1 mặt hàng cần điều chuyển. `so_luong` theo ĐƠN VỊ GỐC của mặt hàng."""
+
+    hang_loai: str = Field(pattern="^(giay|vat_tu)$")
+    hang_id: int = Field(gt=0)
+    so_luong: float = Field(gt=0)
+
+
+class DieuChuyenIn(BaseModel):
+    """Ấn ĐIỀU CHUYỂN 1 HAY NHIỀU mặt hàng kho nguồn → kho đích (gộp vào MỘT yêu cầu điều chuyển)."""
+
+    kho_nguon_id: int
+    kho_den_id: int
+    items: list[DieuChuyenItemIn] = Field(min_length=1)
+    ghi_chu: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def _valid(self) -> "DieuChuyenIn":
+        if self.kho_nguon_id == self.kho_den_id:
+            raise ValueError("Kho nguồn và kho đích phải khác nhau.")
+        seen: set[tuple[str, int]] = set()
+        for it in self.items:
+            key = (it.hang_loai, it.hang_id)
+            if key in seen:
+                raise ValueError("Một mặt hàng chỉ được điều chuyển 1 dòng — gộp số lượng lại.")
+            seen.add(key)
+        return self
+
+
+class DieuChuyenOut(BaseModel):
+    """Kết quả ấn điều chuyển: MỘT yêu cầu điều chuyển (NHẬP đích, nhiều dòng) + phiếu xuất nguồn đã ghi sổ."""
+
+    yeu_cau_id: int
+    yeu_cau_ma: str
+    phieu_xuat_id: int
+    phieu_xuat_ma: str
+    kho_nguon_id: int
+    kho_den_id: int
+    so_dong: int
+    # Tổng giá vốn điều chuyển (Σ theo từng mặt hàng) — router XÓA khi thiếu `can_view_cost`.
+    gia_von: int | None = None
 
 
 class StockVoucherAttachmentOut(BaseModel):
@@ -344,8 +426,10 @@ class StockLotOut(BaseModel):
     hang_ten: str | None = None
     # Ảnh minh hoạ mặt hàng (từ danh mục) — màn Tồn kho gom theo mặt hàng nên chép sẵn vào lô.
     hang_anh: str | None = None
-    # ĐƠN VỊ GỐC của mặt hàng — `sl_ban_dau`/`sl_con_lai` của lô đều theo đơn vị này.
+    # ĐƠN VỊ GỐC của mặt hàng — `sl_ban_dau`/`sl_con_lai` của lô đều theo đơn vị này. `dvt` = MÃ
+    # (to/cai/kem…), `dvt_ten` = TÊN có dấu (tờ/cái/bản kẽm) để HIỂN THỊ. Mã giữ cho logic/quy đổi.
     dvt: str | None = None
+    dvt_ten: str | None = None
     kho_id: int
     vi_tri: str | None = None
     ngay_nhap: date

@@ -17,6 +17,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -24,6 +25,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,6 +60,11 @@ class StockVoucher(Base):
     )
     kho_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("kho_hang.id"), index=True, nullable=False
+    )
+    # ĐIỀU CHUYỂN nội bộ: bật cho CẢ phiếu xuất nguồn LẪN phiếu nhập đích của một điều chuyển. Báo
+    # cáo kho dùng để gắn nhãn "điều chuyển" + LOẠI khỏi tổng mua/bán. Thêm qua mig 0203.
+    dieu_chuyen: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
     )
     ngay: Mapped[date] = mapped_column(Date, nullable=False)
     nguoi_lap_id: Mapped[int] = mapped_column(

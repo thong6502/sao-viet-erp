@@ -5,7 +5,7 @@
 //   • CHIỀU:  Nhập · Xuất            (khoá chiều cho màn con qua prop `loai`)
 //
 // Không tách bảng DB — vẫn 1 bảng `stock_requests`/`stock_vouchers` cột `loai`, chỉ lọc theo
-// chiều. `key={loai}` để đổi chiều là remount màn con với state sạch (khỏi lẫn dữ liệu 2 chiều).
+// chiều. `key={chieu}` để đổi chiều là remount màn con với state sạch (khỏi lẫn dữ liệu 3 chiều).
 import { useCallback, useEffect, useState } from "react";
 import type { StockRequestKind } from "../api/client";
 import { useCan } from "../auth/permissions";
@@ -15,6 +15,8 @@ import "./rebuild-catalog.css";
 import "./kho-request.css";
 
 type FnTab = "denghi" | "yeucau";
+// CHIỀU: Nhập · Xuất · Điều chuyển (điều chuyển = yêu cầu NHẬP ở đích, tách tab riêng để khỏi lẫn).
+type Chieu = StockRequestKind | "DIEU_CHUYEN";
 
 export function KhoPage({
   eventTick = 0,
@@ -26,9 +28,9 @@ export function KhoPage({
   eventTick?: number;
   /** Điều hướng từ "Nhập kho" (đợt giao đơn mua) → ép về tab Yêu cầu · Nhập, mở sẵn form đã điền. */
   nhapSeed?: KhoNhapSeed | null;
-  /** Số yêu cầu ĐÃ DUYỆT chờ cấp theo chiều (badge Nhập/Xuất) + phản hồi kho chưa xem của người tạo
-   *  (done_unseen=Hoàn tất, fail_unseen=Không thành). */
-  counts?: { nhap: number; xuat: number; done_unseen: number; fail_unseen: number };
+  /** Số yêu cầu ĐÃ DUYỆT chờ cấp theo chiều (badge Nhập/Xuất/Điều chuyển) + phản hồi kho chưa xem
+   *  của người tạo (done_unseen=Hoàn tất, fail_unseen=Không thành). */
+  counts?: { nhap: number; xuat: number; dieu_chuyen: number; done_unseen: number; fail_unseen: number };
   /** Người tạo mở xem 1 yêu cầu → refetch badge/số đỏ (AppShell reloadBadges). */
   onSeen?: () => void;
   /** Bấm 1 thông báo kho → mở đúng yêu cầu: `view` chọn tab, `id` = request_id. */
@@ -40,14 +42,18 @@ export function KhoPage({
   const canDeNghi = can("kho", "request");
   const canYeuCau = can("kho", "create") || can("kho", "view_stock");
   const [fn, setFn] = useState<FnTab>(canDeNghi ? "denghi" : "yeucau");
-  const [loai, setLoai] = useState<StockRequestKind>("NHAP");
+  // CHIỀU: Nhập · Xuất · Điều chuyển. Điều chuyển vốn là yêu cầu NHẬP ở đích nhưng tách tab riêng để
+  // Nhập/Xuất KHÔNG lẫn điều chuyển; màn con nhận `loai` (NHẬP cho tab điều chuyển) + cờ `dieuChuyen`.
+  const [chieu, setChieu] = useState<Chieu>("NHAP");
+  const dieuChuyenTab = chieu === "DIEU_CHUYEN";
+  const childLoai: StockRequestKind = dieuChuyenTab ? "NHAP" : chieu;
   // Seed đang chờ đổ vào form (từ "Nhập kho" ở đơn mua). Effect ép tab Yêu cầu · Nhập; KhoDeNghiPage
   // tiêu thụ rồi gọi onSeedConsumed để xoá — tránh mở lại form khi bấm sang tab khác.
   const [pendingSeed, setPendingSeed] = useState<KhoNhapSeed | null>(null);
   useEffect(() => {
     if (nhapSeed?.seed?.length) {
       setFn("denghi");
-      setLoai("NHAP");
+      setChieu("NHAP");
       setPendingSeed(nhapSeed);
     }
   }, [nhapSeed]);
@@ -101,18 +107,30 @@ export function KhoPage({
           )}
         </div>
         <div className="kho-shell__dirs">
-          {(["NHAP", "XUAT"] as StockRequestKind[]).map((k) => {
-            const n = k === "NHAP" ? counts?.nhap ?? 0 : counts?.xuat ?? 0;
+          {(["NHAP", "XUAT", "DIEU_CHUYEN"] as Chieu[]).map((k) => {
+            const n =
+              k === "NHAP"
+                ? counts?.nhap ?? 0
+                : k === "XUAT"
+                  ? counts?.xuat ?? 0
+                  : counts?.dieu_chuyen ?? 0;
+            const label = k === "NHAP" ? "Nhập" : k === "XUAT" ? "Xuất" : "Điều chuyển";
             return (
               <button
                 key={k}
                 type="button"
-                className={`seg${loai === k ? " is-active" : ""}`}
-                onClick={() => setLoai(k)}
+                className={`seg${chieu === k ? " is-active" : ""}`}
+                onClick={() => setChieu(k)}
               >
-                {k === "NHAP" ? <ArrowDownIcon /> : <ArrowUpIcon />}
-                <span>{k === "NHAP" ? "Nhập" : "Xuất"}</span>
-                {n > 0 && <span className="kho-shell__count" aria-label={`${n} yêu cầu chờ cấp`}>{n}</span>}
+                {k === "NHAP" ? (
+                  <ArrowDownIcon />
+                ) : k === "XUAT" ? (
+                  <ArrowUpIcon />
+                ) : (
+                  <span aria-hidden style={{ fontSize: 15, lineHeight: 1 }}>⇄</span>
+                )}
+                <span>{label}</span>
+                {n > 0 && <span className="kho-shell__count" aria-label={`${n} yêu cầu chờ xử lý`}>{n}</span>}
               </button>
             );
           })}
@@ -121,10 +139,11 @@ export function KhoPage({
 
       {activeFn === "denghi" ? (
         <KhoDeNghiPage
-          key={`dn-${loai}`}
-          loai={loai}
+          key={`dn-${chieu}`}
+          loai={childLoai}
+          dieuChuyen={dieuChuyenTab}
           eventTick={eventTick}
-          initialSeed={loai === "NHAP" ? pendingSeed : null}
+          initialSeed={chieu === "NHAP" ? pendingSeed : null}
           onSeedConsumed={consumeSeed}
           unseenDone={counts?.done_unseen ?? 0}
           unseenFail={counts?.fail_unseen ?? 0}
@@ -134,8 +153,9 @@ export function KhoPage({
         />
       ) : (
         <KhoYeuCauPage
-          key={`yc-${loai}`}
-          loai={loai}
+          key={`yc-${chieu}`}
+          loai={childLoai}
+          dieuChuyen={dieuChuyenTab}
           eventTick={eventTick}
           openRequestId={openReqId}
           onOpenRequestConsumed={consumeOpenReq}
