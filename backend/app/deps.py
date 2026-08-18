@@ -420,9 +420,11 @@ def get_overtime_service(
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     attendance: Annotated[AttendanceRepository, Depends(get_attendance_repository)],
+    payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
 ) -> OvertimeService:
     # attendance (REPO) → chặn duyệt/hủy phiếu của tháng ĐÃ CHỐT CÔNG (12/08/2026).
-    return OvertimeService(overtime, employees, audit, attendance=attendance)
+    # payroll (REPO) → đọc trần giờ làm thêm ở `payroll_params` (Đ107, chủ chốt 17/08/2026).
+    return OvertimeService(overtime, employees, audit, attendance=attendance, payroll=payroll)
 
 
 def get_payroll_repository(

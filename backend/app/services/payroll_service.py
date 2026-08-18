@@ -128,14 +128,30 @@ def _chuyen_can_ratio(actual_cong, standard_cong) -> float:
     return max(0.0, 1.0 - 0.5 * days_off)
 
 
-def _luong_cong_split(*, eff_monthly: float, eff_vi_tri: float, std: float,
-                      actual_cong: float, paid_leave_cong: float) -> tuple[float, float, float]:
+def _luong_cong_split(*, eff_monthly: float, std: float,
+                      actual_cong: float, paid_leave_cong: float,
+                      special_cong: float = 0.0) -> tuple[float, float, float]:
     """Tách tiền theo công thành (TỔNG, phần NGÀY PHÉP, số công phép được trả).
 
-    Ngày nghỉ phép năm chỉ trả **lương vị trí** (chủ chốt 27/07/2026), ngày đi làm trả đủ mức
-    nền (vị trí + trách nhiệm). Cách chia: **công LÀM lấp trần trước, công PHÉP lấy phần dư** —
+    ⚠️ **ĐẢO 17/08/2026 — ngày nghỉ phép năm nay trả ĐỦ MỨC NỀN** (cơ bản + trách nhiệm), bỏ chốt
+    cũ 27/07/2026 "chỉ lương vị trí". Chủ chốt: *"tiền công 1 ngày là lương cơ bản cộng lương
+    trách nhiệm"* — nghỉ phép năm là ngày nghỉ CÓ LƯƠNG (Đ113 hưởng nguyên lương) nên phải theo
+    đúng luật đó, giống ngày lễ và ngày off1x. Trước bản vá mỗi ngày phép hụt đúng phần trách
+    nhiệm chia cho công chuẩn.
+
+    `luong_ngay_phep` nay CÙNG đơn giá với công đi làm — giữ tách riêng chỉ để phiếu lương giải
+    thích được "trong lương công có bao nhiêu là ngày phép", KHÔNG còn khác đơn giá.
+
+    Cách chia: **công LÀM lấp trần trước, công PHÉP lấy phần dư** —
     nhờ vậy người làm dôi công (đi làm ngày lễ/CN, `actual_cong > std`) KHÔNG bị trừ hai lần:
     trần đã cắt bớt công của họ rồi, trừ tiếp phần trách nhiệm của ngày phép là phạt lần nữa.
+
+    ⚠️ **`special_cong` (công ngày LỄ / NGHỈ TUẦN có đi làm) KHÔNG đi qua trần** — sửa 17/08/2026.
+    Trước đó nó nằm chung rổ bị `min(worked, std)` cắt: ai đã đủ công chuẩn rồi mới làm Chủ nhật thì
+    phần gốc 1× bị nuốt, `ot_pay` chỉ bù `(hệ số − 1)` ⇒ thực nhận **1× thay vì 2×** (lễ: 2× thay vì
+    3×) — trái Đ98.1.b/c. Ai CHƯA chạm trần thì số không đổi một đồng (đã đối chiếu 4 kịch bản).
+    Phần gốc vẫn ăn **đơn giá MỨC NỀN**; chỉ phần premium ở `ot_pay` mới ăn đơn giá lương vị trí
+    (chốt 12/08/2026) — đừng gộp hai đơn giá làm một.
 
     `luong_ngay_phep` là số **TRONG ĐÓ** của `luong_cong` — ĐỪNG cộng nó vào gross lần nữa
     (cùng idiom với `phu_cap_tham_nien ⊂ allowance`).
@@ -145,12 +161,17 @@ def _luong_cong_split(*, eff_monthly: float, eff_vi_tri: float, std: float,
     """
     std = float(std) or 1.0
     actual = max(0.0, float(actual_cong))
-    leave = max(0.0, min(float(paid_leave_cong), actual))
-    worked = max(0.0, actual - leave)
+    # Công NGÀY LỄ / NGHỈ TUẦN có đi làm: KHÔNG đi qua trần (xem docstring). Kẹp trong `actual`
+    # để dữ liệu lệch không đẻ ra tiền âm/ảo.
+    special = max(0.0, min(float(special_cong), actual))
+    leave = max(0.0, min(float(paid_leave_cong), max(0.0, actual - special)))
+    worked = max(0.0, actual - special - leave)          # chỉ công NGÀY THƯỜNG mới bị trần
     paid_worked = min(worked, std)
     paid_leave_eff = min(leave, max(0.0, std - paid_worked))
-    luong_ngay_phep = (float(eff_vi_tri) / std) * paid_leave_eff
-    luong_cong = (float(eff_monthly) / std) * paid_worked + luong_ngay_phep
+    luong_ngay_phep = (float(eff_monthly) / std) * paid_leave_eff
+    # `special` cộng NGOÀI trần, vẫn ăn đơn giá MỨC NỀN (vị trí + trách nhiệm) — KHÔNG hạ xuống
+    # đơn giá lương vị trí như phần premium, nếu không người có tiền trách nhiệm bị cắt lương.
+    luong_cong = (float(eff_monthly) / std) * (paid_worked + special) + luong_ngay_phep
     return luong_cong, luong_ngay_phep, paid_leave_eff
 
 
@@ -251,6 +272,8 @@ class PayrollService:
             # cột mà quên khai ở đây là dựng ra một ô cấu hình giả. `phu_cap_ca_min_cong` thêm từ
             # 03/08/2026 đã bị sót đúng kiểu đó, tuy tài liệu ghi là "khai được".
             "phu_cap_ca_min_cong", "bhxh_mien_tu_so_ngay",
+            # Trần giờ làm thêm Đ107 (17/08/2026) — sót ở rổ này là ô cấu hình GIẢ.
+            "ot_max_minutes_per_month", "ot_max_minutes_per_day",
             "com_tang_ca_nguong_phut", "com_tang_ca_muc",
         }
         data = {k: v for k, v in fields.items() if k in allowed and v is not None}
@@ -331,13 +354,9 @@ class PayrollService:
         if self.departments is not None and self.departments.get_by_id(department_id) is None:
             raise PayrollNotFound("Không tìm thấy phòng ban.")
         items = list(items or [])
-        # Khoán ⟷ Tăng ca LOẠI TRỪ nhau: payload bật cả hai thì tắt Tăng ca (khoán thắng —
-        # nhất quán với compute vốn ép ot_pay=0 khi có khoán). FE cũng chặn ngay ở nút gạt.
-        if any(it.get("component_key") == COMP_LUONG_KHOAN and bool(it.get("is_enabled", True))
-               for it in items):
-            for it in items:
-                if it.get("component_key") == COMP_TANG_CA:
-                    it["is_enabled"] = False
+        # ⚠️ GỠ 17/08/2026 — trước đây Khoán ⟷ Tăng ca LOẠI TRỪ nhau (bật khoán thì tự tắt tăng
+        # ca, chốt 22/07/2026). Chủ ĐẢO lại: "Tổ khoán VẪN CÓ tăng ca". Hai công tắc nay ĐỘC LẬP.
+        # Đừng dựng lại luật loại trừ ở đây — engine cũng đã gỡ vế `has_piece_work` khỏi `ot_pay`.
         for it in items:
             key = it.get("component_key")
             if key not in SALARY_COMPONENT_KEYS:
@@ -446,14 +465,18 @@ class PayrollService:
 
     def _auto_pit(self, *, gross, bhxh, ot_pay, night_pay, dependents_count, params, brackets,
                   night_premium_pay=0.0, component_exempt=0.0, apply_self_deduction=True,
-                  pit_mode=None, cong_doan=0.0):
+                  pit_mode=None, cong_doan=0.0, ot_taxable=0.0):
         """Trả (thu nhập CHỊU thuế, thu nhập TÍNH thuế, thuế TNCN). Miễn TOÀN BỘ tiền tăng ca + ca đêm — gồm cả premium ca đêm
         theo giờ (`night_premium_pay`, Luật 109/2025); trừ BHXH + giảm trừ bản thân + người phụ thuộc.
 
         `component_exempt` = Σ các khoản DANH MỤC có `is_taxable = false` (trang phục, tiền nhà,
         đi lại, tiền cơm…). Trước đây mọi phụ cấp bị gộp vào một ô nên không tách được, thuế thu
         thừa của người có phụ cấp."""
-        assessable = (float(gross) - float(ot_pay) - float(night_pay)
+        # `ot_taxable` = phần NẰM TRONG `ot_pay` nhưng KHÔNG được miễn ⇒ cộng ngược lại.
+        # Hiện dùng cho TIỀN NGÀY off1x (kế toán chốt 17/08/2026: "lương thuế chỉ 1 công bình
+        # thường") — nó trả 1×, KHÔNG hệ số, nên không có phần "trả cao hơn" nào để miễn.
+        # Mặc định 0.0 ⇒ mọi caller cũ chạy y nguyên.
+        assessable = (float(gross) - (float(ot_pay) - float(ot_taxable)) - float(night_pay)
                       - float(night_premium_pay) - float(component_exempt))
 
         # --- Nhánh HĐ DƯỚI 3 THÁNG / thời vụ / thực tập (chủ 2026-07-27) --------------------
@@ -492,7 +515,12 @@ class PayrollService:
         "Tính lại", và sửa dòng của kỳ CŨ không bị cờ chịu thuế hôm nay làm lệch."""
         emp = self.employees.get_by_id(ln.employee_id)
         sal = self.payroll.current_salary(ln.employee_id, date.today())
-        ot = float(ln.ot_pay or 0) + float(ln.night_pay or 0) + float(getattr(ln, "night_premium_pay", 0) or 0)
+        # Tiền off1x nằm trong `ot_pay` nhưng KHÔNG nằm trong `thu_nhap_mien_thue` (nó chịu thuế),
+        # nên phải trừ ra trước khi suy ngược phần miễn của danh mục — thiếu vế này là comp_exempt
+        # bị hụt đúng bằng off1x và "Sửa 1 ô" tính thuế cao hơn "Tính lại".
+        off1x = float(getattr(ln, "off1x_pay", 0) or 0)
+        ot = (float(ln.ot_pay or 0) - off1x + float(ln.night_pay or 0)
+              + float(getattr(ln, "night_premium_pay", 0) or 0))
         comp_exempt = max(0.0, float(getattr(ln, "thu_nhap_mien_thue", 0) or 0) - ot)
         _assess, tx, pit = self._auto_pit(
             gross=ln.gross, bhxh=ln.bhxh, ot_pay=ln.ot_pay, night_pay=ln.night_pay,
@@ -506,6 +534,7 @@ class PayrollService:
             # khi gọi hàm này — trước 12/08/2026 nó tính SAU, vô hại vì thuế chưa dùng tới. Nay
             # dùng rồi: sai thứ tự là thuế ăn số đoàn phí CŨ, và "Sửa 1 ô" lệch "Tính lại".
             cong_doan=float(getattr(ln, "cong_doan", 0) or 0),
+            ot_taxable=off1x,
         )
         ln.pit = pit
         ln.pit_taxable = tx
@@ -855,9 +884,13 @@ class PayrollService:
         # nếu không ngày phép của họ ra 0 đồng.
         vi_tri = float(getattr(salary, "luong_vi_tri", 0) or 0) if salary is not None else 0.0
         eff_vi_tri = (vi_tri if res.get("source") == "employee" else monthly) * ratio
+        # Công lễ/nghỉ tuần CÓ đi làm — tách khỏi rổ bị trần (Đ98.1.b/c). `holiday_cong` và
+        # `restday_cong` là TẬP CON của `actual_cong` (Chấm công chỉ trừ riêng `plain_cong`).
+        special_cong = max(0.0, float(holiday_cong) + float(restday_cong))
         luong_cong, luong_ngay_phep, paid_leave_eff = _luong_cong_split(
-            eff_monthly=eff_monthly, eff_vi_tri=eff_vi_tri, std=std,
+            eff_monthly=eff_monthly, std=std,
             actual_cong=actual_cong, paid_leave_cong=paid_leave_cong,
+            special_cong=special_cong,
         )
         # Chuyên cần TRỪ DẦN (C3): nghỉ 0,5 ngày −25% · 1 ngày −50% · ≥2 ngày mất hết.
         # Công thiếu NHƯNG CÓ ĐƠN nghỉ theo giờ đã duyệt được bù lại ở đây (chủ chốt: có đơn thì
@@ -907,11 +940,18 @@ class PayrollService:
         m_ot_hol = float(getattr(params, "ot_multiplier_holiday", 3.0) or 0)
         m_rest = float(getattr(params, "restday_work_multiplier", 2.0) or 0)
         m_hol = float(getattr(params, "holiday_work_multiplier", 3.0) or 0)
-        if has_piece_work or not self._component_enabled(COMP_TANG_CA, dept_id):
-            # Tổ khoán (departments.has_piece_work) hoặc bộ phận TẮT tăng ca ở Cấu hình lương:
-            # tiền khoán ĐÃ trả theo sản lượng nên KHÔNG cộng thêm tăng ca theo giờ
-            # (thường/nghỉ tuần/lễ). Vẫn giữ lương công + khoán + phụ cấp ca đêm.
+        # Tiền ngày off1x tách thành BIẾN RIÊNG: nó nằm trong `ot_pay` (để trả) nhưng CHỊU thuế
+        # (kế toán chốt 17/08/2026), nên thuế phải cộng ngược lại qua `ot_taxable`.
+        off1x_pay = daily_rate * float(plain_cong) * 1.0
+        if not self._component_enabled(COMP_TANG_CA, dept_id):
+            # ⚠️ ĐẢO 17/08/2026 — GỠ vế `has_piece_work`. Chủ chốt: "Tổ khoán VẪN CÓ tăng ca".
+            # Lý do biện minh cũ ("khoán đã trả theo sản lượng") KHÔNG tồn tại: cột `khoan` LUÔN
+            # bằng 0 vì `ProductionOutputRepository` chưa dựng và `deps.py` truyền `outputs=None`
+            # ⇒ tổ khoán mất trắng cả giờ OT, cả premium lễ/CN, cả tiền ngày off1x.
+            # NĐ 145/2020 Đ55.2 cũng buộc trả làm thêm cho người hưởng lương theo SẢN PHẨM.
+            # Nay chỉ còn MỘT cổng: công tắc `tang_ca` của bộ phận ở Cấu hình lương.
             ot_pay = 0.0
+            off1x_pay = 0.0   # không trả thì cũng không có gì để chịu thuế
         else:
             ot_pay = _round(
                 hourly_rate * (ot_h * m_ot
@@ -919,14 +959,23 @@ class PayrollService:
                                + (int(ot_holiday_minutes) / 60.0) * m_ot_hol)
                 # PREMIUM ngày lễ / nghỉ tuần = phần TRẢ THÊM ⇒ bám `daily_rate_ot` (lương vị trí),
                 # cùng gốc với tăng ca theo chủ chốt 12/08/2026.
-                + daily_rate_ot * (float(holiday_cong) * max(0.0, m_hol - 1.0)
+                #
+                # ⚠️ HAI HỆ SỐ KHÁC NHAU — CỐ Ý, ĐỪNG "dọn" cho giống nhau (chủ chốt 17/08/2026):
+                #  • NGÀY LỄ dùng TRỌN `m_hol` (300%). Đ98.1.c trả "ít nhất 300% CHƯA KỂ tiền lương
+                #    ngày lễ" — mà tiền lương ngày lễ (Đ112) người đó ĐÃ được hưởng dù có đi làm hay
+                #    không. Phần 1× nằm trong `luong_cong` CHÍNH LÀ khoản Đ112 đó ⇒ tổng 1× + 3× = 4×.
+                #  • NGHỈ TUẦN dùng `m_rest - 1` (100%). Chủ nhật KHÔNG có lương nếu nghỉ ở nhà, nên
+                #    phần 1× trong `luong_cong` là tiền TRẢ CHO VIỆC ĐI LÀM, không phải khoản có sẵn
+                #    ⇒ tổng 1× + 1× = 2×, đúng Đ98.1.b. Cho ngày lễ ăn `m_hol - 1` là trả THIẾU 1×;
+                #    cho Chủ nhật ăn trọn `m_rest` là trả THỪA 1×.
+                + daily_rate_ot * (float(holiday_cong) * max(0.0, m_hol)
                                    + float(restday_cong) * max(0.0, m_rest - 1.0))
                 # ⚠️ Ngày 'off1x' KHÔNG đi cùng nhánh trên: đây KHÔNG phải premium mà là LƯƠNG CHÍNH
                 # của ngày đó (làm 1×, không hệ số) — `plain_cong` đã bị loại khỏi `actual_cong` ở
                 # Chấm công nên `luong_cong` không trả nó, phải trả trọn ở đây. Nó phải ăn ĐÚNG mức
                 # nền như mọi ngày công khác. Kéo nó sang `daily_rate_ot` là âm thầm cắt phần lương
                 # trách nhiệm của riêng những ngày off1x — một khoản CẮT KHÔNG AI YÊU CẦU.
-                + daily_rate * float(plain_cong) * 1.0
+                + off1x_pay
             )
         # ⚠️ NGƯNG 03/08/2026 — đường phụ cấp ca PER-NGƯỜI (số phẳng gõ tay ở hồ sơ lương) đã tắt.
         # Phụ cấp cơm/ca nay tính THEO CA THỰC LÀM ở khối ngay dưới. Phải tắt CÙNG LƯỢT với việc
@@ -971,9 +1020,9 @@ class PayrollService:
             sum(1 for phut in (od.get("lam") or {}).values() if int(phut) >= nguong_tc)
             + sum(1 for phut in (od.get("nghi") or {}).values() if int(phut) > 0)
         )
-        # Tổ khoán / bộ phận TẮT tăng ca: không có tiền tăng ca thì cũng không có suất cơm tăng ca
-        # (nếu không thì khoán vừa ăn tiền sản lượng vừa ăn cơm tăng ca theo giờ).
-        if ot_pay <= 0 and (has_piece_work or not self._component_enabled(COMP_TANG_CA, dept_id)):
+        # Bộ phận TẮT tăng ca: không có tiền tăng ca thì cũng không có suất cơm tăng ca.
+        # (Gỡ vế `has_piece_work` 17/08/2026 cùng lượt với `ot_pay` — tổ khoán nay CÓ tăng ca.)
+        if ot_pay <= 0 and not self._component_enabled(COMP_TANG_CA, dept_id):
             so_suat_com_tc = 0
         com_tang_ca_pay = _round(so_suat_com_tc * muc_com_tc)
         # MIỄN TNCN cả hai (chủ chốt 04/08/2026). Trước đó để chịu thuế với lý do "khoản nào thật
@@ -1089,6 +1138,7 @@ class PayrollService:
             apply_self_deduction=bool(getattr(salary, "apply_self_deduction", True)) if salary else True,
             pit_mode=getattr(employee, "pit_mode", None), cong_doan=cong_doan,
             dependents_count=dependents, params=params, brackets=brackets,
+            ot_taxable=off1x_pay,   # tiền ngày off1x nằm trong ot_pay nhưng CHỊU thuế
         )
 
         # Điều 102 BLLĐ: tổng khấu trừ BỒI THƯỜNG/KỶ LUẬT ≤ 30% lương tháng SAU khi trích BHXH + TNCN.
@@ -1113,14 +1163,19 @@ class PayrollService:
             # Snapshot 2 số DẪN XUẤT cho phiếu lương. CHỊU thuế ≠ TÍNH thuế (`pit_taxable`).
             "thu_nhap_chiu_thue": _round(pit_assessable),
             "thu_nhap_mien_thue": _round(
-                float(ot_pay) + float(night_pay) + float(night_premium_pay)
+                float(ot_pay) - float(off1x_pay) + float(night_pay) + float(night_premium_pay)
                 + component_exempt + ca_exempt),
+            # TRONG ĐÓ của `ot_pay` — tiền ngày off1x, CHỊU thuế. Snapshot để "Sửa 1 ô" trừ đúng
+            # y "Tính lại". ĐỪNG cộng vào gross: đã nằm trong `ot_pay`.
+            "off1x_pay": _round(off1x_pay),
             "monthly_salary": _round(monthly),
             "luong_cong": _round(luong_cong),
             # TRONG ĐÓ của `luong_cong` — phiếu lương hiện dòng riêng, TUYỆT ĐỐI không cộng
             # lại vào gross (cùng idiom với `phu_cap_tham_nien ⊂ allowance` bên dưới).
             "luong_ngay_phep": _round(luong_ngay_phep),
             "paid_leave_cong": round(float(paid_leave_eff), 2),
+            # Snapshot để "Sửa 1 ô" gọi lại `_luong_cong_split` ra ĐÚNG số của "Tính lại".
+            "special_cong": round(float(special_cong), 2),
             "excused_cong": round(float(excused_cong), 2),
             "chuyen_can": _round(chuyen_can),
             "allowance": _round(allowance),
@@ -1300,7 +1355,8 @@ class PayrollService:
             fields = dict(
                 is_probation=vals["is_probation"], actual_cong=actual_cong, standard_cong=std,
                 monthly_salary=vals["monthly_salary"], luong_cong=vals["luong_cong"],
-                luong_ngay_phep=vals["luong_ngay_phep"],
+                luong_ngay_phep=vals["luong_ngay_phep"], special_cong=vals["special_cong"],
+                off1x_pay=vals["off1x_pay"],
                 paid_leave_cong=vals["paid_leave_cong"], excused_cong=vals["excused_cong"],
                 chuyen_can=vals["chuyen_can"], allowance=vals["allowance"],
                 phu_cap_tham_nien=vals["phu_cap_tham_nien"], khoan=vals["khoan"],
@@ -1555,14 +1611,17 @@ class PayrollService:
             ln.monthly_salary = _round(monthly_override)
             std = float(ln.standard_cong) or 1.0
             leave_cong = float(getattr(ln, "paid_leave_cong", 0) or 0)
-            # Mức tháng sửa tay là mức NỀN mới; tỷ lệ vị trí/nền giữ nguyên như lúc tính ra dòng này.
+            # ✅ GỠ 17/08/2026 — trước đây phải suy ngược `vi_tri_rate` từ `luong_ngay_phep` cũ
+            # chia `paid_leave_cong` cũ, vì ngày phép ăn đơn giá KHÁC (chỉ lương vị trí). Phép suy
+            # đó là lỗi #1b ở `CONG_THUC_TINH_LUONG.md` Phần 14: đổi mức tháng KHÔNG đổi đơn giá
+            # ngày phép. Nay ngày phép ăn CÙNG mức nền nên không còn gì để suy — lỗi tự hết.
             old_monthly = float(ln.monthly_salary) or 1.0
-            old_leave_pay = float(getattr(ln, "luong_ngay_phep", 0) or 0)
-            old_leave_cong = leave_cong or 1.0
-            vi_tri_rate = (old_leave_pay / old_leave_cong) * std if old_leave_pay else old_monthly
             lc, lnp, eff = _luong_cong_split(
-                eff_monthly=old_monthly, eff_vi_tri=vi_tri_rate, std=std,
+                eff_monthly=old_monthly, std=std,
                 actual_cong=float(ln.actual_cong), paid_leave_cong=leave_cong,
+                # Công lễ/CN KHÔNG qua trần — phải truyền y hệt `_compute`, nếu không "Sửa 1 ô"
+                # sẽ trả lại đúng cái lỗi trần nuốt gốc mà mg 0204 vừa vá. Kỳ cũ = 0 ⇒ số không đổi.
+                special_cong=float(getattr(ln, "special_cong", 0) or 0),
             )
             ln.luong_cong = _round(lc)
             ln.luong_ngay_phep = _round(lnp)
@@ -1589,7 +1648,8 @@ class PayrollService:
                    # Cơm tăng ca cũng miễn thuế — sót ở ĐÂY thì "Sửa 1 ô" tính thuế trên cả khoản
                    # đáng ra được miễn, còn "Tính lại" thì không. Hai đường lệch nhau, im lặng.
                    + float(getattr(ln, "com_tang_ca_pay", 0) or 0))
-        mien_ngoai_danh_muc = (float(ln.ot_pay or 0) + float(ln.night_pay or 0)
+        mien_ngoai_danh_muc = (float(ln.ot_pay or 0) - float(getattr(ln, "off1x_pay", 0) or 0)
+                               + float(ln.night_pay or 0)
                                + float(getattr(ln, "night_premium_pay", 0) or 0) + ca_mien)
         ln.thu_nhap_mien_thue = _round(mien_ngoai_danh_muc + comp_exempt)
 

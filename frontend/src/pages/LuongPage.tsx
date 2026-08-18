@@ -2427,7 +2427,7 @@ function SalaryModal({
   const sysRows: SysRow[] = [
     {
       key: "luong_vi_tri",
-      name: "Lương cơ bản (đóng BH)",
+      name: "Lương cơ bản",
       note: "BHXH/BHYT/BHTN đóng trên số này",
       taxable: true,
       value: luongViTri,
@@ -3646,7 +3646,7 @@ function PayslipCard({
     luongNgayPhep > 0
       ? {
           "Lương theo công": [
-            "Trong đó: lương ngày phép (theo lương vị trí)",
+            "Trong đó: lương ngày phép",
             luongNgayPhep,
           ],
         }

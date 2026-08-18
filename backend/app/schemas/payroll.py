@@ -12,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class ParamsIn(BaseModel):
     standard_cong_default: float | None = Field(default=None, gt=0, le=31)
     probation_ratio: float | None = Field(default=None, gt=0, le=1)
+    ot_max_minutes_per_month: int | None = Field(default=None, ge=0, le=44640)
+    ot_max_minutes_per_day: int | None = Field(default=None, gt=0, le=2880)
     bhxh_rate: float | None = Field(default=None, ge=0, le=1)
     bhyt_rate: float | None = Field(default=None, ge=0, le=1)
     bhtn_rate: float | None = Field(default=None, ge=0, le=1)
@@ -58,6 +60,8 @@ class ParamsOut(BaseModel):
 
     standard_cong_default: float
     probation_ratio: float
+    ot_max_minutes_per_month: int
+    ot_max_minutes_per_day: int
     bhxh_rate: float
     bhyt_rate: float
     bhtn_rate: float

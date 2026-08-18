@@ -90,6 +90,11 @@ function errText(e: unknown): string {
 function toPct(v: number): number {
   return Math.round(v * 1000) / 10;
 }
+/** PHÚT trong DB → GIỜ trên ô nhập (2400 → 40). Làm tròn 2 số lẻ: nếu DB lỡ có số không chia
+ *  hết cho 60 (nhập tay lúc vá dữ liệu) thì ô hiện "40,17" chứ không phải 40.16666666666667. */
+function toGio(phut: number): number {
+  return Math.round((phut / 60) * 100) / 100;
+}
 /** Sắp phòng ban theo CÂY: phòng cha rồi tổ con ngay dưới (dải chip đọc theo mạch tổ chức). */
 function orderByTree(list: Department[]): Department[] {
   const ids = new Set(list.map((d) => d.id));
@@ -729,6 +734,10 @@ const PARAMS_A = [
   "phu_cap_ca_min_cong",
   "com_tang_ca_nguong_phut",
   "com_tang_ca_muc",
+  // Trần giờ làm thêm (Đ107) — thiếu hai tên này thì ô có hiện nhưng thanh "Lưu thay đổi"
+  // KHÔNG thấy dirty và `pick()` không gửi xuống ⇒ sửa xong bấm lưu vẫn y như cũ.
+  "ot_max_minutes_per_month",
+  "ot_max_minutes_per_day",
 ] as const satisfies readonly (keyof PayrollParams)[];
 const PARAMS_INS = [
   "bhxh_rate",
@@ -910,14 +919,8 @@ function CoCheTab({
     setComps((cs) =>
       cs.map((c) => {
         if (c.component_key === key) return { ...c, ...patch };
-        // Khoán ⟷ Tăng ca loại trừ nhau: bật cái này thì tự tắt cái kia.
-        if (
-          patch.is_enabled === true &&
-          ((key === "luong_khoan" && c.component_key === "tang_ca") ||
-            (key === "tang_ca" && c.component_key === "luong_khoan"))
-        ) {
-          return { ...c, is_enabled: false };
-        }
+        // ⚠️ GỠ 17/08/2026 — trước đây Khoán ⟷ Tăng ca loại trừ nhau (bật cái này tự tắt cái kia).
+        // Chủ đảo lại: "Tổ khoán VẪN CÓ tăng ca". Hai công tắc nay độc lập, backend cũng đã gỡ.
         return c;
       }),
     );
@@ -1017,6 +1020,41 @@ function CoCheTab({
               Hệ số làm thêm &amp; ngày đặc biệt
             </div>
             <div className="rc-grid">
+              {/* TRẦN GIỜ LÀM THÊM (Đ107) — chủ chốt 17/08/2026. Backend lưu bằng PHÚT, người
+                  dùng nghĩ bằng GIỜ ⇒ ô nhập theo giờ, ×60 lúc lưu / ÷60 lúc đọc. Đây là chỗ
+                  DUY NHẤT nới trần: hết trần thì phiếu tăng ca bị CHẶN CỨNG, không có nút xin
+                  vượt, không có quyền đặc biệt. KHÔNG có trần theo NĂM — chủ đã bỏ. */}
+              <ParamField
+                label="Trần giờ tăng ca / tháng"
+                hint="Số giờ tối đa MỘT người được làm thêm trong MỘT tháng (Điều 107: 40 giờ). Hết trần là KHÔNG tạo được phiếu nữa — không có đường vượt. Để 0 = TẮT TRẦN. Phiếu đang chờ duyệt cũng chiếm chỗ."
+                suffix="giờ"
+                step={0.5}
+                min={0}
+                max={744}
+                readOnly={readOnly}
+                value={toGio(p.ot_max_minutes_per_month)}
+                onChange={(v) =>
+                  setP("ot_max_minutes_per_month", Math.round(v * 60))
+                }
+              />
+              <ParamField
+                label="Trần giờ một phiếu tăng ca"
+                hint="Độ dài tối đa của MỘT phiếu (Điều 107.1: 12 giờ)."
+                warn={
+                  p.ot_max_minutes_per_day <= 0
+                    ? "Phải lớn hơn 0 — ô này KHÔNG có nghĩa “tắt”, để 0 là không lưu được."
+                    : null
+                }
+                suffix="giờ"
+                step={0.5}
+                min={0.5}
+                max={48}
+                readOnly={readOnly}
+                value={toGio(p.ot_max_minutes_per_day)}
+                onChange={(v) =>
+                  setP("ot_max_minutes_per_day", Math.round(v * 60))
+                }
+              />
               {OT_FIELDS.map((f) => (
                 <ParamField
                   key={f.key}
@@ -1254,7 +1292,7 @@ const OT_FIELDS: {
   {
     key: "holiday_work_multiplier",
     label: "Làm nguyên công — ngày lễ",
-    hint: "Đi làm trọn công ngày lễ: cộng THÊM phần chênh (hệ số − 100%).",
+    hint: "Đi làm trọn công ngày lễ: cộng THÊM TRỌN hệ số này (KHÔNG trừ 100%). Nghỉ lễ ở nhà vẫn có lương 100% (Đ112), đi làm được cộng thêm 300% ⇒ tổng 400%. Khác ngày nghỉ tuần: nghỉ CN ở nhà không có lương nên chỉ tổng 200%.",
     floor: 3,
   },
 ];

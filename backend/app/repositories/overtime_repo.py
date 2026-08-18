@@ -2,6 +2,7 @@
 Không chứa luật nghiệp vụ (những thứ đó ở `OvertimeService`)."""
 from __future__ import annotations
 
+import calendar as _cal
 from datetime import date, datetime, timezone
 
 from sqlalchemy import func, select, update
@@ -182,6 +183,30 @@ class OvertimeRepository:
                 )
             ).scalars()
         )
+
+    def sum_live_minutes_in_month(self, employee_id: int, year: int, month: int, *,
+                                  exclude_id: int | None = None) -> int:
+        """Tổng SỐ PHÚT của các phiếu CÒN HIỆU LỰC (chờ duyệt + đã duyệt) của 1 NV trong 1 tháng
+        — nền cho trần giờ làm thêm Đ107. `exclude_id` để đường SỬA không tự đếm chính nó.
+
+        Vì sao tính cả `pending`: chủ chốt 17/08/2026. Không giữ chỗ thì thợ gửi 10 phiếu vào 10
+        ngày khác nhau (luật 1-phiếu/ngày không chặn giúp), mỗi phiếu lúc TẠO đều còn trong trần,
+        rồi duyệt lần lượt ⇒ trần bị đi qua sạch. Từ chối / hủy phiếu là TRẢ CHỖ ngay, không job.
+
+        Đây là số theo PHIẾU (đã cấp phép), KHÔNG phải giờ đã bấm máy — giờ thực luôn ≤ giờ phiếu
+        vì `compute_day_cong` lấy GIAO của phiên chấm với cửa sổ phiếu."""
+        last = _cal.monthrange(year, month)[1]
+        stmt = select(
+            func.coalesce(func.sum(OvertimeRequest.to_minute - OvertimeRequest.from_minute), 0)
+        ).where(
+            OvertimeRequest.employee_id == employee_id,
+            OvertimeRequest.work_date >= date(year, month, 1),
+            OvertimeRequest.work_date <= date(year, month, last),
+            OvertimeRequest.status.in_(_LIVE),
+        )
+        if exclude_id is not None:
+            stmt = stmt.where(OvertimeRequest.id != exclude_id)
+        return int(self.db.execute(stmt).scalar_one() or 0)
 
     def live_for_day(self, employee_id: int, work_date: date, *,
                      exclude_id: int | None = None) -> list[OvertimeRequest]:

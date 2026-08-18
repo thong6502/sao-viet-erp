@@ -6,12 +6,13 @@ auto VÀO/RA toggling, self check-in gated on a linked employee, and the RBAC bo
 from __future__ import annotations
 
 import calendar
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
 import app.services.attendance_service as _att_svc
 from app.db import SessionLocal
+from app.repositories.attendance_repo import AttendanceRepository
 from app.repositories.employee_repo import EmployeeRepository
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
@@ -916,6 +917,127 @@ def test_cong_le_toi_tay_nguoi_khong_cham_cong(client):
     o_le = row["days"]["2"]
     assert o_le["holiday"] is True and o_le["cong"] == 1.0
     assert row["total_cong"] == 1.0                   # công lễ tới tay, không phải None/0
+
+
+# --- Ô ngày phải TỰ NÓI loại ngày: lễ · nghỉ tuần · off1x -------------------
+#
+# Chủ báo 17/08/2026: công nhân đi làm ngày lễ, mở "Lịch công của tôi" thấy đúng chữ "Công: 1" —
+# y hệt một ngày thường — nên tưởng mình bị trả thiếu, trong khi Lương đang trả 4× cho ngày đó.
+# Gốc là ô ngày chỉ mang MỘT cờ `holiday`, và nó chỉ được gắn ở nhánh KHÔNG chấm công; ngày nghỉ
+# tuần / ngày `off1x` thì không có cờ nào cả. Ba cờ dưới đây là ĐẦU VÀO DUY NHẤT để màn hình phân
+# biệt bốn loại ngày — mất một cờ là màn hình lại nói dối về tiền.
+
+NAM_LN, THANG_LN = 2026, 6          # tháng 6/2026: mùng 1 là thứ Hai ⇒ 14 là Chủ nhật
+
+
+def _nv_ca_hanh_chinh(client, token, *, ten: str) -> tuple[int, str]:
+    """NV + tài khoản riêng, ca 08:00–17:00 hiệu lực từ 2020 ⇒ bấm 08:00→17:00 là TRÒN 1 công.
+
+    Không dùng `_nv_trang`: ca kiểm thử mặc định là 00:00–23:59 (khung 1439') nên chấm 8h–17h
+    ra công lẻ, che mất thứ đang đo."""
+    did = _dept_id("Hành chính nhân sự")
+    uid = _make_worker(f"u-{ten.lower().replace(' ', '-')}", did)
+    eid = _link_employee(client, token, full_name=ten, dept_id=did, user_id=uid,
+                         assign_shift=False)
+    items = client.get("/api/attendance/shifts", headers=_h(token)).json()["items"]
+    ca = next((s for s in items if s["name"] == "Ca giờ hành chính LN"), None)
+    if ca is None:
+        ca = client.post("/api/attendance/shifts",
+                         json={"name": "Ca giờ hành chính LN", "start_time": "08:00",
+                               "end_time": "17:00"}, headers=_h(token)).json()
+    r = client.put(f"/api/employees/{eid}/shift",
+                   json={"default_shift_id": ca["id"], "effective_from": "2020-01-01"},
+                   headers=_h(token))
+    assert r.status_code == 200, r.text
+    return eid, create_access_token(str(uid))
+
+
+def _bam_ca_chinh(eid: int, ngay: int) -> None:
+    """Một cặp VÀO/RA 08:00–17:00 giờ VN ghi thẳng qua repo — API `check` chỉ chấm được 'bây giờ'."""
+    db = SessionLocal()
+    try:
+        repo = AttendanceRepository(db)
+        for kieu, gio_vn in (("in", 8), ("out", 17)):
+            phut_utc = gio_vn * 60 - 7 * 60
+            repo.create_log(employee_id=eid, check_type=kieu, within_range=True,
+                            checked_at=datetime(NAM_LN, THANG_LN, ngay,
+                                                phut_utc // 60, phut_utc % 60, tzinfo=timezone.utc))
+    finally:
+        db.close()
+
+
+def _khai_ngay_dac_biet(client, token, ngay: int, *, kind: str, ten: str) -> None:
+    r = client.post("/api/calendar/special-days",
+                    json={"day": f"{NAM_LN}-{THANG_LN:02d}-{ngay:02d}", "kind": kind,
+                          "name": ten, "is_paid": kind == "off"},
+                    headers=_h(token))
+    assert r.status_code in (200, 201), r.text
+
+
+def test_o_ngay_mang_du_co_le_nghi_tuan_va_off1x(client):
+    """⭐ Bốn loại ngày, bốn dấu khác nhau — và chúng LOẠI TRỪ NHAU.
+
+    Thứ tự phải khớp đúng nhánh tính tiền (`plain > holiday > restday`): ngày `off1x` rơi vào
+    Chủ nhật mà bị gắn `restday` là màn hình hứa 2× trong khi Lương trả 1×."""
+    token = _admin_token(client)
+    eid, wt = _nv_ca_hanh_chinh(client, token, ten="NV Loai Ngay")
+    _khai_ngay_dac_biet(client, token, 10, kind="off", ten="Lễ thử")        # thứ Tư
+    _khai_ngay_dac_biet(client, token, 11, kind="off1x", ten="Nghỉ 1x thử")  # thứ Năm
+    for d in (9, 10, 11, 14):        # thường · lễ · off1x · Chủ nhật
+        _bam_ca_chinh(eid, d)
+
+    r = client.get(f"/api/attendance/me/timesheet?year={NAM_LN}&month={THANG_LN}", headers=_h(wt))
+    assert r.status_code == 200, r.text
+    row = r.json()["rows"][0]
+    o = row["days"]
+
+    def co(d: int) -> tuple[bool, bool, bool]:
+        return (o[str(d)]["holiday"], o[str(d)]["restday"], o[str(d)]["plain"])
+
+    assert o["9"]["cong"] == 1.0 and co(9) == (False, False, False), "ngày thường không đeo cờ nào"
+    assert co(10) == (True, False, False), "ngày lễ ĐI LÀM phải mang cờ lễ (nhánh cũ chỉ gắn khi NGHỈ)"
+    assert co(11) == (False, False, True), "ngày off1x đi làm: 1× phẳng, KHÔNG phải premium"
+    assert co(14) == (False, True, False), "Chủ nhật đi làm phải nhận ra được, trước đây trắng trơn"
+
+    # Ba cột tổng cũng phải ra tới API — cột "Công đặc biệt" của Bảng công tháng đọc thẳng chúng.
+    assert row["holiday_cong"] == 1.0 and row["restday_cong"] == 1.0 and row["plain_cong"] == 1.0
+
+
+def test_he_so_ngay_doc_tu_cau_hinh_luong_le_cong_1_chu_nhat_thi_khong(client):
+    """⭐ Chỗ dễ sai nhất: LỄ = 1 + hệ số, NGHỈ TUẦN = hệ số (KHÔNG cộng 1).
+
+    Vì tiền cố ý tính hai kiểu (`payroll_service._compute`): ngày lễ đã có sẵn 1 công lương Đ112
+    dù nghỉ ở nhà nên Đ98.1.c cộng TRỌN 300% ⇒ 4×; Chủ nhật nghỉ ở nhà thì không đồng nào, phần 1×
+    chính là tiền đi làm ⇒ chỉ 2×. Cộng 1 cho cả hai là màn hình hứa 3× mà phiếu lương trả 2×."""
+    token = _admin_token(client)
+    _, wt = _nv_trang(client, token, ten="NV He So")
+    duong = f"/api/attendance/me/timesheet?year={NAM_LN}&month={THANG_LN}"
+
+    mac_dinh = client.get(duong, headers=_h(wt)).json()["he_so_ngay"]
+    assert mac_dinh == {"le": 4.0, "nghi_tuan": 2.0, "off1x": 1.0}
+
+    # Đổi Cấu hình lương ⇒ số trên ô lịch phải đi theo (nếu ai đó viết cứng "4" thì đỏ ở đây).
+    # Hai hệ số khác nhau + khác mặc định ⇒ nhầm công thức nào cũng lộ.
+    r = client.put("/api/luong/params",
+                   json={"holiday_work_multiplier": 4, "restday_work_multiplier": 2.5},
+                   headers=_h(token))
+    assert r.status_code == 200, r.text
+    assert client.get(duong, headers=_h(wt)).json()["he_so_ngay"] == {
+        "le": 5.0, "nghi_tuan": 2.5, "off1x": 1.0}
+
+
+def test_giao_dien_that_su_doc_co_loai_ngay_va_he_so():
+    """Máy chủ trả cờ mà giao diện quên đọc thì màn hình vẫn nói "Công: 1" — tức là bản vá này
+    KHÔNG giải quyết gì cả. Khuôn sai "máy chủ đổi, giao diện quên" đã lặp nhiều vòng ở repo
+    (xem `test_com_tang_ca.test_giao_dien_that_su_hien_va_khai_duoc`)."""
+    from pathlib import Path
+
+    fe = Path(__file__).resolve().parents[2] / "frontend" / "src"
+    assert "he_so_ngay" in (fe / "api" / "client.ts").read_text(encoding="utf-8")
+    tsx = (fe / "pages" / "ChamCongPage.tsx").read_text(encoding="utf-8")
+    for chu in ("day.restday", "day.plain", "heSo.le", "heSo.nghi_tuan",
+                "→ tính", "Công đặc biệt"):
+        assert chu in tsx, f"giao diện chưa dùng {chu!r} — ô lịch vẫn không nói được số công"
 
 
 # --- Không chấm công cho ngày CHƯA TỚI --------------------------------------

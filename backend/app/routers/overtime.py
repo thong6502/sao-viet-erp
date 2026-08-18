@@ -24,6 +24,7 @@ from ..models.user import User
 from ..realtime import hub
 from ..repositories.employee_repo import EmployeeRepository
 from ..schemas.overtime import (
+    TranThangOut,
     MyOvertimeOut,
     OvertimeBulkIn,
     OvertimeBulkRejectIn,
@@ -184,6 +185,21 @@ def summary(svc: Service, authz: Authz, user: SelfUser):
         pending = svc.count_pending(scope=authz.scope_for(user, MODULE) or "own", actor=user)
     return OvertimeSummaryOut(pending_in_scope=pending,
                               my_decided_unseen=svc.my_unseen_count(user=user))
+
+
+@router.get("/tran-thang", response_model=TranThangOut)
+def tran_thang(svc: Service, employees: Employees, user: SelfUser,
+               year: int, month: int, employee_id: int | None = None,
+               exclude_id: int | None = None):
+    """Số dư trần giờ làm thêm tháng. Không truyền `employee_id` ⇒ của CHÍNH người gọi.
+
+    Trần là luật của công ty, không phải dữ liệu nhạy cảm của người khác — nhưng vẫn chỉ cho xem
+    người trong tầm duyệt của mình. Rẻ: 1 câu SUM."""
+    if employee_id is None:
+        emp = svc._employee_for_user(user)
+        employee_id = emp.id
+    return TranThangOut(**svc.tran_thang_info(employee_id, int(year), int(month),
+                                              exclude_id=exclude_id))
 
 
 @router.post("/mark-seen", status_code=204)
