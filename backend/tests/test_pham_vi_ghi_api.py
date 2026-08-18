@@ -259,7 +259,11 @@ def _nv_xem_luong(username: str, *, scope: str, phong: str = "Sản xuất") -> 
             roles = RoleRepository(db)
             role = roles.create(name=f"Vai {username}", department_id=dept.id)
             roles.set_permission(role_id=role.id, module_key="luong", scope=scope,
-                                 can_read=True, can_view_salary=True)
+                                 can_read=True, can_view_salary=True,
+                                 # Từ 15/08/2026 BẢNG LƯƠNG THÁNG có ô riêng: cột Xem chỉ mở màn.
+                                 # Ở đây đang đo PHẠM VI lọc dòng, nên phải mở được bảng đã —
+                                 # chuyện "không có ô thì không vào bảng" do test riêng canh.
+                                 can_view_payroll_table=True)
             u = users.create(username=username, name=username, password_hash=hash_password("x"))
             users.set_assignment(u, department_id=dept.id, role_id=role.id, is_active=True)
         return {"Authorization": f"Bearer {create_access_token(str(u.id))}"}
@@ -302,6 +306,34 @@ def test_xem_luong_pham_vi_CUA_TOI_khong_doc_duoc_luong_nguoi_khac(client):
     thay = _so_dong_bang_luong(client, rieng)
     assert thay < tong, (
         f"phạm vi 'Của tôi' vẫn đọc được {thay}/{tong} dòng — ô Phạm vi không có tác dụng"
+    )
+
+
+def test_xem_luong_khong_kem_o_bang_luong_thi_KHONG_vao_duoc_bang(client):
+    """⭐ Ô "Bảng lương tháng" phải là cổng THẬT, không phải nhãn trang trí.
+
+    Bảng lương tháng là công cụ quản lý: danh sách lương cả phạm vi + Tính lại + Chốt kỳ.
+    Trước 15/08/2026 nó đi theo cột Xem, nên cấp ô Lương cho thợ (để họ xem phiếu của mình)
+    là mở luôn bảng lương cả phòng — chủ chốt: *"công nhân làm gì có quyền đó đâu"*."""
+    db = SessionLocal()
+    try:
+        dept = DepartmentRepository(db).get_by_name("Sản xuất")
+        roles = RoleRepository(db)
+        role = roles.create(name="Vai xem luong khong bang", department_id=dept.id)
+        # Cấp RỘNG TAY mọi thứ trừ đúng ô đang đo — hỏng thì biết chắc là do ô đó.
+        roles.set_permission(role_id=role.id, module_key="luong", scope=SCOPE_ALL,
+                             can_read=True, can_view_salary=True, can_export=True,
+                             can_create=True, can_update=True)
+        u = UserRepository(db).create(username="pv-luong-khong-bang", name="NV",
+                                      password_hash=hash_password("x"))
+        UserRepository(db).set_assignment(u, department_id=dept.id, role_id=role.id,
+                                          is_active=True)
+        h = {"Authorization": f"Bearer {create_access_token(str(u.id))}"}
+    finally:
+        db.close()
+    r = client.get("/api/luong/table?year=2026&month=6", headers=h)
+    assert r.status_code == 403, (
+        f"thiếu ô Bảng lương tháng mà vẫn đọc được bảng ({r.status_code}) — ô là nhãn giả"
     )
 
 

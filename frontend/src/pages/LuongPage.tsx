@@ -323,7 +323,7 @@ export function LuongPage({
       )}
       {tab === "phieu" && tuPhucVu && <PhieuLuongTab token={token!} />}
       {tab === "tamung-me" && tuPhucVu && (
-        <TamUngCuaToiTab token={token!} eventTick={eventTick} />
+        <TamUngCuaToiTab token={token!} eventTick={eventTick} canCreate={canCreateAdvance} />
       )}
 
       <DiscardChangesDialog
@@ -3831,9 +3831,13 @@ function PayslipCard({
 function TamUngCuaToiTab({
   token,
   eventTick,
+  canCreate,
 }: {
   token: string;
   eventTick?: number;
+  /** Ô THAO TÁC của màn Lương. Không có ô thì KHÔNG bày nút — bày ra mà bấm ăn 403 thì
+   *  trông như hệ thống hỏng, chứ không như "anh không có quyền" (chủ chốt 15/08/2026). */
+  canCreate: boolean;
 }) {
   const [data, setData] = useState<MyAdvances | null>(null);
   const [adding, setAdding] = useState<null | "tam_ung" | "luong_dot_1">(null);
@@ -3886,20 +3890,26 @@ function TamUngCuaToiTab({
   return (
     <div>
       <div className="cc-toolbar lg-toolbar">
-        <button
-          className="btn btn--primary"
-          onClick={() => setAdding("tam_ung")}
-        >
-          + Đề nghị tạm ứng
-        </button>
-        <button
-          className="btn btn--ghost"
-          onClick={() => setAdding("luong_dot_1")}
-        >
-          + Xin lương đợt 1
-        </button>
+        {canCreate && (
+          <button
+            className="btn btn--primary"
+            onClick={() => setAdding("tam_ung")}
+          >
+            + Đề nghị tạm ứng
+          </button>
+        )}
+        {canCreate && (
+          <button
+            className="btn btn--ghost"
+            onClick={() => setAdding("luong_dot_1")}
+          >
+            + Xin lương đợt 1
+          </button>
+        )}
         <span className="cc-card__hint">
-          Đề nghị gửi tới kế toán duyệt; bấm “In phiếu” để ký &amp; nộp.
+          {canCreate
+            ? "Đề nghị gửi tới kế toán duyệt; bấm “In phiếu” để ký & nộp."
+            : "Chỉ xem — vai của bạn chưa được bật ô Thao tác ở màn Lương nên không gửi đề nghị được."}
         </span>
       </div>
       {data.items.length === 0 ? (

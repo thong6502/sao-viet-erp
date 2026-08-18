@@ -292,6 +292,20 @@ def _cham_cong_self(scope: str = SCOPE_OWN) -> dict:
                 scope=scope, can_cancel=True)
 
 
+def _luong_self(scope: str = SCOPE_OWN) -> dict:
+    """Phần CỦA TÔI ở màn Lương: xem phiếu lương của mình · xin tạm ứng · xin lương đợt 1.
+
+    `can_read` mở màn + hai tab cá nhân. `can_create` là ô THAO TÁC — ghi thì phải có ô, kể cả
+    ghi đơn của chính mình (chủ chốt 15/08/2026). KHÔNG `can_view_payroll_table` nên không thấy
+    bảng lương cả xưởng, KHÔNG `can_view_salary` nên không đọc được lương người khác.
+
+    Cấp SẴN cho mọi vai (như `self_service` trước đây) nhưng khác ở chỗ nó là ô THẬT trong bảng
+    phân quyền — HCNS tắt được vai nào cần siết. Vai nào khai riêng `luong` thì bản khai riêng
+    THẮNG (`**perms` đè). Đi cùng migration 0198 — sửa một nơi là lệch.
+    """
+    return dict(can_read=True, can_create=True, can_update=False, can_delete=False, scope=scope)
+
+
 def _el_self(scope: str = SCOPE_OWN) -> dict:
     """Tự phục vụ cho MỌI nhân viên: xem phiếu của mình + tự gửi + tự hủy. KHÔNG duyệt."""
     return dict(
@@ -703,6 +717,10 @@ def seed_roles(db: Session) -> None:
             # thợ mở màn ra mà không bấm được gì.
             "self_service": _rcu(SCOPE_OWN),
             "noi_quy": _read(SCOPE_ALL),
+            # luong — từ 15/08/2026 màn Lương vào bằng ô THẬT của chính nó, không còn đi cửa
+            # `self_service` (ô đó đã gỡ khỏi bảng phân quyền ⇒ HCNS không tắt được). Cấp sẵn
+            # phần CỦA TÔI để không ai mất phiếu lương / quyền xin tạm ứng. Xem `_luong_self`.
+            "luong": _luong_self(),
             **perms,
         }
         # Upsert permissions (no-op row-count on re-run; keeps the matrix in sync).

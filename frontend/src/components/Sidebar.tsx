@@ -233,13 +233,11 @@ const NAV: NavSection[] = [
       { id: "cham-cong", label: "Chấm công", icon: "activity", module: "cham_cong" },
       { id: "nghi-phep", label: "Nghỉ phép", icon: "calendar", module: "nghi_phep" },
       { id: "tang-ca", label: "Tăng ca", icon: "clock", module: "tang_ca" },
-      {
-        id: "luong",
-        label: "Lương",
-        icon: "calculator",
-        module: "luong",
-        modules: ["luong", SELF_SERVICE_MODULE],
-      },
+      // Lương vào bằng Ô THẬT của chính nó. Trước 15/08/2026 còn mở qua `self_service` —
+      // ô cấp sẵn cho mọi vai và ĐÃ GỠ khỏi bảng phân quyền, tức một cái cổng không tay nắm:
+      // HCNS tắt ô Lương mà người ta vẫn vào được màn. Migration 0198 + `_luong_self()` bên
+      // seed đã rót ô `luong` (Của tôi: Xem + Thao tác) cho mọi vai nên gỡ cổng ma không ai mất màn.
+      { id: "luong", label: "Lương", icon: "calculator", module: "luong" },
       // Nội quy lao động: ai cũng phải đọc, nhưng từ 10/08/2026 đi qua Ô QUYỀN `noi_quy` thật
       // (seed + migration cấp cho MỌI vai) chứ không còn nằm trong AUTHENTICATED_NAV_IDS.
       // ⚠ ĐỪNG dời lại lên "Tổng quan" và ĐỪNG đổi `id`/`module`: id là khoá route + khoá

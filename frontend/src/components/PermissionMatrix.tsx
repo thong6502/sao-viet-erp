@@ -342,7 +342,7 @@ const MODULE_HINTS: Record<string, string> = {
   di_muon:
     "Xem: thấy danh sách phiếu đi muộn / về sớm / nghỉ nửa buổi trong phạm vi (tab nằm trong màn Chấm công). Nhân viên tự xin / tự hủy phiếu của CHÍNH MÌNH thì KHÔNG cần cấp quyền nào — tab luôn hiện. Muốn DUYỆT phiếu người khác (và khai hộ thợ) thì bật quyền chi tiết “Duyệt phiếu đi muộn / về sớm”.",
   luong:
-    "Xem: mở màn Lương (bảng lương tháng, tạm ứng). Chỉnh sửa: tính lại lương, sửa dòng lương, khai cấu hình. Cấu hình lương + duyệt tạm ứng + chốt kỳ + xuất file nằm ở quyền chi tiết. Nhân viên xem “Phiếu lương của tôi” thì không cần quyền này.",
+    "Xem: MỞ MÀN Lương — chỉ thấy hai tab của chính mình (Phiếu lương của tôi, Tạm ứng của tôi). Không có ô này là không vào được màn, kể cả để xem phiếu lương của mình, nên vai nào cũng nên bật. Thao tác: gửi đề nghị tạm ứng / xin lương đợt 1 cho chính mình, và ghi ở những tab đã mở. Bảng lương tháng, Lương nhân viên, Lương khoán, Cấu hình, duyệt tạm ứng, chốt kỳ, xuất file — mỗi thứ một ô ở quyền chi tiết bên dưới.",
   thu_mua:
     "Xem: xem danh sách YCMH và PMH trong phạm vi được cấp. Chỉnh sửa: lập/sửa/gửi duyệt PMH, đánh dấu đã mua/đã nhận. Duyệt-từ chối PMH và hủy PMH nằm ở quyền chi tiết.",
   khach_hang:
