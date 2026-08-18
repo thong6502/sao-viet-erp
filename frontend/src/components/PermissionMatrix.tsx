@@ -826,9 +826,21 @@ export function PermissionMatrix({
                               : undefined
                           }
                           aria-label={`Phạm vi — ${label}`}
-                          onChange={(e) =>
-                            onScope(row.module_key, e.target.value as Scope)
-                          }
+                          onChange={(e) => {
+                            const moi = e.target.value as Scope;
+                            // Hạ phạm vi khỏi "Tất cả" thì TỰ TẮT những ô đòi phạm vi toàn công
+                            // ty (chủ chốt 15/08/2026). Để nguyên thì ô vẫn hiện là ĐANG BẬT
+                            // nhưng bị làm mờ — nhìn như đã cấp, mà bấm vào ăn 403 vì máy chủ
+                            // chặn. Tắt hẳn để cái nhìn thấy đúng bằng cái có thật.
+                            if (moi !== "all") {
+                              O_DOI_PHAM_VI_TOAN_CTY.forEach((k) => {
+                                if ((row as unknown as Record<string, boolean | undefined>)[k]) {
+                                  onToggle(row.module_key, k as ActionKey, false);
+                                }
+                              });
+                            }
+                            onScope(row.module_key, moi);
+                          }}
                         >
                           {SCOPES.filter(
                             (s) => !phamViChoPhep || phamViChoPhep.includes(s.value),
