@@ -556,7 +556,9 @@ O_CHET_DA_XAC_MINH: set[tuple[str, str]] = {
     ("tk_ngan_hang", "create"), ("tk_ngan_hang", "delete"),
     ("self_service", "update"), ("self_service", "delete"), ("self_service", "approve"),
     ("nghi_phep", "delete"),
-    ("tang_ca", "create"), ("tang_ca", "update"), ("tang_ca", "delete"),
+    # `tang_ca:create` SỐNG LẠI 15/08/2026: ô Tự phục vụ bỏ đi, nên "gửi phiếu tăng ca cho chính
+    # mình" nay đi bằng ô THAO TÁC của chính màn Tăng ca. Ghi là ghi — phải có ô.
+    ("tang_ca", "update"), ("tang_ca", "delete"),
     # `di_muon:read` chết từ 11/08/2026: danh sách đổi sang đòi `approve` (màn chỉ còn một việc).
     ("di_muon", "read"),
     ("di_muon", "create"), ("di_muon", "update"), ("di_muon", "delete"),

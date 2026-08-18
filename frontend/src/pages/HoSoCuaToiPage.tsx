@@ -217,7 +217,17 @@ export function HoSoCuaToiPage({ navigate }: { navigate?: NavigateFn }) {
     setLuong(DANG_TAI);
     api.luong.myPayslip(token)
       .then((r) => {
-        if (!r.has_employee || !r.line || !r.period) { setLuong({ tt: "rong", vi_sao: "Chưa có kỳ lương nào" }); return; }
+        if (!r.has_employee || !r.line || !r.period) {
+          // Nói ĐÚNG lý do thay vì gộp mọi thứ vào "Chưa có kỳ lương nào" — chốt xong mà chưa
+          // phát thì thợ đọc câu cũ là tưởng bị sót lương rồi đi hỏi HCNS (tháng nào cũng lặp).
+          const cp = r.cho_phat;
+          const ky = cp ? `tháng ${String(cp.month).padStart(2, "0")}/${cp.year}` : "";
+          setLuong({ tt: "rong", vi_sao: !cp ? "Chưa có kỳ lương nào"
+            : cp.tinh_trang === "hen_gio" ? `Phiếu ${ky} sắp được phát`
+            : cp.tinh_trang === "da_dong" ? `Phiếu ${ky} đã hết hạn xem`
+            : `Phiếu ${ky} chưa được phát` });
+          return;
+        }
         setLuong({ tt: "ok", du: { ky: r.period, dong: r.line } });
       })
       .catch((e) => setLuong(e instanceof ApiError && e.status === 403

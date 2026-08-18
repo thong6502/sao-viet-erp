@@ -169,6 +169,17 @@ def _full(scope: str, *, can_approve_exception: bool = False) -> dict:
         can_set_threshold=True,
         can_post=True,  # GĐ toàn quyền kho → được GHI SỔ (chốt tồn)
         can_close_book=True,  # GĐ: xem Báo cáo kho kế toán + khóa kỳ (chốt sổ) + export MISA
+        # cham_cong (mg 0194) — MỘT Ô = MỘT TAB. `_full` là "toàn quyền một màn" nên phải có ĐỦ;
+        # thiếu ô nào là vai Giám đốc / HCNS mất đúng tab đó mà không ai ngờ.
+        can_view_timesheet=True,
+        can_approve_late_early=True,
+        can_manage_locations=True,
+        can_manage_shifts=True,
+        can_manage_calendar=True,
+        can_view_payroll_table=True,
+        can_manage_salary_profiles=True,
+        can_manage_piece_rates=True,
+        can_manage_leave_types=True,
     )
 
 
@@ -270,6 +281,17 @@ def _ot_lead(scope: str = SCOPE_DEPARTMENT) -> dict:
 
 
 # Phiếu ĐI MUỘN / VỀ SỚM / NGHỈ NỬA BUỔI — cùng luồng duyệt với tăng ca (tổ trưởng duyệt tổ mình).
+def _cham_cong_self(scope: str = SCOPE_OWN) -> dict:
+    """Phần CỦA TÔI ở màn Chấm công (mg 0194): bấm giờ · xem lịch công của mình · gửi yêu cầu
+    chỉnh công · xin đi muộn cho mình.
+
+    `can_read` mở màn + ba tab của chính mình — KHÔNG kèm `can_view_timesheet` nên không thấy lưới
+    cả xưởng. `can_create` là ô THAO TÁC: ghi thì phải có ô, kể cả ghi đơn của chính mình
+    (chủ chốt 15/08/2026: *"chưa bật thao tác vẫn bấm gửi đơn được nè"*)."""
+    return dict(can_read=True, can_create=True, can_update=False, can_delete=False,
+                scope=scope, can_cancel=True)
+
+
 def _el_self(scope: str = SCOPE_OWN) -> dict:
     """Tự phục vụ cho MỌI nhân viên: xem phiếu của mình + tự gửi + tự hủy. KHÔNG duyệt."""
     return dict(
@@ -327,12 +349,11 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # `can_lock` (Chốt kỳ / Mở lại kỳ) — đúng vai TP HCNS, và phạm vi `all` khớp hàng rào
             # "chốt kỳ là việc của cả công ty".
             "cham_cong": _full(SCOPE_ALL),
-            # Ô riêng từ 11/08/2026 — duyệt yêu cầu chỉnh công của cả công ty.
-            "yeu_cau_chinh_cong": {**_read(SCOPE_ALL), "can_approve": True},   # `_full` bật cả `can_view_log` (tab Nhật ký)
+            # Duyệt yêu cầu chỉnh công + duyệt phiếu đi muộn NAY LÀ Ô CHI TIẾT của `cham_cong`
+            # (mg 0194) — `_full` ở trên đã bật đủ, không cần dòng module riêng nữa.
             # Nghỉ phép: HCNS là nơi DUYỆT tập trung (mọi đơn toàn công ty) + quản loại nghỉ.
             "nghi_phep": _leave_admin(SCOPE_ALL),
             "tang_ca": _ot_lead(SCOPE_ALL),
-            "di_muon": _el_lead(SCOPE_ALL),
             # Lương: HCNS/kế toán chạy trọn (tạo kỳ, duyệt tạm ứng, chốt, xuất).
             "luong": _full(SCOPE_ALL),
             # HCNS quản trị người dùng → giữ trọn các thao tác quản trị (tách khỏi "sửa"):
@@ -352,7 +373,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
     ),
     # Vai "Nhân viên" tối thiểu: Dashboard + tự phục vụ Nghỉ phép (cửa vào self-service).
     ("Hành chính nhân sự", "Nhân viên",
-     {"dashboard": _read(SCOPE_OWN), "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self()}),
+     {"dashboard": _read(SCOPE_OWN), "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "cham_cong": _cham_cong_self()}),
     # --- Khối SẢN XUẤT (Lát 1 — hộp việc 2 tầng, gate theo Ô QUYỀN, không theo chức danh) ---
     # Kế hoạch SX: cấu hình lệnh + PHÁT (can_approve), thấy mọi tổ (scope all). KHÔNG gán thợ.
     (
@@ -379,7 +400,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "yeu_cau_mua_hang": _ycmh_lap(SCOPE_ALL),
             "nghi_phep": _leave_self(),
             "tang_ca": _ot_self(),
-            "di_muon": _el_self(),
+            "cham_cong": _cham_cong_self(),
         },
     ),
     # Tổ trưởng SX: xem tổ mình (scope own) + GÁN thợ (can_assign_work) → hộp việc FULL + nút gán.
@@ -403,7 +424,11 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # chủ chốt hai thứ đó để bên nhân sự duyệt.
             "nghi_phep": _leave_lead(SCOPE_DEPARTMENT),
             "tang_ca": _ot_lead(SCOPE_DEPARTMENT),
-            "di_muon": _el_lead(SCOPE_DEPARTMENT),
+            # Đi muộn/về sớm GỘP về màn Chấm công (mg 0194): tổ trưởng mở màn (can_read = ba tab
+            # của chính mình) + ô duyệt phiếu của tổ. KHÔNG cấp `can_view_timesheet` — bảng công
+            # cả tổ là việc của HCNS, tổ trưởng chỉ duyệt phiếu.
+            "cham_cong": {"can_read": True, "can_approve_late_early": True,
+                          "scope": SCOPE_DEPARTMENT},
         },
     ),
     # Thợ sửa chữa (12/08/2026): vai DUY NHẤT thao tác module Kỹ thuật máy — ghi nhận máy hỏng, ghi
@@ -417,7 +442,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_OWN),
             "ky_thuat_may": _full(SCOPE_ALL),
             "dm_thiet_bi": _read(SCOPE_ALL),
-            "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self(),
+            "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "cham_cong": _cham_cong_self(),
         },
     ),
     # Thợ SX: CHỈ xem việc được gán (read scope own, không gán) → hộp việc lọc theo bước được gán.
@@ -425,14 +450,14 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Sản xuất",
         "Thợ SX",
         {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_OWN),
-         "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self()},
+         "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "cham_cong": _cham_cong_self()},
     ),
     # QC: xem mọi tổ (scope all) để soi công đoạn bất kỳ (ghi lỗi = Lát 3, thêm can_report_defect sau).
     (
         "Sản xuất",
         "QC",
         {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_ALL),
-         "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self()},
+         "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "cham_cong": _cham_cong_self()},
     ),
     (
         "Kinh doanh",

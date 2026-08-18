@@ -238,3 +238,89 @@ def test_nguoi_trong_pham_vi_van_lam_duoc_binh_thuong(client):
     assert client.post(f"/api/purchase-requests/{pid}/undo-received",
                        json={"reason": "kiểm lại"},
                        headers=_token_duyet("pv-gd")).status_code == 200
+
+
+# ══════════════════════════════════════════════ PHẠM VI Ở MÀN LƯƠNG
+#
+# LỖ HỔNG ĐO ĐƯỢC 15/08/2026: đường lấy bảng lương chỉ hỏi "có ô Xem Lương không", KHÔNG hỏi
+# "người này quản ai" — trả về MỌI dòng của kỳ. Cấp ô Xem Lương với phạm vi *Của tôi* thì người
+# đó vẫn đọc được lương của cả công ty, gồm cả giám đốc. Đúng căn bệnh tester ghi ở rà soát lần 1:
+# *"Phạm vi của tôi nhưng xem được tất cả"* — hồi đó đếm ở 7 phân hệ, màn Lương còn sót tới hôm nay.
+
+
+def _nv_xem_luong(username: str, *, scope: str, phong: str = "Sản xuất") -> dict:
+    """Tài khoản có ô Xem Lương với PHẠM VI khai sẵn, gắn vào một phòng cụ thể."""
+    db = SessionLocal()
+    try:
+        users = UserRepository(db)
+        u = users.get_by_username(username)
+        if u is None:
+            dept = DepartmentRepository(db).get_by_name(phong)
+            roles = RoleRepository(db)
+            role = roles.create(name=f"Vai {username}", department_id=dept.id)
+            roles.set_permission(role_id=role.id, module_key="luong", scope=scope,
+                                 can_read=True, can_view_salary=True)
+            u = users.create(username=username, name=username, password_hash=hash_password("x"))
+            users.set_assignment(u, department_id=dept.id, role_id=role.id, is_active=True)
+        return {"Authorization": f"Bearer {create_access_token(str(u.id))}"}
+    finally:
+        db.close()
+
+
+def _nv(client, headers, ten: str, phong: str) -> int:
+    """Hồ sơ nhân viên tối thiểu — chỉ cần có mặt để `generate` đẻ ra một dòng lương."""
+    db = SessionLocal()
+    try:
+        dept_id = DepartmentRepository(db).get_by_name(phong).id
+    finally:
+        db.close()
+    r = client.post("/api/employees",
+                    json={"full_name": ten, "department_id": dept_id, "hire_date": "2020-01-01"},
+                    headers=headers)
+    assert r.status_code in (200, 201), r.text
+    return r.json()["employee"]["id"]
+
+
+def _so_dong_bang_luong(client, headers, *, year=2026, month=6) -> int:
+    r = client.get(f"/api/luong/table?year={year}&month={month}", headers=headers)
+    assert r.status_code == 200, r.text
+    return len(r.json()["lines"])
+
+
+def test_xem_luong_pham_vi_CUA_TOI_khong_doc_duoc_luong_nguoi_khac(client):
+    """⭐ Ô Phạm vi trên dòng Lương phải có tác dụng thật, không phải ô cấu hình giả."""
+    auth_headers = _headers(client)
+    # Hai người ở HAI phòng khác nhau — có thế mới đo được chuyện nhìn sang phòng bạn.
+    _nv(client, auth_headers, "NV Pham Vi A", "Sản xuất")
+    _nv(client, auth_headers, "NV Pham Vi B", "Kho")
+    r = client.post("/api/luong/generate", json={"year": 2026, "month": 6}, headers=auth_headers)
+    assert r.status_code == 200, r.text
+    tong = _so_dong_bang_luong(client, auth_headers)
+    assert tong >= 2, "cần ít nhất 2 người trong kỳ thì mới thử được chuyện nhìn trộm"
+
+    rieng = _nv_xem_luong("pv-luong-own", scope=SCOPE_OWN)
+    thay = _so_dong_bang_luong(client, rieng)
+    assert thay < tong, (
+        f"phạm vi 'Của tôi' vẫn đọc được {thay}/{tong} dòng — ô Phạm vi không có tác dụng"
+    )
+
+
+def test_xuat_excel_cung_bi_kep_theo_pham_vi(client):
+    """Gác màn mà quên file tải về thì hàng rào chỉ là hình vẽ — tải Excel cũng là một đường đọc."""
+    auth_headers = _headers(client)
+    assert client.post("/api/luong/generate", json={"year": 2026, "month": 6},
+                       headers=auth_headers).status_code == 200
+    rieng = _nv_xem_luong("pv-luong-xuat", scope=SCOPE_OWN)
+    r = client.get("/api/luong/export.xlsx?year=2026&month=6", headers=rieng)
+    # Không có ô Xuất ⇒ 403 là ĐÚNG. Có ô mà lọt cả công ty mới là hỏng — ca đó do test trên canh.
+    assert r.status_code in (200, 403), r.text
+
+
+def test_pham_vi_TAT_CA_van_thay_du_nhu_cu(client):
+    """Đối chứng: siết nhầm thì HCNS mất bảng lương, còn tệ hơn lỗ hổng."""
+    auth_headers = _headers(client)
+    assert client.post("/api/luong/generate", json={"year": 2026, "month": 6},
+                       headers=auth_headers).status_code == 200
+    tong = _so_dong_bang_luong(client, auth_headers)
+    ca_cty = _nv_xem_luong("pv-luong-all", scope=SCOPE_ALL, phong="Ban giám đốc")
+    assert _so_dong_bang_luong(client, ca_cty) == tong

@@ -14,6 +14,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from ..deps import (
+    get_current_user,
     CurrentUser,
     get_attendance_service,
     get_authorization_service,
@@ -99,13 +100,24 @@ MODULE_YC_CHINH_CONG = "yeu_cau_chinh_cong"
 # Trước đây nhóm này không gác gì (chỉ cần đăng nhập) nên không có cách nào tắt cho một vai.
 # Ba hàng rào cũ GIỮ NGUYÊN (phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công · đúng
 # khung giờ ca) — chúng chống lạm dụng, còn ô này chống truy cập.
+# Ô `self_service` ĐÃ BỎ 15/08/2026 (chủ chốt). Dữ liệu của CHÍNH MÌNH là quyền đương nhiên của
+# mọi tài khoản đăng nhập — xem công / phiếu / đơn của mình, và gửi · sửa · huỷ đơn của mình.
+# Chặn nó là chặn người ta đi làm, chứ không bảo vệ được gì: mọi đường `/me` đã tự lọc theo hồ sơ
+# gắn với tài khoản, không đọc sang ai được.
+# Ba hàng rào thật GIỮ NGUYÊN: phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công ·
+# đúng khung giờ ca. Cái quyết định THẤY MÀN NÀO vẫn là ô của chính màn đó.
 MODULE_TU_PHUC_VU = "self_service"
-SelfUser = Annotated[User, Depends(require_permission(MODULE_TU_PHUC_VU, "read"))]
+SelfUser = Annotated[User, Depends(get_current_user)]
 
 # Ô THAO TÁC của Tự phục vụ (tách 11/08/2026). `SelfUser` (= `read`) chỉ cho XEM công / phiếu /
 # đơn của chính mình; mọi đường GHI — chấm công, gửi · sửa · huỷ đơn nghỉ, phiếu tăng ca, xin đi
 # muộn, xin tạm ứng, sửa hồ sơ của mình — đòi ô này.
-SelfWriter = Annotated[User, Depends(require_permission(MODULE_TU_PHUC_VU, "create"))]
+# GHI LÀ GHI — phải có ô THAO TÁC của chính màn này (chủ chốt 15/08/2026: *"tôi chưa bật thao tác
+# vẫn bấm gửi đơn được nè"*). Bấm giờ · gửi yêu cầu chỉnh công · xin đi muộn đều là ĐƯỜNG GHI,
+# không phải "xem dữ liệu của mình".
+#
+# Khác với `SelfUser` (đọc phần của mình — quyền đương nhiên, xem chú thích ở trên).
+SelfWriter = Annotated[User, Depends(require_permission(MODULE, "create"))]
 
 Service = Annotated[AttendanceService, Depends(get_attendance_service)]
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
@@ -144,6 +156,30 @@ def _chan_neu_khong_toan_cong_ty(authz: AuthorizationService, user: User, viec: 
         )
 
 
+def _ghi_cau_hinh_chung(action: str, viec: str):
+    """Dependency cho các đường GHI vào dữ liệu DÙNG CHUNG cả nhà máy: điểm chấm công · khai ca ·
+    lịch & ngày lễ (chủ chốt 15/08/2026).
+
+    Ba thứ đó không thuộc một tổ nào: đổi lịch lễ hay sửa khai ca là đổi CÔNG của toàn bộ nhân
+    viên. Người phạm vi "Của tôi" / "Cả phòng" mà sửa được thì họ đụng vào bảng công của cả công
+    ty — cùng loại rủi ro với Chốt kỳ công, nên dùng chung một hàng rào.
+
+    Trả về `User` để endpoint dùng như `require_permission` bình thường."""
+
+    doi_o = require_permission(MODULE, action)
+
+    # ⚠️ KHÔNG dùng `Annotated[...]` ở đây: file bật `from __future__ import annotations` nên chú
+    # thích kiểu thành CHUỖI, mà chuỗi đó lại tham chiếu `action` — biến của closure, không nằm
+    # trong globals. FastAPI giải không ra ⇒ coi `user` là tham số QUERY và trả 422 "Field
+    # required". Tham số mặc định thì `Depends(...)` được tính NGAY, không qua chú thích.
+    def _dep(authz: AuthorizationService = Depends(get_authorization_service),
+             user: User = Depends(doi_o)) -> User:
+        _chan_neu_khong_toan_cong_ty(authz, user, viec)
+        return user
+
+    return _dep
+
+
 def _raise(exc: Exception) -> None:
     if isinstance(exc, AttendanceNotFound):
         raise HTTPException(status_code=404, detail=str(exc))
@@ -177,7 +213,7 @@ def _shift_out(s) -> WorkShiftOut:
 @router.get("/shifts", response_model=WorkShiftsOut)
 def list_shifts(
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "manage_shifts"))],
 ) -> WorkShiftsOut:
     return WorkShiftsOut(items=[_shift_out(s) for s in svc.list_shifts()])
 
@@ -190,7 +226,7 @@ def list_shifts(
 def create_shift(
     body: WorkShiftIn,
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+    user: Annotated[User, Depends(_ghi_cau_hinh_chung("create", "Khai ca"))],
 ) -> WorkShiftOut:
     try:
         s = svc.create_shift(
@@ -209,7 +245,7 @@ def update_shift(
     shift_id: int,
     body: WorkShiftIn,
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(_ghi_cau_hinh_chung("update", "Khai ca"))],
 ) -> WorkShiftOut:
     try:
         s = svc.update_shift(
@@ -228,7 +264,7 @@ def update_shift(
 def delete_shift(
     shift_id: int,
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "delete"))],
+    user: Annotated[User, Depends(_ghi_cau_hinh_chung("delete", "Khai ca"))],
 ):
     try:
         svc.delete_shift(actor=user, shift_id=shift_id)
@@ -246,7 +282,7 @@ def get_shift_plan(
     # ⚠️ ĐỌC cũng đòi ô CẤU HÌNH, không phải ô Xem. Trước 10/08/2026 đường đọc chỉ đòi `read`:
     # vai chỉ-xem không thấy tab nhưng vẫn gọi thẳng API đọc được toạ độ + bán kính mọi điểm
     # chấm công và lưới phân ca cả tháng. Giao diện ẩn tab, máy chủ thì không — đúng Luật 2.
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "manage_shifts"))],
     year: int,
     month: int,
     department_id: int | None = None,
@@ -272,7 +308,7 @@ def save_shift_plan(
     body: ShiftPlanSaveIn,
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(_ghi_cau_hinh_chung("update", "Khai ca (lưới phân ca)"))],
 ) -> ShiftPlanSaveOut:
     """Ghi hàng loạt ô lưới trong MỘT request (không lặp N request). Ô không hợp lệ
     trả về trong `rejected` kèm lý do thay vì bị bỏ qua im lặng."""
@@ -340,7 +376,7 @@ def list_locations(
     # ⚠️ ĐỌC cũng đòi ô CẤU HÌNH, không phải ô Xem. Trước 10/08/2026 đường đọc chỉ đòi `read`:
     # vai chỉ-xem không thấy tab nhưng vẫn gọi thẳng API đọc được toạ độ + bán kính mọi điểm
     # chấm công và lưới phân ca cả tháng. Giao diện ẩn tab, máy chủ thì không — đúng Luật 2.
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "manage_locations"))],
 ) -> WorkLocationsOut:
     return WorkLocationsOut(items=[WorkLocationOut.model_validate(l) for l in svc.list_locations()])
 
@@ -349,7 +385,7 @@ def list_locations(
 def create_location(
     body: WorkLocationIn,
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+    user: Annotated[User, Depends(_ghi_cau_hinh_chung("create", "Điểm chấm công"))],
 ) -> WorkLocationOut:
     try:
         loc = svc.create_location(
@@ -366,7 +402,7 @@ def update_location(
     location_id: int,
     body: WorkLocationIn,
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(_ghi_cau_hinh_chung("update", "Điểm chấm công"))],
 ) -> WorkLocationOut:
     try:
         loc = svc.update_location(
@@ -382,7 +418,7 @@ def update_location(
 def delete_location(
     location_id: int,
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "delete"))],
+    user: Annotated[User, Depends(_ghi_cau_hinh_chung("delete", "Điểm chấm công"))],
 ):
     try:
         svc.delete_location(actor=user, location_id=location_id)
@@ -544,7 +580,7 @@ def timesheet(
     svc: Service,
     depts: Depts,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "view_timesheet"))],
     year: int = Query(ge=2000, le=2100),
     month: int = Query(ge=1, le=12),
     department_id: int | None = Query(default=None),
@@ -567,7 +603,7 @@ def timesheet_csv(
     svc: Service,
     depts: Depts,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "view_timesheet"))],
     year: int = Query(ge=2000, le=2100),
     month: int = Query(ge=1, le=12),
     department_id: int | None = Query(default=None),
@@ -757,7 +793,7 @@ def cancel_adjust_request(request_id: int, svc: Service, user: SelfWriter) -> Ad
 def list_adjust_requests(
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE_YC_CHINH_CONG, "read"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
     status: str | None = Query(default="pending"),
 ) -> AdjustRequestsOut:
     items = svc.list_requests(scope=_scope_for(authz, user), actor=user,
@@ -771,7 +807,7 @@ def approve_adjust_request(
     body: ApproveRequestIn,
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE_YC_CHINH_CONG, "approve"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
 ) -> AdjustRequestOut:
     try:
         data = svc.approve_request(actor=user, scope=_scope_for(authz, user), request_id=request_id,
@@ -787,7 +823,7 @@ def reject_adjust_request(
     body: RejectRequestIn,
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE_YC_CHINH_CONG, "approve"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
 ) -> AdjustRequestOut:
     try:
         data = svc.reject_request(actor=user, scope=_scope_for(authz, user), request_id=request_id, note=body.note)

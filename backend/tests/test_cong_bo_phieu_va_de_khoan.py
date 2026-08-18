@@ -307,3 +307,194 @@ def test_giao_dien_that_su_noi_vao_hai_tinh_nang_nay():
         assert can in luong, f"màn Lương không dùng {can}"
     assert "Trả về theo hồ sơ" in luong, "thiếu nút bỏ đè — đè xong không có đường lui"
     assert "Thu hồi phiếu" in luong, "thiếu nút thu hồi — công bố nhầm là kẹt"
+
+
+# ══════════════════════════════ ĐỢT 17/08/2026 — tra lại lịch sử + nói đúng lý do khi trống
+#
+# `docs/prd-phieu-luong-tu-phuc-vu.md`. Hai chốt của chủ:
+#   1. Công bố không có ngày kết thúc ⇒ LUÔN mở, không cắt mốc, không dọn dữ liệu cũ.
+#   2. Tháng nào đang mở thì xem được tháng đó — cửa sổ mở–đóng là công tắc DUY NHẤT.
+
+
+def _chot_luong_thang(client, h, thang: int):
+    """Như `_chot_luong` nhưng cho tháng bất kỳ — đợt này cần HAI tháng cùng lúc."""
+    client.post("/api/attendance/period/lock", json={"year": NAM, "month": thang}, headers=h)
+    assert client.post("/api/luong/generate", json={"year": NAM, "month": thang},
+                       headers=h).status_code == 200
+    r = client.post("/api/luong/lock", json={"year": NAM, "month": thang}, headers=h)
+    assert r.status_code == 200, r.text
+
+
+def _phieu(client, h, **q):
+    tail = ("?" + "&".join(f"{k}={v}" for k, v in q.items())) if q else ""
+    return client.get(f"/api/luong/payslip/me{tail}", headers=h).json()
+
+
+def test_khong_truyen_thang_thi_van_ra_ky_moi_nhat_dang_mo(client):
+    """Chống thụt lùi: client cũ không gửi year/month vẫn phải chạy y như trước."""
+    h = _h(client)
+    _nv_gan_admin(client, h)
+    for t in (THANG, THANG + 1):
+        _chot_luong_thang(client, h, t)
+        client.post("/api/luong/cong-bo", json={"year": NAM, "month": t}, headers=h)
+
+    ps = _phieu(client, h)
+    assert ps["line"] is not None
+    assert ps["period"]["month"] == THANG + 1, "mặc định phải là kỳ MỚI NHẤT đang mở"
+
+
+def test_hai_thang_cung_mo_thi_danh_sach_co_ca_hai(client):
+    """⭐ Lỗ chính đợt này: trước đây `limit(1)` ném hết chỉ giữ một, nên tháng 6 phát "không thời
+    hạn" vẫn biến mất ngay khi phát tháng 7."""
+    h = _h(client)
+    _nv_gan_admin(client, h)
+    for t in (THANG, THANG + 1):
+        _chot_luong_thang(client, h, t)
+        client.post("/api/luong/cong-bo", json={"year": NAM, "month": t}, headers=h)
+
+    ps = _phieu(client, h)
+    thang_list = [k["month"] for k in ps["ky_xem_duoc"]]
+    assert thang_list == [THANG + 1, THANG], f"phải có cả hai kỳ, mới→cũ: {thang_list}"
+
+
+def test_chon_thang_cu_thi_xem_lai_duoc(client):
+    h = _h(client)
+    _nv_gan_admin(client, h)
+    for t in (THANG, THANG + 1):
+        _chot_luong_thang(client, h, t)
+        client.post("/api/luong/cong-bo", json={"year": NAM, "month": t}, headers=h)
+
+    ps = _phieu(client, h, year=NAM, month=THANG)
+    assert ps["line"] is not None and ps["period"]["month"] == THANG
+
+
+def test_go_tay_thang_CHUA_cong_bo_thi_rong_khong_ro_so(client):
+    """⭐⭐ Quan trọng nhất: tháng do NLĐ gửi lên phải đi qua CHÍNH bộ lọc công bố.
+
+    Lọc thêm sau khi đã lấy dòng ra là để lọt số tiền của kỳ chưa phát — đúng cái mà cả cửa
+    công bố sinh ra để chặn."""
+    h = _h(client)
+    _nv_gan_admin(client, h)
+    for t in (THANG, THANG + 1):
+        _chot_luong_thang(client, h, t)
+    client.post("/api/luong/cong-bo", json={"year": NAM, "month": THANG + 1}, headers=h)
+
+    ps = _phieu(client, h, year=NAM, month=THANG)
+    assert ps["line"] is None, "gõ tay tháng chưa phát mà vẫn ra phiếu"
+    assert ps["period"] is None
+    assert [k["month"] for k in ps["ky_xem_duoc"]] == [THANG + 1]
+
+
+def test_go_tay_thang_DA_DONG_thi_rong_va_rot_khoi_danh_sach(client):
+    h = _h(client)
+    _nv_gan_admin(client, h)
+    _chot_luong_thang(client, h, THANG)
+    hom_kia = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    hom_qua = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    client.post("/api/luong/cong-bo",
+                json={"year": NAM, "month": THANG, "luc": hom_kia, "den": hom_qua}, headers=h)
+
+    ps = _phieu(client, h, year=NAM, month=THANG)
+    assert ps["line"] is None, "cửa sổ đã đóng mà gõ tay tháng vẫn ra phiếu"
+    assert ps["ky_xem_duoc"] == []
+
+
+def test_cho_phat_chua_phat(client):
+    """Chốt xong chưa ai bấm Công bố — thợ phải đọc được đúng lý do, không phải "chưa có kỳ lương"."""
+    h = _h(client)
+    _nv_gan_admin(client, h)
+    _chot_luong_thang(client, h, THANG)
+
+    ps = _phieu(client, h)
+    assert ps["line"] is None and ps["ky_xem_duoc"] == []
+    assert ps["cho_phat"] == {"year": NAM, "month": THANG,
+                              "tinh_trang": "chua_phat", "mo_luc": None}
+
+
+def test_cho_phat_hen_gio(client):
+    h = _h(client)
+    _nv_gan_admin(client, h)
+    _chot_luong_thang(client, h, THANG)
+    mai = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    client.post("/api/luong/cong-bo", json={"year": NAM, "month": THANG, "luc": mai}, headers=h)
+
+    cp = _phieu(client, h)["cho_phat"]
+    assert cp["tinh_trang"] == "hen_gio" and cp["mo_luc"] is not None
+
+
+def test_cho_phat_da_dong(client):
+    h = _h(client)
+    _nv_gan_admin(client, h)
+    _chot_luong_thang(client, h, THANG)
+    hom_kia = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+    hom_qua = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    client.post("/api/luong/cong-bo",
+                json={"year": NAM, "month": THANG, "luc": hom_kia, "den": hom_qua}, headers=h)
+
+    assert _phieu(client, h)["cho_phat"]["tinh_trang"] == "da_dong"
+
+
+def test_cho_phat_RONG_khi_ky_moi_nhat_dang_xem_duoc(client):
+    """Đang xem được rồi thì không có gì để báo — tránh bày dòng ghi chú thừa."""
+    h = _h(client)
+    _nv_gan_admin(client, h)
+    _chot_luong_thang(client, h, THANG)
+    client.post("/api/luong/cong-bo", json={"year": NAM, "month": THANG}, headers=h)
+
+    assert _phieu(client, h)["cho_phat"] is None
+
+
+def test_cho_phat_bao_thang_MOI_khi_dang_xem_thang_cu(client):
+    """Tháng 6 đang mở, tháng 7 chốt chưa phát: vừa xem được T6, vừa biết T7 đang chờ."""
+    h = _h(client)
+    _nv_gan_admin(client, h)
+    _chot_luong_thang(client, h, THANG)
+    client.post("/api/luong/cong-bo", json={"year": NAM, "month": THANG}, headers=h)
+    _chot_luong_thang(client, h, THANG + 1)
+
+    ps = _phieu(client, h)
+    assert ps["period"]["month"] == THANG, "vẫn phải xem được tháng cũ đang mở"
+    assert ps["cho_phat"]["month"] == THANG + 1
+    assert ps["cho_phat"]["tinh_trang"] == "chua_phat"
+
+
+def test_cho_phat_TUYET_DOI_khong_kem_tien(client):
+    """Cả cửa công bố sinh ra để NLĐ không đọc số chưa chốt. Thêm trường tiền vào đây là phá bỏ nó."""
+    h = _h(client)
+    _nv_gan_admin(client, h)
+    _chot_luong_thang(client, h, THANG)
+
+    cp = _phieu(client, h)["cho_phat"]
+    assert set(cp) == {"year", "month", "tinh_trang", "mo_luc"}, f"lọt trường lạ: {sorted(cp)}"
+
+
+def test_chua_co_bang_luong_nao_thi_khong_co_gi_de_bao(client):
+    """Chưa từng có bảng lương ⇒ danh sách rỗng VÀ không có lý do nào để nói.
+
+    Đây là ca duy nhất màn hình được phép giữ câu "Chưa có kỳ lương nào" — ba ca còn lại đều
+    phải nói rõ hơn. `cho_phat = None` chính là thứ phân biệt chúng."""
+    h = _h(client)
+    ps = _phieu(client, h)
+    assert ps["ky_xem_duoc"] == []
+    assert ps["cho_phat"] is None, "chưa có bảng lương mà lại bịa ra lý do chờ phát"
+
+
+def test_giao_dien_that_su_cho_tra_lai_thang_cu():
+    """Cùng hàng rào với `test_giao_dien_that_su_noi_vao_hai_tinh_nang_nay`: backend đổi mà màn
+    quên thì tính năng coi như không tồn tại, trong khi test API vẫn xanh."""
+    from pathlib import Path
+
+    fe = Path(__file__).resolve().parents[2] / "frontend" / "src"
+    client_ts = (fe / "api" / "client.ts").read_text(encoding="utf-8")
+    luong = (fe / "pages" / "LuongPage.tsx").read_text(encoding="utf-8")
+    ho_so = (fe / "pages" / "HoSoCuaToiPage.tsx").read_text(encoding="utf-8")
+
+    for can in ("ky_xem_duoc", "cho_phat", "tinh_trang", "KyXemDuoc", "ChoPhat"):
+        assert can in client_ts, f"client.ts thiếu {can}"
+    # Phiếu ĐẦY ĐỦ nằm ở tab "Phiếu lương của tôi" trong màn Lương — ô chọn kỳ phải ở đó.
+    for can in ("ky_xem_duoc", "cho_phat", "chua_phat", "hen_gio", "da_dong", "lyDoChuaCoPhieu"):
+        assert can in luong, f"tab Phiếu lương của tôi không dùng {can}"
+    # Màn Hồ sơ của tôi chỉ có CHIP tóm tắt, nhưng phải nói cùng một lý do — hai màn nói hai
+    # kiểu thì thợ đọc chỗ này một câu, bấm sang chỗ kia thấy câu khác.
+    for can in ("cho_phat", "hen_gio", "da_dong"):
+        assert can in ho_so, f"chip Hồ sơ của tôi không dùng {can}"

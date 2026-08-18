@@ -221,3 +221,52 @@ class RolePermission(Base):
     can_close_book: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+
+    # ── MÀN CHẤM CÔNG: MỘT Ô = MỘT TAB (chủ chốt 15/08/2026, mg 0194) ───────────────────────
+    # Luật: cột Xem = mở màn + ba tab CỦA TÔI (bấm giờ · lịch công của mình · tự xin đi muộn);
+    # mỗi ô dưới đây mở đúng MỘT tab, và tab đó luôn là thứ dính tới NGƯỜI KHÁC hoặc DÙNG CHUNG.
+    # Trước đó `can_update` một mình mở ba tab cấu hình — bật một ô ra ba màn, người cấp quyền
+    # không có cách nào biết mình vừa mở cái gì.
+
+    # Lưới người × ngày, chứa nút Chốt kỳ công. Công cụ quản lý, cùng hạng với Bảng lương — thợ
+    # mở màn Chấm công để bấm giờ nhưng KHÔNG được thấy công của cả xưởng.
+    can_view_timesheet: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Duyệt phiếu đi muộn / về sớm / nghỉ nửa buổi của NGƯỜI KHÁC (và khai hộ = duyệt luôn).
+    # Gộp từ khoá `di_muon` — nó vốn là một tab của màn này chứ không phải một màn riêng.
+    can_approve_late_early: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Ba ô tách ra từ "Cấu hình chấm công", gọi đúng tên tab:
+    can_manage_locations: Mapped[bool] = mapped_column(     # tab Điểm chấm công
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    can_manage_shifts: Mapped[bool] = mapped_column(        # tab Khai ca
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    can_manage_calendar: Mapped[bool] = mapped_column(      # tab Lịch & Ngày lễ
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    # luong (mg 0195) — cùng khuôn "một ô = một tab": BẢNG LƯƠNG THÁNG là công cụ quản lý (danh
+    # sách cả công ty + nút Tính lại / Chốt kỳ), KHÔNG phải "phần của tôi". Trước đó nó đi theo
+    # cột Xem, nên cấp ô Lương ở phạm vi "Của tôi" là thợ vẫn mở được bảng lương.
+    can_view_payroll_table: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Hai tab còn lại của màn Lương, tách khỏi cột Thao tác (mg 0196). Cột Thao tác KHÔNG được mở
+    # tab nào — nó chỉ cho GHI vào tab mình đã mở được (chủ chốt 15/08/2026).
+    can_manage_salary_profiles: Mapped[bool] = mapped_column(   # tab Lương nhân viên (hồ sơ lương)
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    can_manage_piece_rates: Mapped[bool] = mapped_column(       # tab Lương khoán (đơn giá khoán)
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # nghi_phep (mg 0197): DANH MỤC LOẠI NGHỈ — chính sách dùng chung cả công ty (phép năm, nghỉ
+    # ốm, không lương…). Trước đó nó mượn chính cột `can_update`, mà `can_update` cũng là một
+    # trong ba cột nút "Thao tác" bật ⇒ bật Thao tác là ô danh mục tự sáng theo. Hai việc khác
+    # hẳn nhau: gửi/huỷ đơn của mình vs sửa chính sách nghỉ của cả nhà máy.
+    can_manage_leave_types: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )

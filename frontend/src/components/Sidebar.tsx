@@ -28,6 +28,8 @@ export interface NavItem {
   children?: NavChild[];
 }
 
+// Ô `self_service` ĐÃ BỎ 15/08/2026 — phần "của tôi" là quyền đương nhiên, không phải ô cấp.
+// Hằng giữ lại tạm cho tới khi dọn xong khoá cũ ở máy chủ; menu KHÔNG còn ăn theo nó.
 export const SELF_SERVICE_MODULE = "self_service";
 // Menu hiện cho MỌI tài khoản đăng nhập KHÔNG CẦN cấp ô nào — tức luật ngầm, đi ngược Luật 1
 // của đợt phân quyền ("không có ô nào bật thì không vào được").
@@ -226,7 +228,9 @@ const NAV: NavSection[] = [
       // Khoá RIÊNG `cham_cong` (10/08/2026) — trước đây dùng chung `nhan_su` nên cấp quyền xem
       // hồ sơ là mở luôn bảng công cả công ty. Vẫn nhận SELF_SERVICE: thợ chỉ có ô Tự phục vụ
       // cũng phải vào được màn này để bấm chấm công và xem công của mình.
-      { id: "cham-cong", label: "Chấm công", icon: "activity", module: "cham_cong", modules: ["cham_cong", SELF_SERVICE_MODULE] },
+      // Menu theo ĐÚNG ô của chính nó. Vai Công nhân được cấp `cham_cong` ở phạm vi "Của tôi"
+      // ⇒ vẫn vào bấm giờ được; ai không được cấp thì không thấy menu (chủ chốt 15/08/2026).
+      { id: "cham-cong", label: "Chấm công", icon: "activity", module: "cham_cong" },
       { id: "nghi-phep", label: "Nghỉ phép", icon: "calendar", module: "nghi_phep" },
       { id: "tang-ca", label: "Tăng ca", icon: "clock", module: "tang_ca" },
       {

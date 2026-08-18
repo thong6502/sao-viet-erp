@@ -51,7 +51,7 @@ import type { NavigateFn } from "../components/AppShell";
 import { EmptyState } from "../components/EmptyState";
 import { MonthPicker } from "../components/MonthPicker";
 import { useAuth } from "../auth/useAuth";
-import { useCan, useSelfService, useSelfServiceWrite } from "../auth/permissions";
+import { useCan, useSelfService } from "../auth/permissions";
 import {
   UserCheck,
   CalendarDays,
@@ -253,23 +253,35 @@ export function ChamCongPage({
   // Khoá RIÊNG của màn Chấm công (10/08/2026) — không mượn quyền màn Hồ sơ nhân sự nữa.
   // `update` = ô "Cấu hình chấm công": gác cả ĐỌC lẫn GHI ba tab Điểm chấm công / Khai ca /
   // Lịch & Ngày lễ (trước đây đường đọc chỉ đòi `read` nên ẩn tab mà API vẫn trả dữ liệu).
-  const canConfig = can("cham_cong", "update"); // cấu hình điểm/ca
-  const canView = can("cham_cong", "read"); // xem toàn xưởng (theo scope)
+  // MỘT Ô = MỘT TAB (chủ chốt 15/08/2026, mg 0194). Trước đó `canConfig` một mình mở BA tab
+  // cấu hình — bật một ô ra ba màn, người cấp quyền không biết mình vừa mở cái gì.
+  const canDiemChamCong = can("cham_cong", "manage_locations");
+  const canKhaiCa = can("cham_cong", "manage_shifts");
+  const canLichLe = can("cham_cong", "manage_calendar");
+  // Ghi vào ba tab cấu hình: vẫn là ô Thao tác chung của màn (luật "bật Thao tác là thao tác cả").
+  const canConfig = can("cham_cong", "update");
+  // Bảng công tháng = lưới cả xưởng + nút Chốt kỳ ⇒ Ô RIÊNG, không đi theo `read` nữa.
+  // `read` nay = mở màn + ba tab CỦA TÔI (bấm giờ · lịch công của mình · tự xin đi muộn).
+  const canView = can("cham_cong", "view_timesheet");
   // Ô RIÊNG (11/08/2026): Bảng công tháng là số công đã tổng hợp; NHẬT KÝ là từng lượt bấm
   // kèm giờ + toạ độ của cả xưởng — ai đi sớm về muộn hôm nào, đọc là biết. Hai mức nhạy cảm
   // khác nhau nên hai ô khác nhau.
   const canViewLog = can("cham_cong", "view_log");
   // Tab "Yêu cầu chỉnh công" có KHOÁ RIÊNG từ 11/08/2026 — không còn ăn theo `cham_cong`.
   // Xem danh sách = ô Xem của màn đó; duyệt / từ chối = ô Duyệt riêng.
-  const canViewYcch = can("yeu_cau_chinh_cong", "read");
-  const canApproveYcch = can("yeu_cau_chinh_cong", "approve");
+  // Tab Yêu cầu chỉnh công hiện theo chính ô DUYỆT — bỏ ô "xem" riêng (mg 0194).
+  const canViewYcch = can("cham_cong", "approve");
+  const canApproveYcch = can("cham_cong", "approve");
   // Ô TỰ PHỤC VỤ (đợt 3) — quản trị TẮT ĐƯỢC. Không hỏi thì tắt xong nút vẫn bày ra, bấm
   // mới ăn 403: trông như hệ thống hỏng chứ không như "anh không có quyền".
   const tuPhucVu = useSelfService();
   // Ô THAO TÁC của Tự phục vụ — TÁCH khỏi ô Xem ngày 11/08/2026. Tab/danh sách đi theo ô
   // Xem; còn nút GỬI · SỬA · HUỶ thì đi theo ô này.
-  const tuPhucVuGhi = useSelfServiceWrite();
-  const canApproveEl = can("di_muon", "approve"); // duyệt phiếu đi muộn / về sớm
+  // GHI LÀ GHI — gửi / sửa / huỷ đơn của CHÍNH MÌNH vẫn đòi ô Thao tác của màn Chấm công
+  // (chủ chốt 15/08/2026: *"tôi chưa bật thao tác vẫn bấm gửi đơn được nè"*). Chỉ phần ĐỌC dữ
+  // liệu của mình mới là quyền đương nhiên.
+  const tuPhucVuGhi = can("cham_cong", "create");
+  const canApproveEl = can("cham_cong", "approve_late_early"); // gộp từ khoá `di_muon`
   // Mặc định vào tab của mình; ai bị gỡ ô Tự phục vụ thì mở thẳng tab xem được — không thì
   // vào màn là thấy một tab trống trơn không hiểu vì sao.
   const [tab, setTab] = useState<Tab>("me");
@@ -318,7 +330,7 @@ export function ChamCongPage({
             <Clock3 size={14} /> Đi muộn / về sớm / nghỉ nửa buổi
           </button>
         )}
-        {canConfig && (
+        {canDiemChamCong && (
           <button
             className={tab === "locations" ? "is-active" : ""}
             onClick={() => setTab("locations")}
@@ -326,7 +338,7 @@ export function ChamCongPage({
             <MapPin size={14} /> Điểm chấm công
           </button>
         )}
-        {canConfig && (
+        {canKhaiCa && (
           <button
             className={tab === "khai-ca" ? "is-active" : ""}
             onClick={() => setTab("khai-ca")}
@@ -334,7 +346,7 @@ export function ChamCongPage({
             <Clock size={14} /> Khai ca
           </button>
         )}
-        {canConfig && (
+        {canLichLe && (
           <button
             className={tab === "lich-le" ? "is-active" : ""}
             onClick={() => setTab("lich-le")}

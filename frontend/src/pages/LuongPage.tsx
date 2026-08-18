@@ -25,6 +25,7 @@ import {
   api,
   PIT_MODE_META,
   PIT_MODE_ORDER,
+  type ChoPhat,
   type ComponentKind,
   type EmployeeDetail,
   type EmployeeInput,
@@ -142,7 +143,8 @@ export function LuongPage({
   const { token } = useAuth();
   const can = useCan();
   const canManage = can("luong", "update");
-  const canReadPayroll = can("luong", "read");
+  // `luong:read` (cột Xem) nay chỉ MỞ MÀN — không còn mở tab quản lý nào. Hai tab cá nhân
+  // (Phiếu lương / Tạm ứng của tôi) là dữ liệu của chính người đăng nhập, không cần ô.
   const canCreateAdvance = can("luong", "create");
   const canApproveAdvance = can("luong", "approve");
   const canLockPeriod = can("luong", "lock");
@@ -154,10 +156,19 @@ export function LuongPage({
   // mới xác nhận đã trả.
   const canMarkPaid = can("luong", "manage_status");
   const canExportPayroll = can("luong", "export");
-  const canOpenBangLuong =
-    canReadPayroll || canManage || canLockPeriod || canMarkPaid || canExportPayroll;
-  const canOpenTamUng =
-    canReadPayroll || canCreateAdvance || canApproveAdvance;
+  // BẢNG LƯƠNG THÁNG là công cụ QUẢN LÝ (danh sách cả công ty + Tính lại + Chốt kỳ) ⇒ Ô RIÊNG
+  // từ 15/08/2026, cùng khuôn "Bảng công tháng" bên Chấm công. Trước đó nó đi theo cột Xem, nên
+  // cấp ô Lương ở phạm vi "Của tôi" là thợ vẫn mở được bảng lương của cả công ty.
+  // Vẫn cho những ai có việc PHẢI làm trên bảng đó (chốt kỳ · đánh dấu đã chi · xuất file) vào —
+  // không thì cấp đúng ô của họ mà vẫn không thấy chỗ để bấm.
+  // Cột Thao tác KHÔNG mở tab nào (chủ chốt 15/08/2026) — nó chỉ cho GHI vào tab đã mở được.
+  // Trước đó `|| canManage` làm tab hiện ra rồi bấm vào ăn 403, vì máy chủ đòi ô riêng.
+  const canOpenBangLuong = can("luong", "view_payroll_table");
+  const canLuongNhanVien = can("luong", "manage_salary_profiles");
+  const canLuongKhoan = can("luong", "manage_piece_rates");
+  // Tab TẠM ỨNG là danh sách phiếu của NGƯỜI KHÁC ⇒ đi theo ô "Duyệt tạm ứng" (đã có sẵn), không
+  // theo cột Xem. Tạm ứng CỦA MÌNH nằm ở tab riêng bên phải, không cần ô nào.
+  const canOpenTamUng = canApproveAdvance;
   // Cấu hình lương là dữ liệu nhạy cảm: quyền đọc module không đủ.
   // Người có quyền sửa luôn được xem để tránh ma trận quyền cũ khóa nhầm quản trị viên.
   // Tab "Cấu hình lương" đi theo ĐÚNG ô của nó (`Xem cấu hình lương`). Trước 11/08/2026 còn
@@ -211,7 +222,7 @@ export function LuongPage({
               <span>Bảng lương tháng</span>
             </button>
           )}
-          {canManage && (
+          {canLuongNhanVien && (
             <button
               className={`lg-tab-btn ${tab === "nhanvien" ? "is-active" : ""}`}
               onClick={() => go("nhanvien")}
@@ -221,7 +232,7 @@ export function LuongPage({
               <span>Lương nhân viên</span>
             </button>
           )}
-          {canManage && (
+          {canLuongKhoan && (
             <button
               className={`lg-tab-btn ${tab === "khoan" ? "is-active" : ""}`}
               onClick={() => go("khoan")}
@@ -291,10 +302,10 @@ export function LuongPage({
           canExportPayroll={canExportPayroll}
         />
       )}
-      {tab === "nhanvien" && canManage && (
+      {tab === "nhanvien" && canLuongNhanVien && (
         <NhanVienTab token={token!} focusEmployeeId={focusEmployeeId} />
       )}
-      {tab === "khoan" && canManage && <KhoanTab token={token!} />}
+      {tab === "khoan" && canLuongKhoan && <KhoanTab token={token!} />}
       {tab === "tamung" && canOpenTamUng && (
         <TamUngTab
           token={token!}
@@ -4084,18 +4095,54 @@ function MyAdvanceModal({
 
 // --- Tab: Phiếu lương của tôi -----------------------------------------------
 
+/** Câu giải thích vì sao chưa xem được phiếu — CHỈ tháng + lý do, không bao giờ kèm tiền.
+ *  Bốn tình huống trước đây gộp thành một câu "Chưa có phiếu lương", nên thợ tưởng bị sót
+ *  lương rồi đi hỏi HCNS (`docs/prd-phieu-luong-tu-phuc-vu.md` §1.2). */
+function lyDoChuaCoPhieu(cp: ChoPhat | null): { tieu_de: string; mo_ta: string } {
+  if (!cp)
+    return {
+      tieu_de: "Chưa có phiếu lương",
+      mo_ta: "Bạn chưa có kỳ lương nào trong hệ thống. Liên hệ HCNS nếu bạn nghĩ đây là nhầm lẫn.",
+    };
+  const ky = `tháng ${String(cp.month).padStart(2, "0")}/${cp.year}`;
+  if (cp.tinh_trang === "hen_gio")
+    return {
+      tieu_de: `Phiếu lương ${ky} sắp được phát`,
+      mo_ta: `Phiếu sẽ mở lúc ${cp.mo_luc ? fmtDateTime(cp.mo_luc) : "giờ đã hẹn"}. Quay lại sau thời điểm đó.`,
+    };
+  if (cp.tinh_trang === "da_dong")
+    return {
+      tieu_de: `Phiếu lương ${ky} đã đóng`,
+      mo_ta: "Thời hạn xem phiếu của kỳ này đã hết. Cần xem lại thì liên hệ HCNS.",
+    };
+  if (cp.tinh_trang === "chua_phat")
+    return {
+      tieu_de: `Phiếu lương ${ky} đang được lập`,
+      mo_ta: "Bảng lương kỳ này chưa được phát. Phiếu sẽ hiện ngay khi HCNS công bố.",
+    };
+  // Máy chủ thêm trạng thái mới mà màn chưa biết: nói chung chung còn hơn nói SAI. Đừng gộp ca
+  // này vào "đang được lập" — một ngày nào đó nó sẽ là câu sai với một tình huống thật.
+  return {
+    tieu_de: `Chưa xem được phiếu lương ${ky}`,
+    mo_ta: "Liên hệ HCNS để biết thời điểm phát phiếu.",
+  };
+}
+
 function PhieuLuongTab({ token }: { token: string }) {
   const [data, setData] = useState<Awaited<
     ReturnType<typeof api.luong.myPayslip>
   > | null>(null);
+  // Kỳ đang xem. `null` = để máy chủ chọn kỳ mới nhất đang mở — mở màn luôn về phiếu mới nhất,
+  // KHÔNG nhớ lựa chọn cũ: người ta vào đây để xem lương tháng này, tra lại là việc phụ.
+  const [ky, setKy] = useState<{ year: number; month: number } | null>(null);
   useEffect(() => {
     // Không gọi `getParams` nữa: 3 dòng BHXH/BHYT/BHTN do backend trả kèm phiếu, nên nhân viên
     // KHÔNG cần quyền cấu hình lương (trước đây gọi rồi ăn 403 → phiếu rơi về dòng gộp).
     api.luong
-      .myPayslip(token)
+      .myPayslip(token, ky ?? undefined)
       .then(setData)
       .catch(() => setData(null));
-  }, [token]);
+  }, [token, ky]);
 
   if (!data)
     return (
@@ -4121,20 +4168,18 @@ function PhieuLuongTab({ token }: { token: string }) {
       </div>
     );
   }
+  const dsKy = data.ky_xem_duoc ?? [];
   const l = data.line;
   if (!l || !data.period) {
+    const { tieu_de, mo_ta } = lyDoChuaCoPhieu(data.cho_phat);
     return (
       <div className="lg-payslip-empty-container">
         <div className="lg-payslip-empty-card">
           <div className="lg-payslip-empty-icon">
             <FileText size={24} />
           </div>
-          <h3 className="lg-payslip-empty-title">Chưa có phiếu lương</h3>
-          <p className="lg-payslip-empty-desc">
-            Không tìm thấy dữ liệu phiếu lương của bạn cho tháng này. Phiếu
-            lương sẽ hiển thị sau khi bộ phận HCNS hoàn tất việc chốt bảng
-            lương.
-          </p>
+          <h3 className="lg-payslip-empty-title">{tieu_de}</h3>
+          <p className="lg-payslip-empty-desc">{mo_ta}</p>
         </div>
       </div>
     );
@@ -4146,9 +4191,36 @@ function PhieuLuongTab({ token }: { token: string }) {
         className="lg-payslip-noprint"
         style={{ textAlign: "center", marginBottom: 8 }}
       >
+        {/* Ô chọn kỳ CHỈ hiện khi có từ 2 kỳ trở lên — một kỳ mà bày dropdown là thêm khối UI
+            vô nghĩa. Kỳ nào vào được danh sách này là máy chủ đã duyệt cửa sổ công bố rồi. */}
+        {dsKy.length > 1 && (
+          <select
+            className="input"
+            style={{ width: "auto", marginRight: 8 }}
+            value={`${data.period.year}-${data.period.month}`}
+            onChange={(e) => {
+              const [y, m] = e.target.value.split("-").map(Number);
+              setKy({ year: y, month: m });
+            }}
+            title="Chọn kỳ lương muốn xem lại"
+          >
+            {dsKy.map((k) => (
+              <option key={`${k.year}-${k.month}`} value={`${k.year}-${k.month}`}>
+                {`Tháng ${String(k.month).padStart(2, "0")}/${k.year}`}
+                {k.dong_phieu_luc ? ` — xem tới ${fmtDateTime(k.dong_phieu_luc)}` : ""}
+              </option>
+            ))}
+          </select>
+        )}
         <button className="btn btn--ghost" onClick={() => window.print()}>
           🖨 In phiếu
         </button>
+        {/* Đang xem được kỳ cũ mà kỳ mới chưa phát: nói ra, đừng để họ tưởng bị sót lương. */}
+        {data.cho_phat && (
+          <div className="lg-payslip-noprint" style={{ marginTop: 6, fontSize: 13, opacity: 0.75 }}>
+            {lyDoChuaCoPhieu(data.cho_phat).tieu_de}.
+          </div>
+        )}
       </div>
       <PayslipCard line={l} period={data.period} />
     </div>

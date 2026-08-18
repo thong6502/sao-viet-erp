@@ -23,6 +23,7 @@ from fastapi import (
 )
 
 from ..deps import (
+    get_current_user,
     CurrentUser,
     get_audit_repository,
     get_authorization_service,
@@ -99,13 +100,29 @@ MODULE = "nhan_su"
 # Trước đây nhóm này không gác gì (chỉ cần đăng nhập) nên không có cách nào tắt cho một vai.
 # Ba hàng rào cũ GIỮ NGUYÊN (phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công · đúng
 # khung giờ ca) — chúng chống lạm dụng, còn ô này chống truy cập.
+# Ô `self_service` ĐÃ BỎ 15/08/2026 (chủ chốt). Dữ liệu của CHÍNH MÌNH là quyền đương nhiên của
+# mọi tài khoản đăng nhập — xem công / phiếu / đơn của mình, và gửi · sửa · huỷ đơn của mình.
+# Chặn nó là chặn người ta đi làm, chứ không bảo vệ được gì: mọi đường `/me` đã tự lọc theo hồ sơ
+# gắn với tài khoản, không đọc sang ai được.
+# Ba hàng rào thật GIỮ NGUYÊN: phải có hồ sơ NV nối tài khoản · trong bán kính điểm chấm công ·
+# đúng khung giờ ca. Cái quyết định THẤY MÀN NÀO vẫn là ô của chính màn đó.
 MODULE_TU_PHUC_VU = "self_service"
-SelfUser = Annotated[User, Depends(require_permission(MODULE_TU_PHUC_VU, "read"))]
+SelfUser = Annotated[User, Depends(get_current_user)]
 
 # Ô THAO TÁC của Tự phục vụ (tách 11/08/2026). `SelfUser` (= `read`) chỉ cho XEM công / phiếu /
 # đơn của chính mình; mọi đường GHI — chấm công, gửi · sửa · huỷ đơn nghỉ, phiếu tăng ca, xin đi
 # muộn, xin tạm ứng, sửa hồ sơ của mình — đòi ô này.
-SelfWriter = Annotated[User, Depends(require_permission(MODULE_TU_PHUC_VU, "create"))]
+# ⚠️ CỐ Ý KHÔNG đòi ô Thao tác ở đây, khác với 4 màn kia (chủ chốt 15/08/2026).
+#
+# Luật chung là "ghi thì phải có ô Thao tác của chính màn chứa việc đó". Ba đường dưới đây —
+# sửa số điện thoại / tài khoản NH của mình, gửi và huỷ yêu cầu cập nhật hồ sơ — nằm ở màn
+# **Hồ sơ của tôi**, mà màn đó KHÔNG có ô quyền nào cả: nó mở cho mọi tài khoản đăng nhập.
+# Đòi ô `nhan_su:create` là đòi một ô mà thợ không bao giờ được cấp ⇒ khoá luôn đường tự sửa
+# thông tin liên hệ của chính họ.
+#
+# Hàng rào thật ở đây là TẦNG SERVICE: chỉ ghi được vào hồ sơ gắn với chính tài khoản đang gọi,
+# và yêu cầu cập nhật thì phải qua HCNS duyệt mới đổi được dữ liệu.
+SelfWriter = Annotated[User, Depends(get_current_user)]
 
 # Hồ sơ HR (CCCD, hợp đồng…) đi qua kho file dùng chung; đọc lại qua /api/files, chỉ người
 # có quyền `nhan_su` mới xem được (app/routers/files.py).

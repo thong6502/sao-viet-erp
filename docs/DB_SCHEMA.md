@@ -184,6 +184,11 @@ gets on that module.
 | `can_set_threshold` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (kho) — **KHAI NGƯỠNG** tồn / tối đa (`stock_thresholds`). Tách khỏi `can_update` vì đổi ngưỡng là đổi toàn bộ hệ cảnh báo mua hàng, không phải sửa dữ liệu thường. Thêm qua migration 0092. |
 | `can_post` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (kho) — **GHI SỔ** phiếu (chốt tồn). Tách khỏi `can_create` (= lập phiếu nháp) để giữ SoD: thủ kho lập nháp, Kế toán kho ghi sổ — người ghi sổ khác người cầm hàng. Thêm qua migration 0098. |
 | `can_close_book` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (kho) — **KHÓA KỲ** (chốt sổ) kế toán kho: xem **Báo cáo kho** + **export Excel MISA** + chốt/mở kỳ khóa sổ (`kho_khoa_so`). Chỉ Kế toán kho + Giám đốc. Thêm qua migration 0169. |
+| `can_view_timesheet` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (cham_cong, mg 0194) — tab **Bảng công tháng**: lưới người × ngày của cả phạm vi, chứa nút Chốt kỳ công. Công cụ QUẢN LÝ, cùng hạng với Bảng lương — thợ mở màn Chấm công để bấm giờ nhưng không được thấy công cả xưởng. Tách khỏi `can_read` (nay = mở màn + ba tab của chính mình). |
+| `can_approve_late_early` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (cham_cong, mg 0194) — tab con **Duyệt phiếu đi muộn / về sớm / nghỉ nửa buổi** của người khác (khai hộ = duyệt luôn). Gộp từ khoá `di_muon` cũ: nó vốn là một tab của màn này, không phải một màn riêng. |
+| `can_manage_locations` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (cham_cong, mg 0194) — tab **Điểm chấm công**. Tách từ `can_update` ("Cấu hình chấm công") vốn mở một lúc ba tab. |
+| `can_manage_shifts` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (cham_cong, mg 0194) — tab **Khai ca**. Tách từ `can_update`. |
+| `can_manage_calendar` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (cham_cong, mg 0194) — tab **Lịch & Ngày lễ**. Tách từ `can_update`. |
 
 **Keys & indexes**
 
