@@ -2797,3 +2797,393 @@ caption.sr-only {
   gap: var(--sp-2);
   flex-wrap: wrap;
 }
+
+/* =========================================================================
+   ĐỢT 2 — MỘT BÀN LÀM VIỆC (18/08/2026)
+   Cắt 4 view còn Gantt. Ba khối mới ở đây đều là CHỖ ĐI VỀ của thứ vừa cắt,
+   không phải khối trang trí: panel dính (Bảng), khối gập (Tuần), dải chân
+   màn (Vấn đề + cửa Phát hành).
+   ========================================================================= */
+
+/* --- A. panel dính bên phải (thay drawer che cả bàn lịch) ---------------- */
+/* Drawer cũ phủ scrim lên chính cái Gantt đang cần nhìn: sửa giờ một bước mà
+   không thấy nó đụng ai. Panel dính giữ được cả hai trong một tầm mắt. */
+.xlcd__grid.is-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  gap: var(--sp-4);
+  align-items: start;
+}
+.xlcd__grid.is-panel > .xlcd-board { grid-column: 1; min-width: 0; }
+.xlcd-side {
+  grid-column: 2;
+  position: sticky;
+  top: var(--sp-4);
+  align-self: start;
+  min-width: 0;
+}
+.xlcd-side__box {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - var(--sp-4) * 2);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-top: 3px solid var(--rust);
+  border-radius: var(--r-4);
+  box-shadow: var(--shadow-md, 0 6px 20px rgba(15, 23, 42, 0.08));
+  overflow: hidden;
+  animation: khsx-slide var(--duration-enter) var(--easing-standard);
+}
+/* Không mượn nổi .khsx-drawer--buoc: nó bị khoá width 840px !important ở
+   ke-hoach-sx.css:1871 (của LsxBuocDrawer). Nên khai lại 3 tầng cho gọn. */
+.xlcd-side__box .khsx-drawer__head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  background: #ffffff;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.xlcd-side__box .khsx-drawer__title { font-size: var(--fs-lg, 17px); }
+.xlcd-side__box .khsx-drawer__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--sp-4);
+  gap: var(--sp-3);
+  background: var(--paper);
+}
+.xlcd-side__box .khsx-drawer__foot {
+  flex: 0 0 auto;
+  padding: var(--sp-3) var(--sp-4);
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.xlcd-side__box .khsx-drawer__footbtns { margin-left: auto; }
+
+/* --- B. khối gập "Tải 4 tuần tới" --------------------------------------- */
+.xlcd-tuanfold {
+  margin: 0 0 var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-4);
+  background: var(--canvas);
+}
+.xlcd-tuanfold__sum {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  list-style: none;
+  user-select: none;
+}
+.xlcd-tuanfold__sum::-webkit-details-marker { display: none; }
+.xlcd-tuanfold__sum::after {
+  content: "▾";
+  margin-left: auto;
+  color: var(--ash);
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+.xlcd-tuanfold[open] > .xlcd-tuanfold__sum::after { transform: rotate(180deg); }
+.xlcd-tuanfold__sum svg { flex: none; color: var(--rust); }
+.xlcd-tuanfold__sum:hover { background: var(--paper); border-radius: var(--r-4); }
+.xlcd-tuanfold__sum:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
+.xlcd-tuanfold__hint { font-weight: var(--fw-regular, 400); font-size: var(--fs-xs); color: var(--ash); }
+.xlcd-tuanfold[open] > .xlcd-tuanfold__sum { border-bottom: 1px solid var(--rule-hair); }
+.xlcd-tuanfold > .xlcd-tuan { padding: var(--sp-3); }
+
+/* --- C. dải chân màn: vấn đề + cửa phát hành ----------------------------- */
+/* Dùng lại khung .xlcd-bulk (nền than, sticky đáy) để hai dải không đá nhau:
+   có dòng đang chọn thì BulkBar chiếm chỗ, không thì dải này. */
+.xlcd-footbar { justify-content: flex-start; }
+.xlcd-footbar__stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--on-charcoal);
+  border-radius: var(--r-3);
+  padding: 6px var(--sp-2);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.xlcd-footbar__stat svg { flex: none; color: var(--on-charcoal-muted); }
+.xlcd-footbar__stat b { font-size: var(--fs-md); }
+.xlcd-footbar__stat.is-chan svg { color: #f8b4a8; }
+.xlcd-footbar__stat.is-chan b { color: #f8b4a8; }
+.xlcd-footbar__stat:hover { border-color: rgba(245, 241, 232, 0.24); }
+.xlcd-footbar__stat.is-on {
+  background: var(--charcoal-2);
+  border-color: var(--on-charcoal-muted);
+}
+.xlcd-footbar__phu { color: var(--on-charcoal-muted); }
+.xlcd-footbar__go {
+  border: 0;
+  background: transparent;
+  color: var(--on-charcoal-muted);
+  text-decoration: underline;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  padding: 6px var(--sp-1);
+}
+.xlcd-footbar__go:hover { color: var(--on-charcoal); }
+
+/* --- D. hộp thoại Phát hành (khung mới, ruột ReleasePanel cũ) ------------ */
+.xlcd-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 12, 10, 0.48);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-4);
+  z-index: 60;
+}
+.xlcd-phdlg {
+  width: min(720px, 96vw);
+  max-height: min(84vh, 760px);
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+  border-top: 4px solid var(--rust);
+  border-radius: var(--r-4);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: khsx-slide var(--duration-enter) var(--easing-standard);
+}
+.xlcd-phdlg__head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.xlcd-phdlg__head svg { flex: none; color: var(--rust); }
+.xlcd-phdlg__head .khsx-drawer__x { margin-left: auto; }
+.xlcd-phdlg__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  background: var(--paper);
+}
+/* Dock trong hộp thoại: không sticky, không nền than — nó đã nằm trong hộp. */
+.xlcd-release-dock--inline {
+  position: static;
+  background: var(--canvas);
+  color: var(--ink);
+  border: 1px solid var(--rule-soft);
+  box-shadow: none;
+}
+.xlcd-release-dock--inline .xlcd-bulk__btn {
+  border-color: var(--rule-soft);
+  background: var(--canvas);
+  color: var(--ink);
+}
+.xlcd-release-dock--inline .xlcd-bulk__btn--accent { background: var(--rust); border-color: var(--rust); color: var(--on-charcoal); }
+
+/* --- E. khung xương lúc tải (Gantt, không còn bảng) ---------------------- */
+.xlcd-gskel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) 0;
+}
+.xlcd-gskel__bar { height: 26px; border-radius: var(--r-2); display: block; }
+.xlcd-gskel__bar:nth-child(2n) { width: 72%; }
+.xlcd-gskel__bar:nth-child(3n) { width: 56%; }
+
+@media (max-width: 1279px) {
+  /* Dưới 1280px panel dính bóp Gantt còn vài ngày — trả nó về dạng hộp phủ. */
+  .xlcd__grid.is-panel { display: block; }
+  .xlcd-side {
+    position: fixed;
+    inset: 0 0 0 auto;
+    width: min(560px, 96vw);
+    padding: var(--sp-3);
+    z-index: 60;
+    background: rgba(13, 12, 10, 0.28);
+  }
+  .xlcd-side__box { max-height: 100%; height: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .xlcd-side__box,
+  .xlcd-phdlg { animation: none; }
+  .xlcd-tuanfold__sum::after { transition: none; }
+}
+
+/* ===========================================================================
+   ĐỢT 2 · PHẦN GANTT — dải đỗ "chưa có giờ", tick cả lane, chip vấn đề,
+   mốc bảo trì. Đặt cuối file để đè các luật cũ cùng độ đặc hiệu.
+   =========================================================================== */
+
+/* ---- Dải đỗ: mọi công đoạn CHƯA CÓ GIỜ, gom theo lane -------------------- */
+.xlcd-gpark {
+  border-bottom: 1px solid var(--rule);
+  background: linear-gradient(180deg, var(--amber-soft) 0%, var(--paper) 100%);
+}
+.xlcd-gpark__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--ink);
+}
+.xlcd-gpark__head b { font-family: var(--ff-num); font-weight: var(--fw-bold); }
+.xlcd-gpark__head > svg { color: var(--amber-deep); flex: none; }
+.xlcd-gpark__hint { color: var(--ash); font-size: var(--fs-2xs); }
+.xlcd-gpark__all {
+  margin-left: auto;
+  border: 1px solid var(--amber-deep);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-standard);
+}
+.xlcd-gpark__all:hover { background: var(--amber-soft); }
+
+.xlcd-gpark__strip {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  overflow-x: auto;
+  padding: 0 var(--sp-3) var(--sp-2);
+  max-height: 132px;
+  overflow-y: auto;
+}
+.xlcd-gpark__grp {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px var(--sp-3) 4px 0;
+  border-right: 1px dashed var(--rule);
+}
+.xlcd-gpark__grp:last-child { border-right: 0; }
+.xlcd-gpark__grpname {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 150px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Chip = một công đoạn chờ giờ. Kéo được vào lane, bấm được để mở panel phải. */
+.xlcd-gchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 230px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--steel);
+  background: var(--paper);
+  border-radius: var(--r-2);
+  padding: 3px 8px;
+  font-family: var(--ff-sans);
+  font-size: var(--fs-2xs);
+  color: var(--ink);
+  cursor: grab;
+  touch-action: none;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    box-shadow var(--duration-fast) var(--easing-standard);
+}
+.xlcd-gchip:hover { border-color: var(--rust); box-shadow: 0 1px 4px rgba(15, 23, 42, 0.1); }
+.xlcd-gchip:active { cursor: grabbing; }
+.xlcd-gchip__ma { font-family: var(--ff-num); font-weight: var(--fw-bold); flex: none; }
+.xlcd-gchip__cd { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ash); }
+.xlcd-gchip.is-rush { border-left-color: var(--signal); }
+.xlcd-gchip.is-picked { border-color: var(--rust); background: var(--rust-soft); }
+.xlcd-gchip.is-open { border-color: var(--rust-deep); box-shadow: 0 0 0 2px var(--rust-soft); }
+
+/* ---- Tick "chọn cả lane" ------------------------------------------------- */
+.xlcd-glane__tick {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--rust);
+  cursor: pointer;
+}
+
+/* Lane vừa được nhảy tới (gõ tìm) — nháy một nhịp rồi thôi. */
+@keyframes xlcd-flash {
+  0%, 100% { background: transparent; }
+  35% { background: var(--rust-soft); }
+}
+.xlcd-glane.is-flash { animation: xlcd-flash 1.1s var(--easing-standard) 2; }
+
+/* ---- Mốc tới hạn bảo trì (nhắc, KHÔNG chặn) ------------------------------ */
+.xlcd-gmoc {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 2px dotted var(--amber-deep);
+  z-index: 5;
+  pointer-events: auto;
+  cursor: help;
+}
+.xlcd-gmoc::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: -4px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 6px solid var(--amber-deep);
+}
+
+/* ---- Chip VẤN ĐỀ neo đầu thanh ------------------------------------------ */
+.xlcd-gissue {
+  position: absolute;
+  z-index: 9;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border: 1.5px solid var(--paper);
+  border-radius: var(--r-pill);
+  background: var(--amber-deep);
+  color: var(--paper);
+  font-family: var(--ff-num);
+  font-size: 9px;
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+.xlcd-gissue:hover { transform: scale(1.25); }
+.xlcd-gissue.is-chan { background: var(--signal); }
+
+/* Thanh của dòng đang mở ở panel phải. */
+.xlcd-gbar.is-active { box-shadow: 0 0 0 2px var(--rust-deep), 0 2px 8px rgba(15, 23, 42, 0.2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .xlcd-glane.is-flash { animation: none; background: var(--rust-soft); }
+  .xlcd-gissue:hover { transform: none; }
+}

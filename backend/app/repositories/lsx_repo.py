@@ -7,10 +7,11 @@ còn dòng chưa lên lệnh. Không có cột trạng thái "đã tiếp nhận
 from __future__ import annotations
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from ..models.lsx import LOAI_MOI, Lsx, LsxCongDoan, LsxCongDoanPhuThuoc
 from ..models.order import STATUS_ORDERED, Order, OrderLine
+from .catalog_base import SIZE_TRAN
 
 
 class LsxRepository:
@@ -27,27 +28,87 @@ class LsxRepository:
             )
         ).scalar_one_or_none()
 
-    def list(
+    def _dieu_kien(
         self,
         *,
         order_id: int | None = None,
         trang_thai: str | None = None,
         q: str | None = None,
         owner_ids: set[int] | None = None,
-    ) -> list[Lsx]:
-        stmt = select(Lsx).options(selectinload(Lsx.cong_doans))
+    ) -> list:
+        """Bộ lọc dùng CHUNG cho `list` và `dem_theo_trang_thai`, để số dòng trong bảng và số
+        trên tab không bao giờ nói hai chuyện khác nhau (cùng lý do như `catalog_base._loc_q`)."""
+        conds = []
         if order_id is not None:
-            stmt = stmt.where(Lsx.order_id == order_id)
+            conds.append(Lsx.order_id == order_id)
         if trang_thai:
-            stmt = stmt.where(Lsx.trang_thai == trang_thai)
+            # Nhận NHIỀU trạng thái ngăn bằng dấu phẩy: tab "Nháp" của màn kế hoạch gửi
+            # `nhap,cho_bo_sung` (hai cái nay chung một mặt), gửi một mã lẻ vẫn chạy như cũ.
+            ma_tt = [t.strip() for t in trang_thai.split(",") if t.strip()]
+            conds.append(Lsx.trang_thai.in_(ma_tt))
         if q:
             like = f"%{q.strip()}%"
-            stmt = stmt.where(or_(Lsx.ma.ilike(like), Lsx.ten.ilike(like)))
+            conds.append(or_(Lsx.ma.ilike(like), Lsx.ten.ilike(like)))
         if owner_ids is not None:
-            stmt = stmt.where(
+            conds.append(
                 or_(Lsx.nguoi_phu_trach_id.in_(owner_ids), Lsx.created_by.in_(owner_ids))
             )
-        return list(self.db.execute(stmt.order_by(Lsx.created_at.desc())).scalars())
+        return conds
+
+    def list(self, *, page: int = 1, size: int = 50, **kw) -> tuple[list[Lsx], int]:
+        """`(dòng của TRANG này, TỔNG số dòng khớp lọc)` — cùng khuôn `catalog_base.list`.
+
+        LIMIT ở đây là bắt buộc chứ không phải tối ưu cho vui: `selectinload(cong_doans)` nhân
+        theo số dòng trả về, nên không cắt trang thì 100.000 lệnh kéo theo ~400.000 dòng bước —
+        đo ngày 18/08/2026 thấy endpoint không trả nổi kết quả trong 300 giây.
+        """
+        conds = self._dieu_kien(**kw)
+        base = select(Lsx).options(selectinload(Lsx.cong_doans))
+        dem = select(func.count()).select_from(Lsx)
+        for c in conds:
+            base = base.where(c)
+            dem = dem.where(c)
+        total = self.db.execute(dem).scalar_one()
+        page, size = max(1, page), max(1, min(size, SIZE_TRAN))
+        # `id` là chốt phụ: lệnh sinh cùng một lượt có `created_at` bằng nhau, thiếu chốt phụ thì
+        # thứ tự đổi giữa hai lượt gọi ⇒ dòng nhảy qua lại giữa các trang.
+        base = base.order_by(Lsx.created_at.desc(), Lsx.id.desc())
+        return list(self.db.execute(base.offset((page - 1) * size).limit(size)).scalars()), total
+
+    def dem_theo_trang_thai(self, **kw) -> dict[str, int]:
+        """Số lệnh của TỪNG trạng thái, cùng bộ lọc nhưng BỎ `trang_thai`.
+
+        Bỏ chính bộ lọc trạng thái là cố ý: tab đang không được chọn vẫn phải khoe số của nó
+        (đúng ghi chú `facets` ở `routers/catalog_base`). Khoá `all` = tổng mọi trạng thái.
+        """
+        conds = self._dieu_kien(**{**kw, "trang_thai": None})
+        stmt = select(Lsx.trang_thai, func.count()).group_by(Lsx.trang_thai)
+        for c in conds:
+            stmt = stmt.where(c)
+        out = {tt: n for tt, n in self.db.execute(stmt).all()}
+        out["all"] = sum(out.values())
+        return out
+
+    def cho_mrp(self, *, trang_thai: tuple[str, ...], include_ids: set[int]) -> list[Lsx]:
+        """Mọi lệnh mà kế hoạch vật tư phải tính — KHÔNG cắt trang, và đó là cố ý.
+
+        MRP cân giấy cho cả kho: cắt trang ở đây là âm thầm tính THIẾU vật tư, nên hàm này đứng
+        riêng thay vì mượn `list()` (trần `SIZE_TRAN` của `list` sẽ chặt mất phần đuôi mà không
+        ai hay). Cái đẩy được xuống SQL thì vẫn đẩy: lọc trạng thái chạy ở DB chứ không kéo cả
+        bảng về rồi vứt bằng Python.
+        """
+        dk = Lsx.trang_thai.in_(trang_thai)
+        if include_ids:
+            # Lệnh được gọi đích danh (đang mở trên màn) phải có mặt dù trạng thái nào.
+            dk = or_(dk, Lsx.id.in_(include_ids))
+        return list(
+            self.db.execute(
+                select(Lsx)
+                .options(selectinload(Lsx.cong_doans))
+                .where(dk)
+                .order_by(Lsx.created_at.desc(), Lsx.id.desc())
+            ).scalars()
+        )
 
     def by_order_lines(self, order_line_ids: list[int]) -> dict[int, Lsx]:
         """order_line_id → LSX 'sản xuất mới' đã tạo (nguồn của guard chống sinh trùng)."""
@@ -60,19 +121,52 @@ class LsxRepository:
         ).scalars()
         return {r.order_line_id: r for r in rows}
 
-    def orders_ban_giao(self) -> list[Order]:
-        """Đơn đã chốt + đã chuyển xuống sản xuất (kèm dòng đơn), mới nhất trước."""
-        return list(
-            self.db.execute(
-                select(Order)
-                .where(
-                    Order.status == STATUS_ORDERED,
-                    Order.san_xuat_released_at.is_not(None),
+    def orders_ban_giao(self, *, page: int = 1, size: int = 50) -> tuple[list[Order], int]:
+        """Đơn đã chốt + đã chuyển xuống SX mà CÒN nợ lệnh (kèm dòng đơn), mới nhất trước.
+
+        Điều kiện "còn dòng chưa lên lệnh" nằm trong SQL chứ không lọc bằng Python sau khi kéo
+        toàn bộ lịch sử đơn hàng về kèm mọi dòng đơn — cách cũ làm endpoint không trả nổi kết
+        quả ở quy mô thật.
+        """
+        # Viết bằng MỘT TẬP ID (union) chứ không phải `or_(EXISTS…, NOT EXISTS…)` ngay trong WHERE:
+        # dạng OR làm Postgres ước lượng chi phí ~1.000.000, vượt `jit_above_cost` nên nó bật JIT
+        # và đốt 470 ms biên dịch cho một câu chỉ chạy 80 ms (đo 18/08/2026 trên 20.000 đơn).
+        # Cùng một tập id dùng cho CẢ đếm lẫn lấy trang — hai câu không thể nói hai chuyện khác nhau.
+        don_khac = aliased(Order)
+        con_no = (
+            select(OrderLine.order_id)
+            .where(
+                ~select(Lsx.id)
+                .where(Lsx.order_line_id == OrderLine.id, Lsx.loai == LOAI_MOI)
+                .exists()
+            )
+            .union(
+                # Đơn KHÔNG có dòng nào vẫn nằm lại hàng chờ — đúng hành vi của bộ lọc Python cũ
+                # (`if so_dong and so_co >= so_dong`). Bỏ vế này là âm thầm giấu mất loại đơn ấy.
+                select(don_khac.id).where(
+                    ~select(OrderLine.id).where(OrderLine.order_id == don_khac.id).exists()
                 )
-                .options(selectinload(Order.lines))
-                .order_by(Order.san_xuat_released_at.desc())
-            ).scalars()
+            )
+            .subquery()
         )
+        conds = (
+            Order.status == STATUS_ORDERED,
+            Order.san_xuat_released_at.is_not(None),
+            Order.id.in_(select(con_no.c.order_id)),
+        )
+        total = self.db.execute(select(func.count()).select_from(Order).where(*conds)).scalar_one()
+        page, size = max(1, page), max(1, min(size, SIZE_TRAN))
+        # `lines` chỉ nạp cho các đơn CỦA TRANG (≤ size đơn), đủ để đếm dòng-đã-lên-lệnh mà không
+        # kéo theo cả bảng dòng đơn.
+        rows = self.db.execute(
+            select(Order)
+            .where(*conds)
+            .options(selectinload(Order.lines))
+            .order_by(Order.san_xuat_released_at.desc(), Order.id.desc())
+            .offset((page - 1) * size)
+            .limit(size)
+        ).scalars()
+        return list(rows), total
 
     def count_by_order(self, order_ids: list[int]) -> dict[int, int]:
         """order_id → số LSX đã tạo (để biết đơn còn nợ lệnh hay không)."""

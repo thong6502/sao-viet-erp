@@ -587,6 +587,9 @@ export interface BaiGhepSoDoBuocChung {
    *  `phat_sinh_phut` ("Thời gian khác"). `cho_phut`/`di_chuyen_phut` đã bỏ. */
   chay_phut: number | null;
   setup_phut: number; phat_sinh_phut: number;
+  /** Bóc tách thời lượng y như bước lệnh (thay giấy · thay kẽm · tra dầu · công thức chạy) —
+   *  cùng một `thoi_luong_buoc()` sinh ra. Có nó thì drawer nói được VÌ SAO ra số phút đó. */
+  thoi_luong_dien_giai: Record<string, unknown>;
   so_luot_chay: number;
   /** Khoán của lượt chung — cùng hợp đồng với bước lệnh: phần GHIM (đầu việc đã chọn) + danh
    *  sách chọn được của TỔ đang gán + phần DẪN XUẤT (SL quy đổi · tiền · diễn giải). */
@@ -605,6 +608,10 @@ export interface BaiGhepSoDoBuocChung {
   khoan_thieu: string[];
   khoan_ly_do: string | null;
   vat_tus: { vat_tu_id: number; ma: string; ten: string; don_vi: string; so_luong: number }[];
+  /** Lượng TÍNH SẴN cho mọi vật tư theo lượt chung — cùng hợp đồng với bước lệnh. Món chưa tính
+   *  ra được vẫn có mặt (`so_luong: null`) kèm `ly_do` chỉ chỗ khai công thức. */
+  vat_tu_goi_y: { vat_tu_id: number; so_luong: number | null;
+                  dien_giai: string | null; ly_do: string | null }[];
   /** Gia công ngoài (DỰ KIẾN) — bước chung thuê ngoài thì cả bài đi MỘT phiếu, MỘT nhà cung cấp. */
   sl_gui: number | null; ngay_gui_dk: string | null;
   van_chuyen_ngay: number | null; gia_cong_ngay: number | null; ngay_nhan_dk: string | null;
@@ -689,6 +696,12 @@ export interface BaiGhepUngVienGop {
 export interface BaiGhepDetail {
   id: number; ma: string; trang_thai: BaiGhepTrangThai;
   giay_id: number | null; giay_ten: string | null;
+  /** Quy cách CẢ TỜ GHÉP — server tính lúc đọc: định lượng + khổ tờ mua về lấy thẳng danh mục
+   *  giấy, mực/kẽm là HỢP tập của mọi thành viên (chung tờ = chung một bộ bản). */
+  gsm: number | null; kho_nguyen_dai: number | null; kho_nguyen_rong: number | null;
+  quy_cach_in: string | null; quy_cach_in_lech: boolean;
+  muc_a: string[]; muc_b: string[];
+  so_mau_a: number; so_mau_b: number; so_mau_pha: number; so_kem: number;
   kho_in_dai: number | null; kho_in_rong: number | null;
   may_id: number | null; may_ten: string | null;
   /** `null` = CHƯA KHAI (bài dùng hao máy đề xuất) · `0` = khai "chạy đúng số, không bù". */
@@ -992,7 +1005,14 @@ export interface XepLichPreview {
   nhan_rui_ro: XepLichRuiRo | null;
   can_xac_nhan: boolean;               // máy có thể không kham nổi (khổ/số màu/định lượng) — cảnh báo, không chặn
   ly_do_xac_nhan: string[];
+  /** Đợt 2 — CẢNH BÁO TẠI CHỖ, không chặn: đè khoảng khóa máy · ngoài giờ làm · tổ thiếu người ·
+   *  khổ vượt máy. Chủ chốt chốt 18/08/2026: "báo đỏ ngay, vẫn cho làm". */
+  canh_bao: XepLichCanhBao[];
 }
+
+/** Một dòng cảnh báo của xem-trước. `loai` khớp hằng BE (`khoa_may` · `ngoai_gio` · `thieu_nguoi`
+ *  · `kho_may`), `chu` là câu đã dựng sẵn ở server — FE KHÔNG dựng lại câu để hai nơi khỏi lệch. */
+export interface XepLichCanhBao { loai: string; chu: string }
 
 /** Kiểu khoảng giờ RIÊNG của một máy (mục G3) — cùng hình dạng dữ liệu, khác DẤU:
  *  `chan` máy không chạy · `mo_them` máy chạy thêm ngoài ca ("tối thứ Tư máy in 2 chạy thêm 3 tiếng"). */
@@ -1146,7 +1166,13 @@ export interface HangChoItem {
   so_dong: number;
   so_dong_co_lsx: number;
 }
-export interface HangChoOut { items: HangChoItem[]; total: number }
+export interface HangChoOut {
+  items: HangChoItem[];
+  /** TỔNG đơn còn nợ lệnh trên MÁY CHỦ, không phải số dòng của trang. */
+  total: number;
+  page: number;
+  size: number;
+}
 
 export interface LsxPreviewRouting {
   thu_tu: number; ten: string; nhom: string | null;
@@ -1384,7 +1410,34 @@ export interface LsxListItem {
    *  Tên lấy bằng `tenDonVi(ma)`; null = lệnh chưa có bước nào trên dòng giấy. */
   don_vi_to: string | null;
 }
-export interface LsxListOut { items: LsxListItem[]; total: number }
+export interface LsxListOut {
+  items: LsxListItem[];
+  /** TỔNG lệnh khớp bộ lọc trên MÁY CHỦ — không phải `items.length` (chỉ là 1 trang). */
+  total: number;
+  page: number;
+  size: number;
+  /** trạng thái → số lệnh, tính với CÙNG bộ lọc nhưng BỎ lọc trạng thái, nên tab đang không
+   *  được chọn vẫn khoe đúng số của nó. Khoá `all` = tổng mọi trạng thái. */
+  facets: Record<string, number>;
+}
+/** Một chấm trên hàng đèn tổng quan của bảng lệnh (Đợt 1 redesign 18/08/2026).
+ *  `ok` = **không vẽ chấm** — 20 lệnh × 3 chấm mà đa số xanh thì mắt không bắt được cái đỏ. */
+export interface LsxDenItem {
+  muc: "do" | "vang" | "ok";
+  chu: string;
+  /** Bấm chấm là tới thẳng chỗ sửa. `null` khi `ok`. */
+  nhay: { man: string; id: number } | null;
+}
+/** Ba thứ bảng lệnh CHƯA nói. Hạn và Định mức cố ý không có đèn: cột `Hạn` đã tô màu và cột `CĐ`
+ *  đã đỏ khi lệnh chưa có công đoạn. */
+export interface LsxDen {
+  vat_tu: LsxDenItem;
+  may_gio: LsxDenItem;
+  nguoi: LsxDenItem;
+}
+export interface LsxTongQuanOut {
+  items: { lsx_id: number; slack_ngay: number | null; den: LsxDen }[];
+}
 export interface LsxDetail {
   id: number; ma: string; loai: string; lsx_goc_id: number | null; ten: string;
   /** Nhãn nhóm đọc sống từ dòng đơn — luôn đúng hiện tại, khác `quy_cach_json` là ảnh chụp. */
@@ -7868,8 +7921,12 @@ export const api = {
   // --- Lệnh sản xuất (LSX) — bàn Kế hoạch sản xuất ---------------------------
   lsx: {
     /** Đơn Sale đã "Chuyển xuống sản xuất" mà còn dòng chưa lên lệnh. */
-    hangCho(token: string): Promise<HangChoOut> {
-      return authed<HangChoOut>("/api/lsx/hang-cho", token);
+    hangCho(token: string, params: { page?: number; size?: number } = {}): Promise<HangChoOut> {
+      const qs = new URLSearchParams();
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<HangChoOut>(`/api/lsx/hang-cho${suffix}`, token);
     },
     /** Danh sách lệnh DỰ KIẾN của 1 đơn — dẫn xuất tại chỗ, chưa ghi DB. */
     preview(token: string, orderId: number): Promise<LsxPreviewOut> {
@@ -7882,13 +7939,25 @@ export const api = {
         body: JSON.stringify({ order_line_ids: orderLineIds }),
       });
     },
-    list(token: string, params: { order_id?: number; trang_thai?: string; q?: string } = {}): Promise<LsxListOut> {
+    list(
+      token: string,
+      params: { order_id?: number; trang_thai?: string; q?: string; page?: number; size?: number } = {},
+    ): Promise<LsxListOut> {
       const qs = new URLSearchParams();
       if (params.order_id) qs.set("order_id", String(params.order_id));
       if (params.trang_thai) qs.set("trang_thai", params.trang_thai);
       if (params.q) qs.set("q", params.q);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
       return authed<LsxListOut>(`/api/lsx${suffix}`, token);
+    },
+    /** Hàng 3 đèn cho ĐÚNG các lệnh đang hiện trên bảng. Gọi RỜI sau `list`: bên trong máy chủ
+     *  chạy engine cân đối vật tư + bộ dò vấn đề cho cả bàn xếp lịch. Bảng lệnh phải hiện ngay,
+     *  đèn nhảy vào sau. ĐỪNG gọi lại khi chỉ gõ ô tìm — `loadLenhs` chạy lại mỗi 250ms. */
+    tongQuan(token: string, ids: number[]): Promise<LsxTongQuanOut> {
+      if (!ids.length) return Promise.resolve({ items: [] });
+      return authed<LsxTongQuanOut>(`/api/lsx/tong-quan?ids=${ids.join(",")}`, token);
     },
     get(token: string, id: number): Promise<LsxDetail> {
       return authed<LsxDetail>(`/api/lsx/${id}`, token);

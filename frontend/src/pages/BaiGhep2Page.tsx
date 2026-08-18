@@ -17,10 +17,11 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
-import { BaiGhepDagCanvas } from "../components/BaiGhepDagCanvas";
+import { BaiGhepDagCanvas, mauNhanh } from "../components/BaiGhepDagCanvas";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
+import { MucInHang } from "../components/MucIn";
 import { BuocChungForm } from "./BaiGhepBuocChungForm";
 import {
   BangLoi,
@@ -244,9 +245,15 @@ const toForm = (d: BaiGhep2Detail): MetaForm => ({
   giay_id: d.giay_id,
   kho_in_dai: d.kho_in_dai,
   kho_in_rong: d.kho_in_rong,
-  hao_hut_setup: d.hao_hut_setup,
-  hao_hut_chay: d.hao_hut_chay,
+  // KHÔNG mang `hao_hut_setup/chay` vào form: hao là HỆ QUẢ của bù hao từng bước chung, gõ đè chỉ
+  // để hai con số lệch nhau. Cột vẫn còn ở DB (bài cũ lỡ khai tay vẫn được tôn trọng) và PUT dùng
+  // `exclude_unset` nên vắng mặt ở đây = giữ nguyên, không phải xoá về null.
 });
+
+/** Nhãn cách in — cùng bộ chữ với màn Lệnh sản xuất, đừng đẻ bộ thứ hai. */
+const CACH_IN_NHAN: Record<string, string> = {
+  mot_mat: "1 mặt", hai_mat: "2 mặt (AB)", tu_tro: "Tự trở", tro_nhip: "Trở nhíp",
+};
 
 function BaiGhep2Detail({ id, eventTick, onBack, onChanged, navigate }: {
   id: number;
@@ -334,6 +341,11 @@ function BaiGhep2Detail({ id, eventTick, onBack, onChanged, navigate }: {
     };
   }, [drawer, memberPicker]);
   useEffect(() => {
+    // Drawer bước chung mở đầu bằng thanh tab (không còn nút Đóng autoFocus), nên tự đưa focus vào
+    // khung — không thì bẫy Tab ở effect trên không có phần tử nào để giữ.
+    if (drawer) dialogRef.current?.focus();
+  }, [drawer]);
+  useEffect(() => {
     if (eventTick === eventRef.current) return;
     eventRef.current = eventTick;
     const action = quyetDinhRealtime(dirtyRef.current, tab);
@@ -373,7 +385,19 @@ function BaiGhep2Detail({ id, eventTick, onBack, onChanged, navigate }: {
   if (err && !d) return <BangLoi text={err} onRetry={() => void load()} />;
   if (!d || !form || !sd) return <Skeleton rows={7} cols={4} />;
   const paperOptions = Array.from(new Map(d.thanh_vien.filter((x) => x.giay_id != null).map((x) => [x.giay_id!, x.giay_ten])));
+  // Khổ tờ mua về. `0 × 0` là giấy cuộn / chưa khai khổ — hiện gạch ngang, đừng bày số 0 rồi để
+  // người ta tưởng đã khai.
+  const khoNguyen = d.kho_nguyen_dai && d.kho_nguyen_rong
+    ? `${num(d.kho_nguyen_dai)} × ${num(d.kho_nguyen_rong)} mm` : "—";
+  // Chỉ số màu do SERVER gán cho từng nhánh trong sơ đồ. Lấy lại đúng nó (không đánh số theo thứ
+  // tự thành viên) để một lệnh giữ nguyên màu ở cả tab Quy cách lẫn tab Công đoạn.
+  const mauTheoLsx = new Map(sd.nhanh.map((n) => [n.lsx_id, n.mau]));
+  const mauCua = (lsxId: number) => mauTheoLsx.get(lsxId) ?? 0;
   const totalMaterials = materials?.items.length ?? 0;
+  // `drawer` là ẢNH CHỤP lúc bấm mở. Sau khi lưu, `sd` được nạp lại nên phải bám theo `step_key` để
+  // drawer hiện số MỚI (rơi về ảnh cũ nếu bước vừa bị tách khỏi bài).
+  const buocMo = drawer ? (sd.gop.find((g) => g.step_key === drawer.step_key) ?? drawer) : null;
+  const viTriBuoc = buocMo ? sd.gop.findIndex((g) => g.step_key === buocMo.step_key) : -1;
   const commonStepLabor = sd.gop.reduce((sum, g) => sum + (g.khoan_tien ?? 0), 0);
 
   return (
@@ -443,21 +467,137 @@ function BaiGhep2Detail({ id, eventTick, onBack, onChanged, navigate }: {
         </div>)}</div>
       </section>}
 
-      {tab === "quycach" && <section className="khsx-panel bg2-panel" role="tabpanel" id="bg2-panel-quycach" aria-labelledby="bg2-tab-quycach">
-        <PanelHead icon="settings" title="Quy cách tờ ghép" action={dirty ? <Button variant="primary" loading={saving} onClick={save}>Lưu quy cách</Button> : null} />
-        <div className="bg2-form-grid bg2-form-grid--spec">
-          <label className="khsx-field"><span>Giấy chạy chung</span><select disabled={!canUpdate} value={form.giay_id ?? ""} onChange={(e) => setForm({ ...form, giay_id: e.target.value ? Number(e.target.value) : null })}><option value="">— chọn giấy —</option>{paperOptions.map(([paperId, name]) => <option key={paperId} value={paperId}>{name || `Giấy #${paperId}`}</option>)}</select></label>
-          <label className="khsx-field"><span>Khổ dài (mm)</span><input type="number" min={0} disabled={!canUpdate} value={form.kho_in_dai ?? ""} onChange={(e) => setForm({ ...form, kho_in_dai: e.target.value ? Number(e.target.value) : null })} /></label>
-          <label className="khsx-field"><span>Khổ rộng (mm)</span><input type="number" min={0} disabled={!canUpdate} value={form.kho_in_rong ?? ""} onChange={(e) => setForm({ ...form, kho_in_rong: e.target.value ? Number(e.target.value) : null })} /></label>
-          <label className="khsx-field"><span>Hao setup</span><input type="number" min={0} disabled={!canUpdate} value={form.hao_hut_setup ?? ""} onChange={(e) => setForm({ ...form, hao_hut_setup: e.target.value ? Number(e.target.value) : null })} /></label>
-          <label className="khsx-field"><span>Hao chạy</span><input type="number" min={0} disabled={!canUpdate} value={form.hao_hut_chay ?? ""} onChange={(e) => setForm({ ...form, hao_hut_chay: e.target.value ? Number(e.target.value) : null })} /></label>
+      {tab === "quycach" && <section className="khsx-panel bg2-panel bg2-panel--spec" role="tabpanel" id="bg2-panel-quycach" aria-labelledby="bg2-tab-quycach">
+        <PanelHead icon="settings" title="Quy cách tờ ghép" action={dirty ? <><Button variant="ghost" onClick={() => setForm(toForm(d))}>Hoàn tác</Button><Button variant="primary" loading={saving} onClick={save}>Lưu quy cách</Button></> : null} />
+
+        <div className="khsx-spec__card">
+          <div className="khsx-spec__card-head">
+            <div className="khsx-spec__card-icon"><Icon name="printer" size={16} /></div>
+            <h4 className="khsx-spec__title">Giấy &amp; tờ ghép</h4>
+            <span className="khsx-spec__hint">thông số — sửa được</span>
+          </div>
+          <div className="khsx-spec__card-body">
+            <div className="khsx-kvgrid">
+              <label className={`khsx-kv ${canUpdate ? "khsx-kv--edit" : ""}`}>
+                <span className="khsx-kv__key">Giấy chạy chung</span>
+                <select className="khsx-kv__input" disabled={!canUpdate} value={form.giay_id ?? ""}
+                  onChange={(e) => setForm({ ...form, giay_id: e.target.value ? Number(e.target.value) : null })}>
+                  <option value="">— chọn giấy —</option>
+                  {paperOptions.map(([paperId, name]) => <option key={paperId} value={paperId}>{name || `Giấy #${paperId}`}</option>)}
+                </select>
+              </label>
+              {/* Định lượng + khổ tờ mua về ĐỌC THẲNG danh mục giấy, bài không giữ bản sao. Giữ
+                  bản sao là chỗ để hai bên lệch nhau, mà khi lệch thì không ai biết kho phải xuất
+                  theo con số nào. Đổi giấy rồi Lưu là hai ô này đổi theo. */}
+              <KV k="Định lượng" v={d.gsm ? `${num(d.gsm)} gsm` : "—"} mono />
+              <KV k="Khổ giấy nguyên" v={khoNguyen} mono />
+              <KVNum k="Khổ tờ ghép dài" suffix="mm" disabled={!canUpdate}
+                v={form.kho_in_dai ?? undefined} onChange={(x) => setForm({ ...form, kho_in_dai: x || null })} />
+              <KVNum k="Khổ tờ ghép rộng" suffix="mm" disabled={!canUpdate}
+                v={form.kho_in_rong ?? undefined} onChange={(x) => setForm({ ...form, kho_in_rong: x || null })} />
+              <KV k="Cách in" v={CACH_IN_NHAN[d.quy_cach_in ?? ""] ?? "—"} badge />
+              {/* Mực của BÀI là HỢP tập mực mọi lệnh — chung tờ là chung MỘT bộ bản. Nên đây là số
+                  ĐỌC: muốn sửa thì sửa ở lệnh, không mở lối khai mực lần thứ hai. Dùng lại đúng
+                  khối chip của phiếu/lệnh để ba màn nói cùng một số kẽm. */}
+              <div className="khsx-kv khsx-kv--span">
+                <span className="khsx-kv__key">Mực in cả bài</span>
+                <MucInHang mucA={d.muc_a} mucB={d.muc_b} quyCachIn={d.quy_cach_in ?? "mot_mat"}
+                  disabled onChange={() => {}} />
+              </div>
+            </div>
+            {d.quy_cach_in_lech && <p className="khsx-spec__canhbao">
+              Các lệnh khai cách in KHÁC nhau — số kẽm bên dưới đếm theo “{CACH_IN_NHAN[d.quy_cach_in ?? ""] ?? "—"}”.
+            </p>}
+          </div>
         </div>
-        <div className="bg2-spec-list">{d.thanh_vien.map((tv) => <div className="bg2-spec-row" key={tv.thanh_vien_id}>
-          <div><strong>{tv.lsx_ma}</strong><span>{tv.giay_ten || "Chưa có giấy"} · {tv.kho_tp || "chưa có khổ TP"} · {tv.so_mau_a ?? 0}/{tv.so_mau_b ?? 0}</span></div>
-          <ConInput value={tv.so_con_tren_to} disabled={!canUpdate}
-            onSave={(value) => token ? mutate(() => api.baiGhep2.suaThanhVien(token, id, tv.thanh_vien_id, value)) : Promise.resolve(false)} />
-          <div className="bg2-spec-row__numbers"><span>Cần <b>{num(tv.nhu_cau_to)} tờ</b></span><span>Dư <b>{num(tv.du_to)} tờ</b></span></div>
-        </div>)}</div>
+
+        <div className="khsx-spec__card">
+          <div className="khsx-spec__card-head">
+            <div className="khsx-spec__card-icon"><Icon name="grid" size={16} /></div>
+            <h4 className="khsx-spec__title">Máy tự tính</h4>
+            <span className="khsx-spec__hint">hệ quả của thông số trên — chỉ đọc</span>
+          </div>
+          <div className="khsx-spec__card-body">
+            <div className="khsx-kvgrid">
+              <KV k="Tờ chạy" v={`${num(d.so_to.so_to_tot)} tờ`} mono />
+              <KV k="Hao setup" v={`${num(d.so_to.hao_setup_de_xuat)} tờ`} mono />
+              <KV k="Hao chạy" v={`${num(d.so_to.hao_chay_de_xuat)} tờ`} mono />
+              <KV k="Tỷ lệ hao" v={`${d.so_to.ty_le_hao}%`} mono />
+              <KV k="Giấy lĩnh kho" v={`${num(d.so_to.to_nguyen_can)} tờ`} mono />
+              <KV k="Số kẽm" v={d.so_kem ? num(d.so_kem) : "—"} mono />
+              <KV k="Số màu" v={`${d.so_mau_a}/${d.so_mau_b}${d.so_mau_pha ? ` · ${d.so_mau_pha} pha` : ""}`} mono />
+              <KV k="Lấp đầy tờ" v={d.so_to.fill_pct != null ? `${d.so_to.fill_pct}%` : "—"} mono />
+              <KV k="Bước chạy chung" v={num(d.so_to.so_buoc_chung)} mono />
+            </div>
+            {d.so_to.hao_theo_buoc.length > 0 && <p className="khsx-nhom__sub">
+              Hao theo bước: {d.so_to.hao_theo_buoc.map((x) => `${x.ten} ${num(x.hao)} tờ`).join(" · ")}
+            </p>}
+            {/* Bài khai tay TỪ TRƯỚC vẫn đang đè số máy tính. Ô nhập đã gỡ, không có lối quay lại
+                thì nó kẹt vĩnh viễn ở con số cũ — một nút trả về, không dựng lại ô. */}
+            {(d.hao_hut_setup != null || d.hao_hut_chay != null) && <div className="bg2-status-line bg2-status-line--warn">
+              <strong>Hao đang khai tay:</strong> {num((d.hao_hut_setup ?? 0) + (d.hao_hut_chay ?? 0))} tờ,
+              đang đè số máy tính ({num(d.so_to.hao_de_xuat)} tờ).{" "}
+              {canUpdate && <button type="button" className="khsx-xlink"
+                onClick={() => token && mutate(() => api.baiGhep2.update(token, id, { hao_hut_setup: null, hao_hut_chay: null }))}>
+                Dùng số máy tính
+              </button>}
+            </div>}
+          </div>
+        </div>
+
+        <div className="khsx-spec__card">
+          <div className="khsx-spec__card-head">
+            <div className="khsx-spec__card-icon"><Icon name="layers" size={16} /></div>
+            <h4 className="khsx-spec__title">Các lệnh trên tờ · {d.thanh_vien.length}</h4>
+            <span className="khsx-spec__hint">con/tờ — sửa được</span>
+          </div>
+          <div className="khsx-spec__card-body">
+            {/* Tờ dùng CHUNG nên không có "tờ của lệnh nào"; chia được là phần giấy mỗi lệnh gánh
+                theo diện tích chiếm trên tờ. Dải này vẽ đúng `ty_le_giay` server trả, không phải
+                ước lượng cho đẹp — màu lấy chung nguồn với sơ đồ để nhìn tab nào cũng ra một lệnh. */}
+            <div className="bg2-share" role="img"
+              aria-label={`Phần giấy mỗi lệnh gánh: ${d.thanh_vien.map((tv) => `${tv.lsx_ma} ${tv.ty_le_giay}%`).join(", ")}`}>
+              {d.thanh_vien.map((tv) => <span key={tv.thanh_vien_id} className="bg2-share__seg"
+                style={{ flexGrow: Math.max(tv.ty_le_giay, 1), background: mauNhanh(mauCua(tv.lsx_id)) }}
+                title={`${tv.lsx_ma} · ${tv.ty_le_giay}% giấy · ${num(tv.phan_giay_to)} tờ`}>
+                <b>{tv.ty_le_giay}%</b>
+              </span>)}
+            </div>
+            <div className="bg2-spec-list">{d.thanh_vien.map((tv) => <div className="bg2-spec-row" key={tv.thanh_vien_id}>
+              <div className="bg2-spec-row__id">
+                <span className="bg2-spec-row__dot" style={{ background: mauNhanh(mauCua(tv.lsx_id)) }} aria-hidden="true" />
+                <div>
+                  <strong>{tv.lsx_ma}</strong>
+                  <span>{tv.lsx_ten || "—"}</span>
+                  <span>{tv.giay_ten || "Chưa có giấy"} · khổ TP {tv.kho_tp || "—"} · {tv.so_mau_a ?? 0}/{tv.so_mau_b ?? 0}
+                    {[...tv.muc_a, ...tv.muc_b].length > 0 && ` (${[...new Set([...tv.muc_a, ...tv.muc_b])].join("+")})`}</span>
+                </div>
+              </div>
+              <div className="bg2-spec-row__con">
+                <ConInput value={tv.so_con_tren_to} disabled={!canUpdate}
+                  onSave={(value) => token ? mutate(() => api.baiGhep2.suaThanhVien(token, id, tv.thanh_vien_id, value)) : Promise.resolve(false)} />
+                {/* Gợi ý là số SERVER tính (tối đa theo khổ · cân sản lượng để bớt dư). Bấm mới
+                    ghi — máy không tự sửa con/tờ của người bình bài. */}
+                <span className="bg2-spec-row__hint">
+                  {tv.con_toi_da > 0 && `tối đa ${tv.con_toi_da}`}
+                  {canUpdate && tv.con_goi_y > 0 && tv.con_goi_y !== tv.so_con_tren_to && <>
+                    {tv.con_toi_da > 0 && " · "}
+                    <button type="button" className="khsx-xlink"
+                      onClick={() => token && mutate(() => api.baiGhep2.suaThanhVien(token, id, tv.thanh_vien_id, tv.con_goi_y))}>
+                      gợi ý {tv.con_goi_y}
+                    </button>
+                  </>}
+                </span>
+              </div>
+              <div className="bg2-spec-row__numbers">
+                <span>Chiếm <b>{tv.ty_le_giay}%</b> giấy · {num(tv.phan_giay_to)} tờ</span>
+                <span>Cần <b>{num(tv.nhu_cau_to)} tờ</b></span>
+                <span>Dư <b>{num(tv.du_to)} tờ</b></span>
+                <span>Ra <b>{num(tv.san_luong_du_kien)}</b> / {num(tv.so_luong_dat)} {tv.don_vi_tinh || ""}</span>
+              </div>
+            </div>)}</div>
+          </div>
+        </div>
       </section>}
 
       {tab === "routing" && <section className="khsx-panel bg2-panel bg2-panel--routing" role="tabpanel" id="bg2-panel-routing" aria-labelledby="bg2-tab-routing">
@@ -487,19 +627,27 @@ function BaiGhep2Detail({ id, eventTick, onBack, onChanged, navigate }: {
         {activity == null ? <Skeleton rows={5} cols={2} /> : activity.length === 0 ? <EmptyState icon="clock" title="Chưa có hoạt động" /> : <ol className="bg2-activity">{activity.map((item, index) => <li key={`${item.at}:${index}`}><span className="bg2-activity__dot" /><div><strong>{item.action}</strong><p>{item.actor || "Hệ thống"} · {ngayGio(item.at)}</p>{item.detail && <p>{item.detail}</p>}</div></li>)}</ol>}
       </section>}
 
-      {drawer && <div className="bg2-drawer-scrim" onMouseDown={() => setDrawer(null)}><aside ref={dialogRef} className="bg2-drawer" role="dialog" aria-modal="true" aria-label={`Khai lại bước chung ${drawer.ten}`} onMouseDown={(e) => e.stopPropagation()}>
-        <header className="bg2-drawer__head"><div><span>Bước chung</span><h2>{drawer.ten}</h2><p>{drawer.thanh_vien.length} lệnh · số lượng, hao và thời lượng do hệ thống tính</p></div><button type="button" className="bg2-icon-btn" aria-label="Đóng" autoFocus onClick={() => setDrawer(null)}><Icon name="x" size={18} /></button></header>
-        {!drawer.da_lap_ke_hoach && <div className="bg2-status-line">Bước vừa gộp chưa có cấu hình kế hoạch. Hãy khai lại tổ, máy, đầu việc và vật tư.</div>}
-        {err && <div className="banner banner--error" role="alert">{err}</div>}
-        <div className="bg2-drawer__body"><BuocChungForm g={drawer} canUpdate={canUpdate}
-          onLuu={async (body: BaiGhepBuocChungBody) => {
-            if (!token) return false;
-            const saved = await mutate(() => api.baiGhep2.luuBuocChung(token, id, drawer.step_key, body));
-            if (saved) setDrawer(null);
-            return saved;
-          }}
-          onTach={async () => { if (!token) return; if (await mutate(() => api.baiGhep2.tach(token, id, drawer.step_key))) setDrawer(null); }} /></div>
-      </aside></div>}
+      {buocMo && <div className="khsx-scrim" onMouseDown={(e) => e.target === e.currentTarget && setDrawer(null)}>
+        <aside ref={dialogRef} tabIndex={-1} className={`khsx-drawer khsx-drawer--buoc khsx-drawer--${buocMo.loai_buoc}`}
+          role="dialog" aria-modal="true" aria-label={`Khai lại bước chung ${buocMo.ten}`}>
+          <BuocChungForm g={buocMo} canUpdate={canUpdate}
+            index={viTriBuoc} tong={sd.gop.length}
+            onPrev={viTriBuoc > 0 ? () => setDrawer(sd.gop[viTriBuoc - 1]) : undefined}
+            onNext={viTriBuoc >= 0 && viTriBuoc < sd.gop.length - 1 ? () => setDrawer(sd.gop[viTriBuoc + 1]) : undefined}
+            onClose={() => setDrawer(null)}
+            banner={<>
+              {!buocMo.da_lap_ke_hoach && <div className="bg2-status-line">Bước vừa gộp chưa có cấu hình kế hoạch. Hãy khai lại tổ, máy, đầu việc và vật tư.</div>}
+              {err && <div className="banner banner--error" role="alert">{err}</div>}
+            </>}
+            onLuu={async (body: BaiGhepBuocChungBody) => {
+              if (!token) return false;
+              // Lưu xong GIỮ drawer mở (bản cũ đóng luôn): drawer nay có 5-6 tab, đá người dùng ra
+              // ngoài sau mỗi lần lưu thì họ phải mở lại để khai tiếp tab kế. `mutate` nạp lại sơ đồ
+              // và `buocMo` bám theo `step_key` nên số trong drawer là số server vừa tính lại.
+              return await mutate(() => api.baiGhep2.luuBuocChung(token, id, buocMo.step_key, body));
+            }}
+            onTach={async () => { if (!token) return; if (await mutate(() => api.baiGhep2.tach(token, id, buocMo.step_key))) setDrawer(null); }} />
+        </aside></div>}
 
       {memberPicker && <MemberPicker dialogRef={dialogRef} exclude={new Set(d.thanh_vien.map((x) => x.lsx_id))} onClose={() => setMemberPicker(false)} onAdd={async (ids) => { if (!token) return; if (await mutate(() => api.baiGhep2.themThanhVien(token, id, ids))) setMemberPicker(false); }} />}
       <ConfirmDialog open={confirmDelete} title="Xóa bài ghép 2?" message="Các routing LSX gốc vẫn được giữ nguyên. Lớp bước chung của bài sẽ bị xóa." danger busy={saving} confirmLabel="Xóa bài ghép" onCancel={() => setConfirmDelete(false)} onConfirm={async () => { if (!token) return; setSaving(true); try { await api.baiGhep2.remove(token, id); onChanged(); onBack(); } catch (e) { setErr(loi(e)); setConfirmDelete(false); } finally { setSaving(false); } }} />
@@ -525,6 +673,27 @@ export function ConInput({ value, disabled, onSave }: { value: number; disabled:
   return <label><span>Con trên tờ</span><input type="number" min={0} disabled={disabled || busy} value={draft}
     onChange={(e) => setDraft(e.target.value)} onBlur={() => void commit()}
     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } }} /></label>;
+}
+
+/** Một ô key-value CHỈ ĐỌC. Cùng bộ class với tab Quy cách của lệnh sản xuất — hai màn nói cùng
+ *  một thứ thì phải nhìn giống nhau, không đẻ kiểu trình bày thứ hai. */
+function KV({ k, v, mono = false, badge = false }: { k: string; v: React.ReactNode; mono?: boolean; badge?: boolean }) {
+  const rong = typeof v === "string" && (v === "—" || v === "");
+  return <div className="khsx-kv">
+    <span className="khsx-kv__key">{k}</span>
+    <span className={`khsx-kv__val ${mono ? "khsx-num" : ""} ${rong ? "is-nil" : ""} ${badge && !rong ? "is-badge" : ""}`}>{v}</span>
+  </div>;
+}
+
+/** Ô số SỬA ĐƯỢC trong cùng lưới. `undefined` hiện rỗng chứ không hiện 0 — chưa khai khác 0. */
+function KVNum({ k, v, onChange, disabled, suffix }: {
+  k: string; v: number | undefined; onChange: (n: number) => void; disabled?: boolean; suffix?: string;
+}) {
+  return <label className={`khsx-kv ${disabled ? "" : "khsx-kv--edit"}`}>
+    <span className="khsx-kv__key">{k}{suffix ? ` (${suffix})` : ""}</span>
+    <input className="khsx-kv__input" type="number" min={0} disabled={disabled} value={v ?? ""}
+      onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))} />
+  </label>;
 }
 
 function PanelHead({ icon, title, action }: { icon: "pencil" | "settings" | "workflow" | "box" | "clock"; title: string; action?: React.ReactNode }) {

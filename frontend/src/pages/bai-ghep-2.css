@@ -63,7 +63,6 @@
   gap: 12px;
   padding: 14px;
 }
-.bg2-form-grid--spec { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .bg2-form-wide { grid-column: 1 / -1; }
 .bg2-check {
   display: flex;
@@ -111,20 +110,57 @@
 .bg2-icon-btn:hover { border-color: #96a7bb; color: var(--bg2-ink); }
 .bg2-icon-btn:focus-visible { outline: 2px solid #1683d8; outline-offset: 2px; }
 
+/* Tab QUY CÁCH dùng lại thẻ `.khsx-spec__card` của màn Lệnh sản xuất. Thẻ bên đó không có lề
+   ngang vì nằm sẵn trong vùng có padding; ở đây tiêu đề panel phải trải hết chiều rộng nên lề
+   đặt cho từng thẻ, không đặt cho panel. */
+.bg2-panel--spec .khsx-spec__card { margin: 12px 14px; }
+.bg2-panel--spec .khsx-spec__card:last-child { margin-bottom: 14px; }
+
+/* Dải tỷ lệ chiếm chỗ: mỗi lệnh một khoang, bề rộng CHÍNH LÀ `ty_le_giay` (tổng luôn 100%).
+   Màu lấy từ bảng màu nhánh của sơ đồ — cùng lệnh phải cùng màu ở cả hai tab. */
+.bg2-share {
+  display: flex;
+  gap: 3px;
+  overflow: hidden;
+  height: 26px;
+  margin-bottom: 14px;
+  border-radius: 8px;
+}
+.bg2-share__seg {
+  display: flex;
+  flex-basis: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  min-width: 0;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  /* Nền là màu nhánh (đậm/nhạt khác nhau) nên chữ trắng cần viền bóng mới đọc được trên khoang vàng. */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
 .bg2-spec-list { border-top: 1px solid var(--bg2-border); }
 .bg2-spec-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 110px minmax(180px, auto);
-  align-items: center;
+  grid-template-columns: minmax(210px, 1fr) 132px minmax(230px, auto);
+  align-items: start;
   gap: 16px;
   padding: 12px 14px;
   border-bottom: 1px solid var(--bg2-border);
 }
-.bg2-spec-row > div:first-child { display: grid; gap: 4px; min-width: 0; }
-.bg2-spec-row > div:first-child span { overflow: hidden; color: #617087; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.bg2-panel--spec .bg2-spec-list { border-top: 0; }
+.bg2-panel--spec .bg2-spec-row { padding: 12px 0; }
+.bg2-panel--spec .bg2-spec-row:last-child { padding-bottom: 0; border-bottom: 0; }
+.bg2-spec-row__id { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 9px; min-width: 0; }
+.bg2-spec-row__id > div { display: grid; gap: 3px; min-width: 0; }
+.bg2-spec-row__id span { overflow: hidden; color: #617087; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.bg2-spec-row__dot { width: 10px; height: 10px; margin-top: 5px; border-radius: 3px; }
+.bg2-spec-row__con { display: grid; gap: 5px; }
+.bg2-spec-row__hint { color: #68768a; font-size: 11px; }
 .bg2-spec-row label { display: grid; gap: 5px; color: #617087; font-size: 11px; text-transform: uppercase; }
 .bg2-spec-row input { width: 100%; }
-.bg2-spec-row__numbers { display: flex; gap: 16px; font-size: 12px; }
+.bg2-spec-row__numbers { display: grid; grid-template-columns: repeat(2, minmax(0, auto)); gap: 5px 18px; font-size: 12px; }
 
 .bg2-panel--routing .bgsd-canvas { border: 0; border-radius: 0; }
 
@@ -185,19 +221,23 @@
 
 @media (max-width: 1180px) {
   .bg2-kpi { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .bg2-form-grid--spec { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .bg2-spec-row { grid-template-columns: minmax(190px, 1fr) 124px; }
+  .bg2-spec-row__numbers { grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, auto)); }
 }
 
 @media (max-width: 720px) {
   .bg2-detail__title-row { display: grid; }
   .bg2-detail__actions { justify-content: flex-start; }
   .bg2-kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .bg2-form-grid,
-  .bg2-form-grid--spec { grid-template-columns: 1fr; }
+  .bg2-form-grid { grid-template-columns: 1fr; }
   .bg2-member { grid-template-columns: minmax(0, 1fr) 34px; }
   .bg2-member > span { display: none; }
-  .bg2-spec-row { grid-template-columns: minmax(0, 1fr) 90px; }
-  .bg2-spec-row__numbers { grid-column: 1 / -1; }
+  .bg2-panel--spec .khsx-spec__card { margin: 12px 10px; }
+  .bg2-spec-row { grid-template-columns: minmax(0, 1fr) 104px; }
+  .bg2-spec-row__numbers { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, auto)); }
+  /* Dải mỏng lại thì con số % trong khoang hẹp chỉ còn là vệt mực — bỏ chữ, giữ màu + tooltip. */
+  .bg2-share { height: 18px; }
+  .bg2-share__seg b { display: none; }
   .bg2-material__row { grid-template-columns: 82px minmax(0, 1fr) 32px; }
   .bg2-material__row > strong { grid-column: 2; grid-row: 2; text-align: left; }
   .bg2-drawer { width: 100%; }

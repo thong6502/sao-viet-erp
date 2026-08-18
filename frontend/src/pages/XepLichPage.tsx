@@ -1,25 +1,30 @@
 // BÀN XẾP LỊCH CÔNG ĐOẠN — biến routing đã "sẵn sàng" thành công việc CÓ MÁY + GIỜ.
 //
 // Luồng: LSX / bài ghép sẵn sàng nằm ở KHAY "Chờ lập kế hoạch" → "Đưa vào kế hoạch" sinh dòng lịch →
-// BẢNG (phải) gom theo Máy / Lệnh / Bài ghép → gán máy·ca·giờ (inline hoặc drawer) → hệ tính giờ kết
-// thúc + độ dư + nhãn nguy cơ + cờ xung đột → khóa khi chốt. MÁY CHỈ GHI NHẬN — người kế hoạch quyết.
+// GANTT gom theo Máy / Lệnh / Bài ghép → kéo thanh (hoặc mở panel phải) để gán máy · giờ → hệ tính giờ
+// kết thúc + độ dư + nhãn nguy cơ + cờ xung đột → khóa khi chốt. MÁY CHỈ GHI NHẬN — người kế hoạch quyết.
 //
-// Kiến trúc: data phẳng (`rows: XepLichRow[]`) tách khỏi render; group/filter/search client-side để lát
-// sau cắm Gantt dễ. Điều hướng bằng state qua AppShell (không react-router). Real-time qua `eventTick`.
+// MỘT BÀN LÀM VIỆC (18/08/2026). Trước đây màn này có 4 view trên CÙNG một tập dữ liệu (Bảng · Gantt ·
+// Vấn đề · Tuần) — đổi view là mất chỗ đang đứng, mà mỗi view lại trả lời nửa câu hỏi. Nay:
+//   · Gantt là view DUY NHẤT — vấn đề xem ngay trên chính cái lịch, không mở danh sách thứ hai.
+//   · Panel phải = chi tiết bước đang chọn (dính, không phải hộp che màn).
+//   · Dải chân màn = "N chặn · M lưu ý" (bấm để lọc) + cửa Phát hành — CỬA CHẶN THẬT DUY NHẤT.
+//   · Tải 4 tuần tới = khối gập ở đầu Gantt (trả lời "tuần sau còn nhận thêm việc được không").
+// Code view Bảng đã gỡ; `VanDeView` giữ nguyên trong `XepLichVanDeView.tsx` (không còn nơi gọi) để
+// bật lại được nếu xưởng đòi — khối phát hành đã tách ra dùng chung nên KHÔNG có bản chép đôi.
+//
+// Kiến trúc: data phẳng (`rows: XepLichRow[]`) tách khỏi render; group/filter/search client-side.
+// Điều hướng bằng state qua AppShell (không react-router). Real-time qua `eventTick`.
 import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
-  type CSSProperties,
   type ReactNode,
 } from "react";
 import {
   ApiError,
-  LSX_LOAI_BUOC_META,
   XEP_LICH_BLOCKED_LABELS,
-  XEP_LICH_XAC_NHAN_LABELS,
   api,
   type LsxLoaiBuoc,
   type XepLichGanBody,
@@ -32,6 +37,7 @@ import {
   type XepLichNguon,
   type XepLichRow,
   type XepLichSanSangOut,
+  type XepLichVanDe,
   type XepLichVanDeListOut,
 } from "../api/client";
 import { crud, type Row } from "../api/rebuildCatalog";
@@ -45,8 +51,6 @@ import {
   BangLoi,
   ChuoiCongDoan,
   EmptyState,
-  LichTrangThaiPill,
-  NguyCoTreChip,
   Skeleton,
   classHan,
   ngay,
@@ -55,7 +59,7 @@ import {
   thoiLuong,
 } from "./keHoachSxShared";
 import { GanttBoard } from "./GanttBoard";
-import { VanDeView, type PhuongAnNav } from "./XepLichVanDeView";
+import { DrawerVanDe, PhatHanhDialog, type PhuongAnNav } from "./XepLichVanDeView";
 import "./ke-hoach-sx.css"; // primitive dùng lại: .khsx-pill · .khsx-seg · .khsx-scrim · .khsx-drawer--buoc · .khsx-nhom …
 import "./xep-lich.css";
 
@@ -69,41 +73,9 @@ const GROUP_TABS: { key: GroupBy; label: string; icon: IconName }[] = [
   { key: "bai-ghep", label: "Bài ghép", icon: "layers" },
 ];
 
-// Ca cứng — chưa có danh mục ca; `work_shift_id` là FK MỀM nên id 1/2/3 an toàn (để trống được).
-const CA_OPTIONS: { id: number; label: string }[] = [
-  { id: 1, label: "Sáng" },
-  { id: 2, label: "Chiều" },
-  { id: 3, label: "Đêm" },
-];
-const caLabel = (id: number | null | undefined): string | null =>
-  id == null ? null : CA_OPTIONS.find((c) => c.id === id)?.label ?? null;
-
-// Nhóm cột ẩn/hiện được (lưu localStorage) — 3 cột phụ dẫn xuất.
-const COL_GROUPS: { key: string; label: string }[] = [
-  { key: "somNhat", label: "Sớm nhất" },
-  { key: "ketThuc", label: "Kết thúc" },
-  { key: "thoiLuong", label: "Thời lượng" },
-];
-const COLS_LS_KEY = "xlcd.cols";
-const VIEW_LS_KEY = "xlcd.view";
-
-type ViewMode = "bang" | "gantt" | "van-de" | "tuan";
-function loadViewLS(): ViewMode {
-  try {
-    const v = localStorage.getItem(VIEW_LS_KEY);
-    return v === "gantt" || v === "van-de" || v === "tuan" ? v : "bang";
-  } catch { return "bang"; }
-}
-
-function loadColsLS(): Set<string> {
-  try {
-    const raw = localStorage.getItem(COLS_LS_KEY);
-    if (raw) return new Set(JSON.parse(raw) as string[]);
-  } catch {
-    /* ignore */
-  }
-  return new Set();
-}
+// Ô "Ca làm" đã gỡ 18/08/2026. Không phép tính nào đọc `dong.work_shift_id`: `_lich_may` lấy ca từ
+// `WorkShift` toàn xưởng, còn máy thì chạy LIÊN TỤC từ 10/08 — ô này chỉ ghi rồi để đó, người dùng
+// chọn xong tưởng lịch đổi. Cột DB giữ nguyên (xoá ở lượt sau).
 
 /** Bỏ dấu để tìm kiếm (bám RefSearchField của RebuildCatalogPage). */
 const norm = (s: string): string =>
@@ -116,15 +88,6 @@ function resKind(lb: LsxLoaiBuoc | null): ResKind {
   if (lb === "to") return "to";
   return "may"; // bước Máy và dòng in chung của bài ghép
 }
-function resText(r: XepLichRow): string | null {
-  switch (resKind(r.loai_buoc)) {
-    case "ncc": return r.nha_cung_cap;
-    case "to": return r.department_ten;
-    case "none": return null;
-    default: return r.may_ten;
-  }
-}
-
 // datetime-local ↔ ISO GIỜ NHÀ MÁY (không đổi múi — lấy wall-clock trực tiếp).
 function toLocalInput(iso: string | null): string {
   if (!iso) return "";
@@ -135,47 +98,19 @@ function fromLocalInput(local: string): string | null {
   if (!local) return null;
   return local.length === 16 ? `${local}:00` : local; // gửi NAIVE → server coi là giờ nhà máy
 }
-function pad2(n: number): string {
-  return String(n).padStart(2, "0");
-}
-/** Đầu ca kế = 08:00 ngày làm kế tiếp (xấp xỉ client — server chốt lịch nghỉ khi lưu). */
-function nextShiftStart(fromLocal: string): string {
-  const base = fromLocal ? new Date(`${fromLocal.length === 16 ? `${fromLocal}:00` : fromLocal}`) : new Date();
-  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + 1, 8, 0, 0);
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-}
-
-// Popover ô inline dùng FIXED (bảng có overflow → absolute bị cắt). Neo tại đáy nút, kẹp trong màn.
-function popStyle(a: DOMRect, width = 280): CSSProperties {
-  const pad = 16;
-  const left = Math.max(pad, Math.min(a.left, window.innerWidth - width - pad));
-  const top = Math.min(a.bottom + 6, window.innerHeight - 280);
-  return { position: "fixed", top, left, width, zIndex: 9999 };
-}
-
-function stepIcon(lb: LsxLoaiBuoc | null, ten?: string | null): IconName {
-  if (lb === "thue_ngoai") return "truck";
-  if (lb === "to") return "building";
-  if (lb === "may") {
-    const t = (ten ?? "").toLowerCase();
-    if (t.includes("ctp") || t.includes("kẽm") || t.includes("in")) return "printer";
-    if (t.includes("xén") || t.includes("bế") || t.includes("cắt")) return "scissors";
-    if (t.includes("gấp") || t.includes("bắt") || t.includes("dán") || t.includes("vào keo")) return "layers";
-    if (t.includes("đóng gói") || t.includes("nhập kho")) return "box";
-    return "printer";
-  }
-  return "clipboard";
-}
-
 // ============================ controller =====================================
 export function XepLichPage({
   navigate,
   eventTick,
   onBadgeStale,
+  focusLsxMa,
 }: {
   navigate?: (id: string, params?: Record<string, unknown>) => void;
   eventTick?: number;
   onBadgeStale?: () => void;
+  /** Đèn "Máy & giờ" / "Người" ở Kế hoạch SX bấm sang đây: điền sẵn ô tìm bằng mã lệnh, không bắt
+   *  người dùng dò lại trong cả bàn xếp lịch. */
+  focusLsxMa?: string | null;
 }) {
   const { token, user } = useAuth();
   const can = useCan();
@@ -193,27 +128,28 @@ export function XepLichPage({
   // chỉ khi mở view) để badge Chặn trên tab + chỉ báo readiness ở header tự nhảy theo SSE.
   const [vanDe, setVanDe] = useState<XepLichVanDeListOut | null>(null);
   const [sanSang, setSanSang] = useState<XepLichSanSangOut | null>(null);
-  const [vanDeErr, setVanDeErr] = useState<string | null>(null);
 
   const [groupBy, setGroupBy] = useState<GroupBy>("may");
-  const [viewMode, setViewMode] = useState<ViewMode>(loadViewLS);
   const [filters, setFilters] = useState<Filters>({ thueNgoai: false, chiXungDot: false });
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(focusLsxMa ?? "");
+  // Bấm chấm lần thứ hai với mã khác (màn đã mount) phải đổi ô tìm theo.
+  useEffect(() => {
+    if (focusLsxMa) setQ(focusLsxMa);
+  }, [focusLsxMa]);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [openRowId, setOpenRowId] = useState<number | null>(null);
   const [queueOpen, setQueueOpen] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState(false);
-  const [colsHidden, setColsHidden] = useState<Set<string>>(loadColsLS);
-  const [colsMenuOpen, setColsMenuOpen] = useState(false);
-  const [collapsedBands, setCollapsedBands] = useState<Set<string>>(new Set());
-  const [flashBandKey, setFlashBandKey] = useState<string | null>(null);
-  const [pendingFlash, setPendingFlash] = useState<{ nguon: XepLichNguon; id: number } | null>(null);
   const [toast, setToast] = useState<{ text: string; undo?: () => void } | null>(null);
   const [askGo, setAskGo] = useState<XepLichHangChoItem | null>(null);
-
-  const bandElRefs = useRef<Map<string, HTMLTableRowElement | null>>(new Map());
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const [edge, setEdge] = useState({ l: false, r: false });
+  // Khối gập "Tải 4 tuần tới": CHỈ mount khi mở — `TuanView` tự gọi API lúc mount, gập mà vẫn mount
+  // là mỗi lần vào màn lại nện thêm một lượt tính tải 4 tuần cho toàn xưởng.
+  const [tuanMo, setTuanMo] = useState(false);
+  const [phatHanhMo, setPhatHanhMo] = useState(false);
+  const [vanDeKey, setVanDeKey] = useState<string | null>(null);
+  // Nhảy trục thời gian + nháy thanh trên Gantt (thay cuộn-tới-band của view Bảng đã gỡ).
+  const [flashKey, setFlashKey] = useState<string | null>(null);
+  const [pendingFlash, setPendingFlash] = useState<{ nguon: XepLichNguon; id: number } | null>(null);
 
   // ---- nạp dữ liệu ----
   const load = useCallback(() => {
@@ -226,12 +162,13 @@ export function XepLichPage({
   }, [token]);
   useEffect(() => load(), [load, eventTick]);
 
-  // Vấn đề + sẵn-sàng-phát-hành: 1 lần nạp, cả badge Chặn (tab) lẫn view Vấn đề dùng chung state.
+  // Vấn đề + sẵn-sàng-phát-hành: 1 lần nạp, dải chân màn và chip trên thanh Gantt dùng chung
+  // state. Lỗi nạp báo qua `setErr` chung — trước có ô lỗi riêng, nhưng nó nằm ở view Vấn đề đã
+  // gỡ nên chỉ còn là biến không ai đọc.
   const loadVanDe = useCallback(() => {
     if (!token) return;
-    setVanDeErr(null);
     api.xepLich.vanDe(token).then(setVanDe).catch((e: unknown) =>
-      setVanDeErr(e instanceof ApiError ? e.message : String(e)),
+      setErr(e instanceof ApiError ? e.message : String(e)),
     );
     api.xepLich.sanSangPhatHanh(token).then(setSanSang).catch(() => {});
   }, [token]);
@@ -242,14 +179,6 @@ export function XepLichPage({
     crud("/api/may-thiet-bi").list(token).then((r) => setMays(r.items)).catch(() => {});
     crud("/api/cong-doan/phong-ban").list(token).then((r) => setPhongBans(r.items)).catch(() => {});
   }, [token]);
-
-  useEffect(() => {
-    try { localStorage.setItem(COLS_LS_KEY, JSON.stringify([...colsHidden])); } catch { /* ignore */ }
-  }, [colsHidden]);
-
-  useEffect(() => {
-    try { localStorage.setItem(VIEW_LS_KEY, viewMode); } catch { /* ignore */ }
-  }, [viewMode]);
 
   useEffect(() => {
     if (!toast?.undo) {
@@ -315,15 +244,7 @@ export function XepLichPage({
     [openRowId, rows],
   );
 
-  // ---- cạnh cuộn (shadow 2 mép) ----
-  const recomputeEdge = useCallback(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    setEdge({ l: el.scrollLeft > 0, r: el.scrollLeft < el.scrollWidth - el.clientWidth - 1 });
-  }, []);
-  useEffect(() => { recomputeEdge(); }, [recomputeEdge, filtered, colsHidden, queueOpen]);
-
-  // ---- cuộn tới band vừa thêm + nháy ----
+  // ---- nháy lane vừa thêm (Gantt tự cuộn tới) ----
   useEffect(() => {
     if (!pendingFlash || !rows) return;
     const first = filtered.find((r) =>
@@ -333,13 +254,21 @@ export function XepLichPage({
     );
     setPendingFlash(null);
     if (!first) return;
-    const bk = bandInfo(first, groupBy).key;
-    bandElRefs.current.get(bk)?.scrollIntoView({ behavior: "smooth", block: "center" });
-    setFlashBandKey(bk);
-    const t = setTimeout(() => setFlashBandKey(null), 1300);
+    setFlashKey(bandInfo(first, groupBy).key);
+    const t = setTimeout(() => setFlashKey(null), 1600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, pendingFlash]);
+
+  // ---- mốc thời gian Gantt phải nhảy tới ----
+  // Gõ mã một lệnh xếp tháng 11 mà trục vẫn đứng ở hôm nay thì lane trống trơn, phải bấm "Tiến" 6
+  // lần mới thấy — đúng lúc người ta tin là "không có gì". Chỉ nhảy khi CÓ tìm kiếm: không thì mỗi
+  // lần nạp lại màn là trục tự nhảy đi đâu đó.
+  const focusAt = useMemo(() => {
+    if (!q.trim()) return null;
+    const mocs = filtered.map((r) => r.start_at).filter((x): x is string => !!x).sort();
+    return mocs[0] ?? null;
+  }, [q, filtered]);
 
   // ---- áp kết quả server vào bảng ----
   const applyRow = useCallback((row: XepLichRow) => {
@@ -358,16 +287,17 @@ export function XepLichPage({
   const deptName = useCallback((id: number | null) =>
     id == null ? null : phongBans.find((d) => d.id === id)?.ten ?? null, [phongBans]);
 
-  // Điều hướng "phương án" từ view Vấn đề — MÁY CHỈ GHI NHẬN: đổi view / nhảy màn, KHÔNG auto-fix.
-  // Nhánh bảng: xoá lọc để dòng cần xem chắc chắn hiện, rồi tái dùng pendingFlash để cuộn + nháy band.
+  // Điều hướng "phương án" từ danh sách vấn đề — MÁY CHỈ GHI NHẬN: đổi cách gom / nhảy màn, KHÔNG
+  // auto-fix. Không còn view nào để đổi, nên "phương án" giờ = đổi TRỤC GOM + xoá lọc + nháy lane.
   const onPhuongAn = useCallback((p: PhuongAnNav) => {
     if (p.kind === "man-ke-hoach") { navigate?.("ke-hoach-sx"); return; }
-    if (p.kind === "gantt-may") { setGroupBy("may"); setViewMode("gantt"); return; }
+    setVanDeKey(null);
+    if (p.kind === "gantt-may") { setGroupBy("may"); return; }
     setFilters({ thueNgoai: false, chiXungDot: false });
-    if (p.kind === "bang-ma") { setQ(p.ma); setGroupBy("lenh"); setViewMode("bang"); return; }
+    if (p.kind === "gantt-ma") { setQ(p.ma); setGroupBy("lenh"); return; }
     setQ("");
-    if (p.kind === "bang-lenh") { setGroupBy("lenh"); setViewMode("bang"); if (p.flash) setPendingFlash(p.flash); return; }
-    if (p.kind === "bang-bai-ghep") { setGroupBy("bai-ghep"); setViewMode("bang"); if (p.flash) setPendingFlash(p.flash); }
+    if (p.kind === "gantt-lenh") { setGroupBy("lenh"); if (p.flash) setPendingFlash(p.flash); return; }
+    if (p.kind === "gantt-bai-ghep") { setGroupBy("bai-ghep"); if (p.flash) setPendingFlash(p.flash); }
   }, [navigate]);
 
   // ---- gán 1 dòng (optimistic → PUT → cập nhật) ----
@@ -379,7 +309,6 @@ export function XepLichPage({
       if ("may_id" in body) { opt.may_id = body.may_id ?? null; opt.may_ten = mayName(body.may_id ?? null); }
       if ("department_id" in body) { opt.department_id = body.department_id ?? null; opt.department_ten = deptName(body.department_id ?? null); }
       if ("nha_cung_cap" in body) opt.nha_cung_cap = body.nha_cung_cap ?? null;
-      if ("work_shift_id" in body) opt.work_shift_id = body.work_shift_id ?? null;
       if ("start_at" in body) opt.start_at = body.start_at ?? null;
       applyRow(opt);
     }
@@ -440,22 +369,17 @@ export function XepLichPage({
   }, [rows]);
 
   // ---- chọn ----
-  const togglePick = useCallback((id: number) => {
+  const clearPick = useCallback(() => setPicked(new Set()), []);
+  // Tick CẢ LANE trên Gantt — đường vào duy nhất còn lại cho `BulkBar` sau khi bỏ ô tick từng dòng
+  // của bảng. Nhận cả dòng CHƯA CÓ GIỜ (chip ở dải đỗ) vì đó đúng là đám cần "Tự xếp" nhất.
+  const togglePickBand = useCallback((ids: number[]) => {
     setPicked((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (ids.every((id) => prev.has(id))) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
       return next;
     });
   }, []);
-  const clearPick = useCallback(() => setPicked(new Set()), []);
-  const pickableIds = useMemo(
-    () => filtered.filter((r) => !r.blocked_reason).map((r) => r.id),
-    [filtered],
-  );
-  const allPicked = pickableIds.length > 0 && pickableIds.every((id) => picked.has(id));
-  const togglePickAll = useCallback(() => {
-    setPicked((prev) => (pickableIds.every((id) => prev.has(id)) ? new Set() : new Set(pickableIds)));
-  }, [pickableIds]);
 
   // ---- bulk ----
   const bulkGan = useCallback(async (patch: XepLichGanBody, label: string) => {
@@ -595,26 +519,51 @@ export function XepLichPage({
     }
   }, [token, chen, rows, applyRows, onBadgeStale]);
 
-  // ---- cột hiện ----
-  const show = {
-    somNhat: !colsHidden.has("somNhat"),
-    ketThuc: !colsHidden.has("ketThuc"),
-    thoiLuong: !colsHidden.has("thoiLuong"),
-  };
-  const colCount = 9 + (show.somNhat ? 1 : 0) + (show.ketThuc ? 1 : 0) + (show.thoiLuong ? 1 : 0);
-
-  // ---- dẫn xuất view Vấn đề (badge tab + readiness header) ----
+  // ---- dẫn xuất vấn đề: dải chân màn + chip trên thanh Gantt ----
   const vanDeSummary = vanDe?.summary ?? null;
   const chanCount = vanDeSummary?.chan ?? 0;
   const tongVanDe = vanDeSummary?.tong ?? 0;
   const readyCount = (sanSang?.items ?? []).filter((i) => i.blocking === 0).length;
+  const luuYCount = Math.max(0, tongVanDe - chanCount);
   const currentUserId = user?.id ?? null;
+
+  // Vấn đề gắn vào từng DÒNG lịch (`impacts.dong_ids`) → chip trên đúng thanh Gantt gây ra nó.
+  // Không có bước này thì "3 chặn" ở dải chân chỉ là con số, người dùng vẫn phải tự dò xem thanh nào.
+  const vanDeTheoDong = useMemo(() => {
+    const m = new Map<number, XepLichVanDe[]>();
+    for (const it of vanDe?.items ?? []) {
+      for (const id of it.impacts.dong_ids) {
+        const cur = m.get(id);
+        if (cur) cur.push(it); else m.set(id, [it]);
+      }
+    }
+    return m;
+  }, [vanDe]);
+  const openVanDe = vanDeKey ? (vanDe?.items ?? []).find((x) => x.issue_key === vanDeKey) ?? null : null;
+  useEffect(() => {
+    if (vanDeKey && vanDe && !vanDe.items.some((x) => x.issue_key === vanDeKey)) setVanDeKey(null);
+  }, [vanDe, vanDeKey]);
 
   // ---- điều hướng drawer ----
   const drawerIdx = openRow ? flatOrder.findIndex((r) => r.id === openRow.id) : -1;
   const goPrev = drawerIdx > 0 ? () => setOpenRowId(flatOrder[drawerIdx - 1].id) : undefined;
   const goNext =
     drawerIdx >= 0 && drawerIdx < flatOrder.length - 1 ? () => setOpenRowId(flatOrder[drawerIdx + 1].id) : undefined;
+
+  // Alt+↑/↓ — duyệt hết 60 bước bằng bàn phím thay vì rê chuột dò từng thanh trên Gantt. Phải là
+  // Alt: mũi tên TRẦN đang là "dời giờ / đổi lane" của thanh đang focus, cướp nó là hỏng cả hai.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+      if (drawerIdx < 0) return;
+      const next = drawerIdx + (e.key === "ArrowDown" ? 1 : -1);
+      if (next < 0 || next >= flatOrder.length) return;
+      e.preventDefault();
+      setOpenRowId(flatOrder[next].id);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [drawerIdx, flatOrder]);
 
   return (
     <main className={`xlcd ${isFocusMode ? "xlcd--focus" : ""}`}>
@@ -656,7 +605,7 @@ export function XepLichPage({
 
       {err && <BangLoi text={err} onRetry={load} />}
 
-      <div className="xlcd__grid">
+      <div className={`xlcd__grid ${openRow ? "is-panel" : ""}`}>
         {queueOpen && (
           <QueuePopup
             onClose={() => setQueueOpen(false)}
@@ -671,100 +620,49 @@ export function XepLichPage({
 
         <section className="xlcd-board" aria-label="Bảng xếp lịch công đoạn">
           <div className="khsx__toolbar">
-            <div className="khsx-seg" role="tablist" aria-label="Kiểu xem">
+            {/* Đang lọc theo nhóm máy (bấm từ bảng Tuần sang) — PHẢI có chip gỡ, không thì người
+                dùng ngồi nhìn một bàn thiếu lane mà không biết vì sao. */}
+            {nhomMay && (
               <button
                 type="button"
-                role="tab"
-                aria-selected={viewMode === "bang"}
-                className={viewMode === "bang" ? "is-active" : ""}
-                onClick={() => setViewMode("bang")}
+                className="khsx-pill xlcd-pill-loc"
+                onClick={() => setNhomMay(null)}
+                title="Bỏ lọc nhóm máy"
               >
-                <Icon name="columns" size={13} /> Bảng
+                Nhóm: {nhomMay} ✕
               </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={viewMode === "gantt"}
-                className={viewMode === "gantt" ? "is-active" : ""}
-                onClick={() => setViewMode("gantt")}
-              >
-                <Icon name="calendar" size={13} /> Gantt
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={viewMode === "van-de"}
-                className={viewMode === "van-de" ? "is-active" : ""}
-                onClick={() => setViewMode("van-de")}
-              >
-                <Icon name="shield" size={13} /> Vấn đề
-                {chanCount > 0 ? (
-                  <span className="xlcd-segbadge xlcd-segbadge--chan">{num(chanCount)}</span>
-                ) : tongVanDe > 0 ? (
-                  <span className="xlcd-segbadge">{num(tongVanDe)}</span>
-                ) : null}
-              </button>
-              {/* Mục J — TẦNG TUẦN. Trả lời "tuần sau còn nhận thêm việc được không", nên cố tình
-                  KHÔNG có lịch giờ: ba view kia đã lo chuyện việc nào chạy lúc mấy giờ. */}
-              <button
-                type="button"
-                role="tab"
-                aria-selected={viewMode === "tuan"}
-                className={viewMode === "tuan" ? "is-active" : ""}
-                onClick={() => setViewMode("tuan")}
-              >
-                <Icon name="calendar" size={13} /> Tuần
-              </button>
+            )}
+            <div className="khsx-seg" role="tablist" aria-label="Gom nhóm theo">
+              {GROUP_TABS.map((g) => (
+                <button
+                  key={g.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={groupBy === g.key}
+                  className={groupBy === g.key ? "is-active" : ""}
+                  onClick={() => setGroupBy(g.key)}
+                >
+                  <Icon name={g.icon} size={13} /> {g.label}
+                </button>
+              ))}
             </div>
 
-            {/* Gom-nhóm + 2 chip lọc chỉ có nghĩa với Bảng/Gantt — ẩn ở view Vấn đề / Tuần. */}
-            {viewMode !== "van-de" && viewMode !== "tuan" && (
-              <>
-                {/* Đang lọc theo nhóm máy (bấm từ bảng Tuần sang) — PHẢI có chip gỡ, không thì
-                    người dùng ngồi nhìn một bảng thiếu dòng mà không biết vì sao. */}
-                {nhomMay && (
-                  <button
-                    type="button"
-                    className="khsx-pill xlcd-pill-loc"
-                    onClick={() => setNhomMay(null)}
-                    title="Bỏ lọc nhóm máy"
-                  >
-                    Nhóm: {nhomMay} ✕
-                  </button>
-                )}
-                <div className="khsx-seg" role="tablist" aria-label="Gom nhóm theo">
-                  {GROUP_TABS.map((g) => (
-                    <button
-                      key={g.key}
-                      type="button"
-                      role="tab"
-                      aria-selected={groupBy === g.key}
-                      className={groupBy === g.key ? "is-active" : ""}
-                      onClick={() => setGroupBy(g.key)}
-                    >
-                      <Icon name={g.icon} size={13} /> {g.label}
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  type="button"
-                  className={`xlcd-fchip ${filters.thueNgoai ? "is-on" : ""}`}
-                  aria-pressed={filters.thueNgoai}
-                  onClick={() => setFilters((f) => ({ ...f, thueNgoai: !f.thueNgoai }))}
-                >
-                  <Icon name="truck" size={12} /> Thuê ngoài
-                </button>
-                <button
-                  type="button"
-                  className={`xlcd-fchip ${filters.chiXungDot ? "is-on" : ""}`}
-                  aria-pressed={filters.chiXungDot}
-                  onClick={() => setFilters((f) => ({ ...f, chiXungDot: !f.chiXungDot }))}
-                >
-                  <Icon name="ban" size={12} /> Chỉ xung đột
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              className={`xlcd-fchip ${filters.thueNgoai ? "is-on" : ""}`}
+              aria-pressed={filters.thueNgoai}
+              onClick={() => setFilters((f) => ({ ...f, thueNgoai: !f.thueNgoai }))}
+            >
+              <Icon name="truck" size={12} /> Thuê ngoài
+            </button>
+            <button
+              type="button"
+              className={`xlcd-fchip ${filters.chiXungDot ? "is-on" : ""}`}
+              aria-pressed={filters.chiXungDot}
+              onClick={() => setFilters((f) => ({ ...f, chiXungDot: !f.chiXungDot }))}
+            >
+              <Icon name="ban" size={12} /> Chỉ xung đột
+            </button>
 
             <button
               type="button"
@@ -782,63 +680,36 @@ export function XepLichPage({
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder={viewMode === "van-de" ? "Tìm mã / mô tả vấn đề" : "Tìm mã LSX / bài ghép / công đoạn"}
-                aria-label={viewMode === "van-de" ? "Tìm vấn đề" : "Tìm dòng xếp lịch"}
+                placeholder="Tìm mã LSX / bài ghép / công đoạn"
+                aria-label="Tìm dòng xếp lịch"
               />
             </label>
-
-            {viewMode !== "van-de" && (
-              <div className="xlcd-cols">
-                <button
-                  type="button"
-                  className="xlcd-cols__btn"
-                  aria-expanded={colsMenuOpen}
-                  onClick={() => setColsMenuOpen((v) => !v)}
-                >
-                  <Icon name="columns" size={14} /> Cột
-                </button>
-                {colsMenuOpen && (
-                  <ColsMenu
-                    hidden={colsHidden}
-                    onToggle={(key) =>
-                      setColsHidden((prev) => {
-                        const next = new Set(prev);
-                        next.has(key) ? next.delete(key) : next.add(key);
-                        return next;
-                      })
-                    }
-                    onClose={() => setColsMenuOpen(false)}
-                  />
-                )}
-              </div>
-            )}
           </div>
 
-          {viewMode === "van-de" ? (
-            <VanDeView
-              data={vanDe}
-              sanSang={sanSang}
-              err={vanDeErr}
-              onRetry={loadVanDe}
-              token={token}
-              canApprove={canApprove}
-              canApproveException={canApproveException}
-              currentUserId={currentUserId}
-              q={q}
-              mayTen={mayName}
-              onRefetch={() => { loadVanDe(); load(); onBadgeStale?.(); }}
-              onPhuongAn={onPhuongAn}
-              onToast={(text) => setToast({ text })}
-              onSetSearch={setQ}
-            />
-          ) : viewMode === "tuan" ? (
-            <TuanView
-              token={token}
-              eventTick={eventTick}
-              onMoGantt={(nhom) => { setNhomMay(nhom); setGroupBy("may"); setViewMode("gantt"); }}
-            />
-          ) : rows === null ? (
-            <BoardSkeleton colCount={colCount} />
+          {/* Mục J — TẢI 4 TUẦN TỚI, khối GẬP. Không phải view riêng nữa: câu nó trả lời ("tuần sau
+              còn nhận thêm việc được không") là câu hỏi thỉnh thoảng, còn Gantt là bàn làm việc
+              hằng ngày. Đổi cả màn để hỏi một câu thỉnh thoảng là bắt người ta trả giá mỗi ngày.
+              Chỉ mount khi mở — `TuanView` gọi API ngay lúc mount. */}
+          <details
+            className="xlcd-tuanfold"
+            open={tuanMo}
+            onToggle={(e) => setTuanMo((e.currentTarget as HTMLDetailsElement).open)}
+          >
+            <summary className="xlcd-tuanfold__sum">
+              <Icon name="calendar" size={13} /> Tải 4 tuần tới
+              <span className="xlcd-tuanfold__hint">còn nhận thêm việc được không</span>
+            </summary>
+            {tuanMo && (
+              <TuanView
+                token={token}
+                eventTick={eventTick}
+                onMoGantt={(nhom) => { setNhomMay(nhom); setGroupBy("may"); setTuanMo(false); }}
+              />
+            )}
+          </details>
+
+          {rows === null ? (
+            <BoardSkeleton />
           ) : filtered.length === 0 ? (
             coLoc ? (
               <EmptyState
@@ -846,7 +717,7 @@ export function XepLichPage({
                 title="Không khớp bộ lọc"
                 sub="Không có dòng nào khớp nhóm lọc / từ khoá hiện tại."
                 action={
-                  <Button variant="secondary" onClick={() => { setFilters({ thueNgoai: false, chiXungDot: false }); setQ(""); }}>
+                  <Button variant="secondary" onClick={() => { setFilters({ thueNgoai: false, chiXungDot: false }); setQ(""); setNhomMay(null); }}>
                     Xoá lọc
                   </Button>
                 }
@@ -858,121 +729,141 @@ export function XepLichPage({
                 sub="Đưa một lệnh sản xuất hoặc bài ghép từ khay “Chờ lập kế hoạch” vào kế hoạch để bắt đầu xếp máy và giờ."
               />
             )
-          ) : viewMode === "gantt" ? (
+          ) : (
             <GanttBoard
               bands={bands}
               groupBy={groupBy}
               token={token}
               canUpdate={canUpdate}
+              openRowId={openRowId}
+              picked={picked}
+              vanDeTheoDong={vanDeTheoDong}
+              focusAt={focusAt}
+              flashKey={flashKey}
               onOpenRow={setOpenRowId}
+              onTogglePickBand={togglePickBand}
+              onOpenVanDe={setVanDeKey}
               onGan={onGan}
+              onChen={moChen}
               onToast={(text, undo) => setToast({ text, undo })}
             />
-          ) : (
-            <div
-              ref={wrapRef}
-              className={`xlcd-tablewrap ${edge.l ? "is-scroll-l" : ""} ${edge.r ? "is-scroll-r" : ""}`}
-              onScroll={recomputeEdge}
-            >
-              <table className="xlcd-table">
-                <caption className="sr-only">Bảng dòng xếp lịch công đoạn gom theo {groupBy}</caption>
-                <thead>
-                  <tr>
-                    <th scope="col" className="xlcd-sticky-l xlcd-sticky-l--1 xlcd-th-chk">
-                      <input
-                        type="checkbox"
-                        aria-label="Chọn tất cả dòng"
-                        checked={allPicked}
-                        disabled={!canUpdate || pickableIds.length === 0}
-                        onChange={togglePickAll}
-                      />
-                    </th>
-                    <th scope="col" className="xlcd-sticky-l xlcd-sticky-l--2" aria-label="Cờ" />
-                    <th scope="col" className="xlcd-sticky-l xlcd-sticky-l--3">Mã</th>
-                    <th scope="col" className="xlcd-sticky-l xlcd-sticky-l--4 xlcd-shadow-l">Công đoạn</th>
-                    <th scope="col" className="khsx-th--num">SL</th>
-                    <th scope="col">Thực hiện</th>
-                    <th scope="col">Máy / NCC</th>
-                    {show.somNhat && <th scope="col" className="khsx-th--num xlcd__col--opt">Sớm nhất</th>}
-                    <th scope="col">Bắt đầu</th>
-                    {show.ketThuc && <th scope="col" className="khsx-th--num xlcd__col--opt">Kết thúc</th>}
-                    {show.thoiLuong && <th scope="col" className="khsx-th--num xlcd__col--opt">Thời lượng</th>}
-                    <th scope="col" className="xlcd-sticky-r xlcd-shadow-r">Trạng thái</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bands.map((b) => {
-                    const collapsed = collapsedBands.has(b.key);
-                    return (
-                      <BandGroup
-                        key={b.key}
-                        band={b}
-                        colCount={colCount}
-                        collapsed={collapsed}
-                        flash={flashBandKey === b.key}
-                        bandRef={(el) => bandElRefs.current.set(b.key, el)}
-                        onToggle={() =>
-                          setCollapsedBands((prev) => {
-                            const next = new Set(prev);
-                            next.has(b.key) ? next.delete(b.key) : next.add(b.key);
-                            return next;
-                          })
-                        }
-                        onGo={
-                          groupBy === "may" || !canUpdate
-                            ? undefined
-                            : () => {
-                                const first = b.rows[0];
-                                if (!first) return;
-                                const id = first.nguon === "in_ghep" ? first.bai_ghep_id : first.lsx_id;
-                                if (id != null)
-                                  setAskGo({
-                                    nguon: first.nguon, id, ma: b.label, ten: null,
-                                    so_cong_doan: b.rows.length, is_rush: false, han_hoan_thanh_sx: null,
-                                  });
-                              }
-                        }
-                      >
-                        {!collapsed &&
-                          b.rows.map((r, stepIdx) => (
-                            <BoardRow
-                              key={r.id}
-                              row={r}
-                              stepIdx={stepIdx}
-                              groupBy={groupBy}
-                              show={show}
-                              picked={picked.has(r.id)}
-                              canUpdate={canUpdate}
-                              mays={mays}
-                              phongBans={phongBans}
-                              onTogglePick={() => togglePick(r.id)}
-                              onOpen={() => setOpenRowId(r.id)}
-                              onGan={onGan}
-                              fetchGoiY={fetchGoiY}
-                            />
-                          ))}
-                      </BandGroup>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
           )}
         </section>
+
+        {/* PANEL PHẢI DÍNH — không phải hộp che màn. Sửa một bước mà vẫn nhìn thấy cả bàn lịch là
+            khác biệt lớn nhất của đợt này: trước đây mở drawer là mất chỗ đang đứng, đóng lại phải
+            dò từ đầu. MỘT tab duy nhất (chi tiết bước) — nhét danh sách vấn đề vào đây chỉ là view
+            thứ hai trá hình. */}
+        {openRow && (
+          <DrawerBuoc
+            inline
+            row={openRow}
+            siblings={(rows ?? []).filter((r) => r.nguon === "lsx" && r.lsx_id === openRow.lsx_id)}
+            mays={mays}
+            phongBans={phongBans}
+            canUpdate={canUpdate}
+            hasPrev={!!goPrev}
+            hasNext={!!goNext}
+            onPrev={goPrev}
+            onNext={goNext}
+            onClose={() => setOpenRowId(null)}
+            onGan={onGan}
+            onKhoa={async (khoa) => {
+              if (!token) return;
+              try {
+                const r = khoa ? await api.xepLich.khoa(token, openRow.id, true) : await api.xepLich.moKhoa(token, openRow.id);
+                applyRow(r);
+                onBadgeStale?.();
+              } catch (e: unknown) {
+                setErr(e instanceof ApiError ? e.message : String(e));
+              }
+            }}
+            fetchGoiY={fetchGoiY}
+            fetchMembers={async () =>
+              token && openRow.bai_ghep_id ? (await api.baiGhep2.get(token, openRow.bai_ghep_id)).thanh_vien : []
+            }
+            onChen={moChen}
+            chenBusy={chenBusy}
+          />
+        )}
       </div>
 
-      {picked.size > 0 && viewMode !== "van-de" && (
+      {picked.size > 0 ? (
         <BulkBar
           count={picked.size}
           canUpdate={canUpdate}
           mays={mays}
+          phongBans={phongBans}
           onGanMay={(id) => bulkGan({ may_id: id }, "Gán máy")}
-          onGanCa={(shift) => bulkGan({ work_shift_id: shift }, "Gán ca")}
+          onGanTo={(id) => bulkGan({ department_id: id }, "Gán tổ")}
           onDatGio={(local) => bulkGan({ start_at: fromLocalInput(local) }, "Đặt giờ")}
           onKhoa={() => bulkKhoa(true)}
           onMoKhoa={() => bulkKhoa(false)}
           onAuto={bulkAuto}
           onClear={clearPick}
+        />
+      ) : (
+        /* DẢI CHÂN MÀN — hai con số + cửa Phát hành. Đây là chỗ view "Vấn đề" và cửa phát hành đi
+           về sau khi cắt: vấn đề xem NGAY TRÊN LỊCH (bấm số → lọc còn thanh có vấn đề), phát hành
+           mở hộp thoại. Cửa chặn không rơi mất, chỉ đổi khung. */
+        (chanCount > 0 || luuYCount > 0 || readyCount > 0) && (
+          <div className="xlcd-bulk xlcd-footbar" role="region" aria-label="Vấn đề & phát hành">
+            <button
+              type="button"
+              className={`xlcd-footbar__stat ${chanCount > 0 ? "is-chan" : ""} ${filters.chiXungDot ? "is-on" : ""}`}
+              aria-pressed={filters.chiXungDot}
+              onClick={() => setFilters((f) => ({ ...f, chiXungDot: !f.chiXungDot }))}
+              title="Lọc bàn lịch còn lại các thanh đang vướng"
+            >
+              <Icon name="ban" size={13} />
+              <b>{num(chanCount)}</b> chưa phát hành được
+              {luuYCount > 0 && <span className="xlcd-footbar__phu">· {num(luuYCount)} nên xem</span>}
+            </button>
+            {filters.chiXungDot && (
+              <button type="button" className="xlcd-footbar__go" onClick={() => setFilters((f) => ({ ...f, chiXungDot: false }))}>
+                Xem lại tất cả
+              </button>
+            )}
+            <div className="khsx__spacer" />
+            <button
+              type="button"
+              className="xlcd-bulk__btn xlcd-bulk__btn--accent"
+              onClick={() => setPhatHanhMo(true)}
+            >
+              <Icon name="send" size={13} /> Phát hành{readyCount > 0 ? ` (${num(readyCount)})` : ""}
+            </button>
+          </div>
+        )
+      )}
+
+      {phatHanhMo && (
+        <PhatHanhDialog
+          sanSang={sanSang}
+          chan={chanCount}
+          token={token}
+          canApprove={canApprove}
+          onRefetch={() => { loadVanDe(); load(); onBadgeStale?.(); }}
+          onToast={(text) => setToast({ text })}
+          onShowIssues={(ma) => { setQ(ma); setGroupBy("lenh"); }}
+          onClose={() => setPhatHanhMo(false)}
+        />
+      )}
+
+      {openVanDe && (
+        <DrawerVanDe
+          it={openVanDe}
+          groupSize={openVanDe.group_key ? (vanDe?.items ?? []).filter((x) => x.group_key === openVanDe.group_key).length : 0}
+          token={token}
+          canApproveException={canApproveException}
+          currentUserId={currentUserId}
+          mayTen={mayName}
+          hasPrev={false}
+          hasNext={false}
+          onClose={() => setVanDeKey(null)}
+          onDone={() => { loadVanDe(); load(); onBadgeStale?.(); }}
+          onToast={(text) => setToast({ text })}
+          onPhuongAn={onPhuongAn}
+          onShowGroup={() => { setVanDeKey(null); setFilters((f) => ({ ...f, chiXungDot: true })); }}
         />
       )}
 
@@ -985,38 +876,6 @@ export function XepLichPage({
             </button>
           )}
         </div>
-      )}
-
-      {openRow && (
-        <DrawerBuoc
-          row={openRow}
-          siblings={(rows ?? []).filter((r) => r.nguon === "lsx" && r.lsx_id === openRow.lsx_id)}
-          mays={mays}
-          phongBans={phongBans}
-          canUpdate={canUpdate}
-          hasPrev={!!goPrev}
-          hasNext={!!goNext}
-          onPrev={goPrev}
-          onNext={goNext}
-          onClose={() => setOpenRowId(null)}
-          onGan={onGan}
-          onKhoa={async (khoa) => {
-            if (!token) return;
-            try {
-              const r = khoa ? await api.xepLich.khoa(token, openRow.id, true) : await api.xepLich.moKhoa(token, openRow.id);
-              applyRow(r);
-              onBadgeStale?.();
-            } catch (e: unknown) {
-              setErr(e instanceof ApiError ? e.message : String(e));
-            }
-          }}
-          fetchGoiY={fetchGoiY}
-          fetchMembers={async () =>
-            token && openRow.bai_ghep_id ? (await api.baiGhep2.get(token, openRow.bai_ghep_id)).thanh_vien : []
-          }
-          onChen={moChen}
-          chenBusy={chenBusy}
-        />
       )}
 
       {chen && (
@@ -1065,362 +924,6 @@ function bandInfo(r: XepLichRow, gb: GroupBy): Omit<Band, "rows"> {
     noMay: false,
   };
 }
-function bandMeta(b: Band): string {
-  const tai = b.rows.reduce((s, r) => s + (r.chiem_may_phut || 0), 0);
-  const soms = b.rows.map((r) => r.som_nhat).filter((x): x is string => !!x);
-  const muons = b.rows.map((r) => r.muon_nhat).filter((x): x is string => !!x);
-  const som = soms.length ? ngay(soms.reduce((a, c) => (a < c ? a : c))) : "—";
-  const muon = muons.length ? ngay(muons.reduce((a, c) => (a > c ? a : c))) : "—";
-  return `${b.rows.length} công đoạn · tải ${thoiLuong(tai)} · ${som}–${muon}`;
-}
-
-function BandGroup({
-  band, colCount, collapsed, flash, bandRef, onToggle, onGo, children,
-}: {
-  band: Band;
-  colCount: number;
-  collapsed: boolean;
-  flash: boolean;
-  bandRef: (el: HTMLTableRowElement | null) => void;
-  onToggle: () => void;
-  onGo?: () => void;
-  children: ReactNode;
-}) {
-  const totalSteps = band.rows.length;
-  const scheduledSteps = band.rows.filter((r) => r.start_at != null || r.trang_thai === "da_xep").length;
-  const pct = totalSteps > 0 ? Math.round((scheduledSteps / totalSteps) * 100) : 0;
-
-  return (
-    <>
-      <tr
-        ref={bandRef}
-        className={`xlcd-band ${band.noMay ? "xlcd-band--nomay" : ""} ${flash ? "is-flash" : ""}`}
-      >
-        <td colSpan={colCount}>
-          <div className="xlcd-band__inner">
-            <button
-              type="button"
-              className="xlcd-band__toggle"
-              aria-expanded={!collapsed}
-              onClick={onToggle}
-            >
-              <Icon name="chevron" size={15} className={collapsed ? "xlcd-band__caret is-collapsed" : "xlcd-band__caret"} />
-              <Icon name={band.icon} size={15} />
-              <span className="xlcd-band__title">{band.label}</span>
-            </button>
-            <span className="xlcd-band__meta">{bandMeta(band)}</span>
-
-            <div className="xlcd-band__progress-wrap" title={`${scheduledSteps}/${totalSteps} công đoạn đã xếp (${pct}%)`}>
-              <div className="xlcd-band__progress">
-                <div
-                  className={`xlcd-band__progress-bar ${pct === 100 ? "xlcd-band__progress-bar--complete" : ""}`}
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-              <span className="xlcd-band__progress-num">{scheduledSteps}/{totalSteps} đã xếp</span>
-            </div>
-
-            {onGo && (
-              <button type="button" className="xlcd-band__go" onClick={onGo}>
-                <Icon name="lockOpen" size={12} /> Gỡ kế hoạch
-              </button>
-            )}
-          </div>
-        </td>
-      </tr>
-      {children}
-    </>
-  );
-}
-
-// ============================ 1 dòng bảng ====================================
-interface ShowCols { somNhat: boolean; ketThuc: boolean; thoiLuong: boolean }
-
-function BoardRow({
-  row, stepIdx, groupBy, show, picked, canUpdate, mays, phongBans, onTogglePick, onOpen, onGan, fetchGoiY,
-}: {
-  row: XepLichRow;
-  stepIdx?: number;
-  groupBy?: GroupBy;
-  show: ShowCols;
-  picked: boolean;
-  canUpdate: boolean;
-  mays: Row[];
-  phongBans: Row[];
-  onTogglePick: () => void;
-  onOpen: () => void;
-  onGan: (id: number, body: XepLichGanBody) => void;
-  fetchGoiY: (id: number) => Promise<XepLichGoiY>;
-}) {
-  const blocked = !!row.blocked_reason;
-  const editable = canUpdate && !row.is_locked && !blocked;
-  const meta = row.loai_buoc ? LSX_LOAI_BUOC_META[row.loai_buoc] : undefined;
-  const soomTre = !!row.start_at && !!row.som_nhat && row.start_at < row.som_nhat;
-  const isGhep = row.nguon === "in_ghep";
-  const isGroupedByOrder = groupBy === "lenh" || groupBy === "bai-ghep";
-
-  return (
-    <tr
-      className={`xlcd-row ${row.is_rush ? "xlcd-row--rush" : ""} ${picked ? "is-checked" : ""} ${blocked ? "xlcd-row--blocked" : ""} ${isGhep ? "xlcd-row--ghep" : ""}`}
-      tabIndex={0}
-      aria-label={`Mở công đoạn ${row.cong_doan_ten ?? ""} của ${row.lsx_ma ?? ""}`}
-      onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") { e.preventDefault(); onOpen(); }
-      }}
-    >
-      {/* 1 · chọn */}
-      <td className="xlcd-sticky-l xlcd-sticky-l--1 xlcd-td-chk" onClick={(e) => e.stopPropagation()}>
-        <input
-          type="checkbox"
-          aria-label={`Chọn ${row.lsx_ma ?? ""} · ${row.cong_doan_ten ?? ""}`}
-          checked={picked}
-          disabled={blocked || !canUpdate}
-          onChange={onTogglePick}
-        />
-      </td>
-      {/* 2 · cờ */}
-      <td className="xlcd-sticky-l xlcd-sticky-l--2 xlcd-td-flag">
-        {row.is_rush && <Icon name="bell" size={13} className="xlcd-flag-rush" />}
-        {row.is_locked && <Icon name="lock" size={12} className="xlcd-flag-lock" />}
-      </td>
-      {/* 3 · mã */}
-      <td className="xlcd-sticky-l xlcd-sticky-l--3">
-        {isGroupedByOrder && stepIdx != null ? (
-          <span className="xlcd-step-badge" title={`Bước ${stepIdx + 1} của ${row.lsx_ma ?? ""}`}>
-            CĐ {String(stepIdx + 1).padStart(2, "0")}
-          </span>
-        ) : (
-          <span className="xlcd-ma">
-            {isGhep && <Icon name="layers" size={12} />}
-            {row.lsx_ma ?? "—"}
-          </span>
-        )}
-        {isGhep && !isGroupedByOrder && <span className="khsx__sub">bài in ghép</span>}
-      </td>
-      {/* 4 · công đoạn */}
-      <td className="xlcd-sticky-l xlcd-sticky-l--4 xlcd-shadow-l">
-        <div className="xlcd-cd-cell">
-          <Icon name={stepIcon(row.loai_buoc, row.cong_doan_ten)} size={13} className="xlcd-cd-icon" />
-          <span className="xlcd-cd">{row.cong_doan_ten ?? "—"}</span>
-        </div>
-      </td>
-      {/* 5 · SL */}
-      <td className="khsx-num">
-        {row.so_luong_vao == null ? "—" : (
-          <>{num(row.so_luong_vao)} <span className="khsx-unit">{row.don_vi_vao}</span></>
-        )}
-      </td>
-      {/* 6 · thực hiện */}
-      <td>
-        <div className="xlcd-dept-tag" title={row.department_ten ?? meta?.label}>
-          {meta && <span className={`khsx-lb khsx-lb--${meta.tone}`}>{meta.label}</span>}
-          {row.department_ten && <span>{row.department_ten}</span>}
-        </div>
-      </td>
-      {/* 7 · máy / NCC (inline) */}
-      <td onClick={(e) => e.stopPropagation()}>
-        <ResCell row={row} editable={editable} mays={mays} phongBans={phongBans} onGan={onGan} fetchGoiY={fetchGoiY} />
-      </td>
-      {/* 8 · sớm nhất */}
-      {show.somNhat && (
-        <td className={`khsx-num xlcd__col--opt ${soomTre ? "xlcd-early" : ""}`} title={soomTre ? "Bắt đầu sớm hơn mốc sớm-nhất" : undefined}>
-          {ngayGio(row.som_nhat)}
-        </td>
-      )}
-      {/* 9 · bắt đầu (inline) */}
-      <td onClick={(e) => e.stopPropagation()}>
-        <StartCell row={row} editable={editable} onGan={onGan} fetchGoiY={fetchGoiY} />
-      </td>
-      {/* 10 · kết thúc */}
-      {show.ketThuc && <td className="khsx-num xlcd__col--opt">{ngayGio(row.finish_at)}</td>}
-      {/* 11 · thời lượng */}
-      {show.thoiLuong && (
-        <td className="khsx-num xlcd__col--opt khsx-dur">
-          {thoiLuong(row.chiem_may_phut)}
-          {row.tong_phut > row.chiem_may_phut && (
-            <div className="khsx__sub">dẫn {thoiLuong(row.tong_phut)}</div>
-          )}
-        </td>
-      )}
-      {/* 12 · trạng thái */}
-      <td className="xlcd-sticky-r xlcd-shadow-r">
-        <div className="xlcd-tt">
-          <LichTrangThaiPill trangThai={row.trang_thai} isLocked={row.is_locked} coXungDot={row.co_xung_dot} />
-          <NguyCoTreChip nhan={row.nhan_rui_ro} slackNgay={row.slack_ngay} />
-          {row.can_xac_nhan && (
-            <span
-              className="xlcd-xnchip"
-              title={row.ly_do_xac_nhan.map((l) => XEP_LICH_XAC_NHAN_LABELS[l] ?? l).join("\n")}
-            >
-              <Icon name="ban" size={11} /> Cần xác nhận
-            </span>
-          )}
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-// ============================ ô inline: máy / NCC ============================
-function ResCell({
-  row, editable, mays, phongBans, onGan, fetchGoiY,
-}: {
-  row: XepLichRow;
-  editable: boolean;
-  mays: Row[];
-  phongBans: Row[];
-  onGan: (id: number, body: XepLichGanBody) => void;
-  fetchGoiY: (id: number) => Promise<XepLichGoiY>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [anchor, setAnchor] = useState<DOMRect | null>(null);
-  const kind = resKind(row.loai_buoc);
-  const txt = resText(row);
-  useDismiss(open, () => setOpen(false));
-
-  if (kind === "none") return <span className="khsx-muted">—</span>;
-
-  const placeholder = kind === "ncc" ? "Chọn nhà gia công…" : kind === "to" ? "Chọn tổ…" : "Chọn máy…";
-
-  return (
-    <div className="xlcd-cellwrap" onClick={(e) => e.stopPropagation()}>
-      <button
-        type="button"
-        className={`xlcd-cell ${txt ? "" : "xlcd-cell--empty"}`}
-        disabled={!editable}
-        onClick={(e) => { setAnchor(e.currentTarget.getBoundingClientRect()); setOpen((v) => !v); }}
-      >
-        {txt ?? placeholder}
-      </button>
-      {open && anchor && (
-        <div className="xlcd-pop" style={popStyle(anchor)} onClick={(e) => e.stopPropagation()}>
-          {kind === "ncc" ? (
-            <NccInput
-              value={row.nha_cung_cap ?? ""}
-              onSave={(v) => { onGan(row.id, { nha_cung_cap: v || null }); setOpen(false); }}
-            />
-          ) : (
-            <RefPick
-              options={kind === "to" ? phongBans : mays}
-              placeholder={placeholder}
-              header={
-                kind === "may" && row.may_id != null ? (
-                  <button
-                    type="button"
-                    className="xlcd-pick__suggest"
-                    onClick={async () => {
-                      const g = await fetchGoiY(row.id);
-                      if (g.khe_trong) onGan(row.id, { start_at: g.khe_trong });
-                      setOpen(false);
-                    }}
-                  >
-                    <Icon name="clock" size={12} /> Máy trống sớm nhất
-                  </button>
-                ) : null
-              }
-              onPick={(id) => {
-                onGan(row.id, kind === "to" ? { department_id: id } : { may_id: id });
-                setOpen(false);
-              }}
-            />
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ============================ ô inline: ca + bắt đầu ========================
-function StartCell({
-  row, editable, onGan, fetchGoiY,
-}: {
-  row: XepLichRow;
-  editable: boolean;
-  onGan: (id: number, body: XepLichGanBody) => void;
-  fetchGoiY: (id: number) => Promise<XepLichGoiY>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [anchor, setAnchor] = useState<DOMRect | null>(null);
-  const [dt, setDt] = useState(toLocalInput(row.start_at));
-  const [ca, setCa] = useState<number | null>(row.work_shift_id ?? null);
-  useDismiss(open, () => setOpen(false));
-
-  useEffect(() => {
-    if (open) { setDt(toLocalInput(row.start_at)); setCa(row.work_shift_id ?? null); }
-  }, [open, row.start_at, row.work_shift_id]);
-
-  const caTxt = caLabel(row.work_shift_id);
-
-  return (
-    <div className="xlcd-cellwrap" onClick={(e) => e.stopPropagation()}>
-      <button
-        type="button"
-        className={`xlcd-cell ${row.start_at ? "" : "xlcd-cell--empty"}`}
-        disabled={!editable}
-        onClick={(e) => { setAnchor(e.currentTarget.getBoundingClientRect()); setOpen((v) => !v); }}
-      >
-        {row.start_at ? ngayGio(row.start_at) : "Đặt giờ…"}
-        {caTxt && <span className="xlcd-cell__sub">{caTxt}</span>}
-      </button>
-      {open && anchor && (
-        <div className="xlcd-pop xlcd-pop--time" style={popStyle(anchor, 300)} onClick={(e) => e.stopPropagation()}>
-          <p className="xlcd-pop__label">Ca làm</p>
-          <div className="khsx-seg khsx-seg--sm">
-            {CA_OPTIONS.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={ca === c.id ? "is-active" : ""}
-                onClick={() => setCa(ca === c.id ? null : c.id)}
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
-
-          <p className="xlcd-pop__label">Bắt đầu</p>
-          <input
-            type="datetime-local"
-            className="xlcd-pop__dt"
-            value={dt}
-            onChange={(e) => setDt(e.target.value)}
-          />
-          <div className="xlcd-pop__quick">
-            {row.som_nhat && (
-              <button type="button" onClick={() => setDt(toLocalInput(row.som_nhat))}>Sớm nhất</button>
-            )}
-            <button type="button" onClick={() => setDt(nextShiftStart(dt))}>Đầu ca kế</button>
-            {row.may_id != null && (
-              <button
-                type="button"
-                onClick={async () => { const g = await fetchGoiY(row.id); if (g.khe_trong) setDt(toLocalInput(g.khe_trong)); }}
-              >
-                Máy trống sớm nhất
-              </button>
-            )}
-          </div>
-
-          <p className="xlcd-pop__derive">
-            Kết thúc {ngayGio(row.finish_at)} · chiếm máy {thoiLuong(row.chiem_may_phut)}
-            <span className="xlcd-pop__derive-note"> (cập nhật sau khi lưu)</span>
-          </p>
-
-          <div className="xlcd-pop__foot">
-            <button type="button" className="xlcd-pop__cancel" onClick={() => setOpen(false)}>Hủy</button>
-            <Button
-              variant="primary"
-              onClick={() => { onGan(row.id, { start_at: fromLocalInput(dt), work_shift_id: ca }); setOpen(false); }}
-            >
-              Lưu
-            </Button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ============================ typeahead danh mục ============================
 function RefPick({
   options, placeholder, header, onPick,
@@ -1457,45 +960,6 @@ function RefPick({
         ))}
         {nq && matches.length === 0 && <p className="xlcd-pick__empty">Không thấy “{q}”.</p>}
       </div>
-    </div>
-  );
-}
-
-function NccInput({ value, onSave }: { value: string; onSave: (v: string) => void }) {
-  const [v, setV] = useState(value);
-  return (
-    <div className="xlcd-ncc">
-      <input
-        className="xlcd-pick__input"
-        autoFocus
-        value={v}
-        placeholder="Tên nhà gia công"
-        onChange={(e) => setV(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") onSave(v.trim()); }}
-      />
-      <Button variant="primary" onClick={() => onSave(v.trim())}>Lưu</Button>
-    </div>
-  );
-}
-
-// ============================ menu cột ======================================
-function ColsMenu({
-  hidden, onToggle, onClose,
-}: {
-  hidden: Set<string>;
-  onToggle: (key: string) => void;
-  onClose: () => void;
-}) {
-  useDismiss(true, onClose);
-  return (
-    <div className="xlcd-colsmenu" onClick={(e) => e.stopPropagation()} role="menu">
-      <p className="xlcd-colsmenu__head">Hiện cột phụ</p>
-      {COL_GROUPS.map((c) => (
-        <label key={c.key} className="xlcd-colsmenu__row">
-          <input type="checkbox" checked={!hidden.has(c.key)} onChange={() => onToggle(c.key)} />
-          <span>{c.label}</span>
-        </label>
-      ))}
     </div>
   );
 }
@@ -1968,20 +1432,23 @@ function QueuePopup({
 
 // ============================ bulk-bar ======================================
 function BulkBar({
-  count, canUpdate, mays, onGanMay, onGanCa, onDatGio, onKhoa, onMoKhoa, onAuto, onClear,
+  count, canUpdate, mays, phongBans, onGanMay, onGanTo, onDatGio, onKhoa, onMoKhoa, onAuto, onClear,
 }: {
   count: number;
   canUpdate: boolean;
   mays: Row[];
+  phongBans: Row[];
   onGanMay: (id: number) => void;
-  onGanCa: (shift: number) => void;
+  /** Thợ nghỉ ốm phải chuyển 12 bước sang tổ khác — việc thật, mà ô tick từng dòng đã gỡ cùng
+   *  view Bảng nên đây là đường DUY NHẤT còn lại. `gan()` đã nhận `department_id` từ trước. */
+  onGanTo: (id: number) => void;
   onDatGio: (local: string) => void;
   onKhoa: () => void;
   onMoKhoa: () => void;
   onAuto: () => void;
   onClear: () => void;
 }) {
-  const [pop, setPop] = useState<"may" | "ca" | "gio" | null>(null);
+  const [pop, setPop] = useState<"may" | "to" | "gio" | null>(null);
   const [dt, setDt] = useState("");
   useDismiss(pop != null, () => setPop(null));
 
@@ -2003,16 +1470,12 @@ function BulkBar({
           </div>
 
           <div className="xlcd-bulk__wrap" onClick={(e) => e.stopPropagation()}>
-            <button type="button" className="xlcd-bulk__btn" onClick={() => setPop(pop === "ca" ? null : "ca")}>
-              Gán ca <Icon name="chevron" size={12} />
+            <button type="button" className="xlcd-bulk__btn" onClick={() => setPop(pop === "to" ? null : "to")}>
+              <Icon name="building" size={13} /> Gán tổ <Icon name="chevron" size={12} />
             </button>
-            {pop === "ca" && (
+            {pop === "to" && (
               <div className="xlcd-pop xlcd-pop--up" onClick={(e) => e.stopPropagation()}>
-                <div className="khsx-seg khsx-seg--sm">
-                  {CA_OPTIONS.map((c) => (
-                    <button key={c.id} type="button" onClick={() => { onGanCa(c.id); setPop(null); }}>{c.label}</button>
-                  ))}
-                </div>
+                <RefPick options={phongBans} placeholder="Chọn tổ cho các dòng…" onPick={(id) => { onGanTo(id); setPop(null); }} />
               </div>
             )}
           </div>
@@ -2049,7 +1512,7 @@ function BulkBar({
 // ============================ drawer 1 công đoạn ============================
 function DrawerBuoc({
   row, siblings, mays, phongBans, canUpdate, hasPrev, hasNext, onPrev, onNext, onClose, onGan, onKhoa, fetchGoiY, fetchMembers,
-  onChen, chenBusy,
+  onChen, chenBusy, inline,
 }: {
   row: XepLichRow;
   siblings: XepLichRow[];
@@ -2068,20 +1531,21 @@ function DrawerBuoc({
   /** G1 — mở bảng xem trước chèn (không ghi). `dt` là giá trị ô giờ đang gõ trên drawer. */
   onChen: (dongId: number, mayId: number | null, dt: string) => void;
   chenBusy: boolean;
+  /** PANEL DÍNH bên phải Gantt (mặc định của màn) thay vì hộp che cả bàn lịch. */
+  inline?: boolean;
 }) {
   const kind = resKind(row.loai_buoc);
   const [mayId, setMayId] = useState<number | null>(row.may_id);
   const [deptId, setDeptId] = useState<number | null>(row.department_id);
   const [ncc, setNcc] = useState(row.nha_cung_cap ?? "");
-  const [ca, setCa] = useState<number | null>(row.work_shift_id ?? null);
   const [dt, setDt] = useState(toLocalInput(row.start_at));
   const [goiY, setGoiY] = useState<XepLichGoiY | null>(null);
   const [members, setMembers] = useState<{ lsx_id: number; lsx_ma: string | null; lsx_ten: string | null }[] | null>(null);
 
   useEffect(() => {
     setMayId(row.may_id); setDeptId(row.department_id); setNcc(row.nha_cung_cap ?? "");
-    setCa(row.work_shift_id ?? null); setDt(toLocalInput(row.start_at)); setGoiY(null);
-  }, [row.id, row.may_id, row.department_id, row.nha_cung_cap, row.work_shift_id, row.start_at]);
+    setDt(toLocalInput(row.start_at)); setGoiY(null);
+  }, [row.id, row.may_id, row.department_id, row.nha_cung_cap, row.start_at]);
 
   useEffect(() => { fetchGoiY(row.id).then(setGoiY).catch(() => setGoiY(null)); }, [row.id, fetchGoiY]);
   useEffect(() => {
@@ -2089,8 +1553,15 @@ function DrawerBuoc({
     else setMembers(null);
   }, [row.id, row.nguon, fetchMembers]);
 
+  // Esc đóng panel — nhưng chỉ khi con trỏ KHÔNG nằm trong ô nhập (Esc trong `datetime-local` là
+  // "bỏ giá trị đang gõ", đóng luôn panel là cướp thao tác).
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const t = e.target as HTMLElement | null;
+      if (t && /^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName)) return;
+      onClose();
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -2101,7 +1572,7 @@ function DrawerBuoc({
   const readOnly = !canUpdate || row.is_locked;
 
   const luu = () => {
-    const body: XepLichGanBody = { work_shift_id: ca, start_at: fromLocalInput(dt) };
+    const body: XepLichGanBody = { start_at: fromLocalInput(dt) };
     if (kind === "may") body.may_id = mayId;
     else if (kind === "to") body.department_id = deptId;
     else if (kind === "ncc") body.nha_cung_cap = ncc.trim() || null;
@@ -2112,9 +1583,14 @@ function DrawerBuoc({
   const mayTen = mays.find((m) => m.id === mayId)?.ten ?? row.may_ten;
   const deptTen = phongBans.find((d) => d.id === deptId)?.ten ?? row.department_ten;
 
-  return (
-    <div className="khsx-scrim" onClick={onClose}>
-      <div className="khsx-drawer khsx-drawer--buoc" role="dialog" aria-modal="true" aria-label="Xếp lịch công đoạn" onClick={(e) => e.stopPropagation()}>
+  const than = (
+      <div
+        className={inline ? "xlcd-side__box" : "khsx-drawer khsx-drawer--buoc"}
+        role={inline ? "region" : "dialog"}
+        aria-modal={inline ? undefined : true}
+        aria-label="Xếp lịch công đoạn"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="khsx-drawer__head">
           <div className="khsx-drawer__headmain">
             <p className="khsx-drawer__kicker">Xếp lịch công đoạn</p>
@@ -2155,7 +1631,7 @@ function DrawerBuoc({
           )}
 
           <div className="khsx-nhom">
-            <h3 className="khsx-nhom__title">Gán máy · ca · giờ</h3>
+            <h3 className="khsx-nhom__title">Gán máy · giờ</h3>
 
             {kind === "none" ? (
               <p className="khsx-nhom__sub">Bước chờ kỹ thuật — không chiếm máy, chỉ cần đặt giờ bắt đầu.</p>
@@ -2195,17 +1671,6 @@ function DrawerBuoc({
                 )}
               </label>
             )}
-
-            <div className="khsx-field" style={{ marginTop: "var(--sp-3)" }}>
-              <span className="khsx-field__label">Ca làm</span>
-              <div className="khsx-seg khsx-seg--sm">
-                {CA_OPTIONS.map((c) => (
-                  <button key={c.id} type="button" disabled={readOnly} className={ca === c.id ? "is-active" : ""} onClick={() => setCa(ca === c.id ? null : c.id)}>
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            </div>
 
             <label className="khsx-field" style={{ marginTop: "var(--sp-3)" }}>
               <span className="khsx-field__label">Bắt đầu</span>
@@ -2365,25 +1830,19 @@ function DrawerBuoc({
           </div>
         </div>
       </div>
-    </div>
   );
+
+  if (inline) return <aside className="xlcd-side" aria-label="Chi tiết bước">{than}</aside>;
+  return <div className="khsx-scrim" onClick={onClose}>{than}</div>;
 }
 
 // ============================ skeleton ======================================
-function BoardSkeleton({ colCount }: { colCount: number }) {
+function BoardSkeleton() {
   return (
-    <div className="xlcd-tablewrap">
-      <table className="xlcd-table">
-        <tbody className="khsx-skel">
-          {Array.from({ length: 6 }).map((_, r) => (
-            <tr key={r}>
-              {Array.from({ length: colCount }).map((__, c) => (
-                <td key={c}><span className="khsx-skel__bar" /></td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="xlcd-gskel" aria-hidden="true">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <span key={i} className="khsx-skel__bar xlcd-gskel__bar" />
+      ))}
     </div>
   );
 }

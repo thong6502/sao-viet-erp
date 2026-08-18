@@ -21,6 +21,7 @@ from app.models.cong_doan import CongDoan
 from app.models.customer import Customer
 from app.models.department import Department
 from app.models.lsx import LB_MAY, TT_DA_LAP_KE_HOACH, TT_SAN_SANG, LsxCongDoan, LsxCongDoanPhuThuoc
+from app.models.machine_unavailable import KIEU_CHAN, LY_DO_BAO_TRI, MachineUnavailablePeriod
 from app.models.may_thiet_bi import MayThietBi
 from app.models.phieu_tinh_gia import PhieuThanhPhan, PhieuThanhPham, PhieuTinhGia
 from app.models.quotation import STATUS_ACCEPTED, Quote, QuoteItem, QuoteVersion
@@ -903,3 +904,90 @@ def test_lenh_in_hai_luot_chi_loai_dung_luot_duoc_ghep(
     xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)
     member = XepLichRepository(db).by_lsx(created[0].id)
     assert [r.source_thu_tu for r in member] == [1]     # chỉ lượt ĐƯỢC NEO bị loại
+
+
+# --- 2f: cảnh báo TẠI CHỖ THẢ (xem trước) -------------------------------------
+# Bốn thứ này KHÔNG chặn (chốt 18/08/2026) — nhưng phải nói ra, không thì người kéo thanh không
+# hề biết mình vừa thả vào giữa khoảng bảo trì hay vào ngày nghỉ.
+def _dong_in_san_sang(db, orders, lsx_svc, xl_svc, admin, customer):
+    """Một lệnh có bước In 90 phút đã vào kế hoạch — nền chung cho 4 test cảnh báo."""
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    step = _in_step(db, lsx.id)
+    step.setup_phut, step.nang_suat, step.so_luong_vao, step.chay_phut = 0, 5000, 5000, None
+    db.commit()
+    xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
+    return XepLichRepository(db).by_lsx(lsx.id)[0], step
+
+
+def _loai(res) -> set:
+    return {c["loai"] for c in res["canh_bao"]}
+
+
+def test_xem_truoc_bao_de_vung_khoa_may(db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch):
+    """Thả đúng vào khoảng bảo trì → nói ngay, kèm giờ khóa. Engine vẫn nhảy qua (không chặn)."""
+    monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
+    dong, step = _dong_in_san_sang(db, orders, lsx_svc, xl_svc, admin, customer)
+    db.add(MachineUnavailablePeriod(
+        may_id=step.may_id, kieu=KIEU_CHAN, reason=LY_DO_BAO_TRI,
+        unavailable_from=datetime(2026, 7, 27, 7, 0, tzinfo=timezone.utc),
+        unavailable_to=datetime(2026, 7, 27, 10, 0, tzinfo=timezone.utc),
+    ))
+    db.commit()
+    res = xl_svc.xem_truoc(dong_id=dong.id, may_id=step.may_id,
+                           start_at=datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc))
+    assert "khoa_may" in _loai(res)
+    chu = next(c["chu"] for c in res["canh_bao"] if c["loai"] == "khoa_may")
+    assert "27/07" in chu and "bao_tri" in chu
+
+
+def test_xem_truoc_bao_ngoai_gio_lam(db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch):
+    """Thả vào NGÀY NGHỈ → nêu mốc việc thật sự bắt đầu được, không im lặng đẩy sang hôm sau."""
+    monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: d != date(2026, 7, 26))
+    dong, step = _dong_in_san_sang(db, orders, lsx_svc, xl_svc, admin, customer)
+    res = xl_svc.xem_truoc(dong_id=dong.id, may_id=step.may_id,
+                           start_at=datetime(2026, 7, 26, 8, 0, tzinfo=timezone.utc))
+    assert "ngoai_gio" in _loai(res)
+    assert "27/07" in next(c["chu"] for c in res["canh_bao"] if c["loai"] == "ngoai_gio")
+
+
+def test_xem_truoc_bao_to_thieu_nguoi(db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch):
+    """Bước cần 3 người mà tổ gõ đè còn 1 → báo. Số người lấy từ QUÂN SỐ THẬT của tổ hôm đó."""
+    monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
+    dong, step = _dong_in_san_sang(db, orders, lsx_svc, xl_svc, admin, customer)
+    to = _to_san_xuat(db)
+    step.so_nhan_cong = 3
+    dong.department_id = to.id
+    db.commit()
+    xl_svc.dat_quan_so(department_id=to.id, ngay=date(2026, 7, 27), so_nguoi=1,
+                       ly_do="cả tổ nghỉ, còn 1 người trực", actor=admin)
+    res = xl_svc.xem_truoc(dong_id=dong.id, may_id=step.may_id,
+                           start_at=datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc))
+    assert "thieu_nguoi" in _loai(res)
+    chu = next(c["chu"] for c in res["canh_bao"] if c["loai"] == "thieu_nguoi")
+    assert "cần 3 người" in chu and "có mặt 1" in chu
+
+
+def test_xem_truoc_tha_sach_thi_khong_canh_bao_gi(db, orders, lsx_svc, xl_svc, admin, customer,
+                                                  monkeypatch):
+    """Thả đúng chỗ đẹp → danh sách RỖNG. Cảnh báo kêu cả lúc không có gì thì người dùng học cách
+    bỏ qua cảnh báo — hỏng hơn là không có."""
+    monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
+    dong, step = _dong_in_san_sang(db, orders, lsx_svc, xl_svc, admin, customer)
+    res = xl_svc.xem_truoc(dong_id=dong.id, may_id=step.may_id,
+                           start_at=datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc))
+    assert res["canh_bao"] == []
+
+
+def test_canh_bao_di_het_duong_dict_den_schema(db, orders, lsx_svc, xl_svc, admin, customer,
+                                               monkeypatch):
+    """Pydantic nuốt field IM LẶNG: không khai ở `XemTruocOut` thì FE nhận `undefined`, không lỗi."""
+    from app.schemas.xep_lich import XemTruocOut
+
+    monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: d != date(2026, 7, 26))
+    dong, step = _dong_in_san_sang(db, orders, lsx_svc, xl_svc, admin, customer)
+    res = xl_svc.xem_truoc(dong_id=dong.id, may_id=step.may_id,
+                           start_at=datetime(2026, 7, 26, 8, 0, tzinfo=timezone.utc))
+    assert "canh_bao" in XemTruocOut.model_fields
+    ra = XemTruocOut.model_validate(res)
+    assert [c.loai for c in ra.canh_bao] == [c["loai"] for c in res["canh_bao"]]
+    assert ra.model_dump()["canh_bao"][0]["chu"]

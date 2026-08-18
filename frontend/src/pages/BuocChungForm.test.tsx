@@ -23,6 +23,8 @@ describe("form kế hoạch bước chung", () => {
       ],
     })} canUpdate onLuu={onLuu} onTach={async () => {}} />);
 
+    // Ghi chú của bài nằm ở tab cuối (cùng chỗ với ghi chú kỹ thuật của từng lệnh trên tờ).
+    await user.click(screen.getByRole("button", { name: /Các lệnh trên tờ/ }));
     const note = screen.getByLabelText("Ghi chú của bài cho lượt chạy này");
     await user.clear(note);
     await user.type(note, "Giữ nội dung đang khai");

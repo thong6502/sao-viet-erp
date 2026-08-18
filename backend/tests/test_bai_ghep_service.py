@@ -1319,3 +1319,40 @@ def test_khai_vat_tu_cho_luot_chung_va_snapshot_dung_don_vi(
             patch={"vat_tus": [{"vat_tu_id": muc.id, "so_luong": 1},
                                {"vat_tu_id": muc.id, "so_luong": 2}]}, actor=admin,
         )
+
+
+def test_so_do_chung_mang_bang_boc_tach_gio_va_goi_y_vat_tu(
+    db, orders, lsx_svc, bg_svc, admin, customer,
+):
+    """Drawer bước chung dựng bảng bóc tách giờ + nút "Dùng số này" từ ĐÚNG hai khoá này.
+
+    Đi qua `SoDoOut.model_validate` chứ không đọc thẳng dict của service: bẫy "Pydantic nuốt
+    field im lặng" nằm ở chỗ khoá nào service trả mà schema không khai thì rơi mất KHÔNG lỗi,
+    frontend nhận `undefined` và bảng bóc tách hiện rỗng.
+    """
+    from app.models.vat_lieu_kho import VatTuInAn
+    from app.schemas.bai_ghep import SoDoOut
+
+    db.add(VatTuInAn(ma="VT-MUC-GY", ten="Mực đen", don_vi_gia="kg", don_gia=180_000,
+                     cong_thuc_luong="sl_vao / 1000", active=True))
+    db.commit()
+
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+
+    chung = SoDoOut.model_validate(bg_svc.so_do(bg_svc._get(bg.id))).model_dump()["gop"][0]
+
+    dg = chung["thoi_luong_dien_giai"]
+    assert dg, "rỗng ⇒ drawer chỉ còn một con số tổng, người xem không kiểm được vì sao ra nó"
+    # Bộ khoá drawer đọc thẳng — thiếu khoá nào là mất đúng một dòng trong bảng bóc tách.
+    assert {"phuong_phap", "so_luong_vao", "don_vi_vao", "chuan_bi_khoan", "setup_phut",
+            "phat_sinh_phut", "chay_phut", "tong_phut", "canh_bao"} <= set(dg)
+    assert dg["tong_phut"] == pytest.approx(chung["tong_phut"])
+
+    goi_y = {g["vat_tu_id"]: g for g in chung["vat_tu_goi_y"]}
+    muc = db.query(VatTuInAn).filter(VatTuInAn.ma == "VT-MUC-GY").one()
+    assert muc.id in goi_y, "vật tư đang dùng phải có mặt thì drawer mới bày được nút Dùng số này"
+    # Số của LƯỢT CHUNG (tờ ghép), không phải số của một lệnh thành viên nào.
+    assert goi_y[muc.id]["so_luong"] == pytest.approx(chung["so_luong_vao"] / 1000, rel=1e-6)
+    assert goi_y[muc.id]["dien_giai"], "phải kèm câu công thức = thay số = kết quả"

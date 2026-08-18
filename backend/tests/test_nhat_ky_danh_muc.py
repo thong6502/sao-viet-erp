@@ -115,3 +115,55 @@ def test_json_co_noi_dung_that_thi_van_ghi():
         {"fields_theo_loai": {"chuan_bi_khoan": [{"ten": "Canh kẽm", "phut": 15}]}},
     )
     assert len(dong) == 1 and "Thông số theo loại máy" in dong[0]
+
+
+# ── Ô JSON `fields_theo_loai` của màn Máy ────────────────────────────────────
+# Ảnh chụp màn hình 18/08/2026: sửa MỘT khoản chuẩn bị, nhật ký in nguyên cục JSON ra CẢ HAI vế —
+# "Lich Bao Tri: Id: hm-seed-in-01-00; Viec: …; So: 1; Don Vi: tuan; Ngay Bat Dau: …" — dài hết bề
+# ngang màn hình, hai bên mũi tên giống hệt nhau, và không chỉ ra được cái gì vừa đổi.
+_LICH = [
+    {"id": "hm-seed-in-01-00", "viec": "Bảo trì tuần máy in", "so": 1, "don_vi": "tuan",
+     "ngay_bat_dau": "2026-08-09",
+     "hang_muc": [{"id": "a-0", "ten": "Vệ sinh lô mực"}, {"id": "a-1", "ten": "Kiểm tra nhíp"},
+                  {"id": "a-2", "ten": "Tra dầu"}, {"id": "a-3", "ten": "Xả nước làm ẩm"}]},
+]
+_KHOAN = [{"ten": "Thay giấy", "phut": 10}, {"ten": "Thay kẽm", "phut": 20}]
+
+
+def test_sua_mot_khoa_con_khong_loi_ca_o_json_ra_in_lai():
+    """⭐ Chủ chốt: thêm một khoản chuẩn bị thì lịch bảo trì KHÔNG được xuất hiện trong câu."""
+    truoc = {"fields_theo_loai": {"lich_bao_tri": _LICH, "chuan_bi_khoan": _KHOAN}}
+    sau = {"fields_theo_loai": {"lich_bao_tri": _LICH,
+                                "chuan_bi_khoan": [*_KHOAN, {"ten": "Canh màu", "phut": 15}]}}
+    dong = nk.mo_ta_thay_doi(truoc, sau)
+
+    assert len(dong) == 1
+    assert "Các khoản chuẩn bị" in dong[0] and "Canh màu (15 phút)" in dong[0]
+    assert "Lịch bảo trì" not in dong[0], "khoá con KHÔNG đổi mà vẫn bị lôi ra in"
+
+
+def test_dong_json_doc_duoc_khong_lo_ten_khoa_may():
+    dong = nk.mo_ta_thay_doi({"fields_theo_loai": None},
+                             {"fields_theo_loai": {"lich_bao_tri": _LICH}})
+
+    assert dong == ["Thông số theo loại máy › Lịch bảo trì định kỳ — → "
+                    "Bảo trì tuần máy in (mỗi 1 tuần, từ 09/08/2026, 4 việc)"]
+    # Không rò khoá kỹ thuật, không rò tên khoá thô, ngày viết kiểu Việt.
+    for rac in ("hm-seed", "Lich Bao Tri", "hang_muc", "ngay_bat_dau", "2026-08-09"):
+        assert rac not in dong[0], rac
+
+
+def test_khong_dung_dau_cham_giua_trong_mot_dong():
+    """`NhatKyTab` cắt `detail` bằng " · " để tách trường. Lọt dấu đó vào GIỮA một giá trị là
+    một thay đổi bị vẽ thành mấy dòng cụt nghĩa."""
+    dong = nk.mo_ta_thay_doi({"fields_theo_loai": None},
+                             {"fields_theo_loai": {"lich_bao_tri": _LICH, "chuan_bi_khoan": _KHOAN}})
+    assert len(dong) == 2 and all(" · " not in d for d in dong)
+
+
+def test_danh_sach_qua_dai_thi_cat_bot_chu_khong_dai_vo_han():
+    goi = [{"ten": f"Khoản {i}", "phut": i} for i in range(1, 9)]
+    dong = nk.mo_ta_thay_doi({"fields_theo_loai": None},
+                             {"fields_theo_loai": {"chuan_bi_khoan": goi}})
+    assert "Khoản 5 (5 phút)" in dong[0] and "Khoản 6" not in dong[0]
+    assert "… và 3 mục nữa" in dong[0]

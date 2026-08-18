@@ -12,6 +12,8 @@ import {
   type XepLichKieuKhoang, type XepLichNguoiTangGiua, type XepLichRow,
   type XepLichTaiToKhoang, type XepLichVungKhoaItem,
 } from "../api/client";
+import type { XepLichVanDe } from "../api/client";
+import { kyThuatMay } from "../api/kyThuatMay";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
 import { ngay, ngayGio, thoiLuong } from "./keHoachSxShared";
@@ -134,15 +136,30 @@ interface Ghost { key: string; x: number; w: number; valid: boolean; collide: bo
 interface Impact { dongId: number; row: XepLichRow; body: XepLichGanBody; pv: XepLichPreview }
 
 export function GanttBoard({
-  bands, groupBy, token, canUpdate, onOpenRow, onGan, onToast,
+  bands, groupBy, token, canUpdate, openRowId, picked, vanDeTheoDong, focusAt, flashKey,
+  onOpenRow, onTogglePickBand, onOpenVanDe, onGan, onToast, onChen,
 }: {
   bands: Band[];
   groupBy: GroupBy;
   token: string | null;
   canUpdate: boolean;
+  /** Dòng đang mở ở panel phải — tô sáng thanh tương ứng để không lạc chỗ đang đứng. */
+  openRowId: number | null;
+  picked: Set<number>;
+  /** Vấn đề dẫn xuất, tra theo id dòng (`impacts.dong_ids`). Chip đỏ ngay trên thanh: xem vấn đề
+   *  TẠI cái lịch, không phải mở danh sách thứ hai rồi tự dò ngược. */
+  vanDeTheoDong: Map<number, XepLichVanDe[]>;
+  /** Mốc giờ cần nhảy tới khi người dùng gõ tìm — thiếu nó thì gõ mã lệnh xếp tháng sau ra lane
+   *  trống trơn, phải bấm "Tiến" mấy lần mới thấy. */
+  focusAt: string | null;
+  flashKey: string | null;
   onOpenRow: (id: number) => void;
+  onTogglePickBand: (ids: number[]) => void;
+  onOpenVanDe: (issueKey: string) => void;
   onGan: (id: number, body: XepLichGanBody) => Promise<void>;
   onToast: (text: string, undo?: () => void) => void;
+  /** Mở bảng "chèn & lùi các việc sau" (`/chen`, không ghi) — dùng lại đúng luồng của panel phải. */
+  onChen: (dongId: number, mayId: number | null, dtLocal: string) => void;
 }) {
   const [zoom, setZoom] = useState<Zoom>("ngay");
   const [anchor, setAnchor] = useState<number>(() => todayStartWall());
@@ -158,11 +175,24 @@ export function GanttBoard({
   const [pop, setPop] = useState<KhoaPop | null>(null);
   const [ghost, setGhost] = useState<Ghost | null>(null);
   const [impact, setImpact] = useState<Impact | null>(null);
+  const [impactBusy, setImpactBusy] = useState(false);
+  // Mốc TỚI HẠN BẢO TRÌ của từng máy (mục 2i). `lich_bao_tri` chỉ khai HẠN, không khai thời lượng
+  // ⇒ KHÔNG tự sinh vùng chặn (sẽ phải bịa "chặn mấy tiếng"). Cắm mốc để người điều độ tự khoá giờ.
+  const [mocBaoTri, setMocBaoTri] = useState<{ may_id: number; ngay: string; goi_ten: string | null }[]>([]);
 
   useEffect(() => { setHideOff(zoom === "ngay" || zoom === "tuan"); }, [zoom]);
 
   const winStart = anchor;
   const winEnd = anchor + SPAN_DAY[zoom] * 1440;
+
+  // Gõ tìm ra một dòng nằm ngoài cửa sổ đang xem thì DỜI cửa sổ tới đó. Không có bước này, ô tìm
+  // kiếm chỉ lọc lane chứ không đưa mắt tới việc — đúng thứ người dùng vừa gõ lại là thứ không thấy.
+  useEffect(() => {
+    if (!focusAt) return;
+    const t = wallMinutes(focusAt);
+    if (!Number.isFinite(t)) return;
+    setAnchor((a) => (t >= a && t < a + SPAN_DAY[zoom] * 1440 ? a : Math.floor(t / 1440) * 1440));
+  }, [focusAt, zoom]);
 
   // Nạp NỀN lịch (khoảng làm-việc theo ca — factory-wide) + VÙNG KHÓA (mọi máy, overlay theo lane).
   useEffect(() => {
@@ -177,7 +207,32 @@ export function GanttBoard({
     api.xepLich.taiTo(token)
       .then((r) => { setTaiTo(r.items); setTangGiua(r.tang_giua ?? []); })
       .catch(() => { setTaiTo([]); setTangGiua([]); });
+    // Người xếp lịch không chắc có quyền module Kỹ thuật máy — hỏng thì im lặng bỏ mốc, đừng để
+    // cả bàn lịch đỏ lên vì một lớp chú thích.
+    kyThuatMay.lich(token, isoDay(winStart), isoDay(winEnd))
+      .then((r) => setMocBaoTri(r.du_kien.map((d) => ({ may_id: d.may_id, ngay: d.ngay, goi_ten: d.goi_ten }))))
+      .catch(() => setMocBaoTri([]));
   }, [token, winStart, winEnd, bands, khoaTick]);
+
+  const mocByMay = useMemo(() => {
+    const m = new Map<number, { ngay: string; goi_ten: string | null }[]>();
+    for (const k of mocBaoTri) {
+      const a = m.get(k.may_id) ?? [];
+      a.push({ ngay: k.ngay, goi_ten: k.goi_ten });
+      m.set(k.may_id, a);
+    }
+    return m;
+  }, [mocBaoTri]);
+
+  // Dòng CHƯA CÓ GIỜ, gom theo lane. `_dong_moi` sinh dòng không `start_at` mà Gantt chỉ vẽ dòng
+  // có giờ ⇒ 12 lệnh vừa đưa vào kế hoạch trước đây vô hình trên bàn lịch. Dải đỗ là chỗ chúng đỗ.
+  const choGio = useMemo(
+    () => bands
+      .map((b) => ({ band: b, rows: b.rows.filter((r) => !r.start_at) }))
+      .filter((g) => g.rows.length > 0),
+    [bands],
+  );
+  const choGioIds = useMemo(() => choGio.flatMap((g) => g.rows.map((r) => r.id)), [choGio]);
 
   const taiByTo = useMemo(() => {
     const m = new Map<number, XepLichTaiToKhoang[]>();
@@ -276,6 +331,26 @@ export function GanttBoard({
       : null);
   }, []);
 
+  /** MỘT cửa duy nhất trước khi ghi: xem-trước → có gì phải nói thì mở hộp, sạch thì áp thẳng.
+   *  Trước đây phím mũi tên ghi THẲNG không qua xem-trước — cùng một việc mà hai đường cho hai kết
+   *  quả khác nhau, người dùng bàn phím im lặng đè lên việc khác. */
+  const tryGan = useCallback(async (id: number, body: XepLichPreviewBody, row: XepLichRow) => {
+    const { token: tk, onToast: t } = env.current;
+    if (!tk) return;
+    try {
+      const pv = await api.xepLich.preview(tk, id, body);
+      if (pv.day_doi.length || pv.xung_dot_ids.length || pv.can_xac_nhan || pv.canh_bao.length) {
+        setImpact({ dongId: id, row, body, pv });
+        return;
+      }
+      await applyGan(id, body, row);
+    } catch {
+      // Nuốt lỗi xem-trước rồi ghi im lặng là chỗ tệ nhất: người dùng tưởng đã kiểm, thực ra chưa.
+      t("Không xem trước được ảnh hưởng — vẫn xếp, server sẽ chốt lại.");
+      await applyGan(id, body, row);
+    }
+  }, [applyGan]);
+
   const onCancel = useCallback(() => {
     acRef.current?.abort();
     dragRef.current = null;
@@ -293,20 +368,8 @@ export function GanttBoard({
     if (!d.valid || d.startWall == null) return;
     const { token: tk } = env.current;
     if (!tk) return;
-    const body: XepLichPreviewBody = { may_id: d.targetMayId, start_at: isoSend(d.startWall) };
-    void (async () => {
-      try {
-        const pv = await api.xepLich.preview(tk, d.dongId, body);
-        if (pv.day_doi.length || pv.xung_dot_ids.length || pv.can_xac_nhan) {
-          setImpact({ dongId: d.dongId, row: d.row, body, pv });
-        } else {
-          await applyGan(d.dongId, body, d.row);
-        }
-      } catch {
-        await applyGan(d.dongId, body, d.row); // preview lỗi → vẫn cho gán (server chốt)
-      }
-    })();
-  }, [onMove, applyGan]);
+    void tryGan(d.dongId, { may_id: d.targetMayId, start_at: isoSend(d.startWall) }, d.row);
+  }, [tryGan]);
 
   const onBarDown = useCallback((r: XepLichRow, e: React.PointerEvent) => {
     if (!canUpdate || r.is_locked || !token) return;
@@ -323,20 +386,23 @@ export function GanttBoard({
   }, [canUpdate, token, onMove, onUp, onCancel]);
 
   // A11y: bàn phím thay kéo — ←/→ dời giờ theo bước snap, ↑/↓ đổi lane máy, Enter mở drawer.
+  // Đi qua ĐÚNG cửa `tryGan` như kéo-thả (xem mục "một cửa duy nhất" ở trên).
   const onBarKey = useCallback((r: XepLichRow, e: React.KeyboardEvent) => {
     if (!canUpdate || r.is_locked) return;
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       const base = wallMinutes(r.start_at ?? "");
       if (!Number.isFinite(base)) return;
       e.preventDefault();
-      void applyGan(r.id, { start_at: isoSend(base + (e.key === "ArrowRight" ? SNAP_MIN[zoom] : -SNAP_MIN[zoom])) }, r);
+      void tryGan(r.id, { start_at: isoSend(base + (e.key === "ArrowRight" ? SNAP_MIN[zoom] : -SNAP_MIN[zoom])) }, r);
     } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && groupBy === "may") {
       const lanes = bands.filter((b) => !b.noMay);
       const i = lanes.findIndex((b) => (b.rows[0]?.may_id ?? null) === r.may_id);
       const nb = lanes[i + (e.key === "ArrowDown" ? 1 : -1)];
-      if (nb) { e.preventDefault(); void applyGan(r.id, { may_id: nb.rows[0]?.may_id ?? null }, r); }
+      if (!nb || !r.start_at) return;
+      e.preventDefault();
+      void tryGan(r.id, { may_id: nb.rows[0]?.may_id ?? null, start_at: r.start_at }, r);
     }
-  }, [canUpdate, groupBy, zoom, bands, applyGan]);
+  }, [canUpdate, groupBy, zoom, bands, tryGan]);
 
   const registerTrack = useCallback((key: string, el: HTMLDivElement | null) => {
     if (el) trackReg.current.set(key, el);
@@ -361,6 +427,39 @@ export function GanttBoard({
     setPop(null);
     setKhoaTick((t) => t + 1);
   }
+
+  /** "Tìm khe trống" — dùng lại `goi_y` sẵn có rồi xem-trước LẠI tại khe đó, không ghi gì.
+   *
+   *  Trước đây kéo trúng chỗ đã có việc thì chỉ có Huỷ: người dùng đóng hộp, tự đi dò khe trống
+   *  bằng mắt rồi kéo lại. Câu trả lời server đã biết sẵn — chỉ là chưa ai hỏi hộ. */
+  const timKhe = useCallback(async () => {
+    const im = impact;
+    if (!im || !token) return;
+    setImpactBusy(true);
+    try {
+      const gy = await api.xepLich.goiY(token, im.dongId);
+      const top = gy.goi_y_may[0];
+      const khe = top?.khe_trong ?? gy.khe_trong;
+      const mayId = top?.may_id ?? gy.may_id ?? im.body.may_id ?? null;
+      if (!khe) { onToast("Chưa tìm được khe trống nào cho công đoạn này."); return; }
+      const body: XepLichPreviewBody = { may_id: mayId, start_at: khe };
+      const pv = await api.xepLich.preview(token, im.dongId, body);
+      setImpact({ dongId: im.dongId, row: im.row, body, pv });
+    } catch {
+      onToast("Không lấy được gợi ý khe trống.");
+    } finally {
+      setImpactBusy(false);
+    }
+  }, [impact, token, onToast]);
+
+  /** "Chèn — lùi các việc sau": chuyển thẳng sang bảng `/chen` (cũng chỉ TÍNH, chưa ghi). Gộp về
+   *  đây để một việc không còn hai hộp xem-trước ở hai chỗ khác nhau. */
+  const chenTai = useCallback(() => {
+    const im = impact;
+    if (!im?.body.start_at) return;
+    setImpact(null);
+    onChen(im.dongId, im.body.may_id ?? im.row.may_id, isoLocal(wallMinutes(im.body.start_at)));
+  }, [impact, onChen]);
 
   /** Gõ đè quân số tổ một ngày (mục I). `soNguoi = null` = bỏ gõ đè, quay về số tự tính. */
   async function luuQuanSo(deptId: number, ngay: string, soNguoi: number | null, lyDo: string) {
@@ -409,6 +508,48 @@ export function GanttBoard({
         </p>
       )}
 
+      {/* DẢI ĐỖ "CHƯA CÓ GIỜ" — đặt NGOÀI vùng cuộn ngang, cố ý. Để chip trong track thì kéo lịch
+          sang tháng sau là đám việc chưa xếp trôi khỏi màn, đúng lúc cần nó nhất. Gom theo lane
+          nên vẫn đọc được "máy nào đang nợ mấy việc". */}
+      {choGio.length > 0 && (
+        <div className="xlcd-gpark">
+          <div className="xlcd-gpark__head">
+            <Icon name="clock" size={13} />
+            <b>{choGioIds.length}</b> công đoạn chưa có giờ
+            <span className="xlcd-gpark__hint">kéo thẳng vào lane, hoặc chọn rồi bấm “Tự xếp”</span>
+            {canUpdate && (
+              <button type="button" className="xlcd-gpark__all" onClick={() => onTogglePickBand(choGioIds)}>
+                {choGioIds.every((id) => picked.has(id)) ? "Bỏ chọn" : "Chọn tất cả"}
+              </button>
+            )}
+          </div>
+          <div className="xlcd-gpark__strip">
+            {choGio.map((g) => (
+              <div key={g.band.key} className="xlcd-gpark__grp">
+                <span className="xlcd-gpark__grpname" title={g.band.label}>
+                  <Icon name={g.band.icon} size={11} /> {g.band.label}
+                </span>
+                {g.rows.map((r) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    className={`xlcd-gchip${picked.has(r.id) ? " is-picked" : ""}`
+                      + `${r.is_rush ? " is-rush" : ""}${openRowId === r.id ? " is-open" : ""}`}
+                    title={`${r.lsx_ma ?? ""} · ${r.cong_doan_ten ?? ""}\nChưa có giờ — kéo vào lane hoặc bấm để mở`}
+                    onPointerDown={canUpdate && !r.is_locked ? (e) => onBarDown(r, e) : undefined}
+                    onClick={() => openRowGuarded(r.id)}
+                  >
+                    <span className="xlcd-gchip__ma">{r.lsx_ma ?? "—"}</span>
+                    <span className="xlcd-gchip__cd">{r.cong_doan_ten ?? "—"}</span>
+                    {r.is_rush && <span className="xlcd-gbadge xlcd-gbadge--flag">GẤP</span>}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="xlcd-gantt__scroll">
         <div className="xlcd-gantt__inner" style={{ width: totalW }}>
           <div className="xlcd-gantt__head">
@@ -454,10 +595,17 @@ export function GanttBoard({
               availMin={availMin}
               isMachine={groupBy === "may" && !b.noMay}
               maint={khoaByMay.get(b.rows[0]?.may_id ?? -1) ?? []}
+              mocs={mocByMay.get(b.rows[0]?.may_id ?? -1) ?? []}
               tai={taiByTo.get(b.rows[0]?.department_id ?? -1) ?? []}
               canUpdate={canUpdate}
               ghost={ghost?.key === b.key ? ghost : null}
               dragId={dragRef.current?.dongId ?? null}
+              openRowId={openRowId}
+              picked={picked}
+              vanDeTheoDong={vanDeTheoDong}
+              flash={flashKey === b.key}
+              onTogglePickBand={onTogglePickBand}
+              onOpenVanDe={onOpenVanDe}
               registerTrack={registerTrack}
               onOpenRow={openRowGuarded}
               onBarDown={onBarDown}
@@ -503,7 +651,10 @@ export function GanttBoard({
       {impact && (
         <PreviewImpactDialog
           impact={impact}
+          busy={impactBusy}
           onCancel={() => setImpact(null)}
+          onTimKhe={timKhe}
+          onChenTai={chenTai}
           onConfirm={async () => {
             const im = impact;
             setImpact(null);
@@ -516,7 +667,8 @@ export function GanttBoard({
 }
 
 function GanttLane({
-  band, scale, trackW, offRects, nowX, availMin, isMachine, maint, tai, canUpdate, ghost, dragId,
+  band, scale, trackW, offRects, nowX, availMin, isMachine, maint, mocs, tai, canUpdate, ghost,
+  dragId, openRowId, picked, vanDeTheoDong, flash, onTogglePickBand, onOpenVanDe,
   registerTrack, onOpenRow, onBarDown, onBarKey, onOpenKhoaForm, onOpenKhoaDel, onOpenQuanSo,
 }: {
   band: Band;
@@ -527,9 +679,17 @@ function GanttLane({
   availMin: number;
   isMachine: boolean;
   maint: XepLichVungKhoaItem[];
+  /** Kỳ bảo trì DỰ KIẾN của máy lane này — chỉ là cột mốc nhắc, không chặn xếp việc. */
+  mocs: { ngay: string; goi_ten: string | null }[];
   canUpdate: boolean;
   ghost: Ghost | null;
   dragId: number | null;
+  openRowId: number | null;
+  picked: Set<number>;
+  vanDeTheoDong: Map<number, XepLichVanDe[]>;
+  flash: boolean;
+  onTogglePickBand: (ids: number[]) => void;
+  onOpenVanDe: (issueKey: string) => void;
   registerTrack: (key: string, el: HTMLDivElement | null) => void;
   onOpenRow: (id: number) => void;
   onBarDown: (r: XepLichRow, e: React.PointerEvent) => void;
@@ -542,7 +702,10 @@ function GanttLane({
 }) {
   const mayId = band.rows[0]?.may_id ?? null;
   const scheduled = band.rows.filter((r) => r.start_at && r.finish_at);
-  const choGio = band.rows.filter((r) => !r.start_at && (r.may_id != null || r.department_id != null)).length;
+  const choGio = band.rows.filter((r) => !r.start_at).length;
+  const laneIds = band.rows.map((r) => r.id);
+  const tickAll = laneIds.length > 0 && laneIds.every((id) => picked.has(id));
+  const tickSome = !tickAll && laneIds.some((id) => picked.has(id));
 
   const packed = useMemo(() => packRows(scheduled.map((r) => ({
     r, x0: scale.xOf(wallMinutes(r.start_at as string)), x1: scale.xOf(wallMinutes(r.finish_at as string)),
@@ -560,9 +723,23 @@ function GanttLane({
   }, [scheduled, availMin, isMachine, scale]);
 
   return (
-    <div className={`xlcd-glane ${band.noMay ? "xlcd-glane--nomay" : ""}`} style={{ height: laneH }}>
+    <div className={`xlcd-glane ${band.noMay ? "xlcd-glane--nomay" : ""}${flash ? " is-flash" : ""}`}
+      style={{ height: laneH }}>
       <div className="xlcd-glane__label" style={{ width: LABEL_W }}>
         <div className="xlcd-glane__name">
+          {/* Tick CẢ LANE — đường vào `BulkBar` (Tự xếp · Gán máy · Gán tổ · Khoá) sau khi bỏ ô
+              tick từng dòng của view Bảng. Nhận cả dòng chưa có giờ: đó đúng là đám cần Tự xếp. */}
+          {canUpdate && laneIds.length > 0 && (
+            <input
+              type="checkbox"
+              className="xlcd-glane__tick"
+              checked={tickAll}
+              ref={(el) => { if (el) el.indeterminate = tickSome; }}
+              onChange={() => onTogglePickBand(laneIds)}
+              aria-label={`Chọn cả ${band.label}`}
+              title="Chọn cả lane để xếp / gán hàng loạt"
+            />
+          )}
           <span className="xlcd-glane__status-dot" title="Máy hoạt động bình thường" />
           <Icon name={band.icon} size={13} />
           <span title={band.label}>{band.label}</span>
@@ -625,6 +802,16 @@ function GanttLane({
               onClick={canUpdate ? (e) => onOpenKhoaDel(k, e.currentTarget.getBoundingClientRect()) : undefined} />
           );
         })}
+        {/* Mốc TỚI HẠN BẢO TRÌ (mục 2i) — vạch nhắc, KHÔNG phải vùng chặn: `lich_bao_tri` chỉ khai
+            hạn chứ không khai thời lượng, tự bịa "chặn 4 tiếng" là dựng ràng buộc không có thật. */}
+        {mocs.map((m, i) => {
+          const x = scale.xOf(wallMinutes(`${m.ngay}T08:00`));
+          if (!Number.isFinite(x)) return null;
+          return (
+            <span key={`bt${i}`} className="xlcd-gmoc" style={{ left: x }}
+              title={`Tới hạn bảo trì ${m.goi_ten ?? ""} · ${ngay(m.ngay)}`.replace(/\s+·/, " ·")} />
+          );
+        })}
         {nowX != null && <div className="xlcd-gnow" style={{ left: nowX }} />}
         {ghost && (
           <div className={`xlcd-gghost ${!ghost.valid ? "is-invalid" : ghost.collide ? "is-collide" : ""}`}
@@ -634,7 +821,8 @@ function GanttLane({
         )}
         {packed.map(({ r, row }) => (
           <GanttBar key={r.id} r={r} scale={scale} top={LANE_PAD + row * (BAR_H + BAR_GAP)}
-            dragging={dragId === r.id} canUpdate={canUpdate}
+            dragging={dragId === r.id} canUpdate={canUpdate} active={openRowId === r.id}
+            vanDe={vanDeTheoDong.get(r.id) ?? []} onOpenVanDe={onOpenVanDe}
             onOpen={onOpenRow} onDown={onBarDown} onKey={onBarKey} />
         ))}
       </div>
@@ -643,13 +831,17 @@ function GanttLane({
 }
 
 function GanttBar({
-  r, scale, top, dragging, canUpdate, onOpen, onDown, onKey,
+  r, scale, top, dragging, canUpdate, active, vanDe, onOpenVanDe, onOpen, onDown, onKey,
 }: {
   r: XepLichRow;
   scale: TimeScale;
   top: number;
   dragging: boolean;
   canUpdate: boolean;
+  /** Đang mở ở panel phải. */
+  active: boolean;
+  vanDe: XepLichVanDe[];
+  onOpenVanDe: (issueKey: string) => void;
   onOpen: (id: number) => void;
   onDown: (r: XepLichRow, e: React.PointerEvent) => void;
   onKey: (r: XepLichRow, e: React.KeyboardEvent) => void;
@@ -694,8 +886,24 @@ function GanttBar({
     setHoverPos(null);
   };
 
+  const vdChan = vanDe.some((v) => v.severity === "chan");
+
   return (
     <>
+      {/* Chip VẤN ĐỀ neo đầu thanh — mở thẳng hộp xử lý (tiếp nhận · giao việc · duyệt ngoại lệ).
+          Nằm NGOÀI nút thanh: nút lồng trong nút là markup hỏng, mà chip lại phải bấm riêng. */}
+      {vanDe.length > 0 && (
+        <button
+          type="button"
+          className={`xlcd-gissue${vdChan ? " is-chan" : ""}`}
+          style={{ left: Math.max(0, pieces[0].x - 6), top: top - 6 }}
+          title={vanDe.map((v) => v.title).join("\n")}
+          aria-label={`${vanDe.length} vấn đề — mở để xử lý`}
+          onClick={(e) => { e.stopPropagation(); onOpenVanDe(vanDe[0].issue_key); }}
+        >
+          {vanDe.length}
+        </button>
+      )}
       {dry && (
         <span className="xlcd-gdry" style={{ left: dry.x, width: dry.w, top: top + BAR_H / 2 - 1 }} aria-hidden="true" />
       )}
@@ -711,7 +919,7 @@ function GanttBar({
         <button
           key={i}
           type="button"
-          className={`${barClass(r, dragging)} ${draggable ? "is-draggable" : ""}`}
+          className={`${barClass(r, dragging)} ${draggable ? "is-draggable" : ""}${active ? " is-active" : ""}`}
           style={{ left: p.x, width: p.w, top, height: BAR_H }}
           aria-label={tip.replace(/\n/g, " · ")}
           onPointerDown={i === 0 && draggable ? (e) => onDown(r, e) : undefined}
@@ -792,10 +1000,13 @@ function GanttBar({
 }
 
 function PreviewImpactDialog({
-  impact, onCancel, onConfirm,
+  impact, busy, onCancel, onTimKhe, onChenTai, onConfirm,
 }: {
   impact: Impact;
+  busy: boolean;
   onCancel: () => void;
+  onTimKhe: () => void;
+  onChenTai: () => void;
   onConfirm: () => void;
 }) {
   const { row, pv } = impact;
@@ -814,6 +1025,14 @@ function PreviewImpactDialog({
         </header>
 
         <div className="xlcd-gimpact__body">
+          {/* CẢNH BÁO TẠI CHỖ (đợt 2) — đè khoảng khoá máy · ngoài giờ làm · tổ thiếu người · khổ
+              vượt máy. Chủ chốt chốt: báo đỏ ngay, KHÔNG chặn. Nút "Vẫn xếp" luôn bấm được. */}
+          {pv.canh_bao.length > 0 && (
+            <section className="xlcd-gimpact__sec xlcd-gimpact__sec--warn">
+              <p className="xlcd-gimpact__t"><Icon name="alert" size={13} /> Xếp được, nhưng nên biết</p>
+              <ul>{pv.canh_bao.map((c, i) => <li key={`${c.loai}-${i}`}>{c.chu}</li>)}</ul>
+            </section>
+          )}
           {pv.can_xac_nhan && (
             <section className="xlcd-gimpact__sec xlcd-gimpact__sec--warn">
               <p className="xlcd-gimpact__t"><Icon name="ban" size={13} /> Máy có thể không kham nổi</p>
@@ -846,8 +1065,18 @@ function PreviewImpactDialog({
           )}
         </div>
 
+        {/* Trước đây chỉ có Huỷ / Vẫn xếp: gặp chỗ kín thì đóng hộp rồi tự đi dò khe trống bằng
+            mắt. Hai nút giữa trả lời hộ đúng hai câu tiếp theo — "vậy xếp vào đâu" và "cứ chèn
+            vào đây, các việc sau lùi ra". Cả hai vẫn chỉ TÍNH, chưa ghi. */}
         <footer className="xlcd-gimpact__foot">
           <Button variant="secondary" onClick={onCancel}>Huỷ</Button>
+          <div className="khsx__spacer" />
+          <Button variant="ghost" disabled={busy} onClick={onTimKhe}>
+            {busy ? "Đang tìm…" : "Tìm khe trống"}
+          </Button>
+          {impact.body.start_at && (
+            <Button variant="ghost" onClick={onChenTai}>Chèn — lùi các việc sau</Button>
+          )}
           <Button variant="primary" onClick={onConfirm}>Vẫn xếp</Button>
         </footer>
       </div>

@@ -122,6 +122,11 @@ class DayDoiItem(BaseModel):
     som_nhat: datetime | None = None    # sớm-nhất MỚI sau khi bước trước bị đẩy
 
 
+class CanhBaoItem(BaseModel):
+    loai: str
+    chu: str
+
+
 class XemTruocOut(BaseModel):
     """Ảnh hưởng khi thả 1 dòng — hộp thoại xác nhận chỉ bật khi có `day_doi`/`xung_dot_ids`/`can_xac_nhan`."""
     finish_at: datetime | None = None
@@ -138,6 +143,9 @@ class XemTruocOut(BaseModel):
     nhan_rui_ro: str | None = None
     can_xac_nhan: bool = False
     ly_do_xac_nhan: list[str] = Field(default_factory=list)
+    # Cảnh báo tại chỗ thả (mục 2f): khóa máy · ngoài giờ làm · tổ thiếu người · khổ vượt máy.
+    # `loai` là hằng `CB_*` của `xep_lich_service`; `chu` đã là câu đủ nghĩa, FE chỉ việc vẽ.
+    canh_bao: list[CanhBaoItem] = Field(default_factory=list)
 
 
 # ============================ Quân số tổ & tầng tuần (ĐỢT 3) ============================
@@ -362,8 +370,8 @@ class VanDeException(BaseModel):
 
 class VanDeItem(BaseModel):
     issue_key: str
-    category: str                        # de_khoa_may | sai_tien_nhiem | thieu_du_lieu | nguy_co_tre | may_khong_kham | qua_tai_may | han_bai_ghep | thue_ngoai
-    severity: str                        # chan | nghiem_trong | cao | canh_bao
+    category: str                        # may | nguoi | vat_tu | han | du_lieu | thue_ngoai
+    severity: str                        # chan | luu_y
     title: str
     nguyen_nhan: str | None = None
     impacts: VanDeImpact
@@ -379,10 +387,8 @@ class VanDeItem(BaseModel):
 
 
 class VanDeSummary(BaseModel):
-    chan: int = 0
-    nghiem_trong: int = 0
-    cao: int = 0
-    canh_bao: int = 0
+    chan: int = 0                        # chưa phát hành được
+    luu_y: int = 0                       # cứ làm, nhưng nên biết
     ngoai_le: int = 0
     tong: int = 0
 

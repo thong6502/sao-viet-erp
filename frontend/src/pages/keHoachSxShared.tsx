@@ -8,6 +8,7 @@ import {
   LSX_THIEU_LABELS,
   nhanMa,
   type DonViNhan,
+  type LsxDen,
   type LsxLoaiBuoc,
   type LsxTrangThai,
   type XepLichSeverity,
@@ -53,10 +54,30 @@ export function classHan(dateStr: string | null | undefined): string {
   return "";
 }
 
+/** Class cảnh báo hạn ưu tiên LỊCH THẬT, lùi về đếm ngày lịch khi lệnh chưa vào kế hoạch.
+ *
+ *  `classHan` chỉ so hôm nay với ngày hạn. Câu đó bỏ sót đúng trường hợp đáng lo nhất: lệnh còn
+ *  10 ngày tới hạn nhưng lịch đã kéo qua hạn 2 ngày thì nó ĐANG trễ, mà ô vẫn xanh. `slack_ngay`
+ *  (độ dư nhỏ nhất giữa các bước đã xếp, âm = trễ — xem `services/lsx_tong_quan.py::_slack`) trả
+ *  lời thẳng câu đó. Không thêm ô nào, chỉ đổi NGUỒN tô màu của cột sẵn có. */
+export function classHanLich(
+  slack: number | null | undefined,
+  dateStr: string | null | undefined,
+): string {
+  if (slack == null) return classHan(dateStr);
+  if (slack < 0) return "khsx-date--late";
+  if (slack <= 1) return "khsx-date--soon";
+  return "";
+}
+
 // --- trạng thái lệnh --------------------------------------------------------
 const PILL: Record<LsxTrangThai, { label: string; cls: string }> = {
   nhap: { label: "Nháp", cls: "khsx-pill--nhap" },
-  cho_bo_sung: { label: "Chờ bổ sung", cls: "khsx-pill--thieu" },
+  // `cho_bo_sung` KHÔNG còn mặt riêng (18/08/2026): server vẫn lật cờ này khi lưu một lệnh còn
+  // dở, nhưng cột phải màn chi tiết đã kêu "Còn thiếu N mục" — hai chỗ báo cùng một việc gây rối,
+  // và pill đứng yên ở Nháp cho tới lần lưu kế nên nó nói sai nhiều hơn nói đúng. Giữ KHOÁ để
+  // lệnh cũ trong DB vẫn render được, chỉ cho đội lốt Nháp.
+  cho_bo_sung: { label: "Nháp", cls: "khsx-pill--nhap" },
   san_sang: { label: "Sẵn sàng", cls: "khsx-pill--sansang" },
   da_lap_ke_hoach: { label: "Đã lập kế hoạch", cls: "khsx-pill--dakethoach" },
   da_phat_hanh: { label: "Đã phát hành", cls: "khsx-pill--phathanh" },
@@ -72,10 +93,11 @@ export function TrangThaiPill({ tt, lg = false }: { tt: LsxTrangThai; lg?: boole
   );
 }
 
-export const TRANG_THAI_TABS: { key: string; label: string; tone?: "default" | "alert" }[] = [
+// `key` có thể là NHIỀU trạng thái ngăn bằng dấu phẩy — repo backend nhận danh sách (`IN`), FE đếm
+// bằng cách tách chuỗi. Tab "Nháp" ôm luôn `cho_bo_sung` vì hai cái nay là một mặt.
+export const TRANG_THAI_TABS: { key: string; label: string }[] = [
   { key: "all", label: "Tất cả" },
-  { key: "nhap", label: "Nháp" },
-  { key: "cho_bo_sung", label: "Chờ bổ sung", tone: "alert" },
+  { key: "nhap,cho_bo_sung", label: "Nháp" },
   { key: "san_sang", label: "Sẵn sàng" },
 ];
 
@@ -251,6 +273,87 @@ export function ChipNgoai({ ncc }: { ncc?: string | null }) {
   return (
     <span className="khsx-chip khsx-chip--ngoai" title={ncc ? `Thuê ngoài: ${ncc}` : "Thuê ngoài"}>
       <Icon name="truck" size={11} /> {ncc || "thuê ngoài"}
+    </span>
+  );
+}
+
+// --- Hàng đèn tiến độ (Đợt 1 redesign 18/08/2026) ---------------------------
+// Ba thứ bảng lệnh CHƯA nói: vật tư đã có chủ chưa · lịch đã đứng được chưa · có ai làm không.
+// Hạn và Định mức KHÔNG có đèn ở đây — cột `Hạn` đã tô bằng `classHan` và cột `CĐ` đã đỏ khi lệnh
+// chưa có công đoạn; đèn thứ tư chỉ nói lại chuyện cột bên cạnh vừa nói.
+
+const DEN_META: Record<keyof LsxDen, { label: string; icon: IconName }> = {
+  vat_tu: { label: "Vật tư", icon: "box" },
+  may_gio: { label: "Máy & giờ", icon: "printer" },
+  nguoi: { label: "Người", icon: "users" },
+};
+const DEN_KEYS = ["vat_tu", "may_gio", "nguoi"] as const;
+
+/** Chỉ vẽ chấm cho `do`/`vang`; `ok` để trống ô.
+ *
+ *  20 lệnh × 3 chấm mà đa số xanh thì mắt không bắt được cái đỏ — điều độ quét bảng để TÌM chỗ
+ *  tắc, không cần được xác nhận chỗ không tắc. `den == null` = chưa tải xong (đèn gọi rời sau
+ *  bảng): giữ ô trống, đừng nhấp nháy skeleton trên từng dòng.
+ */
+export function DenTienDo({
+  den,
+  lg = false,
+  onNhay,
+}: {
+  den: LsxDen | null | undefined;
+  lg?: boolean;
+  onNhay?: (nhay: { man: string; id: number }) => void;
+}) {
+  if (!den) return <span className="khsx-den khsx-den--cho" aria-hidden="true" />;
+  const hien = DEN_KEYS.filter((k) => den[k].muc !== "ok");
+  if (!hien.length) {
+    return (
+      <span className="khsx-den__ok" title="Không vướng gì">
+        {lg ? (
+          <>
+            <Icon name="check" size={12} /> Không vướng gì
+          </>
+        ) : (
+          "—"
+        )}
+      </span>
+    );
+  }
+  return (
+    <span className={`khsx-den ${lg ? "khsx-den--lg" : ""}`}>
+      {hien.map((k) => {
+        const d = den[k];
+        const meta = DEN_META[k];
+        const day = `${meta.label}: ${d.chu}`;
+        const noi = (
+          <>
+            <Icon name={meta.icon} size={12} />
+            <span className="khsx-den__txt">{lg ? d.chu : meta.label}</span>
+            {!lg && <span className="sr-only">: {d.chu}</span>}
+          </>
+        );
+        const cls = `khsx-den__chip khsx-den__chip--${d.muc}`;
+        return d.nhay && onNhay ? (
+          <button
+            key={k}
+            type="button"
+            className={`${cls} khsx-den__chip--bam`}
+            title={day}
+            // Chấm nằm TRONG dòng bấm-được của bảng lệnh: không chặn nổi bọt thì bấm chấm vừa nhảy
+            // màn vừa mở chi tiết lệnh, người dùng thấy hai việc xảy ra cho một cú bấm.
+            onClick={(e) => {
+              e.stopPropagation();
+              onNhay(d.nhay!);
+            }}
+          >
+            {noi}
+          </button>
+        ) : (
+          <span key={k} className={cls} title={day}>
+            {noi}
+          </span>
+        );
+      })}
     </span>
   );
 }

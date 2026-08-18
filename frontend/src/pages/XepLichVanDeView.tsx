@@ -37,9 +37,9 @@ import {
 // Máy chỉ ghi nhận → phương án = ĐIỀU HƯỚNG. XepLichPage nhận union này và tự đổi view/nhảy màn.
 export type PhuongAnNav =
   | { kind: "gantt-may" }
-  | { kind: "bang-lenh"; flash?: { nguon: XepLichNguon; id: number } }
-  | { kind: "bang-bai-ghep"; flash?: { nguon: XepLichNguon; id: number } }
-  | { kind: "bang-ma"; ma: string }
+  | { kind: "gantt-lenh"; flash?: { nguon: XepLichNguon; id: number } }
+  | { kind: "gantt-bai-ghep"; flash?: { nguon: XepLichNguon; id: number } }
+  | { kind: "gantt-ma"; ma: string }
   | { kind: "man-ke-hoach" };
 
 const SEV_RANK: Record<XepLichSeverity, number> = { chan: 0, nghiem_trong: 1, cao: 2, canh_bao: 3 };
@@ -58,29 +58,29 @@ function phuongAnCho(it: XepLichVanDe): ActMsg[] {
   switch (it.category) {
     case "trung_may":
     case "de_khoa_may":
-      out.push({ icon: "calendar", label: "Mở Gantt máy để tìm khe trống", nav: { kind: "gantt-may" } });
-      if (lsx != null) out.push({ icon: "clipboard", label: "Xem lệnh liên quan trong bảng", nav: { kind: "bang-lenh", flash: { nguon: "lsx", id: lsx } } });
+      out.push({ icon: "calendar", label: "Gom theo máy để tìm khe trống", nav: { kind: "gantt-may" } });
+      if (lsx != null) out.push({ icon: "clipboard", label: "Mở lệnh trên Gantt", nav: { kind: "gantt-lenh", flash: { nguon: "lsx", id: lsx } } });
       break;
     case "sai_tien_nhiem":
-      out.push({ icon: "workflow", label: "Mở Bảng theo lệnh để sửa thứ tự công đoạn", nav: lsx != null ? { kind: "bang-lenh", flash: { nguon: "lsx", id: lsx } } : { kind: "bang-lenh" } });
+      out.push({ icon: "workflow", label: "Mở lệnh trên Gantt để sửa thứ tự công đoạn", nav: lsx != null ? { kind: "gantt-lenh", flash: { nguon: "lsx", id: lsx } } : { kind: "gantt-lenh" } });
       break;
     case "thieu_du_lieu":
       out.push({ icon: "pencil", label: "Mở lệnh để khai năng suất / gán máy", nav: { kind: "man-ke-hoach" } });
       break;
     case "nguy_co_tre":
-      out.push({ icon: "clock", label: "Mở Gantt máy để tìm khe sớm hơn", nav: { kind: "gantt-may" } });
+      out.push({ icon: "clock", label: "Gom theo máy để tìm khe sớm hơn", nav: { kind: "gantt-may" } });
       break;
     case "may_khong_kham":
-      out.push({ icon: "printer", label: "Đổi sang máy phù hợp trong bảng", nav: lsx != null ? { kind: "bang-lenh", flash: { nguon: "lsx", id: lsx } } : { kind: "bang-lenh" } });
+      out.push({ icon: "printer", label: "Mở lệnh trên Gantt để đổi máy", nav: lsx != null ? { kind: "gantt-lenh", flash: { nguon: "lsx", id: lsx } } : { kind: "gantt-lenh" } });
       break;
     case "qua_tai_may":
-      out.push({ icon: "calendar", label: "Mở Gantt máy để giãn tải sang khe khác", nav: { kind: "gantt-may" } });
+      out.push({ icon: "calendar", label: "Gom theo máy để giãn tải sang khe khác", nav: { kind: "gantt-may" } });
       break;
     case "han_bai_ghep":
-      out.push({ icon: "layers", label: "Mở bài ghép để xem thành viên & hạn", nav: bg != null ? { kind: "bang-bai-ghep", flash: { nguon: "in_ghep", id: bg } } : { kind: "bang-bai-ghep" } });
+      out.push({ icon: "layers", label: "Mở bài ghép để xem thành viên & hạn", nav: bg != null ? { kind: "gantt-bai-ghep", flash: { nguon: "in_ghep", id: bg } } : { kind: "gantt-bai-ghep" } });
       break;
     case "thue_ngoai":
-      out.push({ icon: "truck", label: "Mở lệnh để cập nhật gia công ngoài", nav: lsx != null ? { kind: "bang-lenh", flash: { nguon: "lsx", id: lsx } } : { kind: "bang-lenh" } });
+      out.push({ icon: "truck", label: "Mở lệnh để cập nhật gia công ngoài", nav: lsx != null ? { kind: "gantt-lenh", flash: { nguon: "lsx", id: lsx } } : { kind: "gantt-lenh" } });
       break;
   }
   return out;
@@ -122,9 +122,6 @@ export function VanDeView({
   const [excFilter, setExcFilter] = useState(false);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  const [askReleaseAll, setAskReleaseAll] = useState(false);
-  const [releaseBusy, setReleaseBusy] = useState(false);
-
   const items = useMemo(() => data?.items ?? [], [data]);
   const summary = data?.summary ?? null;
 
@@ -187,72 +184,6 @@ export function VanDeView({
   useEffect(() => {
     if (openKey && !items.some((it) => it.issue_key === openKey)) setOpenKey(null);
   }, [items, openKey]);
-
-  // ---- panel phát hành ----
-  const releaseItems = useMemo(() => {
-    const list = [...(sanSang?.items ?? [])];
-    list.sort((a, b) => a.blocking - b.blocking || a.ma.localeCompare(b.ma, "vi"));
-    return list;
-  }, [sanSang]);
-  const readyItems = releaseItems.filter((r) => r.blocking === 0 && !r.da_phat_hanh);
-
-  const doRelease = async (item: XepLichSanSangItem) => {
-    if (!token) return;
-    try {
-      if (item.nguon === "lsx") await api.xepLich.phatHanhLsx(token, item.id);
-      else await api.xepLich.phatHanhBaiGhep(token, item.id);
-      onToast(`Đã phát hành ${item.ma}`);
-      onRefetch();
-    } catch (e: unknown) {
-      onToast(e instanceof ApiError ? e.message : String(e));
-    }
-  };
-
-  const doReleaseAll = async () => {
-    if (!token || !readyItems.length) return;
-    setReleaseBusy(true);
-    try {
-      for (const it of readyItems) {
-        if (it.nguon === "lsx") await api.xepLich.phatHanhLsx(token, it.id);
-        else await api.xepLich.phatHanhBaiGhep(token, it.id);
-      }
-      onToast(`Đã phát hành ${readyItems.length} kế hoạch`);
-      onRefetch();
-    } catch (e: unknown) {
-      onToast(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setReleaseBusy(false);
-      setAskReleaseAll(false);
-    }
-  };
-
-  // BẮT GÕ LÝ DO (G2): gỡ phát hành là đảo một quyết định đã thả xuống xưởng, mà hệ chưa có lớp
-  // thực thi nên không biết thợ đã chạy tới đâu. Thứ duy nhất còn lại là VẾT.
-  // Dùng ConfirmDialog như mọi cửa duyệt khác trên màn này, không `window.prompt`: hộp trình duyệt
-  // không style được, không đọc được bằng trình đọc màn hình, và không chặn được lý do quá ngắn
-  // trước khi gọi API — server đòi tối thiểu 3 ký tự, để người dùng ăn lỗi rồi mới hiểu là dở.
-  const [goItem, setGoItem] = useState<XepLichSanSangItem | null>(null);
-  const [goLyDo, setGoLyDo] = useState("");
-  const [goBusy, setGoBusy] = useState(false);
-
-  const doUnrelease = async () => {
-    const item = goItem;
-    const lyDo = goLyDo.trim();
-    if (!token || !item || lyDo.length < 3) return;
-    setGoBusy(true);
-    try {
-      if (item.nguon === "lsx") await api.xepLich.goPhatHanhLsx(token, item.id, lyDo);
-      else await api.xepLich.goPhatHanhBaiGhep(token, item.id, lyDo);
-      onToast(`Đã gỡ phát hành ${item.ma} — kế hoạch quay lại trạng thái sửa được`);
-      setGoItem(null);
-      setGoLyDo("");
-      onRefetch();
-    } catch (e: unknown) {
-      onToast(e instanceof ApiError ? e.message : String(e));
-    } finally {
-      setGoBusy(false);
-    }
-  };
 
   const showIssuesFor = (ma: string) => {
     setSevFilter(null);
@@ -332,22 +263,15 @@ export function VanDeView({
         </>
       )}
 
-      <ReleasePanel
-        items={releaseItems}
+      <PhatHanhKhoi
+        sanSang={sanSang}
+        chan={chan}
+        token={token}
         canApprove={canApprove}
-        onRelease={doRelease}
-        onUnrelease={(it) => { setGoItem(it); setGoLyDo(""); }}
+        onRefetch={onRefetch}
+        onToast={onToast}
         onShowIssues={showIssuesFor}
       />
-
-      {(chan > 0 || readyItems.length > 0) && (
-        <ReleaseDock
-          chan={chan}
-          readyCount={readyItems.length}
-          canApprove={canApprove}
-          onReleaseAll={() => setAskReleaseAll(true)}
-        />
-      )}
 
       {openIssue && (
         <DrawerVanDe
@@ -366,6 +290,114 @@ export function VanDeView({
           onToast={onToast}
           onPhuongAn={onPhuongAn}
           onShowGroup={() => { setSevFilter(null); setExcFilter(false); onSetSearch(""); setOpenKey(null); }}
+        />
+      )}
+
+    </div>
+  );
+}
+
+// ============================ khối PHÁT HÀNH (dùng chung) ====================
+// Một chỗ giữ TOÀN BỘ luật phát hành: danh sách sẵn sàng · nút phát hành từng cái · phát hành tất
+// cả · gỡ phát hành (bắt gõ lý do). Hai nơi gọi — panel trong view Vấn đề và hộp thoại mở từ dải
+// chân màn Gantt. Chép làm hai bản là có ngày một bên quên chặn, mà đây đúng là cửa chặn duy nhất.
+function PhatHanhKhoi({
+  sanSang, chan, token, canApprove, onRefetch, onToast, onShowIssues, dockInline,
+}: {
+  sanSang: XepLichSanSangOut | null;
+  chan: number;
+  token: string | null;
+  canApprove: boolean;
+  onRefetch: () => void;
+  onToast: (text: string) => void;
+  onShowIssues: (ma: string) => void;
+  /** Trong hộp thoại thì dock nằm ngay dưới danh sách, không dán đáy màn hình. */
+  dockInline?: boolean;
+}) {
+  const [askReleaseAll, setAskReleaseAll] = useState(false);
+  const [releaseBusy, setReleaseBusy] = useState(false);
+  const [goItem, setGoItem] = useState<XepLichSanSangItem | null>(null);
+  const [goLyDo, setGoLyDo] = useState("");
+  const [goBusy, setGoBusy] = useState(false);
+
+  const releaseItems = useMemo(() => {
+    const list = [...(sanSang?.items ?? [])];
+    list.sort((a, b) => a.blocking - b.blocking || a.ma.localeCompare(b.ma, "vi"));
+    return list;
+  }, [sanSang]);
+  const readyItems = releaseItems.filter((r) => r.blocking === 0 && !r.da_phat_hanh);
+
+  const doRelease = async (item: XepLichSanSangItem) => {
+    if (!token) return;
+    try {
+      if (item.nguon === "lsx") await api.xepLich.phatHanhLsx(token, item.id);
+      else await api.xepLich.phatHanhBaiGhep(token, item.id);
+      onToast(`Đã phát hành ${item.ma}`);
+      onRefetch();
+    } catch (e: unknown) {
+      onToast(e instanceof ApiError ? e.message : String(e));
+    }
+  };
+
+  const doReleaseAll = async () => {
+    if (!token || !readyItems.length) return;
+    setReleaseBusy(true);
+    try {
+      for (const it of readyItems) {
+        if (it.nguon === "lsx") await api.xepLich.phatHanhLsx(token, it.id);
+        else await api.xepLich.phatHanhBaiGhep(token, it.id);
+      }
+      onToast(`Đã phát hành ${readyItems.length} kế hoạch`);
+      onRefetch();
+    } catch (e: unknown) {
+      onToast(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setReleaseBusy(false);
+      setAskReleaseAll(false);
+    }
+  };
+
+  // BẮT GÕ LÝ DO (G2): gỡ phát hành là đảo một quyết định đã thả xuống xưởng, mà hệ chưa có lớp
+  // thực thi nên không biết thợ đã chạy tới đâu. Thứ duy nhất còn lại là VẾT.
+  // Dùng ConfirmDialog như mọi cửa duyệt khác trên màn này, không `window.prompt`: hộp trình duyệt
+  // không style được, không đọc được bằng trình đọc màn hình, và không chặn được lý do quá ngắn
+  // trước khi gọi API — server đòi tối thiểu 3 ký tự, để người dùng ăn lỗi rồi mới hiểu là dở.
+  const doUnrelease = async () => {
+    const item = goItem;
+    const lyDo = goLyDo.trim();
+    if (!token || !item || lyDo.length < 3) return;
+    setGoBusy(true);
+    try {
+      if (item.nguon === "lsx") await api.xepLich.goPhatHanhLsx(token, item.id, lyDo);
+      else await api.xepLich.goPhatHanhBaiGhep(token, item.id, lyDo);
+      onToast(`Đã gỡ phát hành ${item.ma} — kế hoạch quay lại trạng thái sửa được`);
+      setGoItem(null);
+      setGoLyDo("");
+      onRefetch();
+    } catch (e: unknown) {
+      onToast(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setGoBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <ReleasePanel
+        items={releaseItems}
+        canApprove={canApprove}
+        onRelease={doRelease}
+        onUnrelease={(it) => { setGoItem(it); setGoLyDo(""); }}
+        onShowIssues={onShowIssues}
+      />
+
+      {(chan > 0 || readyItems.length > 0) && (
+        <ReleaseDock
+          chan={chan}
+          readyCount={readyItems.length}
+          canApprove={canApprove}
+          inline={dockInline}
+          onReleaseAll={() => setAskReleaseAll(true)}
         />
       )}
 
@@ -403,6 +435,52 @@ export function VanDeView({
           </label>
         </div>
       </ConfirmDialog>
+    </>
+  );
+}
+
+/** Cửa Phát hành mở từ DẢI CHÂN màn Gantt (mục 2d) — cùng khối, đổi mỗi cái khung. */
+export function PhatHanhDialog({
+  sanSang, chan, token, canApprove, onRefetch, onToast, onShowIssues, onClose,
+}: {
+  sanSang: XepLichSanSangOut | null;
+  chan: number;
+  token: string | null;
+  canApprove: boolean;
+  onRefetch: () => void;
+  onToast: (text: string) => void;
+  onShowIssues: (ma: string) => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="xlcd-scrim" onClick={onClose}>
+      <div className="xlcd-phdlg" role="dialog" aria-modal="true" aria-label="Phát hành kế hoạch"
+        onClick={(e) => e.stopPropagation()}>
+        <header className="xlcd-phdlg__head">
+          <h2><Icon name="send" size={16} /> Phát hành kế hoạch</h2>
+          <button type="button" className="khsx-drawer__x" onClick={onClose} aria-label="Đóng">
+            <Icon name="x" size={18} />
+          </button>
+        </header>
+        <div className="xlcd-phdlg__body">
+          <PhatHanhKhoi
+            sanSang={sanSang}
+            chan={chan}
+            token={token}
+            canApprove={canApprove}
+            onRefetch={onRefetch}
+            onToast={onToast}
+            onShowIssues={(ma) => { onShowIssues(ma); onClose(); }}
+            dockInline
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -421,7 +499,7 @@ function SevBar({
   const chan = summary.chan;
   const tong = summary.tong;
   return (
-    <div className="xlcd-sevbar" role="group" aria-label="Lọc theo mức nghiêm trọng">
+    <div className="xlcd-sevbar" role="group" aria-label="Lọc theo nhóm vấn đề">
       <div className="xlcd-sevbar__stats">
         {levels.map((s) => {
           const n = summary[s];
@@ -554,7 +632,7 @@ function VanDeRow({
 }
 
 // ============================ drawer chi tiết vấn đề =========================
-function DrawerVanDe({
+export function DrawerVanDe({
   it, groupSize, token, canApproveException, currentUserId, mayTen, hasPrev, hasNext, onPrev, onNext, onClose, onDone, onToast, onPhuongAn, onShowGroup,
 }: {
   it: XepLichVanDe;
@@ -677,7 +755,7 @@ function DrawerVanDe({
                 <span className="khsx-muted">—</span>
               ) : (
                 it.impacts.mas.map((m) => (
-                  <button key={m} type="button" className="khsx-xlink xlcd-vd-ma" onClick={() => nav({ kind: "bang-ma", ma: m })}>
+                  <button key={m} type="button" className="khsx-xlink xlcd-vd-ma" onClick={() => nav({ kind: "gantt-ma", ma: m })}>
                     {m}
                   </button>
                 ))
@@ -876,16 +954,19 @@ function ReleasePanel({
 
 // ============================ dock đáy phát hành =============================
 function ReleaseDock({
-  chan, readyCount, canApprove, onReleaseAll,
+  chan, readyCount, canApprove, inline, onReleaseAll,
 }: {
   chan: number;
   readyCount: number;
   canApprove: boolean;
+  /** Trong hộp thoại: bỏ `position: fixed`, nằm luôn dưới danh sách. */
+  inline?: boolean;
   onReleaseAll: () => void;
 }) {
+  const il = inline ? " xlcd-release-dock--inline" : "";
   if (chan > 0) {
     return (
-      <div className="xlcd-bulk xlcd-release-dock xlcd-release-dock--wait" role="status">
+      <div className={`xlcd-bulk xlcd-release-dock xlcd-release-dock--wait${il}`} role="status">
         <span className="xlcd-release-dock__msg">
           <Icon name="ban" size={15} /> Còn {chan} xung đột chặn — chưa phát hành được
         </span>
@@ -893,7 +974,7 @@ function ReleaseDock({
     );
   }
   return (
-    <div className="xlcd-bulk xlcd-release-dock" role="region" aria-label="Phát hành kế hoạch">
+    <div className={`xlcd-bulk xlcd-release-dock${il}`} role="region" aria-label="Phát hành kế hoạch">
       <span className="xlcd-release-dock__msg">
         <Icon name="check" size={15} /> Kế hoạch sạch xung đột chặn — {readyCount} sẵn sàng
       </span>

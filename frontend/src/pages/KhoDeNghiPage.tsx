@@ -4,7 +4,8 @@
 // KHÔNG thấy lô, KHÔNG chọn kho. Yêu cầu chỉ nói "xin cái gì, bao nhiêu"; kho nào là quyết định
 // ở BƯỚC LẬP PHIẾU (thủ kho). SIẾT 2026-08-08: mặt hàng phải có sẵn trong danh mục Giấy / Vật
 // tư khác — không còn gõ tên tự do rồi kho gắn mã sau.
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ApiError,
   api,
@@ -475,50 +476,196 @@ interface LenhOption {
   ten: string;
 }
 
-function lenhNhan(opts: LenhOption[], lsxId: number | null, bgId: number | null): string {
-  const o = opts.find(
-    (x) => (x.kind === "lsx" && x.id === lsxId) || (x.kind === "bai_ghep" && x.id === bgId),
-  );
-  if (o) return o.ma;
-  // Có id mà không còn trong danh sách (lệnh đã đóng) — vẫn phải hiện, đừng nuốt mất.
-  if (lsxId) return `Lệnh #${lsxId}`;
-  if (bgId) return `Bài #${bgId}`;
+/** Nhãn chỉ-đọc của ô "Cho lệnh". Đọc thẳng `lsx_ma`/`bai_ghep_ma` server GỬI KÈM từng dòng
+ *  (`schemas/stock.py`), không tra trong một danh sách đã tải — danh sách ấy vốn không thể chứa
+ *  hết 100.000 lệnh, và tra hụt thì nhãn tụt xuống "Lệnh #123" dù lệnh vẫn sống. */
+function lenhNhan(l: { lsx_id?: number | null; bai_ghep_id?: number | null;
+                       lsx_ma?: string | null; bai_ghep_ma?: string | null }): string {
+  if (l.lsx_ma) return l.lsx_ma;
+  if (l.bai_ghep_ma) return l.bai_ghep_ma;
+  // Có id mà server chưa kịp gửi mã (dòng vừa chọn tại chỗ) — vẫn phải hiện, đừng nuốt mất.
+  if (l.lsx_id) return `Lệnh #${l.lsx_id}`;
+  if (l.bai_ghep_id) return `Bài #${l.bai_ghep_id}`;
   return "—";
 }
 
+/** Ô CHỌN LỆNH — tìm-gõ hỏi máy chủ, dựng theo đúng khuôn `components/MaterialCombobox`.
+ *
+ *  Trước đây đây là một `<select>` nhồi TOÀN BỘ bảng `lsx`. Ở quy mô thật (100.000 lệnh) thì mở
+ *  drawer là kéo cả bảng về chỉ để đổ vào một thẻ chọn không ai cuộn hết — nên ô này gõ tới đâu
+ *  hỏi tới đó, `size: 20`.
+ *
+ *  Bài ghép vẫn lấy trọn (bảng nhỏ) rồi lọc tại chỗ, nhưng hiện CHUNG một danh sách: người dùng
+ *  chỉ nghĩ "xin cho lệnh nào", không quan tâm nó là lệnh lẻ hay bài ghép. */
 function LenhChon({
-  options,
+  token,
   lsxId,
   baiGhepId,
+  nhan,
   onChange,
 }: {
-  options: LenhOption[];
+  token: string;
   lsxId: number | null;
   baiGhepId: number | null;
-  onChange: (lsxId: number | null, baiGhepId: number | null) => void;
+  /** Nhãn đang chọn (mã lệnh/bài) — hiện sẵn trong ô khi mở dòng đã lưu. */
+  nhan: string;
+  onChange: (lsxId: number | null, baiGhepId: number | null, ma: string | null) => void;
 }) {
-  const value = lsxId ? `lsx:${lsxId}` : baiGhepId ? `bg:${baiGhepId}` : "";
-  return (
-    <select
-      className="rc-input"
-      style={{ minWidth: 156 }}
-      value={value}
-      aria-label="Xin cho lệnh sản xuất nào (bỏ trống nếu xin lặt vặt)"
-      onChange={(e) => {
-        const v = e.target.value;
-        if (!v) onChange(null, null);
-        else if (v.startsWith("lsx:")) onChange(Number(v.slice(4)), null);
-        else onChange(null, Number(v.slice(3)));
-      }}
+  const [text, setText] = useState(nhan);
+  const [opts, setOpts] = useState<LenhOption[]>([]);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => setText(nhan), [nhan]);
+
+  useEffect(() => {
+    if (!open) return;
+    let huy = false;
+    const t = setTimeout(() => {
+      const tim = text.trim();
+      void Promise.all([
+        api.lsx.list(token, { q: tim || undefined, size: 20 }),
+        api.baiGhep2.list(token),
+      ])
+        .then(([ls, bg]) => {
+          if (huy) return;
+          const loc = tim.toLowerCase();
+          setOpts([
+            ...ls.items.map((l) => ({ kind: "lsx" as const, id: l.id, ma: l.ma, ten: l.ten })),
+            ...bg.items
+              .filter((b) => !loc || b.ma.toLowerCase().includes(loc))
+              .slice(0, 20)
+              .map((b) => ({ kind: "bai_ghep" as const, id: b.id, ma: b.ma, ten: "" })),
+          ]);
+          setActive(0);
+        })
+        // Không tra được lệnh KHÔNG được chặn việc lập yêu cầu — ô này vốn bỏ trống được.
+        .catch(() => {
+          if (!huy) setOpts([]);
+        });
+    }, 200);
+    return () => {
+      huy = true;
+      clearTimeout(t);
+    };
+  }, [text, open, token]);
+
+  function doViTri() {
+    const el = inputRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setRect({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 220) });
+  }
+
+  useLayoutEffect(() => {
+    if (open) doViTri();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("resize", doViTri);
+    window.addEventListener("scroll", doViTri, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("resize", doViTri);
+      window.removeEventListener("scroll", doViTri, true);
+    };
+  }, [open]);
+
+  /** `null` = dòng "Không theo lệnh" (xin lặt vặt — băng dính, giẻ lau). */
+  function chon(o: LenhOption | null) {
+    setText(o?.ma ?? "");
+    setOpen(false);
+    if (!o) onChange(null, null, null);
+    else if (o.kind === "lsx") onChange(o.id, null, o.ma);
+    else onChange(null, o.id, o.ma);
+  }
+
+  const list = (
+    <ul
+      className="kho-combo__list"
+      role="listbox"
+      style={rect ? { top: rect.top, left: rect.left, width: rect.width } : undefined}
     >
-      <option value="">— Không theo lệnh —</option>
-      {options.map((o) => (
-        <option key={`${o.kind}:${o.id}`} value={`${o.kind === "lsx" ? "lsx" : "bg"}:${o.id}`}>
-          {o.ma}
-          {o.ten ? ` — ${o.ten}` : ""}
-        </option>
+      <li
+        role="option"
+        aria-selected={active === 0}
+        className={`kho-combo__opt${active === 0 ? " is-active" : ""}`}
+        onMouseEnter={() => setActive(0)}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          chon(null);
+        }}
+      >
+        <span className="kho-combo__name">— Không theo lệnh —</span>
+      </li>
+      {opts.map((o, i) => (
+        <li
+          key={`${o.kind}:${o.id}`}
+          role="option"
+          aria-selected={i + 1 === active}
+          className={`kho-combo__opt${i + 1 === active ? " is-active" : ""}`}
+          onMouseEnter={() => setActive(i + 1)}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            chon(o);
+          }}
+        >
+          <span className="kho-combo__name">
+            {o.ten || "—"}
+            <span className="kho-combo__nhom">{o.kind === "lsx" ? "Lệnh" : "Bài ghép"}</span>
+          </span>
+          <span className="kho-combo__code">{o.ma}</span>
+        </li>
       ))}
-    </select>
+    </ul>
+  );
+
+  return (
+    <div className="kho-combo" ref={rootRef} style={{ minWidth: 156 }}>
+      <input
+        ref={inputRef}
+        className="rc-input kho-combo__input"
+        value={text}
+        placeholder="Không theo lệnh"
+        aria-label="Xin cho lệnh sản xuất nào (bỏ trống nếu xin lặt vặt)"
+        autoComplete="off"
+        onChange={(e) => {
+          setText(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => {
+          // Xoá trắng ô = bỏ gắn lệnh. Gõ dở rồi bỏ đi thì trả về nhãn cũ, không tự đoán.
+          if (!text.trim() && (lsxId || baiGhepId)) chon(null);
+          else if (text.trim() !== nhan) setText(nhan);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setOpen(true);
+            setActive((a) => Math.min(a + 1, opts.length));
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setActive((a) => Math.max(a - 1, 0));
+          } else if (e.key === "Enter") {
+            if (!open) return;
+            e.preventDefault();
+            chon(active === 0 ? null : opts[active - 1]);
+          } else if (e.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+      />
+      {open && createPortal(list, document.body)}
+    </div>
   );
 }
 
@@ -541,6 +688,9 @@ export interface SeedLine {
    *  nào. Khai rồi thì bảng cân đối vật tư của Kế hoạch trừ phần đã cấp vào ĐÚNG dòng nhu cầu. */
   lsx_id?: number | null;
   bai_ghep_id?: number | null;
+  /** MÃ lệnh/bài server gửi kèm dòng — nhãn hiện tại chỗ, khỏi tra ngược một danh sách đã tải. */
+  lsx_ma?: string | null;
+  bai_ghep_ma?: string | null;
   ghi_chu: string | null;
 }
 
@@ -584,6 +734,8 @@ function newLine(seed?: Partial<SeedLine>): DraftLine {
     don_gia: seed?.don_gia ?? null,
     lsx_id: seed?.lsx_id ?? null,
     bai_ghep_id: seed?.bai_ghep_id ?? null,
+    lsx_ma: seed?.lsx_ma ?? null,
+    bai_ghep_ma: seed?.bai_ghep_ma ?? null,
     ghi_chu: seed?.ghi_chu ?? null,
     sl_duyet: 0,
     sl_da_ung: 0,
@@ -637,32 +789,10 @@ function RequestDrawer({
   const [dirty, setDirty] = useState(false);
   const [askDiscard, setAskDiscard] = useState(false);
   const [printing, setPrinting] = useState(false);
-  // Danh sách lệnh/bài để chọn ở ô "Cho lệnh" (mg 0175). Nạp MỘT lần cho cả drawer — mỗi dòng tự
-  // gọi là N+1 request ngay lúc người ta đang gõ số lượng.
-  const [lenhOptions, setLenhOptions] = useState<LenhOption[]>([]);
   // Phiếu kho đã lập từ yêu cầu này — người TẠO xem lại (chống mất chức năng "xem phiếu").
   const [vouchers, setVouchers] = useState<StockVoucher[]>([]);
   const [openVoucher, setOpenVoucher] = useState<number | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const [ls, bg] = await Promise.all([api.lsx.list(token), api.baiGhep2.list(token)]);
-        if (!alive) return;
-        setLenhOptions([
-          ...ls.items.map((l) => ({ kind: "lsx" as const, id: l.id, ma: l.ma, ten: l.ten })),
-          ...bg.items.map((b) => ({ kind: "bai_ghep" as const, id: b.id, ma: b.ma, ten: "" })),
-        ]);
-      } catch {
-        // Không lấy được danh sách lệnh KHÔNG được chặn việc lập yêu cầu — ô này vốn bỏ trống được.
-        if (alive) setLenhOptions([]);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [token]);
 
   useEffect(() => {
     if (requestId == null) return;
@@ -691,6 +821,8 @@ function RequestDrawer({
             don_gia: l.don_gia,
             lsx_id: l.lsx_id,
             bai_ghep_id: l.bai_ghep_id,
+            lsx_ma: l.lsx_ma,
+            bai_ghep_ma: l.bai_ghep_ma,
             ghi_chu: l.ghi_chu,
             sl_duyet: l.sl_duyet,
             sl_da_ung: l.sl_da_ung,
@@ -954,17 +1086,21 @@ function RequestDrawer({
                             <td>
                               {editable ? (
                                 <LenhChon
-                                  options={lenhOptions}
+                                  token={token}
                                   lsxId={l.lsx_id ?? null}
                                   baiGhepId={l.bai_ghep_id ?? null}
-                                  onChange={(lsxId, bgId) =>
-                                    patchLine(l.key, { lsx_id: lsxId, bai_ghep_id: bgId })
+                                  nhan={l.lsx_ma ?? l.bai_ghep_ma ?? ""}
+                                  onChange={(lsxId, bgId, ma) =>
+                                    patchLine(l.key, {
+                                      lsx_id: lsxId,
+                                      bai_ghep_id: bgId,
+                                      lsx_ma: lsxId ? ma : null,
+                                      bai_ghep_ma: bgId ? ma : null,
+                                    })
                                   }
                                 />
                               ) : (
-                                <span className="kho-lines__code">
-                                  {lenhNhan(lenhOptions, l.lsx_id ?? null, l.bai_ghep_id ?? null)}
-                                </span>
+                                <span className="kho-lines__code">{lenhNhan(l)}</span>
                               )}
                             </td>
                             <td>

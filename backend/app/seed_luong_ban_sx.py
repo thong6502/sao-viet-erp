@@ -78,6 +78,14 @@ _CONG_DOAN_MOI: list[tuple] = [
     ("CD-0013", "Ghép màng metalize", "finishing",
      "max(dai_in * rong_in * so_mat * to_dau_vao * 4000, 200000)", 4000, 25, 2500, "CM-03",
      "Tổ Cán màng", "co_dinh", 50, False, None, "4.000đ/m², sàn 200.000đ/lượt ghép."),
+    # Xén RỜI khác hẳn "xén 3 mặt" (CD-0009, đếm cuốn): đây là nhát cắt chia MỘT tờ in thành N con
+    # trên máy xén — cách làm phổ thông nhất cho tờ rơi/tờ hướng dẫn/bảng giá, hàng vuông vắn không
+    # cần khuôn. Danh mục cũ chỉ có CD-0011 "Bế thành phẩm" đi được chặng `to → cai`, mà bế thì đòi
+    # khuôn: thiếu mã này, mọi lệnh hàng tờ rời buộc phải khai bế, hoặc bỏ hẳn bước cắt — bỏ bước
+    # cắt là chuỗi ngược mất mắt xích tờ↔cái, chạy 1:1 và số giấy ra gấp đúng `con` lần.
+    ("CD-0014", "Xén rời thành phẩm", "finishing", "to_dau_vao * 80", 80, 15, 4000, None,
+     "Tổ Bế & Xén", "co_dinh", 20, False, None,
+     "Xén chia con trên máy xén: 1 tờ in ra `con` thành phẩm. Hàng vuông vắn, không cần khuôn."),
 ]
 
 # Đơn vị VÀO/RA của khâu sách — KHÔNG để mặc định `cai`. Khai sai thành `cai → cai` thì chuỗi bù
@@ -96,6 +104,7 @@ _DON_VI_KHAU_SACH: dict[str, tuple[str, str]] = {
     "CD-0011": ("to", "cai"),    # bế thành phẩm: 1 tờ ra `so_tp` con → thành phẩm
     "CD-0012": ("cai", "cai"),   # đóng gói: đếm thành phẩm
     "CD-0013": ("to", "to"),     # ghép màng metalize: chạy tờ, ra tờ
+    "CD-0014": ("to", "cai"),    # xén rời: 1 tờ in cắt ra `con` thành phẩm
 }
 
 # --- Bảng CÔNG KHOÁN của tổ (số hoá đúng tờ Excel xưởng đang dùng) ------------------------------
@@ -115,6 +124,7 @@ _DON_GIA_KHOAN: list[tuple] = [
     ("Tổ Bế & Xén", "BE-01", "Bế máy tự động", ["CD-0011"], "tờ", 250, None),
     ("Tổ Bế & Xén", "BE-02", "Bế tay (hàng ăn gian nhíp, SL ít)", ["CD-0011"], "tờ", 400, None),
     ("Tổ Bế & Xén", "XEN-01", "Xén 3 mặt thành phẩm", ["CD-0009"], "cuốn", 120, None),
+    ("Tổ Bế & Xén", "XEN-02", "Xén rời con (tờ rơi, bảng giá)", ["CD-0014"], "tờ", 80, None),
     ("Tổ Đóng gói", "TP-01", "Gấp tay sách máy", ["CD-0007"], "tờ", 60, None),
     ("Tổ Đóng gói", "TP-02", "Bắt tay + vào keo gáy vuông", ["CD-0008"], "cuốn", 700, None),
     ("Tổ Đóng gói", "TP-03", "Đếm, bó, đóng gói thành phẩm", ["CD-0012"], "cuốn", 40, None),
@@ -460,7 +470,11 @@ def _ma_phieu(db: Session, created: datetime) -> str:
 
 
 def _tao_bao_gia(db: Session, *, ptg: PhieuTinhGia, khach: Customer, sale_id: int,
-                 seq: SequenceService, created: datetime):
+                 seq: SequenceService, created: datetime,
+                 customer_note: str = "Giao 1 lần cùng thẻ nhân viên. "
+                                      "Duyệt maquette trước khi lên kẽm.",
+                 internal_note: str = "Khách quen, markup 18%. "
+                                      "Gáy 10mm đã xác nhận với kỹ thuật."):
     """Báo giá từ PTG — 1 dòng/sản phẩm, giá vốn KHÓA từ `gia_von_tp`, khách ĐÃ ĐỒNG Ý.
 
     Dựng theo đúng luật `QuotationService._fill_version_from_ptg` (dùng lại `calculate_pricing`
@@ -485,8 +499,8 @@ def _tao_bao_gia(db: Session, *, ptg: PhieuTinhGia, khach: Customer, sale_id: in
         delivery_address="Lô B4, KCN Tân Bình, Q. Tân Phú, TP.HCM",
         contact_name_snapshot="Nguyễn Thị Hà", contact_phone_snapshot="0901000001",
         contact_title_snapshot="Trưởng phòng Hành chính",
-        customer_note="Giao 1 lần cùng thẻ nhân viên. Duyệt maquette trước khi lên kẽm.",
-        internal_note="Khách quen, markup 18%. Gáy 10mm đã xác nhận với kỹ thuật.",
+        customer_note=customer_note,
+        internal_note=internal_note,
         created_at=created, updated_at=accepted,
     )
     db.add(q)
@@ -521,7 +535,7 @@ def _tao_bao_gia(db: Session, *, ptg: PhieuTinhGia, khach: Customer, sale_id: in
             discount_amount=pricing["discount_amount"],
             vat_percent=VAT_PCT, vat_amount=pricing["vat_amount"],
             final_amount=pricing["final_amount"],
-            accepted=True,   # khách chốt CẢ 3 dòng
+            accepted=True,   # khách chốt CẢ mọi dòng
         ))
         subtotal += pricing["selling_price"]
         discount += pricing["discount_amount"]
@@ -536,9 +550,10 @@ def _tao_bao_gia(db: Session, *, ptg: PhieuTinhGia, khach: Customer, sale_id: in
     v.final_amount = final
 
     for act, at, note in (
-        ("create_quote", created, f"Tạo báo giá v1 từ phiếu tính giá {ptg.ma} (3 sản phẩm)"),
+        ("create_quote", created,
+         f"Tạo báo giá v1 từ phiếu tính giá {ptg.ma} ({len(tps)} sản phẩm)"),
         ("send", sent, "Gửi khách qua email"),
-        ("accept", accepted, "Khách đồng ý toàn bộ 3 dòng"),
+        ("accept", accepted, f"Khách đồng ý toàn bộ {len(tps)} dòng"),
     ):
         db.add(QuoteActivityLog(
             quote_id=q.id, quote_version_id=v.id, action=act, actor_id=sale_id,

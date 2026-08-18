@@ -67,6 +67,14 @@ PHUT_LAM_NGAY = 8 * 60   # 8h/ngày làm việc
 NGUONG_SAP_TOI_HAN = 2   # độ dư ≤ 2 ngày làm việc → "sắp tới hạn"
 GOP_KHE_PHUT = 180       # gộp đoạn chiếm máy qua khe nghỉ ≤ 3h (nghỉ trưa/giải lao) → Gantt vẽ 1 thanh liền
 
+# --- Cảnh báo lúc XEM TRƯỚC (mục 2f) — nói NGAY tại chỗ vừa thả, KHÔNG chặn -----------------
+# Chốt 18/08/2026: xưởng luôn còn cách xử lý mà phần mềm không biết, nên bốn thứ dưới chỉ BÁO.
+# Gom vào MỘT danh sách để hộp thoại xem-trước không phải đẻ thêm khối nào cho từng loại.
+CB_KHOA_MAY = "khoa_may"        # thả đè lên khoảng bảo trì/khóa của máy
+CB_NGOAI_GIO = "ngoai_gio"      # thả ra ngoài giờ làm / ngày nghỉ
+CB_THIEU_NGUOI = "thieu_nguoi"  # tổ không đủ quân cho các việc chạy cùng lúc
+CB_KHO_MAY = "kho_may"          # khổ / số màu / định lượng vượt khả năng máy
+
 
 class XepLichError(Exception):
     """Lỗi nghiệp vụ xếp lịch (router map sang HTTP)."""
@@ -99,6 +107,11 @@ def _naive(dt: datetime | None) -> datetime | None:
     """Bỏ tzinfo để serialize dạng WALL-CLOCK (giờ nhà máy) — FE `new Date(iso)` KHÔNG dịch múi (tránh
     lệch +7h). Nhất quán `start_at` (SQLite trả naive). CHỈ cho ĐẦU RA hiển thị, KHÔNG cho tính toán."""
     return dt.replace(tzinfo=None) if dt is not None else None
+
+
+def _fmt_gio(dt: datetime) -> str:
+    """`14:30 21/08` — đủ để người đang kéo thanh nhận ra mốc, khỏi dài dòng năm."""
+    return _aware(dt).strftime("%H:%M %d/%m")
 
 
 def _dau_ngay(d: date) -> datetime:
@@ -1596,6 +1609,69 @@ class XepLichService:
                 out.append(r.id)
         return out
 
+    def _canh_bao_tha(self, dong: XepLichCongDoan, may_id: int | None,
+                      start: datetime | None, finish: datetime | None,
+                      ly_do_kho: list[str]) -> list[dict]:
+        """Bốn thứ người kéo thanh cần biết NGAY lúc thả, gom vào MỘT danh sách `{loai, chu}`.
+
+        Vì sao bồi vào `xem_truoc` chứ không viết lớp cảnh báo mới: đường kéo-thả ĐÃ gọi xem-trước
+        trước khi ghi (`GanttBoard.onBarDown`). Dựng đường thứ hai là hai nơi cùng phán một việc,
+        kiểu gì cũng có ngày hộp thoại nói khác cái Gantt tô.
+
+        KHÔNG chặn — chỉ cửa Phát hành mới chặn. Nhưng im lặng thì người kéo không hề biết mình
+        vừa thả vào giữa khoảng bảo trì, hay vào 2h sáng chủ nhật.
+        """
+        out: list[dict] = []
+        if start is None:
+            return out
+        lich = self._lich_may(may_id) if may_id else self.lich
+        het = finish or start
+
+        # 1) Đè vùng khóa máy. `_cong_gio_lam` tự nhảy qua ⇒ giờ CHẠY THẬT lệch giờ vừa thả.
+        for p in (self.unavail_repo.list_by_may(may_id) if may_id else []):
+            if (getattr(p, "kieu", KIEU_CHAN) or KIEU_CHAN) != KIEU_CHAN:
+                continue
+            ps, pe = _aware(p.unavailable_from), _aware(p.unavailable_to)
+            if ps < het and start < pe:
+                ly = f" ({p.reason})" if getattr(p, "reason", None) else ""
+                out.append({"loai": CB_KHOA_MAY,
+                            "chu": (f"Đè khoảng khóa máy {_fmt_gio(ps)}–{_fmt_gio(pe)}{ly}"
+                                    " — máy chỉ chạy ngoài khoảng này")})
+
+        # 2) Ngoài giờ làm. Bước có máy chạy liên tục nên chỉ vướng ngày nghỉ/lễ; bước tay của tổ
+        #    mới thật sự vướng ca.
+        thuc = _dau_ca(start, lich)   # CỐ Ý không dùng `_vao_gio_lam`: nó nhảy qua cả vùng khóa,
+        if thuc > start:              # mà vùng khóa đã có câu riêng ở trên — nói hai lần là nhiễu.
+            out.append({"loai": CB_NGOAI_GIO,
+                        "chu": f"Ngoài giờ làm — việc chỉ bắt đầu được lúc {_fmt_gio(thuc)}"})
+
+        # 3) Quân số tổ. Tái dùng NGUYÊN `khoang_tai_to` (quét theo mốc) thay vì so từng cặp: ba
+        #    việc 3+3+3 người chồng nhau từng đôi vẫn vừa tổ 9 người. Chỉ nạp dòng CÙNG TỔ có giao
+        #    khoảng — kéo cả bàn lịch cho mỗi lần thả chuột là quá đắt.
+        dept = dong.department_id
+        if dept and finish is not None:
+            gia_dinh = [{"id": dong.id, "trang_thai": TT_DA_XEP, "department_id": dept,
+                         "department_ten": None, "start_at": _naive(start),
+                         "finish_at": _naive(finish), "so_nhan_cong": self._so_nguoi_dong(dong)}]
+            for r in self.repo.rows_da_xep_theo_to(dept):
+                if r.id == dong.id:
+                    continue
+                if _aware(r.start_at) >= finish or start >= _aware(r.finish_at):
+                    continue
+                gia_dinh.append({"id": r.id, "trang_thai": TT_DA_XEP, "department_id": dept,
+                                 "department_ten": None, "start_at": r.start_at,
+                                 "finish_at": r.finish_at, "so_nhan_cong": self._so_nguoi_dong(r)})
+            for k in self.khoang_tai_to(gia_dinh):
+                if k["qua_tai"]:
+                    out.append({"loai": CB_THIEU_NGUOI,
+                                "chu": (f"Tổ thiếu người từ {_fmt_gio(_aware(k['start']))}: cần "
+                                        f"{k['dung']} người, có mặt {k['quan_so']}")})
+                    break                      # một câu là đủ; liệt kê mọi khoảng chỉ làm dài hộp
+
+        # 4) Khổ / số màu / định lượng vượt máy — CẢNH BÁO, không chặn (chốt 18/08/2026).
+        out += [{"loai": CB_KHO_MAY, "chu": c} for c in ly_do_kho]
+        return out
+
     def xem_truoc(self, *, dong_id: int, may_id: int | None, start_at: datetime) -> dict:
         """Mô phỏng gán (máy, giờ) cho 1 dòng — KHÔNG commit/không đổi DB (`no_autoflush` + hoàn nguyên).
         Trả finish giả định · xung đột máy · bước SAU bị đẩy (som_nhat mới) · hạn hoàn thành mới · nhãn
@@ -1650,6 +1726,7 @@ class XepLichService:
             "xung_dot_ids": xung_dot, "day_doi": day_doi,
             "han_hoan_thanh_moi": han_moi, "nhan_rui_ro": nhan,
             "can_xac_nhan": bool(ly_do_xn), "ly_do_xac_nhan": ly_do_xn,
+            "canh_bao": self._canh_bao_tha(dong, may_id, start, finish, ly_do_xn),
         }
 
     # ================= CHÈN LỆNH GẤP & ĐẨY (G1) =================

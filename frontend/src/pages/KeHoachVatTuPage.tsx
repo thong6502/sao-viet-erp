@@ -29,10 +29,14 @@ type Gom = "hang" | "lenh";
 export function KeHoachVatTuPage({
   navigate,
   eventTick,
+  focusLsxMa,
 }: {
   navigate?: (id: string, params?: Record<string, unknown>) => void;
   /** Tăng mỗi lần có event SSE → bảng tự tính lại, không bắt người dùng F5. */
   eventTick?: number;
+  /** Đèn "Vật tư" ở Kế hoạch SX bấm sang đây: mở thẳng cách nhìn THEO LỆNH + tìm sẵn mã lệnh đó.
+   *  Cách nhìn mặc định gom theo mặt hàng, đứng ở đó thì mã lệnh không có chỗ nào để tìm. */
+  focusLsxMa?: string | null;
 }) {
   const { token } = useAuth();
   // Nhãn đơn vị đọc từ DANH MỤC — bảng cân đối hiện "2.961 tờ ≈ 116 kg", cả hai đầu đều cần tên.
@@ -40,9 +44,15 @@ export function KeHoachVatTuPage({
   // Bit "tạo yêu cầu mua cho bộ phận" — KHÔNG lách bằng quyền `san_xuat`. Thiếu bit thì nút "Đề
   // nghị mua" tự ẩn, bảng cân đối vẫn xem được bình thường.
   const [canDeNghiMua, setCanDeNghiMua] = useState(false);
-  const [gom, setGom] = useState<Gom>("hang");
+  const [gom, setGom] = useState<Gom>(focusLsxMa ? "lenh" : "hang");
   const [soDo, setSoDo] = useState(0);
   const [soGiuLau, setSoGiuLau] = useState(0);
+
+  // Bấm chấm lần thứ hai (mã khác) trong cùng phiên phải kéo được về đây, nên theo dõi cả sau lần
+  // khởi tạo — chỉ đặt giá trị đầu là lần sau đứng nguyên chỗ cũ.
+  useEffect(() => {
+    if (focusLsxMa) setGom("lenh");
+  }, [focusLsxMa]);
 
   useEffect(() => {
     if (!token) return;
@@ -128,6 +138,7 @@ export function KeHoachVatTuPage({
           eventTick={eventTick}
           canDeNghiMua={canDeNghiMua}
           onSoGiuLau={setSoGiuLau}
+          focusLsxMa={focusLsxMa}
           onOpenLsx={navigate ? (id) => navigate("ke-hoach-sx", { openLsxId: id }) : undefined}
         />
       )}

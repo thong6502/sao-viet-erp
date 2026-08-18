@@ -458,7 +458,10 @@ def _ptg_2_san_pham(db, *, sl_hop=20_000, sl_tem=35_000) -> PhieuTinhGia:
 
 
 def _quote_from_ptg(db, customer, ptg: PhieuTinhGia) -> Quote:
-    q = Quote(quote_number="BG-SX", customer_id=customer.id, status=STATUS_ACCEPTED,
+    # Số báo giá đánh số tăng dần: có test cần DỰNG HAI ĐƠN trong cùng một ca, để mã cứng là
+    # đụng ràng buộc unique `quotes.quote_number`.
+    q = Quote(quote_number=f"BG-SX{db.query(Quote).count() + 1}", customer_id=customer.id,
+              status=STATUS_ACCEPTED,
               phieu_tinh_gia_id=ptg.id)
     db.add(q)
     db.flush()
@@ -503,16 +506,16 @@ def _don_da_chuyen_sx(db, orders, admin, customer, ptg):
 def test_hang_cho_chi_hien_don_da_chuyen_va_con_no_lenh(db, orders, lsx_svc, admin, customer):
     ptg = _ptg_2_san_pham(db)
     d = _don_da_chot(db, orders, admin, customer, ptg)
-    assert not any(r["order_id"] == d.id for r in lsx_svc.hang_cho())  # chốt rồi nhưng chưa chuyển
+    assert not any(r["order_id"] == d.id for r in lsx_svc.hang_cho()[0])  # chốt rồi nhưng chưa chuyển
 
     orders.release_production(order_id=d.id, actor=admin, scope="all")
 
-    row = next(r for r in lsx_svc.hang_cho() if r["order_id"] == d.id)
+    row = next(r for r in lsx_svc.hang_cho()[0] if r["order_id"] == d.id)
     assert row["so_dong"] == 2 and row["so_dong_co_lsx"] == 0
 
     lines = lsx_svc.preview(d.id)["lines"]
     lsx_svc.tao(order_id=d.id, order_line_ids=[l["order_line_id"] for l in lines], actor=admin)
-    assert not any(r["order_id"] == d.id for r in lsx_svc.hang_cho())  # đủ lệnh → rời hàng chờ
+    assert not any(r["order_id"] == d.id for r in lsx_svc.hang_cho()[0])  # đủ lệnh → rời hàng chờ
 
 
 def test_preview_bung_moi_dong_mot_lenh_du_kien(db, orders, lsx_svc, admin, customer):
@@ -882,11 +885,11 @@ def test_xoa_lenh_tra_dong_don_ve_hang_cho(db, orders, lsx_svc, admin, customer)
     d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
     ids = [l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]]
     created = lsx_svc.tao(order_id=d.id, order_line_ids=ids, actor=admin)
-    assert not any(r["order_id"] == d.id for r in lsx_svc.hang_cho())
+    assert not any(r["order_id"] == d.id for r in lsx_svc.hang_cho()[0])
 
     xoa_id = created[0].id
     assert lsx_svc.xoa(lsx_id=xoa_id, actor=admin) == d.id
-    row = next(r for r in lsx_svc.hang_cho() if r["order_id"] == d.id)
+    row = next(r for r in lsx_svc.hang_cho()[0] if r["order_id"] == d.id)
     assert row["so_dong_co_lsx"] == 1 and row["so_dong"] == 2
     # Công đoạn phải đi theo lệnh. SQLite dev TẮT `PRAGMA foreign_keys`, nên nếu giao việc xoá
     # con cho DB thì chúng thành mồ côi — lệnh mới TÁI DÙNG id sẽ nhận nhầm routing đã xoá.
@@ -988,7 +991,7 @@ def test_danh_sach_va_preview_gui_kem_don_vi_theo_tung_dong(
     assert ln["don_vi_to"] and ln["don_vi_tp"], "preview phải chấm đơn vị từ routing dự kiến"
 
     hop = lsx_svc.tao(order_id=d.id, order_line_ids=[ln["order_line_id"]], actor=admin)[0]
-    row = next(r for r in lsx_svc.list_rows(order_id=d.id) if r["id"] == hop.id)
+    row = next(r for r in lsx_svc.list_rows(order_id=d.id)[0] if r["id"] == hop.id)
     # Hai màn phải nói CÙNG một đơn vị cho cùng một lệnh — lệch là người dùng mất niềm tin vào số.
     assert row["don_vi_to"] == ln["don_vi_to"]
 
@@ -2898,3 +2901,73 @@ def test_tao_khuon_moi_lay_khach_TU_LENH_va_vao_kho_o_trang_thai_dang_dat(
 
     # Và nó xuất hiện ngay trong danh sách chọn của chính lệnh đó.
     assert ra["id"] in {x["id"] for x in lsx_svc.khuon_chon_duoc(lsx, loai="khuon_be", dang_chon=None)}
+
+
+# ============================ Phân trang + đếm ở MÁY CHỦ ============================
+# Cả cụm này chốt hợp đồng của đợt tối ưu 100k lệnh (18/08/2026): danh sách PHẢI cắt trang ở SQL
+# và số trên tab PHẢI là số của máy chủ, không phải số dòng đang hiện.
+def test_list_cat_trang_va_tra_tong_that(db, orders, lsx_svc, admin, customer):
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    lines = lsx_svc.preview(d.id)["lines"]
+    lsx_svc.tao(order_id=d.id, order_line_ids=[l["order_line_id"] for l in lines], actor=admin)
+
+    rows, total = lsx_svc.list_rows(order_id=d.id, page=1, size=1)
+    assert total == 2 and len(rows) == 1, "total là TỔNG khớp lọc, không phải số dòng của trang"
+    rows2, total2 = lsx_svc.list_rows(order_id=d.id, page=2, size=1)
+    assert total2 == 2 and len(rows2) == 1
+    assert rows[0]["id"] != rows2[0]["id"], "hai trang không được trả trùng dòng"
+    assert not lsx_svc.list_rows(order_id=d.id, page=3, size=1)[0], "quá trang cuối thì rỗng"
+
+
+def test_list_kep_size_ve_tran_khong_cho_client_keo_ca_bang(db, orders, lsx_svc, admin, customer):
+    from app.repositories.catalog_base import SIZE_TRAN
+
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    lsx_svc.tao(order_id=d.id,
+                order_line_ids=[l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]],
+                actor=admin)
+    # ?size=99999 phải bị kẹp — không thì một cú gọi kéo cả 100.000 lệnh kèm công đoạn.
+    rows, _ = LsxRepository(db).list(size=99_999)
+    assert len(rows) <= SIZE_TRAN
+
+
+def test_facets_dem_ca_trang_thai_dang_bi_loc_ra(db, orders, lsx_svc, admin, customer):
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    lenhs = lsx_svc.tao(
+        order_id=d.id,
+        order_line_ids=[l["order_line_id"] for l in lsx_svc.preview(d.id)["lines"]],
+        actor=admin)
+    lsx_svc.set_trang_thai(lsx_id=lenhs[0].id, trang_thai=TT_SAN_SANG, actor=admin)
+
+    facets = lsx_svc.dem_trang_thai(order_id=d.id, trang_thai=TT_NHAP)
+    # Đang đứng ở tab Nháp nhưng tab "Sẵn sàng" vẫn phải khoe số 1 của nó, không thì bấm sang tab
+    # trống hoá ra lại có dòng.
+    assert facets[TT_SAN_SANG] == 1 and facets[TT_NHAP] == 1 and facets["all"] == 2
+
+
+def test_hang_cho_giu_don_khong_co_dong_nao(db, orders, lsx_svc, admin, customer):
+    """Đơn 0 dòng vẫn nằm lại hàng chờ — hành vi cũ của bộ lọc Python (`if so_dong and …`)."""
+    ptg = _ptg_2_san_pham(db)
+    d = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    from app.models.order import OrderLine
+
+    db.query(OrderLine).filter(OrderLine.order_id == d.id).delete()
+    db.commit()
+
+    rows, total = lsx_svc.hang_cho()
+    row = next(r for r in rows if r["order_id"] == d.id)
+    assert row["so_dong"] == 0 and total >= 1
+
+
+def test_hang_cho_cat_trang(db, orders, lsx_svc, admin, customer):
+    ptg = _ptg_2_san_pham(db)
+    d1 = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+    d2 = _don_da_chuyen_sx(db, orders, admin, customer, ptg)
+
+    rows, total = lsx_svc.hang_cho(page=1, size=1)
+    assert total >= 2 and len(rows) == 1
+    thay = {r["order_id"] for r in rows} | {r["order_id"] for r in lsx_svc.hang_cho(page=2, size=1)[0]}
+    assert {d1.id, d2.id} <= thay

@@ -16,6 +16,7 @@ import {
   type LsxDetail,
   type LsxQuyCachBody,
   type LsxQuyCachXemTruoc,
+  type LsxTongQuanOut,
   type LsxUpdateBody,
 } from "../api/client";
 import { crud } from "../api/rebuildCatalog";
@@ -35,6 +36,7 @@ import { useNapTenDonVi } from "./tenDonVi";
 import {
   BangLoi,
   ChipGap,
+  DenTienDo,
   TrangThaiPill,
   classHan,
   ngay,
@@ -155,6 +157,9 @@ export function LsxDetailView({
   /** Lỗi của lần xem trước gần nhất. Trước 13/08/2026 chỗ này `.catch(() => setXemTruoc(null))` —
    *  endpoint hỏng thì khối "Máy tự tính" đứng im y như chưa sửa gì, không một dòng báo. */
   const [xemTruocLoi, setXemTruocLoi] = useState<string | null>(null);
+  /** Ba đèn "vướng gì" — CÙNG nguồn với bảng lệnh, ở đây hiện đủ chữ. Chưa về = `null` ⇒ chưa
+   *  vẽ gì, đừng hiện "không vướng gì" khi thật ra chưa hỏi xong. */
+  const [den, setDen] = useState<LsxTongQuanOut["items"][number] | null>(null);
 
   // Danh mục cho dropdown — nạp MỘT LẦN ở đây rồi truyền xuống bảng routing.
   const [congDoanRefs, setCongDoanRefs] = useState<RefRow[] | null>(null);
@@ -193,6 +198,26 @@ export function LsxDetailView({
     api.lsx.khuonChonDuoc(token, lsxId).then(setKhuonRefs).catch(() => setKhuonRefs(null));
   }, [token, lsxId]);
   useEffect(() => napKhuon(), [napKhuon]);
+
+  // Ba đèn "vướng gì" — GỌI RỜI khỏi `GET /api/lsx/{id}` vì endpoint tổng quan chạy engine cân đối
+  // vật tư + bộ dò xếp lịch; màn chi tiết phải mở ngay, đèn về sau. Nạp lại theo `d` để sau mỗi
+  // lần lưu/làm mới đèn nói chuyện mới.
+  useEffect(() => {
+    if (!token || !d) return;
+    let huy = false;
+    api.lsx
+      .tongQuan(token, [lsxId])
+      .then((r) => {
+        if (!huy) setDen(r.items[0] ?? null);
+      })
+      .catch(() => {
+        if (!huy) setDen(null);   // đèn hỏng thì màn vẫn dùng được
+      });
+    return () => {
+      huy = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, lsxId, d]);
 
   // --- "Có thay đổi mới" ---------------------------------------------------------------------
   // Mốc tick tại lần nạp gần nhất. Tick nhảy quá mốc ⇒ có ai đó vừa sửa lệnh này (hoặc bài ghép /
@@ -613,6 +638,19 @@ export function LsxDetailView({
           )}
         </div>
       </header>
+
+      {/* Ba thứ NGOÀI lệnh có thể chặn nó chạy: vật tư đã có chủ chưa · lịch đứng được chưa · có ai
+          làm không. Khối "Còn thiếu N mục" ngay dưới chỉ nói về sự đầy đủ của CHÍNH lệnh — hai
+          câu khác nhau, cố ý không trộn. Đủ chữ ở đây (bảng lệnh chỉ đủ chỗ cho nhãn ngắn). */}
+      {den?.den && (
+        <div className="khsx-denrow">
+          <DenTienDo
+            den={den.den}
+            lg
+            onNhay={navigate ? (nhay) => navigate(nhay.man, { focusLsxMa: d.ma }) : undefined}
+          />
+        </div>
+      )}
 
       {/* Top Summary Bar - Top Bar ngang (Option 1) */}
       {/* Top Summary Bar - Hero Readiness Card 2 Tầng */}

@@ -78,6 +78,10 @@ export interface NavParams {
   focusEmployeeId?: number;
   /** Liên thông: mở màn Yêu cầu mua hàng (YCMH) lọc + tô sáng đúng mã phiếu này. */
   focusRequestCode?: string;
+  /** Liên thông từ 3 đèn ở Kế hoạch SX: mở Kế hoạch vật tư / Xếp lịch với ô tìm điền sẵn mã lệnh.
+   *  Không có nó thì bấm chấm chỉ tới được MÀN, còn phải tự dò lệnh trong danh sách — vẫn là đổi
+   *  màn, chỉ đỡ được nửa việc. */
+  focusLsxMa?: string;
   /** Liên thông: mở màn Phiếu chi / UNC với ô tìm kiếm điền sẵn (mã PC/PMH...). */
   focusVoucherQuery?: string;
   /** Liên thông: mở màn Phiếu thu với ô tìm kiếm điền sẵn (mã PC/PT...). */
@@ -127,6 +131,11 @@ export function AppShell() {
   // Đã toast "bảo trì tới hạn" trong phiên này chưa — badge refetch nhiều lần, không có cờ này thì
   // mỗi lần refetch lại đẩy thêm một toast y hệt.
   const daToastBaoTri = useRef(false);
+  // Đang có một lượt `can-doi` chạy dở hay chưa. Endpoint này duyệt MỌI lệnh + bài ghép rồi chạy
+  // engine quy đổi cho từng dòng (đo 18/08/2026 ở 100k lệnh: 23,8 s · 3,75 MB). Uvicorn chạy MỘT
+  // tiến trình nên hai lượt chồng nhau không chạy nhanh gấp đôi — chúng giành GIL và làm cả API
+  // đứng hình (RSS phồng 3,1 GB). Có lượt đang chạy thì bỏ qua lượt mới: con số vẫn tới nơi.
+  const dangNapVatTu = useRef(false);
   // Kho đã khai báo → đổ menu con ĐỘNG dưới "Kho hàng" (Cấu hình danh mục). Refetch khi
   // khai báo/sửa/xoá kho (onMutate màn khai báo) → navbar cập nhật NGAY, không cần refresh.
   const [khoList, setKhoList] = useState<{ id: number; ma: string; ten: string }[]>([]);
@@ -384,22 +393,28 @@ export function AppShell() {
       // duyệt mọi lệnh + bài ghép + lô kho + phiếu mua rồi chạy engine quy đổi cho từng dòng — đắt
       // hơn hẳn ba endpoint `hangCho` kia. Bắt nó tính lại sau MỖI sự kiện sản xuất là trả giá lớn
       // cho một con số đổi rất chậm. Màn đang mở thì vẫn tươi: nó tự refetch theo `eventTick`.
-      api.keHoachVatTu
-        .canDoi(token, { chi_thieu: true })
-        .then((r) =>
-          setBadges((prev) => ({
-            ...prev,
-            // Cộng CẢ BA loại phải lo: thiếu · chưa đánh giá được · hàng về muộn. Bỏ sót loại thứ
-            // ba là bỏ sót đúng thứ vừa dựng ra để đừng bị bỏ sót — `chi_thieu=true` có trả về
-            // nhóm chỉ toàn dòng về muộn, mà badge hiện 0 thì không ai bấm vào.
-            "ke-hoach-vat-tu": (r.items ?? []).reduce(
-              (s, g) =>
-                s + (g.so_dong_do ?? 0) + (g.so_dong_khong_ro ?? 0) + (g.so_dong_ve_muon ?? 0),
-              0,
-            ),
-          })),
-        )
-        .catch(() => {});
+      if (!dangNapVatTu.current) {
+        dangNapVatTu.current = true;
+        api.keHoachVatTu
+          .canDoi(token, { chi_thieu: true })
+          .then((r) =>
+            setBadges((prev) => ({
+              ...prev,
+              // Cộng CẢ BA loại phải lo: thiếu · chưa đánh giá được · hàng về muộn. Bỏ sót loại
+              // thứ ba là bỏ sót đúng thứ vừa dựng ra để đừng bị bỏ sót — `chi_thieu=true` có
+              // trả về nhóm chỉ toàn dòng về muộn, mà badge hiện 0 thì không ai bấm vào.
+              "ke-hoach-vat-tu": (r.items ?? []).reduce(
+                (s, g) =>
+                  s + (g.so_dong_do ?? 0) + (g.so_dong_khong_ro ?? 0) + (g.so_dong_ve_muon ?? 0),
+                0,
+              ),
+            })),
+          )
+          .catch(() => {})
+          .finally(() => {
+            dangNapVatTu.current = false;
+          });
+      }
     }
     // Badge Phiếu bảo trì = số phiếu TỚI HẠN/quá hạn còn dở. Ticker nền đẩy `bao_tri_due` khi tới
     // ngày ⇒ số này tự nhảy, thợ không phải mở màn mới biết máy tới kỳ.
@@ -449,10 +464,19 @@ export function AppShell() {
         .catch(() => {});
     }
   }, [token, readable, reloadModuleNotificationBadges]);
+  // Nạp MỘT lần sau khi đăng nhập (và khi phạm vi quyền đổi). CỐ Ý bỏ `activeId` khỏi danh sách
+  // phụ thuộc (18/08/2026): ghi chú cũ "cả 2 endpoint đều rất nhẹ" đã sai từ lâu — chùm này nay
+  // gọi ~10 endpoint, trong đó `can-doi`, `bai-ghep-2/hang-cho`, `xep-lich/hang-cho`,
+  // `kho/de-nghi/counts` đều là hàm nặng CPU thuần Python. Bắt chúng chạy lại mỗi lần ĐỔI MÀN là
+  // trả giá lớn cho những con số hiếm khi đổi, và trên một tiến trình uvicorn thì nó làm cả API
+  // đứng hình chứ không riêng cái đang gọi.
+  //
+  // Badge KHÔNG vì thế mà cũ: thay đổi THẬT đều có đường đẩy tới — nhánh SSE bên dưới nạp lại ba
+  // badge khối Sản xuất + badge kho ngay khi có sự kiện, còn các màn gọi `onBadgeStale` sau mỗi
+  // thao tác của chính người dùng (Kế hoạch SX · Bài ghép · Xếp lịch · Nghỉ phép · Tăng ca…).
   useEffect(() => {
     reloadBadges();
-    // Refetch khi đổi màn — cả 2 endpoint đều rất nhẹ, giữ badge tươi sau khi thao tác.
-  }, [reloadBadges, activeId]);
+  }, [reloadBadges]);
 
   // Trung tâm thông báo (chuông): nạp list + số chưa đọc. Mọi user đăng nhập đều có hộp riêng.
   const reloadNotifs = useCallback(() => {
@@ -1012,11 +1036,24 @@ export function AppShell() {
           />
         );
       case "ke-hoach-vat-tu":
-        return <KeHoachVatTuPage navigate={navigate} eventTick={quoteTick} />;
+        return (
+          <KeHoachVatTuPage
+            navigate={navigate}
+            eventTick={quoteTick}
+            focusLsxMa={navParams?.focusLsxMa ?? null}
+          />
+        );
       case "bai-ghep-2":
         return <BaiGhep2Page navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "xep-lich-cong-doan":
-        return <XepLichPage navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
+        return (
+          <XepLichPage
+            navigate={navigate}
+            eventTick={quoteTick}
+            onBadgeStale={reloadBadges}
+            focusLsxMa={navParams?.focusLsxMa ?? null}
+          />
+        );
       case "sua-chua-may":
         return <SuaChuaMayPage />;
       case "phieu-bao-tri":

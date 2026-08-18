@@ -17,7 +17,7 @@ from app.models.employee import STATUS_ACTIVE, STATUS_RESIGNED, Employee
 from app.models.leave import STATUS_APPROVED, STATUS_PENDING, LeaveRequest
 from app.repositories.audit_repo import AuditLogRepository
 from app.services.xep_lich_service import XepLichValidationError
-from app.services.xep_lich_van_de_service import CAT_QUA_TAI_TO, SEV_CHAN, XepLichVanDeService
+from app.services.xep_lich_van_de_service import CAT_NGUOI, SEV_CHAN, XepLichVanDeService
 
 from tests.test_xep_lich_service import (  # noqa: F401 — fixture dùng chung
     _hai_lsx_san_sang, _in_step, admin, bg_svc, customer, db, lsx_svc, orders, xl_svc,
@@ -125,7 +125,7 @@ def test_qua_tai_to_chan_khi_tong_nguoi_vuot_quan_so(db, vd_svc, to_dan):
     ]
     out = vd_svc._qua_tai_to(rows)
     assert len(out) >= 1
-    assert out[0]["category"] == CAT_QUA_TAI_TO
+    assert out[0]["category"] == CAT_NGUOI
     assert out[0]["severity"] == SEV_CHAN
 
 

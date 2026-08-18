@@ -11,6 +11,7 @@ Dòng chi tiết trông như: `Đơn giá 27.800 → 29.000 đ/kg · Định lư
 """
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -147,6 +148,7 @@ NHAN: dict[str, str] = {
     "inline_flag": "Chạy nối tuyến (inline)",
     "cong_thuc_gia": "Công thức tính giá",
     "cong_thuc_luong": "Công thức tính lượng",
+    "cong_thuc_san_luong": "Công thức sản lượng ra",
     # Bù hao
     "bac": "Bậc số lượng",
     # Đơn vị & quy đổi
@@ -210,6 +212,7 @@ HAU_TO: dict[str, str] = {
     "min_width_cm": "cm",
     "min_height_cm": "cm",
     "makeready_phut": "phút",
+    "phut": "phút",          # khoá con của một khoản chuẩn bị (JSON), không phải cột
     "setup_time_mins": "phút",
     "changeover_time_mins": "phút",
     # 15/08/2026 — đơn vị của các cột vừa được đặt nhãn. Để ở ĐÂY chứ không nhét "(mm)" vào nhãn:
@@ -249,14 +252,85 @@ def _so(v: Decimal | float | int) -> str:
 
 
 SUB_NHAN: dict[str, str] = {
-    "chuan_bi_khoan": "Chuẩn bị khoan",
+    # Khoá con của ô JSON `fields_theo_loai` — lấy ĐÚNG chữ đang hiện trên form
+    # (`rebuildCatalogConfigs.tsx`) để người đọc nhật ký nhận ra ngay ô nào vừa bị sửa.
+    "chuan_bi_khoan": "Các khoản chuẩn bị",
+    "lich_bao_tri": "Lịch bảo trì định kỳ",
     "so_luong_dao": "Số lượng dao",
     "duong_kinh": "Đường kính",
     "khoan_lo": "Khoan lỗ",
     "can_mang": "Cán màng",
     "be_noi": "Bế nổi",
     "ep_kim": "Ép kim",
+    # Khoá nằm BÊN TRONG một dòng của danh sách (một gói bảo trì): viết thường vì chúng đi làm
+    # phụ chú trong ngoặc — "Bảo trì tuần máy in (mỗi 1 tuần, từ 09/08/2026, 4 việc)".
+    "ngay_bat_dau": "từ",
+    "ghi_chu": "ghi chú",
+    "so": "số",
+    "don_vi": "đơn vị",
 }
+
+#: Khoá máy tự sinh trong một dòng JSON. Người dùng không hề thấy chúng trên form; để lọt vào
+#: nhật ký thì được cái "Id: hm-seed-in-01-00" chẳng nói lên điều gì.
+KHOA_KY_THUAT = frozenset({"id", "uid", "key", "step_key"})
+
+#: Khoá mang TÊN của một dòng — đứng đầu cụm, phần còn lại lùi vào ngoặc.
+KHOA_TEN = ("ten", "viec", "name", "nhan", "ma", "code")
+
+#: Mã chu kỳ → chữ, đúng ô "Mỗi [số] [đơn vị]" của form Lịch bảo trì (`LichBaoTri.tsx`).
+CHU_KY: dict[str, str] = {"ngay": "ngày", "tuan": "tuần", "thang": "tháng", "nam": "năm"}
+
+#: Danh sách lồng bên trong một dòng thì ĐẾM chứ không bung: nhật ký kể việc, không vẽ lại form.
+DEM: dict[str, str] = {"hang_muc": "việc"}
+
+#: Số dòng in tối đa cho một danh sách. Một máy có thể khai hàng chục gói bảo trì — in hết thì
+#: nhật ký lại thành bức tường chữ, đúng thứ đang phải sửa.
+GIOI_HAN_MUC = 5
+
+#: JSON không có kiểu ngày nên form gửi "2026-08-09"; người đọc nhật ký quen "09/08/2026".
+_ISO_NGAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _nhan_con(k: str) -> str:
+    """Nhãn cho một khoá con. Không có trong `SUB_NHAN` thì thà xấu còn hơn nuốt mất thay đổi —
+    nhưng bỏ `.title()` đi: nó biến `lich_bao_tri` thành "Lich Bao Tri", trông như lỗi font."""
+    return SUB_NHAN.get(k) or k.replace("_", " ").capitalize()
+
+
+def _muc(d: dict[str, Any]) -> str:
+    """MỘT dòng của danh sách JSON → một cụm ngắn "Tên (phụ chú, phụ chú)".
+
+    Bung thẳng từng khoá là cách cũ, và nó đẻ ra thứ trong ảnh chụp màn hình ngày 18/08/2026:
+    `Id: hm-seed-in-01-00; Viec: Bảo trì tuần máy in; So: 1; Don Vi: tuan; Ngay Bat Dau: …`.
+    Ở đây: bỏ khoá máy, tên đứng trước, số đi liền đơn vị, danh sách con chỉ đếm.
+    """
+    ten = next((str(d[k]).strip() for k in KHOA_TEN if not _rong(d.get(k))), "")
+    phu: list[str] = []
+    for k, val in d.items():
+        if k in KHOA_KY_THUAT or k in KHOA_TEN or _rong(val):
+            continue
+        if k == "so" and not _rong(d.get("don_vi")):
+            # "mỗi 3 tháng" — tách số khỏi đơn vị thì cả hai vế đều vô nghĩa.
+            phu.append(f"mỗi {_chu(val)} {CHU_KY.get(str(d['don_vi']), str(d['don_vi']))}")
+        elif k == "don_vi" and not _rong(d.get("so")):
+            continue
+        elif isinstance(val, (list, tuple)):
+            phu.append(f"{len(val)} {DEM.get(k, 'mục')}")
+        elif k in HAU_TO and _la_so(val):
+            phu.append(f"{_so(val)} {HAU_TO[k]}")
+        else:
+            phu.append(f"{SUB_NHAN.get(k) or k.replace('_', ' ')} {_chu(val)}")
+    if not ten:
+        return ", ".join(phu) if phu else "Trống"
+    return f"{ten} ({', '.join(phu)})" if phu else ten
+
+
+def _gom(muc: list[str]) -> str:
+    """Nối các dòng bằng "; ". KHÔNG dùng " · ": frontend cắt đúng chuỗi đó để tách trường
+    (`NhatKyTab`), lỡ dùng là một thay đổi bị vẽ thành mấy dòng cụt nghĩa."""
+    if len(muc) <= GIOI_HAN_MUC:
+        return "; ".join(muc)
+    return "; ".join(muc[:GIOI_HAN_MUC]) + f" … và {len(muc) - GIOI_HAN_MUC} mục nữa"
 
 
 def _chu(v: Any) -> str:
@@ -271,21 +345,16 @@ def _chu(v: Any) -> str:
         return v.strftime("%H:%M %d/%m/%Y")
     if isinstance(v, date):
         return v.strftime("%d/%m/%Y")
+    if isinstance(v, str):
+        return f"{v[8:10]}/{v[5:7]}/{v[:4]}" if _ISO_NGAY.fullmatch(v.strip()) else v
     if isinstance(v, dict):
-        if not v:
-            return "Trống"
-        items = []
-        for k, val in v.items():
-            k_lbl = SUB_NHAN.get(k, k.replace("_", " ").title())
-            if isinstance(val, (list, tuple)):
-                v_lbl = ", ".join(_chu(x) for x in val) if val else "Chưa thiết lập"
-            else:
-                v_lbl = _chu(val)
-            items.append(f"{k_lbl}: {v_lbl}")
-        return "; ".join(items) if items else "Trống"
+        phan = [f"{_nhan_con(k)}: {_chu(val)}" for k, val in v.items() if not _rong(val)]
+        return "; ".join(phan) if phan else "Trống"
     if isinstance(v, (list, tuple)):
         if not v:
             return "Trống"
+        if any(isinstance(x, dict) for x in v):
+            return _gom([_muc(x) if isinstance(x, dict) else _chu(x) for x in v])
         return ", ".join(_chu(x) for x in v)
     return str(v)
 
@@ -316,7 +385,7 @@ def _rong(v: Any) -> bool:
 
     `{"chuan_bi_khoan": []}` cũng là RỖNG — đó vẫn là "chưa thiết lập khoản nào", chỉ khác cách
     lưu. Không có luật này thì đổi mỗi Loại máy cũng đẻ thêm dòng "Thông số theo loại máy: —
-    → Chuẩn bị khoan: Chưa thiết lập", vì form luôn gửi kèm ô JSON đó.
+    → Các khoản chuẩn bị: …", vì form luôn gửi kèm ô JSON đó.
     """
     if v is None or v == "":
         return True
@@ -327,22 +396,40 @@ def _rong(v: Any) -> bool:
     return False
 
 
+def _khac(cu: Any, moi: Any) -> bool:
+    """Hai giá trị có khác nhau DƯỚI MẮT người dùng không. Dùng cho cả cột lẫn khoá con."""
+    if cu == moi:
+        return False
+    # 100 (int) vs 100.00 (Decimal) là CÙNG một giá trị — so thô sẽ đẻ ra thay đổi ma.
+    # `bool` PHẢI loại trước: trong Python nó là con của `int`, mà Decimal("True") thì nổ.
+    if _la_so(cu) and _la_so(moi) and Decimal(str(cu)) == Decimal(str(moi)):
+        return False
+    # Trống → vẫn trống (chỉ khác cách lưu) thì KHÔNG phải thay đổi của người dùng.
+    return not (_rong(cu) and _rong(moi))
+
+
 def mo_ta_thay_doi(truoc: dict[str, Any], sau: dict[str, Any]) -> list[str]:
     """Các dòng "Nhãn cũ → mới", chỉ cho trường THỰC SỰ đổi."""
     dong: list[str] = []
     for truong, moi in sau.items():
         cu = truoc.get(truong)
-        if cu == moi:
+        if not _khac(cu, moi):
             continue
-        # 100 (int) vs 100.00 (Decimal) là CÙNG một giá trị — so thô sẽ đẻ ra thay đổi ma.
-        # `bool` PHẢI loại trước: trong Python nó là con của `int`, mà Decimal("True") thì nổ.
-        if _la_so(cu) and _la_so(moi) and Decimal(str(cu)) == Decimal(str(moi)):
-            continue
-        # Trống → vẫn trống (chỉ khác cách lưu) thì KHÔNG phải thay đổi của người dùng.
-        if _rong(cu) and _rong(moi):
+        nhan = NHAN.get(truong, truong)
+        # Ô JSON (`fields_theo_loai`) nhét NHIỀU nhóm rời nhau vào MỘT cột. So nguyên cục thì sửa
+        # một khoản chuẩn bị cũng lôi cả lịch bảo trì ra in hai lần, hai vế giống hệt nhau — dòng
+        # nhật ký dài cả màn hình mà không chỉ ra được cái gì vừa đổi. So TỪNG khoá con, chỉ in
+        # khoá nào thật sự đổi.
+        if isinstance(cu, dict) or isinstance(moi, dict):
+            d_cu = cu if isinstance(cu, dict) else {}
+            d_moi = moi if isinstance(moi, dict) else {}
+            for k in [*d_moi, *(k for k in d_cu if k not in d_moi)]:
+                if not _khac(d_cu.get(k), d_moi.get(k)):
+                    continue
+                dong.append(
+                    f"{nhan} › {_nhan_con(k)} {_chu(d_cu.get(k))} → {_chu(d_moi.get(k))}")
             continue
         hau = _hau_to(truong, sau)
-        nhan = NHAN.get(truong, truong)
         dong.append(f"{nhan} {_chu(cu)} → {_chu(moi)}{(' ' + hau) if hau else ''}")
     return dong
 

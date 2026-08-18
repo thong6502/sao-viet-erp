@@ -52,8 +52,14 @@ def _luon_lam(monkeypatch):
     )
 
 
-def _cats(res, cat):
-    return [it for it in res["items"] if it["category"] == cat]
+def _bo_do(res, tien_to):
+    """Lọc theo TIỀN TỐ `issue_key` = đúng một bộ dò.
+
+    Không lọc theo `category`: từ 18/08/2026 loại đã gom còn 6 cho người đọc (`may` trùm cả
+    trùng-giờ · đè-khoá · quá-tải · không-kham-khổ), nên lọc theo loại là kiểm chung bốn bộ dò
+    một lượt — test hết chỉ được đúng cái nó muốn chỉ.
+    """
+    return [it for it in res["items"] if it["issue_key"].split(":", 1)[0].startswith(tien_to)]
 
 
 # --- Cửa CHẶN PHÁT HÀNH khi thiếu vật tư (17/08/2026) -------------------------
@@ -138,7 +144,7 @@ def test_de_khoa_may_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, custom
                          tu=datetime(2026, 7, 27, 8, 30, tzinfo=timezone.utc),
                          den=datetime(2026, 7, 27, 8, 45, tzinfo=timezone.utc),
                          ly_do="bao_tri", note=None, actor=admin)
-    des = _cats(vd_svc.liet_ke(), "de_khoa_may")
+    des = _bo_do(vd_svc.liet_ke(), "de_khoa_may")
     assert len(des) == 1 and des[0]["severity"] == "chan"
     assert dong.id in des[0]["impacts"]["dong_ids"]
 
@@ -162,7 +168,7 @@ def test_sai_tien_nhiem_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, cus
                "start_at": datetime(2026, 7, 28, 9, 0, tzinfo=timezone.utc)}, actor=admin)
     xl_svc.gan(dong_id=dan_dong.id, patch={"department_id": step.department_id,
                "start_at": datetime(2026, 7, 28, 8, 0, tzinfo=timezone.utc)}, actor=admin)
-    sai = _cats(vd_svc.liet_ke(), "sai_tien_nhiem")
+    sai = _bo_do(vd_svc.liet_ke(), "sai_tien_nhiem")
     assert any(dan_dong.id in it["impacts"]["dong_ids"] for it in sai)
     assert all(it["severity"] == "chan" for it in sai)
 
@@ -205,7 +211,7 @@ def test_khong_con_detector_gang_thieu_xa_to(db, orders, lsx_svc, bg_svc, xl_svc
     bg = bg_svc.tao(lsx_ids=[a.id, b.id], actor=admin)
     bg = _gop_in_va_san_sang(db, bg_svc, bg, admin)
     xl_svc.dua_vao_bai_ghep(bai_ghep_id=bg.id, actor=admin)
-    gang = _cats(vd_svc.liet_ke(), "gang_thieu_xa_to")
+    gang = _bo_do(vd_svc.liet_ke(), "gang_thieu_xa_to")
     assert gang == []
 
 
@@ -233,7 +239,7 @@ def test_phat_hanh_gate_ngoai_le_revert(db, orders, lsx_svc, xl_svc, vd_svc, adm
     # Trùng máy (Chặn) touching cả a lẫn b → a KHÔNG phát hành được.
     with pytest.raises(XepLichConflict):
         vd_svc.phat_hanh_lsx(lsx_id=a.id, actor=admin)
-    tm = _cats(vd_svc.liet_ke(), "trung_may")[0]
+    tm = _bo_do(vd_svc.liet_ke(), "trung_may")[0]
 
     # Duyệt ngoại lệ → hết Chặn → phát hành được (Released).
     vd_svc.ngoai_le(issue_key=tm["issue_key"], ly_do="chấp nhận chạy nối ca", expires_at=None, actor=admin)
@@ -292,8 +298,8 @@ def test_state_lifecycle_technical_no_exception_reopen(db, orders, lsx_svc, xl_s
     xl_svc.gan(dong_id=dong.id, patch={"may_id": nho.id,
                "start_at": datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)}, actor=admin)
 
-    mk = _cats(vd_svc.liet_ke(), "may_khong_kham")[0]
-    assert mk["severity"] == "cao" and mk["trang_thai"] == "moi"
+    mk = _bo_do(vd_svc.liet_ke(), "may_khong_kham")[0]
+    assert mk["severity"] == "luu_y" and mk["trang_thai"] == "moi"
 
     # Vấn đề kỹ thuật (máy không kham) KHÔNG được duyệt ngoại lệ → 409.
     with pytest.raises(XepLichConflict):
@@ -328,14 +334,14 @@ def test_qua_tai_may_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, custom
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
     dong = XepLichRepository(db).by_lsx(lsx.id)[0]
     xl_svc.gan(dong_id=dong.id, patch={"may_id": step.may_id, "start_at": fixed}, actor=admin)
-    qt = _cats(vd_svc.liet_ke(), "qua_tai_may")
-    assert len(qt) == 1 and qt[0]["severity"] == "cao"
+    qt = _bo_do(vd_svc.liet_ke(), "qua_tai_may")
+    assert len(qt) == 1 and qt[0]["severity"] == "luu_y"
     assert step.may_id in qt[0]["impacts"]["may_ids"]
 
     # Dời "hôm nay" ra xa 60 ngày → dòng nằm NGOÀI cửa sổ 7 ngày → hết cảnh báo tải.
     monkeypatch.setattr("app.services.xep_lich_van_de_service._utcnow",
                         lambda: datetime(2026, 9, 30, 8, 0, tzinfo=timezone.utc))
-    assert _cats(vd_svc.liet_ke(), "qua_tai_may") == []
+    assert _bo_do(vd_svc.liet_ke(), "qua_tai_may") == []
 
 
 # --- Detector: hạn LSX sớm hơn lúc bài ghép in xong -------------------------
@@ -352,11 +358,11 @@ def test_han_som_bai_ghep_detector(db, orders, lsx_svc, bg_svc, xl_svc, vd_svc, 
     in_dong = XepLichRepository(db).by_bai_ghep(bg.id)[0]
     xl_svc.gan(dong_id=in_dong.id, patch={"may_id": _in_step(db, a.id).may_id,
                "start_at": datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)}, actor=admin)
-    keys = [it["issue_key"] for it in _cats(vd_svc.liet_ke(), "han_bai_ghep")]
+    keys = [it["issue_key"] for it in _bo_do(vd_svc.liet_ke(), "han_bai_ghep")]
     assert f"han_bai_ghep:{a.id}:{bg.id}" in keys
     assert f"han_bai_ghep:{b.id}:{bg.id}" not in keys
-    only = _cats(vd_svc.liet_ke(), "han_bai_ghep")
-    assert all(it["severity"] == "nghiem_trong" for it in only)
+    only = _bo_do(vd_svc.liet_ke(), "han_bai_ghep")
+    assert all(it["severity"] == "luu_y" for it in only)
 
 
 # --- Detector: thuê ngoài thiếu dữ liệu (Chặn) ------------------------------
@@ -370,7 +376,7 @@ def test_thue_ngoai_thieu_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, c
                        loai_buoc=LB_THUE_NGOAI, bat_buoc=True, so_luong_vao=5000))
     db.commit()
     xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
-    tn = _cats(vd_svc.liet_ke(), "thue_ngoai")
+    tn = _bo_do(vd_svc.liet_ke(), "thue_ngoai")
     assert any(it["issue_key"].startswith("thue_ngoai_thieu") and it["severity"] == "chan" for it in tn)
 
 
@@ -394,7 +400,7 @@ def test_thue_ngoai_tre_detector(db, orders, lsx_svc, xl_svc, vd_svc, admin, cus
     tn_dong = next(d for d in dongs if d.loai_buoc == LB_THUE_NGOAI)
     xl_svc.gan(dong_id=dan.id, patch={"department_id": s.department_id,
                "start_at": datetime(2026, 7, 28, 8, 0, tzinfo=timezone.utc)}, actor=admin)
-    keys = [it["issue_key"] for it in _cats(vd_svc.liet_ke(), "thue_ngoai")]
+    keys = [it["issue_key"] for it in _bo_do(vd_svc.liet_ke(), "thue_ngoai")]
     assert f"thue_ngoai_tre:{tn_dong.id}" in keys           # bước sau (28/7) trước ngày nhận (30/7)
     assert not any(k.startswith("thue_ngoai_thieu") for k in keys)  # đã đủ NCC + ngày
 

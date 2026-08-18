@@ -49,7 +49,7 @@ from ..repositories.ke_hoach_vat_tu_repo import KeHoachVatTuRepository
 from .bien_cong_thuc import quy_cach_bien, quy_cach_bien_bai
 from .bien_cong_thuc import ngu_canh_lenh
 from .thanh_phan_engine import safe_eval
-from .quy_doi_service import _so, bien_trong, doi_theo_quy_cach, don_vi_map
+from .quy_doi_service import _so, bien_trong, cap_map, doi, don_vi_map
 
 # Lệnh ở ba trạng thái này là thứ kế hoạch phải lo giấy: đã chốt kỹ thuật, chỉ còn chờ chạy.
 # `nhap`/`cho_bo_sung` chưa chốt quy cách nên số tờ còn xê dịch — đưa vào bảng là mua theo số sắp đổi.
@@ -173,6 +173,12 @@ class KeHoachVatTuService:
         # ở đây thì dòng vật tư cũ mất đường quy đổi, số về 0 trong im lặng.
         self._dvs = don_vi_map(self.don_vi.all_rows())
         self._cap_rows = list(self.don_vi.cap_rows())
+        # Đồ thị cặp quy đổi dựng SẴN một lần cho cả bảng. Trước 18/08/2026 chỗ này đi qua
+        # `doi_theo_quy_cach`, mà hàm đó gọi `cap_map(...)` — dựng LẠI nguyên đồ thị — ở MỖI dòng.
+        # Bảng cân đối có bao nhiêu dòng thì đồ thị dựng lại bấy nhiêu lần, trong khi bảng cặp là
+        # danh mục dùng chung, không đổi giữa hai dòng. Đo hồ sơ 300 lệnh: 30% thời gian `can_doi`
+        # rơi vào `_quy_doi_dong` mà phần lớn là dựng lại đồ thị này.
+        self._cap = cap_map(self._cap_rows)
         self._tram_cache = None
 
     def _tram(self) -> dict[str, str]:
@@ -262,7 +268,9 @@ class KeHoachVatTuService:
                 so_luong, dvt = float(safe_eval(ct, ctx)), goc
             except (ValueError, ZeroDivisionError) as e:
                 return {"loi": f"Công thức lượng của {obj.ten} không chạy được ({e})."}
-        kq = doi_theo_quy_cach(so_luong, dvt, goc, qc, self._dvs, self._cap_rows)
+        # `doi` thẳng thay cho `doi_theo_quy_cach`: hàm kia chỉ làm thêm đúng hai việc — bỏ `qc`
+        # (đã hết dùng từ 14/08/2026) và dựng `cap_map`, thứ nay đã có sẵn ở `self._cap`.
+        kq = doi(so_luong, dvt, goc, self._dvs, self._cap)
         if "gia_tri" not in kq:
             return {"loi": kq.get("ly_do") or "Không đổi được đơn vị."}
         goc_ten = (self._dvs.get(goc.lower()) or {}).get("ten") or goc
@@ -280,10 +288,7 @@ class KeHoachVatTuService:
 
     def _lenh_trong_pham_vi(self, include_lsx_ids: set[int] | None = None) -> list[Lsx]:
         include = {int(i) for i in (include_lsx_ids or set()) if i}
-        return [
-            l for l in self.lsx_repo.list()
-            if l.trang_thai in TRANG_THAI_TINH or l.id in include
-        ]
+        return self.lsx_repo.cho_mrp(trang_thai=TRANG_THAI_TINH, include_ids=include)
 
     def _bai_trong_pham_vi(self, lenh_ids: set[int]) -> list[BaiGhep]:
         """Bài ghép có ÍT NHẤT MỘT lệnh thành viên đang trong phạm vi.
@@ -365,7 +370,7 @@ class KeHoachVatTuService:
         han = lsx.han_hoan_thanh_sx
         if han is None:
             return None, False, "chua_co_han"
-        tong_phut = sum(_f(self._dur.get(cd.id)) for cd in lsx.cong_doans)
+        tong_phut = self._tong_phut_cua(lsx)
         # Có bước cần máy mà chưa gán ⇒ phần thời gian của nó chưa vào tổng.
         thieu_may = any(
             (cd.loai_buoc or LB_MAY) == LB_MAY and not cd.may_id for cd in lsx.cong_doans
@@ -577,23 +582,57 @@ class KeHoachVatTuService:
     # ---- (a) ----------------------------------------------------------------
 
     def _nap_thoi_luong(self, lenh: list[Lsx]) -> None:
-        """Thời lượng từng bước — chỉ để suy MỐC TẠM cho lệnh chưa xếp. Dùng lại đúng công thức
-        của `lsx_service.thoi_luong_buoc`, không chép lại phép tính."""
-        from .bien_cong_thuc import quy_cach_bien
-        from .lsx_service import LsxService, thoi_luong_buoc
+        """Chuẩn bị NGỮ CẢNH để tính thời lượng bước — KHÔNG tính sẵn cho cả bảng.
 
-        # Nạp LÔ máy của mọi bước trước vòng lặp: tra từng cái là N+1 theo số bước của cả bảng.
-        mays = self.repo.may_theo_ids({cd.may_id for l in lenh for cd in l.cong_doans})
-        # Một service cho cả vòng lặp: nó cache danh mục đơn vị + bảng cặp, dựng mới mỗi bước là
-        # mỗi bước một lượt query.
-        svc = LsxService(self.db, self.lsx_repo, None, None)
-        self._dur: dict[int, float] = {}
-        for l in lenh:
-            qc = quy_cach_bien(l)
-            for cd in l.cong_doans:
-                may = mays.get(cd.may_id)
-                self._dur[cd.id] = thoi_luong_buoc(
-                    cd, may, svc.sl_tinh_cua_buoc(cd, may, qc))["tong_phut"]
+        Thời lượng chỉ phục vụ MỘT việc: suy mốc tạm ở `_moc_tam`, và `_moc_tam` chỉ chạy cho lệnh
+        chưa xếp lịch (`_ngay_can_buoc` trả None) hoặc cho thành viên của bài chưa xếp. Tính sẵn
+        cho mọi bước của mọi lệnh là làm thừa đúng phần lệnh ĐÃ xếp — mà đó lại là phần phình lên
+        theo thời gian, vì `da_phat_hanh` đang là trạng thái cuối nên lệnh in xong vẫn nằm trong
+        phạm vi. Đo 18/08/2026: khoản này chiếm ~30% thời gian `can_doi`.
+
+        Cái đáng nạp lô thì vẫn nạp lô ở đây (máy của mọi bước — tra từng cái là N+1), chỉ hoãn
+        phần TÍNH sang `_tong_phut_cua`. Vẫn dùng lại đúng công thức của `lsx_service`.
+        """
+        from .lsx_service import LsxService
+
+        self._trong_pham_vi = {l.id for l in lenh}
+        self._mays = self.repo.may_theo_ids({cd.may_id for l in lenh for cd in l.cong_doans})
+        # Một service cho cả bảng: nó cache danh mục đơn vị + bảng cặp, dựng mới mỗi bước là mỗi
+        # bước một lượt query.
+        self._svc_dur = LsxService(self.db, self.lsx_repo, None, None)
+        self._tong_phut: dict[int, float] = {}
+        self._qc_cache: dict[int, dict] = {}
+
+    def _qc(self, lsx: Lsx) -> dict:
+        """`quy_cach_bien(lsx)` — NHỚ LẠI theo lệnh. Cùng một lệnh bị hỏi hai lần (một lần để tính
+        thời lượng, một lần để dựng dòng), mà hàm này gom 16 biến từ JSON + 5 cột dẫn xuất."""
+        qc = self._qc_cache.get(lsx.id)
+        if qc is None:
+            qc = self._qc_cache[lsx.id] = quy_cach_bien(lsx)
+        return qc
+
+    def _tong_phut_cua(self, lsx: Lsx) -> float:
+        """Tổng thời lượng MỌI bước của một lệnh — tính lúc cần, nhớ lại theo lệnh."""
+        from .lsx_service import thoi_luong_buoc
+
+        tong = self._tong_phut.get(lsx.id)
+        if tong is not None:
+            return tong
+        if lsx.id not in self._trong_pham_vi:
+            # Lệnh NGOÀI phạm vi vẫn lọt vào đây qua `_dong_bai`: bài được chọn vì có MỘT thành
+            # viên trong phạm vi, nhưng `_moc_tam` chạy cho MỌI thành viên. Bản cũ tra bảng
+            # `_dur` — bảng chỉ chứa bước của lệnh trong phạm vi — nên những lệnh này cộng ra 0.
+            # Giữ nguyên đúng con số đó: đây là lượt tối ưu, không phải lượt đổi cách tính.
+            self._tong_phut[lsx.id] = 0.0
+            return 0.0
+        qc = self._qc(lsx)
+        tong = 0.0
+        for cd in lsx.cong_doans:
+            may = self._mays.get(cd.may_id)
+            tong += _f(thoi_luong_buoc(
+                cd, may, self._svc_dur.sl_tinh_cua_buoc(cd, may, qc))["tong_phut"])
+        self._tong_phut[lsx.id] = tong
+        return tong
 
     def _gom_nhu_cau(self, lenh, lenh_map, bais, thanh_vien) -> tuple[list[dict], list[dict]]:
         tho: list[dict] = []
@@ -717,7 +756,11 @@ class KeHoachVatTuService:
             # Quy cách của CHÍNH lệnh này — nguồn ưu tiên để đổi tờ → kg. Lấy qua `quy_cach_bien`
             # (không phải `quy_cach_json` trần) để công thức quy đổi dùng được cả năm số dẫn xuất
             # nằm ở cột: SL đặt · con/tờ · tờ in · tờ nguyên · tờ sau in.
-            "qc": quy_cach_bien(l),
+            #
+            # `dict(...)` để mỗi dòng giữ bản của riêng nó: `self._qc` nhớ lại theo lệnh, mà một
+            # lệnh có thể sinh nhiều dòng — chia chung một dict là mở đường cho sửa dòng này lây
+            # sang dòng kia.
+            "qc": dict(self._qc(l)),
         }
 
     def _dong_bai(self, bg: BaiGhep, hang, dvt, sl, buoc) -> dict:

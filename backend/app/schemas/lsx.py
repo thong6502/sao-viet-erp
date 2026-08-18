@@ -28,7 +28,9 @@ class HangChoItem(BaseModel):
 
 class HangChoOut(BaseModel):
     items: list[HangChoItem]
-    total: int
+    total: int          # TỔNG số đơn còn nợ lệnh, không phải số dòng của trang
+    page: int = 1
+    size: int = 50
 
 
 # ============================ Preview (lệnh dự kiến) ============================
@@ -356,7 +358,12 @@ class LsxListItem(BaseModel):
 
 class LsxListOut(BaseModel):
     items: list[LsxListItem]
-    total: int
+    total: int          # TỔNG số lệnh khớp lọc, không phải số dòng của trang
+    page: int = 1
+    size: int = 50
+    # Số trên từng tab lọc, đếm ở máy chủ theo cùng bộ lọc TRỪ `trang_thai` (tab đang không được
+    # chọn vẫn khoe số của nó). Khoá `all` = tổng. Không khai ở đây là Pydantic nuốt im lặng.
+    facets: dict[str, int] = {}
 
 
 class LsxOut(BaseModel):
@@ -565,3 +572,36 @@ class LsxActivityItem(BaseModel):
 
 class LsxActivityOut(BaseModel):
     items: list[LsxActivityItem]
+
+
+# --- Hàng đèn tổng quan (Đợt 1 redesign 18/08/2026) ---------------------------
+class DenItem(BaseModel):
+    """Một chấm trên hàng đèn của bảng lệnh.
+
+    `muc` ∈ `do` · `vang` · `ok` — FE **chỉ vẽ chấm cho `do`/`vang`**, `ok` để trống ô.
+    `chu` là câu người dùng đọc được (tooltip + bản đủ chữ ở màn chi tiết).
+    `nhay` = `{man, id}` để bấm chấm là tới thẳng chỗ sửa, không phải tự đi tìm màn.
+    """
+    muc: str
+    chu: str = ""
+    nhay: dict | None = None
+
+
+class LsxDenOut(BaseModel):
+    """Ba thứ bảng lệnh CHƯA nói. Hạn và Định mức cố ý KHÔNG có đèn — cột `Hạn` đã tô màu và cột
+    `CĐ` đã đỏ khi lệnh chưa có công đoạn; đèn thứ tư chỉ nói lại chuyện cột bên cạnh vừa nói."""
+    vat_tu: DenItem
+    may_gio: DenItem
+    nguoi: DenItem
+
+
+class LsxTongQuanItem(BaseModel):
+    lsx_id: int
+    # Độ dư nhỏ nhất giữa các bước đã xếp (ngày làm việc, âm = đang trễ). `None` khi lệnh chưa
+    # vào kế hoạch ⇒ FE lùi về `classHan` đếm ngày lịch như cũ.
+    slack_ngay: int | None = None
+    den: LsxDenOut
+
+
+class LsxTongQuanOut(BaseModel):
+    items: list[LsxTongQuanItem]

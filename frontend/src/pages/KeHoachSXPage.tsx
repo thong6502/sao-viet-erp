@@ -6,11 +6,18 @@
 //
 // Lát này DỪNG ở trạng thái "sẵn sàng": chưa ghép bài, chưa xếp lịch, chưa phát xuống xưởng.
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, api, type HangChoItem, type LsxListItem } from "../api/client";
+import {
+  ApiError,
+  api,
+  type HangChoItem,
+  type LsxListItem,
+  type LsxTongQuanOut,
+} from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan, useScopeOf } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
+import { Pager, trangHopLe } from "../components/Pager";
 import { StatusTabs } from "../components/StatusTabs";
 import { LsxDetailView } from "./LsxDetailView";
 import { LsxPreviewDrawer } from "./LsxPreviewDrawer";
@@ -19,15 +26,21 @@ import { useNapTenDonVi } from "./tenDonVi";
 import {
   BangLoi,
   ChipGap,
+  DenTienDo,
   EmptyState,
   Skeleton,
   TRANG_THAI_TABS,
   TrangThaiPill,
   classHan,
+  classHanLich,
   ngay,
   ngayGio,
   num,
 } from "./keHoachSxShared";
+
+/** Dòng/trang cho CẢ hai bảng của màn. Khớp mặc định `size` của `/api/lsx`; đổi ở đây là
+ *  đổi cả chân trang lẫn tham số gửi lên, không được để hai nơi lệch nhau. */
+const SIZE_TRANG = 50;
 import "./ke-hoach-sx.css";
 
 type View = { mode: "list" } | { mode: "detail"; id: number };
@@ -68,14 +81,32 @@ export function KeHoachSXPage({
   const [ttFilter, setTtFilter] = useState("all");
   const [q, setQ] = useState("");
   const [err, setErr] = useState<string | null>(null);
+  // Phân trang + số trên tab đều do MÁY CHỦ trả. Đếm bằng `lenhs.length` như trước chỉ đúng khi
+  // cả bảng nằm gọn trong một lượt tải — có phân trang là số đó thành số của TRANG, sai ngay.
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [facets, setFacets] = useState<Record<string, number>>({});
+  const [queuePage, setQueuePage] = useState(1);
+  const [queueTotal, setQueueTotal] = useState(0);
+  // Hàng đèn tiến độ (Đợt 1 redesign 18/08/2026) — GỌI RỜI sau bảng lệnh, không nhét vào
+  // `/api/lsx`: endpoint tổng quan chạy engine cân đối vật tư + bộ dò vấn đề, còn bảng lệnh phải
+  // hiện ngay. `denTick` để các hành động khác (tạo lệnh, đổi routing, giữ chỗ) bắt đèn tính lại —
+  // bộ lọc/ô tìm KHÔNG bắt, vì khoá dưới đây chỉ đổi khi TẬP lệnh đổi.
+  const [tq, setTq] = useState<Record<number, LsxTongQuanOut["items"][number]>>({});
+  const [denTick, setDenTick] = useState(0);
 
   const loadQueue = useCallback(() => {
     if (!token) return;
     api.lsx
-      .hangCho(token)
-      .then((r) => setQueue(r.items))
+      .hangCho(token, { page: queuePage, size: SIZE_TRANG })
+      .then((r) => {
+        setQueue(r.items);
+        setQueueTotal(r.total);
+        const ve = trangHopLe(queuePage, r.total, SIZE_TRANG);
+        if (ve) setQueuePage(ve);
+      })
       .catch((e: unknown) => setErr(e instanceof ApiError ? e.message : String(e)));
-  }, [token]);
+  }, [token, queuePage]);
 
   const loadLenhs = useCallback(() => {
     if (!token) return;
@@ -84,16 +115,53 @@ export function KeHoachSXPage({
         order_id: orderFilter?.id,
         trang_thai: ttFilter === "all" ? undefined : ttFilter,
         q: q.trim() || undefined,
+        page,
+        size: SIZE_TRANG,
       })
-      .then((r) => setLenhs(r.items))
+      .then((r) => {
+        setLenhs(r.items);
+        setTotal(r.total);
+        setFacets(r.facets);
+        // Xoá nốt dòng cuối của trang 3 ⇒ còn 2 trang: không kéo về thì màn trắng trơn.
+        const ve = trangHopLe(page, r.total, SIZE_TRANG);
+        if (ve) setPage(ve);
+      })
       .catch((e: unknown) => setErr(e instanceof ApiError ? e.message : String(e)));
-  }, [token, orderFilter, ttFilter, q]);
+  }, [token, orderFilter, ttFilter, q, page]);
+
+  // Đổi bộ lọc thì về trang 1 — giữ nguyên trang cũ là rơi vào vùng trống của kết quả mới.
+  useEffect(() => setPage(1), [ttFilter, q, orderFilter]);
 
   useEffect(() => loadQueue(), [loadQueue, eventTick]);
   useEffect(() => {
     const t = setTimeout(loadLenhs, q ? 250 : 0);   // debounce ô tìm
     return () => clearTimeout(t);
   }, [loadLenhs, eventTick, q]);
+
+  // Lệnh Nháp chưa có gì để nói (chưa chốt routing, chưa giữ chỗ) ⇒ không hỏi đèn cho chúng.
+  const khoaDen = (lenhs ?? [])
+    .filter((l) => l.trang_thai !== "nhap" && l.trang_thai !== "cho_bo_sung")
+    .map((l) => l.id)
+    .join(",");
+  useEffect(() => {
+    if (!token || !khoaDen) {
+      setTq({});
+      return;
+    }
+    let huy = false;
+    api.lsx
+      .tongQuan(token, khoaDen.split(",").map(Number))
+      .then((r) => {
+        if (!huy) setTq(Object.fromEntries(r.items.map((i) => [i.lsx_id, i])));
+      })
+      // Đèn hỏng thì bảng lệnh vẫn phải dùng được — ô đèn để trống, KHÔNG chặn cả màn bằng `err`.
+      .catch(() => {
+        if (!huy) setTq({});
+      });
+    return () => {
+      huy = true;
+    };
+  }, [token, khoaDen, eventTick, denTick]);
 
   // Deep-link từ màn Đơn hàng ("Mở bàn Kế hoạch sản xuất ↗").
   useEffect(() => {
@@ -128,6 +196,9 @@ export function KeHoachSXPage({
   const doiDuLieu = useCallback(() => {
     loadQueue();
     loadLenhs();
+    // Tập lệnh có thể KHÔNG đổi sau một lần sửa routing/giữ chỗ ⇒ `khoaDen` đứng yên ⇒ effect trên
+    // không chạy lại. Tick thẳng để đèn không nói chuyện cũ.
+    setDenTick((n) => n + 1);
     onBadgeStale?.();
   }, [loadQueue, loadLenhs, onBadgeStale]);
 
@@ -145,8 +216,12 @@ export function KeHoachSXPage({
     );
   }
 
+  // Số trên tab lấy từ `facets` của máy chủ, KHÔNG đếm mảng đang hiện. Tab gộp nhiều trạng thái
+  // (Nháp = "nhap,cho_bo_sung") thì cộng các phần.
   const demTheoTt = (key: string) =>
-    key === "all" ? (lenhs?.length ?? 0) : (lenhs ?? []).filter((l) => l.trang_thai === key).length;
+    key === "all"
+      ? (facets.all ?? 0)
+      : key.split(",").reduce((s, k) => s + (facets[k] ?? 0), 0);
 
   return (
     <main className="khsx">
@@ -155,7 +230,7 @@ export function KeHoachSXPage({
         <div className="khsx__headrow">
           <h1 className="khsx__title">Kế hoạch sản xuất</h1>
           <span className="khsx__count">
-            {num(queue?.length ?? 0)} đơn chờ · {num(lenhs?.length ?? 0)} lệnh
+            {num(queueTotal)} đơn chờ · {num(total)} lệnh
           </span>
         </div>
       </header>
@@ -169,9 +244,7 @@ export function KeHoachSXPage({
           onClick={() => setTab("hang-cho")}
         >
           Hàng chờ
-          {(queue?.length ?? 0) > 0 && (
-            <span className="chip-count chip-count--alert">{queue?.length}</span>
-          )}
+          {queueTotal > 0 && <span className="chip-count chip-count--alert">{queueTotal}</span>}
         </button>
         <button
           type="button"
@@ -181,7 +254,7 @@ export function KeHoachSXPage({
           onClick={() => setTab("lenh")}
         >
           Lệnh sản xuất
-          <span className="chip-count">{lenhs?.length ?? 0}</span>
+          <span className="chip-count">{total}</span>
         </button>
       </div>
 
@@ -197,6 +270,9 @@ export function KeHoachSXPage({
           rows={queue}
           scopeAll={scopeOf("san_xuat") === "all"}
           onOpen={(id) => setPreviewOrderId(id)}
+          total={queueTotal}
+          page={queuePage}
+          onPage={setQueuePage}
         />
       ) : (
         <LenhTable
@@ -209,7 +285,14 @@ export function KeHoachSXPage({
           onClearOrderFilter={() => setOrderFilter(null)}
           onOpen={(id) => setView({ mode: "detail", id })}
           onGoQueue={() => setTab("hang-cho")}
+          tq={tq}
+          // Bấm chấm là tới THẲNG chỗ sửa kèm mã lệnh — nhảy sang màn rồi còn phải tự tìm lệnh
+          // trong 200 dòng thì vẫn là đổi màn, chỉ đỡ được nửa việc.
+          onNhay={navigate ? (nhay, ma) => navigate(nhay.man, { focusLsxMa: ma }) : undefined}
           dem={demTheoTt}
+          total={total}
+          page={page}
+          onPage={setPage}
         />
       )}
 
@@ -234,10 +317,17 @@ function QueueTable({
   rows,
   scopeAll,
   onOpen,
+  total,
+  page,
+  onPage,
 }: {
   rows: HangChoItem[] | null;
   scopeAll: boolean;
   onOpen: (orderId: number) => void;
+  /** TỔNG đơn chờ trên máy chủ (≠ `rows.length`, vốn chỉ là trang đang xem). */
+  total: number;
+  page: number;
+  onPage: (p: number) => void;
 }) {
   if (rows !== null && rows.length === 0) {
     return (
@@ -322,6 +412,7 @@ function QueueTable({
           </tbody>
         )}
       </table>
+      <Pager total={total} page={page} size={SIZE_TRANG} onPage={onPage} unit="đơn chờ" />
     </div>
   );
 }
@@ -337,7 +428,12 @@ function LenhTable({
   onClearOrderFilter,
   onOpen,
   onGoQueue,
+  tq,
+  onNhay,
   dem,
+  total,
+  page,
+  onPage,
 }: {
   rows: LsxListItem[] | null;
   ttFilter: string;
@@ -346,8 +442,15 @@ function LenhTable({
   onQ: (v: string) => void;
   orderFilter: { id: number; code: string } | null;
   onClearOrderFilter: () => void;
+  /** TỔNG lệnh khớp bộ lọc trên máy chủ. */
+  total: number;
+  page: number;
+  onPage: (p: number) => void;
   onOpen: (id: number) => void;
   onGoQueue: () => void;
+  /** Đèn theo lsx_id — tải RỜI sau bảng, nên thiếu khoá = chưa có tin, không phải "không sao". */
+  tq: Record<number, LsxTongQuanOut["items"][number]>;
+  onNhay?: (nhay: { man: string; id: number }, ma: string) => void;
   dem: (key: string) => number;
 }) {
   const coLoc = ttFilter !== "all" || q.trim() !== "" || orderFilter != null;
@@ -426,11 +529,12 @@ function LenhTable({
                 <th scope="col" className="khsx-th--num">CĐ</th>
                 <th scope="col" className="khsx__col--opt">Tổ đầu</th>
                 <th scope="col">Hạn</th>
+                <th scope="col">Vướng</th>
                 <th scope="col">Trạng thái</th>
               </tr>
             </thead>
             {rows === null ? (
-              <Skeleton rows={5} cols={9} />
+              <Skeleton rows={5} cols={10} />
             ) : (
               <tbody>
                 {rows.map((l) => (
@@ -474,10 +578,25 @@ function LenhTable({
                     </td>
                     <td className="khsx__col--opt">{l.to_dau_ten ?? "—"}</td>
                     <td>
-                      <div className={`khsx-num ${classHan(l.han_hoan_thanh_sx)}`}>
+                      <div
+                        className={`khsx-num ${classHanLich(tq[l.id]?.slack_ngay, l.han_hoan_thanh_sx)}`}
+                        title={
+                          tq[l.id]?.slack_ngay != null
+                            ? tq[l.id]!.slack_ngay! < 0
+                              ? `Lịch đang vượt hạn ${-tq[l.id]!.slack_ngay!} ngày làm việc`
+                              : `Lịch còn dư ${tq[l.id]!.slack_ngay!} ngày làm việc`
+                            : undefined
+                        }
+                      >
                         SX {ngay(l.han_hoan_thanh_sx)}
                       </div>
                       <div className="khsx__sub">Giao {ngay(l.han_giao_khach)}</div>
+                    </td>
+                    <td>
+                      <DenTienDo
+                        den={tq[l.id]?.den}
+                        onNhay={onNhay ? (nhay) => onNhay(nhay, l.ma) : undefined}
+                      />
                     </td>
                     <td>
                       <TrangThaiPill tt={l.trang_thai} />
@@ -491,7 +610,7 @@ function LenhTable({
       )}
 
       {rows !== null && rows.length > 0 && (
-        <p className="khsx__footnote">{rows.length} lệnh trong bộ lọc hiện tại</p>
+        <Pager total={total} page={page} size={SIZE_TRANG} onPage={onPage} unit="lệnh" />
       )}
     </>
   );

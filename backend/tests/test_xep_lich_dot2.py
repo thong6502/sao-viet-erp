@@ -21,7 +21,7 @@ from app.repositories.audit_repo import AuditLogRepository
 from app.repositories.xep_lich_repo import XepLichRepository
 from app.services.xep_lich_service import XepLichService
 from app.services.xep_lich_van_de_service import (
-    CAT_THIEU_NGUOI, SEV_CANH_BAO, SEV_CHAN, XepLichVanDeService,
+    CAT_NGUOI, SEV_CHAN, SEV_LUU_Y, XepLichVanDeService,
 )
 
 from tests.test_xep_lich_service import (  # noqa: F401 — fixture dùng chung
@@ -56,7 +56,7 @@ def test_thieu_nguoi_la_chan(vd_svc):
     """Bố trí dưới mức tối thiểu = không mở máy được. Khai báo suông thì lịch vẫn hứa xong đúng hạn."""
     out = vd_svc._thieu_nguoi([_dong(loai_buoc="to", so_nhan_cong=1, so_nhan_cong_toi_thieu=3)])
     assert len(out) == 1
-    assert out[0]["category"] == CAT_THIEU_NGUOI
+    assert out[0]["category"] == CAT_NGUOI
     assert out[0]["severity"] == SEV_CHAN
 
 
@@ -75,7 +75,7 @@ def test_bang_can_doi_loi_thi_BAO_chu_khong_im(vd_svc, monkeypatch):
     monkeypatch.setattr(vd_svc, "_can_doi_vat_tu", _no)
     out = vd_svc._thieu_vat_tu([_dong()])
     assert len(out) == 1
-    assert out[0]["severity"] == SEV_CANH_BAO
+    assert out[0]["severity"] == SEV_LUU_Y
     assert "không" in out[0]["title"].lower() or "Không" in out[0]["title"]
 
 

@@ -2246,6 +2246,11 @@ def seed_all(db: Session) -> None:
         # khách + sale + danh mục giấy/công đoạn + tổ SX + tài khoản kế hoạch ở trên.
         from .seed_luong_ban_sx import seed_luong_ban_sx
         seed_luong_ban_sx(db)
+        # Bộ ca của màn Kế hoạch vật tư (xanh/vàng/đỏ/về muộn/không rõ/đã cấp + khối bỏ qua).
+        # CHẠY SAU luồng bán→SX: dùng chung khách + sale + danh mục giấy/vật tư/máy ở trên, và
+        # cần lệnh của luồng kia đã có để bài ghép GB26-0004 quay lại bảng cân đối.
+        from .seed_kh_vat_tu import seed_kh_vat_tu
+        seed_kh_vat_tu(db)
         # Kỹ thuật máy: lịch bảo trì trên máy + phiếu sửa chữa + phiếu bảo trì. CHẠY SAU vì cần
         # danh mục máy (`_ensure_may_nang_luc` ở trên) và vai "Thợ sửa chữa" từ seed RBAC.
         from .seed_ky_thuat_may import seed_ky_thuat_may

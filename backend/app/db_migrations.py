@@ -9180,3 +9180,54 @@ def _migrate_bai_ghep_2_thay_ban_cu(db: Session) -> None:
 
 
 MIGRATIONS.append(("0216_bai_ghep_2_thay_ban_cu", _migrate_bai_ghep_2_thay_ban_cu))
+
+
+def _migrate_index_lsx_phan_trang(db: Session) -> None:
+    """Index cho màn Kế hoạch SX ở quy mô thật (đo trên 98.000 lệnh, 18/08/2026).
+
+    KHÔNG thêm/đổi cột nào — chỉ index, nên `docs/DB_SCHEMA.md` không phải sửa theo.
+    SQLite (test) bỏ qua: `create_all` dựng bảng trắng, vài chục dòng thì index vô nghĩa mà
+    `gin_trgm_ops` cũng không tồn tại.
+
+    `pg_trgm` là extension TRUSTED từ PG13 nên chủ sở hữu DB tạo được (prod là PG16). Vẫn bọc
+    try/except: thiếu quyền thì bỏ 2 index GIN rồi đi tiếp — màn vẫn chạy, chỉ ô tìm chậm.
+    KHÔNG để migration đỏ vì một cái index: deploy chạy `app.migrate` ở container tạm TRƯỚC khi
+    đổi app, migration đỏ là kẹt nguyên lượt deploy.
+    """
+    if db.get_bind().dialect.name != "postgresql":
+        return
+
+    co_trgm = True
+    try:
+        db.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        db.commit()
+    except Exception:
+        db.rollback()
+        co_trgm = False
+        print("[0217] BO QUA 2 index tim kiem: khong tao duoc extension pg_trgm (thieu quyen).")
+
+    lenh = [
+        # Bộ lọc tab + sắp xếp mặc định của màn: WHERE trang_thai IN (…) ORDER BY created_at DESC.
+        "CREATE INDEX IF NOT EXISTS ix_lsx_trang_thai_created_at "
+        "ON lsx (trang_thai, created_at DESC)",
+        # Tab "Tất cả" không lọc gì, chỉ sắp xếp.
+        "CREATE INDEX IF NOT EXISTS ix_lsx_created_at ON lsx (created_at DESC)",
+        # Vế `or_(nguoi_phu_trach_id IN …, created_by IN …)` của bộ lọc phạm vi RBAC.
+        # `nguoi_phu_trach_id` đã có index sẵn; thêm vế này để planner ăn được BitmapOr.
+        "CREATE INDEX IF NOT EXISTS ix_lsx_created_by ON lsx (created_by)",
+        # Hàng chờ: đơn đã chốt + đã chuyển xuống sản xuất, mới nhất trước.
+        "CREATE INDEX IF NOT EXISTS ix_orders_sx_released "
+        "ON orders (status, san_xuat_released_at DESC)",
+    ]
+    if co_trgm:
+        # `ilike %q%` không dùng được B-tree; trigram là cách duy nhất để ô tìm không quét cả bảng.
+        lenh += [
+            "CREATE INDEX IF NOT EXISTS ix_lsx_ma_trgm ON lsx USING gin (ma gin_trgm_ops)",
+            "CREATE INDEX IF NOT EXISTS ix_lsx_ten_trgm ON lsx USING gin (ten gin_trgm_ops)",
+        ]
+    for sql in lenh:
+        db.execute(text(sql))
+    db.commit()
+
+
+MIGRATIONS.append(("0217_index_lsx_phan_trang", _migrate_index_lsx_phan_trang))

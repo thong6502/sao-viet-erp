@@ -518,26 +518,95 @@ function OrderDrawer({
             <>
               {/* ① Thông tin đơn hàng */}
               <Section title="Thông tin đơn hàng">
-                <div className="dhb__kv-grid">
-                  <KV k="Nguồn" v={order.source_type === "bao_gia" ? "Từ báo giá" : "Nhập giá tay"} />
-                  <KV k="Loại" v={order.order_kind === "bo_sung" ? "Đơn bổ sung" : "Đơn mới"} />
-                  <KV k="NV phụ trách" v={order.sale_name ?? "—"} />
-                  <KV k="Ngày tạo" v={<span className="dhb__mono">{fmtDate(order.created_at)}</span>} />
-                  {order.ordered_at && <KV k="Ngày chốt" v={<span className="dhb__mono">{fmtDate(order.ordered_at)}</span>} />}
-                  {/* Luôn hiện thông tin đặt hàng/giao (trống = "—") để đơn đã chốt vẫn xem được đủ. */}
-                  <KV k="Số PO khách" v={order.customer_po_no ? <span className="dhb__mono">{order.customer_po_no}</span> : "—"} />
-                  <KV k="Ngày giao cam kết" v={<span className="dhb__mono">{fmtDate(order.delivery_committed_date)}</span>} />
-                  <KV k="Địa chỉ giao" v={order.delivery_address || "—"} />
-                  <KV
-                    k="Người nhận"
-                    v={[order.delivery_contact_name, order.delivery_contact_phone].filter(Boolean).join(" · ") || "—"}
-                  />
-                  <KV k="Lưu ý giao" v={order.delivery_note || "—"} />
-                  {!(order.status === "ordered" && canUpdate) && (
-                    <KV k="Lưu ý SX" v={order.production_note || "—"} />
-                  )}
-                  <KV k="% cọc" v={<span className="dhb__mono">{order.deposit_pct != null ? `${order.deposit_pct}%` : "—"}</span>} />
+                {/* Nhóm 1: Thông tin đặt hàng & Hợp đồng */}
+                <div className="dhb__info-subgroup">
+                  <div className="dhb__info-subgroup-title">Thông tin đặt hàng</div>
+                  <div className="dhb__kv-inline-grid">
+                    <div className="dhb__kv-inline">
+                      <span className="dhb__kv-inline-key">Nguồn</span>
+                      <span className="dhb__kv-inline-val">{order.source_type === "bao_gia" ? "Từ báo giá" : "Nhập giá tay"}</span>
+                    </div>
+                    <div className="dhb__kv-inline">
+                      <span className="dhb__kv-inline-key">Loại đơn</span>
+                      <span className="dhb__kv-inline-val">{order.order_kind === "bo_sung" ? "Đơn bổ sung" : "Đơn mới"}</span>
+                    </div>
+                    <div className="dhb__kv-inline">
+                      <span className="dhb__kv-inline-key">NV phụ trách</span>
+                      <span className="dhb__kv-inline-val">{order.sale_name ?? "—"}</span>
+                    </div>
+                    <div className="dhb__kv-inline">
+                      <span className="dhb__kv-inline-key">Số PO khách</span>
+                      <span className="dhb__kv-inline-val">{order.customer_po_no ? <span className="dhb__mono">{order.customer_po_no}</span> : "—"}</span>
+                    </div>
+                    <div className="dhb__kv-inline">
+                      <span className="dhb__kv-inline-key">Ngày tạo</span>
+                      <span className="dhb__kv-inline-val dhb__mono">{fmtDate(order.created_at)}</span>
+                    </div>
+                    {order.ordered_at ? (
+                      <div className="dhb__kv-inline">
+                        <span className="dhb__kv-inline-key">Ngày chốt</span>
+                        <span className="dhb__kv-inline-val dhb__mono">{fmtDate(order.ordered_at)}</span>
+                      </div>
+                    ) : (
+                      <div className="dhb__kv-inline">
+                        <span className="dhb__kv-inline-key">% cọc quy định</span>
+                        <span className="dhb__kv-inline-val dhb__mono">{order.deposit_pct != null ? `${order.deposit_pct}%` : "—"}</span>
+                      </div>
+                    )}
+                    {order.ordered_at && (
+                      <div className="dhb__kv-inline">
+                        <span className="dhb__kv-inline-key">% cọc quy định</span>
+                        <span className="dhb__kv-inline-val dhb__mono">{order.deposit_pct != null ? `${order.deposit_pct}%` : "—"}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
+
+                {/* Nhóm 2: Thông tin giao nhận & Người nhận (Full-width card) */}
+                <div className="dhb__info-subgroup">
+                  <div className="dhb__info-subgroup-title">Giao hàng & Người nhận</div>
+                  <div className="dhb__delivery-card">
+                    <div className="dhb__delivery-row">
+                      <Icon name="calendar" size={15} className="dhb__delivery-icon" />
+                      <div className="dhb__delivery-body">
+                        <div className="dhb__delivery-label">Hạn giao cam kết</div>
+                        <div className="dhb__delivery-val dhb__mono" style={{ color: "var(--rust-deep)", fontSize: 13.5 }}>
+                          {fmtDate(order.delivery_committed_date)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="dhb__delivery-row">
+                      <Icon name="users" size={15} className="dhb__delivery-icon" />
+                      <div className="dhb__delivery-body">
+                        <div className="dhb__delivery-label">Người nhận hàng</div>
+                        <div className="dhb__delivery-val">
+                          {[order.delivery_contact_name, order.delivery_contact_phone].filter(Boolean).join(" · ") || "—"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="dhb__delivery-row">
+                      <Icon name="mapPin" size={15} className="dhb__delivery-icon" />
+                      <div className="dhb__delivery-body">
+                        <div className="dhb__delivery-label">Địa chỉ giao hàng</div>
+                        <div className="dhb__delivery-val" style={{ fontWeight: 500 }}>
+                          {order.delivery_address || "—"}
+                        </div>
+                      </div>
+                    </div>
+
+                    {order.delivery_note && (
+                      <div className="dhb__delivery-note">
+                        <div className="dhb__delivery-note-tag">
+                          <Icon name="fileText" size={12} /> Lưu ý cho khâu giao hàng:
+                        </div>
+                        {order.delivery_note}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {editing && (
                   <div style={{ marginTop: 12 }}>
                     <EditForm order={order} onCancel={() => setEditing(false)} onSaved={(d) => { setEditing(false); onSaved(d); }} />
@@ -1225,20 +1294,23 @@ function ProductionHintEditor({ order, onSaved }: { order: OrderDetail; onSaved:
   return (
     <Section title="Lưu ý sản xuất (gửi xưởng)">
       {!open ? (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            {order.is_rush ? <Chip icon="bell" label="GẤP" tone="rush" /> : null}
-            <span style={{ fontSize: 13, color: order.production_note ? "var(--ink)" : "var(--ash)" }}>
-              {order.production_note || "Chưa có lưu ý gửi xưởng"}
-            </span>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8, minWidth: 0, flex: 1 }}>
+            <Icon name="clipboard" size={15} style={{ color: "var(--ash)", marginTop: 2, flexShrink: 0 }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+              {order.is_rush ? <Chip icon="bell" label="GẤP — ƯU TIÊN XƯỞNG" tone="rush" /> : null}
+              <span style={{ fontSize: 13, color: order.production_note ? "var(--ink)" : "var(--ash)", lineHeight: 1.45 }}>
+                {order.production_note || "Chưa có lưu ý gửi xưởng"}
+              </span>
+            </div>
           </div>
           <button
             type="button"
-            className="btn btn--ghost"
-            style={{ padding: "4px 12px", fontSize: 12, flex: "none" }}
+            className="btn btn--secondary"
+            style={{ height: 28, padding: "2px 10px", fontSize: 12, flex: "none" }}
             onClick={() => { setIsRush(order.is_rush); setNote(order.production_note ?? ""); setSaved(false); setOpen(true); }}
           >
-            Sửa
+            <Icon name="pencil" size={12} /> Sửa
           </button>
         </div>
       ) : (

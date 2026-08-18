@@ -204,6 +204,20 @@ class BaiGhepDetailOut(BaseModel):
     trang_thai: str
     giay_id: int | None = None
     giay_ten: str | None = None
+    # Quy cách CẢ TỜ GHÉP — dẫn xuất lúc đọc, không có cột nào cạnh bài. Định lượng + khổ tờ mua
+    # về đọc thẳng danh mục giấy; mực/kẽm là HỢP tập của mọi thành viên (chung tờ = chung bản).
+    gsm: int | None = None
+    kho_nguyen_dai: int | None = None
+    kho_nguyen_rong: int | None = None
+    quy_cach_in: str | None = None
+    #: Các thành viên khai cách in KHÁC nhau → số kẽm dưới đây đếm theo cái đầu tiên.
+    quy_cach_in_lech: bool = False
+    muc_a: list[str] = Field(default_factory=list)
+    muc_b: list[str] = Field(default_factory=list)
+    so_mau_a: int = 0
+    so_mau_b: int = 0
+    so_mau_pha: int = 0
+    so_kem: int = 0
     kho_in_dai: int | None = None
     kho_in_rong: int | None = None
     may_id: int | None = None
@@ -351,6 +365,10 @@ class SoDoBuocChung(BaseModel):
     chay_phut: float | None = None      # dẫn xuất: SL vào × 60 ÷ tốc độ máy × số lượt
     setup_phut: float = 0               # kế thừa từ máy (read-only)
     phat_sinh_phut: float = 0
+    # Bóc tách thời lượng y như bước lệnh (thay giấy · thay kẽm · tra dầu · công thức chạy). Cùng
+    # một `thoi_luong_buoc()` sinh ra, chỉ là trước đây bài ghép vứt đi rồi hiện MỘT dòng tổng —
+    # người xem không kiểm được vì sao ra con số đó.
+    thoi_luong_dien_giai: dict = Field(default_factory=dict)
     #: Chờ kỹ thuật — vào tổng thời gian dẫn, KHÔNG vào chiếm máy (mục B).
     so_luot_chay: int = 1
     # Khoán: phần GHIM (đầu việc đã chọn, ảnh chụp) + danh sách chọn được của TỔ đang gán + phần
@@ -367,6 +385,10 @@ class SoDoBuocChung(BaseModel):
     khoan_thieu: list[str] = Field(default_factory=list)
     khoan_ly_do: str | None = None
     vat_tus: list[dict] = Field(default_factory=list)
+    # Lượng TÍNH SẴN cho mọi vật tư theo lượt chung này — cùng hợp đồng `{vat_tu_id, so_luong,
+    # dien_giai, ly_do}` với bước lệnh. Món chưa tính ra được vẫn có mặt với `so_luong=None` kèm
+    # lý do, để drawer nói được "vì sao trống" thay vì im lặng.
+    vat_tu_goi_y: list[dict] = Field(default_factory=list)
     # Gia công ngoài (DỰ KIẾN) — bước chung thuê ngoài thì cả bài đi MỘT phiếu, MỘT nhà cung cấp.
     sl_gui: float | None = None
     ngay_gui_dk: date | None = None

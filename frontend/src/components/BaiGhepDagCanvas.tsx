@@ -12,9 +12,12 @@ type BuocChung = SoDo["gop"][number];
 export type UngVien = Record<string, { gop_duoc: boolean; ly_do: string | null }>;
 
 const MAU_NHANH = ["#c25e38", "#2563eb", "#059669", "#7c5cbf", "#b7791f", "#be185d"];
-function mau(i: number): string {
+/** Màu của một nhánh theo chỉ số `mau` server gán. EXPORT vì tab Quy cách cũng tô theo lệnh —
+ *  hai nơi tự chọn bảng màu riêng là cùng một lệnh hai màu, nhìn tưởng hai lệnh. */
+export function mauNhanh(i: number): string {
   return MAU_NHANH[i % MAU_NHANH.length];
 }
+const mau = mauNhanh;
 
 interface Point {
   x: number;

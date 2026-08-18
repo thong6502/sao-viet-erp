@@ -749,8 +749,8 @@
 }
 
 .dhb__timeline-dot {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border-radius: var(--r-pill);
   background: var(--paper-contrast);
   border: 2px solid var(--rule-soft);
@@ -760,8 +760,8 @@
   margin-bottom: var(--sp-1);
   color: var(--ash-2);
   transition: all var(--duration-base) var(--easing-standard);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 11.5px;
+  font-weight: 700;
 }
 
 .dhb__timeline-step.is-done .dhb__timeline-dot {
@@ -1130,7 +1130,127 @@
   font-weight: 600;
 }
 
-/* --- 2-Column Key-Value Grid --- */
+/* --- Phân nhóm thông tin Đơn hàng & Giao nhận --- */
+.dhb__info-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.dhb__info-subgroup + .dhb__info-subgroup {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--rule-hair);
+}
+
+.dhb__info-subgroup-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ash-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--sp-1);
+}
+
+/* Lưới Key-Value 2 cột inline, label cố định ~105px, val liền kề */
+.dhb__kv-inline-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px var(--sp-5);
+}
+
+.dhb__kv-inline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.dhb__kv-inline-key {
+  color: var(--ash);
+  font-weight: 500;
+  font-size: 12.5px;
+  flex-shrink: 0;
+  min-width: 105px;
+}
+
+.dhb__kv-inline-val {
+  color: var(--ink);
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+/* Khối Giao nhận Full-width Card */
+.dhb__delivery-card {
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dhb__delivery-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.dhb__delivery-icon {
+  color: var(--ash);
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.dhb__delivery-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dhb__delivery-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ash);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dhb__delivery-val {
+  color: var(--ink);
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.dhb__delivery-note {
+  background: var(--canvas);
+  border: 1px dashed var(--rule-soft);
+  border-radius: var(--r-2);
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: var(--ink);
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+.dhb__delivery-note-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ash);
+  margin-bottom: 3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* --- 2-Column Key-Value Grid (Legacy compatibility) --- */
 .dhb__kv-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

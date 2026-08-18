@@ -69,6 +69,7 @@ export function GiuChoTheoLenhView({
   canDeNghiMua,
   onOpenLsx,
   onSoGiuLau,
+  focusLsxMa,
 }: {
   eventTick?: number;
   /** Bit "tạo yêu cầu mua cho bộ phận" — thiếu thì nút mua tự ẩn, thẻ vẫn xem được. */
@@ -77,11 +78,18 @@ export function GiuChoTheoLenhView({
   /** Báo ngược số lệnh "giữ lâu chưa chạy" lên trang cha để vẽ chip — cha KHÔNG tự gọi lại API
    *  (hai lần gọi là hai con số có thể lệch nhau trong cùng một màn). */
   onSoGiuLau?: (n: number) => void;
+  /** Mã lệnh cần soi (đèn "Vật tư" ở Kế hoạch SX bấm sang) — điền sẵn ô tìm. */
+  focusLsxMa?: string | null;
 }) {
   const { token } = useAuth();
   const [data, setData] = useState<TheoLenhOut | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(focusLsxMa ?? "");
+  // Bấm chấm lần thứ hai với mã khác (màn đã mount) phải đổi ô tìm theo — chỉ đặt giá trị khởi
+  // tạo là lần sau vẫn đứng ở mã cũ.
+  useEffect(() => {
+    if (focusLsxMa) setQ(focusLsxMa);
+  }, [focusLsxMa]);
   const [chiCanLo, setChiCanLo] = useState(false);
   const [chiGiuLau, setChiGiuLau] = useState(false);
   const [dangChay, setDangChay] = useState<string | null>(null);

@@ -11,15 +11,17 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import get_authorization_service, require_permission
+from ..models.lsx import Lsx
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
 from ..realtime import hub
 from ..repositories.audit_repo import AuditLogRepository
+from ..repositories.catalog_base import SIZE_TRAN
 from ..repositories.document_sequence_repo import DocumentSequenceRepository
 from ..repositories.lsx_repo import LsxRepository
 from ..repositories.org_scope import dept_subtree_ids
@@ -33,6 +35,8 @@ from ..schemas.lsx import (
     LsxListOut,
     LsxOut,
     LsxQuyCachIn,
+    LsxTongQuanItem,
+    LsxTongQuanOut,
     LsxUpdateIn,
     PreviewOut,
     KhuonMoiIn,
@@ -43,6 +47,7 @@ from ..schemas.lsx import (
     TinhNguocRow,
     TrangThaiIn,
 )
+from ..services import lsx_tong_quan
 from ..services.actor_display import actor_labels
 from ..services.lsx_service import (
     LsxConflict,
@@ -113,13 +118,15 @@ def hang_cho(
     db: Annotated[Session, Depends(get_db)],
     authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=50, ge=1, le=SIZE_TRAN),
 ) -> HangChoOut:
     """Đơn Sale đã chuyển xuống SX mà còn dòng chưa lên lệnh. Chỉ người có phạm vi TOÀN BỘ (Kế
     hoạch SX) mới thấy — đơn chưa lên lệnh thì chưa thuộc về ai bên sản xuất."""
     if _owner_ids_for_scope(db, user, authz) is not None:
-        return HangChoOut(items=[], total=0)
-    items = _svc(db).hang_cho()
-    return HangChoOut(items=items, total=len(items))
+        return HangChoOut(items=[], total=0, page=page, size=size)
+    items, total = _svc(db).hang_cho(page=page, size=size)
+    return HangChoOut(items=items, total=total, page=page, size=size)
 
 
 # --- Xem trước danh sách lệnh dự kiến ----------------------------------------
@@ -148,7 +155,9 @@ def tao(
     except Exception as exc:
         raise _map(exc)
     ids = [c.id for c in created]
-    rows = [r for r in svc.list_rows(order_id=order_id) if r["id"] in ids]
+    # Trong PHẠM VI MỘT ĐƠN — vài chục dòng là cùng, lấy trọn trần một trang rồi lọc ra dòng vừa tạo.
+    rows, _ = svc.list_rows(order_id=order_id, size=SIZE_TRAN)
+    rows = [r for r in rows if r["id"] in ids]
     # Đơn hàng + hàng chờ nhảy ngay (badge/đếm) — không bắt ai refresh.
     hub.broadcast({"type": "lsx_changed", "order_id": order_id})
     return LsxListOut(items=[LsxListItem.model_validate(r) for r in rows], total=len(rows))
@@ -163,12 +172,60 @@ def list_items(
     order_id: int | None = Query(default=None),
     trang_thai: str | None = Query(default=None),
     q: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    # Trần 200 khớp `repositories/catalog_base.SIZE_TRAN` — chặn client gõ `?size=99999` để kéo
+    # cả bảng về, đúng cái đã làm chết endpoint này ở 100.000 lệnh.
+    size: int = Query(default=50, ge=1, le=SIZE_TRAN),
 ) -> LsxListOut:
-    rows = _svc(db).list_rows(
-        order_id=order_id, trang_thai=trang_thai, q=q,
-        owner_ids=_owner_ids_for_scope(db, user, authz),
+    svc = _svc(db)
+    loc = {
+        "order_id": order_id, "trang_thai": trang_thai, "q": q,
+        "owner_ids": _owner_ids_for_scope(db, user, authz),
+    }
+    rows, total = svc.list_rows(page=page, size=size, **loc)
+    return LsxListOut(
+        items=[LsxListItem.model_validate(r) for r in rows],
+        total=total, page=page, size=size,
+        # Cùng `loc` — số trên tab và số dòng trong bảng luôn nói cùng một chuyện. Bộ lọc
+        # `trang_thai` bị bỏ ở tầng repo, không phải ở đây.
+        facets=svc.dem_trang_thai(**loc),
     )
-    return LsxListOut(items=[LsxListItem.model_validate(r) for r in rows], total=len(rows))
+
+
+# --- Hàng đèn tổng quan -------------------------------------------------------
+@router.get("/tong-quan", response_model=LsxTongQuanOut)
+def tong_quan(
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    ids: str = Query(default="", description="lsx_id ngăn bởi dấu phẩy"),
+) -> LsxTongQuanOut:
+    """Ba đèn (Vật tư · Máy & giờ · Người) cho ĐÚNG các lệnh đang hiện trên bảng.
+
+    ⚠️ PHẢI đứng TRƯỚC `/{lsx_id}`, không thì FastAPI nuốt `tong-quan` thành path param → 422.
+
+    Gọi RỜI sau bảng lệnh, KHÔNG nhét vào `GET /api/lsx`: bên trong chạy engine cân đối vật tư +
+    bộ dò vấn đề cho cả bàn. Đèn nhảy vào sau vài trăm ms thì chấp nhận được, bảng lệnh ngồi chờ
+    engine thì không. Client cũng đừng gọi lại khi chỉ gõ ô tìm — `loadLenhs` chạy lại mỗi 250ms.
+    """
+    wanted = [int(s) for s in (ids or "").replace(" ", "").split(",") if s.isdigit()]
+    if not wanted:
+        return LsxTongQuanOut(items=[])
+    if len(wanted) > SIZE_TRAN:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Tối đa {SIZE_TRAN} lệnh mỗi lượt")
+    # Lọc về đúng lệnh CÓ THẬT và người này được thấy — cùng luật phạm vi với bảng lệnh. Không lọc
+    # thì id rác cũng nhận được đèn đỏ "chưa giữ chỗ vật tư", tức là bịa trạng thái cho lệnh không
+    # tồn tại và rò trạng thái của lệnh ngoài phạm vi.
+    truy = select(Lsx.id).where(Lsx.id.in_(wanted))
+    owner_ids = _owner_ids_for_scope(db, user, authz)
+    if owner_ids is not None:
+        truy = truy.where(or_(Lsx.nguoi_phu_trach_id.in_(owner_ids),
+                              Lsx.created_by.in_(owner_ids)))
+    thay = set(db.execute(truy).scalars())
+    wanted = [i for i in wanted if i in thay]
+    return LsxTongQuanOut(items=[LsxTongQuanItem.model_validate(r)
+                                 for r in lsx_tong_quan.tong_quan(db, wanted)])
 
 
 @router.get("/{lsx_id}", response_model=LsxOut)

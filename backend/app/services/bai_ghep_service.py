@@ -164,6 +164,28 @@ class BaiGhepService:
         ).all()
         return {i: n for i, n in rows}
 
+    def _giay_info(self, giay_id: int | None) -> dict:
+        """Định lượng + khổ tờ mua về của GIẤY CHẠY CHUNG, đọc thẳng danh mục.
+
+        Bài ghép không lưu gsm/khổ nguyên cạnh mình — lưu là đẻ bản thứ hai lệch được với danh
+        mục. `kho_dai = 0` trong danh mục nghĩa là giấy cuộn / khổ mở, nơi gọi để trống chứ không
+        hiện "0 × 0" như một khổ thật.
+        """
+        if not giay_id:
+            return {}
+        row = self.db.execute(
+            select(GiayNguyen.gsm, GiayNguyen.kho_dai, GiayNguyen.kho_rong)
+            .where(GiayNguyen.id == giay_id)
+        ).first()
+        if row is None:
+            return {}
+        gsm, dai, rong = row
+        return {
+            "gsm": int(gsm or 0) or None,
+            "kho_nguyen_dai": int(dai or 0) or None,
+            "kho_nguyen_rong": int(rong or 0) or None,
+        }
+
     def _may_names(self, ids: set[int]) -> dict[int, str]:
         ids = {i for i in ids if i}
         if not ids:
@@ -1553,6 +1575,10 @@ class BaiGhepService:
                 # Chuẩn bị + chạy là SỐ DẪN XUẤT từ máy, không phải cột cũ (đã dormant).
                 "chay_phut": t["chay_phut"],
                 "setup_phut": t["dien_giai"]["setup_phut"],
+                # Cả bảng bóc tách, không chỉ mỗi `setup_phut`: drawer bài ghép nay bày đúng
+                # những dòng bước lệnh bày (thay giấy · thay kẽm · tra dầu · công thức chạy).
+                # Số đã tính rồi, giữ lại không tốn gì.
+                "thoi_luong_dien_giai": t["dien_giai"],
                 "phat_sinh_phut": _f(c.phat_sinh_phut),
                 # Chờ kỹ thuật của lượt chung — trả từ CỘT (thứ người gõ đè được), không qua `t`.
                 "so_luot_chay": c.so_luot_chay,
@@ -1563,6 +1589,12 @@ class BaiGhepService:
                      "so_luong": _f(v.so_luong)}
                     for v in c.vat_tus
                 ],
+                # Lượng tính sẵn cho MỌI vật tư theo lượt chung. Quy cách truyền `{}` giống hệt
+                # khối khoán (`_khoan_chung_dict`) và vì cùng một lý do: tờ ghép không thuộc quy
+                # cách của lệnh nào, nên công thức nào cần biến quy cách sẽ báo tịt qua `ly_do`
+                # thay vì lặng lẽ mượn số của một thành viên bất kỳ. Công thức chỉ ăn `sl_vao`
+                # (mực, màng theo tờ) vẫn ra số bình thường.
+                "vat_tu_goi_y": self._lsx_svc()._goi_y_luong_vat_tu(c, {}),
                 # Gia công ngoài (dự kiến) — bước chung thuê ngoài thì cả bài đi MỘT phiếu.
                 "sl_gui": _f(c.sl_gui) or None, "ngay_gui_dk": c.ngay_gui_dk,
                 "van_chuyen_ngay": _f(c.van_chuyen_ngay) or None,
@@ -1870,12 +1902,31 @@ class BaiGhepService:
                 "han_hoan_thanh_sx": l.han_hoan_thanh_sx if l else None,
             })
 
+        # Quy cách CẢ TỜ GHÉP — dẫn xuất, không lưu cột. Ghép chung một tờ là chung MỘT bộ bản:
+        # mực phải là HỢP tập của mọi thành viên, kẽm đếm trên tập hợp đó (`muc_gop`), nếu không
+        # thì bài CMYK ghép với bìa có Pantone vẫn hiện 4 kẽm trong khi xưởng phải ra 5.
+        qc_bai = self._qc_bai(bg, lsx_map)
+        muc = self.muc_gop(bg, lsx_map)
+        kieu_in = sorted({
+            k for tv in bg.thanh_viens
+            if (k := ((lsx_map[tv.lsx_id].quy_cach_json or {}) if tv.lsx_id in lsx_map else {})
+                .get("quy_cach_in"))
+        })
+
         return {
             "id": bg.id, "ma": bg.ma, "ten": bg.ten,
             "han_hoan_thanh_sx": bg.han_hoan_thanh_sx,
             "is_rush": bool(bg.is_rush), "nguoi_phu_trach_id": bg.nguoi_phu_trach_id,
             "trang_thai": bg.trang_thai,
             "giay_id": bg.giay_id, "giay_ten": giay.get(bg.giay_id),
+            **self._giay_info(bg.giay_id),
+            # Cách in của BÀI = cách in các thành viên đang khai. Nhiều giá trị khác nhau ⇒ số kẽm
+            # bên dưới đếm theo cái đầu tiên, nên gửi kèm cả tập để màn nói ra chỗ lệch.
+            "quy_cach_in": kieu_in[0] if kieu_in else None,
+            "quy_cach_in_lech": len(kieu_in) > 1,
+            "muc_a": qc_bai.get("muc_a") or [], "muc_b": qc_bai.get("muc_b") or [],
+            "so_mau_a": int(muc.get("so_mau_a") or 0), "so_mau_b": int(muc.get("so_mau_b") or 0),
+            "so_mau_pha": int(muc.get("so_mau_pha") or 0), "so_kem": int(muc.get("so_kem") or 0),
             "kho_in_dai": bg.kho_in_dai, "kho_in_rong": bg.kho_in_rong,
             "may_id": bg.may_id, "may_ten": may.get(bg.may_id),
             "hao_hut_setup": bg.hao_hut_setup, "hao_hut_chay": bg.hao_hut_chay,

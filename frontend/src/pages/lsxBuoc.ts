@@ -374,7 +374,24 @@ export interface MayTinhGio {
   chuanBiKhoan?: { ten?: string; phut?: number }[];
 }
 
-export function thoiLuongLive(r: EditRow, may?: MayTinhGio | null): Record<string, unknown> {
+/** Bộ số TỐI THIỂU để tính lại thời lượng. `EditRow` của bước lệnh khớp sẵn; bước chung của bài
+ *  ghép dựng được từ dữ liệu của nó. Nới kiểu ở đây để HAI màn xài CHUNG một công thức, thay vì
+ *  màn bài ghép chép phép tính lần thứ hai (hai bản công thức = hai đường lệch nhau lúc sửa). */
+export type ThoiLuongInput = Pick<
+  EditRow,
+  | "loai_buoc"
+  | "so_luot_chay"
+  | "so_nhan_cong"
+  | "so_nhan_cong_toi_da"
+  | "so_nhan_cong_tieu_chuan"
+  | "nang_suat"
+  | "phat_sinh_phut"
+  | "thoi_luong_dien_giai"
+  | "don_vi_vao"
+  | "so_luong_vao"
+>;
+
+export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Record<string, unknown> {
   const f = (v: string | number | null | undefined): number => {
     const x = Number(v ?? 0);
     return Number.isFinite(x) ? x : 0;

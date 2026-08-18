@@ -851,6 +851,24 @@ class LsxService:
         c = self.db.get(Customer, order.customer_id)
         return c.name if c else None
 
+    def _customer_names(self, ids: set[int]) -> dict[int, str]:
+        """customer_id → tên, MỘT truy vấn cho cả danh sách.
+
+        `_customer_name` ở trên tra từng đơn một; gọi nó trong vòng lặp dựng bảng là N+1 — với
+        100.000 lệnh thì đó là 100.000 lượt `SELECT`. Danh sách/hàng chờ phải dùng hàm này.
+        """
+        if not ids:
+            return {}
+        rows = self.db.execute(select(Customer.id, Customer.name).where(Customer.id.in_(ids))).all()
+        return {i: n for i, n in rows}
+
+    def _user_names(self, ids: set[int]) -> dict[int, str]:
+        """user_id → tên hiển thị, MỘT truy vấn (bản gộp của `_user_name`, xem lý do ở trên)."""
+        if not ids:
+            return {}
+        rows = self.db.execute(select(User.id, User.name, User.username).where(User.id.in_(ids))).all()
+        return {i: (n or u) for i, n, u in rows}
+
     def _user_name(self, user_id: int | None) -> str | None:
         if not user_id:
             return None
@@ -977,24 +995,28 @@ class LsxService:
 
     # ================= HÀNG CHỜ =================
 
-    def hang_cho(self) -> list[dict]:
-        """Đơn Sale đã chuyển xuống SX mà CÒN dòng chưa lên lệnh."""
-        orders = self.repo.orders_ban_giao()
+    def hang_cho(self, *, page: int = 1, size: int = 50) -> tuple[list[dict], int]:
+        """`(đơn của TRANG này, TỔNG số đơn còn nợ lệnh)`.
+
+        Điều kiện "còn dòng chưa lên lệnh" đã chuyển xuống SQL (`repo.orders_ban_giao`) — ở đây
+        chỉ còn đếm để HIỆN "x/y dòng đã lên lệnh".
+        """
+        orders, total = self.repo.orders_ban_giao(page=page, size=size)
         if not orders:
-            return []
+            return [], total
         line_ids = [ln.id for o in orders for ln in o.lines]
         da_co = self.repo.by_order_lines(line_ids)
+        khach = self._customer_names({o.customer_id for o in orders if o.customer_id})
+        nguoi = self._user_names({o.sale_user_id for o in orders if o.sale_user_id})
         out: list[dict] = []
         for o in orders:
             so_dong = len(o.lines)
             so_co = sum(1 for ln in o.lines if ln.id in da_co)
-            if so_dong and so_co >= so_dong:
-                continue  # đã đủ lệnh → rời hàng chờ
             out.append({
                 "order_id": o.id,
                 "order_no": o.order_no,
-                "customer_name": self._customer_name(o),
-                "sale_name": self._user_name(o.sale_user_id),
+                "customer_name": khach.get(o.customer_id),
+                "sale_name": nguoi.get(o.sale_user_id),
                 "delivery_committed_date": o.delivery_committed_date,
                 "is_rush": bool(o.is_rush),
                 "production_note": o.production_note,
@@ -1002,7 +1024,7 @@ class LsxService:
                 "so_dong": so_dong,
                 "so_dong_co_lsx": so_co,
             })
-        return out
+        return out, total
 
     # ================= tính số cho 1 dòng đơn =================
 
@@ -2299,8 +2321,9 @@ class LsxService:
         obj = self.db.get(CongDoan, cd.cong_doan_id) if cd.cong_doan_id else None
         return self._dau_viec_cua_cong_doan(obj, cd.department_id)
 
-    def list_rows(self, **kw) -> list[dict]:
-        rows = self.repo.list(**kw)
+    def list_rows(self, **kw) -> tuple[list[dict], int]:
+        """`(dòng của TRANG này, TỔNG số dòng khớp lọc)`. Nhận thêm `page`/`size` xuống repo."""
+        rows, total = self.repo.list(**kw)
         order_ids = {r.order_id for r in rows}
         orders = {
             o.id: o for o in self.db.execute(select(Order).where(Order.id.in_(order_ids))).scalars()
@@ -2318,6 +2341,7 @@ class LsxService:
         }
         dept_ids = {cd.department_id for r in rows for cd in r.cong_doans if cd.department_id}
         dept_names = self._dept_names(dept_ids)
+        khach_names = self._customer_names({o.customer_id for o in orders.values() if o.customer_id})
         tram = self._tram()          # đọc MỘT lần cho cả danh sách
         out: list[dict] = []
         for r in rows:
@@ -2328,7 +2352,7 @@ class LsxService:
                 "nhom": nhom_by_line.get(r.order_line_id),
                 "order_id": r.order_id,
                 "order_no": o.order_no if o else None,
-                "customer_name": self._customer_name(o) if o else None,
+                "customer_name": khach_names.get(o.customer_id) if o else None,
                 "so_luong_dat": r.so_luong_dat, "don_vi_tinh": r.don_vi_tinh,
                 "so_to_ke_hoach": r.so_to_ke_hoach,
                 "han_giao_khach": r.han_giao_khach, "han_hoan_thanh_sx": r.han_hoan_thanh_sx,
@@ -2339,11 +2363,22 @@ class LsxService:
                 # query nào — đừng đổi sang tra danh mục theo từng dòng, danh sách sẽ thành N+1.
                 "don_vi_to": don_vi_chuoi(r.cong_doans, tram)["to"],
             })
-        return out
+        return out, total
+
+    def dem_trang_thai(self, **kw) -> dict[str, int]:
+        """Số trên TAB lọc — đếm ở máy chủ theo cùng bộ lọc trừ chính `trang_thai`.
+
+        Trước đây màn tự đếm mảng đã tải về. Đếm kiểu đó chỉ đúng khi client cầm TOÀN BỘ dữ liệu;
+        có phân trang rồi thì nó thành số của trang đang xem, tức số SAI.
+        """
+        return self.repo.dem_theo_trang_thai(**kw)
 
     def phu_thuoc_options(self, lsx_id: int) -> list[dict]:
+        from ..repositories.catalog_base import SIZE_TRAN
+
         current = self.get(lsx_id)
-        lsxs = self.repo.list(order_id=current.order_id)
+        # Trong PHẠM VI MỘT ĐƠN — vài chục lệnh là cùng, lấy trọn trần một trang.
+        lsxs, _ = self.repo.list(order_id=current.order_id, size=SIZE_TRAN)
         line_ids = [x.order_line_id for x in lsxs if x.order_line_id]
         groups = {
             x.id: x.nhom for x in self.db.execute(
