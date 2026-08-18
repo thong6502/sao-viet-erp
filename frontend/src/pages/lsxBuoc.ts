@@ -58,8 +58,14 @@ export interface EditRow {
    *  từ máy — số hiển thị lấy từ `thoi_luong_dien_giai` (server tính), không ô nào ghi ngược. */
   phat_sinh_phut: string;
   thoi_luong_dien_giai: Record<string, unknown>;
-  /** Lượng tính sẵn cho mọi vật tư (server tính theo bước) — READ-ONLY, không gửi lên. */
-  vat_tu_goi_y: { vat_tu_id: number; so_luong: number; dien_giai: string | null }[];
+  /** Lượng tính sẵn cho mọi vật tư (server tính theo bước) — READ-ONLY, không gửi lên.
+   *  `so_luong: null` = chưa tính được, `ly_do` nói vì sao và chỉ chỗ khai công thức. */
+  vat_tu_goi_y: {
+    vat_tu_id: number;
+    so_luong: number | null;
+    dien_giai: string | null;
+    ly_do: string | null;
+  }[];
   /** Số tính lại theo danh mục HIỆN TẠI khi lệch số đã lưu — READ-ONLY, không gửi lên. */
   so_luong_vao_moi: number | null;
   so_luong_ra_moi: number | null;

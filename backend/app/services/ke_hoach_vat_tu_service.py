@@ -241,8 +241,12 @@ class KeHoachVatTuService:
             return {"loi": f"“{obj.ten}” chưa chọn đơn vị tính ở danh mục."}
         qc = self._quy_cach_cua(hang[0], obj, qc_lenh)
         # CÔNG THỨC LƯỢNG của chính mặt hàng đi TRƯỚC (mg 0194/0195): nó đã tự nhân số lượng của
-        # lệnh nên ra thẳng TỔNG theo đơn vị gốc — không quy đổi từ `dvt` nữa. Cùng thứ tự với
-        # `LsxService._luong_vat_tu`: riêng (mặt hàng) trước, chung (quy đổi) sau.
+        # lệnh nên ra thẳng TỔNG theo đơn vị gốc — không quy đổi từ `dvt` nữa.
+        #
+        # Ở đây quy đổi vẫn còn (khác `LsxService._luong_vat_tu`, đã bỏ hẳn 18/08/2026) vì hai bên
+        # hỏi hai câu khác nhau: bên kia hỏi "một tờ ăn mấy kg keo" — tuỳ món, phải có công thức;
+        # bên này chỉ đổi ĐƠN VỊ ĐO của cùng một món (kế hoạch nghĩ theo tờ, kho đếm theo ram), là
+        # quan hệ bất biến đúng tầm của cầu quy đổi.
         #
         # ⚠️ CHỈ cho đường NHU CẦU (`tong_lenh=True`). Công thức trả TỔNG của cả lệnh, nên chạy nó ở
         # đường "đã cấp" / "đang về" là VỨT số thật của phiếu kho rồi thay bằng tổng nhu cầu — bảng

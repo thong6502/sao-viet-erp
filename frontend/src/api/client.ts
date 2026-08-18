@@ -1280,8 +1280,14 @@ export interface LsxCongDoan extends LsxThueNgoaiFields, LsxGiaoNhanFields {
   /** Đầu việc chọn được cho bước (theo tổ + công đoạn) — server đã áp luật "ưu tiên dòng khai riêng". */
   khoan_chon_duoc: LsxDauViecOption[];
   /** Lượng TÍNH SẴN cho mọi vật tư theo bước này — chọn món nào ở drawer là điền số ngay.
-   *  Món chưa tính ra được thì KHÔNG có trong mảng ⇒ để ô trống cho người khai, không đoán. */
-  vat_tu_goi_y: { vat_tu_id: number; so_luong: number; dien_giai: string | null }[];
+   *  Món chưa tính ra được vẫn CÓ trong mảng với `so_luong: null` + `ly_do` chỉ chỗ khai công
+   *  thức ⇒ ô để trống cho người khai (không đoán), nhưng người dùng biết vì sao nó trống. */
+  vat_tu_goi_y: {
+    vat_tu_id: number;
+    so_luong: number | null;
+    dien_giai: string | null;
+    ly_do: string | null;
+  }[];
   /** Số ĐÚNG RA phải là theo danh mục HIỆN TẠI, chỉ có khi KHÁC số đã lưu. null = không lệch.
    *  Lệnh là ảnh chụp nên server không tự đè — màn gạch số cũ rồi mời bấm Lưu. */
   so_luong_vao_moi: number | null;
@@ -7970,92 +7976,6 @@ export const api = {
     },
     activity(token: string, id: number): Promise<{ items: LsxActivity[] }> {
       return authed<{ items: LsxActivity[] }>(`/api/lsx/${id}/activity`, token);
-    },
-  },
-
-  // --- Bài ghép (print gang) — gom công đoạn in nhiều LSX chạy chung 1 tờ ----
-  baiGhep: {
-    /** LSX sẵn sàng, có công đoạn in, chưa thuộc bài ghép nào. */
-    hangCho(token: string, params: { giay_id?: number; q?: string } = {}): Promise<HangChoGhepOut> {
-      const qs = new URLSearchParams();
-      if (params.giay_id) qs.set("giay_id", String(params.giay_id));
-      if (params.q) qs.set("q", params.q);
-      const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<HangChoGhepOut>(`/api/bai-ghep/hang-cho${suffix}`, token);
-    },
-    list(token: string): Promise<BaiGhepListOut> {
-      return authed<BaiGhepListOut>("/api/bai-ghep", token);
-    },
-    get(token: string, id: number): Promise<BaiGhepDetail> {
-      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}`, token);
-    },
-    tao(token: string, lsxIds: number[]): Promise<BaiGhepDetail> {
-      return authed<BaiGhepDetail>("/api/bai-ghep", token, {
-        method: "POST", body: JSON.stringify({ lsx_ids: lsxIds }),
-      });
-    },
-    update(token: string, id: number, body: BaiGhepUpdateBody): Promise<BaiGhepDetail> {
-      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}`, token, {
-        method: "PUT", body: JSON.stringify(body),
-      });
-    },
-    themThanhVien(token: string, id: number, lsxIds: number[]): Promise<BaiGhepDetail> {
-      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/thanh-vien`, token, {
-        method: "POST", body: JSON.stringify({ lsx_ids: lsxIds }),
-      });
-    },
-    suaThanhVien(
-      token: string, id: number, tvId: number, soConTrenTo: number,
-    ): Promise<BaiGhepDetail> {
-      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/thanh-vien/${tvId}`, token, {
-        method: "PUT", body: JSON.stringify({ so_con_tren_to: soConTrenTo }),
-      });
-    },
-    soDo(token: string, id: number): Promise<BaiGhepSoDo> {
-      return authed<BaiGhepSoDo>(`/api/bai-ghep/${id}/so-do`, token);
-    },
-
-    // --- Gộp / tách bước chạy chung (cửa ghi của lớp đè) --------------------
-    /** Gộp N bước CÙNG công đoạn ở N lệnh thành một lượt chạy chung. */
-    gop(token: string, id: number, stepKeys: string[]): Promise<BaiGhepDetail> {
-      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/gop`, token, {
-        method: "POST", body: JSON.stringify({ step_keys: stepKeys }),
-      });
-    },
-    /** Tách lượt chung → mỗi lệnh lấy lại bước và số của chính nó (gốc chưa từng bị sửa). */
-    tach(token: string, id: number, gangStepKey: string): Promise<BaiGhepDetail> {
-      return authed<BaiGhepDetail>(
-        `/api/bai-ghep/${id}/gop/${encodeURIComponent(gangStepKey)}`, token, { method: "DELETE" },
-      );
-    },
-    /** Lập kế hoạch cho lượt chung: một tổ, một máy, một kíp, một bộ vật tư. */
-    luuBuocChung(
-      token: string, id: number, gangStepKey: string, body: BaiGhepBuocChungBody,
-    ): Promise<BaiGhepDetail> {
-      return authed<BaiGhepDetail>(
-        `/api/bai-ghep/${id}/gop/${encodeURIComponent(gangStepKey)}`, token,
-        { method: "PUT", body: JSON.stringify(body) },
-      );
-    },
-    /** Đang chọn các bước này thì gộp thêm được bước nào — hỏi TRƯỚC khi cho bấm Gộp. */
-    ungVienGop(token: string, id: number, stepKeys: string[]): Promise<BaiGhepUngVienGop> {
-      return authed<BaiGhepUngVienGop>(`/api/bai-ghep/${id}/ung-vien-gop`, token, {
-        method: "POST", body: JSON.stringify({ step_keys: stepKeys }),
-      });
-    },
-    boThanhVien(token: string, id: number, tvId: number): Promise<BaiGhepDetail> {
-      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/thanh-vien/${tvId}`, token, { method: "DELETE" });
-    },
-    setTrangThai(token: string, id: number, trangThai: BaiGhepTrangThai): Promise<BaiGhepDetail> {
-      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/trang-thai`, token, {
-        method: "POST", body: JSON.stringify({ trang_thai: trangThai }),
-      });
-    },
-    remove(token: string, id: number): Promise<{ ok: boolean }> {
-      return authed<{ ok: boolean }>(`/api/bai-ghep/${id}`, token, { method: "DELETE" });
-    },
-    activity(token: string, id: number): Promise<{ items: LsxActivity[] }> {
-      return authed<{ items: LsxActivity[] }>(`/api/bai-ghep/${id}/activity`, token);
     },
   },
 

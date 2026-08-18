@@ -30,11 +30,12 @@ from app.services.role_service import SCOPELESS_MODULES
 #: `san_xuat` KHÔNG có mặt — `lsx.py` đọc scope thật để thợ chỉ thấy lệnh của mình.
 #: `dm_cong_viec_khoan` (17/08/2026): màn danh mục nên scopeless như 10 màn kia — bảng đơn giá là
 #: dữ liệu GỐC của cả xưởng, không có khái niệm "đơn giá của tôi".
+#: `bai_ghep` (màn cũ) rời danh sách 18/08/2026: mg `0216` chép quyền sang `bai_ghep_2` rồi xoá khoá.
 SCOPELESS_CU = frozenset({
     "dm_loai_san_pham", "dm_thiet_bi", "dm_cong_doan", "dm_cong_viec_khoan", "dm_bu_hao",
     "dm_don_vi", "dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "khuon_be", "dm_kho_hang",
     "ky_thuat_may",
-    "ke_hoach_vat_tu", "bai_ghep", "bai_ghep_2", "xep_lich", "phieu_bao_tri",
+    "ke_hoach_vat_tu", "bai_ghep_2", "xep_lich", "phieu_bao_tri",
 })
 
 #: `nhat_ky_danh_muc.LOAI_MODULE` bản cũ — 17 khoá: 11 tên chính, 3 tên đời cũ

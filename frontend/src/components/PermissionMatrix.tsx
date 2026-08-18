@@ -346,10 +346,10 @@ const MODULE_HINTS: Record<string, string> = {
     "CHỈ màn Kế hoạch sản xuất (hàng chờ → lệnh SX → routing). Xem: mở hộp việc / lệnh trong phạm vi. Chỉnh sửa: tạo lệnh, sửa routing, đánh dấu sẵn sàng. Gán thợ, ghi sản lượng, bàn giao giữa tổ nằm ở quyền chi tiết. Kế hoạch vật tư · Bài ghép · Xếp lịch là ba ô RIÊNG ngay bên dưới — từ 17/08/2026 ô này không còn mở chúng nữa.",
   ke_hoach_vat_tu:
     "Màn Kế hoạch vật tư (bảng cân đối: lệnh nào thiếu gì, hôm nào phải đặt). Xem: đọc bảng cân đối — trong đó có GIÁ vật tư và giá trị phải mua, nên cân nhắc trước khi cấp rộng. Chỉnh sửa: khai/sửa số giữ chỗ cho lệnh. Nút “Đề nghị mua” của dòng thiếu KHÔNG đi theo ô này mà theo quyền tạo yêu cầu mua hàng.",
-  bai_ghep:
-    "Màn Bài ghép (gom công đoạn in của nhiều lệnh chạy chung một tờ). Xem: đọc hàng chờ ghép và các bài đã ghép. Chỉnh sửa: tạo bài, chọn giấy/khổ chung, sửa số con trên tờ, khai hao hụt, đánh dấu sẵn sàng.",
+  // Khoá vẫn mang hậu tố `_2` (đổi khoá trong DB không đáng), nhưng đây là màn Bài ghép DUY NHẤT
+  // từ 18/08/2026 — bản cũ đã gỡ, mg 0216 chép quyền sang.
   bai_ghep_2:
-    "Màn Bài ghép 2 — bản CHẠY THỬ song song với màn Bài ghép, làm cùng việc nhưng siết chặt hơn: hàng chờ chỉ hiện lệnh thật sự ghép được, ruột sách buộc cùng loại giấy, mỗi bài tối thiểu 2 lệnh. Chưa cấp sẵn cho vai nào (kể cả Quản trị) — bật ô này cho ai thì người đó thấy mục “Bài ghép 2” trên thanh bên. Đang nghiệm thu: cấp cho một vài người rồi so với màn cũ, xong mới thay hẳn.",
+    "Màn Bài ghép (gom công đoạn in của nhiều lệnh chạy chung một tờ). Xem: đọc hàng chờ ghép và các bài đã ghép. Chỉnh sửa: tạo bài, chọn giấy/khổ chung, sửa số con trên tờ, khai hao hụt, đánh dấu sẵn sàng.",
   xep_lich:
     "Màn Xếp lịch công đoạn (bảng Gantt theo máy + danh sách Vấn đề). Xem: nhìn lịch cả xưởng. Chỉnh sửa: đưa lệnh vào lịch, gán máy/ca/giờ, kéo-thả dời khe, khóa/gỡ. PHÁT HÀNH lịch và duyệt ngoại lệ nằm ở quyền chi tiết — sửa lịch nháp khác với chốt lịch cho xưởng chạy.",
   ky_thuat_may:
@@ -406,7 +406,7 @@ const MODULE_GROUPS: {
     modules: ["khach_hang", "bao_gia", "don_hang_ban", "tinh_gia_thanh"],
   },
   // MỘT MÀN = MỘT DÒNG, xếp đúng thứ tự menu "Sản xuất" để người cấp quyền dò theo màn hình.
-  // 7 mục menu → 7 dòng; trước 17/08/2026 chỉ có 2, bật đủ 2/2 vẫn không siết được màn nào.
+  // 6 mục menu → 6 dòng; trước 17/08/2026 chỉ có 2, bật đủ 2/2 vẫn không siết được màn nào.
   // Thiếu một khoá ở đây thì nó rơi vào nhóm "Khác" — mà nhóm "Khác" mặc định THU GỌN khi chưa
   // cấp gì (`open = granted > 0`), nên module mới coi như tàng hình: không cấp được ⇒ menu không
   // hiện ⇒ tưởng module chưa dựng. `bai_ghep_2` dính đúng bẫy đó ngày 18/08/2026.
@@ -416,7 +416,6 @@ const MODULE_GROUPS: {
     modules: [
       "san_xuat",
       "ke_hoach_vat_tu",
-      "bai_ghep",
       "bai_ghep_2",
       "xep_lich",
       "ky_thuat_may",
@@ -584,7 +583,6 @@ const PHAM_VI_CHO_PHEP: Record<string, Scope[]> = {
   // (ép `all` lúc lưu) nhưng ở nhóm Sản xuất — nhóm này có cột Phạm vi thật vì `san_xuat` dùng
   // (`lsx.py` lọc lệnh theo scope), nên không bỏ cột đi được. Khoá về một lựa chọn để ô hiện mờ.
   ke_hoach_vat_tu: ["all"],
-  bai_ghep: ["all"],
   bai_ghep_2: ["all"],
   xep_lich: ["all"],
   phieu_bao_tri: ["all"],

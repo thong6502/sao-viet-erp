@@ -9123,3 +9123,60 @@ def _migrate_go_cong_thuc_cua_don_vi(db: Session) -> None:
 
 
 MIGRATIONS.append(("0215_go_cong_thuc_cua_don_vi", _migrate_go_cong_thuc_cua_don_vi))
+
+
+def _migrate_bai_ghep_2_thay_ban_cu(db: Session) -> None:
+    """Bài ghép 2 thay hẳn màn Bài ghép cũ (18/08/2026) — chủ chốt nghiệm thu xong.
+
+    HAI MÀN DÙNG CHUNG BẢNG. Migration này KHÔNG đụng `bai_ghep` / `bai_ghep_thanh_vien` /
+    `bai_ghep_cong_doan` — không một bài ghép nào mất. Chỉ dọn phần RBAC: khoá `bai_ghep` hết
+    người dùng vì router `/api/bai-ghep` bị gỡ cùng đợt.
+
+    Thứ tự bắt buộc: CHÉP xong mới XOÁ. Chép nguyên xi 4 động từ (`read/create/update/delete`) và
+    mọi ô quyền chi tiết — cùng lý do mg `0209`/`0211`: quên bước này thì lần deploy kế tiếp cả
+    xưởng mất màn bài ghép, sáng hôm sau mở lên menu trống.
+
+    `scope` ghi thẳng `all`: `bai_ghep_2` nằm trong `SCOPELESS_MODULES`, không router nào đọc
+    scope của nó. Chép nguyên `own` của một vai thì hôm nay không sao, nhưng ngày có ai bật lọc
+    theo scope là quyền bị bó âm thầm.
+
+    Chốt chặn trước khi xoá: đếm lại: mỗi vai từng có `bai_ghep` PHẢI có `bai_ghep_2`. Lệch một
+    dòng là DỪNG, không xoá — thà migration đỏ còn hơn âm thầm cắt quyền của một tổ.
+
+    Idempotent: chạy lại không đẻ hàng trùng; lượt sau `bai_ghep` đã sạch nên chép/xoá đều 0 dòng.
+    """
+    # Gọi TRƯỚC MỌI LỆNH GHI (xem ghi chú dài ở `_migrate_tach_module_ke_toan`).
+    cols = sorted(_existing_columns(inspect(db.get_bind()), "role_permissions"))
+
+    chep = [c for c in cols if c not in ("id", "module_key")]
+    chon = ["'all'" if c == "scope" else f"rp.{c}" for c in chep]
+    db.execute(text(
+        f"INSERT INTO role_permissions (module_key, {', '.join(chep)}) "
+        f"SELECT :moi, {', '.join(chon)} FROM role_permissions rp "
+        "WHERE rp.module_key = :cu AND NOT EXISTS ("
+        "  SELECT 1 FROM role_permissions x "
+        "  WHERE x.role_id = rp.role_id AND x.module_key = :moi)"
+    ), {"cu": "bai_ghep", "moi": "bai_ghep_2"})
+
+    thieu = db.execute(text(
+        "SELECT rp.role_id FROM role_permissions rp WHERE rp.module_key = :cu AND NOT EXISTS ("
+        "  SELECT 1 FROM role_permissions x "
+        "  WHERE x.role_id = rp.role_id AND x.module_key = :moi)"
+    ), {"cu": "bai_ghep", "moi": "bai_ghep_2"}).scalars().all()
+    if thieu:
+        db.rollback()
+        raise RuntimeError(
+            "mg 0216: chép quyền bai_ghep → bai_ghep_2 chưa đủ, thiếu role_id "
+            f"{sorted(thieu)}. Không xoá quyền cũ."
+        )
+
+    db.execute(text("DELETE FROM role_permissions WHERE module_key = :k"), {"k": "bai_ghep"})
+    db.execute(text("DELETE FROM modules WHERE key = :k"), {"k": "bai_ghep"})
+    # Nhãn "Bài ghép 2" thành "Bài ghép" — `seed_modules` cũng đồng bộ nhãn, đổi ở đây để DB đúng
+    # ngay cả khi seeder chưa chạy (bản deploy chạy `app.migrate` trong container tạm trước).
+    db.execute(text("UPDATE modules SET label = :l WHERE key = :k"),
+               {"k": "bai_ghep_2", "l": "Bài ghép"})
+    db.commit()
+
+
+MIGRATIONS.append(("0216_bai_ghep_2_thay_ban_cu", _migrate_bai_ghep_2_thay_ban_cu))

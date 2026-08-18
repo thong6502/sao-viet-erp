@@ -89,8 +89,9 @@ const NAV: NavSection[] = [
       // Đứng ngay sau Kế hoạch SX vì nó là bước kế tiếp của cùng một người: lệnh chốt xong thì hỏi
       // "còn thiếu vật tư gì, hôm nào phải đặt".
       { id: "ke-hoach-vat-tu", label: "Kế hoạch vật tư", icon: "box", module: "ke_hoach_vat_tu" },
-      { id: "bai-ghep", label: "Bài ghép", icon: "layers", module: "bai_ghep" },
-      { id: "bai-ghep-2", label: "Bài ghép 2", icon: "layers", module: "bai_ghep_2" },
+      // Màn bài ghép cũ gỡ 18/08/2026. Id đường dẫn giữ `bai-ghep-2` (đổi id là hỏng dấu trang
+      // người dùng đã lưu + bản đồ badge), NHÃN là "Bài ghép" — người dùng chỉ còn một màn.
+      { id: "bai-ghep-2", label: "Bài ghép", icon: "layers", module: "bai_ghep_2" },
       { id: "xep-lich-cong-doan", label: "Xếp lịch công đoạn", icon: "calendar", module: "xep_lich" },
       { id: "sua-chua-may", label: "Sửa chữa máy", icon: "settings", module: "ky_thuat_may" },
       { id: "phieu-bao-tri", label: "Phiếu bảo trì", icon: "clock", module: "phieu_bao_tri" },

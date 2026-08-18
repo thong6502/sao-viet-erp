@@ -30,25 +30,56 @@ def _headers(client) -> dict[str, str]:
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
-def test_api_bg2_co_du_endpoint_tuong_duong_bai_ghep_cu():
-    legacy = _route_contract("/api/bai-ghep")
-    bg2 = _route_contract("/api/bai-ghep-2")
-    assert legacy <= bg2
-    assert ("/{bai_ghep_id}/vat-tu-hieu-luc", "GET") in bg2
-    assert ("/nguoi-phu-trach-options", "GET") in bg2
+#: Hợp đồng HTTP của màn Bài ghép — chép tay để đổi/gỡ route là test đỏ, không im lặng.
+#: Màn cũ `/api/bai-ghep` gỡ 18/08/2026; danh sách này chính là phần màn cũ có, cộng
+#: `vat-tu-hieu-luc` + `nguoi-phu-trach-options` của bản mới.
+CONTRACT_BG2 = {
+    ("/hang-cho", "GET"), ("", "GET"), ("/nguoi-phu-trach-options", "GET"),
+    ("/{bai_ghep_id}", "GET"), ("/{bai_ghep_id}/so-do", "GET"),
+    ("/{bai_ghep_id}/vat-tu-hieu-luc", "GET"),
+    ("", "POST"), ("/{bai_ghep_id}", "PUT"), ("/{bai_ghep_id}", "DELETE"),
+    ("/{bai_ghep_id}/thanh-vien", "POST"),
+    ("/{bai_ghep_id}/thanh-vien/{thanh_vien_id}", "PUT"),
+    ("/{bai_ghep_id}/thanh-vien/{thanh_vien_id}", "DELETE"),
+    ("/{bai_ghep_id}/gop", "POST"),
+    ("/{bai_ghep_id}/gop/{gang_step_key}", "PUT"),
+    ("/{bai_ghep_id}/gop/{gang_step_key}", "DELETE"),
+    ("/{bai_ghep_id}/ung-vien-gop", "POST"), ("/{bai_ghep_id}/trang-thai", "POST"),
+    ("/{bai_ghep_id}/activity", "GET"),
+}
 
 
-def test_module_bg2_scopeless_khong_cap_quyen_mac_dinh_va_router_guard_dung_khoa(client):
+def test_api_bg2_giu_du_hop_dong_va_man_cu_da_go_han():
+    """Màn này là màn Bài ghép DUY NHẤT từ 18/08/2026 — không còn `/api/bai-ghep` để rơi về."""
+    assert _route_contract("/api/bai-ghep-2") == CONTRACT_BG2
+    con_sot = {
+        p for p in (getattr(r, "path", "") for r in app.routes)
+        if p == "/api/bai-ghep" or p.startswith("/api/bai-ghep/")
+    }
+    assert not con_sot, f"router màn cũ còn mount: {sorted(con_sot)}"
+
+
+def test_module_bg2_scopeless_ke_thua_quyen_man_cu_va_router_guard_dung_khoa(client):
     headers = _headers(client)
     db = SessionLocal()
     try:
-        assert db.query(Module).filter(Module.key == "bai_ghep_2").one().label == "Bài ghép 2"
-        assert db.query(RolePermission).filter(RolePermission.module_key == "bai_ghep_2").count() == 0
+        # Nhãn bỏ hậu tố "2" (mg `0216`); khoá giữ `bai_ghep_2` vì quyền trong DB thật neo theo khoá.
+        assert db.query(Module).filter(Module.key == "bai_ghep_2").one().label == "Bài ghép"
+        assert db.query(Module).filter(Module.key == "bai_ghep").count() == 0
+        assert db.query(RolePermission).filter(RolePermission.module_key == "bai_ghep").count() == 0
+        # Vai nào từng có màn cũ thì nay có màn này — seed cấp cho chủ chốt, mg `0216` chép cho DB đang chạy.
+        assert db.query(RolePermission).filter(RolePermission.module_key == "bai_ghep_2").count() > 0
 
+        admin = db.query(User).filter(User.username == "admin").one()
+        RoleRepository(db).set_permission(
+            role_id=admin.role_id,
+            module_key="bai_ghep_2",
+            can_read=False,
+            scope="all",
+        )
         denied = client.get("/api/bai-ghep-2/hang-cho", headers=headers)
         assert denied.status_code == 403
 
-        admin = db.query(User).filter(User.username == "admin").one()
         RoleRepository(db).set_permission(
             role_id=admin.role_id,
             module_key="bai_ghep_2",

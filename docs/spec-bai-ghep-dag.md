@@ -331,8 +331,10 @@ bài để xoá: đó là quyết định nghiệp vụ.
 
 ### 10.4 Quyền và lộ trình thay thế
 
-Module key `bai_ghep_2`, không có scope, **không vai nào được cấp sẵn** — kể cả admin (loại trừ
-tường minh trong `role_templates.py`). Muốn dùng phải cấp tay.
+Module key `bai_ghep_2`, không có scope. Từ 18/08/2026 đây là màn Bài ghép **duy nhất**: nhãn trong
+bảng `modules` là "Bài ghép" (bỏ số 2), khoá vẫn giữ hậu tố `_2` vì quyền trong DB thật neo theo
+khoá — đổi khoá là mồ côi mọi dòng `role_permissions` đã cấp. Vai nào từng có màn cũ thì nay có màn
+này (mg `0216` chép quyền rồi mới xoá khoá cũ; `seed.py`/`role_templates.py` cấp cho các vai chủ chốt).
 
 ⚠️ Module mới phải khai thêm vào `MODULE_GROUPS` của `PermissionMatrix.tsx`. Backend trả dòng ma
 trận cho MỌI module trong bảng `modules`, nhưng khoá chưa map rơi vào nhóm "Khác" — mà nhóm này
@@ -342,6 +344,14 @@ chưa dựng. `bai_ghep_2` dính đúng vậy, vá 18/08/2026 (thêm vào nhóm 
 kèm `PHAM_VI_CHO_PHEP` khoá `["all"]` cho khớp `SCOPELESS_MODULES`).
 
 - **Đợt 1 (xong):** hai module chạy song song, hai quyền riêng.
-- **Đợt 2 (chờ nghiệm thu):** copy quyền `bai_ghep` → `bai_ghep_2`, gỡ module cũ, đổi nhãn.
-  Trước khi xoá `BaiGhepPage.tsx`/`BaiGhepSoDo.tsx` phải rà lại `bai-ghep.css`: file này giờ là tài
-  sản chung, `BaiGhepBuocChungForm` đang nạp nó.
+- **Đợt 2 (xong 18/08/2026, chủ chốt nghiệm thu "thay thế được rồi"):** mg `0216` chép quyền
+  `bai_ghep` → `bai_ghep_2` (guard: thiếu một vai là `rollback` + dừng, KHÔNG xoá quyền cũ), rồi xoá
+  khoá `bai_ghep` khỏi `role_permissions` + `modules` và đổi nhãn. Gỡ kèm: `routers/bai_ghep.py`
+  (prefix `/api/bai-ghep`), 3 màn `BaiGhepPage`/`BaiGhepDetailView`/`BaiGhepSoDo`, `api.baiGhep`,
+  mục menu cũ, khoá `bai_ghep` trong `SCOPELESS_MODULES`/`seed.py`/`role_templates.py`.
+  - **Không mất dữ liệu:** hai màn dùng CHUNG bảng `bai_ghep`/`bai_ghep_thanh_vien`/`bai_ghep_cong_doan`.
+  - **Engine ở lại:** `services/bai_ghep_service.py` + `repositories/bai_ghep_repo.py` + schemas +
+    models là của chung, `bai_ghep_2.py` chạy trên đó — đừng nhầm là code chết.
+  - Hai chỗ phải sửa trước khi xoá được: `_map` (lỗi nghiệp vụ → mã HTTP) vốn `import` NGƯỢC từ
+    router cũ, đã dời hẳn vào `routers/bai_ghep_2.py`; `bai-ghep.css` là tài sản chung nên GIỮ,
+    `BaiGhepBuocChungForm` đang nạp nó.

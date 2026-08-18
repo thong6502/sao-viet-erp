@@ -1095,7 +1095,18 @@ export function LsxBuocDrawer({
                 )}
 
                 <div className="khsx-vattu-list">
-                  {row.vat_tus.map((v, i) => (
+                  {row.vat_tus.map((v, i) => {
+                    // Số máy tính lại theo công thức + quy cách HIỆN TẠI. Lệnh là ảnh chụp nên
+                    // không tự đè số đã lưu — chỉ bày ra để người kế hoạch tự quyết.
+                    const goiY = row.vat_tu_goi_y.find((g) => g.vat_tu_id === v.vat_tu_id);
+                    const soMay = goiY?.so_luong ?? null;
+                    const soLuu = v.so_luong.trim() === "" ? null : Number(v.so_luong);
+                    const lech =
+                      soMay !== null &&
+                      soLuu !== null &&
+                      Number.isFinite(soLuu) &&
+                      Math.abs(soMay - soLuu) > 0.0005;
+                    return (
                     <div className="khsx-vattu-card" key={v.vat_tu_id}>
                       <div className="khsx-vattu-card__info">
                         <span className="khsx-vattu-card__code">{v.vat_tu_ma}</span>
@@ -1145,8 +1156,45 @@ export function LsxBuocDrawer({
                           </button>
                         )}
                       </div>
+
+                      {/* Cách ra số — hiện nguyên văn công thức đã thay số để kiểm bằng mắt,
+                          hoặc nói thẳng vì sao chưa tự tính được và khai ở đâu. */}
+                      <div className="khsx-vattu-card__why">
+                        {goiY?.dien_giai ? (
+                          <code className="khsx-formula-code">{goiY.dien_giai}</code>
+                        ) : (
+                          <span className="khsx-vattu-card__why-warn">
+                            Chưa tự tính được — {goiY?.ly_do ?? "vật tư không còn dùng ở danh mục."}
+                          </span>
+                        )}
+                        {lech && (
+                          <span className="khsx-vattu-card__lech">
+                            Số đang lưu {num(soLuu as number)} ≠ số tính lại{" "}
+                            {num(soMay as number)} {nhanDonVi(v.don_vi)}
+                            {canUpdate && (
+                              <button
+                                type="button"
+                                className="khsx-vattu-fix-btn"
+                                onClick={() =>
+                                  set(
+                                    "vat_tus",
+                                    row.vat_tus.map((x, j) =>
+                                      j === i
+                                        ? { ...x, so_luong: String(soMay), tu_dong: true }
+                                        : x,
+                                    ),
+                                  )
+                                }
+                              >
+                                Dùng số này
+                              </button>
+                            )}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
 
                   {/* Thanh thêm vật tư nhanh */}
                   {canUpdate && vatTuRefs && (
@@ -1166,7 +1214,7 @@ export function LsxBuocDrawer({
                                 vat_tu_ma: item.ma ?? "",
                                 vat_tu_ten: item.ten,
                                 don_vi: item.donVi ?? "",
-                                so_luong: goiY ? String(goiY.so_luong) : "",
+                                so_luong: goiY?.so_luong != null ? String(goiY.so_luong) : "",
                                 tu_dong: false,
                               },
                             ]);

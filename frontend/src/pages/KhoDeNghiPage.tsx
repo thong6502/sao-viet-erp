@@ -648,7 +648,7 @@ function RequestDrawer({
     let alive = true;
     void (async () => {
       try {
-        const [ls, bg] = await Promise.all([api.lsx.list(token), api.baiGhep.list(token)]);
+        const [ls, bg] = await Promise.all([api.lsx.list(token), api.baiGhep2.list(token)]);
         if (!alive) return;
         setLenhOptions([
           ...ls.items.map((l) => ({ kind: "lsx" as const, id: l.id, ma: l.ma, ten: l.ten })),

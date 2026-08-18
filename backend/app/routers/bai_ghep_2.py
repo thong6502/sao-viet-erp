@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -23,13 +23,42 @@ from ..schemas.bai_ghep import (
 )
 from ..services.actor_display import actor_labels
 from ..services.bai_ghep_2_service import BaiGhep2Service
+from ..services.bai_ghep_service import (
+    BaiGhepConflict,
+    BaiGhepNotFound,
+    BaiGhepValidationError,
+    BaiGhepVongPhuThuoc,
+)
 from ..services.ke_hoach_vat_tu_service import KeHoachVatTuService
 from ..services.sequence_service import SequenceService
-from .bai_ghep import _map
 from .ke_hoach_vat_tu import get_service as get_material_service
 
 router = APIRouter(prefix="/api/bai-ghep-2", tags=["bai-ghep-2"])
 MODULE = "bai_ghep_2"
+
+
+def _map(exc: Exception) -> HTTPException:
+    """Lỗi nghiệp vụ của engine bài ghép → mã HTTP.
+
+    Trước đây hàm này `import` từ `routers/bai_ghep.py` (màn cũ) — phụ thuộc NGƯỢC, xoá màn cũ là
+    màn này gãy. Dời hẳn về đây ngày 18/08/2026 khi gỡ màn cũ. Engine (`bai_ghep_service`) vẫn
+    dùng chung, chỉ lớp HTTP là của riêng màn này.
+    """
+    if isinstance(exc, BaiGhepNotFound):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    # Vòng phụ thuộc: trả CẢ chu trình lẫn nhân chứng, không chỉ câu chữ — canvas cần đúng cặp
+    # bước mâu thuẫn để tô, chứ hiện mỗi dòng chữ thì người dùng phải tự dò.
+    if isinstance(exc, BaiGhepVongPhuThuoc):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"message": str(exc), "loai": "vong_phu_thuoc",
+                    "nut": exc.nut, "tu_tro": exc.tu_tro, "nhan_chung": exc.nhan_chung},
+        )
+    if isinstance(exc, BaiGhepConflict):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if isinstance(exc, BaiGhepValidationError):
+        return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    raise exc
 
 
 def _svc(db: Session) -> BaiGhep2Service:

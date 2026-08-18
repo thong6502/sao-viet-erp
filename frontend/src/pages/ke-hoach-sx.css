@@ -2620,6 +2620,7 @@ td.khsx-num > .khsx-unit {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;                  /* hàng 2 = cách ra số, tự xuống nhờ __why chiếm 100% */
   gap: 12px;
   padding: 10px 14px;
   border: 1px solid var(--rule-soft, #e2e8f0);
@@ -2672,6 +2673,47 @@ td.khsx-num > .khsx-unit {
   color: #0f766e;
   background: #ecfdf5;
   border-color: #d1fae5;
+}
+/* Hàng 2: cách ra số. Chiếm trọn bề ngang để tự rớt xuống dưới hàng nhập liệu. */
+.khsx-vattu-card__why {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: -2px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--rule-soft, #e2e8f0);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.khsx-vattu-card__why-warn {
+  color: #92400e;
+}
+.khsx-vattu-card__lech {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  color: #9a3412;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  font-variant-numeric: tabular-nums;
+}
+.khsx-vattu-fix-btn {
+  border: 1px solid #fdba74;
+  background: #ffffff;
+  color: #9a3412;
+  font: inherit;
+  font-weight: 600;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+.khsx-vattu-fix-btn:hover {
+  background: #ffedd5;
 }
 .khsx-vattu-card__actions {
   display: flex;

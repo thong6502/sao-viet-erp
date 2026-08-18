@@ -57,7 +57,6 @@ from .routers import (
     tinh_gia,
     phieu_tinh_gia,
     lsx,
-    bai_ghep,
     bai_ghep_2,
     xep_lich,
     ke_hoach_vat_tu,
@@ -181,7 +180,9 @@ app.include_router(danh_muc_xoa.router)       # "còn ai dùng không" — chung
 app.include_router(tinh_gia.router)
 app.include_router(phieu_tinh_gia.router)
 app.include_router(lsx.router)
-app.include_router(bai_ghep.router)
+# Màn Bài ghép cũ gỡ 18/08/2026 (mg 0216) — router `/api/bai-ghep` xoá, chỉ còn bản này. ENGINE
+# (`services/bai_ghep_service.py` + `repositories/bai_ghep_repo.py`) vẫn là của chung, đừng nhầm
+# là code chết: router này chạy trên đó.
 app.include_router(bai_ghep_2.router)
 app.include_router(xep_lich.router)
 app.include_router(ke_hoach_vat_tu.router)   # bảng cân đối vật tư (cùng module quyền `san_xuat`)

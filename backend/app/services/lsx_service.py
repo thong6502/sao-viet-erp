@@ -506,18 +506,15 @@ class LsxService:
         """Vật tư của MỘT đầu việc, kèm số lượng tính cho ĐÚNG bước này — nền BOM.
 
         Danh sách khai ở danh mục (`cong_doan_dau_viec_vat_tu`) chỉ có TÊN; số lượng suy ở đây vì
-        định mức tuỳ quy cách của từng lệnh. Hai đường, theo thứ tự:
+        định mức tuỳ quy cách của từng lệnh. MỘT đường duy nhất: **công thức lượng của chính món
+        hàng** (`vat_tu_in_an.cong_thuc_luong`, mg 0194). Riêng nhất nên đúng nhất: keo và mực cùng
+        đo bằng `kg` mà ăn khác hẳn nhau.
 
-        1. **CÔNG THỨC LƯỢNG của chính món hàng** (`vat_tu_in_an.cong_thuc_luong`, mg 0194) — đường
-           chính. Riêng nhất nên đúng nhất: keo và mực cùng đo bằng `kg` mà ăn khác hẳn nhau.
-        2. Món chưa khai công thức → lùi về quy đổi từ đơn vị của BƯỚC sang đơn vị vật tư
-           (`doi_theo_quy_cach`, đúng cửa tiền khoán đang dùng). Giữ đường này cho vật tư đo bằng
-           đơn vị thường (`cái`, `kg`) mà xưởng đã khai cặp sẵn.
+        Hai đường "trả lời hộ" đã gỡ, cùng một lý do — thứ dùng chung không biết món nào đang hỏi:
+        cách đo của ĐƠN VỊ (`don_vi_do.cong_thuc`, mg `0215`, 17/08/2026) và quy đổi từ đơn vị của
+        BƯỚC sang đơn vị vật tư (BFS trên cầu quy đổi, 18/08/2026 — xem `_luong_vat_tu`).
 
-        Đường "cách đo của ĐƠN VỊ" (`don_vi_do.cong_thuc`, mg 0192) GỠ 17/08/2026 (mg `0215`) — nó
-        trả lời hộ mọi món cùng đơn vị, đúng thứ đường 1 sinh ra để thay.
-
-        KHÔNG ĐOÁN: cả hai đường đều tịt thì bỏ dòng đó ra khỏi kết quả và trả câu lý do — thà người
+        KHÔNG ĐOÁN: chưa khai công thức thì bỏ dòng đó ra khỏi kết quả và trả câu lý do — thà người
         kế hoạch tự thêm còn hơn bung một con số sai trông như thật.
 
         Trả `([], [])` khi chưa đủ ngữ cảnh (gọi từ `dau_viec_options` lúc đổi tổ, chưa có bước).
@@ -526,7 +523,6 @@ class LsxService:
         if not vat_tus or buoc is None:
             return [], []
         sl = _f(getattr(buoc, "so_luong_vao", 0))
-        dv_buoc = getattr(buoc, "don_vi_vao", None)
         if sl <= 0:
             return [], []
         mats = {
@@ -551,8 +547,7 @@ class LsxService:
             if not dvt:
                 canh_bao.append(f"{mat.ten}: chưa chọn đơn vị tính ở danh mục Vật tư khác.")
                 continue
-            so_luong, dien_giai, ly_do = self._luong_vat_tu(
-                dvt, ctx, sl, dv_buoc, quy_cach, mat=mat)
+            so_luong, dien_giai, ly_do = self._luong_vat_tu(dvt, ctx, mat=mat)
             if so_luong is None:
                 canh_bao.append(f"{mat.ten}: {ly_do}")
                 continue
@@ -563,16 +558,20 @@ class LsxService:
         return ra, canh_bao
 
     def _goi_y_luong_vat_tu(self, buoc, quy_cach: dict | None) -> list[dict]:
-        """`[{vat_tu_id, so_luong, dien_giai}]` cho MỌI vật tư đang dùng, tính sẵn theo bước này.
+        """`[{vat_tu_id, so_luong, dien_giai, ly_do}]` cho MỌI vật tư đang dùng, theo bước này.
 
         Vì sao server tính hộ (13/08/2026): người kế hoạch chọn "Keo vào gáy" từ dropdown thì số
-        phải hiện ra NGAY — công thức đã có (ở vật tư hoặc ở đơn vị của nó) và quy cách lệnh cũng
-        có, không việc gì bắt gõ tay. Frontend không tự tính được: nó không có công thức, không có
-        bảng quy đổi, và cũng không nên có — công thức chỉ được có MỘT bản, ở server.
+        phải hiện ra NGAY — công thức đã có ở vật tư và quy cách lệnh cũng có, không việc gì bắt gõ
+        tay. Frontend không tự tính được: nó không có công thức, không có bảng quy đổi, và cũng
+        không nên có — công thức chỉ được có MỘT bản, ở server.
 
-        Vật tư nào chưa tính ra được thì KHÔNG có trong danh sách ⇒ drawer để ô trống cho người
-        khai, đúng luật "không đoán". Danh mục vật tư là bảng nhỏ (đơn vị chục dòng) nên quét hết
-        rẻ hơn hẳn đẻ thêm một endpoint chỉ để hỏi từng món.
+        Món chưa tính ra được vẫn CÓ trong danh sách, `so_luong=None` kèm `ly_do` (18/08/2026):
+        trước đó nó biến mất im lặng, drawer để ô trống mà không ai biết vì sao — người dùng chỉ
+        thấy "chỗ này không tự tính" và đoán là hỏng. Ô vẫn trống để tự gõ, đúng luật "không đoán",
+        nhưng câu lý do chỉ thẳng chỗ khai công thức.
+
+        Danh mục vật tư là bảng nhỏ (đơn vị chục dòng) nên quét hết rẻ hơn hẳn đẻ thêm một endpoint
+        chỉ để hỏi từng món.
         """
         sl = _f(getattr(buoc, "so_luong_vao", 0))
         if sl <= 0:
@@ -581,7 +580,6 @@ class LsxService:
         # Bơm SAU `ngu_canh_lenh` vì hàm đó assert bộ khoá của nó phải khớp `MA_NGU_CANH_PHIEU`.
         ctx = {**ngu_canh_lenh(quy_cach or {}),
                "sl_vao": sl, "sl_ra": _f(getattr(buoc, "so_luong_ra", 0))}
-        dv_buoc = getattr(buoc, "don_vi_vao", None)
         ra: list[dict] = []
         for mat in self.db.execute(
             select(VatTuInAn).where(VatTuInAn.active.is_(True))
@@ -589,12 +587,13 @@ class LsxService:
             dvt = (mat.don_vi_gia or "").strip()
             if not dvt:
                 continue
-            so_luong, dien_giai, _ly_do = self._luong_vat_tu(
-                dvt, ctx, sl, dv_buoc, quy_cach, mat=mat)
-            if so_luong is None:
-                continue
-            ra.append({"vat_tu_id": mat.id, "so_luong": round(so_luong, 3),
-                       "dien_giai": dien_giai})
+            so_luong, dien_giai, ly_do = self._luong_vat_tu(dvt, ctx, mat=mat)
+            ra.append({
+                "vat_tu_id": mat.id,
+                "so_luong": None if so_luong is None else round(so_luong, 3),
+                "dien_giai": dien_giai,
+                "ly_do": ly_do or None,
+            })
         return ra
 
     # `_cach_do` / `_cach_do_lan` GỠ 17/08/2026 cùng cột `don_vi_do.cong_thuc` (mg `0215`).
@@ -603,44 +602,45 @@ class LsxService:
     # (`cong_thuc_luong` của giấy · vật tư · máy · đầu việc khoán, `cong_thuc_san_luong` của công
     # đoạn). Đừng dựng lại: mượn-trong-cụm của hàm cũ là chỗ hai đơn vị cùng cụm tranh nhau trả lời.
 
-    def _luong_vat_tu(self, dvt: str, ctx: dict, sl: float, dv_buoc: str | None,
-                      quy_cach: dict | None, *, mat=None) -> tuple[float | None, str | None, str]:
+    def _luong_vat_tu(self, dvt: str, ctx: dict, *,
+                      mat=None) -> tuple[float | None, str | None, str]:
         """Số lượng một vật tư đo bằng `dvt`. Trả `(số, diễn giải, lý do nếu tịt)`.
 
-        HAI đường, theo đúng thứ tự RIÊNG → CHUNG:
-          1. `vat_tu_in_an.cong_thuc_luong` — công thức của CHÍNH món hàng (mg 0194). Ưu tiên cao
-             nhất vì nó riêng nhất: keo và mực cùng đo bằng `kg` nhưng tiêu hao khác hẳn nhau.
-          2. Quy đổi từ đơn vị của BƯỚC sang đơn vị vật tư — cho vật tư đo bằng đơn vị thường đã
-             khai cặp sẵn.
+        MỘT đường duy nhất: `vat_tu_in_an.cong_thuc_luong` — công thức của CHÍNH món hàng (mg 0194).
 
-        Đường "công thức của ĐƠN VỊ" (`don_vi_do.cong_thuc`) GỠ 17/08/2026 (mg `0215`): nó trả lời
-        hộ mọi món cùng đo bằng `kg`, trong khi keo và mực ăn khác nhau — đúng thứ ô số 1 sinh ra để
-        thay. Món nào đang dựa vào nó thì khai `cong_thuc_luong` của chính nó.
+        Đường "quy đổi từ đơn vị của BƯỚC sang đơn vị vật tư" (BFS trên cầu quy đổi) GỠ 18/08/2026.
+        Cầu quy đổi chỉ được chở quan hệ BẤT BIẾN (`1 ram = 500 tờ`, `1 tấn = 1.000 kg`). Còn "một
+        tờ ăn mấy kg keo / mấy m² màng" thì đổi theo từng món và từng quy cách — hỏi cầu quy đổi câu
+        đó là ép người dùng khai một cạnh sai bản chất, rồi MỌI món cùng đo bằng `kg` lĩnh chung một
+        đáp án. Đúng thứ ô `cong_thuc_luong` sinh ra để thay.
 
-        KHÔNG ĐOÁN: tịt cả hai thì trả lý do, drawer hiện cảnh báo để người kế hoạch tự thêm.
+        KHÔNG có ngoại lệ cho ca "trùng đơn vị" (bước đo `m²`, màng đo `m²`): trùng đơn vị KHÔNG có
+        nghĩa là 1 m² chạy máy ăn đúng 1 m² màng — vẫn còn bù hao, còn phần không phủ. Một luật gọn
+        (mọi món đều phải khai) dễ nhớ hơn hẳn một luật có ngoại lệ mà không ai đoán được lúc nào nó
+        bật. Đo trước khi gỡ: 0/5 dòng vật tư đang sống nhờ đường này.
+
+        KHÔNG ĐOÁN: chưa khai thì trả lý do kèm chỗ khai, drawer để ô trống cho người kế hoạch.
         """
+        ten = getattr(mat, "ten", None) or dvt
+        dv_ten = (self._don_vis().get(dvt.strip().lower()) or {}).get("ten") or dvt
         rieng = (getattr(mat, "cong_thuc_luong", None) or "").strip() if mat is not None else ""
-        if rieng:
-            try:
-                gt = float(safe_eval(rieng, dict(ctx)))
-            except (ValueError, ZeroDivisionError) as e:
-                return None, None, f"công thức lượng của {getattr(mat, 'ten', dvt)} không chạy được ({e})."
-            if gt <= 0:
-                thieu = [b for b in bien_trong(rieng) if _f(ctx.get(b)) <= 0]
-                return None, None, (
-                    f"công thức lượng ra 0 — thiếu {', '.join(thieu)}." if thieu
-                    else "công thức lượng ra 0.")
-            return gt, f"{cong_thuc_chu(rieng)} = {gt:g} {dvt}", ""
-        # Không có công thức riêng → quy đổi từ đơn vị của bước.
-        if not dv_buoc:
+        if not rieng:
             return None, None, (
-                f"{getattr(mat, 'ten', dvt)} chưa khai công thức lượng, và bước chưa có đơn vị "
-                f"để quy đổi.")
-        kq = doi_theo_quy_cach(sl, dv_buoc, dvt, quy_cach or {},
-                               self._don_vis(), self._cap_quy_doi())
-        if "gia_tri" not in kq:
-            return None, None, (kq.get("ly_do") or f"chưa quy đổi được {dv_buoc} → {dvt}.")
-        return float(kq["gia_tri"]), kq.get("dien_giai"), ""
+                f"chưa khai công thức lượng. Mở danh mục Vật tư khác → sửa “{ten}” → điền ô "
+                f"“Công thức lượng” (ra {dv_ten}).")
+        try:
+            gt = float(safe_eval(rieng, dict(ctx)))
+        except (ValueError, ZeroDivisionError) as e:
+            return None, None, f"công thức lượng không chạy được ({e})."
+        if gt <= 0:
+            thieu = [b for b in bien_trong(rieng) if _f(ctx.get(b)) <= 0]
+            return None, None, (
+                f"công thức lượng ra 0 — thiếu {', '.join(thieu)}." if thieu
+                else "công thức lượng ra 0.")
+        # Cùng khuôn diễn giải với `_sl_theo_don_vi`: công thức chữ = thay số = kết quả.
+        the_so = cong_thuc_the_so(rieng, ctx)
+        dau = "" if the_so == _so_vn(gt) else f"{the_so} = "
+        return gt, f"{cong_thuc_chu(rieng)} = {dau}{_so_vn(gt)} {dv_ten}", ""
 
     def _dau_viec_option_dicts(
         self, cd_obj, department_id: int | None, *, buoc=None, quy_cach: dict | None = None

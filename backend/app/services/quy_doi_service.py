@@ -5,12 +5,13 @@ Nguồn chân lý là BẢNG CẶP người dùng khai: "1 tấn = 1.000 kg", "1
 qua kg). Không có khái niệm "nhóm" hay "đơn vị chuẩn" nào cả: hai đơn vị đổi được cho nhau khi và
 chỉ khi có đường cặp nối chúng.
 
-Hệ số của một cặp được phép là **CÔNG THỨC** thay vì con số — quy đổi ĐỘNG. "1 tờ bằng mấy kg"
-không có đáp án chung (tờ 65×86 Ford 70 là 0,039 kg, tờ 79×109 Couché 300 là 0,258 kg) nhưng TÍNH
-ĐƯỢC từ khổ + định lượng, nên nó vẫn là một dòng khai được: `1 tờ = dinh_luong * dai * rong` kg.
-Biến do **NƠI GỌI** bơm vào (`ngu_canh`) chứ danh mục không tự đoán: chỉ nơi gọi mới biết bước này
-đang đếm tờ NGUYÊN (mua giấy) hay tờ IN (chạy máy) — hai thứ khác khổ nên khác cân. Cạnh động
-thiếu biến thì bị LOẠI khỏi đồ thị, và câu trả lời nói rõ thiếu gì.
+🔴 Hệ số CHỈ là con số. Quy đổi ĐỘNG (hệ số là công thức) đã gỡ hết: `don_vi_quy_doi.cong_thuc`
+mg `0198` (14/08/2026), `don_vi_do.cong_thuc` mg `0215` (17/08/2026). Bảng cặp nay chỉ chở quan hệ
+BẤT BIẾN — "1 ram = 500 tờ" đúng ở mọi lệnh, mọi món. Thứ đổi theo từng món/lệnh ("1 tờ bằng mấy
+kg": tờ 65×86 Ford 70 là 0,039 kg, tờ 79×109 Couché 300 là 0,258 kg) thuộc về **công thức lượng của
+chính món/máy/đầu việc** (`cong_thuc_luong`) — hỏi bảng cặp câu đó là để một cạnh trả lời hộ mọi
+món cùng đơn vị. Tham số `quy_cach` còn nằm trong chữ ký vài hàm nhưng đã `del` ngay dòng đầu —
+rút hẳn phải sửa 20 chỗ gọi trên 8 file, để lượt sau.
 
 Mọi kết quả kèm `dien_giai` khoe cách tính (`241 tờ × 0,168 kg/tờ = 40,49 kg`) — người đọc kiểm
 được bằng mắt; thiếu dữ liệu thì nói thiếu gì, KHÔNG đoán.

@@ -3365,11 +3365,14 @@ Vì sao bỏ: cặp-mang-công-thức trả lời câu *"một tờ nặng mấy
 
 | Khai ở đâu | Migration | Dùng khi |
 |---|---|---|
-| `don_vi_do.cong_thuc` (CÁCH ĐO của chính đơn vị) | `0192` | mọi vật tư dùng đơn vị đó, nếu không có công thức riêng |
-| `vat_tu_in_an.cong_thuc_luong` | `0194` | vật tư khai riêng, đè lên cách đo của đơn vị |
+| `vat_tu_in_an.cong_thuc_luong` | `0194` | mọi vật tư khác — **bắt buộc**, không khai thì bước lệnh để trống |
 | `giay_nguyen.cong_thuc_luong` | `0195` + `0197` điền sẵn `dinh_luong * dai_nguyen * rong_nguyen * to_nguyen` | giấy |
 
-Thứ tự đọc (RIÊNG → CHUNG) ở `LsxService._luong_vat_tu`. Điểm khác cốt lõi: công thức cũ là **tỉ lệ cho MỘT đơn vị** rồi nhân với số lượng bước; công thức mới trả thẳng **LƯỢNG của cả lệnh**, nên đường "đã cấp"/"đang về" (số thật của phiếu kho) tuyệt đối không được chạy nó — xem cờ `tong_lenh` ở `ke_hoach_vat_tu_service._ve_goc`.
+(`don_vi_do.cong_thuc` — cách đo treo ở chính ĐƠN VỊ, mg `0192` — GỠ 17/08/2026 ở mg `0215`: nó trả lời hộ mọi món cùng đo bằng `kg`, trong khi keo và mực ăn khác nhau.)
+
+Điểm khác cốt lõi: công thức cũ là **tỉ lệ cho MỘT đơn vị** rồi nhân với số lượng bước; công thức mới trả thẳng **LƯỢNG của cả lệnh**, nên đường "đã cấp"/"đang về" (số thật của phiếu kho) tuyệt đối không được chạy nó — xem cờ `tong_lenh` ở `ke_hoach_vat_tu_service._ve_goc`.
+
+🔴 **`LsxService._luong_vat_tu` nay chỉ còn MỘT đường (18/08/2026): công thức của chính món.** Đường lùi "quy đổi từ đơn vị của BƯỚC sang đơn vị vật tư" (BFS trên bảng cặp) đã bỏ — kể cả khi hai đơn vị TRÙNG nhau. Bảng cặp chỉ chở quan hệ bất biến (`1 ram = 500 tờ`); "một tờ ăn mấy kg keo" đổi theo từng món nên thuộc về công thức của món. Chưa khai ⇒ bước lệnh để ô trống kèm câu chỉ chỗ khai, KHÔNG bịa số. Quy đổi ở `ke_hoach_vat_tu_service` thì GIỮ: bên đó chỉ đổi đơn vị đo của cùng một món (kế hoạch nghĩ theo tờ, kho đếm theo ram).
 
 Thứ phụ thuộc từng mặt hàng ("1 thùng keo = 3 kg" khác "1 thùng mực = ? kg") KHÔNG khai ở đây — chỗ đó là `material.don_vi_phu` + `he_so_quy_doi`.
 

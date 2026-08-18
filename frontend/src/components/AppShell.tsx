@@ -22,7 +22,6 @@ import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
 import { KeHoachSXPage } from "../pages/KeHoachSXPage";
 import { KeHoachVatTuPage } from "../pages/KeHoachVatTuPage";
-import { BaiGhepPage } from "../pages/BaiGhepPage";
 import { BaiGhep2Page } from "../pages/BaiGhep2Page";
 import { XepLichPage } from "../pages/XepLichPage";
 import { SuaChuaMayPage } from "../pages/SuaChuaMayPage";
@@ -363,12 +362,6 @@ export function AppShell() {
         .catch(() => {});
     }
     // Badge Bài ghép = số LSX sẵn sàng đang chờ ghép (pool).
-    if (readable.has("bai_ghep")) {
-      api.baiGhep
-        .hangCho(token)
-        .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep": r.total })))
-        .catch(() => {});
-    }
     if (readable.has("bai_ghep_2")) {
       api.baiGhep2
         .hangCho(token)
@@ -573,12 +566,6 @@ export function AppShell() {
                 pushToast(`🔔 Đơn ${e.code ?? ""} vừa chuyển xuống sản xuất`.trim(), "info");
               }
             })
-            .catch(() => {});
-        }
-        if (readable.has("bai_ghep")) {
-          api.baiGhep
-            .hangCho(token)
-            .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep": r.total })))
             .catch(() => {});
         }
         if (readable.has("bai_ghep_2")) {
@@ -1026,8 +1013,6 @@ export function AppShell() {
         );
       case "ke-hoach-vat-tu":
         return <KeHoachVatTuPage navigate={navigate} eventTick={quoteTick} />;
-      case "bai-ghep":
-        return <BaiGhepPage navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "bai-ghep-2":
         return <BaiGhep2Page navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "xep-lich-cong-doan":

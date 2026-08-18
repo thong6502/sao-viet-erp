@@ -108,29 +108,27 @@ def test_so_do_bai_ghep_ve_routing_day_du_va_mot_cua_ghi() -> None:
     state — mầm lệch. Gộp/tách cũng vậy: sơ đồ chỉ gọi callback, cha mới gọi API và `apply()` kết
     quả, nhờ đó bảng thành viên và sơ đồ cùng nhận số mới trong một nhịp.
     """
-    sd_file = DRAWER.parent / "BaiGhepSoDo.tsx"
-    canvas_file = DRAWER.parents[1] / "components" / "BaiGhepDagCanvas.tsx"
-    sd = sd_file.read_text(encoding="utf-8") + ("\n" + canvas_file.read_text(encoding="utf-8") if canvas_file.exists() else "")
-    detail = (DRAWER.parent / "BaiGhepDetailView.tsx").read_text(encoding="utf-8")
+    # Màn Bài ghép cũ (`BaiGhepPage`/`BaiGhepDetailView`/`BaiGhepSoDo`) gỡ 18/08/2026 — hợp đồng
+    # chuyển sang cặp `BaiGhep2Page` (cha, giữ mọi cửa ghi) + `BaiGhepDagCanvas` (sơ đồ, chỉ vẽ).
+    sd = (DRAWER.parents[1] / "components" / "BaiGhepDagCanvas.tsx").read_text(encoding="utf-8")
+    page = (DRAWER.parent / "BaiGhep2Page.tsx").read_text(encoding="utf-8")
 
     # KHÔNG tự đúc node in chung: ghép bài chung cả CTP/cán/bế, chọn bước nào là việc của người.
     assert "IN CHUNG TỜ" not in sd
     assert "n.buoc.map" in sd                        # vẽ routing đầy đủ của từng lệnh
-    assert "gop_step_key" in sd                      # bước bị đè vẫn còn, chỉ mang thêm dấu
+    assert "gop_duoc" in sd                          # bước bị đè vẫn còn, chỉ mang thêm dấu
     assert "toa_step_key" in sd                      # điểm toả suy từ bước gộp cuối cùng
     assert "bgsd-node--ngoai" in sd                  # tiền nhiệm ngoài bài → node bóng mờ
     assert "onMoLenh" in sd                          # nhánh chỉ đọc, bấm là điều hướng
     # Chọn → gộp → tách, và kiểm vòng hỏi TRƯỚC khi cho bấm.
     assert "onGop" in sd and "onTach" in sd
     assert "onHoiUngVien" in sd
-    # Sơ đồ KHÔNG tự gọi API ghi — chỉ đẩy lên cha.
-    for cua_ghi in ("api.baiGhep.update", "api.baiGhep.gop", "api.baiGhep.tach",
-                    "api.baiGhep.luuBuocChung"):
+    # Sơ đồ KHÔNG tự gọi API ghi — chỉ đẩy lên cha, để bảng thành viên và sơ đồ nhận số mới cùng nhịp.
+    for cua_ghi in ("api.baiGhep2.update", "api.baiGhep2.gop", "api.baiGhep2.tach",
+                    "api.baiGhep2.luuBuocChung"):
         assert cua_ghi not in sd, f"{cua_ghi} phải gọi ở cha, không gọi trong sơ đồ"
-    assert "onSuaThongSoTo" in sd
-    # Sơ đồ Bài ghép nằm trực tiếp trong BaiGhepDetailView (Studio 1 màn hình duy nhất).
-    assert "BaiGhepSoDo" in detail
-    assert "api.baiGhep.gop" in detail and "api.baiGhep.tach" in detail
+        assert cua_ghi in page, f"{cua_ghi} biến mất khỏi màn cha — cửa ghi bị gỡ mất"
+    assert "BaiGhepDagCanvas" in page
 
 
 def test_thue_ngoai_co_so_giao_nhan_va_chi_mot_cua_ghi() -> None:

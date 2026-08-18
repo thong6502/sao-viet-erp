@@ -1012,7 +1012,7 @@ export function XepLichPage({
           }}
           fetchGoiY={fetchGoiY}
           fetchMembers={async () =>
-            token && openRow.bai_ghep_id ? (await api.baiGhep.get(token, openRow.bai_ghep_id)).thanh_vien : []
+            token && openRow.bai_ghep_id ? (await api.baiGhep2.get(token, openRow.bai_ghep_id)).thanh_vien : []
           }
           onChen={moChen}
           chenBusy={chenBusy}
