@@ -273,7 +273,7 @@ export function KhoYeuCauPage({
       <header className="rc__head">
         <div className="rc__headrow">
           <h1 className="rc__title">Phiếu từ yêu cầu</h1>
-          <span className="rc__count">{requests.length} yêu cầu</span>
+          <span className="rc__count">{totalCount} yêu cầu</span>
         </div>
         <p className="rc__sub">Yêu cầu đã duyệt chờ kho cấp, và phiếu nhập/xuất đã lập.</p>
       </header>
