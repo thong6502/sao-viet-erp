@@ -1,4 +1,4 @@
-// Màn "Yêu cầu kho" — người YÊU CẦU (tổ trưởng SX, NV sản xuất, QL sản xuất, NV mua hàng).
+// Màn "Yêu cầu nhập xuất" — người YÊU CẦU (tổ trưởng SX, NV sản xuất, QL sản xuất, NV mua hàng).
 //
 // Ranh giới của màn này là ranh giới QUYỀN: người yêu cầu KHÔNG thấy số tồn, KHÔNG thấy giá,
 // KHÔNG thấy lô, KHÔNG chọn kho. Yêu cầu chỉ nói "xin cái gì, bao nhiêu"; kho nào là quyết định
@@ -217,8 +217,8 @@ export function KhoDeNghiPage({
     <div className="kho-list">
       <header className="rc__head">
         <div className="rc__headrow">
-          <h1 className="rc__title">Yêu cầu kho</h1>
-          <span className="rc__count">{rows.length} yêu cầu</span>
+          <h1 className="rc__title">Yêu cầu nhập xuất</h1>
+          <span className="rc__count">{totalCount} yêu cầu</span>
         </div>
         <p className="rc__sub">
           Xin nhập hoặc lĩnh vật tư. Kho chỉ nhận yêu cầu đã được duyệt.

@@ -6020,6 +6020,8 @@ export interface KhoaSoKyRow {
   den_ngay: string;
   khoa_luc: string | null;
   ten: string | null;
+  /** (Kỳ TOÀN KHO) tên các kho đã MỞ RIÊNG trong kỳ này → hiển thị "Toàn kho — trừ: …". */
+  mien_tru?: string[];
 }
 
 /** Ô chọn vật tư khi lập đề nghị — 4 trường tối thiểu, KHÔNG có giá. */

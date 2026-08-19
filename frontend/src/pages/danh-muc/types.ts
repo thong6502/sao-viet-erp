@@ -53,6 +53,9 @@ export type Row = Record<string, unknown> & { id: number; ma: string; ten: strin
 
 export interface CatalogConfig {
   title: string;
+  /** Tiêu đề H1 RIÊNG khi cần KHÁC `title` — vd menu là "Khai báo kho" nhưng danh từ ở nút/lọc vẫn
+   *  là "kho hàng" ("Thêm kho hàng", "Lọc kho hàng"). Bỏ trống ⇒ H1 dùng luôn `title`. CHỈ đổi H1. */
+  heading?: string;
   /** Một dòng giải thích dưới tiêu đề. Trường NỘI DUNG thuần — KHÔNG được quyết định bố cục.
    *  (Trước 15/08/2026 nó là điều kiện của một biểu thức ba ngôi dựng header: màn nào bỏ trống thì
    *  rơi vào một thanh gộp khác hẳn, khiến Công đoạn + Đơn vị trông như sản phẩm của app khác.)
