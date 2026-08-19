@@ -4,7 +4,7 @@
 // KHÔNG thấy lô, KHÔNG chọn kho. Yêu cầu chỉ nói "xin cái gì, bao nhiêu"; kho nào là quyết định
 // ở BƯỚC LẬP PHIẾU (thủ kho). SIẾT 2026-08-08: mặt hàng phải có sẵn trong danh mục Giấy / Vật
 // tư khác — không còn gõ tên tự do rồi kho gắn mã sau.
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import {
   ApiError,
   api,
@@ -25,14 +25,9 @@ import { DonViChonTheoHang, MaterialCombobox } from "../components/MaterialCombo
 import { PrintSheet } from "../components/PrintSheet";
 import { Select } from "../components/Select";
 import { fmtDate, fmtDateISO } from "../utils/format";
-import { DateFilterHead, LoaiYeuCauChip, RequestStatusBadge, fmtQty, inDateRange, isOverdue, todayISO, useHeaderTitles } from "./khoShared";
+import { DateFilterHead, LoaiYeuCauChip, RequestStatusBadge, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, isOverdue, todayISO, useHeaderTitles } from "./khoShared";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
-
-const PAGE_SIZE = 8;
-// Trần một lần tải: đếm tab + sắp xếp + phân trang đều làm ở FE để số trên tab luôn khớp
-// với bảng. Backend chặn `size` ở 200 nên đây cũng là trần thật của endpoint.
-const FETCH_SIZE = 200;
 
 type TabId = "all" | "dang-cap" | "done" | "khong-thanh";
 
@@ -43,15 +38,6 @@ const TAB_STATUSES: Record<Exclude<TabId, "all">, StockRequestStatus[]> = {
   done: ["done"],
   "khong-thanh": ["rejected", "cancelled"],
 };
-
-/** VỪA CÓ PHẢN HỒI lên đầu: xếp theo `updated_at` (lần đổi gần nhất: tạo/cấp/hoàn tất/hủy) giảm dần
- *  → yêu cầu vừa được duyệt/hủy/cấp nhảy lên trên cùng cho dễ nhận biết, không chìm dưới theo ngày tạo. */
-function sortRequests(a: StockRequest, b: StockRequest): number {
-  const ua = a.updated_at ?? a.created_at;
-  const ub = b.updated_at ?? b.created_at;
-  if (ua !== ub) return ub.localeCompare(ua);
-  return b.ma.localeCompare(a.ma);
-}
 
 export function KhoDeNghiPage({
   eventTick = 0,
@@ -91,6 +77,8 @@ export function KhoDeNghiPage({
   const canRequest = can("kho", "request");
 
   const [rows, setRows] = useState<StockRequest[]>([]);
+  const [totalCount, setTotalCount] = useState(0);         // tổng bản ghi khớp lọc (từ BE)
+  const [counts, setCounts] = useState<Record<string, number>>({}); // số theo trạng thái → badge tab
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -102,6 +90,7 @@ export function KhoDeNghiPage({
   const [reqFrom, setReqFrom] = useState("");
   const [reqTo, setReqTo] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   // null = đóng; "new" = soạn mới; {id} = mở yêu cầu đã có; {seed} = tạo lại từ yêu cầu cũ.
   const [drawer, setDrawer] = useState<
     | null
@@ -129,15 +118,31 @@ export function KhoDeNghiPage({
   const load = useCallback(() => {
     if (!token) return;
     setLoading(true);
-    api.kho.deNghi
-      .list(token, { q: q || null, loai, dieu_chuyen: dieuChuyen, size: FETCH_SIZE })
-      .then((r) => {
+    // BE-paging: tải ĐÚNG trang theo tab + lọc ngày (cần + tạo); đếm số theo trạng thái riêng.
+    // Sắp theo 'updated' (vừa duyệt/cấp/hủy lên đầu) — khớp sortRequests cũ.
+    const filters = {
+      q: q || null,
+      loai,
+      dieu_chuyen: dieuChuyen,
+      ngay_can_tu: dateFrom || null,
+      ngay_can_den: dateTo || null,
+      tao_tu: reqFrom || null,
+      tao_den: reqTo || null,
+    };
+    const tabStatuses = tab === "all" ? undefined : TAB_STATUSES[tab];
+    Promise.all([
+      api.kho.deNghi.list(token, { ...filters, trang_thai: tabStatuses, order: "updated", page, size: pageSize }),
+      api.kho.deNghi.tabCounts(token, filters),
+    ])
+      .then(([r, c]) => {
         setRows(r.items);
+        setTotalCount(r.total);
+        setCounts(c);
         setError(null);
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : "Không tải được danh sách yêu cầu."))
       .finally(() => setLoading(false));
-  }, [token, q, loai, dieuChuyen]);
+  }, [token, q, loai, dieuChuyen, dateFrom, dateTo, reqFrom, reqTo, tab, page, pageSize]);
 
   // Gõ tìm → chờ 300ms rồi mới gọi (mỗi lần gọi backend phải tính đèn tồn cho từng dòng).
   useEffect(() => {
@@ -181,31 +186,21 @@ export function KhoDeNghiPage({
     }
   }
 
+  // Số trên tab = CỘNG số theo trạng thái (BE trả `counts`); tab "Tất cả" = tổng mọi trạng thái.
   function countOf(id: TabId): number {
-    if (id === "all") return rows.length;
-    return rows.filter((r) => TAB_STATUSES[id].includes(r.trang_thai)).length;
+    if (id === "all") return Object.values(counts).reduce((s, n) => s + n, 0);
+    return TAB_STATUSES[id].reduce((s, st) => s + (counts[st] ?? 0), 0);
   }
 
-  const filtered = useMemo(() => {
-    const base =
-      tab === "all" ? rows : rows.filter((r) => TAB_STATUSES[tab].includes(r.trang_thai));
-    // Lọc theo phễu 2 cột ngày. `inDateRange` rỗng cả hai đầu = không lọc; ô rỗng (chưa đặt Ngày
-    // cần) rớt khi ĐANG lọc — giữ đúng luật cũ. Created_at là datetime → cắt lấy phần ngày.
-    const byDate = base.filter(
-      (r) =>
-        inDateRange(r.created_at.slice(0, 10), { from: reqFrom, to: reqTo }) &&
-        inDateRange(r.ngay_can ?? "", { from: dateFrom, to: dateTo }),
-    );
-    return [...byDate].sort(sortRequests);
-  }, [rows, tab, reqFrom, reqTo, dateFrom, dateTo]);
+  // BE đã lọc (tab + 2 khoảng ngày + q) + phân trang + sắp 'updated' desc (khớp sortRequests)
+  // → dùng thẳng danh sách trả về làm trang hiện tại.
+  const total = totalCount;
+  const shown = rows;
+  const maxPage = Math.max(1, Math.ceil(total / pageSize));
 
   useEffect(() => {
     setPage(1);
-  }, [tab, q, reqFrom, reqTo, dateFrom, dateTo]);
-
-  const total = filtered.length;
-  const shown = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  }, [tab, q, reqFrom, reqTo, dateFrom, dateTo, pageSize]);
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "all", label: "Tất cả" },
@@ -383,7 +378,7 @@ export function KhoDeNghiPage({
                   </tr>
                 );
                 })}
-                {Array.from({ length: Math.max(0, PAGE_SIZE - shown.length) }).map((_, i) => (
+                {Array.from({ length: Math.max(0, pageSize - shown.length) }).map((_, i) => (
                   <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true">
                     <td colSpan={colCount}>
                       <div className="rc__name">&nbsp;</div>
@@ -399,6 +394,7 @@ export function KhoDeNghiPage({
 
       {total > 0 && (
         <div className="kho-pager">
+          <PageSizeSelect value={pageSize} onChange={setPageSize} />
           <span className="kho-pager__page">{total} yêu cầu</span>
           <div className="rc__spacer" />
           <button
@@ -1140,6 +1136,7 @@ function RequestDrawer({
             isNew={isNew}
             isOwner={!!isOwner}
             canRequest={canRequest}
+            dieuChuyen={!!req?.dieu_chuyen}
             busy={busy}
             onSave={() => save()}
             onPrint={() => setPrinting(true)}
@@ -1204,6 +1201,7 @@ function RequestFooter(props: {
   isNew: boolean;
   isOwner: boolean;
   canRequest: boolean;
+  dieuChuyen: boolean;
   busy: boolean;
   onSave: () => void;
   onPrint: () => void;
@@ -1223,6 +1221,20 @@ function RequestFooter(props: {
   }
 
   if ((status === "rejected" || status === "cancelled") && isOwner && canRequest) {
+    // ĐIỀU CHUYỂN: KHÔNG "Tạo lại" ở đây — điều chuyển chỉ tạo từ màn Tồn kho (nút "Chuyển kho"), để
+    // tránh đẻ trùng liên tục + để lại vế xuất nguồn treo. Yêu cầu điều chuyển đã hủy giữ làm lịch sử.
+    if (props.dieuChuyen) {
+      return (
+        <>
+          <span className="kho-hint" style={{ marginRight: "auto" }}>
+            Điều chuyển tạo lại từ màn <b>Tồn kho</b> (nút “Chuyển kho”).
+          </span>
+          <button type="button" className="btn btn--secondary" onClick={props.onClose}>
+            Đóng
+          </button>
+        </>
+      );
+    }
     return (
       <>
         <Button variant="accent" onClick={props.onClone}>

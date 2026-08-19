@@ -3,7 +3,35 @@
 // đối; để mỗi màn tự khai một bảng là kiểu gì cũng lệch sau vài lần sửa.
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { StockRequestKind, StockRequestStatus, StockVoucherStatus } from "../api/client";
+import { Select } from "../components/Select";
 import "./kho-request.css";
+
+/** Các mức số dòng/trang cho mọi danh sách kho. Mặc định = 10. */
+export const PAGE_SIZES = [10, 15, 20] as const;
+export const DEFAULT_PAGE_SIZE = 10;
+
+/** Bộ chọn số dòng/trang — DROPDOWN mở LÊN TRÊN (drop-up) vì luôn nằm cuối trang/pager, mở xuống
+ *  sẽ bị che. Dùng chung ở mọi pager danh sách kho. */
+export function PageSizeSelect({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <span className="kho-pgsize">
+      <Select
+        ariaLabel="Số dòng mỗi trang"
+        value={value}
+        onChange={(v) => onChange(Number(v))}
+        options={PAGE_SIZES.map((n) => ({ value: n, label: `${n} / trang` }))}
+        portal
+        dropUp
+      />
+    </span>
+  );
+}
 
 interface Tone {
   label: string;

@@ -7,20 +7,33 @@ import {
   type BaoCaoChuyenKhoRow,
   type BaoCaoKhoRow,
   type KhoaSoKyRow,
+  type KhoExportLog,
   type KhoKhoaSoRow,
 } from "../api/client";
 import { crud } from "../api/rebuildCatalog";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 import { Select } from "../components/Select";
-import { DateFilterHead, NumFilterHead, fmtQty, inDateRange, inNumRange, todayISO, useHeaderTitles } from "./khoShared";
+import { DateFilterHead, NumFilterHead, PageSizeSelect, DEFAULT_PAGE_SIZE, fmtQty, inDateRange, inNumRange, todayISO, useHeaderTitles } from "./khoShared";
 import "./rebuild-catalog.css";
 import "./kho-request.css";
 
 type KhoOpt = { id: number; ma: string; ten: string };
 type Tab = "tong-quan" | "so" | "lichsu" | "ky";
 
-const PAGE_SIZE = 20;
+/** 1 dòng "Lịch sử thao tác" — gộp khóa/mở kỳ + xuất Excel. `tu`/`den` chỉ có ở khóa/mở (cho phễu ngày). */
+type HistRow = {
+  key: string;
+  thoi_diem: string | null;
+  hanh_dong: "khoa" | "mo" | "export";
+  pham_vi: string;
+  khoang_ngay: string | null;
+  ten_ky: string | null;
+  nguoi_ten: string | null;
+  tu?: string;
+  den?: string;
+};
+
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -113,9 +126,12 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   const [exporting, setExporting] = useState(false);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
 
   // Khóa/mở kỳ + lịch sử + các kỳ CÒN đang khóa (tab "Kỳ đã khóa")
   const [locks, setLocks] = useState<KhoKhoaSoRow[]>([]);
+  // Lịch sử XUẤT EXCEL (gộp vào tab "Lịch sử thao tác" cùng khóa/mở kỳ).
+  const [exports, setExports] = useState<KhoExportLog[]>([]);
   const [kyList, setKyList] = useState<KhoaSoKyRow[]>([]);
   const [khoaOpen, setKhoaOpen] = useState(false);
   const [khoaScope, setKhoaScope] = useState<"all" | number>("all");
@@ -144,6 +160,10 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   useEffect(() => {
     loadLocks();
   }, [loadLocks]);
+  // Nạp lịch sử export khi mở tab "Lịch sử thao tác" (export xảy ra ở tab khác → nạp lại cho mới).
+  useEffect(() => {
+    if (tab === "lichsu") api.kho.baoCao.lichSuExport(token).then(setExports).catch(() => {});
+  }, [token, tab]);
 
   const load = useCallback(() => {
     if (soChieu === "CHUYEN") return; // chiều Chuyển kho nạp qua loadChuyen (bên dưới)
@@ -203,6 +223,11 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   const chuyenTongTien = useMemo(
     () => chuyenFiltered.reduce((s, r) => s + (r.tien_von ?? 0), 0),
     [chuyenFiltered],
+  );
+  const chuyenPageCount = Math.max(1, Math.ceil(chuyenFiltered.length / pageSize));
+  const pagedChuyen = useMemo(
+    () => chuyenFiltered.slice((page - 1) * pageSize, page * pageSize),
+    [chuyenFiltered, page, pageSize],
   );
 
   // Tổng hợp dashboard — tính client-side từ ĐÚNG data sổ (khớp con số tab Sổ nhập-xuất).
@@ -351,15 +376,15 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
     () => filteredRows.reduce((s, r) => s + (r.thanh_tien ?? 0), 0),
     [filteredRows],
   );
-  const pageCount = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(filteredRows.length / pageSize));
   const pagedRows = useMemo(
-    () => filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [filteredRows, page],
+    () => filteredRows.slice((page - 1) * pageSize, page * pageSize),
+    [filteredRows, page, pageSize],
   );
 
   // Lọc cho "Lịch sử thao tác" (tìm phạm vi/người/tên kỳ/ngày + lọc hành động Khóa/Mở).
   const [histQuery, setHistQuery] = useState("");
-  const [histAction, setHistAction] = useState<"all" | "khoa" | "mo">("all");
+  const [histAction, setHistAction] = useState<"all" | "khoa" | "mo" | "export">("all");
   // Lọc cho "Kỳ đã khóa" (tìm tên kỳ/phạm vi/ngày).
   const [kyQuery, setKyQuery] = useState("");
   // Lọc theo TỪNG CỘT ngày (funnel ở tiêu đề cột). KHOẢNG NGÀY dùng chung Lịch sử + Kỳ (chồng lấn).
@@ -372,7 +397,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
   useEffect(() => {
     setPage(1);
   }, [search, soChieu, khoId, tu, den, tab, histQuery, histAction, kyQuery, lockTu, lockDen,
-      ctFrom, ctTo, tdFrom, tdTo, klFrom, klTo, slFrom, slTo, dgFrom, dgTo, ttFrom, ttTo]);
+      ctFrom, ctTo, tdFrom, tdTo, klFrom, klTo, slFrom, slTo, dgFrom, dgTo, ttFrom, ttTo, pageSize]);
 
   // Kỳ [tu,den] có chồng lấn khoảng lọc [lockTu,lockDen]? (đầu nào rỗng = không chặn phía đó).
   const lockInRange = (tuNgay: string, denNgay: string) => {
@@ -381,28 +406,54 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
     return true;
   };
 
-  // --- Lịch sử thao tác: lọc rồi phân trang (dùng chung `page`; reset ở effect trên) ---
-  const filteredLocks = useMemo(() => {
+  // --- Lịch sử thao tác: GỘP khóa/mở kỳ + xuất Excel thành MỘT dòng, mới nhất trước ---
+  const histRows = useMemo<HistRow[]>(() => {
+    const fromLocks: HistRow[] = locks.map((l) => ({
+      key: `lock-${l.id}`,
+      thoi_diem: l.khoa_luc,
+      hanh_dong: l.hanh_dong,
+      pham_vi: l.kho_id == null ? "Toàn kho" : l.kho_ten ?? `Kho #${l.kho_id}`,
+      khoang_ngay: `${fmtDate(l.tu_ngay)} – ${fmtDate(l.den_ngay)}`,
+      ten_ky: l.ten,
+      nguoi_ten: l.nguoi_khoa_ten,
+      tu: l.tu_ngay,
+      den: l.den_ngay,
+    }));
+    const fromExports: HistRow[] = exports.map((e, i) => ({
+      key: `exp-${i}-${e.thoi_diem}`,
+      thoi_diem: e.thoi_diem,
+      hanh_dong: "export",
+      pham_vi: e.pham_vi,
+      khoang_ngay: e.khoang_ngay,
+      ten_ky: e.ten_ky,
+      nguoi_ten: e.nguoi_ten,
+    }));
+    return [...fromLocks, ...fromExports].sort((a, b) =>
+      (b.thoi_diem ?? "").localeCompare(a.thoi_diem ?? ""),
+    );
+  }, [locks, exports]);
+
+  const filteredHist = useMemo(() => {
     const q = histQuery.trim().toLowerCase();
-    return locks.filter((l) => {
-      if (histAction !== "all" && l.hanh_dong !== histAction) return false;
-      if (!lockInRange(l.tu_ngay, l.den_ngay)) return false;
-      if (!inDateRange((l.khoa_luc ?? "").slice(0, 10), { from: tdFrom, to: tdTo })) return false;
+    return histRows.filter((r) => {
+      if (histAction !== "all" && r.hanh_dong !== histAction) return false;
+      // Phễu "Khoảng ngày" (kỳ) chỉ áp cho khóa/mở; export không có kỳ ngày → luôn giữ.
+      if (r.hanh_dong !== "export" && r.tu && r.den && !lockInRange(r.tu, r.den)) return false;
+      if (!inDateRange((r.thoi_diem ?? "").slice(0, 10), { from: tdFrom, to: tdTo })) return false;
       if (!q) return true;
-      const pv = l.kho_id == null ? "toàn kho" : l.kho_ten ?? "";
       return (
-        pv.toLowerCase().includes(q) ||
-        (l.nguoi_khoa_ten ?? "").toLowerCase().includes(q) ||
-        (l.ten ?? "").toLowerCase().includes(q) ||
-        `${fmtDate(l.tu_ngay)} – ${fmtDate(l.den_ngay)}`.toLowerCase().includes(q)
+        r.pham_vi.toLowerCase().includes(q) ||
+        (r.nguoi_ten ?? "").toLowerCase().includes(q) ||
+        (r.ten_ky ?? "").toLowerCase().includes(q) ||
+        (r.khoang_ngay ?? "").toLowerCase().includes(q)
       );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locks, histQuery, histAction, lockTu, lockDen, tdFrom, tdTo]);
-  const histPageCount = Math.max(1, Math.ceil(filteredLocks.length / PAGE_SIZE));
-  const pagedLocks = useMemo(
-    () => filteredLocks.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [filteredLocks, page],
+  }, [histRows, histQuery, histAction, lockTu, lockDen, tdFrom, tdTo]);
+  const histPageCount = Math.max(1, Math.ceil(filteredHist.length / pageSize));
+  const pagedHist = useMemo(
+    () => filteredHist.slice((page - 1) * pageSize, page * pageSize),
+    [filteredHist, page, pageSize],
   );
 
   // --- Kỳ đã khóa: lọc rồi phân trang ---
@@ -421,10 +472,10 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kyList, kyQuery, lockTu, lockDen, klFrom, klTo]);
-  const kyPageCount = Math.max(1, Math.ceil(filteredKy.length / PAGE_SIZE));
+  const kyPageCount = Math.max(1, Math.ceil(filteredKy.length / pageSize));
   const pagedKy = useMemo(
-    () => filteredKy.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [filteredKy, page],
+    () => filteredKy.slice((page - 1) * pageSize, page * pageSize),
+    [filteredKy, page, pageSize],
   );
 
   // Mỗi kỳ khóa (bản ghi 'khoa' phủ dòng) một MÀU riêng — index theo thứ tự thời gian (tu_ngay).
@@ -910,7 +961,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                     ) : chuyenFiltered.length === 0 ? (
                       <tr><td colSpan={10} className="rc__empty-state">Chưa có điều chuyển nào đã ghi sổ trong kỳ / bộ lọc.</td></tr>
                     ) : (
-                      chuyenFiltered.map((r, i) => (
+                      pagedChuyen.map((r, i) => (
                         <tr key={`${r.voucher_id}-${i}`}>
                           <td>{fmtDate(r.ngay_ghi_so)}</td>
                           <td><span className="rc__code-badge">{r.so_ct}</span></td>
@@ -925,6 +976,12 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                         </tr>
                       ))
                     )}
+                    {/* Đệm giữ bảng cao đều 1 trang — kể cả khi rỗng/đang tải (khỏi bị co lại). */}
+                    {Array.from({
+                      length: Math.max(0, pageSize - (loading || chuyenFiltered.length === 0 ? 1 : pagedChuyen.length)),
+                    }).map((_, i) => (
+                      <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={10}>&nbsp;</td></tr>
+                    ))}
                   </tbody>
                   {chuyenFiltered.length > 0 && (
                     <tfoot>
@@ -938,6 +995,16 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                   )}
                 </table>
               </div>
+              {chuyenFiltered.length > 0 && (
+                <div className="kho-bc-pager">
+                  <PageSizeSelect value={pageSize} onChange={setPageSize} />
+                  <button type="button" className="rc__link-btn" disabled={page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}>‹ Trước</button>
+                  <span>Trang {page}/{chuyenPageCount} · {chuyenFiltered.length} dòng</span>
+                  <button type="button" className="rc__link-btn" disabled={page >= chuyenPageCount}
+                    onClick={() => setPage((p) => Math.min(chuyenPageCount, p + 1))}>Sau ›</button>
+                </div>
+              )}
             </>
           ) : (
           <>
@@ -1008,11 +1075,12 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                     );
                   })
                 )}
-                {/* Dòng đệm giữ bảng CAO ĐỀU 1 trang dù ít dòng — popover funnel không bị container che. */}
-                {filteredRows.length > 0 &&
-                  Array.from({ length: Math.max(0, PAGE_SIZE - pagedRows.length) }).map((_, i) => (
-                    <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={10}>&nbsp;</td></tr>
-                  ))}
+                {/* Dòng đệm giữ bảng CAO ĐỀU 1 trang — KỂ CẢ khi rỗng/đang tải (khỏi bị co lại). */}
+                {Array.from({
+                  length: Math.max(0, pageSize - (loading || filteredRows.length === 0 ? 1 : pagedRows.length)),
+                }).map((_, i) => (
+                  <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={10}>&nbsp;</td></tr>
+                ))}
               </tbody>
               {filteredRows.length > 0 && (
                 <tfoot>
@@ -1029,6 +1097,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
 
           {filteredRows.length > 0 && (
             <div className="kho-bc-pager">
+              <PageSizeSelect value={pageSize} onChange={setPageSize} />
               <button
                 type="button"
                 className="rc__link-btn"
@@ -1062,11 +1131,12 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             <Select
               ariaLabel="Hành động"
               value={histAction}
-              onChange={(v) => setHistAction((v as "all" | "khoa" | "mo") || "all")}
+              onChange={(v) => setHistAction((v as "all" | "khoa" | "mo" | "export") || "all")}
               options={[
                 { value: "all", label: "Tất cả thao tác" },
                 { value: "khoa", label: "Khóa kỳ" },
                 { value: "mo", label: "Mở kỳ" },
+                { value: "export", label: "Xuất Excel" },
               ]}
             />
           </div>
@@ -1083,47 +1153,53 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
             <thead>
               <tr>
                 <DateFilterHead label="Thời điểm" from={tdFrom} to={tdTo} onChange={(f, t) => { setTdFrom(f); setTdTo(t); }} />
-                <th title="Khóa kỳ hoặc Mở lại kỳ đã khóa">Hành động</th>
-                <th title="Áp dụng cho toàn bộ kho hay một kho cụ thể">Phạm vi</th>
+                <th title="Khóa kỳ · Mở lại kỳ đã khóa · Xuất Excel">Hành động</th>
+                <th title="Toàn kho / một kho, hoặc loại báo cáo đã xuất">Phạm vi</th>
                 <DateFilterHead label="Khoảng ngày" from={lockTu} to={lockDen} onChange={(f, t) => { setLockTu(f); setLockDen(t); }} />
-                <th title="Tên kỳ đặt khi khóa (Mở kỳ để trống)">Tên kỳ</th>
-                <th title="Kế toán thực hiện thao tác">Người thực hiện</th>
+                <th title="Tên kỳ đặt khi khóa (Mở / Xuất để trống)">Tên kỳ</th>
+                <th title="Người thực hiện thao tác">Người thực hiện</th>
               </tr>
             </thead>
             <tbody>
-              {filteredLocks.length === 0 ? (
+              {filteredHist.length === 0 ? (
                 <tr><td colSpan={6} className="rc__empty-state">
-                  {locks.length === 0 ? "Chưa có thao tác khóa/mở kỳ nào." : "Không có thao tác nào khớp bộ lọc."}
+                  {histRows.length === 0 ? "Chưa có thao tác nào." : "Không có thao tác nào khớp bộ lọc."}
                 </td></tr>
               ) : (
-                pagedLocks.map((l) => (
-                  <tr key={l.id}>
-                    <td>{fmtDateTime(l.khoa_luc)}</td>
+                pagedHist.map((r) => (
+                  <tr key={r.key}>
+                    <td>{fmtDateTime(r.thoi_diem)}</td>
                     <td>
-                      <span
-                        className={`badge-sem badge-sem--${l.hanh_dong === "khoa" ? "rust" : "moss"}`}
-                        style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
-                      >
-                        <LockIcon open={l.hanh_dong === "mo"} />
-                        {l.hanh_dong === "khoa" ? "Khóa" : "Mở"}
-                      </span>
+                      {r.hanh_dong === "export" ? (
+                        <span className="badge-sem badge-sem--steel">Xuất Excel</span>
+                      ) : (
+                        <span
+                          className={`badge-sem badge-sem--${r.hanh_dong === "khoa" ? "rust" : "moss"}`}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+                        >
+                          <LockIcon open={r.hanh_dong === "mo"} />
+                          {r.hanh_dong === "khoa" ? "Khóa" : "Mở"}
+                        </span>
+                      )}
                     </td>
-                    <td>{l.kho_id == null ? "Toàn kho" : l.kho_ten ?? `Kho #${l.kho_id}`}</td>
-                    <td>{fmtDate(l.tu_ngay)} – {fmtDate(l.den_ngay)}</td>
-                    <td>{l.ten ?? "—"}</td>
-                    <td>{l.nguoi_khoa_ten ?? "—"}</td>
+                    <td>{r.pham_vi}</td>
+                    <td>{r.khoang_ngay ?? "—"}</td>
+                    <td>{r.ten_ky ?? "—"}</td>
+                    <td>{r.nguoi_ten ?? "—"}</td>
                   </tr>
                 ))
               )}
-              {filteredLocks.length > 0 &&
-                Array.from({ length: Math.max(0, PAGE_SIZE - pagedLocks.length) }).map((_, i) => (
-                  <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={6}>&nbsp;</td></tr>
-                ))}
+              {Array.from({
+                length: Math.max(0, pageSize - (filteredHist.length === 0 ? 1 : pagedHist.length)),
+              }).map((_, i) => (
+                <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={6}>&nbsp;</td></tr>
+              ))}
             </tbody>
           </table>
         </div>
-        {filteredLocks.length > 0 && (
+        {filteredHist.length > 0 && (
           <div className="kho-bc-pager">
+            <PageSizeSelect value={pageSize} onChange={setPageSize} />
             <button
               type="button"
               className="rc__link-btn"
@@ -1133,7 +1209,7 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
               ‹ Trước
             </button>
             <span>
-              Trang {page}/{histPageCount} · {filteredLocks.length} thao tác
+              Trang {page}/{histPageCount} · {filteredHist.length} thao tác
             </span>
             <button
               type="button"
@@ -1194,15 +1270,17 @@ export function KhoBaoCaoPage({ token }: { token: string }) {
                   </tr>
                 ))
               )}
-              {filteredKy.length > 0 &&
-                Array.from({ length: Math.max(0, PAGE_SIZE - pagedKy.length) }).map((_, i) => (
-                  <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={5}>&nbsp;</td></tr>
-                ))}
+              {Array.from({
+                length: Math.max(0, pageSize - (filteredKy.length === 0 ? 1 : pagedKy.length)),
+              }).map((_, i) => (
+                <tr key={`filler-${i}`} className="rc__filler" aria-hidden="true"><td colSpan={5}>&nbsp;</td></tr>
+              ))}
             </tbody>
           </table>
         </div>
         {filteredKy.length > 0 && (
           <div className="kho-bc-pager">
+            <PageSizeSelect value={pageSize} onChange={setPageSize} />
             <button
               type="button"
               className="rc__link-btn"

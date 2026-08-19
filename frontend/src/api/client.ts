@@ -5811,8 +5811,32 @@ export interface StockRequestListParams {
   kho_id?: number | null;
   /** true = CHỈ yêu cầu điều chuyển (tab Điều chuyển) · false = nhập/xuất thường · bỏ = không lọc. */
   dieu_chuyen?: boolean | null;
+  /** Lọc theo NGÀY CẦN (ngay_can) — ISO yyyy-mm-dd. */
+  ngay_can_tu?: string | null;
+  ngay_can_den?: string | null;
+  /** Lọc theo NGÀY TẠO (created_at) — ISO yyyy-mm-dd. */
+  tao_tu?: string | null;
+  tao_den?: string | null;
+  /** Thứ tự: "id" = mới tạo trước (mặc định) · "updated" = vừa đổi trước (Hộp yêu cầu). */
+  order?: "id" | "updated";
   page?: number;
   size?: number;
+}
+
+/** Query-string các bộ lọc yêu cầu kho — dùng chung cho `list` + `tabCounts` (KHÔNG gồm page/size). */
+function stockRequestQS(params: StockRequestListParams): URLSearchParams {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set("q", params.q);
+  if (params.loai) qs.set("loai", params.loai);
+  // `trang_thai` là list ở backend → lặp param, KHÔNG nối bằng dấu phẩy.
+  for (const s of params.trang_thai ?? []) qs.append("trang_thai", s);
+  if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
+  if (params.dieu_chuyen != null) qs.set("dieu_chuyen", String(params.dieu_chuyen));
+  if (params.ngay_can_tu) qs.set("ngay_can_tu", params.ngay_can_tu);
+  if (params.ngay_can_den) qs.set("ngay_can_den", params.ngay_can_den);
+  if (params.tao_tu) qs.set("tao_tu", params.tao_tu);
+  if (params.tao_den) qs.set("tao_den", params.tao_den);
+  return qs;
 }
 
 export interface StockRequestLineInput {
@@ -5936,6 +5960,16 @@ export interface KhoKhoaSoInput {
   hanh_dong: "khoa" | "mo";
   /** Tên kỳ — chỉ gửi khi khóa; trùng tên kỳ đang khóa khác thì backend chặn. */
   ten?: string | null;
+}
+
+/** 1 lần XUẤT EXCEL báo cáo kho — cho tab "Lịch sử thao tác". */
+export interface KhoExportLog {
+  thoi_diem: string;
+  loai: string;                 // "Nhập kho" / "Xuất kho" / "Chuyển kho"
+  pham_vi: string;              // loại · kho
+  khoang_ngay: string | null;
+  ten_ky: string | null;        // tên kỳ nếu khoảng ngày trùng kỳ đã khóa; "Toàn bộ" nếu ko lọc ngày
+  nguoi_ten: string | null;
 }
 
 /** 1 kỳ CÒN đang khóa (đã gộp khoảng liền mạch) — cho tab "Kỳ đã khóa". */
@@ -9228,17 +9262,19 @@ export const api = {
         return authed(`/api/kho/de-nghi/${id}/seen`, token, { method: "POST" });
       },
       list(token: string, params: StockRequestListParams = {}): Promise<StockRequestPage> {
-        const qs = new URLSearchParams();
-        if (params.q) qs.set("q", params.q);
-        if (params.loai) qs.set("loai", params.loai);
-        // `trang_thai` là list ở backend → lặp param, KHÔNG nối bằng dấu phẩy.
-        for (const s of params.trang_thai ?? []) qs.append("trang_thai", s);
-        if (params.kho_id != null) qs.set("kho_id", String(params.kho_id));
-        if (params.dieu_chuyen != null) qs.set("dieu_chuyen", String(params.dieu_chuyen));
+        const qs = stockRequestQS(params);
+        if (params.order) qs.set("order", params.order);
         if (params.page) qs.set("page", String(params.page));
         if (params.size) qs.set("size", String(params.size));
         const suffix = qs.toString() ? `?${qs.toString()}` : "";
         return authed<StockRequestPage>(`/api/kho/de-nghi${suffix}`, token);
+      },
+      /** Đếm yêu cầu theo TỪNG trạng thái (cùng bộ lọc list, trừ tab) → FE cộng theo tab cho badge.
+       *  `trang_thai` ở đây là TẬP NỀN (vd Hộp yêu cầu truyền INBOX_STATUSES). */
+      tabCounts(token: string, params: StockRequestListParams = {}): Promise<Record<string, number>> {
+        const qs = stockRequestQS(params);
+        const suffix = qs.toString() ? `?${qs.toString()}` : "";
+        return authed<Record<string, number>>(`/api/kho/de-nghi/counts-by-status${suffix}`, token);
       },
       get(token: string, id: number, khoId?: number | null): Promise<StockRequest> {
         const suffix = khoId != null ? `?kho_id=${khoId}` : "";
@@ -9478,6 +9514,10 @@ export const api = {
       },
       khoaSo(token: string): Promise<KhoKhoaSoRow[]> {
         return authed<KhoKhoaSoRow[]>("/api/kho/khoa-so", token);
+      },
+      /** Lịch sử các lần XUẤT EXCEL báo cáo kho (gộp vào tab "Lịch sử thao tác"). */
+      lichSuExport(token: string): Promise<KhoExportLog[]> {
+        return authed<KhoExportLog[]>("/api/kho/bao-cao/lich-su-export", token);
       },
       /** Các kỳ CÒN đang khóa (đã gộp khoảng) — cho tab "Kỳ đã khóa". */
       ky(token: string): Promise<KhoaSoKyRow[]> {
