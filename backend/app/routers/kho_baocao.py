@@ -257,12 +257,19 @@ def get_khoa_so(db: Db, _: CloseBookUser) -> list[KhoKhoaSoRow]:
 def get_khoa_so_ky(db: Db, _: CloseBookUser) -> list[KhoaSoKyRow]:
     """Các KỲ CÒN đang khóa (đã gộp khoảng liền mạch) — cho tab 'Kỳ đã khóa' chọn nhanh + xuất."""
     kho_repo = KhoHangRepository(db)
+    repo = KhoKhoaSoRepository(db)
     out: list[KhoaSoKyRow] = []
-    for kho_id, tu, den, khoa_luc, ten in KhoKhoaSoRepository(db).locked_periods():
+    for kho_id, tu, den, khoa_luc, ten in repo.locked_periods():
         kho = kho_repo.get(kho_id) if kho_id else None
+        # Kỳ TOÀN KHO: liệt kê các kho đã MỞ RIÊNG trong kỳ (miễn trừ) để hiển thị "trừ: …".
+        mien_tru: list[str] = []
+        if kho_id is None:
+            for kid in repo.exempted_khos(tu, den):
+                k = kho_repo.get(kid)
+                mien_tru.append(getattr(k, "ten", None) or f"Kho #{kid}")
         out.append(KhoaSoKyRow(
             kho_id=kho_id, kho_ten=getattr(kho, "ten", None),
-            tu_ngay=tu, den_ngay=den, khoa_luc=khoa_luc, ten=ten,
+            tu_ngay=tu, den_ngay=den, khoa_luc=khoa_luc, ten=ten, mien_tru=mien_tru,
         ))
     return out
 
