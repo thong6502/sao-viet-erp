@@ -599,7 +599,8 @@ def my_advances(svc: Service, employees: Employees, departments: Departments,
     res = svc.my_advances(user=user)
     return MyAdvancesOut(has_employee=res["has_employee"],
                          items=_adv_out(res["items"], employees, departments),
-                         luong_dot_1=res.get("luong_dot_1", 0))
+                         luong_dot_1=res.get("luong_dot_1", 0),
+                         ky_min_chon_duoc=res.get("ky_min_chon_duoc"))
 
 
 @router.post("/advances/me", response_model=AdvanceOut, status_code=status.HTTP_201_CREATED)

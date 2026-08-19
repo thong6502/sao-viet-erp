@@ -8747,3 +8747,32 @@ def _migrate_tran_gio_tang_ca(db: Session) -> None:
 
 
 MIGRATIONS.append(("0206_tran_gio_tang_ca", _migrate_tran_gio_tang_ca))
+
+
+def _migrate_phieu_chi_tu_tam_ung(db: Session) -> None:
+    """`payment_vouchers.salary_advance_id` — phiếu chi lập TỪ phiếu tạm ứng lương đã duyệt.
+    Chủ chốt 18/08/2026.
+
+    Chỉ ADD COLUMN + UNIQUE INDEX. Không backfill: phiếu chi cũ đều từ đơn mua hàng hoặc chi
+    độc lập, không có phiếu tạm ứng nguồn.
+
+    UNIQUE ⇒ một phiếu tạm ứng chỉ lập được ĐÚNG MỘT phiếu chi. Đây là chốt chống chi hai lần
+    ở tầng DB, không chỉ ở tầng service — service có thể bị hai request chạy song song lách qua.
+    KHÔNG dựng FK ở migration (SQLite của test không ALTER được FK); ràng buộc xoá đã chặn ở
+    service, còn `create_all` trên DB trắng thì model tự dựng FK."""
+    insp = inspect(db.get_bind())
+    if "payment_vouchers" not in set(insp.get_table_names()):
+        return
+    if "salary_advance_id" not in _existing_columns(insp, "payment_vouchers"):
+        db.execute(text("ALTER TABLE payment_vouchers ADD COLUMN salary_advance_id INTEGER"))
+        db.commit()
+    idx = {i["name"] for i in insp.get_indexes("payment_vouchers")}
+    if "uq_payment_voucher_salary_advance" not in idx:
+        db.execute(text(
+            "CREATE UNIQUE INDEX uq_payment_voucher_salary_advance "
+            "ON payment_vouchers (salary_advance_id)"
+        ))
+        db.commit()
+
+
+MIGRATIONS.append(("0207_phieu_chi_tu_tam_ung", _migrate_phieu_chi_tu_tam_ung))

@@ -3649,6 +3649,10 @@ export interface MyAdvances {
   items: SalaryAdvance[];
   /** Mức "Lương trả 1 lần" hiện hành — điền sẵn khi NV tự xin phiếu đợt 1 (0 = chưa khai). */
   luong_dot_1: number;
+  /** Tháng SỚM NHẤT còn lập phiếu được (`YYYY-MM`) = liền sau kỳ lương đã chốt/đã chi muộn nhất.
+   *  NV không có quyền đọc `/periods` nên server trả kèm ở đây. FE đặt làm `min` của ô chọn kỳ
+   *  ⇒ **kỳ đã chốt không chọn được nữa**. `null` (server cũ) ⇒ lùi về mốc 12 tháng mặc định. */
+  ky_min_chon_duoc?: string | null;
 }
 export interface PayrollPeriod {
   id: number;
@@ -5112,6 +5116,9 @@ export type PaymentVoucherType = "cash" | "bank_transfer";
 export type PaymentStage = "advance" | "partial" | "final" | "other";
 export type PaymentVoucherSource =
   | "purchase_request"
+  /** Phiếu chi lập TỪ một phiếu tạm ứng lương đã duyệt (18/08/2026). Số tiền + người nhận do
+   *  backend lấy thẳng từ phiếu tạm ứng, payload gửi lên bị bỏ qua. */
+  | "salary_advance"
   | "internal_expense"
   | "customer_refund"
   | "other";
@@ -5191,6 +5198,36 @@ export interface PaymentVoucherBaseInput extends PaymentVoucherAccountsInput {
 
 export interface PaymentVoucherInput extends PaymentVoucherBaseInput {
   purchase_request_id?: number | null;
+  /** Phiếu TẠM ỨNG LƯƠNG nguồn. Truyền id này thì `source_type` tự thành `salary_advance`, còn
+   *  `amount` + `cash_recipient_name` gửi lên BỊ BỎ QUA — backend lấy số tiền và tên nhân viên
+   *  của chính phiếu tạm ứng, để phiếu chi không lệch số đã duyệt. */
+  salary_advance_id?: number | null;
+}
+
+/** Những ô kế toán THẬT SỰ khai khi lập phiếu chi từ một phiếu tạm ứng lương đã duyệt.
+ *  Cố tình KHÔNG có `cash_recipient_name`: backend điền tên từ hồ sơ nhân viên. */
+export interface SalaryAdvanceVoucherInput {
+  salary_advance_id: number;
+  /** Số tiền của CHÍNH phiếu tạm ứng. Vẫn phải gửi vì schema đòi `amount > 0`, nhưng backend GHI
+   *  ĐÈ bằng số của phiếu tạm ứng — gửi số khác chỉ tự lừa mình, phiếu chi vẫn ra số đã duyệt. */
+  amount: number;
+  voucher_type: PaymentVoucherType;
+  /** YYYY-MM-DD. Backend từ chối ngày ở TƯƠNG LAI (422). */
+  voucher_date: string;
+  content: string;
+  note?: string | null;
+  /** Hai ô của mẫu 02-TT tiền mặt (người nhận ký tại quỹ khai địa chỉ + CCCD). Không bắt buộc;
+   *  chuyển khoản thì bỏ trống vì tài khoản thụ hưởng đã là bằng chứng nhận tiền. */
+  cash_recipient_address?: string | null;
+  cash_recipient_identity?: string | null;
+  /** CHỈ khi `voucher_type = "bank_transfer"`. Backend bắt buộc đủ tài khoản trích nợ + tên/số
+   *  tài khoản/ngân hàng thụ hưởng, thiếu một ô là 422 — tiền mặt thì bỏ trống hết. */
+  company_bank_account_id?: number | null;
+  beneficiary_account_holder?: string | null;
+  beneficiary_account_number?: string | null;
+  beneficiary_bank_name?: string | null;
+  beneficiary_bank_branch?: string | null;
+  bank_fee_bearer?: "payer" | "beneficiary" | "shared" | null;
 }
 
 export interface PaymentVoucherRow {
@@ -5202,6 +5239,9 @@ export interface PaymentVoucherRow {
   credit_account: string | null;
   source_type: PaymentVoucherSource;
   purchase_request_id: number | null;
+  /** Phiếu tạm ứng lương nguồn — chỉ có giá trị khi `source_type = salary_advance`.
+   *  Một phiếu tạm ứng chỉ gắn ĐÚNG MỘT phiếu chi (UNIQUE ở DB). */
+  salary_advance_id: number | null;
   purchase_request_code: string;
   purchase_request_total: number | null;
   purchase_paid_amount: number | null;
@@ -9005,10 +9045,56 @@ export const api = {
     voucher(token: string, id: number): Promise<PaymentVoucherRow> {
       return authed<PaymentVoucherRow>(`/api/accounting/payment-vouchers/${id}`, token);
     },
+    /** MỌI phiếu chi lập từ phiếu tạm ứng lương (kể cả phiếu đã huỷ) — màn Tạm ứng bên Lương
+     *  map lại theo `salary_advance_id` để biết dòng nào đã chi.
+     *
+     *  `GET /api/luong/advances` CHƯA trả cờ "đã có phiếu chi", nên FE phải tự đối chiếu. Đọc
+     *  theo trang 200 (trần của backend), tối đa `maxPages` trang: một màn xem theo THÁNG không
+     *  đáng gọi hàng chục lượt. Nếu số phiếu vượt trần thì phiếu CŨ NHẤT không có chip — bấm
+     *  "Lập phiếu chi" vẫn an toàn vì backend trả 409 kèm mã phiếu chi đã lập.
+     *  Cần đúng một lượt gọi: xin backend trả thẳng `payment_voucher_code` trong danh sách tạm ứng. */
+    async salaryAdvanceVouchers(token: string, maxPages = 5): Promise<PaymentVoucherRow[]> {
+      const rows: PaymentVoucherRow[] = [];
+      for (let page = 1; page <= maxPages; page += 1) {
+        const resp = await api.accounting.vouchers(token, {
+          source_type: "salary_advance",
+          sort: "-created_at",
+          page,
+          size: 200,
+        });
+        rows.push(...resp.items);
+        if (resp.items.length === 0 || rows.length >= resp.total) break;
+      }
+      return rows;
+    },
     createVoucher(token: string, input: PaymentVoucherInput): Promise<PaymentVoucherRow> {
       return authed<PaymentVoucherRow>("/api/accounting/payment-vouchers", token, {
         method: "POST",
         body: JSON.stringify(input),
+      });
+    },
+    /** Lập phiếu chi TỪ một phiếu tạm ứng lương ĐÃ DUYỆT (chủ chốt 18/08/2026). Dùng ở tab Tạm ứng
+     *  bên màn Lương — kế toán bấm TAY, KHÔNG tự sinh lúc duyệt tạm ứng (từ 04/08/2026 hệ này
+     *  tách "người đồng ý chi" khỏi "người viết phiếu chi", đừng gộp lại).
+     *
+     *  Cùng endpoint với phiếu chi mua hàng, chỉ khác ở `salary_advance_id`. Bốn khoá cứng dưới
+     *  đây do luồng quy định, không phải ô cho người dùng chọn:
+     *    • `source_type` = salary_advance   • `payment_stage` = other (không có "đợt" nào)
+     *    • VND + tỷ giá 1 (lương trả nội tệ)
+     *  Phiếu sinh ra là `paid` NGAY — lập phiếu chi = tiền đã ra, không có bước "chờ chi".
+     *
+     *  Lỗi: 409 = tạm ứng ĐÃ có phiếu chi · 422 = tạm ứng chưa duyệt / thiếu ô / ngày tương lai ·
+     *  404 = không tìm thấy. `detail` là câu tiếng Việt đầy đủ — hiện NGUYÊN CÂU cho người dùng. */
+    createVoucherFromAdvance(
+      token: string,
+      input: SalaryAdvanceVoucherInput,
+    ): Promise<PaymentVoucherRow> {
+      return api.accounting.createVoucher(token, {
+        ...input,
+        source_type: "salary_advance",
+        payment_stage: "other",
+        currency: "VND",
+        exchange_rate: 1,
       });
     },
     // ĐÃ GỠ 07/08/2026 — `updateVoucher`. Phiếu chi phát hành ra là tiền đã rời két, không

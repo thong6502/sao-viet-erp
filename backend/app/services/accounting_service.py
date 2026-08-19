@@ -32,6 +32,7 @@ from ..models.accounting import (
     VOUCHER_SOURCE_INTERNAL,
     VOUCHER_SOURCE_OTHER,
     VOUCHER_SOURCE_PURCHASE,
+    VOUCHER_SOURCE_SALARY_ADVANCE,
     VOUCHER_BANK_TRANSFER,
     VOUCHER_CASH,
     CompanyBankAccount,
@@ -223,6 +224,8 @@ class AccountingService:
         users: UserRepository,
         audit: AuditLogRepository,
         sequences: SequenceService,
+        payroll=None,
+        employees=None,
     ) -> None:
         self.repo = repo
         self.purchases = purchases
@@ -230,6 +233,11 @@ class AccountingService:
         self.users = users
         self.audit = audit
         self.sequences = sequences
+        # PayrollRepository | EmployeeRepository — CHỈ ĐỌC, chỉ để lập phiếu chi từ phiếu tạm ứng
+        # lương (18/08/2026): đọc phiếu tạm ứng + tên nhân viên. None (unit test dựng tay) ⇒ nguồn
+        # `salary_advance` báo lỗi rõ ràng thay vì vỡ.
+        self._payroll = payroll
+        self._employees = employees
 
     # --- bank accounts ----------------------------------------------------
 
@@ -722,9 +730,14 @@ class AccountingService:
     def get_voucher(self, voucher_id: int):
         return self._voucher_out(self._voucher(voucher_id))
 
-    def create_voucher(self, *, actor, purchase_request_id: int | None = None, **values):
+    def create_voucher(self, *, actor, purchase_request_id: int | None = None,
+                       salary_advance_id: int | None = None, **values):
         source_type = (values.get("source_type") or VOUCHER_SOURCE_PURCHASE).strip()
-        if source_type == VOUCHER_SOURCE_PURCHASE or purchase_request_id is not None:
+        if source_type == VOUCHER_SOURCE_SALARY_ADVANCE or salary_advance_id is not None:
+            purchase = None
+            advance = self._advance_cho_phieu_chi(salary_advance_id)
+            prepared = self._prepare_standalone_voucher(values, advance=advance)
+        elif source_type == VOUCHER_SOURCE_PURCHASE or purchase_request_id is not None:
             if purchase_request_id is None:
                 raise AccountingValidationError("Phiếu chi từ Đơn mua hàng phải chọn Đơn mua hàng nguồn.")
             purchase = self._purchase(purchase_request_id)
@@ -2064,9 +2077,16 @@ class AccountingService:
             "note": _text(values.get("note"), label="Ghi chú", max_length=2000),
         }
 
-    def _prepare_standalone_voucher(self, values: dict) -> dict:
+    def _prepare_standalone_voucher(self, values: dict, *, advance=None) -> dict:
         source_type = (values.get("source_type") or "").strip()
-        if source_type not in (
+        if advance is not None:
+            source_type = VOUCHER_SOURCE_SALARY_ADVANCE
+            # Số tiền và người nhận LẤY TỪ PHIẾU TẠM ỨNG, không nhận từ payload — nếu không thì
+            # kế toán gõ số khác số đã duyệt và phiếu chi không còn khớp phiếu duyệt.
+            values = dict(values)
+            values["amount"] = int(round(float(advance.amount)))
+            values["cash_recipient_name"] = self._ten_nhan_vien(advance.employee_id)
+        elif source_type not in (
             VOUCHER_SOURCE_INTERNAL,
             VOUCHER_SOURCE_CUSTOMER_REFUND,
             VOUCHER_SOURCE_OTHER,
@@ -2141,7 +2161,10 @@ class AccountingService:
             VOUCHER_SOURCE_CUSTOMER_REFUND: "Hoàn tiền khách hàng",
             VOUCHER_SOURCE_OTHER: "Khác",
         }
+        # Phiếu tạm ứng: mã nguồn in trên chứng từ là MÃ PHIẾU TẠM ỨNG (TU26-0001), để lần ngược
+        # từ sổ quỹ về đúng phiếu đã duyệt.
         return {
+            "salary_advance_id": advance.id if advance is not None else None,
             "source_type": source_type,
             "voucher_type": voucher_type,
             "payment_stage": "other",
@@ -2167,7 +2190,8 @@ class AccountingService:
             "debit_account": _text(values.get("debit_account"), label="Tài khoản Nợ", max_length=64),
             "credit_account": _text(values.get("credit_account"), label="Tài khoản Có", max_length=64),
             "note": _text(values.get("note"), label="Ghi chú", max_length=2000),
-            "source_code_snapshot": source_labels[source_type],
+            "source_code_snapshot": (advance.code or f"TU#{advance.id}") if advance is not None
+                                    else source_labels[source_type],
             "supplier_name_snapshot": recipient_name,
             "supplier_tax_code_snapshot": None,
             "supplier_address_snapshot": recipient_address,
@@ -2239,6 +2263,35 @@ class AccountingService:
             if self.repo.get_voucher_by_code(code) is None:
                 return code
         raise AccountingConflict("Không sinh được mã chứng từ duy nhất, vui lòng thử lại.")
+
+    def _advance_cho_phieu_chi(self, salary_advance_id: int | None):
+        """Phiếu tạm ứng hợp lệ để lập phiếu chi. Bốn chốt, theo đúng chốt của chủ 18/08/2026."""
+        if salary_advance_id is None:
+            raise AccountingValidationError("Phiếu chi từ tạm ứng phải chọn phiếu tạm ứng nguồn.")
+        if self._payroll is None:
+            raise AccountingValidationError("Chưa nối được phân hệ Lương để đọc phiếu tạm ứng.")
+        a = self._payroll.get_advance(int(salary_advance_id))
+        if a is None:
+            raise AccountingNotFound("Không tìm thấy phiếu tạm ứng.")
+        # CHỐT 1 — CHỈ phiếu ĐÃ DUYỆT. Phiếu chờ duyệt / từ chối / đã huỷ đều không được chi.
+        if a.status != "approved":
+            raise AccountingValidationError(
+                "Chỉ lập phiếu chi cho phiếu tạm ứng ĐÃ DUYỆT."
+            )
+        # CHỐT 2 — một phiếu tạm ứng chỉ một phiếu chi (DB cũng có UNIQUE chặn song song).
+        if self.repo.get_voucher_by_salary_advance(a.id) is not None:
+            raise AccountingConflict(
+                f"Phiếu tạm ứng {a.code or a.id} đã có phiếu chi rồi."
+            )
+        return a
+
+    def _ten_nhan_vien(self, employee_id: int) -> str:
+        if self._employees is None:
+            raise AccountingValidationError("Chưa nối được phân hệ Nhân sự để lấy tên người nhận.")
+        emp = self._employees.get_by_id(employee_id)
+        if emp is None:
+            raise AccountingNotFound("Không tìm thấy nhân viên của phiếu tạm ứng.")
+        return emp.full_name
 
     def _purchase(self, request_id: int) -> PurchaseRequest:
         row = self.purchases.get_by_id(request_id)
@@ -2344,6 +2397,7 @@ class AccountingService:
             "debit_account": row.debit_account,
             "credit_account": row.credit_account,
             "source_type": row.source_type or VOUCHER_SOURCE_PURCHASE,
+            "salary_advance_id": row.salary_advance_id,
             "receipt_received_amount": receipt_received_amount,
             "receipt_pending_amount": receipt_pending_amount,
             "attachment_count": len(row.attachments),

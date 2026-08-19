@@ -475,10 +475,12 @@ def get_payroll_service(
     piece: Annotated[PieceWorkService, Depends(get_piece_work_service)],
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
     components: Annotated[PayrollComponentRepository, Depends(get_payroll_component_repository)],
+    vouchers: Annotated[AccountingRepository, Depends(get_accounting_repository)],
 ) -> PayrollService:
     # attendance → số CÔNG; piece → tiền KHOÁN (nhịp 2); departments → cờ has_piece_work.
+    # vouchers (REPO, chỉ đọc) → chặn huỷ phiếu tạm ứng đã lập phiếu chi (18/08/2026).
     return PayrollService(payroll, employees, attendance, audit=audit, piece=piece,
-                          departments=departments, components=components)
+                          departments=departments, components=components, vouchers=vouchers)
 
 
 def get_quotation_repository(
@@ -714,8 +716,12 @@ def get_accounting_service(
     users: Annotated[UserRepository, Depends(get_user_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     sequences: Annotated[SequenceService, Depends(get_sequence_service)],
+    payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
+    employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
 ) -> AccountingService:
-    return AccountingService(repo, requests, suppliers, users, audit, sequences)
+    # payroll + employees (REPO, chỉ đọc) → lập phiếu chi từ phiếu tạm ứng lương (18/08/2026).
+    return AccountingService(repo, requests, suppliers, users, audit, sequences,
+                             payroll=payroll, employees=employees)
 
 
 def get_order_service(

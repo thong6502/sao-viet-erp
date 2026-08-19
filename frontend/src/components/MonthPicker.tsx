@@ -16,6 +16,8 @@ export function MonthPicker({
   disabled,
   className,
   ariaLabel = "Chọn kỳ",
+  min,
+  max,
 }: {
   /** Dạng `YYYY-MM`. */
   value: string;
@@ -23,6 +25,11 @@ export function MonthPicker({
   disabled?: boolean;
   className?: string;
   ariaLabel?: string;
+  /** Chặn khoảng chọn được, dạng `YYYY-MM`. KHÔNG truyền = không giới hạn (hành vi cũ của mọi
+   *  chỗ đang dùng ô này). Lịch của trình duyệt sẽ làm mờ tháng ngoài khoảng, nhưng người dùng
+   *  vẫn GÕ TAY được số ngoài khoảng ⇒ chỗ nào cần chặn thật thì màn gọi phải tự khoá nút gửi. */
+  min?: string;
+  max?: string;
 }) {
   const id = useId();
   const ref = useRef<HTMLInputElement>(null);
@@ -39,6 +46,8 @@ export function MonthPicker({
         type="month"
         className="month-picker__native"
         value={value}
+        min={min}
+        max={max}
         disabled={disabled}
         aria-label={ariaLabel}
         onChange={(e) => onChange(e.target.value)}

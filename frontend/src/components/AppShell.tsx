@@ -945,6 +945,7 @@ export function AppShell() {
       case "luong":
         return (
           <LuongPage
+            navigate={navigate}
             focusEmployeeId={navParams?.focusEmployeeId}
             eventTick={quoteTick}
             openTab={navParams?.luongTab}
