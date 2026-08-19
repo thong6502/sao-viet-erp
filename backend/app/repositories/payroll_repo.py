@@ -15,6 +15,8 @@ from ..models.payroll import (
     LatePenaltyBracket,
     PayrollLine,
     PayrollParams,
+    PERIOD_LOCKED,
+    PERIOD_PAID,
     PayrollPeriod,
     PitTaxBracket,
     SalaryAdvance,
@@ -335,6 +337,19 @@ class PayrollRepository:
         self.db.commit()
         self.db.refresh(p)
         return p
+
+    def latest_closed_period(self) -> PayrollPeriod | None:
+        """Kỳ lương ĐÃ CHỐT / ĐÃ CHI muộn nhất — None nếu chưa kỳ nào bị khoá.
+
+        Nền cho ô chọn kỳ trên phiếu tạm ứng: kỳ khoá theo thứ tự thời gian, nên "tháng liền sau
+        kỳ khoá muộn nhất" là mốc chọn sớm nhất còn hợp lệ — một mốc liên tục, đúng cái
+        `<input type="month" min=...>` biểu diễn được (nó không bỏ trống được tháng ở GIỮA)."""
+        return self.db.execute(
+            select(PayrollPeriod)
+            .where(PayrollPeriod.status.in_((PERIOD_LOCKED, PERIOD_PAID)))
+            .order_by(PayrollPeriod.year.desc(), PayrollPeriod.month.desc())
+            .limit(1)
+        ).scalars().first()
 
     def list_periods(self, *, limit: int = 36) -> list[PayrollPeriod]:
         return list(

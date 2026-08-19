@@ -2656,3 +2656,36 @@ def test_A_doan_phi_bam_muc_nen_va_giam_thue(client):
     # Mục 4: đoàn phí CÙNG GỐC với BH, không phải thực lĩnh.
     assert ln["cong_doan"] == round(10_000_000 * 0.005)
     assert ln["cong_doan"] != round(float(ln["net_pay"]) * 0.005)
+
+
+def test_ky_da_chot_khong_con_chon_duoc(client):
+    """Chủ chốt 18/08/2026: kỳ lương ĐÃ CHỐT thì ô chọn kỳ trên phiếu tạm ứng không cho chọn nữa.
+
+    NV không có quyền đọc `/periods`, nên `/advances/me` trả kèm mốc `ky_min_chon_duoc` =
+    tháng LIỀN SAU kỳ khoá muộn nhất. FE đặt làm `min` của ô chọn.
+    Kỳ khoá theo thứ tự thời gian nên MỘT mốc là đủ — `<input type="month">` chỉ nhận min/max,
+    không bỏ trống được tháng ở giữa."""
+    token = _admin_token(client)
+
+    # Chưa kỳ nào khoá ⇒ lùi 12 tháng (chặn gõ nhầm năm, không chặn việc thật).
+    r0 = client.get("/api/luong/advances/me", headers=_h(token)).json()
+    assert r0["ky_min_chon_duoc"] is not None
+    truoc = r0["ky_min_chon_duoc"]
+
+    # Chốt kỳ 03/2026 ⇒ mốc phải nhảy lên 2026-04.
+    client.post("/api/luong/generate", json={"year": 2026, "month": 3}, headers=_h(token))
+    lock = client.post("/api/luong/lock", json={"year": 2026, "month": 3}, headers=_h(token))
+    assert lock.status_code == 200, lock.text
+
+    r1 = client.get("/api/luong/advances/me", headers=_h(token)).json()
+    assert r1["ky_min_chon_duoc"] == "2026-04"
+    assert r1["ky_min_chon_duoc"] > truoc          # mốc CHỈ tiến, không lùi
+
+    # Backend vẫn là chốt cuối: lập phiếu cho kỳ đã chốt bị chặn.
+    eid = _make_emp(client, token, name="NV Ky Chot", status="active")
+    r2 = client.post("/api/luong/advances", json={
+        "employee_id": eid, "period_year": 2026, "period_month": 3,
+        "advance_date": "2026-03-10", "amount": 1_000_000,
+    }, headers=_h(token))
+    assert r2.status_code == 409, r2.text
+    assert "đã chốt" in r2.json()["detail"]

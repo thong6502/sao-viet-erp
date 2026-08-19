@@ -345,6 +345,9 @@ class MyAdvancesOut(BaseModel):
     items: list[AdvanceOut]
     # Mức "Lương trả 1 lần" hiện hành của NV — FE điền sẵn khi tự xin phiếu đợt 1 (0 = chưa khai).
     luong_dot_1: float = 0
+    #: Tháng SỚM NHẤT còn lập phiếu được ("YYYY-MM") = liền sau kỳ đã chốt/đã chi muộn nhất.
+    #: FE đặt làm `min` của ô chọn kỳ — kỳ đã khoá KHÔNG chọn được nữa (chủ chốt 18/08/2026).
+    ky_min_chon_duoc: str | None = None
 
 
 # --- periods / bảng lương ---------------------------------------------------

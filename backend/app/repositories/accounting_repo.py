@@ -11,6 +11,7 @@ from ..models.accounting import (
     PAYMENT_RECEIPT_CANCELLED,
     PAYMENT_RECEIPT_RECEIVED,
     PAYMENT_RECEIPT_WAITING,
+    PAYMENT_VOUCHER_CANCELLED,
     PAYMENT_VOUCHER_PAID,
     RECEIPT_SOURCE_ORDER,
     SALES_INVOICE_ISSUED,
@@ -143,6 +144,17 @@ class AccountingRepository:
 
     def get_voucher(self, voucher_id: int) -> PaymentVoucher | None:
         return self.db.execute(self._voucher_stmt().where(PaymentVoucher.id == voucher_id)).scalars().first()
+
+    def get_voucher_by_salary_advance(self, salary_advance_id: int):
+        """Phiếu chi đã lập cho một phiếu tạm ứng — None nếu chưa lập.
+
+        Dùng ở HAI chỗ: chặn lập phiếu chi lần hai, và chặn huỷ phiếu tạm ứng khi tiền đã ra."""
+        return self.db.execute(
+            select(PaymentVoucher).where(
+                PaymentVoucher.salary_advance_id == salary_advance_id,
+                PaymentVoucher.status != PAYMENT_VOUCHER_CANCELLED,
+            )
+        ).scalars().first()
 
     def get_voucher_by_code(self, code: str) -> PaymentVoucher | None:
         return self.db.execute(

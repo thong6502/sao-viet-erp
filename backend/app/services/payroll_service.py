@@ -225,7 +225,7 @@ def _late_penalty_amount(minutes, brackets) -> float:
 
 class PayrollService:
     def __init__(self, payroll, employees, attendance, audit=None, piece=None,
-                 departments=None, components=None) -> None:
+                 departments=None, components=None, vouchers=None) -> None:
         self.payroll = payroll
         self.employees = employees
         self.attendance = attendance   # AttendanceService — nguồn số CÔNG
@@ -237,6 +237,10 @@ class PayrollService:
         # PayrollComponentRepository | None — danh mục khoản thu nhập (cờ chịu thuế TNCN).
         # None (unit test dựng tay) ⇒ không có khoản nào, số ra y như trước khi có danh mục.
         self.components = components
+        # AccountingRepository | None — CHỈ ĐỌC, chỉ để hỏi "phiếu tạm ứng này đã lập phiếu chi
+        # chưa" trước khi cho huỷ (chủ chốt 18/08/2026). None (unit test dựng tay) ⇒ bỏ qua chốt,
+        # hành vi y như trước.
+        self._vouchers = vouchers
         # Cache thành phần lương theo bộ phận trong 1 request: `generate` gọi engine cho hàng
         # trăm NV. Ghi cấu hình → `_reset_config_cache`.
         self._comp_cache: dict[int, dict] = {}
@@ -795,11 +799,14 @@ class PayrollService:
             raise PayrollValidationError("Số tiền phải > 0.")
         self._chan_neu_ky_luong_da_khoa(period_year, period_month, "lập thêm phiếu tạm ứng")
         code = self._new_advance_code(advance_date, kind=kind)
-        return self.payroll.create_advance(
+        row = self.payroll.create_advance(
             code=code, employee_id=employee_id, period_year=period_year, period_month=period_month,
             advance_date=advance_date, amount=amount, reason=reason, kind=kind,
             status=ADV_PENDING, created_by=getattr(actor, "id", None),
         )
+        self._audit(actor, "payroll_create_advance", f"salary_advance:{row.id}",
+                    f"{row.code or row.id} · {kind} · {float(amount):,.0f}đ")
+        return row
 
     def list_advances(self, *, year, month, status=None):
         return self.payroll.list_advances(year=year, month=month, status=status)
@@ -830,11 +837,17 @@ class PayrollService:
             raise PayrollValidationError("Đề nghị đã được xử lý.")
         self._chan_neu_ky_luong_da_khoa(
             a.period_year, a.period_month, "duyệt / từ chối phiếu tạm ứng của kỳ đó")
-        return self.payroll.update_advance(
+        out = self.payroll.update_advance(
             a, status=ADV_APPROVED if approve else ADV_REJECTED,
             decided_by=getattr(actor, "id", None), decided_at=datetime.now(timezone.utc),
             decision_note=note,
         )
+        # TẠM ỨNG LÀ TIỀN MẶT ⇒ phải có vết. Trước 18/08/2026 cả vòng đời tạm ứng không ghi một
+        # dòng nhật ký nào, nên không trả lời được "ai duyệt phiếu ứng 5 triệu này, lúc nào".
+        self._audit(actor, "payroll_decide_advance", f"salary_advance:{a.id}",
+                    f"{'DUYỆT' if approve else 'TỪ CHỐI'} {a.code or a.id} · "
+                    f"{float(a.amount):,.0f}đ" + (f" · {note}" if note else ""))
+        return out
 
     def cancel_advance(self, *, advance_id, actor):
         a = self.payroll.get_advance(advance_id)
@@ -844,7 +857,20 @@ class PayrollService:
             raise PayrollValidationError("Không thể hủy đề nghị này.")
         self._chan_neu_ky_luong_da_khoa(
             a.period_year, a.period_month, "huỷ phiếu tạm ứng của kỳ đó")
-        return self.payroll.update_advance(a, status=ADV_CANCELLED)
+        # ĐÃ LẬP PHIẾU CHI = TIỀN ĐÃ RỜI KÉT ⇒ KHÔNG cho huỷ (chủ chốt 18/08/2026). Huỷ ở đây mà
+        # phiếu chi vẫn nằm trong sổ quỹ là mất dấu chứng từ: sổ quỹ có khoản chi, phân hệ Lương
+        # thì bảo phiếu đã huỷ, và số tạm ứng khấu trừ vào bảng lương cũng biến mất theo.
+        # Muốn huỷ thì phải huỷ PHIẾU CHI trước.
+        if self._vouchers is not None:
+            pc = self._vouchers.get_voucher_by_salary_advance(a.id)
+            if pc is not None:
+                raise PayrollValidationError(
+                    f"Phiếu tạm ứng này đã lập phiếu chi {pc.code} — huỷ phiếu chi trước rồi mới huỷ được."
+                )
+        out = self.payroll.update_advance(a, status=ADV_CANCELLED)
+        self._audit(actor, "payroll_cancel_advance", f"salary_advance:{a.id}",
+                    f"{a.code or a.id} · {float(a.amount):,.0f}đ")
+        return out
 
     # --- engine tính 1 dòng -------------------------------------------------
 
@@ -1973,10 +1999,30 @@ class PayrollService:
         self._audit(actor, "payroll_thu_hoi", f"payroll_period:{p.id}", f"{int(month)}/{int(year)}")
         return p
 
+    def ky_min_chon_duoc(self) -> str:
+        """Tháng SỚM NHẤT còn lập được phiếu tạm ứng, dạng "YYYY-MM".
+
+        = tháng liền sau kỳ lương đã chốt/đã chi muộn nhất. Chưa kỳ nào khoá ⇒ lùi 12 tháng
+        (chặn gõ nhầm năm, không chặn việc thật).
+
+        Vì sao trả một MỐC chứ không trả danh sách kỳ: ô chọn của trình duyệt
+        (`<input type="month">`) chỉ nhận `min`/`max`, KHÔNG bỏ trống được tháng ở giữa. Mà kỳ
+        lương vốn khoá theo thứ tự thời gian nên một mốc là đủ diễn tả."""
+        p = self.payroll.latest_closed_period()
+        if p is None:
+            t = date.today()
+            nam, thang = (t.year - 1, t.month) if t.month else (t.year - 1, 1)
+            return f"{nam:04d}-{thang:02d}"
+        nam, thang = int(p.year), int(p.month) + 1
+        if thang > 12:
+            nam, thang = nam + 1, 1
+        return f"{nam:04d}-{thang:02d}"
+
     def my_advances(self, *, user):
         emp = self.employees.get_by_user_id(user.id)
         if emp is None:
-            return {"has_employee": False, "items": [], "luong_dot_1": 0.0}
+            return {"has_employee": False, "items": [], "luong_dot_1": 0.0,
+                    "ky_min_chon_duoc": self.ky_min_chon_duoc()}
         # Mức "Lương trả 1 lần" hiện hành — để FE điền sẵn khi NV tự xin phiếu đợt 1 (NV không có
         # quyền đọc hồ sơ lương nên phải trả kèm ở đây).
         sal = self.payroll.current_salary(emp.id, date.today())
@@ -1984,4 +2030,7 @@ class PayrollService:
             "has_employee": True,
             "items": self.payroll.list_advances_by_employee(emp.id),
             "luong_dot_1": float(getattr(sal, "luong_dot_1", 0) or 0),
+            # NV KHÔNG có quyền đọc `/periods` (đòi `luong:read`) nên không tự biết kỳ nào đã
+            # khoá — phải trả kèm ở đây, cùng lối với `luong_dot_1` ngay trên.
+            "ky_min_chon_duoc": self.ky_min_chon_duoc(),
         }
