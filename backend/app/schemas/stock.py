@@ -248,6 +248,7 @@ class KhoaSoKyRow(BaseModel):
     den_ngay: date
     khoa_luc: datetime | None = None      # thời điểm khóa quyết định tại ngày đầu kỳ
     ten: str | None = None                # tên kỳ (từ bản ghi 'khoa' quyết định)
+    mien_tru: list[str] = []              # (kỳ TOÀN KHO) tên các kho đã MỞ RIÊNG trong kỳ này
 
 
 class StockVoucherCancel(BaseModel):
