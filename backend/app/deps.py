@@ -335,8 +335,14 @@ def get_calendar_repository(
 def get_calendar_service(
     calendar: Annotated[CalendarRepository, Depends(get_calendar_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> CalendarService:
-    return CalendarService(calendar, audit)
+    # Repo chấm công → chặn sửa ngày lễ / nghỉ bù của tháng đã CHỐT CÔNG. Dựng thẳng từ `db` chứ
+    # không `Depends(get_attendance_repository)`: hàm đó khai BÊN DƯỚI trong file này, tham chiếu
+    # lên trên là NameError ngay lúc nạp module.
+    # Chỉ nhận REPO, không nhận service — `AttendanceService` đã giữ `CalendarService` bên trong
+    # nó, nhận ngược lại là vòng service ↔ service.
+    return CalendarService(calendar, audit, attendance=AttendanceRepository(db))
 
 
 def get_attendance_repository(
@@ -414,9 +420,11 @@ def get_overtime_service(
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     attendance: Annotated[AttendanceRepository, Depends(get_attendance_repository)],
+    payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
 ) -> OvertimeService:
     # attendance (REPO) → chặn duyệt/hủy phiếu của tháng ĐÃ CHỐT CÔNG (12/08/2026).
-    return OvertimeService(overtime, employees, audit, attendance=attendance)
+    # payroll (REPO) → đọc trần giờ làm thêm ở `payroll_params` (Đ107, chủ chốt 17/08/2026).
+    return OvertimeService(overtime, employees, audit, attendance=attendance, payroll=payroll)
 
 
 def get_payroll_repository(
@@ -467,10 +475,12 @@ def get_payroll_service(
     piece: Annotated[PieceWorkService, Depends(get_piece_work_service)],
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
     components: Annotated[PayrollComponentRepository, Depends(get_payroll_component_repository)],
+    vouchers: Annotated[AccountingRepository, Depends(get_accounting_repository)],
 ) -> PayrollService:
     # attendance → số CÔNG; piece → tiền KHOÁN (nhịp 2); departments → cờ has_piece_work.
+    # vouchers (REPO, chỉ đọc) → chặn huỷ phiếu tạm ứng đã lập phiếu chi (18/08/2026).
     return PayrollService(payroll, employees, attendance, audit=audit, piece=piece,
-                          departments=departments, components=components)
+                          departments=departments, components=components, vouchers=vouchers)
 
 
 def get_quotation_repository(
@@ -550,7 +560,9 @@ O_CHET_DA_XAC_MINH: set[tuple[str, str]] = {
     ("tk_ngan_hang", "create"), ("tk_ngan_hang", "delete"),
     ("self_service", "update"), ("self_service", "delete"), ("self_service", "approve"),
     ("nghi_phep", "delete"),
-    ("tang_ca", "create"), ("tang_ca", "update"), ("tang_ca", "delete"),
+    # `tang_ca:create` SỐNG LẠI 15/08/2026: ô Tự phục vụ bỏ đi, nên "gửi phiếu tăng ca cho chính
+    # mình" nay đi bằng ô THAO TÁC của chính màn Tăng ca. Ghi là ghi — phải có ô.
+    ("tang_ca", "update"), ("tang_ca", "delete"),
     # `di_muon:read` chết từ 11/08/2026: danh sách đổi sang đòi `approve` (màn chỉ còn một việc).
     ("di_muon", "read"),
     ("di_muon", "create"), ("di_muon", "update"), ("di_muon", "delete"),
@@ -704,8 +716,12 @@ def get_accounting_service(
     users: Annotated[UserRepository, Depends(get_user_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     sequences: Annotated[SequenceService, Depends(get_sequence_service)],
+    payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
+    employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
 ) -> AccountingService:
-    return AccountingService(repo, requests, suppliers, users, audit, sequences)
+    # payroll + employees (REPO, chỉ đọc) → lập phiếu chi từ phiếu tạm ứng lương (18/08/2026).
+    return AccountingService(repo, requests, suppliers, users, audit, sequences,
+                             payroll=payroll, employees=employees)
 
 
 def get_order_service(

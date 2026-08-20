@@ -942,6 +942,27 @@ class AttendanceService:
 
     # --- bảng công tháng ----------------------------------------------------
 
+    def he_so_ngay(self) -> dict[str, float]:
+        """Hệ số công HIỂN THỊ theo loại ngày — để ô lịch nói "→ tính N công" mà KHÔNG viết cứng số.
+
+        Đây là số ĐỌC RA TỪ CẤU HÌNH LƯƠNG, không phải công thức thứ hai: nó phải khớp từng đồng
+        với `PayrollService._compute`. Hai chỗ dùng HAI công thức khác nhau, CỐ Ý (chủ chốt
+        17/08/2026 — xem `payroll_service.py` khối premium Đ98):
+
+          • NGÀY LỄ  = **1 + holiday_work_multiplier** (mặc định 1 + 3 = 4×). Phần 1× là tiền lương
+            ngày lễ Đ112 — người đó hưởng dù nghỉ ở nhà; Đ98.1.c trả TRỌN 300% "chưa kể" khoản đó.
+          • NGHỈ TUẦN = **restday_work_multiplier** (mặc định 2×), KHÔNG cộng 1. Chủ nhật nghỉ ở nhà
+            thì không có đồng nào, nên phần 1× trong lương công CHÍNH LÀ tiền đi làm ⇒ 1× + 1×.
+            Cộng thêm 1 ở đây là màn hình hứa 3× trong khi phiếu lương trả 2×.
+          • off1x = 1× phẳng, không hệ số (Lương trả riêng, uncapped).
+
+        Đọc PayrollRepository (đã có sẵn ở `self._payroll`) chứ KHÔNG gọi PayrollService — service
+        Lương đang phụ thuộc service này, nối ngược lại là vòng."""
+        params = self._payroll.get_params() if self._payroll is not None else None
+        m_hol = float(getattr(params, "holiday_work_multiplier", 3.0) or 3.0)
+        m_rest = float(getattr(params, "restday_work_multiplier", 2.0) or 2.0)
+        return {"le": round(1.0 + m_hol, 2), "nghi_tuan": round(m_rest, 2), "off1x": 1.0}
+
     def monthly_timesheet(self, *, year: int, month: int, department_id: int | None = None,
                           scope=None, actor=None, only_employee_id: int | None = None) -> dict:
         """Gom attendance_logs của 1 tháng thành lưới NV × ngày (giờ VN). Mỗi ô ngày:
@@ -1098,6 +1119,11 @@ class AttendanceService:
             return {"first_in": None, "last_out": None, "hours": None, "present": False,
                     "cong": None, "late": False, "early": False, "ot_minutes": 0, "night": False,
                     "leave": None, "leave_paid": False, "holiday": False,
+                    # Ô NGÀY tự nói LOẠI NGÀY của nó (18/08/2026). Trước đây chỉ có `holiday`, nên
+                    # ngày nghỉ tuần / ngày `off1x` CÓ đi làm hiện y hệt ngày thường ("Công: 1") —
+                    # người làm Chủ nhật tưởng mình bị trả thiếu. Ba cờ này LOẠI TRỪ NHAU, đúng
+                    # thứ tự `plain > holiday > restday` mà tiền đang tính ở dưới.
+                    "restday": False, "plain": False,
                     "planned_off": False}
 
         # AI LÊN BẢNG = NV còn biên chế trong tháng **HỢP** NV có dấu vết (lượt bấm / đơn phép /
@@ -1268,6 +1294,7 @@ class AttendanceService:
                             # trả riêng uncapped, KHÔNG rơi vào premium lễ/nghỉ tuần.
                             plain_cong += info["cong"]
                             total_cong -= info["cong"]
+                            cell["plain"] = True
                         elif d in paid_holidays:
                             holiday_cong += info["cong"]
                             ot_holiday += info["ot_minutes"]
@@ -1275,6 +1302,7 @@ class AttendanceService:
                         elif is_restday:
                             restday_cong += info["cong"]
                             ot_restday += info["ot_minutes"]
+                            cell["restday"] = True
                         # Phạt trễ/sớm TỰ ĐỘNG: gom SỐ PHÚT vi phạm (trễ + về sớm) ngày này để payroll áp
                         # bảng phạt (mỗi ngày 1 lần). CHỈ khi KHÔNG có đơn phép duyệt phủ ngày đó (có phép →
                         # miễn) và KHÔNG phải ngày lễ. Ngày nghỉ tuần (CN): ×2 phút (khớp "Chủ nhật ×2" ở ô
@@ -1397,7 +1425,9 @@ class AttendanceService:
             })
         rows.sort(key=lambda r: r["employee_code"])
         return {"year": year, "month": month, "days_in_month": days_in_month,
-                "standard_cong": standard_cong, "holidays": holidays_info, "rows": rows}
+                "standard_cong": standard_cong, "holidays": holidays_info,
+                # Hệ số theo LOẠI NGÀY (cấp tháng, không phải per-NV) → ô lịch tự ghi "→ tính N công".
+                "he_so_ngay": self.he_so_ngay(), "rows": rows}
 
     def my_timesheet(self, *, user, year: int, month: int) -> dict:
         """Bảng công tháng CỦA CHÍNH NV đăng nhập (self-service, không cần quyền module).
@@ -1429,8 +1459,15 @@ class AttendanceService:
         pending_late_early = 0
         if self.late_early is not None:
             pending_late_early = self.late_early.count_pending_in_range(first, lastd)
+        # Phiếu TĂNG CA treo — chặn từ 15/08/2026. Sót cái này là ngõ cụt: chốt xong thì duyệt
+        # cũng không được nữa (L2), mà không duyệt thì không có tiền tăng ca; muốn gỡ phải mở lại
+        # cả kỳ công. Cùng lý do đã áp cho ba loại trên, chỉ là hôm đó quên mất loại này.
+        pending_overtime = 0
+        if self.overtime is not None:
+            pending_overtime = self.overtime.count_pending_in_range(first, lastd)
         return {"pending_leaves": pending_leaves,
                 "pending_late_early": pending_late_early,
+                "pending_overtime": pending_overtime,
                 "pending_adjusts": self.attendance.count_pending_requests(
                     start=first, end=lastd)}
 
@@ -1461,6 +1498,7 @@ class AttendanceService:
             "phat_sinh_sau_chot": self._dem_phat_sinh_sau_chot(p, year, month),
             "pending_leaves": blockers["pending_leaves"],
             "pending_late_early": blockers["pending_late_early"],
+            "pending_overtime": blockers["pending_overtime"],
             "pending_adjusts": blockers["pending_adjusts"],
             "payroll_locked": payroll_locked,
         }
@@ -1475,12 +1513,14 @@ class AttendanceService:
             raise AttendanceValidationError("Kỳ công đã chốt.")
         blockers = self._pending_blockers(year, month)
         if (blockers["pending_leaves"] or blockers["pending_adjusts"]
-                or blockers["pending_late_early"]):
+                or blockers["pending_late_early"] or blockers["pending_overtime"]):
             parts = []
             if blockers["pending_leaves"]:
                 parts.append(f"{blockers['pending_leaves']} đơn nghỉ phép")
             if blockers["pending_late_early"]:
                 parts.append(f"{blockers['pending_late_early']} phiếu đi muộn/về sớm")
+            if blockers["pending_overtime"]:
+                parts.append(f"{blockers['pending_overtime']} phiếu tăng ca")
             if blockers["pending_adjusts"]:
                 parts.append(f"{blockers['pending_adjusts']} yêu cầu chỉnh công")
             raise AttendanceValidationError(
@@ -1520,9 +1560,16 @@ class AttendanceService:
                 ca_lam_json=json.dumps(r.get("ca_lam") or {}),
                 ot_days_json=json.dumps(r.get("ot_days") or {"lam": {}, "nghi": {}}),
             )
+        # CÔNG CHUẨN vào ảnh chụp cùng lúc với công từng người (15/08/2026). Đọc TRỰC TIẾP từ
+        # lịch, KHÔNG gọi `self.standard_working_days` — hàm đó nay ưu tiên số đóng băng, mà lúc
+        # này kỳ chưa chuyển sang locked nên nó vẫn trả số sống; gọi vòng chỉ thêm chỗ để sai sau
+        # này nếu ai đó đổi thứ tự hai lệnh dưới đây.
+        std = (self._work_calendar.standard_working_days(year, month)
+               if self._work_calendar is not None else None)
         self.attendance.update_period(
             p, status=APERIOD_LOCKED, locked_at=datetime.now(timezone.utc),
             locked_by=getattr(actor, "id", None), updated_at=datetime.now(timezone.utc),
+            standard_cong=(float(std) if std else None),
         )
         self.audit.create(actor_user_id=getattr(actor, "id", None), action="lock_attendance_period",
                           target=f"attendance_period:{p.id}", detail=f"{month}/{year} · {len(ts['rows'])} NV")
@@ -1546,7 +1593,10 @@ class AttendanceService:
                     + "Điều chỉnh sai sót bằng truy lĩnh/khấu trừ kỳ sau."
                 )
         self.attendance.delete_period_lines(p.id)
+        # Xoá luôn công chuẩn đóng băng: mở lại kỳ là bỏ cả tấm ảnh, giữ lại một mảnh của ảnh cũ
+        # thì lần chốt sau có thể ghi đè, nhưng khoảng giữa hai lần chốt lại đọc số đã lỗi thời.
         self.attendance.update_period(p, status=APERIOD_DRAFT, locked_at=None, locked_by=None,
+                                      standard_cong=None,
                                       updated_at=datetime.now(timezone.utc))
         self.audit.create(actor_user_id=getattr(actor, "id", None), action="reopen_attendance_period",
                           target=f"attendance_period:{p.id}", detail=f"{month}/{year}")
@@ -1565,6 +1615,16 @@ class AttendanceService:
             (start_vn - timedelta(hours=12)).astimezone(timezone.utc),
             (end_vn + timedelta(hours=12)).astimezone(timezone.utc),
             _as_utc(p.locked_at),
+        )
+
+    def so_luot_bam_sau_chot(self, year: int, month: int) -> int:
+        """Cho LƯƠNG hỏi: tháng này đã chốt công rồi mà còn bao nhiêu lượt bấm ghi vào sau đó.
+
+        Cùng con số dải cảnh báo màn Chấm công đang hiện (L3) — nhưng L3 chỉ NÓI, không CHẶN, mà
+        nó nói ở màn Chấm công, trong khi người bấm chốt lương ngồi ở màn khác. Mở cửa công khai
+        để `ly_do_chua_chot_duoc` chặn nốt đầu bên kia (L8)."""
+        return self._dem_phat_sinh_sau_chot(
+            self.attendance.get_period_by_ym(year, month), year, month
         )
 
     def ky_cong_chot_luc(self, year: int, month: int) -> datetime | None:
@@ -1633,7 +1693,19 @@ class AttendanceService:
 
     def standard_working_days(self, year: int, month: int) -> int | None:
         """Công chuẩn ĐỘNG của tháng (số ngày làm việc thực theo Lịch chung — Đ3/N4) cho Lương.
-        None nếu chưa cấu hình lịch → Lương fallback về `standard_cong_default`."""
+        None nếu chưa cấu hình lịch → Lương fallback về `standard_cong_default`.
+
+        KỲ ĐÃ CHỐT thì trả số ĐÓNG BĂNG lúc chốt, không tính lại theo lịch hiện tại. Cùng lối rẽ
+        nhánh với `metrics_map`: chốt công là chụp ảnh, và mẫu số của đơn giá ngày cũng thuộc về
+        tấm ảnh đó. Không có nó thì công ty bỏ làm thứ Bảy hôm nay là đơn giá ngày của MỌI THÁNG
+        CŨ đổi theo, tính lại tháng nào ra tiền tháng đó.
+
+        Kỳ chốt TRƯỚC bản vá 15/08/2026 chưa có số đóng băng (NULL) ⇒ rơi về đọc lịch sống như
+        cũ. Cố ý: bịa một con số cho quá khứ còn tệ hơn."""
+        p = self.attendance.get_period_by_ym(year, month)
+        if (p is not None and p.status == APERIOD_LOCKED
+                and getattr(p, "standard_cong", None)):
+            return float(p.standard_cong)
         if self._work_calendar is None:
             return None
         return self._work_calendar.standard_working_days(year, month)

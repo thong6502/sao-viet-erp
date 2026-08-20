@@ -52,11 +52,13 @@ TEMPLATES: list[dict] = [
         ),
         "quyen": {
             "dashboard": _xem(SCOPE_OWN),
-            # Vào được màn Chấm công để bấm giờ; KHÔNG có `can_read` nên không thấy bảng công của
-            # người khác — nút chấm công đi theo ô Tự phục vụ (bật sẵn cho mọi vai mới).
+            # Màn Chấm công: `can_read` mở màn + ba tab CỦA MÌNH (bấm giờ · lịch công của mình ·
+            # tự xin đi muộn), `can_create` là ô Thao tác để GHI. KHÔNG có `can_view_timesheet`
+            # nên không thấy bảng công cả xưởng (mg 0194 — ô Tự phục vụ đã bỏ).
+            "cham_cong": {"can_read": True, "can_create": True, "can_cancel": True,
+                          "scope": SCOPE_OWN},
             "nghi_phep": _tu_phuc_vu_nghi_phep(),
             "tang_ca": {"can_read": True, "can_create": True, "can_cancel": True, "scope": SCOPE_OWN},
-            "di_muon": {"can_read": True, "can_create": True, "can_cancel": True, "scope": SCOPE_OWN},
         },
     },
     {
@@ -75,10 +77,13 @@ TEMPLATES: list[dict] = [
             },
             # Xem công + nhật ký của tổ để biết ai vắng, ai đi muộn. KHÔNG `can_adjust` (chấm bù)
             # và KHÔNG `can_lock` (chốt kỳ) — hai việc đó của HCNS.
-            "cham_cong": {"can_read": True, "can_view_log": True, "scope": SCOPE_DEPARTMENT},
+            # Bảng công tháng + nhật ký của tổ, và DUYỆT phiếu đi muộn của tổ — nay là ô chi tiết
+            # của chính màn Chấm công (mg 0194). KHÔNG `can_adjust` / `can_lock`: việc của HCNS.
+            "cham_cong": {"can_read": True, "can_create": True, "can_view_timesheet": True,
+                          "can_view_log": True, "can_approve_late_early": True,
+                          "scope": SCOPE_DEPARTMENT},
             "nghi_phep": _duyet_don_cua_to(),
             "tang_ca": _duyet_don_cua_to(),
-            "di_muon": _duyet_don_cua_to(),
             "kho": {
                 "can_read": True, "can_request": True, "can_approve": True,
                 "scope": SCOPE_DEPARTMENT,
@@ -107,17 +112,21 @@ TEMPLATES: list[dict] = [
                 "scope": SCOPE_ALL,
             },
             "cham_cong": {
-                "can_read": True, "can_view_log": True, "can_update": True,
-                "can_adjust": True, "can_lock": True, "scope": SCOPE_ALL,
+                "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
+                "can_view_timesheet": True, "can_view_log": True,
+                "can_adjust": True, "can_lock": True,
+                # Duyệt yêu cầu chỉnh công + duyệt phiếu đi muộn: gộp về ô chi tiết của chính màn
+                # này (mg 0194). Ba tab cấu hình cũng vậy — HCNS quản toàn bộ.
+                "can_approve": True, "can_approve_late_early": True,
+                "can_manage_locations": True, "can_manage_shifts": True,
+                "can_manage_calendar": True,
+                "scope": SCOPE_ALL,
             },
-            # Ô riêng từ 11/08/2026 — tách khỏi ô Chấm bù của màn Chấm công.
-            "yeu_cau_chinh_cong": {"can_read": True, "can_approve": True, "scope": SCOPE_ALL},
             "nghi_phep": {
                 "can_read": True, "can_create": True, "can_update": True, "can_delete": True,
                 "can_approve": True, "can_cancel": True, "scope": SCOPE_ALL,
             },
             "tang_ca": _duyet_don_cua_to(SCOPE_ALL),
-            "di_muon": _duyet_don_cua_to(SCOPE_ALL),
             "luong": {
                 "can_read": True, "can_create": True, "can_update": True,
                 "can_approve": True,      # duyệt tạm ứng

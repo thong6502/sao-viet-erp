@@ -82,6 +82,10 @@ class PaymentVoucherBaseIn(BaseModel):
 
 class PaymentVoucherIn(PaymentVoucherBaseIn):
     purchase_request_id: int | None = Field(default=None, gt=0)
+    # Phiếu TẠM ỨNG LƯƠNG nguồn (18/08/2026). Truyền cái này thì `source_type` tự là
+    # `salary_advance`, và SỐ TIỀN + NGƯỜI NHẬN lấy từ phiếu tạm ứng — payload gửi lên bị bỏ qua,
+    # để phiếu chi không thể lệch số đã duyệt.
+    salary_advance_id: int | None = Field(default=None, gt=0)
 
 
 class ApproveAndCreateVoucherIn(PaymentVoucherBaseIn):
@@ -103,6 +107,7 @@ class PaymentVoucherOut(BaseModel):
     credit_account: str | None = None
     source_type: str = "purchase_request"
     purchase_request_id: int | None = None
+    salary_advance_id: int | None = None
     purchase_request_code: str
     purchase_request_total: int | None = None
     purchase_paid_amount: int | None = None

@@ -20,11 +20,13 @@ from app.db_migrations import (
     _migrate_tach_module_nhan_su_luong,
     _migrate_tach_module_thu_mua,
     _migrate_tach_o_danh_dau_da_chi_luong,
+    _migrate_cham_cong_mot_o_mot_tab,
     _migrate_them_o_xem_nhat_ky_cham_cong,
     _migrate_tu_phuc_vu_co_o_thao_tac,
     _migrate_ycmh_khong_con_an_theo_khoa_thu_mua,
+    _migrate_luong_o_that_thay_o_ma,
 )
-from app.models.role import SCOPE_DEPARTMENT
+from app.models.role import SCOPE_DEPARTMENT, RolePermission
 
 
 @pytest.fixture
@@ -523,3 +525,180 @@ def test_0184_nguoi_dang_xin_nghi_bang_o_nghi_phep_khong_mat_duong(db):
              "WHERE role_id = :r AND module_key = 'self_service'"), {"r": vai},
     ).scalar()
     assert co, "người đang xin nghỉ bằng ô `nghi_phep:create` bị mất đường"
+
+
+# ══════════════════════════════════════════ mg 0194 — Chấm công: một ô = một tab
+
+
+def _o(db, role_id: int, module: str, cot: str):
+    return db.execute(text(
+        f"SELECT {cot} FROM role_permissions WHERE role_id = :r AND module_key = :m"
+    ), {"r": role_id, "m": module}).scalar()
+
+
+def test_0194_rot_quyen_khong_ai_mat_gi(db):
+    """⭐ Điều kiện nghiệm thu số 1 của PRD: **không vai nào mất quyền sau khi cập nhật**.
+
+    Migration tách "Cấu hình chấm công" thành ba ô và gộp hai khoá `di_muon` / `yeu_cau_chinh_cong`
+    về màn Chấm công. Rót sai thì HCNS mở màn ra mất sạch tab cấu hình — mà chỉ lộ đúng lúc cần
+    dùng, không có cảnh báo nào."""
+    vai = db.execute(text("SELECT id FROM roles LIMIT 1")).scalar()
+    db.execute(text("DELETE FROM role_permissions WHERE role_id = :r AND module_key IN "
+                    "('cham_cong', 'di_muon', 'yeu_cau_chinh_cong')"), {"r": vai})
+    # Dựng bằng ORM: INSERT thô thiếu mấy cột NOT NULL không có server_default (can_create…).
+    db.add_all([
+        RolePermission(role_id=vai, module_key="cham_cong", can_read=True, can_update=True, scope="all"),
+        RolePermission(role_id=vai, module_key="di_muon", can_read=True, can_approve=True, scope="all"),
+        RolePermission(role_id=vai, module_key="yeu_cau_chinh_cong", can_read=True,
+                       can_approve=True, scope="all"),
+    ])
+    db.commit()
+
+    _migrate_cham_cong_mot_o_mot_tab(db)
+
+    assert _o(db, vai, "cham_cong", "can_view_timesheet"), "đang xem bảng công mà mất tab đó"
+    for cot in ("can_manage_locations", "can_manage_shifts", "can_manage_calendar"):
+        assert _o(db, vai, "cham_cong", cot), f"'Cấu hình chấm công' cũ phải mở {cot}"
+    assert _o(db, vai, "cham_cong", "can_approve_late_early"), "mất quyền duyệt đi muộn"
+    assert _o(db, vai, "cham_cong", "can_approve"), "mất quyền duyệt yêu cầu chỉnh công"
+
+
+def test_0194_khong_bat_bua_cho_vai_khong_co_gi(db):
+    """Vế đối chứng: rót phải BÁM theo quyền cũ, không phải bật đại cho mọi vai.
+
+    Thiếu vế này thì chỉ cần `UPDATE ... SET tất cả = true` là test trên vẫn xanh, mà cả công ty
+    được quyền chốt kỳ công."""
+    vai = db.execute(text("SELECT id FROM roles LIMIT 1")).scalar()
+    db.execute(text("DELETE FROM role_permissions WHERE role_id = :r AND module_key IN "
+                    "('cham_cong', 'di_muon', 'yeu_cau_chinh_cong')"), {"r": vai})
+    db.add(RolePermission(role_id=vai, module_key="cham_cong", can_read=True, scope="own"))
+    db.commit()
+
+    _migrate_cham_cong_mot_o_mot_tab(db)
+
+    # can_read ⇒ vẫn xem bảng công như trước…
+    assert _o(db, vai, "cham_cong", "can_view_timesheet")
+    # …nhưng KHÔNG có gì khác được bật thêm.
+    for cot in ("can_manage_locations", "can_manage_shifts", "can_manage_calendar",
+                "can_approve_late_early", "can_approve"):
+        assert not _o(db, vai, "cham_cong", cot), f"bật bừa {cot} cho vai không hề có quyền đó"
+
+
+def test_0194_vai_chi_co_di_muon_van_duoc_dong_cham_cong(db):
+    """Vai duyệt đi muộn mà CHƯA hề có dòng `cham_cong` — phải tạo dòng mới cho họ.
+
+    Không tạo thì rót xong quyền rơi vào hư không: khoá cũ bỏ đi, khoá mới không có dòng nào để
+    ghi, và người đó mất sạch quyền duyệt."""
+    vai = db.execute(text("SELECT id FROM roles LIMIT 1")).scalar()
+    db.execute(text("DELETE FROM role_permissions WHERE role_id = :r AND module_key IN "
+                    "('cham_cong', 'di_muon', 'yeu_cau_chinh_cong')"), {"r": vai})
+    db.add(RolePermission(role_id=vai, module_key="di_muon", can_read=True,
+                          can_approve=True, scope="department"))
+    db.commit()
+
+    _migrate_cham_cong_mot_o_mot_tab(db)
+
+    assert _o(db, vai, "cham_cong", "can_approve_late_early"), "quyền duyệt rơi vào hư không"
+    assert _o(db, vai, "cham_cong", "can_read"), "tạo dòng mới thì phải mở được màn mà dùng"
+
+
+def test_0194_chay_lai_lan_hai_khong_doi_gi(db):
+    """Migration phải chạy lại được — DB thật có thể chạy lượt hai sau khi khởi động lại."""
+    vai = db.execute(text("SELECT id FROM roles LIMIT 1")).scalar()
+    _migrate_cham_cong_mot_o_mot_tab(db)
+    truoc = _o(db, vai, "cham_cong", "can_view_timesheet")
+    _migrate_cham_cong_mot_o_mot_tab(db)
+    assert _o(db, vai, "cham_cong", "can_view_timesheet") == truoc
+
+
+# --- 0198: màn Lương đổi từ ô ma `self_service` sang ô THẬT `luong` ----------------------------
+#
+# Vì sao phải canh: cổng vào màn Lương bị gỡ khỏi `self_service` (ô cấp sẵn cho mọi vai, ĐÃ gỡ
+# khỏi bảng phân quyền nên HCNS không tắt được). Nếu migration rót thiếu thì sáng hôm sau cả
+# xưởng mất màn Lương — mất luôn phiếu lương của chính mình. Rót THỪA còn tệ hơn: bật nhầm
+# `can_view_payroll_table` là thợ đọc được lương cả công ty.
+
+def _dong_luong(db, role_id: int) -> dict | None:
+    row = db.execute(
+        text("SELECT scope, can_read, can_create, can_view_payroll_table, can_view_salary "
+             "FROM role_permissions WHERE role_id = :r AND module_key = 'luong'"),
+        {"r": role_id},
+    ).mappings().first()
+    return dict(row) if row else None
+
+
+def _vai_khong_co_luong(db) -> int:
+    """Một vai có ô tự phục vụ nhưng CHƯA có dòng `luong` — đúng cảnh 16/20 vai trên DB dev."""
+    vai = db.execute(text("SELECT id FROM roles LIMIT 1")).scalar()
+    db.execute(text("DELETE FROM role_permissions WHERE role_id = :r AND module_key = 'luong'"),
+               {"r": vai})
+    db.execute(text("DELETE FROM role_permissions WHERE role_id = :r AND module_key = 'self_service'"),
+               {"r": vai})
+    db.execute(
+        text("INSERT INTO role_permissions (role_id, module_key, can_read, can_create, can_update, "
+             "can_delete, scope) VALUES (:r, 'self_service', true, true, false, false, 'own')"),
+        {"r": vai},
+    )
+    db.commit()
+    return vai
+
+
+def test_0198_vai_chua_co_o_luong_thi_duoc_rot_phan_cua_toi(db):
+    """Gỡ cổng ma mà không rót ô thật = cả xưởng mất màn Lương."""
+    vai = _vai_khong_co_luong(db)
+    assert _dong_luong(db, vai) is None, "dựng sai tình huống: vai này phải chưa có dòng luong"
+    _migrate_luong_o_that_thay_o_ma(db)
+    q = _dong_luong(db, vai)
+    assert q is not None, "vai đi cửa self_service mà không được rót ô Lương ⇒ mất màn"
+    assert q["can_read"] and q["can_create"], f"thiếu Xem/Thao tác: {q}"
+    assert q["scope"] == "own", f"phải là phạm vi Của tôi, không phải {q['scope']}"
+
+
+def test_0198_KHONG_rot_o_bang_luong_cho_tho(db):
+    """⭐ Rót thừa một ô là thợ đọc được lương cả công ty — *"công nhân làm gì có quyền đó đâu"*."""
+    vai = _vai_khong_co_luong(db)
+    _migrate_luong_o_that_thay_o_ma(db)
+    q = _dong_luong(db, vai)
+    assert not q["can_view_payroll_table"], "rót nhầm ô Bảng lương tháng"
+    assert not q["can_view_salary"], "rót nhầm ô Xem lương ⇒ đọc được lương người khác"
+
+
+def test_0198_vai_da_duoc_cau_hinh_thi_KHONG_bi_dung_toi(db):
+    """Ô đã có người bật/tắt có chủ đích — migration không được đè lên ý của họ."""
+    vai = _vai_khong_co_luong(db)
+    # HCNS đã cố ý cho vai này XEM mà không cho GHI ở màn Lương.
+    db.execute(
+        text("INSERT INTO role_permissions (role_id, module_key, can_read, can_create, can_update, "
+             "can_delete, scope) VALUES (:r, 'luong', true, false, false, false, 'department')"),
+        {"r": vai},
+    )
+    db.commit()
+    _migrate_luong_o_that_thay_o_ma(db)
+    q = _dong_luong(db, vai)
+    assert not q["can_create"], "migration bật thêm ô Thao tác mà không ai yêu cầu"
+    assert q["scope"] == "department", "migration hạ phạm vi người ta đang dùng"
+
+
+def test_0198_dong_trong_tron_van_duoc_rot(db):
+    """Dòng bật-hết-false trông y như CHƯA CẤP trên bảng phân quyền ⇒ phải xử như chưa có."""
+    vai = _vai_khong_co_luong(db)
+    db.execute(
+        text("INSERT INTO role_permissions (role_id, module_key, can_read, can_create, can_update, "
+             "can_delete, scope) VALUES (:r, 'luong', false, false, false, false, 'own')"),
+        {"r": vai},
+    )
+    db.commit()
+    _migrate_luong_o_that_thay_o_ma(db)
+    q = _dong_luong(db, vai)
+    assert q["can_read"] and q["can_create"], f"dòng trống trơn không được rót: {q}"
+
+
+def test_0198_chay_lai_khong_de_hang_trung(db):
+    vai = _vai_khong_co_luong(db)
+    _migrate_luong_o_that_thay_o_ma(db)
+    _migrate_luong_o_that_thay_o_ma(db)
+    n = db.execute(
+        text("SELECT count(*) FROM role_permissions WHERE role_id = :r AND module_key = 'luong'"),
+        {"r": vai},
+    ).scalar()
+    assert n == 1, f"chạy lại đẻ ra {n} dòng luong"
