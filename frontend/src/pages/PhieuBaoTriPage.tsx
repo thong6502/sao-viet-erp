@@ -126,8 +126,10 @@ export function PhieuBaoTriPage() {
   const soCanLam = dem.cho_thuc_hien ?? 0;
   // Tiêu đề "N phiếu" nói chuyện toàn xưởng nên đọc `tomTat`; view Lịch không gọi API danh sách
   // nên `dem` ở đó còn rỗng.
-  const tongTatCa = (tomTat.cho_thuc_hien ?? 0) + (tomTat.hoan_thanh ?? 0);
-  const tongTheoLoc = soCanLam + (dem.hoan_thanh ?? 0);
+  // Gồm cả `da_huy`: tab "Tất cả" khi bấm trả về mọi trạng thái (kể cả đã hủy), nên con số phải
+  // khớp số dòng — và headline "N phiếu" bằng đúng tab Tất cả.
+  const tongTatCa = (tomTat.cho_thuc_hien ?? 0) + (tomTat.hoan_thanh ?? 0) + (tomTat.da_huy ?? 0);
+  const tongTheoLoc = soCanLam + (dem.hoan_thanh ?? 0) + (dem.da_huy ?? 0);
   // `qua_han` phụ thuộc NGÀY nên backend đếm sẵn và trả kèm — trước đây FE phải bịa mẹo "chỉ hiện
   // số khi đang đứng ở chính tab đó".
   const soQuaHan = dem.qua_han ?? 0;
@@ -145,7 +147,7 @@ export function PhieuBaoTriPage() {
         <p className="rc__sub">
           Bảo trì định kỳ theo lịch đã khai trên từng máy, và bảo trì đột xuất.
           <strong> Phải tick hết hạng mục và có ảnh chứng thực mới xác nhận hoàn thành</strong>;
-          dời lịch thì bắt buộc ghi lý do.
+          không làm kỳ này thì hủy phiếu kèm lý do.
         </p>
 
         {/* Câu hỏi đầu tiên của thợ mỗi sáng là "hôm nay phải làm gì", không phải "có bao nhiêu
@@ -565,10 +567,8 @@ function BaoTriDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
   const [ghiChu, setGhiChu] = useState(phieu?.ghi_chu ?? "");
   const [luu, setLuu] = useState(false);
 
-  // dời lịch
-  const [moDoi, setMoDoi] = useState(false);
-  const [ngayMoi, setNgayMoi] = useState("");
-  const [lyDo, setLyDo] = useState("");
+  // hủy phiếu — dialog kèm lý do (lý do do chính dialog giữ)
+  const [moHuy, setMoHuy] = useState(false);
 
   // ngày làm THẬT khi xác nhận xong (thợ làm thứ Bảy, thứ Hai mới vào bấm)
   const [ngayXong, setNgayXong] = useState(homNay());
@@ -577,7 +577,8 @@ function BaoTriDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
   const [boQuaViec, setBoQuaViec] = useState<{ id: string; ten: string } | null>(null);
 
   const xong = hienTai?.trang_thai === "hoan_thanh";
-  const khoaSua = !suaDuoc || xong;
+  const daHuy = hienTai?.trang_thai === "da_huy";
+  const khoaSua = !suaDuoc || xong || daHuy;
 
   // Nạp lại ĐÚNG phiếu này sau khi ảnh đổi. Bản cũ kéo cả danh sách theo máy rồi `find`: phiếu nằm
   // ngoài trang đầu là không thấy ⇒ cờ `co_anh_sau` đứng im và nút "Xác nhận" vẫn khoá dù ảnh đã lên.
@@ -651,19 +652,14 @@ function BaoTriDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
     }
   };
 
-  const doiLich = async () => {
+  // Ném lỗi ra để dialog hủy tự hiện — thành công thì đóng dialog. Không nuốt lỗi ở đây, không thì
+  // dialog đóng lại như đã hủy trong khi backend từ chối (vd phiếu vừa được người khác cho hoàn thành).
+  const huyPhieu = async (ly_do: string) => {
     if (!token || !hienTai) return;
-    if (!ngayMoi) { setLoi("Chưa chọn ngày mới."); return; }
-    if (!lyDo.trim()) { setLoi("Phải ghi lý do dời lịch."); return; }
-    try {
-      const p = await kyThuatMay.doiLich(token, hienTai.id, ngayMoi, lyDo.trim());
-      setHienTai(p);
-      onSaved(p);
-      setMoDoi(false);
-      setLyDo("");
-    } catch (e) {
-      setLoi(e instanceof Error ? e.message : "Không dời được lịch.");
-    }
+    const p = await kyThuatMay.huyBaoTri(token, hienTai.id, ly_do);
+    setHienTai(p);
+    onSaved(p);
+    setMoHuy(false);
   };
 
   const doiTrangThai = async (tt: string) => {
@@ -763,10 +759,26 @@ function BaoTriDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
                 : " mốc này là gốc để tính kỳ bảo trì kế tiếp."}
             </div>
           )}
+          {/* "Đã dời" là dữ liệu CŨ — chức năng dời lịch đã gỡ, nhưng phiếu dời trước đó vẫn phải kể
+              lại đúng để không mất vết. */}
           {hienTai?.da_doi && (
             <div className="ktm-thongbao">
               <Icon name="history" size={14} /> Đã dời từ {fmtNgay(hienTai.ngay_ke_hoach_goc)} — lý do:{" "}
               {hienTai.ly_do_doi}
+            </div>
+          )}
+          {daHuy && (
+            <div className="ktm-thongbao ktm-thongbao--huy">
+              <Icon name="ban" size={14} />
+              <span>
+                Phiếu đã hủy{hienTai?.ly_do_huy ? <> — lý do: <strong>{hienTai.ly_do_huy}</strong></> : ""}.
+              </span>
+              {suaDuoc && (
+                <button type="button" className="rc__link-btn ktm-thongbao__nut"
+                  onClick={() => doiTrangThai("cho_thuc_hien")}>
+                  <Icon name="history" size={13} /> Mở lại (hủy nhầm)
+                </button>
+              )}
             </div>
           )}
 
@@ -845,26 +857,11 @@ function BaoTriDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
                     Hủy
                   </button>
                 ) : (
-                  <button type="button" className="rc__link-btn" onClick={() => { setMoDoi((v) => !v); setNgayMoi(hienTai.ngay_ke_hoach); }}>
-                    <Icon name="calendar" size={14} /> Dời lịch
+                  <button type="button" className="rc__link-btn ktm-link-huy"
+                    onClick={() => { setMoHuy(true); setLoi(null); }}>
+                    <Icon name="ban" size={14} /> Hủy phiếu
                   </button>
                 )}
-              </div>
-            )}
-
-            {moDoi && !khoaSua && (
-              <div className="ktm-doilich">
-                <label className="rc-field">
-                  <span className="rc-field__label">Ngày mới</span>
-                  <input className="rc-input" type="date" value={ngayMoi}
-                    onChange={(e) => setNgayMoi(e.target.value)} />
-                </label>
-                <label className="rc-field">
-                  <span className="rc-field__label">Lý do *</span>
-                  <input className="rc-input" value={lyDo} placeholder="vd: chờ dao bế về"
-                    onChange={(e) => setLyDo(e.target.value)} />
-                </label>
-                <Button variant="accent" onClick={doiLich}>Xác nhận dời</Button>
               </div>
             )}
           </section>
@@ -963,7 +960,7 @@ function BaoTriDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
                 </div>
               )}
 
-              {suaDuoc && !xong && (
+              {suaDuoc && !xong && !daHuy && (
                 <section className={`ktm-gatekeeper${duDieuKien ? " is-ready" : ""}`}>
                   <div className="ktm-gatekeeper__head">
                     <Icon name="shield" size={16} />
@@ -1021,6 +1018,10 @@ function BaoTriDrawer({ phieu, may, loiMay, suaDuoc, onClose, onSaved }: {
           }}
         />
       )}
+
+      {moHuy && hienTai && (
+        <HuyPhieuDialog ma={hienTai.ma} onCancel={() => setMoHuy(false)} onConfirm={huyPhieu} />
+      )}
     </div>
   );
 }
@@ -1070,6 +1071,60 @@ function LyDoBoQuaDialog({ ten, onCancel, onConfirm }: {
         <p className="ktm-hint">
           Lý do được ghi vào nhật ký phiếu — người sau đọc lại biết vì sao việc này bỏ trống.
         </p>
+      </div>
+    </ConfirmDialog>
+  );
+}
+
+/** Hỏi lý do trước khi HỦY phiếu bảo trì. Hủy ĐẢO ĐƯỢC (mở lại về hàng chờ) nên không cần đếm ngược,
+ *  nhưng lý do là BẮT BUỘC — nó vào nhật ký để sau này biết vì sao kỳ này không làm. */
+function HuyPhieuDialog({ ma, onCancel, onConfirm }: {
+  ma: string;
+  onCancel: () => void;
+  onConfirm: (lyDo: string) => Promise<void>;
+}) {
+  const [lyDo, setLyDo] = useState("");
+  const [dang, setDang] = useState(false);
+  const [loi, setLoi] = useState<string | null>(null);
+
+  return (
+    <ConfirmDialog
+      open
+      danger
+      title={
+        <div className="ktm-dialog-title">
+          <Icon name="ban" size={18} />
+          <span>Hủy phiếu {ma}?</span>
+        </div>
+      }
+      confirmLabel="Hủy phiếu"
+      busy={dang}
+      error={loi}
+      onConfirm={async () => {
+        if (!lyDo.trim()) { setLoi("Phải ghi lý do hủy phiếu."); return; }
+        setLoi(null);
+        setDang(true);
+        try {
+          await onConfirm(lyDo.trim());
+        } catch (e) {
+          setLoi(e instanceof Error ? e.message : "Không hủy được phiếu.");
+        } finally {
+          setDang(false);
+        }
+      }}
+      onCancel={onCancel}
+    >
+      <div className="ktm-boqua-form">
+        <p className="ktm-hint">
+          Phiếu chuyển sang <strong>Đã hủy</strong> — ngưng đếm việc, không tính quá hạn. Hủy nhầm thì
+          mở lại được về hàng chờ, nhưng lý do vẫn được ghi vào nhật ký.
+        </p>
+        <label className="rc-field">
+          <span className="rc-field__label">Lý do hủy *</span>
+          <input className="rc-input" value={lyDo} autoFocus
+            placeholder="vd: máy đã thanh lý · gói này khai nhầm · hãng vừa bảo dưỡng tuần trước"
+            onChange={(e) => { setLyDo(e.target.value); setLoi(null); }} />
+        </label>
       </div>
     </ConfirmDialog>
   );

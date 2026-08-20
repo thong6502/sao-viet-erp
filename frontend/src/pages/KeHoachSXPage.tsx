@@ -225,36 +225,45 @@ export function KeHoachSXPage({
 
   return (
     <main className="khsx">
-      <header className="khsx__head">
-        <p className="eyebrow">Sản xuất</p>
-        <div className="khsx__headrow">
-          <h1 className="khsx__title">Kế hoạch sản xuất</h1>
-          <span className="khsx__count">
-            {num(queueTotal)} đơn chờ · {num(total)} lệnh
-          </span>
+      <header className="khsx-page-header">
+        <div className="khsx-page-header__left">
+          <div className="khsx-page-header__eyebrow-row">
+            <span className="khsx-eyebrow-badge">
+              <Icon name="clipboard" size={12} /> Sản xuất &amp; Điều phối
+            </span>
+            <span className="khsx-sync-badge">
+              <span className="khsx-sync-badge__dot" /> Live Sync
+            </span>
+          </div>
+          <h1 className="khsx-page-header__title">Kế hoạch sản xuất</h1>
+          <p className="khsx-page-header__sub">
+            Quản lý và điều phối toàn bộ tiến độ sản xuất từ tiếp nhận đơn hàng đến hoàn thành ra xưởng
+          </p>
         </div>
       </header>
 
-      <div className="khsx__segrow" role="tablist" aria-label="Khu vực làm việc">
+      <div className="khsx-tabs-bar" role="tablist" aria-label="Khu vực làm việc">
         <button
           type="button"
           role="tab"
           aria-selected={tab === "hang-cho"}
-          className={`seg ${tab === "hang-cho" ? "is-active" : ""}`}
+          className={`khsx-tab-btn ${tab === "hang-cho" ? "is-active" : ""}`}
           onClick={() => setTab("hang-cho")}
         >
-          Hàng chờ
-          {queueTotal > 0 && <span className="chip-count chip-count--alert">{queueTotal}</span>}
+          <Icon name="packageCheck" size={14} />
+          <span>Hàng chờ tiếp nhận</span>
+          {queueTotal > 0 && <span className="khsx-tab-badge khsx-tab-badge--alert">{queueTotal}</span>}
         </button>
         <button
           type="button"
           role="tab"
           aria-selected={tab === "lenh"}
-          className={`seg ${tab === "lenh" ? "is-active" : ""}`}
+          className={`khsx-tab-btn ${tab === "lenh" ? "is-active" : ""}`}
           onClick={() => setTab("lenh")}
         >
-          Lệnh sản xuất
-          <span className="chip-count">{total}</span>
+          <Icon name="layers" size={14} />
+          <span>Lệnh sản xuất</span>
+          <span className="khsx-tab-badge">{total}</span>
         </button>
       </div>
 
@@ -518,23 +527,19 @@ function LenhTable({
             <caption className="sr-only">Danh sách lệnh sản xuất</caption>
             <thead>
               <tr>
-                <th scope="col">Mã lệnh</th>
-                <th scope="col">Sản phẩm</th>
-                <th scope="col">Đơn · Khách</th>
-                <th scope="col" className="khsx-th--num">SL</th>
-                {/* Tiêu đề nói CHẶNG, không nói đơn vị: bảng liệt kê nhiều lệnh, lệnh sách có thể
-                    đếm "TỜ CHẠY MÁY" còn lệnh bao bì đếm "TẤM" — một chữ ở đây không gánh nổi hai.
-                    Đơn vị nằm trong từng ô, đọc từ `don_vi_to` server gửi kèm mỗi dòng. */}
-                <th scope="col" className="khsx-th--num">Vào máy</th>
-                <th scope="col" className="khsx-th--num">CĐ</th>
-                <th scope="col" className="khsx__col--opt">Tổ đầu</th>
-                <th scope="col">Hạn</th>
-                <th scope="col">Vướng</th>
-                <th scope="col">Trạng thái</th>
+                <th scope="col" style={{ width: 140 }}>Mã lệnh</th>
+                <th scope="col" style={{ minWidth: 200 }}>Sản phẩm / Bộ phận</th>
+                <th scope="col" style={{ minWidth: 150 }}>Đơn · Khách</th>
+                <th scope="col" className="khsx-th--num" style={{ width: 100 }}>SL</th>
+                <th scope="col" className="khsx-th--num" style={{ width: 100 }}>Vào máy</th>
+                <th scope="col" style={{ width: 130 }}>Tiến độ CĐ</th>
+                <th scope="col" style={{ width: 140 }}>Hạn SX &amp; Giao</th>
+                <th scope="col" style={{ width: 120 }}>Vướng</th>
+                <th scope="col" style={{ width: 130 }}>Trạng thái</th>
               </tr>
             </thead>
             {rows === null ? (
-              <Skeleton rows={5} cols={10} />
+              <Skeleton rows={5} cols={9} />
             ) : (
               <tbody>
                 {rows.map((l) => (
@@ -553,44 +558,84 @@ function LenhTable({
                     }}
                   >
                     <td>
-                      <span className="khsx__code">{l.ma}</span>
-                      {l.is_rush && <ChipGap />}
-                    </td>
-                    {/* Lệnh chỉ mang tên bộ phận ("Bìa") → phải nói rõ nó thuộc sản phẩm thương
-                        mại nào, không thì nhìn danh sách không biết bìa của cuốn nào. */}
-                    <td className="khsx__name" title={l.nhom ? `${l.nhom} — ${l.ten}` : l.ten}>
-                      {l.ten}
-                      {l.nhom && <div className="khsx__sub khsx__sub--nhom">{l.nhom}</div>}
-                    </td>
-                    <td>
-                      {l.order_no ?? "—"}
-                      {l.customer_name && <div className="khsx__sub">{l.customer_name}</div>}
-                    </td>
-                    <td className="khsx-num">
-                      {num(l.so_luong_dat)} <span className="khsx-unit">{l.don_vi_tinh}</span>
-                    </td>
-                    <td className="khsx-num">
-                      {num(l.so_to_ke_hoach)}{" "}
-                      <span className="khsx-unit">{nhanDonVi(l.don_vi_to)}</span>
-                    </td>
-                    <td className={`khsx-num ${l.so_cong_doan === 0 ? "khsx__bad" : ""}`}>
-                      {l.so_cong_doan}
-                    </td>
-                    <td className="khsx__col--opt">{l.to_dau_ten ?? "—"}</td>
-                    <td>
-                      <div
-                        className={`khsx-num ${classHanLich(tq[l.id]?.slack_ngay, l.han_hoan_thanh_sx)}`}
-                        title={
-                          tq[l.id]?.slack_ngay != null
-                            ? tq[l.id]!.slack_ngay! < 0
-                              ? `Lịch đang vượt hạn ${-tq[l.id]!.slack_ngay!} ngày làm việc`
-                              : `Lịch còn dư ${tq[l.id]!.slack_ngay!} ngày làm việc`
-                            : undefined
-                        }
-                      >
-                        SX {ngay(l.han_hoan_thanh_sx)}
+                      <div className="khsx-code-badge">
+                        <span className="khsx__code">{l.ma}</span>
+                        {l.is_rush && <ChipGap />}
                       </div>
-                      <div className="khsx__sub">Giao {ngay(l.han_giao_khach)}</div>
+                    </td>
+                    <td>
+                      <div className="khsx-cell-prod">
+                        <div className="khsx-prod__title" title={l.nhom ? `${l.nhom} — ${l.ten}` : l.ten}>
+                          {l.ten}
+                        </div>
+                        {l.nhom && (
+                          <div className="khsx-prod__group" title="Thuộc bộ phận / nhóm sản phẩm">
+                            <Icon name="layers" size={11} /> {l.nhom}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="khsx-cell-order">
+                        {l.order_no ? (
+                          <span className="khsx-order-chip">{l.order_no}</span>
+                        ) : (
+                          <span className="khsx-muted">—</span>
+                        )}
+                        {l.customer_name && (
+                          <div className="khsx-order__cust" title={l.customer_name}>
+                            {l.customer_name}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="khsx-num">
+                      <div className="khsx-qty-cell">
+                        <b>{num(l.so_luong_dat)}</b> <small>{l.don_vi_tinh}</small>
+                      </div>
+                    </td>
+                    <td className="khsx-num">
+                      <div className="khsx-qty-cell">
+                        {l.so_to_ke_hoach > 0 ? (
+                          <>
+                            <b>{num(l.so_to_ke_hoach)}</b>{" "}
+                            <small>{nhanDonVi(l.don_vi_to)}</small>
+                          </>
+                        ) : (
+                          <span className="khsx-muted">—</span>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="khsx-step-cell">
+                        <span className={`khsx-step-pill ${l.so_cong_doan === 0 ? "is-bad" : ""}`}>
+                          {l.so_cong_doan > 0 ? `${l.so_cong_doan} bước` : "Chưa có CĐ"}
+                        </span>
+                        <span className="khsx-step-org" title="Tổ sản xuất xuất phát">
+                          {l.to_dau_ten || "—"}
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="khsx-cell-date">
+                        <div
+                          className={`khsx-date-line ${classHanLich(tq[l.id]?.slack_ngay, l.han_hoan_thanh_sx)}`}
+                          title={
+                            tq[l.id]?.slack_ngay != null
+                              ? tq[l.id]!.slack_ngay! < 0
+                                ? `Lịch đang vượt hạn ${-tq[l.id]!.slack_ngay!} ngày làm việc`
+                                : `Lịch còn dư ${tq[l.id]!.slack_ngay!} ngày làm việc`
+                              : undefined
+                          }
+                        >
+                          <span className="khsx-date-lbl">SX:</span>
+                          <b>{ngay(l.han_hoan_thanh_sx)}</b>
+                        </div>
+                        <div className="khsx-date-line is-sub">
+                          <span className="khsx-date-lbl">Giao:</span>
+                          <b>{ngay(l.han_giao_khach)}</b>
+                        </div>
+                      </div>
                     </td>
                     <td>
                       <DenTienDo

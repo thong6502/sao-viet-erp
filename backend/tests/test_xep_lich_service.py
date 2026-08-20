@@ -467,6 +467,14 @@ def test_bai_ghep_in_chung_mot_dong_loai_tru_in(db, orders, lsx_svc, bg_svc, xl_
     with pytest.raises(XepLichConflict):
         xl_svc.go_lsx(lsx_id=created[0].id, actor=admin)
 
+    # Lane của lệnh đã ghép khuyết bước in (nó chạy chung ở bài) — mỗi dòng lệnh phải mang được mã
+    # bài để màn Gantt ghi "in ở GB-xx". Thiếu thì người xem lịch thấy lệnh hụt một bước, không
+    # có gì giải thích. Chính dòng in chung thì KHÔNG mang (nó là đích, không phải con trỏ).
+    ds = {r["id"]: r for r in xl_svc.danh_sach()["items"]}
+    assert ds[member[0].id]["gang_bai_ghep_id"] == bg.id
+    assert ds[member[0].id]["gang_ma"] == bg.ma
+    assert ds[gang[0].id]["gang_bai_ghep_id"] is None
+
 
 def test_som_nhat_theo_gio_thuc_cua_buoc_truoc(db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch):
     """Gán In MUỘN → 'sớm nhất' của Xả tờ phải chạy theo giờ KẾT THÚC thực của In (không phải mốc lý

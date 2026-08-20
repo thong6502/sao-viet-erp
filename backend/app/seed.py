@@ -61,12 +61,17 @@ MODULES: list[tuple[str, str]] = [
     # Khoá `bai_ghep` (màn cũ) gỡ 18/08/2026 — mg `0216` chép quyền sang `bai_ghep_2` rồi xoá.
     # Khoá giữ hậu tố "_2" để khỏi phải đổi khoá trong DB; NHÃN là "Bài ghép", đây là màn duy nhất.
     ("bai_ghep_2", "Bài ghép"),
-    ("xep_lich", "Xếp lịch công đoạn"),
+    # Khoá `xep_lich` (màn cũ) gỡ 19/08/2026 — mg `0219` chép quyền sang `xep_lich_2` rồi xoá.
+    # Khoá giữ hậu tố "_2" để khỏi đổi khoá trong DB; NHÃN là "Xếp lịch công đoạn", màn duy nhất.
+    ("xep_lich_2", "Xếp lịch công đoạn"),
     # Kỹ thuật máy (12/08/2026) gộp Sửa chữa + Bảo trì vì "cùng một người làm cả hai việc". Lý do
     # đó vẫn đúng cho NGƯỜI LÀM, nhưng ô quyền còn phải phục vụ người ĐI CẤP: điều độ cần xem lịch
     # bảo trì để né máy nằm, mà không nên đọc phiếu máy hỏng. Nên tách 17/08/2026.
     ("ky_thuat_may", "Sửa chữa máy"),
     ("phieu_bao_tri", "Phiếu bảo trì"),
+    # Người ngoài tổ kỹ thuật báo máy hỏng (20/08/2026). Tách khỏi `ky_thuat_may` vì đây đúng là
+    # hai nhóm người khác nhau: thợ đứng máy CHỈ được gửi lời báo, không được mở/đóng phiếu sửa.
+    ("yeu_cau_sua_chua", "Báo máy hỏng"),
     ("kho", "Kho hàng"),
     ("phong_ban", "Phòng ban"),
     ("vai_tro", "Vai trò"),
@@ -376,9 +381,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "ke_hoach_vat_tu": _rcu(SCOPE_ALL),
             "bai_ghep_2": _rcu(SCOPE_ALL),
             # can_approve = phát hành lịch; can_approve_exception = duyệt ngoại lệ (bỏ qua cảnh báo
-            # khi phát hành) — trưởng điều độ cầm cả hai. Hai bit này TRƯỚC 17/08/2026 treo trên
-            # khoá `san_xuat` nhưng chỉ `routers/xep_lich.py` hỏi tới, nên theo màn Xếp lịch.
-            "xep_lich": {**_rcu(SCOPE_ALL), "can_approve": True, "can_approve_exception": True},
+            # khi phát hành) — trưởng điều độ cầm cả hai. Chỉ `routers/xep_lich_2.py` hỏi tới hai bit
+            # này (trước 17/08/2026 chúng treo nhầm trên khoá `san_xuat`).
+            "xep_lich_2": {**_rcu(SCOPE_ALL), "can_approve": True, "can_approve_exception": True},
             # Điều độ XEM phiếu kỹ thuật để biết máy nào sắp/đang nằm mà né khi xếp lịch.
             "ky_thuat_may": _read(SCOPE_ALL),
             "phieu_bao_tri": _read(SCOPE_ALL),
@@ -412,9 +417,11 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # trên ma trận, đó là quyết định của chủ chốt chứ không phải của seed.
             "ke_hoach_vat_tu": _read(SCOPE_ALL),
             "bai_ghep_2": _read(SCOPE_ALL),
-            "xep_lich": _read(SCOPE_ALL),
+            "xep_lich_2": _read(SCOPE_ALL),
             # Tổ trưởng vẫn cần ĐỌC danh mục máy (đổ danh sách máy ở màn của tổ), không sửa.
             "dm_thiet_bi": _read(SCOPE_ALL),
+            # Báo máy hỏng thay cả tổ + sửa lại lời báo của thợ cho rõ trước khi tổ kỹ thuật đọc.
+            "yeu_cau_sua_chua": _rcu(SCOPE_ALL),
             # Kho: đề nghị lĩnh vật tư cho tổ + DUYỆT cấp 1 đề nghị của tổ mình (BRD §2.8 b5 —
             # "Tổ trưởng/Quản lý duyệt đề xuất cấp phát"). Scope DEPARTMENT: phải thấy đề nghị của
             # NV trong phòng mới duyệt được (own chỉ thấy của mình → không có gì để duyệt).
@@ -452,7 +459,11 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         # Ba màn kia giữ nguyên mức đang có (xem ghi chú ở vai Tổ trưởng SX).
         {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_OWN),
          "ke_hoach_vat_tu": _read(SCOPE_ALL), "bai_ghep_2": _read(SCOPE_ALL),
-         "xep_lich": _read(SCOPE_ALL),
+         "xep_lich_2": _read(SCOPE_ALL),
+         # Thợ đứng máy là người ĐẦU TIÊN biết máy hỏng: cho gửi yêu cầu + sửa lại yêu cầu của
+         # mình (khi chưa ai tiếp nhận). `read` để trống mắt thấy người khác đã báo cùng cái máy
+         # đó chưa — không có nó thì mỗi ca lại đẻ một yêu cầu trùng.
+         "yeu_cau_sua_chua": _rcu(SCOPE_ALL),
          "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self()},
     ),
     # QC: xem mọi tổ (scope all) để soi công đoạn bất kỳ (ghi lỗi = Lát 3, thêm can_report_defect sau).
@@ -461,7 +472,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "QC",
         {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_ALL),
          "ke_hoach_vat_tu": _read(SCOPE_ALL), "bai_ghep_2": _read(SCOPE_ALL),
-         "xep_lich": _read(SCOPE_ALL),
+         "xep_lich_2": _read(SCOPE_ALL),
+         "yeu_cau_sua_chua": _rcu(SCOPE_ALL),  # soi ra máy chạy sai thì báo ngay tại chỗ
          "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self()},
     ),
     (
@@ -533,7 +545,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # nhất — bảng cân đối nói hôm nào phải có giấy gì, đúng việc của người giữ kho.
             "ke_hoach_vat_tu": _read(SCOPE_ALL),
             "bai_ghep_2": _read(SCOPE_ALL),
-            "xep_lich": _read(SCOPE_ALL),
+            "xep_lich_2": _read(SCOPE_ALL),
             # Kho là nơi phát hiện tồn chạm ngưỡng ⇒ nơi đề nghị mua bù.
             "yeu_cau_mua_hang": _ycmh_lap(SCOPE_ALL),
         },
@@ -553,7 +565,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "san_xuat": _read(SCOPE_ALL),
             "ke_hoach_vat_tu": _read(SCOPE_ALL),
             "bai_ghep_2": _read(SCOPE_ALL),
-            "xep_lich": _read(SCOPE_ALL),
+            "xep_lich_2": _read(SCOPE_ALL),
             "yeu_cau_mua_hang": _ycmh_lap(SCOPE_ALL),
         },
     ),
@@ -592,7 +604,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "san_xuat": _rcu(SCOPE_ALL),
             "ke_hoach_vat_tu": _rcu(SCOPE_ALL),
             "bai_ghep_2": _rcu(SCOPE_ALL),
-            "xep_lich": _rcu(SCOPE_ALL),
+            "xep_lich_2": _rcu(SCOPE_ALL),
             "yeu_cau_mua_hang": _ycmh_lap(SCOPE_OWN),
         },
     ),
@@ -608,7 +620,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "san_xuat": _full(SCOPE_ALL),
             "ke_hoach_vat_tu": _full(SCOPE_ALL),
             "bai_ghep_2": _full(SCOPE_ALL),
-            "xep_lich": _full(SCOPE_ALL),
+            "xep_lich_2": _full(SCOPE_ALL),
             # Quản lý XEM được phiếu sửa chữa / bảo trì (máy nào đang nằm, ai đang sửa) nhưng KHÔNG
             # nhập hộ — nhập hộ là mở đường cho phiếu ghi sai người làm.
             "ky_thuat_may": _read(SCOPE_ALL),
@@ -1560,15 +1572,22 @@ def seed_employees(db: Session) -> None:
     hcns = _dept("Hành chính nhân sự")
     kd = _dept("Kinh doanh")
 
+    # Bậc tay nghề khối SX: nối THẲNG vào danh mục 5 bậc (seed_job_grades đã chạy TRƯỚC hàm này)
+    # — KHÔNG dùng chữ tự gõ cũ kiểu "3/7" nữa. get_job_grade_by_code trả None nếu danh mục trống.
+    g_vung = repo.get_job_grade_by_code("bac_2")    # Thợ vững
+    g_thuong = repo.get_job_grade_by_code("bac_3")  # Thợ thường
+    g_tap = repo.get_job_grade_by_code("bac_4")     # Tập việc
+
     def mk(
         *, full_name, department_id, position, status, hire_date,
         gender=None, national_id=None, phone=None, social_insurance_no=None,
-        job_grade=None, probation_end_date=None, link_username=None,
+        grade=None, probation_end_date=None, link_username=None,
     ):
         emp = repo.create(
             full_name=full_name, department_id=department_id, position=position,
             status=status, hire_date=hire_date, gender=gender, national_id=national_id,
-            phone=phone, social_insurance_no=social_insurance_no, job_grade=job_grade,
+            phone=phone, social_insurance_no=social_insurance_no,
+            job_grade_id=(grade.id if grade is not None else None),
             probation_end_date=probation_end_date,
         )
         # Quá trình công tác: hired (thử việc) → confirmed → (nâng bậc) → (nghỉ dài hạn/việc).
@@ -1580,10 +1599,10 @@ def seed_employees(db: Session) -> None:
             repo.add_event(employee_id=emp.id, event_type=EVENT_CONFIRMED, effective_date=confirmed,
                            field="status", from_value=STATUS_PROBATION, to_value=STATUS_ACTIVE,
                            note="Đạt yêu cầu thử việc", actor_user_id=None)
-        if job_grade:
+        if grade is not None:
             repo.add_event(employee_id=emp.id, event_type=EVENT_PROMOTED,
                            effective_date=confirmed + timedelta(days=400), field="job_grade",
-                           from_value=None, to_value=job_grade, note="Nâng bậc thợ", actor_user_id=None)
+                           from_value=None, to_value=grade.name, note="Nâng bậc thợ", actor_user_id=None)
         if status == STATUS_ON_LEAVE:
             repo.add_event(employee_id=emp.id, event_type=EVENT_LEAVE_START,
                            effective_date=today - timedelta(days=20), field="status",
@@ -1614,16 +1633,16 @@ def seed_employees(db: Session) -> None:
     mk(full_name="Nguyễn Thị Dung", department_id=kd, position="Nhân viên Sales",
        status=STATUS_PROBATION, hire_date=today - timedelta(days=45), gender="female",
        national_id="079193004567", phone="0903004567", probation_end_date=today + timedelta(days=15))
-    mk(full_name="Vũ Đức Em", department_id=hcns, position="Thợ in offset", job_grade="3/7",
+    mk(full_name="Vũ Đức Em", department_id=hcns, position="Thợ in offset", grade=g_thuong,
        status=STATUS_ACTIVE, hire_date=date(2018, 9, 20), gender="male",
        national_id="079088005678", phone="0903005678")
-    mk(full_name="Hoàng Văn Phúc", department_id=hcns, position="Thợ chế bản", job_grade="2/7",
+    mk(full_name="Hoàng Văn Phúc", department_id=hcns, position="Thợ chế bản", grade=g_tap,
        status=STATUS_ON_LEAVE, hire_date=date(2020, 2, 3), gender="male",
        national_id="079091006789", phone="0903006789")
     mk(full_name="Đặng Thị Giang", department_id=hcns, position="Nhân viên văn thư",
        status=STATUS_RESIGNED, hire_date=date(2019, 7, 1), gender="female",
        national_id="079192007890", phone="0903007890")
-    mk(full_name="Bùi Quốc Hùng", department_id=hcns, position="Thợ xén-bế", job_grade="4/7",
+    mk(full_name="Bùi Quốc Hùng", department_id=hcns, position="Thợ xén-bế", grade=g_vung,
        status=STATUS_ACTIVE, hire_date=date(2017, 4, 12), gender="male",
        national_id="079085008901", phone="0903008901")
     # Nối tài khoản admin vào 1 hồ sơ (để demo tự chấm công GPS bằng chính tài khoản admin).
@@ -2057,8 +2076,8 @@ def seed_payroll_components(db: Session) -> None:
 def seed_job_grades(db: Session) -> None:
     """Danh mục BẬC TAY NGHỀ — SEED-ONCE (chủ sửa tên/tắt bậc thì KHÔNG bị mọc lại sau restart).
 
-    Bộ chủ chốt 29/07/2026: 3 bậc chính + 2 bậc phụ, Bậc 1 là bậc CAO NHẤT. Không tiền, không
-    hệ số — đúng "khai bậc thôi".
+    Bộ hiện hành: 5 bậc tên DÂN DÃ (Thợ lành nghề → Lính mới), hạng cứng tay nhất đứng đầu.
+    Không tiền, không hệ số — đúng "khai bậc thôi". Tên lấy thẳng từ `JOB_GRADE_SEED`.
 
     ⚠️ Trùng ý với migration 0127 là CỐ Ý, và cần cả hai:
       - DB thật đang chạy: `schema_migrations` chưa có 0127 ⇒ migration seed + backfill bậc cũ.
@@ -2251,6 +2270,10 @@ def seed_all(db: Session) -> None:
         # cần lệnh của luồng kia đã có để bài ghép GB26-0004 quay lại bảng cân đối.
         from .seed_kh_vat_tu import seed_kh_vat_tu
         seed_kh_vat_tu(db)
+        # Nhà cung cấp + Kho: mỗi mặt hàng danh mục (giấy + vật tư) có NCC báo giá (bảng so giá)
+        # + lô tồn + ngưỡng (đèn đủ/cần mua). CHẠY SAU vì lặp trên danh mục giấy/vật tư ở trên.
+        from .seed_kho_ncc import seed_kho_ncc
+        seed_kho_ncc(db)
         # Kỹ thuật máy: lịch bảo trì trên máy + phiếu sửa chữa + phiếu bảo trì. CHẠY SAU vì cần
         # danh mục máy (`_ensure_may_nang_luc` ở trên) và vai "Thợ sửa chữa" từ seed RBAC.
         from .seed_ky_thuat_may import seed_ky_thuat_may

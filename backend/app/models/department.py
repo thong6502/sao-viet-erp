@@ -82,6 +82,13 @@ class Department(Base):
     la_kinh_doanh: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=sa_false(), default=False
     )
+    # Đánh dấu TỔ KIỂM TRA CHẤT LƯỢNG (KCS) — nền cho module Thực hiện sản xuất (spec-thuc-hien-san-xuat
+    # §3.1, §14). KHÁC `la_san_xuat`: không kế thừa cây con, không suy theo tổ tiên — cờ đặt ĐÍCH DANH
+    # trên đúng (các) tổ làm KCS. Dùng để: (1) sinh việc "KCS cuối" ở gói phát hành trỏ về tổ này,
+    # (2) route lô kiểm KCS. Một hệ có thể có nhiều tổ KCS; chưa tick tổ nào ⇒ chưa bật khâu KCS.
+    is_kcs: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

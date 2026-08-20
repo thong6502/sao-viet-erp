@@ -81,7 +81,12 @@ class CongDoan(Base):
     # xưởng khai mã dài hơn, và Postgres ném lỗi độ dài lúc ghi chứ không cắt bớt.
     don_vi_vao: Mapped[str | None] = mapped_column(String(24), nullable=True)
     don_vi_ra: Mapped[str | None] = mapped_column(String(24), nullable=True)
-    # HỆ SỐ vào → ra cho bước NGOÀI dòng giấy (mg 0196). "Một đơn vị vào đẻ ra mấy đơn vị ra."
+    # ⚠️ CỘT NGƯNG DÙNG 20/08/2026 — engine KHÔNG đọc nữa. Hệ số vào→ra của bước ngoài dòng nay lấy
+    # TỪ cầu `don_vi_quy_doi` (module Đơn vị & quy đổi) qua `LsxService._he_so_ngoai_dong`: nguồn
+    # chân lý duy nhất, thiếu cầu thì BÁO LỖI chứ không mặc định ×1. Ô khai đã gỡ khỏi schema/repo/UI.
+    # Giữ cột để không mất dữ liệu; drop bằng migration ở lượt sau. Đọc lại là đẻ nguồn thứ hai gây sai.
+    #
+    # (Ý cũ) HỆ SỐ vào → ra cho bước NGOÀI dòng giấy (mg 0196). "Một đơn vị vào đẻ ra mấy đơn vị ra."
     #
     # Trên dòng giấy KHÔNG khai ở đây: hệ số ở đó là số con/tờ · số mảnh xả · số tay, đều suy từ
     # quy cách của LỆNH (`_he_so_cau`). Bày ô ra cho bước trên dòng là mời gõ đè lên bình bài —

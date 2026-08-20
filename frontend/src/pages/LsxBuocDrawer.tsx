@@ -193,6 +193,25 @@ export function LsxBuocDrawer({
   }
 
   const dvNhan = (dv: string | null | undefined) => dvNhanChung(dv, row);
+  // CÔNG THỨC số VÀO — nói rõ số từ đâu ra thay vì để người dùng đoán (bug cũ: "vào 9 · hao 2 → ra
+  // 25" không khớp). CHỈ cho bước NGOÀI dòng giấy: số vào = ceil( (ra ÷ hệ số + hao cố định) ÷
+  // (1 − hao%) ). Trên dòng giấy số suy ngược theo chuỗi giấy nên caption ở node RA nói thay.
+  const flowFormula = useMemo(() => {
+    if (row.loi_quy_doi || row.tren_dong_giay !== false) return null;
+    const ra = Number(row.so_luong_ra || 0);
+    const vao = Number(row.so_luong_vao || 0);
+    const hs = Number(row.he_so_quy_doi || 1) || 1;
+    const haoCd = Number(row.hao_hut || 0);
+    const haoPct = Number(row.hao_hut_pct || 0);
+    const dvV = dvNhan(row.don_vi_vao);
+    const dvR = dvNhan(row.don_vi_ra);
+    let expr = `${num(ra)} ${dvR}`;
+    if (hs !== 1) expr += ` ÷ ${num(hs)}`;
+    if (haoCd > 0) expr += ` + ${num(haoCd)} ${dvV} hao`;
+    if (haoPct > 0) expr += ` ÷ (1 − ${haoPct}%)`;
+    return { ket_qua: `${num(vao)} ${dvV}`, expr };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [row]);
   const mayForm = mayRefs?.find((m) => m.id === row.may_id) ?? null;
   const t = useMemo(() => thoiLuong(row, mayForm), [row, mayForm]);
   const tg = useMemo(() => thoiLuongLive(row, mayForm), [row, mayForm]);
@@ -566,14 +585,24 @@ export function LsxBuocDrawer({
                   <h3 className="khsx-section-card__title">Dòng chảy số lượng & hao hụt</h3>
                 </div>
 
-                {row.tren_dong_giay === false && (
+                {row.loi_quy_doi ? (
+                  <div className="khsx-note-banner khsx-note-banner--error">
+                    <span className="khsx-note-icon">⚠</span>
+                    <span>
+                      <strong>Chưa tính được số vào.</strong> {row.loi_quy_doi}{" "}
+                      Khai cầu quy đổi ở module <strong>Đơn vị &amp; quy đổi</strong> rồi mở lại
+                      bước — không có cầu thì lệnh không phát hành được.
+                    </span>
+                  </div>
+                ) : row.tren_dong_giay === false ? (
                   <div className="khsx-note-banner">
                     <span>
                       Bước này <strong>không nằm trên dòng giấy</strong> (đếm bằng{" "}
-                      {dvNhan(row.don_vi_vao)}) nên số lượng không tự tính ngược từ bước cuối.
+                      {dvNhan(row.don_vi_vao)}) nên số vào suy từ số ra qua hệ số quy đổi + bù hao,
+                      không tính ngược từ bước cuối.
                     </span>
                   </div>
-                )}
+                ) : null}
 
                 <div className="khsx-flow-pipeline">
                   {/* Node Vào */}
@@ -651,10 +680,34 @@ export function LsxBuocDrawer({
                       )}
                     </div>
                     <span className="khsx-flow-node__hint">
-                      {laBuocCuoi ? "Số thành phẩm giao khách" : "Tự động tính ngược từ bước cuối"}
+                      {laBuocCuoi
+                        ? "Số thành phẩm giao khách"
+                        : row.tren_dong_giay === false
+                          ? "Theo công thức sản lượng của bước"
+                          : "Tự động tính ngược từ bước cuối"}
                     </span>
                   </div>
                 </div>
+
+                {/* SỐ RA đến từ đâu — công thức sản lượng của công đoạn (chỉ bước ngoài dòng giấy).
+                    Đặt TRÊN dòng "Số vào" vì với bước ngoài dòng, RA là gốc còn VÀO suy ngược từ nó. */}
+                {row.san_luong_dien_giai && (
+                  <div className="khsx-flow-formula">
+                    <span className="khsx-flow-formula__label">Số ra =</span>
+                    <span className="khsx-flow-formula__expr">{row.san_luong_dien_giai}</span>
+                  </div>
+                )}
+
+                {flowFormula && (
+                  <div className="khsx-flow-formula">
+                    <span className="khsx-flow-formula__label">Số vào =</span>
+                    <span className="khsx-flow-formula__expr">
+                      {flowFormula.ket_qua}
+                      <span className="khsx-flow-formula__eq"> = </span>
+                      {flowFormula.expr}
+                    </span>
+                  </div>
+                )}
               </section>
             </div>
           )}
@@ -1623,7 +1676,7 @@ export function LsxBuocDrawer({
                             </span>
                           </div>
                           <span className="khsx-time-row__src">
-                            Nguồn: {row.loai_buoc === "may" ? (mayDaChon ? mayDaChon.ten : "Chưa gán máy") : (khoanDaChon ? khoanDaChon.ten : "Đầu việc khoán")}
+                            Nguồn tính: {row.loai_buoc === "may" ? (mayDaChon ? mayDaChon.ten : "Chưa gán máy") : (khoanDaChon ? khoanDaChon.ten : "Đầu việc khoán")}
                           </span>
                         </div>
                       </div>

@@ -1,28 +1,13 @@
-// CÁCH NHÌN THỨ HAI của Kế hoạch vật tư — gom theo LỆNH thay vì theo mặt hàng.
-//
-// Vì sao phải có hai cách nhìn chứ không nhồi thêm cột vào bảng cũ: hai câu hỏi khác nhau, và
-// không câu nào trả lời hộ câu kia.
-//   · Theo MẶT HÀNG hỏi *"còn thiếu gì, mua bao nhiêu"* — gộp mọi lệnh vào một đơn mua.
-//   · Theo LỆNH hỏi   *"lệnh này chạy được chưa"* — mà GIỮ CHỖ và cửa xếp lịch đều phán theo CHỦ
-//     THỂ. Muốn biết một lệnh đủ chưa trên bảng cũ thì phải mở hết mọi mặt hàng rồi tự dò xem lệnh
-//     đó có mặt ở đâu, cộng nhẩm — tức là làm hộ máy đúng việc máy nên làm.
-//
-// Ba nút trên mỗi thẻ, đúng ba việc người lập kế hoạch làm ở đây:
-//   Giữ chỗ  — đăng ký phần tồn cho lệnh này. Đây là ĐIỀU KIỆN DUY NHẤT để xếp lịch.
-//   Đề nghị mua — phần còn thiếu, gộp mọi công đoạn của lệnh thành MỘT yêu cầu.
-//   Nhả chỗ  — trả lại tồn cho người khác. Hỏi trước vì KHÔNG hoàn tác được.
-//
-// CỐ Ý KHÔNG CÓ, đừng thêm lại:
-//   * KHÔNG có nút "Xếp lịch" ở đây — sai màn. Bảng này lo vật tư; xếp lịch là bàn khác, và cửa
-//     chặn của nó đã tự đọc trạng thái giữ chỗ rồi.
-//   * KHÔNG tự nhả chỗ giữ lâu. Thứ chạy ngầm mà nhả nhầm đúng hôm gấp thì không ai truy ra được.
-//     Máy chỉ BÀY danh sách, người nhìn rồi tự quyết.
+// TAB THEO LỆNH SẢN XUẤT — NEXT-GEN MATERIAL COMMAND CENTER
+// Tích hợp Factory Readiness HUD, Interactive Material Stream Chips,
+// Dual View Modes (Stream Table ↔ Bento Cards), và Detail Drawer.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError,
   api,
   type CanDoiKhoaDong,
   type CanDoiMau,
+  type HangLoai,
   type TheoLenhHang,
   type TheoLenhOut,
   type TheoLenhRow,
@@ -30,28 +15,31 @@ import {
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { Icon } from "../components/Icons";
-import { BangLoi, ChipGap, EmptyState, Skeleton, classHan, ngay, num } from "./keHoachSxShared";
+import { Icon, type IconName } from "../components/Icons";
+import { BangLoi, ChipGap, EmptyState, Skeleton, ngay, num } from "./keHoachSxShared";
 
-/** Nhãn ngắn của màu, dùng trong dòng mặt hàng. CHỊU ĐƯỢC mã lạ — cùng lý do với `metaCua()` bên
- *  `VatTuKeHoachView`: union TS chỉ là lời hứa lúc biên dịch, server thêm màu mới mà tra thẳng
- *  `Record` thì `undefined.cls` ném lỗi và React gỡ CẢ CÂY, trắng màn toàn app. */
-/*  Hai trạng thái KHÔNG còn việc phải làm ("đã cấp" · "đủ") cùng dùng một màu TRUNG TÍNH thay vì
- *  mỗi cái một màu riêng. Tô xanh cho chúng thì thẻ nào cũng rực màu và đúng dòng đỏ lại chìm —
- *  màu phải đánh dấu THIỂU SỐ cần xử. Chữ đã nói rõ nên không mất thông tin.
- *  Bốn trạng thái còn lại tái dùng thẳng lớp màu của bảng theo-mặt-hàng: cùng một dữ liệu ở hai
- *  cách nhìn mà hai bảng màu thì người dùng phải học hai lần. */
-const MAU_NGAN: Record<string, { label: string; cls: string }> = {
-  xam: { label: "đã cấp", cls: "gclv-tt--yen" },
-  xanh: { label: "đủ", cls: "gclv-tt--yen" },
-  vang: { label: "đủ nhờ hàng về", cls: "khvt-pill--vang" },
-  do: { label: "thiếu", cls: "khvt-pill--do" },
-  khong_ro: { label: "chưa đánh giá được", cls: "khvt-pill--khongro" },
-  ve_muon: { label: "hàng về muộn", cls: "khvt-pill--vemuon" },
+/** Nhãn ngắn & màu cho trạng thái vật tư */
+const MAU_VATTU: Record<string, { label: string; cls: string; dotColor: string; bg: string; text: string }> = {
+  xam: { label: "Đã cấp", cls: "khvt-stream-chip--xam", dotColor: "#64748b", bg: "#f1f5f9", text: "#475569" },
+  xanh: { label: "Đủ tồn", cls: "khvt-stream-chip--xanh", dotColor: "#10b981", bg: "#ecfdf5", text: "#065f46" },
+  vang: { label: "Chờ hàng về", cls: "khvt-stream-chip--vang", dotColor: "#f59e0b", bg: "#fffbeb", text: "#92400e" },
+  do: { label: "Thiếu cần mua", cls: "khvt-stream-chip--do", dotColor: "#ef4444", bg: "#fef2f2", text: "#991b1b" },
+  khong_ro: { label: "Chưa rõ ĐVT", cls: "khvt-stream-chip--khongro", dotColor: "#94a3b8", bg: "#f8fafc", text: "#475569" },
+  ve_muon: { label: "Hàng về muộn", cls: "khvt-stream-chip--vemuon", dotColor: "#f97316", bg: "#fff7ed", text: "#9a3412" },
 };
 
-function mauNgan(mau: CanDoiMau) {
-  return MAU_NGAN[mau] ?? { label: String(mau), cls: "khvt-pill--khongro" };
+function mauVatTu(mau: CanDoiMau) {
+  return MAU_VATTU[mau] ?? { label: String(mau), cls: "khvt-stream-chip--khongro", dotColor: "#94a3b8", bg: "#f8fafc", text: "#475569" };
+}
+
+function iconLoaiHang(loai: HangLoai): IconName {
+  if (loai === "giay") return "fileText";
+  return "box";
+}
+
+function nhanLoaiHang(loai: HangLoai): { label: string; cls: string } {
+  if (loai === "giay") return { label: "Giấy", cls: "khvt-tag--giay" };
+  return { label: "Vật tư", cls: "khvt-tag--phu" };
 }
 
 function soGoc(v: number | null | undefined): string {
@@ -59,10 +47,52 @@ function soGoc(v: number | null | undefined): string {
   return Number(v).toLocaleString("vi-VN", { maximumFractionDigits: 2 });
 }
 
-/** Khoá của một thẻ — lệnh và bài ghép dùng chung một danh sách nên id phải mang cả loại. */
+/** Món ĐÃ đặt mua rồi nhưng lô về SAU ngày cần. Đây là lý do DUY NHẤT khiến một lệnh đang thiếu
+ *  hàng lại không có nút "Mua": server chặn mua thêm để khỏi mua đúp đúng lô đang trên đường về. */
+function monVeMuon(r: { hang: TheoLenhHang[] }): TheoLenhHang[] {
+  return r.hang.filter((h) => h.trang_thai === "ve_muon");
+}
+
+/** Lô về trễ mấy ngày so với mốc món đó cần. null khi thiếu một trong hai mốc. */
+function soNgayTre(h: TheoLenhHang): number | null {
+  if (!h.ngay_du_hang || !h.ngay_can) return null;
+  const a = new Date(h.ngay_du_hang).getTime();
+  const b = new Date(h.ngay_can).getTime();
+  if (Number.isNaN(a) || Number.isNaN(b)) return null;
+  return Math.round((a - b) / 86_400_000);
+}
+
+/** Một dòng gọn cho món về muộn: "PMH-VT-02 · về 1/9 · trễ 6 ngày". */
+function moTaVeMuon(h: TheoLenhHang): string {
+  const tre = soNgayTre(h);
+  return [
+    h.phieu_ve ?? null,
+    `về ${ngay(h.ngay_du_hang)}`,
+    tre != null && tre > 0 ? `trễ ${tre} ngày` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** Câu giải thích vì sao nút mua bị khoá — phải GỌI TÊN phiếu và ngày về. Nút biến mất không một
+ *  lời nào thì người dùng đọc thành "phần mềm hỏng", đúng câu hỏi đã nhận ngày 20/08/2026. */
+function lyDoKhoaMua(hs: TheoLenhHang[]): string {
+  const ke = hs.slice(0, 3).map((h) => `• ${h.hang_ten ?? h.hang_ma ?? "Vật tư"}: ${moTaVeMuon(h)}`);
+  const them = hs.length > 3 ? `\n• …và ${hs.length - 3} món nữa` : "";
+  return (
+    "Đã đặt mua rồi — mua thêm là MUA ĐÚP đúng lô đang về:\n" +
+    ke.join("\n") +
+    them +
+    "\nViệc cần làm: dời bước tiêu thụ sang sau ngày về, hoặc hối nhà cung cấp giao sớm."
+  );
+}
+
 function khoaChu(r: { lsx_id: number | null; bai_ghep_id: number | null }): string {
   return r.lsx_id != null ? `l${r.lsx_id}` : `b${r.bai_ghep_id}`;
 }
+
+type FilterLenhType = "all" | "du" | "dang" | "tat" | "giu_lau";
+type ViewMode = "table" | "cards";
 
 export function GiuChoTheoLenhView({
   eventTick,
@@ -72,31 +102,25 @@ export function GiuChoTheoLenhView({
   focusLsxMa,
 }: {
   eventTick?: number;
-  /** Bit "tạo yêu cầu mua cho bộ phận" — thiếu thì nút mua tự ẩn, thẻ vẫn xem được. */
   canDeNghiMua: boolean;
   onOpenLsx?: (id: number) => void;
-  /** Báo ngược số lệnh "giữ lâu chưa chạy" lên trang cha để vẽ chip — cha KHÔNG tự gọi lại API
-   *  (hai lần gọi là hai con số có thể lệch nhau trong cùng một màn). */
   onSoGiuLau?: (n: number) => void;
-  /** Mã lệnh cần soi (đèn "Vật tư" ở Kế hoạch SX bấm sang) — điền sẵn ô tìm. */
   focusLsxMa?: string | null;
 }) {
   const { token } = useAuth();
   const [data, setData] = useState<TheoLenhOut | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState(focusLsxMa ?? "");
-  // Bấm chấm lần thứ hai với mã khác (màn đã mount) phải đổi ô tìm theo — chỉ đặt giá trị khởi
-  // tạo là lần sau vẫn đứng ở mã cũ.
+  const [filterType, setFilterType] = useState<FilterLenhType>("all");
+  const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [dangChay, setDangChay] = useState<string | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
+  const [hoiNha, setHoiNha] = useState<TheoLenhRow | null>(null);
+  const [selectedRow, setSelectedRow] = useState<TheoLenhRow | null>(null);
+
   useEffect(() => {
     if (focusLsxMa) setQ(focusLsxMa);
   }, [focusLsxMa]);
-  const [chiCanLo, setChiCanLo] = useState(false);
-  const [chiGiuLau, setChiGiuLau] = useState(false);
-  const [dangChay, setDangChay] = useState<string | null>(null);
-  const [flash, setFlash] = useState<string | null>(null);
-  /** Thẻ đang chờ xác nhận NHẢ CHỖ. Giữ cả dòng chứ không chỉ id: hộp thoại phải đọc được số
-   *  lượng từng món và số lệnh khác đang thiếu, mà những số đó nằm ngay trên dòng. */
-  const [hoiNha, setHoiNha] = useState<TheoLenhRow | null>(null);
 
   const load = useCallback(() => {
     if (!token) return;
@@ -104,15 +128,15 @@ export function GiuChoTheoLenhView({
     api.keHoachVatTu
       .theoLenh(token, {
         q: q.trim() || undefined,
-        chi_can_lo: chiCanLo,
-        chi_giu_lau: chiGiuLau,
+        chi_can_lo: filterType === "dang" || filterType === "tat",
+        chi_giu_lau: filterType === "giu_lau",
       })
       .then(setData)
       .catch((e: unknown) => setErr(e instanceof ApiError ? e.message : String(e)));
-  }, [token, q, chiCanLo, chiGiuLau]);
+  }, [token, q, filterType]);
 
   useEffect(() => {
-    const t = setTimeout(load, q ? 250 : 0); // debounce ô tìm
+    const t = setTimeout(load, q ? 250 : 0);
     return () => clearTimeout(t);
   }, [load, eventTick, q]);
 
@@ -127,8 +151,6 @@ export function GiuChoTheoLenhView({
     if (data) onSoGiuLau?.(soGiuLau);
   }, [data, soGiuLau, onSoGiuLau]);
 
-  /** Thay MỘT thẻ tại chỗ bằng bản server vừa trả. Không gọi lại cả danh sách: giữa hai lời gọi
-   *  người dùng sẽ thấy thẻ cũ (nói dối) rồi thẻ mới nhảy — mà thao tác này bấm liên tục. */
   function thayThe(moi: TheoLenhRow) {
     setData((cu) => {
       if (!cu) return cu;
@@ -140,11 +162,11 @@ export function GiuChoTheoLenhView({
         so_giu_lau: items.filter((r) => r.giu_lau_chua_chay).length,
       };
     });
+    if (selectedRow && khoaChu(selectedRow) === khoaChu(moi)) {
+      setSelectedRow(moi);
+    }
   }
 
-  /** Nhả chỗ KHÔNG hoàn tác được (lệnh khác nhặt ngay phần vừa nhả) ⇒ hỏi trước, và hỏi KÈM SỐ.
-   *  Câu chung chung "bạn có chắc không" thì người ta bấm qua theo phản xạ; con số cụ thể mới là
-   *  thứ khiến họ dừng một nhịp — hoặc yên tâm bấm vì thấy đúng có lệnh khác đang cần món đó. */
   function doiGiuCho(r: TheoLenhRow, bat: boolean) {
     if (!bat) setHoiNha(r);
     else void chay(r, true);
@@ -163,9 +185,9 @@ export function GiuChoTheoLenhView({
       setFlash(
         bat
           ? moi.du
-            ? `${r.ma}: đã giữ đủ — xếp lịch được rồi.`
-            : `${r.ma}: mới giữ được một phần. Công tắc vẫn BẬT, hàng về là tự nhặt bù.`
-          : `${r.ma}: đã nhả hết chỗ giữ.`,
+            ? `✓ ${r.ma}: Đã giữ đủ 100% — Mở khoá xếp lịch sản xuất.`
+            : `⏳ ${r.ma}: Đã bật giữ chỗ. Hàng về kho sẽ tự nhặt bù.`
+          : `✓ ${r.ma}: Đã nhả hết chỗ giữ vật tư.`,
       );
     } catch (e: unknown) {
       setErr(e instanceof ApiError ? e.message : String(e));
@@ -183,8 +205,7 @@ export function GiuChoTheoLenhView({
     try {
       const kq = await api.keHoachVatTu.deNghiMua(token, dong);
       setFlash(
-        `Đã lập yêu cầu mua ${kq.code} cho ${r.ma}. Mở màn Mua hàng xem lại số lượng rồi gửi — `
-          + "hệ thống KHÔNG tự gửi.",
+        `✓ Đã tạo đề nghị mua hàng ${kq.code} cho ${r.ma}. Mở phân hệ Mua Hàng để duyệt & gửi PO.`,
       );
       load();
     } catch (e: unknown) {
@@ -197,112 +218,274 @@ export function GiuChoTheoLenhView({
   const rows = data?.items ?? [];
   const tomTat = useMemo(
     () => ({
+      tong: rows.length,
       daGiu: rows.filter((r) => r.du).length,
       dangCho: rows.filter((r) => r.bat && !r.du).length,
       chuaBat: rows.filter((r) => !r.bat).length,
+      giuLau: rows.filter((r) => r.giu_lau_chua_chay).length,
     }),
     [rows],
   );
 
-  return (
-    <>
-      <div className="khsx__toolbar">
-        <span className="khvt-sum">
-          <b>{num(rows.length)}</b> lệnh
-          {tomTat.daGiu > 0 && (
-            <span className="gclv-sum__du" title="Đã giữ đủ vật tư — xếp lịch được.">
-              {num(tomTat.daGiu)} giữ đủ
-            </span>
-          )}
-          {tomTat.dangCho > 0 && (
-            <span
-              className="khvt-sum__vemuon"
-              title="Đã bật giữ chỗ nhưng chưa đủ — hàng về là tự nhặt bù, không phải bấm lại."
-            >
-              {num(tomTat.dangCho)} giữ dở
-            </span>
-          )}
-          {tomTat.chuaBat > 0 && (
-            <span className="khvt-sum__khongro" title="Chưa bật giữ chỗ ⇒ chưa xếp lịch được.">
-              {num(tomTat.chuaBat)} chưa giữ
-            </span>
-          )}
-        </span>
-        <div className="khsx__spacer" />
-        <label className="khvt-toggle">
-          <input
-            type="checkbox"
-            checked={chiCanLo}
-            onChange={(e) => setChiCanLo(e.target.checked)}
-          />
-          Chỉ lệnh còn việc phải lo
-        </label>
-        <label className="khsx__search">
-          <Icon name="search" size={14} />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Tìm mã lệnh / mặt hàng"
-            aria-label="Tìm lệnh trong kế hoạch vật tư"
-          />
-        </label>
-      </div>
+  const readinessPct = tomTat.tong > 0 ? Math.round((tomTat.daGiu / tomTat.tong) * 100) : 0;
 
-      {/* ── GIỮ LÂU MÀ CHƯA CHẠY ────────────────────────────────────────────────
-          Thay cho cơ chế tự-hết-hạn (cố ý KHÔNG làm): máy bày ra, người tự quyết. Đặt ngay đây
-          chứ không đẻ màn riêng — chỗ nhả chỗ giữ chính là các thẻ ngay bên dưới. */}
-      {soGiuLau > 0 && (
-        <div className="gclv-nhac" role="status">
-          <Icon name="clock" size={15} />
-          <span>
-            <b>{num(soGiuLau)}</b> lệnh đang giữ vật tư trên một tuần mà <b>chưa đưa vào kế
-            hoạch</b>. Chỗ giữ vẫn trừ vào tồn của mọi lệnh khác — xem lại rồi nhả bớt nếu chưa
-            chạy tới.
-          </span>
+  const rowsHienThi = useMemo(() => {
+    if (filterType === "du") return rows.filter((r) => r.du);
+    if (filterType === "dang") return rows.filter((r) => r.bat && !r.du);
+    if (filterType === "tat") return rows.filter((r) => !r.bat);
+    if (filterType === "giu_lau") return rows.filter((r) => r.giu_lau_chua_chay);
+    return rows;
+  }, [rows, filterType]);
+
+  return (
+    <div className="khvt-view">
+      {/* ── 1. FACTORY READINESS HUD: BENTO COMMAND CARDS Ở ĐẦU TRANG ── */}
+      {data !== null && (
+        <section className="khvt-hud-grid" aria-label="Trung tâm chỉ huy sẵn sàng vật tư">
+          {/* Card 1: Tỷ lệ mở khóa xưởng */}
+          <div
+            className={`khvt-hud-card khvt-hud-card--readiness ${filterType === "du" ? "is-active" : ""}`}
+            onClick={() => setFilterType(filterType === "du" ? "all" : "du")}
+            role="button"
+            tabIndex={0}
+          >
+            <div className="khvt-hud-card__glow" />
+            <div className="khvt-hud-card__head">
+              <span className="khvt-hud-card__badge khvt-hud-card__badge--emerald">
+                <Icon name="check" size={14} /> SẴN SÀNG XẾP LỊCH
+              </span>
+              <span className="khvt-hud-card__rate">{readinessPct}%</span>
+            </div>
+            <div className="khvt-hud-card__main">
+              <span className="khvt-hud-card__value">
+                {num(tomTat.daGiu)} <small>/ {num(tomTat.tong)} lệnh</small>
+              </span>
+              <div className="khvt-hud-card__bar">
+                <div
+                  className="khvt-hud-card__bar-fill--emerald"
+                  style={{ width: `${Math.max(5, readinessPct)}%` }}
+                />
+              </div>
+            </div>
+            <div className="khvt-hud-card__foot">
+              <span>Đã đủ 100% vật tư · Mở khóa vào lịch máy</span>
+            </div>
+          </div>
+
+          {/* Card 2: Đang giữ dở / Chờ bù tồn */}
+          <div
+            className={`khvt-hud-card ${filterType === "dang" ? "is-active" : ""}`}
+            onClick={() => setFilterType(filterType === "dang" ? "all" : "dang")}
+            role="button"
+            tabIndex={0}
+          >
+            <div className="khvt-hud-card__head">
+              <span className="khvt-hud-card__badge khvt-hud-card__badge--amber">
+                <Icon name="clock" size={14} /> ĐANG GIỮ DỞ
+              </span>
+            </div>
+            <div className="khvt-hud-card__main">
+              <span className="khvt-hud-card__value">{num(tomTat.dangCho)}</span>
+              <span className="khvt-hud-card__unit">lệnh chờ bù tồn</span>
+            </div>
+            <div className="khvt-hud-card__foot">
+              <span>Đã bật giữ · Tự động nhặt khi PO về kho</span>
+            </div>
+          </div>
+
+          {/* Card 3: Chưa bật giữ chỗ */}
+          <div
+            className={`khvt-hud-card ${filterType === "tat" ? "is-active" : ""}`}
+            onClick={() => setFilterType(filterType === "tat" ? "all" : "tat")}
+            role="button"
+            tabIndex={0}
+          >
+            <div className="khvt-hud-card__head">
+              <span className="khvt-hud-card__badge khvt-hud-card__badge--slate">
+                <Icon name="lock" size={14} /> CHƯA BẬT GIỮ
+              </span>
+            </div>
+            <div className="khvt-hud-card__main">
+              <span className="khvt-hud-card__value">{num(tomTat.chuaBat)}</span>
+              <span className="khvt-hud-card__unit">lệnh bị chặn lịch</span>
+            </div>
+            <div className="khvt-hud-card__foot">
+              <span>Chưa đăng ký tồn · Bấm giữ chỗ để kích hoạt</span>
+            </div>
+          </div>
+
+          {/* Card 4: Giữ lâu cần thu hồi */}
+          <div
+            className={`khvt-hud-card ${filterType === "giu_lau" ? "is-active" : ""}`}
+            onClick={() => setFilterType(filterType === "giu_lau" ? "all" : "giu_lau")}
+            role="button"
+            tabIndex={0}
+          >
+            <div className="khvt-hud-card__head">
+              <span className="khvt-hud-card__badge khvt-hud-card__badge--rose">
+                <Icon name="alert" size={14} /> GIỮ &gt;7 NGÀY
+              </span>
+              {tomTat.giuLau > 0 && <span className="khvt-pulse-dot" />}
+            </div>
+            <div className="khvt-hud-card__main">
+              <span className="khvt-hud-card__value khvt-text-rose">{num(tomTat.giuLau)}</span>
+              <span className="khvt-hud-card__unit">lệnh chưa đưa vào lịch</span>
+            </div>
+            <div className="khvt-hud-card__foot">
+              <span>Xem lại để nhả tồn nếu chưa sản xuất tới</span>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── 2. UNIFIED TOOLBAR: STATUS TABS + SEARCH + VIEW MODE SWITCH ── */}
+      <div className="khvt-unified-bar">
+        <div className="khvt-unified-tabs" role="tablist" aria-label="Bộ lọc lệnh">
           <button
             type="button"
-            className={`gclv-nhac__nut ${chiGiuLau ? "is-bat" : ""}`}
-            onClick={() => setChiGiuLau((v) => !v)}
+            role="tab"
+            aria-selected={filterType === "all"}
+            className={`khvt-utab ${filterType === "all" ? "is-active" : ""}`}
+            onClick={() => setFilterType("all")}
           >
-            {chiGiuLau ? "Xem tất cả" : "Chỉ xem nhóm này"}
+            <span>Tất cả</span>
+            <span className="khvt-utab__count">{num(rows.length)}</span>
           </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={filterType === "du"}
+            className={`khvt-utab khvt-utab--du ${filterType === "du" ? "is-active" : ""}`}
+            onClick={() => setFilterType("du")}
+          >
+            <span className="khvt-utab__dot" />
+            <span>Giữ đủ</span>
+            <span className="khvt-utab__count khvt-utab__count--du">{num(tomTat.daGiu)}</span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={filterType === "dang"}
+            className={`khvt-utab khvt-utab--vemuon ${filterType === "dang" ? "is-active" : ""}`}
+            onClick={() => setFilterType("dang")}
+          >
+            <span className="khvt-utab__dot" />
+            <span>Đang giữ dở</span>
+            {tomTat.dangCho > 0 && (
+              <span className="khvt-utab__count khvt-utab__count--vemuon">{num(tomTat.dangCho)}</span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            aria-selected={filterType === "tat"}
+            className={`khvt-utab khvt-utab--khongro ${filterType === "tat" ? "is-active" : ""}`}
+            onClick={() => setFilterType("tat")}
+          >
+            <span className="khvt-utab__dot" />
+            <span>Chưa giữ</span>
+            <span className="khvt-utab__count khvt-utab__count--khongro">{num(tomTat.chuaBat)}</span>
+          </button>
+
+          {soGiuLau > 0 && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={filterType === "giu_lau"}
+              className={`khvt-utab khvt-utab--do ${filterType === "giu_lau" ? "is-active" : ""}`}
+              onClick={() => setFilterType("giu_lau")}
+            >
+              <span className="khvt-utab__dot" />
+              <span>Giữ lâu (&gt;7 ngày)</span>
+              <span className="khvt-utab__count khvt-utab__count--do">{num(soGiuLau)}</span>
+            </button>
+          )}
         </div>
-      )}
+
+        <div className="khvt-toolbar__actions">
+          <div className="khvt-toolbar__search">
+            <Icon name="search" size={14} />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Tìm theo mã lệnh, tên sản phẩm, mặt hàng..."
+              aria-label="Tìm lệnh trong kế hoạch vật tư"
+            />
+            {q && (
+              <button
+                type="button"
+                className="khvt-toolbar__clear"
+                onClick={() => setQ("")}
+                title="Xoá tìm kiếm"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Công tắc chuyển đổi chế độ xem Bảng Stream ↔ Thẻ Bento */}
+          <div className="khvt-view-switcher" role="group" aria-label="Chuyển chế độ xem">
+            <button
+              type="button"
+              className={`khvt-view-btn ${viewMode === "table" ? "is-active" : ""}`}
+              onClick={() => setViewMode("table")}
+              title="Dạng Bảng Dòng Chảy Vật Tư (Stream Table)"
+            >
+              <Icon name="table" size={15} />
+              <span>Bảng</span>
+            </button>
+            <button
+              type="button"
+              className={`khvt-view-btn ${viewMode === "cards" ? "is-active" : ""}`}
+              onClick={() => setViewMode("cards")}
+              title="Dạng Thẻ Bento Command Cards"
+            >
+              <Icon name="grid" size={15} />
+              <span>Thẻ</span>
+            </button>
+          </div>
+        </div>
+      </div>
 
       {flash && (
         <div className="banner banner--success" role="status" aria-live="polite">
-          {flash}
+          <Icon name="check" size={16} />
+          <span>{flash}</span>
         </div>
       )}
+
       {err && <BangLoi text={err} onRetry={load} />}
 
+      {/* ── 3. NỘI DUNG CHÍNH: STREAM TABLE HOẶC BENTO CARDS ── */}
       {data === null ? (
         <div className="khsx__tablewrap">
           <table className="khsx__table">
-            <Skeleton rows={4} cols={5} />
+            <Skeleton rows={5} cols={7} />
           </table>
         </div>
-      ) : rows.length === 0 ? (
+      ) : rowsHienThi.length === 0 ? (
         <EmptyState
-          icon={q || chiCanLo || chiGiuLau ? "search" : "packageCheck"}
+          icon={q || filterType !== "all" ? "search" : "packageCheck"}
           title={
-            q || chiCanLo || chiGiuLau
+            q || filterType !== "all"
               ? "Không có lệnh nào khớp bộ lọc."
               : "Chưa có lệnh nào cần cân đối vật tư."
           }
           sub={
-            q || chiCanLo || chiGiuLau
-              ? undefined
+            q || filterType !== "all"
+              ? "Thử xoá tìm kiếm hoặc chuyển sang bộ lọc khác."
               : "Bảng gom lệnh ở trạng thái Sẵn sàng · Đã lập kế hoạch · Đã phát hành."
           }
           action={
-            q || chiCanLo || chiGiuLau ? (
+            q || filterType !== "all" ? (
               <Button
                 variant="secondary"
                 onClick={() => {
                   setQ("");
-                  setChiCanLo(false);
-                  setChiGiuLau(false);
+                  setFilterType("all");
                 }}
               >
                 Xoá bộ lọc
@@ -310,41 +493,712 @@ export function GiuChoTheoLenhView({
             ) : undefined
           }
         />
+      ) : viewMode === "table" ? (
+        /* ── CHẾ ĐỘ 1: STREAM TABLE GRID (MẶC ĐỊNH) ── */
+        <div className="khvt-master-card">
+          <div className="khvt-table-wrap">
+            <table className="khvt-master-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 170 }}>Lệnh sản xuất</th>
+                  <th style={{ width: 120 }}>Ngày cần</th>
+                  <th>Dòng chảy vật tư (Material Stream Matrix)</th>
+                  <th style={{ width: 130 }}>Độ sẵn sàng</th>
+                  <th style={{ width: 140 }}>Cửa xếp lịch</th>
+                  <th style={{ width: 170 }}>Hành động</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rowsHienThi.map((r) => {
+                  const k = khoaChu(r);
+                  const soDo = r.hang.reduce((s, h) => s + h.khoa_do.length, 0);
+                  const veMuon = monVeMuon(r);
+                  const soMonDu = r.hang.filter((h) => h.trang_thai === "xanh" || h.trang_thai === "xam").length;
+                  const tongMon = r.hang.length;
+                  const pctGiu = tongMon > 0 ? Math.round((soMonDu / tongMon) * 100) : 0;
+                  const isDangChay = dangChay === k;
+
+                  return (
+                    <tr
+                      key={k}
+                      className={`khvt-row ${r.du ? "khvt-row--du" : !r.bat ? "khvt-row--tat" : "khvt-row--thieu"}`}
+                      onClick={() => setSelectedRow(r)}
+                    >
+                      {/* Cột 1: Lệnh sản xuất */}
+                      <td>
+                        <div className="khvt-cell-lsx">
+                          <div className="khvt-cell-lsx__top">
+                            {r.lsx_id && onOpenLsx ? (
+                              <button
+                                type="button"
+                                className="khvt-lsx-link"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenLsx(r.lsx_id!);
+                                }}
+                                title="Mở chi tiết lệnh sản xuất"
+                              >
+                                {r.ma}
+                              </button>
+                            ) : (
+                              <span className="khvt-lsx-code">{r.ma}</span>
+                            )}
+                            {r.bai_ghep_id != null && (
+                              <span className="khsx-chip khsx-chip--ngoai" title="Bài ghép nhiều sản phẩm">
+                                <Icon name="layers" size={11} /> ghép
+                              </span>
+                            )}
+                            {r.is_rush && <ChipGap />}
+                          </div>
+                          {r.giu_lau_chua_chay && (
+                            <span className="khvt-mini-alert" title="Giữ tồn lâu chưa đưa vào kế hoạch sản xuất">
+                              <Icon name="clock" size={11} /> Giữ {num(r.so_ngay_giu)} ngày
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Cột 2: Ngày cần */}
+                      <td>
+                        <div className="khvt-cell-date">
+                          <span className="khvt-date-val">{ngay(r.ngay_can)}</span>
+                          {r.moc_tam && <small className="khvt-tam-badge">mốc tạm</small>}
+                        </div>
+                      </td>
+
+                      {/* Cột 3: Dòng chảy vật tư (Interactive Stream Chips) */}
+                      <td>
+                        <div className="khvt-material-stream">
+                          {r.hang.map((h) => {
+                            const meta = mauVatTu(h.trang_thai);
+                            const icon = iconLoaiHang(h.hang_loai);
+                            return (
+                              <div
+                                key={`${h.hang_loai}-${h.hang_id}`}
+                                className={`khvt-stream-chip ${meta.cls}`}
+                                title={`${h.hang_ten ?? h.hang_ma}\n• Nhu cầu: ${soGoc(h.can)} ${h.don_vi_goc ?? ""}\n• Đang giữ: ${soGoc(h.dang_giu)} ${h.don_vi_goc ?? ""}${h.thieu > 0 ? `\n• Thiếu: ${soGoc(h.thieu)}` : ""}${h.trang_thai === "ve_muon" ? `\n• Đã đặt mua: ${moTaVeMuon(h)}` : ""}`}
+                              >
+                                <Icon name={icon} size={12} />
+                                <span className="khvt-stream-chip__name">
+                                  {h.hang_ten ?? h.hang_ma ?? "Vật tư"}
+                                </span>
+                                {h.thieu > 0 ? (
+                                  <span className="khvt-stream-chip__deficit">
+                                    -{soGoc(h.thieu)} {h.don_vi_goc ?? ""}
+                                  </span>
+                                ) : (
+                                  <span className="khvt-stream-chip__ok">
+                                    {soGoc(h.dang_giu || h.can)}
+                                  </span>
+                                )}
+                                {h.trang_thai === "ve_muon" && h.ngay_du_hang && (
+                                  <span className="khvt-stream-chip__eta">
+                                    <Icon name="truck" size={10} /> về {ngay(h.ngay_du_hang)}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+
+                      {/* Cột 4: Độ sẵn sàng */}
+                      <td>
+                        <div className="khvt-cell-readiness">
+                          <div className="khvt-readiness-info">
+                            <b>{soMonDu}/{tongMon}</b> <small>món ({pctGiu}%)</small>
+                          </div>
+                          <div className="khvt-readiness-bar">
+                            <div
+                              className={`khvt-readiness-bar__fill ${r.du ? "is-full" : r.bat ? "is-partial" : "is-deficit"}`}
+                              style={{ width: `${Math.max(5, pctGiu)}%` }}
+                            />
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Cột 5: Cửa xếp lịch */}
+                      <td>
+                        {r.du ? (
+                          <span className="khvt-lock-badge khvt-lock-badge--open" title="Đã giữ đủ vật tư — Sẵn sàng xếp lịch">
+                            <Icon name="check" size={13} /> MỞ KHÓA
+                          </span>
+                        ) : !r.bat ? (
+                          <span className="khvt-lock-badge khvt-lock-badge--locked" title="Chưa giữ chỗ — Chặn xếp lịch">
+                            <Icon name="lock" size={13} /> CHẶN LỊCH
+                          </span>
+                        ) : (
+                          <span className="khvt-lock-badge khvt-lock-badge--partial" title="Đang giữ dở — Chờ hàng về bù tồn">
+                            <Icon name="clock" size={13} /> CHỜ BÙ TỒN
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Cột 6: Hành động nhanh */}
+                      <td>
+                        <div
+                          className="khvt-row-actions"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {!r.bat ? (
+                            <Button
+                              onClick={() => doiGiuCho(r, true)}
+                              disabled={isDangChay}
+                              className="khvt-btn-action"
+                            >
+                              <Icon name="lock" size={12} /> {isDangChay ? "Đang giữ…" : "Giữ chỗ"}
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="secondary"
+                              onClick={() => doiGiuCho(r, false)}
+                              disabled={isDangChay}
+                              title="Nhả chỗ giữ trả lại kho chung"
+                            >
+                              <Icon name="lockOpen" size={12} /> Nhả chỗ
+                            </Button>
+                          )}
+                          {canDeNghiMua && soDo > 0 && (
+                            <Button
+                              variant="secondary"
+                              onClick={() => deNghiMua(r)}
+                              disabled={isDangChay}
+                              className="khvt-btn-buy"
+                              title={`Lập yêu cầu mua cho ${soDo} dòng thiếu`}
+                            >
+                              <Icon name="cart" size={12} /> Mua ({soDo})
+                            </Button>
+                          )}
+                          {/* Thiếu hàng mà KHÔNG có nút mua = câu hỏi "sao không cho mua". Giữ nút
+                              tại chỗ, làm mờ, và nói thẳng lô nào đang về ngày nào. Bọc trong
+                              <span> vì nút disabled không nhận hover ⇒ tooltip sẽ không hiện. */}
+                          {canDeNghiMua && soDo === 0 && veMuon.length > 0 && (
+                            <span className="khvt-buy-lock" title={lyDoKhoaMua(veMuon)}>
+                              <Button
+                                variant="secondary"
+                                disabled
+                                className="khvt-btn-buy khvt-btn-buy--khoa"
+                              >
+                                <Icon name="truck" size={12} />{" "}
+                                {veMuon.length === 1 && veMuon[0].ngay_du_hang
+                                  ? `Đã đặt · về ${ngay(veMuon[0].ngay_du_hang)}`
+                                  : `Đã đặt (${veMuon.length} món)`}
+                              </Button>
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       ) : (
-        <div className="khvt-list">
-          {rows.map((r) => (
-            <TheLenh
-              key={khoaChu(r)}
-              row={r}
-              dangChay={dangChay === khoaChu(r)}
-              canDeNghiMua={canDeNghiMua}
-              onGiuCho={doiGiuCho}
-              onDeNghiMua={deNghiMua}
-              onOpenLsx={onOpenLsx}
-            />
-          ))}
+        /* ── CHẾ ĐỘ 2: BENTO COMMAND CARDS (LƯỚI THẺ 2 CỘT CÂN ĐỐI) ── */
+        <div className="khvt-bento-grid">
+          {rowsHienThi.map((r) => {
+            const k = khoaChu(r);
+            const soDo = r.hang.reduce((s, h) => s + h.khoa_do.length, 0);
+            const veMuon = monVeMuon(r);
+            const soMonDu = r.hang.filter((h) => h.trang_thai === "xanh" || h.trang_thai === "xam").length;
+            const tongMon = r.hang.length;
+            const pctGiu = tongMon > 0 ? Math.round((soMonDu / tongMon) * 100) : 0;
+            const isDangChay = dangChay === k;
+
+            return (
+              <section
+                key={k}
+                className={`khvt-bcard ${r.du ? "khvt-bcard--du" : !r.bat ? "khvt-bcard--tat" : "khvt-bcard--thieu"}`}
+                onClick={() => setSelectedRow(r)}
+              >
+                {/* Phân khu Trái: Thông tin Lệnh, Readiness & Dynamic Actions */}
+                <div className="khvt-bcard__left">
+                  <div className="khvt-bcard__header">
+                    <div className="khvt-bcard__id-group">
+                      {r.lsx_id && onOpenLsx ? (
+                        <button
+                          type="button"
+                          className="khvt-lsx-link"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenLsx(r.lsx_id!);
+                          }}
+                        >
+                          {r.ma}
+                        </button>
+                      ) : (
+                        <span className="khvt-lsx-code">{r.ma}</span>
+                      )}
+                      {r.bai_ghep_id != null && (
+                        <span className="khsx-chip khsx-chip--ngoai">
+                          <Icon name="layers" size={11} /> ghép
+                        </span>
+                      )}
+                      {r.is_rush && <ChipGap />}
+                    </div>
+
+                    <div className="khvt-bcard__date">
+                      <Icon name="calendar" size={12} />
+                      <span>Cần từ: <b>{ngay(r.ngay_can)}</b></span>
+                      {r.moc_tam && <small className="khvt-tam-badge">mốc tạm</small>}
+                    </div>
+                  </div>
+
+                  {/* Readiness Meter */}
+                  <div className="khvt-bcard__readiness">
+                    <div className="khvt-bcard__readiness-head">
+                      <span>Độ sẵn sàng vật tư:</span>
+                      <b>{soMonDu}/{tongMon} món ({pctGiu}%)</b>
+                    </div>
+                    <div className="khvt-bcard__progress">
+                      <div
+                        className={`khvt-bcard__progress-fill ${r.du ? "is-full" : r.bat ? "is-partial" : "is-deficit"}`}
+                        style={{ width: `${Math.max(5, pctGiu)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Visual Lock Status */}
+                  <div className="khvt-bcard__lock-status">
+                    {r.du ? (
+                      <span className="khvt-lock-badge khvt-lock-badge--open">
+                        <Icon name="check" size={13} /> SẴN SÀNG XẾP LỊCH CHẠY MÁY
+                      </span>
+                    ) : !r.bat ? (
+                      <span className="khvt-lock-badge khvt-lock-badge--locked">
+                        <Icon name="lock" size={13} /> CHƯA BẬT GIỮ — CHẶN XẾP LỊCH
+                      </span>
+                    ) : (
+                      <span className="khvt-lock-badge khvt-lock-badge--partial">
+                        <Icon name="clock" size={13} /> ĐANG GIỮ DỞ — CHỜ BÙ TỒN
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Smart Advice / Cảnh báo */}
+                  {r.giu_lau_chua_chay && (
+                    <div className="khvt-recommend-box khvt-recommend-box--warn">
+                      <Icon name="clock" size={13} />
+                      <span>Giữ đã <b>{num(r.so_ngay_giu)} ngày</b> mà chưa đưa vào kế hoạch sản xuất.</span>
+                    </div>
+                  )}
+
+                  {/* Dynamic Action Buttons */}
+                  <div className="khvt-bcard__actions" onClick={(e) => e.stopPropagation()}>
+                    {!r.bat ? (
+                      <Button onClick={() => doiGiuCho(r, true)} disabled={isDangChay} className="khvt-btn-action">
+                        <Icon name="lock" size={13} /> {isDangChay ? "Đang giữ…" : "⚡ Giữ chỗ ngay"}
+                      </Button>
+                    ) : (
+                      <Button variant="secondary" onClick={() => doiGiuCho(r, false)} disabled={isDangChay}>
+                        <Icon name="lockOpen" size={13} /> Nhả chỗ giữ
+                      </Button>
+                    )}
+                    {canDeNghiMua && soDo > 0 && (
+                      <Button variant="secondary" onClick={() => deNghiMua(r)} disabled={isDangChay} className="khvt-btn-buy">
+                        <Icon name="cart" size={13} /> Đề nghị mua ({soDo} dòng)
+                      </Button>
+                    )}
+                    {canDeNghiMua && soDo === 0 && veMuon.length > 0 && (
+                      <span className="khvt-buy-lock" title={lyDoKhoaMua(veMuon)}>
+                        <Button variant="secondary" disabled className="khvt-btn-buy khvt-btn-buy--khoa">
+                          <Icon name="truck" size={13} /> Đã đặt mua — chờ hàng về
+                        </Button>
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Phân khu Phải: Chi tiết Dòng chảy vật tư (Material Stream Breakdown) */}
+                <div className="khvt-bcard__right">
+                  <div className="khvt-bcard__stream-title">
+                    <Icon name="layers" size={13} />
+                    <span>CÁC MẶT HÀNG TIÊU THỤ:</span>
+                  </div>
+                  <ul className="khvt-bcard__item-list">
+                    {r.hang.map((h) => {
+                      const meta = mauVatTu(h.trang_thai);
+                      const icon = iconLoaiHang(h.hang_loai);
+                      return (
+                        <li key={`${h.hang_loai}-${h.hang_id}`} className="khvt-bcard__item">
+                          <div className="khvt-bcard__item-main">
+                            <span className="khvt-bcard__item-icon" style={{ color: meta.dotColor }}>
+                              <Icon name={icon} size={14} />
+                            </span>
+                            <span className="khvt-bcard__item-name">
+                              {h.hang_ten ?? h.hang_ma ?? "(đã gỡ khỏi danh mục)"}
+                            </span>
+                            {h.so_buoc > 1 && (
+                              <span className="khvt-bcard__buoc-tag">{h.so_buoc} bước</span>
+                            )}
+                          </div>
+
+                          <div className="khvt-bcard__item-stats">
+                            <span className="khvt-bcard__item-need">
+                              cần <b>{soGoc(h.can)}</b> {h.don_vi_goc ?? ""}
+                            </span>
+                            <span className="khvt-bcard__item-hold">
+                              {h.dang_giu > 0 ? `giữ ${soGoc(h.dang_giu)}` : "chưa giữ"}
+                            </span>
+                            <span className={`khvt-bcard__item-badge ${meta.cls}`}>
+                              {h.thieu > 0 ? `thiếu ${soGoc(h.thieu)}` : meta.label}
+                            </span>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </section>
+            );
+          })}
         </div>
       )}
 
+      {/* ── 4. DRAWER BÓC TÁCH CHI TIẾT LỆNH (LenhVatTuDrawer) ── */}
+      {selectedRow && (
+        <LenhVatTuDrawer
+          row={selectedRow}
+          dangChay={dangChay === khoaChu(selectedRow)}
+          canDeNghiMua={canDeNghiMua}
+          onClose={() => setSelectedRow(null)}
+          onGiuCho={doiGiuCho}
+          onDeNghiMua={deNghiMua}
+          onOpenLsx={onOpenLsx}
+        />
+      )}
+
+      {/* ── 5. HỘP THOẠI XÁC NHẬN NHẢ CHỖ ── */}
       <HopNhaCho
         row={hoiNha}
         busy={!!hoiNha && dangChay === khoaChu(hoiNha)}
         onXacNhan={() => hoiNha && void chay(hoiNha, false)}
         onHuy={() => setHoiNha(null)}
       />
-    </>
+    </div>
   );
 }
 
-// --- HỘP XÁC NHẬN NHẢ CHỖ ---------------------------------------------------
-/** Kê ĐÍCH DANH sắp nhả cái gì, bao nhiêu, và ai đang cần nó.
- *
- *  Ba câu, ba việc khác nhau:
- *    · bảng món  — *"nhả cái gì"*: không có số thì người dùng không biết mình vừa buông thứ mất
- *      hai tuần mới mua lại được.
- *    · "N lệnh khác đang thiếu" — *"nhả ra thì ai đỡ"*: đây là nửa TÍCH CỰC, và nó cũng quan
- *      trọng. Hộp thoại chỉ doạ thì người ta không bao giờ nhả, kể cả lúc nên nhả.
- *    · hệ quả    — *"nhả rồi thì sao"*: mất quyền xếp lịch, và bật lại có thể chẳng còn gì. */
+// ============================================================================
+// DRAWER BÓC TÁCH CHI TIẾT VẬT TƯ CỦA LỆNH (LenhVatTuDrawer)
+// ============================================================================
+function LenhVatTuDrawer({
+  row: r,
+  dangChay,
+  canDeNghiMua,
+  onClose,
+  onGiuCho,
+  onDeNghiMua,
+  onOpenLsx,
+}: {
+  row: TheoLenhRow;
+  dangChay: boolean;
+  canDeNghiMua: boolean;
+  onClose: () => void;
+  onGiuCho: (r: TheoLenhRow, bat: boolean) => void;
+  onDeNghiMua: (r: TheoLenhRow) => void;
+  onOpenLsx?: (id: number) => void;
+}) {
+  const soDo = r.hang.reduce((s, h) => s + h.khoa_do.length, 0);
+  const veMuon = monVeMuon(r);
+  const soMonDu = r.hang.filter((h) => h.trang_thai === "xanh" || h.trang_thai === "xam").length;
+  const tongMon = r.hang.length;
+  const pctGiu = tongMon > 0 ? Math.round((soMonDu / tongMon) * 100) : 0;
+
+  // Đóng bằng Esc
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="rc-drawer__scrim khvt-drawer-scrim" onClick={onClose} role="presentation">
+      <aside
+        className="rc-drawer rc-drawer--wide khvt-drawer"
+        style={{ width: "min(720px, 94vw)" }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Bóc tách vật tư của ${r.ma}`}
+      >
+        {/* Header */}
+        <header className="rc-drawer__head khvt-drawer__head">
+          <div>
+            <div className="rc-drawer__kicker">
+              <span>Kế hoạch vật tư · Giữ chỗ theo lệnh</span>
+            </div>
+            <h2 className="rc-drawer__title khvt-drawer__title">
+              Bóc tách chi tiết vật tư của lệnh
+            </h2>
+            <div className="khvt-drawer__subline">
+              <span>Mã lệnh:</span>
+              <span className="khvt-drawer__code">{r.ma}</span>
+              {r.bai_ghep_id != null && (
+                <span className="khsx-chip khsx-chip--ngoai">
+                  <Icon name="layers" size={11} /> Bài ghép
+                </span>
+              )}
+              {r.is_rush && <ChipGap />}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="rc-drawer__x"
+            onClick={onClose}
+            aria-label="Đóng"
+            title="Đóng (Esc)"
+          >
+            ✕
+          </button>
+        </header>
+
+        {/* Body */}
+        <div className="rc-drawer__body khvt-drawer__body">
+          {/* Dải KPI Compact (§4 UI_DESIGN.md) */}
+          <div className="khvt-drawer-kpis">
+            <div className="khvt-drawer-kpi">
+              <span className="khvt-drawer-kpi__label">Tổng số món</span>
+              <span className="khvt-drawer-kpi__val">
+                <b>{num(tongMon)}</b> <small>món</small>
+              </span>
+            </div>
+            <div className="khvt-drawer-kpi__sep" aria-hidden="true" />
+            <div className="khvt-drawer-kpi">
+              <span className="khvt-drawer-kpi__label">Đã đủ kho</span>
+              <span className="khvt-drawer-kpi__val">
+                <b>{num(soMonDu)}</b> <small>món</small>
+              </span>
+            </div>
+            <div className="khvt-drawer-kpi__sep" aria-hidden="true" />
+            <div className="khvt-drawer-kpi">
+              <span className="khvt-drawer-kpi__label">Cần đặt mua</span>
+              <div className="khvt-drawer-kpi__val">
+                {soDo > 0 ? (
+                  <span className="khvt-kpi-badge khvt-kpi-badge--deficit">
+                    Thiếu <b>{num(soDo)}</b> dòng
+                  </span>
+                ) : (
+                  <span className="khvt-kpi-badge khvt-kpi-badge--ok">
+                    Đủ hàng
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="khvt-drawer-kpi__sep" aria-hidden="true" />
+            <div className="khvt-drawer-kpi">
+              <span className="khvt-drawer-kpi__label">Độ sẵn sàng</span>
+              <div className="khvt-drawer-kpi__cov">
+                <span className="khvt-drawer-kpi__cov-pct">{pctGiu}%</span>
+                <div className="khvt-mini-bar">
+                  <div
+                    className={`khvt-mini-bar__fill ${pctGiu >= 100 ? "is-full" : soDo > 0 ? "is-deficit" : "is-partial"}`}
+                    style={{ width: `${Math.max(4, pctGiu)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Smart Message / Guidance Box */}
+          {r.du ? (
+            <div className="khvt-recommend-box khvt-recommend-box--ok">
+              <div className="khvt-recommend-box__icon">
+                <Icon name="check" size={16} />
+              </div>
+              <div className="khvt-recommend-box__content">
+                Lệnh đã <b>giữ đủ 100% vật tư</b> trong kho — Cửa xếp lịch sản xuất đã mở!
+              </div>
+            </div>
+          ) : !r.bat ? (
+            <div className="khvt-recommend-box">
+              <div className="khvt-recommend-box__icon">
+                <Icon name="lock" size={16} />
+              </div>
+              <div className="khvt-recommend-box__content">
+                Lệnh <b>chưa bật giữ chỗ</b> ⇒ Chưa thể xếp lịch chạy máy. Bấm "Giữ chỗ ngay" để đăng ký tồn kho.
+              </div>
+            </div>
+          ) : (
+            <div className="khvt-recommend-box khvt-recommend-box--warn">
+              <div className="khvt-recommend-box__icon">
+                <Icon name="clock" size={16} />
+              </div>
+              <div className="khvt-recommend-box__content">
+                Lệnh đang <b>giữ được {soMonDu}/{tongMon} món</b>. Các món còn thiếu sẽ tự động nhặt bù khi lô mua hàng (PO) nhập kho.
+              </div>
+            </div>
+          )}
+
+          {/* Đã mua rồi mà hàng về muộn — việc phải làm là DỜI LỊCH, không phải mua tiếp. Nói
+              ngay ở đây thì người dùng khỏi đi tìm nút mua đã bị khoá ở chân drawer. */}
+          {veMuon.length > 0 && (
+            <div className="khvt-recommend-box">
+              <div className="khvt-recommend-box__icon">
+                <Icon name="truck" size={16} />
+              </div>
+              <div className="khvt-recommend-box__content">
+                <strong>Đã đặt mua — không mua thêm:</strong>{" "}
+                {veMuon.map((h) => `${h.hang_ten ?? h.hang_ma ?? "Vật tư"} (${moTaVeMuon(h)})`).join("; ")}.
+                Mua thêm là <b>mua đúp</b> đúng lô đang về —{" "}
+                <span className="khvt-recommend-box__action">dời bước tiêu thụ</span> sang sau ngày
+                về, hoặc hối nhà cung cấp giao sớm.
+              </div>
+            </div>
+          )}
+
+          {/* BOM Breakdown Table */}
+          <div className="khvt-drawer-breakdown">
+            <div className="khvt-drawer-breakdown__head">
+              <h3 className="khvt-drawer-breakdown__title">
+                Danh sách chi tiết từng loại vật tư ({r.hang.length} mặt hàng)
+              </h3>
+            </div>
+
+            <div className="khsx__tablewrap">
+              <table className="khsx__table khvt-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Mặt hàng &amp; Quy cách</th>
+                    <th scope="col" className="khsx-th--num" style={{ width: 130 }}>
+                      Nhu cầu
+                    </th>
+                    <th scope="col" className="khsx-th--num" style={{ width: 130 }}>
+                      Đang giữ
+                    </th>
+                    <th scope="col" style={{ width: 160, textAlign: "right" }}>
+                      Trạng thái
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.hang.map((h) => {
+                    const meta = mauVatTu(h.trang_thai);
+                    const tag = nhanLoaiHang(h.hang_loai);
+                    return (
+                      <tr key={`${h.hang_loai}-${h.hang_id}`}>
+                        <td>
+                          <div className="khvt-cell-item">
+                            <div className="khvt-cell-item__top">
+                              <span className="khvt-item-code">{h.hang_ma ?? "—"}</span>
+                              <span className={`khvt-item-tag ${tag.cls}`}>{tag.label}</span>
+                              {h.so_buoc > 1 && (
+                                <span className="khvt-bcard__buoc-tag" title="Món này khai ở nhiều công đoạn">
+                                  {h.so_buoc} bước
+                                </span>
+                              )}
+                            </div>
+                            <div className="khvt-item-name" title={h.hang_ten ?? undefined}>
+                              {h.hang_ten ?? "(đã gỡ khỏi danh mục)"}
+                            </div>
+                            {h.so_lenh_khac_thieu > 0 && (
+                              <div className="khvt-compete-alert">
+                                <Icon name="alert" size={11} /> Có {h.so_lenh_khac_thieu} lệnh khác cũng đang chờ món này
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="khsx-num khvt-num-cell">
+                          <div className="khvt-num-primary"><b>{soGoc(h.can)}</b> <small>{h.don_vi_goc ?? ""}</small></div>
+                        </td>
+                        <td className="khsx-num khvt-num-cell">
+                          <div className="khvt-num-primary">
+                            <span className={h.dang_giu > 0 ? "khvt-num-sub--ok" : "khvt-text-ash"}>
+                              <b>{soGoc(h.dang_giu)}</b> <small>{h.don_vi_goc ?? ""}</small>
+                            </span>
+                          </div>
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          <span className={`khsx-pill ${meta.cls}`} title={meta.label}>
+                            <span className="khsx-pill__dot" aria-hidden="true" />
+                            {h.thieu > 0 ? `Thiếu ${soGoc(h.thieu)}` : meta.label}
+                          </span>
+                          {h.trang_thai === "ve_muon" && (
+                            <div className="khvt-pill-note">{moTaVeMuon(h)}</div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <footer className="rc-drawer__foot khvt-drawer__foot">
+          <div className="khvt-drawer__foot-left">
+            {r.lsx_id && onOpenLsx && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  onClose();
+                  onOpenLsx(r.lsx_id!);
+                }}
+              >
+                <Icon name="link" size={13} /> Mở Lệnh SX
+              </Button>
+            )}
+          </div>
+
+          <div className="khvt-drawer__foot-right">
+            {!r.bat ? (
+              <Button
+                onClick={() => {
+                  onGiuCho(r, true);
+                  onClose();
+                }}
+                disabled={dangChay}
+                className="khvt-btn-action"
+              >
+                <Icon name="lock" size={13} /> {dangChay ? "Đang giữ…" : "⚡ Giữ chỗ ngay"}
+              </Button>
+            ) : (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  onGiuCho(r, false);
+                  onClose();
+                }}
+                disabled={dangChay}
+              >
+                <Icon name="lockOpen" size={13} /> Nhả chỗ giữ
+              </Button>
+            )}
+            {canDeNghiMua && soDo > 0 && (
+              <Button
+                onClick={() => {
+                  onDeNghiMua(r);
+                  onClose();
+                }}
+                disabled={dangChay}
+                className="khvt-btn-buy"
+              >
+                <Icon name="cart" size={13} /> Đề nghị mua ({soDo} dòng)
+              </Button>
+            )}
+            {canDeNghiMua && soDo === 0 && veMuon.length > 0 && (
+              <span className="khvt-buy-lock" title={lyDoKhoaMua(veMuon)}>
+                <Button disabled className="khvt-btn-buy khvt-btn-buy--khoa">
+                  <Icon name="truck" size={13} /> Đã đặt mua — chờ hàng về
+                </Button>
+              </span>
+            )}
+          </div>
+        </footer>
+      </aside>
+    </div>
+  );
+}
+
+// ============================================================================
+// HỘP XÁC NHẬN NHẢ CHỖ GIỮ
+// ============================================================================
 function HopNhaCho({
   row,
   busy,
@@ -357,8 +1211,8 @@ function HopNhaCho({
   onHuy: () => void;
 }) {
   const dangGiu = (row?.hang ?? []).filter((h) => h.dang_giu > 0);
-  // Đếm theo MÓN, không cộng dồn số lượng: 40 kg giấy + 2 kg mực cộng thành "42" là vô nghĩa.
   const soLenhDoi = Math.max(0, ...dangGiu.map((h) => h.so_lenh_khac_thieu), 0);
+
   return (
     <ConfirmDialog
       open={!!row}
@@ -399,186 +1253,5 @@ function HopNhaCho({
         <b>{row?.ma}</b> cũng mất quyền xếp lịch cho tới khi giữ đủ lại.
       </p>
     </ConfirmDialog>
-  );
-}
-
-// --- MỘT THẺ LỆNH -----------------------------------------------------------
-function TheLenh({
-  row: r,
-  dangChay,
-  canDeNghiMua,
-  onGiuCho,
-  onDeNghiMua,
-  onOpenLsx,
-}: {
-  row: TheoLenhRow;
-  dangChay: boolean;
-  canDeNghiMua: boolean;
-  onGiuCho: (r: TheoLenhRow, bat: boolean) => void;
-  onDeNghiMua: (r: TheoLenhRow) => void;
-  onOpenLsx?: (id: number) => void;
-}) {
-  const soDo = r.hang.reduce((s, h) => s + h.khoa_do.length, 0);
-  const caiPhaiLo = r.so_thieu || r.so_khong_ro || r.so_ve_muon || r.giu_lau_chua_chay
-    || r.ngoai_pham_vi;
-
-  return (
-    <section
-      className={`khvt-card gclv-card ${caiPhaiLo ? "khvt-card--do" : ""} ${r.du ? "gclv-card--du" : ""}`}
-    >
-      <header className="khvt-card__head">
-        <div className="khvt-card__id">
-          {r.lsx_id && onOpenLsx ? (
-            <button type="button" className="khvt-link" onClick={() => onOpenLsx(r.lsx_id!)}>
-              {r.ma}
-            </button>
-          ) : (
-            <span className="khsx__code">{r.ma}</span>
-          )}
-          {r.bai_ghep_id != null && (
-            <span className="khsx-chip khsx-chip--ngoai">
-              <Icon name="layers" size={11} /> bài ghép
-            </span>
-          )}
-          {r.is_rush && <ChipGap />}
-        </div>
-
-        <dl className="khvt-stats">
-          <div>
-            <dt>Cần từ</dt>
-            <dd className={r.moc_tam ? "" : classHan(r.ngay_can)}>
-              {ngay(r.ngay_can)}
-              {r.moc_tam && (
-                <span
-                  className="khvt-tam"
-                  title="Bước chưa xếp lịch — mốc suy từ hạn sản xuất trừ tổng thời gian dẫn."
-                >
-                  mốc tạm
-                </span>
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt>Mặt hàng</dt>
-            <dd>{num(r.so_mat_hang)}</dd>
-          </div>
-        </dl>
-
-        <GiuChoPill row={r} />
-      </header>
-
-      {/* Câu CHỈ VIỆC — thẻ đỏ mà không nói phải làm gì thì người dùng đứng nhìn. */}
-      {r.ngoai_pham_vi ? (
-        <p className="gclv-nhan gclv-nhan--canh">
-          Lệnh này <b>không còn trong kế hoạch</b> (bị kéo về nháp, hoặc đã tách khỏi bài ghép)
-          nhưng vẫn đang giữ vật tư — chỗ giữ đó trừ vào tồn của mọi lệnh khác. Nhả đi nếu chưa
-          định chạy lại.
-        </p>
-      ) : r.giu_lau_chua_chay ? (
-        <p className="gclv-nhan gclv-nhan--canh">
-          Giữ đã <b>{num(r.so_ngay_giu ?? 0)} ngày</b> mà chưa đưa vào kế hoạch. Máy KHÔNG tự nhả —
-          nếu lệnh chưa chạy tới, nhả để lệnh khác dùng được.
-        </p>
-      ) : r.khong_ro ? (
-        <p className="gclv-nhan gclv-nhan--canh">
-          Có mặt hàng <b>chưa quy đổi được về đơn vị kho</b>. Máy không đoán, nên lệnh này không bao
-          giờ được tính là đủ — kiểm lại đơn vị của mặt hàng bên danh mục.
-        </p>
-      ) : !r.bat ? (
-        <p className="gclv-nhan">
-          Chưa giữ chỗ ⇒ <b>chưa xếp lịch được</b>. Bấm “Giữ chỗ” để đăng ký phần tồn cho lệnh này;
-          giữ được bao nhiêu hay bấy nhiêu, hàng về là tự nhặt bù.
-        </p>
-      ) : r.du ? (
-        // Giữ đủ + hàng đã trong kho = KHÔNG có câu nào cả: viên trạng thái và vạch xanh mép trái
-        // đã nói hết. Rải thêm một dòng chữ lên mọi thẻ bình thường là làm loãng đúng những thẻ
-        // có việc phải làm. Chỉ nói khi có RÀNG BUỘC NGÀY — thứ hai dấu hiệu kia không diễn được.
-        r.xep_som_nhat ? (
-          <p className="gclv-nhan gclv-nhan--ok">
-            Đã giữ đủ, nhưng một phần bám lô đang về — <b>không xếp trước {ngay(r.xep_som_nhat)}</b>.
-          </p>
-        ) : null
-      ) : (
-        <p className="gclv-nhan gclv-nhan--canh">
-          Mới giữ được một phần. Công tắc vẫn <b>BẬT</b> — hàng về kho là tự nhặt bù, không phải
-          bấm lại. Muốn chạy sớm thì đề nghị mua phần thiếu.
-        </p>
-      )}
-
-      <ul className="gclv-mons">
-        {r.hang.map((h) => (
-          <DongMatHang key={`${h.hang_loai}-${h.hang_id}`} hang={h} />
-        ))}
-      </ul>
-
-      <footer className="gclv-nut">
-        {!r.bat ? (
-          <Button onClick={() => onGiuCho(r, true)} disabled={dangChay}>
-            <Icon name="lock" size={13} /> {dangChay ? "Đang giữ…" : "Giữ chỗ"}
-          </Button>
-        ) : (
-          <Button variant="secondary" onClick={() => onGiuCho(r, false)} disabled={dangChay}>
-            <Icon name="lockOpen" size={13} /> {dangChay ? "Đang nhả…" : "Nhả chỗ"}
-          </Button>
-        )}
-        {canDeNghiMua && soDo > 0 && (
-          <Button variant="secondary" onClick={() => onDeNghiMua(r)} disabled={dangChay}>
-            <Icon name="cart" size={13} /> Đề nghị mua {soDo} dòng thiếu
-          </Button>
-        )}
-        {/* Đã bật mà chưa đủ thì vẫn cho nhặt lại: người dùng vừa nhập kho xong, muốn thấy ngay. */}
-        {r.bat && !r.du && (
-          <Button variant="secondary" onClick={() => onGiuCho(r, true)} disabled={dangChay}>
-            <Icon name="refresh" size={13} /> Nhặt thêm ngay
-          </Button>
-        )}
-        {r.da_xep_lich && (
-          <span className="gclv-nut__ghi">
-            <Icon name="calendar" size={12} /> đã đưa vào kế hoạch
-          </span>
-        )}
-      </footer>
-    </section>
-  );
-}
-
-/** Viên trạng thái giữ chỗ — LUÔN kèm chữ, không chỉ dựa màu (a11y). */
-function GiuChoPill({ row: r }: { row: TheoLenhRow }) {
-  const [cls, label, hint] = !r.bat
-    ? ["gclv-pill--tat", "Chưa giữ chỗ", "Chưa đăng ký tồn cho lệnh này ⇒ chưa xếp lịch được."]
-    : r.du
-      ? ["gclv-pill--du", "Đã giữ đủ", "Đủ 100% — cửa xếp lịch đã mở cho lệnh này."]
-      : ["gclv-pill--dang", "Đang giữ dở", "Đã bật nhưng chưa đủ. Hàng về là tự nhặt bù."];
-  return (
-    <span className={`khsx-pill ${cls}`} title={hint}>
-      <span className="khsx-pill__dot" aria-hidden="true" />
-      {label}
-    </span>
-  );
-}
-
-/** Một mặt hàng trong thẻ. Đã GỘP mọi công đoạn — `so_buoc > 1` phải nói ra, không thì người đọc
- *  tưởng đó là số của một bước rồi đi mua thiếu. */
-function DongMatHang({ hang: h }: { hang: TheoLenhHang }) {
-  const m = mauNgan(h.trang_thai);
-  return (
-    <li className="gclv-mon">
-      <span className="gclv-mon__ma">{h.hang_ma ?? "—"}</span>
-      <span className="gclv-mon__ten">{h.hang_ten ?? "(đã gỡ khỏi danh mục)"}</span>
-      {h.so_buoc > 1 && (
-        <span className="gclv-mon__buoc" title="Món này khai ở nhiều công đoạn — số bên phải đã cộng cả.">
-          {h.so_buoc} bước
-        </span>
-      )}
-      <span className="gclv-mon__so">
-        cần {soGoc(h.can)} <span className="khsx-unit">{h.don_vi_goc ?? ""}</span>
-      </span>
-      <span className="gclv-mon__giu">
-        {h.dang_giu > 0 ? `giữ ${soGoc(h.dang_giu)}` : "chưa giữ"}
-      </span>
-      <span className={`khsx-pill gclv-mon__tt ${m.cls}`}>
-        {h.thieu > 0 ? `${m.label} ${soGoc(h.thieu)}` : m.label}
-      </span>
-    </li>
   );
 }

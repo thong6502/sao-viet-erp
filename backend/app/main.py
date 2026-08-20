@@ -58,9 +58,11 @@ from .routers import (
     phieu_tinh_gia,
     lsx,
     bai_ghep_2,
-    xep_lich,
+    xep_lich_2,
     ke_hoach_vat_tu,
     ky_thuat_may,
+    san_xuat,
+    san_xuat_ly_do,
 )
 from .seed import seed_all
 
@@ -158,6 +160,7 @@ app.include_router(may_thiet_bi.nhom_may_router)   # danh mục Nhóm máy (cùn
 app.include_router(vat_lieu_kho.router)
 app.include_router(cong_doan.router)
 app.include_router(cong_viec_khoan.router)     # đơn giá khoán theo tổ (trước ở tab của màn Lương)
+app.include_router(san_xuat_ly_do.router)      # danh mục Lý do & lỗi SX (module quyền `dm_ly_do_san_xuat`)
 app.include_router(bu_hao.router)
 app.include_router(don_vi_do.router)
 app.include_router(bien_cong_thuc.router)
@@ -184,9 +187,10 @@ app.include_router(lsx.router)
 # (`services/bai_ghep_service.py` + `repositories/bai_ghep_repo.py`) vẫn là của chung, đừng nhầm
 # là code chết: router này chạy trên đó.
 app.include_router(bai_ghep_2.router)
-app.include_router(xep_lich.router)
+app.include_router(xep_lich_2.router)        # Bàn Xếp lịch công đoạn (module quyền `xep_lich_2`; màn cũ `xep_lich` gỡ 19/08/2026)
 app.include_router(ke_hoach_vat_tu.router)   # bảng cân đối vật tư (cùng module quyền `san_xuat`)
 app.include_router(ky_thuat_may.router)      # sửa chữa + phiếu bảo trì (module quyền `ky_thuat_may`)
+app.include_router(san_xuat.router)          # bàn Thực hiện sản xuất tại tổ (cùng module quyền `san_xuat`)
 
 
 

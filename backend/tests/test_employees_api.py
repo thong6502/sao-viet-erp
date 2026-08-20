@@ -389,7 +389,7 @@ def test_create_with_employee_specific_salary_can_have_different_amounts(client)
                         "chuyen_can": 500_000},
     )
     assert first.status_code == 201 and second.status_code == 201
-    assert first.json()["employee"]["job_grade_name"] == "Bậc 2"
+    assert first.json()["employee"]["job_grade_name"] == "Thợ vững"
     assert second.json()["employee"]["job_grade_id"] == bac_2, "hai người CÙNG một bậc"
 
     salary_a = client.get(
@@ -588,7 +588,7 @@ def test_transfer_and_promote_record_events(client):
         json={"kind": "promote", "new_job_grade_id": bac_3},
         headers=_h(token),
     )
-    assert p.status_code == 200 and p.json()["job_grade_name"] == "Bậc 3"
+    assert p.status_code == 200 and p.json()["job_grade_name"] == "Thợ thường"
 
     kinds = {e["event_type"] for e in client.get(f"/api/employees/{eid}/events", headers=_h(token)).json()["items"]}
     assert {"hired", "transferred", "promoted"} <= kinds
@@ -617,7 +617,7 @@ def test_transfer_and_promote_change_grade_without_changing_salary(client):
     )
     assert transferred.status_code == 200, transferred.text
     assert transferred.json()["department_id"] == kd
-    assert transferred.json()["job_grade_name"] == "Bậc 2"
+    assert transferred.json()["job_grade_name"] == "Thợ vững"
 
     promoted = client.post(
         f"/api/employees/{employee['id']}/transitions",
@@ -626,7 +626,7 @@ def test_transfer_and_promote_change_grade_without_changing_salary(client):
         headers=_h(token),
     )
     assert promoted.status_code == 200, promoted.text
-    assert promoted.json()["job_grade_name"] == "Bậc 3"
+    assert promoted.json()["job_grade_name"] == "Thợ thường"
 
     # Lương KHÔNG đổi, KHÔNG sinh mốc lương mới (vẫn đúng 1 bản ghi ban đầu).
     history = client.get(

@@ -302,7 +302,7 @@ function JobGradeField({
           <input
             autoFocus
             value={name}
-            placeholder="Tên bậc, vd: Bậc 4"
+            placeholder="Tên bậc, vd: Thợ vững"
             onChange={(e) => setName(e.target.value)}
             // Ô này nằm TRONG modal: không chặn nổi bọt thì Esc đóng luôn cả wizard, mất sạch
             // những gì đang gõ dở ở các bước trước.
@@ -2322,7 +2322,7 @@ function EmployeeDetailPanel({
           </h2>
           <p className="ns-detail__meta">
             <Briefcase size={13} />
-            {/* Tên bậc đã tự mang chữ "Bậc" (Bậc 1…Bậc 5) → thêm tiền tố nữa ra "Bậc Bậc 1". */}
+            {/* job_grade_name là nhãn danh mục (Thợ lành nghề…Lính mới) — hiện nguyên văn, không ghép tiền tố. */}
             {emp.code} · {emp.department_name ?? "—"} · {emp.position ?? "—"}
             {(emp.job_grade_name ?? emp.job_grade)
               ? ` · ${emp.job_grade_name ?? emp.job_grade}`
@@ -3484,7 +3484,7 @@ function EventsTab({
       const d = meta?.departments.find((x) => String(x.id) === v);
       return d ? d.name : `phòng #${v}`;
     }
-    return v; // bậc tay nghề ("Bậc 2"), chức danh…
+    return v; // bậc tay nghề ("Thợ vững"), chức danh…
   };
 
   const items: TimelineEntry[] = events.map((ev) => {

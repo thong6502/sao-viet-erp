@@ -70,6 +70,12 @@ DANH_MUC: tuple[DanhMuc, ...] = (
     # `khuon_be` KHÔNG có tiền tố `dm_` — chuỗi này đã cấp quyền trong DB thật, đổi cần migration.
     DanhMuc("khuon_be", "khuon_be", "Khuôn bế", "khuon-be", model="models.khuon_be:KhuonBe"),
     DanhMuc("kho_hang", "dm_kho_hang", "Khai báo kho", "khai-bao-kho"),
+    # Lý do & lỗi sản xuất (§15 spec-thuc-hien-san-xuat): danh mục CHUẨN HOÁ dùng chung cho hỏng
+    # batch, lỗi KCS và các lý do vận hành (tạm dừng · bắt đầu trễ · điều chỉnh bàn giao…). Gộp vào
+    # Cấu hình danh mục thay vì hard-code danh sách lý do ở FE. Module RIÊNG `dm_ly_do_san_xuat`
+    # (mg `0221` chép quyền từ `san_xuat`); `model=None` như `kho_hang` — luồng xoá dùng chặn mềm
+    # ở service, không cần bộ đếm nơi-dùng.
+    DanhMuc("san_xuat_ly_do", "dm_ly_do_san_xuat", "Lý do & lỗi SX", "ly-do-san-xuat"),
 )
 
 #: 11 khoá quyền của nhóm danh mục, đúng thứ tự menu.

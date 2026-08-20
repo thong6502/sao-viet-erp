@@ -1934,6 +1934,25 @@ select.input {
   border-color: var(--rust-soft);
 }
 
+/* ---- Cảnh báo nhóm lệch SL: liệt kê rõ phần nào bao nhiêu + số in cho khách -- */
+.rdx-quote .hint--lechnhom { align-items: flex-start; }
+.rdx-quote .lechnhom { display: flex; flex-direction: column; gap: 9px; }
+.rdx-quote .lechnhom__item { display: flex; flex-direction: column; gap: 2px; }
+.rdx-quote .lechnhom__ten { font-weight: 600; color: var(--ink); }
+.rdx-quote .lechnhom__ds { margin: 2px 0; padding-left: 15px; list-style: none; }
+.rdx-quote .lechnhom__ds li { position: relative; line-height: 1.55; }
+.rdx-quote .lechnhom__ds li::before { content: "•"; position: absolute; left: -11px; color: var(--rust); }
+.rdx-quote .lechnhom__ds b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.rdx-quote .lechnhom__ket { color: var(--rust); }
+.rdx-quote .lechnhom__ket b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* ---- Dòng con có SL lệch phần đầu nhóm: nền nhạt + nhãn cảnh báo dưới cột SL -- */
+.rdx-quote tr.qrow--lech > td { background: var(--rust-soft); }
+.rdx-quote .ql-lech {
+  display: block; margin-top: 3px; font-size: 10px; font-weight: 600;
+  letter-spacing: 0.01em; white-space: nowrap; color: var(--rust);
+}
+
 /* ---- Diễn giải quy cách theo dòng (bung từ tính giá, sửa tại chỗ) ----------- */
 .rdx-quote .dg-list { margin: 4px 0 0; padding-left: 12px; list-style: none; }
 .rdx-quote .dg-list li {

@@ -437,6 +437,8 @@ class JobGradeIn(BaseModel):
     code: str | None = Field(default=None, max_length=20)
     seq: int | None = None
     note: str | None = Field(default=None, max_length=255)
+    # Hệ số chia sản lượng khoán theo bậc (module Thực hiện SX §8). Bỏ trống = chưa khai (engine coi 1.0).
+    output_coefficient: float | None = Field(default=None, ge=0, le=999.999)
 
 
 class JobGradeUpdateIn(BaseModel):
@@ -446,6 +448,7 @@ class JobGradeUpdateIn(BaseModel):
     seq: int | None = None
     is_active: bool | None = None
     note: str | None = Field(default=None, max_length=255)
+    output_coefficient: float | None = Field(default=None, ge=0, le=999.999)
 
 
 class JobGradeOut(BaseModel):
@@ -457,6 +460,7 @@ class JobGradeOut(BaseModel):
     seq: int
     is_active: bool
     note: str | None = None
+    output_coefficient: float | None = None
 
 
 class JobGradesOut(BaseModel):

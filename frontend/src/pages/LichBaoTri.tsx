@@ -45,7 +45,7 @@ interface BoLoc {
 }
 
 const LOC_MAC_DINH: BoLoc = {
-  tt: { cho_thuc_hien: true, hoan_thanh: true, qua_han: true, du_kien: true },
+  tt: { cho_thuc_hien: true, hoan_thanh: true, qua_han: true, da_huy: true, du_kien: true },
   nhom: "all",
   may: "all",
 };
@@ -231,6 +231,7 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
             ["cho_thuc_hien", "cho", "Chờ làm"],
             ["hoan_thanh", "xong", "Hoàn thành"],
             ["qua_han", "qua", "Quá hạn"],
+            ["da_huy", "huy", "Đã hủy"],
             ["du_kien", "du-kien", "Dự kiến"],
           ] as const).map(([key, mau, nhan]) => (
             <button
@@ -296,9 +297,13 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
                     <strong className="ktm-agenda__ten">{p.goi_ten ?? "Bảo trì"}</strong>
                     <span className="ktm-agenda__meta">
                       {p.qua_han ? "Quá hạn" : NHAN_TT_BAO_TRI[p.trang_thai]}
-                      {(p.hang_muc?.length ?? 0) > 0 &&
-                        ` · ${(p.hang_muc ?? []).filter((h) => h.xong || h.bo_qua).length}/${p.hang_muc?.length} việc`}
-                      {` · ${p.so_anh} ảnh`}
+                      {p.trang_thai === "da_huy"
+                        ? (p.ly_do_huy ? ` · ${p.ly_do_huy}` : "")
+                        : <>
+                            {(p.hang_muc?.length ?? 0) > 0 &&
+                              ` · ${(p.hang_muc ?? []).filter((h) => h.xong || h.bo_qua).length}/${p.hang_muc?.length} việc`}
+                            {` · ${p.so_anh} ảnh`}
+                          </>}
                     </span>
                   </button>
                 ))}
@@ -458,6 +463,9 @@ export function LichBaoTri({ thang, onDoiThang, onMoPhieu, onTaoTuDuKien, nap }:
                           <span className={p.so_anh > 0 ? "ktm-anhchip is-du" : "ktm-anhchip is-thieu"}>
                             <Icon name="camera" size={11} /> {p.so_anh} ảnh
                           </span>
+                          {p.trang_thai === "da_huy" && p.ly_do_huy && (
+                            <span className="ktm-popover-item__huy">Lý do hủy: {p.ly_do_huy}</span>
+                          )}
                           <Icon name="arrowRight" size={14} className="ktm-popover-item__arrow" />
                         </div>
                       </div>
@@ -535,6 +543,11 @@ function RichPhieuTooltip({ item }: { item: BaoTri }) {
           <span className="ktm-tt__lbl">Ảnh chứng thực:</span> {item.so_anh > 0 ? `${item.so_anh} ảnh` : "Chưa có"}
         </div>
       </div>
+      {item.trang_thai === "da_huy" && (
+        <div className="ktm-tt__huy">
+          Lý do hủy: <strong>{item.ly_do_huy || "—"}</strong>
+        </div>
+      )}
       <div className="ktm-tt__foot">Bấm để xem &amp; cập nhật phiếu</div>
     </div>
   );

@@ -56,12 +56,19 @@ SCOPELESS_MODULES = frozenset(MODULE_KEYS) | {
     # (`bai_ghep_2.py` · `xep_lich.py` · `ke_hoach_vat_tu.py` đều 0 lần) — bài ghép và lịch xưởng
     # là bức tranh chung, không có "bài ghép của tôi". Riêng `san_xuat` KHÔNG vào đây: `lsx.py` đọc
     # scope thật (`_owner_ids_for_scope`) để thợ chỉ thấy lệnh của mình.
-    # Khoá `bai_ghep` gỡ 18/08/2026 (mg 0216) — quyền đã chép sang `bai_ghep_2`.
+    # Khoá `bai_ghep` gỡ 18/08/2026 (mg 0216) · `xep_lich` gỡ 19/08/2026 (mg 0219) — quyền đã
+    # chép sang `bai_ghep_2` / `xep_lich_2`.
     "ke_hoach_vat_tu",
     "bai_ghep_2",
-    "xep_lich",
+    # Bàn Xếp lịch công đoạn: `routers/xep_lich_2.py` 0 lần đọc scope — bức tranh chung của cả
+    # xưởng, không có "lịch của tôi".
+    "xep_lich_2",
     # Phiếu bảo trì tách khỏi `ky_thuat_may` cùng ngày, thừa hưởng đúng lý do của khoá mẹ.
     "phieu_bao_tri",
+    # Báo máy hỏng (20/08/2026): router KHÔNG đọc scope. Ai cũng phải THẤY hết yêu cầu đang chờ —
+    # đó là cách người thứ hai biết máy này đã có người báo rồi mà thôi không báo nữa. Còn "chỉ sửa
+    # yêu cầu của mình" đã chặn bằng `_kiem_chu_yeu_cau` (so `nguoi_bao_id`), không nhờ scope.
+    "yeu_cau_sua_chua",
 }
 
 READ_IMPLYING_KEYS = (

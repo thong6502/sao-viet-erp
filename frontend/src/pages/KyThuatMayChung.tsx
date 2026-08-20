@@ -69,6 +69,15 @@ export function BadgeBaoTri({ trangThai, quaHan, gonNhe = false }: {
       </Badge>
     );
   }
+  // Đã hủy đứng TRƯỚC nhánh quá hạn: phiếu hủy không bao giờ là "quá hạn" (backend cũng không tính),
+  // để mờ + gạch ngang cho mắt lướt qua không nhầm với việc còn phải làm.
+  if (trangThai === "da_huy") {
+    return (
+      <Badge kieu="tt-da_huy">
+        <Icon name="ban" size={11} /> Đã hủy
+      </Badge>
+    );
+  }
   if (quaHan) {
     return (
       <Badge kieu="tt-qua_han">
@@ -86,8 +95,8 @@ export function BadgeBaoTri({ trangThai, quaHan, gonNhe = false }: {
 /** Lịch sử thao tác của MỘT phiếu — ai làm gì, lúc nào.
  *
  * Đọc `audit_logs` qua endpoint nhật ký dùng chung (`/api/nhat-ky-danh-muc/{loai}/{id}`), không
- * đẻ bảng lịch sử riêng. Đây là chỗ duy nhất đọc được **lý do dời lịch của từng lần dời**: cột
- * `ly_do_doi` trên phiếu chỉ giữ lần gần nhất, dời lần thứ hai là lý do lần đầu mất hút.
+ * đẻ bảng lịch sử riêng. Đây là chỗ đọc được AI làm gì lúc nào: tick việc con, hủy phiếu kèm lý do,
+ * và (dữ liệu cũ) lý do từng lần dời lịch trước khi chức năng dời bị gỡ.
  */
 export function NhatKyPhieu({ loai, phieuId }: { loai: LoaiNhatKy; phieuId: number }) {
   const { token } = useAuth();

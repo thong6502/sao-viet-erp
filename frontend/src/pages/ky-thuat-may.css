@@ -46,6 +46,9 @@
 .ktm-badge--tt-da_sua_xong,
 .ktm-badge--tt-hoan_thanh { color: var(--moss, #2f5d3a); }
 .ktm-badge--tt-qua_han { color: var(--signal-deep, #6b1717); background: var(--signal-soft, #efd5d5); }
+/* Phiếu đã hủy — đóng lại nhưng KHÔNG phải hoàn thành. Mờ + gạch ngang để mắt lướt qua bảng không
+   nhầm với việc còn phải làm; vẫn đọc được khi cần lần lại kỳ nào đã hủy. */
+.ktm-badge--tt-da_huy { color: var(--ash-2, #64748b); background: var(--rule-hair, #f1f5f9); text-decoration: line-through; }
 
 /* Chip cảnh báo cạnh tiêu đề — con số duy nhất dãy tab KHÔNG nói được */
 .ktm-chip {
@@ -209,15 +212,14 @@
 .ktm-nk__ai { color: var(--ash, #475569); font-weight: var(--fw-medium, 500); }
 .ktm-nk__viec { margin-top: 3px; font-size: 13px; line-height: 1.5; color: var(--ink, #0f172a); }
 
-/* --- Dời lịch ---------------------------------------------------------------- */
-.ktm-doilich {
-  display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px;
-  margin-top: var(--sp-3, 12px); padding: 12px;
-  border: 1px dashed var(--rule-soft, #e2e8f0);
-  border-radius: var(--r-3, 6px);
-  background: var(--rule-hair, #f8fafc);
-}
-.ktm-doilich .rc-field { min-width: 180px; }
+/* --- Hủy phiếu ---------------------------------------------------------------- */
+/* Nút mở dialog hủy: để đỏ nhạt cho đúng tính chất "phá" của việc, nhưng vẫn là link chứ không phải
+   nút to — hành động thật (kèm lý do + xác nhận) nằm trong dialog. */
+.ktm-link-huy { color: var(--signal-deep, #6b1717); }
+/* Băng "Đã hủy" trong phiếu: neutral + viền trái đậm, KHÔNG đỏ chói — hủy đảo được, không phải lỗi. */
+.ktm-thongbao--huy { border-left: 3px solid var(--ash-2, #64748b); }
+.ktm-thongbao--huy strong { color: var(--ink, #0f172a); }
+.ktm-thongbao__nut { margin-left: auto; white-space: nowrap; }
 
 /* Checklist dạng danh sách `.ktm-check` ĐÃ GỠ 14/08/2026 — JSX chuyển sang thẻ
    (`.ktm-check-grid` / `.ktm-check-card` bên dưới) từ lúc thêm đường "không áp dụng kèm lý do",
@@ -348,6 +350,7 @@
 .ktm-cham--xong { background: var(--moss, #2f5d3a); }
 .ktm-cham--qua { background: var(--signal-deep, #6b1717); }
 .ktm-cham--du-kien { background: transparent; border: 1.5px dashed var(--ash-2, #94a3b8); }
+.ktm-cham--huy { background: var(--ash-2, #94a3b8); opacity: .7; }
 
 .ktm-lich__head {
   display: flex; align-items: center; justify-content: space-between;
@@ -980,7 +983,6 @@
      bừa cho xong, đúng thứ cửa chặn checklist sinh ra để tránh. */
   .ktm-check-card__phu { min-height: 44px; padding: 8px 0; font-size: 12.5px; }
   .ktm-anh__grid { grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); }
-  .ktm-doilich { flex-direction: column; align-items: stretch; }
   .ktm-lich__bar { flex-direction: column; align-items: stretch; gap: 10px; }
   .ktm-lich__may-loc { max-width: none; width: 100%; height: 38px; }
   .ktm-nhom-chip, .ktm-cg-btn { min-height: 34px; }
@@ -1038,7 +1040,7 @@
   body:has(.ktm-drawer) .ktm-anh__overlay,
   body:has(.ktm-drawer) .ktm-gatekeeper__action,
   body:has(.ktm-drawer) .ktm-check-card__phu,
-  body:has(.ktm-drawer) .ktm-doilich { display: none !important; }
+  body:has(.ktm-drawer) .ktm-thongbao__nut { display: none !important; }
   body:has(.ktm-drawer) .ktm-check-grid { break-inside: avoid; }
   body:has(.ktm-drawer) .ktm-anh__grid { grid-template-columns: repeat(3, 1fr); }
 }

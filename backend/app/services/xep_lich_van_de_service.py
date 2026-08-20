@@ -40,7 +40,6 @@ from .xep_lich_service import (
 # Nay: Chặn = chưa phát hành được. Nên xem = cứ làm, nhưng biết trước.
 SEV_CHAN = "chan"
 SEV_LUU_Y = "luu_y"
-SEV_CANH_BAO = SEV_LUU_Y
 SEV_ORDER = {SEV_CHAN: 0, SEV_LUU_Y: 1}
 
 # --- Loại vấn đề: 6 — trả lời đúng một câu "AI phải sửa cái này" ---
@@ -52,10 +51,6 @@ CAT_VAT_TU = "vat_tu"          # chưa có hàng để chạy
 CAT_HAN = "han"                # trễ hạn giao (của lệnh, hoặc do bài ghép in xong muộn)
 CAT_DU_LIEU = "du_lieu"        # thiếu/sai dữ liệu nên chưa lên được lịch
 CAT_THUE_NGOAI = "thue_ngoai"  # nhà gia công ngoài
-
-# Aliases tương thích cho test cũ
-CAT_THIEU_NGUOI = CAT_NGUOI
-CAT_QUA_TAI_TO = CAT_NGUOI
 
 
 # --- Tiền tố `issue_key` — CHUỖI CŨ GIỮ NGUYÊN, tách hẳn khỏi `category` ---
@@ -76,7 +71,8 @@ K_THIEU_NGUOI = "thieu_nguoi"                # G: tổ bố trí dưới số ng
 K_QUA_TAI_TO = "qua_tai_to"                  # I: Σ người các việc cùng lúc > quân số có mặt của tổ
 
 # §3.1 ngưỡng tải máy trên CỬA SỔ TRƯỢT (§6 dùng hằng cấu hình thay bảng planning_issue_rules):
-# 85–100% → Cảnh báo, >100% → Cao. Cửa sổ = số ngày tới tính từ hôm nay.
+# 85–100% → "sát công suất", >100% → "VƯỢT công suất" — nay phân biệt bằng CHỮ trong tiêu đề
+# (mức giờ chỉ còn 2). Cửa sổ = số ngày tới tính từ hôm nay.
 TAI_CUA_SO_NGAY = 7
 TAI_PCT_CAO = 100.0
 TAI_PCT_CANH_BAO = 85.0
@@ -624,6 +620,23 @@ class XepLichVanDeService:
                 out.append(it)
         return out
 
+    def _chan_thieu_vat_tu(self, *, lsx_id: int | None = None,
+                           bai_ghep_id: int | None = None) -> None:
+        """GATE DÙNG CHUNG với màn Xếp lịch 2 (§9.3): chưa giữ đủ vật tư thì KHÔNG phát hành.
+
+        Màn cũ trước đây chỉ soi bảng CÂN ĐỐI (tồn tự do) nên nhả giữ chỗ mà kho vẫn đầy thì cửa
+        này mở — lệnh phát hành ra xưởng trong khi vật tư đã bị lệnh khác lĩnh mất. Nay cả hai cửa
+        (cũ + v2) cùng vấp một luật: `release.van_de_vat_tu` soi theo GIỮ CHỖ, không phải tồn tự do.
+        """
+        from .xep_lich_2 import release as _release2
+
+        vd = _release2.van_de_vat_tu(self.db, lsx_id=lsx_id, bai_ghep_id=bai_ghep_id)
+        if vd:
+            raise XepLichConflict(
+                "Vật tư chưa giữ đủ — không thể phát hành: "
+                + "; ".join(i["mo_ta"] for i in vd)
+            )
+
     def phat_hanh_lsx(self, *, lsx_id: int, actor) -> Lsx:
         lsx = self.xl.lsx_repo.get(lsx_id)
         if lsx is None:
@@ -632,10 +645,14 @@ class XepLichVanDeService:
             raise XepLichConflict(f"Lệnh {lsx.ma} chưa lập kế hoạch — không thể phát hành")
         if self.xl.bg_repo.lsx_da_ghep([lsx_id]):
             raise XepLichConflict("Lệnh nằm trong bài ghép — phát hành qua bài ghép")
+        self._chan_thieu_vat_tu(lsx_id=lsx_id)
         blk = self._blocking_for(self._build(), lsx_ids={lsx_id}, bg_ids=set())
         if blk:
             raise XepLichConflict(f"Còn {len(blk)} xung đột CHẶN chưa xử lý/ngoại lệ — không thể phát hành")
         lsx.trang_thai = LSX_DA_PHAT_HANH
+        # §4.1 — đóng băng gói phát hành (snapshot công việc + nhóm thành phẩm) trong CÙNG giao dịch.
+        from .san_xuat.release import phat_hanh as _sx_phat_hanh
+        _sx_phat_hanh(self.db, lsx_ids={lsx_id}, bai_ghep_ids=set(), actor=actor)
         self.audit.create(actor_user_id=getattr(actor, "id", None), action="xep_lich_phat_hanh",
                           target=f"lsx:{lsx.id}", detail=f"Phát hành lệnh {lsx.ma}")
         self.repo.commit()
@@ -648,6 +665,7 @@ class XepLichVanDeService:
         if bg.trang_thai != BG_DA_LAP:
             raise XepLichConflict(f"Bài ghép {bg.ma} chưa lập kế hoạch — không thể phát hành")
         members = {tv.lsx_id for tv in bg.thanh_viens}
+        self._chan_thieu_vat_tu(bai_ghep_id=bai_ghep_id)
         blk = self._blocking_for(self._build(), lsx_ids=members, bg_ids={bai_ghep_id})
         if blk:
             raise XepLichConflict(f"Còn {len(blk)} xung đột CHẶN chưa xử lý/ngoại lệ — không thể phát hành")
@@ -656,6 +674,9 @@ class XepLichVanDeService:
             lsx = self.xl.lsx_repo.get(lid)
             if lsx is not None:
                 lsx.trang_thai = LSX_DA_PHAT_HANH
+        # §4.1 — snapshot: bài ghép = MỘT công việc chung (§3.3) + bước riêng của từng thành viên.
+        from .san_xuat.release import phat_hanh as _sx_phat_hanh
+        _sx_phat_hanh(self.db, lsx_ids=set(members), bai_ghep_ids={bai_ghep_id}, actor=actor)
         self.audit.create(actor_user_id=getattr(actor, "id", None), action="xep_lich_phat_hanh",
                           target=f"bai_ghep:{bg.id}", detail=f"Phát hành bài ghép {bg.ma}")
         self.repo.commit()
@@ -682,6 +703,13 @@ class XepLichVanDeService:
             raise XepLichNotFound("Không tìm thấy lệnh sản xuất")
         if lsx.trang_thai == LSX_DA_PHAT_HANH:
             ly_do = self._chot_ly_do_go(ly_do)
+            from .san_xuat import release_update as _ru
+            if _ru.co_cong_viec_da_bat_dau(self.db, nguon="lsx", id=lsx_id):
+                raise XepLichConflict(
+                    "Gói đã có công việc bắt đầu — không thể thu hồi toàn bộ phát hành (§4.3). "
+                    "Chỉ cập nhật được phần chưa bắt đầu."
+                )
+            _ru.thu_hoi_goi(self.db, nguon="lsx", id=lsx_id, actor=actor)
             lsx.trang_thai = LSX_DA_LAP
             self.audit.create(actor_user_id=getattr(actor, "id", None), action="xep_lich_go_phat_hanh",
                               target=f"lsx:{lsx.id}",
@@ -695,6 +723,13 @@ class XepLichVanDeService:
             raise XepLichNotFound("Không tìm thấy bài ghép")
         if bg.trang_thai == BG_DA_PHAT_HANH:
             ly_do = self._chot_ly_do_go(ly_do)
+            from .san_xuat import release_update as _ru
+            if _ru.co_cong_viec_da_bat_dau(self.db, nguon="in_ghep", id=bai_ghep_id):
+                raise XepLichConflict(
+                    "Gói đã có công việc bắt đầu — không thể thu hồi toàn bộ phát hành (§4.3). "
+                    "Chỉ cập nhật được phần chưa bắt đầu."
+                )
+            _ru.thu_hoi_goi(self.db, nguon="in_ghep", id=bai_ghep_id, actor=actor)
             bg.trang_thai = BG_DA_LAP
             for tv in bg.thanh_viens:
                 lsx = self.xl.lsx_repo.get(tv.lsx_id)

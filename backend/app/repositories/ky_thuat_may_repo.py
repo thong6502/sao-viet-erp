@@ -10,21 +10,29 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from ..models.ky_thuat_may import (
     GIAI_DOAN_SAU,
+    GIAI_DOAN_TRUOC,
+    LOAI_PHIEU_SUA_CHUA,
+    LOAI_PHIEU_YEU_CAU,
     MA_PREFIX_BAO_TRI,
     MA_PREFIX_SUA_CHUA,
+    MA_PREFIX_YEU_CAU,
     MUC_DO,
+    TT_BT_DA_HUY,
     TT_BT_DANG_MO,
     TT_BT_HOAN_THANH,
     TT_SC_DA_SUA_XONG,
     TT_SC_DANG_MO,
+    TT_YC_CHO_TIEP_NHAN,
+    TT_YC_DANG_MO,
     BaoTriMay,
     KyThuatMayAnh,
     SuaChuaMay,
+    YeuCauSuaChua,
 )
 
 # Field client được phép gán. `ma` / `trang_thai` / mốc hoàn thành do SERVICE quản — cho client tự
@@ -34,6 +42,11 @@ ASSIGNABLE_SUA_CHUA = (
     "nguoi_bao_id", "nguoi_bao_ten", "thoi_diem",
     "nguyen_nhan_phuong_an", "ghi_chu",
 )
+# Yêu cầu báo hỏng: người báo, thời điểm, trạng thái, mã — SERVICE gán hết. `nguoi_bao_id` lấy từ
+# TÀI KHOẢN ĐANG ĐĂNG NHẬP; cho client gửi lên là mở cửa hậu báo hỏng dưới tên người khác, mà cả
+# giá trị của bảng này nằm ở chỗ biết chính xác hỏi lại ai.
+ASSIGNABLE_YEU_CAU = ("may_id", "bo_phan_hong", "mo_ta", "muc_do", "may_dung")
+
 # `nguoi_thuc_hien*` KHÔNG nằm ở đây: người làm do SERVICE gán từ tài khoản bấm "Xác nhận đã bảo
 # trì xong" (không có bước nhận việc riêng). Cho client set là mở lại cửa hậu ghi tên người khác
 # vào việc mình làm.
@@ -44,7 +57,8 @@ ASSIGNABLE_BAO_TRI = (
 # SỬA nội dung thì hẹp hơn TẠO: bốn field dưới đây chỉ đặt được lúc sinh phiếu.
 #   · `may_id`/`goi_id`/`loai` — phiếu neo vào gói của một máy để tính kỳ kế tiếp; đổi giữa chừng
 #     là mốc của gói cũ mất và gói mới nhận một mốc chưa từng làm.
-#   · `ngay_ke_hoach` — đổi ngày phải đi qua "dời lịch" (bắt buộc lý do), không lặng lẽ sửa.
+#   · `ngay_ke_hoach` — chốt một lần lúc sinh phiếu; không còn "dời lịch". Không làm kỳ này thì HỦY
+#     phiếu (kèm lý do) chứ không lặng lẽ sửa ngày.
 # Trước đây `update_bao_tri` dùng chung tuple TẠO; không thủng qua HTTP vì `BaoTriPatch` không khai
 # bốn field này, nhưng đó là cửa mở sẵn chờ người sau thêm một dòng vào schema là lọt.
 SUA_DUOC_BAO_TRI = tuple(
@@ -141,6 +155,147 @@ class KyThuatMayRepository:
 
     # `delete_sua_chua` ĐÃ GỠ 12/08/2026 cùng cả đường xoá phiếu — xem router/service.
 
+    # ================= Yêu cầu sửa chữa (bộ phận khác báo hỏng) =================
+
+    def get_yeu_cau(self, yc_id: int) -> YeuCauSuaChua | None:
+        return self.db.get(YeuCauSuaChua, yc_id)
+
+    def next_ma_yeu_cau(self) -> str:
+        return self._next_ma(YeuCauSuaChua.ma, MA_PREFIX_YEU_CAU)
+
+    def _conds_yeu_cau(self, *, q: str | None, may_id: int | None,
+                       nguoi_bao_id: int | None = None) -> list:
+        """Điều kiện DÙNG CHUNG cho `list_yeu_cau` và `dem_yeu_cau` — cùng lý do như bên phiếu:
+        hai nơi lệch nhau thì con số trên tab hết nghĩa."""
+        conds = []
+        if q:
+            like = f"%{q.strip().lower()}%"
+            conds.append(or_(
+                func.lower(YeuCauSuaChua.ma).like(like),
+                func.lower(YeuCauSuaChua.bo_phan_hong).like(like),
+                func.lower(func.coalesce(YeuCauSuaChua.mo_ta, "")).like(like),
+                func.lower(func.coalesce(YeuCauSuaChua.nguoi_bao_ten, "")).like(like),
+            ))
+        if may_id:
+            conds.append(YeuCauSuaChua.may_id == may_id)
+        if nguoi_bao_id:
+            conds.append(YeuCauSuaChua.nguoi_bao_id == nguoi_bao_id)
+        return conds
+
+    def list_yeu_cau(self, *, q: str | None = None, may_id: int | None = None,
+                     trang_thai: str | None = None, nguoi_bao_id: int | None = None,
+                     page: int = 1, size: int = 50):
+        """Hàng chờ của tổ sửa chữa. Thứ tự KHÔNG đổi được bằng tham số, và đó là chủ ý.
+
+        Đây là hộp việc đến, không phải bảng tra cứu: cái phải nằm trên đầu luôn là
+        **chưa tiếp nhận → máy đang dừng → mức nặng → mới nhất**. Máy đang dừng đứng trước mức độ
+        vì "máy dừng" là điều người báo BIẾT CHẮC, còn mức độ chỉ là cảm nhận của họ.
+        """
+        conds = self._conds_yeu_cau(q=q, may_id=may_id, nguoi_bao_id=nguoi_bao_id)
+        if trang_thai == "cho_xu_ly":
+            conds.append(YeuCauSuaChua.trang_thai.in_(TT_YC_DANG_MO))
+        elif trang_thai:
+            conds.append(YeuCauSuaChua.trang_thai == trang_thai)
+        base, total = self._paged(select(YeuCauSuaChua), YeuCauSuaChua, conds, page, size)
+        con_do = case((YeuCauSuaChua.trang_thai == TT_YC_CHO_TIEP_NHAN, 0), else_=1).asc()
+        uu_tien = case(
+            {m: i for i, m in enumerate(MUC_DO)}, value=YeuCauSuaChua.muc_do, else_=-1,
+        ).desc()
+        base = base.order_by(
+            con_do, YeuCauSuaChua.may_dung.desc(), uu_tien,
+            YeuCauSuaChua.thoi_diem.desc(), YeuCauSuaChua.id.desc(),
+        )
+        return list(self.db.execute(base).scalars()), total
+
+    def dem_yeu_cau(self, *, q: str | None = None, may_id: int | None = None,
+                    nguoi_bao_id: int | None = None) -> dict[str, int]:
+        stmt = select(YeuCauSuaChua.trang_thai, func.count()).group_by(YeuCauSuaChua.trang_thai)
+        for c in self._conds_yeu_cau(q=q, may_id=may_id, nguoi_bao_id=nguoi_bao_id):
+            stmt = stmt.where(c)
+        return {str(k): int(v) for k, v in self.db.execute(stmt).all()}
+
+    def dem_cho_tiep_nhan(self) -> int:
+        """Con số cho badge thanh bên — đếm ở DB, không kéo danh sách về đếm."""
+        return int(self.db.execute(
+            select(func.count()).select_from(YeuCauSuaChua)
+            .where(YeuCauSuaChua.trang_thai == TT_YC_CHO_TIEP_NHAN)
+        ).scalar_one())
+
+    def create_yeu_cau(self, data: dict, *, ma: str) -> YeuCauSuaChua:
+        yc = YeuCauSuaChua(ma=ma, may_id=int(data["may_id"]),
+                           bo_phan_hong=(data.get("bo_phan_hong") or "").strip())
+        self._apply(yc, data, ASSIGNABLE_YEU_CAU)
+        # Người báo + bộ phận: service đã chốt từ tài khoản đăng nhập, gán thẳng (không qua
+        # ASSIGNABLE để client không chen vào được).
+        for k in ("nguoi_bao_id", "nguoi_bao_ten", "bo_phan"):
+            if k in data:
+                setattr(yc, k, data[k])
+        self.db.add(yc)
+        self.db.commit()
+        self.db.refresh(yc)
+        return yc
+
+    def update_yeu_cau(self, yc: YeuCauSuaChua, data: dict) -> YeuCauSuaChua:
+        self._apply(yc, data, ASSIGNABLE_YEU_CAU)
+        self.db.commit()
+        self.db.refresh(yc)
+        return yc
+
+    def chuyen_anh_sang_phieu(self, yc_id: int, phieu_id: int) -> int:
+        """Ảnh kèm yêu cầu ĐỔI CHỦ sang phiếu vừa sinh — CHUYỂN chứ không chép.
+
+        Chép ra dòng thứ hai là hai dòng DB cùng trỏ một khoá trong storage: gỡ ảnh ở một bên thì
+        bên kia còn dòng nhưng tệp đã bay. Chuyển thì yêu cầu không còn ảnh nữa — đúng, vì từ lúc
+        này ảnh là bằng chứng của PHIẾU, và màn yêu cầu chỉ cần trỏ sang phiếu.
+
+        KHÔNG commit: người gọi (service) chốt một lần cùng với trạng thái yêu cầu, để không có
+        khoảnh khắc ảnh đã đổi chủ mà yêu cầu vẫn "chờ tiếp nhận".
+        """
+        res = self.db.execute(
+            update(KyThuatMayAnh)
+            .where(KyThuatMayAnh.loai_phieu == LOAI_PHIEU_YEU_CAU,
+                   KyThuatMayAnh.phieu_id == yc_id)
+            .values(loai_phieu=LOAI_PHIEU_SUA_CHUA, phieu_id=phieu_id,
+                    giai_doan=GIAI_DOAN_TRUOC)
+        )
+        return int(res.rowcount or 0)
+
+    def ma_sua_chua_map(self, phieu_ids: list[int]) -> dict[int, dict]:
+        """{phieu_id: {ma, trang_thai}} — để danh sách YÊU CẦU chỉ thẳng sang phiếu đã sinh.
+
+        Người báo hỏng cần thấy "đã thành phiếu SC-0012, đang sửa" ngay trên yêu cầu của mình; bắt
+        họ đi tìm ở màn phiếu (mà họ thường không có quyền vào) thì coi như không có thông tin.
+        """
+        ids = [i for i in dict.fromkeys(phieu_ids) if i]
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            select(SuaChuaMay.id, SuaChuaMay.ma, SuaChuaMay.trang_thai)
+            .where(SuaChuaMay.id.in_(ids))
+        ).all()
+        return {int(r[0]): {"ma": r[1], "trang_thai": r[2]} for r in rows}
+
+    def yeu_cau_map(self, phieu_ids: list[int]) -> dict[int, dict]:
+        """{phieu_id: {id, ma, nguoi_bao_ten, bo_phan}} — phiếu này sinh ra từ yêu cầu nào.
+
+        Đọc NGƯỢC qua `phieu_id` (đã có index) thay vì cắm thêm cột `yeu_cau_id` vào bảng phiếu:
+        quan hệ 1-1 chỉ cần MỘT sợi dây, và thêm cột vào bảng đang có dữ liệu thật thì phải viết
+        migration cho DB live.
+        """
+        ids = [i for i in dict.fromkeys(phieu_ids) if i]
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            select(YeuCauSuaChua.phieu_id, YeuCauSuaChua.id, YeuCauSuaChua.ma,
+                   YeuCauSuaChua.nguoi_bao_ten, YeuCauSuaChua.bo_phan)
+            .where(YeuCauSuaChua.phieu_id.in_(ids))
+        ).all()
+        return {int(r[0]): {"id": int(r[1]), "ma": r[2], "nguoi_bao_ten": r[3], "bo_phan": r[4]}
+                for r in rows}
+
+    # KHÔNG có `delete_yeu_cau`: yêu cầu là lời của một con người. Không dùng thì `tu_choi` kèm lý
+    # do — xoá lặng lẽ là người báo không bao giờ biết vì sao, và lần sau họ thôi không báo nữa.
+
     # ================= Phiếu bảo trì =================
 
     def get_bao_tri(self, phieu_id: int) -> BaoTriMay | None:
@@ -197,10 +352,12 @@ class KyThuatMayRepository:
         elif trang_thai:
             conds.append(BaoTriMay.trang_thai == trang_thai)
         base, total = self._paged(select(BaoTriMay), BaoTriMay, conds, page, size)
-        # VIỆC CÒN DỞ LÊN TRƯỚC, rồi mới tới phiếu đã xong; trong mỗi nhóm thì hạn sớm nhất (quá
-        # hạn) lên đầu. Sắp thuần theo ngày như trước là phiếu hoàn thành cùng ngày chen lẫn vào
-        # giữa việc phải làm, và càng chạy lâu càng phải cuộn.
-        con_do = case((BaoTriMay.trang_thai == TT_BT_HOAN_THANH, 1), else_=0).asc()
+        # VIỆC CÒN DỞ LÊN TRƯỚC, rồi mới tới phiếu đã đóng (hoàn thành HOẶC đã hủy); trong mỗi nhóm
+        # thì hạn sớm nhất (quá hạn) lên đầu. Sắp thuần theo ngày như trước là phiếu đã đóng cùng ngày
+        # chen lẫn vào giữa việc phải làm, và càng chạy lâu càng phải cuộn.
+        con_do = case(
+            (BaoTriMay.trang_thai.in_((TT_BT_HOAN_THANH, TT_BT_DA_HUY)), 1), else_=0
+        ).asc()
         if sort == "han_muon":
             base = base.order_by(con_do, BaoTriMay.ngay_ke_hoach.desc(), BaoTriMay.id.desc())
         else:
@@ -269,6 +426,23 @@ class KyThuatMayRepository:
         stmt = (
             select(BaoTriMay.may_id, BaoTriMay.goi_id, func.max(BaoTriMay.ngay_hoan_thanh))
             .where(BaoTriMay.trang_thai == TT_BT_HOAN_THANH, BaoTriMay.goi_id.isnot(None))
+            .group_by(BaoTriMay.may_id, BaoTriMay.goi_id)
+        )
+        if may_id:
+            stmt = stmt.where(BaoTriMay.may_id == may_id)
+        return {(int(m), str(g)): d for m, g, d in self.db.execute(stmt).all() if d is not None}
+
+    def moc_huy_map(self, may_id: int | None = None) -> dict[tuple[int, str], date]:
+        """{(may_id, goi_id): ngày kế hoạch của kỳ ĐÃ HỦY gần nhất} — để lịch chạy TIẾP qua kỳ đã hủy.
+
+        Hủy một kỳ định kỳ = bỏ đúng kỳ đó chứ không xoá cả lịch: nếu chỉ chặn sinh lại thì gói đứng
+        im mãi ở kỳ đã hủy. Nên coi kỳ đã hủy là một mốc 'đã giải quyết' (song hành với mốc hoàn
+        thành): kỳ kế tiếp = mốc muộn hơn giữa (hoàn thành gần nhất, hủy gần nhất) + chu kỳ. Lấy
+        `max(ngay_ke_hoach)` vì kỳ đã hủy nằm đúng lưới chu kỳ (ticker sinh ra), cộng chu kỳ là vượt
+        qua mọi kỳ đã hủy. Phiếu đột xuất (`goi_id` null) không thuộc lịch nên loại ra."""
+        stmt = (
+            select(BaoTriMay.may_id, BaoTriMay.goi_id, func.max(BaoTriMay.ngay_ke_hoach))
+            .where(BaoTriMay.trang_thai == TT_BT_DA_HUY, BaoTriMay.goi_id.isnot(None))
             .group_by(BaoTriMay.may_id, BaoTriMay.goi_id)
         )
         if may_id:

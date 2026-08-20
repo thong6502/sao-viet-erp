@@ -50,6 +50,62 @@ function loi(e: unknown): string {
   return e instanceof ApiError ? e.message : String(e);
 }
 
+function parseGiayLoai(ten?: string | null): { label: string; cls: string; ram?: string } {
+  if (!ten) return { label: "CHƯA RÕ GIẤY", cls: "bg2-paper--unknown" };
+  const lower = ten.toLowerCase();
+  let ram = "";
+  const m = ten.match(/\d+[\*x×]\d+/i);
+  if (m) ram = m[0].replace(/[\*x]/i, "×");
+
+  if (lower.includes("couch") || lower.includes("c300") || lower.includes("c250") || lower.includes("c200") || lower.includes("c150")) {
+    return { label: "COUCHÉ", cls: "bg2-paper--couche", ram };
+  }
+  if (lower.includes("ivory")) {
+    return { label: "IVORY", cls: "bg2-paper--ivory", ram };
+  }
+  if (lower.includes("duplex")) {
+    return { label: "DUPLEX", cls: "bg2-paper--duplex", ram };
+  }
+  if (lower.includes("ford") || lower.includes("fort") || lower.includes("offset")) {
+    return { label: "FORD", cls: "bg2-paper--ford", ram };
+  }
+  if (lower.includes("kraft")) {
+    return { label: "KRAFT", cls: "bg2-paper--kraft", ram };
+  }
+  if (lower.includes("decal")) {
+    return { label: "DECAL", cls: "bg2-paper--decal", ram };
+  }
+  if (lower.includes("bristol")) {
+    return { label: "BRISTOL", cls: "bg2-paper--bristol", ram };
+  }
+  return { label: "GIẤY IN", cls: "bg2-paper--generic", ram };
+}
+
+function formatKhoTp(kho?: string | null): string {
+  if (!kho) return "—";
+  return kho.replace(/[\*x]/g, " × ");
+}
+
+function ColorBadge({ a, b }: { a?: number | null; b?: number | null }) {
+  const ma = a ?? 0;
+  const mb = b ?? 0;
+  const isCmyk = ma >= 4;
+  const isZero = ma === 0 && mb === 0;
+  const isSingle = ma === 1 && mb <= 1;
+
+  let cls = "bg2-color--generic";
+  if (isZero) cls = "bg2-color--zero";
+  else if (isCmyk) cls = "bg2-color--cmyk";
+  else if (isSingle) cls = "bg2-color--mono";
+
+  return (
+    <span className={`bg2-color-badge ${cls}`} title={`Mặt A: ${ma} màu · Mặt B: ${mb} màu`}>
+      <span className="bg2-color-badge__dot" />
+      <span className="bg2-color-badge__text">{ma}/{mb}</span>
+    </span>
+  );
+}
+
 export function BaiGhep2Page({
   navigate,
   eventTick,
@@ -97,6 +153,24 @@ export function BaiGhep2Page({
   }, [eventTick, loadPool, q]);
   useEffect(() => loadList(), [eventTick, loadList]);
 
+  // Kiểm tra tương thích các lệnh đã chọn (Rule-based matching)
+  const pickedItems = useMemo(() => {
+    if (!pool) return [];
+    return pool.filter((r) => picked.has(r.lsx_id));
+  }, [picked, pool]);
+
+  const compatibility = useMemo(() => {
+    if (pickedItems.length <= 1) return { samePaper: true, paperName: pickedItems[0]?.giay_ten ?? "" };
+    const firstPaper = (pickedItems[0]?.giay_ten ?? "").trim().toLowerCase();
+    const samePaper = pickedItems.every(
+      (it) => (it.giay_ten ?? "").trim().toLowerCase() === firstPaper
+    );
+    return {
+      samePaper,
+      paperName: pickedItems[0]?.giay_ten ?? "",
+    };
+  }, [pickedItems]);
+
   async function tao() {
     if (!token || !coTheTaoBai(picked)) return;
     setCreating(true);
@@ -112,6 +186,15 @@ export function BaiGhep2Page({
       setCreating(false);
     }
   }
+
+  const handleToggleAll = () => {
+    if (!pool || pool.length === 0) return;
+    if (picked.size === pool.length) {
+      setPicked(new Set());
+    } else {
+      setPicked(new Set(pool.map((r) => r.lsx_id)));
+    }
+  };
 
   if (view.mode === "detail") {
     return (
@@ -129,48 +212,136 @@ export function BaiGhep2Page({
 
   return (
     <main className="khsx bg2">
-      <header className="khsx__head">
-        <p className="eyebrow">Sản xuất</p>
-        <div className="khsx__headrow">
-          <h1 className="khsx__title">Bài ghép 2</h1>
-          <span className="khsx__count">
-            {num(pool?.length ?? 0)} lệnh chờ ghép · {num(list?.length ?? 0)} bài ghép
-          </span>
+      {/* Header trang theo chuẩn Design System SVN */}
+      <header className="bg2-header">
+        <div className="bg2-header__left">
+          <div className="bg2-header__eyebrow-row">
+            <span className="bg2-eyebrow-badge">
+              <Icon name="layers" size={12} /> Sản xuất &amp; Chế bản
+            </span>
+            <span className="bg2-sync-badge">
+              <span className="bg2-sync-badge__dot" /> Live Sync
+            </span>
+          </div>
+          <h1 className="bg2-header__title">Ghép bài in Offset</h1>
+          <p className="bg2-header__sub">
+            Phân nhóm và ghép chung nhiều lệnh in trên cùng khuôn bài để tối ưu chi phí giấy &amp; kẽm
+          </p>
         </div>
       </header>
 
-      <div className="khsx__segrow" role="tablist" aria-label="Khu vực Bài ghép 2">
-        <button type="button" role="tab" aria-selected={tab === "cho"}
-          className={`seg ${tab === "cho" ? "is-active" : ""}`} onClick={() => setTab("cho")}>
-          Lệnh chờ ghép <span className="chip-count chip-count--alert">{pool?.length ?? 0}</span>
+      {/* Segmented Capsule Tabs */}
+      <div className="bg2-tabs-bar" role="tablist" aria-label="Khu vực Bài ghép">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "cho"}
+          className={`bg2-tab-btn ${tab === "cho" ? "is-active" : ""}`}
+          onClick={() => setTab("cho")}
+        >
+          <Icon name="layers" size={14} />
+          <span>Lệnh chờ ghép</span>
+          <span className="bg2-tab-badge bg2-tab-badge--alert">
+            {pool?.length ?? 0}
+          </span>
         </button>
-        <button type="button" role="tab" aria-selected={tab === "list"}
-          className={`seg ${tab === "list" ? "is-active" : ""}`} onClick={() => setTab("list")}>
-          Bài ghép <span className="chip-count">{list?.length ?? 0}</span>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "list"}
+          className={`bg2-tab-btn ${tab === "list" ? "is-active" : ""}`}
+          onClick={() => setTab("list")}
+        >
+          <Icon name="check" size={14} />
+          <span>Bài ghép đã tạo</span>
+          <span className="bg2-tab-badge">
+            {list?.length ?? 0}
+          </span>
         </button>
       </div>
 
       {err && <BangLoi text={err} onRetry={reload} />}
+
       {tab === "cho" ? (
-        <section aria-label="Danh sách lệnh chờ ghép">
-          <div className="khsx__toolbar">
-            <label className="khsx__search">
+        <section aria-label="Danh sách lệnh chờ ghép" className="bg2-content-section">
+          {/* Toolbar */}
+          <div className="bg2-toolbar">
+            <label className="bg2-search">
               <Icon name="search" size={15} />
-              <input type="search" value={q} onChange={(e) => setQ(e.target.value)}
-                placeholder="Tìm mã / tên lệnh…" aria-label="Tìm lệnh chờ ghép" />
+              <input
+                type="search"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Tìm mã LSX, tên sản phẩm, khách hàng, loại giấy…"
+                aria-label="Tìm lệnh chờ ghép"
+              />
             </label>
-            <span className="khsx__spacer" />
-            <span className="bg2__picked" aria-live="polite">{picked.size} lệnh đã chọn</span>
-            <Button variant="accent" disabled={!canCreate || !coTheTaoBai(picked) || creating}
-              loading={creating} onClick={tao}>
-              Tạo bài ghép{picked.size ? ` (${picked.size})` : ""}
-            </Button>
+            <div className="bg2-toolbar__stats">
+              <span className="bg2-toolbar__stat-item">
+                Tổng chờ: <b>{pool?.length ?? 0}</b> lệnh
+              </span>
+              {picked.size > 0 && (
+                <span className="bg2-toolbar__stat-picked">
+                  Đã chọn <b>{picked.size}</b>
+                </span>
+              )}
+            </div>
           </div>
-          <QueueTable rows={pool} picked={picked} onToggle={(id) => setPicked((old) => {
-            const next = new Set(old);
-            next.has(id) ? next.delete(id) : next.add(id);
-            return next;
-          })} />
+
+          {/* Queue Table */}
+          <QueueTable
+            rows={pool}
+            picked={picked}
+            onToggle={(id) =>
+              setPicked((old) => {
+                const next = new Set(old);
+                next.has(id) ? next.delete(id) : next.add(id);
+                return next;
+              })
+            }
+            onToggleAll={handleToggleAll}
+          />
+
+          {/* Floating Action Dock (Khi chọn ≥ 1 lệnh) */}
+          {picked.size > 0 && (
+            <aside className="bg2-dock" aria-label="Thao tác ghép bài đã chọn">
+              <div className="bg2-dock__inner">
+                <div className="bg2-dock__info">
+                  <span className="bg2-dock__count">
+                    Đã chọn <b>{picked.size}</b> lệnh
+                  </span>
+                  <div className="bg2-dock__sep" aria-hidden="true" />
+                  {compatibility.samePaper ? (
+                    <span className="bg2-dock__compat is-ok">
+                      <Icon name="check" size={14} /> Cùng chất liệu: <b>{compatibility.paperName || "Đồng nhất"}</b>
+                    </span>
+                  ) : (
+                    <span className="bg2-dock__compat is-warn">
+                      <Icon name="alert" size={14} /> Chú ý: Các lệnh đã chọn đang khác loại giấy!
+                    </span>
+                  )}
+                </div>
+                <div className="bg2-dock__actions">
+                  <button
+                    type="button"
+                    className="bg2-dock__clear"
+                    onClick={() => setPicked(new Set())}
+                  >
+                    Bỏ chọn
+                  </button>
+                  <Button
+                    variant="accent"
+                    disabled={!canCreate || !coTheTaoBai(picked) || creating}
+                    loading={creating}
+                    onClick={tao}
+                    className="bg2-dock__submit"
+                  >
+                    <Icon name="layers" size={14} /> Tạo bài ghép ({picked.size})
+                  </Button>
+                </div>
+              </div>
+            </aside>
+          )}
         </section>
       ) : (
         <GangList rows={list} onOpen={(id) => setView({ mode: "detail", id })} />
@@ -179,57 +350,214 @@ export function BaiGhep2Page({
   );
 }
 
-function QueueTable({ rows, picked, onToggle }: {
+function QueueTable({
+  rows,
+  picked,
+  onToggle,
+  onToggleAll,
+}: {
   rows: HangChoGhepItem[] | null;
   picked: ReadonlySet<number>;
   onToggle: (id: number) => void;
+  onToggleAll?: () => void;
 }) {
+  const isAllPicked = rows && rows.length > 0 && rows.every((r) => picked.has(r.lsx_id));
+  const isSomePicked = rows && rows.some((r) => picked.has(r.lsx_id)) && !isAllPicked;
+
   return (
-    <div className="khsx__tablewrap">
-      <table className="khsx__table khsx__table--queue">
-        <thead><tr><th aria-label="Chọn" /><th>Lệnh</th><th>Giấy</th><th>Mực in</th><th>Khổ TP</th><th className="khsx-num">Số lượng</th><th>Hạn in</th></tr></thead>
-        {rows == null ? <Skeleton rows={5} cols={7} /> : rows.length === 0 ? (
-          <tbody><tr><td colSpan={7}><EmptyState icon="layers" title="Không có lệnh chờ ghép"
-            sub="Các lệnh đủ điều kiện sẽ tự xuất hiện tại đây." /></td></tr></tbody>
+    <div className="khsx__tablewrap bg2-tablewrap">
+      <table className="khsx__table bg2-queue-table">
+        <thead>
+          <tr>
+            <th style={{ width: 44, textAlign: "center" }}>
+              <input
+                type="checkbox"
+                checked={!!isAllPicked}
+                ref={(el) => {
+                  if (el) el.indeterminate = !!isSomePicked;
+                }}
+                onChange={onToggleAll}
+                aria-label="Chọn tất cả lệnh chờ ghép"
+              />
+            </th>
+            <th style={{ minWidth: 220 }}>Lệnh sản xuất</th>
+            <th style={{ minWidth: 200 }}>Giấy &amp; Định lượng</th>
+            <th style={{ width: 100, textAlign: "center" }}>Mực in</th>
+            <th style={{ width: 120 }}>Khổ TP</th>
+            <th className="khsx-th--num" style={{ width: 120 }}>
+              Số lượng
+            </th>
+            <th style={{ width: 110 }}>Hạn in</th>
+          </tr>
+        </thead>
+        {rows == null ? (
+          <Skeleton rows={5} cols={7} />
+        ) : rows.length === 0 ? (
+          <tbody>
+            <tr>
+              <td colSpan={7}>
+                <EmptyState
+                  icon="layers"
+                  title="Không có lệnh chờ ghép"
+                  sub="Các lệnh đủ điều kiện sẽ tự xuất hiện tại đây."
+                />
+              </td>
+            </tr>
+          </tbody>
         ) : (
-          <tbody>{rows.map((r) => {
-            const checked = picked.has(r.lsx_id);
-            return (
-              <tr key={r.lsx_id} className={`khsx__row ${checked ? "bg2__row--picked" : ""}`}
-                onClick={() => onToggle(r.lsx_id)}>
-                <td><input type="checkbox" checked={checked} onChange={() => onToggle(r.lsx_id)}
-                  onClick={(e) => e.stopPropagation()} aria-label={`Chọn ${r.ma}`} /></td>
-                <td><div className="khsx__code">{r.ma}</div><div className="khsx__name">{r.ten || "—"} {r.is_rush && <ChipGap />}</div><div className="khsx__sub">{r.customer_name}</div></td>
-                <td>{r.giay_ten || "—"}{r.gsm ? <span className="khsx-unit"> · {r.gsm} gsm</span> : null}</td>
-                <td>{r.so_mau_a ?? 0}/{r.so_mau_b ?? 0}</td><td>{r.kho_tp || "—"}</td>
-                <td className="khsx-num">{num(r.so_luong_dat)} <span className="khsx-unit">{r.don_vi_tinh}</span></td>
-                <td className={classHan(r.han_hoan_thanh_sx)}>{ngay(r.han_hoan_thanh_sx)}</td>
-              </tr>
-            );
-          })}</tbody>
+          <tbody>
+            {rows.map((r) => {
+              const checked = picked.has(r.lsx_id);
+              const paperMeta = parseGiayLoai(r.giay_ten);
+              return (
+                <tr
+                  key={r.lsx_id}
+                  className={`khsx__row bg2-queue-row ${checked ? "is-picked" : ""}`}
+                  onClick={() => onToggle(r.lsx_id)}
+                >
+                  <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => onToggle(r.lsx_id)}
+                      aria-label={`Chọn ${r.ma}`}
+                    />
+                  </td>
+                  <td>
+                    <div className="bg2-cell-lsx">
+                      <div className="bg2-cell-lsx__top">
+                        <span className="bg2-code-tag">{r.ma}</span>
+                        {r.is_rush && <ChipGap />}
+                      </div>
+                      <div className="bg2-cell-lsx__name" title={r.ten ?? undefined}>
+                        {r.ten || "—"}
+                      </div>
+                      <div className="bg2-cell-lsx__sub">
+                        {r.customer_name || "Khách vãng lai"}
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <div className="bg2-cell-paper">
+                      <div className="bg2-cell-paper__top">
+                        <span className={`bg2-paper-tag ${paperMeta.cls}`}>
+                          {paperMeta.label}
+                        </span>
+                        {r.gsm ? <span className="bg2-gsm-tag">{r.gsm} gsm</span> : null}
+                      </div>
+                      <div className="bg2-cell-paper__name" title={r.giay_ten ?? undefined}>
+                        {r.giay_ten || "—"}
+                      </div>
+                    </div>
+                  </td>
+                  <td style={{ textAlign: "center" }}>
+                    <ColorBadge a={r.so_mau_a} b={r.so_mau_b} />
+                  </td>
+                  <td>
+                    <span className="bg2-size-pill">{formatKhoTp(r.kho_tp)}</span>
+                  </td>
+                  <td className="khsx-num">
+                    <div className="bg2-qty-cell">
+                      <b>{num(r.so_luong_dat)}</b> <small>{r.don_vi_tinh}</small>
+                    </div>
+                  </td>
+                  <td>
+                    <span className={`bg2-date-val ${classHan(r.han_hoan_thanh_sx)}`}>
+                      {ngay(r.han_hoan_thanh_sx)}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
         )}
       </table>
     </div>
   );
 }
 
-function GangList({ rows, onOpen }: { rows: BaiGhep2ListItem[] | null; onOpen: (id: number) => void }) {
+function GangList({
+  rows,
+  onOpen,
+}: {
+  rows: BaiGhep2ListItem[] | null;
+  onOpen: (id: number) => void;
+}) {
   return (
-    <div className="khsx__tablewrap">
-      <table className="khsx__table khsx__table--lenh">
-        <thead><tr><th>Bài ghép</th><th>Số lệnh</th><th className="khsx-num">Tờ chạy</th><th>Hạn</th><th>Trạng thái</th></tr></thead>
-        {rows == null ? <Skeleton rows={4} cols={5} /> : rows.length === 0 ? (
-          <tbody><tr><td colSpan={5}><EmptyState icon="layers" title="Chưa có bài ghép"
-            sub="Chọn ít nhất hai lệnh ở hàng chờ để bắt đầu." /></td></tr></tbody>
-        ) : <tbody>{rows.map((r) => (
-          <tr key={r.id} className="khsx__row" role="button" tabIndex={0} onClick={() => onOpen(r.id)}
-            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onOpen(r.id))}>
-            <td><div className="khsx__code">{r.ma}</div><div className="khsx__name">{r.ten || `Bài ghép ${r.ma}`}</div></td>
-            <td>{r.so_lsx}</td><td className="khsx-num">{num(r.so_to_tot)}</td>
-            <td className={classHan(r.han_hoan_thanh_sx)}>{ngay(r.han_hoan_thanh_sx)}</td>
-            <td><TrangThaiPill tt={r.trang_thai} /> {r.is_rush && <ChipGap />}</td>
+    <div className="khsx__tablewrap bg2-tablewrap">
+      <table className="khsx__table bg2-gang-table">
+        <thead>
+          <tr>
+            <th>Mã &amp; Tên bài ghép</th>
+            <th style={{ width: 120 }}>Số lệnh</th>
+            <th className="khsx-th--num" style={{ width: 140 }}>
+              Tờ chạy
+            </th>
+            <th style={{ width: 130 }}>Hạn in</th>
+            <th style={{ width: 160 }}>Trạng thái</th>
           </tr>
-        ))}</tbody>}
+        </thead>
+        {rows == null ? (
+          <Skeleton rows={4} cols={5} />
+        ) : rows.length === 0 ? (
+          <tbody>
+            <tr>
+              <td colSpan={5}>
+                <EmptyState
+                  icon="layers"
+                  title="Chưa có bài ghép"
+                  sub="Chọn ít nhất hai lệnh ở hàng chờ để bắt đầu."
+                />
+              </td>
+            </tr>
+          </tbody>
+        ) : (
+          <tbody>
+            {rows.map((r) => (
+              <tr
+                key={r.id}
+                className="khsx__row bg2-gang-row"
+                role="button"
+                tabIndex={0}
+                onClick={() => onOpen(r.id)}
+                onKeyDown={(e) =>
+                  (e.key === "Enter" || e.key === " ") &&
+                  (e.preventDefault(), onOpen(r.id))
+                }
+              >
+                <td>
+                  <div className="bg2-cell-lsx">
+                    <div className="bg2-cell-lsx__top">
+                      <span className="bg2-code-tag">{r.ma}</span>
+                      {r.is_rush && <ChipGap />}
+                    </div>
+                    <div className="bg2-cell-lsx__name">
+                      {r.ten || `Bài ghép ${r.ma}`}
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <span className="bg2-count-chip">
+                    <Icon name="layers" size={12} /> {r.so_lsx} lệnh
+                  </span>
+                </td>
+                <td className="khsx-num">
+                  <div className="bg2-qty-cell">
+                    <b>{num(r.so_to_tot)}</b> <small>tờ</small>
+                  </div>
+                </td>
+                <td>
+                  <span className={`bg2-date-val ${classHan(r.han_hoan_thanh_sx)}`}>
+                    {ngay(r.han_hoan_thanh_sx)}
+                  </span>
+                </td>
+                <td>
+                  <TrangThaiPill tt={r.trang_thai} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        )}
       </table>
     </div>
   );

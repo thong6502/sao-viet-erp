@@ -134,10 +134,11 @@ const FINE_ACTIONS: Record<
     },
   ],
   // ⚠️ THÊM 17/08/2026 cùng lúc tách khoá. Hai bit này CÓ THẬT ở máy chủ từ lâu
-  // (`routers/xep_lich.py` gác 4 endpoint bằng `approve` + 1 bằng `approve_exception`) nhưng hồi
-  // đó chúng treo trên khoá `san_xuat`, mà ma trận KHÔNG bày ô nào để cấp ⇒ ngoài admin không ai
-  // phát hành được lịch. Cùng một bệnh với `nghi_phep:approve` hồi 11/08/2026.
-  xep_lich: [
+  // (`routers/xep_lich_2.py` gác các endpoint phát hành bằng `approve` + duyệt ngoại lệ bằng
+  // `approve_exception`) nhưng hồi đó chúng treo trên khoá `san_xuat`, mà ma trận KHÔNG bày ô nào
+  // để cấp ⇒ ngoài admin không ai phát hành được lịch. Cùng bệnh `nghi_phep:approve` hồi 11/08/2026.
+  // Khoá mang hậu tố `_2` nhưng đây là màn Xếp lịch DUY NHẤT từ 19/08/2026 — bản cũ gỡ, mg 0219 chép quyền.
+  xep_lich_2: [
     {
       key: "can_approve",
       label: "Phát hành lịch ⚠️",
@@ -350,7 +351,7 @@ const MODULE_HINTS: Record<string, string> = {
   // từ 18/08/2026 — bản cũ đã gỡ, mg 0216 chép quyền sang.
   bai_ghep_2:
     "Màn Bài ghép (gom công đoạn in của nhiều lệnh chạy chung một tờ). Xem: đọc hàng chờ ghép và các bài đã ghép. Chỉnh sửa: tạo bài, chọn giấy/khổ chung, sửa số con trên tờ, khai hao hụt, đánh dấu sẵn sàng.",
-  xep_lich:
+  xep_lich_2:
     "Màn Xếp lịch công đoạn (bảng Gantt theo máy + danh sách Vấn đề). Xem: nhìn lịch cả xưởng. Chỉnh sửa: đưa lệnh vào lịch, gán máy/ca/giờ, kéo-thả dời khe, khóa/gỡ. PHÁT HÀNH lịch và duyệt ngoại lệ nằm ở quyền chi tiết — sửa lịch nháp khác với chốt lịch cho xưởng chạy.",
   ky_thuat_may:
     "CHỈ màn Sửa chữa máy. Xem: xem phiếu + ảnh hiện trạng/chứng thực — hợp với quản đốc, điều độ. Chỉnh sửa: ghi nhận máy hỏng, ghi đã sửa gì, tải ảnh và xác nhận xong — hợp với tổ sửa chữa. Không có quyền duyệt riêng: cửa chặn là ẢNH chứng thực, thiếu ảnh thì KHÔNG AI đóng được phiếu, kể cả giám đốc.",
@@ -417,7 +418,7 @@ const MODULE_GROUPS: {
       "san_xuat",
       "ke_hoach_vat_tu",
       "bai_ghep_2",
-      "xep_lich",
+      "xep_lich_2",
       "ky_thuat_may",
       "phieu_bao_tri",
     ],
@@ -584,7 +585,7 @@ const PHAM_VI_CHO_PHEP: Record<string, Scope[]> = {
   // (`lsx.py` lọc lệnh theo scope), nên không bỏ cột đi được. Khoá về một lựa chọn để ô hiện mờ.
   ke_hoach_vat_tu: ["all"],
   bai_ghep_2: ["all"],
-  xep_lich: ["all"],
+  xep_lich_2: ["all"],
   phieu_bao_tri: ["all"],
 };
 

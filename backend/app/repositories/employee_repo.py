@@ -672,8 +672,10 @@ class EmployeeRepository:
         return None
 
     def create_job_grade(self, *, code: str, name: str, seq: int = 0,
-                         is_active: bool = True, note: str | None = None) -> JobGrade:
-        g = JobGrade(code=code, name=name, seq=seq, is_active=is_active, note=note)
+                         is_active: bool = True, note: str | None = None,
+                         output_coefficient=None) -> JobGrade:
+        g = JobGrade(code=code, name=name, seq=seq, is_active=is_active, note=note,
+                     output_coefficient=output_coefficient)
         self.db.add(g)
         self.db.commit()
         self.db.refresh(g)

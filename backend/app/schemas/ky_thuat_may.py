@@ -68,6 +68,12 @@ class SuaChuaRow(BaseModel):
     may_ten: str | None = None
     so_anh: int = 0
     co_anh_sau: bool = False     # đủ điều kiện đóng phiếu chưa — FE khoá nút theo cờ này
+    # Phiếu này sinh ra từ yêu cầu của ai (nếu có). Đọc ngược từ `ky_thuat_yeu_cau_sua.phieu_id`,
+    # không phải cột trên bảng phiếu.
+    yeu_cau_id: int | None = None
+    yeu_cau_ma: str | None = None
+    yeu_cau_nguoi_bao: str | None = None
+    yeu_cau_bo_phan: str | None = None
 
 
 class SuaChuaListOut(BaseModel):
@@ -77,6 +83,111 @@ class SuaChuaListOut(BaseModel):
     size: int
     # {trang_thai: số phiếu} cho dãy tab. Đếm ở DB trên TOÀN BỘ bảng, không phải đếm trang hiện tại.
     dem: dict[str, int] = {}
+
+
+# ================= Yêu cầu sửa chữa (bộ phận khác báo hỏng) =================
+
+
+class YeuCauIn(BaseModel):
+    """Người ngoài tổ kỹ thuật báo máy hỏng. Ít ô nhất có thể — người gõ đang đứng cạnh cái máy
+    hỏng, không phải ngồi bàn giấy."""
+
+    may_id: int
+    bo_phan_hong: str = Field(min_length=1, max_length=150)
+    mo_ta: str | None = None
+    muc_do: str | None = None                # mức người báo TỰ THẤY; tổ sửa chữa đặt lại lúc tạo phiếu
+    may_dung: bool = False                   # máy đang dừng hẳn — cái quyết định thứ tự ưu tiên
+    # KHÔNG có `nguoi_bao_id`: server lấy từ tài khoản đăng nhập. Cho client gửi lên là mở cửa hậu
+    # báo hỏng dưới tên người khác.
+
+
+class YeuCauPatch(BaseModel):
+    may_id: int | None = None
+    bo_phan_hong: str | None = Field(default=None, max_length=150)
+    mo_ta: str | None = None
+    muc_do: str | None = None
+    may_dung: bool | None = None
+
+
+class YeuCauRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ma: str
+    may_id: int
+    bo_phan_hong: str
+    mo_ta: str | None = None
+    muc_do: str
+    may_dung: bool = False
+    nguoi_bao_id: int | None = None
+    nguoi_bao_ten: str | None = None
+    bo_phan: str | None = None
+    thoi_diem: datetime | None = None
+    trang_thai: str                          # cho_tiep_nhan | da_tao_phieu | tu_choi
+    phieu_id: int | None = None
+    ly_do_tu_choi: str | None = None
+    xu_ly_ten: str | None = None
+    xu_ly_at: datetime | None = None
+    created_at: datetime | None = None
+
+    # --- dẫn xuất ---
+    may_ma: str | None = None
+    may_ten: str | None = None
+    so_anh: int = 0
+    phieu_ma: str | None = None              # mã phiếu SC đã sinh — để người báo bấm theo dõi tiếp
+    phieu_trang_thai: str | None = None
+
+
+class YeuCauListOut(BaseModel):
+    items: list[YeuCauRow]
+    total: int
+    page: int
+    size: int
+    dem: dict[str, int] = {}
+
+
+class TaoPhieuTuYeuCauIn(BaseModel):
+    """Tổ sửa chữa chỉnh lại lúc TIẾP NHẬN. Bỏ trống hết = bê nguyên lời người báo.
+
+    Có ô để sửa vì lời người báo là mô tả triệu chứng ("in ra bị sọc"), còn phiếu cần ghi bộ phận
+    hỏng theo cách tổ sửa chữa tra cứu được ("cụm lô mực đơn vị 3").
+    """
+
+    bo_phan_hong: str | None = Field(default=None, max_length=150)
+    mo_ta: str | None = None
+    muc_do: str | None = None
+    nguyen_nhan_phuong_an: str | None = None
+    ghi_chu: str | None = None
+
+
+class TaoPhieuTuYeuCauOut(BaseModel):
+    phieu: SuaChuaRow
+    yeu_cau: YeuCauRow
+
+
+class TuChoiYeuCauIn(BaseModel):
+    # Bắt buộc, cùng lý do với hủy phiếu bảo trì: người báo phải đọc được vì sao, không thì lần sau
+    # họ thôi không báo nữa.
+    ly_do: str = Field(min_length=1, max_length=300)
+
+
+class ChoTiepNhanOut(BaseModel):
+    """Badge cạnh mục "Sửa chữa máy": số yêu cầu chưa ai tiếp nhận."""
+
+    total: int
+
+
+class MayChonRow(BaseModel):
+    """Ô chọn máy cho người KHÔNG có quyền danh mục thiết bị — đúng bốn cột."""
+
+    id: int
+    ma: str
+    ten: str | None = None
+    loai_may: str | None = None
+
+
+class MayChonOut(BaseModel):
+    items: list[MayChonRow]
 
 
 # ================= Phiếu bảo trì =================
@@ -126,6 +237,7 @@ class BaoTriRow(BaseModel):
     ngay_ke_hoach: date
     ngay_ke_hoach_goc: date | None = None
     ly_do_doi: str | None = None
+    ly_do_huy: str | None = None       # lý do khi phiếu ở trạng thái da_huy
     hang_muc: list[HangMucRow] | None = None
     nguoi_thuc_hien_id: int | None = None
     nguoi_thuc_hien: str | None = None      # tên snapshot lúc nhận việc
@@ -156,10 +268,9 @@ class BaoTriListOut(BaseModel):
     dem: dict[str, int] = {}
 
 
-class DoiLichIn(BaseModel):
-    ngay_moi: date
-    # Bắt buộc: phiếu bị dời ba lần không kèm chữ nào thì tháng sau không ai giải thích được vì sao
-    # máy chưa được bảo trì.
+class HuyPhieuIn(BaseModel):
+    # Bắt buộc: kỳ bảo trì bị bỏ mà không kèm chữ nào thì tháng sau không ai giải thích được vì sao
+    # máy chưa được bảo trì. Lý do vừa lưu trên phiếu (`ly_do_huy`) vừa vào nhật ký.
     ly_do: str = Field(min_length=1, max_length=300)
 
 

@@ -11,7 +11,10 @@ from ..models.vat_lieu_kho import VatTuInAn
 from .catalog_base import CatalogRepo
 
 ASSIGNABLE = (
-    "ten", "ten_hien_thi", "don_vi_vao", "don_vi_ra", "he_so_ngoai_dong",
+    # `he_so_ngoai_dong` GỠ khỏi đây 20/08/2026 (ngưng dùng): hệ số vào→ra của bước ngoài dòng nay
+    # lấy TỪ cầu `don_vi_quy_doi` (module Đơn vị & quy đổi), không khai tay. Cột DB còn để lượt sau
+    # drop bằng migration — xem `LsxService._he_so_ngoai_dong`.
+    "ten", "ten_hien_thi", "don_vi_vao", "don_vi_ra",
     "kieu_bu_hao", "bu_hao_id", "so_to_bu_hao", "nhom", "nhom_may_cho_phep", "department_id", "khoan_ghi_theo",
     "cong_thuc_san_luong",
     "allowed_defect_pct", "allowed_defect_abs",

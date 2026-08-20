@@ -354,7 +354,7 @@ def _lui_gio_lam(ket_thuc: datetime, phut: float, lich: LichXuong, chan: tuple =
 def _dur_0() -> dict:
     """Thời lượng 0 (dòng chưa đủ dữ liệu) — kèm breakdown để DTO nhất quán."""
     return {"chiem_may_phut": 0.0, "chiem_may_phut_min": 0.0, "chiem_may_phut_max": 0.0,
-            "tong_phut": 0.0, "setup_phut": 0.0, "chay_phut": 0.0,
+            "tong_phut": 0.0, "setup_phut": 0.0, "chay_phut": 0.0, "phat_sinh_phut": 0.0,
             "theo_may": False, "canh_bao": None}
 
 
@@ -385,7 +385,8 @@ def _thoi_luong_in_ghep(bg: BaiGhep, tong_to: int, may: MayThietBi | None) -> di
     return {"chiem_may_phut": chiem, "tong_phut": chiem,
             "chiem_may_phut_min": round(setup + chay_nhanh, 2),
             "chiem_may_phut_max": round(setup + chay_cham, 2),
-            "setup_phut": round(setup, 2), "chay_phut": round(chay, 2)}
+            "setup_phut": round(setup, 2), "chay_phut": round(chay, 2),
+            "phat_sinh_phut": 0.0}
 
 
 class XepLichService:
@@ -923,6 +924,7 @@ class XepLichService:
             "tong_phut": t["tong_phut"],
             "setup_phut": t["dien_giai"]["setup_phut"],
             "chay_phut": t["chay_phut"],
+            "phat_sinh_phut": t["dien_giai"]["phat_sinh_phut"],
             "theo_may": pp == "may",
             "canh_bao": canh_bao,
         }
@@ -1551,6 +1553,31 @@ class XepLichService:
             return None
         return self._gang_finish_map({lsx_id}).get(lsx_id)
 
+    def _gang_cua_lsx(self, lsx_ids: set[int]) -> dict[int, tuple[int, str | None]]:
+        """lsx_id → (id, mã) bài ghép chứa nó — 2 query cho CẢ TẬP (cùng lối chống N+1 của
+        `_gang_finish_map`, đừng gọi lẻ trong vòng lặp dòng).
+
+        Dùng để nói cho người xem lịch biết BƯỚC IN CỦA LỆNH ĐI ĐÂU: lệnh đã ghép thì bước in
+        không sinh ở lane của lệnh nữa mà chạy chung ở lane bài ghép. Không có mã bài thì lane
+        lệnh khuyết một bước mà chẳng có gì giải thích."""
+        lsx_ids = {i for i in lsx_ids if i}
+        if not lsx_ids:
+            return {}
+        bg_cua_lsx = dict(
+            self.db.execute(
+                select(BaiGhepThanhVien.lsx_id, BaiGhepThanhVien.bai_ghep_id)
+                .where(BaiGhepThanhVien.lsx_id.in_(lsx_ids))
+            ).all()
+        )
+        if not bg_cua_lsx:
+            return {}
+        ma_bg = dict(
+            self.db.execute(
+                select(BaiGhep.id, BaiGhep.ma).where(BaiGhep.id.in_(set(bg_cua_lsx.values())))
+            ).all()
+        )
+        return {lid: (bgid, ma_bg.get(bgid)) for lid, bgid in bg_cua_lsx.items()}
+
     def _gang_finish_map(self, lsx_ids: set[int]) -> dict[int, datetime | None]:
         """lsx_id → kết thúc in ghép của bài ghép chứa nó — 2 query cho CẢ TẬP (`_do_thi` cần mốc này
         cho từng dòng, gọi lẻ là N+1). LSX không thuộc bài nào → không có key; bài chưa xếp giờ → None."""
@@ -2080,6 +2107,7 @@ class XepLichService:
 
         may_names = {i: m.ten for i, m in may_objs.items()}
         dept_names = self._dept_names({r.department_id for r in rows})
+        gang_map = self._gang_cua_lsx({r.lsx_id for r in rows if r.nguon == NGUON_LSX})
 
         items: list[dict] = []
         for r in rows:
@@ -2088,6 +2116,7 @@ class XepLichService:
             lcd = self._lcd(r.lsx_cong_doan_id)
             ly_do_xn = self._kiem_kha_nang(r, lsx=lsx, may=may_objs.get(r.may_id))
             ma = (lsx.ma if lsx else None) if r.nguon == NGUON_LSX else (bg.ma if bg else None)
+            gang = gang_map.get(r.lsx_id) if r.nguon == NGUON_LSX else None
             bgcd = None
             if r.nguon == NGUON_LSX:
                 ten = lcd.ten if lcd else None
@@ -2109,6 +2138,9 @@ class XepLichService:
             items.append({
                 "id": r.id, "nguon": r.nguon,
                 "lsx_id": r.lsx_id, "bai_ghep_id": r.bai_ghep_id,
+                # Lệnh đã ghép → chỉ sang chỗ bước in thật sự chạy (lane lệnh không có bước in).
+                "gang_bai_ghep_id": gang[0] if gang else None,
+                "gang_ma": gang[1] if gang else None,
                 "lsx_ma": ma, "cong_doan_ten": ten, "loai_buoc": r.loai_buoc,
                 "so_luong_vao": _f(lcd.so_luong_vao) if lcd else None,
                 "don_vi_vao": lcd.don_vi_vao if lcd else None,

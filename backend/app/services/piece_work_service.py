@@ -42,7 +42,7 @@ def dau_viec_khop(rates, *, department_id: int | None) -> list:
     """
     return [
         r for r in (rates or [])
-        if getattr(r, "active", True)
+        if (getattr(r, "active", None) if hasattr(r, "active") else getattr(r, "is_active", True))
         and (department_id is None or r.department_id == department_id)
     ]
 
@@ -61,13 +61,14 @@ def khoan_snapshot(rate) -> dict:
     """
     snap = {
         "rate_id": rate.id,
-        "ten": rate.ten,
-        "don_vi": rate.unit,
-        "don_gia": float(rate.unit_price or 0),
+        "ten": getattr(rate, "ten", getattr(rate, "name", "")),
+        "don_vi": getattr(rate, "don_vi", getattr(rate, "unit", "")),
+        "don_gia": float(getattr(rate, "unit_price", getattr(rate, "don_gia", 0)) or 0),
     }
     if (ct := (getattr(rate, "cong_thuc_luong", None) or "").strip()):
         snap["cong_thuc"] = ct
     return snap
+
 
 
 class PieceWorkService:

@@ -38,11 +38,10 @@ class CongDoanIn(BaseModel):
     # không chạm giấy. Cặp hợp lệ do `cong_doan_service` kiểm.
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
-    # Hệ số vào→ra cho bước NGOÀI dòng giấy, chỉ dùng khi hai đơn vị khác nhau (mg 0196).
-    he_so_ngoai_dong: float | None = Field(default=None, gt=0)
     # Công thức SẢN LƯỢNG RA của bước NGOÀI dòng giấy (mg `0214`) — vd Ghi kẽm khai `so_kem`. Vế VÀO
-    # KHÔNG khai: nó suy ngược từ RA qua `he_so_ngoai_dong` + bù hao, chốt cứng cả hai đầu thì hao
-    # hết chỗ nhét. Bước trên dòng giấy bỏ qua cột này.
+    # KHÔNG khai: nó suy ngược từ RA qua CẦU quy đổi `vào → ra` (module Đơn vị & quy đổi) + bù hao —
+    # chốt cứng cả hai đầu thì hao hết chỗ nhét. Hệ số KHÔNG khai ở đây (bỏ `he_so_ngoai_dong`
+    # 20/08/2026: nguồn thứ hai gây sai), lấy thẳng từ `don_vi_quy_doi`. Bước trên dòng bỏ qua cột này.
     cong_thuc_san_luong: str | None = Field(default=None, max_length=200)
     kieu_bu_hao: str = "khong"
     bu_hao_id: int | None = None
@@ -90,7 +89,6 @@ class CongDoanRow(BaseModel):
     # hết chuyện: một nguồn duy nhất, xưởng đổi tên đơn vị là bảng đổi theo.
     don_vi_vao_ten: str | None = None
     don_vi_ra_ten: str | None = None
-    he_so_ngoai_dong: float | None = None
     #: Công thức SẢN LƯỢNG RA của bước NGOÀI dòng giấy (mg `0214`). Bước trên dòng giấy bỏ qua
     #: — số của chúng đến từ chuỗi bù hao ngược.
     cong_thuc_san_luong: str | None = None

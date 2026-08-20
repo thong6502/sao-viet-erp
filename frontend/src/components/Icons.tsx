@@ -375,6 +375,15 @@ const ICONS = {
       <path d="M10 20H4v-6M4 20l7-7" />
     </>
   ),
+  // Điều khiển phiên chạy (bàn thực hiện SX): Bắt đầu / Tạm dừng / Kết thúc. Tam giác/2 vạch/hình
+  // vuông là ngôn ngữ transport quen thuộc, thợ ít chữ vẫn đọc được ngay.
+  play: <path d="M7 4.5v15l13-7.5-13-7.5Z" />,
+  pause: (
+    <>
+      <path d="M8.5 4.5v15M15.5 4.5v15" />
+    </>
+  ),
+  square: <rect x="5" y="5" width="14" height="14" rx="1.5" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;

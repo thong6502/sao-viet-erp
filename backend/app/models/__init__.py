@@ -115,8 +115,46 @@ from .machine_unavailable import MachineUnavailablePeriod
 # chạy, không đăng ký lên `Base.metadata`, và bảng lặng lẽ không tồn tại (không lỗi nào bật ra).
 from .to_quan_so import ToQuanSoNgay
 from .document_sequence import DocumentSequence
-from .ky_thuat_may import BaoTriMay, KyThuatMayAnh, SuaChuaMay
+from .ky_thuat_may import BaoTriMay, KyThuatMayAnh, SuaChuaMay, YeuCauSuaChua
 from .module_notification import ModuleNotification, ModuleNotificationRead
+from .san_xuat import (
+    SanXuatCongViec,
+    SanXuatGoiPhatHanh,
+    SanXuatNhom,
+    SanXuatNhomLsx,
+    SanXuatPhienBan,
+    SanXuatPhuThuoc,
+)
+from .san_xuat_thuc_thi import (
+    SanXuatKhoangThamGia,
+    SanXuatPhanCong,
+    SanXuatPhienChay,
+)
+from .san_xuat_ly_do import SanXuatLyDo
+from .san_xuat_san_luong import (
+    SanXuatBanGiao,
+    SanXuatBanGiaoDieuChinh,
+    SanXuatBatch,
+    SanXuatBatchLotVao,
+    SanXuatVatTuNhan,
+)
+from .san_xuat_phan_bo import (
+    SanXuatHoTro,
+    SanXuatPhanBo,
+    SanXuatPhanBoBuTru,
+    SanXuatPhanBoDong,
+    SanXuatPhanBoLoaiTru,
+)
+from .san_xuat_kcs import (
+    SanXuatKcsBatch,
+    SanXuatKcsLoi,
+    SanXuatKcsLoiAnh,
+)
+from .san_xuat_kho import (
+    SanXuatKhoHang,
+    SanXuatKhoLot,
+    SanXuatNhapKhoYc,
+)
 
 __all__ = [
     "BaiGhepCongDoan",
@@ -235,7 +273,34 @@ __all__ = [
     "SuaChuaMay",
     "BaoTriMay",
     "KyThuatMayAnh",
+    "YeuCauSuaChua",
     "ToQuanSoNgay",
     "DonViDo",
     "DonViQuyDoi",
+    "SanXuatNhom",
+    "SanXuatNhomLsx",
+    "SanXuatGoiPhatHanh",
+    "SanXuatPhienBan",
+    "SanXuatCongViec",
+    "SanXuatPhuThuoc",
+    "SanXuatPhanCong",
+    "SanXuatPhienChay",
+    "SanXuatKhoangThamGia",
+    "SanXuatLyDo",
+    "SanXuatBatch",
+    "SanXuatBatchLotVao",
+    "SanXuatBanGiao",
+    "SanXuatBanGiaoDieuChinh",
+    "SanXuatVatTuNhan",
+    "SanXuatHoTro",
+    "SanXuatPhanBo",
+    "SanXuatPhanBoDong",
+    "SanXuatPhanBoBuTru",
+    "SanXuatPhanBoLoaiTru",
+    "SanXuatKcsBatch",
+    "SanXuatKcsLoi",
+    "SanXuatKcsLoiAnh",
+    "SanXuatKhoHang",
+    "SanXuatKhoLot",
+    "SanXuatNhapKhoYc",
 ]

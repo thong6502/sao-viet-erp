@@ -32,14 +32,19 @@ def test_route_danh_muc_khong_bi_route_id_nuot(client):
 
 
 def test_seed_5_bac_dung_thu_tu_va_khong_co_truong_tien(client):
-    """⭐ Chủ chốt 5 BẬC CHÍNH Bậc 1…Bậc 5 (bỏ bậc phụ), và "khai bậc thôi, không cần điền tiền"."""
+    """⭐ Chủ chốt 5 BẬC CHÍNH tên dân dã (Thợ lành nghề…Lính mới), và "khai bậc thôi, không tiền"."""
     token = _admin_token(client)
     items = _grades(client, token)
 
-    assert [g["name"] for g in items] == ["Bậc 1", "Bậc 2", "Bậc 3", "Bậc 4", "Bậc 5"]
+    assert [g["name"] for g in items] == [
+        "Thợ lành nghề", "Thợ vững", "Thợ thường", "Tập việc", "Lính mới"]
     assert [g["code"] for g in items] == ["bac_1", "bac_2", "bac_3", "bac_4", "bac_5"]
-    assert set(items[0]) == {"id", "code", "name", "seq", "is_active", "note"}, \
-        "API bậc KHÔNG được phơi ra trường tiền/hệ số nào"
+    # `output_coefficient` là hệ số SẢN LƯỢNG được thêm CÓ CHỦ Ý (spec-thuc-hien-san-xuat §8) — không
+    # phải tiền, và gán bậc vẫn KHÔNG đổi lương cho tới khi có mẻ khoán. Luật "khai bậc thôi, KHÔNG
+    # TIỀN" vẫn còn: API tuyệt đối không được phơi trường tiền (đơn giá/mức lương/…).
+    assert set(items[0]) == {"id", "code", "name", "seq", "is_active", "note", "output_coefficient"}, \
+        "API bậc chỉ được thêm ĐÚNG hệ số sản lượng — KHÔNG được phơi bất kỳ trường tiền nào"
+    assert items[0]["output_coefficient"] is None, "seed để trống hệ số (chưa khai = engine coi 1.0)"
 
 
 def test_them_sua_tat_bac(client):
@@ -60,10 +65,36 @@ def test_them_sua_tat_bac(client):
         "màn quản lý vẫn phải thấy để còn bật lại"
 
 
-def test_trung_ten_bi_chan_du_viet_hoa_thuong_khac_nhau(client):
-    """Khai "bậc 1" khi đã có "Bậc 1" là đẻ hai bậc y hệt nhau trong danh sách chọn."""
+def test_he_so_san_luong_dat_va_xoa_duoc(client):
+    """Hệ số sản lượng (§8): tạo có hệ số · sửa lên · XOÁ (null) đều round-trip đúng.
+
+    Xoá là ca dễ vỡ: router dùng `exclude_unset` nên gửi `null` phải hiểu là "xoá hệ số", KHÔNG
+    phải "giữ nguyên" — nếu service lọc None thì hệ số cũ dính lại, engine chia sai."""
     token = _admin_token(client)
-    r = client.post("/api/employees/bac-tay-nghe", json={"name": "  bậc 1 "},
+    gid = client.post("/api/employees/bac-tay-nghe",
+                      json={"name": "Bậc có hệ số", "output_coefficient": 1.25},
+                      headers=_h(token)).json()["id"]
+    assert next(g for g in _grades(client, token) if g["id"] == gid)["output_coefficient"] == 1.25
+
+    r = client.put(f"/api/employees/bac-tay-nghe/{gid}",
+                   json={"output_coefficient": 0.8}, headers=_h(token))
+    assert r.json()["output_coefficient"] == 0.8, r.text
+
+    # Sửa tên KHÔNG kèm hệ số ⇒ hệ số phải giữ nguyên (exclude_unset).
+    client.put(f"/api/employees/bac-tay-nghe/{gid}", json={"name": "Bậc có hệ số 2"},
+               headers=_h(token))
+    assert next(g for g in _grades(client, token) if g["id"] == gid)["output_coefficient"] == 0.8
+
+    # Gửi null ⇒ XOÁ về chưa-khai.
+    r = client.put(f"/api/employees/bac-tay-nghe/{gid}",
+                   json={"output_coefficient": None}, headers=_h(token))
+    assert r.json()["output_coefficient"] is None, r.text
+
+
+def test_trung_ten_bi_chan_du_viet_hoa_thuong_khac_nhau(client):
+    """Khai "thợ lành nghề" khi đã có "Thợ lành nghề" là đẻ hai bậc y hệt trong danh sách chọn."""
+    token = _admin_token(client)
+    r = client.post("/api/employees/bac-tay-nghe", json={"name": "  thợ lành nghề "},
                     headers=_h(token))
     assert r.status_code == 400, r.text
     assert "đã có" in r.json()["detail"]
@@ -103,11 +134,11 @@ def test_nang_bac_ghi_qua_trinh_cong_tac(client):
                       headers=_h(token))
     assert out.status_code == 200, out.text
     assert out.json()["job_grade_id"] == gid
-    assert out.json()["job_grade_name"] == "Bậc 2", "phải trả TÊN bậc, khỏi bắt FE tra thêm"
+    assert out.json()["job_grade_name"] == "Thợ vững", "phải trả TÊN bậc, khỏi bắt FE tra thêm"
 
     events = client.get(f"/api/employees/{eid}/events", headers=_h(token)).json()["items"]
     moc = [e for e in events if e["field"] == "job_grade"]
-    assert len(moc) == 1 and moc[0]["to_value"] == "Bậc 2", moc
+    assert len(moc) == 1 and moc[0]["to_value"] == "Thợ vững", moc
 
 
 def test_bac_KHONG_doi_duoc_qua_sua_ho_so_thuong(client):

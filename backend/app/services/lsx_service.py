@@ -401,6 +401,7 @@ class LsxService:
         self._rates_cache: list | None = None   # bảng đơn giá khoán (xem `_piece_rates`)
         self._dv_cache: dict | None = None      # danh mục đơn vị (xem `_don_vis`)
         self._cap_cache: dict | None = None     # đồ thị cặp quy đổi (xem `_cap_quy_doi`)
+        self._cap_graph_cache: dict | None = None  # cặp quy đổi đã dựng đồ thị (xem `_he_so_ngoai_dong`)
         self._ma_dv_cache: dict | None = None   # tên đơn vị → mã (xem `_ma_don_vi`)
 
     # ================= tra cứu phụ trợ =================
@@ -473,6 +474,28 @@ class LsxService:
 
             self._cap_cache = DonViDoRepository(self.db).cap_rows()
         return self._cap_cache
+
+    def _he_so_ngoai_dong(self, dv_vao: str | None, dv_ra: str | None) -> tuple[float | None, str | None]:
+        """Hệ số "1 <vào> = hs <ra>" của bước NGOÀI dòng giấy — LẤY TỪ module Đơn vị & quy đổi.
+
+        Trả `(hs, loi)`:
+        - cùng đơn vị (kẽm→kẽm) → `(1.0, None)`: phép đồng nhất, không phải hệ số hardcode;
+        - khác đơn vị có cầu trong `don_vi_quy_doi` (vd 1 bài in = 4 bản kẽm) → `(4.0, None)`;
+        - khác đơn vị mà module CHƯA khai cầu → `(None, câu-lỗi)`.
+
+        NGUỒN DUY NHẤT là cầu quy đổi (`quy_doi_service.doi`), KHÔNG đọc `he_so_ngoai_dong` khai tay
+        (nguồn thứ hai gây sai), KHÔNG mặc định ×1 khi thiếu cầu — thiếu thì báo lỗi để người khai.
+        """
+        if not dv_vao or not dv_ra or dv_vao == dv_ra:
+            return 1.0, None
+        from .quy_doi_service import cap_map, doi
+
+        if self._cap_graph_cache is None:
+            self._cap_graph_cache = cap_map(self._cap_quy_doi())
+        kq = doi(1.0, dv_vao, dv_ra, self._don_vis(), self._cap_graph_cache)
+        if "gia_tri" in kq and _f(kq["gia_tri"]) > 0:
+            return _f(kq["gia_tri"]), None
+        return None, kq.get("ly_do") or f"Chưa khai quy đổi giữa {dv_vao} và {dv_ra} ở Đơn vị & quy đổi."
 
     def _khoan_mac_dinh(self, department_id: int | None, cd_obj) -> dict | None:
         """Đầu việc khoán ĐIỀN SẴN cho một bước: khớp đúng 1 thì tự điền, nhiều thì để trống.
@@ -1732,9 +1755,19 @@ class LsxService:
             fixed_n, pct_n = hao_buoc(
                 _quy_tac_bu_hao(cd.cong_doan_id), rows=bu_hao_rows, sl=ra_ngoai)
             pct_n = min(max(pct_n, 0.0), 99.0)
-            # Hệ số khai ở danh mục; hai đơn vị GIỐNG nhau thì luôn 1, khỏi bắt khai.
-            obj_cd = self.db.get(CongDoan, cd.cong_doan_id) if cd.cong_doan_id else None
-            hs_n = _f(getattr(obj_cd, "he_so_ngoai_dong", None)) or 1.0
+            # HỆ SỐ vào→ra LẤY TỪ module Đơn vị & quy đổi (cầu `don_vi_quy_doi`), KHÔNG khai tay,
+            # KHÔNG mặc định ×1. Cùng đơn vị → 1; khác đơn vị mà chưa khai cầu → BÁO LỖI ngay tại
+            # bước (không đoán) để drawer + danh sách Vấn đề chặn phát hành.
+            hs_n, loi_qd = self._he_so_ngoai_dong(cd.don_vi_vao, cd.don_vi_ra)
+            if hs_n is None:
+                out[i] = {
+                    "idx": i, "id": cd.id, "thu_tu": cd.thu_tu, "ten": cd.ten,
+                    "so_luong_vao": 0.0, "so_luong_ra": float(ceil(ra_ngoai)),
+                    "don_vi_vao": cd.don_vi_vao, "don_vi_ra": cd.don_vi_ra,
+                    "he_so_quy_doi": 0.0, "hao_hut": fixed_n, "hao_hut_pct": pct_n,
+                    "loi_quy_doi": loi_qd,
+                }
+                continue
             out[i] = {
                 "idx": i, "id": cd.id, "thu_tu": cd.thu_tu, "ten": cd.ten,
                 "so_luong_vao": float(ceil((ra_ngoai / hs_n + fixed_n) / (1.0 - pct_n / 100.0))),
@@ -2133,6 +2166,32 @@ class LsxService:
             "buoc_bi_de": de_len,
         }
 
+    def _san_luong_dien_giai(self, cd, cd_obj, quy_cach: dict | None) -> str | None:
+        """Câu diễn giải SỐ RA của bước ngoài dòng: `<công thức chữ> = [<thay số> = ]<kết quả> <đvị>`.
+
+        Dùng ĐÚNG công thức + cách làm tròn (ceil) mà `tinh_nguoc_routing` dùng để chốt `so_luong_ra`
+        nên số ở đây khớp pill. Danh mục đổi sau khi lưu thì câu này bám số MỚI (giống khối Vật tư);
+        pill vẫn là số đã lưu — chênh thì `so_luong_ra_moi` lo phần cảnh báo.
+        """
+        if cd_obj is None:
+            return None
+        ct = (getattr(cd_obj, "cong_thuc_san_luong", None) or "").strip()
+        if not ct:
+            return None
+        ctx = ngu_canh_lenh(quy_cach or {})
+        try:
+            gt = float(safe_eval(ct, dict(ctx)))
+        except (ValueError, ZeroDivisionError):
+            return None
+        if gt <= 0:
+            return None
+        dv_ten = (self._don_vis().get((cd.don_vi_ra or "").strip().lower()) or {}).get("ten") \
+            or cd.don_vi_ra
+        kq = _so_vn(float(ceil(gt)))
+        the_so = cong_thuc_the_so(ct, ctx)
+        dau = "" if the_so == kq else f"{the_so} = "
+        return f"{cong_thuc_chu(ct)} = {dau}{kq} {dv_ten}"
+
     def _cong_doan_dict(self, cd, dept_names: dict, may_names: dict,
                         quy_cach: dict | None = None, moi: dict | None = None,
                         khuon_map: dict | None = None) -> dict:
@@ -2141,6 +2200,14 @@ class LsxService:
         t = thoi_luong_buoc(cd, may_cd, self.sl_tinh_cua_buoc(cd, may_cd, quy_cach))
         kh = cd.khoan_json or {}
         cd_obj = self.db.get(CongDoan, cd.cong_doan_id) if cd.cong_doan_id else None
+        _tren_dg = tren_dong_giay(cd.don_vi_vao, cd.don_vi_ra, self._tram())
+        # Bước NGOÀI dòng đổi VÀO←RA qua cầu Đơn vị & quy đổi; chưa khai cầu thì đây là câu lỗi cho
+        # drawer bày (đỏ) + chặn phát hành. Bước trên dòng không dùng cầu này nên không xét.
+        _loi_qd = None if _tren_dg else self._he_so_ngoai_dong(cd.don_vi_vao, cd.don_vi_ra)[1]
+        # Diễn giải SỐ RA của bước NGOÀI dòng: công thức sản lượng của công đoạn, thay số theo ngữ
+        # cảnh lệnh (cùng khuôn "chữ = thay số = kết quả" với khối Vật tư/thời gian). Bước trên dòng
+        # giấy suy ngược theo chuỗi nên không có công thức riêng — caption node RA nói thay.
+        _san_luong_dg = None if _tren_dg else self._san_luong_dien_giai(cd, cd_obj, quy_cach)
         return {
             "id": cd.id, "step_key": cd.step_key, "thu_tu": cd.thu_tu, "cong_doan_id": cd.cong_doan_id,
             "ten": cd.ten, "nhom": cd.nhom, "loai_buoc": cd.loai_buoc, "bat_buoc": bool(cd.bat_buoc),
@@ -2168,7 +2235,11 @@ class LsxService:
             # lượng KHÔNG tự tính (đứng im ở 0 nếu không ai điền) và hao của nó không cộng vào số
             # giấy phải mua. Không gửi cờ này thì màn chỉ thấy hai số 0 mà không có lời giải thích
             # — FE tự suy không nổi vì "trên dòng giấy hay không" nằm ở cờ của danh mục Đơn vị.
-            "tren_dong_giay": tren_dong_giay(cd.don_vi_vao, cd.don_vi_ra, self._tram()),
+            "tren_dong_giay": _tren_dg,
+            # Câu lỗi khi bước ngoài dòng thiếu cầu quy đổi giữa hai đơn vị (None = không có lỗi).
+            "loi_quy_doi": _loi_qd,
+            # Diễn giải công thức SỐ RA (bước ngoài dòng) — None với bước trên dòng giấy.
+            "san_luong_dien_giai": _san_luong_dg,
             "he_so_quy_doi": _f(cd.he_so_quy_doi),
             "hao_hut": _f(cd.hao_hut), "hao_hut_pct": _f(cd.hao_hut_pct),
             # % thực tế suy từ số — KHÔNG lưu cột, tránh hai nguồn sự thật với `hao_hut`.

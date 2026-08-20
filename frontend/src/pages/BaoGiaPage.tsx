@@ -1237,15 +1237,30 @@ function QuotationDetailView({
                   : "Markup riêng từng dòng · giá đã gồm VAT."}
               </span>
             </div>
-            {/* Bản in lấy SL của DÒNG ĐẦU nhóm. SL trong nhóm lệch nhau là dấu hiệu khai nhầm
-                (bìa 1.250 / ruột 1.200) → nhắc ngay, không âm thầm in ra số sai. */}
+            {/* Bản in lấy SL của PHẦN ĐẦU nhóm. SL trong nhóm lệch nhau là dấu hiệu khai nhầm
+                (bìa 1.000 / ruột 500) → nêu THẲNG phần nào bao nhiêu + số sẽ in cho khách. */}
             {nhomLech.length > 0 && (
-              <div className="hint hint--warn" role="status">
+              <div className="hint hint--warn hint--lechnhom" role="status">
                 <TriangleAlert size={15} />
-                <span>
-                  Nhóm {nhomLech.map((n) => `"${n}"`).join(", ")} có các dòng lệch số lượng — bản
-                  in gửi khách lấy SL của dòng đầu nhóm. Kiểm lại trước khi gửi.
-                </span>
+                <div className="lechnhom">
+                  {nhomLech.map((n) => (
+                    <div key={n.ten} className="lechnhom__item">
+                      <div className="lechnhom__ten">«{n.ten}» — các phần lệch số lượng:</div>
+                      <ul className="lechnhom__ds">
+                        {n.phan.map((p, i) => (
+                          <li key={i}>
+                            {p.ten}: <b>{p.soLuong.toLocaleString("vi-VN")}</b>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="lechnhom__ket">
+                        Bản gửi khách gộp thành 1 dòng, chỉ ghi{" "}
+                        <b>{n.slInChoKhach.toLocaleString("vi-VN")}</b> (theo phần đầu). Kiểm lại
+                        trước khi gửi.
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
             <table>
@@ -1258,16 +1273,18 @@ function QuotationDetailView({
                 {/* Dải NHÓM: các dòng cùng nhãn in ra khách thành 1 dòng, nên bày chúng dưới một
                     dải mang đúng con số khách thấy. Markup/chiết khấu vẫn nằm ở TỪNG dòng con. */}
                 {nhomTrongBaoGia.flatMap((node) => {
-                  const dongIt = (it: QuoteItemDetail, con: boolean, cuoi = false) => {
+                  const dongIt = (it: QuoteItemDetail, con: boolean, cuoi = false, slDauNhom?: number) => {
                   const c = calcItem(it);
                   const markupVal = multi ? (lineDraft[it.id] ?? it.margin_percent) : (draftMargin ?? it.margin_percent);
                   const discPct = c.selling > 0 ? Math.round(((discDraft[it.id] ?? it.discount_amount) / c.selling) * 100) : 0;
                   const declined = quoteClosed && acceptedDecided && !it.accepted;
+                  // Dòng con có SL khác PHẦN ĐẦU nhóm → bản in in số phần đầu, không in số này. Đánh dấu.
+                  const lechNhom = slDauNhom !== undefined && it.quantity !== slDauNhom;
                   return (
                     <tr
                       key={it.id}
                       className={
-                        `${declined ? "declined" : ""}${con ? " qrow--con" : ""}${cuoi ? " qrow--conCuoi" : ""}`
+                        `${declined ? "declined" : ""}${con ? " qrow--con" : ""}${cuoi ? " qrow--conCuoi" : ""}${lechNhom ? " qrow--lech" : ""}`
                           .trim() || undefined
                       }
                     >
@@ -1307,7 +1324,14 @@ function QuotationDetailView({
                           </button>
                         ) : null}
                       </td>
-                      <td className="num">{it.quantity.toLocaleString("vi-VN")}</td>
+                      <td className="num">
+                        {it.quantity.toLocaleString("vi-VN")}
+                        {lechNhom && (
+                          <span className="ql-lech" title={`Phần đầu nhóm là ${slDauNhom!.toLocaleString("vi-VN")} — bản in gửi khách lấy số này`}>
+                            ⚠ lệch phần đầu ({slDauNhom!.toLocaleString("vi-VN")})
+                          </span>
+                        )}
+                      </td>
                       <td className="num muted">{numf(c.cost)}</td>
                       <td className="num">
                         <div className="pctcell">
@@ -1369,7 +1393,7 @@ function QuotationDetailView({
                       <td className="num muted">—</td>
                       <td className="num strong">{vnd(tongTien)}</td>
                     </tr>,
-                    ...node.members.map((m, k) => dongIt(m, true, k === node.members.length - 1)),
+                    ...node.members.map((m, k) => dongIt(m, true, k === node.members.length - 1, node.members[0].quantity)),
                   ];
                 })}
                 {/* Hàng tổng chỉ có nghĩa khi ≥2 dòng; 1 dòng thì lặp lại chính dòng đó. */}

@@ -6,7 +6,7 @@
 // `createBaoTri` kèm `goi_id`). Không có đường đẻ hàng loạt.
 import { authed } from "./client";
 
-export type LoaiPhieu = "sua_chua" | "bao_tri";
+export type LoaiPhieu = "sua_chua" | "bao_tri" | "yeu_cau";
 
 // --- Trạng thái + nhãn: khai MỘT chỗ, cả bảng lẫn drawer lẫn tab đọc chung ---------------------
 export const TT_SUA_CHUA = ["cho_sua", "dang_sua", "cho_vat_tu", "da_sua_xong"] as const;
@@ -16,12 +16,22 @@ export const NHAN_TT_SUA_CHUA: Record<string, string> = {
   cho_vat_tu: "Chờ vật tư",
   da_sua_xong: "Đã sửa xong",
 };
-// Bảo trì chỉ có HAI nấc (12/08/2026): chờ làm → xong. Nấc "đang thực hiện" và bước nhận việc đã
-// bỏ — ai bấm "Xác nhận đã bảo trì xong" thì chính người đó là người làm.
-export const TT_BAO_TRI = ["cho_thuc_hien", "hoan_thanh"] as const;
+// Bảo trì có BA trạng thái (mg 0224): chờ làm → xong; hoặc HỦY kèm lý do. Nấc "đang thực hiện" và
+// bước nhận việc đã bỏ — ai bấm "Xác nhận đã bảo trì xong" thì chính người đó là người làm. `da_huy`
+// KHÔNG đếm vào việc đang mở / quá hạn; đứng riêng một tab để còn lần lại được kỳ nào đã hủy.
+export const TT_BAO_TRI = ["cho_thuc_hien", "hoan_thanh", "da_huy"] as const;
 export const NHAN_TT_BAO_TRI: Record<string, string> = {
   cho_thuc_hien: "Chờ thực hiện",
   hoan_thanh: "Hoàn thành",
+  da_huy: "Đã hủy",
+};
+// Yêu cầu sửa chữa: người ngoài tổ kỹ thuật báo máy hỏng. BA trạng thái, không hơn — đây là lời
+// báo, không phải việc: chờ tổ kỹ thuật đọc → thành phiếu, hoặc bị từ chối kèm lý do.
+export const TT_YEU_CAU = ["cho_tiep_nhan", "da_tao_phieu", "tu_choi"] as const;
+export const NHAN_TT_YEU_CAU: Record<string, string> = {
+  cho_tiep_nhan: "Chờ tiếp nhận",
+  da_tao_phieu: "Đã tạo phiếu",
+  tu_choi: "Từ chối",
 };
 export const NHAN_MUC_DO: Record<string, string> = {
   nhe: "Nhẹ",
@@ -51,6 +61,12 @@ export interface SuaChua {
   may_ten: string | null;
   so_anh: number;
   co_anh_sau: boolean;
+  /** Phiếu này sinh từ yêu cầu của bộ phận khác (nếu có). Backend đọc NGƯỢC qua
+   *  `ky_thuat_yeu_cau_sua.phieu_id` — bảng phiếu không mọc thêm cột. */
+  yeu_cau_id: number | null;
+  yeu_cau_ma: string | null;
+  yeu_cau_nguoi_bao: string | null;
+  yeu_cau_bo_phan: string | null;
 }
 
 export interface HangMuc {
@@ -74,6 +90,8 @@ export interface BaoTri {
   ngay_ke_hoach: string;
   ngay_ke_hoach_goc: string | null;
   ly_do_doi: string | null;
+  /** Lý do khi phiếu ở trạng thái `da_huy`. Mở lại phiếu thì backend xóa về null. */
+  ly_do_huy: string | null;
   hang_muc: HangMuc[] | null;
   /** NGƯỜI LÀM — backend gán từ tài khoản bấm "Xác nhận đã bảo trì xong" (không có bước nhận việc
    *  riêng, phiếu chưa xong không mang tên ai). FE không gửi lên. */
@@ -91,6 +109,44 @@ export interface BaoTri {
   co_anh_sau: boolean;
   qua_han: boolean;
   da_doi: boolean;
+}
+
+export interface YeuCau {
+  id: number;
+  ma: string;
+  may_id: number;
+  bo_phan_hong: string;
+  mo_ta: string | null;
+  /** Mức người báo TỰ THẤY — tổ sửa chữa đặt lại lúc tạo phiếu, đừng đọc như kết luận kỹ thuật. */
+  muc_do: string;
+  /** Máy đang dừng hẳn. Đây mới là thứ đẩy yêu cầu lên đầu hàng chờ, không phải `muc_do`. */
+  may_dung: boolean;
+  /** Tài khoản đăng nhập lúc gửi (soft → `users.id`) — KHÁC `SuaChua.nguoi_bao_id` (→ `employees.id`). */
+  nguoi_bao_id: number | null;
+  nguoi_bao_ten: string | null;
+  bo_phan: string | null;
+  thoi_diem: string | null;
+  trang_thai: string;
+  phieu_id: number | null;
+  ly_do_tu_choi: string | null;
+  xu_ly_ten: string | null;
+  xu_ly_at: string | null;
+  created_at: string | null;
+  // dẫn xuất
+  may_ma: string | null;
+  may_ten: string | null;
+  so_anh: number;
+  phieu_ma: string | null;
+  phieu_trang_thai: string | null;
+}
+
+/** Ô chọn máy cho người KHÔNG có quyền danh mục thiết bị (`dm_thiet_bi`). Đúng bốn cột — người
+ *  báo hỏng chỉ cần tìm ra cái máy, không cần xem giá trị khấu hao của nó. */
+export interface MayChon {
+  id: number;
+  ma: string;
+  ten: string | null;
+  loai_may: string | null;
 }
 
 export interface PhieuListOut<T> {
@@ -206,9 +262,11 @@ export const kyThuatMay = {
       method: "POST", body: JSON.stringify({ hang_muc_id, xong, ...(them ?? {}) }),
     });
   },
-  doiLich(token: string, id: number, ngay_moi: string, ly_do: string): Promise<BaoTri> {
-    return authed<BaoTri>(`${P}/bao-tri/${id}/doi-lich`, token, {
-      method: "POST", body: JSON.stringify({ ngay_moi, ly_do }),
+  /** Hủy phiếu kèm lý do (bắt buộc) — chuyển sang `da_huy`, ngưng đếm việc & tính quá hạn. Chỉ hủy
+   *  được phiếu chưa hoàn thành; hủy nhầm thì "Mở lại" qua `trangThaiBaoTri(..., "cho_thuc_hien")`. */
+  huyBaoTri(token: string, id: number, ly_do: string): Promise<BaoTri> {
+    return authed<BaoTri>(`${P}/bao-tri/${id}/huy`, token, {
+      method: "POST", body: JSON.stringify({ ly_do }),
     });
   },
   trangThaiBaoTri(
@@ -231,7 +289,50 @@ export const kyThuatMay = {
     return authed<{ items: HanGoi[] }>(`${P}/bao-tri/han/${mayId}`, token).then((r) => r.items ?? []);
   },
 
-  // ---- Ảnh (dùng chung 2 loại phiếu) ----
+  // ---- Yêu cầu sửa chữa (bộ phận khác báo máy hỏng) ----
+  /** Danh sách máy để chọn. KHÔNG dùng `mayThietBi.list` ở màn này: nó đòi quyền `dm_thiet_bi`
+   *  mà thợ đứng máy không có ⇒ ô chọn máy rỗng, không báo hỏng được. */
+  mayChon(token: string): Promise<MayChon[]> {
+    return authed<{ items: MayChon[] }>(`${P}/may-chon`, token).then((r) => r.items ?? []);
+  },
+  /** `cua_toi=1` = chỉ yêu cầu tôi gửi. Thứ tự do server đặt cứng (chưa tiếp nhận → máy dừng →
+   *  mức độ → mới nhất) nên KHÔNG có tham số sắp xếp. */
+  listYeuCau(token: string, params: Record<string, unknown> = {}): Promise<PhieuListOut<YeuCau>> {
+    return authed<PhieuListOut<YeuCau>>(`${P}/yeu-cau${qs({ size: 20, ...params })}`, token);
+  },
+  getYeuCau(token: string, id: number): Promise<YeuCau> {
+    return authed<YeuCau>(`${P}/yeu-cau/${id}`, token);
+  },
+  taoYeuCau(token: string, body: Record<string, unknown>): Promise<YeuCau> {
+    return authed<YeuCau>(`${P}/yeu-cau`, token, { method: "POST", body: JSON.stringify(body) });
+  },
+  suaYeuCau(token: string, id: number, body: Record<string, unknown>): Promise<YeuCau> {
+    return authed<YeuCau>(`${P}/yeu-cau/${id}`, token, { method: "PUT", body: JSON.stringify(body) });
+  },
+  /** Tổ sửa chữa tiếp nhận → sinh phiếu SC. Trả về CẢ HAI để drawer đổi mặt ngay mà không phải
+   *  gọi thêm. Bỏ trống các ô trong `body` = bê nguyên lời người báo. 409 nếu yêu cầu đã xử lý. */
+  taoPhieuTuYeuCau(
+    token: string, id: number, body: Record<string, unknown> = {},
+  ): Promise<{ phieu: SuaChua; yeu_cau: YeuCau }> {
+    return authed<{ phieu: SuaChua; yeu_cau: YeuCau }>(`${P}/yeu-cau/${id}/tao-phieu`, token, {
+      method: "POST", body: JSON.stringify(body),
+    });
+  },
+  /** Từ chối kèm lý do (bắt buộc). Không có đường XÓA yêu cầu — xóa lặng là người báo không bao
+   *  giờ biết vì sao, lần sau họ thôi không báo nữa. */
+  tuChoiYeuCau(token: string, id: number, ly_do: string): Promise<YeuCau> {
+    return authed<YeuCau>(`${P}/yeu-cau/${id}/tu-choi`, token, {
+      method: "POST", body: JSON.stringify({ ly_do }),
+    });
+  },
+  /** Badge thanh bên: số yêu cầu chưa ai tiếp nhận. */
+  choXuLy(token: string): Promise<{ total: number }> {
+    return authed<{ total: number }>(`${P}/yeu-cau/cho-xu-ly`, token);
+  },
+
+  // ---- Ảnh (dùng chung 3 loại chứng từ) ----
+  // ⚠️ Ảnh của yêu cầu ĐỔI CHỦ sang phiếu lúc tiếp nhận (loai_phieu `yeu_cau` → `sua_chua`), nên
+  // sau khi tạo phiếu phải đọc lại theo cặp mới; đọc theo cặp cũ sẽ ra rỗng.
   listAnh(token: string, loai: LoaiPhieu, phieuId: number): Promise<Anh[]> {
     return authed<{ items: Anh[] }>(`${P}/${loai}/${phieuId}/anh`, token).then((r) => r.items ?? []);
   },

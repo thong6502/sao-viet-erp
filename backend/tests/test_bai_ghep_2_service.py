@@ -22,7 +22,7 @@ from app.services.bai_ghep_service import BaiGhepConflict, BaiGhepValidationErro
 from app.services.sequence_service import SequenceService
 
 # Tái dùng fixture dựng đơn -> LSX thật của bộ Bài ghép hiện hữu; test mới chỉ tập trung vào luật BG2.
-from backend.tests.test_bai_ghep_service import (  # noqa: F401
+from tests.test_bai_ghep_service import (  # noqa: F401
     _hai_lsx_san_sang,
     admin,
     customer,

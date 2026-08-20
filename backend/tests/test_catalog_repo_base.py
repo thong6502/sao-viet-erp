@@ -158,16 +158,14 @@ def test_extra_conds_loc_theo_tinh_trang_khuon():
 
 
 def test_tim_kiem_an_ca_cot_rieng_cua_khuon():
-    """`search_fields` của khuôn bế gồm cả KHÁCH HÀNG và SỐ KỆ — người ta nhớ khuôn của ai,
-    hiếm khi nhớ mã KB-####."""
+    """`search_fields` của khuôn bế gồm cả SỐ KỆ và TÊN — người ta nhớ tên ấn phẩm / số kệ."""
     db = _db()
     repo = KhuonBeRepository(db)
-    repo.create({"ma": "KB-0001", "ten": "Khuon hop", "khach_hang": "Cty Minh Long",
-                 "so_ke": "K3-05"})
-    repo.create({"ma": "KB-0002", "ten": "Khuon tui", "khach_hang": "Cty Hoa Sen"})
+    repo.create({"ma": "KB-0001", "ten": "Khuon hop", "so_ke": "K3-05"})
+    repo.create({"ma": "KB-0002", "ten": "Khuon tui", "so_ke": "K3-08"})
 
-    assert repo.list(q="minh long")[1] == 1
     assert repo.list(q="k3-05")[1] == 1
+    assert repo.list(q="k3")[1] == 2
     assert repo.list(q="khuon")[1] == 2
 
 
@@ -175,13 +173,14 @@ def test_facets_va_bang_dung_chung_mot_bo_loc():
     """Số trên tab và số dòng trong bảng cùng đi qua `_loc_q` — không được nói hai chuyện."""
     db = _db()
     repo = KhuonBeRepository(db)
-    repo.create({"ma": "KB-0001", "ten": "Khuon hop", "khach_hang": "Minh Long",
+    repo.create({"ma": "KB-0001", "ten": "Khuon hop", "so_ke": "K3-05",
                  "tinh_trang": "dang_dung"})
-    repo.create({"ma": "KB-0002", "ten": "Khuon tui", "khach_hang": "Hoa Sen",
+    repo.create({"ma": "KB-0002", "ten": "Khuon tui", "so_ke": "K3-08",
                  "tinh_trang": "hong"})
 
-    assert repo.dem_theo_tinh_trang(q="minh long") == {"dang_dung": 1}
+    assert repo.dem_theo_tinh_trang(q="k3-05") == {"dang_dung": 1}
     assert sum(repo.dem_theo_tinh_trang().values()) == repo.list()[1]
+
 
 
 # ── 4. Trần size + phân trang ───────────────────────────────────────────────────

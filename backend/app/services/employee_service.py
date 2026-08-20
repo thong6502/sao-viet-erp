@@ -867,7 +867,8 @@ class EmployeeService:
         return self.employees.list_job_grades(active_only=active_only)
 
     def create_job_grade(self, *, actor, name: str, code: str | None = None,
-                         seq: int | None = None, note: str | None = None):
+                         seq: int | None = None, note: str | None = None,
+                         output_coefficient=None):
         name = _clean(name)
         if not name:
             raise EmployeeValidationError("Cần nhập tên bậc.")
@@ -879,6 +880,7 @@ class EmployeeService:
         g = self.employees.create_job_grade(
             code=code, name=name, note=_clean(note),
             seq=self.employees.next_job_grade_seq() if seq is None else int(seq),
+            output_coefficient=output_coefficient,
         )
         self.audit.create(actor_user_id=actor.id, action="job_grade_created",
                           target=f"job_grade:{g.id}", detail=g.name)
@@ -890,6 +892,10 @@ class EmployeeService:
             raise EmployeeNotFound("Không tìm thấy bậc tay nghề.")
         clean = {k: v for k, v in fields.items()
                  if k in ("name", "seq", "is_active", "note") and v is not None}
+        # Hệ số sản lượng: cho phép đặt VÀ xoá (null) — có mặt trong `fields` = client chủ ý gửi
+        # (router dùng `exclude_unset`), nên None ở đây nghĩa "xoá hệ số" chứ không phải "không đụng".
+        if "output_coefficient" in fields:
+            clean["output_coefficient"] = fields["output_coefficient"]
         if "name" in clean:
             clean["name"] = _clean(clean["name"])
             if not clean["name"]:

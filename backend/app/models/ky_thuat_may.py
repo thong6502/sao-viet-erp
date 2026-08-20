@@ -24,6 +24,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     Index,
@@ -32,6 +33,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    false,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -55,7 +57,9 @@ MUC_DO = (MUC_DO_NHE, MUC_DO_TRUNG_BINH, MUC_DO_NGHIEM_TRONG)
 # --- Phiếu bảo trì ---------------------------------------------------------------
 TT_BT_CHO_THUC_HIEN = "cho_thuc_hien"
 TT_BT_HOAN_THANH = "hoan_thanh"
-TRANG_THAI_BAO_TRI = (TT_BT_CHO_THUC_HIEN, TT_BT_HOAN_THANH)
+TT_BT_DA_HUY = "da_huy"          # phiếu bị hủy kèm lý do — không đếm vào việc đang mở, không tính quá hạn
+TRANG_THAI_BAO_TRI = (TT_BT_CHO_THUC_HIEN, TT_BT_HOAN_THANH, TT_BT_DA_HUY)
+# "Đang mở" = còn phải làm. Hủy KHÔNG thuộc nhóm này (không đếm badge, không quá hạn, không chặn sinh kỳ mới).
 TT_BT_DANG_MO = (TT_BT_CHO_THUC_HIEN,)
 
 LOAI_BT_DINH_KY = "dinh_ky"    # sinh từ gói trong `lich_bao_tri` của máy
@@ -65,7 +69,11 @@ LOAI_BAO_TRI = (LOAI_BT_DINH_KY, LOAI_BT_DOT_XUAT)
 # --- Ảnh minh chứng --------------------------------------------------------------
 LOAI_PHIEU_SUA_CHUA = "sua_chua"
 LOAI_PHIEU_BAO_TRI = "bao_tri"
-LOAI_PHIEU = (LOAI_PHIEU_SUA_CHUA, LOAI_PHIEU_BAO_TRI)
+# Ảnh người báo hỏng gửi kèm YÊU CẦU, tức lúc chưa có phiếu nào. Dùng lại đúng bảng ảnh này thay vì
+# đẻ bảng thứ tư: lúc tổ sửa chữa bấm "Tạo phiếu", ảnh chỉ cần ĐỔI CHỦ (`loai_phieu`/`phieu_id`) là
+# thành ảnh hiện trạng của phiếu — không chép byte, không có hai dòng cùng trỏ một tệp.
+LOAI_PHIEU_YEU_CAU = "yeu_cau"
+LOAI_PHIEU = (LOAI_PHIEU_SUA_CHUA, LOAI_PHIEU_BAO_TRI, LOAI_PHIEU_YEU_CAU)
 
 GIAI_DOAN_TRUOC = "truoc"  # ảnh hiện trạng — KHUYẾN KHÍCH, không bắt buộc
 GIAI_DOAN_SAU = "sau"      # ảnh chứng thực — BẮT BUỘC ≥1 tấm mới đóng được phiếu
@@ -73,6 +81,20 @@ GIAI_DOAN = (GIAI_DOAN_TRUOC, GIAI_DOAN_SAU)
 
 MA_PREFIX_SUA_CHUA = "SC-"
 MA_PREFIX_BAO_TRI = "PBT-"
+MA_PREFIX_YEU_CAU = "YC-"
+
+# --- Yêu cầu sửa chữa: cửa cho NGƯỜI NGOÀI TỔ KỸ THUẬT báo máy hỏng -----------------
+# Bảng `ky_thuat_sua_chua` ở trên cố ý gộp "báo hỏng" với "sửa chữa", và lý do đó vẫn đúng — KHI cả
+# hai đầu đều là tổ kỹ thuật. Từ 20/08/2026 đầu vào có thêm người ngoài tổ (thợ đứng máy, tổ trưởng
+# sản xuất): họ mô tả bằng cái họ thấy ("máy kêu, in ra bị sọc"), không biết bộ phận nào hỏng, cũng
+# không nên được mở phiếu. Cho họ ghi thẳng vào bảng phiếu thì tổ sửa chữa mất quyền lọc; khoá màn
+# phiếu lại thì họ không báo được. Nên có một bảng NHẸ đứng trước, và phiếu SC chỉ sinh khi tổ sửa
+# chữa bấm "Tạo phiếu" — lúc đó yêu cầu neo lại vào phiếu qua `phieu_id`.
+TT_YC_CHO_TIEP_NHAN = "cho_tiep_nhan"
+TT_YC_DA_TAO_PHIEU = "da_tao_phieu"
+TT_YC_TU_CHOI = "tu_choi"      # không phải hỏng / báo trùng / xử lý tại chỗ — BẮT BUỘC kèm lý do
+TRANG_THAI_YEU_CAU = (TT_YC_CHO_TIEP_NHAN, TT_YC_DA_TAO_PHIEU, TT_YC_TU_CHOI)
+TT_YC_DANG_MO = (TT_YC_CHO_TIEP_NHAN,)
 
 
 def _utcnow() -> datetime:
@@ -123,6 +145,66 @@ class SuaChuaMay(Base):
     )
 
 
+class YeuCauSuaChua(Base):
+    """1 lần người ngoài tổ kỹ thuật BÁO máy hỏng. Tổ sửa chữa tiếp nhận → sinh phiếu, hoặc từ chối.
+
+    Ba điều chốt lại ở đây, khác hẳn phiếu sửa chữa:
+
+    * **`nguoi_bao_id` là TÀI KHOẢN ĐANG ĐĂNG NHẬP**, không phải ô chữ tự gõ. Trên phiếu sửa chữa
+      "Người báo" là ô chữ vì tổ kỹ thuật nhập hộ người báo miệng; ở đây người báo chính là người
+      đang gõ, và cái cần nhất là biết CHÍNH XÁC hỏi lại ai. Tên + bộ phận vẫn snapshot để người
+      nghỉ việc / chuyển phòng rồi vẫn tra được.
+    * **`muc_do` là mức người báo TỰ THẤY**, không phải kết luận. Tổ sửa chữa đặt lại lúc tạo phiếu.
+    * **Không có đường XOÁ.** Yêu cầu là lời của một con người; không dùng thì `tu_choi` kèm lý do —
+      người báo phải đọc được vì sao, nếu không lần sau họ không báo nữa.
+    """
+
+    __tablename__ = "ky_thuat_yeu_cau_sua"
+    __table_args__ = (
+        # Câu hỏi nóng nhất: "còn yêu cầu nào chưa tiếp nhận không" (badge + tab), rồi mới tới lọc
+        # theo máy.
+        Index("ix_ky_thuat_yeu_cau_trang_thai", "trang_thai", "may_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ma: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)  # YC-0001
+    may_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)  # soft → may_thiet_bi.id
+
+    # Người báo mô tả CHỖ HỎNG bằng lời của họ ("cụm cấp giấy", "không biết"). Vẫn bắt nhập vì một
+    # yêu cầu chỉ có tên máy thì tổ sửa chữa phải đi hỏi lại từ đầu.
+    bo_phan_hong: Mapped[str] = mapped_column(String(150), nullable=False)
+    mo_ta: Mapped[str | None] = mapped_column(Text, nullable=True)
+    muc_do: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=MUC_DO_TRUNG_BINH, server_default=MUC_DO_TRUNG_BINH
+    )
+    # Máy có đang dừng hẳn không — câu hỏi quyết định thứ tự ưu tiên của tổ sửa chữa, và là thứ
+    # người báo BIẾT CHẮC (khác `muc_do` vốn chỉ là cảm nhận).
+    may_dung: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
+
+    nguoi_bao_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # soft → users.id
+    nguoi_bao_ten: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    bo_phan: Mapped[str | None] = mapped_column(String(150), nullable=True)  # snapshot phòng/tổ người báo
+    thoi_diem: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    trang_thai: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=TT_YC_CHO_TIEP_NHAN, server_default=TT_YC_CHO_TIEP_NHAN
+    )
+    # Neo sang phiếu đã sinh (soft → ky_thuat_sua_chua.id). Đây là sợi dây để người báo bấm vào
+    # yêu cầu của mình mà biết thợ đang làm tới đâu.
+    phieu_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    ly_do_tu_choi: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    xu_ly_boi: Mapped[int | None] = mapped_column(Integer, nullable=True)  # soft → users.id
+    xu_ly_ten: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    xu_ly_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+
 class BaoTriMay(Base):
     """1 lần bảo trì của 1 gói trên 1 máy (hoặc 1 lần đột xuất không thuộc gói nào)."""
 
@@ -152,8 +234,11 @@ class BaoTriMay(Base):
     # naive/aware từng làm vỡ Xếp lịch.
     ngay_ke_hoach: Mapped[date] = mapped_column(Date, index=True, nullable=False)
     # Giữ ngày dự kiến BAN ĐẦU để biết phiếu đã bị dời; "Đã dời" là dẫn xuất từ chỗ này.
+    # (Chức năng dời lịch đã gỡ khỏi UI; 2 cột này GIỮ LẠI để phiếu cũ từng dời vẫn hiện "Đã dời".)
     ngay_ke_hoach_goc: Mapped[date | None] = mapped_column(Date, nullable=True)
     ly_do_doi: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # Lý do hủy phiếu — bắt buộc khi chuyển sang `da_huy`; xoá khi mở lại phiếu (hủy nhầm).
+    ly_do_huy: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     # Checklist: [{id, ten, xong}] — snapshot `goi.hang_muc` + cột tick. Người khai sửa việc con
     # trên máy thì phiếu ĐÃ SINH vẫn giữ nguyên nội dung lúc giao việc.

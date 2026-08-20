@@ -92,7 +92,10 @@ const NAV: NavSection[] = [
       // Màn bài ghép cũ gỡ 18/08/2026. Id đường dẫn giữ `bai-ghep-2` (đổi id là hỏng dấu trang
       // người dùng đã lưu + bản đồ badge), NHÃN là "Bài ghép" — người dùng chỉ còn một màn.
       { id: "bai-ghep-2", label: "Bài ghép", icon: "layers", module: "bai_ghep_2" },
-      { id: "xep-lich-cong-doan", label: "Xếp lịch công đoạn", icon: "calendar", module: "xep_lich" },
+      // Màn xếp lịch cũ (module `xep_lich`) đã thay bằng "một bàn làm việc" v2 (`xep_lich_2`) — 19/08/2026.
+      // GIỮ id đường dẫn `xep-lich-cong-doan-2` để không hỏng dấu trang + bản đồ badge; NHÃN về tên quen.
+      // Mọi vai đã có quyền `xep_lich_2` (mg 0218 chép từ `xep_lich`) nên không ai mất quyền khi bỏ màn cũ.
+      { id: "xep-lich-cong-doan-2", label: "Xếp lịch công đoạn", icon: "calendar", module: "xep_lich_2" },
       { id: "sua-chua-may", label: "Sửa chữa máy", icon: "settings", module: "ky_thuat_may" },
       { id: "phieu-bao-tri", label: "Phiếu bảo trì", icon: "clock", module: "phieu_bao_tri" },
     ],
@@ -227,6 +230,10 @@ const NAV: NavSection[] = [
       { id: "khuon-be", label: "Khuôn", icon: "clipboard", module: "khuon_be" },
       // Khai báo kho: màn CRUD tạo/sửa kho. Kho tạo ở đây tự hiện thành mục dưới SECTION "Kho hàng".
       { id: "khai-bao-kho", label: "Khai báo kho", icon: "warehouse", module: "dm_kho_hang" },
+      // Lý do & lỗi SX (§15): danh mục chuẩn hoá lý do/lỗi nuôi mọi ô chọn ở màn Thực hiện SX
+      // (hỏng batch · điều chỉnh bàn giao · mở lại phân bổ…). Quyền RIÊNG `dm_ly_do_san_xuat`
+      // (mg 0221 chép từ `san_xuat`). Đứng cuối nhóm — nó là dữ liệu vận hành SX, không phải master.
+      { id: "ly-do-san-xuat", label: "Lý do & lỗi SX", icon: "alert", module: "dm_ly_do_san_xuat" },
     ],
   },
   {

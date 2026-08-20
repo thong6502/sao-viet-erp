@@ -12,6 +12,7 @@ from app.db_migrations import (
     _migrate_employee_salary_commission_pct,
     _migrate_job_grade_catalog,
     _migrate_job_grade_drop_phu,
+    _migrate_job_grade_ten_dan_da,
 )
 
 _SEED_CODES = ["bac_1", "bac_2", "bac_3", "bac_4", "bac_5"]
@@ -230,6 +231,38 @@ def test_0129_khong_de_len_ten_chu_da_sua():
     ten = dict((r[0], r[1]) for r in _grades(engine))
     assert ten["bac_1"] == "Thợ cả", "tên chủ tự đặt phải giữ nguyên"
     assert ten["bac_4"] == "Bậc 4", "tên còn nguyên seed cũ thì mới đổi"
+
+
+# --- 0155: đổi 5 bậc sang tên DÂN DÃ ---------------------------------------
+
+def test_0155_doi_ten_dan_da():
+    """⭐ Bậc 1…5 (còn nguyên tên seed) → tên dân dã, GIỮ mã/hạng, không ai mất bậc."""
+    engine = _fixture()
+    _run(engine)   # 0127 seed "Bậc 1…Bậc 5"
+    with Session(engine) as db:
+        _migrate_job_grade_ten_dan_da(db)
+        db.commit()
+
+    ten = dict((r[0], r[1]) for r in _grades(engine))
+    assert ten == {"bac_1": "Thợ lành nghề", "bac_2": "Thợ vững", "bac_3": "Thợ thường",
+                   "bac_4": "Tập việc", "bac_5": "Lính mới"}
+
+
+def test_0155_khong_de_len_ten_chu_da_sua():
+    """Chủ đã đổi tên một bậc thì giữ tên đó; bậc còn nguyên seed cũ mới đổi. Chạy lại = no-op."""
+    engine = _fixture()
+    _run(engine)
+    with engine.begin() as cn:
+        cn.execute(text("UPDATE job_grades SET name = 'Thợ cả' WHERE code = 'bac_1'"))
+
+    with Session(engine) as db:
+        _migrate_job_grade_ten_dan_da(db)
+        _migrate_job_grade_ten_dan_da(db)   # lần hai — idempotent
+        db.commit()
+
+    ten = dict((r[0], r[1]) for r in _grades(engine))
+    assert ten["bac_1"] == "Thợ cả", "tên chủ tự đặt phải giữ nguyên"
+    assert ten["bac_2"] == "Thợ vững", "bậc còn nguyên seed cũ thì đổi"
 
 
 def test_0129_chay_lai_va_chay_tren_db_moi_deu_khong_sao():

@@ -228,6 +228,13 @@ class DepartmentRepository:
         self.db.refresh(dept)
         return dept
 
+    def set_is_kcs(self, dept: Department, value: bool) -> Department:
+        """Đánh dấu / bỏ dấu TỔ KCS. Đích danh — KHÔNG cascade cây con như `la_san_xuat`."""
+        dept.is_kcs = bool(value)
+        self.db.commit()
+        self.db.refresh(dept)
+        return dept
+
     def count_by_level(self, level_id: int) -> int:
         """How many departments are tagged with a given unit level (delete guard)."""
         return self.db.execute(

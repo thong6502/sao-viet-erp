@@ -77,7 +77,7 @@ TEMPLATES: list[dict] = [
             # mức cũ — mẫu chỉ điền sẵn, siết hay không là quyết định của người bấm Lưu.
             "ke_hoach_vat_tu": {"can_read": True, "scope": SCOPE_ALL},
             "bai_ghep_2": {"can_read": True, "scope": SCOPE_ALL},
-            "xep_lich": {"can_read": True, "scope": SCOPE_ALL},
+            "xep_lich_2": {"can_read": True, "scope": SCOPE_ALL},
             # Xem công + nhật ký của tổ để biết ai vắng, ai đi muộn. KHÔNG `can_adjust` (chấm bù)
             # và KHÔNG `can_lock` (chốt kỳ) — hai việc đó của HCNS.
             "cham_cong": {"can_read": True, "can_view_log": True, "scope": SCOPE_DEPARTMENT},

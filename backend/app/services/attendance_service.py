@@ -259,6 +259,27 @@ def pair_sessions(entries: list) -> list:
     return sessions
 
 
+def _gop_khoang(
+    manh: list[tuple[datetime, datetime]], lo: datetime, hi: datetime,
+) -> list[tuple[datetime, datetime]]:
+    """Kẹp các mảnh khoảng vào [lo,hi], sắp xếp rồi HỢP các khoảng chồng/kề nhau — trả danh sách
+    KHÔNG chồng lấn. Chống đếm TRÙNG phút khi cửa sổ ca thường và phiếu tăng ca lỡ giao nhau."""
+    kep: list[tuple[datetime, datetime]] = []
+    for a, b in manh:
+        a2, b2 = max(a, lo), min(b, hi)
+        if b2 > a2:
+            kep.append((a2, b2))
+    kep.sort(key=lambda x: x[0])
+    ra: list[list[datetime]] = []
+    for a, b in kep:
+        if ra and a <= ra[-1][1]:
+            if b > ra[-1][1]:
+                ra[-1][1] = b
+        else:
+            ra.append([a, b])
+    return [(a, b) for a, b in ra]
+
+
 class AttendanceError(Exception):
     """Base for attendance domain errors."""
 
@@ -1876,6 +1897,55 @@ class AttendanceService:
                 out.append((local, lg))
         out.sort(key=lambda x: x[0])
         return out
+
+    def _khung_tra_cong_utc(self, employee, shift, work_day: date) -> list[tuple[datetime, datetime]]:
+        """Khung 'được trả công' của NGÀY CÔNG (mốc UTC): cửa sổ CA THƯỜNG + cửa sổ PHIẾU TĂNG CA
+        đã duyệt (§7.3 'ngoài ca thường'). Phút-từ-nửa-đêm (giờ VN) → mốc tuyệt đối, cộng qua nửa
+        đêm cho ca đêm / phiếu TC vượt ngày (to_minute > 1440)."""
+        nua_dem = datetime(work_day.year, work_day.month, work_day.day, tzinfo=VN_TZ)
+        khung: list[tuple[datetime, datetime]] = []
+        if shift is not None:
+            s0 = nua_dem + timedelta(minutes=shift.start_minute)
+            s1 = nua_dem + timedelta(minutes=shift.end_minute + (1440 if shift.is_overnight else 0))
+            khung.append((s0.astimezone(timezone.utc), s1.astimezone(timezone.utc)))
+        otw = self._ot_window_on(employee, work_day)
+        if otw is not None and otw[1] > otw[0]:
+            o0 = nua_dem + timedelta(minutes=int(otw[0]))
+            o1 = nua_dem + timedelta(minutes=int(otw[1]))
+            khung.append((o0.astimezone(timezone.utc), o1.astimezone(timezone.utc)))
+        return khung
+
+    def khoang_co_mat_hop_le(
+        self, employee, start_utc: datetime, end_utc: datetime,
+    ) -> list[tuple[datetime, datetime]]:
+        """§7.3 — các KHOẢNG CÓ MẶT HỢP LỆ (UTC-aware, KHÔNG chồng lấn) của NV trong [start,end):
+        giao của (các cặp chấm công IN/OUT thực tế) với (TRONG CA THƯỜNG ∪ PHIẾU TĂNG CA ĐÃ DUYỆT).
+        Phút THÔ — không grace, không làm tròn. Ca qua đêm gom vào ngày VÀO ca (`work_day_of`).
+
+        Dùng nuôi lương khoán (§12.2): engine phân bổ lấy phút = giao(khoảng THAM GIA, khoảng này).
+        NV chưa gán ca + không có phiếu TC ⇒ khung trả công rỗng ⇒ trả [] (⇒ đánh 'thiếu chấm công')."""
+        start_utc, end_utc = _as_utc(start_utc), _as_utc(end_utc)
+        if employee is None or end_utc <= start_utc:
+            return []
+        # Nới ±1 ngày quanh biên để ôm ca đêm gom về ngày vào ca.
+        d = start_utc.astimezone(VN_TZ).date() - timedelta(days=1)
+        d_het = end_utc.astimezone(VN_TZ).date() + timedelta(days=1)
+        manh: list[tuple[datetime, datetime]] = []
+        while d <= d_het:
+            shift = self._shift_for_day(employee, d)
+            punches = self._day_punches(employee, shift, d)
+            sessions = pair_sessions([(lc, lg.check_type) for lc, lg in punches])
+            if sessions:
+                khung = self._khung_tra_cong_utc(employee, shift, d)
+                for s_in, s_out in sessions:
+                    a0 = s_in.astimezone(timezone.utc)
+                    a1 = s_out.astimezone(timezone.utc)
+                    for w0, w1 in khung:
+                        lo, hi = max(a0, w0), min(a1, w1)
+                        if hi > lo:
+                            manh.append((lo, hi))
+            d += timedelta(days=1)
+        return _gop_khoang(manh, start_utc, end_utc)
 
     def day_detail(self, *, scope, actor, employee_id: int, date_str: str) -> dict:
         """'Ô biết nói': punch thật của 1 NV trong 1 ngày + công tính lại + lý do."""

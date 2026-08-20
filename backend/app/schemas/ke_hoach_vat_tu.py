@@ -58,6 +58,9 @@ class CanDoiDong(BaseModel):
     #: dời lịch tới ngày đó thì tới nơi vẫn không đủ hàng. Đây là ngày SỚM NHẤT mà cộng dồn các lô
     #: đang về đã phủ được chỗ thiếu.
     ngay_du_hang: date | None = None
+    #: Mã phiếu mua của chính lô làm nên `ngay_du_hang` — chỉ có ở dòng `ve_muon`. Không có mã thì
+    #: câu "đã có hàng đang về" không tra được về đâu, mà việc phải làm nằm trong đúng phiếu đó.
+    phieu_ve: str | None = None
     han_dat: date | None = None
     dat_muon: bool = False
     canh_bao: list[str] = Field(default_factory=list)
@@ -137,6 +140,14 @@ class TheoLenhHang(BaseModel):
     so_buoc: int = 0
     #: Màu NẶNG NHẤT trong các bước. Thẻ chỉ hiện được một màu, và phải là màu tệ nhất.
     trang_thai: str = "xam"
+    #: Ngày SỚM NHẤT món này cần tới — nhỏ nhất trong các bước ăn nó. Đứng cạnh `ngay_du_hang` để
+    #: thẻ nói được "trễ mấy ngày" mà không phải mượn ngày của cả lệnh (lệnh lấy min của MỌI món).
+    ngay_can: date | None = None
+    #: Ngày lô đang về phủ đủ chỗ thiếu — MUỘN NHẤT trong các bước `ve_muon` của món: phải chờ tới
+    #: khi bước cuối có hàng, không phải bước đầu.
+    ngay_du_hang: date | None = None
+    #: Mã phiếu mua của lô đó — để nút mua bị khoá gọi tên được đơn hàng đang trên đường về.
+    phieu_ve: str | None = None
     #: Bao nhiêu lệnh/bài KHÁC đang thiếu chính món này — câu *"nhả ra thì ai đỡ"* của hộp xác nhận.
     #:
     #: Tính trên TOÀN BỘ bảng, trước mọi bộ lọc: đếm sau bộ lọc thì màn đang lọc sẽ báo "0 lệnh

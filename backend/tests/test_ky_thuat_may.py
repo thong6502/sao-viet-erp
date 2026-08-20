@@ -17,6 +17,7 @@ from app.models.ky_thuat_may import (
     GIAI_DOAN_TRUOC,
     LOAI_PHIEU_BAO_TRI,
     LOAI_PHIEU_SUA_CHUA,
+    TT_BT_DA_HUY,
     TT_BT_HOAN_THANH,
     TT_SC_DA_SUA_XONG,
     TT_SC_DANG_SUA,
@@ -274,6 +275,23 @@ def test_lich_tra_ky_du_kien_theo_chu_ky_va_khong_chong_len_phieu_that():
     ]
 
 
+def test_lich_van_ve_phieu_da_huy_nhung_ky_du_kien_nhay_qua():
+    """Phiếu đã hủy CÒN hiện trên lịch (để không biến mất khi hủy ngay trên đó), nhưng chuỗi kỳ dự
+    kiến phải bắt đầu từ SAU ngày đã hủy — không vẽ chấm mờ đè lên đúng ô phiếu hủy."""
+    db, svc = _svc()
+    may = _may(db, goi=[_goi(so=1, don_vi="thang", ngay_bat_dau="2026-09-01")])
+
+    phieu = svc.tao_bao_tri({"may_id": may.id, "goi_id": "hm-abc", "ngay_ke_hoach": date(2026, 9, 1)})
+    svc.huy_bao_tri(phieu.id, "Máy đang chờ linh kiện")
+
+    kq = svc.lich(date(2026, 9, 1), date(2026, 12, 31))
+    assert [(p.ngay_ke_hoach, p.trang_thai) for p in kq["phieu"]] == [(date(2026, 9, 1), TT_BT_DA_HUY)]
+    # 01/09 đã hủy ⇒ không còn trong chuỗi dự kiến; kỳ kế bắt đầu từ 01/10.
+    assert [d["ngay"] for d in kq["du_kien"]] == [
+        date(2026, 10, 1), date(2026, 11, 1), date(2026, 12, 1),
+    ]
+
+
 def test_lich_bo_qua_goi_chua_khai_chu_ky():
     """Không khai chu kỳ thì không đoán được kỳ nào — thà không vẽ còn hơn vẽ một ngày bịa."""
     db, svc = _svc()
@@ -425,12 +443,12 @@ def test_danh_sach_xep_viec_con_do_len_truoc_phieu_da_xong():
     assert [r.id for r in chi_can_lam] == [con_do.id] and tong == 1
 
 
-# ================= dời lịch · checklist =================
+# ================= hủy phiếu · checklist =================
 
 
-def test_api_lich_su_thao_tac_ghi_ai_doi_lich_va_ly_do(client):
-    """Cột `ly_do_doi` chỉ giữ lần dời GẦN NHẤT ⇒ lý do lần đầu phải đọc được ở nhật ký, kèm tên
-    người dời. Không có nó thì mở phiếu ra không ai biết ai dời và vì sao (chủ soi ra 12/08/2026)."""
+def test_api_lich_su_thao_tac_ghi_ai_huy_phieu_va_ly_do(client):
+    """Hủy phiếu ghi vào nhật ký kèm lý do và tên người hủy — mở phiếu ra phải biết AI hủy và VÌ
+    SAO, không thì kỳ bảo trì lặng lẽ biến mất khỏi lịch không ai lần ra (chủ soi ra 12/08/2026)."""
     h = _headers(client)
     may = client.post("/api/may-thiet-bi", json={"ma": "BE-01", "ten": "Bế 01",
                                                 "loai_may": "Bế"}, headers=h).json()
@@ -438,34 +456,31 @@ def test_api_lich_su_thao_tac_ghi_ai_doi_lich_va_ly_do(client):
                     json={"may_id": may["id"], "loai": "dot_xuat",
                           "ngay_ke_hoach": str(date.today())}, headers=h).json()
 
-    client.post(f"/api/ky-thuat-may/bao-tri/{p['id']}/doi-lich",
-                json={"ngay_moi": str(date.today() + timedelta(days=3)),
-                      "ly_do": "Chờ dao bế về"}, headers=h)
-    client.post(f"/api/ky-thuat-may/bao-tri/{p['id']}/doi-lich",
-                json={"ngay_moi": str(date.today() + timedelta(days=7)),
-                      "ly_do": "Máy đang chạy đơn gấp"}, headers=h)
+    r_huy = client.post(f"/api/ky-thuat-may/bao-tri/{p['id']}/huy",
+                        json={"ly_do": "Máy thanh lý, không bảo trì nữa"}, headers=h)
+    assert r_huy.status_code == 200, r_huy.text
+    assert r_huy.json()["trang_thai"] == "da_huy"
+    assert r_huy.json()["ly_do_huy"] == "Máy thanh lý, không bảo trì nữa"
 
     r = client.get(f"/api/nhat-ky-danh-muc/ky_thuat_bao_tri/{p['id']}", headers=h)
     assert r.status_code == 200, r.text
     items = r.json()["items"]
     chi_tiet = " | ".join(i["detail"] for i in items)
-    assert "Chờ dao bế về" in chi_tiet          # lý do lần ĐẦU vẫn còn, dù phiếu chỉ giữ lần cuối
-    assert "Máy đang chạy đơn gấp" in chi_tiet
-    assert all(i["actor_name"] for i in items)  # ai làm — không được để trống
+    assert "Máy thanh lý, không bảo trì nữa" in chi_tiet   # lý do hủy đọc được ở nhật ký
+    assert all(i["actor_name"] for i in items)             # ai làm — không được để trống
 
 
-def test_doi_lich_bat_buoc_ly_do_va_giu_moc_ban_dau():
+def test_huy_bao_tri_bat_buoc_ly_do_va_dat_trang_thai():
     db, svc = _svc()
     may = _may(db, goi=[_goi()])
     phieu = svc.tao_bao_tri({"may_id": may.id, "ngay_ke_hoach": date(2026, 5, 18)})
 
     with pytest.raises(KyThuatMayValidationError):
-        svc.doi_lich(phieu.id, date(2026, 5, 25), "  ")
+        svc.huy_bao_tri(phieu.id, "  ")               # hủy phải kèm lý do
 
-    phieu = svc.doi_lich(phieu.id, date(2026, 5, 25), "Chờ dao bế về")
-    assert phieu.ngay_ke_hoach == date(2026, 5, 25)
-    assert phieu.ngay_ke_hoach_goc == date(2026, 5, 18)   # "Đã dời" dẫn xuất từ chỗ này
-    assert phieu.ly_do_doi == "Chờ dao bế về"
+    phieu = svc.huy_bao_tri(phieu.id, "Chờ dao bế về")
+    assert phieu.trang_thai == TT_BT_DA_HUY
+    assert phieu.ly_do_huy == "Chờ dao bế về"
 
 
 def test_tick_hang_muc_ghi_duoc_xuong_db():
@@ -964,7 +979,7 @@ def test_sua_phieu_bao_tri_khong_doi_duoc_may_goi_loai():
                                 "ngay_ke_hoach": date(2026, 9, 9), "ghi_chu": "sửa được cái này"})
     lai = svc.get_bao_tri(p.id)
     assert (lai.may_id, lai.goi_id, lai.loai) == (may.id, "hm-abc", "dinh_ky")
-    assert lai.ngay_ke_hoach == date(2026, 5, 1)      # đổi ngày phải đi qua "dời lịch"
+    assert lai.ngay_ke_hoach == date(2026, 5, 1)      # ngày chốt lúc sinh phiếu; không làm thì HỦY
     assert lai.ghi_chu == "sửa được cái này"
 
 

@@ -42,6 +42,12 @@ export interface EditRow {
   /** Bước có nằm trên DÒNG GIẤY không — CHỈ ĐỌC, server quyết theo cờ trạm của danh mục Đơn vị.
    *  `false` ⇒ số lượng không tự tính ngược, bù hao không cộng vào số giấy (drawer nói tại chỗ). */
   tren_dong_giay: boolean;
+  /** Bước ngoài dòng giấy thiếu cầu quy đổi vào→ra ở module Đơn vị & quy đổi ⇒ câu lỗi (server
+   *  tính lúc đọc). null = ổn. Có lỗi thì `so_luong_vao` = 0 và drawer bày banner đỏ. CHỈ ĐỌC. */
+  loi_quy_doi: string | null;
+  /** Diễn giải công thức SỐ RA cho bước ngoài dòng ("Số bản kẽm = 5 bản kẽm"; server tính lúc
+   *  đọc). null với bước trên dòng giấy. CHỈ ĐỌC. */
+  san_luong_dien_giai: string | null;
   he_so_quy_doi: string;
   hao_hut: string;
   hao_hut_pct: string;
@@ -162,6 +168,8 @@ export function toEdit(cd: LsxCongDoan): EditRow {
     // Server cũ chưa gửi cờ ⇒ coi như TRÊN dòng giấy: im lặng đúng với hành vi trước đây, hơn là
     // đột nhiên dán chú giải "ngoài dòng giấy" lên mọi bước.
     tren_dong_giay: cd.tren_dong_giay !== false,
+    loi_quy_doi: cd.loi_quy_doi ?? null,
+    san_luong_dien_giai: cd.san_luong_dien_giai ?? null,
     he_so_quy_doi: s(cd.he_so_quy_doi),
     hao_hut: s(cd.hao_hut),
     hao_hut_pct: s(cd.hao_hut_pct),
@@ -222,7 +230,7 @@ export function emptyRow(): EditRow {
     requires_tooling: false, tooling_type: null, khuon_be_id: null, khuon_be_ma: null,
     khuon_be_ten: null, khuon_be_so_ke: null, khuon_be_tinh_trang: null, khuon_be_ngay_ve: null,
     so_luong_vao: "", so_luong_ra: "", don_vi_vao: "to", don_vi_ra: "to",
-    tren_dong_giay: true, he_so_quy_doi: "",
+    tren_dong_giay: true, loi_quy_doi: null, san_luong_dien_giai: null, he_so_quy_doi: "",
     hao_hut: "", hao_hut_pct: "", so_luot_chay: "", so_nhan_cong: "",
     nang_suat: "", don_vi_nang_suat: "", phat_sinh_phut: "",
     so_nhan_cong_toi_thieu: null, so_nhan_cong_tieu_chuan: 1, so_nhan_cong_toi_da: null,

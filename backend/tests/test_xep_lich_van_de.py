@@ -413,11 +413,12 @@ def test_ngoai_le_gate_doi_approve_exception(client):
     try:
         dept = DepartmentRepository(db).get_by_name("Sản xuất")
         users = UserRepository(db)
-        # Vai A: có approve NHƯNG thiếu approve_exception.
+        # Vai A: có xep_lich_2.approve NHƯNG thiếu approve_exception — chứng minh hai bit TÁCH NHAU
+        # ngay trên cùng khoá: cầm quyền phát hành vẫn KHÔNG tự động duyệt được ngoại lệ.
         role_a = Role(name="SX phát-không-ngoại-lệ", department_id=dept.id)
         db.add(role_a)
         db.flush()
-        db.add(RolePermission(role_id=role_a.id, module_key="san_xuat", scope="all",
+        db.add(RolePermission(role_id=role_a.id, module_key="xep_lich_2", scope="all",
                               can_read=True, can_update=True, can_approve=True,
                               can_approve_exception=False))
         ua = users.create(username="sx_approve_only", name="SX phát", password_hash=hash_password("x"))
@@ -431,11 +432,13 @@ def test_ngoai_le_gate_doi_approve_exception(client):
     finally:
         db.close()
 
-    key = {"issue_key": "trung_may:1:1:2", "ly_do": "thử"}
-    r = client.post("/api/xep-lich/van-de/ngoai-le", json=key,
+    # Endpoint v2 duyệt ngoại lệ TRỄ HẠN cho một lệnh; cửa quyền `xep_lich_2:approve_exception` bắn
+    # TRƯỚC handler nên lsx_id không cần tồn tại để phân biệt 403 (thiếu quyền) với !=403 (qua cửa).
+    body = {"ly_do": "thử"}
+    r = client.post("/api/xep-lich-2/duyet-ngoai-le/lsx/1", json=body,
                     headers={"Authorization": f"Bearer {create_access_token(str(uid_a))}"})
     assert r.status_code == 403, r.text
 
-    r2 = client.post("/api/xep-lich/van-de/ngoai-le", json=key,
+    r2 = client.post("/api/xep-lich-2/duyet-ngoai-le/lsx/1", json=body,
                      headers={"Authorization": f"Bearer {create_access_token(str(uid_b))}"})
     assert r2.status_code != 403, r2.text

@@ -46,8 +46,13 @@ _PREFIX_PERMISSION: dict[str, str] = {
 # thêm đoạn thứ hai. Không làm bước này thì chỉ còn hai lựa chọn, cả hai đều dở: nới `ky-thuat-may`
 # cho cả hai khoá (người chỉ có Phiếu bảo trì xem được ảnh máy hỏng), hoặc để nguyên một khoá
 # (người chỉ có Phiếu bảo trì không xem được ảnh của chính phiếu mình đang làm).
-_PREFIX_2_PERMISSION: dict[tuple[str, str], str] = {
-    ("ky-thuat-may", "bao_tri"): "phieu_bao_tri",
+_PREFIX_2_PERMISSION: dict[tuple[str, str], tuple[str, ...]] = {
+    ("ky-thuat-may", "bao_tri"): ("phieu_bao_tri",),
+    # Ảnh máy hỏng người ngoài tổ kỹ thuật gửi kèm yêu cầu — HAI khoá, có một cái không bỏ được:
+    # lúc yêu cầu thành phiếu, ảnh đổi chủ sang phiếu nhưng KHOÁ LƯU TRỮ vẫn mang đoạn `yeu_cau`
+    # (đổi khoá = phải chép tệp trong storage). Chỉ để `yeu_cau_sua_chua` thì tổ sửa chữa mở phiếu
+    # ra thấy ô ảnh 403; chỉ để `ky_thuat_may` thì người báo không xem lại được ảnh mình vừa gửi.
+    ("ky-thuat-may", "yeu_cau"): ("yeu_cau_sua_chua", "ky_thuat_may"),
 }
 
 
@@ -62,10 +67,13 @@ def download_file(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Đường dẫn tệp không hợp lệ")
 
     doan = key.split("/")
-    module = _PREFIX_2_PERMISSION.get(
-        (doan[0], doan[1] if len(doan) > 1 else "")
-    ) or _PREFIX_PERMISSION.get(doan[0])
-    if module and not authz.can(user, module, "read"):
+    khoa = _PREFIX_2_PERMISSION.get((doan[0], doan[1] if len(doan) > 1 else ""))
+    if khoa is None:
+        mot = _PREFIX_PERMISSION.get(doan[0])
+        khoa = (mot,) if mot else ()
+    # `any`: có MỘT khoá đọc được là đủ — nhiều khoá ở đây nghĩa là "nhiều nhóm người cùng có lý do
+    # chính đáng nhìn tấm ảnh này", không phải "phải có đủ cả hai".
+    if khoa and not any(authz.can(user, m, "read") for m in khoa):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Bạn không có quyền xem tệp này")
 
     try:

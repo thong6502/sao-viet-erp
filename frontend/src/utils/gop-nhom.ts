@@ -121,19 +121,33 @@ function gachDauDong(d: DongGopDuoc): string {
   return ten ? `${ten}: ${y.join(" · ")}` : y.join(" · ");
 }
 
-/** Nhóm có nhiều dòng nhưng SL lệch nhau → cảnh báo trên màn soạn (bản in vẫn lấy SL dòng đầu). */
+/** Một nhóm bị lệch SL: tên nhóm, số sẽ IN cho khách (SL phần ĐẦU), và từng phần con. */
+export interface NhomLechSoLuong {
+  ten: string;
+  /** SL in trên bản gửi khách = SL của phần đầu nhóm (bản in không cộng dồn). */
+  slInChoKhach: number;
+  /** Từng phần con theo thứ tự khai — để câu cảnh báo nêu thẳng phần nào bao nhiêu. */
+  phan: { ten: string; soLuong: number }[];
+}
+
+/**
+ * Nhóm có nhiều dòng nhưng SL lệch nhau → cảnh báo trên màn soạn (bản in vẫn lấy SL phần đầu).
+ * Trả CHI TIẾT (không chỉ tên) để câu cảnh báo nêu rõ phần nào bao nhiêu + số in cho khách.
+ */
 export function nhomLechSoLuong<T>(
   rows: T[],
   chonDong: (r: T) => DongGopDuoc,
-): string[] {
-  const theoNhom = new Map<string, { ten: string; sl: Set<number> }>();
+): NhomLechSoLuong[] {
+  const theoNhom = new Map<string, { ten: string; phan: { ten: string; soLuong: number }[] }>();
   for (const row of rows) {
     const d = chonDong(row);
     const k = khoaNhom(d.nhom);
     if (k === null) continue;
-    const cur = theoNhom.get(k) ?? { ten: (d.nhom ?? "").trim(), sl: new Set<number>() };
-    cur.sl.add(d.soLuong);
+    const cur = theoNhom.get(k) ?? { ten: (d.nhom ?? "").trim(), phan: [] };
+    cur.phan.push({ ten: d.ten, soLuong: d.soLuong });
     theoNhom.set(k, cur);
   }
-  return [...theoNhom.values()].filter((v) => v.sl.size > 1).map((v) => v.ten);
+  return [...theoNhom.values()]
+    .filter((v) => new Set(v.phan.map((p) => p.soLuong)).size > 1)
+    .map((v) => ({ ten: v.ten, slInChoKhach: v.phan[0].soLuong, phan: v.phan }));
 }

@@ -1181,7 +1181,7 @@ def test_vat_tu_hieu_luc_bai_ghep_khong_cong_lai_buoc_nguon_bi_override(
     _khai_vat_tu(db, rieng_b, vt, 3)
     _khai_vat_tu_bai(db, chung, vt, 7)
 
-    nhom = next(x for x in svc.can_doi()["items"]
+    nhom = next(x for x in svc.can_doi(include_lsx_ids={a.id, b.id})["items"]
                 if (x["hang_loai"], x["hang_id"]) == ("vat_tu", vt.id))
     assert len(nhom["dong"]) == 3
     assert sum(d["nhu_cau"] for d in nhom["dong"]) == pytest.approx(12)

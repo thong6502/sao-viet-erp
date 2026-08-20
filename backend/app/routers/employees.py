@@ -680,7 +680,8 @@ def create_job_grade(
 ) -> JobGradeOut:
     try:
         g = svc.create_job_grade(actor=user, name=body.name, code=body.code,
-                                 seq=body.seq, note=body.note)
+                                 seq=body.seq, note=body.note,
+                                 output_coefficient=body.output_coefficient)
     except EmployeeError as exc:
         _raise(exc)
     return JobGradeOut.model_validate(g)

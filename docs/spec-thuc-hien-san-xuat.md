@@ -1,0 +1,879 @@
+# Spec — Module Thực hiện sản xuất (sau Kế hoạch sản xuất 2 / Xếp lịch 2)
+
+> Bản spec gốc (v2) do chủ dự án chốt. Đây là lớp **thực thi sản xuất tại tổ** đứng sau khâu
+> phát hành của Xếp lịch 2, KHÔNG thay màn lập lịch, KHÔNG dựng hệ sản xuất tách rời.
+>
+> Tài liệu liên quan: `docs/spec-xep-lich-2.md`, `docs/design-xep-lich-2-ui.md`, `docs/DB_SCHEMA.md`,
+> `docs/DOMAIN_NHA_MAY_IN.md`.
+
+## Trạng thái triển khai
+
+| Giai đoạn | Nội dung | Trạng thái |
+|---|---|---|
+| 1 | Nền tổ chức & phát hành (cờ KCS, navbar node lá, nhóm thành phẩm, snapshot phát hành, gói nguyên tử, phiên bản cập nhật lịch) | 🔨 Đang làm — mg 0220: `departments.is_kcs` + `job_grades.output_coefficient` nối 2 màn danh mục (BE + test). Backbone phát hành XONG (6 bảng `san_xuat_*` create_all, `SanXuatRepository`, `component`/`nhom`/`snapshot`/`release`, nối vào cả 2 cửa phát hành, 7 test `test_san_xuat_release.py` xanh): thành phần liên thông, gói+phiên bản+công việc đóng băng, một-bài-ghép-một-công-việc, suy nhóm thành phẩm, đánh KCS-cuối, cửa soi `van_de_phat_hanh`, idempotent mức gói. **Nguồn navbar node lá (BE) XONG**: `services/san_xuat/board.py` (`teams`+`work_items`, scope all/department/own tái dùng module quyền `san_xuat`, KHÔNG đẻ quyền/migration mới), `schemas/san_xuat.py`, `routers/san_xuat.py` (`GET /api/san-xuat/teams` + `/work-items?team_id=`, gác `require_permission("san_xuat","read")`, ngoài phạm vi→403), đã mount trong `main.py`; 7 test `test_san_xuat_board.py` + 4 api `test_san_xuat_board_api.py` xanh, compileall sạch. Còn: **navbar FE** (bơm node lá vào Sidebar), phiên bản cập-nhật-lịch (§4.3), FE (KCS checkbox đã có, hộp thoại phát hành chưa gắn cửa soi) |
+| 2 | Khung thực hiện tại tổ (timeline, drawer, phân công, phiên chạy, khoảng tham gia, chấm công/OT, actual overlay) | ✅ BE ĐỌC+GHI + FE "một bàn làm việc" XONG (chờ nghiệm thu cuối) — Đọc: `board.teams`/`work_items`/`chi_tiet_cong_viec` (drawer: roster + phiên chạy + khoảng tham gia; nhãn resolve theo lô) + endpoint picker riêng gác `san_xuat` `GET /teams/{id}/nhan-vien` (KHÔNG mượn `/api/employees` vì nó đòi quyền `nhan_su` → tổ trưởng 403). Ghi: 3 bảng mới create_all `san_xuat_phan_cong`/`san_xuat_phien_chay`/`san_xuat_khoang_tham_gia`, repo + service `services/san_xuat/thuc_thi.py` (snapshot cờ khoán từ `departments.has_piece_work`; bước nội bộ chỉ nhận thợ khoán; GATE §6 chỉ `head_user_id` đúng tổ; bắt đầu cần ≥1 khoán; trễ/tạm dừng bắt buộc lý do; không hai khoảng chồng giờ; version chống bấm trùng; máy chủ + naive/aware). Router 6 endpoint ghi gác `san_xuat:assign_work` + SSE sau commit; KHÔNG migration. **FE**: 5 file `ThucHienSxPage`/`ThsxTimeline`/`ThsxDrawer`/`thsxShared`/`thuc-hien-sx.css` (bám pattern XepLich2, timeline tái dùng `xl2Shared`, KHÔNG kéo-thả), nối `api.sanXuat` (9 method) + AppShell (Kho-pattern: teamList/badge/dynamicItems/render/SSE) + `permissions` (`assign_work`); styleseed **94/100 A**, `npx tsc` sạch. 15 test `test_san_xuat_thuc_thi.py` + 7 board + 4 api xanh. **Khoảng trống chờ pha sau:** (b) §7.3 chấm công-OT dẫn xuất; (c) actual overlay (cần trường mốc thực trên `WorkItemOut`); (d) §7.1 "số người thực tế ≠ dự kiến → lý do" (chờ nguồn số người dự kiến) |
+| 3 | Đầu vào, sản lượng & bàn giao (xác nhận vật tư, chọn lot BTP, batch sản lượng, bàn giao, overconsumption) | ✅ BE XONG (chờ FE + nghiệm thu cuối) — 6 bảng mới create_all (`san_xuat_ly_do`, `san_xuat_batch`, `san_xuat_batch_lot_vao`, `san_xuat_ban_giao`, `san_xuat_ban_giao_dieu_chinh`, `san_xuat_vat_tu_nhan`) + repo `san_xuat_san_luong_repo.py`. **Sản lượng** `services/san_xuat/san_luong.py`: batch `tong=tot+hong`, hong>0 bắt nhóm lỗi chuẩn (`nhom='loi'`), chỉ ghi khi cv đã khởi động, GATE §6, `tong_tot` = nền trần bàn giao; lot đầu vào §10.3 (batch công đoạn trước, không trỏ chính mình) + `them_lot`. **Bàn giao** `services/san_xuat/ban_giao.py`: cùng-tổ-cùng-LSX tự `confirmed` (notify None), khác tổ→`proposed`→bên NHẬN xác nhận (gate ĐÍCH, nguồn không tự xác nhận), trần `tong_tot−đã_giao`, sửa chỉ khi `proposed`, điều chỉnh đẻ lịch sử + cờ `khong_nhat_quan` khi giảm dưới lượng đã dùng (§11.3), bắt buộc lý do nhóm `dieu_chinh_ban_giao`. **Vật tư** `services/san_xuat/vat_tu_nhan.py`: xác nhận phiếu XUẤT posted NGUYÊN TRẠNG (§10.1), 1 phiếu/1 lần (`voucher_id` UNIQUE), gate tổ trưởng. **Danh mục Lý do & lỗi SX** = catalog thứ 12 trên màn Cấu hình danh mục (module quyền riêng `dm_ly_do_san_xuat`, mg 0221 chép quyền từ `san_xuat`), KHÔNG đẻ màn mới. Router `san_xuat.py` + schema mặt GHI đã khai (LotVaoIn/BatchIn/BanGiao*/VatTu*). **44 test san_xuat (G1–G3) chạy chung xanh** (9 san_luong + 8 ban_giao + 4 vat_tu_nhan mới) + `test_schema_documented` + `test_catalog_registry` xanh; KHÔNG migration cột (chỉ bảng mới). **Còn: FE drawer** (nhập batch + picker lot đầu vào + UI bàn giao + xác nhận vật tư, gắn vào `ThsxDrawer` chỗ placeholder "Pha sau") + FE cấu hình catalog lý do; qua 2-agent + styleseed + dev-browser |
+| 4 | Hỗ trợ & phân bổ (hỗ trợ 2 tổ, hệ số bậc, phân bổ theo batch, chốt/mở lại, nối PieceWork) | ⏳ Chưa bắt đầu |
+| 5 | KCS & kho (batch KCS, lỗi+ảnh, trách nhiệm, đóng thiếu, TP/BTP theo đơn, nhập kho một phần, tự đóng nhóm) | ⏳ Chưa bắt đầu |
+| 6 | Real-time & hoàn thiện (SSE toàn sự kiện, badge/toast, audit, chống trùng, test tích hợp) | ⏳ Chưa bắt đầu |
+
+Quy tắc verify: giữa dòng dùng `pytest` nhắm file + `npx tsc`; chạy `./init.ps1` một lần ở cuối cùng.
+Migration Postgres gần như không đảo được — thêm/đổi cột phải viết `backend/app/db_migrations.py` +
+cập nhật `docs/DB_SCHEMA.md`; Boolean dùng `true/false`.
+
+---
+
+## 1. Mục tiêu tổng thể
+
+Xây thêm lớp **thực hiện sản xuất tại tổ** nối trực tiếp sau khi lệnh được phát hành từ Kế hoạch sản xuất 2:
+
+1. Kế hoạch sản xuất 2 lập lịch và phát hành.
+2. Lệnh xuất hiện tại tổ sản xuất tương ứng.
+3. Tổ trưởng phân công người thực hiện.
+4. Ghi nhận bắt đầu, tạm dừng, tiếp tục, kết thúc và sản lượng thực tế.
+5. Theo dõi nguyên vật liệu, bán thành phẩm và bàn giao giữa công đoạn.
+6. Phân bổ sản lượng cho từng người theo thời gian thực tế và bậc tay nghề.
+7. KCS kiểm tra trước khi tạo yêu cầu nhập kho.
+8. Dữ liệu sản lượng đã chốt được đưa vào luồng lương khoán hiện có.
+
+Đây là lớp thực thi của lịch đã phát hành, không thay thế màn lập lịch và không tạo một hệ thống sản xuất tách rời.
+
+---
+
+## 2. Phòng ban, navbar và cờ KCS
+
+### 2.1. Phân hệ sản xuất trên navbar
+
+- Phòng ban có `la_san_xuat = true` được xem là gốc của một khối sản xuất.
+- Tất cả node lá nằm bên dưới phòng đó tự động xuất hiện trên navbar thuộc phân hệ Sản xuất.
+- Nếu một node con tiếp tục có node trực thuộc thì chỉ các node lá cuối cùng được đưa lên navbar.
+- Mỗi node lá dùng chung một khung màn hình thực hiện sản xuất, nhưng dữ liệu được lọc theo tổ và quyền của người đăng nhập.
+- Không dựng một loại màn hình riêng cho từng tổ.
+
+### 2.2. Cờ KCS
+
+Bổ sung `departments.is_kcs`.
+
+Quy tắc:
+
+- Chỉ hiển thị công tắc KCS khi phòng/tổ là node lá và đang thuộc hiệu lực của Khối sản xuất.
+- Có thể có nhiều tổ KCS trong công ty.
+- Khi tắt cờ Khối sản xuất ở một phòng cha, hệ thống cảnh báo và tự xóa cờ KCS của các node con bị mất hiệu lực sản xuất sau khi người dùng xác nhận.
+- Khi phát hành lệnh, hệ thống snapshot phòng thực hiện và trạng thái KCS; thay đổi cơ cấu sau đó không làm đổi lệnh đang chạy.
+- Một công đoạn được nhận diện là KCS dựa trên snapshot phòng thực hiện, không dựa vào tên có chứa "KCS".
+- Mỗi nhóm thành phẩm phải có đúng một công đoạn KCS cuối.
+- Có thể có KCS trung gian, nhưng phải phân biệt rõ với KCS cuối.
+- Thiếu KCS cuối hoặc có nhiều hơn một KCS cuối sẽ chặn phát hành.
+- Quyền "ghi nhận kiểm tra KCS" và quyền "tạo yêu cầu nhập kho" là hai quyền riêng.
+
+---
+
+## 3. Nhóm thành phẩm, LSX và bước ghép
+
+### 3.1. Nhóm thành phẩm
+
+- Tự động tạo `production_group` từ `OrderLine.nhom`.
+- Không yêu cầu người dùng nhập lại tên thành phẩm.
+- Dòng đơn hàng không có `nhom` tạo thành một nhóm đơn lẻ.
+- Kế hoạch sản xuất không được tự ghép hoặc tách lại nhóm.
+- Nếu nhóm sai, phải sửa từ nguồn Sale/đơn hàng trước khi phát hành.
+
+Ví dụ DH019:
+
+- "Kỷ yếu 25 năm An Phát" là một nhóm thành phẩm.
+- Nhóm có hai phần: Ruột và Bìa.
+- Ruột và Bìa vẫn là hai LSX riêng.
+- Không tạo LSX thứ ba chỉ để đại diện cho thành phẩm.
+- Sau khi ghép, sản lượng thành phẩm cuối thuộc về nhóm "Kỷ yếu 25 năm An Phát".
+
+### 3.2. Công đoạn phụ thuộc và bước ghép
+
+- Chỉ cho phép phụ thuộc chéo giữa các LSX thuộc cùng một nhóm thành phẩm.
+- Một công đoạn nhận đầu vào từ LSX khác tự động được xem là **bước ghép**.
+- Không cần thêm loại công đoạn "Ghép" riêng.
+- Một nhóm có thể có nhiều bước ghép.
+- Sau bước ghép đầu tiên, phải xác định một LSX thân chính tiếp tục đi tới KCS cuối.
+- Các LSX còn lại chỉ đóng vai trò nhánh cung cấp đầu vào cho thân chính.
+- Không tạo nhánh cấp nhóm hoặc LSX thành phẩm giả.
+
+Mỗi cạnh phụ thuộc chéo phải snapshot:
+
+- LSX/công đoạn nguồn.
+- LSX/công đoạn đích.
+- Tỷ lệ ghép.
+- Đơn vị nguồn và đơn vị đích.
+- Quy tắc quy đổi.
+- Số lượng yêu cầu.
+
+Hệ thống tự gợi ý tỷ lệ từ dữ liệu đơn hàng/bài tính giá; người lập kế hoạch được sửa trước khi phát hành.
+
+Giới hạn sản lượng của bước ghép bằng đầu vào bắt buộc đang có ít nhất sau khi quy đổi.
+
+### 3.3. Bài ghép
+
+- Một Bài ghép dùng chung chỉ tạo một bản ghi thực hiện thực tế.
+- Chỉ ghi nhận một lần chạy và một lần sản lượng thực tế cho Bài ghép.
+- Sản lượng sau đó được ánh xạ về các LSX nhánh theo cấu hình đã snapshot.
+- Không tạo nhiều lần thực hiện trùng nhau cho từng LSX dùng chung Bài ghép.
+
+---
+
+## 4. Phát hành và cập nhật lịch
+
+### 4.1. Gói phát hành nguyên tử
+
+Đơn vị phát hành là một thành phần liên thông gồm:
+
+- Một nhóm thành phẩm.
+- Các LSX của nhóm.
+- Các phụ thuộc chéo.
+- Bài ghép dùng chung của nhóm.
+- Những nhóm khác bị liên kết qua cùng Bài ghép đó.
+
+Toàn bộ thành phần liên thông phải phát hành nguyên tử. Không được phát hành một nhánh trong khi nhánh phụ thuộc còn lại chưa sẵn sàng.
+
+Cả màn xếp lịch cũ và Kế hoạch sản xuất 2 phải dùng chung bộ kiểm tra phát hành này.
+
+### 4.2. Snapshot lúc phát hành
+
+Snapshot tối thiểu:
+
+- Nhóm thành phẩm và các dòng đơn hàng.
+- Sơ đồ LSX/công đoạn/phụ thuộc.
+- Tỷ lệ ghép và quy đổi đơn vị.
+- Công đoạn KCS cuối.
+- Phòng/tổ thực hiện và trạng thái KCS.
+- Máy hoặc nguồn lực.
+- Thời gian và ca dự kiến.
+- Định mức, đơn vị và `khoan_json`.
+- Dữ liệu vật tư liên quan.
+- Phiên bản lịch phát hành.
+
+Mỗi công đoạn nội bộ phải có cấu hình lương khoán hợp lệ trước khi phát hành. Công đoạn thuê ngoài được miễn điều kiện này.
+
+### 4.3. Sửa lịch sau phát hành
+
+- Người lập kế hoạch chỉ được sửa thời gian hoặc nguồn lực của công việc chưa bắt đầu.
+- Thay đổi được tạo thành bản nháp cập nhật.
+- Chỉ có hiệu lực sau thao tác "Phát hành cập nhật".
+- Khi cập nhật một công việc chưa bắt đầu, mọi phân công trước và thỏa thuận hỗ trợ của công việc đó bị hủy; các tổ phải xác nhận lại.
+- Công việc đã bắt đầu không được đổi lịch, tuyến, tỷ lệ ghép hoặc dữ liệu snapshot.
+- Khi bất kỳ công việc nào trong gói đã bắt đầu, không được thu hồi toàn bộ gói phát hành.
+- Lịch sử các phiên bản phải được giữ lại đầy đủ.
+
+Không hồi tố module thực hiện sản xuất cho các lệnh cũ. Chỉ các gói phát hành sau khi tính năng được kích hoạt mới đi qua luồng mới.
+
+---
+
+## 5. Màn thực hiện sản xuất của tổ
+
+### 5.1. Bố cục chính
+
+Mỗi tổ có một trang trên navbar với:
+
+- Timeline theo thời gian.
+- Lane theo máy đối với công đoạn máy.
+- Lane theo năng lực tổ đối với công đoạn thủ công.
+- Thanh kế hoạch giữ nguyên vị trí theo phiên bản đã phát hành.
+- Lớp thực tế hiển thị đè lên thanh kế hoạch.
+- Zoom: Giờ, Ca, Ngày, Tuần.
+- Lần đầu mở mặc định ở chế độ Ca; sau đó nhớ chế độ gần nhất của người dùng.
+- Drawer chi tiết dùng cho phân công, đầu vào, chạy máy, sản lượng, bàn giao và KCS.
+- Không tạo các màn độc lập cho từng thao tác nếu có thể gộp vào drawer của công việc.
+
+Tổ trưởng không được kéo thả để sửa lịch. Sai lệch kế hoạch được phản ánh lại cho bộ phận lập kế hoạch.
+
+### 5.2. Tiếp nhận lệnh
+
+- Không có nút "Nhận lệnh" riêng.
+- Lần phân công người đầu tiên được xem là tổ đã tiếp nhận.
+- Cho phép phân công trước thời điểm dự kiến.
+- Công nhân chỉ được xem công việc được giao, không được sửa dữ liệu sản xuất.
+
+---
+
+## 6. Quyền thao tác
+
+- Chỉ người đang là `department.head_user_id` của chính tổ thực hiện mới được thay đổi dữ liệu thực hiện nội bộ của tổ đó.
+- Quản lý cấp trên có phạm vi rộng hơn chỉ được xem, không được thao tác thay tổ trưởng.
+- Không có quyền ghi đè mặc định dành cho quản lý cấp cao.
+- Nhân viên thuộc chế độ lương khoán mới được phân công vào công đoạn nội bộ.
+- Nhân viên không có tài khoản vẫn được phân công và tính lương.
+- Nhân viên có tài khoản nhận thông báo giao việc real-time.
+- Thực hiện thuê ngoài dùng một quyền riêng, không hard-code cho Kế hoạch sản xuất, Mua hàng hoặc tổ kế tiếp.
+- Điều động người hỗ trợ giữa hai tổ cần xác nhận của cả tổ trưởng tổ gốc và tổ trưởng tổ nhận.
+
+---
+
+## 7. Phân công và ghi nhận thời gian thực tế
+
+### 7.1. Phân công
+
+- Tổ trưởng chọn thủ công người thực hiện.
+- Không tự động gợi ý hoặc tự phân người trong phiên bản đầu.
+- Phải có ít nhất một nhân viên lương khoán được phân công mới được bắt đầu công đoạn.
+- Nếu số người thực tế khác số người dự kiến, vẫn được bắt đầu nhưng bắt buộc chọn lý do.
+- Một người không được có hai khoảng tham gia sản xuất bị chồng thời gian.
+
+### 7.2. Phiên chạy
+
+Một công việc có thể có nhiều phiên:
+
+1. Bắt đầu.
+2. Tạm dừng.
+3. Tiếp tục.
+4. Kết thúc.
+
+Quy tắc:
+
+- Tạm dừng bắt buộc có lý do.
+- Thêm người, rút người hoặc chuyển người sẽ tự đóng/mở khoảng tham gia tương ứng.
+- Mốc thời gian lấy từ máy chủ.
+- Không backdate.
+- Không sửa trực tiếp mốc đã phát sinh.
+- Bắt đầu sớm được phép nếu đầu vào và nguồn lực hợp lệ, không bắt buộc lý do.
+- Bắt đầu trễ dù bất kỳ khoảng thời gian nào cũng bắt buộc lý do.
+- Kết thúc trễ chỉ yêu cầu thêm lý do nếu chưa có lý do tạm dừng giải thích được phần chậm.
+
+### 7.3. Chấm công và tăng ca
+
+Phút thực tế của một người bằng giao của:
+
+- Khoảng người đó tham gia công đoạn.
+- Các cặp chấm công IN/OUT thực tế.
+- Khoảng tăng ca đã được duyệt nếu thời gian nằm ngoài ca thường.
+
+Quy tắc:
+
+- Dùng phút thực tế thô, không áp dụng grace period hoặc làm tròn của chấm công.
+- Thời gian tăng ca chỉ tính phần giao với khoảng tăng ca đã duyệt.
+- Ca qua đêm được tính vào ngày công mà ca bắt đầu.
+
+---
+
+## 8. Bậc tay nghề
+
+Bổ sung một hệ số sản lượng toàn cục vào `JobGrade`, ví dụ `output_coefficient`.
+
+- Không tự đoán hệ số cho các bậc tay nghề hiện có.
+- Hệ số để trống cho tới khi được người có quyền cấu hình.
+- Khi người lao động bắt đầu tham gia, snapshot bậc và hệ số tại thời điểm đó.
+- Thay đổi danh mục sau này không viết lại dữ liệu đang chạy hoặc đã hoàn thành.
+- Thiếu hệ số không chặn việc ghi nhận sản xuất.
+- Thiếu hệ số chặn thao tác chốt phân bổ sản lượng.
+
+---
+
+## 9. Hỗ trợ chéo giữa các tổ
+
+### 9.1. Thỏa thuận hỗ trợ
+
+Mỗi dòng hỗ trợ gồm:
+
+- Người hỗ trợ.
+- Tổ gốc.
+- Tổ thực hiện.
+- Công đoạn.
+- Ngày làm việc.
+- Tỷ lệ sản lượng.
+- Trạng thái xác nhận của hai tổ trưởng.
+
+Tỷ lệ là giá trị nhập theo từng thỏa thuận:
+
+- **7% chỉ là ví dụ.**
+- Không hard-code 7%.
+- Không dùng 7% làm mặc định.
+- Không dùng 7% làm giới hạn.
+- Có thể nhập 5%, 7%, 12,5% hoặc tỷ lệ phù hợp thực tế.
+- Tổng tỷ lệ hỗ trợ áp vào cùng một phạm vi phân bổ không được vượt 100%.
+
+### 9.2. Cách tính
+
+- Phần hỗ trợ được trừ trước khỏi tổng sản lượng được chấp nhận.
+- Người hỗ trợ nhận đúng tỷ lệ đã thỏa thuận.
+- Phần đó được ghi nhận cho tổ gốc của người hỗ trợ.
+- Tổ thực hiện giữ phần còn lại.
+- Cùng một tỷ lệ áp dụng cho sản lượng ghi nhận và quỹ lương khoán.
+- Phần hỗ trợ thuộc ngày ghi trên thỏa thuận, không chuyển sang ngày hoàn thành công đoạn.
+- Không dùng thời gian thực tế, hệ số tay nghề hoặc chấm công để điều chỉnh phần hỗ trợ.
+- Nếu người hỗ trợ không có chấm công, hệ thống cảnh báo nhưng vẫn giữ nguyên phần tỷ lệ đã được hai bên xác nhận.
+- Phần còn lại của tổ thực hiện mới được chia theo thời gian thực tế nhân hệ số tay nghề.
+- Khi lịch chưa chạy bị phát hành cập nhật, thỏa thuận hỗ trợ bị hủy và phải xác nhận lại.
+
+KCS tự chọn tổ/công đoạn chịu trách nhiệm lỗi. Không tự động quy trách nhiệm chất lượng dựa trên tỷ lệ hỗ trợ.
+
+---
+
+## 10. Nguyên vật liệu và đầu vào
+
+### 10.1. Nguyên vật liệu kho
+
+- Tiếp tục dùng luồng giữ hàng, yêu cầu xuất, phiếu xuất và phiếu trả hiện có.
+- Không nhập lại lượng nguyên vật liệu theo từng batch sản lượng.
+- Tiêu hao ròng bằng phiếu xuất đã ghi sổ trừ phiếu trả đã ghi sổ.
+- Sau khi kho xuất, tổ trưởng nhận vật tư phải xác nhận đã nhận.
+- Chỉ số lượng đã được tổ xác nhận mới được xem là khả dụng cho sản xuất.
+- Nếu số lượng trên phiếu khác thực nhận, hai bên xử lý thực tế và kho sửa chứng từ trước khi tổ xác nhận.
+- Không tạo hai con số đối nghịch "kho giao" và "tổ nhận".
+
+### 10.2. Điều kiện chạy
+
+- Không có đầu vào thực tế đối với công đoạn bắt buộc có đầu vào: được chuẩn bị và phân công nhưng không được bắt đầu.
+- Có một phần đầu vào: được chạy nếu tổ trưởng nhập lý do cảnh báo, kể cả khi một số dòng nguyên liệu khác chưa đủ.
+- Bước ghép phải có số lượng dương đã xác nhận ở tất cả nhánh đầu vào bắt buộc.
+- Vật tư phát sinh thêm dùng luồng yêu cầu xuất bổ sung hiện có.
+- Vật tư thừa tạo yêu cầu trả kho.
+- Nhóm sản xuất chưa được đóng hoàn toàn cho tới khi kho xác nhận nhận lại vật tư phải trả.
+
+### 10.3. Bán thành phẩm đầu vào
+
+Khi tạo batch sản lượng, tổ trưởng chọn chính xác:
+
+- Lot đầu ra của công đoạn trước.
+- Lot BTP liên quan.
+- Số lượng sử dụng từ từng lot.
+
+Việc chọn lot tạo được quan hệ truy vết từ nguyên liệu/BTP đầu vào tới batch đầu ra.
+
+---
+
+## 11. Sản lượng và bàn giao công đoạn
+
+### 11.1. Batch sản lượng
+
+Mỗi batch ghi:
+
+- Khoảng thời gian sản xuất.
+- Tổng số lượng.
+- Số lượng tốt.
+- Số lượng hỏng.
+- Đơn vị.
+- Lot đầu vào đã sử dụng.
+- Danh sách người tham gia trong khoảng batch.
+
+Ràng buộc:
+
+`Tổng số lượng = Tốt + Hỏng`
+
+Nếu có số lượng hỏng:
+
+- Bắt buộc chọn nhóm lỗi chuẩn hóa.
+- Có thể bổ sung mô tả.
+- Không cho nhập một lý do tự do thay thế hoàn toàn danh mục lỗi.
+
+Cho phép nhiều batch một phần trong cùng công đoạn.
+
+### 11.2. Bàn giao
+
+- Hai công đoạn liên tiếp trong cùng tổ tự động chuyển số lượng tốt sang đầu vào công đoạn sau.
+- Bàn giao khác tổ hoặc khác LSX cần xác nhận hai bên.
+- Người giao đề xuất một số lượng.
+- Hai bên kiểm đếm thực tế.
+- Nếu chưa đúng, bên giao sửa số đề xuất.
+- Bên nhận chỉ xác nhận đúng con số cuối cùng đã thống nhất.
+- Không lưu hai số lượng cạnh tranh.
+
+Số lượng đã xác nhận đồng thời là:
+
+- Sản lượng được chấp nhận của công đoạn trước.
+- Cơ sở tính lương công đoạn trước.
+- Đầu vào khả dụng của công đoạn sau.
+
+### 11.3. Điều chỉnh bàn giao
+
+- Không xóa cứng bàn giao.
+- Người nhập sai được tạo điều chỉnh kèm lý do.
+- Giữ lịch sử trước và sau điều chỉnh.
+- Nếu điều chỉnh giảm thấp hơn số lượng công đoạn sau đã sử dụng, công đoạn sau bị đánh dấu không nhất quán.
+- Không cho chốt phân bổ hoặc đóng nhóm khi còn không nhất quán.
+- Lỗi phát hiện ở công đoạn sau không tự động trừ sản lượng hoặc tiền lương đã chấp nhận của công đoạn trước.
+
+---
+
+## 12. Phân bổ sản lượng và lương khoán
+
+### 12.1. Đơn vị phân bổ
+
+Phân bổ theo từng batch sản lượng, không chia một lần cho toàn công đoạn.
+
+Chỉ những người có khoảng tham gia giao với khoảng thời gian của batch mới được tham gia chia phần còn lại của tổ thực hiện.
+
+### 12.2. Công thức
+
+Với một batch có sản lượng trả lương `Q`:
+
+1. Quy đổi sản lượng bản địa của công đoạn sang sản lượng trả lương bằng `khoan_json` đã snapshot.
+2. Tính tổng tỷ lệ hỗ trợ đã được xác nhận `P`.
+3. Mỗi người hỗ trợ nhận `Q × tỷ lệ của người đó`.
+4. Phần của tổ thực hiện là `Q × (1 - P)`.
+5. Trọng số của người thuộc tổ thực hiện:
+
+`Trọng số = phút thực tế hợp lệ × hệ số bậc tay nghề đã snapshot`
+
+6. Chia phần còn lại theo tỷ trọng của từng người.
+7. Dùng phương pháp phần dư lớn nhất để làm tròn nhưng tổng sau làm tròn vẫn đúng bằng `Q`.
+
+Quy tắc:
+
+- Không cho sửa tay sản lượng từng cá nhân.
+- Không cộng trực tiếp các sản lượng khác đơn vị.
+- Luôn giữ riêng sản lượng bản địa và sản lượng trả lương đã quy đổi.
+- Nếu không có trọng số hợp lệ, không cho chốt phân bổ.
+- Không tự động trừ lỗi cá nhân.
+- Cơ chế thưởng/phạt tổ trưởng hiện có tiếp tục để không hoạt động trong giai đoạn này.
+
+### 12.3. Trạng thái phân bổ
+
+- Sau khi công đoạn hoàn thành, phân bổ ở trạng thái nháp.
+- Tổ trưởng phải chốt riêng.
+- Công nhân chỉ xem được kết quả đã chốt.
+- Trước khi kỳ lương khóa, tổ trưởng được mở lại với lý do và chốt lại.
+- Sau khi kỳ lương đã khóa, không sửa kỳ cũ.
+- Điều chỉnh sau khóa được ghi thành dòng bù trừ ở kỳ mở tiếp theo, có tham chiếu batch và kỳ gốc.
+- Nhóm thành phẩm không được đóng hoàn toàn nếu còn phân bổ chưa chốt.
+
+`ProductionOutputRepository` phải cung cấp dữ liệu thật cho `PieceWorkService.list_nguoi_by_period(year, month)` theo nhân viên, ngày làm việc, batch và đơn vị trả lương.
+
+---
+
+## 13. KCS
+
+### 13.1. Ghi nhận kiểm tra
+
+KCS làm việc theo từng batch nhận vào và ghi:
+
+- Số lượng nhận.
+- Cỡ mẫu kiểm tra.
+- Số lượng đạt.
+- Số lượng không đạt.
+- Kết luận.
+- Người kiểm tra.
+- Thời điểm kết luận.
+
+Cơ sở tính năng suất KCS là toàn bộ số lượng KCS đã nhận và đã kết luận, không phải cỡ mẫu và không phải chỉ số lượng đạt.
+
+Ví dụ:
+
+- Nhận 1.000.
+- Lấy mẫu 100.
+- Kết luận 900 đạt, 100 không đạt.
+- Năng suất KCS dùng để phân bổ là 1.000.
+
+Nhân sự KCS vẫn được chia sản lượng theo cơ chế batch, thời gian thực tế và hệ số tay nghề.
+
+### 13.2. Lỗi KCS
+
+Mỗi lỗi bắt buộc có:
+
+- Nhóm lỗi từ danh mục chung.
+- Mô tả.
+- Tổ/công đoạn được yêu cầu nhận trách nhiệm.
+- Số lượng lỗi.
+- Ít nhất một ảnh bằng hệ thống lưu file hiện có.
+
+Tổ trưởng bị quy trách nhiệm được chọn:
+
+- Chấp nhận.
+- Từ chối kèm lý do.
+
+Kết quả này là cuối cùng trong phiên bản đầu:
+
+- Không có bước quản lý phân xử.
+- Chấp nhận thì tính vào chỉ số chất lượng của tổ.
+- Từ chối thì không tính trách nhiệm cho tổ, nhưng vẫn giữ toàn bộ bằng chứng và lịch sử.
+- Lỗi đang chờ phản hồi không chặn yêu cầu nhập kho cho phần đạt.
+- Lỗi đang chờ phản hồi chặn đóng hoàn toàn nhóm thành phẩm.
+
+### 13.3. Phần không đạt và đóng thiếu
+
+- Phần không đạt được giữ lại.
+- Không tự sinh luồng sửa hàng.
+- Không tự tạo LSX bù.
+- Trưởng KCS được phép đóng thiếu nhóm mà không cần Kế hoạch sản xuất duyệt.
+- Đóng thiếu bắt buộc có lý do.
+- Hệ thống gửi thông báo real-time cho Kế hoạch sản xuất và Sale.
+- Đóng thiếu vẫn phải thỏa mãn các điều kiện đóng nhóm khác.
+
+---
+
+## 14. Nhập kho thành phẩm và BTP
+
+### 14.1. Thành phẩm
+
+- KCS được tạo nhiều yêu cầu nhập kho một phần từ các batch đạt.
+- Tổng số lượng yêu cầu không được vượt tổng số lượng KCS đã chấp nhận.
+- Mỗi batch KCS là một lot thành phẩm logic.
+- Kho xác nhận từng phần đã nhận.
+- Phần kho đã ghi nhận bị khóa.
+- Phần chưa nhận còn được KCS phân loại lại với đầy đủ audit.
+- Nếu có sai lệch sau khi kho đã ghi sổ, xử lý bằng nghiệp vụ điều chỉnh kho riêng; không sửa ngược batch KCS.
+
+Danh tính thành phẩm là nhóm sản phẩm của đơn hàng, ví dụ:
+
+`DH019 + Kỷ yếu 25 năm An Phát`
+
+Đây không phải SKU chung tái sử dụng. Thành phẩm chỉ được giao cho đúng nhóm/đơn hàng đó.
+
+### 14.2. BTP
+
+Mở rộng kho bằng một registry hàng sản xuất, gồm hai subtype:
+
+- BTP.
+- Thành phẩm theo đơn hàng.
+
+Lot BTP snapshot:
+
+- Đơn hàng.
+- Nhóm thành phẩm.
+- LSX.
+- Công đoạn nguồn.
+- Quy cách.
+- Số lượng.
+- Đơn vị.
+- Lot nguồn.
+
+BTP của DH019:
+
+- Chỉ được tái sử dụng trong DH019.
+- Không dùng cho đơn hàng khác.
+- Không tự dùng cho lần tái bản sau.
+
+BTP dư trước khi đóng nhóm phải được phân loại thành một trong:
+
+- Phế/hỏng.
+- Mẫu lưu.
+- Nhập kho BTP.
+
+---
+
+## 15. Danh mục lý do và lỗi
+
+Gộp vào màn Cấu hình danh mục hiện có, không tạo màn danh mục mới.
+
+Một danh mục lỗi chuẩn hóa dùng chung cho:
+
+- Sản lượng hỏng tại công đoạn sản xuất.
+- Lỗi do KCS phát hiện.
+
+Các lý do vận hành cũng đi qua cơ chế danh mục/config hiện có:
+
+- Tạm dừng.
+- Bắt đầu trễ.
+- Sai lệch nhân sự.
+- Chạy khi vật tư chưa đủ.
+- Điều chỉnh bàn giao.
+- Mở lại phân bổ.
+- Đóng thiếu.
+- Các lý do vận hành tương tự.
+
+Không hard-code danh sách lý do trong frontend.
+
+---
+
+## 16. Điều kiện tự động đóng nhóm thành phẩm
+
+Không tạo nút "Hoàn tất nhóm" thủ công.
+
+Nhóm tự động chuyển sang hoàn thành đầy đủ hoặc hoàn thành thiếu khi tất cả điều kiện sau đúng:
+
+- Mọi công đoạn bắt buộc nội bộ hoặc thuê ngoài đã hoàn thành.
+- Không còn đầu vào/đầu ra không nhất quán.
+- KCS cuối đã phân loại toàn bộ số lượng nhận hoặc đã đóng thiếu.
+- Mọi phân bổ sản lượng đã được chốt.
+- Mọi yêu cầu nhận trách nhiệm lỗi KCS đã được phản hồi.
+- Mọi vật tư hoặc BTP cần trả đã được kho xác nhận nhận.
+- Mọi BTP dư đã được phân loại.
+- Không có điều chỉnh làm cho công đoạn sau tiêu thụ vượt đầu vào.
+
+Audit phải lưu:
+
+- Sự kiện cuối cùng làm đủ điều kiện đóng nhóm.
+- Người gây ra sự kiện đó.
+- Thời điểm.
+- Hoàn thành đầy đủ hay hoàn thành thiếu.
+- Lý do đóng thiếu nếu có.
+
+Trạng thái nhập kho thành phẩm tách biệt với trạng thái đóng nhóm. KCS có thể tạo nhập kho một phần trước khi nhóm hoàn tất.
+
+---
+
+## 17. Real-time
+
+Mọi thay đổi gửi giữa người dùng phải được đẩy bằng SSE ngay sau khi transaction thành công:
+
+- Badge navbar của tổ.
+- Timeline của tổ.
+- Lớp thực tế trên màn Kế hoạch sản xuất.
+- Phân công người.
+- Bắt đầu, tạm dừng, tiếp tục và kết thúc.
+- Bàn giao.
+- Xác nhận nhận vật tư.
+- Thỏa thuận hỗ trợ và xác nhận hai bên.
+- Batch KCS.
+- Lỗi KCS và phản hồi trách nhiệm.
+- Yêu cầu nhập kho và xác nhận kho.
+- Chốt hoặc mở lại phân bổ.
+- Dữ liệu nguồn lương khoán.
+- Nhóm tự động đóng.
+
+Triển khai hiện tại tiếp tục dùng SSE in-process với một uvicorn worker. Khi chạy nhiều worker, thay lớp publish bằng PostgreSQL LISTEN/NOTIFY mà không đổi giao diện nghiệp vụ.
+
+---
+
+## 18. API và trạng thái nghiệp vụ
+
+Các API mới gộp dưới `/api/san-xuat`:
+
+- `/teams`: danh sách tổ sản xuất hiệu lực và badge.
+- `/groups`: nhóm thành phẩm và trạng thái tổng hợp.
+- `/release-packages`: snapshot, phát hành và phiên bản cập nhật.
+- `/work-items`: timeline, chi tiết công việc, phân công và phiên chạy.
+- `/inputs`: lot đầu vào và lượng sử dụng.
+- `/outputs`: batch sản lượng.
+- `/handovers`: đề xuất, xác nhận và điều chỉnh bàn giao.
+- `/support-agreements`: tạo và xác nhận hỗ trợ hai tổ.
+- `/allocations`: xem nháp, chốt và mở lại phân bổ.
+- `/kcs`: batch kiểm tra, lỗi và phản hồi trách nhiệm.
+- `/stock`: xác nhận vật tư, trả BTP và yêu cầu nhập kho thành phẩm.
+
+Trạng thái chính:
+
+- Công việc: `released → running ↔ paused → completed`.
+- Bàn giao: `proposed → confirmed → adjusted`.
+- Hỗ trợ: `pending_both → confirmed → cancelled`.
+- Phân bổ: `draft → finalized → reopened`; sau khóa lương chỉ tạo adjustment kỳ sau.
+- KCS batch: `received → concluded`.
+- Nhóm: `in_production → waiting_conditions → closed_full | closed_short`.
+
+Các cờ thiếu vật tư, không nhất quán và chờ xác nhận là trạng thái chặn bổ sung, không tạo bản sao công việc.
+
+Mọi command thay đổi dữ liệu phải:
+
+- Kiểm tra quyền tại service.
+- Chạy transaction.
+- Có version để chống bấm trùng hoặc cập nhật đồng thời.
+- Ghi audit.
+- Phát SSE sau commit.
+
+---
+
+## 19. Mô hình dữ liệu
+
+Nhóm bảng cần bổ sung:
+
+### Tổ chức và cấu hình
+
+- `departments.is_kcs`.
+- `job_grades.output_coefficient`.
+
+### Nhóm và phát hành
+
+- Nhóm thành phẩm và các dòng thành viên.
+- Gói phát hành.
+- Phiên bản phát hành/cập nhật.
+- Snapshot tuyến công đoạn, phụ thuộc và tỷ lệ ghép.
+
+### Thực hiện sản xuất
+
+- Work item.
+- Phiên chạy.
+- Phân công/khoảng tham gia.
+- Lot đầu vào đã sử dụng.
+- Batch đầu ra.
+- Bàn giao và lịch sử điều chỉnh.
+- Thỏa thuận hỗ trợ và xác nhận hai bên.
+
+### Phân bổ
+
+- Phân bổ batch cho từng nhân viên/ngày công.
+- Snapshot hệ số tay nghề.
+- Dòng điều chỉnh kỳ lương sau khóa.
+
+### KCS
+
+- Batch kiểm tra.
+- Lỗi KCS.
+- Ảnh bằng chứng.
+- Yêu cầu nhận trách nhiệm và phản hồi.
+
+### Kho sản xuất
+
+- Registry hàng sản xuất.
+- Lot BTP/thành phẩm.
+- Xác nhận tổ đã nhận vật tư.
+- Quan hệ batch KCS với yêu cầu nhập kho.
+
+Mọi bảng nghiệp vụ quan trọng phải có audit fields, version và khóa tham chiếu tới snapshot phát hành.
+
+Do dự án không dùng Alembic:
+
+- Thêm/đổi cột phải có migration trong `backend/app/db_migrations.py`.
+- Cập nhật đầy đủ `docs/DB_SCHEMA.md`.
+- Boolean dùng `true/false` đúng chuẩn PostgreSQL, không dùng chuỗi `"0"` hoặc `"1"`.
+
+---
+
+## 20. Trình tự triển khai
+
+### Giai đoạn 1 — Nền tổ chức và phát hành
+
+- Cờ KCS.
+- Navbar theo node lá sản xuất.
+- Nhóm thành phẩm tự động.
+- Snapshot phát hành.
+- Kiểm tra KCS cuối.
+- Gói phát hành nguyên tử.
+- Phiên bản cập nhật lịch.
+
+### Giai đoạn 2 — Khung thực hiện tại tổ
+
+- Timeline tổ.
+- Drawer công việc.
+- Phân công.
+- Phiên chạy và khoảng tham gia.
+- Chấm công/tăng ca.
+- Hiển thị actual overlay trong màn kế hoạch.
+
+### Giai đoạn 3 — Đầu vào, sản lượng và bàn giao
+
+- Xác nhận nhận vật tư.
+- Chọn lot BTP đầu vào.
+- Batch sản lượng.
+- Bàn giao cùng tổ/khác tổ/khác LSX.
+- Điều chỉnh và kiểm tra overconsumption.
+
+### Giai đoạn 4 — Hỗ trợ và phân bổ
+
+- Xác nhận hỗ trợ hai tổ.
+- Tỷ lệ hỗ trợ tùy biến, không hard-code 7%.
+- Hệ số bậc tay nghề.
+- Phân bổ theo batch.
+- Chốt, mở lại và điều chỉnh kỳ sau.
+- Kết nối `PieceWorkService`.
+
+### Giai đoạn 5 — KCS và kho
+
+- Batch KCS.
+- Lỗi và ảnh.
+- Phản hồi trách nhiệm.
+- Đóng thiếu.
+- Thành phẩm/BTP theo đơn hàng.
+- Nhập kho một phần.
+- Tự động đóng nhóm.
+
+### Giai đoạn 6 — Real-time và hoàn thiện
+
+- SSE cho toàn bộ sự kiện.
+- Badge/toast.
+- Audit và chống cập nhật đồng thời.
+- Kiểm thử tích hợp toàn luồng.
+
+Khi triển khai UI phải thực hiện đúng hai bước bằng hai agent khác nhau:
+
+1. Agent thiết kế soi UI hiện có bằng `ui-ux-pro-max` và chốt thiết kế.
+2. Agent build khác dựng theo thiết kế đã chốt.
+
+Sau khi dựng, kiểm tra trình duyệt thật và chạy `styleseed-design-review` trước khi kết luận hoàn thành.
+
+---
+
+## 21. Kiểm thử và tiêu chí nghiệm thu
+
+### Phòng ban và quyền
+
+- Node lá dưới phòng có cờ sản xuất xuất hiện đúng trên navbar.
+- Node trung gian không xuất hiện.
+- Cờ KCS chỉ hiện đúng nơi.
+- Tắt cờ sản xuất xử lý đúng KCS con.
+- Chỉ tổ trưởng trực tiếp được sửa.
+- Quản lý cấp trên chỉ xem.
+
+### Nhóm và bước ghép
+
+- DH019 tạo một nhóm Kỷ yếu gồm LSX Ruột và Bìa.
+- Phụ thuộc Bìa sang Ruột biến công đoạn nhận thành bước ghép.
+- Không sinh LSX thành phẩm thứ ba.
+- Không cho phụ thuộc chéo ngoài nhóm.
+- Bước ghép không chạy nếu thiếu một nhánh bắt buộc.
+- Bài ghép dùng chung chỉ chạy và ghi sản lượng một lần.
+- Gói liên thông phát hành nguyên tử.
+
+### Lịch và phân công
+
+- Phân công đầu tiên được tính là tiếp nhận.
+- Cập nhật lịch chưa chạy xóa phân công và hỗ trợ.
+- Không sửa lịch công việc đã chạy.
+- Không thu hồi gói sau khi một công việc bắt đầu.
+- Một người không được chạy hai công việc chồng thời gian.
+
+### Thời gian
+
+- Bắt đầu trễ yêu cầu lý do.
+- Bắt đầu sớm hợp lệ.
+- Pause bắt buộc lý do.
+- Giao ca qua đêm ghi đúng ngày bắt đầu ca.
+- Chỉ tính OT nằm trong khoảng được duyệt.
+- Phút sản xuất bằng giao của participation và chấm công.
+
+### Vật tư và bàn giao
+
+- Chưa xác nhận nhận vật tư thì không có tồn khả dụng.
+- Thiếu một phần được chạy với lý do.
+- Không có đầu vào bắt buộc thì không chạy.
+- Bàn giao khác tổ cần xác nhận.
+- Chỉ có một số lượng thống nhất.
+- Điều chỉnh giảm dưới lượng đã dùng tạo trạng thái không nhất quán và chặn đóng.
+
+### Hỗ trợ
+
+- Tỷ lệ 7% hoạt động như một dữ liệu ví dụ.
+- Hệ thống cũng nhận các tỷ lệ khác như 5% và 12,5%.
+- Không có mặc định 7%.
+- Tổng tỷ lệ vượt 100% bị từ chối.
+- Người hỗ trợ không chấm công vẫn nhận phần đã xác nhận và phát cảnh báo.
+- Tổ thực hiện chỉ chia phần còn lại.
+
+### Phân bổ
+
+- Batch chỉ chia cho người tham gia trong khoảng batch.
+- Trọng số đúng bằng phút thực tế nhân hệ số snapshot.
+- Làm tròn không làm lệch tổng.
+- Thiếu hệ số chặn chốt nhưng không mất dữ liệu sản xuất.
+- Mở lại trước khóa lương hoạt động đúng.
+- Sau khóa tạo adjustment kỳ tiếp theo.
+- `PieceWorkService` nhận đúng sản lượng đã chốt.
+- Không cộng sai các đơn vị khác nhau.
+
+### KCS và kho
+
+- Năng suất KCS dùng toàn bộ lượng đã nhận và kết luận, không dùng cỡ mẫu.
+- Lỗi bắt buộc ảnh và tổ/công đoạn chịu trách nhiệm.
+- Chấp nhận/từ chối trách nhiệm được lưu vĩnh viễn.
+- Lỗi chờ phản hồi không chặn nhập kho phần đạt nhưng chặn đóng nhóm.
+- Nhập kho nhiều phần không vượt lượng đạt.
+- Phần kho đã ghi sổ không sửa ngược.
+- BTP chỉ tái sử dụng trong cùng đơn hàng.
+- Đóng thiếu gửi thông báo cho Kế hoạch sản xuất và Sale.
+- Nhóm tự đóng ngay khi điều kiện cuối cùng được giải quyết.
+
+### Xác minh kỹ thuật
+
+- Route/schema backend thay đổi phải restart uvicorn trước khi kiểm tra.
+- UI phải được thao tác trên trình duyệt thật.
+- Kiểm tra đầy đủ badge, toast và cập nhật SSE không cần refresh.
+- Chạy `styleseed-design-review` trước khi báo UI hoàn thành.
+
+---
+
+## 22. Giới hạn phiên bản đầu
+
+- Không tự động xếp người.
+- Không cho tổ trưởng kéo sửa lịch.
+- Không tự tạo lệnh sửa hàng hoặc LSX bù.
+- Không có cấp quản lý phân xử lỗi KCS.
+- Không tự quy trách nhiệm chất lượng theo tỷ lệ hỗ trợ.
+- Không hồi tố các lệnh đã phát hành trước ngày kích hoạt.
+- Không dùng BTP cho đơn hàng hoặc lần tái bản khác.
+- Không cho sửa mốc thời gian thực tế.
+- Không tự động khấu trừ lỗi vào sản lượng cá nhân.
+- Không thay thế nghiệp vụ chứng từ kho hiện có.

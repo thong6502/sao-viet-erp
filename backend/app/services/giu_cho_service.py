@@ -305,7 +305,8 @@ class GiuChoService:
                     # `can = 0` là ĐÚNG, không phải thiếu dữ liệu: lệnh đã rơi khỏi kế hoạch nên
                     # hệ không còn biết nó cần bao nhiêu. Chỉ `dang_giu` là có thật.
                     "can": 0.0, "thieu": 0.0, "dang_giu": 0.0, "so_buoc": 0,
-                    "trang_thai": "xam", "khoa_do": [],
+                    "trang_thai": "xam", "ngay_can": None, "ngay_du_hang": None,
+                    "phieu_ve": None, "khoa_do": [],
                 })
             gom[chu] = {"ma": self._ma_chu_the(chu), "is_rush": False, "ngay_can": None,
                         "moc_tam": False, "ngoai_pham_vi": True, "hang": hang}
@@ -353,13 +354,25 @@ class GiuChoService:
                     "hang_ma": nhom.get("hang_ma"), "hang_ten": nhom.get("hang_ten"),
                     "don_vi_goc": nhom.get("don_vi_goc"),
                     "can": 0.0, "thieu": 0.0, "dang_giu": 0.0, "so_buoc": 0,
-                    "trang_thai": "xam", "khoa_do": [],
+                    "trang_thai": "xam", "ngay_can": None, "ngay_du_hang": None,
+                    "phieu_ve": None, "khoa_do": [],
                 })
                 h["can"] += _f(d.get("con_phai_co"))
                 h["thieu"] += _f(d.get("thieu"))
                 h["so_buoc"] += 1
                 if _NANG.get(d.get("trang_thai"), 0) > _NANG.get(h["trang_thai"], 0):
                     h["trang_thai"] = d.get("trang_thai") or "xam"
+                nc = d.get("ngay_can")
+                if nc and (h["ngay_can"] is None or nc < h["ngay_can"]):
+                    h["ngay_can"] = nc
+                # Ngày đủ hàng lấy MUỘN NHẤT trong các bước `ve_muon`: hai bước ăn cùng món, bước
+                # sau chờ lô về 01/09 thì món đó chỉ xong ngày 01/09 — lấy ngày sớm là hứa một mốc
+                # mà tới nơi vẫn thiếu. Mã phiếu đi theo đúng ngày được chọn, không lấy rời.
+                dh = d.get("ngay_du_hang")
+                if d.get("trang_thai") == "ve_muon" and dh:
+                    if h["ngay_du_hang"] is None or dh > h["ngay_du_hang"]:
+                        h["ngay_du_hang"] = dh
+                        h["phieu_ve"] = d.get("phieu_ve")
                 if d.get("trang_thai") == "do":
                     h["khoa_do"].append({
                         "hang_loai": hang[0], "hang_id": hang[1],
@@ -546,7 +559,9 @@ class GiuChoService:
                 continue
             con_hua = da_hua.get(hang, 0.0)
             con_lai: list[tuple[date, float]] = []
-            for ngay, sl in ds:
+            # `_hang_dang_ve` trả kèm mã phiếu; ở đây chỉ cần (ngày, số) — chỗ giữ hứa cố ý
+            # KHÔNG neo vào lô nào (xem docstring model), nên mã phiếu không có việc gì.
+            for ngay, sl, *_ in ds:
                 bot = min(con_hua, sl)
                 con_hua -= bot
                 if sl - bot > 0:

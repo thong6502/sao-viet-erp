@@ -439,8 +439,12 @@ class KeHoachVatTuService:
                     bang[khoa] = bang.get(khoa, 0.0) + kq["sl"]
         return da_cap, dang_linh
 
-    def _hang_dang_ve(self) -> dict[tuple, list[tuple[date, float]]]:
-        """`{hang: [(ngày về, số còn về)]}` đã sắp theo ngày — đơn vị GỐC.
+    def _hang_dang_ve(self) -> dict[tuple, list[tuple[date, float, str | None]]]:
+        """`{hang: [(ngày về, số còn về, mã phiếu mua)]}` đã sắp theo ngày — đơn vị GỐC.
+
+        Mã phiếu đi kèm để dòng `ve_muon` GỌI TÊN được lô đang trên đường về. Câu "đã có hàng
+        đang về" trần thì người đọc không tra được đơn nào, mà việc phải làm (hối NCC hay dời
+        lịch) lại nằm đúng trong tờ phiếu đó.
 
         "Đang mua" và "hàng đang về" là MỘT thứ; đây là chỗ DUY NHẤT nó được cộng vào. Dòng phiếu
         KHÔNG gắn mặt hàng gốc thì bỏ qua hẳn — ghép ngược bằng tên hàng là đoán, mà đoán trúng
@@ -451,7 +455,7 @@ class KeHoachVatTuService:
         """
         from .purchase_service import da_giao_theo_dong
 
-        ra: dict[tuple, list[tuple[date, float]]] = {}
+        ra: dict[tuple, list[tuple[date, float, str | None]]] = {}
         for phieu in self.purchases.dong_dang_ve():
             ngay_ve = phieu.expected_receipt_date
             if ngay_ve is None:
@@ -481,9 +485,37 @@ class KeHoachVatTuService:
                     continue
                 kq = self._ve_goc(hang, ln.unit, con_ve)
                 if "sl" in kq:
-                    ra.setdefault(hang, []).append((ngay_ve, kq["sl"]))
+                    ra.setdefault(hang, []).append(
+                        (ngay_ve, kq["sl"], getattr(phieu, "code", None)))
         for ds in ra.values():
             ds.sort(key=lambda x: x[0])
+        return ra
+
+    def hang_dang_mua_khong_ngay(self) -> set[tuple]:
+        """TẬP mặt hàng có phiếu mua ĐANG VỀ nhưng NCC CHƯA hẹn ngày (`expected_receipt_date` trống).
+
+        Đây đúng là nhánh mà `_hang_dang_ve` CỐ Ý bỏ (không ngày thì không hứa được với lệnh nào),
+        nên trên bảng cân đối nó rơi vào MÀU ĐỎ y như chưa mua gì. Cửa phát hành cần tách riêng để
+        NÓI ĐÚNG việc: "đã đặt mua, giục NCC chốt ngày" khác hẳn "chưa mua gì". Chỉ cần định danh
+        mặt hàng để giao với danh sách còn thiếu — KHÔNG quy đổi số lượng (câu hỏi là "có/không",
+        không phải "bao nhiêu").
+        """
+        from .purchase_service import da_giao_theo_dong
+
+        ra: set[tuple] = set()
+        for phieu in self.purchases.dong_dang_ve():
+            if phieu.expected_receipt_date is not None:
+                continue
+            da_giao = da_giao_theo_dong(phieu)
+            for ln in phieu.lines:
+                if not ln.hang_loai or not ln.hang_id:
+                    continue
+                nhan = (
+                    float(da_giao.get(ln.id, 0.0)) if da_giao is not None
+                    else _f(ln.received_quantity)
+                )
+                if _f(ln.quantity) - nhan > 0:
+                    ra.add((ln.hang_loai, int(ln.hang_id)))
         return ra
 
     # ================== HÀM CHÍNH ==================
@@ -910,13 +942,18 @@ class KeHoachVatTuService:
                 # này chưa có mốc nào. Dán nhãn đó vào là vừa cấm tick mua vừa chặn phát hành với
                 # câu "dời bước tiêu thụ" — trong khi việc thật là đi khai hạn sản xuất.
                 ngay_du_hang = None
+                # Mã phiếu của lô QUYẾT ĐỊNH ngày đủ hàng — cùng lô sinh ra `ngay_du_hang`,
+                # không phải lô đầu danh sách. Lô khác cũng góp vào phần phủ, nhưng chỉ lô
+                # này mới là chỗ đi hỏi khi muốn hàng sớm hơn.
+                phieu_ve = None
                 if mau == MAU_DO and ngay is not None:
                     luy_ke = 0.0
-                    for ngay_lo, sl_lo in ve[i:]:
+                    for ngay_lo, sl_lo, ma_lo in ve[i:]:
                         luy_ke += sl_lo
                         if con_lai + luy_ke >= 0:
                             mau = MAU_VE_MUON
                             ngay_du_hang = ngay_lo
+                            phieu_ve = ma_lo
                             break
                 # Phần thiếu RIÊNG của dòng này = phần nó không được phủ. KHÔNG lấy `−con_lai`
                 # (thiếu luỹ kế): tick hai dòng đỏ rồi gộp một yêu cầu mua thì số luỹ kế cộng
@@ -958,6 +995,7 @@ class KeHoachVatTuService:
                     "thieu": round(thieu, 4),
                     "trang_thai": mau,
                     "ngay_du_hang": ngay_du_hang,
+                    "phieu_ve": phieu_ve,
                     "han_dat": han_dat,
                     "dat_muon": dat_muon,
                     "canh_bao": d["canh_bao"],
@@ -1072,6 +1110,7 @@ class KeHoachVatTuService:
             if d["trang_thai"] == MAU_VE_MUON:
                 raise KeHoachVatTuValidationError(
                     f"Dòng {d['ma']} đã có hàng đang về"
+                    + (f" theo phiếu {d['phieu_ve']}" if d.get("phieu_ve") else "")
                     + (f" ngày {d['ngay_du_hang']:%d/%m}" if d.get("ngay_du_hang") else "")
                     + " — mua thêm là mua đúp. Dời lịch bước tiêu thụ hoặc hối nhà cung cấp."
                 )

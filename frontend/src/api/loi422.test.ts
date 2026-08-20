@@ -31,11 +31,11 @@ describe("thông báo lỗi 422", () => {
     // dữ liệu của cả app hiện đúng câu "Request failed (422)." — người dùng không biết sửa ô nào.
     const e = await batLoi(422, {
       detail: [
-        { type: "greater_than", loc: ["body", "he_so_ngoai_dong"], msg: "Input should be greater than 0" },
+        { type: "greater_than", loc: ["body", "nang_suat"], msg: "Input should be greater than 0" },
       ],
     });
     expect(e.status).toBe(422);
-    expect(e.message).toContain("he_so_ngoai_dong");
+    expect(e.message).toContain("nang_suat");
     expect(e.message).not.toContain("Request failed");
   });
 

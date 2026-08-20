@@ -24,6 +24,7 @@ from .repositories.overtime_repo import OvertimeRepository
 from .repositories.payroll_component_repo import PayrollComponentRepository
 from .repositories.payroll_repo import PayrollRepository
 from .repositories.piece_work_repo import PieceWorkRepository
+from .repositories.production_output_repo import ProductionOutputRepository
 from .repositories.cong_doan_repo import CongDoanRepository
 from .repositories.customer_repo import CustomerRepository
 from .repositories.employee_repo import EmployeeRepository
@@ -439,9 +440,11 @@ def get_cong_doan_repository(
 
 def get_piece_work_service(
     piece: Annotated[PieceWorkRepository, Depends(get_piece_work_repository)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> PieceWorkService:
-    # Lương khoán = đơn giá khoán (PieceRate). Nguồn sản lượng đã gỡ → khoán-theo-sản-lượng bỏ.
-    return PieceWorkService(piece)
+    # Tiền khoán theo NGƯỜI = Phiếu phân bổ ĐÃ CHỐT (Giai đoạn 4, §12). `list_nguoi_by_period` trả
+    # rỗng tới khi tổ trưởng chốt một phân bổ ⇒ nối seam này KHÔNG đổi lương cho tới lúc đó.
+    return PieceWorkService(piece, outputs=ProductionOutputRepository(db))
 
 
 def get_payroll_component_repository(

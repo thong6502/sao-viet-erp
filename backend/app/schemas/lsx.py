@@ -237,6 +237,12 @@ class LsxCongDoanOut(BaseModel):
     # Bước có nằm trên DÒNG GIẤY không — quyết định bởi CỜ TRẠM của danh mục Đơn vị, FE không tự
     # suy được từ mã. Sai/thiếu field này thì màn hiện hai số 0 (số lượng + hao) mà không nói vì sao.
     tren_dong_giay: bool = True
+    # Câu lỗi khi bước NGOÀI dòng thiếu cầu quy đổi giữa hai đơn vị (`bài in → bản kẽm`) ở module
+    # Đơn vị & quy đổi. None = không lỗi. Drawer bày đỏ + số vào để 0 cho tới khi người khai cầu.
+    loi_quy_doi: str | None = None
+    # Diễn giải công thức SỐ RA cho bước ngoài dòng ("Số bản kẽm = 5 bản kẽm"). None với bước
+    # trên dòng giấy (số suy ngược theo chuỗi, không có công thức riêng).
+    san_luong_dien_giai: str | None = None
     he_so_quy_doi: float
     hao_hut: float
     hao_hut_pct: float

@@ -3548,6 +3548,29 @@ def _migrate_job_grade_drop_phu(db: Session) -> None:
     db.commit()
 
 
+def _migrate_job_grade_ten_dan_da(db: Session) -> None:
+    """Đổi tên 5 bậc sang bộ DÂN DÃ theo cách xưởng gọi nhau (chủ 2026-08-19):
+    Bậc 1…5 → Thợ lành nghề / Thợ vững / Thợ thường / Tập việc / Lính mới.
+    Bậc 1 (cao nhất, cứng tay nhất) → "Thợ lành nghề"; Bậc 5 (thấp nhất) → "Lính mới".
+
+    Đổi tên TẠI CHỖ theo `code`, GIỮ NGUYÊN id/seq/hạng — không ai bị đổi bậc, không cần gán lại
+    (giống 0129). Chỉ đụng dòng CÒN NGUYÊN tên seed cũ ("Bậc N"); chủ đã tự đặt tên bậc nào thì
+    giữ tên đó. Guard bằng chính `WHERE name = 'Bậc N'` nên chạy lại lần hai là no-op, và DB dựng
+    mới đã seed thẳng tên dân dã (JOB_GRADE_SEED) thì cũng không còn "Bậc N" để đổi."""
+    insp = inspect(db.get_bind())
+    if "job_grades" not in insp.get_table_names():
+        return
+    doi = (("bac_1", "Bậc 1", "Thợ lành nghề"), ("bac_2", "Bậc 2", "Thợ vững"),
+           ("bac_3", "Bậc 3", "Thợ thường"), ("bac_4", "Bậc 4", "Tập việc"),
+           ("bac_5", "Bậc 5", "Lính mới"))
+    for code, ten_cu, ten_moi in doi:
+        db.execute(
+            text("UPDATE job_grades SET name = :n WHERE code = :c AND name = :cu"),
+            {"n": ten_moi, "c": code, "cu": ten_cu},
+        )
+    db.commit()
+
+
 def _migrate_noi_quy_nguon_va_file_goc(db: Session) -> None:
     """Nội quy: khai NGUỒN của từng bản + đánh dấu file gốc của lần nhập (chủ 30/07/2026 —
     *"nếu họ đưa pdf hoặc word lên thì… form chữ kiểu chữ dáng chữ vẫn giữ nguyên"*).
@@ -5135,6 +5158,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0153_buoc_phat_sinh_phut", _migrate_buoc_phat_sinh_phut),
     # Mực in thành TẬP mã thay cho con số — số kẽm tự trở là |A ∪ B|, không tính được từ 2 số.
     ("0154_ptg_muc_tap", _migrate_ptg_muc_tap),
+    # Đổi tên 5 bậc tay nghề sang bộ DÂN DÃ (Thợ lành nghề…Lính mới) — đổi tên tại chỗ, giữ hạng.
+    ("0155_job_grade_ten_dan_da", _migrate_job_grade_ten_dan_da),
 ]
 
 
@@ -9231,3 +9256,288 @@ def _migrate_index_lsx_phan_trang(db: Session) -> None:
 
 
 MIGRATIONS.append(("0217_index_lsx_phan_trang", _migrate_index_lsx_phan_trang))
+
+
+def _migrate_xep_lich_2(db: Session) -> None:
+    """Màn Xếp lịch 2 — cửa vào THỨ HAI cho cùng lịch xưởng (18/08/2026).
+
+    HAI MÀN DÙNG CHUNG bảng `xep_lich_cong_doan`. Migration này KHÔNG đụng bảng lịch — chỉ dọn RBAC:
+    tạo khoá module `xep_lich_2` và CHÉP nguyên quyền `xep_lich` sang, gồm cả hai bit `can_approve`
+    (phát hành lịch) + `can_approve_exception` (duyệt ngoại lệ). Nhờ chép cả hàng `role_permissions`
+    nên hai bit đó theo luôn — không phải cấp lại tay.
+
+    KHÁC mg `0216`: KHÔNG xoá `xep_lich`. Hai màn chạy SONG SONG cho tới khi nghiệm thu xong (`./init.ps1`
+    xanh + soi thực tế) mới hợp nhất quyền và gỡ màn cũ — đó là bước tách riêng, chờ mình gật.
+
+    ⚠️ BƯỚC CHÉP LÀ BẮT BUỘC (cùng lý do mg `0209`/`0216`): thiếu nó thì lần deploy kế tiếp mọi vai
+    đang xếp lịch mất màn mới. `scope` ghi thẳng 'all' — `xep_lich_2` nằm trong SCOPELESS_MODULES,
+    không router nào đọc scope của nó.
+
+    Chốt chặn: mỗi vai từng có `xep_lich` PHẢI có `xep_lich_2`. Lệch một dòng là DỪNG (migration đỏ
+    còn hơn âm thầm cắt quyền của một tổ). Idempotent: chạy lại không đẻ hàng trùng.
+    """
+    # Gọi TRƯỚC MỌI LỆNH GHI (xem ghi chú dài ở `_migrate_tach_module_ke_toan`).
+    cols = sorted(_existing_columns(inspect(db.get_bind()), "role_permissions"))
+
+    db.execute(
+        text("INSERT INTO modules (key, label, created_at) "
+             "SELECT :k, :l, CURRENT_TIMESTAMP "
+             "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+        {"k": "xep_lich_2", "l": "Xếp lịch công đoạn 2"},
+    )
+    chep = [c for c in cols if c not in ("id", "module_key")]
+    chon = ["'all'" if c == "scope" else f"rp.{c}" for c in chep]
+    db.execute(
+        text(
+            f"INSERT INTO role_permissions (module_key, {', '.join(chep)}) "
+            f"SELECT :moi, {', '.join(chon)} FROM role_permissions rp "
+            "WHERE rp.module_key = :cu AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = :moi)"
+        ),
+        {"cu": "xep_lich", "moi": "xep_lich_2"},
+    )
+
+    thieu = db.execute(text(
+        "SELECT rp.role_id FROM role_permissions rp WHERE rp.module_key = :cu AND NOT EXISTS ("
+        "  SELECT 1 FROM role_permissions x "
+        "  WHERE x.role_id = rp.role_id AND x.module_key = :moi)"
+    ), {"cu": "xep_lich", "moi": "xep_lich_2"}).scalars().all()
+    if thieu:
+        db.rollback()
+        raise RuntimeError(
+            "mg 0218: chép quyền xep_lich → xep_lich_2 chưa đủ, thiếu role_id "
+            f"{sorted(thieu)}."
+        )
+    db.commit()
+
+
+MIGRATIONS.append(("0218_xep_lich_2", _migrate_xep_lich_2))
+
+
+def _migrate_xep_lich_2_thay_ban_cu(db: Session) -> None:
+    """Xếp lịch 2 thay hẳn màn Xếp lịch công đoạn cũ (19/08/2026) — nghiệm thu xong.
+
+    HAI MÀN DÙNG CHUNG bảng `xep_lich_cong_doan`. Migration này KHÔNG đụng bảng lịch — không dòng
+    lịch nào mất. Chỉ dọn phần RBAC: khoá `xep_lich` hết người dùng vì `routers/xep_lich.py` bị gỡ
+    cùng đợt (van-de/phát-hành/duyệt-ngoại-lệ nay do `routers/xep_lich_2.py` phục vụ).
+
+    Thứ tự bắt buộc: CHÉP xong mới XOÁ. mg `0218` đã chép `xep_lich → xep_lich_2` (gồm cả hai bit
+    `can_approve` + `can_approve_exception`); bước chép ở đây LẶP LẠI nguyên xi, idempotent (NOT
+    EXISTS) — self-contained để không phụ thuộc thứ tự nếu chạy lại lẻ. Cùng lý do mg `0209`/`0216`:
+    thiếu bước chép thì lần deploy kế tiếp mọi vai đang xếp lịch mất màn, sáng ra menu trống.
+
+    `scope` ghi thẳng `all`: `xep_lich_2` nằm trong `SCOPELESS_MODULES`, không router nào đọc scope
+    của nó — chép nguyên `own` của một vai là ngày có ai bật lọc theo scope thì quyền bị bó âm thầm.
+
+    Chốt chặn trước khi xoá: mỗi vai từng có `xep_lich` PHẢI có `xep_lich_2`. Lệch một dòng là DỪNG,
+    không xoá — thà migration đỏ còn hơn âm thầm cắt quyền của một tổ.
+
+    Idempotent: chạy lại không đẻ hàng trùng; lượt sau `xep_lich` đã sạch nên chép/xoá đều 0 dòng.
+    """
+    # Gọi TRƯỚC MỌI LỆNH GHI (xem ghi chú dài ở `_migrate_tach_module_ke_toan`).
+    cols = sorted(_existing_columns(inspect(db.get_bind()), "role_permissions"))
+
+    chep = [c for c in cols if c not in ("id", "module_key")]
+    chon = ["'all'" if c == "scope" else f"rp.{c}" for c in chep]
+    db.execute(text(
+        f"INSERT INTO role_permissions (module_key, {', '.join(chep)}) "
+        f"SELECT :moi, {', '.join(chon)} FROM role_permissions rp "
+        "WHERE rp.module_key = :cu AND NOT EXISTS ("
+        "  SELECT 1 FROM role_permissions x "
+        "  WHERE x.role_id = rp.role_id AND x.module_key = :moi)"
+    ), {"cu": "xep_lich", "moi": "xep_lich_2"})
+
+    thieu = db.execute(text(
+        "SELECT rp.role_id FROM role_permissions rp WHERE rp.module_key = :cu AND NOT EXISTS ("
+        "  SELECT 1 FROM role_permissions x "
+        "  WHERE x.role_id = rp.role_id AND x.module_key = :moi)"
+    ), {"cu": "xep_lich", "moi": "xep_lich_2"}).scalars().all()
+    if thieu:
+        db.rollback()
+        raise RuntimeError(
+            "mg 0219: chép quyền xep_lich → xep_lich_2 chưa đủ, thiếu role_id "
+            f"{sorted(thieu)}. Không xoá quyền cũ."
+        )
+
+    db.execute(text("DELETE FROM role_permissions WHERE module_key = :k"), {"k": "xep_lich"})
+    db.execute(text("DELETE FROM modules WHERE key = :k"), {"k": "xep_lich"})
+    # Nhãn "Xếp lịch công đoạn 2" thành "Xếp lịch công đoạn" — `seed_modules` cũng đồng bộ nhãn, đổi
+    # ở đây để DB đúng ngay cả khi seeder chưa chạy (deploy chạy `app.migrate` trong container tạm trước).
+    db.execute(text("UPDATE modules SET label = :l WHERE key = :k"),
+               {"k": "xep_lich_2", "l": "Xếp lịch công đoạn"})
+    db.commit()
+
+
+MIGRATIONS.append(("0219_xep_lich_2_thay_ban_cu", _migrate_xep_lich_2_thay_ban_cu))
+
+
+def _migrate_nen_thuc_hien_san_xuat(db: Session) -> None:
+    """Nền tổ chức cho module THỰC HIỆN SẢN XUẤT (spec-thuc-hien-san-xuat, Giai đoạn 1).
+
+    Hai cột cộng thêm, thuần additive, KHÔNG backfill — cả hai bỏ trống là đúng nghĩa "chưa bật":
+    · `departments.is_kcs` (BOOLEAN, mặc định FALSE) — đánh dấu tổ KCS đích danh (§3.1, §14).
+    · `job_grades.output_coefficient` (NUMERIC(6,3), NULL) — hệ số chia sản lượng khoán theo bậc
+      (§8). NULL ⇒ engine coi 1.0; khai bậc vẫn KHÔNG đổi lương cho tới khi có hệ số + mẻ khoán.
+
+    Boolean literal phải là FALSE (không phải "0") — chuỗi "0"/"1" vỡ khi Postgres create_all trên DB
+    trắng. Guard theo cột ⇒ idempotent; no-op trên DB fresh (create_all đã dựng đủ)."""
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "departments" in tables and "is_kcs" not in _existing_columns(insp, "departments"):
+        db.execute(text(
+            "ALTER TABLE departments ADD COLUMN is_kcs BOOLEAN NOT NULL DEFAULT FALSE"))
+    if "job_grades" in tables and "output_coefficient" not in _existing_columns(insp, "job_grades"):
+        db.execute(text(
+            "ALTER TABLE job_grades ADD COLUMN output_coefficient NUMERIC(6,3)"))
+    db.commit()
+
+
+MIGRATIONS.append(("0220_nen_thuc_hien_san_xuat", _migrate_nen_thuc_hien_san_xuat))
+
+
+def _migrate_module_ly_do_san_xuat(db: Session) -> None:
+    """Ô quyền `dm_ly_do_san_xuat` cho màn danh mục "Lý do & lỗi SX" (§15, 19/08/2026).
+
+    Màn thứ 12 của Cấu hình danh mục: danh mục CHUẨN HOÁ lý do/lỗi (hỏng batch · lỗi KCS · tạm dừng
+    · bắt đầu trễ · điều chỉnh bàn giao…) — thay cho việc hard-code danh sách lý do ở FE. Bảng
+    `san_xuat_ly_do` là bảng MỚI nên `create_all` tự dựng, migration này CHỈ lo phần RBAC.
+
+    ⚠️ BƯỚC SAO CHÉP LÀ BẮT BUỘC (cùng lý do mg `0211`): khoá quyền mới không tự có ở các vai đang
+    chạy trên DB live — thiếu bước chép thì bộ phận sản xuất mở Cấu hình danh mục KHÔNG thấy màn này.
+    Chép NGUYÊN XI quyền `san_xuat` (đúng đối tượng quản lý danh mục sản xuất: ai xem/sửa kế hoạch SX
+    thì xem/sửa được danh mục lý do): read/create/update/delete mang đúng nghĩa, không động từ nào đổi.
+
+    `scope` ghi thẳng `all`: khoá mới nằm trong `SCOPELESS_MODULES` (nền danh mục không router nào
+    đọc scope). Chép nguyên `own`/`department` của một vai là ngày có ai bật lọc theo scope thì quyền
+    bị bó âm thầm.
+
+    Idempotent: chạy lại không đẻ hàng trùng.
+    """
+    # Gọi TRƯỚC MỌI LỆNH GHI (xem ghi chú dài ở `_migrate_tach_module_ke_toan`).
+    cols = sorted(_existing_columns(inspect(db.get_bind()), "role_permissions"))
+
+    db.execute(
+        text("INSERT INTO modules (key, label, created_at) "
+             "SELECT :k, :l, CURRENT_TIMESTAMP "
+             "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+        {"k": "dm_ly_do_san_xuat", "l": "Lý do & lỗi SX"},
+    )
+    chep = [c for c in cols if c not in ("id", "module_key")]
+    chon = ["'all'" if c == "scope" else f"rp.{c}" for c in chep]
+    db.execute(
+        text(
+            f"INSERT INTO role_permissions (module_key, {', '.join(chep)}) "
+            f"SELECT :k, {', '.join(chon)} FROM role_permissions rp "
+            "WHERE rp.module_key = 'san_xuat' AND NOT EXISTS ("
+            "  SELECT 1 FROM role_permissions x "
+            "  WHERE x.role_id = rp.role_id AND x.module_key = :k)"
+        ),
+        {"k": "dm_ly_do_san_xuat"},
+    )
+    db.commit()
+
+
+MIGRATIONS.append(("0221_module_ly_do_san_xuat", _migrate_module_ly_do_san_xuat))
+
+
+def _migrate_khoang_tham_gia_snapshot_bac(db: Session) -> None:
+    """Snapshot bậc tay nghề + hệ số sản lượng lên khoảng tham gia (spec §8, Giai đoạn 4).
+
+    Hai cột cộng thêm trên bảng `san_xuat_khoang_tham_gia` (đã tồn tại từ G2), thuần additive,
+    KHÔNG backfill — khoảng cũ (trước G4) bỏ trống là ĐÚNG: §8 cấm danh mục bậc đổi về sau viết lại
+    dữ liệu đang chạy/đã xong. Khoảng MỚI được engine thực thi điền lúc mở (đọc `Employee.job_grade_id`
+    + `JobGrade.output_coefficient`).
+    · `job_grade_id` (INTEGER, NULL) — ảnh chụp bậc; FK chỉ khai ở model cho create_all (DB live để
+      trần INTEGER như tiền lệ mg 0220, không siết constraint qua ALTER).
+    · `output_coefficient` (NUMERIC(6,3), NULL) — NULL CHẶN chốt phân bổ (§8) chứ không chặn ghi batch.
+
+    Guard theo cột ⇒ idempotent; no-op trên DB fresh (create_all đã dựng đủ cột)."""
+    insp = inspect(db.get_bind())
+    if "san_xuat_khoang_tham_gia" in set(insp.get_table_names()):
+        cols = _existing_columns(insp, "san_xuat_khoang_tham_gia")
+        if "job_grade_id" not in cols:
+            db.execute(text(
+                "ALTER TABLE san_xuat_khoang_tham_gia ADD COLUMN job_grade_id INTEGER"))
+        if "output_coefficient" not in cols:
+            db.execute(text(
+                "ALTER TABLE san_xuat_khoang_tham_gia ADD COLUMN output_coefficient NUMERIC(6,3)"))
+    db.commit()
+
+
+MIGRATIONS.append(
+    ("0222_khoang_tham_gia_snapshot_bac", _migrate_khoang_tham_gia_snapshot_bac)
+)
+
+
+def _migrate_phien_chay_ly_do_so_nguoi(db: Session) -> None:
+    """Lý do số-người-lệch lên phiên chạy (spec §7.1, Giai đoạn 2 đuôi).
+
+    Một cột cộng thêm trên bảng `san_xuat_phien_chay` (đã tồn tại từ G2), thuần additive, KHÔNG
+    backfill — phiên cũ bỏ trống là ĐÚNG (không truy hồi lý do cho việc đã chạy). Phiên MỚI được
+    engine `bat_dau` điền khi số người thực tế bắt đầu KHÁC số dự kiến chốt lúc phát hành
+    (`cong_viec.dinh_muc_json['so_nhan_cong_tieu_chuan']`), song hành với `ly_do_bat_dau_tre`.
+
+    Guard theo cột ⇒ idempotent; no-op trên DB fresh (create_all đã dựng đủ cột)."""
+    insp = inspect(db.get_bind())
+    if "san_xuat_phien_chay" in set(insp.get_table_names()):
+        if "ly_do_so_nguoi" not in _existing_columns(insp, "san_xuat_phien_chay"):
+            db.execute(text(
+                "ALTER TABLE san_xuat_phien_chay ADD COLUMN ly_do_so_nguoi VARCHAR(255)"))
+    db.commit()
+
+
+MIGRATIONS.append(
+    ("0223_phien_chay_ly_do_so_nguoi", _migrate_phien_chay_ly_do_so_nguoi)
+)
+
+
+def _migrate_ky_thuat_bao_tri_ly_do_huy(db: Session) -> None:
+    """Lý do hủy phiếu bảo trì (thay chức năng dời lịch bằng hủy-kèm-lý-do).
+
+    Một cột cộng thêm trên bảng `ky_thuat_bao_tri` (đã tồn tại từ module Kỹ thuật máy), thuần
+    additive, KHÔNG backfill — phiếu cũ để trống là ĐÚNG. Trạng thái `da_huy` là giá trị mới của
+    cột `trang_thai` (String), không cần DDL riêng. Phiếu chuyển sang `da_huy` bắt buộc có lý do;
+    mở lại phiếu (hủy nhầm) sẽ xoá cột này về NULL.
+
+    Guard theo cột ⇒ idempotent; no-op trên DB fresh (create_all đã dựng đủ cột)."""
+    insp = inspect(db.get_bind())
+    if "ky_thuat_bao_tri" in set(insp.get_table_names()):
+        if "ly_do_huy" not in _existing_columns(insp, "ky_thuat_bao_tri"):
+            db.execute(text(
+                "ALTER TABLE ky_thuat_bao_tri ADD COLUMN ly_do_huy VARCHAR(300)"))
+    db.commit()
+
+
+MIGRATIONS.append(
+    ("0224_ky_thuat_bao_tri_ly_do_huy", _migrate_ky_thuat_bao_tri_ly_do_huy)
+)
+
+
+def _migrate_module_yeu_cau_sua_chua(db: Session) -> None:
+    """Ô quyền `yeu_cau_sua_chua` = "Báo máy hỏng" (20/08/2026).
+
+    Bảng `ky_thuat_yeu_cau_sua` là bảng MỚI nên `create_all` tự dựng — migration này KHÔNG đụng
+    schema, nó chỉ thêm một HÀNG DỮ LIỆU vào `modules`. Vẫn phải viết ở đây vì `modules` là danh
+    sách ô quyền: DB live không có hàng này thì ma trận phân quyền không hiện ô nào để tick, và
+    người ngoài tổ kỹ thuật vĩnh viễn không được cấp quyền báo máy hỏng.
+
+    KHÔNG chép quyền từ khoá nào sang (khác 0209): mọi endpoint yêu cầu đều nhận `ky_thuat_may`
+    làm đường vào thứ hai, nên tổ sửa chữa dùng được ngay mà không cần cấp thêm. Khoá mới chỉ để
+    MỞ cho người ngoài — mà mở cho ai là quyết định của chủ chốt, không phải của migration.
+
+    Idempotent: chạy lại không đẻ hàng trùng.
+    """
+    db.execute(
+        # `modules.created_at` NOT NULL và KHÔNG có server_default ⇒ phải tự điền (khuôn 0209).
+        text("INSERT INTO modules (key, label, created_at) "
+             "SELECT :k, :l, CURRENT_TIMESTAMP "
+             "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+        {"k": "yeu_cau_sua_chua", "l": "Báo máy hỏng"},
+    )
+    db.commit()
+
+
+MIGRATIONS.append(
+    ("0225_module_yeu_cau_sua_chua", _migrate_module_yeu_cau_sua_chua)
+)

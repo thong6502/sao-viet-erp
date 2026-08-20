@@ -35,6 +35,8 @@ export type PermAction =
   | "approve_exception"
   | "set_credit_terms"
   | "record_deposit"
+  // san_xuat (Thực hiện SX tại tổ) — giao/rút người + bắt đầu/tạm dừng/kết thúc phiên chạy.
+  | "assign_work"
   // Kho (spec-kho-de-nghi §9.1) — quyền chi tiết của module `kho` + ghi sổ (SoD).
   | "request"
   | "view_stock"
@@ -102,6 +104,7 @@ export function PermissionsProvider({
     if (action === "approve_exception") return row.can_approve_exception;
     if (action === "set_credit_terms") return row.can_set_credit_terms;
     if (action === "record_deposit") return row.can_record_deposit;
+    if (action === "assign_work") return row.can_assign_work;
     if (action === "request") return row.can_request;
     if (action === "view_stock") return row.can_view_stock;
     if (action === "view_cost") return row.can_view_cost;

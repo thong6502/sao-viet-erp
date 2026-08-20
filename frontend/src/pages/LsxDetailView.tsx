@@ -120,6 +120,47 @@ function toForm(d: LsxDetail): FormState {
   };
 }
 
+function getInitials(name?: string | null): string {
+  if (!name) return "—";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function demNgayConLai(hanGiaoStr?: string | null): string {
+  if (!hanGiaoStr) return "";
+  const dg = new Date(hanGiaoStr);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  dg.setHours(0, 0, 0, 0);
+  const diff = Math.round((dg.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  if (diff < 0) return `Quá hạn ${Math.abs(diff)} ngày`;
+  if (diff === 0) return `Hôm nay giao`;
+  return `Còn ${diff} ngày`;
+}
+
+function tinhNgayDem(hanSxStr: string | null | undefined, hanGiaoStr: string | null | undefined): {
+  status: "safe" | "warning" | "danger" | "none";
+  text: string;
+} {
+  if (!hanSxStr || !hanGiaoStr) return { status: "none", text: "" };
+  const dSx = new Date(hanSxStr);
+  const dGiao = new Date(hanGiaoStr);
+  if (isNaN(dSx.getTime()) || isNaN(dGiao.getTime())) return { status: "none", text: "" };
+  dSx.setHours(0, 0, 0, 0);
+  dGiao.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((dGiao.getTime() - dSx.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays >= 2) {
+    return { status: "safe", text: `Đệm ${diffDays} ngày an toàn trước hạn giao` };
+  } else if (diffDays === 1) {
+    return { status: "warning", text: `Đệm 1 ngày — Cận kề hạn giao khách` };
+  } else if (diffDays === 0) {
+    return { status: "warning", text: `Trùng hạn giao — Không có ngày đệm` };
+  } else {
+    return { status: "danger", text: `Trễ hơn hạn giao khách ${Math.abs(diffDays)} ngày!` };
+  }
+}
+
 export function LsxDetailView({
   lsxId,
   onBack,
@@ -146,6 +187,7 @@ export function LsxDetailView({
   const [err, setErr] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("chung");
   const [form, setForm] = useState<FormState | null>(null);
+  const [copiedOrder, setCopiedOrder] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingRouting, setSavingRouting] = useState(false);
   const [routingDirty, setRoutingDirty] = useState(false);
@@ -471,6 +513,15 @@ export function LsxDetailView({
     }
   }
 
+  // HOOK PHẢI NẰM TRƯỚC MỌI `return` SỚM. Khối này từng đứng dưới hai nhánh return bên dưới:
+  // render đầu (đang tải) React đếm 45 hook, dữ liệu về thành 46 → "Rendered more hooks than
+  // during the previous render" và cả màn trắng ngay khi bấm vào một lệnh. `d`/`form` lúc này
+  // còn có thể là null nên đọc bằng `?.` — `tinhNgayDem` đã nhận null/undefined và trả "none".
+  const demHan = useMemo(
+    () => tinhNgayDem(form?.han_hoan_thanh_sx, d?.han_giao_khach),
+    [form?.han_hoan_thanh_sx, d?.han_giao_khach],
+  );
+
   if (loading) {
     // Skeleton GIỮ ĐÚNG layout (head + 2 cột) để nội dung thật không làm nhảy trang.
     return (
@@ -541,9 +592,6 @@ export function LsxDetailView({
   const co = (k: string): boolean => qc[k] !== undefined && qc[k] !== null;
   // Số tờ in / tờ nguyên KHÔNG còn tính ở đây: chúng là hai mốc ĐỌC RA từ chuỗi ngược bên server
   // (`_ap_chuoi_nguoc`). Giữ bản tính thứ hai ở frontend là mở đường cho hai số lệch nhau.
-  const hanTre =
-    !!form.han_hoan_thanh_sx && !!d.han_giao_khach && form.han_hoan_thanh_sx >= d.han_giao_khach;
-
   // XEM TRƯỚC thông số: thanh KPI phải nói CÙNG con số với khối "Máy tự tính" ngay dưới nó. Trước
   // đây KPI đọc số ĐÃ LƯU còn khối kia hiện số mới kèm chip "tính lại" — sửa khổ tờ in xong là một
   // màn hiện hai con số cho cùng một thứ, người dùng không biết tin cái nào.
@@ -862,68 +910,156 @@ export function LsxDetailView({
 
           {tab === "chung" && (
             <section className="khsx-panel" role="tabpanel" id="khsx-panel-chung" aria-labelledby="khsx-tab-chung" tabIndex={0}>
-              <div className="khsx-spec__card">
-                <div className="khsx-spec__card-head">
-                  <div className="khsx-spec__card-icon">
-                    <Icon name="pencil" size={16} />
-                  </div>
+              <div className={`khsx-spec__card ${form.is_rush ? "khsx-spec__card--rush" : ""}`}>
+                <div className="khsx-spec__card-head khsx-spec__card-head--flex">
                   <h4 className="khsx-spec__title">Thông tin kế hoạch</h4>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={form.is_rush}
+                    className={`khsx-rush-toggle ${form.is_rush ? "is-rush" : ""}`}
+                    onClick={() => set("is_rush", !form.is_rush)}
+                    title={form.is_rush ? "Đang bật ưu tiên hàng gấp ở xưởng" : "Bấm để đánh dấu hàng gấp"}
+                  >
+                    <span className="khsx-rush-toggle__indicator">
+                      {form.is_rush && <span className="khsx-rush-toggle__pulse" />}
+                    </span>
+                    <span className="khsx-rush-toggle__label">
+                      {form.is_rush ? "Ưu tiên: Hàng GẤP" : "Hàng thường"}
+                    </span>
+                  </button>
                 </div>
                 <div className="khsx-spec__card-body">
-                  <div className="khsx-form">
-                    <label className="khsx-field">
-                      <span className="khsx-field__label">Tên lệnh</span>
-                      <input value={form.ten} onChange={(e) => set("ten", e.target.value)} />
-                    </label>
-                    <label className="khsx-field">
-                      <span className="khsx-field__label">Hạn hoàn thành sản xuất</span>
-                      <input
-                        type="date"
-                        value={form.han_hoan_thanh_sx}
-                        onChange={(e) => set("han_hoan_thanh_sx", e.target.value)}
-                      />
-                      {hanTre && (
-                        <span className="khsx-field__warn">
-                          Hạn sản xuất nên sớm hơn hạn giao khách ít nhất 1 ngày
-                        </span>
-                      )}
-                    </label>
-                    <label className={`khsx-field khsx-field--check ${form.is_rush ? "is-checked" : ""}`}>
-                      <input
-                        type="checkbox"
-                        checked={form.is_rush}
-                        onChange={(e) => set("is_rush", e.target.checked)}
-                      />
-                      <span>Hàng GẤP — ưu tiên ở xưởng</span>
-                    </label>
-                    {/* BỎ hai ô "Khuôn bế" và "Máy in dự kiến" (chủ 11/08/2026). Máy thật gán theo
-                        TỪNG BƯỚC ở màn Xếp lịch công đoạn, khuôn cũng gắn với bước bế — khai ở cấp
-                        lệnh chỉ là con số dự kiến nằm song song, sửa một nơi không kéo nơi kia. */}
+                  <div className="khsx-plan-form">
+                    <div className="khsx-plan-form__row">
+                      <label className="khsx-field khsx-field--flex2">
+                        <span className="khsx-field__label">Tên lệnh sản xuất</span>
+                        <input
+                          value={form.ten}
+                          placeholder="Nhập tên lệnh..."
+                          onChange={(e) => set("ten", e.target.value)}
+                        />
+                      </label>
+                      <label className="khsx-field khsx-field--flex1">
+                        <span className="khsx-field__label">Hạn hoàn thành sản xuất</span>
+                        <input
+                          type="date"
+                          value={form.han_hoan_thanh_sx}
+                          onChange={(e) => set("han_hoan_thanh_sx", e.target.value)}
+                        />
+                      </label>
+                    </div>
+
+                    {demHan.status !== "none" && (
+                      <div className={`khsx-buffer-gauge khsx-buffer-gauge--${demHan.status}`}>
+                        <div className="khsx-buffer-gauge__track">
+                          <div className="khsx-buffer-gauge__milestone">
+                            <span className="khsx-buffer-gauge__tag">Bàn giao</span>
+                            <span className="khsx-buffer-gauge__val">{ngay(d.ban_giao_at || d.created_at)}</span>
+                          </div>
+                          <div className="khsx-buffer-gauge__bar-wrap">
+                            <div className="khsx-buffer-gauge__bar" />
+                            <span className="khsx-buffer-gauge__badge">
+                              {demHan.text}
+                            </span>
+                          </div>
+                          <div className="khsx-buffer-gauge__milestone">
+                            <span className="khsx-buffer-gauge__tag">Hạn giao</span>
+                            <span className="khsx-buffer-gauge__val">{ngay(d.han_giao_khach)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <label className="khsx-field khsx-field--wide">
                       <span className="khsx-field__label">Ghi chú kế hoạch</span>
-                      <textarea rows={3} value={form.ghi_chu} onChange={(e) => set("ghi_chu", e.target.value)} />
+                      <textarea
+                        rows={3}
+                        placeholder="Ghi chú điều phối sản xuất, dặn dò xưởng..."
+                        value={form.ghi_chu}
+                        onChange={(e) => set("ghi_chu", e.target.value)}
+                      />
                     </label>
                   </div>
                 </div>
               </div>
 
               <div className="khsx-spec__card">
-                <div className="khsx-spec__card-head">
-                  <div className="khsx-spec__card-icon">
-                    <Icon name="fileCheck" size={16} />
-                  </div>
+                <div className="khsx-spec__card-head khsx-spec__card-head--flex">
                   <h4 className="khsx-spec__title">Đơn hàng &amp; Nhân sự phụ trách</h4>
+                  {d.order_no && (
+                    <div className="khsx-order-badge" title="Mã đơn hàng">
+                      <span className="khsx-order-badge__code">{d.order_no}</span>
+                      <button
+                        type="button"
+                        className="khsx-order-badge__copy"
+                        onClick={() => {
+                          if (navigator.clipboard) {
+                            navigator.clipboard.writeText(d.order_no || "");
+                          }
+                          setCopiedOrder(true);
+                          setTimeout(() => setCopiedOrder(false), 2000);
+                        }}
+                        title="Copy mã đơn hàng"
+                      >
+                        {copiedOrder ? "Đã chép" : "Chép mã"}
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="khsx-spec__card-body">
-                  <div className="khsx-kvgrid">
-                    <KV k="Đơn hàng" v={d.order_no ?? "—"} />
-                    <KV k="Khách hàng" v={d.customer_name ?? "—"} />
-                    <KV k="Sale phụ trách" v={d.sale_name ?? "—"} />
-                    <KV k="Người phụ trách KH" v={d.nguoi_phu_trach_ten ?? "—"} />
-                    <KV k="Hạn giao khách" v={ngay(d.han_giao_khach)} mono />
-                    <KV k="Bàn giao lúc" v={ngayGio(d.ban_giao_at)} mono />
-                    <KV k="Tạo lúc" v={ngayGio(d.created_at)} mono />
-                    <KV k="Sửa lúc" v={ngayGio(d.updated_at)} mono />
+                  <div className="khsx-split-grid">
+                    {/* Cột trái: Thông tin đơn hàng & Khách hàng */}
+                    <div className="khsx-split-col">
+                      <div className="khsx-entity-row">
+                        <span className="khsx-entity-row__label">Khách hàng</span>
+                        <div className="khsx-entity-row__val-main">{d.customer_name || "—"}</div>
+                      </div>
+                      <div className="khsx-entity-row">
+                        <span className="khsx-entity-row__label">Hạn giao khách</span>
+                        <div className="khsx-entity-row__val-date">
+                          <span className="khsx-val-date__main">{ngay(d.han_giao_khach)}</span>
+                          {d.han_giao_khach && (
+                            <span className={`khsx-val-date__badge ${classHan(d.han_giao_khach)}`}>
+                              {demNgayConLai(d.han_giao_khach)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Cột phải: Đội ngũ phụ trách */}
+                    <div className="khsx-split-col">
+                      <div className="khsx-team-item">
+                        <div className="khsx-team-item__avatar">
+                          {getInitials(d.sale_name)}
+                        </div>
+                        <div className="khsx-team-item__info">
+                          <span className="khsx-team-item__role">Kinh doanh phụ trách</span>
+                          <span className="khsx-team-item__name">{d.sale_name || "—"}</span>
+                        </div>
+                      </div>
+
+                      <div className="khsx-team-item">
+                        <div className="khsx-team-item__avatar khsx-team-item__avatar--blue">
+                          {getInitials(d.nguoi_phu_trach_ten || "Kế hoạch")}
+                        </div>
+                        <div className="khsx-team-item__info">
+                          <span className="khsx-team-item__role">Điều phối kế hoạch</span>
+                          <span className="khsx-team-item__name">{d.nguoi_phu_trach_ten || "Kế hoạch sản xuất"}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="khsx-spec__card-foot">
+                  <div className="khsx-audit-trail">
+                    <span>Bàn giao: <strong>{ngayGio(d.ban_giao_at) || "—"}</strong></span>
+                    <span className="khsx-audit-trail__dot">•</span>
+                    <span>Tạo lúc: <strong>{ngayGio(d.created_at) || "—"}</strong></span>
+                    <span className="khsx-audit-trail__dot">•</span>
+                    <span>Sửa lúc: <strong>{ngayGio(d.updated_at) || "—"}</strong></span>
                   </div>
                 </div>
               </div>

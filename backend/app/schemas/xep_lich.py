@@ -61,6 +61,9 @@ class XepLichDongOut(BaseModel):
     nguon: str
     lsx_id: int | None = None
     bai_ghep_id: int | None = None
+    # Lệnh đã ghép → bài ghép đang chạy bước in thay cho nó. None với chính dòng bài ghép.
+    gang_bai_ghep_id: int | None = None
+    gang_ma: str | None = None
     lsx_ma: str | None = None
     cong_doan_ten: str | None = None
     loai_buoc: str | None = None

@@ -18,6 +18,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { Icon } from "../components/Icons";
 import { GiuChoTheoLenhView } from "./GiuChoTheoLenhView";
 import { VatTuKeHoachView } from "./VatTuKeHoachView";
 import { useNapTenDonVi } from "./tenDonVi";
@@ -83,44 +84,64 @@ export function KeHoachVatTuPage({
   }, [token, eventTick]);
 
   return (
-    <main className="khsx">
-      <header className="khsx__head">
-        <p className="eyebrow">Sản xuất</p>
-        <div className="khsx__headrow">
-          <h1 className="khsx__title">Kế hoạch vật tư</h1>
-          {gom === "hang" && soDo > 0 && (
-            <span className="khsx__count">{num(soDo)} dòng cần lo</span>
-          )}
-          {gom === "lenh" && soGiuLau > 0 && (
-            <span className="khsx__count">{num(soGiuLau)} lệnh giữ lâu chưa chạy</span>
-          )}
+    <main className="khsx khvt-page">
+      <header className="khvt-header">
+        <div className="khvt-header__top">
+          <div className="khvt-header__badge">
+            <span className="khvt-header__pulse" aria-hidden="true" />
+            <span>Sản xuất &amp; Cung ứng</span>
+          </div>
+          <div className="khvt-header__sync" title="Dữ liệu tự động cập nhật qua kết nối thời gian thực">
+            <Icon name="workflow" size={12} />
+            <span>Live Sync</span>
+          </div>
         </div>
-        {/* Công tắc GOM THEO — nhãn nói CÂU HỎI mỗi bên trả lời, không nói tên trục gom. "Theo mặt
-            hàng / Theo lệnh" đúng về kỹ thuật nhưng không cho biết bấm sang bên kia được gì. */}
-        <div className="khvt-gom" role="group" aria-label="Gom bảng cân đối theo">
-          <button
-            type="button"
-            className={`khvt-gom__nut ${gom === "hang" ? "is-chon" : ""}`}
-            aria-pressed={gom === "hang"}
-            onClick={() => setGom("hang")}
-          >
-            Theo mặt hàng
-            <span className="khvt-gom__phu">còn thiếu gì · mua bao nhiêu</span>
-          </button>
-          <button
-            type="button"
-            className={`khvt-gom__nut ${gom === "lenh" ? "is-chon" : ""}`}
-            aria-pressed={gom === "lenh"}
-            onClick={() => setGom("lenh")}
-          >
-            Theo lệnh
-            <span className="khvt-gom__phu">giữ chỗ · lệnh nào chạy được</span>
-            {soGiuLau > 0 && (
-              <span className="khvt-gom__chip" title="Lệnh giữ vật tư lâu mà chưa vào kế hoạch">
-                {num(soGiuLau)}
-              </span>
-            )}
-          </button>
+
+        <div className="khvt-header__title-row">
+          <div>
+            <h1 className="khvt-header__title">Kế hoạch vật tư</h1>
+            <p className="khvt-header__desc">
+              Bảng cân đối nhu cầu tồn kho, cảnh báo thiếu hụt và điều phối giữ chỗ toàn xưởng.
+            </p>
+          </div>
+
+          {/* Công tắc GOM THEO — Segmented Capsule Tabs */}
+          <div className="khvt-segmented-switch" role="group" aria-label="Chế độ xem bảng cân đối">
+            <button
+              type="button"
+              className={`khvt-segmented-btn ${gom === "hang" ? "is-active" : ""}`}
+              aria-pressed={gom === "hang"}
+              onClick={() => setGom("hang")}
+            >
+              <Icon name="packageCheck" size={15} />
+              <div className="khvt-segmented-btn__content">
+                <span className="khvt-segmented-btn__label">Theo mặt hàng</span>
+                <span className="khvt-segmented-btn__sub">còn thiếu gì · mua bao nhiêu</span>
+              </div>
+              {soDo > 0 && (
+                <span className="khvt-badge-count khvt-badge-count--alert" title={`${num(soDo)} dòng cần xử lý`}>
+                  {num(soDo)}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              className={`khvt-segmented-btn ${gom === "lenh" ? "is-active" : ""}`}
+              aria-pressed={gom === "lenh"}
+              onClick={() => setGom("lenh")}
+            >
+              <Icon name="fileText" size={15} />
+              <div className="khvt-segmented-btn__content">
+                <span className="khvt-segmented-btn__label">Theo lệnh sản xuất</span>
+                <span className="khvt-segmented-btn__sub">giữ chỗ · lệnh nào chạy được</span>
+              </div>
+              {soGiuLau > 0 && (
+                <span className="khvt-badge-count khvt-badge-count--warn" title="Lệnh giữ vật tư lâu chưa vào kế hoạch">
+                  {num(soGiuLau)}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -129,8 +150,6 @@ export function KeHoachVatTuPage({
           eventTick={eventTick}
           canDeNghiMua={canDeNghiMua}
           onSoDo={setSoDo}
-          // Bấm mã lệnh ⇒ sang màn Kế hoạch sản xuất, mở thẳng chi tiết lệnh đó. Trước khi tách,
-          // chỗ này chỉ đổi state nội bộ vì cả hai nằm chung một màn.
           onOpenLsx={navigate ? (id) => navigate("ke-hoach-sx", { openLsxId: id }) : undefined}
         />
       ) : (
