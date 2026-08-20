@@ -34,11 +34,14 @@ from app.services.role_service import SCOPELESS_MODULES
 #: `xep_lich` (màn cũ) rời danh sách 19/08/2026: mg `0219` chép quyền sang `xep_lich_2` rồi xoá khoá.
 #: `dm_ly_do_san_xuat` (19/08/2026): danh mục Lý do & lỗi SX (§15) — màn thứ 12, scopeless như 11
 #: màn kia (danh sách lý do là dữ liệu GỐC của xưởng, không có "lý do của tôi"). mg `0221` chép quyền.
+#: `yeu_cau_sua_chua` (20/08/2026): ô báo máy hỏng cho người NGOÀI tổ kỹ thuật. Scopeless là CHỦ Ý —
+#: ai cũng phải thấy hết hàng chờ thì mới thôi báo trùng một cái máy. Việc "chỉ sửa lời báo của
+#: mình" do `_kiem_chu_yeu_cau` chặn theo người gửi, không chặn bằng phạm vi.
 SCOPELESS_CU = frozenset({
     "dm_loai_san_pham", "dm_thiet_bi", "dm_cong_doan", "dm_cong_viec_khoan", "dm_bu_hao",
     "dm_don_vi", "dm_chung_loai_giay", "dm_giay", "dm_vat_tu", "khuon_be", "dm_kho_hang",
     "dm_ly_do_san_xuat",
-    "ky_thuat_may",
+    "ky_thuat_may", "yeu_cau_sua_chua",
     "ke_hoach_vat_tu", "bai_ghep_2", "xep_lich_2", "phieu_bao_tri",
 })
 
@@ -66,6 +69,10 @@ LOAI_MODULE_CU = {
     "san_xuat_ly_do": "dm_ly_do_san_xuat",
     "ky_thuat_sua_chua": "ky_thuat_may",
     "ky_thuat_bao_tri": "ky_thuat_may",
+    # Yêu cầu báo hỏng (20/08/2026) — khoá ĐẦU TIÊN mang giá trị TUPLE: người báo phải đọc được
+    # lịch sử lời báo của chính mình (dòng "đã tạo phiếu SC-0006" / "từ chối vì …" chính là câu
+    # trả lời cho họ), mà họ không có `ky_thuat_may`. Đọc được MỘT khoá là đủ.
+    "ky_thuat_yeu_cau": ("yeu_cau_sua_chua", "ky_thuat_may"),
 }
 
 #: `danh_muc_tham_chieu.model_cua` bản cũ — đúng 8 loại có model.

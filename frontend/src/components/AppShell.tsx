@@ -422,6 +422,16 @@ export function AppShell() {
           });
       }
     }
+    // Badge Sửa chữa máy = số YÊU CẦU báo hỏng chưa ai tiếp nhận (không phải số phiếu đang sửa):
+    // phiếu đang sửa là việc tổ đã cầm, còn lời báo chưa tiếp nhận mới là thứ đang nằm chờ người.
+    // Gác theo `ky_thuat_may` vì đây là hàng chờ CỦA TỔ SỬA CHỮA — người báo hỏng không cần số này
+    // (và endpoint cũng đòi đúng quyền đó).
+    if (readable.has("ky_thuat_may")) {
+      kyThuatMay
+        .choXuLy(token)
+        .then((r) => setBadges((prev) => ({ ...prev, "sua-chua-may": r.total })))
+        .catch(() => {});
+    }
     // Badge Phiếu bảo trì = số phiếu TỚI HẠN/quá hạn còn dở. Ticker nền đẩy `bao_tri_due` khi tới
     // ngày ⇒ số này tự nhảy, thợ không phải mở màn mới biết máy tới kỳ.
     if (readable.has("phieu_bao_tri")) {
@@ -671,6 +681,26 @@ export function AppShell() {
             : "✅ Nhóm thành phẩm đã hoàn tất — đơn có thể giao",
           e.trang_thai === "closed_short" ? "warn" : "ok",
         );
+      } else if (readable.has("ky_thuat_may") && e.type === "ky_thuat_yeu_cau_moi") {
+        // Bộ phận khác vừa báo máy hỏng → ting tổ sửa chữa NGAY. Máy đang dừng thì đổi giọng: đó
+        // là khác biệt giữa "lát nữa ghé xem" và "bỏ việc đang làm chạy sang".
+        pushToast(
+          e.may_dung
+            ? `⚠️ ${e.may} ĐANG DỪNG · ${e.bo_phan_hong} — ${e.nguoi_bao ?? "?"} báo`
+            : `🔔 Báo máy hỏng: ${e.may} · ${e.bo_phan_hong}${e.nguoi_bao ? " — " + e.nguoi_bao : ""}`,
+          e.may_dung ? "warn" : "info",
+        );
+        reloadBadges();
+      } else if (e.type === "ky_thuat_yeu_cau_ket_qua") {
+        // Kết quả đẩy riêng về ĐÚNG người đã báo (không broadcast) ⇒ KHÔNG gác quyền: nhận được
+        // sự kiện này nghĩa là mình chính là người gửi lời báo đó.
+        pushToast(
+          e.ket_qua === "da_tao_phieu"
+            ? `✅ ${e.ma} đã được tiếp nhận — phiếu ${e.phieu_ma ?? ""}${e.boi ? " · " + e.boi : ""}`
+            : `✕ ${e.ma} không lập phiếu: ${e.ly_do ?? ""}`,
+          e.ket_qua === "da_tao_phieu" ? "ok" : "warn",
+        );
+        reloadBadges();
       } else if (readable.has("phieu_bao_tri") && e.type === "bao_tri_due") {
         // Tới ngày bảo trì → ting tổ sửa chữa: toast + badge "Phiếu bảo trì" tự nhảy.
         pushToast(
@@ -1146,7 +1176,9 @@ export function AppShell() {
           />
         );
       case "sua-chua-may":
-        return <SuaChuaMayPage />;
+        // `eventTick` nhích theo MỌI sự kiện SSE ⇒ danh sách yêu cầu tự nạp lại khi có lời báo mới
+        // hoặc khi người khác vừa tiếp nhận — không để hai người cùng lập phiếu cho một cái máy.
+        return <SuaChuaMayPage eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "phieu-bao-tri":
         return <PhieuBaoTriPage />;
       case "yeu-cau-mua-hang":

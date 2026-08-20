@@ -67,6 +67,25 @@ class CanDoiDong(BaseModel):
     ly_do_canh_bao: str | None = None
 
 
+class PhieuMuaTom(BaseModel):
+    """Một phiếu ĐANG CHẠY của mặt hàng — chỉ đủ để GỌI TÊN, không mang số lượng, không mang tiền.
+
+    Trả lời câu *"cái nào đang yêu cầu mua"*: trước đó ba tình huống rất khác nhau (chưa ai mua ·
+    đã đề nghị chờ duyệt · đã duyệt chưa hẹn ngày) đều vẽ ĐỎ giống hệt, nên người dùng bấm Mua
+    chồng lên phiếu đã có.
+    """
+
+    #: Mã phiếu — `PMH-…` (phiếu mua của thu mua) hoặc `YCMH-…` (đề nghị của bộ phận).
+    ma: str
+    #: `pmh` | `ycmh`. Hai chuỗi khác nhau, tra ở hai màn khác nhau, nên phải phân biệt được.
+    loai: str
+    #: Trạng thái THÔ của chính phiếu đó (`pending_approval`, `approved`, `open`, `in_purchase`…);
+    #: FE tự dịch ra chữ. Gửi chữ Việt sẵn thì hai đầu lệch nhau lúc thêm trạng thái mới.
+    trang_thai: str
+    #: Ngày về NCC hẹn — chỉ PMH mới có, và cũng chỉ khi NCC đã chốt ngày.
+    ngay_ve: date | None = None
+
+
 class CanDoiNhom(BaseModel):
     """Gom theo MẶT HÀNG: một khối = một thứ phải lo, các dòng bên trong là các lệnh giành nhau nó."""
 
@@ -88,6 +107,9 @@ class CanDoiNhom(BaseModel):
     #: Chỉ nhóm công cụ mới có — tình trạng khuôn + ngày về dự kiến.
     khuon_tinh_trang: str | None = None
     khuon_ngay_ve: date | None = None
+    #: Phiếu đang chạy của mặt hàng, xếp CHẮC → LỎNG (đã duyệt có ngày về đứng đầu). Treo ở nhóm
+    #: chứ không ở dòng: phiếu mua không biết lệnh nào, nó chỉ biết mua món gì.
+    phieu_mua: list[PhieuMuaTom] = Field(default_factory=list)
     dong: list[CanDoiDong] = Field(default_factory=list)
 
 
@@ -148,6 +170,9 @@ class TheoLenhHang(BaseModel):
     ngay_du_hang: date | None = None
     #: Mã phiếu mua của lô đó — để nút mua bị khoá gọi tên được đơn hàng đang trên đường về.
     phieu_ve: str | None = None
+    #: MỌI phiếu đang chạy của món (kể cả YCMH chưa duyệt, kể cả PMH chưa hẹn ngày), xếp CHẮC →
+    #: LỎNG. `phieu_ve` chỉ là cái lô phủ được chỗ thiếu; danh sách này mới nói hết "ai đang lo".
+    phieu_mua: list[PhieuMuaTom] = Field(default_factory=list)
     #: Bao nhiêu lệnh/bài KHÁC đang thiếu chính món này — câu *"nhả ra thì ai đỡ"* của hộp xác nhận.
     #:
     #: Tính trên TOÀN BỘ bảng, trước mọi bộ lọc: đếm sau bộ lọc thì màn đang lọc sẽ báo "0 lệnh

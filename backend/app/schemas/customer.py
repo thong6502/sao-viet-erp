@@ -504,15 +504,6 @@ class HeatCellOut(BaseModel):
     count: int
 
 
-class PrintSpecOut(BaseModel):
-    """1 dòng "Thông số in thường đặt" — đọc từ phiếu tính giá gắn báo giá của khách."""
-
-    key: str
-    label: str
-    value: str
-    pct: int
-
-
 class CustomerDashboardOut(BaseModel):
     """The Dashboard tab: every figure computed from real orders/quotations. When the
     customer has no history `has_data=False` and the UI shows an honest empty state."""
@@ -529,10 +520,6 @@ class CustomerDashboardOut(BaseModel):
     product_mix: list[ProductSliceOut]
     heatmap: list[HeatCellOut]
     has_data: bool
-    # Thông số in thường đặt (giấy · màu · gia công · khổ). Rỗng = khách chưa có phiếu tính giá
-    # nào ⇒ frontend ẩn card, KHÔNG hiện số mẫu.
-    print_specs: list[PrintSpecOut] = []
-    print_specs_phieu: int = 0
     # Công nợ chỉ-đọc card reused from detail (SEAM-16 aware).
     receivable: ReceivableCard
 

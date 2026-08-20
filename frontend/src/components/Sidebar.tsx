@@ -96,7 +96,10 @@ const NAV: NavSection[] = [
       // GIỮ id đường dẫn `xep-lich-cong-doan-2` để không hỏng dấu trang + bản đồ badge; NHÃN về tên quen.
       // Mọi vai đã có quyền `xep_lich_2` (mg 0218 chép từ `xep_lich`) nên không ai mất quyền khi bỏ màn cũ.
       { id: "xep-lich-cong-doan-2", label: "Xếp lịch công đoạn", icon: "calendar", module: "xep_lich_2" },
-      { id: "sua-chua-may", label: "Sửa chữa máy", icon: "settings", module: "ky_thuat_may" },
+      // Hai ô quyền cùng mở màn này: tổ sửa chữa vào bằng `ky_thuat_may`, người ngoài báo máy hỏng
+      // vào bằng `yeu_cau_sua_chua` (màn tự chọn khung theo quyền).
+      { id: "sua-chua-may", label: "Sửa chữa máy", icon: "settings", module: "ky_thuat_may",
+        modules: ["ky_thuat_may", "yeu_cau_sua_chua"] },
       { id: "phieu-bao-tri", label: "Phiếu bảo trì", icon: "clock", module: "phieu_bao_tri" },
     ],
   },

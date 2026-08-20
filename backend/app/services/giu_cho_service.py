@@ -306,7 +306,9 @@ class GiuChoService:
                     # hệ không còn biết nó cần bao nhiêu. Chỉ `dang_giu` là có thật.
                     "can": 0.0, "thieu": 0.0, "dang_giu": 0.0, "so_buoc": 0,
                     "trang_thai": "xam", "ngay_can": None, "ngay_du_hang": None,
-                    "phieu_ve": None, "khoa_do": [],
+                    # Lệnh đã rơi khỏi kế hoạch thì không hỏi "đang mua gì cho nó" nữa — chỗ giữ
+                    # còn lại là việc NHẢ, không phải việc mua.
+                    "phieu_ve": None, "phieu_mua": [], "khoa_do": [],
                 })
             gom[chu] = {"ma": self._ma_chu_the(chu), "is_rush": False, "ngay_can": None,
                         "moc_tam": False, "ngoai_pham_vi": True, "hang": hang}
@@ -355,7 +357,11 @@ class GiuChoService:
                     "don_vi_goc": nhom.get("don_vi_goc"),
                     "can": 0.0, "thieu": 0.0, "dang_giu": 0.0, "so_buoc": 0,
                     "trang_thai": "xam", "ngay_can": None, "ngay_du_hang": None,
-                    "phieu_ve": None, "khoa_do": [],
+                    "phieu_ve": None,
+                    # Vết mua là thuộc tính của MẶT HÀNG — giống hệt nhau ở mọi lệnh cần món đó.
+                    # Chép thẳng từ nhóm, không gộp, không cộng dồn.
+                    "phieu_mua": list(nhom.get("phieu_mua") or []),
+                    "khoa_do": [],
                 })
                 h["can"] += _f(d.get("con_phai_co"))
                 h["thieu"] += _f(d.get("thieu"))

@@ -17,10 +17,14 @@ from app.models.ky_thuat_may import (
     GIAI_DOAN_TRUOC,
     LOAI_PHIEU_BAO_TRI,
     LOAI_PHIEU_SUA_CHUA,
+    LOAI_PHIEU_YEU_CAU,
     TT_BT_DA_HUY,
     TT_BT_HOAN_THANH,
     TT_SC_DA_SUA_XONG,
     TT_SC_DANG_SUA,
+    TT_YC_CHO_TIEP_NHAN,
+    TT_YC_DA_TAO_PHIEU,
+    TT_YC_TU_CHOI,
     BaoTriMay,
 )
 from app.models.may_thiet_bi import MayThietBi
@@ -31,6 +35,7 @@ from app.services.ky_thuat_may_service import (
     NGUON_NGAY_BAT_DAU,
     NGUON_PHIEU,
     KyThuatMayChuaXongViec,
+    KyThuatMayDaXuLy,
     KyThuatMayService,
     KyThuatMayThieuAnh,
     KyThuatMayValidationError,
@@ -1018,3 +1023,305 @@ def test_ticker_sinh_loat_phieu_luu_du_ca_loat():
     assert len({p.ma for p in ra}) == 3                     # mã không trùng nhau
     assert all(p.id is not None for p in ra)
     assert db.execute(_s(_f.count()).select_from(BaoTriMay)).scalar_one() == 3
+
+
+# ================= yêu cầu báo hỏng (20/08/2026) =================
+#
+# Cửa vào cho người NGOÀI tổ kỹ thuật: thợ đứng máy / QC báo máy hỏng, tổ sửa chữa biến lời báo
+# thành phiếu. Hai bảng nối nhau ở ĐÚNG MỘT hàm (`tao_phieu_tu_yeu_cau`) nên test dồn vào đó.
+
+
+def _yc(svc, may, *, actor_id=None, **over):
+    data = {"may_id": may.id, "bo_phan_hong": "Lô nước in bị rỉ"}
+    data.update(over)
+    return svc.tao_yeu_cau(data, actor_id=actor_id)
+
+
+def _anh_yeu_cau(svc, yc_id, ten="hong.jpg"):
+    return svc.them_anh(LOAI_PHIEU_YEU_CAU, yc_id, giai_doan=GIAI_DOAN_TRUOC,
+                        file_name=ten, file_url=f"/api/files/ky-thuat-may/yeu_cau/{ten}",
+                        file_type="image/jpeg")
+
+
+def test_nguoi_bao_lay_tu_TAI_KHOAN_khong_nhan_tu_client():
+    """Lời báo phải chỉ đúng người đã gõ nó — nhận `nguoi_bao_id` từ payload là mở cửa ký tên
+    người khác. Trạng thái cũng vậy: không ai tự khai mình "đã được tiếp nhận"."""
+    db, svc = _svc()
+    may = _may(db, ma="BOI-02")
+    tho = _user(db, username="tho-boi", ten="Trần Văn Hải")
+
+    yc = _yc(svc, may, actor_id=tho.id,
+             nguoi_bao_id=999, nguoi_bao_ten="Ai đó", trang_thai=TT_YC_DA_TAO_PHIEU)
+
+    assert (yc.nguoi_bao_id, yc.nguoi_bao_ten) == (tho.id, "Trần Văn Hải")
+    assert yc.trang_thai == TT_YC_CHO_TIEP_NHAN
+    assert (yc.ma, yc.muc_do, yc.may_dung) == ("YC-0001", "trung_binh", False)
+
+
+def test_yeu_cau_thieu_may_hoac_cho_hong_bi_chan():
+    db, svc = _svc()
+    may = _may(db)
+    with pytest.raises(KyThuatMayValidationError):
+        svc.tao_yeu_cau({"bo_phan_hong": "Lô nước"})
+    with pytest.raises(KyThuatMayValidationError):
+        svc.tao_yeu_cau({"may_id": may.id, "bo_phan_hong": "   "})
+    with pytest.raises(KyThuatMayValidationError):
+        _yc(svc, may, muc_do="chet_may")
+
+
+def test_hang_cho_may_DUNG_dung_truoc_muc_do():
+    """Thứ tự hộp việc đến: chưa tiếp nhận → máy đang dừng → mức nặng → mới nhất. "Máy dừng" là
+    điều người báo BIẾT CHẮC, mức độ chỉ là cảm nhận của họ ⇒ máy dừng phải thắng."""
+    db, svc = _svc()
+    may = _may(db)
+    nhe_ma_dung = _yc(svc, may, bo_phan_hong="Đèn báo", muc_do="nhe", may_dung=True)
+    nang_van_chay = _yc(svc, may, bo_phan_hong="Trục cán", muc_do="nghiem_trong")
+    da_xong = _yc(svc, may, bo_phan_hong="Ống dẫn", muc_do="nghiem_trong", may_dung=True)
+    svc.tu_choi_yeu_cau(da_xong.id, "Chưa hỏng, chỉ kẹt giấy")
+
+    rows, total = svc.list_yeu_cau()
+    assert total == 3
+    assert [r.id for r in rows] == [nhe_ma_dung.id, nang_van_chay.id, da_xong.id]
+
+
+def test_tiep_nhan_chuyen_anh_sang_phieu_va_khoa_yeu_cau():
+    """Tiếp nhận = sinh phiếu + ảnh ĐỔI CHỦ (chuyển, không chép) + yêu cầu đóng lại, một lần."""
+    db, svc = _svc()
+    may = _may(db, ma="BOI-02")
+    tho = _user(db, username="tho-boi", ten="Trần Văn Hải")
+    kt = _user(db, username="kt1", ten="Nguyễn Văn Kỹ")
+    yc = _yc(svc, may, actor_id=tho.id, mo_ta="Chảy dầu chỗ bơm", may_dung=True)
+    _anh_yeu_cau(svc, yc.id, "hong-1.jpg")
+    _anh_yeu_cau(svc, yc.id, "hong-2.jpg")
+
+    phieu, yc = svc.tao_phieu_tu_yeu_cau(yc.id, {"muc_do": "nghiem_trong"}, actor_id=kt.id)
+
+    assert phieu.ma.startswith("SC-")
+    assert (phieu.may_id, phieu.bo_phan_hong) == (may.id, "Lô nước in bị rỉ")
+    assert phieu.mo_ta == "Chảy dầu chỗ bơm"
+    assert phieu.muc_do == "nghiem_trong"          # tổ sửa chữa chỉnh lại được lúc tiếp nhận
+    # Chỉ chép TÊN người báo. `SuaChuaMay.nguoi_bao_id` trỏ `employees.id` còn bên yêu cầu trỏ
+    # `users.id` — chép id sang là gán phiếu cho một nhân sự khác tình cờ trùng con số.
+    assert phieu.nguoi_bao_ten == "Trần Văn Hải"
+    assert phieu.nguoi_bao_id is None
+
+    assert (yc.trang_thai, yc.phieu_id) == (TT_YC_DA_TAO_PHIEU, phieu.id)
+    assert (yc.xu_ly_boi, yc.xu_ly_ten) == (kt.id, "Nguyễn Văn Kỹ")
+    assert yc.xu_ly_at is not None
+
+    assert svc.list_anh(LOAI_PHIEU_YEU_CAU, yc.id) == []      # chuyển sạch, không để lại bản sao
+    anh = svc.list_anh(LOAI_PHIEU_SUA_CHUA, phieu.id)
+    assert {a.file_name for a in anh} == {"hong-1.jpg", "hong-2.jpg"}
+    # Ảnh người báo chụp là HIỆN TRẠNG, không phải ảnh chứng thực sau sửa ⇒ phiếu vẫn nợ cửa ảnh.
+    assert all(a.giai_doan == GIAI_DOAN_TRUOC for a in anh)
+    assert svc.repo.dem_anh_sau(LOAI_PHIEU_SUA_CHUA, phieu.id) == 0
+
+
+def test_phieu_tro_nguoc_ve_yeu_cau_da_sinh_ra_no():
+    """Không thêm cột trên phiếu: đường về đọc ngược qua `phieu_id` đã đánh chỉ mục."""
+    db, svc = _svc()
+    may = _may(db)
+    tho = _user(db, username="qc1", ten="Lê Thị QC")
+    yc = _yc(svc, may, actor_id=tho.id)
+    phieu, _ = svc.tao_phieu_tu_yeu_cau(yc.id)
+
+    m = svc.yeu_cau_map([phieu.id])
+    assert m[phieu.id]["ma"] == "YC-0001"
+    assert m[phieu.id]["nguoi_bao_ten"] == "Lê Thị QC"
+
+    tu_tao = svc.tao_sua_chua({"may_id": may.id, "bo_phan_hong": "Tự lập, không qua yêu cầu"})
+    assert svc.yeu_cau_map([tu_tao.id]) == {}
+
+
+def test_tiep_nhan_lan_hai_bao_DA_XU_LY_chu_khong_de_ra_hai_phieu():
+    """Hai người trong tổ cùng mở một lời báo — người bấm sau phải bị chặn, không thì một cái máy
+    hỏng đẻ ra hai phiếu sửa chữa."""
+    db, svc = _svc()
+    may = _may(db)
+    yc = _yc(svc, may)
+    phieu, _ = svc.tao_phieu_tu_yeu_cau(yc.id)
+
+    with pytest.raises(KyThuatMayDaXuLy) as e:
+        svc.tao_phieu_tu_yeu_cau(yc.id)
+    assert phieu.ma in str(e.value)                # câu báo chỉ thẳng phiếu đã có
+    assert svc.dem_yeu_cau()["da_tao_phieu"] == 1
+
+
+def test_tu_choi_bat_buoc_ly_do():
+    """Từ chối không lý do = người báo không biết vì sao, lần sau họ thôi không báo nữa."""
+    db, svc = _svc()
+    may = _may(db)
+    yc = _yc(svc, may)
+    with pytest.raises(KyThuatMayValidationError):
+        svc.tu_choi_yeu_cau(yc.id, "   ")
+
+    tu_choi = svc.tu_choi_yeu_cau(yc.id, "Máy này đang chờ thanh lý, không sửa nữa")
+    assert tu_choi.trang_thai == TT_YC_TU_CHOI
+    assert tu_choi.ly_do_tu_choi == "Máy này đang chờ thanh lý, không sửa nữa"
+    with pytest.raises(KyThuatMayDaXuLy):
+        svc.tao_phieu_tu_yeu_cau(yc.id)
+
+
+def test_da_xu_ly_roi_thi_khong_sua_loi_bao_va_khong_doi_anh():
+    """Sau khi đã thành phiếu, chỗ bổ sung là PHIẾU — sửa lại lời khai đã xử lý thì hai bên lệch
+    nhau mà không ai biết."""
+    db, svc = _svc()
+    may = _may(db)
+    yc = _yc(svc, may)
+    svc.sua_yeu_cau(yc.id, {"mo_ta": "Bổ sung: nghe tiếng kêu lạ"})   # còn chờ ⇒ sửa được
+    assert svc.get_yeu_cau(yc.id).mo_ta == "Bổ sung: nghe tiếng kêu lạ"
+
+    svc.tao_phieu_tu_yeu_cau(yc.id)
+    with pytest.raises(KyThuatMayValidationError):
+        svc.sua_yeu_cau(yc.id, {"bo_phan_hong": "Đổi chỗ khác"})
+    with pytest.raises(KyThuatMayValidationError):
+        _anh_yeu_cau(svc, yc.id, "them-sau.jpg")
+
+
+def test_badge_chi_dem_lo_bao_CHUA_AI_TIEP_NHAN():
+    """Badge thanh bên = việc đang nằm chờ người, không phải việc tổ đã cầm."""
+    db, svc = _svc()
+    may = _may(db)
+    a, b, c = _yc(svc, may), _yc(svc, may), _yc(svc, may)
+    assert svc.dem_cho_tiep_nhan() == 3
+
+    svc.tao_phieu_tu_yeu_cau(a.id)
+    svc.tu_choi_yeu_cau(b.id, "Trùng với YC-0003")
+    assert svc.dem_cho_tiep_nhan() == 1
+    # `dem_yeu_cau` chỉ trả các trạng thái CÓ dòng — tab "Tất cả" trên màn tự cộng lại.
+    assert svc.dem_yeu_cau() == {"cho_tiep_nhan": 1, "da_tao_phieu": 1, "tu_choi": 1}
+    assert [r.id for r in svc.list_yeu_cau(trang_thai="cho_xu_ly")[0]] == [c.id]
+
+
+def test_chi_chinh_chu_sua_duoc_loi_bao_cua_minh():
+    """`yeu_cau_sua_chua.update` cấp cho cả xưởng ⇒ không có cửa này thì người tổ A vào sửa lời
+    khai của người tổ B."""
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from app.routers.ky_thuat_may import _kiem_chu_yeu_cau
+
+    db, svc = _svc()
+    may = _may(db)
+    tho = _user(db, username="tho-a", ten="Thợ A")
+    nguoi_khac = _user(db, username="tho-b", ten="Thợ B")
+    yc = _yc(svc, may, actor_id=tho.id)
+
+    ngoai_to = SimpleNamespace(can=lambda *_a, **_k: False)     # không có `ky_thuat_may.update`
+    _kiem_chu_yeu_cau(svc, ngoai_to, tho, yc.id)               # chính chủ: qua
+    with pytest.raises(HTTPException) as e:
+        _kiem_chu_yeu_cau(svc, ngoai_to, nguoi_khac, yc.id)
+    assert e.value.status_code == 403
+
+    to_sua_chua = SimpleNamespace(can=lambda *_a, **_k: True)
+    _kiem_chu_yeu_cau(svc, to_sua_chua, nguoi_khac, yc.id)     # tổ sửa chữa: qua
+
+
+def test_api_bao_hong_roi_to_sua_chua_lap_phieu(client):
+    """Trọn luồng qua HTTP: báo hỏng → badge nhảy → lập phiếu → cột "Từ yêu cầu" trên bảng phiếu."""
+    h = _headers(client)
+    may = client.post("/api/may-thiet-bi", json={"ma": "BOI-02", "ten": "Bồi sóng 1700×1700",
+                                                 "loai_may": "Bồi"}, headers=h).json()
+
+    r = client.post("/api/ky-thuat-may/yeu-cau",
+                    json={"may_id": may["id"], "bo_phan_hong": "Trục bồi kêu to",
+                          "mo_ta": "Chạy 10 phút là kêu", "may_dung": True}, headers=h)
+    assert r.status_code == 201, r.text
+    yc = r.json()
+    assert yc["ma"] == "YC-0001" and yc["trang_thai"] == "cho_tiep_nhan"
+    assert yc["may_ma"] == "BOI-02" and yc["nguoi_bao_ten"]      # server tự điền từ tài khoản
+
+    assert client.get("/api/ky-thuat-may/yeu-cau/cho-xu-ly", headers=h).json()["total"] == 1
+
+    tao = client.post(f"/api/ky-thuat-may/yeu-cau/{yc['id']}/tao-phieu",
+                      json={"muc_do": "nghiem_trong"}, headers=h)
+    assert tao.status_code == 201, tao.text
+    phieu = tao.json()["phieu"]
+    assert phieu["ma"].startswith("SC-") and phieu["muc_do"] == "nghiem_trong"
+    assert tao.json()["yeu_cau"]["phieu_ma"] == phieu["ma"]
+
+    assert client.get("/api/ky-thuat-may/yeu-cau/cho-xu-ly", headers=h).json()["total"] == 0
+
+    lai = client.post(f"/api/ky-thuat-may/yeu-cau/{yc['id']}/tao-phieu", json={}, headers=h)
+    assert lai.status_code == 409, lai.text
+
+    bang = client.get("/api/ky-thuat-may/sua-chua?size=50", headers=h).json()
+    dong = next(p for p in bang["items"] if p["id"] == phieu["id"])
+    assert (dong["yeu_cau_id"], dong["yeu_cau_ma"]) == (yc["id"], "YC-0001")
+
+
+def test_api_khong_co_duong_nao_XOA_loi_bao_hong(client):
+    """Bỏ một lời báo phải đi qua "từ chối" kèm lý do — xoá trắng là mất luôn vết ai báo, báo gì."""
+    h = _headers(client)
+    may = client.post("/api/may-thiet-bi", json={"ma": "IN-40", "ten": "In 40",
+                                                 "loai_may": "In offset"}, headers=h).json()
+    yc = client.post("/api/ky-thuat-may/yeu-cau",
+                     json={"may_id": may["id"], "bo_phan_hong": "Đầu phun"}, headers=h).json()
+    assert client.delete(f"/api/ky-thuat-may/yeu-cau/{yc['id']}", headers=h).status_code == 405
+
+    tu_choi = client.post(f"/api/ky-thuat-may/yeu-cau/{yc['id']}/tu-choi",
+                          json={"ly_do": ""}, headers=h)
+    assert tu_choi.status_code in (400, 422), tu_choi.text
+    ok = client.post(f"/api/ky-thuat-may/yeu-cau/{yc['id']}/tu-choi",
+                     json={"ly_do": "Máy này đã thanh lý tháng trước"}, headers=h)
+    assert ok.status_code == 200 and ok.json()["trang_thai"] == "tu_choi"
+
+
+def test_khong_doi_duoc_nguoi_bao_cua_phieu_sinh_tu_yeu_cau():
+    """Phiếu sinh từ lời báo: tên người báo là SNAPSHOT tài khoản đã gửi, KHÔNG gõ đè.
+
+    Khoá ô trên màn thôi là chưa đủ — gọi thẳng `PUT /sua-chua/{id}` vẫn ghi đè được, mà ghi đè
+    xong là hết đường lần ra ai đã báo máy hỏng (đúng người duy nhất kể được "hỏng thế nào").
+    """
+    db, svc = _svc()
+    may = _may(db, ma="KHOA-01")
+    tho = _user(db, username="tho-khoa", ten="Nguyễn Văn Giám")
+    kt = _user(db, username="kt-khoa", ten="Trần Kỹ Thuật")
+    yc = _yc(svc, may, actor_id=tho.id)
+    phieu, _ = svc.tao_phieu_tu_yeu_cau(yc.id, {}, actor_id=kt.id)
+    assert phieu.nguoi_bao_ten == "Nguyễn Văn Giám"
+
+    with pytest.raises(KyThuatMayValidationError) as e:
+        svc.sua_sua_chua(phieu.id, {"nguoi_bao_ten": "Ai đó khác"}, actor_id=kt.id)
+    assert yc.ma in str(e.value)          # nói LUÔN lấy từ đâu, khỏi đoán
+    db.refresh(phieu)
+    assert phieu.nguoi_bao_ten == "Nguyễn Văn Giám"
+
+    # Cửa hậu qua id cũng đóng: gán `nguoi_bao_id` là phiếu đổi chủ mà tên vẫn y nguyên.
+    with pytest.raises(KyThuatMayValidationError):
+        svc.sua_sua_chua(phieu.id, {"nguoi_bao_id": 999}, actor_id=kt.id)
+
+
+def test_phieu_sinh_tu_yeu_cau_van_sua_duoc_phan_cua_TO_SUA_CHUA():
+    """Chặn đúng MỘT ô, không khoá cả khối: chẩn đoán/ghi chú/mức độ vẫn là việc của tổ sửa chữa.
+
+    Gửi kèm ĐÚNG tên đang có cũng cho qua — bản FE cũ gửi nguyên body thì đừng chặn oan.
+    """
+    db, svc = _svc()
+    may = _may(db, ma="KHOA-02")
+    tho = _user(db, username="tho-khoa2", ten="Lê Văn Máy")
+    kt = _user(db, username="kt-khoa2", ten="Trần Kỹ Thuật")
+    yc = _yc(svc, may, actor_id=tho.id)
+    phieu, _ = svc.tao_phieu_tu_yeu_cau(yc.id, {}, actor_id=kt.id)
+
+    phieu = svc.sua_sua_chua(phieu.id, {
+        "nguoi_bao_ten": "Lê Văn Máy",                       # y nguyên ⇒ không phải "đổi"
+        "muc_do": "nghiem_trong",
+        "nguyen_nhan_phuong_an": "Bạc đạn mòn, thay và căn lại trục",
+        "ghi_chu": "Chờ bạc đạn về thứ 5",
+    }, actor_id=kt.id)
+    assert phieu.muc_do == "nghiem_trong"
+    assert phieu.nguyen_nhan_phuong_an == "Bạc đạn mòn, thay và căn lại trục"
+    assert phieu.nguoi_bao_ten == "Lê Văn Máy"
+
+
+def test_phieu_TO_KY_THUAT_TU_LAP_van_sua_duoc_nguoi_bao():
+    """Không có lời báo phía sau thì tên người báo là ô chữ tổ kỹ thuật nhập hộ — ghi nhầm phải sửa
+    được, chứ không lấy luật của phiếu-sinh-từ-yêu-cầu áp cho mọi phiếu."""
+    db, svc = _svc()
+    may = _may(db, ma="KHOA-03")
+    phieu = svc.tao_sua_chua({"may_id": may.id, "bo_phan_hong": "Trục cán",
+                              "nguoi_bao_ten": "Gõ nhầm"})
+    phieu = svc.sua_sua_chua(phieu.id, {"nguoi_bao_ten": "Phạm Văn Đúng"})
+    assert phieu.nguoi_bao_ten == "Phạm Văn Đúng"

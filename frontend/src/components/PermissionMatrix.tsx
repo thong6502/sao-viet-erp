@@ -357,6 +357,8 @@ const MODULE_HINTS: Record<string, string> = {
     "CHỈ màn Sửa chữa máy. Xem: xem phiếu + ảnh hiện trạng/chứng thực — hợp với quản đốc, điều độ. Chỉnh sửa: ghi nhận máy hỏng, ghi đã sửa gì, tải ảnh và xác nhận xong — hợp với tổ sửa chữa. Không có quyền duyệt riêng: cửa chặn là ẢNH chứng thực, thiếu ảnh thì KHÔNG AI đóng được phiếu, kể cả giám đốc.",
   phieu_bao_tri:
     "Màn Phiếu bảo trì (bảo dưỡng định kỳ sinh từ lịch của máy). Tách khỏi Sửa chữa máy 17/08/2026: điều độ cần biết máy nào sắp nằm để né khi xếp lịch, mà không cần đọc phiếu máy hỏng. Xem: xem phiếu + lịch đến hạn. Chỉnh sửa: sinh phiếu từ lịch, tick hạng mục, dời lịch, tải ảnh, xác nhận xong. Cửa chặn vẫn là ẢNH.",
+  yeu_cau_sua_chua:
+    "Cùng màn Sửa chữa máy, nhưng là khung “Yêu cầu báo hỏng” dành cho người NGOÀI tổ kỹ thuật (thợ đứng máy, QC, tổ trưởng). Xem: nhìn hàng chờ báo hỏng — để không hai người cùng báo một cái máy. Chỉnh sửa: gửi lời báo và sửa lại lời báo CỦA CHÍNH MÌNH khi chưa ai tiếp nhận. Ô này KHÔNG cho mở/đóng phiếu sửa chữa; biến lời báo thành phiếu là quyền “Sửa chữa máy”.",
   vai_tro:
     "Xem: xem danh sách vai trò và ma trận quyền. Chỉnh sửa: thêm/sửa/xóa vai trò. Muốn SỬA được chính ma trận này thì cần quyền chi tiết “Sửa ma trận phân quyền”.",
   nguoi_dung:
@@ -420,6 +422,7 @@ const MODULE_GROUPS: {
       "bai_ghep_2",
       "xep_lich_2",
       "ky_thuat_may",
+      "yeu_cau_sua_chua",
       "phieu_bao_tri",
     ],
   },
@@ -587,6 +590,9 @@ const PHAM_VI_CHO_PHEP: Record<string, Scope[]> = {
   bai_ghep_2: ["all"],
   xep_lich_2: ["all"],
   phieu_bao_tri: ["all"],
+  // Không có “chỉ của tôi”: ai cũng phải THẤY hết yêu cầu đang chờ thì mới thôi báo trùng. Việc
+  // “chỉ sửa lời báo của mình” backend chặn bằng người gửi, không bằng phạm vi.
+  yeu_cau_sua_chua: ["all"],
 };
 
 const CANH_BAO_O_CHET =

@@ -43,9 +43,11 @@ from ..models.lsx import (
     Lsx,
     LsxCongDoan,
 )
+from ..models.purchase import DPR_IN_PURCHASE, DPR_PENDING_APPROVAL, PR_PENDING
 from ..models.stock_request import REQ_DONE
 from ..models.vat_lieu_kho import HANG_GIAY
 from ..repositories.ke_hoach_vat_tu_repo import KeHoachVatTuRepository
+from ..repositories.purchase_repo import DepartmentPurchaseRequestRepository
 from .bien_cong_thuc import quy_cach_bien, quy_cach_bien_bai
 from .bien_cong_thuc import ngu_canh_lenh
 from .thanh_phan_engine import safe_eval
@@ -121,6 +123,21 @@ def _hom_nay() -> date:
     return datetime.now(timezone.utc).date()
 
 
+def _xep_vet(v: dict) -> int:
+    """Thứ tự CHẮC → LỎNG của một vết mua. Chip vật tư chỉ đủ chỗ MỘT dòng nên nó lấy phần tử đầu;
+    thứ tự này quyết định người dùng đọc được câu nào trước.
+
+    Phiếu đã duyệt kèm ngày về là lời hứa chắc nhất (*"1/9 có hàng"*); YCMH vừa lập là lỏng nhất
+    (*"đã có người đề nghị, chưa ai duyệt"*). Xếp ngược lại thì chip báo "mới đề nghị" trong khi
+    hàng đã nằm trên xe — đúng kiểu tin xấu che mất tin tốt.
+    """
+    if v.get("loai") == "pmh":
+        if v.get("trang_thai") == PR_PENDING:
+            return 2
+        return 0 if v.get("ngay_ve") else 1
+    return {DPR_IN_PURCHASE: 3, DPR_PENDING_APPROVAL: 4}.get(v.get("trang_thai"), 5)
+
+
 def _khoa_dong(hang_loai, hang_id, d: dict) -> tuple:
     """KHOÁ nhận dạng MỘT dòng của bảng cân đối — hợp đồng giữa bảng và nút "Đề nghị mua".
 
@@ -151,6 +168,7 @@ class KeHoachVatTuService:
         suppliers,
         don_vi,
         repo=None,
+        dpr=None,
     ) -> None:
         self.db = db
         # Repo RIÊNG của bảng cân đối — mọi truy vấn của màn này đi qua đây, service thôi tự
@@ -162,6 +180,9 @@ class KeHoachVatTuService:
         self.lots = lots                # StockLotRepository
         self.requests = requests        # StockRequestRepository
         self.purchases = purchases      # PurchaseRequestRepository
+        # YCMH của bộ phận — chỉ để bảng NÓI ĐƯỢC "đã có ai đề nghị mua món này chưa". Tự dựng
+        # như `repo` ở trên để chỗ gọi cũ khỏi phải sửa; test bơm bản giả được.
+        self.dpr = dpr or DepartmentPurchaseRequestRepository(db)
         self.suppliers = suppliers      # SupplierRepository
         self.don_vi = don_vi            # DonViDoRepository
 
@@ -258,7 +279,18 @@ class KeHoachVatTuService:
         # đường "đã cấp" / "đang về" là VỨT số thật của phiếu kho rồi thay bằng tổng nhu cầu — bảng
         # cân đối sẽ luôn báo đã cấp đủ. Chưa nổ vì tới 14/08/2026 chưa mặt hàng nào khai công thức;
         # điền công thức vào là nổ ngay, nên chặn ở đây cùng lượt.
-        ct = (getattr(obj, "cong_thuc_luong", None) or "").strip() if tong_lenh else ""
+        #
+        # ⚠️ Và CHỈ cho GIẤY (20/08/2026). Hai loại dòng hỏi hai câu khác nhau:
+        #   * GIẤY: dòng mang SỐ TỜ của lệnh, phải có công thức mới ra kg ⇒ chạy ở đây là đúng.
+        #   * VẬT TƯ: dòng lấy thẳng `lsx_cong_doan_vat_tu.so_luong` — số đó CHÍNH LÀ kết quả công
+        #     thức, `LsxService._luong_vat_tu` đã tính lúc lưu công đoạn, bằng ngữ cảnh ĐẦY ĐỦ có
+        #     cả `sl_vao`/`sl_ra` của bước. Chạy lại ở đây là tính lần hai bằng ngữ cảnh NGHÈO hơn
+        #     (`_quy_cach_cua` trả None cho mọi thứ không phải giấy ⇒ 16 biến đều 0), nên mọi món
+        #     có công thức đều rơi vào "Chưa biết <biến>" và nhu cầu về 0 — đúng hỏng đã thấy ở
+        #     LSX26-0020: BOM ghi 10 bản kẽm · 100 kg mực · 91.000 m² màng, kế hoạch vật tư hiện
+        #     "0 · Chưa rõ ĐVT" cho cả năm dòng.
+        ct = (getattr(obj, "cong_thuc_luong", None) or "").strip() if (
+            tong_lenh and hang[0] == HANG_GIAY) else ""
         if ct:
             ctx = ngu_canh_lenh(qc)
             thieu = [b for b in bien_trong(ct) if _f(ctx.get(b)) <= 0]
@@ -518,6 +550,64 @@ class KeHoachVatTuService:
                     ra.add((ln.hang_loai, int(ln.hang_id)))
         return ra
 
+    def _vet_mua_theo_hang(self) -> dict[tuple, list[dict]]:
+        """`{hang: [{ma, loai, trang_thai, ngay_ve}]}` — MỌI phiếu đang chạy của mặt hàng đó.
+
+        Thuần NHÃN, không đụng một phép cộng nào của bảng: số vẫn chỉ nhận hàng từ `_hang_dang_ve`.
+        Chỗ này trả lời câu người dùng hỏi ngày 20/08/2026 — *"sao biết được cái nào đang yêu cầu
+        mua"* — vì trước đó ba tình huống khác hẳn nhau lại vẽ y hệt nhau trên màn:
+
+        * PMH duyệt rồi, có ngày về  → cộng vào tồn, dòng thành `ve_muon` (đã nói được).
+        * PMH duyệt rồi, NCC chưa hẹn ngày → ĐỎ, giống hệt chưa mua gì.
+        * YCMH mới đề nghị / chờ duyệt   → ĐỎ + còn nguyên nút Mua ⇒ bấm phát nữa là phiếu trùng.
+
+        Gộp cả hai chuỗi (YCMH của bộ phận → PMH của thu mua) vì người lập kế hoạch chỉ cần biết
+        "đã có ai lo món này chưa", không cần biết nó đang nằm ở khâu nào.
+        """
+        from .purchase_service import da_giao_theo_dong
+
+        ra: dict[tuple, list[dict]] = {}
+
+        def _them(hang: tuple, ma: str | None, loai: str, trang_thai: str, ngay_ve) -> None:
+            if not ma:
+                return
+            ds = ra.setdefault(hang, [])
+            # Một phiếu khai cùng mặt hàng ở hai dòng (hai khổ, hai lô) vẫn chỉ là MỘT phiếu.
+            if any(x["ma"] == ma for x in ds):
+                return
+            ds.append({"ma": ma, "loai": loai, "trang_thai": trang_thai, "ngay_ve": ngay_ve})
+
+        for phieu in [*self.purchases.dong_dang_ve(), *self.purchases.dong_cho_duyet()]:
+            da_giao = da_giao_theo_dong(phieu)
+            for ln in phieu.lines:
+                if not ln.hang_loai or not ln.hang_id:
+                    continue
+                hang = (ln.hang_loai, int(ln.hang_id))
+                if hang not in self._objs:
+                    continue
+                nhan = (
+                    float(da_giao.get(ln.id, 0.0)) if da_giao is not None
+                    else _f(ln.received_quantity)
+                )
+                # Dòng đã nhận đủ thì phiếu không còn là việc đang chạy của mặt hàng này.
+                if _f(ln.quantity) - nhan <= 0:
+                    continue
+                _them(hang, getattr(phieu, "code", None), "pmh", phieu.status,
+                      phieu.expected_receipt_date)
+
+        for yc in self.dpr.dang_de_nghi():
+            for ln in yc.lines:
+                if not ln.hang_loai or not ln.hang_id:
+                    continue
+                hang = (ln.hang_loai, int(ln.hang_id))
+                if hang not in self._objs:
+                    continue
+                _them(hang, yc.code, "ycmh", yc.status, None)
+
+        for ds in ra.values():
+            ds.sort(key=lambda v: (_xep_vet(v), v["ngay_ve"] or date.max, v["ma"]))
+        return ra
+
     # ================== HÀM CHÍNH ==================
 
     def can_doi(
@@ -552,10 +642,11 @@ class KeHoachVatTuService:
 
         da_cap, dang_linh = self._da_cap_dang_linh()
         dang_ve = self._hang_dang_ve()
+        vet_mua = self._vet_mua_theo_hang()
         ton = self.lots.on_hand_map(sorted({d["hang"] for d in tho if d["hang"]}))
 
         nhom = self._chay_con_tro(tho, ton=ton, dang_ve=dang_ve, da_cap=da_cap,
-                                  dang_linh=dang_linh)
+                                  dang_linh=dang_linh, vet_mua=vet_mua)
         return {"items": self._loc(nhom, q=q, chi_thieu=chi_thieu), "bo_qua": bo_qua}
 
     def vat_tu_hieu_luc(self, bai_ghep_id: int) -> dict:
@@ -864,7 +955,7 @@ class KeHoachVatTuService:
 
     # ---- (d) ----------------------------------------------------------------
 
-    def _chay_con_tro(self, tho, *, ton, dang_ve, da_cap, dang_linh) -> list[dict]:
+    def _chay_con_tro(self, tho, *, ton, dang_ve, da_cap, dang_linh, vet_mua=None) -> list[dict]:
         hom_nay = _hom_nay()
         # Phần đã cấp CÒN LẠI chưa gán cho dòng nào — bản sao để trừ dần, không đụng dict gốc.
         cap_con = dict(da_cap)
@@ -1013,6 +1104,9 @@ class KeHoachVatTuService:
                 "so_dong_do": so_do,
                 "so_dong_khong_ro": so_khong_ro,
                 "so_dong_ve_muon": so_ve_muon,
+                # Vết mua treo ở MẶT HÀNG chứ không ở dòng: phiếu mua không biết lệnh nào, nó chỉ
+                # biết mua món gì. Dán xuống từng dòng là bịa ra quan hệ phiếu↔lệnh không có thật.
+                "phieu_mua": (vet_mua or {}).get(hang, []),
                 "dong": dong_out,
             })
         # Nhóm không đánh giá được xếp ngay sau nhóm thiếu: cả hai đều là việc phải lo, chỉ khác

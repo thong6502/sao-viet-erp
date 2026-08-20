@@ -297,6 +297,21 @@ class KyThuatMayService:
         phieu = self.get_sua_chua(phieu_id)
         if phieu.trang_thai == TT_SC_DA_SUA_XONG:
             raise KyThuatMayValidationError("Phiếu đã đóng — không sửa được nữa.")
+        # NGƯỜI BÁO của phiếu sinh từ yêu cầu là SNAPSHOT tài khoản đã bấm gửi lời báo — chặn ở
+        # ĐÂY chứ không chỉ khoá ô trên màn (20/08/2026): khoá mỗi FE thì gọi thẳng API vẫn ghi đè
+        # được, mà ghi đè xong là hết đường lần ra ai đã báo máy hỏng — đúng người duy nhất trả
+        # lời được "hỏng thế nào" khi phiếu thiếu chi tiết. Chỉ chặn khi THẬT SỰ đổi giá trị: bản
+        # FE cũ gửi kèm đúng tên đang có thì cho qua, khỏi chặn oan một cú lưu hợp lệ.
+        doi_nguoi_bao = (
+            ("nguoi_bao_ten" in data and (data["nguoi_bao_ten"] or None) != phieu.nguoi_bao_ten)
+            or ("nguoi_bao_id" in data and data["nguoi_bao_id"] != phieu.nguoi_bao_id)
+        )
+        if doi_nguoi_bao:
+            nguon = self.repo.yeu_cau_map([phieu.id]).get(phieu.id)
+            if nguon:
+                raise KyThuatMayValidationError(
+                    f"Người báo lấy từ {nguon['ma']} — không đổi trên phiếu được."
+                )
         if "may_id" in data or "bo_phan_hong" in data:
             self._validate_sua_chua({**{"may_id": phieu.may_id,
                                         "bo_phan_hong": phieu.bo_phan_hong}, **data})

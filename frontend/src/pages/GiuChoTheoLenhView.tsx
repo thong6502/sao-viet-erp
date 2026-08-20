@@ -17,6 +17,7 @@ import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon, type IconName } from "../components/Icons";
 import { BangLoi, ChipGap, EmptyState, Skeleton, ngay, num } from "./keHoachSxShared";
+import { moTaPhieuMua, tomTatPhieuMua } from "./phieuMuaNhan";
 
 /** Nhãn ngắn & màu cho trạng thái vật tư */
 const MAU_VATTU: Record<string, { label: string; cls: string; dotColor: string; bg: string; text: string }> = {
@@ -572,11 +573,17 @@ export function GiuChoTheoLenhView({
                           {r.hang.map((h) => {
                             const meta = mauVatTu(h.trang_thai);
                             const icon = iconLoaiHang(h.hang_loai);
+                            // Chỉ bày ở món CÒN PHẢI LO. Món đã đủ kho mà vẫn đeo mã phiếu
+                            // thì cả hàng chip toàn chữ, và cái cần đọc chìm mất; ai muốn
+                            // tra vẫn có tooltip + drawer.
+                            const vet = h.thieu > 0 || h.trang_thai === "khong_ro"
+                              ? tomTatPhieuMua(h.phieu_mua)
+                              : null;
                             return (
                               <div
                                 key={`${h.hang_loai}-${h.hang_id}`}
                                 className={`khvt-stream-chip ${meta.cls}`}
-                                title={`${h.hang_ten ?? h.hang_ma}\n• Nhu cầu: ${soGoc(h.can)} ${h.don_vi_goc ?? ""}\n• Đang giữ: ${soGoc(h.dang_giu)} ${h.don_vi_goc ?? ""}${h.thieu > 0 ? `\n• Thiếu: ${soGoc(h.thieu)}` : ""}${h.trang_thai === "ve_muon" ? `\n• Đã đặt mua: ${moTaVeMuon(h)}` : ""}`}
+                                title={`${h.hang_ten ?? h.hang_ma}\n• Nhu cầu: ${soGoc(h.can)} ${h.don_vi_goc ?? ""}\n• Đang giữ: ${soGoc(h.dang_giu)} ${h.don_vi_goc ?? ""}${h.thieu > 0 ? `\n• Thiếu: ${soGoc(h.thieu)}` : ""}${h.trang_thai === "ve_muon" ? `\n• Đã đặt mua: ${moTaVeMuon(h)}` : ""}${vet ? `\n${vet.title}` : ""}`}
                               >
                                 <Icon name={icon} size={12} />
                                 <span className="khvt-stream-chip__name">
@@ -591,10 +598,19 @@ export function GiuChoTheoLenhView({
                                     {soGoc(h.dang_giu || h.can)}
                                   </span>
                                 )}
-                                {h.trang_thai === "ve_muon" && h.ngay_du_hang && (
+                                {h.trang_thai === "ve_muon" && h.ngay_du_hang ? (
                                   <span className="khvt-stream-chip__eta">
                                     <Icon name="truck" size={10} /> về {ngay(h.ngay_du_hang)}
                                   </span>
+                                ) : (
+                                  /* Chưa có lô nào phủ được chỗ thiếu, NHƯNG đã có người lập
+                                     phiếu — nói ra ngay trên chip để khỏi ai bấm Mua chồng lên. */
+                                  vet && (
+                                    <span className="khvt-stream-chip__po">
+                                      <Icon name="cart" size={10} /> {vet.chinh}
+                                      {vet.them > 0 && <b>+{vet.them}</b>}
+                                    </span>
+                                  )
                                 )}
                               </div>
                             );
@@ -846,6 +862,22 @@ export function GiuChoTheoLenhView({
                               {h.thieu > 0 ? `thiếu ${soGoc(h.thieu)}` : meta.label}
                             </span>
                           </div>
+
+                          {/* "Đã có ai lo món này chưa" — không có dòng này thì "đã đề nghị" và
+                              "chưa ai đụng vào" hiện y hệt nhau, và người sau bấm Mua lần nữa. */}
+                          {h.trang_thai === "ve_muon" ? (
+                            <div className="khvt-bcard__item-po">
+                              <Icon name="truck" size={10} /> {moTaVeMuon(h)}
+                            </div>
+                          ) : (
+                            (h.thieu > 0 || h.trang_thai === "khong_ro") &&
+                            h.phieu_mua.length > 0 && (
+                              <div className="khvt-bcard__item-po">
+                                <Icon name="cart" size={10} />{" "}
+                                {h.phieu_mua.map((pm) => moTaPhieuMua(pm)).join(" · ")}
+                              </div>
+                            )
+                          )}
                         </li>
                       );
                     })}
@@ -1119,6 +1151,20 @@ function LenhVatTuDrawer({
                           </span>
                           {h.trang_thai === "ve_muon" && (
                             <div className="khvt-pill-note">{moTaVeMuon(h)}</div>
+                          )}
+                          {/* Drawer là chỗ TRA nên kê ĐỦ phiếu đang chạy, kể cả khi dòng đã xanh —
+                              hai phiếu cùng một món nằm cạnh nhau chính là dấu hiệu đề nghị trùng.
+                              Bỏ đúng cái phiếu vừa gọi tên ở dòng trên để khỏi nói hai lần. */}
+                          {h.phieu_mua.filter((pm) => pm.ma !== h.phieu_ve).length > 0 && (
+                            <div className="khvt-pill-note khvt-pill-note--po">
+                              {h.phieu_mua
+                                .filter((pm) => pm.ma !== h.phieu_ve)
+                                .map((pm) => (
+                                  <span key={pm.ma}>
+                                    <Icon name="cart" size={10} /> {moTaPhieuMua(pm, { dayDu: true })}
+                                  </span>
+                                ))}
+                            </div>
                           )}
                         </td>
                       </tr>

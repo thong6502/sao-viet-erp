@@ -1164,6 +1164,55 @@ def test_khoan_luot_chung_ghim_theo_id_va_chan_dau_viec_la(
         )
 
 
+def test_dau_viec_khoan_luot_chung_mang_san_vat_tu_de_drawer_bung(
+    db, orders, lsx_svc, bg_svc, admin, customer,
+):
+    """Bước chung: chọn đầu việc khoán phải BUNG sẵn vật tư đã tính số, đúng như đường lệnh.
+
+    Bug 20/08 (drawer bước chung hiện "0 vật tư"): `_khoan_chung_dict` gọi `_dau_viec_option_dicts`
+    THIẾU `buoc`+`quy_cach`, nên `_vat_tu_bung` trả rỗng — trong khi đường lệnh (`lsx_service`) luôn
+    kèm hai thứ đó. Lỗi chép lệch giữa hai chỗ cùng một việc; test này đỏ nếu ai gỡ `buoc`/`quy_cach`.
+    """
+    from app.models.cong_doan import CongDoanDauViec, CongDoanDauViecVatTu
+    from app.models.piece_work import PieceRate
+    from app.models.vat_lieu_kho import VatTuInAn
+
+    created = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)
+    # Khai bảng khoán + vật tư TRƯỚC khi đụng tới bài (cache `_piece_rates()` theo instance).
+    to = _to_san_xuat(db)
+    cd_in_id = sorted(lsx_svc.get(created[0].id).cong_doans, key=lambda c: c.thu_tu)[0].cong_doan_id
+    rate = PieceRate(group_name="to_in", ten="In tờ rời", unit="to", unit_price=35,
+                     department_id=to.id, active=True)
+    db.add(rate)
+    db.flush()
+    link = CongDoanDauViec(
+        cong_doan_id=cd_in_id, piece_rate_id=rate.id,
+        nang_suat_nguoi_gio=3000, so_nguoi_tieu_chuan=2, so_nguoi_toi_da=3,
+    )
+    db.add(link)
+    db.flush()
+    keo = VatTuInAn(ma="KEO-CH", ten="Keo bước chung", don_vi_gia="kg", don_gia=45_000,
+                    cong_thuc_luong="sl_vao * 0.001", active=True)
+    db.add(keo)
+    db.flush()
+    link.vat_tus.append(CongDoanDauViecVatTu(vat_tu_id=keo.id, thu_tu=0))
+    db.commit()
+
+    bg = bg_svc.tao(lsx_ids=[l.id for l in created], actor=admin)
+    _gop_buoc_in(bg_svc, lsx_svc, bg, created, admin)
+    chung = bg_svc.so_do(bg_svc._get(bg.id))["gop"][0]
+    assert chung["cong_doan_id"] == cd_in_id
+    assert chung["so_luong_vao"] > 0, "bước chung in phải có số tờ vào để công thức lượng chạy"
+
+    chon = next(k for k in chung["khoan_chon_duoc"] if k["id"] == rate.id)
+    assert [v["ma"] for v in chon["vat_tus"]] == ["KEO-CH"], (
+        "chọn đầu việc khoán ở bước chung phải bung sẵn vật tư như đường lệnh, không để 0 vật tư"
+    )
+    assert chon["vat_tus"][0]["so_luong"] == pytest.approx(
+        round(chung["so_luong_vao"] * 0.001, 3))
+    assert chon["vat_tus"][0]["don_vi"] == "kg"
+
+
 # --- §4 sổ nợ: khoá TẦNG SERVICE của đồ thị (9 test cũ đều thuần Python) -----
 def _step_key(lsx_svc, lsx_id: int, *, nhom: str | None = None, cd_id: int | None = None) -> str:
     cds = sorted(lsx_svc.get(lsx_id).cong_doans, key=lambda c: c.thu_tu)

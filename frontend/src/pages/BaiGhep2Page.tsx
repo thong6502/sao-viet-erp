@@ -14,6 +14,7 @@ import {
   type BaiGhepSoDo,
   type BaiGhepSoDoBuocChung,
   type HangChoGhepItem,
+  type LsxTrangThai,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
@@ -23,6 +24,8 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon } from "../components/Icons";
 import { MucInHang } from "../components/MucIn";
 import { BuocChungForm } from "./BaiGhepBuocChungForm";
+import { keVatTuBaiGhep } from "./baiGhep2VatTu";
+import { LsxVatTuPanel } from "./LsxVatTuPanel";
 import {
   BangLoi,
   ChipGap,
@@ -640,6 +643,12 @@ function BaiGhep2Detail({ id, eventTick, onBack, onChanged, navigate }: {
   }, [loadActivity, tab]);
 
   const dirty = useMemo(() => d && form && JSON.stringify(toForm(d)) !== JSON.stringify(form), [d, form]);
+  // Nặn vật tư bài về đúng khuôn `BangKeVatTu` để DÙNG LẠI `LsxVatTuPanel` của màn Lệnh — một
+  // nguồn số (bảng cân đối server), một kiểu trình bày. Bước chung cho pipeline, `materials` cho BOM.
+  const keVatTuBg = useMemo(
+    () => (sd && materials ? keVatTuBaiGhep(sd, materials) : null),
+    [sd, materials],
+  );
   useEffect(() => { dirtyRef.current = Boolean(dirty); }, [dirty]);
   useEffect(() => {
     if (!drawer && !memberPicker) return;
@@ -789,7 +798,15 @@ function BaiGhep2Detail({ id, eventTick, onBack, onChanged, navigate }: {
         </div>
         <div className="bg2-members-head"><h3>Thành viên ({d.thanh_vien.length})</h3>{canUpdate && <Button variant="secondary" onClick={() => setMemberPicker(true)}><Icon name="plus" size={14} /> Thêm lệnh</Button>}</div>
         <div className="bg2-members">{d.thanh_vien.map((tv) => <div className="bg2-member" key={tv.thanh_vien_id}>
-          <button type="button" className="bg2-member__main" onClick={() => navigate?.("ke-hoach-sx", { openLsxId: tv.lsx_id })}><strong>{tv.lsx_ma}</strong><span>{tv.lsx_ten || "—"}</span></button>
+          <button type="button" className="bg2-member__main" onClick={() => navigate?.("ke-hoach-sx", { openLsxId: tv.lsx_id })}>
+            <span className="bg2-member__top">
+              <strong>{tv.lsx_ma}</strong>
+              {tv.is_rush && <ChipGap />}
+              {tv.trang_thai_lsx && <TrangThaiPill tt={tv.trang_thai_lsx as LsxTrangThai} />}
+            </span>
+            <span className="bg2-member__sub">{tv.lsx_ten || "—"}{tv.customer_name ? ` · ${tv.customer_name}` : ""}</span>
+            <span className={`bg2-date-val ${classHan(tv.han_hoan_thanh_sx)}`}>hạn {ngay(tv.han_hoan_thanh_sx)}</span>
+          </button>
           <span>{num(tv.so_luong_dat)} {tv.don_vi_tinh}</span><span>{tv.so_con_tren_to} con/tờ</span>
           {canUpdate && <button type="button" className="bg2-icon-btn" title="Bỏ lệnh khỏi bài" aria-label={`Bỏ ${tv.lsx_ma}`} onClick={() => token && mutate(() => api.baiGhep2.boThanhVien(token, id, tv.thanh_vien_id))}><Icon name="x" size={15} /></button>}
         </div>)}</div>
@@ -895,9 +912,14 @@ function BaiGhep2Detail({ id, eventTick, onBack, onChanged, navigate }: {
               <div className="bg2-spec-row__id">
                 <span className="bg2-spec-row__dot" style={{ background: mauNhanh(mauCua(tv.lsx_id)) }} aria-hidden="true" />
                 <div>
-                  <strong>{tv.lsx_ma}</strong>
-                  <span>{tv.lsx_ten || "—"}</span>
-                  <span>{tv.giay_ten || "Chưa có giấy"} · khổ TP {tv.kho_tp || "—"} · {tv.so_mau_a ?? 0}/{tv.so_mau_b ?? 0}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <strong>{tv.lsx_ma}</strong>
+                    {tv.is_rush && <ChipGap />}
+                    {tv.trang_thai_lsx && <TrangThaiPill tt={tv.trang_thai_lsx as LsxTrangThai} />}
+                  </div>
+                  <span>{tv.lsx_ten || "—"}{tv.customer_name ? ` · ${tv.customer_name}` : ""}</span>
+                  <span>hạn {ngay(tv.han_hoan_thanh_sx)}{tv.quy_cach_in ? ` · ${CACH_IN_NHAN[tv.quy_cach_in] ?? tv.quy_cach_in}` : ""}</span>
+                  <span>{tv.giay_ten || "Chưa có giấy"} · khổ TP {formatKhoTp(tv.kho_tp)} · {tv.so_mau_a ?? 0}/{tv.so_mau_b ?? 0}
                     {[...tv.muc_a, ...tv.muc_b].length > 0 && ` (${[...new Set([...tv.muc_a, ...tv.muc_b])].join("+")})`}</span>
                 </div>
               </div>
@@ -941,12 +963,10 @@ function BaiGhep2Detail({ id, eventTick, onBack, onChanged, navigate }: {
       </section>}
 
       {tab === "vattu" && <section className="khsx-panel bg2-panel" role="tabpanel" id="bg2-panel-vattu" aria-labelledby="bg2-tab-vattu">
-        <PanelHead icon="box" title="Vật tư hiệu lực" />
-        {materials == null ? <Skeleton rows={4} cols={3} /> : materials.items.length === 0 ? <EmptyState icon="box" title="Chưa có nhu cầu vật tư" sub="Vật tư của bước chung và bước riêng sẽ xuất hiện tại đây." />
-          : <div className="bg2-materials">{materials.items.map((group) => <section key={`${group.hang_loai}:${group.hang_id}`} className="bg2-material">
-            <div className="bg2-material__head"><div><strong>{group.hang_ma ? `${group.hang_ma} · ` : ""}{group.hang_ten || "Vật tư"}</strong><span>{group.loai_nhom}</span></div><b>{num(group.tong_can)} {group.don_vi_goc}</b></div>
-            {group.dong.map((row, index) => <div className="bg2-material__row" key={`${row.ma}:${index}`}><span className={`bg2-scope bg2-scope--${row.pham_vi}`}>{row.pham_vi === "bai_ghep" ? "Bước chung" : row.ma}</span><span>{row.ten_viec || row.ma}</span><strong>{row.nhu_cau_hien_thi || num(row.nhu_cau)}</strong>{row.pham_vi === "bai_ghep" && row.gang_step_key && canUpdate ? <button type="button" className="bg2-icon-btn" title="Sửa vật tư bước chung" onClick={() => setDrawer(sd.gop.find((g) => g.step_key === row.gang_step_key) ?? null)}><Icon name="pencil" size={14} /></button> : <span />}</div>)}
-          </section>)}</div>}
+        <PanelHead icon="box" title="Vật tư của bài ghép" />
+        {materials == null || keVatTuBg == null ? <Skeleton rows={4} cols={3} />
+          : materials.items.length === 0 ? <EmptyState icon="box" title="Chưa có nhu cầu vật tư" sub="Vật tư của bước chung và bước riêng sẽ xuất hiện tại đây." />
+          : <LsxVatTuPanel ke={keVatTuBg} />}
         {materials?.bo_qua.length ? <div className="bg2-status-line bg2-status-line--warn">{materials.bo_qua.map((x) => `${x.ma}: ${x.ly_do}`).join(" · ")}</div> : null}
       </section>}
 

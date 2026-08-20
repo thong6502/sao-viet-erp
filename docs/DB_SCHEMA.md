@@ -411,6 +411,54 @@ tồn tại khi đã có khách mang nó — nhãn "có sẵn nhưng chưa ai d�
 
 ---
 
+### `cong_doan_tags`
+
+**Purpose:** nhãn gán tay cho một BƯỚC công đoạn (bước lệnh) — bản sao nguyên lối của `customer_tags`,
+chỉ khác "khách" → "một bước". Thay cho loại bước "thuê ngoài" đã bỏ (20/08/2026): màn lên kế hoạch
+chỉ cần đánh dấu bằng nhãn (vd "Thuê ngoài"), người dùng thêm/xoá/tạo nhãn y hệt màn Khách hàng.
+Bước nằm ở hai bảng cha khác nhau nên trỏ bằng cặp (`buoc_loai`, `buoc_id`), không khoá ngoại cứng.
+
+| Column       | Type (SQLAlchemy → SQLite / Postgres)                  | Key             | Null | Default        | Meaning                                     |
+| ------------ | ------------------------------------------------------ | --------------- | ---- | -------------- | ------------------------------------------- |
+| `id`         | `Integer` → `INTEGER` / `SERIAL`                       | **PK**          | no   | auto-increment | Surrogate primary key.                      |
+| `buoc_loai`  | `String(16)` → `VARCHAR(16)`                           | **IX**          | no   | —              | Bảng cha của bước: `lsx` (lsx_cong_doan) / `bai_ghep` (bai_ghep_cong_doan). |
+| `buoc_id`    | `Integer` → `INTEGER`                                  | **IX**          | no   | —              | Khoá của bước trong bảng cha (không FK cứng vì trỏ 2 bảng). |
+| `label`      | `String(50)` → `VARCHAR(50)`                           | **IX**          | no   | —              | Nội dung nhãn (đã chuẩn hóa khoảng trắng). |
+| `created_by` | `Integer` → `INTEGER`                                  | **FK→users.id** | yes  | —              | Người gán.                                  |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —               | no   | now (UTC)      | Thời điểm gán.                              |
+
+**Keys & indexes**
+
+- Primary key: `id`. Indexes: `ix_cong_doan_tags_buoc_loai`, `ix_cong_doan_tags_buoc_id`, `ix_cong_doan_tags_label`.
+- Foreign keys: `created_by FK→users.id`. KHÔNG có FK tới bước (một cột không trỏ được sang hai bảng cha).
+
+---
+
+### `cong_doan_tag_catalog`
+
+**Purpose:** KHO NHÃN dùng chung cho bước công đoạn — bản sao của `customer_tag_catalog`. Danh sách
+nhãn *có thể* gán, tách khỏi việc đã gán cho bước nào; nối với `cong_doan_tags` bằng chuỗi `label`,
+KHÔNG khoá ngoại. Bảng do `create_all` tự dựng (không cần migration).
+
+| Column       | Type (SQLAlchemy → SQLite / Postgres)                  | Key             | Null | Default        | Meaning                                     |
+| ------------ | ------------------------------------------------------ | --------------- | ---- | -------------- | ------------------------------------------- |
+| `id`         | `Integer` → `INTEGER` / `SERIAL`                       | **PK**          | no   | auto-increment | Surrogate primary key.                      |
+| `label`      | `String(50)` → `VARCHAR(50)`                           | **UQ**, **IX**  | no   | —              | Nội dung nhãn. UQ chặn trùng y hệt; trùng khác hoa-thường do service chặn. |
+| `created_by` | `Integer` → `INTEGER`                                  | **FK→users.id** | yes  | —              | Người thêm nhãn vào kho.                    |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —               | no   | now (UTC)      | Thời điểm thêm.                             |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique + index trên `label`.
+- Foreign keys: `created_by FK→users.id`.
+
+**Ghi chú vận hành**
+
+- Xoá nhãn ở đây thì service gỡ luôn mọi dòng `cong_doan_tags` mang nhãn đó; KHÔNG chặn dù đang có
+  bước mang — màn hình hỏi kèm **số bước thật**. KHÔNG có cột `mau` / `active` (như kho nhãn khách).
+
+---
+
 ### `customer_care_events`
 
 **Purpose:** nhật ký chăm sóc khách (khảo sát #20/#27: ngày nào gọi/nhắn/email/gặp, trao

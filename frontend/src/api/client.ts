@@ -268,6 +268,22 @@ export type QuoteEvent =
   // Phiếu bảo trì tới ngày (ticker `bao_tri_reminders.py`): gửi riêng người NHẬN việc, phiếu chưa
   // ai nhận thì gửi mọi tài khoản có quyền sửa `ky_thuat_may` (tổ sửa chữa).
   | { type: "bao_tri_due"; phieu_id: number; ma: string; may: string; goi: string; qua_han: boolean }
+  // Yêu cầu báo máy hỏng (20/08/2026), đẩy HAI CHIỀU:
+  //   • `_moi` → mọi tài khoản trong tổ sửa chữa: có người vừa báo máy hỏng.
+  //   • `_ket_qua` → RIÊNG người đã gửi lời báo: đã lập phiếu, hay bị từ chối vì lý do gì. Nhận
+  //     được sự kiện này nghĩa là mình chính là người gửi ⇒ chỗ dùng KHÔNG gác thêm quyền.
+  | {
+      type: "ky_thuat_yeu_cau_moi"; id: number; ma: string;
+      may: string; may_ten: string | null; bo_phan_hong: string;
+      muc_do: string; may_dung: boolean;
+      nguoi_bao: string | null; bo_phan: string | null;
+    }
+  | {
+      type: "ky_thuat_yeu_cau_ket_qua"; id: number; ma: string;
+      ket_qua: "da_tao_phieu" | "tu_choi";
+      phieu_id: number | null; phieu_ma: string | null;
+      ly_do: string | null; boi: string | null;
+    }
   // Tạm ứng lương: NV gửi đề nghị → 'pending_changed' (người duyệt refetch badge); kế toán
   // duyệt/từ chối → 'decision' gửi riêng nhân viên đề nghị.
   | { type: "advance_pending_changed"; code?: string }
@@ -577,6 +593,7 @@ export interface BaiGhepListOut { items: BaiGhepListItem[]; total: number }
 
 export interface BaiGhepThanhVien {
   thanh_vien_id: number; lsx_id: number; lsx_ma: string | null; lsx_ten: string | null;
+  customer_name: string | null;
   so_luong_dat: number; don_vi_tinh: string | null; is_rush: boolean; trang_thai_lsx: string | null;
   so_con_tren_to: number; san_luong_du_kien: number; du: number;
   /** Bước gộp CUỐI CÙNG của lệnh = điểm toả. null = lệnh chưa gộp bước nào. */
@@ -612,6 +629,8 @@ export interface BaiGhepSoDoNode {
 }
 /** Một lượt chạy CHUNG — thẻ trải ngang, nhánh tụ vào trái và toả ra phải. */
 export interface BaiGhepSoDoBuocChung {
+  /** `id` của bai_ghep_cong_doan — dùng NEO NHÃN (TagPicker). Ổn định như `step_key`. */
+  id: number;
   step_key: string; ten: string; nhom: string | null; cong_doan_id: number | null;
   loai_buoc: LsxLoaiBuoc; thu_tu: number;
   /** `false` = bước chế bản (chung BẢN/kẽm), KHÔNG trên dòng giấy → thẻ ẩn số tờ vào/ra. */
@@ -619,6 +638,10 @@ export interface BaiGhepSoDoBuocChung {
   /** Số của CẢ LƯỢT. Đơn vị lấy từ khai báo công đoạn — bước bế nhả `cai` thì `so_luong_ra` đếm con. */
   so_luong_vao: number; so_luong_ra: number;
   don_vi_vao: string | null; don_vi_ra: string | null;
+  /** Bước NGOÀI dòng giấy (ghi kẽm…): câu "Số ra = <công thức chữ> = N kẽm" (số kẽm/bản tính từ
+   *  `cong_thuc_san_luong` ở CẤP BÀI) để thẻ nói "5 kẽm" thay vì "0 tờ". `null` với bước trên giấy.
+   *  `loi_quy_doi` = cầu đơn vị vào↔ra chưa khai ⇒ số vào = 0, cần khai quy đổi mới ra số. */
+  san_luong_dien_giai: string | null; loi_quy_doi: string | null;
   /** `ra` quy về ĐƠN VỊ VÀO + hệ số đã dùng — cùng bộ số `bu_hao_chi_tiet` của tính giá. Thiếu hai
    *  số này thì dòng đổi đơn vị đọc lên vô lý ("20.500 tờ → 2.050 cuốn" mà không nói 10 tờ = 1 cuốn). */
   he_so_quy_doi: number; so_luong_ra_quy: number | null;
@@ -2037,6 +2060,32 @@ export interface LsxBuocMacDinh {
   tren_dong_giay: boolean;
   setup_phut: number;
 }
+/** Thời lượng của MỘT bước NẾU đổi sang máy khác — server tính THỬ rồi vứt, không ghi DB. */
+export interface LsxXemTruocMay {
+  step_key: string;
+  may_id: number | null;
+  /** Kíp đứng máy khai ở danh mục Máy — bước MÁY nghe MÁY, không nghe định mức tổ. */
+  so_nhan_cong_tieu_chuan: number;
+  chiem_may_phut: number;
+  thoi_luong_dien_giai: Record<string, unknown>;
+}
+/** DÒNG CHẢY của MỘT bước NẾU đổi/chèn công đoạn — server chạy đúng đường Lưu routing rồi
+ *  rollback. Khớp `step_key` client gửi lên (kể cả khoá tạm `r{n}` của bước mới chèn). */
+export interface LsxXemTruocRoutingBuoc {
+  step_key: string;
+  so_luong_vao: number; so_luong_ra: number;
+  don_vi_vao: string | null; don_vi_ra: string | null; he_so_quy_doi: number;
+  hao_hut: number; hao_hut_pct: number;
+  tren_dong_giay: boolean;
+  loi_quy_doi: string | null; san_luong_dien_giai: string | null;
+}
+/** 1 bước trong payload xem-trước routing — chỉ trường chuỗi ngược cần, không mang vật tư/khoán. */
+export interface LsxXemTruocRoutingRow {
+  step_key?: string | null; thu_tu?: number | null; cong_doan_id?: number | null;
+  ten?: string | null; nhom?: string | null; loai_buoc?: string | null;
+  department_id?: number | null; may_id?: number | null;
+}
+
 export interface LsxDauViecOption {
   id: number; ten: string; don_vi: string; don_gia: number;
   /** Ba mức năng suất khai ở định mức đầu việc — TB là số chảy vào công thức, min/max chỉ ra
@@ -2124,6 +2173,8 @@ export interface LsxDetail {
   may_id: number | null; may_ten: string | null;
   nguoi_phu_trach_id: number | null; nguoi_phu_trach_ten: string | null;
   ghi_chu: string | null; created_at: string; updated_at: string;
+  /** "Lưu ý sản xuất (gửi xưởng)" đọc SỐNG từ đơn hàng — nguồn DUY NHẤT của ô lưu ý thợ thấy. */
+  luu_y_gui_xuong: string | null;
   cong_doans: LsxCongDoan[];
   /** Hai rổ TÁCH BẠCH: `thieu` chặn nút Sẵn sàng; `canh_bao` chỉ tô màu. */
   thieu: string[];
@@ -2566,13 +2617,6 @@ export interface HeatCell {
   weekday: number;
   count: number;
 }
-/** 1 dòng "Thông số in thường đặt" — gom từ phiếu tính giá gắn báo giá của khách. */
-export interface PrintSpec {
-  key: "giay" | "mau" | "gia_cong" | "kho" | string;
-  label: string;
-  value: string;
-  pct: number;
-}
 export interface CustomerDashboard {
   revenue_12m: number;
   orders_12m: number;
@@ -2586,8 +2630,6 @@ export interface CustomerDashboard {
   product_mix: ProductSlice[];
   heatmap: HeatCell[];
   has_data: boolean;
-  print_specs: PrintSpec[];
-  print_specs_phieu: number;
   receivable: ReceivableCard;
 }
 export interface OrderLineBrief {
@@ -6297,6 +6339,20 @@ export interface KhoNhanRow {
   so_khach: number;
 }
 
+/** 1 nhãn đã gán cho một BƯỚC công đoạn (LSX / Bài ghép). */
+export interface CongDoanTagRow {
+  id: number;
+  label: string;
+}
+
+/** 1 nhãn trong KHO nhãn công đoạn + số BƯỚC đang mang nó (để hỏi trước khi xoá — như `KhoNhanRow`
+ *  của khách, chỉ khác `so_khach` → `so_buoc`). */
+export interface KhoNhanBuocRow {
+  id: number;
+  label: string;
+  so_buoc: number;
+}
+
 // --- Khuôn (danh mục dùng chung — chứa cả khuôn bế lẫn khuôn ép nhũ) --------
 // Tên bảng + module quyền vẫn là `khuon_be`; chỉ nhan đề màn đổi thành "Khuôn" (16/08/2026).
 export interface KhuonBeRow {
@@ -6709,6 +6765,23 @@ export interface CanDoiDong {
   ly_do_canh_bao: string | null;
 }
 
+/** Một phiếu ĐANG CHẠY của mặt hàng — chỉ đủ để GỌI TÊN, không mang số lượng, không mang tiền.
+ *
+ *  Trả lời câu *"cái nào đang yêu cầu mua"*: trước đó ba tình huống rất khác nhau (chưa ai mua ·
+ *  đã đề nghị chờ duyệt · đã duyệt mà NCC chưa hẹn ngày) đều vẽ ĐỎ giống hệt, nên người dùng bấm
+ *  Mua chồng lên phiếu đã có. */
+export interface PhieuMuaTom {
+  /** `PMH-…` (phiếu của thu mua) hoặc `YCMH-…` (đề nghị của bộ phận). */
+  ma: string;
+  /** Hai chuỗi khác nhau, tra ở hai màn khác nhau, nên phải phân biệt được. */
+  loai: "pmh" | "ycmh";
+  /** Trạng thái THÔ (`pending_approval`, `approved`, `open`, `in_purchase`…). Dịch ở FE để đổi
+   *  chữ khỏi phải đụng backend. */
+  trang_thai: string;
+  /** Chỉ PMH đã hẹn ngày mới có. `null` = đã có người lo nhưng chưa hứa được ngày nào. */
+  ngay_ve: string | null;
+}
+
 export interface CanDoiNhom {
   loai_nhom: "vat_tu" | "cong_cu";
   hang_loai: string;
@@ -6726,6 +6799,9 @@ export interface CanDoiNhom {
   so_dong_ve_muon: number;
   khuon_tinh_trang: string | null;
   khuon_ngay_ve: string | null;
+  /** Phiếu đang chạy của mặt hàng, xếp CHẮC → LỎNG (đã duyệt có ngày về đứng đầu). Treo ở NHÓM
+   *  chứ không ở dòng: phiếu mua không biết lệnh nào, nó chỉ biết mua món gì. */
+  phieu_mua: PhieuMuaTom[];
   dong: CanDoiDong[];
 }
 
@@ -6778,6 +6854,9 @@ export interface TheoLenhHang {
   /** Bao nhiêu lệnh/bài KHÁC đang thiếu chính món này — câu *"nhả ra thì ai đỡ"* của hộp xác nhận.
    *  Server đếm trên TOÀN BỘ bảng, trước mọi bộ lọc. */
   so_lenh_khac_thieu: number;
+  /** MỌI phiếu đang chạy của món (kể cả YCMH chưa duyệt, kể cả PMH chưa hẹn ngày), xếp CHẮC →
+   *  LỎNG. `phieu_ve` chỉ là cái lô phủ được chỗ thiếu; danh sách này mới nói hết "ai đang lo". */
+  phieu_mua: PhieuMuaTom[];
   /** Khoá 5 phần của TỪNG dòng đỏ — gửi thẳng vào `deNghiMua`. Cố ý không gộp về một khoá cho
    *  mỗi mặt hàng: một lệnh ăn cùng món ở hai công đoạn là hai dòng, gộp là mua một nửa. */
   khoa_do: CanDoiKhoaDong[];
@@ -7738,6 +7817,45 @@ export const api = {
     },
   },
 
+  // --- Nhãn công đoạn (bước LSX / Bài ghép) — LOGIC y hệt nhãn khách hàng ở trên,
+  // chỉ đổi "khách" → "một bước" (cặp buoc_loai + buoc_id). Kho nhãn dùng CHUNG hai loại bước.
+  congDoanTag: {
+    /** Nhãn đã gán cho một bước. `buocLoai` ∈ {"lsx","bai_ghep"}. */
+    list(token: string, buocLoai: string, buocId: number): Promise<{ items: CongDoanTagRow[] }> {
+      return authed<{ items: CongDoanTagRow[] }>(
+        `/api/cong-doan-tags/${buocLoai}/${buocId}`,
+        token,
+      );
+    },
+    add(token: string, buocLoai: string, buocId: number, label: string): Promise<CongDoanTagRow> {
+      return authed<CongDoanTagRow>(`/api/cong-doan-tags/${buocLoai}/${buocId}`, token, {
+        method: "POST",
+        body: JSON.stringify({ label }),
+      });
+    },
+    remove(token: string, buocLoai: string, buocId: number, tagId: number): Promise<void> {
+      return authed<void>(`/api/cong-doan-tags/${buocLoai}/${buocId}/${tagId}`, token, {
+        method: "DELETE",
+      });
+    },
+    // --- kho nhãn dùng chung (giống `customers.tagKho` — nhãn CÓ THỂ gán) ---
+    kho(token: string): Promise<{ items: KhoNhanBuocRow[] }> {
+      return authed<{ items: KhoNhanBuocRow[] }>("/api/cong-doan-tags/kho", token);
+    },
+    themNhanKho(token: string, label: string): Promise<KhoNhanBuocRow> {
+      return authed<KhoNhanBuocRow>("/api/cong-doan-tags/kho", token, {
+        method: "POST",
+        body: JSON.stringify({ label }),
+      });
+    },
+    /** Xoá nhãn khỏi kho VÀ gỡ khỏi mọi bước đang mang. Trả số bước bị gỡ. */
+    xoaNhanKho(token: string, nhanId: number): Promise<{ so_buoc_da_go: number }> {
+      return authed<{ so_buoc_da_go: number }>(`/api/cong-doan-tags/kho/${nhanId}`, token, {
+        method: "DELETE",
+      });
+    },
+  },
+
   // --- Nhân sự · Hồ sơ nhân sự (nhan_su), lát #1 ----------------------------
   employees: {
     /** Danh sách nhân sự ra .xlsx THẬT (blob URL). Máy chủ lấy TRỌN theo phạm vi quyền + đúng
@@ -8672,6 +8790,18 @@ export const api = {
       });
       return authed<LsxDauViecOption[]>(`/api/lsx/${id}/dau-viec-options?${q}`, token);
     },
+    /** Đổi máy thì bước chạy bao nhiêu phút? CHỈ ĐỌC, không ghi gì.
+     *
+     *  Có cửa này vì SL vào phải quy đổi sang ĐƠN VỊ TỐC ĐỘ của đúng máy vừa chọn (tờ → bản kẽm →
+     *  …) mà bảng cầu quy đổi chỉ nằm ở backend. Thiếu nó thì form phải bấm "Lưu công đoạn" mới
+     *  thấy giờ đổi — đúng chỗ chủ kêu 20/08/2026. */
+    xemTruocMay(
+      token: string, id: number, stepKey: string, mayId: number | null,
+    ): Promise<LsxXemTruocMay> {
+      const q = new URLSearchParams({ step_key: stepKey });
+      if (mayId != null) q.set("may_id", String(mayId));
+      return authed<LsxXemTruocMay>(`/api/lsx/${id}/xem-truoc-may?${q}`, token);
+    },
     update(token: string, id: number, body: LsxUpdateBody): Promise<LsxDetail> {
       return authed<LsxDetail>(`/api/lsx/${id}`, token, {
         method: "PUT",
@@ -8700,6 +8830,18 @@ export const api = {
     /** Gợi ý SL vào/ra cho cả chuỗi, chạy ngược từ SL thành phẩm. CHỈ ĐỌC — không ghi gì. */
     tinhNguoc(token: string, id: number): Promise<LsxTinhNguocOut> {
       return authed<LsxTinhNguocOut>(`/api/lsx/${id}/tinh-nguoc`, token);
+    },
+    /** Đổi/chèn công đoạn thì số VÀO–RA + đơn vị cả chuỗi ra bao nhiêu? CHỈ ĐỌC — server chạy
+     *  đúng đường Lưu routing rồi rollback (giống đổi máy gọi thời lượng). Có nó để số nhảy ngay,
+     *  khỏi bấm Lưu, mà không cần chép công thức chuỗi ngược sang JS. */
+    xemTruocRouting(
+      token: string, id: number, congDoans: LsxXemTruocRoutingRow[],
+    ): Promise<{ cong_doans: LsxXemTruocRoutingBuoc[] }> {
+      return authed<{ cong_doans: LsxXemTruocRoutingBuoc[] }>(
+        `/api/lsx/${id}/xem-truoc-routing`, token, {
+          method: "POST",
+          body: JSON.stringify({ cong_doans: congDoans }),
+        });
     },
     /** Dữ liệu trung tính khi ĐỔI công đoạn (tổ phụ trách · đơn vị · chuẩn bị).
      *  Loại bước và tài nguyên là quyết định riêng của KHSX. */

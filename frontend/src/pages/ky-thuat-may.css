@@ -477,6 +477,15 @@
 }
 .ktm-card--du-kien .ktm-card__badge { background: #f1f5f9; color: #64748b; }
 
+/* Đã hủy: mờ hẳn + gạch ngang — vẫn thấy được nó từng ở đây, nhưng rõ là không còn hiệu lực. */
+.ktm-card--da_huy {
+  border-left-color: var(--ash-2, #94a3b8);
+  background: var(--rule-hair, #f1f5f9);
+  opacity: .72;
+}
+.ktm-card--da_huy .ktm-card__badge { background: #e2e8f0; color: #64748b; }
+.ktm-card--da_huy .ktm-card__ten { text-decoration: line-through; color: var(--ash-2, #64748b); }
+
 /* Nút xem thêm +N phiếu */
 .ktm-card__more {
   border: 0; background: transparent; padding: 2px 4px;
@@ -508,6 +517,8 @@
 .ktm-tt__lbl { color: var(--ash-2, #64748b); font-weight: 500; }
 .ktm-tt__foot { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--rule-soft, #e2e8f0); font-size: 11px; color: var(--rust, #c5400a); font-weight: 500; }
 .ktm-tt__foot--action { color: var(--moss, #2f5d3a); }
+.ktm-tt__huy { margin-top: 8px; padding: 6px 8px; border-left: 3px solid var(--ash-2, #94a3b8); background: var(--rule-hair, #f1f5f9); border-radius: 0 4px 4px 0; font-size: 11.5px; color: var(--ash, #475569); }
+.ktm-tt__huy strong { color: var(--ink, #0f172a); font-weight: 600; }
 
 /* Day Summary Popover Dialog */
 .ktm-popover-overlay {
@@ -551,6 +562,9 @@
 .ktm-popover-item__arrow { margin-left: auto; color: var(--ash-2, #94a3b8); transition: transform .15s ease, color .15s ease; }
 .ktm-popover-item:hover .ktm-popover-item__arrow { transform: translateX(3px); color: var(--rust, #c5400a); }
 .ktm-popover-item--du-kien { border-style: dashed; background: #f8fafc; }
+.ktm-popover-item--da_huy { background: var(--rule-hair, #f1f5f9); border-color: var(--rule-soft, #e2e8f0); }
+.ktm-popover-item--da_huy .ktm-popover-item__goi { text-decoration: line-through; color: var(--ash-2, #64748b); }
+.ktm-popover-item__huy { flex-basis: 100%; padding-left: 3px; border-left: 3px solid var(--ash-2, #94a3b8); padding: 2px 0 2px 8px; color: var(--ash, #475569); }
 
 /* --- Table View Enhancements ---------------------------------------------------- */
 .ktm-thangloc-wrap { position: relative; display: inline-flex; align-items: center; }
@@ -921,13 +935,15 @@
 .ktm-agenda__muc--hoan_thanh { border-left-color: var(--moss, #2f5d3a); }
 .ktm-agenda__muc--qua { border-left-color: var(--signal-deep, #6b1717); background: #fff5f5; }
 .ktm-agenda__muc--du-kien { border-left: 3px dashed var(--ash-2, #94a3b8); }
+.ktm-agenda__muc--da_huy { border-left-color: var(--ash-2, #94a3b8); background: var(--rule-hair, #f1f5f9); opacity: .78; }
 .ktm-agenda__muc-dau { display: flex; align-items: center; gap: 8px; }
 .ktm-agenda__ma {
   font-size: 11.5px; font-weight: 600; color: var(--ash-2, #64748b);
   font-family: var(--font-mono, ui-monospace, monospace);
 }
 .ktm-agenda__ten { font-size: 13.5px; color: var(--ink, #0f172a); }
-.ktm-agenda__muc--hoan_thanh .ktm-agenda__ten {
+.ktm-agenda__muc--hoan_thanh .ktm-agenda__ten,
+.ktm-agenda__muc--da_huy .ktm-agenda__ten {
   text-decoration: line-through; color: var(--ash-2, #64748b);
 }
 .ktm-agenda__meta { font-size: 11.5px; color: var(--ash-2, #64748b); }
@@ -1046,3 +1062,110 @@
 }
 
 
+
+/* ================================================================================
+   Yêu cầu báo hỏng (20/08/2026) — khung thứ hai của màn Sửa chữa máy.
+   Dùng lại nguyên bộ `.ktm-*` của phiếu; chỉ thêm đúng những gì phiếu không có.
+   ================================================================================ */
+
+/* --- Trạng thái yêu cầu --------------------------------------------------------
+   "Chờ tiếp nhận" để TRUNG TÍNH, không tô cam: nó là trạng thái ĐÔNG NHẤT trong bảng, mà tô màu
+   cả cột thì màu hết nghĩa. Thứ đáng ăn màu ở đây là `.ktm-chip--dung` (máy đang nằm) — số ít và
+   là thứ phải xử trước. */
+.ktm-badge--tt-cho_tiep_nhan { color: var(--ash, #475569); background: var(--rule-hair, #f1f5f9); }
+.ktm-badge--tt-da_tao_phieu { color: var(--moss, #2f5d3a); }
+/* Từ chối KHÔNG gạch ngang (khác `--tt-da_huy`): lời báo vẫn là một sự kiện có thật của cái máy
+   đó, chỉ là không thành phiếu — gạch đi đọc như "xoá rồi". */
+.ktm-badge--tt-tu_choi { color: var(--ash-2, #64748b); background: var(--rule-hair, #f1f5f9); }
+
+/* Máy đang dừng: dấu hiệu DUY NHẤT được ăn màu tín hiệu ở bảng yêu cầu. */
+.ktm-chip--dung { color: var(--signal-deep, #6b1717); background: var(--signal-soft, #efd5d5); }
+
+/* Số việc chờ ngay trên công tắc đổi khung — người ở khung phiếu vẫn thấy hàng chờ đang dày lên. */
+.ktm-xem__so {
+  min-width: 18px; padding: 0 5px; border-radius: 999px;
+  font-family: var(--ff-num, inherit); font-variant-numeric: tabular-nums;
+  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+  color: #fff; background: var(--rust, #c5400a);
+}
+
+/* Bộ phận hỏng + mức độ trên MỘT dòng: hai mẩu thông tin luôn đọc cùng nhau. */
+.ktm-hong { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Công tắc "Chỉ của tôi" — cắt ngang mọi tab nên đứng riêng ở thanh công cụ, không thành tab. */
+.ktm-loc {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 13px; border: 1px solid var(--rule-soft, #e2e8f0); border-radius: 999px;
+  background: var(--paper, #fff); cursor: pointer;
+  font: inherit; font-size: 12.5px; color: var(--ash, #475569);
+}
+.ktm-loc:hover { border-color: var(--ash-2, #94a3b8); color: var(--ink, #0f172a); }
+.ktm-loc.is-active {
+  border-color: var(--rust, #c5400a);
+  background: var(--rust-soft, #f6e2d6);
+  color: var(--rust-deep, #8a3208);
+  font-weight: var(--fw-medium, 500);
+}
+
+/* Ô tick "máy đang dừng" — ô này quyết định thứ tự hàng chờ nên trình bày to hơn checkbox thường,
+   nhãn phụ nói thẳng hậu quả của việc tick. */
+.ktm-tick { flex-direction: row; align-items: flex-start; gap: 10px; }
+.ktm-tick input[type="checkbox"] {
+  width: 17px; height: 17px; margin-top: 2px; flex: none;
+  accent-color: var(--rust, #c5400a); cursor: pointer;
+}
+.ktm-tick > span { display: flex; flex-direction: column; gap: 2px; }
+.ktm-tick strong { font-size: 13.5px; font-weight: var(--fw-medium, 500); color: var(--ink, #0f172a); }
+
+/* "Từ YC-0007 · Tổ in" trên đầu phiếu — nguồn của phiếu, để tổ sửa chữa biết hỏi ai. */
+.ktm-tuyc { display: inline-flex; align-items: center; gap: 4px; color: var(--rust-deep, #8a3208); }
+
+.ktm-xacnhan__mo-ta { margin: 0 0 12px; font-size: 12.5px; line-height: 1.55; color: var(--ash, #475569); }
+/* Đường lùi "từ chối kèm lý do" nằm dưới nút chính, cỡ chữ nhỏ hơn: có mặt đủ rõ để dùng, không
+   tranh chỗ với việc nên làm là lập phiếu. */
+.ktm-xacnhan .ktm-link-huy { display: block; margin: 10px auto 0; font-size: 12.5px; }
+
+/* Băng kết quả có thêm nút "Mở phiếu" ⇒ chữ co giãn, nút đứng cuối. */
+.ktm-thongbao > span { flex: 1; }
+.ktm-thongbao .rc__link-btn { flex: none; }
+
+.ktm-boqua-form p { margin: 0 0 12px; font-size: 13px; line-height: 1.55; color: var(--ash, #475569); }
+
+/* Ô "Người báo" của phiếu SINH TỪ yêu cầu — KHOÁ TẠI CHỖ, không giấu (20/08/2026).
+   Trước đây là ô chữ trắng gõ đè được: sửa một cái là mất dấu tài khoản đã bấm gửi lời báo, mà
+   đó lại là người duy nhất trả lời được "hỏng thế nào" khi phiếu thiếu chi tiết. Nền giấy + gờ
+   trái xám để mắt đọc ra "đây là DỮ LIỆU, không phải ô nhập" từ xa — khỏi bấm vào mới biết.
+   Xám chứ không đỏ: khoá này là chuyện bình thường, không phải lỗi cần báo động. */
+.ktm-nguon {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  /* Cùng bo góc + cùng padding với `.rc-input` đứng cạnh trong `.rc-grid`: lệch bo góc giữa hai
+     ô nằm sát nhau là khối trông vá víu. Nền `--rule-hair` để KHÁC hẳn nền ô nhập (`--canvas`). */
+  padding: 8px 12px;
+  border: 1px solid var(--rule-soft, #e2e8f0);
+  border-left: 2px solid var(--ash-2, #64748b);
+  border-radius: 8px;
+  background: var(--rule-hair, #f1f5f9);
+}
+.ktm-nguon__ten {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: var(--fw-medium, 500);
+  color: var(--ink, #0f172a);
+}
+.ktm-nguon__ten em { font-style: normal; font-weight: 400; color: var(--ash, #475569); }
+.ktm-nguon__vi {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ash, #475569);
+}
+.ktm-nguon__vi svg { flex: none; transform: translateY(1px); }
+
+/* Nhãn "Nặng" cạnh nhan đề ô Mức độ — chỉ hiện với `nghiem_trong`. */
+.ktm-nhan-muc { margin-left: 6px; vertical-align: middle; }

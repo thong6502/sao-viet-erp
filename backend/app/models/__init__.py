@@ -155,8 +155,11 @@ from .san_xuat_kho import (
     SanXuatKhoLot,
     SanXuatNhapKhoYc,
 )
+from .cong_doan_tag import CongDoanTag, CongDoanTagCatalog
 
 __all__ = [
+    "CongDoanTag",
+    "CongDoanTagCatalog",
     "BaiGhepCongDoan",
     "BaiGhepCongDoanMap",
     "BaiGhepCongDoanVatTu",

@@ -159,6 +159,7 @@ class ThanhVienOut(BaseModel):
     lsx_id: int
     lsx_ma: str | None = None
     lsx_ten: str | None = None
+    customer_name: str | None = None
     so_luong_dat: int = 0
     don_vi_tinh: str | None = None
     is_rush: bool = False
@@ -322,6 +323,9 @@ class SoDoNode(BaseModel):
 class SoDoBuocChung(BaseModel):
     """Một lượt chạy chung — thẻ trải ngang, nhánh tụ vào trái và toả ra phải."""
 
+    # `id` của `bai_ghep_cong_doan` — cần để neo NHÃN (cong_doan_tags). Ổn định như `step_key`:
+    # cả hai sinh/mất cùng lúc theo một dòng chung (tách bài xoá cả hai). Chỉ đọc.
+    id: int
     step_key: str
     ten: str
     nhom: str | None = None
@@ -335,6 +339,11 @@ class SoDoBuocChung(BaseModel):
     so_luong_ra: float = 0
     don_vi_vao: str | None = None
     don_vi_ra: str | None = None
+    # Bước NGOÀI dòng giấy (ghi kẽm…): câu "Số ra = <công thức chữ> = N kẽm" tính từ
+    # `cong_thuc_san_luong` ở CẤP BÀI — để thẻ nói được "5 kẽm" thay vì "0 tờ". `None` với bước
+    # trên giấy (số vào/ra tờ đã tự nói). `loi_quy_doi` = cầu đơn vị vào↔ra chưa khai ⇒ vào = 0.
+    san_luong_dien_giai: str | None = None
+    loi_quy_doi: str | None = None
     hao_hut: float = 0          # đếm ĐÚNG MỘT LẦN cho cả lượt, ở ĐƠN VỊ VÀO
     hao_hut_pct: float = 0
     # `ra` quy về đơn vị VÀO + hệ số đã dùng — cùng bộ số `bu_hao_chi_tiet` của tính giá. Không có

@@ -46,6 +46,8 @@ from ..schemas.lsx import (
     TinhNguocOut,
     TinhNguocRow,
     TrangThaiIn,
+    XemTruocRoutingIn,
+    XemTruocRoutingOut,
 )
 from ..services import lsx_tong_quan
 from ..services.actor_display import actor_labels
@@ -331,6 +333,30 @@ def dau_viec_options(
         raise _map(exc)
 
 
+@router.get("/{lsx_id}/xem-truoc-may")
+def xem_truoc_may(
+    lsx_id: int,
+    step_key: str,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    may_id: int | None = None,
+) -> dict:
+    """Thời lượng bước NẾU đổi sang máy này — drawer hỏi trước khi lưu, không ghi gì.
+
+    Chỉ server mới quy đổi được SL vào sang đơn vị tốc độ của máy (cầu quy đổi + công thức riêng
+    của máy), nên đây là đường DUY NHẤT để ô thời gian nhảy ngay lúc chọn máy.
+    Trả `dict` trần, KHÔNG bọc response_model: thêm khoá vào diễn giải mà quên khai schema là bị
+    nuốt im lặng, mà khối này chính là thứ drawer đọc từng khoá.
+    """
+    svc = _svc(db)
+    try:
+        _guard_scope(db, svc.get(lsx_id), user, authz)
+        return svc.xem_truoc_may(lsx_id=lsx_id, step_key=step_key, may_id=may_id)
+    except Exception as exc:
+        raise _map(exc)
+
+
 @router.put("/{lsx_id}", response_model=LsxOut)
 def update_item(
     lsx_id: int,
@@ -368,6 +394,28 @@ def xem_truoc_quy_cach(
         _guard_scope(db, svc.get(lsx_id), user, authz)
         return svc.xem_truoc_quy_cach(
             lsx_id=lsx_id, patch=payload.model_dump(exclude_unset=True))
+    except Exception as exc:
+        raise _map(exc)
+
+
+@router.post("/{lsx_id}/xem-truoc-routing", response_model=XemTruocRoutingOut)
+def xem_truoc_routing(
+    lsx_id: int,
+    payload: XemTruocRoutingIn,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> XemTruocRoutingOut:
+    """Đổi/chèn công đoạn thì số VÀO–RA + đơn vị cả chuỗi ra bao nhiêu? — KHÔNG ghi DB.
+
+    Cùng lý do với `xem-truoc-quy-cach`: để drawer khỏi chép công thức chuỗi ngược sang
+    JavaScript. Số nhảy ngay lúc đổi công đoạn (giống lúc đổi máy gọi thời lượng), khỏi bấm Lưu.
+    """
+    svc = _svc(db)
+    try:
+        _guard_scope(db, svc.get(lsx_id), user, authz)
+        return XemTruocRoutingOut(cong_doans=svc.xem_truoc_routing(
+            lsx_id=lsx_id, rows_in=payload.cong_doans, actor=user))
     except Exception as exc:
         raise _map(exc)
 

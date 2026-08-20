@@ -321,6 +321,9 @@ export function LsxDetailView({
         donViTocDo: m.don_vi_toc_do ? String(m.don_vi_toc_do) : null,
         chuanBiPhut: m.makeready_time_default == null ? null : Number(m.makeready_time_default),
         chuanBiKhoan: Array.isArray(khoan) ? khoan : [],
+        // Kíp đứng máy khai ở danh mục ("Số người vận hành tiêu chuẩn") — chọn máy là điền ngay,
+        // khỏi đợi server. Bước MÁY nghe MÁY, không nghe định mức nhân lực của bảng khoán tổ.
+        soNguoiVanHanh: m.so_nhan_cong == null ? null : Number(m.so_nhan_cong),
       };
     }))).catch(() => setMayRefs(null));
     crud("/api/vat-lieu-kho/vat-tu-in-an").list(token, { active: true }).then((r) =>
@@ -449,6 +452,27 @@ export function LsxDetailView({
     async (congDoanId: number, departmentId: number) => {
       if (!token || !d) throw new Error("chưa sẵn sàng");
       return api.lsx.dauViecOptions(token, d.id, congDoanId, departmentId);
+    },
+    [token, d],
+  );
+
+  /** Đổi máy → hỏi server luôn: SL vào quy đổi sang đơn vị tốc độ của máy MỚI ra bao nhiêu.
+   *  Tốc độ/chuẩn bị thì form tự tính từ `mayRefs`; riêng phép quy đổi chỉ backend làm được. */
+  const xemTruocMay = useCallback(
+    async (stepKey: string, mayId: number | null) => {
+      if (!token || !d) throw new Error("chưa sẵn sàng");
+      return api.lsx.xemTruocMay(token, d.id, stepKey, mayId);
+    },
+    [token, d],
+  );
+
+  /** Đổi/chèn công đoạn → hỏi server số VÀO–RA + đơn vị của CẢ CHUỖI (chỉ backend chạy được
+   *  chuỗi ngược + bảng cầu quy đổi). Cùng lẽ với `xemTruocMay`: số nhảy ngay, khỏi bấm Lưu. */
+  const xemTruocRouting = useCallback(
+    async (rows: import("../api/client").LsxXemTruocRoutingRow[]) => {
+      if (!token || !d) throw new Error("chưa sẵn sàng");
+      const r = await api.lsx.xemTruocRouting(token, d.id, rows);
+      return r.cong_doans;
     },
     [token, d],
   );
@@ -1068,12 +1092,12 @@ export function LsxDetailView({
 
           {tab === "quycach" && (
             <section className="khsx-panel" role="tabpanel" id="khsx-panel-quycach" aria-labelledby="khsx-tab-quycach" tabIndex={0}>
-              {qc.ghi_chu_ky_thuat ? (
+              {d.luu_y_gui_xuong ? (
                 <div className="khsx-spec__note">
                   <Icon name="bell" size={16} />
                   <div>
-                    <strong className="khsx-spec__note-title">LƯU Ý SẢN XUẤT / GHI CHÚ KỸ THUẬT</strong>
-                    <span className="khsx-spec__note-content">{String(qc.ghi_chu_ky_thuat)}</span>
+                    <strong className="khsx-spec__note-title">LƯU Ý SẢN XUẤT (GỬI XƯỞNG)</strong>
+                    <span className="khsx-spec__note-content">{d.luu_y_gui_xuong}</span>
                   </div>
                 </div>
               ) : null}
@@ -1424,6 +1448,8 @@ export function LsxDetailView({
                     onPatchLsx={patchLsx}
                     onMacDinhBuoc={macDinhBuoc}
                     onDauViecOptions={dauViecOptions}
+                    onXemTruocMay={xemTruocMay}
+                    onXemTruocRouting={xemTruocRouting}
                     onGiaoNhan={ghiGiaoNhan}
                     onDirtyChange={setRoutingDirty}
                     dvChuoi={dvChuoi}

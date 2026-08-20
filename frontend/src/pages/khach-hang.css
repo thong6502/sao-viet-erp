@@ -3503,8 +3503,7 @@
   /* Mẫu: 3 card bằng chiều cao, đáy thẳng hàng (card donut cao nhất là chuẩn). */
   align-items: stretch;
 }
-/* Khách chưa có phiếu tính giá ⇒ card "Thông số in thường đặt" ẩn hẳn: hàng còn 2 card chia đôi
-   bề ngang, không chừa ô trống ở cột 3. */
+/* Hàng dashboard dưới còn 2 card (Cơ cấu sản phẩm + Chính sách tài chính) chia đôi bề ngang. */
 .kh__dash-grid-3--2 {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -3529,76 +3528,14 @@
   flex: 1 1 auto;
   min-width: 0;
 }
-/* Thân 2 card thấp giãn đều khoảng cách hàng cho đầy card (mẫu),
+/* Thân card thấp giãn đều khoảng cách hàng cho đầy card (mẫu),
    không chèn khoảng trắng dồn cục ở đáy. */
-.kh__dash-grid-3 .kh__specs-list {
-  flex: 1 1 auto;
-  justify-content: space-between;
-}
 .kh__dash-grid-3 .kh__payment-body--stack {
   flex: 1 1 auto;
 }
 .kh__dash-grid-3 .kh__payment-body--stack .kh__payment-details {
   flex: 1 1 auto;
   justify-content: space-evenly;
-}
-
-/* Technical specifications list */
-.kh__specs-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-3);
-  padding: var(--sp-2) 0;
-}
-.kh__spec-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-/* Ô icon vuông beige (mẫu prototype). */
-.kh__spec-ic {
-  flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--r-3);
-  background: var(--amber-soft);
-  color: var(--amber-deep);
-}
-.kh__spec-text {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.kh__spec-label {
-  font-family: var(--ff-sans);
-  font-size: 9px;
-  font-weight: var(--fw-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--ash-2);
-}
-.kh__spec-val {
-  font-size: 12.5px;
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-}
-.kh__progress-bar {
-  flex: 0 0 64px;
-  width: 64px;
-  height: 4px;
-  border-radius: var(--r-pill);
-  background: var(--rule-soft);
-  overflow: hidden;
-}
-.kh__progress-fill {
-  height: 100%;
-  border-radius: var(--r-pill);
-  background: var(--rust);
 }
 
 /* Payment Score Widget */

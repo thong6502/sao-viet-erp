@@ -9,9 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.db import SessionLocal
 from app.models.order import Order, OrderLine
-from app.models.phieu_tinh_gia import PhieuThanhPhan, PhieuThanhPham, PhieuTinhGia
 from app.models.quotation import Quote, QuoteVersion
-from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
@@ -176,116 +174,6 @@ def test_dashboard_empty_state_no_fake_numbers(client):
     assert d["revenue_12m"] == 0
     assert d["avg_order_value"] is None
     assert d["product_mix"] == []
-    # Card "Thông số in thường đặt" cũng phải trống — trước đây nó hiện 5 dòng hardcode giống hệt
-    # nhau cho MỌI khách (Couche 200gsm · 5 màu · A4/A5…) kể cả khách chưa có phiếu nào.
-    assert d["print_specs"] == []
-    assert d["print_specs_phieu"] == 0
-
-
-# --- Thông số in thường đặt (đọc từ phiếu tính giá thật) ---------------------
-
-
-def _add_ptg_with_specs(customer_id: int) -> None:
-    """2 phiếu tính giá (3 sản phẩm) gắn báo giá của khách: giấy · mực · khổ · gia công thật."""
-    db = SessionLocal()
-    try:
-        cl = ChungLoaiGiay(ma="COUCHE-T", ten="Couché")
-        db.add(cl)
-        db.flush()
-        giay = GiayNguyen(
-            ma="COUCHE-300-T", ten="Couché 300 65×86", chung_loai_giay_id=cl.id,
-            kho_dai=860, kho_rong=650, gsm=300,
-        )
-        db.add(giay)
-        db.flush()
-
-        # (mực mặt A, mực mặt B, rộng×dài thành phẩm mm, các bước gia công)
-        san_pham = [
-            (["C", "M", "Y", "K"], ["C", "M", "Y", "K"], (210, 297), ["Cán màng bóng", "Đóng keo"]),
-            (["C", "M", "Y", "K"], ["K", "185C"], (210, 297), ["Cán màng bóng"]),
-            (["K"], [], (148, 210), []),
-        ]
-        for i, (muc_a, muc_b, (rong, dai), buoc) in enumerate(san_pham):
-            ptg = PhieuTinhGia(ma=f"PTG-T{i}", ten_san_pham="Catalogue", so_luong=1000)
-            db.add(ptg)
-            db.flush()
-            tp = PhieuThanhPhan(
-                phieu_id=ptg.id, ten="Ruột", giay_id=giay.id, muc_a=muc_a, muc_b=muc_b,
-                rong_thanh_pham=rong, dai_thanh_pham=dai,
-            )
-            db.add(tp)
-            db.flush()
-            for j, ten in enumerate(buoc):
-                db.add(PhieuThanhPham(thanh_phan_id=tp.id, thu_tu=j, ten=ten))
-            db.add(
-                Quote(
-                    quote_number=f"BGSPEC{i}",
-                    customer_id=customer_id,
-                    phieu_tinh_gia_id=ptg.id,
-                    status="sent",
-                )
-            )
-        db.commit()
-    finally:
-        db.close()
-
-
-def test_print_specs_from_real_phieu_tinh_gia(client):
-    """Giấy · số màu · gia công · khổ lấy từ phiếu tính giá gắn báo giá — không hardcode."""
-    token = _admin_token(client)
-    cid = client.post(
-        "/api/customers", json={"name": "Khách Có Phiếu"}, headers=_h(token)
-    ).json()["customer"]["id"]
-    _add_ptg_with_specs(cid)
-
-    d = client.get(f"/api/customers/{cid}/dashboard", headers=_h(token)).json()
-    assert d["print_specs_phieu"] == 3
-    by_key = {s["key"]: s for s in d["print_specs"]}
-    # Giấy: gom theo chủng loại + định lượng, cả 3 sản phẩm dùng chung ⇒ 100%.
-    assert by_key["giay"]["value"] == "Couché 300gsm"
-    assert by_key["giay"]["pct"] == 100
-    # Màu = số KẼM = |A ∪ B|: 4 màu CMYK gặp 1 lần, "5 màu (CMYK + 1 pha)" 1 lần, "1 màu" 1 lần
-    # ⇒ mode nào cũng 33%, nhưng nhãn phải nằm trong ba nhãn tính đúng đó.
-    assert by_key["mau"]["value"] in {"4 màu (CMYK)", "5 màu (CMYK + 1 pha)", "1 màu"}
-    assert by_key["mau"]["pct"] == 33
-    # Khổ: 2/3 sản phẩm là 210×297 ⇒ gọi tên A4, 67%.
-    assert by_key["kho"]["value"] == "A4"
-    assert by_key["kho"]["pct"] == 67
-    # Gia công: 2 bước hay gặp nhất, % của bước đầu (2/3 sản phẩm có cán màng bóng).
-    assert by_key["gia_cong"]["value"] == "Cán màng bóng · Đóng keo"
-    assert by_key["gia_cong"]["pct"] == 67
-
-
-def test_print_specs_bo_qua_bao_gia_da_huy(client):
-    """Báo giá đã HUỶ không được kéo thông số của nó vào thói quen của khách."""
-    token = _admin_token(client)
-    cid = client.post(
-        "/api/customers", json={"name": "Khách Huỷ Báo Giá"}, headers=_h(token)
-    ).json()["customer"]["id"]
-    db = SessionLocal()
-    try:
-        ptg = PhieuTinhGia(ma="PTG-HUY", ten_san_pham="Tờ rơi", so_luong=500)
-        db.add(ptg)
-        db.flush()
-        db.add(
-            PhieuThanhPhan(
-                phieu_id=ptg.id, ten="Tờ rơi", kho_nguyen="Ford 70 65×86",
-                muc_a=["C", "M", "Y", "K"], rong_thanh_pham=148, dai_thanh_pham=210,
-            )
-        )
-        db.add(
-            Quote(
-                quote_number="BGHUY1", customer_id=cid,
-                phieu_tinh_gia_id=ptg.id, status="cancelled",
-            )
-        )
-        db.commit()
-    finally:
-        db.close()
-
-    d = client.get(f"/api/customers/{cid}/dashboard", headers=_h(token)).json()
-    assert d["print_specs"] == []
-    assert d["print_specs_phieu"] == 0
 
 
 # --- History tables wired from real orders/quotations -----------------------

@@ -413,8 +413,6 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
   const vao = daQuyDoi ? Number(dgServer.so_luong_vao) || 0 : 0;
   const luot = Math.max(Math.trunc(f(r.so_luot_chay)) || 1, 1);
   const nguoiKeHoach = Math.max(Math.trunc(f(r.so_nhan_cong)) || 1, 1);
-  const nguoiToiDa = Math.max(Math.trunc(f(r.so_nhan_cong_toi_da)) || nguoiKeHoach, 1);
-  const nguoiTinh = r.loai_buoc === "to" ? Math.min(nguoiKeHoach, nguoiToiDa) : null;
   const canhBao: string[] = [];
 
   // Số của MÁY ĐANG CHỌN trên form (`may`) — KHÔNG đợi server. Đổi máy trong drawer là chuẩn bị
@@ -429,28 +427,37 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
     : (Array.isArray(dgServer.chuan_bi_khoan) ? dgServer.chuan_bi_khoan : []);
 
   let phuongPhap: string = r.loai_buoc;
-  let nangSuatHieuDung = 0;
+  let nangSuatCoSo = 0;       // năng suất/tốc độ GỐC (Tổ: theo đầu người; Máy: tốc độ máy)
+  let nangSuatHieuDung = 0;   // đã nhân kíp chuẩn với bước Tổ
+  let nguoiTinh: number | null = null;
   let chay = 0;
   let chayNhanh = 0;
   let chayCham = 0;
 
   if (r.loai_buoc === "to") {
-    // Bước TỔ không lấy tốc độ từ máy — vẫn là năng suất đầu việc khoán chia theo người.
+    // Bước TỔ = SL vào ÷ (năng suất khoán × SỐ NGƯỜI TIÊU CHUẨN) × 60. Năng suất khai theo ĐẦU
+    // NGƯỜI nên kíp chuẩn N người chạy nhanh gấp N (chốt 20/08/2026). Số người tiêu chuẩn SỬA ĐƯỢC
+    // trong drawer ⇒ phải tính LIVE. Ba mức năng suất (min/tb/max) ghim trong `khoan_json` ở SERVER;
+    // client không giữ min/max nên co giãn khoảng server đã tính theo TỶ LỆ chay_live/chay_server —
+    // kíp chuẩn là hệ số ĐỀU trên cả ba mức nên tỷ lệ này tái tạo đúng khoảng khi đổi người hoặc SL.
     const ns = f(r.nang_suat);
-    nangSuatHieuDung = ns * (nguoiTinh ?? 1);
-    chay = nangSuatHieuDung > 0 && vao > 0 ? (vao / nangSuatHieuDung) * 60 : 0;
-    chayNhanh = chay;
-    chayCham = chay;
+    const nguoiTC = Math.max(Math.trunc(f(r.so_nhan_cong_tieu_chuan)) || 1, 1);
+    nangSuatCoSo = ns;
+    nangSuatHieuDung = ns * nguoiTC;
+    nguoiTinh = nguoiTC;
+    const chayServer = numOf("chay_phut");
+    chay = nangSuatHieuDung > 0 && vao > 0 ? (vao / nangSuatHieuDung) * 60 : chayServer;
+    const tyLe = chayServer > 0 && chay > 0 ? chay / chayServer : 1;
+    chayNhanh = (numOf("chay_phut_min") || chay) * tyLe;   // năng suất CAO ⇒ chạy nhanh ⇒ nhỏ nhất
+    chayCham = (numOf("chay_phut_max") || chay) * tyLe;
     if (ns <= 0) phuongPhap = "thieu_nang_suat";
-    if (r.so_nhan_cong_toi_da != null && nguoiKeHoach > nguoiToiDa) {
-      canhBao.push("Số người kế hoạch vượt mức tối đa hiệu quả; thời gian chỉ tính theo mức tối đa.");
-    }
   } else if (r.loai_buoc === "may") {
     // Công thức chốt 2026-08-04: SL vào × 60 ÷ tốc độ × số lượt.
     const tocDo = coMay ? f(may?.tocDo) : numOf("toc_do");
     const tocDoMax = coMay ? f(may?.tocDoMax) : numOf("toc_do_max");
     const tocDoMin = coMay ? f(may?.tocDoMin) : numOf("toc_do_min");
     const chayVoi = (v: number): number => (v > 0 && vao > 0 ? (vao * 60) / v * luot : 0);
+    nangSuatCoSo = tocDo;
     nangSuatHieuDung = tocDo;
     chay = chayVoi(tocDo);
     chayNhanh = tocDoMax > 0 ? chayVoi(tocDoMax) : chay;   // tốc độ TỐI ĐA ⇒ thời lượng nhỏ nhất
@@ -482,12 +489,13 @@ export function thoiLuongLive(r: ThoiLuongInput, may?: MayTinhGio | null): Recor
     don_vi_vao_goc: (dgServer.don_vi_vao_goc as string | null) ?? r.don_vi_vao,
     quy_doi_dien_giai: dgServer.quy_doi_dien_giai ?? null,
     nguon_nang_suat: r.loai_buoc === "to" ? "dau_viec" : (r.loai_buoc === "may" ? "may" : null),
-    nang_suat_co_so: nangSuatHieuDung > 0 ? tron(nangSuatHieuDung) : null,
+    nang_suat_co_so: nangSuatCoSo > 0 ? tron(nangSuatCoSo) : null,
     nang_suat_hieu_dung: nangSuatHieuDung > 0 ? tron(nangSuatHieuDung) : null,
     so_luot_chay: r.loai_buoc === "may" ? luot : null,
     so_nhan_cong_ke_hoach: r.loai_buoc === "thue_ngoai" ? null : nguoiKeHoach,
     so_nhan_cong_tieu_chuan: r.loai_buoc === "thue_ngoai" ? null : r.so_nhan_cong_tieu_chuan,
     so_nhan_cong_toi_da: r.loai_buoc === "to" ? r.so_nhan_cong_toi_da : null,
+    // Bước TỔ nhân kíp chuẩn vào công thức (chốt 20/08/2026) ⇒ "số người tính" = số người tiêu chuẩn.
     so_nhan_cong_tinh: nguoiTinh,
     setup_phut: tron(setup),
     chuan_bi_khoan: khoanChuanBi,

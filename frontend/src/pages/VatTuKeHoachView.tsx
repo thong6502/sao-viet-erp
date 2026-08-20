@@ -20,6 +20,7 @@ import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
 import { BangLoi, ChipGap, EmptyState, Skeleton, classHan, ngay, num } from "./keHoachSxShared";
+import { moTaPhieuMua, tomTatPhieuMua } from "./phieuMuaNhan";
 
 /** Bốn màu — LUÔN kèm chữ, không chỉ dựa màu (a11y). Nhãn nói HỆ QUẢ, không nói màu. */
 const MAU_META: Record<CanDoiMau, { label: string; cls: string; hint: string }> = {
@@ -478,6 +479,9 @@ export function VatTuKeHoachView({
                 const isVeMuon = (nhom.so_dong_ve_muon ?? 0) > 0;
                 const isKhongRo = nhom.so_dong_khong_ro > 0;
                 const isDu = !isThieu && !isVeMuon && !isKhongRo;
+                // Chỉ bày ở mặt hàng CÒN PHẢI LO — nhóm đã đủ kho mà vẫn đeo mã phiếu thì
+                // cột trạng thái toàn chữ, cái cần đọc chìm mất. Drawer vẫn kê đủ.
+                const vetMua = isDu ? null : tomTatPhieuMua(nhom.phieu_mua);
 
                 // Tính tổng lượng thiếu của cả nhóm
                 const tongThieuNhom = nhom.dong.reduce((s, d) => s + (d.thieu ?? 0), 0);
@@ -620,6 +624,16 @@ export function VatTuKeHoachView({
                         <span className="khvt-badge khvt-badge--du">
                           <Icon name="check" size={11} /> Đủ trong kho
                         </span>
+                      )}
+
+                      {/* "Đã có ai lo món này chưa". Bảng chỉ cộng hàng khi PMH đã duyệt VÀ có
+                          ngày về, nên phiếu vừa lập không nhích một con số nào — không nói ra thì
+                          nó hiện y hệt "chưa ai mua", và người sau bấm Mua chồng lên. */}
+                      {vetMua && (
+                        <div className="khvt-po-note" title={vetMua.title}>
+                          <Icon name="cart" size={11} /> {vetMua.chinh}
+                          {vetMua.them > 0 && <b>+{vetMua.them}</b>}
+                        </div>
                       )}
                     </td>
 
@@ -830,6 +844,31 @@ function VatTuDetailDrawer({
                 dự kiến về ngày <b>{ngay(dongVeMuon.ngay_du_hang)}</b> (sau ngày lệnh cần{" "}
                 {ngay(dongVeMuon.ngay_can)}). Đã có đơn đặt mua, hãy{" "}
                 <span className="khvt-recommend-box__action">dời ngày sản xuất</span> thay vì mua đúp!
+              </div>
+            </div>
+          )}
+
+          {/* Phiếu ĐANG CHẠY của món — trả lời "đã có ai lo chưa" trước khi người dùng bấm Mua.
+              Bày ĐỦ danh sách (không cắt như trên bảng): drawer là chỗ tra, và hai phiếu cùng số
+              lượng nằm cạnh nhau chính là dấu hiệu ai đó đã đề nghị trùng. */}
+          {(nhom.phieu_mua ?? []).length > 0 && (
+            <div className="khvt-recommend-box">
+              <div className="khvt-recommend-box__icon">
+                <Icon name="cart" size={16} />
+              </div>
+              <div className="khvt-recommend-box__content">
+                Món này <b>đã có {nhom.phieu_mua.length} phiếu đang chạy</b> — kiểm trước khi đề
+                nghị mua thêm, tránh đặt trùng:
+                <ul className="khvt-po-list">
+                  {nhom.phieu_mua.map((pm) => (
+                    <li key={pm.ma}>
+                      <span className="khvt-po-list__loai">
+                        {pm.loai === "pmh" ? "Phiếu mua" : "Đề nghị"}
+                      </span>
+                      {moTaPhieuMua(pm, { dayDu: true })}
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
           )}

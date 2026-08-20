@@ -62,8 +62,8 @@
   gap: 5px;
   font-size: 11px;
   font-weight: 500;
-  color: #15803d;
-  background: #dcfce7;
+  color: var(--moss-deep);
+  background: var(--moss-soft);
   padding: 3px 9px;
   border-radius: var(--r-pill);
 }
@@ -71,7 +71,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #16a34a;
+  background: var(--moss);
 }
 .khsx-page-header__title {
   font-size: 22px;
@@ -179,17 +179,17 @@
   align-items: center;
   font-size: 11px;
   font-weight: 600;
-  color: #0369a1;
-  background: #e0f2fe;
-  border: 1px solid #bae6fd;
+  color: var(--steel);
+  background: var(--steel-soft);
+  border: 1px solid var(--rule-soft);
   padding: 2px 7px;
   border-radius: var(--r-pill);
   width: fit-content;
 }
 .khsx-step-pill.is-bad {
-  color: #dc2626;
-  background: #fee2e2;
-  border-color: #fecaca;
+  color: var(--signal);
+  background: var(--signal-soft);
+  border-color: var(--signal-soft);
 }
 .khsx-step-org {
   font-size: 11.5px;
@@ -463,6 +463,7 @@ td.khsx-num > .khsx-unit {
   line-height: 1.25;
 }
 .khsx-muted { color: var(--ash); }
+.khsx-hint-muted { margin: 0; font-size: 13px; color: var(--ash); font-style: italic; }
 .khsx-date--soon { color: var(--amber-deep); }
 .khsx-date--late { color: var(--signal); font-weight: var(--fw-bold); }
 
@@ -1885,6 +1886,7 @@ td.khsx-num > .khsx-unit {
 .khsx-rt__btn:disabled { opacity: 0.4; cursor: default; }
 .khsx-rt__btn--up svg { transform: rotate(180deg); }
 .khsx-rt__btn--del:hover { color: var(--signal); border-color: var(--signal); }
+.khsx-rt__btn--ins:hover { color: var(--rust); border-color: var(--rust); }
 /* --- dải gợi ý "tính ngược" ------------------------------------------------ */
 .khsx-goiy {
   display: flex;
@@ -5650,100 +5652,453 @@ td.khsx-num > .khsx-unit {
    Ba nhóm phải phân biệt được KHÔNG CHỈ bằng màu (icon + viền + vị trí cùng nói),
    vì đây là chỗ đọc số đi mua: nhìn nhầm nhóm là mua nhầm thứ.
    ========================================================================== */
-.khsx-vtke { display: flex; flex-direction: column; gap: 18px; }
-
-.khsx-vtke__tomtat { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
-.khsx-vtke__tomtat-chinh { font-size: 15px; font-weight: 600; color: var(--ink); }
-.khsx-vtke__tomtat-phu { font-size: 12px; color: var(--ash); }
-.khsx-vtke__tomtat-phu::before { content: "·"; margin-right: 8px; }
-
-.khsx-vtke__ds { list-style: none; margin: 0; padding: 0; }
-.khsx-vtke__buoc { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--rule-hair); }
-.khsx-vtke__buoc:first-child { border-top: 0; padding-top: 0; }
-.khsx-vtke__stt {
-  flex: 0 0 auto; width: 32px; padding-top: 2px;
-  font-family: var(--ff-mono, monospace); font-size: 11px; font-weight: 700; color: var(--ash);
-}
-.khsx-vtke__than { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-
-.khsx-vtke__dau { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
-.khsx-vtke__ten { font-size: 14px; font-weight: 600; color: var(--ink); }
-.khsx-vtke__no { font-size: 12px; color: var(--ash); }
-.khsx-vtke__no::before { content: "·"; margin-right: 6px; }
-/* Đầu việc là thứ QUYẾT ĐỊNH bước ăn vật tư gì ⇒ cho nó dạng viên, đọc lướt vẫn thấy. */
-.khsx-vtke__dv {
-  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
-  background: var(--steel-soft); color: var(--steel);
-}
-.khsx-vtke__dv--trong {
-  background: transparent; color: var(--ash); font-weight: 400; font-style: italic;
-  border: 1px dashed var(--rule-soft);
+/* ==========================================================================
+   Tab VẬT TƯ CỦA LỆNH (Bóc tách dòng chảy vật tư theo từng bước & BOM tổng)
+   ========================================================================== */
+.khsx-vtke {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
-.khsx-vtke__luong { font-size: 12px; color: var(--ash); font-variant-numeric: tabular-nums; }
-/* Bước đo bằng thước riêng (ghi kẽm đếm bản in) — số vào/ra KHÔNG nối với bước liền kề.
-   Không gắn nhãn này thì người đọc tưởng chuyền bị đứt ở đó. */
+/* 1. Dải Compact Strip Tóm Tắt KPI */
+.khsx-vtke__strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  padding: 10px 16px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+}
+.khsx-vtke__strip-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.khsx-vtke__strip-lbl {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ash);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.khsx-vtke__strip-val {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.khsx-vtke__strip-val b {
+  font-family: var(--ff-num, monospace) !important;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.khsx-vtke__strip-val small {
+  font-family: var(--ff-sans);
+  font-size: 11.5px;
+  color: var(--ash);
+}
+.khsx-vtke__strip-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--rule-soft);
+}
+.khsx-vtke__strip-alerts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.khsx-vtke__strip-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--r-pill, 999px);
+}
+.khsx-vtke__strip-badge--warn {
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+  border: 1px solid var(--amber-soft);
+}
+.khsx-vtke__strip-badge--danger {
+  color: var(--signal-deep);
+  background: var(--signal-soft);
+  border: 1px solid var(--signal-soft);
+}
+
+/* 2. Trục Tiến Trình Công Đoạn (Vertical Process Pipeline) */
+.khsx-vtke__pipeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.khsx-vtke__step {
+  display: flex;
+  gap: 16px;
+  position: relative;
+  padding-bottom: 24px;
+}
+.khsx-vtke__step:last-child {
+  padding-bottom: 0;
+}
+.khsx-vtke__node-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 0 0 auto;
+}
+.khsx-vtke__node {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-family: var(--ff-num, monospace) !important;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ash);
+  background: var(--paper);
+  border: 2px solid var(--rule-soft);
+  z-index: 1;
+}
+.khsx-vtke__step.has-vattu .khsx-vtke__node {
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  border-color: var(--rust);
+}
+.khsx-vtke__line {
+  flex: 1 1 auto;
+  width: 2px;
+  background: var(--rule-soft);
+  margin-top: 4px;
+}
+.khsx-vtke__step:last-child .khsx-vtke__line {
+  display: none;
+}
+
+.khsx-vtke__step-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.khsx-vtke__step-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.khsx-vtke__step-title-wrap {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.khsx-vtke__step-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.khsx-vtke__org-tag {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ash);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  padding: 1px 7px;
+  border-radius: 4px;
+}
+.khsx-vtke__mach-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  padding: 1px 7px;
+  border-radius: 4px;
+}
+.khsx-vtke__job-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--moss-deep);
+  background: var(--moss-soft);
+  border: 1px solid var(--moss-soft);
+  padding: 2px 8px;
+  border-radius: var(--r-pill, 999px);
+}
+.khsx-vtke__job-tag.is-empty {
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+  border-color: var(--amber-soft);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.khsx-vtke__flow-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ash);
+}
+.khsx-vtke__flow-num b {
+  font-family: var(--ff-num, monospace) !important;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.khsx-vtke__flow-arrow {
+  color: var(--ash);
+  font-weight: 700;
+}
 .khsx-vtke__ngoai {
-  margin-left: 10px; padding: 2px 7px; border-radius: 4px; cursor: help;
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
-  background: var(--rule-hair); color: var(--ash);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ash);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
 }
 
-.khsx-vtke__mons { display: flex; flex-direction: column; gap: 4px; }
-.khsx-vtke-mon {
-  display: grid; grid-template-columns: 18px minmax(0, 1fr) auto auto;
-  align-items: center; gap: 10px; padding: 6px 10px;
-  border: 1px solid var(--rule-soft); border-radius: 8px; background: #ffffff;
+.khsx-vtke__vattu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.khsx-vtke-mon__ico { display: inline-flex; color: var(--ash); }
-.khsx-vtke-mon__ten {
-  font-size: 13px; color: var(--ink);
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.khsx-vtke__empty-step {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--ash-2);
+  padding: 2px 0;
 }
-.khsx-vtke-mon__ma {
-  font-family: var(--ff-mono, monospace); font-size: 10px; font-weight: 700;
-  color: var(--ash); margin-right: 8px;
-}
-.khsx-vtke-mon__so {
-  font-size: 13px; font-weight: 600; color: var(--ink);
-  font-variant-numeric: tabular-nums; white-space: nowrap;
-}
-.khsx-vtke-mon__phu {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-size: 11px; color: var(--ash); white-space: nowrap;
-}
-/* NVL chính: nền giấy + gạch trái — thứ tốn tiền nhất, phải bật ra khỏi danh sách. */
-.khsx-vtke-mon--nvl { border-left: 3px solid var(--steel); background: var(--paper); }
-.khsx-vtke-mon--nvl .khsx-vtke-mon__ico { color: var(--steel); }
-/* Dụng cụ: VIỀN ĐỨT — mượn rồi trả, không mất đi khỏi kho. Dấu hiệu hình dạng, không phải màu. */
-.khsx-vtke-mon--dung_cu { border-style: dashed; }
-
-.khsx-vtke-mon__buoc { font-family: var(--ff-mono, monospace); font-size: 10px; color: var(--ash); }
-/* Món khai ở TỪ HAI BƯỚC trở lên: đây đúng là chỗ nhìn riêng từng bước sẽ mua thiếu. */
-.khsx-vtke-mon__buoc.is-nhieu {
-  padding: 1px 6px; border-radius: 4px; font-weight: 700;
-  background: var(--rust-soft); color: var(--rust-deep);
+.khsx-vtke__alert-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--signal-deep);
+  background: var(--signal-soft);
+  border: 1px solid var(--signal-soft);
+  padding: 5px 10px;
+  border-radius: 6px;
+  width: fit-content;
 }
 
-.khsx-vtke__trong { margin: 0; font-size: 12px; font-style: italic; color: var(--ash); }
-.khsx-vtke__thieu {
-  margin: 0; display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px; color: var(--rust-deep);
+/* 3. Card Vật Tư Cao Cấp (khsx-vtcard) */
+.khsx-vtcard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 14px;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: all 0.15s ease;
+}
+.khsx-vtcard:hover {
+  border-color: var(--rule);
+  background: var(--paper);
+}
+.khsx-vtcard--nvl {
+  border-left: 3.5px solid var(--rust);
+  background: var(--paper);
+}
+.khsx-vtcard--dung_cu {
+  border-left: 3.5px solid var(--plum);
+  border-style: solid;
+}
+.khsx-vtcard--vat_tu {
+  border-left: 3.5px solid var(--steel);
 }
 
-.khsx-vtke__tong {
-  border-top: 2px solid var(--ink); padding-top: 14px;
-  display: flex; flex-direction: column; gap: 10px;
+.khsx-vtcard__main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
-.khsx-vtke__tong-tieu {
-  margin: 0; font-size: 12px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink);
+.khsx-vtcard__ico {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ash);
+  flex: 0 0 auto;
 }
-.khsx-vtke__ghi { margin: 0; font-size: 12px; color: var(--ash); }
+.khsx-vtcard--nvl .khsx-vtcard__ico {
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+}
+.khsx-vtcard--dung_cu .khsx-vtcard__ico {
+  color: var(--plum-deep);
+  background: var(--plum-soft);
+}
+.khsx-vtcard--vat_tu .khsx-vtcard__ico {
+  color: var(--steel);
+  background: var(--steel-soft);
+}
 
-@media (max-width: 640px) {
-  .khsx-vtke-mon { grid-template-columns: 18px minmax(0, 1fr); row-gap: 2px; }
-  .khsx-vtke-mon__so, .khsx-vtke-mon__phu { grid-column: 2; }
+.khsx-vtcard__content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.khsx-vtcard__title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.khsx-vtcard__ma {
+  font-family: var(--ff-num, monospace) !important;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ash);
+  background: var(--paper);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.khsx-vtcard__ten {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.khsx-vtcard__sub {
+  font-size: 11.5px;
+  color: var(--ash);
+}
+
+.khsx-vtcard__meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
+}
+.khsx-vtcard__qty {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  text-align: right;
+}
+.khsx-vtcard__qty b {
+  font-family: var(--ff-num, monospace) !important;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.khsx-vtcard__qty small {
+  font-family: var(--ff-sans);
+  font-size: 11.5px;
+  color: var(--ash);
+}
+.khsx-vtcard__tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.khsx-vtcard__tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.khsx-vtcard__tag--nvl {
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  border: 1px solid var(--rust-soft);
+}
+.khsx-vtcard__tag--dung_cu {
+  color: var(--plum-deep);
+  background: var(--plum-soft);
+  border: 1px solid var(--plum-soft);
+}
+.khsx-vtcard__tag--vat_tu {
+  color: var(--steel);
+  background: var(--steel-soft);
+  border: 1px solid var(--rule-soft);
+}
+.khsx-vtcard__buoc {
+  font-family: var(--ff-num, monospace) !important;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ash);
+  background: var(--paper);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.khsx-vtcard__buoc.is-nhieu {
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  font-weight: 700;
+}
+
+/* 4. Khối BOM Tổng Gom Cuối Bảng */
+.khsx-vtke__bom {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: 12px;
+  margin-top: 8px;
+}
+.khsx-vtke__bom-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.khsx-vtke__bom-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+.khsx-vtke__bom-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink);
+}
+.khsx-vtke__bom-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ash);
+}
+.khsx-vtke__bom-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ash);
+  padding-top: 6px;
+  border-top: 1px dashed var(--rule-soft);
 }
 
 /* ============================================================================
@@ -6455,3 +6810,95 @@ td.khsx-num > .khsx-unit {
 .khsx-den--lg { gap: 6px; }
 .khsx-den--lg .khsx-den__chip { padding: 5px 10px; font-size: var(--fs-sm); white-space: normal; }
 .khsx-denrow { margin: 0 0 10px; }
+
+/* ── "MÓN NÀY ĐANG CÓ AI LO CHƯA" ────────────────────────────────────────────
+   Bảng cân đối chỉ cộng hàng khi PMH đã duyệt VÀ có ngày về, nên phiếu vừa lập không nhích một con
+   số nào: "đã đề nghị mua" và "chưa ai đụng vào" vẽ ĐỎ giống hệt nhau (câu hỏi 20/08/2026). Nhãn
+   dưới đây là lối thoát — MÀU CAM MỀM, cố ý KHÔNG tranh màu với đỏ/vàng của trạng thái, vì nó chỉ
+   là ghi chú thủ tục chứ không phải một trạng thái thứ bảy. */
+.khsx .khvt-stream-chip__po {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 4px;
+  padding-left: 6px;
+  border-left: 1px dashed currentColor;
+  font-size: 11px;
+  font-weight: var(--fw-semibold, 600);
+  white-space: nowrap;
+  opacity: 0.9;
+}
+.khsx .khvt-stream-chip__po b {
+  margin-left: 2px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgb(0 0 0 / 8%);
+  font-size: 10px;
+}
+
+/* Ghi chú dưới badge trạng thái ở BẢNG CÂN ĐỐI (gom theo mặt hàng). */
+.khsx .khvt-po-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #9a3412;
+  font-family: var(--ff-num, monospace);
+  cursor: help;
+}
+.khsx .khvt-po-note b {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #ffedd5;
+  font-family: var(--ff-sans);
+}
+
+/* Dòng phiếu trong thẻ bento — xuống hàng riêng, không chen vào cụm số. */
+.khsx .khvt-bcard__item { flex-wrap: wrap; }
+.khsx .khvt-bcard__item-po {
+  flex: 1 0 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #9a3412;
+  font-family: var(--ff-num, monospace);
+}
+
+/* Bản nhiều dòng ở drawer thẻ lệnh: mỗi phiếu một dòng, đọc hết không phải hover. */
+.khsx .khvt-pill-note--po {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.khsx .khvt-pill-note--po span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Danh sách phiếu trong khối gợi ý ở drawer bảng cân đối. */
+.khsx .khvt-po-list {
+  margin: 6px 0 0;
+  padding-left: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-family: var(--ff-num, monospace);
+}
+.khsx .khvt-po-list__loai {
+  display: inline-block;
+  min-width: 74px;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #ffedd5;
+  color: #9a3412;
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-align: center;
+}

@@ -16,7 +16,7 @@
 // hệt, chỉ khác trục gom. Tách thành hai mục menu thì người dùng phải nhớ "việc này nằm ở màn
 // nào", trong khi đây là cùng một việc nhìn từ hai phía.
 import { useEffect, useState } from "react";
-import { api } from "../api/client";
+import { ApiError, api } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Icon } from "../components/Icons";
 import { GiuChoTheoLenhView } from "./GiuChoTheoLenhView";
@@ -44,7 +44,10 @@ export function KeHoachVatTuPage({
   useNapTenDonVi();
   // Bit "tạo yêu cầu mua cho bộ phận" — KHÔNG lách bằng quyền `san_xuat`. Thiếu bit thì nút "Đề
   // nghị mua" tự ẩn, bảng cân đối vẫn xem được bình thường.
-  const [canDeNghiMua, setCanDeNghiMua] = useState(false);
+  // `null` = CHƯA BIẾT (chưa hỏi xong, hoặc hỏi mà hỏng). KHÔNG gộp với `false`: gộp thì đúng một
+  // lỗi mạng cũng làm mọi nút "Mua" biến mất vĩnh viễn cho tới khi F5 — người dùng đọc thành
+  // "phần mềm hỏng", đúng câu hỏi nhận ngày 20/08/2026.
+  const [canDeNghiMua, setCanDeNghiMua] = useState<boolean | null>(null);
   const [gom, setGom] = useState<Gom>(focusLsxMa ? "lenh" : "hang");
   const [soDo, setSoDo] = useState(0);
   const [soGiuLau, setSoGiuLau] = useState(0);
@@ -58,12 +61,31 @@ export function KeHoachVatTuPage({
   useEffect(() => {
     if (!token) return;
     let alive = true;
-    api.departmentPurchaseRequests
-      .canCreate(token)
-      .then((r: { can_create: boolean }) => alive && setCanDeNghiMua(r.can_create))
-      .catch(() => alive && setCanDeNghiMua(false));
+    let hen: number | undefined;
+    let lan = 0;
+    const hoi = () => {
+      api.departmentPurchaseRequests
+        .canCreate(token)
+        .then((r: { can_create: boolean }) => alive && setCanDeNghiMua(r.can_create))
+        .catch((e: unknown) => {
+          if (!alive) return;
+          // Server TRẢ LỜI là không có quyền ⇒ chốt `false`, ẩn nút cho đúng.
+          if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+            setCanDeNghiMua(false);
+            return;
+          }
+          // Mạng rớt / 5xx ⇒ vẫn CHƯA BIẾT. Thử lại vài nhịp; nút cứ hiện, ai bấm thì lỗi thật của
+          // server nói ra — thà báo lỗi còn hơn nút mất tăm không một lời nào.
+          if (lan < 3) {
+            lan += 1;
+            hen = window.setTimeout(hoi, 1_000 * lan);
+          }
+        });
+    };
+    hoi();
     return () => {
       alive = false;
+      if (hen) window.clearTimeout(hen);
     };
   }, [token]);
 
@@ -148,14 +170,14 @@ export function KeHoachVatTuPage({
       {gom === "hang" ? (
         <VatTuKeHoachView
           eventTick={eventTick}
-          canDeNghiMua={canDeNghiMua}
+          canDeNghiMua={canDeNghiMua !== false}
           onSoDo={setSoDo}
           onOpenLsx={navigate ? (id) => navigate("ke-hoach-sx", { openLsxId: id }) : undefined}
         />
       ) : (
         <GiuChoTheoLenhView
           eventTick={eventTick}
-          canDeNghiMua={canDeNghiMua}
+          canDeNghiMua={canDeNghiMua !== false}
           onSoGiuLau={setSoGiuLau}
           focusLsxMa={focusLsxMa}
           onOpenLsx={navigate ? (id) => navigate("ke-hoach-sx", { openLsxId: id }) : undefined}

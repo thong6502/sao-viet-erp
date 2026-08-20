@@ -638,7 +638,8 @@
 .bg2-member:last-child { border-bottom: 0; }
 .bg2-member__main { display: grid; gap: 3px; min-width: 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; }
 .bg2-member__main strong { color: #123c73; }
-.bg2-member__main span { overflow: hidden; color: #526174; text-overflow: ellipsis; white-space: nowrap; }
+.bg2-member__top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.bg2-member__sub { overflow: hidden; color: #526174; text-overflow: ellipsis; white-space: nowrap; }
 
 .bg2-icon-btn {
   display: inline-grid;

@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { LSX_LOAI_BUOC_META, type LsxLoaiBuoc } from "../api/client";
 import { Button } from "../components/Button";
+import { TagPicker } from "../components/TagPicker";
 import { dvNhan as dvNhanChung, type RefRow } from "./LsxRoutingTable";
 import { ngayGio, num } from "./keHoachSxShared";
 import {
@@ -90,6 +91,7 @@ export function LsxBuocDrawer({
   onPatchLsx,
   onDoiCongDoan,
   onDoiTo,
+  onDoiMay,
   onGiaoNhan,
   tabDau,
   onClose,
@@ -126,6 +128,9 @@ export function LsxBuocDrawer({
   /** Đổi công đoạn: kéo lại toàn bộ mặc định của công đoạn mới (giữ SL vào/ra). */
   onDoiCongDoan: (congDoanId: number | null) => void;
   onDoiTo: (departmentId: number | null) => void;
+  /** Đổi máy: kíp đứng máy lấy theo danh mục Máy NGAY, rồi hỏi server thời lượng mới. Không đi
+   *  qua `onPatch` vì hai số đó không nằm trong form — chúng tới từ máy vừa chọn. */
+  onDoiMay: (mayId: number | null) => void;
   /** Ghi nhận hàng gia công ngoài đi/về — ghi THẲNG lên server, không chờ "Lưu công đoạn". */
   onGiaoNhan: (
     buocId: number, body: { su_kien: "giao" | "nhan"; luc?: string; so_luong?: number },
@@ -321,6 +326,19 @@ export function LsxBuocDrawer({
   }
 
   function doiLoaiBuoc(k: LsxLoaiBuoc) {
+    if (k === "may") {
+      // Bỏ định mức nhân lực của bảng khoán TỔ lại phía sau: bước máy nghe số người vận hành của
+      // MÁY. Chưa gán máy thì tạm 1 người, chọn máy xong `onDoiMay` điền lại.
+      const kip = Math.max(Math.trunc(Number(mayForm?.soNguoiVanHanh ?? 1)) || 1, 1);
+      onPatch({
+        loai_buoc: k,
+        so_nhan_cong_tieu_chuan: kip,
+        so_nhan_cong_toi_thieu: null,
+        so_nhan_cong_toi_da: null,
+        so_nhan_cong: String(kip),
+      });
+      return;
+    }
     if (k !== "to") {
       set("loai_buoc", k);
       return;
@@ -579,6 +597,23 @@ export function LsxBuocDrawer({
                 </div>
               </section>
 
+              {/* Khối Nhãn — gắn thẻ tự do cho bước (vd "Thuê ngoài", "Bế ngoài"). Logic y hệt gán
+                  thẻ ở module Khách hàng: kho nhãn dùng chung, thêm/gỡ tức thì, xoá khỏi kho hỏi số
+                  bước. Chỉ hiện khi bước ĐÃ LƯU (có id) — bước mới phải lưu công đoạn trước mới có
+                  chỗ neo nhãn. */}
+              <section className="khsx-section-card">
+                <div className="khsx-section-card__head">
+                  <h3 className="khsx-section-card__title">Nhãn</h3>
+                </div>
+                {row.id != null ? (
+                  <TagPicker buocLoai="lsx" buocId={row.id} canUpdate={canUpdate} />
+                ) : (
+                  <p className="khsx-hint-muted">
+                    Lưu công đoạn trước rồi mở lại để gắn nhãn cho bước này.
+                  </p>
+                )}
+              </section>
+
               {/* Khối Dòng chảy Số lượng (Production Flow Pipeline) */}
               <section className="khsx-section-card">
                 <div className="khsx-section-card__head">
@@ -768,7 +803,7 @@ export function LsxBuocDrawer({
                               value={row.may_id ?? ""}
                               disabled={!canUpdate}
                               onChange={(e) =>
-                                set("may_id", e.target.value ? Number(e.target.value) : null)
+                                onDoiMay(e.target.value ? Number(e.target.value) : null)
                               }
                             >
                               <option value="">— chưa gán máy —</option>
@@ -811,46 +846,57 @@ export function LsxBuocDrawer({
                           <span className="khsx-input-combine__unit">người</span>
                         </div>
                         <span className="khsx-field__hint">
-                          Kíp vận hành tiêu chuẩn: {row.so_nhan_cong_tieu_chuan} người. (Nhân lực không thay đổi tốc độ máy).
+                          {mayDaChon
+                            ? `Kíp vận hành tiêu chuẩn của ${mayDaChon.ten}: ${row.so_nhan_cong_tieu_chuan} người.`
+                            : "Chưa gán máy nên chưa biết kíp tiêu chuẩn — chọn máy ở khối trên."}
+                          {" "}(Nhân lực không thay đổi tốc độ máy.)
                         </span>
                       </label>
                     </section>
                   )}
 
-                  {/* Định mức nhân công bước Tổ */}
+                  {/* Nhân sự bước Tổ */}
                   {row.loai_buoc === "to" && (
                     <section className="khsx-section-card">
                       <div className="khsx-section-card__head">
-                        <h3 className="khsx-section-card__title">Nhân sự & Định mức tổ làm tay</h3>
+                        <h3 className="khsx-section-card__title">Nhân sự tổ làm tay</h3>
                       </div>
 
                       <div className="khsx-labor-section">
+                        {/* Kíp chuẩn — NHÂN vào công thức thời gian + lái quân số bàn xếp lịch. */}
                         <label className="khsx-field">
-                          <span className="khsx-field__label">SỐ NGƯỜI KẾ HOẠCH</span>
+                          <span className="khsx-field__label">SỐ NGƯỜI TIÊU CHUẨN</span>
                           <div className="khsx-input-unit-combine">
                             <input
                               type="number"
                               min="1"
                               className="khsx-input-combine__num"
-                              value={row.so_nhan_cong}
+                              value={row.so_nhan_cong_tieu_chuan ?? ""}
                               placeholder="1"
                               disabled={!canUpdate}
-                              onChange={(e) => set("so_nhan_cong", e.target.value)}
+                              onChange={(e) => {
+                                const std = e.target.value === "" ? 1 : Math.max(1, Number(e.target.value) || 1);
+                                // Một patch: kíp chuẩn kéo theo quân số (`so_nhan_cong`) mà bàn xếp
+                                // lịch đọc — để hai số không lệch nhau.
+                                onPatch({ so_nhan_cong_tieu_chuan: std, so_nhan_cong: String(std) });
+                              }}
                             />
                             <span className="khsx-input-combine__unit">người</span>
                           </div>
                           <span className="khsx-field__hint">
-                            Bố trí thực tế. Thời gian tính theo min(kế hoạch, tối đa).
+                            Kíp làm chuẩn — <strong>rút ngắn thời gian</strong>: năng suất khoán khai theo
+                            đầu người nên kíp {Math.max(1, Number(row.so_nhan_cong_tieu_chuan) || 1)} người
+                            làm nhanh gấp {Math.max(1, Number(row.so_nhan_cong_tieu_chuan) || 1)}. Cũng để bàn
+                            xếp lịch cân quân số &amp; đối chiếu lúc làm.
                           </span>
                         </label>
 
-                        {/* Labor Norm Triplet */}
+                        {/* Biên nhân lực — nuôi cảnh báo thiếu/quá người khi xếp lịch, không vào thời gian. */}
                         <div className="khsx-labor-triplet-card">
-                          <span className="khsx-field__label">ĐỊNH MỨC NHÂN LỰC CỦA ĐẦU VIỆC</span>
-                          <div className="khsx-labor-triplet-grid">
+                          <span className="khsx-field__label">BIÊN NHÂN LỰC (ĐỂ XẾP LỊCH)</span>
+                          <div className="khsx-labor-triplet-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
                             {([
                               ["Tối thiểu", "so_nhan_cong_toi_thieu"],
-                              ["Tiêu chuẩn", "so_nhan_cong_tieu_chuan"],
                               ["Tối đa", "so_nhan_cong_toi_da"],
                             ] as const).map(([nhan, khoa]) => (
                               <label className="khsx-labor-pill-input" key={khoa}>
@@ -864,7 +910,7 @@ export function LsxBuocDrawer({
                                   disabled={!canUpdate}
                                   onChange={(e) => {
                                     const v = e.target.value === "" ? null : Number(e.target.value);
-                                    set(khoa, khoa === "so_nhan_cong_tieu_chuan" ? (v ?? 1) : v);
+                                    set(khoa, v);
                                   }}
                                 />
                                 <span className="khsx-labor-unit">người</span>
@@ -872,7 +918,8 @@ export function LsxBuocDrawer({
                             ))}
                           </div>
                           <span className="khsx-field__hint">
-                            Chỉ mức <strong>tối đa</strong> vào công thức làm trần thời gian; tối thiểu là khai báo.
+                            Bàn xếp lịch cảnh báo khi bố trí ít hơn tối thiểu hoặc quá tối đa. Không
+                            đổi thời gian bước.
                           </span>
                         </div>
                       </div>
@@ -1659,9 +1706,17 @@ export function LsxBuocDrawer({
                               {tg.quy_doi_dien_giai ? String(tg.quy_doi_dien_giai) : `${num(Number(tg.so_luong_vao ?? 0))} ${String(tg.don_vi_vao ?? "")}`}
                             </span>
                             <span className="khsx-formula-op">÷</span>
-                            <span className="khsx-formula-token khsx-formula-token--speed">
-                              {num(Number(tg.nang_suat_hieu_dung ?? 0))}/giờ
-                            </span>
+                            {row.loai_buoc === "to" && Number(tg.so_nhan_cong_tinh ?? 1) > 1 ? (
+                              // Bày rõ phép nhân kíp chuẩn: gộp cả cụm vào MỘT mẫu số trong ngoặc để
+                              // đọc đúng thứ tự (SL ÷ (năng suất × người)), không đọc thành ÷ rồi ×.
+                              <span className="khsx-formula-token khsx-formula-token--speed">
+                                ({num(Number(tg.nang_suat_co_so ?? 0))}/giờ × {Number(tg.so_nhan_cong_tinh ?? 1)} người)
+                              </span>
+                            ) : (
+                              <span className="khsx-formula-token khsx-formula-token--speed">
+                                {num(Number(tg.nang_suat_hieu_dung ?? 0))}/giờ
+                              </span>
+                            )}
                             {row.loai_buoc === "may" && Number(tg.so_luot_chay ?? 1) !== 1 && (
                               <>
                                 <span className="khsx-formula-op">×</span>

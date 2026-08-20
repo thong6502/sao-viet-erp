@@ -88,7 +88,6 @@ from ..schemas.customer import (
     OrderHistoryOut,
     OrderHistoryRowOut,
     OrderLineBriefOut,
-    PrintSpecOut,
     ProductSliceOut,
     QuoteHistoryOut,
     QuoteHistoryRowOut,
@@ -834,8 +833,6 @@ def customer_dashboard(
         product_mix=[ProductSliceOut(**vars(s)) for s in d.product_mix],
         heatmap=[HeatCellOut(**vars(h)) for h in d.heatmap],
         has_data=d.has_data,
-        print_specs=[PrintSpecOut(**vars(s)) for s in d.print_specs],
-        print_specs_phieu=d.print_specs_phieu,
         receivable=_receivable_card(
             svc, customer, can_view=authz.can(user, MODULE, "view_debt")
         ),

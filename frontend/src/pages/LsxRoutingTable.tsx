@@ -53,6 +53,8 @@ export interface RefRow {
   donViTocDo?: string | null;
   chuanBiPhut?: number | null;
   chuanBiKhoan?: { ten?: string; phut?: number }[];
+  /** MÁY — "Số người vận hành tiêu chuẩn" ở danh mục Máy. Chính là KÍP ĐỨNG MÁY của bước. */
+  soNguoiVanHanh?: number | null;
 }
 
 /** Nhãn đơn vị CỦA MỘT BƯỚC. Chưa khai đơn vị ⇒ “—”.
@@ -108,6 +110,8 @@ export function LsxRoutingTable({
   onPatchLsx,
   onMacDinhBuoc,
   onDauViecOptions,
+  onXemTruocMay,
+  onXemTruocRouting,
   onGiaoNhan,
   onDirtyChange,
   dvChuoi,
@@ -135,6 +139,15 @@ export function LsxRoutingTable({
   onDauViecOptions: (
     congDoanId: number, departmentId: number,
   ) => Promise<import("../api/client").LsxDauViecOption[]>;
+  /** Đổi máy → hỏi server thời lượng mới (chỉ backend quy đổi được SL vào sang đơn vị tốc độ). */
+  onXemTruocMay: (
+    stepKey: string, mayId: number | null,
+  ) => Promise<import("../api/client").LsxXemTruocMay>;
+  /** Đổi/chèn công đoạn → hỏi server SỐ VÀO–RA + đơn vị của CẢ CHUỖI (chỉ backend chạy chuỗi
+   *  ngược + bảng cầu quy đổi). Cùng lẽ với `onXemTruocMay`: số nhảy ngay, khỏi bấm Lưu. */
+  onXemTruocRouting: (
+    rows: import("../api/client").LsxXemTruocRoutingRow[],
+  ) => Promise<import("../api/client").LsxXemTruocRoutingBuoc[]>;
   /** Ghi nhận giao/nhận hàng gia công ngoài — GHI THẲNG, không đi qua "Lưu công đoạn". */
   onGiaoNhan: (
     buocId: number, body: { su_kien: "giao" | "nhan"; luc?: string; so_luong?: number },
@@ -159,6 +172,14 @@ export function LsxRoutingTable({
   const goc = useRef(JSON.stringify(toBody(congDoans.map(toEdit))));
   const tbodyRef = useRef<HTMLTableSectionElement>(null);
   const doiToSeq = useRef(0);
+  const doiMaySeq = useRef(0);
+  const doiCdSeq = useRef(0);
+  // Ảnh chụp `rows` mới nhất cho xem-trước chuỗi: `doiCongDoan` vừa `patch` xong thì closure `rows`
+  // còn CŨ, nên dựng payload từ ref này (đã cộng patch tay) mới đúng bước vừa đổi.
+  const rowsRef = useRef(rows);
+  useEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
   // Hàng đang mở drawer — đóng lại thì trả tiêu điểm về đúng hàng đó (nợ của lát trước).
   const hangMo = useRef<HTMLElement | null>(null);
 
@@ -183,6 +204,58 @@ export function LsxRoutingTable({
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...p } : r)));
   }, []);
 
+  /** Dựng payload xem-trước cho CẢ CHUỖI rồi khớp số server trả về theo `step_key`.
+   *
+   *  Gửi `r.key` cho MỌI bước — kể cả bước chưa lưu ("r…") — vì server echo lại chính key đó để FE
+   *  khớp hàng (khác `toBody`, chỗ CỐ Ý bỏ key "r"). Chốt `seq` để phản hồi tới trễ không đè phản
+   *  hồi mới hơn, giống lá chắn của `doiMay`. Server KHÔNG ghi DB — chỉ tính rồi rollback. */
+  const xemTruocChuoi = useCallback(
+    async (snapshot: EditRow[]) => {
+      const seq = ++doiCdSeq.current;
+      const payload = snapshot.map((r, i) => ({
+        step_key: r.key,
+        thu_tu: i,
+        cong_doan_id: r.cong_doan_id,
+        ten: r.ten || undefined,
+        nhom: r.nhom,
+        loai_buoc: r.loai_buoc,
+        department_id: r.department_id,
+        may_id: r.may_id,
+      }));
+      try {
+        const buocs = await onXemTruocRouting(payload);
+        if (seq !== doiCdSeq.current) return;
+        setRows((prev) =>
+          prev.map((r) => {
+            const b = buocs.find((x) => x.step_key === r.key);
+            if (!b) return r;
+            return {
+              ...r,
+              // Số + đơn vị là DẪN XUẤT (server chạy chuỗi ngược). 0 → "" để ô hiện gợi ý, khớp
+              // đúng cách `toEdit` nạp số ban đầu.
+              so_luong_vao: b.so_luong_vao ? String(b.so_luong_vao) : "",
+              so_luong_ra: b.so_luong_ra ? String(b.so_luong_ra) : "",
+              don_vi_vao: b.don_vi_vao ?? r.don_vi_vao,
+              don_vi_ra: b.don_vi_ra ?? r.don_vi_ra,
+              he_so_quy_doi: b.he_so_quy_doi > 1 ? String(b.he_so_quy_doi) : "",
+              hao_hut: b.hao_hut ? String(b.hao_hut) : "",
+              hao_hut_pct: b.hao_hut_pct ? String(b.hao_hut_pct) : "",
+              tren_dong_giay: b.tren_dong_giay,
+              loi_quy_doi: b.loi_quy_doi,
+              san_luong_dien_giai: b.san_luong_dien_giai,
+              // Số vừa tính = số chuẩn hiện tại ⇒ xoá cờ "danh mục đã đổi" để bảng khỏi gạch số cũ.
+              so_luong_vao_moi: null,
+              so_luong_ra_moi: null,
+            };
+          }),
+        );
+      } catch {
+        /* mất mạng / không đủ quyền → giữ số cũ; bấm "Lưu công đoạn" server vẫn tính đúng. */
+      }
+    },
+    [onXemTruocRouting],
+  );
+
   /** Đổi công đoạn của 1 bước → kéo lại dữ liệu trung tính của công đoạn (tổ phụ trách, đơn vị,
    *  chuẩn bị). Loại bước và tài nguyên vẫn là quyết định của kế hoạch tại chính bước LSX.
    *
@@ -190,8 +263,9 @@ export function LsxRoutingTable({
    *  đếm con, 4.000 con/giờ) sang "Cán màng" (máy, đếm tờ) mà thời lượng và đơn vị vẫn của Dán hộp,
    *  chẳng cảnh báo gì.
    *
-   *  KHÔNG đụng số lượng vào/ra: server tính lại cả chuỗi sau khi lưu routing.
-   *  Luật đơn vị nằm ở BACKEND, ở đây chỉ áp kết quả để hai nơi không trôi khỏi nhau. */
+   *  Số VÀO–RA + đơn vị của cả chuỗi thì hỏi server xem-trước (`xemTruocChuoi`) cho nhảy NGAY —
+   *  chỉ backend chạy được chuỗi ngược + bảng cầu quy đổi; bấm "Lưu công đoạn" server chốt lại y
+   *  hệt. Luật đơn vị nằm ở BACKEND, FE chỉ áp kết quả để hai nơi không trôi khỏi nhau. */
   const doiCongDoan = useCallback(
     async (key: string, id: number | null, tenHienTai: string) => {
       if (id == null) {
@@ -200,7 +274,7 @@ export function LsxRoutingTable({
       }
       try {
         const m = await onMacDinhBuoc(id);
-        patch(key, {
+        const applied: Partial<EditRow> = {
           cong_doan_id: m.cong_doan_id, ten: m.ten, nhom: m.nhom,
           department_id: m.department_id,
           don_vi_vao: m.don_vi_vao, don_vi_ra: m.don_vi_ra,
@@ -210,14 +284,20 @@ export function LsxRoutingTable({
           tren_dong_giay: m.tren_dong_giay !== false,
           he_so_quy_doi: m.he_so_quy_doi > 1 ? String(m.he_so_quy_doi) : "",
           // Thời gian chuẩn bị + chạy KHÔNG còn nằm ở bước: kế thừa sống từ máy đang gán.
-        });
+        };
+        patch(key, applied);
         setLive(`Đã đổi sang ${m.ten} và lấy lại đơn vị, tổ phụ trách`);
+        // Số vào–ra + đơn vị cả chuỗi phải nhảy NGAY (chủ 20/08/2026). Dựng ảnh chụp từ `rowsRef`
+        // (đã cộng patch vừa áp) vì closure `rows` ở nhịp này còn CŨ, chưa thấy bước vừa đổi.
+        const snapshot = rowsRef.current.map(
+          (r) => (r.key === key ? { ...r, ...applied } : r));
+        void xemTruocChuoi(snapshot);
       } catch {
         // Mất mạng / không có quyền đọc danh mục → ít nhất vẫn đổi được tên, đừng chặn người dùng.
         patch(key, { cong_doan_id: id, ten: tenHienTai, department_id: null });
       }
     },
-    [onMacDinhBuoc, patch],
+    [onMacDinhBuoc, patch, xemTruocChuoi],
   );
 
   /** Đổi tổ phải đổi luôn tập đầu việc khoán; không được giữ snapshot/list của tổ cũ. */
@@ -263,6 +343,45 @@ export function LsxRoutingTable({
     }
   }, [onDauViecOptions, patch, rows]);
 
+  /** Đổi máy là LẤY SỐ NGAY, không đợi bấm "Lưu công đoạn" (chủ 20/08/2026: *"khi chọn máy là
+   *  phải lấy số luôn chứ"*). Hai nửa, cố ý tách:
+   *
+   *  - Nửa TẠI CHỖ (không chờ mạng): kíp đứng máy = "số người vận hành" khai ở danh mục Máy; còn
+   *    tốc độ + chuẩn bị thì `thoiLuongLive` đọc thẳng `mayRefs` nên tự nhảy.
+   *  - Nửa HỎI SERVER: SL vào phải quy đổi sang ĐƠN VỊ TỐC ĐỘ của máy vừa chọn (tờ → bản kẽm),
+   *    mà bảng cầu quy đổi chỉ có ở backend. Không hỏi thì bước chưa gán máy đứng im ở "chưa quy
+   *    đổi" (0 phút), còn đổi giữa hai máy khác đơn vị thì chia bằng số của máy CŨ — sai âm thầm.
+   *
+   *  Hỏng mạng / bước mới chưa lưu (chưa có `step_key` ở server) ⇒ giữ diễn giải cũ, không bịa số.
+   */
+  const doiMay = useCallback(async (key: string, mayId: number | null) => {
+    const seq = ++doiMaySeq.current;
+    const may = mayRefs?.find((m) => m.id === mayId) ?? null;
+    const kip = Math.max(Math.trunc(Number(may?.soNguoiVanHanh ?? 1)) || 1, 1);
+    const laMay = rows.find((x) => x.key === key)?.loai_buoc === "may";
+    patch(key, {
+      may_id: mayId,
+      // Kíp chỉ áp cho bước MÁY. Bước thuê ngoài cũng chọn được máy (máy của nhà thầu) nhưng số
+      // người bên đó không phải việc của mình — đừng ghi đè.
+      ...(laMay
+        // Bước máy chỉ có MỘT con số kíp; min/max là chuyện của tổ làm tay ("xúm mấy người cho nhanh").
+        ? { so_nhan_cong_tieu_chuan: kip, so_nhan_cong_toi_thieu: null,
+            so_nhan_cong_toi_da: null, so_nhan_cong: String(kip) }
+        : {}),
+    });
+    setLive(
+      may ? `Đã chọn ${may.ten}${laMay ? `, kíp ${kip} người` : ""}` : "Đã bỏ máy khỏi bước",
+    );
+    if (key.startsWith("r")) return;   // bước chưa lưu: server chưa biết step_key này
+    try {
+      const xt = await onXemTruocMay(key, mayId);
+      if (seq !== doiMaySeq.current) return;
+      patch(key, { thoi_luong_dien_giai: xt.thoi_luong_dien_giai });
+    } catch {
+      /* mất mạng / không đủ quyền → số giờ giữ nguyên bản cũ, bấm Lưu vẫn ra đúng. */
+    }
+  }, [mayRefs, onXemTruocMay, patch, rows]);
+
   function move(idx: number, delta: number) {
     doiCho(idx, idx + delta);
   }
@@ -306,6 +425,24 @@ export function LsxRoutingTable({
       const last = tbodyRef.current?.querySelector<HTMLElement>("tr:last-of-type .khsx-rt__open");
       last?.focus();
       last?.scrollIntoView({ block: "nearest" });
+    }, 0);
+  }
+
+  /** Chèn 1 bước NGAY SAU hàng `idx` — khỏi phải "thêm ở cuối rồi kéo lên" cho chuỗi dài (chủ
+   *  20/08/2026: muốn nhét 2–4 công đoạn vào GIỮA). Bước mới nằm ở `idx + 1`; đưa tiêu điểm về ô
+   *  mở của chính nó để chọn công đoạn liền, và chèn tiếp cũng nhanh. */
+  function themTai(idx: number) {
+    setRows((prev) => {
+      const next = [...prev];
+      next.splice(idx + 1, 0, emptyRow());
+      return next;
+    });
+    setLive(`Đã chèn công đoạn mới sau bước ${idx + 1}`);
+    setTimeout(() => {
+      const tr = tbodyRef.current?.querySelectorAll<HTMLElement>("tr")[idx + 1];
+      const btn = tr?.querySelector<HTMLElement>(".khsx-rt__open");
+      btn?.focus();
+      btn?.scrollIntoView({ block: "nearest" });
     }, 0);
   }
 
@@ -648,6 +785,15 @@ export function LsxRoutingTable({
                         </button>
                         <button
                           type="button"
+                          className="khsx-rt__btn khsx-rt__btn--ins"
+                          onClick={() => themTai(i)}
+                          aria-label={`Chèn công đoạn mới sau bước ${i + 1}`}
+                          title="Chèn công đoạn ngay sau bước này"
+                        >
+                          <Icon name="plus" size={14} />
+                        </button>
+                        <button
+                          type="button"
                           className="khsx-rt__btn khsx-rt__btn--del"
                           onClick={() => remove(i)}
                           aria-label={`Bỏ bước ${i + 1}`}
@@ -753,6 +899,7 @@ export function LsxRoutingTable({
           onPatchLsx={onPatchLsx}
           onDoiCongDoan={(id) => doiCongDoan(rows[moBuoc].key, id, rows[moBuoc].ten)}
           onDoiTo={(id) => doiTo(rows[moBuoc].key, id)}
+          onDoiMay={(id) => doiMay(rows[moBuoc].key, id)}
           onGiaoNhan={onGiaoNhan}
           tabDau={tabDau}
           onClose={dongDrawer}

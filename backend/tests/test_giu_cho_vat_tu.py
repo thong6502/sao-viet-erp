@@ -24,7 +24,15 @@ from app.models.customer import Customer
 from app.models.lsx import TT_SAN_SANG, Lsx, LsxCongDoan, LsxCongDoanVatTu
 from app.models.may_thiet_bi import MayThietBi
 from app.models.order import Order, OrderLine
-from app.models.purchase import PR_PURCHASED, PurchaseRequest, PurchaseRequestLine
+from app.models.purchase import (
+    DPR_OPEN,
+    PR_PURCHASED,
+    SOURCE_SAN_XUAT,
+    DepartmentPurchaseRequest,
+    DepartmentPurchaseRequestLine,
+    PurchaseRequest,
+    PurchaseRequestLine,
+)
 from app.models.kho_hang import KhoHang
 from app.models.stock_lot import LOT_AVAILABLE, StockLot
 from app.models.vat_lieu_kho import GiayNguyen, VatTuInAn
@@ -142,6 +150,22 @@ def _phieu_mua(db, *, hang, so_luong, ngay_ve, unit="kg") -> None:
                                hang_loai=hang[0], hang_id=hang[1], unit=unit,
                                quantity=so_luong, expected_unit_price=1))
     db.commit()
+
+
+def _ycmh(db, *, hang, so_luong, status=DPR_OPEN, unit="kg") -> DepartmentPurchaseRequest:
+    """Đề nghị mua của bộ phận — đúng thứ mà nút "Mua" trên thẻ lệnh đẻ ra."""
+    yc = DepartmentPurchaseRequest(
+        code=f"YCMH-{db.query(DepartmentPurchaseRequest).count() + 1}",
+        status=status, source_type=SOURCE_SAN_XUAT, purpose="Thiếu vật tư", needed_date=HOM_NAY,
+    )
+    db.add(yc)
+    db.flush()
+    db.add(DepartmentPurchaseRequestLine(
+        department_request_id=yc.id, item_name="Giấy đề nghị",
+        hang_loai=hang[0], hang_id=hang[1], unit=unit, quantity=so_luong,
+    ))
+    db.commit()
+    return yc
 
 
 def _giay_hang(g) -> tuple[str, int]:
@@ -766,3 +790,28 @@ def test_tat_thi_the_het_giu_va_ton_tu_do_tra_lai(db, svc, customer):
     assert row["du"] is False
     assert row["giu_lau_chua_chay"] is False
     assert all(h["dang_giu"] == 0 for h in row["hang"])
+
+
+# ================== VẾT MUA TRÊN THẺ LỆNH ==================
+
+
+def test_the_lenh_goi_ten_phieu_dang_chay_cua_tung_mon(db, svc, customer):
+    """Màn "Theo lệnh sản xuất" là chỗ người dùng bấm Mua, nên nó phải là chỗ nói được "đã có ai lo".
+
+    Nhãn đi từ engine cân đối xuống tận thẻ lệnh (Pydantic nuốt im lặng field không khai ⇒ phải
+    kiểm ở ĐÚNG cửa mà màn ăn), và tuyệt đối không đụng vào phần giữ chỗ/thiếu.
+    """
+    g = _giay(db)
+    a = _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=200)
+
+    truoc = [h for h in _the(svc, a.id)["hang"] if h["hang_id"] == g.id][0]
+    assert truoc["phieu_mua"] == []
+
+    yc = _ycmh(db, hang=_giay_hang(g), so_luong=20)
+
+    sau = [h for h in _the(svc, a.id)["hang"] if h["hang_id"] == g.id][0]
+    assert sau["phieu_mua"] == [
+        {"ma": yc.code, "loai": "ycmh", "trang_thai": DPR_OPEN, "ngay_ve": None},
+    ]
+    assert sau["thieu"] == pytest.approx(truoc["thieu"])
+    assert sau["dang_giu"] == pytest.approx(truoc["dang_giu"])

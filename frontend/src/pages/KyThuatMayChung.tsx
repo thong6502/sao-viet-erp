@@ -27,7 +27,7 @@ export function useManHep(): boolean {
 }
 
 /** Khớp `LOAI_MODULE` bên `routers/nhat_ky_danh_muc.py` — sai chuỗi là 404, không phải danh sách rỗng. */
-export type LoaiNhatKy = "ky_thuat_sua_chua" | "ky_thuat_bao_tri";
+export type LoaiNhatKy = "ky_thuat_sua_chua" | "ky_thuat_bao_tri" | "ky_thuat_yeu_cau";
 
 export function fmtNgay(v: string | null | undefined): string {
   if (!v) return "—";

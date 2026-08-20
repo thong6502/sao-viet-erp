@@ -74,12 +74,7 @@ import {
   Check,
   ShieldCheck,
   Image,
-  Layers,
-  Palette,
-  Scissors,
-  Box,
   CreditCard,
-  Droplets,
   StickyNote,
   Pin,
   Clock3,
@@ -1698,15 +1693,6 @@ function PaymentGauge({
 
 // --- Dashboard tab -----------------------------------------------------------
 
-/** Icon cho từng dòng "Thông số in thường đặt" — khoá do backend quyết (`PrintSpec.key`);
- *  khoá lạ thì rơi về icon giấy thay vì vỡ hàng. */
-const SPEC_ICONS: Record<string, ReactNode> = {
-  giay: <Layers size={13} />,
-  mau: <Palette size={13} />,
-  gia_cong: <Scissors size={13} />,
-  kho: <Box size={13} />,
-};
-
 function DashboardTab({
   dash,
   receivable,
@@ -1733,8 +1719,6 @@ function DashboardTab({
   }
   const canDebt = useCan()("khach_hang", "view_debt");
   const avgVal = dash.avg_order_value ?? 0;
-  // `print_specs` có thể undefined khi FE mới chạy với BE cũ (deploy lệch) → coi như chưa có.
-  const specs = dash.print_specs ?? [];
   const cards: { label: string; value: ReactNode; hint?: string; muted?: boolean }[] = [
     // Không có dữ liệu 24 tháng để so YoY thật → hint trung thực về phạm vi số liệu.
     { label: "Doanh số 12T", value: moneyStat(dash.revenue_12m), hint: "12 tháng gần nhất" },
@@ -1804,8 +1788,8 @@ function DashboardTab({
         </section>
       </div>
 
-      {/* Ẩn card thông số ⇒ lưới còn 2 cột, không để lại ô trống ở cột 3. */}
-      <div className={`kh__dash-grid-3${specs.length === 0 ? " kh__dash-grid-3--2" : ""}`}>
+      {/* Lưới 2 cột: Cơ cấu sản phẩm + Chính sách tài chính. */}
+      <div className="kh__dash-grid-3 kh__dash-grid-3--2">
         {/* Cơ cấu sản phẩm — donut */}
         <section className="card kh__chart">
           <div className="kh__chart-head">
@@ -1813,39 +1797,6 @@ function DashboardTab({
           </div>
           <ProductDonut mix={dash.product_mix} />
         </section>
-
-        {/* Thông số in thường đặt — GOM TỪ PHIẾU TÍNH GIÁ THẬT của khách (giấy · số màu · gia
-            công · khổ), xem `CustomerAnalyticsService.print_specs`. Khách chưa có phiếu nào thì
-            backend trả mảng rỗng và card BIẾN MẤT — không hiện số mẫu. */}
-        {specs.length > 0 && (
-          <section className="card kh__chart">
-            <div className="kh__chart-head">
-              <h3><Droplets size={14} /> Thông số in thường đặt</h3>
-              <span className="kh__muted-tag" title="Đọc từ phiếu tính giá gắn báo giá của khách">
-                {dash.print_specs_phieu} PHIẾU
-              </span>
-            </div>
-            <div className="kh__specs-list">
-              {specs.map((row) => (
-                <div className="kh__spec-item" key={row.key}>
-                  <span className="kh__spec-ic" aria-hidden="true">
-                    {SPEC_ICONS[row.key] ?? <Layers size={13} />}
-                  </span>
-                  <div className="kh__spec-text">
-                    <span className="kh__spec-label">{row.label}</span>
-                    <span className="kh__spec-val">{row.value}</span>
-                  </div>
-                  <div
-                    className="kh__progress-bar"
-                    title={`${row.pct}% sản phẩm đã báo giá dùng thông số này`}
-                  >
-                    <div className="kh__progress-fill" style={{ width: `${row.pct}%` }}></div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
 
         {/* Chính sách tài chính (redesign spec-06 v2) — thay widget "Thanh toán" fake. */}
         <FinancialPolicyCard

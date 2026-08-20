@@ -54,6 +54,7 @@ export function gop(
   over: Partial<BaiGhepSoDoBuocChung> & { step_key: string; thanh_vien: BaiGhepSoDoBuocChung["thanh_vien"] },
 ): BaiGhepSoDoBuocChung {
   return {
+    id: 0,
     ten: "In offset",
     nhom: "print",
     cong_doan_id: 1,
@@ -64,6 +65,8 @@ export function gop(
     so_luong_ra: 5075,
     don_vi_vao: "to",
     don_vi_ra: "to",
+    san_luong_dien_giai: null,
+    loi_quy_doi: null,
     he_so_quy_doi: 1,
     so_luong_ra_quy: 5075,
     hao_hut: 0,

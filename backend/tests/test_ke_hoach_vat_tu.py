@@ -28,7 +28,13 @@ from app.models.lsx import TT_CHO_BO_SUNG, TT_NHAP, TT_SAN_SANG, Lsx, LsxCongDoa
 from app.models.may_thiet_bi import MayThietBi
 from app.models.order import Order, OrderLine
 from app.models.purchase import (
+    DPR_OPEN,
+    DPR_PENDING_APPROVAL,
+    PR_PENDING,
     PR_PURCHASED,
+    SOURCE_SAN_XUAT,
+    DepartmentPurchaseRequest,
+    DepartmentPurchaseRequestLine,
     PurchaseRequest,
     PurchaseRequestLine,
     Supplier,
@@ -172,9 +178,9 @@ def _de_nghi_xuat(db, giay: GiayNguyen, *, lsx_id, duyet, da_ung, dvt="kg") -> S
     return r
 
 
-def _phieu_mua(db, *, hang, so_luong, ngay_ve, unit="kg") -> PurchaseRequest:
+def _phieu_mua(db, *, hang, so_luong, ngay_ve, unit="kg", status=PR_PURCHASED) -> PurchaseRequest:
     p = PurchaseRequest(code=f"PMH-{db.query(PurchaseRequest).count() + 1}",
-                        status=PR_PURCHASED, expected_receipt_date=ngay_ve)
+                        status=status, expected_receipt_date=ngay_ve)
     db.add(p)
     db.flush()
     db.add(PurchaseRequestLine(
@@ -184,6 +190,23 @@ def _phieu_mua(db, *, hang, so_luong, ngay_ve, unit="kg") -> PurchaseRequest:
     ))
     db.commit()
     return p
+
+
+def _ycmh(db, *, hang, so_luong, status=DPR_OPEN, unit="kg") -> DepartmentPurchaseRequest:
+    """Đề nghị mua của bộ phận — chính là thứ nút "Mua" trên bảng cân đối đẻ ra."""
+    yc = DepartmentPurchaseRequest(
+        code=f"YCMH-{db.query(DepartmentPurchaseRequest).count() + 1}",
+        status=status, source_type=SOURCE_SAN_XUAT, purpose="Thiếu vật tư",
+        needed_date=HOM_NAY,
+    )
+    db.add(yc)
+    db.flush()
+    db.add(DepartmentPurchaseRequestLine(
+        department_request_id=yc.id, item_name="Giấy đề nghị",
+        hang_loai=hang[0], hang_id=hang[1], unit=unit, quantity=so_luong,
+    ))
+    db.commit()
+    return yc
 
 
 @pytest.fixture
@@ -1200,3 +1223,116 @@ def test_vat_tu_hieu_luc_bai_ghep_khong_cong_lai_buoc_nguon_bi_override(
     assert {
         (d["pham_vi"], d["gang_step_key"]) for d in tab["dong"]
     } == {("lsx", None), ("bai_ghep", chung.step_key)}
+
+
+# --- VẾT MUA (chip "đang có phiếu chạy") --------------------------------------
+
+
+def test_ycmh_moi_de_nghi_hien_ten_phieu_ma_KHONG_doi_mot_con_so_nao(db, svc, customer):
+    """Câu hỏi 20/08/2026: *"sao biết được cái nào đang yêu cầu mua"*.
+
+    Bấm "Mua" trên bảng cân đối chỉ đẻ ra YCMH; engine cố ý KHÔNG cộng nó vào tồn (chưa ai duyệt,
+    hàng chưa chắc có). Nên trước đây "đã đề nghị" và "chưa ai đụng vào" vẽ ĐỎ giống hệt nhau và
+    người tiếp theo bấm Mua chồng lên. `phieu_mua` là NHÃN — phải hiện tên phiếu mà tuyệt đối
+    không được nhích một con số nào của bảng, nếu không nhãn hoá thành lời hứa có hàng.
+    """
+    g = _giay(db)
+    _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+
+    truoc = _nhom(svc.can_doi(), g)
+    assert truoc["phieu_mua"] == []
+    assert truoc["dong"][0]["trang_thai"] == "do"
+
+    yc = _ycmh(db, hang=("giay", g.id), so_luong=200)
+
+    sau = _nhom(svc.can_doi(), g)
+    assert sau["phieu_mua"] == [
+        {"ma": yc.code, "loai": "ycmh", "trang_thai": DPR_OPEN, "ngay_ve": None},
+    ]
+    # Số học không đổi một ly: vẫn đỏ, vẫn thiếu đúng ngần ấy, vẫn còn nút Mua.
+    assert sau["dong"][0]["trang_thai"] == "do"
+    assert sau["dong"][0]["thieu"] == pytest.approx(truoc["dong"][0]["thieu"])
+    assert sau["tong_can"] == pytest.approx(truoc["tong_can"])
+    assert sau["ton"] == pytest.approx(truoc["ton"])
+
+
+def test_vet_mua_xep_chac_truoc_long_sau(db, svc, customer):
+    """Chip vật tư chỉ đủ chỗ MỘT dòng ⇒ phần tử đầu phải là lời hứa CHẮC nhất.
+
+    Xếp ngược lại thì chip báo "mới đề nghị" trong khi hàng đã nằm trên xe — tin xấu che tin tốt.
+    """
+    g = _giay(db)
+    cho_duyet = _phieu_mua(db, hang=("giay", g.id), so_luong=10, ngay_ve=None, status=PR_PENDING)
+    khong_ngay = _phieu_mua(db, hang=("giay", g.id), so_luong=10, ngay_ve=None)
+    co_ngay = _phieu_mua(db, hang=("giay", g.id), so_luong=10, ngay_ve=MAI)
+    yc = _ycmh(db, hang=("giay", g.id), so_luong=10, status=DPR_PENDING_APPROVAL)
+    _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+
+    nhom = _nhom(svc.can_doi(), g)
+    assert [v["ma"] for v in nhom["phieu_mua"]] == [
+        co_ngay.code,      # đã duyệt + có ngày về  → chắc nhất
+        khong_ngay.code,   # đã duyệt, NCC chưa hẹn ngày
+        cho_duyet.code,    # PMH còn nằm chờ duyệt
+        yc.code,           # mới là đề nghị của bộ phận → lỏng nhất
+    ]
+    assert [v["loai"] for v in nhom["phieu_mua"]] == ["pmh", "pmh", "pmh", "ycmh"]
+    assert nhom["phieu_mua"][0]["ngay_ve"] == MAI
+
+
+def test_phieu_nhan_du_va_phieu_khep_KHONG_con_la_viec_dang_chay(db, svc, customer):
+    """Nhãn nói "đang có người lo" ⇒ phiếu đã xong phải rụng khỏi danh sách.
+
+    Giữ lại thì mặt hàng nào từng mua một lần cũng đeo nhãn vĩnh viễn, và nhãn hết nghĩa.
+    """
+    g = _giay(db)
+    p = _phieu_mua(db, hang=("giay", g.id), so_luong=100, ngay_ve=HOM_NAY)
+    p.lines[0].received_quantity = 100          # về đủ rồi, hàng nằm trong kho
+    db.commit()
+    _ycmh(db, hang=("giay", g.id), so_luong=50, status="done")
+    _ycmh(db, hang=("giay", g.id), so_luong=50, status="cancelled")
+    _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+
+    assert _nhom(svc.can_doi(), g)["phieu_mua"] == []
+
+
+def test_dong_mua_khong_gan_mat_hang_thi_khong_deo_nhan(db, svc, customer):
+    """Ghép ngược bằng TÊN hàng là đoán. Đoán trúng nhầm lô giấy khác thì nhãn nói dối."""
+    g = _giay(db)
+    _phieu_mua(db, hang=None, so_luong=100, ngay_ve=MAI)
+    _lenh(db, customer, ma="LSX-A", giay_id=g.id, so_to_nguyen=1_000, han=MAI)
+
+    assert _nhom(svc.can_doi(), g)["phieu_mua"] == []
+
+
+def test_vat_tu_co_CONG_THUC_LUONG_van_lay_SO_DA_CHOT_o_buoc_khong_tinh_lai(db, svc, customer):
+    """Vật tư khai công thức lượng ⇒ bảng cân đối DÙNG số của bước, KHÔNG chạy lại công thức.
+
+    Hỏng thật 20/08/2026 (LSX26-0020): kẽm/mực/màng đều khai công thức lượng, BOM của lệnh ghi
+    10 bản kẽm · 100 kg mực · 91.000 m² màng, còn kế hoạch vật tư hiện "0 · Chưa rõ ĐVT" cho cả
+    năm dòng ⇒ độ sẵn sàng 0%, không bật được giữ chỗ, không xếp lịch được.
+
+    Vì sao: `_ve_goc` chạy lại công thức bằng `ngu_canh_lenh(qc)`, mà `qc` chỉ được dựng cho GIẤY
+    (`_quy_cach_cua` trả None cho loại khác) nên cả 16 biến đều 0 ⇒ "Chưa biết so_kem".
+    Số của bước mới là số đúng: `LsxService._luong_vat_tu` tính nó bằng ngữ cảnh có cả `sl_vao`
+    của chính bước — thứ mà tầng lệnh không bao giờ có (`sl_vao` là biến TẦNG BƯỚC).
+    """
+    g = _giay(db)
+    kem = _vat_tu(db, ma="VT-KEM", ten="Bản kẽm khổ 102", don_vi="kem")
+    kem.cong_thuc_luong = "so_kem"                  # biến CÓ ở tầng lệnh
+    mang = _vat_tu(db, ma="VT-MANG", ten="Màng cán bóng", don_vi="m2")
+    mang.cong_thuc_luong = "sl_vao * 1000"          # biến CHỈ có ở tầng bước
+    db.commit()
+
+    l = _lenh(db, customer, ma="LSX-CTL-VT", giay_id=g.id, so_to_nguyen=241, han=MAI)
+    l.quy_cach_json = {**l.quy_cach_json, "so_kem": 5}
+    db.commit()
+    buoc = _buoc_dau(db, l)
+    _khai_vat_tu(db, buoc, kem, 5, dvt="kem")
+    _khai_vat_tu(db, buoc, mang, 91_000, dvt="m2")
+
+    bang = svc.can_doi()
+    for vt, cho_doi in ((kem, 5), (mang, 91_000)):
+        dong = next(n for n in bang["items"]
+                    if (n["hang_loai"], n["hang_id"]) == ("vat_tu", vt.id))["dong"][0]
+        assert "khong_doi_chieu_duoc" not in dong["canh_bao"], dong.get("ly_do_canh_bao")
+        assert dong["nhu_cau"] == pytest.approx(cho_doi)

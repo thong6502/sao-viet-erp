@@ -20,6 +20,7 @@ import { crud } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { TagPicker } from "../components/TagPicker";
 import { num } from "./keHoachSxShared";
 import { heSoChu, nhanDonVi, phut, thoiLuongLive, type MayTinhGio } from "./lsxBuoc";
 import "./ke-hoach-sx.css";
@@ -142,6 +143,29 @@ export function BuocChungForm({
   // Vật tư sửa theo LÔ: giữ nguyên danh sách hiện có rồi thay cả cụm khi lưu (API là replace-all).
   const vtHienTai = (f.vat_tus ?? g.vat_tus.map((v) => ({ vat_tu_id: v.vat_tu_id, so_luong: v.so_luong })));
   const datVatTu = (rows: { vat_tu_id: number; so_luong: number }[]) => setF({ ...f, vat_tus: rows });
+
+  // Bung vật tư của đầu việc khoán vào danh sách — như bước lệnh. Model bước chung không mang cờ
+  // `tu_dong` nên gộp theo `vat_tu_id`: CHỈ thêm mã chưa có, không đè số người đã khai tay.
+  const bungVatTu = (
+    chon: { vat_tus?: { vat_tu_id: number; so_luong: number }[] } | undefined,
+    goc: { vat_tu_id: number; so_luong: number }[],
+  ) => {
+    const moi = (chon?.vat_tus ?? [])
+      .filter((v) => !goc.some((b) => b.vat_tu_id === v.vat_tu_id))
+      .map((v) => ({ vat_tu_id: v.vat_tu_id, so_luong: v.so_luong }));
+    return [...goc, ...moi];
+  };
+
+  // Đầu việc khoán ĐÃ GHIM sẵn (công đoạn chỉ có một đầu việc → server tự chọn) mà chưa có vật tư:
+  // bung vật tư của nó ngay khi mở, y như bước lệnh. Người dùng chưa đụng vật tư (f.vat_tus rỗng) và
+  // bước chưa lưu vật tư nào (g.vat_tus rỗng) mới bung — không đè lên thứ họ đang sửa / đã chốt.
+  useEffect(() => {
+    if (!canUpdate || g.khoan_rate_id == null || f.vat_tus !== undefined || g.vat_tus.length > 0) return;
+    const chon = dsKhoan.find((x) => x.id === g.khoan_rate_id);
+    if (!chon?.vat_tus?.length) return;
+    datVatTu(bungVatTu(chon, vtHienTai));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [g.step_key, g.khoan_rate_id, dsKhoan]);
 
   const mayId = val("may_id", g.may_id) ?? null;
   const mayDaChon = (mayRefs ?? []).find((m) => m.id === mayId) ?? null;
@@ -293,20 +317,38 @@ export function BuocChungForm({
                 </div>
               </div>
 
-              {!g.tren_giay && (
+              {g.loi_quy_doi ? (
+                <div className="khsx-note-banner khsx-note-banner--error">
+                  <span className="khsx-note-icon">⚠</span>
+                  <span>
+                    <strong>Chưa tính được số vào.</strong> {g.loi_quy_doi}{" "}
+                    Khai cầu quy đổi ở module <strong>Đơn vị &amp; quy đổi</strong> rồi mở lại bước —
+                    không có cầu thì bài không phát hành được.
+                  </span>
+                </div>
+              ) : !g.tren_giay ? (
                 <div className="khsx-note-banner">
                   <span>
                     Bước này <strong>không nằm trên dòng giấy</strong> (chung bản/kẽm cho cả bài) nên
-                    số lượng không tính theo số tờ chạy máy.
+                    số ra là số bản/kẽm tính từ quy cách tờ ghép, không đếm theo số tờ chạy máy.
                   </span>
                 </div>
-              )}
+              ) : null}
 
               {g.canh_bao_don_vi.map((c) => (
                 <div className="khsx-note-banner khsx-note-banner--warn" key={c}>
                   <span>{c}</span>
                 </div>
               ))}
+
+              {/* SỐ RA đến từ đâu — công thức sản lượng của công đoạn (chỉ bước ngoài dòng giấy). Với
+                  bước ngoài dòng, RA là gốc (số kẽm/bản) còn VÀO suy ngược từ nó. */}
+              {g.san_luong_dien_giai && (
+                <div className="khsx-flow-formula">
+                  <span className="khsx-flow-formula__label">Số ra =</span>
+                  <span className="khsx-flow-formula__expr">{g.san_luong_dien_giai}</span>
+                </div>
+              )}
 
               <div className="khsx-flow-pipeline">
                 <div className="khsx-flow-node khsx-flow-node--in">
@@ -377,6 +419,15 @@ export function BuocChungForm({
                 ))}
               </section>
             )}
+
+            {/* Nhãn của lượt chung — logic gán thẻ y hệt module Khách hàng (kho dùng chung, thêm/gỡ
+                tức thì, xoá khỏi kho hỏi số bước). Lượt chung luôn đã lưu nên có id để neo. */}
+            <section className="khsx-section-card">
+              <div className="khsx-section-card__head">
+                <h3 className="khsx-section-card__title">Nhãn</h3>
+              </div>
+              <TagPicker buocLoai="bai_ghep" buocId={g.id} canUpdate={canUpdate} />
+            </section>
           </div>
         )}
 
@@ -492,7 +543,16 @@ export function BuocChungForm({
                     className="khsx-select-std"
                     value={val("piece_rate_id", g.khoan_rate_id) ?? ""}
                     disabled={!canUpdate}
-                    onChange={(e) => setF({ ...f, piece_rate_id: e.target.value ? Number(e.target.value) : null })}
+                    onChange={(e) => {
+                      const id = e.target.value ? Number(e.target.value) : null;
+                      const chon = id != null ? dsKhoan.find((k) => k.id === id) : undefined;
+                      const bung = bungVatTu(chon, vtHienTai);
+                      setF({
+                        ...f,
+                        piece_rate_id: id,
+                        ...(bung.length > vtHienTai.length ? { vat_tus: bung } : {}),
+                      });
+                    }}
                   >
                     <option value="">— chọn đầu việc khoán —</option>
                     {dsKhoan.map((k) => (

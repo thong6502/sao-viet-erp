@@ -24,7 +24,6 @@ volume discount, so a spend-based tier is the honest, data-grounded reading:
 """
 from __future__ import annotations
 
-from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
@@ -34,10 +33,7 @@ from sqlalchemy.orm import Session
 from ..models.customer import Customer
 from ..models.order import STATUS_CANCELLED as ORDER_CANCELLED
 from ..models.order import Order, OrderLine
-from ..models.phieu_tinh_gia import PhieuThanhPhan, PhieuThanhPham
-from ..models.quotation import STATUS_CANCELLED as QUOTE_CANCELLED
 from ..models.quotation import Quote, QuoteVersion
-from ..models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen
 
 # Redesign spec-06 v2: BỎ tier (tự phân loại thân thiết/đối tác/mới) — thay bằng thẻ gán tay.
 # Chỉ giữ số THẬT (doanh số / số đơn / recency) cho danh sách + dashboard.
@@ -70,62 +66,6 @@ def _as_date(value) -> date:
     if isinstance(value, datetime):
         return value.date()
     return value
-
-
-# Bốn mã mực PROCESS cố định (xem `PhieuThanhPhan.muc_a`); mọi mã khác là màu PHA.
-_PROCESS_INKS = {"C", "M", "Y", "K"}
-
-# Khổ ISO thông dụng (rộng×dài, mm) để gọi tên khổ thành phẩm thay vì đọc số mm.
-_ISO_SIZES: dict[tuple[int, int], str] = {
-    (74, 105): "A7",
-    (105, 148): "A6",
-    (148, 210): "A5",
-    (210, 297): "A4",
-    (297, 420): "A3",
-    (420, 594): "A2",
-}
-_ISO_TOLERANCE_MM = 3
-
-
-def _mau_label(muc_a, muc_b, so_mau_a: int, so_mau_b: int, so_mau_pha: int) -> str | None:
-    """Cấu hình màu của 1 sản phẩm → nhãn đọc được ("5 màu (CMYK + 1 pha)").
-
-    Số màu = số KẼM = |A ∪ B| (tự trở/trở nhíp dùng chung bộ bản). Phiếu đời cũ chưa có
-    `muc_a`/`muc_b` thì lùi về ba cột dẫn xuất `so_mau_a/b/pha` — kém chính xác hơn (không biết
-    mực hai mặt có trùng mã không) nhưng còn hơn bỏ trống.
-    """
-    a = {str(x).strip().upper() for x in (muc_a or []) if str(x).strip()}
-    b = {str(x).strip().upper() for x in (muc_b or []) if str(x).strip()}
-    ink = a | b
-    if ink:
-        process = len(ink & _PROCESS_INKS)
-        pha = len(ink - _PROCESS_INKS)
-    else:
-        process = max(int(so_mau_a or 0), int(so_mau_b or 0))
-        pha = int(so_mau_pha or 0)
-    tong = process + pha
-    if tong <= 0:
-        return None
-    if process == 4 and pha == 0:
-        return "4 màu (CMYK)"
-    if process == 4:
-        return f"{tong} màu (CMYK + {pha} pha)"
-    if pha == 0:
-        return f"{process} màu"
-    if process == 0:
-        return f"{pha} màu pha"
-    return f"{tong} màu ({process} process + {pha} pha)"
-
-
-def _kho_label(rong_mm: int, dai_mm: int) -> str | None:
-    """Khổ thành phẩm (mm) → tên khổ ISO nếu khớp trong sai số 3mm, không thì "210×297 mm"."""
-    if not rong_mm or not dai_mm:
-        return None
-    ngan, dai = sorted((int(rong_mm), int(dai_mm)))
-    for (w, h), name in _ISO_SIZES.items():
-        if abs(ngan - w) <= _ISO_TOLERANCE_MM and abs(dai - h) <= _ISO_TOLERANCE_MM:
-            return name
-    return f"{ngan}×{dai} mm"
 
 
 @dataclass
@@ -161,21 +101,6 @@ class ProductSlice:
     label: str
     revenue: int
     orders: int
-
-
-@dataclass
-class PrintSpec:
-    """1 dòng "Thông số in thường đặt" — giá trị HAY GẶP NHẤT trên các phiếu tính giá của khách.
-
-    `pct` = tỉ lệ % sản phẩm (dòng `phieu_thanh_phan`) khớp giá trị này, tính trên số sản phẩm CÓ
-    khai thông số đó — không phải trên toàn bộ. Phiếu cũ bỏ trống giấy thì nó không kéo tụt % giấy
-    của những phiếu có khai.
-    """
-
-    key: str            # giay | mau | gia_cong | kho
-    label: str          # nhãn hiển thị ("Giấy hay dùng")
-    value: str          # giá trị hay gặp ("Couché 300gsm")
-    pct: int            # 0..100
 
 
 @dataclass
@@ -235,9 +160,6 @@ class CustomerDashboard:
     product_mix: list[ProductSlice]
     heatmap: list[HeatCell]
     has_data: bool
-    # Thông số in thường đặt — rỗng khi khách chưa có phiếu tính giá nào (UI ẩn hẳn card).
-    print_specs: list[PrintSpec] = field(default_factory=list)
-    print_specs_phieu: int = 0      # số phiếu tính giá làm cơ sở (hiện dưới nhãn card)
 
 
 class CustomerAnalyticsService:
@@ -448,7 +370,6 @@ class CustomerAnalyticsService:
         # báo giá đẻ hai đơn) là tỉ lệ vọt qua 100%.
         win_rate = round(thang / da_chao * 100) if da_chao else None
         has_data = orders_total > 0 or quotes_total > 0
-        print_specs, print_specs_phieu = self.print_specs(cid)
 
         return CustomerDashboard(
             revenue_12m=revenue_12m,
@@ -463,133 +384,7 @@ class CustomerAnalyticsService:
             product_mix=product_mix,
             heatmap=heatmap,
             has_data=has_data,
-            print_specs=print_specs,
-            print_specs_phieu=print_specs_phieu,
         )
-
-    # --- thông số in thường đặt ---------------------------------------------
-
-    def print_specs(self, customer_id: int) -> tuple[list[PrintSpec], int]:
-        """Giấy · số màu · gia công · khổ mà khách này HAY đặt, đọc từ phiếu tính giá thật.
-
-        Chuỗi dữ liệu: `quotes.customer_id` → `quotes.phieu_tinh_gia_id` → `phieu_thanh_phan`
-        (giấy · mực · khổ thành phẩm) → `phieu_thanh_pham` (bước gia công). Đơn vị đếm là SẢN PHẨM
-        (1 phiếu nhiều sản phẩm: ruột · bìa…) vì thông số khai ở tầng đó.
-
-        Báo giá đã HUỶ bị loại; các trạng thái khác đều tính — card trả lời "khách quen in gì",
-        tức nhu cầu, nên báo giá khách chưa chốt vẫn là tín hiệu thật. Trả `([], 0)` khi khách chưa
-        có phiếu nào ⇒ UI ẩn card thay vì bịa số.
-        """
-        ptg_ids = [
-            pid
-            for (pid,) in self.db.execute(
-                select(Quote.phieu_tinh_gia_id)
-                .where(
-                    Quote.customer_id == customer_id,
-                    Quote.phieu_tinh_gia_id.is_not(None),
-                    Quote.status != QUOTE_CANCELLED,
-                )
-                .distinct()
-            ).all()
-        ]
-        if not ptg_ids:
-            return [], 0
-
-        sp_rows = self.db.execute(
-            select(
-                PhieuThanhPhan.id,
-                PhieuThanhPhan.giay_id,
-                PhieuThanhPhan.kho_nguyen,
-                PhieuThanhPhan.muc_a,
-                PhieuThanhPhan.muc_b,
-                PhieuThanhPhan.so_mau_a,
-                PhieuThanhPhan.so_mau_b,
-                PhieuThanhPhan.so_mau_pha,
-                PhieuThanhPhan.rong_thanh_pham,
-                PhieuThanhPhan.dai_thanh_pham,
-            ).where(PhieuThanhPhan.phieu_id.in_(ptg_ids))
-        ).all()
-        if not sp_rows:
-            return [], len(ptg_ids)
-
-        # Nhãn giấy: gom theo CHỦNG LOẠI + định lượng ("Couché 300gsm") chứ không theo từng khổ —
-        # cùng loại giấy mà hai khổ thì vẫn là một thói quen dùng giấy. Không tra được thì lùi về
-        # nhãn khổ đã lưu trên phiếu.
-        giay_ids = {r.giay_id for r in sp_rows if r.giay_id}
-        nhan_giay: dict[int, str] = {}
-        if giay_ids:
-            for gid, ten, gsm, cl_ten in self.db.execute(
-                select(GiayNguyen.id, GiayNguyen.ten, GiayNguyen.gsm, ChungLoaiGiay.ten)
-                .join(
-                    ChungLoaiGiay,
-                    ChungLoaiGiay.id == GiayNguyen.chung_loai_giay_id,
-                    isouter=True,
-                )
-                .where(GiayNguyen.id.in_(giay_ids))
-            ).all():
-                nhan = f"{cl_ten} {gsm}gsm" if cl_ten and gsm else (ten or "").strip()
-                if nhan:
-                    nhan_giay[gid] = nhan
-
-        dem_giay: Counter[str] = Counter()
-        dem_mau: Counter[str] = Counter()
-        dem_kho: Counter[str] = Counter()
-        for r in sp_rows:
-            nhan = nhan_giay.get(r.giay_id or -1) or (r.kho_nguyen or "").strip()
-            if nhan:
-                dem_giay[nhan] += 1
-            mau = _mau_label(r.muc_a, r.muc_b, r.so_mau_a, r.so_mau_b, r.so_mau_pha)
-            if mau:
-                dem_mau[mau] += 1
-            kho = _kho_label(r.rong_thanh_pham, r.dai_thanh_pham)
-            if kho:
-                dem_kho[kho] += 1
-
-        # Gia công: mỗi sản phẩm có NHIỀU bước nên đếm theo số sản phẩm có bước đó, rồi lấy 2 bước
-        # hay gặp nhất ("Cán bóng · Đóng keo"). `%` là của bước đầu.
-        sp_ids = [r.id for r in sp_rows]
-        dem_gia_cong: Counter[str] = Counter()
-        nhan_goc: dict[str, str] = {}
-        for (ten,) in self.db.execute(
-            select(PhieuThanhPham.ten).where(PhieuThanhPham.thanh_phan_id.in_(sp_ids))
-        ).all():
-            sach = (ten or "").strip()
-            if not sach:
-                continue
-            khoa = sach.lower()
-            nhan_goc.setdefault(khoa, sach)
-            dem_gia_cong[khoa] += 1
-
-        specs: list[PrintSpec] = []
-
-        def _them(key: str, label: str, dem: Counter[str]) -> None:
-            if not dem:
-                return
-            gia_tri, so_lan = dem.most_common(1)[0]
-            tong = sum(dem.values())
-            specs.append(
-                PrintSpec(
-                    key=key,
-                    label=label,
-                    value=gia_tri,
-                    pct=round(so_lan / tong * 100) if tong else 0,
-                )
-            )
-
-        _them("giay", "Giấy hay dùng", dem_giay)
-        _them("mau", "Số màu hay in", dem_mau)
-        if dem_gia_cong:
-            top = dem_gia_cong.most_common(2)
-            specs.append(
-                PrintSpec(
-                    key="gia_cong",
-                    label="Gia công hay đặt",
-                    value=" · ".join(nhan_goc[k] for k, _ in top),
-                    pct=round(top[0][1] / len(sp_rows) * 100),
-                )
-            )
-        _them("kho", "Khổ thành phẩm", dem_kho)
-        return specs, len(ptg_ids)
 
     # --- history tables -----------------------------------------------------
 

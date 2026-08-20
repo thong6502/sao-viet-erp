@@ -422,6 +422,8 @@ class LsxOut(BaseModel):
     nguoi_phu_trach_id: int | None = None
     nguoi_phu_trach_ten: str | None = None
     ghi_chu: str | None = None
+    # "Lưu ý sản xuất (gửi xưởng)" đọc SỐNG từ đơn — nguồn ô lưu ý thợ thấy trên lệnh.
+    luu_y_gui_xuong: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -518,6 +520,48 @@ class RoutingReplaceIn(BaseModel):
     cong_doans: list[LsxCongDoanIn] = Field(default_factory=list)
     # §10: routing lệch bài tính giá → ghi lý do vào nhật ký (người xác nhận đã có ở audit).
     ly_do: str | None = None
+
+
+class XemTruocRoutingRow(BaseModel):
+    """1 bước trong payload XEM TRƯỚC routing — chỉ các trường chuỗi ngược cần để suy số.
+
+    KHÔNG mang vật tư / khoán / phụ thuộc: xem trước chỉ trả DÒNG CHẢY (số vào–ra + đơn vị) nên
+    payload gọn để không lỡ chạm guard vật-tư/phụ-thuộc của `replace_routing`. `step_key` gửi cả
+    khoá client `r{n}` của bước mới chèn để server dội lại đúng dòng đó.
+    """
+
+    step_key: str | None = None
+    thu_tu: int | None = None
+    cong_doan_id: int | None = None
+    ten: str | None = None
+    nhom: str | None = None
+    loai_buoc: str | None = None
+    department_id: int | None = None
+    may_id: int | None = None
+
+
+class XemTruocRoutingIn(BaseModel):
+    cong_doans: list[XemTruocRoutingRow] = Field(default_factory=list)
+
+
+class XemTruocRoutingBuoc(BaseModel):
+    """DÒNG CHẢY của 1 bước sau khi đổi/chèn công đoạn — khớp field `_cong_doan_dict` trả ra."""
+
+    step_key: str | None = None
+    so_luong_vao: float
+    so_luong_ra: float
+    don_vi_vao: str | None = None
+    don_vi_ra: str | None = None
+    he_so_quy_doi: float
+    hao_hut: float
+    hao_hut_pct: float
+    tren_dong_giay: bool = True
+    loi_quy_doi: str | None = None
+    san_luong_dien_giai: str | None = None
+
+
+class XemTruocRoutingOut(BaseModel):
+    cong_doans: list[XemTruocRoutingBuoc] = Field(default_factory=list)
 
 
 class TinhNguocRow(BaseModel):

@@ -16,6 +16,7 @@ from ..models.purchase import (
     DepartmentPurchaseRequestLine,
     PR_APPROVED,
     PR_DRAFT,
+    PR_PENDING,
     PR_PARTIALLY_RECEIVED,
     PR_PURCHASED,
     PR_RECEIVED,
@@ -583,6 +584,29 @@ class DepartmentPurchaseRequestRepository:
             )
         return int(self.db.execute(stmt).scalar_one())
 
+    def dang_de_nghi(self) -> list[DepartmentPurchaseRequest]:
+        """YCMH CHƯA KHÉP — nguồn câu *"món này đã có ai đề nghị mua chưa"* của bảng cân đối.
+
+        Bảng cân đối chỉ cộng hàng khi đã có PMH duyệt (`dong_dang_ve`). Nhưng giữa lúc bấm "Mua"
+        và lúc PMH được duyệt, món hàng nằm ở đây — mà màn lại vẽ nó ĐỎ y như chưa ai đụng vào, nên
+        người tiếp theo bấm Mua lần nữa. Ngày 20/08/2026 Couché 300 của GB26-0004 có ĐÚNG hai YCMH
+        cùng 38,08 kg vì lẽ đó.
+
+        `done`/`cancelled` bỏ (việc đã khép), `in_purchase` GIỮ (PMH sinh ra từ nó có thể còn nằm
+        chờ duyệt). Chỉ nạp `lines` — phía gọi cần mã · trạng thái · mặt hàng, không cần phiếu con.
+        """
+        stmt = (
+            select(DepartmentPurchaseRequest)
+            .options(selectinload(DepartmentPurchaseRequest.lines))
+            .where(
+                DepartmentPurchaseRequest.status.in_(
+                    [DPR_OPEN, DPR_PENDING_APPROVAL, DPR_IN_PURCHASE]
+                )
+            )
+            .order_by(DepartmentPurchaseRequest.id.asc())
+        )
+        return list(self.db.execute(stmt).scalars())
+
     def create(
         self,
         *,
@@ -888,6 +912,26 @@ class PurchaseRequestRepository:
             )
         )
         return list(self.db.execute(stmt.order_by(PurchaseRequest.id.asc())).scalars())
+
+    def dong_cho_duyet(self) -> list[PurchaseRequest]:
+        """PMH đã lập, ĐANG CHỜ DUYỆT — hàng chưa chắc có nên KHÔNG được cộng vào tồn.
+
+        Cố ý tách khỏi `dong_dang_ve`: gộp vào đó là hứa suông (phiếu có thể bị từ chối, đúng như
+        PMH-260820-YC1U ngày 20/08/2026). Ở đây chỉ để bảng cân đối NÓI ĐƯỢC "đã có phiếu, đang chờ
+        duyệt" thay vì vẽ đỏ như chưa ai mua — số học không đổi một ly.
+
+        `draft` bỏ: phiếu nháp là tờ giấy ai đó đang gõ dở, chưa phải lời hứa với lệnh nào.
+        """
+        stmt = (
+            select(PurchaseRequest)
+            .options(
+                selectinload(PurchaseRequest.lines),
+                selectinload(PurchaseRequest.deliveries).selectinload(PurchaseDelivery.lines),
+            )
+            .where(PurchaseRequest.status == PR_PENDING)
+            .order_by(PurchaseRequest.id.asc())
+        )
+        return list(self.db.execute(stmt).scalars())
 
     def _build(
         self,

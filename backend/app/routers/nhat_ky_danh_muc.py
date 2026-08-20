@@ -30,13 +30,19 @@ router = APIRouter(prefix="/api/nhat-ky-danh-muc", tags=["nhat-ky-danh-muc"])
 # `operation`) và bảng phụ đi ké ô quyền (`don_vi_quy_doi`, nằm trong drawer màn Đơn vị; trước
 # 15/08/2026 nó ghi nhật ký dưới target `don_vi_do:<id cặp>`, tức là trộn lịch sử của hai thực
 # thể khác bảng có cùng số id). Thêm màn danh mục ⇒ sửa registry, KHÔNG sửa file này.
-LOAI_MODULE: dict[str, str] = {
+# Giá trị là TUPLE: vài loại bản ghi có nhiều nhóm người cùng có lý do chính đáng đọc lịch sử của
+# nó (xem `ky_thuat_yeu_cau` bên dưới). Đọc được MỘT khoá là đủ, không phải đủ cả bộ.
+LOAI_MODULE: dict[str, str | tuple[str, ...]] = {
     **MODULE_THEO_LOAI,
     # Kỹ thuật máy (12/08/2026) — KHÔNG phải danh mục nên KHÔNG vào registry, nhưng cùng một câu
     # hỏi "ai đổi gì, lúc nào" và cùng cách lưu (`audit_logs` theo target). Dựng endpoint thứ hai
     # chỉ để đổi tiền tố URL là chép lại y nguyên đoạn này.
     "ky_thuat_sua_chua": "ky_thuat_may",
     "ky_thuat_bao_tri": "ky_thuat_may",
+    # Yêu cầu báo hỏng (20/08/2026): HAI khoá. Người báo phải đọc được lịch sử lời báo của chính
+    # mình — nhất là dòng "đã tạo phiếu SC-0006" / "từ chối vì …", đó là câu trả lời cho họ. Chỉ
+    # để `ky_thuat_may` thì tab Lịch sử 403 với đúng người cần nó nhất.
+    "ky_thuat_yeu_cau": ("yeu_cau_sua_chua", "ky_thuat_may"),
 }
 
 
@@ -53,7 +59,8 @@ def nhat_ky_cua_ban_ghi(
     module = LOAI_MODULE.get(loai)
     if module is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không có nhật ký cho loại này.")
-    if not authz.can(user, module, ACTION_READ):
+    khoa = (module,) if isinstance(module, str) else module
+    if not any(authz.can(user, m, ACTION_READ) for m in khoa):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Không có quyền xem.")
 
     rows = AuditLogRepository(db).list_by_target(f"{loai}:{obj_id}", limit=limit)
