@@ -34,7 +34,18 @@ const NO_DA_BIET: Record<string, number> = {
   // (đã giành lại bằng .rc--dm), nhánh HR/kho thêm bảng Báo cáo kho tái dùng .rc__table (.rc__table--fixed,
   // .rc__filler, .rc__muted, .rc__link-btn, .rc__tabn …). Không có selector nào TRÙNG — là hợp nhất thật của
   // hai bộ nợ đã-được-ghi-nhận riêng, không phải rò mới. Vẫn chỉ được CO LẠI từ đây.
-  "./kho-request.css": 31,
+  // 31→37 khi dựng lại màn Kho tồn/Phiếu (21/08/2026). Đã TRỪ trước hai chỗ KHAI TRÙNG trong
+  // chính kho-request.css (`.rc-sec__title` và `.kho-lines .rc-input` mỗi cái hai bản, đang chạy
+  // bằng style lai) — gộp xong mới đếm. Sáu cái còn lại:
+  //   · 5 cái nằm trong khung riêng của màn kho, KHÔNG chạm tới màn Cấu hình danh mục được:
+  //     .kho-lines .rc-input{:hover,:focus,[type=date]} · .kho-info-item .rc-input[type=date] ·
+  //     .kho-table-card .rc__table  (+3 .kho-voucher-info-grid > .rc-field* chỉ là đổi tên của
+  //     3 .kho-info-grid > .rc-field* cũ, và .rc-drawer--wide bị bỏ ⇒ phần này bù trừ nhau).
+  //   · 1 cái là NỢ THẬT: `.rc-drawer__kicker` khai toàn cục, tô thẳng đầu drawer của danh mục.
+  //     Nó nhập vào đúng khối .rc-drawer / .rc-drawer__head / .rc-drawer__scrim đã nằm trong nợ
+  //     từ trước, nên chưa gỡ riêng được — gỡ thì gỡ cả khối, ghi lại đây để không quên.
+  // Vẫn chỉ được CO LẠI từ đây.
+  "./kho-request.css": 37,
   // .rc-drawer__kicker trong .khvt-drawer__head (màn Kế hoạch vật tư tái dùng đầu drawer của rc, có chủ đích).
   "./ke-hoach-sx.css": 1,
   "./ky-thuat-may.css": 1,  // .rc__tab.is-qua-han — hex cứng thay token

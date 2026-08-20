@@ -386,7 +386,6 @@ input.kho-num,
 .kho-lines tbody tr:last-child td {
   border-bottom: none;
 }
-.kho-lines .rc-input,
 .kho-lines select {
   padding: 6px 8px;
   font-size: 12.5px;
@@ -395,12 +394,10 @@ input.kho-num,
   transition: all var(--duration-fast) var(--easing-standard);
   border-radius: var(--r-2, 6px);
 }
-.kho-lines .rc-input:hover,
 .kho-lines select:hover {
   background: var(--paper);
   border-color: var(--rule-soft);
 }
-.kho-lines .rc-input:focus,
 .kho-lines select:focus {
   background: var(--canvas);
   border-color: var(--rust);
@@ -780,20 +777,7 @@ input.kho-num,
   background: var(--rule-soft);
 }
 
-/* Section Title với viền gờ Rust Accent */
-.rc-sec__title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 11.5px;
-  font-weight: var(--fw-bold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink);
-  margin-bottom: var(--sp-3, 12px);
-  padding-left: 10px;
-  border-left: 3.5px solid var(--rust);
-}
+/* Tiêu đề phân mục: khai MỘT LẦN duy nhất ở khối drawer bên dưới. */
 
 /* Form Card Grid Container */
 .kho-info-card {
@@ -946,9 +930,11 @@ input.kho-num,
   padding-right: 14px;
 }
 .kho-lines .rc-input:hover {
+  background: var(--paper);
   border-color: var(--rule);
 }
 .kho-lines .rc-input:focus {
+  background: var(--canvas);
   border-color: var(--rust);
   outline: none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 15%, transparent);
@@ -2157,8 +2143,12 @@ input.kho-num,
   font-weight: var(--fw-medium);
 }
 
-/* Tiêu đề phân mục trong Drawer: trung tính, trang nhã, không screaming đỏ */
+/* Tiêu đề phân mục trong Drawer: trung tính, trang nhã, không screaming đỏ.
+   display:flex + gap để icon đứng cạnh chữ (màn Báo cáo kho) — gộp từ khối trùng đã bỏ ở trên. */
 .rc-sec__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-family: var(--ff-sans);
   font-size: 11.5px;
   font-weight: var(--fw-bold);
