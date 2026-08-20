@@ -9173,6 +9173,19 @@ def _migrate_bai_ghep_2_thay_ban_cu(db: Session) -> None:
     # Gọi TRƯỚC MỌI LỆNH GHI (xem ghi chú dài ở `_migrate_tach_module_ke_toan`).
     cols = sorted(_existing_columns(inspect(db.get_bind()), "role_permissions"))
 
+    # PHẢI có hàng `modules` của `bai_ghep_2` TRƯỚC khi chép quyền: `role_permissions.module_key`
+    # trỏ FK về `modules.key`. `seed_modules` mới tạo hàng này lúc app khởi động, mà deploy chạy
+    # `app.migrate` trong container tạm TRƯỚC — chưa seed. Trên DB trắng (CI) không lộ vì `bai_ghep`
+    # chưa có quyền nào để chép (INSERT chọn 0 dòng); trên staging có quyền thật thì INSERT nổ FK
+    # `role_permissions_module_key_fkey`: bai_ghep_2 chưa nằm trong `modules`. Chèn nếu thiếu — cùng
+    # idiom idempotent như mg 0211. Nhãn "Bài ghép" khớp seed.py; UPDATE ở cuối lo ca hàng cũ lệch nhãn.
+    db.execute(
+        text("INSERT INTO modules (key, label, created_at) "
+             "SELECT :k, :l, CURRENT_TIMESTAMP "
+             "WHERE NOT EXISTS (SELECT 1 FROM modules WHERE key = :k)"),
+        {"k": "bai_ghep_2", "l": "Bài ghép"},
+    )
+
     chep = [c for c in cols if c not in ("id", "module_key")]
     chon = ["'all'" if c == "scope" else f"rp.{c}" for c in chep]
     db.execute(text(
